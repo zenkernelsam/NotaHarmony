@@ -1,6 +1,6 @@
 # Notability → HarmonyOS 移植总纲
 
-> 版本: v0.1-draft | 日期: 2026-08-02 | 状态: 待用户确认
+> 版本: v0.2 | 日期: 2026-08-02 | 状态: ✅ 用户已确认
 > 本文档由移植指挥官独占维护；工人不得修改。
 
 ---
@@ -115,10 +115,20 @@
 
 ### 不引入的依赖
 
-- MyScript（MVP 不集成手写识别）
 - PDFTron（后续按需评估 PDF Kit）
 - Rive（动画后续评估）
 - 任何 Android .so 二进制
+
+### 手写识别模组策略（用户确认）
+
+- MyScript / 平台识别能力以**可插拔模组**形式设计，不介入主流程。
+- Phase 1 定义 `RecognitionProvider` 接口；主流程不依赖其实现。
+- 待模组成熟后再接入集成测试。
+
+### 可变宽度决策（用户确认）
+
+- **一步到位**，参照反编译源码 `w4a.b()` 完整实现中心线→填充轮廓算法。
+- 不允许降级为"固定宽度 + 尾部三角"。
 
 ---
 
@@ -267,8 +277,8 @@ note/src/main/ets/
 |------|------|------|
 | Canvas 2D PencilSplat 性能不足 | 铅笔渲染掉帧 | 升级 ShaderEffect(API20+) 或 XComponent/OpenGL ES |
 | PointPredictor 设备不支持 | 延迟升高 | 空实现 Predictor，用简单线性外推 |
-| 可变宽度轮廓算法复杂度高 | Phase 2 延期 | MVP 先固定宽度 + Taper 尾部三角降级，标注为功能降级 |
-| 真机未到位 | 无法量测延迟/压感 | 模拟器先验证正确性，性能指标标"待真机" |
+| 可变宽度轮廓算法复杂度高 | Phase 2 工期延长 | 不允许降级；拆分为更细的任务卡逐步实现，参照 `w4a.b()` 源码 |
+| 真机未到位 | 无法量测延迟/压感 | 使用 HarmonyOS 模拟器 + deveco-mcp 验证正确性；性能指标标"待真机" |
 | op 流顶层分发未完全逆向 | 数据模型可能有缺口 | 先按已确认的元素 schema 实现，预留扩展点 |
 
 ---
@@ -297,4 +307,13 @@ note/src/main/ets/
 
 ---
 
-*等待用户确认后，指挥官将细化 Phase 1 阶段设计与任务卡。*
+## 12. 测试环境（用户确认）
+
+- **当前使用 HarmonyOS 模拟器**（正在运行），通过 deveco-mcp 工具交互。
+- 可用 MCP 工具：`check_ets_files`（语法检查）/ `build_project`（构建）/ `start_app`（部署运行）/ `get_app_ui_tree`（UI 树）/ `perform_ui_action`（UI 操作）/ `get_hilog_or_faultlog_recent`（日志）。
+- 验收流程：工人完成代码 → `check_ets_files` 通过 → `build_project` 通过 → `start_app` 运行 → 必要时 `get_app_ui_tree` 验证 UI。
+- 性能量测（延迟/掉帧）需真机，模拟器阶段只验证功能正确性。
+
+---
+
+*用户已确认。指挥官开始细化 Phase 1 阶段设计与任务卡。*
