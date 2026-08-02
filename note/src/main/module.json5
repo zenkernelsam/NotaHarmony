@@ -1,0 +1,50 @@
+{
+  "module": {
+    "name": "note",
+    "type": "entry",
+    "description": "$string:module_desc",
+    "mainElement": "NoteAbility",
+    "deviceTypes": [
+      "tablet"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false,
+    "pages": "$profile:main_pages",
+    "abilities": [
+      {
+        "name": "NoteAbility",
+        "srcEntry": "./ets/noteability/NoteAbility.ets",
+        "description": "$string:NoteAbility_desc",
+        "icon": "$media:layered_image",
+        "label": "$string:NoteAbility_label",
+        "startWindowIcon": "$media:startIcon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "skills": [
+          {
+            "entities": [
+              "entity.system.home"
+            ],
+            "actions": [
+              "ohos.want.action.home"
+            ]
+          }
+        ]
+      }
+    ],
+    "extensionAbilities": [
+      {
+        "name": "NoteBackupAbility",
+        "srcEntry": "./ets/notebackupability/NoteBackupAbility.ets",
+        "type": "backup",
+        "exported": false,
+        "metadata": [
+          {
+            "name": "ohos.extension.backup",
+            "resource": "$profile:backup_config"
+          }
+        ],
+      }
+    ]
+  }
+}

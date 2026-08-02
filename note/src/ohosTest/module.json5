@@ -1,0 +1,11 @@
+{
+  "module": {
+    "name": "note_test",
+    "type": "feature",
+    "deviceTypes": [
+      "tablet"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false
+  }
+}

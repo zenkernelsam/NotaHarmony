@@ -1,0 +1,59 @@
+package com.gingerlabs.notability.data.note.state;
+
+import defpackage.b78;
+import defpackage.dlb;
+import defpackage.i86;
+import defpackage.l47;
+import defpackage.m17;
+import defpackage.p7e;
+import defpackage.ps3;
+import defpackage.ru3;
+import defpackage.va9;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import kotlin.Metadata;
+
+/* JADX INFO: loaded from: classes.dex */
+@Metadata(d1 = {"\u0000\f\n\u0002\u0018\u0002\n\u0002\u0018\u0002\n\u0002\b\u0003\b\u0007\u0018\u00002\u00020\u0001B\u0007¢\u0006\u0004\b\u0002\u0010\u0003¨\u0006\u0004"}, d2 = {"Lcom/gingerlabs/notability/data/note/state/NoteStateDatabase_Impl;", "Lcom/gingerlabs/notability/data/note/state/NoteStateDatabase;", "<init>", "()V", "state"}, k = 1, mv = {2, 3, 0}, xi = 48)
+public final class NoteStateDatabase_Impl extends NoteStateDatabase {
+    public final p7e l = new p7e(new l47(this, 18));
+
+    @Override // defpackage.h1c
+    public final List e(LinkedHashMap linkedHashMap) {
+        ArrayList arrayList = new ArrayList();
+        arrayList.add(new b78(1, 2, 17));
+        arrayList.add(new b78(2, 3, 18));
+        arrayList.add(new b78(3, 4, 19));
+        return arrayList;
+    }
+
+    @Override // defpackage.h1c
+    public final i86 f() {
+        return new i86(this, new LinkedHashMap(), new LinkedHashMap(), "NoteStateEntity");
+    }
+
+    @Override // defpackage.h1c
+    public final ps3 g() {
+        return new m17(this);
+    }
+
+    @Override // defpackage.h1c
+    public final Set k() {
+        return new LinkedHashSet();
+    }
+
+    @Override // defpackage.h1c
+    public final LinkedHashMap l() {
+        LinkedHashMap linkedHashMap = new LinkedHashMap();
+        linkedHashMap.put(dlb.a.b(va9.class), ru3.I);
+        return linkedHashMap;
+    }
+
+    @Override // com.gingerlabs.notability.data.note.state.NoteStateDatabase
+    public final va9 u() {
+        return (va9) this.l.getValue();
+    }
+}
