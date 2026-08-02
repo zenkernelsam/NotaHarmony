@@ -5,9 +5,9 @@ import { PencilSplatPoint, StrokePathPoint } from '../model/StrokeTypes';
 import { CubicSegment, Point2D } from '../model/GeometryTypes';
 
 export interface SplatGeneratorConfig {
-  spacing: number;          // splat 间距（默认 2.0）
+  spacing: number;          // splat 间距（原版 xaa.b 的 d = 笔刷宽度 c0()，由调用方传入）
   pressurePower: number;    // 压感幂次（默认 5）
-  tiltNormalize: number;    // 倾斜归一化除数（默认 -0.94248）
+  tiltNormalize: number;    // 倾斜归一化除数（默认 -0.9424777960769379，xaa.d 完整 double）
   ellipseShrink: number;    // 椭圆 x 收缩（默认 0.9）
   angleStep: number;        // 角度细分步长（默认 π/125）
   maxSubdivisions: number;  // 最大细分（默认 26）
@@ -36,7 +36,7 @@ export class PencilSplatGenerator {
     const merged: SplatGeneratorConfig = {
       spacing: 2.0,
       pressurePower: 5,
-      tiltNormalize: -0.94248,
+      tiltNormalize: -0.9424777960769379,
       ellipseShrink: 0.9,
       angleStep: Math.PI / 125,
       maxSubdivisions: 26,
@@ -73,14 +73,17 @@ export class PencilSplatGenerator {
     this.seed = 42;  // 默认 seed（可重置）
   }
 
-  // 主入口：沿曲线等距行走生成 splat 点
+  // 主入口：沿曲线行走生成 splat 点（xaa.b() 语义）
+  // 预步进 spacing*0.25（te6.q 传 ow5Var=null → xaa.b L174 分支），
+  // 后续步长 = spacing*0.25*(sizeFactor*0.5+0.5)（xaa.b L259，随尺寸变化）
   generate(segments: CubicSegment[], pathPoints: StrokePathPoint[]): PencilSplatPoint[] {
     if (this.config.spacing <= 0 || segments.length === 0 || pathPoints.length === 0) {
       return [];
     }
     const splats: PencilSplatPoint[] = [];
     const totalLength: number = this.totalLength(segments);
-    let d: number = 0;
+    // 预步进（xaa.b L174）：firstStep = spacing * 0.25
+    let d: number = this.config.spacing * 0.25;
     while (d <= totalLength) {
       const walk = this.advanceByDistance(segments, d);
       if (walk === null) {
@@ -88,30 +91,34 @@ export class PencilSplatGenerator {
       }
       const ratio: number = totalLength > 0 ? d / totalLength : 0;
       const attrs: SplatAttributes = this.interpolateAttributes(pathPoints, ratio);
+      const sizeF: number = this.sizeFactorOf(attrs);
       const atPos: PencilSplatPoint[] = this.generateAtPosition(walk.pos, walk.tangent,
         attrs.pressure, attrs.tilt, attrs.orientation, attrs.width);
       for (const s of atPos) {
         splats.push(s);
       }
-      d += this.config.spacing;
+      // 步进（xaa.b L259）：step = spacing*0.25*(sizeFactor*0.5+0.5)
+      d += this.config.spacing * 0.25 * (sizeF * 0.5 + 0.5);
     }
     return splats;
+  }
+
+  // sizeFactor = sizeP*sizeT + (1-sizeT)*1.0（xaa.d()）
+  private sizeFactorOf(attrs: SplatAttributes): number {
+    const p: number = attrs.pressure < 0 ? 0.5 : attrs.pressure;
+    const t: number = attrs.tilt < 0 ? Math.PI / 4 : attrs.tilt;
+    const clampedPressure: number = Math.min(p, 2.0) / 2.0;
+    const sizePressure: number = 1 - this.power5(1 - clampedPressure);
+    const tiltNorm: number = Math.min((t - Math.PI / 2) / this.config.tiltNormalize, 1.0);
+    const sizeTilt: number = 1 - this.power5(tiltNorm);
+    return sizePressure * sizeTilt + (1 - sizeTilt) * 1.0;
   }
 
   // 单位置 splat 生成（xaa.b()/xaa.d() 完整公式）
   private generateAtPosition(pos: Point2D, tangent: Point2D, pressure: number, tilt: number,
     orientation: number, width: number): PencilSplatPoint[] {
-    // 无能力输入 fallback
-    const p: number = pressure < 0 ? 0.5 : pressure;
-    const t: number = tilt < 0 ? Math.PI / 4 : tilt;
+    // 无能力输入 fallback（p/t 的 fallback 在 sizeFactorOf() 内部处理）
     const o: number = orientation < 0 ? 0 : orientation;
-
-    // === 尺寸系数（xaa.d()）===
-    const clampedPressure: number = Math.min(p, 2.0) / 2.0;
-    const sizePressure: number = 1 - this.power5(1 - clampedPressure);
-    const tiltNorm: number = Math.min((t - Math.PI / 2) / this.config.tiltNormalize, 1.0);
-    const sizeTilt: number = 1 - this.power5(tiltNorm);
-    const sizeFactor: number = sizePressure * sizeTilt + (1 - sizeTilt) * 1.0;
 
     // === 散布盘参数 ===
     const scaleBase: number = Math.min(width, 2.0) / 2.0 * 0.97 + 0.03;
@@ -123,10 +130,12 @@ export class PencilSplatGenerator {
     const subdivisions: number = Math.floor(angleDiff / this.config.angleStep);
     const ellipseR: number = 1.2 * (this.config.spacing / 2.0) * 0.5 * subdivisions;
     const ellipseS: number = (angleDiff / (Math.PI / 2)) * (-0.48) + 0.5;
-    const baseScale: number = ellipseS * this.config.spacing * sizeFactor;
+    // scale = ellipseS * spacing * (sizeFactor*0.5 + 0.5)（xaa.b：d10*d11）
+    const baseScale: number = ellipseS * this.config.spacing * (this.sizeFactorOf(this.attrsOf(pressure, tilt, orientation, width)) * 0.5 + 0.5);
 
     // === 每 splat 随机散布（LCG）===
-    const angleNorm: number = Math.min(Math.max(angleDiff / 0.45332, 0), 1);
+    // angleNorm 分母 0.45331853071795863（xaa.b L198 完整 double）
+    const angleNorm: number = Math.min(Math.max(angleDiff / 0.45331853071795863, 0), 1);
     const edgeFactor: number = (1 - angleNorm) + 0.1 * angleNorm;
     const twoPi: number = Math.PI * 2;
     const tx: number = tangent.x;
@@ -139,11 +148,17 @@ export class PencilSplatGenerator {
       const r: number = Math.sqrt(u1);
       const x: number = this.config.ellipseShrink * Math.cos(theta) * r;
       const len: number = (angleNorm + Math.sin(theta)) * 1.0;
-      // 位置 = 曲线点 + 切线/法线偏移（公式精确照搬 §18）
+      // 位置 = 曲线点 + 切线/法线偏移（公式精确照搬 xaa.b L216-218）
       const splatX: number = pos.x + (len * ty + x * (-tx)) * ellipseR;
       const splatY: number = pos.y + (len * tx + x * ty) * ellipseR;
       const rotation: number = this.nextRandom() * twoPi;
-      const opacity: number = (1 - Math.sqrt(u1)) * edgeFactor * scaleBase;
+      // opacity 因子（xaa.b L226/L230）：splatCount==1 时为 1.0，否则 1-sqrt(u1)
+      const opacityFactor: number = splatCount === 1 ? 1.0 : (1 - Math.sqrt(u1));
+      const opacity: number = opacityFactor * edgeFactor * scaleBase;
+      // 有限守卫（xaa.b L235）：超 Float.MAX_VALUE 跳过该 splat
+      if (Math.abs(splatX) > 3.4028235e38 || Math.abs(splatY) > 3.4028235e38) {
+        continue;
+      }
       results.push({
         x: splatX,
         y: splatY,
@@ -285,6 +300,10 @@ export class PencilSplatGenerator {
       orientation: 0,
       width: p.widthFactor,
     };
+  }
+
+  private attrsOf(pressure: number, tilt: number, orientation: number, width: number): SplatAttributes {
+    return { pressure: pressure, tilt: tilt, orientation: orientation, width: width };
   }
 
   private power5(x: number): number {

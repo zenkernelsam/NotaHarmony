@@ -33,6 +33,8 @@ export class CubicFitter {
   }
 
   // 主入口：将中心线点序列拟合为三次贝塞尔段数组
+  // sqh.f() 语义：≤200 点直接接受（sqh.h），>200 点二分找最长可接受终点（wy5），
+  // 段未覆盖末尾且前后各 ≥4 点时拆半重拟合，最后做段间方向连续性修正
   fit(points: StrokePathPoint[], baseWidth: number, zoom: number): CubicSegment[] {
     if (points.length < 2) {
       return [];
@@ -43,7 +45,42 @@ export class CubicFitter {
     }
     const tolerance: number = this.computeTolerance(baseWidth, zoom);
     const result: CubicSegment[] = [];
-    this.fitRecursive(pts, 0, pts.length - 1, tolerance, result);
+    const n: number = pts.length;
+    const maxPts: number = this.config.maxPointsPerSegment;
+    let start: number = 0;
+    while (start < n - 1) {
+      const remainingCount: number = n - start;
+      if (remainingCount <= maxPts) {
+        // sqh.h 语义：目标区间 ≤200 点 → 直接拟合接受（不做误差检查）
+        result.push(this.fitCubic(pts, start, n - 1));
+        start = n - 1;
+        break;
+      }
+      // sqh.f/wy5 语义：>200 点 → 二分查找最长可接受终点（误差 ≤ tolerance）
+      let lo: number = start + 1;
+      let hi: number = n - 1;
+      let bestEnd: number = start + 1;
+      while (lo <= hi) {
+        const mid: number = Math.floor((lo + hi) / 2);
+        const curve: CubicSegment = this.fitCubic(pts, start, mid);
+        const err: number = this.maxError(pts, start, mid, curve);
+        if (err <= tolerance) {
+          bestEnd = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      let segEnd: number = bestEnd;
+      // 拆半后处理（sqh.f）：段未覆盖末尾且前半 ≥4 点、剩余 ≥4 点 → 重拟合前半段
+      if (segEnd < n - 1 && (segEnd - start + 1) >= 4 && (n - segEnd) >= 4) {
+        segEnd = Math.floor((segEnd + start) / 2);
+      }
+      result.push(this.fitCubic(pts, start, segEnd));
+      start = segEnd;
+    }
+    // 段间连续性修正（sqh.f 尾部循环）：p1 = p0 + 前段 j(1.0) 切向投影
+    this.applyContinuity(result);
     return result;
   }
 
@@ -62,6 +99,26 @@ export class CubicFitter {
     const ctx: number = this.config.contextExpansion;
     const fitStart: number = Math.max(0, segStart - ctx);
     const fitEnd: number = Math.min(points.length - 1, segEnd + ctx);
+    const total: number = fitEnd - fitStart + 1;
+    // 两点特例（sqh.g i12==2）：4 控制点全同（笔点/退化段）
+    if (total === 2) {
+      return { p0: p0, p1: p0, p2: p0, p3: p0 };
+    }
+    // 三点特例（sqh.g i12==3）：中点二阶外插控制点，端点取收集数组首末点（含上下文）
+    if (total === 3) {
+      const fp0: Point2D = points[fitStart];
+      const fp1: Point2D = points[fitStart + 1];
+      const fp3: Point2D = points[fitEnd];
+      // dB3 = 2*fp1 - (fp3 + fp0)*0.5；p1 = fp0/3 + dB3*2/3；p2 = fp3/3 + dB3*2/3
+      const midX: number = 2 * fp1.x - (fp3.x + fp0.x) * 0.5;
+      const midY: number = 2 * fp1.y - (fp3.y + fp0.y) * 0.5;
+      return {
+        p0: fp0,
+        p1: { x: fp0.x / 3 + midX * 2 / 3, y: fp0.y / 3 + midY * 2 / 3 },
+        p2: { x: fp3.x / 3 + midX * 2 / 3, y: fp3.y / 3 + midY * 2 / 3 },
+        p3: fp3,
+      };
+    }
     const count: number = segEnd - segStart;
 
     let s11: number = 0;
@@ -94,6 +151,7 @@ export class CubicFitter {
       cy += w2 * dy;
     }
 
+    // 病态判据（sqh.g）：det <= 1e-9 * s11 * s22（相对阈值，原版无 abs）
     const det: number = s11 * s22 - s12 * s12;
     const fallbackP1: Point2D = {
       x: p0.x + (p3.x - p0.x) / 3,
@@ -103,7 +161,7 @@ export class CubicFitter {
       x: p0.x + 2 * (p3.x - p0.x) / 3,
       y: p0.y + 2 * (p3.y - p0.y) / 3,
     };
-    if (Math.abs(det) < 1e-9) {
+    if (det <= 1e-9 * s11 * s22) {
       // 病态矩阵：回退直线三等分控制点
       return { p0: p0, p1: fallbackP1, p2: fallbackP2, p3: p3 };
     }
@@ -112,8 +170,9 @@ export class CubicFitter {
     const p1y: number = (s22 * by - s12 * cy) * inv;
     const p2x: number = (s11 * cx - s12 * bx) * inv;
     const p2y: number = (s11 * cy - s12 * by) * inv;
-    if (!isFinite(p1x) || !isFinite(p1y) || !isFinite(p2x) || !isFinite(p2y)) {
-      // 非有限结果：同样回退
+    // 非有限回退（sqh.g）：仅 abs(x) > Double.MAX_VALUE 时回退（NaN 不回退）
+    if (Math.abs(p1x) > Number.MAX_VALUE || Math.abs(p1y) > Number.MAX_VALUE ||
+      Math.abs(p2x) > Number.MAX_VALUE || Math.abs(p2y) > Number.MAX_VALUE) {
       return { p0: p0, p1: fallbackP1, p2: fallbackP2, p3: p3 };
     }
     return {
@@ -124,58 +183,53 @@ export class CubicFitter {
     };
   }
 
-  // 最大误差检查（sqh.h）：逐点采样曲线求最大欧氏距离
+  // 最大误差检查（sqh.h 方式）：逐点按 t=(i-start)/(end-start) 直接求曲线点欧氏距离
+  // （非最近点搜索；误差 < 1e-12 忽略，仅对目标区间 [start, end] 检查）
   private maxError(points: Point2D[], start: number, end: number, curve: CubicSegment): number {
     let maxErr: number = 0;
-    const steps: number = 50;  // t 步长 0.02
+    const span: number = end - start;
     for (let i = start; i <= end; i++) {
-      const p: Point2D = points[i];
-      let best: number = Number.MAX_VALUE;
-      for (let s = 0; s <= steps; s++) {
-        const t: number = s / steps;
-        const mt: number = 1 - t;
-        const x: number = mt * mt * mt * curve.p0.x + 3 * mt * mt * t * curve.p1.x +
-          3 * mt * t * t * curve.p2.x + t * t * t * curve.p3.x;
-        const y: number = mt * mt * mt * curve.p0.y + 3 * mt * mt * t * curve.p1.y +
-          3 * mt * t * t * curve.p2.y + t * t * t * curve.p3.y;
-        const dx: number = x - p.x;
-        const dy: number = y - p.y;
-        const d: number = dx * dx + dy * dy;
-        if (d < best) {
-          best = d;
-        }
-      }
-      const err: number = Math.sqrt(best);
-      if (err > maxErr) {
-        maxErr = err;
+      const t: number = (i - start) / span;
+      const mt: number = 1 - t;
+      const x: number = mt * mt * mt * curve.p0.x + 3 * mt * mt * t * curve.p1.x +
+        3 * mt * t * t * curve.p2.x + t * t * t * curve.p3.x;
+      const y: number = mt * mt * mt * curve.p0.y + 3 * mt * mt * t * curve.p1.y +
+        3 * mt * t * t * curve.p2.y + t * t * t * curve.p3.y;
+      const dx: number = x - points[i].x;
+      const dy: number = y - points[i].y;
+      const d: number = Math.sqrt(dx * dx + dy * dy);
+      if (d > 1e-12 && Math.abs(d) <= Number.MAX_VALUE && d > maxErr) {
+        maxErr = d;
       }
     }
     return maxErr;
   }
 
-  // 二分分段（sqh.f 语义）：整段可接受则接受，否则递归对半拆分直至每段满足容差
-  // T-AUDIT 标注：原版为“二分查找最长可接受终点后继续”，本实现对半拆分在正确性上等价
-  // （每段均满足容差），仅分段边界/数量不同；如需逐位对齐原版分段可在真机视觉回归后调整
-  private fitRecursive(points: Point2D[], start: number, end: number, tolerance: number,
-    result: CubicSegment[]): void {
-    if (end - start < 1) {
-      return;
-    }
-    let segEnd: number = end;
-    if (segEnd - start > this.config.maxPointsPerSegment) {
-      segEnd = start + this.config.maxPointsPerSegment;
-    }
-    const curve: CubicSegment = this.fitCubic(points, start, segEnd);
-    const err: number = this.maxError(points, start, segEnd, curve);
-    if (err <= tolerance) {
-      result.push(curve);
-    } else if (segEnd - start > 1) {
-      const mid: number = Math.floor((start + segEnd) / 2);
-      this.fitRecursive(points, start, mid, tolerance, result);
-      this.fitRecursive(points, mid, segEnd, tolerance, result);
-    } else {
-      // 相邻两点仍超容差：直线段（三等分控制点）兜底
-      result.push(curve);
+  // 段间方向连续性修正（sqh.f 尾部循环）：p1 = p0 + 前段 j(1.0) 切向投影
+  private applyContinuity(segments: CubicSegment[]): void {
+    for (let k = 1; k < segments.length; k++) {
+      const prev: CubicSegment = segments[k - 1];
+      const cur: CubicSegment = segments[k];
+      // 前段 j(1.0) 切向 = 3*(p3 - p2)
+      const tx: number = 3 * (prev.p3.x - prev.p2.x);
+      const ty: number = 3 * (prev.p3.y - prev.p2.y);
+      const len: number = Math.sqrt(tx * tx + ty * ty);
+      const dx: number = cur.p3.x - cur.p0.x;
+      const dy: number = cur.p3.y - cur.p0.y;
+      let ox: number;
+      let oy: number;
+      if (len === 0) {
+        // 前段退化：偏移直接用本段端点差
+        ox = dx;
+        oy = dy;
+      } else {
+        const ux: number = tx / len;
+        const uy: number = ty / len;
+        const proj: number = dx * ux + dy * uy;
+        ox = ux * proj;
+        oy = uy * proj;
+      }
+      cur.p1 = { x: cur.p0.x + ox, y: cur.p0.y + oy };
     }
   }
 }

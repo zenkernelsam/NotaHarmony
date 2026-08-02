@@ -13,7 +13,8 @@ import { PencilSplatGenerator } from '../core/algorithm/PencilSplatGenerator';
 export interface StrokeSessionConfig {
   widthFactorMin: number;    // 默认 0.3（最小宽度比例）
   widthFactorRange: number;  // 默认 0.7（压力映射范围）
-  splatSeed: number;         // 默认 42（splat 确定性随机种子）
+  // splatSeed 兼容保留字段（T-AUDIT 后 seed 改用笔画起始时间戳，原版 hud.f()）
+  splatSeed: number;         // 默认 42（不再使用，保留契约兼容）
 }
 
 export class StrokeSession {
@@ -57,7 +58,8 @@ export class StrokeSession {
     this.smoother = new ForceSmoother();
     this.fitter = new CubicFitter();
     this.outlineBuilder = new WidthOutlineBuilder();
-    this.splatGenerator = new PencilSplatGenerator();
+    // spacing = 笔刷宽度（oz5.t：dC0 = ry5Var.c0()），beginStroke 时按当前 spec 重建
+    this.splatGenerator = new PencilSplatGenerator({ spacing: this.renderSpec.brushWidth });
   }
 
   // 开始新笔画
@@ -73,7 +75,9 @@ export class StrokeSession {
     this.startTime = timestamp;
     this.strokeId = this.generateStrokeId();
     this.smoother.reset();
-    this.splatGenerator.reset(this.config.splatSeed);
+    // 按当前笔刷宽度重建 splat 生成器（xaa 的 spacing = c0()），seed 用笔画起始时间戳
+    this.splatGenerator = new PencilSplatGenerator({ spacing: this.renderSpec.brushWidth });
+    this.splatGenerator.reset(this.startTime);
   }
 
   // 添加输入批次（每帧调用）；预测点批次仅用于预览不持久化，MVP 直接忽略

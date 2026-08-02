@@ -27,12 +27,12 @@ export class InkInputProviderImpl implements InkInputProvider {
     }
     const kind: InputBatchKind = isPredicted ? InputBatchKind.PREDICTED :
       (rawEvents[0].isHistorical ? InputBatchKind.HISTORICAL : InputBatchKind.REAL);
+    // cu5 已审计结论：predicted MotionEvent 时间戳为 0 → 忽略整个事件
+    if (isPredicted && rawEvents[0].timestamp <= 0) {
+      return { kind: kind, points: [] };
+    }
     const points: InputPoint[] = [];
     for (const raw of rawEvents) {
-      // §5 已审计结论：predicted MotionEvent 时间戳为 0 时忽略
-      if (isPredicted && raw.timestamp <= 0) {
-        continue;
-      }
       points.push({
         x: raw.x,
         y: raw.y,
@@ -64,7 +64,9 @@ export class InkInputProviderImpl implements InkInputProvider {
     return Math.min(Math.max(value, min), max);
   }
 
-  // §5 工具映射：stylus/eraser→STYLUS、mouse→MOUSE、其他→TOUCH
+  // 工具映射：stylus/eraser→STYLUS、mouse→MOUSE、其他→TOUCH
+  // T-AUDIT 注：hda.v() 为 5→3 归并（STYLUS→g、MOUSE→g、TOUCH→e、UNKNOWN/ERASER→f，
+  // x16 枚举语义缺失）；本实现按工具语义三态映射，差异待 x16 确认后对齐
   private mapToolType(rawType: number): InputToolType {
     if (rawType === 0) {
       return InputToolType.STYLUS;

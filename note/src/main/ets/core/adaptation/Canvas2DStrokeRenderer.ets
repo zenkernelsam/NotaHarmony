@@ -277,7 +277,12 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       }
     }
     c.setLineWidth(spec.brushWidth);
-    c.setLineCap('round');
+    // 线帽（pzf.g）：实线画笔 this.h 用 ROUND，DASH/DOTS 画笔 this.i 用 BUTT
+    if (spec.inkStyle === InkStyle.DASH || spec.inkStyle === InkStyle.DOTS) {
+      c.setLineCap('butt');
+    } else {
+      c.setLineCap('round');
+    }
     c.setLineJoin('round');
     c.setStrokeStyle(this.colorToRgba(spec.color));
     if (spec.isHighlighter) {
