@@ -204,6 +204,8 @@ export class StrokeSession {
   }
 
   // widthFactor 推导：pressure → widthFactor（可配置，默认 0.3 + 0.7 * pressure）
+  // T-AUDIT 标注：原版 fc0.e() 逐点宽度因子的生成来源为 🟡（REVERSE_ANALYSIS §35 未闭环），
+  // 当前 0.3 + 0.7*p 映射为假设值（基于任务卡约定），待真机/逆向确认后可能调整
   private pressureToWidthFactor(pressure: number): number {
     if (pressure < 0) {
       return 1.0;  // 无压感

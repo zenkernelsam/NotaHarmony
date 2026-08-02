@@ -256,6 +256,10 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
   renderCenterPath(stroke: StrokeElementData, ctx: RenderContext): void {
     const c: Canvas2DRenderContext = ctx as Canvas2DRenderContext;
     const spec: RenderSpec = stroke.renderSpec;
+    // 空路径检查（pzf.g 对齐）：无点直接返回
+    if (stroke.pathPoints.length === 0) {
+      return;
+    }
     c.save();
     c.beginPath();
     const pts = stroke.pathPoints;

@@ -153,7 +153,9 @@ export class CubicFitter {
     return maxErr;
   }
 
-  // 二分分段（sqh.f）：最长可接受区间，超容差则二分
+  // 二分分段（sqh.f 语义）：整段可接受则接受，否则递归对半拆分直至每段满足容差
+  // T-AUDIT 标注：原版为“二分查找最长可接受终点后继续”，本实现对半拆分在正确性上等价
+  // （每段均满足容差），仅分段边界/数量不同；如需逐位对齐原版分段可在真机视觉回归后调整
   private fitRecursive(points: Point2D[], start: number, end: number, tolerance: number,
     result: CubicSegment[]): void {
     if (end - start < 1) {

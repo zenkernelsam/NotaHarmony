@@ -29,11 +29,17 @@ export class InkInputProviderImpl implements InkInputProvider {
       (rawEvents[0].isHistorical ? InputBatchKind.HISTORICAL : InputBatchKind.REAL);
     const points: InputPoint[] = [];
     for (const raw of rawEvents) {
+      // §5 已审计结论：predicted MotionEvent 时间戳为 0 时忽略
+      if (isPredicted && raw.timestamp <= 0) {
+        continue;
+      }
       points.push({
         x: raw.x,
         y: raw.y,
         elapsedTimeMillis: this.strokeStartTime >= 0 ? raw.timestamp - this.strokeStartTime : 0,
-        toolType: raw.toolType === 0 ? InputToolType.STYLUS : InputToolType.TOUCH,
+        // §5 映射：stylus/eraser→STYLUS(0)、mouse→MOUSE(1)、其他→TOUCH(2)
+        // （页面层将 stylus/eraser 归类为 0，mouse 归类为 1）
+        toolType: this.mapToolType(raw.toolType),
         pressure: this.pressureSupported ? this.clamp(raw.pressure, 0, 1) : -1,
         tiltRadians: this.tiltSupported ? this.clamp(raw.tiltRadians, 0, Math.PI / 2) : -1,
         orientationRadians: this.orientationSupported ? this.normalizeOrientation(raw.orientationRadians) : -1,
@@ -56,6 +62,17 @@ export class InkInputProviderImpl implements InkInputProvider {
 
   private clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max);
+  }
+
+  // §5 工具映射：stylus/eraser→STYLUS、mouse→MOUSE、其他→TOUCH
+  private mapToolType(rawType: number): InputToolType {
+    if (rawType === 0) {
+      return InputToolType.STYLUS;
+    }
+    if (rawType === 1) {
+      return InputToolType.MOUSE;
+    }
+    return InputToolType.TOUCH;
   }
 
   // 归一化到 [0, 2π)
