@@ -1,0 +1,185 @@
+// T-025 笔记编辑器页面（EditorToolbar + NoteCanvasView + PageManagerBar 集成）
+import { router } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+import { PageInfo } from '../../core/model/NoteTypes';
+import { DatabaseManager } from '../../data/DatabaseManager';
+import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
+import { EditorViewModel } from './EditorViewModel';
+import { EditorToolbar } from './EditorToolbar';
+import { NoteCanvasView } from './NoteCanvasView';
+import { PageManagerBar } from './PageManagerBar';
+
+@Entry
+@Component
+struct NotePage {
+  private noteId: string = '';
+  @State viewModel: EditorViewModel = new EditorViewModel();
+  @State pages: PageInfo[] = [];
+  @State currentPageIndex: number = 0;
+  @State undoSignal: number = 0;
+  @State redoSignal: number = 0;
+  @State canUndo: boolean = false;
+  @State canRedo: boolean = false;
+  private pageRepo: PageRepositoryImpl | null = null;
+
+  aboutToAppear(): void {
+    const params = router.getParams() as Record<string, string>;
+    if (params !== undefined && params !== null && params['noteId'] !== undefined) {
+      this.noteId = params['noteId'];
+    }
+    this.loadPages();
+  }
+
+  private async loadPages(): Promise<void> {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const db: DatabaseManager = DatabaseManager.getInstance();
+      await db.initialize(context);
+      this.pageRepo = new PageRepositoryImpl(db);
+      const loaded: PageInfo[] = await this.pageRepo.getPages(this.noteId);
+      if (loaded.length === 0) {
+        // 创建默认首页（A4 / PLAIN）
+        const defaultPage: PageInfo = {
+          pageId: this.generateId(),
+          size: 1,
+          template: 0,
+          orientation: 0,
+          widthMm: 210.0,
+          heightMm: 297.0,
+        };
+        await this.pageRepo.addPage(this.noteId, defaultPage);
+        this.pages = [defaultPage];
+      } else {
+        this.pages = loaded;
+      }
+      this.currentPageIndex = 0;
+    } catch (e) {
+      console.error(`NotePage loadPages failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  build() {
+    Column() {
+      // 顶部导航行（48vp）
+      Row() {
+        Button('← Back')
+          .height(36)
+          .fontSize(14)
+          .onClick(() => {
+            router.back();
+          })
+        Text('Note Editor')
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .margin({ left: 12 })
+      }
+      .width('100%')
+      .height(48)
+      .padding({ left: 8, right: 8 })
+      .backgroundColor('#F0F0F0')
+
+      // 工具栏
+      EditorToolbar({
+        viewModel: this.viewModel,
+        canUndo: this.canUndo,
+        canRedo: this.canRedo,
+        onUndo: () => {
+          this.undoSignal++;
+        },
+        onRedo: () => {
+          this.redoSignal++;
+        },
+      })
+
+      // 画布（layoutWeight 撑满）
+      if (this.pages.length > 0) {
+        NoteCanvasView({
+          viewModel: this.viewModel,
+          noteId: this.noteId,
+          currentPage: this.pages[this.currentPageIndex],
+          undoSignal: this.undoSignal,
+          redoSignal: this.redoSignal,
+          onUndoRedoChanged: (u: boolean, r: boolean) => {
+            hilog.info(0x0001, 'NotePage', 'undoRedoChanged u=%{public}s r=%{public}s',
+              u.toString(), r.toString());
+            this.canUndo = u;
+            this.canRedo = r;
+          },
+        })
+          .layoutWeight(1)
+      } else {
+        Text('Loading note...')
+          .layoutWeight(1)
+          .textAlign(TextAlign.Center)
+      }
+
+      // 页面管理条（56vp 底部）
+      PageManagerBar({
+        currentPageIndex: this.currentPageIndex,
+        pageCount: this.pages.length,
+        onPrev: () => {
+          if (this.currentPageIndex > 0) {
+            this.currentPageIndex--;
+          }
+        },
+        onNext: () => {
+          if (this.currentPageIndex < this.pages.length - 1) {
+            this.currentPageIndex++;
+          }
+        },
+        onAdd: () => {
+          this.addPage();
+        },
+        onDelete: () => {
+          this.deleteCurrentPage();
+        },
+      })
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  private async addPage(): Promise<void> {
+    if (this.pageRepo === null) {
+      return;
+    }
+    const page: PageInfo = {
+      pageId: this.generateId(),
+      size: 1,
+      template: 0,
+      orientation: 0,
+      widthMm: 210.0,
+      heightMm: 297.0,
+    };
+    await this.pageRepo.addPage(this.noteId, page);
+    const updated: PageInfo[] = this.pages.slice();
+    updated.push(page);
+    this.pages = updated;
+    this.currentPageIndex = this.pages.length - 1;
+  }
+
+  private async deleteCurrentPage(): Promise<void> {
+    if (this.pageRepo === null || this.pages.length <= 1) {
+      return;
+    }
+    const pageId: string = this.pages[this.currentPageIndex].pageId;
+    await this.pageRepo.deletePage(this.noteId, pageId);
+    const updated: PageInfo[] = [];
+    for (const p of this.pages) {
+      if (p.pageId !== pageId) {
+        updated.push(p);
+      }
+    }
+    this.pages = updated;
+    if (this.currentPageIndex >= this.pages.length) {
+      this.currentPageIndex = this.pages.length - 1;
+    }
+  }
+
+  private generateId(): string {
+    const timePart: string = Date.now().toString(36);
+    const randPart: string = Math.random().toString(36).slice(2, 8);
+    return timePart + randPart;
+  }
+}

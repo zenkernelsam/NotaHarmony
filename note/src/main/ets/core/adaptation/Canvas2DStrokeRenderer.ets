@@ -109,6 +109,11 @@ export class Canvas2DRenderContext implements RenderContext {
     this.ctx.scale(sx, sy);
   }
 
+  // 应用 3×3 行主序仿射变换矩阵（变换选中笔画用）
+  setTransform(m: number[]): void {
+    this.ctx.setTransform(m[0], m[1], m[3], m[4], m[2], m[5]);
+  }
+
   drawImage(image: ImageBitmap, dx: number, dy: number, dw: number, dh: number): void {
     this.ctx.drawImage(image, dx, dy, dw, dh);
   }
@@ -215,6 +220,11 @@ export class Canvas2DOffscreenRenderContext implements RenderContext {
 
   scale(sx: number, sy: number): void {
     this.ctx.scale(sx, sy);
+  }
+
+  // 应用 3×3 行主序仿射变换矩阵（变换选中笔画用）
+  setTransform(m: number[]): void {
+    this.ctx.setTransform(m[0], m[1], m[3], m[4], m[2], m[5]);
   }
 
   drawImage(image: ImageBitmap, dx: number, dy: number, dw: number, dh: number): void {

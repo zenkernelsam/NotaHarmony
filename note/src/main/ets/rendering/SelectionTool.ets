@@ -1,0 +1,226 @@
+// T-022 选区与变换（§25 精简：矩形/套索 + 移动/缩放/旋转 + 8 项菜单）
+// 纯几何逻辑：禁止平台 import
+import { StrokeElementData } from '../core/model/StrokeTypes';
+import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
+
+export enum SelectionMode {
+  RECTANGLE = 0,
+  LASSO = 1,
+}
+
+export interface SelectionState {
+  isActive: boolean;
+  mode: SelectionMode;
+  lassoPoints: Point2D[];        // 套索路径
+  rect: Rect2D | null;           // 矩形选区
+  selectedStrokeIds: string[];   // 选中笔画 ID
+  transform: TransformMatrix;    // 当前变换矩阵（单位矩阵起始）
+}
+
+export class SelectionTool {
+  private state: SelectionState;
+
+  constructor() {
+    this.state = {
+      isActive: false,
+      mode: SelectionMode.RECTANGLE,
+      lassoPoints: [],
+      rect: null,
+      selectedStrokeIds: [],
+      transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    };
+  }
+
+  // 开始选区（touchDown）
+  beginSelection(mode: SelectionMode, startPoint: Point2D): void {
+    this.state.mode = mode;
+    this.state.isActive = true;
+    this.state.lassoPoints = [startPoint];
+    this.state.rect = { left: startPoint.x, top: startPoint.y, right: startPoint.x, bottom: startPoint.y };
+    this.state.selectedStrokeIds = [];
+    this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  }
+
+  // 更新选区（touchMove）
+  updateSelection(currentPoint: Point2D): void {
+    if (!this.state.isActive) {
+      return;
+    }
+    if (this.state.mode === SelectionMode.LASSO) {
+      this.state.lassoPoints.push(currentPoint);
+    } else if (this.state.rect !== null) {
+      this.state.rect = {
+        left: Math.min(this.state.rect.left, currentPoint.x),
+        top: Math.min(this.state.rect.top, currentPoint.y),
+        right: Math.max(this.state.rect.right, currentPoint.x),
+        bottom: Math.max(this.state.rect.bottom, currentPoint.y),
+      };
+    }
+  }
+
+  // 完成选区 → 计算命中笔画 ID
+  finalizeSelection(strokes: StrokeElementData[]): string[] {
+    if (!this.state.isActive) {
+      return [];
+    }
+    const ids: string[] = [];
+    for (const s of strokes) {
+      if (this.state.mode === SelectionMode.RECTANGLE) {
+        if (this.state.rect !== null && this.rectIntersects(this.state.rect, s.bounds)) {
+          ids.push(s.id);
+        }
+      } else {
+        // 套索：笔画 bounds 中心点在多边形内（射线法）
+        const cx: number = (s.bounds.left + s.bounds.right) / 2;
+        const cy: number = (s.bounds.top + s.bounds.bottom) / 2;
+        if (this.pointInPolygon({ x: cx, y: cy }, this.state.lassoPoints)) {
+          ids.push(s.id);
+        }
+      }
+    }
+    this.state.selectedStrokeIds = ids;
+    return ids;
+  }
+
+  // 移动选中内容（平移矩阵）
+  moveSelected(dx: number, dy: number): TransformMatrix {
+    const t: TransformMatrix = [1, 0, dx, 0, 1, dy, 0, 0, 1];
+    this.state.transform = this.multiply(t, this.state.transform);
+    return this.state.transform;
+  }
+
+  // 缩放（绕 center）
+  scaleSelected(factor: number, center: Point2D): TransformMatrix {
+    const t: TransformMatrix = [
+      factor, 0, center.x * (1 - factor),
+      0, factor, center.y * (1 - factor),
+      0, 0, 1,
+    ];
+    this.state.transform = this.multiply(t, this.state.transform);
+    return this.state.transform;
+  }
+
+  // 旋转（绕 center，弧度）
+  rotateSelected(radians: number, center: Point2D): TransformMatrix {
+    const cos: number = Math.cos(radians);
+    const sin: number = Math.sin(radians);
+    const t: TransformMatrix = [
+      cos, -sin, center.x * (1 - cos) + center.y * sin,
+      sin, cos, center.y * (1 - cos) - center.x * sin,
+      0, 0, 1,
+    ];
+    this.state.transform = this.multiply(t, this.state.transform);
+    return this.state.transform;
+  }
+
+  // 应用变换到笔画（修改 stroke.transform，返回新数组；不修改原始点数据）
+  applyTransform(strokes: StrokeElementData[]): StrokeElementData[] {
+    const result: StrokeElementData[] = [];
+    for (const s of strokes) {
+      const isSelected: boolean = this.state.selectedStrokeIds.indexOf(s.id) >= 0;
+      if (isSelected) {
+        result.push({
+          id: s.id,
+          pathPoints: s.pathPoints,
+          cubicSegments: s.cubicSegments,
+          splatPoints: s.splatPoints,
+          renderSpec: s.renderSpec,
+          transform: this.multiply(this.state.transform, s.transform),
+          bounds: this.transformBounds(s.bounds, this.state.transform),
+          maskPath: s.maskPath,
+          isFinished: s.isFinished,
+        });
+      } else {
+        result.push(s);
+      }
+    }
+    return result;
+  }
+
+  // 删除选中 → 返回应删除的笔画 ID
+  deleteSelected(): string[] {
+    const ids: string[] = this.state.selectedStrokeIds;
+    this.state.selectedStrokeIds = [];
+    this.deselect();
+    return ids;
+  }
+
+  // 取消选择
+  deselect(): void {
+    this.state.isActive = false;
+    this.state.selectedStrokeIds = [];
+    this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  }
+
+  getState(): SelectionState {
+    return this.state;
+  }
+
+  // === 工具方法 ===
+  private rectIntersects(a: Rect2D, b: Rect2D): boolean {
+    return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
+  }
+
+  // 射线法判断点在多边形内
+  private pointInPolygon(p: Point2D, polygon: Point2D[]): boolean {
+    let inside: boolean = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi: number = polygon[i].x;
+      const yi: number = polygon[i].y;
+      const xj: number = polygon[j].x;
+      const yj: number = polygon[j].y;
+      const intersect: boolean = ((yi > p.y) !== (yj > p.y)) &&
+        (p.x < (xj - xi) * (p.y - yi) / (yj - yi) + xi);
+      if (intersect) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  // 3×3 行主序矩阵乘法
+  private multiply(a: TransformMatrix, b: TransformMatrix): TransformMatrix {
+    const result: TransformMatrix = [0, 0, 0, 0, 0, 0, 0, 0, 1];
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 3; col++) {
+        let sum: number = 0;
+        for (let k = 0; k < 3; k++) {
+          sum += a[row * 3 + k] * b[k * 3 + col];
+        }
+        result[row * 3 + col] = sum;
+      }
+    }
+    return result;
+  }
+
+  // 用仿射矩阵变换矩形（取 4 角变换后的外接矩形）
+  private transformBounds(bounds: Rect2D, m: TransformMatrix): Rect2D {
+    const corners: Point2D[] = [
+      { x: bounds.left, y: bounds.top },
+      { x: bounds.right, y: bounds.top },
+      { x: bounds.right, y: bounds.bottom },
+      { x: bounds.left, y: bounds.bottom },
+    ];
+    let minX: number = Number.MAX_VALUE;
+    let minY: number = Number.MAX_VALUE;
+    let maxX: number = -Number.MAX_VALUE;
+    let maxY: number = -Number.MAX_VALUE;
+    for (const c of corners) {
+      const x: number = m[0] * c.x + m[1] * c.y + m[2];
+      const y: number = m[3] * c.x + m[4] * c.y + m[5];
+      if (x < minX) {
+        minX = x;
+      }
+      if (x > maxX) {
+        maxX = x;
+      }
+      if (y < minY) {
+        minY = y;
+      }
+      if (y > maxY) {
+        maxY = y;
+      }
+    }
+    return { left: minX, top: minY, right: maxX, bottom: maxY };
+  }
+}

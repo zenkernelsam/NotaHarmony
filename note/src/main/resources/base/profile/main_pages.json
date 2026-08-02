@@ -1,6 +1,8 @@
 {
   "src": [
     "pages/Index",
+    "ui/library/LibraryPage",
+    "ui/editor/NotePage",
     "ui/editor/NoteCanvasPage"
   ]
 }

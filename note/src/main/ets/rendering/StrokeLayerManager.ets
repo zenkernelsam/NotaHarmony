@@ -4,7 +4,7 @@
 import { Rect2D } from '../core/model/GeometryTypes';
 import { StrokeElementData, InkStyle } from '../core/model/StrokeTypes';
 import { StrokeRenderer, RenderContext } from '../core/adaptation/StrokeRenderer';
-import { Canvas2DOffscreenRenderContext } from '../core/adaptation/Canvas2DStrokeRenderer';
+import { Canvas2DRenderContext, Canvas2DOffscreenRenderContext } from '../core/adaptation/Canvas2DStrokeRenderer';
 import { DirtyRectTracker } from './DirtyRectTracker';
 
 export class StrokeLayerManager {
@@ -68,6 +68,22 @@ export class StrokeLayerManager {
     mainCtx.restore();
   }
 
+  // 全屏合成（无脏区优化）：纸张背景每帧重绘场景使用，避免脏区清屏破坏背景
+  // 调用方需先绘制背景，本方法仅叠加已完成层与当前笔画
+  compositeFull(mainCtx: CanvasRenderingContext2D, currentStroke: StrokeElementData | null,
+    currentRenderCtx: RenderContext): void {
+    if (this.completedLayer !== null) {
+      const bmp: ImageBitmap = this.completedLayer.transferToImageBitmap();
+      mainCtx.drawImage(bmp, 0, 0, this.canvasWidth, this.canvasHeight);
+      if (this.completedCtx !== null) {
+        this.completedCtx.drawImage(bmp, 0, 0, this.canvasWidth, this.canvasHeight);
+      }
+    }
+    if (currentStroke !== null && currentRenderCtx !== null) {
+      this.renderStrokeOnto(currentStroke, currentRenderCtx);
+    }
+  }
+
   // 清空全部（新建笔记/撤销全部）
   clearAll(): void {
     if (this.completedCtx === null) {
@@ -94,7 +110,11 @@ export class StrokeLayerManager {
   }
 
   // 按 renderSpec 分发渲染路径（中心线 / 可变宽度轮廓 / PencilSplat），随后应用擦除遮罩
+  // 渲染前应用 stroke.transform（选区变换支持）
   private renderStrokeOnto(stroke: StrokeElementData, rc: RenderContext): void {
+    const c: Canvas2DRenderContext = rc as Canvas2DRenderContext;
+    c.save();
+    c.setTransform(stroke.transform);
     if (stroke.renderSpec.isPencil) {
       this.renderer.renderPencilSplats(stroke.splatPoints, stroke.renderSpec, rc);
     } else if (stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH) {
@@ -103,5 +123,6 @@ export class StrokeLayerManager {
       this.renderer.renderCenterPath(stroke, rc);
     }
     this.renderer.renderEraserMask(stroke, rc);
+    c.restore();
   }
 }
