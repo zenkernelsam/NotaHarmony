@@ -23,6 +23,12 @@ struct LibraryPage {
     this.initData();
   }
 
+  private navigateToBackup(): void {
+    router.pushUrl({ url: 'ui/settings/BackupPage' }).catch((e: Error) => {
+      console.error(`pushUrl failed: ${JSON.stringify(e)}`);
+    });
+  }
+
   private async initData(): Promise<void> {
     try {
       const context = getContext(this) as common.UIAbilityContext;
@@ -59,7 +65,7 @@ struct LibraryPage {
 
       // 主内容
       Column() {
-        // 搜索栏（48vp）
+        // 搜索栏（48vp）+ 设置入口
         Row() {
           TextInput({ placeholder: 'Search notes' })
             .layoutWeight(1)
@@ -69,6 +75,12 @@ struct LibraryPage {
               if (this.viewModel !== null) {
                 this.viewModel.searchQuery = value;
               }
+            })
+          Button('设置')
+            .height(40)
+            .margin({ left: 8 })
+            .onClick(() => {
+              this.navigateToBackup();
             })
         }
         .width('100%')

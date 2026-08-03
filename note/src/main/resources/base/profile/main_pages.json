@@ -3,6 +3,8 @@
     "pages/Index",
     "ui/library/LibraryPage",
     "ui/editor/NotePage",
-    "ui/editor/NoteCanvasPage"
+    "ui/editor/NoteCanvasPage",
+    "ui/settings/BackupPage",
+    "ui/settings/WebDAVSettingsPage"
   ]
 }
