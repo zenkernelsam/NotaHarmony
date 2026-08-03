@@ -118,7 +118,9 @@ export class PencilSplatGenerator {
   private generateAtPosition(pos: Point2D, tangent: Point2D, pressure: number, tilt: number,
     orientation: number, width: number): PencilSplatPoint[] {
     // 无能力输入 fallback（p/t 的 fallback 在 sizeFactorOf() 内部处理）
-    const o: number = orientation < 0 ? 0 : orientation;
+    // T-033：无 orientation（模拟器=-1）用中性值 π/5（angleDiff=0 → 无散布 + opacity 正常）；
+    // 原版 fallback 0 会导致 angleDiff 最大 → edgeFactor=0.1 → splat 几乎透明
+    const o: number = orientation < 0 ? Math.PI / 5 : orientation;
 
     // === 散布盘参数 ===
     const scaleBase: number = Math.min(width, 2.0) / 2.0 * 0.97 + 0.03;
@@ -128,7 +130,11 @@ export class PencilSplatGenerator {
       splatCount = this.config.maxSubdivisions;
     }
     const subdivisions: number = Math.floor(angleDiff / this.config.angleStep);
-    const ellipseR: number = 1.2 * (this.config.spacing / 2.0) * 0.5 * subdivisions;
+    // 散布盘半径（xaa.b L196）：ellipseR = 1.2*(d/2)*0.5*floor
+    // T-033 修复：无 orientation（模拟器=0）时 angleDiff 最大 → 散布半径可达 0.3*spacing*25
+    // （笔宽 36 时 ≈270px）→ 大面积污染。钳制到 1.5 倍笔宽，保证只在轨迹附近散布
+    const ellipseR: number = Math.min(1.2 * (this.config.spacing / 2.0) * 0.5 * subdivisions,
+      this.config.spacing * 1.5);
     const ellipseS: number = (angleDiff / (Math.PI / 2)) * (-0.48) + 0.5;
     // scale = ellipseS * spacing * (sizeFactor*0.5 + 0.5)（xaa.b：d10*d11）
     const baseScale: number = ellipseS * this.config.spacing * (this.sizeFactorOf(this.attrsOf(pressure, tilt, orientation, width)) * 0.5 + 0.5);
@@ -288,7 +294,7 @@ export class PencilSplatGenerator {
     return {
       pressure: this.clamp((width - 0.3) / 0.7, 0, 1),  // 与 StrokeSession 的映射互逆
       tilt: Math.PI / 4,   // 默认 45°（MVP 无倾斜数据）
-      orientation: 0,      // 默认 0
+      orientation: Math.PI / 5,  // 中性值（T-033：无数据时避免 angleDiff 最大导致透明/散布）
       width: width,
     };
   }
@@ -297,7 +303,7 @@ export class PencilSplatGenerator {
     return {
       pressure: this.clamp((p.widthFactor - 0.3) / 0.7, 0, 1),
       tilt: Math.PI / 4,
-      orientation: 0,
+      orientation: Math.PI / 5,
       width: p.widthFactor,
     };
   }

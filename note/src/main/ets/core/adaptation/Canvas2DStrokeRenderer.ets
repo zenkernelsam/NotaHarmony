@@ -237,8 +237,6 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
   private colorCache: Map<number, OffscreenCanvas> = new Map<number, OffscreenCanvas>();
   // 擦除遮罩渲染宽度（可由页面设置）
   private eraserMaskWidth: number = 20;
-  // splat fallback 圆形半径（纹理未加载时）
-  private static readonly SPLAT_FALLBACK_RADIUS: number = 2;
 
   constructor() {
   }
@@ -325,13 +323,15 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     }
     const c: Canvas2DRenderContext = ctx as Canvas2DRenderContext;
     // 计算 splat 包围盒（splat 坐标为绝对画布坐标，离屏用相对坐标绘制）
+    // T-033 修复：xaa 的 scale 语义为“半径”（直径 = 2*scale ≈ 笔宽），
+    // 渲染时按 64px 纹理换算缩放系数 scale/texHalf；包围盒半径 = scale
     const texHalf: number = 32;  // 纹理半宽（64×64 纹理的一半）
     let minX: number = Number.MAX_VALUE;
     let minY: number = Number.MAX_VALUE;
     let maxX: number = -Number.MAX_VALUE;
     let maxY: number = -Number.MAX_VALUE;
     for (const s of splats) {
-      const r: number = s.scale * texHalf + 2;
+      const r: number = s.scale + 2;
       if (s.x - r < minX) {
         minX = s.x - r;
       }
@@ -363,7 +363,9 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       offCtx.save();
       offCtx.translate(s.x - minX, s.y - minY);
       offCtx.rotate(s.rotation);
-      offCtx.scale(s.scale, s.scale);
+      // scale 为半径：64px 纹理的缩放系数 = scale/32（直径 2*scale）
+      const drawScale: number = s.scale / texHalf;
+      offCtx.scale(drawScale, drawScale);
       offCtx.globalAlpha = s.opacity;
       if (tex !== null) {
         // 纹理尺寸取固定 64×64（MVP fallback 纹理同尺寸）
@@ -371,9 +373,9 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
         const th: number = 64;
         offCtx.drawImage(tex, -tw / 2, -th / 2, tw, th);
       } else {
-        // fallback：4px 直径圆形（splatTexture 未加载时）
+        // fallback：圆形（半径 = scale，与纹理绘制直径一致）
         offCtx.beginPath();
-        offCtx.arc(0, 0, Canvas2DStrokeRenderer.SPLAT_FALLBACK_RADIUS, 0, Math.PI * 2);
+        offCtx.arc(0, 0, s.scale, 0, Math.PI * 2);
         offCtx.fillStyle = '#FFFFFF';
         offCtx.fill();
       }

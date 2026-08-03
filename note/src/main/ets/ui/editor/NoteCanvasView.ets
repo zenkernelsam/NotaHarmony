@@ -706,12 +706,12 @@ export struct NoteCanvasView {
     return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
   }
 
-  // 判断点击位置是否在选区菜单按钮区域（菜单在选区下方）
+  // 判断点击位置是否在选区菜单按钮区域（菜单按钮在选区下方；T-033 单按钮 + bindMenu）
   private isInSelectionMenu(x: number, y: number): boolean {
     const menuTop: number = this.selectionRect.bottom + 8;
-    const menuBottom: number = menuTop + 52;
+    const menuBottom: number = menuTop + 48;
     const menuLeft: number = this.selectionRect.left;
-    const menuRight: number = menuLeft + 8 * 66 + 12;
+    const menuRight: number = menuLeft + 130;
     return x >= menuLeft && x <= menuRight && y >= menuTop && y <= menuBottom;
   }
 

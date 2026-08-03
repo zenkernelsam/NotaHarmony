@@ -170,7 +170,8 @@ struct LibraryPage {
   }
 
   private confirmDelete(note: NoteMeta): void {
-    AlertDialog.show({
+    // T-033：原生 AlertDialog（getUIContext 新 API，替代弃用的 AlertDialog.show）
+    this.getUIContext().showAlertDialog({
       title: 'Delete Note',
       message: 'Delete "' + note.title + '"? This cannot be undone.',
       primaryButton: {
