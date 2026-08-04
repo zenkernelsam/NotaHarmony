@@ -3,7 +3,7 @@ import { relationalStore } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import {
   DB_NAME, DDL_NOTE_STATE, DDL_TOOL_STATE, DDL_CLIENT_OP, DDL_NOTE_ASSET,
-  DDL_NOTE_META, DDL_PAGE_INFO, DDL_INDEXES,
+  DDL_NOTE_META, DDL_PAGE_INFO, DDL_FOLDER, DDL_INDEXES,
 } from './DatabaseHelper';
 
 export class DatabaseManager {
@@ -38,7 +38,7 @@ export class DatabaseManager {
     }
     // 执行全部 DDL（CREATE TABLE IF NOT EXISTS）
     const ddlList: string[] = [DDL_NOTE_STATE, DDL_TOOL_STATE, DDL_CLIENT_OP,
-      DDL_NOTE_ASSET, DDL_NOTE_META, DDL_PAGE_INFO];
+      DDL_NOTE_ASSET, DDL_NOTE_META, DDL_PAGE_INFO, DDL_FOLDER];
     for (const ddl of ddlList) {
       try {
         await store.executeSql(ddl);

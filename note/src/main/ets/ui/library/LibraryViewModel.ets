@@ -15,6 +15,8 @@ export class LibraryViewModel {
   isLoading: boolean = true;
   searchQuery: string = '';
   sortMode: NoteSortMode = NoteSortMode.UPDATED;
+  // T-039：当前浏览文件夹（null=全部笔记）
+  currentFolderId: string | null = null;
   private repo: NoteRepositoryImpl;
 
   constructor(repo: NoteRepositoryImpl) {
@@ -23,9 +25,19 @@ export class LibraryViewModel {
 
   async loadNotes(): Promise<void> {
     this.isLoading = true;
-    this.notes = await this.repo.getAllNotes();
+    if (this.currentFolderId === null) {
+      this.notes = await this.repo.getAllNotes();
+    } else {
+      this.notes = await this.repo.getNotesByFolder(this.currentFolderId);
+    }
     this.applySort();
     this.isLoading = false;
+  }
+
+  // T-039：切换浏览文件夹并刷新
+  setFolder(folderId: string | null): void {
+    this.currentFolderId = folderId;
+    this.loadNotes();
   }
 
   // 设置排序模式并刷新

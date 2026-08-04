@@ -3,7 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-export const DB_VERSION: number = 1;
+// T-039：folder 表新增 → 版本 2（CREATE TABLE IF NOT EXISTS 幂等迁移）
+export const DB_VERSION: number = 2;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -71,6 +72,14 @@ CREATE TABLE IF NOT EXISTS page_info (
   orientation INTEGER NOT NULL DEFAULT 0,
   width_mm REAL NOT NULL DEFAULT 210.0,
   height_mm REAL NOT NULL DEFAULT 297.0
+)`;
+
+// T-039：文件夹表
+export const DDL_FOLDER: string = `
+CREATE TABLE IF NOT EXISTS folder (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at INTEGER NOT NULL
 )`;
 
 // 索引

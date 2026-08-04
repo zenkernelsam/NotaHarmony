@@ -7,6 +7,7 @@ import { preferences } from '@kit.ArkData';
 import { NoteMeta } from '../../core/model/NoteTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
+import { FolderRepositoryImpl, NoteFolder } from '../../data/FolderRepositoryImpl';
 import { StrokePersistence } from '../../data/StrokePersistence';
 import { ThumbnailRenderer } from '../../rendering/ThumbnailRenderer';
 import { LibraryViewModel, NoteSortMode } from './LibraryViewModel';
@@ -27,6 +28,23 @@ struct LibraryPage {
   @State thumbIds: string[] = [];
   private thumbMap: Map<string, PixelMap> = new Map<string, PixelMap>();
   private noteRepo: NoteRepositoryImpl | null = null;
+  // T-039：文件夹
+  private folderRepo: FolderRepositoryImpl | null = null;
+  @State folders: NoteFolder[] = [];
+  @State currentFolderId: string | null = null;
+  @State folderDialogTitle: string = '新建文件夹';
+  @State folderDialogMode: number = 0;  // 0=新建 1=重命名
+  @State folderDialogTargetId: string = '';
+  private folderDialog: CustomDialogController = new CustomDialogController({
+    builder: NameDialog({
+      title: this.folderDialogTitle,
+      initialText: '',
+      onConfirm: (name: string) => {
+        this.onFolderDialogConfirm(name);
+      },
+    }),
+    autoCancel: true,
+  });
   private persistence: StrokePersistence = new StrokePersistence();
   private thumbRenderer: ThumbnailRenderer = new ThumbnailRenderer();
   private db: DatabaseManager = DatabaseManager.getInstance();
@@ -68,6 +86,93 @@ struct LibraryPage {
     console.info(`LibraryPage: thumbs refreshed size=${newMap.size}`);
   }
 
+  // T-039：文件夹操作
+  private showCreateFolderDialog(): void {
+    this.folderDialogMode = 0;
+    this.folderDialogTitle = '新建文件夹';
+    this.folderDialogTargetId = '';
+    this.folderDialog = new CustomDialogController({
+      builder: NameDialog({
+        title: this.folderDialogTitle,
+        initialText: '',
+        onConfirm: (name: string) => {
+          this.onFolderDialogConfirm(name);
+        },
+      }),
+      autoCancel: true,
+    });
+    this.folderDialog.open();
+  }
+
+  private showRenameFolderDialog(folder: NoteFolder): void {
+    this.folderDialogMode = 1;
+    this.folderDialogTitle = '重命名文件夹';
+    this.folderDialogTargetId = folder.id;
+    this.folderDialog = new CustomDialogController({
+      builder: NameDialog({
+        title: this.folderDialogTitle,
+        initialText: folder.name,
+        onConfirm: (name: string) => {
+          this.onFolderDialogConfirm(name);
+        },
+      }),
+      autoCancel: true,
+    });
+    this.folderDialog.open();
+  }
+
+  private async onFolderDialogConfirm(name: string): Promise<void> {
+    const trimmed: string = name.trim();
+    if (trimmed.length === 0 || this.folderRepo === null) {
+      return;
+    }
+    if (this.folderDialogMode === 0) {
+      await this.folderRepo.createFolder(trimmed);
+    } else if (this.folderDialogMode === 1) {
+      await this.folderRepo.renameFolder(this.folderDialogTargetId, trimmed);
+    }
+    this.folders = await this.folderRepo.getAllFolders();
+  }
+
+  // 删除文件夹：内部笔记回根目录（不删笔记）
+  private async deleteFolder(folderId: string): Promise<void> {
+    if (this.folderRepo === null || this.viewModel === null) {
+      return;
+    }
+    const notes: NoteMeta[] = this.viewModel.getFilteredNotes();
+    for (const n of notes) {
+      if (n.folderId === folderId) {
+        await this.folderRepo.moveNoteToFolder(n.id, null);
+      }
+    }
+    await this.folderRepo.deleteFolder(folderId);
+    this.folders = await this.folderRepo.getAllFolders();
+    if (this.currentFolderId === folderId) {
+      this.currentFolderId = null;
+      this.viewModel.setFolder(null);
+    }
+    this.refreshThumbnails();
+  }
+
+  // 移动笔记到文件夹（null=根目录）
+  private async moveNote(noteId: string, folderId: string | null): Promise<void> {
+    if (this.folderRepo === null || this.viewModel === null) {
+      return;
+    }
+    await this.folderRepo.moveNoteToFolder(noteId, folderId);
+    await this.viewModel.loadNotes();
+  }
+
+  // 切换浏览文件夹
+  private selectFolder(folderId: string | null): void {
+    if (this.viewModel === null) {
+      return;
+    }
+    this.currentFolderId = folderId;
+    this.viewModel.setFolder(folderId);
+    this.refreshThumbnails();
+  }
+
   // T-035：排序切换 + Preferences 持久化
   private setSortMode(mode: NoteSortMode): void {
     if (this.viewModel === null) {
@@ -101,6 +206,8 @@ struct LibraryPage {
       await this.db.initialize(context);
       this.persistence.initialize(this.db);
       this.noteRepo = new NoteRepositoryImpl(this.db);
+      this.folderRepo = new FolderRepositoryImpl(this.db);
+      this.folders = await this.folderRepo.getAllFolders();
       const vm: LibraryViewModel = new LibraryViewModel(this.noteRepo);
       // 恢复排序偏好
       const pref = await preferences.getPreferences(context, 'library_prefs');
@@ -149,26 +256,88 @@ struct LibraryPage {
 
   build() {
     Row() {
-      // 侧栏（≥840vp 显示）
+      // 侧栏（≥840vp 显示；T-039 文件夹列表）
       if (this.showSidebar) {
         Column() {
           Text('Nota')
             .fontSize(20)
             .fontWeight(FontWeight.Bold)
-            .margin({ top: 16, bottom: 16 })
-          Text('Home').fontSize(16).margin({ top: 8, bottom: 8 })
-          Text('Notes').fontSize(16).margin({ top: 8, bottom: 8 })
-          Text('Folders').fontSize(16).margin({ top: 8, bottom: 8 })
+            .fontColor(this.tokens.textPrimary)
+            .margin({ top: 16, bottom: 12 })
+          // 全部笔记
+          Text('全部笔记')
+            .fontSize(15)
+            .fontColor(this.currentFolderId === null ? this.tokens.accent : this.tokens.textPrimary)
+            .fontWeight(this.currentFolderId === null ? FontWeight.Medium : FontWeight.Normal)
+            .margin({ top: 4, bottom: 4 })
+            .onClick(() => {
+              this.selectFolder(null);
+            })
+          // 文件夹列表
+          ForEach(this.folders, (folder: NoteFolder) => {
+            Text(folder.name)
+              .fontSize(15)
+              .fontColor(this.currentFolderId === folder.id ? this.tokens.accent : this.tokens.textPrimary)
+              .fontWeight(this.currentFolderId === folder.id ? FontWeight.Medium : FontWeight.Normal)
+              .margin({ top: 4, bottom: 4 })
+              .onClick(() => {
+                this.selectFolder(folder.id);
+              })
+              .gesture(
+                LongPressGesture()
+                  .onAction(() => {
+                    this.getUIContext().showAlertDialog({
+                      title: folder.name,
+                      message: '',
+                      primaryButton: {
+                        value: '重命名',
+                        action: () => {
+                          this.showRenameFolderDialog(folder);
+                        },
+                      },
+                      secondaryButton: {
+                        value: '删除',
+                        fontColor: '#E84026',
+                        action: () => {
+                          this.deleteFolder(folder.id);
+                        },
+                      },
+                    });
+                  })
+              )
+          }, (folder: NoteFolder) => folder.id)
+          Blank()
+          // 新建文件夹
+          Button('+ 新建文件夹')
+            .height(36)
+            .fontSize(13)
+            .margin({ bottom: 16 })
+            .onClick(() => {
+              this.showCreateFolderDialog();
+            })
         }
         .width(this.sidebarWidth)
         .height('100%')
-        .backgroundColor(Color.Gray)
+        .backgroundColor(this.tokens.surface)
         .alignItems(HorizontalAlign.Start)
-        .padding({ left: 16 })
+        .padding({ left: 16, right: 8 })
       }
 
       // 主内容
       Column() {
+        // T-039：当前文件夹名（非全部时显示 + 返回入口）
+        if (this.currentFolderId !== null) {
+          Row() {
+            Text('文件夹：' + this.currentFolderName())
+              .fontSize(14)
+              .fontColor(this.tokens.accent)
+              .onClick(() => {
+                this.selectFolder(null);
+              })
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 8 })
+        }
         // 搜索栏（48vp）+ 设置入口 + 排序
         Row() {
           TextInput({ placeholder: 'Search notes' })
@@ -309,9 +478,10 @@ struct LibraryPage {
     .gesture(
       LongPressGesture()
         .onAction(() => {
-          this.confirmDelete(note);
+          // T-039：长按弹出原生 bindMenu（删除/移动到文件夹）
         })
     )
+    .bindMenu(this.buildNoteMenu(note))
   }
 
   private confirmDelete(note: NoteMeta): void {
@@ -337,6 +507,31 @@ struct LibraryPage {
         },
       },
     });
+  }
+
+  // 构建笔记长按菜单（T-039：删除 + 移动到文件夹动态列表）
+  private buildNoteMenu(note: NoteMeta): MenuElement[] {
+    const items: MenuElement[] = [
+      { value: '删除', action: () => { this.confirmDelete(note); } },
+      { value: '移动到根目录', action: () => { this.moveNote(note.id, null); } },
+    ];
+    for (const f of this.folders) {
+      items.push({
+        value: '移动到「' + f.name + '」',
+        action: () => { this.moveNote(note.id, f.id); },
+      });
+    }
+    return items;
+  }
+
+  // 当前文件夹名（顶部显示）
+  private currentFolderName(): string {
+    for (const f of this.folders) {
+      if (f.id === this.currentFolderId) {
+        return f.name;
+      }
+    }
+    return '全部笔记';
   }
 
   private async createAndOpen(): Promise<void> {
@@ -375,5 +570,60 @@ struct LibraryPage {
     const d: Date = new Date(timestamp);
     return d.getMonth() + 1 + '/' + d.getDate() + ' ' + d.getHours() + ':' +
       (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+  }
+}
+
+// T-039：名称输入对话框（@CustomDialog 原生）
+@CustomDialog
+struct NameDialog {
+  controller?: CustomDialogController;
+  title: string = '';
+  initialText: string = '';
+  @State inputText: string = '';
+  onConfirm: (name: string) => void = () => {
+  };
+
+  aboutToAppear(): void {
+    this.inputText = this.initialText;
+  }
+
+  build() {
+    Column() {
+      Text(this.title)
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+      TextInput({ text: this.inputText, placeholder: '名称' })
+        .width('100%')
+        .margin({ top: 12 })
+        .onChange((value: string) => {
+          this.inputText = value;
+        })
+      Row() {
+        Button('取消')
+          .height(36)
+          .fontSize(14)
+          .layoutWeight(1)
+          .onClick(() => {
+            if (this.controller !== undefined) {
+              this.controller.close();
+            }
+          })
+        Button('确定')
+          .height(36)
+          .fontSize(14)
+          .layoutWeight(1)
+          .margin({ left: 12 })
+          .onClick(() => {
+            this.onConfirm(this.inputText);
+            if (this.controller !== undefined) {
+              this.controller.close();
+            }
+          })
+      }
+      .width('100%')
+      .margin({ top: 16 })
+    }
+    .padding(16)
+    .width(320)
   }
 }
