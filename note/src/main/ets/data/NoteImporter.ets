@@ -6,13 +6,18 @@ import { common } from '@kit.AbilityKit';
 import { ZipReader, ZipEntry } from './ZipArchive';
 import { NoteManifest, PageData, parseManifest, parsePage } from './NotePackageSpec';
 import { NoteMeta, PageInfo, PaperSize, PaperTemplate, PageOrientation } from '../core/model/NoteTypes';
-import { StrokeElementData } from '../core/model/StrokeTypes';
+import { StrokeElementData, StrokePathPoint } from '../core/model/StrokeTypes';
+import { CubicSegment } from '../core/model/GeometryTypes';
 import { TextBlockElement } from '../core/model/ElementTypes';
 import { DatabaseManager } from './DatabaseManager';
 import { NoteRepositoryImpl } from './NoteRepositoryImpl';
 import { PageRepositoryImpl } from './PageRepositoryImpl';
 import { StrokePersistence, PersistedElement } from './StrokePersistence';
 import { paperSizeToMm } from './NoteExporter';
+import {
+  NotabilityMetadataParser, NotabilitySessionParser, NotabilityMetadata,
+  NotabilitySession, NotabilityPageStrokes, DEFAULT_TARGET_PAGE_WIDTH_VP,
+} from './NotabilitySessionParser';
 
 export enum ImportResult {
   SUCCESS = 0,
@@ -193,6 +198,13 @@ export class NoteImporter {
     for (const e of entries) {
       fileList += fileList.length === 0 ? e.name : ', ' + e.name;
     }
+    // T-032 原版 Notability：条目都在以笔记名命名的顶层目录下（如 OP-AMP/Session.plist），
+    // 所以只能按后缀匹配（ZipReader.findEntry 是全名精确匹配）
+    const metaEntry: ZipEntry | null = findEntryBySuffix(entries, 'metadata.plist');
+    const sessionEntry: ZipEntry | null = findEntryBySuffix(entries, 'Session.plist');
+    if (metaEntry !== null && sessionEntry !== null) {
+      return await this.importNotability(entries, metaEntry, sessionEntry, fileList);
+    }
     // 尝试常见 JSON 元数据（title 等）
     let title: string | null = null;
     for (const candidate of ['metadata.json', 'info.json', 'note.json']) {
@@ -228,12 +240,198 @@ export class NoteImporter {
     return { result: ImportResult.UNSUPPORTED_FORMAT, noteId: null, title: null, pageCount: 0,
       message: `不支持的 .note 格式（可能为原版 Notability 加密/FB 格式）。内部文件：${fileList}` };
   }
+
+  // T-032 原版 Notability .note 导入
+  private async importNotability(entries: ZipEntry[], metaEntry: ZipEntry,
+    sessionEntry: ZipEntry, fileList: string): Promise<ImportReport> {
+    // 1. metadata.plist：标题/UUID/日期。失败不致命，Session 里还有一份 name
+    const meta: NotabilityMetadata = NotabilityMetadataParser.parse(metaEntry.data);
+
+    // 2. 两个辅助信号：缩略图宽高比推导页高；HandwritingIndex 交叉校验页数
+    let thumbAspect: number = 0;
+    const thumb: ZipEntry | null = findEntryBySuffix(entries, 'thumb12x.png');
+    if (thumb !== null) {
+      thumbAspect = NotabilitySessionParser.pngAspect(thumb.data);
+    }
+    let pageCountHint: number = 0;
+    const index: ZipEntry | null = findEntryBySuffix(entries, 'HandwritingIndex/index.plist');
+    if (index !== null) {
+      pageCountHint = NotabilitySessionParser.pageCountFromIndex(index.data);
+    }
+
+    // 3. Session.plist：笔画 + 形状
+    const session: NotabilitySession =
+      NotabilitySessionParser.parse(sessionEntry.data, thumbAspect, pageCountHint);
+    if (!session.ok) {
+      return { result: ImportResult.UNSUPPORTED_FORMAT, noteId: null,
+        title: meta.noteName.length > 0 ? meta.noteName : null, pageCount: 0,
+        message: `Notability 笔记解析失败：${session.error}。内部文件：${fileList}` };
+    }
+
+    // 4. 转内部模型
+    const pages: NotabilityPageStrokes[] =
+      NotabilitySessionParser.toStrokeElements(session, DEFAULT_TARGET_PAGE_WIDTH_VP);
+    const scale: number = DEFAULT_TARGET_PAGE_WIDTH_VP / session.pageWidthDoc;
+    const pageHeightVp: number = session.pageHeightDoc * scale;
+    const allStrokes: StrokeElementData[] = flattenPages(pages, pageHeightVp);
+
+    // 5. 写库
+    try {
+      const noteRepo = new NoteRepositoryImpl(this.db);
+      const pageRepo = new PageRepositoryImpl(this.db);
+      let title: string = meta.noteName;
+      if (title.length === 0) {
+        title = session.noteName;
+      }
+      if (title.length === 0) {
+        title = '导入笔记';
+      }
+      const note: NoteMeta = await noteRepo.createNote(title, null);
+
+      const size: PaperSize = notabilityPaperSize(session.paper.paperSize);
+      const template: PaperTemplate = notabilityPaperTemplate(session.paper.lineStyle);
+      const orientation: PageOrientation =
+        session.paper.paperOrientation.toLowerCase() === 'landscape'
+          ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT;
+      const mm: number[] = paperSizeToMm(size);
+      for (let i = 0; i < pages.length; i++) {
+        const pageInfo: PageInfo = {
+          pageId: generateId(), size: size, template: template, orientation: orientation,
+          widthMm: mm[0], heightMm: mm[1],
+        };
+        await pageRepo.addPage(note.id, pageInfo);
+      }
+      // ⚠ 必须一次性写入：saveElements 会先删除该 noteId 的全部记录，逐页调用会互相清空
+      await this.persistence.saveElements(note.id, allStrokes, []);
+
+      const caveats: string[] = [];
+      if (pages.length > 1) {
+        caveats.push(`${pages.length} 页已纵向拼接为一张长画布（当前存储层无页维度）`);
+      }
+      for (const w of session.warnings) {
+        caveats.push(w);
+      }
+      if (session.unparsed.length > 0) {
+        caveats.push(`未解析内容：${session.unparsed.join('；')}`);
+      }
+      let message: string = `已导入 Notability 笔记「${note.title}」：` +
+        `${pages.length} 页 / ${session.curves.length} 条笔迹 / ${session.shapes.length} 个识别形状`;
+      if (caveats.length > 0) {
+        message += `。注意：${caveats.join('；')}`;
+      }
+      const partial: boolean = allStrokes.length === 0 ||
+        session.warnings.length > 0 || session.unparsed.length > 0;
+      console.info(`importNotability done: note=${note.id} pages=${pages.length} ` +
+        `curves=${session.curves.length} shapes=${session.shapes.length} strokes=${allStrokes.length}`);
+      return {
+        result: partial ? ImportResult.PARTIAL : ImportResult.SUCCESS,
+        noteId: note.id, title: note.title, pageCount: pages.length, message: message,
+      };
+    } catch (e) {
+      console.error(`importNotability write failed: ${JSON.stringify(e)}`);
+      return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+        message: '写入数据库失败，导入未完成' };
+    }
+  }
 }
 
 function generateId(): string {
   const timePart: string = Date.now().toString(36);
   const randPart: string = Math.random().toString(36).slice(2, 8);
   return timePart + randPart;
+}
+
+// 按后缀查条目：原版 Notability 把所有文件放在以笔记名命名的顶层目录下
+function findEntryBySuffix(entries: ZipEntry[], suffix: string): ZipEntry | null {
+  for (const e of entries) {
+    if (e.name === suffix || e.name.endsWith('/' + suffix)) {
+      return e;
+    }
+  }
+  return null;
+}
+
+// StrokePersistence 按 noteId 整存整取、没有页维度（T-025 MVP），NoteCanvasView 也是
+// 一次性把全部元素加载到同一张画布。所以多页笔记只能纵向排开：第 i 页整体下移 i×页高。
+// 否则各页会重叠。这是既有存储模型的限制，不是解析结果的限制——解析层保留了页分组。
+function flattenPages(pages: NotabilityPageStrokes[], pageHeightVp: number): StrokeElementData[] {
+  const out: StrokeElementData[] = [];
+  for (const page of pages) {
+    const dy: number = page.pageIndex * pageHeightVp;
+    for (const s of page.strokes) {
+      out.push(dy === 0 ? s : offsetStroke(s, dy));
+    }
+  }
+  return out;
+}
+
+function offsetStroke(s: StrokeElementData, dy: number): StrokeElementData {
+  const pathPoints: StrokePathPoint[] = [];
+  for (const p of s.pathPoints) {
+    pathPoints.push({
+      position: { x: p.position.x, y: p.position.y + dy },
+      widthFactor: p.widthFactor,
+    });
+  }
+  const segments: CubicSegment[] = [];
+  for (const c of s.cubicSegments) {
+    segments.push({
+      p0: { x: c.p0.x, y: c.p0.y + dy }, p1: { x: c.p1.x, y: c.p1.y + dy },
+      p2: { x: c.p2.x, y: c.p2.y + dy }, p3: { x: c.p3.x, y: c.p3.y + dy },
+    });
+  }
+  return {
+    id: s.id,
+    pathPoints: pathPoints,
+    cubicSegments: segments,
+    splatPoints: s.splatPoints,
+    renderSpec: s.renderSpec,
+    transform: s.transform,
+    bounds: {
+      left: s.bounds.left, top: s.bounds.top + dy,
+      right: s.bounds.right, bottom: s.bounds.bottom + dy,
+    },
+    maskPath: s.maskPath,
+    isFinished: s.isFinished,
+  };
+}
+
+// Notability paperSize 字符串 → 内部枚举。未知值退化为 LETTER（实测样本为 letter）
+function notabilityPaperSize(name: string): PaperSize {
+  switch (name.toLowerCase()) {
+    case 'a3':
+      return PaperSize.A3;
+    case 'a4':
+      return PaperSize.A4;
+    case 'a5':
+      return PaperSize.A5;
+    case 'a6':
+      return PaperSize.A6;
+    case 'a7':
+      return PaperSize.A7;
+    case 'legal':
+      return PaperSize.LEGAL;
+    case 'tabloid':
+      return PaperSize.TABLOID;
+    default:
+      return PaperSize.LETTER;
+  }
+}
+
+// lineStyle2 形如 "Lines:false:true:0.393701"，取冒号前的类型名。
+// ⚠ 仅 "Lines" 经实测确认，其余取值按字面推测，未知一律退化为无格线
+function notabilityPaperTemplate(lineStyle: string): PaperTemplate {
+  const head: string = lineStyle.split(':')[0].toLowerCase();
+  if (head === 'lines') {
+    return PaperTemplate.LINES;
+  }
+  if (head === 'grid' || head === 'graph') {
+    return PaperTemplate.GRID;
+  }
+  if (head === 'dots') {
+    return PaperTemplate.DOTS;
+  }
+  return PaperTemplate.PLAIN;
 }
 
 function bytesToString(bytes: Uint8Array): string {
