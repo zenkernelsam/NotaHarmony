@@ -7,6 +7,7 @@ import { InkInputProviderImpl } from '../../core/adaptation/InkInputProviderImpl
 import { NullPredictor } from '../../core/adaptation/NullPredictor';
 import { Canvas2DStrokeRenderer, Canvas2DRenderContext } from '../../core/adaptation/Canvas2DStrokeRenderer';
 import { StrokeLayerManager } from '../../rendering/StrokeLayerManager';
+import { CanvasViewport } from '../../rendering/CanvasViewport';
 import { StrokeSession } from '../../rendering/StrokeSession';
 import { EraserEngine, EraserMode } from '../../rendering/EraserEngine';
 import { PaperRenderer } from '../../rendering/PaperRenderer';
@@ -16,6 +17,7 @@ import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
 import { StrokePersistence } from '../../data/StrokePersistence';
 import { DatabaseManager } from '../../data/DatabaseManager';
+import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { RenderSpec, StrokeElementData, StrokePathPoint, InputBatch } from '../../core/model/StrokeTypes';
 import { ToolType } from '../../core/model/BrushTypes';
 import {
@@ -56,6 +58,11 @@ export struct NoteCanvasView {
   private persistence: StrokePersistence = new StrokePersistence();
   private selectionTool: SelectionTool = new SelectionTool();
   private textBlockTool: TextBlockTool = new TextBlockTool();
+  // T-034：画布视口（缩放/平移）
+  private viewport: CanvasViewport = new CanvasViewport();
+  private viewportSaveTimer: number = -1;   // 防抖定时器
+  private pinchLastScale: number = -1;      // 捏合累计缩放（手势增量换算）
+  @State zoomPercent: number = 100;         // 控制条显示（100 = 100%）
 
   // === 画布状态 ===
   private completedStrokes: StrokeElementData[] = [];
@@ -89,6 +96,14 @@ export struct NoteCanvasView {
       const loaded = await this.persistence.loadElements(this.noteId);
       this.completedStrokes = loaded.strokes;
       this.textBlocks = loaded.textBlocks;
+      // T-034：恢复视口（zoom/scroll）
+      const noteRepo = new NoteRepositoryImpl(db);
+      const state = await noteRepo.getViewState(this.noteId);
+      if (state !== null && state.zoom > 0) {
+        this.viewport.setZoom(state.zoom);
+        this.viewport.setScroll(state.scrollOffsetX, state.scrollOffsetY);
+        this.zoomPercent = Math.round(state.zoom * 100);
+      }
       this.loaded = true;
       if (this.layerManager.isInitialized()) {
         this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
@@ -139,6 +154,7 @@ export struct NoteCanvasView {
   }
 
   // === 每帧渲染（背景 + 已完成层 + 当前笔画 + 文本框）===
+  // T-034：视口变换（translate + scale）后以画布坐标绘制，背景铺满视口可见区
   private renderFrame(): void {
     if (!this.layerManager.isInitialized()) {
       return;
@@ -147,8 +163,10 @@ export struct NoteCanvasView {
     const h: number = this.canvasCtx.height;
     this.canvasCtx.save();
     this.canvasCtx.clearRect(0, 0, w, h);
-    this.paperRenderer.renderBackground(this.canvasCtx, w, h, this.currentPage.template as PaperTemplate);
-    this.canvasCtx.restore();
+    this.canvasCtx.translate(this.viewport.scrollX, this.viewport.scrollY);
+    this.canvasCtx.scale(this.viewport.zoom, this.viewport.zoom);
+    this.paperRenderer.renderBackground(this.canvasCtx, w / this.viewport.zoom,
+      h / this.viewport.zoom, this.currentPage.template as PaperTemplate, this.viewport.zoom);
     const current: StrokeElementData | null = this.strokeSession !== null && this.strokeSession.isActive()
       ? this.strokeSession.getCurrentStroke() : null;
     this.layerManager.compositeFull(this.canvasCtx, current, this.renderCtx);
@@ -156,6 +174,59 @@ export struct NoteCanvasView {
     for (const t of this.textBlocks) {
       this.textBlockTool.renderText(this.canvasCtx, t);
     }
+    this.canvasCtx.restore();
+  }
+
+  // === T-034：视口操作 ===
+  private onViewportChanged(): void {
+    this.zoomPercent = Math.round(this.viewport.zoom * 100);
+    this.renderFrame();
+    this.scheduleViewportSave();
+  }
+
+  // 缩放/滚动持久化（防抖 500ms）
+  private scheduleViewportSave(): void {
+    if (this.viewportSaveTimer >= 0) {
+      clearTimeout(this.viewportSaveTimer);
+    }
+    this.viewportSaveTimer = setTimeout(() => {
+      this.viewportSaveTimer = -1;
+      this.saveViewportState();
+    }, 500);
+  }
+
+  private async saveViewportState(): Promise<void> {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const db: DatabaseManager = DatabaseManager.getInstance();
+      await db.initialize(context);
+      const noteRepo = new NoteRepositoryImpl(db);
+      await noteRepo.saveViewState({
+        noteId: this.noteId,
+        zoom: this.viewport.zoom,
+        scrollOffsetX: this.viewport.scrollX,
+        scrollOffsetY: this.viewport.scrollY,
+      });
+    } catch (e) {
+      console.error(`saveViewportState failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // 缩放控制条操作
+  private zoomStep(delta: number): void {
+    const w: number = this.canvasCtx.width;
+    const h: number = this.canvasCtx.height;
+    this.viewport.zoomAt(w / 2, h / 2, 1 + delta);
+    this.onViewportChanged();
+  }
+
+  private zoomFitWidth(): void {
+    // 适配宽度：以页面宽度 800 画布坐标（A4 约 794px @2.25dpi）为基准，铺满 85% 宽度
+    const w: number = this.canvasCtx.width;
+    const fit: number = (w * 0.85) / 800;
+    const clamped: number = fit < 0.25 ? 0.25 : (fit > 4.0 ? 4.0 : fit);
+    this.viewport.setZoom(clamped);
+    this.onViewportChanged();
   }
 
   // === 触摸事件 ===
@@ -173,22 +244,29 @@ export struct NoteCanvasView {
     if (event.touches.length === 0) {
       return;
     }
+    // T-034：双指手势接管（捏合缩放/双指平移），单指书写
+    if (event.touches.length > 1) {
+      return;
+    }
     const touch: TouchObject = event.touches[0];
-    // 双击检测（创建文本框）
+    // 双击检测（创建文本框；屏幕坐标距离判断）
     const now: number = Date.now();
     const dx: number = touch.x - this.lastTapPos.x;
     const dy: number = touch.y - this.lastTapPos.y;
     const dist: number = Math.sqrt(dx * dx + dy * dy);
     if (now - this.lastTapTime < 800 && dist < 10) {  // MVP 放宽到 800ms 便于模拟器验证
       this.lastTapTime = 0;
-      this.createTextBlockAt({ x: touch.x, y: touch.y });
+      this.createTextBlockAt(this.viewport.screenToCanvas(touch.x, touch.y));
       return;
     }
     this.lastTapTime = now;
     this.lastTapPos = { x: touch.x, y: touch.y };
 
+    // T-034：后续逻辑统一使用画布坐标（视口逆映射）
+    const canvasP: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
+
     // 选区菜单区域：交给 SelectionOverlay 按钮处理，不进入画布逻辑
-    // （避免 Canvas onTouch 触发 rebuild 导致按钮 click 识别失效）
+    // （避免 Canvas onTouch 触发 rebuild 导致按钮 click 识别失效；菜单按钮为屏幕坐标）
     if (this.selectionVisible && this.isInSelectionMenu(touch.x, touch.y)) {
       return;
     }
@@ -201,24 +279,24 @@ export struct NoteCanvasView {
       return;
     }
     if (this.viewModel.isSelectionActive()) {
-      // 已选中且按下点在选区内 → 拖拽移动
+      // 已选中且按下点在选区内 → 拖拽移动（画布坐标）
       hilog.info(0x0001, 'NoteCanvasView', 'selDown visible=%{public}s x=%{public}f y=%{public}f rect=(%{public}f,%{public}f,%{public}f,%{public}f)',
         this.selectionVisible.toString(), touch.x, touch.y, this.selectionRect.left,
         this.selectionRect.top, this.selectionRect.right, this.selectionRect.bottom);
-      if (this.selectionVisible && this.pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)) {
+      if (this.selectionVisible && this.pointInRect(canvasP, this.selectionRect)) {
         hilog.info(0x0001, 'NoteCanvasView', 'selection drag start at (%{public}f,%{public}f) rect=(%{public}f,%{public}f)-(%{public}f,%{public}f)',
-          touch.x, touch.y, this.selectionRect.left, this.selectionRect.top,
+          canvasP.x, canvasP.y, this.selectionRect.left, this.selectionRect.top,
           this.selectionRect.right, this.selectionRect.bottom);
         this.selectionDrag = true;
         this.dragBeforeStrokes = this.completedStrokes.slice();
-        this.lastDragPoint = { x: touch.x, y: touch.y };
+        this.lastDragPoint = { x: canvasP.x, y: canvasP.y };
       } else {
         hilog.info(0x0001, 'NoteCanvasView', 'selection begin at (%{public}f,%{public}f) visible=%{public}s',
-          touch.x, touch.y, this.selectionVisible.toString());
+          canvasP.x, canvasP.y, this.selectionVisible.toString());
         this.selectionDrawing = true;
         this.selectionTool.beginSelection(
           this.viewModel.selectionIsFreehand ? SelectionMode.LASSO : SelectionMode.RECTANGLE,
-          { x: touch.x, y: touch.y });
+          canvasP);
         this.selectionVisible = false;
       }
       this.isDrawing = true;
@@ -243,6 +321,10 @@ export struct NoteCanvasView {
     if (!this.isDrawing) {
       return;
     }
+    // T-034：双指手势接管
+    if (event.touches.length > 1) {
+      return;
+    }
     if (this.eraserActive) {
       for (const t of event.touches) {
         this.collectEraserPoint(t);
@@ -251,14 +333,16 @@ export struct NoteCanvasView {
     }
     if (this.selectionDrawing) {
       const touch: TouchObject = event.touches[0];
-      this.selectionTool.updateSelection({ x: touch.x, y: touch.y });
+      const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
+      this.selectionTool.updateSelection(p);
       return;
     }
     if (this.selectionDrag) {
       const touch: TouchObject = event.touches[0];
-      const dx: number = touch.x - this.lastDragPoint.x;
-      const dy: number = touch.y - this.lastDragPoint.y;
-      this.lastDragPoint = { x: touch.x, y: touch.y };
+      const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
+      const dx: number = p.x - this.lastDragPoint.x;
+      const dy: number = p.y - this.lastDragPoint.y;
+      this.lastDragPoint = { x: p.x, y: p.y };
       this.selectionTool.moveSelected(dx, dy);
       this.applySelectionTransform(false, false);  // 移动中不 push undo（结束时统一 push）
       return;
@@ -541,7 +625,10 @@ export struct NoteCanvasView {
       }
     }
     if (rect !== null) {
-      this.selectionRect = rect;
+      // T-034：画布坐标 → 屏幕坐标（覆盖层 position 用屏幕坐标）
+      const tl: Point2D = this.viewport.canvasToScreen(rect.left, rect.top);
+      const br: Point2D = this.viewport.canvasToScreen(rect.right, rect.bottom);
+      this.selectionRect = { left: tl.x, top: tl.y, right: br.x, bottom: br.y };
       this.selectionVisible = true;
     }
   }
@@ -707,6 +794,7 @@ export struct NoteCanvasView {
   }
 
   // 判断点击位置是否在选区菜单按钮区域（菜单按钮在选区下方；T-033 单按钮 + bindMenu）
+  // T-034：selectionRect 已转换为屏幕坐标，入参为屏幕坐标
   private isInSelectionMenu(x: number, y: number): boolean {
     const menuTop: number = this.selectionRect.bottom + 8;
     const menuBottom: number = menuTop + 48;
@@ -763,12 +851,14 @@ export struct NoteCanvasView {
   }
 
   // === TouchPoint → RawPointerEvent 转换 ===
+  // T-034：坐标经视口逆映射（屏幕 → 画布）
   private toRawPointerEvent(touch: TouchObject, isHistorical: boolean): RawPointerEvent {
     const rawPressure: number = touch.pressure !== undefined ? touch.pressure : 0;
     const pressure: number = rawPressure > 0 ? rawPressure / 65535 : 0;
+    const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
     return {
-      x: touch.x,
-      y: touch.y,
+      x: p.x,
+      y: p.y,
       pressure: pressure,
       tiltRadians: 0,
       orientationRadians: 0,
@@ -790,6 +880,39 @@ export struct NoteCanvasView {
         .onTouch((event: TouchEvent) => {
           this.onCanvasTouch(event);
         })
+        // T-034：双指捏合缩放 + 双指平移（与单指书写互斥：onTouch 中 touches>1 时忽略）
+        .gesture(
+          GestureGroup(GestureMode.Exclusive,
+            GestureGroup(GestureMode.Parallel,
+              PinchGesture({ fingers: 2 })
+                .onActionUpdate((event: GestureEvent) => {
+                  const scale: number = event.scale !== undefined ? event.scale : 1.0;
+                  const cx: number = event.fingerList !== undefined && event.fingerList.length > 0
+                    ? (event.fingerList[0].localX + event.fingerList[event.fingerList.length - 1].localX) / 2
+                    : this.canvasCtx.width / 2;
+                  const cy: number = event.fingerList !== undefined && event.fingerList.length > 0
+                    ? (event.fingerList[0].localY + event.fingerList[event.fingerList.length - 1].localY) / 2
+                    : this.canvasCtx.height / 2;
+                  // PinchGesture scale 为累计值；用相对上一帧的增量
+                  const last: number = this.pinchLastScale >= 0 ? this.pinchLastScale : 1.0;
+                  const factor: number = last > 0 ? scale / last : 1.0;
+                  this.pinchLastScale = scale;
+                  this.viewport.zoomAt(cx, cy, factor);
+                  this.onViewportChanged();
+                })
+                .onActionEnd(() => {
+                  this.pinchLastScale = -1;
+                }),
+              PanGesture({ fingers: 2 })
+                .onActionUpdate((event: GestureEvent) => {
+                  if (event.offsetX !== undefined && event.offsetY !== undefined) {
+                    this.viewport.panBy(event.offsetX, event.offsetY);
+                    this.onViewportChanged();
+                  }
+                }),
+            ),
+          ),
+        )
       // 选区覆盖层（虚线边框 + 菜单）
       SelectionOverlay({
         selectionRect: this.selectionRect,
@@ -809,6 +932,39 @@ export struct NoteCanvasView {
           this.onTextCancel();
         },
       })
+      // T-034：缩放控制条（右下角；left/bottom 定位不依赖 canvasCtx.height 初始化时机）
+      Row() {
+        Button('-')
+          .width(40)
+          .height(36)
+          .fontSize(18)
+          .onClick(() => {
+            this.zoomStep(-0.25);
+          })
+        Text(this.zoomPercent.toString() + '%')
+          .fontSize(14)
+          .width(64)
+          .textAlign(TextAlign.Center)
+        Button('+')
+          .width(40)
+          .height(36)
+          .fontSize(18)
+          .onClick(() => {
+            this.zoomStep(0.25);
+          })
+        Button('适应宽度')
+          .height(36)
+          .fontSize(12)
+          .margin({ left: 8 })
+          .onClick(() => {
+            this.zoomFitWidth();
+          })
+      }
+      .align(Alignment.BottomStart)
+      .margin({ left: 16, bottom: 68 })  // 避开底部 PageManagerBar（56vp）
+      .backgroundColor('#F2F2F2')
+      .borderRadius(8)
+      .padding({ left: 4, right: 4 })
     }
     .width('100%')
     .height('100%')
