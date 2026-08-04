@@ -165,10 +165,11 @@ struct NotePage {
           .textAlign(TextAlign.Center)
       }
 
-      // 页面管理条（56vp 底部）
+      // 页面管理条（56vp 底部；T-037 页面设置）
       PageManagerBar({
         currentPageIndex: this.currentPageIndex,
         pageCount: this.pages.length,
+        currentPage: this.pages[this.currentPageIndex],
         onPrev: () => {
           if (this.currentPageIndex > 0) {
             this.currentPageIndex--;
@@ -185,10 +186,24 @@ struct NotePage {
         onDelete: () => {
           this.deleteCurrentPage();
         },
+        onApplyPage: (page: PageInfo) => {
+          this.applyPageSettings(page);
+        },
       })
     }
     .width('100%')
     .height('100%')
+  }
+
+  // T-037：应用页面设置（模板/尺寸/方向 → updatePage 持久化 + 更新当前页）
+  private async applyPageSettings(page: PageInfo): Promise<void> {
+    if (this.pageRepo === null) {
+      return;
+    }
+    await this.pageRepo.updatePage(page);
+    const updated: PageInfo[] = this.pages.slice();
+    updated[this.currentPageIndex] = page;
+    this.pages = updated;
   }
 
   private async addPage(): Promise<void> {
