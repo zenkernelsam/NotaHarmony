@@ -1,11 +1,15 @@
 // T-018 资料库页面（侧栏 + 笔记网格 + 响应式断点 600/840/952/1400 + 新建/删除/搜索）
+// T-035：缩略图 + 排序（bindMenu + Preferences 持久化）
 import { router } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
+import { preferences } from '@kit.ArkData';
 import { NoteMeta } from '../../core/model/NoteTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
-import { LibraryViewModel } from './LibraryViewModel';
+import { StrokePersistence } from '../../data/StrokePersistence';
+import { ThumbnailRenderer } from '../../rendering/ThumbnailRenderer';
+import { LibraryViewModel, NoteSortMode } from './LibraryViewModel';
 
 @Entry
 @Component
@@ -17,7 +21,14 @@ struct LibraryPage {
   // === 数据状态 ===
   @State viewModel: LibraryViewModel | null = null;
   @State searchText: string = '';
+  // T-035：缩略图——@State 数组驱动 UI 刷新（Builder 中 Map 方法依赖收集不可靠）
+  @State thumbIds: string[] = [];
+  private thumbMap: Map<string, PixelMap> = new Map<string, PixelMap>();
   private noteRepo: NoteRepositoryImpl | null = null;
+  private persistence: StrokePersistence = new StrokePersistence();
+  private thumbRenderer: ThumbnailRenderer = new ThumbnailRenderer();
+  private db: DatabaseManager = DatabaseManager.getInstance();
+  private readonly PREF_SORT_KEY: string = 'library_sort_mode';
 
   aboutToAppear(): void {
     this.initData();
@@ -29,15 +40,59 @@ struct LibraryPage {
     });
   }
 
+  // T-035：异步渲染全部缩略图（空笔记跳过）
+  private async refreshThumbnails(): Promise<void> {
+    if (this.viewModel === null) {
+      return;
+    }
+    const newMap: Map<string, PixelMap> = new Map<string, PixelMap>();
+    for (const note of this.viewModel.notes) {
+      const pm: PixelMap | null = await this.thumbRenderer.renderThumbnail(note.id,
+        this.persistence);
+      if (pm !== null) {
+        newMap.set(note.id, pm);
+      }
+    }
+    this.thumbMap = newMap;
+    this.thumbIds = Array.from(newMap.keys());
+    console.info(`LibraryPage: thumbs refreshed size=${newMap.size}`);
+  }
+
+  // T-035：排序切换 + Preferences 持久化
+  private setSortMode(mode: NoteSortMode): void {
+    if (this.viewModel === null) {
+      return;
+    }
+    this.viewModel.setSortMode(mode);
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      preferences.getPreferences(context, 'library_prefs').then((pref: preferences.Preferences) => {
+        pref.putSync(this.PREF_SORT_KEY, mode);
+        pref.flush().catch((e: BusinessError) => {
+          console.error(`save sort pref flush failed: ${e.code}`);
+        });
+      }).catch((e: BusinessError) => {
+        console.error(`save sort pref failed: ${e.code}`);
+      });
+    } catch (e) {
+      console.error(`setSortMode failed: ${JSON.stringify(e)}`);
+    }
+  }
+
   private async initData(): Promise<void> {
     try {
       const context = getContext(this) as common.UIAbilityContext;
-      const db: DatabaseManager = DatabaseManager.getInstance();
-      await db.initialize(context);
-      this.noteRepo = new NoteRepositoryImpl(db);
+      await this.db.initialize(context);
+      this.persistence.initialize(this.db);
+      this.noteRepo = new NoteRepositoryImpl(this.db);
       const vm: LibraryViewModel = new LibraryViewModel(this.noteRepo);
+      // 恢复排序偏好
+      const pref = await preferences.getPreferences(context, 'library_prefs');
+      const saved: number = pref.getSync(this.PREF_SORT_KEY, 0) as number;
+      vm.sortMode = saved as NoteSortMode;
       await vm.loadNotes();
       this.viewModel = vm;
+      this.refreshThumbnails();
     } catch (e) {
       console.error(`LibraryPage init failed: ${JSON.stringify(e)}`);
     }
@@ -65,7 +120,7 @@ struct LibraryPage {
 
       // 主内容
       Column() {
-        // 搜索栏（48vp）+ 设置入口
+        // 搜索栏（48vp）+ 设置入口 + 排序
         Row() {
           TextInput({ placeholder: 'Search notes' })
             .layoutWeight(1)
@@ -76,6 +131,15 @@ struct LibraryPage {
                 this.viewModel.searchQuery = value;
               }
             })
+          Button('排序')
+            .height(40)
+            .fontSize(13)
+            .margin({ left: 8 })
+            .bindMenu([
+              { value: '最近修改', action: () => { this.setSortMode(NoteSortMode.UPDATED); } },
+              { value: '最近创建', action: () => { this.setSortMode(NoteSortMode.CREATED); } },
+              { value: '标题', action: () => { this.setSortMode(NoteSortMode.TITLE); } },
+            ])
           Button('设置')
             .height(40)
             .margin({ left: 8 })
@@ -89,18 +153,30 @@ struct LibraryPage {
 
         // 笔记网格
         if (this.viewModel !== null) {
-          Grid() {
-            ForEach(this.viewModel.getFilteredNotes(), (note: NoteMeta) => {
-              GridItem() {
-                this.NoteCard(note)
-              }
-            }, (note: NoteMeta) => note.id)
+          if (this.viewModel.getFilteredNotes().length === 0) {
+            // 空结果提示（T-035）
+            Column() {
+              Text('无匹配笔记')
+                .fontSize(16)
+                .fontColor('#999999')
+            }
+            .width('100%')
+            .layoutWeight(1)
+            .justifyContent(FlexAlign.Center)
+          } else {
+            Grid() {
+              ForEach(this.viewModel.getFilteredNotes(), (note: NoteMeta) => {
+                GridItem() {
+                  this.NoteCard(note)
+                }
+              }, (note: NoteMeta) => note.id)
+            }
+            .columnsTemplate('1fr '.repeat(this.columns))
+            .columnsGap(16)
+            .rowsGap(16)
+            .padding(16)
+            .layoutWeight(1)
           }
-          .columnsTemplate('1fr '.repeat(this.columns))
-          .columnsGap(16)
-          .rowsGap(16)
-          .padding(16)
-          .layoutWeight(1)
         } else {
           Text('Loading...').fontSize(16).layoutWeight(1)
         }
@@ -134,12 +210,20 @@ struct LibraryPage {
   @Builder
   NoteCard(note: NoteMeta) {
     Column() {
-      // 缩略图占位（灰色矩形）
-      Column()
-        .width('100%')
-        .layoutWeight(1)
-        .backgroundColor('#E0E0E0')
-        .borderRadius(8)
+      // 缩略图（T-035：@State thumbIds 驱动；无缩略图时灰色占位）
+      if (this.thumbIds.indexOf(note.id) >= 0) {
+        Image(this.thumbMap.get(note.id))
+          .width('100%')
+          .layoutWeight(1)
+          .objectFit(ImageFit.Cover)
+          .borderRadius(8)
+      } else {
+        Column()
+          .width('100%')
+          .layoutWeight(1)
+          .backgroundColor('#E0E0E0')
+          .borderRadius(8)
+      }
       Text(note.title)
         .fontSize(14)
         .maxLines(1)
@@ -185,6 +269,9 @@ struct LibraryPage {
         action: () => {
           if (this.viewModel !== null) {
             this.viewModel.deleteNote(note.id);
+            // T-035：删除后刷新缩略图缓存
+            this.thumbRenderer.clearCache();
+            this.refreshThumbnails();
           }
         },
       },
