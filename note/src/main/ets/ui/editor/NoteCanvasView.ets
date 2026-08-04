@@ -28,6 +28,8 @@ import { PageInfo, PaperTemplate } from '../../core/model/NoteTypes';
 import { EditorViewModel } from './EditorViewModel';
 import { SelectionOverlay, SelectionMenuAction } from '../components/SelectionOverlay';
 import { TextBlockOverlay } from '../components/TextBlockOverlay';
+import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
+import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
 @Component
 export struct NoteCanvasView {
@@ -63,6 +65,9 @@ export struct NoteCanvasView {
   private viewportSaveTimer: number = -1;   // 防抖定时器
   private pinchLastScale: number = -1;      // 捏合累计缩放（手势增量换算）
   @State zoomPercent: number = 100;         // 控制条显示（100 = 100%）
+  // T-038：主题状态
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
 
   // === 画布状态 ===
   private completedStrokes: StrokeElementData[] = [];
@@ -165,8 +170,10 @@ export struct NoteCanvasView {
     this.canvasCtx.clearRect(0, 0, w, h);
     this.canvasCtx.translate(this.viewport.scrollX, this.viewport.scrollY);
     this.canvasCtx.scale(this.viewport.zoom, this.viewport.zoom);
+    // T-038：纸张底色/线色随主题
+    const theme: ThemeTokens = ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
     this.paperRenderer.renderBackground(this.canvasCtx, w / this.viewport.zoom,
-      h / this.viewport.zoom, this.currentPage.template as PaperTemplate, this.viewport.zoom);
+      h / this.viewport.zoom, this.currentPage.template as PaperTemplate, this.viewport.zoom, theme);
     const current: StrokeElementData | null = this.strokeSession !== null && this.strokeSession.isActive()
       ? this.strokeSession.getCurrentStroke() : null;
     this.layerManager.compositeFull(this.canvasCtx, current, this.renderCtx);

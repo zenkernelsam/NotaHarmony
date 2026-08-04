@@ -1,6 +1,8 @@
 // T-020 页面管理条（上一页/下一页/添加/删除；T-037 模板设置入口）
 import { PageInfo } from '../../core/model/NoteTypes';
 import { PageSettingsPanel } from '../components/PageSettingsPanel';
+import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
+import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
 // bindPopup onStateChange 事件类型
 interface PopupStateChangeEvent {
@@ -13,6 +15,13 @@ export struct PageManagerBar {
   @Prop pageCount: number = 1;
   @Prop currentPage: PageInfo = { pageId: '', size: 1, template: 0, orientation: 0, widthMm: 210, heightMm: 297 };
   @State showSettings: boolean = false;
+  // T-038：主题状态
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+
+  private get tokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
   onPrev: () => void = () => {
   };
   onNext: () => void = () => {
@@ -91,6 +100,6 @@ export struct PageManagerBar {
     }
     .width('100%')
     .height(56)
-    .backgroundColor('#F8F8F8')
+    .backgroundColor(this.tokens.surface)
   }
 }

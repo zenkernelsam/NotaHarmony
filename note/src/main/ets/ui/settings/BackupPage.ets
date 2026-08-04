@@ -10,6 +10,8 @@ import { NoteExporter } from '../../data/NoteExporter';
 import { NoteImporter, ImportReport, ImportResult } from '../../data/NoteImporter';
 import { WebDAVClient, WebDAVConfig, WebDAVFileInfo } from '../../data/WebDAVClient';
 import { WebDAVConfigStore } from '../../data/WebDAVConfigStore';
+import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
+import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
 @Entry
 @Component
@@ -24,6 +26,13 @@ struct BackupPage {
   private db: DatabaseManager = DatabaseManager.getInstance();
   private persistence: StrokePersistence = new StrokePersistence();
   private config: WebDAVConfig = { serverUrl: '', username: '', password: '', backupPath: '/nota-backup/' };
+  // T-038：主题状态
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+
+  private get tokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
 
   aboutToAppear(): void {
     this.init();
@@ -221,6 +230,7 @@ struct BackupPage {
       Text('备份与同步')
         .fontSize(24)
         .fontWeight(FontWeight.Bold)
+        .fontColor(this.tokens.textPrimary)
         .margin({ top: 24, bottom: 16 })
 
       Scroll() {
@@ -288,5 +298,6 @@ struct BackupPage {
     }
     .width('100%')
     .height('100%')
+    .backgroundColor(this.tokens.background)
   }
 }

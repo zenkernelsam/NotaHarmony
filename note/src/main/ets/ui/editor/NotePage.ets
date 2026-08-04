@@ -11,6 +11,8 @@ import { EditorViewModel } from './EditorViewModel';
 import { EditorToolbar } from './EditorToolbar';
 import { NoteCanvasView } from './NoteCanvasView';
 import { PageManagerBar } from './PageManagerBar';
+import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
+import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
 @Entry
 @Component
@@ -28,6 +30,13 @@ struct NotePage {
   @State titleDraft: string = '';
   private noteRepo: NoteRepositoryImpl | null = null;
   private pageRepo: PageRepositoryImpl | null = null;
+  // T-038：主题状态
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+
+  private get tokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
 
   aboutToAppear(): void {
     const params = router.getParams() as Record<string, string>;
@@ -116,6 +125,7 @@ struct NotePage {
           Text(this.noteTitle.length > 0 ? this.noteTitle : '未命名笔记')
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
+            .fontColor(this.tokens.textPrimary)
             .margin({ left: 12 })
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -128,7 +138,7 @@ struct NotePage {
       .width('100%')
       .height(48)
       .padding({ left: 8, right: 8 })
-      .backgroundColor('#F0F0F0')
+      .backgroundColor(this.tokens.surface)
 
       // 工具栏
       EditorToolbar({
@@ -193,6 +203,7 @@ struct NotePage {
     }
     .width('100%')
     .height('100%')
+    .backgroundColor(this.tokens.background)
   }
 
   // T-037：应用页面设置（模板/尺寸/方向 → updatePage 持久化 + 更新当前页）

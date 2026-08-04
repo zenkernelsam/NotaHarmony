@@ -1,8 +1,11 @@
 // T-019 编辑器工具栏（工具切换 + 颜色/粗细面板 + Undo/Redo 占位）
+// T-038：工具栏 surface 随主题
 import { ToolType } from '../../core/model/BrushTypes';
 import { EditorViewModel } from './EditorViewModel';
 import { ColorPickerView } from '../components/ColorPicker';
 import { WidthSlider } from '../components/WidthSlider';
+import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
+import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
 @Component
 export struct EditorToolbar {
@@ -14,6 +17,13 @@ export struct EditorToolbar {
   };
   @Prop canUndo: boolean = false;
   @Prop canRedo: boolean = false;
+  // T-038：主题状态
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+
+  private get tokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
 
   build() {
     Column() {
@@ -75,7 +85,7 @@ export struct EditorToolbar {
       .width('100%')
       .height(48)
       .padding({ left: 8, right: 8 })
-      .backgroundColor('#F8F8F8')
+      .backgroundColor(this.tokens.surface)
 
       // 弹层（颜色/粗细面板）
       if (this.viewModel.showColorPicker) {

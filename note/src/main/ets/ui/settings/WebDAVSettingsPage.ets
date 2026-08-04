@@ -3,6 +3,8 @@ import { promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { WebDAVClient, WebDAVConfig, ConnectionResult } from '../../data/WebDAVClient';
 import { WebDAVConfigStore } from '../../data/WebDAVConfigStore';
+import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
+import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
 @Entry
 @Component
@@ -13,6 +15,13 @@ struct WebDAVSettingsPage {
   @State backupPath: string = '/nota-backup/';
   @State isTesting: boolean = false;
   @State testResult: string = '';
+  // T-038：主题状态
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+
+  private get tokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
 
   aboutToAppear(): void {
     this.loadConfig();
@@ -93,6 +102,7 @@ struct WebDAVSettingsPage {
       Text('WebDAV 配置')
         .fontSize(24)
         .fontWeight(FontWeight.Bold)
+        .fontColor(this.tokens.textPrimary)
         .margin({ top: 24, bottom: 16 })
 
       TextInput({ placeholder: 'https://dav.example.com', text: this.serverUrl })
@@ -149,5 +159,6 @@ struct WebDAVSettingsPage {
     }
     .width('100%')
     .height('100%')
+    .backgroundColor(this.tokens.background)
   }
 }

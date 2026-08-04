@@ -2,7 +2,7 @@
 // T-035：缩略图 + 排序（bindMenu + Preferences 持久化）
 import { router } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
-import { common } from '@kit.AbilityKit';
+import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { NoteMeta } from '../../core/model/NoteTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
@@ -10,6 +10,8 @@ import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { StrokePersistence } from '../../data/StrokePersistence';
 import { ThumbnailRenderer } from '../../rendering/ThumbnailRenderer';
 import { LibraryViewModel, NoteSortMode } from './LibraryViewModel';
+import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
+import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
 @Entry
 @Component
@@ -29,6 +31,14 @@ struct LibraryPage {
   private thumbRenderer: ThumbnailRenderer = new ThumbnailRenderer();
   private db: DatabaseManager = DatabaseManager.getInstance();
   private readonly PREF_SORT_KEY: string = 'library_sort_mode';
+  private readonly PREF_THEME_KEY: string = 'theme_mode';
+  // T-038：主题状态
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+
+  private get tokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
 
   aboutToAppear(): void {
     this.initData();
@@ -82,6 +92,12 @@ struct LibraryPage {
   private async initData(): Promise<void> {
     try {
       const context = getContext(this) as common.UIAbilityContext;
+      ThemeStore.init();
+      // T-038：恢复主题偏好 + 检测系统色模式
+      const themePref = await preferences.getPreferences(context, 'library_prefs');
+      const savedTheme: string = themePref.getSync(this.PREF_THEME_KEY, 'system') as string;
+      ThemeStore.setMode(savedTheme as ThemeMode);
+      this.detectSystemDark(context);
       await this.db.initialize(context);
       this.persistence.initialize(this.db);
       this.noteRepo = new NoteRepositoryImpl(this.db);
@@ -95,6 +111,39 @@ struct LibraryPage {
       this.refreshThumbnails();
     } catch (e) {
       console.error(`LibraryPage init failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // T-038：系统色模式检测（ConfigurationConstant.ColorMode）
+  private detectSystemDark(context: common.UIAbilityContext): void {
+    try {
+      const config = context.config;
+      ThemeStore.setSystemDark(config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    } catch (e) {
+      ThemeStore.setSystemDark(false);
+    }
+  }
+
+  // T-038：系统颜色变化监听（@Entry 生命周期；ArkUI Configuration.colorMode 为字符串）
+  onConfigurationUpdate(config: Configuration): void {
+    ThemeStore.setSystemDark(config.colorMode === 'dark');
+  }
+
+  // T-038：主题切换 + 持久化
+  private setThemeMode(mode: ThemeMode): void {
+    ThemeStore.setMode(mode);
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      preferences.getPreferences(context, 'library_prefs').then((pref: preferences.Preferences) => {
+        pref.putSync(this.PREF_THEME_KEY, mode);
+        pref.flush().catch((e: BusinessError) => {
+          console.error(`save theme pref failed: ${e.code}`);
+        });
+      }).catch((e: BusinessError) => {
+        console.error(`save theme pref failed: ${e.code}`);
+      });
+    } catch (e) {
+      console.error(`setThemeMode failed: ${JSON.stringify(e)}`);
     }
   }
 
@@ -139,6 +188,16 @@ struct LibraryPage {
               { value: '最近修改', action: () => { this.setSortMode(NoteSortMode.UPDATED); } },
               { value: '最近创建', action: () => { this.setSortMode(NoteSortMode.CREATED); } },
               { value: '标题', action: () => { this.setSortMode(NoteSortMode.TITLE); } },
+            ])
+          // T-038：主题切换入口
+          Button('主题')
+            .height(40)
+            .fontSize(13)
+            .margin({ left: 8 })
+            .bindMenu([
+              { value: '跟随系统', action: () => { this.setThemeMode('system'); } },
+              { value: '浅色', action: () => { this.setThemeMode('light'); } },
+              { value: '深色', action: () => { this.setThemeMode('dark'); } },
             ])
           Button('设置')
             .height(40)
@@ -186,6 +245,7 @@ struct LibraryPage {
     }
     .width('100%')
     .height('100%')
+    .backgroundColor(this.tokens.background)
     .onAreaChange((_oldArea: Area, newArea: Area) => {
       const widthVp: number = newArea.width as number;
       this.applyBreakpoints(widthVp);
@@ -227,17 +287,18 @@ struct LibraryPage {
       Text(note.title)
         .fontSize(14)
         .maxLines(1)
+        .fontColor(this.tokens.textPrimary)
         .margin({ top: 8 })
       Text(this.formatTime(note.updatedAt))
         .fontSize(12)
-        .fontColor('#888888')
+        .fontColor(this.tokens.textSecondary)
         .margin({ top: 2 })
     }
     .width('100%')
     .height(180)
     .padding(8)
     .borderRadius(12)
-    .backgroundColor(Color.White)
+    .backgroundColor(this.tokens.surface)
     .shadow({ radius: 4, color: '#22000000', offsetY: 2 })
     .onClick(() => {
       router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: note.id } })
