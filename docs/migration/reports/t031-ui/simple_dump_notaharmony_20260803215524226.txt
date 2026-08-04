@@ -1,0 +1,332 @@
+
+-------------------------------[ability]-------------------------------
+
+
+----------------------------------WindowManagerService----------------------------------
+WindowName: notaharmony0
+DisplayId: 0
+WinId: 59
+Pid: 9010
+Type: 1
+Mode: 1
+Flag: 0
+Orientation: 0
+FirstFrameCallbackCalled: 1
+IsVisible: true
+isRSVisible: true
+Focusable: true
+DecoStatus: false
+isPrivacyMode: false
+WindowRect: [ 0, 0, 2560, 1600 ]
+scaleX: 1
+scaleY: 1
+Offset: [ 0, 0 ]
+Scale: [ 1, 1, 0.5, 0.5 ]
+ParentWindowId: 0
+bundleName:com.example.notaharmony
+moduleName:note
+ LastRequestVsyncTime: 6816383137724
+ transactionFlags: [9010,31]
+ last vsyncId: 102250
+ finishCount:[ ]
+  |-> root childSize:1
+    | ID: 0
+    | compid: 
+    | text: 
+    | accessibilityText: 
+    | accessibilityGroup: 0
+    | accessibilityLevel: auto
+    | accessibilityCustomRole: 
+    | top: 0.000000
+    | left: 0.000000
+    | width: 2560.000000
+    | height: 1600.000000
+    | visible: 1
+    | clickable: 0
+    | longclickable: 0
+    | checkable: 0
+    | scrollable: 0
+    | checked: 0
+    | hint: 
+    | childTree: -1
+    |-> Column childSize:2
+      | ID: 118
+      | compid: 
+      | text: 
+      | accessibilityText: 
+      | accessibilityGroup: 0
+      | accessibilityLevel: auto
+      | accessibilityCustomRole: 
+      | top: 87.000000
+      | left: 0.000000
+      | width: 2560.000000
+      | height: 1450.000000
+      | visible: 1
+      | clickable: 0
+      | longclickable: 0
+      | checkable: 0
+      | scrollable: 0
+      | checked: 0
+      | hint: 
+      | childTree: -1
+      |-> Text childSize:0
+          ID: 119
+          compid: 
+          text: 备份与同步
+          accessibilityText: 
+          accessibilityGroup: 0
+          accessibilityLevel: auto
+          accessibilityCustomRole: 
+          top: 141.000000
+          left: 1145.000000
+          width: 270.000000
+          height: 63.000000
+          visible: 1
+          clickable: 0
+          longclickable: 0
+          checkable: 0
+          scrollable: 0
+          checked: 0
+          hint: 
+          childTree: -1
+      |-> Scroll childSize:1
+        | ID: 120
+        | compid: 
+        | text: 
+        | accessibilityText: 
+        | accessibilityGroup: 0
+        | accessibilityLevel: auto
+        | accessibilityCustomRole: 
+        | top: 240.000000
+        | left: 0.000000
+        | width: 2560.000000
+        | height: 1297.000000
+        | visible: 1
+        | clickable: 0
+        | longclickable: 0
+        | checkable: 0
+        | scrollable: 0
+        | checked: 0
+        | hint: 
+        | childTree: -1
+        |-> Column childSize:10
+          | ID: 121
+          | compid: 
+          | text: 
+          | accessibilityText: 
+          | accessibilityGroup: 0
+          | accessibilityLevel: auto
+          | accessibilityCustomRole: 
+          | top: 458.000000
+          | left: 0.000000
+          | width: 2560.000000
+          | height: 862.000000
+          | visible: 1
+          | clickable: 0
+          | longclickable: 0
+          | checkable: 0
+          | scrollable: 0
+          | checked: 0
+          | hint: 
+          | childTree: -1
+          |-> Text childSize:0
+              ID: 122
+              compid: 
+              text: 本地文件
+              accessibilityText: 
+              accessibilityGroup: 0
+              accessibilityLevel: auto
+              accessibilityCustomRole: 
+              top: 458.000000
+              left: 1199.000000
+              width: 162.000000
+              height: 47.000000
+              visible: 1
+              clickable: 0
+              longclickable: 0
+              checkable: 0
+              scrollable: 0
+              checked: 0
+              hint: 
+              childTree: -1
+          |-> Button childSize:0
+              ID: 123
+              compid: 
+              text: 导出全部笔记为 .note
+              accessibilityText: 
+              accessibilityGroup: 0
+              accessibilityLevel: auto
+              accessibilityCustomRole: 
+              top: 523.000000
+              left: 160.000000
+              width: 2240.000000
+              height: 90.000000
+              visible: 1
+              clickable: 1
+              longclickable: 0
+              checkable: 0
+              scrollable: 0
+              checked: 0
+              hint: 
+              childTree: -1
+          |-> Button childSize:0
+              ID: 125
+              compid: 
+              text: 从 .note 文件导入
+              accessibilityText: 
+              accessibilityGroup: 0
+              accessibilityLevel: auto
+              accessibilityCustomRole: 
+              top: 631.000000
+              left: 160.000000
+              width: 2240.000000
+              height: 90.000000
+              visible: 1
+              clickable: 1
+              longclickable: 0
+              checkable: 0
+              scrollable: 0
+              checked: 0
+              hint: 
+              childTree: -1
+          |-> Divider childSize:0
+              ID: 127
+              compid: 
+              text: 
+              accessibilityText: 
+              accessibilityGroup: 0
+              accessibilityLevel: auto
+              accessibilityCustomRole: 
+              top: 757.000000
+              left: 36.000000
+              width: 2488.000000
+              height: 1.000000
+              visible: 1
+              clickable: 0
+              longclickable: 0
+              checkable: 0
+              scrollable: 0
+              checked: 0
+              hint: 
+              childTree: -1
+          |-> Text childSize:0
+              ID: 128
+              compid: 
+              text: WebDAV 云备份
+              accessibilityText: 
+              accessibilityGroup: 0
+              accessibilityLevel: auto
+              accessibilityCustomRole: 
+              top: 794.000000
+              left: 1133.000000
+              width: 295.000000
+              height: 47.000000
+              visible: 1
+              clickable: 0
+              longclickable: 0
+              checkable: 0
+              scrollable: 0
+              checked: 0
+              hint: 
+              childTree: -1
+          |-> Text childSize:0
+              ID: 129
+              compid: 
+              text: 服务器: https://dav.example.com
+              accessibilityText: 
+              accessibilityGroup: 0
+              accessibilityLevel: auto
+              accessibilityCustomRole: 
+              top: 859.000000
+              left: 1052.000000
+              width: 457.000000
+              height: 37.000000
+              visible: 1
+              clickable: 0
+              longclickable: 0
+              checkable: 0
+              scrollable: 0
+              checked: 0
+              hint: 
+              childTree: -1
+          |-> Text childSize:0
+              ID: 130
+              compid: 
+              text: 上次备份: 从未备份
+              accessibilityText: 
+              accessibilityGroup: 0
+              accessibilityLevel: auto
+              accessibilityCustomRole: 
+              top: 905.000000
+              left: 1146.000000
+              width: 269.000000
+              height: 37.000000
+              visible: 1
+              clickable: 0
+              longclickable: 0
+              checkable: 0
+              scrollable: 0
+              checked: 0
+              hint: 
+              childTree: -1
+          |-> Button childSize:0
+              ID: 131
+              compid: 
+              text: 配置 WebDAV
+              accessibilityText: 
+              accessibilityGroup: 0
+              accessibilityLevel: auto
+              accessibilityCustomRole: 
+              top: 960.000000
+              left: 160.000000
+              width: 2240.000000
+              height: 90.000000
+              visible: 1
+              clickable: 1
+              longclickable: 0
+              checkable: 0
+              scrollable: 0
+              checked: 0
+              hint: 
+              childTree: -1
+          |-> Button childSize:0
+              ID: 133
+              compid: 
+              text: 备份全部笔记到云端
+              accessibilityText: 
+              accessibilityGroup: 0
+              accessibilityLevel: auto
+              accessibilityCustomRole: 
+              top: 1068.000000
+              left: 160.000000
+              width: 2240.000000
+              height: 90.000000
+              visible: 1
+              clickable: 1
+              longclickable: 0
+              checkable: 0
+              scrollable: 0
+              checked: 0
+              hint: 
+              childTree: -1
+          |-> Button childSize:0
+              ID: 135
+              compid: 
+              text: 从云端恢复（最近一次备份）
+              accessibilityText: 
+              accessibilityGroup: 0
+              accessibilityLevel: auto
+              accessibilityCustomRole: 
+              top: 1176.000000
+              left: 160.000000
+              width: 2240.000000
+              height: 90.000000
+              visible: 1
+              clickable: 1
+              longclickable: 0
+              checkable: 0
+              scrollable: 0
+              checked: 0
+              hint: 
+              childTree: -1
+

@@ -19,7 +19,8 @@ export struct PageManagerBar {
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
 
-  private get tokens(): ThemeTokens {
+  // 注意：ArkTS 编译器会丢弃 @Component struct 中的自定义 getter，必须用普通方法
+  private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
   }
   onPrev: () => void = () => {
@@ -66,15 +67,9 @@ export struct PageManagerBar {
           this.showSettings = true;
         })
         .bindPopup(this.showSettings, {
-          message: '',
-          builder: () => {
-            PageSettingsPanel({
-              page: this.currentPage,
-              onApply: (page: PageInfo) => {
-                this.showSettings = false;
-                this.onApplyPage(page);
-              },
-            })
+          // T-040 修复：不能同时传 message 与 builder（message 优先，builder 被忽略导致面板不渲染）
+          builder: (): void => {
+            this.PageSettingsBuilder()
           },
           placement: Placement.Top,
           onStateChange: (event: PopupStateChangeEvent) => {
@@ -100,6 +95,18 @@ export struct PageManagerBar {
     }
     .width('100%')
     .height(56)
-    .backgroundColor(this.tokens.surface)
+    .backgroundColor(this.resolveTokens().surface)
+  }
+
+  // T-040 修复：bindPopup 的 builder 必须通过 @Builder 方法承载子组件，普通函数内实例化组件不生效
+  @Builder
+  PageSettingsBuilder() {
+    PageSettingsPanel({
+      page: this.currentPage,
+      onApply: (page: PageInfo) => {
+        this.showSettings = false;
+        this.onApplyPage(page);
+      },
+    })
   }
 }

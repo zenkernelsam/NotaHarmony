@@ -54,12 +54,28 @@ struct LibraryPage {
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
 
-  private get tokens(): ThemeTokens {
+  // 注意：ArkTS 编译器会丢弃 @Component struct 中的自定义 getter（编译产物无定义，运行时为 undefined）
+  // 必须用普通方法形式，否则 build 中访问 this.resolveTokens().xxx 会抛 TypeError
+  private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
   }
 
   aboutToAppear(): void {
     this.initData();
+  }
+
+  // T-040 修复：从编辑器返回时刷新列表（标题/更新时间/缩略图）
+  // 注意：viewModel 是 @State 持有 @Observed 对象，内部属性变化不触发 UI 刷新，必须重新赋值
+  onPageShow(): void {
+    if (this.viewModel !== null) {
+      const vm: LibraryViewModel = this.viewModel;
+      vm.loadNotes().then(() => {
+        this.viewModel = vm;
+        this.refreshThumbnails();
+      }).catch((e: Error) => {
+        console.error(`LibraryPage onPageShow reload failed: ${JSON.stringify(e)}`);
+      });
+    }
   }
 
   private navigateToBackup(): void {
@@ -262,12 +278,12 @@ struct LibraryPage {
           Text('Nota')
             .fontSize(20)
             .fontWeight(FontWeight.Bold)
-            .fontColor(this.tokens.textPrimary)
+            .fontColor(this.resolveTokens().textPrimary)
             .margin({ top: 16, bottom: 12 })
           // 全部笔记
           Text('全部笔记')
             .fontSize(15)
-            .fontColor(this.currentFolderId === null ? this.tokens.accent : this.tokens.textPrimary)
+            .fontColor(this.currentFolderId === null ? this.resolveTokens().accent : this.resolveTokens().textPrimary)
             .fontWeight(this.currentFolderId === null ? FontWeight.Medium : FontWeight.Normal)
             .margin({ top: 4, bottom: 4 })
             .onClick(() => {
@@ -277,7 +293,7 @@ struct LibraryPage {
           ForEach(this.folders, (folder: NoteFolder) => {
             Text(folder.name)
               .fontSize(15)
-              .fontColor(this.currentFolderId === folder.id ? this.tokens.accent : this.tokens.textPrimary)
+              .fontColor(this.currentFolderId === folder.id ? this.resolveTokens().accent : this.resolveTokens().textPrimary)
               .fontWeight(this.currentFolderId === folder.id ? FontWeight.Medium : FontWeight.Normal)
               .margin({ top: 4, bottom: 4 })
               .onClick(() => {
@@ -318,7 +334,7 @@ struct LibraryPage {
         }
         .width(this.sidebarWidth)
         .height('100%')
-        .backgroundColor(this.tokens.surface)
+        .backgroundColor(this.resolveTokens().surface)
         .alignItems(HorizontalAlign.Start)
         .padding({ left: 16, right: 8 })
       }
@@ -330,7 +346,7 @@ struct LibraryPage {
           Row() {
             Text('文件夹：' + this.currentFolderName())
               .fontSize(14)
-              .fontColor(this.tokens.accent)
+              .fontColor(this.resolveTokens().accent)
               .onClick(() => {
                 this.selectFolder(null);
               })
@@ -414,7 +430,7 @@ struct LibraryPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.tokens.background)
+    .backgroundColor(this.resolveTokens().background)
     .onAreaChange((_oldArea: Area, newArea: Area) => {
       const widthVp: number = newArea.width as number;
       this.applyBreakpoints(widthVp);
@@ -456,18 +472,18 @@ struct LibraryPage {
       Text(note.title)
         .fontSize(14)
         .maxLines(1)
-        .fontColor(this.tokens.textPrimary)
+        .fontColor(this.resolveTokens().textPrimary)
         .margin({ top: 8 })
       Text(this.formatTime(note.updatedAt))
         .fontSize(12)
-        .fontColor(this.tokens.textSecondary)
+        .fontColor(this.resolveTokens().textSecondary)
         .margin({ top: 2 })
     }
     .width('100%')
     .height(180)
     .padding(8)
     .borderRadius(12)
-    .backgroundColor(this.tokens.surface)
+    .backgroundColor(this.resolveTokens().surface)
     .shadow({ radius: 4, color: '#22000000', offsetY: 2 })
     .onClick(() => {
       router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: note.id } })

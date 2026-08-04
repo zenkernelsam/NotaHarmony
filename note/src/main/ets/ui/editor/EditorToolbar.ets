@@ -21,7 +21,8 @@ export struct EditorToolbar {
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
 
-  private get tokens(): ThemeTokens {
+  // 注意：ArkTS 编译器会丢弃 @Component struct 中的自定义 getter，必须用普通方法
+  private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
   }
 
@@ -85,7 +86,7 @@ export struct EditorToolbar {
       .width('100%')
       .height(48)
       .padding({ left: 8, right: 8 })
-      .backgroundColor(this.tokens.surface)
+      .backgroundColor(this.resolveTokens().surface)
 
       // 弹层（颜色/粗细面板）
       if (this.viewModel.showColorPicker) {

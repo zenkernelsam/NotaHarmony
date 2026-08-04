@@ -34,7 +34,8 @@ struct NotePage {
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
 
-  private get tokens(): ThemeTokens {
+  // 注意：ArkTS 编译器会丢弃 @Component struct 中的自定义 getter，必须用普通方法
+  private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
   }
 
@@ -44,6 +45,13 @@ struct NotePage {
       this.noteId = params['noteId'];
     }
     this.loadPages();
+  }
+
+  // T-040 修复：路由返回时 TextInput 的 onBlur 不保证触发，必须在页面销毁时兜底保存标题
+  aboutToDisappear(): void {
+    if (this.editingTitle) {
+      this.saveTitle();
+    }
   }
 
   private async loadPages(): Promise<void> {
@@ -102,7 +110,11 @@ struct NotePage {
         Button('← Back')
           .height(36)
           .fontSize(14)
-          .onClick(() => {
+          .onClick(async () => {
+            // T-040 修复：先等待标题保存完成再返回，避免与 LibraryPage onPageShow 刷新竞态
+            if (this.editingTitle) {
+              await this.saveTitle();
+            }
             router.back();
           })
         if (this.editingTitle) {
@@ -125,7 +137,7 @@ struct NotePage {
           Text(this.noteTitle.length > 0 ? this.noteTitle : '未命名笔记')
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
-            .fontColor(this.tokens.textPrimary)
+            .fontColor(this.resolveTokens().textPrimary)
             .margin({ left: 12 })
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -138,7 +150,7 @@ struct NotePage {
       .width('100%')
       .height(48)
       .padding({ left: 8, right: 8 })
-      .backgroundColor(this.tokens.surface)
+      .backgroundColor(this.resolveTokens().surface)
 
       // 工具栏
       EditorToolbar({
@@ -203,7 +215,7 @@ struct NotePage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.tokens.background)
+    .backgroundColor(this.resolveTokens().background)
   }
 
   // T-037：应用页面设置（模板/尺寸/方向 → updatePage 持久化 + 更新当前页）

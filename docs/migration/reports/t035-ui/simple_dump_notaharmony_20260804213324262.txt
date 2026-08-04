@@ -1,0 +1,1212 @@
+
+-------------------------------[ability]-------------------------------
+
+
+----------------------------------WindowManagerService----------------------------------
+WindowName: notaharmony0
+DisplayId: 0
+WinId: 74
+Pid: 4588
+Type: 1
+Mode: 1
+Flag: 0
+Orientation: 0
+FirstFrameCallbackCalled: 1
+IsVisible: true
+isRSVisible: true
+Focusable: true
+DecoStatus: false
+isPrivacyMode: false
+WindowRect: [ 0, 0, 2560, 1600 ]
+scaleX: 1
+scaleY: 1
+Offset: [ 0, 0 ]
+Scale: [ 1, 1, 0.5, 0.5 ]
+ParentWindowId: 0
+bundleName:com.example.notaharmony
+moduleName:note
+ LastRequestVsyncTime: 91898904087441
+ transactionFlags: [4588,24]
+ last vsyncId: 108650
+ finishCount:[ ]
+  |-> root childSize:1
+    | ID: 0
+    | compid: 
+    | text: 
+    | accessibilityText: 
+    | accessibilityGroup: 0
+    | accessibilityLevel: auto
+    | accessibilityCustomRole: 
+    | top: 0.000000
+    | left: 0.000000
+    | width: 2560.000000
+    | height: 1600.000000
+    | visible: 1
+    | clickable: 0
+    | longclickable: 0
+    | checkable: 0
+    | scrollable: 0
+    | checked: 0
+    | hint: 
+    | childTree: -1
+    |-> Row childSize:3
+      | ID: 8
+      | compid: 
+      | text: 
+      | accessibilityText: 
+      | accessibilityGroup: 0
+      | accessibilityLevel: auto
+      | accessibilityCustomRole: 
+      | top: 87.000000
+      | left: 0.000000
+      | width: 2560.000000
+      | height: 1450.000000
+      | visible: 1
+      | clickable: 0
+      | longclickable: 0
+      | checkable: 0
+      | scrollable: 0
+      | checked: 0
+      | hint: 
+      | childTree: -1
+      |-> Column childSize:4
+        | ID: 21
+        | compid: 
+        | text: 
+        | accessibilityText: 
+        | accessibilityGroup: 0
+        | accessibilityLevel: auto
+        | accessibilityCustomRole: 
+        | top: 87.000000
+        | left: 0.000000
+        | width: 747.000000
+        | height: 1450.000000
+        | visible: 1
+        | clickable: 0
+        | longclickable: 0
+        | checkable: 0
+        | scrollable: 0
+        | checked: 0
+        | hint: 
+        | childTree: -1
+        |-> Text childSize:0
+            ID: 22
+            compid: 
+            text: Nota
+            accessibilityText: 
+            accessibilityGroup: 0
+            accessibilityLevel: auto
+            accessibilityCustomRole: 
+            top: 123.000000
+            left: 36.000000
+            width: 106.000000
+            height: 53.000000
+            visible: 1
+            clickable: 0
+            longclickable: 0
+            checkable: 0
+            scrollable: 0
+            checked: 0
+            hint: 
+            childTree: -1
+        |-> Text childSize:0
+            ID: 23
+            compid: 
+            text: Home
+            accessibilityText: 
+            accessibilityGroup: 0
+            accessibilityLevel: auto
+            accessibilityCustomRole: 
+            top: 230.000000
+            left: 36.000000
+            width: 99.000000
+            height: 42.000000
+            visible: 1
+            clickable: 0
+            longclickable: 0
+            checkable: 0
+            scrollable: 0
+            checked: 0
+            hint: 
+            childTree: -1
+        |-> Text childSize:0
+            ID: 24
+            compid: 
+            text: Notes
+            accessibilityText: 
+            accessibilityGroup: 0
+            accessibilityLevel: auto
+            accessibilityCustomRole: 
+            top: 308.000000
+            left: 36.000000
+            width: 98.000000
+            height: 42.000000
+            visible: 1
+            clickable: 0
+            longclickable: 0
+            checkable: 0
+            scrollable: 0
+            checked: 0
+            hint: 
+            childTree: -1
+        |-> Text childSize:0
+            ID: 25
+            compid: 
+            text: Folders
+            accessibilityText: 
+            accessibilityGroup: 0
+            accessibilityLevel: auto
+            accessibilityCustomRole: 
+            top: 386.000000
+            left: 36.000000
+            width: 121.000000
+            height: 42.000000
+            visible: 1
+            clickable: 0
+            longclickable: 0
+            checkable: 0
+            scrollable: 0
+            checked: 0
+            hint: 
+            childTree: -1
+      |-> Column childSize:2
+        | ID: 12
+        | compid: 
+        | text: 
+        | accessibilityText: 
+        | accessibilityGroup: 0
+        | accessibilityLevel: auto
+        | accessibilityCustomRole: 
+        | top: 87.000000
+        | left: 747.000000
+        | width: 1813.000000
+        | height: 1450.000000
+        | visible: 1
+        | clickable: 0
+        | longclickable: 0
+        | checkable: 0
+        | scrollable: 0
+        | checked: 0
+        | hint: 
+        | childTree: -1
+        |-> Row childSize:3
+          | ID: 13
+          | compid: 
+          | text: 
+          | accessibilityText: 
+          | accessibilityGroup: 0
+          | accessibilityLevel: auto
+          | accessibilityCustomRole: 
+          | top: 87.000000
+          | left: 747.000000
+          | width: 1813.000000
+          | height: 108.000000
+          | visible: 1
+          | clickable: 0
+          | longclickable: 0
+          | checkable: 0
+          | scrollable: 0
+          | checked: 0
+          | hint: 
+          | childTree: -1
+          |-> TextInput childSize:0
+              ID: 14
+              compid: 
+              text: 
+              accessibilityText: 
+              accessibilityGroup: 0
+              accessibilityLevel: auto
+              accessibilityCustomRole: 
+              top: 96.000000
+              left: 783.000000
+              width: 1429.000000
+              height: 90.000000
+              visible: 1
+              clickable: 1
+              longclickable: 1
+              checkable: 0
+              scrollable: 1
+              checked: 0
+              hint: Search notes
+              childTree: -1
+          |-> Button childSize:0
+              ID: 15
+              compid: 
+              text: 排序
+              accessibilityText: 
+              accessibilityGroup: 0
+              accessibilityLevel: auto
+              accessibilityCustomRole: 
+              top: 96.000000
+              left: 2230.000000
+              width: 131.000000
+              height: 90.000000
+              visible: 1
+              clickable: 1
+              longclickable: 0
+              checkable: 0
+              scrollable: 0
+              checked: 0
+              hint: 
+              childTree: -1
+          |-> Button childSize:0
+              ID: 17
+              compid: 
+              text: 设置
+              accessibilityText: 
+              accessibilityGroup: 0
+              accessibilityLevel: auto
+              accessibilityCustomRole: 
+              top: 96.000000
+              left: 2379.000000
+              width: 145.000000
+              height: 90.000000
+              visible: 1
+              clickable: 1
+              longclickable: 0
+              checkable: 0
+              scrollable: 0
+              checked: 0
+              hint: 
+              childTree: -1
+        |-> Grid childSize:9
+          | ID: 27
+          | compid: 
+          | text: 
+          | accessibilityText: 
+          | accessibilityGroup: 0
+          | accessibilityLevel: auto
+          | accessibilityCustomRole: 
+          | top: 195.000000
+          | left: 747.000000
+          | width: 1813.000000
+          | height: 1342.000000
+          | visible: 1
+          | clickable: 0
+          | longclickable: 0
+          | checkable: 0
+          | scrollable: 1
+          | checked: 0
+          | hint: 
+          | childTree: -1
+          |-> GridItem childSize:1
+            | ID: 30
+            | compid: 
+            | text: 
+            | accessibilityText: 
+            | accessibilityGroup: 0
+            | accessibilityLevel: auto
+            | accessibilityCustomRole: 
+            | top: 231.000000
+            | left: 783.000000
+            | width: 556.000000
+            | height: 405.000000
+            | visible: 1
+            | clickable: 0
+            | longclickable: 0
+            | checkable: 0
+            | scrollable: 0
+            | checked: 0
+            | hint: 
+            | childTree: -1
+            |-> Column childSize:3
+              | ID: 31
+              | compid: 
+              | text: 
+              | accessibilityText: 
+              | accessibilityGroup: 0
+              | accessibilityLevel: auto
+              | accessibilityCustomRole: 
+              | top: 231.000000
+              | left: 783.000000
+              | width: 556.000000
+              | height: 405.000000
+              | visible: 1
+              | clickable: 1
+              | longclickable: 1
+              | checkable: 0
+              | scrollable: 0
+              | checked: 0
+              | hint: 
+              | childTree: -1
+              |-> Image childSize:0
+                  ID: 134
+                  compid: 
+                  text: 
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 249.000000
+                  left: 801.000000
+                  width: 520.000000
+                  height: 278.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 34
+                  compid: 
+                  text: Untitled Note
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 545.000000
+                  left: 964.000000
+                  width: 195.000000
+                  height: 37.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 35
+                  compid: 
+                  text: 8/2 23:42
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 586.000000
+                  left: 1002.000000
+                  width: 118.000000
+                  height: 32.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+          |-> GridItem childSize:1
+            | ID: 37
+            | compid: 
+            | text: 
+            | accessibilityText: 
+            | accessibilityGroup: 0
+            | accessibilityLevel: auto
+            | accessibilityCustomRole: 
+            | top: 231.000000
+            | left: 1375.000000
+            | width: 557.000000
+            | height: 405.000000
+            | visible: 1
+            | clickable: 0
+            | longclickable: 0
+            | checkable: 0
+            | scrollable: 0
+            | checked: 0
+            | hint: 
+            | childTree: -1
+            |-> Column childSize:3
+              | ID: 38
+              | compid: 
+              | text: 
+              | accessibilityText: 
+              | accessibilityGroup: 0
+              | accessibilityLevel: auto
+              | accessibilityCustomRole: 
+              | top: 231.000000
+              | left: 1375.000000
+              | width: 556.000000
+              | height: 405.000000
+              | visible: 1
+              | clickable: 1
+              | longclickable: 1
+              | checkable: 0
+              | scrollable: 0
+              | checked: 0
+              | hint: 
+              | childTree: -1
+              |-> Image childSize:0
+                  ID: 135
+                  compid: 
+                  text: 
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 249.000000
+                  left: 1393.000000
+                  width: 520.000000
+                  height: 278.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 41
+                  compid: 
+                  text: Untitled Note
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 545.000000
+                  left: 1556.000000
+                  width: 195.000000
+                  height: 37.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 42
+                  compid: 
+                  text: 8/2 23:10
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 586.000000
+                  left: 1594.000000
+                  width: 118.000000
+                  height: 32.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+          |-> GridItem childSize:1
+            | ID: 44
+            | compid: 
+            | text: 
+            | accessibilityText: 
+            | accessibilityGroup: 0
+            | accessibilityLevel: auto
+            | accessibilityCustomRole: 
+            | top: 231.000000
+            | left: 1968.000000
+            | width: 556.000000
+            | height: 405.000000
+            | visible: 1
+            | clickable: 0
+            | longclickable: 0
+            | checkable: 0
+            | scrollable: 0
+            | checked: 0
+            | hint: 
+            | childTree: -1
+            |-> Column childSize:3
+              | ID: 45
+              | compid: 
+              | text: 
+              | accessibilityText: 
+              | accessibilityGroup: 0
+              | accessibilityLevel: auto
+              | accessibilityCustomRole: 
+              | top: 231.000000
+              | left: 1968.000000
+              | width: 556.000000
+              | height: 405.000000
+              | visible: 1
+              | clickable: 1
+              | longclickable: 1
+              | checkable: 0
+              | scrollable: 0
+              | checked: 0
+              | hint: 
+              | childTree: -1
+              |-> Column childSize:0
+                  ID: 47
+                  compid: 
+                  text: 
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 249.000000
+                  left: 1986.000000
+                  width: 520.000000
+                  height: 278.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 48
+                  compid: 
+                  text: Untitled Note
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 545.000000
+                  left: 2149.000000
+                  width: 195.000000
+                  height: 37.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 49
+                  compid: 
+                  text: 8/2 22:40
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 586.000000
+                  left: 2187.000000
+                  width: 118.000000
+                  height: 32.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+          |-> GridItem childSize:1
+            | ID: 51
+            | compid: 
+            | text: 
+            | accessibilityText: 
+            | accessibilityGroup: 0
+            | accessibilityLevel: auto
+            | accessibilityCustomRole: 
+            | top: 672.000000
+            | left: 783.000000
+            | width: 556.000000
+            | height: 405.000000
+            | visible: 1
+            | clickable: 0
+            | longclickable: 0
+            | checkable: 0
+            | scrollable: 0
+            | checked: 0
+            | hint: 
+            | childTree: -1
+            |-> Column childSize:3
+              | ID: 52
+              | compid: 
+              | text: 
+              | accessibilityText: 
+              | accessibilityGroup: 0
+              | accessibilityLevel: auto
+              | accessibilityCustomRole: 
+              | top: 672.000000
+              | left: 783.000000
+              | width: 556.000000
+              | height: 405.000000
+              | visible: 1
+              | clickable: 1
+              | longclickable: 1
+              | checkable: 0
+              | scrollable: 0
+              | checked: 0
+              | hint: 
+              | childTree: -1
+              |-> Image childSize:0
+                  ID: 136
+                  compid: 
+                  text: 
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 690.000000
+                  left: 801.000000
+                  width: 520.000000
+                  height: 278.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 55
+                  compid: 
+                  text: Untitled Note
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 986.000000
+                  left: 964.000000
+                  width: 195.000000
+                  height: 37.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 56
+                  compid: 
+                  text: 8/2 22:38
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 1027.000000
+                  left: 1002.000000
+                  width: 118.000000
+                  height: 32.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+          |-> GridItem childSize:1
+            | ID: 58
+            | compid: 
+            | text: 
+            | accessibilityText: 
+            | accessibilityGroup: 0
+            | accessibilityLevel: auto
+            | accessibilityCustomRole: 
+            | top: 672.000000
+            | left: 1375.000000
+            | width: 557.000000
+            | height: 405.000000
+            | visible: 1
+            | clickable: 0
+            | longclickable: 0
+            | checkable: 0
+            | scrollable: 0
+            | checked: 0
+            | hint: 
+            | childTree: -1
+            |-> Column childSize:3
+              | ID: 59
+              | compid: 
+              | text: 
+              | accessibilityText: 
+              | accessibilityGroup: 0
+              | accessibilityLevel: auto
+              | accessibilityCustomRole: 
+              | top: 672.000000
+              | left: 1375.000000
+              | width: 556.000000
+              | height: 405.000000
+              | visible: 1
+              | clickable: 1
+              | longclickable: 1
+              | checkable: 0
+              | scrollable: 0
+              | checked: 0
+              | hint: 
+              | childTree: -1
+              |-> Image childSize:0
+                  ID: 137
+                  compid: 
+                  text: 
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 690.000000
+                  left: 1393.000000
+                  width: 520.000000
+                  height: 278.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 62
+                  compid: 
+                  text: Untitled Note
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 986.000000
+                  left: 1556.000000
+                  width: 195.000000
+                  height: 37.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 63
+                  compid: 
+                  text: 8/2 22:36
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 1027.000000
+                  left: 1594.000000
+                  width: 118.000000
+                  height: 32.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+          |-> GridItem childSize:1
+            | ID: 65
+            | compid: 
+            | text: 
+            | accessibilityText: 
+            | accessibilityGroup: 0
+            | accessibilityLevel: auto
+            | accessibilityCustomRole: 
+            | top: 672.000000
+            | left: 1968.000000
+            | width: 556.000000
+            | height: 405.000000
+            | visible: 1
+            | clickable: 0
+            | longclickable: 0
+            | checkable: 0
+            | scrollable: 0
+            | checked: 0
+            | hint: 
+            | childTree: -1
+            |-> Column childSize:3
+              | ID: 66
+              | compid: 
+              | text: 
+              | accessibilityText: 
+              | accessibilityGroup: 0
+              | accessibilityLevel: auto
+              | accessibilityCustomRole: 
+              | top: 672.000000
+              | left: 1968.000000
+              | width: 556.000000
+              | height: 405.000000
+              | visible: 1
+              | clickable: 1
+              | longclickable: 1
+              | checkable: 0
+              | scrollable: 0
+              | checked: 0
+              | hint: 
+              | childTree: -1
+              |-> Image childSize:0
+                  ID: 138
+                  compid: 
+                  text: 
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 690.000000
+                  left: 1986.000000
+                  width: 520.000000
+                  height: 278.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 69
+                  compid: 
+                  text: Untitled Note
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 986.000000
+                  left: 2149.000000
+                  width: 195.000000
+                  height: 37.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 70
+                  compid: 
+                  text: 8/2 22:33
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 1027.000000
+                  left: 2187.000000
+                  width: 118.000000
+                  height: 32.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+          |-> GridItem childSize:1
+            | ID: 72
+            | compid: 
+            | text: 
+            | accessibilityText: 
+            | accessibilityGroup: 0
+            | accessibilityLevel: auto
+            | accessibilityCustomRole: 
+            | top: 1113.000000
+            | left: 783.000000
+            | width: 556.000000
+            | height: 405.000000
+            | visible: 1
+            | clickable: 0
+            | longclickable: 0
+            | checkable: 0
+            | scrollable: 0
+            | checked: 0
+            | hint: 
+            | childTree: -1
+            |-> Column childSize:3
+              | ID: 73
+              | compid: 
+              | text: 
+              | accessibilityText: 
+              | accessibilityGroup: 0
+              | accessibilityLevel: auto
+              | accessibilityCustomRole: 
+              | top: 1113.000000
+              | left: 783.000000
+              | width: 556.000000
+              | height: 405.000000
+              | visible: 1
+              | clickable: 1
+              | longclickable: 1
+              | checkable: 0
+              | scrollable: 0
+              | checked: 0
+              | hint: 
+              | childTree: -1
+              |-> Image childSize:0
+                  ID: 139
+                  compid: 
+                  text: 
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 1131.000000
+                  left: 801.000000
+                  width: 520.000000
+                  height: 278.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 76
+                  compid: 
+                  text: Untitled Note
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 1427.000000
+                  left: 964.000000
+                  width: 195.000000
+                  height: 37.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 77
+                  compid: 
+                  text: 8/2 22:30
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 1468.000000
+                  left: 1002.000000
+                  width: 118.000000
+                  height: 32.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+          |-> GridItem childSize:1
+            | ID: 79
+            | compid: 
+            | text: 
+            | accessibilityText: 
+            | accessibilityGroup: 0
+            | accessibilityLevel: auto
+            | accessibilityCustomRole: 
+            | top: 1113.000000
+            | left: 1375.000000
+            | width: 557.000000
+            | height: 405.000000
+            | visible: 1
+            | clickable: 0
+            | longclickable: 0
+            | checkable: 0
+            | scrollable: 0
+            | checked: 0
+            | hint: 
+            | childTree: -1
+            |-> Column childSize:3
+              | ID: 80
+              | compid: 
+              | text: 
+              | accessibilityText: 
+              | accessibilityGroup: 0
+              | accessibilityLevel: auto
+              | accessibilityCustomRole: 
+              | top: 1113.000000
+              | left: 1375.000000
+              | width: 556.000000
+              | height: 405.000000
+              | visible: 1
+              | clickable: 1
+              | longclickable: 1
+              | checkable: 0
+              | scrollable: 0
+              | checked: 0
+              | hint: 
+              | childTree: -1
+              |-> Image childSize:0
+                  ID: 140
+                  compid: 
+                  text: 
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 1131.000000
+                  left: 1393.000000
+                  width: 520.000000
+                  height: 278.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 83
+                  compid: 
+                  text: Untitled Note
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 1427.000000
+                  left: 1556.000000
+                  width: 195.000000
+                  height: 37.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 84
+                  compid: 
+                  text: 8/2 22:24
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 1468.000000
+                  left: 1594.000000
+                  width: 118.000000
+                  height: 32.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+          |-> GridItem childSize:1
+            | ID: 86
+            | compid: 
+            | text: 
+            | accessibilityText: 
+            | accessibilityGroup: 0
+            | accessibilityLevel: auto
+            | accessibilityCustomRole: 
+            | top: 1113.000000
+            | left: 1968.000000
+            | width: 556.000000
+            | height: 405.000000
+            | visible: 1
+            | clickable: 0
+            | longclickable: 0
+            | checkable: 0
+            | scrollable: 0
+            | checked: 0
+            | hint: 
+            | childTree: -1
+            |-> Column childSize:3
+              | ID: 87
+              | compid: 
+              | text: 
+              | accessibilityText: 
+              | accessibilityGroup: 0
+              | accessibilityLevel: auto
+              | accessibilityCustomRole: 
+              | top: 1113.000000
+              | left: 1968.000000
+              | width: 556.000000
+              | height: 405.000000
+              | visible: 1
+              | clickable: 1
+              | longclickable: 1
+              | checkable: 0
+              | scrollable: 0
+              | checked: 0
+              | hint: 
+              | childTree: -1
+              |-> Image childSize:0
+                  ID: 141
+                  compid: 
+                  text: 
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 1131.000000
+                  left: 1986.000000
+                  width: 520.000000
+                  height: 278.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 90
+                  compid: 
+                  text: Untitled Note
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 1427.000000
+                  left: 2149.000000
+                  width: 195.000000
+                  height: 37.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+              |-> Text childSize:0
+                  ID: 91
+                  compid: 
+                  text: 8/2 22:20
+                  accessibilityText: 
+                  accessibilityGroup: 0
+                  accessibilityLevel: auto
+                  accessibilityCustomRole: 
+                  top: 1468.000000
+                  left: 2187.000000
+                  width: 118.000000
+                  height: 32.000000
+                  visible: 1
+                  clickable: 0
+                  longclickable: 0
+                  checkable: 0
+                  scrollable: 0
+                  checked: 0
+                  hint: 
+                  childTree: -1
+      |-> Button childSize:0
+          ID: 9
+          compid: 
+          text: +
+          accessibilityText: 
+          accessibilityGroup: 0
+          accessibilityLevel: auto
+          accessibilityCustomRole: 
+          top: 1339.000000
+          left: 2362.000000
+          width: 144.000000
+          height: 144.000000
+          visible: 1
+          clickable: 1
+          longclickable: 0
+          checkable: 0
+          scrollable: 0
+          checked: 0
+          hint: 
+          childTree: -1
+

@@ -36,7 +36,8 @@ export struct NoteCanvasView {
   // === 外部输入 ===
   @ObjectLink viewModel: EditorViewModel;
   @Prop noteId: string = '';
-  @Prop currentPage: PageInfo = {
+  // T-040 修复：页面设置（模板/尺寸/方向）变化时重绘画布
+  @Prop @Watch('onPageChange') currentPage: PageInfo = {
     pageId: '', size: 1, template: 0, orientation: 0, widthMm: 210, heightMm: 297,
   };
   @Prop @Watch('onUndoSignalChange') undoSignal: number = 0;
@@ -136,6 +137,11 @@ export struct NoteCanvasView {
     this.undoStroke();
   }
 
+  // T-040 修复：页面设置变化 → 重绘（@Prop 更新不会自动触发 renderFrame）
+  onPageChange(_propName: string): void {
+    this.renderFrame();
+  }
+
   onRedoSignalChange(_propName: string): void {
     hilog.info(0x0001, 'NoteCanvasView', 'redo signal received, canRedo=%{public}s',
       this.undoRedo.canRedo().toString());
@@ -170,10 +176,11 @@ export struct NoteCanvasView {
     this.canvasCtx.clearRect(0, 0, w, h);
     this.canvasCtx.translate(this.viewport.scrollX, this.viewport.scrollY);
     this.canvasCtx.scale(this.viewport.zoom, this.viewport.zoom);
-    // T-038：纸张底色/线色随主题
+    // T-038：纸张底色/线色随主题；T-040：纸张按 mm 尺寸居中绘制
     const theme: ThemeTokens = ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
     this.paperRenderer.renderBackground(this.canvasCtx, w / this.viewport.zoom,
-      h / this.viewport.zoom, this.currentPage.template as PaperTemplate, this.viewport.zoom, theme);
+      h / this.viewport.zoom, this.currentPage.template as PaperTemplate, this.viewport.zoom, theme,
+      this.currentPage.widthMm, this.currentPage.heightMm);
     const current: StrokeElementData | null = this.strokeSession !== null && this.strokeSession.isActive()
       ? this.strokeSession.getCurrentStroke() : null;
     this.layerManager.compositeFull(this.canvasCtx, current, this.renderCtx);
@@ -228,9 +235,10 @@ export struct NoteCanvasView {
   }
 
   private zoomFitWidth(): void {
-    // 适配宽度：以页面宽度 800 画布坐标（A4 约 794px @2.25dpi）为基准，铺满 85% 宽度
+    // T-040 修复：适配宽度以当前纸张实际宽度为基准（mm×3.78），铺满 85% 宽度
     const w: number = this.canvasCtx.width;
-    const fit: number = (w * 0.85) / 800;
+    const paperW: number = this.currentPage.widthMm > 0 ? this.currentPage.widthMm * 3.78 : 800;
+    const fit: number = (w * 0.85) / paperW;
     const clamped: number = fit < 0.25 ? 0.25 : (fit > 4.0 ? 4.0 : fit);
     this.viewport.setZoom(clamped);
     this.onViewportChanged();

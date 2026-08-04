@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<preferences version="1.0"><string key="webdav_server_url">https://dav.example.com</string><string key="webdav_backup_path">/nota-backup/</string><string key="webdav_username">testuser</string><string key="webdav_password">testpass</string></preferences>

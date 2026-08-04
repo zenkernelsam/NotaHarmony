@@ -30,7 +30,8 @@ struct BackupPage {
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
 
-  private get tokens(): ThemeTokens {
+  // 注意：ArkTS 编译器会丢弃 @Component struct 中的自定义 getter，必须用普通方法
+  private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
   }
 
@@ -230,7 +231,7 @@ struct BackupPage {
       Text('备份与同步')
         .fontSize(24)
         .fontWeight(FontWeight.Bold)
-        .fontColor(this.tokens.textPrimary)
+        .fontColor(this.resolveTokens().textPrimary)
         .margin({ top: 24, bottom: 16 })
 
       Scroll() {
@@ -298,6 +299,6 @@ struct BackupPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.tokens.background)
+    .backgroundColor(this.resolveTokens().background)
   }
 }

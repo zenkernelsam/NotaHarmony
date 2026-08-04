@@ -1,0 +1,272 @@
+
+-------------------------------[ability]-------------------------------
+
+
+----------------------------------WindowManagerService----------------------------------
+WindowName: notaharmony0
+DisplayId: 0
+WinId: 55
+Pid: 21249
+Type: 1
+Mode: 1
+Flag: 0
+Orientation: 0
+FirstFrameCallbackCalled: 1
+IsVisible: true
+isRSVisible: true
+Focusable: true
+DecoStatus: false
+isPrivacyMode: false
+WindowRect: [ 0, 0, 2560, 1600 ]
+scaleX: 1
+scaleY: 1
+Offset: [ 0, 0 ]
+Scale: [ 1, 1, 0.5, 0.5 ]
+ParentWindowId: 0
+bundleName:com.example.notaharmony
+moduleName:note
+ LastRequestVsyncTime: 6346951417453
+ transactionFlags: [21249,11754]
+ last vsyncId: 101301
+ finishCount:[ ]
+  |-> root childSize:1
+    | ID: 0
+    | compid: 
+    | text: 
+    | accessibilityText: 
+    | accessibilityGroup: 0
+    | accessibilityLevel: auto
+    | accessibilityCustomRole: 
+    | top: 0.000000
+    | left: 0.000000
+    | width: 2560.000000
+    | height: 1600.000000
+    | visible: 1
+    | clickable: 0
+    | longclickable: 0
+    | checkable: 0
+    | scrollable: 0
+    | checked: 0
+    | hint: 
+    | childTree: -1
+    |-> Column childSize:8
+      | ID: 158
+      | compid: 
+      | text: 
+      | accessibilityText: 
+      | accessibilityGroup: 0
+      | accessibilityLevel: auto
+      | accessibilityCustomRole: 
+      | top: 87.000000
+      | left: 0.000000
+      | width: 2560.000000
+      | height: 1450.000000
+      | visible: 1
+      | clickable: 0
+      | longclickable: 0
+      | checkable: 0
+      | scrollable: 0
+      | checked: 0
+      | hint: 
+      | childTree: -1
+      |-> Text childSize:0
+          ID: 159
+          compid: 
+          text: WebDAV 配置
+          accessibilityText: 
+          accessibilityGroup: 0
+          accessibilityLevel: auto
+          accessibilityCustomRole: 
+          top: 141.000000
+          left: 1107.000000
+          width: 347.000000
+          height: 63.000000
+          visible: 1
+          clickable: 0
+          longclickable: 0
+          checkable: 0
+          scrollable: 0
+          checked: 0
+          hint: 
+          childTree: -1
+      |-> TextInput childSize:0
+          ID: 160
+          compid: 
+          text: 
+          accessibilityText: 
+          accessibilityGroup: 0
+          accessibilityLevel: auto
+          accessibilityCustomRole: 
+          top: 240.000000
+          left: 128.000000
+          width: 2304.000000
+          height: 90.000000
+          visible: 1
+          clickable: 1
+          longclickable: 1
+          checkable: 0
+          scrollable: 1
+          checked: 0
+          hint: https://dav.example.com
+          childTree: -1
+      |-> TextInput childSize:0
+          ID: 161
+          compid: 
+          text: 
+          accessibilityText: 
+          accessibilityGroup: 0
+          accessibilityLevel: auto
+          accessibilityCustomRole: 
+          top: 357.000000
+          left: 128.000000
+          width: 2304.000000
+          height: 90.000000
+          visible: 1
+          clickable: 1
+          longclickable: 1
+          checkable: 0
+          scrollable: 1
+          checked: 0
+          hint: 用户名
+          childTree: -1
+      |-> TextInput childSize:1
+        | ID: 162
+        | compid: 
+        | text: 
+        | accessibilityText: 
+        | accessibilityGroup: 0
+        | accessibilityLevel: auto
+        | accessibilityCustomRole: 
+        | top: 474.000000
+        | left: 128.000000
+        | width: 2304.000000
+        | height: 90.000000
+        | visible: 1
+        | clickable: 1
+        | longclickable: 1
+        | checkable: 0
+        | scrollable: 1
+        | checked: 0
+        | hint: 密码
+        | childTree: -1
+        |-> Stack childSize:1
+          | ID: 164
+          | compid: 
+          | text: 
+          | accessibilityText: 显示密码
+          | accessibilityGroup: 0
+          | accessibilityLevel: yes
+          | accessibilityCustomRole: button
+          | top: 497.000000
+          | left: 2365.000000
+          | width: 68.000000
+          | height: 45.000000
+          | visible: 1
+          | clickable: 1
+          | longclickable: 0
+          | checkable: 0
+          | scrollable: 0
+          | checked: 0
+          | hint: 
+          | childTree: -1
+          |-> SymbolGlyph childSize:0
+              ID: 165
+              compid: 
+              text: 
+              accessibilityText: 
+              accessibilityGroup: 0
+              accessibilityLevel: auto
+              accessibilityCustomRole: 
+              top: 497.000000
+              left: 2365.000000
+              width: 46.000000
+              height: 45.000000
+              visible: 1
+              clickable: 0
+              longclickable: 0
+              checkable: 0
+              scrollable: 0
+              checked: 0
+              hint: 
+              childTree: -1
+      |-> TextInput childSize:0
+          ID: 163
+          compid: 
+          text: /nota-backup/
+          accessibilityText: 
+          accessibilityGroup: 0
+          accessibilityLevel: auto
+          accessibilityCustomRole: 
+          top: 591.000000
+          left: 128.000000
+          width: 2304.000000
+          height: 90.000000
+          visible: 1
+          clickable: 1
+          longclickable: 1
+          checkable: 0
+          scrollable: 1
+          checked: 0
+          hint: /nota-backup/
+          childTree: -1
+      |-> Button childSize:0
+          ID: 166
+          compid: 
+          text: 测试连接
+          accessibilityText: 
+          accessibilityGroup: 0
+          accessibilityLevel: auto
+          accessibilityCustomRole: 
+          top: 717.000000
+          left: 128.000000
+          width: 2304.000000
+          height: 90.000000
+          visible: 1
+          clickable: 1
+          longclickable: 0
+          checkable: 0
+          scrollable: 0
+          checked: 0
+          hint: 
+          childTree: -1
+      |-> Button childSize:0
+          ID: 169
+          compid: 
+          text: 保存配置
+          accessibilityText: 
+          accessibilityGroup: 0
+          accessibilityLevel: auto
+          accessibilityCustomRole: 
+          top: 825.000000
+          left: 128.000000
+          width: 2304.000000
+          height: 90.000000
+          visible: 1
+          clickable: 1
+          longclickable: 0
+          checkable: 0
+          scrollable: 0
+          checked: 0
+          hint: 
+          childTree: -1
+      |-> Text childSize:0
+          ID: 171
+          compid: 
+          text: 密码明文存储于本地 Preferences（MVP，后续可加密）
+          accessibilityText: 
+          accessibilityGroup: 0
+          accessibilityLevel: auto
+          accessibilityCustomRole: 
+          top: 951.000000
+          left: 946.000000
+          width: 668.000000
+          height: 32.000000
+          visible: 1
+          clickable: 0
+          longclickable: 0
+          checkable: 0
+          scrollable: 0
+          checked: 0
+          hint: 
+          childTree: -1
+
