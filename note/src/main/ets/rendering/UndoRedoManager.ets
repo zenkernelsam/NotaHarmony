@@ -1,5 +1,7 @@
 // T-021 基于 op 栈的撤销/重做管理器（纯逻辑，禁止平台 import）
+// T-036 扩展：文本框 ADD/DELETE_ELEMENT + 形状替换 REPLACE_ELEMENT
 import { StrokeElementData } from '../core/model/StrokeTypes';
+import { TextBlockElement } from '../core/model/ElementTypes';
 
 // 可撤销的操作类型
 export enum UndoableActionType {
@@ -7,6 +9,9 @@ export enum UndoableActionType {
   DELETE_STROKE = 1,
   ERASE_STROKES = 2,
   TRANSFORM_STROKES = 3,
+  ADD_ELEMENT = 4,       // 文本框创建
+  DELETE_ELEMENT = 5,    // 文本框删除
+  REPLACE_ELEMENT = 6,   // 形状替换（笔画→形状，before=原笔画）
 }
 
 export interface UndoableAction {
@@ -15,9 +20,12 @@ export interface UndoableAction {
   addedStroke: StrokeElementData | null;
   // DELETE_STROKE / ERASE_STROKES: 被删除的笔画列表
   removedStrokes: StrokeElementData[];
-  // TRANSFORM_STROKES: 变换前后的 strokes 快照
+  // TRANSFORM_STROKES / REPLACE_ELEMENT: 变换/替换前后的 strokes 快照
   beforeStrokes: StrokeElementData[];
   afterStrokes: StrokeElementData[];
+  // T-036 扩展（可选，不改变已有字段语义）
+  addedElement?: TextBlockElement | null;   // ADD_ELEMENT: 创建的文本框
+  removedElements?: TextBlockElement[];     // DELETE_ELEMENT: 删除的文本框
 }
 
 export class UndoRedoManager {

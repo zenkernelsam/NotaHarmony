@@ -391,19 +391,35 @@ export struct NoteCanvasView {
     } else if (this.strokeSession !== null && this.strokeSession.isActive()) {
       const stroke: StrokeElementData = this.strokeSession.finishStroke();
       hilog.info(0x0001, 'NoteCanvasView', 'stroke finished, pts=%{public}d', stroke.pathPoints.length);
-      // 形状识别（Pen 工具，识别成功则替换为形状笔画）
+      // 形状识别（Pen 工具，识别成功则替换为形状笔画；T-036：REPLACE_ELEMENT 入栈，undo 恢复原笔画）
       let finalStroke: StrokeElementData = stroke;
+      let replaced: boolean = false;
       if (this.viewModel.currentTool === ToolType.PEN && this.viewModel.shapeDetectionEnabled) {
-        finalStroke = this.tryShapeDetect(stroke);
+        const detected: StrokeElementData = this.tryShapeDetect(stroke);
+        if (detected.id === stroke.id && detected.pathPoints.length !== stroke.pathPoints.length) {
+          // 识别成功（形状点序列变化）
+          finalStroke = detected;
+          replaced = true;
+        }
       }
       this.completedStrokes.push(finalStroke);
-      this.undoRedo.push({
-        type: UndoableActionType.ADD_STROKE,
-        addedStroke: finalStroke,
-        removedStrokes: [],
-        beforeStrokes: [],
-        afterStrokes: [],
-      });
+      if (replaced) {
+        this.undoRedo.push({
+          type: UndoableActionType.REPLACE_ELEMENT,
+          addedStroke: finalStroke,
+          removedStrokes: [],
+          beforeStrokes: [stroke],
+          afterStrokes: [finalStroke],
+        });
+      } else {
+        this.undoRedo.push({
+          type: UndoableActionType.ADD_STROKE,
+          addedStroke: finalStroke,
+          removedStrokes: [],
+          beforeStrokes: [],
+          afterStrokes: [],
+        });
+      }
       hilog.info(0x0001, 'NoteCanvasView', 'pushed ADD_STROKE, canUndo=%{public}s',
         this.undoRedo.canUndo().toString());
       this.layerManager.commitStroke(finalStroke, this.renderCtx);
@@ -584,11 +600,47 @@ export struct NoteCanvasView {
     } else if (action.type === UndoableActionType.TRANSFORM_STROKES) {
       const target: StrokeElementData[] = isUndo ? action.beforeStrokes : action.afterStrokes;
       this.completedStrokes = target.slice();
+    } else if (action.type === UndoableActionType.ADD_ELEMENT) {
+      // T-036：文本框创建
+      if (isUndo) {
+        if (action.addedElement !== undefined && action.addedElement !== null) {
+          this.removeTextBlockById(action.addedElement.id);
+        }
+      } else if (action.addedElement !== undefined && action.addedElement !== null) {
+        this.textBlocks.push(action.addedElement);
+      }
+    } else if (action.type === UndoableActionType.DELETE_ELEMENT) {
+      // T-036：文本框删除
+      if (isUndo) {
+        if (action.removedElements !== undefined) {
+          for (const t of action.removedElements) {
+            this.textBlocks.push(t);
+          }
+        }
+      } else if (action.removedElements !== undefined) {
+        for (const t of action.removedElements) {
+          this.removeTextBlockById(t.id);
+        }
+      }
+    } else if (action.type === UndoableActionType.REPLACE_ELEMENT) {
+      // T-036：形状替换（撤销恢复原笔画，重做恢复形状）
+      const target: StrokeElementData[] = isUndo ? action.beforeStrokes : action.afterStrokes;
+      this.completedStrokes = target.slice();
     }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     this.persist();
     this.notifyUndoRedo();
     this.renderFrame();
+  }
+
+  private removeTextBlockById(id: string): void {
+    const remaining: TextBlockElement[] = [];
+    for (const t of this.textBlocks) {
+      if (t.id !== id) {
+        remaining.push(t);
+      }
+    }
+    this.textBlocks = remaining;
   }
 
   private removeStrokeById(id: string): void {
@@ -822,6 +874,17 @@ export struct NoteCanvasView {
           break;
         }
       }
+      // T-036：文本框创建入栈（undo 删除，redo 恢复）
+      this.undoRedo.push({
+        type: UndoableActionType.ADD_ELEMENT,
+        addedStroke: null,
+        removedStrokes: [],
+        beforeStrokes: [],
+        afterStrokes: [],
+        addedElement: updated,
+        removedElements: [],
+      });
+      this.notifyUndoRedo();
     }
     this.textEditing = false;
     this.editingTextBlock = null;
@@ -831,6 +894,7 @@ export struct NoteCanvasView {
 
   onTextCancel(): void {
     if (this.editingTextBlock !== null) {
+      const removed: TextBlockElement = this.editingTextBlock;
       const id: string = this.editingTextBlock.id;
       const remaining: TextBlockElement[] = [];
       for (const t of this.textBlocks) {
@@ -839,6 +903,17 @@ export struct NoteCanvasView {
         }
       }
       this.textBlocks = remaining;
+      // T-036：文本框删除入栈（undo 恢复）
+      this.undoRedo.push({
+        type: UndoableActionType.DELETE_ELEMENT,
+        addedStroke: null,
+        removedStrokes: [],
+        beforeStrokes: [],
+        afterStrokes: [],
+        addedElement: null,
+        removedElements: [removed],
+      });
+      this.notifyUndoRedo();
     }
     this.textEditing = false;
     this.editingTextBlock = null;

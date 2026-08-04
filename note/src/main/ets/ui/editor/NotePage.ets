@@ -1,9 +1,11 @@
 // T-025 笔记编辑器页面（EditorToolbar + NoteCanvasView + PageManagerBar 集成）
+// T-036：标题行内编辑 + 持久化
 import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { PageInfo } from '../../core/model/NoteTypes';
+import { NoteMeta, PageInfo } from '../../core/model/NoteTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
+import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import { EditorViewModel } from './EditorViewModel';
 import { EditorToolbar } from './EditorToolbar';
@@ -21,6 +23,10 @@ struct NotePage {
   @State redoSignal: number = 0;
   @State canUndo: boolean = false;
   @State canRedo: boolean = false;
+  @State noteTitle: string = '';          // T-036：标题
+  @State editingTitle: boolean = false;   // T-036：标题编辑态
+  @State titleDraft: string = '';
+  private noteRepo: NoteRepositoryImpl | null = null;
   private pageRepo: PageRepositoryImpl | null = null;
 
   aboutToAppear(): void {
@@ -37,6 +43,10 @@ struct NotePage {
       const db: DatabaseManager = DatabaseManager.getInstance();
       await db.initialize(context);
       this.pageRepo = new PageRepositoryImpl(db);
+      // T-036：加载标题
+      this.noteRepo = new NoteRepositoryImpl(db);
+      const note: NoteMeta | null = await this.noteRepo.getNote(this.noteId);
+      this.noteTitle = note !== null ? note.title : '';
       const loaded: PageInfo[] = await this.pageRepo.getPages(this.noteId);
       if (loaded.length === 0) {
         // 创建默认首页（A4 / PLAIN）
@@ -59,6 +69,23 @@ struct NotePage {
     }
   }
 
+  // T-036：标题编辑保存（updateNote 持久化）
+  private async saveTitle(): Promise<void> {
+    this.editingTitle = false;
+    const draft: string = this.titleDraft.trim();
+    if (draft.length === 0) {
+      return;  // 空标题不保存（显示占位）
+    }
+    this.noteTitle = draft;
+    if (this.noteRepo !== null) {
+      const note: NoteMeta | null = await this.noteRepo.getNote(this.noteId);
+      if (note !== null) {
+        note.title = draft;
+        await this.noteRepo.updateNote(note);
+      }
+    }
+  }
+
   build() {
     Column() {
       // 顶部导航行（48vp）
@@ -69,10 +96,34 @@ struct NotePage {
           .onClick(() => {
             router.back();
           })
-        Text('Note Editor')
-          .fontSize(18)
-          .fontWeight(FontWeight.Medium)
-          .margin({ left: 12 })
+        if (this.editingTitle) {
+          // T-036：标题编辑态（TextInput，失焦/回车保存）
+          TextInput({ text: this.titleDraft })
+            .layoutWeight(1)
+            .height(36)
+            .fontSize(16)
+            .margin({ left: 12 })
+            .onChange((value: string) => {
+              this.titleDraft = value;
+            })
+            .onSubmit(() => {
+              this.saveTitle();
+            })
+            .onBlur(() => {
+              this.saveTitle();
+            })
+        } else {
+          Text(this.noteTitle.length > 0 ? this.noteTitle : '未命名笔记')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .margin({ left: 12 })
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .onClick(() => {
+              this.titleDraft = this.noteTitle;
+              this.editingTitle = true;
+            })
+        }
       }
       .width('100%')
       .height(48)
