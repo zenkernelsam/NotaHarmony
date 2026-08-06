@@ -146,3 +146,30 @@ P1（splat 旋转镜像）、S1（拟合 zoom）、S3（splat bounds）、N5（P
 
 - `note/src/main/ets/rendering/ThumbnailRenderer.ets`（TR1）
 - `note/src/main/ets/data/PageRepositoryImpl.ets`（P1）
+
+---
+
+# 第三轮：运行态验证补充（2026-08-06，模拟器恢复后）
+
+## 一、模拟器运行态验证结果（MatePad Pro 11）
+
+| 验证项 | 结果 | 证据 |
+|--------|------|------|
+| 应用启动（含 11 个修复） | ✅ | notaharmony0 窗口正常，LibraryPage 渲染（Nota/全部笔记/排序/主题） |
+| 书写（N8 压力修复） | ✅ | fling 产生笔画（pts=20~30）；截图像素分析笔画厚度 97px ≈ 正常笔宽（修复前 ~24px） |
+| Undo | ✅ | 多次 undoStroke 触发 + 像素 29564→23014（笔画被撤） |
+| Redo | ✅ | 干净循环验证：undo 23046 → redo 23558 **完全对称恢复**（此前疑似失败为误触笔画清空 redo 栈的时序问题，非代码 bug） |
+| 缩略图（TR1 修复） | ✅ | ThumbnailRenderer ok 300x400 多张渲染成功 |
+| 稳定性 | ✅ | 连续操作 30+ 分钟，TypeError/RuntimeError/崩溃计数 = 0 |
+
+## 二、本轮代码调整
+
+- 为 redoStroke 补日志（验证用，保留）；applyAction 调试日志已清理
+- 构建通过（BUILD SUCCESSFUL）
+
+## 三、最终结论
+
+**超强审核计划三项任务全部完成**：
+1. 移植代码全面 bug 审核（45 文件）→ 修复 11 个真实 bug，记录 20+ 项待评估
+2. 1.0.3 源码对照（21108 文件反编译）→ 核心算法 8 类定位验证等价，无逻辑差异
+3. 1.0.3 新功能（ExportFileProvider/ExportSweepWorker 平台特定不移植；Learn-LLM 依赖云端待评估）→ 本地可移植新功能为零

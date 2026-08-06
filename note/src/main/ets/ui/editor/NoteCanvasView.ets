@@ -602,8 +602,11 @@ export struct NoteCanvasView {
   private redoStroke(): void {
     const action: UndoableAction | null = this.undoRedo.redo();
     if (action === null) {
+      hilog.info(0x0001, 'NoteCanvasView', 'redoStroke: no action');
       return;
     }
+    hilog.info(0x0001, 'NoteCanvasView', 'redoStroke called, type=%{public}d added=%{public}s',
+      action.type, action.addedStroke !== null ? action.addedStroke.id : 'null');
     this.applyAction(action, false);
   }
 
