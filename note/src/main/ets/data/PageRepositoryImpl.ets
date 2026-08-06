@@ -34,10 +34,17 @@ export class PageRepositoryImpl implements PageRepository {
     const store: relationalStore.RdbStore = this.db.getStore();
     try {
       // page_index 由现有页数决定（PageInfo 契约无 pageIndex 字段）
+      // T-040 审核修复：用 max(page_index)+1，避免删除中间页后 rowCount 与既有 index 冲突
       const countPred = new relationalStore.RdbPredicates('page_info');
       countPred.equalTo('note_id', noteId);
       const countSet = await store.query(countPred);
-      const pageIndex: number = countSet.rowCount;
+      let pageIndex: number = 0;
+      while (countSet.goToNextRow()) {
+        const idx: number = countSet.getLong(countSet.getColumnIndex('page_index'));
+        if (idx >= pageIndex) {
+          pageIndex = idx + 1;
+        }
+      }
       countSet.close();
       const bucket: relationalStore.ValuesBucket = {
         'page_id': page.pageId,

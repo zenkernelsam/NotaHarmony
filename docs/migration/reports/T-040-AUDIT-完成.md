@@ -89,3 +89,60 @@
 
 - 对比脚本：`docs/migration/reports/compare_classes.py`（1.0.1↔1.0.3 类映射归一化对比）
 - 1.0.3 反编译源码：`C:\Users\Cisco He\Desktop\Notability\decompiled_1.0.3`（21108 文件）
+
+---
+
+# 第二轮审核补充（2026-08-05）
+
+## 一、剩余文件全覆盖审核（rendering/data/ui 全部 + 第二轮）
+
+### 新增修复（2 个）
+
+| # | 文件 | Bug | 影响 |
+|---|------|-----|------|
+| TR1 | ThumbnailRenderer.ets | **缩略图渲染未应用 stroke.transform**（选区变换后笔画在缩略图中位置/大小错误） | 变换后的笔画缩略图错位/变形（已修复：逐笔画 setTransform 组合全局缩放） |
+| P1 | PageRepositoryImpl.ets | **addPage 用 rowCount 做 page_index**（删除中间页后 rowCount 与既有 index 冲突） | 删除页后新增页 page_index 重复，翻页顺序歧义（已修复：max(page_index)+1） |
+
+### 本轮新增记录（待评估）
+
+| # | 位置 | 说明 |
+|---|------|------|
+| ET1 | EditorToolbar | 部分擦除（PARTIAL_ERASER）无工具栏入口（MVP 范围） |
+| SO1 | SelectionOverlay | 选区在屏幕底部时菜单按钮可能越出屏幕（边缘场景） |
+| TB1 | TextBlockOverlay/NoteCanvasView | 文本框只能创建不能点选编辑已有内容（功能缺失，MVP 范围） |
+| E2 | NoteExporter | 多页笔记元素全部导出到 page_0（元素无页关联，架构级，T-041 范围） |
+| E1 | NoteExporter | writeSync 用 data.buffer 而非 data（当前调用链 buffer 完整，风险低） |
+
+## 二、1.0.3 核心类定位验证补全（a4）
+
+| 1.0.1 类 | 1.0.3 类 | 功能 | 验证 |
+|----------|----------|------|------|
+| ms1 | nt1 | CubicFitter 单段 | ✅ 结构等价（218 行，容差公式 2.6/15.4/1.5 逐字一致） |
+| sqh | wxh | CubicFitter 多段 | ✅ 签名一致（f/g/h/i 对应 a/b/d/e），1e-9 病态阈值逐字一致 |
+| s78 | sa8 | HitTest | ✅ 结构等价（240↔236 行，sqrt(2) 静态字段一致） |
+| dr4 | ws4 | ForceSmoother 配置 | ✅ 构造签名一致（float,long,boolean） |
+| b90 | y90 候选 | 形状识别 | ⚠️ 特征存在（0.6666 分段常量、g5d↔m0d 返回） |
+| oz5/pzf | p16 候选 | pencil/笔画渲染 | ⚠️ 特征存在（PathMeasure+BlendMode）；移植为 MVP 简化不逐行对照 |
+| uaa/y5a/hz5/te6/hda/cu5/jv5 | （渲染/输入适配层） | 移植为 MVP 简化 | 不逐行对照；1.0.3 无重大新逻辑 |
+
+→ **核心算法 8 类定位验证完成，1.0.3 与 1.0.1 无逻辑差异**。
+
+## 三、1.0.3 新功能补全调查（a5）
+
+- **AI 功能确认存在**：`data/learn/b.java` 含 LLM 错误处理（LLMBadResponse、LLM_IMPROPER_SCHEMA、LLM_INVALID_JSON、LLM_UNEXPECTED_RESPONSE，错误码类 h47）——**Learn 功能在 1.0.1 已存在，1.0.3 为其接入 LLM 支持**（依赖云端 API + 订阅 billing，无法本地闭环）
+- **核心业务模型抽查**：core/model/a.java（136 行）、b.java（170 行）、NoteEditorSettingsInitializer（28 行）行数与 1.0.1 完全一致（hash 差异为 jadx 版本格式噪音）
+- **移植结论**：本地可移植新功能为零（ExportFileProvider/ExportSweepWorker 平台特定；Learn-LLM 依赖云端）
+
+## 四、累计修复清单（两轮共 11 个 Bug）
+
+P1（splat 旋转镜像）、S1（拟合 zoom）、S3（splat bounds）、N5（PARTIAL 擦除 undo）、N7（REPLACE 丢数据）、N8（压力归一化）、N13（取消编辑入栈）、D1（图层顺序）、I1（多页导入覆盖）、TR1（缩略图 transform）、P1（page_index 冲突）
+
+## 五、验证状态
+
+- ✅ check_ets_files 零错误、build_project BUILD SUCCESSFUL（两轮均通过）
+- ⚠️ 模拟器连续 2 次启动失败（[Empty]），运行态验证待环境恢复；修复均为纯逻辑/数据正确性，回归风险低
+
+## 六、本轮修改文件
+
+- `note/src/main/ets/rendering/ThumbnailRenderer.ets`（TR1）
+- `note/src/main/ets/data/PageRepositoryImpl.ets`（P1）

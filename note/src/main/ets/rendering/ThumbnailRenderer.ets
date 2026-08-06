@@ -64,8 +64,14 @@ export class ThumbnailRenderer {
 
       // MVP 简化：手画中心线（不走 renderer 包装——缩略图缩放场景下包装类 as 转换
       // 与 Offscreen 上下文的兼容性不可靠，手画保证可见性）
+      // T-040 审核修复：逐笔画应用 stroke.transform（选区变换后的笔画在缩略图中正确显示）
       for (const s of loaded.strokes) {
         if (s.pathPoints.length > 0) {
+          ctx.save();
+          const m: number[] = s.transform;
+          // 组合：全局 translate(off)*scale(scale) × 笔画 transform m
+          ctx.setTransform(m[0] * scale, m[1] * scale, m[3] * scale, m[4] * scale,
+            offX + m[2] * scale, offY + m[5] * scale);
           ctx.strokeStyle = '#000000';
           ctx.lineWidth = Math.max(s.renderSpec.brushWidth, 2) / scale;
           ctx.lineCap = 'round';
@@ -75,6 +81,7 @@ export class ThumbnailRenderer {
             ctx.lineTo(s.pathPoints[i].position.x, s.pathPoints[i].position.y);
           }
           ctx.stroke();
+          ctx.restore();
         }
       }
 
