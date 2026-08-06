@@ -40,6 +40,9 @@ export class StrokePersistence {
       del.equalTo('note_id', noteId);
       await store.delete(del);
       const now: number = Date.now();
+      // T-040 审核修复：同批元素的 client_time 用递增序号保证加载顺序稳定
+      // （原实现全部相同时间戳，SQL 对相同 key 不保证顺序 → 图层顺序可能错乱）
+      let seq: number = 0;
       // 先笔画后文本（保持顺序稳定）
       for (const stroke of strokes) {
         const payload: PersistedElement = { kind: 'stroke', data: stroke };
@@ -48,8 +51,9 @@ export class StrokePersistence {
           'note_id': noteId,
           'op_type': 10,  // OpType.INSERT_ELEMENTS
           'payload': this.stringToBytes(JSON.stringify(payload)),
-          'client_time': now,
+          'client_time': now + seq,
         };
+        seq++;
         await store.insert('client_op', bucket);
       }
       for (const text of textBlocks) {
@@ -59,8 +63,9 @@ export class StrokePersistence {
           'note_id': noteId,
           'op_type': 10,
           'payload': this.stringToBytes(JSON.stringify(payload)),
-          'client_time': now,
+          'client_time': now + seq,
         };
+        seq++;
         await store.insert('client_op', bucket);
       }
     } catch (e) {

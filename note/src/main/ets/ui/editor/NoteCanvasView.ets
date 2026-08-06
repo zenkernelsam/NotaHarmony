@@ -323,7 +323,8 @@ export struct NoteCanvasView {
       this.strokeSession = new StrokeSession(spec);
     }
     const startTime: number = Date.now();
-    this.strokeSession.beginStroke(spec, startTime);
+    // T-040 审核修复：传入当前 zoom（拟合容差按屏幕空间计算）
+    this.strokeSession.beginStroke(spec, startTime, this.viewport.zoom);
     this.inputProvider.beginStroke(startTime);
     const batch: InputBatch = this.inputProvider.processEvent(
       [this.toRawPointerEvent(touch, false)], false);
@@ -555,6 +556,28 @@ export struct NoteCanvasView {
         afterStrokes: [],
       });
     }
+    // T-040 审核修复：PARTIAL 擦除（maskPath 挖洞）也需入栈可撤销
+    // （before=受影响笔画擦除前快照，after=擦除后快照；undo 恢复原笔画，redo 重新挖洞）
+    const partialBefore: StrokeElementData[] = [];
+    const partialAfter: StrokeElementData[] = [];
+    for (const updated of result.affectedStrokes) {
+      for (const s of before) {
+        if (s.id === updated.id) {
+          partialBefore.push(s);
+          partialAfter.push(updated);
+          break;
+        }
+      }
+    }
+    if (partialBefore.length > 0) {
+      this.undoRedo.push({
+        type: UndoableActionType.TRANSFORM_STROKES,
+        addedStroke: null,
+        removedStrokes: [],
+        beforeStrokes: partialBefore,
+        afterStrokes: partialAfter,
+      });
+    }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     this.persist();
     this.notifyUndoRedo();
@@ -613,8 +636,21 @@ export struct NoteCanvasView {
         }
       }
     } else if (action.type === UndoableActionType.TRANSFORM_STROKES) {
+      // T-040 审核修复：按 id 替换（before/after 可为选中笔画子集快照，避免整表替换丢失其他笔画）
       const target: StrokeElementData[] = isUndo ? action.beforeStrokes : action.afterStrokes;
-      this.completedStrokes = target.slice();
+      for (const t of target) {
+        let found: boolean = false;
+        for (let i = 0; i < this.completedStrokes.length; i++) {
+          if (this.completedStrokes[i].id === t.id) {
+            this.completedStrokes[i] = t;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          this.completedStrokes.push(t);
+        }
+      }
     } else if (action.type === UndoableActionType.ADD_ELEMENT) {
       // T-036：文本框创建
       if (isUndo) {
@@ -639,8 +675,21 @@ export struct NoteCanvasView {
       }
     } else if (action.type === UndoableActionType.REPLACE_ELEMENT) {
       // T-036：形状替换（撤销恢复原笔画，重做恢复形状）
+      // T-040 审核修复：按 id 替换（原实现整表替换会丢失其他笔画）
       const target: StrokeElementData[] = isUndo ? action.beforeStrokes : action.afterStrokes;
-      this.completedStrokes = target.slice();
+      for (const t of target) {
+        let found: boolean = false;
+        for (let i = 0; i < this.completedStrokes.length; i++) {
+          if (this.completedStrokes[i].id === t.id) {
+            this.completedStrokes[i] = t;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          this.completedStrokes.push(t);
+        }
+      }
     }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     this.persist();
@@ -909,7 +958,6 @@ export struct NoteCanvasView {
 
   onTextCancel(): void {
     if (this.editingTextBlock !== null) {
-      const removed: TextBlockElement = this.editingTextBlock;
       const id: string = this.editingTextBlock.id;
       const remaining: TextBlockElement[] = [];
       for (const t of this.textBlocks) {
@@ -918,17 +966,8 @@ export struct NoteCanvasView {
         }
       }
       this.textBlocks = remaining;
-      // T-036：文本框删除入栈（undo 恢复）
-      this.undoRedo.push({
-        type: UndoableActionType.DELETE_ELEMENT,
-        addedStroke: null,
-        removedStrokes: [],
-        beforeStrokes: [],
-        afterStrokes: [],
-        addedElement: null,
-        removedElements: [removed],
-      });
-      this.notifyUndoRedo();
+      // T-040 审核修复：取消编辑 = 放弃创建，不应入栈
+      // （原实现 push DELETE_ELEMENT，undo 后会恢复一个空文本框）
     }
     this.textEditing = false;
     this.editingTextBlock = null;
@@ -942,9 +981,11 @@ export struct NoteCanvasView {
 
   // === TouchPoint → RawPointerEvent 转换 ===
   // T-034：坐标经视口逆映射（屏幕 → 画布）
+  // T-040 审核修复：TouchObject.pressure 已是 [0,1] 归一化值，不能再除以 65535
+  // （原实现导致所有笔画 pressure≈0 → widthFactor 恒为下限 0.3）
   private toRawPointerEvent(touch: TouchObject, isHistorical: boolean): RawPointerEvent {
     const rawPressure: number = touch.pressure !== undefined ? touch.pressure : 0;
-    const pressure: number = rawPressure > 0 ? rawPressure / 65535 : 0;
+    const pressure: number = rawPressure > 0 ? Math.min(rawPressure, 1) : 0;
     const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
     return {
       x: p.x,

@@ -146,6 +146,11 @@ export class NoteImporter {
       let writtenPages: number = 0;
       let countStrokes: number = 0;
       let countTexts: number = 0;
+      // T-040 审核修复：收集全部页元素后一次性保存
+      // （原实现每页调用 saveElements 先清后写 → 多页导入只剩最后一页）
+      // 注：元素暂不分页存储（页维度架构修复在 T-041 规划中）
+      const allStrokes: StrokeElementData[] = [];
+      const allTexts: TextBlockElement[] = [];
       for (const page of parsedPages) {
         const mm: number[] = paperSizeToMm(page.paperSize as PaperSize);
         const pageInfo: PageInfo = {
@@ -157,22 +162,20 @@ export class NoteImporter {
           heightMm: mm[1],
         };
         await pageRepo.addPage(note.id, pageInfo);
-        // 拆分元素写入 client_op
-        const strokes: StrokeElementData[] = [];
-        const textBlocks: TextBlockElement[] = [];
+        // 拆分元素收集（不落库）
         for (const el of page.elements) {
           const typed = el as PersistedElement;
           if (typed.kind === 'stroke') {
-            strokes.push(typed.data as StrokeElementData);
+            allStrokes.push(typed.data as StrokeElementData);
           } else if (typed.kind === 'text') {
-            textBlocks.push(typed.data as TextBlockElement);
+            allTexts.push(typed.data as TextBlockElement);
           }
         }
-        countStrokes += strokes.length;
-        countTexts += textBlocks.length;
-        await this.persistence.saveElements(note.id, strokes, textBlocks);
         writtenPages++;
       }
+      countStrokes += allStrokes.length;
+      countTexts += allTexts.length;
+      await this.persistence.saveElements(note.id, allStrokes, allTexts);
       const partial: boolean = writtenPages < manifest.pageCount;
       console.info(`importOurFormat done: note=${note.id} pages=${writtenPages}/${manifest.pageCount} strokes=${countStrokes} texts=${countTexts}`);
       return {

@@ -155,8 +155,11 @@ export class PencilSplatGenerator {
       const x: number = this.config.ellipseShrink * Math.cos(theta) * r;
       const len: number = (angleNorm + Math.sin(theta)) * 1.0;
       // 位置 = 曲线点 + 切线/法线偏移（公式精确照搬 xaa.b L216-218）
-      const splatX: number = pos.x + (len * ty + x * (-tx)) * ellipseR;
-      const splatY: number = pos.y + (len * tx + x * ty) * ellipseR;
+      // 原版：x' = d18*dB - d17*dC，y' = d18*dC + d17*dB（dB=方向x, dC=方向y）
+      // 即 x' = len*ux - x*uy，y' = len*uy + x*ux（ux=切线x, uy=切线y）
+      // 注意：不能写成 len*uy - x*ux（旋转方向会镜像，侧锋偏移方向反转）
+      const splatX: number = pos.x + (len * tx - x * ty) * ellipseR;
+      const splatY: number = pos.y + (len * ty + x * tx) * ellipseR;
       const rotation: number = this.nextRandom() * twoPi;
       // opacity 因子（xaa.b L226/L230）：splatCount==1 时为 1.0，否则 1-sqrt(u1)
       const opacityFactor: number = splatCount === 1 ? 1.0 : (1 - Math.sqrt(u1));

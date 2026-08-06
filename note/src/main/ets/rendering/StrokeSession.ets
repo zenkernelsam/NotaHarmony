@@ -35,6 +35,8 @@ export class StrokeSession {
   private strokeId: string = '';
   private startTime: number = 0;
   private currentStroke: StrokeElementData | null = null;
+  // T-040 审核修复：画布缩放感知（拟合容差按屏幕空间计算）
+  private zoom: number = 1.0;
 
   constructor(renderSpec: RenderSpec, config?: Partial<StrokeSessionConfig>) {
     this.renderSpec = renderSpec;
@@ -63,8 +65,11 @@ export class StrokeSession {
   }
 
   // 开始新笔画
-  beginStroke(spec: RenderSpec, timestamp: number): void {
+  beginStroke(spec: RenderSpec, timestamp: number, zoom?: number): void {
     this.renderSpec = spec;
+    if (zoom !== undefined && zoom > 0) {
+      this.zoom = zoom;
+    }
     this.rawPoints = [];
     this.pathPoints = [];
     this.cubicSegments = [];
@@ -127,7 +132,7 @@ export class StrokeSession {
       this.outline = null;
       return;
     }
-    this.cubicSegments = this.fitter.fit(this.pathPoints, this.renderSpec.brushWidth, 1.0);
+    this.cubicSegments = this.fitter.fit(this.pathPoints, this.renderSpec.brushWidth, this.zoom);
     if (this.renderSpec.isPencil && this.cubicSegments.length > 0) {
       this.splatPoints = this.splatGenerator.generate(this.cubicSegments, this.pathPoints);
     }
@@ -177,6 +182,30 @@ export class StrokeSession {
         }
         if (p.y > bottom) {
           bottom = p.y;
+        }
+      }
+      return { left: left, top: top, right: right, bottom: bottom };
+    }
+    // T-040 审核修复：pencil 笔画的 bounds 必须覆盖 splat 散布范围
+    // （散布半径最多 1.5×spacing，原实现仅 ±brushWidth/2，选中/裁剪/缩略图会截断）
+    if (this.renderSpec.isPencil && this.splatPoints.length > 0) {
+      left = this.splatPoints[0].x;
+      top = this.splatPoints[0].y;
+      right = left;
+      bottom = top;
+      for (const s of this.splatPoints) {
+        const r: number = s.scale;
+        if (s.x - r < left) {
+          left = s.x - r;
+        }
+        if (s.x + r > right) {
+          right = s.x + r;
+        }
+        if (s.y - r < top) {
+          top = s.y - r;
+        }
+        if (s.y + r > bottom) {
+          bottom = s.y + r;
         }
       }
       return { left: left, top: top, right: right, bottom: bottom };
