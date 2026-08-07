@@ -439,17 +439,23 @@ struct LibraryPage {
   }
 
   // FAB 新建按钮（64vp 右下角）
+  // T-040 修复：Button builder 形式 + Text 全铺满居中（原 Button('+') 文本基线导致“+”视觉偏移）
   @Builder
   FabButton() {
-    Button('+')
-      .width(64)
-      .height(64)
-      .fontSize(28)
-      .borderRadius(32)
-      .margin({ right: 24, bottom: 24 })
-      .onClick(() => {
-        this.createAndOpen();
-      })
+    Button() {
+      Text('+')
+        .fontSize(28)
+        .width('100%')
+        .height('100%')
+        .textAlign(TextAlign.Center)
+    }
+    .width(64)
+    .height(64)
+    .borderRadius(32)
+    .margin({ right: 24, bottom: 24 })
+    .onClick(() => {
+      this.createAndOpen();
+    })
   }
 
   @Builder

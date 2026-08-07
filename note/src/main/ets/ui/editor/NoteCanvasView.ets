@@ -155,6 +155,8 @@ export struct NoteCanvasView {
     if (w <= 0 || h <= 0) {
       return;
     }
+    // T-040 修复：设置程序化铅笔纹理（原版 BitmapShader 铅笔质感；无纹理时 fallback 实心圆导致“圆点”感）
+    this.renderer.setSplatTexture(Canvas2DStrokeRenderer.generatePencilTexture());
     this.layerManager.initialize(w, h);
     this.renderer.setEraserMaskWidth(20);
     this.predictor.reset();
@@ -237,10 +239,22 @@ export struct NoteCanvasView {
   private zoomFitWidth(): void {
     // T-040 修复：适配宽度以当前纸张实际宽度为基准（mm×3.78），铺满 85% 宽度
     const w: number = this.canvasCtx.width;
+    const h: number = this.canvasCtx.height;
     const paperW: number = this.currentPage.widthMm > 0 ? this.currentPage.widthMm * 3.78 : 800;
+    const paperH: number = this.currentPage.heightMm > 0 ? this.currentPage.heightMm * 3.78 : 1131;
     const fit: number = (w * 0.85) / paperW;
     const clamped: number = fit < 0.25 ? 0.25 : (fit > 4.0 ? 4.0 : fit);
     this.viewport.setZoom(clamped);
+    // T-040 修复：适应宽度后纸张水平/垂直居中（scroll 重算，避免缩放后纸张偏移到右下角）
+    // 纸张在画布坐标居中于 paperX=(vw-paperW)/2；屏幕左边缘 = paperX*zoom + scrollX
+    // 要求屏幕左边缘 = (w - paperW*zoom)/2 → scrollX = (w - paperW*zoom)/2 - paperX*zoom
+    const vw: number = w / clamped;
+    const vh: number = h / clamped;
+    const paperX: number = Math.max(0, (vw - paperW) / 2);
+    const paperY: number = Math.max(0, (vh - paperH) / 2);
+    const scrollX: number = (w - paperW * clamped) / 2 - paperX * clamped;
+    const scrollY: number = (h - paperH * clamped) / 2 - paperY * clamped;
+    this.viewport.setScroll(scrollX, scrollY);
     this.onViewportChanged();
   }
 
@@ -984,15 +998,25 @@ export struct NoteCanvasView {
 
   // === TouchPoint → RawPointerEvent 转换 ===
   // T-034：坐标经视口逆映射（屏幕 → 画布）
-  // T-040 审核修复：TouchObject.pressure 已是 [0,1] 归一化值，不能再除以 65535
+  // T-040 修复：TouchObject.pressure 已是 [0,1] 归一化值，不能再除以 65535
   // （原实现导致所有笔画 pressure≈0 → widthFactor 恒为下限 0.3）
+  // T-040 修复：输入坐标限制在纸张范围内（原版笔画不能超出页面边缘）
   private toRawPointerEvent(touch: TouchObject, isHistorical: boolean): RawPointerEvent {
     const rawPressure: number = touch.pressure !== undefined ? touch.pressure : 0;
     const pressure: number = rawPressure > 0 ? Math.min(rawPressure, 1) : 0;
     const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
+    // 纸张在画布坐标中的范围（与 PaperRenderer 居中绘制一致）
+    const vw: number = this.canvasCtx.width / this.viewport.zoom;
+    const vh: number = this.canvasCtx.height / this.viewport.zoom;
+    const pw: number = this.currentPage.widthMm > 0 ? this.currentPage.widthMm * 3.78 : vw;
+    const ph: number = this.currentPage.heightMm > 0 ? this.currentPage.heightMm * 3.78 : vh;
+    const paperX: number = Math.max(0, (vw - pw) / 2);
+    const paperY: number = Math.max(0, (vh - ph) / 2);
+    const cx: number = Math.min(Math.max(p.x, paperX), paperX + pw);
+    const cy: number = Math.min(Math.max(p.y, paperY), paperY + ph);
     return {
-      x: p.x,
-      y: p.y,
+      x: cx,
+      y: cy,
       pressure: pressure,
       tiltRadians: 0,
       orientationRadians: 0,
@@ -1003,7 +1027,9 @@ export struct NoteCanvasView {
   }
 
   build() {
-    Stack() {
+    // T-040 修复：Stack alignContent BottomStart——控制条固定在左下角
+    // （原实现 Row 上的 .align 是 Row 内容对齐，在 Stack 中无效 → 控制条居中显示）
+    Stack({ alignContent: Alignment.BottomStart }) {
       Canvas(this.canvasCtx)
         .width('100%')
         .height('100%')
@@ -1066,7 +1092,7 @@ export struct NoteCanvasView {
           this.onTextCancel();
         },
       })
-      // T-034：缩放控制条（右下角；left/bottom 定位不依赖 canvasCtx.height 初始化时机）
+      // T-034：缩放控制条（T-040 修复：Stack alignContent 定位左下角，避开底部 PageManagerBar）
       Row() {
         Button('-')
           .width(40)
@@ -1094,7 +1120,6 @@ export struct NoteCanvasView {
             this.zoomFitWidth();
           })
       }
-      .align(Alignment.BottomStart)
       .margin({ left: 16, bottom: 68 })  // 避开底部 PageManagerBar（56vp）
       .backgroundColor('#F2F2F2')
       .borderRadius(8)

@@ -241,6 +241,46 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
   constructor() {
   }
 
+  // T-040 修复：程序化铅笔纹理（石墨颗粒 + 径向透明边缘）
+  // 原版（uaa/PencilSplatRenderer）用资源 BitmapShader 提供铅笔质感；鸿蒙无该资源，
+  // 用确定性伪随机颗粒生成 64×64 纹理替代：中心浓密、边缘渐淡，splat 叠加后形成连续铅笔痕
+  static generatePencilTexture(): ImageBitmap {
+    const TEX: number = 64;
+    const canvas = new OffscreenCanvas(TEX, TEX);
+    const ctx: OffscreenCanvasRenderingContext2D =
+      canvas.getContext('2d', new RenderingContextSettings(true));
+    ctx.clearRect(0, 0, TEX, TEX);
+    // 径向渐变（中心不透明 → 边缘透明）
+    const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 31);
+    grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+    grad.addColorStop(0.55, 'rgba(255,255,255,0.55)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, TEX, TEX);
+    // 石墨颗粒：确定性 LCG（与笔画 seed 无关，纹理固定）
+    let seed: number = 20260805;
+    const rand = (): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    for (let i = 0; i < 900; i++) {
+      const px: number = rand() * TEX;
+      const py: number = rand() * TEX;
+      const dx: number = px - 32;
+      const dy: number = py - 32;
+      const dist: number = Math.sqrt(dx * dx + dy * dy);
+      if (dist > 31) {
+        continue;
+      }
+      const alpha: number = (0.15 + rand() * 0.35) * (1 - dist / 32);
+      ctx.fillStyle = 'rgba(255,255,255,' + alpha.toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.arc(px, py, 0.6 + rand() * 0.9, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    return canvas.transferToImageBitmap();
+  }
+
   setSplatTexture(texture: ImageBitmap): void {
     this.splatTexture = texture;
     this.colorCache.clear();
