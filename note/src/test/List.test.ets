@@ -18,6 +18,7 @@ import webDAVClientTest from './WebDAVClient.test';
 import backupBatchSpecTest from './BackupBatchSpec.test';
 import backupBatchPublisherTest from './BackupBatchPublisher.test';
 import webDAVConfigTransactionTest from './WebDAVConfigTransaction.test';
+import pointerSampleStreamTest from './PointerSampleStream.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -40,4 +41,5 @@ export default function testsuite() {
   backupBatchSpecTest();
   backupBatchPublisherTest();
   webDAVConfigTransactionTest();
+  pointerSampleStreamTest();
 }

@@ -38,6 +38,9 @@ import { TextBlockOverlay } from '../components/TextBlockOverlay';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ArkUIStylusAdapter, ArkUIStylusSample } from './ArkUIStylusAdapter';
+import {
+  PointerInputBatches, PointerRawSample, PointerSampleStream,
+} from '../../core/adaptation/PointerSampleStream';
 
 interface ShapeDetectionAttempt {
   stroke: StrokeElementData;
@@ -76,6 +79,8 @@ export struct NoteCanvasView {
   private lifecycleActive: boolean = false;
   private layerManager: StrokeLayerManager = new StrokeLayerManager(this.renderer);
   private strokeSession: StrokeSession | null = null;
+  private activePointerId: number = -1;
+  private pointerStream: PointerSampleStream = new PointerSampleStream();
   private eraserEngine: EraserEngine = new EraserEngine(EraserMode.WHOLE, 20);
   private paperRenderer: PaperRenderer = new PaperRenderer();
   private undoRedo: UndoRedoManager = new UndoRedoManager();
@@ -640,6 +645,8 @@ export struct NoteCanvasView {
       return;
     }
 
+    this.activePointerId = touch.id;
+
     if (this.viewModel.isEraserActive()) {
       this.eraserEngine.setMode(this.viewModel.eraserIsPartial ? EraserMode.PARTIAL : EraserMode.WHOLE);
       this.eraserActive = true;
@@ -677,13 +684,14 @@ export struct NoteCanvasView {
     if (this.strokeSession === null) {
       this.strokeSession = new StrokeSession(spec);
     }
-    const startTime: number = Date.now();
+    this.pointerStream.begin(touch.id);
+    const batches: PointerInputBatches = this.pointerStream.append(
+      this.collectPointerSamples(event, touch));
+    const startTime: number = this.firstBatchTimestamp(batches, event.timestamp);
     // T-040 审核修复：传入当前 zoom（拟合容差按屏幕空间计算）
     this.strokeSession.beginStroke(spec, startTime, this.viewport.zoom);
     this.inputProvider.beginStroke(startTime);
-    const batch: InputBatch = this.inputProvider.processEvent(
-      [this.toRawPointerEvent(touch, false, event)], false);
-    this.strokeSession.addBatch(batch);
+    this.addPointerBatches(batches);
     this.scheduleShapeDetection();
     this.isDrawing = true;
     this.renderFrame();
@@ -698,20 +706,21 @@ export struct NoteCanvasView {
       this.cancelActiveInteraction();
       return;
     }
+    const touch: TouchObject | null = this.findTouchById(event.touches, this.activePointerId);
+    if (touch === null) {
+      this.cancelActiveInteraction();
+      return;
+    }
     if (this.eraserActive) {
-      for (const t of event.touches) {
-        this.collectEraserPoint(t);
-      }
+      this.collectEraserPoint(touch);
       return;
     }
     if (this.selectionDrawing) {
-      const touch: TouchObject = event.touches[0];
       const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
       this.selectionTool.updateSelection(p);
       return;
     }
     if (this.selectionDrag) {
-      const touch: TouchObject = event.touches[0];
       const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
       const dx: number = p.x - this.lastDragPoint.x;
       const dy: number = p.y - this.lastDragPoint.y;
@@ -720,13 +729,10 @@ export struct NoteCanvasView {
       this.applySelectionTransform(false, false);  // 移动中不 push undo（结束时统一 push）
       return;
     }
-    const rawEvents: RawPointerEvent[] = [];
-    for (const t of event.touches) {
-      rawEvents.push(this.toRawPointerEvent(t, false, event));
-    }
-    const batch: InputBatch = this.inputProvider.processEvent(rawEvents, false);
+    const batches: PointerInputBatches = this.pointerStream.append(
+      this.collectPointerSamples(event, touch));
     if (this.strokeSession !== null) {
-      this.strokeSession.addBatch(batch);
+      this.addPointerBatches(batches);
       this.scheduleShapeDetection();
     }
     this.renderFrame();
@@ -739,6 +745,27 @@ export struct NoteCanvasView {
     if (event.touches.length > 0) {
       this.cancelActiveInteraction();
       return;
+    }
+    const finalTouch: TouchObject | null = this.findTouchById(
+      event.changedTouches, this.activePointerId);
+    if (finalTouch !== null) {
+      if (this.eraserActive) {
+        this.collectEraserPoint(finalTouch);
+      } else if (this.selectionDrawing) {
+        const p: Point2D = this.viewport.screenToCanvas(finalTouch.x, finalTouch.y);
+        this.selectionTool.updateSelection(p);
+      } else if (this.selectionDrag) {
+        const p: Point2D = this.viewport.screenToCanvas(finalTouch.x, finalTouch.y);
+        const dx: number = p.x - this.lastDragPoint.x;
+        const dy: number = p.y - this.lastDragPoint.y;
+        this.lastDragPoint = { x: p.x, y: p.y };
+        this.selectionTool.moveSelected(dx, dy);
+        this.applySelectionTransform(false, false);
+      } else if (this.strokeSession !== null && this.strokeSession.isActive()) {
+        const batches: PointerInputBatches = this.pointerStream.append(
+          this.collectPointerSamples(event, finalTouch));
+        this.addPointerBatches(batches);
+      }
     }
     this.cancelShapeDetectionTimer();
     if (this.eraserActive) {
@@ -799,11 +826,13 @@ export struct NoteCanvasView {
         this.undoRedo.canUndo().toString());
     }
     this.isDrawing = false;
+    this.resetPointerTracking();
     this.renderFrame();
   }
 
   private cancelActiveInteraction(): void {
     if (!this.isDrawing) {
+      this.resetPointerTracking();
       return;
     }
     this.cancelShapeDetectionTimer();
@@ -827,6 +856,7 @@ export struct NoteCanvasView {
     this.selectionDrag = false;
     this.dragBeforeStrokes = [];
     this.isDrawing = false;
+    this.resetPointerTracking();
     this.renderFrame();
   }
 
@@ -1005,8 +1035,11 @@ export struct NoteCanvasView {
   }
 
   private collectEraserPoint(touch: TouchObject): void {
-    const p: RawPointerEvent = this.toRawPointerEvent(touch, false);
-    this.eraserPath.push({ x: p.x, y: p.y });
+    const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
+    this.eraserPath.push({
+      x: Math.min(Math.max(p.x, 0), this.getPaperWidth()),
+      y: Math.min(Math.max(p.y, 0), this.getPaperHeight()),
+    });
   }
 
   // === Undo / Redo ===
@@ -1625,8 +1658,10 @@ export struct NoteCanvasView {
   // （原实现导致所有笔画 pressure≈0 → widthFactor 恒为下限 0.3）
   // T-040 修复：输入坐标限制在纸张范围内（原版笔画不能超出页面边缘）
   private toRawPointerEvent(touch: TouchObject, isHistorical: boolean,
-    event?: TouchEvent): RawPointerEvent {
-    const stylus: ArkUIStylusSample = ArkUIStylusAdapter.fromTouch(touch, event);
+    event: TouchEvent, timestamp: number, pressureOverride?: number,
+    includeStylusAngles: boolean = true): RawPointerEvent {
+    const stylus: ArkUIStylusSample = ArkUIStylusAdapter.fromTouch(
+      touch, event, pressureOverride, includeStylusAngles);
     const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
     const cx: number = Math.min(Math.max(p.x, 0), this.getPaperWidth());
     const cy: number = Math.min(Math.max(p.y, 0), this.getPaperHeight());
@@ -1637,9 +1672,69 @@ export struct NoteCanvasView {
       tiltRadians: stylus.altitudeAngleRadians,
       orientationRadians: stylus.orientationRadians,
       toolType: stylus.toolType,
-      timestamp: Date.now(),
+      timestamp: timestamp,
       isHistorical: isHistorical,
     };
+  }
+
+  private findTouchById(touches: TouchObject[], pointerId: number): TouchObject | null {
+    for (let i: number = 0; i < touches.length; i++) {
+      if (touches[i].id === pointerId) {
+        return touches[i];
+      }
+    }
+    return null;
+  }
+
+  private collectPointerSamples(event: TouchEvent, currentTouch: TouchObject): PointerRawSample[] {
+    const samples: PointerRawSample[] = [];
+    const historicalPoints: HistoricalPoint[] = event.getHistoricalPoints();
+    for (let i: number = 0; i < historicalPoints.length; i++) {
+      const historical: HistoricalPoint = historicalPoints[i];
+      if (historical.touchObject.id !== this.activePointerId) {
+        continue;
+      }
+      samples.push({
+        pointerId: historical.touchObject.id,
+        event: this.toRawPointerEvent(historical.touchObject, true, event,
+          historical.timestamp, historical.force, false),
+      });
+    }
+    samples.push({
+      pointerId: currentTouch.id,
+      event: this.toRawPointerEvent(currentTouch, false, event, event.timestamp),
+    });
+    return samples;
+  }
+
+  private firstBatchTimestamp(batches: PointerInputBatches, fallback: number): number {
+    if (batches.historical.length > 0) {
+      return batches.historical[0].timestamp;
+    }
+    if (batches.real.length > 0) {
+      return batches.real[0].timestamp;
+    }
+    return fallback;
+  }
+
+  private addPointerBatches(batches: PointerInputBatches): void {
+    if (this.strokeSession === null) {
+      return;
+    }
+    if (batches.historical.length > 0) {
+      const historicalBatch: InputBatch = this.inputProvider.processEvent(
+        batches.historical, false);
+      this.strokeSession.addBatch(historicalBatch);
+    }
+    if (batches.real.length > 0) {
+      const realBatch: InputBatch = this.inputProvider.processEvent(batches.real, false);
+      this.strokeSession.addBatch(realBatch);
+    }
+  }
+
+  private resetPointerTracking(): void {
+    this.activePointerId = -1;
+    this.pointerStream.reset();
   }
 
   private getPaperWidth(): number {

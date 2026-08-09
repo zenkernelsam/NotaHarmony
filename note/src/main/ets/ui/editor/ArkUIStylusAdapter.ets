@@ -6,11 +6,11 @@ export interface ArkUIStylusSample {
 }
 
 export class ArkUIStylusAdapter {
-  static fromTouch(touch: TouchObject, event?: TouchEvent): ArkUIStylusSample {
-    const rawPressure: number = touch.pressure !== undefined ? touch.pressure :
-      (event !== undefined ? event.pressure : -1);
-    const pressure: number = rawPressure > 0 ? Math.min(rawPressure, 1) : -1;
-    if (event === undefined || event.sourceTool !== SourceTool.Pen) {
+  static fromTouch(touch: TouchObject, event?: TouchEvent, pressureOverride?: number,
+    includeStylusAngles: boolean = true): ArkUIStylusSample {
+    const pressure: number = ArkUIStylusAdapter.resolvePressure(
+      touch, event, pressureOverride);
+    if (event === undefined || event.sourceTool !== SourceTool.Pen || !includeStylusAngles) {
       return {
         pressure: pressure,
         altitudeAngleRadians: -1,
@@ -36,7 +36,10 @@ export class ArkUIStylusAdapter {
     }
     const altitude: number = Math.atan2(1, projectionLength);
     // InkInputProviderImpl converts orientation to (-sin(o), cos(o)), matching original cd0.b()/c().
-    const orientation: number = Math.atan2(-projectionX, projectionY);
+    let orientation: number = Math.atan2(-projectionX, projectionY);
+    if (orientation < 0) {
+      orientation += Math.PI * 2;
+    }
     return {
       pressure: pressure,
       altitudeAngleRadians: altitude,
@@ -57,5 +60,20 @@ export class ArkUIStylusAdapter {
 
   private static toRadians(degrees: number): number {
     return Math.max(-90, Math.min(90, degrees)) * Math.PI / 180;
+  }
+
+  private static resolvePressure(touch: TouchObject, event?: TouchEvent,
+    pressureOverride?: number): number {
+    if (pressureOverride !== undefined && Number.isFinite(pressureOverride)) {
+      return Math.min(Math.max(pressureOverride, 0), 1);
+    }
+    if (touch.pressure !== undefined && Number.isFinite(touch.pressure)) {
+      return Math.min(Math.max(touch.pressure, 0), 1);
+    }
+    if (event !== undefined && Number.isFinite(event.pressure) &&
+      (event.sourceTool === SourceTool.Pen || event.pressure > 0)) {
+      return Math.min(Math.max(event.pressure, 0), 1);
+    }
+    return -1;
   }
 }

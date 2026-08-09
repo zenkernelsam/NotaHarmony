@@ -41,7 +41,8 @@ export class InkInputProviderImpl implements InkInputProvider {
       points.push({
         x: raw.x,
         y: raw.y,
-        elapsedTimeMillis: this.strokeStartTime >= 0 ? raw.timestamp - this.strokeStartTime : 0,
+        elapsedTimeMillis: this.strokeStartTime >= 0 ?
+          Math.max(0, raw.timestamp - this.strokeStartTime) : 0,
         // §5 映射：stylus/eraser→STYLUS(0)、mouse→MOUSE(1)、其他→TOUCH(2)
         // （页面层将 stylus/eraser 归类为 0，mouse 归类为 1）
         toolType: this.mapToolType(raw.toolType),
