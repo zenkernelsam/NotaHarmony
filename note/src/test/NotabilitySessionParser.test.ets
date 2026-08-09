@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
-  createNotabilityContentInventory, NotabilityContentInventory,
+  assessNotabilityCurveFidelity, createNotabilityContentInventory, NotabilityContentInventory,
   resolveNotabilityPageCount, summarizeNotabilityContentLoss,
 } from '../main/ets/data/NotabilitySessionParser';
 
@@ -40,6 +40,20 @@ export default function notabilitySessionParserTest() {
       expect(resolveNotabilityPageCount(4, 2)).assertEqual(4);
       expect(resolveNotabilityPageCount(2, 5)).assertEqual(5);
       expect(resolveNotabilityPageCount(0, 0)).assertEqual(1);
+    });
+
+    it('marks unsupported curve attributes as degraded without inventing a mapping', 0, () => {
+      const baseline = assessNotabilityCurveFidelity(
+        3, [1, 1], [1, 1], [Math.PI / 2], [1], [0]);
+      expect(baseline.degraded).assertFalse();
+
+      const changed = assessNotabilityCurveFidelity(
+        7, [1, 0.7], [1, 0.4], [0.8], [0.5], [0.5]);
+      expect(changed.widthUnmapped).assertTrue();
+      expect(changed.forceUnmapped).assertTrue();
+      expect(changed.orientationUnmapped).assertTrue();
+      expect(changed.styleUnmapped).assertTrue();
+      expect(changed.degraded).assertTrue();
     });
   });
 }

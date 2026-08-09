@@ -72,6 +72,40 @@ export const DEFAULT_TARGET_PAGE_WIDTH_VP: number = 360;
 // 实测到的笔画样式值。OP-AMP.note 中 1353 条曲线全部为 3（普通笔）。
 // 其余取值（高亮笔/铅笔等）无样本，遇到时记录 warning 并退化为定宽笔。
 const STYLE_PEN_OBSERVED: number = 3;
+const ATTRIBUTE_TOLERANCE: number = 0.0001;
+
+export interface NotabilityCurveFidelity {
+  widthUnmapped: boolean;
+  forceUnmapped: boolean;
+  orientationUnmapped: boolean;
+  styleUnmapped: boolean;
+  degraded: boolean;
+}
+
+export function assessNotabilityCurveFidelity(style: number, fractionalWidths: number[],
+  forces: number[], altitudeAngles: number[], azimuthX: number[], azimuthY: number[]): NotabilityCurveFidelity {
+  const widthUnmapped: boolean = hasAttributeVariation(fractionalWidths, 1.0);
+  const forceUnmapped: boolean = hasAttributeVariation(forces, 1.0);
+  const orientationUnmapped: boolean = hasAttributeVariation(altitudeAngles, Math.PI / 2) ||
+    hasAttributeVariation(azimuthX, 1.0) || hasAttributeVariation(azimuthY, 0.0);
+  const styleUnmapped: boolean = style !== STYLE_PEN_OBSERVED;
+  return {
+    widthUnmapped: widthUnmapped,
+    forceUnmapped: forceUnmapped,
+    orientationUnmapped: orientationUnmapped,
+    styleUnmapped: styleUnmapped,
+    degraded: widthUnmapped || forceUnmapped || orientationUnmapped || styleUnmapped,
+  };
+}
+
+function hasAttributeVariation(values: number[], baseline: number): boolean {
+  for (let i: number = 0; i < values.length; i++) {
+    if (!Number.isFinite(values[i]) || Math.abs(values[i] - baseline) > ATTRIBUTE_TOLERANCE) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // ============================ 输出模型 ============================
 
@@ -460,6 +494,9 @@ export class NotabilitySessionParser {
     let anchorCursor: number = 0;   // 锚点索引
     let structureMismatch: number = 0;
     let optionsHighWordCount: number = 0;
+    let unmappedWidthCount: number = 0;
+    let unmappedForceCount: number = 0;
+    let unmappedOrientationCount: number = 0;
 
     for (let ci = 0; ci < numCurves; ci++) {
       const n: number = uint32LE(dNumPts, ci * 4);
@@ -516,7 +553,18 @@ export class NotabilitySessionParser {
       if (style !== STYLE_PEN_OBSERVED && unknownStyles.indexOf(style) < 0) {
         unknownStyles.push(style);
       }
-      if (style !== STYLE_PEN_OBSERVED) {
+      const fidelity: NotabilityCurveFidelity = assessNotabilityCurveFidelity(
+        style, fracs, forces, alts, azX, azY);
+      if (fidelity.widthUnmapped) {
+        unmappedWidthCount++;
+      }
+      if (fidelity.forceUnmapped) {
+        unmappedForceCount++;
+      }
+      if (fidelity.orientationUnmapped) {
+        unmappedOrientationCount++;
+      }
+      if (fidelity.degraded) {
         outcome.degradedCount++;
       }
 
@@ -566,6 +614,18 @@ export class NotabilitySessionParser {
     if (unknownStyles.length > 0) {
       outcome.warnings.push(
         `出现未验证的笔画样式值 [${unknownStyles.join(', ')}]（仅样式 ${STYLE_PEN_OBSERVED}=普通笔经实测确认），已按定宽笔处理`);
+    }
+    if (unmappedWidthCount > 0) {
+      outcome.warnings.push(
+        `${unmappedWidthCount} 条曲线含非默认 fractionalWidths；原始值已保留，但缺少压感样本基准，当前未映射到变宽渲染`);
+    }
+    if (unmappedForceCount > 0) {
+      outcome.warnings.push(
+        `${unmappedForceCount} 条曲线含非默认 force；原始值已保留，但缺少 Apple Pencil 样本基准，当前未映射到压力语义`);
+    }
+    if (unmappedOrientationCount > 0) {
+      outcome.warnings.push(
+        `${unmappedOrientationCount} 条曲线含非默认笔姿属性；原始值已保留，但缺少铅笔样本基准，当前未映射到笔姿语义`);
     }
     if (optionsHighWordCount > 0) {
       outcome.warnings.push(
