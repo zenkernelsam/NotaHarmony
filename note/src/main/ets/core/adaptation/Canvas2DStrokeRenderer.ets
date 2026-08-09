@@ -8,8 +8,36 @@ import { Point2D, Rect2D } from '../model/GeometryTypes';
 import { WidthOutlineBuilder } from '../algorithm/WidthOutlineBuilder';
 import { BitmapTransferKind, BitmapTransferTracker } from './BitmapTransferTracker';
 
+export interface Canvas2DDrawingContext extends RenderContext {
+  beginPath(): void;
+  moveTo(x: number, y: number): void;
+  lineTo(x: number, y: number): void;
+  bezierCurveTo(cp1x: number, cp1y: number, cp2x: number, cp2y: number, x: number, y: number): void;
+  closePath(): void;
+  stroke(): void;
+  fill(): void;
+  fillRect(x: number, y: number, width: number, height: number): void;
+  fillText(text: string, x: number, y: number): void;
+  arc(x: number, y: number, radius: number, startAngle: number, endAngle: number): void;
+  setLineDash(segments: number[]): void;
+  setLineWidth(width: number): void;
+  setLineCap(cap: CanvasLineCap): void;
+  setLineJoin(join: CanvasLineJoin): void;
+  setStrokeStyle(color: string): void;
+  setFillStyle(color: string): void;
+  setFont(font: string): void;
+  setGlobalAlpha(alpha: number): void;
+  setGlobalCompositeOperation(op: string): void;
+  translate(x: number, y: number): void;
+  rotate(angle: number): void;
+  scale(sx: number, sy: number): void;
+  setTransform(m: number[]): void;
+  transform(m: number[]): void;
+  drawImage(image: ImageBitmap, dx: number, dy: number, dw: number, dh: number): void;
+}
+
 // 渲染上下文实现 A：包装主画布 CanvasRenderingContext2D
-export class Canvas2DRenderContext implements RenderContext {
+export class Canvas2DRenderContext implements Canvas2DDrawingContext {
   private ctx: CanvasRenderingContext2D;
 
   constructor(ctx: CanvasRenderingContext2D) {
@@ -63,6 +91,14 @@ export class Canvas2DRenderContext implements RenderContext {
     this.ctx.fill();
   }
 
+  fillRect(x: number, y: number, width: number, height: number): void {
+    this.ctx.fillRect(x, y, width, height);
+  }
+
+  fillText(text: string, x: number, y: number): void {
+    this.ctx.fillText(text, x, y);
+  }
+
   arc(x: number, y: number, radius: number, startAngle: number, endAngle: number): void {
     this.ctx.arc(x, y, radius, startAngle, endAngle);
   }
@@ -91,6 +127,10 @@ export class Canvas2DRenderContext implements RenderContext {
     this.ctx.fillStyle = color;
   }
 
+  setFont(font: string): void {
+    this.ctx.font = font;
+  }
+
   setGlobalAlpha(alpha: number): void {
     this.ctx.globalAlpha = alpha;
   }
@@ -116,6 +156,10 @@ export class Canvas2DRenderContext implements RenderContext {
     this.ctx.setTransform(m[0], m[3], m[1], m[4], m[2], m[5]);
   }
 
+  transform(m: number[]): void {
+    this.ctx.transform(m[0], m[3], m[1], m[4], m[2], m[5]);
+  }
+
   drawImage(image: ImageBitmap, dx: number, dy: number, dw: number, dh: number): void {
     this.ctx.drawImage(image, dx, dy, dw, dh);
   }
@@ -123,7 +167,7 @@ export class Canvas2DRenderContext implements RenderContext {
 
 // 渲染上下文实现 B：包装 OffscreenCanvas 上下文 OffscreenCanvasRenderingContext2D
 // 与 Canvas2DRenderContext 方法集一致（渲染器按鸭子类型调用，运行时安全）
-export class Canvas2DOffscreenRenderContext implements RenderContext {
+export class Canvas2DOffscreenRenderContext implements Canvas2DDrawingContext {
   private ctx: OffscreenCanvasRenderingContext2D;
 
   constructor(ctx: OffscreenCanvasRenderingContext2D) {
@@ -176,6 +220,14 @@ export class Canvas2DOffscreenRenderContext implements RenderContext {
     this.ctx.fill();
   }
 
+  fillRect(x: number, y: number, width: number, height: number): void {
+    this.ctx.fillRect(x, y, width, height);
+  }
+
+  fillText(text: string, x: number, y: number): void {
+    this.ctx.fillText(text, x, y);
+  }
+
   arc(x: number, y: number, radius: number, startAngle: number, endAngle: number): void {
     this.ctx.arc(x, y, radius, startAngle, endAngle);
   }
@@ -204,6 +256,10 @@ export class Canvas2DOffscreenRenderContext implements RenderContext {
     this.ctx.fillStyle = color;
   }
 
+  setFont(font: string): void {
+    this.ctx.font = font;
+  }
+
   setGlobalAlpha(alpha: number): void {
     this.ctx.globalAlpha = alpha;
   }
@@ -227,6 +283,10 @@ export class Canvas2DOffscreenRenderContext implements RenderContext {
   // 应用 3×3 行主序仿射变换矩阵（变换选中笔画用）
   setTransform(m: number[]): void {
     this.ctx.setTransform(m[0], m[3], m[1], m[4], m[2], m[5]);
+  }
+
+  transform(m: number[]): void {
+    this.ctx.transform(m[0], m[3], m[1], m[4], m[2], m[5]);
   }
 
   drawImage(image: ImageBitmap, dx: number, dy: number, dw: number, dh: number): void {
@@ -310,7 +370,7 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
 
   // === 中心线路径（Mono/Dash/Dot，pzf.g 规格）===
   renderCenterPath(stroke: StrokeElementData, ctx: RenderContext): void {
-    const c: Canvas2DRenderContext = ctx as Canvas2DRenderContext;
+    const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
     const spec: RenderSpec = stroke.renderSpec;
     // 空路径检查（pzf.g 对齐）：无点直接返回
     if (stroke.pathPoints.length === 0) {
@@ -353,7 +413,7 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
 
   // === 可变宽度填充轮廓（Taper，w4a.b()）===
   renderVariableWidthOutline(stroke: StrokeElementData, ctx: RenderContext): void {
-    const c: Canvas2DRenderContext = ctx as Canvas2DRenderContext;
+    const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
     const builder: WidthOutlineBuilder = new WidthOutlineBuilder();
     const outline = builder.build(
       stroke.pathPoints, stroke.renderSpec.brushWidth, stroke.cubicSegments);
@@ -378,7 +438,7 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     if (splats.length === 0) {
       return;
     }
-    const c: Canvas2DRenderContext = ctx as Canvas2DRenderContext;
+    const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
     const tintedTexture: ImageBitmap | null = this.getTintedSplatTexture(spec.color);
     for (const s of splats) {
       c.save();
@@ -446,7 +506,7 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     if (stroke.maskPath.length === 0) {
       return;
     }
-    const c: Canvas2DRenderContext = ctx as Canvas2DRenderContext;
+    const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
     c.save();
     c.setGlobalCompositeOperation('destination-out');
     c.setLineWidth(this.eraserMaskWidth);

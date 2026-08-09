@@ -53,32 +53,6 @@ export class TextBlockTool {
     };
   }
 
-  // 渲染文本到 Canvas（笔画层之上）
-  renderText(ctx: CanvasRenderingContext2D, element: TextBlockElement): void {
-    if (element.richText.length === 0) {
-      return;
-    }
-    ctx.save();
-    ctx.font = element.fontSize.toString() + 'px sans-serif';
-    ctx.fillStyle = this.colorToRgba(element.fontColor);
-    const x: number = element.textOrigin.x + element.contentLeftInset;
-    const y: number = element.textOrigin.y + element.contentTopInset + element.fontSize;
-    // 逐行绘制（支持 \n）
-    const lines: string[] = element.richText.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(lines[i], x, y + i * (element.fontSize + 8));
-    }
-    ctx.restore();
-  }
-
-  private colorToRgba(argb: number): string {
-    const a: number = (argb >>> 24) & 0xFF;
-    const r: number = (argb >>> 16) & 0xFF;
-    const g: number = (argb >>> 8) & 0xFF;
-    const b: number = argb & 0xFF;
-    return 'rgba(' + r + ',' + g + ',' + b + ',' + (a / 255) + ')';
-  }
-
   private generateId(): string {
     const timePart: string = Date.now().toString(36);
     const randPart: string = Math.random().toString(36).slice(2, 8);

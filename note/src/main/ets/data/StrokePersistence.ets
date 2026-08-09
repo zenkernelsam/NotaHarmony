@@ -1,4 +1,5 @@
 import { relationalStore } from '@kit.ArkData';
+import { PageInfo } from '../core/model/NoteTypes';
 import { taskpool, util } from '@kit.ArkTS';
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { TextBlockElement } from '../core/model/ElementTypes';
@@ -14,6 +15,11 @@ export interface PersistedElement {
 export interface LoadedElements {
   strokes: StrokeElementData[];
   textBlocks: TextBlockElement[];
+}
+
+export interface FirstPageThumbnailState {
+  page: PageInfo;
+  revision: string;
 }
 
 interface PreparedElement {
@@ -125,22 +131,37 @@ export class StrokePersistence {
     return pageId.length > 0 ? this.loadElements(noteId, pageId) : { strokes: [], textBlocks: [] };
   }
 
-  async getFirstPageRevision(noteId: string): Promise<string> {
+  async getFirstPageThumbnailState(noteId: string): Promise<FirstPageThumbnailState | null> {
     if (this.store === null) {
       throw new Error('StrokePersistence is not initialized');
     }
     const resultSet = await this.store.querySql(
-      `SELECT page.content_revision AS content_revision,
+      `SELECT page.page_id AS page_id, page.page_index AS page_index, page.size AS size, page.template AS template,
+        page.orientation AS orientation, page.width_mm AS width_mm, page.height_mm AS height_mm,
+        page.content_revision AS content_revision,
         (SELECT COUNT(*) FROM page_element_snapshot snapshot
          WHERE snapshot.note_id = page.note_id AND snapshot.page_id = page.page_id) AS element_count
        FROM page_info page WHERE page.note_id = ? ORDER BY page.page_index LIMIT 1`, [noteId]);
     try {
       if (!resultSet.goToFirstRow()) {
-        return '0:0';
+        return null;
       }
+      const page: PageInfo = {
+        pageId: resultSet.getString(resultSet.getColumnIndex('page_id')),
+        pageIndex: resultSet.getLong(resultSet.getColumnIndex('page_index')),
+        size: resultSet.getLong(resultSet.getColumnIndex('size')),
+        template: resultSet.getLong(resultSet.getColumnIndex('template')),
+        orientation: resultSet.getLong(resultSet.getColumnIndex('orientation')),
+        widthMm: resultSet.getDouble(resultSet.getColumnIndex('width_mm')),
+        heightMm: resultSet.getDouble(resultSet.getColumnIndex('height_mm')),
+      };
       const maxRevision: number = resultSet.getLong(resultSet.getColumnIndex('content_revision'));
       const elementCount: number = resultSet.getLong(resultSet.getColumnIndex('element_count'));
-      return `${maxRevision}:${elementCount}`;
+      return {
+        page: page,
+        revision: `${page.pageId}:${page.size}:${page.template}:${page.orientation}:` +
+          `${page.widthMm}:${page.heightMm}:${maxRevision}:${elementCount}`,
+      };
     } finally {
       resultSet.close();
     }

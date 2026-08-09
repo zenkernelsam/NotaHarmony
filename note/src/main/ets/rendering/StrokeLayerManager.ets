@@ -2,21 +2,21 @@
 // 已完成层（OffscreenCanvas 缓存）+ 当前笔画层 + 脏矩形增量重绘
 // 渲染层实现：允许 import Canvas 类型；不 import UI 组件
 import { Rect2D } from '../core/model/GeometryTypes';
-import { StrokeElementData, InkStyle } from '../core/model/StrokeTypes';
+import { StrokeElementData } from '../core/model/StrokeTypes';
 import { StrokeRenderer, RenderContext } from '../core/adaptation/StrokeRenderer';
-import { Canvas2DRenderContext, Canvas2DOffscreenRenderContext } from '../core/adaptation/Canvas2DStrokeRenderer';
+import { Canvas2DOffscreenRenderContext } from '../core/adaptation/Canvas2DStrokeRenderer';
 import { DirtyRectTracker } from './DirtyRectTracker';
 import {
   BitmapTransferKind, BitmapTransferMetrics, BitmapTransferTracker,
 } from '../core/adaptation/BitmapTransferTracker';
-import { computeIsolatedLayerBounds, translateTransformToCrop } from '../core/adaptation/LayerCacheGeometry';
+import { StrokeCanvasPainter } from './StrokeCanvasPainter';
 
 export class StrokeLayerManager {
   private completedLayer: OffscreenCanvas | null = null;   // 已完成笔画缓存
   private completedCtx: OffscreenCanvasRenderingContext2D | null = null;
   private completedRenderCtx: Canvas2DOffscreenRenderContext | null = null;
   private completedBitmap: ImageBitmap | null = null;
-  private renderer: StrokeRenderer;
+  private strokePainter: StrokeCanvasPainter;
   private dirtyTracker: DirtyRectTracker;
   private transferTracker: BitmapTransferTracker;
   private pageWidth: number = 0;
@@ -24,9 +24,9 @@ export class StrokeLayerManager {
   private previousCurrentBounds: Rect2D | null = null;
 
   constructor(renderer: StrokeRenderer, transferTracker: BitmapTransferTracker = new BitmapTransferTracker()) {
-    this.renderer = renderer;
     this.dirtyTracker = new DirtyRectTracker(3);
     this.transferTracker = transferTracker;
+    this.strokePainter = new StrokeCanvasPainter(renderer, transferTracker);
   }
 
   // 初始化/重建 OffscreenCanvas（页面 onReady 或 resize 时调用）
@@ -47,7 +47,7 @@ export class StrokeLayerManager {
       return;
     }
     this.restoreWorkingLayer();
-    this.renderStrokeOnto(stroke, this.completedRenderCtx);
+    this.strokePainter.renderStroke(stroke, this.completedRenderCtx, this.pageWidth, this.pageHeight);
     this.publishWorkingLayer();
     this.dirtyTracker.markDirty(stroke.bounds, zoom);
   }
@@ -84,7 +84,7 @@ export class StrokeLayerManager {
       mainCtx.drawImage(completed, 0, 0, this.pageWidth, this.pageHeight);
     }
     if (currentStroke !== null && currentRenderCtx !== null) {
-      this.renderStrokeOnto(currentStroke, currentRenderCtx);
+      this.strokePainter.renderStroke(currentStroke, currentRenderCtx, this.pageWidth, this.pageHeight);
     }
     renderForeground();
     mainCtx.restore();
@@ -103,7 +103,7 @@ export class StrokeLayerManager {
       mainCtx.drawImage(completed, 0, 0, this.pageWidth, this.pageHeight);
     }
     if (currentStroke !== null && currentRenderCtx !== null) {
-      this.renderStrokeOnto(currentStroke, currentRenderCtx);
+      this.strokePainter.renderStroke(currentStroke, currentRenderCtx, this.pageWidth, this.pageHeight);
     }
     this.transferTracker.finishFrame(true, 1);
   }
@@ -125,7 +125,7 @@ export class StrokeLayerManager {
     }
     this.completedCtx.clearRect(0, 0, this.pageWidth, this.pageHeight);
     for (const s of strokes) {
-      this.renderStrokeOnto(s, this.completedRenderCtx);
+      this.strokePainter.renderStroke(s, this.completedRenderCtx, this.pageWidth, this.pageHeight);
     }
     if (strokes.length > 0) {
       this.publishWorkingLayer();
@@ -152,52 +152,6 @@ export class StrokeLayerManager {
     this.pageHeight = 0;
     this.previousCurrentBounds = null;
     this.dirtyTracker.consume();
-  }
-
-  // 按 renderSpec 分发渲染路径（中心线 / 可变宽度轮廓 / PencilSplat），随后应用擦除遮罩
-  // 渲染前应用 stroke.transform（选区变换支持）
-  private renderStrokeOnto(stroke: StrokeElementData, rc: RenderContext): void {
-    const c: Canvas2DRenderContext = rc as Canvas2DRenderContext;
-    if (stroke.maskPath.length > 0) {
-      const crop: Rect2D = computeIsolatedLayerBounds(stroke.bounds, this.pageWidth, this.pageHeight);
-      const width: number = crop.right - crop.left;
-      const height: number = crop.bottom - crop.top;
-      if (width <= 0 || height <= 0) {
-        return;
-      }
-      const isolatedLayer = new OffscreenCanvas(width, height);
-      const isolatedCtx: OffscreenCanvasRenderingContext2D =
-        isolatedLayer.getContext('2d', new RenderingContextSettings(true));
-      const isolatedRenderCtx = new Canvas2DOffscreenRenderContext(isolatedCtx);
-      const transform: number[] = translateTransformToCrop(stroke.transform, crop);
-      isolatedRenderCtx.save();
-      isolatedRenderCtx.setTransform(transform);
-      this.renderInk(stroke, isolatedRenderCtx);
-      this.renderer.renderEraserMask(stroke, isolatedRenderCtx);
-      isolatedRenderCtx.restore();
-      const bitmap: ImageBitmap = isolatedLayer.transferToImageBitmap();
-      this.transferTracker.recordTransfer(BitmapTransferKind.ISOLATED_MASK);
-      try {
-        c.drawImage(bitmap, crop.left, crop.top, width, height);
-      } finally {
-        bitmap.close();
-      }
-      return;
-    }
-    c.save();
-    c.setTransform(stroke.transform);
-    this.renderInk(stroke, rc);
-    c.restore();
-  }
-
-  private renderInk(stroke: StrokeElementData, rc: RenderContext): void {
-    if (stroke.renderSpec.isPencil) {
-      this.renderer.renderPencilSplats(stroke.splatPoints, stroke.renderSpec, rc);
-    } else if (stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH) {
-      this.renderer.renderVariableWidthOutline(stroke, rc);
-    } else {
-      this.renderer.renderCenterPath(stroke, rc);
-    }
   }
 
   private markFullPageDirty(): void {

@@ -8,8 +8,12 @@ import { NoteMeta } from '../../core/model/NoteTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { FolderRepositoryImpl, NoteFolder, isFolderInSubtree } from '../../data/FolderRepositoryImpl';
-import { StrokePersistence } from '../../data/StrokePersistence';
+import { FirstPageThumbnailState, StrokePersistence } from '../../data/StrokePersistence';
+import { AsyncMutex, MutexRelease } from '../../data/AsyncMutex';
 import { ThumbnailRenderer } from '../../rendering/ThumbnailRenderer';
+import {
+  prioritizeThumbnailNoteIds, thumbnailCacheKey,
+} from '../../rendering/ThumbnailRenderPolicy';
 import { LibraryViewModel, NoteSortMode } from './LibraryViewModel';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
@@ -40,8 +44,12 @@ struct LibraryPage {
   private thumbRevisions: Map<string, string> = new Map<string, string>();
   private thumbnailGeneration: number = 0;
   private searchTimer: number = -1;
+  private thumbnailRequestTimer: number = -1;
+  private thumbnailPriorityIds: string[] = [];
   private pageActive: boolean = true;
   private readonly THUMBNAIL_CONCURRENCY: number = 3;
+  private readonly MAX_THUMBNAILS: number = 64;
+  private thumbnailRefreshMutex: AsyncMutex = new AsyncMutex();
   private noteRepo: NoteRepositoryImpl | null = null;
   // T-039：文件夹
   private folderRepo: FolderRepositoryImpl | null = null;
@@ -89,11 +97,21 @@ struct LibraryPage {
       clearTimeout(this.searchTimer);
       this.searchTimer = -1;
     }
+    if (this.thumbnailRequestTimer >= 0) {
+      clearTimeout(this.thumbnailRequestTimer);
+      this.thumbnailRequestTimer = -1;
+    }
     this.thumbnailGeneration++;
     this.releaseThumbnails(this.thumbMap);
     this.thumbMap = new Map<string, PixelMap>();
     this.thumbRevisions = new Map<string, string>();
     this.thumbIds = [];
+    this.thumbnailPriorityIds = [];
+    const renderer: ThumbnailRenderer = this.thumbRenderer;
+    this.thumbRenderer = new ThumbnailRenderer();
+    renderer.dispose().catch((e: Error) => {
+      console.warn(`ThumbnailRenderer dispose failed: ${JSON.stringify(e)}`);
+    });
   }
 
   // T-040 修复：从编辑器返回时刷新列表（标题/更新时间/缩略图）
@@ -102,7 +120,8 @@ struct LibraryPage {
     this.pageActive = true;
     if (this.viewModel !== null) {
       const vm: LibraryViewModel = this.viewModel;
-      vm.loadNotes().then(() => {
+      const context = getContext(this) as common.UIAbilityContext;
+      this.thumbRenderer.initialize(context).then(() => vm.loadNotes()).then(() => {
         this.initError = '';
         this.hasInitError = false;
         this.viewModel = vm;
@@ -128,7 +147,22 @@ struct LibraryPage {
       return;
     }
     const generation: number = ++this.thumbnailGeneration;
-    const noteIds: string[] = this.viewModel.notes.map((note: NoteMeta) => note.id);
+    const release: MutexRelease = await this.thumbnailRefreshMutex.lock();
+    try {
+      await this.refreshThumbnailGeneration(generation);
+    } finally {
+      release();
+    }
+  }
+
+  private async refreshThumbnailGeneration(generation: number): Promise<void> {
+    if (generation !== this.thumbnailGeneration || !this.pageActive || this.viewModel === null) {
+      return;
+    }
+    const allNoteIds: string[] = this.viewModel.getFilteredNotes().map((note: NoteMeta) => note.id);
+    const noteIds: string[] = prioritizeThumbnailNoteIds(
+      allNoteIds, this.thumbnailPriorityIds, this.MAX_THUMBNAILS);
+    const theme: ThemeTokens = this.resolveTokens();
     const oldMap: Map<string, PixelMap> = this.thumbMap;
     const oldRevisions: Map<string, string> = this.thumbRevisions;
     const newMap: Map<string, PixelMap> = new Map<string, PixelMap>();
@@ -143,9 +177,11 @@ struct LibraryPage {
         }
         const noteId: string = noteIds[index];
         try {
-          const contentRevision: string = await this.persistence.getFirstPageRevision(noteId);
-          const paperBackground: string = this.resolveTokens().paperBackground;
-          const revision: string = `${contentRevision}@${paperBackground}`;
+          const pageState: FirstPageThumbnailState | null =
+            await this.persistence.getFirstPageThumbnailState(noteId);
+          const contentRevision: string = pageState === null ? 'missing' : pageState.revision;
+          const revision: string = thumbnailCacheKey(contentRevision,
+            theme.paperBackground, theme.paperLineColor);
           if (generation !== this.thumbnailGeneration || !this.pageActive) {
             return;
           }
@@ -158,8 +194,8 @@ struct LibraryPage {
             }
             continue;
           }
-          const pixelMap: PixelMap | null = await this.thumbRenderer.renderThumbnail(noteId,
-            this.persistence, contentRevision, paperBackground);
+          const pixelMap: PixelMap | null = pageState === null ? null :
+            await this.thumbRenderer.renderThumbnail(noteId, this.persistence, pageState.page, theme);
           if (generation !== this.thumbnailGeneration || !this.pageActive) {
             if (pixelMap !== null) {
               pixelMap.release();
@@ -216,6 +252,31 @@ struct LibraryPage {
     for (const pixelMap of thumbnails.values()) {
       pixelMap.release();
     }
+  }
+
+  private requestVisibleThumbnail(noteId: string): void {
+    if (!this.pageActive) {
+      return;
+    }
+    const nextPriority: string[] = [noteId];
+    for (const existingId of this.thumbnailPriorityIds) {
+      if (existingId !== noteId && nextPriority.length < this.MAX_THUMBNAILS) {
+        nextPriority.push(existingId);
+      }
+    }
+    this.thumbnailPriorityIds = nextPriority;
+    if (this.thumbMap.has(noteId)) {
+      return;
+    }
+    if (this.thumbnailRequestTimer >= 0) {
+      return;
+    }
+    this.thumbnailRequestTimer = setTimeout(() => {
+      this.thumbnailRequestTimer = -1;
+      this.refreshThumbnails().catch((e: Error) => {
+        console.error(`visible thumbnail refresh failed: ${JSON.stringify(e)}`);
+      });
+    }, 50);
   }
 
   // T-039：文件夹操作
@@ -391,6 +452,9 @@ struct LibraryPage {
       return;
     }
     this.viewModel.setSortMode(mode);
+    this.refreshThumbnails().catch((e: Error) => {
+      console.error(`sort thumbnail refresh failed: ${JSON.stringify(e)}`);
+    });
     try {
       const context = getContext(this) as common.UIAbilityContext;
       preferences.getPreferences(context, 'library_prefs').then((pref: preferences.Preferences) => {
@@ -418,6 +482,7 @@ struct LibraryPage {
       this.detectSystemDark(context);
       await this.db.initialize(context);
       this.persistence.initialize(this.db);
+      await this.thumbRenderer.initialize(context);
       this.noteRepo = new NoteRepositoryImpl(this.db);
       this.folderRepo = new FolderRepositoryImpl(this.db);
       const vm: LibraryViewModel = new LibraryViewModel(this.noteRepo);
@@ -576,7 +641,9 @@ struct LibraryPage {
                 vm.setSearchQuery(value).then(() => {
                   if (this.pageActive && this.viewModel === vm) {
                     this.viewModel = vm;
+                    return this.refreshThumbnails();
                   }
+                  return Promise.resolve();
                 }).catch((e: Error) => {
                   console.error(`search notes failed: ${JSON.stringify(e)}`);
                   promptAction.showToast({ message: $r('app.string.search_failed') });
@@ -715,7 +782,8 @@ struct LibraryPage {
         Image(this.thumbMap.get(note.id))
           .width('100%')
           .layoutWeight(1)
-          .objectFit(ImageFit.Cover)
+          .objectFit(ImageFit.Contain)
+          .backgroundColor(this.resolveTokens().control)
           .borderRadius(8)
       } else {
         Column()
@@ -740,6 +808,11 @@ struct LibraryPage {
     .borderRadius(12)
     .backgroundColor(this.resolveTokens().surface)
     .shadow({ radius: 4, color: this.resolveTokens().shadow, offsetY: 2 })
+    .onVisibleAreaChange([0.0, 0.01], (isVisible: boolean) => {
+      if (isVisible) {
+        this.requestVisibleThumbnail(note.id);
+      }
+    })
     .onClick(() => {
       router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: note.id } })
         .catch((err: BusinessError) => {

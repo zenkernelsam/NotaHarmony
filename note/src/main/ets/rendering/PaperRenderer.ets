@@ -2,6 +2,9 @@
 // T-038：theme 参数（纸张底色/线色随主题）
 import { PaperTemplate } from '../core/model/NoteTypes';
 import { LightTheme, ThemeTokens } from '../ui/theme/EditorTheme';
+import {
+  Canvas2DDrawingContext, Canvas2DOffscreenRenderContext, Canvas2DRenderContext,
+} from '../core/adaptation/Canvas2DStrokeRenderer';
 
 export class PaperRenderer {
   // 在给定 Canvas 上绘制纸张背景（先填充底色，再叠加模板）
@@ -10,9 +13,19 @@ export class PaperRenderer {
   // 纸张固定在页面坐标 (0,0)；屏幕上的居中/平移完全由 CanvasViewport 负责。
   renderBackground(ctx: CanvasRenderingContext2D, paperW: number, paperH: number,
     template: PaperTemplate, zoom: number = 1.0, theme: ThemeTokens = LightTheme): void {
+    this.renderToContext(new Canvas2DRenderContext(ctx), paperW, paperH, template, zoom, theme);
+  }
+
+  renderOffscreenBackground(ctx: OffscreenCanvasRenderingContext2D, paperW: number, paperH: number,
+    template: PaperTemplate, zoom: number = 1.0, theme: ThemeTokens = LightTheme): void {
+    this.renderToContext(new Canvas2DOffscreenRenderContext(ctx),
+      paperW, paperH, template, zoom, theme);
+  }
+
+  private renderToContext(ctx: Canvas2DDrawingContext, paperW: number, paperH: number,
+    template: PaperTemplate, zoom: number, theme: ThemeTokens): void {
     ctx.save();
-    // 纸张底色
-    ctx.fillStyle = theme.paperBackground;
+    ctx.setFillStyle(theme.paperBackground);
     ctx.fillRect(0, 0, paperW, paperH);
     switch (template) {
       case PaperTemplate.LINES:
@@ -31,10 +44,10 @@ export class PaperRenderer {
   }
 
   // LINES: 水平线，间距 28vp，线宽保持视觉 0.5px
-  private drawLines(ctx: CanvasRenderingContext2D, x0: number, y0: number, w: number, h: number,
+  private drawLines(ctx: Canvas2DDrawingContext, x0: number, y0: number, w: number, h: number,
     zoom: number, lineColor: string): void {
-    ctx.strokeStyle = lineColor;
-    ctx.lineWidth = 0.5 / zoom;
+    ctx.setStrokeStyle(lineColor);
+    ctx.setLineWidth(0.5 / zoom);
     ctx.beginPath();
     const spacing: number = 28;
     for (let y = y0 + spacing; y < y0 + h; y += spacing) {
@@ -45,10 +58,10 @@ export class PaperRenderer {
   }
 
   // GRID: 水平+垂直，间距 28vp
-  private drawGrid(ctx: CanvasRenderingContext2D, x0: number, y0: number, w: number, h: number,
+  private drawGrid(ctx: Canvas2DDrawingContext, x0: number, y0: number, w: number, h: number,
     zoom: number, lineColor: string): void {
-    ctx.strokeStyle = lineColor;
-    ctx.lineWidth = 0.5 / zoom;
+    ctx.setStrokeStyle(lineColor);
+    ctx.setLineWidth(0.5 / zoom);
     ctx.beginPath();
     const spacing: number = 28;
     for (let y = y0 + spacing; y < y0 + h; y += spacing) {
@@ -63,9 +76,9 @@ export class PaperRenderer {
   }
 
   // DOTS: 点阵，间距 28vp，点半径保持视觉 1.25px
-  private drawDots(ctx: CanvasRenderingContext2D, x0: number, y0: number, w: number, h: number,
+  private drawDots(ctx: Canvas2DDrawingContext, x0: number, y0: number, w: number, h: number,
     zoom: number, dotColor: string): void {
-    ctx.fillStyle = dotColor;
+    ctx.setFillStyle(dotColor);
     const spacing: number = 28;
     const radius: number = 1.25 / zoom;
     for (let y = y0 + spacing; y < y0 + h; y += spacing) {

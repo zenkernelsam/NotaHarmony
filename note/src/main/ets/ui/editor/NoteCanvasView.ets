@@ -9,9 +9,8 @@ import { InkInputProviderImpl } from '../../core/adaptation/InkInputProviderImpl
 import { PenKitPredictor } from '../../core/adaptation/PenKitPredictor';
 import { PredictionCoordinates } from '../../core/adaptation/Predictor';
 import { Canvas2DStrokeRenderer, Canvas2DRenderContext } from '../../core/adaptation/Canvas2DStrokeRenderer';
-import {
-  applyOriginalPencilAlphaCurve, ORIGINAL_PENCIL_TEXTURE_SIZE,
-} from '../../core/adaptation/PencilSplatMath';
+import { Canvas2DTextRenderer } from '../../core/adaptation/Canvas2DTextRenderer';
+import { LoadedPencilTexture, loadOriginalPencilTexture } from '../../core/adaptation/PencilTextureLoader';
 import { StrokeLayerManager } from '../../rendering/StrokeLayerManager';
 import { BitmapTransferMetrics, BitmapTransferTracker } from '../../core/adaptation/BitmapTransferTracker';
 import { CanvasViewport, CumulativeGestureTracker } from '../../rendering/CanvasViewport';
@@ -81,6 +80,7 @@ export struct NoteCanvasView {
   private predictor: PenKitPredictor = new PenKitPredictor();
   private bitmapTransferTracker: BitmapTransferTracker = new BitmapTransferTracker();
   private renderer: Canvas2DStrokeRenderer = new Canvas2DStrokeRenderer(this.bitmapTransferTracker);
+  private textRenderer: Canvas2DTextRenderer = new Canvas2DTextRenderer();
   private pencilPixelMap: image.PixelMap | null = null;
   private pencilTextureLoading: boolean = false;
   private lifecycleActive: boolean = false;
@@ -447,31 +447,12 @@ export struct NoteCanvasView {
       return;
     }
     this.pencilTextureLoading = true;
-    let source: image.ImageSource | null = null;
     let pixelMap: image.PixelMap | null = null;
     try {
       const context = getContext(this) as common.UIAbilityContext;
-      const bytes: Uint8Array = await context.resourceManager.getRawFileContent(
-        'ui_renderer__pencil_splat.png');
-      const buffer: ArrayBuffer = bytes.buffer.slice(bytes.byteOffset,
-        bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-      source = image.createImageSource(buffer);
-      pixelMap = await source.createPixelMap({
-        editable: true,
-        desiredPixelFormat: image.PixelMapFormat.RGBA_8888,
-      });
-      const info: image.ImageInfo = await pixelMap.getImageInfo();
-      if (info.size.width !== ORIGINAL_PENCIL_TEXTURE_SIZE ||
-        info.size.height !== ORIGINAL_PENCIL_TEXTURE_SIZE ||
-        info.pixelFormat !== image.PixelMapFormat.RGBA_8888) {
-        throw new Error(`Unexpected pencil texture: ${info.size.width}x${info.size.height}, format=${info.pixelFormat}`);
-      }
-      const pixelBuffer: ArrayBuffer = new ArrayBuffer(pixelMap.getPixelBytesNumber());
-      await pixelMap.readPixelsToBuffer(pixelBuffer);
-      applyOriginalPencilAlphaCurve(new Uint8Array(pixelBuffer), info.size.width,
-        info.size.height, pixelMap.getBytesNumberPerRow());
-      await pixelMap.writeBufferToPixels(pixelBuffer);
-      const texture: ImageBitmap = new ImageBitmap(pixelMap);
+      const loadedTexture: LoadedPencilTexture = await loadOriginalPencilTexture(context);
+      const texture: ImageBitmap = loadedTexture.bitmap;
+      pixelMap = loadedTexture.pixelMap;
       if (!this.lifecycleActive) {
         texture.close();
         try {
@@ -507,13 +488,6 @@ export struct NoteCanvasView {
         }
       }
     } finally {
-      if (source !== null) {
-        try {
-          await source.release();
-        } catch (e) {
-          console.warn(`Pencil ImageSource release failed: ${JSON.stringify(e)}`);
-        }
-      }
       this.pencilTextureLoading = false;
     }
   }
@@ -563,7 +537,7 @@ export struct NoteCanvasView {
 
   private renderTextBlocks(): void {
     for (const textBlock of this.textBlocks) {
-      this.textBlockTool.renderText(this.canvasCtx, textBlock);
+      this.textRenderer.renderText(textBlock, this.renderCtx);
     }
   }
 
