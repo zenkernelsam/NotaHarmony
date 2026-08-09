@@ -1,5 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { CubicFitter } from '../main/ets/core/algorithm/CubicFitter';
+import {
+  computeOriginalFitTolerance, CubicFitter,
+} from '../main/ets/core/algorithm/CubicFitter';
 import { CubicSegment, Point2D } from '../main/ets/core/model/GeometryTypes';
 import { StrokePathPoint } from '../main/ets/core/model/StrokeTypes';
 
@@ -28,6 +30,19 @@ function isFinitePoint(point: Point2D): boolean {
 
 export default function cubicFitterTest() {
   describe('CubicFitter', () => {
+    it('matches the original clamped tolerance table', 0, () => {
+      const widths: number[] = [1, 2.6, 10, 18, 30];
+      const expected: number[] = [0.5, 0.5, 0.29056603773584905, 0.2, 0.2];
+      for (let i: number = 0; i < widths.length; i++) {
+        const actual: number = computeOriginalFitTolerance(widths[i], 1);
+        expect(Math.abs(actual - expected[i]) < 1e-12).assertTrue();
+      }
+    });
+
+    it('applies zoom both before the clamp and after the ratio', 0, () => {
+      expect(Math.abs(computeOriginalFitTolerance(10, 2) - 0.1) < 1e-12).assertTrue();
+    });
+
     it('uses linear one-third handles for two points', 0, () => {
       const segments: CubicSegment[] = new CubicFitter().fit([
         pathPoint(0), pathPoint(3),

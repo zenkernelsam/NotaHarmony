@@ -9,6 +9,13 @@ export interface FitterConfig {
   baseTolerance: number;        // 默认 0.5（会被动态容差覆盖）
 }
 
+// 1.0.3 nt1.java:180 + od4.java:98-111.
+export function computeOriginalFitTolerance(baseWidth: number, zoom: number): number {
+  const scale: number = Math.max(zoom, 0.01);
+  const screenWidth: number = Math.min(18, Math.max(baseWidth * scale, 2.6));
+  return (0.5 / ((((screenWidth - 2.6) / 15.4) * 1.5) + 1.0)) / scale;
+}
+
 export class CubicFitter {
   private config: FitterConfig;
 
@@ -89,9 +96,7 @@ export class CubicFitter {
 
   // 1.0.3 nt1 + od4.g：先把屏幕笔宽钳到 [2.6, 18]，再代入容差公式。
   private computeTolerance(baseWidth: number, zoom: number): number {
-    const scale: number = Math.max(zoom, 0.01);
-    const screenWidth: number = Math.min(18, Math.max(baseWidth * scale, 2.6));
-    return (0.5 / ((((screenWidth - 2.6) / 15.4) * 1.5) + 1.0)) / scale;
+    return computeOriginalFitTolerance(baseWidth, zoom);
   }
 
   // 最小二乘求控制点（sqh.g）：三次 Bernstein 基 + 2×2 正规方程
