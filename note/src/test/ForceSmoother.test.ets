@@ -28,6 +28,18 @@ export default function forceSmootherTest() {
       expect(smoother.smooth([point(1, 12)])[0].pressure).assertEqual(1);
     });
 
+    it('matches the original time weight at 120Hz and 240Hz', 0, () => {
+      const at120Hz: ForceSmoother = new ForceSmoother({ maxForceChange: 1 });
+      at120Hz.smooth([point(0, 0)]);
+      const force120Hz: number = at120Hz.smooth([point(1, 1000 / 120)])[0].pressure;
+      expect(force120Hz).assertEqual(1);
+
+      const at240Hz: ForceSmoother = new ForceSmoother({ maxForceChange: 1 });
+      at240Hz.smooth([point(0, 0)]);
+      const force240Hz: number = at240Hz.smooth([point(1, 1000 / 240)])[0].pressure;
+      expect(Math.abs(force240Hz - (1000 / 240 / 8)) < 1e-12).assertTrue();
+    });
+
     it('limits a large blended force change', 0, () => {
       const smoother: ForceSmoother = new ForceSmoother();
       smoother.smooth([point(0, 0)]);
