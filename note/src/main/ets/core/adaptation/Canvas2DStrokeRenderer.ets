@@ -351,7 +351,8 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
   renderVariableWidthOutline(stroke: StrokeElementData, ctx: RenderContext): void {
     const c: Canvas2DRenderContext = ctx as Canvas2DRenderContext;
     const builder: WidthOutlineBuilder = new WidthOutlineBuilder();
-    const outline = builder.build(stroke.pathPoints, stroke.renderSpec.brushWidth);
+    const outline = builder.build(
+      stroke.pathPoints, stroke.renderSpec.brushWidth, stroke.cubicSegments);
     if (!outline.isValid) {
       return;
     }

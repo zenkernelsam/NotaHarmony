@@ -156,7 +156,8 @@ export class StrokeSession {
         this.cubicSegments, this.pathPoints, this.cubicSourceRanges);
     }
     if (this.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH) {
-      this.outline = this.outlineBuilder.build(this.pathPoints, this.renderSpec.brushWidth);
+      this.outline = this.outlineBuilder.build(
+        this.pathPoints, this.renderSpec.brushWidth, this.cubicSegments);
     } else {
       this.outline = null;
     }
