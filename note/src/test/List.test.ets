@@ -22,6 +22,7 @@ import pointerSampleStreamTest from './PointerSampleStream.test';
 import widthOutlineBuilderTest from './WidthOutlineBuilder.test';
 import assetReferenceTest from './AssetReference.test';
 import strokePredictionTest from './StrokePrediction.test';
+import rendererStyleTest from './RendererStyle.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -48,4 +49,5 @@ export default function testsuite() {
   widthOutlineBuilderTest();
   assetReferenceTest();
   strokePredictionTest();
+  rendererStyleTest();
 }

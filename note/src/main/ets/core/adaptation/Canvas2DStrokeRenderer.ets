@@ -332,12 +332,9 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     } else {
       c.setLineCap('round');
     }
-    c.setLineJoin('round');
-    c.setStrokeStyle(this.colorToRgba(spec.color));
-    if (spec.isHighlighter) {
-      // 荧光笔：alpha 107/255 ≈ 0.42（yw1.e(color, 107)）
-      c.setGlobalAlpha(107 / 255);
-    }
+    c.setLineJoin(spec.inkStyle === InkStyle.DOTS ? 'miter' : 'round');
+    // 原版 zx1.e(color, 107) 覆盖 alpha，而不是把已有 alpha 再乘 107/255。
+    c.setStrokeStyle(this.colorToRgba(spec.color, spec.isHighlighter ? 107 : undefined));
     if (spec.inkStyle === InkStyle.DASH) {
       c.setLineDash([2 * spec.brushWidth, 1 * spec.brushWidth]);
     } else if (spec.inkStyle === InkStyle.DOTS) {
@@ -363,11 +360,8 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       c.lineTo(outline.outlinePoints[i].x, outline.outlinePoints[i].y);
     }
     c.closePath();
-    c.setFillStyle(this.colorToRgba(stroke.renderSpec.color));
-    if (stroke.renderSpec.isHighlighter) {
-      // c5g.g 对所有笔迹形态统一把荧光笔颜色 alpha 设为 107。
-      c.setGlobalAlpha(107 / 255);
-    }
+    c.setFillStyle(this.colorToRgba(stroke.renderSpec.color,
+      stroke.renderSpec.isHighlighter ? 107 : undefined));
     c.fill();
     c.restore();
   }
@@ -483,8 +477,8 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
   }
 
   // 工具：ARGB int → rgba 字符串
-  private colorToRgba(argb: number): string {
-    const a: number = (argb >>> 24) & 0xFF;
+  private colorToRgba(argb: number, alphaOverride?: number): string {
+    const a: number = alphaOverride !== undefined ? alphaOverride : (argb >>> 24) & 0xFF;
     const r: number = (argb >>> 16) & 0xFF;
     const g: number = (argb >>> 8) & 0xFF;
     const b: number = argb & 0xFF;
