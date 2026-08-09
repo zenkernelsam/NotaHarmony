@@ -8,6 +8,12 @@ import {
 import {
   DeferredSyncedOperationTableType, validateDeferredSyncedOperationTableType,
 } from '../main/ets/data/DeferredSyncedOperationBundle';
+import {
+  decodeOriginalCreatePage, ORIGINAL_DEFAULT_PAGE_HEIGHT_MM, ORIGINAL_DEFAULT_PAGE_WIDTH_MM,
+} from '../main/ets/data/OriginalCreatePageOperation';
+import {
+  compareOriginalSequenceIdentity, encodeOriginalPageStorageId, encodeOriginalSequenceId,
+} from '../main/ets/data/OperationIdentity';
 
 function operation(timestamp: number, serverTime: string,
   clientTime: string = serverTime, payloadType: number = 3): IncomingSyncedOperation {
@@ -85,7 +91,72 @@ export default function syncedOperationInboxTest() {
       }
       expect(rejected).assertTrue();
     });
+
+    it('decodes original CREATE_PAGE inline SeqId and default-safe fields', 0, () => {
+      const raw: Uint8Array = flatBufferCreatePage(9, 4, '11', '12',
+        7, 3, 2, 2, false);
+      const payload = decodeOriginalCreatePage(raw);
+      expect(payload.location?.timestamp).assertEqual(7);
+      expect(payload.location?.siteId).assertEqual(3);
+      expect(payload.location?.index).assertEqual(2);
+      expect(payload.pageCount).assertEqual(2);
+      expect(payload.hasBackground).assertFalse();
+      expect(payload.bookmarked).assertFalse();
+      expect(ORIGINAL_DEFAULT_PAGE_WIDTH_MM).assertEqual(215.9);
+      expect(ORIGINAL_DEFAULT_PAGE_HEIGHT_MM).assertEqual(279.4);
+      const rootPayload = decodeOriginalCreatePage(flatBufferCreatePage(
+        10, 4, '13', '14', 0, 0, 0, 1, true, false, true));
+      expect(rootPayload.location === null).assertTrue();
+      expect(rootPayload.hasBackground).assertTrue();
+      expect(rootPayload.bookmarked).assertTrue();
+    });
+
+    it('keeps original SeqId comparison and note-scoped storage IDs', 0, () => {
+      const older = { timestamp: 5, siteId: 2, index: 0 };
+      const newer = { timestamp: 6, siteId: 1, index: 0 };
+      expect(compareOriginalSequenceIdentity(older, newer)).assertEqual(-1);
+      expect(compareOriginalSequenceIdentity({ timestamp: 5, siteId: 2, index: 1 }, older))
+        .assertEqual(-1);
+      expect(encodeOriginalSequenceId(older)).assertEqual('seq:5:2:0');
+      expect(encodeOriginalPageStorageId('a', older)).assertEqual('original-page:1:a:seq:5:2:0');
+    });
   });
+}
+
+function flatBufferCreatePage(timestamp: number, siteId: number, clientTime: string,
+  serverTime: string, locationTimestamp: number, locationSite: number,
+  locationIndex: number, pageCount: number, bookmarked: boolean,
+  hasLocation: boolean = true, hasBackground: boolean = false): Uint8Array {
+  const bytes: Uint8Array = new Uint8Array(96);
+  writeU32(bytes, 0, 24);
+  writeU16(bytes, 4, 18);
+  writeU16(bytes, 6, 36);
+  writeU16(bytes, 8, 4);
+  writeU16(bytes, 10, 12);
+  writeU16(bytes, 12, 20);
+  writeU16(bytes, 16, 28);
+  writeU16(bytes, 18, 32);
+  writeU32(bytes, 24, 20);
+  writeU16(bytes, 28, siteId);
+  writeU32(bytes, 32, timestamp);
+  writeDecimalU64(bytes, 36, clientTime);
+  writeDecimalU64(bytes, 44, serverTime);
+  bytes[52] = 3;
+  writeU32(bytes, 56, 16);
+
+  writeU16(bytes, 60, 12);
+  writeU16(bytes, 62, 24);
+  writeU16(bytes, 64, hasLocation ? 4 : 0);
+  writeU16(bytes, 66, hasBackground ? 4 : 0);
+  writeU16(bytes, 68, 16);
+  writeU16(bytes, 70, 20);
+  writeU32(bytes, 72, 12);
+  writeU16(bytes, 76, locationSite);
+  writeU32(bytes, 80, locationTimestamp);
+  writeU32(bytes, 84, locationIndex);
+  writeU32(bytes, 88, pageCount);
+  bytes[92] = bookmarked ? 1 : 0;
+  return bytes;
 }
 
 function flatBufferOperation(timestamp: number, siteId: number, clientTime: string,

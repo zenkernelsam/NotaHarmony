@@ -5,7 +5,7 @@ import {
   DDL_PAGE_DELETE_CHECKPOINT, DDL_PAGE_DELETE_CHECKPOINT_ELEMENT, DDL_PAGE_DELETE_CHECKPOINT_SEARCH,
   DDL_HISTORY_CHECKPOINT, DDL_HISTORY_CHECKPOINT_ACTION, DDL_HISTORY_CHECKPOINT_OPERATION,
   DDL_DEFERRED_SYNCED_OPERATION_BUNDLE, DDL_LOCAL_EDITOR_IDENTITY, DDL_NOTE_SYNC_METADATA,
-  DDL_SYNCED_OPERATION_INBOX,
+  DDL_SYNCED_OPERATION_INBOX, DDL_ORIGINAL_PAGE_INSERT_GROUP, DDL_ORIGINAL_PAGE_IDENTITY,
   DDL_INDEXES, MIGRATIONS,
 } from
   '../main/ets/data/DatabaseHelper';
@@ -15,7 +15,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(21);
+      expect(DB_VERSION).assertEqual(22);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -51,6 +51,11 @@ export default function databaseHelperTest() {
       expect(DDL_DEFERRED_SYNCED_OPERATION_BUNDLE).assertContain('RECEIVE_OPS_EVENT');
       expect(MIGRATIONS[21].join('\n')).assertContain('deferred_synced_operation_bundle_v21');
       expect(MIGRATIONS[21].join('\n')).assertContain("table_type NOT IN ('NOTE_BUNDLE'");
+      expect(MIGRATIONS[22].join('\n')).assertContain('original_page_insert_group');
+      expect(MIGRATIONS[22].join('\n')).assertContain('original_page_identity');
+      expect(DDL_ORIGINAL_PAGE_INSERT_GROUP).assertContain('parent_index');
+      expect(DDL_ORIGINAL_PAGE_INSERT_GROUP).assertContain('page_count BETWEEN 1 AND 10000');
+      expect(DDL_ORIGINAL_PAGE_IDENTITY).assertContain('visible = 0 AND page_id IS NULL');
     });
 
     it('tracks note-scoped page structure revisions', 0, () => {

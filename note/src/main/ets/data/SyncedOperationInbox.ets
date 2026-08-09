@@ -45,7 +45,13 @@ export enum ProcessSyncedOperationResult {
 
 export interface SyncedOperationApplier {
   supports(payloadType: number): boolean;
-  apply(store: relationalStore.RdbStore, operation: StoredSyncedOperation): Promise<void>;
+  // A deferred result must be returned before the applier performs any write.
+  apply(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation): Promise<SyncedOperationApplyResult>;
+}
+
+export interface SyncedOperationApplyResult {
+  deferredReason: string | null;
 }
 
 const MAX_SYNCED_BATCH_COUNT: number = 4096;
@@ -235,7 +241,15 @@ export class SyncedOperationInboxStore {
           await this.store.commit();
           return ProcessSyncedOperationResult.DEFERRED;
         }
-        await applier.apply(this.store, operation);
+        const applyResult: SyncedOperationApplyResult = await applier.apply(this.store, operation);
+        if (applyResult.deferredReason !== null) {
+          if (applyResult.deferredReason.length === 0) {
+            throw new Error('synced operation applier returned an empty deferred reason');
+          }
+          await this.markDeferred(operation, applyResult.deferredReason);
+          await this.store.commit();
+          return ProcessSyncedOperationResult.DEFERRED;
+        }
         await this.advanceAppliedMetadata(operation);
         await this.store.executeSql(
           `UPDATE synced_operation_inbox SET state = ?, deferred_reason = NULL

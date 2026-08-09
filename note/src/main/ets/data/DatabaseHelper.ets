@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v21: enforce the original DeferredSyncedOps table-type enum at the storage boundary.
-export const DB_VERSION: number = 21;
+// v22: persist the original page SeqId insertion tree instead of flattening remote order.
+export const DB_VERSION: number = 22;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -173,6 +173,44 @@ CREATE TABLE IF NOT EXISTS synced_operation_inbox (
   CHECK ((state = 1 AND deferred_reason IS NOT NULL AND length(deferred_reason) > 0)
     OR (state IN (0, 2) AND deferred_reason IS NULL)),
   PRIMARY KEY(note_id, op_timestamp, editor_site_id),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_PAGE_INSERT_GROUP: string = `
+CREATE TABLE IF NOT EXISTS original_page_insert_group (
+  note_id TEXT NOT NULL,
+  op_timestamp INTEGER NOT NULL CHECK (op_timestamp BETWEEN 0 AND 4294967295),
+  op_site_id INTEGER NOT NULL CHECK (op_site_id BETWEEN 0 AND 65535),
+  parent_timestamp INTEGER CHECK (parent_timestamp BETWEEN 0 AND 4294967295),
+  parent_site_id INTEGER CHECK (parent_site_id BETWEEN 0 AND 65535),
+  parent_index INTEGER CHECK (parent_index BETWEEN 0 AND 4294967295),
+  page_count INTEGER NOT NULL CHECK (page_count BETWEEN 1 AND 10000),
+  modified_time TEXT NOT NULL CHECK (
+    typeof(modified_time) = 'text' AND length(modified_time) BETWEEN 1 AND 20
+    AND modified_time NOT GLOB '*[^0-9]*'
+    AND (modified_time = '0' OR substr(modified_time, 1, 1) <> '0')
+    AND (length(modified_time) < 20 OR modified_time <= '18446744073709551615')
+  ),
+  CHECK ((parent_timestamp IS NULL AND parent_site_id IS NULL AND parent_index IS NULL)
+    OR (parent_timestamp IS NOT NULL AND parent_site_id IS NOT NULL AND parent_index IS NOT NULL)),
+  PRIMARY KEY(note_id, op_timestamp, op_site_id),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_PAGE_IDENTITY: string = `
+CREATE TABLE IF NOT EXISTS original_page_identity (
+  note_id TEXT NOT NULL,
+  seq_timestamp INTEGER NOT NULL CHECK (seq_timestamp BETWEEN 0 AND 4294967295),
+  seq_site_id INTEGER NOT NULL CHECK (seq_site_id BETWEEN 0 AND 65535),
+  seq_index INTEGER NOT NULL CHECK (seq_index BETWEEN 0 AND 4294967295),
+  page_id TEXT,
+  visible INTEGER NOT NULL DEFAULT 1 CHECK (visible IN (0, 1)),
+  CHECK ((visible = 1 AND page_id IS NOT NULL AND length(page_id) > 0)
+    OR (visible = 0 AND page_id IS NULL)),
+  PRIMARY KEY(note_id, seq_timestamp, seq_site_id, seq_index),
+  UNIQUE(note_id, page_id),
+  FOREIGN KEY(note_id, seq_timestamp, seq_site_id)
+    REFERENCES original_page_insert_group(note_id, op_timestamp, op_site_id) ON DELETE CASCADE,
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
@@ -427,6 +465,10 @@ export const DDL_INDEXES: string[] = [
       length(client_time), client_time, op_timestamp, editor_site_id)`,
   `CREATE INDEX IF NOT EXISTS idx_synced_operation_inbox_state
     ON synced_operation_inbox(note_id, state, received_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_original_page_group_parent
+    ON original_page_insert_group(note_id, parent_timestamp, parent_site_id, parent_index)`,
+  `CREATE INDEX IF NOT EXISTS idx_original_page_identity_page
+    ON original_page_identity(note_id, page_id)`,
   `CREATE INDEX IF NOT EXISTS idx_deferred_synced_bundle_note
     ON deferred_synced_operation_bundle(note_id, id)`,
   `CREATE INDEX IF NOT EXISTS idx_page_delete_checkpoint_page
@@ -706,5 +748,13 @@ export const MIGRATIONS: Record<number, string[]> = {
       RENAME TO deferred_synced_operation_bundle`,
     `CREATE INDEX IF NOT EXISTS idx_deferred_synced_bundle_note
       ON deferred_synced_operation_bundle(note_id, id)`,
+  ],
+  22: [
+    DDL_ORIGINAL_PAGE_INSERT_GROUP,
+    DDL_ORIGINAL_PAGE_IDENTITY,
+    `CREATE INDEX IF NOT EXISTS idx_original_page_group_parent
+      ON original_page_insert_group(note_id, parent_timestamp, parent_site_id, parent_index)`,
+    `CREATE INDEX IF NOT EXISTS idx_original_page_identity_page
+      ON original_page_identity(note_id, page_id)`,
   ],
 };

@@ -26,6 +26,87 @@ interface FlatBufferTable {
   objectSize: number;
 }
 
+export class OriginalFlatBufferTableReader {
+  private bytes: Uint8Array;
+  private table: FlatBufferTable;
+
+  private constructor(bytes: Uint8Array, tablePosition: number, vtable: number,
+    vtableSize: number, objectSize: number) {
+    this.bytes = bytes;
+    this.table = {
+      table: tablePosition, vtable: vtable, vtableSize: vtableSize, objectSize: objectSize,
+    };
+  }
+
+  hasField(field: number): boolean {
+    this.validateFieldNumber(field);
+    return fieldOffset(this.bytes, this.table, field) !== 0;
+  }
+
+  readUint8(field: number, defaultValue: number = 0): number {
+    const offset: number = this.readFieldOffset(field);
+    if (offset === 0) {
+      return defaultValue;
+    }
+    requireObjectBytes(this.table, offset, 1, `field ${field}`);
+    return this.bytes[this.table.table + offset];
+  }
+
+  readUint32(field: number, defaultValue: number): number {
+    const offset: number = this.readFieldOffset(field);
+    if (offset === 0) {
+      return defaultValue;
+    }
+    requireObjectBytes(this.table, offset, 4, `field ${field}`);
+    return readU32(this.bytes, this.table.table + offset);
+  }
+
+  readInlineSequence(field: number): number[] | null {
+    const offset: number = this.readFieldOffset(field);
+    if (offset === 0) {
+      return null;
+    }
+    requireObjectBytes(this.table, offset, 12, `sequence field ${field}`);
+    const position: number = this.table.table + offset;
+    return [readU32(this.bytes, position + 4), readU16(this.bytes, position),
+      readU32(this.bytes, position + 8)];
+  }
+
+  private readFieldOffset(field: number): number {
+    this.validateFieldNumber(field);
+    return fieldOffset(this.bytes, this.table, field);
+  }
+
+  private validateFieldNumber(field: number): void {
+    if (!Number.isSafeInteger(field) || field < 0 || field > 1024) {
+      throw new Error('FlatBuffer field number is invalid');
+    }
+  }
+
+  static fromPayload(bytes: Uint8Array, expectedPayloadType: number): OriginalFlatBufferTableReader {
+    if (!Number.isSafeInteger(expectedPayloadType) ||
+      expectedPayloadType < ORIGINAL_PAYLOAD_TYPE_MIN || expectedPayloadType > ORIGINAL_PAYLOAD_TYPE_MAX) {
+      throw new Error('expected original payload type is invalid');
+    }
+    const root: FlatBufferTable = readFlatBufferRoot(bytes);
+    const typeOffset: number = fieldOffset(bytes, root, 4);
+    const payloadOffset: number = fieldOffset(bytes, root, 5);
+    const payloadType: number = typeOffset === 0 ? 0 : bytes[root.table + typeOffset];
+    if (payloadType !== expectedPayloadType || payloadOffset === 0) {
+      throw new Error('synced FlatBuffer operation has the wrong payload type');
+    }
+    requireObjectBytes(root, payloadOffset, 4, 'payload');
+    const pointer: number = root.table + payloadOffset;
+    const relative: number = readU32(bytes, pointer);
+    if (relative < 4 || pointer + relative > bytes.length - 4) {
+      throw new Error('synced FlatBuffer payload offset is invalid');
+    }
+    const payload: FlatBufferTable = readFlatBufferTable(bytes, pointer + relative);
+    return new OriginalFlatBufferTableReader(bytes, payload.table, payload.vtable,
+      payload.vtableSize, payload.objectSize);
+  }
+}
+
 const CRC32_TABLE: number[] = buildCrc32Table();
 
 export function parseOriginalSyncedOperationEnvelope(bytes: Uint8Array): OriginalSyncedOperationEnvelope {
@@ -79,6 +160,11 @@ export function validateOriginalSyncedOperation(operation: OriginalSyncedOperati
 
 export function validateFlatBufferRoot(bytes: Uint8Array): void {
   readFlatBufferRoot(bytes);
+}
+
+export function readOriginalPayloadTable(bytes: Uint8Array,
+  expectedPayloadType: number): OriginalFlatBufferTableReader {
+  return OriginalFlatBufferTableReader.fromPayload(bytes, expectedPayloadType);
 }
 
 export function crc32Signed(bytes: Uint8Array): number {

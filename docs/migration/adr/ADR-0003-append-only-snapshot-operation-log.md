@@ -171,6 +171,14 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 - APPLIED 不是解析成功的别名。inbox 只处理最早的非 APPLIED 头；malformed、metadata mismatch、unknown type 或尚无 decoder 都进入
   DEFERRED，且阻断后续 cursor。payload applier 先以无副作用 `supports()` 判定类型，再接收当前 `RdbStore` 并在既有事务内修改页面；只有它成功后，状态、累计 synced count
   和 applied server cursor 才共同提交，任何异常共同回滚。此处只建立原子门禁，不宣称 31 类原版 payload reducer 已实现。
+- 第十九阶段实现首个原版 payload reducer：`haa.CREATE_PAGE=3`。`ln2.location` 是可空 12-byte `cxc SeqId`；每页身份由
+  `nti.g(opId,index)` 生成。`ovb→twc→iwc` 证明插入不是覆盖最终下标，而是以 location 为父锚点的 CRDT 插入组：根为 null，
+  缺失父锚点保持 pending，同父组按末 SeqId 的原版比较器降序，组内 index 升序，并在每页后递归展开子组。
+- v22 用 `original_page_insert_group/original_page_identity` 保存该因果树和可见/tombstone 身份；`page_index` 只是树的物化结果。
+  CREATE_PAGE reducer 只接受无显式 background 且未书签的页，并要求既有 `page_info` 已全部具有原版身份；否则返回 DEFERRED，
+  数量相同但当前顺序偏离 SeqId 树时也返回 DEFERRED，不猜测锚点、覆盖本地重排或伪造页面属性。`a79.N/Q` 的 612×792 pt
+  缺省尺寸映射为 Letter 215.9×279.4 mm，不沿用 Harmony 本地 A4 默认值。
+  插入组、身份、页面物化、structure revision、inbox 状态和同步水位共享同一事务；远端 op 不回灌本地待上传日志。
 
 ## 后果
 
@@ -183,5 +191,6 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成组 Undo/Redo。本地启动 replay 与删除页恢复点增长已有上限，
 损坏历史也有用户可见且不删除同步日志的本地恢复路径；同步日志本身仍保持追加式。原版式 editor site/op clock、耐久同步元数据和
 upload/ACK 前缀契约、本地导入身份映射、共同水位压缩、严格同步会话协调器、无损 unsigned 64-bit server cursor、隔离的 incoming raw-op
-落库及原子应用门禁已经建立，但还没有经过认证的远端 WebSocket 适配器、31 类 incoming payload reducer 或完整服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
+落库及原子应用门禁已经建立；CREATE_PAGE 的受限无背景 reducer 与原版 SeqId 插入树也已落地。但还没有经过认证的远端 WebSocket
+适配器、其余 30 类 incoming payload reducer、NOTE_BUNDLE 身份建树或完整服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
 原版协作或完整增量同步语义。
