@@ -161,6 +161,7 @@ struct WebDAVSettingsPage {
         .width('90%')
         .fontColor(this.resolveTokens().textPrimary)
         .placeholderColor(this.resolveTokens().textSecondary)
+        .backgroundColor(this.resolveTokens().surface)
         .margin({ bottom: 12 })
         .onChange((value: string) => {
           this.serverUrl = value;
@@ -170,6 +171,7 @@ struct WebDAVSettingsPage {
         .width('90%')
         .fontColor(this.resolveTokens().textPrimary)
         .placeholderColor(this.resolveTokens().textSecondary)
+        .backgroundColor(this.resolveTokens().surface)
         .margin({ bottom: 12 })
         .onChange((value: string) => {
           this.username = value;
@@ -178,6 +180,7 @@ struct WebDAVSettingsPage {
         .width('90%')
         .fontColor(this.resolveTokens().textPrimary)
         .placeholderColor(this.resolveTokens().textSecondary)
+        .backgroundColor(this.resolveTokens().surface)
         .type(InputType.Password)
         .margin({ bottom: 12 })
         .onChange((value: string) => {
@@ -187,6 +190,7 @@ struct WebDAVSettingsPage {
         .width('90%')
         .fontColor(this.resolveTokens().textPrimary)
         .placeholderColor(this.resolveTokens().textSecondary)
+        .backgroundColor(this.resolveTokens().surface)
         .margin({ bottom: 16 })
         .onChange((value: string) => {
           this.backupPath = value;

@@ -627,6 +627,9 @@ struct LibraryPage {
           TextInput({ placeholder: $r('app.string.search_notes') })
             .layoutWeight(1)
             .height(40)
+            .fontColor(this.resolveTokens().textPrimary)
+            .placeholderColor(this.resolveTokens().textSecondary)
+            .backgroundColor(this.resolveTokens().surface)
             .onChange((value: string) => {
               this.searchText = value;
               if (this.searchTimer >= 0) {
@@ -709,7 +712,10 @@ struct LibraryPage {
           .alignItems(HorizontalAlign.Center)
         } else if (this.viewModel !== null) {
           if (this.viewModel.isLoading && this.viewModel.notes.length === 0) {
-            Text($r('app.string.loading')).fontSize(16).layoutWeight(1)
+            Text($r('app.string.loading'))
+              .fontSize(16)
+              .fontColor(this.resolveTokens().textSecondary)
+              .layoutWeight(1)
           } else if (this.viewModel.getFilteredNotes().length === 0) {
             // 空结果提示（T-035）
             Column() {
@@ -735,7 +741,10 @@ struct LibraryPage {
             .layoutWeight(1)
           }
         } else {
-          Text($r('app.string.loading')).fontSize(16).layoutWeight(1)
+          Text($r('app.string.loading'))
+            .fontSize(16)
+            .fontColor(this.resolveTokens().textSecondary)
+            .layoutWeight(1)
         }
       }
       .layoutWeight(1)
@@ -1077,6 +1086,8 @@ struct NameDialog {
   title: ResourceStr = '';
   initialText: string = '';
   @State inputText: string = '';
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onConfirm: (name: string) => void = () => {
   };
 
@@ -1084,13 +1095,21 @@ struct NameDialog {
     this.inputText = this.initialText;
   }
 
+  private resolveTokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
   build() {
     Column() {
       Text(this.title)
         .fontSize(16)
         .fontWeight(FontWeight.Medium)
+        .fontColor(this.resolveTokens().textPrimary)
       TextInput({ text: this.inputText, placeholder: $r('app.string.name') })
         .width('100%')
+        .fontColor(this.resolveTokens().textPrimary)
+        .placeholderColor(this.resolveTokens().textSecondary)
+        .backgroundColor(this.resolveTokens().control)
         .margin({ top: 12 })
         .onChange((value: string) => {
           this.inputText = value;
@@ -1122,5 +1141,6 @@ struct NameDialog {
     }
     .padding(16)
     .width(320)
+    .backgroundColor(this.resolveTokens().surface)
   }
 }
