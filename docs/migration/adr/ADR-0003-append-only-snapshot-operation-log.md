@@ -54,6 +54,14 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
   history revision；`NoteCanvasView` 只在该 revision 变化时要求 `LatestWriteQueue` 保留边界。带边界的待写快照按 FIFO 保存，
   失败后回到队首且不能被较新状态取代；没有新历史动作的生命周期/离页等普通完整快照仍可合并为最新状态。Undo/Redo 必须先
   成功迁移历史栈再排队保存；页面动作继续由 `PageRepository` 的 NPG1 事务记录，不重复生成元素 mutation。
+- 第五阶段为 `operation_log` 增加可空且必须全有或全空的 `action_id/history_effect/coalesce_track/action_time`。旧 NPS1/NPM1/NPG1
+  行保持四列全空，只参与文档状态 replay，不猜测为历史动作。新元素动作的 NPM1 在同一事务内记录 PUSH；后续 Undo/Redo
+  mutation 复用原 actionId 和原 actionTime，只把 effect 写为 UNDO/REDO。track 只采用原版 `pnf` 已证明的 NONE、INSERT_TEXT、
+  REMOVE_TEXT、CREATE_INK 域；当前仅对独立落笔标记 CREATE_INK，未获证明的动作保守使用 NONE。
+- v13 的建表 SQL 冻结为历史常量，不再引用会演进的最新 DDL；否则跨多个版本升级会提前创建未来列并在后续 ALTER 时失败。
+- 持久化历史 reducer 按日志顺序合并同一事件的连续 mutation，并严格执行 PUSH 建栈、UNDO 只移动 undo 栈顶、REDO 只移动
+  redo 栈顶。未知 action、重复 PUSH、stale/乱序移动、非法枚举/时间/身份及跨 legacy 行拼接均作为损坏拒绝，不能静默整理成
+  看似可用的历史。
 
 ## 后果
 
@@ -61,7 +69,8 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 原子一致，可作为后续崩溃恢复、压缩和细粒度操作迁移的基础。
 
 这不关闭 D-02，也不等价于原版 ClientOp。元素与页面结构 mutation serializer、双向 replay、原子追加及当前会话的逐动作保存边界
-已经建立，但持久化记录尚无 action identity、PUSH/UNDO/REDO effect、undo/redo mutation 关联、coalesce track 或 client timestamp，
-UndoRedoManager 也未从持久化 mutation 恢复。后续仍需实现：跨会话 Undo/Redo、editor site/原版式单调 opId、
+已经建立；元素 NPM1 也具备 action identity、PUSH/UNDO/REDO effect、coalesce track 和原 action time。但页面 NPG1 尚未携带
+历史元数据，UndoRedoManager 也未从 reducer 结果恢复，删除页面所需内容还没有耐久 checkpoint。后续仍需实现：完整跨会话
+Undo/Redo、editor site/原版式单调 opId、
 checkpoint/compaction、损坏日志恢复、同步导入映射，以及
 同步上传和聚合元数据。完成这些之前，不得声称具有原版协作或完整增量同步语义。

@@ -1,5 +1,6 @@
 import { relationalStore } from '@kit.ArkData';
 import { PageInfo } from '../core/model/NoteTypes';
+import { HistoryMetadata } from '../core/model/OpTypes';
 import { taskpool, util } from '@kit.ArkTS';
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
@@ -61,6 +62,7 @@ interface PreparedPageSave {
   noteId: string;
   pageId: string;
   elements: PreparedElement[];
+  history?: HistoryMetadata;
 }
 
 interface SearchBackfillPage {
@@ -111,11 +113,12 @@ export class StrokePersistence {
 
   queueSaveElements(noteId: string, pageId: string, strokes: StrokeElementData[],
     textBlocks: TextBlockElement[], elementOrder: PageElementRef[] = [], shapes: ShapeElement[] = [],
-    preserveActionBoundary: boolean = false): number {
+    preserveActionBoundary: boolean = false, history?: HistoryMetadata): number {
     if (this.store === null) {
       throw new Error('StrokePersistence is not initialized');
     }
-    const snapshot: PreparedPageSave = this.prepareSave(noteId, pageId, strokes, textBlocks, elementOrder, shapes);
+    const snapshot: PreparedPageSave = this.prepareSave(
+      noteId, pageId, strokes, textBlocks, elementOrder, shapes, history);
     return this.getSaveQueue(noteId, pageId).enqueue(snapshot, preserveActionBoundary);
   }
 
@@ -386,6 +389,7 @@ export class StrokePersistence {
         opType: classifyPageMutation(mutation),
         payload: encodePageMutationOp(mutation),
         clientTime: operationTime,
+        history: snapshot.history,
       });
       await store.commit();
     } catch (e) {
@@ -497,7 +501,8 @@ export class StrokePersistence {
   }
 
   private prepareSave(noteId: string, pageId: string, strokes: StrokeElementData[],
-    textBlocks: TextBlockElement[], elementOrder: PageElementRef[], shapes: ShapeElement[]): PreparedPageSave {
+    textBlocks: TextBlockElement[], elementOrder: PageElementRef[], shapes: ShapeElement[],
+    history?: HistoryMetadata): PreparedPageSave {
     const elements: PreparedElement[] = [];
     const preferredOrder: PageElementRef[] = elementOrder.length > 0
       ? elementOrder : legacyPageElementOrder(strokes, textBlocks, shapes);
@@ -517,7 +522,7 @@ export class StrokePersistence {
           payload: encodePersistedElement(payload), searchText: null });
       }
     }
-    return { noteId: noteId, pageId: pageId, elements: elements };
+    return { noteId: noteId, pageId: pageId, elements: elements, history: history };
   }
 
   private getSaveQueue(noteId: string, pageId: string): LatestWriteQueue<PreparedPageSave> {

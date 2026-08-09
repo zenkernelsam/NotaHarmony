@@ -27,6 +27,28 @@ export enum OpType {
   PAGE_SNAPSHOT = 50,
 }
 
+// History movement is metadata on a concrete mutation, not a replacement mutation type.
+export enum HistoryEffect {
+  PUSH = 0,
+  UNDO = 1,
+  REDO = 2,
+}
+
+// Mirrors Notability 1.0.3 pnf. NONE deliberately disables implicit coalescing.
+export enum HistoryCoalesceTrack {
+  NONE = 0,
+  INSERT_TEXT = 1,
+  REMOVE_TEXT = 2,
+  CREATE_INK = 3,
+}
+
+export interface HistoryMetadata {
+  actionId: string;
+  effect: HistoryEffect;
+  coalesceTrack: HistoryCoalesceTrack;
+  actionTime: number;
+}
+
 // 单条操作
 export interface Op {
   opId: string;
@@ -34,6 +56,7 @@ export interface Op {
   opType: OpType;
   payload: Uint8Array;     // 序列化后的操作内容
   clientTime: number;      // 客户端时间戳 ms
+  history?: HistoryMetadata;
 }
 
 // op 序列化器接口

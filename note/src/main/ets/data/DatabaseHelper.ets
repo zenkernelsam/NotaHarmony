@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v14: add note-scoped page structure revisions for deterministic page operations.
-export const DB_VERSION: number = 14;
+// v15: attach explicit PUSH/UNDO/REDO identity and original coalescing metadata to mutations.
+export const DB_VERSION: number = 15;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -50,6 +50,25 @@ CREATE TABLE IF NOT EXISTS page_element_snapshot (
 )`;
 
 export const DDL_OPERATION_LOG: string = `
+CREATE TABLE IF NOT EXISTS operation_log (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  note_id TEXT NOT NULL,
+  op_id TEXT NOT NULL,
+  op_type INTEGER NOT NULL,
+  payload BLOB NOT NULL,
+  client_time INTEGER NOT NULL,
+  action_id TEXT,
+  history_effect INTEGER,
+  coalesce_track INTEGER,
+  action_time INTEGER,
+  CHECK ((action_id IS NULL AND history_effect IS NULL AND coalesce_track IS NULL AND action_time IS NULL)
+    OR (action_id IS NOT NULL AND history_effect IS NOT NULL AND coalesce_track IS NOT NULL AND action_time IS NOT NULL)),
+  UNIQUE(note_id, op_id),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+// Historical migrations must never reference the evolving latest-schema DDL.
+const DDL_OPERATION_LOG_V13: string = `
 CREATE TABLE IF NOT EXISTS operation_log (
   sequence INTEGER PRIMARY KEY AUTOINCREMENT,
   note_id TEXT NOT NULL,
@@ -153,6 +172,8 @@ export const DDL_INDEXES: string[] = [
     ON page_element_snapshot(note_id, page_id, element_order)`,
   `CREATE INDEX IF NOT EXISTS idx_operation_log_note_time
     ON operation_log(note_id, client_time, sequence)`,
+  `CREATE INDEX IF NOT EXISTS idx_operation_log_note_action
+    ON operation_log(note_id, action_id, sequence)`,
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_page_info_note ON page_info(note_id, page_index)',
   'CREATE INDEX IF NOT EXISTS idx_note_meta_folder ON note_meta(folder_id)',
   'CREATE INDEX IF NOT EXISTS idx_folder_parent_order ON folder(parent_id, sibling_order)',
@@ -351,6 +372,14 @@ export const MIGRATIONS: Record<number, string[]> = {
       )`,
     'UPDATE search_item SET type = 2 WHERE type = 1',
   ],
-  13: [DDL_OPERATION_LOG],
+  13: [DDL_OPERATION_LOG_V13],
   14: ['ALTER TABLE note_meta ADD COLUMN structure_revision INTEGER NOT NULL DEFAULT 0'],
+  15: [
+    'ALTER TABLE operation_log ADD COLUMN action_id TEXT',
+    'ALTER TABLE operation_log ADD COLUMN history_effect INTEGER',
+    'ALTER TABLE operation_log ADD COLUMN coalesce_track INTEGER',
+    'ALTER TABLE operation_log ADD COLUMN action_time INTEGER',
+    `CREATE INDEX IF NOT EXISTS idx_operation_log_note_action
+      ON operation_log(note_id, action_id, sequence)`,
+  ],
 };

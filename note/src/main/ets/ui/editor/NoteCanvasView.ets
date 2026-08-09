@@ -259,8 +259,9 @@ export struct NoteCanvasView {
       try {
         const historyRevision: number = this.undoRedo.getHistoryRevision();
         const preserveActionBoundary: boolean = historyRevision !== this.lastQueuedHistoryRevision;
+        const history = preserveActionBoundary ? this.undoRedo.getLatestHistoryMetadata() : undefined;
         this.persistence.queueSaveElements(this.noteId, pageId, this.completedStrokes, this.textBlocks,
-          this.elementOrder, this.shapes, preserveActionBoundary);
+          this.elementOrder, this.shapes, preserveActionBoundary, history === null ? undefined : history);
         this.lastQueuedHistoryRevision = historyRevision;
         this.persistence.flush(this.noteId, pageId).then(() => {
           if (!this.persistence.hasDirtySave(this.noteId, pageId)) {

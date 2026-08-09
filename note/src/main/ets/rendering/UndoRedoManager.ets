@@ -5,6 +5,7 @@ import { StrokeElementData } from '../core/model/StrokeTypes';
 import { ElementType, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { PageInfo } from '../core/model/NoteTypes';
 import { PageElementRef } from '../core/model/PageElementOrder';
+import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata } from '../core/model/OpTypes';
 
 // 可撤销的操作类型
 export enum UndoableActionType {
@@ -198,6 +199,7 @@ export interface HistoryMetrics {
 interface HistoryEntry {
   action: UndoableAction;
   estimatedBytes: number;
+  history: HistoryMetadata;
 }
 
 const DEFAULT_HISTORY_MAX_ACTIONS: number = 128;
@@ -343,6 +345,8 @@ export class UndoRedoManager {
   private evictedActions: number = 0;
   private evictedEstimatedBytes: number = 0;
   private historyRevision: number = 0;
+  private actionCounter: number = 0;
+  private latestHistory: HistoryMetadata | null = null;
 
   constructor(budget: number | HistoryBudget = {
     maxActions: DEFAULT_HISTORY_MAX_ACTIONS,
@@ -357,7 +361,11 @@ export class UndoRedoManager {
 
   // 记录操作（清空 redoStack）
   push(action: UndoableAction): void {
-    const entry: HistoryEntry = { action: action, estimatedBytes: estimateHistoryActionBytes(action) };
+    const entry: HistoryEntry = {
+      action: action,
+      estimatedBytes: estimateHistoryActionBytes(action),
+      history: this.createHistoryMetadata(action),
+    };
     this.undoStack.push(entry);
     this.undoBytes += entry.estimatedBytes;
     this.redoStack = [];
@@ -371,6 +379,7 @@ export class UndoRedoManager {
       this.evictedActions++;
       this.evictedEstimatedBytes += evicted.estimatedBytes;
     }
+    this.latestHistory = this.withEffect(entry.history, HistoryEffect.PUSH);
     this.advanceHistoryRevision();
   }
 
@@ -389,6 +398,7 @@ export class UndoRedoManager {
     this.undoBytes -= entry.estimatedBytes;
     this.redoStack.push(entry);
     this.redoBytes += entry.estimatedBytes;
+    this.latestHistory = this.withEffect(entry.history, HistoryEffect.UNDO);
     this.advanceHistoryRevision();
     return true;
   }
@@ -408,6 +418,7 @@ export class UndoRedoManager {
     this.redoBytes -= entry.estimatedBytes;
     this.undoStack.push(entry);
     this.undoBytes += entry.estimatedBytes;
+    this.latestHistory = this.withEffect(entry.history, HistoryEffect.REDO);
     this.advanceHistoryRevision();
     return true;
   }
@@ -439,6 +450,32 @@ export class UndoRedoManager {
 
   getHistoryRevision(): number {
     return this.historyRevision;
+  }
+
+  getLatestHistoryMetadata(): HistoryMetadata | null {
+    return this.latestHistory === null ? null : this.withEffect(this.latestHistory, this.latestHistory.effect);
+  }
+
+  private createHistoryMetadata(action: UndoableAction): HistoryMetadata {
+    this.actionCounter++;
+    const now: number = Date.now();
+    const random: string = Math.random().toString(36).slice(2, 12);
+    return {
+      actionId: `history-${now.toString(36)}-${this.actionCounter.toString(36)}-${random}`,
+      effect: HistoryEffect.PUSH,
+      coalesceTrack: action.type === UndoableActionType.ADD_STROKE
+        ? HistoryCoalesceTrack.CREATE_INK : HistoryCoalesceTrack.NONE,
+      actionTime: now,
+    };
+  }
+
+  private withEffect(history: HistoryMetadata, effect: HistoryEffect): HistoryMetadata {
+    return {
+      actionId: history.actionId,
+      effect: effect,
+      coalesceTrack: history.coalesceTrack,
+      actionTime: history.actionTime,
+    };
   }
 
   private advanceHistoryRevision(): void {

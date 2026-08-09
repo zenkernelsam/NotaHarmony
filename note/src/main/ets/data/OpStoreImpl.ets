@@ -1,7 +1,8 @@
 import { relationalStore } from '@kit.ArkData';
-import { Op } from '../core/model/OpTypes';
+import { HistoryMetadata, Op } from '../core/model/OpTypes';
 import { OpStore } from '../core/op/OpStore';
 import { DatabaseManager } from './DatabaseManager';
+import { validateHistoryMetadata } from './PersistentHistoryMetadata';
 
 export class OpStoreImpl implements OpStore {
   private store: relationalStore.RdbStore;
@@ -16,13 +17,15 @@ export class OpStoreImpl implements OpStore {
 
   async getOps(noteId: string): Promise<Op[]> {
     return this.queryOps(
-      `SELECT op_id, note_id, op_type, payload, client_time FROM operation_log
+      `SELECT op_id, note_id, op_type, payload, client_time,
+        action_id, history_effect, coalesce_track, action_time FROM operation_log
        WHERE note_id = ? ORDER BY client_time, sequence`, [noteId]);
   }
 
   async getOpsSince(noteId: string, sinceTime: number): Promise<Op[]> {
     return this.queryOps(
-      `SELECT op_id, note_id, op_type, payload, client_time FROM operation_log
+      `SELECT op_id, note_id, op_type, payload, client_time,
+        action_id, history_effect, coalesce_track, action_time FROM operation_log
        WHERE note_id = ? AND client_time > ? ORDER BY client_time, sequence`, [noteId, sinceTime]);
   }
 
@@ -47,13 +50,27 @@ export class OpStoreImpl implements OpStore {
     const result: Op[] = [];
     try {
       while (resultSet.goToNextRow()) {
-        result.push({
+        const op: Op = {
           opId: resultSet.getString(resultSet.getColumnIndex('op_id')),
           noteId: resultSet.getString(resultSet.getColumnIndex('note_id')),
           opType: resultSet.getLong(resultSet.getColumnIndex('op_type')),
           payload: resultSet.getBlob(resultSet.getColumnIndex('payload')),
           clientTime: resultSet.getLong(resultSet.getColumnIndex('client_time')),
-        });
+        };
+        const actionColumn: number = resultSet.getColumnIndex('action_id');
+        if (!resultSet.isColumnNull(actionColumn)) {
+          ensureHistoryColumnsArePresent(resultSet);
+          op.history = {
+            actionId: resultSet.getString(actionColumn),
+            effect: resultSet.getLong(resultSet.getColumnIndex('history_effect')),
+            coalesceTrack: resultSet.getLong(resultSet.getColumnIndex('coalesce_track')),
+            actionTime: resultSet.getLong(resultSet.getColumnIndex('action_time')),
+          };
+          validateHistoryMetadata(op.history);
+        } else {
+          ensureLegacyHistoryColumnsAreNull(resultSet);
+        }
+        result.push(op);
       }
     } finally {
       resultSet.close();
@@ -74,8 +91,33 @@ export async function appendOperation(store: relationalStore.RdbStore, op: Op): 
     'payload': op.payload,
     'client_time': op.clientTime,
   };
+  if (op.history !== undefined) {
+    validateHistoryMetadata(op.history);
+    bucket['action_id'] = op.history.actionId;
+    bucket['history_effect'] = op.history.effect;
+    bucket['coalesce_track'] = op.history.coalesceTrack;
+    bucket['action_time'] = op.history.actionTime;
+  }
   // Deliberately use INSERT without conflict replacement: duplicate op IDs are corruption.
   await store.insert('operation_log', bucket);
+}
+
+function ensureLegacyHistoryColumnsAreNull(resultSet: relationalStore.ResultSet): void {
+  const columns: string[] = ['history_effect', 'coalesce_track', 'action_time'];
+  for (const name of columns) {
+    if (!resultSet.isColumnNull(resultSet.getColumnIndex(name))) {
+      throw new Error('operation has partial history metadata');
+    }
+  }
+}
+
+function ensureHistoryColumnsArePresent(resultSet: relationalStore.ResultSet): void {
+  const columns: string[] = ['history_effect', 'coalesce_track', 'action_time'];
+  for (const name of columns) {
+    if (resultSet.isColumnNull(resultSet.getColumnIndex(name))) {
+      throw new Error('operation has partial history metadata');
+    }
+  }
 }
 
 export function monotonicOperationTime(lastClientTime: number | null, wallClockTime: number): number {

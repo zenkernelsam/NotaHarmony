@@ -11,13 +11,18 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(14);
+      expect(DB_VERSION).assertEqual(15);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
     it('tracks note-scoped page structure revisions', 0, () => {
       expect(DDL_NOTE_META).assertContain('structure_revision INTEGER NOT NULL DEFAULT 0');
       expect(MIGRATIONS[14].join('\n')).assertContain('ADD COLUMN structure_revision');
+      expect(MIGRATIONS[15].join('\n')).assertContain('ADD COLUMN action_id');
+      expect(MIGRATIONS[15].join('\n')).assertContain('ADD COLUMN history_effect');
+      expect(MIGRATIONS[15].join('\n')).assertContain('ADD COLUMN coalesce_track');
+      expect(MIGRATIONS[15].join('\n')).assertContain('ADD COLUMN action_time');
+      expect(MIGRATIONS[13].join('\n').includes('action_id')).assertFalse();
     });
 
     it('keeps the append-only operation log separate from page snapshots', 0, () => {

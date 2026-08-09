@@ -2,6 +2,7 @@ import { describe, it, expect } from '@ohos/hypium';
 import {
   AddStrokeAction, HistoryMetrics, UndoableAction, UndoableActionType, UndoRedoManager,
 } from '../main/ets/rendering/UndoRedoManager';
+import { HistoryEffect } from '../main/ets/core/model/OpTypes';
 
 function makeAction(pageId: string): AddStrokeAction {
   return {
@@ -22,6 +23,9 @@ export default function undoRedoManagerTest() {
       manager.push(action);
 
       expect(manager.getHistoryRevision()).assertEqual(1);
+      const pushedId: string = manager.getLatestHistoryMetadata()?.actionId ?? '';
+      expect(pushedId.length > 0).assertTrue();
+      expect(manager.getLatestHistoryMetadata()?.effect).assertEqual(HistoryEffect.PUSH);
 
       expect(manager.peekUndo() === action).assertTrue();
       expect(manager.canUndo()).assertTrue();
@@ -37,6 +41,7 @@ export default function undoRedoManagerTest() {
       const action: UndoableAction = makeAction('page-1');
       const stale: UndoableAction = makeAction('page-1');
       manager.push(action);
+      const pushedId: string = manager.getLatestHistoryMetadata()?.actionId ?? '';
 
       const bytesBefore: number = manager.getMetrics().estimatedBytes;
       expect(manager.commitUndo(stale)).assertFalse();
@@ -45,11 +50,15 @@ export default function undoRedoManagerTest() {
       expect(manager.getMetrics().estimatedBytes).assertEqual(bytesBefore);
       expect(manager.commitUndo(action)).assertTrue();
       expect(manager.getHistoryRevision()).assertEqual(2);
+      expect(manager.getLatestHistoryMetadata()?.actionId).assertEqual(pushedId);
+      expect(manager.getLatestHistoryMetadata()?.effect).assertEqual(HistoryEffect.UNDO);
       expect(manager.canUndo()).assertFalse();
       expect(manager.peekRedo() === action).assertTrue();
       expect(manager.getMetrics().estimatedBytes).assertEqual(bytesBefore);
       expect(manager.commitRedo(action)).assertTrue();
       expect(manager.getHistoryRevision()).assertEqual(3);
+      expect(manager.getLatestHistoryMetadata()?.actionId).assertEqual(pushedId);
+      expect(manager.getLatestHistoryMetadata()?.effect).assertEqual(HistoryEffect.REDO);
       expect(manager.peekUndo() === action).assertTrue();
       expect(manager.canRedo()).assertFalse();
       expect(manager.getMetrics().estimatedBytes).assertEqual(bytesBefore);
