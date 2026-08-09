@@ -1,5 +1,7 @@
 import { relationalStore } from '@kit.ArkData';
-import { HistoryEffect, HistoryMetadata, Op, OpSyncMetadata, SequencedOp } from '../core/model/OpTypes';
+import {
+  HistoryEffect, HistoryMetadata, Op, OpCompactionResult, OpSyncMetadata, SequencedOp,
+} from '../core/model/OpTypes';
 import { OpStore } from '../core/op/OpStore';
 import { DatabaseManager } from './DatabaseManager';
 import { validateHistoryMetadata } from './PersistentHistoryMetadata';
@@ -10,6 +12,9 @@ import {
 import {
   encodeOperationId, nextOperationTimestamp, OperationIdentity, validateOperationIdentity,
 } from './OperationIdentity';
+import {
+  advanceSyncedOperationCount, safeOperationCompactionBoundary,
+} from './OperationCompaction';
 
 export interface AllocatedOperationIdentity extends OperationIdentity {
   opId: string;
@@ -177,6 +182,56 @@ export class OpStoreImpl implements OpStore {
     await this.advanceSyncWatermark(noteId, throughSequence, maxServerTime);
   }
 
+  async compactAcknowledgedOps(noteId: string): Promise<OpCompactionResult> {
+    if (noteId.length === 0) {
+      throw new Error('operation compaction requires a note ID');
+    }
+    return editorPersistenceMutex.runExclusive(async (): Promise<OpCompactionResult> => {
+      await this.store.beginTransaction();
+      try {
+        await ensureNoteSyncMetadata(this.store, noteId);
+        const metadata: OpSyncMetadata = await readNoteSyncMetadata(this.store, noteId);
+        const result: OpCompactionResult = await this.compactAcknowledgedOpsLocked(
+          noteId, metadata.ackedThroughSequence);
+        await this.store.commit();
+        return result;
+      } catch (e) {
+        await this.store.rollBack();
+        throw new Error(`compact acknowledged operations failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  private async compactAcknowledgedOpsLocked(noteId: string,
+    ackedThroughSequence: number): Promise<OpCompactionResult> {
+    const header = await this.store.querySql(
+      'SELECT through_sequence FROM history_checkpoint WHERE note_id = ?', [noteId]);
+    let historyThroughSequence: number = 0;
+    try {
+      if (header.goToFirstRow()) {
+        historyThroughSequence = header.getLong(header.getColumnIndex('through_sequence'));
+      }
+    } finally {
+      header.close();
+    }
+    const safeThroughSequence: number = safeOperationCompactionBoundary(
+      ackedThroughSequence, historyThroughSequence);
+    if (safeThroughSequence === 0) {
+      return { safeThroughSequence: 0, deletedOperationCount: 0 };
+    }
+    // Keep the boundary row: checkpoint and ACK validation both use an exact retained sequence.
+    await this.validateCheckpointSequence(noteId, safeThroughSequence);
+    const predicates = new relationalStore.RdbPredicates('operation_log');
+    predicates.equalTo('note_id', noteId);
+    predicates.lessThan('sequence', safeThroughSequence);
+    const deletedOperationCount: number = await this.store.delete(predicates);
+    await this.validateCheckpointSequence(noteId, safeThroughSequence);
+    return {
+      safeThroughSequence: safeThroughSequence,
+      deletedOperationCount: deletedOperationCount,
+    };
+  }
+
   private async advanceSyncWatermark(noteId: string, throughSequence: number,
     acknowledgedServerTime: number | null): Promise<void> {
     if (noteId.length === 0 || !Number.isSafeInteger(throughSequence) || throughSequence <= 0) {
@@ -211,13 +266,15 @@ export class OpStoreImpl implements OpStore {
           bucket['max_server_time'] = metadata.maxServerTime === null
             ? acknowledgedServerTime : Math.max(metadata.maxServerTime, acknowledgedServerTime);
           const countSet = await this.store.querySql(
-            'SELECT COUNT(*) AS op_count FROM operation_log WHERE note_id = ? AND sequence <= ?',
-            [noteId, throughSequence]);
+            `SELECT COUNT(*) AS op_count FROM operation_log
+             WHERE note_id = ? AND sequence > ? AND sequence <= ?`,
+            [noteId, metadata.ackedThroughSequence, throughSequence]);
           try {
             if (!countSet.goToFirstRow()) {
               throw new Error('acknowledged operation count query failed');
             }
-            bucket['synced_op_count'] = countSet.getLong(countSet.getColumnIndex('op_count'));
+            bucket['synced_op_count'] = advanceSyncedOperationCount(
+              metadata.syncedOpCount, countSet.getLong(countSet.getColumnIndex('op_count')));
           } finally {
             countSet.close();
           }
@@ -227,6 +284,9 @@ export class OpStoreImpl implements OpStore {
         const updated: number = await this.store.update(bucket, predicates);
         if (updated !== 1) {
           throw new Error('sync watermark update did not affect exactly one note');
+        }
+        if (acknowledgedServerTime !== null) {
+          await this.compactAcknowledgedOpsLocked(noteId, throughSequence);
         }
         await this.store.commit();
       } catch (e) {
@@ -299,6 +359,9 @@ export class OpStoreImpl implements OpStore {
       }
       await this.replaceHistoryCheckpoint(noteId, throughSequence, retained);
       const removed: number = await this.removeUnreferencedDeleteCheckpoints(noteId, retained);
+      await ensureNoteSyncMetadata(this.store, noteId);
+      const syncMetadata: OpSyncMetadata = await readNoteSyncMetadata(this.store, noteId);
+      await this.compactAcknowledgedOpsLocked(noteId, syncMetadata.ackedThroughSequence);
       await this.store.commit();
       return {
         throughSequence: throughSequence,
@@ -332,6 +395,9 @@ export class OpStoreImpl implements OpStore {
         await this.store.delete(predicates);
       }
       const removed: number = await this.removeUnreferencedDeleteCheckpoints(noteId, empty);
+      await ensureNoteSyncMetadata(this.store, noteId);
+      const syncMetadata: OpSyncMetadata = await readNoteSyncMetadata(this.store, noteId);
+      await this.compactAcknowledgedOpsLocked(noteId, syncMetadata.ackedThroughSequence);
       await this.store.commit();
       return { throughSequence: throughSequence, removedDeleteCheckpoints: removed };
     } catch (e) {

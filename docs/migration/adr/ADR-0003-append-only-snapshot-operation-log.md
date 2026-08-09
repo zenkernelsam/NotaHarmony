@@ -133,6 +133,13 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
   保留它，副本或任何全局冲突均分配经数据库检查的新 pageId；旧 iPad 格式没有可复用的 Harmony pageId，始终分配新身份。同一事务创建
   `note_meta` 与 `note_sync_metadata`，副本 noteId 本身也必须通过有界数据库查重分配；任一身份行失败整体回滚，逐页写入失败仍由既有
   级联清理删除该未完成目标，不触碰源笔记。
+- 第十四阶段启用物理日志压缩，但删除边界不采用固定条数。原版 `iq1` 只证明可按 `(noteId,opId)` 删除单条 ClientOp，`q0` 证明可删除
+  整篇笔记的 ClientOp；原版 `SyncedOpMetadata.opCount` 又是独立累计值。Harmony 因此只删除同时满足“服务端已 ACK”和“本地持久历史
+  checkpoint 已完整覆盖”的行，安全边界为 `min(acked_through_sequence, history_checkpoint.through_sequence)`，且只删除严格小于边界的
+  同 note 行。边界行必须在删除前后仍存在并属于该 note，供 ACK/checkpoint 的精确 sequence 校验；任一水位为 0 时完全不删。
+- ACK 推进与 checkpoint 建立/重置都会在各自原事务的末尾尝试相同压缩，所以两种水位无论谁最后到达都能触发，失败会连同该次 ACK 或
+  checkpoint 一起回滚。公开压缩入口只用于幂等维护。`synced_op_count` 不再每次从可能已压缩的物理表头重算，而是把旧 ACK 到新 ACK
+  之间仍保留的 note 行数累加到既有计数；重复 ACK 增量为 0，物理删除后计数不会倒退或被其他 note 的全局 sequence 间隙污染。
 
 ## 后果
 
@@ -144,5 +151,5 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 最后一个无 legacy 的完整 segment 现在可在重启后恢复成可执行 Undo/Redo 栈，DELETE_PAGE 也具备耐久内容 checkpoint 和原子
 PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成组 Undo/Redo。本地启动 replay 与删除页恢复点增长已有上限，
 损坏历史也有用户可见且不删除同步日志的本地恢复路径；同步日志本身仍保持追加式。原版式 editor site/op clock、耐久同步元数据和
-upload/ACK 前缀契约和本地导入身份映射已经建立，但还没有远端传输实现或服务端 site 解析。后续仍需实现：跨页/文本细粒度成组执行、
-基于 ACK 与 checkpoint 共同水位的安全日志 compaction、实际上传/下载与服务端聚合。完成这些之前，不得声称具有原版协作或完整增量同步语义。
+upload/ACK 前缀契约、本地导入身份映射和 ACK/checkpoint 共同水位压缩已经建立，但还没有远端传输实现或服务端 site 解析。后续仍需实现：
+跨页/文本细粒度成组执行、实际上传/下载与服务端聚合。完成这些之前，不得声称具有原版协作或完整增量同步语义。

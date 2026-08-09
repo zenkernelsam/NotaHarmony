@@ -84,6 +84,11 @@ export interface OpSyncMetadata {
   ackedThroughSequence: number;
 }
 
+export interface OpCompactionResult {
+  safeThroughSequence: number;
+  deletedOperationCount: number;
+}
+
 // op 序列化器接口
 export interface OpSerializer {
   serialize(op: Op): Uint8Array;
