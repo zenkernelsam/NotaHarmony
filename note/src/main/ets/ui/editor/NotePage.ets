@@ -417,6 +417,7 @@ struct NotePage {
         pageOrderAfter: this.pageIds(this.pages),
         pageStrokes: [],
         pageTextBlocks: [],
+        pageElementOrder: [],
         selectedPageIdBefore: selectedBefore,
         selectedPageIdAfter: assignedPage.pageId,
       });
@@ -459,6 +460,7 @@ struct NotePage {
       pageOrderAfter: this.pageIds(this.pages),
       pageStrokes: snapshot.strokes,
       pageTextBlocks: snapshot.textBlocks,
+      pageElementOrder: snapshot.elementOrder,
       selectedPageIdBefore: selectedBefore,
       selectedPageIdAfter: selectedAfter,
     });
@@ -668,7 +670,7 @@ struct NotePage {
     try {
       await this.pageRepo.addPage(this.noteId, action.pageAfter);
       await this.persistence.saveElements(this.noteId, action.pageId,
-        action.pageStrokes, action.pageTextBlocks);
+        action.pageStrokes, action.pageTextBlocks, action.pageElementOrder);
       await this.pageRepo.reorderPages(this.noteId, action.pageOrderAfter);
     } catch (e) {
       await this.compensateFailedPageRestore(action.pageId);
@@ -688,7 +690,7 @@ struct NotePage {
       try {
         await this.pageRepo.addPage(this.noteId, action.pageBefore);
         await this.persistence.saveElements(this.noteId, action.pageId,
-          action.pageStrokes, action.pageTextBlocks);
+          action.pageStrokes, action.pageTextBlocks, action.pageElementOrder);
         await this.pageRepo.reorderPages(this.noteId, action.pageOrderBefore);
       } catch (e) {
         await this.compensateFailedPageRestore(action.pageId);

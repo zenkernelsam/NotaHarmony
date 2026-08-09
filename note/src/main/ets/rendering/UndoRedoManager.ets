@@ -4,6 +4,7 @@
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { TextBlockElement } from '../core/model/ElementTypes';
 import { PageInfo } from '../core/model/NoteTypes';
+import { PageElementRef } from '../core/model/PageElementOrder';
 
 // 可撤销的操作类型
 export enum UndoableActionType {
@@ -18,6 +19,7 @@ export enum UndoableActionType {
   DELETE_PAGE = 8,
   REORDER_PAGES = 9,
   PAGE_SETTINGS = 10,
+  REORDER_ELEMENTS = 11,
 }
 
 interface ActionBase {
@@ -26,15 +28,22 @@ interface ActionBase {
   pageId: string;
 }
 
-export interface AddStrokeAction extends ActionBase {
+interface ElementOrderChange {
+  elementOrderBefore: PageElementRef[];
+  elementOrderAfter: PageElementRef[];
+}
+
+export interface AddStrokeAction extends ActionBase, ElementOrderChange {
   type: UndoableActionType.ADD_STROKE;
   addedStrokes: StrokeElementData[];
 }
 
-export interface RemoveStrokeAction extends ActionBase {
+export interface RemoveStrokeAction extends ActionBase, ElementOrderChange {
   type: UndoableActionType.DELETE_STROKE | UndoableActionType.ERASE_STROKES;
   removedStrokes: StrokeElementData[];
   removedStrokeIndices: number[];
+  beforeModifiedStrokes: StrokeElementData[];
+  afterModifiedStrokes: StrokeElementData[];
 }
 
 export interface TransformStrokesAction extends ActionBase {
@@ -43,12 +52,12 @@ export interface TransformStrokesAction extends ActionBase {
   afterStrokes: StrokeElementData[];
 }
 
-export interface AddElementAction extends ActionBase {
+export interface AddElementAction extends ActionBase, ElementOrderChange {
   type: UndoableActionType.ADD_ELEMENT;
   addedElement: TextBlockElement;
 }
 
-export interface DeleteElementAction extends ActionBase {
+export interface DeleteElementAction extends ActionBase, ElementOrderChange {
   type: UndoableActionType.DELETE_ELEMENT;
   removedElements: TextBlockElement[];
 }
@@ -61,6 +70,10 @@ export interface ReplaceElementAction extends ActionBase {
   afterElements: TextBlockElement[];
 }
 
+export interface ReorderElementsAction extends ActionBase, ElementOrderChange {
+  type: UndoableActionType.REORDER_ELEMENTS;
+}
+
 export interface AddPageAction extends ActionBase {
   type: UndoableActionType.ADD_PAGE;
   pageAfter: PageInfo;
@@ -68,6 +81,7 @@ export interface AddPageAction extends ActionBase {
   pageOrderAfter: string[];
   pageStrokes: StrokeElementData[];
   pageTextBlocks: TextBlockElement[];
+  pageElementOrder: PageElementRef[];
   selectedPageIdBefore: string;
   selectedPageIdAfter: string;
 }
@@ -79,6 +93,7 @@ export interface DeletePageAction extends ActionBase {
   pageOrderAfter: string[];
   pageStrokes: StrokeElementData[];
   pageTextBlocks: TextBlockElement[];
+  pageElementOrder: PageElementRef[];
   selectedPageIdBefore: string;
   selectedPageIdAfter: string;
 }
@@ -96,12 +111,13 @@ export interface PageSettingsAction extends ActionBase {
 }
 
 export type UndoableAction = AddStrokeAction | RemoveStrokeAction | TransformStrokesAction |
-  AddElementAction | DeleteElementAction | ReplaceElementAction | AddPageAction | DeletePageAction |
-  ReorderPagesAction | PageSettingsAction;
+  AddElementAction | DeleteElementAction | ReplaceElementAction | ReorderElementsAction |
+  AddPageAction | DeletePageAction | ReorderPagesAction | PageSettingsAction;
 
 export interface PageContentSnapshot {
   strokes: StrokeElementData[];
   textBlocks: TextBlockElement[];
+  elementOrder: PageElementRef[];
 }
 
 export interface EditorHistoryBridge {
@@ -136,32 +152,50 @@ const DEFAULT_HISTORY_MAX_BYTES: number = 32 * 1024 * 1024;
 export function estimateHistoryActionBytes(action: UndoableAction): number {
   let bytes: number = 256 + (action.noteId.length + action.pageId.length) * 2;
   if (action.type === UndoableActionType.ADD_STROKE) {
-    return bytes + estimateStrokes(action.addedStrokes);
+    return bytes + estimateStrokes(action.addedStrokes) + estimateElementOrderChange(action);
   }
   if (action.type === UndoableActionType.DELETE_STROKE || action.type === UndoableActionType.ERASE_STROKES) {
-    return bytes + estimateStrokes(action.removedStrokes) + action.removedStrokeIndices.length * 8;
+    return bytes + estimateStrokes(action.removedStrokes) + action.removedStrokeIndices.length * 8 +
+      estimateStrokes(action.beforeModifiedStrokes) + estimateStrokes(action.afterModifiedStrokes) +
+      estimateElementOrderChange(action);
   }
   if (action.type === UndoableActionType.TRANSFORM_STROKES) {
     return bytes + estimateStrokes(action.beforeStrokes) + estimateStrokes(action.afterStrokes);
   }
   if (action.type === UndoableActionType.ADD_ELEMENT) {
-    return bytes + estimateTextBlock(action.addedElement);
+    return bytes + estimateTextBlock(action.addedElement) + estimateElementOrderChange(action);
   }
   if (action.type === UndoableActionType.DELETE_ELEMENT) {
-    return bytes + estimateTextBlocks(action.removedElements);
+    return bytes + estimateTextBlocks(action.removedElements) + estimateElementOrderChange(action);
   }
   if (action.type === UndoableActionType.REPLACE_ELEMENT) {
     return bytes + estimateStrokes(action.beforeStrokes) + estimateStrokes(action.afterStrokes) +
       estimateTextBlocks(action.beforeElements) + estimateTextBlocks(action.afterElements);
   }
+  if (action.type === UndoableActionType.REORDER_ELEMENTS) {
+    return bytes + estimateElementOrderChange(action);
+  }
   if (action.type === UndoableActionType.ADD_PAGE || action.type === UndoableActionType.DELETE_PAGE) {
     return bytes + 256 + estimateStringList(action.pageOrderBefore) + estimateStringList(action.pageOrderAfter) +
-      estimateStrokes(action.pageStrokes) + estimateTextBlocks(action.pageTextBlocks);
+      estimateStrokes(action.pageStrokes) + estimateTextBlocks(action.pageTextBlocks) +
+      estimateElementOrder(action.pageElementOrder);
   }
   if (action.type === UndoableActionType.REORDER_PAGES) {
     return bytes + estimateStringList(action.pageOrderBefore) + estimateStringList(action.pageOrderAfter);
   }
   return bytes + 512;
+}
+
+function estimateElementOrderChange(action: ElementOrderChange): number {
+  return estimateElementOrder(action.elementOrderBefore) + estimateElementOrder(action.elementOrderAfter);
+}
+
+function estimateElementOrder(order: PageElementRef[]): number {
+  let bytes: number = order.length * 32;
+  for (const ref of order) {
+    bytes += ref.elementId.length * 2;
+  }
+  return bytes;
 }
 
 function estimateStrokes(strokes: StrokeElementData[]): number {

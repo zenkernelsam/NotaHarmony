@@ -8,6 +8,7 @@ import { NoteManifest, PageData, parseManifest, parsePage } from './NotePackageS
 import { NoteMeta, PageInfo, PaperSize, PaperTemplate, PageOrientation } from '../core/model/NoteTypes';
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { TextBlockElement } from '../core/model/ElementTypes';
+import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import { DatabaseManager } from './DatabaseManager';
 import { NoteRepositoryImpl } from './NoteRepositoryImpl';
 import { PageRepositoryImpl } from './PageRepositoryImpl';
@@ -202,15 +203,23 @@ export class NoteImporter {
         await pageRepo.addPage(note.id, pageInfo);
         const pageStrokes: StrokeElementData[] = [];
         const pageTexts: TextBlockElement[] = [];
+        const pageElementOrder: PageElementRef[] = [];
         for (const el of page.elements) {
           const typed = el as PersistedElement;
           if (typed.kind === 'stroke') {
-            pageStrokes.push(typed.data as StrokeElementData);
+            const stroke: StrokeElementData = typed.data as StrokeElementData;
+            pageStrokes.push(stroke);
+            pageElementOrder.push({ kind: PageElementKind.STROKE,
+              elementId: stroke.id, zIndex: pageElementOrder.length });
           } else if (typed.kind === 'text') {
-            pageTexts.push(typed.data as TextBlockElement);
+            const text: TextBlockElement = typed.data as TextBlockElement;
+            pageTexts.push(text);
+            pageElementOrder.push({ kind: PageElementKind.TEXT,
+              elementId: text.id, zIndex: pageElementOrder.length });
           }
         }
-        await this.persistence.saveElements(note.id, pageInfo.pageId, pageStrokes, pageTexts);
+        await this.persistence.saveElements(
+          note.id, pageInfo.pageId, pageStrokes, pageTexts, pageElementOrder);
         countStrokes += pageStrokes.length;
         countTexts += pageTexts.length;
         writtenPages++;

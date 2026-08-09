@@ -8,6 +8,7 @@ import { Canvas2DTextRenderer } from '../core/adaptation/Canvas2DTextRenderer';
 import { LoadedPencilTexture, loadOriginalPencilTexture } from '../core/adaptation/PencilTextureLoader';
 import { PagePixelSize, pagePixelSize } from '../core/model/PageCoordinateSpace';
 import { PageInfo } from '../core/model/NoteTypes';
+import { PageElementKind } from '../core/model/PageElementOrder';
 import { StrokePersistence } from '../data/StrokePersistence';
 import { ThemeTokens } from '../ui/theme/EditorTheme';
 import { PaperRenderer } from './PaperRenderer';
@@ -83,11 +84,12 @@ export class ThumbnailRenderer {
     this.paperRenderer.renderOffscreenBackground(ctx, pageSize.width, pageSize.height,
       page.template, pageTransform.scale, theme);
     const renderContext: Canvas2DOffscreenRenderContext = new Canvas2DOffscreenRenderContext(ctx);
-    for (const stroke of loaded.strokes) {
-      this.strokePainter.renderStroke(stroke, renderContext, pageSize.width, pageSize.height);
-    }
-    for (const textBlock of loaded.textBlocks) {
-      this.textRenderer.renderText(textBlock, renderContext);
+    for (const element of loaded.elements) {
+      if (element.kind === PageElementKind.STROKE) {
+        this.strokePainter.renderStroke(element.data, renderContext, pageSize.width, pageSize.height);
+      } else {
+        this.textRenderer.renderText(element.data, renderContext);
+      }
     }
     ctx.restore();
 

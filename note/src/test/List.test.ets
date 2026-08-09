@@ -30,6 +30,7 @@ import layerCacheGeometryTest from './LayerCacheGeometry.test';
 import canvasViewportTest from './CanvasViewport.test';
 import thumbnailRenderPolicyTest from './ThumbnailRenderPolicy.test';
 import strokeClipboardTest from './StrokeClipboard.test';
+import pageElementOrderTest from './PageElementOrder.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -64,4 +65,5 @@ export default function testsuite() {
   canvasViewportTest();
   thumbnailRenderPolicyTest();
   strokeClipboardTest();
+  pageElementOrderTest();
 }

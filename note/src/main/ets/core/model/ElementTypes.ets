@@ -62,10 +62,21 @@ export interface ImageElement extends NoteElementBase {
   cropRect: Rect2D | null;
 }
 
+export interface StrokeNoteElement extends NoteElementBase {
+  type: ElementType.STROKE;
+  stroke: StrokeElementData;
+}
+
+export interface SelectionElement extends NoteElementBase {
+  type: ElementType.SELECTION;
+  selectedElementIds: string[];
+}
+
 // 联合类型
 export type NoteElement =
-  | StrokeElementData
+  | StrokeNoteElement
   | EllipseElement
   | PolygonElement
   | TextBlockElement
-  | ImageElement;
+  | ImageElement
+  | SelectionElement;

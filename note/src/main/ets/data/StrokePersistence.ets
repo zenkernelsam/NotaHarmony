@@ -3,6 +3,10 @@ import { PageInfo } from '../core/model/NoteTypes';
 import { taskpool, util } from '@kit.ArkTS';
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { TextBlockElement } from '../core/model/ElementTypes';
+import {
+  legacyPageElementOrder, materializePageElements, normalizePageElementOrder, OrderedPageElement,
+  PageElementKind, PageElementRef,
+} from '../core/model/PageElementOrder';
 import { DatabaseManager } from './DatabaseManager';
 import { LatestWriteQueue } from './LatestWriteQueue';
 import { AsyncMutex } from './AsyncMutex';
@@ -15,6 +19,8 @@ export interface PersistedElement {
 export interface LoadedElements {
   strokes: StrokeElementData[];
   textBlocks: TextBlockElement[];
+  elementOrder: PageElementRef[];
+  elements: OrderedPageElement[];
 }
 
 export interface FirstPageThumbnailState {
@@ -81,11 +87,11 @@ export class StrokePersistence {
   }
 
   queueSaveElements(noteId: string, pageId: string, strokes: StrokeElementData[],
-    textBlocks: TextBlockElement[]): number {
+    textBlocks: TextBlockElement[], elementOrder: PageElementRef[] = []): number {
     if (this.store === null) {
       throw new Error('StrokePersistence is not initialized');
     }
-    const snapshot: PreparedPageSave = this.prepareSave(noteId, pageId, strokes, textBlocks);
+    const snapshot: PreparedPageSave = this.prepareSave(noteId, pageId, strokes, textBlocks, elementOrder);
     return this.getSaveQueue(noteId, pageId).enqueue(snapshot);
   }
 
@@ -104,8 +110,8 @@ export class StrokePersistence {
   }
 
   async saveElements(noteId: string, pageId: string, strokes: StrokeElementData[],
-    textBlocks: TextBlockElement[]): Promise<void> {
-    this.queueSaveElements(noteId, pageId, strokes, textBlocks);
+    textBlocks: TextBlockElement[], elementOrder: PageElementRef[] = []): Promise<void> {
+    this.queueSaveElements(noteId, pageId, strokes, textBlocks, elementOrder);
     await this.flush(noteId, pageId);
   }
 
@@ -128,7 +134,8 @@ export class StrokePersistence {
       pageId = pageSet.getString(pageSet.getColumnIndex('page_id'));
     }
     pageSet.close();
-    return pageId.length > 0 ? this.loadElements(noteId, pageId) : { strokes: [], textBlocks: [] };
+    return pageId.length > 0 ? this.loadElements(noteId, pageId) :
+      { strokes: [], textBlocks: [], elementOrder: [], elements: [] };
   }
 
   async getFirstPageThumbnailState(noteId: string): Promise<FirstPageThumbnailState | null> {
@@ -416,17 +423,21 @@ export class StrokePersistence {
   }
 
   private prepareSave(noteId: string, pageId: string, strokes: StrokeElementData[],
-    textBlocks: TextBlockElement[]): PreparedPageSave {
+    textBlocks: TextBlockElement[], elementOrder: PageElementRef[]): PreparedPageSave {
     const elements: PreparedElement[] = [];
-    for (const stroke of strokes) {
-      const payload: PersistedElement = { kind: 'stroke', data: stroke };
-      elements.push({ elementId: stroke.id, kind: 1,
-        payload: this.stringToBytes(JSON.stringify(payload)), searchText: null });
-    }
-    for (const text of textBlocks) {
-      const payload: PersistedElement = { kind: 'text', data: text };
-      elements.push({ elementId: text.id, kind: 2,
-        payload: this.stringToBytes(JSON.stringify(payload)), searchText: text.richText.toLowerCase() });
+    const preferredOrder: PageElementRef[] = elementOrder.length > 0
+      ? elementOrder : legacyPageElementOrder(strokes, textBlocks);
+    const ordered: OrderedPageElement[] = materializePageElements(preferredOrder, strokes, textBlocks);
+    for (const element of ordered) {
+      if (element.kind === PageElementKind.STROKE) {
+        const payload: PersistedElement = { kind: 'stroke', data: element.data };
+        elements.push({ elementId: element.elementId, kind: PageElementKind.STROKE,
+          payload: this.stringToBytes(JSON.stringify(payload)), searchText: null });
+      } else {
+        const payload: PersistedElement = { kind: 'text', data: element.data };
+        elements.push({ elementId: element.elementId, kind: PageElementKind.TEXT,
+          payload: this.stringToBytes(JSON.stringify(payload)), searchText: element.data.richText.toLowerCase() });
+      }
     }
     return { noteId: noteId, pageId: pageId, elements: elements };
   }
@@ -448,7 +459,7 @@ export class StrokePersistence {
   }
 
   private async loadMatchingElements(noteId: string, pageId: string | null): Promise<LoadedElements> {
-    const result: LoadedElements = { strokes: [], textBlocks: [] };
+    const result: LoadedElements = { strokes: [], textBlocks: [], elementOrder: [], elements: [] };
     if (this.store === null) {
       throw new Error('StrokePersistence is not initialized');
     }
@@ -468,9 +479,15 @@ export class StrokePersistence {
           try {
             const parsed = JSON.parse(json) as PersistedElement;
             if (parsed.kind === 'stroke') {
-              result.strokes.push(parsed.data as StrokeElementData);
+              const stroke: StrokeElementData = parsed.data as StrokeElementData;
+              result.strokes.push(stroke);
+              result.elementOrder.push({ kind: PageElementKind.STROKE,
+                elementId: stroke.id, zIndex: result.elementOrder.length });
             } else if (parsed.kind === 'text') {
-              result.textBlocks.push(parsed.data as TextBlockElement);
+              const text: TextBlockElement = parsed.data as TextBlockElement;
+              result.textBlocks.push(text);
+              result.elementOrder.push({ kind: PageElementKind.TEXT,
+                elementId: text.id, zIndex: result.elementOrder.length });
             }
           } catch (e) {
             // Ignore an individual corrupt element without discarding the rest of the page.
@@ -482,6 +499,8 @@ export class StrokePersistence {
     } catch (e) {
       throw new Error(`loadElements failed: ${JSON.stringify(e)}`);
     }
+    result.elementOrder = normalizePageElementOrder(result.elementOrder, result.strokes, result.textBlocks);
+    result.elements = materializePageElements(result.elementOrder, result.strokes, result.textBlocks);
     return result;
   }
 

@@ -14,6 +14,7 @@ import { NoteRepositoryImpl } from './NoteRepositoryImpl';
 import { PageRepositoryImpl } from './PageRepositoryImpl';
 import { StrokePersistence, PersistedElement } from './StrokePersistence';
 import { BackupSourcePackage } from './BackupBatchSpec';
+import { PageElementKind } from '../core/model/PageElementOrder';
 
 // 纸张尺寸 → 毫米（A3~TABLOID，与 Phase 3 默认一致）
 export function paperSizeToMm(size: PaperSize): number[] {
@@ -78,11 +79,12 @@ export class NoteExporter {
         const p: PageInfo = pages[i];
         const loaded = await this.persistence.loadElements(noteId, p.pageId);
         const elementObjects: PersistedElement[] = [];
-        for (const s of loaded.strokes) {
-          elementObjects.push({ kind: 'stroke', data: s });
-        }
-        for (const t of loaded.textBlocks) {
-          elementObjects.push({ kind: 'text', data: t });
+        for (const element of loaded.elements) {
+          if (element.kind === PageElementKind.STROKE) {
+            elementObjects.push({ kind: 'stroke', data: element.data });
+          } else {
+            elementObjects.push({ kind: 'text', data: element.data });
+          }
         }
         const pageData: PageData = {
           pageId: p.pageId,

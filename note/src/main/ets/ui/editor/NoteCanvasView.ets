@@ -12,6 +12,7 @@ import { Canvas2DStrokeRenderer, Canvas2DRenderContext } from '../../core/adapta
 import { Canvas2DTextRenderer } from '../../core/adaptation/Canvas2DTextRenderer';
 import { LoadedPencilTexture, loadOriginalPencilTexture } from '../../core/adaptation/PencilTextureLoader';
 import { StrokeLayerManager } from '../../rendering/StrokeLayerManager';
+import { StrokeCanvasPainter } from '../../rendering/StrokeCanvasPainter';
 import { BitmapTransferMetrics, BitmapTransferTracker } from '../../core/adaptation/BitmapTransferTracker';
 import { CanvasViewport, CumulativeGestureTracker } from '../../rendering/CanvasViewport';
 import { pagePixelSize, PAGE_UNITS_PER_MM, PagePixelSize } from '../../core/model/PageCoordinateSpace';
@@ -38,6 +39,11 @@ import {
 } from '../../core/model/ElementTypes';
 import { Point2D, Rect2D, CubicSegment } from '../../core/model/GeometryTypes';
 import { PageInfo, PaperTemplate } from '../../core/model/NoteTypes';
+import {
+  appendPageElementRefs, clonePageElementOrder, hasStrokeAboveText, materializePageElements, moveStrokeRefs,
+  normalizePageElementOrder, OrderedPageElement, PageElementKind, PageElementRef,
+  removePageElementRefs, samePageElementMembers, samePageElementOrder,
+} from '../../core/model/PageElementOrder';
 import { EditorViewModel } from './EditorViewModel';
 import { SelectionOverlay, SelectionMenuAction } from '../components/SelectionOverlay';
 import { TextBlockOverlay } from '../components/TextBlockOverlay';
@@ -81,6 +87,7 @@ export struct NoteCanvasView {
   private predictor: PenKitPredictor = new PenKitPredictor();
   private bitmapTransferTracker: BitmapTransferTracker = new BitmapTransferTracker();
   private renderer: Canvas2DStrokeRenderer = new Canvas2DStrokeRenderer(this.bitmapTransferTracker);
+  private strokePainter: StrokeCanvasPainter = new StrokeCanvasPainter(this.renderer, this.bitmapTransferTracker);
   private textRenderer: Canvas2DTextRenderer = new Canvas2DTextRenderer();
   private pencilPixelMap: image.PixelMap | null = null;
   private pencilTextureLoading: boolean = false;
@@ -114,6 +121,7 @@ export struct NoteCanvasView {
   // === 画布状态 ===
   private completedStrokes: StrokeElementData[] = [];
   private textBlocks: TextBlockElement[] = [];
+  private elementOrder: PageElementRef[] = [];
   private eraserPath: Point2D[] = [];
   private isDrawing: boolean = false;
   private eraserActive: boolean = false;
@@ -183,6 +191,7 @@ export struct NoteCanvasView {
       }
       this.completedStrokes = loaded.strokes;
       this.textBlocks = loaded.textBlocks;
+      this.elementOrder = loaded.elementOrder;
       this.loadedPageId = targetPageId;
       // T-034：恢复视口（zoom/scroll）
       const noteRepo = new NoteRepositoryImpl(db);
@@ -223,7 +232,8 @@ export struct NoteCanvasView {
       this.loadedPageId !== this.skipSavePageId) {
       const pageId: string = this.loadedPageId;
       try {
-        this.persistence.queueSaveElements(this.noteId, pageId, this.completedStrokes, this.textBlocks);
+        this.persistence.queueSaveElements(this.noteId, pageId, this.completedStrokes, this.textBlocks,
+          this.elementOrder);
         this.persistence.flush(this.noteId, pageId).then(() => {
           if (!this.persistence.hasDirtySave(this.noteId, pageId)) {
             this.saveFailed = false;
@@ -247,7 +257,7 @@ export struct NoteCanvasView {
       this.onTextCommit(this.editingDraftText);
     } else if (this.loadedPageId !== this.skipSavePageId) {
       this.persistence.queueSaveElements(this.noteId, this.loadedPageId,
-        this.completedStrokes, this.textBlocks);
+        this.completedStrokes, this.textBlocks, this.elementOrder);
     }
     try {
       await this.persistence.flush(this.noteId, this.loadedPageId);
@@ -356,7 +366,8 @@ export struct NoteCanvasView {
     try {
       if (fromPageId.length > 0) {
         if (fromPageId !== this.skipSavePageId) {
-          this.persistence.queueSaveElements(this.noteId, fromPageId, snapshot.strokes, snapshot.textBlocks);
+          this.persistence.queueSaveElements(this.noteId, fromPageId, snapshot.strokes, snapshot.textBlocks,
+            snapshot.elementOrder);
           await this.persistence.flush(this.noteId, fromPageId);
         } else {
           this.skipSavePageId = '';
@@ -369,6 +380,7 @@ export struct NoteCanvasView {
       }
       this.completedStrokes = loaded.strokes;
       this.textBlocks = loaded.textBlocks;
+      this.elementOrder = loaded.elementOrder;
       this.loadedPageId = targetPageId;
       this.loaded = true;
       this.dataLoadFailed = false;
@@ -390,6 +402,7 @@ export struct NoteCanvasView {
         if (!fromPageWasRemoved && fromPageId.length > 0) {
           this.completedStrokes = snapshot.strokes;
           this.textBlocks = snapshot.textBlocks;
+          this.elementOrder = snapshot.elementOrder;
           this.loadedPageId = fromPageId;
           this.loaded = true;
           this.dataLoadFailed = false;
@@ -411,6 +424,7 @@ export struct NoteCanvasView {
     this.loadedPageId = '';
     this.completedStrokes = [];
     this.textBlocks = [];
+    this.elementOrder = [];
     this.dataLoadFailed = true;
     this.cancelActiveInteraction();
     this.selectionTool.deselect();
@@ -510,7 +524,9 @@ export struct NoteCanvasView {
     const sessionStroke: StrokeElementData | null = this.strokeSession !== null && this.strokeSession.isActive()
       ? this.strokeSession.getCurrentStroke() : null;
     const current: StrokeElementData | null = this.heldShape !== null ? this.heldShape : sessionStroke;
-    if (forceFull) {
+    const orderedRender: boolean = this.requiresOrderedElementRender();
+    const fullRedraw: boolean = forceFull || orderedRender;
+    if (fullRedraw) {
       this.canvasCtx.clearRect(0, 0, w, h);
       this.canvasCtx.fillStyle = theme.background;
       this.canvasCtx.fillRect(0, 0, w, h);
@@ -518,7 +534,13 @@ export struct NoteCanvasView {
     this.canvasCtx.save();
     this.canvasCtx.translate(this.viewport.scrollX, this.viewport.scrollY);
     this.canvasCtx.scale(this.viewport.zoom, this.viewport.zoom);
-    if (forceFull) {
+    if (orderedRender) {
+      this.renderPaper(theme);
+      this.renderOrderedElements();
+      if (current !== null) {
+        this.strokePainter.renderStroke(current, this.renderCtx, this.getPaperWidth(), this.getPaperHeight());
+      }
+    } else if (forceFull) {
       this.renderPaper(theme);
       this.layerManager.compositeFull(this.canvasCtx, current, this.renderCtx);
       this.renderTextBlocks();
@@ -544,6 +566,22 @@ export struct NoteCanvasView {
   private renderTextBlocks(): void {
     for (const textBlock of this.textBlocks) {
       this.textRenderer.renderText(textBlock, this.renderCtx);
+    }
+  }
+
+  private requiresOrderedElementRender(): boolean {
+    return hasStrokeAboveText(this.elementOrder);
+  }
+
+  private renderOrderedElements(): void {
+    const elements: OrderedPageElement[] = materializePageElements(
+      this.elementOrder, this.completedStrokes, this.textBlocks);
+    for (const element of elements) {
+      if (element.kind === PageElementKind.STROKE) {
+        this.strokePainter.renderStroke(element.data, this.renderCtx, this.getPaperWidth(), this.getPaperHeight());
+      } else {
+        this.textRenderer.renderText(element.data, this.renderCtx);
+      }
     }
   }
 
@@ -820,7 +858,10 @@ export struct NoteCanvasView {
       const replaced: boolean = this.heldShape !== null && this.heldShape.id === stroke.id;
       const finalStroke: StrokeElementData = replaced ? this.heldShape! : stroke;
       this.heldShape = null;
+      const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
       this.completedStrokes.push(finalStroke);
+      this.elementOrder = appendPageElementRefs(
+        this.elementOrder, PageElementKind.STROKE, [finalStroke.id]);
       if (replaced) {
         this.undoRedo.push({
           type: UndoableActionType.REPLACE_ELEMENT,
@@ -837,6 +878,8 @@ export struct NoteCanvasView {
           noteId: this.noteId,
           pageId: this.currentPage.pageId,
           addedStrokes: [finalStroke],
+          elementOrderBefore: elementOrderBefore,
+          elementOrderAfter: clonePageElementOrder(this.elementOrder),
         });
       }
       hilog.info(0x0001, 'NoteCanvasView', 'pushed ADD_STROKE, canUndo=%{public}s',
@@ -988,6 +1031,7 @@ export struct NoteCanvasView {
       return;
     }
     const before: StrokeElementData[] = this.completedStrokes.slice();
+    const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
     const result = this.eraserEngine.erase(this.eraserPath, this.completedStrokes);
     for (const id of result.deletedStrokeIds) {
       const remaining: StrokeElementData[] = [];
@@ -1006,6 +1050,8 @@ export struct NoteCanvasView {
         }
       }
     }
+    this.elementOrder = removePageElementRefs(
+      this.elementOrder, PageElementKind.STROKE, result.deletedStrokeIds);
     // 记录 undo（擦除）
     const removed: StrokeElementData[] = [];
     const removedIndices: number[] = [];
@@ -1036,21 +1082,17 @@ export struct NoteCanvasView {
         }
       }
     }
-    if (partialBefore.length > 0) {
-      this.undoRedo.push({
-        type: UndoableActionType.TRANSFORM_STROKES,
-        noteId: this.noteId,
-        pageId: this.currentPage.pageId,
-        beforeStrokes: partialBefore,
-        afterStrokes: partialAfter,
-      });
-    } else if (removed.length > 0) {
+    if (partialBefore.length > 0 || removed.length > 0) {
       this.undoRedo.push({
         type: UndoableActionType.ERASE_STROKES,
         noteId: this.noteId,
         pageId: this.currentPage.pageId,
         removedStrokes: removed,
         removedStrokeIndices: removedIndices,
+        beforeModifiedStrokes: partialBefore,
+        afterModifiedStrokes: partialAfter,
+        elementOrderBefore: elementOrderBefore,
+        elementOrderAfter: clonePageElementOrder(this.elementOrder),
       });
     }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
@@ -1166,10 +1208,12 @@ export struct NoteCanvasView {
     } else if (action.type === UndoableActionType.ERASE_STROKES) {
       if (isUndo) {
         this.restoreRemovedStrokes(action);
+        this.replaceStrokesById(action.beforeModifiedStrokes);
       } else {
         for (const s of action.removedStrokes) {
           this.removeStrokeById(s.id);
         }
+        this.replaceStrokesById(action.afterModifiedStrokes);
       }
     } else if (action.type === UndoableActionType.DELETE_STROKE) {
       if (isUndo) {
@@ -1227,9 +1271,16 @@ export struct NoteCanvasView {
           }
         }
       }
+    } else if (action.type === UndoableActionType.REORDER_ELEMENTS) {
+      // Element order is applied atomically below after the source state has been validated.
     } else {
       hilog.error(0x0001, 'NoteCanvasView', 'unsupported history action type=%{public}d', action.type);
       return false;
+    }
+    const targetOrder: PageElementRef[] | null = this.getActionTargetOrder(action, isUndo);
+    if (targetOrder !== null) {
+      this.elementOrder = clonePageElementOrder(targetOrder);
+      this.synchronizeElementArraysByOrder();
     }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     this.persist();
@@ -1241,12 +1292,24 @@ export struct NoteCanvasView {
     if (action.noteId !== this.noteId || action.pageId !== this.loadedPageId) {
       return false;
     }
+    if (!this.validateElementOrderAction(action, isUndo)) {
+      return false;
+    }
     if (action.type === UndoableActionType.ADD_STROKE) {
       return action.addedStrokes.length > 0 && this.hasUniqueStrokeIds(action.addedStrokes) &&
         (isUndo ? this.allStrokeIdsPresent(action.addedStrokes) : this.allStrokeIdsAbsent(action.addedStrokes));
     }
     if (action.type === UndoableActionType.DELETE_STROKE || action.type === UndoableActionType.ERASE_STROKES) {
-      if (action.removedStrokes.length === 0 || !this.hasUniqueStrokeIds(action.removedStrokes)) {
+      const isErase: boolean = action.type === UndoableActionType.ERASE_STROKES;
+      if ((!isErase && action.removedStrokes.length === 0) ||
+        (action.removedStrokes.length === 0 && action.beforeModifiedStrokes.length === 0) ||
+        !this.hasUniqueStrokeIds(action.removedStrokes) ||
+        !this.sameStrokeIds(action.beforeModifiedStrokes, action.afterModifiedStrokes)) {
+        return false;
+      }
+      const sourceModified: StrokeElementData[] = isUndo
+        ? action.afterModifiedStrokes : action.beforeModifiedStrokes;
+      if (!this.allStrokeIdsPresent(sourceModified)) {
         return false;
       }
       if (!isUndo) {
@@ -1290,7 +1353,59 @@ export struct NoteCanvasView {
         this.sameTextBlockIds(sourceElements, targetElements) && this.allStrokeIdsPresent(sourceStrokes) &&
         this.allTextBlockIdsPresent(sourceElements);
     }
+    if (action.type === UndoableActionType.REORDER_ELEMENTS) {
+      return samePageElementMembers(action.elementOrderBefore, action.elementOrderAfter);
+    }
     return false;
+  }
+
+  private validateElementOrderAction(action: UndoableAction, isUndo: boolean): boolean {
+    const source: PageElementRef[] | null = this.getActionSourceOrder(action, isUndo);
+    if (source === null) {
+      return true;
+    }
+    if (!samePageElementOrder(this.elementOrder, source)) {
+      return false;
+    }
+    if (action.type === UndoableActionType.ADD_STROKE) {
+      const ids: string[] = action.addedStrokes.map((stroke: StrokeElementData): string => stroke.id);
+      return samePageElementOrder(action.elementOrderAfter,
+        appendPageElementRefs(action.elementOrderBefore, PageElementKind.STROKE, ids));
+    }
+    if (action.type === UndoableActionType.DELETE_STROKE || action.type === UndoableActionType.ERASE_STROKES) {
+      const ids: string[] = action.removedStrokes.map((stroke: StrokeElementData): string => stroke.id);
+      return samePageElementOrder(action.elementOrderAfter,
+        removePageElementRefs(action.elementOrderBefore, PageElementKind.STROKE, ids));
+    }
+    if (action.type === UndoableActionType.ADD_ELEMENT) {
+      return samePageElementOrder(action.elementOrderAfter,
+        appendPageElementRefs(action.elementOrderBefore, PageElementKind.TEXT, [action.addedElement.id]));
+    }
+    if (action.type === UndoableActionType.DELETE_ELEMENT) {
+      const ids: string[] = action.removedElements.map((element: TextBlockElement): string => element.id);
+      return samePageElementOrder(action.elementOrderAfter,
+        removePageElementRefs(action.elementOrderBefore, PageElementKind.TEXT, ids));
+    }
+    return action.type === UndoableActionType.REORDER_ELEMENTS &&
+      samePageElementMembers(action.elementOrderBefore, action.elementOrderAfter);
+  }
+
+  private getActionSourceOrder(action: UndoableAction, isUndo: boolean): PageElementRef[] | null {
+    if (action.type === UndoableActionType.ADD_STROKE || action.type === UndoableActionType.DELETE_STROKE ||
+      action.type === UndoableActionType.ERASE_STROKES || action.type === UndoableActionType.ADD_ELEMENT ||
+      action.type === UndoableActionType.DELETE_ELEMENT || action.type === UndoableActionType.REORDER_ELEMENTS) {
+      return isUndo ? action.elementOrderAfter : action.elementOrderBefore;
+    }
+    return null;
+  }
+
+  private getActionTargetOrder(action: UndoableAction, isUndo: boolean): PageElementRef[] | null {
+    if (action.type === UndoableActionType.ADD_STROKE || action.type === UndoableActionType.DELETE_STROKE ||
+      action.type === UndoableActionType.ERASE_STROKES || action.type === UndoableActionType.ADD_ELEMENT ||
+      action.type === UndoableActionType.DELETE_ELEMENT || action.type === UndoableActionType.REORDER_ELEMENTS) {
+      return isUndo ? action.elementOrderBefore : action.elementOrderAfter;
+    }
+    return null;
   }
 
   private countTextBlockId(id: string): number {
@@ -1425,6 +1540,36 @@ export struct NoteCanvasView {
     }
   }
 
+  private replaceStrokesById(replacements: StrokeElementData[]): void {
+    for (const replacement of replacements) {
+      for (let i: number = 0; i < this.completedStrokes.length; i++) {
+        if (this.completedStrokes[i].id === replacement.id) {
+          this.completedStrokes[i] = replacement;
+          break;
+        }
+      }
+    }
+  }
+
+  private synchronizeElementArraysByOrder(): void {
+    const normalized: PageElementRef[] = normalizePageElementOrder(
+      this.elementOrder, this.completedStrokes, this.textBlocks);
+    const ordered: OrderedPageElement[] = materializePageElements(
+      normalized, this.completedStrokes, this.textBlocks);
+    const strokes: StrokeElementData[] = [];
+    const textBlocks: TextBlockElement[] = [];
+    for (const element of ordered) {
+      if (element.kind === PageElementKind.STROKE) {
+        strokes.push(element.data);
+      } else {
+        textBlocks.push(element.data);
+      }
+    }
+    this.elementOrder = normalized;
+    this.completedStrokes = strokes;
+    this.textBlocks = textBlocks;
+  }
+
   private replaceTextBlock(replacement: TextBlockElement): void {
     for (let i: number = 0; i < this.textBlocks.length; i++) {
       if (this.textBlocks[i].id === replacement.id) {
@@ -1511,6 +1656,7 @@ export struct NoteCanvasView {
       this.selectionTool.deleteSelected();
       const removed: StrokeElementData[] = [];
       const removedIndices: number[] = [];
+      const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
       for (let strokeIndex: number = 0; strokeIndex < this.completedStrokes.length; strokeIndex++) {
         const s: StrokeElementData = this.completedStrokes[strokeIndex];
         if (ids.indexOf(s.id) >= 0) {
@@ -1521,6 +1667,7 @@ export struct NoteCanvasView {
       for (const s of removed) {
         this.removeStrokeById(s.id);
       }
+      this.elementOrder = removePageElementRefs(this.elementOrder, PageElementKind.STROKE, ids);
       if (removed.length > 0) {
         this.undoRedo.push({
           type: UndoableActionType.DELETE_STROKE,
@@ -1528,6 +1675,10 @@ export struct NoteCanvasView {
           pageId: this.currentPage.pageId,
           removedStrokes: removed,
           removedStrokeIndices: removedIndices,
+          beforeModifiedStrokes: [],
+          afterModifiedStrokes: [],
+          elementOrderBefore: elementOrderBefore,
+          elementOrderAfter: clonePageElementOrder(this.elementOrder),
         });
       }
       this.selectionVisible = false;
@@ -1550,27 +1701,19 @@ export struct NoteCanvasView {
   }
 
   private reorderSelected(ids: string[], forward: boolean): void {
-    const before: StrokeElementData[] = this.completedStrokes.slice();
-    const order: StrokeElementData[] = [];
-    const selected: StrokeElementData[] = [];
-    for (const s of this.completedStrokes) {
-      if (ids.indexOf(s.id) >= 0) {
-        selected.push(s);
-      } else {
-        order.push(s);
-      }
+    const before: PageElementRef[] = clonePageElementOrder(this.elementOrder);
+    const after: PageElementRef[] = moveStrokeRefs(before, ids, forward);
+    if (samePageElementOrder(before, after)) {
+      return;
     }
-    if (forward) {
-      this.completedStrokes = order.concat(selected);
-    } else {
-      this.completedStrokes = selected.concat(order);
-    }
+    this.elementOrder = after;
+    this.synchronizeElementArraysByOrder();
     this.undoRedo.push({
-      type: UndoableActionType.TRANSFORM_STROKES,
+      type: UndoableActionType.REORDER_ELEMENTS,
       noteId: this.noteId,
       pageId: this.currentPage.pageId,
-      beforeStrokes: before,
-      afterStrokes: this.completedStrokes.slice(),
+      elementOrderBefore: before,
+      elementOrderAfter: clonePageElementOrder(after),
     });
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     this.persist();
@@ -1632,14 +1775,18 @@ export struct NoteCanvasView {
     if (result === null || result.strokes.length === 0) {
       return;
     }
+    const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
     this.completedStrokes = this.completedStrokes.concat(result.strokes);
+    const pastedIds: string[] = result.strokes.map((stroke: StrokeElementData): string => stroke.id);
+    this.elementOrder = appendPageElementRefs(this.elementOrder, PageElementKind.STROKE, pastedIds);
     this.undoRedo.push({
       type: UndoableActionType.ADD_STROKE,
       noteId: this.noteId,
       pageId: this.loadedPageId,
       addedStrokes: result.strokes,
+      elementOrderBefore: elementOrderBefore,
+      elementOrderAfter: clonePageElementOrder(this.elementOrder),
     });
-    const pastedIds: string[] = result.strokes.map((stroke: StrokeElementData): string => stroke.id);
     this.selectionTool.selectStrokeIds(pastedIds);
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     this.updateSelectionOverlay();
@@ -1692,7 +1839,8 @@ export struct NoteCanvasView {
         fontColor: block.fontColor,
       });
     }
-    return { strokes: strokes, textBlocks: textBlocks };
+    return { strokes: strokes, textBlocks: textBlocks,
+      elementOrder: clonePageElementOrder(this.elementOrder) };
   }
 
   private cloneStrokeSnapshot(s: StrokeElementData): StrokeElementData {
@@ -1752,6 +1900,7 @@ export struct NoteCanvasView {
     const element: TextBlockElement = this.textBlockTool.createTextBlock(position,
       this.viewModel.brushColor, 24);
     this.textBlocks.push(element);
+    this.elementOrder = appendPageElementRefs(this.elementOrder, PageElementKind.TEXT, [element.id]);
     this.editingTextBlock = element;
     this.editingOriginalTextBlock = null;
     this.editingDraftText = '';
@@ -1782,11 +1931,15 @@ export struct NoteCanvasView {
       const updated: TextBlockElement = this.textBlockTool.updateText(this.editingTextBlock, text);
       this.replaceTextBlock(updated);
       if (this.editingOriginalTextBlock === null) {
+        const elementOrderAfter: PageElementRef[] = clonePageElementOrder(this.elementOrder);
         this.undoRedo.push({
           type: UndoableActionType.ADD_ELEMENT,
           noteId: this.noteId,
           pageId: this.currentPage.pageId,
           addedElement: updated,
+          elementOrderBefore: removePageElementRefs(
+            elementOrderAfter, PageElementKind.TEXT, [updated.id]),
+          elementOrderAfter: elementOrderAfter,
         });
       } else if (this.editingOriginalTextBlock.richText !== updated.richText) {
         this.undoRedo.push({
@@ -1819,6 +1972,7 @@ export struct NoteCanvasView {
         }
       }
       this.textBlocks = remaining;
+      this.elementOrder = removePageElementRefs(this.elementOrder, PageElementKind.TEXT, [id]);
       // T-040 审核修复：取消编辑 = 放弃创建，不应入栈
       // （原实现 push DELETE_ELEMENT，undo 后会恢复一个空文本框）
     }

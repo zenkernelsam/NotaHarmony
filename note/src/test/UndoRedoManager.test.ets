@@ -9,6 +9,8 @@ function makeAction(pageId: string): AddStrokeAction {
     noteId: 'note-1',
     pageId: pageId,
     addedStrokes: [],
+    elementOrderBefore: [],
+    elementOrderAfter: [],
   };
 }
 
