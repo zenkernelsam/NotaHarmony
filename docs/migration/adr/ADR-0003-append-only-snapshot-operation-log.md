@@ -147,6 +147,13 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 - 会话返回的 editor site 只有在笔记从未建立任何 op clock、日志、server time 或 upload/ACK 历史时才能原子写入。若身份已经建立，site
   不同即在上传前失败；不得为迁就响应改写既有 opId 或 checkpoint 中的身份。该协调器是认证 WebSocket 适配器的边界，不把整包 WebDAV
   备份冒充 ClientOp transport，也不猜测原版私有 token/服务器协议。
+- 第十六阶段修正 server-time cursor 的数值载体。原版 `tmf.java` 用 Java `long` 保存该值，`q0.java:507` 明确以
+  `Long.toUnsignedString` 输出，`ko.java:729-738` 又把无符号十进制放入 `clientMaxServerTime` 同步 URL；它因此是完整 unsigned 64-bit
+  域，不可放入 JavaScript `number`。v19 将 `note_sync_metadata.max_server_time` 从 INTEGER 重建为受约束 TEXT，内存和 transport
+  契约统一使用 canonical decimal string；只接受 `0..18446744073709551615`，拒绝前导零、非数字和越界值，并按长度后字典序比较单调性。
+- v18 的建表 SQL冻结为历史常量，v18→v19 用 `CAST(... AS TEXT)` 无损搬迁旧的非负 INTEGER；建新表、搬迁、替换与版本推进仍位于同一
+  SQLite 事务，损坏旧值或任一步故障会保留完整 v18 表。ACK 在任何水位写入前先完成 canonical 范围和不倒退校验，数据库 CHECK 再作为
+  第二道边界；全程不把十进制游标转换为浮点数。
 
 ## 后果
 
@@ -158,6 +165,6 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 最后一个无 legacy 的完整 segment 现在可在重启后恢复成可执行 Undo/Redo 栈，DELETE_PAGE 也具备耐久内容 checkpoint 和原子
 PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成组 Undo/Redo。本地启动 replay 与删除页恢复点增长已有上限，
 损坏历史也有用户可见且不删除同步日志的本地恢复路径；同步日志本身仍保持追加式。原版式 editor site/op clock、耐久同步元数据和
-upload/ACK 前缀契约、本地导入身份映射、共同水位压缩及严格同步会话协调器已经建立，但还没有经过认证的远端 WebSocket 适配器、incoming
+upload/ACK 前缀契约、本地导入身份映射、共同水位压缩、严格同步会话协调器及无损 unsigned 64-bit server cursor 已经建立，但还没有经过认证的远端 WebSocket 适配器、incoming
 op 落库/回放或完整服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
 原版协作或完整增量同步语义。

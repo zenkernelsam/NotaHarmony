@@ -42,7 +42,7 @@ class FakeSyncStore implements OperationSyncStore {
     this.value.uploadedThroughSequence = throughSequence;
   }
   async acknowledgeUploadedOps(_noteId: string, throughSequence: number,
-    maxServerTime: number): Promise<void> {
+    maxServerTime: string): Promise<void> {
     this.calls.push(`ack:${throughSequence}`);
     this.value.ackedThroughSequence = throughSequence;
     this.value.maxServerTime = maxServerTime;
@@ -52,6 +52,7 @@ class FakeSyncStore implements OperationSyncStore {
 class FakeSyncTransport implements OperationSyncTransport {
   siteId: number = 7;
   acknowledgedSequence: number = 4;
+  serverTime: string = '100';
   appendCount: number = 0;
 
   async open(request: OperationSyncOpenRequest): Promise<OperationSyncSession> {
@@ -61,7 +62,7 @@ class FakeSyncTransport implements OperationSyncTransport {
     this.appendCount++;
     return {
       noteId: batch.noteId, editorSiteId: batch.editorSiteId, sessionId: batch.sessionId,
-      acknowledgedThroughSequence: this.acknowledgedSequence, maxServerTime: 100,
+      acknowledgedThroughSequence: this.acknowledgedSequence, maxServerTime: this.serverTime,
     };
   }
 }
@@ -81,6 +82,23 @@ export default function operationSyncCoordinatorTest() {
       const store = new FakeSyncStore();
       const transport = new FakeSyncTransport();
       transport.acknowledgedSequence = 2;
+      let rejected: boolean = false;
+      try {
+        await new OperationSyncCoordinator(store, transport).synchronize('note');
+      } catch (_error) {
+        rejected = true;
+      }
+      expect(rejected).assertTrue();
+      expect(store.calls.join(',')).assertEqual('site:7');
+      expect(store.value.uploadedThroughSequence).assertEqual(0);
+      expect(store.value.ackedThroughSequence).assertEqual(0);
+    });
+
+    it('rejects a lossless server cursor that moves behind the durable cursor', 0, async () => {
+      const store = new FakeSyncStore();
+      store.value.maxServerTime = '9007199254740993';
+      const transport = new FakeSyncTransport();
+      transport.serverTime = '9007199254740992';
       let rejected: boolean = false;
       try {
         await new OperationSyncCoordinator(store, transport).synchronize('note');

@@ -3,6 +3,10 @@ import { monotonicOperationTime } from '../main/ets/data/OpStoreImpl';
 import {
   compareOperationIdentity, encodeOperationId, MAX_OPERATION_TIMESTAMP, nextOperationTimestamp,
 } from '../main/ets/data/OperationIdentity';
+import {
+  compareUnsignedLongDecimal, MAX_UNSIGNED_LONG_DECIMAL, maxUnsignedLongDecimal,
+  validateUnsignedLongDecimal,
+} from '../main/ets/data/UnsignedDecimal';
 
 export default function opStoreTest() {
   describe('OpStore time policy', () => {
@@ -42,6 +46,25 @@ export default function opStoreTest() {
         rejected = true;
       }
       expect(rejected).assertTrue();
+    });
+
+    it('keeps original unsigned 64-bit server cursors lossless above JS safe integers', 0, () => {
+      const aboveSafeInteger: string = '9007199254740993';
+      expect(compareUnsignedLongDecimal(aboveSafeInteger, '9007199254740992')).assertEqual(1);
+      expect(maxUnsignedLongDecimal(aboveSafeInteger, MAX_UNSIGNED_LONG_DECIMAL))
+        .assertEqual(MAX_UNSIGNED_LONG_DECIMAL);
+      validateUnsignedLongDecimal('0');
+      validateUnsignedLongDecimal(MAX_UNSIGNED_LONG_DECIMAL);
+      const invalid: string[] = ['', '00', '01', '-1', '1x', '18446744073709551616'];
+      let rejectedCount: number = 0;
+      for (const value of invalid) {
+        try {
+          validateUnsignedLongDecimal(value);
+        } catch (_error) {
+          rejectedCount++;
+        }
+      }
+      expect(rejectedCount).assertEqual(invalid.length);
     });
   });
 }

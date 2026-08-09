@@ -78,7 +78,8 @@ export interface OpSyncMetadata {
   updatedAt: number;
   syncedOpCount: number;
   maxOpTimestamp: number;
-  maxServerTime: number | null;
+  // Original server time is an unsigned 64-bit value. Decimal text avoids JS number truncation.
+  maxServerTime: string | null;
   schemaVersion: number;
   uploadedThroughSequence: number;
   ackedThroughSequence: number;

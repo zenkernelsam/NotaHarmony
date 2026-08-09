@@ -14,7 +14,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(18);
+      expect(DB_VERSION).assertEqual(19);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -30,6 +30,14 @@ export default function databaseHelperTest() {
       expect(migration).assertContain('CREATE TABLE operation_log_v18');
       expect(migration).assertContain('SELECT sequence, note_id, op_id');
       expect(migration).assertContain('lower(hex(randomblob(16)))');
+    });
+
+    it('migrates unsigned server cursors to precision-safe canonical decimal text', 0, () => {
+      expect(DDL_NOTE_SYNC_METADATA).assertContain('max_server_time TEXT');
+      expect(DDL_NOTE_SYNC_METADATA).assertContain('18446744073709551615');
+      const migration: string = MIGRATIONS[19].join('\n');
+      expect(migration).assertContain('note_sync_metadata_v19');
+      expect(migration).assertContain('CAST(max_server_time AS TEXT)');
     });
 
     it('tracks note-scoped page structure revisions', 0, () => {

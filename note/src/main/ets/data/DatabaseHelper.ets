@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v18: persist original-style editor site/op clocks and ordered upload acknowledgement watermarks.
-export const DB_VERSION: number = 18;
+// v19: preserve original unsigned 64-bit server cursors as canonical decimal text.
+export const DB_VERSION: number = 19;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -88,7 +88,55 @@ CREATE TABLE IF NOT EXISTS note_sync_metadata (
   creator_id TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
+  max_server_time TEXT CHECK (max_server_time IS NULL OR (
+    typeof(max_server_time) = 'text' AND length(max_server_time) BETWEEN 1 AND 20
+    AND max_server_time NOT GLOB '*[^0-9]*'
+    AND (max_server_time = '0' OR substr(max_server_time, 1, 1) <> '0')
+    AND (length(max_server_time) < 20 OR max_server_time <= '18446744073709551615')
+  )),
+  synced_op_count INTEGER NOT NULL DEFAULT 0 CHECK (synced_op_count >= 0),
+  max_op_timestamp INTEGER NOT NULL DEFAULT 0 CHECK (max_op_timestamp BETWEEN 0 AND 4294967295),
+  schema_version INTEGER NOT NULL DEFAULT 1,
+  uploaded_through_sequence INTEGER NOT NULL DEFAULT 0 CHECK (uploaded_through_sequence >= 0),
+  acked_through_sequence INTEGER NOT NULL DEFAULT 0 CHECK (acked_through_sequence >= 0),
+  CHECK (acked_through_sequence <= uploaded_through_sequence),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+const DDL_NOTE_SYNC_METADATA_V18: string = `
+CREATE TABLE IF NOT EXISTS note_sync_metadata (
+  note_id TEXT PRIMARY KEY,
+  legacy_id TEXT,
+  editor_site_id INTEGER NOT NULL CHECK (editor_site_id BETWEEN 0 AND 65535),
+  editor_id TEXT NOT NULL,
+  creator_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
   max_server_time INTEGER,
+  synced_op_count INTEGER NOT NULL DEFAULT 0 CHECK (synced_op_count >= 0),
+  max_op_timestamp INTEGER NOT NULL DEFAULT 0 CHECK (max_op_timestamp BETWEEN 0 AND 4294967295),
+  schema_version INTEGER NOT NULL DEFAULT 1,
+  uploaded_through_sequence INTEGER NOT NULL DEFAULT 0 CHECK (uploaded_through_sequence >= 0),
+  acked_through_sequence INTEGER NOT NULL DEFAULT 0 CHECK (acked_through_sequence >= 0),
+  CHECK (acked_through_sequence <= uploaded_through_sequence),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+const DDL_NOTE_SYNC_METADATA_V19: string = `
+CREATE TABLE note_sync_metadata_v19 (
+  note_id TEXT PRIMARY KEY,
+  legacy_id TEXT,
+  editor_site_id INTEGER NOT NULL CHECK (editor_site_id BETWEEN 0 AND 65535),
+  editor_id TEXT NOT NULL,
+  creator_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  max_server_time TEXT CHECK (max_server_time IS NULL OR (
+    typeof(max_server_time) = 'text' AND length(max_server_time) BETWEEN 1 AND 20
+    AND max_server_time NOT GLOB '*[^0-9]*'
+    AND (max_server_time = '0' OR substr(max_server_time, 1, 1) <> '0')
+    AND (length(max_server_time) < 20 OR max_server_time <= '18446744073709551615')
+  )),
   synced_op_count INTEGER NOT NULL DEFAULT 0 CHECK (synced_op_count >= 0),
   max_op_timestamp INTEGER NOT NULL DEFAULT 0 CHECK (max_op_timestamp BETWEEN 0 AND 4294967295),
   schema_version INTEGER NOT NULL DEFAULT 1,
@@ -536,7 +584,7 @@ export const MIGRATIONS: Record<number, string[]> = {
     DDL_LOCAL_EDITOR_IDENTITY,
     `INSERT OR IGNORE INTO local_editor_identity(singleton, editor_id)
       VALUES (1, lower(hex(randomblob(16))))`,
-    DDL_NOTE_SYNC_METADATA,
+    DDL_NOTE_SYNC_METADATA_V18,
     `INSERT OR IGNORE INTO note_sync_metadata
       (note_id, editor_site_id, editor_id, creator_id, created_at, updated_at,
        synced_op_count, max_op_timestamp, schema_version, uploaded_through_sequence,
@@ -555,5 +603,19 @@ export const MIGRATIONS: Record<number, string[]> = {
       FROM operation_log ORDER BY sequence`,
     'DROP TABLE operation_log',
     'ALTER TABLE operation_log_v18 RENAME TO operation_log',
+  ],
+  19: [
+    DDL_NOTE_SYNC_METADATA_V19,
+    `INSERT INTO note_sync_metadata_v19
+      (note_id, legacy_id, editor_site_id, editor_id, creator_id, created_at, updated_at,
+       max_server_time, synced_op_count, max_op_timestamp, schema_version,
+       uploaded_through_sequence, acked_through_sequence)
+      SELECT note_id, legacy_id, editor_site_id, editor_id, creator_id, created_at, updated_at,
+        CASE WHEN max_server_time IS NULL THEN NULL ELSE CAST(max_server_time AS TEXT) END,
+        synced_op_count, max_op_timestamp, schema_version,
+        uploaded_through_sequence, acked_through_sequence
+      FROM note_sync_metadata`,
+    'DROP TABLE note_sync_metadata',
+    'ALTER TABLE note_sync_metadata_v19 RENAME TO note_sync_metadata',
   ],
 };

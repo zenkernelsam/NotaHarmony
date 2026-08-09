@@ -19,6 +19,6 @@ export interface OpStore {
   getSyncMetadata(noteId: string): Promise<OpSyncMetadata>;
   resolveEditorSite(noteId: string, resolvedSiteId: number): Promise<void>;
   markOpsUploaded(noteId: string, throughSequence: number): Promise<void>;
-  acknowledgeUploadedOps(noteId: string, throughSequence: number, maxServerTime: number): Promise<void>;
+  acknowledgeUploadedOps(noteId: string, throughSequence: number, maxServerTime: string): Promise<void>;
   compactAcknowledgedOps(noteId: string): Promise<OpCompactionResult>;
 }

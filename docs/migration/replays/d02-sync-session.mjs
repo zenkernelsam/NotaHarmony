@@ -10,7 +10,12 @@ db.exec(`
     UNIQUE(note_id,op_timestamp,editor_site_id),
     FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE);
   CREATE TABLE note_sync_metadata(note_id TEXT PRIMARY KEY, editor_site_id INTEGER NOT NULL,
-    max_op_timestamp INTEGER NOT NULL, synced_op_count INTEGER NOT NULL, max_server_time INTEGER,
+    max_op_timestamp INTEGER NOT NULL, synced_op_count INTEGER NOT NULL,
+    max_server_time TEXT CHECK (max_server_time IS NULL OR (
+      typeof(max_server_time)='text' AND length(max_server_time) BETWEEN 1 AND 20
+      AND max_server_time NOT GLOB '*[^0-9]*'
+      AND (max_server_time='0' OR substr(max_server_time,1,1)<>'0')
+      AND (length(max_server_time)<20 OR max_server_time<='18446744073709551615'))),
     uploaded_through_sequence INTEGER NOT NULL, acked_through_sequence INTEGER NOT NULL,
     CHECK(acked_through_sequence<=uploaded_through_sequence),
     FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE);
@@ -99,22 +104,24 @@ function persistReply(noteId, sent, replySequence, serverTime, failAck = false) 
 
 const firstBatch = pending('clean');
 assert.deepEqual(firstBatch.map(row => row.op_id), ['op:1:9', 'op:2:9']);
-assert.throws(() => persistReply('clean', firstBatch, firstBatch[0].sequence, 100));
+assert.throws(() => persistReply('clean', firstBatch, firstBatch[0].sequence, '100'));
 let watermarks = db.prepare(`SELECT uploaded_through_sequence uploaded,acked_through_sequence ack
   FROM note_sync_metadata WHERE note_id='clean'`).get();
 assert.equal(watermarks.uploaded, 0);
 assert.equal(watermarks.ack, 0);
-assert.throws(() => persistReply('clean', firstBatch, firstBatch.at(-1).sequence, 100, true));
+assert.throws(() => persistReply('clean', firstBatch, firstBatch.at(-1).sequence, '100', true));
 watermarks = db.prepare(`SELECT uploaded_through_sequence uploaded,acked_through_sequence ack
   FROM note_sync_metadata WHERE note_id='clean'`).get();
 assert.equal(watermarks.uploaded, firstBatch.at(-1).sequence);
 assert.equal(watermarks.ack, 0);
 const retryBatch = pending('clean');
 assert.deepEqual(retryBatch, firstBatch);
-persistReply('clean', retryBatch, retryBatch.at(-1).sequence, 101);
+persistReply('clean', retryBatch, retryBatch.at(-1).sequence, '9007199254740993');
 const synced = db.prepare(`SELECT synced_op_count count,max_server_time server
   FROM note_sync_metadata WHERE note_id='clean'`).get();
 assert.equal(synced.count, 2);
-assert.equal(synced.server, 101);
+assert.equal(synced.server, '9007199254740993');
+assert.equal(db.prepare(`SELECT typeof(max_server_time) type FROM note_sync_metadata
+  WHERE note_id='clean'`).get().type, 'text');
 
 console.log('success|site=9|established-refused=1|batch=2|wrong-ack=0|retry=2|acked=2');

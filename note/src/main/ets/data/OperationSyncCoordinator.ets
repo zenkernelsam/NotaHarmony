@@ -1,13 +1,14 @@
 import { OpSyncMetadata, SequencedOp } from '../core/model/OpTypes';
 import { AsyncMutex } from './AsyncMutex';
 import { encodeOperationId, validateOperationIdentity } from './OperationIdentity';
+import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './UnsignedDecimal';
 
 export interface OperationSyncStore {
   getSyncMetadata(noteId: string): Promise<OpSyncMetadata>;
   resolveEditorSite(noteId: string, resolvedSiteId: number): Promise<void>;
   getPendingOps(noteId: string, limit: number): Promise<SequencedOp[]>;
   markOpsUploaded(noteId: string, throughSequence: number): Promise<void>;
-  acknowledgeUploadedOps(noteId: string, throughSequence: number, maxServerTime: number): Promise<void>;
+  acknowledgeUploadedOps(noteId: string, throughSequence: number, maxServerTime: string): Promise<void>;
 }
 
 export interface OperationSyncOpenRequest {
@@ -15,7 +16,7 @@ export interface OperationSyncOpenRequest {
   editorId: string;
   creatorId: string;
   currentEditorSiteId: number;
-  maxServerTime: number | null;
+  maxServerTime: string | null;
 }
 
 export interface OperationSyncSession {
@@ -37,7 +38,7 @@ export interface OperationUploadAcknowledgement {
   sessionId: string;
   editorSiteId: number;
   acknowledgedThroughSequence: number;
-  maxServerTime: number;
+  maxServerTime: string;
 }
 
 export interface OperationSyncTransport {
@@ -48,7 +49,7 @@ export interface OperationSyncTransport {
 export interface OperationSyncResult {
   sentOperationCount: number;
   acknowledgedThroughSequence: number;
-  maxServerTime: number | null;
+  maxServerTime: string | null;
 }
 
 export class OperationSyncCoordinator {
@@ -137,13 +138,16 @@ export function validatePendingBatch(pending: SequencedOp[], metadata: OpSyncMet
 }
 
 export function validateAcknowledgement(acknowledgement: OperationUploadAcknowledgement,
-  session: OperationSyncSession, expectedSequence: number, previousServerTime: number | null): void {
+  session: OperationSyncSession, expectedSequence: number, previousServerTime: string | null): void {
   if (acknowledgement.noteId !== session.noteId || acknowledgement.sessionId !== session.sessionId ||
     acknowledgement.editorSiteId !== session.editorSiteId ||
     !Number.isSafeInteger(acknowledgement.acknowledgedThroughSequence) ||
-    acknowledgement.acknowledgedThroughSequence !== expectedSequence ||
-    !Number.isSafeInteger(acknowledgement.maxServerTime) || acknowledgement.maxServerTime < 0 ||
-    (previousServerTime !== null && acknowledgement.maxServerTime < previousServerTime)) {
+    acknowledgement.acknowledgedThroughSequence !== expectedSequence) {
+    throw new Error('operation upload acknowledgement does not match the expected reply');
+  }
+  validateUnsignedLongDecimal(acknowledgement.maxServerTime);
+  if (previousServerTime !== null &&
+    compareUnsignedLongDecimal(acknowledgement.maxServerTime, previousServerTime) < 0) {
     throw new Error('operation upload acknowledgement does not match the expected reply');
   }
 }

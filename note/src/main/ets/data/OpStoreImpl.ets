@@ -15,6 +15,7 @@ import {
 import {
   advanceSyncedOperationCount, safeOperationCompactionBoundary,
 } from './OperationCompaction';
+import { maxUnsignedLongDecimal, validateUnsignedLongDecimal } from './UnsignedDecimal';
 
 export interface AllocatedOperationIdentity extends OperationIdentity {
   opId: string;
@@ -220,10 +221,8 @@ export class OpStoreImpl implements OpStore {
   }
 
   async acknowledgeUploadedOps(noteId: string, throughSequence: number,
-    maxServerTime: number): Promise<void> {
-    if (!Number.isSafeInteger(maxServerTime) || maxServerTime < 0) {
-      throw new Error('server time is invalid');
-    }
+    maxServerTime: string): Promise<void> {
+    validateUnsignedLongDecimal(maxServerTime);
     await this.advanceSyncWatermark(noteId, throughSequence, maxServerTime);
   }
 
@@ -278,7 +277,7 @@ export class OpStoreImpl implements OpStore {
   }
 
   private async advanceSyncWatermark(noteId: string, throughSequence: number,
-    acknowledgedServerTime: number | null): Promise<void> {
+    acknowledgedServerTime: string | null): Promise<void> {
     if (noteId.length === 0 || !Number.isSafeInteger(throughSequence) || throughSequence <= 0) {
       throw new Error('sync watermark is invalid');
     }
@@ -308,8 +307,8 @@ export class OpStoreImpl implements OpStore {
             throw new Error('acknowledged watermark is outside the uploaded prefix');
           }
           bucket['acked_through_sequence'] = throughSequence;
-          bucket['max_server_time'] = metadata.maxServerTime === null
-            ? acknowledgedServerTime : Math.max(metadata.maxServerTime, acknowledgedServerTime);
+          bucket['max_server_time'] = maxUnsignedLongDecimal(
+            metadata.maxServerTime, acknowledgedServerTime);
           const countSet = await this.store.querySql(
             `SELECT COUNT(*) AS op_count FROM operation_log
              WHERE note_id = ? AND sequence > ? AND sequence <= ?`,
@@ -727,7 +726,7 @@ async function readNoteSyncMetadata(store: relationalStore.RdbStore,
       updatedAt: rows.getLong(rows.getColumnIndex('updated_at')),
       syncedOpCount: rows.getLong(rows.getColumnIndex('synced_op_count')),
       maxOpTimestamp: rows.getLong(rows.getColumnIndex('max_op_timestamp')),
-      maxServerTime: rows.isColumnNull(serverColumn) ? null : rows.getLong(serverColumn),
+      maxServerTime: rows.isColumnNull(serverColumn) ? null : rows.getString(serverColumn),
       schemaVersion: rows.getLong(rows.getColumnIndex('schema_version')),
       uploadedThroughSequence: rows.getLong(rows.getColumnIndex('uploaded_through_sequence')),
       ackedThroughSequence: rows.getLong(rows.getColumnIndex('acked_through_sequence')),
@@ -738,12 +737,13 @@ async function readNoteSyncMetadata(store: relationalStore.RdbStore,
       !Number.isSafeInteger(metadata.updatedAt) || metadata.updatedAt < 0 ||
       !Number.isSafeInteger(metadata.syncedOpCount) || metadata.syncedOpCount < 0 ||
       !Number.isSafeInteger(metadata.schemaVersion) || metadata.schemaVersion < 1 ||
-      (metadata.maxServerTime !== null &&
-        (!Number.isSafeInteger(metadata.maxServerTime) || metadata.maxServerTime < 0)) ||
       !Number.isSafeInteger(metadata.uploadedThroughSequence) ||
       !Number.isSafeInteger(metadata.ackedThroughSequence) || metadata.ackedThroughSequence < 0 ||
       metadata.ackedThroughSequence > metadata.uploadedThroughSequence) {
       throw new Error('note sync watermarks are corrupt');
+    }
+    if (metadata.maxServerTime !== null) {
+      validateUnsignedLongDecimal(metadata.maxServerTime);
     }
     return metadata;
   } finally {
