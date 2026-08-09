@@ -44,6 +44,11 @@ interface WinnerRow extends OperationIdentity {
 export function decodeOriginalModifyPage(bytes: Uint8Array): OriginalModifyPagePayload {
   const table: OriginalFlatBufferTableReader =
     readOriginalPayloadTable(bytes, ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE);
+  return decodeOriginalModifyPageTable(table);
+}
+
+export function decodeOriginalModifyPageTable(
+  table: OriginalFlatBufferTableReader): OriginalModifyPagePayload {
   const rawPages: number[][] = table.readInlineSequenceVector(0, MAX_ORIGINAL_MODIFY_PAGE_COUNT);
   const pages: OriginalSequenceIdentity[] = [];
   for (const raw of rawPages) {

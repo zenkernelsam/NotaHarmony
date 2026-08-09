@@ -182,8 +182,9 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 - 第二十阶段按原版 `r29/jwh/uq9` 恢复 NOTE_BUNDLE 边界。bundle 的 UUID、editorSite、schemaVersion 与完整 op vector 先经预算和
   required-field 校验；CREATE_PAGE 组全部闭合并物化后，只有页数一致、没有本地 DELETE/UPDATE/REORDER 页面 mutation、且既有原版身份
   为空或逐字段幂等匹配时，才按当前页序绑定 storage pageId。raw bundle 不消费，内容 op 不标记 APPLIED。
-- 身份引导不解释尚未实现的页面历史：任意 MODIFY_PAGE 或 `DELETE_ENTITIES` 的 pageDeletes/pageUndeletes 都保持 DEFERRED；note UUID、
-  schema、锚点、页数或既有映射不一致同样零写入拒绝。该门禁防止在无法证明当前 `page_index` 与原版 CRDT 可见序一致时猜测 SeqId。
+- 第二十阶段的身份引导尚不解释页面历史：当时任意 MODIFY_PAGE 或 `DELETE_ENTITIES` 的 pageDeletes/pageUndeletes 都保持
+  DEFERRED；note UUID、schema、锚点、页数或既有映射不一致同样零写入拒绝。该门禁防止在无法证明当前 `page_index` 与原版 CRDT
+  可见序一致时猜测 SeqId，第二十三阶段在完整 replay 后才移除该临时限制。
 - 第二十一阶段恢复 `MODIFY_PAGE.moveTo`。原版 `ge8→pvb→twc→iwc` 不是修改 CREATE_PAGE 节点的 parent：每次 move 都以该 op ID
   产生一组新的位置 SeqId，值仍指向创建时的稳定页面 SeqId。`ko.w()` 再把每个页面写成 `bl2(moveOpId,pageIdentity,newPosition)`；
   `al2.b()` 证明 winner 只按 unsigned `(timestamp,site)` 取最大操作 ID，`modifiedTime` 不参与冲突比较。
@@ -192,8 +193,8 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
   但物化 `page_index` 时只有 winner 位置可见。CREATE_PAGE 和 NOTE_BUNDLE 身份引导也同步写入新模型，后续插页会从完整位置树计算顺序。
 - 当前 reducer 只接受 pages 非空且无重复、存在 `SeqMove`、无 background/bookmark 的纯移动；缺稳定页面、缺目标位置、当前
   `page_index` 与 CRDT 物化顺序分歧或未证明的字段组合均在首次写入前 DEFERRED。位置组、winner、页面重排、structure revision、
-  inbox APPLIED 和同步水位仍共享单一 SQLite 事务。NOTE_BUNDLE 内的历史 MODIFY_PAGE 仍保持门禁，待页面 delete/undelete 一并建模后
-  才能可靠地从完整历史绑定既有 storage pageId。
+  inbox APPLIED 和同步水位仍共享单一 SQLite 事务。第二十一阶段仍对 NOTE_BUNDLE 历史 MODIFY_PAGE 保持门禁，第二十三阶段在页面
+  delete/undelete 一并建模后才从完整历史绑定既有 storage pageId。
 - 第二十二阶段按原版 `s83→icj→bl2→al2` 恢复 `DELETE_ENTITIES` 的 pageDeletes/pageUndeletes。原版 `_deletes`
   是以稳定页面 SeqId 为 key、只按 unsigned `(timestamp,site)` 选 winner 的独立 LWW 布尔寄存器；delete 写 true，undelete 写 false，
   同一 payload 先 delete 后 undelete。它不删除 order/position 节点或 `_pages` 对象，删除位置仍必须展开其子锚点。
@@ -203,6 +204,14 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 - CREATE_PAGE、MODIFY_PAGE 和 DELETE_ENTITIES 现在共享同一位置树物化器；可见性过滤只影响 winner 页面输出，遍历仍经过被删除或已输掉的
   历史位置。页面集合可按原版收敛到零；本地 UI 继续禁止用户删除最后一页，但同步 reducer 不伪造替代页。缺稳定身份、entity mutation、
   当前 page_index/归档状态分歧均在首次写入前 DEFERRED；归档、winner、恢复、最终顺序、structure revision、inbox 与同步水位同事务。
+- 第二十三阶段把同一模型用于 NOTE_BUNDLE 初始身份引导。引导器先收集全部 CREATE_PAGE 稳定身份，再按原版 pending-modify 行为解析依赖
+  已有位置的纯 move，最后按 operation vector 对 page delete/undelete 写 LWW winner；位置树物化仍展开 inactive/deleted 锚点，只有最终
+  winner 且未删除的稳定身份按顺序绑定现有 live `page_info`。background/bookmark、缺页、缺目标、重复页、页数或本地结构分歧均零写入
+  DEFERRED；既有 insert/position/winner/visibility 映射必须逐字段完全幂等，否则拒绝冲突。
+- NOTE_BUNDLE 导入现场只提供最终 live pages。对最终 tombstoned 且没有本地内容行的历史身份，引导器保存
+  `original_page_identity(visible=0,page_id=NULL)` 和 visibility winner，使它仍可作为位置锚点，但不伪造空白页或删除归档。后续若远端要求
+  winning undelete 该从未绑定内容的身份，运行时 reducer 会因无可证明内容来源继续 DEFERRED；重复 delete 或输掉的旧 undelete 可继续
+  更新/保留 winner 并推进同步，不会无谓阻塞水位。已经绑定后由实时 delete 产生的归档仍可完整恢复。
 
 ## 后果
 

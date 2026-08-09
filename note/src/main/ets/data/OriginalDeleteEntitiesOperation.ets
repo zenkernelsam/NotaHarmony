@@ -21,9 +21,9 @@ export interface OriginalDeleteEntitiesPayload {
   pageUndeletes: OriginalSequenceIdentity[];
 }
 
-interface BoundPageIdentity {
+interface StoredPageIdentity {
   identity: OriginalSequenceIdentity;
-  pageId: string;
+  pageId: string | null;
 }
 
 interface VisibilityWinner extends OperationIdentity {
@@ -33,6 +33,11 @@ interface VisibilityWinner extends OperationIdentity {
 export function decodeOriginalDeleteEntities(bytes: Uint8Array): OriginalDeleteEntitiesPayload {
   const table: OriginalFlatBufferTableReader =
     readOriginalPayloadTable(bytes, ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE);
+  return decodeOriginalDeleteEntitiesTable(table);
+}
+
+export function decodeOriginalDeleteEntitiesTable(
+  table: OriginalFlatBufferTableReader): OriginalDeleteEntitiesPayload {
   return {
     entityDeleteCount: table.readInlineVectorCount(0, 8, MAX_ORIGINAL_DELETE_ENTITY_COUNT),
     entityUndeleteCount: table.readInlineVectorCount(1, 8, MAX_ORIGINAL_DELETE_ENTITY_COUNT),
@@ -82,14 +87,14 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
       return { deferredReason: 'DELETE_ENTITIES_HAS_NO_PAGES' };
     }
 
-    const affected: BoundPageIdentity[] = [];
+    const affected: StoredPageIdentity[] = [];
     const affectedKeys: Set<string> = new Set<string>();
     for (const page of payload.pageDeletes) {
-      const bound: BoundPageIdentity | null = await this.readBoundPage(store, operation.noteId, page);
-      if (bound === null) {
+      const stored: StoredPageIdentity | null = await this.readPageIdentity(store, operation.noteId, page);
+      if (stored === null) {
         return { deferredReason: 'DELETE_ENTITIES_PAGE_MISSING' };
       }
-      affected.push(bound);
+      affected.push(stored);
       affectedKeys.add(encodeOriginalSequenceId(page));
     }
     for (const page of payload.pageUndeletes) {
@@ -97,11 +102,11 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
       if (affectedKeys.has(key)) {
         continue;
       }
-      const bound: BoundPageIdentity | null = await this.readBoundPage(store, operation.noteId, page);
-      if (bound === null) {
+      const stored: StoredPageIdentity | null = await this.readPageIdentity(store, operation.noteId, page);
+      if (stored === null) {
         return { deferredReason: 'DELETE_ENTITIES_PAGE_MISSING' };
       }
-      affected.push(bound);
+      affected.push(stored);
       affectedKeys.add(key);
     }
 
@@ -114,6 +119,10 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
     for (const page of affected) {
       if (!await this.storageMatchesWinner(store, operation.noteId, page)) {
         return { deferredReason: 'ORIGINAL_PAGE_VISIBILITY_DIVERGED' };
+      }
+      if (page.pageId === null && !await this.unboundPageRemainsDeleted(
+        store, operation.noteId, operation, page.identity, payload)) {
+        return { deferredReason: 'DELETE_ENTITIES_UNBOUND_PAGE_CONTENT_UNAVAILABLE' };
       }
     }
 
@@ -161,8 +170,8 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
     return restoredCount;
   }
 
-  private async readBoundPage(store: relationalStore.RdbStore, noteId: string,
-    identity: OriginalSequenceIdentity): Promise<BoundPageIdentity | null> {
+  private async readPageIdentity(store: relationalStore.RdbStore, noteId: string,
+    identity: OriginalSequenceIdentity): Promise<StoredPageIdentity | null> {
     const rows = await store.querySql(
       `SELECT page_id, visible FROM original_page_identity
        WHERE note_id = ? AND seq_timestamp = ? AND seq_site_id = ? AND seq_index = ?`,
@@ -172,7 +181,11 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
         return null;
       }
       const pageIdColumn: number = rows.getColumnIndex('page_id');
-      if (rows.getLong(rows.getColumnIndex('visible')) !== 1 || rows.isColumnNull(pageIdColumn)) {
+      const bound: boolean = rows.getLong(rows.getColumnIndex('visible')) === 1;
+      if (!bound) {
+        return rows.isColumnNull(pageIdColumn) ? { identity: identity, pageId: null } : null;
+      }
+      if (rows.isColumnNull(pageIdColumn)) {
         return null;
       }
       const pageId: string = rows.getString(pageIdColumn);
@@ -183,9 +196,16 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
   }
 
   private async storageMatchesWinner(store: relationalStore.RdbStore,
-    noteId: string, page: BoundPageIdentity): Promise<boolean> {
+    noteId: string, page: StoredPageIdentity): Promise<boolean> {
     const winner: VisibilityWinner | null = await this.readWinner(store, noteId, page.identity);
     const deleted: boolean = winner === null ? false : winner.deleted;
+    if (page.pageId === null) {
+      const archivedExists: boolean = await this.rowExists(store,
+        `SELECT 1 FROM original_deleted_page
+         WHERE note_id = ? AND page_timestamp = ? AND page_site_id = ? AND page_index = ? LIMIT 1`,
+        [noteId, page.identity.timestamp, page.identity.siteId, page.identity.index]);
+      return winner !== null && deleted && !archivedExists;
+    }
     const liveExists: boolean = await this.rowExists(store,
       'SELECT 1 FROM page_info WHERE note_id = ? AND page_id = ? LIMIT 1', [noteId, page.pageId]);
     const liveValid: boolean = await this.rowExists(store,
@@ -208,6 +228,37 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
       [noteId, page.identity.timestamp, page.identity.siteId, page.identity.index, page.pageId]);
     return deleted ? !liveExists && archivedExists && archivedValid :
       liveExists && liveValid && !archivedExists;
+  }
+
+  private async unboundPageRemainsDeleted(store: relationalStore.RdbStore, noteId: string,
+    operation: OperationIdentity, page: OriginalSequenceIdentity,
+    payload: OriginalDeleteEntitiesPayload): Promise<boolean> {
+    const winner: VisibilityWinner | null = await this.readWinner(store, noteId, page);
+    if (winner === null || !winner.deleted) {
+      return false;
+    }
+    let deleted: boolean = winner.deleted;
+    if (compareOperationIdentity(operation, winner) >= 0 &&
+      this.containsPage(payload.pageDeletes, page)) {
+      deleted = true;
+    }
+    // Delete is applied first, so an undelete in the same winning payload requires content.
+    if (compareOperationIdentity(operation, winner) >= 0 &&
+      this.containsPage(payload.pageUndeletes, page)) {
+      deleted = false;
+    }
+    return deleted;
+  }
+
+  private containsPage(pages: OriginalSequenceIdentity[],
+    expected: OriginalSequenceIdentity): boolean {
+    const expectedKey: string = encodeOriginalSequenceId(expected);
+    for (const page of pages) {
+      if (encodeOriginalSequenceId(page) === expectedKey) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private async readWinner(store: relationalStore.RdbStore, noteId: string,
@@ -266,8 +317,8 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
 
   private async archivePage(store: relationalStore.RdbStore,
     noteId: string, page: OriginalSequenceIdentity): Promise<void> {
-    const identity: BoundPageIdentity | null = await this.readBoundPage(store, noteId, page);
-    if (identity === null) {
+    const identity: StoredPageIdentity | null = await this.readPageIdentity(store, noteId, page);
+    if (identity === null || identity.pageId === null) {
       throw new Error('cannot archive an unbound original page');
     }
     const rows = await store.querySql(
