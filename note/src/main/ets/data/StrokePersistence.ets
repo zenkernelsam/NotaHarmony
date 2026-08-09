@@ -14,7 +14,10 @@ import { LatestWriteQueue } from './LatestWriteQueue';
 import { AsyncMutex } from './AsyncMutex';
 import { foldSearchText } from './SearchText';
 import { SearchItemType } from './SearchItemType';
-import { handwritingSourceChanged, SearchSourceElement } from './SearchIndexPolicy';
+import { handwritingSourceChanged, pageSnapshotChanged, SearchSourceElement } from './SearchIndexPolicy';
+import { OpType } from '../core/model/OpTypes';
+import { encodePageSnapshotOp } from './PageSnapshotOpCodec';
+import { appendOperation } from './OpStoreImpl';
 
 export interface PersistedElement {
   kind: string;
@@ -296,18 +299,24 @@ export class StrokePersistence {
     await store.beginTransaction();
     try {
       const revisionSet = await store.querySql(
-        `SELECT content_revision + 1 AS next_revision
+        `SELECT content_revision AS current_revision
          FROM page_info WHERE note_id = ? AND page_id = ?`,
         [snapshot.noteId, snapshot.pageId]);
-      let snapshotRevision: number = 0;
+      let currentRevision: number = 0;
       try {
         if (!revisionSet.goToFirstRow()) {
           throw new Error('snapshot page does not exist');
         }
-        snapshotRevision = revisionSet.getLong(revisionSet.getColumnIndex('next_revision'));
+        currentRevision = revisionSet.getLong(revisionSet.getColumnIndex('current_revision'));
       } finally {
         revisionSet.close();
       }
+      const current: SearchSourceElement[] = await this.loadCurrentSnapshot(store, snapshot.noteId, snapshot.pageId);
+      if (!pageSnapshotChanged(current, snapshot.elements)) {
+        await store.commit();
+        return;
+      }
+      const snapshotRevision: number = currentRevision + 1;
       const pageRevision: relationalStore.ValuesBucket = { 'content_revision': snapshotRevision };
       const pagePredicates = new relationalStore.RdbPredicates('page_info');
       pagePredicates.equalTo('note_id', snapshot.noteId);
@@ -316,7 +325,7 @@ export class StrokePersistence {
       if (revisedPages !== 1) {
         throw new Error(`expected one page revision update, got ${revisedPages}`);
       }
-      const sourceChanged: boolean = await this.didHandwritingSourceChange(store, snapshot);
+      const sourceChanged: boolean = handwritingSourceChanged(current, snapshot.elements);
       const del = new relationalStore.RdbPredicates('page_element_snapshot');
       del.equalTo('note_id', snapshot.noteId);
       del.equalTo('page_id', snapshot.pageId);
@@ -366,6 +375,17 @@ export class StrokePersistence {
       };
       await store.insert('search_page_state', indexState,
         relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+      await appendOperation(store, {
+        opId: `page-snapshot:${snapshot.pageId}:${snapshotRevision}`,
+        noteId: snapshot.noteId,
+        opType: OpType.PAGE_SNAPSHOT,
+        payload: encodePageSnapshotOp({
+          pageId: snapshot.pageId,
+          revision: snapshotRevision,
+          elements: snapshot.elements,
+        }),
+        clientTime: Date.now(),
+      });
       await store.commit();
     } catch (e) {
       await store.rollBack();
@@ -524,11 +544,11 @@ export class StrokePersistence {
     await store.delete(predicates);
   }
 
-  private async didHandwritingSourceChange(store: relationalStore.RdbStore,
-    snapshot: PreparedPageSave): Promise<boolean> {
+  private async loadCurrentSnapshot(store: relationalStore.RdbStore,
+    noteId: string, pageId: string): Promise<SearchSourceElement[]> {
     const predicates = new relationalStore.RdbPredicates('page_element_snapshot');
-    predicates.equalTo('note_id', snapshot.noteId);
-    predicates.equalTo('page_id', snapshot.pageId);
+    predicates.equalTo('note_id', noteId);
+    predicates.equalTo('page_id', pageId);
     predicates.orderByAsc('element_order');
     const resultSet = await store.query(predicates, ['element_id', 'kind', 'payload']);
     const current: SearchSourceElement[] = [];
@@ -543,7 +563,7 @@ export class StrokePersistence {
     } finally {
       resultSet.close();
     }
-    return handwritingSourceChanged(current, snapshot.elements);
+    return current;
   }
 
   private async loadMatchingElements(noteId: string, pageId: string | null): Promise<LoadedElements> {

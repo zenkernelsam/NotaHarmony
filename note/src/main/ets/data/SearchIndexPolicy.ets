@@ -26,6 +26,22 @@ export function handwritingSourceChanged(current: SearchSourceElement[],
   return false;
 }
 
+export function pageSnapshotChanged(current: SearchSourceElement[],
+  next: SearchSourceElement[]): boolean {
+  if (current.length !== next.length) {
+    return true;
+  }
+  for (let i: number = 0; i < current.length; i++) {
+    const left: SearchSourceElement = current[i];
+    const right: SearchSourceElement = next[i];
+    if (left.elementId !== right.elementId || left.kind !== right.kind ||
+      !sameBytes(left.payload, right.payload)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function inkElements(elements: SearchSourceElement[]): SearchSourceElement[] {
   const result: SearchSourceElement[] = [];
   for (const element of elements) {

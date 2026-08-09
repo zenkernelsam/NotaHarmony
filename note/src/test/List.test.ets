@@ -41,6 +41,7 @@ import notePackageSpecTest from './NotePackageSpec.test';
 import themeStoreTest from './ThemeStore.test';
 import selectionOverlayLayoutTest from './SelectionOverlayLayout.test';
 import strokePersistenceTest from './StrokePersistence.test';
+import pageSnapshotOpCodecTest from './PageSnapshotOpCodec.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -86,4 +87,5 @@ export default function testsuite() {
   themeStoreTest();
   selectionOverlayLayoutTest();
   strokePersistenceTest();
+  pageSnapshotOpCodecTest();
 }

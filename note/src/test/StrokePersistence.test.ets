@@ -4,7 +4,9 @@ import {
   decodePersistedElement, encodePersistedElement, PersistedElement,
 } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
-import { handwritingSourceChanged, SearchSourceElement } from '../main/ets/data/SearchIndexPolicy';
+import {
+  handwritingSourceChanged, pageSnapshotChanged, SearchSourceElement,
+} from '../main/ets/data/SearchIndexPolicy';
 
 export default function strokePersistenceTest() {
   describe('StrokePersistence payload codec', () => {
@@ -66,6 +68,21 @@ export default function strokePersistenceTest() {
 
       expect(handwritingSourceChanged(current, changedStroke)).assertTrue();
       expect(handwritingSourceChanged(current, addedStroke)).assertTrue();
+    });
+
+    it('suppresses only byte-identical ordered page snapshots', 0, () => {
+      const current: SearchSourceElement[] = [sourceElement('stroke', PageElementKind.STROKE, [1, 2]),
+        sourceElement('text', PageElementKind.TEXT, [3])];
+      const same: SearchSourceElement[] = [sourceElement('stroke', PageElementKind.STROKE, [1, 2]),
+        sourceElement('text', PageElementKind.TEXT, [3])];
+      const reordered: SearchSourceElement[] = [sourceElement('text', PageElementKind.TEXT, [3]),
+        sourceElement('stroke', PageElementKind.STROKE, [1, 2])];
+      const textChanged: SearchSourceElement[] = [sourceElement('stroke', PageElementKind.STROKE, [1, 2]),
+        sourceElement('text', PageElementKind.TEXT, [4])];
+
+      expect(pageSnapshotChanged(current, same)).assertFalse();
+      expect(pageSnapshotChanged(current, reordered)).assertTrue();
+      expect(pageSnapshotChanged(current, textChanged)).assertTrue();
     });
   });
 }

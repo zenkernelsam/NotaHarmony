@@ -20,6 +20,9 @@ export enum OpType {
   UPDATE_TITLE = 30,
   UNDO = 40,
   REDO = 41,
+  // Harmony recovery checkpoint. This is deliberately distinct from the
+  // original app's fine-grained FlatBuffer operations.
+  PAGE_SNAPSHOT = 50,
 }
 
 // 单条操作

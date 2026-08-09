@@ -1,7 +1,8 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
   DB_VERSION, DDL_EDITOR_TOOLBOX_STATE, DDL_FOLDER, DDL_PAGE_ELEMENT_SNAPSHOT, DDL_PAGE_INFO,
-  DDL_NOTE_META, DDL_NOTE_STATE, DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE, DDL_INDEXES, MIGRATIONS,
+  DDL_NOTE_META, DDL_NOTE_STATE, DDL_OPERATION_LOG, DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE,
+  DDL_INDEXES, MIGRATIONS,
 } from
   '../main/ets/data/DatabaseHelper';
 import { isCurrentViewCoordinateModel } from '../main/ets/core/model/NoteTypes';
@@ -10,8 +11,17 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(12);
+      expect(DB_VERSION).assertEqual(13);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
+    });
+
+    it('keeps the append-only operation log separate from page snapshots', 0, () => {
+      expect(DDL_OPERATION_LOG).assertContain('sequence INTEGER PRIMARY KEY AUTOINCREMENT');
+      expect(DDL_OPERATION_LOG).assertContain('UNIQUE(note_id, op_id)');
+      expect(DDL_OPERATION_LOG).assertContain('payload BLOB NOT NULL');
+      expect(DDL_OPERATION_LOG).assertContain('ON DELETE CASCADE');
+      expect(DDL_INDEXES.join('\n')).assertContain('operation_log(note_id, client_time, sequence)');
+      expect(MIGRATIONS[13].join('\n')).assertContain('CREATE TABLE IF NOT EXISTS operation_log');
     });
 
     it('persists original-style current and previous tool identities', 0, () => {

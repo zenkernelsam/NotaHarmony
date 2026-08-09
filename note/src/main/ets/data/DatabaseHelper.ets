@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v12: 搜索类型与原版对齐；旧移植版本误把块文本写成了 MAIN_BODY_TEXT(1)。
-export const DB_VERSION: number = 12;
+// v13: add an append-only operation log, separate from page snapshots.
+export const DB_VERSION: number = 13;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -47,6 +47,18 @@ CREATE TABLE IF NOT EXISTS page_element_snapshot (
   PRIMARY KEY(note_id, page_id, element_id, kind),
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE,
   FOREIGN KEY(note_id, page_id) REFERENCES page_info(note_id, page_id) ON DELETE CASCADE
+)`;
+
+export const DDL_OPERATION_LOG: string = `
+CREATE TABLE IF NOT EXISTS operation_log (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  note_id TEXT NOT NULL,
+  op_id TEXT NOT NULL,
+  op_type INTEGER NOT NULL,
+  payload BLOB NOT NULL,
+  client_time INTEGER NOT NULL,
+  UNIQUE(note_id, op_id),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
 // The original ToolboxEntity keeps both the active and previous tool IDs.
@@ -138,6 +150,8 @@ export const DDL_INDEXES: string[] = [
     ON page_element_snapshot(note_id, revision)`,
   `CREATE INDEX IF NOT EXISTS idx_page_snapshot_page
     ON page_element_snapshot(note_id, page_id, element_order)`,
+  `CREATE INDEX IF NOT EXISTS idx_operation_log_note_time
+    ON operation_log(note_id, client_time, sequence)`,
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_page_info_note ON page_info(note_id, page_index)',
   'CREATE INDEX IF NOT EXISTS idx_note_meta_folder ON note_meta(folder_id)',
   'CREATE INDEX IF NOT EXISTS idx_folder_parent_order ON folder(parent_id, sibling_order)',
@@ -336,4 +350,5 @@ export const MIGRATIONS: Record<number, string[]> = {
       )`,
     'UPDATE search_item SET type = 2 WHERE type = 1',
   ],
+  13: [DDL_OPERATION_LOG],
 };

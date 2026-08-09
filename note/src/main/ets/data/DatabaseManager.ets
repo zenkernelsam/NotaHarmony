@@ -3,7 +3,7 @@ import { relationalStore } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import {
   DB_NAME, DB_VERSION, DDL_NOTE_STATE, DDL_TOOL_STATE, DDL_EDITOR_TOOLBOX_STATE,
-  DDL_PAGE_ELEMENT_SNAPSHOT, DDL_NOTE_ASSET,
+  DDL_PAGE_ELEMENT_SNAPSHOT, DDL_OPERATION_LOG, DDL_NOTE_ASSET,
   DDL_NOTE_META, DDL_PAGE_INFO, DDL_FOLDER, DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE,
   DDL_INDEXES, MIGRATIONS,
 } from './DatabaseHelper';
@@ -54,7 +54,7 @@ export class DatabaseManager {
     const hadPageId: boolean = hadClientOp && await this.hasColumn(store, 'client_op', 'page_id');
     try {
       const ddlList: string[] = [DDL_NOTE_STATE, DDL_TOOL_STATE, DDL_EDITOR_TOOLBOX_STATE,
-        DDL_PAGE_ELEMENT_SNAPSHOT,
+        DDL_PAGE_ELEMENT_SNAPSHOT, DDL_OPERATION_LOG,
         DDL_NOTE_ASSET, DDL_NOTE_META, DDL_PAGE_INFO, DDL_FOLDER,
         DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE];
       for (const ddl of ddlList) {
