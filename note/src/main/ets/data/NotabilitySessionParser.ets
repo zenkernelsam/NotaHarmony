@@ -52,6 +52,9 @@ import { float32From, uint32LE, PlistValue, PlistType, BinaryPlistParser,
 import { NSKeyedArchiverDecoder, ArchiveNode, ArchiveDecodeResult } from './NSKeyedArchiverDecoder';
 import { Point2D, Rect2D, CubicSegment } from '../core/model/GeometryTypes';
 import { StrokeElementData, StrokePathPoint, RenderSpec, InkStyle } from '../core/model/StrokeTypes';
+import { ElementType, ShapeArrowHead, ShapeElement } from '../core/model/ElementTypes';
+import { recomputeShapeBounds } from '../core/model/ShapeGeometry';
+import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 
 // iPad lockedWidth 版式下的页面宽高比。
 // 依据一：OP-AMP.note 的 thumb12x.png 为 576×756，比值恰为 1.3125。
@@ -105,6 +108,14 @@ function hasAttributeVariation(values: number[], baseline: number): boolean {
     }
   }
   return false;
+}
+
+function emptyRect(): Rect2D {
+  return { left: 0, top: 0, right: 0, bottom: 0 };
+}
+
+function samePoint(left: Point2D, right: Point2D): boolean {
+  return Math.abs(left.x - right.x) <= 0.000001 && Math.abs(left.y - right.y) <= 0.000001;
 }
 
 // ============================ 输出模型 ============================
@@ -219,10 +230,12 @@ export interface NotabilityMetadata {
   warnings: string[];
 }
 
-// 每页转换结果
-export interface NotabilityPageStrokes {
+// 每页转换结果。原版 shapes 必须保持语义元素身份及与曲线交错的层序。
+export interface NotabilityPageElements {
   pageIndex: number;
   strokes: StrokeElementData[];
+  shapes: ShapeElement[];
+  elementOrder: PageElementRef[];
 }
 
 // ============================ 元数据解析 ============================
@@ -808,14 +821,14 @@ export class NotabilitySessionParser {
   // 转为内部模型，按页分组。
   // targetPageWidthVp：把 Notability 文档坐标缩放到的画布宽度
   // 曲线与形状按 shape.zIndex 交错还原绘制顺序（zIndex=i 表示插在第 i 条曲线之前）
-  static toStrokeElements(session: NotabilitySession, targetPageWidthVp: number): NotabilityPageStrokes[] {
-    const pages: NotabilityPageStrokes[] = [];
+  static toPageElements(session: NotabilitySession, targetPageWidthVp: number): NotabilityPageElements[] {
+    const pages: NotabilityPageElements[] = [];
     if (!session.ok || session.pageWidthDoc <= 0) {
       return pages;
     }
     const pageTotal: number = Math.max(1, session.pageCount);
     for (let i = 0; i < pageTotal; i++) {
-      pages.push({ pageIndex: i, strokes: [] });
+      pages.push({ pageIndex: i, strokes: [], shapes: [], elementOrder: [] });
     }
     const scale: number = targetPageWidthVp / session.pageWidthDoc;
 
@@ -873,7 +886,7 @@ export class NotabilitySessionParser {
     return pages;
   }
 
-  private static pushCurve(pages: NotabilityPageStrokes[], curve: NotabilityCurve,
+  private static pushCurve(pages: NotabilityPageElements[], curve: NotabilityCurve,
     session: NotabilitySession, scale: number, pageTotal: number): void {
     const pi: number = curve.pageIndex < pageTotal ? curve.pageIndex : pageTotal - 1;
     const yOffset: number = pi * session.pageHeightDoc;
@@ -915,7 +928,7 @@ export class NotabilitySessionParser {
       isHighlighter: false,
       isPencil: false,
     };
-    pages[pi].strokes.push({
+    const stroke: StrokeElementData = {
       id: curve.uuid.length > 0 ? `nb-${curve.uuid}` : `nb-${pi}-${curve.index}`,
       pathPoints: pathPoints,
       cubicSegments: segments,
@@ -930,12 +943,14 @@ export class NotabilitySessionParser {
       },
       maskPath: [],
       isFinished: true,
+    };
+    pages[pi].strokes.push(stroke);
+    pages[pi].elementOrder.push({
+      kind: PageElementKind.STROKE, elementId: stroke.id, zIndex: pages[pi].elementOrder.length,
     });
   }
 
-  // 形状 → StrokeElementData。renderCenterPath 要求 pathPoints 非空，
-  // 有 cubicSegments 时走贝塞尔、否则按 pathPoints 连折线，两种几何都能落地。
-  private static pushShape(pages: NotabilityPageStrokes[], shape: NotabilityShape,
+  private static pushShape(pages: NotabilityPageElements[], shape: NotabilityShape,
     session: NotabilitySession, scale: number, pageTotal: number): void {
     if (shape.anchors.length === 0) {
       return;
@@ -943,48 +958,54 @@ export class NotabilitySessionParser {
     const pi: number = shape.pageIndex < pageTotal ? shape.pageIndex : pageTotal - 1;
     const yOffset: number = pi * session.pageHeightDoc;
 
-    const pathPoints: StrokePathPoint[] = [];
+    const anchors: Point2D[] = [];
     for (const p of shape.anchors) {
-      pathPoints.push({
-        position: { x: p.x * scale, y: (p.y - yOffset) * scale },
-        widthFactor: 1.0,
-        pressure: -1,
-        altitudeAngleRadians: Math.PI / 2,
-        azimuthUnitX: 1,
-        azimuthUnitY: 0,
-      });
+      anchors.push({ x: p.x * scale, y: (p.y - yOffset) * scale });
     }
-    const segments: CubicSegment[] = [];
-    for (const c of shape.cubics) {
-      segments.push({
-        p0: { x: c.p0.x * scale, y: (c.p0.y - yOffset) * scale },
-        p1: { x: c.p1.x * scale, y: (c.p1.y - yOffset) * scale },
-        p2: { x: c.p2.x * scale, y: (c.p2.y - yOffset) * scale },
-        p3: { x: c.p3.x * scale, y: (c.p3.y - yOffset) * scale },
-      });
+    const id: string = shape.uuid.length > 0 ? `nbs-${shape.uuid}` : `nbs-${pi}-${shape.index}`;
+    const identity: number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    const strokeWidth: number = shape.width * scale;
+    let semantic: ShapeElement | null = null;
+    if (shape.kind === 'line' && anchors.length >= 2) {
+      semantic = {
+        id: id, type: ElementType.LINE, transform: identity, bounds: emptyRect(),
+        start: anchors[0], controlPoint1: null, controlPoint2: null,
+        end: anchors[anchors.length - 1], arrowHead: ShapeArrowHead.NONE,
+        color: shape.colorArgb, strokeWidth: strokeWidth, fillColor: null,
+      };
+    } else if (shape.kind === 'rectangle' && anchors.length >= 2) {
+      const vertices: Point2D[] = anchors.slice();
+      if (shape.isClosed && vertices.length > 1 && samePoint(vertices[0], vertices[vertices.length - 1])) {
+        vertices.pop();
+      }
+      semantic = {
+        id: id, type: ElementType.POLYGON, transform: identity, bounds: emptyRect(),
+        vertices: vertices, isClosed: shape.isClosed, color: shape.colorArgb,
+        strokeWidth: strokeWidth, fillColor: null,
+      };
+    } else if (shape.kind === 'circle' && anchors.length >= 4) {
+      const center: Point2D = {
+        x: (anchors[0].x + anchors[2].x) / 2,
+        y: (anchors[0].y + anchors[2].y) / 2,
+      };
+      const axisX: Point2D = { x: anchors[0].x - center.x, y: anchors[0].y - center.y };
+      const axisY: Point2D = { x: anchors[1].x - center.x, y: anchors[1].y - center.y };
+      semantic = {
+        id: id, type: ElementType.ELLIPSE, transform: identity, bounds: emptyRect(),
+        center: center,
+        radiusX: Math.sqrt(axisX.x * axisX.x + axisX.y * axisX.y),
+        radiusY: Math.sqrt(axisY.x * axisY.x + axisY.y * axisY.y),
+        rotationRadians: Math.atan2(axisX.y, axisX.x), color: shape.colorArgb,
+        strokeWidth: strokeWidth, fillColor: null,
+      };
     }
-    const spec: RenderSpec = {
-      color: shape.colorArgb,
-      brushWidth: shape.width * scale,
-      inkStyle: InkStyle.FIXED_WIDTH,
-      isHighlighter: false,
-      isPencil: false,
-    };
-    pages[pi].strokes.push({
-      id: shape.uuid.length > 0 ? `nbs-${shape.uuid}` : `nbs-${pi}-${shape.index}`,
-      pathPoints: pathPoints,
-      cubicSegments: segments,
-      splatPoints: [],
-      renderSpec: spec,
-      transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-      bounds: {
-        left: shape.bounds.left * scale,
-        top: (shape.bounds.top - yOffset) * scale,
-        right: shape.bounds.right * scale,
-        bottom: (shape.bounds.bottom - yOffset) * scale,
-      },
-      maskPath: [],
-      isFinished: true,
+    if (semantic === null) {
+      return;
+    }
+    semantic.bounds = recomputeShapeBounds(semantic);
+    pages[pi].shapes.push(semantic);
+    pages[pi].elementOrder.push({
+      kind: PageElementKind.SHAPE, elementId: semantic.id, zIndex: pages[pi].elementOrder.length,
     });
   }
 

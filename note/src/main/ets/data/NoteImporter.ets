@@ -4,7 +4,9 @@ import { fileIo, picker } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
 import { ZipReader, ZipEntry, ZipParseResult } from './ZipArchive';
-import { NoteManifest, PageData, parseManifest, parsePage } from './NotePackageSpec';
+import {
+  isSupportedPageElementKind, NoteManifest, PageData, parseManifest, parsePage,
+} from './NotePackageSpec';
 import { NoteMeta, PageInfo, PaperSize, PaperTemplate, PageOrientation } from '../core/model/NoteTypes';
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
@@ -16,7 +18,7 @@ import { StrokePersistence, PersistedElement } from './StrokePersistence';
 import { paperSizeToMm } from './NoteExporter';
 import {
   NotabilityMetadataParser, NotabilitySessionParser, NotabilityMetadata,
-  NotabilitySession, NotabilityPageStrokes, DEFAULT_TARGET_PAGE_WIDTH_VP,
+  NotabilitySession, NotabilityPageElements, DEFAULT_TARGET_PAGE_WIDTH_VP,
   summarizeNotabilityContentLoss,
 } from './NotabilitySessionParser';
 
@@ -152,7 +154,7 @@ export class NoteImporter {
         try {
           const parsed = el as PersistedElement;
           if (parsed !== null && typeof parsed === 'object' &&
-            (parsed.kind === 'stroke' || parsed.kind === 'text')) {
+            isSupportedPageElementKind(parsed.kind)) {
             elements.push(parsed);
           }
         } catch (e) {
@@ -364,9 +366,8 @@ export class NoteImporter {
     session.inventory.audio.found = Math.max(meta.hasRecording ? 1 : 0, recordingEntryCount);
 
     // 4. 转内部模型
-    const pages: NotabilityPageStrokes[] =
-      NotabilitySessionParser.toStrokeElements(session, DEFAULT_TARGET_PAGE_WIDTH_VP);
-    const scale: number = DEFAULT_TARGET_PAGE_WIDTH_VP / session.pageWidthDoc;
+    const pages: NotabilityPageElements[] =
+      NotabilitySessionParser.toPageElements(session, DEFAULT_TARGET_PAGE_WIDTH_VP);
 
     // 5. 写库
     let createdNoteId: string | null = null;
@@ -404,7 +405,8 @@ export class NoteImporter {
           heightMm: orientation === PageOrientation.LANDSCAPE ? mm[0] : mm[1],
         };
         await pageRepo.addPage(note.id, pageInfo);
-        await this.persistence.saveElements(note.id, pageInfo.pageId, pages[i].strokes, []);
+        await this.persistence.saveElements(note.id, pageInfo.pageId, pages[i].strokes, [],
+          pages[i].elementOrder, pages[i].shapes);
         totalStrokes += pages[i].strokes.length;
       }
 

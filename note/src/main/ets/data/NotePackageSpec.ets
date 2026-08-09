@@ -30,6 +30,10 @@ export interface PageData {
   elements: object[];    // NoteElement JSON 数组
 }
 
+export function isSupportedPageElementKind(kind: string): boolean {
+  return kind === 'stroke' || kind === 'text' || kind === 'shape';
+}
+
 // 序列化 manifest
 export function serializeManifest(manifest: NoteManifest): string {
   return JSON.stringify(manifest);
