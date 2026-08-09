@@ -266,6 +266,12 @@ export class PlistParseResult {
 
 const MAGIC: string = 'bplist00';
 const TRAILER_SIZE: number = 32;
+const MAX_OBJECT_COUNT: number = 250000;
+const MAX_DATA_BYTES: number = 64 * 1024 * 1024;
+const MAX_STRING_STORAGE_BYTES: number = 16 * 1024 * 1024;
+const MAX_TOTAL_ALLOCATION_BYTES: number = 128 * 1024 * 1024;
+const MAX_CONTAINER_ITEMS: number = 250000;
+const MAX_OBJECT_DEPTH: number = 64;
 
 export class BinaryPlistParser {
   // 解析 bplist00；任何异常/损坏都返回带 error 的结果，绝不抛出
@@ -302,7 +308,12 @@ export class BinaryPlistParser {
         out.error = `trailer 对象数非法 numObjects=${numObjects} top=${topIndex}`;
         return out;
       }
-      if (offsetTableOffset + numObjects * offsetIntSize > t) {
+      if (numObjects > MAX_OBJECT_COUNT) {
+        out.error = `对象数超出安全预算 ${numObjects} > ${MAX_OBJECT_COUNT}`;
+        return out;
+      }
+      if (offsetTableOffset < MAGIC.length || offsetTableOffset > t ||
+        !rangeWithin(offsetTableOffset, numObjects, offsetIntSize, t)) {
         out.error = '偏移表越界';
         return out;
       }
@@ -310,25 +321,41 @@ export class BinaryPlistParser {
       // 读取偏移表
       const offsets: number[] = [];
       for (let i = 0; i < numObjects; i++) {
-        offsets.push(uintBE(data, offsetTableOffset + i * offsetIntSize, offsetIntSize));
+        const objectOffset: number = uintBE(data, offsetTableOffset + i * offsetIntSize, offsetIntSize);
+        if (objectOffset < MAGIC.length || objectOffset >= offsetTableOffset) {
+          out.error = `对象偏移越界 index=${i} offset=${objectOffset}`;
+          return out;
+        }
+        offsets.push(objectOffset);
       }
 
       const ctx = new ParseContext(data, offsets, objectRefSize, offsetTableOffset);
       const root: PlistValue | null = ctx.objectAt(topIndex, 0);
-      if (root === null) {
+      for (let i: number = 0; i < ctx.warnings.length; i++) {
+        out.warnings.push(ctx.warnings[i]);
+      }
+      if (root === null || ctx.error.length > 0) {
         out.error = ctx.error.length > 0 ? ctx.error : '根对象解析失败';
         return out;
       }
       out.value = root;
-      for (let i: number = 0; i < ctx.warnings.length; i++) {
-        out.warnings.push(ctx.warnings[i]);
-      }
       return out;
     } catch (e) {
       out.error = `binary plist 解析异常: ${JSON.stringify(e)}`;
       return out;
     }
   }
+}
+
+function rangeWithin(start: number, count: number, unitSize: number, limit: number): boolean {
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(count) || !Number.isSafeInteger(unitSize) ||
+    start < 0 || count < 0 || unitSize < 0 || start > limit) {
+    return false;
+  }
+  if (unitSize === 0) {
+    return count === 0;
+  }
+  return count <= Math.floor((limit - start) / unitSize);
 }
 
 // 解析上下文：负责按下标解码对象，带记忆化与递归深度保护
@@ -339,6 +366,7 @@ class ParseContext {
   private limit: number;                    // 对象区上界（偏移表起点之前）
   private cache: Map<number, PlistValue> = new Map<number, PlistValue>();
   private visiting: Set<number> = new Set<number>();
+  private allocatedBytes: number = 0;
   error: string = '';
   warnings: string[] = [];
 
@@ -350,16 +378,19 @@ class ParseContext {
   }
 
   objectAt(index: number, depth: number): PlistValue | null {
+    if (this.error.length > 0) {
+      return null;
+    }
     if (index < 0 || index >= this.offsets.length) {
-      this.error = `对象下标越界 ${index}`;
+      this.fail(`对象下标越界 ${index}`);
       return null;
     }
     const cached: PlistValue | undefined = this.cache.get(index);
     if (cached !== undefined) {
       return cached;
     }
-    if (depth > 64) {
-      this.error = '对象嵌套过深（疑似循环引用）';
+    if (depth > MAX_OBJECT_DEPTH) {
+      this.fail(`对象嵌套超过安全上限 ${MAX_OBJECT_DEPTH}`);
       return null;
     }
     if (this.visiting.has(index)) {
@@ -379,8 +410,8 @@ class ParseContext {
   }
 
   private decode(pos: number, depth: number): PlistValue | null {
-    if (pos < 0 || pos >= this.limit) {
-      this.error = `对象偏移越界 ${pos}`;
+    if (pos < MAGIC.length || pos >= this.limit) {
+      this.fail(`对象偏移越界 ${pos}`);
       return null;
     }
     const marker: number = this.data[pos] & 0xFF;
@@ -403,31 +434,38 @@ class ParseContext {
         }
         if (low === 0xC || low === 0xD) {
           const refCount: number = low === 0xC ? 1 : 2;
-          if (pos + 1 + refCount * this.refSize > this.limit) {
-            this.error = 'URL 对象引用越界';
+          if (!rangeWithin(pos + 1, refCount, this.refSize, this.limit)) {
+            this.fail('URL 对象引用越界');
             return null;
           }
           // URLWithBase 的首个引用是 base，最后一个引用是 URL 字符串。
           const stringRefOffset: number = pos + 1 + (refCount - 1) * this.refSize;
           const stringRef: number = uintBE(this.data, stringRefOffset, this.refSize);
           const stringValue: PlistValue | null = this.objectAt(stringRef, depth + 1);
-          return stringValue !== null ? PlistValue.ofString(stringValue.asString('')) : PlistValue.ofNull();
+          if (stringValue === null || stringValue.type !== PlistType.STRING) {
+            this.fail('URL 对象的字符串引用无效');
+            return null;
+          }
+          return PlistValue.ofString(stringValue.asString(''));
         }
         if (low === 0xE) {
-          if (pos + 17 > this.limit) {
-            this.error = 'UUID 对象越界';
+          if (!rangeWithin(pos + 1, 1, 16, this.limit)) {
+            this.fail('UUID 对象越界');
+            return null;
+          }
+          if (!this.reserve(16, 'UUID')) {
             return null;
           }
           return PlistValue.ofData(this.data.slice(pos + 1, pos + 17));
         }
-        this.error = `未知的 0x0 系标记 0x${marker.toString(16)}`;
+        this.fail(`未知的 0x0 系标记 0x${marker.toString(16)}`);
         return null;
 
       case 0x1: {
         // int：字节数 = 2^low；8 字节按有符号处理（bplist 规范）
         const size: number = 1 << low;
-        if (size > 8 || pos + 1 + size > this.limit) {
-          this.error = `int 长度非法 size=${size}`;
+        if (size > 8 || !rangeWithin(pos + 1, 1, size, this.limit)) {
+          this.fail(`int 长度非法 size=${size}`);
           return null;
         }
         let v: number;
@@ -438,7 +476,7 @@ class ParseContext {
             ? (hi - 4294967296.0) * 4294967296.0 + lo
             : hi * 4294967296.0 + lo;
           if (!Number.isSafeInteger(v)) {
-            this.error = '64 位整数超出 JavaScript 安全整数范围';
+            this.fail('64 位整数超出 JavaScript 安全整数范围');
             return null;
           }
         } else {
@@ -449,8 +487,8 @@ class ParseContext {
 
       case 0x2: {
         const size: number = 1 << low;
-        if (pos + 1 + size > this.limit) {
-          this.error = `real 长度非法 size=${size}`;
+        if (!rangeWithin(pos + 1, 1, size, this.limit)) {
+          this.fail(`real 长度非法 size=${size}`);
           return null;
         }
         if (size === 4) {
@@ -459,14 +497,18 @@ class ParseContext {
         if (size === 8) {
           return PlistValue.ofNumber(PlistType.REAL, float64From(this.data, pos + 1, false));
         }
-        this.error = `不支持的 real 宽度 ${size}`;
+        this.fail(`不支持的 real 宽度 ${size}`);
         return null;
       }
 
       case 0x3: {
         // date：8 字节 double，Core Data 纪元（2001-01-01 起的秒数）
-        if (pos + 9 > this.limit) {
-          this.error = 'date 越界';
+        if (low !== 0x3) {
+          this.fail(`date marker 非标准 0x33：0x${marker.toString(16)}`);
+          return null;
+        }
+        if (!rangeWithin(pos + 1, 1, 8, this.limit)) {
+          this.fail('date 越界');
           return null;
         }
         return PlistValue.ofNumber(PlistType.DATE, float64From(this.data, pos + 1, false));
@@ -478,8 +520,12 @@ class ParseContext {
           return null;
         }
         const start: number = len.next;
-        if (start + len.count > this.limit) {
-          this.error = 'data 越界';
+        if (!this.validateDataLength(len.count) ||
+          !rangeWithin(start, len.count, 1, this.limit)) {
+          this.fail('data 越界或超出安全预算');
+          return null;
+        }
+        if (!this.reserve(len.count, 'data')) {
           return null;
         }
         return PlistValue.ofData(this.data.slice(start, start + len.count));
@@ -491,15 +537,30 @@ class ParseContext {
         if (len === null) {
           return null;
         }
-        if (len.next + len.count > this.limit) {
-          this.error = 'ascii string 越界';
+        if (!this.validateStringLength(len.count, 1, 'ascii string') ||
+          !rangeWithin(len.next, len.count, 1, this.limit)) {
+          this.fail('ascii string 越界或超出安全预算');
           return null;
         }
-        let s: string = '';
-        for (let i = 0; i < len.count; i++) {
-          s += String.fromCharCode(this.data[len.next + i] & 0xFF);
+        if (!this.reserve(len.count * 2, 'ascii string')) {
+          return null;
         }
-        return PlistValue.ofString(s);
+        const chunks: string[] = [];
+        let chunk: string = '';
+        for (let i = 0; i < len.count; i++) {
+          const code: number = this.data[len.next + i] & 0xFF;
+          if (code > 0x7F) {
+            this.fail(`ascii string 含非 ASCII 字节 @${i}`);
+            return null;
+          }
+          chunk += String.fromCharCode(code);
+          if (chunk.length >= 4096) {
+            chunks.push(chunk);
+            chunk = '';
+          }
+        }
+        chunks.push(chunk);
+        return PlistValue.ofString(chunks.join(''));
       }
 
       case 0x6: {
@@ -508,26 +569,82 @@ class ParseContext {
         if (len === null) {
           return null;
         }
-        if (len.next + len.count * 2 > this.limit) {
-          this.error = 'utf16 string 越界';
+        if (!this.validateStringLength(len.count, 2, 'utf16 string') ||
+          !rangeWithin(len.next, len.count, 2, this.limit)) {
+          this.fail('utf16 string 越界或超出安全预算');
           return null;
         }
-        let s: string = '';
+        if (!this.reserve(len.count * 2, 'utf16 string')) {
+          return null;
+        }
+        const chunks: string[] = [];
+        let chunk: string = '';
         for (let i = 0; i < len.count; i++) {
           const p: number = len.next + i * 2;
-          s += String.fromCharCode(((this.data[p] & 0xFF) << 8) | (this.data[p + 1] & 0xFF));
+          const codeUnit: number = ((this.data[p] & 0xFF) << 8) | (this.data[p + 1] & 0xFF);
+          if (codeUnit >= 0xD800 && codeUnit <= 0xDBFF) {
+            if (i + 1 >= len.count) {
+              this.fail(`utf16 string 含孤立高代理项 @${i}`);
+              return null;
+            }
+            const nextPos: number = p + 2;
+            const nextCodeUnit: number = ((this.data[nextPos] & 0xFF) << 8) |
+              (this.data[nextPos + 1] & 0xFF);
+            if (nextCodeUnit < 0xDC00 || nextCodeUnit > 0xDFFF) {
+              this.fail(`utf16 string 含孤立高代理项 @${i}`);
+              return null;
+            }
+            chunk += String.fromCharCode(codeUnit, nextCodeUnit);
+            i++;
+          } else if (codeUnit >= 0xDC00 && codeUnit <= 0xDFFF) {
+            this.fail(`utf16 string 含孤立低代理项 @${i}`);
+            return null;
+          } else {
+            chunk += String.fromCharCode(codeUnit);
+          }
+          if (chunk.length >= 4096) {
+            chunks.push(chunk);
+            chunk = '';
+          }
         }
-        return PlistValue.ofString(s);
+        chunks.push(chunk);
+        return PlistValue.ofString(chunks.join(''));
+      }
+
+      case 0x7: {
+        const len: LengthRead | null = this.readLength(pos, low);
+        if (len === null) {
+          return null;
+        }
+        if (!this.validateStringLength(len.count, 1, 'utf8 string') ||
+          !rangeWithin(len.next, len.count, 1, this.limit)) {
+          this.fail('utf8 string 越界或超出安全预算');
+          return null;
+        }
+        if (!this.reserve(len.count * 2, 'utf8 string')) {
+          return null;
+        }
+        const decoded: string | null = this.decodeUtf8(len.next, len.count);
+        return decoded === null ? null : PlistValue.ofString(decoded);
       }
 
       case 0x8: {
         // UID：字节数 = low + 1
         const size: number = low + 1;
-        if (pos + 1 + size > this.limit) {
-          this.error = 'uid 越界';
+        if (size > 8 || !rangeWithin(pos + 1, 1, size, this.limit)) {
+          this.fail('uid 越界或宽度超出安全整数');
           return null;
         }
-        return PlistValue.ofNumber(PlistType.UID, uintBE(this.data, pos + 1, size));
+        if (size === 8 && uintBE(this.data, pos + 1, 4) > 0x1FFFFF) {
+          this.fail('UID 超出 JavaScript 安全整数范围');
+          return null;
+        }
+        const uid: number = uintBE(this.data, pos + 1, size);
+        if (!Number.isSafeInteger(uid)) {
+          this.fail('UID 超出 JavaScript 安全整数范围');
+          return null;
+        }
+        return PlistValue.ofNumber(PlistType.UID, uid);
       }
 
       case 0xA:
@@ -537,15 +654,22 @@ class ParseContext {
         if (len === null) {
           return null;
         }
-        if (len.next + len.count * this.refSize > this.limit) {
-          this.error = 'array/set 越界';
+        if (!this.validateContainerLength(len.count, 'array/set') ||
+          !rangeWithin(len.next, len.count, this.refSize, this.limit)) {
+          this.fail('array/set 越界或超出安全预算');
+          return null;
+        }
+        if (!this.reserve(len.count * 8, 'array/set')) {
           return null;
         }
         const items: PlistValue[] = [];
         for (let i = 0; i < len.count; i++) {
           const ref: number = uintBE(this.data, len.next + i * this.refSize, this.refSize);
           const child: PlistValue | null = this.objectAt(ref, depth + 1);
-          items.push(child !== null ? child : PlistValue.ofNull());
+          if (child === null) {
+            return null;
+          }
+          items.push(child);
         }
         return PlistValue.ofArray(high === 0xC ? PlistType.SET : PlistType.ARRAY, items);
       }
@@ -556,9 +680,13 @@ class ParseContext {
           return null;
         }
         const keyBase: number = len.next;
-        const valBase: number = len.next + len.count * this.refSize;
-        if (valBase + len.count * this.refSize > this.limit) {
-          this.error = 'dict 越界';
+        if (!this.validateContainerLength(len.count, 'dict') ||
+          !rangeWithin(keyBase, len.count, this.refSize * 2, this.limit)) {
+          this.fail('dict 越界或超出安全预算');
+          return null;
+        }
+        const valBase: number = keyBase + len.count * this.refSize;
+        if (!this.reserve(len.count * 16, 'dict')) {
           return null;
         }
         const keys: string[] = [];
@@ -568,16 +696,134 @@ class ParseContext {
           const vRef: number = uintBE(this.data, valBase + i * this.refSize, this.refSize);
           const kv: PlistValue | null = this.objectAt(kRef, depth + 1);
           const vv: PlistValue | null = this.objectAt(vRef, depth + 1);
-          // 键理论上恒为字符串；非字符串键退化为下标名以免丢字段
-          keys.push(kv !== null ? kv.asString(`#${kRef}`) : `#${kRef}`);
-          values.push(vv !== null ? vv : PlistValue.ofNull());
+          if (kv === null || vv === null) {
+            return null;
+          }
+          if (kv.type !== PlistType.STRING) {
+            this.fail(`dict key 不是字符串 ref=${kRef}`);
+            return null;
+          }
+          keys.push(kv.asString(''));
+          values.push(vv);
         }
         return PlistValue.ofDict(keys, values);
       }
 
       default:
-        this.error = `未知对象标记 0x${marker.toString(16)} @${pos}`;
+        this.fail(`未知对象标记 0x${marker.toString(16)} @${pos}`);
         return null;
+    }
+  }
+
+  private validateDataLength(count: number): boolean {
+    if (!Number.isSafeInteger(count) || count < 0 || count > MAX_DATA_BYTES) {
+      this.fail(`data 长度超出安全预算 count=${count}`);
+      return false;
+    }
+    return true;
+  }
+
+  private validateStringLength(count: number, unitSize: number, label: string): boolean {
+    if (!Number.isSafeInteger(count) || count < 0 || unitSize <= 0 ||
+      count > Math.floor(MAX_STRING_STORAGE_BYTES / unitSize)) {
+      this.fail(`${label} 长度超出安全预算 count=${count}`);
+      return false;
+    }
+    return true;
+  }
+
+  private validateContainerLength(count: number, label: string): boolean {
+    if (!Number.isSafeInteger(count) || count < 0 || count > MAX_CONTAINER_ITEMS) {
+      this.fail(`${label} 元素数超出安全预算 count=${count}`);
+      return false;
+    }
+    return true;
+  }
+
+  private reserve(bytes: number, label: string): boolean {
+    if (!Number.isSafeInteger(bytes) || bytes < 0 ||
+      bytes > MAX_TOTAL_ALLOCATION_BYTES - this.allocatedBytes) {
+      this.fail(`${label} 使总分配量超出安全预算 ${MAX_TOTAL_ALLOCATION_BYTES}`);
+      return false;
+    }
+    this.allocatedBytes += bytes;
+    return true;
+  }
+
+  private decodeUtf8(start: number, count: number): string | null {
+    const end: number = start + count;
+    const chunks: string[] = [];
+    let chunk: string = '';
+    let index: number = start;
+    while (index < end) {
+      const first: number = this.data[index] & 0xFF;
+      let codePoint: number;
+      let width: number;
+      if (first <= 0x7F) {
+        codePoint = first;
+        width = 1;
+      } else if (first >= 0xC2 && first <= 0xDF) {
+        width = 2;
+        if (index + width > end || !isUtf8Continuation(this.data[index + 1] & 0xFF)) {
+          this.fail(`utf8 string 含非法双字节序列 @${index - start}`);
+          return null;
+        }
+        codePoint = ((first & 0x1F) << 6) | (this.data[index + 1] & 0x3F);
+      } else if (first >= 0xE0 && first <= 0xEF) {
+        width = 3;
+        if (index + width > end) {
+          this.fail(`utf8 string 被截断 @${index - start}`);
+          return null;
+        }
+        const second: number = this.data[index + 1] & 0xFF;
+        const third: number = this.data[index + 2] & 0xFF;
+        const validSecond: boolean = first === 0xE0 ? second >= 0xA0 && second <= 0xBF :
+          first === 0xED ? second >= 0x80 && second <= 0x9F : isUtf8Continuation(second);
+        if (!validSecond || !isUtf8Continuation(third)) {
+          this.fail(`utf8 string 含非法三字节序列 @${index - start}`);
+          return null;
+        }
+        codePoint = ((first & 0x0F) << 12) | ((second & 0x3F) << 6) | (third & 0x3F);
+      } else if (first >= 0xF0 && first <= 0xF4) {
+        width = 4;
+        if (index + width > end) {
+          this.fail(`utf8 string 被截断 @${index - start}`);
+          return null;
+        }
+        const second: number = this.data[index + 1] & 0xFF;
+        const third: number = this.data[index + 2] & 0xFF;
+        const fourth: number = this.data[index + 3] & 0xFF;
+        const validSecond: boolean = first === 0xF0 ? second >= 0x90 && second <= 0xBF :
+          first === 0xF4 ? second >= 0x80 && second <= 0x8F : isUtf8Continuation(second);
+        if (!validSecond || !isUtf8Continuation(third) || !isUtf8Continuation(fourth)) {
+          this.fail(`utf8 string 含非法四字节序列 @${index - start}`);
+          return null;
+        }
+        codePoint = ((first & 0x07) << 18) | ((second & 0x3F) << 12) |
+          ((third & 0x3F) << 6) | (fourth & 0x3F);
+      } else {
+        this.fail(`utf8 string 含非法起始字节 0x${first.toString(16)} @${index - start}`);
+        return null;
+      }
+      if (codePoint <= 0xFFFF) {
+        chunk += String.fromCharCode(codePoint);
+      } else {
+        const adjusted: number = codePoint - 0x10000;
+        chunk += String.fromCharCode(0xD800 + (adjusted >>> 10), 0xDC00 + (adjusted & 0x3FF));
+      }
+      if (chunk.length >= 4096) {
+        chunks.push(chunk);
+        chunk = '';
+      }
+      index += width;
+    }
+    chunks.push(chunk);
+    return chunks.join('');
+  }
+
+  private fail(message: string): void {
+    if (this.error.length === 0) {
+      this.error = message;
     }
   }
 
@@ -590,24 +836,32 @@ class ParseContext {
       return r;
     }
     if (pos + 1 >= this.limit) {
-      this.error = '长度字段越界';
+      this.fail('长度字段越界');
       return null;
     }
     const sizeMarker: number = this.data[pos + 1] & 0xFF;
     if ((sizeMarker >>> 4) !== 0x1) {
-      this.error = `长度标记非 int：0x${sizeMarker.toString(16)}`;
+      this.fail(`长度标记非 int：0x${sizeMarker.toString(16)}`);
       return null;
     }
     const size: number = 1 << (sizeMarker & 0x0F);
-    if (size > 8 || pos + 2 + size > this.limit) {
-      this.error = `长度字段越界 size=${size}`;
+    if (size > 8 || !rangeWithin(pos + 2, 1, size, this.limit)) {
+      this.fail(`长度字段越界 size=${size}`);
       return null;
     }
     const r = new LengthRead();
     r.count = uintBE(this.data, pos + 2, size);
+    if (!Number.isSafeInteger(r.count)) {
+      this.fail('长度字段超出 JavaScript 安全整数范围');
+      return null;
+    }
     r.next = pos + 2 + size;
     return r;
   }
+}
+
+function isUtf8Continuation(value: number): boolean {
+  return value >= 0x80 && value <= 0xBF;
 }
 
 class LengthRead {

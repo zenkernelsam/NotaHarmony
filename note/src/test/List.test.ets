@@ -35,6 +35,7 @@ import shapeGeometryTest from './ShapeGeometry.test';
 import selectionToolTest from './SelectionTool.test';
 import textBlockGeometryTest from './TextBlockGeometry.test';
 import shapeDetectorTest from './ShapeDetector.test';
+import binaryPlistParserTest from './BinaryPlistParser.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -74,4 +75,5 @@ export default function testsuite() {
   selectionToolTest();
   textBlockGeometryTest();
   shapeDetectorTest();
+  binaryPlistParserTest();
 }
