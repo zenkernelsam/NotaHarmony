@@ -30,6 +30,7 @@ export interface EllipseElement extends NoteElementBase {
   rotationRadians: number;
   color: number;
   strokeWidth: number;
+  fillColor: number | null;
 }
 
 // 多边形元素
@@ -39,6 +40,7 @@ export interface PolygonElement extends NoteElementBase {
   isClosed: boolean;
   color: number;
   strokeWidth: number;
+  fillColor: number | null;
 }
 
 // 文本块（对应 cde TextBlockInfo）
@@ -71,6 +73,8 @@ export interface SelectionElement extends NoteElementBase {
   type: ElementType.SELECTION;
   selectedElementIds: string[];
 }
+
+export type ShapeElement = EllipseElement | PolygonElement;
 
 // 联合类型
 export type NoteElement =

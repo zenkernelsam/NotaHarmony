@@ -31,6 +31,8 @@ import canvasViewportTest from './CanvasViewport.test';
 import thumbnailRenderPolicyTest from './ThumbnailRenderPolicy.test';
 import strokeClipboardTest from './StrokeClipboard.test';
 import pageElementOrderTest from './PageElementOrder.test';
+import shapeGeometryTest from './ShapeGeometry.test';
+import selectionToolTest from './SelectionTool.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -66,4 +68,6 @@ export default function testsuite() {
   thumbnailRenderPolicyTest();
   strokeClipboardTest();
   pageElementOrderTest();
+  shapeGeometryTest();
+  selectionToolTest();
 }

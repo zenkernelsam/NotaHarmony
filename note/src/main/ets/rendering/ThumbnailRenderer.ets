@@ -13,6 +13,7 @@ import { StrokePersistence } from '../data/StrokePersistence';
 import { ThemeTokens } from '../ui/theme/EditorTheme';
 import { PaperRenderer } from './PaperRenderer';
 import { StrokeCanvasPainter } from './StrokeCanvasPainter';
+import { ShapeCanvasRenderer } from './ShapeCanvasRenderer';
 import { ThumbnailPageTransform, fitPageInThumbnail } from './ThumbnailRenderPolicy';
 
 const THUMB_W: number = 300;
@@ -24,6 +25,7 @@ export class ThumbnailRenderer {
   private strokeRenderer: Canvas2DStrokeRenderer = new Canvas2DStrokeRenderer(this.transferTracker);
   private strokePainter: StrokeCanvasPainter = new StrokeCanvasPainter(this.strokeRenderer, this.transferTracker);
   private textRenderer: Canvas2DTextRenderer = new Canvas2DTextRenderer();
+  private shapeRenderer: ShapeCanvasRenderer = new ShapeCanvasRenderer();
   private paperRenderer: PaperRenderer = new PaperRenderer();
   private pencilPixelMap: image.PixelMap | null = null;
   private textureReady: boolean = false;
@@ -87,8 +89,10 @@ export class ThumbnailRenderer {
     for (const element of loaded.elements) {
       if (element.kind === PageElementKind.STROKE) {
         this.strokePainter.renderStroke(element.data, renderContext, pageSize.width, pageSize.height);
-      } else {
+      } else if (element.kind === PageElementKind.TEXT) {
         this.textRenderer.renderText(element.data, renderContext);
+      } else {
+        this.shapeRenderer.renderShape(element.data, renderContext);
       }
     }
     ctx.restore();

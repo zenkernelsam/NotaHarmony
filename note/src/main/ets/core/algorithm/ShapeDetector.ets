@@ -124,6 +124,7 @@ export class ShapeDetector implements RecognitionProvider {
       isClosed: false,
       color: -16777216,
       strokeWidth: 4,
+      fillColor: null,
     };
     return { confidence: score, element: element };
   }
@@ -145,14 +146,11 @@ export class ShapeDetector implements RecognitionProvider {
     cx /= points.length;
     cy /= points.length;
     // 标准差 → rx/ry
-    let vx: number = 0;
-    let vy: number = 0;
-    for (const p of points) {
-      vx += (p.x - cx) * (p.x - cx);
-      vy += (p.y - cy) * (p.y - cy);
-    }
-    const rx: number = Math.sqrt(vx / points.length);
-    const ry: number = Math.sqrt(vy / points.length);
+    // A uniformly sampled ellipse has standard deviation radius/sqrt(2). Use the
+    // observed extrema around the centroid so snapping preserves the drawn size.
+    const sourceBounds: Rect2D = this.computeBounds(points);
+    const rx: number = Math.max(cx - sourceBounds.left, sourceBounds.right - cx);
+    const ry: number = Math.max(cy - sourceBounds.top, sourceBounds.bottom - cy);
     if (rx < 5 || ry < 5) {
       return null;  // 太小不是椭圆
     }
@@ -166,7 +164,9 @@ export class ShapeDetector implements RecognitionProvider {
     }
     const meanErr: number = errSum / points.length;
     const confidence: number = Math.max(0, 1 - meanErr / 0.8);
-    const bounds = this.computeBounds(points);
+    const bounds: Rect2D = {
+      left: cx - rx, top: cy - ry, right: cx + rx, bottom: cy + ry,
+    };
     const element: EllipseElement = {
       id: this.generateId(),
       type: ElementType.ELLIPSE,
@@ -178,6 +178,7 @@ export class ShapeDetector implements RecognitionProvider {
       rotationRadians: 0,
       color: -16777216,
       strokeWidth: 4,
+      fillColor: null,
     };
     return { confidence: confidence, element: element };
   }
@@ -199,6 +200,7 @@ export class ShapeDetector implements RecognitionProvider {
       isClosed: true,
       color: -16777216,
       strokeWidth: 4,
+      fillColor: null,
     };
     return { confidence: confidence, element: element };
   }

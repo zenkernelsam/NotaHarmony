@@ -221,4 +221,8 @@ export class EraserEngine {
   getMode(): EraserMode {
     return this.mode;
   }
+
+  getWidth(): number {
+    return this.eraserWidth;
+  }
 }

@@ -1,9 +1,9 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { ElementType, TextBlockElement } from '../main/ets/core/model/ElementTypes';
+import { ElementType, PolygonElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import {
   appendPageElementRefs, hasStrokeAboveText, legacyPageElementOrder, materializePageElements, moveStrokeRefs,
-  normalizePageElementOrder, OrderedPageElement, PageElementKind, PageElementRef,
-  removePageElementRefs, samePageElementMembers, samePageElementOrder,
+  movePageElementRefs, normalizePageElementOrder, OrderedPageElement, PageElementKind, PageElementRef,
+  removePageElementRefs, requiresUnifiedElementRender, samePageElementMembers, samePageElementOrder,
 } from '../main/ets/core/model/PageElementOrder';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import { PageData, parsePage, serializePage } from '../main/ets/data/NotePackageSpec';
@@ -15,6 +15,15 @@ function stroke(id: string): StrokeElementData {
       isHighlighter: false, isPencil: false },
     transform: [1, 0, 0, 0, 1, 0, 0, 0, 1], bounds: { left: 0, top: 0, right: 1, bottom: 1 },
     maskPath: [], isFinished: true,
+  };
+}
+
+function shape(id: string): PolygonElement {
+  return {
+    id: id, type: ElementType.POLYGON, transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    bounds: { left: 0, top: 0, right: 2, bottom: 2 },
+    vertices: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 1, y: 2 }], isClosed: true,
+    color: 0xFF010203, strokeWidth: 2, fillColor: 0x44010203,
   };
 }
 
@@ -57,6 +66,22 @@ export default function pageElementOrderTest() {
       expect(elements[0].elementId).assertEqual('s1');
       expect(elements[1].kind).assertEqual(PageElementKind.TEXT);
       expect(elements[2].elementId).assertEqual('s2');
+    });
+
+    it('materializes and moves semantic shapes without losing mixed z order', 0, () => {
+      const before: PageElementRef[] = [
+        { kind: PageElementKind.SHAPE, elementId: 'p1', zIndex: 0 },
+        { kind: PageElementKind.STROKE, elementId: 's1', zIndex: 1 },
+        { kind: PageElementKind.TEXT, elementId: 't1', zIndex: 2 },
+      ];
+      const elements: OrderedPageElement[] = materializePageElements(
+        before, [stroke('s1')], [text('t1')], [shape('p1')]);
+      expect(elements[0].kind).assertEqual(PageElementKind.SHAPE);
+      expect(elements[1].kind).assertEqual(PageElementKind.STROKE);
+      expect(requiresUnifiedElementRender(before)).assertTrue();
+      const after: PageElementRef[] = movePageElementRefs(before, [], ['p1'], true);
+      expect(after[2].elementId).assertEqual('p1');
+      expect(samePageElementMembers(before, after)).assertTrue();
     });
 
     it('moves selected strokes across text and restores exact before order', 0, () => {
@@ -115,6 +140,26 @@ export default function pageElementOrderTest() {
       expect(first.kind as string).assertEqual('stroke');
       expect(second.kind as string).assertEqual('text');
       expect(third.kind as string).assertEqual('stroke');
+    });
+
+    it('preserves semantic shape payload and order through package serialization', 0, () => {
+      const sourceShape: PolygonElement = shape('p1');
+      const page: PageData = {
+        pageId: 'page-shape', pageIndex: 0, paperSize: 1, paperTemplate: 0, orientation: 0,
+        elements: [
+          { kind: 'shape', data: sourceShape },
+          { kind: 'stroke', data: { id: 's1' } },
+        ],
+      };
+      const parsed: PageData | null = parsePage(serializePage(page));
+      expect(parsed !== null).assertTrue();
+      expect(parsed!.elements[0].kind).assertEqual('shape');
+      const data = parsed!.elements[0].data as Record<string, Object>;
+      expect(data.id as string).assertEqual('p1');
+      expect(data.type as number).assertEqual(ElementType.POLYGON);
+      expect(data.fillColor as number).assertEqual(0x44010203);
+      expect((data.vertices as Object[]).length).assertEqual(3);
+      expect(parsed!.elements[1].kind).assertEqual('stroke');
     });
   });
 }

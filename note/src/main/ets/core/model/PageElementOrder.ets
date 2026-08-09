@@ -1,9 +1,10 @@
 import { StrokeElementData } from './StrokeTypes';
-import { TextBlockElement } from './ElementTypes';
+import { ShapeElement, TextBlockElement } from './ElementTypes';
 
 export enum PageElementKind {
   STROKE = 1,
   TEXT = 2,
+  SHAPE = 3,
 }
 
 export interface PageElementRef {
@@ -22,10 +23,15 @@ export interface OrderedTextElement extends PageElementRef {
   data: TextBlockElement;
 }
 
-export type OrderedPageElement = OrderedStrokeElement | OrderedTextElement;
+export interface OrderedShapeElement extends PageElementRef {
+  kind: PageElementKind.SHAPE;
+  data: ShapeElement;
+}
+
+export type OrderedPageElement = OrderedStrokeElement | OrderedTextElement | OrderedShapeElement;
 
 export function legacyPageElementOrder(strokes: StrokeElementData[],
-  textBlocks: TextBlockElement[]): PageElementRef[] {
+  textBlocks: TextBlockElement[], shapes: ShapeElement[] = []): PageElementRef[] {
   const result: PageElementRef[] = [];
   for (const stroke of strokes) {
     result.push({ kind: PageElementKind.STROKE, elementId: stroke.id, zIndex: result.length });
@@ -33,31 +39,39 @@ export function legacyPageElementOrder(strokes: StrokeElementData[],
   for (const text of textBlocks) {
     result.push({ kind: PageElementKind.TEXT, elementId: text.id, zIndex: result.length });
   }
+  for (const shape of shapes) {
+    result.push({ kind: PageElementKind.SHAPE, elementId: shape.id, zIndex: result.length });
+  }
   return result;
 }
 
 export function normalizePageElementOrder(order: PageElementRef[], strokes: StrokeElementData[],
-  textBlocks: TextBlockElement[]): PageElementRef[] {
+  textBlocks: TextBlockElement[], shapes: ShapeElement[] = []): PageElementRef[] {
   const strokeIds: Set<string> = new Set<string>();
   const textIds: Set<string> = new Set<string>();
+  const shapeIds: Set<string> = new Set<string>();
   for (const stroke of strokes) {
     strokeIds.add(stroke.id);
   }
   for (const text of textBlocks) {
     textIds.add(text.id);
   }
+  for (const shape of shapes) {
+    shapeIds.add(shape.id);
+  }
   const seen: Set<string> = new Set<string>();
   const result: PageElementRef[] = [];
   for (const ref of order) {
     const valid: boolean = ref.kind === PageElementKind.STROKE
-      ? strokeIds.has(ref.elementId) : ref.kind === PageElementKind.TEXT && textIds.has(ref.elementId);
+      ? strokeIds.has(ref.elementId) : ref.kind === PageElementKind.TEXT
+        ? textIds.has(ref.elementId) : ref.kind === PageElementKind.SHAPE && shapeIds.has(ref.elementId);
     const key: string = pageElementKey(ref.kind, ref.elementId);
     if (valid && ref.elementId.length > 0 && !seen.has(key)) {
       seen.add(key);
       result.push({ kind: ref.kind, elementId: ref.elementId, zIndex: result.length });
     }
   }
-  const legacy: PageElementRef[] = legacyPageElementOrder(strokes, textBlocks);
+  const legacy: PageElementRef[] = legacyPageElementOrder(strokes, textBlocks, shapes);
   for (const ref of legacy) {
     const key: string = pageElementKey(ref.kind, ref.elementId);
     if (!seen.has(key)) {
@@ -69,15 +83,19 @@ export function normalizePageElementOrder(order: PageElementRef[], strokes: Stro
 }
 
 export function materializePageElements(order: PageElementRef[], strokes: StrokeElementData[],
-  textBlocks: TextBlockElement[]): OrderedPageElement[] {
-  const normalized: PageElementRef[] = normalizePageElementOrder(order, strokes, textBlocks);
+  textBlocks: TextBlockElement[], shapes: ShapeElement[] = []): OrderedPageElement[] {
+  const normalized: PageElementRef[] = normalizePageElementOrder(order, strokes, textBlocks, shapes);
   const strokesById: Map<string, StrokeElementData> = new Map<string, StrokeElementData>();
   const textsById: Map<string, TextBlockElement> = new Map<string, TextBlockElement>();
+  const shapesById: Map<string, ShapeElement> = new Map<string, ShapeElement>();
   for (const stroke of strokes) {
     strokesById.set(stroke.id, stroke);
   }
   for (const text of textBlocks) {
     textsById.set(text.id, text);
+  }
+  for (const shape of shapes) {
+    shapesById.set(shape.id, shape);
   }
   const result: OrderedPageElement[] = [];
   for (const ref of normalized) {
@@ -86,10 +104,15 @@ export function materializePageElements(order: PageElementRef[], strokes: Stroke
       if (stroke !== undefined) {
         result.push({ kind: PageElementKind.STROKE, elementId: ref.elementId, zIndex: ref.zIndex, data: stroke });
       }
-    } else {
+    } else if (ref.kind === PageElementKind.TEXT) {
       const text: TextBlockElement | undefined = textsById.get(ref.elementId);
       if (text !== undefined) {
         result.push({ kind: PageElementKind.TEXT, elementId: ref.elementId, zIndex: ref.zIndex, data: text });
+      }
+    } else {
+      const shape: ShapeElement | undefined = shapesById.get(ref.elementId);
+      if (shape !== undefined) {
+        result.push({ kind: PageElementKind.SHAPE, elementId: ref.elementId, zIndex: ref.zIndex, data: shape });
       }
     }
   }
@@ -131,6 +154,24 @@ export function moveStrokeRefs(order: PageElementRef[], strokeIds: string[], for
   const remaining: PageElementRef[] = [];
   for (const ref of order) {
     if (ref.kind === PageElementKind.STROKE && selectedIds.has(ref.elementId)) {
+      selected.push(ref);
+    } else {
+      remaining.push(ref);
+    }
+  }
+  return reindexPageElementOrder(forward ? remaining.concat(selected) : selected.concat(remaining));
+}
+
+export function movePageElementRefs(order: PageElementRef[], strokeIds: string[], shapeIds: string[],
+  forward: boolean): PageElementRef[] {
+  const selectedStrokes: Set<string> = new Set<string>(strokeIds);
+  const selectedShapes: Set<string> = new Set<string>(shapeIds);
+  const selected: PageElementRef[] = [];
+  const remaining: PageElementRef[] = [];
+  for (const ref of order) {
+    const isSelected: boolean = ref.kind === PageElementKind.STROKE
+      ? selectedStrokes.has(ref.elementId) : ref.kind === PageElementKind.SHAPE && selectedShapes.has(ref.elementId);
+    if (isSelected) {
       selected.push(ref);
     } else {
       remaining.push(ref);
@@ -188,6 +229,21 @@ export function hasStrokeAboveText(order: PageElementRef[]): boolean {
     if (ref.kind === PageElementKind.TEXT) {
       sawText = true;
     } else if (sawText) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function requiresUnifiedElementRender(order: PageElementRef[]): boolean {
+  let sawNonStroke: boolean = false;
+  for (const ref of order) {
+    if (ref.kind !== PageElementKind.STROKE) {
+      sawNonStroke = true;
+    } else if (sawNonStroke) {
+      return true;
+    }
+    if (ref.kind === PageElementKind.SHAPE) {
       return true;
     }
   }

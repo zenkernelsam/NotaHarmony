@@ -82,8 +82,10 @@ export class NoteExporter {
         for (const element of loaded.elements) {
           if (element.kind === PageElementKind.STROKE) {
             elementObjects.push({ kind: 'stroke', data: element.data });
-          } else {
+          } else if (element.kind === PageElementKind.TEXT) {
             elementObjects.push({ kind: 'text', data: element.data });
+          } else {
+            elementObjects.push({ kind: 'shape', data: element.data });
           }
         }
         const pageData: PageData = {

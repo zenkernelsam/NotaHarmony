@@ -1,5 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
+import { ElementType, PolygonElement } from '../main/ets/core/model/ElementTypes';
+import { PageElementKind, PageElementRef } from '../main/ets/core/model/PageElementOrder';
 import { ClipboardPasteResult, StrokeClipboard } from '../main/ets/rendering/StrokeClipboard';
 
 function stroke(id: string, left: number = 10, top: number = 20): StrokeElementData {
@@ -31,6 +33,18 @@ function stroke(id: string, left: number = 10, top: number = 20): StrokeElementD
     bounds: { left: left, top: top, right: left + 10, bottom: top + 10 },
     maskPath: [{ x: left + 1, y: top + 1 }],
     isFinished: true,
+  };
+}
+
+function shape(id: string, left: number = 40, top: number = 50): PolygonElement {
+  return {
+    id: id, type: ElementType.POLYGON,
+    transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    bounds: { left: left, top: top, right: left + 20, bottom: top + 20 },
+    vertices: [
+      { x: left, y: top }, { x: left + 20, y: top }, { x: left + 10, y: top + 20 },
+    ],
+    isClosed: true, color: 0xFF336699, strokeWidth: 3, fillColor: 0x44336699,
   };
 }
 
@@ -93,6 +107,42 @@ export default function strokeClipboardTest() {
       const result: ClipboardPasteResult | null = clipboard.paste(800, 1100,
         (_sourceId: string, sequence: number, index: number): string => `${sequence}-${index}`);
       expect(result?.pasteSequence).assertEqual(1);
+    });
+
+    it('deep-copies shape-only content and offsets its semantic geometry', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      const source: PolygonElement = shape('shape-1');
+      expect(clipboard.copy([], 'page-1', [source])).assertTrue();
+      source.vertices[0].x = 999;
+      source.transform[2] = 999;
+      source.bounds.left = 999;
+      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+        (): string => 'shape-paste');
+      expect(result?.strokes.length).assertEqual(0);
+      expect(result?.shapes.length).assertEqual(1);
+      expect(result?.shapes[0].id).assertEqual('shape-paste');
+      expect((result?.shapes[0] as PolygonElement).vertices[0].x).assertEqual(40);
+      expect(result?.shapes[0].transform[2]).assertEqual(20);
+      expect(result?.shapes[0].bounds.left).assertEqual(60);
+      expect(result?.elementOrder[0].kind).assertEqual(PageElementKind.SHAPE);
+    });
+
+    it('preserves mixed stroke and shape relative order while assigning fresh ids', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      const order: PageElementRef[] = [
+        { kind: PageElementKind.SHAPE, elementId: 'shape-1', zIndex: 0 },
+        { kind: PageElementKind.STROKE, elementId: 'stroke-1', zIndex: 1 },
+      ];
+      expect(clipboard.copy([stroke('stroke-1')], 'page-1', [shape('shape-1')], order)).assertTrue();
+      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+        (_sourceId: string, _sequence: number, index: number): string => `mixed-${index}`);
+      expect(result?.elementOrder.length).assertEqual(2);
+      expect(result?.elementOrder[0].kind).assertEqual(PageElementKind.SHAPE);
+      expect(result?.elementOrder[0].elementId).assertEqual('mixed-0');
+      expect(result?.elementOrder[1].kind).assertEqual(PageElementKind.STROKE);
+      expect(result?.elementOrder[1].elementId).assertEqual('mixed-1');
+      expect(result?.shapes[0].id).assertEqual('mixed-0');
+      expect(result?.strokes[0].id).assertEqual('mixed-1');
     });
   });
 }

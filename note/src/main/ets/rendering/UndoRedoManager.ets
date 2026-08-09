@@ -2,7 +2,7 @@
 // 全笔记单栈：动作携带 pageId，保持跨页操作的真实时间顺序。
 // 原版 NoteImpl 使用全笔记 opHistory；文本编辑器 nnf(100) 是另一套局部历史，不能作为这里的容量。
 import { StrokeElementData } from '../core/model/StrokeTypes';
-import { TextBlockElement } from '../core/model/ElementTypes';
+import { ElementType, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { PageInfo } from '../core/model/NoteTypes';
 import { PageElementRef } from '../core/model/PageElementOrder';
 
@@ -20,6 +20,11 @@ export enum UndoableActionType {
   REORDER_PAGES = 9,
   PAGE_SETTINGS = 10,
   REORDER_ELEMENTS = 11,
+  ADD_SHAPE = 12,
+  DELETE_ELEMENTS = 13,
+  TRANSFORM_ELEMENTS = 14,
+  ERASE_ELEMENTS = 15,
+  ADD_ELEMENTS = 16,
 }
 
 interface ActionBase {
@@ -39,11 +44,21 @@ export interface AddStrokeAction extends ActionBase, ElementOrderChange {
 }
 
 export interface RemoveStrokeAction extends ActionBase, ElementOrderChange {
-  type: UndoableActionType.DELETE_STROKE | UndoableActionType.ERASE_STROKES;
+  type: UndoableActionType.DELETE_STROKE;
   removedStrokes: StrokeElementData[];
   removedStrokeIndices: number[];
   beforeModifiedStrokes: StrokeElementData[];
   afterModifiedStrokes: StrokeElementData[];
+}
+
+export interface EraseElementsAction extends ActionBase, ElementOrderChange {
+  type: UndoableActionType.ERASE_ELEMENTS;
+  removedStrokes: StrokeElementData[];
+  removedStrokeIndices: number[];
+  beforeModifiedStrokes: StrokeElementData[];
+  afterModifiedStrokes: StrokeElementData[];
+  removedShapes: ShapeElement[];
+  removedShapeIndices: number[];
 }
 
 export interface TransformStrokesAction extends ActionBase {
@@ -74,6 +89,34 @@ export interface ReorderElementsAction extends ActionBase, ElementOrderChange {
   type: UndoableActionType.REORDER_ELEMENTS;
 }
 
+export interface AddShapeAction extends ActionBase, ElementOrderChange {
+  type: UndoableActionType.ADD_SHAPE;
+  addedShape: ShapeElement;
+}
+
+export interface AddElementsAction extends ActionBase, ElementOrderChange {
+  type: UndoableActionType.ADD_ELEMENTS;
+  addedStrokes: StrokeElementData[];
+  addedShapes: ShapeElement[];
+  addedElementOrder: PageElementRef[];
+}
+
+export interface DeleteElementsAction extends ActionBase, ElementOrderChange {
+  type: UndoableActionType.DELETE_ELEMENTS;
+  removedStrokes: StrokeElementData[];
+  removedStrokeIndices: number[];
+  removedShapes: ShapeElement[];
+  removedShapeIndices: number[];
+}
+
+export interface TransformElementsAction extends ActionBase {
+  type: UndoableActionType.TRANSFORM_ELEMENTS;
+  beforeStrokes: StrokeElementData[];
+  afterStrokes: StrokeElementData[];
+  beforeShapes: ShapeElement[];
+  afterShapes: ShapeElement[];
+}
+
 export interface AddPageAction extends ActionBase {
   type: UndoableActionType.ADD_PAGE;
   pageAfter: PageInfo;
@@ -81,6 +124,7 @@ export interface AddPageAction extends ActionBase {
   pageOrderAfter: string[];
   pageStrokes: StrokeElementData[];
   pageTextBlocks: TextBlockElement[];
+  pageShapes: ShapeElement[];
   pageElementOrder: PageElementRef[];
   selectedPageIdBefore: string;
   selectedPageIdAfter: string;
@@ -93,6 +137,7 @@ export interface DeletePageAction extends ActionBase {
   pageOrderAfter: string[];
   pageStrokes: StrokeElementData[];
   pageTextBlocks: TextBlockElement[];
+  pageShapes: ShapeElement[];
   pageElementOrder: PageElementRef[];
   selectedPageIdBefore: string;
   selectedPageIdAfter: string;
@@ -112,11 +157,13 @@ export interface PageSettingsAction extends ActionBase {
 
 export type UndoableAction = AddStrokeAction | RemoveStrokeAction | TransformStrokesAction |
   AddElementAction | DeleteElementAction | ReplaceElementAction | ReorderElementsAction |
+  AddShapeAction | AddElementsAction | DeleteElementsAction | TransformElementsAction | EraseElementsAction |
   AddPageAction | DeletePageAction | ReorderPagesAction | PageSettingsAction;
 
 export interface PageContentSnapshot {
   strokes: StrokeElementData[];
   textBlocks: TextBlockElement[];
+  shapes: ShapeElement[];
   elementOrder: PageElementRef[];
 }
 
@@ -154,9 +201,15 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
   if (action.type === UndoableActionType.ADD_STROKE) {
     return bytes + estimateStrokes(action.addedStrokes) + estimateElementOrderChange(action);
   }
-  if (action.type === UndoableActionType.DELETE_STROKE || action.type === UndoableActionType.ERASE_STROKES) {
+  if (action.type === UndoableActionType.DELETE_STROKE) {
     return bytes + estimateStrokes(action.removedStrokes) + action.removedStrokeIndices.length * 8 +
       estimateStrokes(action.beforeModifiedStrokes) + estimateStrokes(action.afterModifiedStrokes) +
+      estimateElementOrderChange(action);
+  }
+  if (action.type === UndoableActionType.ERASE_ELEMENTS) {
+    return bytes + estimateStrokes(action.removedStrokes) + action.removedStrokeIndices.length * 8 +
+      estimateStrokes(action.beforeModifiedStrokes) + estimateStrokes(action.afterModifiedStrokes) +
+      estimateShapes(action.removedShapes) + action.removedShapeIndices.length * 8 +
       estimateElementOrderChange(action);
   }
   if (action.type === UndoableActionType.TRANSFORM_STROKES) {
@@ -175,10 +228,26 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
   if (action.type === UndoableActionType.REORDER_ELEMENTS) {
     return bytes + estimateElementOrderChange(action);
   }
+  if (action.type === UndoableActionType.ADD_SHAPE) {
+    return bytes + estimateShape(action.addedShape) + estimateElementOrderChange(action);
+  }
+  if (action.type === UndoableActionType.ADD_ELEMENTS) {
+    return bytes + estimateStrokes(action.addedStrokes) + estimateShapes(action.addedShapes) +
+      estimateElementOrder(action.addedElementOrder) + estimateElementOrderChange(action);
+  }
+  if (action.type === UndoableActionType.DELETE_ELEMENTS) {
+    return bytes + estimateStrokes(action.removedStrokes) + action.removedStrokeIndices.length * 8 +
+      estimateShapes(action.removedShapes) + action.removedShapeIndices.length * 8 +
+      estimateElementOrderChange(action);
+  }
+  if (action.type === UndoableActionType.TRANSFORM_ELEMENTS) {
+    return bytes + estimateStrokes(action.beforeStrokes) + estimateStrokes(action.afterStrokes) +
+      estimateShapes(action.beforeShapes) + estimateShapes(action.afterShapes);
+  }
   if (action.type === UndoableActionType.ADD_PAGE || action.type === UndoableActionType.DELETE_PAGE) {
     return bytes + 256 + estimateStringList(action.pageOrderBefore) + estimateStringList(action.pageOrderAfter) +
       estimateStrokes(action.pageStrokes) + estimateTextBlocks(action.pageTextBlocks) +
-      estimateElementOrder(action.pageElementOrder);
+      estimateShapes(action.pageShapes) + estimateElementOrder(action.pageElementOrder);
   }
   if (action.type === UndoableActionType.REORDER_PAGES) {
     return bytes + estimateStringList(action.pageOrderBefore) + estimateStringList(action.pageOrderAfter);
@@ -218,6 +287,22 @@ function estimateTextBlocks(blocks: TextBlockElement[]): number {
 
 function estimateTextBlock(block: TextBlockElement): number {
   return 384 + (block.id.length + block.richText.length) * 2 + block.transform.length * 8;
+}
+
+function estimateShapes(shapes: ShapeElement[]): number {
+  let bytes: number = 0;
+  for (const shape of shapes) {
+    bytes += estimateShape(shape);
+  }
+  return bytes;
+}
+
+function estimateShape(shape: ShapeElement): number {
+  let bytes: number = 384 + shape.id.length * 2 + shape.transform.length * 8;
+  if (shape.type === ElementType.POLYGON) {
+    bytes += shape.vertices.length * 32;
+  }
+  return bytes;
 }
 
 function estimateStringList(values: string[]): number {
