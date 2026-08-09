@@ -3,6 +3,7 @@ import {
   DB_VERSION, DDL_EDITOR_TOOLBOX_STATE, DDL_FOLDER, DDL_PAGE_ELEMENT_SNAPSHOT, DDL_PAGE_INFO,
   DDL_NOTE_META, DDL_NOTE_STATE, DDL_OPERATION_LOG, DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE,
   DDL_PAGE_DELETE_CHECKPOINT, DDL_PAGE_DELETE_CHECKPOINT_ELEMENT, DDL_PAGE_DELETE_CHECKPOINT_SEARCH,
+  DDL_HISTORY_CHECKPOINT, DDL_HISTORY_CHECKPOINT_ACTION, DDL_HISTORY_CHECKPOINT_OPERATION,
   DDL_INDEXES, MIGRATIONS,
 } from
   '../main/ets/data/DatabaseHelper';
@@ -12,7 +13,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(16);
+      expect(DB_VERSION).assertEqual(17);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -36,6 +37,16 @@ export default function databaseHelperTest() {
       expect(DDL_PAGE_DELETE_CHECKPOINT_ELEMENT).assertContain('element_order');
       expect(DDL_PAGE_DELETE_CHECKPOINT_SEARCH).assertContain('folded_text');
       expect(MIGRATIONS[16].join('\n')).assertContain('page_delete_checkpoint');
+    });
+
+    it('stores a bounded canonical history stack separately from the append-only sync log', 0, () => {
+      expect(DDL_HISTORY_CHECKPOINT).assertContain('through_sequence INTEGER NOT NULL');
+      expect(DDL_HISTORY_CHECKPOINT).assertContain('legacy_operation_count INTEGER NOT NULL');
+      expect(DDL_HISTORY_CHECKPOINT_ACTION).assertContain('UNIQUE(note_id, action_id)');
+      expect(DDL_HISTORY_CHECKPOINT_ACTION).assertContain('CHECK (stack_kind IN (0, 1))');
+      expect(DDL_HISTORY_CHECKPOINT_OPERATION).assertContain('payload BLOB NOT NULL');
+      expect(DDL_HISTORY_CHECKPOINT_OPERATION).assertContain('operation_index INTEGER NOT NULL');
+      expect(MIGRATIONS[17].join('\n')).assertContain('history_checkpoint_operation');
     });
 
     it('keeps the append-only operation log separate from page snapshots', 0, () => {

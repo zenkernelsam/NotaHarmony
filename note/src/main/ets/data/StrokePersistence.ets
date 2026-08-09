@@ -12,7 +12,7 @@ import {
 } from '../core/model/PageElementOrder';
 import { DatabaseManager } from './DatabaseManager';
 import { LatestWriteQueue } from './LatestWriteQueue';
-import { AsyncMutex } from './AsyncMutex';
+import { editorPersistenceMutex } from './EditorPersistenceMutex';
 import { foldSearchText } from './SearchText';
 import { SearchItemType } from './SearchItemType';
 import { handwritingSourceChanged, pageSnapshotChanged, SearchSourceElement } from './SearchIndexPolicy';
@@ -107,7 +107,6 @@ function parseSearchTextPayloads(payloads: Uint8Array[]): ParsedSearchText[] {
 }
 
 export class StrokePersistence {
-  private static writeMutex: AsyncMutex = new AsyncMutex();
   private store: relationalStore.RdbStore | null = null;
   private saveQueues: Map<string, LatestWriteQueue<PreparedPageSave>> = new Map();
   private searchBackfillPromise: Promise<void> | null = null;
@@ -176,7 +175,7 @@ export class StrokePersistence {
         noteId, pageId, step.strokes, step.textBlocks, step.elementOrder, step.shapes, step.history));
     }
     await this.flush(noteId, pageId);
-    await StrokePersistence.writeMutex.runExclusive(async (): Promise<void> => {
+    await editorPersistenceMutex.runExclusive(async (): Promise<void> => {
       await this.writeHistoryGroupLocked(preparedInitial, preparedSteps);
     });
   }
@@ -185,7 +184,7 @@ export class StrokePersistence {
     if (this.store === null) {
       throw new Error('StrokePersistence is not initialized');
     }
-    await StrokePersistence.writeMutex.runExclusive(async (): Promise<void> => {
+    await editorPersistenceMutex.runExclusive(async (): Promise<void> => {
       if (this.store === null) {
         throw new Error('StrokePersistence is not initialized');
       }
@@ -322,7 +321,7 @@ export class StrokePersistence {
       for (const page of pages) {
         const payloads: Uint8Array[] = await this.loadTextPayloads(page.noteId, page.pageId);
         const parsed = await taskpool.execute(parseSearchTextPayloads, payloads) as ParsedSearchText[];
-        await StrokePersistence.writeMutex.runExclusive(async (): Promise<void> => {
+        await editorPersistenceMutex.runExclusive(async (): Promise<void> => {
           await this.commitBackfilledPage(page, parsed);
         });
       }
@@ -330,7 +329,7 @@ export class StrokePersistence {
   }
 
   private async writePrepared(snapshot: PreparedPageSave, revision: number): Promise<void> {
-    await StrokePersistence.writeMutex.runExclusive(async (): Promise<void> => {
+    await editorPersistenceMutex.runExclusive(async (): Promise<void> => {
       await this.writePreparedLocked(snapshot, revision);
     });
   }

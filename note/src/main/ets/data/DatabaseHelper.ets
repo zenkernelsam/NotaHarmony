@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v16: retain deleted-page contents as durable action-scoped history checkpoints.
-export const DB_VERSION: number = 16;
+// v17: bound persistent-history replay with a local canonical stack checkpoint.
+export const DB_VERSION: number = 17;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -108,6 +108,44 @@ CREATE TABLE IF NOT EXISTS page_delete_checkpoint_search (
   rects BLOB,
   PRIMARY KEY(note_id, action_id, type, sub_id),
   FOREIGN KEY(note_id, action_id) REFERENCES page_delete_checkpoint(note_id, action_id) ON DELETE CASCADE
+)`;
+
+export const DDL_HISTORY_CHECKPOINT: string = `
+CREATE TABLE IF NOT EXISTS history_checkpoint (
+  note_id TEXT PRIMARY KEY,
+  through_sequence INTEGER NOT NULL,
+  legacy_operation_count INTEGER NOT NULL,
+  created_time INTEGER NOT NULL,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_HISTORY_CHECKPOINT_ACTION: string = `
+CREATE TABLE IF NOT EXISTS history_checkpoint_action (
+  note_id TEXT NOT NULL,
+  stack_kind INTEGER NOT NULL,
+  stack_index INTEGER NOT NULL,
+  action_id TEXT NOT NULL,
+  coalesce_track INTEGER NOT NULL,
+  action_time INTEGER NOT NULL,
+  CHECK (stack_kind IN (0, 1)),
+  PRIMARY KEY(note_id, stack_kind, stack_index),
+  UNIQUE(note_id, action_id),
+  FOREIGN KEY(note_id) REFERENCES history_checkpoint(note_id) ON DELETE CASCADE
+)`;
+
+export const DDL_HISTORY_CHECKPOINT_OPERATION: string = `
+CREATE TABLE IF NOT EXISTS history_checkpoint_operation (
+  note_id TEXT NOT NULL,
+  stack_kind INTEGER NOT NULL,
+  stack_index INTEGER NOT NULL,
+  operation_index INTEGER NOT NULL,
+  op_id TEXT NOT NULL,
+  op_type INTEGER NOT NULL,
+  payload BLOB NOT NULL,
+  client_time INTEGER NOT NULL,
+  PRIMARY KEY(note_id, stack_kind, stack_index, operation_index),
+  FOREIGN KEY(note_id, stack_kind, stack_index)
+    REFERENCES history_checkpoint_action(note_id, stack_kind, stack_index) ON DELETE CASCADE
 )`;
 
 // Historical migrations must never reference the evolving latest-schema DDL.
@@ -433,5 +471,10 @@ export const MIGRATIONS: Record<number, string[]> = {
     DDL_PAGE_DELETE_CHECKPOINT_SEARCH,
     `CREATE INDEX IF NOT EXISTS idx_page_delete_checkpoint_page
       ON page_delete_checkpoint(note_id, page_id, created_time)`,
+  ],
+  17: [
+    DDL_HISTORY_CHECKPOINT,
+    DDL_HISTORY_CHECKPOINT_ACTION,
+    DDL_HISTORY_CHECKPOINT_OPERATION,
   ],
 };

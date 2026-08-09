@@ -94,6 +94,15 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
   发布最终 snapshot/search 状态。组内任一步、日志写入或来源快照核对失败会回滚数据库并恢复执行前画布，历史栈不移动。
 - 持久 reducer 不引入新的“组合 actionId”；连续移动事件仍引用每个原身份，因此重启后 Undo 的 `newest→oldest` 与 Redo 的
   `oldest→newest` 顺序可还原。跨页 coalesced 执行以及尚未建模为逐次文本 op 的 INSERT_TEXT/REMOVE_TEXT 仍不作完成声明。
+- 第十阶段把数据库升至 v17，并新增独立于 `operation_log` 的本地 `history_checkpoint`、action 与 operation 子表。checkpoint 保存
+  已严格归约的 undo/redo 栈、legacy 计数及覆盖到的全局 sequence；启动只归约 checkpoint 之后的 tail，避免每次打开都重放整张日志。
+  checkpoint header、连续栈/operation 索引、action/op 唯一身份、PUSH 元数据、客户端时间和水位对应的本 note 日志行均严格校验。
+- checkpoint 每积累 256 条 tail operation 后，在首次加载或成功显式 flush 后以最佳努力重建；最多保留 128 个 action，只从最旧
+  undo 端淘汰，绝不静默截断 redo。替换 checkpoint 与删除不再被保留 undo/redo action 引用的 DELETE_PAGE checkpoint 位于同一
+  SQLite 事务，并与页面 snapshot/history 写共享编辑持久化互斥；失败保留旧 checkpoint、旧删除页恢复点和完整日志。
+- `operation_log` 此阶段有意不做物理裁剪。原版 `iq1` 只证明可按 `(noteId,opId)` 删除或更新单条 ClientOp，`q0` 只证明删除整篇笔记
+  的 ClientOp；没有固定“保留 N 条”策略的证据。更重要的是 ClientOp 也是待同步队列，而 Harmony 尚无服务端 upload ACK 水位。
+  在 ACK 元数据存在前按本地 Undo 窗口删日志会永久丢失未来同步数据，因此 compaction 仍明确阻塞。
 
 ## 后果
 
@@ -103,7 +112,7 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 这不关闭 D-02，也不等价于原版 ClientOp。元素与页面结构 mutation serializer、双向 replay、原子追加及当前会话的逐动作保存边界
 已经建立；元素 NPM1 及单事务页面 NPG1 也具备 action identity、PUSH/UNDO/REDO effect、coalesce track 和原 action time。
 最后一个无 legacy 的完整 segment 现在可在重启后恢复成可执行 Undo/Redo 栈，DELETE_PAGE 也具备耐久内容 checkpoint 和原子
-PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成组 Undo/Redo。后续仍需实现：跨页/文本细粒度成组执行、
-长期历史 checkpoint/compaction、editor site/原版式单调 opId、
+PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成组 Undo/Redo。本地启动 replay 与删除页恢复点增长已有上限，
+但同步日志本身仍保持追加式。后续仍需实现：跨页/文本细粒度成组执行、基于同步 ACK 的安全日志 compaction、editor site/原版式单调 opId、
 用户可见的损坏日志恢复、同步导入映射，以及
 同步上传和聚合元数据。完成这些之前，不得声称具有原版协作或完整增量同步语义。

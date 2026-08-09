@@ -34,9 +34,9 @@ import {
 } from '../../data/StrokePersistence';
 import { SearchSourceElement } from '../../data/SearchIndexPolicy';
 import { DatabaseManager } from '../../data/DatabaseManager';
-import { OpStoreImpl } from '../../data/OpStoreImpl';
+import { OpStoreImpl, PersistentHistoryReplay } from '../../data/OpStoreImpl';
 import {
-  materializePersistentHistory, reducePersistentHistory, replayPersistentPageMutations, RestoredHistoryState,
+  materializePersistentHistory, replayPersistentPageMutations, RestoredHistoryState,
 } from '../../data/PersistentHistory';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
@@ -77,6 +77,9 @@ import { ArkUIStylusAdapter, ArkUIStylusSample } from './ArkUIStylusAdapter';
 import {
   PointerInputBatches, PointerRawSample, PointerSampleStream,
 } from '../../core/adaptation/PointerSampleStream';
+
+const HISTORY_CHECKPOINT_TAIL_OPERATIONS: number = 256;
+const HISTORY_CHECKPOINT_MAX_ACTIONS: number = 128;
 
 interface ShapeDetectionAttempt {
   shapes: ShapeElement[];
@@ -129,6 +132,7 @@ export struct NoteCanvasView {
   private undoRedo: UndoRedoManager = new UndoRedoManager();
   private shapeDetector: ShapeDetector = new ShapeDetector();
   private persistence: StrokePersistence = new StrokePersistence();
+  private database: DatabaseManager | null = null;
   private selectionTool: SelectionTool = new SelectionTool();
   private strokeClipboard: StrokeClipboard = new StrokeClipboard();
   private clipboardIdCounter: number = 0;
@@ -228,6 +232,7 @@ export struct NoteCanvasView {
       const context = getContext(this) as common.UIAbilityContext;
       const db: DatabaseManager = DatabaseManager.getInstance();
       await db.initialize(context);
+      this.database = db;
       this.persistence.initialize(db);
       const loaded = await this.persistence.loadElements(this.noteId, targetPageId);
       if (generation !== this.pageLoadGeneration || this.currentPage.pageId !== targetPageId) {
@@ -291,10 +296,20 @@ export struct NoteCanvasView {
   private async readPersistentHistory(db: DatabaseManager,
     currentPageId: string): Promise<RestoredHistoryState | null> {
     try {
-      const operations: Op[] = await new OpStoreImpl(db).getOps(this.noteId);
+      const opStore: OpStoreImpl = new OpStoreImpl(db);
+      const replay: PersistentHistoryReplay = await opStore.getPersistentHistory(this.noteId);
       const checkpoints = await new PageRepositoryImpl(db).getDeleteCheckpoints(this.noteId);
-      return materializePersistentHistory(
-        reducePersistentHistory(operations), currentPageId, checkpoints);
+      const restored: RestoredHistoryState = materializePersistentHistory(
+        replay.state, currentPageId, checkpoints);
+      if (replay.tailOperationCount >= HISTORY_CHECKPOINT_TAIL_OPERATIONS) {
+        try {
+          await opStore.checkpointPersistentHistory(this.noteId, HISTORY_CHECKPOINT_MAX_ACTIONS);
+        } catch (checkpointError) {
+          hilog.error(0x0001, 'NoteCanvasView',
+            'persistent history checkpoint skipped: %{public}s', JSON.stringify(checkpointError));
+        }
+      }
+      return restored;
     } catch (e) {
       // Corrupt history must not make the note unreadable. Strict replay remains unavailable.
       hilog.error(0x0001, 'NoteCanvasView', 'persistent history disabled: %{public}s', JSON.stringify(e));
@@ -342,10 +357,27 @@ export struct NoteCanvasView {
     try {
       await this.persistence.flush(this.noteId, this.loadedPageId);
       this.saveFailed = false;
+      await this.maintainPersistentHistoryCheckpoint();
       return true;
     } catch (e) {
       this.reportSaveFailure(e as Object);
       return false;
+    }
+  }
+
+  private async maintainPersistentHistoryCheckpoint(): Promise<void> {
+    if (this.database === null || this.noteId.length === 0) {
+      return;
+    }
+    try {
+      const opStore: OpStoreImpl = new OpStoreImpl(this.database);
+      const replay: PersistentHistoryReplay = await opStore.getPersistentHistory(this.noteId);
+      if (replay.tailOperationCount >= HISTORY_CHECKPOINT_TAIL_OPERATIONS) {
+        await opStore.checkpointPersistentHistory(this.noteId, HISTORY_CHECKPOINT_MAX_ACTIONS);
+      }
+    } catch (e) {
+      hilog.error(0x0001, 'NoteCanvasView',
+        'persistent history checkpoint maintenance skipped: %{public}s', JSON.stringify(e));
     }
   }
 

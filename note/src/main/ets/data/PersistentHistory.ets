@@ -53,11 +53,22 @@ interface GroupedHistoryEvents {
 // Input must use operation_log order (client_time, sequence). Legacy rows are retained for
 // document replay but cannot be guessed into an Undo action.
 export function reducePersistentHistory(operations: Op[]): PersistentHistoryState {
-  const undo: PersistentHistoryAction[] = [];
-  const redo: PersistentHistoryAction[] = [];
+  return reducePersistentHistoryTail({ undo: [], redo: [], legacyOperationCount: 0 }, operations);
+}
+
+export function reducePersistentHistoryTail(initial: PersistentHistoryState,
+  operations: Op[]): PersistentHistoryState {
+  const undo: PersistentHistoryAction[] = clonePersistentActions(initial.undo);
+  const redo: PersistentHistoryAction[] = clonePersistentActions(initial.redo);
   const known: Set<string> = new Set<string>();
   const seenPushIds: Set<string> = new Set<string>();
-  let legacyOperationCount: number = 0;
+  for (const action of undo) {
+    registerInitialAction(action, known, seenPushIds);
+  }
+  for (const action of redo) {
+    registerInitialAction(action, known, seenPushIds);
+  }
+  let legacyOperationCount: number = initial.legacyOperationCount;
   let activeSegment: number = 0;
   const grouped: GroupedHistoryEvents = groupEvents(
     operations, (): void => { legacyOperationCount++; });
@@ -99,6 +110,44 @@ export function reducePersistentHistory(operations: Op[]): PersistentHistoryStat
     redo.length = 0;
   }
   return { undo: undo, redo: redo, legacyOperationCount: legacyOperationCount };
+}
+
+export function trimPersistentHistoryState(state: PersistentHistoryState,
+  maxActions: number): PersistentHistoryState {
+  if (!Number.isSafeInteger(maxActions) || maxActions <= 0) {
+    throw new Error('persistent history checkpoint action limit is invalid');
+  }
+  const undo: PersistentHistoryAction[] = clonePersistentActions(state.undo);
+  const redo: PersistentHistoryAction[] = clonePersistentActions(state.redo);
+  while (undo.length + redo.length > maxActions && undo.length > 0) {
+    undo.shift();
+  }
+  if (undo.length + redo.length > maxActions) {
+    throw new Error('persistent redo history exceeds the checkpoint action limit');
+  }
+  return { undo: undo, redo: redo, legacyOperationCount: state.legacyOperationCount };
+}
+
+function clonePersistentActions(actions: PersistentHistoryAction[]): PersistentHistoryAction[] {
+  const result: PersistentHistoryAction[] = [];
+  for (const action of actions) {
+    result.push({
+      actionId: action.actionId,
+      coalesceTrack: action.coalesceTrack,
+      actionTime: action.actionTime,
+      operations: action.operations.slice(),
+    });
+  }
+  return result;
+}
+
+function registerInitialAction(action: PersistentHistoryAction, known: Set<string>,
+  seenPushIds: Set<string>): void {
+  if (action.actionId.length === 0 || action.operations.length === 0 || known.has(action.actionId)) {
+    throw new Error('persistent history checkpoint contains an invalid action');
+  }
+  known.add(action.actionId);
+  seenPushIds.add(action.actionId);
 }
 
 export function materializePersistentHistory(state: PersistentHistoryState,

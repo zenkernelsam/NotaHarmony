@@ -4,8 +4,9 @@ import {
 } from '../main/ets/core/model/OpTypes';
 import { PageInfo, PageOrientation, PaperSize, PaperTemplate } from '../main/ets/core/model/NoteTypes';
 import {
-  materializePersistentHistory, PersistentHistoryState, reducePersistentHistory,
+  materializePersistentHistory, PersistentHistoryState, reducePersistentHistory, reducePersistentHistoryTail,
   replayPersistentPageMutations, RestoredHistoryState,
+  trimPersistentHistoryState,
 } from '../main/ets/data/PersistentHistory';
 import { validateHistoryMetadata } from '../main/ets/data/PersistentHistoryMetadata';
 import {
@@ -51,6 +52,15 @@ function trackedOp(opId: string, actionId: string, effect: HistoryEffect,
 function rejects(operations: Op[]): boolean {
   try {
     reducePersistentHistory(operations);
+  } catch (_error) {
+    return true;
+  }
+  return false;
+}
+
+function rejectsCheckpointTail(checkpoint: PersistentHistoryState, operations: Op[]): boolean {
+  try {
+    reducePersistentHistoryTail(checkpoint, operations);
   } catch (_error) {
     return true;
   }
@@ -177,6 +187,57 @@ export default function persistentHistoryTest() {
       expect(redone.undo.length).assertEqual(3);
       expect(redone.undo[2].actionId).assertEqual('c');
       expect(redone.redo.length).assertEqual(0);
+    });
+
+    it('continues strict stack reduction from a canonical checkpoint', 0, () => {
+      const checkpoint = reducePersistentHistory([
+        trackedOp('push-a', 'a', HistoryEffect.PUSH, 100),
+        trackedOp('push-b', 'b', HistoryEffect.PUSH, 110),
+      ]);
+      const state = reducePersistentHistoryTail(checkpoint, [
+        trackedOp('undo-b', 'b', HistoryEffect.UNDO, 110),
+        trackedOp('redo-b', 'b', HistoryEffect.REDO, 110),
+      ]);
+      expect(state.undo.length).assertEqual(2);
+      expect(state.undo[1].actionId).assertEqual('b');
+      expect(state.redo.length).assertEqual(0);
+      expect(rejectsCheckpointTail(checkpoint,
+        [trackedOp('undo-a', 'a', HistoryEffect.UNDO, 100)])).assertTrue();
+    });
+
+    it('trims only the oldest undo actions and never truncates redo history', 0, () => {
+      const state = reducePersistentHistory([
+        makeOp('a', 'a'), makeOp('b', 'b'), makeOp('c', 'c'), makeOp('d', 'd'),
+        makeOp('undo-d', 'd', HistoryEffect.UNDO),
+      ]);
+      const trimmed = trimPersistentHistoryState(state, 3);
+      expect(trimmed.undo.length).assertEqual(2);
+      expect(trimmed.undo[0].actionId).assertEqual('b');
+      expect(trimmed.redo.length).assertEqual(1);
+      expect(trimmed.redo[0].actionId).assertEqual('d');
+
+      const redoOnly = reducePersistentHistory([
+        makeOp('e', 'e'), makeOp('f', 'f'),
+        makeOp('undo-f', 'f', HistoryEffect.UNDO),
+        makeOp('undo-e', 'e', HistoryEffect.UNDO),
+      ]);
+      let redoOverflowRejected: boolean = false;
+      try {
+        trimPersistentHistoryState(redoOnly, 1);
+      } catch (_error) {
+        redoOverflowRejected = true;
+      }
+      expect(redoOverflowRejected).assertTrue();
+    });
+
+    it('lets a legacy tail invalidate checkpoint stacks conservatively', 0, () => {
+      const checkpoint = reducePersistentHistory([
+        makeOp('a', 'a'), makeOp('b', 'b'),
+      ]);
+      const state = reducePersistentHistoryTail(checkpoint, [makeOp('legacy-tail')]);
+      expect(state.undo.length).assertEqual(0);
+      expect(state.redo.length).assertEqual(0);
+      expect(state.legacyOperationCount).assertEqual(1);
     });
 
     it('groups multiple mutation rows belonging to one atomic action', 0, () => {
