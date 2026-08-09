@@ -15,6 +15,15 @@ function straightSegment(): CubicSegment {
   };
 }
 
+function verticalSegment(): CubicSegment {
+  return {
+    p0: { x: 0, y: 0 },
+    p1: { x: 0, y: 10 },
+    p2: { x: 0, y: 20 },
+    p3: { x: 0, y: 30 },
+  };
+}
+
 function pencilPoint(x: number, pressure: number, altitude: number,
   azimuthX: number, azimuthY: number): StrokePathPoint {
   return {
@@ -29,9 +38,14 @@ function pencilPoint(x: number, pressure: number, altitude: number,
 
 function generate(pressure: number, altitude: number, azimuthX: number,
   azimuthY: number): PencilSplatPoint[] {
+  return generateOnSegment(straightSegment(), pressure, altitude, azimuthX, azimuthY);
+}
+
+function generateOnSegment(segment: CubicSegment, pressure: number, altitude: number,
+  azimuthX: number, azimuthY: number): PencilSplatPoint[] {
   const generator: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
   generator.reset(12345);
-  return generator.generate([straightSegment()], [
+  return generator.generate([segment], [
     pencilPoint(0, pressure, altitude, azimuthX, azimuthY),
     pencilPoint(30, pressure, altitude, azimuthX, azimuthY),
   ]);
@@ -61,6 +75,39 @@ export default function pencilSplatGeneratorTest() {
       const dx: number = Math.abs(horizontal[0].x - vertical[0].x);
       const dy: number = Math.abs(horizontal[0].y - vertical[0].y);
       expect(dx + dy > 0.0001).assertTrue();
+    });
+
+    it('matches the original fixed-seed first splat', 0, () => {
+      const splats: PencilSplatPoint[] = generate(0.8, 0.2, 0, 1);
+      expect(splats.length >= 18).assertTrue();
+      expect(Math.abs(splats[0].x - (-11.452265654259982)) < 1e-10).assertTrue();
+      expect(Math.abs(splats[0].y - 17.59178049583085) < 1e-10).assertTrue();
+      expect(Math.abs(splats[0].rotation - 0.02337137604544309) < 1e-12).assertTrue();
+      expect(Math.abs(splats[0].scale - 1.4764619925891513) < 1e-12).assertTrue();
+      expect(Math.abs(splats[0].opacity - 0.01981311951082389) < 1e-12).assertTrue();
+    });
+
+    it('reproduces the complete splat sequence for the same seed', 0, () => {
+      const first: PencilSplatPoint[] = generate(0.8, 0.2, 0, 1);
+      const second: PencilSplatPoint[] = generate(0.8, 0.2, 0, 1);
+      expect(first.length).assertEqual(second.length);
+      for (let i: number = 0; i < first.length; i++) {
+        expect(first[i].x).assertEqual(second[i].x);
+        expect(first[i].y).assertEqual(second[i].y);
+        expect(first[i].rotation).assertEqual(second[i].rotation);
+        expect(first[i].scale).assertEqual(second[i].scale);
+        expect(first[i].opacity).assertEqual(second[i].opacity);
+      }
+    });
+
+    it('uses the original fixed azimuth fallback instead of the curve tangent', 0, () => {
+      const missing: PencilSplatPoint[] = generateOnSegment(
+        verticalSegment(), 0.8, 0.2, 0, 0);
+      const originalFallback: PencilSplatPoint[] = generateOnSegment(
+        verticalSegment(), 0.8, 0.2, 1, 0);
+      expect(missing.length).assertEqual(originalFallback.length);
+      expect(missing[0].x).assertEqual(originalFallback[0].x);
+      expect(missing[0].y).assertEqual(originalFallback[0].y);
     });
 
     it('keeps existing splats stable when the full stroke is rebuilt', 0, () => {

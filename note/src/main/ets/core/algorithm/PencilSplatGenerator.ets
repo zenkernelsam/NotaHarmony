@@ -92,8 +92,7 @@ export class PencilSplatGenerator {
       const ratio: number = totalLength > 0 ? d / totalLength : 0;
       const attrs: SplatAttributes = this.interpolateAttributes(pathPoints, ratio);
       const sizeF: number = this.sizeFactorOf(attrs);
-      const atPos: PencilSplatPoint[] = this.generateAtPosition(walk.pos, walk.tangent,
-        attrs);
+      const atPos: PencilSplatPoint[] = this.generateAtPosition(walk.pos, attrs);
       for (const s of atPos) {
         splats.push(s);
       }
@@ -115,8 +114,7 @@ export class PencilSplatGenerator {
   }
 
   // 单位置 splat 生成（xaa.b()/xaa.d() 完整公式）
-  private generateAtPosition(pos: Point2D, tangent: Point2D,
-    attrs: SplatAttributes): PencilSplatPoint[] {
+  private generateAtPosition(pos: Point2D, attrs: SplatAttributes): PencilSplatPoint[] {
     // 1.0.3 cfa.b()/ed0：缺失输入使用 force=1、altitude=π/2、azimuth=(1,0)。
     const pressure: number = attrs.pressure < 0 ? 1.0 : attrs.pressure;
     const altitude: number = attrs.altitudeAngleRadians < 0 ? Math.PI / 2 : attrs.altitudeAngleRadians;
@@ -141,8 +139,9 @@ export class PencilSplatGenerator {
     const edgeFactor: number = (1 - angleNorm) + 0.1 * angleNorm;
     const twoPi: number = Math.PI * 2;
     const hasAzimuth: boolean = Math.abs(attrs.azimuthUnitX) + Math.abs(attrs.azimuthUnitY) > 0.000001;
-    const tx: number = hasAzimuth ? attrs.azimuthUnitX : tangent.x;
-    const ty: number = hasAzimuth ? attrs.azimuthUnitY : tangent.y;
+    // cfa uses the attribute vector directly; a61.f() supplies (1,0) when the capability is absent.
+    const tx: number = hasAzimuth ? attrs.azimuthUnitX : 1;
+    const ty: number = hasAzimuth ? attrs.azimuthUnitY : 0;
 
     const results: PencilSplatPoint[] = [];
     for (let i = 0; i < splatCount; i++) {
