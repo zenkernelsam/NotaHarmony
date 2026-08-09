@@ -819,13 +819,9 @@ struct LibraryPage {
           console.error(`pushUrl failed: ${err.code}`);
         });
     })
-    .gesture(
-      LongPressGesture()
-        .onAction(() => {
-          // T-039：长按弹出原生 bindMenu（删除/移动到文件夹）
-        })
-    )
-    .bindMenu(this.buildNoteMenu(note))
+    .bindContextMenu(() => {
+      this.NoteContextMenu(note)
+    }, ResponseType.LongPress)
   }
 
   private confirmDelete(note: NoteMeta): void {
@@ -853,19 +849,25 @@ struct LibraryPage {
     });
   }
 
-  // 构建笔记长按菜单（T-039：删除 + 移动到文件夹动态列表）
-  private buildNoteMenu(note: NoteMeta): MenuElement[] {
-    const items: MenuElement[] = [
-      { value: $r('app.string.delete'), action: () => { this.confirmDelete(note); } },
-      { value: $r('app.string.move_to_all_notes'), action: () => { this.moveNote(note.id, null); } },
-    ];
-    for (const f of this.folders) {
-      items.push({
-        value: $r('app.string.move_to_named_folder', f.name),
-        action: () => { this.moveNote(note.id, f.id); },
-      });
+  // 笔记卡片只由长按打开上下文菜单；单击始终只进入编辑器。
+  @Builder
+  NoteContextMenu(note: NoteMeta) {
+    Menu() {
+      MenuItem({ content: $r('app.string.delete') })
+        .onClick(() => {
+          this.confirmDelete(note);
+        })
+      MenuItem({ content: $r('app.string.move_to_all_notes') })
+        .onClick(() => {
+          this.moveNote(note.id, null);
+        })
+      ForEach(this.folders, (folder: NoteFolder) => {
+        MenuItem({ content: $r('app.string.move_to_named_folder', folder.name) })
+          .onClick(() => {
+            this.moveNote(note.id, folder.id);
+          })
+      }, (folder: NoteFolder) => folder.id)
     }
-    return items;
   }
 
   private buildFolderSelectionMenu(): MenuElement[] {
