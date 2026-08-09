@@ -4,7 +4,8 @@ import {
   DDL_NOTE_META, DDL_NOTE_STATE, DDL_OPERATION_LOG, DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE,
   DDL_PAGE_DELETE_CHECKPOINT, DDL_PAGE_DELETE_CHECKPOINT_ELEMENT, DDL_PAGE_DELETE_CHECKPOINT_SEARCH,
   DDL_HISTORY_CHECKPOINT, DDL_HISTORY_CHECKPOINT_ACTION, DDL_HISTORY_CHECKPOINT_OPERATION,
-  DDL_LOCAL_EDITOR_IDENTITY, DDL_NOTE_SYNC_METADATA,
+  DDL_DEFERRED_SYNCED_OPERATION_BUNDLE, DDL_LOCAL_EDITOR_IDENTITY, DDL_NOTE_SYNC_METADATA,
+  DDL_SYNCED_OPERATION_INBOX,
   DDL_INDEXES, MIGRATIONS,
 } from
   '../main/ets/data/DatabaseHelper';
@@ -14,7 +15,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(19);
+      expect(DB_VERSION).assertEqual(20);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -38,6 +39,15 @@ export default function databaseHelperTest() {
       const migration: string = MIGRATIONS[19].join('\n');
       expect(migration).assertContain('note_sync_metadata_v19');
       expect(migration).assertContain('CAST(max_server_time AS TEXT)');
+    });
+
+    it('keeps received and deferred synced ops outside the local upload log', 0, () => {
+      expect(DDL_SYNCED_OPERATION_INBOX)
+        .assertContain('PRIMARY KEY(note_id, op_timestamp, editor_site_id)');
+      expect(DDL_SYNCED_OPERATION_INBOX).assertContain('raw_operation BLOB NOT NULL');
+      expect(DDL_SYNCED_OPERATION_INBOX).assertContain('state IN (0, 1, 2)');
+      expect(DDL_DEFERRED_SYNCED_OPERATION_BUNDLE).assertContain('length(payload) = payload_size');
+      expect(MIGRATIONS[20].join('\n')).assertNotContain('operation_log');
     });
 
     it('tracks note-scoped page structure revisions', 0, () => {

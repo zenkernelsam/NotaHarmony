@@ -49,6 +49,7 @@ import persistentHistoryTest from './PersistentHistory.test';
 import importIdentityTest from './ImportIdentity.test';
 import operationCompactionTest from './OperationCompaction.test';
 import operationSyncCoordinatorTest from './OperationSyncCoordinator.test';
+import syncedOperationInboxTest from './SyncedOperationInbox.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -102,4 +103,5 @@ export default function testsuite() {
   importIdentityTest();
   operationCompactionTest();
   operationSyncCoordinatorTest();
+  syncedOperationInboxTest();
 }

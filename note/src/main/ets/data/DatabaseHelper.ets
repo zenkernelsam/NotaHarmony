@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v19: preserve original unsigned 64-bit server cursors as canonical decimal text.
-export const DB_VERSION: number = 19;
+// v20: isolate received/deferred synced operations from local ClientOp/Undo storage.
+export const DB_VERSION: number = 20;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -143,6 +143,52 @@ CREATE TABLE note_sync_metadata_v19 (
   uploaded_through_sequence INTEGER NOT NULL DEFAULT 0 CHECK (uploaded_through_sequence >= 0),
   acked_through_sequence INTEGER NOT NULL DEFAULT 0 CHECK (acked_through_sequence >= 0),
   CHECK (acked_through_sequence <= uploaded_through_sequence),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+// Raw synced ops stay isolated until their original FlatBuffer payload can be validated/applied.
+export const DDL_SYNCED_OPERATION_INBOX: string = `
+CREATE TABLE IF NOT EXISTS synced_operation_inbox (
+  note_id TEXT NOT NULL,
+  op_timestamp INTEGER NOT NULL CHECK (op_timestamp BETWEEN 0 AND 4294967295),
+  editor_site_id INTEGER NOT NULL CHECK (editor_site_id BETWEEN 0 AND 65535),
+  client_time TEXT NOT NULL CHECK (
+    typeof(client_time) = 'text' AND length(client_time) BETWEEN 1 AND 20
+    AND client_time NOT GLOB '*[^0-9]*'
+    AND (client_time = '0' OR substr(client_time, 1, 1) <> '0')
+    AND (length(client_time) < 20 OR client_time <= '18446744073709551615')
+  ),
+  server_time TEXT NOT NULL CHECK (
+    typeof(server_time) = 'text' AND length(server_time) BETWEEN 1 AND 20
+    AND server_time NOT GLOB '*[^0-9]*'
+    AND (server_time = '0' OR substr(server_time, 1, 1) <> '0')
+    AND (length(server_time) < 20 OR server_time <= '18446744073709551615')
+  ),
+  schema_version INTEGER NOT NULL CHECK (schema_version BETWEEN 0 AND 65535),
+  payload_type INTEGER NOT NULL CHECK (payload_type BETWEEN 0 AND 255),
+  raw_operation BLOB NOT NULL CHECK (length(raw_operation) BETWEEN 1 AND 67108864),
+  state INTEGER NOT NULL DEFAULT 0 CHECK (state IN (0, 1, 2)),
+  deferred_reason TEXT,
+  received_at INTEGER NOT NULL CHECK (received_at BETWEEN 0 AND 9007199254740991),
+  CHECK ((state = 1 AND deferred_reason IS NOT NULL AND length(deferred_reason) > 0)
+    OR (state IN (0, 2) AND deferred_reason IS NULL)),
+  PRIMARY KEY(note_id, op_timestamp, editor_site_id),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+// Original DeferredSyncedOps points to checksummed files. Harmony keeps the equivalent raw
+// bundle in SQLite so row and bytes cross the same transaction boundary.
+export const DDL_DEFERRED_SYNCED_OPERATION_BUNDLE: string = `
+CREATE TABLE IF NOT EXISTS deferred_synced_operation_bundle (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  note_id TEXT NOT NULL,
+  schema_version INTEGER NOT NULL CHECK (schema_version BETWEEN 0 AND 65535),
+  table_type TEXT NOT NULL CHECK (length(table_type) BETWEEN 1 AND 64),
+  payload BLOB NOT NULL,
+  payload_size INTEGER NOT NULL CHECK (payload_size BETWEEN 1 AND 67108864),
+  checksum INTEGER NOT NULL CHECK (checksum BETWEEN -2147483648 AND 2147483647),
+  received_at INTEGER NOT NULL CHECK (received_at BETWEEN 0 AND 9007199254740991),
+  CHECK (length(payload) = payload_size),
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
@@ -358,6 +404,13 @@ export const DDL_INDEXES: string[] = [
     ON operation_log(note_id, action_id, sequence)`,
   `CREATE INDEX IF NOT EXISTS idx_operation_log_pending_upload
     ON operation_log(note_id, sequence, upload_immediately)`,
+  `CREATE INDEX IF NOT EXISTS idx_synced_operation_inbox_server_time
+    ON synced_operation_inbox(note_id, length(server_time), server_time,
+      length(client_time), client_time, op_timestamp, editor_site_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_synced_operation_inbox_state
+    ON synced_operation_inbox(note_id, state, received_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_deferred_synced_bundle_note
+    ON deferred_synced_operation_bundle(note_id, id)`,
   `CREATE INDEX IF NOT EXISTS idx_page_delete_checkpoint_page
     ON page_delete_checkpoint(note_id, page_id, created_time)`,
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_page_info_note ON page_info(note_id, page_index)',
@@ -617,5 +670,9 @@ export const MIGRATIONS: Record<number, string[]> = {
       FROM note_sync_metadata`,
     'DROP TABLE note_sync_metadata',
     'ALTER TABLE note_sync_metadata_v19 RENAME TO note_sync_metadata',
+  ],
+  20: [
+    DDL_SYNCED_OPERATION_INBOX,
+    DDL_DEFERRED_SYNCED_OPERATION_BUNDLE,
   ],
 };

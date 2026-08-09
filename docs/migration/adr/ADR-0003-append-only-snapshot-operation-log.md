@@ -154,6 +154,14 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 - v18 的建表 SQL冻结为历史常量，v18→v19 用 `CAST(... AS TEXT)` 无损搬迁旧的非负 INTEGER；建新表、搬迁、替换与版本推进仍位于同一
   SQLite 事务，损坏旧值或任一步故障会保留完整 v18 表。ACK 在任何水位写入前先完成 canonical 范围和不倒退校验，数据库 CHECK 再作为
   第二道边界；全程不把十进制游标转换为浮点数。
+- 第十七阶段建立 incoming synced-op 的隔离边界。原版 `e47.java:336-341` 明确把 `ClientOp`、`SyncedOpMetadata` 与
+  `DeferredSyncedOps` 分开；`uq9.java` 的 synced op 自带 id、client/server time、payload type 与完整 payload，原版排序比较器先按
+  server time、再按 client time。v20 因而新增 `synced_operation_inbox`，以原版 `(timestamp,site)` 为主键，完整保存 unsigned
+  client/server time、schema、payload type 与未解码 raw op；批次必须按原版两级时间顺序，重复身份只在全部字节/元数据一致时幂等。
+- inbox 与本地 `operation_log`/Undo 完全分离，接收事务既不创建待上传行，也不推进 `note_sync_metadata.max_server_time` 或
+  `synced_op_count`。未知 FlatBuffer 只有在未来严格解码并原子应用后才能进入 APPLIED；身份相同但字节或时间不同视为冲突并使整批回滚，
+  不能用 replace 掩盖。v20 同时按原版 `DeferredSyncedOps(id,noteId,schemaVersion,tableType,fileSize,checksum)` 建立独立 raw bundle 表；
+  Harmony 把文件 bytes 与元数据置于同一 SQLite 行并约束实际长度，CRC/表语义未验证前不消费该 bundle。
 
 ## 后果
 
@@ -165,6 +173,6 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 最后一个无 legacy 的完整 segment 现在可在重启后恢复成可执行 Undo/Redo 栈，DELETE_PAGE 也具备耐久内容 checkpoint 和原子
 PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成组 Undo/Redo。本地启动 replay 与删除页恢复点增长已有上限，
 损坏历史也有用户可见且不删除同步日志的本地恢复路径；同步日志本身仍保持追加式。原版式 editor site/op clock、耐久同步元数据和
-upload/ACK 前缀契约、本地导入身份映射、共同水位压缩、严格同步会话协调器及无损 unsigned 64-bit server cursor 已经建立，但还没有经过认证的远端 WebSocket 适配器、incoming
-op 落库/回放或完整服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
+upload/ACK 前缀契约、本地导入身份映射、共同水位压缩、严格同步会话协调器、无损 unsigned 64-bit server cursor 及隔离的 incoming raw-op
+落库已经建立，但还没有经过认证的远端 WebSocket 适配器、incoming payload 解码/原子应用或完整服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
 原版协作或完整增量同步语义。
