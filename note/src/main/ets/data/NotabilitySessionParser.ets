@@ -194,6 +194,120 @@ export function resolveNotabilityPageCount(derivedFromContent: number, pageCount
   return Math.max(1, derivedFromContent, pageCountHint);
 }
 
+export interface NotabilityHandwritingIndexPage {
+  pageKey: string;
+  pageIndex: number;
+  text: string;
+}
+
+interface HandwritingIndexEntry {
+  pageKey: string;
+  sourceIndex: number;
+  numericOrder: number;
+  value: PlistValue;
+}
+
+function positivePageNumber(key: string): number {
+  if (key.length === 0) {
+    return -1;
+  }
+  let value: number = 0;
+  for (let i: number = 0; i < key.length; i++) {
+    const code: number = key.charCodeAt(i);
+    if (code < 48 || code > 57) {
+      return -1;
+    }
+    value = value * 10 + code - 48;
+    if (value > 1000000) {
+      return -1;
+    }
+  }
+  return value > 0 ? value : -1;
+}
+
+function handwritingTextOf(value: PlistValue, pageKey: string, warnings?: string[]): string {
+  if (value.type !== PlistType.DICT) {
+    if (warnings !== undefined) {
+      warnings.push(`HandwritingIndex.pages[${pageKey}] 类型不支持：${value.describe()}`);
+    }
+    return '';
+  }
+  const text: PlistValue | null = value.dictGet('text');
+  if (text === null) {
+    return '';
+  }
+  if (text.type !== PlistType.STRING) {
+    if (warnings !== undefined) {
+      warnings.push(`HandwritingIndex.pages[${pageKey}].text 类型不支持：${text.describe()}`);
+    }
+    return '';
+  }
+  return text.asString('');
+}
+
+export function extractHandwritingIndexPages(root: PlistValue,
+  warnings?: string[]): NotabilityHandwritingIndexPage[] {
+  const pages: PlistValue | null = root.dictGet('pages');
+  if (pages === null) {
+    if (warnings !== undefined) {
+      warnings.push('HandwritingIndex 缺少 pages 容器');
+    }
+    return [];
+  }
+  const result: NotabilityHandwritingIndexPage[] = [];
+  if (pages.type === PlistType.ARRAY || pages.type === PlistType.SET) {
+    const values: PlistValue[] = pages.arrayItems();
+    for (let i: number = 0; i < values.length; i++) {
+      const pageKey: string = `${i + 1}`;
+      result.push({ pageKey: pageKey, pageIndex: i,
+        text: handwritingTextOf(values[i], pageKey, warnings) });
+    }
+    return result;
+  }
+  if (pages.type !== PlistType.DICT) {
+    if (warnings !== undefined) {
+      warnings.push(`HandwritingIndex.pages 类型不支持：${pages.describe()}`);
+    }
+    return result;
+  }
+
+  const keys: string[] = pages.dictKeys();
+  const entries: HandwritingIndexEntry[] = [];
+  let hasNonNumericKey: boolean = false;
+  for (let i: number = 0; i < keys.length; i++) {
+    const value: PlistValue | null = pages.dictValueAt(i);
+    if (value === null) {
+      continue;
+    }
+    const numericOrder: number = positivePageNumber(keys[i]);
+    if (numericOrder < 0) {
+      hasNonNumericKey = true;
+    }
+    entries.push({ pageKey: keys[i], sourceIndex: i, numericOrder: numericOrder, value: value });
+  }
+  entries.sort((left: HandwritingIndexEntry, right: HandwritingIndexEntry): number => {
+    if (left.numericOrder >= 0 && right.numericOrder >= 0) {
+      return left.numericOrder - right.numericOrder;
+    }
+    if (left.numericOrder >= 0) {
+      return -1;
+    }
+    if (right.numericOrder >= 0) {
+      return 1;
+    }
+    return left.sourceIndex - right.sourceIndex;
+  });
+  if (hasNonNumericKey && warnings !== undefined) {
+    warnings.push('HandwritingIndex.pages 含非数字页键；数字页按页码排序，其余保持 plist 顺序');
+  }
+  for (let i: number = 0; i < entries.length; i++) {
+    const entry: HandwritingIndexEntry = entries[i];
+    result.push({ pageKey: entry.pageKey, pageIndex: i,
+      text: handwritingTextOf(entry.value, entry.pageKey, warnings) });
+  }
+  return result;
+}
+
 export interface NotabilitySession {
   ok: boolean;
   error: string;
@@ -1028,6 +1142,11 @@ export class NotabilitySessionParser {
 
   // 从 HandwritingIndex/index.plist 读取页数（普通 binary plist，非归档）
   static pageCountFromIndex(data: Uint8Array, warnings?: string[]): number {
+    return NotabilitySessionParser.handwritingTextFromIndex(data, warnings).length;
+  }
+
+  static handwritingTextFromIndex(data: Uint8Array,
+    warnings?: string[]): NotabilityHandwritingIndexPage[] {
     const parsed: PlistParseResult = BinaryPlistParser.parse(data);
     if (warnings !== undefined) {
       for (let i: number = 0; i < parsed.warnings.length; i++) {
@@ -1036,22 +1155,12 @@ export class NotabilitySessionParser {
     }
     const root: PlistValue | null = parsed.value;
     if (root === null) {
-      return 0;
+      if (warnings !== undefined && parsed.error.length > 0) {
+        warnings.push(`HandwritingIndex：${parsed.error}`);
+      }
+      return [];
     }
-    const pages: PlistValue | null = root.dictGet('pages');
-    if (pages === null) {
-      return 0;
-    }
-    if (pages.type === PlistType.DICT) {
-      return pages.dictKeys().length;
-    }
-    if (pages.type === PlistType.ARRAY || pages.type === PlistType.SET) {
-      return pages.arrayItems().length;
-    }
-    if (warnings !== undefined) {
-      warnings.push(`HandwritingIndex.pages 类型不支持：${pages.describe()}`);
-    }
-    return 0;
+    return extractHandwritingIndexPages(root, warnings);
   }
 }
 

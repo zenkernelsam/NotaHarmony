@@ -12,6 +12,9 @@ import {
 import { DatabaseManager } from './DatabaseManager';
 import { LatestWriteQueue } from './LatestWriteQueue';
 import { AsyncMutex } from './AsyncMutex';
+import { foldSearchText } from './SearchText';
+import { SearchItemType } from './SearchItemType';
+import { handwritingSourceChanged, SearchSourceElement } from './SearchIndexPolicy';
 
 export interface PersistedElement {
   kind: string;
@@ -129,6 +132,39 @@ export class StrokePersistence {
     textBlocks: TextBlockElement[], elementOrder: PageElementRef[] = [], shapes: ShapeElement[] = []): Promise<void> {
     this.queueSaveElements(noteId, pageId, strokes, textBlocks, elementOrder, shapes);
     await this.flush(noteId, pageId);
+  }
+
+  async replaceImportedHandwritingText(noteId: string, pageId: string, text: string): Promise<void> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    await StrokePersistence.writeMutex.runExclusive(async (): Promise<void> => {
+      if (this.store === null) {
+        throw new Error('StrokePersistence is not initialized');
+      }
+      const store: relationalStore.RdbStore = this.store;
+      await store.beginTransaction();
+      try {
+        await this.deletePageSearchType(store, noteId, pageId, SearchItemType.INK);
+        const foldedText: string = foldSearchText(text);
+        if (foldedText.trim().length > 0) {
+          const bucket: relationalStore.ValuesBucket = {
+            'note_id': noteId,
+            'type': SearchItemType.INK,
+            'sub_id': pageId,
+            'page_id': pageId,
+            'folded_text': foldedText,
+            'rects': null,
+          };
+          await store.insert('search_item', bucket,
+            relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+        }
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`replace imported handwriting text failed: ${JSON.stringify(e)}`);
+      }
+    });
   }
 
   async loadElements(noteId: string, pageId: string): Promise<LoadedElements> {
@@ -280,6 +316,7 @@ export class StrokePersistence {
       if (revisedPages !== 1) {
         throw new Error(`expected one page revision update, got ${revisedPages}`);
       }
+      const sourceChanged: boolean = await this.didHandwritingSourceChange(store, snapshot);
       const del = new relationalStore.RdbPredicates('page_element_snapshot');
       del.equalTo('note_id', snapshot.noteId);
       del.equalTo('page_id', snapshot.pageId);
@@ -300,17 +337,17 @@ export class StrokePersistence {
       if (buckets.length > 0) {
         await store.batchInsert('page_element_snapshot', buckets);
       }
-      const oldSearch = new relationalStore.RdbPredicates('search_item');
-      oldSearch.equalTo('note_id', snapshot.noteId);
-      oldSearch.equalTo('page_id', snapshot.pageId);
-      oldSearch.equalTo('type', 1);
-      await store.delete(oldSearch);
+      await this.deletePageSearchType(
+        store, snapshot.noteId, snapshot.pageId, SearchItemType.TEXT_BLOCK);
+      if (sourceChanged) {
+        await this.deletePageSearchType(store, snapshot.noteId, snapshot.pageId, SearchItemType.INK);
+      }
       const searchBuckets: relationalStore.ValuesBucket[] = [];
       for (const element of snapshot.elements) {
         if (element.searchText !== null) {
           searchBuckets.push({
             'note_id': snapshot.noteId,
-            'type': 1,
+            'type': SearchItemType.TEXT_BLOCK,
             'sub_id': element.elementId,
             'page_id': snapshot.pageId,
             'folded_text': element.searchText,
@@ -410,12 +447,12 @@ export class StrokePersistence {
       const oldSearch = new relationalStore.RdbPredicates('search_item');
       oldSearch.equalTo('note_id', page.noteId);
       oldSearch.equalTo('page_id', page.pageId);
-      oldSearch.equalTo('type', 1);
+      oldSearch.equalTo('type', SearchItemType.TEXT_BLOCK);
       await store.delete(oldSearch);
       for (const text of texts) {
         const bucket: relationalStore.ValuesBucket = {
           'note_id': page.noteId,
-          'type': 1,
+          'type': SearchItemType.TEXT_BLOCK,
           'sub_id': text.subId,
           'page_id': page.pageId,
           'folded_text': text.foldedText,
@@ -452,7 +489,7 @@ export class StrokePersistence {
       } else if (element.kind === PageElementKind.TEXT) {
         const payload: PersistedElement = { kind: 'text', data: element.data };
         elements.push({ elementId: element.elementId, kind: PageElementKind.TEXT,
-          payload: encodePersistedElement(payload), searchText: element.data.richText.toLowerCase() });
+          payload: encodePersistedElement(payload), searchText: foldSearchText(element.data.richText) });
       } else {
         const payload: PersistedElement = { kind: 'shape', data: element.data };
         elements.push({ elementId: element.elementId, kind: PageElementKind.SHAPE,
@@ -476,6 +513,37 @@ export class StrokePersistence {
 
   private saveKey(noteId: string, pageId: string): string {
     return `${noteId}\u0000${pageId}`;
+  }
+
+  private async deletePageSearchType(store: relationalStore.RdbStore, noteId: string,
+    pageId: string, type: SearchItemType): Promise<void> {
+    const predicates = new relationalStore.RdbPredicates('search_item');
+    predicates.equalTo('note_id', noteId);
+    predicates.equalTo('page_id', pageId);
+    predicates.equalTo('type', type);
+    await store.delete(predicates);
+  }
+
+  private async didHandwritingSourceChange(store: relationalStore.RdbStore,
+    snapshot: PreparedPageSave): Promise<boolean> {
+    const predicates = new relationalStore.RdbPredicates('page_element_snapshot');
+    predicates.equalTo('note_id', snapshot.noteId);
+    predicates.equalTo('page_id', snapshot.pageId);
+    predicates.orderByAsc('element_order');
+    const resultSet = await store.query(predicates, ['element_id', 'kind', 'payload']);
+    const current: SearchSourceElement[] = [];
+    try {
+      while (resultSet.goToNextRow()) {
+        current.push({
+          elementId: resultSet.getString(resultSet.getColumnIndex('element_id')),
+          kind: resultSet.getLong(resultSet.getColumnIndex('kind')),
+          payload: resultSet.getBlob(resultSet.getColumnIndex('payload')),
+        });
+      }
+    } finally {
+      resultSet.close();
+    }
+    return handwritingSourceChanged(current, snapshot.elements);
   }
 
   private async loadMatchingElements(noteId: string, pageId: string | null): Promise<LoadedElements> {

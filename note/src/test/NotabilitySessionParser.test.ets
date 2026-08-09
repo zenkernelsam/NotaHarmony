@@ -1,10 +1,12 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
   assessNotabilityCurveFidelity, createNotabilityContentInventory, NotabilityContentInventory,
-  NotabilitySession, resolveNotabilityPageCount, summarizeNotabilityContentLoss,
+  extractHandwritingIndexPages, NotabilityHandwritingIndexPage, NotabilitySession,
+  resolveNotabilityPageCount, summarizeNotabilityContentLoss,
 } from '../main/ets/data/NotabilitySessionParser';
 import { ElementType } from '../main/ets/core/model/ElementTypes';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
+import { PlistType, PlistValue } from '../main/ets/data/BinaryPlistParser';
 
 export default function notabilitySessionParserTest() {
   describe('NotabilitySessionParser', () => {
@@ -44,6 +46,66 @@ export default function notabilitySessionParserTest() {
       expect(resolveNotabilityPageCount(0, 0)).assertEqual(1);
     });
 
+    it('orders numeric HandwritingIndex dictionary pages and preserves Unicode text', 0, () => {
+      const root: PlistValue = handwritingRoot(PlistValue.ofDict(
+        ['10', '2', '1'], [handwritingPage('ten'), handwritingPage('第二页'), handwritingPage('first')]));
+      const pages: NotabilityHandwritingIndexPage[] = extractHandwritingIndexPages(root);
+
+      expect(pages.length).assertEqual(3);
+      expect(pages[0].pageKey).assertEqual('1');
+      expect(pages[0].text).assertEqual('first');
+      expect(pages[1].pageKey).assertEqual('2');
+      expect(pages[1].text).assertEqual('第二页');
+      expect(pages[2].pageKey).assertEqual('10');
+      expect(pages[2].pageIndex).assertEqual(2);
+    });
+
+    it('keeps HandwritingIndex array and set slots including blank pages', 0, () => {
+      const arrayPages: NotabilityHandwritingIndexPage[] = extractHandwritingIndexPages(
+        handwritingRoot(PlistValue.ofArray(PlistType.ARRAY,
+          [handwritingPage('one'), handwritingPage(''), handwritingPage('三')])));
+      const setPages: NotabilityHandwritingIndexPage[] = extractHandwritingIndexPages(
+        handwritingRoot(PlistValue.ofArray(PlistType.SET,
+          [handwritingPage('alpha'), handwritingPage('beta')])));
+
+      expect(arrayPages.length).assertEqual(3);
+      expect(arrayPages[1].pageKey).assertEqual('2');
+      expect(arrayPages[1].text).assertEqual('');
+      expect(arrayPages[2].text).assertEqual('三');
+      expect(setPages.length).assertEqual(2);
+      expect(setPages[1].text).assertEqual('beta');
+    });
+
+    it('skips a malformed HandwritingIndex page without shifting later pages', 0, () => {
+      const warnings: string[] = [];
+      const root: PlistValue = handwritingRoot(PlistValue.ofDict(['1', '2', '3'], [
+        handwritingPage('valid'),
+        PlistValue.ofDict(['text'], [PlistValue.ofNumber(PlistType.INT, 7)]),
+        handwritingPage('later'),
+      ]));
+      const pages: NotabilityHandwritingIndexPage[] = extractHandwritingIndexPages(root, warnings);
+
+      expect(pages.length).assertEqual(3);
+      expect(pages[1].text).assertEqual('');
+      expect(pages[2].text).assertEqual('later');
+      expect(warnings.length).assertEqual(1);
+      expect(warnings[0]).assertContain('pages[2].text');
+    });
+
+    it('keeps nonnumeric HandwritingIndex keys stable and reports the fallback', 0, () => {
+      const warnings: string[] = [];
+      const root: PlistValue = handwritingRoot(PlistValue.ofDict(
+        ['cover', '2', 'appendix'],
+        [handwritingPage('cover'), handwritingPage('two'), handwritingPage('appendix')]));
+      const pages: NotabilityHandwritingIndexPage[] = extractHandwritingIndexPages(root, warnings);
+
+      expect(pages[0].pageKey).assertEqual('2');
+      expect(pages[1].pageKey).assertEqual('cover');
+      expect(pages[2].pageKey).assertEqual('appendix');
+      expect(warnings.length).assertEqual(1);
+      expect(warnings[0]).assertContain('非数字页键');
+    });
+
     it('marks unsupported curve attributes as degraded without inventing a mapping', 0, () => {
       const baseline = assessNotabilityCurveFidelity(
         3, [1, 1], [1, 1], [Math.PI / 2], [1], [0]);
@@ -78,6 +140,14 @@ export default function notabilitySessionParserTest() {
       }
     });
   });
+}
+
+function handwritingRoot(pages: PlistValue): PlistValue {
+  return PlistValue.ofDict(['pages'], [pages]);
+}
+
+function handwritingPage(text: string): PlistValue {
+  return PlistValue.ofDict(['text'], [PlistValue.ofString(text)]);
 }
 
 function semanticShapeSession(): NotabilitySession {

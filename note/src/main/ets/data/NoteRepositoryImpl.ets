@@ -7,6 +7,7 @@ import { NoteRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { assetMutationMutex, parseAssetNoteIds, unlinkAssetFile } from './AssetRepositoryImpl';
 import { escapeSearchLike, foldSearchText } from './SearchText';
+import { SearchItemType } from './SearchItemType';
 
 interface NoteAssetReference {
   assetHash: string;
@@ -353,7 +354,7 @@ export class NoteRepositoryImpl implements NoteRepository {
     title: string): Promise<void> {
     const bucket: relationalStore.ValuesBucket = {
       'note_id': noteId,
-      'type': 0,
+      'type': SearchItemType.TITLE,
       'sub_id': noteId,
       'page_id': null,
       'folded_text': foldSearchText(title),

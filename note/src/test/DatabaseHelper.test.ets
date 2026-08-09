@@ -5,11 +5,12 @@ import {
 } from
   '../main/ets/data/DatabaseHelper';
 import { isCurrentViewCoordinateModel } from '../main/ets/core/model/NoteTypes';
+import { SearchItemType } from '../main/ets/data/SearchItemType';
 
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(11);
+      expect(DB_VERSION).assertEqual(12);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -33,6 +34,12 @@ export default function databaseHelperTest() {
       expect(DDL_SEARCH_ITEM).assertContain('ON DELETE CASCADE');
       expect(DDL_SEARCH_PAGE_STATE).assertContain('indexed_revision');
       expect(MIGRATIONS[10].join('\n')).assertContain('lower(title)');
+      expect(SearchItemType.TITLE).assertEqual(0);
+      expect(SearchItemType.MAIN_BODY_TEXT).assertEqual(1);
+      expect(SearchItemType.TEXT_BLOCK).assertEqual(2);
+      expect(SearchItemType.INK).assertEqual(3);
+      expect(SearchItemType.PDF).assertEqual(6);
+      expect(MIGRATIONS[12].join('\n')).assertContain('SET type = 2 WHERE type = 1');
     });
 
     it('versions viewport coordinates and rejects legacy state deterministically', 0, () => {

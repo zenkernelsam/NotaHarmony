@@ -18,7 +18,8 @@ import { StrokePersistence, PersistedElement } from './StrokePersistence';
 import { paperSizeToMm } from './NoteExporter';
 import {
   NotabilityMetadataParser, NotabilitySessionParser, NotabilityMetadata,
-  NotabilitySession, NotabilityPageElements, DEFAULT_TARGET_PAGE_WIDTH_VP,
+  NotabilitySession, NotabilityPageElements, NotabilityHandwritingIndexPage,
+  DEFAULT_TARGET_PAGE_WIDTH_VP,
   summarizeNotabilityContentLoss,
 } from './NotabilitySessionParser';
 
@@ -364,9 +365,12 @@ export class NoteImporter {
     }
     let pageCountHint: number = 0;
     const indexWarnings: string[] = [];
+    let handwritingIndexPages: NotabilityHandwritingIndexPage[] = [];
     const index: ZipEntry | null = findEntryBySuffix(entries, 'HandwritingIndex/index.plist');
     if (index !== null) {
-      pageCountHint = NotabilitySessionParser.pageCountFromIndex(index.data, indexWarnings);
+      handwritingIndexPages =
+        NotabilitySessionParser.handwritingTextFromIndex(index.data, indexWarnings);
+      pageCountHint = handwritingIndexPages.length;
     }
 
     // 3. Session.plist：笔画 + 形状
@@ -417,6 +421,7 @@ export class NoteImporter {
           ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT;
       const mm: number[] = paperSizeToMm(size);
       let totalStrokes: number = 0;
+      let indexedHandwritingPages: number = 0;
       for (let i = 0; i < pages.length; i++) {
         const pageInfo: PageInfo = {
           pageId: generateId(), pageIndex: i, size: size, template: template, orientation: orientation,
@@ -426,6 +431,11 @@ export class NoteImporter {
         await pageRepo.addPage(note.id, pageInfo);
         await this.persistence.saveElements(note.id, pageInfo.pageId, pages[i].strokes, [],
           pages[i].elementOrder, pages[i].shapes);
+        if (i < handwritingIndexPages.length && handwritingIndexPages[i].text.trim().length > 0) {
+          await this.persistence.replaceImportedHandwritingText(
+            note.id, pageInfo.pageId, handwritingIndexPages[i].text);
+          indexedHandwritingPages++;
+        }
         totalStrokes += pages[i].strokes.length;
       }
 
@@ -462,6 +472,9 @@ export class NoteImporter {
       }
       let message: string = `已导入 Notability 笔记「${note.title}」：` +
         `${pages.length} 页 / ${session.curves.length} 条笔迹 / ${session.shapes.length} 个识别形状`;
+      if (indexedHandwritingPages > 0) {
+        message += ` / ${indexedHandwritingPages} 页手写内容可搜索`;
+      }
       if (missingAssets.length > 0) {
         message += `。未导入内容：${missingAssets.join('；')}`;
       }
@@ -470,7 +483,8 @@ export class NoteImporter {
       }
       const partial: boolean = missingAssets.length > 0;
       console.info(`importNotability done: note=${note.id} pages=${pages.length} ` +
-        `curves=${session.curves.length} shapes=${session.shapes.length} strokes=${totalStrokes}`);
+        `curves=${session.curves.length} shapes=${session.shapes.length} strokes=${totalStrokes} ` +
+        `searchableHandwritingPages=${indexedHandwritingPages}`);
       return {
         result: partial ? ImportResult.PARTIAL : ImportResult.SUCCESS,
         noteId: note.id, title: note.title, pageCount: pages.length,

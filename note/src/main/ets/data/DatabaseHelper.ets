@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v11: note_state 增加坐标模型版本；无法可靠换算的旧 scroll 标为 legacy 并由 UI 忽略。
-export const DB_VERSION: number = 11;
+// v12: 搜索类型与原版对齐；旧移植版本误把块文本写成了 MAIN_BODY_TEXT(1)。
+export const DB_VERSION: number = 12;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -107,8 +107,8 @@ CREATE TABLE IF NOT EXISTS folder (
   FOREIGN KEY(parent_id) REFERENCES folder(id) ON DELETE CASCADE
 )`;
 
-// Mirrors the original app's search_item(noteId, type, subId, pageId, foldedText, rects)
-// model. type 0 is a title and type 1 is an editable/imported text block.
+// Mirrors the original app's search_item(noteId, type, subId, pageId, foldedText, rects).
+// Types are defined in SearchItemType.ets: title=0, main body=1, text block=2, ink=3, PDF=6.
 export const DDL_SEARCH_ITEM: string = `
 CREATE TABLE IF NOT EXISTS search_item (
   id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -326,5 +326,14 @@ export const MIGRATIONS: Record<number, string[]> = {
   ],
   11: [
     'ALTER TABLE note_state ADD COLUMN coordinate_model_version INTEGER NOT NULL DEFAULT 0',
+  ],
+  12: [
+    `DELETE FROM search_item
+      WHERE search_item.type = 1 AND EXISTS (
+        SELECT 1 FROM search_item current
+        WHERE current.note_id = search_item.note_id AND current.type = 2
+          AND current.sub_id = search_item.sub_id
+      )`,
+    'UPDATE search_item SET type = 2 WHERE type = 1',
   ],
 };
