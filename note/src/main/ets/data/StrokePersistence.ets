@@ -110,12 +110,13 @@ export class StrokePersistence {
   }
 
   queueSaveElements(noteId: string, pageId: string, strokes: StrokeElementData[],
-    textBlocks: TextBlockElement[], elementOrder: PageElementRef[] = [], shapes: ShapeElement[] = []): number {
+    textBlocks: TextBlockElement[], elementOrder: PageElementRef[] = [], shapes: ShapeElement[] = [],
+    preserveActionBoundary: boolean = false): number {
     if (this.store === null) {
       throw new Error('StrokePersistence is not initialized');
     }
     const snapshot: PreparedPageSave = this.prepareSave(noteId, pageId, strokes, textBlocks, elementOrder, shapes);
-    return this.getSaveQueue(noteId, pageId).enqueue(snapshot);
+    return this.getSaveQueue(noteId, pageId).enqueue(snapshot, preserveActionBoundary);
   }
 
   async flush(noteId: string, pageId: string): Promise<void> {

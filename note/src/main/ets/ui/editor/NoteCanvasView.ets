@@ -166,6 +166,7 @@ export struct NoteCanvasView {
   private skipSavePageId: string = '';
   private pageLoadGeneration: number = 0;
   private saveFailed: boolean = false;
+  private lastQueuedHistoryRevision: number = 0;
   @State textEditing: boolean = false;
   @State editingTextBlock: TextBlockElement | null = null;
   private editingOriginalTextBlock: TextBlockElement | null = null;
@@ -256,8 +257,11 @@ export struct NoteCanvasView {
       this.loadedPageId !== this.skipSavePageId) {
       const pageId: string = this.loadedPageId;
       try {
+        const historyRevision: number = this.undoRedo.getHistoryRevision();
+        const preserveActionBoundary: boolean = historyRevision !== this.lastQueuedHistoryRevision;
         this.persistence.queueSaveElements(this.noteId, pageId, this.completedStrokes, this.textBlocks,
-          this.elementOrder, this.shapes);
+          this.elementOrder, this.shapes, preserveActionBoundary);
+        this.lastQueuedHistoryRevision = historyRevision;
         this.persistence.flush(this.noteId, pageId).then(() => {
           if (!this.persistence.hasDirtySave(this.noteId, pageId)) {
             this.saveFailed = false;
@@ -1204,6 +1208,8 @@ export struct NoteCanvasView {
       ? this.undoRedo.commitUndo(action) : this.undoRedo.commitRedo(action);
     if (!committed) {
       hilog.error(0x0001, 'NoteCanvasView', 'history commit rejected after apply, type=%{public}d', action.type);
+    } else if (!this.isPageAction(action.type)) {
+      this.persist();
     }
     this.notifyUndoRedo();
   }
@@ -1374,7 +1380,6 @@ export struct NoteCanvasView {
       this.synchronizeElementArraysByOrder();
     }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
-    this.persist();
     this.renderFrame();
     return true;
   }

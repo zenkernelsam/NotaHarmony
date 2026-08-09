@@ -342,6 +342,7 @@ export class UndoRedoManager {
   private redoBytes: number = 0;
   private evictedActions: number = 0;
   private evictedEstimatedBytes: number = 0;
+  private historyRevision: number = 0;
 
   constructor(budget: number | HistoryBudget = {
     maxActions: DEFAULT_HISTORY_MAX_ACTIONS,
@@ -370,6 +371,7 @@ export class UndoRedoManager {
       this.evictedActions++;
       this.evictedEstimatedBytes += evicted.estimatedBytes;
     }
+    this.advanceHistoryRevision();
   }
 
   peekUndo(): UndoableAction | null {
@@ -387,6 +389,7 @@ export class UndoRedoManager {
     this.undoBytes -= entry.estimatedBytes;
     this.redoStack.push(entry);
     this.redoBytes += entry.estimatedBytes;
+    this.advanceHistoryRevision();
     return true;
   }
 
@@ -405,6 +408,7 @@ export class UndoRedoManager {
     this.redoBytes -= entry.estimatedBytes;
     this.undoStack.push(entry);
     this.undoBytes += entry.estimatedBytes;
+    this.advanceHistoryRevision();
     return true;
   }
 
@@ -431,5 +435,16 @@ export class UndoRedoManager {
       evictedActions: this.evictedActions,
       evictedEstimatedBytes: this.evictedEstimatedBytes,
     };
+  }
+
+  getHistoryRevision(): number {
+    return this.historyRevision;
+  }
+
+  private advanceHistoryRevision(): void {
+    if (this.historyRevision >= Number.MAX_SAFE_INTEGER) {
+      throw new Error('history revision is exhausted');
+    }
+    this.historyRevision++;
   }
 }

@@ -21,6 +21,8 @@ export default function undoRedoManagerTest() {
       const action: UndoableAction = makeAction('page-2');
       manager.push(action);
 
+      expect(manager.getHistoryRevision()).assertEqual(1);
+
       expect(manager.peekUndo() === action).assertTrue();
       expect(manager.canUndo()).assertTrue();
       expect(manager.canRedo()).assertFalse();
@@ -38,13 +40,16 @@ export default function undoRedoManagerTest() {
 
       const bytesBefore: number = manager.getMetrics().estimatedBytes;
       expect(manager.commitUndo(stale)).assertFalse();
+      expect(manager.getHistoryRevision()).assertEqual(1);
       expect(manager.peekUndo() === action).assertTrue();
       expect(manager.getMetrics().estimatedBytes).assertEqual(bytesBefore);
       expect(manager.commitUndo(action)).assertTrue();
+      expect(manager.getHistoryRevision()).assertEqual(2);
       expect(manager.canUndo()).assertFalse();
       expect(manager.peekRedo() === action).assertTrue();
       expect(manager.getMetrics().estimatedBytes).assertEqual(bytesBefore);
       expect(manager.commitRedo(action)).assertTrue();
+      expect(manager.getHistoryRevision()).assertEqual(3);
       expect(manager.peekUndo() === action).assertTrue();
       expect(manager.canRedo()).assertFalse();
       expect(manager.getMetrics().estimatedBytes).assertEqual(bytesBefore);
