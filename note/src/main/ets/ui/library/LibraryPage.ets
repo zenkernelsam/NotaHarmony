@@ -2,7 +2,7 @@
 // T-035：缩略图 + 排序（bindMenu + Preferences 持久化）
 import { router, promptAction } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
-import { common, ConfigurationConstant } from '@kit.AbilityKit';
+import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { NoteMeta } from '../../core/model/NoteTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
@@ -15,7 +15,9 @@ import {
   prioritizeThumbnailNoteIds, thumbnailCacheKey,
 } from '../../rendering/ThumbnailRenderPolicy';
 import { LibraryViewModel, NoteSortMode } from './LibraryViewModel';
-import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
+import {
+  ThemeStore, THEME_MODE_KEY, THEME_PREFERENCE_KEY, THEME_PREFERENCES_NAME, THEME_SYSTEM_DARK_KEY,
+} from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
 interface FolderListItem {
@@ -75,10 +77,9 @@ struct LibraryPage {
   private thumbRenderer: ThumbnailRenderer = new ThumbnailRenderer();
   private db: DatabaseManager = DatabaseManager.getInstance();
   private readonly PREF_SORT_KEY: string = 'library_sort_mode';
-  private readonly PREF_THEME_KEY: string = 'theme_mode';
   // T-038：主题状态
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
-  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+  @StorageLink(THEME_SYSTEM_DARK_KEY) @Watch('onSystemDarkChange') systemDark: boolean = false;
 
   // 注意：ArkTS 编译器会丢弃 @Component struct 中的自定义 getter（编译产物无定义，运行时为 undefined）
   // 必须用普通方法形式，否则 build 中访问 this.resolveTokens().xxx 会抛 TypeError
@@ -457,7 +458,7 @@ struct LibraryPage {
     });
     try {
       const context = getContext(this) as common.UIAbilityContext;
-      preferences.getPreferences(context, 'library_prefs').then((pref: preferences.Preferences) => {
+      preferences.getPreferences(context, THEME_PREFERENCES_NAME).then((pref: preferences.Preferences) => {
         pref.putSync(this.PREF_SORT_KEY, mode);
         pref.flush().catch((e: BusinessError) => {
           console.error(`save sort pref flush failed: ${e.code}`);
@@ -475,11 +476,8 @@ struct LibraryPage {
     this.hasInitError = false;
     try {
       const context = getContext(this) as common.UIAbilityContext;
-      // T-038：恢复主题偏好 + 检测系统色模式
-      const themePref = await preferences.getPreferences(context, 'library_prefs');
-      const savedTheme: string = themePref.getSync(this.PREF_THEME_KEY, 'system') as string;
-      ThemeStore.setMode(savedTheme as ThemeMode);
-      this.detectSystemDark(context);
+      const pref: preferences.Preferences =
+        await preferences.getPreferences(context, THEME_PREFERENCES_NAME);
       await this.db.initialize(context);
       this.persistence.initialize(this.db);
       await this.thumbRenderer.initialize(context);
@@ -494,7 +492,6 @@ struct LibraryPage {
         promptAction.showToast({ message: $r('app.string.load_folders_failed') });
       }
       // 恢复排序偏好
-      const pref = await preferences.getPreferences(context, 'library_prefs');
       const saved: number = pref.getSync(this.PREF_SORT_KEY, 0) as number;
       vm.sortMode = saved as NoteSortMode;
       await vm.loadNotes();
@@ -508,22 +505,12 @@ struct LibraryPage {
     }
   }
 
-  // T-038：系统色模式检测（ConfigurationConstant.ColorMode）
-  private detectSystemDark(context: common.UIAbilityContext): void {
-    try {
-      const config = context.config;
-      ThemeStore.setSystemDark(config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
-    } catch (e) {
-      ThemeStore.setSystemDark(false);
+  private onSystemDarkChange(): void {
+    if (this.pageActive) {
+      this.refreshThumbnails().catch((e: Error) => {
+        console.error(`system theme thumbnail refresh failed: ${JSON.stringify(e)}`);
+      });
     }
-  }
-
-  // T-038：系统颜色变化监听（@Entry 生命周期；ArkUI Configuration.colorMode 为字符串）
-  onConfigurationUpdate(config: Configuration): void {
-    ThemeStore.setSystemDark(config.colorMode === 'dark');
-    this.refreshThumbnails().catch((e: Error) => {
-      console.error(`theme thumbnail refresh failed: ${JSON.stringify(e)}`);
-    });
   }
 
   // T-038：主题切换 + 持久化
@@ -534,8 +521,8 @@ struct LibraryPage {
     });
     try {
       const context = getContext(this) as common.UIAbilityContext;
-      preferences.getPreferences(context, 'library_prefs').then((pref: preferences.Preferences) => {
-        pref.putSync(this.PREF_THEME_KEY, mode);
+      preferences.getPreferences(context, THEME_PREFERENCES_NAME).then((pref: preferences.Preferences) => {
+        pref.putSync(THEME_PREFERENCE_KEY, mode);
         pref.flush().catch((e: BusinessError) => {
           console.error(`save theme pref failed: ${e.code}`);
         });

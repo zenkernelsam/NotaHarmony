@@ -38,6 +38,7 @@ import shapeDetectorTest from './ShapeDetector.test';
 import binaryPlistParserTest from './BinaryPlistParser.test';
 import nsKeyedArchiverDecoderTest from './NSKeyedArchiverDecoder.test';
 import notePackageSpecTest from './NotePackageSpec.test';
+import themeStoreTest from './ThemeStore.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -80,4 +81,5 @@ export default function testsuite() {
   binaryPlistParserTest();
   nsKeyedArchiverDecoderTest();
   notePackageSpecTest();
+  themeStoreTest();
 }

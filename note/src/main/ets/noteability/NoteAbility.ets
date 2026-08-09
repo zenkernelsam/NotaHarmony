@@ -3,7 +3,10 @@ import {
 } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
-import { ThemeStore } from '../ui/theme/ThemeStore';
+import { preferences } from '@kit.ArkData';
+import {
+  ThemeStore, THEME_PREFERENCES_NAME, THEME_PREFERENCE_KEY,
+} from '../ui/theme/ThemeStore';
 
 const DOMAIN = 0x0000;
 
@@ -27,9 +30,29 @@ export default class NoteAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
-    // Main window is created, set main page for this ability
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
+    this.restoreThemeAndLoadContent(windowStage).catch((err: Error) => {
+      hilog.error(DOMAIN, 'testTag', 'Theme initialization failed. Cause: %{public}s', JSON.stringify(err));
+      this.loadMainContent(windowStage);
+    });
+  }
 
+  private async restoreThemeAndLoadContent(windowStage: window.WindowStage): Promise<void> {
+    ThemeStore.setSystemDark(
+      this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    try {
+      const store: preferences.Preferences =
+        await preferences.getPreferences(this.context, THEME_PREFERENCES_NAME);
+      const savedMode: string = store.getSync(THEME_PREFERENCE_KEY, 'system') as string;
+      ThemeStore.setMode(ThemeStore.normalizeMode(savedMode));
+    } catch (err) {
+      ThemeStore.setMode('system');
+      hilog.error(DOMAIN, 'testTag', 'Failed to restore theme. Cause: %{public}s', JSON.stringify(err));
+    }
+    this.loadMainContent(windowStage);
+  }
+
+  private loadMainContent(windowStage: window.WindowStage): void {
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, 'testTag', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));

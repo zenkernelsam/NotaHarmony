@@ -3,6 +3,8 @@ import { LightTheme, DarkTheme, ThemeTokens, ThemeMode } from './EditorTheme';
 
 export const THEME_MODE_KEY: string = 'themeMode';
 export const THEME_SYSTEM_DARK_KEY: string = 'systemDark';
+export const THEME_PREFERENCES_NAME: string = 'library_prefs';
+export const THEME_PREFERENCE_KEY: string = 'theme_mode';
 
 export class ThemeStore {
   // 初始化 AppStorage（默认 system）
@@ -24,7 +26,14 @@ export class ThemeStore {
     AppStorage.setOrCreate(THEME_MODE_KEY, mode);
   }
 
-  // 记录系统是否深色（由页面 onConfigurationUpdate 更新）
+  static normalizeMode(value: string): ThemeMode {
+    if (value === 'light' || value === 'dark') {
+      return value;
+    }
+    return 'system';
+  }
+
+  // 记录系统是否深色（由 NoteAbility 统一更新）
   static setSystemDark(dark: boolean): void {
     AppStorage.setOrCreate(THEME_SYSTEM_DARK_KEY, dark);
   }
