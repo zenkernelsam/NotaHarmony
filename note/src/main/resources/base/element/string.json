@@ -451,6 +451,8 @@
     { "name": "insecure_save_cancelled", "value": "Insecure connection was not saved" },
     { "name": "settings_saved", "value": "Settings saved" },
     { "name": "settings_saved_cleanup_pending", "value": "Settings saved; old credential cleanup will be retried" },
+    { "name": "backup_settings_loading", "value": "Loading backup settings..." },
+    { "name": "backup_settings_load_failed", "value": "Could not load backup settings. Try again." },
     { "name": "save_failed", "value": "Save failed" },
     { "name": "insecure_webdav_title", "value": "Insecure WebDAV Connection" },
     { "name": "insecure_webdav_message", "value": "HTTP sends the username and password without encryption. Continue only on a fully trusted local network." },

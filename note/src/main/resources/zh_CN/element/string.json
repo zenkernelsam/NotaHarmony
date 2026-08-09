@@ -154,6 +154,8 @@
     { "name": "insecure_save_cancelled", "value": "已取消保存不安全连接" },
     { "name": "settings_saved", "value": "配置已保存" },
     { "name": "settings_saved_cleanup_pending", "value": "配置已保存，旧凭据清理稍后重试" },
+    { "name": "backup_settings_loading", "value": "正在加载备份设置..." },
+    { "name": "backup_settings_load_failed", "value": "无法加载备份设置，请重试" },
     { "name": "save_failed", "value": "保存失败" },
     { "name": "insecure_webdav_title", "value": "不安全的 WebDAV 连接" },
     { "name": "insecure_webdav_message", "value": "HTTP 会以可被截获的形式发送用户名和密码。仅应在完全可信的本地网络中继续。" },

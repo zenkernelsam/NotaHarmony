@@ -24,10 +24,16 @@ import {
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
+enum BackupLoadState {
+  LOADING = 'loading',
+  ERROR = 'error',
+  READY = 'ready',
+}
+
 @Entry
 @Component
 struct BackupPage {
-  @State isLoading: boolean = false;
+  @State loadState: BackupLoadState = BackupLoadState.LOADING;
   @State isBusy: boolean = false;
   @State serverText: string = '';
   @State lastBackupText: string = '';
@@ -38,6 +44,8 @@ struct BackupPage {
   private db: DatabaseManager = DatabaseManager.getInstance();
   private persistence: StrokePersistence = new StrokePersistence();
   private config: WebDAVConfig = { serverUrl: '', username: '', password: '', backupPath: '/nota-backup/' };
+  private initialized: boolean = false;
+  private loadGeneration: number = 0;
   // T-038：主题状态
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -48,22 +56,47 @@ struct BackupPage {
   }
 
   aboutToAppear(): void {
-    this.init();
+    this.reloadPage();
   }
 
-  private async init(): Promise<void> {
+  onPageShow(): void {
+    if (this.initialized) {
+      this.reloadPage();
+    }
+  }
+
+  private async reloadPage(): Promise<void> {
+    const generation: number = ++this.loadGeneration;
+    this.loadState = BackupLoadState.LOADING;
+    this.hasConfig = false;
+    this.hasLastBackup = false;
     try {
       const context = getContext(this) as common.UIAbilityContext;
       await this.db.initialize(context);
       this.persistence.initialize(this.db);
-      this.config = await WebDAVConfigStore.load(context);
-      this.hasConfig = this.config.serverUrl.trim().length > 0;
-      this.serverText = this.hasConfig ? this.config.serverUrl : '';
+      const config: WebDAVConfig = await WebDAVConfigStore.load(context);
       const lastBackup: number = await WebDAVConfigStore.getLastBackup(context);
+      if (generation !== this.loadGeneration) {
+        return;
+      }
+      this.config = config;
+      this.hasConfig = config.serverUrl.trim().length > 0;
+      this.serverText = this.hasConfig ? config.serverUrl : '';
       this.hasLastBackup = lastBackup > 0;
       this.lastBackupText = this.hasLastBackup ? this.formatTime(lastBackup) : '';
+      this.loadState = BackupLoadState.READY;
     } catch (e) {
-      console.error(`BackupPage init failed: ${JSON.stringify(e)}`);
+      if (generation === this.loadGeneration) {
+        this.config = { serverUrl: '', username: '', password: '', backupPath: '/nota-backup/' };
+        this.serverText = '';
+        this.lastBackupText = '';
+        this.loadState = BackupLoadState.ERROR;
+      }
+      console.error(`BackupPage reload failed: ${JSON.stringify(e)}`);
+    } finally {
+      if (generation === this.loadGeneration) {
+        this.initialized = true;
+      }
     }
   }
 
@@ -321,12 +354,36 @@ struct BackupPage {
           // === WebDAV 区 ===
           Text($r('app.string.webdav_cloud_backup')).fontSize(18).fontWeight(FontWeight.Medium)
             .fontColor(this.resolveTokens().textPrimary).margin({ bottom: 8 })
-          Text(this.hasConfig ? $r('app.string.server_value', this.serverText) :
-            $r('app.string.server_not_configured')).fontSize(14)
-            .fontColor(this.resolveTokens().textPrimary).margin({ bottom: 4 })
-          Text(this.hasLastBackup ? $r('app.string.last_backup_value', this.lastBackupText) :
-            $r('app.string.last_backup_never')).fontSize(14)
-            .fontColor(this.resolveTokens().textPrimary).margin({ bottom: 8 })
+
+          if (this.loadState === BackupLoadState.LOADING) {
+            Row() {
+              LoadingProgress().width(20).height(20)
+              Text($r('app.string.backup_settings_loading'))
+                .fontSize(14)
+                .fontColor(this.resolveTokens().textSecondary)
+                .margin({ left: 8 })
+            }
+            .margin({ bottom: 12 })
+          } else if (this.loadState === BackupLoadState.ERROR) {
+            Text($r('app.string.backup_settings_load_failed'))
+              .fontSize(14)
+              .fontColor(this.resolveTokens().danger)
+              .margin({ bottom: 8 })
+            Button($r('app.string.retry'))
+              .width('90%')
+              .margin({ bottom: 12 })
+              .enabled(!this.isBusy)
+              .onClick(() => {
+                this.reloadPage();
+              })
+          } else {
+            Text(this.hasConfig ? $r('app.string.server_value', this.serverText) :
+              $r('app.string.server_not_configured')).fontSize(14)
+              .fontColor(this.resolveTokens().textPrimary).margin({ bottom: 4 })
+            Text(this.hasLastBackup ? $r('app.string.last_backup_value', this.lastBackupText) :
+              $r('app.string.last_backup_never')).fontSize(14)
+              .fontColor(this.resolveTokens().textPrimary).margin({ bottom: 8 })
+          }
 
           Button($r('app.string.configure_webdav'))
             .width('90%')
@@ -336,19 +393,19 @@ struct BackupPage {
             })
           Button($r('app.string.backup_all_to_cloud'))
             .width('90%')
-            .enabled(this.hasConfig && !this.isBusy)
+            .enabled(this.loadState === BackupLoadState.READY && this.hasConfig && !this.isBusy)
             .margin({ bottom: 8 })
             .onClick(() => {
               this.backupAll();
             })
           Button($r('app.string.restore_latest_cloud_backup'))
             .width('90%')
-            .enabled(this.hasConfig && !this.isBusy)
+            .enabled(this.loadState === BackupLoadState.READY && this.hasConfig && !this.isBusy)
             .onClick(() => {
               this.restoreFromCloud();
             })
 
-          if (!this.hasConfig) {
+          if (this.loadState === BackupLoadState.READY && !this.hasConfig) {
             Text($r('app.string.configure_webdav_hint')).fontSize(12)
               .fontColor(this.resolveTokens().textSecondary).margin({ top: 8 })
           }
