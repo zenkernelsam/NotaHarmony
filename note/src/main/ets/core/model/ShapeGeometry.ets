@@ -1,7 +1,14 @@
-import { ElementType, EllipseElement, PolygonElement, ShapeElement } from './ElementTypes';
+import { ElementType, EllipseElement, LineElement, PolygonElement,
+  ShapeArrowHead, ShapeElement } from './ElementTypes';
 import { Point2D, Rect2D, TransformMatrix } from './GeometryTypes';
 
 const ELLIPSE_HIT_SEGMENTS: number = 64;
+const CURVE_HIT_SEGMENTS: number = 64;
+
+export interface LineRenderGeometry {
+  mainPath: Point2D[];
+  arrowHeadPath: Point2D[];
+}
 
 export function cloneShapeElement(shape: ShapeElement): ShapeElement {
   if (shape.type === ElementType.ELLIPSE) {
@@ -10,6 +17,16 @@ export function cloneShapeElement(shape: ShapeElement): ShapeElement {
       bounds: cloneRect(shape.bounds), center: clonePoint(shape.center),
       radiusX: shape.radiusX, radiusY: shape.radiusY, rotationRadians: shape.rotationRadians,
       color: shape.color, strokeWidth: shape.strokeWidth, fillColor: shape.fillColor,
+    };
+  }
+  if (shape.type === ElementType.LINE) {
+    return {
+      id: shape.id, type: ElementType.LINE, transform: shape.transform.slice(),
+      bounds: cloneRect(shape.bounds), start: clonePoint(shape.start),
+      controlPoint1: cloneNullablePoint(shape.controlPoint1),
+      controlPoint2: cloneNullablePoint(shape.controlPoint2), end: clonePoint(shape.end),
+      arrowHead: shape.arrowHead, color: shape.color, strokeWidth: shape.strokeWidth,
+      fillColor: shape.fillColor,
     };
   }
   return {
@@ -32,18 +49,23 @@ export function transformShapeElements(shapes: ShapeElement[], selectedIds: stri
     }
     const updated: ShapeElement = cloneShapeElement(shape);
     updated.transform = multiplyTransform(transform, shape.transform);
-    updated.bounds = pointsBounds(shapePathPoints(updated));
+    updated.bounds = recomputeShapeBounds(updated);
     result.push(updated);
   }
   return result;
 }
 
+export function recomputeShapeBounds(shape: ShapeElement): Rect2D {
+  return pointsBounds(shapePathPoints(shape));
+}
+
 export function shapePathPoints(shape: ShapeElement): Point2D[] {
-  const local: Point2D[] = shape.type === ElementType.ELLIPSE
-    ? ellipsePoints(shape) : polygonPoints(shape);
+  const localSubpaths: Point2D[][] = shapeLocalSubpaths(shape);
   const transformed: Point2D[] = [];
-  for (const point of local) {
-    transformed.push(transformPoint(point, shape.transform));
+  for (const subpath of localSubpaths) {
+    for (const point of subpath) {
+      transformed.push(transformPoint(point, shape.transform));
+    }
   }
   return transformed;
 }
@@ -53,13 +75,24 @@ export function eraserPathHitsShape(eraserPath: Point2D[], shape: ShapeElement,
   if (eraserPath.length === 0) {
     return false;
   }
-  const shapePath: Point2D[] = shapePathPoints(shape);
-  if (shapePath.length === 0) {
+  const localSubpaths: Point2D[][] = shapeLocalSubpaths(shape);
+  const shapeSubpaths: Point2D[][] = [];
+  for (const local of localSubpaths) {
+    const transformed: Point2D[] = [];
+    for (const point of local) {
+      transformed.push(transformPoint(point, shape.transform));
+    }
+    if (transformed.length > 0) {
+      shapeSubpaths.push(transformed);
+    }
+  }
+  if (shapeSubpaths.length === 0) {
     return false;
   }
-  if (shape.fillColor !== null && shapePath.length >= 3) {
+  const fillPath: Point2D[] = shapeSubpaths[0];
+  if (shape.type !== ElementType.LINE && shape.fillColor !== null && fillPath.length >= 3) {
     for (const eraserPoint of eraserPath) {
-      if (pointInPolygon(eraserPoint, shapePath)) {
+      if (pointInPolygon(eraserPoint, fillPath)) {
         return true;
       }
     }
@@ -67,19 +100,139 @@ export function eraserPathHitsShape(eraserPath: Point2D[], shape: ShapeElement,
   const scale: number = maximumLinearScale(shape.transform);
   const radius: number = eraserWidth / 2 + shape.strokeWidth * scale / 2;
   const eraserSegments: number = Math.max(1, eraserPath.length - 1);
-  const shapeSegments: number = Math.max(1, shapePath.length - 1);
   for (let i: number = 0; i < eraserSegments; i++) {
     const a: Point2D = eraserPath[i];
     const b: Point2D = eraserPath.length === 1 ? a : eraserPath[i + 1];
-    for (let j: number = 0; j < shapeSegments; j++) {
-      const c: Point2D = shapePath[j];
-      const d: Point2D = shapePath.length === 1 ? c : shapePath[j + 1];
-      if (segmentDistance(a, b, c, d) <= radius) {
-        return true;
+    for (const shapePath of shapeSubpaths) {
+      const shapeSegments: number = Math.max(1, shapePath.length - 1);
+      for (let j: number = 0; j < shapeSegments; j++) {
+        const c: Point2D = shapePath[j];
+        const d: Point2D = shapePath.length === 1 ? c : shapePath[j + 1];
+        if (segmentDistance(a, b, c, d) <= radius) {
+          return true;
+        }
       }
     }
   }
   return false;
+}
+
+function shapeLocalSubpaths(shape: ShapeElement): Point2D[][] {
+  if (shape.type === ElementType.ELLIPSE) {
+    return [ellipsePoints(shape)];
+  }
+  if (shape.type === ElementType.LINE) {
+    const geometry: LineRenderGeometry = lineRenderGeometry(shape);
+    const result: Point2D[][] = [geometry.mainPath];
+    if (geometry.arrowHeadPath.length > 0) {
+      result.push(geometry.arrowHeadPath);
+    }
+    return result;
+  }
+  return [polygonPoints(shape)];
+}
+
+// 原版 l96.W/d1j：箭头沿路径末段定向，长度与半宽随 borderWidth 缩放。
+export function lineRenderGeometry(shape: LineElement): LineRenderGeometry {
+  const sampled: Point2D[] = sampleLine(shape);
+  if (shape.arrowHead !== ShapeArrowHead.SINGLE || sampled.length < 2) {
+    return { mainPath: sampled, arrowHeadPath: [] };
+  }
+  const totalLength: number = polylineLength(sampled);
+  if (totalLength <= 0) {
+    return { mainPath: sampled, arrowHeadPath: [] };
+  }
+  const scale: number = arrowScale(shape.strokeWidth);
+  const arrowLength: number = Math.min(scale * 46, totalLength);
+  const bodyLength: number = totalLength - arrowLength;
+  const mainPath: Point2D[] = trimPolyline(sampled, bodyLength);
+  const base: Point2D = mainPath[mainPath.length - 1];
+  const tip: Point2D = sampled[sampled.length - 1];
+  const dx: number = tip.x - base.x;
+  const dy: number = tip.y - base.y;
+  const directionLength: number = Math.sqrt(dx * dx + dy * dy);
+  if (directionLength <= 0) {
+    return { mainPath: sampled, arrowHeadPath: [] };
+  }
+  const halfWidth: number = scale * 20;
+  const perpendicularX: number = -(dy / directionLength) * halfWidth;
+  const perpendicularY: number = (dx / directionLength) * halfWidth;
+  return {
+    mainPath: mainPath,
+    arrowHeadPath: [
+      { x: base.x + perpendicularX, y: base.y + perpendicularY },
+      clonePoint(tip),
+      { x: base.x - perpendicularX, y: base.y - perpendicularY },
+    ],
+  };
+}
+
+function sampleLine(shape: LineElement): Point2D[] {
+  if (shape.controlPoint1 === null) {
+    return [clonePoint(shape.start), clonePoint(shape.end)];
+  }
+  const result: Point2D[] = [];
+  for (let i: number = 0; i <= CURVE_HIT_SEGMENTS; i++) {
+    const t: number = i / CURVE_HIT_SEGMENTS;
+    const inverse: number = 1 - t;
+    if (shape.controlPoint2 !== null) {
+      result.push({
+        x: inverse * inverse * inverse * shape.start.x +
+          3 * inverse * inverse * t * shape.controlPoint1.x +
+          3 * inverse * t * t * shape.controlPoint2.x + t * t * t * shape.end.x,
+        y: inverse * inverse * inverse * shape.start.y +
+          3 * inverse * inverse * t * shape.controlPoint1.y +
+          3 * inverse * t * t * shape.controlPoint2.y + t * t * t * shape.end.y,
+      });
+    } else {
+      result.push({
+        x: inverse * inverse * shape.start.x + 2 * inverse * t * shape.controlPoint1.x + t * t * shape.end.x,
+        y: inverse * inverse * shape.start.y + 2 * inverse * t * shape.controlPoint1.y + t * t * shape.end.y,
+      });
+    }
+  }
+  return result;
+}
+
+function polylineLength(points: Point2D[]): number {
+  let length: number = 0;
+  for (let i: number = 1; i < points.length; i++) {
+    const dx: number = points[i].x - points[i - 1].x;
+    const dy: number = points[i].y - points[i - 1].y;
+    length += Math.sqrt(dx * dx + dy * dy);
+  }
+  return length;
+}
+
+function trimPolyline(points: Point2D[], targetLength: number): Point2D[] {
+  const result: Point2D[] = [clonePoint(points[0])];
+  let traversed: number = 0;
+  for (let i: number = 1; i < points.length; i++) {
+    const previous: Point2D = points[i - 1];
+    const current: Point2D = points[i];
+    const dx: number = current.x - previous.x;
+    const dy: number = current.y - previous.y;
+    const segmentLength: number = Math.sqrt(dx * dx + dy * dy);
+    if (traversed + segmentLength >= targetLength) {
+      const remaining: number = targetLength - traversed;
+      const t: number = segmentLength <= 0 ? 0 : remaining / segmentLength;
+      result.push({ x: previous.x + dx * t, y: previous.y + dy * t });
+      return result;
+    }
+    result.push(clonePoint(current));
+    traversed += segmentLength;
+  }
+  return result;
+}
+
+function arrowScale(strokeWidth: number): number {
+  let adjusted: number = strokeWidth;
+  if (adjusted < 2) {
+    adjusted = ((adjusted - 2) / 2) + 2;
+  } else if (adjusted > 4) {
+    adjusted = ((adjusted - 4) / 4) + 4;
+  }
+  return Math.max(0, adjusted) / 7;
 }
 
 function maximumLinearScale(matrix: TransformMatrix): number {
@@ -229,6 +382,10 @@ function pointInPolygon(point: Point2D, polygon: Point2D[]): boolean {
 
 function clonePoint(point: Point2D): Point2D {
   return { x: point.x, y: point.y };
+}
+
+function cloneNullablePoint(point: Point2D | null): Point2D | null {
+  return point === null ? null : clonePoint(point);
 }
 
 function cloneRect(rect: Rect2D): Rect2D {

@@ -3,6 +3,7 @@ import { PageInfo } from '../core/model/NoteTypes';
 import { taskpool, util } from '@kit.ArkTS';
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { cloneShapeElement, recomputeShapeBounds } from '../core/model/ShapeGeometry';
 import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextBlockGeometry';
 import {
   legacyPageElementOrder, materializePageElements, normalizePageElementOrder, OrderedPageElement,
@@ -496,7 +497,8 @@ export class StrokePersistence {
               result.elementOrder.push({ kind: PageElementKind.TEXT,
                 elementId: text.id, zIndex: result.elementOrder.length });
             } else if (parsed.kind === 'shape') {
-              const shape: ShapeElement = parsed.data as ShapeElement;
+              const shape: ShapeElement = cloneShapeElement(parsed.data as ShapeElement);
+              shape.bounds = recomputeShapeBounds(shape);
               result.shapes.push(shape);
               result.elementOrder.push({ kind: PageElementKind.SHAPE,
                 elementId: shape.id, zIndex: result.elementOrder.length });

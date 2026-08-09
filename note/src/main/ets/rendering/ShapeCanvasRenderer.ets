@@ -1,7 +1,8 @@
 import { Canvas2DDrawingContext } from '../core/adaptation/Canvas2DStrokeRenderer';
 import { RenderContext } from '../core/adaptation/StrokeRenderer';
-import { ElementType, EllipseElement, PolygonElement, ShapeElement } from '../core/model/ElementTypes';
+import { ElementType, EllipseElement, LineElement, PolygonElement, ShapeElement } from '../core/model/ElementTypes';
 import { Point2D } from '../core/model/GeometryTypes';
+import { LineRenderGeometry, lineRenderGeometry } from '../core/model/ShapeGeometry';
 
 const ELLIPSE_SEGMENTS: number = 64;
 
@@ -13,19 +14,39 @@ export class ShapeCanvasRenderer {
     ctx.beginPath();
     if (shape.type === ElementType.ELLIPSE) {
       this.traceEllipse(shape, ctx);
+    } else if (shape.type === ElementType.LINE) {
+      this.traceLine(shape, ctx);
     } else {
       this.tracePolygon(shape, ctx);
     }
     ctx.setLineWidth(shape.strokeWidth);
     ctx.setLineCap('round');
     ctx.setLineJoin('round');
-    if (shape.fillColor !== null) {
+    if (shape.type !== ElementType.LINE && shape.fillColor !== null) {
       ctx.setFillStyle(this.colorToRgba(shape.fillColor));
       ctx.fill();
     }
     ctx.setStrokeStyle(this.colorToRgba(shape.color));
     ctx.stroke();
     ctx.restore();
+  }
+
+  private traceLine(shape: LineElement, ctx: Canvas2DDrawingContext): void {
+    const geometry: LineRenderGeometry = lineRenderGeometry(shape);
+    this.tracePolyline(geometry.mainPath, ctx);
+    if (geometry.arrowHeadPath.length > 0) {
+      this.tracePolyline(geometry.arrowHeadPath, ctx);
+    }
+  }
+
+  private tracePolyline(points: Point2D[], ctx: Canvas2DDrawingContext): void {
+    if (points.length === 0) {
+      return;
+    }
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i: number = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
   }
 
   private traceEllipse(shape: EllipseElement, ctx: Canvas2DDrawingContext): void {

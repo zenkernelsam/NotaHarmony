@@ -11,6 +11,12 @@ export enum ElementType {
   TEXT = 3,          // 文本框（cde）
   IMAGE = 4,         // 图片（待补）
   SELECTION = 5,     // 选区包装（lce）
+  LINE = 6,          // 原版 ShapeDefinition.LINE（可含二次/三次控制点和末端箭头）
+}
+
+export enum ShapeArrowHead {
+  NONE = 0,
+  SINGLE = 1,
 }
 
 // 元素基类（所有笔记元素的公共字段）
@@ -64,6 +70,19 @@ export interface ImageElement extends NoteElementBase {
   cropRect: Rect2D | null;
 }
 
+// 原版 1.0.3 uf7/s4d：cp1+cp2 为 cubic，仅 cp1 为 quadratic，无控制点为直线。
+export interface LineElement extends NoteElementBase {
+  type: ElementType.LINE;
+  start: Point2D;
+  controlPoint1: Point2D | null;
+  controlPoint2: Point2D | null;
+  end: Point2D;
+  arrowHead: ShapeArrowHead;
+  color: number;
+  strokeWidth: number;
+  fillColor: number | null;
+}
+
 export interface StrokeNoteElement extends NoteElementBase {
   type: ElementType.STROKE;
   stroke: StrokeElementData;
@@ -74,13 +93,14 @@ export interface SelectionElement extends NoteElementBase {
   selectedElementIds: string[];
 }
 
-export type ShapeElement = EllipseElement | PolygonElement;
+export type ShapeElement = EllipseElement | PolygonElement | LineElement;
 
 // 联合类型
 export type NoteElement =
   | StrokeNoteElement
   | EllipseElement
   | PolygonElement
+  | LineElement
   | TextBlockElement
   | ImageElement
   | SelectionElement;

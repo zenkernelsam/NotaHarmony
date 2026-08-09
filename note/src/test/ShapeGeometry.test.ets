@@ -1,9 +1,11 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { ShapeDetector } from '../main/ets/core/algorithm/ShapeDetector';
-import { ElementType, EllipseElement, PolygonElement, ShapeElement } from '../main/ets/core/model/ElementTypes';
+import { ElementType, EllipseElement, LineElement, PolygonElement,
+  ShapeArrowHead, ShapeElement } from '../main/ets/core/model/ElementTypes';
 import { Point2D, TransformMatrix } from '../main/ets/core/model/GeometryTypes';
 import {
-  cloneShapeElement, eraserPathHitsShape, transformShapeElements,
+  cloneShapeElement, eraserPathHitsShape, lineRenderGeometry, LineRenderGeometry,
+  transformShapeElements,
 } from '../main/ets/core/model/ShapeGeometry';
 
 function ellipse(id: string = 'ellipse'): EllipseElement {
@@ -26,6 +28,27 @@ function polygon(id: string = 'polygon'): PolygonElement {
   };
 }
 
+function curvedArrow(id: string = 'arrow'): LineElement {
+  return {
+    id: id, type: ElementType.LINE,
+    transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    bounds: { left: 0, top: 0, right: 120, bottom: 80 },
+    start: { x: 0, y: 80 }, controlPoint1: { x: 40, y: 0 },
+    controlPoint2: { x: 80, y: 0 }, end: { x: 120, y: 80 },
+    arrowHead: ShapeArrowHead.SINGLE,
+    color: 0xFF112233, strokeWidth: 4, fillColor: null,
+  };
+}
+
+function straightArrow(): LineElement {
+  const result: LineElement = curvedArrow('straight-arrow');
+  result.start = { x: 0, y: 0 };
+  result.controlPoint1 = null;
+  result.controlPoint2 = null;
+  result.end = { x: 120, y: 0 };
+  return result;
+}
+
 export default function shapeGeometryTest() {
   describe('ShapeGeometry', () => {
     it('deep-clones ellipse and polygon owned geometry', 0, () => {
@@ -43,6 +66,42 @@ export default function shapeGeometryTest() {
       sourcePolygon.vertices[0].x = 999;
       expect((polygonCopy as PolygonElement).vertices[0].x).assertEqual(0);
       expect((polygonCopy as PolygonElement).fillColor).assertEqual(0x33445566);
+    });
+
+    it('deep-clones the original curved LINE definition', 0, () => {
+      const source: LineElement = curvedArrow();
+      const copy: LineElement = cloneShapeElement(source) as LineElement;
+      source.controlPoint1!.x = 999;
+      expect(copy.type).assertEqual(ElementType.LINE);
+      expect(copy.controlPoint1!.x).assertEqual(40);
+      expect(copy.arrowHead).assertEqual(ShapeArrowHead.SINGLE);
+    });
+
+    it('includes curved line and arrow geometry in transformed bounds', 0, () => {
+      const translation: TransformMatrix = [1, 0, 25, 0, 1, 10, 0, 0, 1];
+      const transformed: LineElement = transformShapeElements(
+        [curvedArrow()], ['arrow'], translation)[0] as LineElement;
+      expect(transformed.bounds.left >= 25).assertTrue();
+      expect(transformed.bounds.right > 140).assertTrue();
+      expect(transformed.bounds.bottom >= 90).assertTrue();
+    });
+
+    it('uses the original border-width arrow dimensions and trims the main path', 0, () => {
+      const geometry: LineRenderGeometry = lineRenderGeometry(straightArrow());
+      const scale: number = 4 / 7;
+      const baseX: number = 120 - 46 * scale;
+      const mainEnd: Point2D = geometry.mainPath[geometry.mainPath.length - 1];
+      expect(Math.abs(mainEnd.x - baseX) < 0.001).assertTrue();
+      expect(Math.abs(geometry.arrowHeadPath[0].x - baseX) < 0.001).assertTrue();
+      expect(Math.abs(geometry.arrowHeadPath[0].y - 20 * scale) < 0.001).assertTrue();
+      expect(geometry.arrowHeadPath[1].x).assertEqual(120);
+      expect(Math.abs(geometry.arrowHeadPath[2].y + 20 * scale) < 0.001).assertTrue();
+    });
+
+    it('does not create an eraser-hit bridge between arrow subpaths', 0, () => {
+      const arrow: LineElement = straightArrow();
+      const baseX: number = 120 - 46 * 4 / 7;
+      expect(eraserPathHitsShape([{ x: baseX, y: 20 / 7 * 2 }], arrow, 1)).assertFalse();
     });
 
     it('keeps semantic shape data while transforming matrix and bounds', 0, () => {

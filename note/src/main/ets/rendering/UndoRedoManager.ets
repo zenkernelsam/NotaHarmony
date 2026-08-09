@@ -312,6 +312,8 @@ function estimateShape(shape: ShapeElement): number {
   let bytes: number = 384 + shape.id.length * 2 + shape.transform.length * 8;
   if (shape.type === ElementType.POLYGON) {
     bytes += shape.vertices.length * 32;
+  } else if (shape.type === ElementType.LINE) {
+    bytes += 96;
   }
   return bytes;
 }

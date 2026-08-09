@@ -36,11 +36,12 @@ import {
 } from '../../core/model/StrokeTypes';
 import { ToolType } from '../../core/model/BrushTypes';
 import {
-  ElementType, ShapeElement, TextBlockElement, NoteElement,
+  ShapeElement, TextBlockElement,
 } from '../../core/model/ElementTypes';
 import {
   cloneShapeElement, eraserPathHitsShape, transformShapeElements,
 } from '../../core/model/ShapeGeometry';
+import { prepareRecognizedShapes } from '../../core/model/ShapeRecognition';
 import {
   cloneTextBlockElement, eraserPathHitsTextBlock, pointHitsTextBlock, textBlockTransformComponents,
   transformTextBlockElements,
@@ -63,7 +64,7 @@ import {
 } from '../../core/adaptation/PointerSampleStream';
 
 interface ShapeDetectionAttempt {
-  shape: ShapeElement | null;
+  shapes: ShapeElement[];
   replaced: boolean;
 }
 
@@ -78,6 +79,8 @@ export struct NoteCanvasView {
   };
   @Prop @Watch('onUndoSignalChange') undoSignal: number = 0;
   @Prop @Watch('onRedoSignalChange') redoSignal: number = 0;
+  // MyScript 的精确 hold 时长未出现在反编译配置中；保留注入点供设备对照后收敛。
+  @Prop shapeHoldDelayMs: number = 500;
   onUndoRedoChanged: (canUndo: boolean, canRedo: boolean) => void = () => {
   };
   onRequestPage: (pageId: string) => void = () => {
@@ -150,7 +153,7 @@ export struct NoteCanvasView {
   private pageLoadPromise: Promise<void> = Promise.resolve();
   private viewportInitialized: boolean = false;
   private shapeHoldTimer: number = -1;
-  private heldShape: ShapeElement | null = null;
+  private heldShapes: ShapeElement[] = [];
   // -1: undo, 1: redo, 0: none. Cross-page history resumes after page data finishes loading.
   private pendingHistoryDirection: number = 0;
   private historyBusy: boolean = false;
@@ -539,8 +542,8 @@ export struct NoteCanvasView {
     const theme: ThemeTokens = ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
     const sessionStroke: StrokeElementData | null = this.strokeSession !== null && this.strokeSession.isActive()
       ? this.strokeSession.getCurrentStroke() : null;
-    const current: StrokeElementData | null = this.heldShape === null ? sessionStroke : null;
-    const orderedRender: boolean = this.requiresOrderedElementRender() || this.heldShape !== null;
+    const current: StrokeElementData | null = this.heldShapes.length === 0 ? sessionStroke : null;
+    const orderedRender: boolean = this.requiresOrderedElementRender() || this.heldShapes.length > 0;
     const fullRedraw: boolean = forceFull || orderedRender;
     if (fullRedraw) {
       this.canvasCtx.clearRect(0, 0, w, h);
@@ -553,8 +556,8 @@ export struct NoteCanvasView {
     if (orderedRender) {
       this.renderPaper(theme);
       this.renderOrderedElements();
-      if (this.heldShape !== null) {
-        this.shapeRenderer.renderShape(this.heldShape, this.renderCtx);
+      for (const heldShape of this.heldShapes) {
+        this.shapeRenderer.renderShape(heldShape, this.renderCtx);
       }
       if (current !== null) {
         this.strokePainter.renderStroke(current, this.renderCtx, this.getPaperWidth(), this.getPaperHeight());
@@ -888,18 +891,24 @@ export struct NoteCanvasView {
       const stroke: StrokeElementData = this.strokeSession.finishStroke();
       hilog.info(0x0001, 'NoteCanvasView', 'stroke finished, pts=%{public}d', stroke.pathPoints.length);
       // 只有落笔后静止按住达到阈值，计时器才会提供形状候选。
-      const finalShape: ShapeElement | null = this.heldShape;
-      this.heldShape = null;
+      const finalShapes: ShapeElement[] = this.heldShapes;
+      this.heldShapes = [];
       const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
-      if (finalShape !== null) {
-        this.shapes.push(finalShape);
+      if (finalShapes.length > 0) {
+        this.shapes = this.shapes.concat(finalShapes);
+        const shapeIds: string[] = finalShapes.map((shape: ShapeElement): string => shape.id);
         this.elementOrder = appendPageElementRefs(
-          this.elementOrder, PageElementKind.SHAPE, [finalShape.id]);
+          this.elementOrder, PageElementKind.SHAPE, shapeIds);
+        const addedElementOrder: PageElementRef[] = appendPageElementRefs(
+          [], PageElementKind.SHAPE, shapeIds);
         this.undoRedo.push({
-          type: UndoableActionType.ADD_SHAPE,
+          type: UndoableActionType.ADD_ELEMENTS,
           noteId: this.noteId,
           pageId: this.currentPage.pageId,
-          addedShape: finalShape,
+          addedStrokes: [],
+          addedShapes: finalShapes,
+          addedTextBlocks: [],
+          addedElementOrder: addedElementOrder,
           elementOrderBefore: elementOrderBefore,
           elementOrderAfter: clonePageElementOrder(this.elementOrder),
         });
@@ -935,7 +944,7 @@ export struct NoteCanvasView {
       return;
     }
     this.cancelShapeDetectionTimer();
-    this.heldShape = null;
+    this.heldShapes = [];
     if (this.strokeSession !== null && this.strokeSession.isActive()) {
       this.strokeSession.cancelStroke();
     }
@@ -966,13 +975,14 @@ export struct NoteCanvasView {
   // === 形状识别 ===
   private scheduleShapeDetection(): void {
     this.cancelShapeDetectionTimer();
-    this.heldShape = null;
+    this.heldShapes = [];
     const tool: ToolType = this.viewModel.currentTool;
     const drawingTool: boolean = tool === ToolType.PEN || tool === ToolType.PENCIL || tool === ToolType.HIGHLIGHTER;
     if (!drawingTool || !this.viewModel.shapeDetectionEnabled) {
       return;
     }
-    // 原版时长尚未从反编译代码定位；500ms 是移植侧暂定交互阈值。
+    const holdDelay: number = Number.isFinite(this.shapeHoldDelayMs) && this.shapeHoldDelayMs >= 0
+      ? this.shapeHoldDelayMs : 500;
     this.shapeHoldTimer = setTimeout(() => {
       if (!this.isDrawing || this.strokeSession === null || !this.strokeSession.isActive()) {
         return;
@@ -982,11 +992,11 @@ export struct NoteCanvasView {
         return;
       }
       const attempt: ShapeDetectionAttempt = this.tryShapeDetect(current);
-      this.heldShape = attempt.replaced ? attempt.shape : null;
+      this.heldShapes = attempt.replaced ? attempt.shapes : [];
       if (attempt.replaced) {
         this.renderFrame();
       }
-    }, 500);
+    }, holdDelay);
   }
 
   private cancelShapeDetectionTimer(): void {
@@ -1004,19 +1014,12 @@ export struct NoteCanvasView {
     const result = this.shapeDetector.recognizeShape(pts);
     if (result === null || result.elements.length === 0) {
       hilog.info(0x0001, 'NoteCanvasView', 'shape detect: no match, pts=%{public}d', pts.length);
-      return { shape: null, replaced: false };
+      return { shapes: [], replaced: false };
     }
     hilog.info(0x0001, 'NoteCanvasView', 'shape detect: match confidence=%{public}f', result.confidence);
-    const element: NoteElement = result.elements[0];
-    if (element.type !== ElementType.ELLIPSE && element.type !== ElementType.POLYGON) {
-      return { shape: null, replaced: false };
-    }
-    const shape: ShapeElement = cloneShapeElement(element as ShapeElement);
-    shape.id = stroke.id;
-    shape.color = stroke.renderSpec.color;
-    shape.strokeWidth = stroke.renderSpec.brushWidth;
-    shape.fillColor = null;
-    return { shape: shape, replaced: true };
+    const shapes: ShapeElement[] = prepareRecognizedShapes(
+      result.elements, stroke.id, stroke.renderSpec.color, stroke.renderSpec.brushWidth);
+    return { shapes: shapes, replaced: shapes.length > 0 };
   }
 
   // 识别元素 → 形状笔画（采样点序列，保持渲染链不变）
