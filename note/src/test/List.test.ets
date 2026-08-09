@@ -27,6 +27,7 @@ import pencilSplatMathTest from './PencilSplatMath.test';
 import pageCoordinateSpaceTest from './PageCoordinateSpace.test';
 import bitmapTransferTrackerTest from './BitmapTransferTracker.test';
 import layerCacheGeometryTest from './LayerCacheGeometry.test';
+import canvasViewportTest from './CanvasViewport.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -58,4 +59,5 @@ export default function testsuite() {
   pageCoordinateSpaceTest();
   bitmapTransferTrackerTest();
   layerCacheGeometryTest();
+  canvasViewportTest();
 }

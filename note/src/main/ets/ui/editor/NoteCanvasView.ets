@@ -14,7 +14,7 @@ import {
 } from '../../core/adaptation/PencilSplatMath';
 import { StrokeLayerManager } from '../../rendering/StrokeLayerManager';
 import { BitmapTransferMetrics, BitmapTransferTracker } from '../../core/adaptation/BitmapTransferTracker';
-import { CanvasViewport } from '../../rendering/CanvasViewport';
+import { CanvasViewport, CumulativeGestureTracker } from '../../rendering/CanvasViewport';
 import { pagePixelSize, PAGE_UNITS_PER_MM, PagePixelSize } from '../../core/model/PageCoordinateSpace';
 import { StrokeSession } from '../../rendering/StrokeSession';
 import { EraserEngine, EraserMode } from '../../rendering/EraserEngine';
@@ -98,7 +98,7 @@ export struct NoteCanvasView {
   // T-034：画布视口（缩放/平移）
   private viewport: CanvasViewport = new CanvasViewport();
   private viewportSaveTimer: number = -1;   // 防抖定时器
-  private pinchLastScale: number = -1;      // 捏合累计缩放（手势增量换算）
+  private gestureTracker: CumulativeGestureTracker = new CumulativeGestureTracker();
   @State zoomPercent: number = 100;         // 控制条显示（100 = 100%）
   // T-038：主题状态
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -183,11 +183,13 @@ export struct NoteCanvasView {
       // T-034：恢复视口（zoom/scroll）
       const noteRepo = new NoteRepositoryImpl(db);
       const state = await noteRepo.getViewState(this.noteId);
-      if (state !== null && state.zoom > 0) {
-        this.viewport.setZoomRaw(state.zoom);
-        this.viewport.setScroll(state.scrollOffsetX, state.scrollOffsetY);
-        this.zoomPercent = Math.round(state.zoom * 100);
-        this.viewportInitialized = true;
+      if (state !== null) {
+        const restoredZoom: boolean = this.viewport.setZoomRaw(state.zoom);
+        const restoredScroll: boolean = this.viewport.setScroll(state.scrollOffsetX, state.scrollOffsetY);
+        this.zoomPercent = Math.round(this.viewport.zoom * 100);
+        if (restoredZoom || restoredScroll) {
+          this.viewportInitialized = true;
+        }
       }
       this.loaded = true;
       this.dataLoadFailed = false;
@@ -1844,21 +1846,29 @@ export struct NoteCanvasView {
                     ? (event.fingerList[0].localY + event.fingerList[event.fingerList.length - 1].localY) / 2
                     : this.canvasCtx.height / 2;
                   // PinchGesture scale 为累计值；用相对上一帧的增量
-                  const last: number = this.pinchLastScale >= 0 ? this.pinchLastScale : 1.0;
-                  const factor: number = last > 0 ? scale / last : 1.0;
-                  this.pinchLastScale = scale;
+                  const factor: number = this.gestureTracker.nextScaleFactor(scale);
                   this.viewport.zoomAt(cx, cy, factor);
                   this.onViewportChanged();
                 })
                 .onActionEnd(() => {
-                  this.pinchLastScale = -1;
+                  this.gestureTracker.resetScale();
+                })
+                .onActionCancel(() => {
+                  this.gestureTracker.resetScale();
                 }),
               PanGesture({ fingers: 2 })
                 .onActionUpdate((event: GestureEvent) => {
                   if (event.offsetX !== undefined && event.offsetY !== undefined) {
-                    this.viewport.panBy(event.offsetX, event.offsetY);
+                    const delta: Point2D = this.gestureTracker.nextPanDelta(event.offsetX, event.offsetY);
+                    this.viewport.panBy(delta.x, delta.y);
                     this.onViewportChanged();
                   }
+                })
+                .onActionEnd(() => {
+                  this.gestureTracker.resetPan();
+                })
+                .onActionCancel(() => {
+                  this.gestureTracker.resetPan();
                 }),
             ),
           ),

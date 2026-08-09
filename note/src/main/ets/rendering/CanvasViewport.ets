@@ -21,7 +21,8 @@ export class CanvasViewport {
 
   // 以某屏幕点为中心缩放（保持该点下的画布内容不动）
   zoomAt(sx: number, sy: number, factor: number): void {
-    if (factor <= 0) {
+    if (!Number.isFinite(sx) || !Number.isFinite(sy) || !Number.isFinite(factor) || factor <= 0 ||
+      !Number.isFinite(this.zoom) || !Number.isFinite(this.scrollX) || !Number.isFinite(this.scrollY)) {
       return;
     }
     const newZoom: number = this.clampZoom(this.zoom * factor);
@@ -37,18 +38,29 @@ export class CanvasViewport {
 
   // 平移（屏幕像素增量）
   panBy(dx: number, dy: number): void {
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+      return;
+    }
     this.scrollX += dx;
     this.scrollY += dy;
   }
 
   // 直接设置缩放值，不改变 scroll；用于随后显式恢复/重算 scroll 的调用路径。
-  setZoomRaw(z: number): void {
-    this.zoom = this.clampZoom(z);
+  setZoomRaw(z: number): boolean {
+    if (!Number.isFinite(z) || z < CanvasViewport.MIN_ZOOM || z > CanvasViewport.MAX_ZOOM) {
+      return false;
+    }
+    this.zoom = z;
+    return true;
   }
 
-  setScroll(x: number, y: number): void {
+  setScroll(x: number, y: number): boolean {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return false;
+    }
     this.scrollX = x;
     this.scrollY = y;
+    return true;
   }
 
   // 复位（100% 左上角）
@@ -60,7 +72,13 @@ export class CanvasViewport {
 
   // 限制 zoom 范围（滚动边界 MVP 不限制：自由平移）
   clamp(): void {
-    this.zoom = this.clampZoom(this.zoom);
+    this.zoom = Number.isFinite(this.zoom) ? this.clampZoom(this.zoom) : 1.0;
+    if (!Number.isFinite(this.scrollX)) {
+      this.scrollX = 0;
+    }
+    if (!Number.isFinite(this.scrollY)) {
+      this.scrollY = 0;
+    }
   }
 
   private clampZoom(z: number): number {
@@ -71,5 +89,46 @@ export class CanvasViewport {
       return CanvasViewport.MAX_ZOOM;
     }
     return z;
+  }
+}
+
+export class CumulativeGestureTracker {
+  private lastScale: number = 1;
+  private lastOffsetX: number = 0;
+  private lastOffsetY: number = 0;
+  private scaleActive: boolean = false;
+  private panActive: boolean = false;
+
+  nextScaleFactor(scale: number): number {
+    if (!Number.isFinite(scale) || scale <= 0) {
+      return 1;
+    }
+    const factor: number = this.scaleActive ? scale / this.lastScale : scale;
+    this.lastScale = scale;
+    this.scaleActive = true;
+    return Number.isFinite(factor) && factor > 0 ? factor : 1;
+  }
+
+  nextPanDelta(offsetX: number, offsetY: number): Point2D {
+    if (!Number.isFinite(offsetX) || !Number.isFinite(offsetY)) {
+      return { x: 0, y: 0 };
+    }
+    const dx: number = this.panActive ? offsetX - this.lastOffsetX : offsetX;
+    const dy: number = this.panActive ? offsetY - this.lastOffsetY : offsetY;
+    this.lastOffsetX = offsetX;
+    this.lastOffsetY = offsetY;
+    this.panActive = true;
+    return { x: dx, y: dy };
+  }
+
+  resetScale(): void {
+    this.lastScale = 1;
+    this.scaleActive = false;
+  }
+
+  resetPan(): void {
+    this.lastOffsetX = 0;
+    this.lastOffsetY = 0;
+    this.panActive = false;
   }
 }
