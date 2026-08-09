@@ -9,6 +9,9 @@ import { InkInputProviderImpl } from '../../core/adaptation/InkInputProviderImpl
 import { PenKitPredictor } from '../../core/adaptation/PenKitPredictor';
 import { PredictionCoordinates } from '../../core/adaptation/Predictor';
 import { Canvas2DStrokeRenderer, Canvas2DRenderContext } from '../../core/adaptation/Canvas2DStrokeRenderer';
+import {
+  applyOriginalPencilAlphaCurve, ORIGINAL_PENCIL_TEXTURE_SIZE,
+} from '../../core/adaptation/PencilSplatMath';
 import { StrokeLayerManager } from '../../rendering/StrokeLayerManager';
 import { CanvasViewport } from '../../rendering/CanvasViewport';
 import { StrokeSession } from '../../rendering/StrokeSession';
@@ -439,7 +442,21 @@ export struct NoteCanvasView {
       const buffer: ArrayBuffer = bytes.buffer.slice(bytes.byteOffset,
         bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
       source = image.createImageSource(buffer);
-      pixelMap = await source.createPixelMap();
+      pixelMap = await source.createPixelMap({
+        editable: true,
+        desiredPixelFormat: image.PixelMapFormat.RGBA_8888,
+      });
+      const info: image.ImageInfo = await pixelMap.getImageInfo();
+      if (info.size.width !== ORIGINAL_PENCIL_TEXTURE_SIZE ||
+        info.size.height !== ORIGINAL_PENCIL_TEXTURE_SIZE ||
+        info.pixelFormat !== image.PixelMapFormat.RGBA_8888) {
+        throw new Error(`Unexpected pencil texture: ${info.size.width}x${info.size.height}, format=${info.pixelFormat}`);
+      }
+      const pixelBuffer: ArrayBuffer = new ArrayBuffer(pixelMap.getPixelBytesNumber());
+      await pixelMap.readPixelsToBuffer(pixelBuffer);
+      applyOriginalPencilAlphaCurve(new Uint8Array(pixelBuffer), info.size.width,
+        info.size.height, pixelMap.getBytesNumberPerRow());
+      await pixelMap.writeBufferToPixels(pixelBuffer);
       const texture: ImageBitmap = new ImageBitmap(pixelMap);
       if (!this.lifecycleActive) {
         texture.close();

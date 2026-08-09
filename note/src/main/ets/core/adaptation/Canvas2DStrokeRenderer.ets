@@ -6,6 +6,7 @@ import { StrokeElementData, PencilSplatPoint, RenderSpec, InkStyle,
   ERASER_PATH_BREAK_COORDINATE } from '../model/StrokeTypes';
 import { Point2D, Rect2D } from '../model/GeometryTypes';
 import { WidthOutlineBuilder } from '../algorithm/WidthOutlineBuilder';
+import { computePencilSplatBounds } from './PencilSplatMath';
 
 // 渲染上下文实现 A：包装主画布 CanvasRenderingContext2D
 export class Canvas2DRenderContext implements RenderContext {
@@ -242,9 +243,7 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
   constructor() {
   }
 
-  // T-040 修复：程序化铅笔纹理（石墨颗粒 + 径向透明边缘）
-  // 原版（uaa/PencilSplatRenderer）用资源 BitmapShader 提供铅笔质感；鸿蒙无该资源，
-  // 用确定性伪随机颗粒生成 64×64 纹理替代：中心浓密、边缘渐淡，splat 叠加后形成连续铅笔痕
+  // 原版资源解码失败时使用的确定性降级纹理；正常路径始终加载原始 1024x1024 splat。
   static generatePencilTexture(): ImageBitmap {
     const TEX: number = 64;
     const canvas = new OffscreenCanvas(TEX, TEX);
@@ -372,27 +371,16 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       return;
     }
     const c: Canvas2DRenderContext = ctx as Canvas2DRenderContext;
-    // 计算 splat 包围盒（splat 坐标为绝对画布坐标，离屏用相对坐标绘制）
-    // xaa/cfa 的 scale 语义为页面半径（直径 = 2*scale）；包围盒同样以 scale 外扩。
-    let minX: number = Number.MAX_VALUE;
-    let minY: number = Number.MAX_VALUE;
-    let maxX: number = -Number.MAX_VALUE;
-    let maxY: number = -Number.MAX_VALUE;
-    for (const s of splats) {
-      const r: number = s.scale + 2;
-      if (s.x - r < minX) {
-        minX = s.x - r;
-      }
-      if (s.x + r > maxX) {
-        maxX = s.x + r;
-      }
-      if (s.y - r < minY) {
-        minY = s.y - r;
-      }
-      if (s.y + r > maxY) {
-        maxY = s.y + r;
-      }
+    // 原版 mea.a() 用 scale*sqrt(2) 覆盖任意旋转角，再加 2 页面像素保留抗锯齿边缘。
+    const bounds: Rect2D | null = computePencilSplatBounds(splats, 2);
+    if (bounds === null) {
+      return;
     }
+    // 对齐 zea.t() 的整数目标区域，避免 OffscreenCanvas 隐式截断浮点尺寸。
+    const minX: number = Math.floor(bounds.left);
+    const minY: number = Math.floor(bounds.top);
+    const maxX: number = Math.ceil(bounds.right);
+    const maxY: number = Math.ceil(bounds.bottom);
     const w: number = Math.max(maxX - minX, 1);
     const h: number = Math.max(maxY - minY, 1);
     let off: OffscreenCanvas;
