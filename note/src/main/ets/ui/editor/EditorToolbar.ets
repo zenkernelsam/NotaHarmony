@@ -136,14 +136,6 @@ export struct EditorToolbar {
           this.StyleButton($r('app.string.style_taper'), BrushStyle.TAPER)
           this.StyleButton($r('app.string.style_dash'), BrushStyle.DASH)
           this.StyleButton($r('app.string.style_dots'), BrushStyle.DOT)
-          Divider().vertical(true).height(24).margin({ left: 8, right: 8 })
-          Text($r('app.string.shapes')).fontSize(12)
-          Toggle({ type: ToggleType.Switch, isOn: this.viewModel.shapeDetectionEnabled })
-            .margin({ left: 4 })
-            .enabled(!this.viewModel.toolStateLoading)
-            .onChange((enabled: boolean) => {
-              this.viewModel.setShapeDetectionEnabled(enabled);
-            })
         }
         .width('100%')
         .height(40)

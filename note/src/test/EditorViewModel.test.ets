@@ -176,5 +176,17 @@ export default function editorViewModelTest() {
       expect(saved).assertFalse();
       expect(viewModel.shapeDetectionEnabled).assertFalse();
     });
+
+    it('persists the shape detection preference for the next editor', 0, async () => {
+      const repository = new FakeToolRepository();
+      const settings = new FakeEditorSettingsRepository();
+      const first = new EditorViewModel();
+      await first.initialize(repository, 'primary-editor', settings);
+      expect(first.shapeDetectionEnabled).assertTrue();
+      expect(await first.setShapeDetectionEnabled(false)).assertTrue();
+      const restored = new EditorViewModel();
+      await restored.initialize(repository, 'primary-editor', settings);
+      expect(restored.shapeDetectionEnabled).assertFalse();
+    });
   });
 }

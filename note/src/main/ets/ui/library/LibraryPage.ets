@@ -135,8 +135,8 @@ struct LibraryPage {
     }
   }
 
-  private navigateToBackup(): void {
-    router.pushUrl({ url: 'ui/settings/BackupPage' }).catch((e: Error) => {
+  private navigateToSettings(): void {
+    router.pushUrl({ url: 'ui/settings/SettingsPage' }).catch((e: Error) => {
       console.error(`pushUrl failed: ${JSON.stringify(e)}`);
     });
   }
@@ -673,7 +673,7 @@ struct LibraryPage {
               .height(40)
               .margin({ left: 8 })
               .onClick(() => {
-                this.navigateToBackup();
+                this.navigateToSettings();
               })
           } else {
             Button('...')
@@ -963,7 +963,7 @@ struct LibraryPage {
       { value: $r('app.string.follow_system'), action: () => { this.setThemeMode('system'); } },
       { value: $r('app.string.light_theme'), action: () => { this.setThemeMode('light'); } },
       { value: $r('app.string.dark_theme'), action: () => { this.setThemeMode('dark'); } },
-      { value: $r('app.string.settings'), action: () => { this.navigateToBackup(); } },
+      { value: $r('app.string.settings'), action: () => { this.navigateToSettings(); } },
     ];
   }
 
