@@ -21,6 +21,7 @@ import webDAVConfigTransactionTest from './WebDAVConfigTransaction.test';
 import pointerSampleStreamTest from './PointerSampleStream.test';
 import widthOutlineBuilderTest from './WidthOutlineBuilder.test';
 import assetReferenceTest from './AssetReference.test';
+import strokePredictionTest from './StrokePrediction.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -46,4 +47,5 @@ export default function testsuite() {
   pointerSampleStreamTest();
   widthOutlineBuilderTest();
   assetReferenceTest();
+  strokePredictionTest();
 }

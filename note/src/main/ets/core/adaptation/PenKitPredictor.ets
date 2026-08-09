@@ -1,36 +1,28 @@
-// T-008 预测点实现（任务卡 T-008，Predictor 接口实现）
-// 当前版本使用线性外推（模拟器可能不支持 PointPredictor）；
-// 未来可接入 @kit.Penkit 的 PointPredictor.getPredictionPoint()（适配层实现允许平台 import）
-import { Predictor } from './Predictor';
-import { InputPoint } from '../model/StrokeTypes';
+import { PointPredictor } from '@kit.Penkit';
+import { PredictionCoordinates, Predictor } from './Predictor';
 
-export class PenKitPredictor implements Predictor {
-  // 基于历史点生成预测点：取最后两点速度方向线性外推 2 个点
-  predict(history: InputPoint[]): InputPoint[] {
-    if (history.length < 2) {
-      return [];
+// HarmonyOS 5.0/API 12 起的系统手写预测器。与原版 AndroidX Ink 一样，预测只来自平台输入层。
+export class PenKitPredictor implements Predictor<TouchEvent> {
+  private pointPredictor: PointPredictor | null = null;
+
+  predict(event: TouchEvent): PredictionCoordinates | null {
+    try {
+      if (this.pointPredictor === null) {
+        this.pointPredictor = new PointPredictor();
+      }
+      const point: TouchPoint = this.pointPredictor.getPredictionPoint(event);
+      if (typeof point.x !== 'number' || typeof point.y !== 'number' ||
+        !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+        return null;
+      }
+      return { x: point.x, y: point.y };
+    } catch (_error) {
+      // 不支持 SystemCapability.Stylus.Handwrite 的设备必须无损降级为无预测。
+      return null;
     }
-    const last = history[history.length - 1];
-    const prev = history[history.length - 2];
-    const dx = last.x - prev.x;
-    const dy = last.y - prev.y;
-    const dt = Math.max(last.elapsedTimeMillis - prev.elapsedTimeMillis, 1);
-    const results: InputPoint[] = [];
-    for (let i = 1; i <= 2; i++) {
-      results.push({
-        x: last.x + dx * i,
-        y: last.y + dy * i,
-        elapsedTimeMillis: last.elapsedTimeMillis + dt * i,
-        toolType: last.toolType,
-        pressure: last.pressure,
-        tiltRadians: last.tiltRadians,
-        orientationRadians: last.orientationRadians,
-      });
-    }
-    return results;
   }
 
   reset(): void {
-    // 线性外推无内部状态
+    // PointPredictor 的公开 API 没有可重置状态；它从传入 TouchEvent 的历史样本计算。
   }
 }

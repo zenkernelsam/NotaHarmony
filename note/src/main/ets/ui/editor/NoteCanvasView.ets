@@ -6,7 +6,8 @@ import { promptAction } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { RawPointerEvent } from '../../core/adaptation/InkInputProvider';
 import { InkInputProviderImpl } from '../../core/adaptation/InkInputProviderImpl';
-import { NullPredictor } from '../../core/adaptation/NullPredictor';
+import { PenKitPredictor } from '../../core/adaptation/PenKitPredictor';
+import { PredictionCoordinates } from '../../core/adaptation/Predictor';
 import { Canvas2DStrokeRenderer, Canvas2DRenderContext } from '../../core/adaptation/Canvas2DStrokeRenderer';
 import { StrokeLayerManager } from '../../rendering/StrokeLayerManager';
 import { CanvasViewport } from '../../rendering/CanvasViewport';
@@ -24,7 +25,7 @@ import { StrokePersistence } from '../../data/StrokePersistence';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import {
-  RenderSpec, StrokeElementData, StrokePathPoint, InputBatch, PencilSplatPoint,
+  RenderSpec, StrokeElementData, StrokePathPoint, InputBatch, InputBatchKind, PencilSplatPoint,
 } from '../../core/model/StrokeTypes';
 import { ToolType } from '../../core/model/BrushTypes';
 import {
@@ -72,7 +73,7 @@ export struct NoteCanvasView {
   private canvasCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.settings);
   private renderCtx: Canvas2DRenderContext = new Canvas2DRenderContext(this.canvasCtx);
   private inputProvider: InkInputProviderImpl = InkInputProviderImpl.createForArkUI();
-  private predictor: NullPredictor = new NullPredictor();
+  private predictor: PenKitPredictor = new PenKitPredictor();
   private renderer: Canvas2DStrokeRenderer = new Canvas2DStrokeRenderer();
   private pencilPixelMap: image.PixelMap | null = null;
   private pencilTextureLoading: boolean = false;
@@ -691,7 +692,9 @@ export struct NoteCanvasView {
     // T-040 审核修复：传入当前 zoom（拟合容差按屏幕空间计算）
     this.strokeSession.beginStroke(spec, startTime, this.viewport.zoom);
     this.inputProvider.beginStroke(startTime);
+    this.predictor.reset();
     this.addPointerBatches(batches);
+    this.addPredictionPreview(event, touch);
     this.scheduleShapeDetection();
     this.isDrawing = true;
     this.renderFrame();
@@ -733,6 +736,7 @@ export struct NoteCanvasView {
       this.collectPointerSamples(event, touch));
     if (this.strokeSession !== null) {
       this.addPointerBatches(batches);
+      this.addPredictionPreview(event, touch);
       this.scheduleShapeDetection();
     }
     this.renderFrame();
@@ -874,7 +878,7 @@ export struct NoteCanvasView {
       if (!this.isDrawing || this.strokeSession === null || !this.strokeSession.isActive()) {
         return;
       }
-      const current: StrokeElementData | null = this.strokeSession.getCurrentStroke();
+      const current: StrokeElementData | null = this.strokeSession.getCurrentRealStroke();
       if (current === null) {
         return;
       }
@@ -1730,6 +1734,26 @@ export struct NoteCanvasView {
       const realBatch: InputBatch = this.inputProvider.processEvent(batches.real, false);
       this.strokeSession.addBatch(realBatch);
     }
+  }
+
+  private addPredictionPreview(event: TouchEvent, currentTouch: TouchObject): void {
+    if (this.strokeSession === null || !this.strokeSession.isActive()) {
+      return;
+    }
+    const predicted: PredictionCoordinates | null = this.predictor.predict(event);
+    if (predicted === null) {
+      this.strokeSession.addBatch({ kind: InputBatchKind.PREDICTED, points: [] });
+      return;
+    }
+    const canvasPoint: Point2D = this.viewport.screenToCanvas(predicted.x, predicted.y);
+    const raw: RawPointerEvent = this.toRawPointerEvent(
+      currentTouch, false, event, event.timestamp);
+    raw.x = Math.min(Math.max(canvasPoint.x, 0), this.getPaperWidth());
+    raw.y = Math.min(Math.max(canvasPoint.y, 0), this.getPaperHeight());
+    // PointPredictor only exposes coordinates. Preserve the current real sample's pen properties and
+    // timestamp; InkInputProvider still rejects timestamp 0 exactly like the original predicted event path.
+    const batch: InputBatch = this.inputProvider.processEvent([raw], true);
+    this.strokeSession.addBatch(batch);
   }
 
   private resetPointerTracking(): void {

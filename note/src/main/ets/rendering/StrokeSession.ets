@@ -33,6 +33,10 @@ export class StrokeSession {
   private cubicSourceRanges: CubicSourceRange[] = [];
   private splatPoints: PencilSplatPoint[] = [];
   private outline: OutlineResult | null = null;
+  private previewPathPoints: StrokePathPoint[] = [];
+  private previewCubicSegments: CubicSegment[] = [];
+  private previewSplatPoints: PencilSplatPoint[] = [];
+  private previewOutline: OutlineResult | null = null;
   private renderSpec: RenderSpec;
   private active: boolean = false;  // 字段名避开与 isActive() 方法重名（ArkTS 限制）
   private strokeId: string = '';
@@ -79,6 +83,7 @@ export class StrokeSession {
     this.cubicSourceRanges = [];
     this.splatPoints = [];
     this.outline = null;
+    this.clearPreview();
     this.currentStroke = null;
     this.active = true;
     this.startTime = timestamp;
@@ -89,11 +94,16 @@ export class StrokeSession {
     this.splatGenerator.reset(this.startTime);
   }
 
-  // 添加输入批次（每帧调用）；预测点批次仅用于预览不持久化，MVP 直接忽略
+  // 真实批次替换上一帧预测；预测批次只构造临时尾段，不写入 raw/path/smoother。
   addBatch(batch: InputBatch): void {
-    if (!this.active || batch.kind === InputBatchKind.PREDICTED) {
+    if (!this.active) {
       return;
     }
+    if (batch.kind === InputBatchKind.PREDICTED) {
+      this.rebuildPreview(batch.points);
+      return;
+    }
+    this.clearPreview();
     const smoothed: InputPoint[] = this.smoother.smooth(batch.points);
     for (const p of smoothed) {
       this.rawPoints.push(p);
@@ -111,6 +121,7 @@ export class StrokeSession {
 
   // 完成笔画 → 返回完整 StrokeElementData
   finishStroke(): StrokeElementData {
+    this.clearPreview();
     this.active = false;
     const stroke: StrokeElementData = this.buildElementData(true);
     this.currentStroke = null;
@@ -119,6 +130,7 @@ export class StrokeSession {
 
   // 取消笔画
   cancelStroke(): void {
+    this.clearPreview();
     this.active = false;
     this.currentStroke = null;
   }
@@ -128,48 +140,90 @@ export class StrokeSession {
     if (!this.active) {
       return null;
     }
-    this.currentStroke = this.buildElementData(false);
+    if (this.previewPathPoints.length > 0) {
+      this.currentStroke = this.buildElementData(false, this.previewPathPoints,
+        this.previewCubicSegments, this.previewSplatPoints, this.previewOutline);
+    } else {
+      this.currentStroke = this.buildElementData(false);
+    }
     return this.currentStroke;
+  }
+
+  // 非渲染消费者（如形状识别）必须显式读取真实输入，不能让预测尾点改变最终文档语义。
+  getCurrentRealStroke(): StrokeElementData | null {
+    if (!this.active) {
+      return null;
+    }
+    return this.buildElementData(false);
+  }
+
+  private rebuildPreview(points: InputPoint[]): void {
+    this.clearPreview();
+    if (points.length === 0 || this.pathPoints.length === 0) {
+      return;
+    }
+    this.previewPathPoints = this.pathPoints.slice();
+    const predicted: InputPoint[] = this.smoother.smooth(points, false);
+    for (const p of predicted) {
+      this.previewPathPoints.push(this.toPathPoint(p));
+    }
+    const geometry: StrokeGeometry = this.buildGeometry(this.previewPathPoints, true);
+    this.previewCubicSegments = geometry.cubicSegments;
+    this.previewSplatPoints = geometry.splatPoints;
+    this.previewOutline = geometry.outline;
+  }
+
+  private clearPreview(): void {
+    this.previewPathPoints = [];
+    this.previewCubicSegments = [];
+    this.previewSplatPoints = [];
+    this.previewOutline = null;
   }
 
   // 重建拟合几何（贝塞尔段 / splat / 轮廓）
   private rebuildGeometry(): void {
-    if (this.pathPoints.length < 2) {
-      this.cubicSegments = [];
-      this.cubicSourceRanges = [];
-      this.splatPoints = [];
-      this.outline = null;
-      return;
+    const geometry: StrokeGeometry = this.buildGeometry(this.pathPoints, false);
+    this.cubicSegments = geometry.cubicSegments;
+    this.cubicSourceRanges = geometry.cubicSourceRanges;
+    this.splatPoints = geometry.splatPoints;
+    this.outline = geometry.outline;
+  }
+
+  private buildGeometry(pathPoints: StrokePathPoint[], preview: boolean): StrokeGeometry {
+    if (pathPoints.length < 2) {
+      return new StrokeGeometry();
     }
     const attributeSplit: CubicAttributeSplitOptions = {
       preserveWidth: this.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH,
       preservePencilAttributes: this.renderSpec.isPencil,
     };
     const fitResult: CubicFitResult = this.fitter.fitWithSourceRanges(
-      this.pathPoints, this.renderSpec.brushWidth, this.zoom, undefined, attributeSplit);
-    this.cubicSegments = fitResult.segments;
-    this.cubicSourceRanges = fitResult.sourceRanges;
-    if (this.renderSpec.isPencil && this.cubicSegments.length > 0) {
-      // This port refits the full stroke on every batch; restart the original per-stroke LCG so old splats stay stable.
-      this.splatGenerator.reset(this.startTime);
-      this.splatPoints = this.splatGenerator.generate(
-        this.cubicSegments, this.pathPoints, this.cubicSourceRanges);
+      pathPoints, this.renderSpec.brushWidth, this.zoom, undefined, attributeSplit);
+    let splatPoints: PencilSplatPoint[] = [];
+    if (this.renderSpec.isPencil && fitResult.segments.length > 0) {
+      const generator: PencilSplatGenerator = preview ?
+        new PencilSplatGenerator({ spacing: this.renderSpec.brushWidth }) : this.splatGenerator;
+      // Refit the full stroke on every batch; restart the original per-stroke LCG so old splats stay stable.
+      generator.reset(this.startTime);
+      splatPoints = generator.generate(fitResult.segments, pathPoints, fitResult.sourceRanges);
     }
+    let outline: OutlineResult | null = null;
     if (this.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH) {
-      this.outline = this.outlineBuilder.build(
-        this.pathPoints, this.renderSpec.brushWidth, this.cubicSegments);
-    } else {
-      this.outline = null;
+      outline = this.outlineBuilder.build(pathPoints, this.renderSpec.brushWidth, fitResult.segments);
     }
+    return new StrokeGeometry(fitResult.segments, fitResult.sourceRanges, splatPoints, outline);
   }
 
-  private buildElementData(isFinished: boolean): StrokeElementData {
-    const bounds: Rect2D = this.computeBounds();
+  private buildElementData(isFinished: boolean, pathPoints: StrokePathPoint[] = this.pathPoints,
+    cubicSegments: CubicSegment[] = this.cubicSegments,
+    splatPoints: PencilSplatPoint[] = this.splatPoints,
+    outline: OutlineResult | null = this.outline): StrokeElementData {
+    const bounds: Rect2D = this.computeBounds(pathPoints, splatPoints, outline);
     return {
       id: this.strokeId,
-      pathPoints: isFinished ? this.pathPoints.slice() : this.pathPoints,
-      cubicSegments: isFinished ? this.cubicSegments.slice() : this.cubicSegments,
-      splatPoints: isFinished ? this.splatPoints.slice() : this.splatPoints,
+      pathPoints: isFinished ? pathPoints.slice() : pathPoints,
+      cubicSegments: isFinished ? cubicSegments.slice() : cubicSegments,
+      splatPoints: isFinished ? splatPoints.slice() : splatPoints,
       renderSpec: this.renderSpec,
       transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],  // 单位矩阵
       bounds: bounds,
@@ -178,19 +232,20 @@ export class StrokeSession {
     };
   }
 
-  private computeBounds(): Rect2D {
+  private computeBounds(pathPoints: StrokePathPoint[], splatPoints: PencilSplatPoint[],
+    outline: OutlineResult | null): Rect2D {
     // 优先使用可变宽度轮廓点扩展边界（更精确），否则用中心线点
     let left: number;
     let top: number;
     let right: number;
     let bottom: number;
     const half: number = this.renderSpec.brushWidth / 2;
-    if (this.outline !== null && this.outline.isValid) {
-      left = this.outline.outlinePoints[0].x;
-      top = this.outline.outlinePoints[0].y;
+    if (outline !== null && outline.isValid) {
+      left = outline.outlinePoints[0].x;
+      top = outline.outlinePoints[0].y;
       right = left;
       bottom = top;
-      for (const p of this.outline.outlinePoints) {
+      for (const p of outline.outlinePoints) {
         if (p.x < left) {
           left = p.x;
         }
@@ -208,12 +263,12 @@ export class StrokeSession {
     }
     // T-040 审核修复：pencil 笔画的 bounds 必须覆盖 splat 散布范围
     // （散布半径最多 1.5×spacing，原实现仅 ±brushWidth/2，选中/裁剪/缩略图会截断）
-    if (this.renderSpec.isPencil && this.splatPoints.length > 0) {
-      left = this.splatPoints[0].x;
-      top = this.splatPoints[0].y;
+    if (this.renderSpec.isPencil && splatPoints.length > 0) {
+      left = splatPoints[0].x;
+      top = splatPoints[0].y;
       right = left;
       bottom = top;
-      for (const s of this.splatPoints) {
+      for (const s of splatPoints) {
         const r: number = s.scale;
         if (s.x - r < left) {
           left = s.x - r;
@@ -230,14 +285,14 @@ export class StrokeSession {
       }
       return { left: left, top: top, right: right, bottom: bottom };
     }
-    if (this.pathPoints.length === 0) {
+    if (pathPoints.length === 0) {
       return { left: 0, top: 0, right: 0, bottom: 0 };
     }
-    left = this.pathPoints[0].position.x;
-    top = this.pathPoints[0].position.y;
+    left = pathPoints[0].position.x;
+    top = pathPoints[0].position.y;
     right = left;
     bottom = top;
-    for (const p of this.pathPoints) {
+    for (const p of pathPoints) {
       const x: number = p.position.x;
       const y: number = p.position.y;
       if (x < left) {
@@ -266,6 +321,17 @@ export class StrokeSession {
     return this.config.widthFactorMin + this.config.widthFactorRange * pressure;
   }
 
+  private toPathPoint(p: InputPoint): StrokePathPoint {
+    return {
+      position: { x: p.x, y: p.y },
+      widthFactor: this.pressureToWidthFactor(p.pressure),
+      pressure: p.pressure,
+      altitudeAngleRadians: p.tiltRadians,
+      azimuthUnitX: p.orientationRadians >= 0 ? -Math.sin(p.orientationRadians) : 0,
+      azimuthUnitY: p.orientationRadians >= 0 ? Math.cos(p.orientationRadians) : 0,
+    };
+  }
+
   private generateStrokeId(): string {
     const timePart: string = Date.now().toString(36);
     const randPart: string = Math.random().toString(36).slice(2, 8);
@@ -278,5 +344,20 @@ export class StrokeSession {
 
   getStartTime(): number {
     return this.startTime;
+  }
+}
+
+class StrokeGeometry {
+  cubicSegments: CubicSegment[];
+  cubicSourceRanges: CubicSourceRange[];
+  splatPoints: PencilSplatPoint[];
+  outline: OutlineResult | null;
+
+  constructor(cubicSegments: CubicSegment[] = [], cubicSourceRanges: CubicSourceRange[] = [],
+    splatPoints: PencilSplatPoint[] = [], outline: OutlineResult | null = null) {
+    this.cubicSegments = cubicSegments;
+    this.cubicSourceRanges = cubicSourceRanges;
+    this.splatPoints = splatPoints;
+    this.outline = outline;
   }
 }
