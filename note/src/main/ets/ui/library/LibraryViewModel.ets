@@ -14,7 +14,6 @@ export class LibraryViewModel {
   notes: NoteMeta[] = [];
   isLoading: boolean = true;
   loadError: string = '';
-  searchQuery: string = '';
   sortMode: NoteSortMode = NoteSortMode.UPDATED;
   // T-039：当前浏览文件夹（null=全部笔记）
   currentFolderId: string | null = null;
@@ -25,14 +24,14 @@ export class LibraryViewModel {
     this.repo = repo;
   }
 
-  async loadNotes(): Promise<void> {
+  async loadNotes(query: string): Promise<void> {
     const generation: number = ++this.loadGeneration;
     this.isLoading = true;
     this.loadError = '';
     try {
       let loaded: NoteMeta[];
-      if (this.searchQuery.trim().length > 0) {
-        loaded = await this.repo.searchNotes(this.searchQuery, this.currentFolderId);
+      if (query.trim().length > 0) {
+        loaded = await this.repo.searchNotes(query, this.currentFolderId);
       } else if (this.currentFolderId === null) {
         loaded = await this.repo.getAllNotes();
       } else {
@@ -57,11 +56,11 @@ export class LibraryViewModel {
   }
 
   // T-039：切换浏览文件夹并刷新
-  async setFolder(folderId: string | null): Promise<void> {
+  async setFolder(folderId: string | null, query: string): Promise<void> {
     const previousFolderId: string | null = this.currentFolderId;
     this.currentFolderId = folderId;
     try {
-      await this.loadNotes();
+      await this.loadNotes(query);
     } catch (e) {
       this.currentFolderId = previousFolderId;
       throw new Error(`setFolder failed: ${JSON.stringify(e)}`);
@@ -75,8 +74,7 @@ export class LibraryViewModel {
   }
 
   async setSearchQuery(query: string): Promise<void> {
-    this.searchQuery = query;
-    await this.loadNotes();
+    await this.loadNotes(query);
   }
 
   // 按当前模式排序。
@@ -93,15 +91,15 @@ export class LibraryViewModel {
   }
 
   // 创建并返回 noteId
-  async createNote(): Promise<string> {
+  async createNote(query: string): Promise<string> {
     const note: NoteMeta = await this.repo.createNote('Untitled Note', this.currentFolderId);
-    await this.loadNotes();
+    await this.loadNotes(query);
     return note.id;
   }
 
-  async deleteNote(noteId: string): Promise<void> {
+  async deleteNote(noteId: string, query: string): Promise<void> {
     await this.repo.deleteNote(noteId);
-    await this.loadNotes();
+    await this.loadNotes(query);
   }
 
   // Search, folder and sort are resolved into one observable list by loadNotes().

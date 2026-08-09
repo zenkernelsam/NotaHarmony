@@ -88,10 +88,10 @@ export default function libraryViewModelTest() {
       const repository = new FakeNoteRepository();
       repository.notes = [makeNote('existing', null)];
       const viewModel = new LibraryViewModel(repository);
-      await viewModel.loadNotes();
+      await viewModel.loadNotes('');
       repository.failReads = true;
       try {
-        await viewModel.loadNotes();
+        await viewModel.loadNotes('');
       } catch (_error) {
       }
       expect(viewModel.notes.length).assertEqual(1);
@@ -104,10 +104,10 @@ export default function libraryViewModelTest() {
       const repository = new FakeNoteRepository();
       repository.notes = [makeNote('root-note', null)];
       const viewModel = new LibraryViewModel(repository);
-      await viewModel.loadNotes();
+      await viewModel.loadNotes('');
       repository.failReads = true;
       try {
-        await viewModel.setFolder('broken-folder');
+        await viewModel.setFolder('broken-folder', '');
       } catch (_error) {
       }
       expect(viewModel.currentFolderId === null).assertTrue();
@@ -118,7 +118,7 @@ export default function libraryViewModelTest() {
       const repository = new FakeNoteRepository();
       const viewModel = new LibraryViewModel(repository);
       viewModel.currentFolderId = 'folder-a';
-      const noteId: string = await viewModel.createNote();
+      const noteId: string = await viewModel.createNote('');
       expect(noteId).assertEqual('created');
       expect(repository.createdFolderId).assertEqual('folder-a');
       expect(viewModel.notes.length).assertEqual(1);
@@ -127,11 +127,15 @@ export default function libraryViewModelTest() {
 
     it('loads search results through the repository query state', 0, async () => {
       const repository = new FakeNoteRepository();
-      repository.notes = [makeNote('Alpha', null), makeNote('Beta', null)];
+      repository.notes = [makeNote('Alpha', 'folder-a'), makeNote('Beta', 'folder-a'),
+        makeNote('Alphabet', 'folder-b')];
       const viewModel = new LibraryViewModel(repository);
       await viewModel.setSearchQuery('pha');
-      expect(viewModel.getFilteredNotes().length).assertEqual(1);
+      expect(viewModel.getFilteredNotes().length).assertEqual(2);
       expect(viewModel.getFilteredNotes()[0].id).assertEqual('Alpha');
+      await viewModel.setFolder('folder-b', 'pha');
+      expect(viewModel.getFilteredNotes().length).assertEqual(1);
+      expect(viewModel.getFilteredNotes()[0].id).assertEqual('Alphabet');
     });
 
     it('reapplies recently modified order after switching sort modes', 0, async () => {
@@ -151,7 +155,7 @@ export default function libraryViewModelTest() {
       repository.notes = [gamma, beta, alpha];
 
       const viewModel = new LibraryViewModel(repository);
-      await viewModel.loadNotes();
+      await viewModel.loadNotes('');
       expect(viewModel.notes[0].id).assertEqual('beta');
       expect(viewModel.notes[1].id).assertEqual('gamma');
       expect(viewModel.notes[2].id).assertEqual('alpha');

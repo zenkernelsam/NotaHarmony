@@ -123,7 +123,7 @@ struct LibraryPage {
     if (this.viewModel !== null) {
       const vm: LibraryViewModel = this.viewModel;
       const context = getContext(this) as common.UIAbilityContext;
-      this.thumbRenderer.initialize(context).then(() => vm.loadNotes()).then(() => {
+      this.thumbRenderer.initialize(context).then(() => vm.loadNotes(this.searchText)).then(() => {
         this.initError = '';
         this.hasInitError = false;
         this.viewModel = vm;
@@ -341,24 +341,10 @@ struct LibraryPage {
       this.folders = await this.folderRepo.getAllFolders();
       if (removesCurrent) {
         this.currentFolderId = null;
-        await vm.setFolder(null);
+        await vm.setFolder(null, this.searchText);
       }
       this.viewModel = vm;
       await this.refreshThumbnails();
-      this.persistence.backfillSearchIndex().then(() => {
-        const activeViewModel: LibraryViewModel | null = this.viewModel;
-        if (activeViewModel !== null && activeViewModel.searchQuery.trim().length > 0) {
-          activeViewModel.loadNotes().then(() => {
-            if (this.viewModel === activeViewModel) {
-              this.viewModel = activeViewModel;
-            }
-          }).catch((e: Error) => {
-            console.error(`refresh search after backfill failed: ${JSON.stringify(e)}`);
-          });
-        }
-      }).catch((e: Error) => {
-        console.error(`search index backfill failed: ${JSON.stringify(e)}`);
-      });
     } catch (e) {
       promptAction.showToast({ message: $r('app.string.delete_folder_failed') });
       console.error(`delete folder failed: ${JSON.stringify(e)}`);
@@ -392,7 +378,7 @@ struct LibraryPage {
     try {
       const vm: LibraryViewModel = this.viewModel;
       await this.folderRepo.moveNoteToFolder(noteId, folderId);
-      await vm.loadNotes();
+      await vm.loadNotes(this.searchText);
       this.viewModel = vm;
       await this.refreshThumbnails();
     } catch (e) {
@@ -412,7 +398,7 @@ struct LibraryPage {
     this.currentFolderId = folderId;
     try {
       const vm: LibraryViewModel = this.viewModel;
-      await vm.setFolder(folderId);
+      await vm.setFolder(folderId, this.searchText);
       this.initError = '';
       this.hasInitError = false;
       this.viewModel = vm;
@@ -473,9 +459,26 @@ struct LibraryPage {
       // 恢复排序偏好
       const saved: number = pref.getSync(this.PREF_SORT_KEY, 0) as number;
       vm.sortMode = saved as NoteSortMode;
-      await vm.loadNotes();
+      await vm.loadNotes(this.searchText);
       this.viewModel = vm;
       await this.refreshThumbnails();
+      this.persistence.backfillSearchIndex().then(() => {
+        const activeViewModel: LibraryViewModel | null = this.viewModel;
+        const activeQuery: string = this.searchText;
+        if (activeViewModel !== null && this.pageActive && activeQuery.trim().length > 0) {
+          activeViewModel.loadNotes(activeQuery).then(() => {
+            if (this.pageActive && this.viewModel === activeViewModel && this.searchText === activeQuery) {
+              this.viewModel = activeViewModel;
+              return this.refreshThumbnails();
+            }
+            return Promise.resolve();
+          }).catch((e: Error) => {
+            console.error(`refresh search after backfill failed: ${JSON.stringify(e)}`);
+          });
+        }
+      }).catch((e: Error) => {
+        console.error(`search index backfill failed: ${JSON.stringify(e)}`);
+      });
     } catch (e) {
       this.initError = $r('app.string.library_load_failed');
       this.hasInitError = true;
@@ -1004,7 +1007,7 @@ struct LibraryPage {
     this.deleteBusy = true;
     try {
       const vm: LibraryViewModel = this.viewModel;
-      await vm.deleteNote(noteId);
+      await vm.deleteNote(noteId, this.searchText);
       this.viewModel = vm;
       await this.refreshThumbnails();
     } catch (e) {
@@ -1021,7 +1024,7 @@ struct LibraryPage {
     }
     this.createBusy = true;
     try {
-      const noteId: string = await this.viewModel.createNote();
+      const noteId: string = await this.viewModel.createNote(this.searchText);
       await router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: noteId } });
     } catch (e) {
       promptAction.showToast({ message: $r('app.string.create_note_failed') });
