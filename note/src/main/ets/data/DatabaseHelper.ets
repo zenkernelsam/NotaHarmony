@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v3: client_op 增加页面归属；旧的无页元素迁移到笔记第一页。
-export const DB_VERSION: number = 10;
+// v11: note_state 增加坐标模型版本；无法可靠换算的旧 scroll 标为 legacy 并由 UI 忽略。
+export const DB_VERSION: number = 11;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS note_state (
   zoom REAL NOT NULL DEFAULT 1.0,
   scroll_offset_x REAL NOT NULL DEFAULT 0,
   scroll_offset_y REAL NOT NULL DEFAULT 0,
+  coordinate_model_version INTEGER NOT NULL DEFAULT 1,
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
@@ -320,5 +321,8 @@ export const MIGRATIONS: Record<number, string[]> = {
     DDL_SEARCH_PAGE_STATE,
     `INSERT OR IGNORE INTO search_item(note_id, type, sub_id, page_id, folded_text, rects)
       SELECT id, 0, id, NULL, lower(title), NULL FROM note_meta`,
+  ],
+  11: [
+    'ALTER TABLE note_state ADD COLUMN coordinate_model_version INTEGER NOT NULL DEFAULT 0',
   ],
 };

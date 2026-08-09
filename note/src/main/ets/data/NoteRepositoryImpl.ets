@@ -1,6 +1,8 @@
 // T-017 NoteRepository 实现（relationalStore，全部方法异常安全）
 import { relationalStore } from '@kit.ArkData';
-import { NoteMeta, NoteViewState } from '../core/model/NoteTypes';
+import {
+  CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, NoteMeta, NoteViewState,
+} from '../core/model/NoteTypes';
 import { NoteRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { assetMutationMutex, parseAssetNoteIds, unlinkAssetFile } from './AssetRepositoryImpl';
@@ -270,6 +272,8 @@ export class NoteRepositoryImpl implements NoteRepository {
             zoom: resultSet.getDouble(resultSet.getColumnIndex('zoom')),
             scrollOffsetX: resultSet.getDouble(resultSet.getColumnIndex('scroll_offset_x')),
             scrollOffsetY: resultSet.getDouble(resultSet.getColumnIndex('scroll_offset_y')),
+            coordinateModelVersion:
+              resultSet.getLong(resultSet.getColumnIndex('coordinate_model_version')),
           };
         }
       } finally {
@@ -282,12 +286,16 @@ export class NoteRepositoryImpl implements NoteRepository {
   }
 
   async saveViewState(state: NoteViewState): Promise<void> {
+    if (!isCurrentViewCoordinateModel(state.coordinateModelVersion)) {
+      throw new Error(`saveViewState coordinate model mismatch: ${state.coordinateModelVersion}`);
+    }
     const store: relationalStore.RdbStore = this.db.getStore();
     const bucket: relationalStore.ValuesBucket = {
       'note_id': state.noteId,
       'zoom': state.zoom,
       'scroll_offset_x': state.scrollOffsetX,
       'scroll_offset_y': state.scrollOffsetY,
+      'coordinate_model_version': CURRENT_VIEW_COORDINATE_MODEL_VERSION,
     };
     try {
       await store.insert('note_state', bucket, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);

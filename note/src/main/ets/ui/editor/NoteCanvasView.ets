@@ -47,7 +47,9 @@ import {
   transformTextBlockElements,
 } from '../../core/model/TextBlockGeometry';
 import { Point2D, Rect2D, CubicSegment } from '../../core/model/GeometryTypes';
-import { PageInfo, PaperTemplate } from '../../core/model/NoteTypes';
+import {
+  CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, PageInfo, PaperTemplate,
+} from '../../core/model/NoteTypes';
 import {
   appendPageElementRefs, clonePageElementOrder, materializePageElements, movePageElementRefs,
   normalizePageElementOrder, OrderedPageElement, PageElementKind, PageElementRef,
@@ -212,7 +214,7 @@ export struct NoteCanvasView {
       // T-034：恢复视口（zoom/scroll）
       const noteRepo = new NoteRepositoryImpl(db);
       const state = await noteRepo.getViewState(this.noteId);
-      if (state !== null) {
+      if (state !== null && isCurrentViewCoordinateModel(state.coordinateModelVersion)) {
         const restoredZoom: boolean = this.viewport.setZoomRaw(state.zoom);
         const restoredScroll: boolean = this.viewport.setScroll(state.scrollOffsetX, state.scrollOffsetY);
         this.zoomPercent = Math.round(this.viewport.zoom * 100);
@@ -641,6 +643,7 @@ export struct NoteCanvasView {
         zoom: this.viewport.zoom,
         scrollOffsetX: this.viewport.scrollX,
         scrollOffsetY: this.viewport.scrollY,
+        coordinateModelVersion: CURRENT_VIEW_COORDINATE_MODEL_VERSION,
       });
     } catch (e) {
       console.error(`saveViewportState failed: ${JSON.stringify(e)}`);

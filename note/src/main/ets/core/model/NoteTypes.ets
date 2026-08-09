@@ -53,9 +53,16 @@ export interface NoteMeta {
 }
 
 // 笔记视图状态（对应 NoteStateEntity）
+export const CURRENT_VIEW_COORDINATE_MODEL_VERSION: number = 1;
+
+export function isCurrentViewCoordinateModel(version: number): boolean {
+  return version === CURRENT_VIEW_COORDINATE_MODEL_VERSION;
+}
+
 export interface NoteViewState {
   noteId: string;
   zoom: number;
   scrollOffsetX: number;
   scrollOffsetY: number;
+  coordinateModelVersion: number;
 }

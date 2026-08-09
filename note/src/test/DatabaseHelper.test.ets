@@ -1,14 +1,15 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
   DB_VERSION, DDL_EDITOR_TOOLBOX_STATE, DDL_FOLDER, DDL_PAGE_ELEMENT_SNAPSHOT, DDL_PAGE_INFO,
-  DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE, DDL_INDEXES, MIGRATIONS,
+  DDL_NOTE_STATE, DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE, DDL_INDEXES, MIGRATIONS,
 } from
   '../main/ets/data/DatabaseHelper';
+import { isCurrentViewCoordinateModel } from '../main/ets/core/model/NoteTypes';
 
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(10);
+      expect(DB_VERSION).assertEqual(11);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -32,6 +33,15 @@ export default function databaseHelperTest() {
       expect(DDL_SEARCH_ITEM).assertContain('ON DELETE CASCADE');
       expect(DDL_SEARCH_PAGE_STATE).assertContain('indexed_revision');
       expect(MIGRATIONS[10].join('\n')).assertContain('lower(title)');
+    });
+
+    it('versions viewport coordinates and rejects legacy state deterministically', 0, () => {
+      const migration: string = MIGRATIONS[11].join('\n');
+      expect(DDL_NOTE_STATE).assertContain('coordinate_model_version INTEGER NOT NULL DEFAULT 1');
+      expect(migration).assertContain('coordinate_model_version');
+      expect(migration).assertContain('DEFAULT 0');
+      expect(isCurrentViewCoordinateModel(0)).assertFalse();
+      expect(isCurrentViewCoordinateModel(1)).assertTrue();
     });
 
     it('repairs orphans before rebuilding tables with foreign keys', 0, () => {
