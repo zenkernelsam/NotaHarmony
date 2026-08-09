@@ -153,6 +153,10 @@
       "value": "Cut"
     },
     {
+      "name": "paste",
+      "value": "Paste"
+    },
+    {
       "name": "bring_forward",
       "value": "Bring Forward"
     },

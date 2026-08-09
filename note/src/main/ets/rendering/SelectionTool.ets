@@ -145,6 +145,14 @@ export class SelectionTool {
     return ids;
   }
 
+  selectStrokeIds(ids: string[]): void {
+    this.state.isActive = ids.length > 0;
+    this.state.selectedStrokeIds = ids.slice();
+    this.state.lassoPoints = [];
+    this.state.rect = null;
+    this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  }
+
   // 取消选择
   deselect(): void {
     this.state.isActive = false;

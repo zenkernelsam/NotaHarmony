@@ -29,6 +29,7 @@ import bitmapTransferTrackerTest from './BitmapTransferTracker.test';
 import layerCacheGeometryTest from './LayerCacheGeometry.test';
 import canvasViewportTest from './CanvasViewport.test';
 import thumbnailRenderPolicyTest from './ThumbnailRenderPolicy.test';
+import strokeClipboardTest from './StrokeClipboard.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -62,4 +63,5 @@ export default function testsuite() {
   layerCacheGeometryTest();
   canvasViewportTest();
   thumbnailRenderPolicyTest();
+  strokeClipboardTest();
 }

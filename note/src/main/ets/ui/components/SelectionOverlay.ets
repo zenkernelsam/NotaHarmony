@@ -13,12 +13,14 @@ export enum SelectionMenuAction {
   FLIP_H = 5,
   FLIP_V = 6,
   DESELECT = 7,
+  PASTE = 8,
 }
 
 @Component
 export struct SelectionOverlay {
   @Prop selectionRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @Prop visible: boolean = false;
+  @Prop canPaste: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onMenuAction: (action: SelectionMenuAction) => void = () => {
@@ -56,6 +58,20 @@ export struct SelectionOverlay {
             { value: $r('app.string.flip_vertical'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipV clicked'); this.onMenuAction(SelectionMenuAction.FLIP_V); } },
             { value: $r('app.string.done'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu OK clicked'); this.onMenuAction(SelectionMenuAction.DESELECT); } },
           ])
+      }
+      if (this.canPaste) {
+        Button($r('app.string.paste'))
+          .height(40)
+          .fontSize(14)
+          .hitTestBehavior(HitTestMode.Block)
+          .position({
+            x: this.visible ? this.selectionRect.left : 16,
+            y: this.visible ? this.selectionRect.bottom + 52 : 16,
+          })
+          .onClick(() => {
+            hilog.info(0x0001, 'SelOverlay', 'Paste clicked');
+            this.onMenuAction(SelectionMenuAction.PASTE);
+          })
       }
     }
     // 全屏 Transparent：自身不拦截触摸（Canvas 正常收事件），子组件按钮参与 hit

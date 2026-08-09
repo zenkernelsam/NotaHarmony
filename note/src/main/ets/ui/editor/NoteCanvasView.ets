@@ -23,6 +23,7 @@ import {
   UndoableActionType,
 } from '../../rendering/UndoRedoManager';
 import { SelectionTool, SelectionMode } from '../../rendering/SelectionTool';
+import { ClipboardPasteResult, StrokeClipboard } from '../../rendering/StrokeClipboard';
 import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
 import { StrokePersistence } from '../../data/StrokePersistence';
@@ -94,6 +95,8 @@ export struct NoteCanvasView {
   private shapeDetector: ShapeDetector = new ShapeDetector();
   private persistence: StrokePersistence = new StrokePersistence();
   private selectionTool: SelectionTool = new SelectionTool();
+  private strokeClipboard: StrokeClipboard = new StrokeClipboard();
+  private clipboardIdCounter: number = 0;
   private textBlockTool: TextBlockTool = new TextBlockTool();
   // T-034：画布视口（缩放/平移）
   private viewport: CanvasViewport = new CanvasViewport();
@@ -140,6 +143,7 @@ export struct NoteCanvasView {
   private editingDraftText: string = '';
   @State selectionRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @State selectionVisible: boolean = false;
+  @State clipboardAvailable: boolean = false;
 
   aboutToAppear(): void {
     this.lifecycleActive = true;
@@ -298,6 +302,8 @@ export struct NoteCanvasView {
 
   aboutToDisappear(): void {
     this.lifecycleActive = false;
+    this.strokeClipboard.clear();
+    this.clipboardAvailable = false;
     this.cancelShapeDetectionTimer();
     if (this.viewportSaveTimer >= 0) {
       clearTimeout(this.viewportSaveTimer);
@@ -1498,7 +1504,11 @@ export struct NoteCanvasView {
     hilog.info(0x0001, 'NoteCanvasView', 'selection menu action=%{public}d', action);
     const state = this.selectionTool.getState();
     if (action === SelectionMenuAction.DELETE || action === SelectionMenuAction.CUT) {
-      const ids: string[] = this.selectionTool.deleteSelected();
+      const ids: string[] = state.selectedStrokeIds.slice();
+      if (action === SelectionMenuAction.CUT && !this.copySelectedToClipboard(ids)) {
+        return;
+      }
+      this.selectionTool.deleteSelected();
       const removed: StrokeElementData[] = [];
       const removedIndices: number[] = [];
       for (let strokeIndex: number = 0; strokeIndex < this.completedStrokes.length; strokeIndex++) {
@@ -1533,7 +1543,9 @@ export struct NoteCanvasView {
     } else if (action === SelectionMenuAction.FLIP_H || action === SelectionMenuAction.FLIP_V) {
       this.flipSelected(state.selectedStrokeIds, action === SelectionMenuAction.FLIP_H);
     } else if (action === SelectionMenuAction.COPY) {
-      this.copySelected(state.selectedStrokeIds);
+      this.copySelectedToClipboard(state.selectedStrokeIds);
+    } else if (action === SelectionMenuAction.PASTE) {
+      this.pasteClipboard();
     }
   }
 
@@ -1595,28 +1607,63 @@ export struct NoteCanvasView {
     this.selectionTool.getState().transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
-  private copySelected(ids: string[]): void {
-    const copies: StrokeElementData[] = [];
+  private copySelectedToClipboard(ids: string[]): boolean {
+    const selected: StrokeElementData[] = [];
     for (const s of this.completedStrokes) {
       if (ids.indexOf(s.id) >= 0) {
-        copies.push(this.cloneStroke(s));
+        selected.push(s);
       }
     }
-    for (const c of copies) {
-      this.completedStrokes.push(c);
+    if (!this.strokeClipboard.copy(selected, this.loadedPageId)) {
+      return false;
     }
-    if (copies.length > 0) {
-      this.undoRedo.push({
-        type: UndoableActionType.ADD_STROKE,
-        noteId: this.noteId,
-        pageId: this.currentPage.pageId,
-        addedStrokes: copies,
-      });
+    this.clipboardAvailable = true;
+    return true;
+  }
+
+  private pasteClipboard(): void {
+    if (!this.loaded || this.dataLoading || this.dataLoadFailed || this.loadedPageId !== this.currentPage.pageId) {
+      return;
     }
+    const result: ClipboardPasteResult | null = this.strokeClipboard.paste(
+      this.getPaperWidth(), this.getPaperHeight(),
+      (sourceId: string, sequence: number, index: number): string =>
+        this.createClipboardStrokeId(sourceId, sequence, index));
+    if (result === null || result.strokes.length === 0) {
+      return;
+    }
+    this.completedStrokes = this.completedStrokes.concat(result.strokes);
+    this.undoRedo.push({
+      type: UndoableActionType.ADD_STROKE,
+      noteId: this.noteId,
+      pageId: this.loadedPageId,
+      addedStrokes: result.strokes,
+    });
+    const pastedIds: string[] = result.strokes.map((stroke: StrokeElementData): string => stroke.id);
+    this.selectionTool.selectStrokeIds(pastedIds);
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+    this.updateSelectionOverlay();
     this.persist();
     this.notifyUndoRedo();
     this.renderFrame();
+  }
+
+  private createClipboardStrokeId(sourceId: string, pasteSequence: number, index: number): string {
+    while (true) {
+      this.clipboardIdCounter++;
+      const id: string = `${Date.now().toString(36)}-${this.clipboardIdCounter.toString(36)}-` +
+        `${pasteSequence.toString(36)}-${index.toString(36)}-${sourceId.slice(-6)}`;
+      let exists: boolean = false;
+      for (const stroke of this.completedStrokes) {
+        if (stroke.id === id) {
+          exists = true;
+          break;
+        }
+      }
+      if (!exists) {
+        return id;
+      }
+    }
   }
 
   private captureCurrentPage(): PageContentSnapshot {
@@ -1682,60 +1729,6 @@ export struct NoteCanvasView {
         right: s.bounds.right, bottom: s.bounds.bottom,
       },
       maskPath: s.maskPath.map((point: Point2D): Point2D => ({ x: point.x, y: point.y })),
-      isFinished: s.isFinished,
-    };
-  }
-
-  private cloneStroke(s: StrokeElementData): StrokeElementData {
-    const timePart: string = Date.now().toString(36);
-    const randPart: string = Math.random().toString(36).slice(2, 8);
-    const translatedTransform: number[] = s.transform.slice();
-    translatedTransform[2] += 20;
-    translatedTransform[5] += 20;
-    const pathPoints: StrokePathPoint[] = s.pathPoints.map(
-      (point: StrokePathPoint): StrokePathPoint => ({
-        position: { x: point.position.x, y: point.position.y } as Point2D,
-        widthFactor: point.widthFactor,
-        pressure: point.pressure,
-        altitudeAngleRadians: point.altitudeAngleRadians,
-        azimuthUnitX: point.azimuthUnitX,
-        azimuthUnitY: point.azimuthUnitY,
-      }));
-    const cubicSegments: CubicSegment[] = s.cubicSegments.map(
-      (segment: CubicSegment): CubicSegment => ({
-        p0: { x: segment.p0.x, y: segment.p0.y } as Point2D,
-        p1: { x: segment.p1.x, y: segment.p1.y } as Point2D,
-        p2: { x: segment.p2.x, y: segment.p2.y } as Point2D,
-        p3: { x: segment.p3.x, y: segment.p3.y } as Point2D,
-      }));
-    const splatPoints: PencilSplatPoint[] = s.splatPoints.map(
-      (splat: PencilSplatPoint): PencilSplatPoint => ({
-        x: splat.x, y: splat.y, rotation: splat.rotation,
-        scale: splat.scale, opacity: splat.opacity,
-      }));
-    const maskPath: Point2D[] = s.maskPath.map(
-      (point: Point2D): Point2D => ({ x: point.x, y: point.y }));
-    const renderSpec: RenderSpec = {
-      color: s.renderSpec.color,
-      brushWidth: s.renderSpec.brushWidth,
-      inkStyle: s.renderSpec.inkStyle,
-      isHighlighter: s.renderSpec.isHighlighter,
-      isPencil: s.renderSpec.isPencil,
-    };
-    return {
-      id: timePart + randPart,
-      pathPoints: pathPoints,
-      cubicSegments: cubicSegments,
-      splatPoints: splatPoints,
-      renderSpec: renderSpec,
-      transform: translatedTransform,
-      bounds: {
-        left: s.bounds.left + 20,
-        top: s.bounds.top + 20,
-        right: s.bounds.right + 20,
-        bottom: s.bounds.bottom + 20,
-      },
-      maskPath: maskPath,
       isFinished: s.isFinished,
     };
   }
@@ -2028,6 +2021,7 @@ export struct NoteCanvasView {
       SelectionOverlay({
         selectionRect: this.selectionRect,
         visible: this.selectionVisible,
+        canPaste: this.clipboardAvailable,
         onMenuAction: (action: SelectionMenuAction) => {
           this.onSelectionMenuAction(action);
         },

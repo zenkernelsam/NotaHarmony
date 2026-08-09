@@ -35,6 +35,7 @@
     { "name": "selection_actions", "value": "操作" },
     { "name": "copy", "value": "复制" },
     { "name": "cut", "value": "剪切" },
+    { "name": "paste", "value": "粘贴" },
     { "name": "bring_forward", "value": "置前" },
     { "name": "send_backward", "value": "置后" },
     { "name": "flip_horizontal", "value": "水平翻转" },
