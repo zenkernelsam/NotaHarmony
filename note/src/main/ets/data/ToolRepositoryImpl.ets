@@ -62,10 +62,22 @@ export class ToolRepositoryImpl implements ToolRepository {
   }
 
   async saveToolStates(states: ToolState[]): Promise<void> {
+    if (states.length === 0) {
+      return;
+    }
+    const ownerId: string = states[0].trayOwnerId;
+    for (const state of states) {
+      if (state.trayOwnerId !== ownerId) {
+        throw new Error('saveToolStates requires one toolbox owner per batch');
+      }
+    }
     await ToolRepositoryImpl.writeMutex.runExclusive(async (): Promise<void> => {
       const store: relationalStore.RdbStore = this.db.getStore();
       await store.beginTransaction();
       try {
+        const stale = new relationalStore.RdbPredicates('tool_state');
+        stale.equalTo('tray_owner_id', ownerId);
+        await store.delete(stale);
         for (let index: number = 0; index < states.length; index++) {
           const state: ToolState = this.cloneState(states[index]);
           state.trayIndex = index;

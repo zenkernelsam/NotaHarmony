@@ -40,6 +40,7 @@ import nsKeyedArchiverDecoderTest from './NSKeyedArchiverDecoder.test';
 import notePackageSpecTest from './NotePackageSpec.test';
 import themeStoreTest from './ThemeStore.test';
 import selectionOverlayLayoutTest from './SelectionOverlayLayout.test';
+import strokePersistenceTest from './StrokePersistence.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -84,4 +85,5 @@ export default function testsuite() {
   notePackageSpecTest();
   themeStoreTest();
   selectionOverlayLayoutTest();
+  strokePersistenceTest();
 }

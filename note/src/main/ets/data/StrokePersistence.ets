@@ -18,6 +18,18 @@ export interface PersistedElement {
   data: StrokeElementData | TextBlockElement | ShapeElement;
 }
 
+// page_element_snapshot.payload is a SQLite BLOB containing UTF-8 JSON bytes.
+// Keeping one codec for every read/write path prevents TEXT/BLOB affinity drift.
+export function encodePersistedElement(element: PersistedElement): Uint8Array {
+  const encoder = new util.TextEncoder();
+  return encoder.encodeInto(JSON.stringify(element));
+}
+
+export function decodePersistedElement(payload: Uint8Array): PersistedElement {
+  const decoder = util.TextDecoder.create('utf-8');
+  return JSON.parse(decoder.decodeToString(payload)) as PersistedElement;
+}
+
 export interface LoadedElements {
   strokes: StrokeElementData[];
   textBlocks: TextBlockElement[];
@@ -60,6 +72,7 @@ function parseSearchTextPayloads(payloads: Uint8Array[]): ParsedSearchText[] {
   const result: ParsedSearchText[] = [];
   for (const payload of payloads) {
     try {
+      // @Concurrent functions may only reference imports and locals.
       const decoder = util.TextDecoder.create('utf-8');
       const parsed = JSON.parse(decoder.decodeToString(payload)) as PersistedElement;
       if (parsed.kind === 'text') {
@@ -435,15 +448,15 @@ export class StrokePersistence {
       if (element.kind === PageElementKind.STROKE) {
         const payload: PersistedElement = { kind: 'stroke', data: element.data };
         elements.push({ elementId: element.elementId, kind: PageElementKind.STROKE,
-          payload: this.stringToBytes(JSON.stringify(payload)), searchText: null });
+          payload: encodePersistedElement(payload), searchText: null });
       } else if (element.kind === PageElementKind.TEXT) {
         const payload: PersistedElement = { kind: 'text', data: element.data };
         elements.push({ elementId: element.elementId, kind: PageElementKind.TEXT,
-          payload: this.stringToBytes(JSON.stringify(payload)), searchText: element.data.richText.toLowerCase() });
+          payload: encodePersistedElement(payload), searchText: element.data.richText.toLowerCase() });
       } else {
         const payload: PersistedElement = { kind: 'shape', data: element.data };
         elements.push({ elementId: element.elementId, kind: PageElementKind.SHAPE,
-          payload: this.stringToBytes(JSON.stringify(payload)), searchText: null });
+          payload: encodePersistedElement(payload), searchText: null });
       }
     }
     return { noteId: noteId, pageId: pageId, elements: elements };
@@ -482,9 +495,8 @@ export class StrokePersistence {
       try {
         while (resultSet.goToNextRow()) {
           const bytes: Uint8Array = resultSet.getBlob(resultSet.getColumnIndex('payload'));
-          const json: string = this.bytesToString(bytes);
           try {
-            const parsed = JSON.parse(json) as PersistedElement;
+            const parsed: PersistedElement = decodePersistedElement(bytes);
             if (parsed.kind === 'stroke') {
               const stroke: StrokeElementData = parsed.data as StrokeElementData;
               result.strokes.push(stroke);
@@ -520,13 +532,4 @@ export class StrokePersistence {
     return result;
   }
 
-  private stringToBytes(text: string): Uint8Array {
-    const encoder = new util.TextEncoder();
-    return encoder.encodeInto(text);
-  }
-
-  private bytesToString(bytes: Uint8Array): string {
-    const decoder = util.TextDecoder.create('utf-8');
-    return decoder.decode(bytes);
-  }
 }

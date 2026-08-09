@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS tool_state (
   eraser_is_partial INTEGER NOT NULL DEFAULT 0
 )`;
 
+// payload is intentionally BLOB: StrokePersistence stores UTF-8 encoded JSON bytes,
+// and legacy client_op payload bytes migrate without SQLite TEXT coercion.
 export const DDL_PAGE_ELEMENT_SNAPSHOT: string = `
 CREATE TABLE IF NOT EXISTS page_element_snapshot (
   note_id TEXT NOT NULL,
