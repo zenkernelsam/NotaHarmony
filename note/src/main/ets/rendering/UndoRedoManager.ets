@@ -179,6 +179,11 @@ export interface RestoredHistoryAction {
   history: HistoryMetadata;
 }
 
+export interface HistoryMove {
+  action: UndoableAction;
+  history: HistoryMetadata;
+}
+
 export interface PageContentSnapshot {
   strokes: StrokeElementData[];
   textBlocks: TextBlockElement[];
@@ -216,6 +221,9 @@ interface HistoryEntry {
 
 const DEFAULT_HISTORY_MAX_ACTIONS: number = 128;
 const DEFAULT_HISTORY_MAX_BYTES: number = 32 * 1024 * 1024;
+const INSERT_TEXT_COALESCE_MS: number = 2000;
+const REMOVE_TEXT_COALESCE_MS: number = 2000;
+const CREATE_INK_COALESCE_MS: number = 10;
 
 export function estimateHistoryActionBytes(action: UndoableAction): number {
   let bytes: number = 256 + (action.noteId.length + action.pageId.length) * 2;
@@ -406,6 +414,10 @@ export class UndoRedoManager {
     return this.undoStack.length > 0 ? this.undoStack[this.undoStack.length - 1].action : null;
   }
 
+  peekUndoGroup(): HistoryMove[] {
+    return this.peekGroup(this.undoStack, HistoryEffect.UNDO);
+  }
+
   commitUndo(expected: UndoableAction): boolean {
     if (this.peekUndo() !== expected) {
       return false;
@@ -426,6 +438,10 @@ export class UndoRedoManager {
     return this.redoStack.length > 0 ? this.redoStack[this.redoStack.length - 1].action : null;
   }
 
+  peekRedoGroup(): HistoryMove[] {
+    return this.peekGroup(this.redoStack, HistoryEffect.REDO);
+  }
+
   commitRedo(expected: UndoableAction): boolean {
     if (this.peekRedo() !== expected) {
       return false;
@@ -440,6 +456,14 @@ export class UndoRedoManager {
     this.latestHistory = this.withEffect(entry.history, HistoryEffect.REDO);
     this.advanceHistoryRevision();
     return true;
+  }
+
+  commitUndoGroup(expected: HistoryMove[]): boolean {
+    return this.commitGroup(expected, true);
+  }
+
+  commitRedoGroup(expected: HistoryMove[]): boolean {
+    return this.commitGroup(expected, false);
   }
 
   canUndo(): boolean {
@@ -535,6 +559,80 @@ export class UndoRedoManager {
       return null;
     }
     return this.withEffect(top.history, isUndo ? HistoryEffect.UNDO : HistoryEffect.REDO);
+  }
+
+  private peekGroup(stack: HistoryEntry[], effect: HistoryEffect): HistoryMove[] {
+    const result: HistoryMove[] = [];
+    if (stack.length === 0) {
+      return result;
+    }
+    let anchor: HistoryEntry = stack[stack.length - 1];
+    result.push({ action: anchor.action, history: this.withEffect(anchor.history, effect) });
+    for (let index: number = stack.length - 2; index >= 0; index--) {
+      const candidate: HistoryEntry = stack[index];
+      const window: number = this.coalesceWindow(candidate.history.coalesceTrack);
+      if (window < 0 || candidate.history.coalesceTrack !== anchor.history.coalesceTrack ||
+        Math.abs(anchor.history.actionTime - candidate.history.actionTime) > window) {
+        break;
+      }
+      result.push({ action: candidate.action, history: this.withEffect(candidate.history, effect) });
+      anchor = candidate;
+    }
+    return result;
+  }
+
+  private commitGroup(expected: HistoryMove[], isUndo: boolean): boolean {
+    if (expected.length === 0) {
+      return false;
+    }
+    const source: HistoryEntry[] = isUndo ? this.undoStack : this.redoStack;
+    const target: HistoryEntry[] = isUndo ? this.redoStack : this.undoStack;
+    const effect: HistoryEffect = isUndo ? HistoryEffect.UNDO : HistoryEffect.REDO;
+    if (expected.length > source.length) {
+      return false;
+    }
+    for (let offset: number = 0; offset < expected.length; offset++) {
+      const entry: HistoryEntry = source[source.length - 1 - offset];
+      const move: HistoryMove = expected[offset];
+      if (entry.action !== move.action || !this.sameHistory(move.history, this.withEffect(entry.history, effect))) {
+        return false;
+      }
+    }
+    for (let offset: number = 0; offset < expected.length; offset++) {
+      const entry: HistoryEntry | undefined = source.pop();
+      if (entry === undefined) {
+        throw new Error('validated history group unexpectedly became empty');
+      }
+      target.push(entry);
+      if (isUndo) {
+        this.undoBytes -= entry.estimatedBytes;
+        this.redoBytes += entry.estimatedBytes;
+      } else {
+        this.redoBytes -= entry.estimatedBytes;
+        this.undoBytes += entry.estimatedBytes;
+      }
+      this.latestHistory = this.withEffect(entry.history, effect);
+      this.advanceHistoryRevision();
+    }
+    return true;
+  }
+
+  private coalesceWindow(track: HistoryCoalesceTrack): number {
+    if (track === HistoryCoalesceTrack.INSERT_TEXT) {
+      return INSERT_TEXT_COALESCE_MS;
+    }
+    if (track === HistoryCoalesceTrack.REMOVE_TEXT) {
+      return REMOVE_TEXT_COALESCE_MS;
+    }
+    if (track === HistoryCoalesceTrack.CREATE_INK) {
+      return CREATE_INK_COALESCE_MS;
+    }
+    return -1;
+  }
+
+  private sameHistory(left: HistoryMetadata, right: HistoryMetadata): boolean {
+    return left.actionId === right.actionId && left.effect === right.effect &&
+      left.coalesceTrack === right.coalesceTrack && left.actionTime === right.actionTime;
   }
 
   private createHistoryMetadata(action: UndoableAction): HistoryMetadata {

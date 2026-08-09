@@ -15,12 +15,14 @@ function makeAction(pageId: string): AddStrokeAction {
   };
 }
 
-function restored(action: UndoableAction, actionId: string): RestoredHistoryAction {
+function restored(action: UndoableAction, actionId: string,
+  track: HistoryCoalesceTrack = HistoryCoalesceTrack.NONE,
+  actionTime: number = 100): RestoredHistoryAction {
   return {
     action: action,
     history: {
       actionId: actionId, effect: HistoryEffect.PUSH,
-      coalesceTrack: HistoryCoalesceTrack.NONE, actionTime: 100,
+      coalesceTrack: track, actionTime: actionTime,
     },
   };
 }
@@ -189,6 +191,73 @@ export default function undoRedoManagerTest() {
       expect(manager.getMetrics().undoActions).assertEqual(1);
       expect(manager.getMetrics().redoActions).assertEqual(1);
       expect(manager.getMetrics().evictedActions).assertEqual(1);
+    });
+
+    it('selects original-style adjacent ink groups with an inclusive pairwise window', 0, () => {
+      const manager: UndoRedoManager = new UndoRedoManager();
+      const first: UndoableAction = makeAction('page-1');
+      const second: UndoableAction = makeAction('page-1');
+      const third: UndoableAction = makeAction('page-1');
+      manager.restore([
+        restored(first, 'a', HistoryCoalesceTrack.CREATE_INK, 100),
+        restored(second, 'b', HistoryCoalesceTrack.CREATE_INK, 110),
+        restored(third, 'c', HistoryCoalesceTrack.CREATE_INK, 120),
+      ], []);
+
+      const group = manager.peekUndoGroup();
+      expect(group.length).assertEqual(3);
+      expect(group[0].action === third).assertTrue();
+      expect(group[1].action === second).assertTrue();
+      expect(group[2].action === first).assertTrue();
+      expect(group[0].history.effect).assertEqual(HistoryEffect.UNDO);
+      expect(manager.commitUndoGroup(group)).assertTrue();
+      expect(manager.getHistoryRevision()).assertEqual(3);
+
+      const redo = manager.peekRedoGroup();
+      expect(redo.length).assertEqual(3);
+      expect(redo[0].action === first).assertTrue();
+      expect(redo[1].action === second).assertTrue();
+      expect(redo[2].action === third).assertTrue();
+      expect(manager.commitRedoGroup(redo)).assertTrue();
+      expect(manager.peekUndo() === third).assertTrue();
+    });
+
+    it('stops grouping at a mismatched track or adjacent window gap', 0, () => {
+      const manager: UndoRedoManager = new UndoRedoManager();
+      const first: UndoableAction = makeAction('page-1');
+      const second: UndoableAction = makeAction('page-1');
+      const third: UndoableAction = makeAction('page-1');
+      manager.restore([
+        restored(first, 'a', HistoryCoalesceTrack.CREATE_INK, 100),
+        restored(second, 'b', HistoryCoalesceTrack.CREATE_INK, 111),
+        restored(third, 'c', HistoryCoalesceTrack.CREATE_INK, 120),
+      ], []);
+      expect(manager.peekUndoGroup().length).assertEqual(2);
+
+      manager.restore([
+        restored(first, 'a', HistoryCoalesceTrack.CREATE_INK, 100),
+        restored(second, 'b', HistoryCoalesceTrack.REMOVE_TEXT, 110),
+        restored(third, 'c', HistoryCoalesceTrack.CREATE_INK, 120),
+      ], []);
+      expect(manager.peekUndoGroup().length).assertEqual(1);
+    });
+
+    it('rejects a stale group without moving any entry or changing metrics', 0, () => {
+      const manager: UndoRedoManager = new UndoRedoManager();
+      const first: UndoableAction = makeAction('page-1');
+      const second: UndoableAction = makeAction('page-1');
+      manager.restore([
+        restored(first, 'a', HistoryCoalesceTrack.INSERT_TEXT, 100),
+        restored(second, 'b', HistoryCoalesceTrack.INSERT_TEXT, 2100),
+      ], []);
+      const group = manager.peekUndoGroup();
+      group[1].history.actionId = 'stale';
+      const before: HistoryMetrics = manager.getMetrics();
+      expect(manager.commitUndoGroup(group)).assertFalse();
+      expect(manager.peekUndo() === second).assertTrue();
+      expect(manager.canRedo()).assertFalse();
+      expect(manager.getHistoryRevision()).assertEqual(0);
+      expect(manager.getMetrics().estimatedBytes).assertEqual(before.estimatedBytes);
     });
   });
 }

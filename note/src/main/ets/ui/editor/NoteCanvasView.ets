@@ -21,7 +21,7 @@ import { StrokeSession } from '../../rendering/StrokeSession';
 import { EraserEngine, EraserMode } from '../../rendering/EraserEngine';
 import { PaperRenderer } from '../../rendering/PaperRenderer';
 import {
-  EditorHistoryBridge, PageContentSnapshot, UndoRedoManager, UndoableAction,
+  EditorHistoryBridge, HistoryMove, PageContentSnapshot, UndoRedoManager, UndoableAction,
   UndoableActionType,
 } from '../../rendering/UndoRedoManager';
 import { HistoryMetadata, Op } from '../../core/model/OpTypes';
@@ -29,7 +29,9 @@ import { SelectionTool, SelectionMode } from '../../rendering/SelectionTool';
 import { ClipboardPasteResult, StrokeClipboard } from '../../rendering/StrokeClipboard';
 import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
-import { decodePersistedElement, encodePersistedElement, PersistedElement, StrokePersistence } from '../../data/StrokePersistence';
+import {
+  decodePersistedElement, encodePersistedElement, HistoryPageSnapshot, PersistedElement, StrokePersistence,
+} from '../../data/StrokePersistence';
 import { SearchSourceElement } from '../../data/SearchIndexPolicy';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { OpStoreImpl } from '../../data/OpStoreImpl';
@@ -190,8 +192,11 @@ export struct NoteCanvasView {
     this.lifecycleActive = true;
     this.onHistoryBridgeReady({
       preparePageAction: (action: UndoableAction): HistoryMetadata =>
-        this.undoRedo.prepareHistoryMetadata(action),
+        this.preparePageHistory(action),
       pushPageAction: (action: UndoableAction, history?: HistoryMetadata): void => {
+        if (this.historyBusy) {
+          throw new Error('page history cannot change during an active history command');
+        }
         this.undoRedo.push(action, history);
         this.notifyUndoRedo();
       },
@@ -732,7 +737,7 @@ export struct NoteCanvasView {
 
   // === 触摸事件 ===
   private onCanvasTouch(event: TouchEvent): void {
-    if (!this.loaded || this.dataLoading || this.dataLoadFailed) {
+    if (!this.loaded || this.dataLoading || this.dataLoadFailed || this.historyBusy) {
       return;
     }
     if (event.type === TouchType.Down) {
@@ -1215,14 +1220,27 @@ export struct NoteCanvasView {
     if (this.historyBusy || this.pendingHistoryDirection !== 0) {
       return;
     }
-    const action: UndoableAction | null = isUndo ? this.undoRedo.peekUndo() : this.undoRedo.peekRedo();
-    if (action === null) {
+    const group: HistoryMove[] = isUndo ? this.undoRedo.peekUndoGroup() : this.undoRedo.peekRedoGroup();
+    if (group.length === 0) {
       hilog.info(0x0001, 'NoteCanvasView', 'history: no action');
       return;
     }
+    const action: UndoableAction = group[0].action;
     if (action.noteId !== this.noteId) {
       hilog.error(0x0001, 'NoteCanvasView',
         'history note mismatch, actionNote=%{public}s currentNote=%{public}s', action.noteId, this.noteId);
+      return;
+    }
+    if (group.length > 1 && this.isSinglePageElementGroup(group)) {
+      if (action.pageId !== this.loadedPageId) {
+        this.pendingHistoryDirection = isUndo ? -1 : 1;
+        this.onRequestPage(action.pageId);
+        return;
+      }
+      this.historyBusy = true;
+      this.applyElementHistoryGroup(group, isUndo).finally(() => {
+        this.historyBusy = false;
+      });
       return;
     }
     if (this.isPageAction(action.type)) {
@@ -1253,6 +1271,73 @@ export struct NoteCanvasView {
     if (this.applyAction(action, isUndo)) {
       this.commitHistory(action, isUndo);
     }
+  }
+
+  private preparePageHistory(action: UndoableAction): HistoryMetadata {
+    if (this.historyBusy) {
+      throw new Error('page history cannot start during an active history command');
+    }
+    return this.undoRedo.prepareHistoryMetadata(action);
+  }
+
+  private isSinglePageElementGroup(group: HistoryMove[]): boolean {
+    if (group.length === 0 || this.isPageAction(group[0].action.type)) {
+      return false;
+    }
+    const pageId: string = group[0].action.pageId;
+    for (const move of group) {
+      if (move.action.noteId !== this.noteId || move.action.pageId !== pageId ||
+        this.isPageAction(move.action.type)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private async applyElementHistoryGroup(group: HistoryMove[], isUndo: boolean): Promise<void> {
+    const rollbackElements: SearchSourceElement[] = this.currentMutationElements();
+    try {
+      await this.persistence.flush(this.noteId, this.loadedPageId);
+      const initial: HistoryPageSnapshot = this.captureHistoryPageSnapshot();
+      const steps: HistoryPageSnapshot[] = [];
+      for (const move of group) {
+        if (!this.applyAction(move.action, isUndo)) {
+          this.restoreHistoryPage(rollbackElements);
+          hilog.error(0x0001, 'NoteCanvasView',
+            'history group source state mismatch, type=%{public}d', move.action.type);
+          return;
+        }
+        steps.push(this.captureHistoryPageSnapshot(move.history));
+      }
+      await this.persistence.saveHistoryGroup(this.noteId, this.loadedPageId, initial, steps);
+      const committed: boolean = isUndo
+        ? this.undoRedo.commitUndoGroup(group) : this.undoRedo.commitRedoGroup(group);
+      if (!committed) {
+        throw new Error('history group stack changed after durable apply');
+      }
+      this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+      this.notifyUndoRedo();
+    } catch (e) {
+      this.restoreHistoryPage(rollbackElements);
+      this.reportSaveFailure(e as Object);
+      hilog.error(0x0001, 'NoteCanvasView', 'history group apply failed: %{public}s', JSON.stringify(e));
+    }
+  }
+
+  private captureHistoryPageSnapshot(history?: HistoryMetadata): HistoryPageSnapshot {
+    return {
+      strokes: this.completedStrokes.slice(),
+      textBlocks: this.textBlocks.slice(),
+      elementOrder: clonePageElementOrder(this.elementOrder),
+      shapes: this.shapes.slice(),
+      history: history,
+    };
+  }
+
+  private restoreHistoryPage(elements: SearchSourceElement[]): void {
+    this.installMutationElements(elements);
+    this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+    this.renderFrame();
   }
 
   private commitHistory(action: UndoableAction, isUndo: boolean): void {
@@ -2269,6 +2354,9 @@ export struct NoteCanvasView {
   }
 
   onSelectionMenuAction(action: SelectionMenuAction): void {
+    if (this.historyBusy) {
+      return;
+    }
     hilog.info(0x0001, 'NoteCanvasView', 'selection menu action=%{public}d', action);
     const state = this.selectionTool.getState();
     if (action === SelectionMenuAction.DELETE || action === SelectionMenuAction.CUT) {
@@ -2664,6 +2752,9 @@ export struct NoteCanvasView {
   }
 
   onTextCommit(text: string): void {
+    if (this.historyBusy) {
+      return;
+    }
     if (this.editingTextBlock !== null) {
       if (text.trim().length === 0) {
         this.onTextCancel();
@@ -2704,6 +2795,9 @@ export struct NoteCanvasView {
   }
 
   onTextCancel(): void {
+    if (this.historyBusy) {
+      return;
+    }
     if (this.editingTextBlock !== null && this.editingOriginalTextBlock === null) {
       const id: string = this.editingTextBlock.id;
       const remaining: TextBlockElement[] = [];

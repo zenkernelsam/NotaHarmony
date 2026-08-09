@@ -1,6 +1,6 @@
 import { relationalStore } from '@kit.ArkData';
 import { PageInfo } from '../core/model/NoteTypes';
-import { HistoryMetadata } from '../core/model/OpTypes';
+import { HistoryEffect, HistoryMetadata } from '../core/model/OpTypes';
 import { taskpool, util } from '@kit.ArkTS';
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
@@ -20,6 +20,7 @@ import { allocateOperationClientTime, appendOperation } from './OpStoreImpl';
 import {
   classifyPageMutation, createPageMutation, encodePageMutationOp, PageMutationOpPayload,
 } from './PageMutationOpCodec';
+import { validateHistoryMetadata } from './PersistentHistoryMetadata';
 
 export interface PersistedElement {
   kind: string;
@@ -62,6 +63,14 @@ interface PreparedPageSave {
   noteId: string;
   pageId: string;
   elements: PreparedElement[];
+  history?: HistoryMetadata;
+}
+
+export interface HistoryPageSnapshot {
+  strokes: StrokeElementData[];
+  textBlocks: TextBlockElement[];
+  elementOrder: PageElementRef[];
+  shapes: ShapeElement[];
   history?: HistoryMetadata;
 }
 
@@ -140,6 +149,36 @@ export class StrokePersistence {
     textBlocks: TextBlockElement[], elementOrder: PageElementRef[] = [], shapes: ShapeElement[] = []): Promise<void> {
     this.queueSaveElements(noteId, pageId, strokes, textBlocks, elementOrder, shapes);
     await this.flush(noteId, pageId);
+  }
+
+  async saveHistoryGroup(noteId: string, pageId: string, initial: HistoryPageSnapshot,
+    steps: HistoryPageSnapshot[]): Promise<void> {
+    if (this.store === null || steps.length === 0) {
+      throw new Error('history group cannot be saved');
+    }
+    const preparedInitial: PreparedPageSave = this.prepareSave(
+      noteId, pageId, initial.strokes, initial.textBlocks, initial.elementOrder, initial.shapes);
+    const preparedSteps: PreparedPageSave[] = [];
+    const actionIds: Set<string> = new Set<string>();
+    let effect: HistoryEffect | null = null;
+    for (const step of steps) {
+      if (step.history === undefined) {
+        throw new Error('history group metadata is invalid');
+      }
+      validateHistoryMetadata(step.history);
+      if (step.history.effect === HistoryEffect.PUSH || actionIds.has(step.history.actionId) ||
+        (effect !== null && effect !== step.history.effect)) {
+        throw new Error('history group metadata is invalid');
+      }
+      actionIds.add(step.history.actionId);
+      effect = step.history.effect;
+      preparedSteps.push(this.prepareSave(
+        noteId, pageId, step.strokes, step.textBlocks, step.elementOrder, step.shapes, step.history));
+    }
+    await this.flush(noteId, pageId);
+    await StrokePersistence.writeMutex.runExclusive(async (): Promise<void> => {
+      await this.writeHistoryGroupLocked(preparedInitial, preparedSteps);
+    });
   }
 
   async replaceImportedHandwritingText(noteId: string, pageId: string, text: string): Promise<void> {
@@ -395,6 +434,95 @@ export class StrokePersistence {
     } catch (e) {
       await store.rollBack();
       throw new Error(`saveElements revision ${revision} failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  private async writeHistoryGroupLocked(initial: PreparedPageSave, steps: PreparedPageSave[]): Promise<void> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    const store: relationalStore.RdbStore = this.store;
+    await store.beginTransaction();
+    try {
+      const revisionSet = await store.querySql(
+        `SELECT content_revision AS current_revision
+         FROM page_info WHERE note_id = ? AND page_id = ?`, [initial.noteId, initial.pageId]);
+      let currentRevision: number = 0;
+      try {
+        if (!revisionSet.goToFirstRow()) {
+          throw new Error('history group page does not exist');
+        }
+        currentRevision = revisionSet.getLong(revisionSet.getColumnIndex('current_revision'));
+      } finally {
+        revisionSet.close();
+      }
+      let current: SearchSourceElement[] = await this.loadCurrentSnapshot(store, initial.noteId, initial.pageId);
+      if (pageSnapshotChanged(current, initial.elements)) {
+        throw new Error('history group database source does not match the editor');
+      }
+      const original: SearchSourceElement[] = current;
+      for (const step of steps) {
+        if (!pageSnapshotChanged(current, step.elements) || step.history === undefined) {
+          throw new Error('history group contains an empty mutation');
+        }
+        const nextRevision: number = currentRevision + 1;
+        const mutation: PageMutationOpPayload = createPageMutation(
+          step.pageId, currentRevision, nextRevision, current, step.elements);
+        const operationTime: number = await allocateOperationClientTime(store, step.noteId);
+        await appendOperation(store, {
+          opId: `page-mutation:${step.pageId}:${currentRevision}:${nextRevision}`,
+          noteId: step.noteId,
+          opType: classifyPageMutation(mutation),
+          payload: encodePageMutationOp(mutation),
+          clientTime: operationTime,
+          history: step.history,
+        });
+        currentRevision = nextRevision;
+        current = step.elements;
+      }
+      const pageRevision: relationalStore.ValuesBucket = { 'content_revision': currentRevision };
+      const pagePredicates = new relationalStore.RdbPredicates('page_info');
+      pagePredicates.equalTo('note_id', initial.noteId);
+      pagePredicates.equalTo('page_id', initial.pageId);
+      const revisedPages: number = await store.update(pageRevision, pagePredicates);
+      if (revisedPages !== 1) {
+        throw new Error(`expected one page revision update, got ${revisedPages}`);
+      }
+      const del = new relationalStore.RdbPredicates('page_element_snapshot');
+      del.equalTo('note_id', initial.noteId);
+      del.equalTo('page_id', initial.pageId);
+      await store.delete(del);
+      const final: PreparedPageSave = steps[steps.length - 1];
+      const buckets: relationalStore.ValuesBucket[] = [];
+      for (let seq: number = 0; seq < final.elements.length; seq++) {
+        const element: PreparedElement = final.elements[seq];
+        buckets.push({
+          'note_id': final.noteId, 'page_id': final.pageId, 'element_id': element.elementId,
+          'kind': element.kind, 'payload': element.payload, 'revision': currentRevision, 'element_order': seq,
+        });
+      }
+      if (buckets.length > 0) {
+        await store.batchInsert('page_element_snapshot', buckets);
+      }
+      await this.deletePageSearchType(store, final.noteId, final.pageId, SearchItemType.TEXT_BLOCK);
+      if (handwritingSourceChanged(original, final.elements)) {
+        await this.deletePageSearchType(store, final.noteId, final.pageId, SearchItemType.INK);
+      }
+      for (const element of final.elements) {
+        if (element.searchText !== null) {
+          await store.insert('search_item', {
+            'note_id': final.noteId, 'type': SearchItemType.TEXT_BLOCK, 'sub_id': element.elementId,
+            'page_id': final.pageId, 'folded_text': element.searchText, 'rects': null,
+          }, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+        }
+      }
+      await store.insert('search_page_state', {
+        'note_id': final.noteId, 'page_id': final.pageId, 'indexed_revision': currentRevision,
+      }, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+      await store.commit();
+    } catch (e) {
+      await store.rollBack();
+      throw new Error(`save history group failed: ${JSON.stringify(e)}`);
     }
   }
 

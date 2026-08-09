@@ -39,6 +39,15 @@ function makeOp(opId: string, actionId?: string, effect: HistoryEffect = History
   return op;
 }
 
+function trackedOp(opId: string, actionId: string, effect: HistoryEffect,
+  actionTime: number): Op {
+  const op: Op = makeOp(opId, actionId, effect, actionTime);
+  if (op.history !== undefined) {
+    op.history.coalesceTrack = HistoryCoalesceTrack.CREATE_INK;
+  }
+  return op;
+}
+
 function rejects(operations: Op[]): boolean {
   try {
     reducePersistentHistory(operations);
@@ -140,6 +149,34 @@ export default function persistentHistoryTest() {
       expect(state.undo[0].actionId).assertEqual('action-a');
       expect(state.undo[1].actionId).assertEqual('action-b');
       expect(state.redo.length).assertEqual(0);
+    });
+
+    it('rebuilds grouped moves in original stack order across restart', 0, () => {
+      const pushed: Op[] = [
+        trackedOp('push-a', 'a', HistoryEffect.PUSH, 100),
+        trackedOp('push-b', 'b', HistoryEffect.PUSH, 110),
+        trackedOp('push-c', 'c', HistoryEffect.PUSH, 120),
+      ];
+      const undone = reducePersistentHistory(pushed.concat([
+        trackedOp('undo-c', 'c', HistoryEffect.UNDO, 120),
+        trackedOp('undo-b', 'b', HistoryEffect.UNDO, 110),
+        trackedOp('undo-a', 'a', HistoryEffect.UNDO, 100),
+      ]));
+      expect(undone.undo.length).assertEqual(0);
+      expect(undone.redo.length).assertEqual(3);
+      expect(undone.redo[2].actionId).assertEqual('a');
+
+      const redone = reducePersistentHistory(pushed.concat([
+        trackedOp('undo-c', 'c', HistoryEffect.UNDO, 120),
+        trackedOp('undo-b', 'b', HistoryEffect.UNDO, 110),
+        trackedOp('undo-a', 'a', HistoryEffect.UNDO, 100),
+        trackedOp('redo-a', 'a', HistoryEffect.REDO, 100),
+        trackedOp('redo-b', 'b', HistoryEffect.REDO, 110),
+        trackedOp('redo-c', 'c', HistoryEffect.REDO, 120),
+      ]));
+      expect(redone.undo.length).assertEqual(3);
+      expect(redone.undo[2].actionId).assertEqual('c');
+      expect(redone.redo.length).assertEqual(0);
     });
 
     it('groups multiple mutation rows belonging to one atomic action', 0, () => {

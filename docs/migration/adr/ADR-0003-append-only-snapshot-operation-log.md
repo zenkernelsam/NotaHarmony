@@ -86,6 +86,14 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
   note/action/page/time 的 checkpoint 才能被持久历史物化；缺失、歧义、损坏或与 NPG1 矛盾时禁用该段历史，不安装半恢复动作。
 - 原版 `qnf`/`vnf` 的约束仍是一个 Undo action 拥有完整 forward/reverse op 列表；本阶段恢复的是该原子边界，不把 Harmony 旧有的
   UI 补偿步骤保留为产品语义，也不据此声称已经完成原版 grouped Undo 或 ClientOp 同步格式。
+- 第九阶段按原版 `pnf`/`vnf` 恢复命令时分组：INSERT_TEXT/REMOVE_TEXT/CREATE_INK 的相邻窗口分别为 2000/2000/10ms，比较锚点
+  随每个纳入动作移动，窗口边界包含等值；push 时不永久合并身份。Undo 选择栈顶后按新到旧移动，Redo 从对应 redo 栈顶按旧到新
+  移动，整组在完整身份/元数据校验通过后才一次性改变内存栈。
+- 当前 Harmony 会产生 coalesce track 的实际编辑动作只有独立落笔 CREATE_INK。同一页组在应用前 flush 已排队的 PUSH 边界，逐动作
+  严格校验并形成中间页面状态；一个 SQLite 事务为每个原 actionId 顺序追加独立 NPM1 UNDO/REDO、连续推进 content revision，并只
+  发布最终 snapshot/search 状态。组内任一步、日志写入或来源快照核对失败会回滚数据库并恢复执行前画布，历史栈不移动。
+- 持久 reducer 不引入新的“组合 actionId”；连续移动事件仍引用每个原身份，因此重启后 Undo 的 `newest→oldest` 与 Redo 的
+  `oldest→newest` 顺序可还原。跨页 coalesced 执行以及尚未建模为逐次文本 op 的 INSERT_TEXT/REMOVE_TEXT 仍不作完成声明。
 
 ## 后果
 
@@ -95,6 +103,7 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 这不关闭 D-02，也不等价于原版 ClientOp。元素与页面结构 mutation serializer、双向 replay、原子追加及当前会话的逐动作保存边界
 已经建立；元素 NPM1 及单事务页面 NPG1 也具备 action identity、PUSH/UNDO/REDO effect、coalesce track 和原 action time。
 最后一个无 legacy 的完整 segment 现在可在重启后恢复成可执行 Undo/Redo 栈，DELETE_PAGE 也具备耐久内容 checkpoint 和原子
-PUSH/UNDO/REDO。后续仍需实现：原版式成组 Undo、长期历史 checkpoint/compaction、editor site/原版式单调 opId、
+PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成组 Undo/Redo。后续仍需实现：跨页/文本细粒度成组执行、
+长期历史 checkpoint/compaction、editor site/原版式单调 opId、
 用户可见的损坏日志恢复、同步导入映射，以及
 同步上传和聚合元数据。完成这些之前，不得声称具有原版协作或完整增量同步语义。
