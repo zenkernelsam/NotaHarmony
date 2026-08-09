@@ -179,6 +179,11 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
   数量相同但当前顺序偏离 SeqId 树时也返回 DEFERRED，不猜测锚点、覆盖本地重排或伪造页面属性。`a79.N/Q` 的 612×792 pt
   缺省尺寸映射为 Letter 215.9×279.4 mm，不沿用 Harmony 本地 A4 默认值。
   插入组、身份、页面物化、structure revision、inbox 状态和同步水位共享同一事务；远端 op 不回灌本地待上传日志。
+- 第二十阶段按原版 `r29/jwh/uq9` 恢复 NOTE_BUNDLE 边界。bundle 的 UUID、editorSite、schemaVersion 与完整 op vector 先经预算和
+  required-field 校验；CREATE_PAGE 组全部闭合并物化后，只有页数一致、没有本地 DELETE/UPDATE/REORDER 页面 mutation、且既有原版身份
+  为空或逐字段幂等匹配时，才按当前页序绑定 storage pageId。raw bundle 不消费，内容 op 不标记 APPLIED。
+- 身份引导不解释尚未实现的页面历史：任意 MODIFY_PAGE 或 `DELETE_ENTITIES` 的 pageDeletes/pageUndeletes 都保持 DEFERRED；note UUID、
+  schema、锚点、页数或既有映射不一致同样零写入拒绝。该门禁防止在无法证明当前 `page_index` 与原版 CRDT 可见序一致时猜测 SeqId。
 
 ## 后果
 
@@ -191,6 +196,7 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成组 Undo/Redo。本地启动 replay 与删除页恢复点增长已有上限，
 损坏历史也有用户可见且不删除同步日志的本地恢复路径；同步日志本身仍保持追加式。原版式 editor site/op clock、耐久同步元数据和
 upload/ACK 前缀契约、本地导入身份映射、共同水位压缩、严格同步会话协调器、无损 unsigned 64-bit server cursor、隔离的 incoming raw-op
-落库及原子应用门禁已经建立；CREATE_PAGE 的受限无背景 reducer 与原版 SeqId 插入树也已落地。但还没有经过认证的远端 WebSocket
-适配器、其余 30 类 incoming payload reducer、NOTE_BUNDLE 身份建树或完整服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
+落库及原子应用门禁已经建立；CREATE_PAGE 的受限无背景 reducer、原版 SeqId 插入树和无页面移动/tombstone 历史的 NOTE_BUNDLE
+身份引导也已落地。但还没有经过认证的远端 WebSocket 适配器、其余 30 类 incoming payload reducer、完整 NOTE_BUNDLE 页面历史或
+服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
 原版协作或完整增量同步语义。

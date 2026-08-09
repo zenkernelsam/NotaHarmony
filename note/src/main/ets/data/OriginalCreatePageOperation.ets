@@ -38,6 +38,11 @@ interface OriginalPageInsertGroup {
 export function decodeOriginalCreatePage(bytes: Uint8Array): OriginalCreatePagePayload {
   const table: OriginalFlatBufferTableReader =
     readOriginalPayloadTable(bytes, ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE);
+  return decodeOriginalCreatePageTable(table);
+}
+
+export function decodeOriginalCreatePageTable(
+  table: OriginalFlatBufferTableReader): OriginalCreatePagePayload {
   const rawLocation: number[] | null = table.readInlineSequence(0);
   const location: OriginalSequenceIdentity | null = rawLocation === null ? null : {
     timestamp: rawLocation[0], siteId: rawLocation[1], index: rawLocation[2],

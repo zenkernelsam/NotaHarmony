@@ -9,11 +9,13 @@ import {
   DeferredSyncedOperationTableType, validateDeferredSyncedOperationTableType,
 } from '../main/ets/data/DeferredSyncedOperationBundle';
 import {
-  decodeOriginalCreatePage, ORIGINAL_DEFAULT_PAGE_HEIGHT_MM, ORIGINAL_DEFAULT_PAGE_WIDTH_MM,
+  decodeOriginalCreatePage, decodeOriginalCreatePageTable,
+  ORIGINAL_DEFAULT_PAGE_HEIGHT_MM, ORIGINAL_DEFAULT_PAGE_WIDTH_MM,
 } from '../main/ets/data/OriginalCreatePageOperation';
 import {
   compareOriginalSequenceIdentity, encodeOriginalPageStorageId, encodeOriginalSequenceId,
 } from '../main/ets/data/OperationIdentity';
+import { decodeOriginalNoteBundle } from '../main/ets/data/OriginalNoteBundlePageIdentity';
 
 function operation(timestamp: number, serverTime: string,
   clientTime: string = serverTime, payloadType: number = 3): IncomingSyncedOperation {
@@ -120,7 +122,99 @@ export default function syncedOperationInboxTest() {
       expect(encodeOriginalSequenceId(older)).assertEqual('seq:5:2:0');
       expect(encodeOriginalPageStorageId('a', older)).assertEqual('original-page:1:a:seq:5:2:0');
     });
+
+    it('decodes original NOTE_BUNDLE metadata and nested operation tables', 0, () => {
+      const bundle = decodeOriginalNoteBundle(flatBufferNoteBundle());
+      expect(bundle.noteId).assertEqual('00112233-4455-6677-8899-aabbccddeeff');
+      expect(bundle.editorSiteId).assertEqual(9);
+      expect(bundle.schemaVersion).assertEqual(7);
+      expect(bundle.operations.length).assertEqual(2);
+      expect(bundle.operations[0].timestamp).assertEqual(10);
+      expect(bundle.operations[0].siteId).assertEqual(1);
+      expect(bundle.operations[0].payloadType).assertEqual(3);
+      expect(bundle.operations[0].clientTime).assertEqual('11');
+      expect(bundle.operations[0].serverTime).assertEqual('12');
+      const child = decodeOriginalCreatePageTable(bundle.operations[1].payload);
+      expect(child.location?.timestamp).assertEqual(10);
+      expect(child.location?.siteId).assertEqual(1);
+      expect(child.location?.index).assertEqual(0);
+      expect(child.pageCount).assertEqual(1);
+    });
   });
+}
+
+function flatBufferNoteBundle(): Uint8Array {
+  const bytes: Uint8Array = new Uint8Array(260);
+  writeU32(bytes, 0, 24);
+  writeU16(bytes, 4, 20);
+  writeU16(bytes, 6, 40);
+  writeU16(bytes, 8, 4);
+  writeU16(bytes, 10, 0);
+  writeU16(bytes, 12, 20);
+  writeU16(bytes, 14, 24);
+  writeU16(bytes, 16, 0);
+  writeU16(bytes, 18, 28);
+  writeU16(bytes, 20, 32);
+  writeU16(bytes, 22, 36);
+  writeU32(bytes, 24, 20);
+  const uuid: number[] = [0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88,
+    0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00];
+  for (let index: number = 0; index < uuid.length; index++) {
+    bytes[28 + index] = uuid[index];
+  }
+  writeU16(bytes, 44, 9);
+  writeU32(bytes, 48, 20);
+  writeU32(bytes, 52, 24);
+  writeU32(bytes, 56, 28);
+  writeU16(bytes, 60, 7);
+  writeU32(bytes, 68, 1);
+  bytes[72] = 0x65;
+  writeU32(bytes, 76, 1);
+  bytes[80] = 0x63;
+  writeU32(bytes, 84, 2);
+  writeU32(bytes, 88, 28);
+  writeU32(bytes, 92, 80);
+  writeNoteBundleOperation(bytes, 96, 116, 1, 10, '11', '12', 220);
+  writeNoteBundleOperation(bytes, 152, 172, 2, 20, '21', '22', 240);
+  writeU16(bytes, 208, 10);
+  writeU16(bytes, 210, 8);
+  writeU16(bytes, 212, 0);
+  writeU16(bytes, 214, 0);
+  writeU16(bytes, 216, 4);
+  writeU32(bytes, 220, 12);
+  writeU32(bytes, 224, 1);
+  writeU16(bytes, 228, 10);
+  writeU16(bytes, 230, 20);
+  writeU16(bytes, 232, 4);
+  writeU16(bytes, 234, 0);
+  writeU16(bytes, 236, 16);
+  writeU32(bytes, 240, 12);
+  writeU16(bytes, 244, 1);
+  writeU32(bytes, 248, 10);
+  writeU32(bytes, 252, 0);
+  writeU32(bytes, 256, 1);
+  return bytes;
+}
+
+function writeNoteBundleOperation(bytes: Uint8Array, vtable: number, table: number,
+  siteId: number, timestamp: number, clientTime: string, serverTime: string,
+  payloadTable: number): void {
+  writeU16(bytes, vtable, 18);
+  writeU16(bytes, vtable + 2, 36);
+  writeU16(bytes, vtable + 4, 4);
+  writeU16(bytes, vtable + 6, 12);
+  writeU16(bytes, vtable + 8, 20);
+  writeU16(bytes, vtable + 10, 0);
+  writeU16(bytes, vtable + 12, 28);
+  writeU16(bytes, vtable + 14, 32);
+  writeU16(bytes, vtable + 16, 0);
+  writeU32(bytes, table, table - vtable);
+  writeU16(bytes, table + 4, siteId);
+  writeU32(bytes, table + 8, timestamp);
+  writeDecimalU64(bytes, table + 12, clientTime);
+  writeDecimalU64(bytes, table + 20, serverTime);
+  bytes[table + 28] = 3;
+  writeU32(bytes, table + 32, payloadTable - (table + 32));
 }
 
 function flatBufferCreatePage(timestamp: number, siteId: number, clientTime: string,

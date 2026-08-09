@@ -2,6 +2,9 @@ import { relationalStore } from '@kit.ArkData';
 import { DatabaseManager } from './DatabaseManager';
 import { editorPersistenceMutex } from './EditorPersistenceMutex';
 import { crc32Signed, validateFlatBufferRoot } from './OriginalSyncedOperationFlatBuffer';
+import {
+  OriginalNoteBundlePageIdentityBootstrapper, OriginalPageIdentityBootstrapResult,
+} from './OriginalNoteBundlePageIdentity';
 
 export enum DeferredSyncedOperationTableType {
   NOTE_BUNDLE = 'NOTE_BUNDLE',
@@ -76,6 +79,38 @@ export class DeferredSyncedOperationBundleStore {
     if (!Number.isSafeInteger(id) || id < 1) {
       throw new Error('deferred synced-operation bundle id is invalid');
     }
+    return this.readStoredBundle(id);
+  }
+
+  async bootstrapOriginalPageIdentity(id: number): Promise<OriginalPageIdentityBootstrapResult> {
+    if (!Number.isSafeInteger(id) || id < 1) {
+      throw new Error('deferred synced-operation bundle id is invalid');
+    }
+    return editorPersistenceMutex.runExclusive(async (): Promise<OriginalPageIdentityBootstrapResult> => {
+      await this.store.beginTransaction();
+      try {
+        const bundle: DeferredSyncedOperationBundle | null = await this.readStoredBundle(id);
+        if (bundle === null) {
+          throw new Error('deferred synced-operation bundle does not exist');
+        }
+        if (bundle.tableType !== DeferredSyncedOperationTableType.NOTE_BUNDLE) {
+          await this.store.commit();
+          return { applied: false, deferredReason: 'DEFERRED_BUNDLE_IS_NOT_NOTE_BUNDLE' };
+        }
+        await requireNote(this.store, bundle.noteId);
+        const result: OriginalPageIdentityBootstrapResult =
+          await new OriginalNoteBundlePageIdentityBootstrapper().apply(
+            this.store, bundle.noteId, bundle.schemaVersion, bundle.payload);
+        await this.store.commit();
+        return result;
+      } catch (e) {
+        await this.store.rollBack();
+        throw new Error(`bootstrap original page identity failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  private async readStoredBundle(id: number): Promise<DeferredSyncedOperationBundle | null> {
     const rows = await this.store.querySql(
       `SELECT id, note_id, schema_version, table_type, payload, payload_size, checksum, received_at
        FROM deferred_synced_operation_bundle WHERE id = ?`, [id]);

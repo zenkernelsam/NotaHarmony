@@ -52,6 +52,15 @@ export class OriginalFlatBufferTableReader {
     return this.bytes[this.table.table + offset];
   }
 
+  readUint16(field: number, defaultValue: number = 0): number {
+    const offset: number = this.readFieldOffset(field);
+    if (offset === 0) {
+      return defaultValue;
+    }
+    requireObjectBytes(this.table, offset, 2, `field ${field}`);
+    return readU16(this.bytes, this.table.table + offset);
+  }
+
   readUint32(field: number, defaultValue: number): number {
     const offset: number = this.readFieldOffset(field);
     if (offset === 0) {
@@ -59,6 +68,28 @@ export class OriginalFlatBufferTableReader {
     }
     requireObjectBytes(this.table, offset, 4, `field ${field}`);
     return readU32(this.bytes, this.table.table + offset);
+  }
+
+  readUint64Decimal(field: number, defaultValue: string | null = null): string | null {
+    const offset: number = this.readFieldOffset(field);
+    if (offset === 0) {
+      return defaultValue;
+    }
+    requireObjectBytes(this.table, offset, 8, `field ${field}`);
+    return unsignedLongBytesToDecimal(this.bytes, this.table.table + offset);
+  }
+
+  readInlineBytes(field: number, size: number): Uint8Array | null {
+    if (!Number.isSafeInteger(size) || size < 1 || size > 1024) {
+      throw new Error('FlatBuffer inline byte count is invalid');
+    }
+    const offset: number = this.readFieldOffset(field);
+    if (offset === 0) {
+      return null;
+    }
+    requireObjectBytes(this.table, offset, size, `inline field ${field}`);
+    const start: number = this.table.table + offset;
+    return this.bytes.slice(start, start + size);
   }
 
   readInlineSequence(field: number): number[] | null {
@@ -70,6 +101,78 @@ export class OriginalFlatBufferTableReader {
     const position: number = this.table.table + offset;
     return [readU32(this.bytes, position + 4), readU16(this.bytes, position),
       readU32(this.bytes, position + 8)];
+  }
+
+  readTable(field: number): OriginalFlatBufferTableReader | null {
+    const offset: number = this.readFieldOffset(field);
+    if (offset === 0) {
+      return null;
+    }
+    requireObjectBytes(this.table, offset, 4, `table field ${field}`);
+    const pointer: number = this.table.table + offset;
+    return OriginalFlatBufferTableReader.fromPointer(this.bytes, pointer, `table field ${field}`);
+  }
+
+  readTableVector(field: number, maximumCount: number): OriginalFlatBufferTableReader[] {
+    if (!Number.isSafeInteger(maximumCount) || maximumCount < 0) {
+      throw new Error('FlatBuffer vector budget is invalid');
+    }
+    const vector: number | null = this.readVector(field, 4, maximumCount);
+    if (vector === null) {
+      return [];
+    }
+    const count: number = readU32(this.bytes, vector);
+    const result: OriginalFlatBufferTableReader[] = [];
+    for (let index: number = 0; index < count; index++) {
+      const pointer: number = vector + 4 + index * 4;
+      result.push(OriginalFlatBufferTableReader.fromPointer(
+        this.bytes, pointer, `table vector field ${field}`));
+    }
+    return result;
+  }
+
+  readInlineVectorCount(field: number, elementSize: number, maximumCount: number): number {
+    if (!Number.isSafeInteger(elementSize) || elementSize < 1 || elementSize > 1024) {
+      throw new Error('FlatBuffer inline vector element size is invalid');
+    }
+    const vector: number | null = this.readVector(field, elementSize, maximumCount);
+    return vector === null ? 0 : readU32(this.bytes, vector);
+  }
+
+  validateByteVector(field: number, required: boolean, maximumCount: number): number {
+    const vector: number | null = this.readVector(field, 1, maximumCount);
+    if (vector === null) {
+      if (required) {
+        throw new Error(`FlatBuffer has no required byte vector field ${field}`);
+      }
+      return 0;
+    }
+    const count: number = readU32(this.bytes, vector);
+    requireRange(this.bytes, vector + 4 + count, 1, `byte vector field ${field} terminator`);
+    if (this.bytes[vector + 4 + count] !== 0) {
+      throw new Error(`FlatBuffer byte vector field ${field} has no terminator`);
+    }
+    return count;
+  }
+
+  private readVector(field: number, elementSize: number, maximumCount: number): number | null {
+    const offset: number = this.readFieldOffset(field);
+    if (offset === 0) {
+      return null;
+    }
+    requireObjectBytes(this.table, offset, 4, `vector field ${field}`);
+    const pointer: number = this.table.table + offset;
+    const relative: number = readU32(this.bytes, pointer);
+    if (relative < 4 || relative > this.bytes.length - pointer - 4) {
+      throw new Error(`FlatBuffer vector field ${field} offset is invalid`);
+    }
+    const vector: number = pointer + relative;
+    const count: number = readU32(this.bytes, vector);
+    if (count > maximumCount || count > Math.floor((this.bytes.length - vector - 4) / elementSize)) {
+      throw new Error(`FlatBuffer vector field ${field} exceeds its budget`);
+    }
+    requireRange(this.bytes, vector + 4, count * elementSize, `vector field ${field}`);
+    return vector;
   }
 
   private readFieldOffset(field: number): number {
@@ -104,6 +207,23 @@ export class OriginalFlatBufferTableReader {
     const payload: FlatBufferTable = readFlatBufferTable(bytes, pointer + relative);
     return new OriginalFlatBufferTableReader(bytes, payload.table, payload.vtable,
       payload.vtableSize, payload.objectSize);
+  }
+
+  static fromRoot(bytes: Uint8Array): OriginalFlatBufferTableReader {
+    const root: FlatBufferTable = readFlatBufferRoot(bytes);
+    return new OriginalFlatBufferTableReader(bytes, root.table, root.vtable,
+      root.vtableSize, root.objectSize);
+  }
+
+  private static fromPointer(bytes: Uint8Array, pointer: number,
+    name: string): OriginalFlatBufferTableReader {
+    const relative: number = readU32(bytes, pointer);
+    if (relative < 4 || relative > bytes.length - pointer - 4) {
+      throw new Error(`FlatBuffer ${name} offset is invalid`);
+    }
+    const table: FlatBufferTable = readFlatBufferTable(bytes, pointer + relative);
+    return new OriginalFlatBufferTableReader(bytes, table.table, table.vtable,
+      table.vtableSize, table.objectSize);
   }
 }
 
