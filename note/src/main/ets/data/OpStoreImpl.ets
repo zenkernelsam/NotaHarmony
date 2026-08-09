@@ -77,3 +77,33 @@ export async function appendOperation(store: relationalStore.RdbStore, op: Op): 
   // Deliberately use INSERT without conflict replacement: duplicate op IDs are corruption.
   await store.insert('operation_log', bucket);
 }
+
+export function monotonicOperationTime(lastClientTime: number | null, wallClockTime: number): number {
+  if (!Number.isSafeInteger(wallClockTime) || wallClockTime < 0 ||
+    (lastClientTime !== null && (!Number.isSafeInteger(lastClientTime) || lastClientTime < 0))) {
+    throw new Error('operation clock value is invalid');
+  }
+  if (lastClientTime === null) {
+    return wallClockTime;
+  }
+  if (lastClientTime >= Number.MAX_SAFE_INTEGER) {
+    throw new Error('operation client time is exhausted');
+  }
+  return Math.max(wallClockTime, lastClientTime + 1);
+}
+
+export async function allocateOperationClientTime(store: relationalStore.RdbStore,
+  noteId: string, wallClockTime: number = Date.now()): Promise<number> {
+  const resultSet = await store.querySql(
+    'SELECT MAX(client_time) AS max_client_time FROM operation_log WHERE note_id = ?', [noteId]);
+  try {
+    if (!resultSet.goToFirstRow()) {
+      throw new Error('operation time query returned no aggregate row');
+    }
+    const column: number = resultSet.getColumnIndex('max_client_time');
+    const last: number | null = resultSet.isColumnNull(column) ? null : resultSet.getLong(column);
+    return monotonicOperationTime(last, wallClockTime);
+  } finally {
+    resultSet.close();
+  }
+}

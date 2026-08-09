@@ -13,6 +13,8 @@ export enum OpType {
   DELETE_ELEMENTS = 11,
   TRANSFORM_ELEMENTS = 12,
   UPDATE_ELEMENT_STYLE = 13,
+  REPLACE_ELEMENTS = 14,
+  REORDER_ELEMENTS = 15,
   // 擦除
   ERASE_PARTIAL = 20,   // 像素擦除（写入 maskPath）
   ERASE_WHOLE = 21,     // 整条删除

@@ -42,6 +42,8 @@ import themeStoreTest from './ThemeStore.test';
 import selectionOverlayLayoutTest from './SelectionOverlayLayout.test';
 import strokePersistenceTest from './StrokePersistence.test';
 import pageSnapshotOpCodecTest from './PageSnapshotOpCodec.test';
+import pageMutationOpCodecTest from './PageMutationOpCodec.test';
+import opStoreTest from './OpStore.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -88,4 +90,6 @@ export default function testsuite() {
   selectionOverlayLayoutTest();
   strokePersistenceTest();
   pageSnapshotOpCodecTest();
+  pageMutationOpCodecTest();
+  opStoreTest();
 }

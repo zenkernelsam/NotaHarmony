@@ -15,9 +15,10 @@ import { AsyncMutex } from './AsyncMutex';
 import { foldSearchText } from './SearchText';
 import { SearchItemType } from './SearchItemType';
 import { handwritingSourceChanged, pageSnapshotChanged, SearchSourceElement } from './SearchIndexPolicy';
-import { OpType } from '../core/model/OpTypes';
-import { encodePageSnapshotOp } from './PageSnapshotOpCodec';
-import { appendOperation } from './OpStoreImpl';
+import { allocateOperationClientTime, appendOperation } from './OpStoreImpl';
+import {
+  classifyPageMutation, createPageMutation, encodePageMutationOp, PageMutationOpPayload,
+} from './PageMutationOpCodec';
 
 export interface PersistedElement {
   kind: string;
@@ -317,6 +318,8 @@ export class StrokePersistence {
         return;
       }
       const snapshotRevision: number = currentRevision + 1;
+      const mutation: PageMutationOpPayload = createPageMutation(
+        snapshot.pageId, currentRevision, snapshotRevision, current, snapshot.elements);
       const pageRevision: relationalStore.ValuesBucket = { 'content_revision': snapshotRevision };
       const pagePredicates = new relationalStore.RdbPredicates('page_info');
       pagePredicates.equalTo('note_id', snapshot.noteId);
@@ -375,16 +378,13 @@ export class StrokePersistence {
       };
       await store.insert('search_page_state', indexState,
         relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+      const operationTime: number = await allocateOperationClientTime(store, snapshot.noteId);
       await appendOperation(store, {
-        opId: `page-snapshot:${snapshot.pageId}:${snapshotRevision}`,
+        opId: `page-mutation:${snapshot.pageId}:${currentRevision}:${snapshotRevision}`,
         noteId: snapshot.noteId,
-        opType: OpType.PAGE_SNAPSHOT,
-        payload: encodePageSnapshotOp({
-          pageId: snapshot.pageId,
-          revision: snapshotRevision,
-          elements: snapshot.elements,
-        }),
-        clientTime: Date.now(),
+        opType: classifyPageMutation(mutation),
+        payload: encodePageMutationOp(mutation),
+        clientTime: operationTime,
       });
       await store.commit();
     } catch (e) {
