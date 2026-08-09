@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v25: preserve original paper-backed nz9 page backgrounds across every page lifecycle.
-export const DB_VERSION: number = 25;
+// v26: preserve original entity z-index clocks without JavaScript uint64 precision loss.
+export const DB_VERSION: number = 26;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -359,6 +359,27 @@ CREATE TABLE IF NOT EXISTS original_deleted_page_search (
     REFERENCES original_deleted_page(note_id, page_timestamp, page_site_id, page_index) ON DELETE CASCADE
 )`;
 
+export const DDL_ORIGINAL_ELEMENT_Z_INDEX: string = `
+CREATE TABLE IF NOT EXISTS original_element_z_index (
+  note_id TEXT NOT NULL,
+  element_timestamp INTEGER NOT NULL CHECK (element_timestamp BETWEEN 0 AND 4294967295),
+  element_site_id INTEGER NOT NULL CHECK (element_site_id BETWEEN 0 AND 65535),
+  page_timestamp INTEGER NOT NULL CHECK (page_timestamp BETWEEN 0 AND 4294967295),
+  page_site_id INTEGER NOT NULL CHECK (page_site_id BETWEEN 0 AND 65535),
+  page_index INTEGER NOT NULL CHECK (page_index BETWEEN 0 AND 4294967295),
+  kind INTEGER NOT NULL CHECK (kind BETWEEN 1 AND 3),
+  z_index TEXT NOT NULL CHECK (
+    typeof(z_index) = 'text' AND length(z_index) BETWEEN 1 AND 20
+    AND z_index NOT GLOB '*[^0-9]*'
+    AND (z_index = '0' OR substr(z_index, 1, 1) <> '0')
+    AND (length(z_index) < 20 OR z_index <= '18446744073709551615')
+  ),
+  PRIMARY KEY(note_id, element_timestamp, element_site_id),
+  FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
+    REFERENCES original_page_identity(note_id, seq_timestamp, seq_site_id, seq_index) ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
 // Original DeferredSyncedOps points to checksummed files. Harmony keeps the equivalent raw
 // bundle in SQLite so row and bytes cross the same transaction boundary.
 export const DDL_DEFERRED_SYNCED_OPERATION_BUNDLE: string = `
@@ -616,6 +637,9 @@ export const DDL_INDEXES: string[] = [
     ON original_page_insert_group(note_id, parent_timestamp, parent_site_id, parent_index)`,
   `CREATE INDEX IF NOT EXISTS idx_original_page_identity_page
     ON original_page_identity(note_id, page_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_original_element_page_z
+    ON original_element_z_index(note_id, page_timestamp, page_site_id, page_index,
+      length(z_index), z_index, element_timestamp, element_site_id)`,
   `CREATE INDEX IF NOT EXISTS idx_original_page_position_parent
     ON original_page_position_group(note_id, parent_timestamp, parent_site_id, parent_index)`,
   `CREATE INDEX IF NOT EXISTS idx_original_page_position_value
@@ -947,5 +971,11 @@ export const MIGRATIONS: Record<number, string[]> = {
     'ALTER TABLE page_delete_checkpoint ADD COLUMN background_json TEXT',
     'ALTER TABLE original_deleted_page ADD COLUMN background_json TEXT',
     DDL_ORIGINAL_PAGE_BACKGROUND_WINNER,
+  ],
+  26: [
+    DDL_ORIGINAL_ELEMENT_Z_INDEX,
+    `CREATE INDEX IF NOT EXISTS idx_original_element_page_z
+      ON original_element_z_index(note_id, page_timestamp, page_site_id, page_index,
+        length(z_index), z_index, element_timestamp, element_site_id)`,
   ],
 };

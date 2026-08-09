@@ -9,6 +9,9 @@ import {
   ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE, OriginalDeleteEntitiesOperationApplier,
 } from './OriginalDeleteEntitiesOperation';
 import {
+  ORIGINAL_CREATE_INK_PAYLOAD_TYPE, OriginalCreateInkOperationApplier,
+} from './OriginalCreateInkOperation';
+import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 
@@ -17,11 +20,13 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
   private modifyPage: OriginalModifyPageOperationApplier = new OriginalModifyPageOperationApplier();
   private deleteEntities: OriginalDeleteEntitiesOperationApplier =
     new OriginalDeleteEntitiesOperationApplier();
+  private createInk: OriginalCreateInkOperationApplier = new OriginalCreateInkOperationApplier();
 
   supports(payloadType: number): boolean {
     return payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE ||
-      payloadType === ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE;
+      payloadType === ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_CREATE_INK_PAYLOAD_TYPE;
   }
 
   async apply(store: relationalStore.RdbStore,
@@ -34,6 +39,9 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
     }
     if (operation.payloadType === ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE) {
       return this.deleteEntities.apply(store, operation);
+    }
+    if (operation.payloadType === ORIGINAL_CREATE_INK_PAYLOAD_TYPE) {
+      return this.createInk.apply(store, operation);
     }
     throw new Error('original page operation applier received an unsupported payload');
   }

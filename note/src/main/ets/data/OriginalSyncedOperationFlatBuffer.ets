@@ -179,6 +179,18 @@ export class OriginalFlatBufferTableReader {
     return count;
   }
 
+  readByteVector(field: number, required: boolean, maximumCount: number): Uint8Array | null {
+    const vector: number | null = this.readVector(field, 1, maximumCount);
+    if (vector === null) {
+      if (required) {
+        throw new Error(`FlatBuffer has no required byte vector field ${field}`);
+      }
+      return null;
+    }
+    const count: number = readU32(this.bytes, vector);
+    return this.bytes.slice(vector + 4, vector + 4 + count);
+  }
+
   private readVector(field: number, elementSize: number, maximumCount: number): number | null {
     const offset: number = this.readFieldOffset(field);
     if (offset === 0) {

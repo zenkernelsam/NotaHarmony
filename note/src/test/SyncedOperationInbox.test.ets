@@ -19,6 +19,11 @@ import { decodeOriginalNoteBundle } from '../main/ets/data/OriginalNoteBundlePag
 import { decodeOriginalModifyPage } from '../main/ets/data/OriginalModifyPageOperation';
 import { decodeOriginalDeleteEntities } from '../main/ets/data/OriginalDeleteEntitiesOperation';
 import { OriginalPageOperationApplier } from '../main/ets/data/OriginalPageOperationApplier';
+import { decodeOriginalCreateInk } from '../main/ets/data/OriginalCreateInkOperation';
+import { originalInkTransform,
+  transformedExpandedBounds } from '../main/ets/data/OriginalInkPathCodec';
+import { decodeOriginalInkPath } from '../main/ets/data/OriginalInkPathCodec';
+import { Rect2D } from '../main/ets/core/model/GeometryTypes';
 
 function operation(timestamp: number, serverTime: string,
   clientTime: string = serverTime, payloadType: number = 3): IncomingSyncedOperation {
@@ -145,7 +150,65 @@ export default function syncedOperationInboxTest() {
       expect(applier.supports(3)).assertTrue();
       expect(applier.supports(4)).assertTrue();
       expect(applier.supports(25)).assertTrue();
+      expect(applier.supports(15)).assertTrue();
       expect(applier.supports(5)).assertFalse();
+    });
+
+    it('decodes original CREATE_INK path attributes, transform and uint64 z-index', 0, () => {
+      const payload = decodeOriginalCreateInk(flatBufferCreateInk(), '123');
+      expect(payload.page.timestamp).assertEqual(10);
+      expect(payload.page.siteId).assertEqual(1);
+      expect(payload.page.index).assertEqual(2);
+      expect(payload.originX).assertEqual(12);
+      expect(payload.originY).assertEqual(34);
+      expect(Math.abs(payload.rotation - Math.PI / 2) < 0.000001).assertTrue();
+      expect(payload.scaleX).assertEqual(2);
+      expect(payload.scaleY).assertEqual(3);
+      expect(payload.tool).assertEqual(0);
+      expect(payload.style).assertEqual(0);
+      expect(payload.color).assertEqual(-2146823138);
+      expect(payload.width).assertEqual(4);
+      expect(payload.zIndex).assertEqual('18446744073709551615');
+      expect(payload.path?.pathPoints.length).assertEqual(3);
+      expect(payload.path?.cubicSegments.length).assertEqual(2);
+      expect(payload.path?.pathPoints[0].position.x).assertEqual(1);
+      expect(payload.path?.pathPoints[0].widthFactor).assertEqual(1);
+      expect(payload.path?.pathPoints[1].position.x).assertEqual(6);
+      expect(payload.path?.pathPoints[1].pressure).assertEqual(0.25);
+      expect(Math.abs((payload.path?.pathPoints[1].altitudeAngleRadians as number) - Math.PI / 2) <
+        0.000001).assertTrue();
+      expect(Math.abs((payload.path?.pathPoints[1].azimuthUnitX as number)) < 0.000001).assertTrue();
+      expect(Math.abs((payload.path?.pathPoints[1].azimuthUnitY as number) - 1) < 0.000001).assertTrue();
+      expect(payload.path?.localBounds.left).assertEqual(1);
+      expect(payload.path?.localBounds.top).assertEqual(-3);
+      expect(payload.path?.localBounds.right).assertEqual(20);
+      expect(payload.path?.localBounds.bottom).assertEqual(9);
+      const bounds = transformedExpandedBounds(payload.path?.localBounds as Rect2D, payload.width,
+        originalInkTransform(payload.originX, payload.originY, payload.rotation,
+          payload.scaleX, payload.scaleY));
+      expect(Math.abs(bounds.left + 39) < 0.00001).assertTrue();
+      expect(Math.abs(bounds.top - 20) < 0.00001).assertTrue();
+      expect(Math.abs(bounds.right - 45) < 0.00001).assertTrue();
+      expect(Math.abs(bounds.bottom - 90) < 0.00001).assertTrue();
+      const unknownEnums = decodeOriginalCreateInk(flatBufferCreateInk(255, 255), '123');
+      expect(unknownEnums.tool).assertEqual(0);
+      expect(unknownEnums.style).assertEqual(0);
+      const flipped = originalInkTransform(0, 0, 0, -2, 0);
+      expect(flipped[0]).assertEqual(-2);
+      expect(flipped[4]).assertEqual(0);
+    });
+
+    it('decodes the original big-endian half-float coordinate path variant', 0, () => {
+      const path = decodeOriginalInkPath(new Uint8Array([
+        0, 0, 2,
+        3, 0x3C, 0, 0x40, 0, 0x3C, 0, 0x38, 0, 0, 0,
+        2, 0x42, 0, 0x44, 0, 0x3C, 0, 0x38, 0, 255, 64,
+      ]));
+      expect(path.pathPoints.length).assertEqual(2);
+      expect(path.pathPoints[0].position.x).assertEqual(1);
+      expect(path.pathPoints[0].position.y).assertEqual(2);
+      expect(path.pathPoints[1].position.x).assertEqual(3);
+      expect(path.pathPoints[1].position.y).assertEqual(4);
     });
 
     it('decodes background-only MODIFY_PAGE and preserves an explicit null setter', 0, () => {
@@ -383,6 +446,18 @@ class FixtureFlatBufferBuilder {
     return vector;
   }
 
+  byteVector(values: number[]): number {
+    this.align(4);
+    const vector: number = this.cursor;
+    this.cursor += 4 + values.length + 1;
+    writeU32(this.bytes, vector, values.length);
+    for (let index: number = 0; index < values.length; index++) {
+      this.bytes[vector + 4 + index] = values[index];
+    }
+    this.bytes[vector + 4 + values.length] = 0;
+    return vector;
+  }
+
   pointer(slot: number, target: number): void {
     writeU32(this.bytes, slot, target - slot);
   }
@@ -421,6 +496,79 @@ class FixtureFlatBufferBuilder {
     while ((this.cursor & (value - 1)) !== 0) {
       this.cursor++;
     }
+  }
+}
+
+function flatBufferCreateInk(tool: number = 0, style: number = 0): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 90);
+  writeDecimalU64At(builder, root + 12, '123');
+  writeDecimalU64At(builder, root + 20, '124');
+  builder.uint8(root + 28, 15);
+  const fields: number[] = [4, 16, 24, 28, 36, 37, 0, 40, 44, 48,
+    0, 0, 0, 0, 56, 0, 0, 0, 0, 0];
+  const ink: number = builder.table(fields, 64);
+  builder.pointer(root + 32, ink);
+  builder.uint16(ink + 4, 1);
+  builder.uint32(ink + 8, 10);
+  builder.uint32(ink + 12, 2);
+  builder.float32(ink + 16, 12);
+  builder.float32(ink + 20, 34);
+  builder.float32(ink + 24, Math.PI / 2);
+  builder.float32(ink + 28, 2);
+  builder.float32(ink + 32, 3);
+  builder.uint8(ink + 36, tool);
+  builder.uint8(ink + 37, style);
+  builder.color(ink + 40, [10, 20, 30, 128]);
+  builder.float32(ink + 44, 4);
+  writeDecimalU64At(builder, ink + 56, '18446744073709551615');
+  const path: number[] = [1, 0, 3];
+  appendAttributedPathElement(path, 3, [{ x: 1, y: 2 }], 0x3C00, 0x3800, 0, 0);
+  appendAttributedPathElement(path, 0,
+    [{ x: 20, y: -3 }, { x: 4, y: 5 }, { x: 6, y: 7 }], 0x3800, 0x3400, 255, 64);
+  appendAttributedPathElement(path, 2, [{ x: 8, y: 9 }], 0x3C00, 0x3800, 128, 128);
+  const vector: number = builder.byteVector(path);
+  builder.pointer(ink + 48, vector);
+  return builder.finish(root);
+}
+
+function appendAttributedPathElement(target: number[], type: number,
+  points: { x: number, y: number }[], width: number, force: number,
+  altitude: number, azimuth: number): void {
+  target.push(type);
+  for (const point of points) {
+    appendFloat32(target, point.x);
+    appendFloat32(target, point.y);
+  }
+  target.push((width >>> 8) & 0xFF, width & 0xFF,
+    (force >>> 8) & 0xFF, force & 0xFF, altitude, azimuth);
+}
+
+function appendFloat32(target: number[], value: number): void {
+  const bytes: Uint8Array = new Uint8Array(new Float32Array([value]).buffer);
+  for (let index: number = 0; index < 4; index++) {
+    target.push(bytes[index]);
+  }
+}
+
+function writeDecimalU64At(builder: FixtureFlatBufferBuilder,
+  offset: number, decimal: string): void {
+  let remaining: string = decimal;
+  for (let index: number = 0; index < 8; index++) {
+    let quotient: string = '';
+    let carry: number = 0;
+    for (let digit: number = 0; digit < remaining.length; digit++) {
+      const value: number = carry * 10 + remaining.charCodeAt(digit) - 0x30;
+      const part: number = Math.floor(value / 256);
+      carry = value % 256;
+      if (quotient.length > 0 || part > 0) {
+        quotient += part.toString();
+      }
+    }
+    builder.uint8(offset + index, carry);
+    remaining = quotient.length === 0 ? '0' : quotient;
   }
 }
 
