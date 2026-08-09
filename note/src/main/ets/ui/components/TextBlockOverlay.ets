@@ -1,6 +1,7 @@
 // T-024 文本框编辑覆盖层（TextArea 编辑态）
 import { TextBlockElement } from '../../core/model/ElementTypes';
-import { Point2D } from '../../core/model/GeometryTypes';
+import { Point2D, Rect2D } from '../../core/model/GeometryTypes';
+import { textBlockTransformComponents, TextBlockTransformComponents } from '../../core/model/TextBlockGeometry';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 
@@ -9,6 +10,7 @@ export struct TextBlockOverlay {
   @Prop editing: boolean = false;
   @Prop @Watch('onElementChange') element: TextBlockElement | null = null;
   @Prop screenOrigin: Point2D = { x: 0, y: 0 };
+  @Prop screenBounds: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @Prop viewportZoom: number = 1;
   @State draftText: string = '';
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -32,25 +34,54 @@ export struct TextBlockOverlay {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
   }
 
+  private transformComponents(): TextBlockTransformComponents {
+    return this.element !== null ? textBlockTransformComponents(this.element) : {
+      origin: { x: 0, y: 0 }, rotationRadians: 0, scaleX: 1, scaleY: 1,
+    };
+  }
+
   build() {
     Stack() {
       if (this.editing && this.element !== null) {
-        Stack()
+        Stack() {
+          Stack()
+            .width(this.element.blockWidth * this.viewportZoom)
+            .height(this.element.blockHeight * this.viewportZoom)
+            .border({ width: 1.5, color: this.resolveTokens().accent, style: BorderStyle.Dashed })
+          TextArea({ text: this.draftText, placeholder: $r('app.string.type_here') })
+            .width(this.element.blockWidth * this.viewportZoom)
+            .height(this.element.blockHeight * this.viewportZoom)
+            .fontSize(this.element.fontSize * this.viewportZoom)
+            .lineHeight((this.element.fontSize + 8) * this.viewportZoom)
+            .fontColor(this.element.fontColor)
+            .backgroundColor(this.resolveTokens().surface)
+            .padding({
+              left: this.element.contentLeftInset * this.viewportZoom,
+              top: this.element.contentTopInset * this.viewportZoom,
+              right: 0,
+              bottom: 0,
+            })
+            .onChange((value: string) => {
+              this.draftText = value;
+              this.onDraftChange(value);
+            })
+        }
           .width(this.element.blockWidth * this.viewportZoom)
           .height(this.element.blockHeight * this.viewportZoom)
           .position({ x: this.screenOrigin.x, y: this.screenOrigin.y })
-          .border({ width: 1.5, color: this.resolveTokens().accent, style: BorderStyle.Dashed })
-        TextArea({ text: this.draftText, placeholder: $r('app.string.type_here') })
-          .width(this.element.blockWidth * this.viewportZoom)
-          .height(this.element.blockHeight * this.viewportZoom)
-          .position({ x: this.screenOrigin.x, y: this.screenOrigin.y })
-          .fontSize(this.element.fontSize * this.viewportZoom)
-          .fontColor(this.resolveTokens().textPrimary)
-          .backgroundColor(this.resolveTokens().surface)
-          .padding(4)
-          .onChange((value: string) => {
-            this.draftText = value;
-            this.onDraftChange(value);
+          .scale({
+            x: this.transformComponents().scaleX,
+            y: this.transformComponents().scaleY,
+            centerX: 0,
+            centerY: 0,
+          })
+          .rotate({
+            x: 0,
+            y: 0,
+            z: 1,
+            angle: this.transformComponents().rotationRadians.toString() + 'rad',
+            centerX: 0,
+            centerY: 0,
           })
         Row() {
           Button($r('app.string.done'))
@@ -69,8 +100,8 @@ export struct TextBlockOverlay {
             })
         }
         .position({
-          x: this.screenOrigin.x,
-          y: this.screenOrigin.y + this.element.blockHeight * this.viewportZoom + 4,
+          x: this.screenBounds.left,
+          y: this.screenBounds.bottom + 4,
         })
       }
     }

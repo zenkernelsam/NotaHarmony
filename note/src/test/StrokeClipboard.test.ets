@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
-import { ElementType, PolygonElement } from '../main/ets/core/model/ElementTypes';
+import { ElementType, PolygonElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import { PageElementKind, PageElementRef } from '../main/ets/core/model/PageElementOrder';
 import { ClipboardPasteResult, StrokeClipboard } from '../main/ets/rendering/StrokeClipboard';
 
@@ -45,6 +45,16 @@ function shape(id: string, left: number = 40, top: number = 50): PolygonElement 
       { x: left, y: top }, { x: left + 20, y: top }, { x: left + 10, y: top + 20 },
     ],
     isClosed: true, color: 0xFF336699, strokeWidth: 3, fillColor: 0x44336699,
+  };
+}
+
+function textBlock(id: string, left: number = 70, top: number = 80): TextBlockElement {
+  return {
+    id: id, type: ElementType.TEXT, transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    bounds: { left: left, top: top, right: left + 100, bottom: top + 40 }, richText: id,
+    textOrigin: { x: left, y: top }, blockWidth: 100, blockHeight: 40,
+    rotationRadians: 0, contentLeftInset: 4, contentTopInset: 4,
+    fontSize: 16, fontColor: 0xFF224466,
   };
 }
 
@@ -143,6 +153,44 @@ export default function strokeClipboardTest() {
       expect(result?.elementOrder[1].elementId).assertEqual('mixed-1');
       expect(result?.shapes[0].id).assertEqual('mixed-0');
       expect(result?.strokes[0].id).assertEqual('mixed-1');
+    });
+
+    it('deep-copies text-only content and offsets transform without changing local origin', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      const source: TextBlockElement = textBlock('text-1');
+      expect(clipboard.copy([], 'page-1', [], [], [source])).assertTrue();
+      source.textOrigin.x = 999;
+      source.transform[2] = 999;
+      source.bounds.left = 999;
+      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+        (): string => 'text-paste');
+      expect(result?.strokes.length).assertEqual(0);
+      expect(result?.shapes.length).assertEqual(0);
+      expect(result?.textBlocks.length).assertEqual(1);
+      expect(result?.textBlocks[0].textOrigin.x).assertEqual(70);
+      expect(result?.textBlocks[0].transform[2]).assertEqual(20);
+      expect(result?.textBlocks[0].bounds.left).assertEqual(90);
+      expect(result?.elementOrder[0].kind).assertEqual(PageElementKind.TEXT);
+    });
+
+    it('preserves stroke text and shape relative order in one paste action', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      const order: PageElementRef[] = [
+        { kind: PageElementKind.TEXT, elementId: 'text-1', zIndex: 0 },
+        { kind: PageElementKind.SHAPE, elementId: 'shape-1', zIndex: 1 },
+        { kind: PageElementKind.STROKE, elementId: 'stroke-1', zIndex: 2 },
+      ];
+      expect(clipboard.copy([stroke('stroke-1')], 'page-1', [shape('shape-1')], order,
+        [textBlock('text-1')])).assertTrue();
+      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+        (_sourceId: string, _sequence: number, index: number): string => `all-${index}`);
+      expect(result?.elementOrder.length).assertEqual(3);
+      expect(result?.elementOrder[0].kind).assertEqual(PageElementKind.TEXT);
+      expect(result?.elementOrder[1].kind).assertEqual(PageElementKind.SHAPE);
+      expect(result?.elementOrder[2].kind).assertEqual(PageElementKind.STROKE);
+      expect(result?.textBlocks[0].id).assertEqual('all-0');
+      expect(result?.shapes[0].id).assertEqual('all-1');
+      expect(result?.strokes[0].id).assertEqual('all-2');
     });
   });
 }

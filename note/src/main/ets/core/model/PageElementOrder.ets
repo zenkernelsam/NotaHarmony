@@ -163,14 +163,16 @@ export function moveStrokeRefs(order: PageElementRef[], strokeIds: string[], for
 }
 
 export function movePageElementRefs(order: PageElementRef[], strokeIds: string[], shapeIds: string[],
-  forward: boolean): PageElementRef[] {
+  forward: boolean, textIds: string[] = []): PageElementRef[] {
   const selectedStrokes: Set<string> = new Set<string>(strokeIds);
   const selectedShapes: Set<string> = new Set<string>(shapeIds);
+  const selectedTexts: Set<string> = new Set<string>(textIds);
   const selected: PageElementRef[] = [];
   const remaining: PageElementRef[] = [];
   for (const ref of order) {
     const isSelected: boolean = ref.kind === PageElementKind.STROKE
-      ? selectedStrokes.has(ref.elementId) : ref.kind === PageElementKind.SHAPE && selectedShapes.has(ref.elementId);
+      ? selectedStrokes.has(ref.elementId) : ref.kind === PageElementKind.SHAPE
+        ? selectedShapes.has(ref.elementId) : ref.kind === PageElementKind.TEXT && selectedTexts.has(ref.elementId);
     if (isSelected) {
       selected.push(ref);
     } else {

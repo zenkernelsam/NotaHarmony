@@ -1,6 +1,7 @@
 // T-024 文本框逻辑（§30 TextBlockInfo 简化版，纯逻辑禁止平台 import）
 import { TextBlockElement, ElementType } from '../core/model/ElementTypes';
 import { Point2D } from '../core/model/GeometryTypes';
+import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextBlockGeometry';
 
 export class TextBlockTool {
   // 创建文本框（双击位置）
@@ -31,26 +32,11 @@ export class TextBlockTool {
   updateText(element: TextBlockElement, text: string): TextBlockElement {
     const lines: number = text.split('\n').length;
     const height: number = Math.max(40, lines * (element.fontSize + 8) + element.contentTopInset * 2);
-    return {
-      id: element.id,
-      type: ElementType.TEXT,
-      transform: element.transform,
-      bounds: {
-        left: element.bounds.left,
-        top: element.bounds.top,
-        right: element.bounds.left + element.blockWidth,
-        bottom: element.bounds.top + height,
-      },
-      richText: text,
-      textOrigin: element.textOrigin,
-      blockWidth: element.blockWidth,
-      blockHeight: height,
-      rotationRadians: element.rotationRadians,
-      contentLeftInset: element.contentLeftInset,
-      contentTopInset: element.contentTopInset,
-      fontSize: element.fontSize,
-      fontColor: element.fontColor,
-    };
+    const updated: TextBlockElement = cloneTextBlockElement(element);
+    updated.richText = text;
+    updated.blockHeight = height;
+    updated.bounds = textBlockWorldBounds(updated);
+    return updated;
   }
 
   private generateId(): string {

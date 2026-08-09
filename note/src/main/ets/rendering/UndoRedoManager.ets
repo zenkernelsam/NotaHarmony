@@ -59,6 +59,8 @@ export interface EraseElementsAction extends ActionBase, ElementOrderChange {
   afterModifiedStrokes: StrokeElementData[];
   removedShapes: ShapeElement[];
   removedShapeIndices: number[];
+  removedTextBlocks: TextBlockElement[];
+  removedTextBlockIndices: number[];
 }
 
 export interface TransformStrokesAction extends ActionBase {
@@ -98,6 +100,7 @@ export interface AddElementsAction extends ActionBase, ElementOrderChange {
   type: UndoableActionType.ADD_ELEMENTS;
   addedStrokes: StrokeElementData[];
   addedShapes: ShapeElement[];
+  addedTextBlocks: TextBlockElement[];
   addedElementOrder: PageElementRef[];
 }
 
@@ -107,6 +110,8 @@ export interface DeleteElementsAction extends ActionBase, ElementOrderChange {
   removedStrokeIndices: number[];
   removedShapes: ShapeElement[];
   removedShapeIndices: number[];
+  removedTextBlocks: TextBlockElement[];
+  removedTextBlockIndices: number[];
 }
 
 export interface TransformElementsAction extends ActionBase {
@@ -115,6 +120,8 @@ export interface TransformElementsAction extends ActionBase {
   afterStrokes: StrokeElementData[];
   beforeShapes: ShapeElement[];
   afterShapes: ShapeElement[];
+  beforeTextBlocks: TextBlockElement[];
+  afterTextBlocks: TextBlockElement[];
 }
 
 export interface AddPageAction extends ActionBase {
@@ -210,6 +217,7 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
     return bytes + estimateStrokes(action.removedStrokes) + action.removedStrokeIndices.length * 8 +
       estimateStrokes(action.beforeModifiedStrokes) + estimateStrokes(action.afterModifiedStrokes) +
       estimateShapes(action.removedShapes) + action.removedShapeIndices.length * 8 +
+      estimateTextBlocks(action.removedTextBlocks) + action.removedTextBlockIndices.length * 8 +
       estimateElementOrderChange(action);
   }
   if (action.type === UndoableActionType.TRANSFORM_STROKES) {
@@ -233,16 +241,19 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
   }
   if (action.type === UndoableActionType.ADD_ELEMENTS) {
     return bytes + estimateStrokes(action.addedStrokes) + estimateShapes(action.addedShapes) +
+      estimateTextBlocks(action.addedTextBlocks) +
       estimateElementOrder(action.addedElementOrder) + estimateElementOrderChange(action);
   }
   if (action.type === UndoableActionType.DELETE_ELEMENTS) {
     return bytes + estimateStrokes(action.removedStrokes) + action.removedStrokeIndices.length * 8 +
       estimateShapes(action.removedShapes) + action.removedShapeIndices.length * 8 +
+      estimateTextBlocks(action.removedTextBlocks) + action.removedTextBlockIndices.length * 8 +
       estimateElementOrderChange(action);
   }
   if (action.type === UndoableActionType.TRANSFORM_ELEMENTS) {
     return bytes + estimateStrokes(action.beforeStrokes) + estimateStrokes(action.afterStrokes) +
-      estimateShapes(action.beforeShapes) + estimateShapes(action.afterShapes);
+      estimateShapes(action.beforeShapes) + estimateShapes(action.afterShapes) +
+      estimateTextBlocks(action.beforeTextBlocks) + estimateTextBlocks(action.afterTextBlocks);
   }
   if (action.type === UndoableActionType.ADD_PAGE || action.type === UndoableActionType.DELETE_PAGE) {
     return bytes + 256 + estimateStringList(action.pageOrderBefore) + estimateStringList(action.pageOrderAfter) +

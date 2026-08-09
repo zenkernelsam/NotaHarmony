@@ -33,6 +33,7 @@ import strokeClipboardTest from './StrokeClipboard.test';
 import pageElementOrderTest from './PageElementOrder.test';
 import shapeGeometryTest from './ShapeGeometry.test';
 import selectionToolTest from './SelectionTool.test';
+import textBlockGeometryTest from './TextBlockGeometry.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -70,4 +71,5 @@ export default function testsuite() {
   pageElementOrderTest();
   shapeGeometryTest();
   selectionToolTest();
+  textBlockGeometryTest();
 }

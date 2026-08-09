@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { ElementType, PolygonElement } from '../main/ets/core/model/ElementTypes';
+import { ElementType, PolygonElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import { SelectionMode, SelectionTool } from '../main/ets/rendering/SelectionTool';
 
@@ -20,6 +20,16 @@ function shape(id: string): PolygonElement {
     bounds: { left: 20, top: 20, right: 40, bottom: 40 },
     vertices: [{ x: 20, y: 20 }, { x: 40, y: 20 }, { x: 30, y: 40 }],
     isClosed: true, color: 0xFF000000, strokeWidth: 2, fillColor: null,
+  };
+}
+
+function textBlock(id: string): TextBlockElement {
+  return {
+    id: id, type: ElementType.TEXT, transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    bounds: { left: 50, top: 50, right: 90, bottom: 80 }, richText: id,
+    textOrigin: { x: 50, y: 50 }, blockWidth: 40, blockHeight: 30,
+    rotationRadians: 0, contentLeftInset: 4, contentTopInset: 4,
+    fontSize: 12, fontColor: 0xFF000000,
   };
 }
 
@@ -57,6 +67,21 @@ export default function selectionToolTest() {
       tool.deselect();
       expect(tool.getState().selectedStrokeIds.length).assertEqual(0);
       expect(tool.getState().selectedShapeIds.length).assertEqual(0);
+    });
+
+    it('selects and clears text-only content with the unified state', 0, () => {
+      const tool: SelectionTool = new SelectionTool();
+      tool.beginSelection(SelectionMode.RECTANGLE, { x: 45, y: 45 });
+      tool.updateSelection({ x: 95, y: 85 });
+      const ids: string[] = tool.finalizeSelection([], [], [textBlock('text-1')]);
+      expect(ids[0]).assertEqual('text-1');
+      expect(tool.getState().selectedTextBlockIds[0]).assertEqual('text-1');
+      const callerIds: string[] = ['text-2'];
+      tool.selectElementIds([], [], callerIds);
+      callerIds[0] = 'mutated';
+      expect(tool.getState().selectedTextBlockIds[0]).assertEqual('text-2');
+      tool.deselect();
+      expect(tool.getState().selectedTextBlockIds.length).assertEqual(0);
     });
   });
 }

@@ -2,7 +2,7 @@
 // 纯几何逻辑：禁止平台 import
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
-import { ShapeElement } from '../core/model/ElementTypes';
+import { ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 
 export enum SelectionMode {
   RECTANGLE = 0,
@@ -16,6 +16,7 @@ export interface SelectionState {
   rect: Rect2D | null;           // 矩形选区
   selectedStrokeIds: string[];   // 选中笔画 ID
   selectedShapeIds: string[];
+  selectedTextBlockIds: string[];
   transform: TransformMatrix;    // 当前变换矩阵（单位矩阵起始）
 }
 
@@ -30,6 +31,7 @@ export class SelectionTool {
       rect: null,
       selectedStrokeIds: [],
       selectedShapeIds: [],
+      selectedTextBlockIds: [],
       transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
     };
   }
@@ -42,6 +44,7 @@ export class SelectionTool {
     this.state.rect = { left: startPoint.x, top: startPoint.y, right: startPoint.x, bottom: startPoint.y };
     this.state.selectedStrokeIds = [];
     this.state.selectedShapeIds = [];
+    this.state.selectedTextBlockIds = [];
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
@@ -63,7 +66,8 @@ export class SelectionTool {
   }
 
   // 完成选区 → 计算命中笔画 ID
-  finalizeSelection(strokes: StrokeElementData[], shapes: ShapeElement[] = []): string[] {
+  finalizeSelection(strokes: StrokeElementData[], shapes: ShapeElement[] = [],
+    textBlocks: TextBlockElement[] = []): string[] {
     if (!this.state.isActive) {
       return [];
     }
@@ -90,7 +94,14 @@ export class SelectionTool {
       }
     }
     this.state.selectedShapeIds = shapeIds;
-    return ids.concat(shapeIds);
+    const textIds: string[] = [];
+    for (const textBlock of textBlocks) {
+      if (this.elementBoundsSelected(textBlock.bounds)) {
+        textIds.push(textBlock.id);
+      }
+    }
+    this.state.selectedTextBlockIds = textIds;
+    return ids.concat(shapeIds).concat(textIds);
   }
 
   // 移动选中内容（平移矩阵）
@@ -150,9 +161,11 @@ export class SelectionTool {
 
   // 删除选中 → 返回应删除的笔画 ID
   deleteSelected(): string[] {
-    const ids: string[] = this.state.selectedStrokeIds.concat(this.state.selectedShapeIds);
+    const ids: string[] = this.state.selectedStrokeIds.concat(this.state.selectedShapeIds)
+      .concat(this.state.selectedTextBlockIds);
     this.state.selectedStrokeIds = [];
     this.state.selectedShapeIds = [];
+    this.state.selectedTextBlockIds = [];
     this.deselect();
     return ids;
   }
@@ -161,15 +174,17 @@ export class SelectionTool {
     this.state.isActive = ids.length > 0;
     this.state.selectedStrokeIds = ids.slice();
     this.state.selectedShapeIds = [];
+    this.state.selectedTextBlockIds = [];
     this.state.lassoPoints = [];
     this.state.rect = null;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
-  selectElementIds(strokeIds: string[], shapeIds: string[]): void {
-    this.state.isActive = strokeIds.length > 0 || shapeIds.length > 0;
+  selectElementIds(strokeIds: string[], shapeIds: string[], textBlockIds: string[] = []): void {
+    this.state.isActive = strokeIds.length > 0 || shapeIds.length > 0 || textBlockIds.length > 0;
     this.state.selectedStrokeIds = strokeIds.slice();
     this.state.selectedShapeIds = shapeIds.slice();
+    this.state.selectedTextBlockIds = textBlockIds.slice();
     this.state.lassoPoints = [];
     this.state.rect = null;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -180,6 +195,7 @@ export class SelectionTool {
     this.state.isActive = false;
     this.state.selectedStrokeIds = [];
     this.state.selectedShapeIds = [];
+    this.state.selectedTextBlockIds = [];
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 

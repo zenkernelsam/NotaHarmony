@@ -100,6 +100,21 @@ export default function pageElementOrderTest() {
         [stroke('s1')], [text('t1')]))).assertFalse();
     });
 
+    it('moves text together with mixed selected elements', 0, () => {
+      const before: PageElementRef[] = [
+        { kind: PageElementKind.TEXT, elementId: 't1', zIndex: 0 },
+        { kind: PageElementKind.STROKE, elementId: 's1', zIndex: 1 },
+        { kind: PageElementKind.SHAPE, elementId: 'p1', zIndex: 2 },
+        { kind: PageElementKind.TEXT, elementId: 't2', zIndex: 3 },
+      ];
+      const after: PageElementRef[] = movePageElementRefs(before, ['s1'], [], true, ['t1']);
+      expect(after[0].elementId).assertEqual('p1');
+      expect(after[1].elementId).assertEqual('t2');
+      expect(after[2].elementId).assertEqual('t1');
+      expect(after[3].elementId).assertEqual('s1');
+      expect(samePageElementMembers(before, after)).assertTrue();
+    });
+
     it('appends and removes refs without disturbing remaining z order', 0, () => {
       let order: PageElementRef[] = legacyPageElementOrder([stroke('s1')], [text('t1')]);
       order = appendPageElementRefs(order, PageElementKind.STROKE, ['s2']);

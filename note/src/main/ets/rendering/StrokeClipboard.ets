@@ -2,8 +2,9 @@ import { CubicSegment, Point2D, Rect2D } from '../core/model/GeometryTypes';
 import {
   PencilSplatPoint, RenderSpec, StrokeElementData, StrokePathPoint,
 } from '../core/model/StrokeTypes';
-import { ShapeElement } from '../core/model/ElementTypes';
+import { ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { cloneShapeElement } from '../core/model/ShapeGeometry';
+import { cloneTextBlockElement } from '../core/model/TextBlockGeometry';
 import {
   materializePageElements, normalizePageElementOrder, OrderedPageElement,
   PageElementKind, PageElementRef,
@@ -14,6 +15,7 @@ export type StrokeIdFactory = (sourceId: string, pasteSequence: number, index: n
 export interface ClipboardPasteResult {
   strokes: StrokeElementData[];
   shapes: ShapeElement[];
+  textBlocks: TextBlockElement[];
   elementOrder: PageElementRef[];
   sourcePageId: string;
   pasteSequence: number;
@@ -29,6 +31,19 @@ export function cloneClipboardShape(shape: ShapeElement, id: string = shape.id,
   result.bounds = {
     left: shape.bounds.left + dx, top: shape.bounds.top + dy,
     right: shape.bounds.right + dx, bottom: shape.bounds.bottom + dy,
+  };
+  return result;
+}
+
+export function cloneClipboardTextBlock(textBlock: TextBlockElement, id: string = textBlock.id,
+  dx: number = 0, dy: number = 0): TextBlockElement {
+  const result: TextBlockElement = cloneTextBlockElement(textBlock);
+  result.id = id;
+  result.transform[2] += dx;
+  result.transform[5] += dy;
+  result.bounds = {
+    left: textBlock.bounds.left + dx, top: textBlock.bounds.top + dy,
+    right: textBlock.bounds.right + dx, bottom: textBlock.bounds.bottom + dy,
   };
   return result;
 }
@@ -93,13 +108,14 @@ export function cloneStrokeElement(stroke: StrokeElementData, id: string = strok
 export class StrokeClipboard {
   private snapshots: StrokeElementData[] = [];
   private shapeSnapshots: ShapeElement[] = [];
+  private textSnapshots: TextBlockElement[] = [];
   private elementOrder: PageElementRef[] = [];
   private sourcePageId: string = '';
   private pasteCount: number = 0;
 
   copy(strokes: StrokeElementData[], sourcePageId: string, shapes: ShapeElement[] = [],
-    elementOrder: PageElementRef[] = []): boolean {
-    if ((strokes.length === 0 && shapes.length === 0) || sourcePageId.length === 0) {
+    elementOrder: PageElementRef[] = [], textBlocks: TextBlockElement[] = []): boolean {
+    if ((strokes.length === 0 && shapes.length === 0 && textBlocks.length === 0) || sourcePageId.length === 0) {
       return false;
     }
     const ids: Set<string> = new Set<string>();
@@ -119,25 +135,35 @@ export class StrokeClipboard {
       ids.add(shape.id);
       copiedShapes.push(cloneClipboardShape(shape));
     }
+    const copiedTexts: TextBlockElement[] = [];
+    for (const textBlock of textBlocks) {
+      if (textBlock.id.length === 0 || ids.has(textBlock.id)) {
+        return false;
+      }
+      ids.add(textBlock.id);
+      copiedTexts.push(cloneClipboardTextBlock(textBlock));
+    }
     this.snapshots = copied;
     this.shapeSnapshots = copiedShapes;
-    this.elementOrder = normalizePageElementOrder(elementOrder, copied, [], copiedShapes);
+    this.textSnapshots = copiedTexts;
+    this.elementOrder = normalizePageElementOrder(elementOrder, copied, copiedTexts, copiedShapes);
     this.sourcePageId = sourcePageId;
     this.pasteCount = 0;
     return true;
   }
 
   hasContent(): boolean {
-    return this.snapshots.length > 0 || this.shapeSnapshots.length > 0;
+    return this.snapshots.length > 0 || this.shapeSnapshots.length > 0 || this.textSnapshots.length > 0;
   }
 
   size(): number {
-    return this.snapshots.length + this.shapeSnapshots.length;
+    return this.snapshots.length + this.shapeSnapshots.length + this.textSnapshots.length;
   }
 
   clear(): void {
     this.snapshots = [];
     this.shapeSnapshots = [];
+    this.textSnapshots = [];
     this.elementOrder = [];
     this.sourcePageId = '';
     this.pasteCount = 0;
@@ -156,9 +182,10 @@ export class StrokeClipboard {
     const ids: Set<string> = new Set<string>();
     const pasted: StrokeElementData[] = [];
     const pastedShapes: ShapeElement[] = [];
+    const pastedTexts: TextBlockElement[] = [];
     const pastedOrder: PageElementRef[] = [];
     const ordered: OrderedPageElement[] = materializePageElements(
-      this.elementOrder, this.snapshots, [], this.shapeSnapshots);
+      this.elementOrder, this.snapshots, this.textSnapshots, this.shapeSnapshots);
     for (let i: number = 0; i < ordered.length; i++) {
       const source: OrderedPageElement = ordered[i];
       const id: string = idFactory(source.elementId, sequence, i);
@@ -172,12 +199,16 @@ export class StrokeClipboard {
       } else if (source.kind === PageElementKind.SHAPE) {
         pastedShapes.push(cloneClipboardShape(source.data, id, dx, dy));
         pastedOrder.push({ kind: PageElementKind.SHAPE, elementId: id, zIndex: pastedOrder.length });
+      } else if (source.kind === PageElementKind.TEXT) {
+        pastedTexts.push(cloneClipboardTextBlock(source.data, id, dx, dy));
+        pastedOrder.push({ kind: PageElementKind.TEXT, elementId: id, zIndex: pastedOrder.length });
       }
     }
     this.pasteCount = sequence;
     return {
       strokes: pasted,
       shapes: pastedShapes,
+      textBlocks: pastedTexts,
       elementOrder: pastedOrder,
       sourcePageId: this.sourcePageId,
       pasteSequence: sequence,
@@ -196,6 +227,9 @@ export class StrokeClipboard {
     }
     for (const shape of this.shapeSnapshots) {
       allBounds.push(shape.bounds);
+    }
+    for (const textBlock of this.textSnapshots) {
+      allBounds.push(textBlock.bounds);
     }
     for (const strokeBounds of allBounds) {
       bounds = {
