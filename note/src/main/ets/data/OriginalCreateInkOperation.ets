@@ -30,6 +30,7 @@ export interface OriginalCreateInkPayload {
   style: number;
   color: number;
   width: number;
+  centerPathBytes: Uint8Array | null;
   path: DecodedOriginalInkPath | null;
   zIndex: string;
   hasTapePattern: boolean;
@@ -100,6 +101,7 @@ export function decodeOriginalCreateInkTable(table: OriginalFlatBufferTableReade
     hasTapePattern: table.hasField(6),
     color: ((color[3] << 24) | (color[0] << 16) | (color[1] << 8) | color[2]),
     width: table.readFloat32(8, 0),
+    centerPathBytes: centerPath,
     path: centerPath === null ? null : decodeOriginalInkPath(centerPath),
     zIndex: zIndex,
     hasCustomPath: customPath !== null,
@@ -160,6 +162,12 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       'page_index': payload.page.index,
       'kind': PageElementKind.STROKE,
       'z_index': payload.zIndex,
+    });
+    await store.insert('original_ink_state', {
+      'note_id': operation.noteId,
+      'ink_timestamp': operation.timestamp,
+      'ink_site_id': operation.siteId,
+      'base_center_path': payload.centerPathBytes as Uint8Array,
     });
     existingRows.push({
       elementId: stroke.id, kind: PageElementKind.STROKE,

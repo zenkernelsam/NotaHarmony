@@ -8,6 +8,10 @@ export interface DecodedOriginalInkPath {
   attributed: boolean;
 }
 
+export interface DecodedOriginalInkPathAppend extends DecodedOriginalInkPath {
+  endPoint: Point2D;
+}
+
 interface DecodedElement {
   type: number;
   points: Point2D[];
@@ -30,20 +34,63 @@ export class OriginalInkPathDeferredError extends Error {
 const MAX_PATH_ELEMENTS: number = 65535;
 
 export function decodeOriginalInkPath(bytes: Uint8Array): DecodedOriginalInkPath {
+  const elements: DecodedElement[] = decodeElements(bytes, 2,
+    'CREATE_INK_PATH_VERSION_UNSUPPORTED',
+    'CREATE_INK_PATH_COORDINATE_ENCODING_UNSUPPORTED',
+    'CREATE_INK_CENTER_PATH_TOO_SHORT');
+  if (elements[0].type !== 3 && elements[0].type !== 7) {
+    throw new Error('original ink path is not one canonical component');
+  }
+  for (let index: number = 1; index < elements.length; index++) {
+    if (isMove(elements[index])) {
+      throw new OriginalInkPathDeferredError('CREATE_INK_MULTI_COMPONENT_PATH_UNSUPPORTED');
+    }
+  }
+  const converted: DecodedOriginalInkPathAppend = convertElements(
+    elements.slice(1), elements[0].points[0]);
+  converted.pathPoints.unshift(toPathPoint(elements[0], elements[0].points[0]));
+  converted.attributed = converted.attributed && elements[0].attributed;
+  converted.localBounds = elementBounds(elements, null);
+  return converted;
+}
+
+export function decodeOriginalInkPathAppend(bytes: Uint8Array,
+  start: Point2D): DecodedOriginalInkPathAppend {
+  const elements: DecodedElement[] = decodeElements(bytes, 1,
+    'ADD_PATH_ELEMENTS_PATH_VERSION_UNSUPPORTED',
+    'ADD_PATH_ELEMENTS_PATH_COORDINATE_ENCODING_UNSUPPORTED',
+    'ADD_PATH_ELEMENTS_CENTER_PATH_EMPTY');
+  for (const element of elements) {
+    if (isMove(element)) {
+      throw new OriginalInkPathDeferredError('ADD_PATH_ELEMENTS_MULTI_COMPONENT_UNSUPPORTED');
+    }
+  }
+  return convertElements(elements, start);
+}
+
+export function unionOriginalInkBounds(left: Rect2D, right: Rect2D): Rect2D {
+  return {
+    left: Math.min(left.left, right.left), top: Math.min(left.top, right.top),
+    right: Math.max(left.right, right.right), bottom: Math.max(left.bottom, right.bottom),
+  };
+}
+
+function decodeElements(bytes: Uint8Array, minimumCount: number,
+  versionReason: string, encodingReason: string, lengthReason: string): DecodedElement[] {
   if (bytes.length < 3) {
     throw new Error('original ink path header is truncated');
   }
   const version: number = bytes[0] >>> 3;
   const coordinateEncoding: number = bytes[0] & 7;
   if (version !== 0) {
-    throw new OriginalInkPathDeferredError('CREATE_INK_PATH_VERSION_UNSUPPORTED');
+    throw new OriginalInkPathDeferredError(versionReason);
   }
   if (coordinateEncoding !== 0 && coordinateEncoding !== 1) {
-    throw new OriginalInkPathDeferredError('CREATE_INK_PATH_COORDINATE_ENCODING_UNSUPPORTED');
+    throw new OriginalInkPathDeferredError(encodingReason);
   }
   const count: number = bytes[1] * 256 + bytes[2];
-  if (count < 2 || count > MAX_PATH_ELEMENTS) {
-    throw new OriginalInkPathDeferredError('CREATE_INK_CENTER_PATH_TOO_SHORT');
+  if (count < minimumCount || count > MAX_PATH_ELEMENTS) {
+    throw new OriginalInkPathDeferredError(lengthReason);
   }
   let offset: number = 3;
   const elements: DecodedElement[] = [];
@@ -83,21 +130,18 @@ export function decodeOriginalInkPath(bytes: Uint8Array): DecodedOriginalInkPath
     elements.push({ type: type, points: points, width: width, force: force,
       altitude: altitude, azimuth: azimuth, attributed: attributed });
   }
-  if (offset !== bytes.length || (elements[0].type !== 3 && elements[0].type !== 7)) {
-    throw new Error('original ink path is not one canonical component');
+  if (offset !== bytes.length) {
+    throw new Error('original ink path has trailing bytes');
   }
-  for (let index: number = 1; index < elements.length; index++) {
-    if (elements[index].type === 3 || elements[index].type === 7) {
-      throw new OriginalInkPathDeferredError('CREATE_INK_MULTI_COMPONENT_PATH_UNSUPPORTED');
-    }
-  }
+  return elements;
+}
 
-  const pathPoints: StrokePathPoint[] = [toPathPoint(elements[0], elements[0].points[0])];
+function convertElements(elements: DecodedElement[], start: Point2D): DecodedOriginalInkPathAppend {
+  const pathPoints: StrokePathPoint[] = [];
   const cubicSegments: CubicSegment[] = [];
-  let current: Point2D = elements[0].points[0];
-  let allAttributed: boolean = elements[0].attributed;
-  for (let index: number = 1; index < elements.length; index++) {
-    const element: DecodedElement = elements[index];
+  let current: Point2D = clonePoint(start);
+  let allAttributed: boolean = true;
+  for (const element of elements) {
     let segment: CubicSegment;
     let end: Point2D;
     if (element.type === 0 || element.type === 4) {
@@ -131,8 +175,9 @@ export function decodeOriginalInkPath(bytes: Uint8Array): DecodedOriginalInkPath
   return {
     pathPoints: pathPoints,
     cubicSegments: cubicSegments,
-    localBounds: curveBounds(cubicSegments),
+    localBounds: elementBounds(elements, start),
     attributed: allAttributed,
+    endPoint: clonePoint(current),
   };
 }
 
@@ -206,14 +251,14 @@ function toPathPoint(element: DecodedElement, position: Point2D): StrokePathPoin
   };
 }
 
-function curveBounds(segments: CubicSegment[]): Rect2D {
-  let left: number = segments[0].p0.x;
-  let top: number = segments[0].p0.y;
+function elementBounds(elements: DecodedElement[], start: Point2D | null): Rect2D {
+  const first: Point2D = start === null ? elements[0].points[0] : start;
+  let left: number = first.x;
+  let top: number = first.y;
   let right: number = left;
   let bottom: number = top;
-  for (const segment of segments) {
-    const points: Point2D[] = [segment.p0, segment.p1, segment.p2, segment.p3];
-    for (const point of points) {
+  for (const element of elements) {
+    for (const point of element.points) {
       left = Math.min(left, point.x);
       top = Math.min(top, point.y);
       right = Math.max(right, point.x);
@@ -221,6 +266,10 @@ function curveBounds(segments: CubicSegment[]): Rect2D {
     }
   }
   return { left: left, top: top, right: right, bottom: bottom };
+}
+
+function isMove(element: DecodedElement): boolean {
+  return element.type === 3 || element.type === 7;
 }
 
 function clonePoint(point: Point2D): Point2D {

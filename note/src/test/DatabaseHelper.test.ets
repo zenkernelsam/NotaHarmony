@@ -7,7 +7,7 @@ import {
   DDL_DEFERRED_SYNCED_OPERATION_BUNDLE, DDL_LOCAL_EDITOR_IDENTITY, DDL_NOTE_SYNC_METADATA,
   DDL_SYNCED_OPERATION_INBOX, DDL_ORIGINAL_PAGE_INSERT_GROUP, DDL_ORIGINAL_PAGE_IDENTITY,
   DDL_ORIGINAL_PAGE_VISIBILITY_WINNER, DDL_ORIGINAL_PAGE_BACKGROUND_WINNER,
-  DDL_ORIGINAL_ELEMENT_Z_INDEX,
+  DDL_ORIGINAL_ELEMENT_Z_INDEX, DDL_ORIGINAL_INK_STATE, DDL_ORIGINAL_INK_PATH_APPEND,
   DDL_ORIGINAL_DELETED_PAGE,
   DDL_ORIGINAL_DELETED_PAGE_ELEMENT, DDL_ORIGINAL_DELETED_PAGE_SEARCH,
   DDL_INDEXES, MIGRATIONS,
@@ -19,7 +19,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(26);
+      expect(DB_VERSION).assertEqual(27);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -62,8 +62,15 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[24].join('\n')).assertContain('original_page_visibility_winner');
       expect(MIGRATIONS[25].join('\n')).assertContain('original_page_background_winner');
       expect(MIGRATIONS[26].join('\n')).assertContain('original_element_z_index');
+      expect(MIGRATIONS[27].join('\n')).assertContain('original_ink_state');
+      expect(MIGRATIONS[27].join('\n')).assertContain('original_ink_path_append');
       expect(DDL_ORIGINAL_ELEMENT_Z_INDEX).assertContain('z_index TEXT NOT NULL');
       expect(DDL_ORIGINAL_ELEMENT_Z_INDEX).assertContain('18446744073709551615');
+      expect(DDL_ORIGINAL_INK_STATE).assertContain('base_center_path BLOB NOT NULL');
+      expect(DDL_ORIGINAL_INK_STATE).assertContain('REFERENCES original_element_z_index');
+      expect(DDL_ORIGINAL_INK_PATH_APPEND)
+        .assertContain('PRIMARY KEY(note_id, append_timestamp, append_site_id)');
+      expect(DDL_ORIGINAL_INK_PATH_APPEND).assertContain('REFERENCES original_ink_state');
       expect(DDL_ORIGINAL_PAGE_VISIBILITY_WINNER).assertContain('deleted IN (0, 1)');
       expect(DDL_ORIGINAL_PAGE_BACKGROUND_WINNER).assertContain('winner_timestamp');
       expect(DDL_ORIGINAL_PAGE_BACKGROUND_WINNER).assertContain('background_json TEXT NOT NULL');

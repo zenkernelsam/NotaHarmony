@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v26: preserve original entity z-index clocks without JavaScript uint64 precision loss.
-export const DB_VERSION: number = 26;
+// v27: preserve original ink base paths and ordered ADD_PATH_ELEMENTS fragments.
+export const DB_VERSION: number = 27;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -380,6 +380,30 @@ CREATE TABLE IF NOT EXISTS original_element_z_index (
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
+export const DDL_ORIGINAL_INK_STATE: string = `
+CREATE TABLE IF NOT EXISTS original_ink_state (
+  note_id TEXT NOT NULL,
+  ink_timestamp INTEGER NOT NULL CHECK (ink_timestamp BETWEEN 0 AND 4294967295),
+  ink_site_id INTEGER NOT NULL CHECK (ink_site_id BETWEEN 0 AND 65535),
+  base_center_path BLOB NOT NULL CHECK (length(base_center_path) BETWEEN 3 AND 16777216),
+  PRIMARY KEY(note_id, ink_timestamp, ink_site_id),
+  FOREIGN KEY(note_id, ink_timestamp, ink_site_id)
+    REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_INK_PATH_APPEND: string = `
+CREATE TABLE IF NOT EXISTS original_ink_path_append (
+  note_id TEXT NOT NULL,
+  ink_timestamp INTEGER NOT NULL CHECK (ink_timestamp BETWEEN 0 AND 4294967295),
+  ink_site_id INTEGER NOT NULL CHECK (ink_site_id BETWEEN 0 AND 65535),
+  append_timestamp INTEGER NOT NULL CHECK (append_timestamp BETWEEN 0 AND 4294967295),
+  append_site_id INTEGER NOT NULL CHECK (append_site_id BETWEEN 0 AND 65535),
+  center_path_elements BLOB NOT NULL CHECK (length(center_path_elements) BETWEEN 3 AND 16777216),
+  PRIMARY KEY(note_id, append_timestamp, append_site_id),
+  FOREIGN KEY(note_id, ink_timestamp, ink_site_id)
+    REFERENCES original_ink_state(note_id, ink_timestamp, ink_site_id) ON DELETE CASCADE
+)`;
+
 // Original DeferredSyncedOps points to checksummed files. Harmony keeps the equivalent raw
 // bundle in SQLite so row and bytes cross the same transaction boundary.
 export const DDL_DEFERRED_SYNCED_OPERATION_BUNDLE: string = `
@@ -640,6 +664,9 @@ export const DDL_INDEXES: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_original_element_page_z
     ON original_element_z_index(note_id, page_timestamp, page_site_id, page_index,
       length(z_index), z_index, element_timestamp, element_site_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_original_ink_append_target
+    ON original_ink_path_append(note_id, ink_timestamp, ink_site_id,
+      append_timestamp, append_site_id)`,
   `CREATE INDEX IF NOT EXISTS idx_original_page_position_parent
     ON original_page_position_group(note_id, parent_timestamp, parent_site_id, parent_index)`,
   `CREATE INDEX IF NOT EXISTS idx_original_page_position_value
@@ -977,5 +1004,12 @@ export const MIGRATIONS: Record<number, string[]> = {
     `CREATE INDEX IF NOT EXISTS idx_original_element_page_z
       ON original_element_z_index(note_id, page_timestamp, page_site_id, page_index,
         length(z_index), z_index, element_timestamp, element_site_id)`,
+  ],
+  27: [
+    DDL_ORIGINAL_INK_STATE,
+    DDL_ORIGINAL_INK_PATH_APPEND,
+    `CREATE INDEX IF NOT EXISTS idx_original_ink_append_target
+      ON original_ink_path_append(note_id, ink_timestamp, ink_site_id,
+        append_timestamp, append_site_id)`,
   ],
 };

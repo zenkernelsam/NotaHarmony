@@ -20,9 +20,12 @@ import { decodeOriginalModifyPage } from '../main/ets/data/OriginalModifyPageOpe
 import { decodeOriginalDeleteEntities } from '../main/ets/data/OriginalDeleteEntitiesOperation';
 import { OriginalPageOperationApplier } from '../main/ets/data/OriginalPageOperationApplier';
 import { decodeOriginalCreateInk } from '../main/ets/data/OriginalCreateInkOperation';
+import { decodeOriginalAddPathElements } from
+  '../main/ets/data/OriginalAddPathElementsOperation';
 import { originalInkTransform,
   transformedExpandedBounds } from '../main/ets/data/OriginalInkPathCodec';
-import { decodeOriginalInkPath } from '../main/ets/data/OriginalInkPathCodec';
+import { decodeOriginalInkPath, decodeOriginalInkPathAppend } from
+  '../main/ets/data/OriginalInkPathCodec';
 import { Rect2D } from '../main/ets/core/model/GeometryTypes';
 
 function operation(timestamp: number, serverTime: string,
@@ -151,6 +154,7 @@ export default function syncedOperationInboxTest() {
       expect(applier.supports(4)).assertTrue();
       expect(applier.supports(25)).assertTrue();
       expect(applier.supports(15)).assertTrue();
+      expect(applier.supports(16)).assertTrue();
       expect(applier.supports(5)).assertFalse();
     });
 
@@ -183,6 +187,7 @@ export default function syncedOperationInboxTest() {
       expect(payload.path?.localBounds.top).assertEqual(-3);
       expect(payload.path?.localBounds.right).assertEqual(20);
       expect(payload.path?.localBounds.bottom).assertEqual(9);
+      expect(payload.centerPathBytes?.length).assertEqual(64);
       const bounds = transformedExpandedBounds(payload.path?.localBounds as Rect2D, payload.width,
         originalInkTransform(payload.originX, payload.originY, payload.rotation,
           payload.scaleX, payload.scaleY));
@@ -196,6 +201,22 @@ export default function syncedOperationInboxTest() {
       const flipped = originalInkTransform(0, 0, 0, -2, 0);
       expect(flipped[0]).assertEqual(-2);
       expect(flipped[4]).assertEqual(0);
+    });
+
+    it('decodes original ADD_PATH_ELEMENTS target and keeps the raw quadratic hull', 0, () => {
+      const payload = decodeOriginalAddPathElements(flatBufferAddPathElements());
+      expect(payload.ink.timestamp).assertEqual(20);
+      expect(payload.ink.siteId).assertEqual(2);
+      expect(payload.centerPathEstimatedElements === null).assertTrue();
+      const append = decodeOriginalInkPathAppend(
+        payload.centerPathElements as Uint8Array, { x: 0, y: 0 });
+      expect(append.pathPoints.length).assertEqual(1);
+      expect(append.cubicSegments.length).assertEqual(1);
+      expect(append.pathPoints[0].position.x).assertEqual(10);
+      expect(append.localBounds.left).assertEqual(0);
+      expect(append.localBounds.right).assertEqual(100);
+      expect(append.localBounds.bottom).assertEqual(100);
+      expect(append.attributed).assertTrue();
     });
 
     it('decodes the original big-endian half-float coordinate path variant', 0, () => {
@@ -531,6 +552,26 @@ function flatBufferCreateInk(tool: number = 0, style: number = 0): Uint8Array {
   appendAttributedPathElement(path, 2, [{ x: 8, y: 9 }], 0x3C00, 0x3800, 128, 128);
   const vector: number = builder.byteVector(path);
   builder.pointer(ink + 48, vector);
+  return builder.finish(root);
+}
+
+function flatBufferAddPathElements(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 91);
+  writeDecimalU64At(builder, root + 12, '125');
+  writeDecimalU64At(builder, root + 20, '126');
+  builder.uint8(root + 28, 16);
+  const add: number = builder.table([4, 12, 0], 16);
+  builder.pointer(root + 32, add);
+  builder.uint16(add + 4, 2);
+  builder.uint32(add + 8, 20);
+  const path: number[] = [1, 0, 1];
+  appendAttributedPathElement(path, 1,
+    [{ x: 100, y: 100 }, { x: 10, y: 0 }], 0x3C00, 0x3800, 255, 0);
+  const vector: number = builder.byteVector(path);
+  builder.pointer(add + 12, vector);
   return builder.finish(root);
 }
 
