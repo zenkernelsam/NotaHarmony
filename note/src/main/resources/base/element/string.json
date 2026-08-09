@@ -369,6 +369,10 @@
       "value": "Move to All Notes"
     },
     {
+      "name": "move_to_folder",
+      "value": "Move to..."
+    },
+    {
       "name": "create_folder",
       "value": "Create Folder"
     },

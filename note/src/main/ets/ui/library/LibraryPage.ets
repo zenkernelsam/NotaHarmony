@@ -832,16 +832,30 @@ struct LibraryPage {
         .onClick(() => {
           this.confirmDelete(note);
         })
+      MenuItem({
+        content: $r('app.string.move_to_folder'),
+        builder: () => {
+          this.MoveNoteSubMenu(note)
+        },
+      })
+    }
+  }
+
+  @Builder
+  MoveNoteSubMenu(note: NoteMeta) {
+    Menu() {
       MenuItem({ content: $r('app.string.move_to_all_notes') })
+        .enabled(note.folderId !== null)
         .onClick(() => {
           this.moveNote(note.id, null);
         })
-      ForEach(this.folders, (folder: NoteFolder) => {
-        MenuItem({ content: $r('app.string.move_to_named_folder', folder.name) })
+      ForEach(this.folderListItems(), (item: FolderListItem) => {
+        MenuItem({ content: this.folderIndent(item.depth) + item.folder.name })
+          .enabled(note.folderId !== item.folder.id)
           .onClick(() => {
-            this.moveNote(note.id, folder.id);
+            this.moveNote(note.id, item.folder.id);
           })
-      }, (folder: NoteFolder) => folder.id)
+      }, (item: FolderListItem) => item.folder.id)
     }
   }
 
