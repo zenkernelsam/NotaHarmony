@@ -48,6 +48,7 @@ import opStoreTest from './OpStore.test';
 import persistentHistoryTest from './PersistentHistory.test';
 import importIdentityTest from './ImportIdentity.test';
 import operationCompactionTest from './OperationCompaction.test';
+import operationSyncCoordinatorTest from './OperationSyncCoordinator.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -100,4 +101,5 @@ export default function testsuite() {
   persistentHistoryTest();
   importIdentityTest();
   operationCompactionTest();
+  operationSyncCoordinatorTest();
 }

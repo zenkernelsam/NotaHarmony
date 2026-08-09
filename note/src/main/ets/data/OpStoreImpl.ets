@@ -170,6 +170,51 @@ export class OpStoreImpl implements OpStore {
     });
   }
 
+  async resolveEditorSite(noteId: string, resolvedSiteId: number): Promise<void> {
+    if (noteId.length === 0) {
+      throw new Error('editor site resolution requires a note ID');
+    }
+    validateOperationIdentity({ timestamp: 0, siteId: resolvedSiteId });
+    await editorPersistenceMutex.runExclusive(async (): Promise<void> => {
+      await this.store.beginTransaction();
+      try {
+        await ensureNoteSyncMetadata(this.store, noteId);
+        const metadata: OpSyncMetadata = await readNoteSyncMetadata(this.store, noteId);
+        if (metadata.editorSiteId === resolvedSiteId) {
+          await this.store.commit();
+          return;
+        }
+        const countSet = await this.store.querySql(
+          'SELECT COUNT(*) AS op_count FROM operation_log WHERE note_id = ?', [noteId]);
+        let operationCount: number = 0;
+        try {
+          if (!countSet.goToFirstRow()) {
+            throw new Error('editor site operation count query failed');
+          }
+          operationCount = countSet.getLong(countSet.getColumnIndex('op_count'));
+        } finally {
+          countSet.close();
+        }
+        if (operationCount !== 0 || metadata.maxOpTimestamp !== 0 || metadata.syncedOpCount !== 0 ||
+          metadata.maxServerTime !== null || metadata.uploadedThroughSequence !== 0 ||
+          metadata.ackedThroughSequence !== 0) {
+          throw new Error('cannot replace an editor site after operation identity has been established');
+        }
+        const predicates = new relationalStore.RdbPredicates('note_sync_metadata');
+        predicates.equalTo('note_id', noteId);
+        predicates.equalTo('editor_site_id', metadata.editorSiteId);
+        const updated: number = await this.store.update({ 'editor_site_id': resolvedSiteId }, predicates);
+        if (updated !== 1) {
+          throw new Error('editor site resolution did not affect exactly one note');
+        }
+        await this.store.commit();
+      } catch (e) {
+        await this.store.rollBack();
+        throw new Error(`resolve editor site failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
   async markOpsUploaded(noteId: string, throughSequence: number): Promise<void> {
     await this.advanceSyncWatermark(noteId, throughSequence, null);
   }

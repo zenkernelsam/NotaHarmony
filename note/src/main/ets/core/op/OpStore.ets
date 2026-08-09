@@ -17,6 +17,7 @@ export interface OpStore {
   // Sync transport reads in durable append order and acknowledges only ordered prefixes.
   getPendingOps(noteId: string, limit: number): Promise<SequencedOp[]>;
   getSyncMetadata(noteId: string): Promise<OpSyncMetadata>;
+  resolveEditorSite(noteId: string, resolvedSiteId: number): Promise<void>;
   markOpsUploaded(noteId: string, throughSequence: number): Promise<void>;
   acknowledgeUploadedOps(noteId: string, throughSequence: number, maxServerTime: number): Promise<void>;
   compactAcknowledgedOps(noteId: string): Promise<OpCompactionResult>;

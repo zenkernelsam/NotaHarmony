@@ -140,6 +140,13 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 - ACK 推进与 checkpoint 建立/重置都会在各自原事务的末尾尝试相同压缩，所以两种水位无论谁最后到达都能触发，失败会连同该次 ACK 或
   checkpoint 一起回滚。公开压缩入口只用于幂等维护。`synced_op_count` 不再每次从可能已压缩的物理表头重算，而是把旧 ACK 到新 ACK
   之间仍保留的 note 行数累加到既有计数；重复 ACK 增量为 0，物理删除后计数不会倒退或被其他 note 的全局 sequence 间隙污染。
+- 第十五阶段增加 transport 无关的同步会话协调器。原版 `mb9.java:227-244` 在 `/open-note/{noteId}` 会话中独立注册 `receive-ops` 与
+  `acknowledge-appended-ops`，`mb9.java:55-60` 明确把缺少预期 ACK 当成错误。Harmony 因而只接受 noteId、sessionId、editorSiteId、
+  发送批次末 sequence 全部精确匹配的 ACK，且拒绝倒退的 server time；错误/陈旧响应在任何本地 upload/ACK 水位写入前失败。服务端已接收
+  但本地 ACK 落库失败时，下一轮仍从 durable ACK 后读取并以稳定 op identity 重传。
+- 会话返回的 editor site 只有在笔记从未建立任何 op clock、日志、server time 或 upload/ACK 历史时才能原子写入。若身份已经建立，site
+  不同即在上传前失败；不得为迁就响应改写既有 opId 或 checkpoint 中的身份。该协调器是认证 WebSocket 适配器的边界，不把整包 WebDAV
+  备份冒充 ClientOp transport，也不猜测原版私有 token/服务器协议。
 
 ## 后果
 
@@ -151,5 +158,6 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 最后一个无 legacy 的完整 segment 现在可在重启后恢复成可执行 Undo/Redo 栈，DELETE_PAGE 也具备耐久内容 checkpoint 和原子
 PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成组 Undo/Redo。本地启动 replay 与删除页恢复点增长已有上限，
 损坏历史也有用户可见且不删除同步日志的本地恢复路径；同步日志本身仍保持追加式。原版式 editor site/op clock、耐久同步元数据和
-upload/ACK 前缀契约、本地导入身份映射和 ACK/checkpoint 共同水位压缩已经建立，但还没有远端传输实现或服务端 site 解析。后续仍需实现：
-跨页/文本细粒度成组执行、实际上传/下载与服务端聚合。完成这些之前，不得声称具有原版协作或完整增量同步语义。
+upload/ACK 前缀契约、本地导入身份映射、共同水位压缩及严格同步会话协调器已经建立，但还没有经过认证的远端 WebSocket 适配器、incoming
+op 落库/回放或完整服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
+原版协作或完整增量同步语义。
