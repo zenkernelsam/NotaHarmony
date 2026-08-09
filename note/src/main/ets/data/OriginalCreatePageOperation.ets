@@ -23,16 +23,19 @@ export interface OriginalCreatePagePayload {
   bookmarked: boolean;
 }
 
-interface OriginalPageIdentityRow extends OriginalSequenceIdentity {
+interface OriginalPagePositionRow {
+  position: OriginalSequenceIdentity;
+  page: OriginalSequenceIdentity;
   pageId: string | null;
   visible: boolean;
+  active: boolean;
 }
 
 interface OriginalPageInsertGroup {
   operation: OriginalSequenceIdentity;
   location: OriginalSequenceIdentity | null;
   pageCount: number;
-  pages: OriginalPageIdentityRow[];
+  pages: OriginalPagePositionRow[];
 }
 
 export function decodeOriginalCreatePage(bytes: Uint8Array): OriginalCreatePagePayload {
@@ -85,7 +88,7 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
       throw new Error('original create-page operation was applied twice');
     }
     if (payload.location !== null &&
-      !await this.identityExists(store, operation.noteId, payload.location)) {
+      !await this.positionExists(store, operation.noteId, payload.location)) {
       return { deferredReason: 'CREATE_PAGE_LOCATION_MISSING' };
     }
     const storedPageCount: number = await this.countRows(store,
@@ -129,11 +132,11 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
     }
   }
 
-  private async identityExists(store: relationalStore.RdbStore, noteId: string,
+  private async positionExists(store: relationalStore.RdbStore, noteId: string,
     identity: OriginalSequenceIdentity): Promise<boolean> {
     const rows = await store.querySql(
-      `SELECT 1 FROM original_page_identity
-       WHERE note_id = ? AND seq_timestamp = ? AND seq_site_id = ? AND seq_index = ? LIMIT 1`,
+      `SELECT 1 FROM original_page_position
+       WHERE note_id = ? AND pos_timestamp = ? AND pos_site_id = ? AND pos_index = ? LIMIT 1`,
       [noteId, identity.timestamp, identity.siteId, identity.index]);
     try {
       return rows.goToFirstRow();
@@ -188,6 +191,19 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
       values['parent_index'] = payload.location.index;
     }
     await store.insert('original_page_insert_group', values);
+    const positionValues: relationalStore.ValuesBucket = {
+      'note_id': operation.noteId,
+      'op_timestamp': operation.timestamp,
+      'op_site_id': operation.siteId,
+      'position_count': payload.pageCount,
+      'modified_time': operation.serverTime,
+    };
+    if (payload.location !== null) {
+      positionValues['parent_timestamp'] = payload.location.timestamp;
+      positionValues['parent_site_id'] = payload.location.siteId;
+      positionValues['parent_index'] = payload.location.index;
+    }
+    await store.insert('original_page_position_group', positionValues);
   }
 
   private async insertIdentities(store: relationalStore.RdbStore,
@@ -206,6 +222,24 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
         'page_id': pageId,
         'visible': 1,
       });
+      await store.insert('original_page_position', {
+        'note_id': operation.noteId,
+        'pos_timestamp': identity.timestamp,
+        'pos_site_id': identity.siteId,
+        'pos_index': identity.index,
+        'page_timestamp': identity.timestamp,
+        'page_site_id': identity.siteId,
+        'page_index': identity.index,
+      });
+      await store.insert('original_page_position_winner', {
+        'note_id': operation.noteId,
+        'page_timestamp': identity.timestamp,
+        'page_site_id': identity.siteId,
+        'page_index': identity.index,
+        'winner_timestamp': identity.timestamp,
+        'winner_site_id': identity.siteId,
+        'position_index': identity.index,
+      });
       pageIds.push(pageId);
     }
     return pageIds;
@@ -215,13 +249,24 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
     noteId: string): Promise<string[]> {
     const rows = await store.querySql(
       `SELECT groups.op_timestamp, groups.op_site_id, groups.parent_timestamp,
-        groups.parent_site_id, groups.parent_index, groups.page_count,
-        pages.seq_index, pages.page_id, pages.visible
-       FROM original_page_insert_group groups
-       JOIN original_page_identity pages ON pages.note_id = groups.note_id
-        AND pages.seq_timestamp = groups.op_timestamp AND pages.seq_site_id = groups.op_site_id
+        groups.parent_site_id, groups.parent_index, groups.position_count,
+        positions.pos_index, positions.page_timestamp, positions.page_site_id,
+        positions.page_index, pages.page_id, pages.visible,
+        winners.winner_timestamp, winners.winner_site_id, winners.position_index
+       FROM original_page_position_group groups
+       JOIN original_page_position positions ON positions.note_id = groups.note_id
+        AND positions.pos_timestamp = groups.op_timestamp
+        AND positions.pos_site_id = groups.op_site_id
+       JOIN original_page_identity pages ON pages.note_id = positions.note_id
+        AND pages.seq_timestamp = positions.page_timestamp
+        AND pages.seq_site_id = positions.page_site_id
+        AND pages.seq_index = positions.page_index
+       JOIN original_page_position_winner winners ON winners.note_id = positions.note_id
+        AND winners.page_timestamp = positions.page_timestamp
+        AND winners.page_site_id = positions.page_site_id
+        AND winners.page_index = positions.page_index
        WHERE groups.note_id = ?
-       ORDER BY groups.op_timestamp, groups.op_site_id, pages.seq_index`, [noteId]);
+       ORDER BY groups.op_timestamp, groups.op_site_id, positions.pos_index`, [noteId]);
     const groups: Map<string, OriginalPageInsertGroup> = new Map<string, OriginalPageInsertGroup>();
     try {
       while (rows.goToNextRow()) {
@@ -242,18 +287,28 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
           group = {
             operation: operation,
             location: location,
-            pageCount: rows.getLong(rows.getColumnIndex('page_count')),
+            pageCount: rows.getLong(rows.getColumnIndex('position_count')),
             pages: [],
           };
           groups.set(key, group);
         }
         const pageIdColumn: number = rows.getColumnIndex('page_id');
+        const position: OriginalSequenceIdentity = {
+          timestamp: operation.timestamp, siteId: operation.siteId,
+          index: rows.getLong(rows.getColumnIndex('pos_index')),
+        };
         group.pages.push({
-          timestamp: operation.timestamp,
-          siteId: operation.siteId,
-          index: rows.getLong(rows.getColumnIndex('seq_index')),
+          position: position,
+          page: {
+            timestamp: rows.getLong(rows.getColumnIndex('page_timestamp')),
+            siteId: rows.getLong(rows.getColumnIndex('page_site_id')),
+            index: rows.getLong(rows.getColumnIndex('page_index')),
+          },
           pageId: rows.isColumnNull(pageIdColumn) ? null : rows.getString(pageIdColumn),
           visible: rows.getLong(rows.getColumnIndex('visible')) === 1,
+          active: rows.getLong(rows.getColumnIndex('winner_timestamp')) === position.timestamp &&
+            rows.getLong(rows.getColumnIndex('winner_site_id')) === position.siteId &&
+            rows.getLong(rows.getColumnIndex('position_index')) === position.index,
         });
       }
     } finally {
@@ -277,9 +332,9 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
     });
     children.forEach((siblings: OriginalPageInsertGroup[]): void => {
       siblings.sort((left: OriginalPageInsertGroup, right: OriginalPageInsertGroup): number => {
-        const leftLast: OriginalPageIdentityRow = left.pages[left.pages.length - 1];
-        const rightLast: OriginalPageIdentityRow = right.pages[right.pages.length - 1];
-        return -compareOriginalSequenceIdentity(leftLast, rightLast);
+        const leftLast: OriginalPagePositionRow = left.pages[left.pages.length - 1];
+        const rightLast: OriginalPagePositionRow = right.pages[right.pages.length - 1];
+        return -compareOriginalSequenceIdentity(leftLast.position, rightLast.position);
       });
     });
 
@@ -305,13 +360,13 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
       }
       visited.add(groupKey);
       for (const page of group.pages) {
-        if (page.visible) {
+        if (page.visible && page.active) {
           if (page.pageId === null) {
             throw new Error('visible original page has no storage ID');
           }
           result.push(page.pageId);
         }
-        this.appendChildren(encodeOriginalSequenceId(page), children, visited, result);
+        this.appendChildren(encodeOriginalSequenceId(page.position), children, visited, result);
       }
     }
   }
@@ -326,11 +381,13 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
       validateOriginalSequenceIdentity(group.location);
     }
     for (let index: number = 0; index < group.pages.length; index++) {
-      const page: OriginalPageIdentityRow = group.pages[index];
-      validateOriginalSequenceIdentity(page);
-      if (page.timestamp !== group.operation.timestamp || page.siteId !== group.operation.siteId ||
-        page.index !== index || page.visible !== (page.pageId !== null)) {
-        throw new Error('stored original page identity does not match its insert group');
+      const page: OriginalPagePositionRow = group.pages[index];
+      validateOriginalSequenceIdentity(page.position);
+      validateOriginalSequenceIdentity(page.page);
+      if (page.position.timestamp !== group.operation.timestamp ||
+        page.position.siteId !== group.operation.siteId || page.position.index !== index ||
+        page.visible !== (page.pageId !== null)) {
+        throw new Error('stored original page position does not match its insert group');
       }
     }
   }

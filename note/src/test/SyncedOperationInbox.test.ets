@@ -16,6 +16,8 @@ import {
   compareOriginalSequenceIdentity, encodeOriginalPageStorageId, encodeOriginalSequenceId,
 } from '../main/ets/data/OperationIdentity';
 import { decodeOriginalNoteBundle } from '../main/ets/data/OriginalNoteBundlePageIdentity';
+import { decodeOriginalModifyPage } from '../main/ets/data/OriginalModifyPageOperation';
+import { OriginalPageOperationApplier } from '../main/ets/data/OriginalPageOperationApplier';
 
 function operation(timestamp: number, serverTime: string,
   clientTime: string = serverTime, payloadType: number = 3): IncomingSyncedOperation {
@@ -121,6 +123,27 @@ export default function syncedOperationInboxTest() {
         .assertEqual(-1);
       expect(encodeOriginalSequenceId(older)).assertEqual('seq:5:2:0');
       expect(encodeOriginalPageStorageId('a', older)).assertEqual('original-page:1:a:seq:5:2:0');
+    });
+
+    it('decodes original MODIFY_PAGE page vector and nullable SeqMove target', 0, () => {
+      const payload = decodeOriginalModifyPage(flatBufferModifyPage());
+      expect(payload.pages.length).assertEqual(2);
+      expect(payload.pages[0].timestamp).assertEqual(10);
+      expect(payload.pages[0].siteId).assertEqual(1);
+      expect(payload.pages[0].index).assertEqual(2);
+      expect(payload.pages[1].timestamp).assertEqual(20);
+      expect(payload.pages[1].siteId).assertEqual(3);
+      expect(payload.pages[1].index).assertEqual(4);
+      expect(payload.hasMove).assertTrue();
+      expect(payload.moveTo?.timestamp).assertEqual(30);
+      expect(payload.moveTo?.siteId).assertEqual(5);
+      expect(payload.moveTo?.index).assertEqual(6);
+      expect(payload.hasBackground).assertFalse();
+      expect(payload.hasBookmarked).assertFalse();
+      const applier = new OriginalPageOperationApplier();
+      expect(applier.supports(3)).assertTrue();
+      expect(applier.supports(4)).assertTrue();
+      expect(applier.supports(5)).assertFalse();
     });
 
     it('decodes original NOTE_BUNDLE metadata and nested operation tables', 0, () => {
@@ -250,6 +273,50 @@ function flatBufferCreatePage(timestamp: number, siteId: number, clientTime: str
   writeU32(bytes, 84, locationIndex);
   writeU32(bytes, 88, pageCount);
   bytes[92] = bookmarked ? 1 : 0;
+  return bytes;
+}
+
+function flatBufferModifyPage(): Uint8Array {
+  const bytes: Uint8Array = new Uint8Array(156);
+  writeU32(bytes, 0, 24);
+  writeU16(bytes, 4, 18);
+  writeU16(bytes, 6, 36);
+  writeU16(bytes, 8, 4);
+  writeU16(bytes, 10, 12);
+  writeU16(bytes, 12, 20);
+  writeU16(bytes, 16, 28);
+  writeU16(bytes, 18, 32);
+  writeU32(bytes, 24, 20);
+  writeU16(bytes, 28, 7);
+  writeU32(bytes, 32, 40);
+  writeDecimalU64(bytes, 36, '41');
+  writeDecimalU64(bytes, 44, '42');
+  bytes[52] = 4;
+  writeU32(bytes, 56, 16);
+
+  writeU16(bytes, 60, 12);
+  writeU16(bytes, 62, 12);
+  writeU16(bytes, 64, 4);
+  writeU16(bytes, 66, 8);
+  writeU32(bytes, 72, 12);
+  writeU32(bytes, 76, 28);
+  writeU32(bytes, 80, 60);
+
+  writeU32(bytes, 104, 2);
+  writeU16(bytes, 108, 1);
+  writeU32(bytes, 112, 10);
+  writeU32(bytes, 116, 2);
+  writeU16(bytes, 120, 3);
+  writeU32(bytes, 124, 20);
+  writeU32(bytes, 128, 4);
+
+  writeU16(bytes, 132, 6);
+  writeU16(bytes, 134, 16);
+  writeU16(bytes, 136, 4);
+  writeU32(bytes, 140, 8);
+  writeU16(bytes, 144, 5);
+  writeU32(bytes, 148, 30);
+  writeU32(bytes, 152, 6);
   return bytes;
 }
 

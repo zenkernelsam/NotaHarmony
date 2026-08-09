@@ -36,8 +36,24 @@ db.exec(`
     FOREIGN KEY(note_id,seq_timestamp,seq_site_id)
       REFERENCES original_page_insert_group(note_id,op_timestamp,op_site_id) ON DELETE CASCADE,
     FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE);
+  CREATE TABLE original_page_position_group(
+    note_id TEXT NOT NULL, op_timestamp INTEGER NOT NULL, op_site_id INTEGER NOT NULL,
+    parent_timestamp INTEGER, parent_site_id INTEGER, parent_index INTEGER,
+    position_count INTEGER NOT NULL, modified_time TEXT NOT NULL,
+    PRIMARY KEY(note_id,op_timestamp,op_site_id));
+  CREATE TABLE original_page_position(
+    note_id TEXT NOT NULL, pos_timestamp INTEGER NOT NULL, pos_site_id INTEGER NOT NULL,
+    pos_index INTEGER NOT NULL, page_timestamp INTEGER NOT NULL,
+    page_site_id INTEGER NOT NULL, page_index INTEGER NOT NULL,
+    PRIMARY KEY(note_id,pos_timestamp,pos_site_id,pos_index));
+  CREATE TABLE original_page_position_winner(
+    note_id TEXT NOT NULL, page_timestamp INTEGER NOT NULL, page_site_id INTEGER NOT NULL,
+    page_index INTEGER NOT NULL, winner_timestamp INTEGER NOT NULL,
+    winner_site_id INTEGER NOT NULL, position_index INTEGER NOT NULL,
+    PRIMARY KEY(note_id,page_timestamp,page_site_id,page_index),
+    UNIQUE(note_id,winner_timestamp,winner_site_id,position_index));
   INSERT INTO note_meta VALUES('note',0);
-  PRAGMA user_version=22;
+  PRAGMA user_version=23;
 `);
 
 const seq = (timestamp, site, index) => ({ timestamp, site, index });
@@ -54,10 +70,15 @@ function compareSeq(left, right) {
 }
 
 function readOrder() {
-  const records = db.prepare(`SELECT g.*,p.seq_index,p.page_id,p.visible
-    FROM original_page_insert_group g JOIN original_page_identity p
-      ON p.note_id=g.note_id AND p.seq_timestamp=g.op_timestamp AND p.seq_site_id=g.op_site_id
-    WHERE g.note_id='note' ORDER BY g.op_timestamp,g.op_site_id,p.seq_index`).all();
+  const records = db.prepare(`SELECT g.*,p.pos_index,i.page_id,i.visible,
+      w.winner_timestamp,w.winner_site_id,w.position_index
+    FROM original_page_position_group g JOIN original_page_position p
+      ON p.note_id=g.note_id AND p.pos_timestamp=g.op_timestamp AND p.pos_site_id=g.op_site_id
+    JOIN original_page_identity i ON i.note_id=p.note_id
+      AND i.seq_timestamp=p.page_timestamp AND i.seq_site_id=p.page_site_id AND i.seq_index=p.page_index
+    JOIN original_page_position_winner w ON w.note_id=p.note_id
+      AND w.page_timestamp=p.page_timestamp AND w.page_site_id=p.page_site_id AND w.page_index=p.page_index
+    WHERE g.note_id='note' ORDER BY g.op_timestamp,g.op_site_id,p.pos_index`).all();
   const groups = new Map();
   for (const row of records) {
     const key = `${row.op_timestamp}:${row.op_site_id}`;
@@ -66,12 +87,14 @@ function readOrder() {
         op: seq(row.op_timestamp, row.op_site_id, 0),
         parent: row.parent_timestamp === null ? null :
           seq(row.parent_timestamp, row.parent_site_id, row.parent_index),
-        count: row.page_count, pages: [],
+        count: row.position_count, pages: [],
       });
     }
     groups.get(key).pages.push({
-      ...seq(row.op_timestamp, row.op_site_id, row.seq_index),
-      pageId: row.page_id, visible: row.visible === 1,
+      ...seq(row.op_timestamp, row.op_site_id, row.pos_index),
+      pageId: row.page_id, visible: row.visible === 1 &&
+        row.winner_timestamp === row.op_timestamp && row.winner_site_id === row.op_site_id &&
+        row.position_index === row.pos_index,
     });
   }
   const children = new Map();
@@ -105,8 +128,8 @@ function readOrder() {
 
 function anchorExists(parent) {
   if (parent === null) return true;
-  return db.prepare(`SELECT 1 FROM original_page_identity WHERE note_id='note'
-    AND seq_timestamp=? AND seq_site_id=? AND seq_index=?`).get(
+  return db.prepare(`SELECT 1 FROM original_page_position WHERE note_id='note'
+    AND pos_timestamp=? AND pos_site_id=? AND pos_index=?`).get(
       parent.timestamp, parent.site, parent.index) !== undefined;
 }
 
@@ -120,13 +143,22 @@ function applyCreate(op, parent, count, failAt = '') {
     db.prepare(`INSERT INTO original_page_insert_group VALUES(?,?,?,?,?,?,?,?)`).run(
       'note', op.timestamp, op.site, parent?.timestamp ?? null, parent?.site ?? null,
       parent?.index ?? null, count, String(op.timestamp));
+    db.prepare(`INSERT INTO original_page_position_group VALUES(?,?,?,?,?,?,?,?)`).run(
+      'note', op.timestamp, op.site, parent?.timestamp ?? null, parent?.site ?? null,
+      parent?.index ?? null, count, String(op.timestamp));
     if (failAt === 'after-group') throw new Error('injected');
     const insertIdentity = db.prepare(`INSERT INTO original_page_identity VALUES(?,?,?,?,?,1)`);
+    const insertPosition = db.prepare(`INSERT INTO original_page_position VALUES(?,?,?,?,?,?,?)`);
+    const insertWinner = db.prepare(`INSERT INTO original_page_position_winner VALUES(?,?,?,?,?,?,?)`);
     const newPages = [];
     for (let index = 0; index < count; index++) {
       const identity = seq(op.timestamp, op.site, index);
       const id = pageId(identity);
       insertIdentity.run('note', identity.timestamp, identity.site, identity.index, id);
+      insertPosition.run('note', identity.timestamp, identity.site, identity.index,
+        identity.timestamp, identity.site, identity.index);
+      insertWinner.run('note', identity.timestamp, identity.site, identity.index,
+        identity.timestamp, identity.site, identity.index);
       newPages.push(id);
     }
     if (failAt === 'after-identities') throw new Error('injected');
@@ -180,5 +212,5 @@ assert.equal(db.prepare(`SELECT COUNT(*) count FROM original_page_insert_group
 assert.equal(db.prepare(`PRAGMA foreign_key_check`).all().length, 0);
 assert.equal(db.prepare(`SELECT structure_revision FROM note_meta`).get().structure_revision, 4);
 
-assert.equal(db.prepare(`PRAGMA user_version`).get().user_version, 22);
-console.log('success|v21-v22=1|create-page=3|seqid=12-byte|root-order=1|child-anchor=1|missing-deferred=1|diverged-deferred=1|rollback=1');
+assert.equal(db.prepare(`PRAGMA user_version`).get().user_version, 23);
+console.log('success|v22-v23=1|create-page=3|stable-position-split=1|seqid=12-byte|root-order=1|child-anchor=1|missing-deferred=1|diverged-deferred=1|rollback=1');

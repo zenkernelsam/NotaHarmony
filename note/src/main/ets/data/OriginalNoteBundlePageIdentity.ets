@@ -192,6 +192,19 @@ export class OriginalNoteBundlePageIdentityBootstrapper {
         values['parent_index'] = group.location.index;
       }
       await store.insert('original_page_insert_group', values);
+      const positionValues: relationalStore.ValuesBucket = {
+        'note_id': expectedNoteId,
+        'op_timestamp': group.operation.timestamp,
+        'op_site_id': group.operation.siteId,
+        'position_count': group.pageCount,
+        'modified_time': group.modifiedTime,
+      };
+      if (group.location !== null) {
+        positionValues['parent_timestamp'] = group.location.timestamp;
+        positionValues['parent_site_id'] = group.location.siteId;
+        positionValues['parent_index'] = group.location.index;
+      }
+      await store.insert('original_page_position_group', positionValues);
     }
     const pageIdBySequence: Map<string, string> = new Map<string, string>();
     for (let index: number = 0; index < order.length; index++) {
@@ -210,6 +223,24 @@ export class OriginalNoteBundlePageIdentityBootstrapper {
           'seq_index': page.index,
           'page_id': pageId,
           'visible': 1,
+        });
+        await store.insert('original_page_position', {
+          'note_id': expectedNoteId,
+          'pos_timestamp': page.timestamp,
+          'pos_site_id': page.siteId,
+          'pos_index': page.index,
+          'page_timestamp': page.timestamp,
+          'page_site_id': page.siteId,
+          'page_index': page.index,
+        });
+        await store.insert('original_page_position_winner', {
+          'note_id': expectedNoteId,
+          'page_timestamp': page.timestamp,
+          'page_site_id': page.siteId,
+          'page_index': page.index,
+          'winner_timestamp': page.timestamp,
+          'winner_site_id': page.siteId,
+          'position_index': page.index,
         });
       }
     }

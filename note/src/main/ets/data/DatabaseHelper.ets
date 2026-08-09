@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v22: persist the original page SeqId insertion tree instead of flattening remote order.
-export const DB_VERSION: number = 22;
+// v23: separate stable original page identities from CREATE/MOVE sequence positions.
+export const DB_VERSION: number = 23;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -211,6 +211,62 @@ CREATE TABLE IF NOT EXISTS original_page_identity (
   UNIQUE(note_id, page_id),
   FOREIGN KEY(note_id, seq_timestamp, seq_site_id)
     REFERENCES original_page_insert_group(note_id, op_timestamp, op_site_id) ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_PAGE_POSITION_GROUP: string = `
+CREATE TABLE IF NOT EXISTS original_page_position_group (
+  note_id TEXT NOT NULL,
+  op_timestamp INTEGER NOT NULL CHECK (op_timestamp BETWEEN 0 AND 4294967295),
+  op_site_id INTEGER NOT NULL CHECK (op_site_id BETWEEN 0 AND 65535),
+  parent_timestamp INTEGER CHECK (parent_timestamp BETWEEN 0 AND 4294967295),
+  parent_site_id INTEGER CHECK (parent_site_id BETWEEN 0 AND 65535),
+  parent_index INTEGER CHECK (parent_index BETWEEN 0 AND 4294967295),
+  position_count INTEGER NOT NULL CHECK (position_count BETWEEN 1 AND 10000),
+  modified_time TEXT NOT NULL CHECK (
+    typeof(modified_time) = 'text' AND length(modified_time) BETWEEN 1 AND 20
+    AND modified_time NOT GLOB '*[^0-9]*'
+    AND (modified_time = '0' OR substr(modified_time, 1, 1) <> '0')
+    AND (length(modified_time) < 20 OR modified_time <= '18446744073709551615')
+  ),
+  CHECK ((parent_timestamp IS NULL AND parent_site_id IS NULL AND parent_index IS NULL)
+    OR (parent_timestamp IS NOT NULL AND parent_site_id IS NOT NULL AND parent_index IS NOT NULL)),
+  PRIMARY KEY(note_id, op_timestamp, op_site_id),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_PAGE_POSITION: string = `
+CREATE TABLE IF NOT EXISTS original_page_position (
+  note_id TEXT NOT NULL,
+  pos_timestamp INTEGER NOT NULL CHECK (pos_timestamp BETWEEN 0 AND 4294967295),
+  pos_site_id INTEGER NOT NULL CHECK (pos_site_id BETWEEN 0 AND 65535),
+  pos_index INTEGER NOT NULL CHECK (pos_index BETWEEN 0 AND 4294967295),
+  page_timestamp INTEGER NOT NULL CHECK (page_timestamp BETWEEN 0 AND 4294967295),
+  page_site_id INTEGER NOT NULL CHECK (page_site_id BETWEEN 0 AND 65535),
+  page_index INTEGER NOT NULL CHECK (page_index BETWEEN 0 AND 4294967295),
+  PRIMARY KEY(note_id, pos_timestamp, pos_site_id, pos_index),
+  FOREIGN KEY(note_id, pos_timestamp, pos_site_id)
+    REFERENCES original_page_position_group(note_id, op_timestamp, op_site_id) ON DELETE CASCADE,
+  FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
+    REFERENCES original_page_identity(note_id, seq_timestamp, seq_site_id, seq_index) ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_PAGE_POSITION_WINNER: string = `
+CREATE TABLE IF NOT EXISTS original_page_position_winner (
+  note_id TEXT NOT NULL,
+  page_timestamp INTEGER NOT NULL CHECK (page_timestamp BETWEEN 0 AND 4294967295),
+  page_site_id INTEGER NOT NULL CHECK (page_site_id BETWEEN 0 AND 65535),
+  page_index INTEGER NOT NULL CHECK (page_index BETWEEN 0 AND 4294967295),
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  position_index INTEGER NOT NULL CHECK (position_index BETWEEN 0 AND 4294967295),
+  PRIMARY KEY(note_id, page_timestamp, page_site_id, page_index),
+  UNIQUE(note_id, winner_timestamp, winner_site_id, position_index),
+  FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
+    REFERENCES original_page_identity(note_id, seq_timestamp, seq_site_id, seq_index) ON DELETE CASCADE,
+  FOREIGN KEY(note_id, winner_timestamp, winner_site_id, position_index)
+    REFERENCES original_page_position(note_id, pos_timestamp, pos_site_id, pos_index) ON DELETE CASCADE,
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
@@ -469,6 +525,10 @@ export const DDL_INDEXES: string[] = [
     ON original_page_insert_group(note_id, parent_timestamp, parent_site_id, parent_index)`,
   `CREATE INDEX IF NOT EXISTS idx_original_page_identity_page
     ON original_page_identity(note_id, page_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_original_page_position_parent
+    ON original_page_position_group(note_id, parent_timestamp, parent_site_id, parent_index)`,
+  `CREATE INDEX IF NOT EXISTS idx_original_page_position_value
+    ON original_page_position(note_id, page_timestamp, page_site_id, page_index)`,
   `CREATE INDEX IF NOT EXISTS idx_deferred_synced_bundle_note
     ON deferred_synced_operation_bundle(note_id, id)`,
   `CREATE INDEX IF NOT EXISTS idx_page_delete_checkpoint_page
@@ -756,5 +816,29 @@ export const MIGRATIONS: Record<number, string[]> = {
       ON original_page_insert_group(note_id, parent_timestamp, parent_site_id, parent_index)`,
     `CREATE INDEX IF NOT EXISTS idx_original_page_identity_page
       ON original_page_identity(note_id, page_id)`,
+  ],
+  23: [
+    DDL_ORIGINAL_PAGE_POSITION_GROUP,
+    DDL_ORIGINAL_PAGE_POSITION,
+    DDL_ORIGINAL_PAGE_POSITION_WINNER,
+    `INSERT INTO original_page_position_group
+      (note_id, op_timestamp, op_site_id, parent_timestamp, parent_site_id, parent_index,
+       position_count, modified_time)
+      SELECT note_id, op_timestamp, op_site_id, parent_timestamp, parent_site_id, parent_index,
+        page_count, modified_time FROM original_page_insert_group`,
+    `INSERT INTO original_page_position
+      (note_id, pos_timestamp, pos_site_id, pos_index,
+       page_timestamp, page_site_id, page_index)
+      SELECT note_id, seq_timestamp, seq_site_id, seq_index,
+        seq_timestamp, seq_site_id, seq_index FROM original_page_identity`,
+    `INSERT INTO original_page_position_winner
+      (note_id, page_timestamp, page_site_id, page_index,
+       winner_timestamp, winner_site_id, position_index)
+      SELECT note_id, seq_timestamp, seq_site_id, seq_index,
+        seq_timestamp, seq_site_id, seq_index FROM original_page_identity`,
+    `CREATE INDEX IF NOT EXISTS idx_original_page_position_parent
+      ON original_page_position_group(note_id, parent_timestamp, parent_site_id, parent_index)`,
+    `CREATE INDEX IF NOT EXISTS idx_original_page_position_value
+      ON original_page_position(note_id, page_timestamp, page_site_id, page_index)`,
   ],
 };

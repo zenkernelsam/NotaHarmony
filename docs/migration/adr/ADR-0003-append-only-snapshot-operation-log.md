@@ -184,6 +184,16 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
   为空或逐字段幂等匹配时，才按当前页序绑定 storage pageId。raw bundle 不消费，内容 op 不标记 APPLIED。
 - 身份引导不解释尚未实现的页面历史：任意 MODIFY_PAGE 或 `DELETE_ENTITIES` 的 pageDeletes/pageUndeletes 都保持 DEFERRED；note UUID、
   schema、锚点、页数或既有映射不一致同样零写入拒绝。该门禁防止在无法证明当前 `page_index` 与原版 CRDT 可见序一致时猜测 SeqId。
+- 第二十一阶段恢复 `MODIFY_PAGE.moveTo`。原版 `ge8→pvb→twc→iwc` 不是修改 CREATE_PAGE 节点的 parent：每次 move 都以该 op ID
+  产生一组新的位置 SeqId，值仍指向创建时的稳定页面 SeqId。`ko.w()` 再把每个页面写成 `bl2(moveOpId,pageIdentity,newPosition)`；
+  `al2.b()` 证明 winner 只按 unsigned `(timestamp,site)` 取最大操作 ID，`modifiedTime` 不参与冲突比较。
+- v23 因而新增 `original_page_position_group / original_page_position / original_page_position_winner`，将稳定页面身份、所有历史位置和
+  当前 LWW 位置分开。v22 的 CREATE_PAGE 树原样回填为初始位置与 winner；输掉的 move 位置不会物理删除，仍可作为后续 op 的因果锚点，
+  但物化 `page_index` 时只有 winner 位置可见。CREATE_PAGE 和 NOTE_BUNDLE 身份引导也同步写入新模型，后续插页会从完整位置树计算顺序。
+- 当前 reducer 只接受 pages 非空且无重复、存在 `SeqMove`、无 background/bookmark 的纯移动；缺稳定页面、缺目标位置、当前
+  `page_index` 与 CRDT 物化顺序分歧或未证明的字段组合均在首次写入前 DEFERRED。位置组、winner、页面重排、structure revision、
+  inbox APPLIED 和同步水位仍共享单一 SQLite 事务。NOTE_BUNDLE 内的历史 MODIFY_PAGE 仍保持门禁，待页面 delete/undelete 一并建模后
+  才能可靠地从完整历史绑定既有 storage pageId。
 
 ## 后果
 
@@ -196,7 +206,8 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成组 Undo/Redo。本地启动 replay 与删除页恢复点增长已有上限，
 损坏历史也有用户可见且不删除同步日志的本地恢复路径；同步日志本身仍保持追加式。原版式 editor site/op clock、耐久同步元数据和
 upload/ACK 前缀契约、本地导入身份映射、共同水位压缩、严格同步会话协调器、无损 unsigned 64-bit server cursor、隔离的 incoming raw-op
-落库及原子应用门禁已经建立；CREATE_PAGE 的受限无背景 reducer、原版 SeqId 插入树和无页面移动/tombstone 历史的 NOTE_BUNDLE
-身份引导也已落地。但还没有经过认证的远端 WebSocket 适配器、其余 30 类 incoming payload reducer、完整 NOTE_BUNDLE 页面历史或
+落库及原子应用门禁已经建立；CREATE_PAGE 的受限无背景 reducer、稳定身份/历史位置分层的原版 SeqId 树、受限纯移动 MODIFY_PAGE
+reducer 和无页面移动/tombstone 历史的 NOTE_BUNDLE 身份引导也已落地。但还没有经过认证的远端 WebSocket 适配器、页面
+delete/undelete、其余 29 类 incoming payload reducer、完整 NOTE_BUNDLE 页面历史或
 服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
 原版协作或完整增量同步语义。

@@ -141,9 +141,15 @@ function applyIdentity(db, bundle, failAfterGroup = false) {
   db.exec('BEGIN IMMEDIATE');
   try {
     const insertGroup = db.prepare(`INSERT INTO original_page_insert_group VALUES(?,?,?,?,?,?,?,?)`);
+    const insertPositionGroup = db.prepare(`INSERT INTO original_page_position_group VALUES(?,?,?,?,?,?,?,?)`);
     const insertIdentity = db.prepare(`INSERT INTO original_page_identity VALUES(?,?,?,?,?,1)`);
+    const insertPosition = db.prepare(`INSERT INTO original_page_position VALUES(?,?,?,?,?,?,?)`);
+    const insertWinner = db.prepare(`INSERT INTO original_page_position_winner VALUES(?,?,?,?,?,?,?)`);
     for (const group of tree.groups) {
       insertGroup.run(bundle.noteId, group.operation.timestamp, group.operation.site,
+        group.location?.timestamp ?? null, group.location?.site ?? null,
+        group.location?.index ?? null, group.pages.length, group.modified);
+      insertPositionGroup.run(bundle.noteId, group.operation.timestamp, group.operation.site,
         group.location?.timestamp ?? null, group.location?.site ?? null,
         group.location?.index ?? null, group.pages.length, group.modified);
       if (failAfterGroup) throw new Error('injected');
@@ -151,6 +157,8 @@ function applyIdentity(db, bundle, failAfterGroup = false) {
     const pageBySequence = new Map(tree.order.map((identity, index) => [key(identity), pages[index].page_id]));
     for (const group of tree.groups) for (const page of group.pages) {
       insertIdentity.run(bundle.noteId, page.timestamp, page.site, page.index, pageBySequence.get(key(page)));
+      insertPosition.run(bundle.noteId,page.timestamp,page.site,page.index,page.timestamp,page.site,page.index);
+      insertWinner.run(bundle.noteId,page.timestamp,page.site,page.index,page.timestamp,page.site,page.index);
     }
     db.exec('COMMIT');
     return { applied: true, reason: null };
@@ -172,6 +180,15 @@ function database(noteId) {
       PRIMARY KEY(note_id,op_timestamp,op_site_id));
     CREATE TABLE original_page_identity(note_id TEXT,seq_timestamp INTEGER,seq_site_id INTEGER,seq_index INTEGER,
       page_id TEXT,visible INTEGER,PRIMARY KEY(note_id,seq_timestamp,seq_site_id,seq_index));
+    CREATE TABLE original_page_position_group(note_id TEXT,op_timestamp INTEGER,op_site_id INTEGER,
+      parent_timestamp INTEGER,parent_site_id INTEGER,parent_index INTEGER,position_count INTEGER,modified_time TEXT,
+      PRIMARY KEY(note_id,op_timestamp,op_site_id));
+    CREATE TABLE original_page_position(note_id TEXT,pos_timestamp INTEGER,pos_site_id INTEGER,pos_index INTEGER,
+      page_timestamp INTEGER,page_site_id INTEGER,page_index INTEGER,
+      PRIMARY KEY(note_id,pos_timestamp,pos_site_id,pos_index));
+    CREATE TABLE original_page_position_winner(note_id TEXT,page_timestamp INTEGER,page_site_id INTEGER,page_index INTEGER,
+      winner_timestamp INTEGER,winner_site_id INTEGER,position_index INTEGER,
+      PRIMARY KEY(note_id,page_timestamp,page_site_id,page_index));
     INSERT INTO note_meta VALUES('${noteId}');
     INSERT INTO page_info VALUES('page-a','${noteId}',0),('page-b','${noteId}',1);`);
   return db;
@@ -215,6 +232,7 @@ db.prepare(`INSERT INTO deferred_bundle VALUES(1,?,?)`).run(bundle.noteId, bytes
 assert.deepEqual(applyIdentity(db, bundle), { applied: true, reason: null });
 assert.deepEqual(db.prepare(`SELECT seq_timestamp,page_id FROM original_page_identity ORDER BY seq_timestamp`).all()
   .map(row => [row.seq_timestamp, row.page_id]), [[10, 'page-a'], [20, 'page-b']]);
+assert.equal(db.prepare(`SELECT COUNT(*) count FROM original_page_position_winner`).get().count,2);
 assert.equal(db.prepare(`SELECT COUNT(*) count FROM deferred_bundle`).get().count, 1);
 assert.deepEqual(applyIdentity(db, bundle), { applied: false, reason: null });
 
