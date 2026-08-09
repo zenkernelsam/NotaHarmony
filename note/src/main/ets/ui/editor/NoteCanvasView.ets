@@ -57,6 +57,10 @@ import {
 } from '../../core/model/PageElementOrder';
 import { EditorViewModel } from './EditorViewModel';
 import { SelectionOverlay, SelectionMenuAction } from '../components/SelectionOverlay';
+import {
+  SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH, SelectionOverlayPosition,
+  selectionOverlayPosition,
+} from '../components/SelectionOverlayLayout';
 import { TextBlockOverlay } from '../components/TextBlockOverlay';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
@@ -169,6 +173,8 @@ export struct NoteCanvasView {
   @State selectionRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @State selectionVisible: boolean = false;
   @State clipboardAvailable: boolean = false;
+  @State overlayWidth: number = 0;
+  @State overlayHeight: number = 0;
 
   aboutToAppear(): void {
     this.lifecycleActive = true;
@@ -2494,14 +2500,12 @@ export struct NoteCanvasView {
     return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
   }
 
-  // 判断点击位置是否在选区菜单按钮区域（菜单按钮在选区下方；T-033 单按钮 + bindMenu）
-  // T-034：selectionRect 已转换为屏幕坐标，入参为屏幕坐标
+  // selectionRect 与触点均为屏幕坐标；命中区域必须复用覆盖层的钳制布局。
   private isInSelectionMenu(x: number, y: number): boolean {
-    const menuTop: number = this.selectionRect.bottom + 8;
-    const menuBottom: number = menuTop + 48;
-    const menuLeft: number = this.selectionRect.left;
-    const menuRight: number = menuLeft + 130;
-    return x >= menuLeft && x <= menuRight && y >= menuTop && y <= menuBottom;
+    const position: SelectionOverlayPosition = selectionOverlayPosition(
+      this.selectionRect, this.overlayWidth, this.overlayHeight, this.clipboardAvailable);
+    return x >= position.x && x <= position.x + SELECTION_MENU_BUTTON_WIDTH &&
+      y >= position.actionY && y <= position.actionY + SELECTION_MENU_BUTTON_HEIGHT;
   }
 
   // === 文本框 ===
@@ -2794,6 +2798,8 @@ export struct NoteCanvasView {
         selectionRect: this.selectionRect,
         visible: this.selectionVisible,
         canPaste: this.clipboardAvailable,
+        containerWidth: this.overlayWidth,
+        containerHeight: this.overlayHeight,
         onMenuAction: (action: SelectionMenuAction) => {
           this.onSelectionMenuAction(action);
         },
@@ -2866,5 +2872,16 @@ export struct NoteCanvasView {
     }
     .width('100%')
     .height('100%')
+    .onAreaChange((_oldArea: Area, newArea: Area) => {
+      const width: number = newArea.width as number;
+      const height: number = newArea.height as number;
+      if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+        this.overlayWidth = width;
+        this.overlayHeight = height;
+        if (this.selectionVisible) {
+          this.updateSelectionOverlay();
+        }
+      }
+    })
   }
 }

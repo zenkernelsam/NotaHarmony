@@ -3,6 +3,10 @@ import { Rect2D } from '../../core/model/GeometryTypes';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
+import {
+  SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH, selectionOverlayPosition,
+  standalonePastePosition,
+} from './SelectionOverlayLayout';
 
 export enum SelectionMenuAction {
   COPY = 0,
@@ -21,6 +25,8 @@ export struct SelectionOverlay {
   @Prop selectionRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @Prop visible: boolean = false;
   @Prop canPaste: boolean = false;
+  @Prop containerWidth: number = 0;
+  @Prop containerHeight: number = 0;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onMenuAction: (action: SelectionMenuAction) => void = () => {
@@ -41,12 +47,15 @@ export struct SelectionOverlay {
           .border({ width: 1.5, color: this.resolveTokens().accent, style: BorderStyle.Dashed })
         // 菜单：ArkUI 原生 bindMenu（T-033 替换自绘 Row+Button）；按钮 Block 阻止事件穿透
         Button($r('app.string.selection_actions'))
-          .height(40)
+          .width(SELECTION_MENU_BUTTON_WIDTH)
+          .height(SELECTION_MENU_BUTTON_HEIGHT)
           .fontSize(14)
           .hitTestBehavior(HitTestMode.Block)
           .position({
-            x: this.selectionRect.left,
-            y: Math.max(this.selectionRect.bottom + 8, this.selectionRect.bottom),
+            x: selectionOverlayPosition(this.selectionRect, this.containerWidth,
+              this.containerHeight, this.canPaste).x,
+            y: selectionOverlayPosition(this.selectionRect, this.containerWidth,
+              this.containerHeight, this.canPaste).actionY,
           })
           .bindMenu([
             { value: $r('app.string.copy'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Copy clicked'); this.onMenuAction(SelectionMenuAction.COPY); } },
@@ -61,12 +70,15 @@ export struct SelectionOverlay {
       }
       if (this.canPaste) {
         Button($r('app.string.paste'))
-          .height(40)
+          .width(SELECTION_MENU_BUTTON_WIDTH)
+          .height(SELECTION_MENU_BUTTON_HEIGHT)
           .fontSize(14)
           .hitTestBehavior(HitTestMode.Block)
           .position({
-            x: this.visible ? this.selectionRect.left : 16,
-            y: this.visible ? this.selectionRect.bottom + 52 : 16,
+            x: this.visible ? selectionOverlayPosition(this.selectionRect, this.containerWidth,
+              this.containerHeight, true).x : standalonePastePosition(this.containerWidth),
+            y: this.visible ? selectionOverlayPosition(this.selectionRect, this.containerWidth,
+              this.containerHeight, true).pasteY : 16,
           })
           .onClick(() => {
             hilog.info(0x0001, 'SelOverlay', 'Paste clicked');
