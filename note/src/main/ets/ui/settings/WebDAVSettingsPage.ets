@@ -1,5 +1,5 @@
 // T-030 WebDAV 配置页面（服务器/用户名/密码/备份路径 + 测试连接 + 保存）
-import { promptAction } from '@kit.ArkUI';
+import { promptAction, router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { WebDAVClient, WebDAVConfig, ConnectionResult } from '../../data/WebDAVClient';
 import { WebDAVConfigStore } from '../../data/WebDAVConfigStore';
@@ -151,11 +151,24 @@ struct WebDAVSettingsPage {
 
   build() {
     Column() {
-      Text($r('app.string.webdav_settings'))
-        .fontSize(24)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(this.resolveTokens().textPrimary)
-        .margin({ top: 24, bottom: 16 })
+      Row() {
+        Button('<')
+          .width(48)
+          .height(40)
+          .fontSize(20)
+          .accessibilityText($r('app.string.back'))
+          .onClick(() => {
+            router.back();
+          })
+        Text($r('app.string.webdav_settings'))
+          .fontSize(24)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.resolveTokens().textPrimary)
+          .margin({ left: 12 })
+      }
+      .width('100%')
+      .height(64)
+      .padding({ left: 12, right: 16 })
 
       TextInput({ placeholder: 'https://dav.example.com', text: this.serverUrl })
         .width('90%')

@@ -325,11 +325,24 @@ struct BackupPage {
 
   build() {
     Column() {
-      Text($r('app.string.backup_and_sync'))
-        .fontSize(24)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(this.resolveTokens().textPrimary)
-        .margin({ top: 24, bottom: 16 })
+      Row() {
+        Button('<')
+          .width(48)
+          .height(40)
+          .fontSize(20)
+          .accessibilityText($r('app.string.back'))
+          .onClick(() => {
+            router.back();
+          })
+        Text($r('app.string.backup_and_sync'))
+          .fontSize(24)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.resolveTokens().textPrimary)
+          .margin({ left: 12 })
+      }
+      .width('100%')
+      .height(64)
+      .padding({ left: 12, right: 16 })
 
       Scroll() {
         Column() {
