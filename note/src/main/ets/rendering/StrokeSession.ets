@@ -7,7 +7,7 @@ import {
 import { CubicSegment, Rect2D } from '../core/model/GeometryTypes';
 import { ForceSmoother } from '../core/algorithm/ForceSmoother';
 import {
-  CubicFitResult, CubicFitter, CubicSourceRange,
+  CubicAttributeSplitOptions, CubicFitResult, CubicFitter, CubicSourceRange,
 } from '../core/algorithm/CubicFitter';
 import { WidthOutlineBuilder, OutlineResult } from '../core/algorithm/WidthOutlineBuilder';
 import { PencilSplatGenerator } from '../core/algorithm/PencilSplatGenerator';
@@ -141,8 +141,12 @@ export class StrokeSession {
       this.outline = null;
       return;
     }
+    const attributeSplit: CubicAttributeSplitOptions = {
+      preserveWidth: this.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH,
+      preservePencilAttributes: this.renderSpec.isPencil,
+    };
     const fitResult: CubicFitResult = this.fitter.fitWithSourceRanges(
-      this.pathPoints, this.renderSpec.brushWidth, this.zoom);
+      this.pathPoints, this.renderSpec.brushWidth, this.zoom, undefined, attributeSplit);
     this.cubicSegments = fitResult.segments;
     this.cubicSourceRanges = fitResult.sourceRanges;
     if (this.renderSpec.isPencil && this.cubicSegments.length > 0) {

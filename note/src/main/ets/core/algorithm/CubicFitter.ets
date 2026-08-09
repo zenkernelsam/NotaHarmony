@@ -19,6 +19,11 @@ export interface CubicFitResult {
   sourceRanges: CubicSourceRange[];
 }
 
+export interface CubicAttributeSplitOptions {
+  preserveWidth: boolean;
+  preservePencilAttributes: boolean;
+}
+
 // 1.0.3 nt1.java:180 + od4.java:98-111.
 export function computeOriginalFitTolerance(baseWidth: number, zoom: number): number {
   const scale: number = Math.max(zoom, 0.01);
@@ -58,7 +63,7 @@ export class CubicFitter {
   }
 
   fitWithSourceRanges(points: StrokePathPoint[], baseWidth: number, zoom: number,
-    initialTangent?: Point2D): CubicFitResult {
+    initialTangent?: Point2D, attributeSplit?: CubicAttributeSplitOptions): CubicFitResult {
     if (points.length < 2) {
       return { segments: [], sourceRanges: [] };
     }
@@ -109,7 +114,8 @@ export class CubicFitter {
     }
     // 段间连续性修正（sqh.f 尾部循环）：p1 = p0 + 前段 j(1.0) 切向投影
     this.applyContinuity(result, initialTangent);
-    return { segments: result, sourceRanges: sourceRanges };
+    return this.splitAtAttributeDeviations(
+      result, sourceRanges, points, baseWidth, zoom, attributeSplit);
   }
 
   // 1.0.3 nt1 + od4.g：先把屏幕笔宽钳到 [2.6, 18]，再代入容差公式。
@@ -213,9 +219,9 @@ export class CubicFitter {
     const p1y: number = (s22 * by - s12 * cy) * inv;
     const p2x: number = (s11 * cx - s12 * bx) * inv;
     const p2y: number = (s11 * cy - s12 * by) * inv;
-    // 非有限回退（sqh.g）：仅 abs(x) > Double.MAX_VALUE 时回退（NaN 不回退）
-    if (Math.abs(p1x) > Number.MAX_VALUE || Math.abs(p1y) > Number.MAX_VALUE ||
-      Math.abs(p2x) > Number.MAX_VALUE || Math.abs(p2y) > Number.MAX_VALUE) {
+    // Deliberate defensive extension to wxh.b(): reject NaN as well as +/-Infinity.
+    if (!Number.isFinite(p1x) || !Number.isFinite(p1y) ||
+      !Number.isFinite(p2x) || !Number.isFinite(p2y)) {
       return { p0: p0, p1: fallbackP1, p2: fallbackP2, p3: p3 };
     }
     return {
@@ -287,5 +293,103 @@ export class CubicFitter {
       }
       cur.p1 = { x: cur.p0.x + ox, y: cur.p0.y + oy };
     }
+  }
+
+  // 1.0.3 w06.e(): split fitted geometry wherever linear endpoint attributes
+  // no longer represent an intermediate input point within the original thresholds.
+  private splitAtAttributeDeviations(segments: CubicSegment[], ranges: CubicSourceRange[],
+    points: StrokePathPoint[], baseWidth: number, zoom: number,
+    options?: CubicAttributeSplitOptions): CubicFitResult {
+    if (options === undefined || (!options.preserveWidth && !options.preservePencilAttributes)) {
+      return { segments: segments, sourceRanges: ranges };
+    }
+    const splitSegments: CubicSegment[] = [];
+    const splitRanges: CubicSourceRange[] = [];
+    const screenScale: number = Math.max(zoom, 0.01);
+    for (let segmentIndex: number = 0; segmentIndex < segments.length; segmentIndex++) {
+      const segment: CubicSegment = segments[segmentIndex];
+      const range: CubicSourceRange = ranges[segmentIndex];
+      if (range.endIndex <= range.startIndex) {
+        splitSegments.push(segment);
+        splitRanges.push(range);
+        continue;
+      }
+      let anchorIndex: number = range.startIndex;
+      let anchorT: number = 0;
+      for (let pointIndex: number = range.startIndex + 1;
+        pointIndex <= range.endIndex; pointIndex++) {
+        const isEnd: boolean = pointIndex === range.endIndex;
+        const localT: number = isEnd ? 1 :
+          (pointIndex - anchorIndex) / (range.endIndex - anchorIndex);
+        const anchor: StrokePathPoint = points[anchorIndex];
+        const end: StrokePathPoint = points[range.endIndex];
+        const current: StrokePathPoint = points[pointIndex];
+        const widthDeviation: boolean = options.preserveWidth &&
+          Math.abs(this.lerp(anchor.widthFactor, end.widthFactor, localT) -
+            current.widthFactor) * baseWidth * screenScale > 0.5;
+        const pressureDeviation: boolean = options.preservePencilAttributes &&
+          Math.abs(this.lerp(anchor.pressure, end.pressure, localT) - current.pressure) > 0.25;
+        const altitudeDeviation: boolean = options.preservePencilAttributes &&
+          Math.abs(this.lerp(anchor.altitudeAngleRadians,
+            end.altitudeAngleRadians, localT) - current.altitudeAngleRadians) >
+            0.08726646259971647;
+        const azimuthDeviation: boolean = options.preservePencilAttributes &&
+          (Math.abs(this.lerp(anchor.azimuthUnitX, end.azimuthUnitX, localT) -
+            current.azimuthUnitX) > 0.01 ||
+          Math.abs(this.lerp(anchor.azimuthUnitY, end.azimuthUnitY, localT) -
+            current.azimuthUnitY) > 0.01);
+        if (!isEnd && !widthDeviation && !pressureDeviation &&
+          !altitudeDeviation && !azimuthDeviation) {
+          continue;
+        }
+        const endT: number = (pointIndex - range.startIndex) /
+          (range.endIndex - range.startIndex);
+        splitSegments.push(this.subcurve(segment, anchorT, endT));
+        splitRanges.push({ startIndex: anchorIndex, endIndex: pointIndex });
+        anchorIndex = pointIndex;
+        anchorT = endT;
+      }
+    }
+    return { segments: splitSegments, sourceRanges: splitRanges };
+  }
+
+  private subcurve(segment: CubicSegment, start: number, end: number): CubicSegment {
+    const span: number = end - start;
+    const p0: Point2D = this.pointOnCubic(segment, start);
+    const p3: Point2D = this.pointOnCubic(segment, end);
+    const d0: Point2D = this.derivativeOnCubic(segment, start);
+    const d1: Point2D = this.derivativeOnCubic(segment, end);
+    return {
+      p0: p0,
+      p1: { x: p0.x + d0.x * span / 3, y: p0.y + d0.y * span / 3 },
+      p2: { x: p3.x - d1.x * span / 3, y: p3.y - d1.y * span / 3 },
+      p3: p3,
+    };
+  }
+
+  private pointOnCubic(segment: CubicSegment, t: number): Point2D {
+    const mt: number = 1 - t;
+    return {
+      x: mt * mt * mt * segment.p0.x + 3 * mt * mt * t * segment.p1.x +
+        3 * mt * t * t * segment.p2.x + t * t * t * segment.p3.x,
+      y: mt * mt * mt * segment.p0.y + 3 * mt * mt * t * segment.p1.y +
+        3 * mt * t * t * segment.p2.y + t * t * t * segment.p3.y,
+    };
+  }
+
+  private derivativeOnCubic(segment: CubicSegment, t: number): Point2D {
+    const mt: number = 1 - t;
+    return {
+      x: 3 * mt * mt * (segment.p1.x - segment.p0.x) +
+        6 * mt * t * (segment.p2.x - segment.p1.x) +
+        3 * t * t * (segment.p3.x - segment.p2.x),
+      y: 3 * mt * mt * (segment.p1.y - segment.p0.y) +
+        6 * mt * t * (segment.p2.y - segment.p1.y) +
+        3 * t * t * (segment.p3.y - segment.p2.y),
+    };
+  }
+
+  private lerp(start: number, end: number, t: number): number {
+    return start * (1 - t) + end * t;
   }
 }
