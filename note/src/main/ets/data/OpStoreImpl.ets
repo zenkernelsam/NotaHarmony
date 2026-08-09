@@ -759,6 +759,43 @@ export async function allocateOperationIdentity(store: relationalStore.RdbStore,
   };
 }
 
+export async function initializeImportedNoteSyncMetadata(store: relationalStore.RdbStore,
+  noteId: string, legacyId: string | null, createdAt: number, updatedAt: number): Promise<void> {
+  if (noteId.length === 0 || (legacyId !== null && legacyId.length === 0) ||
+    !Number.isSafeInteger(createdAt) || createdAt < 0 ||
+    !Number.isSafeInteger(updatedAt) || updatedAt < 0) {
+    throw new Error('imported note sync identity is invalid');
+  }
+  const identity = await store.querySql(
+    'SELECT editor_id FROM local_editor_identity WHERE singleton = 1');
+  let editorId: string = '';
+  try {
+    if (!identity.goToFirstRow()) {
+      throw new Error('local editor identity is missing');
+    }
+    editorId = identity.getString(identity.getColumnIndex('editor_id'));
+    if (editorId.length === 0) {
+      throw new Error('local editor identity is empty');
+    }
+  } finally {
+    identity.close();
+  }
+  await store.insert('note_sync_metadata', {
+    'note_id': noteId,
+    'legacy_id': legacyId,
+    'editor_site_id': 0,
+    'editor_id': editorId,
+    'creator_id': editorId,
+    'created_at': createdAt,
+    'updated_at': updatedAt,
+    'synced_op_count': 0,
+    'max_op_timestamp': 0,
+    'schema_version': 1,
+    'uploaded_through_sequence': 0,
+    'acked_through_sequence': 0,
+  });
+}
+
 async function ensureNoteSyncMetadata(store: relationalStore.RdbStore, noteId: string): Promise<void> {
   const existing = await store.querySql(
     'SELECT note_id FROM note_sync_metadata WHERE note_id = ?', [noteId]);

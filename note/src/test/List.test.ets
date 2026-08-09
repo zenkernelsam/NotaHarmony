@@ -46,6 +46,7 @@ import pageMutationOpCodecTest from './PageMutationOpCodec.test';
 import pageStructureOpCodecTest from './PageStructureOpCodec.test';
 import opStoreTest from './OpStore.test';
 import persistentHistoryTest from './PersistentHistory.test';
+import importIdentityTest from './ImportIdentity.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -96,4 +97,5 @@ export default function testsuite() {
   pageStructureOpCodecTest();
   opStoreTest();
   persistentHistoryTest();
+  importIdentityTest();
 }

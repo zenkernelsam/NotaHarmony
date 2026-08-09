@@ -9,7 +9,9 @@ import { DatabaseManager } from './DatabaseManager';
 import { assetMutationMutex, parseAssetNoteIds, unlinkAssetFile } from './AssetRepositoryImpl';
 import { escapeSearchLike, foldSearchText } from './SearchText';
 import { SearchItemType } from './SearchItemType';
-import { allocateOperationIdentity, AllocatedOperationIdentity, appendOperation } from './OpStoreImpl';
+import {
+  allocateOperationIdentity, AllocatedOperationIdentity, appendOperation, initializeImportedNoteSyncMetadata,
+} from './OpStoreImpl';
 import {
   classifyPageStructureMutation, createPageStructureMutation, encodePageStructureMutation,
   PageStructureMutation,
@@ -90,13 +92,15 @@ export class NoteRepositoryImpl implements NoteRepository {
 
   // Import path: restore metadata without creating the normal default blank page.
   async createNoteWithMeta(id: string, title: string, createdAt: number, updatedAt: number,
-    folderId: string | null, hasRecordings?: boolean): Promise<NoteMeta> {
+    folderId: string | null, hasRecordings?: boolean, legacyId?: string | null): Promise<NoteMeta> {
     const note: NoteMeta = this.buildNote(id, title, createdAt, updatedAt, folderId,
       hasRecordings === true);
     const store: relationalStore.RdbStore = this.db.getStore();
     await store.beginTransaction();
     try {
       await store.insert('note_meta', this.noteBucket(note));
+      await initializeImportedNoteSyncMetadata(
+        store, note.id, legacyId === undefined ? null : legacyId, createdAt, updatedAt);
       await this.upsertTitleSearchItem(store, note.id, note.title);
       await store.commit();
     } catch (e) {

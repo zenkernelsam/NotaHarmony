@@ -16,6 +16,8 @@ import { NoteRepositoryImpl } from './NoteRepositoryImpl';
 import { PageRepositoryImpl } from './PageRepositoryImpl';
 import { StrokePersistence, PersistedElement } from './StrokePersistence';
 import { paperSizeToMm } from './NoteExporter';
+import { AsyncMutex, MutexRelease } from './AsyncMutex';
+import { importedLegacyNoteId, importedPageNeedsRemap } from './ImportIdentity';
 import {
   NotabilityMetadataParser, NotabilitySessionParser, NotabilityMetadata,
   NotabilitySession, NotabilityPageElements, NotabilityHandwritingIndexPage,
@@ -41,6 +43,7 @@ export interface ImportReport {
 }
 
 export class NoteImporter {
+  private static importMutex: AsyncMutex = new AsyncMutex();
   private db: DatabaseManager;
   private persistence: StrokePersistence;
 
@@ -184,19 +187,21 @@ export class NoteImporter {
     }
 
     // === 阶段 2：写库（创建新笔记，不覆盖已有）===
+    const release: MutexRelease = await NoteImporter.importMutex.lock();
     let createdNoteId: string | null = null;
     try {
       const noteRepo = new NoteRepositoryImpl(this.db);
       const pageRepo = new PageRepositoryImpl(this.db);
       const title: string = manifest.title !== null && manifest.title.length > 0 ? manifest.title : '导入笔记';
       const preferredId: string = manifest.noteId.length > 0 ? manifest.noteId : generateId();
-      const importedAsCopy: boolean = await noteRepo.getNote(preferredId) !== null;
-      const noteId: string = importedAsCopy ? preferredId + '-import-' + generateId() : preferredId;
+      const importedAsCopy: boolean = await this.noteIdExists(preferredId);
+      const noteId: string = await this.allocateImportedNoteId(preferredId, importedAsCopy);
+      const assignedPageIds: Map<string, string> = await this.mapImportedPageIds(parsedPages, importedAsCopy);
       const now: number = Date.now();
       const createdAt: number = validTimestamp(manifest.createdAt, now);
       const updatedAt: number = validTimestamp(manifest.updatedAt, now);
       const note: NoteMeta = await noteRepo.createNoteWithMeta(
-        noteId, title, createdAt, updatedAt, null);
+        noteId, title, createdAt, updatedAt, null, false, importedLegacyNoteId(preferredId, noteId));
       createdNoteId = note.id;
 
       let writtenPages: number = 0;
@@ -206,7 +211,7 @@ export class NoteImporter {
         const mm: number[] = paperSizeToMm(page.paperSize as PaperSize);
         const landscape: boolean = page.orientation === PageOrientation.LANDSCAPE;
         const pageInfo: PageInfo = {
-          pageId: importedAsCopy ? generateId() : page.pageId,
+          pageId: assignedPageIds.get(page.pageId) as string,
           pageIndex: page.pageIndex,
           size: page.paperSize as PaperSize,
           template: page.paperTemplate as PaperTemplate,
@@ -288,6 +293,8 @@ export class NoteImporter {
       return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
         missingAssets: [], warnings: [],
         message: '写入数据库失败，导入未完成' };
+    } finally {
+      release();
     }
   }
 
@@ -393,6 +400,7 @@ export class NoteImporter {
       NotabilitySessionParser.toPageElements(session, DEFAULT_TARGET_PAGE_WIDTH_VP);
 
     // 5. 写库
+    const release: MutexRelease = await NoteImporter.importMutex.lock();
     let createdNoteId: string | null = null;
     try {
       const noteRepo = new NoteRepositoryImpl(this.db);
@@ -405,13 +413,14 @@ export class NoteImporter {
         title = '导入笔记';
       }
       const preferredId: string = meta.uuid.length > 0 ? meta.uuid : generateId();
-      const importedAsCopy: boolean = await noteRepo.getNote(preferredId) !== null;
-      const noteId: string = importedAsCopy ? preferredId + '-import-' + generateId() : preferredId;
+      const importedAsCopy: boolean = await this.noteIdExists(preferredId);
+      const noteId: string = await this.allocateImportedNoteId(preferredId, importedAsCopy);
       const now: number = Date.now();
       const createdAt: number = validTimestamp(meta.createdMillis, now);
       const updatedAt: number = validTimestamp(meta.modifiedMillis, now);
       const note: NoteMeta = await noteRepo.createNoteWithMeta(
-        noteId, title, createdAt, updatedAt, null, meta.hasRecording);
+        noteId, title, createdAt, updatedAt, null, meta.hasRecording,
+        importedLegacyNoteId(preferredId, noteId));
       createdNoteId = note.id;
 
       const size: PaperSize = notabilityPaperSize(session.paper.paperSize);
@@ -420,11 +429,15 @@ export class NoteImporter {
         session.paper.paperOrientation.toLowerCase() === 'landscape'
           ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT;
       const mm: number[] = paperSizeToMm(size);
+      const sourcePageIds: Set<string> = new Set<string>();
+      const assignedPageIds: Set<string> = new Set<string>();
       let totalStrokes: number = 0;
       let indexedHandwritingPages: number = 0;
       for (let i = 0; i < pages.length; i++) {
+        const pageId: string = await this.allocateFreshPageId(sourcePageIds, assignedPageIds);
+        assignedPageIds.add(pageId);
         const pageInfo: PageInfo = {
-          pageId: generateId(), pageIndex: i, size: size, template: template, orientation: orientation,
+          pageId: pageId, pageIndex: i, size: size, template: template, orientation: orientation,
           widthMm: orientation === PageOrientation.LANDSCAPE ? mm[1] : mm[0],
           heightMm: orientation === PageOrientation.LANDSCAPE ? mm[0] : mm[1],
         };
@@ -496,6 +509,70 @@ export class NoteImporter {
       return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
         missingAssets: [], warnings: [],
         message: '写入数据库失败，导入未完成' };
+    } finally {
+      release();
+    }
+  }
+
+  private async mapImportedPageIds(pages: PageData[], forceRemap: boolean): Promise<Map<string, string>> {
+    const sourceIds: Set<string> = new Set<string>();
+    const assignedIds: Set<string> = new Set<string>();
+    const mapping: Map<string, string> = new Map<string, string>();
+    for (const page of pages) {
+      sourceIds.add(page.pageId);
+    }
+    for (const page of pages) {
+      const occupied: boolean = await this.pageIdExists(page.pageId);
+      let targetId: string = page.pageId;
+      if (importedPageNeedsRemap(forceRemap, occupied, assignedIds.has(targetId))) {
+        targetId = await this.allocateFreshPageId(sourceIds, assignedIds);
+      }
+      mapping.set(page.pageId, targetId);
+      assignedIds.add(targetId);
+    }
+    return mapping;
+  }
+
+  private async allocateImportedNoteId(preferredId: string, sourceExists: boolean): Promise<string> {
+    if (!sourceExists) {
+      return preferredId;
+    }
+    for (let attempt: number = 0; attempt < 64; attempt++) {
+      const candidate: string = preferredId + '-import-' + generateId();
+      if (!await this.noteIdExists(candidate)) {
+        return candidate;
+      }
+    }
+    throw new Error('failed to allocate a unique imported note identity');
+  }
+
+  private async allocateFreshPageId(sourceIds: Set<string>, assignedIds: Set<string>): Promise<string> {
+    for (let attempt: number = 0; attempt < 64; attempt++) {
+      const candidate: string = generateId();
+      if (!sourceIds.has(candidate) && !assignedIds.has(candidate) && !await this.pageIdExists(candidate)) {
+        return candidate;
+      }
+    }
+    throw new Error('failed to allocate a unique imported page identity');
+  }
+
+  private async pageIdExists(pageId: string): Promise<boolean> {
+    const rows = await this.db.getStore().querySql(
+      'SELECT 1 FROM page_info WHERE page_id = ? LIMIT 1', [pageId]);
+    try {
+      return rows.goToFirstRow();
+    } finally {
+      rows.close();
+    }
+  }
+
+  private async noteIdExists(noteId: string): Promise<boolean> {
+    const rows = await this.db.getStore().querySql(
+      'SELECT 1 FROM note_meta WHERE id = ? LIMIT 1', [noteId]);
+    try {
+      return rows.goToFirstRow();
+    } finally {
+      rows.close();
     }
   }
 
