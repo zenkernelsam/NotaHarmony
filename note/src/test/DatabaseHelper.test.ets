@@ -1,7 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
   DB_VERSION, DDL_EDITOR_TOOLBOX_STATE, DDL_FOLDER, DDL_PAGE_ELEMENT_SNAPSHOT, DDL_PAGE_INFO,
-  DDL_NOTE_STATE, DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE, DDL_INDEXES, MIGRATIONS,
+  DDL_NOTE_META, DDL_NOTE_STATE, DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE, DDL_INDEXES, MIGRATIONS,
 } from
   '../main/ets/data/DatabaseHelper';
 import { isCurrentViewCoordinateModel } from '../main/ets/core/model/NoteTypes';
@@ -52,6 +52,15 @@ export default function databaseHelperTest() {
       expect(migration).assertContain('ON DELETE SET NULL');
       expect(DDL_PAGE_ELEMENT_SNAPSHOT).assertContain('REFERENCES page_info(note_id, page_id)');
       expect(DDL_PAGE_INFO).assertContain('UNIQUE(note_id, page_id)');
+    });
+
+    it('enforces the corrected relational integrity contract', 0, () => {
+      expect(DDL_NOTE_STATE).assertContain('REFERENCES note_meta(id) ON DELETE CASCADE');
+      expect(DDL_NOTE_META).assertContain('REFERENCES folder(id) ON DELETE SET NULL');
+      expect(DDL_PAGE_INFO).assertContain('UNIQUE(note_id, page_index)');
+      expect(DDL_PAGE_INFO).assertContain('REFERENCES note_meta(id) ON DELETE CASCADE');
+      expect(DDL_PAGE_ELEMENT_SNAPSHOT).assertContain(
+        'REFERENCES page_info(note_id, page_id) ON DELETE CASCADE');
     });
 
     it('names the current storage as an ordered page snapshot', 0, () => {
