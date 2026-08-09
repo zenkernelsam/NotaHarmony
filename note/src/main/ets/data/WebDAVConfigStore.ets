@@ -20,6 +20,16 @@ const KEY_ALLOW_INSECURE_HTTP: string = 'webdav_allow_insecure_http';
 const KEY_CONFIG_RECORD: string = 'webdav_config_record_v1';
 const ASSET_NOT_FOUND: number = 24000002;
 
+class LegacyWebDAVConfigResult {
+  config: WebDAVConfig;
+  present: boolean;
+
+  constructor(config: WebDAVConfig, present: boolean) {
+    this.config = config;
+    this.present = present;
+  }
+}
+
 class HarmonyWebDAVConfigStorage implements WebDAVConfigStorage {
   private context: common.UIAbilityContext;
 
@@ -119,7 +129,16 @@ export class WebDAVConfigStore {
       if (config !== null) {
         return config;
       }
-      return WebDAVConfigStore.loadLegacy(context, storage);
+      const legacy: LegacyWebDAVConfigResult = await WebDAVConfigStore.loadLegacy(context, storage);
+      if (!legacy.present) {
+        return legacy.config;
+      }
+      const migrated: WebDAVConfigSaveResult =
+        await transaction.save(legacy.config, [LEGACY_WEBDAV_PASSWORD_ALIAS]);
+      if (!migrated.committed) {
+        throw new Error(`legacy WebDAV configuration migration failed: ${migrated.message}`);
+      }
+      return legacy.config;
     });
   }
 
@@ -158,18 +177,25 @@ export class WebDAVConfigStore {
   }
 
   private static async loadLegacy(context: common.UIAbilityContext,
-    storage: HarmonyWebDAVConfigStorage): Promise<WebDAVConfig> {
+    storage: HarmonyWebDAVConfigStorage): Promise<LegacyWebDAVConfigResult> {
     const pref = await preferences.getPreferences(context, PREF_NAME);
     const legacySecret: SecretReadResult = await storage.readSecret(LEGACY_WEBDAV_PASSWORD_ALIAS);
     const plainPassword: string = pref.getSync(KEY_PASSWORD, '') as string;
     const password: string = legacySecret.state === SecretReadState.FOUND ? legacySecret.value : plainPassword;
-    return {
-      serverUrl: pref.getSync(KEY_SERVER_URL, '') as string,
-      username: pref.getSync(KEY_USERNAME, '') as string,
+    const serverUrl: string = pref.getSync(KEY_SERVER_URL, '') as string;
+    const username: string = pref.getSync(KEY_USERNAME, '') as string;
+    const backupPath: string = pref.getSync(KEY_BACKUP_PATH, '/nota-backup/') as string;
+    const allowInsecureHttp: boolean = pref.getSync(KEY_ALLOW_INSECURE_HTTP, false) as boolean;
+    const config: WebDAVConfig = {
+      serverUrl: serverUrl,
+      username: username,
       password: password,
-      backupPath: pref.getSync(KEY_BACKUP_PATH, '/nota-backup/') as string,
-      allowInsecureHttp: pref.getSync(KEY_ALLOW_INSECURE_HTTP, false) as boolean,
+      backupPath: backupPath,
+      allowInsecureHttp: allowInsecureHttp,
     };
+    const present: boolean = serverUrl.length > 0 || username.length > 0 || password.length > 0 ||
+      backupPath !== '/nota-backup/' || allowInsecureHttp;
+    return new LegacyWebDAVConfigResult(config, present);
   }
 
   private static newGeneration(): string {

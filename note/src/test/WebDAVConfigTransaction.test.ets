@@ -160,5 +160,18 @@ export default function webDAVConfigTransactionTest() {
       expect(loaded?.serverUrl).assertEqual('https://new.example');
       expect(loaded?.password).assertEqual('secret-2');
     });
+
+    it('moves a legacy credential to a generation alias after commit', 0, async () => {
+      const storage = new FakeConfigStorage();
+      storage.secrets.set('nota.webdav.password', 'legacy-secret');
+      const result: WebDAVConfigSaveResult = await transaction(storage, 'generation-0001')
+        .save(config('https://legacy.example', 'legacy-secret'), ['nota.webdav.password']);
+      expect(result.committed).assertTrue();
+      expect(result.cleanupPending).assertFalse();
+      expect(storage.secrets.has('nota.webdav.password')).assertFalse();
+      expect(storage.secrets.get('nota.webdav.password.generation-0001')).assertEqual('legacy-secret');
+      const loaded: WebDAVConfig | null = await transaction(storage, 'unused-0001').load();
+      expect(loaded?.password).assertEqual('legacy-secret');
+    });
   });
 }
