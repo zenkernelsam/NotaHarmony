@@ -12,15 +12,21 @@ export interface OutlineResult {
 }
 
 export class WidthOutlineBuilder {
-  // 尖角阈值：相邻法向量 dot < cos(60°) 视为尖角
+  // Port assumption; the original bezierkit path has no matching dot threshold.
   private static readonly CORNER_THRESHOLD: number = 0.5;
-  // 极短段长度阈值
+  // Port assumption used only to reject numerically degenerate line segments.
   private static readonly MIN_SEGMENT_LENGTH: number = 0.01;
+  // Port assumption pending the adaptive round-join replacement; scale by local width.
+  private static readonly CORNER_EXPANSION_RATIO: number = 0.1;
+  private static readonly CIRCLE_SEGMENTS: number = 16;
 
   // 主入口：从中心线 + 逐点宽度生成填充轮廓
   build(centerline: StrokePathPoint[], baseWidth: number): OutlineResult {
-    if (centerline.length < 2) {
+    if (centerline.length === 0 || baseWidth <= 0) {
       return { outlinePoints: [], isValid: false };
+    }
+    if (this.firstUsableTangent(centerline) === null) {
+      return this.buildDegenerateCircle(centerline, baseWidth);
     }
     const normals: Point2D[] = this.computeNormals(centerline);
     const upper: Point2D[] = this.offsetCurve(centerline, normals, baseWidth, 1);
@@ -66,7 +72,14 @@ export class WidthOutlineBuilder {
       }
       const len: number = Math.sqrt(tangent.x * tangent.x + tangent.y * tangent.y);
       if (len < WidthOutlineBuilder.MIN_SEGMENT_LENGTH) {
-        // 极短段：复用前一个法向量
+        const recovered: Point2D | null = this.tangentNear(points, i);
+        if (recovered !== null) {
+          const recoveredLength: number = Math.sqrt(
+            recovered.x * recovered.x + recovered.y * recovered.y);
+          normals.push({ x: -recovered.y / recoveredLength, y: recovered.x / recoveredLength });
+          continue;
+        }
+        // The all-degenerate path is handled by buildDegenerateCircle().
         if (normals.length > 0) {
           normals.push({ x: normals[normals.length - 1].x, y: normals[normals.length - 1].y });
         } else {
@@ -101,10 +114,9 @@ export class WidthOutlineBuilder {
     const pts: Point2D[] = [];
     const segments: number = 5;  // 4-6 点半圆弧
     const baseAngle: number = Math.atan2(normal.y, normal.x);
-    const startAngle: number = isEnd ? baseAngle + Math.PI / 2 : baseAngle - Math.PI / 2;
-    const sign: number = isEnd ? -1 : 1;
+    const startAngle: number = isEnd ? baseAngle : baseAngle + Math.PI;
     for (let i = 0; i <= segments; i++) {
-      const a: number = startAngle + sign * (Math.PI * i) / segments;
+      const a: number = startAngle - (Math.PI * i) / segments;
       pts.push({
         x: center.x + Math.cos(a) * halfWidth,
         y: center.y + Math.sin(a) * halfWidth,
@@ -130,14 +142,18 @@ export class WidthOutlineBuilder {
           nx = normals[i].x;
           ny = normals[i].y;
         }
+        const currentHalfWidth: number = this.distance(upper[i], lower[i]) / 2;
+        const nextHalfWidth: number = this.distance(upper[i + 1], lower[i + 1]) / 2;
+        const expansion: number = (currentHalfWidth + nextHalfWidth) / 2 *
+          WidthOutlineBuilder.CORNER_EXPANSION_RATIO;
         // 过渡点取相邻轮廓点中点（沿过渡法向略微外扩防止自交）
         const midUpper: Point2D = {
-          x: (upper[i].x + upper[i + 1].x) / 2 + nx * 0.1,
-          y: (upper[i].y + upper[i + 1].y) / 2 + ny * 0.1,
+          x: (upper[i].x + upper[i + 1].x) / 2 + nx * expansion,
+          y: (upper[i].y + upper[i + 1].y) / 2 + ny * expansion,
         };
         const midLower: Point2D = {
-          x: (lower[i].x + lower[i + 1].x) / 2 - nx * 0.1,
-          y: (lower[i].y + lower[i + 1].y) / 2 - ny * 0.1,
+          x: (lower[i].x + lower[i + 1].x) / 2 - nx * expansion,
+          y: (lower[i].y + lower[i + 1].y) / 2 - ny * expansion,
         };
         upper.splice(i + 1, 0, midUpper);
         lower.splice(i + 1, 0, midLower);
@@ -151,5 +167,59 @@ export class WidthOutlineBuilder {
 
   private diff(a: Point2D, b: Point2D): Point2D {
     return { x: a.x - b.x, y: a.y - b.y };
+  }
+
+  private firstUsableTangent(points: StrokePathPoint[]): Point2D | null {
+    const origin: Point2D = points[0].position;
+    for (let i: number = 1; i < points.length; i++) {
+      const tangent: Point2D = this.diff(points[i].position, origin);
+      if (this.length(tangent) >= WidthOutlineBuilder.MIN_SEGMENT_LENGTH) {
+        return tangent;
+      }
+    }
+    return null;
+  }
+
+  private tangentNear(points: StrokePathPoint[], index: number): Point2D | null {
+    const center: Point2D = points[index].position;
+    for (let i: number = index + 1; i < points.length; i++) {
+      const forward: Point2D = this.diff(points[i].position, center);
+      if (this.length(forward) >= WidthOutlineBuilder.MIN_SEGMENT_LENGTH) {
+        return forward;
+      }
+    }
+    for (let i: number = index - 1; i >= 0; i--) {
+      const backward: Point2D = this.diff(center, points[i].position);
+      if (this.length(backward) >= WidthOutlineBuilder.MIN_SEGMENT_LENGTH) {
+        return backward;
+      }
+    }
+    return null;
+  }
+
+  private buildDegenerateCircle(points: StrokePathPoint[], baseWidth: number): OutlineResult {
+    let maxWidthFactor: number = points[0].widthFactor;
+    for (let i: number = 1; i < points.length; i++) {
+      maxWidthFactor = Math.max(maxWidthFactor, points[i].widthFactor);
+    }
+    const center: Point2D = points[0].position;
+    const radius: number = maxWidthFactor * baseWidth / 2;
+    const outline: Point2D[] = [];
+    for (let i: number = 0; i < WidthOutlineBuilder.CIRCLE_SEGMENTS; i++) {
+      const angle: number = Math.PI * 2 * i / WidthOutlineBuilder.CIRCLE_SEGMENTS;
+      outline.push({
+        x: center.x + Math.cos(angle) * radius,
+        y: center.y + Math.sin(angle) * radius,
+      });
+    }
+    return { outlinePoints: outline, isValid: radius > 0 && outline.length >= 3 };
+  }
+
+  private length(point: Point2D): number {
+    return Math.sqrt(point.x * point.x + point.y * point.y);
+  }
+
+  private distance(first: Point2D, second: Point2D): number {
+    return this.length(this.diff(first, second));
   }
 }

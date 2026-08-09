@@ -19,6 +19,7 @@ import backupBatchSpecTest from './BackupBatchSpec.test';
 import backupBatchPublisherTest from './BackupBatchPublisher.test';
 import webDAVConfigTransactionTest from './WebDAVConfigTransaction.test';
 import pointerSampleStreamTest from './PointerSampleStream.test';
+import widthOutlineBuilderTest from './WidthOutlineBuilder.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -42,4 +43,5 @@ export default function testsuite() {
   backupBatchPublisherTest();
   webDAVConfigTransactionTest();
   pointerSampleStreamTest();
+  widthOutlineBuilderTest();
 }
