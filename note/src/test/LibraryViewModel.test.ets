@@ -1,7 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { NoteMeta, NoteViewState } from '../main/ets/core/model/NoteTypes';
 import { NoteRepository } from '../main/ets/data/RepositoryInterfaces';
-import { LibraryViewModel } from '../main/ets/ui/library/LibraryViewModel';
+import { LibraryViewModel, NoteSortMode } from '../main/ets/ui/library/LibraryViewModel';
 
 class FakeNoteRepository implements NoteRepository {
   notes: NoteMeta[] = [];
@@ -132,6 +132,44 @@ export default function libraryViewModelTest() {
       await viewModel.setSearchQuery('pha');
       expect(viewModel.getFilteredNotes().length).assertEqual(1);
       expect(viewModel.getFilteredNotes()[0].id).assertEqual('Alpha');
+    });
+
+    it('reapplies recently modified order after switching sort modes', 0, async () => {
+      const repository = new FakeNoteRepository();
+      const alpha: NoteMeta = makeNote('alpha', null);
+      alpha.title = 'Alpha';
+      alpha.createdAt = 30;
+      alpha.updatedAt = 10;
+      const beta: NoteMeta = makeNote('beta', null);
+      beta.title = 'Beta';
+      beta.createdAt = 10;
+      beta.updatedAt = 30;
+      const gamma: NoteMeta = makeNote('gamma', null);
+      gamma.title = 'Gamma';
+      gamma.createdAt = 20;
+      gamma.updatedAt = 20;
+      repository.notes = [gamma, beta, alpha];
+
+      const viewModel = new LibraryViewModel(repository);
+      await viewModel.loadNotes();
+      expect(viewModel.notes[0].id).assertEqual('beta');
+      expect(viewModel.notes[1].id).assertEqual('gamma');
+      expect(viewModel.notes[2].id).assertEqual('alpha');
+
+      viewModel.setSortMode(NoteSortMode.TITLE);
+      expect(viewModel.notes[0].id).assertEqual('alpha');
+      expect(viewModel.notes[1].id).assertEqual('beta');
+      expect(viewModel.notes[2].id).assertEqual('gamma');
+
+      viewModel.setSortMode(NoteSortMode.UPDATED);
+      expect(viewModel.notes[0].id).assertEqual('beta');
+      expect(viewModel.notes[1].id).assertEqual('gamma');
+      expect(viewModel.notes[2].id).assertEqual('alpha');
+
+      viewModel.setSortMode(NoteSortMode.CREATED);
+      expect(viewModel.notes[0].id).assertEqual('alpha');
+      expect(viewModel.notes[1].id).assertEqual('gamma');
+      expect(viewModel.notes[2].id).assertEqual('beta');
     });
   });
 }

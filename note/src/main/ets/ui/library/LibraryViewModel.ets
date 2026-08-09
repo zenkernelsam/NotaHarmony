@@ -79,18 +79,17 @@ export class LibraryViewModel {
     await this.loadNotes();
   }
 
-  // 按当前模式排序（UPDATED 已由 repo 按 updatedAt DESC 返回）
+  // 按当前模式排序。
   private applySort(): void {
     const sorted: NoteMeta[] = this.notes.slice();
-    if (this.sortMode === NoteSortMode.CREATED) {
+    if (this.sortMode === NoteSortMode.UPDATED) {
+      sorted.sort((a: NoteMeta, b: NoteMeta) => b.updatedAt - a.updatedAt);
+    } else if (this.sortMode === NoteSortMode.CREATED) {
       sorted.sort((a: NoteMeta, b: NoteMeta) => b.createdAt - a.createdAt);
     } else if (this.sortMode === NoteSortMode.TITLE) {
       sorted.sort((a: NoteMeta, b: NoteMeta) => a.title.localeCompare(b.title));
     }
-    // UPDATED：repo 已按 updatedAt DESC（默认保持）
-    if (this.sortMode !== NoteSortMode.UPDATED) {
-      this.notes = sorted;
-    }
+    this.notes = sorted;
   }
 
   // 创建并返回 noteId
