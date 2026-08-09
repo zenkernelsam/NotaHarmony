@@ -103,6 +103,13 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 - `operation_log` 此阶段有意不做物理裁剪。原版 `iq1` 只证明可按 `(noteId,opId)` 删除或更新单条 ClientOp，`q0` 只证明删除整篇笔记
   的 ClientOp；没有固定“保留 N 条”策略的证据。更重要的是 ClientOp 也是待同步队列，而 Harmony 尚无服务端 upload ACK 水位。
   在 ACK 元数据存在前按本地 Undo 窗口删日志会永久丢失未来同步数据，因此 compaction 仍明确阻塞。
+- 第十一阶段补齐损坏历史的用户恢复边界。原版 `CorruptedSyncedOpException` 会明确标记损坏 synced op，`mb9.m()` 在前三次失败时
+  断开并重连，重试耗尽才记录并停止；它不会把损坏 op 静默当作合法状态。Harmony 尚无远端重拉通道，因此启动同样进行三次严格
+  重试（初次加重试共四次），仍失败时打开当前页面快照但禁用已保存 Undo/Redo，并明确提示用户继续编辑或重置本地 Undo 历史。
+- “重置 Undo 历史”不调用 `deleteOps`。它在编辑持久化互斥内用空 undo/redo checkpoint 覆盖到当前最新 sequence，并在同一事务
+  清理已无可执行 action 引用的 DELETE_PAGE checkpoint；原始 `operation_log` 和页面快照保持不变。事务失败保留旧损坏现场和全部
+  恢复点，用户仍可继续编辑。重置等待期间编辑器 history busy 门禁阻止内容/页面动作，确保数据库水位与内存清栈处于同一静止边界；
+  成功后只有 checkpoint 之后的新 action 重新进入可执行历史。
 
 ## 后果
 
@@ -113,6 +120,6 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 已经建立；元素 NPM1 及单事务页面 NPG1 也具备 action identity、PUSH/UNDO/REDO effect、coalesce track 和原 action time。
 最后一个无 legacy 的完整 segment 现在可在重启后恢复成可执行 Undo/Redo 栈，DELETE_PAGE 也具备耐久内容 checkpoint 和原子
 PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成组 Undo/Redo。本地启动 replay 与删除页恢复点增长已有上限，
-但同步日志本身仍保持追加式。后续仍需实现：跨页/文本细粒度成组执行、基于同步 ACK 的安全日志 compaction、editor site/原版式单调 opId、
-用户可见的损坏日志恢复、同步导入映射，以及
+损坏历史也有用户可见且不删除同步日志的本地恢复路径；同步日志本身仍保持追加式。后续仍需实现：跨页/文本细粒度成组执行、
+基于同步 ACK 的安全日志 compaction、editor site/原版式单调 opId、同步导入映射，以及
 同步上传和聚合元数据。完成这些之前，不得声称具有原版协作或完整增量同步语义。

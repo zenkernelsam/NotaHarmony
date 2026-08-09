@@ -470,6 +470,13 @@
     { "name": "shape_detection", "value": "Shapes detection" },
     { "name": "settings_loading", "value": "Loading settings..." },
     { "name": "settings_load_failed", "value": "Could not load settings. Try again." },
-    { "name": "editor_setting_save_failed", "value": "Could not save the setting. Try again." }
+    { "name": "editor_setting_save_failed", "value": "Could not save the setting. Try again." },
+    { "name": "history_recovery_title", "value": "Undo History Needs Attention" },
+    { "name": "history_recovery_message", "value": "This note is safe to edit, but its saved undo history could not be verified. Continue without the saved history, or reset only the local undo history to start fresh. Your note content and operation log will be kept." },
+    { "name": "continue_editing", "value": "Continue Editing" },
+    { "name": "reset_undo_history", "value": "Reset Undo History" },
+    { "name": "history_recovery_needed", "value": "Saved undo history could not be verified. Editing remains available." },
+    { "name": "history_recovery_complete", "value": "Undo history reset. New edits can be undone." },
+    { "name": "history_recovery_failed", "value": "Could not reset undo history. Editing remains available without saved Undo." }
   ]
 }

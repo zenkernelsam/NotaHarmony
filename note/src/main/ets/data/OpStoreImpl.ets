@@ -20,6 +20,11 @@ export interface PersistentHistoryCheckpointResult {
   removedDeleteCheckpoints: number;
 }
 
+export interface PersistentHistoryResetResult {
+  throughSequence: number;
+  removedDeleteCheckpoints: number;
+}
+
 interface StoredHistoryCheckpoint {
   throughSequence: number;
   state: PersistentHistoryState;
@@ -139,6 +144,35 @@ export class OpStoreImpl implements OpStore {
     } catch (e) {
       await this.store.rollBack();
       throw new Error(`checkpoint persistent history failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  async resetPersistentHistory(noteId: string): Promise<PersistentHistoryResetResult> {
+    if (noteId.length === 0) {
+      throw new Error('history reset requires a note ID');
+    }
+    return editorPersistenceMutex.runExclusive(async (): Promise<PersistentHistoryResetResult> =>
+      this.resetPersistentHistoryLocked(noteId));
+  }
+
+  private async resetPersistentHistoryLocked(noteId: string): Promise<PersistentHistoryResetResult> {
+    await this.store.beginTransaction();
+    try {
+      const throughSequence: number = await this.getLatestSequence(noteId);
+      const empty: PersistentHistoryState = { undo: [], redo: [], legacyOperationCount: 0 };
+      if (throughSequence > 0) {
+        await this.replaceHistoryCheckpoint(noteId, throughSequence, empty);
+      } else {
+        const predicates = new relationalStore.RdbPredicates('history_checkpoint');
+        predicates.equalTo('note_id', noteId);
+        await this.store.delete(predicates);
+      }
+      const removed: number = await this.removeUnreferencedDeleteCheckpoints(noteId, empty);
+      await this.store.commit();
+      return { throughSequence: throughSequence, removedDeleteCheckpoints: removed };
+    } catch (e) {
+      await this.store.rollBack();
+      throw new Error(`reset persistent history failed: ${JSON.stringify(e)}`);
     }
   }
 

@@ -80,6 +80,7 @@ import {
 
 const HISTORY_CHECKPOINT_TAIL_OPERATIONS: number = 256;
 const HISTORY_CHECKPOINT_MAX_ACTIONS: number = 128;
+const HISTORY_REPLAY_ATTEMPTS: number = 4;
 
 interface ShapeDetectionAttempt {
   shapes: ShapeElement[];
@@ -182,6 +183,9 @@ export struct NoteCanvasView {
   private saveFailed: boolean = false;
   private lastQueuedHistoryRevision: number = 0;
   private historyLoaded: boolean = false;
+  private historyRecoveryRequired: boolean = false;
+  private historyRecoveryPrompted: boolean = false;
+  private historyRecoveryBusy: boolean = false;
   @State textEditing: boolean = false;
   @State editingTextBlock: TextBlockElement | null = null;
   private editingOriginalTextBlock: TextBlockElement | null = null;
@@ -280,6 +284,7 @@ export struct NoteCanvasView {
         this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
         this.renderFrame(true);
       }
+      this.promptPersistentHistoryRecovery();
     } catch (e) {
       if (generation === this.pageLoadGeneration) {
         this.enterLoadFailureState();
@@ -295,26 +300,36 @@ export struct NoteCanvasView {
 
   private async readPersistentHistory(db: DatabaseManager,
     currentPageId: string): Promise<RestoredHistoryState | null> {
-    try {
-      const opStore: OpStoreImpl = new OpStoreImpl(db);
-      const replay: PersistentHistoryReplay = await opStore.getPersistentHistory(this.noteId);
-      const checkpoints = await new PageRepositoryImpl(db).getDeleteCheckpoints(this.noteId);
-      const restored: RestoredHistoryState = materializePersistentHistory(
-        replay.state, currentPageId, checkpoints);
-      if (replay.tailOperationCount >= HISTORY_CHECKPOINT_TAIL_OPERATIONS) {
-        try {
-          await opStore.checkpointPersistentHistory(this.noteId, HISTORY_CHECKPOINT_MAX_ACTIONS);
-        } catch (checkpointError) {
-          hilog.error(0x0001, 'NoteCanvasView',
-            'persistent history checkpoint skipped: %{public}s', JSON.stringify(checkpointError));
+    let lastError: Object = new Error('persistent history replay failed');
+    for (let attempt: number = 1; attempt <= HISTORY_REPLAY_ATTEMPTS; attempt++) {
+      try {
+        const opStore: OpStoreImpl = new OpStoreImpl(db);
+        const replay: PersistentHistoryReplay = await opStore.getPersistentHistory(this.noteId);
+        const checkpoints = await new PageRepositoryImpl(db).getDeleteCheckpoints(this.noteId);
+        const restored: RestoredHistoryState = materializePersistentHistory(
+          replay.state, currentPageId, checkpoints);
+        if (replay.tailOperationCount >= HISTORY_CHECKPOINT_TAIL_OPERATIONS) {
+          try {
+            await opStore.checkpointPersistentHistory(this.noteId, HISTORY_CHECKPOINT_MAX_ACTIONS);
+          } catch (checkpointError) {
+            hilog.error(0x0001, 'NoteCanvasView',
+              'persistent history checkpoint skipped: %{public}s', JSON.stringify(checkpointError));
+          }
         }
+        this.historyRecoveryRequired = false;
+        return restored;
+      } catch (e) {
+        lastError = e as Object;
+        hilog.error(0x0001, 'NoteCanvasView',
+          'persistent history replay attempt %{public}d/%{public}d failed: %{public}s',
+          attempt, HISTORY_REPLAY_ATTEMPTS, JSON.stringify(e));
       }
-      return restored;
-    } catch (e) {
-      // Corrupt history must not make the note unreadable. Strict replay remains unavailable.
-      hilog.error(0x0001, 'NoteCanvasView', 'persistent history disabled: %{public}s', JSON.stringify(e));
-      return null;
     }
+    // Corrupt history must not make the note unreadable. Strict replay remains unavailable.
+    this.historyRecoveryRequired = true;
+    hilog.error(0x0001, 'NoteCanvasView',
+      'persistent history disabled after retries: %{public}s', JSON.stringify(lastError));
+    return null;
   }
 
   private persist(): void {
@@ -366,7 +381,7 @@ export struct NoteCanvasView {
   }
 
   private async maintainPersistentHistoryCheckpoint(): Promise<void> {
-    if (this.database === null || this.noteId.length === 0) {
+    if (this.database === null || this.noteId.length === 0 || this.historyRecoveryRequired) {
       return;
     }
     try {
@@ -378,6 +393,71 @@ export struct NoteCanvasView {
     } catch (e) {
       hilog.error(0x0001, 'NoteCanvasView',
         'persistent history checkpoint maintenance skipped: %{public}s', JSON.stringify(e));
+    }
+  }
+
+  private promptPersistentHistoryRecovery(): void {
+    if (!this.lifecycleActive || !this.historyRecoveryRequired || this.historyRecoveryPrompted) {
+      return;
+    }
+    this.historyRecoveryPrompted = true;
+    try {
+      this.getUIContext().showAlertDialog({
+        title: $r('app.string.history_recovery_title'),
+        message: $r('app.string.history_recovery_message'),
+        primaryButton: {
+          value: $r('app.string.continue_editing'),
+          action: () => {
+          },
+        },
+        secondaryButton: {
+          value: $r('app.string.reset_undo_history'),
+          fontColor: this.resolveTokens().danger,
+          action: () => {
+            this.resetPersistentHistory().catch((e: Object) => {
+              hilog.error(0x0001, 'NoteCanvasView',
+                'persistent history reset action failed: %{public}s', JSON.stringify(e));
+            });
+          },
+        },
+      });
+    } catch (e) {
+      hilog.error(0x0001, 'NoteCanvasView',
+        'persistent history recovery dialog failed: %{public}s', JSON.stringify(e));
+      this.showHistoryRecoveryToast($r('app.string.history_recovery_needed'));
+    }
+  }
+
+  private async resetPersistentHistory(): Promise<void> {
+    if (this.historyRecoveryBusy || this.historyBusy ||
+      !this.historyRecoveryRequired || this.database === null) {
+      return;
+    }
+    this.historyRecoveryBusy = true;
+    this.historyBusy = true;
+    try {
+      await new OpStoreImpl(this.database).resetPersistentHistory(this.noteId);
+      this.undoRedo.clear();
+      this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+      this.historyRecoveryRequired = false;
+      this.notifyUndoRedo();
+      this.showHistoryRecoveryToast($r('app.string.history_recovery_complete'));
+    } catch (e) {
+      hilog.error(0x0001, 'NoteCanvasView',
+        'persistent history reset failed: %{public}s', JSON.stringify(e));
+      this.showHistoryRecoveryToast($r('app.string.history_recovery_failed'));
+    } finally {
+      this.historyBusy = false;
+      this.historyRecoveryBusy = false;
+    }
+  }
+
+  private showHistoryRecoveryToast(message: ResourceStr): void {
+    try {
+      promptAction.showToast({ message: message, duration: 3000 });
+    } catch (e) {
+      hilog.error(0x0001, 'NoteCanvasView',
+        'persistent history recovery toast failed: %{public}s', JSON.stringify(e));
     }
   }
 
@@ -2599,7 +2679,8 @@ export struct NoteCanvasView {
   }
 
   private pasteClipboard(): void {
-    if (!this.loaded || this.dataLoading || this.dataLoadFailed || this.loadedPageId !== this.currentPage.pageId) {
+    if (!this.loaded || this.dataLoading || this.dataLoadFailed || this.historyBusy ||
+      this.loadedPageId !== this.currentPage.pageId) {
       return;
     }
     const result: ClipboardPasteResult | null = this.strokeClipboard.paste(
