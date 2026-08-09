@@ -5,6 +5,9 @@ import {
   encodeOperationId, OperationIdentity, validateOperationIdentity,
 } from './OperationIdentity';
 import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './UnsignedDecimal';
+import {
+  OriginalSyncedOperationEnvelope, validateOriginalSyncedOperation,
+} from './OriginalSyncedOperationFlatBuffer';
 
 export enum SyncedOperationInboxState {
   RECEIVED = 0,
@@ -31,6 +34,18 @@ export interface ReceiveSyncedOperationsResult {
   insertedOperationCount: number;
   duplicateOperationCount: number;
   lastServerTime: string | null;
+}
+
+export enum ProcessSyncedOperationResult {
+  EMPTY = 0,
+  DEFERRED = 1,
+  DEFERRED_BLOCKED = 2,
+  APPLIED = 3,
+}
+
+export interface SyncedOperationApplier {
+  supports(payloadType: number): boolean;
+  apply(store: relationalStore.RdbStore, operation: StoredSyncedOperation): Promise<void>;
 }
 
 const MAX_SYNCED_BATCH_COUNT: number = 4096;
@@ -74,6 +89,12 @@ export function compareIncomingSyncedOperationOrder(left: IncomingSyncedOperatio
 }
 
 export function validateIncomingSyncedOperation(operation: IncomingSyncedOperation,
+  expectedNoteId: string): void {
+  validateIncomingSyncedOperationMetadata(operation, expectedNoteId);
+  validateOriginalSyncedOperation(operation);
+}
+
+function validateIncomingSyncedOperationMetadata(operation: IncomingSyncedOperation,
   expectedNoteId: string): void {
   if (operation.noteId !== expectedNoteId ||
     !Number.isSafeInteger(operation.schemaVersion) ||
@@ -178,6 +199,84 @@ export class SyncedOperationInboxStore {
     return result;
   }
 
+  async processHead(noteId: string, applier: SyncedOperationApplier):
+    Promise<ProcessSyncedOperationResult> {
+    if (noteId.length === 0) {
+      throw new Error('synced operation processing note id is invalid');
+    }
+    return editorPersistenceMutex.runExclusive(async (): Promise<ProcessSyncedOperationResult> => {
+      await this.store.beginTransaction();
+      try {
+        await this.requireNote(noteId);
+        const operation: StoredSyncedOperation | null = await this.readPendingHead(noteId);
+        if (operation === null) {
+          await this.store.commit();
+          return ProcessSyncedOperationResult.EMPTY;
+        }
+        if (operation.state === SyncedOperationInboxState.DEFERRED) {
+          await this.store.commit();
+          return ProcessSyncedOperationResult.DEFERRED_BLOCKED;
+        }
+        let envelope: OriginalSyncedOperationEnvelope;
+        try {
+          envelope = validateOriginalSyncedOperation(operation);
+        } catch (_error) {
+          await this.markDeferred(operation, 'MALFORMED_OR_MISMATCHED_ENVELOPE');
+          await this.store.commit();
+          return ProcessSyncedOperationResult.DEFERRED;
+        }
+        if (!envelope.payloadTypeKnown) {
+          await this.markDeferred(operation, 'UNKNOWN_ORIGINAL_PAYLOAD_TYPE');
+          await this.store.commit();
+          return ProcessSyncedOperationResult.DEFERRED;
+        }
+        if (!applier.supports(envelope.payloadType)) {
+          await this.markDeferred(operation, 'PAYLOAD_APPLIER_UNAVAILABLE');
+          await this.store.commit();
+          return ProcessSyncedOperationResult.DEFERRED;
+        }
+        await applier.apply(this.store, operation);
+        await this.advanceAppliedMetadata(operation);
+        await this.store.executeSql(
+          `UPDATE synced_operation_inbox SET state = ?, deferred_reason = NULL
+           WHERE note_id = ? AND op_timestamp = ? AND editor_site_id = ? AND state = ?`,
+          [SyncedOperationInboxState.APPLIED, operation.noteId, operation.timestamp,
+            operation.siteId, SyncedOperationInboxState.RECEIVED]);
+        await this.store.commit();
+        return ProcessSyncedOperationResult.APPLIED;
+      } catch (e) {
+        await this.store.rollBack();
+        throw new Error(`process synced operation failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  async retryDeferredHead(noteId: string): Promise<boolean> {
+    if (noteId.length === 0) {
+      throw new Error('deferred synced operation retry note id is invalid');
+    }
+    return editorPersistenceMutex.runExclusive(async (): Promise<boolean> => {
+      await this.store.beginTransaction();
+      try {
+        const operation: StoredSyncedOperation | null = await this.readPendingHead(noteId);
+        if (operation === null || operation.state !== SyncedOperationInboxState.DEFERRED) {
+          await this.store.commit();
+          return false;
+        }
+        await this.store.executeSql(
+          `UPDATE synced_operation_inbox SET state = ?, deferred_reason = NULL
+           WHERE note_id = ? AND op_timestamp = ? AND editor_site_id = ? AND state = ?`,
+          [SyncedOperationInboxState.RECEIVED, operation.noteId, operation.timestamp,
+            operation.siteId, SyncedOperationInboxState.DEFERRED]);
+        await this.store.commit();
+        return true;
+      } catch (e) {
+        await this.store.rollBack();
+        throw new Error(`retry deferred synced operation failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
   private async requireNote(noteId: string): Promise<void> {
     const rows = await this.store.querySql('SELECT id FROM note_meta WHERE id = ?', [noteId]);
     try {
@@ -203,9 +302,53 @@ export class SyncedOperationInboxStore {
       rows.close();
     }
   }
+
+  private async readPendingHead(noteId: string): Promise<StoredSyncedOperation | null> {
+    const rows = await this.store.querySql(
+      `SELECT note_id, op_timestamp, editor_site_id, client_time, server_time,
+        schema_version, payload_type, raw_operation, state, deferred_reason, received_at
+       FROM synced_operation_inbox WHERE note_id = ? AND state <> ?
+       ORDER BY length(server_time), server_time, length(client_time), client_time LIMIT 1`,
+      [noteId, SyncedOperationInboxState.APPLIED]);
+    try {
+      return rows.goToFirstRow() ? readStoredSyncedOperation(rows, false) : null;
+    } finally {
+      rows.close();
+    }
+  }
+
+  private async markDeferred(operation: StoredSyncedOperation, reason: string): Promise<void> {
+    await this.store.executeSql(
+      `UPDATE synced_operation_inbox SET state = ?, deferred_reason = ?
+       WHERE note_id = ? AND op_timestamp = ? AND editor_site_id = ? AND state = ?`,
+      [SyncedOperationInboxState.DEFERRED, reason, operation.noteId, operation.timestamp,
+        operation.siteId, SyncedOperationInboxState.RECEIVED]);
+  }
+
+  private async advanceAppliedMetadata(operation: StoredSyncedOperation): Promise<void> {
+    const rows = await this.store.querySql(
+      'SELECT max_server_time FROM note_sync_metadata WHERE note_id = ?', [operation.noteId]);
+    let current: string | null = null;
+    try {
+      if (!rows.goToFirstRow()) {
+        throw new Error('synced operation metadata does not exist');
+      }
+      const column: number = rows.getColumnIndex('max_server_time');
+      current = rows.isColumnNull(column) ? null : rows.getString(column);
+    } finally {
+      rows.close();
+    }
+    if (current !== null && compareUnsignedLongDecimal(current, operation.serverTime) > 0) {
+      throw new Error('synced operation would move the applied server-time cursor backwards');
+    }
+    await this.store.executeSql(
+      `UPDATE note_sync_metadata SET max_server_time = ?, synced_op_count = synced_op_count + 1
+       WHERE note_id = ?`, [operation.serverTime, operation.noteId]);
+  }
 }
 
-function readStoredSyncedOperation(rows: relationalStore.ResultSet): StoredSyncedOperation {
+function readStoredSyncedOperation(rows: relationalStore.ResultSet,
+  validateEnvelope: boolean = true): StoredSyncedOperation {
   const deferredReasonColumn: number = rows.getColumnIndex('deferred_reason');
   const operation: StoredSyncedOperation = {
     noteId: rows.getString(rows.getColumnIndex('note_id')),
@@ -220,7 +363,11 @@ function readStoredSyncedOperation(rows: relationalStore.ResultSet): StoredSynce
     deferredReason: rows.isColumnNull(deferredReasonColumn) ? null : rows.getString(deferredReasonColumn),
     receivedAt: rows.getLong(rows.getColumnIndex('received_at')),
   };
-  validateIncomingSyncedOperation(operation, operation.noteId);
+  if (validateEnvelope) {
+    validateIncomingSyncedOperation(operation, operation.noteId);
+  } else {
+    validateIncomingSyncedOperationMetadata(operation, operation.noteId);
+  }
   if (!Number.isSafeInteger(operation.receivedAt) || operation.receivedAt < 0 ||
     operation.state < SyncedOperationInboxState.RECEIVED ||
     operation.state > SyncedOperationInboxState.APPLIED ||

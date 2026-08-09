@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v20: isolate received/deferred synced operations from local ClientOp/Undo storage.
-export const DB_VERSION: number = 20;
+// v21: enforce the original DeferredSyncedOps table-type enum at the storage boundary.
+export const DB_VERSION: number = 21;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -183,7 +183,25 @@ CREATE TABLE IF NOT EXISTS deferred_synced_operation_bundle (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   note_id TEXT NOT NULL,
   schema_version INTEGER NOT NULL CHECK (schema_version BETWEEN 0 AND 65535),
-  table_type TEXT NOT NULL CHECK (length(table_type) BETWEEN 1 AND 64),
+  table_type TEXT NOT NULL CHECK (table_type IN (
+    'NOTE_BUNDLE', 'OPS_BUNDLE', 'RECEIVE_OPS_EVENT'
+  )),
+  payload BLOB NOT NULL,
+  payload_size INTEGER NOT NULL CHECK (payload_size BETWEEN 1 AND 67108864),
+  checksum INTEGER NOT NULL CHECK (checksum BETWEEN -2147483648 AND 2147483647),
+  received_at INTEGER NOT NULL CHECK (received_at BETWEEN 0 AND 9007199254740991),
+  CHECK (length(payload) = payload_size),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+const DDL_DEFERRED_SYNCED_OPERATION_BUNDLE_V21: string = `
+CREATE TABLE deferred_synced_operation_bundle_v21 (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  note_id TEXT NOT NULL,
+  schema_version INTEGER NOT NULL CHECK (schema_version BETWEEN 0 AND 65535),
+  table_type TEXT NOT NULL CHECK (table_type IN (
+    'NOTE_BUNDLE', 'OPS_BUNDLE', 'RECEIVE_OPS_EVENT'
+  )),
   payload BLOB NOT NULL,
   payload_size INTEGER NOT NULL CHECK (payload_size BETWEEN 1 AND 67108864),
   checksum INTEGER NOT NULL CHECK (checksum BETWEEN -2147483648 AND 2147483647),
@@ -674,5 +692,19 @@ export const MIGRATIONS: Record<number, string[]> = {
   20: [
     DDL_SYNCED_OPERATION_INBOX,
     DDL_DEFERRED_SYNCED_OPERATION_BUNDLE,
+  ],
+  21: [
+    `DELETE FROM deferred_synced_operation_bundle
+      WHERE table_type NOT IN ('NOTE_BUNDLE', 'OPS_BUNDLE', 'RECEIVE_OPS_EVENT')`,
+    DDL_DEFERRED_SYNCED_OPERATION_BUNDLE_V21,
+    `INSERT INTO deferred_synced_operation_bundle_v21
+      (id, note_id, schema_version, table_type, payload, payload_size, checksum, received_at)
+      SELECT id, note_id, schema_version, table_type, payload, payload_size, checksum, received_at
+      FROM deferred_synced_operation_bundle`,
+    'DROP TABLE deferred_synced_operation_bundle',
+    `ALTER TABLE deferred_synced_operation_bundle_v21
+      RENAME TO deferred_synced_operation_bundle`,
+    `CREATE INDEX IF NOT EXISTS idx_deferred_synced_bundle_note
+      ON deferred_synced_operation_bundle(note_id, id)`,
   ],
 };

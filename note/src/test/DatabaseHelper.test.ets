@@ -15,7 +15,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(20);
+      expect(DB_VERSION).assertEqual(21);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -48,6 +48,9 @@ export default function databaseHelperTest() {
       expect(DDL_SYNCED_OPERATION_INBOX).assertContain('state IN (0, 1, 2)');
       expect(DDL_DEFERRED_SYNCED_OPERATION_BUNDLE).assertContain('length(payload) = payload_size');
       expect(MIGRATIONS[20].join('\n')).assertNotContain('operation_log');
+      expect(DDL_DEFERRED_SYNCED_OPERATION_BUNDLE).assertContain('RECEIVE_OPS_EVENT');
+      expect(MIGRATIONS[21].join('\n')).assertContain('deferred_synced_operation_bundle_v21');
+      expect(MIGRATIONS[21].join('\n')).assertContain("table_type NOT IN ('NOTE_BUNDLE'");
     });
 
     it('tracks note-scoped page structure revisions', 0, () => {

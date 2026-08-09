@@ -162,6 +162,15 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
   `synced_op_count`。未知 FlatBuffer 只有在未来严格解码并原子应用后才能进入 APPLIED；身份相同但字节或时间不同视为冲突并使整批回滚，
   不能用 replace 掩盖。v20 同时按原版 `DeferredSyncedOps(id,noteId,schemaVersion,tableType,fileSize,checksum)` 建立独立 raw bundle 表；
   Harmony 把文件 bytes 与元数据置于同一 SQLite 行并约束实际长度，CRC/表语义未验证前不消费该 bundle。
+- 第十八阶段把原版字节边界变成可执行门禁。`fk4/fr1` 证明 uq9 是 little-endian 标准 FlatBuffer root，`qo5/uq9` 给出内联 id、
+  client/server uint64 与 payload union 槽位；Harmony 在接收前验证 root/vtable/object/uoffset，并把解析出的身份、时间和类型与外层
+  metadata 逐项交叉检查。uint64 从 8 个 little-endian bytes 直接转 canonical decimal，不进入浮点数。
+- `fsi.r` 与 `nce.A` 证明 deferred 文件使用完整 bytes 的标准 CRC32，并以 signed int 持久化；`x63/w63/jwh` 证明 table type 只有
+  `NOTE_BUNDLE / OPS_BUNDLE / RECEIVE_OPS_EVENT`。v21 将此三值写成数据库 CHECK；Harmony 继续把原版“文件 + Room 行”合并为同一
+  SQLite BLOB 行，使 bytes、长度、CRC 和 metadata 共享一个事务崩溃边界，读取时仍全部复验。
+- APPLIED 不是解析成功的别名。inbox 只处理最早的非 APPLIED 头；malformed、metadata mismatch、unknown type 或尚无 decoder 都进入
+  DEFERRED，且阻断后续 cursor。payload applier 先以无副作用 `supports()` 判定类型，再接收当前 `RdbStore` 并在既有事务内修改页面；只有它成功后，状态、累计 synced count
+  和 applied server cursor 才共同提交，任何异常共同回滚。此处只建立原子门禁，不宣称 31 类原版 payload reducer 已实现。
 
 ## 后果
 
@@ -173,6 +182,6 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 最后一个无 legacy 的完整 segment 现在可在重启后恢复成可执行 Undo/Redo 栈，DELETE_PAGE 也具备耐久内容 checkpoint 和原子
 PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成组 Undo/Redo。本地启动 replay 与删除页恢复点增长已有上限，
 损坏历史也有用户可见且不删除同步日志的本地恢复路径；同步日志本身仍保持追加式。原版式 editor site/op clock、耐久同步元数据和
-upload/ACK 前缀契约、本地导入身份映射、共同水位压缩、严格同步会话协调器、无损 unsigned 64-bit server cursor 及隔离的 incoming raw-op
-落库已经建立，但还没有经过认证的远端 WebSocket 适配器、incoming payload 解码/原子应用或完整服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
+upload/ACK 前缀契约、本地导入身份映射、共同水位压缩、严格同步会话协调器、无损 unsigned 64-bit server cursor、隔离的 incoming raw-op
+落库及原子应用门禁已经建立，但还没有经过认证的远端 WebSocket 适配器、31 类 incoming payload reducer 或完整服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
 原版协作或完整增量同步语义。
