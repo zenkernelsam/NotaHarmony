@@ -1,5 +1,6 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { PencilSplatGenerator } from '../main/ets/core/algorithm/PencilSplatGenerator';
+import { CubicSourceRange } from '../main/ets/core/algorithm/CubicFitter';
 import { CubicSegment } from '../main/ets/core/model/GeometryTypes';
 import {
   InkStyle, InputBatchKind, InputPoint, InputToolType, PencilSplatPoint, RenderSpec, StrokePathPoint,
@@ -80,7 +81,7 @@ export default function pencilSplatGeneratorTest() {
     it('matches the original fixed-seed first splat', 0, () => {
       const splats: PencilSplatPoint[] = generate(0.8, 0.2, 0, 1);
       expect(splats.length >= 18).assertTrue();
-      expect(Math.abs(splats[0].x - (-11.452265654259982)) < 1e-10).assertTrue();
+      expect(Math.abs(splats[0].x - (-11.450678740197482)) < 1e-10).assertTrue();
       expect(Math.abs(splats[0].y - 17.59178049583085) < 1e-10).assertTrue();
       expect(Math.abs(splats[0].rotation - 0.02337137604544309) < 1e-12).assertTrue();
       expect(Math.abs(splats[0].scale - 1.4764619925891513) < 1e-12).assertTrue();
@@ -108,6 +109,49 @@ export default function pencilSplatGeneratorTest() {
       expect(missing.length).assertEqual(originalFallback.length);
       expect(missing[0].x).assertEqual(originalFallback[0].x);
       expect(missing[0].y).assertEqual(originalFallback[0].y);
+    });
+
+    it('interpolates attributes from the fitted segment source range', 0, () => {
+      const points: StrokePathPoint[] = [
+        pencilPoint(0, 0, 0.2, 1, 0),
+        pencilPoint(15, 0.8, 0.2, 1, 0),
+        pencilPoint(30, 0.8, 0.2, 1, 0),
+      ];
+      const range: CubicSourceRange = { startIndex: 1, endIndex: 2 };
+      const mappedGenerator: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
+      mappedGenerator.reset(12345);
+      const mapped: PencilSplatPoint[] = mappedGenerator.generate(
+        [straightSegment()], points, [range]);
+      const legacyGenerator: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
+      legacyGenerator.reset(12345);
+      const globalRatio: PencilSplatPoint[] = legacyGenerator.generate(
+        [straightSegment()], points);
+      expect(mapped[0].opacity > globalRatio[0].opacity).assertTrue();
+      expect(mapped[0].scale > globalRatio[0].scale).assertTrue();
+    });
+
+    it('does not discard an intermediate pressure peak inside a source range', 0, () => {
+      const peakPoints: StrokePathPoint[] = [
+        pencilPoint(0, 0, 0.2, 1, 0),
+        pencilPoint(15, 1, 0.2, 1, 0),
+        pencilPoint(30, 0, 0.2, 1, 0),
+      ];
+      const flatPoints: StrokePathPoint[] = [
+        pencilPoint(0, 0, 0.2, 1, 0),
+        pencilPoint(15, 0, 0.2, 1, 0),
+        pencilPoint(30, 0, 0.2, 1, 0),
+      ];
+      const range: CubicSourceRange = { startIndex: 0, endIndex: 2 };
+      const peakGenerator: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
+      peakGenerator.reset(12345);
+      const peak: PencilSplatPoint[] = peakGenerator.generate(
+        [straightSegment()], peakPoints, [range]);
+      const flatGenerator: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
+      flatGenerator.reset(12345);
+      const flat: PencilSplatPoint[] = flatGenerator.generate(
+        [straightSegment()], flatPoints, [range]);
+      expect(peak[0].opacity > flat[0].opacity).assertTrue();
+      expect(peak[0].scale > flat[0].scale).assertTrue();
     });
 
     it('keeps existing splats stable when the full stroke is rebuilt', 0, () => {

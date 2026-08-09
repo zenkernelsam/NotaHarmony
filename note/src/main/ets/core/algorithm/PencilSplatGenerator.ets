@@ -3,6 +3,7 @@
 // 纯数学模块：禁止 import 任何 @ohos.* / @kit.* 平台模块
 import { PencilSplatPoint, StrokePathPoint } from '../model/StrokeTypes';
 import { CubicSegment, Point2D } from '../model/GeometryTypes';
+import { CubicSourceRange } from './CubicFitter';
 
 export interface SplatGeneratorConfig {
   spacing: number;          // splat 间距（原版 xaa.b 的 d = 笔刷宽度 c0()，由调用方传入）
@@ -26,6 +27,20 @@ export interface SplatAttributes {
 export interface CurveWalkPoint {
   pos: Point2D;
   tangent: Point2D;
+  segmentIndex: number;
+  t: number;
+}
+
+interface CurveCursor {
+  segmentIndex: number;
+  t: number;
+}
+
+interface CubicControlPoints {
+  p0: Point2D;
+  p1: Point2D;
+  p2: Point2D;
+  p3: Point2D;
 }
 
 export class PencilSplatGenerator {
@@ -76,28 +91,35 @@ export class PencilSplatGenerator {
   // 主入口：沿曲线行走生成 splat 点（xaa.b() 语义）
   // 预步进 spacing*0.25（te6.q 传 ow5Var=null → xaa.b L174 分支），
   // 后续步长 = spacing*0.25*(sizeFactor*0.5+0.5)（xaa.b L259，随尺寸变化）
-  generate(segments: CubicSegment[], pathPoints: StrokePathPoint[]): PencilSplatPoint[] {
+  generate(segments: CubicSegment[], pathPoints: StrokePathPoint[],
+    sourceRanges?: CubicSourceRange[]): PencilSplatPoint[] {
     if (this.config.spacing <= 0 || segments.length === 0 || pathPoints.length === 0) {
       return [];
     }
     const splats: PencilSplatPoint[] = [];
-    const totalLength: number = this.totalLength(segments);
+    let cursor: CurveCursor = { segmentIndex: 0, t: 0 };
+    let previousPosition: Point2D = segments[0].p0;
     // 预步进（xaa.b L174）：firstStep = spacing * 0.25
-    let d: number = this.config.spacing * 0.25;
-    while (d <= totalLength) {
-      const walk = this.advanceByDistance(segments, d);
+    let step: number = this.config.spacing * 0.25;
+    while (true) {
+      const walk: CurveWalkPoint | null = this.advanceByDistance(
+        segments, cursor, previousPosition, step);
       if (walk === null) {
         break;
       }
-      const ratio: number = totalLength > 0 ? d / totalLength : 0;
-      const attrs: SplatAttributes = this.interpolateAttributes(pathPoints, ratio);
+      const range: CubicSourceRange = this.resolveSourceRange(
+        pathPoints.length, segments.length, walk.segmentIndex, sourceRanges);
+      const attrs: SplatAttributes = this.interpolateSegmentAttributes(
+        pathPoints, range, walk.t);
       const sizeF: number = this.sizeFactorOf(attrs);
       const atPos: PencilSplatPoint[] = this.generateAtPosition(walk.pos, attrs);
       for (const s of atPos) {
         splats.push(s);
       }
       // 步进（xaa.b L259）：step = spacing*0.25*(sizeFactor*0.5+0.5)
-      d += this.config.spacing * 0.25 * (sizeF * 0.5 + 0.5);
+      cursor = { segmentIndex: walk.segmentIndex, t: walk.t };
+      previousPosition = walk.pos;
+      step = this.config.spacing * 0.25 * (sizeF * 0.5 + 0.5);
     }
     return splats;
   }
@@ -194,71 +216,53 @@ export class PencilSplatGenerator {
   }
 
   // 沿贝塞尔曲线等距前进（先定位到段，再在段内二分 t）
-  private advanceByDistance(segments: CubicSegment[], distance: number): CurveWalkPoint | null {
-    if (segments.length === 0 || distance < 0) {
+  private advanceByDistance(segments: CubicSegment[], cursor: CurveCursor,
+    previousPosition: Point2D, distance: number): CurveWalkPoint | null {
+    if (segments.length === 0 || distance <= 0) {
       return null;
     }
-    let remaining: number = distance;
-    for (const seg of segments) {
-      const segLen: number = this.segmentLength(seg);
-      if (remaining <= segLen || seg === segments[segments.length - 1]) {
-        const t: number = this.bisectArc(seg, remaining, 0, 1, 40);
-        return this.pointOnSegment(seg, t);
+    const targetSquared: number = distance * distance;
+    for (let segmentIndex: number = cursor.segmentIndex;
+      segmentIndex < segments.length; segmentIndex++) {
+      const seg: CubicSegment = segments[segmentIndex];
+      let searchStart: number = segmentIndex === cursor.segmentIndex ? cursor.t : 0;
+      while (searchStart < 1) {
+        let searchEnd: number = 1;
+        while (true) {
+          const control: CubicControlPoints = this.subcurve(seg, searchStart, searchEnd);
+          if ((this.distanceSquared(control.p1, previousPosition) < targetSquared &&
+            this.distanceSquared(control.p2, previousPosition) < targetSquared) ||
+            searchEnd - searchStart <= 0.1) {
+            break;
+          }
+          searchEnd = (searchStart + searchEnd) * 0.5;
+        }
+        if (this.distanceSquared(this.pointOnSegment(seg, searchEnd).pos,
+          previousPosition) >= targetSquared) {
+          let low: number = searchStart;
+          let high: number = searchEnd;
+          for (let i: number = 0; i < 40 && high - low > 0.0001; i++) {
+            const mid: number = (low + high) * 0.5;
+            if (this.distanceSquared(this.pointOnSegment(seg, mid).pos,
+              previousPosition) < targetSquared) {
+              low = mid;
+            } else {
+              high = mid;
+            }
+          }
+          return this.pointOnSegment(seg, high, segmentIndex);
+        }
+        if (searchEnd >= 1) {
+          break;
+        }
+        searchStart = searchEnd;
       }
-      remaining -= segLen;
     }
     return null;
   }
 
-  // 段内二分查找弧长 ≈ target 的 t
-  private bisectArc(seg: CubicSegment, target: number, lo: number, hi: number, iterations: number): number {
-    let low: number = lo;
-    let high: number = hi;
-    for (let i = 0; i < iterations; i++) {
-      const mid: number = (low + high) / 2;
-      const len: number = this.arcLengthFromStart(seg, mid);
-      if (len < target) {
-        low = mid;
-      } else {
-        high = mid;
-      }
-    }
-    return (low + high) / 2;
-  }
-
-  // 段 [0, t] 的弧长（分段线性近似，40 子段）
-  private arcLengthFromStart(seg: CubicSegment, t: number): number {
-    const steps: number = 40;
-    let total: number = 0;
-    let prev: Point2D = seg.p0;
-    for (let i = 1; i <= steps; i++) {
-      const ti: number = (t * i) / steps;
-      const walk: CurveWalkPoint = this.pointOnSegment(seg, ti);
-      const pt: Point2D = walk.pos;
-      const dx: number = pt.x - prev.x;
-      const dy: number = pt.y - prev.y;
-      total += Math.sqrt(dx * dx + dy * dy);
-      prev = pt;
-    }
-    return total;
-  }
-
-  // 整段弧长
-  private segmentLength(seg: CubicSegment): number {
-    return this.arcLengthFromStart(seg, 1);
-  }
-
-  // 曲线总长
-  private totalLength(segments: CubicSegment[]): number {
-    let total: number = 0;
-    for (const seg of segments) {
-      total += this.segmentLength(seg);
-    }
-    return total;
-  }
-
   // 贝塞尔段上的点与切线
-  private pointOnSegment(seg: CubicSegment, t: number): CurveWalkPoint {
+  private pointOnSegment(seg: CubicSegment, t: number, segmentIndex: number = 0): CurveWalkPoint {
     const mt: number = 1 - t;
     const x: number = mt * mt * mt * seg.p0.x + 3 * mt * mt * t * seg.p1.x +
       3 * mt * t * t * seg.p2.x + t * t * t * seg.p3.x;
@@ -274,29 +278,79 @@ export class PencilSplatGenerator {
     const ty: number = len > 1e-9 ? dy / len : 0;
     const pos: Point2D = { x: x, y: y };
     const tangent: Point2D = { x: tx, y: ty };
-    return { pos: pos, tangent: tangent };
+    return { pos: pos, tangent: tangent, segmentIndex: segmentIndex, t: t };
   }
 
-  // 沿 pathPoints 按弧长比例插值属性（pressure 由 widthFactor 反推）
-  private interpolateAttributes(pathPoints: StrokePathPoint[], ratio: number): SplatAttributes {
-    const n: number = pathPoints.length;
-    if (n === 1) {
-      return this.attrsFromPathPoint(pathPoints[0]);
-    }
-    const f: number = ratio * (n - 1);
-    const i0: number = Math.min(Math.floor(f), n - 2);
-    const i1: number = i0 + 1;
-    const t: number = f - i0;
-    const start: SplatAttributes = this.attrsFromPathPoint(pathPoints[i0]);
-    const end: SplatAttributes = this.attrsFromPathPoint(pathPoints[i1]);
+  private subcurve(seg: CubicSegment, start: number, end: number): CubicControlPoints {
+    const p0: CurveWalkPoint = this.pointOnSegment(seg, start);
+    const p3: CurveWalkPoint = this.pointOnSegment(seg, end);
+    const span: number = end - start;
+    const startDerivative: number = this.derivativeLength(seg, start);
+    const endDerivative: number = this.derivativeLength(seg, end);
     return {
-      pressure: this.lerp(start.pressure, end.pressure, t),
-      altitudeAngleRadians: this.lerp(start.altitudeAngleRadians, end.altitudeAngleRadians, t),
-      azimuthUnitX: this.lerp(start.azimuthUnitX, end.azimuthUnitX, t),
-      azimuthUnitY: this.lerp(start.azimuthUnitY, end.azimuthUnitY, t),
+      p0: p0.pos,
+      p1: {
+        x: p0.pos.x + p0.tangent.x * startDerivative * span / 3,
+        y: p0.pos.y + p0.tangent.y * startDerivative * span / 3,
+      },
+      p2: {
+        x: p3.pos.x - p3.tangent.x * endDerivative * span / 3,
+        y: p3.pos.y - p3.tangent.y * endDerivative * span / 3,
+      },
+      p3: p3.pos,
     };
   }
 
+  private derivativeLength(seg: CubicSegment, t: number): number {
+    const mt: number = 1 - t;
+    const dx: number = 3 * mt * mt * (seg.p1.x - seg.p0.x) +
+      6 * mt * t * (seg.p2.x - seg.p1.x) + 3 * t * t * (seg.p3.x - seg.p2.x);
+    const dy: number = 3 * mt * mt * (seg.p1.y - seg.p0.y) +
+      6 * mt * t * (seg.p2.y - seg.p1.y) + 3 * t * t * (seg.p3.y - seg.p2.y);
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  private distanceSquared(left: Point2D, right: Point2D): number {
+    const dx: number = left.x - right.x;
+    const dy: number = left.y - right.y;
+    return dx * dx + dy * dy;
+  }
+
+  private resolveSourceRange(pathPointCount: number, segmentCount: number,
+    segmentIndex: number, sourceRanges?: CubicSourceRange[]): CubicSourceRange {
+    if (sourceRanges !== undefined && segmentIndex < sourceRanges.length) {
+      return sourceRanges[segmentIndex];
+    }
+    const maxIndex: number = pathPointCount - 1;
+    return {
+      startIndex: Math.floor(segmentIndex * maxIndex / segmentCount),
+      endIndex: Math.floor((segmentIndex + 1) * maxIndex / segmentCount),
+    };
+  }
+
+  private interpolateSegmentAttributes(pathPoints: StrokePathPoint[], range: CubicSourceRange,
+    t: number): SplatAttributes {
+    const startIndex: number = Math.min(Math.max(range.startIndex, 0), pathPoints.length - 1);
+    const endIndex: number = Math.min(Math.max(range.endIndex, startIndex), pathPoints.length - 1);
+    if (startIndex === endIndex) {
+      return this.attrsFromPathPoint(pathPoints[startIndex]);
+    }
+    const localPosition: number = startIndex + t * (endIndex - startIndex);
+    const leftIndex: number = Math.min(Math.floor(localPosition), endIndex - 1);
+    const rightIndex: number = leftIndex + 1;
+    const localT: number = localPosition - leftIndex;
+    const start: SplatAttributes = this.attrsFromPathPoint(pathPoints[leftIndex]);
+    const end: SplatAttributes = this.attrsFromPathPoint(pathPoints[rightIndex]);
+    return {
+      pressure: this.lerp(start.pressure, end.pressure, localT),
+      altitudeAngleRadians: this.lerp(
+        start.altitudeAngleRadians, end.altitudeAngleRadians, localT),
+      azimuthUnitX: this.lerp(start.azimuthUnitX, end.azimuthUnitX, localT),
+      azimuthUnitY: this.lerp(start.azimuthUnitY, end.azimuthUnitY, localT),
+    };
+  }
+
+  // 旧数据缺少显式字段时才从 widthFactor 恢复 pressure。
   private attrsFromPathPoint(p: StrokePathPoint): SplatAttributes {
     const pressure: number = p.pressure !== undefined
       ? p.pressure : this.clamp((p.widthFactor - 0.3) / 0.7, 0, 1);

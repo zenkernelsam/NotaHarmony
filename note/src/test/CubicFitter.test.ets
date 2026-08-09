@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
-  computeOriginalFitTolerance, CubicFitter,
+  computeOriginalFitTolerance, CubicFitResult, CubicFitter,
 } from '../main/ets/core/algorithm/CubicFitter';
 import { CubicSegment, Point2D } from '../main/ets/core/model/GeometryTypes';
 import { StrokePathPoint } from '../main/ets/core/model/StrokeTypes';
@@ -71,6 +71,18 @@ export default function cubicFitterTest() {
         expect(isFinitePoint(segment.p1)).assertTrue();
         expect(isFinitePoint(segment.p2)).assertTrue();
         expect(isFinitePoint(segment.p3)).assertTrue();
+      }
+    });
+
+    it('retains contiguous source ranges for every fitted segment', 0, () => {
+      const result: CubicFitResult = new CubicFitter().fitWithSourceRanges(
+        straightPoints(1000), 1, 1);
+      expect(result.segments.length).assertEqual(result.sourceRanges.length);
+      expect(result.sourceRanges[0].startIndex).assertEqual(0);
+      expect(result.sourceRanges[result.sourceRanges.length - 1].endIndex).assertEqual(999);
+      for (let i: number = 1; i < result.sourceRanges.length; i++) {
+        expect(result.sourceRanges[i].startIndex)
+          .assertEqual(result.sourceRanges[i - 1].endIndex);
       }
     });
 

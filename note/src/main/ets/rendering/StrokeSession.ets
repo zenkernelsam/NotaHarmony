@@ -6,7 +6,9 @@ import {
 } from '../core/model/StrokeTypes';
 import { CubicSegment, Rect2D } from '../core/model/GeometryTypes';
 import { ForceSmoother } from '../core/algorithm/ForceSmoother';
-import { CubicFitter } from '../core/algorithm/CubicFitter';
+import {
+  CubicFitResult, CubicFitter, CubicSourceRange,
+} from '../core/algorithm/CubicFitter';
 import { WidthOutlineBuilder, OutlineResult } from '../core/algorithm/WidthOutlineBuilder';
 import { PencilSplatGenerator } from '../core/algorithm/PencilSplatGenerator';
 
@@ -28,6 +30,7 @@ export class StrokeSession {
   private rawPoints: InputPoint[] = [];
   private pathPoints: StrokePathPoint[] = [];
   private cubicSegments: CubicSegment[] = [];
+  private cubicSourceRanges: CubicSourceRange[] = [];
   private splatPoints: PencilSplatPoint[] = [];
   private outline: OutlineResult | null = null;
   private renderSpec: RenderSpec;
@@ -73,6 +76,7 @@ export class StrokeSession {
     this.rawPoints = [];
     this.pathPoints = [];
     this.cubicSegments = [];
+    this.cubicSourceRanges = [];
     this.splatPoints = [];
     this.outline = null;
     this.currentStroke = null;
@@ -132,15 +136,20 @@ export class StrokeSession {
   private rebuildGeometry(): void {
     if (this.pathPoints.length < 2) {
       this.cubicSegments = [];
+      this.cubicSourceRanges = [];
       this.splatPoints = [];
       this.outline = null;
       return;
     }
-    this.cubicSegments = this.fitter.fit(this.pathPoints, this.renderSpec.brushWidth, this.zoom);
+    const fitResult: CubicFitResult = this.fitter.fitWithSourceRanges(
+      this.pathPoints, this.renderSpec.brushWidth, this.zoom);
+    this.cubicSegments = fitResult.segments;
+    this.cubicSourceRanges = fitResult.sourceRanges;
     if (this.renderSpec.isPencil && this.cubicSegments.length > 0) {
       // This port refits the full stroke on every batch; restart the original per-stroke LCG so old splats stay stable.
       this.splatGenerator.reset(this.startTime);
-      this.splatPoints = this.splatGenerator.generate(this.cubicSegments, this.pathPoints);
+      this.splatPoints = this.splatGenerator.generate(
+        this.cubicSegments, this.pathPoints, this.cubicSourceRanges);
     }
     if (this.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH) {
       this.outline = this.outlineBuilder.build(this.pathPoints, this.renderSpec.brushWidth);

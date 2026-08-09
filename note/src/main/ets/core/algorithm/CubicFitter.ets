@@ -9,6 +9,16 @@ export interface FitterConfig {
   baseTolerance: number;        // 默认 0.5（会被动态容差覆盖）
 }
 
+export interface CubicSourceRange {
+  startIndex: number;
+  endIndex: number;
+}
+
+export interface CubicFitResult {
+  segments: CubicSegment[];
+  sourceRanges: CubicSourceRange[];
+}
+
 // 1.0.3 nt1.java:180 + od4.java:98-111.
 export function computeOriginalFitTolerance(baseWidth: number, zoom: number): number {
   const scale: number = Math.max(zoom, 0.01);
@@ -44,8 +54,13 @@ export class CubicFitter {
   // 段未覆盖末尾且前后各 ≥4 点时拆半重拟合，最后做段间方向连续性修正
   fit(points: StrokePathPoint[], baseWidth: number, zoom: number,
     initialTangent?: Point2D): CubicSegment[] {
+    return this.fitWithSourceRanges(points, baseWidth, zoom, initialTangent).segments;
+  }
+
+  fitWithSourceRanges(points: StrokePathPoint[], baseWidth: number, zoom: number,
+    initialTangent?: Point2D): CubicFitResult {
     if (points.length < 2) {
-      return [];
+      return { segments: [], sourceRanges: [] };
     }
     const pts: Point2D[] = [];
     for (const p of points) {
@@ -53,6 +68,7 @@ export class CubicFitter {
     }
     const tolerance: number = this.computeTolerance(baseWidth, zoom);
     const result: CubicSegment[] = [];
+    const sourceRanges: CubicSourceRange[] = [];
     const n: number = pts.length;
     const maxPts: number = this.config.maxPointsPerSegment;
     let start: number = 0;
@@ -61,6 +77,7 @@ export class CubicFitter {
       if (remainingCount <= maxPts) {
         // sqh.h 语义：目标区间 ≤200 点 → 直接拟合接受（不做误差检查）
         result.push(this.fitCubic(pts, start, n - 1));
+        sourceRanges.push({ startIndex: start, endIndex: n - 1 });
         start = n - 1;
         break;
       }
@@ -87,11 +104,12 @@ export class CubicFitter {
         segEnd = half;
       }
       result.push(this.fitCubic(pts, start, segEnd));
+      sourceRanges.push({ startIndex: start, endIndex: segEnd });
       start = segEnd;
     }
     // 段间连续性修正（sqh.f 尾部循环）：p1 = p0 + 前段 j(1.0) 切向投影
     this.applyContinuity(result, initialTangent);
-    return result;
+    return { segments: result, sourceRanges: sourceRanges };
   }
 
   // 1.0.3 nt1 + od4.g：先把屏幕笔宽钳到 [2.6, 18]，再代入容差公式。
