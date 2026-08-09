@@ -360,6 +360,7 @@ struct NotePage {
     if (this.historyBridge !== null) {
       this.historyBridge.pushPageAction({
         type: UndoableActionType.PAGE_SETTINGS,
+        noteId: this.noteId,
         pageId: page.pageId,
         pageBefore: before,
         pageAfter: this.clonePage(page),
@@ -409,6 +410,7 @@ struct NotePage {
     if (this.historyBridge !== null) {
       this.historyBridge.pushPageAction({
         type: UndoableActionType.ADD_PAGE,
+        noteId: this.noteId,
         pageId: assignedPage.pageId,
         pageAfter: this.clonePage(assignedPage),
         pageOrderBefore: orderBefore,
@@ -450,6 +452,7 @@ struct NotePage {
     const selectedAfter: string = this.pages[this.currentPageIndex].pageId;
     this.historyBridge.pushPageAction({
       type: UndoableActionType.DELETE_PAGE,
+      noteId: this.noteId,
       pageId: pageId,
       pageBefore: deletedPage,
       pageOrderBefore: orderBefore,
@@ -480,6 +483,7 @@ struct NotePage {
     this.currentPageIndex = targetIndex;
     this.historyBridge.pushPageAction({
       type: UndoableActionType.REORDER_PAGES,
+      noteId: this.noteId,
       pageId: selectedPageId,
       pageOrderBefore: orderBefore,
       pageOrderAfter: orderAfter,
@@ -487,7 +491,16 @@ struct NotePage {
   }
 
   private async applyPageHistory(action: UndoableAction, isUndo: boolean): Promise<boolean> {
-    if (this.pageRepo === null) {
+    if (this.pageRepo === null || action.noteId !== this.noteId) {
+      if (action.noteId !== this.noteId) {
+        hilog.error(0x0001, 'NotePage',
+          'page history note mismatch, actionNote=%{public}s currentNote=%{public}s', action.noteId, this.noteId);
+      }
+      return false;
+    }
+    if (!this.validatePageActionState(action, isUndo)) {
+      hilog.error(0x0001, 'NotePage',
+        'page history source state mismatch, type=%{public}d undo=%{public}s', action.type, isUndo.toString());
       return false;
     }
     try {
@@ -506,9 +519,6 @@ struct NotePage {
       }
       if (action.type === UndoableActionType.REORDER_PAGES) {
         const order: string[] = isUndo ? action.pageOrderBefore : action.pageOrderAfter;
-        if (order.length !== this.pages.length) {
-          return false;
-        }
         await this.pageRepo.reorderPages(this.noteId, order);
         this.pages = this.orderPages(this.pages, order);
         this.selectPageById(action.pageId);
@@ -521,6 +531,121 @@ struct NotePage {
       hilog.error(0x0001, 'NotePage', 'applyPageHistory failed: %{public}s', JSON.stringify(e));
     }
     return false;
+  }
+
+  private validatePageActionState(action: UndoableAction, isUndo: boolean): boolean {
+    const currentOrder: string[] = this.pageIds(this.pages);
+    if (!this.hasUniqueStrings(currentOrder)) {
+      return false;
+    }
+    if (action.type === UndoableActionType.ADD_PAGE) {
+      const sourceOrder: string[] = isUndo ? action.pageOrderAfter : action.pageOrderBefore;
+      const targetOrder: string[] = isUndo ? action.pageOrderBefore : action.pageOrderAfter;
+      const sourceSelection: string = isUndo ? action.selectedPageIdAfter : action.selectedPageIdBefore;
+      const targetSelection: string = isUndo ? action.selectedPageIdBefore : action.selectedPageIdAfter;
+      return action.pageId === action.pageAfter.pageId && this.sameStringArray(currentOrder, sourceOrder) &&
+        this.isSinglePageTransition(sourceOrder, targetOrder, action.pageId, isUndo) &&
+        this.countString(sourceOrder, sourceSelection) === 1 && this.countString(targetOrder, targetSelection) === 1;
+    }
+    if (action.type === UndoableActionType.DELETE_PAGE) {
+      const sourceOrder: string[] = isUndo ? action.pageOrderAfter : action.pageOrderBefore;
+      const targetOrder: string[] = isUndo ? action.pageOrderBefore : action.pageOrderAfter;
+      const sourceSelection: string = isUndo ? action.selectedPageIdAfter : action.selectedPageIdBefore;
+      const targetSelection: string = isUndo ? action.selectedPageIdBefore : action.selectedPageIdAfter;
+      return action.pageId === action.pageBefore.pageId && this.sameStringArray(currentOrder, sourceOrder) &&
+        this.isSinglePageTransition(sourceOrder, targetOrder, action.pageId, !isUndo) &&
+        this.countString(sourceOrder, sourceSelection) === 1 && this.countString(targetOrder, targetSelection) === 1;
+    }
+    if (action.type === UndoableActionType.REORDER_PAGES) {
+      const sourceOrder: string[] = isUndo ? action.pageOrderAfter : action.pageOrderBefore;
+      const targetOrder: string[] = isUndo ? action.pageOrderBefore : action.pageOrderAfter;
+      return this.sameStringArray(currentOrder, sourceOrder) && this.sameStringMembers(sourceOrder, targetOrder) &&
+        this.countString(targetOrder, action.pageId) === 1;
+    }
+    if (action.type === UndoableActionType.PAGE_SETTINGS) {
+      const sourcePage: PageInfo = isUndo ? action.pageAfter : action.pageBefore;
+      const targetPage: PageInfo = isUndo ? action.pageBefore : action.pageAfter;
+      if (sourcePage.pageId !== action.pageId || targetPage.pageId !== action.pageId) {
+        return false;
+      }
+      let matched: number = 0;
+      for (const page of this.pages) {
+        if (page.pageId === action.pageId && this.samePageSettings(page, sourcePage)) {
+          matched++;
+        }
+      }
+      return matched === 1;
+    }
+    return false;
+  }
+
+  private isSinglePageTransition(source: string[], target: string[], pageId: string,
+    sourceContainsPage: boolean): boolean {
+    if (!this.hasUniqueStrings(source) || !this.hasUniqueStrings(target)) {
+      return false;
+    }
+    if (sourceContainsPage) {
+      if (source.length !== target.length + 1 || this.countString(source, pageId) !== 1 ||
+        this.countString(target, pageId) !== 0) {
+        return false;
+      }
+    } else if (target.length !== source.length + 1 || this.countString(source, pageId) !== 0 ||
+      this.countString(target, pageId) !== 1) {
+      return false;
+    }
+    const withoutPage: string[] = [];
+    const longer: string[] = sourceContainsPage ? source : target;
+    for (const id of longer) {
+      if (id !== pageId) {
+        withoutPage.push(id);
+      }
+    }
+    return this.sameStringArray(withoutPage, sourceContainsPage ? target : source);
+  }
+
+  private sameStringMembers(a: string[], b: string[]): boolean {
+    if (a.length !== b.length || !this.hasUniqueStrings(a) || !this.hasUniqueStrings(b)) {
+      return false;
+    }
+    for (const value of a) {
+      if (this.countString(b, value) !== 1) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private sameStringArray(a: string[], b: string[]): boolean {
+    if (a.length !== b.length) {
+      return false;
+    }
+    for (let i: number = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private hasUniqueStrings(values: string[]): boolean {
+    for (let i: number = 0; i < values.length; i++) {
+      for (let j: number = i + 1; j < values.length; j++) {
+        if (values[i] === values[j]) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  private countString(values: string[], value: string): number {
+    let count: number = 0;
+    for (const candidate of values) {
+      if (candidate === value) {
+        count++;
+      }
+    }
+    return count;
   }
 
   private async applyAddPageHistory(action: AddPageAction, isUndo: boolean): Promise<boolean> {

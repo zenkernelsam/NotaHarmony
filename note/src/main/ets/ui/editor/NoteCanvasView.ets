@@ -800,6 +800,7 @@ export struct NoteCanvasView {
       // 移动完成：统一记录一次 undo
       this.undoRedo.push({
         type: UndoableActionType.TRANSFORM_STROKES,
+        noteId: this.noteId,
         pageId: this.currentPage.pageId,
         beforeStrokes: this.dragBeforeStrokes,
         afterStrokes: this.completedStrokes.slice(),
@@ -817,6 +818,7 @@ export struct NoteCanvasView {
       if (replaced) {
         this.undoRedo.push({
           type: UndoableActionType.REPLACE_ELEMENT,
+          noteId: this.noteId,
           pageId: this.currentPage.pageId,
           beforeStrokes: [stroke],
           afterStrokes: [finalStroke],
@@ -826,6 +828,7 @@ export struct NoteCanvasView {
       } else {
         this.undoRedo.push({
           type: UndoableActionType.ADD_STROKE,
+          noteId: this.noteId,
           pageId: this.currentPage.pageId,
           addedStrokes: [finalStroke],
         });
@@ -1030,6 +1033,7 @@ export struct NoteCanvasView {
     if (partialBefore.length > 0) {
       this.undoRedo.push({
         type: UndoableActionType.TRANSFORM_STROKES,
+        noteId: this.noteId,
         pageId: this.currentPage.pageId,
         beforeStrokes: partialBefore,
         afterStrokes: partialAfter,
@@ -1037,6 +1041,7 @@ export struct NoteCanvasView {
     } else if (removed.length > 0) {
       this.undoRedo.push({
         type: UndoableActionType.ERASE_STROKES,
+        noteId: this.noteId,
         pageId: this.currentPage.pageId,
         removedStrokes: removed,
         removedStrokeIndices: removedIndices,
@@ -1073,6 +1078,11 @@ export struct NoteCanvasView {
     const action: UndoableAction | null = isUndo ? this.undoRedo.peekUndo() : this.undoRedo.peekRedo();
     if (action === null) {
       hilog.info(0x0001, 'NoteCanvasView', 'history: no action');
+      return;
+    }
+    if (action.noteId !== this.noteId) {
+      hilog.error(0x0001, 'NoteCanvasView',
+        'history note mismatch, actionNote=%{public}s currentNote=%{public}s', action.noteId, this.noteId);
       return;
     }
     if (this.isPageAction(action.type)) {
@@ -1125,6 +1135,11 @@ export struct NoteCanvasView {
 
   // isUndo=true 执行反向；false 执行正向
   private applyAction(action: UndoableAction, isUndo: boolean): boolean {
+    if (!this.validateActionState(action, isUndo)) {
+      hilog.error(0x0001, 'NoteCanvasView',
+        'history source state mismatch, type=%{public}d undo=%{public}s', action.type, isUndo.toString());
+      return false;
+    }
     this.selectionTool.deselect();
     this.selectionVisible = false;
     if (action.type === UndoableActionType.ADD_STROKE) {
@@ -1162,16 +1177,11 @@ export struct NoteCanvasView {
       // T-040 审核修复：按 id 替换（before/after 可为选中笔画子集快照，避免整表替换丢失其他笔画）
       const target: StrokeElementData[] = isUndo ? action.beforeStrokes : action.afterStrokes;
       for (const t of target) {
-        let found: boolean = false;
         for (let i = 0; i < this.completedStrokes.length; i++) {
           if (this.completedStrokes[i].id === t.id) {
             this.completedStrokes[i] = t;
-            found = true;
             break;
           }
-        }
-        if (!found) {
-          this.completedStrokes.push(t);
         }
       }
     } else if (action.type === UndoableActionType.ADD_ELEMENT) {
@@ -1193,25 +1203,21 @@ export struct NoteCanvasView {
         }
       }
     } else if (action.type === UndoableActionType.REPLACE_ELEMENT) {
-      if (action.beforeElements.length > 0 || action.afterElements.length > 0) {
-        const targetElements: TextBlockElement[] = isUndo ? action.beforeElements : action.afterElements;
-        for (const element of targetElements) {
-          this.replaceTextBlock(element);
-        }
-      } else {
-        // 形状替换（撤销恢复原笔画，重做恢复形状），按 id 替换以保留其他笔画。
-        const target: StrokeElementData[] = isUndo ? action.beforeStrokes : action.afterStrokes;
-        for (const t of target) {
-          let found: boolean = false;
-          for (let i = 0; i < this.completedStrokes.length; i++) {
-            if (this.completedStrokes[i].id === t.id) {
-              this.completedStrokes[i] = t;
-              found = true;
-              break;
-            }
+      const targetElements: TextBlockElement[] = isUndo ? action.beforeElements : action.afterElements;
+      for (const element of targetElements) {
+        for (let i: number = 0; i < this.textBlocks.length; i++) {
+          if (this.textBlocks[i].id === element.id) {
+            this.textBlocks[i] = element;
+            break;
           }
-          if (!found) {
-            this.completedStrokes.push(t);
+        }
+      }
+      const targetStrokes: StrokeElementData[] = isUndo ? action.beforeStrokes : action.afterStrokes;
+      for (const stroke of targetStrokes) {
+        for (let i: number = 0; i < this.completedStrokes.length; i++) {
+          if (this.completedStrokes[i].id === stroke.id) {
+            this.completedStrokes[i] = stroke;
+            break;
           }
         }
       }
@@ -1222,6 +1228,178 @@ export struct NoteCanvasView {
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     this.persist();
     this.renderFrame();
+    return true;
+  }
+
+  private validateActionState(action: UndoableAction, isUndo: boolean): boolean {
+    if (action.noteId !== this.noteId || action.pageId !== this.loadedPageId) {
+      return false;
+    }
+    if (action.type === UndoableActionType.ADD_STROKE) {
+      return action.addedStrokes.length > 0 && this.hasUniqueStrokeIds(action.addedStrokes) &&
+        (isUndo ? this.allStrokeIdsPresent(action.addedStrokes) : this.allStrokeIdsAbsent(action.addedStrokes));
+    }
+    if (action.type === UndoableActionType.DELETE_STROKE || action.type === UndoableActionType.ERASE_STROKES) {
+      if (action.removedStrokes.length === 0 || !this.hasUniqueStrokeIds(action.removedStrokes)) {
+        return false;
+      }
+      if (!isUndo) {
+        return this.allStrokeIdsPresent(action.removedStrokes);
+      }
+      if (!this.allStrokeIdsAbsent(action.removedStrokes) ||
+        action.removedStrokeIndices.length !== action.removedStrokes.length) {
+        return false;
+      }
+      let previous: number = -1;
+      for (let i: number = 0; i < action.removedStrokeIndices.length; i++) {
+        const index: number = action.removedStrokeIndices[i];
+        if (!Number.isInteger(index) || index < previous || index < 0 || index > this.completedStrokes.length + i) {
+          return false;
+        }
+        previous = index;
+      }
+      return true;
+    }
+    if (action.type === UndoableActionType.TRANSFORM_STROKES) {
+      const source: StrokeElementData[] = isUndo ? action.afterStrokes : action.beforeStrokes;
+      const target: StrokeElementData[] = isUndo ? action.beforeStrokes : action.afterStrokes;
+      return source.length > 0 && this.sameStrokeIds(source, target) && this.allStrokeIdsPresent(source);
+    }
+    if (action.type === UndoableActionType.ADD_ELEMENT) {
+      return isUndo ? this.countTextBlockId(action.addedElement.id) === 1 :
+        this.countTextBlockId(action.addedElement.id) === 0;
+    }
+    if (action.type === UndoableActionType.DELETE_ELEMENT) {
+      return action.removedElements.length > 0 && this.hasUniqueTextBlockIds(action.removedElements) &&
+        (isUndo ? this.allTextBlockIdsAbsent(action.removedElements) :
+          this.allTextBlockIdsPresent(action.removedElements));
+    }
+    if (action.type === UndoableActionType.REPLACE_ELEMENT) {
+      const sourceStrokes: StrokeElementData[] = isUndo ? action.afterStrokes : action.beforeStrokes;
+      const targetStrokes: StrokeElementData[] = isUndo ? action.beforeStrokes : action.afterStrokes;
+      const sourceElements: TextBlockElement[] = isUndo ? action.afterElements : action.beforeElements;
+      const targetElements: TextBlockElement[] = isUndo ? action.beforeElements : action.afterElements;
+      const hasReplacement: boolean = sourceStrokes.length > 0 || sourceElements.length > 0;
+      return hasReplacement && this.sameStrokeIds(sourceStrokes, targetStrokes) &&
+        this.sameTextBlockIds(sourceElements, targetElements) && this.allStrokeIdsPresent(sourceStrokes) &&
+        this.allTextBlockIdsPresent(sourceElements);
+    }
+    return false;
+  }
+
+  private countTextBlockId(id: string): number {
+    let count: number = 0;
+    for (const element of this.textBlocks) {
+      if (element.id === id) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  private hasUniqueStrokeIds(strokes: StrokeElementData[]): boolean {
+    const ids: Set<string> = new Set<string>();
+    for (const stroke of strokes) {
+      if (ids.has(stroke.id)) {
+        return false;
+      }
+      ids.add(stroke.id);
+    }
+    return true;
+  }
+
+  private hasUniqueTextBlockIds(elements: TextBlockElement[]): boolean {
+    const ids: Set<string> = new Set<string>();
+    for (const element of elements) {
+      if (ids.has(element.id)) {
+        return false;
+      }
+      ids.add(element.id);
+    }
+    return true;
+  }
+
+  private sameStrokeIds(a: StrokeElementData[], b: StrokeElementData[]): boolean {
+    if (a.length !== b.length || !this.hasUniqueStrokeIds(a) || !this.hasUniqueStrokeIds(b)) {
+      return false;
+    }
+    const targetIds: Set<string> = new Set<string>();
+    for (const stroke of b) {
+      targetIds.add(stroke.id);
+    }
+    for (const stroke of a) {
+      if (!targetIds.has(stroke.id)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private sameTextBlockIds(a: TextBlockElement[], b: TextBlockElement[]): boolean {
+    if (a.length !== b.length || !this.hasUniqueTextBlockIds(a) || !this.hasUniqueTextBlockIds(b)) {
+      return false;
+    }
+    const targetIds: Set<string> = new Set<string>();
+    for (const element of b) {
+      targetIds.add(element.id);
+    }
+    for (const element of a) {
+      if (!targetIds.has(element.id)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private allStrokeIdsPresent(strokes: StrokeElementData[]): boolean {
+    const counts: Map<string, number> = new Map<string, number>();
+    for (const current of this.completedStrokes) {
+      counts.set(current.id, (counts.get(current.id) ?? 0) + 1);
+    }
+    for (const stroke of strokes) {
+      if (counts.get(stroke.id) !== 1) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private allStrokeIdsAbsent(strokes: StrokeElementData[]): boolean {
+    const currentIds: Set<string> = new Set<string>();
+    for (const current of this.completedStrokes) {
+      currentIds.add(current.id);
+    }
+    for (const stroke of strokes) {
+      if (currentIds.has(stroke.id)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private allTextBlockIdsPresent(elements: TextBlockElement[]): boolean {
+    const counts: Map<string, number> = new Map<string, number>();
+    for (const current of this.textBlocks) {
+      counts.set(current.id, (counts.get(current.id) ?? 0) + 1);
+    }
+    for (const element of elements) {
+      if (counts.get(element.id) !== 1) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private allTextBlockIdsAbsent(elements: TextBlockElement[]): boolean {
+    const currentIds: Set<string> = new Set<string>();
+    for (const current of this.textBlocks) {
+      currentIds.add(current.id);
+    }
+    for (const element of elements) {
+      if (currentIds.has(element.id)) {
+        return false;
+      }
+    }
     return true;
   }
 
@@ -1236,15 +1414,8 @@ export struct NoteCanvasView {
   }
 
   private restoreRemovedStrokes(action: RemoveStrokeAction): void {
-    if (action.removedStrokeIndices.length !== action.removedStrokes.length) {
-      for (const stroke of action.removedStrokes) {
-        this.completedStrokes.push(stroke);
-      }
-      return;
-    }
     for (let i: number = 0; i < action.removedStrokes.length; i++) {
-      const index: number = Math.max(0, Math.min(action.removedStrokeIndices[i], this.completedStrokes.length));
-      this.completedStrokes.splice(index, 0, action.removedStrokes[i]);
+      this.completedStrokes.splice(action.removedStrokeIndices[i], 0, action.removedStrokes[i]);
     }
   }
 
@@ -1308,6 +1479,7 @@ export struct NoteCanvasView {
     if (pushUndo) {
       this.undoRedo.push({
         type: UndoableActionType.TRANSFORM_STROKES,
+        noteId: this.noteId,
         pageId: this.currentPage.pageId,
         beforeStrokes: before,
         afterStrokes: this.completedStrokes.slice(),
@@ -1342,6 +1514,7 @@ export struct NoteCanvasView {
       if (removed.length > 0) {
         this.undoRedo.push({
           type: UndoableActionType.DELETE_STROKE,
+          noteId: this.noteId,
           pageId: this.currentPage.pageId,
           removedStrokes: removed,
           removedStrokeIndices: removedIndices,
@@ -1382,6 +1555,7 @@ export struct NoteCanvasView {
     }
     this.undoRedo.push({
       type: UndoableActionType.TRANSFORM_STROKES,
+      noteId: this.noteId,
       pageId: this.currentPage.pageId,
       beforeStrokes: before,
       afterStrokes: this.completedStrokes.slice(),
@@ -1434,6 +1608,7 @@ export struct NoteCanvasView {
     if (copies.length > 0) {
       this.undoRedo.push({
         type: UndoableActionType.ADD_STROKE,
+        noteId: this.noteId,
         pageId: this.currentPage.pageId,
         addedStrokes: copies,
       });
@@ -1616,12 +1791,14 @@ export struct NoteCanvasView {
       if (this.editingOriginalTextBlock === null) {
         this.undoRedo.push({
           type: UndoableActionType.ADD_ELEMENT,
+          noteId: this.noteId,
           pageId: this.currentPage.pageId,
           addedElement: updated,
         });
       } else if (this.editingOriginalTextBlock.richText !== updated.richText) {
         this.undoRedo.push({
           type: UndoableActionType.REPLACE_ELEMENT,
+          noteId: this.noteId,
           pageId: this.currentPage.pageId,
           beforeStrokes: [],
           afterStrokes: [],
