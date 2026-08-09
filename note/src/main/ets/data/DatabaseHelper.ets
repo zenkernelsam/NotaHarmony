@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v13: add an append-only operation log, separate from page snapshots.
-export const DB_VERSION: number = 13;
+// v14: add note-scoped page structure revisions for deterministic page operations.
+export const DB_VERSION: number = 14;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS note_meta (
   last_opened INTEGER NOT NULL DEFAULT 0,
   folder_id TEXT,
   has_recordings INTEGER NOT NULL DEFAULT 0,
+  structure_revision INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY(folder_id) REFERENCES folder(id) ON DELETE SET NULL
 )`;
 
@@ -351,4 +352,5 @@ export const MIGRATIONS: Record<number, string[]> = {
     'UPDATE search_item SET type = 2 WHERE type = 1',
   ],
   13: [DDL_OPERATION_LOG],
+  14: ['ALTER TABLE note_meta ADD COLUMN structure_revision INTEGER NOT NULL DEFAULT 0'],
 };

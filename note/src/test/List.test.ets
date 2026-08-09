@@ -43,6 +43,7 @@ import selectionOverlayLayoutTest from './SelectionOverlayLayout.test';
 import strokePersistenceTest from './StrokePersistence.test';
 import pageSnapshotOpCodecTest from './PageSnapshotOpCodec.test';
 import pageMutationOpCodecTest from './PageMutationOpCodec.test';
+import pageStructureOpCodecTest from './PageStructureOpCodec.test';
 import opStoreTest from './OpStore.test';
 
 export default function testsuite() {
@@ -91,5 +92,6 @@ export default function testsuite() {
   strokePersistenceTest();
   pageSnapshotOpCodecTest();
   pageMutationOpCodecTest();
+  pageStructureOpCodecTest();
   opStoreTest();
 }

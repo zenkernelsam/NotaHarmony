@@ -41,13 +41,22 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 - 因当前增量接口只有 `sinceTime`，正式保存会在事务内分配 `max(wallClock,lastClientTime+1)`，确保严格 `>` 游标不会因同毫秒
   或系统时钟回拨漏 op。`sequence` 仍提供数据库内稳定次序。
 - 写入前逐项比较 elementId、kind、顺序和 payload 字节。完全相同的页面不增加 revision，不重写索引，也不追加恢复点。
+- 第三阶段新增 `NPG1` 页面结构 mutation。它保存 note 范围的 from/to `structure_revision` 和完整 before/after
+  `PageInfo` 有序集合，分别映射 `CREATE_PAGE`、`DELETE_PAGE`、`UPDATE_PAGE`、`REORDER_PAGES`。replay 必须逐字段匹配
+  当前页面集合和 revision，支持严格正向与反向恢复；重复页面、非连续 pageIndex、复合设置加重排、非规范数值、截断或尾随载荷
+  均拒绝。
+- v14 在 `note_meta` 增加 `structure_revision`。opId 确定生成为
+  `page-structure:{fromRevision}:{toRevision}`；页面写入、revision 条件推进和日志 append 同事务，失败整体回滚。普通新建笔记的
+  默认首页也在笔记创建事务内产生 `0→1` 的 `CREATE_PAGE`，导入专用空笔记则由逐页导入依次产生页面 op。
+- `PageRepository` 的设置写入不再修改 `page_index`；排序必须经过完整成员集合校验。删除不存在页或最后一页、更新不存在页、
+  重排中的重复/缺失/外来 ID、以及任何影响行数异常都会在提交前失败。无变化设置和无变化排序不推进 revision、不追加日志。
 
 ## 后果
 
 `OpStore` 现在有真实实现，且正式页面保存会产生可回放的追加记录，因此旧 D-19 的“接口零实现”缺口可以关闭。日志与当前快照
 原子一致，可作为后续崩溃恢复、压缩和细粒度操作迁移的基础。
 
-这不关闭 D-02，也不等价于原版 ClientOp。元素 mutation serializer 与双向 replay 已建立，但保存队列仍可能把连续 UI 动作
-合为一次数据库 mutation，页面增删/设置/重排尚未进入同一日志，UndoRedoManager 也未从持久化 mutation 恢复。后续仍需实现：
-逐动作边界、页面 op、跨会话 Undo/Redo、editor site/原版式单调 opId、checkpoint/compaction、损坏日志恢复、导入映射，以及
+这不关闭 D-02，也不等价于原版 ClientOp。元素与页面结构 mutation serializer、双向 replay 和原子追加已经建立，但元素保存队列
+仍可能把连续 UI 动作合为一次数据库 mutation，UndoRedoManager 也未从持久化 mutation 恢复。后续仍需实现：逐动作边界、
+跨会话 Undo/Redo、editor site/原版式单调 opId、checkpoint/compaction、损坏日志恢复、同步导入映射，以及
 同步上传和聚合元数据。完成这些之前，不得声称具有原版协作或完整增量同步语义。
