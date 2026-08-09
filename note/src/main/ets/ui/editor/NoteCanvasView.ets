@@ -24,13 +24,18 @@ import {
   EditorHistoryBridge, PageContentSnapshot, UndoRedoManager, UndoableAction,
   UndoableActionType,
 } from '../../rendering/UndoRedoManager';
-import { HistoryMetadata } from '../../core/model/OpTypes';
+import { HistoryMetadata, Op } from '../../core/model/OpTypes';
 import { SelectionTool, SelectionMode } from '../../rendering/SelectionTool';
 import { ClipboardPasteResult, StrokeClipboard } from '../../rendering/StrokeClipboard';
 import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
-import { StrokePersistence } from '../../data/StrokePersistence';
+import { decodePersistedElement, encodePersistedElement, PersistedElement, StrokePersistence } from '../../data/StrokePersistence';
+import { SearchSourceElement } from '../../data/SearchIndexPolicy';
 import { DatabaseManager } from '../../data/DatabaseManager';
+import { OpStoreImpl } from '../../data/OpStoreImpl';
+import {
+  materializePersistentHistory, reducePersistentHistory, replayPersistentPageMutations, RestoredHistoryState,
+} from '../../data/PersistentHistory';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import {
   RenderSpec, StrokeElementData, StrokePathPoint, InputBatch, InputBatchKind, PencilSplatPoint,
@@ -40,12 +45,12 @@ import {
   ShapeElement, TextBlockElement,
 } from '../../core/model/ElementTypes';
 import {
-  cloneShapeElement, eraserPathHitsShape, transformShapeElements,
+  cloneShapeElement, eraserPathHitsShape, recomputeShapeBounds, transformShapeElements,
 } from '../../core/model/ShapeGeometry';
 import { prepareRecognizedShapes } from '../../core/model/ShapeRecognition';
 import {
   cloneTextBlockElement, eraserPathHitsTextBlock, pointHitsTextBlock, textBlockTransformComponents,
-  transformTextBlockElements,
+  textBlockWorldBounds, transformTextBlockElements,
 } from '../../core/model/TextBlockGeometry';
 import { Point2D, Rect2D, CubicSegment } from '../../core/model/GeometryTypes';
 import {
@@ -169,6 +174,7 @@ export struct NoteCanvasView {
   private pageLoadGeneration: number = 0;
   private saveFailed: boolean = false;
   private lastQueuedHistoryRevision: number = 0;
+  private historyLoaded: boolean = false;
   @State textEditing: boolean = false;
   @State editingTextBlock: TextBlockElement | null = null;
   private editingOriginalTextBlock: TextBlockElement | null = null;
@@ -222,6 +228,23 @@ export struct NoteCanvasView {
       this.shapes = loaded.shapes;
       this.elementOrder = loaded.elementOrder;
       this.loadedPageId = targetPageId;
+      if (!this.historyLoaded) {
+        const restored: RestoredHistoryState | null = await this.readPersistentHistory(db, targetPageId);
+        if (generation !== this.pageLoadGeneration || this.currentPage.pageId !== targetPageId) {
+          return;
+        }
+        if (restored === null) {
+          this.undoRedo.clear();
+        } else {
+          this.undoRedo.restore(restored.undo, restored.redo);
+          if (restored.legacyOperationCount > 0) {
+            hilog.info(0x0001, 'NoteCanvasView',
+              'history restored after %{public}d legacy operation boundaries', restored.legacyOperationCount);
+          }
+        }
+        this.notifyUndoRedo();
+        this.historyLoaded = true;
+      }
       // T-034：恢复视口（zoom/scroll）
       const noteRepo = new NoteRepositoryImpl(db);
       const state = await noteRepo.getViewState(this.noteId);
@@ -252,6 +275,18 @@ export struct NoteCanvasView {
       if (generation === this.pageLoadGeneration) {
         this.dataLoading = false;
       }
+    }
+  }
+
+  private async readPersistentHistory(db: DatabaseManager,
+    currentPageId: string): Promise<RestoredHistoryState | null> {
+    try {
+      const operations: Op[] = await new OpStoreImpl(db).getOps(this.noteId);
+      return materializePersistentHistory(reducePersistentHistory(operations), currentPageId);
+    } catch (e) {
+      // Corrupt history must not make the note unreadable. Strict replay remains unavailable.
+      hilog.error(0x0001, 'NoteCanvasView', 'persistent history disabled: %{public}s', JSON.stringify(e));
+      return null;
     }
   }
 
@@ -1380,6 +1415,10 @@ export struct NoteCanvasView {
       this.replaceStrokesById(isUndo ? action.beforeStrokes : action.afterStrokes);
       this.replaceShapesById(isUndo ? action.beforeShapes : action.afterShapes);
       this.replaceTextBlocksById(isUndo ? action.beforeTextBlocks : action.afterTextBlocks);
+    } else if (action.type === UndoableActionType.PERSISTED_PAGE_MUTATIONS) {
+      if (!this.applyPersistedPageMutations(action.operations, isUndo)) {
+        return false;
+      }
     } else {
       hilog.error(0x0001, 'NoteCanvasView', 'unsupported history action type=%{public}d', action.type);
       return false;
@@ -1400,6 +1439,9 @@ export struct NoteCanvasView {
     }
     if (!this.validateElementOrderAction(action, isUndo)) {
       return false;
+    }
+    if (action.type === UndoableActionType.PERSISTED_PAGE_MUTATIONS) {
+      return action.operations.length > 0;
     }
     if (action.type === UndoableActionType.ADD_STROKE) {
       return action.addedStrokes.length > 0 && this.hasUniqueStrokeIds(action.addedStrokes) &&
@@ -1522,6 +1564,61 @@ export struct NoteCanvasView {
         this.allTextBlockIdsPresent(sourceTextBlocks);
     }
     return false;
+  }
+
+  private applyPersistedPageMutations(operations: Op[], isUndo: boolean): boolean {
+    try {
+      const current: SearchSourceElement[] = replayPersistentPageMutations(
+        this.currentMutationElements(), operations, isUndo);
+      this.installMutationElements(current);
+      return true;
+    } catch (e) {
+      hilog.error(0x0001, 'NoteCanvasView', 'persisted mutation replay rejected: %{public}s', JSON.stringify(e));
+      return false;
+    }
+  }
+
+  private currentMutationElements(): SearchSourceElement[] {
+    const ordered: OrderedPageElement[] = materializePageElements(
+      this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes);
+    const result: SearchSourceElement[] = [];
+    for (const element of ordered) {
+      const kind: string = element.kind === PageElementKind.STROKE ? 'stroke' :
+        (element.kind === PageElementKind.TEXT ? 'text' : 'shape');
+      const persisted: PersistedElement = { kind: kind, data: element.data };
+      result.push({ elementId: element.elementId, kind: element.kind,
+        payload: encodePersistedElement(persisted) });
+    }
+    return result;
+  }
+
+  private installMutationElements(elements: SearchSourceElement[]): void {
+    const strokes: StrokeElementData[] = [];
+    const texts: TextBlockElement[] = [];
+    const shapes: ShapeElement[] = [];
+    const order: PageElementRef[] = [];
+    for (const element of elements) {
+      const persisted: PersistedElement = decodePersistedElement(element.payload);
+      if (element.kind === PageElementKind.STROKE && persisted.kind === 'stroke') {
+        const stroke: StrokeElementData = persisted.data as StrokeElementData;
+        strokes.push(stroke);
+      } else if (element.kind === PageElementKind.TEXT && persisted.kind === 'text') {
+        const text: TextBlockElement = cloneTextBlockElement(persisted.data as TextBlockElement);
+        text.bounds = textBlockWorldBounds(text);
+        texts.push(text);
+      } else if (element.kind === PageElementKind.SHAPE && persisted.kind === 'shape') {
+        const shape: ShapeElement = cloneShapeElement(persisted.data as ShapeElement);
+        shape.bounds = recomputeShapeBounds(shape);
+        shapes.push(shape);
+      } else {
+        throw new Error('persisted mutation element kind mismatch');
+      }
+      order.push({ kind: element.kind, elementId: element.elementId, zIndex: order.length });
+    }
+    this.completedStrokes = strokes;
+    this.textBlocks = texts;
+    this.shapes = shapes;
+    this.elementOrder = order;
   }
 
   private validateElementOrderAction(action: UndoableAction, isUndo: boolean): boolean {

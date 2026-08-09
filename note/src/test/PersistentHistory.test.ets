@@ -2,8 +2,18 @@ import { describe, it, expect } from '@ohos/hypium';
 import {
   HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op, OpType,
 } from '../main/ets/core/model/OpTypes';
-import { reducePersistentHistory } from '../main/ets/data/PersistentHistory';
+import { PageInfo, PageOrientation, PaperSize, PaperTemplate } from '../main/ets/core/model/NoteTypes';
+import {
+  materializePersistentHistory, PersistentHistoryState, reducePersistentHistory,
+  replayPersistentPageMutations, RestoredHistoryState,
+} from '../main/ets/data/PersistentHistory';
 import { validateHistoryMetadata } from '../main/ets/data/PersistentHistoryMetadata';
+import {
+  classifyPageMutation, createPageMutation, encodePageMutationOp, PageMutationOpPayload,
+} from '../main/ets/data/PageMutationOpCodec';
+import { createPageStructureMutation, encodePageStructureMutation } from '../main/ets/data/PageStructureOpCodec';
+import { SearchSourceElement } from '../main/ets/data/SearchIndexPolicy';
+import { UndoableActionType } from '../main/ets/rendering/UndoRedoManager';
 
 function makeOp(opId: string, actionId?: string, effect: HistoryEffect = HistoryEffect.PUSH,
   actionTime: number = 100): Op {
@@ -28,6 +38,55 @@ function makeOp(opId: string, actionId?: string, effect: HistoryEffect = History
 function rejects(operations: Op[]): boolean {
   try {
     reducePersistentHistory(operations);
+  } catch (_error) {
+    return true;
+  }
+  return false;
+}
+
+function history(actionId: string, actionTime: number = 100): HistoryMetadata {
+  return {
+    actionId: actionId, effect: HistoryEffect.PUSH,
+    coalesceTrack: HistoryCoalesceTrack.NONE, actionTime: actionTime,
+  };
+}
+
+function mutationOp(opId: string, actionId: string, pageId: string, fromRevision: number,
+  before: SearchSourceElement[], after: SearchSourceElement[], opType?: OpType): Op {
+  const mutation: PageMutationOpPayload = createPageMutation(
+    pageId, fromRevision, fromRevision + 1, before, after);
+  return {
+    opId: opId, noteId: 'note-1',
+    opType: opType === undefined ? classifyPageMutation(mutation) : opType,
+    payload: encodePageMutationOp(mutation), clientTime: fromRevision + 1,
+    history: history(actionId),
+  };
+}
+
+function pageOp(opId: string, actionId: string, opType: OpType, fromRevision: number,
+  before: PageInfo[], after: PageInfo[]): Op {
+  return {
+    opId: opId, noteId: 'note-1', opType: opType,
+    payload: encodePageStructureMutation(
+      createPageStructureMutation(fromRevision, fromRevision + 1, before, after)),
+    clientTime: fromRevision + 1, history: history(actionId, fromRevision + 100),
+  };
+}
+
+function element(elementId: string, kind: number, value: number): SearchSourceElement {
+  return { elementId: elementId, kind: kind, payload: new Uint8Array([value]) };
+}
+
+function page(pageId: string, pageIndex: number, template: PaperTemplate = PaperTemplate.PLAIN): PageInfo {
+  return {
+    pageId: pageId, pageIndex: pageIndex, size: PaperSize.A4, template: template,
+    orientation: PageOrientation.PORTRAIT, widthMm: 210, heightMm: 297,
+  };
+}
+
+function materializeRejects(state: PersistentHistoryState): boolean {
+  try {
+    materializePersistentHistory(state, 'page-1');
   } catch (_error) {
     return true;
   }
@@ -95,6 +154,85 @@ export default function persistentHistoryTest() {
         rejected = true;
       }
       expect(rejected).assertTrue();
+    });
+
+    it('materializes and replays persisted element actions in both directions', 0, () => {
+      const before: SearchSourceElement[] = [element('a', 1, 1)];
+      const middle: SearchSourceElement[] = [element('a', 1, 1), element('b', 2, 2)];
+      const after: SearchSourceElement[] = [element('a', 1, 3), element('b', 2, 2)];
+      const first: Op = mutationOp('m1', 'action-a', 'page-1', 0, before, middle);
+      const second: Op = mutationOp('m2', 'action-a', 'page-1', 1, middle, after);
+      const restored: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([first, second]), 'page-1');
+
+      expect(restored.undo.length).assertEqual(1);
+      expect(restored.undo[0].action.type).assertEqual(UndoableActionType.PERSISTED_PAGE_MUTATIONS);
+      expect(restored.undo[0].history.actionId).assertEqual('action-a');
+      const reversed: SearchSourceElement[] = replayPersistentPageMutations(
+        after, restored.undo[0].action.type === UndoableActionType.PERSISTED_PAGE_MUTATIONS
+          ? restored.undo[0].action.operations : [], true);
+      expect(reversed.length).assertEqual(1);
+      expect(reversed[0].elementId).assertEqual('a');
+      expect(reversed[0].payload[0]).assertEqual(1);
+      const replayed: SearchSourceElement[] = replayPersistentPageMutations(
+        before, restored.undo[0].action.type === UndoableActionType.PERSISTED_PAGE_MUTATIONS
+          ? restored.undo[0].action.operations : [], false);
+      expect(replayed.length).assertEqual(2);
+      expect(replayed[0].payload[0]).assertEqual(3);
+    });
+
+    it('materializes supported page actions with strict source states', 0, () => {
+      const first: PageInfo = page('page-1', 0);
+      const second: PageInfo = page('page-2', 1, PaperTemplate.GRID);
+      const changedFirst: PageInfo = page('page-1', 0, PaperTemplate.LINES);
+      const reorderedSecond: PageInfo = page('page-2', 0, PaperTemplate.GRID);
+      const reorderedFirst: PageInfo = page('page-1', 1, PaperTemplate.LINES);
+      const restored: RestoredHistoryState = materializePersistentHistory(reducePersistentHistory([
+        pageOp('p1', 'add', OpType.CREATE_PAGE, 0, [first], [first, second]),
+        pageOp('p2', 'settings', OpType.UPDATE_PAGE, 1, [first, second], [changedFirst, second]),
+        pageOp('p3', 'reorder', OpType.REORDER_PAGES, 2, [changedFirst, second],
+          [reorderedSecond, reorderedFirst]),
+      ]), 'page-2');
+
+      expect(restored.undo.length).assertEqual(3);
+      expect(restored.undo[0].action.type).assertEqual(UndoableActionType.ADD_PAGE);
+      expect(restored.undo[1].action.type).assertEqual(UndoableActionType.PAGE_SETTINGS);
+      expect(restored.undo[2].action.type).assertEqual(UndoableActionType.REORDER_PAGES);
+      expect(restored.undo[2].action.pageId).assertEqual('page-2');
+    });
+
+    it('rejects delete-page history, mixed pages, discontinuous revisions, and false op types', 0, () => {
+      const first: PageInfo = page('page-1', 0);
+      const second: PageInfo = page('page-2', 1);
+      const retained: PageInfo = page('page-2', 0);
+      expect(materializeRejects(reducePersistentHistory([
+        pageOp('delete', 'delete-action', OpType.DELETE_PAGE, 0, [first, second], [retained]),
+      ]))).assertTrue();
+
+      const empty: SearchSourceElement[] = [];
+      const onFirst: SearchSourceElement[] = [element('a', 1, 1)];
+      const onSecond: SearchSourceElement[] = [element('b', 1, 2)];
+      expect(materializeRejects(reducePersistentHistory([
+        mutationOp('m1', 'cross-page', 'page-1', 0, empty, onFirst),
+        mutationOp('m2', 'cross-page', 'page-2', 1, empty, onSecond),
+      ]))).assertTrue();
+      expect(materializeRejects(reducePersistentHistory([
+        mutationOp('m1', 'revision-gap', 'page-1', 0, empty, onFirst),
+        mutationOp('m2', 'revision-gap', 'page-1', 3, onFirst, [element('a', 1, 2)]),
+      ]))).assertTrue();
+      expect(materializeRejects(reducePersistentHistory([
+        mutationOp('mismatch', 'false-type', 'page-1', 0, empty, onFirst, OpType.TRANSFORM_ELEMENTS),
+      ]))).assertTrue();
+    });
+
+    it('materializes a trailing legacy boundary as empty restored stacks', 0, () => {
+      const reduced: PersistentHistoryState = reducePersistentHistory([
+        makeOp('op-a', 'action-a'), makeOp('legacy'),
+      ]);
+      const restored: RestoredHistoryState = materializePersistentHistory(reduced, 'page-1');
+      expect(restored.undo.length).assertEqual(0);
+      expect(restored.redo.length).assertEqual(0);
+      expect(restored.legacyOperationCount).assertEqual(1);
     });
   });
 }

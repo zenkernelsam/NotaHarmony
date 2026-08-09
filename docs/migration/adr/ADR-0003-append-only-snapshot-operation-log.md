@@ -66,6 +66,15 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
   也在应用前从栈顶取得原 actionId/effect，数据库成功后才 commit 栈移动。ADD_PAGE、PAGE_SETTINGS、REORDER_PAGES 已接入。
   DELETE_PAGE 暂不携带历史元数据：其 Undo 需要跨 add page、restore content、reorder 三个现有事务，缺少耐久内容 checkpoint 时不能
   谎称原子 action。legacy NPG1 会成为 reducer 边界，清空边界前的可恢复栈，只暴露最后一段完整元数据历史。
+- 第七阶段把 reducer 最后一个完整 segment 物化为可执行历史。元素动作保留原始 NPM1 列表，并要求 note/page、action 元数据、
+  opType 与载荷分类及相邻 revision 全部一致；ADD_PAGE、PAGE_SETTINGS、REORDER_PAGES 分别转回现有页面 action，DELETE_PAGE
+  继续拒绝物化。ADD_PAGE 仅接受至少已有一页时追加的空白尾页，默认首页的 legacy CREATE_PAGE 不会被伪装成可撤销动作。
+- `UndoRedoManager.restore()` 在替换活动栈前完整校验动作身份、元数据与重复 actionId，保留 reducer 给出的 undo/redo 栈顺序、原
+  actionId、actionTime 和 coalesce track，并按现有动作数/估算字节预算从最旧 undo 端淘汰。恢复本身不产生新的 history revision
+  或 PUSH 事件；恢复后的实际 Undo/Redo 才继续用原身份写入 UNDO/REDO mutation。
+- `NoteCanvasView` 首次载入笔记时读取并物化持久历史；读取结果只有在 page load generation 仍有效时才一次性安装，迟到的旧页面
+  读取不能清空新页面刚恢复的栈。损坏历史只禁用 Undo/Redo，不阻止打开当前快照。恢复的 NPM1 Undo 按逆序反向回放，Redo 按
+  正序正向回放；回放先在局部完整有序元素集上完成，全部匹配后才安装，并重算文本/形状 bounds，避免半应用状态。
 
 ## 后果
 
@@ -74,7 +83,7 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 
 这不关闭 D-02，也不等价于原版 ClientOp。元素与页面结构 mutation serializer、双向 replay、原子追加及当前会话的逐动作保存边界
 已经建立；元素 NPM1 及单事务页面 NPG1 也具备 action identity、PUSH/UNDO/REDO effect、coalesce track 和原 action time。
-但 DELETE_PAGE 仍是显式 legacy 边界，UndoRedoManager 也未从 reducer 结果恢复，删除页面所需内容还没有耐久 checkpoint。后续仍需实现：完整跨会话
-Undo/Redo、editor site/原版式单调 opId、
+最后一个无 legacy 的完整 segment 现在可在重启后恢复成可执行 Undo/Redo 栈，但 DELETE_PAGE 仍是显式 legacy 边界，删除页面所需
+内容还没有耐久 checkpoint。后续仍需实现：覆盖删除页的完整跨会话 Undo/Redo、原版式成组 Undo、editor site/原版式单调 opId、
 checkpoint/compaction、损坏日志恢复、同步导入映射，以及
 同步上传和聚合元数据。完成这些之前，不得声称具有原版协作或完整增量同步语义。

@@ -1,8 +1,8 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
-  AddStrokeAction, HistoryMetrics, UndoableAction, UndoableActionType, UndoRedoManager,
+  AddStrokeAction, HistoryMetrics, RestoredHistoryAction, UndoableAction, UndoableActionType, UndoRedoManager,
 } from '../main/ets/rendering/UndoRedoManager';
-import { HistoryEffect } from '../main/ets/core/model/OpTypes';
+import { HistoryCoalesceTrack, HistoryEffect } from '../main/ets/core/model/OpTypes';
 
 function makeAction(pageId: string): AddStrokeAction {
   return {
@@ -13,6 +13,26 @@ function makeAction(pageId: string): AddStrokeAction {
     elementOrderBefore: [],
     elementOrderAfter: [],
   };
+}
+
+function restored(action: UndoableAction, actionId: string): RestoredHistoryAction {
+  return {
+    action: action,
+    history: {
+      actionId: actionId, effect: HistoryEffect.PUSH,
+      coalesceTrack: HistoryCoalesceTrack.NONE, actionTime: 100,
+    },
+  };
+}
+
+function restoreRejects(manager: UndoRedoManager, undo: RestoredHistoryAction[],
+  redo: RestoredHistoryAction[]): boolean {
+  try {
+    manager.restore(undo, redo);
+  } catch (_error) {
+    return true;
+  }
+  return false;
 }
 
 export default function undoRedoManagerTest() {
@@ -125,6 +145,49 @@ export default function undoRedoManagerTest() {
       const manager: UndoRedoManager = new UndoRedoManager({ maxActions: Number.NaN, maxEstimatedBytes: 1 });
       manager.push(makeAction('page-1'));
       expect(manager.canUndo()).assertFalse();
+      expect(manager.getMetrics().evictedActions).assertEqual(1);
+    });
+
+    it('restores stack order and preserves action identity for later moves', 0, () => {
+      const manager: UndoRedoManager = new UndoRedoManager();
+      const first: UndoableAction = makeAction('page-1');
+      const second: UndoableAction = makeAction('page-2');
+      const third: UndoableAction = makeAction('page-3');
+      manager.restore([restored(first, 'a'), restored(second, 'b')], [restored(third, 'c')]);
+
+      expect(manager.peekUndo() === second).assertTrue();
+      expect(manager.peekRedo() === third).assertTrue();
+      expect(manager.getHistoryRevision()).assertEqual(0);
+      expect(manager.getLatestHistoryMetadata() === null).assertTrue();
+      expect(manager.getHistoryMetadataForMove(second, true)?.actionId).assertEqual('b');
+      expect(manager.getHistoryMetadataForMove(second, true)?.effect).assertEqual(HistoryEffect.UNDO);
+      expect(manager.getHistoryMetadataForMove(third, false)?.actionId).assertEqual('c');
+      expect(manager.commitUndo(second)).assertTrue();
+      expect(manager.getLatestHistoryMetadata()?.actionId).assertEqual('b');
+      expect(manager.getLatestHistoryMetadata()?.effect).assertEqual(HistoryEffect.UNDO);
+    });
+
+    it('validates a restored stack atomically and rejects duplicate identities', 0, () => {
+      const manager: UndoRedoManager = new UndoRedoManager();
+      const existing: UndoableAction = makeAction('existing');
+      manager.push(existing);
+      expect(restoreRejects(manager,
+        [restored(makeAction('page-1'), 'same')], [restored(makeAction('page-2'), 'same')])).assertTrue();
+      expect(manager.peekUndo() === existing).assertTrue();
+      expect(manager.canRedo()).assertFalse();
+    });
+
+    it('evicts only the oldest undo entries when restored redo history fits the budget', 0, () => {
+      const manager: UndoRedoManager = new UndoRedoManager(2);
+      const first: UndoableAction = makeAction('page-1');
+      const second: UndoableAction = makeAction('page-2');
+      const redo: UndoableAction = makeAction('page-3');
+      manager.restore([restored(first, 'a'), restored(second, 'b')], [restored(redo, 'c')]);
+
+      expect(manager.peekUndo() === second).assertTrue();
+      expect(manager.peekRedo() === redo).assertTrue();
+      expect(manager.getMetrics().undoActions).assertEqual(1);
+      expect(manager.getMetrics().redoActions).assertEqual(1);
       expect(manager.getMetrics().evictedActions).assertEqual(1);
     });
   });

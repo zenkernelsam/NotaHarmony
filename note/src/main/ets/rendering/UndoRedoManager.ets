@@ -5,7 +5,7 @@ import { StrokeElementData } from '../core/model/StrokeTypes';
 import { ElementType, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { PageInfo } from '../core/model/NoteTypes';
 import { PageElementRef } from '../core/model/PageElementOrder';
-import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata } from '../core/model/OpTypes';
+import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op } from '../core/model/OpTypes';
 
 // 可撤销的操作类型
 export enum UndoableActionType {
@@ -26,6 +26,7 @@ export enum UndoableActionType {
   TRANSFORM_ELEMENTS = 14,
   ERASE_ELEMENTS = 15,
   ADD_ELEMENTS = 16,
+  PERSISTED_PAGE_MUTATIONS = 17,
 }
 
 interface ActionBase {
@@ -163,10 +164,20 @@ export interface PageSettingsAction extends ActionBase {
   pageAfter: PageInfo;
 }
 
+export interface PersistedPageMutationsAction extends ActionBase {
+  type: UndoableActionType.PERSISTED_PAGE_MUTATIONS;
+  operations: Op[];
+}
+
 export type UndoableAction = AddStrokeAction | RemoveStrokeAction | TransformStrokesAction |
   AddElementAction | DeleteElementAction | ReplaceElementAction | ReorderElementsAction |
   AddShapeAction | AddElementsAction | DeleteElementsAction | TransformElementsAction | EraseElementsAction |
-  AddPageAction | DeletePageAction | ReorderPagesAction | PageSettingsAction;
+  AddPageAction | DeletePageAction | ReorderPagesAction | PageSettingsAction | PersistedPageMutationsAction;
+
+export interface RestoredHistoryAction {
+  action: UndoableAction;
+  history: HistoryMetadata;
+}
 
 export interface PageContentSnapshot {
   strokes: StrokeElementData[];
@@ -265,6 +276,13 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
   }
   if (action.type === UndoableActionType.REORDER_PAGES) {
     return bytes + estimateStringList(action.pageOrderBefore) + estimateStringList(action.pageOrderAfter);
+  }
+  if (action.type === UndoableActionType.PERSISTED_PAGE_MUTATIONS) {
+    let operationBytes: number = 0;
+    for (const operation of action.operations) {
+      operationBytes += operation.payload.length + operation.opId.length * 2 + 128;
+    }
+    return bytes + operationBytes;
   }
   return bytes + 512;
 }
@@ -437,6 +455,8 @@ export class UndoRedoManager {
     this.redoStack = [];
     this.undoBytes = 0;
     this.redoBytes = 0;
+    this.latestHistory = null;
+    this.historyRevision = 0;
   }
 
   getMetrics(): HistoryMetrics {
@@ -455,6 +475,53 @@ export class UndoRedoManager {
 
   getLatestHistoryMetadata(): HistoryMetadata | null {
     return this.latestHistory === null ? null : this.withEffect(this.latestHistory, this.latestHistory.effect);
+  }
+
+  restore(undo: RestoredHistoryAction[], redo: RestoredHistoryAction[]): void {
+    const restoredUndo: HistoryEntry[] = [];
+    const restoredRedo: HistoryEntry[] = [];
+    const actionIds: Set<string> = new Set<string>();
+    let restoredUndoBytes: number = 0;
+    let restoredRedoBytes: number = 0;
+    for (const restored of undo) {
+      const entry: HistoryEntry = this.restoredEntry(restored);
+      if (actionIds.has(entry.history.actionId)) {
+        throw new Error('restored history contains a duplicate action identity');
+      }
+      actionIds.add(entry.history.actionId);
+      restoredUndo.push(entry);
+      restoredUndoBytes += entry.estimatedBytes;
+    }
+    for (const restored of redo) {
+      const entry: HistoryEntry = this.restoredEntry(restored);
+      if (actionIds.has(entry.history.actionId)) {
+        throw new Error('restored history contains a duplicate action identity');
+      }
+      actionIds.add(entry.history.actionId);
+      restoredRedo.push(entry);
+      restoredRedoBytes += entry.estimatedBytes;
+    }
+    while (restoredUndo.length > 0 &&
+      (restoredUndo.length + restoredRedo.length > this.maxActions ||
+        restoredUndoBytes + restoredRedoBytes > this.maxEstimatedBytes)) {
+      const evicted: HistoryEntry | undefined = restoredUndo.shift();
+      if (evicted === undefined) {
+        break;
+      }
+      restoredUndoBytes -= evicted.estimatedBytes;
+      this.evictedActions++;
+      this.evictedEstimatedBytes += evicted.estimatedBytes;
+    }
+    if (restoredRedo.length > this.maxActions || restoredRedoBytes > this.maxEstimatedBytes) {
+      this.clear();
+      return;
+    }
+    this.undoStack = restoredUndo;
+    this.redoStack = restoredRedo;
+    this.undoBytes = restoredUndoBytes;
+    this.redoBytes = restoredRedoBytes;
+    this.latestHistory = null;
+    this.historyRevision = 0;
   }
 
   prepareHistoryMetadata(action: UndoableAction): HistoryMetadata {
@@ -494,10 +561,24 @@ export class UndoRedoManager {
 
   private acceptPreparedHistory(history: HistoryMetadata): HistoryMetadata {
     if (history.effect !== HistoryEffect.PUSH || history.actionId.length === 0 ||
-      !Number.isSafeInteger(history.actionTime) || history.actionTime < 0) {
+      !Number.isSafeInteger(history.actionTime) || history.actionTime < 0 ||
+      !Number.isSafeInteger(history.coalesceTrack) || history.coalesceTrack < HistoryCoalesceTrack.NONE ||
+      history.coalesceTrack > HistoryCoalesceTrack.CREATE_INK) {
       throw new Error('prepared history metadata is invalid');
     }
     return this.withEffect(history, HistoryEffect.PUSH);
+  }
+
+  private restoredEntry(restored: RestoredHistoryAction): HistoryEntry {
+    const history: HistoryMetadata = this.acceptPreparedHistory(restored.history);
+    if (restored.action.noteId.length === 0 || restored.action.pageId.length === 0) {
+      throw new Error('restored history action identity is invalid');
+    }
+    return {
+      action: restored.action,
+      estimatedBytes: estimateHistoryActionBytes(restored.action),
+      history: history,
+    };
   }
 
   private advanceHistoryRevision(): void {
