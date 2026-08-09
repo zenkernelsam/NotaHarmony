@@ -24,6 +24,7 @@ import assetReferenceTest from './AssetReference.test';
 import strokePredictionTest from './StrokePrediction.test';
 import rendererStyleTest from './RendererStyle.test';
 import pencilSplatMathTest from './PencilSplatMath.test';
+import pageCoordinateSpaceTest from './PageCoordinateSpace.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -52,4 +53,5 @@ export default function testsuite() {
   strokePredictionTest();
   rendererStyleTest();
   pencilSplatMathTest();
+  pageCoordinateSpaceTest();
 }

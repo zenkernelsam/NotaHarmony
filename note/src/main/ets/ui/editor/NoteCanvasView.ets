@@ -14,6 +14,7 @@ import {
 } from '../../core/adaptation/PencilSplatMath';
 import { StrokeLayerManager } from '../../rendering/StrokeLayerManager';
 import { CanvasViewport } from '../../rendering/CanvasViewport';
+import { pagePixelSize, PAGE_UNITS_PER_MM, PagePixelSize } from '../../core/model/PageCoordinateSpace';
 import { StrokeSession } from '../../rendering/StrokeSession';
 import { EraserEngine, EraserMode } from '../../rendering/EraserEngine';
 import { PaperRenderer } from '../../rendering/PaperRenderer';
@@ -1779,17 +1780,16 @@ export struct NoteCanvasView {
   }
 
   private getPaperWidth(): number {
-    return this.currentPage.widthMm > 0 ? this.currentPage.widthMm * 3.78 : 800;
+    return this.currentPage.widthMm > 0 ? this.currentPage.widthMm * PAGE_UNITS_PER_MM : 800;
   }
 
   private getPaperHeight(): number {
-    return this.currentPage.heightMm > 0 ? this.currentPage.heightMm * 3.78 : 1131;
+    return this.currentPage.heightMm > 0 ? this.currentPage.heightMm * PAGE_UNITS_PER_MM : 1131;
   }
 
   private initializeLayerForPage(): void {
-    const width: number = Math.max(1, Math.ceil(this.getPaperWidth()));
-    const height: number = Math.max(1, Math.ceil(this.getPaperHeight()));
-    this.layerManager.initialize(width, height);
+    const size: PagePixelSize = pagePixelSize(this.currentPage.widthMm, this.currentPage.heightMm);
+    this.layerManager.initialize(size.width, size.height);
   }
 
   private centerPaperInViewport(): void {

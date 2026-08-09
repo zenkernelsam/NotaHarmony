@@ -4,6 +4,7 @@ import { PageInfo } from '../core/model/NoteTypes';
 import { PageRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { AsyncMutex, MutexRelease } from './AsyncMutex';
+import { validatePageDimensions } from '../core/model/PageCoordinateSpace';
 
 export class PageRepositoryImpl implements PageRepository {
   private static mutationMutex: AsyncMutex = new AsyncMutex();
@@ -35,6 +36,7 @@ export class PageRepositoryImpl implements PageRepository {
   }
 
   async addPage(noteId: string, page: PageInfo): Promise<PageInfo> {
+    validatePageDimensions(page);
     const release: MutexRelease = await PageRepositoryImpl.mutationMutex.lock();
     const store: relationalStore.RdbStore = this.db.getStore();
     try {
@@ -110,6 +112,7 @@ export class PageRepositoryImpl implements PageRepository {
   }
 
   async updatePage(page: PageInfo): Promise<void> {
+    validatePageDimensions(page);
     const store: relationalStore.RdbStore = this.db.getStore();
     const bucket: relationalStore.ValuesBucket = {
       'size': page.size,
@@ -153,7 +156,7 @@ export class PageRepositoryImpl implements PageRepository {
 
   private rowToPage(resultSet: relationalStore.ResultSet): PageInfo {
     try {
-      return {
+      const page: PageInfo = {
         pageId: resultSet.getString(resultSet.getColumnIndex('page_id')),
         pageIndex: resultSet.getLong(resultSet.getColumnIndex('page_index')),
         size: resultSet.getLong(resultSet.getColumnIndex('size')),
@@ -162,6 +165,8 @@ export class PageRepositoryImpl implements PageRepository {
         widthMm: resultSet.getDouble(resultSet.getColumnIndex('width_mm')),
         heightMm: resultSet.getDouble(resultSet.getColumnIndex('height_mm')),
       };
+      validatePageDimensions(page);
+      return page;
     } catch (e) {
       throw new Error('rowToPage failed: ' + JSON.stringify(e));
     }
