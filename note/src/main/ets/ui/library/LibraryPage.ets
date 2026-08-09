@@ -58,13 +58,14 @@ struct LibraryPage {
   @State folders: NoteFolder[] = [];
   @State currentFolderId: string | null = null;
   @State folderDialogTitle: ResourceStr = $r('app.string.new_folder');
+  @State folderDialogInitialText: string = '';
   @State folderDialogMode: number = 0;  // 0=新建 1=重命名
   @State folderDialogTargetId: string = '';
   @State folderDialogParentId: string | null = null;
   private folderDialog: CustomDialogController = new CustomDialogController({
     builder: NameDialog({
       title: this.folderDialogTitle,
-      initialText: '',
+      initialText: this.folderDialogInitialText,
       onConfirm: (name: string) => {
         this.onFolderDialogConfirm(name).catch((e: Error) => {
           console.error(`folder dialog confirm failed: ${JSON.stringify(e)}`);
@@ -287,20 +288,9 @@ struct LibraryPage {
     }
     this.folderDialogMode = 0;
     this.folderDialogTitle = $r('app.string.new_folder');
+    this.folderDialogInitialText = '';
     this.folderDialogTargetId = '';
     this.folderDialogParentId = parentId;
-    this.folderDialog = new CustomDialogController({
-      builder: NameDialog({
-        title: this.folderDialogTitle,
-        initialText: '',
-        onConfirm: (name: string) => {
-          this.onFolderDialogConfirm(name).catch((e: Error) => {
-            console.error(`folder dialog confirm failed: ${JSON.stringify(e)}`);
-          });
-        },
-      }),
-      autoCancel: true,
-    });
     this.folderDialog.open();
   }
 
@@ -310,19 +300,8 @@ struct LibraryPage {
     }
     this.folderDialogMode = 1;
     this.folderDialogTitle = $r('app.string.rename');
+    this.folderDialogInitialText = folder.name;
     this.folderDialogTargetId = folder.id;
-    this.folderDialog = new CustomDialogController({
-      builder: NameDialog({
-        title: this.folderDialogTitle,
-        initialText: folder.name,
-        onConfirm: (name: string) => {
-          this.onFolderDialogConfirm(name).catch((e: Error) => {
-            console.error(`folder dialog confirm failed: ${JSON.stringify(e)}`);
-          });
-        },
-      }),
-      autoCancel: true,
-    });
     this.folderDialog.open();
   }
 
