@@ -13,6 +13,7 @@ import {
   applyOriginalPencilAlphaCurve, ORIGINAL_PENCIL_TEXTURE_SIZE,
 } from '../../core/adaptation/PencilSplatMath';
 import { StrokeLayerManager } from '../../rendering/StrokeLayerManager';
+import { BitmapTransferMetrics, BitmapTransferTracker } from '../../core/adaptation/BitmapTransferTracker';
 import { CanvasViewport } from '../../rendering/CanvasViewport';
 import { pagePixelSize, PAGE_UNITS_PER_MM, PagePixelSize } from '../../core/model/PageCoordinateSpace';
 import { StrokeSession } from '../../rendering/StrokeSession';
@@ -78,11 +79,12 @@ export struct NoteCanvasView {
   private renderCtx: Canvas2DRenderContext = new Canvas2DRenderContext(this.canvasCtx);
   private inputProvider: InkInputProviderImpl = InkInputProviderImpl.createForArkUI();
   private predictor: PenKitPredictor = new PenKitPredictor();
-  private renderer: Canvas2DStrokeRenderer = new Canvas2DStrokeRenderer();
+  private bitmapTransferTracker: BitmapTransferTracker = new BitmapTransferTracker();
+  private renderer: Canvas2DStrokeRenderer = new Canvas2DStrokeRenderer(this.bitmapTransferTracker);
   private pencilPixelMap: image.PixelMap | null = null;
   private pencilTextureLoading: boolean = false;
   private lifecycleActive: boolean = false;
-  private layerManager: StrokeLayerManager = new StrokeLayerManager(this.renderer);
+  private layerManager: StrokeLayerManager = new StrokeLayerManager(this.renderer, this.bitmapTransferTracker);
   private strokeSession: StrokeSession | null = null;
   private activePointerId: number = -1;
   private pointerStream: PointerSampleStream = new PointerSampleStream();
@@ -305,6 +307,15 @@ export struct NoteCanvasView {
     } else {
       this.persist();
     }
+    const renderMetrics: BitmapTransferMetrics = this.layerManager.getRenderMetrics();
+    hilog.info(0x0001, 'NoteCanvasView',
+      'render metrics frames=%{public}d full=%{public}d transfers=%{public}d completed=%{public}d ' +
+      'isolated=%{public}d pencilTint=%{public}d pencilTexture=%{public}d ' +
+      'maxPerFrame=%{public}d maxDirtyRegions=%{public}d',
+      renderMetrics.frameCount, renderMetrics.fullFrameCount, renderMetrics.totalTransfers,
+      renderMetrics.completedLayerTransfers, renderMetrics.isolatedMaskTransfers,
+      renderMetrics.pencilTintTransfers, renderMetrics.pencilTextureTransfers,
+      renderMetrics.maxFrameTransfers, renderMetrics.maxDirtyRegionCount);
     this.layerManager.dispose();
     this.renderer.dispose();
     if (this.pencilPixelMap !== null) {
@@ -480,7 +491,11 @@ export struct NoteCanvasView {
     } catch (e) {
       console.error(`Original pencil texture load failed: ${JSON.stringify(e)}`);
       if (this.lifecycleActive) {
-        this.renderer.setSplatTexture(Canvas2DStrokeRenderer.generatePencilTexture());
+        this.renderer.setSplatTexture(Canvas2DStrokeRenderer.generatePencilTexture(this.bitmapTransferTracker));
+        if (this.layerManager.isInitialized()) {
+          this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+          this.renderFrame(true);
+        }
       }
       if (pixelMap !== null) {
         try {

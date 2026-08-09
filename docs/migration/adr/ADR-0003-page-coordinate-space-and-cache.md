@@ -23,7 +23,7 @@ page   = (screen - scroll) / zoom
 
 Keep one full-page completed OffscreenCanvas for the current standard-size page. Reject non-finite, non-positive, or oversized page metadata before repository writes, after repository reads, and again before canvas allocation. The static budget is 2048 pixels per side and 2,000,000 pixels in total. It includes every currently exposed paper size: A3 is the largest area at `1123 x 1588 = 1,783,324` pixels, while Tabloid has the longest side at 1633 pixels. The independent side cap also rejects corrupt, extremely narrow pages whose area alone would look acceptable but whose texture dimension would be unsafe.
 
-One RGBA page surface is therefore at most 7.63 MiB. The normal completed layer plus its drawImage-compatible ImageBitmap is at most 15.26 MiB. A masked-stroke rebuild can transiently add one isolated layer and one transferred bitmap, making the page-cache-specific upper bound about 30.52 MiB. Main-canvas buffers, the pencil scratch surface, and platform-internal copies are separate and require device profiling.
+One RGBA page surface is therefore at most 7.63 MiB. The normal completed layer plus its drawImage-compatible ImageBitmap is at most 15.26 MiB. A masked-stroke rebuild can transiently add one isolated layer and one transferred bitmap, making the page-cache-specific upper bound about 30.52 MiB. Main-canvas buffers, retained pencil source/tint textures, and platform-internal copies are separate and require device profiling.
 
 Page size or orientation changes rebuild only the page cache. They do not call `centerPaperInViewport()`, so the user's zoom and scroll remain unchanged. Switching to another page intentionally recentres that page in the current implementation.
 

@@ -6,22 +6,27 @@ import { StrokeElementData, InkStyle } from '../core/model/StrokeTypes';
 import { StrokeRenderer, RenderContext } from '../core/adaptation/StrokeRenderer';
 import { Canvas2DRenderContext, Canvas2DOffscreenRenderContext } from '../core/adaptation/Canvas2DStrokeRenderer';
 import { DirtyRectTracker } from './DirtyRectTracker';
+import {
+  BitmapTransferKind, BitmapTransferMetrics, BitmapTransferTracker,
+} from '../core/adaptation/BitmapTransferTracker';
+import { computeIsolatedLayerBounds, translateTransformToCrop } from '../core/adaptation/LayerCacheGeometry';
 
 export class StrokeLayerManager {
   private completedLayer: OffscreenCanvas | null = null;   // 已完成笔画缓存
   private completedCtx: OffscreenCanvasRenderingContext2D | null = null;
   private completedRenderCtx: Canvas2DOffscreenRenderContext | null = null;
   private completedBitmap: ImageBitmap | null = null;
-  private completedBitmapDirty: boolean = true;
   private renderer: StrokeRenderer;
   private dirtyTracker: DirtyRectTracker;
+  private transferTracker: BitmapTransferTracker;
   private pageWidth: number = 0;
   private pageHeight: number = 0;
   private previousCurrentBounds: Rect2D | null = null;
 
-  constructor(renderer: StrokeRenderer) {
+  constructor(renderer: StrokeRenderer, transferTracker: BitmapTransferTracker = new BitmapTransferTracker()) {
     this.renderer = renderer;
     this.dirtyTracker = new DirtyRectTracker(3);
+    this.transferTracker = transferTracker;
   }
 
   // 初始化/重建 OffscreenCanvas（页面 onReady 或 resize 时调用）
@@ -32,7 +37,6 @@ export class StrokeLayerManager {
     this.completedLayer = new OffscreenCanvas(width, height);
     this.completedCtx = this.completedLayer.getContext('2d', new RenderingContextSettings(true));
     this.completedRenderCtx = new Canvas2DOffscreenRenderContext(this.completedCtx);
-    this.completedBitmapDirty = true;
     this.previousCurrentBounds = null;
     this.markFullPageDirty();
   }
@@ -42,8 +46,9 @@ export class StrokeLayerManager {
     if (this.completedRenderCtx === null) {
       return;
     }
+    this.restoreWorkingLayer();
     this.renderStrokeOnto(stroke, this.completedRenderCtx);
-    this.completedBitmapDirty = true;
+    this.publishWorkingLayer();
     this.dirtyTracker.markDirty(stroke.bounds, zoom);
   }
 
@@ -61,6 +66,7 @@ export class StrokeLayerManager {
     const dirtyRegions: Rect2D[] = this.dirtyTracker.consume();
     this.previousCurrentBounds = currentStroke !== null ? this.cloneRect(currentStroke.bounds) : null;
     if (dirtyRegions.length === 0) {
+      this.transferTracker.finishFrame(false, 0);
       return;
     }
     mainCtx.save();
@@ -73,7 +79,7 @@ export class StrokeLayerManager {
       mainCtx.clearRect(dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top);
     }
     renderBackground();
-    const completed: ImageBitmap | null = this.getCompletedBitmap();
+    const completed: ImageBitmap | null = this.completedBitmap;
     if (completed !== null) {
       mainCtx.drawImage(completed, 0, 0, this.pageWidth, this.pageHeight);
     }
@@ -82,6 +88,7 @@ export class StrokeLayerManager {
     }
     renderForeground();
     mainCtx.restore();
+    this.transferTracker.finishFrame(false, dirtyRegions.length);
   }
 
   // 全屏合成（无脏区优化）：纸张背景每帧重绘场景使用，避免脏区清屏破坏背景
@@ -91,13 +98,14 @@ export class StrokeLayerManager {
     // This path redraws the full frame, so earlier dirty bounds have been satisfied.
     this.dirtyTracker.consume();
     this.previousCurrentBounds = currentStroke !== null ? this.cloneRect(currentStroke.bounds) : null;
-    const completed: ImageBitmap | null = this.getCompletedBitmap();
+    const completed: ImageBitmap | null = this.completedBitmap;
     if (completed !== null) {
       mainCtx.drawImage(completed, 0, 0, this.pageWidth, this.pageHeight);
     }
     if (currentStroke !== null && currentRenderCtx !== null) {
       this.renderStrokeOnto(currentStroke, currentRenderCtx);
     }
+    this.transferTracker.finishFrame(true, 1);
   }
 
   // 清空全部（新建笔记/撤销全部）
@@ -106,7 +114,7 @@ export class StrokeLayerManager {
       return;
     }
     this.completedCtx.clearRect(0, 0, this.pageWidth, this.pageHeight);
-    this.completedBitmapDirty = true;
+    this.releaseCompletedBitmap();
     this.markFullPageDirty();
   }
 
@@ -119,12 +127,20 @@ export class StrokeLayerManager {
     for (const s of strokes) {
       this.renderStrokeOnto(s, this.completedRenderCtx);
     }
-    this.completedBitmapDirty = true;
+    if (strokes.length > 0) {
+      this.publishWorkingLayer();
+    } else {
+      this.releaseCompletedBitmap();
+    }
     this.markFullPageDirty();
   }
 
   isInitialized(): boolean {
     return this.completedLayer !== null;
+  }
+
+  getRenderMetrics(): BitmapTransferMetrics {
+    return this.transferTracker.snapshot();
   }
 
   dispose(): void {
@@ -143,18 +159,29 @@ export class StrokeLayerManager {
   private renderStrokeOnto(stroke: StrokeElementData, rc: RenderContext): void {
     const c: Canvas2DRenderContext = rc as Canvas2DRenderContext;
     if (stroke.maskPath.length > 0) {
-      const isolatedLayer = new OffscreenCanvas(this.pageWidth, this.pageHeight);
+      const crop: Rect2D = computeIsolatedLayerBounds(stroke.bounds, this.pageWidth, this.pageHeight);
+      const width: number = crop.right - crop.left;
+      const height: number = crop.bottom - crop.top;
+      if (width <= 0 || height <= 0) {
+        return;
+      }
+      const isolatedLayer = new OffscreenCanvas(width, height);
       const isolatedCtx: OffscreenCanvasRenderingContext2D =
         isolatedLayer.getContext('2d', new RenderingContextSettings(true));
       const isolatedRenderCtx = new Canvas2DOffscreenRenderContext(isolatedCtx);
+      const transform: number[] = translateTransformToCrop(stroke.transform, crop);
       isolatedRenderCtx.save();
-      isolatedRenderCtx.setTransform(stroke.transform);
+      isolatedRenderCtx.setTransform(transform);
       this.renderInk(stroke, isolatedRenderCtx);
       this.renderer.renderEraserMask(stroke, isolatedRenderCtx);
       isolatedRenderCtx.restore();
       const bitmap: ImageBitmap = isolatedLayer.transferToImageBitmap();
-      c.drawImage(bitmap, 0, 0, this.pageWidth, this.pageHeight);
-      bitmap.close();
+      this.transferTracker.recordTransfer(BitmapTransferKind.ISOLATED_MASK);
+      try {
+        c.drawImage(bitmap, crop.left, crop.top, width, height);
+      } finally {
+        bitmap.close();
+      }
       return;
     }
     c.save();
@@ -181,20 +208,27 @@ export class StrokeLayerManager {
     return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
   }
 
-  private getCompletedBitmap(): ImageBitmap | null {
-    if (!this.completedBitmapDirty) {
-      return this.completedBitmap;
+  private restoreWorkingLayer(): void {
+    if (this.completedCtx === null) {
+      return;
     }
-    if (this.completedLayer === null || this.completedCtx === null) {
-      return null;
+    this.completedCtx.clearRect(0, 0, this.pageWidth, this.pageHeight);
+    if (this.completedBitmap !== null) {
+      this.completedCtx.drawImage(this.completedBitmap, 0, 0, this.pageWidth, this.pageHeight);
     }
-    this.releaseCompletedBitmap();
-    // HarmonyOS ArkUI drawImage accepts ImageBitmap/PixelMap, not OffscreenCanvas.
-    // Transfer only when the completed layer changed, then restore the layer for future commits.
-    this.completedBitmap = this.completedLayer.transferToImageBitmap();
-    this.completedCtx.drawImage(this.completedBitmap, 0, 0, this.pageWidth, this.pageHeight);
-    this.completedBitmapDirty = false;
-    return this.completedBitmap;
+  }
+
+  private publishWorkingLayer(): void {
+    if (this.completedLayer === null) {
+      return;
+    }
+    const next: ImageBitmap = this.completedLayer.transferToImageBitmap();
+    this.transferTracker.recordTransfer(BitmapTransferKind.COMPLETED_LAYER);
+    const previous: ImageBitmap | null = this.completedBitmap;
+    this.completedBitmap = next;
+    if (previous !== null) {
+      previous.close();
+    }
   }
 
   private releaseCompletedBitmap(): void {

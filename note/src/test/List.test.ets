@@ -25,6 +25,8 @@ import strokePredictionTest from './StrokePrediction.test';
 import rendererStyleTest from './RendererStyle.test';
 import pencilSplatMathTest from './PencilSplatMath.test';
 import pageCoordinateSpaceTest from './PageCoordinateSpace.test';
+import bitmapTransferTrackerTest from './BitmapTransferTracker.test';
+import layerCacheGeometryTest from './LayerCacheGeometry.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -54,4 +56,6 @@ export default function testsuite() {
   rendererStyleTest();
   pencilSplatMathTest();
   pageCoordinateSpaceTest();
+  bitmapTransferTrackerTest();
+  layerCacheGeometryTest();
 }

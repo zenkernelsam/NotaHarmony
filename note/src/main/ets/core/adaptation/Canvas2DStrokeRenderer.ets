@@ -6,7 +6,7 @@ import { StrokeElementData, PencilSplatPoint, RenderSpec, InkStyle,
   ERASER_PATH_BREAK_COORDINATE } from '../model/StrokeTypes';
 import { Point2D, Rect2D } from '../model/GeometryTypes';
 import { WidthOutlineBuilder } from '../algorithm/WidthOutlineBuilder';
-import { computePencilSplatBounds } from './PencilSplatMath';
+import { BitmapTransferKind, BitmapTransferTracker } from './BitmapTransferTracker';
 
 // 渲染上下文实现 A：包装主画布 CanvasRenderingContext2D
 export class Canvas2DRenderContext implements RenderContext {
@@ -236,15 +236,18 @@ export class Canvas2DOffscreenRenderContext implements RenderContext {
 
 export class Canvas2DStrokeRenderer implements StrokeRenderer {
   private splatTexture: ImageBitmap | null = null;
-  private splatScratch: OffscreenCanvas | null = null;
+  private tintedSplatTextures: Map<number, ImageBitmap> = new Map<number, ImageBitmap>();
+  private transferTracker: BitmapTransferTracker;
+  private static readonly MAX_TINTED_SPLAT_TEXTURES: number = 4;
   // 擦除遮罩渲染宽度（可由页面设置）
   private eraserMaskWidth: number = 20;
 
-  constructor() {
+  constructor(transferTracker: BitmapTransferTracker = new BitmapTransferTracker()) {
+    this.transferTracker = transferTracker;
   }
 
   // 原版资源解码失败时使用的确定性降级纹理；正常路径始终加载原始 1024x1024 splat。
-  static generatePencilTexture(): ImageBitmap {
+  static generatePencilTexture(transferTracker?: BitmapTransferTracker): ImageBitmap {
     const TEX: number = 64;
     const canvas = new OffscreenCanvas(TEX, TEX);
     const ctx: OffscreenCanvasRenderingContext2D =
@@ -278,10 +281,15 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       ctx.arc(px, py, 0.6 + rand() * 0.9, 0, Math.PI * 2);
       ctx.fill();
     }
-    return canvas.transferToImageBitmap();
+    const texture: ImageBitmap = canvas.transferToImageBitmap();
+    if (transferTracker !== undefined) {
+      transferTracker.recordTransfer(BitmapTransferKind.PENCIL_TEXTURE);
+    }
+    return texture;
   }
 
   setSplatTexture(texture: ImageBitmap): void {
+    this.releaseTintedSplatTextures();
     if (this.splatTexture !== null && this.splatTexture !== texture) {
       this.splatTexture.close();
     }
@@ -289,11 +297,11 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
   }
 
   dispose(): void {
+    this.releaseTintedSplatTextures();
     if (this.splatTexture !== null) {
       this.splatTexture.close();
       this.splatTexture = null;
     }
-    this.splatScratch = null;
   }
 
   setEraserMaskWidth(width: number): void {
@@ -365,66 +373,72 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     c.restore();
   }
 
-  // === PencilSplat 渲染（OffscreenCanvas + source-in 着色，§37）===
+  // === PencilSplat 渲染（持久着色纹理 + 直接 splat，避免实时笔迹每帧位图 transfer）===
   renderPencilSplats(splats: PencilSplatPoint[], spec: RenderSpec, ctx: RenderContext): void {
     if (splats.length === 0) {
       return;
     }
     const c: Canvas2DRenderContext = ctx as Canvas2DRenderContext;
-    // 原版 mea.a() 用 scale*sqrt(2) 覆盖任意旋转角，再加 2 页面像素保留抗锯齿边缘。
-    const bounds: Rect2D | null = computePencilSplatBounds(splats, 2);
-    if (bounds === null) {
-      return;
-    }
-    // 对齐 zea.t() 的整数目标区域，避免 OffscreenCanvas 隐式截断浮点尺寸。
-    const minX: number = Math.floor(bounds.left);
-    const minY: number = Math.floor(bounds.top);
-    const maxX: number = Math.ceil(bounds.right);
-    const maxY: number = Math.ceil(bounds.bottom);
-    const w: number = Math.max(maxX - minX, 1);
-    const h: number = Math.max(maxY - minY, 1);
-    let off: OffscreenCanvas;
-    if (this.splatScratch === null) {
-      off = new OffscreenCanvas(w, h);
-      this.splatScratch = off;
-    } else {
-      off = this.splatScratch;
-      off.width = w;
-      off.height = h;
-    }
-    const offCtx: OffscreenCanvasRenderingContext2D =
-      off.getContext('2d', new RenderingContextSettings(true));
-    offCtx.clearRect(0, 0, off.width, off.height);
-    const tex: ImageBitmap | null = this.splatTexture;
+    const tintedTexture: ImageBitmap | null = this.getTintedSplatTexture(spec.color);
     for (const s of splats) {
-      offCtx.save();
-      offCtx.translate(s.x - minX, s.y - minY);
-      offCtx.rotate(s.rotation);
-      offCtx.globalAlpha = s.opacity;
-      if (tex !== null) {
+      c.save();
+      c.translate(s.x, s.y);
+      c.rotate(s.rotation);
+      c.setGlobalAlpha(s.opacity);
+      if (tintedTexture !== null) {
         // s.scale 的唯一单位是页面半径；原版纹理无论原始分辨率均映射到直径 2*scale。
-        offCtx.drawImage(tex, -s.scale, -s.scale, 2 * s.scale, 2 * s.scale);
+        c.drawImage(tintedTexture, -s.scale, -s.scale, 2 * s.scale, 2 * s.scale);
       } else {
         // fallback 与纹理路径使用完全相同的外接尺寸，避免二次 scale。
-        offCtx.beginPath();
-        offCtx.arc(0, 0, s.scale, 0, Math.PI * 2);
-        offCtx.fillStyle = '#FFFFFF';
-        offCtx.fill();
+        c.beginPath();
+        c.arc(0, 0, s.scale, 0, Math.PI * 2);
+        c.setFillStyle(this.colorToRgba(spec.color));
+        c.fill();
       }
-      offCtx.restore();
+      c.restore();
     }
-    // source-in 着色：用笔色替换 alpha 形状
-    offCtx.globalCompositeOperation = 'source-in';
-    offCtx.fillStyle = this.colorToRgba(spec.color);
-    offCtx.fillRect(0, 0, off.width, off.height);
-    offCtx.globalCompositeOperation = 'source-over';
-    // 合成到主画布（相对包围盒定位）
-    const bmp: ImageBitmap = off.transferToImageBitmap();
-    try {
-      c.drawImage(bmp, minX, minY, w, h);
-    } finally {
-      bmp.close();
+  }
+
+  private getTintedSplatTexture(color: number): ImageBitmap | null {
+    if (this.splatTexture === null) {
+      return null;
     }
+    const cached: ImageBitmap | undefined = this.tintedSplatTextures.get(color);
+    if (cached !== undefined) {
+      this.tintedSplatTextures.delete(color);
+      this.tintedSplatTextures.set(color, cached);
+      return cached;
+    }
+    const width: number = this.splatTexture.width;
+    const height: number = this.splatTexture.height;
+    const canvas: OffscreenCanvas = new OffscreenCanvas(width, height);
+    const ctx: OffscreenCanvasRenderingContext2D =
+      canvas.getContext('2d', new RenderingContextSettings(true));
+    ctx.drawImage(this.splatTexture, 0, 0, width, height);
+    ctx.globalCompositeOperation = 'source-in';
+    ctx.fillStyle = this.colorToRgba(color);
+    ctx.fillRect(0, 0, width, height);
+    const tinted: ImageBitmap = canvas.transferToImageBitmap();
+    this.transferTracker.recordTransfer(BitmapTransferKind.PENCIL_TINT);
+    if (this.tintedSplatTextures.size >= Canvas2DStrokeRenderer.MAX_TINTED_SPLAT_TEXTURES) {
+      const oldestKey: number | undefined = this.tintedSplatTextures.keys().next().value;
+      if (oldestKey !== undefined) {
+        const oldest: ImageBitmap | undefined = this.tintedSplatTextures.get(oldestKey);
+        if (oldest !== undefined) {
+          oldest.close();
+        }
+        this.tintedSplatTextures.delete(oldestKey);
+      }
+    }
+    this.tintedSplatTextures.set(color, tinted);
+    return tinted;
+  }
+
+  private releaseTintedSplatTextures(): void {
+    this.tintedSplatTextures.forEach((bitmap: ImageBitmap): void => {
+      bitmap.close();
+    });
+    this.tintedSplatTextures.clear();
   }
 
   // === 擦除遮罩（destination-out 挖洞）===
