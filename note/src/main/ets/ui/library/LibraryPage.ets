@@ -33,7 +33,9 @@ struct LibraryPage {
   @State sidebarWidth: number = 0;
   @State showSidebar: boolean = false;
   // === 数据状态 ===
-  @State viewModel: LibraryViewModel | null = null;
+  private viewModel: LibraryViewModel | null = null;
+  @State notes: NoteMeta[] = [];
+  @State libraryLoading: boolean = true;
   @State initError: ResourceStr = '';
   @State hasInitError: boolean = false;
   @State searchText: string = '';
@@ -66,11 +68,7 @@ struct LibraryPage {
     builder: NameDialog({
       title: this.folderDialogTitle,
       initialText: this.folderDialogInitialText,
-      onConfirm: (name: string) => {
-        this.onFolderDialogConfirm(name).catch((e: Error) => {
-          console.error(`folder dialog confirm failed: ${JSON.stringify(e)}`);
-        });
-      },
+      onConfirm: (name: string): Promise<boolean> => this.onFolderDialogConfirm(name),
     }),
     autoCancel: true,
   });
@@ -116,19 +114,24 @@ struct LibraryPage {
     });
   }
 
-  // T-040 修复：从编辑器返回时刷新列表（标题/更新时间/缩略图）
-  // 注意：viewModel 是 @State 持有 @Observed 对象，内部属性变化不触发 UI 刷新，必须重新赋值
+  // The ViewModel owns async operations; each successful result publishes a fresh @State notes snapshot.
   onPageShow(): void {
     this.pageActive = true;
     if (this.viewModel !== null) {
       const vm: LibraryViewModel = this.viewModel;
+      if (this.notes.length === 0) {
+        this.libraryLoading = true;
+      }
       const context = getContext(this) as common.UIAbilityContext;
       this.thumbRenderer.initialize(context).then(() => vm.loadNotes(this.searchText)).then(() => {
         this.initError = '';
         this.hasInitError = false;
         this.viewModel = vm;
+        this.notes = vm.getFilteredNotes().slice();
+        this.libraryLoading = false;
         return this.refreshThumbnails();
       }).catch((e: Error) => {
+        this.libraryLoading = false;
         this.initError = $r('app.string.load_notes_failed');
         this.hasInitError = true;
         promptAction.showToast({ message: $r('app.string.load_notes_failed') });
@@ -161,7 +164,7 @@ struct LibraryPage {
     if (generation !== this.thumbnailGeneration || !this.pageActive || this.viewModel === null) {
       return;
     }
-    const allNoteIds: string[] = this.viewModel.getFilteredNotes().map((note: NoteMeta) => note.id);
+    const allNoteIds: string[] = this.notes.map((note: NoteMeta) => note.id);
     const noteIds: string[] = prioritizeThumbnailNoteIds(
       allNoteIds, this.thumbnailPriorityIds, this.MAX_THUMBNAILS);
     const theme: ThemeTokens = this.resolveTokens();
@@ -305,10 +308,14 @@ struct LibraryPage {
     this.folderDialog.open();
   }
 
-  private async onFolderDialogConfirm(name: string): Promise<void> {
+  private async onFolderDialogConfirm(name: string): Promise<boolean> {
     const trimmed: string = name.trim();
-    if (trimmed.length === 0 || this.folderRepo === null || this.folderBusy) {
-      return;
+    if (this.folderRepo === null) {
+      promptAction.showToast({ message: $r('app.string.folder_operation_failed') });
+      return false;
+    }
+    if (this.folderBusy) {
+      return false;
     }
     this.folderBusy = true;
     try {
@@ -318,9 +325,11 @@ struct LibraryPage {
         await this.folderRepo.renameFolder(this.folderDialogTargetId, trimmed);
       }
       this.folders = await this.folderRepo.getAllFolders();
+      return true;
     } catch (e) {
       promptAction.showToast({ message: $r('app.string.folder_operation_failed') });
       console.error(`folder operation failed: ${JSON.stringify(e)}`);
+      return false;
     } finally {
       this.folderBusy = false;
     }
@@ -344,6 +353,7 @@ struct LibraryPage {
         await vm.setFolder(null, this.searchText);
       }
       this.viewModel = vm;
+      this.notes = vm.getFilteredNotes().slice();
       await this.refreshThumbnails();
     } catch (e) {
       promptAction.showToast({ message: $r('app.string.delete_folder_failed') });
@@ -380,6 +390,7 @@ struct LibraryPage {
       await this.folderRepo.moveNoteToFolder(noteId, folderId);
       await vm.loadNotes(this.searchText);
       this.viewModel = vm;
+      this.notes = vm.getFilteredNotes().slice();
       await this.refreshThumbnails();
     } catch (e) {
       promptAction.showToast({ message: $r('app.string.move_note_failed') });
@@ -402,6 +413,7 @@ struct LibraryPage {
       this.initError = '';
       this.hasInitError = false;
       this.viewModel = vm;
+      this.notes = vm.getFilteredNotes().slice();
       await this.refreshThumbnails();
     } catch (e) {
       this.currentFolderId = this.viewModel.currentFolderId;
@@ -418,6 +430,7 @@ struct LibraryPage {
       return;
     }
     this.viewModel.setSortMode(mode);
+    this.notes = this.viewModel.getFilteredNotes().slice();
     this.refreshThumbnails().catch((e: Error) => {
       console.error(`sort thumbnail refresh failed: ${JSON.stringify(e)}`);
     });
@@ -439,6 +452,9 @@ struct LibraryPage {
   private async initData(): Promise<void> {
     this.initError = '';
     this.hasInitError = false;
+    if (this.notes.length === 0) {
+      this.libraryLoading = true;
+    }
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const pref: preferences.Preferences =
@@ -461,6 +477,8 @@ struct LibraryPage {
       vm.sortMode = saved as NoteSortMode;
       await vm.loadNotes(this.searchText);
       this.viewModel = vm;
+      this.notes = vm.getFilteredNotes().slice();
+      this.libraryLoading = false;
       await this.refreshThumbnails();
       this.persistence.backfillSearchIndex().then(() => {
         const activeViewModel: LibraryViewModel | null = this.viewModel;
@@ -469,6 +487,7 @@ struct LibraryPage {
           activeViewModel.loadNotes(activeQuery).then(() => {
             if (this.pageActive && this.viewModel === activeViewModel && this.searchText === activeQuery) {
               this.viewModel = activeViewModel;
+              this.notes = activeViewModel.getFilteredNotes().slice();
               return this.refreshThumbnails();
             }
             return Promise.resolve();
@@ -480,6 +499,7 @@ struct LibraryPage {
         console.error(`search index backfill failed: ${JSON.stringify(e)}`);
       });
     } catch (e) {
+      this.libraryLoading = false;
       this.initError = $r('app.string.library_load_failed');
       this.hasInitError = true;
       promptAction.showToast({ message: $r('app.string.library_load_retry') });
@@ -613,6 +633,7 @@ struct LibraryPage {
                 vm.setSearchQuery(value).then(() => {
                   if (this.pageActive && this.viewModel === vm) {
                     this.viewModel = vm;
+                    this.notes = vm.getFilteredNotes().slice();
                     return this.refreshThumbnails();
                   }
                   return Promise.resolve();
@@ -662,8 +683,7 @@ struct LibraryPage {
         .padding({ left: 16, right: 16 })
 
         // 笔记网格
-        if (this.hasInitError &&
-          (this.viewModel === null || this.viewModel.notes.length === 0)) {
+        if (this.hasInitError && this.notes.length === 0) {
           Column() {
             Text(this.initError)
               .fontSize(16)
@@ -680,12 +700,12 @@ struct LibraryPage {
           .justifyContent(FlexAlign.Center)
           .alignItems(HorizontalAlign.Center)
         } else if (this.viewModel !== null) {
-          if (this.viewModel.isLoading && this.viewModel.notes.length === 0) {
+          if (this.libraryLoading && this.notes.length === 0) {
             Text($r('app.string.loading'))
               .fontSize(16)
               .fontColor(this.resolveTokens().textSecondary)
               .layoutWeight(1)
-          } else if (this.viewModel.getFilteredNotes().length === 0) {
+          } else if (this.notes.length === 0) {
             // 空结果提示（T-035）
             Column() {
               Text($r('app.string.no_matching_notes'))
@@ -697,7 +717,7 @@ struct LibraryPage {
             .justifyContent(FlexAlign.Center)
           } else {
             Grid() {
-              ForEach(this.viewModel.getFilteredNotes(), (note: NoteMeta) => {
+              ForEach(this.notes, (note: NoteMeta) => {
                 GridItem() {
                   this.NoteCard(note)
                 }
@@ -1009,6 +1029,7 @@ struct LibraryPage {
       const vm: LibraryViewModel = this.viewModel;
       await vm.deleteNote(noteId, this.searchText);
       this.viewModel = vm;
+      this.notes = vm.getFilteredNotes().slice();
       await this.refreshThumbnails();
     } catch (e) {
       promptAction.showToast({ message: $r('app.string.delete_note_failed') });
@@ -1024,7 +1045,9 @@ struct LibraryPage {
     }
     this.createBusy = true;
     try {
-      const noteId: string = await this.viewModel.createNote(this.searchText);
+      const vm: LibraryViewModel = this.viewModel;
+      const noteId: string = await vm.createNote(this.searchText);
+      this.notes = vm.getFilteredNotes().slice();
       await router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: noteId } });
     } catch (e) {
       promptAction.showToast({ message: $r('app.string.create_note_failed') });
@@ -1071,8 +1094,7 @@ struct NameDialog {
   @State inputText: string = '';
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
-  onConfirm: (name: string) => void = () => {
-  };
+  onConfirm: (name: string) => Promise<boolean> = async (_name: string): Promise<boolean> => false;
 
   aboutToAppear(): void {
     this.inputText = this.initialText;
@@ -1113,10 +1135,13 @@ struct NameDialog {
           .layoutWeight(1)
           .margin({ left: 12 })
           .onClick(() => {
-            this.onConfirm(this.inputText);
-            if (this.controller !== undefined) {
-              this.controller.close();
-            }
+            this.onConfirm(this.inputText).then((success: boolean) => {
+              if (success && this.controller !== undefined) {
+                this.controller.close();
+              }
+            }).catch((e: Error) => {
+              console.error(`folder dialog confirm failed: ${JSON.stringify(e)}`);
+            });
           })
       }
       .width('100%')
