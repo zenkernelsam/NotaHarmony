@@ -4,6 +4,7 @@ import {
   DDL_NOTE_META, DDL_NOTE_STATE, DDL_OPERATION_LOG, DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE,
   DDL_PAGE_DELETE_CHECKPOINT, DDL_PAGE_DELETE_CHECKPOINT_ELEMENT, DDL_PAGE_DELETE_CHECKPOINT_SEARCH,
   DDL_HISTORY_CHECKPOINT, DDL_HISTORY_CHECKPOINT_ACTION, DDL_HISTORY_CHECKPOINT_OPERATION,
+  DDL_LOCAL_EDITOR_IDENTITY, DDL_NOTE_SYNC_METADATA,
   DDL_INDEXES, MIGRATIONS,
 } from
   '../main/ets/data/DatabaseHelper';
@@ -13,8 +14,22 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(17);
+      expect(DB_VERSION).assertEqual(18);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
+    });
+
+    it('persists original editor-site clocks and ordered sync acknowledgement', 0, () => {
+      expect(DDL_OPERATION_LOG).assertContain('op_timestamp INTEGER NOT NULL');
+      expect(DDL_OPERATION_LOG).assertContain('editor_site_id INTEGER NOT NULL');
+      expect(DDL_OPERATION_LOG).assertContain('UNIQUE(note_id, editor_site_id, op_timestamp)');
+      expect(DDL_LOCAL_EDITOR_IDENTITY).assertContain('singleton = 1');
+      expect(DDL_NOTE_SYNC_METADATA).assertContain('max_op_timestamp');
+      expect(DDL_NOTE_SYNC_METADATA).assertContain('uploaded_through_sequence');
+      expect(DDL_NOTE_SYNC_METADATA).assertContain('acked_through_sequence <= uploaded_through_sequence');
+      const migration: string = MIGRATIONS[18].join('\n');
+      expect(migration).assertContain('CREATE TABLE operation_log_v18');
+      expect(migration).assertContain('SELECT sequence, note_id, op_id');
+      expect(migration).assertContain('lower(hex(randomblob(16)))');
     });
 
     it('tracks note-scoped page structure revisions', 0, () => {

@@ -110,6 +110,20 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
   清理已无可执行 action 引用的 DELETE_PAGE checkpoint；原始 `operation_log` 和页面快照保持不变。事务失败保留旧损坏现场和全部
   恢复点，用户仍可继续编辑。重置等待期间编辑器 history busy 门禁阻止内容/页面动作，确保数据库水位与内存清栈处于同一静止边界；
   成功后只有 checkpoint 之后的新 action 重新进入可执行历史。
+- 第十二阶段直接复核原版 `qo5.java`、`bs1.java`、`xq9.java`、`so5.java`、`gk4.v()` 及 `e47.java:336`：原版 op 身份是
+  unsigned 32-bit timestamp 与 unsigned 16-bit editor site 的组合，比较先 timestamp 后 site，Clock 以原子计数器递增；Room 的
+  64-bit `opId` 只是该二元组的 packed 表示。ArkTS 的 JavaScript number 不能无损承载全部 packed 64-bit 值，因此 v18 将身份明确
+  保存为 `op_timestamp` 与 `editor_site_id` 两个受范围约束的整数，并以二元组唯一约束，不用浮点数模拟 long。新建笔记、页面结构、
+  元素保存和成组历史写入全部从 note 级持久 clock 分配身份；旧的 page/revision 字符串不再作为新 opId。
+- v18 新增单例 `local_editor_identity` 和 note 级 `note_sync_metadata`，保留原版静态/同步元数据中的 editor site、editor/creator ID、
+  max timestamp、max server time 和 synced count，并增加本地有序 `uploaded_through_sequence/acked_through_sequence`。site 0 只表示
+  原版查询中已有证据的本机未同步 fallback；真实服务端 site 解析到位前不会猜测其他 site。`OpStore` 暴露按 sequence 的有界待上传读取、
+  upload 前缀推进和 ACK 前缀确认；未 ACK 的行会继续返回以支持幂等重传，ACK 不能越过已上传前缀或指向其他 note，且本阶段仍不删除日志。
+- v17 升级按原全局 sequence 为旧行建立保守且单调的 site-0 timestamp 映射，保留原 opId、payload、history 元数据和物理 sequence；
+  超出 unsigned 32-bit 时迁移整体失败而不截断。边修边审同时修正 `DatabaseManager` 的升级顺序：版本化旧库必须先执行冻结的逐版迁移，
+  再用最新 `CREATE TABLE IF NOT EXISTS` 补表；否则旧库尚无 `operation_log` 时会提前创建最新列，随后 v15 `ADD COLUMN` 因重复列失败。
+  重建表期间显式暂停外键并在提交/回滚后立即恢复，最终仍执行 `foreign_key_check`；`store.version` 与全部逐版 SQL 在同一事务提交，避免
+  schema 已升级但版本号仍旧时在重启后重复执行非幂等迁移。
 
 ## 后果
 
@@ -120,6 +134,6 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 已经建立；元素 NPM1 及单事务页面 NPG1 也具备 action identity、PUSH/UNDO/REDO effect、coalesce track 和原 action time。
 最后一个无 legacy 的完整 segment 现在可在重启后恢复成可执行 Undo/Redo 栈，DELETE_PAGE 也具备耐久内容 checkpoint 和原子
 PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成组 Undo/Redo。本地启动 replay 与删除页恢复点增长已有上限，
-损坏历史也有用户可见且不删除同步日志的本地恢复路径；同步日志本身仍保持追加式。后续仍需实现：跨页/文本细粒度成组执行、
-基于同步 ACK 的安全日志 compaction、editor site/原版式单调 opId、同步导入映射，以及
-同步上传和聚合元数据。完成这些之前，不得声称具有原版协作或完整增量同步语义。
+损坏历史也有用户可见且不删除同步日志的本地恢复路径；同步日志本身仍保持追加式。原版式 editor site/op clock、耐久同步元数据和
+upload/ACK 前缀契约已经建立，但还没有远端传输实现或服务端 site 解析。后续仍需实现：跨页/文本细粒度成组执行、基于 ACK 与 checkpoint
+共同水位的安全日志 compaction、同步导入身份映射、实际上传/下载与服务端聚合。完成这些之前，不得声称具有原版协作或完整增量同步语义。

@@ -1,5 +1,8 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { monotonicOperationTime } from '../main/ets/data/OpStoreImpl';
+import {
+  compareOperationIdentity, encodeOperationId, MAX_OPERATION_TIMESTAMP, nextOperationTimestamp,
+} from '../main/ets/data/OperationIdentity';
 
 export default function opStoreTest() {
   describe('OpStore time policy', () => {
@@ -14,6 +17,27 @@ export default function opStoreTest() {
       let rejected: boolean = false;
       try {
         monotonicOperationTime(Number.MAX_SAFE_INTEGER, 1);
+      } catch (_error) {
+        rejected = true;
+      }
+      expect(rejected).assertTrue();
+    });
+
+    it('models the original unsigned timestamp then site ordering without 64-bit numbers', 0, () => {
+      expect(encodeOperationId({ timestamp: 12, siteId: 7 })).assertEqual('op:c:7');
+      expect(compareOperationIdentity(
+        { timestamp: 12, siteId: 7 }, { timestamp: 13, siteId: 0 })).assertEqual(-1);
+      expect(compareOperationIdentity(
+        { timestamp: 12, siteId: 7 }, { timestamp: 12, siteId: 8 })).assertEqual(-1);
+      expect(compareOperationIdentity(
+        { timestamp: 12, siteId: 7 }, { timestamp: 12, siteId: 7 })).assertEqual(0);
+      expect(nextOperationTimestamp(12)).assertEqual(13);
+    });
+
+    it('rejects an exhausted original operation clock', 0, () => {
+      let rejected: boolean = false;
+      try {
+        nextOperationTimestamp(MAX_OPERATION_TIMESTAMP);
       } catch (_error) {
         rejected = true;
       }

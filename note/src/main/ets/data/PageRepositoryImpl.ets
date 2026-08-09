@@ -6,7 +6,7 @@ import { validatePageDimensions } from '../core/model/PageCoordinateSpace';
 import { PageRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { AsyncMutex, MutexRelease } from './AsyncMutex';
-import { allocateOperationClientTime, appendOperation } from './OpStoreImpl';
+import { allocateOperationIdentity, AllocatedOperationIdentity, appendOperation } from './OpStoreImpl';
 import {
   classifyPageStructureMutation, createPageStructureMutation, encodePageStructureMutation,
   PageStructureMutation,
@@ -380,13 +380,15 @@ export class PageRepositoryImpl implements PageRepository {
     if (updated !== 1) {
       throw new Error('page structure revision changed concurrently');
     }
-    const clientTime: number = await allocateOperationClientTime(store, noteId);
+    const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
     await appendOperation(store, {
       noteId: noteId,
-      opId: `page-structure:${mutation.fromRevision}:${mutation.toRevision}`,
+      opId: identity.opId,
       opType: opType,
       payload: encodePageStructureMutation(mutation),
-      clientTime: clientTime,
+      clientTime: identity.clientTime,
+      opTimestamp: identity.timestamp,
+      editorSiteId: identity.siteId,
       history: history,
     });
   }

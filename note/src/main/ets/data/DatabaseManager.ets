@@ -7,6 +7,7 @@ import {
   DDL_HISTORY_CHECKPOINT, DDL_HISTORY_CHECKPOINT_ACTION, DDL_HISTORY_CHECKPOINT_OPERATION,
   DDL_NOTE_META, DDL_PAGE_INFO, DDL_FOLDER, DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE,
   DDL_PAGE_DELETE_CHECKPOINT, DDL_PAGE_DELETE_CHECKPOINT_ELEMENT, DDL_PAGE_DELETE_CHECKPOINT_SEARCH,
+  DDL_LOCAL_EDITOR_IDENTITY, DDL_NOTE_SYNC_METADATA,
   DDL_INDEXES, MIGRATIONS,
 } from './DatabaseHelper';
 
@@ -57,36 +58,49 @@ export class DatabaseManager {
     try {
       const ddlList: string[] = [DDL_NOTE_STATE, DDL_TOOL_STATE, DDL_EDITOR_TOOLBOX_STATE,
         DDL_PAGE_ELEMENT_SNAPSHOT, DDL_OPERATION_LOG,
+        DDL_LOCAL_EDITOR_IDENTITY, DDL_NOTE_SYNC_METADATA,
         DDL_HISTORY_CHECKPOINT, DDL_HISTORY_CHECKPOINT_ACTION, DDL_HISTORY_CHECKPOINT_OPERATION,
         DDL_NOTE_ASSET, DDL_NOTE_META, DDL_PAGE_INFO, DDL_FOLDER,
         DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE, DDL_PAGE_DELETE_CHECKPOINT,
         DDL_PAGE_DELETE_CHECKPOINT_ELEMENT, DDL_PAGE_DELETE_CHECKPOINT_SEARCH];
-      for (const ddl of ddlList) {
-        await store.executeSql(ddl);
-      }
       let oldVersion: number = store.version;
       // Releases before v3 never persisted store.version. Infer their schema safely.
       if (oldVersion === 0 && hadClientOp) {
         oldVersion = hadPageId ? 3 : 2;
       }
       if (oldVersion > 0 && oldVersion < DB_VERSION) {
-        await store.beginTransaction();
+        await store.executeSql('PRAGMA foreign_keys = OFF');
         try {
-          for (let target: number = oldVersion + 1; target <= DB_VERSION; target++) {
-            const statements: string[] | undefined = MIGRATIONS[target];
-            if (statements === undefined) {
-              continue;
+          await store.beginTransaction();
+          try {
+            for (let target: number = oldVersion + 1; target <= DB_VERSION; target++) {
+              const statements: string[] | undefined = MIGRATIONS[target];
+              if (statements === undefined) {
+                continue;
+              }
+              for (const sql of statements) {
+                await store.executeSql(sql);
+              }
             }
-            for (const sql of statements) {
-              await store.executeSql(sql);
-            }
+            // user_version and schema must cross the crash boundary in the same transaction.
+            store.version = DB_VERSION;
+            await store.commit();
+          } catch (e) {
+            await store.rollBack();
+            throw new Error(`Migration transaction failed: ${JSON.stringify(e)}`);
           }
-          await store.commit();
-        } catch (e) {
-          await store.rollBack();
-          throw new Error(`Migration transaction failed: ${JSON.stringify(e)}`);
+        } finally {
+          await store.executeSql('PRAGMA foreign_keys = ON');
         }
       }
+      // Creating an evolving latest-schema table before historical ALTER migrations can make
+      // those migrations fail with duplicate columns. Old stores migrate first; new stores and
+      // post-migration stores are then completed idempotently from the canonical DDL.
+      for (const ddl of ddlList) {
+        await store.executeSql(ddl);
+      }
+      await store.executeSql(`INSERT OR IGNORE INTO local_editor_identity(singleton, editor_id)
+        VALUES (1, lower(hex(randomblob(16))))`);
       for (const idx of DDL_INDEXES) {
         await store.executeSql(idx);
       }

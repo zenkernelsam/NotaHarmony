@@ -16,7 +16,7 @@ import { editorPersistenceMutex } from './EditorPersistenceMutex';
 import { foldSearchText } from './SearchText';
 import { SearchItemType } from './SearchItemType';
 import { handwritingSourceChanged, pageSnapshotChanged, SearchSourceElement } from './SearchIndexPolicy';
-import { allocateOperationClientTime, appendOperation } from './OpStoreImpl';
+import { allocateOperationIdentity, AllocatedOperationIdentity, appendOperation } from './OpStoreImpl';
 import {
   classifyPageMutation, createPageMutation, encodePageMutationOp, PageMutationOpPayload,
 } from './PageMutationOpCodec';
@@ -420,13 +420,15 @@ export class StrokePersistence {
       };
       await store.insert('search_page_state', indexState,
         relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
-      const operationTime: number = await allocateOperationClientTime(store, snapshot.noteId);
+      const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, snapshot.noteId);
       await appendOperation(store, {
-        opId: `page-mutation:${snapshot.pageId}:${currentRevision}:${snapshotRevision}`,
+        opId: identity.opId,
         noteId: snapshot.noteId,
         opType: classifyPageMutation(mutation),
         payload: encodePageMutationOp(mutation),
-        clientTime: operationTime,
+        clientTime: identity.clientTime,
+        opTimestamp: identity.timestamp,
+        editorSiteId: identity.siteId,
         history: snapshot.history,
       });
       await store.commit();
@@ -467,13 +469,15 @@ export class StrokePersistence {
         const nextRevision: number = currentRevision + 1;
         const mutation: PageMutationOpPayload = createPageMutation(
           step.pageId, currentRevision, nextRevision, current, step.elements);
-        const operationTime: number = await allocateOperationClientTime(store, step.noteId);
+        const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, step.noteId);
         await appendOperation(store, {
-          opId: `page-mutation:${step.pageId}:${currentRevision}:${nextRevision}`,
+          opId: identity.opId,
           noteId: step.noteId,
           opType: classifyPageMutation(mutation),
           payload: encodePageMutationOp(mutation),
-          clientTime: operationTime,
+          clientTime: identity.clientTime,
+          opTimestamp: identity.timestamp,
+          editorSiteId: identity.siteId,
           history: step.history,
         });
         currentRevision = nextRevision;

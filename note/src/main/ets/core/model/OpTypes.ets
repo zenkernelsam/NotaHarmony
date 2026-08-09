@@ -56,7 +56,32 @@ export interface Op {
   opType: OpType;
   payload: Uint8Array;     // 序列化后的操作内容
   clientTime: number;      // 客户端时间戳 ms
+  // Original Id(timestamp, site). Optional only for legacy in-memory/checkpoint values;
+  // every v18 operation_log row and every new production append carries both fields.
+  opTimestamp?: number;
+  editorSiteId?: number;
+  uploadImmediately?: boolean;
   history?: HistoryMetadata;
+}
+
+export interface SequencedOp {
+  sequence: number;
+  op: Op;
+}
+
+export interface OpSyncMetadata {
+  noteId: string;
+  editorSiteId: number;
+  editorId: string;
+  creatorId: string;
+  createdAt: number;
+  updatedAt: number;
+  syncedOpCount: number;
+  maxOpTimestamp: number;
+  maxServerTime: number | null;
+  schemaVersion: number;
+  uploadedThroughSequence: number;
+  ackedThroughSequence: number;
 }
 
 // op 序列化器接口

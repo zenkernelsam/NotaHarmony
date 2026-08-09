@@ -1,5 +1,5 @@
 import { relationalStore } from '@kit.ArkData';
-import { HistoryEffect, HistoryMetadata, Op } from '../core/model/OpTypes';
+import { HistoryEffect, HistoryMetadata, Op, OpSyncMetadata, SequencedOp } from '../core/model/OpTypes';
 import { OpStore } from '../core/op/OpStore';
 import { DatabaseManager } from './DatabaseManager';
 import { validateHistoryMetadata } from './PersistentHistoryMetadata';
@@ -7,6 +7,14 @@ import { editorPersistenceMutex } from './EditorPersistenceMutex';
 import {
   PersistentHistoryAction, PersistentHistoryState, reducePersistentHistoryTail, trimPersistentHistoryState,
 } from './PersistentHistory';
+import {
+  encodeOperationId, nextOperationTimestamp, OperationIdentity, validateOperationIdentity,
+} from './OperationIdentity';
+
+export interface AllocatedOperationIdentity extends OperationIdentity {
+  opId: string;
+  clientTime: number;
+}
 
 export interface PersistentHistoryReplay {
   state: PersistentHistoryState;
@@ -41,27 +49,76 @@ export class OpStoreImpl implements OpStore {
   }
 
   async appendOp(op: Op): Promise<void> {
-    await appendOperation(this.store, op);
+    await editorPersistenceMutex.runExclusive(async (): Promise<void> => {
+      await this.store.beginTransaction();
+      try {
+        await ensureNoteSyncMetadata(this.store, op.noteId);
+        const metadata: OpSyncMetadata = await readNoteSyncMetadata(this.store, op.noteId);
+        await appendOperation(this.store, op);
+        if (op.opTimestamp !== undefined && op.opTimestamp > metadata.maxOpTimestamp) {
+          const predicates = new relationalStore.RdbPredicates('note_sync_metadata');
+          predicates.equalTo('note_id', op.noteId);
+          predicates.equalTo('max_op_timestamp', metadata.maxOpTimestamp);
+          const updated: number = await this.store.update({
+            'max_op_timestamp': op.opTimestamp,
+            'updated_at': Math.max(metadata.updatedAt, op.clientTime),
+          }, predicates);
+          if (updated !== 1) {
+            throw new Error('external append did not advance the operation clock');
+          }
+        }
+        await this.store.commit();
+      } catch (e) {
+        await this.store.rollBack();
+        throw new Error(`append operation failed: ${JSON.stringify(e)}`);
+      }
+    });
   }
 
   async getOps(noteId: string): Promise<Op[]> {
     return this.queryOps(
-      `SELECT op_id, note_id, op_type, payload, client_time,
+      `SELECT op_id, note_id, op_type, payload, client_time, op_timestamp, editor_site_id,
+        upload_immediately,
         action_id, history_effect, coalesce_track, action_time FROM operation_log
        WHERE note_id = ? ORDER BY client_time, sequence`, [noteId]);
   }
 
   async getOpsSince(noteId: string, sinceTime: number): Promise<Op[]> {
     return this.queryOps(
-      `SELECT op_id, note_id, op_type, payload, client_time,
+      `SELECT op_id, note_id, op_type, payload, client_time, op_timestamp, editor_site_id,
+        upload_immediately,
         action_id, history_effect, coalesce_track, action_time FROM operation_log
        WHERE note_id = ? AND client_time > ? ORDER BY client_time, sequence`, [noteId, sinceTime]);
   }
 
   async deleteOps(noteId: string): Promise<void> {
-    const predicates = new relationalStore.RdbPredicates('operation_log');
-    predicates.equalTo('note_id', noteId);
-    await this.store.delete(predicates);
+    if (noteId.length === 0) {
+      throw new Error('delete operations requires a note ID');
+    }
+    await editorPersistenceMutex.runExclusive(async (): Promise<void> => {
+      await this.store.beginTransaction();
+      try {
+        const predicates = new relationalStore.RdbPredicates('operation_log');
+        predicates.equalTo('note_id', noteId);
+        await this.store.delete(predicates);
+        for (const table of ['history_checkpoint', 'page_delete_checkpoint']) {
+          const checkpointPredicates = new relationalStore.RdbPredicates(table);
+          checkpointPredicates.equalTo('note_id', noteId);
+          await this.store.delete(checkpointPredicates);
+        }
+        const syncPredicates = new relationalStore.RdbPredicates('note_sync_metadata');
+        syncPredicates.equalTo('note_id', noteId);
+        await this.store.update({
+          'synced_op_count': 0,
+          'uploaded_through_sequence': 0,
+          'acked_through_sequence': 0,
+        }, syncPredicates);
+        await this.store.commit();
+      } catch (e) {
+        await this.store.rollBack();
+        throw new Error(`delete operations failed: ${JSON.stringify(e)}`);
+      }
+    });
   }
 
   async getOpCount(noteId: string): Promise<number> {
@@ -72,6 +129,111 @@ export class OpStoreImpl implements OpStore {
     } finally {
       resultSet.close();
     }
+  }
+
+  async getPendingOps(noteId: string, limit: number): Promise<SequencedOp[]> {
+    if (noteId.length === 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1024) {
+      throw new Error('pending operation query is invalid');
+    }
+    const metadata: OpSyncMetadata = await this.getSyncMetadata(noteId);
+    const rows = await this.store.querySql(
+      `SELECT sequence, op_id, note_id, op_type, payload, client_time, op_timestamp, editor_site_id,
+        upload_immediately, action_id, history_effect, coalesce_track, action_time FROM operation_log
+       WHERE note_id = ? AND sequence > ? ORDER BY sequence LIMIT ?`,
+      [noteId, metadata.ackedThroughSequence, limit]);
+    const result: SequencedOp[] = [];
+    try {
+      while (rows.goToNextRow()) {
+        result.push({
+          sequence: rows.getLong(rows.getColumnIndex('sequence')),
+          op: readOperationRow(rows),
+        });
+      }
+    } finally {
+      rows.close();
+    }
+    return result;
+  }
+
+  async getSyncMetadata(noteId: string): Promise<OpSyncMetadata> {
+    if (noteId.length === 0) {
+      throw new Error('sync metadata requires a note ID');
+    }
+    return editorPersistenceMutex.runExclusive(async (): Promise<OpSyncMetadata> => {
+      await ensureNoteSyncMetadata(this.store, noteId);
+      return readNoteSyncMetadata(this.store, noteId);
+    });
+  }
+
+  async markOpsUploaded(noteId: string, throughSequence: number): Promise<void> {
+    await this.advanceSyncWatermark(noteId, throughSequence, null);
+  }
+
+  async acknowledgeUploadedOps(noteId: string, throughSequence: number,
+    maxServerTime: number): Promise<void> {
+    if (!Number.isSafeInteger(maxServerTime) || maxServerTime < 0) {
+      throw new Error('server time is invalid');
+    }
+    await this.advanceSyncWatermark(noteId, throughSequence, maxServerTime);
+  }
+
+  private async advanceSyncWatermark(noteId: string, throughSequence: number,
+    acknowledgedServerTime: number | null): Promise<void> {
+    if (noteId.length === 0 || !Number.isSafeInteger(throughSequence) || throughSequence <= 0) {
+      throw new Error('sync watermark is invalid');
+    }
+    await editorPersistenceMutex.runExclusive(async (): Promise<void> => {
+      await this.store.beginTransaction();
+      try {
+        await ensureNoteSyncMetadata(this.store, noteId);
+        const metadata: OpSyncMetadata = await readNoteSyncMetadata(this.store, noteId);
+        const owner = await this.store.querySql(
+          'SELECT note_id FROM operation_log WHERE sequence = ?', [throughSequence]);
+        try {
+          if (!owner.goToFirstRow() || owner.getString(owner.getColumnIndex('note_id')) !== noteId) {
+            throw new Error('sync watermark does not identify an operation from this note');
+          }
+        } finally {
+          owner.close();
+        }
+        const bucket: relationalStore.ValuesBucket = {};
+        if (acknowledgedServerTime === null) {
+          if (throughSequence < metadata.uploadedThroughSequence) {
+            throw new Error('uploaded watermark cannot move backwards');
+          }
+          bucket['uploaded_through_sequence'] = throughSequence;
+        } else {
+          if (throughSequence < metadata.ackedThroughSequence ||
+            throughSequence > metadata.uploadedThroughSequence) {
+            throw new Error('acknowledged watermark is outside the uploaded prefix');
+          }
+          bucket['acked_through_sequence'] = throughSequence;
+          bucket['max_server_time'] = metadata.maxServerTime === null
+            ? acknowledgedServerTime : Math.max(metadata.maxServerTime, acknowledgedServerTime);
+          const countSet = await this.store.querySql(
+            'SELECT COUNT(*) AS op_count FROM operation_log WHERE note_id = ? AND sequence <= ?',
+            [noteId, throughSequence]);
+          try {
+            if (!countSet.goToFirstRow()) {
+              throw new Error('acknowledged operation count query failed');
+            }
+            bucket['synced_op_count'] = countSet.getLong(countSet.getColumnIndex('op_count'));
+          } finally {
+            countSet.close();
+          }
+        }
+        const predicates = new relationalStore.RdbPredicates('note_sync_metadata');
+        predicates.equalTo('note_id', noteId);
+        const updated: number = await this.store.update(bucket, predicates);
+        if (updated !== 1) {
+          throw new Error('sync watermark update did not affect exactly one note');
+        }
+        await this.store.commit();
+      } catch (e) {
+        await this.store.rollBack();
+        throw new Error(`advance sync watermark failed: ${JSON.stringify(e)}`);
+      }
+    });
   }
 
   async getPersistentHistory(noteId: string): Promise<PersistentHistoryReplay> {
@@ -89,7 +251,8 @@ export class OpStoreImpl implements OpStore {
     }
     const tail: Op[] = checkpoint === null
       ? await this.getOps(noteId) : await this.queryOps(
-        `SELECT op_id, note_id, op_type, payload, client_time,
+        `SELECT op_id, note_id, op_type, payload, client_time, op_timestamp, editor_site_id,
+          upload_immediately,
           action_id, history_effect, coalesce_track, action_time FROM operation_log
          WHERE note_id = ? AND sequence > ? ORDER BY client_time, sequence`,
         [noteId, checkpoint.throughSequence]);
@@ -121,7 +284,8 @@ export class OpStoreImpl implements OpStore {
       }
       const tail: Op[] = checkpoint === null
         ? await this.getOps(noteId) : await this.queryOps(
-          `SELECT op_id, note_id, op_type, payload, client_time,
+          `SELECT op_id, note_id, op_type, payload, client_time, op_timestamp, editor_site_id,
+            upload_immediately,
             action_id, history_effect, coalesce_track, action_time FROM operation_log
            WHERE note_id = ? AND sequence > ? ORDER BY client_time, sequence`,
           [noteId, checkpoint.throughSequence]);
@@ -181,27 +345,7 @@ export class OpStoreImpl implements OpStore {
     const result: Op[] = [];
     try {
       while (resultSet.goToNextRow()) {
-        const op: Op = {
-          opId: resultSet.getString(resultSet.getColumnIndex('op_id')),
-          noteId: resultSet.getString(resultSet.getColumnIndex('note_id')),
-          opType: resultSet.getLong(resultSet.getColumnIndex('op_type')),
-          payload: resultSet.getBlob(resultSet.getColumnIndex('payload')),
-          clientTime: resultSet.getLong(resultSet.getColumnIndex('client_time')),
-        };
-        const actionColumn: number = resultSet.getColumnIndex('action_id');
-        if (!resultSet.isColumnNull(actionColumn)) {
-          ensureHistoryColumnsArePresent(resultSet);
-          op.history = {
-            actionId: resultSet.getString(actionColumn),
-            effect: resultSet.getLong(resultSet.getColumnIndex('history_effect')),
-            coalesceTrack: resultSet.getLong(resultSet.getColumnIndex('coalesce_track')),
-            actionTime: resultSet.getLong(resultSet.getColumnIndex('action_time')),
-          };
-          validateHistoryMetadata(op.history);
-        } else {
-          ensureLegacyHistoryColumnsAreNull(resultSet);
-        }
-        result.push(op);
+        result.push(readOperationRow(resultSet));
       }
     } finally {
       resultSet.close();
@@ -421,10 +565,90 @@ export class OpStoreImpl implements OpStore {
   }
 }
 
+function readOperationRow(resultSet: relationalStore.ResultSet): Op {
+  const opTimestamp: number = resultSet.getLong(resultSet.getColumnIndex('op_timestamp'));
+  const editorSiteId: number = resultSet.getLong(resultSet.getColumnIndex('editor_site_id'));
+  const op: Op = {
+    opId: resultSet.getString(resultSet.getColumnIndex('op_id')),
+    noteId: resultSet.getString(resultSet.getColumnIndex('note_id')),
+    opType: resultSet.getLong(resultSet.getColumnIndex('op_type')),
+    payload: resultSet.getBlob(resultSet.getColumnIndex('payload')),
+    clientTime: resultSet.getLong(resultSet.getColumnIndex('client_time')),
+    opTimestamp: opTimestamp,
+    editorSiteId: editorSiteId,
+    uploadImmediately: resultSet.getLong(resultSet.getColumnIndex('upload_immediately')) === 1,
+  };
+  validateOperationIdentity({ timestamp: opTimestamp, siteId: editorSiteId });
+  const actionColumn: number = resultSet.getColumnIndex('action_id');
+  if (!resultSet.isColumnNull(actionColumn)) {
+    ensureHistoryColumnsArePresent(resultSet);
+    op.history = {
+      actionId: resultSet.getString(actionColumn),
+      effect: resultSet.getLong(resultSet.getColumnIndex('history_effect')),
+      coalesceTrack: resultSet.getLong(resultSet.getColumnIndex('coalesce_track')),
+      actionTime: resultSet.getLong(resultSet.getColumnIndex('action_time')),
+    };
+    validateHistoryMetadata(op.history);
+  } else {
+    ensureLegacyHistoryColumnsAreNull(resultSet);
+  }
+  return op;
+}
+
+async function readNoteSyncMetadata(store: relationalStore.RdbStore,
+  noteId: string): Promise<OpSyncMetadata> {
+  const rows = await store.querySql(
+    `SELECT editor_site_id, editor_id, creator_id, created_at, updated_at, synced_op_count,
+      max_op_timestamp, max_server_time, schema_version, uploaded_through_sequence,
+      acked_through_sequence
+     FROM note_sync_metadata WHERE note_id = ?`, [noteId]);
+  try {
+    if (!rows.goToFirstRow()) {
+      throw new Error('note sync metadata is missing');
+    }
+    const serverColumn: number = rows.getColumnIndex('max_server_time');
+    const metadata: OpSyncMetadata = {
+      noteId: noteId,
+      editorSiteId: rows.getLong(rows.getColumnIndex('editor_site_id')),
+      editorId: rows.getString(rows.getColumnIndex('editor_id')),
+      creatorId: rows.getString(rows.getColumnIndex('creator_id')),
+      createdAt: rows.getLong(rows.getColumnIndex('created_at')),
+      updatedAt: rows.getLong(rows.getColumnIndex('updated_at')),
+      syncedOpCount: rows.getLong(rows.getColumnIndex('synced_op_count')),
+      maxOpTimestamp: rows.getLong(rows.getColumnIndex('max_op_timestamp')),
+      maxServerTime: rows.isColumnNull(serverColumn) ? null : rows.getLong(serverColumn),
+      schemaVersion: rows.getLong(rows.getColumnIndex('schema_version')),
+      uploadedThroughSequence: rows.getLong(rows.getColumnIndex('uploaded_through_sequence')),
+      ackedThroughSequence: rows.getLong(rows.getColumnIndex('acked_through_sequence')),
+    };
+    validateOperationIdentity({ timestamp: metadata.maxOpTimestamp, siteId: metadata.editorSiteId });
+    if (metadata.editorId.length === 0 || metadata.creatorId.length === 0 ||
+      !Number.isSafeInteger(metadata.createdAt) || metadata.createdAt < 0 ||
+      !Number.isSafeInteger(metadata.updatedAt) || metadata.updatedAt < 0 ||
+      !Number.isSafeInteger(metadata.syncedOpCount) || metadata.syncedOpCount < 0 ||
+      !Number.isSafeInteger(metadata.schemaVersion) || metadata.schemaVersion < 1 ||
+      (metadata.maxServerTime !== null &&
+        (!Number.isSafeInteger(metadata.maxServerTime) || metadata.maxServerTime < 0)) ||
+      !Number.isSafeInteger(metadata.uploadedThroughSequence) ||
+      !Number.isSafeInteger(metadata.ackedThroughSequence) || metadata.ackedThroughSequence < 0 ||
+      metadata.ackedThroughSequence > metadata.uploadedThroughSequence) {
+      throw new Error('note sync watermarks are corrupt');
+    }
+    return metadata;
+  } finally {
+    rows.close();
+  }
+}
+
 export async function appendOperation(store: relationalStore.RdbStore, op: Op): Promise<void> {
   if (op.opId.length === 0 || op.noteId.length === 0 || !Number.isSafeInteger(op.clientTime) ||
-    op.clientTime < 0) {
+    op.clientTime < 0 || op.opTimestamp === undefined || op.editorSiteId === undefined) {
     throw new Error('operation identity or timestamp is invalid');
+  }
+  const identity: OperationIdentity = { timestamp: op.opTimestamp, siteId: op.editorSiteId };
+  validateOperationIdentity(identity);
+  if (op.opId !== encodeOperationId(identity)) {
+    throw new Error('operation ID does not match its original clock identity');
   }
   const bucket: relationalStore.ValuesBucket = {
     'note_id': op.noteId,
@@ -432,6 +656,9 @@ export async function appendOperation(store: relationalStore.RdbStore, op: Op): 
     'op_type': op.opType,
     'payload': op.payload,
     'client_time': op.clientTime,
+    'op_timestamp': op.opTimestamp,
+    'editor_site_id': op.editorSiteId,
+    'upload_immediately': op.uploadImmediately === true ? 1 : 0,
   };
   if (op.history !== undefined) {
     validateHistoryMetadata(op.history);
@@ -489,5 +716,82 @@ export async function allocateOperationClientTime(store: relationalStore.RdbStor
     return monotonicOperationTime(last, wallClockTime);
   } finally {
     resultSet.close();
+  }
+}
+
+export async function allocateOperationIdentity(store: relationalStore.RdbStore,
+  noteId: string, wallClockTime: number = Date.now()): Promise<AllocatedOperationIdentity> {
+  if (noteId.length === 0 || !Number.isSafeInteger(wallClockTime) || wallClockTime < 0) {
+    throw new Error('operation identity requires a note ID');
+  }
+  await ensureNoteSyncMetadata(store, noteId);
+  const resultSet = await store.querySql(
+    `SELECT editor_site_id, max_op_timestamp FROM note_sync_metadata WHERE note_id = ?`, [noteId]);
+  let siteId: number = 0;
+  let currentTimestamp: number = 0;
+  try {
+    if (!resultSet.goToFirstRow()) {
+      throw new Error('note sync metadata disappeared during identity allocation');
+    }
+    siteId = resultSet.getLong(resultSet.getColumnIndex('editor_site_id'));
+    currentTimestamp = resultSet.getLong(resultSet.getColumnIndex('max_op_timestamp'));
+  } finally {
+    resultSet.close();
+  }
+  const timestamp: number = nextOperationTimestamp(currentTimestamp);
+  const clientTime: number = await allocateOperationClientTime(store, noteId, wallClockTime);
+  const predicates = new relationalStore.RdbPredicates('note_sync_metadata');
+  predicates.equalTo('note_id', noteId);
+  predicates.equalTo('max_op_timestamp', currentTimestamp);
+  const updated: number = await store.update({
+    'max_op_timestamp': timestamp,
+    'updated_at': clientTime,
+  }, predicates);
+  if (updated !== 1) {
+    throw new Error('operation clock changed concurrently');
+  }
+  const identity: OperationIdentity = { timestamp: timestamp, siteId: siteId };
+  return {
+    timestamp: timestamp,
+    siteId: siteId,
+    opId: encodeOperationId(identity),
+    clientTime: clientTime,
+  };
+}
+
+async function ensureNoteSyncMetadata(store: relationalStore.RdbStore, noteId: string): Promise<void> {
+  const existing = await store.querySql(
+    'SELECT note_id FROM note_sync_metadata WHERE note_id = ?', [noteId]);
+  try {
+    if (existing.goToFirstRow()) {
+      return;
+    }
+  } finally {
+    existing.close();
+  }
+  const source = await store.querySql(
+    `SELECT note.created_at, note.updated_at, identity.editor_id,
+      COALESCE((SELECT MAX(op_timestamp) FROM operation_log WHERE note_id = note.id), 0) AS max_timestamp
+     FROM note_meta note CROSS JOIN local_editor_identity identity
+     WHERE note.id = ? AND identity.singleton = 1`, [noteId]);
+  try {
+    if (!source.goToFirstRow()) {
+      throw new Error('cannot initialize sync metadata for a missing note or editor identity');
+    }
+    const editorId: string = source.getString(source.getColumnIndex('editor_id'));
+    await store.insert('note_sync_metadata', {
+      'note_id': noteId,
+      'editor_site_id': 0,
+      'editor_id': editorId,
+      'creator_id': editorId,
+      'created_at': source.getLong(source.getColumnIndex('created_at')),
+      'updated_at': source.getLong(source.getColumnIndex('updated_at')),
+      'max_op_timestamp': source.getLong(source.getColumnIndex('max_timestamp')),
+      'schema_version': 1,
+      'uploaded_through_sequence': 0,
+      'acked_through_sequence': 0,
+    });
+  } finally {
+    source.close();
   }
 }

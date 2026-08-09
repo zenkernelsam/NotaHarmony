@@ -9,7 +9,7 @@ import { DatabaseManager } from './DatabaseManager';
 import { assetMutationMutex, parseAssetNoteIds, unlinkAssetFile } from './AssetRepositoryImpl';
 import { escapeSearchLike, foldSearchText } from './SearchText';
 import { SearchItemType } from './SearchItemType';
-import { allocateOperationClientTime, appendOperation } from './OpStoreImpl';
+import { allocateOperationIdentity, AllocatedOperationIdentity, appendOperation } from './OpStoreImpl';
 import {
   classifyPageStructureMutation, createPageStructureMutation, encodePageStructureMutation,
   PageStructureMutation,
@@ -69,13 +69,15 @@ export class NoteRepositoryImpl implements NoteRepository {
       if (revisionRows !== 1) {
         throw new Error('default page structure revision was not initialized');
       }
-      const clientTime: number = await allocateOperationClientTime(store, note.id);
+      const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, note.id);
       await appendOperation(store, {
         noteId: note.id,
-        opId: 'page-structure:0:1',
+        opId: identity.opId,
         opType: OpType.CREATE_PAGE,
         payload: encodePageStructureMutation(pageMutation),
-        clientTime: clientTime,
+        clientTime: identity.clientTime,
+        opTimestamp: identity.timestamp,
+        editorSiteId: identity.siteId,
       });
       await this.upsertTitleSearchItem(store, note.id, note.title);
       await store.commit();

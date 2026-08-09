@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v17: bound persistent-history replay with a local canonical stack checkpoint.
-export const DB_VERSION: number = 17;
+// v18: persist original-style editor site/op clocks and ordered upload acknowledgement watermarks.
+export const DB_VERSION: number = 18;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS operation_log (
   op_type INTEGER NOT NULL,
   payload BLOB NOT NULL,
   client_time INTEGER NOT NULL,
+  op_timestamp INTEGER NOT NULL CHECK (op_timestamp BETWEEN 0 AND 4294967295),
+  editor_site_id INTEGER NOT NULL CHECK (editor_site_id BETWEEN 0 AND 65535),
+  upload_immediately INTEGER NOT NULL DEFAULT 0 CHECK (upload_immediately IN (0, 1)),
   action_id TEXT,
   history_effect INTEGER,
   coalesce_track INTEGER,
@@ -64,6 +67,34 @@ CREATE TABLE IF NOT EXISTS operation_log (
   CHECK ((action_id IS NULL AND history_effect IS NULL AND coalesce_track IS NULL AND action_time IS NULL)
     OR (action_id IS NOT NULL AND history_effect IS NOT NULL AND coalesce_track IS NOT NULL AND action_time IS NOT NULL)),
   UNIQUE(note_id, op_id),
+  UNIQUE(note_id, editor_site_id, op_timestamp),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_LOCAL_EDITOR_IDENTITY: string = `
+CREATE TABLE IF NOT EXISTS local_editor_identity (
+  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+  editor_id TEXT NOT NULL UNIQUE
+)`;
+
+// Mirrors the durable part of NoteStaticMetadata/SyncedOpMetadata. Site 0 is the original
+// local-unsynced fallback; a future sync resolver may replace it before minting remote ops.
+export const DDL_NOTE_SYNC_METADATA: string = `
+CREATE TABLE IF NOT EXISTS note_sync_metadata (
+  note_id TEXT PRIMARY KEY,
+  legacy_id TEXT,
+  editor_site_id INTEGER NOT NULL CHECK (editor_site_id BETWEEN 0 AND 65535),
+  editor_id TEXT NOT NULL,
+  creator_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  max_server_time INTEGER,
+  synced_op_count INTEGER NOT NULL DEFAULT 0 CHECK (synced_op_count >= 0),
+  max_op_timestamp INTEGER NOT NULL DEFAULT 0 CHECK (max_op_timestamp BETWEEN 0 AND 4294967295),
+  schema_version INTEGER NOT NULL DEFAULT 1,
+  uploaded_through_sequence INTEGER NOT NULL DEFAULT 0 CHECK (uploaded_through_sequence >= 0),
+  acked_through_sequence INTEGER NOT NULL DEFAULT 0 CHECK (acked_through_sequence >= 0),
+  CHECK (acked_through_sequence <= uploaded_through_sequence),
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
@@ -161,6 +192,28 @@ CREATE TABLE IF NOT EXISTS operation_log (
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
+const DDL_OPERATION_LOG_V18: string = `
+CREATE TABLE operation_log_v18 (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  note_id TEXT NOT NULL,
+  op_id TEXT NOT NULL,
+  op_type INTEGER NOT NULL,
+  payload BLOB NOT NULL,
+  client_time INTEGER NOT NULL,
+  op_timestamp INTEGER NOT NULL CHECK (op_timestamp BETWEEN 0 AND 4294967295),
+  editor_site_id INTEGER NOT NULL CHECK (editor_site_id BETWEEN 0 AND 65535),
+  upload_immediately INTEGER NOT NULL DEFAULT 0 CHECK (upload_immediately IN (0, 1)),
+  action_id TEXT,
+  history_effect INTEGER,
+  coalesce_track INTEGER,
+  action_time INTEGER,
+  CHECK ((action_id IS NULL AND history_effect IS NULL AND coalesce_track IS NULL AND action_time IS NULL)
+    OR (action_id IS NOT NULL AND history_effect IS NOT NULL AND coalesce_track IS NOT NULL AND action_time IS NOT NULL)),
+  UNIQUE(note_id, op_id),
+  UNIQUE(note_id, editor_site_id, op_timestamp),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
 // The original ToolboxEntity keeps both the active and previous tool IDs.
 export const DDL_EDITOR_TOOLBOX_STATE: string = `
 CREATE TABLE IF NOT EXISTS editor_toolbox_state (
@@ -255,6 +308,8 @@ export const DDL_INDEXES: string[] = [
     ON operation_log(note_id, client_time, sequence)`,
   `CREATE INDEX IF NOT EXISTS idx_operation_log_note_action
     ON operation_log(note_id, action_id, sequence)`,
+  `CREATE INDEX IF NOT EXISTS idx_operation_log_pending_upload
+    ON operation_log(note_id, sequence, upload_immediately)`,
   `CREATE INDEX IF NOT EXISTS idx_page_delete_checkpoint_page
     ON page_delete_checkpoint(note_id, page_id, created_time)`,
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_page_info_note ON page_info(note_id, page_index)',
@@ -476,5 +531,29 @@ export const MIGRATIONS: Record<number, string[]> = {
     DDL_HISTORY_CHECKPOINT,
     DDL_HISTORY_CHECKPOINT_ACTION,
     DDL_HISTORY_CHECKPOINT_OPERATION,
+  ],
+  18: [
+    DDL_LOCAL_EDITOR_IDENTITY,
+    `INSERT OR IGNORE INTO local_editor_identity(singleton, editor_id)
+      VALUES (1, lower(hex(randomblob(16))))`,
+    DDL_NOTE_SYNC_METADATA,
+    `INSERT OR IGNORE INTO note_sync_metadata
+      (note_id, editor_site_id, editor_id, creator_id, created_at, updated_at,
+       synced_op_count, max_op_timestamp, schema_version, uploaded_through_sequence,
+       acked_through_sequence)
+      SELECT note.id, 0, identity.editor_id, identity.editor_id, note.created_at, note.updated_at,
+        0, COALESCE(MAX(log.sequence), 0), 1, 0, 0
+      FROM note_meta note CROSS JOIN local_editor_identity identity
+      LEFT JOIN operation_log log ON log.note_id = note.id
+      GROUP BY note.id`,
+    DDL_OPERATION_LOG_V18,
+    `INSERT INTO operation_log_v18
+      (sequence, note_id, op_id, op_type, payload, client_time, op_timestamp,
+       editor_site_id, upload_immediately, action_id, history_effect, coalesce_track, action_time)
+      SELECT sequence, note_id, op_id, op_type, payload, client_time, sequence,
+        0, 0, action_id, history_effect, coalesce_track, action_time
+      FROM operation_log ORDER BY sequence`,
+    'DROP TABLE operation_log',
+    'ALTER TABLE operation_log_v18 RENAME TO operation_log',
   ],
 };
