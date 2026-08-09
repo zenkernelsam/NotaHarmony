@@ -25,6 +25,7 @@ import strokePredictionTest from './StrokePrediction.test';
 import rendererStyleTest from './RendererStyle.test';
 import pencilSplatMathTest from './PencilSplatMath.test';
 import pageCoordinateSpaceTest from './PageCoordinateSpace.test';
+import pageBackgroundModelTest from './PageBackgroundModel.test';
 import bitmapTransferTrackerTest from './BitmapTransferTracker.test';
 import layerCacheGeometryTest from './LayerCacheGeometry.test';
 import canvasViewportTest from './CanvasViewport.test';
@@ -79,6 +80,7 @@ export default function testsuite() {
   rendererStyleTest();
   pencilSplatMathTest();
   pageCoordinateSpaceTest();
+  pageBackgroundModelTest();
   bitmapTransferTrackerTest();
   layerCacheGeometryTest();
   canvasViewportTest();

@@ -212,6 +212,16 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
   `original_page_identity(visible=0,page_id=NULL)` 和 visibility winner，使它仍可作为位置锚点，但不伪造空白页或删除归档。后续若远端要求
   winning undelete 该从未绑定内容的身份，运行时 reducer 会因无可证明内容来源继续 DEFERRED；重复 delete 或输掉的旧 undelete 可继续
   更新/保留 winner 并推进同步，不会无谓阻塞水位。已经绑定后由实时 delete 产生的归档仍可完整恢复。
+- 第二十四阶段恢复原版纸张页面背景。`ge8.j()` 将 MODIFY_PAGE 字段标识为 `SetPageBackground`，`vz9.c()` 经 `fqb.c()` 写入页面；
+  `fqb.c()` 只有在新 op ID 严格大于旧 winner 时替换，`so5.a()` 按 unsigned timestamp、再按 unsigned site 比较。因此 v25 新增
+  `original_page_background_winner`，把 winner 与完整 `nz9/k3a` 值分离保存；旧或相等 op 都不得覆盖，background-only MODIFY_PAGE 也必须
+  独立生效，不要求同时存在 `SeqMove`。live 页面与远端删除归档使用同一 winner，删除后到达的背景更新写入归档，undelete 恢复最新值。
+- `nz9/k3a` 只在结构、RGBA、spacing、centered、bleeds、rotation 与尺寸全部通过预算和范围校验后进入持久层。CREATE_PAGE、实时
+  MODIFY_PAGE 与 NOTE_BUNDLE history 共用同一解码和值模型；NOTE_BUNDLE 对 winner 表、页面背景和既有身份逐字段幂等检查。NPG2 在页面
+  history 中携带背景且继续读取 NPG1；`.note` 页面元数据增加可选背景/自定义尺寸，导入、导出、本地删除 checkpoint 与远端归档均不丢失。
+- 原版 `wz9/v69` 的纸张绘制语义落到主画布和缩略图：颜色按原 RGBA，网格/横线按 spacing，centered 控制相位，bleeds 控制边缘延伸，
+  rotation 参与背景坐标，四分之一转时交换图案尺寸轴。显式 null setter 会进入尚未移植的 note-level background fallback；PDF 背景还需要
+  per-page asset page register。因此这两类继续 DEFERRED，bookmark 和不支持的维度组合同样不猜测处理。
 
 ## 后果
 
@@ -224,8 +234,7 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成组 Undo/Redo。本地启动 replay 与删除页恢复点增长已有上限，
 损坏历史也有用户可见且不删除同步日志的本地恢复路径；同步日志本身仍保持追加式。原版式 editor site/op clock、耐久同步元数据和
 upload/ACK 前缀契约、本地导入身份映射、共同水位压缩、严格同步会话协调器、无损 unsigned 64-bit server cursor、隔离的 incoming raw-op
-落库及原子应用门禁已经建立；CREATE_PAGE 的受限无背景 reducer、稳定身份/历史位置分层的原版 SeqId 树、受限纯移动 MODIFY_PAGE
-reducer、页面 delete/undelete tombstone 和无页面移动/tombstone 历史的 NOTE_BUNDLE 身份引导也已落地。但还没有经过认证的远端
-WebSocket 适配器、其余 28 类 incoming payload reducer、完整 NOTE_BUNDLE 页面历史或
-服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
+落库及原子应用门禁已经建立；CREATE_PAGE、MODIFY_PAGE 与 NOTE_BUNDLE 的页面身份、位置、可见性和纸张 `nz9/k3a` 背景子集已经按原版
+CRDT/LWW 语义落地。但还没有经过认证的远端 WebSocket 适配器、CREATE/MODIFY_INK、blocks、text 等内容 payload reducer、PDF 页面背景、
+显式空背景后的 note-level fallback 或服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
 原版协作或完整增量同步语义。

@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v24: preserve original page delete/undelete LWW state and archived page contents.
-export const DB_VERSION: number = 24;
+// v25: preserve original paper-backed nz9 page backgrounds across every page lifecycle.
+export const DB_VERSION: number = 25;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -285,6 +285,26 @@ CREATE TABLE IF NOT EXISTS original_page_visibility_winner (
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
+export const DDL_ORIGINAL_PAGE_BACKGROUND_WINNER: string = `
+CREATE TABLE IF NOT EXISTS original_page_background_winner (
+  note_id TEXT NOT NULL,
+  page_timestamp INTEGER NOT NULL CHECK (page_timestamp BETWEEN 0 AND 4294967295),
+  page_site_id INTEGER NOT NULL CHECK (page_site_id BETWEEN 0 AND 65535),
+  page_index INTEGER NOT NULL CHECK (page_index BETWEEN 0 AND 4294967295),
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  size INTEGER NOT NULL,
+  template INTEGER NOT NULL,
+  orientation INTEGER NOT NULL,
+  width_mm REAL NOT NULL CHECK (width_mm > 0),
+  height_mm REAL NOT NULL CHECK (height_mm > 0),
+  background_json TEXT NOT NULL CHECK (length(background_json) > 0),
+  PRIMARY KEY(note_id, page_timestamp, page_site_id, page_index),
+  FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
+    REFERENCES original_page_identity(note_id, seq_timestamp, seq_site_id, seq_index) ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
 export const DDL_ORIGINAL_DELETED_PAGE: string = `
 CREATE TABLE IF NOT EXISTS original_deleted_page (
   note_id TEXT NOT NULL,
@@ -297,6 +317,7 @@ CREATE TABLE IF NOT EXISTS original_deleted_page (
   orientation INTEGER NOT NULL,
   width_mm REAL NOT NULL,
   height_mm REAL NOT NULL,
+  background_json TEXT,
   content_revision INTEGER NOT NULL CHECK (content_revision >= 0),
   indexed_revision INTEGER CHECK (indexed_revision IS NULL OR
     (indexed_revision >= 0 AND indexed_revision <= content_revision)),
@@ -383,6 +404,7 @@ CREATE TABLE IF NOT EXISTS page_delete_checkpoint (
   orientation INTEGER NOT NULL,
   width_mm REAL NOT NULL,
   height_mm REAL NOT NULL,
+  background_json TEXT,
   content_revision INTEGER NOT NULL,
   indexed_revision INTEGER,
   created_time INTEGER NOT NULL,
@@ -530,6 +552,7 @@ CREATE TABLE IF NOT EXISTS page_info (
   orientation INTEGER NOT NULL DEFAULT 0,
   width_mm REAL NOT NULL DEFAULT 210.0,
   height_mm REAL NOT NULL DEFAULT 297.0,
+  background_json TEXT,
   content_revision INTEGER NOT NULL DEFAULT 0,
   UNIQUE(note_id, page_index),
   UNIQUE(note_id, page_id),
@@ -918,5 +941,11 @@ export const MIGRATIONS: Record<number, string[]> = {
     DDL_ORIGINAL_DELETED_PAGE_SEARCH,
     `CREATE INDEX IF NOT EXISTS idx_original_deleted_page_storage
       ON original_deleted_page(note_id, page_id)`,
+  ],
+  25: [
+    'ALTER TABLE page_info ADD COLUMN background_json TEXT',
+    'ALTER TABLE page_delete_checkpoint ADD COLUMN background_json TEXT',
+    'ALTER TABLE original_deleted_page ADD COLUMN background_json TEXT',
+    DDL_ORIGINAL_PAGE_BACKGROUND_WINNER,
   ],
 };

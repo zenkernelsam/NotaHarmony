@@ -8,6 +8,7 @@ import {
   NoteManifest, PageData, parseManifest, parsePage, parsePageElement,
 } from './NotePackageSpec';
 import { NoteMeta, PageInfo, PaperSize, PaperTemplate, PageOrientation } from '../core/model/NoteTypes';
+import { clonePageBackground } from '../core/model/PageBackgroundModel';
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
@@ -178,7 +179,8 @@ export class NoteImporter {
       }
       parsedPages.push({ pageId: page.pageId, pageIndex: page.pageIndex,
         paperSize: page.paperSize, paperTemplate: page.paperTemplate,
-        orientation: page.orientation, elements: elements });
+        orientation: page.orientation, widthMm: page.widthMm, heightMm: page.heightMm,
+        background: clonePageBackground(page.background), elements: elements });
     }
     if (parsedPages.length === 0 && manifest.pageCount > 0) {
       return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
@@ -216,8 +218,9 @@ export class NoteImporter {
           size: page.paperSize as PaperSize,
           template: page.paperTemplate as PaperTemplate,
           orientation: page.orientation as PageOrientation,
-          widthMm: landscape ? mm[1] : mm[0],
-          heightMm: landscape ? mm[0] : mm[1],
+          widthMm: page.widthMm === undefined ? (landscape ? mm[1] : mm[0]) : page.widthMm,
+          heightMm: page.heightMm === undefined ? (landscape ? mm[0] : mm[1]) : page.heightMm,
+          background: clonePageBackground(page.background),
         };
         await pageRepo.addPage(note.id, pageInfo);
         const pageStrokes: StrokeElementData[] = [];

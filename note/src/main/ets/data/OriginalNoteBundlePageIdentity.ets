@@ -16,6 +16,10 @@ import {
 } from './OperationIdentity';
 import { OriginalFlatBufferTableReader } from './OriginalSyncedOperationFlatBuffer';
 import { validateUnsignedLongDecimal } from './UnsignedDecimal';
+import { serializePageBackground } from '../core/model/PageBackgroundModel';
+import {
+  OriginalDecodedPageBackground, originalPageBackgroundFitsHarmony,
+} from './OriginalPageBackgroundOperation';
 
 export const ORIGINAL_NOTE_BUNDLE_MAX_OPERATION_COUNT: number = 262144;
 const ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE: number = 3;
@@ -73,6 +77,8 @@ interface BootstrapVisibilityWinner extends OperationIdentity {
 interface BootstrapPageState {
   identity: OriginalSequenceIdentity;
   visibility: BootstrapVisibilityWinner | null;
+  background: OriginalDecodedPageBackground | null;
+  backgroundWinner: OperationIdentity | null;
 }
 
 interface BootstrapHistory {
@@ -186,13 +192,16 @@ export class OriginalNoteBundlePageIdentityBootstrapper {
     }
     const pageIdBySequence: Map<string, string> = bindVisiblePages(history.visibleOrder, pageIds);
     if (await existingMappingMatches(store, expectedNoteId, history, pageIdBySequence)) {
-      return { applied: false, deferredReason: null };
+      const changed: boolean = await applyBootstrapBackgrounds(
+        store, expectedNoteId, history, pageIdBySequence);
+      return { applied: changed, deferredReason: null };
     }
     if (await hasExistingMapping(store, expectedNoteId)) {
       return deferred('ORIGINAL_PAGE_IDENTITY_CONFLICT');
     }
 
     await insertBootstrapHistory(store, expectedNoteId, history, pageIdBySequence);
+    await applyBootstrapBackgrounds(store, expectedNoteId, history, pageIdBySequence);
     return { applied: true, deferredReason: null };
   }
 }
@@ -214,6 +223,12 @@ function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): Boot
     if (payload.pageCount < 1 || payload.pageCount > MAX_ORIGINAL_CREATE_PAGE_COUNT) {
       return replayDeferred('NOTE_BUNDLE_CREATE_PAGE_COUNT_UNSUPPORTED');
     }
+    if (payload.background !== null && payload.background.hasPdf) {
+      return replayDeferred('NOTE_BUNDLE_CREATE_PAGE_PDF_BACKGROUND_UNSUPPORTED');
+    }
+    if (payload.background !== null && !originalPageBackgroundFitsHarmony(payload.background)) {
+      return replayDeferred('NOTE_BUNDLE_CREATE_PAGE_BACKGROUND_SIZE_UNSUPPORTED');
+    }
     totalPageCount += payload.pageCount;
     if (!Number.isSafeInteger(totalPageCount) || totalPageCount > ORIGINAL_NOTE_BUNDLE_MAX_OPERATION_COUNT) {
       return replayDeferred('NOTE_BUNDLE_PAGE_IDENTITY_BUDGET_EXCEEDED');
@@ -228,7 +243,9 @@ function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): Boot
       if (pages.has(key) || positions.has(key)) {
         throw new Error('note bundle repeats a page identity');
       }
-      pages.set(key, { identity: identity, visibility: null });
+      pages.set(key, {
+        identity: identity, visibility: null, background: payload.background, backgroundWinner: null,
+      });
       positions.add(key);
       positionWinners.set(key, {
         timestamp: operation.timestamp, siteId: operation.siteId, positionIndex: index,
@@ -256,11 +273,14 @@ function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): Boot
     if (payload.pages.length < 1) {
       return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_HAS_NO_PAGES');
     }
-    if (!payload.hasMove) {
-      return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_MOVE_UNAVAILABLE');
+    if (payload.hasBackground && payload.background === null) {
+      return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_BACKGROUND_CLEAR_REQUIRES_NOTE_BACKGROUND');
     }
-    if (payload.hasBackground) {
-      return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_BACKGROUND_UNSUPPORTED');
+    if (payload.background !== null && payload.background.hasPdf) {
+      return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_PDF_BACKGROUND_UNSUPPORTED');
+    }
+    if (payload.background !== null && !originalPageBackgroundFitsHarmony(payload.background)) {
+      return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_BACKGROUND_SIZE_UNSUPPORTED');
     }
     if (payload.hasBookmarked) {
       return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_BOOKMARK_UNSUPPORTED');
@@ -273,7 +293,22 @@ function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): Boot
         return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_PAGE_MISSING');
       }
     }
-    pendingMoves.push(operation);
+    if (payload.background !== null) {
+      for (const page of payload.pages) {
+        const state: BootstrapPageState | undefined = pages.get(encodeOriginalSequenceId(page));
+        if (state === undefined) {
+          throw new Error('validated note bundle background page disappeared');
+        }
+        if (state.backgroundWinner === null ||
+          compareOperationIdentity(operation, state.backgroundWinner) > 0) {
+          state.background = payload.background;
+          state.backgroundWinner = { timestamp: operation.timestamp, siteId: operation.siteId };
+        }
+      }
+    }
+    if (payload.hasMove) {
+      pendingMoves.push(operation);
+    }
   }
   while (pendingMoves.length > 0) {
     let progressed: boolean = false;
@@ -530,6 +565,81 @@ async function insertBootstrapHistory(store: relationalStore.RdbStore, noteId: s
         'deleted': page.visibility.deleted ? 1 : 0,
       });
     }
+    if (page.backgroundWinner !== null && page.background !== null) {
+      await store.insert('original_page_background_winner', {
+        'note_id': noteId,
+        'page_timestamp': page.identity.timestamp,
+        'page_site_id': page.identity.siteId,
+        'page_index': page.identity.index,
+        'winner_timestamp': page.backgroundWinner.timestamp,
+        'winner_site_id': page.backgroundWinner.siteId,
+        'size': page.background.size,
+        'template': page.background.template,
+        'orientation': page.background.orientation,
+        'width_mm': page.background.widthMm,
+        'height_mm': page.background.heightMm,
+        'background_json': serializePageBackground(page.background.background),
+      });
+    }
+  }
+}
+
+async function applyBootstrapBackgrounds(store: relationalStore.RdbStore, noteId: string,
+  history: BootstrapHistory, pageIdBySequence: Map<string, string>): Promise<boolean> {
+  let changed: boolean = false;
+  const states: BootstrapPageState[] = [];
+  history.pages.forEach((page: BootstrapPageState): void => {
+    states.push(page);
+  });
+  for (const state of states) {
+    const pageId: string | undefined = pageIdBySequence.get(encodeOriginalSequenceId(state.identity));
+    if (pageId === undefined || state.background === null) {
+      continue;
+    }
+    const backgroundJson: string | null = serializePageBackground(state.background.background);
+    if (await storedPageBackgroundMatches(store, noteId, pageId, state.background, backgroundJson)) {
+      continue;
+    }
+    const predicates = new relationalStore.RdbPredicates('page_info');
+    predicates.equalTo('note_id', noteId);
+    predicates.equalTo('page_id', pageId);
+    const updated: number = await store.update({
+      'size': state.background.size,
+      'template': state.background.template,
+      'orientation': state.background.orientation,
+      'width_mm': state.background.widthMm,
+      'height_mm': state.background.heightMm,
+      'background_json': backgroundJson,
+    }, predicates);
+    if (updated !== 1) {
+      throw new Error(`note bundle background update affected ${updated} rows`);
+    }
+    changed = true;
+  }
+  return changed;
+}
+
+async function storedPageBackgroundMatches(store: relationalStore.RdbStore, noteId: string,
+  pageId: string, expected: OriginalDecodedPageBackground,
+  backgroundJson: string | null): Promise<boolean> {
+  const rows = await store.querySql(
+    `SELECT size, template, orientation, width_mm, height_mm, background_json
+     FROM page_info WHERE note_id = ? AND page_id = ?`, [noteId, pageId]);
+  try {
+    if (!rows.goToFirstRow()) {
+      throw new Error('note bundle background page is missing');
+    }
+    const backgroundColumn: number = rows.getColumnIndex('background_json');
+    const storedBackground: string | null = rows.isColumnNull(backgroundColumn)
+      ? null : rows.getString(backgroundColumn);
+    return rows.getLong(rows.getColumnIndex('size')) === expected.size &&
+      rows.getLong(rows.getColumnIndex('template')) === expected.template &&
+      rows.getLong(rows.getColumnIndex('orientation')) === expected.orientation &&
+      rows.getDouble(rows.getColumnIndex('width_mm')) === expected.widthMm &&
+      rows.getDouble(rows.getColumnIndex('height_mm')) === expected.heightMm &&
+      storedBackground === backgroundJson;
+  } finally {
+    rows.close();
   }
 }
 
@@ -560,6 +670,8 @@ async function existingMappingMatches(store: relationalStore.RdbStore, noteId: s
     !await exactCount(store, 'original_page_position_winner', noteId, history.pages.size) ||
     !await exactCount(store, 'original_page_visibility_winner', noteId,
       countVisibilityWinners(history.pages)) ||
+    !await exactCount(store, 'original_page_background_winner', noteId,
+      countBackgroundWinners(history.pages)) ||
     !await exactCount(store, 'original_deleted_page', noteId, 0)) {
     return false;
   }
@@ -612,6 +724,19 @@ async function existingMappingMatches(store: relationalStore.RdbStore, noteId: s
         page.visibility.timestamp, page.visibility.siteId, page.visibility.deleted ? 1 : 0])) {
       return false;
     }
+    if (page.backgroundWinner !== null && page.background !== null && !await rowExists(store,
+      `SELECT 1 FROM original_page_background_winner WHERE note_id = ?
+       AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+       AND winner_timestamp = ? AND winner_site_id = ?
+       AND size = ? AND template = ? AND orientation = ?
+       AND width_mm = ? AND height_mm = ? AND background_json = ? LIMIT 1`,
+      [noteId, page.identity.timestamp, page.identity.siteId, page.identity.index,
+        page.backgroundWinner.timestamp, page.backgroundWinner.siteId,
+        page.background.size, page.background.template, page.background.orientation,
+        page.background.widthMm, page.background.heightMm,
+        serializePageBackground(page.background.background)])) {
+      return false;
+    }
   }
   return true;
 }
@@ -654,7 +779,8 @@ async function hasExistingMapping(store: relationalStore.RdbStore, noteId: strin
   const tables: string[] = [
     'original_page_insert_group', 'original_page_identity', 'original_page_position_group',
     'original_page_position', 'original_page_position_winner',
-    'original_page_visibility_winner', 'original_deleted_page',
+    'original_page_visibility_winner', 'original_page_background_winner',
+    'original_deleted_page',
   ];
   for (const table of tables) {
     if (await countRows(store, `SELECT COUNT(*) AS value FROM ${table} WHERE note_id = ?`,
@@ -683,6 +809,16 @@ function countVisibilityWinners(pages: Map<string, BootstrapPageState>): number 
   let result: number = 0;
   pages.forEach((page: BootstrapPageState): void => {
     if (page.visibility !== null) {
+      result++;
+    }
+  });
+  return result;
+}
+
+function countBackgroundWinners(pages: Map<string, BootstrapPageState>): number {
+  let result: number = 0;
+  pages.forEach((page: BootstrapPageState): void => {
+    if (page.backgroundWinner !== null) {
       result++;
     }
   });

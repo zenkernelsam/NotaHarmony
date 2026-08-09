@@ -29,6 +29,43 @@ export enum PageOrientation {
   LANDSCAPE = 1,
 }
 
+// Original 1.0.3 n3a values. Keep the wire values stable.
+export enum OriginalPaperFlair {
+  LINES = 0,
+  DOTS = 1,
+  GRID = 2,
+}
+
+export interface PagePaperBackground {
+  flair: OriginalPaperFlair | null;
+  flairSpacingPt: number | null;
+  flairBleeds: boolean | null;
+  flairCentered: boolean | null;
+  colorR: number | null;
+  colorG: number | null;
+  colorB: number | null;
+  colorA: number | null;
+  legacyPaperIndex: number | null;
+}
+
+export interface PageBackgroundMargins {
+  topPt: number;
+  bottomPt: number;
+  leftPt: number;
+  rightPt: number;
+}
+
+// Lossless paper-backed subset of original nz9. PDF-backed nz9 stays deferred
+// until its asset, crop-box and renderer contract can be preserved as a unit.
+export interface PageBackground {
+  schemaVersion: number;
+  paper: PagePaperBackground | null;
+  rotationRadians: number;
+  sourceWidthPt: number | null;
+  sourceHeightPt: number | null;
+  margins: PageBackgroundMargins | null;
+}
+
 // 页面信息
 export interface PageInfo {
   pageId: string;
@@ -38,6 +75,7 @@ export interface PageInfo {
   orientation: PageOrientation;
   widthMm: number;
   heightMm: number;
+  background?: PageBackground | null;
 }
 
 // 笔记元数据（对应 SyncedNoteMetadata 简化版）

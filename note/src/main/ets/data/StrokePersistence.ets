@@ -1,5 +1,6 @@
 import { relationalStore } from '@kit.ArkData';
 import { PageInfo } from '../core/model/NoteTypes';
+import { parsePageBackground } from '../core/model/PageBackgroundModel';
 import { HistoryEffect, HistoryMetadata } from '../core/model/OpTypes';
 import { taskpool, util } from '@kit.ArkTS';
 import { StrokeElementData } from '../core/model/StrokeTypes';
@@ -243,6 +244,7 @@ export class StrokePersistence {
     const resultSet = await this.store.querySql(
       `SELECT page.page_id AS page_id, page.page_index AS page_index, page.size AS size, page.template AS template,
         page.orientation AS orientation, page.width_mm AS width_mm, page.height_mm AS height_mm,
+        page.background_json AS background_json,
         page.content_revision AS content_revision,
         (SELECT COUNT(*) FROM page_element_snapshot snapshot
          WHERE snapshot.note_id = page.note_id AND snapshot.page_id = page.page_id) AS element_count
@@ -259,13 +261,17 @@ export class StrokePersistence {
         orientation: resultSet.getLong(resultSet.getColumnIndex('orientation')),
         widthMm: resultSet.getDouble(resultSet.getColumnIndex('width_mm')),
         heightMm: resultSet.getDouble(resultSet.getColumnIndex('height_mm')),
+        background: parsePageBackground(resultSet.isColumnNull(resultSet.getColumnIndex('background_json'))
+          ? null : resultSet.getString(resultSet.getColumnIndex('background_json'))),
       };
       const maxRevision: number = resultSet.getLong(resultSet.getColumnIndex('content_revision'));
       const elementCount: number = resultSet.getLong(resultSet.getColumnIndex('element_count'));
       return {
         page: page,
         revision: `${page.pageId}:${page.size}:${page.template}:${page.orientation}:` +
-          `${page.widthMm}:${page.heightMm}:${maxRevision}:${elementCount}`,
+          `${page.widthMm}:${page.heightMm}:${resultSet.isColumnNull(resultSet.getColumnIndex('background_json'))
+            ? '' : resultSet.getString(resultSet.getColumnIndex('background_json'))}:` +
+          `${maxRevision}:${elementCount}`,
       };
     } finally {
       resultSet.close();
@@ -277,7 +283,8 @@ export class StrokePersistence {
       throw new Error('StrokePersistence is not initialized');
     }
     const resultSet = await this.store.querySql(
-      `SELECT page_id, page_index, size, template, orientation, width_mm, height_mm, content_revision
+      `SELECT page_id, page_index, size, template, orientation, width_mm, height_mm,
+        background_json, content_revision
        FROM page_info WHERE note_id = ? ORDER BY page_index, page_id`, [noteId]);
     try {
       const rows: string[] = [];
@@ -289,6 +296,8 @@ export class StrokePersistence {
           `${resultSet.getLong(resultSet.getColumnIndex('orientation'))},` +
           `${resultSet.getDouble(resultSet.getColumnIndex('width_mm'))},` +
           `${resultSet.getDouble(resultSet.getColumnIndex('height_mm'))},` +
+          `${resultSet.isColumnNull(resultSet.getColumnIndex('background_json')) ? '' :
+            resultSet.getString(resultSet.getColumnIndex('background_json'))},` +
           `${resultSet.getLong(resultSet.getColumnIndex('content_revision'))}`);
       }
       return rows.join(';');

@@ -4,6 +4,8 @@
 import { ElementType, ShapeArrowHead, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import { InkStyle, StrokeElementData, StrokePathPoint } from '../core/model/StrokeTypes';
+import { PageBackground } from '../core/model/NoteTypes';
+import { clonePageBackground, validatePageBackground } from '../core/model/PageBackgroundModel';
 
 // .note 格式标识
 export const NOTE_FORMAT: string = 'nota.note';
@@ -32,6 +34,9 @@ export interface PageData {
   paperSize: number;
   paperTemplate: number;
   orientation: number;
+  widthMm?: number;
+  heightMm?: number;
+  background?: PageBackground | null;
   elements: object[];    // NoteElement JSON 数组
 }
 
@@ -164,6 +169,18 @@ export function parsePage(json: string): PageData | null {
     if (!Array.isArray(parsed.elements)) {
       return null;
     }
+    const hasWidth: boolean = parsed.widthMm !== undefined;
+    const hasHeight: boolean = parsed.heightMm !== undefined;
+    if (hasWidth !== hasHeight || (hasWidth && (!isPositiveFinite(parsed.widthMm as number) ||
+      !isPositiveFinite(parsed.heightMm as number)))) {
+      return null;
+    }
+    try {
+      validatePageBackground(parsed.background);
+      parsed.background = clonePageBackground(parsed.background);
+    } catch (_error) {
+      return null;
+    }
     return parsed;
   } catch (e) {
     return null;
@@ -279,6 +296,10 @@ function isPoint(point: Point2D): boolean {
 
 function isNonNegativeFinite(value: number): boolean {
   return isFiniteNumber(value) && value >= 0;
+}
+
+function isPositiveFinite(value: number): boolean {
+  return isFiniteNumber(value) && value > 0;
 }
 
 function isFiniteNumber(value: number): boolean {

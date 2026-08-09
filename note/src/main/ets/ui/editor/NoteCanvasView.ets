@@ -57,7 +57,7 @@ import {
 } from '../../core/model/TextBlockGeometry';
 import { Point2D, Rect2D, CubicSegment } from '../../core/model/GeometryTypes';
 import {
-  CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, PageInfo, PaperTemplate,
+  CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, PageInfo,
 } from '../../core/model/NoteTypes';
 import {
   appendPageElementRefs, clonePageElementOrder, materializePageElements, movePageElementRefs,
@@ -758,7 +758,7 @@ export struct NoteCanvasView {
 
   private renderPaper(theme: ThemeTokens): void {
     this.paperRenderer.renderBackground(this.canvasCtx, this.getPaperWidth(), this.getPaperHeight(),
-      this.currentPage.template as PaperTemplate, this.viewport.zoom, theme);
+      this.currentPage, this.viewport.zoom, theme);
   }
 
   private renderTextBlocks(): void {

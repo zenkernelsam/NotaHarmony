@@ -10,6 +10,11 @@ import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 import { OriginalPageOrderStore } from './OriginalPageOrderStore';
+import { serializePageBackground } from '../core/model/PageBackgroundModel';
+import {
+  decodeOriginalPageBackgroundTable, OriginalDecodedPageBackground,
+  originalPageBackgroundFitsHarmony,
+} from './OriginalPageBackgroundOperation';
 
 export const ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE: number = 4;
 export const MAX_ORIGINAL_MODIFY_PAGE_COUNT: number = 10000;
@@ -19,6 +24,7 @@ export interface OriginalModifyPagePayload {
   hasMove: boolean;
   moveTo: OriginalSequenceIdentity | null;
   hasBackground: boolean;
+  background: OriginalDecodedPageBackground | null;
   hasBookmarked: boolean;
 }
 
@@ -66,11 +72,15 @@ export function decodeOriginalModifyPageTable(
   if (moveTo !== null) {
     validateOriginalSequenceIdentity(moveTo);
   }
+  const backgroundSetter: OriginalFlatBufferTableReader | null = table.readTable(2);
+  const backgroundTable: OriginalFlatBufferTableReader | null =
+    backgroundSetter === null ? null : backgroundSetter.readTable(0);
   return {
     pages: pages,
     hasMove: move !== null,
     moveTo: moveTo,
-    hasBackground: table.hasField(2),
+    hasBackground: backgroundSetter !== null,
+    background: backgroundTable === null ? null : decodeOriginalPageBackgroundTable(backgroundTable),
     hasBookmarked: table.hasField(3),
   };
 }
@@ -93,11 +103,14 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
     if (payload.pages.length < 1) {
       return { deferredReason: 'MODIFY_PAGE_HAS_NO_PAGES' };
     }
-    if (!payload.hasMove) {
-      return { deferredReason: 'MODIFY_PAGE_MOVE_UNAVAILABLE' };
+    if (payload.hasBackground && payload.background === null) {
+      return { deferredReason: 'MODIFY_PAGE_BACKGROUND_CLEAR_REQUIRES_NOTE_BACKGROUND' };
     }
-    if (payload.hasBackground) {
-      return { deferredReason: 'MODIFY_PAGE_BACKGROUND_UNSUPPORTED' };
+    if (payload.background !== null && payload.background.hasPdf) {
+      return { deferredReason: 'MODIFY_PAGE_PDF_BACKGROUND_UNSUPPORTED' };
+    }
+    if (payload.background !== null && !originalPageBackgroundFitsHarmony(payload.background)) {
+      return { deferredReason: 'MODIFY_PAGE_BACKGROUND_SIZE_UNSUPPORTED' };
     }
     if (payload.hasBookmarked) {
       return { deferredReason: 'MODIFY_PAGE_BOOKMARK_UNSUPPORTED' };
@@ -105,7 +118,7 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
     if (this.hasRepeatedPage(payload.pages)) {
       return { deferredReason: 'MODIFY_PAGE_REPEATS_PAGE' };
     }
-    if (await this.groupExists(store, operation.noteId, operation)) {
+    if (payload.hasMove && await this.groupExists(store, operation.noteId, operation)) {
       throw new Error('original modify-page operation was applied twice');
     }
     for (const page of payload.pages) {
@@ -118,22 +131,150 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
       return { deferredReason: 'MODIFY_PAGE_TARGET_MISSING' };
     }
 
-    const storedOrder: string[] = await this.orderStore.readStoredPageIds(store, operation.noteId);
-    const originalOrder: string[] = await this.orderStore.readOriginalVisibleOrder(store, operation.noteId);
-    if (!this.orderStore.samePageIds(storedOrder, originalOrder)) {
-      return { deferredReason: 'ORIGINAL_PAGE_ORDER_DIVERGED' };
+    let changed: boolean = false;
+    if (payload.hasMove) {
+      const storedOrder: string[] = await this.orderStore.readStoredPageIds(store, operation.noteId);
+      const originalOrder: string[] = await this.orderStore.readOriginalVisibleOrder(store, operation.noteId);
+      if (!this.orderStore.samePageIds(storedOrder, originalOrder)) {
+        return { deferredReason: 'ORIGINAL_PAGE_ORDER_DIVERGED' };
+      }
+      await this.insertPositionGroup(store, operation, payload);
+      await this.insertPositionsAndUpdateWinners(store, operation, payload.pages);
+      const newOrder: string[] = await this.orderStore.readOriginalVisibleOrder(store, operation.noteId);
+      if (newOrder.length !== storedOrder.length) {
+        throw new Error('original page move changed the visible page set');
+      }
+      await this.orderStore.assignTemporaryIndexes(store, operation.noteId, storedOrder);
+      await this.orderStore.assignFinalIndexes(store, operation.noteId, newOrder);
+      changed = true;
     }
-
-    await this.insertPositionGroup(store, operation, payload);
-    await this.insertPositionsAndUpdateWinners(store, operation, payload.pages);
-    const newOrder: string[] = await this.orderStore.readOriginalVisibleOrder(store, operation.noteId);
-    if (newOrder.length !== storedOrder.length) {
-      throw new Error('original page move changed the visible page set');
+    if (payload.background !== null &&
+      await this.applyBackground(store, operation, payload.pages, payload.background)) {
+      changed = true;
     }
-    await this.orderStore.assignTemporaryIndexes(store, operation.noteId, storedOrder);
-    await this.orderStore.assignFinalIndexes(store, operation.noteId, newOrder);
-    await this.orderStore.advanceStructureRevision(store, operation.noteId, 'modify-page');
+    if (changed) {
+      await this.orderStore.advanceStructureRevision(store, operation.noteId, 'modify-page');
+    }
     return { deferredReason: null };
+  }
+
+  private async applyBackground(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, pages: OriginalSequenceIdentity[],
+    background: OriginalDecodedPageBackground): Promise<boolean> {
+    let changed: boolean = false;
+    for (const page of pages) {
+      const winner: OperationIdentity | null =
+        await this.readBackgroundWinner(store, operation.noteId, page);
+      // fqb.c in 1.0.3 replaces a Register only when the incoming Op ID is strictly greater.
+      if (winner !== null && compareOperationIdentity(operation, winner) <= 0) {
+        continue;
+      }
+      await this.writeBackgroundWinner(store, operation, page, background, winner);
+      await this.updateMaterializedBackground(store, operation.noteId, page, background);
+      changed = true;
+    }
+    return changed;
+  }
+
+  private async readBackgroundWinner(store: relationalStore.RdbStore, noteId: string,
+    page: OriginalSequenceIdentity): Promise<OperationIdentity | null> {
+    const rows = await store.querySql(
+      `SELECT winner_timestamp, winner_site_id FROM original_page_background_winner
+       WHERE note_id = ? AND page_timestamp = ? AND page_site_id = ? AND page_index = ?`,
+      [noteId, page.timestamp, page.siteId, page.index]);
+    try {
+      if (!rows.goToFirstRow()) {
+        return null;
+      }
+      return {
+        timestamp: rows.getLong(rows.getColumnIndex('winner_timestamp')),
+        siteId: rows.getLong(rows.getColumnIndex('winner_site_id')),
+      };
+    } finally {
+      rows.close();
+    }
+  }
+
+  private async writeBackgroundWinner(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, page: OriginalSequenceIdentity,
+    background: OriginalDecodedPageBackground, previous: OperationIdentity | null): Promise<void> {
+    const values: relationalStore.ValuesBucket = {
+      'note_id': operation.noteId,
+      'page_timestamp': page.timestamp,
+      'page_site_id': page.siteId,
+      'page_index': page.index,
+      'winner_timestamp': operation.timestamp,
+      'winner_site_id': operation.siteId,
+      'size': background.size,
+      'template': background.template,
+      'orientation': background.orientation,
+      'width_mm': background.widthMm,
+      'height_mm': background.heightMm,
+      'background_json': serializePageBackground(background.background),
+    };
+    if (previous === null) {
+      await store.insert('original_page_background_winner', values);
+      return;
+    }
+    const predicates = new relationalStore.RdbPredicates('original_page_background_winner');
+    predicates.equalTo('note_id', operation.noteId);
+    predicates.equalTo('page_timestamp', page.timestamp);
+    predicates.equalTo('page_site_id', page.siteId);
+    predicates.equalTo('page_index', page.index);
+    predicates.equalTo('winner_timestamp', previous.timestamp);
+    predicates.equalTo('winner_site_id', previous.siteId);
+    const updated: number = await store.update(values, predicates);
+    if (updated !== 1) {
+      throw new Error('original page background winner changed concurrently');
+    }
+  }
+
+  private async updateMaterializedBackground(store: relationalStore.RdbStore, noteId: string,
+    page: OriginalSequenceIdentity, background: OriginalDecodedPageBackground): Promise<void> {
+    const rows = await store.querySql(
+      `SELECT page_id FROM original_page_identity
+       WHERE note_id = ? AND seq_timestamp = ? AND seq_site_id = ? AND seq_index = ?`,
+      [noteId, page.timestamp, page.siteId, page.index]);
+    let pageId: string | null;
+    try {
+      if (!rows.goToFirstRow()) {
+        throw new Error('original background page identity is missing');
+      }
+      const column: number = rows.getColumnIndex('page_id');
+      pageId = rows.isColumnNull(column) ? null : rows.getString(column);
+    } finally {
+      rows.close();
+    }
+    if (pageId === null) {
+      return;
+    }
+    const values: relationalStore.ValuesBucket = {
+      'size': background.size,
+      'template': background.template,
+      'orientation': background.orientation,
+      'width_mm': background.widthMm,
+      'height_mm': background.heightMm,
+      'background_json': serializePageBackground(background.background),
+    };
+    const live = new relationalStore.RdbPredicates('page_info');
+    live.equalTo('note_id', noteId);
+    live.equalTo('page_id', pageId);
+    const liveUpdated: number = await store.update(values, live);
+    if (liveUpdated === 1) {
+      return;
+    }
+    if (liveUpdated !== 0) {
+      throw new Error(`original background updated ${liveUpdated} live pages`);
+    }
+    const archived = new relationalStore.RdbPredicates('original_deleted_page');
+    archived.equalTo('note_id', noteId);
+    archived.equalTo('page_timestamp', page.timestamp);
+    archived.equalTo('page_site_id', page.siteId);
+    archived.equalTo('page_index', page.index);
+    const archivedUpdated: number = await store.update(values, archived);
+    if (archivedUpdated !== 1) {
+      throw new Error(`original background updated ${archivedUpdated} archived pages`);
+    }
   }
 
   private hasRepeatedPage(pages: OriginalSequenceIdentity[]): boolean {

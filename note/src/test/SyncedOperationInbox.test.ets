@@ -109,11 +109,11 @@ export default function syncedOperationInboxTest() {
       expect(payload.bookmarked).assertFalse();
       expect(ORIGINAL_DEFAULT_PAGE_WIDTH_MM).assertEqual(215.9);
       expect(ORIGINAL_DEFAULT_PAGE_HEIGHT_MM).assertEqual(279.4);
-      const rootPayload = decodeOriginalCreatePage(flatBufferCreatePage(
-        10, 4, '13', '14', 0, 0, 0, 1, true, false, true));
+      const rootPayload = decodeOriginalCreatePage(flatBufferCreatePageBackground());
       expect(rootPayload.location === null).assertTrue();
       expect(rootPayload.hasBackground).assertTrue();
       expect(rootPayload.bookmarked).assertTrue();
+      expect(rootPayload.background?.background.paper?.colorA).assertEqual(255);
     });
 
     it('keeps original SeqId comparison and note-scoped storage IDs', 0, () => {
@@ -146,6 +146,22 @@ export default function syncedOperationInboxTest() {
       expect(applier.supports(4)).assertTrue();
       expect(applier.supports(25)).assertTrue();
       expect(applier.supports(5)).assertFalse();
+    });
+
+    it('decodes background-only MODIFY_PAGE and preserves an explicit null setter', 0, () => {
+      const payload = decodeOriginalModifyPage(flatBufferModifyPageBackground(true));
+      expect(payload.pages.length).assertEqual(1);
+      expect(payload.hasMove).assertFalse();
+      expect(payload.hasBackground).assertTrue();
+      expect(payload.background?.background.paper?.flair).assertEqual(2);
+      expect(payload.background?.background.paper?.flairSpacingPt).assertEqual(18);
+      expect(payload.background?.background.paper?.colorR).assertEqual(244);
+      expect(payload.background?.background.paper?.colorA).assertEqual(255);
+      expect(payload.background?.widthMm).assertEqual(215.9);
+      expect(payload.background?.heightMm).assertEqual(279.4);
+      const clear = decodeOriginalModifyPage(flatBufferModifyPageBackground(false));
+      expect(clear.hasBackground).assertTrue();
+      expect(clear.background === null).assertTrue();
     });
 
     it('decodes original DELETE_ENTITIES page tombstones independently from entities', 0, () => {
@@ -334,6 +350,134 @@ function flatBufferModifyPage(): Uint8Array {
   writeU32(bytes, 148, 30);
   writeU32(bytes, 152, 6);
   return bytes;
+}
+
+class FixtureFlatBufferBuilder {
+  private bytes: Uint8Array = new Uint8Array(512);
+  private cursor: number = 4;
+
+  table(offsets: number[], objectSize: number): number {
+    const vtable: number = this.cursor;
+    const vtableSize: number = 4 + offsets.length * 2;
+    this.cursor += vtableSize;
+    this.align(4);
+    const table: number = this.cursor;
+    this.cursor += objectSize;
+    writeU16(this.bytes, vtable, vtableSize);
+    writeU16(this.bytes, vtable + 2, objectSize);
+    for (let index: number = 0; index < offsets.length; index++) {
+      writeU16(this.bytes, vtable + 4 + index * 2, offsets[index]);
+    }
+    writeU32(this.bytes, table, table - vtable);
+    return table;
+  }
+
+  sequenceVector(timestamp: number, siteId: number, index: number): number {
+    this.align(4);
+    const vector: number = this.cursor;
+    this.cursor += 16;
+    writeU32(this.bytes, vector, 1);
+    writeU16(this.bytes, vector + 4, siteId);
+    writeU32(this.bytes, vector + 8, timestamp);
+    writeU32(this.bytes, vector + 12, index);
+    return vector;
+  }
+
+  pointer(slot: number, target: number): void {
+    writeU32(this.bytes, slot, target - slot);
+  }
+
+  uint8(offset: number, value: number): void {
+    this.bytes[offset] = value;
+  }
+
+  uint16(offset: number, value: number): void {
+    writeU16(this.bytes, offset, value);
+  }
+
+  uint32(offset: number, value: number): void {
+    writeU32(this.bytes, offset, value);
+  }
+
+  float32(offset: number, value: number): void {
+    const source: Uint8Array = new Uint8Array(new Float32Array([value]).buffer);
+    for (let index: number = 0; index < 4; index++) {
+      this.bytes[offset + index] = source[index];
+    }
+  }
+
+  color(offset: number, values: number[]): void {
+    for (let index: number = 0; index < values.length; index++) {
+      this.bytes[offset + index] = values[index];
+    }
+  }
+
+  finish(root: number): Uint8Array {
+    writeU32(this.bytes, 0, root);
+    return this.bytes.slice(0, this.cursor);
+  }
+
+  private align(value: number): void {
+    while ((this.cursor & (value - 1)) !== 0) {
+      this.cursor++;
+    }
+  }
+}
+
+function flatBufferModifyPageBackground(includeValue: boolean): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 90);
+  builder.uint8(root + 28, 4);
+  const modify: number = builder.table([4, 0, 8, 0], 12);
+  builder.pointer(root + 32, modify);
+  const pages: number = builder.sequenceVector(10, 1, 2);
+  builder.pointer(modify + 4, pages);
+  const setter: number = builder.table([includeValue ? 4 : 0], includeValue ? 8 : 4);
+  builder.pointer(modify + 8, setter);
+  if (includeValue) {
+    const background: number = builder.table([4, 0, 8, 12, 0], 20);
+    builder.pointer(setter + 4, background);
+    builder.float32(background + 8, 0);
+    builder.float32(background + 12, 612);
+    builder.float32(background + 16, 792);
+    const paper: number = builder.table([4, 8, 12, 13, 16, 20], 24);
+    builder.pointer(background + 4, paper);
+    builder.uint8(paper + 4, 2);
+    builder.float32(paper + 8, 18);
+    builder.uint8(paper + 12, 1);
+    builder.uint8(paper + 13, 1);
+    builder.color(paper + 16, [244, 245, 246, 255]);
+    builder.uint8(paper + 20, 7);
+  }
+  return builder.finish(root);
+}
+
+function flatBufferCreatePageBackground(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 4);
+  builder.uint32(root + 8, 10);
+  builder.uint8(root + 28, 3);
+  const create: number = builder.table([0, 4, 8, 12], 16);
+  builder.pointer(root + 32, create);
+  builder.uint32(create + 8, 1);
+  builder.uint8(create + 12, 1);
+  const background: number = builder.table([4, 0, 8, 12, 0], 20);
+  builder.pointer(create + 4, background);
+  builder.float32(background + 8, 0);
+  builder.float32(background + 12, 612);
+  builder.float32(background + 16, 792);
+  const paper: number = builder.table([4, 8, 12, 13, 16, 20], 24);
+  builder.pointer(background + 4, paper);
+  builder.uint8(paper + 4, 2);
+  builder.float32(paper + 8, 18);
+  builder.uint8(paper + 12, 1);
+  builder.uint8(paper + 13, 1);
+  builder.color(paper + 16, [244, 245, 246, 255]);
+  builder.uint8(paper + 20, 7);
+  return builder.finish(root);
 }
 
 function flatBufferDeleteEntities(): Uint8Array {

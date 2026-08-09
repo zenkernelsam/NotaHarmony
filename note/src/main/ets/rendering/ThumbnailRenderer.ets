@@ -84,7 +84,7 @@ export class ThumbnailRenderer {
     ctx.translate(pageTransform.offset.x, pageTransform.offset.y);
     ctx.scale(pageTransform.scale, pageTransform.scale);
     this.paperRenderer.renderOffscreenBackground(ctx, pageSize.width, pageSize.height,
-      page.template, pageTransform.scale, theme);
+      page, pageTransform.scale, theme);
     const renderContext: Canvas2DOffscreenRenderContext = new Canvas2DOffscreenRenderContext(ctx);
     for (const element of loaded.elements) {
       if (element.kind === PageElementKind.STROKE) {

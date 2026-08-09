@@ -4,6 +4,7 @@ import { router, promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { NoteMeta, PageInfo } from '../../core/model/NoteTypes';
+import { clonePageInfo, samePageBackground } from '../../core/model/PageBackgroundModel';
 import { HistoryMetadata } from '../../core/model/OpTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
@@ -676,7 +677,7 @@ struct NotePage {
       return false;
     }
     // A user-created page is appended empty. Keeping this invariant makes ADD_PAGE history a
-    // single NPG1 transaction; populated page restoration belongs to DELETE_PAGE checkpoints.
+    // single page-mutation transaction; populated page restoration belongs to DELETE_PAGE checkpoints.
     if (action.pageStrokes.length !== 0 || action.pageTextBlocks.length !== 0 ||
       action.pageShapes.length !== 0 || action.pageElementOrder.length !== 0 ||
       action.pageOrderAfter.length === 0 ||
@@ -772,20 +773,13 @@ struct NotePage {
   }
 
   private clonePage(page: PageInfo): PageInfo {
-    return {
-      pageId: page.pageId,
-      pageIndex: page.pageIndex,
-      size: page.size,
-      template: page.template,
-      orientation: page.orientation,
-      widthMm: page.widthMm,
-      heightMm: page.heightMm,
-    };
+    return clonePageInfo(page);
   }
 
   private samePageSettings(a: PageInfo, b: PageInfo): boolean {
     return a.size === b.size && a.template === b.template && a.orientation === b.orientation &&
-      a.widthMm === b.widthMm && a.heightMm === b.heightMm;
+      a.widthMm === b.widthMm && a.heightMm === b.heightMm &&
+      samePageBackground(a.background, b.background);
   }
 
   private generateId(): string {

@@ -1,5 +1,6 @@
 import { relationalStore } from '@kit.ArkData';
-import { PageOrientation, PaperSize, PaperTemplate } from '../core/model/NoteTypes';
+import { PageBackground, PageOrientation, PaperSize, PaperTemplate } from '../core/model/NoteTypes';
+import { serializePageBackground } from '../core/model/PageBackgroundModel';
 import {
   compareOriginalSequenceIdentity, encodeOriginalPageStorageId, encodeOriginalSequenceId,
   OriginalSequenceIdentity, validateOriginalSequenceIdentity,
@@ -11,6 +12,10 @@ import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 import { OriginalPageOrderStore } from './OriginalPageOrderStore';
+import {
+  decodeOriginalPageBackgroundTable, OriginalDecodedPageBackground,
+  originalPageBackgroundFitsHarmony,
+} from './OriginalPageBackgroundOperation';
 
 export const ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE: number = 3;
 export const MAX_ORIGINAL_CREATE_PAGE_COUNT: number = 10000;
@@ -20,6 +25,7 @@ export const ORIGINAL_DEFAULT_PAGE_HEIGHT_MM: number = 279.4;
 export interface OriginalCreatePagePayload {
   location: OriginalSequenceIdentity | null;
   hasBackground: boolean;
+  background: OriginalDecodedPageBackground | null;
   pageCount: number;
   bookmarked: boolean;
 }
@@ -55,9 +61,11 @@ export function decodeOriginalCreatePageTable(
   if (location !== null) {
     validateOriginalSequenceIdentity(location);
   }
+  const backgroundTable: OriginalFlatBufferTableReader | null = table.readTable(1);
   return {
     location: location,
-    hasBackground: table.hasField(1),
+    hasBackground: backgroundTable !== null,
+    background: backgroundTable === null ? null : decodeOriginalPageBackgroundTable(backgroundTable),
     pageCount: table.readUint32(2, 1),
     // ln2.k() maps every unknown enum byte back to UNBOOKMARKED.
     bookmarked: table.readUint8(3, 0) === 1,
@@ -82,8 +90,11 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
     if (payload.pageCount < 1 || payload.pageCount > MAX_ORIGINAL_CREATE_PAGE_COUNT) {
       return { deferredReason: 'UNSUPPORTED_CREATE_PAGE_COUNT' };
     }
-    if (payload.hasBackground) {
-      return { deferredReason: 'CREATE_PAGE_BACKGROUND_UNSUPPORTED' };
+    if (payload.background !== null && payload.background.hasPdf) {
+      return { deferredReason: 'CREATE_PAGE_PDF_BACKGROUND_UNSUPPORTED' };
+    }
+    if (payload.background !== null && !originalPageBackgroundFitsHarmony(payload.background)) {
+      return { deferredReason: 'CREATE_PAGE_BACKGROUND_SIZE_UNSUPPORTED' };
     }
     if (payload.bookmarked) {
       return { deferredReason: 'CREATE_PAGE_BOOKMARK_UNSUPPORTED' };
@@ -108,7 +119,8 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
     }
 
     await this.orderStore.assignTemporaryIndexes(store, operation.noteId, existingPageIds);
-    await this.insertBlankPages(store, operation.noteId, newPageIds, existingPageIds.length);
+    await this.insertBlankPages(store, operation.noteId, newPageIds, existingPageIds.length,
+      payload.background);
     await this.orderStore.assignFinalIndexes(store, operation.noteId, orderedPageIds);
     await this.orderStore.advanceStructureRevision(store, operation.noteId, 'create-page');
     return { deferredReason: null };
@@ -417,17 +429,20 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
   }
 
   private async insertBlankPages(store: relationalStore.RdbStore, noteId: string,
-    pageIds: string[], existingPageCount: number): Promise<void> {
+    pageIds: string[], existingPageCount: number,
+    decoded: OriginalDecodedPageBackground | null): Promise<void> {
     for (let index: number = 0; index < pageIds.length; index++) {
+      const background: PageBackground | null = decoded === null ? null : decoded.background;
       await store.insert('page_info', {
         'page_id': pageIds[index],
         'note_id': noteId,
         'page_index': -(existingPageCount + index + 1),
-        'size': PaperSize.LETTER,
-        'template': PaperTemplate.PLAIN,
-        'orientation': PageOrientation.PORTRAIT,
-        'width_mm': ORIGINAL_DEFAULT_PAGE_WIDTH_MM,
-        'height_mm': ORIGINAL_DEFAULT_PAGE_HEIGHT_MM,
+        'size': decoded === null ? PaperSize.LETTER : decoded.size,
+        'template': decoded === null ? PaperTemplate.PLAIN : decoded.template,
+        'orientation': decoded === null ? PageOrientation.PORTRAIT : decoded.orientation,
+        'width_mm': decoded === null ? ORIGINAL_DEFAULT_PAGE_WIDTH_MM : decoded.widthMm,
+        'height_mm': decoded === null ? ORIGINAL_DEFAULT_PAGE_HEIGHT_MM : decoded.heightMm,
+        'background_json': serializePageBackground(background),
         'content_revision': 0,
       });
     }

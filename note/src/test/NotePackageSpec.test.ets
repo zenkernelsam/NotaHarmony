@@ -43,6 +43,24 @@ export default function notePackageSpecTest() {
       expect(isValidPageElement(shape)).assertFalse();
     });
 
+    it('preserves optional custom page geometry and original paper background', 0, () => {
+      const page = { pageId: 'paper', pageIndex: 0, paperSize: 5, paperTemplate: 2,
+        orientation: 1, widthMm: 279.4, heightMm: 215.9, elements: [],
+        background: { schemaVersion: 1, rotationRadians: Math.PI / 2,
+          sourceWidthPt: 612, sourceHeightPt: 792,
+          margins: { topPt: 10, bottomPt: 10, leftPt: 12, rightPt: 12 },
+          paper: { flair: 2, flairSpacingPt: 18, flairBleeds: true, flairCentered: true,
+            colorR: 250, colorG: 249, colorB: 248, colorA: 255, legacyPaperIndex: 7 } } };
+      const parsed = parsePage(JSON.stringify(page));
+      expect(parsed === null).assertFalse();
+      expect(parsed === null ? 0 : parsed.widthMm).assertEqual(279.4);
+      page.heightMm = 0;
+      expect(parsePage(JSON.stringify(page)) === null).assertTrue();
+      page.heightMm = 215.9;
+      page.background.paper.colorA = 128;
+      expect(parsePage(JSON.stringify(page)) === null).assertTrue();
+    });
+
     it('rejects truncated stroke and text payloads', 0, () => {
       expect(isValidPageElement({ kind: 'stroke', data: { id: 's' } })).assertFalse();
       expect(isValidPageElement({ kind: 'text', data: { id: 't', richText: 'lost' } })).assertFalse();

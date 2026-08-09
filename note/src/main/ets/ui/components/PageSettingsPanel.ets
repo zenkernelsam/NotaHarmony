@@ -1,5 +1,6 @@
 // T-037 页面设置面板（尺寸/模板/方向选择，bindPopup 承载）
 import { PageInfo, PaperSize, PaperTemplate, PageOrientation } from '../../core/model/NoteTypes';
+import { clonePageInfo } from '../../core/model/PageBackgroundModel';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 
@@ -54,6 +55,7 @@ export struct PageSettingsPanel {
               this.resolveTokens().border })
             .onClick(() => {
               const updated: PageInfo = this.clonePage();
+              updated.background = null;
               updated.size = opt.size;
               const dims: number[] = this.dimForSize(opt.size);
               if (updated.orientation === PageOrientation.LANDSCAPE) {
@@ -87,6 +89,7 @@ export struct PageSettingsPanel {
             .margin({ right: 12 })
             .onClick(() => {
               const updated: PageInfo = this.clonePage();
+              updated.background = null;
               updated.template = tpl;
               this.onApply(updated);
             })
@@ -112,6 +115,7 @@ export struct PageSettingsPanel {
               updated.widthMm = updated.heightMm;
               updated.heightMm = w;
               updated.orientation = PageOrientation.PORTRAIT;
+              updated.background = null;
               this.onApply(updated);
             }
           })
@@ -129,6 +133,7 @@ export struct PageSettingsPanel {
               updated.widthMm = updated.heightMm;
               updated.heightMm = w;
               updated.orientation = PageOrientation.LANDSCAPE;
+              updated.background = null;
               this.onApply(updated);
             }
           })
@@ -195,15 +200,7 @@ export struct PageSettingsPanel {
   }
 
   private clonePage(): PageInfo {
-    return {
-      pageId: this.page.pageId,
-      pageIndex: this.page.pageIndex,
-      size: this.page.size,
-      template: this.page.template,
-      orientation: this.page.orientation,
-      widthMm: this.page.widthMm,
-      heightMm: this.page.heightMm,
-    };
+    return clonePageInfo(this.page);
   }
 
   private dimForSize(size: PaperSize): number[] {

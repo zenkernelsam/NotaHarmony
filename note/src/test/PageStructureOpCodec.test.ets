@@ -1,6 +1,10 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { OpType } from '../main/ets/core/model/OpTypes';
 import { PageInfo, PageOrientation, PaperSize, PaperTemplate } from '../main/ets/core/model/NoteTypes';
+import { serializePageBackground } from '../main/ets/core/model/PageBackgroundModel';
+import {
+  BinaryOpWriter, encodeOperationString,
+} from '../main/ets/data/BinaryOpCodec';
 import {
   classifyPageStructureMutation, createPageStructureMutation, decodePageStructureMutation,
   encodePageStructureMutation, PageStructureMutation, PageStructureReplayResult,
@@ -12,6 +16,13 @@ export default function pageStructureOpCodecTest() {
     it('round-trips create and delete with strict bidirectional replay', 0, () => {
       const first: PageInfo = page('first', 0, PaperTemplate.PLAIN);
       const second: PageInfo = page('second-中文', 1, PaperTemplate.GRID);
+      second.background = {
+        schemaVersion: 1,
+        paper: { flair: 2, flairSpacingPt: 18, flairBleeds: true, flairCentered: false,
+          colorR: 250, colorG: 249, colorB: 248, colorA: 255, legacyPaperIndex: null },
+        rotationRadians: 0, sourceWidthPt: 595, sourceHeightPt: 842,
+        margins: { topPt: 10, bottomPt: 10, leftPt: 12, rightPt: 12 },
+      };
       const create: PageStructureMutation = roundTrip(
         createPageStructureMutation(3, 4, [first], [first, second]));
       expect(classifyPageStructureMutation(create)).assertEqual(OpType.CREATE_PAGE);
@@ -69,6 +80,17 @@ export default function pageStructureOpCodecTest() {
       trailing.set(encoded);
       expectThrow((): void => { decodePageStructureMutation(trailing); });
     });
+
+    it('keeps legacy NPG1 page history readable', 0, () => {
+      const first: PageInfo = page('legacy-a', 0, PaperTemplate.PLAIN);
+      const second: PageInfo = page('legacy-b', 1, PaperTemplate.GRID);
+      const decoded: PageStructureMutation = decodePageStructureMutation(
+        encodeLegacyMutation(4, 5, [first], [first, second]));
+      expect(classifyPageStructureMutation(decoded)).assertEqual(OpType.CREATE_PAGE);
+      expect(decoded.afterPages.length).assertEqual(2);
+      expect(decoded.afterPages[1].background === undefined ||
+        decoded.afterPages[1].background === null).assertTrue();
+    });
   });
 }
 
@@ -102,6 +124,8 @@ function assertReplay(current: PageInfo[], revision: number, mutation: PageStruc
     expect(result.pages[index].orientation).assertEqual(expectedPages[index].orientation);
     expect(result.pages[index].widthMm).assertEqual(expectedPages[index].widthMm);
     expect(result.pages[index].heightMm).assertEqual(expectedPages[index].heightMm);
+    expect(serializePageBackground(result.pages[index].background))
+      .assertEqual(serializePageBackground(expectedPages[index].background));
   }
 }
 
@@ -113,4 +137,38 @@ function expectThrow(block: () => void): void {
     rejected = true;
   }
   expect(rejected).assertTrue();
+}
+
+function encodeLegacyMutation(fromRevision: number, toRevision: number,
+  before: PageInfo[], after: PageInfo[]): Uint8Array {
+  const size: number = 20 + legacyPagesSize(before) + legacyPagesSize(after);
+  const writer: BinaryOpWriter = new BinaryOpWriter(new Uint8Array(size));
+  writer.writeBytes(new Uint8Array([0x4E, 0x50, 0x47, 0x31]));
+  writer.writeSafeInteger(fromRevision);
+  writer.writeSafeInteger(toRevision);
+  writeLegacyPages(writer, before);
+  writeLegacyPages(writer, after);
+  return writer.finish();
+}
+
+function legacyPagesSize(pages: PageInfo[]): number {
+  let size: number = 4;
+  for (const value of pages) {
+    size += 4 + encodeOperationString(value.pageId, 'legacy ID').length + 8 + 4 + 4 + 4 +
+      4 + value.widthMm.toString().length + 4 + value.heightMm.toString().length;
+  }
+  return size;
+}
+
+function writeLegacyPages(writer: BinaryOpWriter, pages: PageInfo[]): void {
+  writer.writeUint32(pages.length);
+  for (const value of pages) {
+    writer.writeSizedBytes(encodeOperationString(value.pageId, 'legacy ID'));
+    writer.writeSafeInteger(value.pageIndex);
+    writer.writeUint32(value.size);
+    writer.writeUint32(value.template);
+    writer.writeUint32(value.orientation);
+    writer.writeSizedBytes(encodeOperationString(value.widthMm.toString(), 'legacy width'));
+    writer.writeSizedBytes(encodeOperationString(value.heightMm.toString(), 'legacy height'));
+  }
 }

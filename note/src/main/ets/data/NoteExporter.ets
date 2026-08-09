@@ -9,6 +9,7 @@ import {
   NOTE_FORMAT, NOTE_FORMAT_VERSION, NOTE_SOURCE,
 } from './NotePackageSpec';
 import { NoteMeta, PageInfo, PaperSize } from '../core/model/NoteTypes';
+import { clonePageBackground } from '../core/model/PageBackgroundModel';
 import { DatabaseManager } from './DatabaseManager';
 import { NoteRepositoryImpl } from './NoteRepositoryImpl';
 import { PageRepositoryImpl } from './PageRepositoryImpl';
@@ -94,6 +95,9 @@ export class NoteExporter {
           paperSize: p.size,
           paperTemplate: p.template,
           orientation: p.orientation,
+          widthMm: p.widthMm,
+          heightMm: p.heightMm,
+          background: clonePageBackground(p.background),
           elements: elementObjects,
         };
         writer.addEntry(`pages/page_${i}.json`, stringToBytes(serializePage(pageData)), true, note.updatedAt);

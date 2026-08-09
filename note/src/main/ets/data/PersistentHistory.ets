@@ -8,6 +8,7 @@ import {
 } from './PageStructureOpCodec';
 import { SearchSourceElement } from './SearchIndexPolicy';
 import { PageInfo } from '../core/model/NoteTypes';
+import { samePageBackground } from '../core/model/PageBackgroundModel';
 import { PageDeleteCheckpoint, PageDeleteCheckpointElement } from './PageDeleteCheckpoint';
 import { decodePersistedElement, PersistedElement } from './StrokePersistence';
 import { StrokeElementData } from '../core/model/StrokeTypes';
@@ -236,7 +237,7 @@ function materializeAction(action: PersistentHistoryAction, currentPageId: strin
     return restored;
   }
   if (action.operations.length !== 1) {
-    throw new Error('persistent page action must contain exactly one NPG1 mutation');
+    throw new Error('persistent page action must contain exactly one page mutation');
   }
   return materializePageAction(noteId, action.operations[0], currentPageId,
     action.actionId, action.actionTime, deleteCheckpoints);
@@ -391,7 +392,8 @@ function materializeCheckpointContent(checkpoint: PageDeleteCheckpoint): Materia
 function samePageInfo(left: PageInfo, right: PageInfo): boolean {
   return left.pageId === right.pageId && left.pageIndex === right.pageIndex && left.size === right.size &&
     left.template === right.template && left.orientation === right.orientation &&
-    left.widthMm === right.widthMm && left.heightMm === right.heightMm;
+    left.widthMm === right.widthMm && left.heightMm === right.heightMm &&
+    samePageBackground(left.background, right.background);
 }
 
 function isElementOperation(operation: Op): boolean {
@@ -413,7 +415,8 @@ function changedPages(before: PageInfo[], after: PageInfo[]): PageInfo[] {
     const source: PageInfo = findPage(before, page.pageId);
     if (source.pageIndex !== page.pageIndex || source.size !== page.size ||
       source.template !== page.template || source.orientation !== page.orientation ||
-      source.widthMm !== page.widthMm || source.heightMm !== page.heightMm) {
+      source.widthMm !== page.widthMm || source.heightMm !== page.heightMm ||
+      !samePageBackground(source.background, page.background)) {
       result.push(page);
     }
   }

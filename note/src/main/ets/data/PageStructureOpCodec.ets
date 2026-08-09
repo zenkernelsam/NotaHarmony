@@ -2,10 +2,15 @@ import { OpType } from '../core/model/OpTypes';
 import { PageInfo, PageOrientation, PaperSize, PaperTemplate } from '../core/model/NoteTypes';
 import { validatePageDimensions } from '../core/model/PageCoordinateSpace';
 import {
+  clonePageInfo, parsePageBackground, samePageBackground, serializePageBackground,
+  validatePageBackground,
+} from '../core/model/PageBackgroundModel';
+import {
   BinaryOpReader, BinaryOpWriter, encodeOperationString, MAX_OPERATION_BYTES,
 } from './BinaryOpCodec';
 
-const MAGIC: number[] = [0x4E, 0x50, 0x47, 0x31]; // NPG1
+const MAGIC_V1: number[] = [0x4E, 0x50, 0x47, 0x31]; // NPG1
+const MAGIC_V2: number[] = [0x4E, 0x50, 0x47, 0x32]; // NPG2: adds background JSON per page
 const MAX_OPERATION_PAGES: number = 10000;
 
 export interface PageStructureMutation {
@@ -25,6 +30,7 @@ interface EncodedPage {
   pageId: Uint8Array;
   width: Uint8Array;
   height: Uint8Array;
+  background: Uint8Array;
 }
 
 export function createPageStructureMutation(fromRevision: number, toRevision: number,
@@ -101,12 +107,12 @@ export function encodePageStructureMutation(mutation: PageStructureMutation): Ui
   classifyPageStructureMutation(mutation);
   const before: EncodedPage[] = encodePages(mutation.beforePages);
   const after: EncodedPage[] = encodePages(mutation.afterPages);
-  const size: number = MAGIC.length + 8 + 8 + encodedPagesSize(before) + encodedPagesSize(after);
+  const size: number = MAGIC_V2.length + 8 + 8 + encodedPagesSize(before) + encodedPagesSize(after);
   if (size > MAX_OPERATION_BYTES) {
     throw new Error('page structure operation is too large');
   }
   const writer = new BinaryOpWriter(new Uint8Array(size));
-  writer.writeBytes(new Uint8Array(MAGIC));
+  writer.writeBytes(new Uint8Array(MAGIC_V2));
   writer.writeSafeInteger(mutation.fromRevision);
   writer.writeSafeInteger(mutation.toRevision);
   writePages(writer, before);
@@ -115,13 +121,14 @@ export function encodePageStructureMutation(mutation: PageStructureMutation): Ui
 }
 
 export function decodePageStructureMutation(bytes: Uint8Array): PageStructureMutation {
+  const version: number = readCodecVersion(bytes);
   const reader = new BinaryOpReader(bytes);
-  reader.readMagic(MAGIC);
+  reader.readMagic(version === 1 ? MAGIC_V1 : MAGIC_V2);
   const mutation: PageStructureMutation = {
     fromRevision: reader.readSafeInteger(),
     toRevision: reader.readSafeInteger(),
-    beforePages: readPages(reader),
-    afterPages: readPages(reader),
+    beforePages: readPages(reader, version >= 2),
+    afterPages: readPages(reader, version >= 2),
   };
   if (!reader.atEnd()) {
     throw new Error('page structure operation has trailing bytes');
@@ -152,6 +159,7 @@ function validatePages(pages: PageInfo[], label: string): void {
       throw new Error(`${label} contains an invalid page`);
     }
     validatePageDimensions(page);
+    validatePageBackground(page.background);
     ids.add(page.pageId);
   }
 }
@@ -217,7 +225,7 @@ function samePage(left: PageInfo, right: PageInfo): boolean {
 function samePageSettings(left: PageInfo, right: PageInfo): boolean {
   return left.size === right.size && left.template === right.template &&
     left.orientation === right.orientation && left.widthMm === right.widthMm &&
-    left.heightMm === right.heightMm;
+    left.heightMm === right.heightMm && samePageBackground(left.background, right.background);
 }
 
 function sameStrings(left: string[], right: string[]): boolean {
@@ -254,15 +262,7 @@ function findOptionalPage(pages: PageInfo[], pageId: string): PageInfo | null {
 }
 
 function clonePages(pages: PageInfo[]): PageInfo[] {
-  return pages.map((page: PageInfo): PageInfo => ({
-    pageId: page.pageId,
-    pageIndex: page.pageIndex,
-    size: page.size,
-    template: page.template,
-    orientation: page.orientation,
-    widthMm: page.widthMm,
-    heightMm: page.heightMm,
-  }));
+  return pages.map((page: PageInfo): PageInfo => clonePageInfo(page));
 }
 
 function encodePages(pages: PageInfo[]): EncodedPage[] {
@@ -271,6 +271,8 @@ function encodePages(pages: PageInfo[]): EncodedPage[] {
     pageId: encodeOperationString(page.pageId, 'page structure page ID'),
     width: encodeNumber(page.widthMm, 'page width'),
     height: encodeNumber(page.heightMm, 'page height'),
+    background: encodeOperationString(serializePageBackground(page.background) ?? '',
+      'page background'),
   }));
 }
 
@@ -285,7 +287,7 @@ function encodedPagesSize(pages: EncodedPage[]): number {
   let size: number = 4;
   for (const page of pages) {
     size += 4 + page.pageId.length + 8 + 4 + 4 + 4 +
-      4 + page.width.length + 4 + page.height.length;
+      4 + page.width.length + 4 + page.height.length + 4 + page.background.length;
   }
   return size;
 }
@@ -300,17 +302,18 @@ function writePages(writer: BinaryOpWriter, pages: EncodedPage[]): void {
     writer.writeUint32(page.value.orientation);
     writer.writeSizedBytes(page.width);
     writer.writeSizedBytes(page.height);
+    writer.writeSizedBytes(page.background);
   }
 }
 
-function readPages(reader: BinaryOpReader): PageInfo[] {
+function readPages(reader: BinaryOpReader, hasBackground: boolean): PageInfo[] {
   const count: number = reader.readUint32();
   if (count > MAX_OPERATION_PAGES) {
     throw new Error('page structure operation exceeds page budget');
   }
   const pages: PageInfo[] = [];
   for (let index: number = 0; index < count; index++) {
-    pages.push({
+    const page: PageInfo = {
       pageId: reader.readString(),
       pageIndex: reader.readSafeInteger(),
       size: reader.readUint32() as PaperSize,
@@ -318,9 +321,27 @@ function readPages(reader: BinaryOpReader): PageInfo[] {
       orientation: reader.readUint32() as PageOrientation,
       widthMm: readNumber(reader, 'page width'),
       heightMm: readNumber(reader, 'page height'),
-    });
+    };
+    if (hasBackground) {
+      const encoded: string = reader.readString();
+      page.background = parsePageBackground(encoded.length === 0 ? null : encoded);
+    }
+    pages.push(page);
   }
   return pages;
+}
+
+function readCodecVersion(bytes: Uint8Array): number {
+  if (bytes.length < 4 || bytes[0] !== 0x4E || bytes[1] !== 0x50 || bytes[2] !== 0x47) {
+    throw new Error('page structure operation has invalid magic');
+  }
+  if (bytes[3] === 0x31) {
+    return 1;
+  }
+  if (bytes[3] === 0x32) {
+    return 2;
+  }
+  throw new Error('page structure operation has an unsupported version');
 }
 
 function readNumber(reader: BinaryOpReader, label: string): number {

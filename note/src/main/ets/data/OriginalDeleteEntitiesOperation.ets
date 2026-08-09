@@ -322,7 +322,7 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
       throw new Error('cannot archive an unbound original page');
     }
     const rows = await store.querySql(
-      `SELECT size, template, orientation, width_mm, height_mm, content_revision,
+      `SELECT size, template, orientation, width_mm, height_mm, background_json, content_revision,
         (SELECT indexed_revision FROM search_page_state state
           WHERE state.note_id = page.note_id AND state.page_id = page.page_id) AS indexed_revision
        FROM page_info page WHERE note_id = ? AND page_id = ?`, [noteId, identity.pageId]);
@@ -332,6 +332,7 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
         throw new Error('original page to delete is not live');
       }
       const indexedColumn: number = rows.getColumnIndex('indexed_revision');
+      const backgroundColumn: number = rows.getColumnIndex('background_json');
       values = {
         'note_id': noteId,
         'page_timestamp': page.timestamp,
@@ -343,6 +344,7 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
         'orientation': rows.getLong(rows.getColumnIndex('orientation')),
         'width_mm': rows.getDouble(rows.getColumnIndex('width_mm')),
         'height_mm': rows.getDouble(rows.getColumnIndex('height_mm')),
+        'background_json': rows.isColumnNull(backgroundColumn) ? null : rows.getString(backgroundColumn),
         'content_revision': rows.getLong(rows.getColumnIndex('content_revision')),
         'indexed_revision': rows.isColumnNull(indexedColumn) ? null : rows.getLong(indexedColumn),
       };
@@ -375,7 +377,7 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
   private async restorePage(store: relationalStore.RdbStore, noteId: string,
     page: OriginalSequenceIdentity, temporaryIndex: number): Promise<void> {
     const rows = await store.querySql(
-      `SELECT page_id, size, template, orientation, width_mm, height_mm,
+      `SELECT page_id, size, template, orientation, width_mm, height_mm, background_json,
         content_revision, indexed_revision
        FROM original_deleted_page
        WHERE note_id = ? AND page_timestamp = ? AND page_site_id = ? AND page_index = ?`,
@@ -390,6 +392,7 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
       pageId = rows.getString(rows.getColumnIndex('page_id'));
       const indexedColumn: number = rows.getColumnIndex('indexed_revision');
       indexedRevision = rows.isColumnNull(indexedColumn) ? null : rows.getLong(indexedColumn);
+      const backgroundColumn: number = rows.getColumnIndex('background_json');
       values = {
         'page_id': pageId,
         'note_id': noteId,
@@ -399,6 +402,7 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
         'orientation': rows.getLong(rows.getColumnIndex('orientation')),
         'width_mm': rows.getDouble(rows.getColumnIndex('width_mm')),
         'height_mm': rows.getDouble(rows.getColumnIndex('height_mm')),
+        'background_json': rows.isColumnNull(backgroundColumn) ? null : rows.getString(backgroundColumn),
         'content_revision': rows.getLong(rows.getColumnIndex('content_revision')),
       };
     } finally {

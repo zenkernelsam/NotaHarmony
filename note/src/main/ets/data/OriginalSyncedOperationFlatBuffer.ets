@@ -70,6 +70,15 @@ export class OriginalFlatBufferTableReader {
     return readU32(this.bytes, this.table.table + offset);
   }
 
+  readFloat32(field: number, defaultValue: number): number {
+    const offset: number = this.readFieldOffset(field);
+    if (offset === 0) {
+      return defaultValue;
+    }
+    requireObjectBytes(this.table, offset, 4, `field ${field}`);
+    return readF32(this.bytes, this.table.table + offset);
+  }
+
   readUint64Decimal(field: number, defaultValue: string | null = null): string | null {
     const offset: number = this.readFieldOffset(field);
     if (offset === 0) {
@@ -399,6 +408,16 @@ function readU32(bytes: Uint8Array, offset: number): number {
 function readI32(bytes: Uint8Array, offset: number): number {
   const value: number = readU32(bytes, offset);
   return value >= 0x80000000 ? value - 0x100000000 : value;
+}
+
+export function readOriginalInlineFloat32(bytes: Uint8Array, offset: number): number {
+  return readF32(bytes, offset);
+}
+
+function readF32(bytes: Uint8Array, offset: number): number {
+  requireRange(bytes, offset, 4, 'float32');
+  const view: DataView = new DataView(bytes.buffer, bytes.byteOffset + offset, 4);
+  return view.getFloat32(0, true);
 }
 
 function unsignedLongBytesToDecimal(bytes: Uint8Array, offset: number): string {

@@ -1,8 +1,11 @@
 import { relationalStore } from '@kit.ArkData';
 import { HistoryEffect, HistoryMetadata, OpType } from '../core/model/OpTypes';
-import { PageInfo } from '../core/model/NoteTypes';
+import { PageBackground, PageInfo } from '../core/model/NoteTypes';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { validatePageDimensions } from '../core/model/PageCoordinateSpace';
+import {
+  clonePageInfo, parsePageBackground, samePageBackground, serializePageBackground,
+} from '../core/model/PageBackgroundModel';
 import { PageRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { AsyncMutex, MutexRelease } from './AsyncMutex';
@@ -64,6 +67,7 @@ export class PageRepositoryImpl implements PageRepository {
           'orientation': assignedPage.orientation,
           'width_mm': assignedPage.widthMm,
           'height_mm': assignedPage.heightMm,
+          'background_json': serializePageBackground(assignedPage.background),
         };
         await store.insert('page_info', bucket);
         const after: PageInfo[] = await this.queryPages(store, noteId);
@@ -245,6 +249,7 @@ export class PageRepositoryImpl implements PageRepository {
           'orientation': page.orientation,
           'width_mm': page.widthMm,
           'height_mm': page.heightMm,
+          'background_json': serializePageBackground(page.background),
         };
         const predicates = new relationalStore.RdbPredicates('page_info');
         predicates.equalTo('note_id', noteId);
@@ -309,6 +314,7 @@ export class PageRepositoryImpl implements PageRepository {
       orientation: resultSet.getLong(resultSet.getColumnIndex('orientation')),
       widthMm: resultSet.getDouble(resultSet.getColumnIndex('width_mm')),
       heightMm: resultSet.getDouble(resultSet.getColumnIndex('height_mm')),
+      background: this.readBackground(resultSet),
     };
     validatePageDimensions(page);
     return page;
@@ -415,6 +421,7 @@ export class PageRepositoryImpl implements PageRepository {
       'orientation': page.orientation,
       'width_mm': page.widthMm,
       'height_mm': page.heightMm,
+      'background_json': serializePageBackground(page.background),
       'content_revision': contentRevision,
       'indexed_revision': indexedRevision,
       'created_time': history.actionTime,
@@ -485,7 +492,7 @@ export class PageRepositoryImpl implements PageRepository {
   private async loadDeleteCheckpoint(store: relationalStore.RdbStore, noteId: string,
     actionId: string): Promise<PageDeleteCheckpoint> {
     const resultSet = await store.querySql(
-      `SELECT page_id, page_index, size, template, orientation, width_mm, height_mm,
+      `SELECT page_id, page_index, size, template, orientation, width_mm, height_mm, background_json,
         content_revision, indexed_revision, created_time
        FROM page_delete_checkpoint WHERE note_id = ? AND action_id = ?`, [noteId, actionId]);
     let checkpoint: PageDeleteCheckpoint | undefined = undefined;
@@ -501,6 +508,7 @@ export class PageRepositoryImpl implements PageRepository {
         orientation: resultSet.getLong(resultSet.getColumnIndex('orientation')),
         widthMm: resultSet.getDouble(resultSet.getColumnIndex('width_mm')),
         heightMm: resultSet.getDouble(resultSet.getColumnIndex('height_mm')),
+        background: this.readBackground(resultSet),
       };
       validatePageDimensions(page);
       const indexedColumn: number = resultSet.getColumnIndex('indexed_revision');
@@ -712,6 +720,7 @@ export class PageRepositoryImpl implements PageRepository {
       'orientation': page.orientation,
       'width_mm': page.widthMm,
       'height_mm': page.heightMm,
+      'background_json': serializePageBackground(page.background),
       'content_revision': checkpoint.contentRevision,
     });
   }
@@ -839,19 +848,16 @@ export class PageRepositoryImpl implements PageRepository {
     return left.pageId === right.pageId && left.pageIndex === right.pageIndex &&
       left.size === right.size && left.template === right.template &&
       left.orientation === right.orientation && left.widthMm === right.widthMm &&
-      left.heightMm === right.heightMm;
+      left.heightMm === right.heightMm && samePageBackground(left.background, right.background);
   }
 
   private clonePage(page: PageInfo): PageInfo {
-    return {
-      pageId: page.pageId,
-      pageIndex: page.pageIndex,
-      size: page.size,
-      template: page.template,
-      orientation: page.orientation,
-      widthMm: page.widthMm,
-      heightMm: page.heightMm,
-    };
+    return clonePageInfo(page);
+  }
+
+  private readBackground(resultSet: relationalStore.ResultSet): PageBackground | null {
+    const column: number = resultSet.getColumnIndex('background_json');
+    return parsePageBackground(resultSet.isColumnNull(column) ? null : resultSet.getString(column));
   }
 
   private async updatePageIndex(store: relationalStore.RdbStore, noteId: string,
