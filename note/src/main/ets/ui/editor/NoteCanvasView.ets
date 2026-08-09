@@ -1,6 +1,8 @@
 // T-020/T-025 画布视图组件（Phase 2 NoteCanvasPage 重构为可嵌入 @Component）
 // 集成：纸张背景 / 笔迹渲染 / UndoRedo / 形状识别 / 选区变换 / 文本框 / 持久化
 import { common } from '@kit.AbilityKit';
+import { image } from '@kit.ImageKit';
+import { promptAction } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { RawPointerEvent } from '../../core/adaptation/InkInputProvider';
 import { InkInputProviderImpl } from '../../core/adaptation/InkInputProviderImpl';
@@ -11,25 +13,36 @@ import { CanvasViewport } from '../../rendering/CanvasViewport';
 import { StrokeSession } from '../../rendering/StrokeSession';
 import { EraserEngine, EraserMode } from '../../rendering/EraserEngine';
 import { PaperRenderer } from '../../rendering/PaperRenderer';
-import { UndoRedoManager, UndoableAction, UndoableActionType } from '../../rendering/UndoRedoManager';
+import {
+  EditorHistoryBridge, PageContentSnapshot, RemoveStrokeAction, UndoRedoManager, UndoableAction,
+  UndoableActionType,
+} from '../../rendering/UndoRedoManager';
 import { SelectionTool, SelectionMode } from '../../rendering/SelectionTool';
 import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
 import { StrokePersistence } from '../../data/StrokePersistence';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
-import { RenderSpec, StrokeElementData, StrokePathPoint, InputBatch } from '../../core/model/StrokeTypes';
+import {
+  RenderSpec, StrokeElementData, StrokePathPoint, InputBatch, PencilSplatPoint,
+} from '../../core/model/StrokeTypes';
 import { ToolType } from '../../core/model/BrushTypes';
 import {
   EllipseElement, PolygonElement, TextBlockElement, NoteElement,
 } from '../../core/model/ElementTypes';
-import { Point2D, Rect2D } from '../../core/model/GeometryTypes';
+import { Point2D, Rect2D, CubicSegment } from '../../core/model/GeometryTypes';
 import { PageInfo, PaperTemplate } from '../../core/model/NoteTypes';
 import { EditorViewModel } from './EditorViewModel';
 import { SelectionOverlay, SelectionMenuAction } from '../components/SelectionOverlay';
 import { TextBlockOverlay } from '../components/TextBlockOverlay';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+import { ArkUIStylusAdapter, ArkUIStylusSample } from './ArkUIStylusAdapter';
+
+interface ShapeDetectionAttempt {
+  stroke: StrokeElementData;
+  replaced: boolean;
+}
 
 @Component
 export struct NoteCanvasView {
@@ -38,20 +51,29 @@ export struct NoteCanvasView {
   @Prop noteId: string = '';
   // T-040 修复：页面设置（模板/尺寸/方向）变化时重绘画布
   @Prop @Watch('onPageChange') currentPage: PageInfo = {
-    pageId: '', size: 1, template: 0, orientation: 0, widthMm: 210, heightMm: 297,
+    pageId: '', pageIndex: 0, size: 1, template: 0, orientation: 0, widthMm: 210, heightMm: 297,
   };
   @Prop @Watch('onUndoSignalChange') undoSignal: number = 0;
   @Prop @Watch('onRedoSignalChange') redoSignal: number = 0;
   onUndoRedoChanged: (canUndo: boolean, canRedo: boolean) => void = () => {
   };
+  onRequestPage: (pageId: string) => void = () => {
+  };
+  onHistoryBridgeReady: (bridge: EditorHistoryBridge) => void = () => {
+  };
+  onApplyPageHistory: (action: UndoableAction, isUndo: boolean) => Promise<boolean> =
+    async (_action: UndoableAction, _isUndo: boolean): Promise<boolean> => false;
 
   // === 内部模块 ===
   private settings: RenderingContextSettings = new RenderingContextSettings(true);
   private canvasCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.settings);
   private renderCtx: Canvas2DRenderContext = new Canvas2DRenderContext(this.canvasCtx);
-  private inputProvider: InkInputProviderImpl = new InkInputProviderImpl(true, false, false);
+  private inputProvider: InkInputProviderImpl = InkInputProviderImpl.createForArkUI();
   private predictor: NullPredictor = new NullPredictor();
   private renderer: Canvas2DStrokeRenderer = new Canvas2DStrokeRenderer();
+  private pencilPixelMap: image.PixelMap | null = null;
+  private pencilTextureLoading: boolean = false;
+  private lifecycleActive: boolean = false;
   private layerManager: StrokeLayerManager = new StrokeLayerManager(this.renderer);
   private strokeSession: StrokeSession | null = null;
   private eraserEngine: EraserEngine = new EraserEngine(EraserMode.WHOLE, 20);
@@ -70,6 +92,10 @@ export struct NoteCanvasView {
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
 
+  private resolveTokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
   // === 画布状态 ===
   private completedStrokes: StrokeElementData[] = [];
   private textBlocks: TextBlockElement[] = [];
@@ -83,46 +109,160 @@ export struct NoteCanvasView {
   private lastTapTime: number = 0;
   private lastTapPos: Point2D = { x: 0, y: 0 };
   private loaded: boolean = false;
+  private loadedPageId: string = '';
+  @State dataLoading: boolean = true;
+  @State dataLoadFailed: boolean = false;
+  private pageLoadPromise: Promise<void> = Promise.resolve();
+  private viewportInitialized: boolean = false;
+  private shapeHoldTimer: number = -1;
+  private heldShape: StrokeElementData | null = null;
+  // -1: undo, 1: redo, 0: none. Cross-page history resumes after page data finishes loading.
+  private pendingHistoryDirection: number = 0;
+  private historyBusy: boolean = false;
+  private skipSavePageId: string = '';
+  private pageLoadGeneration: number = 0;
+  private saveFailed: boolean = false;
   @State textEditing: boolean = false;
   @State editingTextBlock: TextBlockElement | null = null;
+  private editingOriginalTextBlock: TextBlockElement | null = null;
+  private editingDraftText: string = '';
   @State selectionRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @State selectionVisible: boolean = false;
 
   aboutToAppear(): void {
-    this.loadNoteData();
+    this.lifecycleActive = true;
+    this.onHistoryBridgeReady({
+      pushPageAction: (action: UndoableAction): void => {
+        this.undoRedo.push(action);
+        this.notifyUndoRedo();
+      },
+      captureCurrentPage: (): PageContentSnapshot => this.captureCurrentPage(),
+      preparePageRemoval: (pageId: string): void => {
+        this.skipSavePageId = pageId;
+      },
+      cancelPageRemoval: (pageId: string): void => {
+        if (this.skipSavePageId === pageId) {
+          this.skipSavePageId = '';
+        }
+      },
+      flushCurrentPage: async (): Promise<boolean> => this.flushCurrentPage(),
+    });
+    this.pageLoadPromise = this.loadNoteData();
   }
 
   // === 数据加载与持久化 ===
   private async loadNoteData(): Promise<void> {
+    const generation: number = ++this.pageLoadGeneration;
+    const targetPageId: string = this.currentPage.pageId;
+    this.dataLoading = true;
+    this.dataLoadFailed = false;
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const db: DatabaseManager = DatabaseManager.getInstance();
       await db.initialize(context);
       this.persistence.initialize(db);
-      const loaded = await this.persistence.loadElements(this.noteId);
+      const loaded = await this.persistence.loadElements(this.noteId, targetPageId);
+      if (generation !== this.pageLoadGeneration || this.currentPage.pageId !== targetPageId) {
+        return;
+      }
       this.completedStrokes = loaded.strokes;
       this.textBlocks = loaded.textBlocks;
+      this.loadedPageId = targetPageId;
       // T-034：恢复视口（zoom/scroll）
       const noteRepo = new NoteRepositoryImpl(db);
       const state = await noteRepo.getViewState(this.noteId);
       if (state !== null && state.zoom > 0) {
-        this.viewport.setZoom(state.zoom);
+        this.viewport.setZoomRaw(state.zoom);
         this.viewport.setScroll(state.scrollOffsetX, state.scrollOffsetY);
         this.zoomPercent = Math.round(state.zoom * 100);
+        this.viewportInitialized = true;
       }
       this.loaded = true;
+      this.dataLoadFailed = false;
       if (this.layerManager.isInitialized()) {
+        if (!this.viewportInitialized) {
+          this.centerPaperInViewport();
+        }
         this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
-        this.renderFrame();
+        this.renderFrame(true);
       }
     } catch (e) {
+      if (generation === this.pageLoadGeneration) {
+        this.enterLoadFailureState();
+        this.reportLoadFailure(e as Object);
+      }
       console.error(`NoteCanvasView load failed: ${JSON.stringify(e)}`);
+    } finally {
+      if (generation === this.pageLoadGeneration) {
+        this.dataLoading = false;
+      }
     }
   }
 
   private persist(): void {
-    if (this.persistence.isReady() && this.noteId.length > 0) {
-      this.persistence.saveElements(this.noteId, this.completedStrokes, this.textBlocks);
+    if (this.loaded && !this.dataLoading && !this.dataLoadFailed && this.persistence.isReady() &&
+      this.noteId.length > 0 && this.loadedPageId.length > 0 &&
+      this.loadedPageId !== this.skipSavePageId) {
+      const pageId: string = this.loadedPageId;
+      try {
+        this.persistence.queueSaveElements(this.noteId, pageId, this.completedStrokes, this.textBlocks);
+        this.persistence.flush(this.noteId, pageId).then(() => {
+          if (!this.persistence.hasDirtySave(this.noteId, pageId)) {
+            this.saveFailed = false;
+          }
+        }).catch((e: Object) => this.reportSaveFailure(e));
+      } catch (e) {
+        this.reportSaveFailure(e as Object);
+      }
+    }
+  }
+
+  private async flushCurrentPage(): Promise<boolean> {
+    await this.pageLoadPromise;
+    if (!this.loaded || this.dataLoadFailed) {
+      return true;
+    }
+    if (!this.persistence.isReady() || this.noteId.length === 0 || this.loadedPageId.length === 0) {
+      return true;
+    }
+    if (this.textEditing && this.editingTextBlock !== null) {
+      this.onTextCommit(this.editingDraftText);
+    } else if (this.loadedPageId !== this.skipSavePageId) {
+      this.persistence.queueSaveElements(this.noteId, this.loadedPageId,
+        this.completedStrokes, this.textBlocks);
+    }
+    try {
+      await this.persistence.flush(this.noteId, this.loadedPageId);
+      this.saveFailed = false;
+      return true;
+    } catch (e) {
+      this.reportSaveFailure(e as Object);
+      return false;
+    }
+  }
+
+  private reportSaveFailure(error: Object): void {
+    console.error(`NoteCanvasView save failed: ${JSON.stringify(error)}`);
+    if (!this.saveFailed) {
+      this.saveFailed = true;
+      try {
+        promptAction.showToast({ message: $r('app.string.note_save_failed'), duration: 2500 });
+      } catch (toastError) {
+        console.error(`Save failure toast failed: ${JSON.stringify(toastError)}`);
+      }
+    }
+  }
+
+  private reportLoadFailure(error: Object, returnedToPreviousPage: boolean = false): void {
+    console.error(`NoteCanvasView data load failed: ${JSON.stringify(error)}`);
+    try {
+      promptAction.showToast({
+        message: returnedToPreviousPage ? $r('app.string.page_load_returned') :
+          $r('app.string.page_load_stopped'),
+        duration: 2500,
+      });
+    } catch (toastError) {
+      console.error(`Load failure toast failed: ${JSON.stringify(toastError)}`);
     }
   }
 
@@ -139,7 +279,118 @@ export struct NoteCanvasView {
 
   // T-040 修复：页面设置变化 → 重绘（@Prop 更新不会自动触发 renderFrame）
   onPageChange(_propName: string): void {
-    this.renderFrame();
+    this.pageLoadPromise = this.switchPageData();
+  }
+
+  aboutToDisappear(): void {
+    this.lifecycleActive = false;
+    this.cancelShapeDetectionTimer();
+    if (this.viewportSaveTimer >= 0) {
+      clearTimeout(this.viewportSaveTimer);
+      this.viewportSaveTimer = -1;
+    }
+    this.saveViewportState();
+    if (this.textEditing && this.editingTextBlock !== null) {
+      this.onTextCommit(this.editingDraftText);
+    } else {
+      this.persist();
+    }
+    this.layerManager.dispose();
+    this.renderer.dispose();
+    if (this.pencilPixelMap !== null) {
+      this.pencilPixelMap.release().catch((e: Object) => {
+        console.warn(`Pencil PixelMap release failed: ${JSON.stringify(e)}`);
+      });
+      this.pencilPixelMap = null;
+    }
+  }
+
+  private async switchPageData(): Promise<void> {
+    if (!this.loaded) {
+      await this.loadNoteData();
+      return;
+    }
+    if (this.currentPage.pageId === this.loadedPageId) {
+      this.initializeLayerForPage();
+      this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+      this.renderFrame(true);
+      return;
+    }
+    const generation: number = ++this.pageLoadGeneration;
+    const fromPageId: string = this.loadedPageId;
+    const targetPageId: string = this.currentPage.pageId;
+    const snapshot: PageContentSnapshot = this.captureCurrentPage();
+    const fromPageWasRemoved: boolean = fromPageId === this.skipSavePageId;
+    let previousPageSaved: boolean = false;
+    this.dataLoading = true;
+    this.dataLoadFailed = false;
+    try {
+      if (fromPageId.length > 0) {
+        if (fromPageId !== this.skipSavePageId) {
+          this.persistence.queueSaveElements(this.noteId, fromPageId, snapshot.strokes, snapshot.textBlocks);
+          await this.persistence.flush(this.noteId, fromPageId);
+        } else {
+          this.skipSavePageId = '';
+        }
+      }
+      previousPageSaved = true;
+      const loaded = await this.persistence.loadElements(this.noteId, targetPageId);
+      if (generation !== this.pageLoadGeneration || this.currentPage.pageId !== targetPageId) {
+        return;
+      }
+      this.completedStrokes = loaded.strokes;
+      this.textBlocks = loaded.textBlocks;
+      this.loadedPageId = targetPageId;
+      this.loaded = true;
+      this.dataLoadFailed = false;
+      this.selectionTool.deselect();
+      this.selectionVisible = false;
+      this.initializeLayerForPage();
+      this.centerPaperInViewport();
+      this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+      this.notifyUndoRedo();
+      this.renderFrame(true);
+      this.resumePendingHistory();
+    } catch (e) {
+      if (generation === this.pageLoadGeneration) {
+        if (previousPageSaved) {
+          this.reportLoadFailure(e as Object, !fromPageWasRemoved && fromPageId.length > 0);
+        } else {
+          this.reportSaveFailure(e as Object);
+        }
+        if (!fromPageWasRemoved && fromPageId.length > 0) {
+          this.completedStrokes = snapshot.strokes;
+          this.textBlocks = snapshot.textBlocks;
+          this.loadedPageId = fromPageId;
+          this.loaded = true;
+          this.dataLoadFailed = false;
+          this.onRequestPage(fromPageId);
+        } else {
+          this.enterLoadFailureState();
+        }
+      }
+      console.error(`NoteCanvasView page switch failed: ${JSON.stringify(e)}`);
+    } finally {
+      if (generation === this.pageLoadGeneration) {
+        this.dataLoading = false;
+      }
+    }
+  }
+
+  private enterLoadFailureState(): void {
+    this.loaded = false;
+    this.loadedPageId = '';
+    this.completedStrokes = [];
+    this.textBlocks = [];
+    this.dataLoadFailed = true;
+    this.cancelActiveInteraction();
+    this.selectionTool.deselect();
+    this.selectionVisible = false;
+    if (this.layerManager.isInitialized()) {
+      this.initializeLayerForPage();
+      this.layerManager.rebuildFromStrokes([], this.renderCtx);
+      this.renderFrame(true);
+    }
   }
 
   onRedoSignalChange(_propName: string): void {
@@ -155,48 +406,133 @@ export struct NoteCanvasView {
     if (w <= 0 || h <= 0) {
       return;
     }
-    // T-040 修复：设置程序化铅笔纹理（原版 BitmapShader 铅笔质感；无纹理时 fallback 实心圆导致“圆点”感）
-    this.renderer.setSplatTexture(Canvas2DStrokeRenderer.generatePencilTexture());
-    this.layerManager.initialize(w, h);
+    this.ensurePencilTexture();
+    this.initializeLayerForPage();
     this.renderer.setEraserMaskWidth(20);
     this.predictor.reset();
     if (this.loaded) {
+      if (!this.viewportInitialized) {
+        this.centerPaperInViewport();
+      }
       this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     }
-    this.renderFrame();
+    this.renderFrame(true);
+  }
+
+  private async ensurePencilTexture(): Promise<void> {
+    if (this.pencilTextureLoading || this.pencilPixelMap !== null) {
+      return;
+    }
+    this.pencilTextureLoading = true;
+    let source: image.ImageSource | null = null;
+    let pixelMap: image.PixelMap | null = null;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const bytes: Uint8Array = await context.resourceManager.getRawFileContent(
+        'ui_renderer__pencil_splat.png');
+      const buffer: ArrayBuffer = bytes.buffer.slice(bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+      source = image.createImageSource(buffer);
+      pixelMap = await source.createPixelMap();
+      const texture: ImageBitmap = new ImageBitmap(pixelMap);
+      if (!this.lifecycleActive) {
+        texture.close();
+        try {
+          await pixelMap.release();
+        } catch (e) {
+          console.warn(`Unused pencil PixelMap release failed: ${JSON.stringify(e)}`);
+        } finally {
+          pixelMap = null;
+        }
+        return;
+      }
+      this.pencilPixelMap = pixelMap;
+      pixelMap = null;
+      this.renderer.setSplatTexture(texture);
+      if (this.layerManager.isInitialized()) {
+        this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+        this.renderFrame(true);
+      }
+    } catch (e) {
+      console.error(`Original pencil texture load failed: ${JSON.stringify(e)}`);
+      if (this.lifecycleActive) {
+        this.renderer.setSplatTexture(Canvas2DStrokeRenderer.generatePencilTexture());
+      }
+      if (pixelMap !== null) {
+        try {
+          await pixelMap.release();
+        } catch (releaseError) {
+          console.warn(`Pencil PixelMap cleanup failed: ${JSON.stringify(releaseError)}`);
+        }
+      }
+    } finally {
+      if (source !== null) {
+        try {
+          await source.release();
+        } catch (e) {
+          console.warn(`Pencil ImageSource release failed: ${JSON.stringify(e)}`);
+        }
+      }
+      this.pencilTextureLoading = false;
+    }
   }
 
   // === 每帧渲染（背景 + 已完成层 + 当前笔画 + 文本框）===
   // T-034：视口变换（translate + scale）后以画布坐标绘制，背景铺满视口可见区
-  private renderFrame(): void {
+  private renderFrame(forceFull: boolean = false): void {
     if (!this.layerManager.isInitialized()) {
       return;
     }
     const w: number = this.canvasCtx.width;
     const h: number = this.canvasCtx.height;
+    const theme: ThemeTokens = ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+    const sessionStroke: StrokeElementData | null = this.strokeSession !== null && this.strokeSession.isActive()
+      ? this.strokeSession.getCurrentStroke() : null;
+    const current: StrokeElementData | null = this.heldShape !== null ? this.heldShape : sessionStroke;
+    if (forceFull) {
+      this.canvasCtx.clearRect(0, 0, w, h);
+      this.canvasCtx.fillStyle = theme.background;
+      this.canvasCtx.fillRect(0, 0, w, h);
+    }
     this.canvasCtx.save();
-    this.canvasCtx.clearRect(0, 0, w, h);
     this.canvasCtx.translate(this.viewport.scrollX, this.viewport.scrollY);
     this.canvasCtx.scale(this.viewport.zoom, this.viewport.zoom);
-    // T-038：纸张底色/线色随主题；T-040：纸张按 mm 尺寸居中绘制
-    const theme: ThemeTokens = ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
-    this.paperRenderer.renderBackground(this.canvasCtx, w / this.viewport.zoom,
-      h / this.viewport.zoom, this.currentPage.template as PaperTemplate, this.viewport.zoom, theme,
-      this.currentPage.widthMm, this.currentPage.heightMm);
-    const current: StrokeElementData | null = this.strokeSession !== null && this.strokeSession.isActive()
-      ? this.strokeSession.getCurrentStroke() : null;
-    this.layerManager.compositeFull(this.canvasCtx, current, this.renderCtx);
-    // 文本框渲染（笔画层之上）
-    for (const t of this.textBlocks) {
-      this.textBlockTool.renderText(this.canvasCtx, t);
+    if (forceFull) {
+      this.renderPaper(theme);
+      this.layerManager.compositeFull(this.canvasCtx, current, this.renderCtx);
+      this.renderTextBlocks();
+    } else {
+      this.layerManager.composite(this.canvasCtx, current, this.renderCtx, () => {
+        const visibleLeft: number = -this.viewport.scrollX / this.viewport.zoom;
+        const visibleTop: number = -this.viewport.scrollY / this.viewport.zoom;
+        this.canvasCtx.fillStyle = theme.background;
+        this.canvasCtx.fillRect(visibleLeft, visibleTop, w / this.viewport.zoom, h / this.viewport.zoom);
+        this.renderPaper(theme);
+      }, () => {
+        this.renderTextBlocks();
+      }, this.viewport.zoom);
     }
     this.canvasCtx.restore();
+  }
+
+  private renderPaper(theme: ThemeTokens): void {
+    this.paperRenderer.renderBackground(this.canvasCtx, this.getPaperWidth(), this.getPaperHeight(),
+      this.currentPage.template as PaperTemplate, this.viewport.zoom, theme);
+  }
+
+  private renderTextBlocks(): void {
+    for (const textBlock of this.textBlocks) {
+      this.textBlockTool.renderText(this.canvasCtx, textBlock);
+    }
   }
 
   // === T-034：视口操作 ===
   private onViewportChanged(): void {
     this.zoomPercent = Math.round(this.viewport.zoom * 100);
-    this.renderFrame();
+    if (this.selectionVisible) {
+      this.updateSelectionOverlay();
+    }
+    this.renderFrame(true);
     this.scheduleViewportSave();
   }
 
@@ -240,32 +576,30 @@ export struct NoteCanvasView {
     // T-040 修复：适配宽度以当前纸张实际宽度为基准（mm×3.78），铺满 85% 宽度
     const w: number = this.canvasCtx.width;
     const h: number = this.canvasCtx.height;
-    const paperW: number = this.currentPage.widthMm > 0 ? this.currentPage.widthMm * 3.78 : 800;
-    const paperH: number = this.currentPage.heightMm > 0 ? this.currentPage.heightMm * 3.78 : 1131;
+    const paperW: number = this.getPaperWidth();
+    const paperH: number = this.getPaperHeight();
     const fit: number = (w * 0.85) / paperW;
     const clamped: number = fit < 0.25 ? 0.25 : (fit > 4.0 ? 4.0 : fit);
-    this.viewport.setZoom(clamped);
-    // T-040 修复：适应宽度后纸张水平/垂直居中（scroll 重算，避免缩放后纸张偏移到右下角）
-    // 纸张在画布坐标居中于 paperX=(vw-paperW)/2；屏幕左边缘 = paperX*zoom + scrollX
-    // 要求屏幕左边缘 = (w - paperW*zoom)/2 → scrollX = (w - paperW*zoom)/2 - paperX*zoom
-    const vw: number = w / clamped;
-    const vh: number = h / clamped;
-    const paperX: number = Math.max(0, (vw - paperW) / 2);
-    const paperY: number = Math.max(0, (vh - paperH) / 2);
-    const scrollX: number = (w - paperW * clamped) / 2 - paperX * clamped;
-    const scrollY: number = (h - paperH * clamped) / 2 - paperY * clamped;
+    this.viewport.setZoomRaw(clamped);
+    const scrollX: number = (w - paperW * clamped) / 2;
+    const scrollY: number = Math.max(16, (h - paperH * clamped) / 2);
     this.viewport.setScroll(scrollX, scrollY);
     this.onViewportChanged();
   }
 
   // === 触摸事件 ===
   private onCanvasTouch(event: TouchEvent): void {
+    if (!this.loaded || this.dataLoading || this.dataLoadFailed) {
+      return;
+    }
     if (event.type === TouchType.Down) {
       this.onTouchDown(event);
     } else if (event.type === TouchType.Move) {
       this.onTouchMove(event);
-    } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
-      this.onTouchUp();
+    } else if (event.type === TouchType.Up) {
+      this.onTouchUp(event);
+    } else if (event.type === TouchType.Cancel) {
+      this.cancelActiveInteraction();
     }
   }
 
@@ -275,21 +609,27 @@ export struct NoteCanvasView {
     }
     // T-034：双指手势接管（捏合缩放/双指平移），单指书写
     if (event.touches.length > 1) {
+      this.cancelActiveInteraction();
       return;
     }
     const touch: TouchObject = event.touches[0];
-    // 双击检测（创建文本框；屏幕坐标距离判断）
-    const now: number = Date.now();
-    const dx: number = touch.x - this.lastTapPos.x;
-    const dy: number = touch.y - this.lastTapPos.y;
-    const dist: number = Math.sqrt(dx * dx + dy * dy);
-    if (now - this.lastTapTime < 800 && dist < 10) {  // MVP 放宽到 800ms 便于模拟器验证
-      this.lastTapTime = 0;
-      this.createTextBlockAt(this.viewport.screenToCanvas(touch.x, touch.y));
+    // 原版工具枚举没有 TEXT；移植侧用 DEFAULT 表示临时文本输入模式。
+    // 只有该模式响应标准双击，避免橡皮、选区和书写快速点按误建文本框。
+    if (this.viewModel.currentTool === ToolType.DEFAULT) {
+      const now: number = Date.now();
+      const dx: number = touch.x - this.lastTapPos.x;
+      const dy: number = touch.y - this.lastTapPos.y;
+      const dist: number = Math.sqrt(dx * dx + dy * dy);
+      if (now - this.lastTapTime <= 300 && dist <= 8) {
+        this.lastTapTime = 0;
+        this.beginTextEditingAt(this.viewport.screenToCanvas(touch.x, touch.y));
+      } else {
+        this.lastTapTime = now;
+        this.lastTapPos = { x: touch.x, y: touch.y };
+      }
       return;
     }
-    this.lastTapTime = now;
-    this.lastTapPos = { x: touch.x, y: touch.y };
+    this.lastTapTime = 0;
 
     // T-034：后续逻辑统一使用画布坐标（视口逆映射）
     const canvasP: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
@@ -301,6 +641,7 @@ export struct NoteCanvasView {
     }
 
     if (this.viewModel.isEraserActive()) {
+      this.eraserEngine.setMode(this.viewModel.eraserIsPartial ? EraserMode.PARTIAL : EraserMode.WHOLE);
       this.eraserActive = true;
       this.eraserPath = [];
       this.isDrawing = true;
@@ -312,7 +653,7 @@ export struct NoteCanvasView {
       hilog.info(0x0001, 'NoteCanvasView', 'selDown visible=%{public}s x=%{public}f y=%{public}f rect=(%{public}f,%{public}f,%{public}f,%{public}f)',
         this.selectionVisible.toString(), touch.x, touch.y, this.selectionRect.left,
         this.selectionRect.top, this.selectionRect.right, this.selectionRect.bottom);
-      if (this.selectionVisible && this.pointInRect(canvasP, this.selectionRect)) {
+      if (this.selectionVisible && this.pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)) {
         hilog.info(0x0001, 'NoteCanvasView', 'selection drag start at (%{public}f,%{public}f) rect=(%{public}f,%{public}f)-(%{public}f,%{public}f)',
           canvasP.x, canvasP.y, this.selectionRect.left, this.selectionRect.top,
           this.selectionRect.right, this.selectionRect.bottom);
@@ -341,8 +682,9 @@ export struct NoteCanvasView {
     this.strokeSession.beginStroke(spec, startTime, this.viewport.zoom);
     this.inputProvider.beginStroke(startTime);
     const batch: InputBatch = this.inputProvider.processEvent(
-      [this.toRawPointerEvent(touch, false)], false);
+      [this.toRawPointerEvent(touch, false, event)], false);
     this.strokeSession.addBatch(batch);
+    this.scheduleShapeDetection();
     this.isDrawing = true;
     this.renderFrame();
   }
@@ -353,6 +695,7 @@ export struct NoteCanvasView {
     }
     // T-034：双指手势接管
     if (event.touches.length > 1) {
+      this.cancelActiveInteraction();
       return;
     }
     if (this.eraserActive) {
@@ -379,19 +722,25 @@ export struct NoteCanvasView {
     }
     const rawEvents: RawPointerEvent[] = [];
     for (const t of event.touches) {
-      rawEvents.push(this.toRawPointerEvent(t, false));
+      rawEvents.push(this.toRawPointerEvent(t, false, event));
     }
     const batch: InputBatch = this.inputProvider.processEvent(rawEvents, false);
     if (this.strokeSession !== null) {
       this.strokeSession.addBatch(batch);
+      this.scheduleShapeDetection();
     }
     this.renderFrame();
   }
 
-  private onTouchUp(): void {
+  private onTouchUp(event: TouchEvent): void {
     if (!this.isDrawing) {
       return;
     }
+    if (event.touches.length > 0) {
+      this.cancelActiveInteraction();
+      return;
+    }
+    this.cancelShapeDetectionTimer();
     if (this.eraserActive) {
       this.applyEraser();
       this.eraserActive = false;
@@ -411,8 +760,7 @@ export struct NoteCanvasView {
       // 移动完成：统一记录一次 undo
       this.undoRedo.push({
         type: UndoableActionType.TRANSFORM_STROKES,
-        addedStroke: null,
-        removedStrokes: [],
+        pageId: this.currentPage.pageId,
         beforeStrokes: this.dragBeforeStrokes,
         afterStrokes: this.completedStrokes.slice(),
       });
@@ -421,38 +769,30 @@ export struct NoteCanvasView {
     } else if (this.strokeSession !== null && this.strokeSession.isActive()) {
       const stroke: StrokeElementData = this.strokeSession.finishStroke();
       hilog.info(0x0001, 'NoteCanvasView', 'stroke finished, pts=%{public}d', stroke.pathPoints.length);
-      // 形状识别（Pen 工具，识别成功则替换为形状笔画；T-036：REPLACE_ELEMENT 入栈，undo 恢复原笔画）
-      let finalStroke: StrokeElementData = stroke;
-      let replaced: boolean = false;
-      if (this.viewModel.currentTool === ToolType.PEN && this.viewModel.shapeDetectionEnabled) {
-        const detected: StrokeElementData = this.tryShapeDetect(stroke);
-        if (detected.id === stroke.id && detected.pathPoints.length !== stroke.pathPoints.length) {
-          // 识别成功（形状点序列变化）
-          finalStroke = detected;
-          replaced = true;
-        }
-      }
+      // 只有落笔后静止按住达到阈值，计时器才会提供形状候选。
+      const replaced: boolean = this.heldShape !== null && this.heldShape.id === stroke.id;
+      const finalStroke: StrokeElementData = replaced ? this.heldShape! : stroke;
+      this.heldShape = null;
       this.completedStrokes.push(finalStroke);
       if (replaced) {
         this.undoRedo.push({
           type: UndoableActionType.REPLACE_ELEMENT,
-          addedStroke: finalStroke,
-          removedStrokes: [],
+          pageId: this.currentPage.pageId,
           beforeStrokes: [stroke],
           afterStrokes: [finalStroke],
+          beforeElements: [],
+          afterElements: [],
         });
       } else {
         this.undoRedo.push({
           type: UndoableActionType.ADD_STROKE,
-          addedStroke: finalStroke,
-          removedStrokes: [],
-          beforeStrokes: [],
-          afterStrokes: [],
+          pageId: this.currentPage.pageId,
+          addedStrokes: [finalStroke],
         });
       }
       hilog.info(0x0001, 'NoteCanvasView', 'pushed ADD_STROKE, canUndo=%{public}s',
         this.undoRedo.canUndo().toString());
-      this.layerManager.commitStroke(finalStroke, this.renderCtx);
+      this.layerManager.commitStroke(finalStroke, this.renderCtx, this.viewport.zoom);
       this.persist();
       this.notifyUndoRedo();
       hilog.info(0x0001, 'NoteCanvasView', 'after notify, canUndo=%{public}s',
@@ -462,8 +802,68 @@ export struct NoteCanvasView {
     this.renderFrame();
   }
 
+  private cancelActiveInteraction(): void {
+    if (!this.isDrawing) {
+      return;
+    }
+    this.cancelShapeDetectionTimer();
+    this.heldShape = null;
+    if (this.strokeSession !== null && this.strokeSession.isActive()) {
+      this.strokeSession.cancelStroke();
+    }
+    if (this.selectionDrag) {
+      this.completedStrokes = this.dragBeforeStrokes.slice();
+      if (this.layerManager.isInitialized()) {
+        this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+      }
+    }
+    if (this.selectionDrawing || this.selectionDrag) {
+      this.selectionTool.deselect();
+      this.selectionVisible = false;
+    }
+    this.eraserActive = false;
+    this.eraserPath = [];
+    this.selectionDrawing = false;
+    this.selectionDrag = false;
+    this.dragBeforeStrokes = [];
+    this.isDrawing = false;
+    this.renderFrame();
+  }
+
   // === 形状识别 ===
-  private tryShapeDetect(stroke: StrokeElementData): StrokeElementData {
+  private scheduleShapeDetection(): void {
+    this.cancelShapeDetectionTimer();
+    this.heldShape = null;
+    const tool: ToolType = this.viewModel.currentTool;
+    const drawingTool: boolean = tool === ToolType.PEN || tool === ToolType.PENCIL || tool === ToolType.HIGHLIGHTER;
+    if (!drawingTool || !this.viewModel.shapeDetectionEnabled) {
+      return;
+    }
+    // 原版时长尚未从反编译代码定位；500ms 是移植侧暂定交互阈值。
+    this.shapeHoldTimer = setTimeout(() => {
+      if (!this.isDrawing || this.strokeSession === null || !this.strokeSession.isActive()) {
+        return;
+      }
+      const current: StrokeElementData | null = this.strokeSession.getCurrentStroke();
+      if (current === null) {
+        return;
+      }
+      const attempt: ShapeDetectionAttempt = this.tryShapeDetect(current);
+      this.heldShape = attempt.replaced ? attempt.stroke : null;
+      if (attempt.replaced) {
+        this.renderFrame();
+      }
+    }, 500);
+  }
+
+  private cancelShapeDetectionTimer(): void {
+    if (this.shapeHoldTimer !== -1) {
+      clearTimeout(this.shapeHoldTimer);
+      this.shapeHoldTimer = -1;
+    }
+  }
+
+  private tryShapeDetect(stroke: StrokeElementData): ShapeDetectionAttempt {
     const pts: Point2D[] = [];
     for (const p of stroke.pathPoints) {
       pts.push(p.position);
@@ -471,15 +871,15 @@ export struct NoteCanvasView {
     const result = this.shapeDetector.recognizeShape(pts);
     if (result === null || result.elements.length === 0) {
       hilog.info(0x0001, 'NoteCanvasView', 'shape detect: no match, pts=%{public}d', pts.length);
-      return stroke;
+      return { stroke: stroke, replaced: false };
     }
     hilog.info(0x0001, 'NoteCanvasView', 'shape detect: match confidence=%{public}f', result.confidence);
     const element: NoteElement = result.elements[0];
     const probe: EllipseElement = element as EllipseElement;
     if (probe.radiusX === undefined || probe.center === undefined) {
-      return stroke;  // 仅支持椭圆/多边形替换
+      return { stroke: stroke, replaced: false };  // 仅支持椭圆/多边形替换
     }
-    return this.elementToStroke(element, stroke);
+    return { stroke: this.elementToStroke(element, stroke), replaced: true };
   }
 
   // 识别元素 → 形状笔画（采样点序列，保持渲染链不变）
@@ -508,7 +908,14 @@ export struct NoteCanvasView {
     }
     const pathPoints: StrokePathPoint[] = [];
     for (const pt of points) {
-      pathPoints.push({ position: pt, widthFactor: 1.0 });
+      pathPoints.push({
+        position: pt,
+        widthFactor: 1.0,
+        pressure: -1,
+        altitudeAngleRadians: Math.PI / 2,
+        azimuthUnitX: 1,
+        azimuthUnitY: 0,
+      });
     }
     return {
       id: original.id,
@@ -549,7 +956,9 @@ export struct NoteCanvasView {
     }
     // 记录 undo（擦除）
     const removed: StrokeElementData[] = [];
-    for (const s of before) {
+    const removedIndices: number[] = [];
+    for (let beforeIndex: number = 0; beforeIndex < before.length; beforeIndex++) {
+      const s: StrokeElementData = before[beforeIndex];
       let stillThere: boolean = false;
       for (const cur of this.completedStrokes) {
         if (cur.id === s.id) {
@@ -559,16 +968,8 @@ export struct NoteCanvasView {
       }
       if (!stillThere) {
         removed.push(s);
+        removedIndices.push(beforeIndex);
       }
-    }
-    if (removed.length > 0) {
-      this.undoRedo.push({
-        type: UndoableActionType.ERASE_STROKES,
-        addedStroke: null,
-        removedStrokes: removed,
-        beforeStrokes: [],
-        afterStrokes: [],
-      });
     }
     // T-040 审核修复：PARTIAL 擦除（maskPath 挖洞）也需入栈可撤销
     // （before=受影响笔画擦除前快照，after=擦除后快照；undo 恢复原笔画，redo 重新挖洞）
@@ -586,10 +987,16 @@ export struct NoteCanvasView {
     if (partialBefore.length > 0) {
       this.undoRedo.push({
         type: UndoableActionType.TRANSFORM_STROKES,
-        addedStroke: null,
-        removedStrokes: [],
+        pageId: this.currentPage.pageId,
         beforeStrokes: partialBefore,
         afterStrokes: partialAfter,
+      });
+    } else if (removed.length > 0) {
+      this.undoRedo.push({
+        type: UndoableActionType.ERASE_STROKES,
+        pageId: this.currentPage.pageId,
+        removedStrokes: removed,
+        removedStrokeIndices: removedIndices,
       });
     }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
@@ -606,37 +1013,92 @@ export struct NoteCanvasView {
   private undoStroke(): void {
     hilog.info(0x0001, 'NoteCanvasView', 'undoStroke called, canUndo=%{public}s',
       this.undoRedo.canUndo().toString());
-    const action: UndoableAction | null = this.undoRedo.undo();
-    if (action === null) {
-      return;
-    }
-    this.applyAction(action, true);
+    this.performHistory(true);
   }
 
   private redoStroke(): void {
-    const action: UndoableAction | null = this.undoRedo.redo();
-    if (action === null) {
-      hilog.info(0x0001, 'NoteCanvasView', 'redoStroke: no action');
+    this.performHistory(false);
+  }
+
+  private performHistory(isUndo: boolean): void {
+    if (this.historyBusy || this.pendingHistoryDirection !== 0) {
       return;
     }
-    hilog.info(0x0001, 'NoteCanvasView', 'redoStroke called, type=%{public}d added=%{public}s',
-      action.type, action.addedStroke !== null ? action.addedStroke.id : 'null');
-    this.applyAction(action, false);
+    const action: UndoableAction | null = isUndo ? this.undoRedo.peekUndo() : this.undoRedo.peekRedo();
+    if (action === null) {
+      hilog.info(0x0001, 'NoteCanvasView', 'history: no action');
+      return;
+    }
+    if (this.isPageAction(action.type)) {
+      this.historyBusy = true;
+      this.onApplyPageHistory(action, isUndo).then((applied: boolean) => {
+        if (applied) {
+          this.commitHistory(action, isUndo);
+        } else {
+          hilog.error(0x0001, 'NoteCanvasView', 'page history apply rejected, type=%{public}d', action.type);
+        }
+        this.historyBusy = false;
+      }).catch((e: Object) => {
+        hilog.error(0x0001, 'NoteCanvasView', 'page history apply failed: %{public}s', JSON.stringify(e));
+        this.historyBusy = false;
+      });
+      return;
+    }
+    if (action.pageId !== this.loadedPageId) {
+      this.pendingHistoryDirection = isUndo ? -1 : 1;
+      this.onRequestPage(action.pageId);
+      return;
+    }
+    if (this.applyAction(action, isUndo)) {
+      this.commitHistory(action, isUndo);
+    }
+  }
+
+  private commitHistory(action: UndoableAction, isUndo: boolean): void {
+    const committed: boolean = isUndo
+      ? this.undoRedo.commitUndo(action) : this.undoRedo.commitRedo(action);
+    if (!committed) {
+      hilog.error(0x0001, 'NoteCanvasView', 'history commit rejected after apply, type=%{public}d', action.type);
+    }
+    this.notifyUndoRedo();
+  }
+
+  private resumePendingHistory(): void {
+    if (this.pendingHistoryDirection === 0) {
+      return;
+    }
+    const isUndo: boolean = this.pendingHistoryDirection < 0;
+    this.pendingHistoryDirection = 0;
+    this.performHistory(isUndo);
+  }
+
+  private isPageAction(type: UndoableActionType): boolean {
+    return type === UndoableActionType.ADD_PAGE || type === UndoableActionType.DELETE_PAGE ||
+      type === UndoableActionType.REORDER_PAGES || type === UndoableActionType.PAGE_SETTINGS;
   }
 
   // isUndo=true 执行反向；false 执行正向
-  private applyAction(action: UndoableAction, isUndo: boolean): void {
-    if (action.type === UndoableActionType.ADD_STROKE && action.addedStroke !== null) {
+  private applyAction(action: UndoableAction, isUndo: boolean): boolean {
+    this.selectionTool.deselect();
+    this.selectionVisible = false;
+    if (action.type === UndoableActionType.ADD_STROKE) {
+      const added: StrokeElementData[] = action.addedStrokes;
+      if (added.length === 0) {
+        hilog.error(0x0001, 'NoteCanvasView', 'ADD_STROKE history has no strokes');
+        return false;
+      }
       if (isUndo) {
-        this.removeStrokeById(action.addedStroke.id);
+        for (const stroke of added) {
+          this.removeStrokeById(stroke.id);
+        }
       } else {
-        this.completedStrokes.push(action.addedStroke);
+        for (const stroke of added) {
+          this.completedStrokes.push(stroke);
+        }
       }
     } else if (action.type === UndoableActionType.ERASE_STROKES) {
       if (isUndo) {
-        for (const s of action.removedStrokes) {
-          this.completedStrokes.push(s);
-        }
+        this.restoreRemovedStrokes(action);
       } else {
         for (const s of action.removedStrokes) {
           this.removeStrokeById(s.id);
@@ -644,9 +1106,7 @@ export struct NoteCanvasView {
       }
     } else if (action.type === UndoableActionType.DELETE_STROKE) {
       if (isUndo) {
-        for (const s of action.removedStrokes) {
-          this.completedStrokes.push(s);
-        }
+        this.restoreRemovedStrokes(action);
       } else {
         for (const s of action.removedStrokes) {
           this.removeStrokeById(s.id);
@@ -671,47 +1131,52 @@ export struct NoteCanvasView {
     } else if (action.type === UndoableActionType.ADD_ELEMENT) {
       // T-036：文本框创建
       if (isUndo) {
-        if (action.addedElement !== undefined && action.addedElement !== null) {
-          this.removeTextBlockById(action.addedElement.id);
-        }
-      } else if (action.addedElement !== undefined && action.addedElement !== null) {
+        this.removeTextBlockById(action.addedElement.id);
+      } else {
         this.textBlocks.push(action.addedElement);
       }
     } else if (action.type === UndoableActionType.DELETE_ELEMENT) {
       // T-036：文本框删除
       if (isUndo) {
-        if (action.removedElements !== undefined) {
-          for (const t of action.removedElements) {
-            this.textBlocks.push(t);
-          }
+        for (const t of action.removedElements) {
+          this.textBlocks.push(t);
         }
-      } else if (action.removedElements !== undefined) {
+      } else {
         for (const t of action.removedElements) {
           this.removeTextBlockById(t.id);
         }
       }
     } else if (action.type === UndoableActionType.REPLACE_ELEMENT) {
-      // T-036：形状替换（撤销恢复原笔画，重做恢复形状）
-      // T-040 审核修复：按 id 替换（原实现整表替换会丢失其他笔画）
-      const target: StrokeElementData[] = isUndo ? action.beforeStrokes : action.afterStrokes;
-      for (const t of target) {
-        let found: boolean = false;
-        for (let i = 0; i < this.completedStrokes.length; i++) {
-          if (this.completedStrokes[i].id === t.id) {
-            this.completedStrokes[i] = t;
-            found = true;
-            break;
+      if (action.beforeElements.length > 0 || action.afterElements.length > 0) {
+        const targetElements: TextBlockElement[] = isUndo ? action.beforeElements : action.afterElements;
+        for (const element of targetElements) {
+          this.replaceTextBlock(element);
+        }
+      } else {
+        // 形状替换（撤销恢复原笔画，重做恢复形状），按 id 替换以保留其他笔画。
+        const target: StrokeElementData[] = isUndo ? action.beforeStrokes : action.afterStrokes;
+        for (const t of target) {
+          let found: boolean = false;
+          for (let i = 0; i < this.completedStrokes.length; i++) {
+            if (this.completedStrokes[i].id === t.id) {
+              this.completedStrokes[i] = t;
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            this.completedStrokes.push(t);
           }
         }
-        if (!found) {
-          this.completedStrokes.push(t);
-        }
       }
+    } else {
+      hilog.error(0x0001, 'NoteCanvasView', 'unsupported history action type=%{public}d', action.type);
+      return false;
     }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     this.persist();
-    this.notifyUndoRedo();
     this.renderFrame();
+    return true;
   }
 
   private removeTextBlockById(id: string): void {
@@ -722,6 +1187,29 @@ export struct NoteCanvasView {
       }
     }
     this.textBlocks = remaining;
+  }
+
+  private restoreRemovedStrokes(action: RemoveStrokeAction): void {
+    if (action.removedStrokeIndices.length !== action.removedStrokes.length) {
+      for (const stroke of action.removedStrokes) {
+        this.completedStrokes.push(stroke);
+      }
+      return;
+    }
+    for (let i: number = 0; i < action.removedStrokes.length; i++) {
+      const index: number = Math.max(0, Math.min(action.removedStrokeIndices[i], this.completedStrokes.length));
+      this.completedStrokes.splice(index, 0, action.removedStrokes[i]);
+    }
+  }
+
+  private replaceTextBlock(replacement: TextBlockElement): void {
+    for (let i: number = 0; i < this.textBlocks.length; i++) {
+      if (this.textBlocks[i].id === replacement.id) {
+        this.textBlocks[i] = replacement;
+        return;
+      }
+    }
+    this.textBlocks.push(replacement);
   }
 
   private removeStrokeById(id: string): void {
@@ -769,12 +1257,12 @@ export struct NoteCanvasView {
   // 应用选区变换到笔画；pushUndo 控制是否记录撤销（移动结束时统一记录）
   private applySelectionTransform(notifyPersist: boolean, pushUndo: boolean): void {
     const before: StrokeElementData[] = this.completedStrokes.slice();
-    this.completedStrokes = this.selectionTool.applyTransform(this.completedStrokes);
+    const source: StrokeElementData[] = this.selectionDrag ? this.dragBeforeStrokes : this.completedStrokes;
+    this.completedStrokes = this.selectionTool.applyTransform(source);
     if (pushUndo) {
       this.undoRedo.push({
         type: UndoableActionType.TRANSFORM_STROKES,
-        addedStroke: null,
-        removedStrokes: [],
+        pageId: this.currentPage.pageId,
         beforeStrokes: before,
         afterStrokes: this.completedStrokes.slice(),
       });
@@ -794,9 +1282,12 @@ export struct NoteCanvasView {
     if (action === SelectionMenuAction.DELETE || action === SelectionMenuAction.CUT) {
       const ids: string[] = this.selectionTool.deleteSelected();
       const removed: StrokeElementData[] = [];
-      for (const s of this.completedStrokes) {
+      const removedIndices: number[] = [];
+      for (let strokeIndex: number = 0; strokeIndex < this.completedStrokes.length; strokeIndex++) {
+        const s: StrokeElementData = this.completedStrokes[strokeIndex];
         if (ids.indexOf(s.id) >= 0) {
           removed.push(s);
+          removedIndices.push(strokeIndex);
         }
       }
       for (const s of removed) {
@@ -805,10 +1296,9 @@ export struct NoteCanvasView {
       if (removed.length > 0) {
         this.undoRedo.push({
           type: UndoableActionType.DELETE_STROKE,
-          addedStroke: null,
+          pageId: this.currentPage.pageId,
           removedStrokes: removed,
-          beforeStrokes: [],
-          afterStrokes: [],
+          removedStrokeIndices: removedIndices,
         });
       }
       this.selectionVisible = false;
@@ -846,8 +1336,7 @@ export struct NoteCanvasView {
     }
     this.undoRedo.push({
       type: UndoableActionType.TRANSFORM_STROKES,
-      addedStroke: null,
-      removedStrokes: [],
+      pageId: this.currentPage.pageId,
       beforeStrokes: before,
       afterStrokes: this.completedStrokes.slice(),
     });
@@ -896,28 +1385,136 @@ export struct NoteCanvasView {
     for (const c of copies) {
       this.completedStrokes.push(c);
     }
+    if (copies.length > 0) {
+      this.undoRedo.push({
+        type: UndoableActionType.ADD_STROKE,
+        pageId: this.currentPage.pageId,
+        addedStrokes: copies,
+      });
+    }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     this.persist();
+    this.notifyUndoRedo();
     this.renderFrame();
+  }
+
+  private captureCurrentPage(): PageContentSnapshot {
+    const strokes: StrokeElementData[] = [];
+    for (const stroke of this.completedStrokes) {
+      strokes.push(this.cloneStrokeSnapshot(stroke));
+    }
+    const textBlocks: TextBlockElement[] = [];
+    for (const block of this.textBlocks) {
+      textBlocks.push({
+        id: block.id,
+        type: block.type,
+        transform: block.transform.slice(),
+        bounds: {
+          left: block.bounds.left, top: block.bounds.top,
+          right: block.bounds.right, bottom: block.bounds.bottom,
+        },
+        richText: block.richText,
+        textOrigin: { x: block.textOrigin.x, y: block.textOrigin.y },
+        blockWidth: block.blockWidth,
+        blockHeight: block.blockHeight,
+        rotationRadians: block.rotationRadians,
+        contentLeftInset: block.contentLeftInset,
+        contentTopInset: block.contentTopInset,
+        fontSize: block.fontSize,
+        fontColor: block.fontColor,
+      });
+    }
+    return { strokes: strokes, textBlocks: textBlocks };
+  }
+
+  private cloneStrokeSnapshot(s: StrokeElementData): StrokeElementData {
+    return {
+      id: s.id,
+      pathPoints: s.pathPoints.map((point: StrokePathPoint): StrokePathPoint => ({
+        position: { x: point.position.x, y: point.position.y },
+        widthFactor: point.widthFactor,
+        pressure: point.pressure,
+        altitudeAngleRadians: point.altitudeAngleRadians,
+        azimuthUnitX: point.azimuthUnitX,
+        azimuthUnitY: point.azimuthUnitY,
+      })),
+      cubicSegments: s.cubicSegments.map((segment: CubicSegment): CubicSegment => ({
+        p0: { x: segment.p0.x, y: segment.p0.y },
+        p1: { x: segment.p1.x, y: segment.p1.y },
+        p2: { x: segment.p2.x, y: segment.p2.y },
+        p3: { x: segment.p3.x, y: segment.p3.y },
+      })),
+      splatPoints: s.splatPoints.map((splat: PencilSplatPoint): PencilSplatPoint => ({
+        x: splat.x, y: splat.y, rotation: splat.rotation,
+        scale: splat.scale, opacity: splat.opacity,
+      })),
+      renderSpec: {
+        color: s.renderSpec.color,
+        brushWidth: s.renderSpec.brushWidth,
+        inkStyle: s.renderSpec.inkStyle,
+        isHighlighter: s.renderSpec.isHighlighter,
+        isPencil: s.renderSpec.isPencil,
+      },
+      transform: s.transform.slice(),
+      bounds: {
+        left: s.bounds.left, top: s.bounds.top,
+        right: s.bounds.right, bottom: s.bounds.bottom,
+      },
+      maskPath: s.maskPath.map((point: Point2D): Point2D => ({ x: point.x, y: point.y })),
+      isFinished: s.isFinished,
+    };
   }
 
   private cloneStroke(s: StrokeElementData): StrokeElementData {
     const timePart: string = Date.now().toString(36);
     const randPart: string = Math.random().toString(36).slice(2, 8);
+    const translatedTransform: number[] = s.transform.slice();
+    translatedTransform[2] += 20;
+    translatedTransform[5] += 20;
+    const pathPoints: StrokePathPoint[] = s.pathPoints.map(
+      (point: StrokePathPoint): StrokePathPoint => ({
+        position: { x: point.position.x, y: point.position.y } as Point2D,
+        widthFactor: point.widthFactor,
+        pressure: point.pressure,
+        altitudeAngleRadians: point.altitudeAngleRadians,
+        azimuthUnitX: point.azimuthUnitX,
+        azimuthUnitY: point.azimuthUnitY,
+      }));
+    const cubicSegments: CubicSegment[] = s.cubicSegments.map(
+      (segment: CubicSegment): CubicSegment => ({
+        p0: { x: segment.p0.x, y: segment.p0.y } as Point2D,
+        p1: { x: segment.p1.x, y: segment.p1.y } as Point2D,
+        p2: { x: segment.p2.x, y: segment.p2.y } as Point2D,
+        p3: { x: segment.p3.x, y: segment.p3.y } as Point2D,
+      }));
+    const splatPoints: PencilSplatPoint[] = s.splatPoints.map(
+      (splat: PencilSplatPoint): PencilSplatPoint => ({
+        x: splat.x, y: splat.y, rotation: splat.rotation,
+        scale: splat.scale, opacity: splat.opacity,
+      }));
+    const maskPath: Point2D[] = s.maskPath.map(
+      (point: Point2D): Point2D => ({ x: point.x, y: point.y }));
+    const renderSpec: RenderSpec = {
+      color: s.renderSpec.color,
+      brushWidth: s.renderSpec.brushWidth,
+      inkStyle: s.renderSpec.inkStyle,
+      isHighlighter: s.renderSpec.isHighlighter,
+      isPencil: s.renderSpec.isPencil,
+    };
     return {
       id: timePart + randPart,
-      pathPoints: s.pathPoints.slice(),
-      cubicSegments: s.cubicSegments.slice(),
-      splatPoints: s.splatPoints.slice(),
-      renderSpec: s.renderSpec,
-      transform: s.transform.slice(),
+      pathPoints: pathPoints,
+      cubicSegments: cubicSegments,
+      splatPoints: splatPoints,
+      renderSpec: renderSpec,
+      transform: translatedTransform,
       bounds: {
         left: s.bounds.left + 20,
         top: s.bounds.top + 20,
         right: s.bounds.right + 20,
         bottom: s.bounds.bottom + 20,
       },
-      maskPath: s.maskPath.slice(),
+      maskPath: maskPath,
       isFinished: s.isFinished,
     };
   }
@@ -942,39 +1539,62 @@ export struct NoteCanvasView {
       this.viewModel.brushColor, 24);
     this.textBlocks.push(element);
     this.editingTextBlock = element;
+    this.editingOriginalTextBlock = null;
+    this.editingDraftText = '';
     this.textEditing = true;
-    this.renderFrame();
+    this.renderFrame(true);
+  }
+
+  private beginTextEditingAt(position: Point2D): void {
+    for (let i: number = this.textBlocks.length - 1; i >= 0; i--) {
+      if (this.pointInRect(position, this.textBlocks[i].bounds)) {
+        this.editingTextBlock = this.textBlocks[i];
+        this.editingOriginalTextBlock = this.textBlocks[i];
+        this.editingDraftText = this.textBlocks[i].richText;
+        this.textEditing = true;
+        this.renderFrame(true);
+        return;
+      }
+    }
+    this.createTextBlockAt(position);
   }
 
   onTextCommit(text: string): void {
     if (this.editingTextBlock !== null) {
-      const updated: TextBlockElement = this.textBlockTool.updateText(this.editingTextBlock, text);
-      for (let i = 0; i < this.textBlocks.length; i++) {
-        if (this.textBlocks[i].id === updated.id) {
-          this.textBlocks[i] = updated;
-          break;
-        }
+      if (text.trim().length === 0) {
+        this.onTextCancel();
+        return;
       }
-      // T-036：文本框创建入栈（undo 删除，redo 恢复）
-      this.undoRedo.push({
-        type: UndoableActionType.ADD_ELEMENT,
-        addedStroke: null,
-        removedStrokes: [],
-        beforeStrokes: [],
-        afterStrokes: [],
-        addedElement: updated,
-        removedElements: [],
-      });
-      this.notifyUndoRedo();
+      const updated: TextBlockElement = this.textBlockTool.updateText(this.editingTextBlock, text);
+      this.replaceTextBlock(updated);
+      if (this.editingOriginalTextBlock === null) {
+        this.undoRedo.push({
+          type: UndoableActionType.ADD_ELEMENT,
+          pageId: this.currentPage.pageId,
+          addedElement: updated,
+        });
+      } else if (this.editingOriginalTextBlock.richText !== updated.richText) {
+        this.undoRedo.push({
+          type: UndoableActionType.REPLACE_ELEMENT,
+          pageId: this.currentPage.pageId,
+          beforeStrokes: [],
+          afterStrokes: [],
+          beforeElements: [this.editingOriginalTextBlock],
+          afterElements: [updated],
+        });
+      }
     }
     this.textEditing = false;
     this.editingTextBlock = null;
+    this.editingOriginalTextBlock = null;
+    this.editingDraftText = '';
+    this.notifyUndoRedo();
     this.persist();
-    this.renderFrame();
+    this.renderFrame(true);
   }
 
   onTextCancel(): void {
-    if (this.editingTextBlock !== null) {
+    if (this.editingTextBlock !== null && this.editingOriginalTextBlock === null) {
       const id: string = this.editingTextBlock.id;
       const remaining: TextBlockElement[] = [];
       for (const t of this.textBlocks) {
@@ -988,7 +1608,10 @@ export struct NoteCanvasView {
     }
     this.textEditing = false;
     this.editingTextBlock = null;
-    this.renderFrame();
+    this.editingOriginalTextBlock = null;
+    this.editingDraftText = '';
+    this.persist();
+    this.renderFrame(true);
   }
 
   // === RenderSpec 构建 ===
@@ -1001,29 +1624,45 @@ export struct NoteCanvasView {
   // T-040 修复：TouchObject.pressure 已是 [0,1] 归一化值，不能再除以 65535
   // （原实现导致所有笔画 pressure≈0 → widthFactor 恒为下限 0.3）
   // T-040 修复：输入坐标限制在纸张范围内（原版笔画不能超出页面边缘）
-  private toRawPointerEvent(touch: TouchObject, isHistorical: boolean): RawPointerEvent {
-    const rawPressure: number = touch.pressure !== undefined ? touch.pressure : 0;
-    const pressure: number = rawPressure > 0 ? Math.min(rawPressure, 1) : 0;
+  private toRawPointerEvent(touch: TouchObject, isHistorical: boolean,
+    event?: TouchEvent): RawPointerEvent {
+    const stylus: ArkUIStylusSample = ArkUIStylusAdapter.fromTouch(touch, event);
     const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
-    // 纸张在画布坐标中的范围（与 PaperRenderer 居中绘制一致）
-    const vw: number = this.canvasCtx.width / this.viewport.zoom;
-    const vh: number = this.canvasCtx.height / this.viewport.zoom;
-    const pw: number = this.currentPage.widthMm > 0 ? this.currentPage.widthMm * 3.78 : vw;
-    const ph: number = this.currentPage.heightMm > 0 ? this.currentPage.heightMm * 3.78 : vh;
-    const paperX: number = Math.max(0, (vw - pw) / 2);
-    const paperY: number = Math.max(0, (vh - ph) / 2);
-    const cx: number = Math.min(Math.max(p.x, paperX), paperX + pw);
-    const cy: number = Math.min(Math.max(p.y, paperY), paperY + ph);
+    const cx: number = Math.min(Math.max(p.x, 0), this.getPaperWidth());
+    const cy: number = Math.min(Math.max(p.y, 0), this.getPaperHeight());
     return {
       x: cx,
       y: cy,
-      pressure: pressure,
-      tiltRadians: 0,
-      orientationRadians: 0,
-      toolType: 0,
+      pressure: stylus.pressure,
+      tiltRadians: stylus.altitudeAngleRadians,
+      orientationRadians: stylus.orientationRadians,
+      toolType: stylus.toolType,
       timestamp: Date.now(),
       isHistorical: isHistorical,
     };
+  }
+
+  private getPaperWidth(): number {
+    return this.currentPage.widthMm > 0 ? this.currentPage.widthMm * 3.78 : 800;
+  }
+
+  private getPaperHeight(): number {
+    return this.currentPage.heightMm > 0 ? this.currentPage.heightMm * 3.78 : 1131;
+  }
+
+  private initializeLayerForPage(): void {
+    const width: number = Math.max(1, Math.ceil(this.getPaperWidth()));
+    const height: number = Math.max(1, Math.ceil(this.getPaperHeight()));
+    this.layerManager.initialize(width, height);
+  }
+
+  private centerPaperInViewport(): void {
+    const canvasW: number = this.canvasCtx.width;
+    const canvasH: number = this.canvasCtx.height;
+    this.viewport.setScroll(
+      (canvasW - this.getPaperWidth() * this.viewport.zoom) / 2,
+      Math.max(16, (canvasH - this.getPaperHeight() * this.viewport.zoom) / 2));
+    this.viewportInitialized = true;
   }
 
   build() {
@@ -1085,6 +1724,13 @@ export struct NoteCanvasView {
       TextBlockOverlay({
         editing: this.textEditing,
         element: this.editingTextBlock,
+        screenOrigin: this.editingTextBlock !== null
+          ? this.viewport.canvasToScreen(this.editingTextBlock.textOrigin.x, this.editingTextBlock.textOrigin.y)
+          : { x: 0, y: 0 },
+        viewportZoom: this.viewport.zoom,
+        onDraftChange: (text: string) => {
+          this.editingDraftText = text;
+        },
         onCommit: (text: string) => {
           this.onTextCommit(text);
         },
@@ -1112,7 +1758,7 @@ export struct NoteCanvasView {
           .onClick(() => {
             this.zoomStep(0.25);
           })
-        Button('适应宽度')
+        Button($r('app.string.fit_width'))
           .height(36)
           .fontSize(12)
           .margin({ left: 8 })
@@ -1121,9 +1767,21 @@ export struct NoteCanvasView {
           })
       }
       .margin({ left: 16, bottom: 68 })  // 避开底部 PageManagerBar（56vp）
-      .backgroundColor('#F2F2F2')
+      .backgroundColor(this.resolveTokens().surface)
       .borderRadius(8)
       .padding({ left: 4, right: 4 })
+      if (this.dataLoading || this.dataLoadFailed) {
+        Column() {
+          Text(this.dataLoadFailed ? $r('app.string.page_unavailable') : $r('app.string.loading_page'))
+            .fontSize(14)
+            .fontColor(this.resolveTokens().textSecondary)
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .backgroundColor(this.resolveTokens().scrim)
+      }
     }
     .width('100%')
     .height('100%')

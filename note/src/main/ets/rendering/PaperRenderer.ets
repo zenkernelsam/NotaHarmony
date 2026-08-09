@@ -7,37 +7,22 @@ export class PaperRenderer {
   // 在给定 Canvas 上绘制纸张背景（先填充底色，再叠加模板）
   // T-034：zoom 参数——线宽/点半径除以 zoom 保持视觉 1px（网格间距为画布坐标，随缩放）
   // T-038：theme 提供 paperBackground/paperLineColor
-  // T-040：paperWidthMm/paperHeightMm——纸张按真实 mm 尺寸（1mm≈3.78px）居中绘制，纸外铺页面背景色
-  renderBackground(ctx: CanvasRenderingContext2D, width: number, height: number,
-    template: PaperTemplate, zoom: number = 1.0, theme: ThemeTokens = LightTheme,
-    paperWidthMm: number = 0, paperHeightMm: number = 0): void {
+  // 纸张固定在页面坐标 (0,0)；屏幕上的居中/平移完全由 CanvasViewport 负责。
+  renderBackground(ctx: CanvasRenderingContext2D, paperW: number, paperH: number,
+    template: PaperTemplate, zoom: number = 1.0, theme: ThemeTokens = LightTheme): void {
     ctx.save();
-    // 纸张区域（画布坐标，未缩放；width/height 为视口画布尺寸）
-    let paperX: number = 0;
-    let paperY: number = 0;
-    let paperW: number = width;
-    let paperH: number = height;
-    if (paperWidthMm > 0 && paperHeightMm > 0) {
-      paperW = paperWidthMm * 3.78;
-      paperH = paperHeightMm * 3.78;
-      paperX = Math.max(0, (width - paperW) / 2);
-      paperY = Math.max(0, (height - paperH) / 2);
-    }
-    // 页面背景（纸张外区域）
-    ctx.fillStyle = theme.background;
-    ctx.fillRect(0, 0, width, height);
     // 纸张底色
     ctx.fillStyle = theme.paperBackground;
-    ctx.fillRect(paperX, paperY, paperW, paperH);
+    ctx.fillRect(0, 0, paperW, paperH);
     switch (template) {
       case PaperTemplate.LINES:
-        this.drawLines(ctx, paperX, paperY, paperW, paperH, zoom, theme.paperLineColor);
+        this.drawLines(ctx, 0, 0, paperW, paperH, zoom, theme.paperLineColor);
         break;
       case PaperTemplate.GRID:
-        this.drawGrid(ctx, paperX, paperY, paperW, paperH, zoom, theme.paperLineColor);
+        this.drawGrid(ctx, 0, 0, paperW, paperH, zoom, theme.paperLineColor);
         break;
       case PaperTemplate.DOTS:
-        this.drawDots(ctx, paperX, paperY, paperW, paperH, zoom, theme.paperLineColor);
+        this.drawDots(ctx, 0, 0, paperW, paperH, zoom, theme.paperLineColor);
         break;
       default:
         break;  // PLAIN 空白

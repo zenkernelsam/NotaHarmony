@@ -2,8 +2,9 @@
 // 适配层实现：允许 import Canvas 相关类型；不 import TouchEvent / UI 组件
 // ArkTS 不支持结构化类型赋值：主画布与 OffscreenCanvas 上下文分属两个包装类
 import { StrokeRenderer, RenderContext } from './StrokeRenderer';
-import { StrokeElementData, PencilSplatPoint, RenderSpec, InkStyle } from '../model/StrokeTypes';
-import { Rect2D } from '../model/GeometryTypes';
+import { StrokeElementData, PencilSplatPoint, RenderSpec, InkStyle,
+  ERASER_PATH_BREAK_COORDINATE } from '../model/StrokeTypes';
+import { Point2D, Rect2D } from '../model/GeometryTypes';
 import { WidthOutlineBuilder } from '../algorithm/WidthOutlineBuilder';
 
 // 渲染上下文实现 A：包装主画布 CanvasRenderingContext2D
@@ -111,7 +112,7 @@ export class Canvas2DRenderContext implements RenderContext {
 
   // 应用 3×3 行主序仿射变换矩阵（变换选中笔画用）
   setTransform(m: number[]): void {
-    this.ctx.setTransform(m[0], m[1], m[3], m[4], m[2], m[5]);
+    this.ctx.setTransform(m[0], m[3], m[1], m[4], m[2], m[5]);
   }
 
   drawImage(image: ImageBitmap, dx: number, dy: number, dw: number, dh: number): void {
@@ -224,7 +225,7 @@ export class Canvas2DOffscreenRenderContext implements RenderContext {
 
   // 应用 3×3 行主序仿射变换矩阵（变换选中笔画用）
   setTransform(m: number[]): void {
-    this.ctx.setTransform(m[0], m[1], m[3], m[4], m[2], m[5]);
+    this.ctx.setTransform(m[0], m[3], m[1], m[4], m[2], m[5]);
   }
 
   drawImage(image: ImageBitmap, dx: number, dy: number, dw: number, dh: number): void {
@@ -234,7 +235,7 @@ export class Canvas2DOffscreenRenderContext implements RenderContext {
 
 export class Canvas2DStrokeRenderer implements StrokeRenderer {
   private splatTexture: ImageBitmap | null = null;
-  private colorCache: Map<number, OffscreenCanvas> = new Map<number, OffscreenCanvas>();
+  private splatScratch: OffscreenCanvas | null = null;
   // 擦除遮罩渲染宽度（可由页面设置）
   private eraserMaskWidth: number = 20;
 
@@ -282,8 +283,18 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
   }
 
   setSplatTexture(texture: ImageBitmap): void {
+    if (this.splatTexture !== null && this.splatTexture !== texture) {
+      this.splatTexture.close();
+    }
     this.splatTexture = texture;
-    this.colorCache.clear();
+  }
+
+  dispose(): void {
+    if (this.splatTexture !== null) {
+      this.splatTexture.close();
+      this.splatTexture = null;
+    }
+    this.splatScratch = null;
   }
 
   setEraserMaskWidth(width: number): void {
@@ -315,8 +326,8 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       }
     }
     c.setLineWidth(spec.brushWidth);
-    // 线帽（pzf.g）：实线画笔 this.h 用 ROUND，DASH/DOTS 画笔 this.i 用 BUTT
-    if (spec.inkStyle === InkStyle.DASH || spec.inkStyle === InkStyle.DOTS) {
+    // 原版 c5g：DASH 使用 BUTT，DOTS 与实线使用 ROUND。
+    if (spec.inkStyle === InkStyle.DASH) {
       c.setLineCap('butt');
     } else {
       c.setLineCap('round');
@@ -352,6 +363,10 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     }
     c.closePath();
     c.setFillStyle(this.colorToRgba(stroke.renderSpec.color));
+    if (stroke.renderSpec.isHighlighter) {
+      // c5g.g 对所有笔迹形态统一把荧光笔颜色 alpha 设为 107。
+      c.setGlobalAlpha(107 / 255);
+    }
     c.fill();
     c.restore();
   }
@@ -363,9 +378,7 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     }
     const c: Canvas2DRenderContext = ctx as Canvas2DRenderContext;
     // 计算 splat 包围盒（splat 坐标为绝对画布坐标，离屏用相对坐标绘制）
-    // T-033 修复：xaa 的 scale 语义为“半径”（直径 = 2*scale ≈ 笔宽），
-    // 渲染时按 64px 纹理换算缩放系数 scale/texHalf；包围盒半径 = scale
-    const texHalf: number = 32;  // 纹理半宽（64×64 纹理的一半）
+    // xaa/cfa 的 scale 语义为页面半径（直径 = 2*scale）；包围盒同样以 scale 外扩。
     let minX: number = Number.MAX_VALUE;
     let minY: number = Number.MAX_VALUE;
     let maxX: number = -Number.MAX_VALUE;
@@ -387,11 +400,12 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     }
     const w: number = Math.max(maxX - minX, 1);
     const h: number = Math.max(maxY - minY, 1);
-    let off: OffscreenCanvas | undefined = this.colorCache.get(spec.color);
-    if (off === undefined) {
+    let off: OffscreenCanvas;
+    if (this.splatScratch === null) {
       off = new OffscreenCanvas(w, h);
-      this.colorCache.set(spec.color, off);
+      this.splatScratch = off;
     } else {
+      off = this.splatScratch;
       off.width = w;
       off.height = h;
     }
@@ -403,17 +417,12 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       offCtx.save();
       offCtx.translate(s.x - minX, s.y - minY);
       offCtx.rotate(s.rotation);
-      // scale 为半径：64px 纹理的缩放系数 = scale/32（直径 2*scale）
-      const drawScale: number = s.scale / texHalf;
-      offCtx.scale(drawScale, drawScale);
       offCtx.globalAlpha = s.opacity;
       if (tex !== null) {
-        // 纹理尺寸取固定 64×64（MVP fallback 纹理同尺寸）
-        const tw: number = 64;
-        const th: number = 64;
-        offCtx.drawImage(tex, -tw / 2, -th / 2, tw, th);
+        // s.scale 的唯一单位是页面半径；原版纹理无论原始分辨率均映射到直径 2*scale。
+        offCtx.drawImage(tex, -s.scale, -s.scale, 2 * s.scale, 2 * s.scale);
       } else {
-        // fallback：圆形（半径 = scale，与纹理绘制直径一致）
+        // fallback 与纹理路径使用完全相同的外接尺寸，避免二次 scale。
         offCtx.beginPath();
         offCtx.arc(0, 0, s.scale, 0, Math.PI * 2);
         offCtx.fillStyle = '#FFFFFF';
@@ -428,7 +437,11 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     offCtx.globalCompositeOperation = 'source-over';
     // 合成到主画布（相对包围盒定位）
     const bmp: ImageBitmap = off.transferToImageBitmap();
-    c.drawImage(bmp, minX, minY, w, h);
+    try {
+      c.drawImage(bmp, minX, minY, w, h);
+    } finally {
+      bmp.close();
+    }
   }
 
   // === 擦除遮罩（destination-out 挖洞）===
@@ -438,17 +451,34 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     }
     const c: Canvas2DRenderContext = ctx as Canvas2DRenderContext;
     c.save();
-    c.beginPath();
-    c.moveTo(stroke.maskPath[0].x, stroke.maskPath[0].y);
-    for (let i = 1; i < stroke.maskPath.length; i++) {
-      c.lineTo(stroke.maskPath[i].x, stroke.maskPath[i].y);
-    }
     c.setGlobalCompositeOperation('destination-out');
     c.setLineWidth(this.eraserMaskWidth);
     c.setLineCap('round');
     c.setLineJoin('round');
-    c.stroke();
+    let index: number = 0;
+    while (index < stroke.maskPath.length) {
+      while (index < stroke.maskPath.length && this.isMaskBreak(stroke.maskPath[index])) {
+        index++;
+      }
+      if (index >= stroke.maskPath.length) {
+        break;
+      }
+      const first = stroke.maskPath[index];
+      c.beginPath();
+      c.moveTo(first.x, first.y);
+      c.lineTo(first.x, first.y);
+      index++;
+      while (index < stroke.maskPath.length && !this.isMaskBreak(stroke.maskPath[index])) {
+        c.lineTo(stroke.maskPath[index].x, stroke.maskPath[index].y);
+        index++;
+      }
+      c.stroke();
+    }
     c.restore();
+  }
+
+  private isMaskBreak(point: Point2D): boolean {
+    return point.x === ERASER_PATH_BREAK_COORDINATE && point.y === ERASER_PATH_BREAK_COORDINATE;
   }
 
   // 工具：ARGB int → rgba 字符串

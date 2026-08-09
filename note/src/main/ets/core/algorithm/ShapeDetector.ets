@@ -1,4 +1,6 @@
-// T-023 形状识别（§24：直线/椭圆/多边形，笔画完成时触发，失败保留手画）
+// T-023 形状识别（直线/椭圆/多边形；由编辑器的 hold-to-detect 计时器触发）
+// 原版使用商业 MyScript iink SDK。本实现是移植方自研几何启发式，识别行为不可比；
+// 下列阈值均为移植方经验值，不是从原版反编译得到的参数。
 // 纯数学模块：禁止 import 平台 API
 import { Point2D, Rect2D } from '../model/GeometryTypes';
 import { NoteElement, EllipseElement, PolygonElement, ElementType } from '../model/ElementTypes';

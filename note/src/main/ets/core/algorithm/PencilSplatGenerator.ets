@@ -17,9 +17,9 @@ export interface SplatGeneratorConfig {
 
 export interface SplatAttributes {
   pressure: number;
-  tilt: number;
-  orientation: number;
-  width: number;
+  altitudeAngleRadians: number;
+  azimuthUnitX: number;
+  azimuthUnitY: number;
 }
 
 // 曲线行走点：位置 + 单位切向量（ArkTS 不允许对象字面量类型，需显式 interface）
@@ -93,7 +93,7 @@ export class PencilSplatGenerator {
       const attrs: SplatAttributes = this.interpolateAttributes(pathPoints, ratio);
       const sizeF: number = this.sizeFactorOf(attrs);
       const atPos: PencilSplatPoint[] = this.generateAtPosition(walk.pos, walk.tangent,
-        attrs.pressure, attrs.tilt, attrs.orientation, attrs.width);
+        attrs);
       for (const s of atPos) {
         splats.push(s);
       }
@@ -105,8 +105,8 @@ export class PencilSplatGenerator {
 
   // sizeFactor = sizeP*sizeT + (1-sizeT)*1.0（xaa.d()）
   private sizeFactorOf(attrs: SplatAttributes): number {
-    const p: number = attrs.pressure < 0 ? 0.5 : attrs.pressure;
-    const t: number = attrs.tilt < 0 ? Math.PI / 4 : attrs.tilt;
+    const p: number = attrs.pressure < 0 ? 1.0 : attrs.pressure;
+    const t: number = attrs.altitudeAngleRadians < 0 ? Math.PI / 2 : attrs.altitudeAngleRadians;
     const clampedPressure: number = Math.min(p, 2.0) / 2.0;
     const sizePressure: number = 1 - this.power5(1 - clampedPressure);
     const tiltNorm: number = Math.min((t - Math.PI / 2) / this.config.tiltNormalize, 1.0);
@@ -115,37 +115,34 @@ export class PencilSplatGenerator {
   }
 
   // 单位置 splat 生成（xaa.b()/xaa.d() 完整公式）
-  private generateAtPosition(pos: Point2D, tangent: Point2D, pressure: number, tilt: number,
-    orientation: number, width: number): PencilSplatPoint[] {
-    // 无能力输入 fallback（p/t 的 fallback 在 sizeFactorOf() 内部处理）
-    // T-033：无 orientation（模拟器=-1）用中性值 π/5（angleDiff=0 → 无散布 + opacity 正常）；
-    // 原版 fallback 0 会导致 angleDiff 最大 → edgeFactor=0.1 → splat 几乎透明
-    const o: number = orientation < 0 ? Math.PI / 5 : orientation;
+  private generateAtPosition(pos: Point2D, tangent: Point2D,
+    attrs: SplatAttributes): PencilSplatPoint[] {
+    // 1.0.3 cfa.b()/ed0：缺失输入使用 force=1、altitude=π/2、azimuth=(1,0)。
+    const pressure: number = attrs.pressure < 0 ? 1.0 : attrs.pressure;
+    const altitude: number = attrs.altitudeAngleRadians < 0 ? Math.PI / 2 : attrs.altitudeAngleRadians;
 
     // === 散布盘参数 ===
-    const scaleBase: number = Math.min(width, 2.0) / 2.0 * 0.97 + 0.03;
-    const angleDiff: number = Math.max(Math.PI / 5 - o, 0);
+    const scaleBase: number = Math.min(pressure, 2.0) / 2.0 * 0.97 + 0.03;
+    const angleDiff: number = Math.max(Math.PI / 5 - altitude, 0);
     let splatCount: number = Math.floor(angleDiff / this.config.angleStep) + 1;
     if (splatCount > this.config.maxSubdivisions) {
       splatCount = this.config.maxSubdivisions;
     }
     const subdivisions: number = Math.floor(angleDiff / this.config.angleStep);
     // 散布盘半径（xaa.b L196）：ellipseR = 1.2*(d/2)*0.5*floor
-    // T-033 修复：无 orientation（模拟器=0）时 angleDiff 最大 → 散布半径可达 0.3*spacing*25
-    // （笔宽 36 时 ≈270px）→ 大面积污染。钳制到 1.5 倍笔宽，保证只在轨迹附近散布
-    const ellipseR: number = Math.min(1.2 * (this.config.spacing / 2.0) * 0.5 * subdivisions,
-      this.config.spacing * 1.5);
+    const ellipseR: number = 1.2 * (this.config.spacing / 2.0) * 0.5 * subdivisions;
     const ellipseS: number = (angleDiff / (Math.PI / 2)) * (-0.48) + 0.5;
     // scale = ellipseS * spacing * (sizeFactor*0.5 + 0.5)（xaa.b：d10*d11）
-    const baseScale: number = ellipseS * this.config.spacing * (this.sizeFactorOf(this.attrsOf(pressure, tilt, orientation, width)) * 0.5 + 0.5);
+    const baseScale: number = ellipseS * this.config.spacing * (this.sizeFactorOf(attrs) * 0.5 + 0.5);
 
     // === 每 splat 随机散布（LCG）===
     // angleNorm 分母 0.45331853071795863（xaa.b L198 完整 double）
     const angleNorm: number = Math.min(Math.max(angleDiff / 0.45331853071795863, 0), 1);
     const edgeFactor: number = (1 - angleNorm) + 0.1 * angleNorm;
     const twoPi: number = Math.PI * 2;
-    const tx: number = tangent.x;
-    const ty: number = tangent.y;
+    const hasAzimuth: boolean = Math.abs(attrs.azimuthUnitX) + Math.abs(attrs.azimuthUnitY) > 0.000001;
+    const tx: number = hasAzimuth ? attrs.azimuthUnitX : tangent.x;
+    const ty: number = hasAzimuth ? attrs.azimuthUnitY : tangent.y;
 
     const results: PencilSplatPoint[] = [];
     for (let i = 0; i < splatCount; i++) {
@@ -153,7 +150,7 @@ export class PencilSplatGenerator {
       const theta: number = this.nextRandom() * twoPi;
       const r: number = Math.sqrt(u1);
       const x: number = this.config.ellipseShrink * Math.cos(theta) * r;
-      const len: number = (angleNorm + Math.sin(theta)) * 1.0;
+      const len: number = (angleNorm + Math.sin(theta) * r) * 1.0;
       // 位置 = 曲线点 + 切线/法线偏移（公式精确照搬 xaa.b L216-218）
       // 原版：x' = d18*dB - d17*dC，y' = d18*dC + d17*dB（dB=方向x, dC=方向y）
       // 即 x' = len*ux - x*uy，y' = len*uy + x*ux（ux=切线x, uy=切线y）
@@ -291,28 +288,30 @@ export class PencilSplatGenerator {
     const i0: number = Math.min(Math.floor(f), n - 2);
     const i1: number = i0 + 1;
     const t: number = f - i0;
-    const w0: number = pathPoints[i0].widthFactor;
-    const w1: number = pathPoints[i1].widthFactor;
-    const width: number = w0 + (w1 - w0) * t;
+    const start: SplatAttributes = this.attrsFromPathPoint(pathPoints[i0]);
+    const end: SplatAttributes = this.attrsFromPathPoint(pathPoints[i1]);
     return {
-      pressure: this.clamp((width - 0.3) / 0.7, 0, 1),  // 与 StrokeSession 的映射互逆
-      tilt: Math.PI / 4,   // 默认 45°（MVP 无倾斜数据）
-      orientation: Math.PI / 5,  // 中性值（T-033：无数据时避免 angleDiff 最大导致透明/散布）
-      width: width,
+      pressure: this.lerp(start.pressure, end.pressure, t),
+      altitudeAngleRadians: this.lerp(start.altitudeAngleRadians, end.altitudeAngleRadians, t),
+      azimuthUnitX: this.lerp(start.azimuthUnitX, end.azimuthUnitX, t),
+      azimuthUnitY: this.lerp(start.azimuthUnitY, end.azimuthUnitY, t),
     };
   }
 
   private attrsFromPathPoint(p: StrokePathPoint): SplatAttributes {
+    const pressure: number = p.pressure !== undefined
+      ? p.pressure : this.clamp((p.widthFactor - 0.3) / 0.7, 0, 1);
     return {
-      pressure: this.clamp((p.widthFactor - 0.3) / 0.7, 0, 1),
-      tilt: Math.PI / 4,
-      orientation: Math.PI / 5,
-      width: p.widthFactor,
+      pressure: pressure,
+      altitudeAngleRadians: p.altitudeAngleRadians !== undefined
+        ? p.altitudeAngleRadians : Math.PI / 2,
+      azimuthUnitX: p.azimuthUnitX !== undefined ? p.azimuthUnitX : 1,
+      azimuthUnitY: p.azimuthUnitY !== undefined ? p.azimuthUnitY : 0,
     };
   }
 
-  private attrsOf(pressure: number, tilt: number, orientation: number, width: number): SplatAttributes {
-    return { pressure: pressure, tilt: tilt, orientation: orientation, width: width };
+  private lerp(start: number, end: number, t: number): number {
+    return start + (end - start) * t;
   }
 
   private power5(x: number): number {

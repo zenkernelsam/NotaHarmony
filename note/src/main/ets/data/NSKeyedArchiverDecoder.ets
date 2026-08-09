@@ -55,6 +55,7 @@ function utf8Decode(bytes: Uint8Array): string {
 export class ArchiveDecodeResult {
   decoder: NSKeyedArchiverDecoder | null = null;
   error: string = '';
+  warnings: string[] = [];
 }
 
 // 对象图中的一个节点（包装 $objects 里的一个 dict）
@@ -305,6 +306,9 @@ export class NSKeyedArchiverDecoder {
       out.error = '$objects 为空';
       return out;
     }
+    if (decoder.objects[0].type !== PlistType.STRING || decoder.objects[0].asString('') !== '$null') {
+      out.warnings.push('非标准归档：$objects[0] 不是 $null 占位符');
+    }
     out.decoder = decoder;
     return out;
   }
@@ -348,6 +352,9 @@ export class NSKeyedArchiverDecoder {
       return value;
     }
     const idx: number = value.asUid();
+    if (idx === 0) {
+      return null;
+    }
     if (idx < 0 || idx >= this.objects.length) {
       return null;
     }

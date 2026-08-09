@@ -1,6 +1,6 @@
 // T-019 编辑器工具栏（工具切换 + 颜色/粗细面板 + Undo/Redo 占位）
 // T-038：工具栏 surface 随主题
-import { ToolType } from '../../core/model/BrushTypes';
+import { BrushStyle, ToolType } from '../../core/model/BrushTypes';
 import { EditorViewModel } from './EditorViewModel';
 import { ColorPickerView } from '../components/ColorPicker';
 import { WidthSlider } from '../components/WidthSlider';
@@ -10,6 +10,8 @@ import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 @Component
 export struct EditorToolbar {
   @ObjectLink viewModel: EditorViewModel;
+  @State compact: boolean = false;
+  private toolbarScroller: Scroller = new Scroller();
   // Undo/Redo 回调（T-021 实现功能）
   onUndo: () => void = () => {
   };
@@ -28,13 +30,28 @@ export struct EditorToolbar {
 
   build() {
     Column() {
-      Row() {
+      Scroll(this.toolbarScroller) {
+        Row() {
         // === 工具按钮（48vp 点击区）===
-        this.ToolButton('Pen', ToolType.PEN)
-        this.ToolButton('Pencil', ToolType.PENCIL)
-        this.ToolButton('Highlighter', ToolType.HIGHLIGHTER)
-        this.ToolButton('Eraser', ToolType.WHOLE_ERASER)
-        this.ToolButton('Select', ToolType.SELECTION)
+        this.ToolButton($r('app.string.pen'), ToolType.PEN)
+        this.ToolButton($r('app.string.pencil'), ToolType.PENCIL)
+        this.ToolButton($r('app.string.highlighter'), ToolType.HIGHLIGHTER)
+          if (this.compact) {
+            this.ToolButton($r('app.string.eraser'), this.viewModel.eraserIsPartial ?
+              ToolType.PARTIAL_ERASER : ToolType.WHOLE_ERASER)
+            Button('...')
+              .height(40)
+              .fontSize(13)
+              .margin({ left: 2, right: 2 })
+              .enabled(!this.viewModel.toolStateLoading)
+              .accessibilityText($r('app.string.more_tools'))
+              .bindMenu(this.buildCompactToolMenu())
+          } else {
+            this.ToolButton($r('app.string.whole_eraser'), ToolType.WHOLE_ERASER)
+            this.ToolButton($r('app.string.partial_eraser'), ToolType.PARTIAL_ERASER)
+            this.ToolButton($r('app.string.selection'), ToolType.SELECTION)
+            this.ToolButton($r('app.string.text'), ToolType.DEFAULT)
+          }
 
         Divider().vertical(true).height(24).margin({ left: 8, right: 8 })
 
@@ -45,6 +62,8 @@ export struct EditorToolbar {
           .borderRadius(16)
           .backgroundColor(this.viewModel.colorToHex(this.viewModel.brushColor))
           .margin({ left: 4, right: 4 })
+          .enabled(this.viewModel.supportsBrushControls() && !this.viewModel.toolStateLoading)
+          .opacity(this.viewModel.supportsBrushControls() && !this.viewModel.toolStateLoading ? 1 : 0.4)
           .onClick(() => {
             this.viewModel.showColorPicker = !this.viewModel.showColorPicker;
             this.viewModel.showWidthSlider = false;
@@ -56,6 +75,8 @@ export struct EditorToolbar {
           .height(32)
           .fontSize(13)
           .margin({ left: 4, right: 4 })
+          .enabled(this.viewModel.supportsBrushControls() && !this.viewModel.toolStateLoading)
+          .opacity(this.viewModel.supportsBrushControls() && !this.viewModel.toolStateLoading ? 1 : 0.4)
           .onClick(() => {
             this.viewModel.showWidthSlider = !this.viewModel.showWidthSlider;
             this.viewModel.showColorPicker = false;
@@ -82,11 +103,15 @@ export struct EditorToolbar {
           .onClick(() => {
             this.onRedo();
           })
+        }
+        .height(48)
+        .padding({ left: 8, right: 8 })
+        .backgroundColor(this.resolveTokens().surface)
       }
       .width('100%')
       .height(48)
-      .padding({ left: 8, right: 8 })
-      .backgroundColor(this.resolveTokens().surface)
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
 
       // 弹层（颜色/粗细面板）
       if (this.viewModel.showColorPicker) {
@@ -105,23 +130,85 @@ export struct EditorToolbar {
         .justifyContent(FlexAlign.Center)
         .padding({ top: 8 })
       }
+      if (this.viewModel.supportsBrushControls()) {
+        Row() {
+          this.StyleButton($r('app.string.style_mono'), BrushStyle.MONO)
+          this.StyleButton($r('app.string.style_taper'), BrushStyle.TAPER)
+          this.StyleButton($r('app.string.style_dash'), BrushStyle.DASH)
+          this.StyleButton($r('app.string.style_dots'), BrushStyle.DOT)
+          Divider().vertical(true).height(24).margin({ left: 8, right: 8 })
+          Text($r('app.string.shapes')).fontSize(12)
+          Toggle({ type: ToggleType.Switch, isOn: this.viewModel.shapeDetectionEnabled })
+            .margin({ left: 4 })
+            .enabled(!this.viewModel.toolStateLoading)
+            .onChange((enabled: boolean) => {
+              this.viewModel.setShapeDetectionEnabled(enabled);
+            })
+        }
+        .width('100%')
+        .height(40)
+        .justifyContent(FlexAlign.Center)
+      } else if (this.viewModel.isSelectionActive()) {
+        Row() {
+          Text($r('app.string.selection'))
+          Button(this.viewModel.selectionIsFreehand ? $r('app.string.freehand') : $r('app.string.rectangle'))
+            .height(32)
+            .margin({ left: 12 })
+            .onClick(() => {
+              this.viewModel.setSelectionIsFreehand(!this.viewModel.selectionIsFreehand);
+            })
+        }
+        .width('100%')
+        .height(40)
+        .justifyContent(FlexAlign.Center)
+      }
     }
+    .width('100%')
+    .onAreaChange((_oldArea: Area, newArea: Area) => {
+      this.compact = (newArea.width as number) < 600;
+    })
+  }
+
+  private buildCompactToolMenu(): MenuElement[] {
+    return [
+      { value: $r('app.string.whole_eraser'), action: () => { this.viewModel.selectTool(ToolType.WHOLE_ERASER); } },
+      { value: $r('app.string.partial_eraser'), action: () => { this.viewModel.selectTool(ToolType.PARTIAL_ERASER); } },
+      { value: $r('app.string.selection'), action: () => { this.viewModel.selectTool(ToolType.SELECTION); } },
+      { value: $r('app.string.text'), action: () => { this.viewModel.selectTool(ToolType.DEFAULT); } },
+    ];
   }
 
   @Builder
-  ToolButton(label: string, tool: ToolType) {
+  ToolButton(label: ResourceStr, tool: ToolType) {
     Button(label)
-      .width(88)
+      .width(this.compact ? 72 : 88)
       .height(40)
       .fontSize(13)
-      .backgroundColor(this.viewModel.currentTool === tool ? '#3366FF' : '#E8E8E8')
-      .fontColor(this.viewModel.currentTool === tool ? '#FFFFFF' : '#333333')
+      .backgroundColor(this.viewModel.currentTool === tool ? this.resolveTokens().accent :
+        this.resolveTokens().control)
+      .fontColor(this.viewModel.currentTool === tool ? this.resolveTokens().onAccent :
+        this.resolveTokens().textPrimary)
       .margin({ left: 2, right: 2 })
+      .enabled(!this.viewModel.toolStateLoading)
       .onClick(() => {
         this.viewModel.selectTool(tool);
-        if (tool === ToolType.WHOLE_ERASER) {
-          this.viewModel.eraserIsPartial = false;
-        }
+      })
+  }
+
+  @Builder
+  StyleButton(label: ResourceStr, style: BrushStyle) {
+    Button(label)
+      .height(30)
+      .fontSize(12)
+      .borderRadius(4)
+      .margin({ left: 2, right: 2 })
+      .backgroundColor(this.viewModel.brushStyle === style ? this.resolveTokens().accent :
+        this.resolveTokens().control)
+      .fontColor(this.viewModel.brushStyle === style ? this.resolveTokens().onAccent :
+        this.resolveTokens().textPrimary)
+      .enabled(!this.viewModel.toolStateLoading)
+      .onClick(() => {
+        this.viewModel.setBrushStyle(style);
       })
   }
 }

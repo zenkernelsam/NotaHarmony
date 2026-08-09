@@ -1,10 +1,8 @@
-// T-020 页面管理条（上一页/下一页/添加/删除；T-037 模板设置入口）
 import { PageInfo } from '../../core/model/NoteTypes';
 import { PageSettingsPanel } from '../components/PageSettingsPanel';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
-// bindPopup onStateChange 事件类型
 interface PopupStateChangeEvent {
   isVisible: boolean;
 }
@@ -13,16 +11,14 @@ interface PopupStateChangeEvent {
 export struct PageManagerBar {
   @Prop currentPageIndex: number = 0;
   @Prop pageCount: number = 1;
-  @Prop currentPage: PageInfo = { pageId: '', size: 1, template: 0, orientation: 0, widthMm: 210, heightMm: 297 };
+  @Prop busy: boolean = false;
+  @Prop currentPage: PageInfo = { pageId: '', pageIndex: 0, size: 1, template: 0, orientation: 0,
+    widthMm: 210, heightMm: 297 };
   @State showSettings: boolean = false;
-  // T-038：主题状态
+  @State compact: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
 
-  // 注意：ArkTS 编译器会丢弃 @Component struct 中的自定义 getter，必须用普通方法
-  private resolveTokens(): ThemeTokens {
-    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
-  }
   onPrev: () => void = () => {
   };
   onNext: () => void = () => {
@@ -31,74 +27,154 @@ export struct PageManagerBar {
   };
   onDelete: () => void = () => {
   };
+  onMovePrevious: () => void = () => {
+  };
+  onMoveNext: () => void = () => {
+  };
   onApplyPage: (page: PageInfo) => void = () => {
   };
 
+  private resolveTokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
   build() {
     Row() {
-      Button('←')
-        .width(48)
-        .height(40)
-        .margin({ left: 16, right: 8 })
-        .enabled(this.currentPageIndex > 0)
-        .opacity(this.currentPageIndex > 0 ? 1 : 0.4)
-        .onClick(() => {
-          this.onPrev();
-        })
+      this.NavigationButton('<', true)
       Text((this.currentPageIndex + 1) + ' / ' + this.pageCount)
         .fontSize(14)
-        .width(60)
+        .width(this.compact ? 56 : 64)
         .textAlign(TextAlign.Center)
-      Button('→')
-        .width(48)
-        .height(40)
-        .margin({ left: 8, right: 8 })
-        .enabled(this.currentPageIndex < this.pageCount - 1)
-        .opacity(this.currentPageIndex < this.pageCount - 1 ? 1 : 0.4)
-        .onClick(() => {
-          this.onNext();
-        })
-      // T-037：页面设置入口（bindPopup 原生承载）
-      Button('模板')
-        .height(40)
-        .fontSize(13)
-        .margin({ left: 8 })
-        .onClick(() => {
-          this.showSettings = true;
-        })
-        .bindPopup(this.showSettings, {
-          // T-040 修复：不能同时传 message 与 builder（message 优先，builder 被忽略导致面板不渲染）
-          builder: (): void => {
-            this.PageSettingsBuilder()
-          },
-          placement: Placement.Top,
-          onStateChange: (event: PopupStateChangeEvent) => {
-            this.showSettings = event.isVisible;
-          },
-        })
-      Blank()
-      Button('+  Add Page')
-        .height(40)
-        .margin({ left: 8, right: 8 })
-        .onClick(() => {
-          this.onAdd();
-        })
-      Button('Del')
-        .width(56)
-        .height(40)
-        .margin({ left: 8, right: 16 })
-        .enabled(this.pageCount > 1)
-        .opacity(this.pageCount > 1 ? 1 : 0.4)
-        .onClick(() => {
-          this.onDelete();
-        })
+      this.NavigationButton('>', false)
+
+      if (this.compact) {
+        Blank()
+        this.SettingsButton(true)
+        Button('+')
+          .width(44)
+          .height(40)
+          .fontSize(20)
+          .enabled(!this.busy)
+          .opacity(this.busy ? 0.4 : 1)
+          .accessibilityText($r('app.string.add_page'))
+          .onClick(() => {
+            this.onAdd();
+          })
+        Button('...')
+          .height(40)
+          .fontSize(12)
+          .margin({ left: 4, right: 8 })
+          .enabled(!this.busy)
+          .accessibilityText($r('app.string.more_page_actions'))
+          .bindMenu(this.buildPageMenu())
+      } else {
+        this.SettingsButton(false)
+        Button($r('app.string.move_page_earlier'))
+          .height(40)
+          .margin({ left: 8 })
+          .enabled(!this.busy && this.currentPageIndex > 0)
+          .opacity(!this.busy && this.currentPageIndex > 0 ? 1 : 0.4)
+          .onClick(() => {
+            this.onMovePrevious();
+          })
+        Button($r('app.string.move_page_later'))
+          .height(40)
+          .margin({ left: 4 })
+          .enabled(!this.busy && this.currentPageIndex < this.pageCount - 1)
+          .opacity(!this.busy && this.currentPageIndex < this.pageCount - 1 ? 1 : 0.4)
+          .onClick(() => {
+            this.onMoveNext();
+          })
+        Blank()
+        Button($r('app.string.add_page'))
+          .height(40)
+          .margin({ left: 8, right: 8 })
+          .enabled(!this.busy)
+          .opacity(this.busy ? 0.4 : 1)
+          .onClick(() => {
+            this.onAdd();
+          })
+        Button($r('app.string.delete'))
+          .height(40)
+          .margin({ left: 4, right: 16 })
+          .enabled(!this.busy && this.pageCount > 1)
+          .opacity(!this.busy && this.pageCount > 1 ? 1 : 0.4)
+          .onClick(() => {
+            this.onDelete();
+          })
+      }
     }
     .width('100%')
     .height(56)
+    .padding({ left: this.compact ? 4 : 8 })
     .backgroundColor(this.resolveTokens().surface)
+    .onAreaChange((_oldArea: Area, newArea: Area) => {
+      this.compact = (newArea.width as number) < 600;
+    })
   }
 
-  // T-040 修复：bindPopup 的 builder 必须通过 @Builder 方法承载子组件，普通函数内实例化组件不生效
+  @Builder
+  NavigationButton(label: string, previous: boolean) {
+    Button(label)
+      .width(44)
+      .height(40)
+      .margin({ left: 4, right: 4 })
+      .enabled(!this.busy && (previous ? this.currentPageIndex > 0 :
+        this.currentPageIndex < this.pageCount - 1))
+      .opacity(!this.busy && (previous ? this.currentPageIndex > 0 :
+        this.currentPageIndex < this.pageCount - 1) ? 1 : 0.4)
+      .accessibilityText(previous ? $r('app.string.previous_page') : $r('app.string.next_page'))
+      .onClick(() => {
+        if (previous) {
+          this.onPrev();
+        } else {
+          this.onNext();
+        }
+      })
+  }
+
+  @Builder
+  SettingsButton(compact: boolean) {
+    Button($r('app.string.page_settings'))
+      .height(40)
+      .fontSize(13)
+      .margin({ left: 8 })
+      .enabled(!this.busy)
+      .opacity(this.busy ? 0.4 : 1)
+      .onClick(() => {
+        this.showSettings = true;
+      })
+      .bindPopup(this.showSettings, {
+        builder: (): void => {
+          this.PageSettingsBuilder()
+        },
+        placement: Placement.Top,
+        onStateChange: (event: PopupStateChangeEvent) => {
+          this.showSettings = event.isVisible;
+        },
+      })
+  }
+
+  private buildPageMenu(): MenuElement[] {
+    return [
+      { value: $r('app.string.move_page_earlier'), action: () => {
+        if (!this.busy && this.currentPageIndex > 0) {
+          this.onMovePrevious();
+        }
+      } },
+      { value: $r('app.string.move_page_later'), action: () => {
+        if (!this.busy && this.currentPageIndex < this.pageCount - 1) {
+          this.onMoveNext();
+        }
+      } },
+      { value: $r('app.string.delete_page'), action: () => {
+        if (!this.busy && this.pageCount > 1) {
+          this.onDelete();
+        }
+      } },
+    ];
+  }
+
   @Builder
   PageSettingsBuilder() {
     PageSettingsPanel({

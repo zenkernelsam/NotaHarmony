@@ -42,6 +42,13 @@ export interface ToolState {
   eraserIsPartial: boolean;
 }
 
+// Harmony adaptation of the original ToolboxEntity selection history.
+export interface EditorToolboxState {
+  ownerId: string;
+  mostRecentlySelectedToolId: string;
+  previouslySelectedToolId: string;
+}
+
 // BrushStyle → InkStyle 映射（对应 dxe.a()）
 export function brushStyleToInkStyle(style: BrushStyle): InkStyle {
   switch (style) {

@@ -42,8 +42,17 @@ export function parseManifest(json: string): NoteManifest | null {
     if (parsed === null || typeof parsed !== 'object') {
       return null;
     }
-    if (parsed.format !== NOTE_FORMAT || parsed.version !== NOTE_FORMAT_VERSION) {
+    if (parsed.format !== NOTE_FORMAT || typeof parsed.version !== 'number' ||
+      parsed.version > NOTE_FORMAT_VERSION) {
       return null;
+    }
+    // Keep older package readers explicit so a future format bump does not
+    // accidentally invalidate existing backups.
+    switch (parsed.version) {
+      case 1:
+        break;
+      default:
+        return null;
     }
     if (typeof parsed.title !== 'string' || typeof parsed.noteId !== 'string') {
       return null;
@@ -76,7 +85,7 @@ export function parsePage(json: string): PageData | null {
       return null;
     }
     if (!Array.isArray(parsed.elements)) {
-      parsed.elements = [];
+      return null;
     }
     return parsed;
   } catch (e) {

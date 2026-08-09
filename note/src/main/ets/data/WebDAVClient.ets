@@ -1,13 +1,16 @@
 // T-029 WebDAV 客户端（@ohos.net.http 实现，无第三方库）
-// 协议操作：PROPFIND/PUT/GET/DELETE/MKCOL + Basic Auth + XML 正则解析
+// 协议操作：PROPFIND/PUT/GET/DELETE/MKCOL + Basic Auth + XML pull parsing
 import { http } from '@kit.NetworkKit';
-import { buffer } from '@kit.ArkTS';
+import { buffer, xml } from '@kit.ArkTS';
+import { backupManifestFileName, isValidBackupBatchId } from './BackupBatchSpec';
+import { BackupBatchTransport } from './BackupBatchPublisher';
 
 export interface WebDAVConfig {
   serverUrl: string;      // 如 "https://dav.example.com"
   username: string;
   password: string;
   backupPath: string;     // 默认 "/nota-backup/"
+  allowInsecureHttp?: boolean;
 }
 
 export interface WebDAVFileInfo {
@@ -26,11 +29,43 @@ export interface ConnectionResult {
 interface WebDAVHeaders {
   Authorization?: string;
   Depth?: string;
+  'Content-Type'?: string;
+  'Content-Length'?: string;
+}
+
+export interface WebDAVListResult {
+  success: boolean;
+  files: WebDAVFileInfo[];
+  responseCode: number;
+  message: string;
+}
+
+interface WebDAVResponse {
+  responseCode: number;
+  textBody: string;
+  binaryBody: Uint8Array | null;
+}
+
+interface PropstatValues {
+  success: boolean;
+  displayName: string;
+  sizeText: string;
+  modifiedText: string;
+}
+
+interface DavResponseValues {
+  href: string;
+  displayName: string;
+  sizeText: string;
+  modifiedText: string;
+  hasSuccessfulPropstat: boolean;
 }
 
 const REQUEST_TIMEOUT_MS: number = 30000;  // 30 秒
+const MAX_PROPFIND_XML_BYTES: number = 8 * 1024 * 1024;
+const DAV_NAMESPACE: string = 'DAV:';
 
-export class WebDAVClient {
+export class WebDAVClient implements BackupBatchTransport {
   private config: WebDAVConfig;
 
   constructor(config: WebDAVConfig) {
@@ -51,21 +86,34 @@ export class WebDAVClient {
     }
   }
 
-  // 确保备份目录存在（MKCOL；405=已存在视为成功）
+  // RFC 4918: MKCOL 不会递归创建父集合，因此必须逐级建立。
   async ensureBackupDir(): Promise<boolean> {
     try {
-      const resp = await this.request('MKCOL', this.backupUrl(''), undefined);
-      return resp.responseCode === 201 || resp.responseCode === 405;
+      return await this.ensureDirectorySegments(this.pathSegments(this.config.backupPath));
     } catch (e) {
       return false;
     }
   }
 
+  async ensureBackupBatchDir(batchId: string): Promise<boolean> {
+    if (!isValidBackupBatchId(batchId)) {
+      return false;
+    }
+    try {
+      const segments: string[] = this.pathSegments(this.config.backupPath);
+      segments.push(`.pending-${batchId}`);
+      return await this.ensureDirectorySegments(segments);
+    } catch (_error) {
+      return false;
+    }
+  }
+
   // 上传文件（PUT）；成功返回 true
-  // 注：ArkTS 头字段无法携带连字符（Content-Type），WebDAV 服务器按内容/扩展名处理，MVP 不传
   async upload(remotePath: string, data: Uint8Array): Promise<boolean> {
     try {
-      const resp = await this.request('PUT', remotePath, data.buffer as ArrayBuffer);
+      const body: ArrayBuffer = data.buffer.slice(data.byteOffset,
+        data.byteOffset + data.byteLength) as ArrayBuffer;
+      const resp = await this.request('PUT', remotePath, body);
       return resp.responseCode >= 200 && resp.responseCode < 300;
     } catch (e) {
       return false;
@@ -76,28 +124,37 @@ export class WebDAVClient {
   async download(remotePath: string): Promise<Uint8Array | null> {
     try {
       const resp = await this.request('GET', remotePath, undefined);
-      if (resp.responseCode !== 200 || resp.result === null) {
+      if (resp.responseCode !== 200 || resp.binaryBody === null) {
         return null;
       }
-      const arr = resp.result as ArrayBuffer;
-      return new Uint8Array(arr);
+      return resp.binaryBody;
     } catch (e) {
       return null;
     }
   }
 
-  // 列出目录内容（PROPFIND Depth:1）；失败返回空数组
-  async listDir(remotePath: string): Promise<WebDAVFileInfo[]> {
+  // 列出目录内容（PROPFIND Depth:1）；传输/协议失败与合法空目录严格区分。
+  async listDir(remotePath: string): Promise<WebDAVListResult> {
     try {
       const resp = await this.request('PROPFIND', remotePath, undefined,
         { 'Depth': '1' });
       if (resp.responseCode !== 207 && resp.responseCode !== 200) {
-        return [];
+        return {
+          success: false,
+          files: [],
+          responseCode: resp.responseCode,
+          message: this.describeError(resp.responseCode),
+        };
       }
-      const xml: string = resp.result as string;
-      return this.parsePropfind(xml);
+      const files: WebDAVFileInfo[] = this.parsePropfindResponse(resp.textBody, remotePath);
+      return { success: true, files: files, responseCode: resp.responseCode, message: '' };
     } catch (e) {
-      return [];
+      return {
+        success: false,
+        files: [],
+        responseCode: -1,
+        message: e instanceof Error ? e.message : this.describeError(-1),
+      };
     }
   }
 
@@ -116,6 +173,22 @@ export class WebDAVClient {
     return this.backupUrl(`${noteId}.note`);
   }
 
+  backupDirectoryUrl(): string {
+    return this.backupUrl('');
+  }
+
+  backupBatchObjectUrl(batchId: string, fileName: string): string {
+    if (!isValidBackupBatchId(batchId) || fileName.indexOf('/') >= 0 ||
+      fileName.indexOf('\\') >= 0 || fileName.length === 0) {
+      throw new Error('invalid backup batch object path');
+    }
+    return this.backupUrl(`.pending-${batchId}/${fileName}`);
+  }
+
+  backupBatchManifestUrl(batchId: string): string {
+    return this.backupUrl(backupManifestFileName(batchId));
+  }
+
   // === 内部 ===
 
   private rootUrl(): string {
@@ -127,7 +200,6 @@ export class WebDAVClient {
   }
 
   private backupUrl(path: string): string {
-    let base: string = this.rootUrl();
     let bp: string = this.config.backupPath.trim();
     if (!bp.startsWith('/')) {
       bp = '/' + bp;
@@ -135,7 +207,84 @@ export class WebDAVClient {
     if (!bp.endsWith('/')) {
       bp = bp + '/';
     }
-    return base.replace(/\/+$/, '') + bp + path;
+    return this.urlUnderRoot(bp + path);
+  }
+
+  private pathSegments(path: string): string[] {
+    const raw: string[] = path.trim().split('/');
+    const segments: string[] = [];
+    for (const part of raw) {
+      if (part.length > 0) {
+        segments.push(part);
+      }
+    }
+    return segments;
+  }
+
+  private async ensureDirectorySegments(segments: string[]): Promise<boolean> {
+    let current: string = '';
+    for (const segment of segments) {
+      current += '/' + segment;
+      const resp: WebDAVResponse = await this.request('MKCOL', this.urlUnderRoot(current), undefined);
+      if (resp.responseCode !== 201 && resp.responseCode !== 405) {
+        console.error(`MKCOL failed at ${current}: HTTP ${resp.responseCode}`);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private encodePath(path: string): string {
+    const parts: string[] = path.split('/');
+    const encoded: string[] = [];
+    for (const part of parts) {
+      let decoded: string = part;
+      try {
+        decoded = decodeURIComponent(part);
+      } catch (e) {
+        decoded = part;
+      }
+      encoded.push(encodeURIComponent(decoded));
+    }
+    return encoded.join('/');
+  }
+
+  private urlForServerPath(path: string): string {
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      if (this.urlOrigin(path) !== this.urlOrigin(this.rootUrl())) {
+        throw new Error('WebDAV href points to a different server origin');
+      }
+      const schemeEnd: number = path.indexOf('://') + 3;
+      const pathStart: number = path.indexOf('/', schemeEnd);
+      if (pathStart < 0) {
+        return path;
+      }
+      return path.slice(0, pathStart) + this.encodePath(path.slice(pathStart));
+    }
+    const root: string = this.rootUrl().replace(/\/+$/, '');
+    if (path.startsWith('/')) {
+      const schemeEnd: number = root.indexOf('://') + 3;
+      const rootPath: number = root.indexOf('/', schemeEnd);
+      const origin: string = rootPath < 0 ? root : root.slice(0, rootPath);
+      return origin + this.encodePath(path);
+    }
+    return root + '/' + this.encodePath(path);
+  }
+
+  private urlOrigin(value: string): string {
+    const schemeEnd: number = value.indexOf('://');
+    if (schemeEnd <= 0) {
+      throw new Error('WebDAV URL has no valid origin');
+    }
+    const authorityStart: number = schemeEnd + 3;
+    const pathStart: number = value.indexOf('/', authorityStart);
+    return (pathStart < 0 ? value : value.slice(0, pathStart)).toLowerCase();
+  }
+
+  private urlUnderRoot(path: string): string {
+    const root: string = this.rootUrl().replace(/\/+$/, '');
+    const relative: string = path.replace(/^\/+/, '');
+    return root + '/' + this.encodePath(relative);
   }
 
   // Basic Auth header
@@ -148,13 +297,21 @@ export class WebDAVClient {
   // 发起 HTTP 请求
   // 注意：RequestMethod 枚举无 PROPFIND/MKCOL，此处强转字符串（底层网络栈接受任意方法字符串）
   private async request(method: string, url: string, body?: ArrayBuffer,
-    extraHeaders?: WebDAVHeaders): Promise<http.HttpResponse> {
+    extraHeaders?: WebDAVHeaders): Promise<WebDAVResponse> {
+    if (url.toLowerCase().startsWith('http://') && this.config.allowInsecureHttp !== true) {
+      throw new Error('insecure HTTP WebDAV requires explicit confirmation');
+    }
     const client: http.HttpRequest = http.createHttp();
     try {
-      const headers: WebDAVHeaders = { Authorization: this.authHeader() };
-      if (extraHeaders !== undefined && extraHeaders.Depth !== undefined) {
-        headers.Depth = extraHeaders.Depth;
-      }
+      const depth: string | undefined = extraHeaders !== undefined ? extraHeaders.Depth : undefined;
+      const contentType: string | undefined = body !== undefined ? 'application/octet-stream' : undefined;
+      const contentLength: string | undefined = body !== undefined ? body.byteLength.toString() : undefined;
+      const headers: WebDAVHeaders = {
+        Authorization: this.authHeader(),
+        Depth: depth,
+        'Content-Type': contentType,
+        'Content-Length': contentLength,
+      };
       const options: http.HttpRequestOptions = {
         method: method as http.RequestMethod,
         header: headers,
@@ -167,7 +324,15 @@ export class WebDAVClient {
         options.extraData = body;
       }
       const resp: http.HttpResponse = await client.request(url, options);
-      return resp;
+      let textBody: string = '';
+      let binaryBody: Uint8Array | null = null;
+      if (method === 'GET' && resp.result !== null) {
+        const source: Uint8Array = new Uint8Array(resp.result as ArrayBuffer);
+        binaryBody = source.slice();
+      } else if (resp.result !== null) {
+        textBody = resp.result as string;
+      }
+      return { responseCode: resp.responseCode, textBody: textBody, binaryBody: binaryBody };
     } catch (e) {
       throw new Error('webdav request failed: ' + JSON.stringify(e));
     } finally {
@@ -175,35 +340,157 @@ export class WebDAVClient {
     }
   }
 
-  // PROPFIND XML 解析（正则提取，不引入 XML 库）
-  private parsePropfind(xml: string): WebDAVFileInfo[] {
+  parsePropfindResponse(xmlText: string, requestUrl: string): WebDAVFileInfo[] {
+    const source = buffer.from(xmlText, 'utf-8');
+    if (source.length > MAX_PROPFIND_XML_BYTES) {
+      throw new Error('WebDAV PROPFIND response exceeds the XML size budget');
+    }
+    const data: ArrayBuffer = source.buffer.slice(source.byteOffset,
+      source.byteOffset + source.length) as ArrayBuffer;
+    const parser = new xml.XmlPullParser(data, 'utf-8');
     const files: WebDAVFileInfo[] = [];
-    const responseRe = /<d:response[\s>][\s\S]*?<\/d:response>/gi;
-    const hrefRe = /<d:href>([\s\S]*?)<\/d:href>/i;
-    const nameRe = /<d:displayname>([\s\S]*?)<\/d:displayname>/i;
-    const sizeRe = /<d:getcontentlength>([\s\S]*?)<\/d:getcontentlength>/i;
-    const timeRe = /<d:getlastmodified>([\s\S]*?)<\/d:getlastmodified>/i;
-    let match = responseRe.exec(xml);
-    while (match !== null) {
-      const block: string = match[0];
-      const hrefMatch = hrefRe.exec(block);
-      const nameMatch = nameRe.exec(block);
-      const sizeMatch = sizeRe.exec(block);
-      const timeMatch = timeRe.exec(block);
-      if (hrefMatch !== null) {
-        const path: string = hrefMatch[1].trim();
-        const name: string = nameMatch !== null ? nameMatch[1].trim() : path.split('/').pop() ?? path;
-        const size: number = sizeMatch !== null ? Number(sizeMatch[1].trim()) : 0;
-        let lastModified: number = 0;
-        if (timeMatch !== null) {
-          const t: number = Date.parse(timeMatch[1].trim());
-          lastModified = Number.isNaN(t) ? 0 : t;
+    let response: DavResponseValues | null = null;
+    let responseDepth: number = -1;
+    let propstat: PropstatValues | null = null;
+    let propstatDepth: number = -1;
+    let captureName: string = '';
+    let captureDepth: number = -1;
+    let captureText: string = '';
+    let davResponseCount: number = 0;
+
+    parser.parseXml({
+      supportDoctype: false,
+      ignoreNameSpace: false,
+      tokenValueCallbackFunction: (eventType: xml.EventType, info: xml.ParseInfo): boolean => {
+        const namespace: string = info.getNamespace();
+        const name: string = info.getName().toLowerCase();
+        const depth: number = info.getDepth();
+        if (eventType === xml.EventType.START_TAG && namespace === DAV_NAMESPACE) {
+          if (name === 'response') {
+            response = this.emptyDavResponse();
+            responseDepth = depth;
+            davResponseCount++;
+          } else if (response !== null && name === 'propstat') {
+            propstat = this.emptyPropstat();
+            propstatDepth = depth;
+          } else if (response !== null && (name === 'href' || name === 'displayname' ||
+            name === 'getcontentlength' || name === 'getlastmodified' || name === 'status')) {
+            captureName = name;
+            captureDepth = depth;
+            captureText = '';
+          }
+        } else if ((eventType === xml.EventType.TEXT || eventType === xml.EventType.CDSECT ||
+          eventType === xml.EventType.ENTITY_REFERENCE) && captureDepth >= 0) {
+          captureText += info.getText();
+        } else if (eventType === xml.EventType.END_TAG && namespace === DAV_NAMESPACE) {
+          if (captureDepth === depth && captureName === name) {
+            this.applyDavText(response, propstat, captureName, captureText.trim());
+            captureName = '';
+            captureDepth = -1;
+            captureText = '';
+          }
+          if (name === 'propstat' && propstat !== null && propstatDepth === depth) {
+            this.mergeSuccessfulPropstat(response, propstat);
+            propstat = null;
+            propstatDepth = -1;
+          } else if (name === 'response' && response !== null && responseDepth === depth) {
+            const file: WebDAVFileInfo | null = this.toFileInfo(response, requestUrl);
+            if (file !== null && !this.sameResourceUrl(file.path, requestUrl)) {
+              files.push(file);
+            }
+            response = null;
+            responseDepth = -1;
+          }
         }
-        files.push({ name: name, path: path, size: size, lastModified: lastModified });
-      }
-      match = responseRe.exec(xml);
+        return true;
+      },
+    });
+    if (xmlText.trim().length > 0 && davResponseCount === 0) {
+      throw new Error('WebDAV PROPFIND response contains no DAV:response element');
     }
     return files;
+  }
+
+  private emptyDavResponse(): DavResponseValues {
+    return { href: '', displayName: '', sizeText: '', modifiedText: '', hasSuccessfulPropstat: false };
+  }
+
+  private emptyPropstat(): PropstatValues {
+    return { success: false, displayName: '', sizeText: '', modifiedText: '' };
+  }
+
+  private applyDavText(response: DavResponseValues | null, propstat: PropstatValues | null,
+    name: string, value: string): void {
+    if (response === null) {
+      return;
+    }
+    if (name === 'href' && propstat === null) {
+      response.href = value;
+    } else if (propstat !== null && name === 'status') {
+      propstat.success = /\s2\d\d(?:\s|$)/.test(value);
+    } else if (propstat !== null && name === 'displayname') {
+      propstat.displayName = value;
+    } else if (propstat !== null && name === 'getcontentlength') {
+      propstat.sizeText = value;
+    } else if (propstat !== null && name === 'getlastmodified') {
+      propstat.modifiedText = value;
+    }
+  }
+
+  private mergeSuccessfulPropstat(response: DavResponseValues | null, propstat: PropstatValues): void {
+    if (response === null || !propstat.success) {
+      return;
+    }
+    response.hasSuccessfulPropstat = true;
+    if (propstat.displayName.length > 0) {
+      response.displayName = propstat.displayName;
+    }
+    if (propstat.sizeText.length > 0) {
+      response.sizeText = propstat.sizeText;
+    }
+    if (propstat.modifiedText.length > 0) {
+      response.modifiedText = propstat.modifiedText;
+    }
+  }
+
+  private toFileInfo(response: DavResponseValues, requestUrl: string): WebDAVFileInfo | null {
+    if (!response.hasSuccessfulPropstat || response.href.length === 0) {
+      return null;
+    }
+    const decodedHref: string = this.decodeHref(response.href);
+    const path: string = this.urlForHref(decodedHref, requestUrl);
+    const hrefWithoutSlash: string = decodedHref.replace(/\/+$/, '');
+    const fallbackName: string = hrefWithoutSlash.split('/').pop() ?? hrefWithoutSlash;
+    const sizeValue: number = response.sizeText.length > 0 ? Number(response.sizeText) : 0;
+    const size: number = Number.isFinite(sizeValue) && sizeValue >= 0 ? sizeValue : 0;
+    const parsedTime: number = response.modifiedText.length > 0 ? Date.parse(response.modifiedText) : 0;
+    return {
+      name: response.displayName.length > 0 ? response.displayName : fallbackName,
+      path: path,
+      size: size,
+      lastModified: Number.isNaN(parsedTime) ? 0 : parsedTime,
+    };
+  }
+
+  private urlForHref(href: string, requestUrl: string): string {
+    if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('/')) {
+      return this.urlForServerPath(href);
+    }
+    const base: string = requestUrl.endsWith('/') ? requestUrl : requestUrl + '/';
+    return base + this.encodePath(href.replace(/^\.\//, ''));
+  }
+
+  private sameResourceUrl(left: string, right: string): boolean {
+    return left.replace(/\/+$/, '') === right.replace(/\/+$/, '');
+  }
+
+  private decodeHref(value: string): string {
+    try {
+      return decodeURIComponent(value);
+    } catch (e) {
+      console.warn(`WebDAV href is not valid percent-encoding: ${value}`);
+      return value;
+    }
   }
 
   // 错误码 → 可读信息

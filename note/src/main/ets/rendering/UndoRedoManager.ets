@@ -1,7 +1,9 @@
 // T-021 基于 op 栈的撤销/重做管理器（纯逻辑，禁止平台 import）
-// T-036 扩展：文本框 ADD/DELETE_ELEMENT + 形状替换 REPLACE_ELEMENT
+// 全笔记单栈：动作携带 pageId，保持跨页操作的真实时间顺序。
+// 默认深度 50 是移植侧历史值，原版上限尚未从反编译代码确认，可通过构造参数调整。
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { TextBlockElement } from '../core/model/ElementTypes';
+import { PageInfo } from '../core/model/NoteTypes';
 
 // 可撤销的操作类型
 export enum UndoableActionType {
@@ -12,26 +14,111 @@ export enum UndoableActionType {
   ADD_ELEMENT = 4,       // 文本框创建
   DELETE_ELEMENT = 5,    // 文本框删除
   REPLACE_ELEMENT = 6,   // 形状替换（笔画→形状，before=原笔画）
+  ADD_PAGE = 7,
+  DELETE_PAGE = 8,
+  REORDER_PAGES = 9,
+  PAGE_SETTINGS = 10,
 }
 
-export interface UndoableAction {
+interface ActionBase {
   type: UndoableActionType;
-  // ADD_STROKE: 添加的笔画
-  addedStroke: StrokeElementData | null;
-  // DELETE_STROKE / ERASE_STROKES: 被删除的笔画列表
+  pageId: string;
+}
+
+export interface AddStrokeAction extends ActionBase {
+  type: UndoableActionType.ADD_STROKE;
+  addedStrokes: StrokeElementData[];
+}
+
+export interface RemoveStrokeAction extends ActionBase {
+  type: UndoableActionType.DELETE_STROKE | UndoableActionType.ERASE_STROKES;
   removedStrokes: StrokeElementData[];
-  // TRANSFORM_STROKES / REPLACE_ELEMENT: 变换/替换前后的 strokes 快照
+  removedStrokeIndices: number[];
+}
+
+export interface TransformStrokesAction extends ActionBase {
+  type: UndoableActionType.TRANSFORM_STROKES;
   beforeStrokes: StrokeElementData[];
   afterStrokes: StrokeElementData[];
-  // T-036 扩展（可选，不改变已有字段语义）
-  addedElement?: TextBlockElement | null;   // ADD_ELEMENT: 创建的文本框
-  removedElements?: TextBlockElement[];     // DELETE_ELEMENT: 删除的文本框
+}
+
+export interface AddElementAction extends ActionBase {
+  type: UndoableActionType.ADD_ELEMENT;
+  addedElement: TextBlockElement;
+}
+
+export interface DeleteElementAction extends ActionBase {
+  type: UndoableActionType.DELETE_ELEMENT;
+  removedElements: TextBlockElement[];
+}
+
+export interface ReplaceElementAction extends ActionBase {
+  type: UndoableActionType.REPLACE_ELEMENT;
+  beforeStrokes: StrokeElementData[];
+  afterStrokes: StrokeElementData[];
+  beforeElements: TextBlockElement[];
+  afterElements: TextBlockElement[];
+}
+
+export interface AddPageAction extends ActionBase {
+  type: UndoableActionType.ADD_PAGE;
+  pageAfter: PageInfo;
+  pageOrderBefore: string[];
+  pageOrderAfter: string[];
+  pageStrokes: StrokeElementData[];
+  pageTextBlocks: TextBlockElement[];
+  selectedPageIdBefore: string;
+  selectedPageIdAfter: string;
+}
+
+export interface DeletePageAction extends ActionBase {
+  type: UndoableActionType.DELETE_PAGE;
+  pageBefore: PageInfo;
+  pageOrderBefore: string[];
+  pageOrderAfter: string[];
+  pageStrokes: StrokeElementData[];
+  pageTextBlocks: TextBlockElement[];
+  selectedPageIdBefore: string;
+  selectedPageIdAfter: string;
+}
+
+export interface ReorderPagesAction extends ActionBase {
+  type: UndoableActionType.REORDER_PAGES;
+  pageOrderBefore: string[];
+  pageOrderAfter: string[];
+}
+
+export interface PageSettingsAction extends ActionBase {
+  type: UndoableActionType.PAGE_SETTINGS;
+  pageBefore: PageInfo;
+  pageAfter: PageInfo;
+}
+
+export type UndoableAction = AddStrokeAction | RemoveStrokeAction | TransformStrokesAction |
+  AddElementAction | DeleteElementAction | ReplaceElementAction | AddPageAction | DeletePageAction |
+  ReorderPagesAction | PageSettingsAction;
+
+export interface PageContentSnapshot {
+  strokes: StrokeElementData[];
+  textBlocks: TextBlockElement[];
+}
+
+export interface EditorHistoryBridge {
+  pushPageAction: (action: UndoableAction) => void;
+  captureCurrentPage: () => PageContentSnapshot;
+  preparePageRemoval: (pageId: string) => void;
+  cancelPageRemoval: (pageId: string) => void;
+  flushCurrentPage: () => Promise<boolean>;
 }
 
 export class UndoRedoManager {
   private undoStack: UndoableAction[] = [];
   private redoStack: UndoableAction[] = [];
-  private maxStackSize: number = 50;
+  private maxStackSize: number;
+
+  constructor(maxStackSize: number = 50) {
+    this.maxStackSize = Math.max(1, maxStackSize);
+  }
 
   // 记录操作（清空 redoStack）
   push(action: UndoableAction): void {
@@ -42,24 +129,30 @@ export class UndoRedoManager {
     this.redoStack = [];
   }
 
-  // 撤销 → 返回需要执行的反向操作
-  undo(): UndoableAction | null {
-    const action: UndoableAction | undefined = this.undoStack.pop();
-    if (action === undefined) {
-      return null;
-    }
-    this.redoStack.push(action);
-    return action;
+  peekUndo(): UndoableAction | null {
+    return this.undoStack.length > 0 ? this.undoStack[this.undoStack.length - 1] : null;
   }
 
-  // 重做 → 返回需要执行的正向操作
-  redo(): UndoableAction | null {
-    const action: UndoableAction | undefined = this.redoStack.pop();
-    if (action === undefined) {
-      return null;
+  commitUndo(expected: UndoableAction): boolean {
+    if (this.peekUndo() !== expected) {
+      return false;
     }
-    this.undoStack.push(action);
-    return action;
+    this.undoStack.pop();
+    this.redoStack.push(expected);
+    return true;
+  }
+
+  peekRedo(): UndoableAction | null {
+    return this.redoStack.length > 0 ? this.redoStack[this.redoStack.length - 1] : null;
+  }
+
+  commitRedo(expected: UndoableAction): boolean {
+    if (this.peekRedo() !== expected) {
+      return false;
+    }
+    this.redoStack.pop();
+    this.undoStack.push(expected);
+    return true;
   }
 
   canUndo(): boolean {

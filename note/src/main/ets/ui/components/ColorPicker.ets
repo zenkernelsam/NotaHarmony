@@ -1,10 +1,14 @@
 // T-019 颜色选择器（12 色预设网格）
 // 注意：struct 名不能使用保留标签名 ColorPicker，用 ColorPickerView
 import { EditorViewModel } from '../editor/EditorViewModel';
+import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 
 @Component
 export struct ColorPickerView {
   @ObjectLink viewModel: EditorViewModel;
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   private presetColors: number[] = [
     -16777216,   // 黑
     -7829368,    // 灰
@@ -20,10 +24,14 @@ export struct ColorPickerView {
     -1,          // 白
   ];
 
+  private resolveTokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
   build() {
     Column() {
       Grid() {
-        ForEach(this.presetColors, (color: number) => {
+        ForEach(this.presetColors, (color: number, index: number) => {
           GridItem() {
             Column()
               .width(32)
@@ -32,10 +40,11 @@ export struct ColorPickerView {
               .backgroundColor(this.viewModel.colorToHex(color))
               .border({
                 width: color === this.viewModel.brushColor ? 3 : 1,
-                color: color === this.viewModel.brushColor ? '#3366FF' : '#DDDDDD',
+                color: color === this.viewModel.brushColor ? this.resolveTokens().accent :
+                  this.resolveTokens().border,
               })
               .onClick(() => {
-                this.viewModel.brushColor = color;
+                this.viewModel.setBrushColor(color, index);
               })
           }
         }, (color: number) => color.toString())
@@ -47,8 +56,8 @@ export struct ColorPickerView {
       .height(180)
     }
     .padding(16)
-    .backgroundColor(Color.White)
+    .backgroundColor(this.resolveTokens().surface)
     .borderRadius(12)
-    .shadow({ radius: 8, color: '#33000000', offsetY: 4 })
+    .shadow({ radius: 8, color: this.resolveTokens().shadow, offsetY: 4 })
   }
 }

@@ -1,5 +1,43 @@
 import localUnitTest from './LocalUnit.test';
+import zipArchiveTest from './ZipArchive.test';
+import eraserEngineTest from './EraserEngine.test';
+import undoRedoManagerTest from './UndoRedoManager.test';
+import dirtyRectTrackerTest from './DirtyRectTracker.test';
+import pencilSplatGeneratorTest from './PencilSplatGenerator.test';
+import forceSmootherTest from './ForceSmoother.test';
+import cubicFitterTest from './CubicFitter.test';
+import latestWriteQueueTest from './LatestWriteQueue.test';
+import databaseHelperTest from './DatabaseHelper.test';
+import asyncMutexTest from './AsyncMutex.test';
+import editorViewModelTest from './EditorViewModel.test';
+import libraryViewModelTest from './LibraryViewModel.test';
+import folderRepositoryTest from './FolderRepository.test';
+import searchTextTest from './SearchText.test';
+import notabilitySessionParserTest from './NotabilitySessionParser.test';
+import webDAVClientTest from './WebDAVClient.test';
+import backupBatchSpecTest from './BackupBatchSpec.test';
+import backupBatchPublisherTest from './BackupBatchPublisher.test';
+import webDAVConfigTransactionTest from './WebDAVConfigTransaction.test';
 
 export default function testsuite() {
   localUnitTest();
+  zipArchiveTest();
+  eraserEngineTest();
+  undoRedoManagerTest();
+  dirtyRectTrackerTest();
+  pencilSplatGeneratorTest();
+  forceSmootherTest();
+  cubicFitterTest();
+  latestWriteQueueTest();
+  databaseHelperTest();
+  asyncMutexTest();
+  editorViewModelTest();
+  libraryViewModelTest();
+  folderRepositoryTest();
+  searchTextTest();
+  notabilitySessionParserTest();
+  webDAVClientTest();
+  backupBatchSpecTest();
+  backupBatchPublisherTest();
+  webDAVConfigTransactionTest();
 }

@@ -1,14 +1,13 @@
-// T-025 元素持久化（MVP 简化：JSON 序列化存 client_op 表，kind 区分笔画/文本框）
-// 每次变更全量重写（数据量小，MVP 可靠优先）；全部方法异常安全
 import { relationalStore } from '@kit.ArkData';
-import { util } from '@kit.ArkTS';
+import { taskpool, util } from '@kit.ArkTS';
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { TextBlockElement } from '../core/model/ElementTypes';
 import { DatabaseManager } from './DatabaseManager';
+import { LatestWriteQueue } from './LatestWriteQueue';
+import { AsyncMutex } from './AsyncMutex';
 
-// 持久化元素（带类型标记）
 export interface PersistedElement {
-  kind: string;  // 'stroke' | 'text'
+  kind: string;
   data: StrokeElementData | TextBlockElement;
 }
 
@@ -17,8 +16,55 @@ export interface LoadedElements {
   textBlocks: TextBlockElement[];
 }
 
+interface PreparedElement {
+  elementId: string;
+  kind: number;
+  payload: Uint8Array;
+  searchText: string | null;
+}
+
+interface PreparedPageSave {
+  noteId: string;
+  pageId: string;
+  elements: PreparedElement[];
+}
+
+interface SearchBackfillPage {
+  noteId: string;
+  pageId: string;
+  revision: number;
+}
+
+interface ParsedSearchText {
+  subId: string;
+  foldedText: string;
+}
+
+@Concurrent
+function parseSearchTextPayloads(payloads: Uint8Array[]): ParsedSearchText[] {
+  const result: ParsedSearchText[] = [];
+  for (const payload of payloads) {
+    try {
+      const decoder = util.TextDecoder.create('utf-8');
+      const parsed = JSON.parse(decoder.decodeToString(payload)) as PersistedElement;
+      if (parsed.kind === 'text') {
+        const text = parsed.data as TextBlockElement;
+        if (typeof text.id === 'string' && typeof text.richText === 'string') {
+          result.push({ subId: text.id, foldedText: text.richText.toLowerCase() });
+        }
+      }
+    } catch (_error) {
+      // A corrupt snapshot stays loadable; it simply cannot contribute searchable text.
+    }
+  }
+  return result;
+}
+
 export class StrokePersistence {
+  private static writeMutex: AsyncMutex = new AsyncMutex();
   private store: relationalStore.RdbStore | null = null;
+  private saveQueues: Map<string, LatestWriteQueue<PreparedPageSave>> = new Map();
+  private searchBackfillPromise: Promise<void> | null = null;
 
   initialize(db: DatabaseManager): void {
     this.store = db.getStore();
@@ -28,80 +74,392 @@ export class StrokePersistence {
     return this.store !== null;
   }
 
-  // 保存笔记全部元素（清空重写）
-  async saveElements(noteId: string, strokes: StrokeElementData[],
-    textBlocks: TextBlockElement[]): Promise<void> {
+  queueSaveElements(noteId: string, pageId: string, strokes: StrokeElementData[],
+    textBlocks: TextBlockElement[]): number {
     if (this.store === null) {
-      return;
+      throw new Error('StrokePersistence is not initialized');
     }
-    const store: relationalStore.RdbStore = this.store;
-    try {
-      const del = new relationalStore.RdbPredicates('client_op');
-      del.equalTo('note_id', noteId);
-      await store.delete(del);
-      const now: number = Date.now();
-      // T-040 审核修复：同批元素的 client_time 用递增序号保证加载顺序稳定
-      // （原实现全部相同时间戳，SQL 对相同 key 不保证顺序 → 图层顺序可能错乱）
-      let seq: number = 0;
-      // 先笔画后文本（保持顺序稳定）
-      for (const stroke of strokes) {
-        const payload: PersistedElement = { kind: 'stroke', data: stroke };
-        const bucket: relationalStore.ValuesBucket = {
-          'op_id': stroke.id,
-          'note_id': noteId,
-          'op_type': 10,  // OpType.INSERT_ELEMENTS
-          'payload': this.stringToBytes(JSON.stringify(payload)),
-          'client_time': now + seq,
-        };
-        seq++;
-        await store.insert('client_op', bucket);
-      }
-      for (const text of textBlocks) {
-        const payload: PersistedElement = { kind: 'text', data: text };
-        const bucket: relationalStore.ValuesBucket = {
-          'op_id': text.id,
-          'note_id': noteId,
-          'op_type': 10,
-          'payload': this.stringToBytes(JSON.stringify(payload)),
-          'client_time': now + seq,
-        };
-        seq++;
-        await store.insert('client_op', bucket);
-      }
-    } catch (e) {
-      console.error(`saveElements failed: ${JSON.stringify(e)}`);
+    const snapshot: PreparedPageSave = this.prepareSave(noteId, pageId, strokes, textBlocks);
+    return this.getSaveQueue(noteId, pageId).enqueue(snapshot);
+  }
+
+  async flush(noteId: string, pageId: string): Promise<void> {
+    const queue: LatestWriteQueue<PreparedPageSave> | undefined =
+      this.saveQueues.get(this.saveKey(noteId, pageId));
+    if (queue !== undefined) {
+      await queue.flush();
     }
   }
 
-  // 加载笔记全部元素
-  async loadElements(noteId: string): Promise<LoadedElements> {
+  hasDirtySave(noteId: string, pageId: string): boolean {
+    const queue: LatestWriteQueue<PreparedPageSave> | undefined =
+      this.saveQueues.get(this.saveKey(noteId, pageId));
+    return queue !== undefined && queue.isDirty();
+  }
+
+  async saveElements(noteId: string, pageId: string, strokes: StrokeElementData[],
+    textBlocks: TextBlockElement[]): Promise<void> {
+    this.queueSaveElements(noteId, pageId, strokes, textBlocks);
+    await this.flush(noteId, pageId);
+  }
+
+  async loadElements(noteId: string, pageId: string): Promise<LoadedElements> {
+    return this.loadMatchingElements(noteId, pageId);
+  }
+
+  async loadAllElements(noteId: string): Promise<LoadedElements> {
+    return this.loadMatchingElements(noteId, null);
+  }
+
+  async loadFirstPageElements(noteId: string): Promise<LoadedElements> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    const pageSet = await this.store.querySql(
+      'SELECT page_id FROM page_info WHERE note_id = ? ORDER BY page_index LIMIT 1', [noteId]);
+    let pageId: string = '';
+    if (pageSet.goToFirstRow()) {
+      pageId = pageSet.getString(pageSet.getColumnIndex('page_id'));
+    }
+    pageSet.close();
+    return pageId.length > 0 ? this.loadElements(noteId, pageId) : { strokes: [], textBlocks: [] };
+  }
+
+  async getFirstPageRevision(noteId: string): Promise<string> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    const resultSet = await this.store.querySql(
+      `SELECT page.content_revision AS content_revision,
+        (SELECT COUNT(*) FROM page_element_snapshot snapshot
+         WHERE snapshot.note_id = page.note_id AND snapshot.page_id = page.page_id) AS element_count
+       FROM page_info page WHERE page.note_id = ? ORDER BY page.page_index LIMIT 1`, [noteId]);
+    try {
+      if (!resultSet.goToFirstRow()) {
+        return '0:0';
+      }
+      const maxRevision: number = resultSet.getLong(resultSet.getColumnIndex('content_revision'));
+      const elementCount: number = resultSet.getLong(resultSet.getColumnIndex('element_count'));
+      return `${maxRevision}:${elementCount}`;
+    } finally {
+      resultSet.close();
+    }
+  }
+
+  async getNoteRevisionSignature(noteId: string): Promise<string> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    const resultSet = await this.store.querySql(
+      `SELECT page_id, page_index, size, template, orientation, width_mm, height_mm, content_revision
+       FROM page_info WHERE note_id = ? ORDER BY page_index, page_id`, [noteId]);
+    try {
+      const rows: string[] = [];
+      while (resultSet.goToNextRow()) {
+        rows.push(`${resultSet.getString(resultSet.getColumnIndex('page_id'))},` +
+          `${resultSet.getLong(resultSet.getColumnIndex('page_index'))},` +
+          `${resultSet.getLong(resultSet.getColumnIndex('size'))},` +
+          `${resultSet.getLong(resultSet.getColumnIndex('template'))},` +
+          `${resultSet.getLong(resultSet.getColumnIndex('orientation'))},` +
+          `${resultSet.getDouble(resultSet.getColumnIndex('width_mm'))},` +
+          `${resultSet.getDouble(resultSet.getColumnIndex('height_mm'))},` +
+          `${resultSet.getLong(resultSet.getColumnIndex('content_revision'))}`);
+      }
+      return rows.join(';');
+    } finally {
+      resultSet.close();
+    }
+  }
+
+  async backfillSearchIndex(): Promise<void> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    if (this.searchBackfillPromise !== null) {
+      return this.searchBackfillPromise;
+    }
+    this.searchBackfillPromise = this.runSearchBackfill();
+    try {
+      await this.searchBackfillPromise;
+    } finally {
+      this.searchBackfillPromise = null;
+    }
+  }
+
+  private async runSearchBackfill(): Promise<void> {
+    while (true) {
+      const pages: SearchBackfillPage[] = await this.loadPendingSearchPages(8);
+      if (pages.length === 0) {
+        return;
+      }
+      for (const page of pages) {
+        const payloads: Uint8Array[] = await this.loadTextPayloads(page.noteId, page.pageId);
+        const parsed = await taskpool.execute(parseSearchTextPayloads, payloads) as ParsedSearchText[];
+        await StrokePersistence.writeMutex.runExclusive(async (): Promise<void> => {
+          await this.commitBackfilledPage(page, parsed);
+        });
+      }
+    }
+  }
+
+  private async writePrepared(snapshot: PreparedPageSave, revision: number): Promise<void> {
+    await StrokePersistence.writeMutex.runExclusive(async (): Promise<void> => {
+      await this.writePreparedLocked(snapshot, revision);
+    });
+  }
+
+  private async writePreparedLocked(snapshot: PreparedPageSave, revision: number): Promise<void> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    const store: relationalStore.RdbStore = this.store;
+    await store.beginTransaction();
+    try {
+      const revisionSet = await store.querySql(
+        `SELECT content_revision + 1 AS next_revision
+         FROM page_info WHERE note_id = ? AND page_id = ?`,
+        [snapshot.noteId, snapshot.pageId]);
+      let snapshotRevision: number = 0;
+      try {
+        if (!revisionSet.goToFirstRow()) {
+          throw new Error('snapshot page does not exist');
+        }
+        snapshotRevision = revisionSet.getLong(revisionSet.getColumnIndex('next_revision'));
+      } finally {
+        revisionSet.close();
+      }
+      const pageRevision: relationalStore.ValuesBucket = { 'content_revision': snapshotRevision };
+      const pagePredicates = new relationalStore.RdbPredicates('page_info');
+      pagePredicates.equalTo('note_id', snapshot.noteId);
+      pagePredicates.equalTo('page_id', snapshot.pageId);
+      const revisedPages: number = await store.update(pageRevision, pagePredicates);
+      if (revisedPages !== 1) {
+        throw new Error(`expected one page revision update, got ${revisedPages}`);
+      }
+      const del = new relationalStore.RdbPredicates('page_element_snapshot');
+      del.equalTo('note_id', snapshot.noteId);
+      del.equalTo('page_id', snapshot.pageId);
+      await store.delete(del);
+      const buckets: relationalStore.ValuesBucket[] = [];
+      for (let seq: number = 0; seq < snapshot.elements.length; seq++) {
+        const element: PreparedElement = snapshot.elements[seq];
+        buckets.push({
+          'note_id': snapshot.noteId,
+          'page_id': snapshot.pageId,
+          'element_id': element.elementId,
+          'kind': element.kind,
+          'payload': element.payload,
+          'revision': snapshotRevision,
+          'element_order': seq,
+        });
+      }
+      if (buckets.length > 0) {
+        await store.batchInsert('page_element_snapshot', buckets);
+      }
+      const oldSearch = new relationalStore.RdbPredicates('search_item');
+      oldSearch.equalTo('note_id', snapshot.noteId);
+      oldSearch.equalTo('page_id', snapshot.pageId);
+      oldSearch.equalTo('type', 1);
+      await store.delete(oldSearch);
+      const searchBuckets: relationalStore.ValuesBucket[] = [];
+      for (const element of snapshot.elements) {
+        if (element.searchText !== null) {
+          searchBuckets.push({
+            'note_id': snapshot.noteId,
+            'type': 1,
+            'sub_id': element.elementId,
+            'page_id': snapshot.pageId,
+            'folded_text': element.searchText,
+            'rects': null,
+          });
+        }
+      }
+      for (const searchBucket of searchBuckets) {
+        await store.insert('search_item', searchBucket,
+          relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+      }
+      const indexState: relationalStore.ValuesBucket = {
+        'note_id': snapshot.noteId,
+        'page_id': snapshot.pageId,
+        'indexed_revision': snapshotRevision,
+      };
+      await store.insert('search_page_state', indexState,
+        relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+      await store.commit();
+    } catch (e) {
+      await store.rollBack();
+      throw new Error(`saveElements revision ${revision} failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  private async loadPendingSearchPages(limit: number): Promise<SearchBackfillPage[]> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    const resultSet = await this.store.querySql(
+      `SELECT page.note_id AS note_id, page.page_id AS page_id,
+        page.content_revision AS content_revision
+       FROM page_info page
+       LEFT JOIN search_page_state state
+         ON state.note_id = page.note_id AND state.page_id = page.page_id
+       WHERE state.indexed_revision IS NULL OR state.indexed_revision != page.content_revision
+       ORDER BY page.note_id, page.page_index LIMIT ?`, [limit]);
+    const pages: SearchBackfillPage[] = [];
+    try {
+      while (resultSet.goToNextRow()) {
+        pages.push({
+          noteId: resultSet.getString(resultSet.getColumnIndex('note_id')),
+          pageId: resultSet.getString(resultSet.getColumnIndex('page_id')),
+          revision: resultSet.getLong(resultSet.getColumnIndex('content_revision')),
+        });
+      }
+    } finally {
+      resultSet.close();
+    }
+    return pages;
+  }
+
+  private async loadTextPayloads(noteId: string, pageId: string): Promise<Uint8Array[]> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    const predicates = new relationalStore.RdbPredicates('page_element_snapshot');
+    predicates.equalTo('note_id', noteId);
+    predicates.equalTo('page_id', pageId);
+    predicates.equalTo('kind', 2);
+    predicates.orderByAsc('element_order');
+    const resultSet = await this.store.query(predicates, ['payload']);
+    const payloads: Uint8Array[] = [];
+    try {
+      while (resultSet.goToNextRow()) {
+        payloads.push(resultSet.getBlob(resultSet.getColumnIndex('payload')));
+      }
+    } finally {
+      resultSet.close();
+    }
+    return payloads;
+  }
+
+  private async commitBackfilledPage(page: SearchBackfillPage,
+    texts: ParsedSearchText[]): Promise<void> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    const store: relationalStore.RdbStore = this.store;
+    await store.beginTransaction();
+    try {
+      const revisionSet = await store.querySql(
+        'SELECT content_revision FROM page_info WHERE note_id = ? AND page_id = ?',
+        [page.noteId, page.pageId]);
+      let currentRevision: number = -1;
+      try {
+        if (revisionSet.goToFirstRow()) {
+          currentRevision = revisionSet.getLong(revisionSet.getColumnIndex('content_revision'));
+        }
+      } finally {
+        revisionSet.close();
+      }
+      if (currentRevision !== page.revision) {
+        await store.rollBack();
+        return;
+      }
+      const oldSearch = new relationalStore.RdbPredicates('search_item');
+      oldSearch.equalTo('note_id', page.noteId);
+      oldSearch.equalTo('page_id', page.pageId);
+      oldSearch.equalTo('type', 1);
+      await store.delete(oldSearch);
+      for (const text of texts) {
+        const bucket: relationalStore.ValuesBucket = {
+          'note_id': page.noteId,
+          'type': 1,
+          'sub_id': text.subId,
+          'page_id': page.pageId,
+          'folded_text': text.foldedText,
+          'rects': null,
+        };
+        await store.insert('search_item', bucket,
+          relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+      }
+      const state: relationalStore.ValuesBucket = {
+        'note_id': page.noteId,
+        'page_id': page.pageId,
+        'indexed_revision': page.revision,
+      };
+      await store.insert('search_page_state', state,
+        relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+      await store.commit();
+    } catch (e) {
+      await store.rollBack();
+      throw new Error(`search backfill failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  private prepareSave(noteId: string, pageId: string, strokes: StrokeElementData[],
+    textBlocks: TextBlockElement[]): PreparedPageSave {
+    const elements: PreparedElement[] = [];
+    for (const stroke of strokes) {
+      const payload: PersistedElement = { kind: 'stroke', data: stroke };
+      elements.push({ elementId: stroke.id, kind: 1,
+        payload: this.stringToBytes(JSON.stringify(payload)), searchText: null });
+    }
+    for (const text of textBlocks) {
+      const payload: PersistedElement = { kind: 'text', data: text };
+      elements.push({ elementId: text.id, kind: 2,
+        payload: this.stringToBytes(JSON.stringify(payload)), searchText: text.richText.toLowerCase() });
+    }
+    return { noteId: noteId, pageId: pageId, elements: elements };
+  }
+
+  private getSaveQueue(noteId: string, pageId: string): LatestWriteQueue<PreparedPageSave> {
+    const key: string = this.saveKey(noteId, pageId);
+    let queue: LatestWriteQueue<PreparedPageSave> | undefined = this.saveQueues.get(key);
+    if (queue === undefined) {
+      queue = new LatestWriteQueue<PreparedPageSave>(
+        async (snapshot: PreparedPageSave, revision: number): Promise<void> =>
+          this.writePrepared(snapshot, revision));
+      this.saveQueues.set(key, queue);
+    }
+    return queue;
+  }
+
+  private saveKey(noteId: string, pageId: string): string {
+    return `${noteId}\u0000${pageId}`;
+  }
+
+  private async loadMatchingElements(noteId: string, pageId: string | null): Promise<LoadedElements> {
     const result: LoadedElements = { strokes: [], textBlocks: [] };
     if (this.store === null) {
-      return result;
+      throw new Error('StrokePersistence is not initialized');
     }
     const store: relationalStore.RdbStore = this.store;
     try {
-      const predicates = new relationalStore.RdbPredicates('client_op');
+      const predicates = new relationalStore.RdbPredicates('page_element_snapshot');
       predicates.equalTo('note_id', noteId);
-      predicates.orderByAsc('client_time');
-      const resultSet = await store.query(predicates);
-      while (resultSet.goToNextRow()) {
-        const bytes: Uint8Array = resultSet.getBlob(resultSet.getColumnIndex('payload'));
-        const json: string = this.bytesToString(bytes);
-        try {
-          const parsed = JSON.parse(json) as PersistedElement;
-          if (parsed.kind === 'stroke') {
-            result.strokes.push(parsed.data as StrokeElementData);
-          } else if (parsed.kind === 'text') {
-            result.textBlocks.push(parsed.data as TextBlockElement);
-          }
-        } catch (e) {
-          // 跳过损坏记录
-        }
+      if (pageId !== null) {
+        predicates.equalTo('page_id', pageId);
       }
-      resultSet.close();
+      predicates.orderByAsc('element_order');
+      const resultSet = await store.query(predicates);
+      try {
+        while (resultSet.goToNextRow()) {
+          const bytes: Uint8Array = resultSet.getBlob(resultSet.getColumnIndex('payload'));
+          const json: string = this.bytesToString(bytes);
+          try {
+            const parsed = JSON.parse(json) as PersistedElement;
+            if (parsed.kind === 'stroke') {
+              result.strokes.push(parsed.data as StrokeElementData);
+            } else if (parsed.kind === 'text') {
+              result.textBlocks.push(parsed.data as TextBlockElement);
+            }
+          } catch (e) {
+            // Ignore an individual corrupt element without discarding the rest of the page.
+          }
+        }
+      } finally {
+        resultSet.close();
+      }
     } catch (e) {
-      console.error(`loadElements failed: ${JSON.stringify(e)}`);
+      throw new Error(`loadElements failed: ${JSON.stringify(e)}`);
     }
     return result;
   }

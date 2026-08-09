@@ -1,6 +1,6 @@
 // T-018 资料库状态管理（@Observed；T-035 增加排序）
 import { NoteMeta } from '../../core/model/NoteTypes';
-import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
+import { NoteRepository } from '../../data/RepositoryInterfaces';
 
 // 排序模式（T-035）
 export enum NoteSortMode {
@@ -13,37 +13,70 @@ export enum NoteSortMode {
 export class LibraryViewModel {
   notes: NoteMeta[] = [];
   isLoading: boolean = true;
+  loadError: string = '';
   searchQuery: string = '';
   sortMode: NoteSortMode = NoteSortMode.UPDATED;
   // T-039：当前浏览文件夹（null=全部笔记）
   currentFolderId: string | null = null;
-  private repo: NoteRepositoryImpl;
+  private repo: NoteRepository;
+  private loadGeneration: number = 0;
 
-  constructor(repo: NoteRepositoryImpl) {
+  constructor(repo: NoteRepository) {
     this.repo = repo;
   }
 
   async loadNotes(): Promise<void> {
+    const generation: number = ++this.loadGeneration;
     this.isLoading = true;
-    if (this.currentFolderId === null) {
-      this.notes = await this.repo.getAllNotes();
-    } else {
-      this.notes = await this.repo.getNotesByFolder(this.currentFolderId);
+    this.loadError = '';
+    try {
+      let loaded: NoteMeta[];
+      if (this.searchQuery.trim().length > 0) {
+        loaded = await this.repo.searchNotes(this.searchQuery, this.currentFolderId);
+      } else if (this.currentFolderId === null) {
+        loaded = await this.repo.getAllNotes();
+      } else {
+        loaded = await this.repo.getNotesByFolder(this.currentFolderId);
+      }
+      if (generation === this.loadGeneration) {
+        this.notes = loaded;
+        this.applySort();
+      }
+    } catch (e) {
+      const error: string = `loadNotes failed: ${JSON.stringify(e)}`;
+      if (generation !== this.loadGeneration) {
+        return;
+      }
+      this.loadError = error;
+      throw new Error(error);
+    } finally {
+      if (generation === this.loadGeneration) {
+        this.isLoading = false;
+      }
     }
-    this.applySort();
-    this.isLoading = false;
   }
 
   // T-039：切换浏览文件夹并刷新
-  setFolder(folderId: string | null): void {
+  async setFolder(folderId: string | null): Promise<void> {
+    const previousFolderId: string | null = this.currentFolderId;
     this.currentFolderId = folderId;
-    this.loadNotes();
+    try {
+      await this.loadNotes();
+    } catch (e) {
+      this.currentFolderId = previousFolderId;
+      throw new Error(`setFolder failed: ${JSON.stringify(e)}`);
+    }
   }
 
   // 设置排序模式并刷新
   setSortMode(mode: NoteSortMode): void {
     this.sortMode = mode;
     this.applySort();
+  }
+
+  async setSearchQuery(query: string): Promise<void> {
+    this.searchQuery = query;
+    await this.loadNotes();
   }
 
   // 按当前模式排序（UPDATED 已由 repo 按 updatedAt DESC 返回）
@@ -62,7 +95,7 @@ export class LibraryViewModel {
 
   // 创建并返回 noteId
   async createNote(): Promise<string> {
-    const note: NoteMeta = await this.repo.createNote('Untitled Note', null);
+    const note: NoteMeta = await this.repo.createNote('Untitled Note', this.currentFolderId);
     await this.loadNotes();
     return note.id;
   }
@@ -72,18 +105,8 @@ export class LibraryViewModel {
     await this.loadNotes();
   }
 
-  // 按搜索词过滤
+  // Search, folder and sort are resolved into one observable list by loadNotes().
   getFilteredNotes(): NoteMeta[] {
-    if (this.searchQuery === '') {
-      return this.notes;
-    }
-    const query: string = this.searchQuery.toLowerCase();
-    const filtered: NoteMeta[] = [];
-    for (const n of this.notes) {
-      if (n.title.toLowerCase().includes(query)) {
-        filtered.push(n);
-      }
-    }
-    return filtered;
+    return this.notes;
   }
 }

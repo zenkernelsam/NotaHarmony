@@ -1,50 +1,76 @@
 // T-024 文本框编辑覆盖层（TextArea 编辑态）
 import { TextBlockElement } from '../../core/model/ElementTypes';
+import { Point2D } from '../../core/model/GeometryTypes';
+import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 
 @Component
 export struct TextBlockOverlay {
   @Prop editing: boolean = false;
-  @Prop element: TextBlockElement | null = null;
+  @Prop @Watch('onElementChange') element: TextBlockElement | null = null;
+  @Prop screenOrigin: Point2D = { x: 0, y: 0 };
+  @Prop viewportZoom: number = 1;
   @State draftText: string = '';
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onCommit: (text: string) => void = () => {
   };
   onCancel: () => void = () => {
   };
+  onDraftChange: (text: string) => void = () => {
+  };
+
+  aboutToAppear(): void {
+    this.draftText = this.element !== null ? this.element.richText : '';
+  }
+
+  onElementChange(): void {
+    this.draftText = this.element !== null ? this.element.richText : '';
+  }
+
+  private resolveTokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
 
   build() {
     Stack() {
       if (this.editing && this.element !== null) {
         Stack()
-          .width(this.element.blockWidth)
-          .height(this.element.blockHeight)
-          .position({ x: this.element.textOrigin.x, y: this.element.textOrigin.y })
-          .border({ width: 1.5, color: '#3366FF', style: BorderStyle.Dashed })
-        TextArea({ text: this.draftText, placeholder: 'Type here...' })
-          .width(this.element.blockWidth)
-          .height(this.element.blockHeight)
-          .position({ x: this.element.textOrigin.x, y: this.element.textOrigin.y })
-          .fontSize(this.element.fontSize)
+          .width(this.element.blockWidth * this.viewportZoom)
+          .height(this.element.blockHeight * this.viewportZoom)
+          .position({ x: this.screenOrigin.x, y: this.screenOrigin.y })
+          .border({ width: 1.5, color: this.resolveTokens().accent, style: BorderStyle.Dashed })
+        TextArea({ text: this.draftText, placeholder: $r('app.string.type_here') })
+          .width(this.element.blockWidth * this.viewportZoom)
+          .height(this.element.blockHeight * this.viewportZoom)
+          .position({ x: this.screenOrigin.x, y: this.screenOrigin.y })
+          .fontSize(this.element.fontSize * this.viewportZoom)
+          .fontColor(this.resolveTokens().textPrimary)
+          .backgroundColor(this.resolveTokens().surface)
           .padding(4)
           .onChange((value: string) => {
             this.draftText = value;
+            this.onDraftChange(value);
           })
         Row() {
-          Button('Done')
+          Button($r('app.string.done'))
             .height(32)
             .fontSize(12)
             .onClick(() => {
               this.onCommit(this.draftText);
+              this.draftText = '';
             })
-          Button('Cancel')
+          Button($r('app.string.cancel'))
             .height(32)
             .fontSize(12)
             .onClick(() => {
+              this.draftText = '';
               this.onCancel();
             })
         }
         .position({
-          x: this.element.textOrigin.x,
-          y: this.element.textOrigin.y + this.element.blockHeight + 4,
+          x: this.screenOrigin.x,
+          y: this.screenOrigin.y + this.element.blockHeight * this.viewportZoom + 4,
         })
       }
     }

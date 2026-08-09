@@ -41,9 +41,9 @@ export class CanvasViewport {
     this.scrollY += dy;
   }
 
-  // 直接设置缩放（控制条按钮用；保持画布中心不动）
-  setZoom(z: number): void {
-    this.zoomAt(0, 0, this.clampZoom(z) / this.zoom);
+  // 直接设置缩放值，不改变 scroll；用于随后显式恢复/重算 scroll 的调用路径。
+  setZoomRaw(z: number): void {
+    this.zoom = this.clampZoom(z);
   }
 
   setScroll(x: number, y: number): void {

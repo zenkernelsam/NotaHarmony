@@ -2,14 +2,25 @@
 import { router } from '@kit.ArkUI';
 import { promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
+import { util } from '@kit.ArkTS';
 import { NoteMeta } from '../../core/model/NoteTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { StrokePersistence } from '../../data/StrokePersistence';
 import { NoteExporter } from '../../data/NoteExporter';
 import { NoteImporter, ImportReport, ImportResult } from '../../data/NoteImporter';
-import { WebDAVClient, WebDAVConfig, WebDAVFileInfo } from '../../data/WebDAVClient';
+import { WebDAVClient, WebDAVConfig, WebDAVFileInfo, WebDAVListResult } from '../../data/WebDAVClient';
 import { WebDAVConfigStore } from '../../data/WebDAVConfigStore';
+import {
+  BACKUP_MANIFEST_SUFFIX, BackupBatchManifest, BackupSourcePackage,
+  parseBackupBatch,
+} from '../../data/BackupBatchSpec';
+import {
+  BackupBatchPublisher, BackupPublishResult, BackupPublishStage, CryptoBackupBatchHasher,
+} from '../../data/BackupBatchPublisher';
+import {
+  BackupBatchRestorer, BackupFetchResult, VerifiedBackupObject,
+} from '../../data/BackupBatchRestorer';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
@@ -18,10 +29,11 @@ import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 struct BackupPage {
   @State isLoading: boolean = false;
   @State isBusy: boolean = false;
-  @State serverText: string = '未配置';
-  @State lastBackupText: string = '从未备份';
+  @State serverText: string = '';
+  @State lastBackupText: string = '';
+  @State hasLastBackup: boolean = false;
   @State hasConfig: boolean = false;
-  @State statusText: string = '';
+  @State statusText: ResourceStr = '';
 
   private db: DatabaseManager = DatabaseManager.getInstance();
   private persistence: StrokePersistence = new StrokePersistence();
@@ -46,9 +58,10 @@ struct BackupPage {
       this.persistence.initialize(this.db);
       this.config = await WebDAVConfigStore.load(context);
       this.hasConfig = this.config.serverUrl.trim().length > 0;
-      this.serverText = this.hasConfig ? this.config.serverUrl : '未配置';
+      this.serverText = this.hasConfig ? this.config.serverUrl : '';
       const lastBackup: number = await WebDAVConfigStore.getLastBackup(context);
-      this.lastBackupText = lastBackup > 0 ? this.formatTime(lastBackup) : '从未备份';
+      this.hasLastBackup = lastBackup > 0;
+      this.lastBackupText = this.hasLastBackup ? this.formatTime(lastBackup) : '';
     } catch (e) {
       console.error(`BackupPage init failed: ${JSON.stringify(e)}`);
     }
@@ -60,7 +73,7 @@ struct BackupPage {
       return;
     }
     this.isBusy = true;
-    this.statusText = '正在导出...';
+    this.statusText = $r('app.string.exporting');
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const exporter = new NoteExporter(this.db, this.persistence);
@@ -68,7 +81,7 @@ struct BackupPage {
       const notes: NoteMeta[] = await noteRepo.getAllNotes();
       if (notes.length === 0) {
         this.statusText = '';
-        this.showToast('没有可导出的笔记');
+        this.showToast($r('app.string.no_notes_to_export'));
         return;
       }
       let exported: number = 0;
@@ -78,10 +91,10 @@ struct BackupPage {
           exported++;
         }
       }
-      this.showToast(`已导出 ${exported}/${notes.length} 个笔记`);
+      this.showToast($r('app.string.exported_notes_count', exported, notes.length));
     } catch (e) {
       console.error(`exportAllLocal failed: ${JSON.stringify(e)}`);
-      this.showAlert('导出失败', '导出过程中发生错误，请重试');
+      this.showAlert($r('app.string.export_failed'), $r('app.string.export_failed_message'));
     } finally {
       this.isBusy = false;
       this.statusText = '';
@@ -94,7 +107,7 @@ struct BackupPage {
       return;
     }
     this.isBusy = true;
-    this.statusText = '正在导入...';
+    this.statusText = $r('app.string.importing');
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const importer = new NoteImporter(this.db, this.persistence);
@@ -102,15 +115,15 @@ struct BackupPage {
       if (report.result === ImportResult.SUCCESS) {
         this.showToast(report.message);
       } else if (report.result === ImportResult.PARTIAL) {
-        this.showAlert('部分导入', report.message);
+        this.showAlert($r('app.string.partial_import'), report.message);
       } else if (report.result === ImportResult.CORRUPTED) {
-        this.showAlert('导入失败', report.message);
+        this.showAlert($r('app.string.import_failed'), report.message);
       } else {
-        this.showAlert('不支持的格式', report.message);
+        this.showAlert($r('app.string.unsupported_format'), report.message);
       }
     } catch (e) {
       console.error(`importLocal failed: ${JSON.stringify(e)}`);
-      this.showAlert('导入失败', '读取或解析文件时发生错误');
+      this.showAlert($r('app.string.import_failed'), $r('app.string.import_read_failed'));
     } finally {
       this.isBusy = false;
       this.statusText = '';
@@ -123,77 +136,128 @@ struct BackupPage {
       return;
     }
     this.isBusy = true;
-    this.statusText = '正在备份到云端...';
+    this.statusText = $r('app.string.backing_up_cloud');
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const client = new WebDAVClient(this.config);
       const exporter = new NoteExporter(this.db, this.persistence);
-      const backups = await exporter.exportAllNotes();
-      if (backups.size === 0) {
-        this.showToast('没有可备份的笔记');
+      const backups: BackupSourcePackage[] = await exporter.exportAllNotes();
+      if (backups.length === 0) {
+        this.showToast($r('app.string.no_notes_to_backup'));
         return;
       }
-      if (!await client.ensureBackupDir()) {
-        this.showAlert('备份失败', '无法创建备份目录，请检查服务器配置');
-        return;
-      }
-      let uploaded: number = 0;
-      const keys: string[] = Array.from(backups.keys());
-      for (const noteId of keys) {
-        const data = backups.get(noteId);
-        if (data !== undefined && await client.upload(client.remoteNotePath(noteId), data)) {
-          uploaded++;
+      const batchId: string = this.generateBatchId();
+      const completedAt: number = Date.now();
+      const publisher = new BackupBatchPublisher(client, new CryptoBackupBatchHasher());
+      const result: BackupPublishResult = await publisher.publish(backups, batchId, completedAt);
+      if (!result.success) {
+        if (result.stage === BackupPublishStage.DIRECTORY) {
+          this.showAlert($r('app.string.backup_failed'), $r('app.string.backup_directory_failed'));
+        } else if (result.stage === BackupPublishStage.OBJECT_UPLOAD) {
+          this.showAlert($r('app.string.backup_failed'),
+            $r('app.string.cloud_backup_incomplete', result.verified, result.total));
+        } else if (result.stage === BackupPublishStage.OBJECT_VERIFY) {
+          this.showAlert($r('app.string.backup_failed'), $r('app.string.cloud_backup_verify_failed'));
+        } else {
+          this.showAlert($r('app.string.backup_failed'), $r('app.string.cloud_backup_publish_failed'));
         }
+        return;
       }
-      await WebDAVConfigStore.setLastBackup(context, Date.now());
-      this.lastBackupText = this.formatTime(Date.now());
-      this.showToast(`云端备份完成：${uploaded}/${keys.length}`);
+      await WebDAVConfigStore.setLastBackup(context, completedAt);
+      this.hasLastBackup = true;
+      this.lastBackupText = this.formatTime(completedAt);
+      this.showToast($r('app.string.cloud_backup_count', result.verified, result.total));
     } catch (e) {
       console.error(`backupAll failed: ${JSON.stringify(e)}`);
-      this.showAlert('备份失败', '网络错误或服务器不可达，请稍后重试');
+      this.showAlert($r('app.string.backup_failed'), $r('app.string.network_server_unreachable'));
     } finally {
       this.isBusy = false;
       this.statusText = '';
     }
   }
 
-  // === WebDAV：从云端恢复（恢复最近一次备份）===
+  // === WebDAV：从云端恢复最近一次已发布的完整批次 ===
   private async restoreFromCloud(): Promise<void> {
     if (this.isBusy || !this.hasConfig) {
       return;
     }
     this.isBusy = true;
-    this.statusText = '正在从云端恢复...';
+    this.statusText = $r('app.string.restoring_cloud');
     try {
       const client = new WebDAVClient(this.config);
-      const files: WebDAVFileInfo[] = await client.listDir(client.remoteNotePath(''));
-      const noteFiles: WebDAVFileInfo[] = files.filter((f: WebDAVFileInfo) => f.name.endsWith('.note'));
-      if (noteFiles.length === 0) {
-        this.showToast('云端没有可恢复的备份');
+      const listResult: WebDAVListResult = await client.listDir(client.backupDirectoryUrl());
+      if (!listResult.success) {
+        console.error(`WebDAV list failed: HTTP ${listResult.responseCode}: ${listResult.message}`);
+        this.showAlert($r('app.string.restore_failed'), $r('app.string.cloud_backup_list_failed'));
         return;
       }
-      // 按最后修改时间取最新
-      noteFiles.sort((a: WebDAVFileInfo, b: WebDAVFileInfo) => b.lastModified - a.lastModified);
-      const target: WebDAVFileInfo = noteFiles[0];
-      const data: Uint8Array | null = await client.download(target.path);
-      if (data === null) {
-        this.showAlert('恢复失败', '下载备份文件失败');
+      const manifest: BackupBatchManifest | null = await this.loadLatestBackupBatch(
+        client, listResult.files);
+      if (manifest === null) {
+        this.showToast($r('app.string.no_cloud_backup'));
         return;
       }
       const importer = new NoteImporter(this.db, this.persistence);
-      const report: ImportReport = await importer.importFromData(data);
-      if (report.result === ImportResult.SUCCESS) {
-        this.showToast(`已恢复：${report.message}`);
+      let restored: number = 0;
+      let degraded: number = 0;
+      const restorer = new BackupBatchRestorer(client, new CryptoBackupBatchHasher());
+      const fetched: BackupFetchResult = await restorer.fetch(manifest);
+      let failed: number = fetched.failedNoteIds.length;
+      for (let i: number = 0; i < fetched.verified.length; i++) {
+        const object: VerifiedBackupObject = fetched.verified[i];
+        const report: ImportReport = await importer.importFromData(object.data);
+        if (report.result === ImportResult.SUCCESS) {
+          restored++;
+        } else if (report.result === ImportResult.PARTIAL) {
+          restored++;
+          degraded++;
+        } else {
+          failed++;
+        }
+      }
+      if (failed > 0 || degraded > 0) {
+        this.showAlert($r('app.string.restore_result'),
+          $r('app.string.cloud_restore_partial', restored, manifest.entries.length, failed, degraded));
       } else {
-        this.showAlert('恢复结果', report.message);
+        this.showToast($r('app.string.cloud_restore_complete', restored));
       }
     } catch (e) {
       console.error(`restoreFromCloud failed: ${JSON.stringify(e)}`);
-      this.showAlert('恢复失败', '网络错误或服务器不可达，请稍后重试');
+      this.showAlert($r('app.string.restore_failed'), $r('app.string.network_server_unreachable'));
     } finally {
       this.isBusy = false;
       this.statusText = '';
     }
+  }
+
+  private async loadLatestBackupBatch(client: WebDAVClient,
+    files: WebDAVFileInfo[]): Promise<BackupBatchManifest | null> {
+    const candidates: WebDAVFileInfo[] = files.filter((file: WebDAVFileInfo) =>
+      file.name.startsWith('batch-') && file.name.endsWith(BACKUP_MANIFEST_SUFFIX));
+    candidates.sort((left: WebDAVFileInfo, right: WebDAVFileInfo) =>
+      right.lastModified - left.lastModified);
+    let latest: BackupBatchManifest | null = null;
+    const limit: number = Math.min(candidates.length, 100);
+    for (let i: number = 0; i < limit; i++) {
+      const bytes: Uint8Array | null = await client.download(candidates[i].path);
+      if (bytes === null || bytes.length === 0 || bytes.length > 1024 * 1024) {
+        continue;
+      }
+      try {
+        const text: string = util.TextDecoder.create('utf-8').decodeToString(bytes);
+        const parsed: BackupBatchManifest | null = parseBackupBatch(text);
+        if (parsed !== null && (latest === null || parsed.createdAt > latest.createdAt)) {
+          latest = parsed;
+        }
+      } catch (e) {
+        console.warn(`Backup manifest parse failed: ${JSON.stringify(e)}`);
+      }
+    }
+    return latest;
+  }
+
+  private generateBatchId(): string {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
   }
 
   private navigateToSettings(): void {
@@ -203,7 +267,7 @@ struct BackupPage {
   }
 
   // === UI ===
-  private showToast(message: string): void {
+  private showToast(message: ResourceStr): void {
     try {
       promptAction.showToast({ message: message, duration: 2500 });
     } catch (e) {
@@ -211,11 +275,11 @@ struct BackupPage {
     }
   }
 
-  private showAlert(title: string, message: string): void {
+  private showAlert(title: ResourceStr, message: ResourceStr): void {
     this.getUIContext().showAlertDialog({
       title: title,
       message: message,
-      confirm: { value: '确定', action: () => {
+      confirm: { value: $r('app.string.confirm'), action: () => {
       } },
     });
   }
@@ -228,7 +292,7 @@ struct BackupPage {
 
   build() {
     Column() {
-      Text('备份与同步')
+      Text($r('app.string.backup_and_sync'))
         .fontSize(24)
         .fontWeight(FontWeight.Bold)
         .fontColor(this.resolveTokens().textPrimary)
@@ -237,14 +301,15 @@ struct BackupPage {
       Scroll() {
         Column() {
           // === 本地文件区 ===
-          Text('本地文件').fontSize(18).fontWeight(FontWeight.Medium).margin({ bottom: 8 })
-          Button('导出全部笔记为 .note')
+          Text($r('app.string.local_files')).fontSize(18).fontWeight(FontWeight.Medium)
+            .fontColor(this.resolveTokens().textPrimary).margin({ bottom: 8 })
+          Button($r('app.string.export_all_notes'))
             .width('90%')
             .margin({ bottom: 8 })
             .onClick(() => {
               this.exportAllLocal();
             })
-          Button('从 .note 文件导入')
+          Button($r('app.string.import_note_file'))
             .width('90%')
             .margin({ bottom: 16 })
             .onClick(() => {
@@ -254,24 +319,29 @@ struct BackupPage {
           Divider().margin({ bottom: 16 })
 
           // === WebDAV 区 ===
-          Text('WebDAV 云备份').fontSize(18).fontWeight(FontWeight.Medium).margin({ bottom: 8 })
-          Text(`服务器: ${this.serverText}`).fontSize(14).margin({ bottom: 4 })
-          Text(`上次备份: ${this.lastBackupText}`).fontSize(14).margin({ bottom: 8 })
+          Text($r('app.string.webdav_cloud_backup')).fontSize(18).fontWeight(FontWeight.Medium)
+            .fontColor(this.resolveTokens().textPrimary).margin({ bottom: 8 })
+          Text(this.hasConfig ? $r('app.string.server_value', this.serverText) :
+            $r('app.string.server_not_configured')).fontSize(14)
+            .fontColor(this.resolveTokens().textPrimary).margin({ bottom: 4 })
+          Text(this.hasLastBackup ? $r('app.string.last_backup_value', this.lastBackupText) :
+            $r('app.string.last_backup_never')).fontSize(14)
+            .fontColor(this.resolveTokens().textPrimary).margin({ bottom: 8 })
 
-          Button('配置 WebDAV')
+          Button($r('app.string.configure_webdav'))
             .width('90%')
             .margin({ bottom: 8 })
             .onClick(() => {
               this.navigateToSettings();
             })
-          Button('备份全部笔记到云端')
+          Button($r('app.string.backup_all_to_cloud'))
             .width('90%')
             .enabled(this.hasConfig && !this.isBusy)
             .margin({ bottom: 8 })
             .onClick(() => {
               this.backupAll();
             })
-          Button('从云端恢复（最近一次备份）')
+          Button($r('app.string.restore_latest_cloud_backup'))
             .width('90%')
             .enabled(this.hasConfig && !this.isBusy)
             .onClick(() => {
@@ -279,14 +349,16 @@ struct BackupPage {
             })
 
           if (!this.hasConfig) {
-            Text('提示：请先配置 WebDAV 服务器').fontSize(12).fontColor('#999999').margin({ top: 8 })
+            Text($r('app.string.configure_webdav_hint')).fontSize(12)
+              .fontColor(this.resolveTokens().textSecondary).margin({ top: 8 })
           }
 
           if (this.isBusy) {
             Row() {
               LoadingProgress().width(24).height(24)
-              Text(this.statusText.length > 0 ? this.statusText : '处理中...')
+              Text(this.statusText)
                 .fontSize(14)
+                .fontColor(this.resolveTokens().textPrimary)
                 .margin({ left: 8 })
             }
             .margin({ top: 16 })

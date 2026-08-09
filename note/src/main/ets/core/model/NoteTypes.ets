@@ -32,6 +32,7 @@ export enum PageOrientation {
 // 页面信息
 export interface PageInfo {
   pageId: string;
+  pageIndex: number;
   size: PaperSize;
   template: PaperTemplate;
   orientation: PageOrientation;

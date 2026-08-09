@@ -87,7 +87,7 @@ export class StrokeSession {
 
   // 添加输入批次（每帧调用）；预测点批次仅用于预览不持久化，MVP 直接忽略
   addBatch(batch: InputBatch): void {
-    if (!this.isActive || batch.kind === InputBatchKind.PREDICTED) {
+    if (!this.active || batch.kind === InputBatchKind.PREDICTED) {
       return;
     }
     const smoothed: InputPoint[] = this.smoother.smooth(batch.points);
@@ -96,6 +96,10 @@ export class StrokeSession {
       this.pathPoints.push({
         position: { x: p.x, y: p.y },
         widthFactor: this.pressureToWidthFactor(p.pressure),
+        pressure: p.pressure,
+        altitudeAngleRadians: p.tiltRadians,
+        azimuthUnitX: p.orientationRadians >= 0 ? -Math.sin(p.orientationRadians) : 0,
+        azimuthUnitY: p.orientationRadians >= 0 ? Math.cos(p.orientationRadians) : 0,
       });
     }
     this.rebuildGeometry();
@@ -134,6 +138,8 @@ export class StrokeSession {
     }
     this.cubicSegments = this.fitter.fit(this.pathPoints, this.renderSpec.brushWidth, this.zoom);
     if (this.renderSpec.isPencil && this.cubicSegments.length > 0) {
+      // This port refits the full stroke on every batch; restart the original per-stroke LCG so old splats stay stable.
+      this.splatGenerator.reset(this.startTime);
       this.splatPoints = this.splatGenerator.generate(this.cubicSegments, this.pathPoints);
     }
     if (this.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH) {
@@ -147,9 +153,9 @@ export class StrokeSession {
     const bounds: Rect2D = this.computeBounds();
     return {
       id: this.strokeId,
-      pathPoints: this.pathPoints,
-      cubicSegments: this.cubicSegments,
-      splatPoints: this.splatPoints,
+      pathPoints: isFinished ? this.pathPoints.slice() : this.pathPoints,
+      cubicSegments: isFinished ? this.cubicSegments.slice() : this.cubicSegments,
+      splatPoints: isFinished ? this.splatPoints.slice() : this.splatPoints,
       renderSpec: this.renderSpec,
       transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],  // 单位矩阵
       bounds: bounds,

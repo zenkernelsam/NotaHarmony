@@ -13,6 +13,7 @@ import { DatabaseManager } from './DatabaseManager';
 import { NoteRepositoryImpl } from './NoteRepositoryImpl';
 import { PageRepositoryImpl } from './PageRepositoryImpl';
 import { StrokePersistence, PersistedElement } from './StrokePersistence';
+import { BackupSourcePackage } from './BackupBatchSpec';
 
 // 纸张尺寸 → 毫米（A3~TABLOID，与 Phase 3 默认一致）
 export function paperSizeToMm(size: PaperSize): number[] {
@@ -57,16 +58,6 @@ export class NoteExporter {
       }
       const pageRepo = new PageRepositoryImpl(this.db);
       const pages: PageInfo[] = await pageRepo.getPages(noteId);
-      // 加载元素（MVP：元素无 page 关联，全部写入 page_0）
-      const loaded = await this.persistence.loadElements(noteId);
-      const elementObjects: PersistedElement[] = [];
-      for (const s of loaded.strokes) {
-        elementObjects.push({ kind: 'stroke', data: s });
-      }
-      for (const t of loaded.textBlocks) {
-        elementObjects.push({ kind: 'text', data: t });
-      }
-
       // manifest
       const manifest: NoteManifest = {
         format: NOTE_FORMAT,
@@ -81,19 +72,27 @@ export class NoteExporter {
       };
 
       const writer = new ZipWriter();
-      writer.addEntry('manifest.json', stringToBytes(serializeManifest(manifest)), true);
-      // 页面：第 0 页带全部元素，其余页空元素
+      writer.addEntry('manifest.json', stringToBytes(serializeManifest(manifest)), true, note.updatedAt);
+      writer.addDirectory('pages/', note.updatedAt);
       for (let i = 0; i < pages.length; i++) {
         const p: PageInfo = pages[i];
+        const loaded = await this.persistence.loadElements(noteId, p.pageId);
+        const elementObjects: PersistedElement[] = [];
+        for (const s of loaded.strokes) {
+          elementObjects.push({ kind: 'stroke', data: s });
+        }
+        for (const t of loaded.textBlocks) {
+          elementObjects.push({ kind: 'text', data: t });
+        }
         const pageData: PageData = {
           pageId: p.pageId,
           pageIndex: i,
           paperSize: p.size,
           paperTemplate: p.template,
           orientation: p.orientation,
-          elements: i === 0 ? elementObjects : [],
+          elements: elementObjects,
         };
-        writer.addEntry(`pages/page_${i}.json`, stringToBytes(serializePage(pageData)), true);
+        writer.addEntry(`pages/page_${i}.json`, stringToBytes(serializePage(pageData)), true, note.updatedAt);
       }
       return await writer.build();
     } catch (e) {
@@ -132,11 +131,10 @@ export class NoteExporter {
       const srcFile = fileIo.openSync(tmpPath, fileIo.OpenMode.READ_ONLY);
       const stat = fileIo.statSync(tmpPath);
       const size: number = stat.size;
-      const buffer = new ArrayBuffer(size);
-      fileIo.readSync(srcFile.fd, buffer);
+      const bytes: Uint8Array = readFileFully(srcFile.fd, size);
       fileIo.closeSync(srcFile);
       const dstFile = fileIo.openSync(targetUri, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
-      fileIo.writeSync(dstFile.fd, buffer);
+      fileIo.writeSync(dstFile.fd, bytes.buffer);
       fileIo.closeSync(dstFile);
       console.info(`exportToFile success: note=${noteId} bytes=${size}`);
       return true;
@@ -155,20 +153,23 @@ export class NoteExporter {
     }
   }
 
-  // 导出全部笔记（用于 WebDAV 备份）；返回 noteId → .note 二进制
-  async exportAllNotes(): Promise<Map<string, Uint8Array>> {
-    const result: Map<string, Uint8Array> = new Map<string, Uint8Array>();
-    try {
-      const noteRepo = new NoteRepositoryImpl(this.db);
-      const notes: NoteMeta[] = await noteRepo.getAllNotes();
-      for (const note of notes) {
-        const data: Uint8Array | null = await this.exportNote(note.id);
-        if (data !== null) {
-          result.set(note.id, data);
-        }
+  // 导出全部笔记；每篇导出前后复核内容 revision，变化时拒绝发布不一致批次。
+  async exportAllNotes(): Promise<BackupSourcePackage[]> {
+    const result: BackupSourcePackage[] = [];
+    const noteRepo = new NoteRepositoryImpl(this.db);
+    const notes: NoteMeta[] = await noteRepo.getAllNotes();
+    for (const note of notes) {
+      const revisionBefore: string = await this.persistence.getNoteRevisionSignature(note.id);
+      const data: Uint8Array | null = await this.exportNote(note.id);
+      if (data === null) {
+        throw new Error(`exportAllNotes failed: note ${note.id} could not be exported`);
       }
-    } catch (e) {
-      console.error(`exportAllNotes failed: ${JSON.stringify(e)}`);
+      const revisionAfter: string = await this.persistence.getNoteRevisionSignature(note.id);
+      const currentNote: NoteMeta | null = await noteRepo.getNote(note.id);
+      if (revisionBefore !== revisionAfter || currentNote === null || currentNote.updatedAt !== note.updatedAt) {
+        throw new Error(`exportAllNotes failed: note ${note.id} changed during export`);
+      }
+      result.push({ noteId: note.id, updatedAt: note.updatedAt, revision: revisionAfter, data: data });
     }
     return result;
   }
@@ -182,4 +183,19 @@ function safeFileName(title: string): string {
 function stringToBytes(text: string): Uint8Array {
   const encoder = new util.TextEncoder();
   return encoder.encodeInto(text);
+}
+
+function readFileFully(fd: number, size: number): Uint8Array {
+  const output = new Uint8Array(size);
+  let total: number = 0;
+  while (total < size) {
+    const chunkBuffer = new ArrayBuffer(size - total);
+    const read: number = fileIo.readSync(fd, chunkBuffer);
+    if (read <= 0) {
+      throw new Error(`文件读取不完整：${total}/${size} bytes`);
+    }
+    output.set(new Uint8Array(chunkBuffer, 0, read), total);
+    total += read;
+  }
+  return output;
 }

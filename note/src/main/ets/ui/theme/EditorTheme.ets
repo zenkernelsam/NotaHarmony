@@ -9,6 +9,13 @@ export interface ThemeTokens {
   paperBackground: string; // 画布纸张底色
   paperLineColor: string;  // 纸张线/点颜色
   accent: string;          // 选中高亮
+  control: string;
+  border: string;
+  onAccent: string;
+  shadow: string;
+  success: string;
+  danger: string;
+  scrim: string;
 }
 
 export const LightTheme: ThemeTokens = {
@@ -19,6 +26,13 @@ export const LightTheme: ThemeTokens = {
   paperBackground: '#FFFFFF',
   paperLineColor: '#E0E0E0',
   accent: '#3366FF',
+  control: '#F0F0F0',
+  border: '#DDDDDD',
+  onAccent: '#FFFFFF',
+  shadow: '#33000000',
+  success: '#16823B',
+  danger: '#C73420',
+  scrim: '#66FFFFFF',
 };
 
 export const DarkTheme: ThemeTokens = {
@@ -29,6 +43,13 @@ export const DarkTheme: ThemeTokens = {
   paperBackground: '#262626',
   paperLineColor: '#3A3A3A',
   accent: '#5B8CFF',
+  control: '#333333',
+  border: '#4A4A4A',
+  onAccent: '#FFFFFF',
+  shadow: '#66000000',
+  success: '#5BC77A',
+  danger: '#FF7866',
+  scrim: '#991A1A1A',
 };
 
 // 主题模式

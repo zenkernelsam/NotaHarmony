@@ -47,7 +47,8 @@
 //   ⚠ 形状 UUID 与 curveUUIDs **无交集**，即形状是曲线之外的独立内容，
 //     只画曲线会丢掉全部导线/圆/框（本样本 100 个）。
 
-import { float32From, uint32LE, PlistValue, BinaryPlistParser, PlistParseResult } from './BinaryPlistParser';
+import { float32From, uint32LE, PlistValue, PlistType, BinaryPlistParser,
+  PlistParseResult } from './BinaryPlistParser';
 import { NSKeyedArchiverDecoder, ArchiveNode, ArchiveDecodeResult } from './NSKeyedArchiverDecoder';
 import { Point2D, Rect2D, CubicSegment } from '../core/model/GeometryTypes';
 import { StrokeElementData, StrokePathPoint, RenderSpec, InkStyle } from '../core/model/StrokeTypes';
@@ -117,6 +118,37 @@ export interface NotabilityPaper {
   layoutDevice: string;
 }
 
+export interface NotabilityContentCount {
+  found: number;
+  recovered: number;
+  degraded: number;
+  unquantifiedLoss: boolean;
+}
+
+export interface NotabilityContentInventory {
+  handwriting: NotabilityContentCount;
+  shapes: NotabilityContentCount;
+  textCharacters: NotabilityContentCount;
+  media: NotabilityContentCount;
+  pdf: NotabilityContentCount;
+  audio: NotabilityContentCount;
+}
+
+export function summarizeNotabilityContentLoss(inventory: NotabilityContentInventory): string[] {
+  const details: string[] = [];
+  appendContentLoss(details, '手写笔迹', '条', inventory.handwriting);
+  appendContentLoss(details, '识别形状', '个', inventory.shapes);
+  appendContentLoss(details, '键入文本', '字符', inventory.textCharacters);
+  appendContentLoss(details, '图片/附件', '项', inventory.media);
+  appendContentLoss(details, 'PDF 底稿', '项', inventory.pdf);
+  appendContentLoss(details, '录音', '项', inventory.audio);
+  return details;
+}
+
+export function resolveNotabilityPageCount(derivedFromContent: number, pageCountHint: number): number {
+  return Math.max(1, derivedFromContent, pageCountHint);
+}
+
 export interface NotabilitySession {
   ok: boolean;
   error: string;
@@ -132,7 +164,9 @@ export interface NotabilitySession {
   curves: NotabilityCurve[];
   shapes: NotabilityShape[];
   totalPoints: number;
+  inventory: NotabilityContentInventory;
   warnings: string[];
+  missingAssets: string[];
   unparsed: string[];
   structureLog: string;
 }
@@ -146,6 +180,9 @@ export interface NotabilityMetadata {
   modifiedMillis: number;
   hasRecording: boolean;
   subject: string;
+  fieldsFound: number;
+  fieldsRecovered: number;
+  warnings: string[];
 }
 
 // 每页转换结果
@@ -162,17 +199,20 @@ export class NotabilityMetadataParser {
     const out: NotabilityMetadata = {
       ok: false, error: '', noteName: '', uuid: '',
       createdMillis: 0, modifiedMillis: 0, hasRecording: false, subject: '',
+      fieldsFound: 0, fieldsRecovered: 0, warnings: [],
     };
     const parsed: PlistParseResult = BinaryPlistParser.parse(data);
     if (parsed.value === null) {
       out.error = `metadata.plist 解析失败：${parsed.error}`;
       return out;
     }
+    appendUniqueAll(out.warnings, parsed.warnings);
     const decoded: ArchiveDecodeResult = NSKeyedArchiverDecoder.decode(parsed.value);
     if (decoded.decoder === null) {
       out.error = `metadata.plist 归档解码失败：${decoded.error}`;
       return out;
     }
+    appendUniqueAll(out.warnings, decoded.warnings);
     const root: ArchiveNode | null = decoded.decoder.rootNode();
     if (root === null) {
       out.error = 'metadata.plist 缺少根对象';
@@ -184,6 +224,24 @@ export class NotabilityMetadataParser {
     out.createdMillis = root.dateMillisOf('noteCreationDateKey', 0);
     out.modifiedMillis = root.dateMillisOf('noteModifiedDateKey', 0);
     out.hasRecording = root.boolOf('noteHasRecordingKey', false);
+    const metadataKeys: string[] = [
+      'noteName', 'uuidKey', 'noteSubject', 'noteCreationDateKey', 'noteModifiedDateKey',
+      'noteHasRecordingKey',
+    ];
+    for (let i: number = 0; i < metadataKeys.length; i++) {
+      if (root.has(metadataKeys[i])) {
+        out.fieldsFound++;
+      }
+    }
+    const criticalRecovered: number = (out.noteName.length > 0 ? 1 : 0) +
+      (out.uuid.length > 0 ? 1 : 0) + (out.subject.length > 0 ? 1 : 0) +
+      (out.createdMillis > 0 ? 1 : 0) + (out.modifiedMillis > 0 ? 1 : 0);
+    if (out.fieldsFound === 0 || criticalRecovered === 0) {
+      out.error = 'metadata.plist 不含可恢复的标题、UUID、主题或时间字段';
+      return out;
+    }
+    // 字段存在且对象图已成功解码即视为恢复；空 subject/title 可以是合法用户数据。
+    out.fieldsRecovered = out.fieldsFound;
     out.ok = true;
     return out;
   }
@@ -204,7 +262,8 @@ export class NotabilitySessionParser {
         lineStyle: '', sizingBehavior: '', layoutDevice: '',
       },
       pageWidthDoc: 0, pageHeightDoc: 0, pageCount: 0,
-      curves: [], shapes: [], totalPoints: 0, warnings: [], unparsed: [], structureLog: '',
+      curves: [], shapes: [], totalPoints: 0, inventory: createNotabilityContentInventory(),
+      warnings: [], missingAssets: [], unparsed: [], structureLog: '',
     };
 
     const parsed: PlistParseResult = BinaryPlistParser.parse(data);
@@ -212,12 +271,16 @@ export class NotabilitySessionParser {
       out.error = `Session.plist 解析失败：${parsed.error}`;
       return out;
     }
+    for (let i: number = 0; i < parsed.warnings.length; i++) {
+      out.warnings.push(parsed.warnings[i]);
+    }
     const decoded: ArchiveDecodeResult = NSKeyedArchiverDecoder.decode(parsed.value);
     if (decoded.decoder === null) {
       out.error = `Session.plist 归档解码失败：${decoded.error}`;
       return out;
     }
     const decoder: NSKeyedArchiverDecoder = decoded.decoder;
+    appendUniqueAll(out.warnings, decoded.warnings);
     out.structureLog = decoder.describeGraph(8, 24);
 
     const root: ArchiveNode | null = decoder.rootNode();
@@ -270,64 +333,63 @@ export class NotabilitySessionParser {
       out.warnings.push(`缩略图不可用，页高按兜底比例 ${FALLBACK_PAGE_ASPECT} 推导（未经该文件验证）`);
     }
 
-    // --- 笔画 ---
-    const overlay: ArchiveNode | null = richText.node('Handwriting Overlay');
-    if (overlay === null) {
-      out.warnings.push('未找到 "Handwriting Overlay"，该笔记可能不含手写内容');
-      out.pageCount = pageCountHint > 0 ? pageCountHint : 1;
-      out.ok = true;
-      return out;
-    }
-    const hash: ArchiveNode | null = overlay.node('SpatialHash');
-    if (hash === null) {
-      out.warnings.push('HandwritingObject 缺少 SpatialHash，无笔画可解析');
-      out.pageCount = pageCountHint > 0 ? pageCountHint : 1;
-      out.ok = true;
-      return out;
-    }
-
-    const curveResult: CurveParseOutcome = NotabilitySessionParser.parseCurves(hash, out.pageHeightDoc);
-    out.curves = curveResult.curves;
-    out.totalPoints = curveResult.totalPoints;
-    for (const w of curveResult.warnings) {
-      out.warnings.push(w);
-    }
-
-    // 形状识别层：内嵌 bplist，独立于曲线，必须解析否则丢失全部直线/圆/矩形
-    const shapesData: Uint8Array | null = hash.dataOf('shapes');
-    if (shapesData !== null && shapesData.length > 0) {
-      const shapeOutcome: ShapeParseOutcome =
-        NotabilitySessionParser.parseShapes(shapesData, out.pageHeightDoc);
-      out.shapes = shapeOutcome.shapes;
-      for (const w of shapeOutcome.warnings) {
-        out.warnings.push(w);
-      }
-    }
-
-    // 未解析部分登记（仅在确有内容时登记，避免空容器把结果误标成"部分导入"）
-    const bezierDict: ArchiveNode | null = hash.node('bezierPathsDataDictionary');
-    if (bezierDict !== null && bezierDict.mapKeys().length > 0) {
-      out.unparsed.push(`bezierPathsDataDictionary（${bezierDict.mapKeys().length} 项）：未解析`);
-    }
-    const groups: ArchiveNode | null = hash.node('groupsArrays');
-    if (groups !== null && groups.elements().length > 0) {
-      out.unparsed.push(`groupsArrays（${groups.elements().length} 项）：笔画分组，未解析`);
-    }
+    // 先盘点非手写内容，禁止因 Handwriting Overlay 缺失而提前返回成功。
     const media: ArchiveNode | null = richText.node('mediaObjects');
-    if (media !== null && media.elements().length > 0) {
-      out.unparsed.push(`mediaObjects（${media.elements().length} 项）：图片/附件，未解析`);
+    if (media !== null) {
+      out.inventory.media.found = contentNodeCount(media);
     }
     const pdfs: ArchiveNode | null = richText.node('pdfFiles');
-    if (pdfs !== null && pdfs.elements().length > 0) {
-      out.unparsed.push(`pdfFiles（${pdfs.elements().length} 项）：PDF 底稿，未解析`);
+    if (pdfs !== null) {
+      out.inventory.pdf.found = contentNodeCount(pdfs);
     }
     const attributed: ArchiveNode | null = richText.node('NBAttributedBackingString');
     if (attributed !== null) {
       const coding: ArchiveNode | null = attributed.node('NBAttributedBackingStringCodingKey');
       const textNode: ArchiveNode | null = coding !== null ? coding.mapValue('stringKey') : null;
-      const text: string = textNode !== null ? textNode.asText('') : '';
-      if (text.length > 0) {
-        out.unparsed.push(`NBAttributedBackingString：键入文本层（${text.length} 字），富文本未解析`);
+      const typedText: string = textNode !== null ? textNode.asText('') : '';
+      out.inventory.textCharacters.found = typedText.length;
+    }
+
+    // --- 笔画与形状 ---
+    const overlay: ArchiveNode | null = richText.node('Handwriting Overlay');
+    const hash: ArchiveNode | null = overlay !== null ? overlay.node('SpatialHash') : null;
+    if (overlay === null) {
+      out.warnings.push('未找到 "Handwriting Overlay"，该笔记可能不含手写内容');
+    } else if (hash === null) {
+      out.warnings.push('HandwritingObject 缺少 SpatialHash，无笔画可解析');
+    }
+
+    if (hash !== null) {
+      const curveResult: CurveParseOutcome = NotabilitySessionParser.parseCurves(hash, out.pageHeightDoc);
+      out.curves = curveResult.curves;
+      out.totalPoints = curveResult.totalPoints;
+      out.inventory.handwriting.found = curveResult.expectedCount;
+      out.inventory.handwriting.recovered = curveResult.curves.length;
+      out.inventory.handwriting.degraded = curveResult.degradedCount;
+      out.inventory.handwriting.unquantifiedLoss = curveResult.unquantifiedLoss;
+      appendUniqueAll(out.warnings, curveResult.warnings);
+
+      // 形状识别层：内嵌 bplist，独立于曲线，必须解析否则丢失全部直线/圆/矩形
+      const shapesData: Uint8Array | null = hash.dataOf('shapes');
+      if (shapesData !== null && shapesData.length > 0) {
+        const shapeOutcome: ShapeParseOutcome =
+          NotabilitySessionParser.parseShapes(shapesData, out.pageHeightDoc);
+        out.shapes = shapeOutcome.shapes;
+        out.inventory.shapes.found = shapeOutcome.expectedCount;
+        out.inventory.shapes.recovered = shapeOutcome.shapes.length;
+        out.inventory.shapes.degraded = shapeOutcome.degradedCount;
+        out.inventory.shapes.unquantifiedLoss = shapeOutcome.unquantifiedLoss;
+        appendUniqueAll(out.warnings, shapeOutcome.warnings);
+      }
+
+      // 未解析部分登记（仅在确有内容时登记，避免空容器把结果误标成"部分导入"）
+      const bezierDict: ArchiveNode | null = hash.node('bezierPathsDataDictionary');
+      if (bezierDict !== null && bezierDict.mapKeys().length > 0) {
+        out.unparsed.push(`bezierPathsDataDictionary（${bezierDict.mapKeys().length} 项）：未解析`);
+      }
+      const groups: ArchiveNode | null = hash.node('groupsArrays');
+      if (groups !== null && groups.elements().length > 0) {
+        out.unparsed.push(`groupsArrays（${groups.elements().length} 项）：笔画分组，未解析`);
       }
     }
 
@@ -338,16 +400,18 @@ export class NotabilitySessionParser {
         maxPage = c.pageIndex;
       }
     }
-    const derived: number = out.curves.length > 0 ? maxPage + 1 : 1;
-    if (pageCountHint > 0) {
-      out.pageCount = pageCountHint;
-      if (pageCountHint !== derived) {
-        out.warnings.push(
-          `页数不一致：按页高 ${out.pageHeightDoc.toFixed(2)} 推导 ${derived} 页，` +
-          `HandwritingIndex 记录 ${pageCountHint} 页；已采用后者，页高推导可能有偏差`);
+    for (const shape of out.shapes) {
+      if (shape.pageIndex > maxPage) {
+        maxPage = shape.pageIndex;
       }
-    } else {
-      out.pageCount = derived;
+    }
+    const hasPositionedContent: boolean = out.curves.length > 0 || out.shapes.length > 0;
+    const derived: number = hasPositionedContent ? maxPage + 1 : 1;
+    out.pageCount = resolveNotabilityPageCount(derived, pageCountHint);
+    if (pageCountHint > 0 && pageCountHint !== derived) {
+      out.warnings.push(
+        `页数不一致：按曲线/形状坐标与页高 ${out.pageHeightDoc.toFixed(2)} 推导 ${derived} 页，` +
+        `HandwritingIndex 记录 ${pageCountHint} 页；为避免丢内容已采用上界 ${out.pageCount} 页`);
     }
 
     out.ok = true;
@@ -360,7 +424,9 @@ export class NotabilitySessionParser {
     const numCurves: number = hash.numberOf('numcurves', 0);
     const numPoints: number = hash.numberOf('numpoints', 0);
     const numFrac: number = hash.numberOf('numfractionalwidths', 0);
+    outcome.expectedCount = Math.max(0, numCurves);
     if (numCurves <= 0 || numPoints <= 0) {
+      outcome.unquantifiedLoss = numCurves > 0 || numPoints > 0;
       outcome.warnings.push(`InkedSpatialHash 计数异常 numcurves=${numCurves} numpoints=${numPoints}`);
       return outcome;
     }
@@ -393,6 +459,7 @@ export class NotabilitySessionParser {
     let pointCursor: number = 0;    // 点索引
     let anchorCursor: number = 0;   // 锚点索引
     let structureMismatch: number = 0;
+    let optionsHighWordCount: number = 0;
 
     for (let ci = 0; ci < numCurves; ci++) {
       const n: number = uint32LE(dNumPts, ci * 4);
@@ -403,6 +470,7 @@ export class NotabilitySessionParser {
       // 三次贝塞尔链应满足 n = 3k+1
       if ((n - 1) % 3 !== 0) {
         structureMismatch++;
+        break;   // 锚点流已无法可靠对齐，禁止继续把后续曲线属性错配
       }
       const segCount: number = Math.floor((n - 1) / 3);
       const anchorCount: number = segCount + 1;
@@ -448,6 +516,20 @@ export class NotabilitySessionParser {
       if (style !== STYLE_PEN_OBSERVED && unknownStyles.indexOf(style) < 0) {
         unknownStyles.push(style);
       }
+      if (style !== STYLE_PEN_OBSERVED) {
+        outcome.degradedCount++;
+      }
+
+      let options: number = 0;
+      if (dOptions !== null && dOptions.length >= (ci + 1) * 8) {
+        const optionLo: number = uint32LE(dOptions, ci * 8);
+        const optionHi: number = uint32LE(dOptions, ci * 8 + 4);
+        if (optionHi !== 0) {
+          optionsHighWordCount++;
+        }
+        options = optionHi > 0x1FFFFF ? Number.MAX_SAFE_INTEGER :
+          optionHi * 4294967296.0 + optionLo;
+      }
 
       const curve: NotabilityCurve = {
         index: ci,
@@ -457,7 +539,7 @@ export class NotabilitySessionParser {
           : rgbaToArgb(0, 0, 0, 255),
         width: dWidth !== null && dWidth.length >= (ci + 1) * 4 ? float32From(dWidth, ci * 4, true) : 1.0,
         style: style,
-        options: dOptions !== null && dOptions.length >= (ci + 1) * 8 ? uint32LE(dOptions, ci * 8) : 0,
+        options: options,
         points: pts,
         fractionalWidths: fracs,
         forces: forces,
@@ -485,6 +567,10 @@ export class NotabilitySessionParser {
       outcome.warnings.push(
         `出现未验证的笔画样式值 [${unknownStyles.join(', ')}]（仅样式 ${STYLE_PEN_OBSERVED}=普通笔经实测确认），已按定宽笔处理`);
     }
+    if (optionsHighWordCount > 0) {
+      outcome.warnings.push(
+        `${optionsHighWordCount} 条曲线的 64 位 options 高 32 位非零；已保留安全整数范围内的完整值`);
+    }
     return outcome;
   }
 
@@ -493,24 +579,31 @@ export class NotabilitySessionParser {
     const outcome = new ShapeParseOutcome();
     const parsed: PlistParseResult = BinaryPlistParser.parse(data);
     if (parsed.value === null) {
+      outcome.unquantifiedLoss = true;
       outcome.warnings.push(`形状层内嵌 plist 解析失败：${parsed.error}，${data.length} 字节形状内容丢失`);
       return outcome;
+    }
+    for (let i: number = 0; i < parsed.warnings.length; i++) {
+      outcome.warnings.push(`形状层：${parsed.warnings[i]}`);
     }
     const shapesArr: PlistValue | null = parsed.value.dictGet('shapes');
     const kindsArr: PlistValue | null = parsed.value.dictGet('kinds');
     const indicesArr: PlistValue | null = parsed.value.dictGet('indices');
     if (shapesArr === null || kindsArr === null) {
+      outcome.unquantifiedLoss = true;
       outcome.warnings.push('形状层缺少 shapes/kinds 数组，未解析');
       return outcome;
     }
     const items: PlistValue[] = shapesArr.arrayItems();
     const kinds: PlistValue[] = kindsArr.arrayItems();
     const indices: PlistValue[] = indicesArr !== null ? indicesArr.arrayItems() : [];
+    outcome.expectedCount = items.length;
     if (kinds.length !== items.length) {
       outcome.warnings.push(`形状层 shapes(${items.length}) 与 kinds(${kinds.length}) 数量不符，按较小者处理`);
     }
     const count: number = Math.min(items.length, kinds.length);
     const unknownKinds: string[] = [];
+    const unknownStyles: number[] = [];
 
     for (let i = 0; i < count; i++) {
       const item: PlistValue = items[i];
@@ -595,6 +688,13 @@ export class NotabilitySessionParser {
         continue;
       }
 
+      if (style !== STYLE_PEN_OBSERVED) {
+        outcome.degradedCount++;
+        if (unknownStyles.indexOf(style) < 0) {
+          unknownStyles.push(style);
+        }
+      }
+
       let minX: number = Number.MAX_VALUE;
       let minY: number = Number.MAX_VALUE;
       let maxX: number = -Number.MAX_VALUE;
@@ -638,6 +738,10 @@ export class NotabilitySessionParser {
       outcome.warnings.push(
         `形状层出现未知类型 [${unknownKinds.join(', ')}]（仅 line/circle/rectangle 经实测确认），已跳过未渲染`);
     }
+    if (unknownStyles.length > 0) {
+      outcome.warnings.push(
+        `形状层出现未验证样式值 [${unknownStyles.join(', ')}]，几何已恢复但样式按普通定宽笔退化`);
+    }
     return outcome;
   }
 
@@ -655,17 +759,55 @@ export class NotabilitySessionParser {
     }
     const scale: number = targetPageWidthVp / session.pageWidthDoc;
 
+    const sortedShapes: NotabilityShape[] = [];
+    let shapeOrderChanged: boolean = false;
+    for (let i: number = 0; i < session.shapes.length; i++) {
+      sortedShapes.push(session.shapes[i]);
+      if (i > 0 && session.shapes[i - 1].zIndex > session.shapes[i].zIndex) {
+        shapeOrderChanged = true;
+      }
+    }
+    sortedShapes.sort((left: NotabilityShape, right: NotabilityShape): number => {
+      if (left.zIndex !== right.zIndex) {
+        return left.zIndex - right.zIndex;
+      }
+      return left.index - right.index;
+    });
+    if (shapeOrderChanged) {
+      const warning: string = '形状 indices 非升序，已按 zIndex 稳定排序后还原绘制层次';
+      if (session.warnings.indexOf(warning) < 0) {
+        session.warnings.push(warning);
+      }
+    }
+    let clampedItemCount: number = 0;
+    for (let i: number = 0; i < session.curves.length; i++) {
+      if (session.curves[i].pageIndex >= pageTotal) {
+        clampedItemCount++;
+      }
+    }
+    for (let i: number = 0; i < sortedShapes.length; i++) {
+      if (sortedShapes[i].pageIndex >= pageTotal) {
+        clampedItemCount++;
+      }
+    }
+    if (clampedItemCount > 0) {
+      const warning: string = `${clampedItemCount} 个笔画/形状页号超出页数，已连同坐标偏移钳制到末页`;
+      if (session.warnings.indexOf(warning) < 0) {
+        session.warnings.push(warning);
+      }
+    }
+
     let shapeCursor: number = 0;
     for (let ci = 0; ci < session.curves.length; ci++) {
       // 先补齐所有该插在本条曲线之前的形状
-      while (shapeCursor < session.shapes.length && session.shapes[shapeCursor].zIndex <= ci) {
-        NotabilitySessionParser.pushShape(pages, session.shapes[shapeCursor], session, scale, pageTotal);
+      while (shapeCursor < sortedShapes.length && sortedShapes[shapeCursor].zIndex <= ci) {
+        NotabilitySessionParser.pushShape(pages, sortedShapes[shapeCursor], session, scale, pageTotal);
         shapeCursor++;
       }
       NotabilitySessionParser.pushCurve(pages, session.curves[ci], session, scale, pageTotal);
     }
-    while (shapeCursor < session.shapes.length) {
-      NotabilitySessionParser.pushShape(pages, session.shapes[shapeCursor], session, scale, pageTotal);
+    while (shapeCursor < sortedShapes.length) {
+      NotabilitySessionParser.pushShape(pages, sortedShapes[shapeCursor], session, scale, pageTotal);
       shapeCursor++;
     }
     return pages;
@@ -674,7 +816,7 @@ export class NotabilitySessionParser {
   private static pushCurve(pages: NotabilityPageStrokes[], curve: NotabilityCurve,
     session: NotabilitySession, scale: number, pageTotal: number): void {
     const pi: number = curve.pageIndex < pageTotal ? curve.pageIndex : pageTotal - 1;
-    const yOffset: number = curve.pageIndex * session.pageHeightDoc;
+    const yOffset: number = pi * session.pageHeightDoc;
 
     // 页内坐标 + 缩放
     const local: Point2D[] = [];
@@ -699,6 +841,10 @@ export class NotabilitySessionParser {
       pathPoints.push({
         position: local[idx],
         widthFactor: a < curve.fractionalWidths.length ? curve.fractionalWidths[a] : 1.0,
+        pressure: -1,
+        altitudeAngleRadians: Math.PI / 2,
+        azimuthUnitX: 1,
+        azimuthUnitY: 0,
       });
     }
 
@@ -735,13 +881,17 @@ export class NotabilitySessionParser {
       return;
     }
     const pi: number = shape.pageIndex < pageTotal ? shape.pageIndex : pageTotal - 1;
-    const yOffset: number = shape.pageIndex * session.pageHeightDoc;
+    const yOffset: number = pi * session.pageHeightDoc;
 
     const pathPoints: StrokePathPoint[] = [];
     for (const p of shape.anchors) {
       pathPoints.push({
         position: { x: p.x * scale, y: (p.y - yOffset) * scale },
         widthFactor: 1.0,
+        pressure: -1,
+        altitudeAngleRadians: Math.PI / 2,
+        azimuthUnitX: 1,
+        azimuthUnitY: 0,
       });
     }
     const segments: CubicSegment[] = [];
@@ -796,8 +946,13 @@ export class NotabilitySessionParser {
   }
 
   // 从 HandwritingIndex/index.plist 读取页数（普通 binary plist，非归档）
-  static pageCountFromIndex(data: Uint8Array): number {
+  static pageCountFromIndex(data: Uint8Array, warnings?: string[]): number {
     const parsed: PlistParseResult = BinaryPlistParser.parse(data);
+    if (warnings !== undefined) {
+      for (let i: number = 0; i < parsed.warnings.length; i++) {
+        warnings.push(`HandwritingIndex：${parsed.warnings[i]}`);
+      }
+    }
     const root: PlistValue | null = parsed.value;
     if (root === null) {
       return 0;
@@ -806,19 +961,72 @@ export class NotabilitySessionParser {
     if (pages === null) {
       return 0;
     }
-    return pages.dictKeys().length;
+    if (pages.type === PlistType.DICT) {
+      return pages.dictKeys().length;
+    }
+    if (pages.type === PlistType.ARRAY || pages.type === PlistType.SET) {
+      return pages.arrayItems().length;
+    }
+    if (warnings !== undefined) {
+      warnings.push(`HandwritingIndex.pages 类型不支持：${pages.describe()}`);
+    }
+    return 0;
   }
 }
 
 class CurveParseOutcome {
   curves: NotabilityCurve[] = [];
   totalPoints: number = 0;
+  expectedCount: number = 0;
+  degradedCount: number = 0;
+  unquantifiedLoss: boolean = false;
   warnings: string[] = [];
 }
 
 class ShapeParseOutcome {
   shapes: NotabilityShape[] = [];
+  expectedCount: number = 0;
+  degradedCount: number = 0;
+  unquantifiedLoss: boolean = false;
   warnings: string[] = [];
+}
+
+function createContentCount(): NotabilityContentCount {
+  return { found: 0, recovered: 0, degraded: 0, unquantifiedLoss: false };
+}
+
+export function createNotabilityContentInventory(): NotabilityContentInventory {
+  return {
+    handwriting: createContentCount(), shapes: createContentCount(),
+    textCharacters: createContentCount(), media: createContentCount(),
+    pdf: createContentCount(), audio: createContentCount(),
+  };
+}
+
+function appendUniqueAll(target: string[], values: string[]): void {
+  for (let i: number = 0; i < values.length; i++) {
+    if (target.indexOf(values[i]) < 0) {
+      target.push(values[i]);
+    }
+  }
+}
+
+function contentNodeCount(node: ArchiveNode): number {
+  return Math.max(node.elements().length, node.mapKeys().length);
+}
+
+function appendContentLoss(target: string[], label: string, unit: string,
+  count: NotabilityContentCount): void {
+  if (count.found > count.recovered) {
+    target.push(`${label}：发现 ${count.found} ${unit}，恢复 ${count.recovered} ${unit}，` +
+      `丢失 ${count.found - count.recovered} ${unit}`);
+  }
+  if (count.degraded > 0) {
+    target.push(`${label}：${count.degraded} ${unit}已恢复几何/内容，但样式发生保真退化`);
+  }
+  if (count.unquantifiedLoss) {
+    target.push(`${label}：检测到内容层，但结构损坏，数量未知且未能恢复`);
+  }
 }
 
 // [x, y] 形式的点

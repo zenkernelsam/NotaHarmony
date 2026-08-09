@@ -1,48 +1,79 @@
-// T-013 脏矩形追踪器（任务卡 T-013，REVERSE_ANALYSIS §19：增量渲染区域 = bounds±3px）
+// 脏区始终使用页面坐标；屏幕像素 padding 由当前 zoom 换算后再写入。
 import { Rect2D } from '../core/model/GeometryTypes';
 
 export class DirtyRectTracker {
-  private dirtyRect: Rect2D | null = null;
-  private padding: number;
+  private dirtyRects: Rect2D[] = [];
+  private screenPadding: number;
+  private maxRegions: number;
 
-  constructor(padding?: number) {
-    this.padding = padding !== undefined ? padding : 3;  // 对应原版 ±3px
+  constructor(screenPadding: number = 3, maxRegions: number = 8) {
+    this.screenPadding = Math.max(0, screenPadding);
+    this.maxRegions = Math.max(1, maxRegions);
   }
 
-  // 标记脏区（笔画 bounds 膨胀 padding）
-  markDirty(bounds: Rect2D): void {
-    const inflated: Rect2D = {
-      left: bounds.left - this.padding,
-      top: bounds.top - this.padding,
-      right: bounds.right + this.padding,
-      bottom: bounds.bottom + this.padding,
+  markDirty(bounds: Rect2D, zoom: number = 1): void {
+    const safeZoom: number = zoom > 0 ? zoom : 1;
+    const pagePadding: number = this.screenPadding / safeZoom;
+    let candidate: Rect2D = {
+      left: bounds.left - pagePadding,
+      top: bounds.top - pagePadding,
+      right: bounds.right + pagePadding,
+      bottom: bounds.bottom + pagePadding,
     };
-    if (this.dirtyRect === null) {
-      this.dirtyRect = inflated;
+    let remaining: Rect2D[] = this.dirtyRects.slice();
+    let merged: boolean = true;
+    while (merged) {
+      merged = false;
+      const next: Rect2D[] = [];
+      for (const rect of remaining) {
+        if (this.intersects(rect, candidate)) {
+          candidate = this.union(rect, candidate);
+          merged = true;
+        } else {
+          next.push(rect);
+        }
+      }
+      remaining = next;
+    }
+    remaining.push(candidate);
+    if (remaining.length > this.maxRegions) {
+      let collapsed: Rect2D = remaining[0];
+      for (let i: number = 1; i < remaining.length; i++) {
+        collapsed = this.union(collapsed, remaining[i]);
+      }
+      this.dirtyRects = [collapsed];
     } else {
-      // 合并（union）：外接矩形
-      this.dirtyRect = {
-        left: Math.min(this.dirtyRect.left, inflated.left),
-        top: Math.min(this.dirtyRect.top, inflated.top),
-        right: Math.max(this.dirtyRect.right, inflated.right),
-        bottom: Math.max(this.dirtyRect.bottom, inflated.bottom),
-      };
+      this.dirtyRects = remaining;
     }
   }
 
-  // 获取并重置脏区
-  consume(): Rect2D | null {
-    const rect: Rect2D | null = this.dirtyRect;
-    this.dirtyRect = null;
-    return rect;
+  consume(): Rect2D[] {
+    const rects: Rect2D[] = this.dirtyRects;
+    this.dirtyRects = [];
+    return rects;
   }
 
-  // 全屏脏（初始化/resize 时）
-  markFullDirty(width: number, height: number): void {
-    this.dirtyRect = { left: 0, top: 0, right: width, bottom: height };
+  markFullDirty(pageBounds: Rect2D): void {
+    this.dirtyRects = [{
+      left: pageBounds.left, top: pageBounds.top,
+      right: pageBounds.right, bottom: pageBounds.bottom,
+    }];
   }
 
   isDirty(): boolean {
-    return this.dirtyRect !== null;
+    return this.dirtyRects.length > 0;
+  }
+
+  private intersects(a: Rect2D, b: Rect2D): boolean {
+    return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
+  }
+
+  private union(a: Rect2D, b: Rect2D): Rect2D {
+    return {
+      left: Math.min(a.left, b.left),
+      top: Math.min(a.top, b.top),
+      right: Math.max(a.right, b.right),
+      bottom: Math.max(a.bottom, b.bottom),
+    };
   }
 }

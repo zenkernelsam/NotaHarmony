@@ -1,11 +1,14 @@
 // T-037 页面设置面板（尺寸/模板/方向选择，bindPopup 承载）
 import { PageInfo, PaperSize, PaperTemplate, PageOrientation } from '../../core/model/NoteTypes';
+import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 
 const SIZE_OPTIONS: PaperSizeOption[] = [
   { size: PaperSize.A3, label: 'A3', dim: '297×420' },
   { size: PaperSize.A4, label: 'A4', dim: '210×297' },
   { size: PaperSize.A5, label: 'A5', dim: '148×210' },
   { size: PaperSize.A6, label: 'A6', dim: '105×148' },
+  { size: PaperSize.A7, label: 'A7', dim: '74×105' },
   { size: PaperSize.LETTER, label: 'Letter', dim: '216×279' },
   { size: PaperSize.LEGAL, label: 'Legal', dim: '216×356' },
   { size: PaperSize.TABLOID, label: 'Tabloid', dim: '279×432' },
@@ -19,27 +22,36 @@ interface PaperSizeOption {
 
 @Component
 export struct PageSettingsPanel {
-  @Prop page: PageInfo = { pageId: '', size: 1, template: 0, orientation: 0, widthMm: 210, heightMm: 297 };
+  @Prop page: PageInfo = { pageId: '', pageIndex: 0, size: 1, template: 0, orientation: 0,
+    widthMm: 210, heightMm: 297 };
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onApply: (page: PageInfo) => void = () => {
   };
+
+  private resolveTokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
 
   build() {
     Column() {
       // === 尺寸 ===
-      Text('纸张尺寸').fontSize(14).fontWeight(FontWeight.Medium).margin({ bottom: 8 })
+      Text($r('app.string.paper_size')).fontSize(14).fontWeight(FontWeight.Medium).margin({ bottom: 8 })
       Grid() {
         ForEach(SIZE_OPTIONS, (opt: PaperSizeOption) => {
           GridItem() {
             Column() {
               Text(opt.label).fontSize(13)
-              Text(opt.dim).fontSize(10).fontColor('#888888')
+              Text(opt.dim).fontSize(10).fontColor(this.resolveTokens().textSecondary)
             }
             .width(76)
             .height(52)
             .justifyContent(FlexAlign.Center)
             .borderRadius(8)
-            .backgroundColor(opt.size === this.page.size ? '#3366FF' : '#F0F0F0')
-            .border({ width: 1, color: opt.size === this.page.size ? '#3366FF' : '#DDDDDD' })
+            .backgroundColor(opt.size === this.page.size ? this.resolveTokens().accent :
+              this.resolveTokens().control)
+            .border({ width: 1, color: opt.size === this.page.size ? this.resolveTokens().accent :
+              this.resolveTokens().border })
             .onClick(() => {
               const updated: PageInfo = this.clonePage();
               updated.size = opt.size;
@@ -63,7 +75,8 @@ export struct PageSettingsPanel {
       .height(130)
 
       // === 模板（自绘迷你预览：展示类，无原生等价物）===
-      Text('纸张模板').fontSize(14).fontWeight(FontWeight.Medium).margin({ top: 12, bottom: 8 })
+      Text($r('app.string.paper_template')).fontSize(14).fontWeight(FontWeight.Medium)
+        .margin({ top: 12, bottom: 8 })
       Row() {
         ForEach([PaperTemplate.PLAIN, PaperTemplate.LINES, PaperTemplate.GRID, PaperTemplate.DOTS],
           (tpl: PaperTemplate) => {
@@ -81,14 +94,17 @@ export struct PageSettingsPanel {
       }
 
       // === 方向 ===
-      Text('页面方向').fontSize(14).fontWeight(FontWeight.Medium).margin({ top: 12, bottom: 8 })
+      Text($r('app.string.page_orientation')).fontSize(14).fontWeight(FontWeight.Medium)
+        .margin({ top: 12, bottom: 8 })
       Row() {
-        Button('纵向')
+        Button($r('app.string.portrait'))
           .height(36)
           .fontSize(13)
           .margin({ right: 8 })
-          .backgroundColor(this.page.orientation === PageOrientation.PORTRAIT ? '#3366FF' : '#F0F0F0')
-          .fontColor(this.page.orientation === PageOrientation.PORTRAIT ? Color.White : Color.Black)
+          .backgroundColor(this.page.orientation === PageOrientation.PORTRAIT ? this.resolveTokens().accent :
+            this.resolveTokens().control)
+          .fontColor(this.page.orientation === PageOrientation.PORTRAIT ? this.resolveTokens().onAccent :
+            this.resolveTokens().textPrimary)
           .onClick(() => {
             const updated: PageInfo = this.clonePage();
             if (updated.orientation !== PageOrientation.PORTRAIT) {
@@ -99,11 +115,13 @@ export struct PageSettingsPanel {
               this.onApply(updated);
             }
           })
-        Button('横向')
+        Button($r('app.string.landscape'))
           .height(36)
           .fontSize(13)
-          .backgroundColor(this.page.orientation === PageOrientation.LANDSCAPE ? '#3366FF' : '#F0F0F0')
-          .fontColor(this.page.orientation === PageOrientation.LANDSCAPE ? Color.White : Color.Black)
+          .backgroundColor(this.page.orientation === PageOrientation.LANDSCAPE ? this.resolveTokens().accent :
+            this.resolveTokens().control)
+          .fontColor(this.page.orientation === PageOrientation.LANDSCAPE ? this.resolveTokens().onAccent :
+            this.resolveTokens().textPrimary)
           .onClick(() => {
             const updated: PageInfo = this.clonePage();
             if (updated.orientation !== PageOrientation.LANDSCAPE) {
@@ -118,7 +136,7 @@ export struct PageSettingsPanel {
     }
     .padding(16)
     .width(380)
-    .backgroundColor(Color.White)
+    .backgroundColor(this.resolveTokens().surface)
     .borderRadius(12)
   }
 
@@ -129,13 +147,14 @@ export struct PageSettingsPanel {
       Column()
         .width(60)
         .height(78)
-        .backgroundColor(Color.White)
-        .border({ width: tpl === this.page.template ? 2 : 1, color: tpl === this.page.template ? '#3366FF' : '#CCCCCC' })
+        .backgroundColor(this.resolveTokens().paperBackground)
+        .border({ width: tpl === this.page.template ? 2 : 1,
+          color: tpl === this.page.template ? this.resolveTokens().accent : this.resolveTokens().border })
         .borderRadius(4)
       if (tpl === PaperTemplate.LINES) {
         Column() {
           ForEach([1, 2, 3, 4], (_i: number) => {
-            Divider().color('#C0C0C0').strokeWidth(1).margin({ top: 12 })
+            Divider().color(this.resolveTokens().paperLineColor).strokeWidth(1).margin({ top: 12 })
           }, (_i: number) => _i.toString())
         }
         .width(48)
@@ -145,7 +164,7 @@ export struct PageSettingsPanel {
         Grid() {
           ForEach([1, 2, 3, 4], (_i: number) => {
             GridItem() {
-              Column().width(8).height(8).backgroundColor('#C0C0C0')
+              Column().width(8).height(8).backgroundColor(this.resolveTokens().paperLineColor)
             }
           }, (_i: number) => _i.toString())
         }
@@ -159,7 +178,7 @@ export struct PageSettingsPanel {
         Grid() {
           ForEach([1, 2, 3, 4], (_i: number) => {
             GridItem() {
-              Column().width(5).height(5).borderRadius(3).backgroundColor('#BDBDBD')
+              Column().width(5).height(5).borderRadius(3).backgroundColor(this.resolveTokens().paperLineColor)
             }
           }, (_i: number) => _i.toString())
         }
@@ -178,6 +197,7 @@ export struct PageSettingsPanel {
   private clonePage(): PageInfo {
     return {
       pageId: this.page.pageId,
+      pageIndex: this.page.pageIndex,
       size: this.page.size,
       template: this.page.template,
       orientation: this.page.orientation,
@@ -209,16 +229,16 @@ export struct PageSettingsPanel {
     }
   }
 
-  private templateLabel(tpl: PaperTemplate): string {
+  private templateLabel(tpl: PaperTemplate): ResourceStr {
     switch (tpl) {
       case PaperTemplate.PLAIN:
-        return '空白';
+        return $r('app.string.template_plain');
       case PaperTemplate.LINES:
-        return '横线';
+        return $r('app.string.template_lines');
       case PaperTemplate.GRID:
-        return '方格';
+        return $r('app.string.template_grid');
       case PaperTemplate.DOTS:
-        return '点阵';
+        return $r('app.string.template_dots');
       default:
         return '';
     }

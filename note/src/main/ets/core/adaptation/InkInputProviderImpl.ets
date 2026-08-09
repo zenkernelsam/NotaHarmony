@@ -16,6 +16,11 @@ export class InkInputProviderImpl implements InkInputProvider {
     this.orientationSupported = orientationSupported;
   }
 
+  static createForArkUI(): InkInputProviderImpl {
+    // ArkUI BaseEvent exposes pressure, tiltX and tiltY. Missing values remain -1 in RawPointerEvent.
+    return new InkInputProviderImpl(true, true, true);
+  }
+
   // 实现类扩展方法：标记新笔画开始（调用方在 touchDown 时调用）
   beginStroke(startTime: number): void {
     this.strokeStartTime = startTime;
@@ -40,9 +45,11 @@ export class InkInputProviderImpl implements InkInputProvider {
         // §5 映射：stylus/eraser→STYLUS(0)、mouse→MOUSE(1)、其他→TOUCH(2)
         // （页面层将 stylus/eraser 归类为 0，mouse 归类为 1）
         toolType: this.mapToolType(raw.toolType),
-        pressure: this.pressureSupported ? this.clamp(raw.pressure, 0, 1) : -1,
-        tiltRadians: this.tiltSupported ? this.clamp(raw.tiltRadians, 0, Math.PI / 2) : -1,
-        orientationRadians: this.orientationSupported ? this.normalizeOrientation(raw.orientationRadians) : -1,
+        pressure: this.pressureSupported && raw.pressure >= 0 ? this.clamp(raw.pressure, 0, 1) : -1,
+        tiltRadians: this.tiltSupported && raw.tiltRadians >= 0
+          ? this.clamp(raw.tiltRadians, 0, Math.PI / 2) : -1,
+        orientationRadians: this.orientationSupported && raw.orientationRadians >= 0
+          ? this.normalizeOrientation(raw.orientationRadians) : -1,
       });
     }
     return { kind: kind, points: points };

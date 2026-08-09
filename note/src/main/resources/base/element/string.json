@@ -11,6 +11,449 @@
     {
       "name": "NoteAbility_label",
       "value": "label"
-    }
+    },
+    {
+      "name": "retry",
+      "value": "Retry"
+    },
+    {
+      "name": "cancel",
+      "value": "Cancel"
+    },
+    {
+      "name": "confirm",
+      "value": "OK"
+    },
+    {
+      "name": "delete",
+      "value": "Delete"
+    },
+    {
+      "name": "loading",
+      "value": "Loading..."
+    },
+    {
+      "name": "backup_and_sync",
+      "value": "Backup & Sync"
+    },
+    {
+      "name": "local_files",
+      "value": "Local Files"
+    },
+    {
+      "name": "export_all_notes",
+      "value": "Export All Notes as .note"
+    },
+    {
+      "name": "import_note_file",
+      "value": "Import from .note File"
+    },
+    {
+      "name": "webdav_cloud_backup",
+      "value": "WebDAV Cloud Backup"
+    },
+    {
+      "name": "configure_webdav",
+      "value": "Configure WebDAV"
+    },
+    {
+      "name": "backup_all_to_cloud",
+      "value": "Back Up All Notes"
+    },
+    {
+      "name": "restore_latest_cloud_backup",
+      "value": "Restore Latest Cloud Backup"
+    },
+    {
+      "name": "configure_webdav_hint",
+      "value": "Configure a WebDAV server first"
+    },
+    {
+      "name": "processing",
+      "value": "Processing..."
+    },
+    {
+      "name": "webdav_settings",
+      "value": "WebDAV Settings"
+    },
+    {
+      "name": "username",
+      "value": "Username"
+    },
+    {
+      "name": "password",
+      "value": "Password"
+    },
+    {
+      "name": "test_connection",
+      "value": "Test Connection"
+    },
+    {
+      "name": "save_settings",
+      "value": "Save Settings"
+    },
+    {
+      "name": "insecure_webdav_warning",
+      "value": "HTTP does not encrypt WebDAV credentials. Use HTTPS instead."
+    },
+    {
+      "name": "paper_size",
+      "value": "Paper Size"
+    },
+    {
+      "name": "paper_template",
+      "value": "Paper Template"
+    },
+    {
+      "name": "page_orientation",
+      "value": "Orientation"
+    },
+    {
+      "name": "portrait",
+      "value": "Portrait"
+    },
+    {
+      "name": "landscape",
+      "value": "Landscape"
+    },
+    {
+      "name": "template_plain",
+      "value": "Plain"
+    },
+    {
+      "name": "template_lines",
+      "value": "Lines"
+    },
+    {
+      "name": "template_grid",
+      "value": "Grid"
+    },
+    {
+      "name": "template_dots",
+      "value": "Dots"
+    },
+    {
+      "name": "type_here",
+      "value": "Type here..."
+    },
+    {
+      "name": "done",
+      "value": "Done"
+    },
+    {
+      "name": "selection_actions",
+      "value": "Actions"
+    },
+    {
+      "name": "copy",
+      "value": "Copy"
+    },
+    {
+      "name": "cut",
+      "value": "Cut"
+    },
+    {
+      "name": "bring_forward",
+      "value": "Bring Forward"
+    },
+    {
+      "name": "send_backward",
+      "value": "Send Backward"
+    },
+    {
+      "name": "flip_horizontal",
+      "value": "Flip Horizontal"
+    },
+    {
+      "name": "flip_vertical",
+      "value": "Flip Vertical"
+    },
+    {
+      "name": "pen",
+      "value": "Pen"
+    },
+    {
+      "name": "pencil",
+      "value": "Pencil"
+    },
+    {
+      "name": "highlighter",
+      "value": "Highlighter"
+    },
+    {
+      "name": "eraser",
+      "value": "Eraser"
+    },
+    {
+      "name": "whole_eraser",
+      "value": "Whole Eraser"
+    },
+    {
+      "name": "partial_eraser",
+      "value": "Partial Eraser"
+    },
+    {
+      "name": "selection",
+      "value": "Selection"
+    },
+    {
+      "name": "text",
+      "value": "Text"
+    },
+    {
+      "name": "more_tools",
+      "value": "More Tools"
+    },
+    {
+      "name": "style_mono",
+      "value": "Mono"
+    },
+    {
+      "name": "style_taper",
+      "value": "Taper"
+    },
+    {
+      "name": "style_dash",
+      "value": "Dash"
+    },
+    {
+      "name": "style_dots",
+      "value": "Dots"
+    },
+    {
+      "name": "shapes",
+      "value": "Shapes"
+    },
+    {
+      "name": "freehand",
+      "value": "Freehand"
+    },
+    {
+      "name": "rectangle",
+      "value": "Rectangle"
+    },
+    {
+      "name": "previous_page",
+      "value": "Previous Page"
+    },
+    {
+      "name": "next_page",
+      "value": "Next Page"
+    },
+    {
+      "name": "add_page",
+      "value": "Add Page"
+    },
+    {
+      "name": "page_settings",
+      "value": "Page Settings"
+    },
+    {
+      "name": "more_page_actions",
+      "value": "More Page Actions"
+    },
+    {
+      "name": "move_page_earlier",
+      "value": "Move Page Earlier"
+    },
+    {
+      "name": "move_page_later",
+      "value": "Move Page Later"
+    },
+    {
+      "name": "delete_page",
+      "value": "Delete Page"
+    },
+    {
+      "name": "back",
+      "value": "Back"
+    },
+    {
+      "name": "untitled_note",
+      "value": "Untitled Note"
+    },
+    {
+      "name": "loading_note",
+      "value": "Loading note..."
+    },
+    {
+      "name": "fit_width",
+      "value": "Fit Width"
+    },
+    {
+      "name": "page_unavailable",
+      "value": "Page unavailable"
+    },
+    {
+      "name": "loading_page",
+      "value": "Loading page..."
+    },
+    {
+      "name": "app_name",
+      "value": "Nota"
+    },
+    {
+      "name": "all_notes",
+      "value": "All Notes"
+    },
+    {
+      "name": "new_folder",
+      "value": "New Folder"
+    },
+    {
+      "name": "folder_actions",
+      "value": "Folder Actions"
+    },
+    {
+      "name": "search_notes",
+      "value": "Search notes"
+    },
+    {
+      "name": "sort",
+      "value": "Sort"
+    },
+    {
+      "name": "recently_modified",
+      "value": "Recently Modified"
+    },
+    {
+      "name": "recently_created",
+      "value": "Recently Created"
+    },
+    {
+      "name": "title",
+      "value": "Title"
+    },
+    {
+      "name": "theme",
+      "value": "Theme"
+    },
+    {
+      "name": "follow_system",
+      "value": "Follow System"
+    },
+    {
+      "name": "light_theme",
+      "value": "Light"
+    },
+    {
+      "name": "dark_theme",
+      "value": "Dark"
+    },
+    {
+      "name": "settings",
+      "value": "Settings"
+    },
+    {
+      "name": "library_actions",
+      "value": "Library Actions"
+    },
+    {
+      "name": "no_matching_notes",
+      "value": "No matching notes"
+    },
+    {
+      "name": "delete_note",
+      "value": "Delete Note"
+    },
+    {
+      "name": "delete_note_message",
+      "value": "Delete \"%s\"? This cannot be undone."
+    },
+    {
+      "name": "move_to_all_notes",
+      "value": "Move to All Notes"
+    },
+    {
+      "name": "create_folder",
+      "value": "Create Folder"
+    },
+    {
+      "name": "create_subfolder",
+      "value": "New Subfolder"
+    },
+    {
+      "name": "rename",
+      "value": "Rename"
+    },
+    {
+      "name": "move_to_top_level",
+      "value": "Move to Top Level"
+    },
+    {
+      "name": "delete_folder",
+      "value": "Delete Folder"
+    },
+    {
+      "name": "delete_folder_message",
+      "value": "Delete \"%s\"? Its notes will move to All Notes."
+    },
+    {
+      "name": "name",
+      "value": "Name"
+    },
+    { "name": "open_library_failed", "value": "Could not open the library" },
+    { "name": "note_save_failed", "value": "Could not save the note. Try again." },
+    { "name": "page_load_returned", "value": "Page loading failed. Returned to the previous page." },
+    { "name": "page_load_stopped", "value": "Page loading failed. Editing has been disabled." },
+    { "name": "page_operation_failed", "value": "Page operation failed. Try again." },
+    { "name": "delete_folder_failed", "value": "Could not delete the folder. Try again." },
+    { "name": "folder_operation_failed", "value": "Folder operation failed. Try again." },
+    { "name": "move_folder_failed", "value": "Could not move the folder. Try again." },
+    { "name": "move_note_failed", "value": "Could not move the note. Try again." },
+    { "name": "load_notes_failed", "value": "Could not load notes. Try again." },
+    { "name": "load_folders_failed", "value": "Could not load folders. Try again." },
+    { "name": "library_load_failed", "value": "Could not load the library" },
+    { "name": "library_load_retry", "value": "Could not load the library. Try again." },
+    { "name": "search_failed", "value": "Search failed. Try again." },
+    { "name": "delete_note_failed", "value": "Could not delete the note. Try again." },
+    { "name": "create_note_failed", "value": "Could not create the note. Try again." },
+    { "name": "move_to_named_folder", "value": "Move to \"%s\"" },
+    { "name": "move_to_folder_path", "value": "Move to: %s" },
+    { "name": "not_configured", "value": "Not configured" },
+    { "name": "never_backed_up", "value": "Never" },
+    { "name": "exporting", "value": "Exporting..." },
+    { "name": "no_notes_to_export", "value": "There are no notes to export" },
+    { "name": "exported_notes_count", "value": "Exported %d of %d notes" },
+    { "name": "export_failed", "value": "Export Failed" },
+    { "name": "export_failed_message", "value": "An error occurred while exporting. Try again." },
+    { "name": "importing", "value": "Importing..." },
+    { "name": "partial_import", "value": "Partial Import" },
+    { "name": "import_failed", "value": "Import Failed" },
+    { "name": "unsupported_format", "value": "Unsupported Format" },
+    { "name": "import_read_failed", "value": "The file could not be read or parsed." },
+    { "name": "backing_up_cloud", "value": "Backing up to the cloud..." },
+    { "name": "no_notes_to_backup", "value": "There are no notes to back up" },
+    { "name": "backup_failed", "value": "Backup Failed" },
+    { "name": "backup_directory_failed", "value": "Could not create the backup folder. Check the server settings." },
+    { "name": "cloud_backup_count", "value": "Cloud backup complete: %d/%d" },
+    { "name": "cloud_backup_incomplete", "value": "Only %d of %d notes were uploaded. This backup was not marked complete." },
+    { "name": "cloud_backup_verify_failed", "value": "An uploaded note could not be verified. This backup was not published." },
+    { "name": "cloud_backup_publish_failed", "value": "The backup completion manifest could not be published or verified." },
+    { "name": "network_server_unreachable", "value": "The server is unreachable. Check the network and try again." },
+    { "name": "restoring_cloud", "value": "Restoring from the cloud..." },
+    { "name": "no_cloud_backup", "value": "No cloud backup is available" },
+    { "name": "restore_failed", "value": "Restore Failed" },
+    { "name": "backup_download_failed", "value": "Could not download the backup file." },
+    { "name": "cloud_backup_list_failed", "value": "Could not read the cloud backup directory. Check the server connection and credentials." },
+    { "name": "cloud_restore_complete", "value": "Restored %d notes" },
+    { "name": "cloud_restore_partial", "value": "Restored %d of %d notes. %d failed verification or import; %d were partially recovered." },
+    { "name": "restored_message", "value": "Restored: %s" },
+    { "name": "restore_result", "value": "Restore Result" },
+    { "name": "server_value", "value": "Server: %s" },
+    { "name": "last_backup_value", "value": "Last backup: %s" },
+    { "name": "server_not_configured", "value": "Server: Not configured" },
+    { "name": "last_backup_never", "value": "Last backup: Never" },
+    { "name": "enter_server_url", "value": "Enter a server URL first" },
+    { "name": "insecure_connection_cancelled", "value": "Insecure HTTP connection cancelled" },
+    { "name": "testing_connection_status", "value": "Testing connection..." },
+    { "name": "connection_request_failed", "value": "Connection failed or timed out (30s)" },
+    { "name": "insecure_save_cancelled", "value": "Insecure connection was not saved" },
+    { "name": "settings_saved", "value": "Settings saved" },
+    { "name": "settings_saved_cleanup_pending", "value": "Settings saved; old credential cleanup will be retried" },
+    { "name": "save_failed", "value": "Save failed" },
+    { "name": "insecure_webdav_title", "value": "Insecure WebDAV Connection" },
+    { "name": "insecure_webdav_message", "value": "HTTP sends the username and password without encryption. Continue only on a fully trusted local network." },
+    { "name": "continue_anyway", "value": "Continue Anyway" }
   ]
 }

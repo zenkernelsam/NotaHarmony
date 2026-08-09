@@ -2,6 +2,10 @@
 // 纯类型文件：禁止 import 任何 @ohos.* / @kit.* 平台模块
 import { Point2D, CubicSegment, Rect2D, TransformMatrix } from './GeometryTypes';
 
+// maskPath 中相邻两次独立像素擦除的分段哨兵。使用可 JSON 往返的有限值，
+// 避免 NaN 被序列化为 null 后破坏持久化数据。
+export const ERASER_PATH_BREAK_COORDINATE: number = Number.MAX_VALUE;
+
 // 输入工具类型（对应 AndroidX Ink InputToolType）
 export enum InputToolType {
   STYLUS = 0,
@@ -45,6 +49,10 @@ export interface PencilSplatPoint {
 export interface StrokePathPoint {
   position: Point2D;
   widthFactor: number;  // fc0.e() 逐点宽度因子，默认 1.0
+  pressure: number;  // 原版 cd0.d() force；无能力时 -1
+  altitudeAngleRadians: number;  // 原版 cd0.a()，笔杆与屏幕平面的夹角；无能力时 -1
+  azimuthUnitX: number;  // 原版 cd0.b()，笔杆方位角单位向量 X；无能力时 0
+  azimuthUnitY: number;  // 原版 cd0.c()，笔杆方位角单位向量 Y；无能力时 0
 }
 
 // 渲染规格（对应 vzf WetMirrorRenderSpec）
@@ -73,6 +81,6 @@ export interface StrokeElementData {
   renderSpec: RenderSpec;              // 渲染规格
   transform: TransformMatrix;          // 统一变换矩阵
   bounds: Rect2D;                      // 边界盒
-  maskPath: Point2D[];                 // 擦除遮罩点（可选）
+  maskPath: Point2D[];                 // 擦除遮罩点；独立路径间用 ERASER_PATH_BREAK_COORDINATE 分隔
   isFinished: boolean;
 }
