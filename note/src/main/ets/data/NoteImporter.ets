@@ -5,7 +5,7 @@ import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
 import { ZipReader, ZipEntry, ZipParseResult } from './ZipArchive';
 import {
-  isSupportedPageElementKind, NoteManifest, PageData, parseManifest, parsePage,
+  NoteManifest, PageData, parseManifest, parsePage, parsePageElement,
 } from './NotePackageSpec';
 import { NoteMeta, PageInfo, PaperSize, PaperTemplate, PageOrientation } from '../core/model/NoteTypes';
 import { StrokeElementData } from '../core/model/StrokeTypes';
@@ -137,6 +137,8 @@ export class NoteImporter {
     // === 阶段 1：全量解析验证 ===
     const parsedPages: PageData[] = [];
     let failedPages: number = 0;
+    let failedElements: number = 0;
+    const pageIds: Set<string> = new Set<string>();
     for (let i = 0; i < manifest.pageCount; i++) {
       const entry: ZipEntry | null = ZipReader.findEntry(entries, `pages/page_${i}.json`);
       if (entry === null) {
@@ -148,17 +150,26 @@ export class NoteImporter {
         failedPages++;
         continue;
       }
+      if (page.pageIndex !== i || pageIds.has(page.pageId)) {
+        failedPages++;
+        continue;
+      }
+      pageIds.add(page.pageId);
       // 解析元素（跳过损坏条目，不致命）
       const elements: PersistedElement[] = [];
+      const elementIds: Set<string> = new Set<string>();
       for (const el of page.elements) {
-        try {
-          const parsed = el as PersistedElement;
-          if (parsed !== null && typeof parsed === 'object' &&
-            isSupportedPageElementKind(parsed.kind)) {
-            elements.push(parsed);
+        const parsedElement: object | null = parsePageElement(el);
+        if (parsedElement !== null) {
+          const typed = parsedElement as PersistedElement;
+          if (elementIds.has(typed.data.id)) {
+            failedElements++;
+          } else {
+            elementIds.add(typed.data.id);
+            elements.push(typed);
           }
-        } catch (e) {
-          // 跳过损坏元素
+        } else {
+          failedElements++;
         }
       }
       parsedPages.push({ pageId: page.pageId, pageIndex: page.pageIndex,
@@ -232,7 +243,8 @@ export class NoteImporter {
         countTexts += pageTexts.length;
         writtenPages++;
       }
-      const partial: boolean = writtenPages < manifest.pageCount || failedPages > 0 || failedEntries.length > 0;
+      const partial: boolean = writtenPages < manifest.pageCount || failedPages > 0 ||
+        failedElements > 0 || failedEntries.length > 0;
       const failureSummary: string = failedEntries.length > 0
         ? `；跳过损坏条目：${failedEntries.join('、')}` : '';
       const encryptedSummary: string = encryptedEntries.length > 0
@@ -243,6 +255,9 @@ export class NoteImporter {
       if (failedPages > 0) {
         missingAssets.push(`${failedPages} 个页面损坏或缺失`);
       }
+      if (failedElements > 0) {
+        missingAssets.push(`${failedElements} 个页面元素损坏或不受支持`);
+      }
       for (const failed of failedEntries) {
         missingAssets.push(`损坏或不支持的包条目：${failed}`);
       }
@@ -251,6 +266,12 @@ export class NoteImporter {
         warnings.push('原笔记 ID 已存在，已作为副本导入，未覆盖现有数据');
       }
       console.info(`importOurFormat done: note=${note.id} pages=${writtenPages}/${manifest.pageCount} strokes=${countStrokes} texts=${countTexts}`);
+      let message: string = partial
+        ? `导入完成（部分：${writtenPages}/${manifest.pageCount} 页）${failureSummary}${encryptedSummary}${collisionSummary}`
+        : `导入成功：${note.title}（${writtenPages} 页）${collisionSummary}`;
+      if (missingAssets.length > 0) {
+        message += `。未导入内容：${missingAssets.join('；')}`;
+      }
       return {
         result: partial ? ImportResult.PARTIAL : ImportResult.SUCCESS,
         noteId: note.id,
@@ -258,9 +279,7 @@ export class NoteImporter {
         pageCount: writtenPages,
         missingAssets: missingAssets,
         warnings: warnings,
-        message: partial
-          ? `导入完成（部分：${writtenPages}/${manifest.pageCount} 页）${failureSummary}${encryptedSummary}${collisionSummary}`
-          : `导入成功：${note.title}（${writtenPages} 页）${collisionSummary}`,
+        message: message,
       };
     } catch (e) {
       console.error(`importOurFormat write failed: ${JSON.stringify(e)}`);
