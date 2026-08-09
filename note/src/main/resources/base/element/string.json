@@ -393,6 +393,7 @@
       "value": "Name"
     },
     { "name": "open_library_failed", "value": "Could not open the library" },
+    { "name": "note_open_failed", "value": "Could not open this note. Your data was not changed." },
     { "name": "note_save_failed", "value": "Could not save the note. Try again." },
     { "name": "page_load_returned", "value": "Page loading failed. Returned to the previous page." },
     { "name": "page_load_stopped", "value": "Page loading failed. Editing has been disabled." },

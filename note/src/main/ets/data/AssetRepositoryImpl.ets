@@ -4,7 +4,11 @@ import { fileIo } from '@kit.CoreFileKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { NoteAsset, AssetStatus } from '../core/model/AssetTypes';
 import { AssetRepository } from './RepositoryInterfaces';
+import { AsyncMutex } from './AsyncMutex';
 import { DatabaseManager } from './DatabaseManager';
+
+// Shared with NoteRepository.deleteNote(), which also mutates NoteAsset reference sets directly.
+export const assetMutationMutex: AsyncMutex = new AsyncMutex();
 
 export class AssetRepositoryImpl implements AssetRepository {
   private db: DatabaseManager;
@@ -34,25 +38,28 @@ export class AssetRepositoryImpl implements AssetRepository {
   }
 
   async saveAsset(asset: NoteAsset): Promise<void> {
-    const store: relationalStore.RdbStore = this.db.getStore();
-    await store.beginTransaction();
-    try {
-      const existingNoteIds: string[] = await this.queryNoteIds(store, asset.assetHash);
-      const mergedNoteIds: string[] = mergeNoteIds(existingNoteIds, asset.noteIds);
-      const bucket: relationalStore.ValuesBucket = {
-        'asset_hash': asset.assetHash,
-        'status': asset.status,
-        'note_ids': JSON.stringify(mergedNoteIds),
-        'file_size': asset.fileSize,
-        'mime_type': asset.mimeType,
-        'local_path': asset.localPath,
-      };
-      await store.insert('note_asset', bucket, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
-      await store.commit();
-    } catch (e) {
-      await store.rollBack();
-      throw new Error(`saveAsset failed: ${JSON.stringify(e)}`);
-    }
+    await assetMutationMutex.runExclusive(async (): Promise<void> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      await store.beginTransaction();
+      try {
+        const existingNoteIds: string[] = await this.queryNoteIds(store, asset.assetHash);
+        const mergedNoteIds: string[] = mergeNoteIds(existingNoteIds, asset.noteIds);
+        const bucket: relationalStore.ValuesBucket = {
+          'asset_hash': asset.assetHash,
+          'status': asset.status,
+          'note_ids': JSON.stringify(mergedNoteIds),
+          'file_size': asset.fileSize,
+          'mime_type': asset.mimeType,
+          'local_path': asset.localPath,
+        };
+        await store.insert('note_asset', bucket,
+          relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`saveAsset failed: ${JSON.stringify(e)}`);
+      }
+    });
   }
 
   async getAssetsByNote(noteId: string): Promise<NoteAsset[]> {
@@ -78,29 +85,33 @@ export class AssetRepositoryImpl implements AssetRepository {
   }
 
   async deleteAsset(hash: string): Promise<void> {
-    const store: relationalStore.RdbStore = this.db.getStore();
-    let localPath: string | null = null;
-    await store.beginTransaction();
-    try {
-      const queryPredicates = new relationalStore.RdbPredicates('note_asset');
-      queryPredicates.equalTo('asset_hash', hash);
-      const resultSet = await store.query(queryPredicates, ['local_path']);
-      try {
-        if (resultSet.goToNextRow()) {
-          const pathColumn: number = resultSet.getColumnIndex('local_path');
-          localPath = resultSet.isColumnNull(pathColumn) ? null : resultSet.getString(pathColumn);
+    const localPath: string | null = await assetMutationMutex.runExclusive(
+      async (): Promise<string | null> => {
+        const store: relationalStore.RdbStore = this.db.getStore();
+        let path: string | null = null;
+        await store.beginTransaction();
+        try {
+          const queryPredicates = new relationalStore.RdbPredicates('note_asset');
+          queryPredicates.equalTo('asset_hash', hash);
+          const resultSet = await store.query(queryPredicates, ['local_path']);
+          try {
+            if (resultSet.goToNextRow()) {
+              const pathColumn: number = resultSet.getColumnIndex('local_path');
+              path = resultSet.isColumnNull(pathColumn) ? null : resultSet.getString(pathColumn);
+            }
+          } finally {
+            resultSet.close();
+          }
+          const predicates = new relationalStore.RdbPredicates('note_asset');
+          predicates.equalTo('asset_hash', hash);
+          await store.delete(predicates);
+          await store.commit();
+          return path;
+        } catch (e) {
+          await store.rollBack();
+          throw new Error(`deleteAsset failed: ${JSON.stringify(e)}`);
         }
-      } finally {
-        resultSet.close();
-      }
-      const predicates = new relationalStore.RdbPredicates('note_asset');
-      predicates.equalTo('asset_hash', hash);
-      await store.delete(predicates);
-      await store.commit();
-    } catch (e) {
-      await store.rollBack();
-      throw new Error(`deleteAsset failed: ${JSON.stringify(e)}`);
-    }
+      });
     if (localPath !== null && localPath.length > 0) {
       unlinkAssetFile(localPath);
     }

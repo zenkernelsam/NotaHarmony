@@ -96,6 +96,7 @@
     { "name": "delete_folder_message", "value": "删除“%s”？其中的笔记将移到全部笔记。" },
     { "name": "name", "value": "名称" },
     { "name": "open_library_failed", "value": "无法打开资料库" },
+    { "name": "note_open_failed", "value": "无法打开此笔记，数据未被更改" },
     { "name": "note_save_failed", "value": "笔记保存失败，请重试" },
     { "name": "page_load_returned", "value": "页面加载失败，已返回上一页" },
     { "name": "page_load_stopped", "value": "页面加载失败，已停止编辑" },

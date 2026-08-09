@@ -3,7 +3,7 @@ import { relationalStore } from '@kit.ArkData';
 import { NoteMeta, NoteViewState } from '../core/model/NoteTypes';
 import { NoteRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
-import { parseAssetNoteIds, unlinkAssetFile } from './AssetRepositoryImpl';
+import { assetMutationMutex, parseAssetNoteIds, unlinkAssetFile } from './AssetRepositoryImpl';
 import { escapeSearchLike, foldSearchText } from './SearchText';
 
 interface NoteAssetReference {
@@ -189,66 +189,68 @@ export class NoteRepositoryImpl implements NoteRepository {
   async deleteNote(noteId: string): Promise<void> {
     const store: relationalStore.RdbStore = this.db.getStore();
     const filesToDelete: string[] = [];
-    await store.beginTransaction();
-    try {
-      const assetReferences: NoteAssetReference[] = [];
-      const assetResultSet = await store.query(new relationalStore.RdbPredicates('note_asset'));
+    await assetMutationMutex.runExclusive(async (): Promise<void> => {
+      await store.beginTransaction();
       try {
-        while (assetResultSet.goToNextRow()) {
-          const noteIds: string[] = parseAssetNoteIds(
-            assetResultSet.getString(assetResultSet.getColumnIndex('note_ids')));
-          if (noteIds.indexOf(noteId) >= 0) {
-            const localPathColumn: number = assetResultSet.getColumnIndex('local_path');
-            assetReferences.push({
-              assetHash: assetResultSet.getString(assetResultSet.getColumnIndex('asset_hash')),
-              noteIds: noteIds,
-              localPath: assetResultSet.isColumnNull(localPathColumn) ? null :
-                assetResultSet.getString(localPathColumn),
-            });
+        const assetReferences: NoteAssetReference[] = [];
+        const assetResultSet = await store.query(new relationalStore.RdbPredicates('note_asset'));
+        try {
+          while (assetResultSet.goToNextRow()) {
+            const noteIds: string[] = parseAssetNoteIds(
+              assetResultSet.getString(assetResultSet.getColumnIndex('note_ids')));
+            if (noteIds.indexOf(noteId) >= 0) {
+              const localPathColumn: number = assetResultSet.getColumnIndex('local_path');
+              assetReferences.push({
+                assetHash: assetResultSet.getString(assetResultSet.getColumnIndex('asset_hash')),
+                noteIds: noteIds,
+                localPath: assetResultSet.isColumnNull(localPathColumn) ? null :
+                  assetResultSet.getString(localPathColumn),
+              });
+            }
+          }
+        } finally {
+          assetResultSet.close();
+        }
+        for (let i: number = 0; i < assetReferences.length; i++) {
+          const reference: NoteAssetReference = assetReferences[i];
+          const remainingNoteIds: string[] = [];
+          for (let j: number = 0; j < reference.noteIds.length; j++) {
+            if (reference.noteIds[j] !== noteId) {
+              remainingNoteIds.push(reference.noteIds[j]);
+            }
+          }
+          const assetPredicates = new relationalStore.RdbPredicates('note_asset');
+          assetPredicates.equalTo('asset_hash', reference.assetHash);
+          if (remainingNoteIds.length === 0) {
+            await store.delete(assetPredicates);
+            if (reference.localPath !== null && reference.localPath.length > 0) {
+              filesToDelete.push(reference.localPath);
+            }
+          } else {
+            const assetBucket: relationalStore.ValuesBucket = {
+              'note_ids': JSON.stringify(remainingNoteIds),
+            };
+            await store.update(assetBucket, assetPredicates);
           }
         }
-      } finally {
-        assetResultSet.close();
+        const p2 = new relationalStore.RdbPredicates('page_info');
+        p2.equalTo('note_id', noteId);
+        await store.delete(p2);
+        const p3 = new relationalStore.RdbPredicates('page_element_snapshot');
+        p3.equalTo('note_id', noteId);
+        await store.delete(p3);
+        const p4 = new relationalStore.RdbPredicates('note_state');
+        p4.equalTo('note_id', noteId);
+        await store.delete(p4);
+        const p1 = new relationalStore.RdbPredicates('note_meta');
+        p1.equalTo('id', noteId);
+        await store.delete(p1);
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`deleteNote failed: ${JSON.stringify(e)}`);
       }
-      for (let i: number = 0; i < assetReferences.length; i++) {
-        const reference: NoteAssetReference = assetReferences[i];
-        const remainingNoteIds: string[] = [];
-        for (let j: number = 0; j < reference.noteIds.length; j++) {
-          if (reference.noteIds[j] !== noteId) {
-            remainingNoteIds.push(reference.noteIds[j]);
-          }
-        }
-        const assetPredicates = new relationalStore.RdbPredicates('note_asset');
-        assetPredicates.equalTo('asset_hash', reference.assetHash);
-        if (remainingNoteIds.length === 0) {
-          await store.delete(assetPredicates);
-          if (reference.localPath !== null && reference.localPath.length > 0) {
-            filesToDelete.push(reference.localPath);
-          }
-        } else {
-          const assetBucket: relationalStore.ValuesBucket = {
-            'note_ids': JSON.stringify(remainingNoteIds),
-          };
-          await store.update(assetBucket, assetPredicates);
-        }
-      }
-      const p2 = new relationalStore.RdbPredicates('page_info');
-      p2.equalTo('note_id', noteId);
-      await store.delete(p2);
-      const p3 = new relationalStore.RdbPredicates('page_element_snapshot');
-      p3.equalTo('note_id', noteId);
-      await store.delete(p3);
-      const p4 = new relationalStore.RdbPredicates('note_state');
-      p4.equalTo('note_id', noteId);
-      await store.delete(p4);
-      const p1 = new relationalStore.RdbPredicates('note_meta');
-      p1.equalTo('id', noteId);
-      await store.delete(p1);
-      await store.commit();
-    } catch (e) {
-      await store.rollBack();
-      throw new Error(`deleteNote failed: ${JSON.stringify(e)}`);
-    }
+    });
     for (let i: number = 0; i < filesToDelete.length; i++) {
       unlinkAssetFile(filesToDelete[i]);
     }

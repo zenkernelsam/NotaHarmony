@@ -33,6 +33,8 @@ struct NotePage {
   @State canUndo: boolean = false;
   @State canRedo: boolean = false;
   @State pageOperationBusy: boolean = false;
+  @State pageLoading: boolean = false;
+  @State pageLoadFailed: boolean = false;
   @State noteTitle: string = '';          // T-036：标题
   @State editingTitle: boolean = false;   // T-036：标题编辑态
   @State titleDraft: string = '';
@@ -40,6 +42,7 @@ struct NotePage {
   private pageRepo: PageRepositoryImpl | null = null;
   private persistence: StrokePersistence = new StrokePersistence();
   private historyBridge: EditorHistoryBridge | null = null;
+  private pageLoadInFlight: boolean = false;
   // T-038：主题状态
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -81,6 +84,12 @@ struct NotePage {
   }
 
   private async loadPages(): Promise<void> {
+    if (this.pageLoadInFlight) {
+      return;
+    }
+    this.pageLoadInFlight = true;
+    this.pageLoading = true;
+    this.pageLoadFailed = false;
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const db: DatabaseManager = DatabaseManager.getInstance();
@@ -100,7 +109,10 @@ struct NotePage {
       // T-036：加载标题
       this.noteRepo = new NoteRepositoryImpl(db);
       const note: NoteMeta | null = await this.noteRepo.getNote(this.noteId);
-      this.noteTitle = note !== null ? note.title : '';
+      if (note === null) {
+        throw new Error('note does not exist');
+      }
+      this.noteTitle = note.title;
       const loaded: PageInfo[] = await this.pageRepo.getPages(this.noteId);
       if (loaded.length === 0) {
         // 创建默认首页（A4 / PLAIN）
@@ -119,8 +131,23 @@ struct NotePage {
         this.pages = loaded;
       }
       this.currentPageIndex = 0;
+      this.pageLoadFailed = false;
     } catch (e) {
+      this.pages = [];
+      this.currentPageIndex = 0;
+      this.historyBridge = null;
+      this.pageRepo = null;
+      this.noteRepo = null;
+      this.pageLoadFailed = true;
       console.error(`NotePage loadPages failed: ${JSON.stringify(e)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.note_open_failed'), duration: 2500 });
+      } catch (toastError) {
+        console.error(`Note page load toast failed: ${JSON.stringify(toastError)}`);
+      }
+    } finally {
+      this.pageLoading = false;
+      this.pageLoadInFlight = false;
     }
   }
 
@@ -134,16 +161,23 @@ struct NotePage {
     const previousTitle: string = this.noteTitle;
     this.noteTitle = draft;
     try {
-      if (this.noteRepo !== null) {
-        const note: NoteMeta | null = await this.noteRepo.getNote(this.noteId);
-        if (note !== null) {
-          note.title = draft;
-          await this.noteRepo.updateNote(note);
-        }
+      if (this.noteRepo === null) {
+        throw new Error('note repository is unavailable');
       }
+      const note: NoteMeta | null = await this.noteRepo.getNote(this.noteId);
+      if (note === null) {
+        throw new Error('note does not exist');
+      }
+      note.title = draft;
+      await this.noteRepo.updateNote(note);
     } catch (e) {
       this.noteTitle = previousTitle;
       console.error(`saveTitle failed: ${JSON.stringify(e)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.note_save_failed'), duration: 2500 });
+      } catch (toastError) {
+        console.error(`Title save failure toast failed: ${JSON.stringify(toastError)}`);
+      }
     }
   }
 
@@ -190,6 +224,9 @@ struct NotePage {
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .onClick(() => {
+              if (this.pageLoadFailed || this.pageLoading) {
+                return;
+              }
               this.titleDraft = this.noteTitle;
               this.editingTitle = true;
             })
@@ -201,17 +238,19 @@ struct NotePage {
       .backgroundColor(this.resolveTokens().surface)
 
       // 工具栏
-      EditorToolbar({
-        viewModel: this.viewModel,
-        canUndo: this.canUndo,
-        canRedo: this.canRedo,
-        onUndo: () => {
-          this.undoSignal++;
-        },
-        onRedo: () => {
-          this.redoSignal++;
-        },
-      })
+      if (this.pages.length > 0) {
+        EditorToolbar({
+          viewModel: this.viewModel,
+          canUndo: this.canUndo,
+          canRedo: this.canRedo,
+          onUndo: () => {
+            this.undoSignal++;
+          },
+          onRedo: () => {
+            this.redoSignal++;
+          },
+        })
+      }
 
       // 画布（layoutWeight 撑满）
       if (this.pages.length > 0) {
@@ -243,6 +282,22 @@ struct NotePage {
             this.applyPageHistory(action, isUndo),
         })
           .layoutWeight(1)
+      } else if (this.pageLoadFailed) {
+        Column() {
+          Text($r('app.string.note_open_failed'))
+            .fontSize(16)
+            .fontColor(this.resolveTokens().textSecondary)
+            .textAlign(TextAlign.Center)
+          Button($r('app.string.retry'))
+            .height(36)
+            .margin({ top: 12 })
+            .onClick(() => {
+              this.loadPages();
+            })
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
       } else {
         Text($r('app.string.loading_note'))
           .layoutWeight(1)
