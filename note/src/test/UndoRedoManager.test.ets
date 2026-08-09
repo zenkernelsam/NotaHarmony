@@ -65,6 +65,18 @@ export default function undoRedoManagerTest() {
       expect(manager.peekUndo()?.noteId).assertEqual('note-1');
     });
 
+    it('reserves one page action identity before persistence and reuses it for history moves', 0, () => {
+      const manager: UndoRedoManager = new UndoRedoManager();
+      const action: UndoableAction = makeAction('page-1');
+      const prepared = manager.prepareHistoryMetadata(action);
+      expect(manager.getHistoryRevision()).assertEqual(0);
+      expect(manager.canUndo()).assertFalse();
+      manager.push(action, prepared);
+      expect(manager.getLatestHistoryMetadata()?.actionId).assertEqual(prepared.actionId);
+      expect(manager.getHistoryMetadataForMove(action, true)?.effect).assertEqual(HistoryEffect.UNDO);
+      expect(manager.getHistoryMetadataForMove(makeAction('page-1'), true) === null).assertTrue();
+    });
+
     it('uses the configured capacity without changing action order', 0, () => {
       const manager: UndoRedoManager = new UndoRedoManager(2);
       const first: UndoableAction = makeAction('page-1');

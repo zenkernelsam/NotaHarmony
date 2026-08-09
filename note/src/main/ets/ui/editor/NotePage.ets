@@ -4,6 +4,7 @@ import { router, promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { NoteMeta, PageInfo } from '../../core/model/NoteTypes';
+import { HistoryMetadata } from '../../core/model/OpTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
@@ -278,8 +279,8 @@ struct NotePage {
           onHistoryBridgeReady: (bridge: EditorHistoryBridge) => {
             this.historyBridge = bridge;
           },
-          onApplyPageHistory: async (action: UndoableAction, isUndo: boolean): Promise<boolean> =>
-            this.applyPageHistory(action, isUndo),
+          onApplyPageHistory: async (action: UndoableAction, isUndo: boolean,
+            history: HistoryMetadata): Promise<boolean> => this.applyPageHistory(action, isUndo, history),
         })
           .layoutWeight(1)
       } else if (this.pageLoadFailed) {
@@ -353,18 +354,21 @@ struct NotePage {
     if (this.samePageSettings(before, page)) {
       return;
     }
-    await this.pageRepo.updatePage(page);
+    const action: UndoableAction = {
+      type: UndoableActionType.PAGE_SETTINGS,
+      noteId: this.noteId,
+      pageId: page.pageId,
+      pageBefore: before,
+      pageAfter: this.clonePage(page),
+    };
+    const history: HistoryMetadata | undefined = this.historyBridge === null
+      ? undefined : this.historyBridge.preparePageAction(action);
+    await this.pageRepo.updatePage(page, history);
     const updated: PageInfo[] = this.pages.slice();
     updated[this.currentPageIndex] = page;
     this.pages = updated;
     if (this.historyBridge !== null) {
-      this.historyBridge.pushPageAction({
-        type: UndoableActionType.PAGE_SETTINGS,
-        noteId: this.noteId,
-        pageId: page.pageId,
-        pageBefore: before,
-        pageAfter: this.clonePage(page),
-      });
+      this.historyBridge.pushPageAction(action, history);
     }
   }
 
@@ -402,26 +406,31 @@ struct NotePage {
       widthMm: 210.0,
       heightMm: 297.0,
     };
-    const assignedPage: PageInfo = await this.pageRepo.addPage(this.noteId, page);
+    const orderAfter: string[] = orderBefore.concat([page.pageId]);
+    const action: AddPageAction = {
+      type: UndoableActionType.ADD_PAGE,
+      noteId: this.noteId,
+      pageId: page.pageId,
+      pageAfter: this.clonePage(page),
+      pageOrderBefore: orderBefore,
+      pageOrderAfter: orderAfter,
+      pageStrokes: [],
+      pageTextBlocks: [],
+      pageShapes: [],
+      pageElementOrder: [],
+      selectedPageIdBefore: selectedBefore,
+      selectedPageIdAfter: page.pageId,
+    };
+    const history: HistoryMetadata | undefined = this.historyBridge === null
+      ? undefined : this.historyBridge.preparePageAction(action);
+    const assignedPage: PageInfo = await this.pageRepo.addPage(this.noteId, page, history);
+    action.pageAfter = this.clonePage(assignedPage);
     const updated: PageInfo[] = this.pages.slice();
     updated.push(assignedPage);
     this.pages = updated;
     this.currentPageIndex = this.pages.length - 1;
     if (this.historyBridge !== null) {
-      this.historyBridge.pushPageAction({
-        type: UndoableActionType.ADD_PAGE,
-        noteId: this.noteId,
-        pageId: assignedPage.pageId,
-        pageAfter: this.clonePage(assignedPage),
-        pageOrderBefore: orderBefore,
-        pageOrderAfter: this.pageIds(this.pages),
-        pageStrokes: [],
-        pageTextBlocks: [],
-        pageShapes: [],
-        pageElementOrder: [],
-        selectedPageIdBefore: selectedBefore,
-        selectedPageIdAfter: assignedPage.pageId,
-      });
+      this.historyBridge.pushPageAction(action, history);
     }
   }
 
@@ -482,19 +491,22 @@ struct NotePage {
     const displaced: string = orderAfter[targetIndex];
     orderAfter[targetIndex] = selectedPageId;
     orderAfter[this.currentPageIndex] = displaced;
-    await this.pageRepo.reorderPages(this.noteId, orderAfter);
-    this.pages = this.orderPages(this.pages, orderAfter);
-    this.currentPageIndex = targetIndex;
-    this.historyBridge.pushPageAction({
+    const action: UndoableAction = {
       type: UndoableActionType.REORDER_PAGES,
       noteId: this.noteId,
       pageId: selectedPageId,
       pageOrderBefore: orderBefore,
       pageOrderAfter: orderAfter,
-    });
+    };
+    const history: HistoryMetadata = this.historyBridge.preparePageAction(action);
+    await this.pageRepo.reorderPages(this.noteId, orderAfter, history);
+    this.pages = this.orderPages(this.pages, orderAfter);
+    this.currentPageIndex = targetIndex;
+    this.historyBridge.pushPageAction(action, history);
   }
 
-  private async applyPageHistory(action: UndoableAction, isUndo: boolean): Promise<boolean> {
+  private async applyPageHistory(action: UndoableAction, isUndo: boolean,
+    history: HistoryMetadata): Promise<boolean> {
     if (this.pageRepo === null || action.noteId !== this.noteId) {
       if (action.noteId !== this.noteId) {
         hilog.error(0x0001, 'NotePage',
@@ -509,21 +521,21 @@ struct NotePage {
     }
     try {
       if (action.type === UndoableActionType.ADD_PAGE) {
-        return await this.applyAddPageHistory(action, isUndo);
+        return await this.applyAddPageHistory(action, isUndo, history);
       }
       if (action.type === UndoableActionType.DELETE_PAGE) {
         return await this.applyDeletePageHistory(action, isUndo);
       }
       if (action.type === UndoableActionType.PAGE_SETTINGS) {
         const page: PageInfo = isUndo ? action.pageBefore : action.pageAfter;
-        await this.pageRepo.updatePage(page);
+        await this.pageRepo.updatePage(page, history);
         this.replacePage(page);
         this.selectPageById(page.pageId);
         return true;
       }
       if (action.type === UndoableActionType.REORDER_PAGES) {
         const order: string[] = isUndo ? action.pageOrderBefore : action.pageOrderAfter;
-        await this.pageRepo.reorderPages(this.noteId, order);
+        await this.pageRepo.reorderPages(this.noteId, order, history);
         this.pages = this.orderPages(this.pages, order);
         this.selectPageById(action.pageId);
         return true;
@@ -652,8 +664,17 @@ struct NotePage {
     return count;
   }
 
-  private async applyAddPageHistory(action: AddPageAction, isUndo: boolean): Promise<boolean> {
+  private async applyAddPageHistory(action: AddPageAction, isUndo: boolean,
+    history: HistoryMetadata): Promise<boolean> {
     if (this.pageRepo === null) {
+      return false;
+    }
+    // A user-created page is appended empty. Keeping this invariant makes ADD_PAGE history a
+    // single NPG1 transaction; populated page restoration belongs to DELETE_PAGE checkpoints.
+    if (action.pageStrokes.length !== 0 || action.pageTextBlocks.length !== 0 ||
+      action.pageShapes.length !== 0 || action.pageElementOrder.length !== 0 ||
+      action.pageOrderAfter.length === 0 ||
+      action.pageOrderAfter[action.pageOrderAfter.length - 1] !== action.pageId) {
       return false;
     }
     if (isUndo) {
@@ -663,21 +684,13 @@ struct NotePage {
       if (this.historyBridge !== null && this.pages[this.currentPageIndex].pageId === action.pageId) {
         this.historyBridge.preparePageRemoval(action.pageId);
       }
-      await this.pageRepo.deletePage(this.noteId, action.pageId);
+      await this.pageRepo.deletePage(this.noteId, action.pageId, history);
       this.pages = this.orderPages(this.pages.filter((page: PageInfo) => page.pageId !== action.pageId),
         action.pageOrderBefore);
       this.selectPageById(action.selectedPageIdBefore);
       return true;
     }
-    try {
-      await this.pageRepo.addPage(this.noteId, action.pageAfter);
-      await this.persistence.saveElements(this.noteId, action.pageId,
-        action.pageStrokes, action.pageTextBlocks, action.pageElementOrder, action.pageShapes);
-      await this.pageRepo.reorderPages(this.noteId, action.pageOrderAfter);
-    } catch (e) {
-      await this.compensateFailedPageRestore(action.pageId);
-      throw new Error(`redo ADD_PAGE failed: ${JSON.stringify(e)}`);
-    }
+    await this.pageRepo.addPage(this.noteId, action.pageAfter, history);
     const restored: PageInfo[] = this.pages.concat([this.clonePage(action.pageAfter)]);
     this.pages = this.orderPages(restored, action.pageOrderAfter);
     this.selectPageById(action.selectedPageIdAfter);

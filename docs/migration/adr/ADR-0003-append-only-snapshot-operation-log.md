@@ -62,6 +62,10 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 - 持久化历史 reducer 按日志顺序合并同一事件的连续 mutation，并严格执行 PUSH 建栈、UNDO 只移动 undo 栈顶、REDO 只移动
   redo 栈顶。未知 action、重复 PUSH、stale/乱序移动、非法枚举/时间/身份及跨 legacy 行拼接均作为损坏拒绝，不能静默整理成
   看似可用的历史。
+- 第六阶段让单事务页面动作在写库前预留 actionId，NPG1 与页面修改原子写入后才用同一元数据 push 内存栈；页面 Undo/Redo
+  也在应用前从栈顶取得原 actionId/effect，数据库成功后才 commit 栈移动。ADD_PAGE、PAGE_SETTINGS、REORDER_PAGES 已接入。
+  DELETE_PAGE 暂不携带历史元数据：其 Undo 需要跨 add page、restore content、reorder 三个现有事务，缺少耐久内容 checkpoint 时不能
+  谎称原子 action。legacy NPG1 会成为 reducer 边界，清空边界前的可恢复栈，只暴露最后一段完整元数据历史。
 
 ## 后果
 
@@ -69,8 +73,8 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 原子一致，可作为后续崩溃恢复、压缩和细粒度操作迁移的基础。
 
 这不关闭 D-02，也不等价于原版 ClientOp。元素与页面结构 mutation serializer、双向 replay、原子追加及当前会话的逐动作保存边界
-已经建立；元素 NPM1 也具备 action identity、PUSH/UNDO/REDO effect、coalesce track 和原 action time。但页面 NPG1 尚未携带
-历史元数据，UndoRedoManager 也未从 reducer 结果恢复，删除页面所需内容还没有耐久 checkpoint。后续仍需实现：完整跨会话
+已经建立；元素 NPM1 及单事务页面 NPG1 也具备 action identity、PUSH/UNDO/REDO effect、coalesce track 和原 action time。
+但 DELETE_PAGE 仍是显式 legacy 边界，UndoRedoManager 也未从 reducer 结果恢复，删除页面所需内容还没有耐久 checkpoint。后续仍需实现：完整跨会话
 Undo/Redo、editor site/原版式单调 opId、
 checkpoint/compaction、损坏日志恢复、同步导入映射，以及
 同步上传和聚合元数据。完成这些之前，不得声称具有原版协作或完整增量同步语义。

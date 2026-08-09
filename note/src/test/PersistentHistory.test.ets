@@ -59,9 +59,16 @@ export default function persistentHistoryTest() {
     });
 
     it('keeps legacy operations out of guessed history', 0, () => {
-      const state = reducePersistentHistory([makeOp('legacy'), makeOp('op-a', 'action-a')]);
+      const state = reducePersistentHistory([
+        makeOp('old', 'old-action'), makeOp('legacy'), makeOp('op-a', 'action-a'),
+      ]);
       expect(state.legacyOperationCount).assertEqual(1);
       expect(state.undo.length).assertEqual(1);
+      expect(state.undo[0].actionId).assertEqual('action-a');
+      const trailingLegacy = reducePersistentHistory([
+        makeOp('op-b', 'action-b'), makeOp('trailing-legacy'),
+      ]);
+      expect(trailingLegacy.undo.length).assertEqual(0);
     });
 
     it('rejects unknown, stale, and duplicate action movements', 0, () => {

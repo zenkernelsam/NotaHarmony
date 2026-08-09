@@ -17,6 +17,12 @@ export interface PersistentHistoryState {
 interface HistoryEvent {
   metadata: HistoryMetadata;
   operations: Op[];
+  segment: number;
+}
+
+interface GroupedHistoryEvents {
+  events: HistoryEvent[];
+  finalSegment: number;
 }
 
 // Input must use operation_log order (client_time, sequence). Legacy rows are retained for
@@ -25,12 +31,21 @@ export function reducePersistentHistory(operations: Op[]): PersistentHistoryStat
   const undo: PersistentHistoryAction[] = [];
   const redo: PersistentHistoryAction[] = [];
   const known: Set<string> = new Set<string>();
+  const seenPushIds: Set<string> = new Set<string>();
   let legacyOperationCount: number = 0;
-  const events: HistoryEvent[] = groupEvents(operations, (): void => { legacyOperationCount++; });
-  for (const event of events) {
+  let activeSegment: number = 0;
+  const grouped: GroupedHistoryEvents = groupEvents(
+    operations, (): void => { legacyOperationCount++; });
+  for (const event of grouped.events) {
+    if (event.segment !== activeSegment) {
+      undo.length = 0;
+      redo.length = 0;
+      known.clear();
+      activeSegment = event.segment;
+    }
     const metadata: HistoryMetadata = event.metadata;
     if (metadata.effect === HistoryEffect.PUSH) {
-      if (known.has(metadata.actionId)) {
+      if (seenPushIds.has(metadata.actionId)) {
         throw new Error('persistent history contains a duplicate PUSH action');
       }
       const action: PersistentHistoryAction = {
@@ -39,6 +54,7 @@ export function reducePersistentHistory(operations: Op[]): PersistentHistoryStat
         actionTime: metadata.actionTime,
         operations: event.operations.slice(),
       };
+      seenPushIds.add(metadata.actionId);
       known.add(metadata.actionId);
       undo.push(action);
       redo.length = 0;
@@ -53,27 +69,33 @@ export function reducePersistentHistory(operations: Op[]): PersistentHistoryStat
       undo.push(popExpected(redo, metadata.actionId, 'REDO'));
     }
   }
+  if (grouped.finalSegment !== activeSegment) {
+    undo.length = 0;
+    redo.length = 0;
+  }
   return { undo: undo, redo: redo, legacyOperationCount: legacyOperationCount };
 }
 
-function groupEvents(operations: Op[], onLegacy: () => void): HistoryEvent[] {
+function groupEvents(operations: Op[], onLegacy: () => void): GroupedHistoryEvents {
   const events: HistoryEvent[] = [];
   let active: HistoryEvent | undefined = undefined;
+  let segment: number = 0;
   for (const operation of operations) {
     if (operation.history === undefined) {
       onLegacy();
       active = undefined;
+      segment++;
       continue;
     }
     validateHistoryMetadata(operation.history);
     if (active !== undefined && sameEvent(active.metadata, operation.history)) {
       active.operations.push(operation);
     } else {
-      active = { metadata: operation.history, operations: [operation] };
+      active = { metadata: operation.history, operations: [operation], segment: segment };
       events.push(active);
     }
   }
-  return events;
+  return { events: events, finalSegment: segment };
 }
 
 function sameEvent(left: HistoryMetadata, right: HistoryMetadata): boolean {

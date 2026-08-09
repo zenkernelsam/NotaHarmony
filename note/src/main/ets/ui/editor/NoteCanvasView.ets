@@ -24,6 +24,7 @@ import {
   EditorHistoryBridge, PageContentSnapshot, UndoRedoManager, UndoableAction,
   UndoableActionType,
 } from '../../rendering/UndoRedoManager';
+import { HistoryMetadata } from '../../core/model/OpTypes';
 import { SelectionTool, SelectionMode } from '../../rendering/SelectionTool';
 import { ClipboardPasteResult, StrokeClipboard } from '../../rendering/StrokeClipboard';
 import { TextBlockTool } from '../../rendering/TextBlockTool';
@@ -93,8 +94,9 @@ export struct NoteCanvasView {
   };
   onHistoryBridgeReady: (bridge: EditorHistoryBridge) => void = () => {
   };
-  onApplyPageHistory: (action: UndoableAction, isUndo: boolean) => Promise<boolean> =
-    async (_action: UndoableAction, _isUndo: boolean): Promise<boolean> => false;
+  onApplyPageHistory: (action: UndoableAction, isUndo: boolean,
+    history: HistoryMetadata) => Promise<boolean> =
+    async (_action: UndoableAction, _isUndo: boolean, _history: HistoryMetadata): Promise<boolean> => false;
 
   // === 内部模块 ===
   private settings: RenderingContextSettings = new RenderingContextSettings(true);
@@ -180,8 +182,10 @@ export struct NoteCanvasView {
   aboutToAppear(): void {
     this.lifecycleActive = true;
     this.onHistoryBridgeReady({
-      pushPageAction: (action: UndoableAction): void => {
-        this.undoRedo.push(action);
+      preparePageAction: (action: UndoableAction): HistoryMetadata =>
+        this.undoRedo.prepareHistoryMetadata(action),
+      pushPageAction: (action: UndoableAction, history?: HistoryMetadata): void => {
+        this.undoRedo.push(action, history);
         this.notifyUndoRedo();
       },
       captureCurrentPage: (): PageContentSnapshot => this.captureCurrentPage(),
@@ -1180,8 +1184,13 @@ export struct NoteCanvasView {
       return;
     }
     if (this.isPageAction(action.type)) {
+      const history: HistoryMetadata | null = this.undoRedo.getHistoryMetadataForMove(action, isUndo);
+      if (history === null) {
+        hilog.error(0x0001, 'NoteCanvasView', 'page history metadata is stale');
+        return;
+      }
       this.historyBusy = true;
-      this.onApplyPageHistory(action, isUndo).then((applied: boolean) => {
+      this.onApplyPageHistory(action, isUndo, history).then((applied: boolean) => {
         if (applied) {
           this.commitHistory(action, isUndo);
         } else {

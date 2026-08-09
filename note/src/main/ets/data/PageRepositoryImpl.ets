@@ -1,5 +1,5 @@
 import { relationalStore } from '@kit.ArkData';
-import { OpType } from '../core/model/OpTypes';
+import { HistoryMetadata, OpType } from '../core/model/OpTypes';
 import { PageInfo } from '../core/model/NoteTypes';
 import { validatePageDimensions } from '../core/model/PageCoordinateSpace';
 import { PageRepository } from './RepositoryInterfaces';
@@ -27,7 +27,7 @@ export class PageRepositoryImpl implements PageRepository {
     }
   }
 
-  async addPage(noteId: string, page: PageInfo): Promise<PageInfo> {
+  async addPage(noteId: string, page: PageInfo, history?: HistoryMetadata): Promise<PageInfo> {
     if (noteId.length === 0 || page.pageId.length === 0) {
       throw new Error('addPage failed: note ID and page ID are required');
     }
@@ -53,7 +53,7 @@ export class PageRepositoryImpl implements PageRepository {
         };
         await store.insert('page_info', bucket);
         const after: PageInfo[] = await this.queryPages(store, noteId);
-        await this.appendStructureMutation(store, noteId, revision, before, after, OpType.CREATE_PAGE);
+        await this.appendStructureMutation(store, noteId, revision, before, after, OpType.CREATE_PAGE, history);
         await store.commit();
         return assignedPage;
       } catch (e) {
@@ -65,7 +65,7 @@ export class PageRepositoryImpl implements PageRepository {
     }
   }
 
-  async deletePage(noteId: string, pageId: string): Promise<void> {
+  async deletePage(noteId: string, pageId: string, history?: HistoryMetadata): Promise<void> {
     if (noteId.length === 0 || pageId.length === 0) {
       throw new Error('deletePage failed: note ID and page ID are required');
     }
@@ -96,7 +96,7 @@ export class PageRepositoryImpl implements PageRepository {
           }
         }
         const after: PageInfo[] = await this.queryPages(store, noteId);
-        await this.appendStructureMutation(store, noteId, revision, before, after, OpType.DELETE_PAGE);
+        await this.appendStructureMutation(store, noteId, revision, before, after, OpType.DELETE_PAGE, history);
         await store.commit();
       } catch (e) {
         await store.rollBack();
@@ -107,7 +107,7 @@ export class PageRepositoryImpl implements PageRepository {
     }
   }
 
-  async updatePage(page: PageInfo): Promise<void> {
+  async updatePage(page: PageInfo, history?: HistoryMetadata): Promise<void> {
     if (page.pageId.length === 0) {
       throw new Error('updatePage failed: page ID is required');
     }
@@ -143,7 +143,7 @@ export class PageRepositoryImpl implements PageRepository {
           throw new Error(`expected to update one page, updated ${updated}`);
         }
         const after: PageInfo[] = await this.queryPages(store, noteId);
-        await this.appendStructureMutation(store, noteId, revision, before, after, OpType.UPDATE_PAGE);
+        await this.appendStructureMutation(store, noteId, revision, before, after, OpType.UPDATE_PAGE, history);
         await store.commit();
       } catch (e) {
         await store.rollBack();
@@ -154,7 +154,7 @@ export class PageRepositoryImpl implements PageRepository {
     }
   }
 
-  async reorderPages(noteId: string, pageIds: string[]): Promise<void> {
+  async reorderPages(noteId: string, pageIds: string[], history?: HistoryMetadata): Promise<void> {
     if (noteId.length === 0) {
       throw new Error('reorderPages failed: note ID is required');
     }
@@ -178,7 +178,7 @@ export class PageRepositoryImpl implements PageRepository {
           await this.updatePageIndex(store, noteId, pageIds[index], index);
         }
         const after: PageInfo[] = await this.queryPages(store, noteId);
-        await this.appendStructureMutation(store, noteId, revision, before, after, OpType.REORDER_PAGES);
+        await this.appendStructureMutation(store, noteId, revision, before, after, OpType.REORDER_PAGES, history);
         await store.commit();
       } catch (e) {
         await store.rollBack();
@@ -253,7 +253,8 @@ export class PageRepositoryImpl implements PageRepository {
   }
 
   private async appendStructureMutation(store: relationalStore.RdbStore, noteId: string,
-    revision: number, before: PageInfo[], after: PageInfo[], expectedType: OpType): Promise<void> {
+    revision: number, before: PageInfo[], after: PageInfo[], expectedType: OpType,
+    history?: HistoryMetadata): Promise<void> {
     const mutation: PageStructureMutation = createPageStructureMutation(
       revision, revision + 1, before, after);
     const opType: OpType = classifyPageStructureMutation(mutation);
@@ -275,6 +276,7 @@ export class PageRepositoryImpl implements PageRepository {
       opType: opType,
       payload: encodePageStructureMutation(mutation),
       clientTime: clientTime,
+      history: history,
     });
   }
 

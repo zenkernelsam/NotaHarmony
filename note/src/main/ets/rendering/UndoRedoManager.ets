@@ -176,7 +176,8 @@ export interface PageContentSnapshot {
 }
 
 export interface EditorHistoryBridge {
-  pushPageAction: (action: UndoableAction) => void;
+  preparePageAction: (action: UndoableAction) => HistoryMetadata;
+  pushPageAction: (action: UndoableAction, history?: HistoryMetadata) => void;
   captureCurrentPage: () => PageContentSnapshot;
   preparePageRemoval: (pageId: string) => void;
   cancelPageRemoval: (pageId: string) => void;
@@ -360,11 +361,11 @@ export class UndoRedoManager {
   }
 
   // 记录操作（清空 redoStack）
-  push(action: UndoableAction): void {
+  push(action: UndoableAction, prepared?: HistoryMetadata): void {
     const entry: HistoryEntry = {
       action: action,
       estimatedBytes: estimateHistoryActionBytes(action),
-      history: this.createHistoryMetadata(action),
+      history: prepared === undefined ? this.createHistoryMetadata(action) : this.acceptPreparedHistory(prepared),
     };
     this.undoStack.push(entry);
     this.undoBytes += entry.estimatedBytes;
@@ -456,6 +457,19 @@ export class UndoRedoManager {
     return this.latestHistory === null ? null : this.withEffect(this.latestHistory, this.latestHistory.effect);
   }
 
+  prepareHistoryMetadata(action: UndoableAction): HistoryMetadata {
+    return this.createHistoryMetadata(action);
+  }
+
+  getHistoryMetadataForMove(expected: UndoableAction, isUndo: boolean): HistoryMetadata | null {
+    const stack: HistoryEntry[] = isUndo ? this.undoStack : this.redoStack;
+    const top: HistoryEntry | undefined = stack.length > 0 ? stack[stack.length - 1] : undefined;
+    if (top === undefined || top.action !== expected) {
+      return null;
+    }
+    return this.withEffect(top.history, isUndo ? HistoryEffect.UNDO : HistoryEffect.REDO);
+  }
+
   private createHistoryMetadata(action: UndoableAction): HistoryMetadata {
     this.actionCounter++;
     const now: number = Date.now();
@@ -476,6 +490,14 @@ export class UndoRedoManager {
       coalesceTrack: history.coalesceTrack,
       actionTime: history.actionTime,
     };
+  }
+
+  private acceptPreparedHistory(history: HistoryMetadata): HistoryMetadata {
+    if (history.effect !== HistoryEffect.PUSH || history.actionId.length === 0 ||
+      !Number.isSafeInteger(history.actionTime) || history.actionTime < 0) {
+      throw new Error('prepared history metadata is invalid');
+    }
+    return this.withEffect(history, HistoryEffect.PUSH);
   }
 
   private advanceHistoryRevision(): void {
