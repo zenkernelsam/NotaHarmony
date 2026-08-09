@@ -75,6 +75,17 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 - `NoteCanvasView` 首次载入笔记时读取并物化持久历史；读取结果只有在 page load generation 仍有效时才一次性安装，迟到的旧页面
   读取不能清空新页面刚恢复的栈。损坏历史只禁用 Undo/Redo，不阻止打开当前快照。恢复的 NPM1 Undo 按逆序反向回放，Redo 按
   正序正向回放；回放先在局部完整有序元素集上完成，全部匹配后才安装，并重算文本/形状 bounds，避免半应用状态。
+- 第八阶段把数据库升至 v16，为 DELETE_PAGE 增加以 `(note_id,action_id)` 标识的耐久 checkpoint。checkpoint 头保存完整
+  `PageInfo`、内容 revision、可空搜索 revision 和原 action time；子表保存原始元素 BLOB/层序/revision 及页面搜索行。外键只指向
+  `note_meta`，不指向将被删除的 `page_info`，因此正常页面级联删除不会误删历史内容。
+- DELETE_PAGE 的 PUSH 先 flush 当前页，再在单一 `PageRepository` 事务中写 checkpoint、删除页面、压紧 pageIndex、推进结构 revision
+  和追加 NPG1；Undo 在一个事务中恢复页面元数据、原位置、元素、搜索行/索引状态并追加 CREATE_PAGE NPG1；Redo 先逐字段、逐 BLOB
+  核对当前页面与原 checkpoint，再原子删除并追加 DELETE_PAGE NPG1。数据库成功后才发布或移动内存历史栈，旧的
+  add→save→reorder 多事务补偿路径已移除。
+- checkpoint 读取严格验证 header、连续层序、元素 revision、codec kind/elementId、搜索类型和源状态。DELETE_PAGE 只有找到相同
+  note/action/page/time 的 checkpoint 才能被持久历史物化；缺失、歧义、损坏或与 NPG1 矛盾时禁用该段历史，不安装半恢复动作。
+- 原版 `qnf`/`vnf` 的约束仍是一个 Undo action 拥有完整 forward/reverse op 列表；本阶段恢复的是该原子边界，不把 Harmony 旧有的
+  UI 补偿步骤保留为产品语义，也不据此声称已经完成原版 grouped Undo 或 ClientOp 同步格式。
 
 ## 后果
 
@@ -83,7 +94,7 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
 
 这不关闭 D-02，也不等价于原版 ClientOp。元素与页面结构 mutation serializer、双向 replay、原子追加及当前会话的逐动作保存边界
 已经建立；元素 NPM1 及单事务页面 NPG1 也具备 action identity、PUSH/UNDO/REDO effect、coalesce track 和原 action time。
-最后一个无 legacy 的完整 segment 现在可在重启后恢复成可执行 Undo/Redo 栈，但 DELETE_PAGE 仍是显式 legacy 边界，删除页面所需
-内容还没有耐久 checkpoint。后续仍需实现：覆盖删除页的完整跨会话 Undo/Redo、原版式成组 Undo、editor site/原版式单调 opId、
-checkpoint/compaction、损坏日志恢复、同步导入映射，以及
+最后一个无 legacy 的完整 segment 现在可在重启后恢复成可执行 Undo/Redo 栈，DELETE_PAGE 也具备耐久内容 checkpoint 和原子
+PUSH/UNDO/REDO。后续仍需实现：原版式成组 Undo、长期历史 checkpoint/compaction、editor site/原版式单调 opId、
+用户可见的损坏日志恢复、同步导入映射，以及
 同步上传和聚合元数据。完成这些之前，不得声称具有原版协作或完整增量同步语义。

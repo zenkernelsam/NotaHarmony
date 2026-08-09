@@ -8,8 +8,15 @@ import {
 } from './PageStructureOpCodec';
 import { SearchSourceElement } from './SearchIndexPolicy';
 import { PageInfo } from '../core/model/NoteTypes';
+import { PageDeleteCheckpoint, PageDeleteCheckpointElement } from './PageDeleteCheckpoint';
+import { decodePersistedElement, PersistedElement } from './StrokePersistence';
+import { StrokeElementData } from '../core/model/StrokeTypes';
+import { ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { cloneShapeElement, recomputeShapeBounds } from '../core/model/ShapeGeometry';
+import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextBlockGeometry';
+import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import {
-  AddPageAction, PageSettingsAction, PersistedPageMutationsAction, ReorderPagesAction,
+  AddPageAction, DeletePageAction, PageSettingsAction, PersistedPageMutationsAction, ReorderPagesAction,
   RestoredHistoryAction, UndoableAction, UndoableActionType,
 } from '../rendering/UndoRedoManager';
 
@@ -95,10 +102,10 @@ export function reducePersistentHistory(operations: Op[]): PersistentHistoryStat
 }
 
 export function materializePersistentHistory(state: PersistentHistoryState,
-  currentPageId: string): RestoredHistoryState {
+  currentPageId: string, deleteCheckpoints: PageDeleteCheckpoint[] = []): RestoredHistoryState {
   return {
-    undo: materializeActions(state.undo, currentPageId),
-    redo: materializeActions(state.redo, currentPageId),
+    undo: materializeActions(state.undo, currentPageId, deleteCheckpoints),
+    redo: materializeActions(state.redo, currentPageId, deleteCheckpoints),
     legacyOperationCount: state.legacyOperationCount,
   };
 }
@@ -118,10 +125,11 @@ export function replayPersistentPageMutations(current: SearchSourceElement[], op
   return result;
 }
 
-function materializeActions(actions: PersistentHistoryAction[], currentPageId: string): RestoredHistoryAction[] {
+function materializeActions(actions: PersistentHistoryAction[], currentPageId: string,
+  deleteCheckpoints: PageDeleteCheckpoint[]): RestoredHistoryAction[] {
   const result: RestoredHistoryAction[] = [];
   for (const action of actions) {
-    const materialized: UndoableAction = materializeAction(action, currentPageId);
+    const materialized: UndoableAction = materializeAction(action, currentPageId, deleteCheckpoints);
     result.push({
       action: materialized,
       history: {
@@ -135,7 +143,8 @@ function materializeActions(actions: PersistentHistoryAction[], currentPageId: s
   return result;
 }
 
-function materializeAction(action: PersistentHistoryAction, currentPageId: string): UndoableAction {
+function materializeAction(action: PersistentHistoryAction, currentPageId: string,
+  deleteCheckpoints: PageDeleteCheckpoint[]): UndoableAction {
   if (action.operations.length === 0) {
     throw new Error('persistent action has no mutation operations');
   }
@@ -180,10 +189,12 @@ function materializeAction(action: PersistentHistoryAction, currentPageId: strin
   if (action.operations.length !== 1) {
     throw new Error('persistent page action must contain exactly one NPG1 mutation');
   }
-  return materializePageAction(noteId, action.operations[0], currentPageId);
+  return materializePageAction(noteId, action.operations[0], currentPageId,
+    action.actionId, action.actionTime, deleteCheckpoints);
 }
 
-function materializePageAction(noteId: string, operation: Op, currentPageId: string): UndoableAction {
+function materializePageAction(noteId: string, operation: Op, currentPageId: string,
+  actionId: string, actionTime: number, deleteCheckpoints: PageDeleteCheckpoint[]): UndoableAction {
   const mutation: PageStructureMutation = decodePageStructureMutation(operation.payload);
   if (classifyPageStructureMutation(mutation) !== operation.opType) {
     throw new Error('persistent page operation type contradicts its payload');
@@ -225,7 +236,113 @@ function materializePageAction(noteId: string, operation: Op, currentPageId: str
     };
     return restored;
   }
+  if (operation.opType === OpType.DELETE_PAGE) {
+    const deleted: PageInfo = findMembershipPage(mutation.beforePages, afterIds);
+    const checkpoint: PageDeleteCheckpoint = findDeleteCheckpoint(
+      deleteCheckpoints, noteId, actionId, deleted.pageId);
+    if (!samePageInfo(checkpoint.page, deleted) || checkpoint.createdTime !== actionTime) {
+      throw new Error('persistent DELETE_PAGE checkpoint header contradicts its action');
+    }
+    const content = materializeCheckpointContent(checkpoint);
+    const selectedAfter: string = contains(afterIds, currentPageId) ? currentPageId :
+      afterIds[Math.min(deleted.pageIndex, afterIds.length - 1)];
+    const restored: DeletePageAction = {
+      type: UndoableActionType.DELETE_PAGE,
+      noteId: noteId,
+      pageId: deleted.pageId,
+      pageBefore: deleted,
+      pageOrderBefore: beforeIds,
+      pageOrderAfter: afterIds,
+      pageStrokes: content.strokes,
+      pageTextBlocks: content.textBlocks,
+      pageShapes: content.shapes,
+      pageElementOrder: content.elementOrder,
+      selectedPageIdBefore: deleted.pageId,
+      selectedPageIdAfter: selectedAfter,
+    };
+    return restored;
+  }
   throw new Error('persistent page action type is not restorable');
+}
+
+interface MaterializedCheckpointContent {
+  strokes: StrokeElementData[];
+  textBlocks: TextBlockElement[];
+  shapes: ShapeElement[];
+  elementOrder: PageElementRef[];
+}
+
+function findDeleteCheckpoint(checkpoints: PageDeleteCheckpoint[], noteId: string,
+  actionId: string, pageId: string): PageDeleteCheckpoint {
+  let found: PageDeleteCheckpoint | undefined = undefined;
+  for (const checkpoint of checkpoints) {
+    if (checkpoint.noteId === noteId && checkpoint.actionId === actionId) {
+      if (found !== undefined || checkpoint.page.pageId !== pageId) {
+        throw new Error('persistent DELETE_PAGE checkpoint identity is ambiguous');
+      }
+      found = checkpoint;
+    }
+  }
+  if (found === undefined) {
+    throw new Error('persistent DELETE_PAGE checkpoint is missing');
+  }
+  return found;
+}
+
+function materializeCheckpointContent(checkpoint: PageDeleteCheckpoint): MaterializedCheckpointContent {
+  if (!Number.isSafeInteger(checkpoint.contentRevision) || checkpoint.contentRevision < 0 ||
+    (checkpoint.indexedRevision !== null && (!Number.isSafeInteger(checkpoint.indexedRevision) ||
+      checkpoint.indexedRevision < 0 || checkpoint.indexedRevision > checkpoint.contentRevision))) {
+    throw new Error('persistent DELETE_PAGE checkpoint revision header is invalid');
+  }
+  const strokes: StrokeElementData[] = [];
+  const textBlocks: TextBlockElement[] = [];
+  const shapes: ShapeElement[] = [];
+  const elementOrder: PageElementRef[] = [];
+  for (let index: number = 0; index < checkpoint.elements.length; index++) {
+    const element: PageDeleteCheckpointElement = checkpoint.elements[index];
+    if (element.elementOrder !== index || element.revision !== checkpoint.contentRevision) {
+      throw new Error('persistent DELETE_PAGE checkpoint element revision or order is invalid');
+    }
+    for (let previous: number = 0; previous < index; previous++) {
+      if (checkpoint.elements[previous].kind === element.kind &&
+        checkpoint.elements[previous].elementId === element.elementId) {
+        throw new Error('persistent DELETE_PAGE checkpoint contains a duplicate element identity');
+      }
+    }
+    const persisted: PersistedElement = decodePersistedElement(element.payload);
+    if (element.kind === PageElementKind.STROKE && persisted.kind === 'stroke') {
+      const stroke: StrokeElementData = persisted.data as StrokeElementData;
+      if (stroke.id !== element.elementId) {
+        throw new Error('persistent DELETE_PAGE stroke identity mismatch');
+      }
+      strokes.push(stroke);
+    } else if (element.kind === PageElementKind.TEXT && persisted.kind === 'text') {
+      const text: TextBlockElement = cloneTextBlockElement(persisted.data as TextBlockElement);
+      if (text.id !== element.elementId) {
+        throw new Error('persistent DELETE_PAGE text identity mismatch');
+      }
+      text.bounds = textBlockWorldBounds(text);
+      textBlocks.push(text);
+    } else if (element.kind === PageElementKind.SHAPE && persisted.kind === 'shape') {
+      const shape: ShapeElement = cloneShapeElement(persisted.data as ShapeElement);
+      if (shape.id !== element.elementId) {
+        throw new Error('persistent DELETE_PAGE shape identity mismatch');
+      }
+      shape.bounds = recomputeShapeBounds(shape);
+      shapes.push(shape);
+    } else {
+      throw new Error('persistent DELETE_PAGE element kind mismatch');
+    }
+    elementOrder.push({ kind: element.kind, elementId: element.elementId, zIndex: index });
+  }
+  return { strokes: strokes, textBlocks: textBlocks, shapes: shapes, elementOrder: elementOrder };
+}
+
+function samePageInfo(left: PageInfo, right: PageInfo): boolean {
+  return left.pageId === right.pageId && left.pageIndex === right.pageIndex && left.size === right.size &&
+    left.template === right.template && left.orientation === right.orientation &&
+    left.widthMm === right.widthMm && left.heightMm === right.heightMm;
 }
 
 function isElementOperation(operation: Op): boolean {

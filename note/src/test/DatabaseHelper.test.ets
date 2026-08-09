@@ -2,6 +2,7 @@ import { describe, it, expect } from '@ohos/hypium';
 import {
   DB_VERSION, DDL_EDITOR_TOOLBOX_STATE, DDL_FOLDER, DDL_PAGE_ELEMENT_SNAPSHOT, DDL_PAGE_INFO,
   DDL_NOTE_META, DDL_NOTE_STATE, DDL_OPERATION_LOG, DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE,
+  DDL_PAGE_DELETE_CHECKPOINT, DDL_PAGE_DELETE_CHECKPOINT_ELEMENT, DDL_PAGE_DELETE_CHECKPOINT_SEARCH,
   DDL_INDEXES, MIGRATIONS,
 } from
   '../main/ets/data/DatabaseHelper';
@@ -11,7 +12,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(15);
+      expect(DB_VERSION).assertEqual(16);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -23,6 +24,18 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[15].join('\n')).assertContain('ADD COLUMN coalesce_track');
       expect(MIGRATIONS[15].join('\n')).assertContain('ADD COLUMN action_time');
       expect(MIGRATIONS[13].join('\n').includes('action_id')).assertFalse();
+    });
+
+    it('keeps durable deleted-page contents outside the live page foreign-key domain', 0, () => {
+      expect(DDL_PAGE_DELETE_CHECKPOINT).assertContain('PRIMARY KEY(note_id, action_id)');
+      expect(DDL_PAGE_DELETE_CHECKPOINT).assertContain('content_revision');
+      expect(DDL_PAGE_DELETE_CHECKPOINT).assertContain('indexed_revision');
+      expect(DDL_PAGE_DELETE_CHECKPOINT).assertContain('REFERENCES note_meta(id) ON DELETE CASCADE');
+      expect(DDL_PAGE_DELETE_CHECKPOINT.includes('REFERENCES page_info')).assertFalse();
+      expect(DDL_PAGE_DELETE_CHECKPOINT_ELEMENT).assertContain('payload BLOB NOT NULL');
+      expect(DDL_PAGE_DELETE_CHECKPOINT_ELEMENT).assertContain('element_order');
+      expect(DDL_PAGE_DELETE_CHECKPOINT_SEARCH).assertContain('folded_text');
+      expect(MIGRATIONS[16].join('\n')).assertContain('page_delete_checkpoint');
     });
 
     it('keeps the append-only operation log separate from page snapshots', 0, () => {

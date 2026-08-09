@@ -13,6 +13,10 @@ import {
 } from '../main/ets/data/PageMutationOpCodec';
 import { createPageStructureMutation, encodePageStructureMutation } from '../main/ets/data/PageStructureOpCodec';
 import { SearchSourceElement } from '../main/ets/data/SearchIndexPolicy';
+import { PageDeleteCheckpoint } from '../main/ets/data/PageDeleteCheckpoint';
+import { encodePersistedElement } from '../main/ets/data/StrokePersistence';
+import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
+import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import { UndoableActionType } from '../main/ets/rendering/UndoRedoManager';
 
 function makeOp(opId: string, actionId?: string, effect: HistoryEffect = HistoryEffect.PUSH,
@@ -64,12 +68,17 @@ function mutationOp(opId: string, actionId: string, pageId: string, fromRevision
 }
 
 function pageOp(opId: string, actionId: string, opType: OpType, fromRevision: number,
-  before: PageInfo[], after: PageInfo[]): Op {
+  before: PageInfo[], after: PageInfo[], effect: HistoryEffect = HistoryEffect.PUSH,
+  actionTime: number = fromRevision + 100): Op {
   return {
     opId: opId, noteId: 'note-1', opType: opType,
     payload: encodePageStructureMutation(
       createPageStructureMutation(fromRevision, fromRevision + 1, before, after)),
-    clientTime: fromRevision + 1, history: history(actionId, fromRevision + 100),
+    clientTime: fromRevision + 1,
+    history: {
+      actionId: actionId, effect: effect,
+      coalesceTrack: HistoryCoalesceTrack.NONE, actionTime: actionTime,
+    },
   };
 }
 
@@ -84,13 +93,38 @@ function page(pageId: string, pageIndex: number, template: PaperTemplate = Paper
   };
 }
 
-function materializeRejects(state: PersistentHistoryState): boolean {
+function materializeRejects(state: PersistentHistoryState,
+  checkpoints: PageDeleteCheckpoint[] = []): boolean {
   try {
-    materializePersistentHistory(state, 'page-1');
+    materializePersistentHistory(state, 'page-1', checkpoints);
   } catch (_error) {
     return true;
   }
   return false;
+}
+
+function stroke(id: string): StrokeElementData {
+  return {
+    id: id, pathPoints: [], cubicSegments: [], splatPoints: [],
+    renderSpec: {
+      color: 0xFF000000, brushWidth: 2, inkStyle: InkStyle.FIXED_WIDTH,
+      isHighlighter: false, isPencil: false,
+    },
+    transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    bounds: { x: 0, y: 0, width: 1, height: 1 }, maskPath: [], isFinished: true,
+  };
+}
+
+function deleteCheckpoint(pageInfo: PageInfo): PageDeleteCheckpoint {
+  return {
+    noteId: 'note-1', actionId: 'delete-action', page: pageInfo,
+    contentRevision: 7, indexedRevision: 7, createdTime: 100,
+    elements: [{
+      elementId: 'stroke-1', kind: PageElementKind.STROKE,
+      payload: encodePersistedElement({ kind: 'stroke', data: stroke('stroke-1') }),
+      revision: 7, elementOrder: 0,
+    }],
+  };
 }
 
 export default function persistentHistoryTest() {
@@ -201,7 +235,94 @@ export default function persistentHistoryTest() {
       expect(restored.undo[2].action.pageId).assertEqual('page-2');
     });
 
-    it('rejects delete-page history, mixed pages, discontinuous revisions, and false op types', 0, () => {
+    it('materializes DELETE_PAGE only with its exact durable checkpoint', 0, () => {
+      const first: PageInfo = page('page-1', 0);
+      const second: PageInfo = page('page-2', 1, PaperTemplate.GRID);
+      const operation: Op = pageOp(
+        'delete', 'delete-action', OpType.DELETE_PAGE, 0, [first, second], [first]);
+      const checkpoint: PageDeleteCheckpoint = {
+        noteId: 'note-1',
+        actionId: 'delete-action',
+        page: second,
+        contentRevision: 0,
+        indexedRevision: null,
+        createdTime: 100,
+        elements: [],
+      };
+      const restored: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([operation]), 'page-1', [checkpoint]);
+      expect(restored.undo.length).assertEqual(1);
+      expect(restored.undo[0].action.type).assertEqual(UndoableActionType.DELETE_PAGE);
+      expect(restored.undo[0].action.pageId).assertEqual('page-2');
+    });
+
+    it('restores non-empty DELETE_PAGE content and survives PUSH UNDO REDO reduction', 0, () => {
+      const first: PageInfo = page('page-1', 0);
+      const second: PageInfo = page('page-2', 1, PaperTemplate.GRID);
+      const checkpoint: PageDeleteCheckpoint = deleteCheckpoint(second);
+      const restored: RestoredHistoryState = materializePersistentHistory(reducePersistentHistory([
+        pageOp('delete-push', 'delete-action', OpType.DELETE_PAGE, 0,
+          [first, second], [first], HistoryEffect.PUSH, 100),
+        pageOp('delete-undo', 'delete-action', OpType.CREATE_PAGE, 1,
+          [first], [first, second], HistoryEffect.UNDO, 100),
+        pageOp('delete-redo', 'delete-action', OpType.DELETE_PAGE, 2,
+          [first, second], [first], HistoryEffect.REDO, 100),
+      ]), 'page-1', [checkpoint]);
+
+      expect(restored.undo.length).assertEqual(1);
+      expect(restored.redo.length).assertEqual(0);
+      if (restored.undo[0].action.type === UndoableActionType.DELETE_PAGE) {
+        expect(restored.undo[0].action.pageStrokes.length).assertEqual(1);
+        expect(restored.undo[0].action.pageStrokes[0].id).assertEqual('stroke-1');
+        expect(restored.undo[0].action.pageElementOrder[0].elementId).assertEqual('stroke-1');
+      } else {
+        expect(false).assertTrue();
+      }
+    });
+
+    it('rejects contradictory DELETE_PAGE checkpoint headers and elements', 0, () => {
+      const first: PageInfo = page('page-1', 0);
+      const second: PageInfo = page('page-2', 1, PaperTemplate.GRID);
+      const operation: Op = pageOp(
+        'delete', 'delete-action', OpType.DELETE_PAGE, 0, [first, second], [first]);
+      const state: PersistentHistoryState = reducePersistentHistory([operation]);
+
+      const wrongTime: PageDeleteCheckpoint = deleteCheckpoint(second);
+      wrongTime.createdTime = 101;
+      expect(materializeRejects(state, [wrongTime])).assertTrue();
+
+      const wrongPage: PageDeleteCheckpoint = deleteCheckpoint(page('page-2', 1, PaperTemplate.LINES));
+      expect(materializeRejects(state, [wrongPage])).assertTrue();
+
+      const wrongRevision: PageDeleteCheckpoint = deleteCheckpoint(second);
+      wrongRevision.elements[0].revision = 6;
+      expect(materializeRejects(state, [wrongRevision])).assertTrue();
+
+      const wrongHeaderRevision: PageDeleteCheckpoint = deleteCheckpoint(second);
+      wrongHeaderRevision.indexedRevision = 8;
+      expect(materializeRejects(state, [wrongHeaderRevision])).assertTrue();
+
+      const wrongOrder: PageDeleteCheckpoint = deleteCheckpoint(second);
+      wrongOrder.elements[0].elementOrder = 1;
+      expect(materializeRejects(state, [wrongOrder])).assertTrue();
+
+      const wrongIdentity: PageDeleteCheckpoint = deleteCheckpoint(second);
+      wrongIdentity.elements[0].elementId = 'other-stroke';
+      expect(materializeRejects(state, [wrongIdentity])).assertTrue();
+
+      const wrongKind: PageDeleteCheckpoint = deleteCheckpoint(second);
+      wrongKind.elements[0].kind = PageElementKind.TEXT;
+      expect(materializeRejects(state, [wrongKind])).assertTrue();
+
+      const duplicate: PageDeleteCheckpoint = deleteCheckpoint(second);
+      duplicate.elements.push({
+        elementId: duplicate.elements[0].elementId, kind: duplicate.elements[0].kind,
+        payload: duplicate.elements[0].payload, revision: 7, elementOrder: 1,
+      });
+      expect(materializeRejects(state, [duplicate])).assertTrue();
+    });
+
+    it('rejects missing delete checkpoints, mixed pages, discontinuous revisions, and false op types', 0, () => {
       const first: PageInfo = page('page-1', 0);
       const second: PageInfo = page('page-2', 1);
       const retained: PageInfo = page('page-2', 0);

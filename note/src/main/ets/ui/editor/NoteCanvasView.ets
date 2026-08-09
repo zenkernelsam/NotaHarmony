@@ -37,6 +37,7 @@ import {
   materializePersistentHistory, reducePersistentHistory, replayPersistentPageMutations, RestoredHistoryState,
 } from '../../data/PersistentHistory';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
+import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import {
   RenderSpec, StrokeElementData, StrokePathPoint, InputBatch, InputBatchKind, PencilSplatPoint,
 } from '../../core/model/StrokeTypes';
@@ -197,10 +198,14 @@ export struct NoteCanvasView {
       captureCurrentPage: (): PageContentSnapshot => this.captureCurrentPage(),
       preparePageRemoval: (pageId: string): void => {
         this.skipSavePageId = pageId;
+        if (this.loadedPageId === pageId) {
+          this.dataLoading = true;
+        }
       },
       cancelPageRemoval: (pageId: string): void => {
         if (this.skipSavePageId === pageId) {
           this.skipSavePageId = '';
+          this.dataLoading = false;
         }
       },
       flushCurrentPage: async (): Promise<boolean> => this.flushCurrentPage(),
@@ -282,7 +287,9 @@ export struct NoteCanvasView {
     currentPageId: string): Promise<RestoredHistoryState | null> {
     try {
       const operations: Op[] = await new OpStoreImpl(db).getOps(this.noteId);
-      return materializePersistentHistory(reducePersistentHistory(operations), currentPageId);
+      const checkpoints = await new PageRepositoryImpl(db).getDeleteCheckpoints(this.noteId);
+      return materializePersistentHistory(
+        reducePersistentHistory(operations), currentPageId, checkpoints);
     } catch (e) {
       // Corrupt history must not make the note unreadable. Strict replay remains unavailable.
       hilog.error(0x0001, 'NoteCanvasView', 'persistent history disabled: %{public}s', JSON.stringify(e));

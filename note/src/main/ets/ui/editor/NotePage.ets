@@ -441,11 +441,31 @@ struct NotePage {
     const deletedPage: PageInfo = this.clonePage(this.pages[this.currentPageIndex]);
     const pageId: string = deletedPage.pageId;
     const orderBefore: string[] = this.pageIds(this.pages);
+    const orderAfter: string[] = orderBefore.filter((id: string): boolean => id !== pageId);
     const selectedBefore: string = pageId;
+    const selectedAfter: string = orderAfter[Math.min(this.currentPageIndex, orderAfter.length - 1)];
+    if (!await this.historyBridge.flushCurrentPage()) {
+      throw new Error('deleteCurrentPage could not flush the current page');
+    }
     const snapshot: PageContentSnapshot = this.historyBridge.captureCurrentPage();
+    const action: DeletePageAction = {
+      type: UndoableActionType.DELETE_PAGE,
+      noteId: this.noteId,
+      pageId: pageId,
+      pageBefore: deletedPage,
+      pageOrderBefore: orderBefore,
+      pageOrderAfter: orderAfter,
+      pageStrokes: snapshot.strokes,
+      pageTextBlocks: snapshot.textBlocks,
+      pageShapes: snapshot.shapes,
+      pageElementOrder: snapshot.elementOrder,
+      selectedPageIdBefore: selectedBefore,
+      selectedPageIdAfter: selectedAfter,
+    };
+    const history: HistoryMetadata = this.historyBridge.preparePageAction(action);
     this.historyBridge.preparePageRemoval(pageId);
     try {
-      await this.pageRepo.deletePage(this.noteId, pageId);
+      await this.pageRepo.deletePageWithCheckpoint(this.noteId, pageId, history);
     } catch (e) {
       this.historyBridge.cancelPageRemoval(pageId);
       throw new Error(`deleteCurrentPage failed: ${JSON.stringify(e)}`);
@@ -460,21 +480,7 @@ struct NotePage {
     if (this.currentPageIndex >= this.pages.length) {
       this.currentPageIndex = this.pages.length - 1;
     }
-    const selectedAfter: string = this.pages[this.currentPageIndex].pageId;
-    this.historyBridge.pushPageAction({
-      type: UndoableActionType.DELETE_PAGE,
-      noteId: this.noteId,
-      pageId: pageId,
-      pageBefore: deletedPage,
-      pageOrderBefore: orderBefore,
-      pageOrderAfter: this.pageIds(this.pages),
-      pageStrokes: snapshot.strokes,
-      pageTextBlocks: snapshot.textBlocks,
-      pageShapes: snapshot.shapes,
-      pageElementOrder: snapshot.elementOrder,
-      selectedPageIdBefore: selectedBefore,
-      selectedPageIdAfter: selectedAfter,
-    });
+    this.historyBridge.pushPageAction(action, history);
   }
 
   private async moveCurrentPage(delta: number): Promise<void> {
@@ -524,7 +530,7 @@ struct NotePage {
         return await this.applyAddPageHistory(action, isUndo, history);
       }
       if (action.type === UndoableActionType.DELETE_PAGE) {
-        return await this.applyDeletePageHistory(action, isUndo);
+        return await this.applyDeletePageHistory(action, isUndo, history);
       }
       if (action.type === UndoableActionType.PAGE_SETTINGS) {
         const page: PageInfo = isUndo ? action.pageBefore : action.pageAfter;
@@ -697,20 +703,13 @@ struct NotePage {
     return true;
   }
 
-  private async applyDeletePageHistory(action: DeletePageAction, isUndo: boolean): Promise<boolean> {
+  private async applyDeletePageHistory(action: DeletePageAction, isUndo: boolean,
+    history: HistoryMetadata): Promise<boolean> {
     if (this.pageRepo === null) {
       return false;
     }
     if (isUndo) {
-      try {
-        await this.pageRepo.addPage(this.noteId, action.pageBefore);
-        await this.persistence.saveElements(this.noteId, action.pageId,
-          action.pageStrokes, action.pageTextBlocks, action.pageElementOrder, action.pageShapes);
-        await this.pageRepo.reorderPages(this.noteId, action.pageOrderBefore);
-      } catch (e) {
-        await this.compensateFailedPageRestore(action.pageId);
-        throw new Error(`undo DELETE_PAGE failed: ${JSON.stringify(e)}`);
-      }
+      await this.pageRepo.restoreDeletedPage(this.noteId, history.actionId, history);
       const restored: PageInfo[] = this.pages.concat([this.clonePage(action.pageBefore)]);
       this.pages = this.orderPages(restored, action.pageOrderBefore);
       this.selectPageById(action.selectedPageIdBefore);
@@ -722,7 +721,7 @@ struct NotePage {
     if (this.historyBridge !== null && this.pages[this.currentPageIndex].pageId === action.pageId) {
       this.historyBridge.preparePageRemoval(action.pageId);
     }
-    await this.pageRepo.deletePage(this.noteId, action.pageId);
+    await this.pageRepo.deletePageWithCheckpoint(this.noteId, action.pageId, history);
     this.pages = this.orderPages(this.pages.filter((page: PageInfo) => page.pageId !== action.pageId),
       action.pageOrderAfter);
     this.selectPageById(action.selectedPageIdAfter);
@@ -737,17 +736,6 @@ struct NotePage {
         this.pages = updated;
         return;
       }
-    }
-  }
-
-  private async compensateFailedPageRestore(pageId: string): Promise<void> {
-    if (this.pageRepo === null) {
-      return;
-    }
-    try {
-      await this.pageRepo.deletePage(this.noteId, pageId);
-    } catch (e) {
-      hilog.error(0x0001, 'NotePage', 'page restore compensation failed: %{public}s', JSON.stringify(e));
     }
   }
 

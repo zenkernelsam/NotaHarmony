@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v15: attach explicit PUSH/UNDO/REDO identity and original coalescing metadata to mutations.
-export const DB_VERSION: number = 15;
+// v16: retain deleted-page contents as durable action-scoped history checkpoints.
+export const DB_VERSION: number = 16;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -65,6 +65,49 @@ CREATE TABLE IF NOT EXISTS operation_log (
     OR (action_id IS NOT NULL AND history_effect IS NOT NULL AND coalesce_track IS NOT NULL AND action_time IS NOT NULL)),
   UNIQUE(note_id, op_id),
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_PAGE_DELETE_CHECKPOINT: string = `
+CREATE TABLE IF NOT EXISTS page_delete_checkpoint (
+  note_id TEXT NOT NULL,
+  action_id TEXT NOT NULL,
+  page_id TEXT NOT NULL,
+  page_index INTEGER NOT NULL,
+  size INTEGER NOT NULL,
+  template INTEGER NOT NULL,
+  orientation INTEGER NOT NULL,
+  width_mm REAL NOT NULL,
+  height_mm REAL NOT NULL,
+  content_revision INTEGER NOT NULL,
+  indexed_revision INTEGER,
+  created_time INTEGER NOT NULL,
+  PRIMARY KEY(note_id, action_id),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_PAGE_DELETE_CHECKPOINT_ELEMENT: string = `
+CREATE TABLE IF NOT EXISTS page_delete_checkpoint_element (
+  note_id TEXT NOT NULL,
+  action_id TEXT NOT NULL,
+  element_id TEXT NOT NULL,
+  kind INTEGER NOT NULL,
+  payload BLOB NOT NULL,
+  revision INTEGER NOT NULL,
+  element_order INTEGER NOT NULL,
+  PRIMARY KEY(note_id, action_id, element_id, kind),
+  FOREIGN KEY(note_id, action_id) REFERENCES page_delete_checkpoint(note_id, action_id) ON DELETE CASCADE
+)`;
+
+export const DDL_PAGE_DELETE_CHECKPOINT_SEARCH: string = `
+CREATE TABLE IF NOT EXISTS page_delete_checkpoint_search (
+  note_id TEXT NOT NULL,
+  action_id TEXT NOT NULL,
+  type INTEGER NOT NULL,
+  sub_id TEXT NOT NULL,
+  folded_text TEXT NOT NULL,
+  rects BLOB,
+  PRIMARY KEY(note_id, action_id, type, sub_id),
+  FOREIGN KEY(note_id, action_id) REFERENCES page_delete_checkpoint(note_id, action_id) ON DELETE CASCADE
 )`;
 
 // Historical migrations must never reference the evolving latest-schema DDL.
@@ -174,6 +217,8 @@ export const DDL_INDEXES: string[] = [
     ON operation_log(note_id, client_time, sequence)`,
   `CREATE INDEX IF NOT EXISTS idx_operation_log_note_action
     ON operation_log(note_id, action_id, sequence)`,
+  `CREATE INDEX IF NOT EXISTS idx_page_delete_checkpoint_page
+    ON page_delete_checkpoint(note_id, page_id, created_time)`,
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_page_info_note ON page_info(note_id, page_index)',
   'CREATE INDEX IF NOT EXISTS idx_note_meta_folder ON note_meta(folder_id)',
   'CREATE INDEX IF NOT EXISTS idx_folder_parent_order ON folder(parent_id, sibling_order)',
@@ -381,5 +426,12 @@ export const MIGRATIONS: Record<number, string[]> = {
     'ALTER TABLE operation_log ADD COLUMN action_time INTEGER',
     `CREATE INDEX IF NOT EXISTS idx_operation_log_note_action
       ON operation_log(note_id, action_id, sequence)`,
+  ],
+  16: [
+    DDL_PAGE_DELETE_CHECKPOINT,
+    DDL_PAGE_DELETE_CHECKPOINT_ELEMENT,
+    DDL_PAGE_DELETE_CHECKPOINT_SEARCH,
+    `CREATE INDEX IF NOT EXISTS idx_page_delete_checkpoint_page
+      ON page_delete_checkpoint(note_id, page_id, created_time)`,
   ],
 };
