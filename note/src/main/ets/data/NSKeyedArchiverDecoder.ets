@@ -18,38 +18,89 @@
 
 import { PlistValue, PlistType, appleTimeToUnixMillis } from './BinaryPlistParser';
 
-// 纯 ArkTS UTF-8 解码（NSString 的 NS.bytes 为 UTF-8 字节，避免依赖 @kit.ArkTS）
-function utf8Decode(bytes: Uint8Array): string {
-  let out: string = '';
+const KEYED_ARCHIVE_VERSION: number = 100000;
+const MAX_ARCHIVE_VALIDATION_DEPTH: number = 96;
+
+class Utf8DecodeResult {
+  text: string = '';
+  error: string = '';
+}
+
+// 纯 ArkTS 严格 UTF-8 解码（NSString 的 NS.bytes 为 UTF-8 字节，避免依赖 @kit.ArkTS）
+function utf8Decode(bytes: Uint8Array): Utf8DecodeResult {
+  const result = new Utf8DecodeResult();
+  const chunks: string[] = [];
+  let chunk: string = '';
   let i: number = 0;
   while (i < bytes.length) {
     const b0: number = bytes[i] & 0xFF;
     let cp: number;
-    if (b0 < 0x80) {
+    let width: number;
+    if (b0 <= 0x7F) {
       cp = b0;
-      i += 1;
-    } else if ((b0 & 0xE0) === 0xC0 && i + 1 < bytes.length) {
+      width = 1;
+    } else if (b0 >= 0xC2 && b0 <= 0xDF) {
+      width = 2;
+      if (i + width > bytes.length || !isUtf8Continuation(bytes[i + 1] & 0xFF)) {
+        result.error = `非法双字节 UTF-8 序列 @${i}`;
+        return result;
+      }
       cp = ((b0 & 0x1F) << 6) | (bytes[i + 1] & 0x3F);
-      i += 2;
-    } else if ((b0 & 0xF0) === 0xE0 && i + 2 < bytes.length) {
-      cp = ((b0 & 0x0F) << 12) | ((bytes[i + 1] & 0x3F) << 6) | (bytes[i + 2] & 0x3F);
-      i += 3;
-    } else if ((b0 & 0xF8) === 0xF0 && i + 3 < bytes.length) {
-      cp = ((b0 & 0x07) << 18) | ((bytes[i + 1] & 0x3F) << 12) |
-        ((bytes[i + 2] & 0x3F) << 6) | (bytes[i + 3] & 0x3F);
-      i += 4;
+    } else if (b0 >= 0xE0 && b0 <= 0xEF) {
+      width = 3;
+      if (i + width > bytes.length) {
+        result.error = `截断的 UTF-8 序列 @${i}`;
+        return result;
+      }
+      const b1: number = bytes[i + 1] & 0xFF;
+      const b2: number = bytes[i + 2] & 0xFF;
+      const validB1: boolean = b0 === 0xE0 ? b1 >= 0xA0 && b1 <= 0xBF :
+        b0 === 0xED ? b1 >= 0x80 && b1 <= 0x9F : isUtf8Continuation(b1);
+      if (!validB1 || !isUtf8Continuation(b2)) {
+        result.error = `非法三字节 UTF-8 序列 @${i}`;
+        return result;
+      }
+      cp = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F);
+    } else if (b0 >= 0xF0 && b0 <= 0xF4) {
+      width = 4;
+      if (i + width > bytes.length) {
+        result.error = `截断的 UTF-8 序列 @${i}`;
+        return result;
+      }
+      const b1: number = bytes[i + 1] & 0xFF;
+      const b2: number = bytes[i + 2] & 0xFF;
+      const b3: number = bytes[i + 3] & 0xFF;
+      const validB1: boolean = b0 === 0xF0 ? b1 >= 0x90 && b1 <= 0xBF :
+        b0 === 0xF4 ? b1 >= 0x80 && b1 <= 0x8F : isUtf8Continuation(b1);
+      if (!validB1 || !isUtf8Continuation(b2) || !isUtf8Continuation(b3)) {
+        result.error = `非法四字节 UTF-8 序列 @${i}`;
+        return result;
+      }
+      cp = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) |
+        ((b2 & 0x3F) << 6) | (b3 & 0x3F);
     } else {
-      cp = 0xFFFD;
-      i += 1;
+      result.error = `非法 UTF-8 起始字节 0x${b0.toString(16)} @${i}`;
+      return result;
     }
     if (cp > 0xFFFF) {
       const v: number = cp - 0x10000;
-      out += String.fromCharCode(0xD800 + (v >> 10), 0xDC00 + (v & 0x3FF));
+      chunk += String.fromCharCode(0xD800 + (v >> 10), 0xDC00 + (v & 0x3FF));
     } else {
-      out += String.fromCharCode(cp);
+      chunk += String.fromCharCode(cp);
     }
+    if (chunk.length >= 4096) {
+      chunks.push(chunk);
+      chunk = '';
+    }
+    i += width;
   }
-  return out;
+  chunks.push(chunk);
+  result.text = chunks.join('');
+  return result;
+}
+
+function isUtf8Continuation(value: number): boolean {
+  return value >= 0x80 && value <= 0xBF;
 }
 
 export class ArchiveDecodeResult {
@@ -153,7 +204,8 @@ export class ArchiveNode {
       if (bytesVal !== null) {
         const bytes: Uint8Array | null = bytesVal.asData();
         if (bytes !== null) {
-          return utf8Decode(bytes);
+          const decoded: Utf8DecodeResult = utf8Decode(bytes);
+          return decoded.error.length === 0 ? decoded.text : fallback;
         }
       }
     }
@@ -174,7 +226,8 @@ export class ArchiveNode {
       if (bytesVal !== null) {
         const bytes: Uint8Array | null = bytesVal.asData();
         if (bytes !== null) {
-          return utf8Decode(bytes);
+          const decoded: Utf8DecodeResult = utf8Decode(bytes);
+          return decoded.error.length === 0 ? decoded.text : fallback;
         }
       }
     }
@@ -283,8 +336,25 @@ export class NSKeyedArchiverDecoder {
       return out;
     }
     const archiverVal: PlistValue | null = root.dictGet('$archiver');
-    const archiver: string = archiverVal !== null ? archiverVal.asString('') : '';
-    // Notability 用 GLKeyedArchiver；只要有 $objects + $top 就按 keyed archive 处理
+    if (archiverVal === null || archiverVal.type !== PlistType.STRING) {
+      out.error = '缺少字符串 $archiver';
+      return out;
+    }
+    const archiver: string = archiverVal.asString('');
+    if (archiver !== 'NSKeyedArchiver' && archiver !== 'GLKeyedArchiver') {
+      out.error = `不支持的归档器 ${archiver}`;
+      return out;
+    }
+    const versionVal: PlistValue | null = root.dictGet('$version');
+    if (versionVal === null || versionVal.type !== PlistType.INT) {
+      out.error = '缺少整数 $version';
+      return out;
+    }
+    const version: number = versionVal.asNumber(-1);
+    if (version !== KEYED_ARCHIVE_VERSION) {
+      out.error = `不支持的归档版本 ${version}`;
+      return out;
+    }
     const objectsVal: PlistValue | null = root.dictGet('$objects');
     const topVal: PlistValue | null = root.dictGet('$top');
     if (objectsVal === null || objectsVal.type !== PlistType.ARRAY) {
@@ -304,6 +374,11 @@ export class NSKeyedArchiverDecoder {
     }
     if (decoder.objects.length === 0) {
       out.error = '$objects 为空';
+      return out;
+    }
+    const validationError: string = decoder.validateValue(root, '$archive', 0);
+    if (validationError.length > 0) {
+      out.error = validationError;
       return out;
     }
     if (decoder.objects[0].type !== PlistType.STRING || decoder.objects[0].asString('') !== '$null') {
@@ -398,6 +473,55 @@ export class NSKeyedArchiverDecoder {
       }
     }
     return out;
+  }
+
+  private validateValue(value: PlistValue, path: string, depth: number): string {
+    if (depth > MAX_ARCHIVE_VALIDATION_DEPTH) {
+      return `${path} 超过归档校验深度上限 ${MAX_ARCHIVE_VALIDATION_DEPTH}`;
+    }
+    if (value.type === PlistType.UID) {
+      const index: number = value.asUid();
+      return index >= 0 && index < this.objects.length ? '' :
+        `${path} 的 UID 越界 index=${index} objects=${this.objects.length}`;
+    }
+    if (value.type === PlistType.ARRAY || value.type === PlistType.SET) {
+      const items: PlistValue[] = value.arrayItems();
+      for (let i: number = 0; i < items.length; i++) {
+        const error: string = this.validateValue(items[i], `${path}[${i}]`, depth + 1);
+        if (error.length > 0) {
+          return error;
+        }
+      }
+      return '';
+    }
+    if (value.type !== PlistType.DICT) {
+      return '';
+    }
+    const keys: string[] = value.dictKeys();
+    for (let i: number = 0; i < keys.length; i++) {
+      const key: string = keys[i];
+      const child: PlistValue | null = value.dictValueAt(i);
+      if (child === null) {
+        return `${path}.${key} 缺少字典值`;
+      }
+      const childPath: string = `${path}.${key}`;
+      const error: string = this.validateValue(child, childPath, depth + 1);
+      if (error.length > 0) {
+        return error;
+      }
+      if (key === 'NS.bytes') {
+        const bytesValue: PlistValue | null = this.resolve(child);
+        const bytes: Uint8Array | null = bytesValue !== null ? bytesValue.asData() : null;
+        if (bytes === null) {
+          return `${childPath} 不是有效 data`;
+        }
+        const decoded: Utf8DecodeResult = utf8Decode(bytes);
+        if (decoded.error.length > 0) {
+          return `${childPath} ${decoded.error}`;
+        }
+      }
+    }
+    return '';
   }
 
   // === 结构打印器：输出对象图层级，供未知格式探测 ===

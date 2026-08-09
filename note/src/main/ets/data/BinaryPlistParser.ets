@@ -221,6 +221,13 @@ export class PlistValue {
     return this.keyNames !== null ? this.keyNames : [];
   }
 
+  dictValueAt(index: number): PlistValue | null {
+    if (this.keyValues === null || index < 0 || index >= this.keyValues.length) {
+      return null;
+    }
+    return this.keyValues[index];
+  }
+
   dictGet(key: string): PlistValue | null {
     if (this.keyNames === null || this.keyValues === null) {
       return null;

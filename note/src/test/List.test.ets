@@ -36,6 +36,7 @@ import selectionToolTest from './SelectionTool.test';
 import textBlockGeometryTest from './TextBlockGeometry.test';
 import shapeDetectorTest from './ShapeDetector.test';
 import binaryPlistParserTest from './BinaryPlistParser.test';
+import nsKeyedArchiverDecoderTest from './NSKeyedArchiverDecoder.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -76,4 +77,5 @@ export default function testsuite() {
   textBlockGeometryTest();
   shapeDetectorTest();
   binaryPlistParserTest();
+  nsKeyedArchiverDecoderTest();
 }
