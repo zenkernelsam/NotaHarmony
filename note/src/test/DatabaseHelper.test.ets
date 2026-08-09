@@ -6,6 +6,8 @@ import {
   DDL_HISTORY_CHECKPOINT, DDL_HISTORY_CHECKPOINT_ACTION, DDL_HISTORY_CHECKPOINT_OPERATION,
   DDL_DEFERRED_SYNCED_OPERATION_BUNDLE, DDL_LOCAL_EDITOR_IDENTITY, DDL_NOTE_SYNC_METADATA,
   DDL_SYNCED_OPERATION_INBOX, DDL_ORIGINAL_PAGE_INSERT_GROUP, DDL_ORIGINAL_PAGE_IDENTITY,
+  DDL_ORIGINAL_PAGE_VISIBILITY_WINNER, DDL_ORIGINAL_DELETED_PAGE,
+  DDL_ORIGINAL_DELETED_PAGE_ELEMENT, DDL_ORIGINAL_DELETED_PAGE_SEARCH,
   DDL_INDEXES, MIGRATIONS,
 } from
   '../main/ets/data/DatabaseHelper';
@@ -15,7 +17,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(23);
+      expect(DB_VERSION).assertEqual(24);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -55,6 +57,12 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[22].join('\n')).assertContain('original_page_identity');
       expect(MIGRATIONS[23].join('\n')).assertContain('original_page_position_group');
       expect(MIGRATIONS[23].join('\n')).assertContain('original_page_position_winner');
+      expect(MIGRATIONS[24].join('\n')).assertContain('original_page_visibility_winner');
+      expect(DDL_ORIGINAL_PAGE_VISIBILITY_WINNER).assertContain('deleted IN (0, 1)');
+      expect(DDL_ORIGINAL_DELETED_PAGE).assertContain('indexed_revision');
+      expect(DDL_ORIGINAL_DELETED_PAGE.includes('REFERENCES page_info')).assertFalse();
+      expect(DDL_ORIGINAL_DELETED_PAGE_ELEMENT).assertContain('payload BLOB NOT NULL');
+      expect(DDL_ORIGINAL_DELETED_PAGE_SEARCH).assertContain('folded_text TEXT NOT NULL');
       expect(DDL_ORIGINAL_PAGE_INSERT_GROUP).assertContain('parent_index');
       expect(DDL_ORIGINAL_PAGE_INSERT_GROUP).assertContain('page_count BETWEEN 1 AND 10000');
       expect(DDL_ORIGINAL_PAGE_IDENTITY).assertContain('visible = 0 AND page_id IS NULL');

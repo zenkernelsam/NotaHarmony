@@ -194,6 +194,15 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
   `page_index` 与 CRDT 物化顺序分歧或未证明的字段组合均在首次写入前 DEFERRED。位置组、winner、页面重排、structure revision、
   inbox APPLIED 和同步水位仍共享单一 SQLite 事务。NOTE_BUNDLE 内的历史 MODIFY_PAGE 仍保持门禁，待页面 delete/undelete 一并建模后
   才能可靠地从完整历史绑定既有 storage pageId。
+- 第二十二阶段按原版 `s83→icj→bl2→al2` 恢复 `DELETE_ENTITIES` 的 pageDeletes/pageUndeletes。原版 `_deletes`
+  是以稳定页面 SeqId 为 key、只按 unsigned `(timestamp,site)` 选 winner 的独立 LWW 布尔寄存器；delete 写 true，undelete 写 false，
+  同一 payload 先 delete 后 undelete。它不删除 order/position 节点或 `_pages` 对象，删除位置仍必须展开其子锚点。
+- v24 因而新增 `original_page_visibility_winner` 与独立远端删除归档。归档完整保存 `page_info` 元数据、元素 BLOB/顺序/revision、
+  页面搜索项与 indexed revision，再删除 live `page_info`；undelete 从归档逐字段恢复，并按当前 position winner 树重新物化 pageIndex。
+  该归档不复用本地 Undo/Redo 的 `page_delete_checkpoint`，远端 op 也不写本地 operation_log/history。
+- CREATE_PAGE、MODIFY_PAGE 和 DELETE_ENTITIES 现在共享同一位置树物化器；可见性过滤只影响 winner 页面输出，遍历仍经过被删除或已输掉的
+  历史位置。页面集合可按原版收敛到零；本地 UI 继续禁止用户删除最后一页，但同步 reducer 不伪造替代页。缺稳定身份、entity mutation、
+  当前 page_index/归档状态分歧均在首次写入前 DEFERRED；归档、winner、恢复、最终顺序、structure revision、inbox 与同步水位同事务。
 
 ## 后果
 
@@ -207,7 +216,7 @@ PUSH/UNDO/REDO；当前可生成的同页 CREATE_INK 历史也具备原版式成
 损坏历史也有用户可见且不删除同步日志的本地恢复路径；同步日志本身仍保持追加式。原版式 editor site/op clock、耐久同步元数据和
 upload/ACK 前缀契约、本地导入身份映射、共同水位压缩、严格同步会话协调器、无损 unsigned 64-bit server cursor、隔离的 incoming raw-op
 落库及原子应用门禁已经建立；CREATE_PAGE 的受限无背景 reducer、稳定身份/历史位置分层的原版 SeqId 树、受限纯移动 MODIFY_PAGE
-reducer 和无页面移动/tombstone 历史的 NOTE_BUNDLE 身份引导也已落地。但还没有经过认证的远端 WebSocket 适配器、页面
-delete/undelete、其余 29 类 incoming payload reducer、完整 NOTE_BUNDLE 页面历史或
+reducer、页面 delete/undelete tombstone 和无页面移动/tombstone 历史的 NOTE_BUNDLE 身份引导也已落地。但还没有经过认证的远端
+WebSocket 适配器、其余 28 类 incoming payload reducer、完整 NOTE_BUNDLE 页面历史或
 服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
 原版协作或完整增量同步语义。

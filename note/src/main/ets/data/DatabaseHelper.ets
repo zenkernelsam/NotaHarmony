@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v23: separate stable original page identities from CREATE/MOVE sequence positions.
-export const DB_VERSION: number = 23;
+// v24: preserve original page delete/undelete LWW state and archived page contents.
+export const DB_VERSION: number = 24;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -270,6 +270,74 @@ CREATE TABLE IF NOT EXISTS original_page_position_winner (
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
+export const DDL_ORIGINAL_PAGE_VISIBILITY_WINNER: string = `
+CREATE TABLE IF NOT EXISTS original_page_visibility_winner (
+  note_id TEXT NOT NULL,
+  page_timestamp INTEGER NOT NULL CHECK (page_timestamp BETWEEN 0 AND 4294967295),
+  page_site_id INTEGER NOT NULL CHECK (page_site_id BETWEEN 0 AND 65535),
+  page_index INTEGER NOT NULL CHECK (page_index BETWEEN 0 AND 4294967295),
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  deleted INTEGER NOT NULL CHECK (deleted IN (0, 1)),
+  PRIMARY KEY(note_id, page_timestamp, page_site_id, page_index),
+  FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
+    REFERENCES original_page_identity(note_id, seq_timestamp, seq_site_id, seq_index) ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_DELETED_PAGE: string = `
+CREATE TABLE IF NOT EXISTS original_deleted_page (
+  note_id TEXT NOT NULL,
+  page_timestamp INTEGER NOT NULL CHECK (page_timestamp BETWEEN 0 AND 4294967295),
+  page_site_id INTEGER NOT NULL CHECK (page_site_id BETWEEN 0 AND 65535),
+  page_index INTEGER NOT NULL CHECK (page_index BETWEEN 0 AND 4294967295),
+  page_id TEXT NOT NULL CHECK (length(page_id) > 0),
+  size INTEGER NOT NULL,
+  template INTEGER NOT NULL,
+  orientation INTEGER NOT NULL,
+  width_mm REAL NOT NULL,
+  height_mm REAL NOT NULL,
+  content_revision INTEGER NOT NULL CHECK (content_revision >= 0),
+  indexed_revision INTEGER CHECK (indexed_revision IS NULL OR
+    (indexed_revision >= 0 AND indexed_revision <= content_revision)),
+  PRIMARY KEY(note_id, page_timestamp, page_site_id, page_index),
+  UNIQUE(note_id, page_id),
+  FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
+    REFERENCES original_page_identity(note_id, seq_timestamp, seq_site_id, seq_index) ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_DELETED_PAGE_ELEMENT: string = `
+CREATE TABLE IF NOT EXISTS original_deleted_page_element (
+  note_id TEXT NOT NULL,
+  page_timestamp INTEGER NOT NULL,
+  page_site_id INTEGER NOT NULL,
+  page_index INTEGER NOT NULL,
+  element_id TEXT NOT NULL,
+  kind INTEGER NOT NULL,
+  payload BLOB NOT NULL,
+  revision INTEGER NOT NULL CHECK (revision >= 0),
+  element_order INTEGER NOT NULL CHECK (element_order >= 0),
+  PRIMARY KEY(note_id, page_timestamp, page_site_id, page_index, element_id, kind),
+  FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
+    REFERENCES original_deleted_page(note_id, page_timestamp, page_site_id, page_index) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_DELETED_PAGE_SEARCH: string = `
+CREATE TABLE IF NOT EXISTS original_deleted_page_search (
+  note_id TEXT NOT NULL,
+  page_timestamp INTEGER NOT NULL,
+  page_site_id INTEGER NOT NULL,
+  page_index INTEGER NOT NULL,
+  type INTEGER NOT NULL,
+  sub_id TEXT NOT NULL CHECK (length(sub_id) > 0),
+  folded_text TEXT NOT NULL,
+  rects BLOB,
+  PRIMARY KEY(note_id, page_timestamp, page_site_id, page_index, type, sub_id),
+  FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
+    REFERENCES original_deleted_page(note_id, page_timestamp, page_site_id, page_index) ON DELETE CASCADE
+)`;
+
 // Original DeferredSyncedOps points to checksummed files. Harmony keeps the equivalent raw
 // bundle in SQLite so row and bytes cross the same transaction boundary.
 export const DDL_DEFERRED_SYNCED_OPERATION_BUNDLE: string = `
@@ -529,6 +597,8 @@ export const DDL_INDEXES: string[] = [
     ON original_page_position_group(note_id, parent_timestamp, parent_site_id, parent_index)`,
   `CREATE INDEX IF NOT EXISTS idx_original_page_position_value
     ON original_page_position(note_id, page_timestamp, page_site_id, page_index)`,
+  `CREATE INDEX IF NOT EXISTS idx_original_deleted_page_storage
+    ON original_deleted_page(note_id, page_id)`,
   `CREATE INDEX IF NOT EXISTS idx_deferred_synced_bundle_note
     ON deferred_synced_operation_bundle(note_id, id)`,
   `CREATE INDEX IF NOT EXISTS idx_page_delete_checkpoint_page
@@ -840,5 +910,13 @@ export const MIGRATIONS: Record<number, string[]> = {
       ON original_page_position_group(note_id, parent_timestamp, parent_site_id, parent_index)`,
     `CREATE INDEX IF NOT EXISTS idx_original_page_position_value
       ON original_page_position(note_id, page_timestamp, page_site_id, page_index)`,
+  ],
+  24: [
+    DDL_ORIGINAL_PAGE_VISIBILITY_WINNER,
+    DDL_ORIGINAL_DELETED_PAGE,
+    DDL_ORIGINAL_DELETED_PAGE_ELEMENT,
+    DDL_ORIGINAL_DELETED_PAGE_SEARCH,
+    `CREATE INDEX IF NOT EXISTS idx_original_deleted_page_storage
+      ON original_deleted_page(note_id, page_id)`,
   ],
 };

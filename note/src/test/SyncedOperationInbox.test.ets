@@ -17,6 +17,7 @@ import {
 } from '../main/ets/data/OperationIdentity';
 import { decodeOriginalNoteBundle } from '../main/ets/data/OriginalNoteBundlePageIdentity';
 import { decodeOriginalModifyPage } from '../main/ets/data/OriginalModifyPageOperation';
+import { decodeOriginalDeleteEntities } from '../main/ets/data/OriginalDeleteEntitiesOperation';
 import { OriginalPageOperationApplier } from '../main/ets/data/OriginalPageOperationApplier';
 
 function operation(timestamp: number, serverTime: string,
@@ -143,7 +144,22 @@ export default function syncedOperationInboxTest() {
       const applier = new OriginalPageOperationApplier();
       expect(applier.supports(3)).assertTrue();
       expect(applier.supports(4)).assertTrue();
+      expect(applier.supports(25)).assertTrue();
       expect(applier.supports(5)).assertFalse();
+    });
+
+    it('decodes original DELETE_ENTITIES page tombstones independently from entities', 0, () => {
+      const payload = decodeOriginalDeleteEntities(flatBufferDeleteEntities());
+      expect(payload.entityDeleteCount).assertEqual(1);
+      expect(payload.entityUndeleteCount).assertEqual(1);
+      expect(payload.pageDeletes.length).assertEqual(2);
+      expect(payload.pageDeletes[0].timestamp).assertEqual(10);
+      expect(payload.pageDeletes[0].siteId).assertEqual(1);
+      expect(payload.pageDeletes[0].index).assertEqual(2);
+      expect(payload.pageUndeletes.length).assertEqual(1);
+      expect(payload.pageUndeletes[0].timestamp).assertEqual(20);
+      expect(payload.pageUndeletes[0].siteId).assertEqual(3);
+      expect(payload.pageUndeletes[0].index).assertEqual(4);
     });
 
     it('decodes original NOTE_BUNDLE metadata and nested operation tables', 0, () => {
@@ -317,6 +333,58 @@ function flatBufferModifyPage(): Uint8Array {
   writeU16(bytes, 144, 5);
   writeU32(bytes, 148, 30);
   writeU32(bytes, 152, 6);
+  return bytes;
+}
+
+function flatBufferDeleteEntities(): Uint8Array {
+  const bytes: Uint8Array = new Uint8Array(164);
+  writeU32(bytes, 0, 24);
+  writeU16(bytes, 4, 18);
+  writeU16(bytes, 6, 36);
+  writeU16(bytes, 8, 4);
+  writeU16(bytes, 10, 12);
+  writeU16(bytes, 12, 20);
+  writeU16(bytes, 16, 28);
+  writeU16(bytes, 18, 32);
+  writeU32(bytes, 24, 20);
+  writeU16(bytes, 28, 7);
+  writeU32(bytes, 32, 50);
+  writeDecimalU64(bytes, 36, '51');
+  writeDecimalU64(bytes, 44, '52');
+  bytes[52] = 25;
+  writeU32(bytes, 56, 16);
+
+  writeU16(bytes, 60, 12);
+  writeU16(bytes, 62, 20);
+  writeU16(bytes, 64, 4);
+  writeU16(bytes, 66, 8);
+  writeU16(bytes, 68, 12);
+  writeU16(bytes, 70, 16);
+  writeU32(bytes, 72, 12);
+  writeU32(bytes, 76, 20);
+  writeU32(bytes, 80, 28);
+  writeU32(bytes, 84, 36);
+  writeU32(bytes, 88, 60);
+
+  writeU32(bytes, 96, 1);
+  writeU16(bytes, 100, 8);
+  writeU32(bytes, 104, 9);
+  writeU32(bytes, 108, 1);
+  writeU16(bytes, 112, 10);
+  writeU32(bytes, 116, 11);
+
+  writeU32(bytes, 120, 2);
+  writeU16(bytes, 124, 1);
+  writeU32(bytes, 128, 10);
+  writeU32(bytes, 132, 2);
+  writeU16(bytes, 136, 5);
+  writeU32(bytes, 140, 30);
+  writeU32(bytes, 144, 6);
+
+  writeU32(bytes, 148, 1);
+  writeU16(bytes, 152, 3);
+  writeU32(bytes, 156, 20);
+  writeU32(bytes, 160, 4);
   return bytes;
 }
 

@@ -10,6 +10,7 @@ import {
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
+import { OriginalPageOrderStore } from './OriginalPageOrderStore';
 
 export const ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE: number = 3;
 export const MAX_ORIGINAL_CREATE_PAGE_COUNT: number = 10000;
@@ -29,6 +30,7 @@ interface OriginalPagePositionRow {
   pageId: string | null;
   visible: boolean;
   active: boolean;
+  deleted: boolean;
 }
 
 interface OriginalPageInsertGroup {
@@ -63,6 +65,8 @@ export function decodeOriginalCreatePageTable(
 }
 
 export class OriginalCreatePageOperationApplier implements SyncedOperationApplier {
+  private orderStore: OriginalPageOrderStore = new OriginalPageOrderStore();
+
   supports(payloadType: number): boolean {
     return payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE;
   }
@@ -91,31 +95,22 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
       !await this.positionExists(store, operation.noteId, payload.location)) {
       return { deferredReason: 'CREATE_PAGE_LOCATION_MISSING' };
     }
-    const storedPageCount: number = await this.countRows(store,
-      'SELECT COUNT(*) AS value FROM page_info WHERE note_id = ?', [operation.noteId]);
-    const mappedPageCount: number = await this.countRows(store,
-      'SELECT COUNT(*) AS value FROM original_page_identity WHERE note_id = ? AND visible = 1',
-      [operation.noteId]);
-    if (storedPageCount !== mappedPageCount) {
-      return { deferredReason: 'ORIGINAL_PAGE_ORDER_INCOMPLETE' };
-    }
-
-    const existingPageIds: string[] = await this.readStoredPageIds(store, operation.noteId);
-    const mappedPageIds: string[] = await this.readOriginalVisibleOrder(store, operation.noteId);
-    if (!this.samePageIds(existingPageIds, mappedPageIds)) {
+    const existingPageIds: string[] = await this.orderStore.readStoredPageIds(store, operation.noteId);
+    const mappedPageIds: string[] = await this.orderStore.readOriginalVisibleOrder(store, operation.noteId);
+    if (!this.orderStore.samePageIds(existingPageIds, mappedPageIds)) {
       return { deferredReason: 'ORIGINAL_PAGE_ORDER_DIVERGED' };
     }
     await this.insertGroup(store, operation, payload);
     const newPageIds: string[] = await this.insertIdentities(store, operation, payload.pageCount);
-    const orderedPageIds: string[] = await this.readOriginalVisibleOrder(store, operation.noteId);
+    const orderedPageIds: string[] = await this.orderStore.readOriginalVisibleOrder(store, operation.noteId);
     if (orderedPageIds.length !== existingPageIds.length + newPageIds.length) {
       throw new Error('original page sequence did not materialize every visible page');
     }
 
-    await this.moveExistingPagesToTemporaryIndexes(store, operation.noteId, existingPageIds);
+    await this.orderStore.assignTemporaryIndexes(store, operation.noteId, existingPageIds);
     await this.insertBlankPages(store, operation.noteId, newPageIds, existingPageIds.length);
-    await this.assignFinalIndexes(store, operation.noteId, orderedPageIds);
-    await this.advanceStructureRevision(store, operation.noteId);
+    await this.orderStore.assignFinalIndexes(store, operation.noteId, orderedPageIds);
+    await this.orderStore.advanceStructureRevision(store, operation.noteId, 'create-page');
     return { deferredReason: null };
   }
 
@@ -252,7 +247,8 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
         groups.parent_site_id, groups.parent_index, groups.position_count,
         positions.pos_index, positions.page_timestamp, positions.page_site_id,
         positions.page_index, pages.page_id, pages.visible,
-        winners.winner_timestamp, winners.winner_site_id, winners.position_index
+        winners.winner_timestamp, winners.winner_site_id, winners.position_index,
+        COALESCE(visibility.deleted, 0) AS deleted
        FROM original_page_position_group groups
        JOIN original_page_position positions ON positions.note_id = groups.note_id
         AND positions.pos_timestamp = groups.op_timestamp
@@ -265,6 +261,10 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
         AND winners.page_timestamp = positions.page_timestamp
         AND winners.page_site_id = positions.page_site_id
         AND winners.page_index = positions.page_index
+       LEFT JOIN original_page_visibility_winner visibility ON visibility.note_id = positions.note_id
+        AND visibility.page_timestamp = positions.page_timestamp
+        AND visibility.page_site_id = positions.page_site_id
+        AND visibility.page_index = positions.page_index
        WHERE groups.note_id = ?
        ORDER BY groups.op_timestamp, groups.op_site_id, positions.pos_index`, [noteId]);
     const groups: Map<string, OriginalPageInsertGroup> = new Map<string, OriginalPageInsertGroup>();
@@ -309,6 +309,7 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
           active: rows.getLong(rows.getColumnIndex('winner_timestamp')) === position.timestamp &&
             rows.getLong(rows.getColumnIndex('winner_site_id')) === position.siteId &&
             rows.getLong(rows.getColumnIndex('position_index')) === position.index,
+          deleted: rows.getLong(rows.getColumnIndex('deleted')) === 1,
         });
       }
     } finally {
@@ -360,7 +361,7 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
       }
       visited.add(groupKey);
       for (const page of group.pages) {
-        if (page.visible && page.active) {
+        if (page.visible && page.active && !page.deleted) {
           if (page.pageId === null) {
             throw new Error('visible original page has no storage ID');
           }
