@@ -102,6 +102,25 @@ export default function textBlockGeometryTest() {
       expect(source.blockHeight).assertEqual(40);
     });
 
+    it('preserves original rich-text state for an unchanged editor commit', 0, () => {
+      const tool: TextBlockTool = new TextBlockTool();
+      const source: TextBlockElement = textBlock();
+      source.blockHeight = 91;
+      source.bounds = textBlockWorldBounds(source);
+      source.characterStyleRuns = [{ start: 0, end: 5, style: { bold: true } }];
+      source.paragraphStyleRuns = [{ start: 0, end: 5, style: { alignment: 2 } }];
+      const updated: TextBlockElement = tool.updateText(source, 'hello');
+      expect(updated.blockHeight).assertEqual(91);
+      expect(updated.characterStyleRuns?.length).assertEqual(1);
+      expect(updated.characterStyleRuns?.[0].style.bold).assertTrue();
+      expect(updated.paragraphStyleRuns?.[0].style.alignment).assertEqual(2);
+      expect(updated).assertNotEqual(source);
+      if (updated.characterStyleRuns !== undefined) {
+        updated.characterStyleRuns[0].style.bold = false;
+      }
+      expect(source.characterStyleRuns?.[0].style.bold).assertTrue();
+    });
+
     it('decomposes signed scale and rotation for the editing overlay', 0, () => {
       const source: TextBlockElement = textBlock();
       source.transform = [-2, 0, 100, 0, 3, 50, 0, 0, 1];

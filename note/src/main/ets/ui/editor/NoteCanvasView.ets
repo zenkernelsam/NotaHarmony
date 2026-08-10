@@ -2890,14 +2890,15 @@ export struct NoteCanvasView {
     if (this.historyBusy) {
       return;
     }
+    let changed: boolean = false;
     if (this.editingTextBlock !== null) {
       if (text.trim().length === 0) {
         this.onTextCancel();
         return;
       }
-      const updated: TextBlockElement = this.textBlockTool.updateText(this.editingTextBlock, text);
-      this.replaceTextBlock(updated);
       if (this.editingOriginalTextBlock === null) {
+        const updated: TextBlockElement = this.textBlockTool.updateText(this.editingTextBlock, text);
+        this.replaceTextBlock(updated);
         const elementOrderAfter: PageElementRef[] = clonePageElementOrder(this.elementOrder);
         this.undoRedo.push({
           type: UndoableActionType.ADD_ELEMENT,
@@ -2908,7 +2909,10 @@ export struct NoteCanvasView {
             elementOrderAfter, PageElementKind.TEXT, [updated.id]),
           elementOrderAfter: elementOrderAfter,
         });
-      } else if (this.editingOriginalTextBlock.richText !== updated.richText) {
+        changed = true;
+      } else if (this.editingOriginalTextBlock.richText !== text) {
+        const updated: TextBlockElement = this.textBlockTool.updateText(this.editingTextBlock, text);
+        this.replaceTextBlock(updated);
         this.undoRedo.push({
           type: UndoableActionType.REPLACE_ELEMENT,
           noteId: this.noteId,
@@ -2918,6 +2922,7 @@ export struct NoteCanvasView {
           beforeElements: [this.editingOriginalTextBlock],
           afterElements: [updated],
         });
+        changed = true;
       }
     }
     this.textEditing = false;
@@ -2925,7 +2930,9 @@ export struct NoteCanvasView {
     this.editingOriginalTextBlock = null;
     this.editingDraftText = '';
     this.notifyUndoRedo();
-    this.persist();
+    if (changed) {
+      this.persist();
+    }
     this.renderFrame(true);
   }
 

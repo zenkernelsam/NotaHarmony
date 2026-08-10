@@ -31,6 +31,11 @@ export class TextBlockTool {
 
   // 更新文本内容（重算 bounds 高度按行数自适应，最少 40）
   updateText(element: TextBlockElement, text: string): TextBlockElement {
+    // The original RichText register treats an unchanged editor commit as a no-op.
+    // Rebuilding it would discard imported character/paragraph runs without an Undo entry.
+    if (text === element.richText) {
+      return cloneTextBlockElement(element);
+    }
     const lines: number = text.split('\n').length;
     const height: number = Math.max(40, lines * (element.fontSize + 8) + element.contentTopInset * 2);
     const updated: TextBlockElement = cloneTextBlockElement(element);
