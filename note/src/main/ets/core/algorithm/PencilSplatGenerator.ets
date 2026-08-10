@@ -31,6 +31,8 @@ export interface CurveWalkPoint {
   t: number;
 }
 
+export const ORIGINAL_PENCIL_FALLBACK_SEED: number = 1544949492;
+
 interface CurveCursor {
   segmentIndex: number;
   t: number;
@@ -85,20 +87,22 @@ export class PencilSplatGenerator {
       }
     }
     this.config = merged;
-    this.seed = 42;  // 默认 seed（可重置）
+    this.seed = ORIGINAL_PENCIL_FALLBACK_SEED;
   }
 
   // 主入口：沿曲线行走生成 splat 点（xaa.b() 语义）
   // 预步进 spacing*0.25（te6.q 传 ow5Var=null → xaa.b L174 分支），
   // 后续步长 = spacing*0.25*(sizeFactor*0.5+0.5)（xaa.b L259，随尺寸变化）
   generate(segments: CubicSegment[], pathPoints: StrokePathPoint[],
-    sourceRanges?: CubicSourceRange[]): PencilSplatPoint[] {
+    sourceRanges?: CubicSourceRange[], referencePoint?: Point2D): PencilSplatPoint[] {
     if (this.config.spacing <= 0 || segments.length === 0 || pathPoints.length === 0) {
       return [];
     }
     const splats: PencilSplatPoint[] = [];
     let cursor: CurveCursor = { segmentIndex: 0, t: 0 };
-    let previousPosition: Point2D = segments[0].p0;
+    // p16.t()/wg6.q()/cfa.b() use the stored style-map reference for the first
+    // distance walk. This keeps a sliced or extended Pencil path aligned with its old splats.
+    let previousPosition: Point2D = referencePoint === undefined ? segments[0].p0 : referencePoint;
     // 预步进（xaa.b L174）：firstStep = spacing * 0.25
     let step: number = this.config.spacing * 0.25;
     while (true) {
@@ -376,6 +380,7 @@ export class PencilSplatGenerator {
   }
 
   reset(seed: number): void {
-    this.seed = seed;
+    // cfa.b() sign-extends the int32 backing seed to long and takes its absolute value.
+    this.seed = Math.abs(Math.trunc(seed));
   }
 }

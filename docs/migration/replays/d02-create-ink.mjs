@@ -24,18 +24,20 @@ class Table {
     const v=p+u32(this.bytes,p),count=u32(this.bytes,v);return this.bytes.slice(v+4,v+4+count); }
 }
 
-function createInkFixture(path,tool=0,style=0) {
+function createInkFixture(path,tool=0,style=0,styleMap=null) {
   const b=new Builder(),root=b.table([4,12,20,0,28,32],36);
   w16(b.bytes,root+4,7);w32(b.bytes,root+8,90);w64(b.bytes,root+12,123n);
   w64(b.bytes,root+20,124n);b.bytes[root+28]=15;
-  const fields=[4,16,24,28,36,37,0,40,44,48,0,0,0,0,56,0,0,0,0,0];
-  const ink=b.table(fields,64);b.pointer(root+32,ink);
+  const fields=[4,16,24,28,36,37,0,40,44,48,0,0,0,styleMap===null?0:64,56,0,0,0,0,0];
+  const ink=b.table(fields,styleMap===null?64:68);b.pointer(root+32,ink);
   w16(b.bytes,ink+4,1);w32(b.bytes,ink+8,10);w32(b.bytes,ink+12,2);
   wf32(b.bytes,ink+16,12);wf32(b.bytes,ink+20,34);wf32(b.bytes,ink+24,Math.PI/2);
   wf32(b.bytes,ink+28,2);wf32(b.bytes,ink+32,3);b.bytes[ink+36]=tool;b.bytes[ink+37]=style;
   b.bytes.set([10,20,30,128],ink+40);
   wf32(b.bytes,ink+44,4);w64(b.bytes,ink+56,18446744073709551615n);
-  const vector=b.vector(path);b.pointer(ink+48,vector);return b.finish(root);
+  const vector=b.vector(path);b.pointer(ink+48,vector);
+  if(styleMap!==null){const styleVector=b.vector(styleMap);b.pointer(ink+64,styleVector);}
+  return b.finish(root);
 }
 
 function decodeCreateInkFixture(bytes) {
@@ -45,7 +47,22 @@ function decodeCreateInkFixture(bytes) {
     origin:[readf32(origin,0),readf32(origin,4)],rotation:readf32(ink.inline(2,4),0),
     scale:[readf32(scale,0),readf32(scale,4)],tool:normalizeEnum(ink.inline(4,1)[0],7),
     style:normalizeEnum(ink.inline(5,1)[0],3),color:[...ink.inline(7,4)],
-    width:readf32(ink.inline(8,4),0),z:u64(ink.inline(14,8),0),path:decodePath(ink.vector(9))};
+    width:readf32(ink.inline(8,4),0),z:u64(ink.inline(14,8),0),path:decodePath(ink.vector(9)),
+    styleMap:decodeStyleMap(ink.vector(13))};
+}
+
+function styleMapFixture(seed,x,y,phase=0,period=0) {
+  const bytes=new Uint8Array(20),view=new DataView(bytes.buffer);
+  view.setInt32(0,seed,true);view.setFloat32(4,x,true);view.setFloat32(8,y,true);
+  view.setFloat32(12,phase,true);view.setFloat32(16,period,true);return bytes;
+}
+function decodeStyleMap(bytes) {
+  if(bytes===null)return [];
+  assert.equal(bytes.length%20,0);const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+  const result=[];for(let offset=0;offset<bytes.length;offset+=20)result.push({
+    seed:view.getInt32(offset,true),x:view.getFloat32(offset+4,true),y:view.getFloat32(offset+8,true),
+    phase:view.getFloat32(offset+12,true),period:view.getFloat32(offset+16,true)});
+  return result;
 }
 
 function decodeHalf(value) {
@@ -203,6 +220,10 @@ assert(Math.abs(decodedFixture.rotation-Math.PI/2)<1e-7);assert.deepEqual(decode
 assert.equal(decodedFixture.width,4);assert.equal(decodedFixture.z,18446744073709551615n);
 const unknownEnums=decodeCreateInkFixture(createInkFixture(pathFixture(),255,255));
 assert.equal(unknownEnums.tool,0);assert.equal(unknownEnums.style,0);
+const pencilFixture=decodeCreateInkFixture(createInkFixture(
+  pathFixture(),1,1,styleMapFixture(-12345,10,0,1.25,8)));
+assert.equal(pencilFixture.tool,1);
+assert.deepEqual(pencilFixture.styleMap,[{seed:-12345,x:10,y:0,phase:1.25,period:8}]);
 const decoded=decodedFixture.path;
 assert.equal(decoded.length,3);assert.equal(decoded[1].points[2].x,6);
 assert.equal(decoded[1].width,0.5);assert.equal(decoded[1].force,0.25);
@@ -254,7 +275,7 @@ assert.equal(failed.prepare(`SELECT count(*) count FROM sqlite_master
 assert.throws(()=>db.exec(`INSERT INTO original_element_z_index VALUES
   ('n',99,1,10,1,2,1,'18446744073709551616')`));
 
-console.log('success|flatbuffer-dm2=1|path-bits16=1|path-bits32=1|attributed=1|cubic-line=1|transform=1|original-bounds=1|rgba=1|uint64-z=1|v25-v26=1|live-order=1|search-invalidated=1|archive-apply=1|rollback=1|divergence-gate=1|uint64-check=1');
+console.log('success|flatbuffer-dm2=1|path-bits16=1|path-bits32=1|attributed=1|cubic-line=1|transform=1|original-bounds=1|rgba=1|uint64-z=1|pencil-style-map=1|v25-v26=1|live-order=1|search-invalidated=1|archive-apply=1|rollback=1|divergence-gate=1|uint64-check=1');
 
 function controlHullBounds(elements){
   const points=elements.flatMap(element=>element.points);

@@ -45,9 +45,9 @@ BITS_16/BITS_32 坐标按原字节序解码，不重新拟合；line 和 quadrat
 元素写入、z-index、重排、搜索失效、inbox APPLIED、synced count 与 server cursor 继续由 `processHead()` 的外层单事务提交。
 远端 reducer 不写本地 `operation_log`，也不进入 Harmony Undo/Redo。
 
-以下能力继续返回具体 DEFERRED 原因，不做有损降级：Pencil splats、Tape/pattern、多 component 或过短路径、未知路径版本/坐标编码、
+以下能力继续返回具体 DEFERRED 原因，不做有损降级：Tape/pattern、多 component 或过短路径、未知路径版本/坐标编码、
 custom/fill path、fill color、style map、audio duration、nib 属性、ink effects，以及缺失原版层序的既有内容。Pencil 不伪装成 Pen，
-因为 Harmony Pencil 没有 splats 会渲染为空。`NOTE_BUNDLE` 内 CREATE_INK 尚未接入内容 replay；本 ADR 也不涵盖
+因为 Harmony Pencil 没有 splats 会渲染为空；其后续确定性 splat 子集已由 ADR-0023 开放。`NOTE_BUNDLE` 内 CREATE_INK 尚未接入内容 replay；本 ADR 也不涵盖
 `ADD_PATH_ELEMENTS`、`MODIFY_INK`、实体 delete/undelete 或 block/text reducer。
 
 ## 后果与验证

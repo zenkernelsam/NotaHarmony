@@ -1,5 +1,9 @@
 import { relationalStore } from '@kit.ArkData';
 import { InkStyle, InkStyleMapEntry, StrokeElementData } from '../core/model/StrokeTypes';
+import { Point2D } from '../core/model/GeometryTypes';
+import {
+  ORIGINAL_PENCIL_FALLBACK_SEED, PencilSplatGenerator,
+} from '../core/algorithm/PencilSplatGenerator';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { encodeOperationId, OriginalSequenceIdentity,
   validateOriginalSequenceIdentity } from './OperationIdentity';
@@ -265,10 +269,7 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
   }
 
   private unsupportedReason(payload: OriginalCreateInkPayload): string | null {
-    if (payload.tool === 1) {
-      return 'CREATE_INK_PENCIL_SPLATS_UNSUPPORTED';
-    }
-    if (payload.tool !== 0 && payload.tool !== 2) {
+    if (payload.tool !== 0 && payload.tool !== 1 && payload.tool !== 2) {
       return payload.tool === 3 ? 'CREATE_INK_TAPE_UNSUPPORTED' : 'CREATE_INK_TOOL_UNSUPPORTED';
     }
     if (payload.hasTapePattern) {
@@ -288,7 +289,7 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
     if (payload.path === null) {
       return 'CREATE_INK_CENTER_PATH_MISSING';
     }
-    if (payload.style === 0 && !payload.path.attributed) {
+    if (payload.tool !== 1 && payload.style === 0 && !payload.path.attributed) {
       return 'CREATE_INK_VARIABLE_PATH_ATTRIBUTES_MISSING';
     }
     if (payload.hasAudioDuration) {
@@ -313,17 +314,32 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
     const style: InkStyle = payload.style === 0 ? InkStyle.VARIABLE_WIDTH :
       payload.style === 1 ? InkStyle.FIXED_WIDTH :
         payload.style === 2 ? InkStyle.DASH : InkStyle.DOTS;
+    const isPencil: boolean = payload.tool === 1;
+    const styleEntry: InkStyleMapEntry | undefined = payload.styleMap.length === 0 ?
+      undefined : payload.styleMap[0];
+    const splatGenerator: PencilSplatGenerator = new PencilSplatGenerator({
+      spacing: payload.width,
+    });
+    splatGenerator.reset(styleEntry === undefined ? ORIGINAL_PENCIL_FALLBACK_SEED :
+      styleEntry.backingPencilSeed);
+    let referencePoint: Point2D | undefined = undefined;
+    if (styleEntry !== undefined && (styleEntry.backingPencilReferencePoint.x !== 0 ||
+      styleEntry.backingPencilReferencePoint.y !== 0)) {
+      referencePoint = styleEntry.backingPencilReferencePoint;
+    }
     return {
       id: encodeOperationId(operation),
       pathPoints: path.pathPoints,
       cubicSegments: path.cubicSegments,
-      splatPoints: [],
+      splatPoints: isPencil ? splatGenerator.generate(path.cubicSegments, path.pathPoints,
+        undefined, referencePoint) : [],
       renderSpec: {
         color: payload.color, brushWidth: payload.width, inkStyle: style,
-        isHighlighter: payload.tool === 2, isPencil: false,
+        isHighlighter: payload.tool === 2, isPencil: isPencil,
       },
       transform: transform,
-      bounds: transformedInkBounds(path.localBounds, payload.width, [
+      // s06.G() multiplies Pencil width by 2.84 before the common cq.H() 2x padding.
+      bounds: transformedInkBounds(path.localBounds, payload.width * (isPencil ? 2.84 : 1), [
         payload.customPath === null ? null : payload.customPath.localBounds,
         payload.fillPath === null ? null : payload.fillPath.localBounds,
       ], transform),

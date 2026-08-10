@@ -101,6 +101,37 @@ export default function pencilSplatGeneratorTest() {
       }
     });
 
+    it('normalizes a negative int32 backing seed like original cfa', 0, () => {
+      const negative: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
+      negative.reset(-12345);
+      const positive: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
+      positive.reset(12345);
+      const points: StrokePathPoint[] = [
+        pencilPoint(0, 0.8, 0.2, 1, 0), pencilPoint(30, 0.8, 0.2, 1, 0),
+      ];
+      const left: PencilSplatPoint[] = negative.generate([straightSegment()], points);
+      const right: PencilSplatPoint[] = positive.generate([straightSegment()], points);
+      expect(left.length).assertEqual(right.length);
+      expect(left[0].x).assertEqual(right[0].x);
+      expect(left[0].rotation).assertEqual(right[0].rotation);
+    });
+
+    it('starts the first walk from the stored Pencil reference point', 0, () => {
+      const points: StrokePathPoint[] = [
+        pencilPoint(0, 0.8, Math.PI / 2, 1, 0),
+        pencilPoint(30, 0.8, Math.PI / 2, 1, 0),
+      ];
+      const base: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
+      base.reset(12345);
+      const fromStart: PencilSplatPoint[] = base.generate([straightSegment()], points);
+      const referenced: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
+      referenced.reset(12345);
+      const fromReference: PencilSplatPoint[] = referenced.generate(
+        [straightSegment()], points, undefined, { x: 10, y: 0 });
+      expect(fromStart.length > fromReference.length).assertTrue();
+      expect(fromReference[0].x > fromStart[0].x + 9).assertTrue();
+    });
+
     it('uses the original fixed azimuth fallback instead of the curve tangent', 0, () => {
       const missing: PencilSplatPoint[] = generateOnSegment(
         verticalSegment(), 0.8, 0.2, 0, 0);
