@@ -31,16 +31,18 @@ azimuth、基础 width，以及 style-map 第一项生成确定性 splats；没�
 `renderSpec.isPencil=true`、原始 style-map 和 `2.84` Pencil bounds 一起进入既有 live/archive snapshot 事务，重启后
 直接读取保存的 splats，不依赖再次随机生成。
 
+同步物化使用 262,144 splat 的实现资源预算。超限返回明确 DEFERRED，不截断路径或提交部分 splats；该预算不施加到
+实时本地书写。它用于阻止极小 width/极长 float32 路径绕过输入字节预算并制造不可控对象和 JSON 体积。
+
 非 attributed Pencil 路径按原版 `fd0` 默认属性处理；Pen 的 VARIABLE_WIDTH 属性门禁保持不变。Tape、pattern、
 audio 和 effects 仍不做降级。
 
 ## 边界与验证
 
-- 本阶段只开放 standalone `CREATE_INK(PENCIL)`。Pencil `ADD_PATH_ELEMENTS` 与 `MODIFY_INK` 仍返回各自的
-  DEFERRED 原因；NOTE_BUNDLE 内容 replay 也尚未接入，不能宣称完整 Pencil 同步闭环。
+- 本阶段只开放 standalone `CREATE_INK(PENCIL)`；后续 ADR-0024 已开放 actual center-path `ADD_PATH_ELEMENTS`。
+  Pencil `MODIFY_INK`、estimated append 与 NOTE_BUNDLE 内容 replay 仍保持 DEFERRED，不能宣称完整 Pencil 同步闭环。
 - `d02-create-ink.mjs` 新增真实 tool=PENCIL 和 20-byte style-map FlatBuffer fixture。
 - `d02-create-ink-pencil.mjs` 固定断言 fallback seed、负 seed、reference point、splat golden、Pencil bounds 和
   JSON 持久化重启往返。
 - `PencilSplatGenerator.test.ets` 新增负 seed 与 reference point 断言。全量 33 个 D-02 replay 通过；clean 后
   `note@ohosTest` 与 `note@default` assembleHap 均 `BUILD SUCCESSFUL`。设备 Hypium 和原版像素对照未执行。
-

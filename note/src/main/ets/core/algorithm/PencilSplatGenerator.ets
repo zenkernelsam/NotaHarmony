@@ -14,6 +14,7 @@ export interface SplatGeneratorConfig {
   maxSubdivisions: number;  // 最大细分（默认 26）
   lcgMultiplier: number;    // LCG 乘子（默认 1118393071）
   lcgModulus: number;       // LCG 模数（默认 1946926193）
+  maximumSplatCount: number; // 调用方资源预算；本地书写默认不限制
 }
 
 export interface SplatAttributes {
@@ -32,6 +33,12 @@ export interface CurveWalkPoint {
 }
 
 export const ORIGINAL_PENCIL_FALLBACK_SEED: number = 1544949492;
+
+export class PencilSplatLimitError extends Error {
+  constructor() {
+    super('Pencil splat count exceeds the configured budget');
+  }
+}
 
 interface CurveCursor {
   segmentIndex: number;
@@ -59,6 +66,7 @@ export class PencilSplatGenerator {
       maxSubdivisions: 26,
       lcgMultiplier: 1118393071,
       lcgModulus: 1946926193,
+      maximumSplatCount: Number.MAX_SAFE_INTEGER,
     };
     if (config !== undefined) {
       if (config.spacing !== undefined) {
@@ -84,6 +92,9 @@ export class PencilSplatGenerator {
       }
       if (config.lcgModulus !== undefined) {
         merged.lcgModulus = config.lcgModulus;
+      }
+      if (config.maximumSplatCount !== undefined) {
+        merged.maximumSplatCount = config.maximumSplatCount;
       }
     }
     this.config = merged;
@@ -117,6 +128,9 @@ export class PencilSplatGenerator {
         pathPoints, range, walk.t);
       const sizeF: number = this.sizeFactorOf(attrs);
       const atPos: PencilSplatPoint[] = this.generateAtPosition(walk.pos, attrs);
+      if (atPos.length > this.config.maximumSplatCount - splats.length) {
+        throw new PencilSplatLimitError();
+      }
       for (const s of atPos) {
         splats.push(s);
       }

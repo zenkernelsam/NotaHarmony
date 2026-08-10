@@ -1,5 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { PencilSplatGenerator } from '../main/ets/core/algorithm/PencilSplatGenerator';
+import {
+  PencilSplatGenerator, PencilSplatLimitError,
+} from '../main/ets/core/algorithm/PencilSplatGenerator';
 import { CubicSourceRange } from '../main/ets/core/algorithm/CubicFitter';
 import { CubicSegment } from '../main/ets/core/model/GeometryTypes';
 import {
@@ -22,6 +24,15 @@ function verticalSegment(): CubicSegment {
     p1: { x: 0, y: 10 },
     p2: { x: 0, y: 20 },
     p3: { x: 0, y: 30 },
+  };
+}
+
+function appendedStraightSegment(): CubicSegment {
+  return {
+    p0: { x: 30, y: 0 },
+    p1: { x: 40, y: 0 },
+    p2: { x: 50, y: 0 },
+    p3: { x: 60, y: 0 },
   };
 }
 
@@ -130,6 +141,46 @@ export default function pencilSplatGeneratorTest() {
         [straightSegment()], points, undefined, { x: 10, y: 0 });
       expect(fromStart.length > fromReference.length).assertTrue();
       expect(fromReference[0].x > fromStart[0].x + 9).assertTrue();
+    });
+
+    it('preserves the existing splat prefix when the original path is appended', 0, () => {
+      const shortPoints: StrokePathPoint[] = [
+        pencilPoint(0, 0.8, 0.2, 1, 0), pencilPoint(30, 0.8, 0.2, 1, 0),
+      ];
+      const longPoints: StrokePathPoint[] = shortPoints.concat([
+        pencilPoint(60, 0.8, 0.2, 1, 0),
+      ]);
+      const shortGenerator: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
+      shortGenerator.reset(-12345);
+      const before: PencilSplatPoint[] = shortGenerator.generate(
+        [straightSegment()], shortPoints, undefined, { x: 10, y: 0 });
+      const longGenerator: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
+      longGenerator.reset(-12345);
+      const after: PencilSplatPoint[] = longGenerator.generate(
+        [straightSegment(), appendedStraightSegment()], longPoints, undefined, { x: 10, y: 0 });
+      expect(after.length > before.length).assertTrue();
+      for (let i: number = 0; i < before.length; i++) {
+        expect(after[i].x).assertEqual(before[i].x);
+        expect(after[i].y).assertEqual(before[i].y);
+        expect(after[i].rotation).assertEqual(before[i].rotation);
+        expect(after[i].opacity).assertEqual(before[i].opacity);
+      }
+    });
+
+    it('rejects a configured remote materialization budget without truncation', 0, () => {
+      const generator: PencilSplatGenerator = new PencilSplatGenerator({
+        spacing: 4, maximumSplatCount: 10,
+      });
+      generator.reset(12345);
+      let limited: boolean = false;
+      try {
+        generator.generate([straightSegment()], [
+          pencilPoint(0, 0.8, 0.2, 1, 0), pencilPoint(30, 0.8, 0.2, 1, 0),
+        ]);
+      } catch (_error) {
+        limited = _error instanceof PencilSplatLimitError;
+      }
+      expect(limited).assertTrue();
     });
 
     it('uses the original fixed azimuth fallback instead of the curve tangent', 0, () => {

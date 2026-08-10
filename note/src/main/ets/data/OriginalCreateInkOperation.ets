@@ -2,7 +2,7 @@ import { relationalStore } from '@kit.ArkData';
 import { InkStyle, InkStyleMapEntry, StrokeElementData } from '../core/model/StrokeTypes';
 import { Point2D } from '../core/model/GeometryTypes';
 import {
-  ORIGINAL_PENCIL_FALLBACK_SEED, PencilSplatGenerator,
+  ORIGINAL_PENCIL_FALLBACK_SEED, PencilSplatGenerator, PencilSplatLimitError,
 } from '../core/algorithm/PencilSplatGenerator';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { encodeOperationId, OriginalSequenceIdentity,
@@ -27,6 +27,7 @@ import {
 
 export const ORIGINAL_CREATE_INK_PAYLOAD_TYPE: number = 15;
 const MAX_ORIGINAL_INK_PATH_BYTES: number = 16 * 1024 * 1024;
+const MAX_SYNCED_PENCIL_SPLATS: number = 262144;
 
 export interface OriginalCreateInkPayload {
   page: OriginalSequenceIdentity;
@@ -176,7 +177,15 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       return { deferredReason: 'CREATE_INK_PAGE_REVISION_EXHAUSTED' };
     }
 
-    const stroke: StrokeElementData = this.buildStroke(operation, payload);
+    let stroke: StrokeElementData;
+    try {
+      stroke = this.buildStroke(operation, payload);
+    } catch (_error) {
+      if (_error instanceof PencilSplatLimitError) {
+        return { deferredReason: 'CREATE_INK_PENCIL_SPLAT_BUDGET_EXCEEDED' };
+      }
+      throw _error;
+    }
     await store.insert('original_element_z_index', {
       'note_id': operation.noteId,
       'element_timestamp': operation.timestamp,
@@ -318,7 +327,7 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
     const styleEntry: InkStyleMapEntry | undefined = payload.styleMap.length === 0 ?
       undefined : payload.styleMap[0];
     const splatGenerator: PencilSplatGenerator = new PencilSplatGenerator({
-      spacing: payload.width,
+      spacing: payload.width, maximumSplatCount: MAX_SYNCED_PENCIL_SPLATS,
     });
     splatGenerator.reset(styleEntry === undefined ? ORIGINAL_PENCIL_FALLBACK_SEED :
       styleEntry.backingPencilSeed);

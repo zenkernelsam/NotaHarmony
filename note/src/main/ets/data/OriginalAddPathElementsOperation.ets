@@ -3,6 +3,9 @@ import { Point2D, Rect2D } from '../core/model/GeometryTypes';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { InkStyle, StrokeElementData, StrokePathPoint } from '../core/model/StrokeTypes';
 import {
+  ORIGINAL_PENCIL_FALLBACK_SEED, PencilSplatGenerator, PencilSplatLimitError,
+} from '../core/algorithm/PencilSplatGenerator';
+import {
   compareOperationIdentity, encodeOperationId, OperationIdentity, OriginalSequenceIdentity,
   validateOperationIdentity, validateOriginalSequenceIdentity,
 } from './OperationIdentity';
@@ -24,6 +27,7 @@ import {
 
 export const ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE: number = 16;
 const MAX_ORIGINAL_INK_PATH_BYTES: number = 16 * 1024 * 1024;
+const MAX_SYNCED_PENCIL_SPLATS: number = 262144;
 
 export interface OriginalAddPathElementsPayload {
   ink: OperationIdentity;
@@ -48,6 +52,7 @@ export interface OriginalInkAppendRecord extends OperationIdentity {
 export interface RebuiltOriginalInkGeometry {
   pathPoints: StrokePathPoint[];
   cubicSegments: StrokeElementData['cubicSegments'];
+  splatPoints: StrokeElementData['splatPoints'];
   bounds: Rect2D;
   attributed: boolean;
 }
@@ -130,6 +135,9 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     try {
       expected = rebuildOriginalInkGeometry(basePath, existingAppends, stroke);
     } catch (_error) {
+      if (_error instanceof PencilSplatLimitError) {
+        return { deferredReason: 'ADD_PATH_ELEMENTS_PENCIL_SPLAT_BUDGET_EXCEEDED' };
+      }
       return { deferredReason: 'ADD_PATH_ELEMENTS_TRACKED_STATE_INVALID' };
     }
     if (!originalInkGeometryMatches(stroke, expected)) {
@@ -148,13 +156,16 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     try {
       rebuilt = rebuildOriginalInkGeometry(basePath, allAppends, stroke);
     } catch (_error) {
+      if (_error instanceof PencilSplatLimitError) {
+        return { deferredReason: 'ADD_PATH_ELEMENTS_PENCIL_SPLAT_BUDGET_EXCEEDED' };
+      }
       return { deferredReason: 'MALFORMED_ADD_PATH_ELEMENTS_PAYLOAD' };
     }
     const updatedStroke: StrokeElementData = {
       id: stroke.id,
       pathPoints: rebuilt.pathPoints,
       cubicSegments: rebuilt.cubicSegments,
-      splatPoints: stroke.splatPoints,
+      splatPoints: rebuilt.splatPoints,
       renderSpec: stroke.renderSpec,
       transform: stroke.transform,
       bounds: rebuilt.bounds,
@@ -183,14 +194,15 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     if (!isSupportedOriginalStoredStroke(stroke)) {
       return 'ADD_PATH_ELEMENTS_STROKE_DIVERGED';
     }
-    if (stroke.renderSpec.isPencil || stroke.splatPoints.length > 0) {
-      return 'ADD_PATH_ELEMENTS_PENCIL_UNSUPPORTED';
+    if (!stroke.renderSpec.isPencil && stroke.splatPoints.length > 0) {
+      return 'ADD_PATH_ELEMENTS_STROKE_DIVERGED';
     }
     if (stroke.renderSpec.inkStyle < InkStyle.FIXED_WIDTH ||
       stroke.renderSpec.inkStyle > InkStyle.DOTS) {
       return 'ADD_PATH_ELEMENTS_STYLE_UNSUPPORTED';
     }
-    if (stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH && !candidate.attributed) {
+    if (!stroke.renderSpec.isPencil && stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH &&
+      !candidate.attributed) {
       return 'ADD_PATH_ELEMENTS_VARIABLE_PATH_ATTRIBUTES_MISSING';
     }
     return null;
@@ -374,7 +386,8 @@ export function rebuildOriginalInkGeometry(baseBytes: Uint8Array,
   sorted.sort(compareStoredAppend);
   for (const stored of sorted) {
     const append: DecodedOriginalInkPathAppend = decodeOriginalInkPathAppend(stored.bytes, current);
-    if (stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH && !append.attributed) {
+    if (!stroke.renderSpec.isPencil && stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH &&
+      !append.attributed) {
       throw new Error('variable-width append has no attributes');
     }
     pathPoints.push(...append.pathPoints);
@@ -383,10 +396,26 @@ export function rebuildOriginalInkGeometry(baseBytes: Uint8Array,
     attributed = attributed && append.attributed;
     current = append.endPoint;
   }
+  const splatGenerator: PencilSplatGenerator = new PencilSplatGenerator({
+    spacing: stroke.renderSpec.brushWidth, maximumSplatCount: MAX_SYNCED_PENCIL_SPLATS,
+  });
+  const styleEntry = stroke.styleMap === undefined || stroke.styleMap.length === 0 ?
+    undefined : stroke.styleMap[0];
+  splatGenerator.reset(styleEntry === undefined ? ORIGINAL_PENCIL_FALLBACK_SEED :
+    styleEntry.backingPencilSeed);
+  let referencePoint: Point2D | undefined = undefined;
+  if (styleEntry !== undefined && (styleEntry.backingPencilReferencePoint.x !== 0 ||
+    styleEntry.backingPencilReferencePoint.y !== 0)) {
+    referencePoint = styleEntry.backingPencilReferencePoint;
+  }
+  const splatPoints: StrokeElementData['splatPoints'] = stroke.renderSpec.isPencil ?
+    splatGenerator.generate(cubicSegments, pathPoints, undefined, referencePoint) : [];
   return {
     pathPoints: pathPoints,
     cubicSegments: cubicSegments,
-    bounds: transformedInkBounds(localBounds, stroke.renderSpec.brushWidth, [
+    splatPoints: splatPoints,
+    bounds: transformedInkBounds(localBounds,
+      stroke.renderSpec.brushWidth * (stroke.renderSpec.isPencil ? 2.84 : 1), [
       inkPathCommandBounds(stroke.customPath), inkPathCommandBounds(stroke.fillPath),
     ], stroke.transform),
     attributed: attributed,
@@ -397,6 +426,7 @@ export function originalInkGeometryMatches(stroke: StrokeElementData,
   expected: RebuiltOriginalInkGeometry): boolean {
   return JSON.stringify(stroke.pathPoints) === JSON.stringify(expected.pathPoints) &&
     JSON.stringify(stroke.cubicSegments) === JSON.stringify(expected.cubicSegments) &&
+    JSON.stringify(stroke.splatPoints) === JSON.stringify(expected.splatPoints) &&
     JSON.stringify(stroke.bounds) === JSON.stringify(expected.bounds);
 }
 

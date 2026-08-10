@@ -10,7 +10,7 @@ function nextSeed(seed) {
 }
 
 function splatsForStraightPath({ seed, referenceX = 0, width = 4, force = 0.8,
-  altitude = 0.2, azimuthX = 0, azimuthY = 1 }) {
+  altitude = 0.2, azimuthX = 0, azimuthY = 1, endX = 30 }) {
   let currentSeed = Math.abs(Math.trunc(seed));
   const pressureScale = Math.min(force, 2) / 2 * 0.97 + 0.03;
   const angleDiff = Math.max(Math.PI / 5 - altitude, 0);
@@ -26,7 +26,7 @@ function splatsForStraightPath({ seed, referenceX = 0, width = 4, force = 0.8,
   const edgeFactor = (1 - angleNorm) + 0.1 * angleNorm;
   const results = [];
   let xOnPath = referenceX + width * 0.25;
-  while (xOnPath <= 30) {
+  while (xOnPath <= endX) {
     for (let index = 0; index < count; index++) {
       currentSeed = nextSeed(currentSeed); const u = currentSeed / MODULUS;
       currentSeed = nextSeed(currentSeed); const theta = currentSeed / MODULUS * Math.PI * 2;
@@ -50,7 +50,10 @@ function splatsForStraightPath({ seed, referenceX = 0, width = 4, force = 0.8,
 const fallback = splatsForStraightPath({ seed: FALLBACK_SEED });
 const negative = splatsForStraightPath({ seed: -12345, referenceX: 10 });
 const positive = splatsForStraightPath({ seed: 12345, referenceX: 10 });
+const beforeAppend = splatsForStraightPath({ seed: -12345, referenceX: 10, endX: 20 });
 assert.deepEqual(negative, positive);
+assert.deepEqual(negative.slice(0, beforeAppend.length), beforeAppend);
+assert(negative.length > beforeAppend.length);
 assert(fallback.length > 0 && negative.length > 0);
 assert.equal(fallback.length, 540);
 assert.equal(negative.length, 360);
@@ -83,13 +86,22 @@ const createSource = fs.readFileSync(
   new URL('../../../note/src/main/ets/data/OriginalCreateInkOperation.ets', import.meta.url), 'utf8');
 const generatorSource = fs.readFileSync(
   new URL('../../../note/src/main/ets/core/algorithm/PencilSplatGenerator.ets', import.meta.url), 'utf8');
+const addSource = fs.readFileSync(
+  new URL('../../../note/src/main/ets/data/OriginalAddPathElementsOperation.ets', import.meta.url), 'utf8');
 assert.doesNotMatch(createSource, /CREATE_INK_PENCIL_SPLATS_UNSUPPORTED/);
 assert.match(createSource, /styleEntry\.backingPencilSeed/);
 assert.match(createSource, /backingPencilReferencePoint/);
 assert.match(createSource, /isPencil: isPencil/);
 assert.match(createSource, /isPencil \? 2\.84 : 1/);
+assert.match(createSource, /CREATE_INK_PENCIL_SPLAT_BUDGET_EXCEEDED/);
+assert.match(createSource, /maximumSplatCount: MAX_SYNCED_PENCIL_SPLATS/);
 assert.match(generatorSource, /Math\.abs\(Math\.trunc\(seed\)\)/);
 assert.match(generatorSource, /referencePoint === undefined \? segments\[0\]\.p0 : referencePoint/);
+assert.doesNotMatch(addSource, /ADD_PATH_ELEMENTS_PENCIL_UNSUPPORTED/);
+assert.match(addSource, /splatPoints: rebuilt\.splatPoints/);
+assert.match(addSource, /splatGenerator\.generate\(cubicSegments, pathPoints/);
+assert.match(addSource, /stroke\.renderSpec\.isPencil \? 2\.84 : 1/);
+assert.match(addSource, /ADD_PATH_ELEMENTS_PENCIL_SPLAT_BUDGET_EXCEEDED/);
 
 console.log(JSON.stringify({ fallbackCount: fallback.length, firstFallback: fallback[0],
   referenceCount: negative.length, firstReference: negative[0] }));
