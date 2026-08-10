@@ -59,6 +59,15 @@ export function decodeOriginalInsertText(bytes: Uint8Array,
     throw new Error('original insert-text payload type is unsupported');
   }
   const table: OriginalFlatBufferTableReader = readOriginalPayloadTable(bytes, payloadType);
+  return decodeOriginalInsertTextTable(table, payloadType);
+}
+
+export function decodeOriginalInsertTextTable(table: OriginalFlatBufferTableReader,
+  payloadType: number): OriginalInsertTextPayload {
+  if (payloadType !== ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE &&
+    payloadType !== ORIGINAL_INSERT_STRING_PAYLOAD_TYPE) {
+    throw new Error('original insert-text payload type is unsupported');
+  }
   const rawLocation: number[] | null = table.readInlineSequence(0);
   const location: OriginalSequenceIdentity | null = rawLocation === null || isRoot(rawLocation) ? null : {
     timestamp: rawLocation[0], siteId: rawLocation[1], index: rawLocation[2],
@@ -97,6 +106,16 @@ export function decodeOriginalTextVisibility(bytes: Uint8Array,
     throw new Error('original text-visibility payload type is unsupported');
   }
   const table: OriginalFlatBufferTableReader = readOriginalPayloadTable(bytes, payloadType);
+  return decodeOriginalTextVisibilityTable(table, payloadType);
+}
+
+export function decodeOriginalTextVisibilityTable(table: OriginalFlatBufferTableReader,
+  payloadType: number): OriginalTextVisibilityPayload {
+  if (payloadType !== ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE &&
+    payloadType !== ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE &&
+    payloadType !== ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE) {
+    throw new Error('original text-visibility payload type is unsupported');
+  }
   let locations: OriginalSequenceIdentity[] = [];
   if (payloadType === ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE) {
     const raw: number[] | null = table.readInlineSequence(0);
@@ -136,6 +155,33 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     } catch (_error) {
       return { deferredReason: 'MALFORMED_INSERT_TEXT_PAYLOAD' };
     }
+    return this.applyPayload(store, operation, payload);
+  }
+
+  preflightTable(table: OriginalFlatBufferTableReader, payloadType: number): string | null {
+    let payload: OriginalInsertTextPayload;
+    try {
+      payload = decodeOriginalInsertTextTable(table, payloadType);
+    } catch (_error) {
+      return 'MALFORMED_INSERT_TEXT_PAYLOAD';
+    }
+    return payload.scalars.length - 1 > 0xFFFFFFFF ? 'INSERT_TEXT_SEQUENCE_EXHAUSTED' : null;
+  }
+
+  async applyTable(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
+    table: OriginalFlatBufferTableReader): Promise<SyncedOperationApplyResult> {
+    let payload: OriginalInsertTextPayload;
+    try {
+      payload = decodeOriginalInsertTextTable(table, operation.payloadType);
+    } catch (_error) {
+      return { deferredReason: 'MALFORMED_INSERT_TEXT_PAYLOAD' };
+    }
+    return this.applyPayload(store, operation, payload);
+  }
+
+  private async applyPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation,
+    payload: OriginalInsertTextPayload): Promise<SyncedOperationApplyResult> {
     if (payload.scalars.length - 1 > 0xFFFFFFFF) {
       return { deferredReason: 'INSERT_TEXT_SEQUENCE_EXHAUSTED' };
     }
@@ -163,6 +209,14 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     if (payload.location !== null && !existing.some((character: StoredCharacter): boolean =>
       sameSequence(character.identity, payload.location as OriginalSequenceIdentity))) {
       return { deferredReason: 'INSERT_TEXT_ANCHOR_MISSING' };
+    }
+    const baselineStatus: number = await this.insertBaselineStatus(
+      store, operation, target.block, payload);
+    if (baselineStatus < 0) {
+      throw new Error('original insert-text identity conflicts with persisted characters');
+    }
+    if (baselineStatus > 0) {
+      return { deferredReason: null };
     }
     let parent: OriginalSequenceIdentity | null = payload.location;
     for (let index: number = 0; index < payload.scalars.length; index++) {
@@ -214,6 +268,64 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     }
     await this.advanceRevisionAndInvalidateSearch(store, operation.noteId, target);
     return { deferredReason: null };
+  }
+
+  private async insertBaselineStatus(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, block: OperationIdentity,
+    payload: OriginalInsertTextPayload): Promise<number> {
+    const rows = await store.querySql(
+      `SELECT block_timestamp, block_site_id, char_index, parent_timestamp, parent_site_id,
+              parent_index, unicode_scalar FROM original_text_character WHERE note_id = ?
+       AND char_timestamp = ? AND char_site_id = ?`,
+      [operation.noteId, operation.timestamp, operation.siteId]);
+    const persisted: Map<number, {
+      blockTimestamp: number, blockSiteId: number, parent: OriginalSequenceIdentity | null,
+      scalar: number,
+    }> = new Map();
+    try {
+      while (rows.goToNextRow()) {
+        const index: number = rows.getLong(rows.getColumnIndex('char_index'));
+        const parentTimestampColumn: number = rows.getColumnIndex('parent_timestamp');
+        let parent: OriginalSequenceIdentity | null = null;
+        if (!rows.isColumnNull(parentTimestampColumn)) {
+          parent = {
+            timestamp: rows.getLong(parentTimestampColumn),
+            siteId: rows.getLong(rows.getColumnIndex('parent_site_id')),
+            index: rows.getLong(rows.getColumnIndex('parent_index')),
+          };
+        } else if (!rows.isColumnNull(rows.getColumnIndex('parent_site_id')) ||
+          !rows.isColumnNull(rows.getColumnIndex('parent_index'))) {
+          return -1;
+        }
+        if (persisted.has(index)) {
+          return -1;
+        }
+        persisted.set(index, {
+          blockTimestamp: rows.getLong(rows.getColumnIndex('block_timestamp')),
+          blockSiteId: rows.getLong(rows.getColumnIndex('block_site_id')),
+          parent: parent, scalar: rows.getLong(rows.getColumnIndex('unicode_scalar')),
+        });
+      }
+    } finally {
+      rows.close();
+    }
+    if (persisted.size === 0) {
+      return 0;
+    }
+    if (persisted.size !== payload.scalars.length) {
+      return -1;
+    }
+    let parent: OriginalSequenceIdentity | null = payload.location;
+    for (let index: number = 0; index < payload.scalars.length; index++) {
+      const row = persisted.get(index);
+      if (row === undefined || row.blockTimestamp !== block.timestamp ||
+        row.blockSiteId !== block.siteId || row.scalar !== payload.scalars[index] ||
+        !sameNullableSequence(row.parent, parent)) {
+        return -1;
+      }
+      parent = { timestamp: operation.timestamp, siteId: operation.siteId, index: index };
+    }
+    return 1;
   }
 
   async resolveTarget(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
@@ -443,6 +555,34 @@ export class OriginalTextVisibilityOperationApplier implements SyncedOperationAp
     } catch (_error) {
       return { deferredReason: 'MALFORMED_TEXT_VISIBILITY_PAYLOAD' };
     }
+    return this.applyPayload(store, operation, payload);
+  }
+
+  preflightTable(table: OriginalFlatBufferTableReader, payloadType: number): string | null {
+    let payload: OriginalTextVisibilityPayload;
+    try {
+      payload = decodeOriginalTextVisibilityTable(table, payloadType);
+    } catch (_error) {
+      return 'MALFORMED_TEXT_VISIBILITY_PAYLOAD';
+    }
+    return payload.locations.some((location: OriginalSequenceIdentity): boolean =>
+      isRootIdentity(location)) ? 'TEXT_VISIBILITY_ROOT_UNSUPPORTED' : null;
+  }
+
+  async applyTable(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
+    table: OriginalFlatBufferTableReader): Promise<SyncedOperationApplyResult> {
+    let payload: OriginalTextVisibilityPayload;
+    try {
+      payload = decodeOriginalTextVisibilityTable(table, operation.payloadType);
+    } catch (_error) {
+      return { deferredReason: 'MALFORMED_TEXT_VISIBILITY_PAYLOAD' };
+    }
+    return this.applyPayload(store, operation, payload);
+  }
+
+  private async applyPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation,
+    payload: OriginalTextVisibilityPayload): Promise<SyncedOperationApplyResult> {
     let block: OperationIdentity | null = payload.textField;
     const unique: Map<string, OriginalSequenceIdentity> = new Map<string, OriginalSequenceIdentity>();
     for (const location of payload.locations) {
@@ -497,8 +637,13 @@ export class OriginalTextVisibilityOperationApplier implements SyncedOperationAp
       if (character === undefined) {
         return { deferredReason: 'TEXT_VISIBILITY_CHARACTER_MISSING' };
       }
-      if (character.visibilityWinner === null ||
-        compareOperationIdentity(operation, character.visibilityWinner) >= 0) {
+      const comparison: number = character.visibilityWinner === null ? 1 :
+        compareOperationIdentity(operation, character.visibilityWinner);
+      if (comparison === 0) {
+        if (character.visible !== payload.visible) {
+          throw new Error('original text-visibility identity conflicts with persisted visibility');
+        }
+      } else if (comparison > 0) {
         winning.push(character);
       }
     }
@@ -681,6 +826,11 @@ function sameOperation(left: OperationIdentity, right: OperationIdentity): boole
 
 function sameSequence(left: OriginalSequenceIdentity, right: OriginalSequenceIdentity): boolean {
   return sameOperation(left, right) && left.index === right.index;
+}
+
+function sameNullableSequence(left: OriginalSequenceIdentity | null,
+  right: OriginalSequenceIdentity | null): boolean {
+  return left === null || right === null ? left === right : sameSequence(left, right);
 }
 
 function cloneText(text: TextBlockElement): TextBlockElement {

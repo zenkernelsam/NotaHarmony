@@ -37,7 +37,9 @@ import { decodeOriginalCreateBlock, decodeOriginalCreateBlockTable, OriginalBloc
   '../main/ets/data/OriginalCreateBlockOperation';
 import { decodeOriginalModifyBlock, decodeOriginalModifyBlockTable,
   OriginalModifyBlockOperationApplier } from '../main/ets/data/OriginalModifyBlockOperation';
-import { decodeOriginalInsertText, decodeOriginalTextVisibility } from
+import { decodeOriginalInsertText, decodeOriginalInsertTextTable,
+  decodeOriginalTextVisibility, decodeOriginalTextVisibilityTable,
+  OriginalInsertTextOperationApplier, OriginalTextVisibilityOperationApplier } from
   '../main/ets/data/OriginalInsertTextOperation';
 import {
   decodeOriginalRichTextStyle, ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE,
@@ -686,6 +688,34 @@ export default function syncedOperationInboxTest() {
       expect(new OriginalModifyBlockOperationApplier().preflightTable(
         bundle.operations[6].payload) === null).assertTrue();
     });
+
+    it('decodes and preflights Text character operations from NOTE_BUNDLE children', 0, () => {
+      const bundle = decodeOriginalNoteBundle(
+        flatBufferNoteBundleWithCreateInk(true, true, true, true, true, true));
+      expect(bundle.operations.length).assertEqual(10);
+      expect(bundle.operations[7].payloadType).assertEqual(8);
+      const inserted = decodeOriginalInsertTextTable(bundle.operations[7].payload, 8);
+      expect(inserted.location === null).assertTrue();
+      expect(inserted.textField?.timestamp).assertEqual(60);
+      expect(inserted.textField?.siteId).assertEqual(6);
+      expect(inserted.scalars.length).assertEqual(2);
+      expect(inserted.scalars[0]).assertEqual(0x41);
+      expect(inserted.scalars[1]).assertEqual(0x1F600);
+      expect(new OriginalInsertTextOperationApplier().preflightTable(
+        bundle.operations[7].payload, 8) === null).assertTrue();
+      const removed = decodeOriginalTextVisibilityTable(bundle.operations[8].payload, 10);
+      const revived = decodeOriginalTextVisibilityTable(bundle.operations[9].payload, 11);
+      expect(removed.locations.length).assertEqual(2);
+      expect(removed.locations[0].timestamp).assertEqual(80);
+      expect(removed.locations[0].siteId).assertEqual(8);
+      expect(removed.locations[1].index).assertEqual(1);
+      expect(removed.visible).assertFalse();
+      expect(revived.visible).assertTrue();
+      expect(new OriginalTextVisibilityOperationApplier().preflightTable(
+        bundle.operations[8].payload, 10) === null).assertTrue();
+      expect(new OriginalTextVisibilityOperationApplier().preflightTable(
+        bundle.operations[9].payload, 11) === null).assertTrue();
+    });
   });
 }
 
@@ -744,7 +774,8 @@ function flatBufferNoteBundle(): Uint8Array {
 
 function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
   includeModify: boolean = false, includeDelete: boolean = false,
-  includeCreateBlock: boolean = false, includeModifyBlock: boolean = false): Uint8Array {
+  includeCreateBlock: boolean = false, includeModifyBlock: boolean = false,
+  includeTextOperations: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 0, 20, 24, 0, 28, 32, 36], 40);
   const uuid: number[] = [0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88,
@@ -753,7 +784,8 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
   builder.uint16(root + 20, 9);
   builder.uint16(root + 36, 7);
   const operationCount: number = 2 + (includeAppend ? 1 : 0) + (includeModify ? 1 : 0) +
-    (includeDelete ? 1 : 0) + (includeCreateBlock ? 1 : 0) + (includeModifyBlock ? 1 : 0);
+    (includeDelete ? 1 : 0) + (includeCreateBlock ? 1 : 0) + (includeModifyBlock ? 1 : 0) +
+    (includeTextOperations ? 3 : 0);
   const operations: number = builder.tableVector(operationCount);
   builder.pointer(root + 32, operations);
   const createPageOp: number = builder.table([4, 12, 20, 0, 28, 32, 0], 36);
@@ -767,6 +799,12 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
   const createBlockOp: number = includeCreateBlock ?
     builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
   const modifyBlockOp: number = includeModifyBlock ?
+    builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
+  const insertStringOp: number = includeTextOperations ?
+    builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
+  const removeCharsOp: number = includeTextOperations ?
+    builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
+  const reviveCharsOp: number = includeTextOperations ?
     builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
   builder.pointer(operations + 4, createPageOp);
   builder.pointer(operations + 8, createInkOp);
@@ -789,6 +827,12 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
   }
   if (includeModifyBlock) {
     builder.pointer(operations + 4 + operationIndex * 4, modifyBlockOp);
+    operationIndex++;
+  }
+  if (includeTextOperations) {
+    builder.pointer(operations + 4 + operationIndex * 4, insertStringOp);
+    builder.pointer(operations + 8 + operationIndex * 4, removeCharsOp);
+    builder.pointer(operations + 12 + operationIndex * 4, reviveCharsOp);
   }
   writeBundleOperation(builder, createPageOp, 1, 10, '11', '12', 3);
   writeBundleOperation(builder, createInkOp, 2, 20, '21', '22', 15);
@@ -806,6 +850,11 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
   }
   if (includeModifyBlock) {
     writeBundleOperation(builder, modifyBlockOp, 7, 70, '71', '72', 23);
+  }
+  if (includeTextOperations) {
+    writeBundleOperation(builder, insertStringOp, 8, 80, '81', '82', 8);
+    writeBundleOperation(builder, removeCharsOp, 9, 90, '91', '92', 10);
+    writeBundleOperation(builder, reviveCharsOp, 10, 100, '101', '102', 11);
   }
 
   const createPage: number = builder.table([0, 0, 4, 0], 8);
@@ -886,6 +935,27 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
     ]));
     writeDecimalU64At(builder, block + 8, '80');
     builder.uint8(block + 16, 1);
+  }
+  if (includeTextOperations) {
+    const inserted: number = builder.table([4, 16, 20], 28);
+    builder.pointer(insertStringOp + 32, inserted);
+    builder.inlineSequence(inserted + 4, 0, 0xFFFF, 0);
+    builder.pointer(inserted + 16, builder.byteVector([0x41, 0xF0, 0x9F, 0x98, 0x80]));
+    builder.inlineIdentity(inserted + 20, 60, 6);
+    const removed: number = builder.table([4, 8], 16);
+    builder.pointer(removeCharsOp + 32, removed);
+    builder.pointer(removed + 4, builder.sequenceIdentityVector([
+      { timestamp: 80, siteId: 8, index: 0 },
+      { timestamp: 80, siteId: 8, index: 1 },
+    ]));
+    builder.inlineIdentity(removed + 8, 60, 6);
+    const revived: number = builder.table([4, 8], 16);
+    builder.pointer(reviveCharsOp + 32, revived);
+    builder.pointer(revived + 4, builder.sequenceIdentityVector([
+      { timestamp: 80, siteId: 8, index: 0 },
+      { timestamp: 80, siteId: 8, index: 1 },
+    ]));
+    builder.inlineIdentity(revived + 8, 60, 6);
   }
   builder.pointer(root + 24, builder.byteVector([0x65]));
   builder.pointer(root + 28, builder.byteVector([0x63]));
@@ -1004,7 +1074,7 @@ function flatBufferModifyPage(): Uint8Array {
 }
 
 class FixtureFlatBufferBuilder {
-  private bytes: Uint8Array = new Uint8Array(512);
+  private bytes: Uint8Array = new Uint8Array(1024);
   private cursor: number = 4;
 
   table(offsets: number[], objectSize: number): number {

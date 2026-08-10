@@ -37,6 +37,12 @@ import {
   ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE, OriginalModifyBlockOperationApplier,
 } from './OriginalModifyBlockOperation';
 import {
+  ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE, ORIGINAL_INSERT_STRING_PAYLOAD_TYPE,
+  ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE, ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE,
+  ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE, OriginalInsertTextOperationApplier,
+  OriginalTextVisibilityOperationApplier,
+} from './OriginalInsertTextOperation';
+import {
   StoredSyncedOperation, SyncedOperationInboxState, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 
@@ -247,6 +253,10 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
     new OriginalCreateBlockOperationApplier();
   const modifyBlock: OriginalModifyBlockOperationApplier =
     new OriginalModifyBlockOperationApplier();
+  const insertText: OriginalInsertTextOperationApplier =
+    new OriginalInsertTextOperationApplier();
+  const textVisibility: OriginalTextVisibilityOperationApplier =
+    new OriginalTextVisibilityOperationApplier();
   for (const operation of bundle.operations) {
     if (operation.payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE) {
@@ -303,6 +313,25 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
       }
       continue;
     }
+    if (operation.payloadType === ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_INSERT_STRING_PAYLOAD_TYPE) {
+      const reason: string | null = insertText.preflightTable(
+        operation.payload, operation.payloadType);
+      if (reason !== null) {
+        return `NOTE_BUNDLE_${reason}`;
+      }
+      continue;
+    }
+    if (operation.payloadType === ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE) {
+      const reason: string | null = textVisibility.preflightTable(
+        operation.payload, operation.payloadType);
+      if (reason !== null) {
+        return `NOTE_BUNDLE_${reason}`;
+      }
+      continue;
+    }
     if (operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE) {
       return `NOTE_BUNDLE_PAYLOAD_${operation.payloadType}_UNSUPPORTED`;
     }
@@ -345,6 +374,10 @@ async function applyBundleContent(store: relationalStore.RdbStore,
     new OriginalCreateBlockOperationApplier();
   const modifyBlock: OriginalModifyBlockOperationApplier =
     new OriginalModifyBlockOperationApplier();
+  const insertText: OriginalInsertTextOperationApplier =
+    new OriginalInsertTextOperationApplier();
+  const textVisibility: OriginalTextVisibilityOperationApplier =
+    new OriginalTextVisibilityOperationApplier();
   const before: number = await countRows(store,
     'SELECT COUNT(*) AS value FROM original_element_z_index WHERE note_id = ?', [bundle.noteId]);
   const revisionBefore: number = await contentRevisionTotal(store, bundle.noteId);
@@ -354,7 +387,12 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       operation.payloadType !== ORIGINAL_MODIFY_INK_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE &&
-      operation.payloadType !== ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE) {
+      operation.payloadType !== ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_INSERT_STRING_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE) {
       continue;
     }
     const stored: StoredSyncedOperation = {
@@ -381,8 +419,13 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       result = await deleteEntities.applyEntityTable(store, stored, operation.payload);
     } else if (operation.payloadType === ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE) {
       result = await createBlock.applyTable(store, stored, operation.payload);
-    } else {
+    } else if (operation.payloadType === ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE) {
       result = await modifyBlock.applyTable(store, stored, operation.payload);
+    } else if (operation.payloadType === ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_INSERT_STRING_PAYLOAD_TYPE) {
+      result = await insertText.applyTable(store, stored, operation.payload);
+    } else {
+      result = await textVisibility.applyTable(store, stored, operation.payload);
     }
     if (result.deferredReason !== null) {
       throw new Error(`NOTE_BUNDLE content diverged after preflight: ${result.deferredReason}`);

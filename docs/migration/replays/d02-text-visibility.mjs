@@ -296,7 +296,9 @@ assert.equal(failed.prepare(`SELECT count(*) count FROM pragma_table_info('origi
 assert.match(source, /ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE: number = 9/);
 assert.match(source, /ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE: number = 10/);
 assert.match(source, /ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE: number = 11/);
-assert.match(source, /compareOperationIdentity\(operation, character\.visibilityWinner\) >= 0/);
+assert.match(source, /if \(comparison === 0\)/);
+assert.match(source, /text-visibility identity conflicts with persisted visibility/);
+assert.match(source, /else if \(comparison > 0\)/);
 assert.match(source, /if \(after === before\)/);
 assert.match(dispatcher, /OriginalTextVisibilityOperationApplier/);
 assert.match(schema, /DB_VERSION: number = 46/);
