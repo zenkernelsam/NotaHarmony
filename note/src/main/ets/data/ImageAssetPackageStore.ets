@@ -1,9 +1,36 @@
+import { relationalStore } from '@kit.ArkData';
 import { fileIo } from '@kit.CoreFileKit';
 import { ImageElement } from '../core/model/ElementTypes';
-import { originalAssetLookupKeys, originalAssetStorageHash } from '../core/model/ImageBlockGeometry';
+import {
+  originalAssetHashKey, originalAssetLookupKeys, originalAssetStorageHash,
+} from '../core/model/ImageBlockGeometry';
 import { AssetStatus, NoteAsset } from '../core/model/AssetTypes';
-import { AssetRepositoryImpl } from './AssetRepositoryImpl';
+import { assetMutationMutex, AssetRepositoryImpl, mergeNoteIds, parseAssetNoteIds } from './AssetRepositoryImpl';
+import { assetAvailabilityHub } from './AssetAvailabilityHub';
+import { sha512Hex } from './AssetDigest';
 import { DatabaseManager } from './DatabaseManager';
+
+export interface OriginalImageAssetArrival {
+  assetHashBits: string[];
+  bytes: Uint8Array;
+  expectedFileSize: number;
+  expectedMimeType: string;
+}
+
+interface StoredAssetRecord {
+  assetHash: string;
+  status: AssetStatus;
+  noteIds: string[];
+  fileSize: number;
+  mimeType: string;
+  localPath: string | null;
+}
+
+interface AssetWriteResult {
+  storageHash: string;
+  noteIds: string[];
+  becameAvailable: boolean;
+}
 
 export function imageAssetPackageEntry(element: ImageElement): string {
   return `assets/${originalAssetStorageHash(element.assetHashBits)}`;
@@ -40,51 +67,203 @@ export function readVerifiedImageAsset(asset: NoteAsset, element: ImageElement):
 
 export async function storeImportedImageAsset(database: DatabaseManager, element: ImageElement,
   bytes: Uint8Array, noteId: string): Promise<void> {
-  if (bytes.length !== element.fileSize) {
-    throw new Error(`imported image asset ${element.id} length does not match metadata`);
+  const result: AssetWriteResult = await writeOriginalImageAssetBytes(database, {
+    assetHashBits: element.assetHashBits,
+    bytes: bytes,
+    expectedFileSize: element.fileSize,
+    expectedMimeType: element.mimeType,
+  }, noteId, true);
+  if (result.becameAvailable) {
+    assetAvailabilityHub.publish(result.storageHash, result.noteIds);
   }
-  const repository: AssetRepositoryImpl = new AssetRepositoryImpl(database);
-  const existing: NoteAsset | null = await resolveImageAsset(repository, element);
-  if (existing !== null) {
-    if (existing.fileSize > 0 && existing.fileSize !== bytes.length) {
-      throw new Error(`existing image asset ${element.id} conflicts with imported size`);
-    }
-    if (existing.localPath !== null && existing.localPath.length > 0 && fileIo.accessSync(existing.localPath)) {
-      const existingSize: number = fileIo.statSync(existing.localPath).size;
-      if (existingSize !== bytes.length) {
-        throw new Error(`existing image asset ${element.id} local file is corrupt`);
-      }
-      if (!fileContentsEqual(existing.localPath, bytes)) {
-        throw new Error(`existing image asset ${element.id} contents conflict with imported data`);
-      }
-      await repository.saveAsset({
-        assetHash: existing.assetHash, status: availableLocalStatus(existing.status),
-        noteIds: [noteId], fileSize: bytes.length, mimeType: element.mimeType,
-        localPath: existing.localPath,
-      });
-      return;
-    }
+}
+
+// Network/authentication stays outside this boundary. A transport may call this only after it has
+// received all bytes for metadata previously registered by CREATE_BLOCK IMAGE.
+export async function receiveOriginalImageAsset(database: DatabaseManager,
+  arrival: OriginalImageAssetArrival): Promise<void> {
+  const result: AssetWriteResult = await writeOriginalImageAssetBytes(database, arrival, null, false);
+  if (result.becameAvailable) {
+    assetAvailabilityHub.publish(result.storageHash, result.noteIds);
   }
-  const storageHash: string = originalAssetStorageHash(element.assetHashBits);
-  const finalDirectory: string = database.getFilesDir() + '/assets/final';
-  fileIo.mkdirSync(finalDirectory, true);
-  const finalPath: string = finalDirectory + '/' + storageHash;
-  const createdFile: boolean = writeFileAtomically(finalPath, bytes);
+}
+
+async function writeOriginalImageAssetBytes(database: DatabaseManager, arrival: OriginalImageAssetArrival,
+  noteId: string | null, allowCreate: boolean): Promise<AssetWriteResult> {
+  validateArrivalMetadata(arrival);
+  const storageHash: string = originalAssetStorageHash(arrival.assetHashBits);
+  const digestHex: string = await sha512Hex(arrival.bytes);
+  if (digestHex !== storageHash) {
+    throw new Error('original image asset SHA-512 does not match its declared hash');
+  }
+  const legacyHash: string = originalAssetHashKey(arrival.assetHashBits);
+  return await assetMutationMutex.runExclusive(async (): Promise<AssetWriteResult> => {
+    const store: relationalStore.RdbStore = database.getStore();
+    const finalDirectory: string = database.getFilesDir() + '/assets/final';
+    const pendingDirectory: string = database.getFilesDir() + '/assets/pending';
+    const finalPath: string = finalDirectory + '/' + storageHash;
+    let createdFile: boolean = false;
+    await store.beginTransaction();
+    try {
+      const rows: StoredAssetRecord[] = await readStoredAssetRecords(store, storageHash, legacyHash);
+      if (rows.length === 0 && !allowCreate) {
+        throw new Error('original image asset metadata is not registered');
+      }
+      let noteIds: string[] = [];
+      for (const row of rows) {
+        if (row.fileSize !== arrival.expectedFileSize ||
+          row.mimeType.toLowerCase() !== arrival.expectedMimeType.toLowerCase()) {
+          throw new Error('original image asset metadata conflicts with registered metadata');
+        }
+        noteIds = mergeNoteIds(noteIds, row.noteIds);
+      }
+      if (noteId !== null) {
+        noteIds = mergeNoteIds(noteIds, [noteId]);
+      }
+
+      const available: StoredAssetRecord | null = preferredAvailableRecord(rows, storageHash);
+      let targetStatus: AssetStatus = AssetStatus.LOCAL;
+      let targetPath: string = finalPath;
+      if (available !== null) {
+        if (available.localPath === null || available.localPath.length === 0 ||
+          !fileIo.accessSync(available.localPath)) {
+          throw new Error('available original image asset has no readable local file');
+        }
+        for (const row of rows) {
+          if (isAvailableStatus(row.status) && row.localPath !== available.localPath) {
+            throw new Error('available original image asset rows have conflicting local paths');
+          }
+        }
+        if (fileIo.statSync(available.localPath).size !== arrival.bytes.length ||
+          !fileContentsEqual(available.localPath, arrival.bytes)) {
+          throw new Error('available original image asset contents conflict with received data');
+        }
+        targetStatus = available.status;
+        targetPath = available.localPath;
+      } else {
+        for (const row of rows) {
+          if (row.localPath !== null && row.localPath.length > 0 && row.localPath !== finalPath) {
+            throw new Error('unavailable original image asset has a conflicting local path');
+          }
+        }
+        fileIo.mkdirSync(finalDirectory, true);
+        fileIo.mkdirSync(pendingDirectory, true);
+        createdFile = writeFileAtomically(pendingDirectory, finalPath, arrival.bytes);
+      }
+
+      const canonical: StoredAssetRecord | undefined = rows.find(
+        (row: StoredAssetRecord): boolean => row.assetHash === storageHash);
+      const bucket: relationalStore.ValuesBucket = {
+        'status': targetStatus,
+        'note_ids': JSON.stringify(noteIds),
+        'file_size': arrival.expectedFileSize,
+        'mime_type': rows.length === 0 ? arrival.expectedMimeType : rows[0].mimeType,
+        'local_path': targetPath,
+      };
+      if (canonical === undefined) {
+        await store.insert('note_asset', {
+          'asset_hash': storageHash,
+          'status': targetStatus,
+          'note_ids': JSON.stringify(noteIds),
+          'file_size': arrival.expectedFileSize,
+          'mime_type': rows.length === 0 ? arrival.expectedMimeType : rows[0].mimeType,
+          'local_path': targetPath,
+        });
+      } else {
+        const predicates = new relationalStore.RdbPredicates('note_asset');
+        predicates.equalTo('asset_hash', storageHash);
+        if (await store.update(bucket, predicates) !== 1) {
+          throw new Error('original image asset changed concurrently');
+        }
+      }
+      if (legacyHash !== storageHash && rows.some(
+        (row: StoredAssetRecord): boolean => row.assetHash === legacyHash)) {
+        const legacyPredicates = new relationalStore.RdbPredicates('note_asset');
+        legacyPredicates.equalTo('asset_hash', legacyHash);
+        if (await store.delete(legacyPredicates) !== 1) {
+          throw new Error('legacy original image asset changed concurrently');
+        }
+      }
+      await store.commit();
+      return {
+        storageHash: storageHash,
+        noteIds: noteIds,
+        becameAvailable: available === null,
+      };
+    } catch (error) {
+      try {
+        await store.rollBack();
+      } catch (rollbackError) {
+        console.error(`original image asset rollback failed: ${JSON.stringify(rollbackError)}`);
+      }
+      if (createdFile && fileIo.accessSync(finalPath)) {
+        try {
+          fileIo.unlinkSync(finalPath);
+        } catch (cleanupError) {
+          console.error(`original image asset compensation failed: ${JSON.stringify(cleanupError)}`);
+        }
+      }
+      throw new Error(`storing original image asset failed: ${JSON.stringify(error)}`);
+    }
+  });
+}
+
+function validateArrivalMetadata(arrival: OriginalImageAssetArrival): void {
+  if (!Number.isSafeInteger(arrival.expectedFileSize) || arrival.expectedFileSize <= 0 ||
+    arrival.bytes.length !== arrival.expectedFileSize) {
+    throw new Error('original image asset length does not match metadata');
+  }
+  if (arrival.expectedMimeType.length === 0) {
+    throw new Error('original image asset MIME type is empty');
+  }
+}
+
+async function readStoredAssetRecords(store: relationalStore.RdbStore, storageHash: string,
+  legacyHash: string): Promise<StoredAssetRecord[]> {
+  const rows = storageHash === legacyHash ? await store.querySql(
+    `SELECT asset_hash, status, note_ids, file_size, mime_type, local_path
+     FROM note_asset WHERE asset_hash = ?`, [storageHash]) : await store.querySql(
+    `SELECT asset_hash, status, note_ids, file_size, mime_type, local_path
+     FROM note_asset WHERE asset_hash = ? OR asset_hash = ?`, [storageHash, legacyHash]);
+  const result: StoredAssetRecord[] = [];
   try {
-    await repository.saveAsset({
-      assetHash: existing === null ? storageHash : existing.assetHash,
-      status: AssetStatus.LOCAL,
-      noteIds: [noteId],
-      fileSize: bytes.length,
-      mimeType: element.mimeType,
-      localPath: finalPath,
-    });
-  } catch (error) {
-    if (createdFile && fileIo.accessSync(finalPath)) {
-      fileIo.unlinkSync(finalPath);
+    while (rows.goToNextRow()) {
+      const status: number = rows.getLong(rows.getColumnIndex('status'));
+      if (status < AssetStatus.PENDING || status > AssetStatus.FAILED) {
+        throw new Error('original image asset has an invalid status');
+      }
+      const pathColumn: number = rows.getColumnIndex('local_path');
+      result.push({
+        assetHash: rows.getString(rows.getColumnIndex('asset_hash')),
+        status: status as AssetStatus,
+        noteIds: parseAssetNoteIds(rows.getString(rows.getColumnIndex('note_ids'))),
+        fileSize: rows.getLong(rows.getColumnIndex('file_size')),
+        mimeType: rows.getString(rows.getColumnIndex('mime_type')),
+        localPath: rows.isColumnNull(pathColumn) ? null : rows.getString(pathColumn),
+      });
     }
-    throw new Error(`saving imported image asset failed: ${JSON.stringify(error)}`);
+  } finally {
+    rows.close();
   }
+  return result;
+}
+
+function preferredAvailableRecord(rows: StoredAssetRecord[], storageHash: string): StoredAssetRecord | null {
+  for (const row of rows) {
+    if (row.assetHash === storageHash && isAvailableStatus(row.status)) {
+      return row;
+    }
+  }
+  for (const row of rows) {
+    if (isAvailableStatus(row.status)) {
+      return row;
+    }
+  }
+  return null;
+}
+
+function isAvailableStatus(status: AssetStatus): boolean {
+  return status === AssetStatus.LOCAL || status === AssetStatus.UPLOADED || status === AssetStatus.DOWNLOADED;
 }
 
 function readFileFully(fd: number, size: number): Uint8Array {
@@ -102,7 +281,7 @@ function readFileFully(fd: number, size: number): Uint8Array {
   return output;
 }
 
-function writeFileAtomically(finalPath: string, bytes: Uint8Array): boolean {
+function writeFileAtomically(pendingDirectory: string, finalPath: string, bytes: Uint8Array): boolean {
   if (fileIo.accessSync(finalPath)) {
     if (fileIo.statSync(finalPath).size !== bytes.length) {
       throw new Error('existing original asset file has a conflicting size');
@@ -112,7 +291,8 @@ function writeFileAtomically(finalPath: string, bytes: Uint8Array): boolean {
     }
     return false;
   }
-  const temporaryPath: string = finalPath + `.tmp-${Date.now()}-${Math.floor(Math.random() * 0x1000000)}`;
+  const temporaryPath: string = pendingDirectory +
+    `/pending_asset_${Date.now()}_${Math.floor(Math.random() * 0x1000000)}.tmp`;
   const file: fileIo.File = fileIo.openSync(temporaryPath,
     fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
   let completed: boolean = false;
@@ -135,7 +315,14 @@ function writeFileAtomically(finalPath: string, bytes: Uint8Array): boolean {
       fileIo.unlinkSync(temporaryPath);
     }
   }
-  fileIo.renameSync(temporaryPath, finalPath);
+  try {
+    fileIo.renameSync(temporaryPath, finalPath);
+  } catch (error) {
+    if (fileIo.accessSync(temporaryPath)) {
+      fileIo.unlinkSync(temporaryPath);
+    }
+    throw new Error(`moving original image asset into final storage failed: ${JSON.stringify(error)}`);
+  }
   return true;
 }
 
@@ -152,11 +339,4 @@ function fileContentsEqual(path: string, expected: Uint8Array): boolean {
   } finally {
     fileIo.closeSync(file);
   }
-}
-
-function availableLocalStatus(status: AssetStatus): AssetStatus {
-  if (status === AssetStatus.PENDING || status === AssetStatus.FAILED) {
-    return AssetStatus.LOCAL;
-  }
-  return status;
 }

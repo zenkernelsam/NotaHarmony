@@ -25,8 +25,8 @@ export function fitPageInThumbnail(pageWidth: number, pageHeight: number,
 }
 
 export function thumbnailCacheKey(contentRevision: string, paperBackground: string,
-  paperLineColor: string): string {
-  return `${contentRevision}@${paperBackground}@${paperLineColor}`;
+  paperLineColor: string, assetGeneration: number = 0): string {
+  return `${contentRevision}@${paperBackground}@${paperLineColor}@asset:${assetGeneration}`;
 }
 
 export function limitThumbnailNoteIds(noteIds: string[], maxCount: number): string[] {

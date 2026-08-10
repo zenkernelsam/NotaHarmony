@@ -26,6 +26,13 @@ export default function thumbnailRenderPolicyTest() {
       expect(base === thumbnailCacheKey('page:a4:grid:1', '#FFFFFF', '#CCCCCC')).assertFalse();
     });
 
+    it('invalidates cache identity when an image asset becomes available', 0, () => {
+      const pending: string = thumbnailCacheKey('page:a4:grid:1', '#FFFFFF', '#E0E0E0', 0);
+      const local: string = thumbnailCacheKey('page:a4:grid:1', '#FFFFFF', '#E0E0E0', 12);
+      expect(pending === local).assertFalse();
+      expect(local === thumbnailCacheKey('page:a4:grid:1', '#FFFFFF', '#E0E0E0', 12)).assertTrue();
+    });
+
     it('caps retained note ids for large libraries', 0, () => {
       const ids: string[] = [];
       for (let i: number = 0; i < 100; i++) {

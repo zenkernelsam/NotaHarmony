@@ -37,6 +37,9 @@ import {
 } from '../../data/StrokePersistence';
 import { SearchSourceElement } from '../../data/SearchIndexPolicy';
 import { DatabaseManager } from '../../data/DatabaseManager';
+import {
+  AssetAvailabilityChange, assetAvailabilityHub,
+} from '../../data/AssetAvailabilityHub';
 import { OpStoreImpl, PersistentHistoryReplay } from '../../data/OpStoreImpl';
 import {
   materializePersistentHistory, replayPersistentPageMutations, RestoredHistoryState,
@@ -147,6 +150,7 @@ export struct NoteCanvasView {
   private imageAssetLoader: ImageAssetLoader | null = null;
   private imageAssets: Map<string, LoadedImageAsset> = new Map<string, LoadedImageAsset>();
   private imageAssetGeneration: number = 0;
+  private assetAvailabilitySubscription: number = -1;
   private selectionTool: SelectionTool = new SelectionTool();
   private strokeClipboard: StrokeClipboard = new StrokeClipboard();
   private clipboardIdCounter: number = 0;
@@ -214,6 +218,10 @@ export struct NoteCanvasView {
 
   aboutToAppear(): void {
     this.lifecycleActive = true;
+    if (this.assetAvailabilitySubscription < 0) {
+      this.assetAvailabilitySubscription = assetAvailabilityHub.subscribe(
+        (change: AssetAvailabilityChange): void => this.onImageAssetAvailabilityChanged(change));
+    }
     this.onHistoryBridgeReady({
       preparePageAction: (action: UndoableAction): HistoryMetadata =>
         this.preparePageHistory(action),
@@ -525,6 +533,10 @@ export struct NoteCanvasView {
 
   aboutToDisappear(): void {
     this.lifecycleActive = false;
+    if (this.assetAvailabilitySubscription >= 0) {
+      assetAvailabilityHub.unsubscribe(this.assetAvailabilitySubscription);
+      this.assetAvailabilitySubscription = -1;
+    }
     this.releaseImageAssets();
     this.strokeClipboard.clear();
     this.clipboardAvailable = false;
@@ -834,6 +846,18 @@ export struct NoteCanvasView {
       }
       seen.add(storageHash);
       this.loadImageAsset(block, storageHash, loader, pageGeneration, assetGeneration, pageId);
+    }
+  }
+
+  private onImageAssetAvailabilityChanged(change: AssetAvailabilityChange): void {
+    if (!this.lifecycleActive || change.noteIds.indexOf(this.noteId) < 0 || this.loadedPageId.length === 0) {
+      return;
+    }
+    for (const block of this.imageBlocks) {
+      if (originalAssetStorageHash(block.assetHashBits) === change.storageHash) {
+        this.refreshImageAssets(this.pageLoadGeneration, this.loadedPageId);
+        return;
+      }
     }
   }
 

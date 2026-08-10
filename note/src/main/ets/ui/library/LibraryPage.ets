@@ -6,6 +6,9 @@ import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { NoteMeta } from '../../core/model/NoteTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
+import {
+  AssetAvailabilityChange, assetAvailabilityHub,
+} from '../../data/AssetAvailabilityHub';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { FolderRepositoryImpl, NoteFolder, isFolderInSubtree } from '../../data/FolderRepositoryImpl';
 import { FirstPageThumbnailState, StrokePersistence } from '../../data/StrokePersistence';
@@ -47,6 +50,7 @@ struct LibraryPage {
   private thumbMap: Map<string, PixelMap> = new Map<string, PixelMap>();
   private thumbRevisions: Map<string, string> = new Map<string, string>();
   private thumbnailGeneration: number = 0;
+  private assetAvailabilitySubscription: number = -1;
   private searchTimer: number = -1;
   private thumbnailRequestTimer: number = -1;
   private thumbnailPriorityIds: string[] = [];
@@ -88,11 +92,19 @@ struct LibraryPage {
 
   aboutToAppear(): void {
     this.pageActive = true;
+    if (this.assetAvailabilitySubscription < 0) {
+      this.assetAvailabilitySubscription = assetAvailabilityHub.subscribe(
+        (change: AssetAvailabilityChange): void => this.onAssetAvailabilityChanged(change));
+    }
     this.initData();
   }
 
   aboutToDisappear(): void {
     this.pageActive = false;
+    if (this.assetAvailabilitySubscription >= 0) {
+      assetAvailabilityHub.unsubscribe(this.assetAvailabilitySubscription);
+      this.assetAvailabilitySubscription = -1;
+    }
     if (this.searchTimer >= 0) {
       clearTimeout(this.searchTimer);
       this.searchTimer = -1;
@@ -185,8 +197,9 @@ struct LibraryPage {
           const pageState: FirstPageThumbnailState | null =
             await this.persistence.getFirstPageThumbnailState(noteId);
           const contentRevision: string = pageState === null ? 'missing' : pageState.revision;
+          const assetGeneration: number = assetAvailabilityHub.getNoteGeneration(noteId);
           const revision: string = thumbnailCacheKey(contentRevision,
-            theme.paperBackground, theme.paperLineColor);
+            theme.paperBackground, theme.paperLineColor, assetGeneration);
           if (generation !== this.thumbnailGeneration || !this.pageActive) {
             return;
           }
@@ -256,6 +269,20 @@ struct LibraryPage {
   private releaseThumbnails(thumbnails: Map<string, PixelMap>): void {
     for (const pixelMap of thumbnails.values()) {
       pixelMap.release();
+    }
+  }
+
+  private onAssetAvailabilityChanged(change: AssetAvailabilityChange): void {
+    if (!this.pageActive) {
+      return;
+    }
+    for (const note of this.notes) {
+      if (change.noteIds.indexOf(note.id) >= 0) {
+        this.refreshThumbnails().catch((error: Error) => {
+          console.error(`asset thumbnail refresh failed: ${JSON.stringify(error)}`);
+        });
+        return;
+      }
     }
   }
 

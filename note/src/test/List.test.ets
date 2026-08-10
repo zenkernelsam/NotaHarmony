@@ -52,6 +52,7 @@ import operationCompactionTest from './OperationCompaction.test';
 import operationSyncCoordinatorTest from './OperationSyncCoordinator.test';
 import syncedOperationInboxTest from './SyncedOperationInbox.test';
 import imageBlockRenderingTest from './ImageBlockRendering.test';
+import assetArrivalTest from './AssetArrival.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -108,4 +109,5 @@ export default function testsuite() {
   operationSyncCoordinatorTest();
   syncedOperationInboxTest();
   imageBlockRenderingTest();
+  assetArrivalTest();
 }
