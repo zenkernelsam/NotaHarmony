@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v31: preserve the original page/origin register and CREATE page fallback.
-export const DB_VERSION: number = 31;
+// v32: preserve the original Ink z-index register and CREATE fallback.
+export const DB_VERSION: number = 32;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -458,6 +458,21 @@ CREATE TABLE IF NOT EXISTS original_ink_state (
   page_origin_winner_site_id INTEGER NOT NULL
     CHECK (page_origin_winner_site_id BETWEEN 0 AND 65535),
   page_origin_winner_present INTEGER NOT NULL CHECK (page_origin_winner_present IN (0, 1)),
+  create_z_index TEXT CHECK (create_z_index IS NULL OR (
+    typeof(create_z_index) = 'text' AND length(create_z_index) BETWEEN 1 AND 20
+    AND create_z_index NOT GLOB '*[^0-9]*'
+    AND (create_z_index = '0' OR substr(create_z_index, 1, 1) <> '0')
+    AND (length(create_z_index) < 20 OR create_z_index <= '18446744073709551615'))),
+  z_index_value TEXT CHECK (z_index_value IS NULL OR (
+    typeof(z_index_value) = 'text' AND length(z_index_value) BETWEEN 1 AND 20
+    AND z_index_value NOT GLOB '*[^0-9]*'
+    AND (z_index_value = '0' OR substr(z_index_value, 1, 1) <> '0')
+    AND (length(z_index_value) < 20 OR z_index_value <= '18446744073709551615'))),
+  z_index_winner_timestamp INTEGER NOT NULL
+    CHECK (z_index_winner_timestamp BETWEEN 0 AND 4294967295),
+  z_index_winner_site_id INTEGER NOT NULL
+    CHECK (z_index_winner_site_id BETWEEN 0 AND 65535),
+  z_index_winner_present INTEGER NOT NULL CHECK (z_index_winner_present IN (0, 1)),
   CHECK ((create_origin_x IS NULL AND create_origin_y IS NULL AND create_rotation IS NULL
       AND create_scale_x IS NULL AND create_scale_y IS NULL) OR
     (create_origin_x IS NOT NULL AND create_origin_y IS NOT NULL AND create_rotation IS NOT NULL
@@ -473,6 +488,8 @@ CREATE TABLE IF NOT EXISTS original_ink_state (
     (page_origin_page_timestamp IS NOT NULL AND page_origin_page_site_id IS NOT NULL
       AND page_origin_page_index IS NOT NULL AND page_origin_x IS NOT NULL
       AND page_origin_y IS NOT NULL)),
+  CHECK ((z_index_winner_present = 0 AND z_index_value IS NULL) OR
+    (z_index_winner_present = 1 AND z_index_value IS NOT NULL)),
   PRIMARY KEY(note_id, ink_timestamp, ink_site_id),
   FOREIGN KEY(note_id, ink_timestamp, ink_site_id)
     REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
@@ -1192,5 +1209,23 @@ export const MIGRATIONS: Record<number, string[]> = {
       DEFAULT 0 CHECK (page_origin_winner_site_id BETWEEN 0 AND 65535)`,
     `ALTER TABLE original_ink_state ADD COLUMN page_origin_winner_present INTEGER NOT NULL
       DEFAULT 0 CHECK (page_origin_winner_present IN (0, 1))`,
+  ],
+  32: [
+    `ALTER TABLE original_ink_state ADD COLUMN create_z_index TEXT CHECK (create_z_index IS NULL OR (
+      typeof(create_z_index) = 'text' AND length(create_z_index) BETWEEN 1 AND 20
+      AND create_z_index NOT GLOB '*[^0-9]*'
+      AND (create_z_index = '0' OR substr(create_z_index, 1, 1) <> '0')
+      AND (length(create_z_index) < 20 OR create_z_index <= '18446744073709551615')))`,
+    `ALTER TABLE original_ink_state ADD COLUMN z_index_value TEXT CHECK (z_index_value IS NULL OR (
+      typeof(z_index_value) = 'text' AND length(z_index_value) BETWEEN 1 AND 20
+      AND z_index_value NOT GLOB '*[^0-9]*'
+      AND (z_index_value = '0' OR substr(z_index_value, 1, 1) <> '0')
+      AND (length(z_index_value) < 20 OR z_index_value <= '18446744073709551615')))`,
+    `ALTER TABLE original_ink_state ADD COLUMN z_index_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (z_index_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN z_index_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (z_index_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN z_index_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (z_index_winner_present IN (0, 1))`,
   ],
 };

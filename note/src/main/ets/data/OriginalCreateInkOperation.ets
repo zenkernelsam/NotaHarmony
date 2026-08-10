@@ -208,6 +208,11 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       'page_origin_winner_timestamp': 0,
       'page_origin_winner_site_id': 0,
       'page_origin_winner_present': 0,
+      'create_z_index': payload.zIndex,
+      'z_index_value': null,
+      'z_index_winner_timestamp': 0,
+      'z_index_winner_site_id': 0,
+      'z_index_winner_present': 0,
     });
     existingRows.push({
       elementId: stroke.id, kind: PageElementKind.STROKE,

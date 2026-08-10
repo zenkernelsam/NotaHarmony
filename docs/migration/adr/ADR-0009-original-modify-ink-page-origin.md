@@ -36,5 +36,5 @@ page 改变不只是 transform 更新。Harmony 将页面内容物化到 live `p
 - 较小 op ID 的首次 page/origin 修改获胜；真实 winner 建立后保持严格 unsigned `(timestamp,site)` LWW。
 - `d02-modify-ink-page-origin.mjs` 覆盖真实 field 1/2、partial pair、v30→v31、首写、三类存储搬运、同页 origin、既有
   rotation/scale、双页 revision、z-order、缺目标/顺序分歧、多 Ink 原子性、故障回滚和无本地日志。
-- z-index register、辅助路径、Pencil/Tape/effects 与后续内容 payload 仍未完成；未执行设备 Hypium，不据此关闭完整
+- z-index register 已由后续 ADR-0010 闭环；辅助路径、Pencil/Tape/effects 与后续内容 payload 仍未完成；未执行设备 Hypium，不据此关闭完整
   MODIFY_INK 或 D-02。

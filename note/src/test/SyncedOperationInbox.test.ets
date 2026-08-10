@@ -255,6 +255,10 @@ export default function syncedOperationInboxTest() {
         flatBufferModifyInk(false, false, false, false, 2));
       expect(partial.pageOrigin === null).assertTrue();
       expect(partial.hasUnsupportedFields).assertFalse();
+      const withZIndex = decodeOriginalModifyInk(
+        flatBufferModifyInk(false, false, false, false, 0, '18446744073709551615'));
+      expect(withZIndex.zIndex).assertEqual('18446744073709551615');
+      expect(withZIndex.hasUnsupportedFields).assertFalse();
     });
 
     it('decodes the original big-endian half-float coordinate path variant', 0, () => {
@@ -627,7 +631,8 @@ function flatBufferAddPathElements(): Uint8Array {
 
 function flatBufferModifyInk(includeRender: boolean = false,
   includeRotation: boolean = false, clearRotation: boolean = false,
-  includeScale: boolean = false, pageOriginMode: number = 0): Uint8Array {
+  includeScale: boolean = false, pageOriginMode: number = 0,
+  zIndex: string | null = null): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
   builder.uint16(root + 4, 7);
@@ -638,8 +643,8 @@ function flatBufferModifyInk(includeRender: boolean = false,
   const fields: number[] = [4, pageOriginMode > 0 ? 8 : 0, pageOriginMode === 1 ? 20 : 0,
     includeRotation || clearRotation ? 28 : 0, includeScale ? 32 : 0,
     includeRender ? 36 : 0, includeRender ? 40 : 0, includeRender ? 44 : 0, 48,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-  const modify: number = builder.table(fields, 52);
+    0, 0, 0, 0, 0, zIndex === null ? 0 : 52, 0, 0, 0, 0, 0];
+  const modify: number = builder.table(fields, 60);
   builder.pointer(root + 32, modify);
   if (pageOriginMode > 0) {
     builder.uint16(modify + 8, 4);
@@ -670,6 +675,9 @@ function flatBufferModifyInk(includeRender: boolean = false,
     builder.uint8(modify + 42, 3);
     builder.uint8(modify + 43, 128);
     builder.float32(modify + 44, 5);
+  }
+  if (zIndex !== null) {
+    writeDecimalU64At(builder, modify + 52, zIndex);
   }
   const inks: number = builder.operationIdentityVector([
     { timestamp: 20, siteId: 2 }, { timestamp: 21, siteId: 3 },
