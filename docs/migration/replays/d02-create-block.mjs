@@ -261,7 +261,7 @@ assert.doesNotMatch(source, /CREATE_BLOCK_TEXT_PAPER_UNSUPPORTED/);
 assert.doesNotMatch(source, /CREATE_BLOCK_RESIZE_TO_FIT_UNSUPPORTED/);
 assert.match(source, /kind: PageElementKind\.TEXT/);
 assert.match(dispatcher, /OriginalCreateBlockOperationApplier/);
-assert.match(schema, /DB_VERSION: number = 40/);
+assert.match(schema, /DB_VERSION: number = 41/);
 assert.match(schema, /DDL_ORIGINAL_BLOCK_STATE/);
 assert.match(schema, /40: \['ALTER TABLE original_block_state ADD COLUMN create_text_paper TEXT'\]/);
 

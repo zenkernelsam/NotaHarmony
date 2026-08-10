@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v40: preserve the original TEXT block paper baseline.
-export const DB_VERSION: number = 40;
+// v41: preserve original MODIFY_BLOCK TEXT paper/resize LWW winners.
+export const DB_VERSION: number = 41;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -648,6 +648,14 @@ CREATE TABLE IF NOT EXISTS original_block_state (
   enable_caption_winner_timestamp INTEGER,
   enable_caption_winner_site_id INTEGER,
   enable_caption_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (enable_caption_winner_present IN (0, 1)),
+  text_paper_value TEXT,
+  text_paper_winner_timestamp INTEGER,
+  text_paper_winner_site_id INTEGER,
+  text_paper_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (text_paper_winner_present IN (0, 1)),
+  resizes_width_value INTEGER,
+  resizes_width_winner_timestamp INTEGER,
+  resizes_width_winner_site_id INTEGER,
+  resizes_width_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (resizes_width_winner_present IN (0, 1)),
   position_locked_value INTEGER,
   position_locked_winner_timestamp INTEGER,
   position_locked_winner_site_id INTEGER,
@@ -1576,4 +1584,16 @@ export const MIGRATIONS: Record<number, string[]> = {
   ],
   39: [DDL_ORIGINAL_TEXT_STYLE_OPERATION],
   40: ['ALTER TABLE original_block_state ADD COLUMN create_text_paper TEXT'],
+  41: [
+    'ALTER TABLE original_block_state ADD COLUMN text_paper_value TEXT',
+    'ALTER TABLE original_block_state ADD COLUMN text_paper_winner_timestamp INTEGER',
+    'ALTER TABLE original_block_state ADD COLUMN text_paper_winner_site_id INTEGER',
+    `ALTER TABLE original_block_state ADD COLUMN text_paper_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (text_paper_winner_present IN (0, 1))`,
+    'ALTER TABLE original_block_state ADD COLUMN resizes_width_value INTEGER',
+    'ALTER TABLE original_block_state ADD COLUMN resizes_width_winner_timestamp INTEGER',
+    'ALTER TABLE original_block_state ADD COLUMN resizes_width_winner_site_id INTEGER',
+    `ALTER TABLE original_block_state ADD COLUMN resizes_width_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (resizes_width_winner_present IN (0, 1))`,
+  ],
 };

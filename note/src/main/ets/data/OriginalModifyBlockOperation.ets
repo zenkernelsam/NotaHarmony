@@ -1,14 +1,16 @@
 import { relationalStore } from '@kit.ArkData';
 import { TextBlockElement } from '../core/model/ElementTypes';
 import { TransformMatrix } from '../core/model/GeometryTypes';
+import { PagePaperBackground } from '../core/model/NoteTypes';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { textBlockWorldBounds } from '../core/model/TextBlockGeometry';
-import { cloneOriginalPaper } from '../core/model/PageBackgroundModel';
+import { cloneOriginalPaper, validateOriginalPaper } from '../core/model/PageBackgroundModel';
 import {
   compareOperationIdentity, encodeOperationId, OperationIdentity, OriginalSequenceIdentity,
   validateOperationIdentity, validateOriginalSequenceIdentity,
 } from './OperationIdentity';
 import { OriginalBlockType } from './OriginalCreateBlockOperation';
+import { decodeOriginalPaper } from './OriginalPageBackgroundOperation';
 import {
   OriginalFlatBufferTableReader, readOriginalInlineFloat32, readOriginalPayloadTable,
 } from './OriginalSyncedOperationFlatBuffer';
@@ -48,9 +50,11 @@ export interface OriginalModifyBlockPayload {
   height: number | null;
   textWrap: number | null;
   enableCaption: boolean | null;
+  paper: NullableBlockRegisterUpdate<PagePaperBackground>;
+  resizesWidthToFitText: boolean | null;
   zIndex: string | null;
   positionLocked: boolean | null;
-  hasTypeSpecificFields: boolean;
+  hasUnsupportedTypeSpecificFields: boolean;
 }
 
 interface StoredRegister<T> {
@@ -74,6 +78,10 @@ interface StoredBlockState {
   textWrap: StoredRegister<number>;
   baseEnableCaption: boolean;
   enableCaption: StoredRegister<boolean>;
+  basePaper: PagePaperBackground | null;
+  paper: StoredRegister<PagePaperBackground>;
+  baseResizesWidth: boolean;
+  resizesWidth: StoredRegister<boolean>;
   basePositionLocked: boolean;
   positionLocked: StoredRegister<boolean>;
   baseLeftInset: number;
@@ -122,6 +130,8 @@ interface PlannedBlockReplacement {
   cornerValue: number;
   textWrapValue: number;
   enableCaptionValue: boolean;
+  paperValue: PagePaperBackground | null;
+  resizesWidthValue: boolean;
   positionLockedValue: boolean;
   zIndexValue: string;
   replacePageOrigin: boolean;
@@ -131,6 +141,8 @@ interface PlannedBlockReplacement {
   replaceCorner: boolean;
   replaceTextWrap: boolean;
   replaceEnableCaption: boolean;
+  replacePaper: boolean;
+  replaceResizesWidth: boolean;
   replacePositionLocked: boolean;
   replaceZIndex: boolean;
 }
@@ -176,14 +188,17 @@ export function decodeOriginalModifyBlock(bytes: Uint8Array): OriginalModifyBloc
   const scaleBytes: Uint8Array | null = scaleSetter === null ? null :
     scaleSetter.readInlineBytes(0, 8);
   const sizeBytes: Uint8Array | null = table.readInlineBytes(6, 8);
+  const paperSetter: OriginalFlatBufferTableReader | null = table.readTable(13);
+  const paperTable: OriginalFlatBufferTableReader | null = paperSetter === null ? null :
+    paperSetter.readTable(0);
   const zIndex: string | null = table.readUint64Decimal(9);
   if (zIndex !== null) {
     validateUnsignedLongDecimal(zIndex);
   }
-  let hasTypeSpecificFields: boolean = false;
+  let hasUnsupportedTypeSpecificFields: boolean = false;
   for (let field: number = 10; field <= 16; field++) {
-    if (table.hasField(field)) {
-      hasTypeSpecificFields = true;
+    if (field !== 13 && field !== 16 && table.hasField(field)) {
+      hasUnsupportedTypeSpecificFields = true;
     }
   }
   return {
@@ -206,9 +221,14 @@ export function decodeOriginalModifyBlock(bytes: Uint8Array): OriginalModifyBloc
     height: sizeBytes === null ? null : readOriginalInlineFloat32(sizeBytes, 4),
     textWrap: table.hasField(7) ? normalizeOriginalEnum(table.readUint8(7, 0), 1) : null,
     enableCaption: table.hasField(8) ? table.readUint8(8, 0) !== 0 : null,
+    paper: {
+      present: paperSetter !== null,
+      value: paperTable === null ? null : decodeOriginalPaper(paperTable),
+    },
+    resizesWidthToFitText: table.hasField(16) ? table.readUint8(16, 0) !== 0 : null,
     zIndex: zIndex,
     positionLocked: table.hasField(17) ? table.readUint8(17, 0) !== 0 : null,
-    hasTypeSpecificFields: hasTypeSpecificFields,
+    hasUnsupportedTypeSpecificFields: hasUnsupportedTypeSpecificFields,
   };
 }
 
@@ -225,7 +245,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     } catch (_error) {
       return { deferredReason: 'MALFORMED_MODIFY_BLOCK_PAYLOAD' };
     }
-    if (payload.hasTypeSpecificFields) {
+    if (payload.hasUnsupportedTypeSpecificFields) {
       return { deferredReason: 'MODIFY_BLOCK_TYPE_SPECIFIC_FIELDS_UNSUPPORTED' };
     }
     if ((payload.pageOrigin !== null && (!Number.isFinite(payload.pageOrigin.originX) ||
@@ -239,7 +259,9 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     }
     if (payload.pageOrigin === null && !payload.rotation.present && !payload.scale.present &&
       payload.width === null && payload.corner === null && payload.textWrap === null &&
-      payload.enableCaption === null && payload.positionLocked === null && payload.zIndex === null) {
+      payload.enableCaption === null && !payload.paper.present &&
+      payload.resizesWidthToFitText === null && payload.positionLocked === null &&
+      payload.zIndex === null) {
       return { deferredReason: null };
     }
 
@@ -268,12 +290,17 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         registerAccepts(operation, state.textWrap.winner);
       const replaceEnableCaption: boolean = payload.enableCaption !== null &&
         registerAccepts(operation, state.enableCaption.winner);
+      const replacePaper: boolean = payload.paper.present &&
+        registerAccepts(operation, state.paper.winner);
+      const replaceResizesWidth: boolean = payload.resizesWidthToFitText !== null &&
+        registerAccepts(operation, state.resizesWidth.winner);
       const replacePositionLocked: boolean = payload.positionLocked !== null &&
         registerAccepts(operation, state.positionLocked.winner);
       const replaceZIndex: boolean = payload.zIndex !== null &&
         registerAccepts(operation, state.zIndex.winner);
       if (!replacePageOrigin && !replaceRotation && !replaceScale && !replaceSize &&
-        !replaceCorner && !replaceTextWrap && !replaceEnableCaption &&
+        !replaceCorner && !replaceTextWrap && !replaceEnableCaption && !replacePaper &&
+        !replaceResizesWidth &&
         !replacePositionLocked && !replaceZIndex) {
         continue;
       }
@@ -310,6 +337,12 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       if (replaceEnableCaption) {
         updatedText.enableCaption = payload.enableCaption as boolean;
       }
+      if (replacePaper) {
+        updatedText.paper = cloneOriginalPaper(payload.paper.value);
+      }
+      if (replaceResizesWidth) {
+        updatedText.resizesWidthToFitText = payload.resizesWidthToFitText as boolean;
+      }
       updatedText.positionLocked = replacePositionLocked ? payload.positionLocked as boolean :
         effectiveBoolean(state.basePositionLocked, state.positionLocked);
       updatedText.bounds = textBlockWorldBounds(updatedText);
@@ -322,12 +355,17 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
           effectiveNumber(state.baseTextWrap, state.textWrap),
         enableCaptionValue: replaceEnableCaption ? payload.enableCaption as boolean :
           effectiveBoolean(state.baseEnableCaption, state.enableCaption),
+        paperValue: replacePaper ? cloneOriginalPaper(payload.paper.value) :
+          cloneOriginalPaper(effectiveNullable(state.basePaper, state.paper)),
+        resizesWidthValue: replaceResizesWidth ? payload.resizesWidthToFitText as boolean :
+          effectiveBoolean(state.baseResizesWidth, state.resizesWidth),
         positionLockedValue: replacePositionLocked ? payload.positionLocked as boolean :
           effectiveBoolean(state.basePositionLocked, state.positionLocked),
         zIndexValue: zIndexValue,
         replacePageOrigin: replacePageOrigin, replaceRotation: replaceRotation,
         replaceScale: replaceScale, replaceSize: replaceSize, replaceCorner: replaceCorner,
         replaceTextWrap: replaceTextWrap, replaceEnableCaption: replaceEnableCaption,
+        replacePaper: replacePaper, replaceResizesWidth: replaceResizesWidth,
         replacePositionLocked: replacePositionLocked, replaceZIndex: replaceZIndex,
       });
     }
@@ -499,6 +537,12 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       const baseCorner: number = rows.getLong(rows.getColumnIndex('create_corner'));
       const baseTextWrap: number = rows.getLong(rows.getColumnIndex('create_text_wrap'));
       const baseEnableCaption: number = rows.getLong(rows.getColumnIndex('create_enable_caption'));
+      const basePaper: PagePaperBackground | null = parseStoredPaper(
+        readNullableString(rows, 'create_text_paper'));
+      const paperWinner: OperationIdentity | null = readOptionalWinner(rows, 'text_paper');
+      const paperValue: PagePaperBackground | null = paperWinner === null ? null :
+        parseStoredPaper(readNullableString(rows, 'text_paper_value'));
+      const baseResizesWidth: number = rows.getLong(rows.getColumnIndex('create_resizes_width'));
       const basePositionLocked: number = rows.getLong(rows.getColumnIndex('create_position_locked'));
       const baseLeftInset: number = rows.getDouble(rows.getColumnIndex('create_margin_left'));
       const baseTopInset: number = rows.getDouble(rows.getColumnIndex('create_margin_top'));
@@ -507,6 +551,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         baseLeftInset < 0 || baseTopInset < 0 || baseCorner < 0 || baseCorner > 1 ||
         baseTextWrap < 0 || baseTextWrap > 1 ||
         (baseEnableCaption !== 0 && baseEnableCaption !== 1) ||
+        (baseResizesWidth !== 0 && baseResizesWidth !== 1) ||
         (basePositionLocked !== 0 && basePositionLocked !== 1) ||
         !isFiniteNullableNumber(baseRotation) || !isFiniteNullableNumber(rotationValue) ||
         !isFiniteNullableScale(baseScale) || !isFiniteNullableScale(scaleValue) ||
@@ -537,6 +582,9 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         baseTextWrap: baseTextWrap, textWrap: textWrap,
         baseEnableCaption: baseEnableCaption !== 0,
         enableCaption: readBooleanRegister(rows, 'enable_caption'),
+        basePaper: basePaper, paper: { value: paperValue, winner: paperWinner },
+        baseResizesWidth: baseResizesWidth !== 0,
+        resizesWidth: readBooleanRegister(rows, 'resizes_width'),
         basePositionLocked: basePositionLocked !== 0,
         positionLocked: readBooleanRegister(rows, 'position_locked'),
         baseLeftInset: baseLeftInset, baseTopInset: baseTopInset,
@@ -590,6 +638,9 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     expectedText.corner = effectiveNumber(state.baseCorner, state.corner);
     expectedText.textWrap = effectiveNumber(state.baseTextWrap, state.textWrap);
     expectedText.enableCaption = effectiveBoolean(state.baseEnableCaption, state.enableCaption);
+    expectedText.paper = cloneOriginalPaper(effectiveNullable(state.basePaper, state.paper));
+    expectedText.resizesWidthToFitText = effectiveBoolean(
+      state.baseResizesWidth, state.resizesWidth);
     const expectedBounds = textBlockWorldBounds(expectedText);
     return samePageIdentity(target.page, pageOrigin.page) && target.zIndex === effectiveZIndex(state) &&
       JSON.stringify(text.transform) === JSON.stringify(expectedTransform) &&
@@ -600,6 +651,8 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       (text.corner === undefined ? 0 : text.corner) === (expectedText.corner === undefined ? 0 : expectedText.corner) &&
       (text.textWrap === undefined ? 0 : text.textWrap) === (expectedText.textWrap === undefined ? 0 : expectedText.textWrap) &&
       (text.enableCaption === true) === (expectedText.enableCaption === true) &&
+      JSON.stringify(text.paper ?? null) === JSON.stringify(expectedText.paper ?? null) &&
+      (text.resizesWidthToFitText === true) === (expectedText.resizesWidthToFitText === true) &&
       (text.positionLocked === true) === effectiveBoolean(
         state.basePositionLocked, state.positionLocked) &&
       text.id === encodeOperationId(target.block);
@@ -756,6 +809,17 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       addWinnerPredicates(predicates, 'enable_caption', replacement.state.enableCaption.winner);
       values['enable_caption_value'] = replacement.enableCaptionValue ? 1 : 0;
       addWinnerValues(values, 'enable_caption', winner);
+    }
+    if (replacement.replacePaper) {
+      addWinnerPredicates(predicates, 'text_paper', replacement.state.paper.winner);
+      values['text_paper_value'] = replacement.paperValue === null ? null :
+        JSON.stringify(replacement.paperValue);
+      addWinnerValues(values, 'text_paper', winner);
+    }
+    if (replacement.replaceResizesWidth) {
+      addWinnerPredicates(predicates, 'resizes_width', replacement.state.resizesWidth.winner);
+      values['resizes_width_value'] = replacement.resizesWidthValue ? 1 : 0;
+      addWinnerValues(values, 'resizes_width', winner);
     }
     if (replacement.replacePositionLocked) {
       addWinnerPredicates(predicates, 'position_locked', replacement.state.positionLocked.winner);
@@ -1027,6 +1091,15 @@ function readNullableDouble(rows: relationalStore.ResultSet, columnName: string)
 function readNullableString(rows: relationalStore.ResultSet, columnName: string): string | null {
   const column: number = rows.getColumnIndex(columnName);
   return rows.isColumnNull(column) ? null : rows.getString(column);
+}
+
+function parseStoredPaper(encoded: string | null): PagePaperBackground | null {
+  if (encoded === null) {
+    return null;
+  }
+  const paper: PagePaperBackground = JSON.parse(encoded) as PagePaperBackground;
+  validateOriginalPaper(paper);
+  return cloneOriginalPaper(paper);
 }
 
 function requireValue<T>(value: T | null, label: string): T {
