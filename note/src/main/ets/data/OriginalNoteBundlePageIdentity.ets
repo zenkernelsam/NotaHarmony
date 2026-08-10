@@ -20,6 +20,12 @@ import { serializePageBackground } from '../core/model/PageBackgroundModel';
 import {
   OriginalDecodedPageBackground, originalPageBackgroundFitsHarmony,
 } from './OriginalPageBackgroundOperation';
+import {
+  ORIGINAL_CREATE_INK_PAYLOAD_TYPE, OriginalCreateInkOperationApplier,
+} from './OriginalCreateInkOperation';
+import {
+  StoredSyncedOperation, SyncedOperationInboxState, SyncedOperationApplyResult,
+} from './SyncedOperationInbox';
 
 export const ORIGINAL_NOTE_BUNDLE_MAX_OPERATION_COUNT: number = 262144;
 const ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE: number = 3;
@@ -176,6 +182,10 @@ export class OriginalNoteBundlePageIdentityBootstrapper {
       return deferred(replay.deferredReason);
     }
     const history: BootstrapHistory = requireHistory(replay);
+    const contentPreflightReason: string | null = preflightBundleContent(bundle, history);
+    if (contentPreflightReason !== null) {
+      return deferred(contentPreflightReason);
+    }
     const pageIds: string[] = await readPageIds(store, expectedNoteId);
     if (pageIds.length !== history.visibleOrder.length) {
       return deferred('NOTE_BUNDLE_PAGE_COUNT_MISMATCH');
@@ -187,23 +197,112 @@ export class OriginalNoteBundlePageIdentityBootstrapper {
     if (divergentLocalMutationCount !== 0) {
       return deferred('LOCAL_PAGE_STRUCTURE_DIVERGED');
     }
-    if (history.createGroups.length === 0) {
-      return { applied: false, deferredReason: null };
-    }
     const pageIdBySequence: Map<string, string> = bindVisiblePages(history.visibleOrder, pageIds);
+    let applied: boolean = false;
     if (await existingMappingMatches(store, expectedNoteId, history, pageIdBySequence)) {
       const changed: boolean = await applyBootstrapBackgrounds(
         store, expectedNoteId, history, pageIdBySequence);
-      return { applied: changed, deferredReason: null };
+      applied = changed;
+    } else {
+      if (await hasExistingMapping(store, expectedNoteId)) {
+        return deferred('ORIGINAL_PAGE_IDENTITY_CONFLICT');
+      }
+      if (history.createGroups.length > 0) {
+        await insertBootstrapHistory(store, expectedNoteId, history, pageIdBySequence);
+        await applyBootstrapBackgrounds(store, expectedNoteId, history, pageIdBySequence);
+        applied = true;
+      }
     }
-    if (await hasExistingMapping(store, expectedNoteId)) {
-      return deferred('ORIGINAL_PAGE_IDENTITY_CONFLICT');
+    const contentResult: OriginalPageIdentityBootstrapResult =
+      await applyBundleContent(store, bundle);
+    if (contentResult.deferredReason !== null) {
+      return contentResult;
     }
-
-    await insertBootstrapHistory(store, expectedNoteId, history, pageIdBySequence);
-    await applyBootstrapBackgrounds(store, expectedNoteId, history, pageIdBySequence);
-    return { applied: true, deferredReason: null };
+    return { applied: applied || contentResult.applied, deferredReason: null };
   }
+}
+
+function preflightBundleContent(bundle: OriginalNoteBundle,
+  history: BootstrapHistory): string | null {
+  const createInk: OriginalCreateInkOperationApplier = new OriginalCreateInkOperationApplier();
+  for (const operation of bundle.operations) {
+    if (operation.payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE) {
+      continue;
+    }
+    if (operation.payloadType === ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE) {
+      let deleted: OriginalDeleteEntitiesPayload;
+      try {
+        deleted = decodeOriginalDeleteEntitiesTable(operation.payload);
+      } catch (_error) {
+        return 'NOTE_BUNDLE_MALFORMED_DELETE_ENTITIES_PAYLOAD';
+      }
+      if (deleted.entityDeleteCount !== 0 || deleted.entityUndeleteCount !== 0) {
+        return 'NOTE_BUNDLE_ENTITY_VISIBILITY_UNSUPPORTED';
+      }
+      continue;
+    }
+    if (operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE) {
+      return `NOTE_BUNDLE_PAYLOAD_${operation.payloadType}_UNSUPPORTED`;
+    }
+    const reason: string | null = createInk.preflightTable(operation.payload, operation.clientTime);
+    if (reason !== null) {
+      return `NOTE_BUNDLE_${reason}`;
+    }
+    let pageKey: string;
+    try {
+      const rawPage: number[] | null = operation.payload.readInlineSequence(0);
+      if (rawPage === null) {
+        return 'NOTE_BUNDLE_MALFORMED_CREATE_INK_PAYLOAD';
+      }
+      pageKey = encodeOriginalSequenceId({
+        timestamp: rawPage[0], siteId: rawPage[1], index: rawPage[2],
+      });
+    } catch (_error) {
+      return 'NOTE_BUNDLE_MALFORMED_CREATE_INK_PAYLOAD';
+    }
+    const page: BootstrapPageState | undefined = history.pages.get(pageKey);
+    if (page === undefined) {
+      return 'NOTE_BUNDLE_CREATE_INK_PAGE_MISSING';
+    }
+    if (page.visibility !== null && page.visibility.deleted) {
+      return 'NOTE_BUNDLE_CREATE_INK_ARCHIVED_PAGE_UNSUPPORTED';
+    }
+  }
+  return null;
+}
+
+async function applyBundleContent(store: relationalStore.RdbStore,
+  bundle: OriginalNoteBundle): Promise<OriginalPageIdentityBootstrapResult> {
+  const createInk: OriginalCreateInkOperationApplier = new OriginalCreateInkOperationApplier();
+  const before: number = await countRows(store,
+    'SELECT COUNT(*) AS value FROM original_element_z_index WHERE note_id = ?', [bundle.noteId]);
+  for (const operation of bundle.operations) {
+    if (operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE) {
+      continue;
+    }
+    const stored: StoredSyncedOperation = {
+      noteId: bundle.noteId,
+      timestamp: operation.timestamp,
+      siteId: operation.siteId,
+      clientTime: operation.clientTime,
+      serverTime: operation.serverTime === null ? operation.clientTime : operation.serverTime,
+      schemaVersion: bundle.schemaVersion,
+      payloadType: operation.payloadType,
+      rawOperation: new Uint8Array(0),
+      state: SyncedOperationInboxState.RECEIVED,
+      deferredReason: null,
+      receivedAt: 0,
+    };
+    const result: SyncedOperationApplyResult = await createInk.applyTable(
+      store, stored, operation.payload);
+    if (result.deferredReason !== null) {
+      return deferred(`NOTE_BUNDLE_${result.deferredReason}`);
+    }
+  }
+  const after: number = await countRows(store,
+    'SELECT COUNT(*) AS value FROM original_element_z_index WHERE note_id = ?', [bundle.noteId]);
+  return { applied: after > before, deferredReason: null };
 }
 
 function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): BootstrapReplayResult {

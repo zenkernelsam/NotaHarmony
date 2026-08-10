@@ -101,6 +101,10 @@ export class DeferredSyncedOperationBundleStore {
         const result: OriginalPageIdentityBootstrapResult =
           await new OriginalNoteBundlePageIdentityBootstrapper().apply(
             this.store, bundle.noteId, bundle.schemaVersion, bundle.payload);
+        if (result.deferredReason !== null) {
+          await this.store.rollBack();
+          return result;
+        }
         await this.store.commit();
         return result;
       } catch (e) {

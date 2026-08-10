@@ -22,7 +22,9 @@ import { decodeOriginalNoteBundle } from '../main/ets/data/OriginalNoteBundlePag
 import { decodeOriginalModifyPage } from '../main/ets/data/OriginalModifyPageOperation';
 import { decodeOriginalDeleteEntities } from '../main/ets/data/OriginalDeleteEntitiesOperation';
 import { OriginalPageOperationApplier } from '../main/ets/data/OriginalPageOperationApplier';
-import { decodeOriginalCreateInk } from '../main/ets/data/OriginalCreateInkOperation';
+import { decodeOriginalCreateInk, decodeOriginalCreateInkTable,
+  OriginalCreateInkOperationApplier, unsupportedOriginalCreateInkReason } from
+  '../main/ets/data/OriginalCreateInkOperation';
 import { decodeOriginalAddPathElements } from
   '../main/ets/data/OriginalAddPathElementsOperation';
 import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOperation';
@@ -589,6 +591,21 @@ export default function syncedOperationInboxTest() {
       expect(child.location?.index).assertEqual(0);
       expect(child.pageCount).assertEqual(1);
     });
+
+    it('decodes and preflights CREATE_INK directly from a NOTE_BUNDLE child table', 0, () => {
+      const bundle = decodeOriginalNoteBundle(flatBufferNoteBundleWithCreateInk());
+      expect(bundle.operations.length).assertEqual(2);
+      expect(bundle.operations[1].payloadType).assertEqual(15);
+      const ink = decodeOriginalCreateInkTable(bundle.operations[1].payload,
+        bundle.operations[1].clientTime);
+      expect(ink.page.timestamp).assertEqual(10);
+      expect(ink.page.siteId).assertEqual(1);
+      expect(ink.path?.pathPoints.length).assertEqual(3);
+      expect(ink.zIndex).assertEqual('18446744073709551615');
+      expect(unsupportedOriginalCreateInkReason(ink) === null).assertTrue();
+      expect(new OriginalCreateInkOperationApplier().preflightTable(
+        bundle.operations[1].payload, bundle.operations[1].clientTime) === null).assertTrue();
+    });
   });
 }
 
@@ -643,6 +660,62 @@ function flatBufferNoteBundle(): Uint8Array {
   writeU32(bytes, 252, 0);
   writeU32(bytes, 256, 1);
   return bytes;
+}
+
+function flatBufferNoteBundleWithCreateInk(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 0, 20, 24, 0, 28, 32, 36], 40);
+  const uuid: number[] = [0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88,
+    0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00];
+  builder.color(root + 4, uuid);
+  builder.uint16(root + 20, 9);
+  builder.uint16(root + 36, 7);
+  const operations: number = builder.tableVector(2);
+  builder.pointer(root + 32, operations);
+  const createPageOp: number = builder.table([4, 12, 20, 0, 28, 32, 0], 36);
+  const createInkOp: number = builder.table([4, 12, 20, 0, 28, 32, 0], 36);
+  builder.pointer(operations + 4, createPageOp);
+  builder.pointer(operations + 8, createInkOp);
+  writeBundleOperation(builder, createPageOp, 1, 10, '11', '12', 3);
+  writeBundleOperation(builder, createInkOp, 2, 20, '21', '22', 15);
+
+  const createPage: number = builder.table([0, 0, 4, 0], 8);
+  builder.uint32(createPage + 4, 1);
+  builder.pointer(createPageOp + 32, createPage);
+  const ink: number = builder.table([
+    4, 16, 24, 28, 36, 37, 0, 40, 44, 48, 0, 0, 0, 0, 52,
+  ], 60);
+  builder.pointer(createInkOp + 32, ink);
+  builder.inlineSequence(ink + 4, 10, 1, 0);
+  builder.float32(ink + 16, 12);
+  builder.float32(ink + 20, 34);
+  builder.float32(ink + 24, Math.PI / 2);
+  builder.float32(ink + 28, 2);
+  builder.float32(ink + 32, 3);
+  builder.uint8(ink + 36, 0);
+  builder.uint8(ink + 37, 0);
+  builder.color(ink + 40, [10, 20, 30, 128]);
+  builder.float32(ink + 44, 4);
+  writeDecimalU64At(builder, ink + 52, '18446744073709551615');
+  const path: number[] = [1, 0, 3];
+  appendAttributedPathElement(path, 3, [{ x: 1, y: 2 }], 0x3C00, 0x3800, 0, 0);
+  appendAttributedPathElement(path, 0,
+    [{ x: 20, y: -3 }, { x: 4, y: 5 }, { x: 6, y: 7 }], 0x3800, 0x3400, 255, 64);
+  appendAttributedPathElement(path, 2, [{ x: 8, y: 9 }], 0x3C00, 0x3800, 128, 128);
+  builder.pointer(ink + 48, builder.byteVector(path));
+  builder.pointer(root + 24, builder.byteVector([0x65]));
+  builder.pointer(root + 28, builder.byteVector([0x63]));
+  return builder.finish(root);
+}
+
+function writeBundleOperation(builder: FixtureFlatBufferBuilder, table: number,
+  siteId: number, timestamp: number, clientTime: string, serverTime: string,
+  payloadType: number): void {
+  builder.uint16(table + 4, siteId);
+  builder.uint32(table + 8, timestamp);
+  writeDecimalU64At(builder, table + 12, clientTime);
+  writeDecimalU64At(builder, table + 20, serverTime);
+  builder.uint8(table + 28, payloadType);
 }
 
 function writeNoteBundleOperation(bytes: Uint8Array, vtable: number, table: number,
@@ -774,6 +847,14 @@ class FixtureFlatBufferBuilder {
     writeU16(this.bytes, vector + 4, siteId);
     writeU32(this.bytes, vector + 8, timestamp);
     writeU32(this.bytes, vector + 12, index);
+    return vector;
+  }
+
+  tableVector(count: number): number {
+    this.align(4);
+    const vector: number = this.cursor;
+    this.cursor += 4 + count * 4;
+    writeU32(this.bytes, vector, count);
     return vector;
   }
 

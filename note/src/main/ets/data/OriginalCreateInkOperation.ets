@@ -157,16 +157,56 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       }
       return { deferredReason: 'MALFORMED_CREATE_INK_PAYLOAD' };
     }
-    const unsupported: string | null = this.unsupportedReason(payload);
+    return this.applyPayload(store, operation, payload);
+  }
+
+  preflightTable(table: OriginalFlatBufferTableReader, defaultZIndex: string): string | null {
+    try {
+      return unsupportedOriginalCreateInkReason(
+        decodeOriginalCreateInkTable(table, defaultZIndex));
+    } catch (_error) {
+      if (_error instanceof OriginalInkPathDeferredError) {
+        return _error.deferredReason;
+      }
+      return 'MALFORMED_CREATE_INK_PAYLOAD';
+    }
+  }
+
+  async applyTable(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
+    table: OriginalFlatBufferTableReader): Promise<SyncedOperationApplyResult> {
+    let payload: OriginalCreateInkPayload;
+    try {
+      payload = decodeOriginalCreateInkTable(table, operation.clientTime);
+    } catch (_error) {
+      if (_error instanceof OriginalInkPathDeferredError) {
+        return { deferredReason: _error.deferredReason };
+      }
+      return { deferredReason: 'MALFORMED_CREATE_INK_PAYLOAD' };
+    }
+    return this.applyPayload(store, operation, payload);
+  }
+
+  private async applyPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation,
+    payload: OriginalCreateInkPayload): Promise<SyncedOperationApplyResult> {
+    const unsupported: string | null = unsupportedOriginalCreateInkReason(payload);
     if (unsupported !== null) {
       return { deferredReason: unsupported };
+    }
+    const elementExists: boolean = await this.originalElementExists(store, operation);
+    const inkStateExists: boolean = await this.originalInkStateExists(store, operation);
+    if (elementExists || inkStateExists) {
+      if (elementExists && inkStateExists) {
+        if (await this.originalCreateMatches(store, operation, payload)) {
+          return { deferredReason: null };
+        }
+        throw new Error('original create-ink identity conflicts with persisted create state');
+      }
+      throw new Error('original create-ink has partial persisted state');
     }
     const target: StoredTargetPage | null = await this.readTargetPage(store, operation, payload.page);
     if (target === null) {
       return { deferredReason: 'CREATE_INK_PAGE_MISSING_OR_UNBOUND' };
-    }
-    if (await this.originalElementExists(store, operation)) {
-      throw new Error('original create-ink operation was applied twice');
     }
     const existingRows: StoredZIndexRow[] | null = await this.readCompleteOriginalOrder(
       store, operation.noteId, payload.page, target);
@@ -281,44 +321,6 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
     return { deferredReason: null };
   }
 
-  private unsupportedReason(payload: OriginalCreateInkPayload): string | null {
-    if (payload.tool !== 0 && payload.tool !== 1 && payload.tool !== 2) {
-      return payload.tool === 3 ? 'CREATE_INK_TAPE_UNSUPPORTED' : 'CREATE_INK_TOOL_UNSUPPORTED';
-    }
-    if (payload.hasTapePattern) {
-      return 'CREATE_INK_TAPE_PATTERN_UNSUPPORTED';
-    }
-    if (payload.style < 0 || payload.style > 3) {
-      return 'CREATE_INK_STYLE_UNSUPPORTED';
-    }
-    if (!Number.isFinite(payload.originX) || !Number.isFinite(payload.originY) ||
-      !Number.isFinite(payload.rotation) || !Number.isFinite(payload.scaleX) ||
-      !Number.isFinite(payload.scaleY)) {
-      return 'CREATE_INK_TRANSFORM_UNSUPPORTED';
-    }
-    if (!Number.isFinite(payload.width) || payload.width < 0) {
-      return 'CREATE_INK_WIDTH_UNSUPPORTED';
-    }
-    if (payload.path === null) {
-      return 'CREATE_INK_CENTER_PATH_MISSING';
-    }
-    if (payload.tool !== 1 && payload.style === 0 && !payload.path.attributed) {
-      return 'CREATE_INK_VARIABLE_PATH_ATTRIBUTES_MISSING';
-    }
-    if (payload.hasAudioDuration) {
-      return 'CREATE_INK_AUDIO_DURATION_UNSUPPORTED';
-    }
-    // Android 1.0.3 retains the legacy uint16 nib fields in dm2, but q06 never
-    // puts them in the Ink register/render model. Preserve the raw op and ignore them likewise.
-    if (payload.inkEffects !== '0') {
-      return 'CREATE_INK_EFFECTS_UNSUPPORTED';
-    }
-    if (!payload.inkEffectsTinted) {
-      return 'CREATE_INK_INVALID_EFFECT_TINT';
-    }
-    return null;
-  }
-
   private buildStroke(operation: StoredSyncedOperation,
     payload: OriginalCreateInkPayload): StrokeElementData {
     const path: DecodedOriginalInkPath = payload.path as DecodedOriginalInkPath;
@@ -411,6 +413,75 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       [operation.noteId, operation.timestamp, operation.siteId]);
     try {
       return rows.goToFirstRow();
+    } finally {
+      rows.close();
+    }
+  }
+
+  private async originalInkStateExists(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation): Promise<boolean> {
+    const rows = await store.querySql(
+      `SELECT 1 FROM original_ink_state WHERE note_id = ?
+       AND ink_timestamp = ? AND ink_site_id = ? LIMIT 1`,
+      [operation.noteId, operation.timestamp, operation.siteId]);
+    try {
+      return rows.goToFirstRow();
+    } finally {
+      rows.close();
+    }
+  }
+
+  private async originalCreateMatches(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, payload: OriginalCreateInkPayload): Promise<boolean> {
+    const rows = await store.querySql(
+      `SELECT z.kind, i.base_center_path, i.create_custom_path, i.create_fill_path,
+              i.create_fill_color, i.create_style_map,
+              i.style_value, i.style_winner_present,
+              i.color_value, i.color_winner_present,
+              i.width_value, i.width_winner_present,
+              i.create_origin_x, i.create_origin_y, i.create_rotation,
+              i.create_scale_x, i.create_scale_y,
+              i.create_page_timestamp, i.create_page_site_id, i.create_page_index,
+              i.create_z_index
+       FROM original_element_z_index z JOIN original_ink_state i
+         ON i.note_id = z.note_id AND i.ink_timestamp = z.element_timestamp
+        AND i.ink_site_id = z.element_site_id
+       WHERE z.note_id = ? AND z.element_timestamp = ? AND z.element_site_id = ?`,
+      [operation.noteId, operation.timestamp, operation.siteId]);
+    try {
+      if (!rows.goToFirstRow() || rows.getLong(rows.getColumnIndex('kind')) !==
+        PageElementKind.STROKE) {
+        return false;
+      }
+      if (!sameBytes(rows.getBlob(rows.getColumnIndex('base_center_path')),
+        payload.centerPathBytes as Uint8Array) ||
+        !sameNullableBytes(readNullableBlob(rows, 'create_custom_path'), payload.customPathBytes) ||
+        !sameNullableBytes(readNullableBlob(rows, 'create_fill_path'), payload.fillPathBytes) ||
+        readNullableLong(rows, 'create_fill_color') !== payload.fillColor ||
+        !sameNullableBytes(readNullableBlob(rows, 'create_style_map'), payload.styleMapBytes)) {
+        return false;
+      }
+      if (rows.getLong(rows.getColumnIndex('style_winner_present')) === 0 &&
+        rows.getLong(rows.getColumnIndex('style_value')) !== payload.style) {
+        return false;
+      }
+      if (rows.getLong(rows.getColumnIndex('color_winner_present')) === 0 &&
+        rows.getLong(rows.getColumnIndex('color_value')) !== payload.color) {
+        return false;
+      }
+      if (rows.getLong(rows.getColumnIndex('width_winner_present')) === 0 &&
+        rows.getDouble(rows.getColumnIndex('width_value')) !== payload.width) {
+        return false;
+      }
+      return rows.getDouble(rows.getColumnIndex('create_origin_x')) === payload.originX &&
+        rows.getDouble(rows.getColumnIndex('create_origin_y')) === payload.originY &&
+        rows.getDouble(rows.getColumnIndex('create_rotation')) === payload.rotation &&
+        rows.getDouble(rows.getColumnIndex('create_scale_x')) === payload.scaleX &&
+        rows.getDouble(rows.getColumnIndex('create_scale_y')) === payload.scaleY &&
+        rows.getLong(rows.getColumnIndex('create_page_timestamp')) === payload.page.timestamp &&
+        rows.getLong(rows.getColumnIndex('create_page_site_id')) === payload.page.siteId &&
+        rows.getLong(rows.getColumnIndex('create_page_index')) === payload.page.index &&
+        rows.getString(rows.getColumnIndex('create_z_index')) === payload.zIndex;
     } finally {
       rows.close();
     }
@@ -531,8 +602,77 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
   }
 }
 
+export function unsupportedOriginalCreateInkReason(
+  payload: OriginalCreateInkPayload): string | null {
+  if (payload.tool !== 0 && payload.tool !== 1 && payload.tool !== 2) {
+    return payload.tool === 3 ? 'CREATE_INK_TAPE_UNSUPPORTED' : 'CREATE_INK_TOOL_UNSUPPORTED';
+  }
+  if (payload.hasTapePattern) {
+    return 'CREATE_INK_TAPE_PATTERN_UNSUPPORTED';
+  }
+  if (payload.style < 0 || payload.style > 3) {
+    return 'CREATE_INK_STYLE_UNSUPPORTED';
+  }
+  if (!Number.isFinite(payload.originX) || !Number.isFinite(payload.originY) ||
+    !Number.isFinite(payload.rotation) || !Number.isFinite(payload.scaleX) ||
+    !Number.isFinite(payload.scaleY)) {
+    return 'CREATE_INK_TRANSFORM_UNSUPPORTED';
+  }
+  if (!Number.isFinite(payload.width) || payload.width < 0) {
+    return 'CREATE_INK_WIDTH_UNSUPPORTED';
+  }
+  if (payload.path === null) {
+    return 'CREATE_INK_CENTER_PATH_MISSING';
+  }
+  if (payload.tool !== 1 && payload.style === 0 && !payload.path.attributed) {
+    return 'CREATE_INK_VARIABLE_PATH_ATTRIBUTES_MISSING';
+  }
+  if (payload.hasAudioDuration) {
+    return 'CREATE_INK_AUDIO_DURATION_UNSUPPORTED';
+  }
+  // Android 1.0.3 retains the legacy uint16 nib fields in dm2, but q06 never
+  // puts them in the Ink register/render model. Preserve the raw op and ignore them likewise.
+  if (payload.inkEffects !== '0') {
+    return 'CREATE_INK_EFFECTS_UNSUPPORTED';
+  }
+  if (!payload.inkEffectsTinted) {
+    return 'CREATE_INK_INVALID_EFFECT_TINT';
+  }
+  return null;
+}
+
 function originalColorToArgb(bytes: Uint8Array): number {
   return ((bytes[3] << 24) | (bytes[0] << 16) | (bytes[1] << 8) | bytes[2]);
+}
+
+function readNullableLong(rows: relationalStore.ResultSet, columnName: string): number | null {
+  const column: number = rows.getColumnIndex(columnName);
+  return rows.isColumnNull(column) ? null : rows.getLong(column);
+}
+
+function readNullableBlob(rows: relationalStore.ResultSet,
+  columnName: string): Uint8Array | null {
+  const column: number = rows.getColumnIndex(columnName);
+  return rows.isColumnNull(column) ? null : rows.getBlob(column);
+}
+
+function sameNullableBytes(left: Uint8Array | null, right: Uint8Array | null): boolean {
+  if (left === null || right === null) {
+    return left === null && right === null;
+  }
+  return sameBytes(left, right);
+}
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index: number = 0; index < left.length; index++) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function normalizeOriginalEnum(value: number, maximum: number): number {
