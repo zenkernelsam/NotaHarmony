@@ -4,7 +4,7 @@
 
 // 数据库版本
 // v43: preserve original IMAGE CREATE_BLOCK metadata for later register materialization.
-export const DB_VERSION: number = 43;
+export const DB_VERSION: number = 44;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -625,6 +625,23 @@ CREATE TABLE IF NOT EXISTS original_block_state (
   create_image_web_url TEXT,
   create_image_flipped_horizontally INTEGER,
   create_image_flipped_vertically INTEGER,
+  image_crop_x_value REAL,
+  image_crop_y_value REAL,
+  image_crop_width_value REAL,
+  image_crop_height_value REAL,
+  image_crop_winner_timestamp INTEGER,
+  image_crop_winner_site_id INTEGER,
+  image_crop_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (image_crop_winner_present IN (0, 1)),
+  image_flip_horizontal_value INTEGER,
+  image_flip_horizontal_winner_timestamp INTEGER,
+  image_flip_horizontal_winner_site_id INTEGER,
+  image_flip_horizontal_winner_present INTEGER NOT NULL DEFAULT 0
+    CHECK (image_flip_horizontal_winner_present IN (0, 1)),
+  image_flip_vertical_value INTEGER,
+  image_flip_vertical_winner_timestamp INTEGER,
+  image_flip_vertical_winner_site_id INTEGER,
+  image_flip_vertical_winner_present INTEGER NOT NULL DEFAULT 0
+    CHECK (image_flip_vertical_winner_present IN (0, 1)),
   create_margin_top REAL NOT NULL CHECK (create_margin_top >= 0),
   create_margin_bottom REAL NOT NULL CHECK (create_margin_bottom >= 0),
   create_margin_left REAL NOT NULL CHECK (create_margin_left >= 0),
@@ -713,6 +730,46 @@ CREATE TABLE IF NOT EXISTS original_block_state (
     (create_image_crop_x IS NOT NULL AND create_image_crop_y IS NOT NULL
       AND create_image_crop_width IS NOT NULL AND create_image_crop_width >= 0
       AND create_image_crop_height IS NOT NULL AND create_image_crop_height >= 0)),
+  CHECK ((image_crop_winner_present = 0
+      AND image_crop_x_value IS NULL AND image_crop_y_value IS NULL
+      AND image_crop_width_value IS NULL AND image_crop_height_value IS NULL
+      AND image_crop_winner_timestamp IS NULL AND image_crop_winner_site_id IS NULL) OR
+    (image_crop_winner_present = 1
+      AND image_crop_winner_timestamp IS NOT NULL AND image_crop_winner_site_id IS NOT NULL
+      AND ((image_crop_x_value IS NULL AND image_crop_y_value IS NULL
+          AND image_crop_width_value IS NULL AND image_crop_height_value IS NULL) OR
+        (image_crop_x_value IS NOT NULL AND image_crop_y_value IS NOT NULL
+          AND image_crop_width_value IS NOT NULL AND image_crop_width_value >= 0
+          AND image_crop_height_value IS NOT NULL AND image_crop_height_value >= 0)))),
+  CHECK ((image_flip_horizontal_winner_present = 0
+      AND image_flip_horizontal_value IS NULL
+      AND image_flip_horizontal_winner_timestamp IS NULL
+      AND image_flip_horizontal_winner_site_id IS NULL) OR
+    (image_flip_horizontal_winner_present = 1
+      AND image_flip_horizontal_value IN (0, 1)
+      AND image_flip_horizontal_winner_timestamp IS NOT NULL
+      AND image_flip_horizontal_winner_site_id IS NOT NULL)),
+  CHECK ((image_flip_vertical_winner_present = 0
+      AND image_flip_vertical_value IS NULL
+      AND image_flip_vertical_winner_timestamp IS NULL
+      AND image_flip_vertical_winner_site_id IS NULL) OR
+    (image_flip_vertical_winner_present = 1
+      AND image_flip_vertical_value IN (0, 1)
+      AND image_flip_vertical_winner_timestamp IS NOT NULL
+      AND image_flip_vertical_winner_site_id IS NOT NULL)),
+  CHECK (block_type = 1 OR
+    (image_crop_x_value IS NULL AND image_crop_y_value IS NULL
+      AND image_crop_width_value IS NULL AND image_crop_height_value IS NULL
+      AND image_crop_winner_timestamp IS NULL AND image_crop_winner_site_id IS NULL
+      AND image_crop_winner_present = 0
+      AND image_flip_horizontal_value IS NULL
+      AND image_flip_horizontal_winner_timestamp IS NULL
+      AND image_flip_horizontal_winner_site_id IS NULL
+      AND image_flip_horizontal_winner_present = 0
+      AND image_flip_vertical_value IS NULL
+      AND image_flip_vertical_winner_timestamp IS NULL
+      AND image_flip_vertical_winner_site_id IS NULL
+      AND image_flip_vertical_winner_present = 0)),
   CHECK ((scale_x_value IS NULL AND scale_y_value IS NULL) OR
     (scale_x_value IS NOT NULL AND scale_y_value IS NOT NULL)),
   PRIMARY KEY(note_id, block_timestamp, block_site_id),
@@ -1668,5 +1725,25 @@ export const MIGRATIONS: Record<number, string[]> = {
     'ALTER TABLE original_block_state ADD COLUMN create_image_web_url TEXT',
     'ALTER TABLE original_block_state ADD COLUMN create_image_flipped_horizontally INTEGER',
     'ALTER TABLE original_block_state ADD COLUMN create_image_flipped_vertically INTEGER',
+  ],
+  44: [
+    'ALTER TABLE original_block_state ADD COLUMN image_crop_x_value REAL',
+    'ALTER TABLE original_block_state ADD COLUMN image_crop_y_value REAL',
+    'ALTER TABLE original_block_state ADD COLUMN image_crop_width_value REAL',
+    'ALTER TABLE original_block_state ADD COLUMN image_crop_height_value REAL',
+    'ALTER TABLE original_block_state ADD COLUMN image_crop_winner_timestamp INTEGER',
+    'ALTER TABLE original_block_state ADD COLUMN image_crop_winner_site_id INTEGER',
+    `ALTER TABLE original_block_state ADD COLUMN image_crop_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (image_crop_winner_present IN (0, 1))`,
+    'ALTER TABLE original_block_state ADD COLUMN image_flip_horizontal_value INTEGER',
+    'ALTER TABLE original_block_state ADD COLUMN image_flip_horizontal_winner_timestamp INTEGER',
+    'ALTER TABLE original_block_state ADD COLUMN image_flip_horizontal_winner_site_id INTEGER',
+    `ALTER TABLE original_block_state ADD COLUMN image_flip_horizontal_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (image_flip_horizontal_winner_present IN (0, 1))`,
+    'ALTER TABLE original_block_state ADD COLUMN image_flip_vertical_value INTEGER',
+    'ALTER TABLE original_block_state ADD COLUMN image_flip_vertical_winner_timestamp INTEGER',
+    'ALTER TABLE original_block_state ADD COLUMN image_flip_vertical_winner_site_id INTEGER',
+    `ALTER TABLE original_block_state ADD COLUMN image_flip_vertical_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (image_flip_vertical_winner_present IN (0, 1))`,
   ],
 };

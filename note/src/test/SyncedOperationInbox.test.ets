@@ -316,12 +316,30 @@ export default function syncedOperationInboxTest() {
       expect(payload.enableCaption).assertTrue();
       expect(payload.zIndex).assertEqual('18446744073709551615');
       expect(payload.positionLocked).assertTrue();
-      expect(payload.hasTypeSpecificFields).assertFalse();
+      expect(payload.hasMathTypeSpecificFields).assertFalse();
       const cleared = decodeOriginalModifyBlock(flatBufferModifyBlock(true));
       expect(cleared.rotation.present).assertTrue();
       expect(cleared.rotation.value === null).assertTrue();
       expect(cleared.scale.present).assertTrue();
       expect(cleared.scale.value === null).assertTrue();
+    });
+
+    it('decodes original MODIFY_BLOCK image crop and flip registers', 0, () => {
+      const payload = decodeOriginalModifyBlock(flatBufferModifyImageBlock(false, false, true));
+      expect(payload.blocks.length).assertEqual(1);
+      expect(payload.cropRect.present).assertTrue();
+      expect(payload.cropRect.value?.x).assertEqual(-5);
+      expect(payload.cropRect.value?.y).assertEqual(2);
+      expect(payload.cropRect.value?.width).assertEqual(100);
+      expect(payload.cropRect.value?.height).assertEqual(50);
+      expect(payload.imageFlippedHorizontally).assertFalse();
+      expect(payload.imageFlippedVertically).assertTrue();
+      expect(payload.hasMathTypeSpecificFields).assertFalse();
+      const cleared = decodeOriginalModifyBlock(flatBufferModifyImageBlock(true, true, false));
+      expect(cleared.cropRect.present).assertTrue();
+      expect(cleared.cropRect.value === null).assertTrue();
+      expect(cleared.imageFlippedHorizontally).assertTrue();
+      expect(cleared.imageFlippedVertically).assertFalse();
     });
 
     it('decodes original CREATE_INK path attributes, transform and uint64 z-index', 0, () => {
@@ -1118,6 +1136,35 @@ function flatBufferModifyBlock(clearTransform: boolean = false): Uint8Array {
   const blocks: number = builder.operationIdentityVector([
     { timestamp: 20, siteId: 2 }, { timestamp: 21, siteId: 3 },
   ]);
+  builder.pointer(modify + 4, blocks);
+  return builder.finish(root);
+}
+
+function flatBufferModifyImageBlock(clearCrop: boolean, horizontal: boolean,
+  vertical: boolean): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 92);
+  writeDecimalU64At(builder, root + 12, '126');
+  writeDecimalU64At(builder, root + 20, '127');
+  builder.uint8(root + 28, 23);
+  const modify: number = builder.table([
+    4, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 8, 0, 12, 13, 0, 0,
+  ], 16);
+  builder.pointer(root + 32, modify);
+  builder.uint8(modify + 12, horizontal ? 1 : 0);
+  builder.uint8(modify + 13, vertical ? 1 : 0);
+  const crop: number = builder.table([clearCrop ? 0 : 4], clearCrop ? 8 : 20);
+  if (!clearCrop) {
+    builder.float32(crop + 4, -5);
+    builder.float32(crop + 8, 2);
+    builder.float32(crop + 12, 100);
+    builder.float32(crop + 16, 50);
+  }
+  builder.pointer(modify + 8, crop);
+  const blocks: number = builder.operationIdentityVector([{ timestamp: 20, siteId: 2 }]);
   builder.pointer(modify + 4, blocks);
   return builder.finish(root);
 }

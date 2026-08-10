@@ -294,14 +294,16 @@ assert.equal(chain.prepare(`SELECT count(*) count FROM pragma_table_info('origin
 
 assert.match(source, /ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE: number = 23/);
 assert.match(source, /must pair page and origin/);
-assert.match(source, /MODIFY_BLOCK_TYPE_SPECIFIC_FIELDS_UNSUPPORTED/);
+assert.match(source, /MODIFY_BLOCK_MATH_FIELDS_UNSUPPORTED/);
+assert.match(source, /MODIFY_BLOCK_IMAGE_FIELDS_ON_NON_IMAGE/);
+assert.match(source, /MODIFY_BLOCK_TEXT_FIELDS_ON_NON_TEXT/);
 assert.doesNotMatch(source, /MODIFY_BLOCK_COMMON_BEHAVIOR_UNSUPPORTED/);
-assert.match(source, /updatedText\.positionLocked/);
+assert.match(source, /updatedElement\.positionLocked/);
 assert.match(source, /registerAccepts/);
 assert.match(source, /readOptionalWinner/);
 assert.match(source, /isFiniteNullableScale/);
 assert.match(source, /advanceRevisionAndInvalidateSearch/);
-assert.match(schema, /DB_VERSION: number = 43/);
+assert.match(schema, /DB_VERSION: number = 44/);
 assert.match(dispatcher, /ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE/);
 assert.match(geometry, /isTextBlockPositionLocked/);
 assert.match(geometry, /eraserPath\.length === 0 \|\| isTextBlockPositionLocked/);

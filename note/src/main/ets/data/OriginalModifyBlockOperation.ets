@@ -1,6 +1,9 @@
 import { relationalStore } from '@kit.ArkData';
-import { TextBlockElement } from '../core/model/ElementTypes';
-import { TransformMatrix } from '../core/model/GeometryTypes';
+import { ImageElement, TextBlockElement } from '../core/model/ElementTypes';
+import { Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
+import {
+  cloneImageElement, imageBlockWorldBounds, originalAssetHashKey,
+} from '../core/model/ImageBlockGeometry';
 import { PagePaperBackground } from '../core/model/NoteTypes';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { textBlockWorldBounds } from '../core/model/TextBlockGeometry';
@@ -9,7 +12,7 @@ import {
   compareOperationIdentity, encodeOperationId, OperationIdentity, OriginalSequenceIdentity,
   validateOperationIdentity, validateOriginalSequenceIdentity,
 } from './OperationIdentity';
-import { OriginalBlockType } from './OriginalCreateBlockOperation';
+import { OriginalBlockRect, OriginalBlockType } from './OriginalCreateBlockOperation';
 import { decodeOriginalPaper } from './OriginalPageBackgroundOperation';
 import {
   OriginalFlatBufferTableReader, readOriginalInlineFloat32, readOriginalPayloadTable,
@@ -52,9 +55,12 @@ export interface OriginalModifyBlockPayload {
   enableCaption: boolean | null;
   paper: NullableBlockRegisterUpdate<PagePaperBackground>;
   resizesWidthToFitText: boolean | null;
+  cropRect: NullableBlockRegisterUpdate<OriginalBlockRect>;
+  imageFlippedHorizontally: boolean | null;
+  imageFlippedVertically: boolean | null;
   zIndex: string | null;
   positionLocked: boolean | null;
-  hasUnsupportedTypeSpecificFields: boolean;
+  hasMathTypeSpecificFields: boolean;
 }
 
 interface StoredRegister<T> {
@@ -82,6 +88,19 @@ interface StoredBlockState {
   paper: StoredRegister<PagePaperBackground>;
   baseResizesWidth: boolean;
   resizesWidth: StoredRegister<boolean>;
+  baseImageCrop: OriginalBlockRect | null;
+  imageCrop: StoredRegister<OriginalBlockRect>;
+  baseImageFlipHorizontal: boolean;
+  imageFlipHorizontal: StoredRegister<boolean>;
+  baseImageFlipVertical: boolean;
+  imageFlipVertical: StoredRegister<boolean>;
+  baseImageHashBits: string[] | null;
+  baseImageFileName: string | null;
+  baseImageMimeType: string | null;
+  baseImageFileSize: number | null;
+  baseImageWidth: number | null;
+  baseImageHeight: number | null;
+  baseImageWebUrl: string | null;
   basePositionLocked: boolean;
   positionLocked: StoredRegister<boolean>;
   baseLeftInset: number;
@@ -102,6 +121,8 @@ interface StoredPageTarget {
 interface StoredBlockTarget extends StoredPageTarget {
   block: OperationIdentity;
   zIndex: string;
+  kind: PageElementKind;
+  blockType: OriginalBlockType;
 }
 
 interface StoredZIndexRow {
@@ -117,12 +138,19 @@ interface PageMutation {
   rows: StoredZIndexRow[];
 }
 
+interface AffectedPage {
+  target: StoredPageTarget;
+  textChanged: boolean;
+}
+
+type ModifiableBlockElement = TextBlockElement | ImageElement;
+
 interface PlannedBlockReplacement {
   target: StoredBlockTarget;
   destination: StoredPageTarget;
   state: StoredBlockState;
-  text: TextBlockElement;
-  updatedText: TextBlockElement;
+  element: ModifiableBlockElement;
+  updatedElement: ModifiableBlockElement;
   pageOriginValue: OriginalBlockPageOrigin;
   rotationValue: number | null;
   scaleValue: OriginalBlockScale | null;
@@ -132,6 +160,9 @@ interface PlannedBlockReplacement {
   enableCaptionValue: boolean;
   paperValue: PagePaperBackground | null;
   resizesWidthValue: boolean;
+  imageCropValue: OriginalBlockRect | null;
+  imageFlipHorizontalValue: boolean;
+  imageFlipVerticalValue: boolean;
   positionLockedValue: boolean;
   zIndexValue: string;
   replacePageOrigin: boolean;
@@ -143,6 +174,9 @@ interface PlannedBlockReplacement {
   replaceEnableCaption: boolean;
   replacePaper: boolean;
   replaceResizesWidth: boolean;
+  replaceImageCrop: boolean;
+  replaceImageFlipHorizontal: boolean;
+  replaceImageFlipVertical: boolean;
   replacePositionLocked: boolean;
   replaceZIndex: boolean;
 }
@@ -188,6 +222,9 @@ export function decodeOriginalModifyBlock(bytes: Uint8Array): OriginalModifyBloc
   const scaleBytes: Uint8Array | null = scaleSetter === null ? null :
     scaleSetter.readInlineBytes(0, 8);
   const sizeBytes: Uint8Array | null = table.readInlineBytes(6, 8);
+  const cropSetter: OriginalFlatBufferTableReader | null = table.readTable(12);
+  const cropBytes: Uint8Array | null = cropSetter === null ? null :
+    cropSetter.readInlineBytes(0, 16);
   const paperSetter: OriginalFlatBufferTableReader | null = table.readTable(13);
   const paperTable: OriginalFlatBufferTableReader | null = paperSetter === null ? null :
     paperSetter.readTable(0);
@@ -195,12 +232,12 @@ export function decodeOriginalModifyBlock(bytes: Uint8Array): OriginalModifyBloc
   if (zIndex !== null) {
     validateUnsignedLongDecimal(zIndex);
   }
-  let hasUnsupportedTypeSpecificFields: boolean = false;
-  for (let field: number = 10; field <= 16; field++) {
-    if (field !== 13 && field !== 16 && table.hasField(field)) {
-      hasUnsupportedTypeSpecificFields = true;
-    }
-  }
+  const cropRect: OriginalBlockRect | null = cropBytes === null ? null : {
+    x: readOriginalInlineFloat32(cropBytes, 0),
+    y: readOriginalInlineFloat32(cropBytes, 4),
+    width: readOriginalInlineFloat32(cropBytes, 8),
+    height: readOriginalInlineFloat32(cropBytes, 12),
+  };
   return {
     blocks: blocks,
     corner: table.hasField(1) ? normalizeOriginalEnum(table.readUint8(1, 0), 1) : null,
@@ -226,9 +263,12 @@ export function decodeOriginalModifyBlock(bytes: Uint8Array): OriginalModifyBloc
       value: paperTable === null ? null : decodeOriginalPaper(paperTable),
     },
     resizesWidthToFitText: table.hasField(16) ? table.readUint8(16, 0) !== 0 : null,
+    cropRect: { present: cropSetter !== null, value: cropRect },
+    imageFlippedHorizontally: table.hasField(14) ? table.readUint8(14, 0) !== 0 : null,
+    imageFlippedVertically: table.hasField(15) ? table.readUint8(15, 0) !== 0 : null,
     zIndex: zIndex,
     positionLocked: table.hasField(17) ? table.readUint8(17, 0) !== 0 : null,
-    hasUnsupportedTypeSpecificFields: hasUnsupportedTypeSpecificFields,
+    hasMathTypeSpecificFields: table.hasField(10) || table.hasField(11),
   };
 }
 
@@ -245,8 +285,8 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     } catch (_error) {
       return { deferredReason: 'MALFORMED_MODIFY_BLOCK_PAYLOAD' };
     }
-    if (payload.hasUnsupportedTypeSpecificFields) {
-      return { deferredReason: 'MODIFY_BLOCK_TYPE_SPECIFIC_FIELDS_UNSUPPORTED' };
+    if (payload.hasMathTypeSpecificFields) {
+      return { deferredReason: 'MODIFY_BLOCK_MATH_FIELDS_UNSUPPORTED' };
     }
     if ((payload.pageOrigin !== null && (!Number.isFinite(payload.pageOrigin.originX) ||
       !Number.isFinite(payload.pageOrigin.originY))) ||
@@ -257,10 +297,18 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       (payload.height !== null && (!Number.isFinite(payload.height) || payload.height < 0))) {
       return { deferredReason: 'MODIFY_BLOCK_GEOMETRY_UNSUPPORTED' };
     }
+    if (payload.cropRect.value !== null && (!Number.isFinite(payload.cropRect.value.x) ||
+      !Number.isFinite(payload.cropRect.value.y) || !Number.isFinite(payload.cropRect.value.width) ||
+      !Number.isFinite(payload.cropRect.value.height) || payload.cropRect.value.width < 0 ||
+      payload.cropRect.value.height < 0)) {
+      return { deferredReason: 'MODIFY_BLOCK_GEOMETRY_UNSUPPORTED' };
+    }
     if (payload.pageOrigin === null && !payload.rotation.present && !payload.scale.present &&
       payload.width === null && payload.corner === null && payload.textWrap === null &&
       payload.enableCaption === null && !payload.paper.present &&
       payload.resizesWidthToFitText === null && payload.positionLocked === null &&
+      !payload.cropRect.present && payload.imageFlippedHorizontally === null &&
+      payload.imageFlippedVertically === null &&
       payload.zIndex === null) {
       return { deferredReason: null };
     }
@@ -271,9 +319,23 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       if (target === null) {
         return { deferredReason: 'MODIFY_BLOCK_TARGET_MISSING_OR_UNBOUND' };
       }
+      if (target.blockType === OriginalBlockType.TEXT &&
+        (payload.cropRect.present || payload.imageFlippedHorizontally !== null ||
+          payload.imageFlippedVertically !== null)) {
+        return { deferredReason: 'MODIFY_BLOCK_IMAGE_FIELDS_ON_NON_IMAGE' };
+      }
+      if (target.blockType === OriginalBlockType.IMAGE &&
+        (payload.paper.present || payload.resizesWidthToFitText !== null)) {
+        return { deferredReason: 'MODIFY_BLOCK_TEXT_FIELDS_ON_NON_TEXT' };
+      }
+      if (target.blockType !== OriginalBlockType.TEXT &&
+        target.blockType !== OriginalBlockType.IMAGE) {
+        return { deferredReason: 'MODIFY_BLOCK_TYPE_UNSUPPORTED' };
+      }
       const state: StoredBlockState | null = await this.readState(store, operation.noteId, block);
-      const text: TextBlockElement | null = await this.readText(store, operation.noteId, target);
-      if (state === null || text === null || !this.currentStateMatches(target, state, text)) {
+      const element: ModifiableBlockElement | null = await this.readBlockElement(
+        store, operation.noteId, target);
+      if (state === null || element === null || !this.currentStateMatches(target, state, element)) {
         return { deferredReason: 'MODIFY_BLOCK_STATE_DIVERGED' };
       }
       const replacePageOrigin: boolean = payload.pageOrigin !== null &&
@@ -294,13 +356,20 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         registerAccepts(operation, state.paper.winner);
       const replaceResizesWidth: boolean = payload.resizesWidthToFitText !== null &&
         registerAccepts(operation, state.resizesWidth.winner);
+      const replaceImageCrop: boolean = payload.cropRect.present &&
+        registerAccepts(operation, state.imageCrop.winner);
+      const replaceImageFlipHorizontal: boolean = payload.imageFlippedHorizontally !== null &&
+        registerAccepts(operation, state.imageFlipHorizontal.winner);
+      const replaceImageFlipVertical: boolean = payload.imageFlippedVertically !== null &&
+        registerAccepts(operation, state.imageFlipVertical.winner);
       const replacePositionLocked: boolean = payload.positionLocked !== null &&
         registerAccepts(operation, state.positionLocked.winner);
       const replaceZIndex: boolean = payload.zIndex !== null &&
         registerAccepts(operation, state.zIndex.winner);
       if (!replacePageOrigin && !replaceRotation && !replaceScale && !replaceSize &&
         !replaceCorner && !replaceTextWrap && !replaceEnableCaption && !replacePaper &&
-        !replaceResizesWidth &&
+        !replaceResizesWidth && !replaceImageCrop && !replaceImageFlipHorizontal &&
+        !replaceImageFlipVertical &&
         !replacePositionLocked && !replaceZIndex) {
         continue;
       }
@@ -321,33 +390,50 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         destination.revision >= Number.MAX_SAFE_INTEGER) {
         return { deferredReason: 'MODIFY_BLOCK_DESTINATION_MISSING_OR_EXHAUSTED' };
       }
-      const updatedText: TextBlockElement = cloneText(text);
+      const updatedElement: ModifiableBlockElement = target.kind === PageElementKind.TEXT ?
+        cloneText(element as TextBlockElement) : cloneImageElement(element as ImageElement);
       const scale: OriginalBlockScale = scaleValue === null ? { x: 1, y: 1 } : scaleValue;
-      updatedText.transform = blockTransform(pageOriginValue.originX, pageOriginValue.originY,
+      updatedElement.transform = blockTransform(pageOriginValue.originX, pageOriginValue.originY,
         rotationValue === null ? 0 : rotationValue, scale.x, scale.y);
-      updatedText.rotationRadians = rotationValue === null ? 0 : rotationValue;
-      updatedText.blockWidth = sizeValue.x;
-      updatedText.blockHeight = sizeValue.y;
+      updatedElement.rotationRadians = rotationValue === null ? 0 : rotationValue;
+      updatedElement.blockWidth = sizeValue.x;
+      updatedElement.blockHeight = sizeValue.y;
       if (replaceCorner) {
-        updatedText.corner = payload.corner as number;
+        updatedElement.corner = payload.corner as number;
       }
       if (replaceTextWrap) {
-        updatedText.textWrap = payload.textWrap as number;
+        updatedElement.textWrap = payload.textWrap as number;
       }
       if (replaceEnableCaption) {
-        updatedText.enableCaption = payload.enableCaption as boolean;
+        updatedElement.enableCaption = payload.enableCaption as boolean;
       }
-      if (replacePaper) {
-        updatedText.paper = cloneOriginalPaper(payload.paper.value);
+      if (target.kind === PageElementKind.TEXT) {
+        const updatedText: TextBlockElement = updatedElement as TextBlockElement;
+        if (replacePaper) {
+          updatedText.paper = cloneOriginalPaper(payload.paper.value);
+        }
+        if (replaceResizesWidth) {
+          updatedText.resizesWidthToFitText = payload.resizesWidthToFitText as boolean;
+        }
+        updatedText.bounds = textBlockWorldBounds(updatedText);
+      } else {
+        const updatedImage: ImageElement = updatedElement as ImageElement;
+        if (replaceImageCrop) {
+          updatedImage.cropRect = originalRectToRect(payload.cropRect.value);
+        }
+        if (replaceImageFlipHorizontal) {
+          updatedImage.imageFlippedHorizontally = payload.imageFlippedHorizontally as boolean;
+        }
+        if (replaceImageFlipVertical) {
+          updatedImage.imageFlippedVertically = payload.imageFlippedVertically as boolean;
+        }
+        updatedImage.bounds = imageBlockWorldBounds(updatedImage);
       }
-      if (replaceResizesWidth) {
-        updatedText.resizesWidthToFitText = payload.resizesWidthToFitText as boolean;
-      }
-      updatedText.positionLocked = replacePositionLocked ? payload.positionLocked as boolean :
+      updatedElement.positionLocked = replacePositionLocked ? payload.positionLocked as boolean :
         effectiveBoolean(state.basePositionLocked, state.positionLocked);
-      updatedText.bounds = textBlockWorldBounds(updatedText);
       planned.push({
-        target: target, destination: destination, state: state, text: text, updatedText: updatedText,
+        target: target, destination: destination, state: state, element: element,
+        updatedElement: updatedElement,
         pageOriginValue: pageOriginValue, rotationValue: rotationValue, scaleValue: scaleValue,
         sizeValue: sizeValue,
         cornerValue: replaceCorner ? payload.corner as number : effectiveNumber(state.baseCorner, state.corner),
@@ -359,6 +445,14 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
           cloneOriginalPaper(effectiveNullable(state.basePaper, state.paper)),
         resizesWidthValue: replaceResizesWidth ? payload.resizesWidthToFitText as boolean :
           effectiveBoolean(state.baseResizesWidth, state.resizesWidth),
+        imageCropValue: replaceImageCrop ? cloneOriginalRect(payload.cropRect.value) :
+          cloneOriginalRect(effectiveNullable(state.baseImageCrop, state.imageCrop)),
+        imageFlipHorizontalValue: replaceImageFlipHorizontal ?
+          payload.imageFlippedHorizontally as boolean : effectiveBoolean(
+            state.baseImageFlipHorizontal, state.imageFlipHorizontal),
+        imageFlipVerticalValue: replaceImageFlipVertical ?
+          payload.imageFlippedVertically as boolean : effectiveBoolean(
+            state.baseImageFlipVertical, state.imageFlipVertical),
         positionLockedValue: replacePositionLocked ? payload.positionLocked as boolean :
           effectiveBoolean(state.basePositionLocked, state.positionLocked),
         zIndexValue: zIndexValue,
@@ -366,6 +460,9 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         replaceScale: replaceScale, replaceSize: replaceSize, replaceCorner: replaceCorner,
         replaceTextWrap: replaceTextWrap, replaceEnableCaption: replaceEnableCaption,
         replacePaper: replacePaper, replaceResizesWidth: replaceResizesWidth,
+        replaceImageCrop: replaceImageCrop,
+        replaceImageFlipHorizontal: replaceImageFlipHorizontal,
+        replaceImageFlipVertical: replaceImageFlipVertical,
         replacePositionLocked: replacePositionLocked, replaceZIndex: replaceZIndex,
       });
     }
@@ -377,25 +474,28 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     if (mutations === null) {
       return { deferredReason: 'MODIFY_BLOCK_ELEMENT_ORDER_DIVERGED' };
     }
-    const affected: Map<string, StoredPageTarget> = new Map<string, StoredPageTarget>();
+    const affected: Map<string, AffectedPage> = new Map<string, AffectedPage>();
     for (const replacement of planned) {
-      affected.set(pageKey(replacement.target), replacement.target);
-      affected.set(pageKey(replacement.destination), replacement.destination);
+      mergeAffectedPage(affected, replacement.target,
+        replacement.target.kind === PageElementKind.TEXT);
+      mergeAffectedPage(affected, replacement.destination,
+        replacement.target.kind === PageElementKind.TEXT);
       await this.updateState(store, operation.noteId, replacement, operation);
       if (samePageIdentity(replacement.target.page, replacement.destination.page)) {
         if (replacement.replaceZIndex) {
           await this.updateTrackedElement(store, operation.noteId, replacement, false);
         }
-        await this.updateText(store, operation.noteId, replacement);
+        await this.updateBlockElement(store, operation.noteId, replacement);
       } else {
-        await this.moveText(store, operation.noteId, replacement, mutations);
+        await this.moveBlockElement(store, operation.noteId, replacement, mutations);
       }
     }
     for (const mutation of mutations.values()) {
       await this.materializeOrder(store, operation.noteId, mutation);
     }
-    for (const target of affected.values()) {
-      await this.advanceRevisionAndInvalidateSearch(store, operation.noteId, target);
+    for (const page of affected.values()) {
+      await this.advanceRevisionAndInvalidateSearch(
+        store, operation.noteId, page.target, page.textChanged);
     }
     return { deferredReason: null };
   }
@@ -417,9 +517,10 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     let page: OriginalSequenceIdentity;
     let pageId: string;
     let zIndex: string;
+    let targetKind: PageElementKind;
+    let targetBlockType: OriginalBlockType;
     try {
-      if (!rows.goToFirstRow() || rows.getLong(rows.getColumnIndex('kind')) !== PageElementKind.TEXT ||
-        rows.getLong(rows.getColumnIndex('block_type')) !== OriginalBlockType.TEXT ||
+      if (!rows.goToFirstRow() ||
         rows.getLong(rows.getColumnIndex('visible')) !== 1 ||
         rows.isColumnNull(rows.getColumnIndex('page_id'))) {
         return null;
@@ -431,6 +532,15 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       };
       pageId = rows.getString(rows.getColumnIndex('page_id'));
       zIndex = rows.getString(rows.getColumnIndex('z_index'));
+      const kind: number = rows.getLong(rows.getColumnIndex('kind'));
+      const blockType: number = rows.getLong(rows.getColumnIndex('block_type'));
+      if ((blockType === OriginalBlockType.TEXT && kind !== PageElementKind.TEXT) ||
+        (blockType === OriginalBlockType.IMAGE && kind !== PageElementKind.IMAGE) ||
+        (blockType !== OriginalBlockType.TEXT && blockType !== OriginalBlockType.IMAGE)) {
+        return null;
+      }
+      targetKind = kind as PageElementKind;
+      targetBlockType = blockType as OriginalBlockType;
     } finally {
       rows.close();
     }
@@ -441,7 +551,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     return target === null ? null : {
       block: block, page: target.page, pageId: target.pageId, table: target.table,
       revisionTable: target.revisionTable, revision: target.revision,
-      archived: target.archived, zIndex: zIndex,
+      archived: target.archived, zIndex: zIndex, kind: targetKind, blockType: targetBlockType,
     };
   }
 
@@ -543,6 +653,25 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       const paperValue: PagePaperBackground | null = paperWinner === null ? null :
         parseStoredPaper(readNullableString(rows, 'text_paper_value'));
       const baseResizesWidth: number = rows.getLong(rows.getColumnIndex('create_resizes_width'));
+      const baseImageCrop: OriginalBlockRect | null = readNullableOriginalRect(rows,
+        'create_image_crop_x', 'create_image_crop_y',
+        'create_image_crop_width', 'create_image_crop_height');
+      const imageCropWinner: OperationIdentity | null = readOptionalWinner(rows, 'image_crop');
+      const imageCropValue: OriginalBlockRect | null = imageCropWinner === null ? null :
+        readNullableOriginalRect(rows, 'image_crop_x_value', 'image_crop_y_value',
+          'image_crop_width_value', 'image_crop_height_value');
+      const baseImageFlipHorizontal: number | null = readNullableLong(
+        rows, 'create_image_flipped_horizontally');
+      const baseImageFlipVertical: number | null = readNullableLong(
+        rows, 'create_image_flipped_vertically');
+      const baseImageHashBits: string[] | null = parseStoredHashBits(
+        readNullableString(rows, 'create_image_hash_bits'));
+      const baseImageFileName: string | null = readNullableString(rows, 'create_image_file_name');
+      const baseImageMimeType: string | null = readNullableString(rows, 'create_image_mime_type');
+      const baseImageFileSize: number | null = readNullableLong(rows, 'create_image_file_size');
+      const baseImageWidth: number | null = readNullableDouble(rows, 'create_image_width');
+      const baseImageHeight: number | null = readNullableDouble(rows, 'create_image_height');
+      const baseImageWebUrl: string | null = readNullableString(rows, 'create_image_web_url');
       const basePositionLocked: number = rows.getLong(rows.getColumnIndex('create_position_locked'));
       const baseLeftInset: number = rows.getDouble(rows.getColumnIndex('create_margin_left'));
       const baseTopInset: number = rows.getDouble(rows.getColumnIndex('create_margin_top'));
@@ -552,6 +681,10 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         baseTextWrap < 0 || baseTextWrap > 1 ||
         (baseEnableCaption !== 0 && baseEnableCaption !== 1) ||
         (baseResizesWidth !== 0 && baseResizesWidth !== 1) ||
+        (baseImageFlipHorizontal !== null && baseImageFlipHorizontal !== 0 &&
+          baseImageFlipHorizontal !== 1) ||
+        (baseImageFlipVertical !== null && baseImageFlipVertical !== 0 &&
+          baseImageFlipVertical !== 1) ||
         (basePositionLocked !== 0 && basePositionLocked !== 1) ||
         !isFiniteNullableNumber(baseRotation) || !isFiniteNullableNumber(rotationValue) ||
         !isFiniteNullableScale(baseScale) || !isFiniteNullableScale(scaleValue) ||
@@ -585,6 +718,19 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         basePaper: basePaper, paper: { value: paperValue, winner: paperWinner },
         baseResizesWidth: baseResizesWidth !== 0,
         resizesWidth: readBooleanRegister(rows, 'resizes_width'),
+        baseImageCrop: baseImageCrop,
+        imageCrop: { value: imageCropValue, winner: imageCropWinner },
+        baseImageFlipHorizontal: baseImageFlipHorizontal === 1,
+        imageFlipHorizontal: readBooleanRegister(rows, 'image_flip_horizontal'),
+        baseImageFlipVertical: baseImageFlipVertical === 1,
+        imageFlipVertical: readBooleanRegister(rows, 'image_flip_vertical'),
+        baseImageHashBits: baseImageHashBits,
+        baseImageFileName: baseImageFileName,
+        baseImageMimeType: baseImageMimeType,
+        baseImageFileSize: baseImageFileSize,
+        baseImageWidth: baseImageWidth,
+        baseImageHeight: baseImageHeight,
+        baseImageWebUrl: baseImageWebUrl,
         basePositionLocked: basePositionLocked !== 0,
         positionLocked: readBooleanRegister(rows, 'position_locked'),
         baseLeftInset: baseLeftInset, baseTopInset: baseTopInset,
@@ -597,24 +743,28 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     }
   }
 
-  private async readText(store: relationalStore.RdbStore, noteId: string,
-    target: StoredBlockTarget): Promise<TextBlockElement | null> {
+  private async readBlockElement(store: relationalStore.RdbStore, noteId: string,
+    target: StoredBlockTarget): Promise<ModifiableBlockElement | null> {
     const id: string = encodeOperationId(target.block);
     const rows = target.archived ? await store.querySql(
       `SELECT payload FROM original_deleted_page_element WHERE note_id = ?
        AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
        AND element_id = ? AND kind = ?`,
       [noteId, target.page.timestamp, target.page.siteId, target.page.index,
-        id, PageElementKind.TEXT]) : await store.querySql(
+        id, target.kind]) : await store.querySql(
       `SELECT payload FROM page_element_snapshot WHERE note_id = ? AND page_id = ?
-       AND element_id = ? AND kind = ?`, [noteId, target.pageId, id, PageElementKind.TEXT]);
+        AND element_id = ? AND kind = ?`, [noteId, target.pageId, id, target.kind]);
     try {
       if (!rows.goToFirstRow()) {
         return null;
       }
       const persisted: PersistedElement = decodePersistedElement(
         rows.getBlob(rows.getColumnIndex('payload')));
-      return persisted.kind === 'text' ? persisted.data as TextBlockElement : null;
+      if (target.kind === PageElementKind.TEXT && persisted.kind === 'text') {
+        return persisted.data as TextBlockElement;
+      }
+      return target.kind === PageElementKind.IMAGE && persisted.kind === 'image' ?
+        persisted.data as ImageElement : null;
     } catch (_error) {
       return null;
     } finally {
@@ -623,7 +773,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
   }
 
   private currentStateMatches(target: StoredBlockTarget, state: StoredBlockState,
-    text: TextBlockElement): boolean {
+    element: ModifiableBlockElement): boolean {
     const pageOrigin: OriginalBlockPageOrigin = effectivePageOrigin(state);
     const rotation: number | null = effectiveNullable(state.baseRotation, state.rotation);
     const scaleValue: OriginalBlockScale | null = effectiveNullable(state.baseScale, state.scale);
@@ -631,31 +781,59 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     const size: OriginalBlockScale = effectiveSize(state);
     const expectedTransform: TransformMatrix = blockTransform(
       pageOrigin.originX, pageOrigin.originY, rotation === null ? 0 : rotation, scale.x, scale.y);
-    const expectedText: TextBlockElement = cloneText(text);
-    expectedText.transform = expectedTransform;
-    expectedText.blockWidth = size.x;
-    expectedText.blockHeight = size.y;
-    expectedText.corner = effectiveNumber(state.baseCorner, state.corner);
-    expectedText.textWrap = effectiveNumber(state.baseTextWrap, state.textWrap);
-    expectedText.enableCaption = effectiveBoolean(state.baseEnableCaption, state.enableCaption);
-    expectedText.paper = cloneOriginalPaper(effectiveNullable(state.basePaper, state.paper));
-    expectedText.resizesWidthToFitText = effectiveBoolean(
-      state.baseResizesWidth, state.resizesWidth);
-    const expectedBounds = textBlockWorldBounds(expectedText);
-    return samePageIdentity(target.page, pageOrigin.page) && target.zIndex === effectiveZIndex(state) &&
-      JSON.stringify(text.transform) === JSON.stringify(expectedTransform) &&
-      JSON.stringify(text.bounds) === JSON.stringify(expectedBounds) &&
-      text.blockWidth === size.x && text.blockHeight === size.y && text.textOrigin.x === 0 &&
-      text.textOrigin.y === 0 && text.rotationRadians === (rotation === null ? 0 : rotation) &&
-      text.contentLeftInset === state.baseLeftInset && text.contentTopInset === state.baseTopInset &&
-      (text.corner === undefined ? 0 : text.corner) === (expectedText.corner === undefined ? 0 : expectedText.corner) &&
-      (text.textWrap === undefined ? 0 : text.textWrap) === (expectedText.textWrap === undefined ? 0 : expectedText.textWrap) &&
-      (text.enableCaption === true) === (expectedText.enableCaption === true) &&
-      JSON.stringify(text.paper ?? null) === JSON.stringify(expectedText.paper ?? null) &&
-      (text.resizesWidthToFitText === true) === (expectedText.resizesWidthToFitText === true) &&
-      (text.positionLocked === true) === effectiveBoolean(
-        state.basePositionLocked, state.positionLocked) &&
-      text.id === encodeOperationId(target.block);
+    const commonMatches: boolean = samePageIdentity(target.page, pageOrigin.page) &&
+      target.zIndex === effectiveZIndex(state) &&
+      JSON.stringify(element.transform) === JSON.stringify(expectedTransform) &&
+      element.blockWidth === size.x && element.blockHeight === size.y &&
+      element.rotationRadians === (rotation === null ? 0 : rotation) &&
+      (element.corner === undefined ? 0 : element.corner) ===
+        effectiveNumber(state.baseCorner, state.corner) &&
+      (element.textWrap === undefined ? 0 : element.textWrap) ===
+        effectiveNumber(state.baseTextWrap, state.textWrap) &&
+      (element.enableCaption === true) ===
+        effectiveBoolean(state.baseEnableCaption, state.enableCaption) &&
+      (element.positionLocked === true) ===
+        effectiveBoolean(state.basePositionLocked, state.positionLocked) &&
+      element.id === encodeOperationId(target.block);
+    if (!commonMatches) {
+      return false;
+    }
+    if (target.kind === PageElementKind.TEXT) {
+      const text: TextBlockElement = element as TextBlockElement;
+      const expectedText: TextBlockElement = cloneText(text);
+      expectedText.transform = expectedTransform;
+      expectedText.blockWidth = size.x;
+      expectedText.blockHeight = size.y;
+      expectedText.paper = cloneOriginalPaper(effectiveNullable(state.basePaper, state.paper));
+      expectedText.resizesWidthToFitText = effectiveBoolean(
+        state.baseResizesWidth, state.resizesWidth);
+      return JSON.stringify(text.bounds) === JSON.stringify(textBlockWorldBounds(expectedText)) &&
+        text.textOrigin.x === 0 && text.textOrigin.y === 0 &&
+        text.contentLeftInset === state.baseLeftInset && text.contentTopInset === state.baseTopInset &&
+        JSON.stringify(text.paper ?? null) === JSON.stringify(expectedText.paper ?? null) &&
+        (text.resizesWidthToFitText === true) === (expectedText.resizesWidthToFitText === true);
+    }
+    const image: ImageElement = element as ImageElement;
+    const expectedImage: ImageElement = cloneImageElement(image);
+    expectedImage.transform = expectedTransform;
+    expectedImage.blockWidth = size.x;
+    expectedImage.blockHeight = size.y;
+    expectedImage.cropRect = originalRectToRect(effectiveNullable(
+      state.baseImageCrop, state.imageCrop));
+    expectedImage.imageFlippedHorizontally = effectiveBoolean(
+      state.baseImageFlipHorizontal, state.imageFlipHorizontal);
+    expectedImage.imageFlippedVertically = effectiveBoolean(
+      state.baseImageFlipVertical, state.imageFlipVertical);
+    return JSON.stringify(image.bounds) === JSON.stringify(imageBlockWorldBounds(expectedImage)) &&
+      state.baseImageHashBits !== null &&
+      image.assetHash === originalAssetHashKey(state.baseImageHashBits) &&
+      JSON.stringify(image.assetHashBits) === JSON.stringify(state.baseImageHashBits) &&
+      image.fileName === state.baseImageFileName && image.mimeType === state.baseImageMimeType &&
+      image.fileSize === state.baseImageFileSize && image.intrinsicWidth === state.baseImageWidth &&
+      image.intrinsicHeight === state.baseImageHeight && image.webUrl === state.baseImageWebUrl &&
+      JSON.stringify(image.cropRect) === JSON.stringify(expectedImage.cropRect) &&
+      image.imageFlippedHorizontally === expectedImage.imageFlippedHorizontally &&
+      image.imageFlippedVertically === expectedImage.imageFlippedVertically;
   }
 
   private async preparePageMutations(store: relationalStore.RdbStore, noteId: string,
@@ -672,9 +850,9 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       if (source === null) {
         return null;
       }
-      const id: string = replacement.text.id;
+      const id: string = replacement.element.id;
       const sourceIndex: number = source.rows.findIndex((row: StoredZIndexRow) =>
-        row.elementId === id && row.kind === PageElementKind.TEXT);
+        row.elementId === id && row.kind === replacement.target.kind);
       if (sourceIndex < 0) {
         return null;
       }
@@ -691,7 +869,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       const destination: PageMutation | null = await this.loadPageMutation(
         store, noteId, replacement.destination, mutations);
       if (destination === null || destination.rows.some((row: StoredZIndexRow) =>
-        row.elementId === id && row.kind === PageElementKind.TEXT)) {
+        row.elementId === id && row.kind === replacement.target.kind)) {
         return null;
       }
       source.rows.splice(sourceIndex, 1);
@@ -821,6 +999,30 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       values['resizes_width_value'] = replacement.resizesWidthValue ? 1 : 0;
       addWinnerValues(values, 'resizes_width', winner);
     }
+    if (replacement.replaceImageCrop) {
+      addWinnerPredicates(predicates, 'image_crop', replacement.state.imageCrop.winner);
+      values['image_crop_x_value'] = replacement.imageCropValue === null ? null :
+        replacement.imageCropValue.x;
+      values['image_crop_y_value'] = replacement.imageCropValue === null ? null :
+        replacement.imageCropValue.y;
+      values['image_crop_width_value'] = replacement.imageCropValue === null ? null :
+        replacement.imageCropValue.width;
+      values['image_crop_height_value'] = replacement.imageCropValue === null ? null :
+        replacement.imageCropValue.height;
+      addWinnerValues(values, 'image_crop', winner);
+    }
+    if (replacement.replaceImageFlipHorizontal) {
+      addWinnerPredicates(predicates, 'image_flip_horizontal',
+        replacement.state.imageFlipHorizontal.winner);
+      values['image_flip_horizontal_value'] = replacement.imageFlipHorizontalValue ? 1 : 0;
+      addWinnerValues(values, 'image_flip_horizontal', winner);
+    }
+    if (replacement.replaceImageFlipVertical) {
+      addWinnerPredicates(predicates, 'image_flip_vertical',
+        replacement.state.imageFlipVertical.winner);
+      values['image_flip_vertical_value'] = replacement.imageFlipVerticalValue ? 1 : 0;
+      addWinnerValues(values, 'image_flip_vertical', winner);
+    }
     if (replacement.replacePositionLocked) {
       addWinnerPredicates(predicates, 'position_locked', replacement.state.positionLocked.winner);
       values['position_locked_value'] = replacement.positionLockedValue ? 1 : 0;
@@ -847,7 +1049,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     predicates.equalTo('page_timestamp', target.page.timestamp);
     predicates.equalTo('page_site_id', target.page.siteId);
     predicates.equalTo('page_index', target.page.index);
-    predicates.equalTo('kind', PageElementKind.TEXT);
+    predicates.equalTo('kind', target.kind);
     predicates.equalTo('z_index', target.zIndex);
     const values: relationalStore.ValuesBucket = { 'z_index': replacement.zIndexValue };
     if (changesPage) {
@@ -861,38 +1063,40 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     }
   }
 
-  private async updateText(store: relationalStore.RdbStore, noteId: string,
+  private async updateBlockElement(store: relationalStore.RdbStore, noteId: string,
     replacement: PlannedBlockReplacement): Promise<void> {
     const predicates = pageElementPredicates(noteId, replacement.target,
-      replacement.text.id, PageElementKind.TEXT);
-    const persisted: PersistedElement = { kind: 'text', data: replacement.updatedText };
+      replacement.element.id, replacement.target.kind);
+    const persisted: PersistedElement = persistedBlockElement(
+      replacement.target.kind, replacement.updatedElement);
     const updated: number = await store.update({
       'payload': encodePersistedElement(persisted), 'revision': replacement.target.revision + 1,
     }, predicates);
     if (updated !== 1) {
-      throw new Error('original modify-block lost its target text');
+      throw new Error('original modify-block lost its target element');
     }
   }
 
-  private async moveText(store: relationalStore.RdbStore, noteId: string,
+  private async moveBlockElement(store: relationalStore.RdbStore, noteId: string,
     replacement: PlannedBlockReplacement, mutations: Map<string, PageMutation>): Promise<void> {
     const deleted: number = await store.delete(pageElementPredicates(
-      noteId, replacement.target, replacement.text.id, PageElementKind.TEXT));
+      noteId, replacement.target, replacement.element.id, replacement.target.kind));
     if (deleted !== 1) {
-      throw new Error('original modify-block lost its source text');
+      throw new Error('original modify-block lost its source element');
     }
     const mutation: PageMutation | undefined = mutations.get(pageKey(replacement.destination));
     if (mutation === undefined) {
       throw new Error('original modify-block has no destination order');
     }
     const order: number = mutation.rows.findIndex((row: StoredZIndexRow) =>
-      row.elementId === replacement.text.id && row.kind === PageElementKind.TEXT);
+      row.elementId === replacement.element.id && row.kind === replacement.target.kind);
     if (order < 0) {
-      throw new Error('original modify-block destination lost its text');
+      throw new Error('original modify-block destination lost its element');
     }
-    const persisted: PersistedElement = { kind: 'text', data: replacement.updatedText };
+    const persisted: PersistedElement = persistedBlockElement(
+      replacement.target.kind, replacement.updatedElement);
     const values: relationalStore.ValuesBucket = {
-      'note_id': noteId, 'element_id': replacement.text.id, 'kind': PageElementKind.TEXT,
+      'note_id': noteId, 'element_id': replacement.element.id, 'kind': replacement.target.kind,
       'payload': encodePersistedElement(persisted),
       'revision': replacement.destination.revision + 1, 'element_order': order,
     };
@@ -920,7 +1124,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
   }
 
   private async advanceRevisionAndInvalidateSearch(store: relationalStore.RdbStore,
-    noteId: string, target: StoredPageTarget): Promise<void> {
+    noteId: string, target: StoredPageTarget, textChanged: boolean): Promise<void> {
     const predicates = new relationalStore.RdbPredicates(target.revisionTable);
     predicates.equalTo('note_id', noteId);
     if (target.archived) {
@@ -932,7 +1136,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     }
     predicates.equalTo('content_revision', target.revision);
     const values: relationalStore.ValuesBucket = { 'content_revision': target.revision + 1 };
-    if (target.archived) {
+    if (target.archived && textChanged) {
       values['indexed_revision'] = null;
     }
     const updated: number = await store.update(values, predicates);
@@ -945,12 +1149,14 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
          AND page_site_id = ? AND page_index = ? AND type = ?`,
         [noteId, target.page.timestamp, target.page.siteId, target.page.index,
           SearchItemType.TEXT_BLOCK]);
-    } else {
+    } else if (!target.archived) {
       await store.executeSql('DELETE FROM search_page_state WHERE note_id = ? AND page_id = ?',
         [noteId, target.pageId]);
-      await store.executeSql(
-        'DELETE FROM search_item WHERE note_id = ? AND page_id = ? AND type = ?',
-        [noteId, target.pageId, SearchItemType.TEXT_BLOCK]);
+      if (textChanged) {
+        await store.executeSql(
+          'DELETE FROM search_item WHERE note_id = ? AND page_id = ? AND type = ?',
+          [noteId, target.pageId, SearchItemType.TEXT_BLOCK]);
+      }
     }
   }
 }
@@ -969,6 +1175,35 @@ function pageElementPredicates(noteId: string, target: StoredPageTarget,
   predicates.equalTo('element_id', elementId);
   predicates.equalTo('kind', kind);
   return predicates;
+}
+
+function mergeAffectedPage(affected: Map<string, AffectedPage>, target: StoredPageTarget,
+  textChanged: boolean): void {
+  const key: string = pageKey(target);
+  const current: AffectedPage | undefined = affected.get(key);
+  affected.set(key, {
+    target: target,
+    textChanged: textChanged || (current !== undefined && current.textChanged),
+  });
+}
+
+function persistedBlockElement(kind: PageElementKind,
+  element: ModifiableBlockElement): PersistedElement {
+  return kind === PageElementKind.TEXT ?
+    { kind: 'text', data: element as TextBlockElement } :
+    { kind: 'image', data: element as ImageElement };
+}
+
+function cloneOriginalRect(rect: OriginalBlockRect | null): OriginalBlockRect | null {
+  return rect === null ? null : {
+    x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+  };
+}
+
+function originalRectToRect(rect: OriginalBlockRect | null): Rect2D | null {
+  return rect === null ? null : {
+    left: rect.x, top: rect.y, right: rect.x + rect.width, bottom: rect.y + rect.height,
+  };
 }
 
 function effectivePageOrigin(state: StoredBlockState): OriginalBlockPageOrigin {
@@ -1063,6 +1298,23 @@ function readNullableScale(rows: relationalStore.ResultSet,
   return { x: x, y: y };
 }
 
+function readNullableOriginalRect(rows: relationalStore.ResultSet, xColumn: string,
+  yColumn: string, widthColumn: string, heightColumn: string): OriginalBlockRect | null {
+  const x: number | null = readNullableDouble(rows, xColumn);
+  const y: number | null = readNullableDouble(rows, yColumn);
+  const width: number | null = readNullableDouble(rows, widthColumn);
+  const height: number | null = readNullableDouble(rows, heightColumn);
+  const count: number = [x, y, width, height]
+    .filter((value: number | null) => value !== null).length;
+  if (count === 0) {
+    return null;
+  }
+  if (count !== 4 || (width as number) < 0 || (height as number) < 0) {
+    throw new Error('original modify-block has a partial or invalid crop rect');
+  }
+  return { x: x as number, y: y as number, width: width as number, height: height as number };
+}
+
 function isFiniteNullableNumber(value: number | null): boolean {
   return value === null || Number.isFinite(value);
 }
@@ -1100,6 +1352,21 @@ function parseStoredPaper(encoded: string | null): PagePaperBackground | null {
   const paper: PagePaperBackground = JSON.parse(encoded) as PagePaperBackground;
   validateOriginalPaper(paper);
   return cloneOriginalPaper(paper);
+}
+
+function parseStoredHashBits(encoded: string | null): string[] | null {
+  if (encoded === null) {
+    return null;
+  }
+  const parsed: Object = JSON.parse(encoded) as Object;
+  if (!Array.isArray(parsed) || parsed.length !== 8) {
+    throw new Error('original modify-block has invalid image hash bits');
+  }
+  const bits: string[] = parsed as string[];
+  for (const bit of bits) {
+    validateUnsignedLongDecimal(bit);
+  }
+  return bits.slice();
 }
 
 function requireValue<T>(value: T | null, label: string): T {
