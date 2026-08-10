@@ -16,6 +16,12 @@ import { PageRepositoryImpl } from './PageRepositoryImpl';
 import { StrokePersistence, PersistedElement } from './StrokePersistence';
 import { BackupSourcePackage } from './BackupBatchSpec';
 import { PageElementKind } from '../core/model/PageElementOrder';
+import { ImageElement } from '../core/model/ElementTypes';
+import { NoteAsset } from '../core/model/AssetTypes';
+import { AssetRepositoryImpl } from './AssetRepositoryImpl';
+import {
+  imageAssetPackageEntry, readVerifiedImageAsset, resolveImageAsset,
+} from './ImageAssetPackageStore';
 
 // 纸张尺寸 → 毫米（A3~TABLOID，与 Phase 3 默认一致）
 export function paperSizeToMm(size: PaperSize): number[] {
@@ -74,6 +80,7 @@ export class NoteExporter {
       };
 
       const writer = new ZipWriter();
+      const imageAssets: Map<string, ImageElement> = new Map<string, ImageElement>();
       writer.addEntry('manifest.json', stringToBytes(serializeManifest(manifest)), true, note.updatedAt);
       writer.addDirectory('pages/', note.updatedAt);
       for (let i = 0; i < pages.length; i++) {
@@ -89,6 +96,8 @@ export class NoteExporter {
             elementObjects.push({ kind: 'shape', data: element.data });
           } else if (element.kind === PageElementKind.IMAGE) {
             elementObjects.push({ kind: 'image', data: element.data });
+            const imageElement: ImageElement = element.data as ImageElement;
+            imageAssets.set(imageAssetPackageEntry(imageElement), imageElement);
           }
         }
         const pageData: PageData = {
@@ -103,6 +112,19 @@ export class NoteExporter {
           elements: elementObjects,
         };
         writer.addEntry(`pages/page_${i}.json`, stringToBytes(serializePage(pageData)), true, note.updatedAt);
+      }
+      if (imageAssets.size > 0) {
+        writer.addDirectory('assets/', note.updatedAt);
+        const assetRepository: AssetRepositoryImpl = new AssetRepositoryImpl(this.db);
+        for (const entry of imageAssets.entries()) {
+          const packagePath: string = entry[0];
+          const element: ImageElement = entry[1];
+          const asset: NoteAsset | null = await resolveImageAsset(assetRepository, element);
+          if (asset === null) {
+            throw new Error(`image asset metadata is missing for ${element.id}`);
+          }
+          writer.addEntry(packagePath, readVerifiedImageAsset(asset, element), false, note.updatedAt);
+        }
       }
       return await writer.build();
     } catch (e) {

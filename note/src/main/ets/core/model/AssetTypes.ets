@@ -12,7 +12,8 @@ export enum AssetStatus {
 
 // 笔记资源（对应 NoteAsset 表）
 export interface NoteAsset {
-  assetHash: string;      // SHA-256 哈希（主键）
+  // 主键命名空间由资产来源决定。原版 IMAGE 使用 ba6.f0 的 64-byte AssetHash hex，并非 SHA-256。
+  assetHash: string;
   status: AssetStatus;
   noteIds: string[];      // 关联笔记（多对多）
   fileSize: number;

@@ -19,6 +19,8 @@ import { StrokePersistence, PersistedElement } from './StrokePersistence';
 import { paperSizeToMm } from './NoteExporter';
 import { AsyncMutex, MutexRelease } from './AsyncMutex';
 import { importedLegacyNoteId, importedPageNeedsRemap } from './ImportIdentity';
+import { imageAssetPackageEntry, storeImportedImageAsset } from './ImageAssetPackageStore';
+import { imageAssetPackageMetadataMatches } from '../core/model/ImageBlockGeometry';
 import {
   NotabilityMetadataParser, NotabilitySessionParser, NotabilityMetadata,
   NotabilitySession, NotabilityPageElements, NotabilityHandwritingIndexPage,
@@ -41,6 +43,11 @@ export interface ImportReport {
   missingAssets: string[];  // 未导入的内容/条目，供 UI 逐项呈现
   warnings: string[];       // 不造成内容缺失的诊断信息
   message: string;          // 用户可读的结果描述
+}
+
+interface PackagedImageAsset {
+  element: ImageElement;
+  data: Uint8Array;
 }
 
 export class NoteImporter {
@@ -187,6 +194,38 @@ export class NoteImporter {
         missingAssets: [], warnings: [],
         message: '未找到可解析的页面数据' };
     }
+    const packagedImageAssets: Map<string, PackagedImageAsset> = new Map<string, PackagedImageAsset>();
+    const declaredImageAssets: Map<string, ImageElement> = new Map<string, ImageElement>();
+    const missingImageAssetPaths: Set<string> = new Set<string>();
+    for (const page of parsedPages) {
+      for (const sourceElement of page.elements) {
+        const persisted: PersistedElement = sourceElement as PersistedElement;
+        if (persisted.kind !== 'image') {
+          continue;
+        }
+        const element: ImageElement = persisted.data as ImageElement;
+        const packagePath: string = imageAssetPackageEntry(element);
+        const declared: ImageElement | undefined = declaredImageAssets.get(packagePath);
+        if (declared !== undefined && !imageAssetPackageMetadataMatches(declared, element)) {
+          return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+            missingAssets: [`图片资产 ${packagePath} 的元数据互相冲突`], warnings: [],
+            message: '图片资产元数据冲突，导入未完成' };
+        }
+        if (declared === undefined) {
+          declaredImageAssets.set(packagePath, element);
+        }
+        if (packagedImageAssets.has(packagePath) || missingImageAssetPaths.has(packagePath)) {
+          continue;
+        }
+        const assetEntry: ZipEntry | null = ZipReader.findEntry(entries, packagePath);
+        if (assetEntry === null || assetEntry.data.length !== element.fileSize) {
+          missingImageAssetPaths.add(packagePath);
+          continue;
+        }
+        packagedImageAssets.set(packagePath, { element: element, data: assetEntry.data });
+      }
+    }
+    const missingImageAssets: number = missingImageAssetPaths.size;
 
     // === 阶段 2：写库（创建新笔记，不覆盖已有）===
     const release: MutexRelease = await NoteImporter.importMutex.lock();
@@ -205,6 +244,10 @@ export class NoteImporter {
       const note: NoteMeta = await noteRepo.createNoteWithMeta(
         noteId, title, createdAt, updatedAt, null, false, importedLegacyNoteId(preferredId, noteId));
       createdNoteId = note.id;
+
+      for (const packaged of packagedImageAssets.values()) {
+        await storeImportedImageAsset(this.db, packaged.element, packaged.data, note.id);
+      }
 
       let writtenPages: number = 0;
       let countStrokes: number = 0;
@@ -259,7 +302,7 @@ export class NoteImporter {
         writtenPages++;
       }
       const partial: boolean = writtenPages < manifest.pageCount || failedPages > 0 ||
-        failedElements > 0 || failedEntries.length > 0;
+        failedElements > 0 || failedEntries.length > 0 || missingImageAssets > 0;
       const failureSummary: string = failedEntries.length > 0
         ? `；跳过损坏条目：${failedEntries.join('、')}` : '';
       const encryptedSummary: string = encryptedEntries.length > 0
@@ -272,6 +315,9 @@ export class NoteImporter {
       }
       if (failedElements > 0) {
         missingAssets.push(`${failedElements} 个页面元素损坏或不受支持`);
+      }
+      if (missingImageAssets > 0) {
+        missingAssets.push(`${missingImageAssets} 个图片资产缺失或长度不符`);
       }
       for (const failed of failedEntries) {
         missingAssets.push(`损坏或不支持的包条目：${failed}`);

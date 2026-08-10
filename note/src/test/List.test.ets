@@ -51,6 +51,7 @@ import importIdentityTest from './ImportIdentity.test';
 import operationCompactionTest from './OperationCompaction.test';
 import operationSyncCoordinatorTest from './OperationSyncCoordinator.test';
 import syncedOperationInboxTest from './SyncedOperationInbox.test';
+import imageBlockRenderingTest from './ImageBlockRendering.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -106,4 +107,5 @@ export default function testsuite() {
   operationCompactionTest();
   operationSyncCoordinatorTest();
   syncedOperationInboxTest();
+  imageBlockRenderingTest();
 }

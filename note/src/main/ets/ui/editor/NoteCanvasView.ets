@@ -11,9 +11,12 @@ import { PredictionCoordinates } from '../../core/adaptation/Predictor';
 import { Canvas2DStrokeRenderer, Canvas2DRenderContext } from '../../core/adaptation/Canvas2DStrokeRenderer';
 import { Canvas2DTextRenderer } from '../../core/adaptation/Canvas2DTextRenderer';
 import { LoadedPencilTexture, loadOriginalPencilTexture } from '../../core/adaptation/PencilTextureLoader';
+import { ImageAssetLoader, ImageAssetLoadState, LoadedImageAsset } from
+  '../../core/adaptation/ImageAssetLoader';
 import { StrokeLayerManager } from '../../rendering/StrokeLayerManager';
 import { StrokeCanvasPainter } from '../../rendering/StrokeCanvasPainter';
 import { ShapeCanvasRenderer } from '../../rendering/ShapeCanvasRenderer';
+import { ImageCanvasRenderer } from '../../rendering/ImageCanvasRenderer';
 import { BitmapTransferMetrics, BitmapTransferTracker } from '../../core/adaptation/BitmapTransferTracker';
 import { CanvasViewport, CumulativeGestureTracker } from '../../rendering/CanvasViewport';
 import { pagePixelSize, PAGE_UNITS_PER_MM, PagePixelSize } from '../../core/model/PageCoordinateSpace';
@@ -49,7 +52,9 @@ import { ToolType } from '../../core/model/BrushTypes';
 import {
   ImageElement, ShapeElement, TextBlockElement,
 } from '../../core/model/ElementTypes';
-import { cloneImageElement, imageBlockWorldBounds } from '../../core/model/ImageBlockGeometry';
+import {
+  cloneImageElement, imageBlockWorldBounds, originalAssetStorageHash,
+} from '../../core/model/ImageBlockGeometry';
 import {
   cloneShapeElement, eraserPathHitsShape, recomputeShapeBounds, transformShapeElements,
 } from '../../core/model/ShapeGeometry';
@@ -123,6 +128,7 @@ export struct NoteCanvasView {
   private renderer: Canvas2DStrokeRenderer = new Canvas2DStrokeRenderer(this.bitmapTransferTracker);
   private strokePainter: StrokeCanvasPainter = new StrokeCanvasPainter(this.renderer, this.bitmapTransferTracker);
   private shapeRenderer: ShapeCanvasRenderer = new ShapeCanvasRenderer();
+  private imageRenderer: ImageCanvasRenderer = new ImageCanvasRenderer();
   private textRenderer: Canvas2DTextRenderer = new Canvas2DTextRenderer();
   private pencilPixelMap: image.PixelMap | null = null;
   private pencilTextureLoading: boolean = false;
@@ -137,6 +143,9 @@ export struct NoteCanvasView {
   private shapeDetector: ShapeDetector = new ShapeDetector();
   private persistence: StrokePersistence = new StrokePersistence();
   private database: DatabaseManager | null = null;
+  private imageAssetLoader: ImageAssetLoader | null = null;
+  private imageAssets: Map<string, LoadedImageAsset> = new Map<string, LoadedImageAsset>();
+  private imageAssetGeneration: number = 0;
   private selectionTool: SelectionTool = new SelectionTool();
   private strokeClipboard: StrokeClipboard = new StrokeClipboard();
   private clipboardIdCounter: number = 0;
@@ -242,6 +251,7 @@ export struct NoteCanvasView {
       const db: DatabaseManager = DatabaseManager.getInstance();
       await db.initialize(context);
       this.database = db;
+      this.imageAssetLoader = new ImageAssetLoader(db);
       this.persistence.initialize(db);
       const loaded = await this.persistence.loadElements(this.noteId, targetPageId);
       if (generation !== this.pageLoadGeneration || this.currentPage.pageId !== targetPageId) {
@@ -290,6 +300,7 @@ export struct NoteCanvasView {
         this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
         this.renderFrame(true);
       }
+      this.refreshImageAssets(generation, targetPageId);
       this.promptPersistentHistoryRecovery();
     } catch (e) {
       if (generation === this.pageLoadGeneration) {
@@ -512,6 +523,7 @@ export struct NoteCanvasView {
 
   aboutToDisappear(): void {
     this.lifecycleActive = false;
+    this.releaseImageAssets();
     this.strokeClipboard.clear();
     this.clipboardAvailable = false;
     this.cancelShapeDetectionTimer();
@@ -593,6 +605,7 @@ export struct NoteCanvasView {
       this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
       this.notifyUndoRedo();
       this.renderFrame(true);
+      this.refreshImageAssets(generation, targetPageId);
       this.resumePendingHistory();
     } catch (e) {
       if (generation === this.pageLoadGeneration) {
@@ -610,6 +623,7 @@ export struct NoteCanvasView {
           this.loadedPageId = fromPageId;
           this.loaded = true;
           this.dataLoadFailed = false;
+          this.refreshImageAssets(generation, fromPageId);
           this.onRequestPage(fromPageId);
         } else {
           this.enterLoadFailureState();
@@ -624,6 +638,7 @@ export struct NoteCanvasView {
   }
 
   private enterLoadFailureState(): void {
+    this.releaseImageAssets();
     this.loaded = false;
     this.loadedPageId = '';
     this.completedStrokes = [];
@@ -792,8 +807,60 @@ export struct NoteCanvasView {
         this.textRenderer.renderText(element.data, this.renderCtx);
       } else if (element.kind === PageElementKind.SHAPE) {
         this.shapeRenderer.renderShape(element.data, this.renderCtx);
+      } else if (element.kind === PageElementKind.IMAGE) {
+        const loaded: LoadedImageAsset | undefined = this.imageAssets.get(
+          originalAssetStorageHash(element.data.assetHashBits));
+        if (loaded !== undefined && loaded.state === ImageAssetLoadState.READY && loaded.bitmap !== null) {
+          this.imageRenderer.renderImage(element.data, loaded.bitmap, this.renderCtx);
+        }
       }
     }
+  }
+
+  private refreshImageAssets(pageGeneration: number, pageId: string): void {
+    const loader: ImageAssetLoader | null = this.imageAssetLoader;
+    this.releaseImageAssets();
+    if (loader === null || this.imageBlocks.length === 0) {
+      return;
+    }
+    const assetGeneration: number = this.imageAssetGeneration;
+    const seen: Set<string> = new Set<string>();
+    for (const block of this.imageBlocks) {
+      const storageHash: string = originalAssetStorageHash(block.assetHashBits);
+      if (seen.has(storageHash)) {
+        continue;
+      }
+      seen.add(storageHash);
+      this.loadImageAsset(block, storageHash, loader, pageGeneration, assetGeneration, pageId);
+    }
+  }
+
+  private async loadImageAsset(block: ImageElement, storageHash: string, loader: ImageAssetLoader,
+    pageGeneration: number, assetGeneration: number, pageId: string): Promise<void> {
+    const loaded: LoadedImageAsset = await loader.load(block);
+    if (!this.lifecycleActive || pageGeneration !== this.pageLoadGeneration ||
+      assetGeneration !== this.imageAssetGeneration || this.loadedPageId !== pageId) {
+      loader.release(loaded);
+      return;
+    }
+    this.imageAssets.set(storageHash, loaded);
+    if (loaded.state !== ImageAssetLoadState.READY) {
+      hilog.warn(0x0001, 'NoteCanvasView',
+        'image asset unavailable block=%{public}s state=%{public}d reason=%{public}s',
+        block.id, loaded.state, loaded.error === null ? '' : loaded.error);
+    }
+    if (this.layerManager.isInitialized()) {
+      this.renderFrame(true);
+    }
+  }
+
+  private releaseImageAssets(): void {
+    this.imageAssetGeneration++;
+    const loader: ImageAssetLoader | null = this.imageAssetLoader;
+    if (loader !== null) {
+      this.imageAssets.forEach((loaded: LoadedImageAsset): void => loader.release(loaded));
+    }
+    this.imageAssets.clear();
   }
 
   // === T-034：视口操作 ===

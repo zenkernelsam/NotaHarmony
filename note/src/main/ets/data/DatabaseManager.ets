@@ -25,6 +25,7 @@ export class DatabaseManager {
   private static instance: DatabaseManager | null = null;
   private rdbStore: relationalStore.RdbStore | null = null;
   private initPromise: Promise<void> | null = null;
+  private applicationFilesDir: string = '';
 
   private constructor() {
   }
@@ -53,6 +54,7 @@ export class DatabaseManager {
   }
 
   private async openAndMigrate(context: common.Context): Promise<void> {
+    this.applicationFilesDir = context.filesDir;
     const config: relationalStore.StoreConfig = {
       name: DB_NAME,
       securityLevel: relationalStore.SecurityLevel.S1,
@@ -182,6 +184,13 @@ export class DatabaseManager {
       throw new Error('DatabaseManager not initialized. Call initialize() first.');
     }
     return this.rdbStore;
+  }
+
+  getFilesDir(): string {
+    if (this.applicationFilesDir.length === 0) {
+      throw new Error('DatabaseManager is not initialized with an application context');
+    }
+    return this.applicationFilesDir;
   }
 
   isInitialized(): boolean {
