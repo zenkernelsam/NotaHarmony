@@ -104,6 +104,33 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     } catch (_error) {
       return { deferredReason: 'MALFORMED_ADD_PATH_ELEMENTS_PAYLOAD' };
     }
+    return this.applyPayload(store, operation, payload);
+  }
+
+  preflightTable(table: OriginalFlatBufferTableReader): string | null {
+    let payload: OriginalAddPathElementsPayload;
+    try {
+      payload = decodeOriginalAddPathElementsTable(table);
+    } catch (_error) {
+      return 'MALFORMED_ADD_PATH_ELEMENTS_PAYLOAD';
+    }
+    return preflightOriginalAddPathElements(payload);
+  }
+
+  async applyTable(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
+    table: OriginalFlatBufferTableReader): Promise<SyncedOperationApplyResult> {
+    let payload: OriginalAddPathElementsPayload;
+    try {
+      payload = decodeOriginalAddPathElementsTable(table);
+    } catch (_error) {
+      return { deferredReason: 'MALFORMED_ADD_PATH_ELEMENTS_PAYLOAD' };
+    }
+    return this.applyPayload(store, operation, payload);
+  }
+
+  private async applyPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation,
+    payload: OriginalAddPathElementsPayload): Promise<SyncedOperationApplyResult> {
     let actualProbe: DecodedOriginalInkPathAppend | null = null;
     let estimatedProbe: DecodedOriginalInkPathAppend | null = null;
     try {
@@ -122,17 +149,55 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
       return { deferredReason: 'MALFORMED_ADD_PATH_ELEMENTS_PAYLOAD' };
     }
 
-    const target: StoredInkTarget | null = await this.readTarget(store, operation.noteId, payload.ink);
-    if (target === null) {
-      return { deferredReason: 'ADD_PATH_ELEMENTS_INK_MISSING_OR_UNBOUND' };
-    }
-    const basePath: Uint8Array | null = await this.readBasePath(store, operation.noteId, payload.ink);
-    if (basePath === null) {
-      return { deferredReason: 'ADD_PATH_ELEMENTS_BASE_STATE_MISSING' };
-    }
     const estimatedState: StoredEstimatedPath | null = await this.readEstimatedPath(
       store, operation.noteId, payload.ink);
     if (estimatedState === null) {
+      return { deferredReason: 'ADD_PATH_ELEMENTS_BASE_STATE_MISSING' };
+    }
+    const existingAppends: OriginalInkAppendRecord[] = await this.readAppends(
+      store, operation.noteId, payload.ink);
+    const existingAppend: OriginalInkAppendRecord | undefined = existingAppends.find(
+      (append: OriginalInkAppendRecord): boolean =>
+        compareOperationIdentity(append, operation) === 0);
+    if (existingAppend !== undefined && payload.centerPathElements === null) {
+      throw new Error('original add-path-elements identity conflicts with persisted actual path');
+    }
+    if (existingAppend !== undefined && !sameBytes(
+      existingAppend.bytes, payload.centerPathElements as Uint8Array)) {
+      throw new Error('original add-path-elements identity conflicts with persisted actual path');
+    }
+    const incomingEstimated: Uint8Array = payload.centerPathEstimatedElements === null ?
+      new Uint8Array(0) : payload.centerPathEstimatedElements;
+    const estimatedComparison: number | null = estimatedState.winner === null ? null :
+      compareOperationIdentity(estimatedState.winner, operation);
+    let operationAlreadyApplied: boolean = false;
+    if (estimatedComparison === 0) {
+      if (!sameBytes(estimatedState.bytes, incomingEstimated)) {
+        throw new Error('original add-path-elements identity conflicts with persisted estimated path');
+      }
+    }
+    if (existingAppend !== undefined) {
+      if (estimatedComparison === null || estimatedComparison < 0) {
+        throw new Error('original add-path-elements has partial persisted state');
+      }
+      operationAlreadyApplied = true;
+    }
+    if (payload.centerPathElements !== null && existingAppend === undefined &&
+      estimatedComparison === 0) {
+      throw new Error('original add-path-elements has partial persisted state');
+    }
+    if (payload.centerPathElements === null && estimatedComparison !== null &&
+      estimatedComparison >= 0) {
+      operationAlreadyApplied = true;
+    }
+
+    const target: StoredInkTarget | null = await this.readTarget(store, operation.noteId, payload.ink);
+    if (target === null) {
+      return operationAlreadyApplied ? { deferredReason: null } :
+        { deferredReason: 'ADD_PATH_ELEMENTS_INK_MISSING_OR_UNBOUND' };
+    }
+    const basePath: Uint8Array | null = await this.readBasePath(store, operation.noteId, payload.ink);
+    if (basePath === null) {
       return { deferredReason: 'ADD_PATH_ELEMENTS_BASE_STATE_MISSING' };
     }
     const stroke: StrokeElementData | null = await this.readStroke(store, operation.noteId, target);
@@ -144,8 +209,6 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     if (unsupported !== null) {
       return { deferredReason: unsupported };
     }
-    const existingAppends: OriginalInkAppendRecord[] = await this.readAppends(
-      store, operation.noteId, payload.ink);
     let expected: RebuiltOriginalInkGeometry;
     try {
       expected = rebuildOriginalInkGeometry(
@@ -159,6 +222,9 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     if (!originalInkGeometryMatches(stroke, expected)) {
       return { deferredReason: 'ADD_PATH_ELEMENTS_STROKE_DIVERGED' };
     }
+    if (operationAlreadyApplied) {
+      return { deferredReason: null };
+    }
     const replaceEstimated: boolean = estimatedState.winner === null ||
       compareOperationIdentity(operation, estimatedState.winner) > 0;
     if (payload.centerPathElements === null && !replaceEstimated) {
@@ -169,7 +235,7 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     }
 
     const allAppends: OriginalInkAppendRecord[] = existingAppends.slice();
-    if (payload.centerPathElements !== null) {
+    if (payload.centerPathElements !== null && existingAppend === undefined) {
       allAppends.push({
         timestamp: operation.timestamp, siteId: operation.siteId,
         bytes: payload.centerPathElements,
@@ -203,7 +269,7 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
       styleMap: stroke.styleMap,
       isFinished: stroke.isFinished,
     };
-    if (payload.centerPathElements !== null) {
+    if (payload.centerPathElements !== null && existingAppend === undefined) {
       await store.insert('original_ink_path_append', {
         'note_id': operation.noteId,
         'ink_timestamp': payload.ink.timestamp,
@@ -459,6 +525,35 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
         [noteId, target.pageId, SearchItemType.INK]);
     }
   }
+}
+
+function preflightOriginalAddPathElements(payload: OriginalAddPathElementsPayload): string | null {
+  try {
+    if (payload.centerPathElements !== null) {
+      decodeOriginalInkPathAppend(payload.centerPathElements, { x: 0, y: 0 });
+    }
+    if (payload.centerPathEstimatedElements !== null) {
+      decodeOriginalInkPathAppend(payload.centerPathEstimatedElements, { x: 0, y: 0 });
+    }
+  } catch (_error) {
+    if (_error instanceof OriginalInkPathDeferredError) {
+      return _error.deferredReason;
+    }
+    return 'MALFORMED_ADD_PATH_ELEMENTS_PAYLOAD';
+  }
+  return null;
+}
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index: number = 0; index < left.length; index++) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function rebuildOriginalInkGeometry(baseBytes: Uint8Array,

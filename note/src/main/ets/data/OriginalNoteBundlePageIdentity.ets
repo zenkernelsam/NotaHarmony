@@ -24,6 +24,9 @@ import {
   ORIGINAL_CREATE_INK_PAYLOAD_TYPE, OriginalCreateInkOperationApplier,
 } from './OriginalCreateInkOperation';
 import {
+  ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE, OriginalAddPathElementsOperationApplier,
+} from './OriginalAddPathElementsOperation';
+import {
   StoredSyncedOperation, SyncedOperationInboxState, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 
@@ -225,6 +228,8 @@ export class OriginalNoteBundlePageIdentityBootstrapper {
 function preflightBundleContent(bundle: OriginalNoteBundle,
   history: BootstrapHistory): string | null {
   const createInk: OriginalCreateInkOperationApplier = new OriginalCreateInkOperationApplier();
+  const addPath: OriginalAddPathElementsOperationApplier =
+    new OriginalAddPathElementsOperationApplier();
   for (const operation of bundle.operations) {
     if (operation.payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE) {
@@ -239,6 +244,13 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
       }
       if (deleted.entityDeleteCount !== 0 || deleted.entityUndeleteCount !== 0) {
         return 'NOTE_BUNDLE_ENTITY_VISIBILITY_UNSUPPORTED';
+      }
+      continue;
+    }
+    if (operation.payloadType === ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE) {
+      const reason: string | null = addPath.preflightTable(operation.payload);
+      if (reason !== null) {
+        return `NOTE_BUNDLE_${reason}`;
       }
       continue;
     }
@@ -275,10 +287,14 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
 async function applyBundleContent(store: relationalStore.RdbStore,
   bundle: OriginalNoteBundle): Promise<OriginalPageIdentityBootstrapResult> {
   const createInk: OriginalCreateInkOperationApplier = new OriginalCreateInkOperationApplier();
+  const addPath: OriginalAddPathElementsOperationApplier =
+    new OriginalAddPathElementsOperationApplier();
   const before: number = await countRows(store,
     'SELECT COUNT(*) AS value FROM original_element_z_index WHERE note_id = ?', [bundle.noteId]);
+  const revisionBefore: number = await contentRevisionTotal(store, bundle.noteId);
   for (const operation of bundle.operations) {
-    if (operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE) {
+    if (operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE) {
       continue;
     }
     const stored: StoredSyncedOperation = {
@@ -294,15 +310,32 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       deferredReason: null,
       receivedAt: 0,
     };
-    const result: SyncedOperationApplyResult = await createInk.applyTable(
-      store, stored, operation.payload);
+    const result: SyncedOperationApplyResult = operation.payloadType ===
+      ORIGINAL_CREATE_INK_PAYLOAD_TYPE ? await createInk.applyTable(
+        store, stored, operation.payload) : await addPath.applyTable(
+          store, stored, operation.payload);
     if (result.deferredReason !== null) {
       return deferred(`NOTE_BUNDLE_${result.deferredReason}`);
     }
   }
   const after: number = await countRows(store,
     'SELECT COUNT(*) AS value FROM original_element_z_index WHERE note_id = ?', [bundle.noteId]);
-  return { applied: after > before, deferredReason: null };
+  const revisionAfter: number = await contentRevisionTotal(store, bundle.noteId);
+  return { applied: after > before || revisionAfter > revisionBefore, deferredReason: null };
+}
+
+async function contentRevisionTotal(store: relationalStore.RdbStore,
+  noteId: string): Promise<number> {
+  const live: number = await countRows(store,
+    'SELECT COALESCE(SUM(content_revision), 0) AS value FROM page_info WHERE note_id = ?', [noteId]);
+  const archived: number = await countRows(store,
+    `SELECT COALESCE(SUM(content_revision), 0) AS value FROM original_deleted_page
+     WHERE note_id = ?`, [noteId]);
+  const total: number = live + archived;
+  if (!Number.isSafeInteger(total) || total < 0) {
+    throw new Error('note bundle content revision total is invalid');
+  }
+  return total;
 }
 
 function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): BootstrapReplayResult {

@@ -25,7 +25,8 @@ import { OriginalPageOperationApplier } from '../main/ets/data/OriginalPageOpera
 import { decodeOriginalCreateInk, decodeOriginalCreateInkTable,
   OriginalCreateInkOperationApplier, unsupportedOriginalCreateInkReason } from
   '../main/ets/data/OriginalCreateInkOperation';
-import { decodeOriginalAddPathElements } from
+import { decodeOriginalAddPathElements, decodeOriginalAddPathElementsTable,
+  OriginalAddPathElementsOperationApplier } from
   '../main/ets/data/OriginalAddPathElementsOperation';
 import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOperation';
 import { decodeOriginalCreateBlock, OriginalBlockType, OriginalCreateBlockOperationApplier,
@@ -606,6 +607,18 @@ export default function syncedOperationInboxTest() {
       expect(new OriginalCreateInkOperationApplier().preflightTable(
         bundle.operations[1].payload, bundle.operations[1].clientTime) === null).assertTrue();
     });
+
+    it('decodes and preflights ADD_PATH_ELEMENTS from a NOTE_BUNDLE child table', 0, () => {
+      const bundle = decodeOriginalNoteBundle(flatBufferNoteBundleWithCreateInk(true));
+      expect(bundle.operations.length).assertEqual(3);
+      expect(bundle.operations[2].payloadType).assertEqual(16);
+      const add = decodeOriginalAddPathElementsTable(bundle.operations[2].payload);
+      expect(add.ink.timestamp).assertEqual(20);
+      expect(add.ink.siteId).assertEqual(2);
+      expect((add.centerPathElements as Uint8Array).length > 3).assertTrue();
+      expect(new OriginalAddPathElementsOperationApplier().preflightTable(
+        bundle.operations[2].payload) === null).assertTrue();
+    });
   });
 }
 
@@ -662,7 +675,7 @@ function flatBufferNoteBundle(): Uint8Array {
   return bytes;
 }
 
-function flatBufferNoteBundleWithCreateInk(): Uint8Array {
+function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 0, 20, 24, 0, 28, 32, 36], 40);
   const uuid: number[] = [0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88,
@@ -670,14 +683,22 @@ function flatBufferNoteBundleWithCreateInk(): Uint8Array {
   builder.color(root + 4, uuid);
   builder.uint16(root + 20, 9);
   builder.uint16(root + 36, 7);
-  const operations: number = builder.tableVector(2);
+  const operations: number = builder.tableVector(includeAppend ? 3 : 2);
   builder.pointer(root + 32, operations);
   const createPageOp: number = builder.table([4, 12, 20, 0, 28, 32, 0], 36);
   const createInkOp: number = builder.table([4, 12, 20, 0, 28, 32, 0], 36);
+  const appendOp: number = includeAppend ?
+    builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
   builder.pointer(operations + 4, createPageOp);
   builder.pointer(operations + 8, createInkOp);
+  if (includeAppend) {
+    builder.pointer(operations + 12, appendOp);
+  }
   writeBundleOperation(builder, createPageOp, 1, 10, '11', '12', 3);
   writeBundleOperation(builder, createInkOp, 2, 20, '21', '22', 15);
+  if (includeAppend) {
+    writeBundleOperation(builder, appendOp, 3, 30, '31', '32', 16);
+  }
 
   const createPage: number = builder.table([0, 0, 4, 0], 8);
   builder.uint32(createPage + 4, 1);
@@ -703,6 +724,16 @@ function flatBufferNoteBundleWithCreateInk(): Uint8Array {
     [{ x: 20, y: -3 }, { x: 4, y: 5 }, { x: 6, y: 7 }], 0x3800, 0x3400, 255, 64);
   appendAttributedPathElement(path, 2, [{ x: 8, y: 9 }], 0x3C00, 0x3800, 128, 128);
   builder.pointer(ink + 48, builder.byteVector(path));
+  if (includeAppend) {
+    const add: number = builder.table([4, 12, 0], 16);
+    builder.pointer(appendOp + 32, add);
+    builder.uint16(add + 4, 2);
+    builder.uint32(add + 8, 20);
+    const appended: number[] = [1, 0, 1];
+    appendAttributedPathElement(appended, 1,
+      [{ x: 100, y: 100 }, { x: 10, y: 0 }], 0x3C00, 0x3800, 255, 0);
+    builder.pointer(add + 12, builder.byteVector(appended));
+  }
   builder.pointer(root + 24, builder.byteVector([0x65]));
   builder.pointer(root + 28, builder.byteVector([0x63]));
   return builder.finish(root);
