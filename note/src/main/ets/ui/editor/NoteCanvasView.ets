@@ -47,8 +47,9 @@ import {
 } from '../../core/model/StrokeTypes';
 import { ToolType } from '../../core/model/BrushTypes';
 import {
-  ShapeElement, TextBlockElement,
+  ImageElement, ShapeElement, TextBlockElement,
 } from '../../core/model/ElementTypes';
+import { cloneImageElement, imageBlockWorldBounds } from '../../core/model/ImageBlockGeometry';
 import {
   cloneShapeElement, eraserPathHitsShape, recomputeShapeBounds, transformShapeElements,
 } from '../../core/model/ShapeGeometry';
@@ -157,6 +158,7 @@ export struct NoteCanvasView {
   private completedStrokes: StrokeElementData[] = [];
   private textBlocks: TextBlockElement[] = [];
   private shapes: ShapeElement[] = [];
+  private imageBlocks: ImageElement[] = [];
   private elementOrder: PageElementRef[] = [];
   private eraserPath: Point2D[] = [];
   private isDrawing: boolean = false;
@@ -248,6 +250,7 @@ export struct NoteCanvasView {
       this.completedStrokes = loaded.strokes;
       this.textBlocks = loaded.textBlocks;
       this.shapes = loaded.shapes;
+      this.imageBlocks = loaded.images;
       this.elementOrder = loaded.elementOrder;
       this.loadedPageId = targetPageId;
       if (!this.historyLoaded) {
@@ -345,7 +348,8 @@ export struct NoteCanvasView {
         const preserveActionBoundary: boolean = historyRevision !== this.lastQueuedHistoryRevision;
         const history = preserveActionBoundary ? this.undoRedo.getLatestHistoryMetadata() : undefined;
         this.persistence.queueSaveElements(this.noteId, pageId, this.completedStrokes, this.textBlocks,
-          this.elementOrder, this.shapes, preserveActionBoundary, history === null ? undefined : history);
+          this.elementOrder, this.shapes, preserveActionBoundary, history === null ? undefined : history,
+          this.imageBlocks);
         this.lastQueuedHistoryRevision = historyRevision;
         this.persistence.flush(this.noteId, pageId).then(() => {
           if (!this.persistence.hasDirtySave(this.noteId, pageId)) {
@@ -370,7 +374,8 @@ export struct NoteCanvasView {
       this.onTextCommit(this.editingDraftText);
     } else if (this.loadedPageId !== this.skipSavePageId) {
       this.persistence.queueSaveElements(this.noteId, this.loadedPageId,
-        this.completedStrokes, this.textBlocks, this.elementOrder, this.shapes);
+        this.completedStrokes, this.textBlocks, this.elementOrder, this.shapes,
+        false, undefined, this.imageBlocks);
     }
     try {
       await this.persistence.flush(this.noteId, this.loadedPageId);
@@ -562,7 +567,7 @@ export struct NoteCanvasView {
       if (fromPageId.length > 0) {
         if (fromPageId !== this.skipSavePageId) {
           this.persistence.queueSaveElements(this.noteId, fromPageId, snapshot.strokes, snapshot.textBlocks,
-            snapshot.elementOrder, snapshot.shapes);
+            snapshot.elementOrder, snapshot.shapes, false, undefined, snapshot.images);
           await this.persistence.flush(this.noteId, fromPageId);
         } else {
           this.skipSavePageId = '';
@@ -576,6 +581,7 @@ export struct NoteCanvasView {
       this.completedStrokes = loaded.strokes;
       this.textBlocks = loaded.textBlocks;
       this.shapes = loaded.shapes;
+      this.imageBlocks = loaded.images;
       this.elementOrder = loaded.elementOrder;
       this.loadedPageId = targetPageId;
       this.loaded = true;
@@ -599,6 +605,7 @@ export struct NoteCanvasView {
           this.completedStrokes = snapshot.strokes;
           this.textBlocks = snapshot.textBlocks;
           this.shapes = snapshot.shapes;
+          this.imageBlocks = snapshot.images;
           this.elementOrder = snapshot.elementOrder;
           this.loadedPageId = fromPageId;
           this.loaded = true;
@@ -622,6 +629,7 @@ export struct NoteCanvasView {
     this.completedStrokes = [];
     this.textBlocks = [];
     this.shapes = [];
+    this.imageBlocks = [];
     this.elementOrder = [];
     this.dataLoadFailed = true;
     this.cancelActiveInteraction();
@@ -776,13 +784,13 @@ export struct NoteCanvasView {
 
   private renderOrderedElements(): void {
     const elements: OrderedPageElement[] = materializePageElements(
-      this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes);
+      this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks);
     for (const element of elements) {
       if (element.kind === PageElementKind.STROKE) {
         this.strokePainter.renderStroke(element.data, this.renderCtx, this.getPaperWidth(), this.getPaperHeight());
       } else if (element.kind === PageElementKind.TEXT) {
         this.textRenderer.renderText(element.data, this.renderCtx);
-      } else {
+      } else if (element.kind === PageElementKind.SHAPE) {
         this.shapeRenderer.renderShape(element.data, this.renderCtx);
       }
     }
@@ -1445,6 +1453,7 @@ export struct NoteCanvasView {
       textBlocks: this.textBlocks.slice(),
       elementOrder: clonePageElementOrder(this.elementOrder),
       shapes: this.shapes.slice(),
+      images: this.imageBlocks.map((image: ImageElement): ImageElement => cloneImageElement(image)),
       history: history,
     };
   }
@@ -1787,11 +1796,12 @@ export struct NoteCanvasView {
 
   private currentMutationElements(): SearchSourceElement[] {
     const ordered: OrderedPageElement[] = materializePageElements(
-      this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes);
+      this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks);
     const result: SearchSourceElement[] = [];
     for (const element of ordered) {
       const kind: string = element.kind === PageElementKind.STROKE ? 'stroke' :
-        (element.kind === PageElementKind.TEXT ? 'text' : 'shape');
+        (element.kind === PageElementKind.TEXT ? 'text' :
+          (element.kind === PageElementKind.SHAPE ? 'shape' : 'image'));
       const persisted: PersistedElement = { kind: kind, data: element.data };
       result.push({ elementId: element.elementId, kind: element.kind,
         payload: encodePersistedElement(persisted) });
@@ -1803,6 +1813,7 @@ export struct NoteCanvasView {
     const strokes: StrokeElementData[] = [];
     const texts: TextBlockElement[] = [];
     const shapes: ShapeElement[] = [];
+    const images: ImageElement[] = [];
     const order: PageElementRef[] = [];
     for (const element of elements) {
       const persisted: PersistedElement = decodePersistedElement(element.payload);
@@ -1817,6 +1828,10 @@ export struct NoteCanvasView {
         const shape: ShapeElement = cloneShapeElement(persisted.data as ShapeElement);
         shape.bounds = recomputeShapeBounds(shape);
         shapes.push(shape);
+      } else if (element.kind === PageElementKind.IMAGE && persisted.kind === 'image') {
+        const image: ImageElement = cloneImageElement(persisted.data as ImageElement);
+        image.bounds = imageBlockWorldBounds(image);
+        images.push(image);
       } else {
         throw new Error('persisted mutation element kind mismatch');
       }
@@ -1825,6 +1840,7 @@ export struct NoteCanvasView {
     this.completedStrokes = strokes;
     this.textBlocks = texts;
     this.shapes = shapes;
+    this.imageBlocks = images;
     this.elementOrder = order;
   }
 
@@ -2113,6 +2129,9 @@ export struct NoteCanvasView {
     for (const block of this.textBlocks) {
       existing.add(block.id);
     }
+    for (const image of this.imageBlocks) {
+      existing.add(image.id);
+    }
     const added: Set<string> = new Set<string>();
     for (const stroke of strokes) {
       if (existing.has(stroke.id) || added.has(stroke.id)) {
@@ -2330,25 +2349,29 @@ export struct NoteCanvasView {
 
   private synchronizeElementArraysByOrder(): void {
     const normalized: PageElementRef[] = normalizePageElementOrder(
-      this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes);
+      this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks);
     const ordered: OrderedPageElement[] = materializePageElements(
-      normalized, this.completedStrokes, this.textBlocks, this.shapes);
+      normalized, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks);
     const strokes: StrokeElementData[] = [];
     const textBlocks: TextBlockElement[] = [];
     const shapes: ShapeElement[] = [];
+    const images: ImageElement[] = [];
     for (const element of ordered) {
       if (element.kind === PageElementKind.STROKE) {
         strokes.push(element.data);
       } else if (element.kind === PageElementKind.TEXT) {
         textBlocks.push(element.data);
-      } else {
+      } else if (element.kind === PageElementKind.SHAPE) {
         shapes.push(element.data);
+      } else if (element.kind === PageElementKind.IMAGE) {
+        images.push(element.data);
       }
     }
     this.elementOrder = normalized;
     this.completedStrokes = strokes;
     this.textBlocks = textBlocks;
     this.shapes = shapes;
+    this.imageBlocks = images;
   }
 
   private replaceTextBlock(replacement: TextBlockElement): void {
@@ -2759,6 +2782,14 @@ export struct NoteCanvasView {
         }
       }
       if (!exists) {
+        for (const image of this.imageBlocks) {
+          if (image.id === id) {
+            exists = true;
+            break;
+          }
+        }
+      }
+      if (!exists) {
         return id;
       }
     }
@@ -2777,7 +2808,11 @@ export struct NoteCanvasView {
     for (const shape of this.shapes) {
       shapes.push(cloneShapeElement(shape));
     }
-    return { strokes: strokes, textBlocks: textBlocks, shapes: shapes,
+    const images: ImageElement[] = [];
+    for (const image of this.imageBlocks) {
+      images.push(cloneImageElement(image));
+    }
+    return { strokes: strokes, textBlocks: textBlocks, shapes: shapes, images: images,
       elementOrder: clonePageElementOrder(this.elementOrder) };
   }
 

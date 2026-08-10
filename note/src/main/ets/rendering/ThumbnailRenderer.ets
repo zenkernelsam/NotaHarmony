@@ -91,7 +91,7 @@ export class ThumbnailRenderer {
         this.strokePainter.renderStroke(element.data, renderContext, pageSize.width, pageSize.height);
       } else if (element.kind === PageElementKind.TEXT) {
         this.textRenderer.renderText(element.data, renderContext);
-      } else {
+      } else if (element.kind === PageElementKind.SHAPE) {
         this.shapeRenderer.renderShape(element.data, renderContext);
       }
     }

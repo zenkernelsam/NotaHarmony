@@ -10,7 +10,7 @@ import {
 import { NoteMeta, PageInfo, PaperSize, PaperTemplate, PageOrientation } from '../core/model/NoteTypes';
 import { clonePageBackground } from '../core/model/PageBackgroundModel';
 import { StrokeElementData } from '../core/model/StrokeTypes';
-import { ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { ImageElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import { DatabaseManager } from './DatabaseManager';
 import { NoteRepositoryImpl } from './NoteRepositoryImpl';
@@ -226,6 +226,7 @@ export class NoteImporter {
         const pageStrokes: StrokeElementData[] = [];
         const pageTexts: TextBlockElement[] = [];
         const pageShapes: ShapeElement[] = [];
+        const pageImages: ImageElement[] = [];
         const pageElementOrder: PageElementRef[] = [];
         for (const el of page.elements) {
           const typed = el as PersistedElement;
@@ -244,10 +245,15 @@ export class NoteImporter {
             pageShapes.push(shape);
             pageElementOrder.push({ kind: PageElementKind.SHAPE,
               elementId: shape.id, zIndex: pageElementOrder.length });
+          } else if (typed.kind === 'image') {
+            const image: ImageElement = typed.data as ImageElement;
+            pageImages.push(image);
+            pageElementOrder.push({ kind: PageElementKind.IMAGE,
+              elementId: image.id, zIndex: pageElementOrder.length });
           }
         }
         await this.persistence.saveElements(
-          note.id, pageInfo.pageId, pageStrokes, pageTexts, pageElementOrder, pageShapes);
+          note.id, pageInfo.pageId, pageStrokes, pageTexts, pageElementOrder, pageShapes, pageImages);
         countStrokes += pageStrokes.length;
         countTexts += pageTexts.length;
         writtenPages++;

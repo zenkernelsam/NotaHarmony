@@ -4,7 +4,8 @@ import { parsePageBackground } from '../core/model/PageBackgroundModel';
 import { HistoryEffect, HistoryMetadata } from '../core/model/OpTypes';
 import { taskpool, util } from '@kit.ArkTS';
 import { StrokeElementData } from '../core/model/StrokeTypes';
-import { ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { ImageElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { cloneImageElement, imageBlockWorldBounds } from '../core/model/ImageBlockGeometry';
 import { cloneShapeElement, recomputeShapeBounds } from '../core/model/ShapeGeometry';
 import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextBlockGeometry';
 import {
@@ -25,7 +26,7 @@ import { validateHistoryMetadata } from './PersistentHistoryMetadata';
 
 export interface PersistedElement {
   kind: string;
-  data: StrokeElementData | TextBlockElement | ShapeElement;
+  data: StrokeElementData | TextBlockElement | ShapeElement | ImageElement;
 }
 
 // page_element_snapshot.payload is a SQLite BLOB containing UTF-8 JSON bytes.
@@ -44,6 +45,7 @@ export interface LoadedElements {
   strokes: StrokeElementData[];
   textBlocks: TextBlockElement[];
   shapes: ShapeElement[];
+  images: ImageElement[];
   elementOrder: PageElementRef[];
   elements: OrderedPageElement[];
 }
@@ -72,6 +74,7 @@ export interface HistoryPageSnapshot {
   textBlocks: TextBlockElement[];
   elementOrder: PageElementRef[];
   shapes: ShapeElement[];
+  images: ImageElement[];
   history?: HistoryMetadata;
 }
 
@@ -122,12 +125,13 @@ export class StrokePersistence {
 
   queueSaveElements(noteId: string, pageId: string, strokes: StrokeElementData[],
     textBlocks: TextBlockElement[], elementOrder: PageElementRef[] = [], shapes: ShapeElement[] = [],
-    preserveActionBoundary: boolean = false, history?: HistoryMetadata): number {
+    preserveActionBoundary: boolean = false, history?: HistoryMetadata,
+    images: ImageElement[] = []): number {
     if (this.store === null) {
       throw new Error('StrokePersistence is not initialized');
     }
     const snapshot: PreparedPageSave = this.prepareSave(
-      noteId, pageId, strokes, textBlocks, elementOrder, shapes, history);
+      noteId, pageId, strokes, textBlocks, elementOrder, shapes, images, history);
     return this.getSaveQueue(noteId, pageId).enqueue(snapshot, preserveActionBoundary);
   }
 
@@ -146,8 +150,10 @@ export class StrokePersistence {
   }
 
   async saveElements(noteId: string, pageId: string, strokes: StrokeElementData[],
-    textBlocks: TextBlockElement[], elementOrder: PageElementRef[] = [], shapes: ShapeElement[] = []): Promise<void> {
-    this.queueSaveElements(noteId, pageId, strokes, textBlocks, elementOrder, shapes);
+    textBlocks: TextBlockElement[], elementOrder: PageElementRef[] = [], shapes: ShapeElement[] = [],
+    images: ImageElement[] = []): Promise<void> {
+    this.queueSaveElements(noteId, pageId, strokes, textBlocks, elementOrder, shapes,
+      false, undefined, images);
     await this.flush(noteId, pageId);
   }
 
@@ -157,7 +163,8 @@ export class StrokePersistence {
       throw new Error('history group cannot be saved');
     }
     const preparedInitial: PreparedPageSave = this.prepareSave(
-      noteId, pageId, initial.strokes, initial.textBlocks, initial.elementOrder, initial.shapes);
+      noteId, pageId, initial.strokes, initial.textBlocks, initial.elementOrder,
+      initial.shapes, initial.images);
     const preparedSteps: PreparedPageSave[] = [];
     const actionIds: Set<string> = new Set<string>();
     let effect: HistoryEffect | null = null;
@@ -173,7 +180,8 @@ export class StrokePersistence {
       actionIds.add(step.history.actionId);
       effect = step.history.effect;
       preparedSteps.push(this.prepareSave(
-        noteId, pageId, step.strokes, step.textBlocks, step.elementOrder, step.shapes, step.history));
+        noteId, pageId, step.strokes, step.textBlocks, step.elementOrder,
+        step.shapes, step.images, step.history));
     }
     await this.flush(noteId, pageId);
     await editorPersistenceMutex.runExclusive(async (): Promise<void> => {
@@ -234,7 +242,7 @@ export class StrokePersistence {
     }
     pageSet.close();
     return pageId.length > 0 ? this.loadElements(noteId, pageId) :
-      { strokes: [], textBlocks: [], shapes: [], elementOrder: [], elements: [] };
+      { strokes: [], textBlocks: [], shapes: [], images: [], elementOrder: [], elements: [] };
   }
 
   async getFirstPageThumbnailState(noteId: string): Promise<FirstPageThumbnailState | null> {
@@ -642,11 +650,13 @@ export class StrokePersistence {
 
   private prepareSave(noteId: string, pageId: string, strokes: StrokeElementData[],
     textBlocks: TextBlockElement[], elementOrder: PageElementRef[], shapes: ShapeElement[],
+    images: ImageElement[],
     history?: HistoryMetadata): PreparedPageSave {
     const elements: PreparedElement[] = [];
     const preferredOrder: PageElementRef[] = elementOrder.length > 0
-      ? elementOrder : legacyPageElementOrder(strokes, textBlocks, shapes);
-    const ordered: OrderedPageElement[] = materializePageElements(preferredOrder, strokes, textBlocks, shapes);
+      ? elementOrder : legacyPageElementOrder(strokes, textBlocks, shapes, images);
+    const ordered: OrderedPageElement[] = materializePageElements(
+      preferredOrder, strokes, textBlocks, shapes, images);
     for (const element of ordered) {
       if (element.kind === PageElementKind.STROKE) {
         const payload: PersistedElement = { kind: 'stroke', data: element.data };
@@ -656,9 +666,13 @@ export class StrokePersistence {
         const payload: PersistedElement = { kind: 'text', data: element.data };
         elements.push({ elementId: element.elementId, kind: PageElementKind.TEXT,
           payload: encodePersistedElement(payload), searchText: foldSearchText(element.data.richText) });
-      } else {
+      } else if (element.kind === PageElementKind.SHAPE) {
         const payload: PersistedElement = { kind: 'shape', data: element.data };
         elements.push({ elementId: element.elementId, kind: PageElementKind.SHAPE,
+          payload: encodePersistedElement(payload), searchText: null });
+      } else if (element.kind === PageElementKind.IMAGE) {
+        const payload: PersistedElement = { kind: 'image', data: element.data };
+        elements.push({ elementId: element.elementId, kind: PageElementKind.IMAGE,
           payload: encodePersistedElement(payload), searchText: null });
       }
     }
@@ -713,7 +727,9 @@ export class StrokePersistence {
   }
 
   private async loadMatchingElements(noteId: string, pageId: string | null): Promise<LoadedElements> {
-    const result: LoadedElements = { strokes: [], textBlocks: [], shapes: [], elementOrder: [], elements: [] };
+    const result: LoadedElements = {
+      strokes: [], textBlocks: [], shapes: [], images: [], elementOrder: [], elements: [],
+    };
     if (this.store === null) {
       throw new Error('StrokePersistence is not initialized');
     }
@@ -748,6 +764,12 @@ export class StrokePersistence {
               result.shapes.push(shape);
               result.elementOrder.push({ kind: PageElementKind.SHAPE,
                 elementId: shape.id, zIndex: result.elementOrder.length });
+            } else if (parsed.kind === 'image') {
+              const image: ImageElement = cloneImageElement(parsed.data as ImageElement);
+              image.bounds = imageBlockWorldBounds(image);
+              result.images.push(image);
+              result.elementOrder.push({ kind: PageElementKind.IMAGE,
+                elementId: image.id, zIndex: result.elementOrder.length });
             }
           } catch (e) {
             // Ignore an individual corrupt element without discarding the rest of the page.
@@ -760,9 +782,9 @@ export class StrokePersistence {
       throw new Error(`loadElements failed: ${JSON.stringify(e)}`);
     }
     result.elementOrder = normalizePageElementOrder(
-      result.elementOrder, result.strokes, result.textBlocks, result.shapes);
+      result.elementOrder, result.strokes, result.textBlocks, result.shapes, result.images);
     result.elements = materializePageElements(
-      result.elementOrder, result.strokes, result.textBlocks, result.shapes);
+      result.elementOrder, result.strokes, result.textBlocks, result.shapes, result.images);
     return result;
   }
 

@@ -1,5 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { ElementType, PolygonElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
+import {
+  ElementType, ImageElement, PolygonElement, TextBlockElement,
+} from '../main/ets/core/model/ElementTypes';
 import {
   appendPageElementRefs, hasStrokeAboveText, legacyPageElementOrder, materializePageElements, moveStrokeRefs,
   movePageElementRefs, normalizePageElementOrder, OrderedPageElement, PageElementKind, PageElementRef,
@@ -33,6 +35,20 @@ function text(id: string): TextBlockElement {
     bounds: { left: 0, top: 0, right: 1, bottom: 1 }, richText: id,
     textOrigin: { x: 0, y: 0 }, blockWidth: 1, blockHeight: 1, rotationRadians: 0,
     contentLeftInset: 0, contentTopInset: 0, fontSize: 12, fontColor: 0,
+  };
+}
+
+function image(id: string): ImageElement {
+  const bits: string[] = ['0', '1', '2', '3', '4', '5', '6', '18446744073709551615'];
+  return {
+    id: id, type: ElementType.IMAGE, transform: [1, 0, 10, 0, 1, 20, 0, 0, 1],
+    bounds: { left: 10, top: 20, right: 110, bottom: 70 },
+    assetHash: bits.join(':'), assetHashBits: bits, fileName: 'photo.png', mimeType: 'image/png',
+    fileSize: 4294967295, intrinsicWidth: 200, intrinsicHeight: 100,
+    cropRect: { left: 5, top: 10, right: 195, bottom: 90 },
+    blockWidth: 100, blockHeight: 50, rotationRadians: 0, corner: 0, textWrap: 0,
+    enableCaption: false, webUrl: null, imageFlippedHorizontally: false,
+    imageFlippedVertically: true, positionLocked: false,
   };
 }
 
@@ -82,6 +98,23 @@ export default function pageElementOrderTest() {
       const after: PageElementRef[] = movePageElementRefs(before, [], ['p1'], true);
       expect(after[2].elementId).assertEqual('p1');
       expect(samePageElementMembers(before, after)).assertTrue();
+    });
+
+    it('normalizes and materializes images without changing mixed z order', 0, () => {
+      const before: PageElementRef[] = [
+        { kind: PageElementKind.IMAGE, elementId: 'i1', zIndex: 0 },
+        { kind: PageElementKind.STROKE, elementId: 's1', zIndex: 1 },
+        { kind: PageElementKind.TEXT, elementId: 't1', zIndex: 2 },
+      ];
+      const normalized: PageElementRef[] = normalizePageElementOrder(
+        before, [stroke('s1')], [text('t1')], [], [image('i1')]);
+      const elements: OrderedPageElement[] = materializePageElements(
+        normalized, [stroke('s1')], [text('t1')], [], [image('i1')]);
+      expect(elements.length).assertEqual(3);
+      expect(elements[0].kind).assertEqual(PageElementKind.IMAGE);
+      expect(elements[0].elementId).assertEqual('i1');
+      expect(elements[1].elementId).assertEqual('s1');
+      expect(requiresUnifiedElementRender(normalized)).assertTrue();
     });
 
     it('moves selected strokes across text and restores exact before order', 0, () => {
@@ -174,6 +207,25 @@ export default function pageElementOrderTest() {
       expect(data.type as number).assertEqual(ElementType.POLYGON);
       expect(data.fillColor as number).assertEqual(0x44010203);
       expect((data.vertices as Object[]).length).assertEqual(3);
+      expect(parsed!.elements[1].kind).assertEqual('stroke');
+    });
+
+    it('preserves image metadata and order through package serialization', 0, () => {
+      const sourceImage: ImageElement = image('i1');
+      const page: PageData = {
+        pageId: 'page-image', pageIndex: 0, paperSize: 1, paperTemplate: 0, orientation: 0,
+        elements: [
+          { kind: 'image', data: sourceImage },
+          { kind: 'stroke', data: { id: 's1' } },
+        ],
+      };
+      const parsed: PageData | null = parsePage(serializePage(page));
+      expect(parsed !== null).assertTrue();
+      expect(parsed!.elements[0].kind).assertEqual('image');
+      const data = parsed!.elements[0].data as Record<string, Object>;
+      expect(data.assetHash as string).assertEqual(sourceImage.assetHash);
+      expect((data.assetHashBits as string[])[7]).assertEqual('18446744073709551615');
+      expect(data.imageFlippedVertically as boolean).assertTrue();
       expect(parsed!.elements[1].kind).assertEqual('stroke');
     });
   });

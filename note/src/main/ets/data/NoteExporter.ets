@@ -85,8 +85,10 @@ export class NoteExporter {
             elementObjects.push({ kind: 'stroke', data: element.data });
           } else if (element.kind === PageElementKind.TEXT) {
             elementObjects.push({ kind: 'text', data: element.data });
-          } else {
+          } else if (element.kind === PageElementKind.SHAPE) {
             elementObjects.push({ kind: 'shape', data: element.data });
+          } else if (element.kind === PageElementKind.IMAGE) {
+            elementObjects.push({ kind: 'image', data: element.data });
           }
         }
         const pageData: PageData = {

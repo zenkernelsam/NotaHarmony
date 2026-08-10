@@ -418,6 +418,7 @@ struct NotePage {
       pageStrokes: [],
       pageTextBlocks: [],
       pageShapes: [],
+      pageImages: [],
       pageElementOrder: [],
       selectedPageIdBefore: selectedBefore,
       selectedPageIdAfter: page.pageId,
@@ -459,6 +460,7 @@ struct NotePage {
       pageStrokes: snapshot.strokes,
       pageTextBlocks: snapshot.textBlocks,
       pageShapes: snapshot.shapes,
+      pageImages: snapshot.images,
       pageElementOrder: snapshot.elementOrder,
       selectedPageIdBefore: selectedBefore,
       selectedPageIdAfter: selectedAfter,
@@ -679,7 +681,8 @@ struct NotePage {
     // A user-created page is appended empty. Keeping this invariant makes ADD_PAGE history a
     // single page-mutation transaction; populated page restoration belongs to DELETE_PAGE checkpoints.
     if (action.pageStrokes.length !== 0 || action.pageTextBlocks.length !== 0 ||
-      action.pageShapes.length !== 0 || action.pageElementOrder.length !== 0 ||
+      action.pageShapes.length !== 0 || action.pageImages.length !== 0 ||
+      action.pageElementOrder.length !== 0 ||
       action.pageOrderAfter.length === 0 ||
       action.pageOrderAfter[action.pageOrderAfter.length - 1] !== action.pageId) {
       return false;

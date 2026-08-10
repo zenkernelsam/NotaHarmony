@@ -110,11 +110,27 @@ export interface RichTextParagraphStyleRun {
   style: RichTextParagraphStyle;
 }
 
-// 图片元素（预留，Phase 3 补全）
+// 原版 IMAGE Block。assetHash 是 8 个 uint64 十进制 word 的稳定冒号串，不是 SHA-256。
 export interface ImageElement extends NoteElementBase {
   type: ElementType.IMAGE;
   assetHash: string;
+  assetHashBits: string[];
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  intrinsicWidth: number;
+  intrinsicHeight: number;
   cropRect: Rect2D | null;
+  blockWidth: number;
+  blockHeight: number;
+  rotationRadians: number;
+  corner: number;
+  textWrap: number;
+  enableCaption: boolean;
+  webUrl: string | null;
+  imageFlippedHorizontally: boolean;
+  imageFlippedVertically: boolean;
+  positionLocked: boolean;
 }
 
 // 原版 1.0.3 uf7/s4d：cp1+cp2 为 cubic，仅 cp1 为 quadratic，无控制点为直线。

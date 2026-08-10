@@ -10,6 +10,7 @@ export default function notePackageSpecTest() {
       expect(isSupportedPageElementKind('stroke')).assertTrue();
       expect(isSupportedPageElementKind('text')).assertTrue();
       expect(isSupportedPageElementKind('shape')).assertTrue();
+      expect(isSupportedPageElementKind('image')).assertTrue();
       expect(isSupportedPageElementKind('unknown')).assertFalse();
     });
 
@@ -41,6 +42,27 @@ export default function notePackageSpecTest() {
       expect(isValidPageElement(shape)).assertTrue();
       shape.data.transform = [1, 0, 0];
       expect(isValidPageElement(shape)).assertFalse();
+    });
+
+    it('validates complete image metadata without truncating uint64 hash words', 0, () => {
+      const bits: string[] = ['0', '1', '2', '3', '4', '5', '6', '18446744073709551615'];
+      const image = { kind: 'image', data: {
+        id: 'image', type: ElementType.IMAGE,
+        transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: 0, top: 0, right: 100, bottom: 50 },
+        assetHash: bits.join(':'), assetHashBits: bits, fileName: '图片.png', mimeType: 'image/png',
+        fileSize: 4294967295, intrinsicWidth: 200, intrinsicHeight: 100,
+        cropRect: { left: -5, top: 2, right: 195, bottom: 92 },
+        blockWidth: 100, blockHeight: 50, rotationRadians: 0, corner: 1, textWrap: 0,
+        enableCaption: false, webUrl: 'https://example.test/image',
+        imageFlippedHorizontally: true, imageFlippedVertically: false, positionLocked: true,
+      } };
+      expect(isValidPageElement(image)).assertTrue();
+      image.data.assetHash = '0:1:2:3:4:5:6:7';
+      expect(isValidPageElement(image)).assertFalse();
+      image.data.assetHash = bits.join(':');
+      image.data.assetHashBits[7] = '18446744073709551616';
+      expect(isValidPageElement(image)).assertFalse();
     });
 
     it('preserves optional custom page geometry and original paper background', 0, () => {

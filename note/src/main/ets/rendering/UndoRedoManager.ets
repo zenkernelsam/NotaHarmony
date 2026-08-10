@@ -3,7 +3,7 @@
 // 原版 NoteImpl 使用全笔记 opHistory；文本编辑器 nnf(100) 是另一套局部历史，不能作为这里的容量。
 import { InkPathCommand, StrokeElementData } from '../core/model/StrokeTypes';
 import { ElementType, RichTextCharacterStyleRun, RichTextParagraphStyleRun,
-  ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+  ImageElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { PageInfo } from '../core/model/NoteTypes';
 import { PageElementRef } from '../core/model/PageElementOrder';
 import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op } from '../core/model/OpTypes';
@@ -135,6 +135,7 @@ export interface AddPageAction extends ActionBase {
   pageStrokes: StrokeElementData[];
   pageTextBlocks: TextBlockElement[];
   pageShapes: ShapeElement[];
+  pageImages: ImageElement[];
   pageElementOrder: PageElementRef[];
   selectedPageIdBefore: string;
   selectedPageIdAfter: string;
@@ -148,6 +149,7 @@ export interface DeletePageAction extends ActionBase {
   pageStrokes: StrokeElementData[];
   pageTextBlocks: TextBlockElement[];
   pageShapes: ShapeElement[];
+  pageImages: ImageElement[];
   pageElementOrder: PageElementRef[];
   selectedPageIdBefore: string;
   selectedPageIdAfter: string;
@@ -189,6 +191,7 @@ export interface PageContentSnapshot {
   strokes: StrokeElementData[];
   textBlocks: TextBlockElement[];
   shapes: ShapeElement[];
+  images: ImageElement[];
   elementOrder: PageElementRef[];
 }
 
@@ -281,7 +284,8 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
   if (action.type === UndoableActionType.ADD_PAGE || action.type === UndoableActionType.DELETE_PAGE) {
     return bytes + 256 + estimateStringList(action.pageOrderBefore) + estimateStringList(action.pageOrderAfter) +
       estimateStrokes(action.pageStrokes) + estimateTextBlocks(action.pageTextBlocks) +
-      estimateShapes(action.pageShapes) + estimateElementOrder(action.pageElementOrder);
+      estimateShapes(action.pageShapes) + estimateImages(action.pageImages) +
+      estimateElementOrder(action.pageElementOrder);
   }
   if (action.type === UndoableActionType.REORDER_PAGES) {
     return bytes + estimateStringList(action.pageOrderBefore) + estimateStringList(action.pageOrderAfter);
@@ -389,6 +393,18 @@ function estimateShape(shape: ShapeElement): number {
     bytes += shape.vertices.length * 32;
   } else if (shape.type === ElementType.LINE) {
     bytes += 96;
+  }
+  return bytes;
+}
+
+function estimateImages(images: ImageElement[]): number {
+  let bytes: number = 0;
+  for (const image of images) {
+    bytes += 512 + image.transform.length * 8 + image.assetHashBits.length * 48 +
+      (image.id.length + image.assetHash.length + image.fileName.length + image.mimeType.length) * 2;
+    if (image.webUrl !== null) {
+      bytes += image.webUrl.length * 2;
+    }
   }
   return bytes;
 }

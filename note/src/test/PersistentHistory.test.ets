@@ -19,6 +19,7 @@ import { encodePersistedElement } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import { UndoableActionType } from '../main/ets/rendering/UndoRedoManager';
+import { ElementType, ImageElement } from '../main/ets/core/model/ElementTypes';
 
 function makeOp(opId: string, actionId?: string, effect: HistoryEffect = HistoryEffect.PUSH,
   actionTime: number = 100): Op {
@@ -134,15 +135,35 @@ function stroke(id: string): StrokeElementData {
   };
 }
 
+function image(id: string): ImageElement {
+  const bits: string[] = ['0', '1', '2', '3', '4', '5', '6', '18446744073709551615'];
+  return {
+    id: id, type: ElementType.IMAGE, transform: [1, 0, 10, 0, 1, 20, 0, 0, 1],
+    bounds: { left: 10, top: 20, right: 110, bottom: 70 },
+    assetHash: bits.join(':'), assetHashBits: bits, fileName: 'photo.png', mimeType: 'image/png',
+    fileSize: 100, intrinsicWidth: 200, intrinsicHeight: 100, cropRect: null,
+    blockWidth: 100, blockHeight: 50, rotationRadians: 0, corner: 0, textWrap: 0,
+    enableCaption: false, webUrl: null, imageFlippedHorizontally: false,
+    imageFlippedVertically: false, positionLocked: false,
+  };
+}
+
 function deleteCheckpoint(pageInfo: PageInfo): PageDeleteCheckpoint {
   return {
     noteId: 'note-1', actionId: 'delete-action', page: pageInfo,
     contentRevision: 7, indexedRevision: 7, createdTime: 100,
-    elements: [{
-      elementId: 'stroke-1', kind: PageElementKind.STROKE,
-      payload: encodePersistedElement({ kind: 'stroke', data: stroke('stroke-1') }),
-      revision: 7, elementOrder: 0,
-    }],
+    elements: [
+      {
+        elementId: 'stroke-1', kind: PageElementKind.STROKE,
+        payload: encodePersistedElement({ kind: 'stroke', data: stroke('stroke-1') }),
+        revision: 7, elementOrder: 0,
+      },
+      {
+        elementId: 'image-1', kind: PageElementKind.IMAGE,
+        payload: encodePersistedElement({ kind: 'image', data: image('image-1') }),
+        revision: 7, elementOrder: 1,
+      },
+    ],
   };
 }
 
@@ -373,6 +394,9 @@ export default function persistentHistoryTest() {
         expect(restored.undo[0].action.pageStrokes.length).assertEqual(1);
         expect(restored.undo[0].action.pageStrokes[0].id).assertEqual('stroke-1');
         expect(restored.undo[0].action.pageElementOrder[0].elementId).assertEqual('stroke-1');
+        expect(restored.undo[0].action.pageImages.length).assertEqual(1);
+        expect(restored.undo[0].action.pageImages[0].id).assertEqual('image-1');
+        expect(restored.undo[0].action.pageElementOrder[1].elementId).assertEqual('image-1');
       } else {
         expect(false).assertTrue();
       }

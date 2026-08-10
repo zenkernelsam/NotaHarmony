@@ -4,6 +4,7 @@ import {
   decodePersistedElement, encodePersistedElement, PersistedElement,
 } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
+import { ElementType, ImageElement } from '../main/ets/core/model/ElementTypes';
 import {
   handwritingSourceChanged, pageSnapshotChanged, SearchSourceElement,
 } from '../main/ets/data/SearchIndexPolicy';
@@ -48,6 +49,32 @@ export default function strokePersistenceTest() {
         rejected = true;
       }
       expect(rejected).assertTrue();
+    });
+
+    it('round-trips original image metadata without sharing decoded arrays', 0, () => {
+      const bits: string[] = ['0', '1', '2', '3', '4', '5', '6', '18446744073709551615'];
+      const image: ImageElement = {
+        id: 'image-1', type: ElementType.IMAGE,
+        transform: [1, 0, 10, 0, 1, 20, 0, 0, 1],
+        bounds: { left: 10, top: 20, right: 110, bottom: 70 },
+        assetHash: bits.join(':'), assetHashBits: bits, fileName: '图片.png', mimeType: 'image/png',
+        fileSize: 4294967295, intrinsicWidth: 200, intrinsicHeight: 100,
+        cropRect: { left: 5, top: 10, right: 195, bottom: 90 },
+        blockWidth: 100, blockHeight: 50, rotationRadians: 0, corner: 0, textWrap: 0,
+        enableCaption: false, webUrl: null, imageFlippedHorizontally: false,
+        imageFlippedVertically: true, positionLocked: false,
+      };
+      const restored: PersistedElement = decodePersistedElement(
+        encodePersistedElement({ kind: 'image', data: image }));
+      const restoredImage: ImageElement = restored.data as ImageElement;
+      restoredImage.assetHashBits[0] = '99';
+      restoredImage.transform[2] = 999;
+
+      expect(restored.kind).assertEqual('image');
+      expect(restoredImage.assetHash).assertEqual(image.assetHash);
+      expect(restoredImage.fileSize).assertEqual(4294967295);
+      expect(image.assetHashBits[0]).assertEqual('0');
+      expect(image.transform[2]).assertEqual(10);
     });
 
     it('preserves imported ink text across no-op and non-ink-only saves', 0, () => {

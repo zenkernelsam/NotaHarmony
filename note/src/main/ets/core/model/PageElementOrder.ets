@@ -1,10 +1,11 @@
 import { StrokeElementData } from './StrokeTypes';
-import { ShapeElement, TextBlockElement } from './ElementTypes';
+import { ImageElement, ShapeElement, TextBlockElement } from './ElementTypes';
 
 export enum PageElementKind {
   STROKE = 1,
   TEXT = 2,
   SHAPE = 3,
+  IMAGE = 4,
 }
 
 export interface PageElementRef {
@@ -28,10 +29,16 @@ export interface OrderedShapeElement extends PageElementRef {
   data: ShapeElement;
 }
 
-export type OrderedPageElement = OrderedStrokeElement | OrderedTextElement | OrderedShapeElement;
+export interface OrderedImageElement extends PageElementRef {
+  kind: PageElementKind.IMAGE;
+  data: ImageElement;
+}
+
+export type OrderedPageElement = OrderedStrokeElement | OrderedTextElement | OrderedShapeElement |
+  OrderedImageElement;
 
 export function legacyPageElementOrder(strokes: StrokeElementData[],
-  textBlocks: TextBlockElement[], shapes: ShapeElement[] = []): PageElementRef[] {
+  textBlocks: TextBlockElement[], shapes: ShapeElement[] = [], images: ImageElement[] = []): PageElementRef[] {
   const result: PageElementRef[] = [];
   for (const stroke of strokes) {
     result.push({ kind: PageElementKind.STROKE, elementId: stroke.id, zIndex: result.length });
@@ -42,14 +49,18 @@ export function legacyPageElementOrder(strokes: StrokeElementData[],
   for (const shape of shapes) {
     result.push({ kind: PageElementKind.SHAPE, elementId: shape.id, zIndex: result.length });
   }
+  for (const image of images) {
+    result.push({ kind: PageElementKind.IMAGE, elementId: image.id, zIndex: result.length });
+  }
   return result;
 }
 
 export function normalizePageElementOrder(order: PageElementRef[], strokes: StrokeElementData[],
-  textBlocks: TextBlockElement[], shapes: ShapeElement[] = []): PageElementRef[] {
+  textBlocks: TextBlockElement[], shapes: ShapeElement[] = [], images: ImageElement[] = []): PageElementRef[] {
   const strokeIds: Set<string> = new Set<string>();
   const textIds: Set<string> = new Set<string>();
   const shapeIds: Set<string> = new Set<string>();
+  const imageIds: Set<string> = new Set<string>();
   for (const stroke of strokes) {
     strokeIds.add(stroke.id);
   }
@@ -59,19 +70,23 @@ export function normalizePageElementOrder(order: PageElementRef[], strokes: Stro
   for (const shape of shapes) {
     shapeIds.add(shape.id);
   }
+  for (const image of images) {
+    imageIds.add(image.id);
+  }
   const seen: Set<string> = new Set<string>();
   const result: PageElementRef[] = [];
   for (const ref of order) {
     const valid: boolean = ref.kind === PageElementKind.STROKE
       ? strokeIds.has(ref.elementId) : ref.kind === PageElementKind.TEXT
-        ? textIds.has(ref.elementId) : ref.kind === PageElementKind.SHAPE && shapeIds.has(ref.elementId);
+        ? textIds.has(ref.elementId) : ref.kind === PageElementKind.SHAPE
+          ? shapeIds.has(ref.elementId) : ref.kind === PageElementKind.IMAGE && imageIds.has(ref.elementId);
     const key: string = pageElementKey(ref.kind, ref.elementId);
     if (valid && ref.elementId.length > 0 && !seen.has(key)) {
       seen.add(key);
       result.push({ kind: ref.kind, elementId: ref.elementId, zIndex: result.length });
     }
   }
-  const legacy: PageElementRef[] = legacyPageElementOrder(strokes, textBlocks, shapes);
+  const legacy: PageElementRef[] = legacyPageElementOrder(strokes, textBlocks, shapes, images);
   for (const ref of legacy) {
     const key: string = pageElementKey(ref.kind, ref.elementId);
     if (!seen.has(key)) {
@@ -83,11 +98,13 @@ export function normalizePageElementOrder(order: PageElementRef[], strokes: Stro
 }
 
 export function materializePageElements(order: PageElementRef[], strokes: StrokeElementData[],
-  textBlocks: TextBlockElement[], shapes: ShapeElement[] = []): OrderedPageElement[] {
-  const normalized: PageElementRef[] = normalizePageElementOrder(order, strokes, textBlocks, shapes);
+  textBlocks: TextBlockElement[], shapes: ShapeElement[] = [],
+  images: ImageElement[] = []): OrderedPageElement[] {
+  const normalized: PageElementRef[] = normalizePageElementOrder(order, strokes, textBlocks, shapes, images);
   const strokesById: Map<string, StrokeElementData> = new Map<string, StrokeElementData>();
   const textsById: Map<string, TextBlockElement> = new Map<string, TextBlockElement>();
   const shapesById: Map<string, ShapeElement> = new Map<string, ShapeElement>();
+  const imagesById: Map<string, ImageElement> = new Map<string, ImageElement>();
   for (const stroke of strokes) {
     strokesById.set(stroke.id, stroke);
   }
@@ -96,6 +113,9 @@ export function materializePageElements(order: PageElementRef[], strokes: Stroke
   }
   for (const shape of shapes) {
     shapesById.set(shape.id, shape);
+  }
+  for (const image of images) {
+    imagesById.set(image.id, image);
   }
   const result: OrderedPageElement[] = [];
   for (const ref of normalized) {
@@ -109,10 +129,15 @@ export function materializePageElements(order: PageElementRef[], strokes: Stroke
       if (text !== undefined) {
         result.push({ kind: PageElementKind.TEXT, elementId: ref.elementId, zIndex: ref.zIndex, data: text });
       }
-    } else {
+    } else if (ref.kind === PageElementKind.SHAPE) {
       const shape: ShapeElement | undefined = shapesById.get(ref.elementId);
       if (shape !== undefined) {
         result.push({ kind: PageElementKind.SHAPE, elementId: ref.elementId, zIndex: ref.zIndex, data: shape });
+      }
+    } else if (ref.kind === PageElementKind.IMAGE) {
+      const image: ImageElement | undefined = imagesById.get(ref.elementId);
+      if (image !== undefined) {
+        result.push({ kind: PageElementKind.IMAGE, elementId: ref.elementId, zIndex: ref.zIndex, data: image });
       }
     }
   }
@@ -245,7 +270,7 @@ export function requiresUnifiedElementRender(order: PageElementRef[]): boolean {
     } else if (sawNonStroke) {
       return true;
     }
-    if (ref.kind === PageElementKind.SHAPE) {
+    if (ref.kind === PageElementKind.SHAPE || ref.kind === PageElementKind.IMAGE) {
       return true;
     }
   }

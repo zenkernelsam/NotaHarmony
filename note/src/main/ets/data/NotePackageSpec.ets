@@ -1,13 +1,17 @@
 // T-026 .note 包 JSON 结构定义（phase-4-backup-sync.md §2.2/§2.3）
 // 纯类型 + 序列化工具：不 import 平台模块
-// elements 保持 object[]（JSON 原始结构），但导入前必须按 exporter 的三种 payload 做结构校验。
-import { ElementType, ShapeArrowHead, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+// elements 保持 object[]（JSON 原始结构），但导入前必须按 exporter 的 typed payload 做结构校验。
+import {
+  ElementType, ImageElement, ShapeArrowHead, ShapeElement, TextBlockElement,
+} from '../core/model/ElementTypes';
+import { originalAssetHashKey } from '../core/model/ImageBlockGeometry';
 import { validateOriginalPaper } from '../core/model/PageBackgroundModel';
 import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import { InkPathCommand, InkPathCommandType, InkStyle, InkStyleMapEntry, StrokeElementData,
   StrokePathPoint } from '../core/model/StrokeTypes';
 import { PageBackground } from '../core/model/NoteTypes';
 import { clonePageBackground, validatePageBackground } from '../core/model/PageBackgroundModel';
+import { validateUnsignedLongDecimal } from './UnsignedDecimal';
 
 // .note 格式标识
 export const NOTE_FORMAT: string = 'nota.note';
@@ -43,7 +47,7 @@ export interface PageData {
 }
 
 export function isSupportedPageElementKind(kind: string): boolean {
-  return kind === 'stroke' || kind === 'text' || kind === 'shape';
+  return kind === 'stroke' || kind === 'text' || kind === 'shape' || kind === 'image';
 }
 
 interface PageElementEnvelope {
@@ -116,7 +120,10 @@ export function isValidPageElement(element: object): boolean {
   if (envelope.kind === 'text') {
     return isValidText(envelope.data as TextBlockElement);
   }
-  return isValidShape(envelope.data as ShapeElement);
+  if (envelope.kind === 'shape') {
+    return isValidShape(envelope.data as ShapeElement);
+  }
+  return isValidImage(envelope.data as ImageElement);
 }
 
 // 序列化 manifest
@@ -465,6 +472,47 @@ function isValidShape(shape: ShapeElement): boolean {
       isIntegerInRange(shape.arrowHead, ShapeArrowHead.NONE, ShapeArrowHead.SINGLE);
   }
   return false;
+}
+
+function isValidImage(image: ImageElement): boolean {
+  if (image.type !== ElementType.IMAGE ||
+    !isElementBase(image.id, image.transform, image.bounds) ||
+    typeof image.assetHash !== 'string' || !Array.isArray(image.assetHashBits) ||
+    image.assetHashBits.length !== 8 || typeof image.fileName !== 'string' ||
+    image.fileName.length === 0 || image.fileName.length > 65536 ||
+    typeof image.mimeType !== 'string' || image.mimeType.length === 0 ||
+    image.mimeType.length > 65536 || !Number.isSafeInteger(image.fileSize) ||
+    image.fileSize <= 0 || image.fileSize > 4294967295 ||
+    !isNonNegativeFinite(image.intrinsicWidth) || !isNonNegativeFinite(image.intrinsicHeight) ||
+    !isNonNegativeFinite(image.blockWidth) || !isNonNegativeFinite(image.blockHeight) ||
+    !isFiniteNumber(image.rotationRadians) ||
+    (image.corner !== 0 && image.corner !== 1) ||
+    (image.textWrap !== 0 && image.textWrap !== 1) ||
+    typeof image.enableCaption !== 'boolean' ||
+    (image.webUrl !== null && (typeof image.webUrl !== 'string' || image.webUrl.length > 65536)) ||
+    typeof image.imageFlippedHorizontally !== 'boolean' ||
+    typeof image.imageFlippedVertically !== 'boolean' ||
+    typeof image.positionLocked !== 'boolean' || !isValidOptionalCropRect(image.cropRect)) {
+    return false;
+  }
+  for (const word of image.assetHashBits) {
+    if (typeof word !== 'string') {
+      return false;
+    }
+    try {
+      validateUnsignedLongDecimal(word);
+    } catch (_error) {
+      return false;
+    }
+  }
+  return image.assetHash === originalAssetHashKey(image.assetHashBits);
+}
+
+function isValidOptionalCropRect(rect: Rect2D | null): boolean {
+  return rect === null || (rect !== undefined && typeof rect === 'object' &&
+    isFiniteNumber(rect.left) && isFiniteNumber(rect.top) &&
+    isFiniteNumber(rect.right) && isFiniteNumber(rect.bottom) &&
+    rect.right >= rect.left && rect.bottom >= rect.top);
 }
 
 function isElementBase(id: string, transform: TransformMatrix, bounds: Rect2D): boolean {
