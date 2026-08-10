@@ -26,6 +26,7 @@ import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOpera
 import { decodeOriginalCreateBlock, OriginalBlockType } from
   '../main/ets/data/OriginalCreateBlockOperation';
 import { decodeOriginalModifyBlock } from '../main/ets/data/OriginalModifyBlockOperation';
+import { decodeOriginalInsertText } from '../main/ets/data/OriginalInsertTextOperation';
 import { decodeOriginalAuxiliaryInkPath, originalInkTransform,
   transformedExpandedBounds } from '../main/ets/data/OriginalInkPathCodec';
 import { decodeOriginalInkPath, decodeOriginalInkPathAppend } from
@@ -163,7 +164,25 @@ export default function syncedOperationInboxTest() {
       expect(applier.supports(17)).assertTrue();
       expect(applier.supports(22)).assertTrue();
       expect(applier.supports(23)).assertTrue();
+      expect(applier.supports(7)).assertTrue();
+      expect(applier.supports(8)).assertTrue();
       expect(applier.supports(5)).assertFalse();
+    });
+
+    it('decodes original INSERT_CHAR and INSERT_STRING Unicode code points', 0, () => {
+      const inserted = decodeOriginalInsertText(flatBufferInsertString(), 8);
+      expect(inserted.location === null).assertTrue();
+      expect(inserted.textField?.timestamp).assertEqual(20);
+      expect(inserted.textField?.siteId).assertEqual(2);
+      expect(inserted.scalars.length).assertEqual(3);
+      expect(inserted.scalars[0]).assertEqual(0x41);
+      expect(inserted.scalars[1]).assertEqual(0x4E2D);
+      expect(inserted.scalars[2]).assertEqual(0x1F600);
+      const character = decodeOriginalInsertText(flatBufferInsertChar(), 7);
+      expect(character.location?.timestamp).assertEqual(100);
+      expect(character.location?.siteId).assertEqual(7);
+      expect(character.location?.index).assertEqual(1);
+      expect(character.scalars[0]).assertEqual(0x1F642);
     });
 
     it('decodes original text CREATE_BLOCK common state', 0, () => {
@@ -832,6 +851,46 @@ function flatBufferModifyBlock(clearTransform: boolean = false): Uint8Array {
     { timestamp: 20, siteId: 2 }, { timestamp: 21, siteId: 3 },
   ]);
   builder.pointer(modify + 4, blocks);
+  return builder.finish(root);
+}
+
+function flatBufferInsertString(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 100);
+  writeDecimalU64At(builder, root + 12, '100');
+  writeDecimalU64At(builder, root + 20, '100');
+  builder.uint8(root + 28, 8);
+  const insert: number = builder.table([4, 16, 20], 28);
+  builder.pointer(root + 32, insert);
+  builder.uint16(insert + 4, 0xFFFF);
+  builder.uint32(insert + 8, 0);
+  builder.uint32(insert + 12, 0);
+  builder.uint16(insert + 20, 2);
+  builder.uint32(insert + 24, 20);
+  const value: number = builder.byteVector([0x41, 0xE4, 0xB8, 0xAD,
+    0xF0, 0x9F, 0x98, 0x80]);
+  builder.pointer(insert + 16, value);
+  return builder.finish(root);
+}
+
+function flatBufferInsertChar(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 101);
+  writeDecimalU64At(builder, root + 12, '101');
+  writeDecimalU64At(builder, root + 20, '101');
+  builder.uint8(root + 28, 7);
+  const insert: number = builder.table([4, 16, 20], 28);
+  builder.pointer(root + 32, insert);
+  builder.uint16(insert + 4, 7);
+  builder.uint32(insert + 8, 100);
+  builder.uint32(insert + 12, 1);
+  builder.uint32(insert + 16, 0x1F642);
+  builder.uint16(insert + 20, 2);
+  builder.uint32(insert + 24, 20);
   return builder.finish(root);
 }
 

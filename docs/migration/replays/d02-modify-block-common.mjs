@@ -133,7 +133,7 @@ function database() {
 }
 
 function migrate(db, inject = false, includeV35 = false) {
-  const body = schema.match(/36:\s*\[([\s\S]*?)\n\s*\],\n\s*};/);
+  const body = schema.match(/36:\s*\[([\s\S]*?)\n\s*\],\n\s*37:/);
   assert(body); const statements = Array.from(body[1].matchAll(/`([\s\S]*?)`/g), match => match[1]);
   assert.equal(statements.length, 42);
   db.exec('BEGIN IMMEDIATE');
@@ -301,7 +301,7 @@ assert.match(source, /registerAccepts/);
 assert.match(source, /readOptionalWinner/);
 assert.match(source, /isFiniteNullableScale/);
 assert.match(source, /advanceRevisionAndInvalidateSearch/);
-assert.match(schema, /DB_VERSION: number = 36/);
+assert.match(schema, /DB_VERSION: number = 37/);
 assert.match(dispatcher, /ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE/);
 assert.match(geometry, /isTextBlockPositionLocked/);
 assert.match(geometry, /eraserPath\.length === 0 \|\| isTextBlockPositionLocked/);
