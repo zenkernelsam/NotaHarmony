@@ -3,6 +3,7 @@ import {
   RichTextParagraphStyleRun, TextBlockElement,
 } from './ElementTypes';
 import { Point2D, Rect2D, TransformMatrix } from './GeometryTypes';
+import { cloneOriginalPaper } from './PageBackgroundModel';
 
 export interface TextBlockTransformComponents {
   origin: Point2D;
@@ -21,6 +22,8 @@ export function cloneTextBlockElement(element: TextBlockElement): TextBlockEleme
     fontSize: element.fontSize, fontColor: element.fontColor,
     corner: element.corner, textWrap: element.textWrap,
     enableCaption: element.enableCaption,
+    paper: cloneOriginalPaper(element.paper === undefined ? null : element.paper),
+    resizesWidthToFitText: element.resizesWidthToFitText,
     characterStyleRuns: cloneCharacterStyleRuns(element.characterStyleRuns),
     paragraphStyleRuns: cloneParagraphStyleRuns(element.paragraphStyleRuns),
     positionLocked: isTextBlockPositionLocked(element),

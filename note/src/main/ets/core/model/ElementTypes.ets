@@ -1,6 +1,7 @@
 // T-003 笔记元素体系（契约 phase-1-data-model.md §3.4，照搬，禁止修改签名）
 // 纯类型文件：禁止 import 任何 @ohos.* / @kit.* 平台模块
 import { Point2D, Rect2D, TransformMatrix } from './GeometryTypes';
+import { PagePaperBackground } from './NoteTypes';
 import { StrokeElementData } from './StrokeTypes';
 
 // 元素类型（对应 c9e 子类枚举）
@@ -68,6 +69,8 @@ export interface TextBlockElement extends NoteElementBase {
   corner?: number;
   textWrap?: number;
   enableCaption?: boolean;
+  paper?: PagePaperBackground | null;
+  resizesWidthToFitText?: boolean;
   // Missing on legacy Harmony snapshots; the original Block default is unlocked.
   positionLocked?: boolean;
 }

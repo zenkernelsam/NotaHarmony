@@ -40,8 +40,8 @@ function createBlockFixture(type = 0, includeMargins = true) {
   w16(b.bytes, root + 4, 7); w32(b.bytes, root + 8, 90);
   w64(b.bytes, root + 12, 123n); w64(b.bytes, root + 20, 124n); b.bytes[root + 28] = 22;
   const fields = [4, 5, 8, 20, 28, 32, 40, 48, 49, 56,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, includeMargins ? 64 : 0, 80];
-  const block = b.table(fields, 84); b.pointer(root + 32, block);
+    0, 0, 0, 0, 0, 84, 0, 0, 81, includeMargins ? 64 : 0, 80];
+  const block = b.table(fields, 88); b.pointer(root + 32, block);
   b.bytes[block + 4] = type; b.bytes[block + 5] = 1;
   w16(b.bytes, block + 8, 2); w32(b.bytes, block + 12, 10); w32(b.bytes, block + 16, 3);
   wf32(b.bytes, block + 20, 12); wf32(b.bytes, block + 24, 34);
@@ -51,7 +51,12 @@ function createBlockFixture(type = 0, includeMargins = true) {
   w64(b.bytes, block + 56, 18446744073709551615n);
   wf32(b.bytes, block + 64, 3); wf32(b.bytes, block + 68, 10);
   wf32(b.bytes, block + 72, 5); wf32(b.bytes, block + 76, 5);
-  b.bytes[block + 80] = 1;
+  b.bytes[block + 80] = 1; b.bytes[block + 81] = 1;
+  const paper = b.table([4, 8, 12, 13, 16, 20], 24);
+  b.bytes[paper + 4] = 2; wf32(b.bytes, paper + 8, 18);
+  b.bytes[paper + 12] = 1; b.bytes[paper + 13] = 1;
+  b.bytes.set([250, 251, 252, 255], paper + 16); b.bytes[paper + 20] = 7;
+  b.pointer(block + 84, paper);
   return b.finish(root);
 }
 
@@ -61,12 +66,17 @@ function decodeFixture(raw) {
   const scale = block.inline(5, 8), size = block.inline(6, 8), marginBytes = block.inline(19, 16);
   const margins = marginBytes === null ? [3, 10, 5, 5] :
     [f32(marginBytes, 0), f32(marginBytes, 4), f32(marginBytes, 8), f32(marginBytes, 12)];
+  const paper = block.nested(15);
   return {
     type: block.inline(0, 1)[0], corner: block.inline(1, 1)[0],
     page: { site: u16(page, 0), timestamp: u32(page, 4), index: u32(page, 8) },
     origin: [f32(origin, 0), f32(origin, 4)], rotation: f32(block.inline(4, 4), 0),
     scale: [f32(scale, 0), f32(scale, 4)], size: [f32(size, 0), f32(size, 4)],
     textWrap: block.inline(7, 1)[0], zIndex: u64(block.inline(9, 8), 0).toString(),
+    paper: { flair: paper.inline(0, 1)[0], spacing: f32(paper.inline(1, 4), 0),
+      bleeds: paper.inline(2, 1)[0] !== 0, centered: paper.inline(3, 1)[0] !== 0,
+      color: Array.from(paper.inline(4, 4)), legacy: paper.inline(5, 1)[0] },
+    resize: block.inline(18, 1)[0] !== 0,
     margins, positionLocked: block.inline(20, 1)[0] !== 0,
   };
 }
@@ -78,6 +88,9 @@ assert.deepEqual(decoded.size, [200, 40]); assert.deepEqual(decoded.margins, [3,
 assert.equal(decoded.type, 0); assert.equal(decoded.corner, 1); assert.equal(decoded.textWrap, 1);
 assert.equal(decoded.zIndex, '18446744073709551615');
 assert.equal(decoded.positionLocked, true);
+assert.deepEqual(decoded.paper, { flair: 2, spacing: 18, bleeds: true, centered: true,
+  color: [250, 251, 252, 255], legacy: 7 });
+assert.equal(decoded.resize, true);
 assert(Math.abs(decoded.rotation - Math.PI / 2) < 1e-7);
 assert.deepEqual(decodeFixture(createBlockFixture(0, false)).margins, [3, 10, 5, 5]);
 
@@ -223,6 +236,13 @@ assert.equal(failed.prepare('PRAGMA user_version').get().user_version, 34);
 assert.equal(failed.prepare("SELECT count(*) count FROM sqlite_master WHERE name='original_block_state'")
   .get().count, 0);
 
+const v40 = database(); migrate(v40); v40.exec('PRAGMA user_version=39');
+v40.exec('BEGIN IMMEDIATE; ALTER TABLE original_block_state ADD COLUMN create_text_paper TEXT;' +
+  'PRAGMA user_version=40; COMMIT');
+assert.equal(v40.prepare('PRAGMA user_version').get().user_version, 40);
+assert.equal(v40.prepare(`SELECT count(*) count FROM pragma_table_info('original_block_state')
+  WHERE name='create_text_paper'`).get().count, 1);
+
 const source = fs.readFileSync(new URL(
   '../../../note/src/main/ets/data/OriginalCreateBlockOperation.ets', import.meta.url), 'utf8');
 const dispatcher = fs.readFileSync(new URL(
@@ -235,14 +255,20 @@ assert.match(source, /CREATE_BLOCK_IMAGE_UNSUPPORTED/);
 assert.match(source, /CREATE_BLOCK_MATH_UNSUPPORTED/);
 assert.doesNotMatch(source, /CREATE_BLOCK_POSITION_LOCK_UNSUPPORTED/);
 assert.match(source, /positionLocked: payload\.positionLocked/);
+assert.match(source, /paper: cloneOriginalPaper\(payload\.paper\)/);
+assert.match(source, /resizesWidthToFitText: payload\.resizesWidthToFitText/);
+assert.doesNotMatch(source, /CREATE_BLOCK_TEXT_PAPER_UNSUPPORTED/);
+assert.doesNotMatch(source, /CREATE_BLOCK_RESIZE_TO_FIT_UNSUPPORTED/);
 assert.match(source, /kind: PageElementKind\.TEXT/);
 assert.match(dispatcher, /OriginalCreateBlockOperationApplier/);
-assert.match(schema, /DB_VERSION: number = 39/);
+assert.match(schema, /DB_VERSION: number = 40/);
 assert.match(schema, /DDL_ORIGINAL_BLOCK_STATE/);
+assert.match(schema, /40: \['ALTER TABLE original_block_state ADD COLUMN create_text_paper TEXT'\]/);
 
 console.log('success|flatbuffer-rl2=1|text-create=1|empty-richtext=1|transform=1|' +
   'margins=3,10,5,5|uint64-z=1|v34-v35=1|live-order=1|archive-apply=1|' +
-  'search-invalidated=1|position-lock=1|rollback=2|image-math-deferred=1');
+  'search-invalidated=1|position-lock=1|text-paper=1|resize-to-fit=1|v39-v40=1|' +
+  'rollback=2|image-math-deferred=1');
 
 function u16(bytes, offset) { return bytes[offset] | bytes[offset + 1] << 8; }
 function u32(bytes, offset) {

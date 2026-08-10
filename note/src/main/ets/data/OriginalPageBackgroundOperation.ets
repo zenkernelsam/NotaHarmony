@@ -23,7 +23,7 @@ export interface OriginalDecodedPageBackground {
 export function decodeOriginalPageBackgroundTable(
   table: OriginalFlatBufferTableReader): OriginalDecodedPageBackground {
   const paperTable: OriginalFlatBufferTableReader | null = table.readTable(0);
-  const paper: PagePaperBackground | null = paperTable === null ? null : decodePaper(paperTable);
+  const paper: PagePaperBackground | null = paperTable === null ? null : decodeOriginalPaper(paperTable);
   const hasPdf: boolean = table.readTable(1) !== null;
   const rotation: number = normalizeCardinalRotation(table.readFloat32(2, 0));
   const sourceSize: number[] | null = readInlineFloats(table, 3, 2);
@@ -65,7 +65,7 @@ export function originalPageBackgroundFitsHarmony(value: OriginalDecodedPageBack
   }
 }
 
-function decodePaper(table: OriginalFlatBufferTableReader): PagePaperBackground {
+export function decodeOriginalPaper(table: OriginalFlatBufferTableReader): PagePaperBackground {
   const color: Uint8Array | null = table.readInlineBytes(4, 4);
   const flairValue: number | null = table.hasField(0) ? table.readUint8(0, 0) : null;
   if (flairValue !== null && (flairValue < OriginalPaperFlair.LINES ||

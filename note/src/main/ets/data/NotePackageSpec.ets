@@ -2,6 +2,7 @@
 // 纯类型 + 序列化工具：不 import 平台模块
 // elements 保持 object[]（JSON 原始结构），但导入前必须按 exporter 的三种 payload 做结构校验。
 import { ElementType, ShapeArrowHead, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { validateOriginalPaper } from '../core/model/PageBackgroundModel';
 import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import { InkPathCommand, InkPathCommandType, InkStyle, InkStyleMapEntry, StrokeElementData,
   StrokePathPoint } from '../core/model/StrokeTypes';
@@ -308,7 +309,21 @@ function isValidText(text: TextBlockElement): boolean {
     (text.corner === undefined || text.corner === 0 || text.corner === 1) &&
     (text.textWrap === undefined || text.textWrap === 0 || text.textWrap === 1) &&
     (text.enableCaption === undefined || typeof text.enableCaption === 'boolean') &&
+    isValidOptionalTextPaper(text) &&
+    (text.resizesWidthToFitText === undefined || typeof text.resizesWidthToFitText === 'boolean') &&
     (text.positionLocked === undefined || typeof text.positionLocked === 'boolean');
+}
+
+function isValidOptionalTextPaper(text: TextBlockElement): boolean {
+  if (text.paper === undefined || text.paper === null) {
+    return true;
+  }
+  try {
+    validateOriginalPaper(text.paper);
+    return true;
+  } catch (_error) {
+    return false;
+  }
 }
 
 function isValidRichTextRuns(text: TextBlockElement): boolean {

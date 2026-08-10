@@ -1,6 +1,7 @@
 import { relationalStore } from '@kit.ArkData';
 import { util } from '@kit.ArkTS';
 import { TextBlockElement } from '../core/model/ElementTypes';
+import { cloneOriginalPaper } from '../core/model/PageBackgroundModel';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import {
   compareOperationIdentity, compareOriginalSequenceIdentity, encodeOperationId, encodeOriginalSequenceId,
@@ -697,6 +698,9 @@ function cloneText(text: TextBlockElement): TextBlockElement {
     paragraphStyleRuns: text.paragraphStyleRuns === undefined ? undefined :
       text.paragraphStyleRuns.map((run) => ({ start: run.start, end: run.end,
         style: Object.assign({}, run.style) })),
+    corner: text.corner, textWrap: text.textWrap, enableCaption: text.enableCaption,
+    paper: cloneOriginalPaper(text.paper === undefined ? null : text.paper),
+    resizesWidthToFitText: text.resizesWidthToFitText,
     positionLocked: text.positionLocked === true,
   };
 }

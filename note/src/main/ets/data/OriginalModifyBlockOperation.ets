@@ -3,6 +3,7 @@ import { TextBlockElement } from '../core/model/ElementTypes';
 import { TransformMatrix } from '../core/model/GeometryTypes';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { textBlockWorldBounds } from '../core/model/TextBlockGeometry';
+import { cloneOriginalPaper } from '../core/model/PageBackgroundModel';
 import {
   compareOperationIdentity, encodeOperationId, OperationIdentity, OriginalSequenceIdentity,
   validateOperationIdentity, validateOriginalSequenceIdentity,
@@ -1083,6 +1084,9 @@ function cloneText(text: TextBlockElement): TextBlockElement {
     paragraphStyleRuns: text.paragraphStyleRuns === undefined ? undefined :
       text.paragraphStyleRuns.map((run) => ({ start: run.start, end: run.end,
         style: Object.assign({}, run.style) })),
+    corner: text.corner, textWrap: text.textWrap, enableCaption: text.enableCaption,
+    paper: cloneOriginalPaper(text.paper === undefined ? null : text.paper),
+    resizesWidthToFitText: text.resizesWidthToFitText,
     positionLocked: text.positionLocked === true,
   };
 }

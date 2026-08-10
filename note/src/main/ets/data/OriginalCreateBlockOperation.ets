@@ -1,6 +1,8 @@
 import { relationalStore } from '@kit.ArkData';
 import { ElementType, TextBlockElement } from '../core/model/ElementTypes';
 import { TransformMatrix } from '../core/model/GeometryTypes';
+import { PagePaperBackground } from '../core/model/NoteTypes';
+import { cloneOriginalPaper } from '../core/model/PageBackgroundModel';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { textBlockWorldBounds } from '../core/model/TextBlockGeometry';
 import { encodeOperationId, OriginalSequenceIdentity,
@@ -9,6 +11,7 @@ import { encodePersistedElement, PersistedElement } from './StrokePersistence';
 import { SearchItemType } from './SearchItemType';
 import { OriginalFlatBufferTableReader, readOriginalInlineFloat32,
   readOriginalPayloadTable } from './OriginalSyncedOperationFlatBuffer';
+import { decodeOriginalPaper } from './OriginalPageBackgroundOperation';
 import { StoredSyncedOperation, SyncedOperationApplier,
   SyncedOperationApplyResult } from './SyncedOperationInbox';
 import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './UnsignedDecimal';
@@ -47,7 +50,7 @@ export interface OriginalCreateBlockPayload {
   hasWebUrl: boolean;
   hasMathLatex: boolean;
   hasMathColor: boolean;
-  hasPaper: boolean;
+  paper: PagePaperBackground | null;
   imageFlippedHorizontally: boolean;
   imageFlippedVertically: boolean;
   resizesWidthToFitText: boolean;
@@ -96,6 +99,7 @@ export function decodeOriginalCreateBlock(bytes: Uint8Array,
     right: readOriginalInlineFloat32(marginBytes, 12),
   };
   const zIndex: string = table.readUint64Decimal(9, defaultZIndex) as string;
+  const paperTable: OriginalFlatBufferTableReader | null = table.readTable(15);
   validateUnsignedLongDecimal(zIndex);
   return {
     blockType: normalizeOriginalEnum(table.readUint8(0, 0), 2) as OriginalBlockType,
@@ -116,7 +120,7 @@ export function decodeOriginalCreateBlock(bytes: Uint8Array,
     hasWebUrl: table.hasField(12),
     hasMathLatex: table.hasField(13),
     hasMathColor: table.hasField(14),
-    hasPaper: table.hasField(15),
+    paper: paperTable === null ? null : decodeOriginalPaper(paperTable),
     imageFlippedHorizontally: table.readUint8(16, 0) !== 0,
     imageFlippedVertically: table.readUint8(17, 0) !== 0,
     resizesWidthToFitText: table.readUint8(18, 0) !== 0,
@@ -190,6 +194,7 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       'create_enable_caption': payload.enableCaption ? 1 : 0,
       'create_position_locked': payload.positionLocked ? 1 : 0,
       'create_resizes_width': payload.resizesWidthToFitText ? 1 : 0,
+      'create_text_paper': payload.paper === null ? null : JSON.stringify(payload.paper),
       'create_margin_top': payload.margins.top,
       'create_margin_bottom': payload.margins.bottom,
       'create_margin_left': payload.margins.left,
@@ -219,12 +224,6 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     }
     if (payload.hasMathLatex || payload.hasMathColor) {
       return 'CREATE_BLOCK_MATH_FIELDS_ON_TEXT';
-    }
-    if (payload.hasPaper) {
-      return 'CREATE_BLOCK_TEXT_PAPER_UNSUPPORTED';
-    }
-    if (payload.resizesWidthToFitText) {
-      return 'CREATE_BLOCK_RESIZE_TO_FIT_UNSUPPORTED';
     }
     if (!Number.isFinite(payload.originX) || !Number.isFinite(payload.originY) ||
       (payload.rotation !== null && !Number.isFinite(payload.rotation)) ||
@@ -266,6 +265,8 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       corner: payload.corner,
       textWrap: payload.textWrap,
       enableCaption: payload.enableCaption,
+      paper: cloneOriginalPaper(payload.paper),
+      resizesWidthToFitText: payload.resizesWidthToFitText,
       positionLocked: payload.positionLocked,
     };
     text.bounds = textBlockWorldBounds(text);

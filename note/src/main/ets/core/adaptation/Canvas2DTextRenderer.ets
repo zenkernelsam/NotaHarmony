@@ -4,15 +4,20 @@ import {
 } from '../model/ElementTypes';
 import { RenderContext } from './StrokeRenderer';
 import { Canvas2DDrawingContext } from './Canvas2DStrokeRenderer';
+import { OriginalPaperFlair, PagePaperBackground } from '../model/NoteTypes';
+
+const TEXT_PAPER_POINTS_TO_UNITS: number = 96 / 72;
 
 export class Canvas2DTextRenderer {
   renderText(element: TextBlockElement, context: RenderContext): void {
-    if (element.richText.length === 0) {
-      return;
-    }
     const ctx: Canvas2DDrawingContext = context as Canvas2DDrawingContext;
     ctx.save();
     ctx.transform(element.transform);
+    this.renderPaper(ctx, element);
+    if (element.richText.length === 0) {
+      ctx.restore();
+      return;
+    }
     const characters: string[] = [];
     for (const character of element.richText) {
       characters.push(character);
@@ -67,10 +72,57 @@ export class Canvas2DTextRenderer {
     ctx.restore();
   }
 
+  private renderPaper(ctx: Canvas2DDrawingContext, element: TextBlockElement): void {
+    const paper: PagePaperBackground | null = element.paper === undefined ? null : element.paper;
+    if (paper === null) {
+      return;
+    }
+    const left: number = element.textOrigin.x;
+    const top: number = element.textOrigin.y;
+    const width: number = element.blockWidth;
+    const height: number = element.blockHeight;
+    if (paper.colorR !== null && paper.colorG !== null && paper.colorB !== null &&
+      paper.colorA !== null) {
+      ctx.setFillStyle(`rgba(${paper.colorR},${paper.colorG},${paper.colorB},${paper.colorA / 255})`);
+      ctx.fillRect(left, top, width, height);
+    }
+    if (paper.flair === null || paper.flairSpacingPt === null || paper.flairSpacingPt <= 0) {
+      return;
+    }
+    const spacing: number = paper.flairSpacingPt * TEXT_PAPER_POINTS_TO_UNITS;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(left, top, width, height);
+    ctx.clip();
+    ctx.setStrokeStyle('rgba(90,90,90,0.24)');
+    ctx.setFillStyle('rgba(90,90,90,0.32)');
+    ctx.setLineWidth(1);
+    const offsetX: number = paper.flairCentered === true ? (width % spacing) / 2 : 0;
+    const offsetY: number = paper.flairCentered === true ? (height % spacing) / 2 : 0;
+    if (paper.flair === OriginalPaperFlair.LINES || paper.flair === OriginalPaperFlair.GRID) {
+      for (let y: number = top + offsetY; y <= top + height; y += spacing) {
+        ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + width, y); ctx.stroke();
+      }
+    }
+    if (paper.flair === OriginalPaperFlair.GRID) {
+      for (let x: number = left + offsetX; x <= left + width; x += spacing) {
+        ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + height); ctx.stroke();
+      }
+    } else if (paper.flair === OriginalPaperFlair.DOTS) {
+      for (let y: number = top + offsetY; y <= top + height; y += spacing) {
+        for (let x: number = left + offsetX; x <= left + width; x += spacing) {
+          ctx.beginPath(); ctx.arc(x, y, 1, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+    ctx.restore();
+  }
+
   private lineEnds(ctx: Canvas2DDrawingContext, characters: string[],
     styles: RichTextCharacterStyle[], element: TextBlockElement): number[] {
     const ends: number[] = [];
-    const wrap: number = element.textWrap === undefined ? 0 : element.textWrap;
+    const wrap: number = element.resizesWidthToFitText === true ? 1 :
+      (element.textWrap === undefined ? 0 : element.textWrap);
     const available: number = Math.max(1, element.blockWidth - element.contentLeftInset * 2);
     let start: number = 0;
     let width: number = 0;

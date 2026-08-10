@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v39: preserve original RichText character/paragraph style interval operations.
-export const DB_VERSION: number = 39;
+// v40: preserve the original TEXT block paper baseline.
+export const DB_VERSION: number = 40;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -603,6 +603,7 @@ CREATE TABLE IF NOT EXISTS original_block_state (
   create_enable_caption INTEGER NOT NULL CHECK (create_enable_caption IN (0, 1)),
   create_position_locked INTEGER NOT NULL CHECK (create_position_locked IN (0, 1)),
   create_resizes_width INTEGER NOT NULL CHECK (create_resizes_width IN (0, 1)),
+  create_text_paper TEXT,
   create_margin_top REAL NOT NULL CHECK (create_margin_top >= 0),
   create_margin_bottom REAL NOT NULL CHECK (create_margin_bottom >= 0),
   create_margin_left REAL NOT NULL CHECK (create_margin_left >= 0),
@@ -1574,4 +1575,5 @@ export const MIGRATIONS: Record<number, string[]> = {
       CHECK (visibility_winner_present IN (0, 1))`,
   ],
   39: [DDL_ORIGINAL_TEXT_STYLE_OPERATION],
+  40: ['ALTER TABLE original_block_state ADD COLUMN create_text_paper TEXT'],
 };

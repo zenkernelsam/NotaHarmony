@@ -13,7 +13,7 @@ export function clonePageBackground(value: PageBackground | null | undefined): P
   }
   return {
     schemaVersion: value.schemaVersion,
-    paper: clonePaper(value.paper),
+    paper: cloneOriginalPaper(value.paper),
     rotationRadians: value.rotationRadians,
     sourceWidthPt: value.sourceWidthPt,
     sourceHeightPt: value.sourceHeightPt,
@@ -50,7 +50,7 @@ export function validatePageBackground(value: PageBackground | null | undefined)
     throw new Error('page background header is invalid');
   }
   validateMargins(value.margins, value.sourceWidthPt, value.sourceHeightPt);
-  validatePaper(value.paper);
+  validateOriginalPaper(value.paper);
 }
 
 export function serializePageBackground(value: PageBackground | null | undefined): string | null {
@@ -97,7 +97,7 @@ export function pageBackgroundCssColor(value: PageBackground | null | undefined,
   return `rgba(${paper.colorR},${paper.colorG},${paper.colorB},${paper.colorA / 255.0})`;
 }
 
-function clonePaper(value: PagePaperBackground | null): PagePaperBackground | null {
+export function cloneOriginalPaper(value: PagePaperBackground | null): PagePaperBackground | null {
   if (value === null) {
     return null;
   }
@@ -115,7 +115,7 @@ function cloneMargins(value: PageBackgroundMargins | null): PageBackgroundMargin
   return { topPt: value.topPt, bottomPt: value.bottomPt, leftPt: value.leftPt, rightPt: value.rightPt };
 }
 
-function validatePaper(value: PagePaperBackground | null): void {
+export function validateOriginalPaper(value: PagePaperBackground | null): void {
   if (value === null) {
     return;
   }
