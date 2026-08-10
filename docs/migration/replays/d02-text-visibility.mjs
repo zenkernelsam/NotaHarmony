@@ -299,7 +299,7 @@ assert.match(source, /ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE: number = 11/);
 assert.match(source, /compareOperationIdentity\(operation, character\.visibilityWinner\) >= 0/);
 assert.match(source, /if \(after === before\)/);
 assert.match(dispatcher, /OriginalTextVisibilityOperationApplier/);
-assert.match(schema, /DB_VERSION: number = 45/);
+assert.match(schema, /DB_VERSION: number = 46/);
 assert.match(schema, /visibility_winner_present/);
 
 console.log('success|flatbuffer-pub-qub-f2c=1|v37-v38=1|remove-parent-keeps-descendants=1|' +

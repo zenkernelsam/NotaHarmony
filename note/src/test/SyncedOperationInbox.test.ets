@@ -20,7 +20,9 @@ import {
 } from '../main/ets/data/OperationIdentity';
 import { decodeOriginalNoteBundle } from '../main/ets/data/OriginalNoteBundlePageIdentity';
 import { decodeOriginalModifyPage } from '../main/ets/data/OriginalModifyPageOperation';
-import { decodeOriginalDeleteEntities } from '../main/ets/data/OriginalDeleteEntitiesOperation';
+import { decodeOriginalDeleteEntities, decodeOriginalDeleteEntitiesTable,
+  OriginalDeleteEntitiesOperationApplier } from
+  '../main/ets/data/OriginalDeleteEntitiesOperation';
 import { OriginalPageOperationApplier } from '../main/ets/data/OriginalPageOperationApplier';
 import { decodeOriginalCreateInk, decodeOriginalCreateInkTable,
   OriginalCreateInkOperationApplier, unsupportedOriginalCreateInkReason } from
@@ -566,6 +568,10 @@ export default function syncedOperationInboxTest() {
       const payload = decodeOriginalDeleteEntities(flatBufferDeleteEntities());
       expect(payload.entityDeleteCount).assertEqual(1);
       expect(payload.entityUndeleteCount).assertEqual(1);
+      expect(payload.entityDeletes[0].timestamp).assertEqual(9);
+      expect(payload.entityDeletes[0].siteId).assertEqual(8);
+      expect(payload.entityUndeletes[0].timestamp).assertEqual(11);
+      expect(payload.entityUndeletes[0].siteId).assertEqual(10);
       expect(payload.pageDeletes.length).assertEqual(2);
       expect(payload.pageDeletes[0].timestamp).assertEqual(10);
       expect(payload.pageDeletes[0].siteId).assertEqual(1);
@@ -633,6 +639,19 @@ export default function syncedOperationInboxTest() {
       expect(new OriginalModifyInkOperationApplier().preflightTable(
         bundle.operations[3].payload) === null).assertTrue();
     });
+
+    it('decodes and preflights DELETE_ENTITIES from a NOTE_BUNDLE child table', 0, () => {
+      const bundle = decodeOriginalNoteBundle(flatBufferNoteBundleWithCreateInk(true, true, true));
+      expect(bundle.operations.length).assertEqual(5);
+      expect(bundle.operations[4].payloadType).assertEqual(25);
+      const deleted = decodeOriginalDeleteEntitiesTable(bundle.operations[4].payload);
+      expect(deleted.entityDeletes.length).assertEqual(1);
+      expect(deleted.entityDeletes[0].timestamp).assertEqual(20);
+      expect(deleted.entityDeletes[0].siteId).assertEqual(2);
+      expect(deleted.entityUndeletes.length).assertEqual(1);
+      expect(new OriginalDeleteEntitiesOperationApplier().preflightTable(
+        bundle.operations[4].payload) === null).assertTrue();
+    });
   });
 }
 
@@ -690,7 +709,7 @@ function flatBufferNoteBundle(): Uint8Array {
 }
 
 function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
-  includeModify: boolean = false): Uint8Array {
+  includeModify: boolean = false, includeDelete: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 0, 20, 24, 0, 28, 32, 36], 40);
   const uuid: number[] = [0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88,
@@ -698,7 +717,8 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
   builder.color(root + 4, uuid);
   builder.uint16(root + 20, 9);
   builder.uint16(root + 36, 7);
-  const operationCount: number = 2 + (includeAppend ? 1 : 0) + (includeModify ? 1 : 0);
+  const operationCount: number = 2 + (includeAppend ? 1 : 0) + (includeModify ? 1 : 0) +
+    (includeDelete ? 1 : 0);
   const operations: number = builder.tableVector(operationCount);
   builder.pointer(root + 32, operations);
   const createPageOp: number = builder.table([4, 12, 20, 0, 28, 32, 0], 36);
@@ -707,13 +727,21 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
     builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
   const modifyOp: number = includeModify ?
     builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
+  const deleteOp: number = includeDelete ?
+    builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
   builder.pointer(operations + 4, createPageOp);
   builder.pointer(operations + 8, createInkOp);
+  let operationIndex: number = 2;
   if (includeAppend) {
-    builder.pointer(operations + 12, appendOp);
+    builder.pointer(operations + 4 + operationIndex * 4, appendOp);
+    operationIndex++;
   }
   if (includeModify) {
-    builder.pointer(operations + 4 + (operationCount - 1) * 4, modifyOp);
+    builder.pointer(operations + 4 + operationIndex * 4, modifyOp);
+    operationIndex++;
+  }
+  if (includeDelete) {
+    builder.pointer(operations + 4 + operationIndex * 4, deleteOp);
   }
   writeBundleOperation(builder, createPageOp, 1, 10, '11', '12', 3);
   writeBundleOperation(builder, createInkOp, 2, 20, '21', '22', 15);
@@ -722,6 +750,9 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
   }
   if (includeModify) {
     writeBundleOperation(builder, modifyOp, 4, 40, '41', '42', 17);
+  }
+  if (includeDelete) {
+    writeBundleOperation(builder, deleteOp, 5, 50, '51', '52', 25);
   }
 
   const createPage: number = builder.table([0, 0, 4, 0], 8);
@@ -766,6 +797,16 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
       { timestamp: 20, siteId: 2 },
     ]));
     builder.float32(modify + 8, 9);
+  }
+  if (includeDelete) {
+    const deleted: number = builder.table([4, 8, 0, 0], 12);
+    builder.pointer(deleteOp + 32, deleted);
+    builder.pointer(deleted + 4, builder.operationIdentityVector([
+      { timestamp: 20, siteId: 2 },
+    ]));
+    builder.pointer(deleted + 8, builder.operationIdentityVector([
+      { timestamp: 20, siteId: 2 },
+    ]));
   }
   builder.pointer(root + 24, builder.byteVector([0x65]));
   builder.pointer(root + 28, builder.byteVector([0x63]));

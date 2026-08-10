@@ -39,9 +39,6 @@ function replay(db, operations, failAt = -1) {
     for (const operation of operations) {
       if (operation.type !== 3 && operation.type !== 4 && operation.type !== 25 &&
         operation.type !== 15) throw new Error(`NOTE_BUNDLE_PAYLOAD_${operation.type}_UNSUPPORTED`);
-      if (operation.type === 25 && (operation.entityDeleteCount || operation.entityUndeleteCount)) {
-        throw new Error('NOTE_BUNDLE_ENTITY_VISIBILITY_UNSUPPORTED');
-      }
       if (operation.type === 15 && operation.tool === 3) {
         throw new Error('NOTE_BUNDLE_CREATE_INK_TAPE_UNSUPPORTED');
       }
@@ -121,8 +118,7 @@ assert.equal(JSON.stringify(db.prepare('SELECT * FROM snapshot ORDER BY element_
 assert.equal(db.prepare('SELECT content_revision FROM page_info').get().content_revision, 2);
 
 for (const operations of [[page, { type: 22 }], [page, ink(20, 2, '1', { tool: 3 })],
-  [page, ink(20, 2, '1', { pageTimestamp: 99 })],
-  [page, ink(20, 2, '1'), { type: 25, entityDeleteCount: 1 }]]) {
+  [page, ink(20, 2, '1', { pageTimestamp: 99 })]]) {
   const rejected = database();
   assert.match(replay(rejected, operations), /UNSUPPORTED|PAGE_MISSING/);
   assert.equal(rejected.prepare('SELECT count(*) count FROM original_page_identity').get().count, 0);
@@ -140,7 +136,7 @@ assert.equal(failed.prepare('SELECT content_revision FROM page_info').get().cont
 assert.ok(bundleSource.indexOf('preflightBundleContent(bundle, history)') <
   bundleSource.indexOf('insertBootstrapHistory(store'));
 assert.match(bundleSource, /NOTE_BUNDLE_PAYLOAD_\$\{operation\.payloadType\}_UNSUPPORTED/);
-assert.match(bundleSource, /NOTE_BUNDLE_ENTITY_VISIBILITY_UNSUPPORTED/);
+assert.match(bundleSource, /await deleteEntities\.applyEntityTable/);
 assert.match(bundleSource, /await createInk\.applyTable/);
 assert.match(createInkSource, /elementExists && inkStateExists[\s\S]*originalCreateMatches/);
 assert.match(createInkSource, /original create-ink has partial persisted state/);
@@ -151,5 +147,4 @@ assert.match(deferredSource,
 console.log('success|bundle-create-ink=2|z-order=1|revision=2|retry-idempotent=1|' +
   'conflicting-identity-rejected=1|' +
   'unknown-zero-write=1|tape-zero-write=1|missing-page-zero-write=1|' +
-  'entity-visibility-zero-write=1|' +
   'content-failure-full-rollback=1|preflight-before-page-write=1');

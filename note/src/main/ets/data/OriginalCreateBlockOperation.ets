@@ -599,7 +599,7 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     const tracked = await store.querySql(
       `SELECT element_timestamp, element_site_id, kind, z_index
        FROM original_element_z_index WHERE note_id = ? AND page_timestamp = ?
-       AND page_site_id = ? AND page_index = ?`,
+       AND page_site_id = ? AND page_index = ? AND visible = 1`,
       [noteId, page.timestamp, page.siteId, page.index]);
     const trackedRows: StoredZIndexRow[] = [];
     const trackedKeys: Set<string> = new Set<string>();

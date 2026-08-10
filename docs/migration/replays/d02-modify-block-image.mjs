@@ -269,7 +269,7 @@ assert.match(source, /cloneImageElement/);
 assert.match(source, /imageBlockWorldBounds/);
 assert.match(source, /image_crop_x_value/);
 assert.match(source, /if \(textChanged\)/);
-assert.match(schema, /DB_VERSION: number = 45/);
+assert.match(schema, /DB_VERSION: number = 46/);
 assert.match(schema, /image_crop_winner_present = 1[\s\S]*image_crop_x_value IS NULL/);
 assert.match(tests, /decodes original MODIFY_BLOCK image crop and flip registers/);
 

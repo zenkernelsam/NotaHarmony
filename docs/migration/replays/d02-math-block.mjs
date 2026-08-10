@@ -10,7 +10,7 @@ const modifySource = fs.readFileSync(new URL(
 const schema = fs.readFileSync(new URL(
   'note/src/main/ets/data/DatabaseHelper.ets', rootPath), 'utf8');
 
-const migrationBody = schema.match(/45:\s*\[([\s\S]*?)\n\s*\],\n};/);
+const migrationBody = schema.match(/45:\s*\[([\s\S]*?)\n\s*\],\n\s*46:/);
 assert(migrationBody);
 const migrationStatements = Array.from(
   migrationBody[1].matchAll(/(?:'([^']+)'|`([\s\S]*?)`)/g), match => match[1] ?? match[2]);
@@ -220,7 +220,7 @@ assert.match(createSource, /kind === PageElementKind\.MATH \? 'math' : 'text'/);
 assert.match(modifySource, /replaceMathLatex[\s\S]*replaceMathColor/);
 assert.match(modifySource, /updatedMath\.latex = payload\.mathLatex\.value === null \? ''/);
 assert.match(modifySource, /updatedMath\.color = payload\.mathColor\.value === null \? DEFAULT_MATH_COLOR/);
-assert.match(schema, /DB_VERSION: number = 45/);
+assert.match(schema, /DB_VERSION: number = 46/);
 
 console.log('success|v44-v45=1|migration-rollback=1|missing-fields-zero-write=2|' +
   'kind=5|snapshot-kind=math|rgba-argb=1|independent-lww=2|stale-noop=1|latex-clear=1|' +

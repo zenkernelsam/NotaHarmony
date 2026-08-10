@@ -554,7 +554,8 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
        JOIN original_block_state state ON state.note_id = element.note_id
         AND state.block_timestamp = element.element_timestamp
         AND state.block_site_id = element.element_site_id
-       WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?`,
+       WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?
+        AND element.visible = 1`,
       [noteId, block.timestamp, block.siteId]);
     let page: OriginalSequenceIdentity;
     let pageId: string;
@@ -973,7 +974,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     const tracked = await store.querySql(
       `SELECT element_timestamp, element_site_id, kind, z_index
        FROM original_element_z_index WHERE note_id = ? AND page_timestamp = ?
-       AND page_site_id = ? AND page_index = ?`,
+       AND page_site_id = ? AND page_index = ? AND visible = 1`,
       [noteId, target.page.timestamp, target.page.siteId, target.page.index]);
     const result: StoredZIndexRow[] = [];
     const keys: Set<string> = new Set<string>();

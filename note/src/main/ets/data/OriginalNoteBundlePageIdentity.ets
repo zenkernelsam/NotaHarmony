@@ -4,7 +4,8 @@ import {
   decodeOriginalCreatePageTable, MAX_ORIGINAL_CREATE_PAGE_COUNT, OriginalCreatePagePayload,
 } from './OriginalCreatePageOperation';
 import {
-  decodeOriginalDeleteEntitiesTable, OriginalDeleteEntitiesPayload,
+  decodeOriginalDeleteEntitiesTable, OriginalDeleteEntitiesOperationApplier,
+  OriginalDeleteEntitiesPayload,
 } from './OriginalDeleteEntitiesOperation';
 import {
   decodeOriginalModifyPageTable, OriginalModifyPagePayload,
@@ -234,20 +235,17 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
   const addPath: OriginalAddPathElementsOperationApplier =
     new OriginalAddPathElementsOperationApplier();
   const modifyInk: OriginalModifyInkOperationApplier = new OriginalModifyInkOperationApplier();
+  const deleteEntities: OriginalDeleteEntitiesOperationApplier =
+    new OriginalDeleteEntitiesOperationApplier();
   for (const operation of bundle.operations) {
     if (operation.payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE) {
       continue;
     }
     if (operation.payloadType === ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE) {
-      let deleted: OriginalDeleteEntitiesPayload;
-      try {
-        deleted = decodeOriginalDeleteEntitiesTable(operation.payload);
-      } catch (_error) {
-        return 'NOTE_BUNDLE_MALFORMED_DELETE_ENTITIES_PAYLOAD';
-      }
-      if (deleted.entityDeleteCount !== 0 || deleted.entityUndeleteCount !== 0) {
-        return 'NOTE_BUNDLE_ENTITY_VISIBILITY_UNSUPPORTED';
+      const reason: string | null = deleteEntities.preflightTable(operation.payload);
+      if (reason !== null) {
+        return `NOTE_BUNDLE_${reason}`;
       }
       continue;
     }
@@ -301,13 +299,16 @@ async function applyBundleContent(store: relationalStore.RdbStore,
   const addPath: OriginalAddPathElementsOperationApplier =
     new OriginalAddPathElementsOperationApplier();
   const modifyInk: OriginalModifyInkOperationApplier = new OriginalModifyInkOperationApplier();
+  const deleteEntities: OriginalDeleteEntitiesOperationApplier =
+    new OriginalDeleteEntitiesOperationApplier();
   const before: number = await countRows(store,
     'SELECT COUNT(*) AS value FROM original_element_z_index WHERE note_id = ?', [bundle.noteId]);
   const revisionBefore: number = await contentRevisionTotal(store, bundle.noteId);
   for (const operation of bundle.operations) {
     if (operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE &&
-      operation.payloadType !== ORIGINAL_MODIFY_INK_PAYLOAD_TYPE) {
+      operation.payloadType !== ORIGINAL_MODIFY_INK_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE) {
       continue;
     }
     const stored: StoredSyncedOperation = {
@@ -328,8 +329,10 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       result = await createInk.applyTable(store, stored, operation.payload);
     } else if (operation.payloadType === ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE) {
       result = await addPath.applyTable(store, stored, operation.payload);
-    } else {
+    } else if (operation.payloadType === ORIGINAL_MODIFY_INK_PAYLOAD_TYPE) {
       result = await modifyInk.applyTable(store, stored, operation.payload);
+    } else {
+      result = await deleteEntities.applyEntityTable(store, stored, operation.payload);
     }
     if (result.deferredReason !== null) {
       return deferred(`NOTE_BUNDLE_${result.deferredReason}`);

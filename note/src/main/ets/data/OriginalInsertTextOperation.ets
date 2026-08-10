@@ -241,7 +241,7 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
         AND state.block_timestamp = element.element_timestamp
         AND state.block_site_id = element.element_site_id
        WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?
-        AND element.kind = ?`,
+        AND element.kind = ? AND element.visible = 1`,
       [operation.noteId, block.timestamp, block.siteId, PageElementKind.TEXT]);
     let page: OriginalSequenceIdentity;
     let pageId: string;

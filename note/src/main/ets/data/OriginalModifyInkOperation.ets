@@ -635,7 +635,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
        JOIN original_page_identity identity ON identity.note_id = element.note_id
         AND identity.seq_timestamp = element.page_timestamp
         AND identity.seq_site_id = element.page_site_id AND identity.seq_index = element.page_index
-       WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?`,
+       WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?
+        AND element.visible = 1`,
       [noteId, ink.timestamp, ink.siteId]);
     let page: OriginalSequenceIdentity;
     let pageId: string;
@@ -779,7 +780,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     const tracked = await store.querySql(
       `SELECT element_timestamp, element_site_id, kind, z_index
        FROM original_element_z_index WHERE note_id = ? AND page_timestamp = ?
-       AND page_site_id = ? AND page_index = ?`,
+       AND page_site_id = ? AND page_index = ? AND visible = 1`,
       [noteId, page.timestamp, page.siteId, page.index]);
     const result: StoredZIndexRow[] = [];
     const keys: Set<string> = new Set<string>();

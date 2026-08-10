@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v45: preserve original MATH CREATE/MODIFY registers independently.
-export const DB_VERSION: number = 45;
+// v46: preserve original entity visibility and admit IMAGE/MATH element kinds.
+export const DB_VERSION: number = 46;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -367,7 +367,8 @@ CREATE TABLE IF NOT EXISTS original_element_z_index (
   page_timestamp INTEGER NOT NULL CHECK (page_timestamp BETWEEN 0 AND 4294967295),
   page_site_id INTEGER NOT NULL CHECK (page_site_id BETWEEN 0 AND 65535),
   page_index INTEGER NOT NULL CHECK (page_index BETWEEN 0 AND 4294967295),
-  kind INTEGER NOT NULL CHECK (kind BETWEEN 1 AND 3),
+  kind INTEGER NOT NULL CHECK (kind BETWEEN 1 AND 5),
+  visible INTEGER NOT NULL DEFAULT 1 CHECK (visible IN (0, 1)),
   z_index TEXT NOT NULL CHECK (
     typeof(z_index) = 'text' AND length(z_index) BETWEEN 1 AND 20
     AND z_index NOT GLOB '*[^0-9]*'
@@ -375,6 +376,63 @@ CREATE TABLE IF NOT EXISTS original_element_z_index (
     AND (length(z_index) < 20 OR z_index <= '18446744073709551615')
   ),
   PRIMARY KEY(note_id, element_timestamp, element_site_id),
+  FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
+    REFERENCES original_page_identity(note_id, seq_timestamp, seq_site_id, seq_index) ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+const DDL_ORIGINAL_ELEMENT_Z_INDEX_V46: string = `
+CREATE TABLE original_element_z_index_v46 (
+  note_id TEXT NOT NULL,
+  element_timestamp INTEGER NOT NULL CHECK (element_timestamp BETWEEN 0 AND 4294967295),
+  element_site_id INTEGER NOT NULL CHECK (element_site_id BETWEEN 0 AND 65535),
+  page_timestamp INTEGER NOT NULL CHECK (page_timestamp BETWEEN 0 AND 4294967295),
+  page_site_id INTEGER NOT NULL CHECK (page_site_id BETWEEN 0 AND 65535),
+  page_index INTEGER NOT NULL CHECK (page_index BETWEEN 0 AND 4294967295),
+  kind INTEGER NOT NULL CHECK (kind BETWEEN 1 AND 5),
+  visible INTEGER NOT NULL DEFAULT 1 CHECK (visible IN (0, 1)),
+  z_index TEXT NOT NULL CHECK (
+    typeof(z_index) = 'text' AND length(z_index) BETWEEN 1 AND 20
+    AND z_index NOT GLOB '*[^0-9]*'
+    AND (z_index = '0' OR substr(z_index, 1, 1) <> '0')
+    AND (length(z_index) < 20 OR z_index <= '18446744073709551615')
+  ),
+  PRIMARY KEY(note_id, element_timestamp, element_site_id),
+  FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
+    REFERENCES original_page_identity(note_id, seq_timestamp, seq_site_id, seq_index) ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER: string = `
+CREATE TABLE IF NOT EXISTS original_entity_visibility_winner (
+  note_id TEXT NOT NULL,
+  entity_timestamp INTEGER NOT NULL CHECK (entity_timestamp BETWEEN 0 AND 4294967295),
+  entity_site_id INTEGER NOT NULL CHECK (entity_site_id BETWEEN 0 AND 65535),
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  deleted INTEGER NOT NULL CHECK (deleted IN (0, 1)),
+  PRIMARY KEY(note_id, entity_timestamp, entity_site_id),
+  FOREIGN KEY(note_id, entity_timestamp, entity_site_id)
+    REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_DELETED_ENTITY: string = `
+CREATE TABLE IF NOT EXISTS original_deleted_entity (
+  note_id TEXT NOT NULL,
+  entity_timestamp INTEGER NOT NULL CHECK (entity_timestamp BETWEEN 0 AND 4294967295),
+  entity_site_id INTEGER NOT NULL CHECK (entity_site_id BETWEEN 0 AND 65535),
+  page_timestamp INTEGER NOT NULL CHECK (page_timestamp BETWEEN 0 AND 4294967295),
+  page_site_id INTEGER NOT NULL CHECK (page_site_id BETWEEN 0 AND 65535),
+  page_index INTEGER NOT NULL CHECK (page_index BETWEEN 0 AND 4294967295),
+  element_id TEXT NOT NULL CHECK (length(element_id) > 0),
+  kind INTEGER NOT NULL CHECK (kind BETWEEN 1 AND 5),
+  payload BLOB NOT NULL,
+  revision INTEGER NOT NULL CHECK (revision >= 0),
+  element_order INTEGER NOT NULL CHECK (element_order >= 0),
+  PRIMARY KEY(note_id, entity_timestamp, entity_site_id),
+  FOREIGN KEY(note_id, entity_timestamp, entity_site_id)
+    REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE,
   FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
     REFERENCES original_page_identity(note_id, seq_timestamp, seq_site_id, seq_index) ON DELETE CASCADE,
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
@@ -1788,5 +1846,17 @@ export const MIGRATIONS: Record<number, string[]> = {
     'ALTER TABLE original_block_state ADD COLUMN math_color_winner_site_id INTEGER',
     `ALTER TABLE original_block_state ADD COLUMN math_color_winner_present INTEGER NOT NULL DEFAULT 0
       CHECK (math_color_winner_present IN (0, 1))`,
+  ],
+  46: [
+    DDL_ORIGINAL_ELEMENT_Z_INDEX_V46,
+    `INSERT INTO original_element_z_index_v46
+      (note_id, element_timestamp, element_site_id, page_timestamp, page_site_id, page_index,
+       kind, visible, z_index)
+     SELECT note_id, element_timestamp, element_site_id, page_timestamp, page_site_id, page_index,
+       kind, 1, z_index FROM original_element_z_index`,
+    'DROP TABLE original_element_z_index',
+    'ALTER TABLE original_element_z_index_v46 RENAME TO original_element_z_index',
+    DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER,
+    DDL_ORIGINAL_DELETED_ENTITY,
   ],
 };

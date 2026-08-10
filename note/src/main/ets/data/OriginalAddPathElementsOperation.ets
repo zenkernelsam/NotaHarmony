@@ -318,7 +318,8 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
        JOIN original_page_identity identity ON identity.note_id = element.note_id
         AND identity.seq_timestamp = element.page_timestamp
         AND identity.seq_site_id = element.page_site_id AND identity.seq_index = element.page_index
-       WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?`,
+       WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?
+        AND element.visible = 1`,
       [noteId, ink.timestamp, ink.siteId]);
     let page: OriginalSequenceIdentity;
     let pageId: string;
