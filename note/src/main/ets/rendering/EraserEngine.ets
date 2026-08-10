@@ -83,6 +83,7 @@ export class EraserEngine {
           customPath: stroke.customPath,
           fillPath: stroke.fillPath,
           fillColor: stroke.fillColor,
+          styleMap: stroke.styleMap,
           isFinished: stroke.isFinished,
         };
         affected.push(updated);

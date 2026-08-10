@@ -96,5 +96,27 @@ export default function rendererStyleTest() {
       expect(fixedDouble).assertEqual(variableDouble);
       expect(Math.abs(fixedDouble - 169) <= 1).assertTrue();
     });
+
+    it('applies the original style-map phase to dashed Ink', 0, () => {
+      const baseCanvas: OffscreenCanvas = new OffscreenCanvas(120, 40);
+      const baseContext: OffscreenCanvasRenderingContext2D =
+        baseCanvas.getContext('2d', new RenderingContextSettings(true));
+      const shiftedCanvas: OffscreenCanvas = new OffscreenCanvas(120, 40);
+      const shiftedContext: OffscreenCanvasRenderingContext2D =
+        shiftedCanvas.getContext('2d', new RenderingContextSettings(true));
+      const renderer: Canvas2DStrokeRenderer = new Canvas2DStrokeRenderer();
+      const shifted: StrokeElementData = stroke(InkStyle.DASH, false);
+      shifted.styleMap = [{
+        backingPencilSeed: 123,
+        backingPencilReferencePoint: { x: 0, y: 0 },
+        backingDashPhase: 15,
+        backingDashPeriod: 30,
+      }];
+      renderer.renderCenterPath(stroke(InkStyle.DASH, false),
+        new Canvas2DOffscreenRenderContext(baseContext));
+      renderer.renderCenterPath(shifted, new Canvas2DOffscreenRenderContext(shiftedContext));
+      expect(alphaAt(baseContext, 30, 20)).assertEqual(255);
+      expect(alphaAt(shiftedContext, 30, 20)).assertEqual(0);
+    });
   });
 }

@@ -23,6 +23,7 @@ export interface Canvas2DDrawingContext extends RenderContext {
   fillText(text: string, x: number, y: number): void;
   arc(x: number, y: number, radius: number, startAngle: number, endAngle: number): void;
   setLineDash(segments: number[]): void;
+  setLineDashOffset(offset: number): void;
   setLineWidth(width: number): void;
   setLineCap(cap: CanvasLineCap): void;
   setLineJoin(join: CanvasLineJoin): void;
@@ -120,6 +121,10 @@ export class Canvas2DRenderContext implements Canvas2DDrawingContext {
 
   setLineDash(segments: number[]): void {
     this.ctx.setLineDash(segments);
+  }
+
+  setLineDashOffset(offset: number): void {
+    this.ctx.lineDashOffset = offset;
   }
 
   setLineWidth(width: number): void {
@@ -261,6 +266,10 @@ export class Canvas2DOffscreenRenderContext implements Canvas2DDrawingContext {
 
   setLineDash(segments: number[]): void {
     this.ctx.setLineDash(segments);
+  }
+
+  setLineDashOffset(offset: number): void {
+    this.ctx.lineDashOffset = offset;
   }
 
   setLineWidth(width: number): void {
@@ -485,6 +494,13 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       c.setLineDash([2 * spec.brushWidth, 1 * spec.brushWidth]);
     } else if (spec.inkStyle === InkStyle.DOTS) {
       c.setLineDash([0.001 * spec.brushWidth, 2 * spec.brushWidth]);
+    }
+    if ((spec.inkStyle === InkStyle.DASH || spec.inkStyle === InkStyle.DOTS) &&
+      stroke.styleMap !== undefined && stroke.styleMap.length > 0) {
+      const period: number = spec.inkStyle === InkStyle.DASH ?
+        3 * spec.brushWidth : 2.001 * spec.brushWidth;
+      const phase: number = stroke.styleMap[0].backingDashPhase;
+      c.setLineDashOffset(period > 0 ? ((phase % period) + period) % period : 0);
     }
     c.stroke();
     c.restore();

@@ -153,6 +153,7 @@ export class SelectionTool {
           customPath: s.customPath,
           fillPath: s.fillPath,
           fillColor: s.fillColor,
+          styleMap: s.styleMap,
           isFinished: s.isFinished,
         });
       } else {

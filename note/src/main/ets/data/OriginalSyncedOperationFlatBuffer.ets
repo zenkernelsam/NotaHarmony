@@ -148,6 +148,16 @@ export class OriginalFlatBufferTableReader {
     return vector === null ? 0 : readU32(this.bytes, vector);
   }
 
+  readInlineVectorBytes(field: number, elementSize: number,
+    maximumCount: number): Uint8Array | null {
+    const vector: number | null = this.readVector(field, elementSize, maximumCount);
+    if (vector === null) {
+      return null;
+    }
+    const count: number = readU32(this.bytes, vector);
+    return this.bytes.slice(vector + 4, vector + 4 + count * elementSize);
+  }
+
   readInlineSequenceVector(field: number, maximumCount: number): number[][] {
     const vector: number | null = this.readVector(field, 12, maximumCount);
     if (vector === null) {

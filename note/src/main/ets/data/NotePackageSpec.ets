@@ -3,7 +3,7 @@
 // elements 保持 object[]（JSON 原始结构），但导入前必须按 exporter 的三种 payload 做结构校验。
 import { ElementType, ShapeArrowHead, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
-import { InkPathCommand, InkPathCommandType, InkStyle, StrokeElementData,
+import { InkPathCommand, InkPathCommandType, InkStyle, InkStyleMapEntry, StrokeElementData,
   StrokePathPoint } from '../core/model/StrokeTypes';
 import { PageBackground } from '../core/model/NoteTypes';
 import { clonePageBackground, validatePageBackground } from '../core/model/PageBackgroundModel';
@@ -92,6 +92,9 @@ export function parsePageElement(element: object): object | null {
     }
     if (stroke.fillColor === undefined) {
       stroke.fillColor = null;
+    }
+    if (stroke.styleMap === undefined) {
+      stroke.styleMap = [];
     }
   }
   return isValidPageElement(element) ? element : null;
@@ -235,8 +238,29 @@ function isValidStroke(stroke: StrokeElementData): boolean {
   }
   if (!isValidInkPath(stroke.customPath) || !isValidInkPath(stroke.fillPath) ||
     (stroke.fillColor !== null && stroke.fillColor !== undefined &&
-      !isFiniteNumber(stroke.fillColor))) {
+      !isFiniteNumber(stroke.fillColor)) || !isValidInkStyleMap(stroke.styleMap)) {
     return false;
+  }
+  return true;
+}
+
+function isValidInkStyleMap(styleMap: InkStyleMapEntry[] | undefined): boolean {
+  if (styleMap === undefined) {
+    return true;
+  }
+  if (!Array.isArray(styleMap) || styleMap.length > 65535) {
+    return false;
+  }
+  for (const entry of styleMap) {
+    if (entry === null || typeof entry !== 'object') {
+      return false;
+    }
+    if (!Number.isInteger(entry.backingPencilSeed) || entry.backingPencilSeed < -2147483648 ||
+      entry.backingPencilSeed > 2147483647 ||
+      !isPoint(entry.backingPencilReferencePoint) ||
+      !isFiniteNumber(entry.backingDashPhase) || !isFiniteNumber(entry.backingDashPeriod)) {
+      return false;
+    }
   }
   return true;
 }

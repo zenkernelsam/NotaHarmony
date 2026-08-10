@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v33: preserve original Ink custom/fill paths and nullable fill-color registers.
-export const DB_VERSION: number = 33;
+// v34: preserve the original per-component Ink style-map LWW register.
+export const DB_VERSION: number = 34;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -429,6 +429,15 @@ CREATE TABLE IF NOT EXISTS original_ink_state (
   fill_color_winner_site_id INTEGER NOT NULL
     CHECK (fill_color_winner_site_id BETWEEN 0 AND 65535),
   fill_color_winner_present INTEGER NOT NULL CHECK (fill_color_winner_present IN (0, 1)),
+  create_style_map BLOB CHECK (create_style_map IS NULL OR length(create_style_map) = 0 OR
+    (length(create_style_map) BETWEEN 20 AND 1310700 AND length(create_style_map) % 20 = 0)),
+  style_map_value BLOB CHECK (style_map_value IS NULL OR length(style_map_value) = 0 OR
+    (length(style_map_value) BETWEEN 20 AND 1310700 AND length(style_map_value) % 20 = 0)),
+  style_map_winner_timestamp INTEGER NOT NULL
+    CHECK (style_map_winner_timestamp BETWEEN 0 AND 4294967295),
+  style_map_winner_site_id INTEGER NOT NULL
+    CHECK (style_map_winner_site_id BETWEEN 0 AND 65535),
+  style_map_winner_present INTEGER NOT NULL CHECK (style_map_winner_present IN (0, 1)),
   style_value INTEGER CHECK (style_value IS NULL OR style_value BETWEEN 0 AND 3),
   style_winner_timestamp INTEGER NOT NULL
     CHECK (style_winner_timestamp BETWEEN 0 AND 4294967295),
@@ -1290,5 +1299,19 @@ export const MIGRATIONS: Record<number, string[]> = {
       DEFAULT 0 CHECK (fill_color_winner_site_id BETWEEN 0 AND 65535)`,
     `ALTER TABLE original_ink_state ADD COLUMN fill_color_winner_present INTEGER NOT NULL
       DEFAULT 0 CHECK (fill_color_winner_present IN (0, 1))`,
+  ],
+  34: [
+    `ALTER TABLE original_ink_state ADD COLUMN create_style_map BLOB
+      CHECK (create_style_map IS NULL OR length(create_style_map) = 0 OR
+        (length(create_style_map) BETWEEN 20 AND 1310700 AND length(create_style_map) % 20 = 0))`,
+    `ALTER TABLE original_ink_state ADD COLUMN style_map_value BLOB
+      CHECK (style_map_value IS NULL OR length(style_map_value) = 0 OR
+        (length(style_map_value) BETWEEN 20 AND 1310700 AND length(style_map_value) % 20 = 0))`,
+    `ALTER TABLE original_ink_state ADD COLUMN style_map_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (style_map_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN style_map_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (style_map_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN style_map_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (style_map_winner_present IN (0, 1))`,
   ],
 };

@@ -1,7 +1,8 @@
 import { relationalStore } from '@kit.ArkData';
 import { TransformMatrix } from '../core/model/GeometryTypes';
 import { PageElementKind } from '../core/model/PageElementOrder';
-import { InkPathCommand, InkStyle, RenderSpec, StrokeElementData } from '../core/model/StrokeTypes';
+import { InkPathCommand, InkStyle, InkStyleMapEntry, RenderSpec,
+  StrokeElementData } from '../core/model/StrokeTypes';
 import {
   compareOperationIdentity, encodeOperationId, OperationIdentity, OriginalSequenceIdentity,
   validateOperationIdentity, validateOriginalSequenceIdentity,
@@ -15,6 +16,10 @@ import {
   DecodedOriginalAuxiliaryInkPath, originalInkTransform, OriginalInkPathDeferredError,
 } from './OriginalInkPathCodec';
 import { decodeOriginalCreateInk, OriginalCreateInkPayload } from './OriginalCreateInkOperation';
+import {
+  decodeOriginalInkStyleMap, MAX_ORIGINAL_INK_STYLE_MAP_ENTRIES,
+  ORIGINAL_INK_STYLE_MAP_ENTRY_BYTES, sameInkStyleMap,
+} from './OriginalInkStyleMapCodec';
 import {
   OriginalFlatBufferTableReader, readOriginalInlineFloat32, readOriginalPayloadTable,
 } from './OriginalSyncedOperationFlatBuffer';
@@ -43,6 +48,7 @@ export interface OriginalModifyInkPayload {
   customPath: NullableRegisterUpdate<Uint8Array>;
   fillPath: NullableRegisterUpdate<Uint8Array>;
   fillColor: NullableRegisterUpdate<number>;
+  styleMap: NullableRegisterUpdate<Uint8Array>;
   zIndex: string | null;
   hasUnsupportedFields: boolean;
 }
@@ -85,6 +91,8 @@ interface StoredInkState {
   fillPath: StoredRegister<Uint8Array>;
   baseFillColor: number | null;
   fillColor: StoredRegister<number>;
+  baseStyleMap: Uint8Array | null;
+  styleMap: StoredRegister<Uint8Array>;
   style: StoredRegister<number>;
   color: StoredRegister<number>;
   width: StoredRegister<number>;
@@ -133,6 +141,7 @@ interface PlannedReplacement {
   replaceCustomPath: boolean;
   replaceFillPath: boolean;
   replaceFillColor: boolean;
+  replaceStyleMap: boolean;
   replaceStyle: boolean;
   replaceColor: boolean;
   replaceWidth: boolean;
@@ -143,9 +152,12 @@ interface PlannedReplacement {
   customPathBytes: Uint8Array | null;
   fillPathBytes: Uint8Array | null;
   fillColorValue: number | null;
+  styleMapBytes: Uint8Array;
+  styleMap: InkStyleMapEntry[];
   baseCustomPath: Uint8Array | null;
   baseFillPath: Uint8Array | null;
   baseFillColor: number | null;
+  baseStyleMap: Uint8Array | null;
   style: number;
   color: number;
   width: number;
@@ -188,7 +200,7 @@ export function decodeOriginalModifyInkTable(table: OriginalFlatBufferTableReade
   for (let field: number = 1; field <= 18; field++) {
     if (field !== 1 && field !== 2 && field !== 3 && field !== 4 && field !== 5 &&
       field !== 6 && field !== 7 && field !== 8 && field !== 9 && field !== 10 &&
-      field !== 11 && field !== 13 && table.hasField(field)) {
+      field !== 11 && field !== 12 && field !== 13 && table.hasField(field)) {
       hasUnsupportedFields = true;
     }
   }
@@ -217,6 +229,8 @@ export function decodeOriginalModifyInkTable(table: OriginalFlatBufferTableReade
   const fillColorSetter: OriginalFlatBufferTableReader | null = table.readTable(11);
   const fillColorBytes: Uint8Array | null = fillColorSetter === null ? null :
     fillColorSetter.readInlineBytes(0, 4);
+  const styleMapBytes: Uint8Array | null = table.readInlineVectorBytes(
+    12, ORIGINAL_INK_STYLE_MAP_ENTRY_BYTES, MAX_ORIGINAL_INK_STYLE_MAP_ENTRIES);
   const rawStyle: number = table.readUint8(5, 0);
   return {
     inks: inks,
@@ -242,6 +256,7 @@ export function decodeOriginalModifyInkTable(table: OriginalFlatBufferTableReade
       present: fillColorSetter !== null,
       value: fillColorBytes === null ? null : originalColorToArgb(fillColorBytes),
     },
+    styleMap: { present: styleMapBytes !== null, value: styleMapBytes },
     zIndex: table.readUint64Decimal(13),
     hasUnsupportedFields: hasUnsupportedFields,
   };
@@ -267,6 +282,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       payload.style === null &&
       payload.color === null && payload.width === null && payload.centerPath === null &&
       !payload.customPath.present && !payload.fillPath.present && !payload.fillColor.present &&
+      !payload.styleMap.present &&
       payload.zIndex === null) {
       return { deferredReason: null };
     }
@@ -292,6 +308,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     }
     let decodedCustomPath: DecodedOriginalAuxiliaryInkPath | null = null;
     let decodedFillPath: DecodedOriginalAuxiliaryInkPath | null = null;
+    let decodedStyleMap: InkStyleMapEntry[] = [];
     try {
       if (payload.customPath.present && payload.customPath.value !== null) {
         decodedCustomPath = decodeOriginalAuxiliaryInkPath(
@@ -307,6 +324,12 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         if (decodedFillPath.commands.length === 0) {
           payload.fillPath.value = null;
           decodedFillPath = null;
+        }
+      }
+      if (payload.styleMap.present) {
+        decodedStyleMap = decodeOriginalInkStyleMap(payload.styleMap.value);
+        if (decodedStyleMap.length > 1) {
+          throw new Error('single-component original Ink has a mismatched style map');
         }
       }
     } catch (_error) {
@@ -335,6 +358,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         registerAccepts(operation, state.fillPath.winner);
       const replaceFillColor: boolean = payload.fillColor.present &&
         registerAccepts(operation, state.fillColor.winner);
+      const replaceStyleMap: boolean = payload.styleMap.present &&
+        registerAccepts(operation, state.styleMap.winner);
       const replaceStyle: boolean = payload.style !== null &&
         registerAccepts(operation, state.style.winner);
       const replaceColor: boolean = payload.color !== null &&
@@ -350,6 +375,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       const replaceZIndex: boolean = payload.zIndex !== null &&
         registerAccepts(operation, state.zIndex.winner);
       if (!replaceCenterPath && !replaceCustomPath && !replaceFillPath && !replaceFillColor &&
+        !replaceStyleMap &&
         !replaceStyle && !replaceColor && !replaceWidth &&
         !replaceRotation && !replaceScale && !replacePageOrigin && !replaceZIndex) {
         continue;
@@ -368,6 +394,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         (replaceCustomPath && state.customPath.winner === null) ||
         (replaceFillPath && state.fillPath.winner === null) ||
         (replaceFillColor && state.fillColor.winner === null) ||
+        (replaceStyleMap && state.styleMap.winner === null) ||
         ((replacePageOrigin || replaceRotation || replaceScale) &&
           (state.baseTransform === null || state.basePage === null)) ||
         (replaceZIndex && state.baseZIndex === null)) {
@@ -403,11 +430,17 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         state.fillPath.value : baseFillPath;
       const oldFillColor: number | null = state.fillColor.winner !== null ?
         state.fillColor.value : baseFillColor;
+      const baseStyleMap: Uint8Array | null = state.baseStyleMap !== null ?
+        state.baseStyleMap : initial !== null ? initial.styleMapBytes : null;
+      const oldStyleMapBytes: Uint8Array | null = state.styleMap.winner !== null ?
+        state.styleMap.value : baseStyleMap;
       let oldCustomPath: InkPathCommand[] | null;
       let oldFillPath: InkPathCommand[] | null;
+      let oldStyleMap: InkStyleMapEntry[];
       try {
         oldCustomPath = decodeStoredAuxiliaryPath(oldCustomPathBytes, 'MODIFY_INK_CUSTOM_PATH');
         oldFillPath = decodeStoredAuxiliaryPath(oldFillPathBytes, 'MODIFY_INK_FILL_PATH');
+        oldStyleMap = decodeOriginalInkStyleMap(oldStyleMapBytes);
       } catch (_error) {
         return { deferredReason: 'MODIFY_INK_TRACKED_STATE_INVALID' };
       }
@@ -417,12 +450,19 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
           oldFillColor)) {
         return { deferredReason: 'MODIFY_INK_AUXILIARY_STATE_DIVERGED' };
       }
+      if (replaceStyleMap && !sameInkStyleMap(stroke.styleMap, oldStyleMap)) {
+        return { deferredReason: 'MODIFY_INK_STYLE_MAP_STATE_DIVERGED' };
+      }
       const customPathBytes: Uint8Array | null = replaceCustomPath ?
         payload.customPath.value : oldCustomPathBytes;
       const fillPathBytes: Uint8Array | null = replaceFillPath ?
         payload.fillPath.value : oldFillPathBytes;
       const fillColorValue: number | null = replaceFillColor ?
         payload.fillColor.value : oldFillColor;
+      const styleMapBytes: Uint8Array = replaceStyleMap ?
+        payload.styleMap.value as Uint8Array :
+        (oldStyleMapBytes === null ? new Uint8Array(0) : oldStyleMapBytes);
+      const styleMap: InkStyleMapEntry[] = replaceStyleMap ? decodedStyleMap : oldStyleMap;
       const customPath: InkPathCommand[] | null = replaceCustomPath ?
         (decodedCustomPath === null ? null : decodedCustomPath.commands) : oldCustomPath;
       const fillPath: InkPathCommand[] | null = replaceFillPath ?
@@ -489,7 +529,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         isHighlighter: stroke.renderSpec.isHighlighter, isPencil: stroke.renderSpec.isPencil,
       };
       const candidateStroke: StrokeElementData = copyStroke(stroke, renderSpec, transform,
-        customPath, fillPath, fillColorValue);
+        customPath, fillPath, fillColorValue, styleMap);
       const appends: OriginalInkAppendRecord[] = await this.readAppends(
         store, operation.noteId, ink);
       let expected: RebuiltOriginalInkGeometry;
@@ -516,14 +556,15 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         target: target, state: state, stroke: stroke, geometry: replacement,
         replaceCenterPath: replaceCenterPath, replaceCustomPath: replaceCustomPath,
         replaceFillPath: replaceFillPath, replaceFillColor: replaceFillColor,
+        replaceStyleMap: replaceStyleMap,
         replaceStyle: replaceStyle,
         replaceColor: replaceColor, replaceWidth: replaceWidth,
         replaceRotation: replaceRotation, replaceScale: replaceScale,
         replacePageOrigin: replacePageOrigin, replaceZIndex: replaceZIndex,
         customPathBytes: customPathBytes, fillPathBytes: fillPathBytes,
-        fillColorValue: fillColorValue,
+        fillColorValue: fillColorValue, styleMapBytes: styleMapBytes, styleMap: styleMap,
         baseCustomPath: baseCustomPath, baseFillPath: baseFillPath,
-        baseFillColor: baseFillColor,
+        baseFillColor: baseFillColor, baseStyleMap: baseStyleMap,
         style: style, color: color, width: width, transform: transform,
         baseTransform: state.baseTransform === null ? baseTransform : null,
         rotationValue: replaceRotation ? payload.rotation.value : state.rotation.value,
@@ -767,6 +808,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
               fill_path_winner_site_id, fill_path_winner_present,
               create_fill_color, fill_color_value, fill_color_winner_timestamp,
               fill_color_winner_site_id, fill_color_winner_present,
+              create_style_map, style_map_value, style_map_winner_timestamp,
+              style_map_winner_site_id, style_map_winner_present,
               style_value, style_winner_timestamp, style_winner_site_id,
               style_winner_present,
               color_value, color_winner_timestamp, color_winner_site_id,
@@ -794,6 +837,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       const customPathWinner: OperationIdentity | null = readOptionalWinner(rows, 'custom_path');
       const fillPathWinner: OperationIdentity | null = readOptionalWinner(rows, 'fill_path');
       const fillColorWinner: OperationIdentity | null = readOptionalWinner(rows, 'fill_color');
+      const styleMapWinner: OperationIdentity | null = readOptionalWinner(rows, 'style_map');
       const styleWinner: OperationIdentity | null = readOptionalWinner(rows, 'style');
       const colorWinner: OperationIdentity | null = readOptionalWinner(rows, 'color');
       const widthWinner: OperationIdentity | null = readOptionalWinner(rows, 'width');
@@ -808,7 +852,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       }
       if ((customPathWinner === null && readNullableBlob(rows, 'custom_path_value') !== null) ||
         (fillPathWinner === null && readNullableBlob(rows, 'fill_path_value') !== null) ||
-        (fillColorWinner === null && readNullableLong(rows, 'fill_color_value') !== null)) {
+        (fillColorWinner === null && readNullableLong(rows, 'fill_color_value') !== null) ||
+        (styleMapWinner === null && readNullableBlob(rows, 'style_map_value') !== null)) {
         throw new Error('original modify-ink has an auxiliary override without a winner');
       }
       const baseTransform: OriginalInkBaseTransform | null = readBaseTransform(rows);
@@ -853,6 +898,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         fillPath: { value: readNullableBlob(rows, 'fill_path_value'), winner: fillPathWinner },
         baseFillColor: readNullableLong(rows, 'create_fill_color'),
         fillColor: { value: readNullableLong(rows, 'fill_color_value'), winner: fillColorWinner },
+        baseStyleMap: readNullableBlob(rows, 'create_style_map'),
+        styleMap: { value: readNullableBlob(rows, 'style_map_value'), winner: styleMapWinner },
         style: { value: readNullableLong(rows, 'style_value'), winner: styleWinner },
         color: { value: readNullableLong(rows, 'color_value'), winner: colorWinner },
         width: { value: width, winner: widthWinner },
@@ -988,6 +1035,16 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       values['fill_color_winner_present'] = 1;
       if (replacement.state.baseFillColor === null) {
         values['create_fill_color'] = replacement.baseFillColor;
+      }
+    }
+    if (replacement.replaceStyleMap) {
+      addWinnerPredicates(predicates, 'style_map', replacement.state.styleMap.winner);
+      values['style_map_value'] = replacement.styleMapBytes;
+      values['style_map_winner_timestamp'] = winner.timestamp;
+      values['style_map_winner_site_id'] = winner.siteId;
+      values['style_map_winner_present'] = 1;
+      if (replacement.state.baseStyleMap === null) {
+        values['create_style_map'] = replacement.baseStyleMap;
       }
     }
     if (replacement.replaceStyle) {
@@ -1261,12 +1318,14 @@ function inkStyleToOriginalStyle(style: InkStyle): number {
 
 function copyStroke(stroke: StrokeElementData, renderSpec: RenderSpec,
   transform: TransformMatrix, customPath: InkPathCommand[] | null,
-  fillPath: InkPathCommand[] | null, fillColor: number | null): StrokeElementData {
+  fillPath: InkPathCommand[] | null, fillColor: number | null,
+  styleMap: InkStyleMapEntry[]): StrokeElementData {
   return {
     id: stroke.id, pathPoints: stroke.pathPoints, cubicSegments: stroke.cubicSegments,
     splatPoints: stroke.splatPoints, renderSpec: renderSpec, transform: transform,
     bounds: stroke.bounds, maskPath: stroke.maskPath,
     customPath: customPath, fillPath: fillPath, fillColor: fillColor,
+    styleMap: styleMap,
     isFinished: stroke.isFinished,
   };
 }
@@ -1293,6 +1352,7 @@ function replacementStroke(replacement: PlannedReplacement): StrokeElementData {
     fillPath: replacement.fillPathBytes === null ? null :
       decodeStoredAuxiliaryPath(replacement.fillPathBytes, 'MODIFY_INK_FILL_PATH'),
     fillColor: replacement.fillColorValue,
+    styleMap: replacement.styleMap,
     isFinished: stroke.isFinished,
   };
 }

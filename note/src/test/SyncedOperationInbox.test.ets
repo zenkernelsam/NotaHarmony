@@ -195,6 +195,13 @@ export default function syncedOperationInboxTest() {
       expect(withAuxiliary.customPath?.commands.length).assertEqual(5);
       expect(withAuxiliary.fillPath?.commands.length).assertEqual(5);
       expect(withAuxiliary.fillColor).assertEqual(-2146823138);
+      const withStyleMap = decodeOriginalCreateInk(flatBufferCreateInk(0, 2, false, true), '123');
+      expect(withStyleMap.styleMap.length).assertEqual(1);
+      expect(withStyleMap.styleMap[0].backingPencilSeed).assertEqual(-123);
+      expect(withStyleMap.styleMap[0].backingPencilReferencePoint.x).assertEqual(1.5);
+      expect(withStyleMap.styleMap[0].backingPencilReferencePoint.y).assertEqual(-2.25);
+      expect(withStyleMap.styleMap[0].backingDashPhase).assertEqual(7.5);
+      expect(withStyleMap.styleMap[0].backingDashPeriod).assertEqual(30);
       const bounds = transformedExpandedBounds(payload.path?.localBounds as Rect2D, payload.width,
         originalInkTransform(payload.originX, payload.originY, payload.rotation,
           payload.scaleX, payload.scaleY));
@@ -283,7 +290,9 @@ export default function syncedOperationInboxTest() {
       expect(clearedAuxiliary.fillColor.value === null).assertTrue();
       const withStyleMap = decodeOriginalModifyInk(
         flatBufferModifyInk(false, false, false, false, 0, null, 0, true));
-      expect(withStyleMap.hasUnsupportedFields).assertTrue();
+      expect(withStyleMap.styleMap.present).assertTrue();
+      expect(withStyleMap.styleMap.value?.length).assertEqual(20);
+      expect(withStyleMap.hasUnsupportedFields).assertFalse();
     });
 
     it('preserves original auxiliary path verbs and multiple components', 0, () => {
@@ -574,6 +583,21 @@ class FixtureFlatBufferBuilder {
     return vector;
   }
 
+  styleMapVector(includeValue: boolean): number {
+    this.align(4);
+    const vector: number = this.cursor;
+    this.cursor += includeValue ? 24 : 4;
+    writeU32(this.bytes, vector, includeValue ? 1 : 0);
+    if (includeValue) {
+      writeU32(this.bytes, vector + 4, -123);
+      this.float32(vector + 8, 1.5);
+      this.float32(vector + 12, -2.25);
+      this.float32(vector + 16, 7.5);
+      this.float32(vector + 20, 30);
+    }
+    return vector;
+  }
+
   pointer(slot: number, target: number): void {
     writeU32(this.bytes, slot, target - slot);
   }
@@ -616,7 +640,7 @@ class FixtureFlatBufferBuilder {
 }
 
 function flatBufferCreateInk(tool: number = 0, style: number = 0,
-  includeAuxiliary: boolean = false): Uint8Array {
+  includeAuxiliary: boolean = false, includeStyleMap: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
   builder.uint16(root + 4, 7);
@@ -626,8 +650,8 @@ function flatBufferCreateInk(tool: number = 0, style: number = 0,
   builder.uint8(root + 28, 15);
   const fields: number[] = [4, 16, 24, 28, 36, 37, 0, 40, 44, 48,
     includeAuxiliary ? 52 : 0, includeAuxiliary ? 56 : 0, includeAuxiliary ? 60 : 0,
-    0, 64, 0, 0, 0, 0, 0];
-  const ink: number = builder.table(fields, 72);
+    includeStyleMap ? 68 : 0, 64, 0, 0, 0, 0, 0];
+  const ink: number = builder.table(fields, 76);
   builder.pointer(root + 32, ink);
   builder.uint16(ink + 4, 1);
   builder.uint32(ink + 8, 10);
@@ -656,6 +680,9 @@ function flatBufferCreateInk(tool: number = 0, style: number = 0,
     const fillPath: number = builder.byteVector(auxiliary);
     builder.pointer(ink + 56, fillPath);
     builder.color(ink + 60, [10, 20, 30, 128]);
+  }
+  if (includeStyleMap) {
+    builder.pointer(ink + 68, builder.styleMapVector(true));
   }
   return builder.finish(root);
 }
@@ -755,7 +782,7 @@ function flatBufferModifyInk(includeRender: boolean = false,
     builder.pointer(modify + 60, fillColor);
   }
   if (includeStyleMap) {
-    const styleMap: number = builder.byteVector([]);
+    const styleMap: number = builder.styleMapVector(true);
     builder.pointer(modify + 64, styleMap);
   }
   return builder.finish(root);

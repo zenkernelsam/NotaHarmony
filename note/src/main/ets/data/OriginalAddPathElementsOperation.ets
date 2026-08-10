@@ -162,6 +162,7 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
       customPath: stroke.customPath,
       fillPath: stroke.fillPath,
       fillColor: stroke.fillColor,
+      styleMap: stroke.styleMap,
       isFinished: stroke.isFinished,
     };
     await store.insert('original_ink_path_append', {

@@ -1,5 +1,5 @@
 import { relationalStore } from '@kit.ArkData';
-import { InkStyle, StrokeElementData } from '../core/model/StrokeTypes';
+import { InkStyle, InkStyleMapEntry, StrokeElementData } from '../core/model/StrokeTypes';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { encodeOperationId, OriginalSequenceIdentity,
   validateOriginalSequenceIdentity } from './OperationIdentity';
@@ -16,6 +16,10 @@ import {
   DecodedOriginalInkPath, originalInkTransform,
   OriginalInkPathDeferredError, transformedInkBounds,
 } from './OriginalInkPathCodec';
+import {
+  decodeOriginalInkStyleMap, MAX_ORIGINAL_INK_STYLE_MAP_ENTRIES,
+  ORIGINAL_INK_STYLE_MAP_ENTRY_BYTES,
+} from './OriginalInkStyleMapCodec';
 
 export const ORIGINAL_CREATE_INK_PAYLOAD_TYPE: number = 15;
 const MAX_ORIGINAL_INK_PATH_BYTES: number = 16 * 1024 * 1024;
@@ -40,7 +44,8 @@ export interface OriginalCreateInkPayload {
   fillColor: number | null;
   zIndex: string;
   hasTapePattern: boolean;
-  styleMapCount: number;
+  styleMapBytes: Uint8Array | null;
+  styleMap: InkStyleMapEntry[];
   hasAudioDuration: boolean;
   hasNibAngle: boolean;
   hasNibFlatness: boolean;
@@ -91,6 +96,12 @@ export function decodeOriginalCreateInkTable(table: OriginalFlatBufferTableReade
   const fillPath: Uint8Array | null = table.readByteVector(
     11, false, MAX_ORIGINAL_INK_PATH_BYTES);
   const fillColor: Uint8Array | null = table.readInlineBytes(12, 4);
+  const styleMapBytes: Uint8Array | null = table.readInlineVectorBytes(
+    13, ORIGINAL_INK_STYLE_MAP_ENTRY_BYTES, MAX_ORIGINAL_INK_STYLE_MAP_ENTRIES);
+  const styleMap: InkStyleMapEntry[] = decodeOriginalInkStyleMap(styleMapBytes);
+  if (styleMap.length > 1) {
+    throw new Error('single-component original Ink has a mismatched style map');
+  }
   const zIndex: string = table.readUint64Decimal(14, defaultZIndex) as string;
   validateUnsignedLongDecimal(zIndex);
   return {
@@ -115,7 +126,8 @@ export function decodeOriginalCreateInkTable(table: OriginalFlatBufferTableReade
       decodeOriginalAuxiliaryInkPath(fillPath, 'CREATE_INK_FILL_PATH'),
     fillColor: fillColor === null ? null : originalColorToArgb(fillColor),
     zIndex: zIndex,
-    styleMapCount: table.readInlineVectorCount(13, 20, 65535),
+    styleMapBytes: styleMapBytes,
+    styleMap: styleMap,
     hasAudioDuration: table.hasField(15),
     hasNibAngle: table.hasField(16),
     hasNibFlatness: table.hasField(17),
@@ -194,6 +206,11 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       'fill_color_winner_timestamp': 0,
       'fill_color_winner_site_id': 0,
       'fill_color_winner_present': 0,
+      'create_style_map': payload.styleMapBytes,
+      'style_map_value': null,
+      'style_map_winner_timestamp': 0,
+      'style_map_winner_site_id': 0,
+      'style_map_winner_present': 0,
       'style_value': payload.style,
       'style_winner_timestamp': operation.timestamp,
       'style_winner_site_id': operation.siteId,
@@ -274,9 +291,6 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
     if (payload.style === 0 && !payload.path.attributed) {
       return 'CREATE_INK_VARIABLE_PATH_ATTRIBUTES_MISSING';
     }
-    if (payload.styleMapCount > 0) {
-      return 'CREATE_INK_AUXILIARY_PATH_UNSUPPORTED';
-    }
     if (payload.hasAudioDuration) {
       return 'CREATE_INK_AUDIO_DURATION_UNSUPPORTED';
     }
@@ -318,6 +332,7 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       customPath: payload.customPath === null ? null : payload.customPath.commands,
       fillPath: payload.fillPath === null ? null : payload.fillPath.commands,
       fillColor: payload.fillColor,
+      styleMap: payload.styleMap,
       isFinished: true,
     };
   }

@@ -41,7 +41,8 @@ import {
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import {
-  InkPathCommand, RenderSpec, StrokeElementData, StrokePathPoint, InputBatch, InputBatchKind,
+  InkPathCommand, InkStyleMapEntry, RenderSpec, StrokeElementData, StrokePathPoint,
+  InputBatch, InputBatchKind,
   PencilSplatPoint,
 } from '../../core/model/StrokeTypes';
 import { ToolType } from '../../core/model/BrushTypes';
@@ -2824,6 +2825,15 @@ export struct NoteCanvasView {
           points: command.points.map((point: Point2D): Point2D => ({ x: point.x, y: point.y })),
         })),
       fillColor: s.fillColor === undefined ? null : s.fillColor,
+      styleMap: s.styleMap === undefined ? [] :
+        s.styleMap.map((entry: InkStyleMapEntry): InkStyleMapEntry => ({
+          backingPencilSeed: entry.backingPencilSeed,
+          backingPencilReferencePoint: {
+            x: entry.backingPencilReferencePoint.x, y: entry.backingPencilReferencePoint.y,
+          },
+          backingDashPhase: entry.backingDashPhase,
+          backingDashPeriod: entry.backingDashPeriod,
+        })),
       isFinished: s.isFinished,
     };
   }

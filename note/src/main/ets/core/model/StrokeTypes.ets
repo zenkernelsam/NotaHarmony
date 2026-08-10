@@ -86,6 +86,15 @@ export interface InkPathCommand {
   points: Point2D[];
 }
 
+// Original yyd is a 20-byte inline struct, one entry per center-path component.
+// The backing values keep Pencil scatter and dashed strokes stable after edits/copies.
+export interface InkStyleMapEntry {
+  backingPencilSeed: number;
+  backingPencilReferencePoint: Point2D;
+  backingDashPhase: number;
+  backingDashPeriod: number;
+}
+
 // 渲染态笔画（对应 s78 的移植等价物）
 export interface StrokeElementData {
   id: string;
@@ -99,5 +108,6 @@ export interface StrokeElementData {
   customPath?: InkPathCommand[] | null; // 原版显式笔迹轮廓；缺席时由中心线和宽度生成
   fillPath?: InkPathCommand[] | null;   // 原版填充区域；缺席时回退中心线
   fillColor?: number | null;            // 原版可空内部填充色
+  styleMap?: InkStyleMapEntry[];        // 原版每个 center-path component 的稳定渲染状态
   isFinished: boolean;
 }

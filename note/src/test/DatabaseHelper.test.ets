@@ -19,7 +19,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(32);
+      expect(DB_VERSION).assertEqual(34);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -78,6 +78,8 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[31].join('\n')).assertContain('page_origin_winner_present');
       expect(MIGRATIONS[32].join('\n')).assertContain('create_z_index');
       expect(MIGRATIONS[32].join('\n')).assertContain('z_index_winner_present');
+      expect(MIGRATIONS[33].join('\n')).assertContain('custom_path_winner_present');
+      expect(MIGRATIONS[34].join('\n')).assertContain('style_map_winner_present');
       expect(DDL_ORIGINAL_ELEMENT_Z_INDEX).assertContain('z_index TEXT NOT NULL');
       expect(DDL_ORIGINAL_ELEMENT_Z_INDEX).assertContain('18446744073709551615');
       expect(DDL_ORIGINAL_INK_STATE).assertContain('base_center_path BLOB NOT NULL');
@@ -91,6 +93,8 @@ export default function databaseHelperTest() {
       expect(DDL_ORIGINAL_INK_STATE).assertContain('page_origin_page_timestamp INTEGER');
       expect(DDL_ORIGINAL_INK_STATE).assertContain('z_index_value TEXT');
       expect(DDL_ORIGINAL_INK_STATE).assertContain('z_index_winner_present INTEGER NOT NULL');
+      expect(DDL_ORIGINAL_INK_STATE).assertContain('create_style_map BLOB');
+      expect(DDL_ORIGINAL_INK_STATE).assertContain('style_map_winner_present INTEGER NOT NULL');
       expect(DDL_ORIGINAL_INK_STATE).assertContain('REFERENCES original_element_z_index');
       expect(DDL_ORIGINAL_INK_PATH_APPEND)
         .assertContain('PRIMARY KEY(note_id, append_timestamp, append_site_id)');

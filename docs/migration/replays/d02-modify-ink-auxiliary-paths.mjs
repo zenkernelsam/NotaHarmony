@@ -252,7 +252,7 @@ const modifySource = fs.readFileSync(new URL('../../../note/src/main/ets/data/Or
 assert.match(renderer, /renderInkFill/); assert.match(renderer, /c\.clip\('evenodd'\)/);
 assert.match(renderer, /renderCustomPath/); assert.match(createSource, /customPath: payload\.customPath/);
 assert.match(modifySource, /MODIFY_INK_AUXILIARY_STATE_DIVERGED/);
-assert.match(modifySource, /field !== 11 && field !== 13/);
+assert.match(modifySource, /field !== 11 && field !== 12 && field !== 13/);
 
 console.log('success|flatbuffer-fields-9-11=3|nullable-clear=2|v32-v33=1|' +
   'legacy-create-fallback=1|independent-registers=2|stale-rejected=1|' +

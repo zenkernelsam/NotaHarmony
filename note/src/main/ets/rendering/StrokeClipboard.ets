@@ -1,6 +1,6 @@
 import { CubicSegment, Point2D, Rect2D } from '../core/model/GeometryTypes';
 import {
-  InkPathCommand, PencilSplatPoint, RenderSpec, StrokeElementData, StrokePathPoint,
+  InkPathCommand, InkStyleMapEntry, PencilSplatPoint, RenderSpec, StrokeElementData, StrokePathPoint,
 } from '../core/model/StrokeTypes';
 import { ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { cloneShapeElement } from '../core/model/ShapeGeometry';
@@ -104,6 +104,15 @@ export function cloneStrokeElement(stroke: StrokeElementData, id: string = strok
     customPath: cloneInkPath(stroke.customPath),
     fillPath: cloneInkPath(stroke.fillPath),
     fillColor: stroke.fillColor === undefined ? null : stroke.fillColor,
+    styleMap: stroke.styleMap === undefined ? [] :
+      stroke.styleMap.map((entry: InkStyleMapEntry): InkStyleMapEntry => ({
+        backingPencilSeed: entry.backingPencilSeed,
+        backingPencilReferencePoint: {
+          x: entry.backingPencilReferencePoint.x, y: entry.backingPencilReferencePoint.y,
+        },
+        backingDashPhase: entry.backingDashPhase,
+        backingDashPeriod: entry.backingDashPeriod,
+      })),
     isFinished: stroke.isFinished,
   };
 }
