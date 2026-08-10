@@ -1,6 +1,6 @@
 import { relationalStore } from '@kit.ArkData';
 import { PageElementKind } from '../core/model/PageElementOrder';
-import { InkStyle, StrokeElementData } from '../core/model/StrokeTypes';
+import { InkStyle, RenderSpec, StrokeElementData } from '../core/model/StrokeTypes';
 import {
   compareOperationIdentity, encodeOperationId, OperationIdentity, OriginalSequenceIdentity,
   validateOperationIdentity, validateOriginalSequenceIdentity,
@@ -9,9 +9,8 @@ import {
   isSupportedOriginalStoredStroke, OriginalInkAppendRecord,
   originalInkGeometryMatches, rebuildOriginalInkGeometry, RebuiltOriginalInkGeometry,
 } from './OriginalAddPathElementsOperation';
-import {
-  decodeOriginalInkPathReplacement, DecodedOriginalInkPath, OriginalInkPathDeferredError,
-} from './OriginalInkPathCodec';
+import { decodeOriginalInkPathReplacement, OriginalInkPathDeferredError } from './OriginalInkPathCodec';
+import { decodeOriginalCreateInk, OriginalCreateInkPayload } from './OriginalCreateInkOperation';
 import {
   OriginalFlatBufferTableReader, readOriginalPayloadTable,
 } from './OriginalSyncedOperationFlatBuffer';
@@ -29,13 +28,24 @@ const MAX_ORIGINAL_INK_PATH_BYTES: number = 16 * 1024 * 1024;
 
 export interface OriginalModifyInkPayload {
   inks: OperationIdentity[];
+  style: number | null;
+  color: number | null;
+  width: number | null;
   centerPath: Uint8Array | null;
   hasUnsupportedFields: boolean;
 }
 
+interface StoredRegister<T> {
+  value: T | null;
+  winner: OperationIdentity;
+}
+
 interface StoredInkState {
   basePath: Uint8Array;
-  winner: OperationIdentity;
+  centerPathWinner: OperationIdentity;
+  style: StoredRegister<number>;
+  color: StoredRegister<number>;
+  width: StoredRegister<number>;
 }
 
 interface StoredInkTarget {
@@ -53,6 +63,13 @@ interface PlannedReplacement {
   state: StoredInkState;
   stroke: StrokeElementData;
   geometry: RebuiltOriginalInkGeometry;
+  replaceCenterPath: boolean;
+  replaceStyle: boolean;
+  replaceColor: boolean;
+  replaceWidth: boolean;
+  style: number;
+  color: number;
+  width: number;
 }
 
 export function decodeOriginalModifyInk(bytes: Uint8Array): OriginalModifyInkPayload {
@@ -81,12 +98,17 @@ export function decodeOriginalModifyInkTable(table: OriginalFlatBufferTableReade
   }
   let hasUnsupportedFields: boolean = false;
   for (let field: number = 1; field <= 18; field++) {
-    if (field !== 8 && table.hasField(field)) {
+    if (field !== 5 && field !== 6 && field !== 7 && field !== 8 && table.hasField(field)) {
       hasUnsupportedFields = true;
     }
   }
+  const colorBytes: Uint8Array | null = table.readInlineBytes(6, 4);
+  const rawStyle: number = table.readUint8(5, 0);
   return {
     inks: inks,
+    style: table.hasField(5) ? normalizeOriginalInkStyle(rawStyle) : null,
+    color: colorBytes === null ? null : originalColorToArgb(colorBytes),
+    width: table.hasField(7) ? table.readFloat32(7, 0) : null,
     centerPath: table.readByteVector(8, false, MAX_ORIGINAL_INK_PATH_BYTES),
     hasUnsupportedFields: hasUnsupportedFields,
   };
@@ -108,17 +130,22 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     if (payload.hasUnsupportedFields) {
       return { deferredReason: 'MODIFY_INK_ADDITIONAL_FIELDS_UNSUPPORTED' };
     }
-    if (payload.centerPath === null) {
+    if (payload.style === null && payload.color === null && payload.width === null &&
+      payload.centerPath === null) {
       return { deferredReason: null };
     }
-    let decodedPath: DecodedOriginalInkPath;
-    try {
-      decodedPath = decodeOriginalInkPathReplacement(payload.centerPath);
-    } catch (_error) {
-      if (_error instanceof OriginalInkPathDeferredError) {
-        return { deferredReason: _error.deferredReason };
+    if (payload.width !== null && (!Number.isFinite(payload.width) || payload.width < 0)) {
+      return { deferredReason: 'MODIFY_INK_WIDTH_UNSUPPORTED' };
+    }
+    if (payload.centerPath !== null) {
+      try {
+        decodeOriginalInkPathReplacement(payload.centerPath);
+      } catch (_error) {
+        if (_error instanceof OriginalInkPathDeferredError) {
+          return { deferredReason: _error.deferredReason };
+        }
+        return { deferredReason: 'MALFORMED_MODIFY_INK_PAYLOAD' };
       }
-      return { deferredReason: 'MALFORMED_MODIFY_INK_PAYLOAD' };
     }
 
     const planned: PlannedReplacement[] = [];
@@ -132,7 +159,15 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       if (state === null) {
         return { deferredReason: 'MODIFY_INK_BASE_STATE_MISSING' };
       }
-      if (compareOperationIdentity(operation, state.winner) <= 0) {
+      const replaceCenterPath: boolean = payload.centerPath !== null &&
+        compareOperationIdentity(operation, state.centerPathWinner) > 0;
+      const replaceStyle: boolean = payload.style !== null &&
+        compareOperationIdentity(operation, state.style.winner) > 0;
+      const replaceColor: boolean = payload.color !== null &&
+        compareOperationIdentity(operation, state.color.winner) > 0;
+      const replaceWidth: boolean = payload.width !== null &&
+        compareOperationIdentity(operation, state.width.winner) > 0;
+      if (!replaceCenterPath && !replaceStyle && !replaceColor && !replaceWidth) {
         continue;
       }
       const stroke: StrokeElementData | null = await this.readStroke(store, operation.noteId, target);
@@ -142,32 +177,68 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       if (stroke.renderSpec.isPencil || stroke.splatPoints.length > 0) {
         return { deferredReason: 'MODIFY_INK_PENCIL_UNSUPPORTED' };
       }
-      if (stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH && !decodedPath.attributed) {
-        return { deferredReason: 'MODIFY_INK_VARIABLE_PATH_ATTRIBUTES_MISSING' };
+      let initial: OriginalCreateInkPayload | null = null;
+      if ((replaceStyle && state.style.value === null) ||
+        (replaceColor && state.color.value === null) ||
+        (replaceWidth && state.width.value === null)) {
+        initial = await this.readInitialRenderState(store, operation.noteId, ink);
+        if (initial === null) {
+          return { deferredReason: 'MODIFY_INK_RENDER_STATE_MISSING' };
+        }
       }
+      const oldStyle: number = state.style.value !== null ? state.style.value :
+        initial !== null ? initial.style : inkStyleToOriginalStyle(stroke.renderSpec.inkStyle);
+      const oldColor: number = state.color.value !== null ? state.color.value :
+        initial !== null ? initial.color : stroke.renderSpec.color;
+      const oldWidth: number = state.width.value !== null ? state.width.value :
+        initial !== null ? initial.width : stroke.renderSpec.brushWidth;
+      if ((replaceStyle && stroke.renderSpec.inkStyle !== originalStyleToInkStyle(oldStyle)) ||
+        (replaceColor && stroke.renderSpec.color !== oldColor) ||
+        (replaceWidth && stroke.renderSpec.brushWidth !== oldWidth)) {
+        return { deferredReason: 'MODIFY_INK_RENDER_STATE_DIVERGED' };
+      }
+      const style: number = replaceStyle ? payload.style as number :
+        inkStyleToOriginalStyle(stroke.renderSpec.inkStyle);
+      const color: number = replaceColor ? payload.color as number : stroke.renderSpec.color;
+      const width: number = replaceWidth ? payload.width as number : stroke.renderSpec.brushWidth;
+      const renderSpec: RenderSpec = {
+        color: color, brushWidth: width, inkStyle: originalStyleToInkStyle(style),
+        isHighlighter: stroke.renderSpec.isHighlighter, isPencil: stroke.renderSpec.isPencil,
+      };
+      const candidateStroke: StrokeElementData = copyStrokeWithRenderSpec(stroke, renderSpec);
       const appends: OriginalInkAppendRecord[] = await this.readAppends(
         store, operation.noteId, ink);
       let expected: RebuiltOriginalInkGeometry;
       let replacement: RebuiltOriginalInkGeometry;
       try {
         expected = rebuildOriginalInkGeometry(state.basePath, appends, stroke);
-        replacement = rebuildOriginalInkGeometry(payload.centerPath, appends, stroke);
+        replacement = rebuildOriginalInkGeometry(
+          replaceCenterPath ? payload.centerPath as Uint8Array : state.basePath,
+          appends, candidateStroke);
       } catch (_error) {
         return { deferredReason: 'MODIFY_INK_TRACKED_STATE_INVALID' };
       }
       if (!originalInkGeometryMatches(stroke, expected)) {
         return { deferredReason: 'MODIFY_INK_STROKE_DIVERGED' };
       }
+      if (style === 0 && !replacement.attributed) {
+        return { deferredReason: 'MODIFY_INK_VARIABLE_PATH_ATTRIBUTES_MISSING' };
+      }
       if (target.revision >= Number.MAX_SAFE_INTEGER) {
         return { deferredReason: 'MODIFY_INK_PAGE_REVISION_EXHAUSTED' };
       }
-      planned.push({ target: target, state: state, stroke: stroke, geometry: replacement });
+      planned.push({
+        target: target, state: state, stroke: stroke, geometry: replacement,
+        replaceCenterPath: replaceCenterPath, replaceStyle: replaceStyle,
+        replaceColor: replaceColor, replaceWidth: replaceWidth,
+        style: style, color: color, width: width,
+      });
       affectedPages.set(pageKey(target), target);
     }
 
     for (const replacement of planned) {
       await this.updateState(store, operation.noteId, replacement.target.ink,
-        replacement.state.winner, operation, payload.centerPath);
+        replacement, operation, payload.centerPath);
       await this.updateStroke(store, operation.noteId, replacement);
     }
     for (const target of affectedPages.values()) {
@@ -226,19 +297,55 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
   private async readState(store: relationalStore.RdbStore, noteId: string,
     ink: OperationIdentity): Promise<StoredInkState | null> {
     const rows = await store.querySql(
-      `SELECT base_center_path, center_path_winner_timestamp, center_path_winner_site_id
+      `SELECT base_center_path, center_path_winner_timestamp, center_path_winner_site_id,
+              style_value, style_winner_timestamp, style_winner_site_id,
+              color_value, color_winner_timestamp, color_winner_site_id,
+              width_value, width_winner_timestamp, width_winner_site_id
        FROM original_ink_state WHERE note_id = ? AND ink_timestamp = ? AND ink_site_id = ?`,
       [noteId, ink.timestamp, ink.siteId]);
     try {
       if (!rows.goToFirstRow()) {
         return null;
       }
-      const winner: OperationIdentity = {
-        timestamp: rows.getLong(rows.getColumnIndex('center_path_winner_timestamp')),
-        siteId: rows.getLong(rows.getColumnIndex('center_path_winner_site_id')),
+      const centerPathWinner: OperationIdentity = readWinner(rows,
+        'center_path_winner_timestamp', 'center_path_winner_site_id');
+      const styleWinner: OperationIdentity = readWinner(rows,
+        'style_winner_timestamp', 'style_winner_site_id');
+      const colorWinner: OperationIdentity = readWinner(rows,
+        'color_winner_timestamp', 'color_winner_site_id');
+      const widthWinner: OperationIdentity = readWinner(rows,
+        'width_winner_timestamp', 'width_winner_site_id');
+      const widthColumn: number = rows.getColumnIndex('width_value');
+      const width: number | null = rows.isColumnNull(widthColumn) ? null : rows.getDouble(widthColumn);
+      if (width !== null && !Number.isFinite(width)) {
+        throw new Error('original modify-ink has an invalid stored width');
+      }
+      return {
+        basePath: rows.getBlob(rows.getColumnIndex('base_center_path')),
+        centerPathWinner: centerPathWinner,
+        style: { value: readNullableLong(rows, 'style_value'), winner: styleWinner },
+        color: { value: readNullableLong(rows, 'color_value'), winner: colorWinner },
+        width: { value: width, winner: widthWinner },
       };
-      validateOperationIdentity(winner);
-      return { basePath: rows.getBlob(rows.getColumnIndex('base_center_path')), winner: winner };
+    } finally {
+      rows.close();
+    }
+  }
+
+  private async readInitialRenderState(store: relationalStore.RdbStore, noteId: string,
+    ink: OperationIdentity): Promise<OriginalCreateInkPayload | null> {
+    const rows = await store.querySql(
+      `SELECT raw_operation, client_time FROM synced_operation_inbox WHERE note_id = ?
+       AND op_timestamp = ? AND editor_site_id = ? AND payload_type = 15`,
+      [noteId, ink.timestamp, ink.siteId]);
+    try {
+      if (!rows.goToFirstRow()) {
+        return null;
+      }
+      return decodeOriginalCreateInk(rows.getBlob(rows.getColumnIndex('raw_operation')),
+        rows.getString(rows.getColumnIndex('client_time')));
+    } catch (_error) {
+      return null;
     } finally {
       rows.close();
     }
@@ -294,21 +401,42 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
   }
 
   private async updateState(store: relationalStore.RdbStore, noteId: string,
-    ink: OperationIdentity, oldWinner: OperationIdentity, winner: OperationIdentity,
-    basePath: Uint8Array): Promise<void> {
+    ink: OperationIdentity, replacement: PlannedReplacement, winner: OperationIdentity,
+    basePath: Uint8Array | null): Promise<void> {
     const predicates = new relationalStore.RdbPredicates('original_ink_state');
     predicates.equalTo('note_id', noteId);
     predicates.equalTo('ink_timestamp', ink.timestamp);
     predicates.equalTo('ink_site_id', ink.siteId);
-    predicates.equalTo('center_path_winner_timestamp', oldWinner.timestamp);
-    predicates.equalTo('center_path_winner_site_id', oldWinner.siteId);
-    const updated: number = await store.update({
-      'base_center_path': basePath,
-      'center_path_winner_timestamp': winner.timestamp,
-      'center_path_winner_site_id': winner.siteId,
-    }, predicates);
+    const values: relationalStore.ValuesBucket = {};
+    if (replacement.replaceCenterPath) {
+      predicates.equalTo('center_path_winner_timestamp',
+        replacement.state.centerPathWinner.timestamp);
+      predicates.equalTo('center_path_winner_site_id', replacement.state.centerPathWinner.siteId);
+      values['base_center_path'] = basePath as Uint8Array;
+      values['center_path_winner_timestamp'] = winner.timestamp;
+      values['center_path_winner_site_id'] = winner.siteId;
+    }
+    if (replacement.replaceStyle) {
+      addWinnerPredicates(predicates, 'style', replacement.state.style.winner);
+      values['style_value'] = replacement.style;
+      values['style_winner_timestamp'] = winner.timestamp;
+      values['style_winner_site_id'] = winner.siteId;
+    }
+    if (replacement.replaceColor) {
+      addWinnerPredicates(predicates, 'color', replacement.state.color.winner);
+      values['color_value'] = replacement.color;
+      values['color_winner_timestamp'] = winner.timestamp;
+      values['color_winner_site_id'] = winner.siteId;
+    }
+    if (replacement.replaceWidth) {
+      addWinnerPredicates(predicates, 'width', replacement.state.width.winner);
+      values['width_value'] = replacement.width;
+      values['width_winner_timestamp'] = winner.timestamp;
+      values['width_winner_site_id'] = winner.siteId;
+    }
+    const updated: number = await store.update(values, predicates);
     if (updated !== 1) {
-      throw new Error('original modify-ink center-path winner changed concurrently');
+      throw new Error('original modify-ink register winner changed concurrently');
     }
   }
 
@@ -321,7 +449,13 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       pathPoints: replacement.geometry.pathPoints,
       cubicSegments: replacement.geometry.cubicSegments,
       splatPoints: stroke.splatPoints,
-      renderSpec: stroke.renderSpec,
+      renderSpec: {
+        color: replacement.color,
+        brushWidth: replacement.width,
+        inkStyle: originalStyleToInkStyle(replacement.style),
+        isHighlighter: stroke.renderSpec.isHighlighter,
+        isPencil: stroke.renderSpec.isPencil,
+      },
       transform: stroke.transform,
       bounds: replacement.geometry.bounds,
       maskPath: stroke.maskPath,
@@ -386,6 +520,76 @@ function elementPredicates(noteId: string, target: StoredInkTarget,
   predicates.equalTo('element_id', elementId);
   predicates.equalTo('kind', PageElementKind.STROKE);
   return predicates;
+}
+
+function normalizeOriginalInkStyle(value: number): number {
+  return value >= 0 && value <= 3 ? value : 0;
+}
+
+function originalColorToArgb(bytes: Uint8Array): number {
+  return ((bytes[3] << 24) | (bytes[0] << 16) | (bytes[1] << 8) | bytes[2]);
+}
+
+function originalStyleToInkStyle(style: number): InkStyle {
+  if (style === 0) {
+    return InkStyle.VARIABLE_WIDTH;
+  }
+  if (style === 1) {
+    return InkStyle.FIXED_WIDTH;
+  }
+  if (style === 2) {
+    return InkStyle.DASH;
+  }
+  if (style === 3) {
+    return InkStyle.DOTS;
+  }
+  throw new Error('original modify-ink has an invalid style');
+}
+
+function inkStyleToOriginalStyle(style: InkStyle): number {
+  if (style === InkStyle.VARIABLE_WIDTH) {
+    return 0;
+  }
+  if (style === InkStyle.FIXED_WIDTH) {
+    return 1;
+  }
+  if (style === InkStyle.DASH) {
+    return 2;
+  }
+  if (style === InkStyle.DOTS) {
+    return 3;
+  }
+  throw new Error('stored Ink has an unsupported style');
+}
+
+function copyStrokeWithRenderSpec(stroke: StrokeElementData,
+  renderSpec: RenderSpec): StrokeElementData {
+  return {
+    id: stroke.id, pathPoints: stroke.pathPoints, cubicSegments: stroke.cubicSegments,
+    splatPoints: stroke.splatPoints, renderSpec: renderSpec, transform: stroke.transform,
+    bounds: stroke.bounds, maskPath: stroke.maskPath, isFinished: stroke.isFinished,
+  };
+}
+
+function readWinner(rows: relationalStore.ResultSet, timestampColumn: string,
+  siteColumn: string): OperationIdentity {
+  const winner: OperationIdentity = {
+    timestamp: rows.getLong(rows.getColumnIndex(timestampColumn)),
+    siteId: rows.getLong(rows.getColumnIndex(siteColumn)),
+  };
+  validateOperationIdentity(winner);
+  return winner;
+}
+
+function readNullableLong(rows: relationalStore.ResultSet, columnName: string): number | null {
+  const column: number = rows.getColumnIndex(columnName);
+  return rows.isColumnNull(column) ? null : rows.getLong(column);
+}
+
+function addWinnerPredicates(predicates: relationalStore.RdbPredicates, prefix: string,
+  winner: OperationIdentity): void {
+  predicates.equalTo(`${prefix}_winner_timestamp`, winner.timestamp);
+  predicates.equalTo(`${prefix}_winner_site_id`, winner.siteId);
 }
 
 function pageKey(target: StoredInkTarget): string {

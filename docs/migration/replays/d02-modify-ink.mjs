@@ -54,15 +54,16 @@ class Table {
   }
 }
 
-function modifyFixture(targets, centerPath, includeWidth = false) {
+function modifyFixture(targets, centerPath, includeUnsupportedRotation = false) {
   const builder = new Builder(), root = builder.table([4, 12, 20, 0, 28, 32], 36);
   w16(builder.bytes, root + 4, 7); w32(builder.bytes, root + 8, 90);
   w64(builder.bytes, root + 12, 123n); w64(builder.bytes, root + 20, 124n);
   builder.bytes[root + 28] = 17;
-  const fields = [4, 0, 0, 0, 0, 0, 0, includeWidth ? 8 : 0, centerPath === null ? 0 : 12,
+  const fields = [4, 0, 0, includeUnsupportedRotation ? 8 : 0, 0, 0, 0, 0,
+    centerPath === null ? 0 : 12,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   const modify = builder.table(fields, 16); builder.pointer(root + 32, modify);
-  if (includeWidth) wf32(builder.bytes, modify + 8, 5);
+  if (includeUnsupportedRotation) wf32(builder.bytes, modify + 8, 0.5);
   builder.pointer(modify + 4, builder.identities(targets));
   if (centerPath !== null) builder.pointer(modify + 12, builder.vector(centerPath));
   return builder.finish(root);

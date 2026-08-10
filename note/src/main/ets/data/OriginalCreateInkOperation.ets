@@ -170,6 +170,15 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       'base_center_path': payload.centerPathBytes as Uint8Array,
       'center_path_winner_timestamp': operation.timestamp,
       'center_path_winner_site_id': operation.siteId,
+      'style_value': payload.style,
+      'style_winner_timestamp': operation.timestamp,
+      'style_winner_site_id': operation.siteId,
+      'color_value': payload.color,
+      'color_winner_timestamp': operation.timestamp,
+      'color_winner_site_id': operation.siteId,
+      'width_value': payload.width,
+      'width_winner_timestamp': operation.timestamp,
+      'width_winner_site_id': operation.siteId,
     });
     existingRows.push({
       elementId: stroke.id, kind: PageElementKind.STROKE,

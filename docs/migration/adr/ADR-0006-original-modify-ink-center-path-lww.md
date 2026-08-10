@@ -1,6 +1,6 @@
 # ADR-0006：原版 MODIFY_INK center-path 独立 LWW register
 
-- 状态：Accepted（center-path 受证明子集）
+- 状态：Accepted（center-path 受证明子集；字段门禁由 ADR-0007 扩展）
 - 日期：2026-08-10
 - 关联：D-02、数据库 v28、ADR-0004、ADR-0005
 
@@ -20,7 +20,7 @@ append history，乱序同步将与原版分叉。
 数据库升至 v28，为 `original_ink_state` 增加 `center_path_winner_timestamp/site_id`。新 CREATE_INK 以自身身份初始化 winner；v27
 迁移将既有 state 的 winner 回填为目标 Ink 身份。v26 及更旧的无 state Ink 继续明确 DEFERRED，不反推原始压缩路径。
 
-新增 `OriginalModifyInkOperationApplier`，当前仅接受以下 payload：
+新增 `OriginalModifyInkOperationApplier`，v28 阶段仅接受以下 payload：
 
 - `inks` 是 1～10000 个不重复的 8-byte `qo5`；
 - 可选字段只有 field 8 `encodedCenterPath`；

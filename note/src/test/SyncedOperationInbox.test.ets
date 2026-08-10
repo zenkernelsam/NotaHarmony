@@ -230,8 +230,13 @@ export default function syncedOperationInboxTest() {
       expect(payload.inks[1].siteId).assertEqual(3);
       expect(payload.centerPath?.length).assertEqual(33);
       expect(payload.hasUnsupportedFields).assertFalse();
-      const withWidth = decodeOriginalModifyInk(flatBufferModifyInk(true));
-      expect(withWidth.hasUnsupportedFields).assertTrue();
+      const withRender = decodeOriginalModifyInk(flatBufferModifyInk(true));
+      expect(withRender.style).assertEqual(2);
+      expect(withRender.color).assertEqual(-2147417597);
+      expect(withRender.width).assertEqual(5);
+      expect(withRender.hasUnsupportedFields).assertFalse();
+      const withRotation = decodeOriginalModifyInk(flatBufferModifyInk(false, true));
+      expect(withRotation.hasUnsupportedFields).assertTrue();
     });
 
     it('decodes the original big-endian half-float coordinate path variant', 0, () => {
@@ -602,7 +607,8 @@ function flatBufferAddPathElements(): Uint8Array {
   return builder.finish(root);
 }
 
-function flatBufferModifyInk(includeWidth: boolean = false): Uint8Array {
+function flatBufferModifyInk(includeRender: boolean = false,
+  includeRotation: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
   builder.uint16(root + 4, 7);
@@ -610,12 +616,21 @@ function flatBufferModifyInk(includeWidth: boolean = false): Uint8Array {
   writeDecimalU64At(builder, root + 12, '127');
   writeDecimalU64At(builder, root + 20, '128');
   builder.uint8(root + 28, 17);
-  const fields: number[] = [4, 0, 0, 0, 0, 0, 0, includeWidth ? 8 : 0, 12,
+  const fields: number[] = [4, 0, 0, includeRotation ? 8 : 0, 0,
+    includeRender ? 12 : 0, includeRender ? 16 : 0, includeRender ? 20 : 0, 24,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-  const modify: number = builder.table(fields, 16);
+  const modify: number = builder.table(fields, 28);
   builder.pointer(root + 32, modify);
-  if (includeWidth) {
-    builder.float32(modify + 8, 5);
+  if (includeRotation) {
+    builder.float32(modify + 8, 0.5);
+  }
+  if (includeRender) {
+    builder.uint8(modify + 12, 2);
+    builder.uint8(modify + 16, 1);
+    builder.uint8(modify + 17, 2);
+    builder.uint8(modify + 18, 3);
+    builder.uint8(modify + 19, 128);
+    builder.float32(modify + 20, 5);
   }
   const inks: number = builder.operationIdentityVector([
     { timestamp: 20, siteId: 2 }, { timestamp: 21, siteId: 3 },
@@ -625,7 +640,7 @@ function flatBufferModifyInk(includeWidth: boolean = false): Uint8Array {
   appendAttributedPathElement(path, 3, [{ x: 5, y: 6 }], 0x3C00, 0x3800, 255, 0);
   appendAttributedPathElement(path, 2, [{ x: 15, y: 16 }], 0x3C00, 0x3800, 255, 0);
   const vector: number = builder.byteVector(path);
-  builder.pointer(modify + 12, vector);
+  builder.pointer(modify + 24, vector);
   return builder.finish(root);
 }
 

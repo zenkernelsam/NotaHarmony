@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v28: preserve the original center-path LWW winner for MODIFY_INK replay.
-export const DB_VERSION: number = 28;
+// v29: preserve the original style/color/width LWW registers for MODIFY_INK replay.
+export const DB_VERSION: number = 29;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -401,6 +401,22 @@ CREATE TABLE IF NOT EXISTS original_ink_state (
     CHECK (center_path_winner_timestamp BETWEEN 0 AND 4294967295),
   center_path_winner_site_id INTEGER NOT NULL
     CHECK (center_path_winner_site_id BETWEEN 0 AND 65535),
+  style_value INTEGER CHECK (style_value IS NULL OR style_value BETWEEN 0 AND 3),
+  style_winner_timestamp INTEGER NOT NULL
+    CHECK (style_winner_timestamp BETWEEN 0 AND 4294967295),
+  style_winner_site_id INTEGER NOT NULL
+    CHECK (style_winner_site_id BETWEEN 0 AND 65535),
+  color_value INTEGER CHECK (color_value IS NULL OR color_value BETWEEN -2147483648 AND 2147483647),
+  color_winner_timestamp INTEGER NOT NULL
+    CHECK (color_winner_timestamp BETWEEN 0 AND 4294967295),
+  color_winner_site_id INTEGER NOT NULL
+    CHECK (color_winner_site_id BETWEEN 0 AND 65535),
+  width_value REAL CHECK (width_value IS NULL OR
+    width_value BETWEEN -3.4028234663852886e38 AND 3.4028234663852886e38),
+  width_winner_timestamp INTEGER NOT NULL
+    CHECK (width_winner_timestamp BETWEEN 0 AND 4294967295),
+  width_winner_site_id INTEGER NOT NULL
+    CHECK (width_winner_site_id BETWEEN 0 AND 65535),
   PRIMARY KEY(note_id, ink_timestamp, ink_site_id),
   FOREIGN KEY(note_id, ink_timestamp, ink_site_id)
     REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
@@ -1034,5 +1050,29 @@ export const MIGRATIONS: Record<number, string[]> = {
       DEFAULT 0 CHECK (center_path_winner_site_id BETWEEN 0 AND 65535)`,
     `UPDATE original_ink_state SET center_path_winner_timestamp = ink_timestamp,
       center_path_winner_site_id = ink_site_id`,
+  ],
+  29: [
+    `ALTER TABLE original_ink_state ADD COLUMN style_value INTEGER
+      CHECK (style_value IS NULL OR style_value BETWEEN 0 AND 3)`,
+    `ALTER TABLE original_ink_state ADD COLUMN style_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (style_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN style_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (style_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN color_value INTEGER
+      CHECK (color_value IS NULL OR color_value BETWEEN -2147483648 AND 2147483647)`,
+    `ALTER TABLE original_ink_state ADD COLUMN color_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (color_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN color_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (color_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN width_value REAL CHECK (width_value IS NULL OR
+      width_value BETWEEN -3.4028234663852886e38 AND 3.4028234663852886e38)`,
+    `ALTER TABLE original_ink_state ADD COLUMN width_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (width_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN width_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (width_winner_site_id BETWEEN 0 AND 65535)`,
+    `UPDATE original_ink_state SET
+      style_winner_timestamp = ink_timestamp, style_winner_site_id = ink_site_id,
+      color_winner_timestamp = ink_timestamp, color_winner_site_id = ink_site_id,
+      width_winner_timestamp = ink_timestamp, width_winner_site_id = ink_site_id`,
   ],
 };

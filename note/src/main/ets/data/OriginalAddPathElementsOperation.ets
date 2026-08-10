@@ -49,6 +49,7 @@ export interface RebuiltOriginalInkGeometry {
   pathPoints: StrokePathPoint[];
   cubicSegments: StrokeElementData['cubicSegments'];
   bounds: Rect2D;
+  attributed: boolean;
 }
 
 export function decodeOriginalAddPathElements(bytes: Uint8Array): OriginalAddPathElementsPayload {
@@ -363,6 +364,7 @@ export function rebuildOriginalInkGeometry(baseBytes: Uint8Array,
   const pathPoints: StrokePathPoint[] = base.pathPoints.slice();
   const cubicSegments: StrokeElementData['cubicSegments'] = base.cubicSegments.slice();
   let localBounds: Rect2D = base.localBounds;
+  let attributed: boolean = base.attributed;
   let current: Point2D = pathPoints[pathPoints.length - 1].position;
   const sorted: OriginalInkAppendRecord[] = appends.slice();
   sorted.sort(compareStoredAppend);
@@ -374,12 +376,14 @@ export function rebuildOriginalInkGeometry(baseBytes: Uint8Array,
     pathPoints.push(...append.pathPoints);
     cubicSegments.push(...append.cubicSegments);
     localBounds = unionOriginalInkBounds(localBounds, append.localBounds);
+    attributed = attributed && append.attributed;
     current = append.endPoint;
   }
   return {
     pathPoints: pathPoints,
     cubicSegments: cubicSegments,
     bounds: transformedExpandedBounds(localBounds, stroke.renderSpec.brushWidth, stroke.transform),
+    attributed: attributed,
   };
 }
 
