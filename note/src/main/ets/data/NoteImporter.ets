@@ -10,7 +10,7 @@ import {
 import { NoteMeta, PageInfo, PaperSize, PaperTemplate, PageOrientation } from '../core/model/NoteTypes';
 import { clonePageBackground } from '../core/model/PageBackgroundModel';
 import { StrokeElementData } from '../core/model/StrokeTypes';
-import { ImageElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import { DatabaseManager } from './DatabaseManager';
 import { NoteRepositoryImpl } from './NoteRepositoryImpl';
@@ -270,6 +270,7 @@ export class NoteImporter {
         const pageTexts: TextBlockElement[] = [];
         const pageShapes: ShapeElement[] = [];
         const pageImages: ImageElement[] = [];
+        const pageMathBlocks: MathElement[] = [];
         const pageElementOrder: PageElementRef[] = [];
         for (const el of page.elements) {
           const typed = el as PersistedElement;
@@ -293,10 +294,16 @@ export class NoteImporter {
             pageImages.push(image);
             pageElementOrder.push({ kind: PageElementKind.IMAGE,
               elementId: image.id, zIndex: pageElementOrder.length });
+          } else if (typed.kind === 'math') {
+            const math: MathElement = typed.data as MathElement;
+            pageMathBlocks.push(math);
+            pageElementOrder.push({ kind: PageElementKind.MATH,
+              elementId: math.id, zIndex: pageElementOrder.length });
           }
         }
         await this.persistence.saveElements(
-          note.id, pageInfo.pageId, pageStrokes, pageTexts, pageElementOrder, pageShapes, pageImages);
+          note.id, pageInfo.pageId, pageStrokes, pageTexts, pageElementOrder, pageShapes, pageImages,
+          pageMathBlocks);
         countStrokes += pageStrokes.length;
         countTexts += pageTexts.length;
         writtenPages++;

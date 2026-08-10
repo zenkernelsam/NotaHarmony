@@ -26,7 +26,8 @@ import { decodeOriginalCreateInk } from '../main/ets/data/OriginalCreateInkOpera
 import { decodeOriginalAddPathElements } from
   '../main/ets/data/OriginalAddPathElementsOperation';
 import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOperation';
-import { decodeOriginalCreateBlock, OriginalBlockType, OriginalCreateBlockOperationApplier } from
+import { decodeOriginalCreateBlock, OriginalBlockType, OriginalCreateBlockOperationApplier,
+  unsupportedOriginalCreateBlockReason } from
   '../main/ets/data/OriginalCreateBlockOperation';
 import { decodeOriginalModifyBlock } from '../main/ets/data/OriginalModifyBlockOperation';
 import { decodeOriginalInsertText, decodeOriginalTextVisibility } from
@@ -300,6 +301,13 @@ export default function syncedOperationInboxTest() {
       expect(result.deferredReason).assertEqual('CREATE_BLOCK_IMAGE_FIELDS_ON_MATH');
     });
 
+    it('does not reject valid IMAGE or MATH type-specific CREATE fields', 0, () => {
+      const image = decodeOriginalCreateBlock(flatBufferCreateImageBlock(), '123');
+      const math = decodeOriginalCreateBlock(flatBufferCreateMathBlock(), '123');
+      expect(unsupportedOriginalCreateBlockReason(image) === null).assertTrue();
+      expect(unsupportedOriginalCreateBlockReason(math) === null).assertTrue();
+    });
+
     it('decodes original MODIFY_BLOCK common registers', 0, () => {
       const payload = decodeOriginalModifyBlock(flatBufferModifyBlock());
       expect(payload.blocks.length).assertEqual(2);
@@ -316,7 +324,8 @@ export default function syncedOperationInboxTest() {
       expect(payload.enableCaption).assertTrue();
       expect(payload.zIndex).assertEqual('18446744073709551615');
       expect(payload.positionLocked).assertTrue();
-      expect(payload.hasMathTypeSpecificFields).assertFalse();
+      expect(payload.mathLatex.present).assertFalse();
+      expect(payload.mathColor.present).assertFalse();
       const cleared = decodeOriginalModifyBlock(flatBufferModifyBlock(true));
       expect(cleared.rotation.present).assertTrue();
       expect(cleared.rotation.value === null).assertTrue();
@@ -334,12 +343,31 @@ export default function syncedOperationInboxTest() {
       expect(payload.cropRect.value?.height).assertEqual(50);
       expect(payload.imageFlippedHorizontally).assertFalse();
       expect(payload.imageFlippedVertically).assertTrue();
-      expect(payload.hasMathTypeSpecificFields).assertFalse();
+      expect(payload.mathLatex.present).assertFalse();
+      expect(payload.mathColor.present).assertFalse();
       const cleared = decodeOriginalModifyBlock(flatBufferModifyImageBlock(true, true, false));
       expect(cleared.cropRect.present).assertTrue();
       expect(cleared.cropRect.value === null).assertTrue();
       expect(cleared.imageFlippedHorizontally).assertTrue();
       expect(cleared.imageFlippedVertically).assertFalse();
+    });
+
+    it('decodes original MATH CREATE and independent MODIFY registers', 0, () => {
+      const created = decodeOriginalCreateBlock(flatBufferCreateMathBlock(), '123');
+      expect(created.blockType).assertEqual(OriginalBlockType.MATH);
+      expect(created.mathLatex).assertEqual('\\frac{a}{b}');
+      expect(created.mathColor).assertEqual(0x80112233 | 0);
+      expect(created.image === null).assertTrue();
+      const modified = decodeOriginalModifyBlock(flatBufferModifyMathBlock(false, false));
+      expect(modified.mathLatex.present).assertTrue();
+      expect(modified.mathLatex.value).assertEqual('x^2+y^2');
+      expect(modified.mathColor.present).assertTrue();
+      expect(modified.mathColor.value).assertEqual(0xFF445566 | 0);
+      const cleared = decodeOriginalModifyBlock(flatBufferModifyMathBlock(true, true));
+      expect(cleared.mathLatex.present).assertTrue();
+      expect(cleared.mathLatex.value === null).assertTrue();
+      expect(cleared.mathColor.present).assertTrue();
+      expect(cleared.mathColor.value === null).assertTrue();
     });
 
     it('decodes original CREATE_INK path attributes, transform and uint64 z-index', 0, () => {
@@ -1097,6 +1125,33 @@ function flatBufferCreateImageBlock(blockType: OriginalBlockType = OriginalBlock
   return builder.finish(root);
 }
 
+function flatBufferCreateMathBlock(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 93);
+  writeDecimalU64At(builder, root + 12, '123');
+  writeDecimalU64At(builder, root + 20, '124');
+  builder.uint8(root + 28, 22);
+  const block: number = builder.table([
+    4, 0, 8, 20, 0, 0, 28, 0, 0, 36,
+    0, 0, 0, 44, 48, 0, 0, 0, 0, 0, 0,
+  ], 52);
+  builder.pointer(root + 32, block);
+  builder.uint8(block + 4, OriginalBlockType.MATH);
+  builder.uint16(block + 8, 2);
+  builder.uint32(block + 12, 10);
+  builder.uint32(block + 16, 3);
+  builder.float32(block + 20, 12);
+  builder.float32(block + 24, 34);
+  builder.float32(block + 28, 200);
+  builder.float32(block + 32, 80);
+  writeDecimalU64At(builder, block + 36, '17');
+  builder.color(block + 48, [0x11, 0x22, 0x33, 0x80]);
+  builder.pointer(block + 44, builder.string('\\frac{a}{b}'));
+  return builder.finish(root);
+}
+
 function flatBufferModifyBlock(clearTransform: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
@@ -1166,6 +1221,34 @@ function flatBufferModifyImageBlock(clearCrop: boolean, horizontal: boolean,
   builder.pointer(modify + 8, crop);
   const blocks: number = builder.operationIdentityVector([{ timestamp: 20, siteId: 2 }]);
   builder.pointer(modify + 4, blocks);
+  return builder.finish(root);
+}
+
+function flatBufferModifyMathBlock(clearLatex: boolean, clearColor: boolean): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 94);
+  writeDecimalU64At(builder, root + 12, '128');
+  writeDecimalU64At(builder, root + 20, '129');
+  builder.uint8(root + 28, 23);
+  const modify: number = builder.table([
+    4, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    8, 12, 0, 0, 0, 0, 0, 0,
+  ], 16);
+  builder.pointer(root + 32, modify);
+  const blocks: number = builder.operationIdentityVector([{ timestamp: 20, siteId: 2 }]);
+  builder.pointer(modify + 4, blocks);
+  const latex: number = builder.table([clearLatex ? 0 : 4], 8);
+  if (!clearLatex) {
+    builder.pointer(latex + 4, builder.string('x^2+y^2'));
+  }
+  builder.pointer(modify + 8, latex);
+  const color: number = builder.table([clearColor ? 0 : 4], 8);
+  if (!clearColor) {
+    builder.color(color + 4, [0x44, 0x55, 0x66, 0xFF]);
+  }
+  builder.pointer(modify + 12, color);
   return builder.finish(root);
 }
 

@@ -1,5 +1,5 @@
 import { relationalStore } from '@kit.ArkData';
-import { ImageElement, TextBlockElement } from '../core/model/ElementTypes';
+import { ImageElement, MathElement, TextBlockElement } from '../core/model/ElementTypes';
 import { Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import {
   cloneImageElement, imageBlockWorldBounds, originalAssetHashKey,
@@ -7,6 +7,7 @@ import {
 import { PagePaperBackground } from '../core/model/NoteTypes';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { textBlockWorldBounds } from '../core/model/TextBlockGeometry';
+import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockGeometry';
 import { cloneOriginalPaper, validateOriginalPaper } from '../core/model/PageBackgroundModel';
 import {
   compareOperationIdentity, encodeOperationId, OperationIdentity, OriginalSequenceIdentity,
@@ -26,6 +27,8 @@ import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './Unsig
 
 export const ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE: number = 23;
 const MAX_ORIGINAL_MODIFY_BLOCK_COUNT: number = 10000;
+const MAX_ORIGINAL_MATH_LATEX_BYTES: number = 1048576;
+const DEFAULT_MATH_COLOR: number = -16777216;
 
 export interface NullableBlockRegisterUpdate<T> {
   present: boolean;
@@ -60,7 +63,8 @@ export interface OriginalModifyBlockPayload {
   imageFlippedVertically: boolean | null;
   zIndex: string | null;
   positionLocked: boolean | null;
-  hasMathTypeSpecificFields: boolean;
+  mathLatex: NullableBlockRegisterUpdate<string>;
+  mathColor: NullableBlockRegisterUpdate<number>;
 }
 
 interface StoredRegister<T> {
@@ -101,6 +105,10 @@ interface StoredBlockState {
   baseImageWidth: number | null;
   baseImageHeight: number | null;
   baseImageWebUrl: string | null;
+  baseMathLatex: string | null;
+  mathLatex: StoredRegister<string>;
+  baseMathColor: number | null;
+  mathColor: StoredRegister<number>;
   basePositionLocked: boolean;
   positionLocked: StoredRegister<boolean>;
   baseLeftInset: number;
@@ -143,7 +151,7 @@ interface AffectedPage {
   textChanged: boolean;
 }
 
-type ModifiableBlockElement = TextBlockElement | ImageElement;
+type ModifiableBlockElement = TextBlockElement | ImageElement | MathElement;
 
 interface PlannedBlockReplacement {
   target: StoredBlockTarget;
@@ -163,6 +171,8 @@ interface PlannedBlockReplacement {
   imageCropValue: OriginalBlockRect | null;
   imageFlipHorizontalValue: boolean;
   imageFlipVerticalValue: boolean;
+  mathLatexValue: string | null;
+  mathColorValue: number | null;
   positionLockedValue: boolean;
   zIndexValue: string;
   replacePageOrigin: boolean;
@@ -177,6 +187,8 @@ interface PlannedBlockReplacement {
   replaceImageCrop: boolean;
   replaceImageFlipHorizontal: boolean;
   replaceImageFlipVertical: boolean;
+  replaceMathLatex: boolean;
+  replaceMathColor: boolean;
   replacePositionLocked: boolean;
   replaceZIndex: boolean;
 }
@@ -229,6 +241,10 @@ export function decodeOriginalModifyBlock(bytes: Uint8Array): OriginalModifyBloc
   const paperTable: OriginalFlatBufferTableReader | null = paperSetter === null ? null :
     paperSetter.readTable(0);
   const zIndex: string | null = table.readUint64Decimal(9);
+  const mathLatexSetter: OriginalFlatBufferTableReader | null = table.readTable(10);
+  const mathColorSetter: OriginalFlatBufferTableReader | null = table.readTable(11);
+  const mathColorBytes: Uint8Array | null = mathColorSetter === null ? null :
+    mathColorSetter.readInlineBytes(0, 4);
   if (zIndex !== null) {
     validateUnsignedLongDecimal(zIndex);
   }
@@ -268,7 +284,15 @@ export function decodeOriginalModifyBlock(bytes: Uint8Array): OriginalModifyBloc
     imageFlippedVertically: table.hasField(15) ? table.readUint8(15, 0) !== 0 : null,
     zIndex: zIndex,
     positionLocked: table.hasField(17) ? table.readUint8(17, 0) !== 0 : null,
-    hasMathTypeSpecificFields: table.hasField(10) || table.hasField(11),
+    mathLatex: {
+      present: mathLatexSetter !== null,
+      value: mathLatexSetter === null ? null :
+        mathLatexSetter.readUtf8String(0, false, MAX_ORIGINAL_MATH_LATEX_BYTES),
+    },
+    mathColor: {
+      present: mathColorSetter !== null,
+      value: mathColorBytes === null ? null : rgbaBytesToArgb(mathColorBytes),
+    },
   };
 }
 
@@ -284,9 +308,6 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       payload = decodeOriginalModifyBlock(operation.rawOperation);
     } catch (_error) {
       return { deferredReason: 'MALFORMED_MODIFY_BLOCK_PAYLOAD' };
-    }
-    if (payload.hasMathTypeSpecificFields) {
-      return { deferredReason: 'MODIFY_BLOCK_MATH_FIELDS_UNSUPPORTED' };
     }
     if ((payload.pageOrigin !== null && (!Number.isFinite(payload.pageOrigin.originX) ||
       !Number.isFinite(payload.pageOrigin.originY))) ||
@@ -309,6 +330,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       payload.resizesWidthToFitText === null && payload.positionLocked === null &&
       !payload.cropRect.present && payload.imageFlippedHorizontally === null &&
       payload.imageFlippedVertically === null &&
+      !payload.mathLatex.present && !payload.mathColor.present &&
       payload.zIndex === null) {
       return { deferredReason: null };
     }
@@ -319,18 +341,18 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       if (target === null) {
         return { deferredReason: 'MODIFY_BLOCK_TARGET_MISSING_OR_UNBOUND' };
       }
-      if (target.blockType === OriginalBlockType.TEXT &&
+      if (target.blockType !== OriginalBlockType.IMAGE &&
         (payload.cropRect.present || payload.imageFlippedHorizontally !== null ||
           payload.imageFlippedVertically !== null)) {
         return { deferredReason: 'MODIFY_BLOCK_IMAGE_FIELDS_ON_NON_IMAGE' };
       }
-      if (target.blockType === OriginalBlockType.IMAGE &&
+      if (target.blockType !== OriginalBlockType.TEXT &&
         (payload.paper.present || payload.resizesWidthToFitText !== null)) {
         return { deferredReason: 'MODIFY_BLOCK_TEXT_FIELDS_ON_NON_TEXT' };
       }
-      if (target.blockType !== OriginalBlockType.TEXT &&
-        target.blockType !== OriginalBlockType.IMAGE) {
-        return { deferredReason: 'MODIFY_BLOCK_TYPE_UNSUPPORTED' };
+      if (target.blockType !== OriginalBlockType.MATH &&
+        (payload.mathLatex.present || payload.mathColor.present)) {
+        return { deferredReason: 'MODIFY_BLOCK_MATH_FIELDS_ON_NON_MATH' };
       }
       const state: StoredBlockState | null = await this.readState(store, operation.noteId, block);
       const element: ModifiableBlockElement | null = await this.readBlockElement(
@@ -362,6 +384,10 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         registerAccepts(operation, state.imageFlipHorizontal.winner);
       const replaceImageFlipVertical: boolean = payload.imageFlippedVertically !== null &&
         registerAccepts(operation, state.imageFlipVertical.winner);
+      const replaceMathLatex: boolean = payload.mathLatex.present &&
+        registerAccepts(operation, state.mathLatex.winner);
+      const replaceMathColor: boolean = payload.mathColor.present &&
+        registerAccepts(operation, state.mathColor.winner);
       const replacePositionLocked: boolean = payload.positionLocked !== null &&
         registerAccepts(operation, state.positionLocked.winner);
       const replaceZIndex: boolean = payload.zIndex !== null &&
@@ -369,7 +395,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       if (!replacePageOrigin && !replaceRotation && !replaceScale && !replaceSize &&
         !replaceCorner && !replaceTextWrap && !replaceEnableCaption && !replacePaper &&
         !replaceResizesWidth && !replaceImageCrop && !replaceImageFlipHorizontal &&
-        !replaceImageFlipVertical &&
+        !replaceImageFlipVertical && !replaceMathLatex && !replaceMathColor &&
         !replacePositionLocked && !replaceZIndex) {
         continue;
       }
@@ -391,7 +417,8 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         return { deferredReason: 'MODIFY_BLOCK_DESTINATION_MISSING_OR_EXHAUSTED' };
       }
       const updatedElement: ModifiableBlockElement = target.kind === PageElementKind.TEXT ?
-        cloneText(element as TextBlockElement) : cloneImageElement(element as ImageElement);
+        cloneText(element as TextBlockElement) : target.kind === PageElementKind.IMAGE ?
+          cloneImageElement(element as ImageElement) : cloneMathElement(element as MathElement);
       const scale: OriginalBlockScale = scaleValue === null ? { x: 1, y: 1 } : scaleValue;
       updatedElement.transform = blockTransform(pageOriginValue.originX, pageOriginValue.originY,
         rotationValue === null ? 0 : rotationValue, scale.x, scale.y);
@@ -416,7 +443,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
           updatedText.resizesWidthToFitText = payload.resizesWidthToFitText as boolean;
         }
         updatedText.bounds = textBlockWorldBounds(updatedText);
-      } else {
+      } else if (target.kind === PageElementKind.IMAGE) {
         const updatedImage: ImageElement = updatedElement as ImageElement;
         if (replaceImageCrop) {
           updatedImage.cropRect = originalRectToRect(payload.cropRect.value);
@@ -428,6 +455,16 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
           updatedImage.imageFlippedVertically = payload.imageFlippedVertically as boolean;
         }
         updatedImage.bounds = imageBlockWorldBounds(updatedImage);
+      } else {
+        const updatedMath: MathElement = updatedElement as MathElement;
+        if (replaceMathLatex) {
+          updatedMath.latex = payload.mathLatex.value === null ? '' : payload.mathLatex.value;
+        }
+        if (replaceMathColor) {
+          updatedMath.color = payload.mathColor.value === null ? DEFAULT_MATH_COLOR :
+            payload.mathColor.value;
+        }
+        updatedMath.bounds = mathBlockWorldBounds(updatedMath);
       }
       updatedElement.positionLocked = replacePositionLocked ? payload.positionLocked as boolean :
         effectiveBoolean(state.basePositionLocked, state.positionLocked);
@@ -453,6 +490,10 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         imageFlipVerticalValue: replaceImageFlipVertical ?
           payload.imageFlippedVertically as boolean : effectiveBoolean(
             state.baseImageFlipVertical, state.imageFlipVertical),
+        mathLatexValue: replaceMathLatex ? payload.mathLatex.value :
+          effectiveNullable(state.baseMathLatex, state.mathLatex),
+        mathColorValue: replaceMathColor ? payload.mathColor.value :
+          effectiveNullable(state.baseMathColor, state.mathColor),
         positionLockedValue: replacePositionLocked ? payload.positionLocked as boolean :
           effectiveBoolean(state.basePositionLocked, state.positionLocked),
         zIndexValue: zIndexValue,
@@ -463,6 +504,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         replaceImageCrop: replaceImageCrop,
         replaceImageFlipHorizontal: replaceImageFlipHorizontal,
         replaceImageFlipVertical: replaceImageFlipVertical,
+        replaceMathLatex: replaceMathLatex, replaceMathColor: replaceMathColor,
         replacePositionLocked: replacePositionLocked, replaceZIndex: replaceZIndex,
       });
     }
@@ -536,7 +578,9 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       const blockType: number = rows.getLong(rows.getColumnIndex('block_type'));
       if ((blockType === OriginalBlockType.TEXT && kind !== PageElementKind.TEXT) ||
         (blockType === OriginalBlockType.IMAGE && kind !== PageElementKind.IMAGE) ||
-        (blockType !== OriginalBlockType.TEXT && blockType !== OriginalBlockType.IMAGE)) {
+        (blockType === OriginalBlockType.MATH && kind !== PageElementKind.MATH) ||
+        (blockType !== OriginalBlockType.TEXT && blockType !== OriginalBlockType.IMAGE &&
+          blockType !== OriginalBlockType.MATH)) {
         return null;
       }
       targetKind = kind as PageElementKind;
@@ -672,6 +716,14 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       const baseImageWidth: number | null = readNullableDouble(rows, 'create_image_width');
       const baseImageHeight: number | null = readNullableDouble(rows, 'create_image_height');
       const baseImageWebUrl: string | null = readNullableString(rows, 'create_image_web_url');
+      const baseMathLatex: string | null = readNullableString(rows, 'create_math_latex');
+      const mathLatexWinner: OperationIdentity | null = readOptionalWinner(rows, 'math_latex');
+      const mathLatexValue: string | null = mathLatexWinner === null ? null :
+        readNullableString(rows, 'math_latex_value');
+      const baseMathColor: number | null = readNullableLong(rows, 'create_math_color');
+      const mathColorWinner: OperationIdentity | null = readOptionalWinner(rows, 'math_color');
+      const mathColorValue: number | null = mathColorWinner === null ? null :
+        readNullableLong(rows, 'math_color_value');
       const basePositionLocked: number = rows.getLong(rows.getColumnIndex('create_position_locked'));
       const baseLeftInset: number = rows.getDouble(rows.getColumnIndex('create_margin_left'));
       const baseTopInset: number = rows.getDouble(rows.getColumnIndex('create_margin_top'));
@@ -731,6 +783,10 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         baseImageWidth: baseImageWidth,
         baseImageHeight: baseImageHeight,
         baseImageWebUrl: baseImageWebUrl,
+        baseMathLatex: baseMathLatex,
+        mathLatex: { value: mathLatexValue, winner: mathLatexWinner },
+        baseMathColor: baseMathColor,
+        mathColor: { value: mathColorValue, winner: mathColorWinner },
         basePositionLocked: basePositionLocked !== 0,
         positionLocked: readBooleanRegister(rows, 'position_locked'),
         baseLeftInset: baseLeftInset, baseTopInset: baseTopInset,
@@ -763,8 +819,11 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       if (target.kind === PageElementKind.TEXT && persisted.kind === 'text') {
         return persisted.data as TextBlockElement;
       }
-      return target.kind === PageElementKind.IMAGE && persisted.kind === 'image' ?
-        persisted.data as ImageElement : null;
+      if (target.kind === PageElementKind.IMAGE && persisted.kind === 'image') {
+        return persisted.data as ImageElement;
+      }
+      return target.kind === PageElementKind.MATH && persisted.kind === 'math' ?
+        persisted.data as MathElement : null;
     } catch (_error) {
       return null;
     } finally {
@@ -812,6 +871,19 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         text.contentLeftInset === state.baseLeftInset && text.contentTopInset === state.baseTopInset &&
         JSON.stringify(text.paper ?? null) === JSON.stringify(expectedText.paper ?? null) &&
         (text.resizesWidthToFitText === true) === (expectedText.resizesWidthToFitText === true);
+    }
+    if (target.kind === PageElementKind.MATH) {
+      const math: MathElement = element as MathElement;
+      const expectedMath: MathElement = cloneMathElement(math);
+      expectedMath.transform = expectedTransform;
+      expectedMath.blockWidth = size.x;
+      expectedMath.blockHeight = size.y;
+      const latex: string | null = effectiveNullable(state.baseMathLatex, state.mathLatex);
+      const color: number | null = effectiveNullable(state.baseMathColor, state.mathColor);
+      expectedMath.latex = latex === null ? '' : latex;
+      expectedMath.color = color === null ? DEFAULT_MATH_COLOR : color;
+      return math.latex === expectedMath.latex && math.color === expectedMath.color &&
+        JSON.stringify(math.bounds) === JSON.stringify(mathBlockWorldBounds(expectedMath));
     }
     const image: ImageElement = element as ImageElement;
     const expectedImage: ImageElement = cloneImageElement(image);
@@ -1023,6 +1095,16 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       values['image_flip_vertical_value'] = replacement.imageFlipVerticalValue ? 1 : 0;
       addWinnerValues(values, 'image_flip_vertical', winner);
     }
+    if (replacement.replaceMathLatex) {
+      addWinnerPredicates(predicates, 'math_latex', replacement.state.mathLatex.winner);
+      values['math_latex_value'] = replacement.mathLatexValue;
+      addWinnerValues(values, 'math_latex', winner);
+    }
+    if (replacement.replaceMathColor) {
+      addWinnerPredicates(predicates, 'math_color', replacement.state.mathColor.winner);
+      values['math_color_value'] = replacement.mathColorValue;
+      addWinnerValues(values, 'math_color', winner);
+    }
     if (replacement.replacePositionLocked) {
       addWinnerPredicates(predicates, 'position_locked', replacement.state.positionLocked.winner);
       values['position_locked_value'] = replacement.positionLockedValue ? 1 : 0;
@@ -1190,8 +1272,13 @@ function mergeAffectedPage(affected: Map<string, AffectedPage>, target: StoredPa
 function persistedBlockElement(kind: PageElementKind,
   element: ModifiableBlockElement): PersistedElement {
   return kind === PageElementKind.TEXT ?
-    { kind: 'text', data: element as TextBlockElement } :
-    { kind: 'image', data: element as ImageElement };
+    { kind: 'text', data: element as TextBlockElement } : kind === PageElementKind.IMAGE ?
+      { kind: 'image', data: element as ImageElement } :
+      { kind: 'math', data: element as MathElement };
+}
+
+function rgbaBytesToArgb(bytes: Uint8Array): number {
+  return ((bytes[3] << 24) | (bytes[0] << 16) | (bytes[1] << 8) | bytes[2]) | 0;
 }
 
 function cloneOriginalRect(rect: OriginalBlockRect | null): OriginalBlockRect | null {

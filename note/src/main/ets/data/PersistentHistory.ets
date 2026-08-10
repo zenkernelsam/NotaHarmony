@@ -12,10 +12,11 @@ import { samePageBackground } from '../core/model/PageBackgroundModel';
 import { PageDeleteCheckpoint, PageDeleteCheckpointElement } from './PageDeleteCheckpoint';
 import { decodePersistedElement, PersistedElement } from './StrokePersistence';
 import { StrokeElementData } from '../core/model/StrokeTypes';
-import { ImageElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { cloneImageElement, imageBlockWorldBounds } from '../core/model/ImageBlockGeometry';
 import { cloneShapeElement, recomputeShapeBounds } from '../core/model/ShapeGeometry';
 import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextBlockGeometry';
+import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockGeometry';
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import {
   AddPageAction, DeletePageAction, PageSettingsAction, PersistedPageMutationsAction, ReorderPagesAction,
@@ -262,7 +263,8 @@ function materializePageAction(noteId: string, operation: Op, currentPageId: str
     const restored: AddPageAction = {
       type: UndoableActionType.ADD_PAGE, noteId: noteId, pageId: added.pageId,
       pageAfter: added, pageOrderBefore: beforeIds, pageOrderAfter: afterIds,
-      pageStrokes: [], pageTextBlocks: [], pageShapes: [], pageImages: [], pageElementOrder: [],
+      pageStrokes: [], pageTextBlocks: [], pageShapes: [], pageImages: [], pageMathBlocks: [],
+      pageElementOrder: [],
       selectedPageIdBefore: selectedBefore, selectedPageIdAfter: added.pageId,
     };
     return restored;
@@ -308,6 +310,7 @@ function materializePageAction(noteId: string, operation: Op, currentPageId: str
       pageTextBlocks: content.textBlocks,
       pageShapes: content.shapes,
       pageImages: content.images,
+      pageMathBlocks: content.mathBlocks,
       pageElementOrder: content.elementOrder,
       selectedPageIdBefore: deleted.pageId,
       selectedPageIdAfter: selectedAfter,
@@ -322,6 +325,7 @@ interface MaterializedCheckpointContent {
   textBlocks: TextBlockElement[];
   shapes: ShapeElement[];
   images: ImageElement[];
+  mathBlocks: MathElement[];
   elementOrder: PageElementRef[];
 }
 
@@ -352,6 +356,7 @@ function materializeCheckpointContent(checkpoint: PageDeleteCheckpoint): Materia
   const textBlocks: TextBlockElement[] = [];
   const shapes: ShapeElement[] = [];
   const images: ImageElement[] = [];
+  const mathBlocks: MathElement[] = [];
   const elementOrder: PageElementRef[] = [];
   for (let index: number = 0; index < checkpoint.elements.length; index++) {
     const element: PageDeleteCheckpointElement = checkpoint.elements[index];
@@ -392,13 +397,20 @@ function materializeCheckpointContent(checkpoint: PageDeleteCheckpoint): Materia
       }
       image.bounds = imageBlockWorldBounds(image);
       images.push(image);
+    } else if (element.kind === PageElementKind.MATH && persisted.kind === 'math') {
+      const math: MathElement = cloneMathElement(persisted.data as MathElement);
+      if (math.id !== element.elementId) {
+        throw new Error('persistent DELETE_PAGE math identity mismatch');
+      }
+      math.bounds = mathBlockWorldBounds(math);
+      mathBlocks.push(math);
     } else {
       throw new Error('persistent DELETE_PAGE element kind mismatch');
     }
     elementOrder.push({ kind: element.kind, elementId: element.elementId, zIndex: index });
   }
   return { strokes: strokes, textBlocks: textBlocks, shapes: shapes,
-    images: images, elementOrder: elementOrder };
+    images: images, mathBlocks: mathBlocks, elementOrder: elementOrder };
 }
 
 function samePageInfo(left: PageInfo, right: PageInfo): boolean {

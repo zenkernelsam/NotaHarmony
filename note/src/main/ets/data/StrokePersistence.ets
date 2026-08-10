@@ -4,10 +4,11 @@ import { parsePageBackground } from '../core/model/PageBackgroundModel';
 import { HistoryEffect, HistoryMetadata } from '../core/model/OpTypes';
 import { taskpool, util } from '@kit.ArkTS';
 import { StrokeElementData } from '../core/model/StrokeTypes';
-import { ImageElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { cloneImageElement, imageBlockWorldBounds } from '../core/model/ImageBlockGeometry';
 import { cloneShapeElement, recomputeShapeBounds } from '../core/model/ShapeGeometry';
 import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextBlockGeometry';
+import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockGeometry';
 import {
   legacyPageElementOrder, materializePageElements, normalizePageElementOrder, OrderedPageElement,
   PageElementKind, PageElementRef,
@@ -26,7 +27,7 @@ import { validateHistoryMetadata } from './PersistentHistoryMetadata';
 
 export interface PersistedElement {
   kind: string;
-  data: StrokeElementData | TextBlockElement | ShapeElement | ImageElement;
+  data: StrokeElementData | TextBlockElement | ShapeElement | ImageElement | MathElement;
 }
 
 // page_element_snapshot.payload is a SQLite BLOB containing UTF-8 JSON bytes.
@@ -46,6 +47,7 @@ export interface LoadedElements {
   textBlocks: TextBlockElement[];
   shapes: ShapeElement[];
   images: ImageElement[];
+  mathBlocks: MathElement[];
   elementOrder: PageElementRef[];
   elements: OrderedPageElement[];
 }
@@ -75,6 +77,7 @@ export interface HistoryPageSnapshot {
   elementOrder: PageElementRef[];
   shapes: ShapeElement[];
   images: ImageElement[];
+  mathBlocks?: MathElement[];
   history?: HistoryMetadata;
 }
 
@@ -126,12 +129,12 @@ export class StrokePersistence {
   queueSaveElements(noteId: string, pageId: string, strokes: StrokeElementData[],
     textBlocks: TextBlockElement[], elementOrder: PageElementRef[] = [], shapes: ShapeElement[] = [],
     preserveActionBoundary: boolean = false, history?: HistoryMetadata,
-    images: ImageElement[] = []): number {
+    images: ImageElement[] = [], mathBlocks: MathElement[] = []): number {
     if (this.store === null) {
       throw new Error('StrokePersistence is not initialized');
     }
     const snapshot: PreparedPageSave = this.prepareSave(
-      noteId, pageId, strokes, textBlocks, elementOrder, shapes, images, history);
+      noteId, pageId, strokes, textBlocks, elementOrder, shapes, images, mathBlocks, history);
     return this.getSaveQueue(noteId, pageId).enqueue(snapshot, preserveActionBoundary);
   }
 
@@ -151,9 +154,9 @@ export class StrokePersistence {
 
   async saveElements(noteId: string, pageId: string, strokes: StrokeElementData[],
     textBlocks: TextBlockElement[], elementOrder: PageElementRef[] = [], shapes: ShapeElement[] = [],
-    images: ImageElement[] = []): Promise<void> {
+    images: ImageElement[] = [], mathBlocks: MathElement[] = []): Promise<void> {
     this.queueSaveElements(noteId, pageId, strokes, textBlocks, elementOrder, shapes,
-      false, undefined, images);
+      false, undefined, images, mathBlocks);
     await this.flush(noteId, pageId);
   }
 
@@ -164,7 +167,7 @@ export class StrokePersistence {
     }
     const preparedInitial: PreparedPageSave = this.prepareSave(
       noteId, pageId, initial.strokes, initial.textBlocks, initial.elementOrder,
-      initial.shapes, initial.images);
+      initial.shapes, initial.images, initial.mathBlocks ?? []);
     const preparedSteps: PreparedPageSave[] = [];
     const actionIds: Set<string> = new Set<string>();
     let effect: HistoryEffect | null = null;
@@ -181,7 +184,7 @@ export class StrokePersistence {
       effect = step.history.effect;
       preparedSteps.push(this.prepareSave(
         noteId, pageId, step.strokes, step.textBlocks, step.elementOrder,
-        step.shapes, step.images, step.history));
+        step.shapes, step.images, step.mathBlocks ?? [], step.history));
     }
     await this.flush(noteId, pageId);
     await editorPersistenceMutex.runExclusive(async (): Promise<void> => {
@@ -242,7 +245,7 @@ export class StrokePersistence {
     }
     pageSet.close();
     return pageId.length > 0 ? this.loadElements(noteId, pageId) :
-      { strokes: [], textBlocks: [], shapes: [], images: [], elementOrder: [], elements: [] };
+      { strokes: [], textBlocks: [], shapes: [], images: [], mathBlocks: [], elementOrder: [], elements: [] };
   }
 
   async getFirstPageThumbnailState(noteId: string): Promise<FirstPageThumbnailState | null> {
@@ -650,13 +653,13 @@ export class StrokePersistence {
 
   private prepareSave(noteId: string, pageId: string, strokes: StrokeElementData[],
     textBlocks: TextBlockElement[], elementOrder: PageElementRef[], shapes: ShapeElement[],
-    images: ImageElement[],
+    images: ImageElement[], mathBlocks: MathElement[],
     history?: HistoryMetadata): PreparedPageSave {
     const elements: PreparedElement[] = [];
     const preferredOrder: PageElementRef[] = elementOrder.length > 0
-      ? elementOrder : legacyPageElementOrder(strokes, textBlocks, shapes, images);
+      ? elementOrder : legacyPageElementOrder(strokes, textBlocks, shapes, images, mathBlocks);
     const ordered: OrderedPageElement[] = materializePageElements(
-      preferredOrder, strokes, textBlocks, shapes, images);
+      preferredOrder, strokes, textBlocks, shapes, images, mathBlocks);
     for (const element of ordered) {
       if (element.kind === PageElementKind.STROKE) {
         const payload: PersistedElement = { kind: 'stroke', data: element.data };
@@ -673,6 +676,10 @@ export class StrokePersistence {
       } else if (element.kind === PageElementKind.IMAGE) {
         const payload: PersistedElement = { kind: 'image', data: element.data };
         elements.push({ elementId: element.elementId, kind: PageElementKind.IMAGE,
+          payload: encodePersistedElement(payload), searchText: null });
+      } else if (element.kind === PageElementKind.MATH) {
+        const payload: PersistedElement = { kind: 'math', data: element.data };
+        elements.push({ elementId: element.elementId, kind: PageElementKind.MATH,
           payload: encodePersistedElement(payload), searchText: null });
       }
     }
@@ -728,7 +735,7 @@ export class StrokePersistence {
 
   private async loadMatchingElements(noteId: string, pageId: string | null): Promise<LoadedElements> {
     const result: LoadedElements = {
-      strokes: [], textBlocks: [], shapes: [], images: [], elementOrder: [], elements: [],
+      strokes: [], textBlocks: [], shapes: [], images: [], mathBlocks: [], elementOrder: [], elements: [],
     };
     if (this.store === null) {
       throw new Error('StrokePersistence is not initialized');
@@ -770,6 +777,12 @@ export class StrokePersistence {
               result.images.push(image);
               result.elementOrder.push({ kind: PageElementKind.IMAGE,
                 elementId: image.id, zIndex: result.elementOrder.length });
+            } else if (parsed.kind === 'math') {
+              const math: MathElement = cloneMathElement(parsed.data as MathElement);
+              math.bounds = mathBlockWorldBounds(math);
+              result.mathBlocks.push(math);
+              result.elementOrder.push({ kind: PageElementKind.MATH,
+                elementId: math.id, zIndex: result.elementOrder.length });
             }
           } catch (e) {
             // Ignore an individual corrupt element without discarding the rest of the page.
@@ -782,9 +795,11 @@ export class StrokePersistence {
       throw new Error(`loadElements failed: ${JSON.stringify(e)}`);
     }
     result.elementOrder = normalizePageElementOrder(
-      result.elementOrder, result.strokes, result.textBlocks, result.shapes, result.images);
+      result.elementOrder, result.strokes, result.textBlocks, result.shapes, result.images,
+      result.mathBlocks);
     result.elements = materializePageElements(
-      result.elementOrder, result.strokes, result.textBlocks, result.shapes, result.images);
+      result.elementOrder, result.strokes, result.textBlocks, result.shapes, result.images,
+      result.mathBlocks);
     return result;
   }
 

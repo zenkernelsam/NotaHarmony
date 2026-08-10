@@ -3,7 +3,7 @@
 // 原版 NoteImpl 使用全笔记 opHistory；文本编辑器 nnf(100) 是另一套局部历史，不能作为这里的容量。
 import { InkPathCommand, StrokeElementData } from '../core/model/StrokeTypes';
 import { ElementType, RichTextCharacterStyleRun, RichTextParagraphStyleRun,
-  ImageElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+  ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { PageInfo } from '../core/model/NoteTypes';
 import { PageElementRef } from '../core/model/PageElementOrder';
 import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op } from '../core/model/OpTypes';
@@ -143,6 +143,7 @@ export interface AddPageAction extends ActionBase {
   pageTextBlocks: TextBlockElement[];
   pageShapes: ShapeElement[];
   pageImages: ImageElement[];
+  pageMathBlocks?: MathElement[];
   pageElementOrder: PageElementRef[];
   selectedPageIdBefore: string;
   selectedPageIdAfter: string;
@@ -157,6 +158,7 @@ export interface DeletePageAction extends ActionBase {
   pageTextBlocks: TextBlockElement[];
   pageShapes: ShapeElement[];
   pageImages: ImageElement[];
+  pageMathBlocks?: MathElement[];
   pageElementOrder: PageElementRef[];
   selectedPageIdBefore: string;
   selectedPageIdAfter: string;
@@ -199,6 +201,7 @@ export interface PageContentSnapshot {
   textBlocks: TextBlockElement[];
   shapes: ShapeElement[];
   images: ImageElement[];
+  mathBlocks: MathElement[];
   elementOrder: PageElementRef[];
 }
 
@@ -295,6 +298,7 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
     return bytes + 256 + estimateStringList(action.pageOrderBefore) + estimateStringList(action.pageOrderAfter) +
       estimateStrokes(action.pageStrokes) + estimateTextBlocks(action.pageTextBlocks) +
       estimateShapes(action.pageShapes) + estimateImages(action.pageImages) +
+      estimateMathBlocks(action.pageMathBlocks ?? []) +
       estimateElementOrder(action.pageElementOrder);
   }
   if (action.type === UndoableActionType.REORDER_PAGES) {
@@ -415,6 +419,14 @@ function estimateImages(images: ImageElement[]): number {
     if (image.webUrl !== null) {
       bytes += image.webUrl.length * 2;
     }
+  }
+  return bytes;
+}
+
+function estimateMathBlocks(blocks: MathElement[]): number {
+  let bytes: number = 0;
+  for (const block of blocks) {
+    bytes += 384 + block.transform.length * 8 + (block.id.length + block.latex.length) * 2;
   }
   return bytes;
 }

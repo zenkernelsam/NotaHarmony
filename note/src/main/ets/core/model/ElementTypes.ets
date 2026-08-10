@@ -10,9 +10,10 @@ export enum ElementType {
   ELLIPSE = 1,       // 椭圆形状（wv8/zzc）
   POLYGON = 2,       // 多边形形状（ina/a0d）
   TEXT = 3,          // 文本框（cde）
-  IMAGE = 4,         // 图片（待补）
+  IMAGE = 4,         // 原版独立 ImageBlock
   SELECTION = 5,     // 选区包装（lce）
   LINE = 6,          // 原版 ShapeDefinition.LINE（可含二次/三次控制点和末端箭头）
+  MATH = 7,          // 原版独立 MathBlock（u08），不是 TEXT 别名
 }
 
 export enum ShapeArrowHead {
@@ -133,6 +134,20 @@ export interface ImageElement extends NoteElementBase {
   positionLocked: boolean;
 }
 
+// 原版 u08 MathBlock。latex/color 是两个独立 LWW register。
+export interface MathElement extends NoteElementBase {
+  type: ElementType.MATH;
+  latex: string;
+  color: number;
+  blockWidth: number;
+  blockHeight: number;
+  rotationRadians: number;
+  corner: number;
+  textWrap: number;
+  enableCaption: boolean;
+  positionLocked: boolean;
+}
+
 // 原版 1.0.3 uf7/s4d：cp1+cp2 为 cubic，仅 cp1 为 quadratic，无控制点为直线。
 export interface LineElement extends NoteElementBase {
   type: ElementType.LINE;
@@ -166,4 +181,5 @@ export type NoteElement =
   | LineElement
   | TextBlockElement
   | ImageElement
+  | MathElement
   | SelectionElement;

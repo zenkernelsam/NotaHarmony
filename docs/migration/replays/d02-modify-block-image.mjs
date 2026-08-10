@@ -81,7 +81,7 @@ assert.equal(clearBlock.nested(12).inline(0, 16), null);
 assert.equal(clearBlock.inline(14, 1)[0], 1);
 assert.equal(clearBlock.inline(15, 1)[0], 0);
 
-const migrationBody = schema.match(/44:\s*\[([\s\S]*?)\n\s*\],\n};/);
+const migrationBody = schema.match(/44:\s*\[([\s\S]*?)\n\s*\],\n\s*45:/);
 assert(migrationBody);
 const migrationStatements = Array.from(
   migrationBody[1].matchAll(/(?:'([^']+)'|`([\s\S]*?)`)/g), match => match[1] ?? match[2]);
@@ -269,7 +269,7 @@ assert.match(source, /cloneImageElement/);
 assert.match(source, /imageBlockWorldBounds/);
 assert.match(source, /image_crop_x_value/);
 assert.match(source, /if \(textChanged\)/);
-assert.match(schema, /DB_VERSION: number = 44/);
+assert.match(schema, /DB_VERSION: number = 45/);
 assert.match(schema, /image_crop_winner_present = 1[\s\S]*image_crop_x_value IS NULL/);
 assert.match(tests, /decodes original MODIFY_BLOCK image crop and flip registers/);
 

@@ -419,6 +419,7 @@ struct NotePage {
       pageTextBlocks: [],
       pageShapes: [],
       pageImages: [],
+      pageMathBlocks: [],
       pageElementOrder: [],
       selectedPageIdBefore: selectedBefore,
       selectedPageIdAfter: page.pageId,
@@ -461,6 +462,7 @@ struct NotePage {
       pageTextBlocks: snapshot.textBlocks,
       pageShapes: snapshot.shapes,
       pageImages: snapshot.images,
+      pageMathBlocks: snapshot.mathBlocks,
       pageElementOrder: snapshot.elementOrder,
       selectedPageIdBefore: selectedBefore,
       selectedPageIdAfter: selectedAfter,
@@ -682,6 +684,7 @@ struct NotePage {
     // single page-mutation transaction; populated page restoration belongs to DELETE_PAGE checkpoints.
     if (action.pageStrokes.length !== 0 || action.pageTextBlocks.length !== 0 ||
       action.pageShapes.length !== 0 || action.pageImages.length !== 0 ||
+      (action.pageMathBlocks ?? []).length !== 0 ||
       action.pageElementOrder.length !== 0 ||
       action.pageOrderAfter.length === 0 ||
       action.pageOrderAfter[action.pageOrderAfter.length - 1] !== action.pageId) {

@@ -2,7 +2,7 @@
 // 纯类型 + 序列化工具：不 import 平台模块
 // elements 保持 object[]（JSON 原始结构），但导入前必须按 exporter 的 typed payload 做结构校验。
 import {
-  ElementType, ImageElement, ShapeArrowHead, ShapeElement, TextBlockElement,
+  ElementType, ImageElement, MathElement, ShapeArrowHead, ShapeElement, TextBlockElement,
 } from '../core/model/ElementTypes';
 import { originalAssetHashKey } from '../core/model/ImageBlockGeometry';
 import { validateOriginalPaper } from '../core/model/PageBackgroundModel';
@@ -47,7 +47,7 @@ export interface PageData {
 }
 
 export function isSupportedPageElementKind(kind: string): boolean {
-  return kind === 'stroke' || kind === 'text' || kind === 'shape' || kind === 'image';
+  return kind === 'stroke' || kind === 'text' || kind === 'shape' || kind === 'image' || kind === 'math';
 }
 
 interface PageElementEnvelope {
@@ -123,7 +123,10 @@ export function isValidPageElement(element: object): boolean {
   if (envelope.kind === 'shape') {
     return isValidShape(envelope.data as ShapeElement);
   }
-  return isValidImage(envelope.data as ImageElement);
+  if (envelope.kind === 'image') {
+    return isValidImage(envelope.data as ImageElement);
+  }
+  return isValidMath(envelope.data as MathElement);
 }
 
 // 序列化 manifest
@@ -506,6 +509,16 @@ function isValidImage(image: ImageElement): boolean {
     }
   }
   return image.assetHash === originalAssetHashKey(image.assetHashBits);
+}
+
+function isValidMath(math: MathElement): boolean {
+  return math.type === ElementType.MATH && isElementBase(math.id, math.transform, math.bounds) &&
+    typeof math.latex === 'string' && math.latex.length <= 1048576 &&
+    isFiniteNumber(math.color) && isNonNegativeFinite(math.blockWidth) &&
+    isNonNegativeFinite(math.blockHeight) && isFiniteNumber(math.rotationRadians) &&
+    (math.corner === 0 || math.corner === 1) &&
+    (math.textWrap === 0 || math.textWrap === 1) &&
+    typeof math.enableCaption === 'boolean' && typeof math.positionLocked === 'boolean';
 }
 
 function isValidOptionalCropRect(rect: Rect2D | null): boolean {

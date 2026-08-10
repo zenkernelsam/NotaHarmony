@@ -17,6 +17,7 @@ import { StrokeLayerManager } from '../../rendering/StrokeLayerManager';
 import { StrokeCanvasPainter } from '../../rendering/StrokeCanvasPainter';
 import { ShapeCanvasRenderer } from '../../rendering/ShapeCanvasRenderer';
 import { ImageCanvasRenderer } from '../../rendering/ImageCanvasRenderer';
+import { MathCanvasRenderer } from '../../rendering/MathCanvasRenderer';
 import { BitmapTransferMetrics, BitmapTransferTracker } from '../../core/adaptation/BitmapTransferTracker';
 import { CanvasViewport, CumulativeGestureTracker } from '../../rendering/CanvasViewport';
 import { pagePixelSize, PAGE_UNITS_PER_MM, PagePixelSize } from '../../core/model/PageCoordinateSpace';
@@ -53,7 +54,7 @@ import {
 } from '../../core/model/StrokeTypes';
 import { ToolType } from '../../core/model/BrushTypes';
 import {
-  ImageElement, ShapeElement, TextBlockElement,
+  ImageElement, MathElement, ShapeElement, TextBlockElement,
 } from '../../core/model/ElementTypes';
 import {
   cloneImageElement, eraserPathHitsImageBlock, imageBlockWorldBounds, originalAssetStorageHash,
@@ -68,6 +69,7 @@ import {
   textBlockWorldBounds, transformTextBlockElements,
 } from '../../core/model/TextBlockGeometry';
 import { Point2D, Rect2D, CubicSegment } from '../../core/model/GeometryTypes';
+import { cloneMathElement, mathBlockWorldBounds } from '../../core/model/MathBlockGeometry';
 import {
   CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, PageInfo,
 } from '../../core/model/NoteTypes';
@@ -133,6 +135,7 @@ export struct NoteCanvasView {
   private strokePainter: StrokeCanvasPainter = new StrokeCanvasPainter(this.renderer, this.bitmapTransferTracker);
   private shapeRenderer: ShapeCanvasRenderer = new ShapeCanvasRenderer();
   private imageRenderer: ImageCanvasRenderer = new ImageCanvasRenderer();
+  private mathRenderer: MathCanvasRenderer = new MathCanvasRenderer();
   private textRenderer: Canvas2DTextRenderer = new Canvas2DTextRenderer();
   private pencilPixelMap: image.PixelMap | null = null;
   private pencilTextureLoading: boolean = false;
@@ -173,6 +176,7 @@ export struct NoteCanvasView {
   private textBlocks: TextBlockElement[] = [];
   private shapes: ShapeElement[] = [];
   private imageBlocks: ImageElement[] = [];
+  private mathBlocks: MathElement[] = [];
   private elementOrder: PageElementRef[] = [];
   private eraserPath: Point2D[] = [];
   private isDrawing: boolean = false;
@@ -271,6 +275,7 @@ export struct NoteCanvasView {
       this.textBlocks = loaded.textBlocks;
       this.shapes = loaded.shapes;
       this.imageBlocks = loaded.images;
+      this.mathBlocks = loaded.mathBlocks;
       this.elementOrder = loaded.elementOrder;
       this.loadedPageId = targetPageId;
       if (!this.historyLoaded) {
@@ -370,7 +375,7 @@ export struct NoteCanvasView {
         const history = preserveActionBoundary ? this.undoRedo.getLatestHistoryMetadata() : undefined;
         this.persistence.queueSaveElements(this.noteId, pageId, this.completedStrokes, this.textBlocks,
           this.elementOrder, this.shapes, preserveActionBoundary, history === null ? undefined : history,
-          this.imageBlocks);
+          this.imageBlocks, this.mathBlocks);
         this.lastQueuedHistoryRevision = historyRevision;
         this.persistence.flush(this.noteId, pageId).then(() => {
           if (!this.persistence.hasDirtySave(this.noteId, pageId)) {
@@ -396,7 +401,7 @@ export struct NoteCanvasView {
     } else if (this.loadedPageId !== this.skipSavePageId) {
       this.persistence.queueSaveElements(this.noteId, this.loadedPageId,
         this.completedStrokes, this.textBlocks, this.elementOrder, this.shapes,
-        false, undefined, this.imageBlocks);
+        false, undefined, this.imageBlocks, this.mathBlocks);
     }
     try {
       await this.persistence.flush(this.noteId, this.loadedPageId);
@@ -593,7 +598,8 @@ export struct NoteCanvasView {
       if (fromPageId.length > 0) {
         if (fromPageId !== this.skipSavePageId) {
           this.persistence.queueSaveElements(this.noteId, fromPageId, snapshot.strokes, snapshot.textBlocks,
-            snapshot.elementOrder, snapshot.shapes, false, undefined, snapshot.images);
+            snapshot.elementOrder, snapshot.shapes, false, undefined, snapshot.images,
+            snapshot.mathBlocks);
           await this.persistence.flush(this.noteId, fromPageId);
         } else {
           this.skipSavePageId = '';
@@ -608,6 +614,7 @@ export struct NoteCanvasView {
       this.textBlocks = loaded.textBlocks;
       this.shapes = loaded.shapes;
       this.imageBlocks = loaded.images;
+      this.mathBlocks = loaded.mathBlocks;
       this.elementOrder = loaded.elementOrder;
       this.loadedPageId = targetPageId;
       this.loaded = true;
@@ -633,6 +640,7 @@ export struct NoteCanvasView {
           this.textBlocks = snapshot.textBlocks;
           this.shapes = snapshot.shapes;
           this.imageBlocks = snapshot.images;
+          this.mathBlocks = snapshot.mathBlocks;
           this.elementOrder = snapshot.elementOrder;
           this.loadedPageId = fromPageId;
           this.loaded = true;
@@ -659,6 +667,7 @@ export struct NoteCanvasView {
     this.textBlocks = [];
     this.shapes = [];
     this.imageBlocks = [];
+    this.mathBlocks = [];
     this.elementOrder = [];
     this.dataLoadFailed = true;
     this.cancelActiveInteraction();
@@ -813,7 +822,8 @@ export struct NoteCanvasView {
 
   private renderOrderedElements(): void {
     const elements: OrderedPageElement[] = materializePageElements(
-      this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks);
+      this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks,
+      this.mathBlocks);
     for (const element of elements) {
       if (element.kind === PageElementKind.STROKE) {
         this.strokePainter.renderStroke(element.data, this.renderCtx, this.getPaperWidth(), this.getPaperHeight());
@@ -827,6 +837,8 @@ export struct NoteCanvasView {
         if (loaded !== undefined && loaded.state === ImageAssetLoadState.READY && loaded.bitmap !== null) {
           this.imageRenderer.renderImage(element.data, loaded.bitmap, this.renderCtx);
         }
+      } else if (element.kind === PageElementKind.MATH) {
+        this.mathRenderer.renderMath(element.data, this.renderCtx);
       }
     }
   }
@@ -1955,12 +1967,14 @@ export struct NoteCanvasView {
 
   private currentMutationElements(): SearchSourceElement[] {
     const ordered: OrderedPageElement[] = materializePageElements(
-      this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks);
+      this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks,
+      this.mathBlocks);
     const result: SearchSourceElement[] = [];
     for (const element of ordered) {
       const kind: string = element.kind === PageElementKind.STROKE ? 'stroke' :
         (element.kind === PageElementKind.TEXT ? 'text' :
-          (element.kind === PageElementKind.SHAPE ? 'shape' : 'image'));
+          (element.kind === PageElementKind.SHAPE ? 'shape' :
+            (element.kind === PageElementKind.IMAGE ? 'image' : 'math')));
       const persisted: PersistedElement = { kind: kind, data: element.data };
       result.push({ elementId: element.elementId, kind: element.kind,
         payload: encodePersistedElement(persisted) });
@@ -1973,6 +1987,7 @@ export struct NoteCanvasView {
     const texts: TextBlockElement[] = [];
     const shapes: ShapeElement[] = [];
     const images: ImageElement[] = [];
+    const mathBlocks: MathElement[] = [];
     const order: PageElementRef[] = [];
     for (const element of elements) {
       const persisted: PersistedElement = decodePersistedElement(element.payload);
@@ -1991,6 +2006,10 @@ export struct NoteCanvasView {
         const image: ImageElement = cloneImageElement(persisted.data as ImageElement);
         image.bounds = imageBlockWorldBounds(image);
         images.push(image);
+      } else if (element.kind === PageElementKind.MATH && persisted.kind === 'math') {
+        const math: MathElement = cloneMathElement(persisted.data as MathElement);
+        math.bounds = mathBlockWorldBounds(math);
+        mathBlocks.push(math);
       } else {
         throw new Error('persisted mutation element kind mismatch');
       }
@@ -2000,6 +2019,7 @@ export struct NoteCanvasView {
     this.textBlocks = texts;
     this.shapes = shapes;
     this.imageBlocks = images;
+    this.mathBlocks = mathBlocks;
     this.elementOrder = order;
   }
 
@@ -2632,13 +2652,16 @@ export struct NoteCanvasView {
 
   private synchronizeElementArraysByOrder(): void {
     const normalized: PageElementRef[] = normalizePageElementOrder(
-      this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks);
+      this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks,
+      this.mathBlocks);
     const ordered: OrderedPageElement[] = materializePageElements(
-      normalized, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks);
+      normalized, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks,
+      this.mathBlocks);
     const strokes: StrokeElementData[] = [];
     const textBlocks: TextBlockElement[] = [];
     const shapes: ShapeElement[] = [];
     const images: ImageElement[] = [];
+    const mathBlocks: MathElement[] = [];
     for (const element of ordered) {
       if (element.kind === PageElementKind.STROKE) {
         strokes.push(element.data);
@@ -2648,6 +2671,8 @@ export struct NoteCanvasView {
         shapes.push(element.data);
       } else if (element.kind === PageElementKind.IMAGE) {
         images.push(element.data);
+      } else if (element.kind === PageElementKind.MATH) {
+        mathBlocks.push(element.data);
       }
     }
     this.elementOrder = normalized;
@@ -2655,6 +2680,7 @@ export struct NoteCanvasView {
     this.textBlocks = textBlocks;
     this.shapes = shapes;
     this.imageBlocks = images;
+    this.mathBlocks = mathBlocks;
   }
 
   private replaceTextBlock(replacement: TextBlockElement): void {
@@ -3169,8 +3195,12 @@ export struct NoteCanvasView {
     for (const image of this.imageBlocks) {
       images.push(cloneImageElement(image));
     }
+    const mathBlocks: MathElement[] = [];
+    for (const math of this.mathBlocks) {
+      mathBlocks.push(cloneMathElement(math));
+    }
     return { strokes: strokes, textBlocks: textBlocks, shapes: shapes, images: images,
-      elementOrder: clonePageElementOrder(this.elementOrder) };
+      mathBlocks: mathBlocks, elementOrder: clonePageElementOrder(this.elementOrder) };
   }
 
   private cloneStrokeSnapshot(s: StrokeElementData): StrokeElementData {

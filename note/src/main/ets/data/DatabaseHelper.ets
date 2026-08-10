@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v43: preserve original IMAGE CREATE_BLOCK metadata for later register materialization.
-export const DB_VERSION: number = 44;
+// v45: preserve original MATH CREATE/MODIFY registers independently.
+export const DB_VERSION: number = 45;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -612,6 +612,8 @@ CREATE TABLE IF NOT EXISTS original_block_state (
   create_position_locked INTEGER NOT NULL CHECK (create_position_locked IN (0, 1)),
   create_resizes_width INTEGER NOT NULL CHECK (create_resizes_width IN (0, 1)),
   create_text_paper TEXT,
+  create_math_latex TEXT,
+  create_math_color INTEGER,
   create_image_hash_bits TEXT,
   create_image_file_name TEXT,
   create_image_mime_type TEXT,
@@ -642,6 +644,16 @@ CREATE TABLE IF NOT EXISTS original_block_state (
   image_flip_vertical_winner_site_id INTEGER,
   image_flip_vertical_winner_present INTEGER NOT NULL DEFAULT 0
     CHECK (image_flip_vertical_winner_present IN (0, 1)),
+  math_latex_value TEXT,
+  math_latex_winner_timestamp INTEGER,
+  math_latex_winner_site_id INTEGER,
+  math_latex_winner_present INTEGER NOT NULL DEFAULT 0
+    CHECK (math_latex_winner_present IN (0, 1)),
+  math_color_value INTEGER,
+  math_color_winner_timestamp INTEGER,
+  math_color_winner_site_id INTEGER,
+  math_color_winner_present INTEGER NOT NULL DEFAULT 0
+    CHECK (math_color_winner_present IN (0, 1)),
   create_margin_top REAL NOT NULL CHECK (create_margin_top >= 0),
   create_margin_bottom REAL NOT NULL CHECK (create_margin_bottom >= 0),
   create_margin_left REAL NOT NULL CHECK (create_margin_left >= 0),
@@ -770,6 +782,23 @@ CREATE TABLE IF NOT EXISTS original_block_state (
       AND image_flip_vertical_winner_timestamp IS NULL
       AND image_flip_vertical_winner_site_id IS NULL
       AND image_flip_vertical_winner_present = 0)),
+  CHECK ((block_type = 2 AND create_math_latex IS NOT NULL AND create_math_color IS NOT NULL) OR
+    (block_type <> 2 AND create_math_latex IS NULL AND create_math_color IS NULL)),
+  CHECK ((math_latex_winner_present = 0
+      AND math_latex_value IS NULL AND math_latex_winner_timestamp IS NULL
+      AND math_latex_winner_site_id IS NULL) OR
+    (math_latex_winner_present = 1
+      AND math_latex_winner_timestamp IS NOT NULL AND math_latex_winner_site_id IS NOT NULL)),
+  CHECK ((math_color_winner_present = 0
+      AND math_color_value IS NULL AND math_color_winner_timestamp IS NULL
+      AND math_color_winner_site_id IS NULL) OR
+    (math_color_winner_present = 1
+      AND math_color_winner_timestamp IS NOT NULL AND math_color_winner_site_id IS NOT NULL)),
+  CHECK (block_type = 2 OR
+    (math_latex_value IS NULL AND math_latex_winner_timestamp IS NULL
+      AND math_latex_winner_site_id IS NULL AND math_latex_winner_present = 0
+      AND math_color_value IS NULL AND math_color_winner_timestamp IS NULL
+      AND math_color_winner_site_id IS NULL AND math_color_winner_present = 0)),
   CHECK ((scale_x_value IS NULL AND scale_y_value IS NULL) OR
     (scale_x_value IS NOT NULL AND scale_y_value IS NOT NULL)),
   PRIMARY KEY(note_id, block_timestamp, block_site_id),
@@ -1745,5 +1774,19 @@ export const MIGRATIONS: Record<number, string[]> = {
     'ALTER TABLE original_block_state ADD COLUMN image_flip_vertical_winner_site_id INTEGER',
     `ALTER TABLE original_block_state ADD COLUMN image_flip_vertical_winner_present INTEGER NOT NULL DEFAULT 0
       CHECK (image_flip_vertical_winner_present IN (0, 1))`,
+  ],
+  45: [
+    'ALTER TABLE original_block_state ADD COLUMN create_math_latex TEXT',
+    'ALTER TABLE original_block_state ADD COLUMN create_math_color INTEGER',
+    'ALTER TABLE original_block_state ADD COLUMN math_latex_value TEXT',
+    'ALTER TABLE original_block_state ADD COLUMN math_latex_winner_timestamp INTEGER',
+    'ALTER TABLE original_block_state ADD COLUMN math_latex_winner_site_id INTEGER',
+    `ALTER TABLE original_block_state ADD COLUMN math_latex_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (math_latex_winner_present IN (0, 1))`,
+    'ALTER TABLE original_block_state ADD COLUMN math_color_value INTEGER',
+    'ALTER TABLE original_block_state ADD COLUMN math_color_winner_timestamp INTEGER',
+    'ALTER TABLE original_block_state ADD COLUMN math_color_winner_site_id INTEGER',
+    `ALTER TABLE original_block_state ADD COLUMN math_color_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (math_color_winner_present IN (0, 1))`,
   ],
 };

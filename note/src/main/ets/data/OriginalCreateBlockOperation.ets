@@ -1,5 +1,5 @@
 import { relationalStore } from '@kit.ArkData';
-import { ElementType, ImageElement, TextBlockElement } from '../core/model/ElementTypes';
+import { ElementType, ImageElement, MathElement, TextBlockElement } from '../core/model/ElementTypes';
 import { TransformMatrix } from '../core/model/GeometryTypes';
 import { AssetStatus } from '../core/model/AssetTypes';
 import { imageBlockWorldBounds, originalAssetHashKey,
@@ -8,6 +8,7 @@ import { PagePaperBackground } from '../core/model/NoteTypes';
 import { cloneOriginalPaper } from '../core/model/PageBackgroundModel';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { textBlockWorldBounds } from '../core/model/TextBlockGeometry';
+import { mathBlockWorldBounds } from '../core/model/MathBlockGeometry';
 import { encodeOperationId, OriginalSequenceIdentity,
   validateOriginalSequenceIdentity } from './OperationIdentity';
 import { encodePersistedElement, PersistedElement } from './StrokePersistence';
@@ -78,6 +79,8 @@ export interface OriginalCreateBlockPayload {
   hasWebUrl: boolean;
   hasMathLatex: boolean;
   hasMathColor: boolean;
+  mathLatex: string | null;
+  mathColor: number | null;
   paper: PagePaperBackground | null;
   imageFlippedHorizontally: boolean;
   imageFlippedVertically: boolean;
@@ -89,6 +92,7 @@ export interface OriginalCreateBlockPayload {
 const MAX_ORIGINAL_ASSET_FILE_NAME_BYTES: number = 65536;
 const MAX_ORIGINAL_ASSET_MIME_TYPE_BYTES: number = 4096;
 const MAX_ORIGINAL_BLOCK_WEB_URL_BYTES: number = 1048576;
+const MAX_ORIGINAL_MATH_LATEX_BYTES: number = 1048576;
 
 interface StoredTargetPage {
   pageId: string;
@@ -162,6 +166,7 @@ export function decodeOriginalCreateBlock(bytes: Uint8Array,
     throw new Error('original image block has no required image asset');
   }
   validateUnsignedLongDecimal(zIndex);
+  const mathColorBytes: Uint8Array | null = table.readInlineBytes(14, 4);
   return {
     blockType: blockType,
     corner: normalizeOriginalEnum(table.readUint8(1, 0), 1),
@@ -184,6 +189,8 @@ export function decodeOriginalCreateBlock(bytes: Uint8Array,
     hasWebUrl: webUrl !== null,
     hasMathLatex: table.hasField(13),
     hasMathColor: table.hasField(14),
+    mathLatex: table.readUtf8String(13, false, MAX_ORIGINAL_MATH_LATEX_BYTES),
+    mathColor: mathColorBytes === null ? null : rgbaBytesToArgb(mathColorBytes),
     paper: paperTable === null ? null : decodeOriginalPaper(paperTable),
     imageFlippedHorizontally: table.readUint8(16, 0) !== 0,
     imageFlippedVertically: table.readUint8(17, 0) !== 0,
@@ -191,6 +198,47 @@ export function decodeOriginalCreateBlock(bytes: Uint8Array,
     margins: margins,
     positionLocked: table.readUint8(20, 0) !== 0,
   };
+}
+
+export function unsupportedOriginalCreateBlockReason(
+  payload: OriginalCreateBlockPayload): string | null {
+  const hasImageFields: boolean = payload.hasImage || payload.hasCropRect || payload.hasWebUrl ||
+    payload.imageFlippedHorizontally || payload.imageFlippedVertically;
+  const hasMathFields: boolean = payload.hasMathLatex || payload.hasMathColor;
+  if (payload.blockType !== OriginalBlockType.IMAGE && hasImageFields) {
+    return payload.blockType === OriginalBlockType.MATH ?
+      'CREATE_BLOCK_IMAGE_FIELDS_ON_MATH' : 'CREATE_BLOCK_IMAGE_FIELDS_ON_TEXT';
+  }
+  if (payload.blockType !== OriginalBlockType.MATH && hasMathFields) {
+    return payload.blockType === OriginalBlockType.IMAGE ?
+      'CREATE_BLOCK_MATH_FIELDS_ON_IMAGE' : 'CREATE_BLOCK_MATH_FIELDS_ON_TEXT';
+  }
+  if (payload.blockType !== OriginalBlockType.TEXT && payload.paper !== null) {
+    return payload.blockType === OriginalBlockType.IMAGE ?
+      'CREATE_BLOCK_TEXT_PAPER_ON_IMAGE' : 'CREATE_BLOCK_TEXT_PAPER_ON_MATH';
+  }
+  if (payload.blockType === OriginalBlockType.IMAGE && payload.image === null) {
+    return 'CREATE_BLOCK_IMAGE_MISSING_ASSET';
+  }
+  if (payload.blockType === OriginalBlockType.MATH &&
+    (!payload.hasMathLatex || !payload.hasMathColor ||
+      payload.mathLatex === null || payload.mathColor === null)) {
+    return 'CREATE_BLOCK_MATH_FIELDS_MISSING';
+  }
+  if (!Number.isFinite(payload.originX) || !Number.isFinite(payload.originY) ||
+    (payload.rotation !== null && !Number.isFinite(payload.rotation)) ||
+    (payload.scaleX !== null && !Number.isFinite(payload.scaleX)) ||
+    (payload.scaleY !== null && !Number.isFinite(payload.scaleY))) {
+    return 'CREATE_BLOCK_TRANSFORM_UNSUPPORTED';
+  }
+  if (!Number.isFinite(payload.width) || !Number.isFinite(payload.height) ||
+    payload.width < 0 || payload.height < 0) {
+    return 'CREATE_BLOCK_SIZE_UNSUPPORTED';
+  }
+  if (!validMargins(payload.margins)) {
+    return 'CREATE_BLOCK_MARGINS_UNSUPPORTED';
+  }
+  return null;
 }
 
 export class OriginalCreateBlockOperationApplier implements SyncedOperationApplier {
@@ -206,7 +254,7 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     } catch (_error) {
       return { deferredReason: 'MALFORMED_CREATE_BLOCK_PAYLOAD' };
     }
-    const unsupported: string | null = this.unsupportedReason(payload);
+    const unsupported: string | null = unsupportedOriginalCreateBlockReason(payload);
     if (unsupported !== null) {
       return { deferredReason: unsupported };
     }
@@ -228,9 +276,12 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     }
 
     const kind: PageElementKind = payload.blockType === OriginalBlockType.IMAGE ?
-      PageElementKind.IMAGE : PageElementKind.TEXT;
-    const element: TextBlockElement | ImageElement = payload.blockType === OriginalBlockType.IMAGE ?
-      this.buildImageBlock(operation, payload) : this.buildTextBlock(operation, payload);
+      PageElementKind.IMAGE : payload.blockType === OriginalBlockType.MATH ?
+        PageElementKind.MATH : PageElementKind.TEXT;
+    const element: TextBlockElement | ImageElement | MathElement =
+      payload.blockType === OriginalBlockType.IMAGE ? this.buildImageBlock(operation, payload) :
+        payload.blockType === OriginalBlockType.MATH ? this.buildMathBlock(operation, payload) :
+          this.buildTextBlock(operation, payload);
     if (payload.blockType === OriginalBlockType.IMAGE) {
       const assetReason: string | null = await this.mergeImageAssetReference(
         store, operation.noteId, payload.image as OriginalImageAsset);
@@ -269,6 +320,8 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       'create_position_locked': payload.positionLocked ? 1 : 0,
       'create_resizes_width': payload.resizesWidthToFitText ? 1 : 0,
       'create_text_paper': payload.paper === null ? null : JSON.stringify(payload.paper),
+      'create_math_latex': payload.mathLatex,
+      'create_math_color': payload.mathColor,
       'create_image_hash_bits': payload.image === null ? null :
         JSON.stringify(payload.image.assetHash.bits),
       'create_image_file_name': payload.image === null ? null : payload.image.fileName,
@@ -299,57 +352,6 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     await this.materializeOrder(store, operation.noteId, payload.page, target,
       existingRows, element, kind, target.revision + 1);
     return { deferredReason: null };
-  }
-
-  private unsupportedReason(payload: OriginalCreateBlockPayload): string | null {
-    const hasImageFields: boolean = payload.hasImage || payload.hasCropRect || payload.hasWebUrl ||
-      payload.imageFlippedHorizontally || payload.imageFlippedVertically;
-    const hasMathFields: boolean = payload.hasMathLatex || payload.hasMathColor;
-    if (payload.blockType !== OriginalBlockType.IMAGE && hasImageFields) {
-      if (payload.blockType === OriginalBlockType.MATH) {
-        return 'CREATE_BLOCK_IMAGE_FIELDS_ON_MATH';
-      }
-      return 'CREATE_BLOCK_IMAGE_FIELDS_ON_TEXT';
-    }
-    if (payload.blockType !== OriginalBlockType.MATH && hasMathFields) {
-      if (payload.blockType === OriginalBlockType.IMAGE) {
-        return 'CREATE_BLOCK_MATH_FIELDS_ON_IMAGE';
-      }
-      return 'CREATE_BLOCK_MATH_FIELDS_ON_TEXT';
-    }
-    if (payload.blockType !== OriginalBlockType.TEXT && payload.paper !== null) {
-      return payload.blockType === OriginalBlockType.IMAGE ?
-        'CREATE_BLOCK_TEXT_PAPER_ON_IMAGE' : 'CREATE_BLOCK_TEXT_PAPER_ON_MATH';
-    }
-    if (payload.blockType === OriginalBlockType.IMAGE) {
-      if (payload.image === null) {
-        return 'CREATE_BLOCK_IMAGE_MISSING_ASSET';
-      }
-    }
-    if (payload.blockType === OriginalBlockType.MATH) {
-      return 'CREATE_BLOCK_MATH_UNSUPPORTED';
-    }
-    if (payload.hasImage || payload.hasCropRect || payload.hasWebUrl ||
-      payload.imageFlippedHorizontally || payload.imageFlippedVertically) {
-      return 'CREATE_BLOCK_IMAGE_FIELDS_ON_TEXT';
-    }
-    if (hasMathFields) {
-      return 'CREATE_BLOCK_MATH_FIELDS_ON_TEXT';
-    }
-    if (!Number.isFinite(payload.originX) || !Number.isFinite(payload.originY) ||
-      (payload.rotation !== null && !Number.isFinite(payload.rotation)) ||
-      (payload.scaleX !== null && !Number.isFinite(payload.scaleX)) ||
-      (payload.scaleY !== null && !Number.isFinite(payload.scaleY))) {
-      return 'CREATE_BLOCK_TRANSFORM_UNSUPPORTED';
-    }
-    if (!Number.isFinite(payload.width) || !Number.isFinite(payload.height) ||
-      payload.width < 0 || payload.height < 0) {
-      return 'CREATE_BLOCK_SIZE_UNSUPPORTED';
-    }
-    if (!validMargins(payload.margins)) {
-      return 'CREATE_BLOCK_MARGINS_UNSUPPORTED';
-    }
-    return null;
   }
 
   private buildTextBlock(operation: StoredSyncedOperation,
@@ -421,6 +423,30 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     };
     image.bounds = imageBlockWorldBounds(image);
     return image;
+  }
+
+  private buildMathBlock(operation: StoredSyncedOperation,
+    payload: OriginalCreateBlockPayload): MathElement {
+    const rotation: number = payload.rotation === null ? 0 : payload.rotation;
+    const scaleX: number = payload.scaleX === null ? 1 : payload.scaleX;
+    const scaleY: number = payload.scaleY === null ? 1 : payload.scaleY;
+    const math: MathElement = {
+      id: encodeOperationId(operation),
+      type: ElementType.MATH,
+      transform: blockTransform(payload.originX, payload.originY, rotation, scaleX, scaleY),
+      bounds: { left: 0, top: 0, right: 0, bottom: 0 },
+      latex: payload.mathLatex as string,
+      color: payload.mathColor as number,
+      blockWidth: payload.width,
+      blockHeight: payload.height,
+      rotationRadians: rotation,
+      corner: payload.corner,
+      textWrap: payload.textWrap,
+      enableCaption: payload.enableCaption,
+      positionLocked: payload.positionLocked,
+    };
+    math.bounds = mathBlockWorldBounds(math);
+    return math;
   }
 
   private async mergeImageAssetReference(store: relationalStore.RdbStore, noteId: string,
@@ -614,13 +640,14 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
 
   private async materializeOrder(store: relationalStore.RdbStore, noteId: string,
     page: OriginalSequenceIdentity, target: StoredTargetPage, rows: StoredZIndexRow[],
-    element: TextBlockElement | ImageElement, kind: PageElementKind,
+    element: TextBlockElement | ImageElement | MathElement, kind: PageElementKind,
     revision: number): Promise<void> {
     for (let index: number = 0; index < rows.length; index++) {
       const row: StoredZIndexRow = rows[index];
       if (row.elementId === element.id && row.kind === kind) {
         const persisted: PersistedElement = {
-          kind: kind === PageElementKind.IMAGE ? 'image' : 'text', data: element,
+          kind: kind === PageElementKind.IMAGE ? 'image' :
+            kind === PageElementKind.MATH ? 'math' : 'text', data: element,
         };
         const values: relationalStore.ValuesBucket = {
           'note_id': noteId, 'element_id': element.id, 'kind': kind,
@@ -689,6 +716,10 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       }
     }
   }
+}
+
+function rgbaBytesToArgb(bytes: Uint8Array): number {
+  return ((bytes[3] << 24) | (bytes[0] << 16) | (bytes[1] << 8) | bytes[2]) | 0;
 }
 
 function preferredAssetRow(canonical: StoredAssetRow, legacy: StoredAssetRow): StoredAssetRow {

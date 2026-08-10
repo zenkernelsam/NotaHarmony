@@ -16,6 +16,7 @@ import { DatabaseManager } from '../data/DatabaseManager';
 import { StrokePersistence } from '../data/StrokePersistence';
 import { ThemeTokens } from '../ui/theme/EditorTheme';
 import { ImageCanvasRenderer } from './ImageCanvasRenderer';
+import { MathCanvasRenderer } from './MathCanvasRenderer';
 import { PaperRenderer } from './PaperRenderer';
 import { StrokeCanvasPainter } from './StrokeCanvasPainter';
 import { ShapeCanvasRenderer } from './ShapeCanvasRenderer';
@@ -32,6 +33,7 @@ export class ThumbnailRenderer {
   private textRenderer: Canvas2DTextRenderer = new Canvas2DTextRenderer();
   private shapeRenderer: ShapeCanvasRenderer = new ShapeCanvasRenderer();
   private imageRenderer: ImageCanvasRenderer = new ImageCanvasRenderer();
+  private mathRenderer: MathCanvasRenderer = new MathCanvasRenderer();
   private paperRenderer: PaperRenderer = new PaperRenderer();
   private pencilPixelMap: image.PixelMap | null = null;
   private textureReady: boolean = false;
@@ -114,6 +116,8 @@ export class ThumbnailRenderer {
           if (asset !== undefined && asset.state === ImageAssetLoadState.READY && asset.bitmap !== null) {
             this.imageRenderer.renderImage(element.data, asset.bitmap, renderContext);
           }
+        } else if (element.kind === PageElementKind.MATH) {
+          this.mathRenderer.renderMath(element.data, renderContext);
         }
       }
       ctx.restore();

@@ -570,7 +570,7 @@ export class PageRepositoryImpl implements PageRepository {
     for (let index: number = 0; index < elements.length; index++) {
       const element: PageDeleteCheckpointElement = elements[index];
       if (element.elementId.length === 0 || !Number.isSafeInteger(element.kind) || element.kind < 0 ||
-        element.kind > PageElementKind.SHAPE || element.revision !== contentRevision ||
+        element.kind > PageElementKind.MATH || element.revision !== contentRevision ||
         element.elementOrder !== index ||
         element.payload.length === 0) {
         throw new Error('deleted-page checkpoint contains an invalid element');
@@ -580,6 +580,10 @@ export class PageRepositoryImpl implements PageRepository {
         expectedKind = 'text';
       } else if (element.kind === PageElementKind.SHAPE) {
         expectedKind = 'shape';
+      } else if (element.kind === PageElementKind.IMAGE) {
+        expectedKind = 'image';
+      } else if (element.kind === PageElementKind.MATH) {
+        expectedKind = 'math';
       }
       try {
         const persisted: PersistedElement = decodePersistedElement(element.payload);

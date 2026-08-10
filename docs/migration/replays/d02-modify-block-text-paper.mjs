@@ -166,7 +166,7 @@ assert.match(source, /paperSetter.*table\.readTable\(13\)/);
 assert.match(source, /resizesWidthToFitText: table\.hasField\(16\)/);
 assert.match(source, /text_paper_value/); assert.match(source, /resizes_width_value/);
 assert.match(source, /cloneOriginalPaper\(payload\.paper\.value\)/);
-assert.match(schema, /DB_VERSION: number = 44/);
+assert.match(schema, /DB_VERSION: number = 45/);
 assert.match(schema, /41: \[/); assert.match(schema, /text_paper_winner_present/);
 assert.match(schema, /resizes_width_winner_present/);
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
-  ElementType, ImageElement, PolygonElement, TextBlockElement,
+  ElementType, ImageElement, MathElement, PolygonElement, TextBlockElement,
 } from '../main/ets/core/model/ElementTypes';
 import {
   appendPageElementRefs, hasStrokeAboveText, legacyPageElementOrder, materializePageElements, moveStrokeRefs,
@@ -49,6 +49,16 @@ function image(id: string): ImageElement {
     blockWidth: 100, blockHeight: 50, rotationRadians: 0, corner: 0, textWrap: 0,
     enableCaption: false, webUrl: null, imageFlippedHorizontally: false,
     imageFlippedVertically: true, positionLocked: false,
+  };
+}
+
+function math(id: string): MathElement {
+  return {
+    id: id, type: ElementType.MATH, transform: [1, 0, 10, 0, 1, 20, 0, 0, 1],
+    bounds: { left: 10, top: 20, right: 110, bottom: 70 },
+    latex: 'x^2', color: 0xFF123456 | 0, blockWidth: 100, blockHeight: 50,
+    rotationRadians: 0, corner: 0, textWrap: 0, enableCaption: false,
+    positionLocked: false,
   };
 }
 
@@ -118,6 +128,22 @@ export default function pageElementOrderTest() {
       const moved: PageElementRef[] = movePageElementRefs(normalized, [], [], true, [], ['i1']);
       expect(moved[2].elementId).assertEqual('i1');
       expect(samePageElementMembers(normalized, moved)).assertTrue();
+    });
+
+    it('normalizes and materializes MATH as an independent ordered element', 0, () => {
+      const before: PageElementRef[] = [
+        { kind: PageElementKind.STROKE, elementId: 's1', zIndex: 0 },
+        { kind: PageElementKind.MATH, elementId: 'm1', zIndex: 1 },
+        { kind: PageElementKind.TEXT, elementId: 't1', zIndex: 2 },
+      ];
+      const normalized: PageElementRef[] = normalizePageElementOrder(
+        before, [stroke('s1')], [text('t1')], [], [], [math('m1')]);
+      const elements: OrderedPageElement[] = materializePageElements(
+        normalized, [stroke('s1')], [text('t1')], [], [], [math('m1')]);
+      expect(elements.length).assertEqual(3);
+      expect(elements[1].kind).assertEqual(PageElementKind.MATH);
+      expect(elements[1].elementId).assertEqual('m1');
+      expect(elements[2].kind).assertEqual(PageElementKind.TEXT);
     });
 
     it('moves selected strokes across text and restores exact before order', 0, () => {
@@ -230,6 +256,25 @@ export default function pageElementOrderTest() {
       expect((data.assetHashBits as string[])[7]).assertEqual('18446744073709551615');
       expect(data.imageFlippedVertically as boolean).assertTrue();
       expect(parsed!.elements[1].kind).assertEqual('stroke');
+    });
+
+    it('preserves MATH identity, LaTeX, ARGB and order through package serialization', 0, () => {
+      const sourceMath: MathElement = math('m1');
+      const page: PageData = {
+        pageId: 'page-math', pageIndex: 0, paperSize: 1, paperTemplate: 0, orientation: 0,
+        elements: [
+          { kind: 'stroke', data: stroke('s1') },
+          { kind: 'math', data: sourceMath },
+        ],
+      };
+      const parsed: PageData | null = parsePage(serializePage(page));
+      expect(parsed !== null).assertTrue();
+      expect(parsed!.elements.length).assertEqual(2);
+      expect(parsed!.elements[1].kind).assertEqual('math');
+      const restored: MathElement = parsed!.elements[1].data as MathElement;
+      expect(restored.id).assertEqual('m1');
+      expect(restored.latex).assertEqual('x^2');
+      expect(restored.color).assertEqual(0xFF123456 | 0);
     });
   });
 }

@@ -98,6 +98,8 @@ export class NoteExporter {
             elementObjects.push({ kind: 'image', data: element.data });
             const imageElement: ImageElement = element.data as ImageElement;
             imageAssets.set(imageAssetPackageEntry(imageElement), imageElement);
+          } else if (element.kind === PageElementKind.MATH) {
+            elementObjects.push({ kind: 'math', data: element.data });
           }
         }
         const pageData: PageData = {

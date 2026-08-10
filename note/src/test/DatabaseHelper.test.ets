@@ -20,7 +20,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(42);
+      expect(DB_VERSION).assertEqual(45);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -83,6 +83,10 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[34].join('\n')).assertContain('style_map_winner_present');
       expect(MIGRATIONS[42].join('\n')).assertContain('estimated_center_path');
       expect(MIGRATIONS[42].join('\n')).assertContain('estimated_path_winner_present');
+      expect(MIGRATIONS[45].join('\n')).assertContain('create_math_latex');
+      expect(MIGRATIONS[45].join('\n')).assertContain('create_math_color');
+      expect(MIGRATIONS[45].join('\n')).assertContain('math_latex_winner_present');
+      expect(MIGRATIONS[45].join('\n')).assertContain('math_color_winner_present');
       expect(MIGRATIONS[35].join('\n')).assertContain('original_block_state');
       expect(MIGRATIONS[36].join('\n')).assertContain('page_origin_winner_present');
       expect(MIGRATIONS[36].join('\n')).assertContain('z_index_winner_present');
@@ -107,6 +111,10 @@ export default function databaseHelperTest() {
         .assertContain('PRIMARY KEY(note_id, append_timestamp, append_site_id)');
       expect(DDL_ORIGINAL_INK_PATH_APPEND).assertContain('REFERENCES original_ink_state');
       expect(DDL_ORIGINAL_BLOCK_STATE).assertContain('create_margin_left REAL NOT NULL');
+      expect(DDL_ORIGINAL_BLOCK_STATE).assertContain('create_math_latex TEXT');
+      expect(DDL_ORIGINAL_BLOCK_STATE).assertContain('create_math_color INTEGER');
+      expect(DDL_ORIGINAL_BLOCK_STATE).assertContain('math_latex_winner_present');
+      expect(DDL_ORIGINAL_BLOCK_STATE).assertContain('math_color_winner_present');
       expect(DDL_ORIGINAL_BLOCK_STATE).assertContain('page_origin_winner_present');
       expect(DDL_ORIGINAL_BLOCK_STATE).assertContain('rotation_winner_present');
       expect(DDL_ORIGINAL_BLOCK_STATE).assertContain('z_index_winner_present');
