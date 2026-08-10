@@ -122,6 +122,11 @@ export function decodeOriginalCreateBlock(bytes: Uint8Array,
   defaultZIndex: string): OriginalCreateBlockPayload {
   const table: OriginalFlatBufferTableReader = readOriginalPayloadTable(
     bytes, ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE);
+  return decodeOriginalCreateBlockTable(table, defaultZIndex);
+}
+
+export function decodeOriginalCreateBlockTable(table: OriginalFlatBufferTableReader,
+  defaultZIndex: string): OriginalCreateBlockPayload {
   validateUnsignedLongDecimal(defaultZIndex);
   const rawPage: number[] | null = table.readInlineSequence(2);
   const origin: Uint8Array | null = table.readInlineBytes(3, 8);
@@ -254,6 +259,32 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     } catch (_error) {
       return { deferredReason: 'MALFORMED_CREATE_BLOCK_PAYLOAD' };
     }
+    return this.applyPayload(store, operation, payload);
+  }
+
+  preflightTable(table: OriginalFlatBufferTableReader, defaultZIndex: string): string | null {
+    let payload: OriginalCreateBlockPayload;
+    try {
+      payload = decodeOriginalCreateBlockTable(table, defaultZIndex);
+    } catch (_error) {
+      return 'MALFORMED_CREATE_BLOCK_PAYLOAD';
+    }
+    return unsupportedOriginalCreateBlockReason(payload);
+  }
+
+  async applyTable(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
+    table: OriginalFlatBufferTableReader): Promise<SyncedOperationApplyResult> {
+    let payload: OriginalCreateBlockPayload;
+    try {
+      payload = decodeOriginalCreateBlockTable(table, operation.clientTime);
+    } catch (_error) {
+      return { deferredReason: 'MALFORMED_CREATE_BLOCK_PAYLOAD' };
+    }
+    return this.applyPayload(store, operation, payload);
+  }
+
+  private async applyPayload(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
+    payload: OriginalCreateBlockPayload): Promise<SyncedOperationApplyResult> {
     const unsupported: string | null = unsupportedOriginalCreateBlockReason(payload);
     if (unsupported !== null) {
       return { deferredReason: unsupported };
@@ -264,7 +295,10 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       return { deferredReason: 'CREATE_BLOCK_PAGE_MISSING_OR_UNBOUND' };
     }
     if (await this.originalElementExists(store, operation)) {
-      throw new Error('original create-block operation was applied twice');
+      if (await this.originalCreateMatches(store, operation, payload)) {
+        return { deferredReason: null };
+      }
+      throw new Error('original create-block identity conflicts with persisted state');
     }
     const existingRows: StoredZIndexRow[] | null = await this.readCompleteOriginalOrder(
       store, operation.noteId, payload.page, target);
@@ -594,6 +628,117 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     }
   }
 
+  private async originalCreateMatches(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, payload: OriginalCreateBlockPayload): Promise<boolean> {
+    const kind: number = payload.blockType === OriginalBlockType.IMAGE ? PageElementKind.IMAGE :
+      payload.blockType === OriginalBlockType.MATH ? PageElementKind.MATH : PageElementKind.TEXT;
+    const image: OriginalImageAsset | null = payload.image;
+    let baselineMatches: boolean = false;
+    const rows = await store.querySql(
+      `SELECT z.kind, state.* FROM original_element_z_index z
+       JOIN original_block_state state ON state.note_id = z.note_id
+        AND state.block_timestamp = z.element_timestamp
+        AND state.block_site_id = z.element_site_id
+       WHERE z.note_id = ? AND z.element_timestamp = ? AND z.element_site_id = ?`,
+      [operation.noteId, operation.timestamp, operation.siteId]);
+    try {
+      if (!rows.goToFirstRow()) {
+        return false;
+      }
+      baselineMatches = rows.getLong(rows.getColumnIndex('kind')) === kind &&
+        rows.getLong(rows.getColumnIndex('block_type')) === payload.blockType &&
+        rows.getLong(rows.getColumnIndex('create_page_timestamp')) === payload.page.timestamp &&
+        rows.getLong(rows.getColumnIndex('create_page_site_id')) === payload.page.siteId &&
+        rows.getLong(rows.getColumnIndex('create_page_index')) === payload.page.index &&
+        rows.getDouble(rows.getColumnIndex('create_origin_x')) === payload.originX &&
+        rows.getDouble(rows.getColumnIndex('create_origin_y')) === payload.originY &&
+        readNullableDouble(rows, 'create_rotation') === payload.rotation &&
+        readNullableDouble(rows, 'create_scale_x') === payload.scaleX &&
+        readNullableDouble(rows, 'create_scale_y') === payload.scaleY &&
+        rows.getDouble(rows.getColumnIndex('create_width')) === payload.width &&
+        rows.getDouble(rows.getColumnIndex('create_height')) === payload.height &&
+        rows.getLong(rows.getColumnIndex('create_corner')) === payload.corner &&
+        rows.getLong(rows.getColumnIndex('create_text_wrap')) === payload.textWrap &&
+        rows.getLong(rows.getColumnIndex('create_enable_caption')) ===
+          (payload.enableCaption ? 1 : 0) &&
+        rows.getLong(rows.getColumnIndex('create_position_locked')) ===
+          (payload.positionLocked ? 1 : 0) &&
+        rows.getLong(rows.getColumnIndex('create_resizes_width')) ===
+          (payload.resizesWidthToFitText ? 1 : 0) &&
+        readNullableString(rows, 'create_text_paper') ===
+          (payload.paper === null ? null : JSON.stringify(payload.paper)) &&
+        readNullableString(rows, 'create_math_latex') === payload.mathLatex &&
+        readNullableLong(rows, 'create_math_color') === payload.mathColor &&
+        readNullableString(rows, 'create_image_hash_bits') ===
+          (image === null ? null : JSON.stringify(image.assetHash.bits)) &&
+        readNullableString(rows, 'create_image_file_name') ===
+          (image === null ? null : image.fileName) &&
+        readNullableString(rows, 'create_image_mime_type') ===
+          (image === null ? null : image.mimeType) &&
+        readNullableLong(rows, 'create_image_file_size') ===
+          (image === null ? null : image.fileSize) &&
+        readNullableDouble(rows, 'create_image_width') ===
+          (image === null ? null : image.width) &&
+        readNullableDouble(rows, 'create_image_height') ===
+          (image === null ? null : image.height) &&
+        readNullableDouble(rows, 'create_image_crop_x') ===
+          (payload.cropRect === null ? null : payload.cropRect.x) &&
+        readNullableDouble(rows, 'create_image_crop_y') ===
+          (payload.cropRect === null ? null : payload.cropRect.y) &&
+        readNullableDouble(rows, 'create_image_crop_width') ===
+          (payload.cropRect === null ? null : payload.cropRect.width) &&
+        readNullableDouble(rows, 'create_image_crop_height') ===
+          (payload.cropRect === null ? null : payload.cropRect.height) &&
+        readNullableString(rows, 'create_image_web_url') === payload.webUrl &&
+        readNullableLong(rows, 'create_image_flipped_horizontally') ===
+          (image === null ? null : payload.imageFlippedHorizontally ? 1 : 0) &&
+        readNullableLong(rows, 'create_image_flipped_vertically') ===
+          (image === null ? null : payload.imageFlippedVertically ? 1 : 0) &&
+        rows.getDouble(rows.getColumnIndex('create_margin_top')) === payload.margins.top &&
+        rows.getDouble(rows.getColumnIndex('create_margin_bottom')) === payload.margins.bottom &&
+        rows.getDouble(rows.getColumnIndex('create_margin_left')) === payload.margins.left &&
+        rows.getDouble(rows.getColumnIndex('create_margin_right')) === payload.margins.right &&
+        rows.getString(rows.getColumnIndex('create_z_index')) === payload.zIndex;
+    } finally {
+      rows.close();
+    }
+    if (!baselineMatches || !await this.originalMaterializedElementExists(
+      store, operation, kind)) {
+      return false;
+    }
+    return image === null || await this.imageAssetReferenceMatches(
+      store, operation.noteId, image);
+  }
+
+  private async originalMaterializedElementExists(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, kind: number): Promise<boolean> {
+    const elementId: string = encodeOperationId(operation);
+    const rows = await store.querySql(
+      `SELECT
+        (SELECT COUNT(*) FROM page_element_snapshot
+          WHERE note_id = ? AND element_id = ? AND kind = ?) +
+        (SELECT COUNT(*) FROM original_deleted_page_element
+          WHERE note_id = ? AND element_id = ? AND kind = ?) +
+        (SELECT COUNT(*) FROM original_deleted_entity
+          WHERE note_id = ? AND element_id = ? AND kind = ?) AS value`,
+      [operation.noteId, elementId, kind, operation.noteId, elementId, kind,
+        operation.noteId, elementId, kind]);
+    try {
+      return rows.goToFirstRow() && rows.getLong(rows.getColumnIndex('value')) === 1;
+    } finally {
+      rows.close();
+    }
+  }
+
+  private async imageAssetReferenceMatches(store: relationalStore.RdbStore, noteId: string,
+    asset: OriginalImageAsset): Promise<boolean> {
+    const rows: StoredAssetRow[] = await this.readAssetRows(
+      store, originalAssetStorageHash(asset.assetHash.bits), originalAssetHashKey(asset.assetHash.bits));
+    return rows.length === 1 && rows[0].fileSize === asset.fileSize &&
+      rows[0].mimeType.toLowerCase() === asset.mimeType.toLowerCase() &&
+      rows[0].noteIds.indexOf(noteId) >= 0;
+  }
+
   private async readCompleteOriginalOrder(store: relationalStore.RdbStore, noteId: string,
     page: OriginalSequenceIdentity, target: StoredTargetPage): Promise<StoredZIndexRow[] | null> {
     const tracked = await store.querySql(
@@ -804,6 +949,21 @@ function compareStoredZIndexRows(left: StoredZIndexRow, right: StoredZIndexRow):
     return compared;
   }
   return left.siteId === right.siteId ? 0 : left.siteId < right.siteId ? -1 : 1;
+}
+
+function readNullableLong(rows: relationalStore.ResultSet, columnName: string): number | null {
+  const column: number = rows.getColumnIndex(columnName);
+  return rows.isColumnNull(column) ? null : rows.getLong(column);
+}
+
+function readNullableDouble(rows: relationalStore.ResultSet, columnName: string): number | null {
+  const column: number = rows.getColumnIndex(columnName);
+  return rows.isColumnNull(column) ? null : rows.getDouble(column);
+}
+
+function readNullableString(rows: relationalStore.ResultSet, columnName: string): string | null {
+  const column: number = rows.getColumnIndex(columnName);
+  return rows.isColumnNull(column) ? null : rows.getString(column);
 }
 
 async function readSingleRevision(store: relationalStore.RdbStore, sql: string,

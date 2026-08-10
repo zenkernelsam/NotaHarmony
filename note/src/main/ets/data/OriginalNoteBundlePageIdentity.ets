@@ -31,6 +31,9 @@ import {
   ORIGINAL_MODIFY_INK_PAYLOAD_TYPE, OriginalModifyInkOperationApplier,
 } from './OriginalModifyInkOperation';
 import {
+  ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE, OriginalCreateBlockOperationApplier,
+} from './OriginalCreateBlockOperation';
+import {
   StoredSyncedOperation, SyncedOperationInboxState, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 
@@ -237,6 +240,8 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
   const modifyInk: OriginalModifyInkOperationApplier = new OriginalModifyInkOperationApplier();
   const deleteEntities: OriginalDeleteEntitiesOperationApplier =
     new OriginalDeleteEntitiesOperationApplier();
+  const createBlock: OriginalCreateBlockOperationApplier =
+    new OriginalCreateBlockOperationApplier();
   for (const operation of bundle.operations) {
     if (operation.payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE) {
@@ -260,6 +265,29 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
       const reason: string | null = modifyInk.preflightTable(operation.payload);
       if (reason !== null) {
         return `NOTE_BUNDLE_${reason}`;
+      }
+      continue;
+    }
+    if (operation.payloadType === ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE) {
+      const reason: string | null = createBlock.preflightTable(
+        operation.payload, operation.clientTime);
+      if (reason !== null) {
+        return `NOTE_BUNDLE_${reason}`;
+      }
+      let pageKey: string;
+      try {
+        const rawPage: number[] | null = operation.payload.readInlineSequence(2);
+        if (rawPage === null) {
+          return 'NOTE_BUNDLE_MALFORMED_CREATE_BLOCK_PAYLOAD';
+        }
+        pageKey = encodeOriginalSequenceId({
+          timestamp: rawPage[0], siteId: rawPage[1], index: rawPage[2],
+        });
+      } catch (_error) {
+        return 'NOTE_BUNDLE_MALFORMED_CREATE_BLOCK_PAYLOAD';
+      }
+      if (!history.pages.has(pageKey)) {
+        return 'NOTE_BUNDLE_CREATE_BLOCK_PAGE_MISSING';
       }
       continue;
     }
@@ -301,6 +329,8 @@ async function applyBundleContent(store: relationalStore.RdbStore,
   const modifyInk: OriginalModifyInkOperationApplier = new OriginalModifyInkOperationApplier();
   const deleteEntities: OriginalDeleteEntitiesOperationApplier =
     new OriginalDeleteEntitiesOperationApplier();
+  const createBlock: OriginalCreateBlockOperationApplier =
+    new OriginalCreateBlockOperationApplier();
   const before: number = await countRows(store,
     'SELECT COUNT(*) AS value FROM original_element_z_index WHERE note_id = ?', [bundle.noteId]);
   const revisionBefore: number = await contentRevisionTotal(store, bundle.noteId);
@@ -308,7 +338,8 @@ async function applyBundleContent(store: relationalStore.RdbStore,
     if (operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_MODIFY_INK_PAYLOAD_TYPE &&
-      operation.payloadType !== ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE) {
+      operation.payloadType !== ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE) {
       continue;
     }
     const stored: StoredSyncedOperation = {
@@ -331,8 +362,10 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       result = await addPath.applyTable(store, stored, operation.payload);
     } else if (operation.payloadType === ORIGINAL_MODIFY_INK_PAYLOAD_TYPE) {
       result = await modifyInk.applyTable(store, stored, operation.payload);
-    } else {
+    } else if (operation.payloadType === ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE) {
       result = await deleteEntities.applyEntityTable(store, stored, operation.payload);
+    } else {
+      result = await createBlock.applyTable(store, stored, operation.payload);
     }
     if (result.deferredReason !== null) {
       return deferred(`NOTE_BUNDLE_${result.deferredReason}`);
