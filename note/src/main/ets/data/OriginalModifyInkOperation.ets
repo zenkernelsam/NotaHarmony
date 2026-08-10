@@ -15,7 +15,7 @@ import {
 } from './OriginalInkPathCodec';
 import { decodeOriginalCreateInk, OriginalCreateInkPayload } from './OriginalCreateInkOperation';
 import {
-  OriginalFlatBufferTableReader, readOriginalPayloadTable,
+  OriginalFlatBufferTableReader, readOriginalInlineFloat32, readOriginalPayloadTable,
 } from './OriginalSyncedOperationFlatBuffer';
 import { SearchItemType } from './SearchItemType';
 import {
@@ -24,6 +24,7 @@ import {
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
+import { compareUnsignedLongDecimal } from './UnsignedDecimal';
 
 export const ORIGINAL_MODIFY_INK_PAYLOAD_TYPE: number = 17;
 const MAX_ORIGINAL_MODIFY_INK_COUNT: number = 10000;
@@ -31,6 +32,7 @@ const MAX_ORIGINAL_INK_PATH_BYTES: number = 16 * 1024 * 1024;
 
 export interface OriginalModifyInkPayload {
   inks: OperationIdentity[];
+  pageOrigin: OriginalInkPageOrigin | null;
   rotation: NullableRegisterUpdate<number>;
   scale: NullableRegisterUpdate<OriginalInkScale>;
   style: number | null;
@@ -38,6 +40,12 @@ export interface OriginalModifyInkPayload {
   width: number | null;
   centerPath: Uint8Array | null;
   hasUnsupportedFields: boolean;
+}
+
+export interface OriginalInkPageOrigin {
+  page: OriginalSequenceIdentity;
+  originX: number;
+  originY: number;
 }
 
 export interface OriginalInkScale {
@@ -70,18 +78,36 @@ interface StoredInkState {
   color: StoredRegister<number>;
   width: StoredRegister<number>;
   baseTransform: OriginalInkBaseTransform | null;
+  basePage: OriginalSequenceIdentity | null;
+  pageOrigin: StoredRegister<OriginalInkPageOrigin>;
   rotation: StoredRegister<number>;
   scale: StoredRegister<OriginalInkScale>;
 }
 
-interface StoredInkTarget {
-  ink: OperationIdentity;
+interface StoredPageTarget {
   page: OriginalSequenceIdentity;
   pageId: string;
   table: string;
   revisionTable: string;
   revision: number;
   archived: boolean;
+}
+
+interface StoredInkTarget extends StoredPageTarget {
+  ink: OperationIdentity;
+}
+
+interface StoredZIndexRow {
+  elementId: string;
+  kind: number;
+  timestamp: number;
+  siteId: number;
+  zIndex: string;
+}
+
+interface PageMutation {
+  target: StoredPageTarget;
+  rows: StoredZIndexRow[];
 }
 
 interface PlannedReplacement {
@@ -95,6 +121,7 @@ interface PlannedReplacement {
   replaceWidth: boolean;
   replaceRotation: boolean;
   replaceScale: boolean;
+  replacePageOrigin: boolean;
   style: number;
   color: number;
   width: number;
@@ -102,6 +129,9 @@ interface PlannedReplacement {
   baseTransform: OriginalInkBaseTransform | null;
   rotationValue: number | null;
   scaleValue: OriginalInkScale | null;
+  destination: StoredPageTarget;
+  basePage: OriginalSequenceIdentity | null;
+  pageOriginValue: OriginalInkPageOrigin | null;
 }
 
 export function decodeOriginalModifyInk(bytes: Uint8Array): OriginalModifyInkPayload {
@@ -130,10 +160,24 @@ export function decodeOriginalModifyInkTable(table: OriginalFlatBufferTableReade
   }
   let hasUnsupportedFields: boolean = false;
   for (let field: number = 1; field <= 18; field++) {
-    if (field !== 3 && field !== 4 && field !== 5 && field !== 6 && field !== 7 &&
+    if (field !== 1 && field !== 2 && field !== 3 && field !== 4 && field !== 5 &&
+      field !== 6 && field !== 7 &&
       field !== 8 && table.hasField(field)) {
       hasUnsupportedFields = true;
     }
+  }
+  const rawPage: number[] | null = table.readInlineSequence(1);
+  const origin: Uint8Array | null = table.readInlineBytes(2, 8);
+  let pageOrigin: OriginalInkPageOrigin | null = null;
+  if (rawPage !== null && origin !== null) {
+    const page: OriginalSequenceIdentity = {
+      timestamp: rawPage[0], siteId: rawPage[1], index: rawPage[2],
+    };
+    validateOriginalSequenceIdentity(page);
+    pageOrigin = {
+      page: page, originX: readOriginalInlineFloat32(origin, 0),
+      originY: readOriginalInlineFloat32(origin, 4),
+    };
   }
   const rotationSetter: OriginalFlatBufferTableReader | null = table.readTable(3);
   const scaleSetter: OriginalFlatBufferTableReader | null = table.readTable(4);
@@ -143,6 +187,7 @@ export function decodeOriginalModifyInkTable(table: OriginalFlatBufferTableReade
   const rawStyle: number = table.readUint8(5, 0);
   return {
     inks: inks,
+    pageOrigin: pageOrigin,
     rotation: {
       present: rotationSetter !== null,
       value: rotationSetter === null || !rotationSetter.hasField(0) ? null :
@@ -178,11 +223,14 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     if (payload.hasUnsupportedFields) {
       return { deferredReason: 'MODIFY_INK_ADDITIONAL_FIELDS_UNSUPPORTED' };
     }
-    if (!payload.rotation.present && !payload.scale.present && payload.style === null &&
+    if (payload.pageOrigin === null && !payload.rotation.present && !payload.scale.present &&
+      payload.style === null &&
       payload.color === null && payload.width === null && payload.centerPath === null) {
       return { deferredReason: null };
     }
-    if ((payload.rotation.value !== null && !Number.isFinite(payload.rotation.value)) ||
+    if ((payload.pageOrigin !== null && (!Number.isFinite(payload.pageOrigin.originX) ||
+      !Number.isFinite(payload.pageOrigin.originY))) ||
+      (payload.rotation.value !== null && !Number.isFinite(payload.rotation.value)) ||
       (payload.scale.value !== null && (!Number.isFinite(payload.scale.value.x) ||
         !Number.isFinite(payload.scale.value.y)))) {
       return { deferredReason: 'MODIFY_INK_TRANSFORM_UNSUPPORTED' };
@@ -202,7 +250,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     }
 
     const planned: PlannedReplacement[] = [];
-    const affectedPages: Map<string, StoredInkTarget> = new Map<string, StoredInkTarget>();
+    const affectedPages: Map<string, StoredPageTarget> = new Map<string, StoredPageTarget>();
     for (const ink of payload.inks) {
       const target: StoredInkTarget | null = await this.readTarget(store, operation.noteId, ink);
       if (target === null) {
@@ -224,8 +272,10 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         registerAccepts(operation, state.rotation.winner);
       const replaceScale: boolean = payload.scale.present &&
         registerAccepts(operation, state.scale.winner);
+      const replacePageOrigin: boolean = payload.pageOrigin !== null &&
+        registerAccepts(operation, state.pageOrigin.winner);
       if (!replaceCenterPath && !replaceStyle && !replaceColor && !replaceWidth &&
-        !replaceRotation && !replaceScale) {
+        !replaceRotation && !replaceScale && !replacePageOrigin) {
         continue;
       }
       const stroke: StrokeElementData | null = await this.readStroke(store, operation.noteId, target);
@@ -239,7 +289,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       if ((replaceStyle && state.style.value === null) ||
         (replaceColor && state.color.value === null) ||
         (replaceWidth && state.width.value === null) ||
-        ((replaceRotation || replaceScale) && state.baseTransform === null)) {
+        ((replacePageOrigin || replaceRotation || replaceScale) &&
+          (state.baseTransform === null || state.basePage === null))) {
         initial = await this.readInitialRenderState(store, operation.noteId, ink);
         if (initial === null) {
           return { deferredReason: 'MODIFY_INK_RENDER_STATE_MISSING' };
@@ -262,16 +313,27 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       const width: number = replaceWidth ? payload.width as number : stroke.renderSpec.brushWidth;
       let transform: TransformMatrix = stroke.transform;
       let baseTransform: OriginalInkBaseTransform | null = null;
-      if (replaceRotation || replaceScale) {
+      let basePage: OriginalSequenceIdentity | null = null;
+      let destination: StoredPageTarget = target;
+      if (replacePageOrigin || replaceRotation || replaceScale) {
         baseTransform = state.baseTransform !== null ? state.baseTransform :
           createBaseTransform(initial as OriginalCreateInkPayload);
+        basePage = state.basePage !== null ? state.basePage :
+          (initial as OriginalCreateInkPayload).page;
+        const oldPageOrigin: OriginalInkPageOrigin = state.pageOrigin.winner !== null ?
+          state.pageOrigin.value as OriginalInkPageOrigin : {
+            page: basePage, originX: baseTransform.originX, originY: baseTransform.originY,
+          };
+        if (!samePageIdentity(target.page, oldPageOrigin.page)) {
+          return { deferredReason: 'MODIFY_INK_PAGE_ORIGIN_STATE_DIVERGED' };
+        }
         const oldRotation: number = state.rotation.winner !== null &&
           state.rotation.value !== null ? state.rotation.value : baseTransform.rotation;
         const oldScale: OriginalInkScale = state.scale.winner !== null &&
           state.scale.value !== null ? state.scale.value :
           { x: baseTransform.scaleX, y: baseTransform.scaleY };
         const expectedTransform: TransformMatrix = originalInkTransform(
-          baseTransform.originX, baseTransform.originY, oldRotation, oldScale.x, oldScale.y);
+          oldPageOrigin.originX, oldPageOrigin.originY, oldRotation, oldScale.x, oldScale.y);
         if (!transformMatricesEqual(stroke.transform, expectedTransform)) {
           return { deferredReason: 'MODIFY_INK_TRANSFORM_STATE_DIVERGED' };
         }
@@ -281,7 +343,17 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         const nextScale: OriginalInkScale = replaceScale ?
           (payload.scale.value === null ? { x: baseTransform.scaleX, y: baseTransform.scaleY } :
             payload.scale.value) : oldScale;
-        transform = originalInkTransform(baseTransform.originX, baseTransform.originY,
+        const nextPageOrigin: OriginalInkPageOrigin = replacePageOrigin ?
+          payload.pageOrigin as OriginalInkPageOrigin : oldPageOrigin;
+        if (replacePageOrigin) {
+          const resolved: StoredPageTarget | null = await this.readPageTarget(
+            store, operation.noteId, nextPageOrigin.page);
+          if (resolved === null) {
+            return { deferredReason: 'MODIFY_INK_DESTINATION_PAGE_MISSING_OR_UNBOUND' };
+          }
+          destination = samePageIdentity(target.page, resolved.page) ? target : resolved;
+        }
+        transform = originalInkTransform(nextPageOrigin.originX, nextPageOrigin.originY,
           nextRotation, nextScale.x, nextScale.y);
       }
       const renderSpec: RenderSpec = {
@@ -307,7 +379,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       if (style === 0 && !replacement.attributed) {
         return { deferredReason: 'MODIFY_INK_VARIABLE_PATH_ATTRIBUTES_MISSING' };
       }
-      if (target.revision >= Number.MAX_SAFE_INTEGER) {
+      if (target.revision >= Number.MAX_SAFE_INTEGER ||
+        destination.revision >= Number.MAX_SAFE_INTEGER) {
         return { deferredReason: 'MODIFY_INK_PAGE_REVISION_EXHAUSTED' };
       }
       planned.push({
@@ -315,18 +388,35 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         replaceCenterPath: replaceCenterPath, replaceStyle: replaceStyle,
         replaceColor: replaceColor, replaceWidth: replaceWidth,
         replaceRotation: replaceRotation, replaceScale: replaceScale,
+        replacePageOrigin: replacePageOrigin,
         style: style, color: color, width: width, transform: transform,
         baseTransform: state.baseTransform === null ? baseTransform : null,
         rotationValue: replaceRotation ? payload.rotation.value : state.rotation.value,
         scaleValue: replaceScale ? payload.scale.value : state.scale.value,
+        destination: destination,
+        basePage: state.basePage === null ? basePage : null,
+        pageOriginValue: replacePageOrigin ? payload.pageOrigin : state.pageOrigin.value,
       });
       affectedPages.set(pageKey(target), target);
+      affectedPages.set(pageKey(destination), destination);
     }
 
+    const pageMutations: Map<string, PageMutation> | null = await this.preparePageMutations(
+      store, operation.noteId, planned);
+    if (pageMutations === null) {
+      return { deferredReason: 'MODIFY_INK_ELEMENT_ORDER_DIVERGED' };
+    }
     for (const replacement of planned) {
       await this.updateState(store, operation.noteId, replacement.target.ink,
         replacement, operation, payload.centerPath);
-      await this.updateStroke(store, operation.noteId, replacement);
+      if (samePageIdentity(replacement.target.page, replacement.destination.page)) {
+        await this.updateStroke(store, operation.noteId, replacement);
+      } else {
+        await this.moveStroke(store, operation.noteId, replacement, pageMutations);
+      }
+    }
+    for (const mutation of pageMutations.values()) {
+      await this.materializeOrder(store, operation.noteId, mutation);
     }
     for (const target of affectedPages.values()) {
       await this.advanceRevisionAndInvalidateSearch(store, operation.noteId, target);
@@ -381,6 +471,135 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     };
   }
 
+  private async readPageTarget(store: relationalStore.RdbStore, noteId: string,
+    page: OriginalSequenceIdentity): Promise<StoredPageTarget | null> {
+    const rows = await store.querySql(
+      `SELECT page_id, visible FROM original_page_identity WHERE note_id = ?
+       AND seq_timestamp = ? AND seq_site_id = ? AND seq_index = ?`,
+      [noteId, page.timestamp, page.siteId, page.index]);
+    let pageId: string | null = null;
+    try {
+      if (!rows.goToFirstRow() || rows.getLong(rows.getColumnIndex('visible')) !== 1 ||
+        rows.isColumnNull(rows.getColumnIndex('page_id'))) {
+        return null;
+      }
+      pageId = rows.getString(rows.getColumnIndex('page_id'));
+    } finally {
+      rows.close();
+    }
+    if (pageId === null || pageId.length === 0) {
+      return null;
+    }
+    const liveRevision: number | null = await readSingleRevision(store,
+      'SELECT content_revision FROM page_info WHERE note_id = ? AND page_id = ?', [noteId, pageId]);
+    const archivedRevision: number | null = await readSingleRevision(store,
+      `SELECT content_revision FROM original_deleted_page WHERE note_id = ?
+       AND page_timestamp = ? AND page_site_id = ? AND page_index = ?`,
+      [noteId, page.timestamp, page.siteId, page.index]);
+    if ((liveRevision === null) === (archivedRevision === null)) {
+      return null;
+    }
+    return liveRevision !== null ? {
+      page: page, pageId: pageId, table: 'page_element_snapshot',
+      revisionTable: 'page_info', revision: liveRevision, archived: false,
+    } : {
+      page: page, pageId: pageId, table: 'original_deleted_page_element',
+      revisionTable: 'original_deleted_page', revision: archivedRevision as number, archived: true,
+    };
+  }
+
+  private async preparePageMutations(store: relationalStore.RdbStore, noteId: string,
+    planned: PlannedReplacement[]): Promise<Map<string, PageMutation> | null> {
+    const mutations: Map<string, PageMutation> = new Map<string, PageMutation>();
+    for (const replacement of planned) {
+      if (samePageIdentity(replacement.target.page, replacement.destination.page)) {
+        continue;
+      }
+      const source: PageMutation | null = await this.loadPageMutation(
+        store, noteId, replacement.target, mutations);
+      const destination: PageMutation | null = await this.loadPageMutation(
+        store, noteId, replacement.destination, mutations);
+      if (source === null || destination === null) {
+        return null;
+      }
+      const elementId: string = replacement.stroke.id;
+      const sourceIndex: number = source.rows.findIndex((row: StoredZIndexRow) =>
+        row.elementId === elementId && row.kind === PageElementKind.STROKE);
+      if (sourceIndex < 0 || destination.rows.some((row: StoredZIndexRow) =>
+        row.elementId === elementId && row.kind === PageElementKind.STROKE)) {
+        return null;
+      }
+      const moved: StoredZIndexRow = source.rows[sourceIndex];
+      source.rows.splice(sourceIndex, 1);
+      destination.rows.push(moved);
+      source.rows.sort(compareStoredZIndexRows);
+      destination.rows.sort(compareStoredZIndexRows);
+    }
+    return mutations;
+  }
+
+  private async loadPageMutation(store: relationalStore.RdbStore, noteId: string,
+    target: StoredPageTarget, mutations: Map<string, PageMutation>): Promise<PageMutation | null> {
+    const key: string = pageKey(target);
+    const existing: PageMutation | undefined = mutations.get(key);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const rows: StoredZIndexRow[] | null = await this.readCompleteOriginalOrder(
+      store, noteId, target);
+    if (rows === null) {
+      return null;
+    }
+    const mutation: PageMutation = { target: target, rows: rows };
+    mutations.set(key, mutation);
+    return mutation;
+  }
+
+  private async readCompleteOriginalOrder(store: relationalStore.RdbStore, noteId: string,
+    target: StoredPageTarget): Promise<StoredZIndexRow[] | null> {
+    const page: OriginalSequenceIdentity = target.page;
+    const tracked = await store.querySql(
+      `SELECT element_timestamp, element_site_id, kind, z_index
+       FROM original_element_z_index WHERE note_id = ? AND page_timestamp = ?
+       AND page_site_id = ? AND page_index = ?`,
+      [noteId, page.timestamp, page.siteId, page.index]);
+    const result: StoredZIndexRow[] = [];
+    const keys: Set<string> = new Set<string>();
+    try {
+      while (tracked.goToNextRow()) {
+        const timestamp: number = tracked.getLong(tracked.getColumnIndex('element_timestamp'));
+        const siteId: number = tracked.getLong(tracked.getColumnIndex('element_site_id'));
+        const kind: number = tracked.getLong(tracked.getColumnIndex('kind'));
+        const elementId: string = encodeOperationId({ timestamp: timestamp, siteId: siteId });
+        result.push({ elementId: elementId, kind: kind, timestamp: timestamp, siteId: siteId,
+          zIndex: tracked.getString(tracked.getColumnIndex('z_index')) });
+        keys.add(`${kind}:${elementId}`);
+      }
+    } finally {
+      tracked.close();
+    }
+    const stored = target.archived ? await store.querySql(
+      `SELECT element_id, kind FROM original_deleted_page_element WHERE note_id = ?
+       AND page_timestamp = ? AND page_site_id = ? AND page_index = ?`,
+      [noteId, page.timestamp, page.siteId, page.index]) : await store.querySql(
+      'SELECT element_id, kind FROM page_element_snapshot WHERE note_id = ? AND page_id = ?',
+      [noteId, target.pageId]);
+    let count: number = 0;
+    try {
+      while (stored.goToNextRow()) {
+        const key: string = `${stored.getLong(stored.getColumnIndex('kind'))}:` +
+          stored.getString(stored.getColumnIndex('element_id'));
+        if (!keys.has(key)) {
+          return null;
+        }
+        count++;
+      }
+    } finally {
+      stored.close();
+    }
+    return count === result.length ? result : null;
+  }
+
   private async readState(store: relationalStore.RdbStore, noteId: string,
     ink: OperationIdentity): Promise<StoredInkState | null> {
     const rows = await store.querySql(
@@ -392,11 +611,15 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
               color_winner_present,
               width_value, width_winner_timestamp, width_winner_site_id,
               width_winner_present,
-              create_origin_x, create_origin_y, create_rotation, create_scale_x, create_scale_y,
+              create_origin_x, create_origin_y, create_page_timestamp, create_page_site_id,
+              create_page_index, create_rotation, create_scale_x, create_scale_y,
               rotation_value, rotation_winner_timestamp, rotation_winner_site_id,
               rotation_winner_present,
               scale_x_value, scale_y_value, scale_winner_timestamp, scale_winner_site_id,
-              scale_winner_present
+              scale_winner_present,
+              page_origin_page_timestamp, page_origin_page_site_id, page_origin_page_index,
+              page_origin_x, page_origin_y, page_origin_winner_timestamp,
+              page_origin_winner_site_id, page_origin_winner_present
        FROM original_ink_state WHERE note_id = ? AND ink_timestamp = ? AND ink_site_id = ?`,
       [noteId, ink.timestamp, ink.siteId]);
     try {
@@ -409,12 +632,15 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       const widthWinner: OperationIdentity | null = readOptionalWinner(rows, 'width');
       const rotationWinner: OperationIdentity | null = readOptionalWinner(rows, 'rotation');
       const scaleWinner: OperationIdentity | null = readOptionalWinner(rows, 'scale');
+      const pageOriginWinner: OperationIdentity | null = readOptionalWinner(rows, 'page_origin');
       const widthColumn: number = rows.getColumnIndex('width_value');
       const width: number | null = rows.isColumnNull(widthColumn) ? null : rows.getDouble(widthColumn);
       if (width !== null && !Number.isFinite(width)) {
         throw new Error('original modify-ink has an invalid stored width');
       }
       const baseTransform: OriginalInkBaseTransform | null = readBaseTransform(rows);
+      const basePage: OriginalSequenceIdentity | null = readNullableSequence(
+        rows, 'create_page_timestamp', 'create_page_site_id', 'create_page_index');
       const rotation: number | null = readNullableDouble(rows, 'rotation_value');
       const scaleX: number | null = readNullableDouble(rows, 'scale_x_value');
       const scaleY: number | null = readNullableDouble(rows, 'scale_y_value');
@@ -425,6 +651,15 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         (scaleWinner === null && scaleX !== null)) {
         throw new Error('original modify-ink has an override without a winner');
       }
+      const pageOriginPage: OriginalSequenceIdentity | null = readNullableSequence(rows,
+        'page_origin_page_timestamp', 'page_origin_page_site_id', 'page_origin_page_index');
+      const pageOriginX: number | null = readNullableDouble(rows, 'page_origin_x');
+      const pageOriginY: number | null = readNullableDouble(rows, 'page_origin_y');
+      if ((pageOriginPage === null) !== (pageOriginX === null) ||
+        (pageOriginPage === null) !== (pageOriginY === null) ||
+        (pageOriginWinner === null) !== (pageOriginPage === null)) {
+        throw new Error('original modify-ink has an invalid page/origin register');
+      }
       return {
         basePath: rows.getBlob(rows.getColumnIndex('base_center_path')),
         centerPathWinner: centerPathWinner,
@@ -432,6 +667,13 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         color: { value: readNullableLong(rows, 'color_value'), winner: colorWinner },
         width: { value: width, winner: widthWinner },
         baseTransform: baseTransform,
+        basePage: basePage,
+        pageOrigin: {
+          value: pageOriginPage === null ? null : {
+            page: pageOriginPage, originX: pageOriginX as number, originY: pageOriginY as number,
+          },
+          winner: pageOriginWinner,
+        },
         rotation: { value: rotation, winner: rotationWinner },
         scale: {
           value: scaleX === null ? null : { x: scaleX, y: scaleY as number },
@@ -554,6 +796,11 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       values['create_scale_x'] = replacement.baseTransform.scaleX;
       values['create_scale_y'] = replacement.baseTransform.scaleY;
     }
+    if (replacement.basePage !== null) {
+      values['create_page_timestamp'] = replacement.basePage.timestamp;
+      values['create_page_site_id'] = replacement.basePage.siteId;
+      values['create_page_index'] = replacement.basePage.index;
+    }
     if (replacement.replaceRotation) {
       addWinnerPredicates(predicates, 'rotation', replacement.state.rotation.winner);
       values['rotation_value'] = replacement.rotationValue;
@@ -569,6 +816,19 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       values['scale_winner_site_id'] = winner.siteId;
       values['scale_winner_present'] = 1;
     }
+    if (replacement.replacePageOrigin) {
+      const pageOrigin: OriginalInkPageOrigin =
+        replacement.pageOriginValue as OriginalInkPageOrigin;
+      addWinnerPredicates(predicates, 'page_origin', replacement.state.pageOrigin.winner);
+      values['page_origin_page_timestamp'] = pageOrigin.page.timestamp;
+      values['page_origin_page_site_id'] = pageOrigin.page.siteId;
+      values['page_origin_page_index'] = pageOrigin.page.index;
+      values['page_origin_x'] = pageOrigin.originX;
+      values['page_origin_y'] = pageOrigin.originY;
+      values['page_origin_winner_timestamp'] = winner.timestamp;
+      values['page_origin_winner_site_id'] = winner.siteId;
+      values['page_origin_winner_present'] = 1;
+    }
     const updated: number = await store.update(values, predicates);
     if (updated !== 1) {
       throw new Error('original modify-ink register winner changed concurrently');
@@ -578,25 +838,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
   private async updateStroke(store: relationalStore.RdbStore, noteId: string,
     replacement: PlannedReplacement): Promise<void> {
     const target: StoredInkTarget = replacement.target;
-    const stroke: StrokeElementData = replacement.stroke;
-    const updatedStroke: StrokeElementData = {
-      id: stroke.id,
-      pathPoints: replacement.geometry.pathPoints,
-      cubicSegments: replacement.geometry.cubicSegments,
-      splatPoints: stroke.splatPoints,
-      renderSpec: {
-        color: replacement.color,
-        brushWidth: replacement.width,
-        inkStyle: originalStyleToInkStyle(replacement.style),
-        isHighlighter: stroke.renderSpec.isHighlighter,
-        isPencil: stroke.renderSpec.isPencil,
-      },
-      transform: replacement.transform,
-      bounds: replacement.geometry.bounds,
-      maskPath: stroke.maskPath,
-      isFinished: stroke.isFinished,
-    };
-    const predicates = elementPredicates(noteId, target, stroke.id);
+    const updatedStroke: StrokeElementData = replacementStroke(replacement);
+    const predicates = elementPredicates(noteId, target, replacement.stroke.id);
     const persisted: PersistedElement = { kind: 'stroke', data: updatedStroke };
     const updated: number = await store.update({
       'payload': encodePersistedElement(persisted), 'revision': target.revision + 1,
@@ -606,8 +849,70 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     }
   }
 
+  private async moveStroke(store: relationalStore.RdbStore, noteId: string,
+    replacement: PlannedReplacement, mutations: Map<string, PageMutation>): Promise<void> {
+    const source: StoredInkTarget = replacement.target;
+    const destination: StoredPageTarget = replacement.destination;
+    const stroke: StrokeElementData = replacementStroke(replacement);
+    const deleted: number = await store.delete(elementPredicates(noteId, source, stroke.id));
+    if (deleted !== 1) {
+      throw new Error('original modify-ink lost its source stroke');
+    }
+    const destinationMutation: PageMutation | undefined = mutations.get(pageKey(destination));
+    if (destinationMutation === undefined) {
+      throw new Error('original modify-ink has no destination order');
+    }
+    const elementOrder: number = destinationMutation.rows.findIndex((row: StoredZIndexRow) =>
+      row.elementId === stroke.id && row.kind === PageElementKind.STROKE);
+    if (elementOrder < 0) {
+      throw new Error('original modify-ink destination order lost its stroke');
+    }
+    const persisted: PersistedElement = { kind: 'stroke', data: stroke };
+    const values: relationalStore.ValuesBucket = {
+      'note_id': noteId, 'element_id': stroke.id, 'kind': PageElementKind.STROKE,
+      'payload': encodePersistedElement(persisted), 'revision': destination.revision + 1,
+      'element_order': elementOrder,
+    };
+    if (destination.archived) {
+      values['page_timestamp'] = destination.page.timestamp;
+      values['page_site_id'] = destination.page.siteId;
+      values['page_index'] = destination.page.index;
+    } else {
+      values['page_id'] = destination.pageId;
+    }
+    await store.insert(destination.table, values);
+    const predicates = new relationalStore.RdbPredicates('original_element_z_index');
+    predicates.equalTo('note_id', noteId);
+    predicates.equalTo('element_timestamp', source.ink.timestamp);
+    predicates.equalTo('element_site_id', source.ink.siteId);
+    predicates.equalTo('page_timestamp', source.page.timestamp);
+    predicates.equalTo('page_site_id', source.page.siteId);
+    predicates.equalTo('page_index', source.page.index);
+    predicates.equalTo('kind', PageElementKind.STROKE);
+    const updated: number = await store.update({
+      'page_timestamp': destination.page.timestamp,
+      'page_site_id': destination.page.siteId,
+      'page_index': destination.page.index,
+    }, predicates);
+    if (updated !== 1) {
+      throw new Error('original modify-ink lost its tracked page assignment');
+    }
+  }
+
+  private async materializeOrder(store: relationalStore.RdbStore, noteId: string,
+    mutation: PageMutation): Promise<void> {
+    for (let index: number = 0; index < mutation.rows.length; index++) {
+      const row: StoredZIndexRow = mutation.rows[index];
+      const predicates = pageElementPredicates(noteId, mutation.target, row.elementId, row.kind);
+      const updated: number = await store.update({ 'element_order': index }, predicates);
+      if (updated !== 1) {
+        throw new Error('original modify-ink order materialization lost an element');
+      }
+    }
+  }
+
   private async advanceRevisionAndInvalidateSearch(store: relationalStore.RdbStore,
-    noteId: string, target: StoredInkTarget): Promise<void> {
+    noteId: string, target: StoredPageTarget): Promise<void> {
     const predicates = new relationalStore.RdbPredicates(target.revisionTable);
     predicates.equalTo('note_id', noteId);
     if (target.archived) {
@@ -643,6 +948,11 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
 
 function elementPredicates(noteId: string, target: StoredInkTarget,
   elementId: string): relationalStore.RdbPredicates {
+  return pageElementPredicates(noteId, target, elementId, PageElementKind.STROKE);
+}
+
+function pageElementPredicates(noteId: string, target: StoredPageTarget,
+  elementId: string, kind: number): relationalStore.RdbPredicates {
   const predicates = new relationalStore.RdbPredicates(target.table);
   predicates.equalTo('note_id', noteId);
   if (target.archived) {
@@ -653,7 +963,7 @@ function elementPredicates(noteId: string, target: StoredInkTarget,
     predicates.equalTo('page_id', target.pageId);
   }
   predicates.equalTo('element_id', elementId);
-  predicates.equalTo('kind', PageElementKind.STROKE);
+  predicates.equalTo('kind', kind);
   return predicates;
 }
 
@@ -703,6 +1013,27 @@ function copyStroke(stroke: StrokeElementData, renderSpec: RenderSpec,
     id: stroke.id, pathPoints: stroke.pathPoints, cubicSegments: stroke.cubicSegments,
     splatPoints: stroke.splatPoints, renderSpec: renderSpec, transform: transform,
     bounds: stroke.bounds, maskPath: stroke.maskPath, isFinished: stroke.isFinished,
+  };
+}
+
+function replacementStroke(replacement: PlannedReplacement): StrokeElementData {
+  const stroke: StrokeElementData = replacement.stroke;
+  return {
+    id: stroke.id,
+    pathPoints: replacement.geometry.pathPoints,
+    cubicSegments: replacement.geometry.cubicSegments,
+    splatPoints: stroke.splatPoints,
+    renderSpec: {
+      color: replacement.color,
+      brushWidth: replacement.width,
+      inkStyle: originalStyleToInkStyle(replacement.style),
+      isHighlighter: stroke.renderSpec.isHighlighter,
+      isPencil: stroke.renderSpec.isPencil,
+    },
+    transform: replacement.transform,
+    bounds: replacement.geometry.bounds,
+    maskPath: stroke.maskPath,
+    isFinished: stroke.isFinished,
   };
 }
 
@@ -765,6 +1096,26 @@ function readBaseTransform(rows: relationalStore.ResultSet): OriginalInkBaseTran
   };
 }
 
+function readNullableSequence(rows: relationalStore.ResultSet, timestampColumn: string,
+  siteColumn: string, indexColumn: string): OriginalSequenceIdentity | null {
+  const timestamp: number | null = readNullableLong(rows, timestampColumn);
+  const siteId: number | null = readNullableLong(rows, siteColumn);
+  const index: number | null = readNullableLong(rows, indexColumn);
+  const presentCount: number = [timestamp, siteId, index]
+    .filter((value: number | null) => value !== null).length;
+  if (presentCount === 0) {
+    return null;
+  }
+  if (presentCount !== 3) {
+    throw new Error('original modify-ink has a partial stored sequence');
+  }
+  const sequence: OriginalSequenceIdentity = {
+    timestamp: timestamp as number, siteId: siteId as number, index: index as number,
+  };
+  validateOriginalSequenceIdentity(sequence);
+  return sequence;
+}
+
 function createBaseTransform(payload: OriginalCreateInkPayload): OriginalInkBaseTransform {
   return {
     originX: payload.originX, originY: payload.originY, rotation: payload.rotation,
@@ -794,10 +1145,26 @@ function addWinnerPredicates(predicates: relationalStore.RdbPredicates, prefix: 
   }
 }
 
-function pageKey(target: StoredInkTarget): string {
-  return target.archived ?
-    `archive:${target.page.timestamp}:${target.page.siteId}:${target.page.index}` :
-    `live:${target.pageId}`;
+function samePageIdentity(left: OriginalSequenceIdentity,
+  right: OriginalSequenceIdentity): boolean {
+  return left.timestamp === right.timestamp && left.siteId === right.siteId &&
+    left.index === right.index;
+}
+
+function pageKey(target: StoredPageTarget): string {
+  return `${target.page.timestamp}:${target.page.siteId}:${target.page.index}`;
+}
+
+function compareStoredZIndexRows(left: StoredZIndexRow, right: StoredZIndexRow): number {
+  let compared: number = compareUnsignedLongDecimal(left.zIndex, right.zIndex);
+  if (compared !== 0) {
+    return compared;
+  }
+  compared = left.timestamp === right.timestamp ? 0 : left.timestamp < right.timestamp ? -1 : 1;
+  if (compared !== 0) {
+    return compared;
+  }
+  return left.siteId === right.siteId ? 0 : left.siteId < right.siteId ? -1 : 1;
 }
 
 async function readSingleRevision(store: relationalStore.RdbStore, sql: string,

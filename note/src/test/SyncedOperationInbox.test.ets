@@ -245,6 +245,16 @@ export default function syncedOperationInboxTest() {
       expect(withClear.scale.present).assertTrue();
       expect(withClear.scale.value?.x).assertEqual(2);
       expect(withClear.scale.value?.y).assertEqual(3);
+      const moved = decodeOriginalModifyInk(flatBufferModifyInk(false, false, false, false, 1));
+      expect(moved.pageOrigin?.page.timestamp).assertEqual(30);
+      expect(moved.pageOrigin?.page.siteId).assertEqual(4);
+      expect(moved.pageOrigin?.page.index).assertEqual(5);
+      expect(moved.pageOrigin?.originX).assertEqual(40);
+      expect(moved.pageOrigin?.originY).assertEqual(50);
+      const partial = decodeOriginalModifyInk(
+        flatBufferModifyInk(false, false, false, false, 2));
+      expect(partial.pageOrigin === null).assertTrue();
+      expect(partial.hasUnsupportedFields).assertFalse();
     });
 
     it('decodes the original big-endian half-float coordinate path variant', 0, () => {
@@ -617,7 +627,7 @@ function flatBufferAddPathElements(): Uint8Array {
 
 function flatBufferModifyInk(includeRender: boolean = false,
   includeRotation: boolean = false, clearRotation: boolean = false,
-  includeScale: boolean = false): Uint8Array {
+  includeScale: boolean = false, pageOriginMode: number = 0): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
   builder.uint16(root + 4, 7);
@@ -625,32 +635,41 @@ function flatBufferModifyInk(includeRender: boolean = false,
   writeDecimalU64At(builder, root + 12, '127');
   writeDecimalU64At(builder, root + 20, '128');
   builder.uint8(root + 28, 17);
-  const fields: number[] = [4, 0, 0, includeRotation || clearRotation ? 8 : 0,
-    includeScale ? 12 : 0,
-    includeRender ? 16 : 0, includeRender ? 20 : 0, includeRender ? 24 : 0, 28,
+  const fields: number[] = [4, pageOriginMode > 0 ? 8 : 0, pageOriginMode === 1 ? 20 : 0,
+    includeRotation || clearRotation ? 28 : 0, includeScale ? 32 : 0,
+    includeRender ? 36 : 0, includeRender ? 40 : 0, includeRender ? 44 : 0, 48,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-  const modify: number = builder.table(fields, 32);
+  const modify: number = builder.table(fields, 52);
   builder.pointer(root + 32, modify);
+  if (pageOriginMode > 0) {
+    builder.uint16(modify + 8, 4);
+    builder.uint32(modify + 12, 30);
+    builder.uint32(modify + 16, 5);
+  }
+  if (pageOriginMode === 1) {
+    builder.float32(modify + 20, 40);
+    builder.float32(modify + 24, 50);
+  }
   if (includeRotation || clearRotation) {
     const rotation: number = builder.table([clearRotation ? 0 : 4], 8);
     if (!clearRotation) {
       builder.float32(rotation + 4, 0.5);
     }
-    builder.pointer(modify + 8, rotation);
+    builder.pointer(modify + 28, rotation);
   }
   if (includeScale) {
     const scale: number = builder.table([4], 12);
     builder.float32(scale + 4, 2);
     builder.float32(scale + 8, 3);
-    builder.pointer(modify + 12, scale);
+    builder.pointer(modify + 32, scale);
   }
   if (includeRender) {
-    builder.uint8(modify + 16, 2);
-    builder.uint8(modify + 20, 1);
-    builder.uint8(modify + 21, 2);
-    builder.uint8(modify + 22, 3);
-    builder.uint8(modify + 23, 128);
-    builder.float32(modify + 24, 5);
+    builder.uint8(modify + 36, 2);
+    builder.uint8(modify + 40, 1);
+    builder.uint8(modify + 41, 2);
+    builder.uint8(modify + 42, 3);
+    builder.uint8(modify + 43, 128);
+    builder.float32(modify + 44, 5);
   }
   const inks: number = builder.operationIdentityVector([
     { timestamp: 20, siteId: 2 }, { timestamp: 21, siteId: 3 },
@@ -660,7 +679,7 @@ function flatBufferModifyInk(includeRender: boolean = false,
   appendAttributedPathElement(path, 3, [{ x: 5, y: 6 }], 0x3C00, 0x3800, 255, 0);
   appendAttributedPathElement(path, 2, [{ x: 15, y: 16 }], 0x3C00, 0x3800, 255, 0);
   const vector: number = builder.byteVector(path);
-  builder.pointer(modify + 28, vector);
+  builder.pointer(modify + 48, vector);
   return builder.finish(root);
 }
 

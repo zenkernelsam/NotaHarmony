@@ -1,6 +1,6 @@
 # ADR-0008：原版 MODIFY_INK nullable transform register 与缺席 winner
 
-- 状态：Accepted（rotation/scale 受证明子集）
+- 状态：Accepted（rotation/scale 受证明子集；page/origin 由 ADR-0009 扩展）
 - 日期：2026-08-10
 - 关联：D-02、数据库 v30、ADR-0006、ADR-0007
 
@@ -33,5 +33,5 @@
 - rotation clear、scale clear 会保存自己的 winner，并准确回到各 Ink 的 CREATE 值。
 - `d02-modify-ink-transform.mjs` 覆盖真实 nullable setter、v29→v30、四个旧 register 的缺席 winner 恢复、较小 ID 首写、
   rotation/scale 独立乱序、显式 clear、CREATE fallback、多 Ink 原子性、故障回滚和无本地日志。
-- page/origin、z-index、辅助路径、Pencil/Tape/effects 与后续内容 payload 仍未完成；未执行设备 Hypium，不据此关闭完整
-  MODIFY_INK 或 D-02。
+- 本 ADR 落地时 page/origin、z-index、辅助路径、Pencil/Tape/effects 与后续内容 payload 仍未完成；page/origin 后续由
+  ADR-0009 闭环。未执行设备 Hypium，不据此关闭完整 MODIFY_INK 或 D-02。

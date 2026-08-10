@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v30: preserve nullable transform registers and distinguish an absent original LWW winner.
-export const DB_VERSION: number = 30;
+// v31: preserve the original page/origin register and CREATE page fallback.
+export const DB_VERSION: number = 31;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -423,6 +423,12 @@ CREATE TABLE IF NOT EXISTS original_ink_state (
   width_winner_present INTEGER NOT NULL CHECK (width_winner_present IN (0, 1)),
   create_origin_x REAL,
   create_origin_y REAL,
+  create_page_timestamp INTEGER CHECK (create_page_timestamp IS NULL OR
+    create_page_timestamp BETWEEN 0 AND 4294967295),
+  create_page_site_id INTEGER CHECK (create_page_site_id IS NULL OR
+    create_page_site_id BETWEEN 0 AND 65535),
+  create_page_index INTEGER CHECK (create_page_index IS NULL OR
+    create_page_index BETWEEN 0 AND 4294967295),
   create_rotation REAL,
   create_scale_x REAL,
   create_scale_y REAL,
@@ -439,12 +445,34 @@ CREATE TABLE IF NOT EXISTS original_ink_state (
   scale_winner_site_id INTEGER NOT NULL
     CHECK (scale_winner_site_id BETWEEN 0 AND 65535),
   scale_winner_present INTEGER NOT NULL CHECK (scale_winner_present IN (0, 1)),
+  page_origin_page_timestamp INTEGER CHECK (page_origin_page_timestamp IS NULL OR
+    page_origin_page_timestamp BETWEEN 0 AND 4294967295),
+  page_origin_page_site_id INTEGER CHECK (page_origin_page_site_id IS NULL OR
+    page_origin_page_site_id BETWEEN 0 AND 65535),
+  page_origin_page_index INTEGER CHECK (page_origin_page_index IS NULL OR
+    page_origin_page_index BETWEEN 0 AND 4294967295),
+  page_origin_x REAL,
+  page_origin_y REAL,
+  page_origin_winner_timestamp INTEGER NOT NULL
+    CHECK (page_origin_winner_timestamp BETWEEN 0 AND 4294967295),
+  page_origin_winner_site_id INTEGER NOT NULL
+    CHECK (page_origin_winner_site_id BETWEEN 0 AND 65535),
+  page_origin_winner_present INTEGER NOT NULL CHECK (page_origin_winner_present IN (0, 1)),
   CHECK ((create_origin_x IS NULL AND create_origin_y IS NULL AND create_rotation IS NULL
       AND create_scale_x IS NULL AND create_scale_y IS NULL) OR
     (create_origin_x IS NOT NULL AND create_origin_y IS NOT NULL AND create_rotation IS NOT NULL
       AND create_scale_x IS NOT NULL AND create_scale_y IS NOT NULL)),
+  CHECK ((create_page_timestamp IS NULL AND create_page_site_id IS NULL
+      AND create_page_index IS NULL) OR
+    (create_page_timestamp IS NOT NULL AND create_page_site_id IS NOT NULL
+      AND create_page_index IS NOT NULL)),
   CHECK ((scale_x_value IS NULL AND scale_y_value IS NULL) OR
     (scale_x_value IS NOT NULL AND scale_y_value IS NOT NULL)),
+  CHECK ((page_origin_page_timestamp IS NULL AND page_origin_page_site_id IS NULL
+      AND page_origin_page_index IS NULL AND page_origin_x IS NULL AND page_origin_y IS NULL) OR
+    (page_origin_page_timestamp IS NOT NULL AND page_origin_page_site_id IS NOT NULL
+      AND page_origin_page_index IS NOT NULL AND page_origin_x IS NOT NULL
+      AND page_origin_y IS NOT NULL)),
   PRIMARY KEY(note_id, ink_timestamp, ink_site_id),
   FOREIGN KEY(note_id, ink_timestamp, ink_site_id)
     REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
@@ -1141,5 +1169,28 @@ export const MIGRATIONS: Record<number, string[]> = {
       DEFAULT 0 CHECK (scale_winner_site_id BETWEEN 0 AND 65535)`,
     `ALTER TABLE original_ink_state ADD COLUMN scale_winner_present INTEGER NOT NULL
       DEFAULT 0 CHECK (scale_winner_present IN (0, 1))`,
+  ],
+  31: [
+    `ALTER TABLE original_ink_state ADD COLUMN create_page_timestamp INTEGER
+      CHECK (create_page_timestamp IS NULL OR create_page_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN create_page_site_id INTEGER
+      CHECK (create_page_site_id IS NULL OR create_page_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN create_page_index INTEGER
+      CHECK (create_page_index IS NULL OR create_page_index BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN page_origin_page_timestamp INTEGER
+      CHECK (page_origin_page_timestamp IS NULL OR
+        page_origin_page_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN page_origin_page_site_id INTEGER
+      CHECK (page_origin_page_site_id IS NULL OR page_origin_page_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN page_origin_page_index INTEGER
+      CHECK (page_origin_page_index IS NULL OR page_origin_page_index BETWEEN 0 AND 4294967295)`,
+    'ALTER TABLE original_ink_state ADD COLUMN page_origin_x REAL',
+    'ALTER TABLE original_ink_state ADD COLUMN page_origin_y REAL',
+    `ALTER TABLE original_ink_state ADD COLUMN page_origin_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (page_origin_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN page_origin_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (page_origin_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN page_origin_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (page_origin_winner_present IN (0, 1))`,
   ],
 };
