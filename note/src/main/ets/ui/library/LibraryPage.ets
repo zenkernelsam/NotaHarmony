@@ -200,7 +200,7 @@ struct LibraryPage {
             continue;
           }
           const pixelMap: PixelMap | null = pageState === null ? null :
-            await this.thumbRenderer.renderThumbnail(noteId, this.persistence, pageState.page, theme);
+            await this.thumbRenderer.renderThumbnail(noteId, this.persistence, pageState.page, theme, this.db);
           if (generation !== this.thumbnailGeneration || !this.pageActive) {
             if (pixelMap !== null) {
               pixelMap.release();
