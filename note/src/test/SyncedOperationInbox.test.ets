@@ -1,7 +1,9 @@
 import { describe, it, expect } from '@ohos/hypium';
+import { relationalStore } from '@kit.ArkData';
 import { util } from '@kit.ArkTS';
 import {
-  compareIncomingSyncedOperationOrder, IncomingSyncedOperation, validateIncomingSyncedBatch,
+  compareIncomingSyncedOperationOrder, IncomingSyncedOperation, StoredSyncedOperation,
+  SyncedOperationInboxState, validateIncomingSyncedBatch,
 } from '../main/ets/data/SyncedOperationInbox';
 import {
   crc32Signed, parseOriginalSyncedOperationEnvelope,
@@ -24,7 +26,7 @@ import { decodeOriginalCreateInk } from '../main/ets/data/OriginalCreateInkOpera
 import { decodeOriginalAddPathElements } from
   '../main/ets/data/OriginalAddPathElementsOperation';
 import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOperation';
-import { decodeOriginalCreateBlock, OriginalBlockType } from
+import { decodeOriginalCreateBlock, OriginalBlockType, OriginalCreateBlockOperationApplier } from
   '../main/ets/data/OriginalCreateBlockOperation';
 import { decodeOriginalModifyBlock } from '../main/ets/data/OriginalModifyBlockOperation';
 import { decodeOriginalInsertText, decodeOriginalTextVisibility } from
@@ -261,8 +263,40 @@ export default function syncedOperationInboxTest() {
       expect(payload.margins.right).assertEqual(5);
       expect(payload.hasImage).assertFalse();
       expect(payload.hasMathLatex).assertFalse();
-      expect(payload.hasPaper).assertFalse();
+      expect(payload.paper === null).assertTrue();
       expect(payload.positionLocked).assertTrue();
+    });
+
+    it('decodes original IMAGE CREATE_BLOCK asset metadata without uint64 loss', 0, () => {
+      const payload = decodeOriginalCreateBlock(flatBufferCreateImageBlock(), '123');
+      expect(payload.blockType).assertEqual(OriginalBlockType.IMAGE);
+      expect(payload.image?.assetHash.bits.length).assertEqual(8);
+      expect(payload.image?.assetHash.bits[0]).assertEqual('0');
+      expect(payload.image?.assetHash.bits[2]).assertEqual('9007199254740993');
+      expect(payload.image?.assetHash.bits[7]).assertEqual('18446744073709551615');
+      expect(payload.image?.fileName).assertEqual('原版照片.png');
+      expect(payload.image?.mimeType).assertEqual('image/png');
+      expect(payload.image?.fileSize).assertEqual(4294967295);
+      expect(payload.image?.width).assertEqual(4032);
+      expect(payload.image?.height).assertEqual(3024);
+      expect(payload.cropRect?.x).assertEqual(-5);
+      expect(payload.cropRect?.y).assertEqual(2);
+      expect(payload.cropRect?.width).assertEqual(100);
+      expect(payload.cropRect?.height).assertEqual(50);
+      expect(payload.webUrl).assertEqual('https://example.test/照片.png');
+      expect(payload.imageFlippedHorizontally).assertTrue();
+      expect(payload.imageFlippedVertically).assertTrue();
+    });
+
+    it('defers a decoded IMAGE block before touching page storage', 0, async () => {
+      const operation: StoredSyncedOperation = {
+        noteId: 'note', timestamp: 90, siteId: 7, clientTime: '123', serverTime: '124',
+        schemaVersion: 1, payloadType: 22, rawOperation: flatBufferCreateImageBlock(),
+        state: SyncedOperationInboxState.RECEIVED, deferredReason: null, receivedAt: 1,
+      };
+      const result = await new OriginalCreateBlockOperationApplier().apply(
+        {} as relationalStore.RdbStore, operation);
+      expect(result.deferredReason).assertEqual('CREATE_BLOCK_IMAGE_UNSUPPORTED');
     });
 
     it('decodes original MODIFY_BLOCK common registers', 0, () => {
@@ -991,6 +1025,56 @@ function flatBufferCreateBlock(): Uint8Array {
   builder.float32(block + 72, 5);
   builder.float32(block + 76, 5);
   builder.uint8(block + 80, 1);
+  return builder.finish(root);
+}
+
+function flatBufferCreateImageBlock(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 90);
+  writeDecimalU64At(builder, root + 12, '123');
+  writeDecimalU64At(builder, root + 20, '124');
+  builder.uint8(root + 28, 22);
+  const block: number = builder.table([
+    4, 0, 8, 20, 0, 0, 28, 0, 0, 36,
+    44, 48, 64, 0, 0, 0, 68, 69, 0, 0, 0,
+  ], 72);
+  builder.pointer(root + 32, block);
+  builder.uint8(block + 4, 1);
+  builder.uint16(block + 8, 2);
+  builder.uint32(block + 12, 10);
+  builder.uint32(block + 16, 3);
+  builder.float32(block + 20, 12);
+  builder.float32(block + 24, 34);
+  builder.float32(block + 28, 200);
+  builder.float32(block + 32, 150);
+  writeDecimalU64At(builder, block + 36, '18446744073709551615');
+  builder.float32(block + 48, -5);
+  builder.float32(block + 52, 2);
+  builder.float32(block + 56, 100);
+  builder.float32(block + 60, 50);
+  builder.uint8(block + 68, 1);
+  builder.uint8(block + 69, 1);
+
+  const asset: number = builder.table([4, 8], 16);
+  builder.pointer(block + 44, asset);
+  builder.float32(asset + 8, 4032);
+  builder.float32(asset + 12, 3024);
+  const metadata: number = builder.table([8, 72, 76, 80], 84);
+  builder.pointer(asset + 4, metadata);
+  const hashBits: string[] = ['0', '1', '9007199254740993', '18446744073709551614',
+    '42', '4294967296', '9223372036854775808', '18446744073709551615'];
+  for (let index: number = 0; index < hashBits.length; index++) {
+    writeDecimalU64At(builder, metadata + 8 + index * 8, hashBits[index]);
+  }
+  builder.uint32(metadata + 80, 0xFFFFFFFF);
+  const fileName: number = builder.string('原版照片.png');
+  builder.pointer(metadata + 72, fileName);
+  const mimeType: number = builder.string('image/png');
+  builder.pointer(metadata + 76, mimeType);
+  const webUrl: number = builder.string('https://example.test/照片.png');
+  builder.pointer(block + 64, webUrl);
   return builder.finish(root);
 }
 

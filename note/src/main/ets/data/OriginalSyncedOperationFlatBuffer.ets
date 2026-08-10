@@ -1,3 +1,5 @@
+import { util } from '@kit.ArkTS';
+
 export const ORIGINAL_PAYLOAD_TYPE_MIN: number = 1;
 export const ORIGINAL_PAYLOAD_TYPE_MAX: number = 31;
 
@@ -213,6 +215,30 @@ export class OriginalFlatBufferTableReader {
     }
     const count: number = readU32(this.bytes, vector);
     return this.bytes.slice(vector + 4, vector + 4 + count);
+  }
+
+  readUtf8String(field: number, required: boolean, maximumBytes: number): string | null {
+    if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 0) {
+      throw new Error('FlatBuffer string budget is invalid');
+    }
+    const vector: number | null = this.readVector(field, 1, maximumBytes);
+    if (vector === null) {
+      if (required) {
+        throw new Error(`FlatBuffer has no required string field ${field}`);
+      }
+      return null;
+    }
+    const count: number = readU32(this.bytes, vector);
+    requireRange(this.bytes, vector + 4 + count, 1, `string field ${field} terminator`);
+    if (this.bytes[vector + 4 + count] !== 0) {
+      throw new Error(`FlatBuffer string field ${field} has no terminator`);
+    }
+    const encoded: Uint8Array = this.bytes.slice(vector + 4, vector + 4 + count);
+    const value: string = util.TextDecoder.create('utf-8').decodeToString(encoded);
+    if (!equalBytes(encoded, new util.TextEncoder().encodeInto(value))) {
+      throw new Error(`FlatBuffer string field ${field} is not valid UTF-8`);
+    }
+    return value;
   }
 
   private readVector(field: number, elementSize: number, maximumCount: number): number | null {
@@ -450,6 +476,10 @@ export function readOriginalInlineFloat32(bytes: Uint8Array, offset: number): nu
   return readF32(bytes, offset);
 }
 
+export function readOriginalInlineUint64Decimal(bytes: Uint8Array, offset: number): string {
+  return unsignedLongBytesToDecimal(bytes, offset);
+}
+
 function readF32(bytes: Uint8Array, offset: number): number {
   requireRange(bytes, offset, 4, 'float32');
   const view: DataView = new DataView(bytes.buffer, bytes.byteOffset + offset, 4);
@@ -476,4 +506,16 @@ function unsignedLongBytesToDecimal(bytes: Uint8Array, offset: number): string {
     result += digits[index].toString();
   }
   return result;
+}
+
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index: number = 0; index < left.length; index++) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
 }

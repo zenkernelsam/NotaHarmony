@@ -10,7 +10,8 @@ import { encodeOperationId, OriginalSequenceIdentity,
 import { encodePersistedElement, PersistedElement } from './StrokePersistence';
 import { SearchItemType } from './SearchItemType';
 import { OriginalFlatBufferTableReader, readOriginalInlineFloat32,
-  readOriginalPayloadTable } from './OriginalSyncedOperationFlatBuffer';
+  readOriginalInlineUint64Decimal, readOriginalPayloadTable } from
+  './OriginalSyncedOperationFlatBuffer';
 import { decodeOriginalPaper } from './OriginalPageBackgroundOperation';
 import { StoredSyncedOperation, SyncedOperationApplier,
   SyncedOperationApplyResult } from './SyncedOperationInbox';
@@ -31,6 +32,26 @@ export interface OriginalBlockMargins {
   right: number;
 }
 
+export interface OriginalAssetHash {
+  bits: string[];
+}
+
+export interface OriginalImageAsset {
+  assetHash: OriginalAssetHash;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  width: number;
+  height: number;
+}
+
+export interface OriginalBlockRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface OriginalCreateBlockPayload {
   blockType: OriginalBlockType;
   corner: number;
@@ -45,6 +66,9 @@ export interface OriginalCreateBlockPayload {
   textWrap: number;
   enableCaption: boolean;
   zIndex: string;
+  image: OriginalImageAsset | null;
+  cropRect: OriginalBlockRect | null;
+  webUrl: string | null;
   hasImage: boolean;
   hasCropRect: boolean;
   hasWebUrl: boolean;
@@ -57,6 +81,10 @@ export interface OriginalCreateBlockPayload {
   margins: OriginalBlockMargins;
   positionLocked: boolean;
 }
+
+const MAX_ORIGINAL_ASSET_FILE_NAME_BYTES: number = 65536;
+const MAX_ORIGINAL_ASSET_MIME_TYPE_BYTES: number = 4096;
+const MAX_ORIGINAL_BLOCK_WEB_URL_BYTES: number = 1048576;
 
 interface StoredTargetPage {
   pageId: string;
@@ -100,9 +128,29 @@ export function decodeOriginalCreateBlock(bytes: Uint8Array,
   };
   const zIndex: string = table.readUint64Decimal(9, defaultZIndex) as string;
   const paperTable: OriginalFlatBufferTableReader | null = table.readTable(15);
+  const imageTable: OriginalFlatBufferTableReader | null = table.readTable(10);
+  const image: OriginalImageAsset | null = imageTable === null ? null :
+    decodeOriginalImageAsset(imageTable);
+  const cropBytes: Uint8Array | null = table.readInlineBytes(11, 16);
+  const cropRect: OriginalBlockRect | null = cropBytes === null ? null : {
+    x: readOriginalInlineFloat32(cropBytes, 0),
+    y: readOriginalInlineFloat32(cropBytes, 4),
+    width: readOriginalInlineFloat32(cropBytes, 8),
+    height: readOriginalInlineFloat32(cropBytes, 12),
+  };
+  if (cropRect !== null && !validRect(cropRect)) {
+    throw new Error('original create-block crop rect is invalid');
+  }
+  const webUrl: string | null = table.readUtf8String(
+    12, false, MAX_ORIGINAL_BLOCK_WEB_URL_BYTES);
+  const blockType: OriginalBlockType = normalizeOriginalEnum(
+    table.readUint8(0, 0), 2) as OriginalBlockType;
+  if (blockType === OriginalBlockType.IMAGE && image === null) {
+    throw new Error('original image block has no required image asset');
+  }
   validateUnsignedLongDecimal(zIndex);
   return {
-    blockType: normalizeOriginalEnum(table.readUint8(0, 0), 2) as OriginalBlockType,
+    blockType: blockType,
     corner: normalizeOriginalEnum(table.readUint8(1, 0), 1),
     page: page,
     originX: readOriginalInlineFloat32(origin, 0),
@@ -115,9 +163,12 @@ export function decodeOriginalCreateBlock(bytes: Uint8Array,
     textWrap: normalizeOriginalEnum(table.readUint8(7, 0), 1),
     enableCaption: table.readUint8(8, 0) !== 0,
     zIndex: zIndex,
-    hasImage: table.hasField(10),
-    hasCropRect: table.hasField(11),
-    hasWebUrl: table.hasField(12),
+    image: image,
+    cropRect: cropRect,
+    webUrl: webUrl,
+    hasImage: image !== null,
+    hasCropRect: cropRect !== null,
+    hasWebUrl: webUrl !== null,
     hasMathLatex: table.hasField(13),
     hasMathColor: table.hasField(14),
     paper: paperTable === null ? null : decodeOriginalPaper(paperTable),
@@ -212,7 +263,29 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
   }
 
   private unsupportedReason(payload: OriginalCreateBlockPayload): string | null {
+    const hasImageFields: boolean = payload.hasImage || payload.hasCropRect || payload.hasWebUrl ||
+      payload.imageFlippedHorizontally || payload.imageFlippedVertically;
+    const hasMathFields: boolean = payload.hasMathLatex || payload.hasMathColor;
+    if (payload.blockType !== OriginalBlockType.IMAGE && hasImageFields) {
+      if (payload.blockType === OriginalBlockType.MATH) {
+        return 'CREATE_BLOCK_IMAGE_FIELDS_ON_MATH';
+      }
+      return 'CREATE_BLOCK_IMAGE_FIELDS_ON_TEXT';
+    }
+    if (payload.blockType !== OriginalBlockType.MATH && hasMathFields) {
+      if (payload.blockType === OriginalBlockType.IMAGE) {
+        return 'CREATE_BLOCK_MATH_FIELDS_ON_IMAGE';
+      }
+      return 'CREATE_BLOCK_MATH_FIELDS_ON_TEXT';
+    }
+    if (payload.blockType !== OriginalBlockType.TEXT && payload.paper !== null) {
+      return payload.blockType === OriginalBlockType.IMAGE ?
+        'CREATE_BLOCK_TEXT_PAPER_ON_IMAGE' : 'CREATE_BLOCK_TEXT_PAPER_ON_MATH';
+    }
     if (payload.blockType === OriginalBlockType.IMAGE) {
+      if (payload.image === null) {
+        return 'CREATE_BLOCK_IMAGE_MISSING_ASSET';
+      }
       return 'CREATE_BLOCK_IMAGE_UNSUPPORTED';
     }
     if (payload.blockType === OriginalBlockType.MATH) {
@@ -222,7 +295,7 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       payload.imageFlippedHorizontally || payload.imageFlippedVertically) {
       return 'CREATE_BLOCK_IMAGE_FIELDS_ON_TEXT';
     }
-    if (payload.hasMathLatex || payload.hasMathColor) {
+    if (hasMathFields) {
       return 'CREATE_BLOCK_MATH_FIELDS_ON_TEXT';
     }
     if (!Number.isFinite(payload.originX) || !Number.isFinite(payload.originY) ||
@@ -439,6 +512,37 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
   }
 }
 
+function decodeOriginalImageAsset(table: OriginalFlatBufferTableReader): OriginalImageAsset {
+  const metadata: OriginalFlatBufferTableReader | null = table.readTable(0);
+  const size: Uint8Array | null = table.readInlineBytes(1, 8);
+  if (metadata === null || size === null) {
+    throw new Error('original image asset is missing metadata or size');
+  }
+  const hash: Uint8Array | null = metadata.readInlineBytes(0, 64);
+  const fileName: string | null = metadata.readUtf8String(
+    1, true, MAX_ORIGINAL_ASSET_FILE_NAME_BYTES);
+  const mimeType: string | null = metadata.readUtf8String(
+    2, true, MAX_ORIGINAL_ASSET_MIME_TYPE_BYTES);
+  const fileSize: number = metadata.readUint32(3, 0);
+  if (hash === null || fileName === null || fileName.length === 0 ||
+    mimeType === null || mimeType.length === 0 || fileSize === 0) {
+    throw new Error('original image asset metadata is invalid');
+  }
+  const width: number = readOriginalInlineFloat32(size, 0);
+  const height: number = readOriginalInlineFloat32(size, 4);
+  if (!validSize(width, height)) {
+    throw new Error('original image asset size is invalid');
+  }
+  const bits: string[] = [];
+  for (let index: number = 0; index < 8; index++) {
+    bits.push(readOriginalInlineUint64Decimal(hash, index * 8));
+  }
+  return {
+    assetHash: { bits: bits }, fileName: fileName, mimeType: mimeType,
+    fileSize: fileSize, width: width, height: height,
+  };
+}
+
 function normalizeOriginalEnum(value: number, maximum: number): number {
   return value >= 0 && value <= maximum ? value : 0;
 }
@@ -448,6 +552,14 @@ function validMargins(margins: OriginalBlockMargins): boolean {
     Number.isFinite(margins.bottom) && margins.bottom >= 0 &&
     Number.isFinite(margins.left) && margins.left >= 0 &&
     Number.isFinite(margins.right) && margins.right >= 0;
+}
+
+function validSize(width: number, height: number): boolean {
+  return Number.isFinite(width) && width >= 0 && Number.isFinite(height) && height >= 0;
+}
+
+function validRect(rect: OriginalBlockRect): boolean {
+  return Number.isFinite(rect.x) && Number.isFinite(rect.y) && validSize(rect.width, rect.height);
 }
 
 function blockTransform(originX: number, originY: number, rotation: number,
