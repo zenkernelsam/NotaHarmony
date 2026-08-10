@@ -72,6 +72,20 @@ export enum InkStyle {
   DOTS = 3,
 }
 
+// Original encoded custom/fill paths preserve Android Path verbs. Unlike the center path,
+// these paths may contain multiple move-to components and do not carry stroke attributes.
+export enum InkPathCommandType {
+  MOVE_TO = 0,
+  LINE_TO = 1,
+  QUADRATIC = 2,
+  CUBIC = 3,
+}
+
+export interface InkPathCommand {
+  type: InkPathCommandType;
+  points: Point2D[];
+}
+
 // 渲染态笔画（对应 s78 的移植等价物）
 export interface StrokeElementData {
   id: string;
@@ -82,5 +96,8 @@ export interface StrokeElementData {
   transform: TransformMatrix;          // 统一变换矩阵
   bounds: Rect2D;                      // 边界盒
   maskPath: Point2D[];                 // 擦除遮罩点；独立路径间用 ERASER_PATH_BREAK_COORDINATE 分隔
+  customPath?: InkPathCommand[] | null; // 原版显式笔迹轮廓；缺席时由中心线和宽度生成
+  fillPath?: InkPathCommand[] | null;   // 原版填充区域；缺席时回退中心线
+  fillColor?: number | null;            // 原版可空内部填充色
   isFinished: boolean;
 }

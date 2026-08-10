@@ -13,6 +13,10 @@ export interface RenderContext {
 }
 
 export interface StrokeRenderer {
+  // 原版 Ink 的内部填充，必须先于主笔迹绘制。
+  renderInkFill(stroke: StrokeElementData, ctx: RenderContext): void;
+  // 原版显式 customPath；返回 false 时调用方按中心线/可变宽轮廓回退。
+  renderCustomPath(stroke: StrokeElementData, ctx: RenderContext): boolean;
   // 渲染中心线笔画（Mono/Dash/Dot）
   renderCenterPath(stroke: StrokeElementData, ctx: RenderContext): void;
   // 渲染可变宽度填充轮廓（Taper）

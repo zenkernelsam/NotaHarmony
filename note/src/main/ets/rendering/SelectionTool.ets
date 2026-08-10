@@ -150,6 +150,9 @@ export class SelectionTool {
           transform: this.multiply(this.state.transform, s.transform),
           bounds: this.transformBounds(s.bounds, this.state.transform),
           maskPath: s.maskPath,
+          customPath: s.customPath,
+          fillPath: s.fillPath,
+          fillColor: s.fillColor,
           isFinished: s.isFinished,
         });
       } else {

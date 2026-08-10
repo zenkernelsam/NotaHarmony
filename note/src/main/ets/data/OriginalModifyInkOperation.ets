@@ -1,7 +1,7 @@
 import { relationalStore } from '@kit.ArkData';
 import { TransformMatrix } from '../core/model/GeometryTypes';
 import { PageElementKind } from '../core/model/PageElementOrder';
-import { InkStyle, RenderSpec, StrokeElementData } from '../core/model/StrokeTypes';
+import { InkPathCommand, InkStyle, RenderSpec, StrokeElementData } from '../core/model/StrokeTypes';
 import {
   compareOperationIdentity, encodeOperationId, OperationIdentity, OriginalSequenceIdentity,
   validateOperationIdentity, validateOriginalSequenceIdentity,
@@ -11,7 +11,8 @@ import {
   originalInkGeometryMatches, rebuildOriginalInkGeometry, RebuiltOriginalInkGeometry,
 } from './OriginalAddPathElementsOperation';
 import {
-  decodeOriginalInkPathReplacement, originalInkTransform, OriginalInkPathDeferredError,
+  decodeOriginalAuxiliaryInkPath, decodeOriginalInkPathReplacement,
+  DecodedOriginalAuxiliaryInkPath, originalInkTransform, OriginalInkPathDeferredError,
 } from './OriginalInkPathCodec';
 import { decodeOriginalCreateInk, OriginalCreateInkPayload } from './OriginalCreateInkOperation';
 import {
@@ -39,6 +40,9 @@ export interface OriginalModifyInkPayload {
   color: number | null;
   width: number | null;
   centerPath: Uint8Array | null;
+  customPath: NullableRegisterUpdate<Uint8Array>;
+  fillPath: NullableRegisterUpdate<Uint8Array>;
+  fillColor: NullableRegisterUpdate<number>;
   zIndex: string | null;
   hasUnsupportedFields: boolean;
 }
@@ -75,6 +79,12 @@ interface OriginalInkBaseTransform {
 interface StoredInkState {
   basePath: Uint8Array;
   centerPathWinner: OperationIdentity | null;
+  baseCustomPath: Uint8Array | null;
+  customPath: StoredRegister<Uint8Array>;
+  baseFillPath: Uint8Array | null;
+  fillPath: StoredRegister<Uint8Array>;
+  baseFillColor: number | null;
+  fillColor: StoredRegister<number>;
   style: StoredRegister<number>;
   color: StoredRegister<number>;
   width: StoredRegister<number>;
@@ -120,6 +130,9 @@ interface PlannedReplacement {
   stroke: StrokeElementData;
   geometry: RebuiltOriginalInkGeometry;
   replaceCenterPath: boolean;
+  replaceCustomPath: boolean;
+  replaceFillPath: boolean;
+  replaceFillColor: boolean;
   replaceStyle: boolean;
   replaceColor: boolean;
   replaceWidth: boolean;
@@ -127,6 +140,12 @@ interface PlannedReplacement {
   replaceScale: boolean;
   replacePageOrigin: boolean;
   replaceZIndex: boolean;
+  customPathBytes: Uint8Array | null;
+  fillPathBytes: Uint8Array | null;
+  fillColorValue: number | null;
+  baseCustomPath: Uint8Array | null;
+  baseFillPath: Uint8Array | null;
+  baseFillColor: number | null;
   style: number;
   color: number;
   width: number;
@@ -168,7 +187,8 @@ export function decodeOriginalModifyInkTable(table: OriginalFlatBufferTableReade
   let hasUnsupportedFields: boolean = false;
   for (let field: number = 1; field <= 18; field++) {
     if (field !== 1 && field !== 2 && field !== 3 && field !== 4 && field !== 5 &&
-      field !== 6 && field !== 7 && field !== 8 && field !== 13 && table.hasField(field)) {
+      field !== 6 && field !== 7 && field !== 8 && field !== 9 && field !== 10 &&
+      field !== 11 && field !== 13 && table.hasField(field)) {
       hasUnsupportedFields = true;
     }
   }
@@ -190,6 +210,13 @@ export function decodeOriginalModifyInkTable(table: OriginalFlatBufferTableReade
   const scaleBytes: Uint8Array | null = scaleSetter === null ? null :
     scaleSetter.readInlineBytes(0, 8);
   const colorBytes: Uint8Array | null = table.readInlineBytes(6, 4);
+  const customPathBytes: Uint8Array | null = table.readByteVector(
+    9, false, MAX_ORIGINAL_INK_PATH_BYTES);
+  const fillPathBytes: Uint8Array | null = table.readByteVector(
+    10, false, MAX_ORIGINAL_INK_PATH_BYTES);
+  const fillColorSetter: OriginalFlatBufferTableReader | null = table.readTable(11);
+  const fillColorBytes: Uint8Array | null = fillColorSetter === null ? null :
+    fillColorSetter.readInlineBytes(0, 4);
   const rawStyle: number = table.readUint8(5, 0);
   return {
     inks: inks,
@@ -209,6 +236,12 @@ export function decodeOriginalModifyInkTable(table: OriginalFlatBufferTableReade
     color: colorBytes === null ? null : originalColorToArgb(colorBytes),
     width: table.hasField(7) ? table.readFloat32(7, 0) : null,
     centerPath: table.readByteVector(8, false, MAX_ORIGINAL_INK_PATH_BYTES),
+    customPath: { present: table.hasField(9), value: customPathBytes },
+    fillPath: { present: table.hasField(10), value: fillPathBytes },
+    fillColor: {
+      present: fillColorSetter !== null,
+      value: fillColorBytes === null ? null : originalColorToArgb(fillColorBytes),
+    },
     zIndex: table.readUint64Decimal(13),
     hasUnsupportedFields: hasUnsupportedFields,
   };
@@ -233,6 +266,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     if (payload.pageOrigin === null && !payload.rotation.present && !payload.scale.present &&
       payload.style === null &&
       payload.color === null && payload.width === null && payload.centerPath === null &&
+      !payload.customPath.present && !payload.fillPath.present && !payload.fillColor.present &&
       payload.zIndex === null) {
       return { deferredReason: null };
     }
@@ -256,6 +290,31 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         return { deferredReason: 'MALFORMED_MODIFY_INK_PAYLOAD' };
       }
     }
+    let decodedCustomPath: DecodedOriginalAuxiliaryInkPath | null = null;
+    let decodedFillPath: DecodedOriginalAuxiliaryInkPath | null = null;
+    try {
+      if (payload.customPath.present && payload.customPath.value !== null) {
+        decodedCustomPath = decodeOriginalAuxiliaryInkPath(
+          payload.customPath.value, 'MODIFY_INK_CUSTOM_PATH');
+        if (decodedCustomPath.commands.length === 0) {
+          payload.customPath.value = null;
+          decodedCustomPath = null;
+        }
+      }
+      if (payload.fillPath.present && payload.fillPath.value !== null) {
+        decodedFillPath = decodeOriginalAuxiliaryInkPath(
+          payload.fillPath.value, 'MODIFY_INK_FILL_PATH');
+        if (decodedFillPath.commands.length === 0) {
+          payload.fillPath.value = null;
+          decodedFillPath = null;
+        }
+      }
+    } catch (_error) {
+      if (_error instanceof OriginalInkPathDeferredError) {
+        return { deferredReason: _error.deferredReason };
+      }
+      return { deferredReason: 'MALFORMED_MODIFY_INK_PAYLOAD' };
+    }
 
     const planned: PlannedReplacement[] = [];
     const affectedPages: Map<string, StoredPageTarget> = new Map<string, StoredPageTarget>();
@@ -270,6 +329,12 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       }
       const replaceCenterPath: boolean = payload.centerPath !== null &&
         registerAccepts(operation, state.centerPathWinner);
+      const replaceCustomPath: boolean = payload.customPath.present &&
+        registerAccepts(operation, state.customPath.winner);
+      const replaceFillPath: boolean = payload.fillPath.present &&
+        registerAccepts(operation, state.fillPath.winner);
+      const replaceFillColor: boolean = payload.fillColor.present &&
+        registerAccepts(operation, state.fillColor.winner);
       const replaceStyle: boolean = payload.style !== null &&
         registerAccepts(operation, state.style.winner);
       const replaceColor: boolean = payload.color !== null &&
@@ -284,7 +349,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         registerAccepts(operation, state.pageOrigin.winner);
       const replaceZIndex: boolean = payload.zIndex !== null &&
         registerAccepts(operation, state.zIndex.winner);
-      if (!replaceCenterPath && !replaceStyle && !replaceColor && !replaceWidth &&
+      if (!replaceCenterPath && !replaceCustomPath && !replaceFillPath && !replaceFillColor &&
+        !replaceStyle && !replaceColor && !replaceWidth &&
         !replaceRotation && !replaceScale && !replacePageOrigin && !replaceZIndex) {
         continue;
       }
@@ -299,6 +365,9 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       if ((replaceStyle && state.style.value === null) ||
         (replaceColor && state.color.value === null) ||
         (replaceWidth && state.width.value === null) ||
+        (replaceCustomPath && state.customPath.winner === null) ||
+        (replaceFillPath && state.fillPath.winner === null) ||
+        (replaceFillColor && state.fillColor.winner === null) ||
         ((replacePageOrigin || replaceRotation || replaceScale) &&
           (state.baseTransform === null || state.basePage === null)) ||
         (replaceZIndex && state.baseZIndex === null)) {
@@ -322,6 +391,42 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         inkStyleToOriginalStyle(stroke.renderSpec.inkStyle);
       const color: number = replaceColor ? payload.color as number : stroke.renderSpec.color;
       const width: number = replaceWidth ? payload.width as number : stroke.renderSpec.brushWidth;
+      const baseCustomPath: Uint8Array | null = state.baseCustomPath !== null ?
+        state.baseCustomPath : initial !== null ? initial.customPathBytes : null;
+      const baseFillPath: Uint8Array | null = state.baseFillPath !== null ?
+        state.baseFillPath : initial !== null ? initial.fillPathBytes : null;
+      const baseFillColor: number | null = state.baseFillColor !== null ?
+        state.baseFillColor : initial !== null ? initial.fillColor : null;
+      const oldCustomPathBytes: Uint8Array | null = state.customPath.winner !== null ?
+        state.customPath.value : baseCustomPath;
+      const oldFillPathBytes: Uint8Array | null = state.fillPath.winner !== null ?
+        state.fillPath.value : baseFillPath;
+      const oldFillColor: number | null = state.fillColor.winner !== null ?
+        state.fillColor.value : baseFillColor;
+      let oldCustomPath: InkPathCommand[] | null;
+      let oldFillPath: InkPathCommand[] | null;
+      try {
+        oldCustomPath = decodeStoredAuxiliaryPath(oldCustomPathBytes, 'MODIFY_INK_CUSTOM_PATH');
+        oldFillPath = decodeStoredAuxiliaryPath(oldFillPathBytes, 'MODIFY_INK_FILL_PATH');
+      } catch (_error) {
+        return { deferredReason: 'MODIFY_INK_TRACKED_STATE_INVALID' };
+      }
+      if ((replaceCustomPath && !sameOptionalValue(stroke.customPath, oldCustomPath)) ||
+        (replaceFillPath && !sameOptionalValue(stroke.fillPath, oldFillPath)) ||
+        (replaceFillColor && (stroke.fillColor === undefined ? null : stroke.fillColor) !==
+          oldFillColor)) {
+        return { deferredReason: 'MODIFY_INK_AUXILIARY_STATE_DIVERGED' };
+      }
+      const customPathBytes: Uint8Array | null = replaceCustomPath ?
+        payload.customPath.value : oldCustomPathBytes;
+      const fillPathBytes: Uint8Array | null = replaceFillPath ?
+        payload.fillPath.value : oldFillPathBytes;
+      const fillColorValue: number | null = replaceFillColor ?
+        payload.fillColor.value : oldFillColor;
+      const customPath: InkPathCommand[] | null = replaceCustomPath ?
+        (decodedCustomPath === null ? null : decodedCustomPath.commands) : oldCustomPath;
+      const fillPath: InkPathCommand[] | null = replaceFillPath ?
+        (decodedFillPath === null ? null : decodedFillPath.commands) : oldFillPath;
       let baseZIndex: string | null = state.baseZIndex;
       let zIndexValue: string = target.zIndex;
       if (replaceZIndex) {
@@ -383,7 +488,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         color: color, brushWidth: width, inkStyle: originalStyleToInkStyle(style),
         isHighlighter: stroke.renderSpec.isHighlighter, isPencil: stroke.renderSpec.isPencil,
       };
-      const candidateStroke: StrokeElementData = copyStroke(stroke, renderSpec, transform);
+      const candidateStroke: StrokeElementData = copyStroke(stroke, renderSpec, transform,
+        customPath, fillPath, fillColorValue);
       const appends: OriginalInkAppendRecord[] = await this.readAppends(
         store, operation.noteId, ink);
       let expected: RebuiltOriginalInkGeometry;
@@ -408,10 +514,16 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       }
       planned.push({
         target: target, state: state, stroke: stroke, geometry: replacement,
-        replaceCenterPath: replaceCenterPath, replaceStyle: replaceStyle,
+        replaceCenterPath: replaceCenterPath, replaceCustomPath: replaceCustomPath,
+        replaceFillPath: replaceFillPath, replaceFillColor: replaceFillColor,
+        replaceStyle: replaceStyle,
         replaceColor: replaceColor, replaceWidth: replaceWidth,
         replaceRotation: replaceRotation, replaceScale: replaceScale,
         replacePageOrigin: replacePageOrigin, replaceZIndex: replaceZIndex,
+        customPathBytes: customPathBytes, fillPathBytes: fillPathBytes,
+        fillColorValue: fillColorValue,
+        baseCustomPath: baseCustomPath, baseFillPath: baseFillPath,
+        baseFillColor: baseFillColor,
         style: style, color: color, width: width, transform: transform,
         baseTransform: state.baseTransform === null ? baseTransform : null,
         rotationValue: replaceRotation ? payload.rotation.value : state.rotation.value,
@@ -649,6 +761,12 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     const rows = await store.querySql(
       `SELECT base_center_path, center_path_winner_timestamp, center_path_winner_site_id,
               center_path_winner_present,
+              create_custom_path, custom_path_value, custom_path_winner_timestamp,
+              custom_path_winner_site_id, custom_path_winner_present,
+              create_fill_path, fill_path_value, fill_path_winner_timestamp,
+              fill_path_winner_site_id, fill_path_winner_present,
+              create_fill_color, fill_color_value, fill_color_winner_timestamp,
+              fill_color_winner_site_id, fill_color_winner_present,
               style_value, style_winner_timestamp, style_winner_site_id,
               style_winner_present,
               color_value, color_winner_timestamp, color_winner_site_id,
@@ -673,6 +791,9 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         return null;
       }
       const centerPathWinner: OperationIdentity | null = readOptionalWinner(rows, 'center_path');
+      const customPathWinner: OperationIdentity | null = readOptionalWinner(rows, 'custom_path');
+      const fillPathWinner: OperationIdentity | null = readOptionalWinner(rows, 'fill_path');
+      const fillColorWinner: OperationIdentity | null = readOptionalWinner(rows, 'fill_color');
       const styleWinner: OperationIdentity | null = readOptionalWinner(rows, 'style');
       const colorWinner: OperationIdentity | null = readOptionalWinner(rows, 'color');
       const widthWinner: OperationIdentity | null = readOptionalWinner(rows, 'width');
@@ -684,6 +805,11 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       const width: number | null = rows.isColumnNull(widthColumn) ? null : rows.getDouble(widthColumn);
       if (width !== null && !Number.isFinite(width)) {
         throw new Error('original modify-ink has an invalid stored width');
+      }
+      if ((customPathWinner === null && readNullableBlob(rows, 'custom_path_value') !== null) ||
+        (fillPathWinner === null && readNullableBlob(rows, 'fill_path_value') !== null) ||
+        (fillColorWinner === null && readNullableLong(rows, 'fill_color_value') !== null)) {
+        throw new Error('original modify-ink has an auxiliary override without a winner');
       }
       const baseTransform: OriginalInkBaseTransform | null = readBaseTransform(rows);
       const basePage: OriginalSequenceIdentity | null = readNullableSequence(
@@ -721,6 +847,12 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       return {
         basePath: rows.getBlob(rows.getColumnIndex('base_center_path')),
         centerPathWinner: centerPathWinner,
+        baseCustomPath: readNullableBlob(rows, 'create_custom_path'),
+        customPath: { value: readNullableBlob(rows, 'custom_path_value'), winner: customPathWinner },
+        baseFillPath: readNullableBlob(rows, 'create_fill_path'),
+        fillPath: { value: readNullableBlob(rows, 'fill_path_value'), winner: fillPathWinner },
+        baseFillColor: readNullableLong(rows, 'create_fill_color'),
+        fillColor: { value: readNullableLong(rows, 'fill_color_value'), winner: fillColorWinner },
         style: { value: readNullableLong(rows, 'style_value'), winner: styleWinner },
         color: { value: readNullableLong(rows, 'color_value'), winner: colorWinner },
         width: { value: width, winner: widthWinner },
@@ -827,6 +959,36 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       values['center_path_winner_timestamp'] = winner.timestamp;
       values['center_path_winner_site_id'] = winner.siteId;
       values['center_path_winner_present'] = 1;
+    }
+    if (replacement.replaceCustomPath) {
+      addWinnerPredicates(predicates, 'custom_path', replacement.state.customPath.winner);
+      values['custom_path_value'] = replacement.customPathBytes;
+      values['custom_path_winner_timestamp'] = winner.timestamp;
+      values['custom_path_winner_site_id'] = winner.siteId;
+      values['custom_path_winner_present'] = 1;
+      if (replacement.state.baseCustomPath === null) {
+        values['create_custom_path'] = replacement.baseCustomPath;
+      }
+    }
+    if (replacement.replaceFillPath) {
+      addWinnerPredicates(predicates, 'fill_path', replacement.state.fillPath.winner);
+      values['fill_path_value'] = replacement.fillPathBytes;
+      values['fill_path_winner_timestamp'] = winner.timestamp;
+      values['fill_path_winner_site_id'] = winner.siteId;
+      values['fill_path_winner_present'] = 1;
+      if (replacement.state.baseFillPath === null) {
+        values['create_fill_path'] = replacement.baseFillPath;
+      }
+    }
+    if (replacement.replaceFillColor) {
+      addWinnerPredicates(predicates, 'fill_color', replacement.state.fillColor.winner);
+      values['fill_color_value'] = replacement.fillColorValue;
+      values['fill_color_winner_timestamp'] = winner.timestamp;
+      values['fill_color_winner_site_id'] = winner.siteId;
+      values['fill_color_winner_present'] = 1;
+      if (replacement.state.baseFillColor === null) {
+        values['create_fill_color'] = replacement.baseFillColor;
+      }
     }
     if (replacement.replaceStyle) {
       addWinnerPredicates(predicates, 'style', replacement.state.style.winner);
@@ -1098,11 +1260,14 @@ function inkStyleToOriginalStyle(style: InkStyle): number {
 }
 
 function copyStroke(stroke: StrokeElementData, renderSpec: RenderSpec,
-  transform: TransformMatrix): StrokeElementData {
+  transform: TransformMatrix, customPath: InkPathCommand[] | null,
+  fillPath: InkPathCommand[] | null, fillColor: number | null): StrokeElementData {
   return {
     id: stroke.id, pathPoints: stroke.pathPoints, cubicSegments: stroke.cubicSegments,
     splatPoints: stroke.splatPoints, renderSpec: renderSpec, transform: transform,
-    bounds: stroke.bounds, maskPath: stroke.maskPath, isFinished: stroke.isFinished,
+    bounds: stroke.bounds, maskPath: stroke.maskPath,
+    customPath: customPath, fillPath: fillPath, fillColor: fillColor,
+    isFinished: stroke.isFinished,
   };
 }
 
@@ -1123,6 +1288,11 @@ function replacementStroke(replacement: PlannedReplacement): StrokeElementData {
     transform: replacement.transform,
     bounds: replacement.geometry.bounds,
     maskPath: stroke.maskPath,
+    customPath: replacement.customPathBytes === null ? null :
+      decodeStoredAuxiliaryPath(replacement.customPathBytes, 'MODIFY_INK_CUSTOM_PATH'),
+    fillPath: replacement.fillPathBytes === null ? null :
+      decodeStoredAuxiliaryPath(replacement.fillPathBytes, 'MODIFY_INK_FILL_PATH'),
+    fillColor: replacement.fillColorValue,
     isFinished: stroke.isFinished,
   };
 }
@@ -1140,6 +1310,27 @@ function readWinner(rows: relationalStore.ResultSet, timestampColumn: string,
 function readNullableLong(rows: relationalStore.ResultSet, columnName: string): number | null {
   const column: number = rows.getColumnIndex(columnName);
   return rows.isColumnNull(column) ? null : rows.getLong(column);
+}
+
+function readNullableBlob(rows: relationalStore.ResultSet, columnName: string): Uint8Array | null {
+  const column: number = rows.getColumnIndex(columnName);
+  return rows.isColumnNull(column) ? null : rows.getBlob(column);
+}
+
+function decodeStoredAuxiliaryPath(bytes: Uint8Array | null,
+  reasonPrefix: string): InkPathCommand[] | null {
+  if (bytes === null) {
+    return null;
+  }
+  const decoded: DecodedOriginalAuxiliaryInkPath =
+    decodeOriginalAuxiliaryInkPath(bytes, reasonPrefix);
+  return decoded.commands.length === 0 ? null : decoded.commands;
+}
+
+function sameOptionalValue(left: InkPathCommand[] | null | undefined,
+  right: InkPathCommand[] | null): boolean {
+  const normalizedLeft: InkPathCommand[] | null = left === undefined ? null : left;
+  return JSON.stringify(normalizedLeft) === JSON.stringify(right);
 }
 
 function readNullableDouble(rows: relationalStore.ResultSet, columnName: string): number | null {

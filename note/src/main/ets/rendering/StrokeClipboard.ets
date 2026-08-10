@@ -1,6 +1,6 @@
 import { CubicSegment, Point2D, Rect2D } from '../core/model/GeometryTypes';
 import {
-  PencilSplatPoint, RenderSpec, StrokeElementData, StrokePathPoint,
+  InkPathCommand, PencilSplatPoint, RenderSpec, StrokeElementData, StrokePathPoint,
 } from '../core/model/StrokeTypes';
 import { ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { cloneShapeElement } from '../core/model/ShapeGeometry';
@@ -101,8 +101,21 @@ export function cloneStrokeElement(stroke: StrokeElementData, id: string = strok
       bottom: stroke.bounds.bottom + dy,
     },
     maskPath: stroke.maskPath.map((point: Point2D): Point2D => ({ x: point.x, y: point.y })),
+    customPath: cloneInkPath(stroke.customPath),
+    fillPath: cloneInkPath(stroke.fillPath),
+    fillColor: stroke.fillColor === undefined ? null : stroke.fillColor,
     isFinished: stroke.isFinished,
   };
+}
+
+function cloneInkPath(path: InkPathCommand[] | null | undefined): InkPathCommand[] | null {
+  if (path === null || path === undefined) {
+    return null;
+  }
+  return path.map((command: InkPathCommand): InkPathCommand => ({
+    type: command.type,
+    points: command.points.map((point: Point2D): Point2D => ({ x: point.x, y: point.y })),
+  }));
 }
 
 export class StrokeClipboard {

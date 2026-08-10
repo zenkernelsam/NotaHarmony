@@ -52,8 +52,11 @@ export class StrokeCanvasPainter {
   }
 
   private renderInk(stroke: StrokeElementData, rc: RenderContext): void {
+    this.renderer.renderInkFill(stroke, rc);
     if (stroke.renderSpec.isPencil) {
       this.renderer.renderPencilSplats(stroke.splatPoints, stroke.renderSpec, rc);
+    } else if (this.renderer.renderCustomPath(stroke, rc)) {
+      return;
     } else if (stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH) {
       this.renderer.renderVariableWidthOutline(stroke, rc);
     } else {

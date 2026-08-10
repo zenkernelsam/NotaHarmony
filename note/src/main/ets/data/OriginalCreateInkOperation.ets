@@ -12,8 +12,9 @@ import { StoredSyncedOperation, SyncedOperationApplier,
   SyncedOperationApplyResult } from './SyncedOperationInbox';
 import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './UnsignedDecimal';
 import {
-  decodeOriginalInkPath, DecodedOriginalInkPath, originalInkTransform,
-  OriginalInkPathDeferredError, transformedExpandedBounds,
+  decodeOriginalAuxiliaryInkPath, decodeOriginalInkPath, DecodedOriginalAuxiliaryInkPath,
+  DecodedOriginalInkPath, originalInkTransform,
+  OriginalInkPathDeferredError, transformedInkBounds,
 } from './OriginalInkPathCodec';
 
 export const ORIGINAL_CREATE_INK_PAYLOAD_TYPE: number = 15;
@@ -32,11 +33,13 @@ export interface OriginalCreateInkPayload {
   width: number;
   centerPathBytes: Uint8Array | null;
   path: DecodedOriginalInkPath | null;
+  customPathBytes: Uint8Array | null;
+  customPath: DecodedOriginalAuxiliaryInkPath | null;
+  fillPathBytes: Uint8Array | null;
+  fillPath: DecodedOriginalAuxiliaryInkPath | null;
+  fillColor: number | null;
   zIndex: string;
   hasTapePattern: boolean;
-  hasCustomPath: boolean;
-  hasFillPath: boolean;
-  hasFillColor: boolean;
   styleMapCount: number;
   hasAudioDuration: boolean;
   hasNibAngle: boolean;
@@ -87,6 +90,7 @@ export function decodeOriginalCreateInkTable(table: OriginalFlatBufferTableReade
     10, false, MAX_ORIGINAL_INK_PATH_BYTES);
   const fillPath: Uint8Array | null = table.readByteVector(
     11, false, MAX_ORIGINAL_INK_PATH_BYTES);
+  const fillColor: Uint8Array | null = table.readInlineBytes(12, 4);
   const zIndex: string = table.readUint64Decimal(14, defaultZIndex) as string;
   validateUnsignedLongDecimal(zIndex);
   return {
@@ -103,10 +107,14 @@ export function decodeOriginalCreateInkTable(table: OriginalFlatBufferTableReade
     width: table.readFloat32(8, 0),
     centerPathBytes: centerPath,
     path: centerPath === null ? null : decodeOriginalInkPath(centerPath),
+    customPathBytes: customPath,
+    customPath: customPath === null ? null :
+      decodeOriginalAuxiliaryInkPath(customPath, 'CREATE_INK_CUSTOM_PATH'),
+    fillPathBytes: fillPath,
+    fillPath: fillPath === null ? null :
+      decodeOriginalAuxiliaryInkPath(fillPath, 'CREATE_INK_FILL_PATH'),
+    fillColor: fillColor === null ? null : originalColorToArgb(fillColor),
     zIndex: zIndex,
-    hasCustomPath: customPath !== null,
-    hasFillPath: fillPath !== null,
-    hasFillColor: table.hasField(12),
     styleMapCount: table.readInlineVectorCount(13, 20, 65535),
     hasAudioDuration: table.hasField(15),
     hasNibAngle: table.hasField(16),
@@ -171,6 +179,21 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       'center_path_winner_timestamp': operation.timestamp,
       'center_path_winner_site_id': operation.siteId,
       'center_path_winner_present': 0,
+      'create_custom_path': payload.customPathBytes,
+      'custom_path_value': null,
+      'custom_path_winner_timestamp': 0,
+      'custom_path_winner_site_id': 0,
+      'custom_path_winner_present': 0,
+      'create_fill_path': payload.fillPathBytes,
+      'fill_path_value': null,
+      'fill_path_winner_timestamp': 0,
+      'fill_path_winner_site_id': 0,
+      'fill_path_winner_present': 0,
+      'create_fill_color': payload.fillColor,
+      'fill_color_value': null,
+      'fill_color_winner_timestamp': 0,
+      'fill_color_winner_site_id': 0,
+      'fill_color_winner_present': 0,
       'style_value': payload.style,
       'style_winner_timestamp': operation.timestamp,
       'style_winner_site_id': operation.siteId,
@@ -251,8 +274,7 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
     if (payload.style === 0 && !payload.path.attributed) {
       return 'CREATE_INK_VARIABLE_PATH_ATTRIBUTES_MISSING';
     }
-    if (payload.hasCustomPath || payload.hasFillPath || payload.hasFillColor ||
-      payload.styleMapCount > 0) {
+    if (payload.styleMapCount > 0) {
       return 'CREATE_INK_AUXILIARY_PATH_UNSUPPORTED';
     }
     if (payload.hasAudioDuration) {
@@ -288,8 +310,14 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
         isHighlighter: payload.tool === 2, isPencil: false,
       },
       transform: transform,
-      bounds: transformedExpandedBounds(path.localBounds, payload.width, transform),
+      bounds: transformedInkBounds(path.localBounds, payload.width, [
+        payload.customPath === null ? null : payload.customPath.localBounds,
+        payload.fillPath === null ? null : payload.fillPath.localBounds,
+      ], transform),
       maskPath: [],
+      customPath: payload.customPath === null ? null : payload.customPath.commands,
+      fillPath: payload.fillPath === null ? null : payload.fillPath.commands,
+      fillColor: payload.fillColor,
       isFinished: true,
     };
   }
@@ -458,6 +486,10 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
         [noteId, target.pageId, SearchItemType.INK]);
     }
   }
+}
+
+function originalColorToArgb(bytes: Uint8Array): number {
+  return ((bytes[3] << 24) | (bytes[0] << 16) | (bytes[1] << 8) | bytes[2]);
 }
 
 function normalizeOriginalEnum(value: number, maximum: number): number {

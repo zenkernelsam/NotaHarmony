@@ -3,7 +3,8 @@
 // elements 保持 object[]（JSON 原始结构），但导入前必须按 exporter 的三种 payload 做结构校验。
 import { ElementType, ShapeArrowHead, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
-import { InkStyle, StrokeElementData, StrokePathPoint } from '../core/model/StrokeTypes';
+import { InkPathCommand, InkPathCommandType, InkStyle, StrokeElementData,
+  StrokePathPoint } from '../core/model/StrokeTypes';
 import { PageBackground } from '../core/model/NoteTypes';
 import { clonePageBackground, validatePageBackground } from '../core/model/PageBackgroundModel';
 
@@ -82,6 +83,15 @@ export function parsePageElement(element: object): object | null {
           }
         }
       }
+    }
+    if (stroke.customPath === undefined) {
+      stroke.customPath = null;
+    }
+    if (stroke.fillPath === undefined) {
+      stroke.fillPath = null;
+    }
+    if (stroke.fillColor === undefined) {
+      stroke.fillColor = null;
     }
   }
   return isValidPageElement(element) ? element : null;
@@ -221,6 +231,37 @@ function isValidStroke(stroke: StrokeElementData): boolean {
   for (const maskPoint of stroke.maskPath) {
     if (!isPoint(maskPoint)) {
       return false;
+    }
+  }
+  if (!isValidInkPath(stroke.customPath) || !isValidInkPath(stroke.fillPath) ||
+    (stroke.fillColor !== null && stroke.fillColor !== undefined &&
+      !isFiniteNumber(stroke.fillColor))) {
+    return false;
+  }
+  return true;
+}
+
+function isValidInkPath(path: InkPathCommand[] | null | undefined): boolean {
+  if (path === null || path === undefined) {
+    return true;
+  }
+  if (!Array.isArray(path)) {
+    return false;
+  }
+  for (const command of path) {
+    if (command === null || typeof command !== 'object' || !Array.isArray(command.points) ||
+      !isIntegerInRange(command.type, InkPathCommandType.MOVE_TO, InkPathCommandType.CUBIC)) {
+      return false;
+    }
+    const expected: number = command.type === InkPathCommandType.CUBIC ? 3 :
+      command.type === InkPathCommandType.QUADRATIC ? 2 : 1;
+    if (command.points.length !== expected) {
+      return false;
+    }
+    for (const point of command.points) {
+      if (!isPoint(point)) {
+        return false;
+      }
     }
   }
   return true;

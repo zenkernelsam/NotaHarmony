@@ -8,8 +8,8 @@ import {
 } from './OperationIdentity';
 import {
   decodeOriginalInkPath, decodeOriginalInkPathAppend, DecodedOriginalInkPath,
-  DecodedOriginalInkPathAppend, OriginalInkPathDeferredError, transformedExpandedBounds,
-  unionOriginalInkBounds,
+  DecodedOriginalInkPathAppend, inkPathCommandBounds, OriginalInkPathDeferredError,
+  transformedInkBounds, unionOriginalInkBounds,
 } from './OriginalInkPathCodec';
 import {
   OriginalFlatBufferTableReader, readOriginalPayloadTable,
@@ -159,6 +159,9 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
       transform: stroke.transform,
       bounds: rebuilt.bounds,
       maskPath: stroke.maskPath,
+      customPath: stroke.customPath,
+      fillPath: stroke.fillPath,
+      fillColor: stroke.fillColor,
       isFinished: stroke.isFinished,
     };
     await store.insert('original_ink_path_append', {
@@ -382,7 +385,9 @@ export function rebuildOriginalInkGeometry(baseBytes: Uint8Array,
   return {
     pathPoints: pathPoints,
     cubicSegments: cubicSegments,
-    bounds: transformedExpandedBounds(localBounds, stroke.renderSpec.brushWidth, stroke.transform),
+    bounds: transformedInkBounds(localBounds, stroke.renderSpec.brushWidth, [
+      inkPathCommandBounds(stroke.customPath), inkPathCommandBounds(stroke.fillPath),
+    ], stroke.transform),
     attributed: attributed,
   };
 }

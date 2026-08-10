@@ -80,6 +80,9 @@ export class EraserEngine {
           transform: stroke.transform,
           bounds: stroke.bounds,
           maskPath: maskPath,
+          customPath: stroke.customPath,
+          fillPath: stroke.fillPath,
+          fillColor: stroke.fillColor,
           isFinished: stroke.isFinished,
         };
         affected.push(updated);

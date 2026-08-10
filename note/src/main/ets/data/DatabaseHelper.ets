@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v32: preserve the original Ink z-index register and CREATE fallback.
-export const DB_VERSION: number = 32;
+// v33: preserve original Ink custom/fill paths and nullable fill-color registers.
+export const DB_VERSION: number = 33;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -402,6 +402,33 @@ CREATE TABLE IF NOT EXISTS original_ink_state (
   center_path_winner_site_id INTEGER NOT NULL
     CHECK (center_path_winner_site_id BETWEEN 0 AND 65535),
   center_path_winner_present INTEGER NOT NULL CHECK (center_path_winner_present IN (0, 1)),
+  create_custom_path BLOB CHECK (create_custom_path IS NULL OR length(create_custom_path) = 0 OR
+    length(create_custom_path) BETWEEN 3 AND 16777216),
+  custom_path_value BLOB CHECK (custom_path_value IS NULL OR length(custom_path_value) = 0 OR
+    length(custom_path_value) BETWEEN 3 AND 16777216),
+  custom_path_winner_timestamp INTEGER NOT NULL
+    CHECK (custom_path_winner_timestamp BETWEEN 0 AND 4294967295),
+  custom_path_winner_site_id INTEGER NOT NULL
+    CHECK (custom_path_winner_site_id BETWEEN 0 AND 65535),
+  custom_path_winner_present INTEGER NOT NULL CHECK (custom_path_winner_present IN (0, 1)),
+  create_fill_path BLOB CHECK (create_fill_path IS NULL OR length(create_fill_path) = 0 OR
+    length(create_fill_path) BETWEEN 3 AND 16777216),
+  fill_path_value BLOB CHECK (fill_path_value IS NULL OR length(fill_path_value) = 0 OR
+    length(fill_path_value) BETWEEN 3 AND 16777216),
+  fill_path_winner_timestamp INTEGER NOT NULL
+    CHECK (fill_path_winner_timestamp BETWEEN 0 AND 4294967295),
+  fill_path_winner_site_id INTEGER NOT NULL
+    CHECK (fill_path_winner_site_id BETWEEN 0 AND 65535),
+  fill_path_winner_present INTEGER NOT NULL CHECK (fill_path_winner_present IN (0, 1)),
+  create_fill_color INTEGER CHECK (create_fill_color IS NULL OR
+    create_fill_color BETWEEN -2147483648 AND 2147483647),
+  fill_color_value INTEGER CHECK (fill_color_value IS NULL OR
+    fill_color_value BETWEEN -2147483648 AND 2147483647),
+  fill_color_winner_timestamp INTEGER NOT NULL
+    CHECK (fill_color_winner_timestamp BETWEEN 0 AND 4294967295),
+  fill_color_winner_site_id INTEGER NOT NULL
+    CHECK (fill_color_winner_site_id BETWEEN 0 AND 65535),
+  fill_color_winner_present INTEGER NOT NULL CHECK (fill_color_winner_present IN (0, 1)),
   style_value INTEGER CHECK (style_value IS NULL OR style_value BETWEEN 0 AND 3),
   style_winner_timestamp INTEGER NOT NULL
     CHECK (style_winner_timestamp BETWEEN 0 AND 4294967295),
@@ -1227,5 +1254,41 @@ export const MIGRATIONS: Record<number, string[]> = {
       DEFAULT 0 CHECK (z_index_winner_site_id BETWEEN 0 AND 65535)`,
     `ALTER TABLE original_ink_state ADD COLUMN z_index_winner_present INTEGER NOT NULL
       DEFAULT 0 CHECK (z_index_winner_present IN (0, 1))`,
+  ],
+  33: [
+    `ALTER TABLE original_ink_state ADD COLUMN create_custom_path BLOB
+      CHECK (create_custom_path IS NULL OR length(create_custom_path) = 0 OR
+        length(create_custom_path) BETWEEN 3 AND 16777216)`,
+    `ALTER TABLE original_ink_state ADD COLUMN custom_path_value BLOB
+      CHECK (custom_path_value IS NULL OR length(custom_path_value) = 0 OR
+        length(custom_path_value) BETWEEN 3 AND 16777216)`,
+    `ALTER TABLE original_ink_state ADD COLUMN custom_path_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (custom_path_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN custom_path_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (custom_path_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN custom_path_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (custom_path_winner_present IN (0, 1))`,
+    `ALTER TABLE original_ink_state ADD COLUMN create_fill_path BLOB
+      CHECK (create_fill_path IS NULL OR length(create_fill_path) = 0 OR
+        length(create_fill_path) BETWEEN 3 AND 16777216)`,
+    `ALTER TABLE original_ink_state ADD COLUMN fill_path_value BLOB
+      CHECK (fill_path_value IS NULL OR length(fill_path_value) = 0 OR
+        length(fill_path_value) BETWEEN 3 AND 16777216)`,
+    `ALTER TABLE original_ink_state ADD COLUMN fill_path_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (fill_path_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN fill_path_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (fill_path_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN fill_path_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (fill_path_winner_present IN (0, 1))`,
+    `ALTER TABLE original_ink_state ADD COLUMN create_fill_color INTEGER
+      CHECK (create_fill_color IS NULL OR create_fill_color BETWEEN -2147483648 AND 2147483647)`,
+    `ALTER TABLE original_ink_state ADD COLUMN fill_color_value INTEGER
+      CHECK (fill_color_value IS NULL OR fill_color_value BETWEEN -2147483648 AND 2147483647)`,
+    `ALTER TABLE original_ink_state ADD COLUMN fill_color_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (fill_color_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN fill_color_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (fill_color_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN fill_color_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (fill_color_winner_present IN (0, 1))`,
   ],
 };

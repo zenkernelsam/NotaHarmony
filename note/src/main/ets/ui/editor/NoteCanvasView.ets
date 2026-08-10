@@ -41,7 +41,8 @@ import {
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import {
-  RenderSpec, StrokeElementData, StrokePathPoint, InputBatch, InputBatchKind, PencilSplatPoint,
+  InkPathCommand, RenderSpec, StrokeElementData, StrokePathPoint, InputBatch, InputBatchKind,
+  PencilSplatPoint,
 } from '../../core/model/StrokeTypes';
 import { ToolType } from '../../core/model/BrushTypes';
 import {
@@ -2812,6 +2813,17 @@ export struct NoteCanvasView {
         right: s.bounds.right, bottom: s.bounds.bottom,
       },
       maskPath: s.maskPath.map((point: Point2D): Point2D => ({ x: point.x, y: point.y })),
+      customPath: s.customPath === undefined || s.customPath === null ? null :
+        s.customPath.map((command: InkPathCommand): InkPathCommand => ({
+          type: command.type,
+          points: command.points.map((point: Point2D): Point2D => ({ x: point.x, y: point.y })),
+        })),
+      fillPath: s.fillPath === undefined || s.fillPath === null ? null :
+        s.fillPath.map((command: InkPathCommand): InkPathCommand => ({
+          type: command.type,
+          points: command.points.map((point: Point2D): Point2D => ({ x: point.x, y: point.y })),
+        })),
+      fillColor: s.fillColor === undefined ? null : s.fillColor,
       isFinished: s.isFinished,
     };
   }

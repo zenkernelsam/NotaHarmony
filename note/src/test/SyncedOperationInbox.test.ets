@@ -23,11 +23,12 @@ import { decodeOriginalCreateInk } from '../main/ets/data/OriginalCreateInkOpera
 import { decodeOriginalAddPathElements } from
   '../main/ets/data/OriginalAddPathElementsOperation';
 import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOperation';
-import { originalInkTransform,
+import { decodeOriginalAuxiliaryInkPath, originalInkTransform,
   transformedExpandedBounds } from '../main/ets/data/OriginalInkPathCodec';
 import { decodeOriginalInkPath, decodeOriginalInkPathAppend } from
   '../main/ets/data/OriginalInkPathCodec';
 import { Rect2D } from '../main/ets/core/model/GeometryTypes';
+import { InkPathCommandType } from '../main/ets/core/model/StrokeTypes';
 
 function operation(timestamp: number, serverTime: string,
   clientTime: string = serverTime, payloadType: number = 3): IncomingSyncedOperation {
@@ -190,6 +191,10 @@ export default function syncedOperationInboxTest() {
       expect(payload.path?.localBounds.right).assertEqual(20);
       expect(payload.path?.localBounds.bottom).assertEqual(9);
       expect(payload.centerPathBytes?.length).assertEqual(64);
+      const withAuxiliary = decodeOriginalCreateInk(flatBufferCreateInk(0, 0, true), '123');
+      expect(withAuxiliary.customPath?.commands.length).assertEqual(5);
+      expect(withAuxiliary.fillPath?.commands.length).assertEqual(5);
+      expect(withAuxiliary.fillColor).assertEqual(-2146823138);
       const bounds = transformedExpandedBounds(payload.path?.localBounds as Rect2D, payload.width,
         originalInkTransform(payload.originX, payload.originY, payload.rotation,
           payload.scaleX, payload.scaleY));
@@ -259,6 +264,42 @@ export default function syncedOperationInboxTest() {
         flatBufferModifyInk(false, false, false, false, 0, '18446744073709551615'));
       expect(withZIndex.zIndex).assertEqual('18446744073709551615');
       expect(withZIndex.hasUnsupportedFields).assertFalse();
+      const withAuxiliary = decodeOriginalModifyInk(
+        flatBufferModifyInk(false, false, false, false, 0, null, 1));
+      expect(withAuxiliary.customPath.present).assertTrue();
+      expect(withAuxiliary.customPath.value?.length).assertEqual(72);
+      expect(withAuxiliary.fillPath.present).assertTrue();
+      expect(withAuxiliary.fillPath.value?.length).assertEqual(72);
+      expect(withAuxiliary.fillColor.present).assertTrue();
+      expect(withAuxiliary.fillColor.value).assertEqual(-2146823138);
+      expect(withAuxiliary.hasUnsupportedFields).assertFalse();
+      const clearedAuxiliary = decodeOriginalModifyInk(
+        flatBufferModifyInk(false, false, false, false, 0, null, 2));
+      expect(clearedAuxiliary.customPath.present).assertTrue();
+      expect(clearedAuxiliary.customPath.value?.length).assertEqual(0);
+      expect(clearedAuxiliary.fillPath.present).assertTrue();
+      expect(clearedAuxiliary.fillPath.value?.length).assertEqual(0);
+      expect(clearedAuxiliary.fillColor.present).assertTrue();
+      expect(clearedAuxiliary.fillColor.value === null).assertTrue();
+      const withStyleMap = decodeOriginalModifyInk(
+        flatBufferModifyInk(false, false, false, false, 0, null, 0, true));
+      expect(withStyleMap.hasUnsupportedFields).assertTrue();
+    });
+
+    it('preserves original auxiliary path verbs and multiple components', 0, () => {
+      const decoded = decodeOriginalAuxiliaryInkPath(auxiliaryInkPath(), 'TEST_AUXILIARY_PATH');
+      expect(decoded.commands.length).assertEqual(5);
+      expect(decoded.commands[0].type).assertEqual(InkPathCommandType.MOVE_TO);
+      expect(decoded.commands[1].type).assertEqual(InkPathCommandType.LINE_TO);
+      expect(decoded.commands[2].type).assertEqual(InkPathCommandType.QUADRATIC);
+      expect(decoded.commands[3].type).assertEqual(InkPathCommandType.CUBIC);
+      expect(decoded.commands[4].type).assertEqual(InkPathCommandType.MOVE_TO);
+      expect(decoded.commands[2].points.length).assertEqual(2);
+      expect(decoded.commands[3].points.length).assertEqual(3);
+      expect(decoded.localBounds?.left).assertEqual(-5);
+      expect(decoded.localBounds?.top).assertEqual(-6);
+      expect(decoded.localBounds?.right).assertEqual(11);
+      expect(decoded.localBounds?.bottom).assertEqual(12);
     });
 
     it('decodes the original big-endian half-float coordinate path variant', 0, () => {
@@ -574,7 +615,8 @@ class FixtureFlatBufferBuilder {
   }
 }
 
-function flatBufferCreateInk(tool: number = 0, style: number = 0): Uint8Array {
+function flatBufferCreateInk(tool: number = 0, style: number = 0,
+  includeAuxiliary: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
   builder.uint16(root + 4, 7);
@@ -583,8 +625,9 @@ function flatBufferCreateInk(tool: number = 0, style: number = 0): Uint8Array {
   writeDecimalU64At(builder, root + 20, '124');
   builder.uint8(root + 28, 15);
   const fields: number[] = [4, 16, 24, 28, 36, 37, 0, 40, 44, 48,
-    0, 0, 0, 0, 56, 0, 0, 0, 0, 0];
-  const ink: number = builder.table(fields, 64);
+    includeAuxiliary ? 52 : 0, includeAuxiliary ? 56 : 0, includeAuxiliary ? 60 : 0,
+    0, 64, 0, 0, 0, 0, 0];
+  const ink: number = builder.table(fields, 72);
   builder.pointer(root + 32, ink);
   builder.uint16(ink + 4, 1);
   builder.uint32(ink + 8, 10);
@@ -598,7 +641,7 @@ function flatBufferCreateInk(tool: number = 0, style: number = 0): Uint8Array {
   builder.uint8(ink + 37, style);
   builder.color(ink + 40, [10, 20, 30, 128]);
   builder.float32(ink + 44, 4);
-  writeDecimalU64At(builder, ink + 56, '18446744073709551615');
+  writeDecimalU64At(builder, ink + 64, '18446744073709551615');
   const path: number[] = [1, 0, 3];
   appendAttributedPathElement(path, 3, [{ x: 1, y: 2 }], 0x3C00, 0x3800, 0, 0);
   appendAttributedPathElement(path, 0,
@@ -606,6 +649,14 @@ function flatBufferCreateInk(tool: number = 0, style: number = 0): Uint8Array {
   appendAttributedPathElement(path, 2, [{ x: 8, y: 9 }], 0x3C00, 0x3800, 128, 128);
   const vector: number = builder.byteVector(path);
   builder.pointer(ink + 48, vector);
+  if (includeAuxiliary) {
+    const auxiliary: number[] = Array.from(auxiliaryInkPath());
+    const customPath: number = builder.byteVector(auxiliary);
+    builder.pointer(ink + 52, customPath);
+    const fillPath: number = builder.byteVector(auxiliary);
+    builder.pointer(ink + 56, fillPath);
+    builder.color(ink + 60, [10, 20, 30, 128]);
+  }
   return builder.finish(root);
 }
 
@@ -632,7 +683,8 @@ function flatBufferAddPathElements(): Uint8Array {
 function flatBufferModifyInk(includeRender: boolean = false,
   includeRotation: boolean = false, clearRotation: boolean = false,
   includeScale: boolean = false, pageOriginMode: number = 0,
-  zIndex: string | null = null): Uint8Array {
+  zIndex: string | null = null, auxiliaryMode: number = 0,
+  includeStyleMap: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
   builder.uint16(root + 4, 7);
@@ -643,8 +695,10 @@ function flatBufferModifyInk(includeRender: boolean = false,
   const fields: number[] = [4, pageOriginMode > 0 ? 8 : 0, pageOriginMode === 1 ? 20 : 0,
     includeRotation || clearRotation ? 28 : 0, includeScale ? 32 : 0,
     includeRender ? 36 : 0, includeRender ? 40 : 0, includeRender ? 44 : 0, 48,
-    0, 0, 0, 0, 0, zIndex === null ? 0 : 52, 0, 0, 0, 0, 0];
-  const modify: number = builder.table(fields, 60);
+    auxiliaryMode > 0 ? 52 : 0, auxiliaryMode > 0 ? 56 : 0,
+    auxiliaryMode > 0 ? 60 : 0, includeStyleMap ? 64 : 0,
+    zIndex === null ? 0 : 68, 0, 0, 0, 0, 0];
+  const modify: number = builder.table(fields, 76);
   builder.pointer(root + 32, modify);
   if (pageOriginMode > 0) {
     builder.uint16(modify + 8, 4);
@@ -677,7 +731,7 @@ function flatBufferModifyInk(includeRender: boolean = false,
     builder.float32(modify + 44, 5);
   }
   if (zIndex !== null) {
-    writeDecimalU64At(builder, modify + 52, zIndex);
+    writeDecimalU64At(builder, modify + 68, zIndex);
   }
   const inks: number = builder.operationIdentityVector([
     { timestamp: 20, siteId: 2 }, { timestamp: 21, siteId: 3 },
@@ -688,7 +742,43 @@ function flatBufferModifyInk(includeRender: boolean = false,
   appendAttributedPathElement(path, 2, [{ x: 15, y: 16 }], 0x3C00, 0x3800, 255, 0);
   const vector: number = builder.byteVector(path);
   builder.pointer(modify + 48, vector);
+  if (auxiliaryMode > 0) {
+    const auxiliary: number[] = auxiliaryMode === 1 ? Array.from(auxiliaryInkPath()) : [];
+    const customPath: number = builder.byteVector(auxiliary);
+    builder.pointer(modify + 52, customPath);
+    const fillPath: number = builder.byteVector(auxiliary);
+    builder.pointer(modify + 56, fillPath);
+    const fillColor: number = builder.table([auxiliaryMode === 1 ? 4 : 0], 8);
+    if (auxiliaryMode === 1) {
+      builder.color(fillColor + 4, [10, 20, 30, 128]);
+    }
+    builder.pointer(modify + 60, fillColor);
+  }
+  if (includeStyleMap) {
+    const styleMap: number = builder.byteVector([]);
+    builder.pointer(modify + 64, styleMap);
+  }
   return builder.finish(root);
+}
+
+function auxiliaryInkPath(): Uint8Array {
+  const path: number[] = [0, 0, 5];
+  appendPlainPathElement(path, 7, [{ x: -5, y: -6 }]);
+  appendPlainPathElement(path, 6, [{ x: 1, y: 2 }]);
+  appendPlainPathElement(path, 5, [{ x: 3, y: 4 }, { x: 5, y: 6 }]);
+  appendPlainPathElement(path, 4,
+    [{ x: 7, y: 8 }, { x: 9, y: 10 }, { x: 11, y: 12 }]);
+  appendPlainPathElement(path, 7, [{ x: 0, y: 1 }]);
+  return new Uint8Array(path);
+}
+
+function appendPlainPathElement(target: number[], type: number,
+  points: { x: number, y: number }[]): void {
+  target.push(type);
+  for (const point of points) {
+    appendFloat32(target, point.x);
+    appendFloat32(target, point.y);
+  }
 }
 
 function appendAttributedPathElement(target: number[], type: number,

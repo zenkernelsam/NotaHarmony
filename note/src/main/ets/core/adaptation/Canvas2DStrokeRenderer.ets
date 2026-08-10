@@ -3,7 +3,7 @@
 // ArkTS 不支持结构化类型赋值：主画布与 OffscreenCanvas 上下文分属两个包装类
 import { StrokeRenderer, RenderContext } from './StrokeRenderer';
 import { StrokeElementData, PencilSplatPoint, RenderSpec, InkStyle,
-  ERASER_PATH_BREAK_COORDINATE } from '../model/StrokeTypes';
+  ERASER_PATH_BREAK_COORDINATE, InkPathCommand, InkPathCommandType } from '../model/StrokeTypes';
 import { Point2D, Rect2D } from '../model/GeometryTypes';
 import { WidthOutlineBuilder } from '../algorithm/WidthOutlineBuilder';
 import { BitmapTransferKind, BitmapTransferTracker } from './BitmapTransferTracker';
@@ -12,7 +12,10 @@ export interface Canvas2DDrawingContext extends RenderContext {
   beginPath(): void;
   moveTo(x: number, y: number): void;
   lineTo(x: number, y: number): void;
+  quadraticCurveTo(cpx: number, cpy: number, x: number, y: number): void;
   bezierCurveTo(cp1x: number, cp1y: number, cp2x: number, cp2y: number, x: number, y: number): void;
+  rect(x: number, y: number, width: number, height: number): void;
+  clip(fillRule?: CanvasFillRule): void;
   closePath(): void;
   stroke(): void;
   fill(): void;
@@ -73,6 +76,18 @@ export class Canvas2DRenderContext implements Canvas2DDrawingContext {
 
   lineTo(x: number, y: number): void {
     this.ctx.lineTo(x, y);
+  }
+
+  quadraticCurveTo(cpx: number, cpy: number, x: number, y: number): void {
+    this.ctx.quadraticCurveTo(cpx, cpy, x, y);
+  }
+
+  rect(x: number, y: number, width: number, height: number): void {
+    this.ctx.rect(x, y, width, height);
+  }
+
+  clip(fillRule?: CanvasFillRule): void {
+    this.ctx.clip(fillRule);
   }
 
   bezierCurveTo(cp1x: number, cp1y: number, cp2x: number, cp2y: number, x: number, y: number): void {
@@ -202,6 +217,18 @@ export class Canvas2DOffscreenRenderContext implements Canvas2DDrawingContext {
 
   lineTo(x: number, y: number): void {
     this.ctx.lineTo(x, y);
+  }
+
+  quadraticCurveTo(cpx: number, cpy: number, x: number, y: number): void {
+    this.ctx.quadraticCurveTo(cpx, cpy, x, y);
+  }
+
+  rect(x: number, y: number, width: number, height: number): void {
+    this.ctx.rect(x, y, width, height);
+  }
+
+  clip(fillRule?: CanvasFillRule): void {
+    this.ctx.clip(fillRule);
   }
 
   bezierCurveTo(cp1x: number, cp1y: number, cp2x: number, cp2y: number, x: number, y: number): void {
@@ -368,6 +395,71 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     this.eraserMaskWidth = width;
   }
 
+  // Original e16 draws fillPath (or centerPath fallback) before the main ink. For translucent
+  // fills it excludes the explicit/generated stroke outline so the fill cannot darken the ink.
+  renderInkFill(stroke: StrokeElementData, ctx: RenderContext): void {
+    const fillColor: number | null = stroke.fillColor === undefined ? null : stroke.fillColor;
+    if (fillColor === null) {
+      return;
+    }
+    const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
+    const fillPath: InkPathCommand[] | null = stroke.fillPath === undefined ? null : stroke.fillPath;
+    c.save();
+    const alpha: number = (fillColor >>> 24) & 0xFF;
+    if (alpha < 255 && stroke.renderSpec.brushWidth > 0) {
+      const exclusion: InkPathCommand[] | null = stroke.customPath === undefined ? null : stroke.customPath;
+      c.beginPath();
+      c.rect(-10000000, -10000000, 20000000, 20000000);
+      if (exclusion !== null && exclusion.length > 0) {
+        this.appendInkPath(c, exclusion);
+      } else {
+        const builder: WidthOutlineBuilder = new WidthOutlineBuilder();
+        const outline = builder.build(stroke.pathPoints, stroke.renderSpec.brushWidth,
+          stroke.cubicSegments);
+        if (outline.isValid) {
+          c.moveTo(outline.outlinePoints[0].x, outline.outlinePoints[0].y);
+          for (let index: number = 1; index < outline.outlinePoints.length; index++) {
+            c.lineTo(outline.outlinePoints[index].x, outline.outlinePoints[index].y);
+          }
+          c.closePath();
+        }
+      }
+      c.clip('evenodd');
+    }
+    c.beginPath();
+    if (fillPath !== null && fillPath.length > 0) {
+      this.appendInkPath(c, fillPath);
+    } else {
+      this.appendCenterPath(c, stroke);
+    }
+    c.setFillStyle(this.colorToRgba(fillColor));
+    c.fill();
+    c.restore();
+  }
+
+  renderCustomPath(stroke: StrokeElementData, ctx: RenderContext): boolean {
+    const customPath: InkPathCommand[] | null =
+      stroke.customPath === undefined ? null : stroke.customPath;
+    if (customPath === null || customPath.length === 0) {
+      return false;
+    }
+    const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
+    c.save();
+    c.beginPath();
+    this.appendInkPath(c, customPath);
+    if (stroke.renderSpec.inkStyle === InkStyle.DASH ||
+      stroke.renderSpec.inkStyle === InkStyle.DOTS) {
+      c.clip();
+      this.renderCenterPath(stroke, ctx);
+    } else {
+      c.setFillStyle(this.colorToRgba(stroke.renderSpec.color,
+        stroke.renderSpec.isHighlighter ? 107 : undefined));
+      c.fill();
+    }
+    c.restore();
+    return true;
+  }
+
   // === 中心线路径（Mono/Dash/Dot，pzf.g 规格）===
   renderCenterPath(stroke: StrokeElementData, ctx: RenderContext): void {
     const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
@@ -378,20 +470,7 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     }
     c.save();
     c.beginPath();
-    const pts = stroke.pathPoints;
-    if (pts.length > 0) {
-      c.moveTo(pts[0].position.x, pts[0].position.y);
-      const segs = stroke.cubicSegments;
-      if (segs.length > 0) {
-        for (const seg of segs) {
-          c.bezierCurveTo(seg.p1.x, seg.p1.y, seg.p2.x, seg.p2.y, seg.p3.x, seg.p3.y);
-        }
-      } else {
-        for (let i = 1; i < pts.length; i++) {
-          c.lineTo(pts[i].position.x, pts[i].position.y);
-        }
-      }
-    }
+    this.appendCenterPath(c, stroke);
     c.setLineWidth(spec.brushWidth);
     // 原版 c5g：DASH 使用 BUTT，DOTS 与实线使用 ROUND。
     if (spec.inkStyle === InkStyle.DASH) {
@@ -536,6 +615,41 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
 
   private isMaskBreak(point: Point2D): boolean {
     return point.x === ERASER_PATH_BREAK_COORDINATE && point.y === ERASER_PATH_BREAK_COORDINATE;
+  }
+
+  private appendCenterPath(c: Canvas2DDrawingContext, stroke: StrokeElementData): void {
+    const pts = stroke.pathPoints;
+    if (pts.length === 0) {
+      return;
+    }
+    c.moveTo(pts[0].position.x, pts[0].position.y);
+    if (stroke.cubicSegments.length > 0) {
+      for (const segment of stroke.cubicSegments) {
+        c.bezierCurveTo(segment.p1.x, segment.p1.y, segment.p2.x, segment.p2.y,
+          segment.p3.x, segment.p3.y);
+      }
+      return;
+    }
+    for (let index: number = 1; index < pts.length; index++) {
+      c.lineTo(pts[index].position.x, pts[index].position.y);
+    }
+  }
+
+  private appendInkPath(c: Canvas2DDrawingContext, commands: InkPathCommand[]): void {
+    for (const command of commands) {
+      if (command.type === InkPathCommandType.MOVE_TO) {
+        c.moveTo(command.points[0].x, command.points[0].y);
+      } else if (command.type === InkPathCommandType.LINE_TO) {
+        c.lineTo(command.points[0].x, command.points[0].y);
+      } else if (command.type === InkPathCommandType.QUADRATIC) {
+        c.quadraticCurveTo(command.points[0].x, command.points[0].y,
+          command.points[1].x, command.points[1].y);
+      } else {
+        c.bezierCurveTo(command.points[0].x, command.points[0].y,
+          command.points[1].x, command.points[1].y,
+          command.points[2].x, command.points[2].y);
+      }
+    }
   }
 
   // 工具：ARGB int → rgba 字符串

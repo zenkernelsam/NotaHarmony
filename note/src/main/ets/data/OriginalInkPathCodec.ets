@@ -1,5 +1,5 @@
 import { CubicSegment, Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
-import { StrokePathPoint } from '../core/model/StrokeTypes';
+import { InkPathCommand, InkPathCommandType, StrokePathPoint } from '../core/model/StrokeTypes';
 
 export interface DecodedOriginalInkPath {
   pathPoints: StrokePathPoint[];
@@ -10,6 +10,11 @@ export interface DecodedOriginalInkPath {
 
 export interface DecodedOriginalInkPathAppend extends DecodedOriginalInkPath {
   endPoint: Point2D;
+}
+
+export interface DecodedOriginalAuxiliaryInkPath {
+  commands: InkPathCommand[];
+  localBounds: Rect2D | null;
 }
 
 interface DecodedElement {
@@ -47,6 +52,29 @@ export function decodeOriginalInkPathReplacement(bytes: Uint8Array): DecodedOrig
     'MODIFY_INK_PATH_COORDINATE_ENCODING_UNSUPPORTED',
     'MODIFY_INK_CENTER_PATH_TOO_SHORT',
     'MODIFY_INK_MULTI_COMPONENT_PATH_UNSUPPORTED');
+}
+
+export function decodeOriginalAuxiliaryInkPath(bytes: Uint8Array,
+  reasonPrefix: string): DecodedOriginalAuxiliaryInkPath {
+  if (bytes.length === 0) {
+    return { commands: [], localBounds: null };
+  }
+  const elements: DecodedElement[] = decodeElements(bytes, 0,
+    reasonPrefix + '_VERSION_UNSUPPORTED',
+    reasonPrefix + '_COORDINATE_ENCODING_UNSUPPORTED',
+    reasonPrefix + '_LENGTH_UNSUPPORTED');
+  const commands: InkPathCommand[] = [];
+  for (const element of elements) {
+    const type: InkPathCommandType = element.type === 0 || element.type === 4 ?
+      InkPathCommandType.CUBIC : element.type === 1 || element.type === 5 ?
+        InkPathCommandType.QUADRATIC : element.type === 2 || element.type === 6 ?
+          InkPathCommandType.LINE_TO : InkPathCommandType.MOVE_TO;
+    commands.push({ type: type, points: element.points.map(clonePoint) });
+  }
+  return {
+    commands: commands,
+    localBounds: elements.length === 0 ? null : elementBounds(elements, null),
+  };
 }
 
 function decodeCanonicalInkPath(bytes: Uint8Array, versionReason: string,
@@ -227,6 +255,41 @@ export function transformedExpandedBounds(bounds: Rect2D, width: number,
     bottom = Math.max(bottom, y);
   }
   return { left: left, top: top, right: right, bottom: bottom };
+}
+
+export function transformedInkBounds(centerBounds: Rect2D, width: number,
+  auxiliaryBounds: (Rect2D | null)[], transform: TransformMatrix): Rect2D {
+  const padding: number = width * 2;
+  let combined: Rect2D = {
+    left: centerBounds.left - padding, top: centerBounds.top - padding,
+    right: centerBounds.right + padding, bottom: centerBounds.bottom + padding,
+  };
+  for (const bounds of auxiliaryBounds) {
+    if (bounds !== null) {
+      combined = unionOriginalInkBounds(combined, bounds);
+    }
+  }
+  return transformedExpandedBounds(combined, 0, transform);
+}
+
+export function inkPathCommandBounds(commands: InkPathCommand[] | null | undefined): Rect2D | null {
+  if (commands === null || commands === undefined || commands.length === 0) {
+    return null;
+  }
+  let result: Rect2D | null = null;
+  for (const command of commands) {
+    for (const point of command.points) {
+      if (result === null) {
+        result = { left: point.x, top: point.y, right: point.x, bottom: point.y };
+      } else {
+        result.left = Math.min(result.left, point.x);
+        result.top = Math.min(result.top, point.y);
+        result.right = Math.max(result.right, point.x);
+        result.bottom = Math.max(result.bottom, point.y);
+      }
+    }
+  }
+  return result;
 }
 
 function decodePoint(bytes: Uint8Array, offset: number,

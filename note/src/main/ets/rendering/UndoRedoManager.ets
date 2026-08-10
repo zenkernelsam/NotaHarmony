@@ -1,7 +1,7 @@
 // T-021 基于 op 栈的撤销/重做管理器（纯逻辑，禁止平台 import）
 // 全笔记单栈：动作携带 pageId，保持跨页操作的真实时间顺序。
 // 原版 NoteImpl 使用全笔记 opHistory；文本编辑器 nnf(100) 是另一套局部历史，不能作为这里的容量。
-import { StrokeElementData } from '../core/model/StrokeTypes';
+import { InkPathCommand, StrokeElementData } from '../core/model/StrokeTypes';
 import { ElementType, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { PageInfo } from '../core/model/NoteTypes';
 import { PageElementRef } from '../core/model/PageElementOrder';
@@ -312,7 +312,19 @@ function estimateStrokes(strokes: StrokeElementData[]): number {
   for (const stroke of strokes) {
     bytes += 384 + stroke.id.length * 2 + stroke.transform.length * 8 +
       stroke.pathPoints.length * 64 + stroke.cubicSegments.length * 112 +
-      stroke.splatPoints.length * 40 + stroke.maskPath.length * 16;
+      stroke.splatPoints.length * 40 + stroke.maskPath.length * 16 +
+      estimateInkPath(stroke.customPath) + estimateInkPath(stroke.fillPath);
+  }
+  return bytes;
+}
+
+function estimateInkPath(path: InkPathCommand[] | null | undefined): number {
+  if (path === null || path === undefined) {
+    return 0;
+  }
+  let bytes: number = path.length * 24;
+  for (const command of path) {
+    bytes += command.points.length * 16;
   }
   return bytes;
 }
