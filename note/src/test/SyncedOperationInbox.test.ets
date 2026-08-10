@@ -23,6 +23,8 @@ import { decodeOriginalCreateInk } from '../main/ets/data/OriginalCreateInkOpera
 import { decodeOriginalAddPathElements } from
   '../main/ets/data/OriginalAddPathElementsOperation';
 import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOperation';
+import { decodeOriginalCreateBlock, OriginalBlockType } from
+  '../main/ets/data/OriginalCreateBlockOperation';
 import { decodeOriginalAuxiliaryInkPath, originalInkTransform,
   transformedExpandedBounds } from '../main/ets/data/OriginalInkPathCodec';
 import { decodeOriginalInkPath, decodeOriginalInkPathAppend } from
@@ -158,7 +160,33 @@ export default function syncedOperationInboxTest() {
       expect(applier.supports(15)).assertTrue();
       expect(applier.supports(16)).assertTrue();
       expect(applier.supports(17)).assertTrue();
+      expect(applier.supports(22)).assertTrue();
       expect(applier.supports(5)).assertFalse();
+    });
+
+    it('decodes original text CREATE_BLOCK common state', 0, () => {
+      const payload = decodeOriginalCreateBlock(flatBufferCreateBlock(), '123');
+      expect(payload.blockType).assertEqual(OriginalBlockType.TEXT);
+      expect(payload.corner).assertEqual(1);
+      expect(payload.page.timestamp).assertEqual(10);
+      expect(payload.page.siteId).assertEqual(2);
+      expect(payload.page.index).assertEqual(3);
+      expect(payload.originX).assertEqual(12);
+      expect(payload.originY).assertEqual(34);
+      expect(Math.abs((payload.rotation as number) - Math.PI / 2) < 0.000001).assertTrue();
+      expect(payload.scaleX).assertEqual(2);
+      expect(payload.scaleY).assertEqual(3);
+      expect(payload.width).assertEqual(200);
+      expect(payload.height).assertEqual(40);
+      expect(payload.textWrap).assertEqual(1);
+      expect(payload.zIndex).assertEqual('18446744073709551615');
+      expect(payload.margins.top).assertEqual(3);
+      expect(payload.margins.bottom).assertEqual(10);
+      expect(payload.margins.left).assertEqual(5);
+      expect(payload.margins.right).assertEqual(5);
+      expect(payload.hasImage).assertFalse();
+      expect(payload.hasMathLatex).assertFalse();
+      expect(payload.hasPaper).assertFalse();
     });
 
     it('decodes original CREATE_INK path attributes, transform and uint64 z-index', 0, () => {
@@ -699,6 +727,40 @@ function flatBufferCreateInk(tool: number = 0, style: number = 0,
     builder.uint16(ink + 72, 65535);
     builder.uint16(ink + 74, 40000);
   }
+  return builder.finish(root);
+}
+
+function flatBufferCreateBlock(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 90);
+  writeDecimalU64At(builder, root + 12, '123');
+  writeDecimalU64At(builder, root + 20, '124');
+  builder.uint8(root + 28, 22);
+  const block: number = builder.table([
+    4, 5, 8, 20, 28, 32, 40, 48, 0, 56,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0,
+  ], 84);
+  builder.pointer(root + 32, block);
+  builder.uint8(block + 4, 0);
+  builder.uint8(block + 5, 1);
+  builder.uint16(block + 8, 2);
+  builder.uint32(block + 12, 10);
+  builder.uint32(block + 16, 3);
+  builder.float32(block + 20, 12);
+  builder.float32(block + 24, 34);
+  builder.float32(block + 28, Math.PI / 2);
+  builder.float32(block + 32, 2);
+  builder.float32(block + 36, 3);
+  builder.float32(block + 40, 200);
+  builder.float32(block + 44, 40);
+  builder.uint8(block + 48, 1);
+  writeDecimalU64At(builder, block + 56, '18446744073709551615');
+  builder.float32(block + 64, 3);
+  builder.float32(block + 68, 10);
+  builder.float32(block + 72, 5);
+  builder.float32(block + 76, 5);
   return builder.finish(root);
 }
 

@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v34: preserve the original per-component Ink style-map LWW register.
-export const DB_VERSION: number = 34;
+// v35: preserve the original CREATE_BLOCK common-state baseline.
+export const DB_VERSION: number = 35;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -542,6 +542,44 @@ CREATE TABLE IF NOT EXISTS original_ink_path_append (
   PRIMARY KEY(note_id, append_timestamp, append_site_id),
   FOREIGN KEY(note_id, ink_timestamp, ink_site_id)
     REFERENCES original_ink_state(note_id, ink_timestamp, ink_site_id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_BLOCK_STATE: string = `
+CREATE TABLE IF NOT EXISTS original_block_state (
+  note_id TEXT NOT NULL,
+  block_timestamp INTEGER NOT NULL CHECK (block_timestamp BETWEEN 0 AND 4294967295),
+  block_site_id INTEGER NOT NULL CHECK (block_site_id BETWEEN 0 AND 65535),
+  block_type INTEGER NOT NULL CHECK (block_type BETWEEN 0 AND 2),
+  create_page_timestamp INTEGER NOT NULL CHECK (create_page_timestamp BETWEEN 0 AND 4294967295),
+  create_page_site_id INTEGER NOT NULL CHECK (create_page_site_id BETWEEN 0 AND 65535),
+  create_page_index INTEGER NOT NULL CHECK (create_page_index BETWEEN 0 AND 4294967295),
+  create_origin_x REAL NOT NULL,
+  create_origin_y REAL NOT NULL,
+  create_rotation REAL,
+  create_scale_x REAL,
+  create_scale_y REAL,
+  create_width REAL NOT NULL CHECK (create_width >= 0),
+  create_height REAL NOT NULL CHECK (create_height >= 0),
+  create_corner INTEGER NOT NULL CHECK (create_corner BETWEEN 0 AND 1),
+  create_text_wrap INTEGER NOT NULL CHECK (create_text_wrap BETWEEN 0 AND 1),
+  create_enable_caption INTEGER NOT NULL CHECK (create_enable_caption IN (0, 1)),
+  create_position_locked INTEGER NOT NULL CHECK (create_position_locked IN (0, 1)),
+  create_resizes_width INTEGER NOT NULL CHECK (create_resizes_width IN (0, 1)),
+  create_margin_top REAL NOT NULL CHECK (create_margin_top >= 0),
+  create_margin_bottom REAL NOT NULL CHECK (create_margin_bottom >= 0),
+  create_margin_left REAL NOT NULL CHECK (create_margin_left >= 0),
+  create_margin_right REAL NOT NULL CHECK (create_margin_right >= 0),
+  create_z_index TEXT NOT NULL CHECK (
+    typeof(create_z_index) = 'text' AND length(create_z_index) BETWEEN 1 AND 20
+    AND create_z_index NOT GLOB '*[^0-9]*'
+    AND (create_z_index = '0' OR substr(create_z_index, 1, 1) <> '0')
+    AND (length(create_z_index) < 20 OR create_z_index <= '18446744073709551615')
+  ),
+  CHECK ((create_scale_x IS NULL AND create_scale_y IS NULL) OR
+    (create_scale_x IS NOT NULL AND create_scale_y IS NOT NULL)),
+  PRIMARY KEY(note_id, block_timestamp, block_site_id),
+  FOREIGN KEY(note_id, block_timestamp, block_site_id)
+    REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
 )`;
 
 // Original DeferredSyncedOps points to checksummed files. Harmony keeps the equivalent raw
@@ -1314,4 +1352,5 @@ export const MIGRATIONS: Record<number, string[]> = {
     `ALTER TABLE original_ink_state ADD COLUMN style_map_winner_present INTEGER NOT NULL
       DEFAULT 0 CHECK (style_map_winner_present IN (0, 1))`,
   ],
+  35: [DDL_ORIGINAL_BLOCK_STATE],
 };
