@@ -282,8 +282,36 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     } catch (_error) {
       return { deferredReason: 'MALFORMED_MODIFY_INK_PAYLOAD' };
     }
-    if (payload.hasUnsupportedFields) {
-      return { deferredReason: 'MODIFY_INK_ADDITIONAL_FIELDS_UNSUPPORTED' };
+    return this.applyPayload(store, operation, payload);
+  }
+
+  preflightTable(table: OriginalFlatBufferTableReader): string | null {
+    let payload: OriginalModifyInkPayload;
+    try {
+      payload = decodeOriginalModifyInkTable(table);
+    } catch (_error) {
+      return 'MALFORMED_MODIFY_INK_PAYLOAD';
+    }
+    return preflightOriginalModifyInk(payload);
+  }
+
+  async applyTable(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
+    table: OriginalFlatBufferTableReader): Promise<SyncedOperationApplyResult> {
+    let payload: OriginalModifyInkPayload;
+    try {
+      payload = decodeOriginalModifyInkTable(table);
+    } catch (_error) {
+      return { deferredReason: 'MALFORMED_MODIFY_INK_PAYLOAD' };
+    }
+    return this.applyPayload(store, operation, payload);
+  }
+
+  private async applyPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation,
+    payload: OriginalModifyInkPayload): Promise<SyncedOperationApplyResult> {
+    const preflightReason: string | null = preflightOriginalModifyInk(payload);
+    if (preflightReason !== null) {
+      return { deferredReason: preflightReason };
     }
     if (payload.pageOrigin === null && !payload.rotation.present && !payload.scale.present &&
       payload.style === null &&
@@ -293,26 +321,6 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       payload.zIndex === null) {
       // q06 does not register or apply wd8 nib fields; a nib-only op is an applied no-op.
       return { deferredReason: null };
-    }
-    if ((payload.pageOrigin !== null && (!Number.isFinite(payload.pageOrigin.originX) ||
-      !Number.isFinite(payload.pageOrigin.originY))) ||
-      (payload.rotation.value !== null && !Number.isFinite(payload.rotation.value)) ||
-      (payload.scale.value !== null && (!Number.isFinite(payload.scale.value.x) ||
-        !Number.isFinite(payload.scale.value.y)))) {
-      return { deferredReason: 'MODIFY_INK_TRANSFORM_UNSUPPORTED' };
-    }
-    if (payload.width !== null && (!Number.isFinite(payload.width) || payload.width < 0)) {
-      return { deferredReason: 'MODIFY_INK_WIDTH_UNSUPPORTED' };
-    }
-    if (payload.centerPath !== null) {
-      try {
-        decodeOriginalInkPathReplacement(payload.centerPath);
-      } catch (_error) {
-        if (_error instanceof OriginalInkPathDeferredError) {
-          return { deferredReason: _error.deferredReason };
-        }
-        return { deferredReason: 'MALFORMED_MODIFY_INK_PAYLOAD' };
-      }
     }
     let decodedCustomPath: DecodedOriginalAuxiliaryInkPath | null = null;
     let decodedFillPath: DecodedOriginalAuxiliaryInkPath | null = null;
@@ -358,6 +366,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       if (state === null) {
         return { deferredReason: 'MODIFY_INK_BASE_STATE_MISSING' };
       }
+      assertMatchingModifyInkWinners(payload, state, operation);
       const replaceCenterPath: boolean = payload.centerPath !== null &&
         registerAccepts(operation, state.centerPathWinner);
       const replaceCustomPath: boolean = payload.customPath.present &&
@@ -1300,6 +1309,42 @@ function pageElementPredicates(noteId: string, target: StoredPageTarget,
   return predicates;
 }
 
+function preflightOriginalModifyInk(payload: OriginalModifyInkPayload): string | null {
+  if (payload.hasUnsupportedFields) {
+    return 'MODIFY_INK_ADDITIONAL_FIELDS_UNSUPPORTED';
+  }
+  if ((payload.pageOrigin !== null && (!Number.isFinite(payload.pageOrigin.originX) ||
+    !Number.isFinite(payload.pageOrigin.originY))) ||
+    (payload.rotation.value !== null && !Number.isFinite(payload.rotation.value)) ||
+    (payload.scale.value !== null && (!Number.isFinite(payload.scale.value.x) ||
+      !Number.isFinite(payload.scale.value.y)))) {
+    return 'MODIFY_INK_TRANSFORM_UNSUPPORTED';
+  }
+  if (payload.width !== null && (!Number.isFinite(payload.width) || payload.width < 0)) {
+    return 'MODIFY_INK_WIDTH_UNSUPPORTED';
+  }
+  try {
+    if (payload.centerPath !== null) {
+      decodeOriginalInkPathReplacement(payload.centerPath);
+    }
+    if (payload.customPath.present && payload.customPath.value !== null) {
+      decodeOriginalAuxiliaryInkPath(payload.customPath.value, 'MODIFY_INK_CUSTOM_PATH');
+    }
+    if (payload.fillPath.present && payload.fillPath.value !== null) {
+      decodeOriginalAuxiliaryInkPath(payload.fillPath.value, 'MODIFY_INK_FILL_PATH');
+    }
+    if (payload.styleMap.present && decodeOriginalInkStyleMap(payload.styleMap.value).length > 1) {
+      return 'MALFORMED_MODIFY_INK_PAYLOAD';
+    }
+  } catch (_error) {
+    if (_error instanceof OriginalInkPathDeferredError) {
+      return _error.deferredReason;
+    }
+    return 'MALFORMED_MODIFY_INK_PAYLOAD';
+  }
+  return null;
+}
+
 function normalizeOriginalInkStyle(value: number): number {
   return value >= 0 && value <= 3 ? value : 0;
 }
@@ -1495,6 +1540,93 @@ function createBaseTransform(payload: OriginalCreateInkPayload): OriginalInkBase
 
 function transformMatricesEqual(left: TransformMatrix, right: TransformMatrix): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function assertMatchingModifyInkWinners(payload: OriginalModifyInkPayload,
+  state: StoredInkState, operation: OperationIdentity): void {
+  if (payload.centerPath !== null && winnerMatches(state.centerPathWinner, operation) &&
+    !sameNullableBytes(state.basePath, payload.centerPath)) {
+    throw new Error('original modify-ink identity conflicts with persisted center path');
+  }
+  if (payload.customPath.present && winnerMatches(state.customPath.winner, operation) &&
+    !sameNullableBytes(state.customPath.value, payload.customPath.value)) {
+    throw new Error('original modify-ink identity conflicts with persisted custom path');
+  }
+  if (payload.fillPath.present && winnerMatches(state.fillPath.winner, operation) &&
+    !sameNullableBytes(state.fillPath.value, payload.fillPath.value)) {
+    throw new Error('original modify-ink identity conflicts with persisted fill path');
+  }
+  if (payload.fillColor.present && winnerMatches(state.fillColor.winner, operation) &&
+    state.fillColor.value !== payload.fillColor.value) {
+    throw new Error('original modify-ink identity conflicts with persisted fill color');
+  }
+  if (payload.styleMap.present && winnerMatches(state.styleMap.winner, operation) &&
+    !sameNullableBytes(state.styleMap.value, payload.styleMap.value)) {
+    throw new Error('original modify-ink identity conflicts with persisted style map');
+  }
+  if (payload.style !== null && winnerMatches(state.style.winner, operation) &&
+    state.style.value !== payload.style) {
+    throw new Error('original modify-ink identity conflicts with persisted style');
+  }
+  if (payload.color !== null && winnerMatches(state.color.winner, operation) &&
+    state.color.value !== payload.color) {
+    throw new Error('original modify-ink identity conflicts with persisted color');
+  }
+  if (payload.width !== null && winnerMatches(state.width.winner, operation) &&
+    state.width.value !== payload.width) {
+    throw new Error('original modify-ink identity conflicts with persisted width');
+  }
+  if (payload.rotation.present && winnerMatches(state.rotation.winner, operation) &&
+    state.rotation.value !== payload.rotation.value) {
+    throw new Error('original modify-ink identity conflicts with persisted rotation');
+  }
+  if (payload.scale.present && winnerMatches(state.scale.winner, operation) &&
+    !sameNullableScale(state.scale.value, payload.scale.value)) {
+    throw new Error('original modify-ink identity conflicts with persisted scale');
+  }
+  if (payload.pageOrigin !== null && winnerMatches(state.pageOrigin.winner, operation) &&
+    !sameNullablePageOrigin(state.pageOrigin.value, payload.pageOrigin)) {
+    throw new Error('original modify-ink identity conflicts with persisted page/origin');
+  }
+  if (payload.zIndex !== null && winnerMatches(state.zIndex.winner, operation) &&
+    state.zIndex.value !== payload.zIndex) {
+    throw new Error('original modify-ink identity conflicts with persisted z-index');
+  }
+}
+
+function winnerMatches(winner: OperationIdentity | null, operation: OperationIdentity): boolean {
+  return winner !== null && compareOperationIdentity(winner, operation) === 0;
+}
+
+function sameNullableBytes(left: Uint8Array | null, right: Uint8Array | null): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index: number = 0; index < left.length; index++) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sameNullableScale(left: OriginalInkScale | null, right: OriginalInkScale | null): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+  return left.x === right.x && left.y === right.y;
+}
+
+function sameNullablePageOrigin(left: OriginalInkPageOrigin | null,
+  right: OriginalInkPageOrigin | null): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+  return samePageIdentity(left.page, right.page) &&
+    left.originX === right.originX && left.originY === right.originY;
 }
 
 function registerAccepts(operation: OperationIdentity,

@@ -27,6 +27,9 @@ import {
   ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE, OriginalAddPathElementsOperationApplier,
 } from './OriginalAddPathElementsOperation';
 import {
+  ORIGINAL_MODIFY_INK_PAYLOAD_TYPE, OriginalModifyInkOperationApplier,
+} from './OriginalModifyInkOperation';
+import {
   StoredSyncedOperation, SyncedOperationInboxState, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 
@@ -230,6 +233,7 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
   const createInk: OriginalCreateInkOperationApplier = new OriginalCreateInkOperationApplier();
   const addPath: OriginalAddPathElementsOperationApplier =
     new OriginalAddPathElementsOperationApplier();
+  const modifyInk: OriginalModifyInkOperationApplier = new OriginalModifyInkOperationApplier();
   for (const operation of bundle.operations) {
     if (operation.payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE) {
@@ -249,6 +253,13 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
     }
     if (operation.payloadType === ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE) {
       const reason: string | null = addPath.preflightTable(operation.payload);
+      if (reason !== null) {
+        return `NOTE_BUNDLE_${reason}`;
+      }
+      continue;
+    }
+    if (operation.payloadType === ORIGINAL_MODIFY_INK_PAYLOAD_TYPE) {
+      const reason: string | null = modifyInk.preflightTable(operation.payload);
       if (reason !== null) {
         return `NOTE_BUNDLE_${reason}`;
       }
@@ -289,12 +300,14 @@ async function applyBundleContent(store: relationalStore.RdbStore,
   const createInk: OriginalCreateInkOperationApplier = new OriginalCreateInkOperationApplier();
   const addPath: OriginalAddPathElementsOperationApplier =
     new OriginalAddPathElementsOperationApplier();
+  const modifyInk: OriginalModifyInkOperationApplier = new OriginalModifyInkOperationApplier();
   const before: number = await countRows(store,
     'SELECT COUNT(*) AS value FROM original_element_z_index WHERE note_id = ?', [bundle.noteId]);
   const revisionBefore: number = await contentRevisionTotal(store, bundle.noteId);
   for (const operation of bundle.operations) {
     if (operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE &&
-      operation.payloadType !== ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE) {
+      operation.payloadType !== ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_MODIFY_INK_PAYLOAD_TYPE) {
       continue;
     }
     const stored: StoredSyncedOperation = {
@@ -310,10 +323,14 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       deferredReason: null,
       receivedAt: 0,
     };
-    const result: SyncedOperationApplyResult = operation.payloadType ===
-      ORIGINAL_CREATE_INK_PAYLOAD_TYPE ? await createInk.applyTable(
-        store, stored, operation.payload) : await addPath.applyTable(
-          store, stored, operation.payload);
+    let result: SyncedOperationApplyResult;
+    if (operation.payloadType === ORIGINAL_CREATE_INK_PAYLOAD_TYPE) {
+      result = await createInk.applyTable(store, stored, operation.payload);
+    } else if (operation.payloadType === ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE) {
+      result = await addPath.applyTable(store, stored, operation.payload);
+    } else {
+      result = await modifyInk.applyTable(store, stored, operation.payload);
+    }
     if (result.deferredReason !== null) {
       return deferred(`NOTE_BUNDLE_${result.deferredReason}`);
     }

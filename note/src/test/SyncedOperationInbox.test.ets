@@ -28,7 +28,8 @@ import { decodeOriginalCreateInk, decodeOriginalCreateInkTable,
 import { decodeOriginalAddPathElements, decodeOriginalAddPathElementsTable,
   OriginalAddPathElementsOperationApplier } from
   '../main/ets/data/OriginalAddPathElementsOperation';
-import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOperation';
+import { decodeOriginalModifyInk, decodeOriginalModifyInkTable,
+  OriginalModifyInkOperationApplier } from '../main/ets/data/OriginalModifyInkOperation';
 import { decodeOriginalCreateBlock, OriginalBlockType, OriginalCreateBlockOperationApplier,
   unsupportedOriginalCreateBlockReason } from
   '../main/ets/data/OriginalCreateBlockOperation';
@@ -619,6 +620,19 @@ export default function syncedOperationInboxTest() {
       expect(new OriginalAddPathElementsOperationApplier().preflightTable(
         bundle.operations[2].payload) === null).assertTrue();
     });
+
+    it('decodes and preflights MODIFY_INK from a NOTE_BUNDLE child table', 0, () => {
+      const bundle = decodeOriginalNoteBundle(flatBufferNoteBundleWithCreateInk(true, true));
+      expect(bundle.operations.length).assertEqual(4);
+      expect(bundle.operations[3].payloadType).assertEqual(17);
+      const modify = decodeOriginalModifyInkTable(bundle.operations[3].payload);
+      expect(modify.inks.length).assertEqual(1);
+      expect(modify.inks[0].timestamp).assertEqual(20);
+      expect(modify.inks[0].siteId).assertEqual(2);
+      expect(modify.width).assertEqual(9);
+      expect(new OriginalModifyInkOperationApplier().preflightTable(
+        bundle.operations[3].payload) === null).assertTrue();
+    });
   });
 }
 
@@ -675,7 +689,8 @@ function flatBufferNoteBundle(): Uint8Array {
   return bytes;
 }
 
-function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false): Uint8Array {
+function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
+  includeModify: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 0, 20, 24, 0, 28, 32, 36], 40);
   const uuid: number[] = [0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88,
@@ -683,21 +698,30 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false): Uint
   builder.color(root + 4, uuid);
   builder.uint16(root + 20, 9);
   builder.uint16(root + 36, 7);
-  const operations: number = builder.tableVector(includeAppend ? 3 : 2);
+  const operationCount: number = 2 + (includeAppend ? 1 : 0) + (includeModify ? 1 : 0);
+  const operations: number = builder.tableVector(operationCount);
   builder.pointer(root + 32, operations);
   const createPageOp: number = builder.table([4, 12, 20, 0, 28, 32, 0], 36);
   const createInkOp: number = builder.table([4, 12, 20, 0, 28, 32, 0], 36);
   const appendOp: number = includeAppend ?
+    builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
+  const modifyOp: number = includeModify ?
     builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
   builder.pointer(operations + 4, createPageOp);
   builder.pointer(operations + 8, createInkOp);
   if (includeAppend) {
     builder.pointer(operations + 12, appendOp);
   }
+  if (includeModify) {
+    builder.pointer(operations + 4 + (operationCount - 1) * 4, modifyOp);
+  }
   writeBundleOperation(builder, createPageOp, 1, 10, '11', '12', 3);
   writeBundleOperation(builder, createInkOp, 2, 20, '21', '22', 15);
   if (includeAppend) {
     writeBundleOperation(builder, appendOp, 3, 30, '31', '32', 16);
+  }
+  if (includeModify) {
+    writeBundleOperation(builder, modifyOp, 4, 40, '41', '42', 17);
   }
 
   const createPage: number = builder.table([0, 0, 4, 0], 8);
@@ -733,6 +757,15 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false): Uint
     appendAttributedPathElement(appended, 1,
       [{ x: 100, y: 100 }, { x: 10, y: 0 }], 0x3C00, 0x3800, 255, 0);
     builder.pointer(add + 12, builder.byteVector(appended));
+  }
+  if (includeModify) {
+    const modify: number = builder.table([4, 0, 0, 0, 0, 0, 0, 8, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0], 12);
+    builder.pointer(modifyOp + 32, modify);
+    builder.pointer(modify + 4, builder.operationIdentityVector([
+      { timestamp: 20, siteId: 2 },
+    ]));
+    builder.float32(modify + 8, 9);
   }
   builder.pointer(root + 24, builder.byteVector([0x65]));
   builder.pointer(root + 28, builder.byteVector([0x63]));
