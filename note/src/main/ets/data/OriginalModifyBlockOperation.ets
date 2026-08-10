@@ -196,6 +196,11 @@ interface PlannedBlockReplacement {
 export function decodeOriginalModifyBlock(bytes: Uint8Array): OriginalModifyBlockPayload {
   const table: OriginalFlatBufferTableReader = readOriginalPayloadTable(
     bytes, ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE);
+  return decodeOriginalModifyBlockTable(table);
+}
+
+export function decodeOriginalModifyBlockTable(
+  table: OriginalFlatBufferTableReader): OriginalModifyBlockPayload {
   const rawBlocks: number[][] = table.readInlineOperationIdentityVector(
     0, MAX_ORIGINAL_MODIFY_BLOCK_COUNT);
   if (rawBlocks.length === 0) {
@@ -309,20 +314,36 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     } catch (_error) {
       return { deferredReason: 'MALFORMED_MODIFY_BLOCK_PAYLOAD' };
     }
-    if ((payload.pageOrigin !== null && (!Number.isFinite(payload.pageOrigin.originX) ||
-      !Number.isFinite(payload.pageOrigin.originY))) ||
-      (payload.rotation.value !== null && !Number.isFinite(payload.rotation.value)) ||
-      (payload.scale.value !== null && (!Number.isFinite(payload.scale.value.x) ||
-        !Number.isFinite(payload.scale.value.y))) ||
-      (payload.width !== null && (!Number.isFinite(payload.width) || payload.width < 0)) ||
-      (payload.height !== null && (!Number.isFinite(payload.height) || payload.height < 0))) {
-      return { deferredReason: 'MODIFY_BLOCK_GEOMETRY_UNSUPPORTED' };
+    return this.applyPayload(store, operation, payload);
+  }
+
+  preflightTable(table: OriginalFlatBufferTableReader): string | null {
+    let payload: OriginalModifyBlockPayload;
+    try {
+      payload = decodeOriginalModifyBlockTable(table);
+    } catch (_error) {
+      return 'MALFORMED_MODIFY_BLOCK_PAYLOAD';
     }
-    if (payload.cropRect.value !== null && (!Number.isFinite(payload.cropRect.value.x) ||
-      !Number.isFinite(payload.cropRect.value.y) || !Number.isFinite(payload.cropRect.value.width) ||
-      !Number.isFinite(payload.cropRect.value.height) || payload.cropRect.value.width < 0 ||
-      payload.cropRect.value.height < 0)) {
-      return { deferredReason: 'MODIFY_BLOCK_GEOMETRY_UNSUPPORTED' };
+    return preflightOriginalModifyBlock(payload);
+  }
+
+  async applyTable(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
+    table: OriginalFlatBufferTableReader): Promise<SyncedOperationApplyResult> {
+    let payload: OriginalModifyBlockPayload;
+    try {
+      payload = decodeOriginalModifyBlockTable(table);
+    } catch (_error) {
+      return { deferredReason: 'MALFORMED_MODIFY_BLOCK_PAYLOAD' };
+    }
+    return this.applyPayload(store, operation, payload);
+  }
+
+  private async applyPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation,
+    payload: OriginalModifyBlockPayload): Promise<SyncedOperationApplyResult> {
+    const preflightReason: string | null = preflightOriginalModifyBlock(payload);
+    if (preflightReason !== null) {
+      return { deferredReason: preflightReason };
     }
     if (payload.pageOrigin === null && !payload.rotation.present && !payload.scale.present &&
       payload.width === null && payload.corner === null && payload.textWrap === null &&
@@ -360,6 +381,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       if (state === null || element === null || !this.currentStateMatches(target, state, element)) {
         return { deferredReason: 'MODIFY_BLOCK_STATE_DIVERGED' };
       }
+      assertMatchingModifyBlockWinners(payload, state, operation);
       const replacePageOrigin: boolean = payload.pageOrigin !== null &&
         registerAccepts(operation, state.pageOrigin.winner);
       const replaceRotation: boolean = payload.rotation.present &&
@@ -1462,6 +1484,136 @@ function requireValue<T>(value: T | null, label: string): T {
     throw new Error(`original modify-block is missing ${label}`);
   }
   return value;
+}
+
+function preflightOriginalModifyBlock(payload: OriginalModifyBlockPayload): string | null {
+  if ((payload.pageOrigin !== null && (!Number.isFinite(payload.pageOrigin.originX) ||
+    !Number.isFinite(payload.pageOrigin.originY))) ||
+    (payload.rotation.value !== null && !Number.isFinite(payload.rotation.value)) ||
+    (payload.scale.value !== null && (!Number.isFinite(payload.scale.value.x) ||
+      !Number.isFinite(payload.scale.value.y))) ||
+    (payload.width !== null && (!Number.isFinite(payload.width) || payload.width < 0)) ||
+    (payload.height !== null && (!Number.isFinite(payload.height) || payload.height < 0))) {
+    return 'MODIFY_BLOCK_GEOMETRY_UNSUPPORTED';
+  }
+  if (payload.cropRect.value !== null && (!Number.isFinite(payload.cropRect.value.x) ||
+    !Number.isFinite(payload.cropRect.value.y) ||
+    !Number.isFinite(payload.cropRect.value.width) ||
+    !Number.isFinite(payload.cropRect.value.height) || payload.cropRect.value.width < 0 ||
+    payload.cropRect.value.height < 0)) {
+    return 'MODIFY_BLOCK_GEOMETRY_UNSUPPORTED';
+  }
+  const mathFields: boolean = payload.mathLatex.present || payload.mathColor.present;
+  const imageFields: boolean = payload.cropRect.present ||
+    payload.imageFlippedHorizontally !== null || payload.imageFlippedVertically !== null;
+  const textFields: boolean = payload.paper.present || payload.resizesWidthToFitText !== null;
+  if ([mathFields, imageFields, textFields].filter((present: boolean) => present).length > 1) {
+    return 'MODIFY_BLOCK_MIXED_TYPE_SPECIFIC_FIELDS';
+  }
+  return null;
+}
+
+function assertMatchingModifyBlockWinners(payload: OriginalModifyBlockPayload,
+  state: StoredBlockState, operation: OperationIdentity): void {
+  if (payload.pageOrigin !== null && winnerMatches(state.pageOrigin.winner, operation) &&
+    !sameNullableBlockPageOrigin(state.pageOrigin.value, payload.pageOrigin)) {
+    throw new Error('original modify-block identity conflicts with persisted page/origin');
+  }
+  if (payload.rotation.present && winnerMatches(state.rotation.winner, operation) &&
+    state.rotation.value !== payload.rotation.value) {
+    throw new Error('original modify-block identity conflicts with persisted rotation');
+  }
+  if (payload.scale.present && winnerMatches(state.scale.winner, operation) &&
+    !sameNullableBlockScale(state.scale.value, payload.scale.value)) {
+    throw new Error('original modify-block identity conflicts with persisted scale');
+  }
+  if (payload.width !== null && winnerMatches(state.size.winner, operation) &&
+    !sameNullableBlockScale(state.size.value,
+      { x: payload.width, y: payload.height as number })) {
+    throw new Error('original modify-block identity conflicts with persisted size');
+  }
+  if (payload.corner !== null && winnerMatches(state.corner.winner, operation) &&
+    state.corner.value !== payload.corner) {
+    throw new Error('original modify-block identity conflicts with persisted corner');
+  }
+  if (payload.textWrap !== null && winnerMatches(state.textWrap.winner, operation) &&
+    state.textWrap.value !== payload.textWrap) {
+    throw new Error('original modify-block identity conflicts with persisted text wrap');
+  }
+  if (payload.enableCaption !== null && winnerMatches(state.enableCaption.winner, operation) &&
+    state.enableCaption.value !== payload.enableCaption) {
+    throw new Error('original modify-block identity conflicts with persisted caption');
+  }
+  if (payload.paper.present && winnerMatches(state.paper.winner, operation) &&
+    !sameNullablePaper(state.paper.value, payload.paper.value)) {
+    throw new Error('original modify-block identity conflicts with persisted paper');
+  }
+  if (payload.resizesWidthToFitText !== null &&
+    winnerMatches(state.resizesWidth.winner, operation) &&
+    state.resizesWidth.value !== payload.resizesWidthToFitText) {
+    throw new Error('original modify-block identity conflicts with persisted resize behavior');
+  }
+  if (payload.cropRect.present && winnerMatches(state.imageCrop.winner, operation) &&
+    !sameNullableOriginalRect(state.imageCrop.value, payload.cropRect.value)) {
+    throw new Error('original modify-block identity conflicts with persisted image crop');
+  }
+  if (payload.imageFlippedHorizontally !== null &&
+    winnerMatches(state.imageFlipHorizontal.winner, operation) &&
+    state.imageFlipHorizontal.value !== payload.imageFlippedHorizontally) {
+    throw new Error('original modify-block identity conflicts with persisted horizontal flip');
+  }
+  if (payload.imageFlippedVertically !== null &&
+    winnerMatches(state.imageFlipVertical.winner, operation) &&
+    state.imageFlipVertical.value !== payload.imageFlippedVertically) {
+    throw new Error('original modify-block identity conflicts with persisted vertical flip');
+  }
+  if (payload.mathLatex.present && winnerMatches(state.mathLatex.winner, operation) &&
+    state.mathLatex.value !== payload.mathLatex.value) {
+    throw new Error('original modify-block identity conflicts with persisted math latex');
+  }
+  if (payload.mathColor.present && winnerMatches(state.mathColor.winner, operation) &&
+    state.mathColor.value !== payload.mathColor.value) {
+    throw new Error('original modify-block identity conflicts with persisted math color');
+  }
+  if (payload.positionLocked !== null &&
+    winnerMatches(state.positionLocked.winner, operation) &&
+    state.positionLocked.value !== payload.positionLocked) {
+    throw new Error('original modify-block identity conflicts with persisted position lock');
+  }
+  if (payload.zIndex !== null && winnerMatches(state.zIndex.winner, operation) &&
+    state.zIndex.value !== payload.zIndex) {
+    throw new Error('original modify-block identity conflicts with persisted z-index');
+  }
+}
+
+function winnerMatches(winner: OperationIdentity | null,
+  operation: OperationIdentity): boolean {
+  return winner !== null && compareOperationIdentity(winner, operation) === 0;
+}
+
+function sameNullableBlockScale(left: OriginalBlockScale | null,
+  right: OriginalBlockScale | null): boolean {
+  return left === null || right === null ? left === right : left.x === right.x && left.y === right.y;
+}
+
+function sameNullableBlockPageOrigin(left: OriginalBlockPageOrigin | null,
+  right: OriginalBlockPageOrigin | null): boolean {
+  return left === null || right === null ? left === right :
+    samePageIdentity(left.page, right.page) && left.originX === right.originX &&
+      left.originY === right.originY;
+}
+
+function sameNullableOriginalRect(left: OriginalBlockRect | null,
+  right: OriginalBlockRect | null): boolean {
+  return left === null || right === null ? left === right :
+    left.x === right.x && left.y === right.y && left.width === right.width &&
+      left.height === right.height;
+}
+
+function sameNullablePaper(left: PagePaperBackground | null,
+  right: PagePaperBackground | null): boolean {
+  return left === null || right === null ? left === right :
+    JSON.stringify(left) === JSON.stringify(right);
 }
 
 function registerAccepts(operation: OperationIdentity,
