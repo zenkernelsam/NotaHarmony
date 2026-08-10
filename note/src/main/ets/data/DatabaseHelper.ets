@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v29: preserve the original style/color/width LWW registers for MODIFY_INK replay.
-export const DB_VERSION: number = 29;
+// v30: preserve nullable transform registers and distinguish an absent original LWW winner.
+export const DB_VERSION: number = 30;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -401,22 +401,50 @@ CREATE TABLE IF NOT EXISTS original_ink_state (
     CHECK (center_path_winner_timestamp BETWEEN 0 AND 4294967295),
   center_path_winner_site_id INTEGER NOT NULL
     CHECK (center_path_winner_site_id BETWEEN 0 AND 65535),
+  center_path_winner_present INTEGER NOT NULL CHECK (center_path_winner_present IN (0, 1)),
   style_value INTEGER CHECK (style_value IS NULL OR style_value BETWEEN 0 AND 3),
   style_winner_timestamp INTEGER NOT NULL
     CHECK (style_winner_timestamp BETWEEN 0 AND 4294967295),
   style_winner_site_id INTEGER NOT NULL
     CHECK (style_winner_site_id BETWEEN 0 AND 65535),
+  style_winner_present INTEGER NOT NULL CHECK (style_winner_present IN (0, 1)),
   color_value INTEGER CHECK (color_value IS NULL OR color_value BETWEEN -2147483648 AND 2147483647),
   color_winner_timestamp INTEGER NOT NULL
     CHECK (color_winner_timestamp BETWEEN 0 AND 4294967295),
   color_winner_site_id INTEGER NOT NULL
     CHECK (color_winner_site_id BETWEEN 0 AND 65535),
+  color_winner_present INTEGER NOT NULL CHECK (color_winner_present IN (0, 1)),
   width_value REAL CHECK (width_value IS NULL OR
     width_value BETWEEN -3.4028234663852886e38 AND 3.4028234663852886e38),
   width_winner_timestamp INTEGER NOT NULL
     CHECK (width_winner_timestamp BETWEEN 0 AND 4294967295),
   width_winner_site_id INTEGER NOT NULL
     CHECK (width_winner_site_id BETWEEN 0 AND 65535),
+  width_winner_present INTEGER NOT NULL CHECK (width_winner_present IN (0, 1)),
+  create_origin_x REAL,
+  create_origin_y REAL,
+  create_rotation REAL,
+  create_scale_x REAL,
+  create_scale_y REAL,
+  rotation_value REAL,
+  rotation_winner_timestamp INTEGER NOT NULL
+    CHECK (rotation_winner_timestamp BETWEEN 0 AND 4294967295),
+  rotation_winner_site_id INTEGER NOT NULL
+    CHECK (rotation_winner_site_id BETWEEN 0 AND 65535),
+  rotation_winner_present INTEGER NOT NULL CHECK (rotation_winner_present IN (0, 1)),
+  scale_x_value REAL,
+  scale_y_value REAL,
+  scale_winner_timestamp INTEGER NOT NULL
+    CHECK (scale_winner_timestamp BETWEEN 0 AND 4294967295),
+  scale_winner_site_id INTEGER NOT NULL
+    CHECK (scale_winner_site_id BETWEEN 0 AND 65535),
+  scale_winner_present INTEGER NOT NULL CHECK (scale_winner_present IN (0, 1)),
+  CHECK ((create_origin_x IS NULL AND create_origin_y IS NULL AND create_rotation IS NULL
+      AND create_scale_x IS NULL AND create_scale_y IS NULL) OR
+    (create_origin_x IS NOT NULL AND create_origin_y IS NOT NULL AND create_rotation IS NOT NULL
+      AND create_scale_x IS NOT NULL AND create_scale_y IS NOT NULL)),
+  CHECK ((scale_x_value IS NULL AND scale_y_value IS NULL) OR
+    (scale_x_value IS NOT NULL AND scale_y_value IS NOT NULL)),
   PRIMARY KEY(note_id, ink_timestamp, ink_site_id),
   FOREIGN KEY(note_id, ink_timestamp, ink_site_id)
     REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
@@ -1074,5 +1102,44 @@ export const MIGRATIONS: Record<number, string[]> = {
       style_winner_timestamp = ink_timestamp, style_winner_site_id = ink_site_id,
       color_winner_timestamp = ink_timestamp, color_winner_site_id = ink_site_id,
       width_winner_timestamp = ink_timestamp, width_winner_site_id = ink_site_id`,
+  ],
+  30: [
+    `ALTER TABLE original_ink_state ADD COLUMN center_path_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (center_path_winner_present IN (0, 1))`,
+    `ALTER TABLE original_ink_state ADD COLUMN style_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (style_winner_present IN (0, 1))`,
+    `ALTER TABLE original_ink_state ADD COLUMN color_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (color_winner_present IN (0, 1))`,
+    `ALTER TABLE original_ink_state ADD COLUMN width_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (width_winner_present IN (0, 1))`,
+    `UPDATE original_ink_state SET
+      center_path_winner_present = CASE WHEN center_path_winner_timestamp = ink_timestamp
+        AND center_path_winner_site_id = ink_site_id THEN 0 ELSE 1 END,
+      style_winner_present = CASE WHEN style_winner_timestamp = ink_timestamp
+        AND style_winner_site_id = ink_site_id THEN 0 ELSE 1 END,
+      color_winner_present = CASE WHEN color_winner_timestamp = ink_timestamp
+        AND color_winner_site_id = ink_site_id THEN 0 ELSE 1 END,
+      width_winner_present = CASE WHEN width_winner_timestamp = ink_timestamp
+        AND width_winner_site_id = ink_site_id THEN 0 ELSE 1 END`,
+    'ALTER TABLE original_ink_state ADD COLUMN create_origin_x REAL',
+    'ALTER TABLE original_ink_state ADD COLUMN create_origin_y REAL',
+    'ALTER TABLE original_ink_state ADD COLUMN create_rotation REAL',
+    'ALTER TABLE original_ink_state ADD COLUMN create_scale_x REAL',
+    'ALTER TABLE original_ink_state ADD COLUMN create_scale_y REAL',
+    'ALTER TABLE original_ink_state ADD COLUMN rotation_value REAL',
+    `ALTER TABLE original_ink_state ADD COLUMN rotation_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (rotation_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN rotation_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (rotation_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN rotation_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (rotation_winner_present IN (0, 1))`,
+    'ALTER TABLE original_ink_state ADD COLUMN scale_x_value REAL',
+    'ALTER TABLE original_ink_state ADD COLUMN scale_y_value REAL',
+    `ALTER TABLE original_ink_state ADD COLUMN scale_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (scale_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN scale_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (scale_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN scale_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (scale_winner_present IN (0, 1))`,
   ],
 };

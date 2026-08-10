@@ -1,6 +1,6 @@
 # ADR-0007：原版 MODIFY_INK style/color/width 独立 LWW register
 
-- 状态：Accepted（Harmony 可无损表达的渲染字段子集）
+- 状态：Accepted（winner 初始化语义由 ADR-0008 修正）
 - 日期：2026-08-10
 - 关联：D-02、数据库 v29、ADR-0006
 
@@ -15,8 +15,9 @@
 
 ## 决策
 
-数据库升至 v29，在 `original_ink_state` 中为 style、color、width 分别保存 value 与 `(timestamp,site)` winner。新 CREATE_INK 写入
-自身值和身份；v28 迁移只无损回填三个 winner，value 保持 NULL。旧行第一次收到 winning render 修改时，从同一 Ink 身份对应的
+数据库升至 v29，在 `original_ink_state` 中为 style、color、width 分别保存 value 与 `(timestamp,site)` winner。v29 曾用 CREATE
+身份占位 winner；原版 `xj2.k()` 证明 winner 初始应为空，该占位已由 ADR-0008/v30 的 `*_winner_present` 修正。旧行第一次收到
+winning render 修改时，从同一 Ink 身份对应的
 CREATE_INK 原始操作恢复初值并与当前 Stroke 对照；缺 envelope、解析失败或值分歧均整体 DEFERRED，不猜测初值。
 
 `OriginalModifyInkOperationApplier` 同时开放 field 5/6/7/8，并遵循以下规则：

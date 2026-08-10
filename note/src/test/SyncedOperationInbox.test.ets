@@ -236,7 +236,15 @@ export default function syncedOperationInboxTest() {
       expect(withRender.width).assertEqual(5);
       expect(withRender.hasUnsupportedFields).assertFalse();
       const withRotation = decodeOriginalModifyInk(flatBufferModifyInk(false, true));
-      expect(withRotation.hasUnsupportedFields).assertTrue();
+      expect(withRotation.rotation.present).assertTrue();
+      expect(withRotation.rotation.value).assertEqual(0.5);
+      expect(withRotation.hasUnsupportedFields).assertFalse();
+      const withClear = decodeOriginalModifyInk(flatBufferModifyInk(false, false, true, true));
+      expect(withClear.rotation.present).assertTrue();
+      expect(withClear.rotation.value === null).assertTrue();
+      expect(withClear.scale.present).assertTrue();
+      expect(withClear.scale.value?.x).assertEqual(2);
+      expect(withClear.scale.value?.y).assertEqual(3);
     });
 
     it('decodes the original big-endian half-float coordinate path variant', 0, () => {
@@ -608,7 +616,8 @@ function flatBufferAddPathElements(): Uint8Array {
 }
 
 function flatBufferModifyInk(includeRender: boolean = false,
-  includeRotation: boolean = false): Uint8Array {
+  includeRotation: boolean = false, clearRotation: boolean = false,
+  includeScale: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
   builder.uint16(root + 4, 7);
@@ -616,21 +625,32 @@ function flatBufferModifyInk(includeRender: boolean = false,
   writeDecimalU64At(builder, root + 12, '127');
   writeDecimalU64At(builder, root + 20, '128');
   builder.uint8(root + 28, 17);
-  const fields: number[] = [4, 0, 0, includeRotation ? 8 : 0, 0,
-    includeRender ? 12 : 0, includeRender ? 16 : 0, includeRender ? 20 : 0, 24,
+  const fields: number[] = [4, 0, 0, includeRotation || clearRotation ? 8 : 0,
+    includeScale ? 12 : 0,
+    includeRender ? 16 : 0, includeRender ? 20 : 0, includeRender ? 24 : 0, 28,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-  const modify: number = builder.table(fields, 28);
+  const modify: number = builder.table(fields, 32);
   builder.pointer(root + 32, modify);
-  if (includeRotation) {
-    builder.float32(modify + 8, 0.5);
+  if (includeRotation || clearRotation) {
+    const rotation: number = builder.table([clearRotation ? 0 : 4], 8);
+    if (!clearRotation) {
+      builder.float32(rotation + 4, 0.5);
+    }
+    builder.pointer(modify + 8, rotation);
+  }
+  if (includeScale) {
+    const scale: number = builder.table([4], 12);
+    builder.float32(scale + 4, 2);
+    builder.float32(scale + 8, 3);
+    builder.pointer(modify + 12, scale);
   }
   if (includeRender) {
-    builder.uint8(modify + 12, 2);
-    builder.uint8(modify + 16, 1);
-    builder.uint8(modify + 17, 2);
-    builder.uint8(modify + 18, 3);
-    builder.uint8(modify + 19, 128);
-    builder.float32(modify + 20, 5);
+    builder.uint8(modify + 16, 2);
+    builder.uint8(modify + 20, 1);
+    builder.uint8(modify + 21, 2);
+    builder.uint8(modify + 22, 3);
+    builder.uint8(modify + 23, 128);
+    builder.float32(modify + 24, 5);
   }
   const inks: number = builder.operationIdentityVector([
     { timestamp: 20, siteId: 2 }, { timestamp: 21, siteId: 3 },
@@ -640,7 +660,7 @@ function flatBufferModifyInk(includeRender: boolean = false,
   appendAttributedPathElement(path, 3, [{ x: 5, y: 6 }], 0x3C00, 0x3800, 255, 0);
   appendAttributedPathElement(path, 2, [{ x: 15, y: 16 }], 0x3C00, 0x3800, 255, 0);
   const vector: number = builder.byteVector(path);
-  builder.pointer(modify + 24, vector);
+  builder.pointer(modify + 28, vector);
   return builder.finish(root);
 }
 
