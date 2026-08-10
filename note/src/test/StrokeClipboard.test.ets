@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
-import { ElementType, PolygonElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
+import { ElementType, ImageElement, PolygonElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import { PageElementKind, PageElementRef } from '../main/ets/core/model/PageElementOrder';
 import { ClipboardPasteResult, StrokeClipboard } from '../main/ets/rendering/StrokeClipboard';
 
@@ -55,6 +55,19 @@ function textBlock(id: string, left: number = 70, top: number = 80): TextBlockEl
     textOrigin: { x: left, y: top }, blockWidth: 100, blockHeight: 40,
     rotationRadians: 0, contentLeftInset: 4, contentTopInset: 4,
     fontSize: 16, fontColor: 0xFF224466,
+  };
+}
+
+function imageBlock(id: string, left: number = 180, top: number = 120): ImageElement {
+  const bits: string[] = ['1', '2', '3', '4', '5', '6', '7', '8'];
+  return {
+    id: id, type: ElementType.IMAGE, transform: [1, 0, left, 0, 1, top, 0, 0, 1],
+    bounds: { left: left, top: top, right: left + 80, bottom: top + 60 },
+    assetHash: bits.join(':'), assetHashBits: bits, fileName: 'photo.png', mimeType: 'image/png',
+    fileSize: 100, intrinsicWidth: 160, intrinsicHeight: 120,
+    cropRect: { left: 10, top: 20, right: 150, bottom: 110 }, blockWidth: 80, blockHeight: 60,
+    rotationRadians: 0, corner: 0, textWrap: 0, enableCaption: false, webUrl: null,
+    imageFlippedHorizontally: true, imageFlippedVertically: false, positionLocked: false,
   };
 }
 
@@ -191,6 +204,30 @@ export default function strokeClipboardTest() {
       expect(result?.textBlocks[0].id).assertEqual('all-0');
       expect(result?.shapes[0].id).assertEqual('all-1');
       expect(result?.strokes[0].id).assertEqual('all-2');
+    });
+
+    it('deep-copies image metadata and preserves four-kind z order', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      const source: ImageElement = imageBlock('image-1');
+      const order: PageElementRef[] = [
+        { kind: PageElementKind.IMAGE, elementId: 'image-1', zIndex: 0 },
+        { kind: PageElementKind.TEXT, elementId: 'text-1', zIndex: 1 },
+      ];
+      expect(clipboard.copy([], 'page-1', [], order, [textBlock('text-1')], [source])).assertTrue();
+      source.assetHashBits[0] = '999';
+      if (source.cropRect !== null) {
+        source.cropRect.left = 999;
+      }
+      source.transform[2] = 999;
+      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+        (_sourceId: string, _sequence: number, index: number): string => `media-${index}`);
+      expect(result?.images.length).assertEqual(1);
+      expect(result?.images[0].assetHashBits[0]).assertEqual('1');
+      expect(result?.images[0].cropRect?.left).assertEqual(10);
+      expect(result?.images[0].transform[2]).assertEqual(200);
+      expect(result?.images[0].bounds.left).assertEqual(200);
+      expect(result?.elementOrder[0].kind).assertEqual(PageElementKind.IMAGE);
+      expect(result?.elementOrder[1].kind).assertEqual(PageElementKind.TEXT);
     });
   });
 }

@@ -2,9 +2,10 @@ import { CubicSegment, Point2D, Rect2D } from '../core/model/GeometryTypes';
 import {
   InkPathCommand, InkStyleMapEntry, PencilSplatPoint, RenderSpec, StrokeElementData, StrokePathPoint,
 } from '../core/model/StrokeTypes';
-import { ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { ImageElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { cloneShapeElement } from '../core/model/ShapeGeometry';
 import { cloneTextBlockElement } from '../core/model/TextBlockGeometry';
+import { cloneImageElement, imageBlockWorldBounds } from '../core/model/ImageBlockGeometry';
 import {
   materializePageElements, normalizePageElementOrder, OrderedPageElement,
   PageElementKind, PageElementRef,
@@ -16,6 +17,7 @@ export interface ClipboardPasteResult {
   strokes: StrokeElementData[];
   shapes: ShapeElement[];
   textBlocks: TextBlockElement[];
+  images: ImageElement[];
   elementOrder: PageElementRef[];
   sourcePageId: string;
   pasteSequence: number;
@@ -45,6 +47,16 @@ export function cloneClipboardTextBlock(textBlock: TextBlockElement, id: string 
     left: textBlock.bounds.left + dx, top: textBlock.bounds.top + dy,
     right: textBlock.bounds.right + dx, bottom: textBlock.bounds.bottom + dy,
   };
+  return result;
+}
+
+export function cloneClipboardImage(image: ImageElement, id: string = image.id,
+  dx: number = 0, dy: number = 0): ImageElement {
+  const result: ImageElement = cloneImageElement(image);
+  result.id = id;
+  result.transform[2] += dx;
+  result.transform[5] += dy;
+  result.bounds = imageBlockWorldBounds(result);
   return result;
 }
 
@@ -131,13 +143,16 @@ export class StrokeClipboard {
   private snapshots: StrokeElementData[] = [];
   private shapeSnapshots: ShapeElement[] = [];
   private textSnapshots: TextBlockElement[] = [];
+  private imageSnapshots: ImageElement[] = [];
   private elementOrder: PageElementRef[] = [];
   private sourcePageId: string = '';
   private pasteCount: number = 0;
 
   copy(strokes: StrokeElementData[], sourcePageId: string, shapes: ShapeElement[] = [],
-    elementOrder: PageElementRef[] = [], textBlocks: TextBlockElement[] = []): boolean {
-    if ((strokes.length === 0 && shapes.length === 0 && textBlocks.length === 0) || sourcePageId.length === 0) {
+    elementOrder: PageElementRef[] = [], textBlocks: TextBlockElement[] = [],
+    images: ImageElement[] = []): boolean {
+    if ((strokes.length === 0 && shapes.length === 0 && textBlocks.length === 0 && images.length === 0) ||
+      sourcePageId.length === 0) {
       return false;
     }
     const ids: Set<string> = new Set<string>();
@@ -165,27 +180,40 @@ export class StrokeClipboard {
       ids.add(textBlock.id);
       copiedTexts.push(cloneClipboardTextBlock(textBlock));
     }
+    const copiedImages: ImageElement[] = [];
+    for (const image of images) {
+      if (image.id.length === 0 || ids.has(image.id)) {
+        return false;
+      }
+      ids.add(image.id);
+      copiedImages.push(cloneClipboardImage(image));
+    }
     this.snapshots = copied;
     this.shapeSnapshots = copiedShapes;
     this.textSnapshots = copiedTexts;
-    this.elementOrder = normalizePageElementOrder(elementOrder, copied, copiedTexts, copiedShapes);
+    this.imageSnapshots = copiedImages;
+    this.elementOrder = normalizePageElementOrder(
+      elementOrder, copied, copiedTexts, copiedShapes, copiedImages);
     this.sourcePageId = sourcePageId;
     this.pasteCount = 0;
     return true;
   }
 
   hasContent(): boolean {
-    return this.snapshots.length > 0 || this.shapeSnapshots.length > 0 || this.textSnapshots.length > 0;
+    return this.snapshots.length > 0 || this.shapeSnapshots.length > 0 || this.textSnapshots.length > 0 ||
+      this.imageSnapshots.length > 0;
   }
 
   size(): number {
-    return this.snapshots.length + this.shapeSnapshots.length + this.textSnapshots.length;
+    return this.snapshots.length + this.shapeSnapshots.length + this.textSnapshots.length +
+      this.imageSnapshots.length;
   }
 
   clear(): void {
     this.snapshots = [];
     this.shapeSnapshots = [];
     this.textSnapshots = [];
+    this.imageSnapshots = [];
     this.elementOrder = [];
     this.sourcePageId = '';
     this.pasteCount = 0;
@@ -205,9 +233,10 @@ export class StrokeClipboard {
     const pasted: StrokeElementData[] = [];
     const pastedShapes: ShapeElement[] = [];
     const pastedTexts: TextBlockElement[] = [];
+    const pastedImages: ImageElement[] = [];
     const pastedOrder: PageElementRef[] = [];
     const ordered: OrderedPageElement[] = materializePageElements(
-      this.elementOrder, this.snapshots, this.textSnapshots, this.shapeSnapshots);
+      this.elementOrder, this.snapshots, this.textSnapshots, this.shapeSnapshots, this.imageSnapshots);
     for (let i: number = 0; i < ordered.length; i++) {
       const source: OrderedPageElement = ordered[i];
       const id: string = idFactory(source.elementId, sequence, i);
@@ -224,6 +253,9 @@ export class StrokeClipboard {
       } else if (source.kind === PageElementKind.TEXT) {
         pastedTexts.push(cloneClipboardTextBlock(source.data, id, dx, dy));
         pastedOrder.push({ kind: PageElementKind.TEXT, elementId: id, zIndex: pastedOrder.length });
+      } else if (source.kind === PageElementKind.IMAGE) {
+        pastedImages.push(cloneClipboardImage(source.data, id, dx, dy));
+        pastedOrder.push({ kind: PageElementKind.IMAGE, elementId: id, zIndex: pastedOrder.length });
       }
     }
     this.pasteCount = sequence;
@@ -231,6 +263,7 @@ export class StrokeClipboard {
       strokes: pasted,
       shapes: pastedShapes,
       textBlocks: pastedTexts,
+      images: pastedImages,
       elementOrder: pastedOrder,
       sourcePageId: this.sourcePageId,
       pasteSequence: sequence,
@@ -252,6 +285,9 @@ export class StrokeClipboard {
     }
     for (const textBlock of this.textSnapshots) {
       allBounds.push(textBlock.bounds);
+    }
+    for (const image of this.imageSnapshots) {
+      allBounds.push(image.bounds);
     }
     for (const strokeBounds of allBounds) {
       bounds = {

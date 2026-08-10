@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { ElementType, PolygonElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
+import { ElementType, ImageElement, PolygonElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import { SelectionMode, SelectionTool } from '../main/ets/rendering/SelectionTool';
 
@@ -30,6 +30,18 @@ function textBlock(id: string): TextBlockElement {
     textOrigin: { x: 50, y: 50 }, blockWidth: 40, blockHeight: 30,
     rotationRadians: 0, contentLeftInset: 4, contentTopInset: 4,
     fontSize: 12, fontColor: 0xFF000000,
+  };
+}
+
+function imageBlock(id: string): ImageElement {
+  const bits: string[] = ['1', '2', '3', '4', '5', '6', '7', '8'];
+  return {
+    id: id, type: ElementType.IMAGE, transform: [1, 0, 100, 0, 1, 100, 0, 0, 1],
+    bounds: { left: 100, top: 100, right: 180, bottom: 160 }, assetHash: bits.join(':'),
+    assetHashBits: bits, fileName: 'image.png', mimeType: 'image/png', fileSize: 10,
+    intrinsicWidth: 80, intrinsicHeight: 60, cropRect: null, blockWidth: 80, blockHeight: 60,
+    rotationRadians: 0, corner: 0, textWrap: 0, enableCaption: false, webUrl: null,
+    imageFlippedHorizontally: false, imageFlippedVertically: false, positionLocked: false,
   };
 }
 
@@ -93,6 +105,25 @@ export default function selectionToolTest() {
       const ids: string[] = tool.finalizeSelection([], [], [locked]);
       expect(ids.length).assertEqual(0);
       expect(tool.getState().selectedTextBlockIds.length).assertEqual(0);
+    });
+
+    it('selects image blocks by bounds and excludes position-locked images', 0, () => {
+      const tool: SelectionTool = new SelectionTool();
+      const editable: ImageElement = imageBlock('image-1');
+      const locked: ImageElement = imageBlock('image-locked');
+      locked.positionLocked = true;
+      tool.beginSelection(SelectionMode.RECTANGLE, { x: 90, y: 90 });
+      tool.updateSelection({ x: 190, y: 170 });
+      const ids: string[] = tool.finalizeSelection([], [], [], [editable, locked]);
+      expect(ids.length).assertEqual(1);
+      expect(ids[0]).assertEqual('image-1');
+      expect(tool.getState().selectedImageIds[0]).assertEqual('image-1');
+      const callerIds: string[] = ['image-2'];
+      tool.selectElementIds([], [], [], callerIds);
+      callerIds[0] = 'mutated';
+      expect(tool.getState().selectedImageIds[0]).assertEqual('image-2');
+      tool.deselect();
+      expect(tool.getState().selectedImageIds.length).assertEqual(0);
     });
   });
 }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@ohos/hypium';
 import { ElementType, ImageElement } from '../main/ets/core/model/ElementTypes';
 import {
-  imageAssetPackageMetadataMatches, originalAssetLookupKeys, originalAssetStorageHash,
+  eraserPathHitsImageBlock, imageAssetPackageMetadataMatches, originalAssetLookupKeys,
+  originalAssetStorageHash, transformImageElements,
 } from '../main/ets/core/model/ImageBlockGeometry';
 import { ImageRenderGeometry, imageRenderGeometry } from '../main/ets/rendering/ImageCanvasRenderer';
 import { imageAssetPackageEntry } from '../main/ets/data/ImageAssetPackageStore';
@@ -70,6 +71,30 @@ export default function imageBlockRenderingTest() {
       const block: ImageElement = imageBlock();
       block.cropRect = { left: 500, top: 0, right: 600, bottom: 10 };
       expect(imageRenderGeometry(block, 200, 100) === null).assertTrue();
+    });
+
+    it('transforms editable images while preserving asset and crop metadata', 0, () => {
+      const block: ImageElement = imageBlock();
+      const transformed: ImageElement = transformImageElements(
+        [block], [block.id], [1, 0, 30, 0, 1, 40, 0, 0, 1])[0];
+      expect(transformed.transform[2]).assertEqual(40);
+      expect(transformed.transform[5]).assertEqual(60);
+      expect(transformed.bounds.left).assertEqual(40);
+      expect(transformed.bounds.top).assertEqual(60);
+      expect(transformed.assetHashBits[2]).assertEqual(block.assetHashBits[2]);
+      expect(transformed.cropRect?.left).assertEqual(100);
+      expect(block.transform[2]).assertEqual(10);
+      block.positionLocked = true;
+      expect(transformImageElements([block], [block.id],
+        [1, 0, 30, 0, 1, 40, 0, 0, 1])[0] === block).assertTrue();
+    });
+
+    it('uses the transformed block rectangle for object eraser hits', 0, () => {
+      const block: ImageElement = imageBlock();
+      expect(eraserPathHitsImageBlock([{ x: 0, y: 70 }, { x: 50, y: 70 }], block, 4)).assertTrue();
+      expect(eraserPathHitsImageBlock([{ x: -50, y: -50 }], block, 2)).assertFalse();
+      block.positionLocked = true;
+      expect(eraserPathHitsImageBlock([{ x: 50, y: 70 }], block, 4)).assertFalse();
     });
   });
 }

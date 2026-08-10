@@ -115,6 +115,9 @@ export default function pageElementOrderTest() {
       expect(elements[0].elementId).assertEqual('i1');
       expect(elements[1].elementId).assertEqual('s1');
       expect(requiresUnifiedElementRender(normalized)).assertTrue();
+      const moved: PageElementRef[] = movePageElementRefs(normalized, [], [], true, [], ['i1']);
+      expect(moved[2].elementId).assertEqual('i1');
+      expect(samePageElementMembers(normalized, moved)).assertTrue();
     });
 
     it('moves selected strokes across text and restores exact before order', 0, () => {
