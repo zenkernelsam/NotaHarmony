@@ -43,6 +43,10 @@ import {
   OriginalTextVisibilityOperationApplier,
 } from './OriginalInsertTextOperation';
 import {
+  ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE, ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE,
+  ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE, OriginalRichTextStyleOperationApplier,
+} from './OriginalRichTextStyleOperation';
+import {
   StoredSyncedOperation, SyncedOperationInboxState, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 
@@ -257,6 +261,8 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
     new OriginalInsertTextOperationApplier();
   const textVisibility: OriginalTextVisibilityOperationApplier =
     new OriginalTextVisibilityOperationApplier();
+  const textStyle: OriginalRichTextStyleOperationApplier =
+    new OriginalRichTextStyleOperationApplier();
   for (const operation of bundle.operations) {
     if (operation.payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE) {
@@ -332,6 +338,16 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
       }
       continue;
     }
+    if (operation.payloadType === ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE) {
+      const reason: string | null = textStyle.preflightTable(
+        operation.payload, operation.payloadType);
+      if (reason !== null) {
+        return `NOTE_BUNDLE_${reason}`;
+      }
+      continue;
+    }
     if (operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE) {
       return `NOTE_BUNDLE_PAYLOAD_${operation.payloadType}_UNSUPPORTED`;
     }
@@ -378,6 +394,8 @@ async function applyBundleContent(store: relationalStore.RdbStore,
     new OriginalInsertTextOperationApplier();
   const textVisibility: OriginalTextVisibilityOperationApplier =
     new OriginalTextVisibilityOperationApplier();
+  const textStyle: OriginalRichTextStyleOperationApplier =
+    new OriginalRichTextStyleOperationApplier();
   const before: number = await countRows(store,
     'SELECT COUNT(*) AS value FROM original_element_z_index WHERE note_id = ?', [bundle.noteId]);
   const revisionBefore: number = await contentRevisionTotal(store, bundle.noteId);
@@ -392,7 +410,10 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       operation.payloadType !== ORIGINAL_INSERT_STRING_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE &&
-      operation.payloadType !== ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE) {
+      operation.payloadType !== ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE) {
       continue;
     }
     const stored: StoredSyncedOperation = {
@@ -424,8 +445,12 @@ async function applyBundleContent(store: relationalStore.RdbStore,
     } else if (operation.payloadType === ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_INSERT_STRING_PAYLOAD_TYPE) {
       result = await insertText.applyTable(store, stored, operation.payload);
-    } else {
+    } else if (operation.payloadType === ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE) {
       result = await textVisibility.applyTable(store, stored, operation.payload);
+    } else {
+      result = await textStyle.applyTable(store, stored, operation.payload);
     }
     if (result.deferredReason !== null) {
       throw new Error(`NOTE_BUNDLE content diverged after preflight: ${result.deferredReason}`);

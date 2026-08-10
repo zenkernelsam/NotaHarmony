@@ -42,8 +42,10 @@ import { decodeOriginalInsertText, decodeOriginalInsertTextTable,
   OriginalInsertTextOperationApplier, OriginalTextVisibilityOperationApplier } from
   '../main/ets/data/OriginalInsertTextOperation';
 import {
-  decodeOriginalRichTextStyle, ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE,
+  decodeOriginalRichTextStyle, decodeOriginalRichTextStyleTable,
+  ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE,
   ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE, ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE,
+  OriginalRichTextStyleOperationApplier,
 } from '../main/ets/data/OriginalRichTextStyleOperation';
 import { decodeOriginalAuxiliaryInkPath, originalInkTransform,
   transformedExpandedBounds } from '../main/ets/data/OriginalInkPathCodec';
@@ -716,6 +718,28 @@ export default function syncedOperationInboxTest() {
       expect(new OriginalTextVisibilityOperationApplier().preflightTable(
         bundle.operations[9].payload, 11) === null).assertTrue();
     });
+
+    it('decodes and preflights rich-text styles from NOTE_BUNDLE children', 0, () => {
+      const bundle = decodeOriginalNoteBundle(
+        flatBufferNoteBundleWithCreateInk(true, true, true, true, true, true, true));
+      expect(bundle.operations.length).assertEqual(13);
+      const character = decodeOriginalRichTextStyleTable(bundle.operations[10].payload, 12);
+      expect(character.start.location.timestamp).assertEqual(80);
+      expect(character.start.location.siteId).assertEqual(8);
+      expect(character.end.location.index).assertEqual(1);
+      expect(character.attributes.bold).assertTrue();
+      expect(character.textField?.timestamp).assertEqual(60);
+      const paragraph = decodeOriginalRichTextStyleTable(bundle.operations[11].payload, 13);
+      expect(paragraph.paragraph).assertTrue();
+      expect(paragraph.attributes.indentLevel).assertEqual(2);
+      const cleared = decodeOriginalRichTextStyleTable(bundle.operations[12].payload, 14);
+      expect(cleared.clearAll).assertTrue();
+      expect(cleared.paragraph).assertFalse();
+      const applier = new OriginalRichTextStyleOperationApplier();
+      expect(applier.preflightTable(bundle.operations[10].payload, 12) === null).assertTrue();
+      expect(applier.preflightTable(bundle.operations[11].payload, 13) === null).assertTrue();
+      expect(applier.preflightTable(bundle.operations[12].payload, 14) === null).assertTrue();
+    });
   });
 }
 
@@ -775,7 +799,7 @@ function flatBufferNoteBundle(): Uint8Array {
 function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
   includeModify: boolean = false, includeDelete: boolean = false,
   includeCreateBlock: boolean = false, includeModifyBlock: boolean = false,
-  includeTextOperations: boolean = false): Uint8Array {
+  includeTextOperations: boolean = false, includeStyleOperations: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 0, 20, 24, 0, 28, 32, 36], 40);
   const uuid: number[] = [0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88,
@@ -785,7 +809,7 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
   builder.uint16(root + 36, 7);
   const operationCount: number = 2 + (includeAppend ? 1 : 0) + (includeModify ? 1 : 0) +
     (includeDelete ? 1 : 0) + (includeCreateBlock ? 1 : 0) + (includeModifyBlock ? 1 : 0) +
-    (includeTextOperations ? 3 : 0);
+    (includeTextOperations ? 3 : 0) + (includeStyleOperations ? 3 : 0);
   const operations: number = builder.tableVector(operationCount);
   builder.pointer(root + 32, operations);
   const createPageOp: number = builder.table([4, 12, 20, 0, 28, 32, 0], 36);
@@ -805,6 +829,12 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
   const removeCharsOp: number = includeTextOperations ?
     builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
   const reviveCharsOp: number = includeTextOperations ?
+    builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
+  const modifyStyleOp: number = includeStyleOperations ?
+    builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
+  const paragraphStyleOp: number = includeStyleOperations ?
+    builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
+  const clearStyleOp: number = includeStyleOperations ?
     builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
   builder.pointer(operations + 4, createPageOp);
   builder.pointer(operations + 8, createInkOp);
@@ -833,6 +863,12 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
     builder.pointer(operations + 4 + operationIndex * 4, insertStringOp);
     builder.pointer(operations + 8 + operationIndex * 4, removeCharsOp);
     builder.pointer(operations + 12 + operationIndex * 4, reviveCharsOp);
+    operationIndex += 3;
+  }
+  if (includeStyleOperations) {
+    builder.pointer(operations + 4 + operationIndex * 4, modifyStyleOp);
+    builder.pointer(operations + 8 + operationIndex * 4, paragraphStyleOp);
+    builder.pointer(operations + 12 + operationIndex * 4, clearStyleOp);
   }
   writeBundleOperation(builder, createPageOp, 1, 10, '11', '12', 3);
   writeBundleOperation(builder, createInkOp, 2, 20, '21', '22', 15);
@@ -855,6 +891,11 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
     writeBundleOperation(builder, insertStringOp, 8, 80, '81', '82', 8);
     writeBundleOperation(builder, removeCharsOp, 9, 90, '91', '92', 10);
     writeBundleOperation(builder, reviveCharsOp, 10, 100, '101', '102', 11);
+  }
+  if (includeStyleOperations) {
+    writeBundleOperation(builder, modifyStyleOp, 11, 110, '111', '112', 12);
+    writeBundleOperation(builder, paragraphStyleOp, 12, 120, '121', '122', 13);
+    writeBundleOperation(builder, clearStyleOp, 13, 130, '131', '132', 14);
   }
 
   const createPage: number = builder.table([0, 0, 4, 0], 8);
@@ -956,6 +997,28 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
       { timestamp: 80, siteId: 8, index: 1 },
     ]));
     builder.inlineIdentity(revived + 8, 60, 6);
+  }
+  if (includeStyleOperations) {
+    const character: number = builder.table([4, 20, 36, 44, 0, 0, 0, 0, 0, 48,
+      0, 0, 0, 0, 0], 52);
+    builder.pointer(modifyStyleOp + 32, character);
+    builder.inlineBoundary(character + 4, 80, 8, 0, 0);
+    builder.inlineBoundary(character + 20, 80, 8, 1, 1);
+    builder.inlineIdentity(character + 36, 60, 6);
+    builder.pointer(character + 44, boolWrapper(builder, true));
+    builder.pointer(character + 48, colorWrapper(builder, [17, 34, 51, 255]));
+    const paragraph: number = builder.table([4, 16, 28, 0, 0, 0, 0, 32, 0, 0], 40);
+    builder.pointer(paragraphStyleOp + 32, paragraph);
+    builder.inlineSequence(paragraph + 4, 80, 8, 0);
+    builder.inlineSequence(paragraph + 16, 80, 8, 1);
+    builder.pointer(paragraph + 28, enumWrapper(builder, 2));
+    builder.inlineIdentity(paragraph + 32, 60, 6);
+    const cleared: number = builder.table([4, 20, 36, 40], 48);
+    builder.pointer(clearStyleOp + 32, cleared);
+    builder.inlineBoundary(cleared + 4, 0, 0xFFFF, 0, 0);
+    builder.inlineBoundary(cleared + 20, 0, 0xFFFF, 0, 3);
+    builder.uint8(cleared + 36, 0);
+    builder.inlineIdentity(cleared + 40, 60, 6);
   }
   builder.pointer(root + 24, builder.byteVector([0x65]));
   builder.pointer(root + 28, builder.byteVector([0x63]));
@@ -1074,7 +1137,7 @@ function flatBufferModifyPage(): Uint8Array {
 }
 
 class FixtureFlatBufferBuilder {
-  private bytes: Uint8Array = new Uint8Array(1024);
+  private bytes: Uint8Array = new Uint8Array(2048);
   private cursor: number = 4;
 
   table(offsets: number[], objectSize: number): number {

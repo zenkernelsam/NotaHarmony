@@ -48,6 +48,16 @@ export function decodeOriginalRichTextStyle(bytes: Uint8Array,
     throw new Error('original rich-text style payload type is unsupported');
   }
   const table: OriginalFlatBufferTableReader = readOriginalPayloadTable(bytes, payloadType);
+  return decodeOriginalRichTextStyleTable(table, payloadType);
+}
+
+export function decodeOriginalRichTextStyleTable(table: OriginalFlatBufferTableReader,
+  payloadType: number): OriginalRichTextStylePayload {
+  if (payloadType !== ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE &&
+    payloadType !== ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE &&
+    payloadType !== ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE) {
+    throw new Error('original rich-text style payload type is unsupported');
+  }
   if (payloadType === ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE) {
     return decodeCharacterStyle(table);
   }
@@ -74,8 +84,37 @@ export class OriginalRichTextStyleOperationApplier implements SyncedOperationApp
     } catch (_error) {
       return { deferredReason: 'MALFORMED_RICH_TEXT_STYLE_PAYLOAD' };
     }
+    return this.applyPayload(store, operation, payload);
+  }
+
+  preflightTable(table: OriginalFlatBufferTableReader, payloadType: number): string | null {
+    try {
+      decodeOriginalRichTextStyleTable(table, payloadType);
+      return null;
+    } catch (_error) {
+      return 'MALFORMED_RICH_TEXT_STYLE_PAYLOAD';
+    }
+  }
+
+  async applyTable(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
+    table: OriginalFlatBufferTableReader): Promise<SyncedOperationApplyResult> {
+    let payload: OriginalRichTextStylePayload;
+    try {
+      payload = decodeOriginalRichTextStyleTable(table, operation.payloadType);
+    } catch (_error) {
+      return { deferredReason: 'MALFORMED_RICH_TEXT_STYLE_PAYLOAD' };
+    }
+    return this.applyPayload(store, operation, payload);
+  }
+
+  private async applyPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation,
+    payload: OriginalRichTextStylePayload): Promise<SyncedOperationApplyResult> {
     if (!payload.clearAll && !hasRecognizedAttributes(payload.attributes, payload.paragraph)) {
       // Android 1.0.3 logs and skips code-only or otherwise unrecognized style payloads.
+      if (await this.operationIdentityExists(store, operation)) {
+        throw new Error('original rich-text style identity conflicts with persisted operation');
+      }
       return { deferredReason: null };
     }
     const block: OperationIdentity | null = await this.resolveBlock(
@@ -103,6 +142,14 @@ export class OriginalRichTextStyleOperationApplier implements SyncedOperationApp
     const before = materializeOriginalTextStyles(characters, existing);
     if (before === null || !sameStyles(text, before.characterRuns, before.paragraphRuns)) {
       return { deferredReason: 'RICH_TEXT_STYLE_STATE_DIVERGED' };
+    }
+    const baselineStatus: number = await this.styleBaselineStatus(
+      store, operation, block, payload);
+    if (baselineStatus < 0) {
+      throw new Error('original rich-text style identity conflicts with persisted operation');
+    }
+    if (baselineStatus > 0) {
+      return { deferredReason: null };
     }
     const nextOperation: StoredOriginalTextStyleOperation = {
       identity: { timestamp: operation.timestamp, siteId: operation.siteId },
@@ -148,6 +195,54 @@ export class OriginalRichTextStyleOperationApplier implements SyncedOperationApp
     }
     await advanceContentRevision(store, operation.noteId, target);
     return { deferredReason: null };
+  }
+
+  private async operationIdentityExists(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation): Promise<boolean> {
+    const rows = await store.querySql(
+      `SELECT 1 FROM original_text_style_operation WHERE note_id = ?
+       AND operation_timestamp = ? AND operation_site_id = ? LIMIT 1`,
+      [operation.noteId, operation.timestamp, operation.siteId]);
+    try {
+      return rows.goToFirstRow();
+    } finally {
+      rows.close();
+    }
+  }
+
+  private async styleBaselineStatus(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, block: OperationIdentity,
+    payload: OriginalRichTextStylePayload): Promise<number> {
+    const rows = await store.querySql(
+      `SELECT block_timestamp, block_site_id, paragraph, clear_all,
+              start_timestamp, start_site_id, start_index, start_type,
+              end_timestamp, end_site_id, end_index, end_type, attributes_json
+       FROM original_text_style_operation WHERE note_id = ?
+       AND operation_timestamp = ? AND operation_site_id = ?`,
+      [operation.noteId, operation.timestamp, operation.siteId]);
+    try {
+      if (!rows.goToFirstRow()) {
+        return 0;
+      }
+      let attributes: OriginalTextStyleAttributes;
+      try {
+        attributes = JSON.parse(rows.getString(rows.getColumnIndex('attributes_json'))) as
+          OriginalTextStyleAttributes;
+      } catch (_error) {
+        return -1;
+      }
+      const exact: boolean =
+        rows.getLong(rows.getColumnIndex('block_timestamp')) === block.timestamp &&
+        rows.getLong(rows.getColumnIndex('block_site_id')) === block.siteId &&
+        rows.getLong(rows.getColumnIndex('paragraph')) === (payload.paragraph ? 1 : 0) &&
+        rows.getLong(rows.getColumnIndex('clear_all')) === (payload.clearAll ? 1 : 0) &&
+        sameBoundaryRow(rows, 'start', payload.start) &&
+        sameBoundaryRow(rows, 'end', payload.end) &&
+        JSON.stringify(attributes) === JSON.stringify(payload.attributes);
+      return exact ? 1 : -1;
+    } finally {
+      rows.close();
+    }
   }
 
   private async resolveBlock(store: relationalStore.RdbStore, noteId: string,
@@ -384,6 +479,14 @@ function documentBoundary(type: OriginalTextBoundaryType): OriginalTextBoundary 
 
 function sameOperation(left: OperationIdentity, right: OperationIdentity): boolean {
   return left.timestamp === right.timestamp && left.siteId === right.siteId;
+}
+
+function sameBoundaryRow(rows: relationalStore.ResultSet, prefix: string,
+  boundary: OriginalTextBoundary): boolean {
+  return rows.getLong(rows.getColumnIndex(`${prefix}_timestamp`)) === boundary.location.timestamp &&
+    rows.getLong(rows.getColumnIndex(`${prefix}_site_id`)) === boundary.location.siteId &&
+    rows.getLong(rows.getColumnIndex(`${prefix}_index`)) === boundary.location.index &&
+    rows.getLong(rows.getColumnIndex(`${prefix}_type`)) === boundary.type;
 }
 
 function sameStyles(text: TextBlockElement, characterRuns: Object[],
