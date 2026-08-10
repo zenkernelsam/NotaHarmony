@@ -48,6 +48,7 @@ export interface StoredTextTarget {
   revisionTable: string;
   revision: number;
   archived: boolean;
+  hidden: boolean;
 }
 
 export interface StoredCharacter extends StoredOriginalTextCharacter {}
@@ -196,7 +197,8 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
       return { deferredReason: 'INSERT_TEXT_STATE_DIVERGED' };
     }
     const before: string | null = materializeCharacters(existing);
-    if (before === null || before !== text.richText || target.revision >= Number.MAX_SAFE_INTEGER) {
+    if (before === null || before !== text.richText ||
+      (!target.hidden && target.revision >= Number.MAX_SAFE_INTEGER)) {
       return { deferredReason: 'INSERT_TEXT_STATE_DIVERGED' };
     }
     const styleOperations: StoredOriginalTextStyleOperation[] | null =
@@ -257,16 +259,8 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     }
     updatedText.characterStyleRuns = updatedStyles.characterRuns;
     updatedText.paragraphStyleRuns = updatedStyles.paragraphRuns;
-    const predicates: relationalStore.RdbPredicates = pageElementPredicates(
-      operation.noteId, target, text.id);
-    const persisted: PersistedElement = { kind: 'text', data: updatedText };
-    const updated: number = await store.update({
-      'payload': encodePersistedElement(persisted), 'revision': target.revision + 1,
-    }, predicates);
-    if (updated !== 1) {
-      throw new Error('original insert-text lost its target snapshot');
-    }
-    await this.advanceRevisionAndInvalidateSearch(store, operation.noteId, target);
+    await this.writeTextPayload(store, operation.noteId, target, updatedText,
+      'original insert-text lost its target snapshot');
     return { deferredReason: null };
   }
 
@@ -344,7 +338,8 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     }
     const rows = await store.querySql(
       `SELECT element.page_timestamp, element.page_site_id, element.page_index,
-              identity.page_id, identity.visible, state.block_type
+              identity.page_id, identity.visible, state.block_type,
+              element.visible AS element_visible
        FROM original_element_z_index element
        JOIN original_page_identity identity ON identity.note_id = element.note_id
         AND identity.seq_timestamp = element.page_timestamp
@@ -353,10 +348,11 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
         AND state.block_timestamp = element.element_timestamp
         AND state.block_site_id = element.element_site_id
        WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?
-        AND element.kind = ? AND element.visible = 1`,
+        AND element.kind = ?`,
       [operation.noteId, block.timestamp, block.siteId, PageElementKind.TEXT]);
     let page: OriginalSequenceIdentity;
     let pageId: string;
+    let hidden: boolean;
     try {
       if (!rows.goToFirstRow() || rows.getLong(rows.getColumnIndex('visible')) !== 1 ||
         rows.getLong(rows.getColumnIndex('block_type')) !== OriginalBlockType.TEXT ||
@@ -369,6 +365,7 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
         index: rows.getLong(rows.getColumnIndex('page_index')),
       };
       pageId = rows.getString(rows.getColumnIndex('page_id'));
+      hidden = rows.getLong(rows.getColumnIndex('element_visible')) === 0;
     } finally {
       rows.close();
     }
@@ -385,10 +382,11 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     }
     return liveRevision !== null ? {
       block: block, page: page, pageId: pageId, table: 'page_element_snapshot',
-      revisionTable: 'page_info', revision: liveRevision, archived: false,
+      revisionTable: 'page_info', revision: liveRevision, archived: false, hidden: hidden,
     } : {
       block: block, page: page, pageId: pageId, table: 'original_deleted_page_element',
-      revisionTable: 'original_deleted_page', revision: archivedRevision as number, archived: true,
+      revisionTable: 'original_deleted_page', revision: archivedRevision as number,
+      archived: true, hidden: hidden,
     };
   }
 
@@ -415,12 +413,20 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
 
   async readText(store: relationalStore.RdbStore, noteId: string,
     target: StoredTextTarget): Promise<TextBlockElement | null> {
-    const rows = await store.querySql(target.archived ?
+    const rows = await store.querySql(target.hidden ?
+      `SELECT payload FROM original_deleted_entity WHERE note_id = ?
+       AND entity_timestamp = ? AND entity_site_id = ?
+       AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+       AND element_id = ? AND kind = ?` :
+      target.archived ?
       `SELECT payload FROM original_deleted_page_element WHERE note_id = ?
        AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
        AND element_id = ? AND kind = ?` :
       `SELECT payload FROM page_element_snapshot WHERE note_id = ? AND page_id = ?
-       AND element_id = ? AND kind = ?`, target.archived ?
+       AND element_id = ? AND kind = ?`, target.hidden ?
+      [noteId, target.block.timestamp, target.block.siteId,
+        target.page.timestamp, target.page.siteId, target.page.index,
+        encodeOperationId(target.block), PageElementKind.TEXT] : target.archived ?
       [noteId, target.page.timestamp, target.page.siteId, target.page.index,
         encodeOperationId(target.block), PageElementKind.TEXT] :
       [noteId, target.pageId, encodeOperationId(target.block), PageElementKind.TEXT]);
@@ -439,6 +445,37 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
       return null;
     } finally {
       rows.close();
+    }
+  }
+
+  async writeTextPayload(store: relationalStore.RdbStore, noteId: string,
+    target: StoredTextTarget, text: TextBlockElement, failureMessage: string): Promise<void> {
+    const persisted: PersistedElement = { kind: 'text', data: text };
+    let predicates: relationalStore.RdbPredicates;
+    if (target.hidden) {
+      predicates = new relationalStore.RdbPredicates('original_deleted_entity');
+      predicates.equalTo('note_id', noteId);
+      predicates.equalTo('entity_timestamp', target.block.timestamp);
+      predicates.equalTo('entity_site_id', target.block.siteId);
+      predicates.equalTo('page_timestamp', target.page.timestamp);
+      predicates.equalTo('page_site_id', target.page.siteId);
+      predicates.equalTo('page_index', target.page.index);
+      predicates.equalTo('element_id', text.id);
+      predicates.equalTo('kind', PageElementKind.TEXT);
+    } else {
+      predicates = pageElementPredicates(noteId, target, text.id);
+    }
+    const values: relationalStore.ValuesBucket = {
+      'payload': encodePersistedElement(persisted),
+    };
+    if (!target.hidden) {
+      values['revision'] = target.revision + 1;
+    }
+    if (await store.update(values, predicates) !== 1) {
+      throw new Error(failureMessage);
+    }
+    if (!target.hidden) {
+      await this.advanceRevisionAndInvalidateSearch(store, noteId, target);
     }
   }
 
@@ -617,7 +654,8 @@ export class OriginalTextVisibilityOperationApplier implements SyncedOperationAp
       return { deferredReason: 'TEXT_VISIBILITY_STATE_DIVERGED' };
     }
     const before: string | null = materializeCharacters(characters);
-    if (before === null || before !== text.richText || target.revision >= Number.MAX_SAFE_INTEGER) {
+    if (before === null || before !== text.richText ||
+      (!target.hidden && target.revision >= Number.MAX_SAFE_INTEGER)) {
       return { deferredReason: 'TEXT_VISIBILITY_STATE_DIVERGED' };
     }
     const styleOperations: StoredOriginalTextStyleOperation[] | null =
@@ -684,16 +722,8 @@ export class OriginalTextVisibilityOperationApplier implements SyncedOperationAp
     }
     updatedText.characterStyleRuns = updatedStyles.characterRuns;
     updatedText.paragraphStyleRuns = updatedStyles.paragraphRuns;
-    const predicates: relationalStore.RdbPredicates = pageElementPredicates(
-      operation.noteId, target, text.id);
-    const persisted: PersistedElement = { kind: 'text', data: updatedText };
-    const updated: number = await store.update({
-      'payload': encodePersistedElement(persisted), 'revision': target.revision + 1,
-    }, predicates);
-    if (updated !== 1) {
-      throw new Error('original text-visibility lost its target snapshot');
-    }
-    await this.textState.advanceRevisionAndInvalidateSearch(store, operation.noteId, target);
+    await this.textState.writeTextPayload(store, operation.noteId, target, updatedText,
+      'original text-visibility lost its target snapshot');
     return { deferredReason: null };
   }
 }

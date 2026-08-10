@@ -16,6 +16,9 @@ import { StoredSyncedOperation, SyncedOperationApplier,
   SyncedOperationApplyResult } from './SyncedOperationInbox';
 import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './UnsignedDecimal';
 import {
+  OriginalEntityVisibilityWinner, readOriginalEntityVisibilityWinner,
+} from './OriginalEntityVisibilityState';
+import {
   decodeOriginalAuxiliaryInkPath, decodeOriginalInkPath, DecodedOriginalAuxiliaryInkPath,
   DecodedOriginalInkPath, originalInkTransform,
   OriginalInkPathDeferredError, transformedInkBounds,
@@ -213,7 +216,10 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
     if (existingRows === null) {
       return { deferredReason: 'CREATE_INK_ELEMENT_ORDER_DIVERGED' };
     }
-    if (target.revision >= Number.MAX_SAFE_INTEGER) {
+    const visibilityWinner: OriginalEntityVisibilityWinner | null =
+      await readOriginalEntityVisibilityWinner(store, operation.noteId, operation);
+    const hidden: boolean = visibilityWinner !== null && visibilityWinner.deleted;
+    if (!hidden && target.revision >= Number.MAX_SAFE_INTEGER) {
       return { deferredReason: 'CREATE_INK_PAGE_REVISION_EXHAUSTED' };
     }
 
@@ -234,6 +240,7 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       'page_site_id': payload.page.siteId,
       'page_index': payload.page.index,
       'kind': PageElementKind.STROKE,
+      'visible': hidden ? 0 : 1,
       'z_index': payload.zIndex,
     });
     await store.insert('original_ink_state', {
@@ -316,6 +323,24 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       timestamp: operation.timestamp, siteId: operation.siteId, zIndex: payload.zIndex,
     });
     existingRows.sort(compareStoredZIndexRows);
+    if (hidden) {
+      const persisted: PersistedElement = { kind: 'stroke', data: stroke };
+      await store.insert('original_deleted_entity', {
+        'note_id': operation.noteId,
+        'entity_timestamp': operation.timestamp,
+        'entity_site_id': operation.siteId,
+        'page_timestamp': payload.page.timestamp,
+        'page_site_id': payload.page.siteId,
+        'page_index': payload.page.index,
+        'element_id': stroke.id,
+        'kind': PageElementKind.STROKE,
+        'payload': encodePersistedElement(persisted),
+        'revision': target.revision,
+        'element_order': existingRows.findIndex((row: StoredZIndexRow) =>
+          row.elementId === stroke.id && row.kind === PageElementKind.STROKE),
+      });
+      return { deferredReason: null };
+    }
     await this.materializeOrder(store, operation.noteId, payload.page, target,
       existingRows, stroke, target.revision + 1);
     return { deferredReason: null };
@@ -442,7 +467,7 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
               i.create_origin_x, i.create_origin_y, i.create_rotation,
               i.create_scale_x, i.create_scale_y,
               i.create_page_timestamp, i.create_page_site_id, i.create_page_index,
-              i.create_z_index
+              i.create_z_index, z.visible
        FROM original_element_z_index z JOIN original_ink_state i
          ON i.note_id = z.note_id AND i.ink_timestamp = z.element_timestamp
         AND i.ink_site_id = z.element_site_id
@@ -473,7 +498,8 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
         rows.getDouble(rows.getColumnIndex('width_value')) !== payload.width) {
         return false;
       }
-      return rows.getDouble(rows.getColumnIndex('create_origin_x')) === payload.originX &&
+      const baselineMatches: boolean =
+        rows.getDouble(rows.getColumnIndex('create_origin_x')) === payload.originX &&
         rows.getDouble(rows.getColumnIndex('create_origin_y')) === payload.originY &&
         rows.getDouble(rows.getColumnIndex('create_rotation')) === payload.rotation &&
         rows.getDouble(rows.getColumnIndex('create_scale_x')) === payload.scaleX &&
@@ -482,6 +508,40 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
         rows.getLong(rows.getColumnIndex('create_page_site_id')) === payload.page.siteId &&
         rows.getLong(rows.getColumnIndex('create_page_index')) === payload.page.index &&
         rows.getString(rows.getColumnIndex('create_z_index')) === payload.zIndex;
+      if (!baselineMatches) {
+        return false;
+      }
+      const winner: OriginalEntityVisibilityWinner | null =
+        await readOriginalEntityVisibilityWinner(store, operation.noteId, operation);
+      const hidden: boolean = winner !== null && winner.deleted;
+      if ((rows.getLong(rows.getColumnIndex('visible')) === 0) !== hidden) {
+        return false;
+      }
+      return await this.originalMaterializedElementExists(
+        store, operation, PageElementKind.STROKE, hidden);
+    } finally {
+      rows.close();
+    }
+  }
+
+  private async originalMaterializedElementExists(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, kind: number, hidden: boolean): Promise<boolean> {
+    const elementId: string = encodeOperationId(operation);
+    const rows = await store.querySql(
+      `SELECT
+        (SELECT COUNT(*) FROM page_element_snapshot
+          WHERE note_id = ? AND element_id = ? AND kind = ?) +
+        (SELECT COUNT(*) FROM original_deleted_page_element
+          WHERE note_id = ? AND element_id = ? AND kind = ?) AS active_count,
+        (SELECT COUNT(*) FROM original_deleted_entity
+          WHERE note_id = ? AND entity_timestamp = ? AND entity_site_id = ?
+            AND element_id = ? AND kind = ?) AS hidden_count`,
+      [operation.noteId, elementId, kind, operation.noteId, elementId, kind,
+        operation.noteId, operation.timestamp, operation.siteId, elementId, kind]);
+    try {
+      return rows.goToFirstRow() &&
+        rows.getLong(rows.getColumnIndex('active_count')) === (hidden ? 0 : 1) &&
+        rows.getLong(rows.getColumnIndex('hidden_count')) === (hidden ? 1 : 0);
     } finally {
       rows.close();
     }

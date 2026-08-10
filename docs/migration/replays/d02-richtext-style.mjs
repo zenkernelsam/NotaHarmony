@@ -249,7 +249,7 @@ assert.equal(db.prepare('SELECT count(*) count FROM original_text_style_operatio
 db.exec(`DELETE FROM original_element_z_index WHERE note_id='n' AND element_timestamp=20 AND element_site_id=2`);
 assert.equal(db.prepare('SELECT count(*) count FROM original_text_style_operation').get().count, 0);
 
-assert.match(schema, /DB_VERSION: number = 46/);
+assert.match(schema, /DB_VERSION: number = 47/);
 assert.match(operationSource, /ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE: number = 12/);
 assert.match(operationSource, /ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE: number = 13/);
 assert.match(operationSource, /ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE: number = 14/);
@@ -259,9 +259,10 @@ assert.match(insertSource, /INSERT_TEXT_STYLE_STATE_DIVERGED/);
 assert.match(dispatcher, /OriginalRichTextStyleOperationApplier/);
 assert.match(renderer, /highlightColor/);
 assert.match(renderer, /decoratorPrefix/);
-assert.match(operationSource, /target\.archived/);
-assert.match(operationSource, /page_timestamp/);
-assert.match(operationSource, /revisionTable/);
+assert.match(operationSource, /target\.hidden/);
+assert.match(operationSource, /writeTextPayload/);
+assert.match(insertSource, /original_deleted_entity/);
+assert.match(insertSource, /revisionTable/);
 
 console.log('success|flatbuffer-me8-he8-io1=3|v38-v39=1|character-fold=1|' +
   'clear-then-newer-style=1|nullable-property-clear=1|paragraph-style=1|' +

@@ -11,6 +11,10 @@ import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 import { compareUnsignedLongDecimal } from './UnsignedDecimal';
+import {
+  OriginalEntityVisibilityWinner, originalEntityVisibilityUpdateApplies,
+  readOriginalEntityVisibilityWinner,
+} from './OriginalEntityVisibilityState';
 
 export const ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE: number = 25;
 export const MAX_ORIGINAL_DELETE_ENTITY_COUNT: number = 10000;
@@ -29,9 +33,7 @@ interface StoredPageIdentity {
   pageId: string | null;
 }
 
-interface VisibilityWinner extends OperationIdentity {
-  deleted: boolean;
-}
+type VisibilityWinner = OriginalEntityVisibilityWinner;
 
 interface StoredEntityTarget {
   entity: OperationIdentity;
@@ -55,7 +57,8 @@ interface StoredEntitySnapshot {
 }
 
 interface PlannedEntityVisibility {
-  target: StoredEntityTarget;
+  entity: OperationIdentity;
+  target: StoredEntityTarget | null;
   winner: VisibilityWinner | null;
   deleted: boolean;
   changesVisibility: boolean;
@@ -272,26 +275,33 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
     for (const desiredVisibility of desired.values()) {
       const target: StoredEntityTarget | null = await this.readEntityTarget(
         store, operation.noteId, desiredVisibility.entity);
-      if (target === null) {
-        return 'DELETE_ENTITIES_ENTITY_MISSING_OR_UNBOUND';
-      }
-      const winner: VisibilityWinner | null = await this.readEntityWinner(
+      const winner: VisibilityWinner | null = await readOriginalEntityVisibilityWinner(
         store, operation.noteId, desiredVisibility.entity);
+      if (target === null) {
+        if (await this.originalEntityExists(store, operation.noteId, desiredVisibility.entity)) {
+          return 'DELETE_ENTITIES_ENTITY_MISSING_OR_UNBOUND';
+        }
+        if (!originalEntityVisibilityUpdateApplies(
+          operation, desiredVisibility.deleted, winner)) {
+          continue;
+        }
+        planned.push({
+          entity: desiredVisibility.entity, target: null,
+          winner: winner, deleted: desiredVisibility.deleted, changesVisibility: false,
+        });
+        continue;
+      }
       if (!await this.entityStorageMatches(store, operation.noteId, target, winner)) {
         return 'ORIGINAL_ENTITY_VISIBILITY_DIVERGED';
       }
-      if (winner !== null) {
-        const comparison: number = compareOperationIdentity(operation, winner);
-        if (comparison === 0 && winner.deleted !== desiredVisibility.deleted) {
-          throw new Error('original entity visibility identity conflicts with persisted value');
-        }
-        if (comparison <= 0) {
-          continue;
-        }
+      if (!originalEntityVisibilityUpdateApplies(
+        operation, desiredVisibility.deleted, winner)) {
+        continue;
       }
       const changesVisibility: boolean = target.visible === desiredVisibility.deleted;
       planned.push({
-        target: target, winner: winner, deleted: desiredVisibility.deleted,
+        entity: desiredVisibility.entity, target: target,
+        winner: winner, deleted: desiredVisibility.deleted,
         changesVisibility: changesVisibility,
       });
       if (changesVisibility) {
@@ -300,14 +310,14 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
     }
 
     for (const mutation of planned) {
-      if (mutation.changesVisibility) {
+      if (mutation.target !== null && mutation.changesVisibility) {
         if (mutation.deleted) {
           await this.archiveEntity(store, operation.noteId, mutation.target);
         } else {
           await this.restoreEntity(store, operation.noteId, mutation.target);
         }
       }
-      await this.writeEntityWinner(store, operation.noteId, mutation.target.entity,
+      await this.writeEntityWinner(store, operation.noteId, mutation.entity,
         operation, mutation.deleted, mutation.winner);
     }
     for (const target of affectedPages.values()) {
@@ -317,6 +327,19 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
       await this.advanceEntityPageRevision(store, operation.noteId, target);
     }
     return null;
+  }
+
+  private async originalEntityExists(store: relationalStore.RdbStore, noteId: string,
+    entity: OperationIdentity): Promise<boolean> {
+    const rows = await store.querySql(
+      `SELECT 1 FROM original_element_z_index WHERE note_id = ?
+       AND element_timestamp = ? AND element_site_id = ? LIMIT 1`,
+      [noteId, entity.timestamp, entity.siteId]);
+    try {
+      return rows.goToFirstRow();
+    } finally {
+      rows.close();
+    }
   }
 
   private async readEntityTarget(store: relationalStore.RdbStore, noteId: string,
@@ -526,26 +549,6 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
     predicates.equalTo('visible', expected ? 1 : 0);
     if (await store.update({ 'visible': visible ? 1 : 0 }, predicates) !== 1) {
       throw new Error('original entity visibility changed concurrently');
-    }
-  }
-
-  private async readEntityWinner(store: relationalStore.RdbStore, noteId: string,
-    entity: OperationIdentity): Promise<VisibilityWinner | null> {
-    const rows = await store.querySql(
-      `SELECT winner_timestamp, winner_site_id, deleted FROM original_entity_visibility_winner
-       WHERE note_id = ? AND entity_timestamp = ? AND entity_site_id = ?`,
-      [noteId, entity.timestamp, entity.siteId]);
-    try {
-      if (!rows.goToFirstRow()) {
-        return null;
-      }
-      return {
-        timestamp: rows.getLong(rows.getColumnIndex('winner_timestamp')),
-        siteId: rows.getLong(rows.getColumnIndex('winner_site_id')),
-        deleted: rows.getLong(rows.getColumnIndex('deleted')) === 1,
-      };
-    } finally {
-      rows.close();
     }
   }
 

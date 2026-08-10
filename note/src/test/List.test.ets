@@ -54,6 +54,7 @@ import syncedOperationInboxTest from './SyncedOperationInbox.test';
 import imageBlockRenderingTest from './ImageBlockRendering.test';
 import assetArrivalTest from './AssetArrival.test';
 import mathBlockGeometryTest from './MathBlockGeometry.test';
+import originalEntityVisibilityStateTest from './OriginalEntityVisibilityState.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -112,4 +113,5 @@ export default function testsuite() {
   imageBlockRenderingTest();
   assetArrivalTest();
   mathBlockGeometryTest();
+  originalEntityVisibilityStateTest();
 }

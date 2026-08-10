@@ -43,6 +43,7 @@ interface StoredInkTarget {
   revisionTable: string;
   revision: number;
   archived: boolean;
+  hidden: boolean;
 }
 
 interface StoredEstimatedPath {
@@ -230,7 +231,7 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     if (payload.centerPathElements === null && !replaceEstimated) {
       return { deferredReason: null };
     }
-    if (target.revision >= Number.MAX_SAFE_INTEGER) {
+    if (!target.hidden && target.revision >= Number.MAX_SAFE_INTEGER) {
       return { deferredReason: 'ADD_PATH_ELEMENTS_PAGE_REVISION_EXHAUSTED' };
     }
 
@@ -284,7 +285,9 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
         operation, estimatedBytes);
     }
     await this.updateStroke(store, operation.noteId, target, updatedStroke);
-    await this.advanceRevisionAndInvalidateSearch(store, operation.noteId, target);
+    if (!target.hidden) {
+      await this.advanceRevisionAndInvalidateSearch(store, operation.noteId, target);
+    }
     return { deferredReason: null };
   }
 
@@ -313,16 +316,16 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     ink: OperationIdentity): Promise<StoredInkTarget | null> {
     const rows = await store.querySql(
       `SELECT element.kind, element.page_timestamp, element.page_site_id, element.page_index,
-              identity.page_id, identity.visible
+              identity.page_id, identity.visible, element.visible AS element_visible
        FROM original_element_z_index element
        JOIN original_page_identity identity ON identity.note_id = element.note_id
         AND identity.seq_timestamp = element.page_timestamp
         AND identity.seq_site_id = element.page_site_id AND identity.seq_index = element.page_index
-       WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?
-        AND element.visible = 1`,
+       WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?`,
       [noteId, ink.timestamp, ink.siteId]);
     let page: OriginalSequenceIdentity;
     let pageId: string;
+    let hidden: boolean;
     try {
       if (!rows.goToFirstRow() || rows.getLong(rows.getColumnIndex('kind')) !== PageElementKind.STROKE ||
         rows.getLong(rows.getColumnIndex('visible')) !== 1 ||
@@ -335,6 +338,7 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
         index: rows.getLong(rows.getColumnIndex('page_index')),
       };
       pageId = rows.getString(rows.getColumnIndex('page_id'));
+      hidden = rows.getLong(rows.getColumnIndex('element_visible')) === 0;
     } finally {
       rows.close();
     }
@@ -350,10 +354,11 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     }
     return liveRevision !== null ? {
       ink: ink, page: page, pageId: pageId, table: 'page_element_snapshot',
-      revisionTable: 'page_info', revision: liveRevision, archived: false,
+      revisionTable: 'page_info', revision: liveRevision, archived: false, hidden: hidden,
     } : {
       ink: ink, page: page, pageId: pageId, table: 'original_deleted_page_element',
-      revisionTable: 'original_deleted_page', revision: archivedRevision as number, archived: true,
+      revisionTable: 'original_deleted_page', revision: archivedRevision as number,
+      archived: true, hidden: hidden,
     };
   }
 
@@ -448,7 +453,14 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
   private async readStroke(store: relationalStore.RdbStore, noteId: string,
     target: StoredInkTarget): Promise<StrokeElementData | null> {
     const elementId: string = encodeOperationId(target.ink);
-    const rows = target.archived ? await store.querySql(
+    const rows = target.hidden ? await store.querySql(
+      `SELECT payload FROM original_deleted_entity WHERE note_id = ?
+       AND entity_timestamp = ? AND entity_site_id = ?
+       AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+       AND element_id = ? AND kind = ?`,
+      [noteId, target.ink.timestamp, target.ink.siteId,
+        target.page.timestamp, target.page.siteId, target.page.index,
+        elementId, PageElementKind.STROKE]) : target.archived ? await store.querySql(
       `SELECT payload FROM original_deleted_page_element WHERE note_id = ?
        AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
        AND element_id = ? AND kind = ?`,
@@ -473,9 +485,16 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
 
   private async updateStroke(store: relationalStore.RdbStore, noteId: string,
     target: StoredInkTarget, stroke: StrokeElementData): Promise<void> {
-    const predicates = new relationalStore.RdbPredicates(target.table);
+    const predicates = new relationalStore.RdbPredicates(
+      target.hidden ? 'original_deleted_entity' : target.table);
     predicates.equalTo('note_id', noteId);
-    if (target.archived) {
+    if (target.hidden) {
+      predicates.equalTo('entity_timestamp', target.ink.timestamp);
+      predicates.equalTo('entity_site_id', target.ink.siteId);
+      predicates.equalTo('page_timestamp', target.page.timestamp);
+      predicates.equalTo('page_site_id', target.page.siteId);
+      predicates.equalTo('page_index', target.page.index);
+    } else if (target.archived) {
       predicates.equalTo('page_timestamp', target.page.timestamp);
       predicates.equalTo('page_site_id', target.page.siteId);
       predicates.equalTo('page_index', target.page.index);
@@ -485,9 +504,11 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     predicates.equalTo('element_id', stroke.id);
     predicates.equalTo('kind', PageElementKind.STROKE);
     const persisted: PersistedElement = { kind: 'stroke', data: stroke };
-    const updated: number = await store.update({
-      'payload': encodePersistedElement(persisted), 'revision': target.revision + 1,
-    }, predicates);
+    const values: relationalStore.ValuesBucket = { 'payload': encodePersistedElement(persisted) };
+    if (!target.hidden) {
+      values['revision'] = target.revision + 1;
+    }
+    const updated: number = await store.update(values, predicates);
     if (updated !== 1) {
       throw new Error('original add-path-elements lost its target stroke');
     }

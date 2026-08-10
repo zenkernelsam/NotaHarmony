@@ -8,7 +8,8 @@ import {
   DDL_SYNCED_OPERATION_INBOX, DDL_ORIGINAL_PAGE_INSERT_GROUP, DDL_ORIGINAL_PAGE_IDENTITY,
   DDL_ORIGINAL_PAGE_VISIBILITY_WINNER, DDL_ORIGINAL_PAGE_BACKGROUND_WINNER,
   DDL_ORIGINAL_ELEMENT_Z_INDEX, DDL_ORIGINAL_INK_STATE, DDL_ORIGINAL_INK_PATH_APPEND,
-  DDL_ORIGINAL_BLOCK_STATE,
+  DDL_ORIGINAL_BLOCK_STATE, DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER,
+  DDL_ORIGINAL_DELETED_ENTITY,
   DDL_ORIGINAL_DELETED_PAGE,
   DDL_ORIGINAL_DELETED_PAGE_ELEMENT, DDL_ORIGINAL_DELETED_PAGE_SEARCH,
   DDL_INDEXES, MIGRATIONS,
@@ -20,7 +21,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(45);
+      expect(DB_VERSION).assertEqual(47);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -87,6 +88,9 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[45].join('\n')).assertContain('create_math_color');
       expect(MIGRATIONS[45].join('\n')).assertContain('math_latex_winner_present');
       expect(MIGRATIONS[45].join('\n')).assertContain('math_color_winner_present');
+      expect(MIGRATIONS[46].join('\n')).assertContain('original_entity_visibility_winner');
+      expect(MIGRATIONS[46].join('\n')).assertContain('original_deleted_entity');
+      expect(MIGRATIONS[47].join('\n')).assertContain('original_entity_visibility_winner_v47');
       expect(MIGRATIONS[35].join('\n')).assertContain('original_block_state');
       expect(MIGRATIONS[36].join('\n')).assertContain('page_origin_winner_present');
       expect(MIGRATIONS[36].join('\n')).assertContain('z_index_winner_present');
@@ -119,6 +123,11 @@ export default function databaseHelperTest() {
       expect(DDL_ORIGINAL_BLOCK_STATE).assertContain('rotation_winner_present');
       expect(DDL_ORIGINAL_BLOCK_STATE).assertContain('z_index_winner_present');
       expect(DDL_ORIGINAL_BLOCK_STATE).assertContain('REFERENCES original_element_z_index');
+      expect(DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER)
+        .assertContain('REFERENCES note_meta(id) ON DELETE CASCADE');
+      expect(DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER)
+        .assertNotContain('REFERENCES original_element_z_index');
+      expect(DDL_ORIGINAL_DELETED_ENTITY).assertContain('REFERENCES original_element_z_index');
       expect(DDL_ORIGINAL_PAGE_VISIBILITY_WINNER).assertContain('deleted IN (0, 1)');
       expect(DDL_ORIGINAL_PAGE_BACKGROUND_WINNER).assertContain('winner_timestamp');
       expect(DDL_ORIGINAL_PAGE_BACKGROUND_WINNER).assertContain('background_json TEXT NOT NULL');

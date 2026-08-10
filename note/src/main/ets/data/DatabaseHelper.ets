@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v46: preserve original entity visibility and admit IMAGE/MATH element kinds.
-export const DB_VERSION: number = 46;
+// v47: visibility winners may precede the entity CREATE operation.
+export const DB_VERSION: number = 47;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -412,8 +412,18 @@ CREATE TABLE IF NOT EXISTS original_entity_visibility_winner (
   winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
   deleted INTEGER NOT NULL CHECK (deleted IN (0, 1)),
   PRIMARY KEY(note_id, entity_timestamp, entity_site_id),
-  FOREIGN KEY(note_id, entity_timestamp, entity_site_id)
-    REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+const DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER_V47: string = `
+CREATE TABLE original_entity_visibility_winner_v47 (
+  note_id TEXT NOT NULL,
+  entity_timestamp INTEGER NOT NULL CHECK (entity_timestamp BETWEEN 0 AND 4294967295),
+  entity_site_id INTEGER NOT NULL CHECK (entity_site_id BETWEEN 0 AND 65535),
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  deleted INTEGER NOT NULL CHECK (deleted IN (0, 1)),
+  PRIMARY KEY(note_id, entity_timestamp, entity_site_id),
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
@@ -1858,5 +1868,15 @@ export const MIGRATIONS: Record<number, string[]> = {
     'ALTER TABLE original_element_z_index_v46 RENAME TO original_element_z_index',
     DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER,
     DDL_ORIGINAL_DELETED_ENTITY,
+  ],
+  47: [
+    DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER_V47,
+    `INSERT INTO original_entity_visibility_winner_v47
+      (note_id, entity_timestamp, entity_site_id, winner_timestamp, winner_site_id, deleted)
+     SELECT note_id, entity_timestamp, entity_site_id, winner_timestamp, winner_site_id, deleted
+       FROM original_entity_visibility_winner`,
+    'DROP TABLE original_entity_visibility_winner',
+    `ALTER TABLE original_entity_visibility_winner_v47
+      RENAME TO original_entity_visibility_winner`,
   ],
 };

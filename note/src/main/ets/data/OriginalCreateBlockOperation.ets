@@ -21,6 +21,9 @@ import { StoredSyncedOperation, SyncedOperationApplier,
   SyncedOperationApplyResult } from './SyncedOperationInbox';
 import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './UnsignedDecimal';
 import { mergeNoteIds, parseAssetNoteIds } from './AssetRepositoryImpl';
+import {
+  OriginalEntityVisibilityWinner, readOriginalEntityVisibilityWinner,
+} from './OriginalEntityVisibilityState';
 
 export const ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE: number = 22;
 
@@ -305,7 +308,10 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     if (existingRows === null) {
       return { deferredReason: 'CREATE_BLOCK_ELEMENT_ORDER_DIVERGED' };
     }
-    if (target.revision >= Number.MAX_SAFE_INTEGER) {
+    const visibilityWinner: OriginalEntityVisibilityWinner | null =
+      await readOriginalEntityVisibilityWinner(store, operation.noteId, operation);
+    const hidden: boolean = visibilityWinner !== null && visibilityWinner.deleted;
+    if (!hidden && target.revision >= Number.MAX_SAFE_INTEGER) {
       return { deferredReason: 'CREATE_BLOCK_PAGE_REVISION_EXHAUSTED' };
     }
 
@@ -331,6 +337,7 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       'page_site_id': payload.page.siteId,
       'page_index': payload.page.index,
       'kind': kind,
+      'visible': hidden ? 0 : 1,
       'z_index': payload.zIndex,
     });
     await store.insert('original_block_state', {
@@ -383,6 +390,27 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       timestamp: operation.timestamp, siteId: operation.siteId, zIndex: payload.zIndex,
     });
     existingRows.sort(compareStoredZIndexRows);
+    if (hidden) {
+      const persisted: PersistedElement = {
+        kind: kind === PageElementKind.IMAGE ? 'image' :
+          kind === PageElementKind.MATH ? 'math' : 'text', data: element,
+      };
+      await store.insert('original_deleted_entity', {
+        'note_id': operation.noteId,
+        'entity_timestamp': operation.timestamp,
+        'entity_site_id': operation.siteId,
+        'page_timestamp': payload.page.timestamp,
+        'page_site_id': payload.page.siteId,
+        'page_index': payload.page.index,
+        'element_id': element.id,
+        'kind': kind,
+        'payload': encodePersistedElement(persisted),
+        'revision': target.revision,
+        'element_order': existingRows.findIndex((row: StoredZIndexRow) =>
+          row.elementId === element.id && row.kind === kind),
+      });
+      return { deferredReason: null };
+    }
     await this.materializeOrder(store, operation.noteId, payload.page, target,
       existingRows, element, kind, target.revision + 1);
     return { deferredReason: null };
@@ -702,8 +730,11 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     } finally {
       rows.close();
     }
+    const winner: OriginalEntityVisibilityWinner | null = baselineMatches ?
+      await readOriginalEntityVisibilityWinner(store, operation.noteId, operation) : null;
+    const hidden: boolean = winner !== null && winner.deleted;
     if (!baselineMatches || !await this.originalMaterializedElementExists(
-      store, operation, kind)) {
+      store, operation, kind, hidden)) {
       return false;
     }
     return image === null || await this.imageAssetReferenceMatches(
@@ -711,20 +742,26 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
   }
 
   private async originalMaterializedElementExists(store: relationalStore.RdbStore,
-    operation: StoredSyncedOperation, kind: number): Promise<boolean> {
+    operation: StoredSyncedOperation, kind: number, hidden: boolean): Promise<boolean> {
     const elementId: string = encodeOperationId(operation);
     const rows = await store.querySql(
       `SELECT
         (SELECT COUNT(*) FROM page_element_snapshot
           WHERE note_id = ? AND element_id = ? AND kind = ?) +
         (SELECT COUNT(*) FROM original_deleted_page_element
-          WHERE note_id = ? AND element_id = ? AND kind = ?) +
+          WHERE note_id = ? AND element_id = ? AND kind = ?) AS active_count,
         (SELECT COUNT(*) FROM original_deleted_entity
-          WHERE note_id = ? AND element_id = ? AND kind = ?) AS value`,
+          WHERE note_id = ? AND element_id = ? AND kind = ?) AS hidden_count,
+        (SELECT visible FROM original_element_z_index
+          WHERE note_id = ? AND element_timestamp = ? AND element_site_id = ?) AS visible`,
       [operation.noteId, elementId, kind, operation.noteId, elementId, kind,
-        operation.noteId, elementId, kind]);
+        operation.noteId, elementId, kind,
+        operation.noteId, operation.timestamp, operation.siteId]);
     try {
-      return rows.goToFirstRow() && rows.getLong(rows.getColumnIndex('value')) === 1;
+      return rows.goToFirstRow() &&
+        rows.getLong(rows.getColumnIndex('active_count')) === (hidden ? 0 : 1) &&
+        rows.getLong(rows.getColumnIndex('hidden_count')) === (hidden ? 1 : 0) &&
+        (rows.getLong(rows.getColumnIndex('visible')) === 0) === hidden;
     } finally {
       rows.close();
     }

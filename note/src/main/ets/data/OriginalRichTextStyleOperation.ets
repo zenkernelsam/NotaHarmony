@@ -1,7 +1,6 @@
 import { relationalStore } from '@kit.ArkData';
 import { util } from '@kit.ArkTS';
 import { TextBlockElement } from '../core/model/ElementTypes';
-import { PageElementKind } from '../core/model/PageElementOrder';
 import {
   encodeOriginalSequenceId, OperationIdentity, OriginalSequenceIdentity,
   validateOperationIdentity, validateOriginalSequenceIdentity,
@@ -136,7 +135,7 @@ export class OriginalRichTextStyleOperationApplier implements SyncedOperationApp
     const existing: StoredOriginalTextStyleOperation[] | null =
       await readOriginalTextStyleOperations(store, operation.noteId, block);
     if (text === null || characters === null || existing === null ||
-      target.revision >= Number.MAX_SAFE_INTEGER) {
+      (!target.hidden && target.revision >= Number.MAX_SAFE_INTEGER)) {
       return { deferredReason: 'RICH_TEXT_STYLE_STATE_DIVERGED' };
     }
     const before = materializeOriginalTextStyles(characters, existing);
@@ -184,16 +183,8 @@ export class OriginalRichTextStyleOperationApplier implements SyncedOperationApp
     const updatedText: TextBlockElement = cloneText(text);
     updatedText.characterStyleRuns = after.characterRuns;
     updatedText.paragraphStyleRuns = after.paragraphRuns;
-    const predicates: relationalStore.RdbPredicates = elementPredicates(
-      operation.noteId, target, text.id);
-    const persisted: PersistedElement = { kind: 'text', data: updatedText };
-    const updated: number = await store.update({
-      'payload': encodePersistedElement(persisted), 'revision': target.revision + 1,
-    }, predicates);
-    if (updated !== 1) {
-      throw new Error('original rich-text style lost its target snapshot');
-    }
-    await advanceContentRevision(store, operation.noteId, target);
+    await this.textState.writeTextPayload(store, operation.noteId, target, updatedText,
+      'original rich-text style lost its target snapshot');
     return { deferredReason: null };
   }
 
@@ -499,41 +490,6 @@ function cloneText(text: TextBlockElement): TextBlockElement {
   const persisted: PersistedElement = decodePersistedElement(encodePersistedElement(
     { kind: 'text', data: text }));
   return persisted.data as TextBlockElement;
-}
-
-function elementPredicates(noteId: string, target: StoredTextTarget,
-  elementId: string): relationalStore.RdbPredicates {
-  const predicates = new relationalStore.RdbPredicates(target.table);
-  predicates.equalTo('note_id', noteId);
-  if (target.archived) {
-    predicates.equalTo('page_timestamp', target.page.timestamp);
-    predicates.equalTo('page_site_id', target.page.siteId);
-    predicates.equalTo('page_index', target.page.index);
-  } else {
-    predicates.equalTo('page_id', target.pageId);
-  }
-  predicates.equalTo('element_id', elementId);
-  predicates.equalTo('kind', PageElementKind.TEXT);
-  return predicates;
-}
-
-async function advanceContentRevision(store: relationalStore.RdbStore,
-  noteId: string, target: StoredTextTarget): Promise<void> {
-  const predicates = new relationalStore.RdbPredicates(target.revisionTable);
-  predicates.equalTo('note_id', noteId);
-  if (target.archived) {
-    predicates.equalTo('page_timestamp', target.page.timestamp);
-    predicates.equalTo('page_site_id', target.page.siteId);
-    predicates.equalTo('page_index', target.page.index);
-  } else {
-    predicates.equalTo('page_id', target.pageId);
-  }
-  predicates.equalTo('content_revision', target.revision);
-  const updated: number = await store.update(
-    { 'content_revision': target.revision + 1 }, predicates);
-  if (updated !== 1) {
-    throw new Error('original rich-text style page revision changed concurrently');
-  }
 }
 
 function isLineSpacing(value: number): boolean {

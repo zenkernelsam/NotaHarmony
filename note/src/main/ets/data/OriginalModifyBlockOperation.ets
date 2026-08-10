@@ -131,6 +131,7 @@ interface StoredBlockTarget extends StoredPageTarget {
   zIndex: string;
   kind: PageElementKind;
   blockType: OriginalBlockType;
+  hidden: boolean;
 }
 
 interface StoredZIndexRow {
@@ -434,8 +435,9 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       const zIndexValue: string = replaceZIndex ? payload.zIndex as string : effectiveZIndex(state);
       const destination: StoredPageTarget | null = samePageIdentity(target.page, pageOriginValue.page) ?
         target : await this.readPageTarget(store, operation.noteId, pageOriginValue.page);
-      if (destination === null || target.revision >= Number.MAX_SAFE_INTEGER ||
-        destination.revision >= Number.MAX_SAFE_INTEGER) {
+      if (destination === null || (!target.hidden &&
+        (target.revision >= Number.MAX_SAFE_INTEGER ||
+          destination.revision >= Number.MAX_SAFE_INTEGER))) {
         return { deferredReason: 'MODIFY_BLOCK_DESTINATION_MISSING_OR_EXHAUSTED' };
       }
       const updatedElement: ModifiableBlockElement = target.kind === PageElementKind.TEXT ?
@@ -540,12 +542,16 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     }
     const affected: Map<string, AffectedPage> = new Map<string, AffectedPage>();
     for (const replacement of planned) {
-      mergeAffectedPage(affected, replacement.target,
-        replacement.target.kind === PageElementKind.TEXT);
-      mergeAffectedPage(affected, replacement.destination,
-        replacement.target.kind === PageElementKind.TEXT);
+      if (!replacement.target.hidden) {
+        mergeAffectedPage(affected, replacement.target,
+          replacement.target.kind === PageElementKind.TEXT);
+        mergeAffectedPage(affected, replacement.destination,
+          replacement.target.kind === PageElementKind.TEXT);
+      }
       await this.updateState(store, operation.noteId, replacement, operation);
-      if (samePageIdentity(replacement.target.page, replacement.destination.page)) {
+      if (replacement.target.hidden) {
+        await this.updateHiddenBlockElement(store, operation.noteId, replacement);
+      } else if (samePageIdentity(replacement.target.page, replacement.destination.page)) {
         if (replacement.replaceZIndex) {
           await this.updateTrackedElement(store, operation.noteId, replacement, false);
         }
@@ -568,7 +574,8 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     block: OperationIdentity): Promise<StoredBlockTarget | null> {
     const rows = await store.querySql(
       `SELECT element.kind, element.page_timestamp, element.page_site_id, element.page_index,
-              identity.page_id, identity.visible, element.z_index, state.block_type
+              identity.page_id, identity.visible, element.z_index, state.block_type,
+              element.visible AS element_visible
        FROM original_element_z_index element
        JOIN original_page_identity identity ON identity.note_id = element.note_id
         AND identity.seq_timestamp = element.page_timestamp
@@ -576,14 +583,14 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
        JOIN original_block_state state ON state.note_id = element.note_id
         AND state.block_timestamp = element.element_timestamp
         AND state.block_site_id = element.element_site_id
-       WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?
-        AND element.visible = 1`,
+       WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?`,
       [noteId, block.timestamp, block.siteId]);
     let page: OriginalSequenceIdentity;
     let pageId: string;
     let zIndex: string;
     let targetKind: PageElementKind;
     let targetBlockType: OriginalBlockType;
+    let hidden: boolean;
     try {
       if (!rows.goToFirstRow() ||
         rows.getLong(rows.getColumnIndex('visible')) !== 1 ||
@@ -608,6 +615,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       }
       targetKind = kind as PageElementKind;
       targetBlockType = blockType as OriginalBlockType;
+      hidden = rows.getLong(rows.getColumnIndex('element_visible')) === 0;
     } finally {
       rows.close();
     }
@@ -619,6 +627,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       block: block, page: target.page, pageId: target.pageId, table: target.table,
       revisionTable: target.revisionTable, revision: target.revision,
       archived: target.archived, zIndex: zIndex, kind: targetKind, blockType: targetBlockType,
+      hidden: hidden,
     };
   }
 
@@ -825,7 +834,14 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
   private async readBlockElement(store: relationalStore.RdbStore, noteId: string,
     target: StoredBlockTarget): Promise<ModifiableBlockElement | null> {
     const id: string = encodeOperationId(target.block);
-    const rows = target.archived ? await store.querySql(
+    const rows = target.hidden ? await store.querySql(
+      `SELECT payload FROM original_deleted_entity WHERE note_id = ?
+       AND entity_timestamp = ? AND entity_site_id = ?
+       AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+       AND element_id = ? AND kind = ?`,
+      [noteId, target.block.timestamp, target.block.siteId,
+        target.page.timestamp, target.page.siteId, target.page.index, id, target.kind]) :
+      target.archived ? await store.querySql(
       `SELECT payload FROM original_deleted_page_element WHERE note_id = ?
        AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
        AND element_id = ? AND kind = ?`,
@@ -935,6 +951,9 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     planned: PlannedBlockReplacement[]): Promise<Map<string, PageMutation> | null> {
     const mutations: Map<string, PageMutation> = new Map<string, PageMutation>();
     for (const replacement of planned) {
+      if (replacement.target.hidden) {
+        continue;
+      }
       const changesPage: boolean = !samePageIdentity(
         replacement.target.page, replacement.destination.page);
       if (!changesPage && !replacement.replaceZIndex) {
@@ -1179,6 +1198,50 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     }, predicates);
     if (updated !== 1) {
       throw new Error('original modify-block lost its target element');
+    }
+  }
+
+  private async updateHiddenBlockElement(store: relationalStore.RdbStore, noteId: string,
+    replacement: PlannedBlockReplacement): Promise<void> {
+    const source: StoredBlockTarget = replacement.target;
+    const persisted: PersistedElement = persistedBlockElement(
+      source.kind, replacement.updatedElement);
+    const archive = new relationalStore.RdbPredicates('original_deleted_entity');
+    archive.equalTo('note_id', noteId);
+    archive.equalTo('entity_timestamp', source.block.timestamp);
+    archive.equalTo('entity_site_id', source.block.siteId);
+    archive.equalTo('page_timestamp', source.page.timestamp);
+    archive.equalTo('page_site_id', source.page.siteId);
+    archive.equalTo('page_index', source.page.index);
+    archive.equalTo('element_id', replacement.element.id);
+    archive.equalTo('kind', source.kind);
+    const updatedArchive: number = await store.update({
+      'page_timestamp': replacement.destination.page.timestamp,
+      'page_site_id': replacement.destination.page.siteId,
+      'page_index': replacement.destination.page.index,
+      'payload': encodePersistedElement(persisted),
+    }, archive);
+    if (updatedArchive !== 1) {
+      throw new Error('original modify-block lost its hidden element');
+    }
+    const tracked = new relationalStore.RdbPredicates('original_element_z_index');
+    tracked.equalTo('note_id', noteId);
+    tracked.equalTo('element_timestamp', source.block.timestamp);
+    tracked.equalTo('element_site_id', source.block.siteId);
+    tracked.equalTo('page_timestamp', source.page.timestamp);
+    tracked.equalTo('page_site_id', source.page.siteId);
+    tracked.equalTo('page_index', source.page.index);
+    tracked.equalTo('kind', source.kind);
+    tracked.equalTo('visible', 0);
+    tracked.equalTo('z_index', source.zIndex);
+    const updatedTracked: number = await store.update({
+      'page_timestamp': replacement.destination.page.timestamp,
+      'page_site_id': replacement.destination.page.siteId,
+      'page_index': replacement.destination.page.index,
+      'z_index': replacement.zIndexValue,
+    }, tracked);
+    if (updatedTracked !== 1) {
+      throw new Error('original modify-block lost its hidden tracked state');
     }
   }
 

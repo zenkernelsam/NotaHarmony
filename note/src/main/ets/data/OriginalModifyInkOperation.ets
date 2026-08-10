@@ -121,6 +121,7 @@ interface StoredPageTarget {
 interface StoredInkTarget extends StoredPageTarget {
   ink: OperationIdentity;
   zIndex: string;
+  hidden: boolean;
 }
 
 interface StoredZIndexRow {
@@ -569,8 +570,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       if (!stroke.renderSpec.isPencil && style === 0 && !replacement.attributed) {
         return { deferredReason: 'MODIFY_INK_VARIABLE_PATH_ATTRIBUTES_MISSING' };
       }
-      if (target.revision >= Number.MAX_SAFE_INTEGER ||
-        destination.revision >= Number.MAX_SAFE_INTEGER) {
+      if (!target.hidden && (target.revision >= Number.MAX_SAFE_INTEGER ||
+        destination.revision >= Number.MAX_SAFE_INTEGER)) {
         return { deferredReason: 'MODIFY_INK_PAGE_REVISION_EXHAUSTED' };
       }
       planned.push({
@@ -596,8 +597,10 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         baseZIndex: state.baseZIndex === null ? baseZIndex : null,
         zIndexValue: zIndexValue,
       });
-      affectedPages.set(pageKey(target), target);
-      affectedPages.set(pageKey(destination), destination);
+      if (!target.hidden) {
+        affectedPages.set(pageKey(target), target);
+        affectedPages.set(pageKey(destination), destination);
+      }
     }
 
     const pageMutations: Map<string, PageMutation> | null = await this.preparePageMutations(
@@ -608,7 +611,9 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     for (const replacement of planned) {
       await this.updateState(store, operation.noteId, replacement.target.ink,
         replacement, operation, payload.centerPath);
-      if (samePageIdentity(replacement.target.page, replacement.destination.page)) {
+      if (replacement.target.hidden) {
+        await this.updateHiddenStroke(store, operation.noteId, replacement);
+      } else if (samePageIdentity(replacement.target.page, replacement.destination.page)) {
         if (replacement.replaceZIndex) {
           await this.updateTrackedZIndex(store, operation.noteId, replacement);
         }
@@ -630,17 +635,18 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     ink: OperationIdentity): Promise<StoredInkTarget | null> {
     const rows = await store.querySql(
       `SELECT element.kind, element.page_timestamp, element.page_site_id, element.page_index,
-              identity.page_id, identity.visible, element.z_index
+              identity.page_id, identity.visible, element.z_index,
+              element.visible AS element_visible
        FROM original_element_z_index element
        JOIN original_page_identity identity ON identity.note_id = element.note_id
         AND identity.seq_timestamp = element.page_timestamp
         AND identity.seq_site_id = element.page_site_id AND identity.seq_index = element.page_index
-       WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?
-        AND element.visible = 1`,
+       WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?`,
       [noteId, ink.timestamp, ink.siteId]);
     let page: OriginalSequenceIdentity;
     let pageId: string;
     let zIndex: string;
+    let hidden: boolean;
     try {
       if (!rows.goToFirstRow() || rows.getLong(rows.getColumnIndex('kind')) !== PageElementKind.STROKE ||
         rows.getLong(rows.getColumnIndex('visible')) !== 1 ||
@@ -654,6 +660,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       };
       pageId = rows.getString(rows.getColumnIndex('page_id'));
       zIndex = rows.getString(rows.getColumnIndex('z_index'));
+      hidden = rows.getLong(rows.getColumnIndex('element_visible')) === 0;
     } finally {
       rows.close();
     }
@@ -669,10 +676,11 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     }
     return liveRevision !== null ? {
       ink: ink, page: page, pageId: pageId, table: 'page_element_snapshot', zIndex: zIndex,
-      revisionTable: 'page_info', revision: liveRevision, archived: false,
+      revisionTable: 'page_info', revision: liveRevision, archived: false, hidden: hidden,
     } : {
-      ink: ink, page: page, pageId: pageId, table: 'original_deleted_page_element', zIndex: zIndex,
-      revisionTable: 'original_deleted_page', revision: archivedRevision as number, archived: true,
+      ink: ink, page: page, pageId: pageId, table: 'original_deleted_page_element',
+      zIndex: zIndex, revisionTable: 'original_deleted_page',
+      revision: archivedRevision as number, archived: true, hidden: hidden,
     };
   }
 
@@ -717,6 +725,9 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     planned: PlannedReplacement[]): Promise<Map<string, PageMutation> | null> {
     const mutations: Map<string, PageMutation> = new Map<string, PageMutation>();
     for (const replacement of planned) {
+      if (replacement.target.hidden) {
+        continue;
+      }
       const changesPage: boolean = !samePageIdentity(
         replacement.target.page, replacement.destination.page);
       if (!changesPage && !replacement.replaceZIndex) {
@@ -1003,7 +1014,14 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
   private async readStroke(store: relationalStore.RdbStore, noteId: string,
     target: StoredInkTarget): Promise<StrokeElementData | null> {
     const elementId: string = encodeOperationId(target.ink);
-    const rows = target.archived ? await store.querySql(
+    const rows = target.hidden ? await store.querySql(
+      `SELECT payload FROM original_deleted_entity WHERE note_id = ?
+       AND entity_timestamp = ? AND entity_site_id = ?
+       AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+       AND element_id = ? AND kind = ?`,
+      [noteId, target.ink.timestamp, target.ink.siteId,
+        target.page.timestamp, target.page.siteId, target.page.index,
+        elementId, PageElementKind.STROKE]) : target.archived ? await store.querySql(
       `SELECT payload FROM original_deleted_page_element WHERE note_id = ?
        AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
        AND element_id = ? AND kind = ?`,
@@ -1023,6 +1041,50 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       return null;
     } finally {
       rows.close();
+    }
+  }
+
+  private async updateHiddenStroke(store: relationalStore.RdbStore, noteId: string,
+    replacement: PlannedReplacement): Promise<void> {
+    const source: StoredInkTarget = replacement.target;
+    const stroke: StrokeElementData = replacementStroke(replacement);
+    const persisted: PersistedElement = { kind: 'stroke', data: stroke };
+    const archive = new relationalStore.RdbPredicates('original_deleted_entity');
+    archive.equalTo('note_id', noteId);
+    archive.equalTo('entity_timestamp', source.ink.timestamp);
+    archive.equalTo('entity_site_id', source.ink.siteId);
+    archive.equalTo('page_timestamp', source.page.timestamp);
+    archive.equalTo('page_site_id', source.page.siteId);
+    archive.equalTo('page_index', source.page.index);
+    archive.equalTo('element_id', stroke.id);
+    archive.equalTo('kind', PageElementKind.STROKE);
+    const updatedArchive: number = await store.update({
+      'page_timestamp': replacement.destination.page.timestamp,
+      'page_site_id': replacement.destination.page.siteId,
+      'page_index': replacement.destination.page.index,
+      'payload': encodePersistedElement(persisted),
+    }, archive);
+    if (updatedArchive !== 1) {
+      throw new Error('original modify-ink lost its hidden stroke');
+    }
+    const tracked = new relationalStore.RdbPredicates('original_element_z_index');
+    tracked.equalTo('note_id', noteId);
+    tracked.equalTo('element_timestamp', source.ink.timestamp);
+    tracked.equalTo('element_site_id', source.ink.siteId);
+    tracked.equalTo('page_timestamp', source.page.timestamp);
+    tracked.equalTo('page_site_id', source.page.siteId);
+    tracked.equalTo('page_index', source.page.index);
+    tracked.equalTo('kind', PageElementKind.STROKE);
+    tracked.equalTo('visible', 0);
+    tracked.equalTo('z_index', source.zIndex);
+    const updatedTracked: number = await store.update({
+      'page_timestamp': replacement.destination.page.timestamp,
+      'page_site_id': replacement.destination.page.siteId,
+      'page_index': replacement.destination.page.index,
+      'z_index': replacement.zIndexValue,
+    }, tracked);
+    if (updatedTracked !== 1) {
+      throw new Error('original modify-ink lost its hidden tracked state');
     }
   }
 
