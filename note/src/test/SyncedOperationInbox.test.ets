@@ -25,6 +25,7 @@ import { decodeOriginalAddPathElements } from
 import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOperation';
 import { decodeOriginalCreateBlock, OriginalBlockType } from
   '../main/ets/data/OriginalCreateBlockOperation';
+import { decodeOriginalModifyBlock } from '../main/ets/data/OriginalModifyBlockOperation';
 import { decodeOriginalAuxiliaryInkPath, originalInkTransform,
   transformedExpandedBounds } from '../main/ets/data/OriginalInkPathCodec';
 import { decodeOriginalInkPath, decodeOriginalInkPathAppend } from
@@ -161,6 +162,7 @@ export default function syncedOperationInboxTest() {
       expect(applier.supports(16)).assertTrue();
       expect(applier.supports(17)).assertTrue();
       expect(applier.supports(22)).assertTrue();
+      expect(applier.supports(23)).assertTrue();
       expect(applier.supports(5)).assertFalse();
     });
 
@@ -187,6 +189,30 @@ export default function syncedOperationInboxTest() {
       expect(payload.hasImage).assertFalse();
       expect(payload.hasMathLatex).assertFalse();
       expect(payload.hasPaper).assertFalse();
+    });
+
+    it('decodes original MODIFY_BLOCK common registers', 0, () => {
+      const payload = decodeOriginalModifyBlock(flatBufferModifyBlock());
+      expect(payload.blocks.length).assertEqual(2);
+      expect(payload.blocks[0].timestamp).assertEqual(20);
+      expect(payload.blocks[1].siteId).assertEqual(3);
+      expect(payload.corner).assertEqual(1);
+      expect(payload.pageOrigin?.page.timestamp).assertEqual(10);
+      expect(payload.pageOrigin?.originX).assertEqual(12);
+      expect(payload.rotation.value).assertEqual(0.5);
+      expect(payload.scale.value?.x).assertEqual(2);
+      expect(payload.width).assertEqual(300);
+      expect(payload.height).assertEqual(60);
+      expect(payload.textWrap).assertEqual(1);
+      expect(payload.enableCaption).assertTrue();
+      expect(payload.zIndex).assertEqual('18446744073709551615');
+      expect(payload.positionLocked).assertTrue();
+      expect(payload.hasTypeSpecificFields).assertFalse();
+      const cleared = decodeOriginalModifyBlock(flatBufferModifyBlock(true));
+      expect(cleared.rotation.present).assertTrue();
+      expect(cleared.rotation.value === null).assertTrue();
+      expect(cleared.scale.present).assertTrue();
+      expect(cleared.scale.value === null).assertTrue();
     });
 
     it('decodes original CREATE_INK path attributes, transform and uint64 z-index', 0, () => {
@@ -761,6 +787,49 @@ function flatBufferCreateBlock(): Uint8Array {
   builder.float32(block + 68, 10);
   builder.float32(block + 72, 5);
   builder.float32(block + 76, 5);
+  return builder.finish(root);
+}
+
+function flatBufferModifyBlock(clearTransform: boolean = false): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 91);
+  writeDecimalU64At(builder, root + 12, '125');
+  writeDecimalU64At(builder, root + 20, '126');
+  builder.uint8(root + 28, 23);
+  const modify: number = builder.table([
+    4, 8, 12, 24, 32, 36, 40, 48, 49, 56,
+    0, 0, 0, 0, 0, 0, 0, 64,
+  ], 68);
+  builder.pointer(root + 32, modify);
+  builder.uint8(modify + 8, 1);
+  builder.uint16(modify + 12, 2);
+  builder.uint32(modify + 16, 10);
+  builder.uint32(modify + 20, 3);
+  builder.float32(modify + 24, 12);
+  builder.float32(modify + 28, 34);
+  builder.float32(modify + 40, 300);
+  builder.float32(modify + 44, 60);
+  builder.uint8(modify + 48, 1);
+  builder.uint8(modify + 49, 1);
+  writeDecimalU64At(builder, modify + 56, '18446744073709551615');
+  builder.uint8(modify + 64, 1);
+  const rotation: number = builder.table([clearTransform ? 0 : 4], 8);
+  if (!clearTransform) {
+    builder.float32(rotation + 4, 0.5);
+  }
+  builder.pointer(modify + 32, rotation);
+  const scale: number = builder.table([clearTransform ? 0 : 4], 12);
+  if (!clearTransform) {
+    builder.float32(scale + 4, 2);
+    builder.float32(scale + 8, 3);
+  }
+  builder.pointer(modify + 36, scale);
+  const blocks: number = builder.operationIdentityVector([
+    { timestamp: 20, siteId: 2 }, { timestamp: 21, siteId: 3 },
+  ]);
+  builder.pointer(modify + 4, blocks);
   return builder.finish(root);
 }
 

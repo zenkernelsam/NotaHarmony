@@ -230,7 +230,7 @@ assert.match(source, /CREATE_BLOCK_IMAGE_UNSUPPORTED/);
 assert.match(source, /CREATE_BLOCK_MATH_UNSUPPORTED/);
 assert.match(source, /kind: PageElementKind\.TEXT/);
 assert.match(dispatcher, /OriginalCreateBlockOperationApplier/);
-assert.match(schema, /DB_VERSION: number = 35/);
+assert.match(schema, /DB_VERSION: number = 36/);
 assert.match(schema, /DDL_ORIGINAL_BLOCK_STATE/);
 
 console.log('success|flatbuffer-rl2=1|text-create=1|empty-richtext=1|transform=1|' +

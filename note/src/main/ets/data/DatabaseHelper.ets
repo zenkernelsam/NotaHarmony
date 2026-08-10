@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v35: preserve the original CREATE_BLOCK common-state baseline.
-export const DB_VERSION: number = 35;
+// v36: preserve the original MODIFY_BLOCK common LWW registers.
+export const DB_VERSION: number = 36;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -544,7 +544,7 @@ CREATE TABLE IF NOT EXISTS original_ink_path_append (
     REFERENCES original_ink_state(note_id, ink_timestamp, ink_site_id) ON DELETE CASCADE
 )`;
 
-export const DDL_ORIGINAL_BLOCK_STATE: string = `
+const DDL_ORIGINAL_BLOCK_STATE_V35: string = `
 CREATE TABLE IF NOT EXISTS original_block_state (
   note_id TEXT NOT NULL,
   block_timestamp INTEGER NOT NULL CHECK (block_timestamp BETWEEN 0 AND 4294967295),
@@ -577,6 +577,88 @@ CREATE TABLE IF NOT EXISTS original_block_state (
   ),
   CHECK ((create_scale_x IS NULL AND create_scale_y IS NULL) OR
     (create_scale_x IS NOT NULL AND create_scale_y IS NOT NULL)),
+  PRIMARY KEY(note_id, block_timestamp, block_site_id),
+  FOREIGN KEY(note_id, block_timestamp, block_site_id)
+    REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_BLOCK_STATE: string = `
+CREATE TABLE IF NOT EXISTS original_block_state (
+  note_id TEXT NOT NULL,
+  block_timestamp INTEGER NOT NULL CHECK (block_timestamp BETWEEN 0 AND 4294967295),
+  block_site_id INTEGER NOT NULL CHECK (block_site_id BETWEEN 0 AND 65535),
+  block_type INTEGER NOT NULL CHECK (block_type BETWEEN 0 AND 2),
+  create_page_timestamp INTEGER NOT NULL CHECK (create_page_timestamp BETWEEN 0 AND 4294967295),
+  create_page_site_id INTEGER NOT NULL CHECK (create_page_site_id BETWEEN 0 AND 65535),
+  create_page_index INTEGER NOT NULL CHECK (create_page_index BETWEEN 0 AND 4294967295),
+  create_origin_x REAL NOT NULL,
+  create_origin_y REAL NOT NULL,
+  create_rotation REAL,
+  create_scale_x REAL,
+  create_scale_y REAL,
+  create_width REAL NOT NULL CHECK (create_width >= 0),
+  create_height REAL NOT NULL CHECK (create_height >= 0),
+  create_corner INTEGER NOT NULL CHECK (create_corner BETWEEN 0 AND 1),
+  create_text_wrap INTEGER NOT NULL CHECK (create_text_wrap BETWEEN 0 AND 1),
+  create_enable_caption INTEGER NOT NULL CHECK (create_enable_caption IN (0, 1)),
+  create_position_locked INTEGER NOT NULL CHECK (create_position_locked IN (0, 1)),
+  create_resizes_width INTEGER NOT NULL CHECK (create_resizes_width IN (0, 1)),
+  create_margin_top REAL NOT NULL CHECK (create_margin_top >= 0),
+  create_margin_bottom REAL NOT NULL CHECK (create_margin_bottom >= 0),
+  create_margin_left REAL NOT NULL CHECK (create_margin_left >= 0),
+  create_margin_right REAL NOT NULL CHECK (create_margin_right >= 0),
+  create_z_index TEXT NOT NULL CHECK (
+    typeof(create_z_index) = 'text' AND length(create_z_index) BETWEEN 1 AND 20
+    AND create_z_index NOT GLOB '*[^0-9]*'
+    AND (create_z_index = '0' OR substr(create_z_index, 1, 1) <> '0')
+    AND (length(create_z_index) < 20 OR create_z_index <= '18446744073709551615')
+  ),
+  page_origin_page_timestamp INTEGER,
+  page_origin_page_site_id INTEGER,
+  page_origin_page_index INTEGER,
+  page_origin_x REAL,
+  page_origin_y REAL,
+  page_origin_winner_timestamp INTEGER,
+  page_origin_winner_site_id INTEGER,
+  page_origin_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (page_origin_winner_present IN (0, 1)),
+  rotation_value REAL,
+  rotation_winner_timestamp INTEGER,
+  rotation_winner_site_id INTEGER,
+  rotation_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (rotation_winner_present IN (0, 1)),
+  scale_x_value REAL,
+  scale_y_value REAL,
+  scale_winner_timestamp INTEGER,
+  scale_winner_site_id INTEGER,
+  scale_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (scale_winner_present IN (0, 1)),
+  size_width_value REAL,
+  size_height_value REAL,
+  size_winner_timestamp INTEGER,
+  size_winner_site_id INTEGER,
+  size_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (size_winner_present IN (0, 1)),
+  corner_value INTEGER,
+  corner_winner_timestamp INTEGER,
+  corner_winner_site_id INTEGER,
+  corner_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (corner_winner_present IN (0, 1)),
+  text_wrap_value INTEGER,
+  text_wrap_winner_timestamp INTEGER,
+  text_wrap_winner_site_id INTEGER,
+  text_wrap_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (text_wrap_winner_present IN (0, 1)),
+  enable_caption_value INTEGER,
+  enable_caption_winner_timestamp INTEGER,
+  enable_caption_winner_site_id INTEGER,
+  enable_caption_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (enable_caption_winner_present IN (0, 1)),
+  position_locked_value INTEGER,
+  position_locked_winner_timestamp INTEGER,
+  position_locked_winner_site_id INTEGER,
+  position_locked_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (position_locked_winner_present IN (0, 1)),
+  z_index_value TEXT,
+  z_index_winner_timestamp INTEGER,
+  z_index_winner_site_id INTEGER,
+  z_index_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (z_index_winner_present IN (0, 1)),
+  CHECK ((create_scale_x IS NULL AND create_scale_y IS NULL) OR
+    (create_scale_x IS NOT NULL AND create_scale_y IS NOT NULL)),
+  CHECK ((scale_x_value IS NULL AND scale_y_value IS NULL) OR
+    (scale_x_value IS NOT NULL AND scale_y_value IS NOT NULL)),
   PRIMARY KEY(note_id, block_timestamp, block_site_id),
   FOREIGN KEY(note_id, block_timestamp, block_site_id)
     REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
@@ -1352,5 +1434,58 @@ export const MIGRATIONS: Record<number, string[]> = {
     `ALTER TABLE original_ink_state ADD COLUMN style_map_winner_present INTEGER NOT NULL
       DEFAULT 0 CHECK (style_map_winner_present IN (0, 1))`,
   ],
-  35: [DDL_ORIGINAL_BLOCK_STATE],
+  35: [DDL_ORIGINAL_BLOCK_STATE_V35],
+  36: [
+    `ALTER TABLE original_block_state ADD COLUMN page_origin_page_timestamp INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN page_origin_page_site_id INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN page_origin_page_index INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN page_origin_x REAL`,
+    `ALTER TABLE original_block_state ADD COLUMN page_origin_y REAL`,
+    `ALTER TABLE original_block_state ADD COLUMN page_origin_winner_timestamp INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN page_origin_winner_site_id INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN page_origin_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (page_origin_winner_present IN (0, 1))`,
+    `ALTER TABLE original_block_state ADD COLUMN rotation_value REAL`,
+    `ALTER TABLE original_block_state ADD COLUMN rotation_winner_timestamp INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN rotation_winner_site_id INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN rotation_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (rotation_winner_present IN (0, 1))`,
+    `ALTER TABLE original_block_state ADD COLUMN scale_x_value REAL`,
+    `ALTER TABLE original_block_state ADD COLUMN scale_y_value REAL`,
+    `ALTER TABLE original_block_state ADD COLUMN scale_winner_timestamp INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN scale_winner_site_id INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN scale_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (scale_winner_present IN (0, 1))`,
+    `ALTER TABLE original_block_state ADD COLUMN size_width_value REAL`,
+    `ALTER TABLE original_block_state ADD COLUMN size_height_value REAL`,
+    `ALTER TABLE original_block_state ADD COLUMN size_winner_timestamp INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN size_winner_site_id INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN size_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (size_winner_present IN (0, 1))`,
+    `ALTER TABLE original_block_state ADD COLUMN corner_value INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN corner_winner_timestamp INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN corner_winner_site_id INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN corner_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (corner_winner_present IN (0, 1))`,
+    `ALTER TABLE original_block_state ADD COLUMN text_wrap_value INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN text_wrap_winner_timestamp INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN text_wrap_winner_site_id INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN text_wrap_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (text_wrap_winner_present IN (0, 1))`,
+    `ALTER TABLE original_block_state ADD COLUMN enable_caption_value INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN enable_caption_winner_timestamp INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN enable_caption_winner_site_id INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN enable_caption_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (enable_caption_winner_present IN (0, 1))`,
+    `ALTER TABLE original_block_state ADD COLUMN position_locked_value INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN position_locked_winner_timestamp INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN position_locked_winner_site_id INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN position_locked_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (position_locked_winner_present IN (0, 1))`,
+    `ALTER TABLE original_block_state ADD COLUMN z_index_value TEXT`,
+    `ALTER TABLE original_block_state ADD COLUMN z_index_winner_timestamp INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN z_index_winner_site_id INTEGER`,
+    `ALTER TABLE original_block_state ADD COLUMN z_index_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (z_index_winner_present IN (0, 1))`,
+  ],
 };

@@ -21,6 +21,9 @@ import {
   ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE, OriginalCreateBlockOperationApplier,
 } from './OriginalCreateBlockOperation';
 import {
+  ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE, OriginalModifyBlockOperationApplier,
+} from './OriginalModifyBlockOperation';
+import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 
@@ -35,6 +38,8 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
   private modifyInk: OriginalModifyInkOperationApplier = new OriginalModifyInkOperationApplier();
   private createBlock: OriginalCreateBlockOperationApplier =
     new OriginalCreateBlockOperationApplier();
+  private modifyBlock: OriginalModifyBlockOperationApplier =
+    new OriginalModifyBlockOperationApplier();
 
   supports(payloadType: number): boolean {
     return payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE ||
@@ -43,7 +48,8 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
       payloadType === ORIGINAL_CREATE_INK_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_MODIFY_INK_PAYLOAD_TYPE ||
-      payloadType === ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE;
+      payloadType === ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE;
   }
 
   async apply(store: relationalStore.RdbStore,
@@ -68,6 +74,9 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
     }
     if (operation.payloadType === ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE) {
       return this.createBlock.apply(store, operation);
+    }
+    if (operation.payloadType === ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE) {
+      return this.modifyBlock.apply(store, operation);
     }
     throw new Error('original page operation applier received an unsupported payload');
   }
