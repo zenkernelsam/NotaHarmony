@@ -1,5 +1,6 @@
 import { relationalStore } from '@kit.ArkData';
 import { TransformMatrix } from '../core/model/GeometryTypes';
+import { PencilSplatLimitError } from '../core/algorithm/PencilSplatGenerator';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { InkPathCommand, InkStyle, InkStyleMapEntry, RenderSpec,
   StrokeElementData } from '../core/model/StrokeTypes';
@@ -390,8 +391,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       if (stroke === null || !isSupportedOriginalStoredStroke(stroke)) {
         return { deferredReason: 'MODIFY_INK_STROKE_DIVERGED' };
       }
-      if (stroke.renderSpec.isPencil || stroke.splatPoints.length > 0) {
-        return { deferredReason: 'MODIFY_INK_PENCIL_UNSUPPORTED' };
+      if (!stroke.renderSpec.isPencil && stroke.splatPoints.length > 0) {
+        return { deferredReason: 'MODIFY_INK_STROKE_DIVERGED' };
       }
       let initial: OriginalCreateInkPayload | null = null;
       if ((replaceStyle && state.style.value === null) ||
@@ -546,12 +547,15 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
           replaceCenterPath ? payload.centerPath as Uint8Array : state.basePath,
           appends, candidateStroke);
       } catch (_error) {
+        if (_error instanceof PencilSplatLimitError) {
+          return { deferredReason: 'MODIFY_INK_PENCIL_SPLAT_BUDGET_EXCEEDED' };
+        }
         return { deferredReason: 'MODIFY_INK_TRACKED_STATE_INVALID' };
       }
       if (!originalInkGeometryMatches(stroke, expected)) {
         return { deferredReason: 'MODIFY_INK_STROKE_DIVERGED' };
       }
-      if (style === 0 && !replacement.attributed) {
+      if (!stroke.renderSpec.isPencil && style === 0 && !replacement.attributed) {
         return { deferredReason: 'MODIFY_INK_VARIABLE_PATH_ATTRIBUTES_MISSING' };
       }
       if (target.revision >= Number.MAX_SAFE_INTEGER ||
@@ -1342,7 +1346,7 @@ function replacementStroke(replacement: PlannedReplacement): StrokeElementData {
     id: stroke.id,
     pathPoints: replacement.geometry.pathPoints,
     cubicSegments: replacement.geometry.cubicSegments,
-    splatPoints: stroke.splatPoints,
+    splatPoints: replacement.geometry.splatPoints,
     renderSpec: {
       color: replacement.color,
       brushWidth: replacement.width,

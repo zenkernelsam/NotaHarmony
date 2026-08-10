@@ -39,8 +39,9 @@ audio 和 effects 仍不做降级。
 
 ## 边界与验证
 
-- 本阶段只开放 standalone `CREATE_INK(PENCIL)`；后续 ADR-0024 已开放 actual center-path `ADD_PATH_ELEMENTS`。
-  Pencil `MODIFY_INK`、estimated append 与 NOTE_BUNDLE 内容 replay 仍保持 DEFERRED，不能宣称完整 Pencil 同步闭环。
+- 本阶段只开放 standalone `CREATE_INK(PENCIL)`；后续 ADR-0024 已开放 actual center-path `ADD_PATH_ELEMENTS`，ADR-0025
+  已开放 Pencil `MODIFY_INK` 的完整确定性重建。estimated append 与 NOTE_BUNDLE 内容 replay 仍保持 DEFERRED，不能宣称完整
+  Pencil 同步闭环。
 - `d02-create-ink.mjs` 新增真实 tool=PENCIL 和 20-byte style-map FlatBuffer fixture。
 - `d02-create-ink-pencil.mjs` 固定断言 fallback seed、负 seed、reference point、splat golden、Pencil bounds 和
   JSON 持久化重启往返。

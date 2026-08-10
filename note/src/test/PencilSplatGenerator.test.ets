@@ -183,6 +183,37 @@ export default function pencilSplatGeneratorTest() {
       expect(limited).assertTrue();
     });
 
+    it('rebuilds spacing and scale when the stored brush width changes', 0, () => {
+      const points: StrokePathPoint[] = [
+        pencilPoint(0, 0.8, 0.2, 1, 0), pencilPoint(30, 0.8, 0.2, 1, 0),
+      ];
+      const narrowGenerator: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
+      narrowGenerator.reset(12345);
+      const narrow: PencilSplatPoint[] = narrowGenerator.generate([straightSegment()], points);
+      const wideGenerator: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 8 });
+      wideGenerator.reset(12345);
+      const wide: PencilSplatPoint[] = wideGenerator.generate([straightSegment()], points);
+      expect(narrow.length > wide.length).assertTrue();
+      expect(wide[0].scale > narrow[0].scale).assertTrue();
+      expect(wide[0].x).assertEqual(narrow[0].x * 2);
+    });
+
+    it('rebuilds from a winning style-map seed and reference', 0, () => {
+      const points: StrokePathPoint[] = [
+        pencilPoint(0, 0.8, 0.2, 1, 0), pencilPoint(30, 0.8, 0.2, 1, 0),
+      ];
+      const original: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
+      original.reset(12345);
+      const before: PencilSplatPoint[] = original.generate([straightSegment()], points);
+      const modified: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
+      modified.reset(54321);
+      const after: PencilSplatPoint[] = modified.generate(
+        [straightSegment()], points, undefined, { x: 10, y: 0 });
+      expect(after.length < before.length).assertTrue();
+      expect(after[0].x === before[0].x).assertFalse();
+      expect(after[0].rotation === before[0].rotation).assertFalse();
+    });
+
     it('uses the original fixed azimuth fallback instead of the curve tangent', 0, () => {
       const missing: PencilSplatPoint[] = generateOnSegment(
         verticalSegment(), 0.8, 0.2, 0, 0);

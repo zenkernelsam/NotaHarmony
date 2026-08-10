@@ -23,7 +23,7 @@ Pencil splats。渲染时 `p16.t()` 每次读取完整 `s06.Q()`，再以 style-
 
 非 Pencil stroke 出现 splats 视为状态分歧。Pencil 不要求 VARIABLE_WIDTH 路径携带属性，因为原版 `fd0` 对无属性路径提供
 默认 force/altitude/azimuth；Pen 的 variable-width 属性门禁不变。estimated center path、多 component 和 Pencil
-`MODIFY_INK` 继续保持 DEFERRED。
+`MODIFY_INK` 在本决策中继续保持 DEFERRED，后续由 ADR-0025 在相同完整重建模型上开放。
 
 边修边审补上同步 Pencil 物化的输出预算：输入路径即使受 16MB 限制，极小 width 与超长坐标仍可令等距 walker
 产生近乎无界的 splats。CREATE/ADD 共用 262,144 上限，超限整项 DEFERRED，不截断、不写 append，也不推进 revision；
