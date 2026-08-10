@@ -24,10 +24,8 @@ export class Canvas2DTextRenderer {
     let lineStart: number = 0;
     let baseline: number = element.textOrigin.y + element.contentTopInset + element.fontSize;
     let numberedParagraph: number = 1;
-    for (let index: number = 0; index <= characters.length; index++) {
-      if (index < characters.length && characters[index] !== '\n') {
-        continue;
-      }
+    const lineEnds: number[] = this.lineEnds(ctx, characters, characterStyles, element);
+    for (const index of lineEnds) {
       const paragraph: RichTextParagraphStyle = paragraphStyles[Math.min(
         lineStart, Math.max(0, characters.length - 1))] ?? {};
       const prefix: string = this.decoratorPrefix(paragraph.decoratorStyle, numberedParagraph);
@@ -67,6 +65,46 @@ export class Canvas2DTextRenderer {
       lineStart = index + 1;
     }
     ctx.restore();
+  }
+
+  private lineEnds(ctx: Canvas2DDrawingContext, characters: string[],
+    styles: RichTextCharacterStyle[], element: TextBlockElement): number[] {
+    const ends: number[] = [];
+    const wrap: number = element.textWrap === undefined ? 0 : element.textWrap;
+    const available: number = Math.max(1, element.blockWidth - element.contentLeftInset * 2);
+    let start: number = 0;
+    let width: number = 0;
+    let lastBreak: number = -1;
+    for (let index: number = 0; index <= characters.length; index++) {
+      const atEnd: boolean = index === characters.length;
+      const character: string = atEnd ? '' : characters[index];
+      if (atEnd || character === '\n') {
+        ends.push(index);
+        start = index + 1;
+        width = 0;
+        lastBreak = -1;
+        continue;
+      }
+      const nextWidth: number = width + this.measureRange(ctx, characters, styles,
+        index, index + 1, element, '');
+      if (wrap === 0 && nextWidth > available && index > start) {
+        const end: number = lastBreak > start ? lastBreak : index;
+        ends.push(end);
+        start = end;
+        while (start < characters.length && characters[start] === ' ') {
+          start++;
+        }
+        index = start - 1;
+        width = 0;
+        lastBreak = -1;
+        continue;
+      }
+      width = nextWidth;
+      if (character === ' ' || character === '\t') {
+        lastBreak = index;
+      }
+    }
+    return ends;
   }
 
   private renderSpan(ctx: Canvas2DDrawingContext, text: string, x: number,

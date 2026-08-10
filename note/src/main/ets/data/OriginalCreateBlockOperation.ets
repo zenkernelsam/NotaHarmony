@@ -223,9 +223,6 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     if (payload.hasPaper) {
       return 'CREATE_BLOCK_TEXT_PAPER_UNSUPPORTED';
     }
-    if (payload.enableCaption) {
-      return 'CREATE_BLOCK_CAPTION_UNSUPPORTED';
-    }
     if (payload.resizesWidthToFitText) {
       return 'CREATE_BLOCK_RESIZE_TO_FIT_UNSUPPORTED';
     }
@@ -266,6 +263,9 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       contentTopInset: payload.margins.top,
       fontSize: 17,
       fontColor: -16777216,
+      corner: payload.corner,
+      textWrap: payload.textWrap,
+      enableCaption: payload.enableCaption,
       positionLocked: payload.positionLocked,
     };
     text.bounds = textBlockWorldBounds(text);

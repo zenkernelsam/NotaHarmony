@@ -64,6 +64,10 @@ export interface TextBlockElement extends NoteElementBase {
   contentTopInset: number;
   fontSize: number;
   fontColor: number;
+  // Original BlockCommon registers retained on TEXT snapshots.
+  corner?: number;
+  textWrap?: number;
+  enableCaption?: boolean;
   // Missing on legacy Harmony snapshots; the original Block default is unlocked.
   positionLocked?: boolean;
 }

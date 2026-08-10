@@ -227,9 +227,6 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     if (payload.hasTypeSpecificFields) {
       return { deferredReason: 'MODIFY_BLOCK_TYPE_SPECIFIC_FIELDS_UNSUPPORTED' };
     }
-    if (payload.corner !== null || payload.textWrap !== null || payload.enableCaption !== null) {
-      return { deferredReason: 'MODIFY_BLOCK_COMMON_BEHAVIOR_UNSUPPORTED' };
-    }
     if ((payload.pageOrigin !== null && (!Number.isFinite(payload.pageOrigin.originX) ||
       !Number.isFinite(payload.pageOrigin.originY))) ||
       (payload.rotation.value !== null && !Number.isFinite(payload.rotation.value)) ||
@@ -303,6 +300,15 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       updatedText.rotationRadians = rotationValue === null ? 0 : rotationValue;
       updatedText.blockWidth = sizeValue.x;
       updatedText.blockHeight = sizeValue.y;
+      if (replaceCorner) {
+        updatedText.corner = payload.corner as number;
+      }
+      if (replaceTextWrap) {
+        updatedText.textWrap = payload.textWrap as number;
+      }
+      if (replaceEnableCaption) {
+        updatedText.enableCaption = payload.enableCaption as boolean;
+      }
       updatedText.positionLocked = replacePositionLocked ? payload.positionLocked as boolean :
         effectiveBoolean(state.basePositionLocked, state.positionLocked);
       updatedText.bounds = textBlockWorldBounds(updatedText);
@@ -580,6 +586,9 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     expectedText.transform = expectedTransform;
     expectedText.blockWidth = size.x;
     expectedText.blockHeight = size.y;
+    expectedText.corner = effectiveNumber(state.baseCorner, state.corner);
+    expectedText.textWrap = effectiveNumber(state.baseTextWrap, state.textWrap);
+    expectedText.enableCaption = effectiveBoolean(state.baseEnableCaption, state.enableCaption);
     const expectedBounds = textBlockWorldBounds(expectedText);
     return samePageIdentity(target.page, pageOrigin.page) && target.zIndex === effectiveZIndex(state) &&
       JSON.stringify(text.transform) === JSON.stringify(expectedTransform) &&
@@ -587,6 +596,9 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       text.blockWidth === size.x && text.blockHeight === size.y && text.textOrigin.x === 0 &&
       text.textOrigin.y === 0 && text.rotationRadians === (rotation === null ? 0 : rotation) &&
       text.contentLeftInset === state.baseLeftInset && text.contentTopInset === state.baseTopInset &&
+      (text.corner === undefined ? 0 : text.corner) === (expectedText.corner === undefined ? 0 : expectedText.corner) &&
+      (text.textWrap === undefined ? 0 : text.textWrap) === (expectedText.textWrap === undefined ? 0 : expectedText.textWrap) &&
+      (text.enableCaption === true) === (expectedText.enableCaption === true) &&
       (text.positionLocked === true) === effectiveBoolean(
         state.basePositionLocked, state.positionLocked) &&
       text.id === encodeOperationId(target.block);

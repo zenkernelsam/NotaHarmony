@@ -305,6 +305,9 @@ function isValidText(text: TextBlockElement): boolean {
     isFiniteNumber(text.rotationRadians) && isFiniteNumber(text.contentLeftInset) &&
     isFiniteNumber(text.contentTopInset) && isNonNegativeFinite(text.fontSize) &&
     isFiniteNumber(text.fontColor) && isValidRichTextRuns(text) &&
+    (text.corner === undefined || text.corner === 0 || text.corner === 1) &&
+    (text.textWrap === undefined || text.textWrap === 0 || text.textWrap === 1) &&
+    (text.enableCaption === undefined || typeof text.enableCaption === 'boolean') &&
     (text.positionLocked === undefined || typeof text.positionLocked === 'boolean');
 }
 

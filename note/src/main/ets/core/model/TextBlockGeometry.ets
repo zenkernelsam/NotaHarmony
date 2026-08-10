@@ -19,6 +19,8 @@ export function cloneTextBlockElement(element: TextBlockElement): TextBlockEleme
     blockHeight: element.blockHeight, rotationRadians: element.rotationRadians,
     contentLeftInset: element.contentLeftInset, contentTopInset: element.contentTopInset,
     fontSize: element.fontSize, fontColor: element.fontColor,
+    corner: element.corner, textWrap: element.textWrap,
+    enableCaption: element.enableCaption,
     characterStyleRuns: cloneCharacterStyleRuns(element.characterStyleRuns),
     paragraphStyleRuns: cloneParagraphStyleRuns(element.paragraphStyleRuns),
     positionLocked: isTextBlockPositionLocked(element),

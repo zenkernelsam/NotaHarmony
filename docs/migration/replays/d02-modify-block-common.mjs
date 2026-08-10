@@ -295,7 +295,7 @@ assert.equal(chain.prepare(`SELECT count(*) count FROM pragma_table_info('origin
 assert.match(source, /ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE: number = 23/);
 assert.match(source, /must pair page and origin/);
 assert.match(source, /MODIFY_BLOCK_TYPE_SPECIFIC_FIELDS_UNSUPPORTED/);
-assert.match(source, /MODIFY_BLOCK_COMMON_BEHAVIOR_UNSUPPORTED/);
+assert.doesNotMatch(source, /MODIFY_BLOCK_COMMON_BEHAVIOR_UNSUPPORTED/);
 assert.match(source, /updatedText\.positionLocked/);
 assert.match(source, /registerAccepts/);
 assert.match(source, /readOptionalWinner/);
@@ -310,7 +310,7 @@ assert.match(packageSpec, /text\.positionLocked === undefined/);
 
 console.log('success|flatbuffer-td8=1|materialized-registers=6|reserved-registers=3|nullable-clear=1|state-finite=1|v34-v36=1|' +
   'lower-first-wins=1|stale-noop=1|cross-page=1|z-order=1|search-invalidated=2|' +
-  'position-lock=1|rollback=2|behavioral-deferred=3|type-specific-deferred=1');
+  'position-lock=1|text-common-consumer=1|rollback=2|type-specific-deferred=1');
 
 function w16(bytes, offset, value) { new DataView(bytes.buffer).setUint16(offset, value, true); }
 function w32(bytes, offset, value) { new DataView(bytes.buffer).setUint32(offset, value, true); }
