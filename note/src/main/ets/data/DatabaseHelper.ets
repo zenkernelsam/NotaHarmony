@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v41: preserve original MODIFY_BLOCK TEXT paper/resize LWW winners.
-export const DB_VERSION: number = 41;
+// v42: preserve original ADD_PATH_ELEMENTS estimated center-path LWW register.
+export const DB_VERSION: number = 42;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -402,6 +402,14 @@ CREATE TABLE IF NOT EXISTS original_ink_state (
   center_path_winner_site_id INTEGER NOT NULL
     CHECK (center_path_winner_site_id BETWEEN 0 AND 65535),
   center_path_winner_present INTEGER NOT NULL CHECK (center_path_winner_present IN (0, 1)),
+  estimated_center_path BLOB NOT NULL DEFAULT X'' CHECK (length(estimated_center_path) = 0 OR
+    length(estimated_center_path) BETWEEN 3 AND 16777216),
+  estimated_path_winner_timestamp INTEGER NOT NULL DEFAULT 0
+    CHECK (estimated_path_winner_timestamp BETWEEN 0 AND 4294967295),
+  estimated_path_winner_site_id INTEGER NOT NULL DEFAULT 0
+    CHECK (estimated_path_winner_site_id BETWEEN 0 AND 65535),
+  estimated_path_winner_present INTEGER NOT NULL DEFAULT 0
+    CHECK (estimated_path_winner_present IN (0, 1)),
   create_custom_path BLOB CHECK (create_custom_path IS NULL OR length(create_custom_path) = 0 OR
     length(create_custom_path) BETWEEN 3 AND 16777216),
   custom_path_value BLOB CHECK (custom_path_value IS NULL OR length(custom_path_value) = 0 OR
@@ -1595,5 +1603,16 @@ export const MIGRATIONS: Record<number, string[]> = {
     'ALTER TABLE original_block_state ADD COLUMN resizes_width_winner_site_id INTEGER',
     `ALTER TABLE original_block_state ADD COLUMN resizes_width_winner_present INTEGER NOT NULL DEFAULT 0
       CHECK (resizes_width_winner_present IN (0, 1))`,
+  ],
+  42: [
+    `ALTER TABLE original_ink_state ADD COLUMN estimated_center_path BLOB NOT NULL DEFAULT X''
+      CHECK (length(estimated_center_path) = 0 OR
+        length(estimated_center_path) BETWEEN 3 AND 16777216)`,
+    `ALTER TABLE original_ink_state ADD COLUMN estimated_path_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (estimated_path_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN estimated_path_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (estimated_path_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN estimated_path_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (estimated_path_winner_present IN (0, 1))`,
   ],
 };

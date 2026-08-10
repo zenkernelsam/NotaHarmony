@@ -88,6 +88,7 @@ interface OriginalInkBaseTransform {
 interface StoredInkState {
   basePath: Uint8Array;
   centerPathWinner: OperationIdentity | null;
+  estimatedPath: StoredRegister<Uint8Array>;
   baseCustomPath: Uint8Array | null;
   customPath: StoredRegister<Uint8Array>;
   baseFillPath: Uint8Array | null;
@@ -542,10 +543,11 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       let expected: RebuiltOriginalInkGeometry;
       let replacement: RebuiltOriginalInkGeometry;
       try {
-        expected = rebuildOriginalInkGeometry(state.basePath, appends, stroke);
+        expected = rebuildOriginalInkGeometry(
+          state.basePath, appends, stroke, state.estimatedPath.value);
         replacement = rebuildOriginalInkGeometry(
           replaceCenterPath ? payload.centerPath as Uint8Array : state.basePath,
-          appends, candidateStroke);
+          appends, candidateStroke, state.estimatedPath.value);
       } catch (_error) {
         if (_error instanceof PencilSplatLimitError) {
           return { deferredReason: 'MODIFY_INK_PENCIL_SPLAT_BUDGET_EXCEEDED' };
@@ -812,6 +814,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     const rows = await store.querySql(
       `SELECT base_center_path, center_path_winner_timestamp, center_path_winner_site_id,
               center_path_winner_present,
+              estimated_center_path, estimated_path_winner_timestamp,
+              estimated_path_winner_site_id, estimated_path_winner_present,
               create_custom_path, custom_path_value, custom_path_winner_timestamp,
               custom_path_winner_site_id, custom_path_winner_present,
               create_fill_path, fill_path_value, fill_path_winner_timestamp,
@@ -844,6 +848,12 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         return null;
       }
       const centerPathWinner: OperationIdentity | null = readOptionalWinner(rows, 'center_path');
+      const estimatedPathWinner: OperationIdentity | null = readOptionalWinner(rows, 'estimated_path');
+      const estimatedPath: Uint8Array = rows.getBlob(
+        rows.getColumnIndex('estimated_center_path'));
+      if (estimatedPathWinner === null && estimatedPath.length > 0) {
+        throw new Error('original modify-ink has estimated path without a winner');
+      }
       const customPathWinner: OperationIdentity | null = readOptionalWinner(rows, 'custom_path');
       const fillPathWinner: OperationIdentity | null = readOptionalWinner(rows, 'fill_path');
       const fillColorWinner: OperationIdentity | null = readOptionalWinner(rows, 'fill_color');
@@ -902,6 +912,10 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       return {
         basePath: rows.getBlob(rows.getColumnIndex('base_center_path')),
         centerPathWinner: centerPathWinner,
+        estimatedPath: {
+          value: estimatedPath,
+          winner: estimatedPathWinner,
+        },
         baseCustomPath: readNullableBlob(rows, 'create_custom_path'),
         customPath: { value: readNullableBlob(rows, 'custom_path_value'), winner: customPathWinner },
         baseFillPath: readNullableBlob(rows, 'create_fill_path'),

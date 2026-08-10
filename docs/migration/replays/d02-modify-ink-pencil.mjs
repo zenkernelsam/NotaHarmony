@@ -67,7 +67,7 @@ const source = fs.readFileSync(new URL(
   '../../../note/src/main/ets/data/OriginalModifyInkOperation.ets', import.meta.url), 'utf8');
 assert.doesNotMatch(source, /MODIFY_INK_PENCIL_UNSUPPORTED/);
 assert.match(source, /!stroke\.renderSpec\.isPencil && stroke\.splatPoints\.length > 0/);
-assert.match(source, /expected = rebuildOriginalInkGeometry\(state\.basePath, appends, stroke\)/);
+assert.match(source, /expected = rebuildOriginalInkGeometry\([\s\S]*state\.estimatedPath\.value\)/);
 assert.match(source, /replacement = rebuildOriginalInkGeometry\(/);
 assert.match(source, /MODIFY_INK_PENCIL_SPLAT_BUDGET_EXCEEDED/);
 assert.match(source, /!stroke\.renderSpec\.isPencil && style === 0 && !replacement\.attributed/);

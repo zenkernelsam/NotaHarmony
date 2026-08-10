@@ -1,6 +1,6 @@
 # ADR-0005：原版 ADD_PATH_ELEMENTS 有序片段与笔迹重建
 
-- 状态：Accepted（受证明子集）
+- 状态：Accepted（actual 子集；estimated 边界已由 ADR-0026 接续）
 - 日期：2026-08-10
 - 关联：D-02、数据库 v27、ADR-0004
 
@@ -38,6 +38,9 @@
 当前继续 DEFERRED：estimated center-path register、包含 move 的多 component 片段、VARIABLE 路径缺失逐点属性、Pencil splats、
 Tape，以及没有 v27 基础状态的历史 Ink。`MODIFY_INK` 的独立字段 LWW register 和 center-path replacement 将在后续阶段实现；替换
 基础路径时必须保留已有 append rows，并从新基础路径重新构建，不能删除追加历史。
+
+后续 ADR-0024/0025 已开放 Pencil actual ADD/MODIFY；ADR-0026 进一步以 `q06.d`、`d16.h` 和 `s06.Q()` 的直接证据开放
+estimated LWW register。因此上面的 DEFERRED 描述仅是本阶段边界，不再代表当前实现状态。
 
 ## 后果与验证
 

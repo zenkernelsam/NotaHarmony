@@ -45,6 +45,11 @@ interface StoredInkTarget {
   archived: boolean;
 }
 
+interface StoredEstimatedPath {
+  bytes: Uint8Array;
+  winner: OperationIdentity | null;
+}
+
 export interface OriginalInkAppendRecord extends OperationIdentity {
   bytes: Uint8Array;
 }
@@ -99,13 +104,17 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     } catch (_error) {
       return { deferredReason: 'MALFORMED_ADD_PATH_ELEMENTS_PAYLOAD' };
     }
-    if (payload.centerPathEstimatedElements !== null) {
-      return { deferredReason: 'ADD_PATH_ELEMENTS_ESTIMATED_PATH_UNSUPPORTED' };
-    }
-    const candidateBytes: Uint8Array = payload.centerPathElements as Uint8Array;
-    let candidateProbe: DecodedOriginalInkPathAppend;
+    let actualProbe: DecodedOriginalInkPathAppend | null = null;
+    let estimatedProbe: DecodedOriginalInkPathAppend | null = null;
     try {
-      candidateProbe = decodeOriginalInkPathAppend(candidateBytes, { x: 0, y: 0 });
+      if (payload.centerPathElements !== null) {
+        actualProbe = decodeOriginalInkPathAppend(
+          payload.centerPathElements, { x: 0, y: 0 });
+      }
+      if (payload.centerPathEstimatedElements !== null) {
+        estimatedProbe = decodeOriginalInkPathAppend(
+          payload.centerPathEstimatedElements, { x: 0, y: 0 });
+      }
     } catch (_error) {
       if (_error instanceof OriginalInkPathDeferredError) {
         return { deferredReason: _error.deferredReason };
@@ -121,11 +130,17 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     if (basePath === null) {
       return { deferredReason: 'ADD_PATH_ELEMENTS_BASE_STATE_MISSING' };
     }
+    const estimatedState: StoredEstimatedPath | null = await this.readEstimatedPath(
+      store, operation.noteId, payload.ink);
+    if (estimatedState === null) {
+      return { deferredReason: 'ADD_PATH_ELEMENTS_BASE_STATE_MISSING' };
+    }
     const stroke: StrokeElementData | null = await this.readStroke(store, operation.noteId, target);
     if (stroke === null) {
       return { deferredReason: 'ADD_PATH_ELEMENTS_STROKE_DIVERGED' };
     }
-    const unsupported: string | null = this.unsupportedStrokeReason(stroke, candidateProbe);
+    const unsupported: string | null = this.unsupportedStrokeReason(
+      stroke, actualProbe, estimatedProbe);
     if (unsupported !== null) {
       return { deferredReason: unsupported };
     }
@@ -133,7 +148,8 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
       store, operation.noteId, payload.ink);
     let expected: RebuiltOriginalInkGeometry;
     try {
-      expected = rebuildOriginalInkGeometry(basePath, existingAppends, stroke);
+      expected = rebuildOriginalInkGeometry(
+        basePath, existingAppends, stroke, estimatedState.bytes);
     } catch (_error) {
       if (_error instanceof PencilSplatLimitError) {
         return { deferredReason: 'ADD_PATH_ELEMENTS_PENCIL_SPLAT_BUDGET_EXCEEDED' };
@@ -143,18 +159,29 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     if (!originalInkGeometryMatches(stroke, expected)) {
       return { deferredReason: 'ADD_PATH_ELEMENTS_STROKE_DIVERGED' };
     }
+    const replaceEstimated: boolean = estimatedState.winner === null ||
+      compareOperationIdentity(operation, estimatedState.winner) > 0;
+    if (payload.centerPathElements === null && !replaceEstimated) {
+      return { deferredReason: null };
+    }
     if (target.revision >= Number.MAX_SAFE_INTEGER) {
       return { deferredReason: 'ADD_PATH_ELEMENTS_PAGE_REVISION_EXHAUSTED' };
     }
 
     const allAppends: OriginalInkAppendRecord[] = existingAppends.slice();
-    allAppends.push({
-      timestamp: operation.timestamp, siteId: operation.siteId, bytes: candidateBytes,
-    });
+    if (payload.centerPathElements !== null) {
+      allAppends.push({
+        timestamp: operation.timestamp, siteId: operation.siteId,
+        bytes: payload.centerPathElements,
+      });
+    }
     allAppends.sort(compareStoredAppend);
+    const estimatedBytes: Uint8Array = replaceEstimated ?
+      (payload.centerPathEstimatedElements === null ? new Uint8Array(0) :
+        payload.centerPathEstimatedElements) : estimatedState.bytes;
     let rebuilt: RebuiltOriginalInkGeometry;
     try {
-      rebuilt = rebuildOriginalInkGeometry(basePath, allAppends, stroke);
+      rebuilt = rebuildOriginalInkGeometry(basePath, allAppends, stroke, estimatedBytes);
     } catch (_error) {
       if (_error instanceof PencilSplatLimitError) {
         return { deferredReason: 'ADD_PATH_ELEMENTS_PENCIL_SPLAT_BUDGET_EXCEEDED' };
@@ -176,21 +203,28 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
       styleMap: stroke.styleMap,
       isFinished: stroke.isFinished,
     };
-    await store.insert('original_ink_path_append', {
-      'note_id': operation.noteId,
-      'ink_timestamp': payload.ink.timestamp,
-      'ink_site_id': payload.ink.siteId,
-      'append_timestamp': operation.timestamp,
-      'append_site_id': operation.siteId,
-      'center_path_elements': candidateBytes,
-    });
+    if (payload.centerPathElements !== null) {
+      await store.insert('original_ink_path_append', {
+        'note_id': operation.noteId,
+        'ink_timestamp': payload.ink.timestamp,
+        'ink_site_id': payload.ink.siteId,
+        'append_timestamp': operation.timestamp,
+        'append_site_id': operation.siteId,
+        'center_path_elements': payload.centerPathElements,
+      });
+    }
+    if (replaceEstimated) {
+      await this.updateEstimatedPath(store, operation.noteId, payload.ink,
+        operation, estimatedBytes);
+    }
     await this.updateStroke(store, operation.noteId, target, updatedStroke);
     await this.advanceRevisionAndInvalidateSearch(store, operation.noteId, target);
     return { deferredReason: null };
   }
 
   private unsupportedStrokeReason(stroke: StrokeElementData,
-    candidate: DecodedOriginalInkPathAppend): string | null {
+    actual: DecodedOriginalInkPathAppend | null,
+    estimated: DecodedOriginalInkPathAppend | null): string | null {
     if (!isSupportedOriginalStoredStroke(stroke)) {
       return 'ADD_PATH_ELEMENTS_STROKE_DIVERGED';
     }
@@ -202,7 +236,8 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
       return 'ADD_PATH_ELEMENTS_STYLE_UNSUPPORTED';
     }
     if (!stroke.renderSpec.isPencil && stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH &&
-      !candidate.attributed) {
+      ((actual !== null && !actual.attributed) ||
+        (estimated !== null && !estimated.attributed))) {
       return 'ADD_PATH_ELEMENTS_VARIABLE_PATH_ATTRIBUTES_MISSING';
     }
     return null;
@@ -264,6 +299,58 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
       return rows.goToFirstRow() ? rows.getBlob(rows.getColumnIndex('base_center_path')) : null;
     } finally {
       rows.close();
+    }
+  }
+
+  private async readEstimatedPath(store: relationalStore.RdbStore, noteId: string,
+    ink: OperationIdentity): Promise<StoredEstimatedPath | null> {
+    const rows = await store.querySql(
+      `SELECT estimated_center_path, estimated_path_winner_timestamp,
+              estimated_path_winner_site_id, estimated_path_winner_present
+       FROM original_ink_state WHERE note_id = ? AND ink_timestamp = ? AND ink_site_id = ?`,
+      [noteId, ink.timestamp, ink.siteId]);
+    try {
+      if (!rows.goToFirstRow()) {
+        return null;
+      }
+      const present: boolean = rows.getLong(
+        rows.getColumnIndex('estimated_path_winner_present')) === 1;
+      let winner: OperationIdentity | null = null;
+      if (present) {
+        winner = {
+          timestamp: rows.getLong(rows.getColumnIndex('estimated_path_winner_timestamp')),
+          siteId: rows.getLong(rows.getColumnIndex('estimated_path_winner_site_id')),
+        };
+        validateOperationIdentity(winner);
+      }
+      const bytes: Uint8Array = rows.getBlob(rows.getColumnIndex('estimated_center_path'));
+      if (!present && bytes.length > 0) {
+        return null;
+      }
+      return {
+        bytes: bytes,
+        winner: winner,
+      };
+    } finally {
+      rows.close();
+    }
+  }
+
+  private async updateEstimatedPath(store: relationalStore.RdbStore, noteId: string,
+    ink: OperationIdentity, operation: StoredSyncedOperation,
+    bytes: Uint8Array): Promise<void> {
+    const predicates = new relationalStore.RdbPredicates('original_ink_state');
+    predicates.equalTo('note_id', noteId);
+    predicates.equalTo('ink_timestamp', ink.timestamp);
+    predicates.equalTo('ink_site_id', ink.siteId);
+    const updated: number = await store.update({
+      'estimated_center_path': bytes,
+      'estimated_path_winner_timestamp': operation.timestamp,
+      'estimated_path_winner_site_id': operation.siteId,
+      'estimated_path_winner_present': 1,
+    }, predicates);
+    if (updated !== 1) {
+      throw new Error('original add-path-elements lost its estimated-path register');
     }
   }
 
@@ -375,7 +462,8 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
 }
 
 export function rebuildOriginalInkGeometry(baseBytes: Uint8Array,
-  appends: OriginalInkAppendRecord[], stroke: StrokeElementData): RebuiltOriginalInkGeometry {
+  appends: OriginalInkAppendRecord[], stroke: StrokeElementData,
+  estimatedBytes?: Uint8Array | null): RebuiltOriginalInkGeometry {
   const base: DecodedOriginalInkPath = decodeOriginalInkPath(baseBytes);
   const pathPoints: StrokePathPoint[] = base.pathPoints.slice();
   const cubicSegments: StrokeElementData['cubicSegments'] = base.cubicSegments.slice();
@@ -395,6 +483,18 @@ export function rebuildOriginalInkGeometry(baseBytes: Uint8Array,
     localBounds = unionOriginalInkBounds(localBounds, append.localBounds);
     attributed = attributed && append.attributed;
     current = append.endPoint;
+  }
+  if (estimatedBytes !== undefined && estimatedBytes !== null && estimatedBytes.length > 0) {
+    const estimated: DecodedOriginalInkPathAppend = decodeOriginalInkPathAppend(
+      estimatedBytes, current);
+    if (!stroke.renderSpec.isPencil && stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH &&
+      !estimated.attributed) {
+      throw new Error('variable-width estimated path has no attributes');
+    }
+    pathPoints.push(...estimated.pathPoints);
+    cubicSegments.push(...estimated.cubicSegments);
+    localBounds = unionOriginalInkBounds(localBounds, estimated.localBounds);
+    attributed = attributed && estimated.attributed;
   }
   const splatGenerator: PencilSplatGenerator = new PencilSplatGenerator({
     spacing: stroke.renderSpec.brushWidth, maximumSplatCount: MAX_SYNCED_PENCIL_SPLATS,

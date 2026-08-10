@@ -186,7 +186,6 @@ function migrate(db, inject = false) {
 
 function apply(db, { timestamp, site, raw, archived = false, inject = false }) {
   const decoded = decodeAddPathFixture(raw);
-  if (decoded.estimated !== null) return 'ESTIMATED';
   try { decodePath(decoded.actual, { x: 0, y: 0 }); } catch (error) {
     return error.message === 'move' ? 'MULTI_COMPONENT' : 'MALFORMED';
   }
@@ -265,8 +264,9 @@ assert.equal(db.prepare(`SELECT indexed_revision FROM original_deleted_page`).ge
 assert.equal(db.prepare(`SELECT count(*) count FROM original_deleted_page_search`).get().count, 0);
 
 const before = db.prepare(`SELECT count(*) count FROM original_ink_path_append`).get().count;
-assert.equal(apply(db, { timestamp: 60, site: 1,
-  raw: addPathFixture(20, 2, tail, tail), archived: true }), 'ESTIMATED');
+const estimatedFixture = decodeAddPathFixture(addPathFixture(20, 2, null, tail));
+assert.equal(estimatedFixture.actual, null);
+assert.deepEqual(estimatedFixture.estimated, tail);
 const move = path([{ type: 3, points: [{ x: 1, y: 1 }] }]);
 assert.equal(apply(db, { timestamp: 61, site: 1,
   raw: addPathFixture(20, 2, move), archived: true }), 'MULTI_COMPONENT');
@@ -293,7 +293,7 @@ db.exec(`DELETE FROM original_element_z_index WHERE note_id='n' AND element_time
 assert.equal(db.prepare(`SELECT count(*) count FROM original_ink_state`).get().count, 0);
 assert.equal(db.prepare(`SELECT count(*) count FROM original_ink_path_append`).get().count, 0);
 
-console.log('success|flatbuffer-gd=1|raw-quadratic-hull=1|v26-v27=1|base-state=1|ordered-rebuild=1|out-of-order-reconnect=1|live-search=1|archive-apply=1|estimated-deferred=1|multi-component-deferred=1|divergence-gate=1|rollback=1|missing-state=1|no-local-log=1|cascade=1');
+console.log('success|flatbuffer-gd=1|raw-quadratic-hull=1|v26-v27=1|base-state=1|ordered-rebuild=1|out-of-order-reconnect=1|live-search=1|archive-apply=1|estimated-fixture=1|multi-component-deferred=1|divergence-gate=1|rollback=1|missing-state=1|no-local-log=1|cascade=1');
 
 function compareAppend(left, right) { return left.timestamp - right.timestamp || left.site - right.site; }
 function union(left, right) { return { left: Math.min(left.left, right.left), top: Math.min(left.top, right.top),

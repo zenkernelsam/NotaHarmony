@@ -33,5 +33,5 @@ CREATE/ADD 已采用的 262,144 splat 同步输入预算同样约束 MODIFY。�
 - `d02-modify-ink-pencil.mjs` 覆盖 width/style-map 重建、transform 局部稳定、预算失败零修改及生产 consumer/source 门禁。
 - `PencilSplatGenerator.test.ets` 增加 width 改变 spacing/scale，以及 winning seed/reference 改变序列的断言。
 - 全量 34 个 D-02 replay 通过；clean 后 `note@ohosTest` 与 `note@default` assembleHap 均 `BUILD SUCCESSFUL`。
-- 设备 Hypium 与原版像素对照未执行。estimated append、Tape/effects 和 NOTE_BUNDLE 内容 replay 仍保持 DEFERRED，完整 Pencil
-  同步与 D-02 均不关闭。
+- 设备 Hypium 与原版像素对照未执行。estimated append 后续已由 ADR-0026 开放；Tape/effects 和 NOTE_BUNDLE 内容 replay
+  仍保持 DEFERRED，完整 Pencil 同步与 D-02 均不关闭。
