@@ -135,7 +135,7 @@ function database() {
 }
 
 function migrate(db, inject = false) {
-  const ddl = schema.match(/export const DDL_ORIGINAL_TEXT_CHARACTER: string = `([\s\S]*?)`;/);
+  const ddl = schema.match(/const DDL_ORIGINAL_TEXT_CHARACTER_V37: string = `([\s\S]*?)`;/);
   assert(ddl); db.exec('BEGIN IMMEDIATE');
   try {
     db.exec(ddl[1]); if (inject) throw new Error('injected migration');
@@ -323,7 +323,7 @@ assert.match(source, /compareOriginalSequenceIdentity/);
 assert.match(source, /INSERT_TEXT_STATE_DIVERGED/);
 assert.match(source, /advanceRevisionAndInvalidateSearch/);
 assert.match(dispatcher, /OriginalInsertTextOperationApplier/);
-assert.match(schema, /DB_VERSION: number = 37/);
+assert.match(schema, /DB_VERSION: number = 38/);
 assert.match(schema, /DDL_ORIGINAL_TEXT_CHARACTER/);
 
 console.log('success|flatbuffer-e46-f46=1|unicode-codepoints=1|utf8-replacement=1|' +

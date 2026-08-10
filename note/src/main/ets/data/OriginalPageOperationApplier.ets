@@ -25,7 +25,9 @@ import {
 } from './OriginalModifyBlockOperation';
 import {
   ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE, ORIGINAL_INSERT_STRING_PAYLOAD_TYPE,
-  OriginalInsertTextOperationApplier,
+  ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE, ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE,
+  ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE, OriginalInsertTextOperationApplier,
+  OriginalTextVisibilityOperationApplier,
 } from './OriginalInsertTextOperation';
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
@@ -46,6 +48,8 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
     new OriginalModifyBlockOperationApplier();
   private insertText: OriginalInsertTextOperationApplier =
     new OriginalInsertTextOperationApplier();
+  private textVisibility: OriginalTextVisibilityOperationApplier =
+    new OriginalTextVisibilityOperationApplier();
 
   supports(payloadType: number): boolean {
     return payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE ||
@@ -57,7 +61,10 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
       payloadType === ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE ||
-      payloadType === ORIGINAL_INSERT_STRING_PAYLOAD_TYPE;
+      payloadType === ORIGINAL_INSERT_STRING_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE;
   }
 
   async apply(store: relationalStore.RdbStore,
@@ -89,6 +96,11 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
     if (operation.payloadType === ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_INSERT_STRING_PAYLOAD_TYPE) {
       return this.insertText.apply(store, operation);
+    }
+    if (operation.payloadType === ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE) {
+      return this.textVisibility.apply(store, operation);
     }
     throw new Error('original page operation applier received an unsupported payload');
   }

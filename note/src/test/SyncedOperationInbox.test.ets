@@ -26,7 +26,8 @@ import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOpera
 import { decodeOriginalCreateBlock, OriginalBlockType } from
   '../main/ets/data/OriginalCreateBlockOperation';
 import { decodeOriginalModifyBlock } from '../main/ets/data/OriginalModifyBlockOperation';
-import { decodeOriginalInsertText } from '../main/ets/data/OriginalInsertTextOperation';
+import { decodeOriginalInsertText, decodeOriginalTextVisibility } from
+  '../main/ets/data/OriginalInsertTextOperation';
 import { decodeOriginalAuxiliaryInkPath, originalInkTransform,
   transformedExpandedBounds } from '../main/ets/data/OriginalInkPathCodec';
 import { decodeOriginalInkPath, decodeOriginalInkPathAppend } from
@@ -166,6 +167,9 @@ export default function syncedOperationInboxTest() {
       expect(applier.supports(23)).assertTrue();
       expect(applier.supports(7)).assertTrue();
       expect(applier.supports(8)).assertTrue();
+      expect(applier.supports(9)).assertTrue();
+      expect(applier.supports(10)).assertTrue();
+      expect(applier.supports(11)).assertTrue();
       expect(applier.supports(5)).assertFalse();
     });
 
@@ -183,6 +187,22 @@ export default function syncedOperationInboxTest() {
       expect(character.location?.siteId).assertEqual(7);
       expect(character.location?.index).assertEqual(1);
       expect(character.scalars[0]).assertEqual(0x1F642);
+    });
+
+    it('decodes original REMOVE_CHAR, REMOVE_CHARS and REVIVE_CHARS targets', 0, () => {
+      const single = decodeOriginalTextVisibility(flatBufferTextVisibility(9, false), 9);
+      expect(single.visible).assertFalse();
+      expect(single.locations.length).assertEqual(1);
+      expect(single.locations[0].timestamp).assertEqual(100);
+      expect(single.locations[0].index).assertEqual(1);
+      const removed = decodeOriginalTextVisibility(flatBufferTextVisibility(10, true), 10);
+      expect(removed.visible).assertFalse();
+      expect(removed.locations.length).assertEqual(2);
+      expect(removed.locations[1].index).assertEqual(2);
+      const revived = decodeOriginalTextVisibility(flatBufferTextVisibility(11, true), 11);
+      expect(revived.visible).assertTrue();
+      expect(revived.textField?.timestamp).assertEqual(20);
+      expect(revived.textField?.siteId).assertEqual(2);
     });
 
     it('decodes original text CREATE_BLOCK common state', 0, () => {
@@ -642,6 +662,19 @@ class FixtureFlatBufferBuilder {
     return vector;
   }
 
+  sequenceIdentityVector(values: { timestamp: number, siteId: number, index: number }[]): number {
+    this.align(4);
+    const vector: number = this.cursor;
+    this.cursor += 4 + values.length * 12;
+    writeU32(this.bytes, vector, values.length);
+    for (let index: number = 0; index < values.length; index++) {
+      writeU16(this.bytes, vector + 4 + index * 12, values[index].siteId);
+      writeU32(this.bytes, vector + 8 + index * 12, values[index].timestamp);
+      writeU32(this.bytes, vector + 12 + index * 12, values[index].index);
+    }
+    return vector;
+  }
+
   operationIdentityVector(values: { timestamp: number, siteId: number }[]): number {
     this.align(4);
     const vector: number = this.cursor;
@@ -891,6 +924,36 @@ function flatBufferInsertChar(): Uint8Array {
   builder.uint32(insert + 16, 0x1F642);
   builder.uint16(insert + 20, 2);
   builder.uint32(insert + 24, 20);
+  return builder.finish(root);
+}
+
+function flatBufferTextVisibility(payloadType: number, many: boolean): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 110 + payloadType);
+  writeDecimalU64At(builder, root + 12, '200');
+  writeDecimalU64At(builder, root + 20, '200');
+  builder.uint8(root + 28, payloadType);
+  if (many) {
+    const payload: number = builder.table([4, 8], 16);
+    builder.pointer(root + 32, payload);
+    builder.uint16(payload + 8, 2);
+    builder.uint32(payload + 12, 20);
+    const locations: number = builder.sequenceIdentityVector([
+      { timestamp: 100, siteId: 7, index: 1 },
+      { timestamp: 100, siteId: 7, index: 2 },
+    ]);
+    builder.pointer(payload + 4, locations);
+  } else {
+    const payload: number = builder.table([4, 16], 24);
+    builder.pointer(root + 32, payload);
+    builder.uint16(payload + 4, 7);
+    builder.uint32(payload + 8, 100);
+    builder.uint32(payload + 12, 1);
+    builder.uint16(payload + 16, 2);
+    builder.uint32(payload + 20, 20);
+  }
   return builder.finish(root);
 }
 

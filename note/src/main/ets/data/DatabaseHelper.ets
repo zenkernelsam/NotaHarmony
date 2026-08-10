@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v37: preserve the original RichText character sequence for INSERT_CHAR/INSERT_STRING replay.
-export const DB_VERSION: number = 37;
+// v38: preserve per-character REMOVE/REVIVE visibility winners.
+export const DB_VERSION: number = 38;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -664,7 +664,7 @@ CREATE TABLE IF NOT EXISTS original_block_state (
     REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
 )`;
 
-export const DDL_ORIGINAL_TEXT_CHARACTER: string = `
+const DDL_ORIGINAL_TEXT_CHARACTER_V37: string = `
 CREATE TABLE IF NOT EXISTS original_text_character (
   note_id TEXT NOT NULL,
   block_timestamp INTEGER NOT NULL CHECK (block_timestamp BETWEEN 0 AND 4294967295),
@@ -681,6 +681,37 @@ CREATE TABLE IF NOT EXISTS original_text_character (
     (parent_timestamp IS NOT NULL AND parent_timestamp BETWEEN 0 AND 4294967295
       AND parent_site_id IS NOT NULL AND parent_site_id BETWEEN 0 AND 65535
       AND parent_index IS NOT NULL AND parent_index BETWEEN 0 AND 4294967295)),
+  PRIMARY KEY(note_id, char_timestamp, char_site_id, char_index),
+  FOREIGN KEY(note_id, block_timestamp, block_site_id)
+    REFERENCES original_block_state(note_id, block_timestamp, block_site_id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_TEXT_CHARACTER: string = `
+CREATE TABLE IF NOT EXISTS original_text_character (
+  note_id TEXT NOT NULL,
+  block_timestamp INTEGER NOT NULL CHECK (block_timestamp BETWEEN 0 AND 4294967295),
+  block_site_id INTEGER NOT NULL CHECK (block_site_id BETWEEN 0 AND 65535),
+  char_timestamp INTEGER NOT NULL CHECK (char_timestamp BETWEEN 0 AND 4294967295),
+  char_site_id INTEGER NOT NULL CHECK (char_site_id BETWEEN 0 AND 65535),
+  char_index INTEGER NOT NULL CHECK (char_index BETWEEN 0 AND 4294967295),
+  parent_timestamp INTEGER,
+  parent_site_id INTEGER,
+  parent_index INTEGER,
+  unicode_scalar INTEGER NOT NULL CHECK (unicode_scalar BETWEEN 0 AND 1114111),
+  visible INTEGER NOT NULL DEFAULT 1 CHECK (visible IN (0, 1)),
+  visibility_winner_timestamp INTEGER CHECK
+    (visibility_winner_timestamp IS NULL OR visibility_winner_timestamp BETWEEN 0 AND 4294967295),
+  visibility_winner_site_id INTEGER CHECK
+    (visibility_winner_site_id IS NULL OR visibility_winner_site_id BETWEEN 0 AND 65535),
+  visibility_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (visibility_winner_present IN (0, 1)),
+  CHECK ((parent_timestamp IS NULL AND parent_site_id IS NULL AND parent_index IS NULL) OR
+    (parent_timestamp IS NOT NULL AND parent_timestamp BETWEEN 0 AND 4294967295
+      AND parent_site_id IS NOT NULL AND parent_site_id BETWEEN 0 AND 65535
+      AND parent_index IS NOT NULL AND parent_index BETWEEN 0 AND 4294967295)),
+  CHECK ((visibility_winner_present = 0 AND visibility_winner_timestamp IS NULL
+      AND visibility_winner_site_id IS NULL) OR
+    (visibility_winner_present = 1 AND visibility_winner_timestamp IS NOT NULL
+      AND visibility_winner_site_id IS NOT NULL)),
   PRIMARY KEY(note_id, char_timestamp, char_site_id, char_index),
   FOREIGN KEY(note_id, block_timestamp, block_site_id)
     REFERENCES original_block_state(note_id, block_timestamp, block_site_id) ON DELETE CASCADE
@@ -1510,5 +1541,13 @@ export const MIGRATIONS: Record<number, string[]> = {
     `ALTER TABLE original_block_state ADD COLUMN z_index_winner_present INTEGER NOT NULL DEFAULT 0
       CHECK (z_index_winner_present IN (0, 1))`,
   ],
-  37: [DDL_ORIGINAL_TEXT_CHARACTER],
+  37: [DDL_ORIGINAL_TEXT_CHARACTER_V37],
+  38: [
+    `ALTER TABLE original_text_character ADD COLUMN visibility_winner_timestamp INTEGER
+      CHECK (visibility_winner_timestamp IS NULL OR visibility_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_text_character ADD COLUMN visibility_winner_site_id INTEGER
+      CHECK (visibility_winner_site_id IS NULL OR visibility_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_text_character ADD COLUMN visibility_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (visibility_winner_present IN (0, 1))`,
+  ],
 };

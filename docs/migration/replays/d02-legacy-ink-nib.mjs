@@ -133,8 +133,8 @@ assert.doesNotMatch(createSource, /CREATE_INK_NIB_ATTRIBUTES_UNSUPPORTED/);
 assert.match(modifySource, /field !== 14 && field !== 15/);
 assert.match(modifySource, /nibAngle: table\.hasField\(14\) \? table\.readUint16\(14\) : null/);
 assert.match(modifySource, /nib-only op is an applied no-op/);
-assert.match(schema, /DB_VERSION: number = 37/);
+assert.match(schema, /DB_VERSION: number = 38/);
 assert.doesNotMatch(schema, /nib_angle|nib_flatness/);
 
 console.log('success|create-nib-u16=65535,40000|modify-nib-u16=65535,40000|' +
-  'nib-only-applied-noop=1|raw-preserved=1|rollback=1|schema-current=37');
+  'nib-only-applied-noop=1|raw-preserved=1|rollback=1|schema-current=38');

@@ -3,7 +3,7 @@ import { util } from '@kit.ArkTS';
 import { TextBlockElement } from '../core/model/ElementTypes';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import {
-  compareOriginalSequenceIdentity, encodeOperationId, encodeOriginalSequenceId,
+  compareOperationIdentity, compareOriginalSequenceIdentity, encodeOperationId, encodeOriginalSequenceId,
   OperationIdentity, OriginalSequenceIdentity, validateOperationIdentity,
   validateOriginalSequenceIdentity,
 } from './OperationIdentity';
@@ -17,12 +17,22 @@ import {
 
 export const ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE: number = 7;
 export const ORIGINAL_INSERT_STRING_PAYLOAD_TYPE: number = 8;
+export const ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE: number = 9;
+export const ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE: number = 10;
+export const ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE: number = 11;
 const MAX_INSERT_STRING_BYTES: number = 1048576;
+const MAX_TEXT_VISIBILITY_LOCATIONS: number = 1048576;
 
 export interface OriginalInsertTextPayload {
   location: OriginalSequenceIdentity | null;
   scalars: number[];
   textField: OperationIdentity | null;
+}
+
+export interface OriginalTextVisibilityPayload {
+  locations: OriginalSequenceIdentity[];
+  textField: OperationIdentity | null;
+  visible: boolean;
 }
 
 interface StoredTextTarget {
@@ -40,6 +50,7 @@ interface StoredCharacter {
   parent: OriginalSequenceIdentity | null;
   scalar: number;
   visible: boolean;
+  visibilityWinner: OperationIdentity | null;
 }
 
 export function decodeOriginalInsertText(bytes: Uint8Array,
@@ -77,6 +88,39 @@ export function decodeOriginalInsertText(bytes: Uint8Array,
     }
   }
   return { location: location, scalars: scalars, textField: textField };
+}
+
+export function decodeOriginalTextVisibility(bytes: Uint8Array,
+  payloadType: number): OriginalTextVisibilityPayload {
+  if (payloadType !== ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE &&
+    payloadType !== ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE &&
+    payloadType !== ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE) {
+    throw new Error('original text-visibility payload type is unsupported');
+  }
+  const table: OriginalFlatBufferTableReader = readOriginalPayloadTable(bytes, payloadType);
+  let locations: OriginalSequenceIdentity[] = [];
+  if (payloadType === ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE) {
+    const raw: number[] | null = table.readInlineSequence(0);
+    if (raw === null) {
+      throw new Error('original remove-char has no required location');
+    }
+    locations.push({ timestamp: raw[0], siteId: raw[1], index: raw[2] });
+  } else {
+    const raw: number[][] = table.readInlineSequenceVector(0, MAX_TEXT_VISIBILITY_LOCATIONS);
+    for (const value of raw) {
+      locations.push({ timestamp: value[0], siteId: value[1], index: value[2] });
+    }
+    if (locations.length === 0) {
+      throw new Error('original text-visibility location vector is empty');
+    }
+  }
+  for (const location of locations) {
+    validateOriginalSequenceIdentity(location);
+  }
+  return {
+    locations: locations, textField: readOperationIdentity(table, 1),
+    visible: payloadType === ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE,
+  };
 }
 
 export class OriginalInsertTextOperationApplier implements SyncedOperationApplier {
@@ -131,6 +175,9 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
         'parent_index': parent === null ? null : parent.index,
         'unicode_scalar': payload.scalars[index],
         'visible': 1,
+        'visibility_winner_timestamp': null,
+        'visibility_winner_site_id': null,
+        'visibility_winner_present': 0,
       });
       parent = identity;
     }
@@ -156,7 +203,7 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     return { deferredReason: null };
   }
 
-  private async resolveTarget(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
+  async resolveTarget(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
     payload: OriginalInsertTextPayload): Promise<StoredTextTarget | null> {
     let block: OperationIdentity | null = payload.textField;
     if (payload.location !== null) {
@@ -220,7 +267,7 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     };
   }
 
-  private async readAnchorBlock(store: relationalStore.RdbStore, noteId: string,
+  async readAnchorBlock(store: relationalStore.RdbStore, noteId: string,
     location: OriginalSequenceIdentity): Promise<OperationIdentity | null> {
     const rows = await store.querySql(
       `SELECT block_timestamp, block_site_id FROM original_text_character WHERE note_id = ?
@@ -241,7 +288,7 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     }
   }
 
-  private async readText(store: relationalStore.RdbStore, noteId: string,
+  async readText(store: relationalStore.RdbStore, noteId: string,
     target: StoredTextTarget): Promise<TextBlockElement | null> {
     const rows = await store.querySql(target.archived ?
       `SELECT payload FROM original_deleted_page_element WHERE note_id = ?
@@ -270,11 +317,12 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     }
   }
 
-  private async readCharacters(store: relationalStore.RdbStore, noteId: string,
+  async readCharacters(store: relationalStore.RdbStore, noteId: string,
     block: OperationIdentity): Promise<StoredCharacter[] | null> {
     const rows = await store.querySql(
       `SELECT char_timestamp, char_site_id, char_index, parent_timestamp, parent_site_id,
-              parent_index, unicode_scalar, visible
+              parent_index, unicode_scalar, visible, visibility_winner_timestamp,
+              visibility_winner_site_id, visibility_winner_present
        FROM original_text_character WHERE note_id = ? AND block_timestamp = ? AND block_site_id = ?`,
       [noteId, block.timestamp, block.siteId]);
     const result: StoredCharacter[] = [];
@@ -304,7 +352,22 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
         if (!isUnicodeScalar(scalar) || (visible !== 0 && visible !== 1)) {
           return null;
         }
-        result.push({ identity: identity, parent: parent, scalar: scalar, visible: visible === 1 });
+        const winnerPresent: number = rows.getLong(rows.getColumnIndex('visibility_winner_present'));
+        const winnerTimestampColumn: number = rows.getColumnIndex('visibility_winner_timestamp');
+        const winnerSiteColumn: number = rows.getColumnIndex('visibility_winner_site_id');
+        let visibilityWinner: OperationIdentity | null = null;
+        if (winnerPresent === 1 && !rows.isColumnNull(winnerTimestampColumn) &&
+          !rows.isColumnNull(winnerSiteColumn)) {
+          visibilityWinner = {
+            timestamp: rows.getLong(winnerTimestampColumn), siteId: rows.getLong(winnerSiteColumn),
+          };
+          validateOperationIdentity(visibilityWinner);
+        } else if (winnerPresent !== 0 || !rows.isColumnNull(winnerTimestampColumn) ||
+          !rows.isColumnNull(winnerSiteColumn)) {
+          return null;
+        }
+        result.push({ identity: identity, parent: parent, scalar: scalar,
+          visible: visible === 1, visibilityWinner: visibilityWinner });
       }
       return result;
     } catch (_error) {
@@ -314,7 +377,7 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     }
   }
 
-  private async advanceRevisionAndInvalidateSearch(store: relationalStore.RdbStore,
+  async advanceRevisionAndInvalidateSearch(store: relationalStore.RdbStore,
     noteId: string, target: StoredTextTarget): Promise<void> {
     const predicates = new relationalStore.RdbPredicates(target.revisionTable);
     predicates.equalTo('note_id', noteId);
@@ -347,6 +410,119 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
         'DELETE FROM search_item WHERE note_id = ? AND page_id = ? AND type = ?',
         [noteId, target.pageId, SearchItemType.TEXT_BLOCK]);
     }
+  }
+}
+
+export class OriginalTextVisibilityOperationApplier implements SyncedOperationApplier {
+  private textState: OriginalInsertTextOperationApplier = new OriginalInsertTextOperationApplier();
+
+  supports(payloadType: number): boolean {
+    return payloadType === ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE;
+  }
+
+  async apply(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation): Promise<SyncedOperationApplyResult> {
+    let payload: OriginalTextVisibilityPayload;
+    try {
+      payload = decodeOriginalTextVisibility(operation.rawOperation, operation.payloadType);
+    } catch (_error) {
+      return { deferredReason: 'MALFORMED_TEXT_VISIBILITY_PAYLOAD' };
+    }
+    let block: OperationIdentity | null = payload.textField;
+    const unique: Map<string, OriginalSequenceIdentity> = new Map<string, OriginalSequenceIdentity>();
+    for (const location of payload.locations) {
+      if (isRootIdentity(location)) {
+        return { deferredReason: 'TEXT_VISIBILITY_ROOT_UNSUPPORTED' };
+      }
+      const locationBlock: OperationIdentity | null = await this.textState.readAnchorBlock(
+        store, operation.noteId, location);
+      if (locationBlock === null) {
+        return { deferredReason: 'TEXT_VISIBILITY_CHARACTER_MISSING' };
+      }
+      if (block !== null && !sameOperation(block, locationBlock)) {
+        return { deferredReason: 'TEXT_VISIBILITY_CROSS_BLOCK' };
+      }
+      block = locationBlock;
+      unique.set(encodeOriginalSequenceId(location), location);
+    }
+    if (block === null) {
+      return { deferredReason: 'TEXT_VISIBILITY_TARGET_UNBOUND' };
+    }
+    const target: StoredTextTarget | null = await this.textState.resolveTarget(store, operation, {
+      location: payload.locations[0], scalars: [], textField: block,
+    });
+    if (target === null) {
+      return { deferredReason: 'TEXT_VISIBILITY_TARGET_MISSING' };
+    }
+    const text: TextBlockElement | null = await this.textState.readText(
+      store, operation.noteId, target);
+    const characters: StoredCharacter[] | null = await this.textState.readCharacters(
+      store, operation.noteId, target.block);
+    if (text === null || characters === null) {
+      return { deferredReason: 'TEXT_VISIBILITY_STATE_DIVERGED' };
+    }
+    const before: string | null = materializeCharacters(characters);
+    if (before === null || before !== text.richText || target.revision >= Number.MAX_SAFE_INTEGER) {
+      return { deferredReason: 'TEXT_VISIBILITY_STATE_DIVERGED' };
+    }
+    const byId: Map<string, StoredCharacter> = new Map<string, StoredCharacter>();
+    for (const character of characters) {
+      byId.set(encodeOriginalSequenceId(character.identity), character);
+    }
+    const winning: StoredCharacter[] = [];
+    for (const [key] of unique) {
+      const character: StoredCharacter | undefined = byId.get(key);
+      if (character === undefined) {
+        return { deferredReason: 'TEXT_VISIBILITY_CHARACTER_MISSING' };
+      }
+      if (character.visibilityWinner === null ||
+        compareOperationIdentity(operation, character.visibilityWinner) >= 0) {
+        winning.push(character);
+      }
+    }
+    for (const character of winning) {
+      const predicates = new relationalStore.RdbPredicates('original_text_character');
+      predicates.equalTo('note_id', operation.noteId);
+      predicates.equalTo('char_timestamp', character.identity.timestamp);
+      predicates.equalTo('char_site_id', character.identity.siteId);
+      predicates.equalTo('char_index', character.identity.index);
+      const updated: number = await store.update({
+        'visible': payload.visible ? 1 : 0,
+        'visibility_winner_timestamp': operation.timestamp,
+        'visibility_winner_site_id': operation.siteId,
+        'visibility_winner_present': 1,
+      }, predicates);
+      if (updated !== 1) {
+        throw new Error('original text-visibility lost its character state');
+      }
+      character.visible = payload.visible;
+      character.visibilityWinner = { timestamp: operation.timestamp, siteId: operation.siteId };
+    }
+    if (winning.length === 0) {
+      return { deferredReason: null };
+    }
+    const after: string | null = materializeCharacters(characters);
+    if (after === null) {
+      throw new Error('original text-visibility produced an invalid sequence tree');
+    }
+    if (after === before) {
+      return { deferredReason: null };
+    }
+    const updatedText: TextBlockElement = cloneText(text);
+    updatedText.richText = after;
+    const predicates: relationalStore.RdbPredicates = pageElementPredicates(
+      operation.noteId, target, text.id);
+    const persisted: PersistedElement = { kind: 'text', data: updatedText };
+    const updated: number = await store.update({
+      'payload': encodePersistedElement(persisted), 'revision': target.revision + 1,
+    }, predicates);
+    if (updated !== 1) {
+      throw new Error('original text-visibility lost its target snapshot');
+    }
+    await this.textState.advanceRevisionAndInvalidateSearch(store, operation.noteId, target);
+    return { deferredReason: null };
   }
 }
 
@@ -466,6 +642,10 @@ function isUnicodeScalar(value: number): boolean {
 
 function isRoot(raw: number[]): boolean {
   return raw[0] === 0 && raw[1] === 0xFFFF && raw[2] === 0;
+}
+
+function isRootIdentity(identity: OriginalSequenceIdentity): boolean {
+  return identity.timestamp === 0 && identity.siteId === 0xFFFF && identity.index === 0;
 }
 
 function sameOperation(left: OperationIdentity, right: OperationIdentity): boolean {
