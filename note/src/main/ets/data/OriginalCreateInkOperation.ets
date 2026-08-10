@@ -47,8 +47,8 @@ export interface OriginalCreateInkPayload {
   styleMapBytes: Uint8Array | null;
   styleMap: InkStyleMapEntry[];
   hasAudioDuration: boolean;
-  hasNibAngle: boolean;
-  hasNibFlatness: boolean;
+  nibAngle: number | null;
+  nibFlatness: number | null;
   inkEffects: string;
   inkEffectsTinted: boolean;
 }
@@ -129,8 +129,8 @@ export function decodeOriginalCreateInkTable(table: OriginalFlatBufferTableReade
     styleMapBytes: styleMapBytes,
     styleMap: styleMap,
     hasAudioDuration: table.hasField(15),
-    hasNibAngle: table.hasField(16),
-    hasNibFlatness: table.hasField(17),
+    nibAngle: table.hasField(16) ? table.readUint16(16) : null,
+    nibFlatness: table.hasField(17) ? table.readUint16(17) : null,
     inkEffects: table.readUint64Decimal(18, '0') as string,
     inkEffectsTinted: table.readUint8(19, 1) !== 0,
   };
@@ -294,9 +294,8 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
     if (payload.hasAudioDuration) {
       return 'CREATE_INK_AUDIO_DURATION_UNSUPPORTED';
     }
-    if (payload.hasNibAngle || payload.hasNibFlatness) {
-      return 'CREATE_INK_NIB_ATTRIBUTES_UNSUPPORTED';
-    }
+    // Android 1.0.3 retains the legacy uint16 nib fields in dm2, but q06 never
+    // puts them in the Ink register/render model. Preserve the raw op and ignore them likewise.
     if (payload.inkEffects !== '0') {
       return 'CREATE_INK_EFFECTS_UNSUPPORTED';
     }

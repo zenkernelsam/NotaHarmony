@@ -50,6 +50,8 @@ export interface OriginalModifyInkPayload {
   fillColor: NullableRegisterUpdate<number>;
   styleMap: NullableRegisterUpdate<Uint8Array>;
   zIndex: string | null;
+  nibAngle: number | null;
+  nibFlatness: number | null;
   hasUnsupportedFields: boolean;
 }
 
@@ -200,7 +202,8 @@ export function decodeOriginalModifyInkTable(table: OriginalFlatBufferTableReade
   for (let field: number = 1; field <= 18; field++) {
     if (field !== 1 && field !== 2 && field !== 3 && field !== 4 && field !== 5 &&
       field !== 6 && field !== 7 && field !== 8 && field !== 9 && field !== 10 &&
-      field !== 11 && field !== 12 && field !== 13 && table.hasField(field)) {
+      field !== 11 && field !== 12 && field !== 13 && field !== 14 && field !== 15 &&
+      table.hasField(field)) {
       hasUnsupportedFields = true;
     }
   }
@@ -258,6 +261,8 @@ export function decodeOriginalModifyInkTable(table: OriginalFlatBufferTableReade
     },
     styleMap: { present: styleMapBytes !== null, value: styleMapBytes },
     zIndex: table.readUint64Decimal(13),
+    nibAngle: table.hasField(14) ? table.readUint16(14) : null,
+    nibFlatness: table.hasField(15) ? table.readUint16(15) : null,
     hasUnsupportedFields: hasUnsupportedFields,
   };
 }
@@ -284,6 +289,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       !payload.customPath.present && !payload.fillPath.present && !payload.fillColor.present &&
       !payload.styleMap.present &&
       payload.zIndex === null) {
+      // q06 does not register or apply wd8 nib fields; a nib-only op is an applied no-op.
       return { deferredReason: null };
     }
     if ((payload.pageOrigin !== null && (!Number.isFinite(payload.pageOrigin.originX) ||

@@ -202,6 +202,10 @@ export default function syncedOperationInboxTest() {
       expect(withStyleMap.styleMap[0].backingPencilReferencePoint.y).assertEqual(-2.25);
       expect(withStyleMap.styleMap[0].backingDashPhase).assertEqual(7.5);
       expect(withStyleMap.styleMap[0].backingDashPeriod).assertEqual(30);
+      const withLegacyNib = decodeOriginalCreateInk(
+        flatBufferCreateInk(0, 2, false, false, true), '123');
+      expect(withLegacyNib.nibAngle).assertEqual(65535);
+      expect(withLegacyNib.nibFlatness).assertEqual(40000);
       const bounds = transformedExpandedBounds(payload.path?.localBounds as Rect2D, payload.width,
         originalInkTransform(payload.originX, payload.originY, payload.rotation,
           payload.scaleX, payload.scaleY));
@@ -293,6 +297,11 @@ export default function syncedOperationInboxTest() {
       expect(withStyleMap.styleMap.present).assertTrue();
       expect(withStyleMap.styleMap.value?.length).assertEqual(20);
       expect(withStyleMap.hasUnsupportedFields).assertFalse();
+      const withLegacyNib = decodeOriginalModifyInk(
+        flatBufferModifyInk(false, false, false, false, 0, null, 0, false, true));
+      expect(withLegacyNib.nibAngle).assertEqual(65535);
+      expect(withLegacyNib.nibFlatness).assertEqual(40000);
+      expect(withLegacyNib.hasUnsupportedFields).assertFalse();
     });
 
     it('preserves original auxiliary path verbs and multiple components', 0, () => {
@@ -640,7 +649,8 @@ class FixtureFlatBufferBuilder {
 }
 
 function flatBufferCreateInk(tool: number = 0, style: number = 0,
-  includeAuxiliary: boolean = false, includeStyleMap: boolean = false): Uint8Array {
+  includeAuxiliary: boolean = false, includeStyleMap: boolean = false,
+  includeLegacyNib: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
   builder.uint16(root + 4, 7);
@@ -650,7 +660,8 @@ function flatBufferCreateInk(tool: number = 0, style: number = 0,
   builder.uint8(root + 28, 15);
   const fields: number[] = [4, 16, 24, 28, 36, 37, 0, 40, 44, 48,
     includeAuxiliary ? 52 : 0, includeAuxiliary ? 56 : 0, includeAuxiliary ? 60 : 0,
-    includeStyleMap ? 68 : 0, 64, 0, 0, 0, 0, 0];
+    includeStyleMap ? 68 : 0, 64, 0,
+    includeLegacyNib ? 72 : 0, includeLegacyNib ? 74 : 0, 0, 0, 0];
   const ink: number = builder.table(fields, 76);
   builder.pointer(root + 32, ink);
   builder.uint16(ink + 4, 1);
@@ -684,6 +695,10 @@ function flatBufferCreateInk(tool: number = 0, style: number = 0,
   if (includeStyleMap) {
     builder.pointer(ink + 68, builder.styleMapVector(true));
   }
+  if (includeLegacyNib) {
+    builder.uint16(ink + 72, 65535);
+    builder.uint16(ink + 74, 40000);
+  }
   return builder.finish(root);
 }
 
@@ -711,7 +726,7 @@ function flatBufferModifyInk(includeRender: boolean = false,
   includeRotation: boolean = false, clearRotation: boolean = false,
   includeScale: boolean = false, pageOriginMode: number = 0,
   zIndex: string | null = null, auxiliaryMode: number = 0,
-  includeStyleMap: boolean = false): Uint8Array {
+  includeStyleMap: boolean = false, includeLegacyNib: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
   builder.uint16(root + 4, 7);
@@ -724,8 +739,9 @@ function flatBufferModifyInk(includeRender: boolean = false,
     includeRender ? 36 : 0, includeRender ? 40 : 0, includeRender ? 44 : 0, 48,
     auxiliaryMode > 0 ? 52 : 0, auxiliaryMode > 0 ? 56 : 0,
     auxiliaryMode > 0 ? 60 : 0, includeStyleMap ? 64 : 0,
-    zIndex === null ? 0 : 68, 0, 0, 0, 0, 0];
-  const modify: number = builder.table(fields, 76);
+    zIndex === null ? 0 : 68, includeLegacyNib ? 76 : 0,
+    includeLegacyNib ? 78 : 0, 0, 0, 0];
+  const modify: number = builder.table(fields, 80);
   builder.pointer(root + 32, modify);
   if (pageOriginMode > 0) {
     builder.uint16(modify + 8, 4);
@@ -759,6 +775,10 @@ function flatBufferModifyInk(includeRender: boolean = false,
   }
   if (zIndex !== null) {
     writeDecimalU64At(builder, modify + 68, zIndex);
+  }
+  if (includeLegacyNib) {
+    builder.uint16(modify + 76, 65535);
+    builder.uint16(modify + 78, 40000);
   }
   const inks: number = builder.operationIdentityVector([
     { timestamp: 20, siteId: 2 }, { timestamp: 21, siteId: 3 },
