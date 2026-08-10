@@ -1,4 +1,5 @@
 import { describe, it, expect } from '@ohos/hypium';
+import { util } from '@kit.ArkTS';
 import {
   compareIncomingSyncedOperationOrder, IncomingSyncedOperation, validateIncomingSyncedBatch,
 } from '../main/ets/data/SyncedOperationInbox';
@@ -28,6 +29,10 @@ import { decodeOriginalCreateBlock, OriginalBlockType } from
 import { decodeOriginalModifyBlock } from '../main/ets/data/OriginalModifyBlockOperation';
 import { decodeOriginalInsertText, decodeOriginalTextVisibility } from
   '../main/ets/data/OriginalInsertTextOperation';
+import {
+  decodeOriginalRichTextStyle, ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE,
+  ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE, ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE,
+} from '../main/ets/data/OriginalRichTextStyleOperation';
 import { decodeOriginalAuxiliaryInkPath, originalInkTransform,
   transformedExpandedBounds } from '../main/ets/data/OriginalInkPathCodec';
 import { decodeOriginalInkPath, decodeOriginalInkPathAppend } from
@@ -170,6 +175,9 @@ export default function syncedOperationInboxTest() {
       expect(applier.supports(9)).assertTrue();
       expect(applier.supports(10)).assertTrue();
       expect(applier.supports(11)).assertTrue();
+      expect(applier.supports(ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE)).assertTrue();
+      expect(applier.supports(ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE)).assertTrue();
+      expect(applier.supports(ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(5)).assertFalse();
     });
 
@@ -203,6 +211,32 @@ export default function syncedOperationInboxTest() {
       expect(revived.visible).assertTrue();
       expect(revived.textField?.timestamp).assertEqual(20);
       expect(revived.textField?.siteId).assertEqual(2);
+    });
+
+    it('decodes original me8/he8/io1 rich-text style payloads', 0, () => {
+      const character = decodeOriginalRichTextStyle(flatBufferModifyStyle(), 12);
+      expect(character.paragraph).assertFalse();
+      expect(character.start.location.timestamp).assertEqual(100);
+      expect(character.end.type).assertEqual(1);
+      expect(character.attributes.boldPresent).assertTrue();
+      expect(character.attributes.bold).assertTrue();
+      expect(character.attributes.highlightColorPresent).assertTrue();
+      expect(character.attributes.highlightColor).assertEqual(0x80FFEE00 | 0);
+      expect(character.attributes.fontSize).assertEqual(24);
+      expect(character.attributes.foregroundColor).assertEqual(0xFF112233 | 0);
+      const paragraph = decodeOriginalRichTextStyle(flatBufferParagraphStyle(), 13);
+      expect(paragraph.paragraph).assertTrue();
+      expect(paragraph.attributes.indentLevel).assertEqual(2);
+      expect(paragraph.attributes.alignment).assertEqual(2);
+      expect(paragraph.attributes.lineSpacing).assertEqual(1.5);
+      expect(paragraph.attributes.decoratorStyle).assertEqual(1);
+      expect(paragraph.attributes.programmingLanguage).assertEqual('swift');
+      expect(paragraph.attributes.writingDirection).assertEqual(0);
+      const clear = decodeOriginalRichTextStyle(flatBufferClearStyle(), 14);
+      expect(clear.clearAll).assertTrue();
+      expect(clear.paragraph).assertFalse();
+      expect(clear.start.location.siteId).assertEqual(0xFFFF);
+      expect(clear.end.type).assertEqual(3);
     });
 
     it('decodes original text CREATE_BLOCK common state', 0, () => {
@@ -699,6 +733,18 @@ class FixtureFlatBufferBuilder {
     return vector;
   }
 
+  string(value: string): number {
+    const encoded: Uint8Array = new util.TextEncoder().encode(value);
+    this.align(4);
+    const vector: number = this.cursor;
+    this.cursor += 5 + encoded.length;
+    writeU32(this.bytes, vector, encoded.length);
+    for (let index: number = 0; index < encoded.length; index++) {
+      this.bytes[vector + 4 + index] = encoded[index];
+    }
+    return vector;
+  }
+
   styleMapVector(includeValue: boolean): number {
     this.align(4);
     const vector: number = this.cursor;
@@ -743,6 +789,23 @@ class FixtureFlatBufferBuilder {
     }
   }
 
+  inlineSequence(offset: number, timestamp: number, siteId: number, index: number): void {
+    writeU16(this.bytes, offset, siteId);
+    writeU32(this.bytes, offset + 4, timestamp);
+    writeU32(this.bytes, offset + 8, index);
+  }
+
+  inlineBoundary(offset: number, timestamp: number, siteId: number, index: number,
+    type: number): void {
+    this.inlineSequence(offset, timestamp, siteId, index);
+    this.bytes[offset + 12] = type;
+  }
+
+  inlineIdentity(offset: number, timestamp: number, siteId: number): void {
+    writeU16(this.bytes, offset, siteId);
+    writeU32(this.bytes, offset + 4, timestamp);
+  }
+
   finish(root: number): Uint8Array {
     writeU32(this.bytes, 0, root);
     return this.bytes.slice(0, this.cursor);
@@ -753,6 +816,93 @@ class FixtureFlatBufferBuilder {
       this.cursor++;
     }
   }
+}
+
+function styleEnvelope(payloadType: number, root: number, payload: number,
+  builder: FixtureFlatBufferBuilder): Uint8Array {
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 300 + payloadType);
+  writeDecimalU64At(builder, root + 12, '1');
+  writeDecimalU64At(builder, root + 20, '1');
+  builder.uint8(root + 28, payloadType);
+  builder.pointer(root + 32, payload);
+  return builder.finish(root);
+}
+
+function boolWrapper(builder: FixtureFlatBufferBuilder, value: boolean | null): number {
+  const wrapper: number = builder.table([value === null ? 0 : 4], 8);
+  if (value !== null) {
+    builder.uint8(wrapper + 4, value ? 1 : 0);
+  }
+  return wrapper;
+}
+
+function floatWrapper(builder: FixtureFlatBufferBuilder, value: number | null): number {
+  const wrapper: number = builder.table([value === null ? 0 : 4], 8);
+  if (value !== null) {
+    builder.float32(wrapper + 4, value);
+  }
+  return wrapper;
+}
+
+function colorWrapper(builder: FixtureFlatBufferBuilder, value: number[]): number {
+  const wrapper: number = builder.table([4], 8);
+  builder.color(wrapper + 4, value);
+  return wrapper;
+}
+
+function enumWrapper(builder: FixtureFlatBufferBuilder, value: number): number {
+  const wrapper: number = builder.table([4], 8);
+  builder.uint8(wrapper + 4, value);
+  return wrapper;
+}
+
+function stringWrapper(builder: FixtureFlatBufferBuilder, value: string): number {
+  const wrapper: number = builder.table([4], 8);
+  builder.pointer(wrapper + 4, builder.string(value));
+  return wrapper;
+}
+
+function flatBufferModifyStyle(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  const payload: number = builder.table([4, 20, 36, 44, 0, 0, 48, 0, 52, 56,
+    0, 0, 0, 0, 0], 60);
+  builder.inlineBoundary(payload + 4, 100, 7, 0, 0);
+  builder.inlineBoundary(payload + 20, 100, 7, 2, 1);
+  builder.inlineIdentity(payload + 36, 20, 2);
+  builder.pointer(payload + 44, boolWrapper(builder, true));
+  builder.pointer(payload + 48, colorWrapper(builder, [255, 238, 0, 128]));
+  builder.pointer(payload + 52, floatWrapper(builder, 24));
+  builder.pointer(payload + 56, colorWrapper(builder, [17, 34, 51, 255]));
+  return styleEnvelope(12, root, payload, builder);
+}
+
+function flatBufferParagraphStyle(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  const payload: number = builder.table([4, 16, 28, 32, 36, 40, 0, 44, 52, 56], 60);
+  builder.inlineSequence(payload + 4, 100, 7, 0);
+  builder.inlineSequence(payload + 16, 100, 7, 2);
+  builder.pointer(payload + 28, enumWrapper(builder, 2));
+  builder.pointer(payload + 32, enumWrapper(builder, 2));
+  builder.pointer(payload + 36, floatWrapper(builder, 1.5));
+  builder.pointer(payload + 40, enumWrapper(builder, 1));
+  builder.inlineIdentity(payload + 44, 20, 2);
+  builder.pointer(payload + 52, stringWrapper(builder, 'swift'));
+  builder.pointer(payload + 56, enumWrapper(builder, 0));
+  return styleEnvelope(13, root, payload, builder);
+}
+
+function flatBufferClearStyle(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  const payload: number = builder.table([4, 20, 36, 40], 48);
+  builder.inlineBoundary(payload + 4, 0, 0xFFFF, 0, 0);
+  builder.inlineBoundary(payload + 20, 0, 0xFFFF, 0, 3);
+  builder.uint8(payload + 36, 0);
+  builder.inlineIdentity(payload + 40, 20, 2);
+  return styleEnvelope(14, root, payload, builder);
 }
 
 function flatBufferCreateInk(tool: number = 0, style: number = 0,

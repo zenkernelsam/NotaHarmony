@@ -30,6 +30,10 @@ import {
   OriginalTextVisibilityOperationApplier,
 } from './OriginalInsertTextOperation';
 import {
+  ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE, ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE,
+  ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE, OriginalRichTextStyleOperationApplier,
+} from './OriginalRichTextStyleOperation';
+import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 
@@ -50,6 +54,8 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
     new OriginalInsertTextOperationApplier();
   private textVisibility: OriginalTextVisibilityOperationApplier =
     new OriginalTextVisibilityOperationApplier();
+  private richTextStyle: OriginalRichTextStyleOperationApplier =
+    new OriginalRichTextStyleOperationApplier();
 
   supports(payloadType: number): boolean {
     return payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE ||
@@ -64,7 +70,10 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
       payloadType === ORIGINAL_INSERT_STRING_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE ||
-      payloadType === ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE;
+      payloadType === ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE;
   }
 
   async apply(store: relationalStore.RdbStore,
@@ -101,6 +110,11 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
       operation.payloadType === ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE) {
       return this.textVisibility.apply(store, operation);
+    }
+    if (operation.payloadType === ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE) {
+      return this.richTextStyle.apply(store, operation);
     }
     throw new Error('original page operation applier received an unsupported payload');
   }

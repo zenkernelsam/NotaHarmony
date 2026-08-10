@@ -9,6 +9,10 @@ import {
 } from './OperationIdentity';
 import { OriginalBlockType } from './OriginalCreateBlockOperation';
 import { OriginalFlatBufferTableReader, readOriginalPayloadTable } from './OriginalSyncedOperationFlatBuffer';
+import {
+  materializeOriginalTextStyles, readOriginalTextStyleOperations,
+  StoredOriginalTextCharacter, StoredOriginalTextStyleOperation,
+} from './OriginalRichTextStyleState';
 import { SearchItemType } from './SearchItemType';
 import { decodePersistedElement, encodePersistedElement, PersistedElement } from './StrokePersistence';
 import {
@@ -35,7 +39,7 @@ export interface OriginalTextVisibilityPayload {
   visible: boolean;
 }
 
-interface StoredTextTarget {
+export interface StoredTextTarget {
   block: OperationIdentity;
   page: OriginalSequenceIdentity;
   pageId: string;
@@ -45,13 +49,7 @@ interface StoredTextTarget {
   archived: boolean;
 }
 
-interface StoredCharacter {
-  identity: OriginalSequenceIdentity;
-  parent: OriginalSequenceIdentity | null;
-  scalar: number;
-  visible: boolean;
-  visibilityWinner: OperationIdentity | null;
-}
+export interface StoredCharacter extends StoredOriginalTextCharacter {}
 
 export function decodeOriginalInsertText(bytes: Uint8Array,
   payloadType: number): OriginalInsertTextPayload {
@@ -154,6 +152,13 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     if (before === null || before !== text.richText || target.revision >= Number.MAX_SAFE_INTEGER) {
       return { deferredReason: 'INSERT_TEXT_STATE_DIVERGED' };
     }
+    const styleOperations: StoredOriginalTextStyleOperation[] | null =
+      await readOriginalTextStyleOperations(store, operation.noteId, target.block);
+    const beforeStyles = styleOperations === null ? null :
+      materializeOriginalTextStyles(existing, styleOperations);
+    if (beforeStyles === null || !sameMaterializedStyles(text, beforeStyles)) {
+      return { deferredReason: 'INSERT_TEXT_STYLE_STATE_DIVERGED' };
+    }
     if (payload.location !== null && !existing.some((character: StoredCharacter): boolean =>
       sameSequence(character.identity, payload.location as OriginalSequenceIdentity))) {
       return { deferredReason: 'INSERT_TEXT_ANCHOR_MISSING' };
@@ -190,6 +195,13 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     }
     const updatedText: TextBlockElement = cloneText(text);
     updatedText.richText = updatedValue;
+    const updatedStyles = materializeOriginalTextStyles(
+      updatedCharacters as StoredCharacter[], styleOperations as StoredOriginalTextStyleOperation[]);
+    if (updatedStyles === null) {
+      throw new Error('original insert-text produced invalid style boundaries');
+    }
+    updatedText.characterStyleRuns = updatedStyles.characterRuns;
+    updatedText.paragraphStyleRuns = updatedStyles.paragraphRuns;
     const predicates: relationalStore.RdbPredicates = pageElementPredicates(
       operation.noteId, target, text.id);
     const persisted: PersistedElement = { kind: 'text', data: updatedText };
@@ -467,6 +479,13 @@ export class OriginalTextVisibilityOperationApplier implements SyncedOperationAp
     if (before === null || before !== text.richText || target.revision >= Number.MAX_SAFE_INTEGER) {
       return { deferredReason: 'TEXT_VISIBILITY_STATE_DIVERGED' };
     }
+    const styleOperations: StoredOriginalTextStyleOperation[] | null =
+      await readOriginalTextStyleOperations(store, operation.noteId, target.block);
+    const beforeStyles = styleOperations === null ? null :
+      materializeOriginalTextStyles(characters, styleOperations);
+    if (beforeStyles === null || !sameMaterializedStyles(text, beforeStyles)) {
+      return { deferredReason: 'TEXT_VISIBILITY_STYLE_STATE_DIVERGED' };
+    }
     const byId: Map<string, StoredCharacter> = new Map<string, StoredCharacter>();
     for (const character of characters) {
       byId.set(encodeOriginalSequenceId(character.identity), character);
@@ -512,6 +531,13 @@ export class OriginalTextVisibilityOperationApplier implements SyncedOperationAp
     }
     const updatedText: TextBlockElement = cloneText(text);
     updatedText.richText = after;
+    const updatedStyles = materializeOriginalTextStyles(
+      characters, styleOperations as StoredOriginalTextStyleOperation[]);
+    if (updatedStyles === null) {
+      throw new Error('original text-visibility produced invalid style boundaries');
+    }
+    updatedText.characterStyleRuns = updatedStyles.characterRuns;
+    updatedText.paragraphStyleRuns = updatedStyles.paragraphRuns;
     const predicates: relationalStore.RdbPredicates = pageElementPredicates(
       operation.noteId, target, text.id);
     const persisted: PersistedElement = { kind: 'text', data: updatedText };
@@ -665,6 +691,18 @@ function cloneText(text: TextBlockElement): TextBlockElement {
     blockWidth: text.blockWidth, blockHeight: text.blockHeight,
     rotationRadians: text.rotationRadians, contentLeftInset: text.contentLeftInset,
     contentTopInset: text.contentTopInset, fontSize: text.fontSize, fontColor: text.fontColor,
+    characterStyleRuns: text.characterStyleRuns === undefined ? undefined :
+      text.characterStyleRuns.map((run) => ({ start: run.start, end: run.end,
+        style: Object.assign({}, run.style) })),
+    paragraphStyleRuns: text.paragraphStyleRuns === undefined ? undefined :
+      text.paragraphStyleRuns.map((run) => ({ start: run.start, end: run.end,
+        style: Object.assign({}, run.style) })),
     positionLocked: text.positionLocked === true,
   };
+}
+
+function sameMaterializedStyles(text: TextBlockElement,
+  styles: { characterRuns: Object[], paragraphRuns: Object[] }): boolean {
+  return JSON.stringify(text.characterStyleRuns ?? []) === JSON.stringify(styles.characterRuns) &&
+    JSON.stringify(text.paragraphStyleRuns ?? []) === JSON.stringify(styles.paragraphRuns);
 }

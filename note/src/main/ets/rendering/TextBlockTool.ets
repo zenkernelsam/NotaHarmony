@@ -35,6 +35,9 @@ export class TextBlockTool {
     const height: number = Math.max(40, lines * (element.fontSize + 8) + element.contentTopInset * 2);
     const updated: TextBlockElement = cloneTextBlockElement(element);
     updated.richText = text;
+    // The local plain-text editor replaces the whole backing string and has no span editor.
+    updated.characterStyleRuns = [];
+    updated.paragraphStyleRuns = [];
     updated.blockHeight = height;
     updated.bounds = textBlockWorldBounds(updated);
     return updated;

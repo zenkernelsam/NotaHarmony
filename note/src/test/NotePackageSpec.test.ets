@@ -94,10 +94,26 @@ export default function notePackageSpecTest() {
         id: 't', type: ElementType.TEXT, transform: base.transform, bounds: base.bounds,
         richText: 'text', textOrigin: { x: 0, y: 0 }, blockWidth: 10, blockHeight: 10,
         rotationRadians: 0, contentLeftInset: 0, contentTopInset: 0,
-        fontSize: 12, fontColor: -16777216,
+        fontSize: 12, fontColor: -16777216, characterStyleRuns: undefined,
+        paragraphStyleRuns: undefined,
       } };
       expect(isValidPageElement(stroke)).assertTrue();
       expect(isValidPageElement(text)).assertTrue();
+      text.data.characterStyleRuns = [{ start: 0, end: 4,
+        style: { bold: true, foregroundColor: -16777216 } }];
+      text.data.paragraphStyleRuns = [{ start: 0, end: 4,
+        style: { alignment: 2, lineSpacing: 1.5 } }];
+      expect(isValidPageElement(text)).assertTrue();
+      text.data.characterStyleRuns = [{ start: 0, end: 5, style: { bold: true } }];
+      expect(isValidPageElement(text)).assertFalse();
+      text.data.characterStyleRuns = [{ start: 0, end: 2, style: { bold: true } },
+        { start: 1, end: 4, style: { italic: true } }];
+      expect(isValidPageElement(text)).assertFalse();
+      text.data.characterStyleRuns = [{ start: 0, end: 4, style: { bold: 'yes' } }];
+      expect(isValidPageElement(text)).assertFalse();
+      text.data.characterStyleRuns = [{ start: 0, end: 4, style: { superscript: true,
+        subscript: true } }];
+      expect(isValidPageElement(text)).assertFalse();
     });
 
     it('normalizes legacy v1 stroke attributes before validation', 0, () => {

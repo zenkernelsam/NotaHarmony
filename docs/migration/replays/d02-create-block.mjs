@@ -237,7 +237,7 @@ assert.doesNotMatch(source, /CREATE_BLOCK_POSITION_LOCK_UNSUPPORTED/);
 assert.match(source, /positionLocked: payload\.positionLocked/);
 assert.match(source, /kind: PageElementKind\.TEXT/);
 assert.match(dispatcher, /OriginalCreateBlockOperationApplier/);
-assert.match(schema, /DB_VERSION: number = 38/);
+assert.match(schema, /DB_VERSION: number = 39/);
 assert.match(schema, /DDL_ORIGINAL_BLOCK_STATE/);
 
 console.log('success|flatbuffer-rl2=1|text-create=1|empty-richtext=1|transform=1|' +

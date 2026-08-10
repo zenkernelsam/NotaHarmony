@@ -304,8 +304,120 @@ function isValidText(text: TextBlockElement): boolean {
     isNonNegativeFinite(text.blockWidth) && isNonNegativeFinite(text.blockHeight) &&
     isFiniteNumber(text.rotationRadians) && isFiniteNumber(text.contentLeftInset) &&
     isFiniteNumber(text.contentTopInset) && isNonNegativeFinite(text.fontSize) &&
-    isFiniteNumber(text.fontColor) &&
+    isFiniteNumber(text.fontColor) && isValidRichTextRuns(text) &&
     (text.positionLocked === undefined || typeof text.positionLocked === 'boolean');
+}
+
+function isValidRichTextRuns(text: TextBlockElement): boolean {
+  let codePointLength: number = 0;
+  for (const _character of text.richText) {
+    codePointLength++;
+  }
+  if (text.characterStyleRuns !== undefined) {
+    if (!Array.isArray(text.characterStyleRuns) ||
+      !isValidStyleRunCollection(text.characterStyleRuns as Object[], codePointLength, false)) {
+      return false;
+    }
+  }
+  if (text.paragraphStyleRuns !== undefined) {
+    if (!Array.isArray(text.paragraphStyleRuns) ||
+      !isValidStyleRunCollection(text.paragraphStyleRuns as Object[], codePointLength, true)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isValidStyleRunCollection(runs: Object[], textLength: number,
+  paragraph: boolean): boolean {
+  let previousEnd: number = 0;
+  for (const raw of runs) {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      return false;
+    }
+    const run = raw as Record<string, Object>;
+    const start: number = run.start as number;
+    const end: number = run.end as number;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < previousEnd ||
+      end <= start || end > textLength || run.style === null ||
+      typeof run.style !== 'object' || Array.isArray(run.style)) {
+      return false;
+    }
+    if (paragraph ? !isValidParagraphStyle(run.style as Record<string, Object>) :
+      !isValidCharacterStyle(run.style as Record<string, Object>)) {
+      return false;
+    }
+    previousEnd = end;
+  }
+  return true;
+}
+
+function isValidCharacterStyle(style: Record<string, Object>): boolean {
+  const allowed: string[] = ['bold', 'italic', 'underline', 'highlightColor', 'familyName',
+    'fontSize', 'foregroundColor', 'link', 'superscript', 'subscript', 'strikethrough'];
+  for (const key of Object.keys(style)) {
+    if (!allowed.includes(key)) {
+      return false;
+    }
+    const value: Object = style[key];
+    if (key === 'highlightColor' || key === 'foregroundColor') {
+      if (!isColorInteger(value as number)) {
+        return false;
+      }
+    } else if (key === 'fontSize') {
+      if (!isPositiveFinite(value as number)) {
+        return false;
+      }
+    } else if (key === 'familyName' || key === 'link') {
+      if (typeof value !== 'string' || (key === 'familyName' && value.length === 0) ||
+        value.length > 65536) {
+        return false;
+      }
+    } else if (typeof value !== 'boolean') {
+      return false;
+    }
+  }
+  return style.superscript !== true || style.subscript !== true;
+}
+
+function isValidParagraphStyle(style: Record<string, Object>): boolean {
+  const allowed: string[] = ['indentLevel', 'alignment', 'lineSpacing', 'decoratorStyle',
+    'programmingLanguage', 'writingDirection'];
+  for (const key of Object.keys(style)) {
+    if (!allowed.includes(key)) {
+      return false;
+    }
+    const value: Object = style[key];
+    if (key === 'indentLevel' && !isIntegerInRange(value as number, 0, 7)) {
+      return false;
+    }
+    if (key === 'alignment' && !isIntegerInRange(value as number, 1, 3)) {
+      return false;
+    }
+    if (key === 'decoratorStyle' && !isIntegerInRange(value as number, 0, 5)) {
+      return false;
+    }
+    if (key === 'writingDirection' && !isIntegerInRange(value as number, 0, 1)) {
+      return false;
+    }
+    if (key === 'lineSpacing' && !isOriginalLineSpacing(value as number)) {
+      return false;
+    }
+    if (key === 'programmingLanguage' &&
+      (typeof value !== 'string' || value.length > 65536)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isColorInteger(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= -2147483648 && value <= 4294967295;
+}
+
+function isOriginalLineSpacing(value: number): boolean {
+  return isFiniteNumber(value) && (Math.abs(value) < 0.01 || Math.abs(value - 1) < 0.01 ||
+    Math.abs(value - 1.5) < 0.01 || Math.abs(value - 2) < 0.01);
 }
 
 function isValidShape(shape: ShapeElement): boolean {

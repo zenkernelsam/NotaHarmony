@@ -2,6 +2,8 @@ import { describe, it, expect } from '@ohos/hypium';
 import {
   Canvas2DOffscreenRenderContext, Canvas2DStrokeRenderer,
 } from '../main/ets/core/adaptation/Canvas2DStrokeRenderer';
+import { Canvas2DTextRenderer } from '../main/ets/core/adaptation/Canvas2DTextRenderer';
+import { ElementType, TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import {
   InkStyle, RenderSpec, StrokeElementData, StrokePathPoint,
 } from '../main/ets/core/model/StrokeTypes';
@@ -61,6 +63,19 @@ function renderHighlighterAlpha(style: InkStyle, passes: number): number {
   return alphaAt(context, 60, 20);
 }
 
+function countColor(ctx: OffscreenCanvasRenderingContext2D, red: number,
+  green: number, blue: number): number {
+  const pixels: Uint8ClampedArray = ctx.getImageData(0, 0, 160, 80).data;
+  let count: number = 0;
+  for (let index: number = 0; index < pixels.length; index += 4) {
+    if (pixels[index] === red && pixels[index + 1] === green && pixels[index + 2] === blue &&
+      pixels[index + 3] > 0) {
+      count++;
+    }
+  }
+  return count;
+}
+
 export default function rendererStyleTest() {
   describe('RendererStyle', () => {
     it('renders DASH with butt caps and DOTS with round caps at the same width', 0, () => {
@@ -117,6 +132,32 @@ export default function rendererStyleTest() {
       renderer.renderCenterPath(shifted, new Canvas2DOffscreenRenderContext(shiftedContext));
       expect(alphaAt(baseContext, 30, 20)).assertEqual(255);
       expect(alphaAt(shiftedContext, 30, 20)).assertEqual(0);
+    });
+
+    it('renders original rich-text character and paragraph style runs', 0, () => {
+      const canvas: OffscreenCanvas = new OffscreenCanvas(160, 80);
+      const context: OffscreenCanvasRenderingContext2D =
+        canvas.getContext('2d', new RenderingContextSettings(true));
+      const element: TextBlockElement = {
+        id: 'rich-text', type: ElementType.TEXT, richText: 'AB',
+        characterStyleRuns: [{ start: 0, end: 2, style: {
+          bold: true, foregroundColor: 0xFFFF0000 | 0, highlightColor: 0xFF00FF00 | 0,
+          underline: true,
+        } }],
+        paragraphStyleRuns: [{ start: 0, end: 2, style: {
+          alignment: 2, indentLevel: 1, decoratorStyle: 1, lineSpacing: 1.5,
+        } }],
+        textOrigin: { x: 0, y: 0 }, blockWidth: 140, blockHeight: 60,
+        rotationRadians: 0, contentLeftInset: 4, contentTopInset: 4,
+        fontSize: 20, fontColor: 0xFF000000 | 0,
+        transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: 0, top: 0, right: 140, bottom: 60 },
+      };
+      new Canvas2DTextRenderer().renderText(element,
+        new Canvas2DOffscreenRenderContext(context));
+      expect(countColor(context, 0, 255, 0) > 20).assertTrue();
+      expect(countColor(context, 255, 0, 0) > 0).assertTrue();
+      expect(alphaAt(context, 4, 12)).assertEqual(0);
     });
   });
 }

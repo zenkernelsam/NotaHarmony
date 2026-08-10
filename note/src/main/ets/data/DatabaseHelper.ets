@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v38: preserve per-character REMOVE/REVIVE visibility winners.
-export const DB_VERSION: number = 38;
+// v39: preserve original RichText character/paragraph style interval operations.
+export const DB_VERSION: number = 39;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -713,6 +713,29 @@ CREATE TABLE IF NOT EXISTS original_text_character (
     (visibility_winner_present = 1 AND visibility_winner_timestamp IS NOT NULL
       AND visibility_winner_site_id IS NOT NULL)),
   PRIMARY KEY(note_id, char_timestamp, char_site_id, char_index),
+  FOREIGN KEY(note_id, block_timestamp, block_site_id)
+    REFERENCES original_block_state(note_id, block_timestamp, block_site_id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_TEXT_STYLE_OPERATION: string = `
+CREATE TABLE IF NOT EXISTS original_text_style_operation (
+  note_id TEXT NOT NULL,
+  block_timestamp INTEGER NOT NULL CHECK (block_timestamp BETWEEN 0 AND 4294967295),
+  block_site_id INTEGER NOT NULL CHECK (block_site_id BETWEEN 0 AND 65535),
+  operation_timestamp INTEGER NOT NULL CHECK (operation_timestamp BETWEEN 0 AND 4294967295),
+  operation_site_id INTEGER NOT NULL CHECK (operation_site_id BETWEEN 0 AND 65535),
+  paragraph INTEGER NOT NULL CHECK (paragraph IN (0, 1)),
+  clear_all INTEGER NOT NULL CHECK (clear_all IN (0, 1)),
+  start_timestamp INTEGER NOT NULL CHECK (start_timestamp BETWEEN 0 AND 4294967295),
+  start_site_id INTEGER NOT NULL CHECK (start_site_id BETWEEN 0 AND 65535),
+  start_index INTEGER NOT NULL CHECK (start_index BETWEEN 0 AND 4294967295),
+  start_type INTEGER NOT NULL CHECK (start_type BETWEEN 0 AND 3),
+  end_timestamp INTEGER NOT NULL CHECK (end_timestamp BETWEEN 0 AND 4294967295),
+  end_site_id INTEGER NOT NULL CHECK (end_site_id BETWEEN 0 AND 65535),
+  end_index INTEGER NOT NULL CHECK (end_index BETWEEN 0 AND 4294967295),
+  end_type INTEGER NOT NULL CHECK (end_type BETWEEN 0 AND 3),
+  attributes_json TEXT NOT NULL CHECK (length(attributes_json) BETWEEN 2 AND 65536),
+  PRIMARY KEY(note_id, operation_timestamp, operation_site_id),
   FOREIGN KEY(note_id, block_timestamp, block_site_id)
     REFERENCES original_block_state(note_id, block_timestamp, block_site_id) ON DELETE CASCADE
 )`;
@@ -1550,4 +1573,5 @@ export const MIGRATIONS: Record<number, string[]> = {
     `ALTER TABLE original_text_character ADD COLUMN visibility_winner_present INTEGER NOT NULL DEFAULT 0
       CHECK (visibility_winner_present IN (0, 1))`,
   ],
+  39: [DDL_ORIGINAL_TEXT_STYLE_OPERATION],
 };

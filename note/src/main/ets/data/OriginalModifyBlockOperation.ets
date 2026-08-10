@@ -1065,6 +1065,12 @@ function cloneText(text: TextBlockElement): TextBlockElement {
     blockWidth: text.blockWidth, blockHeight: text.blockHeight,
     rotationRadians: text.rotationRadians, contentLeftInset: text.contentLeftInset,
     contentTopInset: text.contentTopInset, fontSize: text.fontSize, fontColor: text.fontColor,
+    characterStyleRuns: text.characterStyleRuns === undefined ? undefined :
+      text.characterStyleRuns.map((run) => ({ start: run.start, end: run.end,
+        style: Object.assign({}, run.style) })),
+    paragraphStyleRuns: text.paragraphStyleRuns === undefined ? undefined :
+      text.paragraphStyleRuns.map((run) => ({ start: run.start, end: run.end,
+        style: Object.assign({}, run.style) })),
     positionLocked: text.positionLocked === true,
   };
 }

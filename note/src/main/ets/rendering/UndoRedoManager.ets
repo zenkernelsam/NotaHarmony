@@ -2,7 +2,8 @@
 // 全笔记单栈：动作携带 pageId，保持跨页操作的真实时间顺序。
 // 原版 NoteImpl 使用全笔记 opHistory；文本编辑器 nnf(100) 是另一套局部历史，不能作为这里的容量。
 import { InkPathCommand, StrokeElementData } from '../core/model/StrokeTypes';
-import { ElementType, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { ElementType, RichTextCharacterStyleRun, RichTextParagraphStyleRun,
+  ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { PageInfo } from '../core/model/NoteTypes';
 import { PageElementRef } from '../core/model/PageElementOrder';
 import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op } from '../core/model/OpTypes';
@@ -338,7 +339,40 @@ function estimateTextBlocks(blocks: TextBlockElement[]): number {
 }
 
 function estimateTextBlock(block: TextBlockElement): number {
-  return 384 + (block.id.length + block.richText.length) * 2 + block.transform.length * 8;
+  return 384 + (block.id.length + block.richText.length) * 2 + block.transform.length * 8 +
+    estimateCharacterStyleRuns(block.characterStyleRuns) +
+    estimateParagraphStyleRuns(block.paragraphStyleRuns);
+}
+
+function estimateCharacterStyleRuns(runs: RichTextCharacterStyleRun[] | undefined): number {
+  if (runs === undefined) {
+    return 0;
+  }
+  let bytes: number = runs.length * 32;
+  for (const run of runs) {
+    bytes += Object.keys(run.style).length * 16;
+    if (run.style.familyName !== undefined) {
+      bytes += run.style.familyName.length * 2;
+    }
+    if (run.style.link !== undefined) {
+      bytes += run.style.link.length * 2;
+    }
+  }
+  return bytes;
+}
+
+function estimateParagraphStyleRuns(runs: RichTextParagraphStyleRun[] | undefined): number {
+  if (runs === undefined) {
+    return 0;
+  }
+  let bytes: number = runs.length * 32;
+  for (const run of runs) {
+    bytes += Object.keys(run.style).length * 16;
+    if (run.style.programmingLanguage !== undefined) {
+      bytes += run.style.programmingLanguage.length * 2;
+    }
+  }
+  return bytes;
 }
 
 function estimateShapes(shapes: ShapeElement[]): number {

@@ -1,4 +1,7 @@
-import { TextBlockElement } from './ElementTypes';
+import {
+  RichTextCharacterStyle, RichTextCharacterStyleRun, RichTextParagraphStyle,
+  RichTextParagraphStyleRun, TextBlockElement,
+} from './ElementTypes';
 import { Point2D, Rect2D, TransformMatrix } from './GeometryTypes';
 
 export interface TextBlockTransformComponents {
@@ -16,8 +19,34 @@ export function cloneTextBlockElement(element: TextBlockElement): TextBlockEleme
     blockHeight: element.blockHeight, rotationRadians: element.rotationRadians,
     contentLeftInset: element.contentLeftInset, contentTopInset: element.contentTopInset,
     fontSize: element.fontSize, fontColor: element.fontColor,
+    characterStyleRuns: cloneCharacterStyleRuns(element.characterStyleRuns),
+    paragraphStyleRuns: cloneParagraphStyleRuns(element.paragraphStyleRuns),
     positionLocked: isTextBlockPositionLocked(element),
   };
+}
+
+function cloneCharacterStyleRuns(runs: RichTextCharacterStyleRun[] | undefined):
+  RichTextCharacterStyleRun[] | undefined {
+  if (runs === undefined) {
+    return undefined;
+  }
+  return runs.map((run: RichTextCharacterStyleRun): RichTextCharacterStyleRun => {
+    const style: RichTextCharacterStyle = JSON.parse(JSON.stringify(run.style)) as
+      RichTextCharacterStyle;
+    return { start: run.start, end: run.end, style: style };
+  });
+}
+
+function cloneParagraphStyleRuns(runs: RichTextParagraphStyleRun[] | undefined):
+  RichTextParagraphStyleRun[] | undefined {
+  if (runs === undefined) {
+    return undefined;
+  }
+  return runs.map((run: RichTextParagraphStyleRun): RichTextParagraphStyleRun => {
+    const style: RichTextParagraphStyle = JSON.parse(JSON.stringify(run.style)) as
+      RichTextParagraphStyle;
+    return { start: run.start, end: run.end, style: style };
+  });
 }
 
 export function isTextBlockPositionLocked(element: TextBlockElement): boolean {

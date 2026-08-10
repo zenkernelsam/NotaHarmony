@@ -21,6 +21,7 @@ export interface Canvas2DDrawingContext extends RenderContext {
   fill(): void;
   fillRect(x: number, y: number, width: number, height: number): void;
   fillText(text: string, x: number, y: number): void;
+  measureText(text: string): number;
   arc(x: number, y: number, radius: number, startAngle: number, endAngle: number): void;
   setLineDash(segments: number[]): void;
   setLineDashOffset(offset: number): void;
@@ -113,6 +114,10 @@ export class Canvas2DRenderContext implements Canvas2DDrawingContext {
 
   fillText(text: string, x: number, y: number): void {
     this.ctx.fillText(text, x, y);
+  }
+
+  measureText(text: string): number {
+    return this.ctx.measureText(text).width;
   }
 
   arc(x: number, y: number, radius: number, startAngle: number, endAngle: number): void {
@@ -258,6 +263,10 @@ export class Canvas2DOffscreenRenderContext implements Canvas2DDrawingContext {
 
   fillText(text: string, x: number, y: number): void {
     this.ctx.fillText(text, x, y);
+  }
+
+  measureText(text: string): number {
+    return this.ctx.measureText(text).width;
   }
 
   arc(x: number, y: number, radius: number, startAngle: number, endAngle: number): void {

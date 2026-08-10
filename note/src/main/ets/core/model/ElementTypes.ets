@@ -52,7 +52,10 @@ export interface PolygonElement extends NoteElementBase {
 // 文本块（对应 cde TextBlockInfo）
 export interface TextBlockElement extends NoteElementBase {
   type: ElementType.TEXT;
-  richText: string;              // 简化为纯文本（富文本后续扩展）
+  richText: string;
+  // Code-point offsets materialized from the original RichText SeqId/style CRDT.
+  characterStyleRuns?: RichTextCharacterStyleRun[];
+  paragraphStyleRuns?: RichTextParagraphStyleRun[];
   textOrigin: Point2D;
   blockWidth: number;
   blockHeight: number;
@@ -63,6 +66,41 @@ export interface TextBlockElement extends NoteElementBase {
   fontColor: number;
   // Missing on legacy Harmony snapshots; the original Block default is unlocked.
   positionLocked?: boolean;
+}
+
+export interface RichTextCharacterStyle {
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  highlightColor?: number;
+  familyName?: string;
+  fontSize?: number;
+  foregroundColor?: number;
+  link?: string;
+  superscript?: boolean;
+  subscript?: boolean;
+  strikethrough?: boolean;
+}
+
+export interface RichTextCharacterStyleRun {
+  start: number;
+  end: number;
+  style: RichTextCharacterStyle;
+}
+
+export interface RichTextParagraphStyle {
+  indentLevel?: number;
+  alignment?: number;
+  lineSpacing?: number;
+  decoratorStyle?: number;
+  programmingLanguage?: string;
+  writingDirection?: number;
+}
+
+export interface RichTextParagraphStyleRun {
+  start: number;
+  end: number;
+  style: RichTextParagraphStyle;
 }
 
 // 图片元素（预留，Phase 3 补全）
