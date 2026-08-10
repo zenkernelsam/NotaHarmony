@@ -19,7 +19,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(27);
+      expect(DB_VERSION).assertEqual(28);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -64,9 +64,13 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[26].join('\n')).assertContain('original_element_z_index');
       expect(MIGRATIONS[27].join('\n')).assertContain('original_ink_state');
       expect(MIGRATIONS[27].join('\n')).assertContain('original_ink_path_append');
+      expect(MIGRATIONS[28].join('\n')).assertContain('center_path_winner_timestamp');
+      expect(MIGRATIONS[28].join('\n')).assertContain('center_path_winner_site_id');
+      expect(MIGRATIONS[28].join('\n')).assertContain('SET center_path_winner_timestamp = ink_timestamp');
       expect(DDL_ORIGINAL_ELEMENT_Z_INDEX).assertContain('z_index TEXT NOT NULL');
       expect(DDL_ORIGINAL_ELEMENT_Z_INDEX).assertContain('18446744073709551615');
       expect(DDL_ORIGINAL_INK_STATE).assertContain('base_center_path BLOB NOT NULL');
+      expect(DDL_ORIGINAL_INK_STATE).assertContain('center_path_winner_timestamp INTEGER NOT NULL');
       expect(DDL_ORIGINAL_INK_STATE).assertContain('REFERENCES original_element_z_index');
       expect(DDL_ORIGINAL_INK_PATH_APPEND)
         .assertContain('PRIMARY KEY(note_id, append_timestamp, append_site_id)');

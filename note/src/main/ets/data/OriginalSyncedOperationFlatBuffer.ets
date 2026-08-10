@@ -163,6 +163,20 @@ export class OriginalFlatBufferTableReader {
     return result;
   }
 
+  readInlineOperationIdentityVector(field: number, maximumCount: number): number[][] {
+    const vector: number | null = this.readVector(field, 8, maximumCount);
+    if (vector === null) {
+      return [];
+    }
+    const count: number = readU32(this.bytes, vector);
+    const result: number[][] = [];
+    for (let index: number = 0; index < count; index++) {
+      const position: number = vector + 4 + index * 8;
+      result.push([readU32(this.bytes, position + 4), readU16(this.bytes, position)]);
+    }
+    return result;
+  }
+
   validateByteVector(field: number, required: boolean, maximumCount: number): number {
     const vector: number | null = this.readVector(field, 1, maximumCount);
     if (vector === null) {

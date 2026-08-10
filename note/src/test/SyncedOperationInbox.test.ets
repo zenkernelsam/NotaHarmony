@@ -22,6 +22,7 @@ import { OriginalPageOperationApplier } from '../main/ets/data/OriginalPageOpera
 import { decodeOriginalCreateInk } from '../main/ets/data/OriginalCreateInkOperation';
 import { decodeOriginalAddPathElements } from
   '../main/ets/data/OriginalAddPathElementsOperation';
+import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOperation';
 import { originalInkTransform,
   transformedExpandedBounds } from '../main/ets/data/OriginalInkPathCodec';
 import { decodeOriginalInkPath, decodeOriginalInkPathAppend } from
@@ -155,6 +156,7 @@ export default function syncedOperationInboxTest() {
       expect(applier.supports(25)).assertTrue();
       expect(applier.supports(15)).assertTrue();
       expect(applier.supports(16)).assertTrue();
+      expect(applier.supports(17)).assertTrue();
       expect(applier.supports(5)).assertFalse();
     });
 
@@ -217,6 +219,19 @@ export default function syncedOperationInboxTest() {
       expect(append.localBounds.right).assertEqual(100);
       expect(append.localBounds.bottom).assertEqual(100);
       expect(append.attributed).assertTrue();
+    });
+
+    it('decodes original MODIFY_INK target vector and center-path field 8', 0, () => {
+      const payload = decodeOriginalModifyInk(flatBufferModifyInk());
+      expect(payload.inks.length).assertEqual(2);
+      expect(payload.inks[0].timestamp).assertEqual(20);
+      expect(payload.inks[0].siteId).assertEqual(2);
+      expect(payload.inks[1].timestamp).assertEqual(21);
+      expect(payload.inks[1].siteId).assertEqual(3);
+      expect(payload.centerPath?.length).assertEqual(33);
+      expect(payload.hasUnsupportedFields).assertFalse();
+      const withWidth = decodeOriginalModifyInk(flatBufferModifyInk(true));
+      expect(withWidth.hasUnsupportedFields).assertTrue();
     });
 
     it('decodes the original big-endian half-float coordinate path variant', 0, () => {
@@ -467,6 +482,18 @@ class FixtureFlatBufferBuilder {
     return vector;
   }
 
+  operationIdentityVector(values: { timestamp: number, siteId: number }[]): number {
+    this.align(4);
+    const vector: number = this.cursor;
+    this.cursor += 4 + values.length * 8;
+    writeU32(this.bytes, vector, values.length);
+    for (let index: number = 0; index < values.length; index++) {
+      writeU16(this.bytes, vector + 4 + index * 8, values[index].siteId);
+      writeU32(this.bytes, vector + 8 + index * 8, values[index].timestamp);
+    }
+    return vector;
+  }
+
   byteVector(values: number[]): number {
     this.align(4);
     const vector: number = this.cursor;
@@ -572,6 +599,33 @@ function flatBufferAddPathElements(): Uint8Array {
     [{ x: 100, y: 100 }, { x: 10, y: 0 }], 0x3C00, 0x3800, 255, 0);
   const vector: number = builder.byteVector(path);
   builder.pointer(add + 12, vector);
+  return builder.finish(root);
+}
+
+function flatBufferModifyInk(includeWidth: boolean = false): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 92);
+  writeDecimalU64At(builder, root + 12, '127');
+  writeDecimalU64At(builder, root + 20, '128');
+  builder.uint8(root + 28, 17);
+  const fields: number[] = [4, 0, 0, 0, 0, 0, 0, includeWidth ? 8 : 0, 12,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const modify: number = builder.table(fields, 16);
+  builder.pointer(root + 32, modify);
+  if (includeWidth) {
+    builder.float32(modify + 8, 5);
+  }
+  const inks: number = builder.operationIdentityVector([
+    { timestamp: 20, siteId: 2 }, { timestamp: 21, siteId: 3 },
+  ]);
+  builder.pointer(modify + 4, inks);
+  const path: number[] = [1, 0, 2];
+  appendAttributedPathElement(path, 3, [{ x: 5, y: 6 }], 0x3C00, 0x3800, 255, 0);
+  appendAttributedPathElement(path, 2, [{ x: 15, y: 16 }], 0x3C00, 0x3800, 255, 0);
+  const vector: number = builder.byteVector(path);
+  builder.pointer(modify + 12, vector);
   return builder.finish(root);
 }
 

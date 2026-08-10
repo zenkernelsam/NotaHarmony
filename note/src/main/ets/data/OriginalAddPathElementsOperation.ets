@@ -41,11 +41,11 @@ interface StoredInkTarget {
   archived: boolean;
 }
 
-interface StoredAppend extends OperationIdentity {
+export interface OriginalInkAppendRecord extends OperationIdentity {
   bytes: Uint8Array;
 }
 
-interface RebuiltInkGeometry {
+export interface RebuiltOriginalInkGeometry {
   pathPoints: StrokePathPoint[];
   cubicSegments: StrokeElementData['cubicSegments'];
   bounds: Rect2D;
@@ -123,29 +123,29 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
     if (unsupported !== null) {
       return { deferredReason: unsupported };
     }
-    const existingAppends: StoredAppend[] = await this.readAppends(
+    const existingAppends: OriginalInkAppendRecord[] = await this.readAppends(
       store, operation.noteId, payload.ink);
-    let expected: RebuiltInkGeometry;
+    let expected: RebuiltOriginalInkGeometry;
     try {
-      expected = rebuildGeometry(basePath, existingAppends, stroke);
+      expected = rebuildOriginalInkGeometry(basePath, existingAppends, stroke);
     } catch (_error) {
       return { deferredReason: 'ADD_PATH_ELEMENTS_TRACKED_STATE_INVALID' };
     }
-    if (!geometryMatches(stroke, expected)) {
+    if (!originalInkGeometryMatches(stroke, expected)) {
       return { deferredReason: 'ADD_PATH_ELEMENTS_STROKE_DIVERGED' };
     }
     if (target.revision >= Number.MAX_SAFE_INTEGER) {
       return { deferredReason: 'ADD_PATH_ELEMENTS_PAGE_REVISION_EXHAUSTED' };
     }
 
-    const allAppends: StoredAppend[] = existingAppends.slice();
+    const allAppends: OriginalInkAppendRecord[] = existingAppends.slice();
     allAppends.push({
       timestamp: operation.timestamp, siteId: operation.siteId, bytes: candidateBytes,
     });
     allAppends.sort(compareStoredAppend);
-    let rebuilt: RebuiltInkGeometry;
+    let rebuilt: RebuiltOriginalInkGeometry;
     try {
-      rebuilt = rebuildGeometry(basePath, allAppends, stroke);
+      rebuilt = rebuildOriginalInkGeometry(basePath, allAppends, stroke);
     } catch (_error) {
       return { deferredReason: 'MALFORMED_ADD_PATH_ELEMENTS_PAYLOAD' };
     }
@@ -175,7 +175,7 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
 
   private unsupportedStrokeReason(stroke: StrokeElementData,
     candidate: DecodedOriginalInkPathAppend): string | null {
-    if (!isSupportedStoredStroke(stroke)) {
+    if (!isSupportedOriginalStoredStroke(stroke)) {
       return 'ADD_PATH_ELEMENTS_STROKE_DIVERGED';
     }
     if (stroke.renderSpec.isPencil || stroke.splatPoints.length > 0) {
@@ -251,12 +251,12 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
   }
 
   private async readAppends(store: relationalStore.RdbStore, noteId: string,
-    ink: OperationIdentity): Promise<StoredAppend[]> {
+    ink: OperationIdentity): Promise<OriginalInkAppendRecord[]> {
     const rows = await store.querySql(
       `SELECT append_timestamp, append_site_id, center_path_elements
        FROM original_ink_path_append WHERE note_id = ? AND ink_timestamp = ? AND ink_site_id = ?
        ORDER BY append_timestamp, append_site_id`, [noteId, ink.timestamp, ink.siteId]);
-    const result: StoredAppend[] = [];
+    const result: OriginalInkAppendRecord[] = [];
     try {
       while (rows.goToNextRow()) {
         result.push({
@@ -357,14 +357,14 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
   }
 }
 
-function rebuildGeometry(baseBytes: Uint8Array, appends: StoredAppend[],
-  stroke: StrokeElementData): RebuiltInkGeometry {
+export function rebuildOriginalInkGeometry(baseBytes: Uint8Array,
+  appends: OriginalInkAppendRecord[], stroke: StrokeElementData): RebuiltOriginalInkGeometry {
   const base: DecodedOriginalInkPath = decodeOriginalInkPath(baseBytes);
   const pathPoints: StrokePathPoint[] = base.pathPoints.slice();
   const cubicSegments: StrokeElementData['cubicSegments'] = base.cubicSegments.slice();
   let localBounds: Rect2D = base.localBounds;
   let current: Point2D = pathPoints[pathPoints.length - 1].position;
-  const sorted: StoredAppend[] = appends.slice();
+  const sorted: OriginalInkAppendRecord[] = appends.slice();
   sorted.sort(compareStoredAppend);
   for (const stored of sorted) {
     const append: DecodedOriginalInkPathAppend = decodeOriginalInkPathAppend(stored.bytes, current);
@@ -383,13 +383,14 @@ function rebuildGeometry(baseBytes: Uint8Array, appends: StoredAppend[],
   };
 }
 
-function geometryMatches(stroke: StrokeElementData, expected: RebuiltInkGeometry): boolean {
+export function originalInkGeometryMatches(stroke: StrokeElementData,
+  expected: RebuiltOriginalInkGeometry): boolean {
   return JSON.stringify(stroke.pathPoints) === JSON.stringify(expected.pathPoints) &&
     JSON.stringify(stroke.cubicSegments) === JSON.stringify(expected.cubicSegments) &&
     JSON.stringify(stroke.bounds) === JSON.stringify(expected.bounds);
 }
 
-function isSupportedStoredStroke(stroke: StrokeElementData): boolean {
+export function isSupportedOriginalStoredStroke(stroke: StrokeElementData): boolean {
   return typeof stroke.id === 'string' && stroke.id.length > 0 &&
     Array.isArray(stroke.pathPoints) && stroke.pathPoints.length >= 2 &&
     Array.isArray(stroke.cubicSegments) && Array.isArray(stroke.splatPoints) &&
@@ -411,7 +412,8 @@ function hasOnlyFiniteNumbers(values: number[]): boolean {
   return true;
 }
 
-function compareStoredAppend(left: StoredAppend, right: StoredAppend): number {
+function compareStoredAppend(left: OriginalInkAppendRecord,
+  right: OriginalInkAppendRecord): number {
   return compareOperationIdentity(left, right);
 }
 

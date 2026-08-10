@@ -34,16 +34,31 @@ export class OriginalInkPathDeferredError extends Error {
 const MAX_PATH_ELEMENTS: number = 65535;
 
 export function decodeOriginalInkPath(bytes: Uint8Array): DecodedOriginalInkPath {
-  const elements: DecodedElement[] = decodeElements(bytes, 2,
+  return decodeCanonicalInkPath(bytes,
     'CREATE_INK_PATH_VERSION_UNSUPPORTED',
     'CREATE_INK_PATH_COORDINATE_ENCODING_UNSUPPORTED',
-    'CREATE_INK_CENTER_PATH_TOO_SHORT');
+    'CREATE_INK_CENTER_PATH_TOO_SHORT',
+    'CREATE_INK_MULTI_COMPONENT_PATH_UNSUPPORTED');
+}
+
+export function decodeOriginalInkPathReplacement(bytes: Uint8Array): DecodedOriginalInkPath {
+  return decodeCanonicalInkPath(bytes,
+    'MODIFY_INK_PATH_VERSION_UNSUPPORTED',
+    'MODIFY_INK_PATH_COORDINATE_ENCODING_UNSUPPORTED',
+    'MODIFY_INK_CENTER_PATH_TOO_SHORT',
+    'MODIFY_INK_MULTI_COMPONENT_PATH_UNSUPPORTED');
+}
+
+function decodeCanonicalInkPath(bytes: Uint8Array, versionReason: string,
+  encodingReason: string, lengthReason: string, multiComponentReason: string): DecodedOriginalInkPath {
+  const elements: DecodedElement[] = decodeElements(bytes, 2,
+    versionReason, encodingReason, lengthReason);
   if (elements[0].type !== 3 && elements[0].type !== 7) {
     throw new Error('original ink path is not one canonical component');
   }
   for (let index: number = 1; index < elements.length; index++) {
     if (isMove(elements[index])) {
-      throw new OriginalInkPathDeferredError('CREATE_INK_MULTI_COMPONENT_PATH_UNSUPPORTED');
+      throw new OriginalInkPathDeferredError(multiComponentReason);
     }
   }
   const converted: DecodedOriginalInkPathAppend = convertElements(

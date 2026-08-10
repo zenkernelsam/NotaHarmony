@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v27: preserve original ink base paths and ordered ADD_PATH_ELEMENTS fragments.
-export const DB_VERSION: number = 27;
+// v28: preserve the original center-path LWW winner for MODIFY_INK replay.
+export const DB_VERSION: number = 28;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -380,12 +380,27 @@ CREATE TABLE IF NOT EXISTS original_element_z_index (
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
+const DDL_ORIGINAL_INK_STATE_V27: string = `
+CREATE TABLE IF NOT EXISTS original_ink_state (
+  note_id TEXT NOT NULL,
+  ink_timestamp INTEGER NOT NULL CHECK (ink_timestamp BETWEEN 0 AND 4294967295),
+  ink_site_id INTEGER NOT NULL CHECK (ink_site_id BETWEEN 0 AND 65535),
+  base_center_path BLOB NOT NULL CHECK (length(base_center_path) BETWEEN 3 AND 16777216),
+  PRIMARY KEY(note_id, ink_timestamp, ink_site_id),
+  FOREIGN KEY(note_id, ink_timestamp, ink_site_id)
+    REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
+)`;
+
 export const DDL_ORIGINAL_INK_STATE: string = `
 CREATE TABLE IF NOT EXISTS original_ink_state (
   note_id TEXT NOT NULL,
   ink_timestamp INTEGER NOT NULL CHECK (ink_timestamp BETWEEN 0 AND 4294967295),
   ink_site_id INTEGER NOT NULL CHECK (ink_site_id BETWEEN 0 AND 65535),
   base_center_path BLOB NOT NULL CHECK (length(base_center_path) BETWEEN 3 AND 16777216),
+  center_path_winner_timestamp INTEGER NOT NULL
+    CHECK (center_path_winner_timestamp BETWEEN 0 AND 4294967295),
+  center_path_winner_site_id INTEGER NOT NULL
+    CHECK (center_path_winner_site_id BETWEEN 0 AND 65535),
   PRIMARY KEY(note_id, ink_timestamp, ink_site_id),
   FOREIGN KEY(note_id, ink_timestamp, ink_site_id)
     REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
@@ -1006,10 +1021,18 @@ export const MIGRATIONS: Record<number, string[]> = {
         length(z_index), z_index, element_timestamp, element_site_id)`,
   ],
   27: [
-    DDL_ORIGINAL_INK_STATE,
+    DDL_ORIGINAL_INK_STATE_V27,
     DDL_ORIGINAL_INK_PATH_APPEND,
     `CREATE INDEX IF NOT EXISTS idx_original_ink_append_target
       ON original_ink_path_append(note_id, ink_timestamp, ink_site_id,
         append_timestamp, append_site_id)`,
+  ],
+  28: [
+    `ALTER TABLE original_ink_state ADD COLUMN center_path_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (center_path_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN center_path_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (center_path_winner_site_id BETWEEN 0 AND 65535)`,
+    `UPDATE original_ink_state SET center_path_winner_timestamp = ink_timestamp,
+      center_path_winner_site_id = ink_site_id`,
   ],
 };

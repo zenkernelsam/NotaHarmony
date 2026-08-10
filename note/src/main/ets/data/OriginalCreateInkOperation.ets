@@ -168,6 +168,8 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       'ink_timestamp': operation.timestamp,
       'ink_site_id': operation.siteId,
       'base_center_path': payload.centerPathBytes as Uint8Array,
+      'center_path_winner_timestamp': operation.timestamp,
+      'center_path_winner_site_id': operation.siteId,
     });
     existingRows.push({
       elementId: stroke.id, kind: PageElementKind.STROKE,
