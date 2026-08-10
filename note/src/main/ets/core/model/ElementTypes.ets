@@ -61,6 +61,8 @@ export interface TextBlockElement extends NoteElementBase {
   contentTopInset: number;
   fontSize: number;
   fontColor: number;
+  // Missing on legacy Harmony snapshots; the original Block default is unlocked.
+  positionLocked?: boolean;
 }
 
 // 图片元素（预留，Phase 3 补全）

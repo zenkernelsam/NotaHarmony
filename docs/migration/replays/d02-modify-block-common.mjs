@@ -9,6 +9,12 @@ const schema = fs.readFileSync(new URL(
   'note/src/main/ets/data/DatabaseHelper.ets', rootPath), 'utf8');
 const dispatcher = fs.readFileSync(new URL(
   'note/src/main/ets/data/OriginalPageOperationApplier.ets', rootPath), 'utf8');
+const geometry = fs.readFileSync(new URL(
+  'note/src/main/ets/core/model/TextBlockGeometry.ets', rootPath), 'utf8');
+const selection = fs.readFileSync(new URL(
+  'note/src/main/ets/rendering/SelectionTool.ets', rootPath), 'utf8');
+const packageSpec = fs.readFileSync(new URL(
+  'note/src/main/ets/data/NotePackageSpec.ets', rootPath), 'utf8');
 
 class Builder {
   constructor() { this.bytes = new Uint8Array(768); this.cursor = 4; }
@@ -208,6 +214,15 @@ function apply(db, operation, inject = false) {
       db.prepare(`DELETE FROM page_element_snapshot WHERE note_id='n' AND page_id=? AND element_id='op:14:2'`).run(oldPageId);
       db.prepare(`INSERT INTO page_element_snapshot VALUES('n',?,'op:14:2',2,?,1,0)`).run(pageId, row.payload);
     }
+    if (winning.includes('position_locked')) {
+      const row = db.prepare(`SELECT payload FROM page_element_snapshot
+        WHERE note_id='n' AND page_id=? AND element_id='op:14:2'`).get(pageId);
+      const payload = JSON.parse(Buffer.from(row.payload).toString());
+      payload.data.positionLocked = fields.position_locked;
+      db.prepare(`UPDATE page_element_snapshot SET payload=?
+        WHERE note_id='n' AND page_id=? AND element_id='op:14:2'`)
+        .run(Buffer.from(JSON.stringify(payload)), pageId);
+    }
     db.prepare(`UPDATE original_element_z_index SET page_timestamp=?,page_site_id=2,page_index=1,z_index=?
       WHERE note_id='n' AND element_timestamp=20 AND element_site_id=2`).run(destination, z);
     for (const currentPage of new Set([oldPageId, pageId])) {
@@ -252,6 +267,13 @@ const sizeWinner = db.prepare(`SELECT size_width_value,size_height_value,size_wi
 assert.equal(sizeWinner.size_width_value, 300);
 assert.equal(sizeWinner.size_height_value, 60);
 assert.equal(sizeWinner.size_winner_timestamp, 90);
+assert.equal(apply(db, { timestamp: 70, site: 1, fields: { position_locked: true } }), true);
+assert.equal(db.prepare(`SELECT position_locked_value FROM original_block_state`).get()
+  .position_locked_value, 1);
+const lockedPayload = JSON.parse(Buffer.from(db.prepare(`SELECT payload FROM page_element_snapshot
+  WHERE element_id='op:14:2'`).get().payload).toString());
+assert.equal(lockedPayload.data.positionLocked, true);
+assert.equal(apply(db, { timestamp: 60, site: 1, fields: { position_locked: false } }), false);
 assert.equal(apply(db, { timestamp: 80, site: 1, fields: { rotation: null } }), false);
 const before = JSON.stringify(db.prepare(`SELECT * FROM original_block_state`).get());
 assert.throws(() => apply(db, { timestamp: 110, site: 1, fields: { rotation: null } }, true), /injected apply/);
@@ -274,16 +296,21 @@ assert.match(source, /ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE: number = 23/);
 assert.match(source, /must pair page and origin/);
 assert.match(source, /MODIFY_BLOCK_TYPE_SPECIFIC_FIELDS_UNSUPPORTED/);
 assert.match(source, /MODIFY_BLOCK_COMMON_BEHAVIOR_UNSUPPORTED/);
+assert.match(source, /updatedText\.positionLocked/);
 assert.match(source, /registerAccepts/);
 assert.match(source, /readOptionalWinner/);
 assert.match(source, /isFiniteNullableScale/);
 assert.match(source, /advanceRevisionAndInvalidateSearch/);
 assert.match(schema, /DB_VERSION: number = 36/);
 assert.match(dispatcher, /ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE/);
+assert.match(geometry, /isTextBlockPositionLocked/);
+assert.match(geometry, /eraserPath\.length === 0 \|\| isTextBlockPositionLocked/);
+assert.match(selection, /!isTextBlockPositionLocked\(textBlock\)/);
+assert.match(packageSpec, /text\.positionLocked === undefined/);
 
-console.log('success|flatbuffer-td8=1|materialized-registers=5|reserved-registers=4|nullable-clear=1|state-finite=1|v34-v36=1|' +
+console.log('success|flatbuffer-td8=1|materialized-registers=6|reserved-registers=3|nullable-clear=1|state-finite=1|v34-v36=1|' +
   'lower-first-wins=1|stale-noop=1|cross-page=1|z-order=1|search-invalidated=2|' +
-  'rollback=2|behavioral-deferred=4|type-specific-deferred=1');
+  'position-lock=1|rollback=2|behavioral-deferred=3|type-specific-deferred=1');
 
 function w16(bytes, offset, value) { new DataView(bytes.buffer).setUint16(offset, value, true); }
 function w32(bytes, offset, value) { new DataView(bytes.buffer).setUint32(offset, value, true); }

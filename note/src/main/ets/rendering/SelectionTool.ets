@@ -3,6 +3,7 @@
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import { ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { isTextBlockPositionLocked } from '../core/model/TextBlockGeometry';
 
 export enum SelectionMode {
   RECTANGLE = 0,
@@ -96,7 +97,7 @@ export class SelectionTool {
     this.state.selectedShapeIds = shapeIds;
     const textIds: string[] = [];
     for (const textBlock of textBlocks) {
-      if (this.elementBoundsSelected(textBlock.bounds)) {
+      if (!isTextBlockPositionLocked(textBlock) && this.elementBoundsSelected(textBlock.bounds)) {
         textIds.push(textBlock.id);
       }
     }

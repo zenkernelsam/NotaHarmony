@@ -16,7 +16,12 @@ export function cloneTextBlockElement(element: TextBlockElement): TextBlockEleme
     blockHeight: element.blockHeight, rotationRadians: element.rotationRadians,
     contentLeftInset: element.contentLeftInset, contentTopInset: element.contentTopInset,
     fontSize: element.fontSize, fontColor: element.fontColor,
+    positionLocked: isTextBlockPositionLocked(element),
   };
+}
+
+export function isTextBlockPositionLocked(element: TextBlockElement): boolean {
+  return element.positionLocked === true;
 }
 
 export function textBlockLocalBounds(element: TextBlockElement): Rect2D {
@@ -65,6 +70,10 @@ export function transformTextBlockElements(elements: TextBlockElement[], selecte
       result.push(element);
       continue;
     }
+    if (isTextBlockPositionLocked(element)) {
+      result.push(element);
+      continue;
+    }
     const updated: TextBlockElement = cloneTextBlockElement(element);
     updated.transform = multiplyTransform(transform, element.transform);
     updated.rotationRadians = Math.atan2(updated.transform[3], updated.transform[0]);
@@ -75,12 +84,12 @@ export function transformTextBlockElements(elements: TextBlockElement[], selecte
 }
 
 export function pointHitsTextBlock(point: Point2D, element: TextBlockElement): boolean {
-  return pointInPolygon(point, textBlockWorldCorners(element));
+  return !isTextBlockPositionLocked(element) && pointInPolygon(point, textBlockWorldCorners(element));
 }
 
 export function eraserPathHitsTextBlock(eraserPath: Point2D[], element: TextBlockElement,
   eraserWidth: number): boolean {
-  if (eraserPath.length === 0) {
+  if (eraserPath.length === 0 || isTextBlockPositionLocked(element)) {
     return false;
   }
   const corners: Point2D[] = textBlockWorldCorners(element);

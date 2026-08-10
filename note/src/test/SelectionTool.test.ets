@@ -83,5 +83,16 @@ export default function selectionToolTest() {
       tool.deselect();
       expect(tool.getState().selectedTextBlockIds.length).assertEqual(0);
     });
+
+    it('excludes original position-locked text blocks from editing selections', 0, () => {
+      const tool: SelectionTool = new SelectionTool();
+      const locked: TextBlockElement = textBlock('locked');
+      locked.positionLocked = true;
+      tool.beginSelection(SelectionMode.RECTANGLE, { x: 45, y: 45 });
+      tool.updateSelection({ x: 95, y: 85 });
+      const ids: string[] = tool.finalizeSelection([], [], [locked]);
+      expect(ids.length).assertEqual(0);
+      expect(tool.getState().selectedTextBlockIds.length).assertEqual(0);
+    });
   });
 }

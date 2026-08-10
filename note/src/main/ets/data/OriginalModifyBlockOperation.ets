@@ -227,8 +227,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     if (payload.hasTypeSpecificFields) {
       return { deferredReason: 'MODIFY_BLOCK_TYPE_SPECIFIC_FIELDS_UNSUPPORTED' };
     }
-    if (payload.corner !== null || payload.textWrap !== null || payload.enableCaption !== null ||
-      payload.positionLocked !== null) {
+    if (payload.corner !== null || payload.textWrap !== null || payload.enableCaption !== null) {
       return { deferredReason: 'MODIFY_BLOCK_COMMON_BEHAVIOR_UNSUPPORTED' };
     }
     if ((payload.pageOrigin !== null && (!Number.isFinite(payload.pageOrigin.originX) ||
@@ -304,6 +303,8 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       updatedText.rotationRadians = rotationValue === null ? 0 : rotationValue;
       updatedText.blockWidth = sizeValue.x;
       updatedText.blockHeight = sizeValue.y;
+      updatedText.positionLocked = replacePositionLocked ? payload.positionLocked as boolean :
+        effectiveBoolean(state.basePositionLocked, state.positionLocked);
       updatedText.bounds = textBlockWorldBounds(updatedText);
       planned.push({
         target: target, destination: destination, state: state, text: text, updatedText: updatedText,
@@ -586,6 +587,8 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       text.blockWidth === size.x && text.blockHeight === size.y && text.textOrigin.x === 0 &&
       text.textOrigin.y === 0 && text.rotationRadians === (rotation === null ? 0 : rotation) &&
       text.contentLeftInset === state.baseLeftInset && text.contentTopInset === state.baseTopInset &&
+      (text.positionLocked === true) === effectiveBoolean(
+        state.basePositionLocked, state.positionLocked) &&
       text.id === encodeOperationId(target.block);
   }
 
@@ -1062,6 +1065,7 @@ function cloneText(text: TextBlockElement): TextBlockElement {
     blockWidth: text.blockWidth, blockHeight: text.blockHeight,
     rotationRadians: text.rotationRadians, contentLeftInset: text.contentLeftInset,
     contentTopInset: text.contentTopInset, fontSize: text.fontSize, fontColor: text.fontColor,
+    positionLocked: text.positionLocked === true,
   };
 }
 

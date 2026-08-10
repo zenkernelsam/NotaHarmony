@@ -25,6 +25,7 @@ export class TextBlockTool {
       contentTopInset: 4,
       fontSize: fontSize,
       fontColor: color,
+      positionLocked: false,
     };
   }
 

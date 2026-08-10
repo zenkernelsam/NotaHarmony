@@ -304,7 +304,8 @@ function isValidText(text: TextBlockElement): boolean {
     isNonNegativeFinite(text.blockWidth) && isNonNegativeFinite(text.blockHeight) &&
     isFiniteNumber(text.rotationRadians) && isFiniteNumber(text.contentLeftInset) &&
     isFiniteNumber(text.contentTopInset) && isNonNegativeFinite(text.fontSize) &&
-    isFiniteNumber(text.fontColor);
+    isFiniteNumber(text.fontColor) &&
+    (text.positionLocked === undefined || typeof text.positionLocked === 'boolean');
 }
 
 function isValidShape(shape: ShapeElement): boolean {

@@ -51,6 +51,7 @@ function createBlockFixture(type = 0, includeMargins = true) {
   w64(b.bytes, block + 56, 18446744073709551615n);
   wf32(b.bytes, block + 64, 3); wf32(b.bytes, block + 68, 10);
   wf32(b.bytes, block + 72, 5); wf32(b.bytes, block + 76, 5);
+  b.bytes[block + 80] = 1;
   return b.finish(root);
 }
 
@@ -66,7 +67,7 @@ function decodeFixture(raw) {
     origin: [f32(origin, 0), f32(origin, 4)], rotation: f32(block.inline(4, 4), 0),
     scale: [f32(scale, 0), f32(scale, 4)], size: [f32(size, 0), f32(size, 4)],
     textWrap: block.inline(7, 1)[0], zIndex: u64(block.inline(9, 8), 0).toString(),
-    margins,
+    margins, positionLocked: block.inline(20, 1)[0] !== 0,
   };
 }
 
@@ -76,6 +77,7 @@ assert.deepEqual(decoded.origin, [12, 34]); assert.deepEqual(decoded.scale, [2, 
 assert.deepEqual(decoded.size, [200, 40]); assert.deepEqual(decoded.margins, [3, 10, 5, 5]);
 assert.equal(decoded.type, 0); assert.equal(decoded.corner, 1); assert.equal(decoded.textWrap, 1);
 assert.equal(decoded.zIndex, '18446744073709551615');
+assert.equal(decoded.positionLocked, true);
 assert(Math.abs(decoded.rotation - Math.PI / 2) < 1e-7);
 assert.deepEqual(decodeFixture(createBlockFixture(0, false)).margins, [3, 10, 5, 5]);
 
@@ -131,7 +133,8 @@ function migrate(db, inject = false) {
   } catch (error) { db.exec('ROLLBACK'); throw error; }
 }
 
-function apply(db, { timestamp, site, zIndex, archived = false, fail = false }) {
+function apply(db, { timestamp, site, zIndex, archived = false, fail = false,
+  positionLocked = true }) {
   db.exec('BEGIN IMMEDIATE');
   try {
     const table = archived ? 'original_deleted_page_element' : 'page_element_snapshot';
@@ -148,14 +151,15 @@ function apply(db, { timestamp, site, zIndex, archived = false, fail = false }) 
     db.prepare(`INSERT INTO original_element_z_index VALUES('n',?,?,10,2,3,2,?)`)
       .run(timestamp, site, zIndex);
     db.prepare(`INSERT INTO original_block_state VALUES(
-      'n',?,?,0,10,2,3,12,34,1.5707963267948966,2,3,200,40,1,1,0,0,0,3,10,5,5,?)`)
-      .run(timestamp, site, zIndex);
+      'n',?,?,0,10,2,3,12,34,1.5707963267948966,2,3,200,40,1,1,0,?,0,3,10,5,5,?)`)
+      .run(timestamp, site, positionLocked ? 1 : 0, zIndex);
     tracked.push({ element_timestamp: timestamp, element_site_id: site, kind: 2, z_index: zIndex });
     tracked.sort(compareRows);
     const id = `op:${timestamp.toString(16)}:${site.toString(16)}`;
     const order = tracked.findIndex(row => row.element_timestamp === timestamp && row.element_site_id === site);
     const payload = Buffer.from(JSON.stringify({ kind: 'text', data: { id, richText: '',
-      blockWidth: 200, blockHeight: 40, contentLeftInset: 5, contentTopInset: 3 } }));
+      blockWidth: 200, blockHeight: 40, contentLeftInset: 5, contentTopInset: 3,
+      positionLocked } }));
     if (archived) {
       db.prepare(`INSERT INTO original_deleted_page_element VALUES('n',10,2,3,?,2,?,1,?)`)
         .run(id, payload, order);
@@ -201,6 +205,7 @@ const text = JSON.parse(Buffer.from(db.prepare(
   "SELECT payload FROM page_element_snapshot WHERE element_id='op:14:2'").get().payload).toString());
 assert.equal(text.kind, 'text'); assert.equal(text.data.richText, '');
 assert.equal(text.data.contentLeftInset, 5); assert.equal(text.data.contentTopInset, 3);
+assert.equal(text.data.positionLocked, true);
 
 db.exec(`INSERT INTO original_deleted_page VALUES('n',10,2,3,'p',2,2);
   INSERT INTO original_deleted_page_element SELECT note_id,10,2,3,element_id,kind,payload,revision,
@@ -228,6 +233,8 @@ assert.match(source, /ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE: number = 22/);
 assert.match(source, /marginBytes === null \? \{[\s\S]*top: 3, bottom: 10, left: 5, right: 5/);
 assert.match(source, /CREATE_BLOCK_IMAGE_UNSUPPORTED/);
 assert.match(source, /CREATE_BLOCK_MATH_UNSUPPORTED/);
+assert.doesNotMatch(source, /CREATE_BLOCK_POSITION_LOCK_UNSUPPORTED/);
+assert.match(source, /positionLocked: payload\.positionLocked/);
 assert.match(source, /kind: PageElementKind\.TEXT/);
 assert.match(dispatcher, /OriginalCreateBlockOperationApplier/);
 assert.match(schema, /DB_VERSION: number = 36/);
@@ -235,7 +242,7 @@ assert.match(schema, /DDL_ORIGINAL_BLOCK_STATE/);
 
 console.log('success|flatbuffer-rl2=1|text-create=1|empty-richtext=1|transform=1|' +
   'margins=3,10,5,5|uint64-z=1|v34-v35=1|live-order=1|archive-apply=1|' +
-  'search-invalidated=1|rollback=2|image-math-deferred=1');
+  'search-invalidated=1|position-lock=1|rollback=2|image-math-deferred=1');
 
 function u16(bytes, offset) { return bytes[offset] | bytes[offset + 1] << 8; }
 function u32(bytes, offset) {

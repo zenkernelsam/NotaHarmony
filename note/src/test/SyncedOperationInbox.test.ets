@@ -189,6 +189,7 @@ export default function syncedOperationInboxTest() {
       expect(payload.hasImage).assertFalse();
       expect(payload.hasMathLatex).assertFalse();
       expect(payload.hasPaper).assertFalse();
+      expect(payload.positionLocked).assertTrue();
     });
 
     it('decodes original MODIFY_BLOCK common registers', 0, () => {
@@ -766,7 +767,7 @@ function flatBufferCreateBlock(): Uint8Array {
   builder.uint8(root + 28, 22);
   const block: number = builder.table([
     4, 5, 8, 20, 28, 32, 40, 48, 0, 56,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 80,
   ], 84);
   builder.pointer(root + 32, block);
   builder.uint8(block + 4, 0);
@@ -787,6 +788,7 @@ function flatBufferCreateBlock(): Uint8Array {
   builder.float32(block + 68, 10);
   builder.float32(block + 72, 5);
   builder.float32(block + 76, 5);
+  builder.uint8(block + 80, 1);
   return builder.finish(root);
 }
 

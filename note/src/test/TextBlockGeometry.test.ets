@@ -2,7 +2,8 @@ import { describe, it, expect } from '@ohos/hypium';
 import { ElementType, TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import {
   cloneTextBlockElement, eraserPathHitsTextBlock, pointHitsTextBlock,
-  textBlockTransformComponents, textBlockWorldBounds, transformTextBlockElements,
+  isTextBlockPositionLocked, textBlockTransformComponents, textBlockWorldBounds,
+  transformTextBlockElements,
 } from '../main/ets/core/model/TextBlockGeometry';
 import { TextBlockTool } from '../main/ets/rendering/TextBlockTool';
 
@@ -73,6 +74,19 @@ export default function textBlockGeometryTest() {
         { x: source.bounds.left - 4, y: source.bounds.top },
         { x: source.bounds.right + 4, y: source.bounds.bottom },
       ], source, 8)).assertTrue();
+    });
+
+    it('keeps original position-locked blocks immutable and unhittable', 0, () => {
+      const source: TextBlockElement = textBlock();
+      source.positionLocked = true;
+      const moved: TextBlockElement = transformTextBlockElements(
+        [source], ['text-1'], [1, 0, 50, 0, 1, 60, 0, 0, 1])[0];
+      expect(isTextBlockPositionLocked(moved)).assertTrue();
+      expect(moved.transform[2]).assertEqual(0);
+      expect(moved.transform[5]).assertEqual(0);
+      expect(pointHitsTextBlock({ x: 20, y: 30 }, moved)).assertFalse();
+      expect(eraserPathHitsTextBlock([{ x: 20, y: 30 }], moved, 8)).assertFalse();
+      expect(cloneTextBlockElement(moved).positionLocked).assertTrue();
     });
 
     it('preserves transform while text editing recomputes world bounds', 0, () => {

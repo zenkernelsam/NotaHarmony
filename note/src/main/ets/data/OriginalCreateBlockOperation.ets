@@ -229,9 +229,6 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     if (payload.resizesWidthToFitText) {
       return 'CREATE_BLOCK_RESIZE_TO_FIT_UNSUPPORTED';
     }
-    if (payload.positionLocked) {
-      return 'CREATE_BLOCK_POSITION_LOCK_UNSUPPORTED';
-    }
     if (!Number.isFinite(payload.originX) || !Number.isFinite(payload.originY) ||
       (payload.rotation !== null && !Number.isFinite(payload.rotation)) ||
       (payload.scaleX !== null && !Number.isFinite(payload.scaleX)) ||
@@ -269,6 +266,7 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       contentTopInset: payload.margins.top,
       fontSize: 17,
       fontColor: -16777216,
+      positionLocked: payload.positionLocked,
     };
     text.bounds = textBlockWorldBounds(text);
     return text;
