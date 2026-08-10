@@ -48,6 +48,16 @@ export class TextBlockTool {
     return updated;
   }
 
+  updateWidthToFit(element: TextBlockElement, measuredWidth: number): TextBlockElement {
+    const updated: TextBlockElement = cloneTextBlockElement(element);
+    if (updated.resizesWidthToFitText !== true || !Number.isFinite(measuredWidth)) {
+      return updated;
+    }
+    updated.blockWidth = Math.max(updated.contentLeftInset * 2 + 1, Math.ceil(measuredWidth));
+    updated.bounds = textBlockWorldBounds(updated);
+    return updated;
+  }
+
   private generateId(): string {
     const timePart: string = Date.now().toString(36);
     const randPart: string = Math.random().toString(36).slice(2, 8);

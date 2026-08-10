@@ -9,6 +9,43 @@ import { OriginalPaperFlair, PagePaperBackground } from '../model/NoteTypes';
 const TEXT_PAPER_POINTS_TO_UNITS: number = 96 / 72;
 
 export class Canvas2DTextRenderer {
+  measureNaturalWidth(element: TextBlockElement, context: RenderContext): number {
+    const ctx: Canvas2DDrawingContext = context as Canvas2DDrawingContext;
+    const characters: string[] = [];
+    for (const character of element.richText) {
+      characters.push(character);
+    }
+    const characterStyles: RichTextCharacterStyle[] = this.characterStyles(
+      characters.length, element.characterStyleRuns);
+    const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
+      characters.length, element.paragraphStyleRuns);
+    let maximum: number = Math.max(1, element.contentLeftInset * 2);
+    let lineStart: number = 0;
+    let numberedParagraph: number = 1;
+    ctx.save();
+    try {
+      for (let index: number = 0; index <= characters.length; index++) {
+        if (index < characters.length && characters[index] !== '\n') {
+          continue;
+        }
+        const paragraph: RichTextParagraphStyle = paragraphStyles[Math.min(
+          lineStart, Math.max(0, characters.length - 1))] ?? {};
+        const prefix: string = this.decoratorPrefix(paragraph.decoratorStyle, numberedParagraph);
+        if (paragraph.decoratorStyle === 2) {
+          numberedParagraph++;
+        }
+        const indent: number = Math.max(0, paragraph.indentLevel ?? 0) * element.fontSize * 1.5;
+        const lineWidth: number = this.measureRange(ctx, characters, characterStyles,
+          lineStart, index, element, prefix);
+        maximum = Math.max(maximum, element.contentLeftInset * 2 + indent + lineWidth);
+        lineStart = index + 1;
+      }
+    } finally {
+      ctx.restore();
+    }
+    return Math.ceil(maximum);
+  }
+
   renderText(element: TextBlockElement, context: RenderContext): void {
     const ctx: Canvas2DDrawingContext = context as Canvas2DDrawingContext;
     ctx.save();

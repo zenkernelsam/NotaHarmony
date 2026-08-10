@@ -121,6 +121,24 @@ export default function textBlockGeometryTest() {
       expect(source.characterStyleRuns?.[0].style.bold).assertTrue();
     });
 
+    it('writes measured resize-to-fit width and transformed bounds atomically', 0, () => {
+      const tool: TextBlockTool = new TextBlockTool();
+      const source: TextBlockElement = textBlock();
+      source.resizesWidthToFitText = true;
+      source.transform = [2, 0, 30, 0, 2, 40, 0, 0, 1];
+      source.bounds = textBlockWorldBounds(source);
+      const updated: TextBlockElement = tool.updateWidthToFit(source, 81.2);
+      expect(updated.blockWidth).assertEqual(82);
+      expect(updated.bounds.left).assertEqual(50);
+      expect(updated.bounds.right).assertEqual(214);
+      expect(source.blockWidth).assertEqual(100);
+
+      source.resizesWidthToFitText = false;
+      expect(tool.updateWidthToFit(source, 60).blockWidth).assertEqual(100);
+      source.resizesWidthToFitText = true;
+      expect(tool.updateWidthToFit(source, Number.NaN).blockWidth).assertEqual(100);
+    });
+
     it('decomposes signed scale and rotation for the editing overlay', 0, () => {
       const source: TextBlockElement = textBlock();
       source.transform = [-2, 0, 100, 0, 3, 50, 0, 0, 1];

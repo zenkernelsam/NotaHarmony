@@ -12,6 +12,7 @@ export struct TextBlockOverlay {
   @Prop screenOrigin: Point2D = { x: 0, y: 0 };
   @Prop screenBounds: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @Prop viewportZoom: number = 1;
+  @Prop layoutWidth: number = 0;
   @State draftText: string = '';
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -40,16 +41,23 @@ export struct TextBlockOverlay {
     };
   }
 
+  private editorWidth(): number {
+    if (this.element === null) {
+      return 0;
+    }
+    return this.layoutWidth > 0 ? this.layoutWidth : this.element.blockWidth;
+  }
+
   build() {
     Stack() {
       if (this.editing && this.element !== null) {
         Stack() {
           Stack()
-            .width(this.element.blockWidth * this.viewportZoom)
+            .width(this.editorWidth() * this.viewportZoom)
             .height(this.element.blockHeight * this.viewportZoom)
             .border({ width: 1.5, color: this.resolveTokens().accent, style: BorderStyle.Dashed })
           TextArea({ text: this.draftText, placeholder: $r('app.string.type_here') })
-            .width(this.element.blockWidth * this.viewportZoom)
+            .width(this.editorWidth() * this.viewportZoom)
             .height(this.element.blockHeight * this.viewportZoom)
             .fontSize(this.element.fontSize * this.viewportZoom)
             .lineHeight((this.element.fontSize + 8) * this.viewportZoom)
@@ -66,7 +74,7 @@ export struct TextBlockOverlay {
               this.onDraftChange(value);
             })
         }
-          .width(this.element.blockWidth * this.viewportZoom)
+          .width(this.editorWidth() * this.viewportZoom)
           .height(this.element.blockHeight * this.viewportZoom)
           .position({ x: this.screenOrigin.x, y: this.screenOrigin.y })
           .scale({

@@ -159,5 +159,24 @@ export default function rendererStyleTest() {
       expect(countColor(context, 255, 0, 0) > 0).assertTrue();
       expect(alphaAt(context, 4, 12)).assertEqual(0);
     });
+
+    it('measures resize-to-fit width with the same Canvas font metrics as rendering', 0, () => {
+      const canvas: OffscreenCanvas = new OffscreenCanvas(200, 80);
+      const context: OffscreenCanvasRenderingContext2D =
+        canvas.getContext('2d', new RenderingContextSettings(true));
+      const element: TextBlockElement = {
+        id: 'fit-text', type: ElementType.TEXT, richText: 'WW\nI',
+        textOrigin: { x: 0, y: 0 }, blockWidth: 20, blockHeight: 60,
+        rotationRadians: 0, contentLeftInset: 4, contentTopInset: 4,
+        fontSize: 20, fontColor: 0xFF000000 | 0, resizesWidthToFitText: true,
+        transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: 0, top: 0, right: 20, bottom: 60 },
+      };
+      const renderer: Canvas2DTextRenderer = new Canvas2DTextRenderer();
+      const measured: number = renderer.measureNaturalWidth(element,
+        new Canvas2DOffscreenRenderContext(context));
+      context.font = '20px sans-serif';
+      expect(measured).assertEqual(Math.ceil(context.measureText('WW').width + 8));
+    });
   });
 }

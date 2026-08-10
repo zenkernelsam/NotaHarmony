@@ -192,6 +192,7 @@ export struct NoteCanvasView {
   @State editingTextBlock: TextBlockElement | null = null;
   private editingOriginalTextBlock: TextBlockElement | null = null;
   private editingDraftText: string = '';
+  @State editingTextLayoutWidth: number = 0;
   @State selectionRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @State selectionVisible: boolean = false;
   @State clipboardAvailable: boolean = false;
@@ -2859,6 +2860,7 @@ export struct NoteCanvasView {
     this.editingTextBlock = element;
     this.editingOriginalTextBlock = null;
     this.editingDraftText = '';
+    this.editingTextLayoutWidth = element.blockWidth;
     this.textEditing = true;
     this.renderFrame(true);
   }
@@ -2869,6 +2871,7 @@ export struct NoteCanvasView {
         this.editingTextBlock = this.textBlocks[i];
         this.editingOriginalTextBlock = this.textBlocks[i];
         this.editingDraftText = this.textBlocks[i].richText;
+        this.editingTextLayoutWidth = this.textBlocks[i].blockWidth;
         this.textEditing = true;
         this.renderFrame(true);
         return;
@@ -2886,6 +2889,14 @@ export struct NoteCanvasView {
     return { left: topLeft.x, top: topLeft.y, right: bottomRight.x, bottom: bottomRight.y };
   }
 
+  private fitEditedTextWidth(element: TextBlockElement): TextBlockElement {
+    if (element.resizesWidthToFitText !== true) {
+      return element;
+    }
+    const measuredWidth: number = this.textRenderer.measureNaturalWidth(element, this.renderCtx);
+    return this.textBlockTool.updateWidthToFit(element, measuredWidth);
+  }
+
   onTextCommit(text: string): void {
     if (this.historyBusy) {
       return;
@@ -2897,7 +2908,8 @@ export struct NoteCanvasView {
         return;
       }
       if (this.editingOriginalTextBlock === null) {
-        const updated: TextBlockElement = this.textBlockTool.updateText(this.editingTextBlock, text);
+        let updated: TextBlockElement = this.textBlockTool.updateText(this.editingTextBlock, text);
+        updated = this.fitEditedTextWidth(updated);
         this.replaceTextBlock(updated);
         const elementOrderAfter: PageElementRef[] = clonePageElementOrder(this.elementOrder);
         this.undoRedo.push({
@@ -2911,7 +2923,8 @@ export struct NoteCanvasView {
         });
         changed = true;
       } else if (this.editingOriginalTextBlock.richText !== text) {
-        const updated: TextBlockElement = this.textBlockTool.updateText(this.editingTextBlock, text);
+        let updated: TextBlockElement = this.textBlockTool.updateText(this.editingTextBlock, text);
+        updated = this.fitEditedTextWidth(updated);
         this.replaceTextBlock(updated);
         this.undoRedo.push({
           type: UndoableActionType.REPLACE_ELEMENT,
@@ -2929,6 +2942,7 @@ export struct NoteCanvasView {
     this.editingTextBlock = null;
     this.editingOriginalTextBlock = null;
     this.editingDraftText = '';
+    this.editingTextLayoutWidth = 0;
     this.notifyUndoRedo();
     if (changed) {
       this.persist();
@@ -2957,6 +2971,7 @@ export struct NoteCanvasView {
     this.editingTextBlock = null;
     this.editingOriginalTextBlock = null;
     this.editingDraftText = '';
+    this.editingTextLayoutWidth = 0;
     this.persist();
     this.renderFrame(true);
   }
@@ -3170,8 +3185,16 @@ export struct NoteCanvasView {
           : { x: 0, y: 0 },
         screenBounds: this.textBlockScreenBounds(this.editingTextBlock),
         viewportZoom: this.viewport.zoom,
+        layoutWidth: this.editingTextLayoutWidth,
         onDraftChange: (text: string) => {
           this.editingDraftText = text;
+          if (this.editingTextBlock !== null &&
+            this.editingTextBlock.resizesWidthToFitText === true) {
+            const preview: TextBlockElement = this.textBlockTool.updateText(
+              this.editingTextBlock, text);
+            this.editingTextLayoutWidth = this.textRenderer.measureNaturalWidth(
+              preview, this.renderCtx);
+          }
         },
         onCommit: (text: string) => {
           this.onTextCommit(text);
