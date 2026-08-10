@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v42: preserve original ADD_PATH_ELEMENTS estimated center-path LWW register.
-export const DB_VERSION: number = 42;
+// v43: preserve original IMAGE CREATE_BLOCK metadata for later register materialization.
+export const DB_VERSION: number = 43;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -612,6 +612,19 @@ CREATE TABLE IF NOT EXISTS original_block_state (
   create_position_locked INTEGER NOT NULL CHECK (create_position_locked IN (0, 1)),
   create_resizes_width INTEGER NOT NULL CHECK (create_resizes_width IN (0, 1)),
   create_text_paper TEXT,
+  create_image_hash_bits TEXT,
+  create_image_file_name TEXT,
+  create_image_mime_type TEXT,
+  create_image_file_size INTEGER,
+  create_image_width REAL,
+  create_image_height REAL,
+  create_image_crop_x REAL,
+  create_image_crop_y REAL,
+  create_image_crop_width REAL,
+  create_image_crop_height REAL,
+  create_image_web_url TEXT,
+  create_image_flipped_horizontally INTEGER,
+  create_image_flipped_vertically INTEGER,
   create_margin_top REAL NOT NULL CHECK (create_margin_top >= 0),
   create_margin_bottom REAL NOT NULL CHECK (create_margin_bottom >= 0),
   create_margin_left REAL NOT NULL CHECK (create_margin_left >= 0),
@@ -674,6 +687,32 @@ CREATE TABLE IF NOT EXISTS original_block_state (
   z_index_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (z_index_winner_present IN (0, 1)),
   CHECK ((create_scale_x IS NULL AND create_scale_y IS NULL) OR
     (create_scale_x IS NOT NULL AND create_scale_y IS NOT NULL)),
+  CHECK ((block_type = 1
+      AND create_image_hash_bits IS NOT NULL
+      AND create_image_file_name IS NOT NULL AND length(create_image_file_name) > 0
+      AND create_image_mime_type IS NOT NULL AND length(create_image_mime_type) > 0
+      AND create_image_file_size IS NOT NULL
+      AND create_image_file_size BETWEEN 1 AND 4294967295
+      AND create_image_width IS NOT NULL AND create_image_width >= 0
+      AND create_image_height IS NOT NULL AND create_image_height >= 0
+      AND create_image_flipped_horizontally IS NOT NULL
+      AND create_image_flipped_horizontally IN (0, 1)
+      AND create_image_flipped_vertically IS NOT NULL
+      AND create_image_flipped_vertically IN (0, 1)) OR
+    (block_type <> 1
+      AND create_image_hash_bits IS NULL AND create_image_file_name IS NULL
+      AND create_image_mime_type IS NULL AND create_image_file_size IS NULL
+      AND create_image_width IS NULL AND create_image_height IS NULL
+      AND create_image_crop_x IS NULL AND create_image_crop_y IS NULL
+      AND create_image_crop_width IS NULL AND create_image_crop_height IS NULL
+      AND create_image_web_url IS NULL
+      AND create_image_flipped_horizontally IS NULL
+      AND create_image_flipped_vertically IS NULL)),
+  CHECK ((create_image_crop_x IS NULL AND create_image_crop_y IS NULL
+      AND create_image_crop_width IS NULL AND create_image_crop_height IS NULL) OR
+    (create_image_crop_x IS NOT NULL AND create_image_crop_y IS NOT NULL
+      AND create_image_crop_width IS NOT NULL AND create_image_crop_width >= 0
+      AND create_image_crop_height IS NOT NULL AND create_image_crop_height >= 0)),
   CHECK ((scale_x_value IS NULL AND scale_y_value IS NULL) OR
     (scale_x_value IS NOT NULL AND scale_y_value IS NOT NULL)),
   PRIMARY KEY(note_id, block_timestamp, block_site_id),
@@ -1614,5 +1653,20 @@ export const MIGRATIONS: Record<number, string[]> = {
       DEFAULT 0 CHECK (estimated_path_winner_site_id BETWEEN 0 AND 65535)`,
     `ALTER TABLE original_ink_state ADD COLUMN estimated_path_winner_present INTEGER NOT NULL
       DEFAULT 0 CHECK (estimated_path_winner_present IN (0, 1))`,
+  ],
+  43: [
+    'ALTER TABLE original_block_state ADD COLUMN create_image_hash_bits TEXT',
+    'ALTER TABLE original_block_state ADD COLUMN create_image_file_name TEXT',
+    'ALTER TABLE original_block_state ADD COLUMN create_image_mime_type TEXT',
+    'ALTER TABLE original_block_state ADD COLUMN create_image_file_size INTEGER',
+    'ALTER TABLE original_block_state ADD COLUMN create_image_width REAL',
+    'ALTER TABLE original_block_state ADD COLUMN create_image_height REAL',
+    'ALTER TABLE original_block_state ADD COLUMN create_image_crop_x REAL',
+    'ALTER TABLE original_block_state ADD COLUMN create_image_crop_y REAL',
+    'ALTER TABLE original_block_state ADD COLUMN create_image_crop_width REAL',
+    'ALTER TABLE original_block_state ADD COLUMN create_image_crop_height REAL',
+    'ALTER TABLE original_block_state ADD COLUMN create_image_web_url TEXT',
+    'ALTER TABLE original_block_state ADD COLUMN create_image_flipped_horizontally INTEGER',
+    'ALTER TABLE original_block_state ADD COLUMN create_image_flipped_vertically INTEGER',
   ],
 };

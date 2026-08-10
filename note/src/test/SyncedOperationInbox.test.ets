@@ -288,15 +288,16 @@ export default function syncedOperationInboxTest() {
       expect(payload.imageFlippedVertically).assertTrue();
     });
 
-    it('defers a decoded IMAGE block before touching page storage', 0, async () => {
+    it('defers invalid cross-type IMAGE fields before touching page storage', 0, async () => {
       const operation: StoredSyncedOperation = {
         noteId: 'note', timestamp: 90, siteId: 7, clientTime: '123', serverTime: '124',
-        schemaVersion: 1, payloadType: 22, rawOperation: flatBufferCreateImageBlock(),
+        schemaVersion: 1, payloadType: 22,
+        rawOperation: flatBufferCreateImageBlock(OriginalBlockType.MATH),
         state: SyncedOperationInboxState.RECEIVED, deferredReason: null, receivedAt: 1,
       };
       const result = await new OriginalCreateBlockOperationApplier().apply(
         {} as relationalStore.RdbStore, operation);
-      expect(result.deferredReason).assertEqual('CREATE_BLOCK_IMAGE_UNSUPPORTED');
+      expect(result.deferredReason).assertEqual('CREATE_BLOCK_IMAGE_FIELDS_ON_MATH');
     });
 
     it('decodes original MODIFY_BLOCK common registers', 0, () => {
@@ -1028,7 +1029,7 @@ function flatBufferCreateBlock(): Uint8Array {
   return builder.finish(root);
 }
 
-function flatBufferCreateImageBlock(): Uint8Array {
+function flatBufferCreateImageBlock(blockType: OriginalBlockType = OriginalBlockType.IMAGE): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
   builder.uint16(root + 4, 7);
@@ -1041,7 +1042,7 @@ function flatBufferCreateImageBlock(): Uint8Array {
     44, 48, 64, 0, 0, 0, 68, 69, 0, 0, 0,
   ], 72);
   builder.pointer(root + 32, block);
-  builder.uint8(block + 4, 1);
+  builder.uint8(block + 4, blockType);
   builder.uint16(block + 8, 2);
   builder.uint32(block + 12, 10);
   builder.uint32(block + 16, 3);

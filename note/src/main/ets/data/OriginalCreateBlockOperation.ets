@@ -1,6 +1,9 @@
 import { relationalStore } from '@kit.ArkData';
-import { ElementType, TextBlockElement } from '../core/model/ElementTypes';
+import { ElementType, ImageElement, TextBlockElement } from '../core/model/ElementTypes';
 import { TransformMatrix } from '../core/model/GeometryTypes';
+import { AssetStatus } from '../core/model/AssetTypes';
+import { imageBlockWorldBounds, originalAssetHashKey,
+  originalAssetStorageHash } from '../core/model/ImageBlockGeometry';
 import { PagePaperBackground } from '../core/model/NoteTypes';
 import { cloneOriginalPaper } from '../core/model/PageBackgroundModel';
 import { PageElementKind } from '../core/model/PageElementOrder';
@@ -16,6 +19,7 @@ import { decodeOriginalPaper } from './OriginalPageBackgroundOperation';
 import { StoredSyncedOperation, SyncedOperationApplier,
   SyncedOperationApplyResult } from './SyncedOperationInbox';
 import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './UnsignedDecimal';
+import { mergeNoteIds, parseAssetNoteIds } from './AssetRepositoryImpl';
 
 export const ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE: number = 22;
 
@@ -99,6 +103,15 @@ interface StoredZIndexRow {
   timestamp: number;
   siteId: number;
   zIndex: string;
+}
+
+interface StoredAssetRow {
+  assetHash: string;
+  status: number;
+  noteIds: string[];
+  fileSize: number;
+  mimeType: string;
+  localPath: string | null;
 }
 
 export function decodeOriginalCreateBlock(bytes: Uint8Array,
@@ -214,7 +227,17 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       return { deferredReason: 'CREATE_BLOCK_PAGE_REVISION_EXHAUSTED' };
     }
 
-    const text: TextBlockElement = this.buildTextBlock(operation, payload);
+    const kind: PageElementKind = payload.blockType === OriginalBlockType.IMAGE ?
+      PageElementKind.IMAGE : PageElementKind.TEXT;
+    const element: TextBlockElement | ImageElement = payload.blockType === OriginalBlockType.IMAGE ?
+      this.buildImageBlock(operation, payload) : this.buildTextBlock(operation, payload);
+    if (payload.blockType === OriginalBlockType.IMAGE) {
+      const assetReason: string | null = await this.mergeImageAssetReference(
+        store, operation.noteId, payload.image as OriginalImageAsset);
+      if (assetReason !== null) {
+        return { deferredReason: assetReason };
+      }
+    }
     await store.insert('original_element_z_index', {
       'note_id': operation.noteId,
       'element_timestamp': operation.timestamp,
@@ -222,7 +245,7 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       'page_timestamp': payload.page.timestamp,
       'page_site_id': payload.page.siteId,
       'page_index': payload.page.index,
-      'kind': PageElementKind.TEXT,
+      'kind': kind,
       'z_index': payload.zIndex,
     });
     await store.insert('original_block_state', {
@@ -246,6 +269,22 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       'create_position_locked': payload.positionLocked ? 1 : 0,
       'create_resizes_width': payload.resizesWidthToFitText ? 1 : 0,
       'create_text_paper': payload.paper === null ? null : JSON.stringify(payload.paper),
+      'create_image_hash_bits': payload.image === null ? null :
+        JSON.stringify(payload.image.assetHash.bits),
+      'create_image_file_name': payload.image === null ? null : payload.image.fileName,
+      'create_image_mime_type': payload.image === null ? null : payload.image.mimeType,
+      'create_image_file_size': payload.image === null ? null : payload.image.fileSize,
+      'create_image_width': payload.image === null ? null : payload.image.width,
+      'create_image_height': payload.image === null ? null : payload.image.height,
+      'create_image_crop_x': payload.cropRect === null ? null : payload.cropRect.x,
+      'create_image_crop_y': payload.cropRect === null ? null : payload.cropRect.y,
+      'create_image_crop_width': payload.cropRect === null ? null : payload.cropRect.width,
+      'create_image_crop_height': payload.cropRect === null ? null : payload.cropRect.height,
+      'create_image_web_url': payload.webUrl,
+      'create_image_flipped_horizontally': payload.image === null ? null :
+        (payload.imageFlippedHorizontally ? 1 : 0),
+      'create_image_flipped_vertically': payload.image === null ? null :
+        (payload.imageFlippedVertically ? 1 : 0),
       'create_margin_top': payload.margins.top,
       'create_margin_bottom': payload.margins.bottom,
       'create_margin_left': payload.margins.left,
@@ -253,12 +292,12 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       'create_z_index': payload.zIndex,
     });
     existingRows.push({
-      elementId: text.id, kind: PageElementKind.TEXT,
+      elementId: element.id, kind: kind,
       timestamp: operation.timestamp, siteId: operation.siteId, zIndex: payload.zIndex,
     });
     existingRows.sort(compareStoredZIndexRows);
     await this.materializeOrder(store, operation.noteId, payload.page, target,
-      existingRows, text, target.revision + 1);
+      existingRows, element, kind, target.revision + 1);
     return { deferredReason: null };
   }
 
@@ -286,7 +325,6 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       if (payload.image === null) {
         return 'CREATE_BLOCK_IMAGE_MISSING_ASSET';
       }
-      return 'CREATE_BLOCK_IMAGE_UNSUPPORTED';
     }
     if (payload.blockType === OriginalBlockType.MATH) {
       return 'CREATE_BLOCK_MATH_UNSUPPORTED';
@@ -344,6 +382,140 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     };
     text.bounds = textBlockWorldBounds(text);
     return text;
+  }
+
+  private buildImageBlock(operation: StoredSyncedOperation,
+    payload: OriginalCreateBlockPayload): ImageElement {
+    const asset: OriginalImageAsset = payload.image as OriginalImageAsset;
+    const rotation: number = payload.rotation === null ? 0 : payload.rotation;
+    const scaleX: number = payload.scaleX === null ? 1 : payload.scaleX;
+    const scaleY: number = payload.scaleY === null ? 1 : payload.scaleY;
+    const image: ImageElement = {
+      id: encodeOperationId(operation),
+      type: ElementType.IMAGE,
+      transform: blockTransform(payload.originX, payload.originY, rotation, scaleX, scaleY),
+      bounds: { left: 0, top: 0, right: 0, bottom: 0 },
+      assetHash: originalAssetHashKey(asset.assetHash.bits),
+      assetHashBits: asset.assetHash.bits.slice(),
+      fileName: asset.fileName,
+      mimeType: asset.mimeType,
+      fileSize: asset.fileSize,
+      intrinsicWidth: asset.width,
+      intrinsicHeight: asset.height,
+      cropRect: payload.cropRect === null ? null : {
+        left: payload.cropRect.x,
+        top: payload.cropRect.y,
+        right: payload.cropRect.x + payload.cropRect.width,
+        bottom: payload.cropRect.y + payload.cropRect.height,
+      },
+      blockWidth: payload.width,
+      blockHeight: payload.height,
+      rotationRadians: rotation,
+      corner: payload.corner,
+      textWrap: payload.textWrap,
+      enableCaption: payload.enableCaption,
+      webUrl: payload.webUrl,
+      imageFlippedHorizontally: payload.imageFlippedHorizontally,
+      imageFlippedVertically: payload.imageFlippedVertically,
+      positionLocked: payload.positionLocked,
+    };
+    image.bounds = imageBlockWorldBounds(image);
+    return image;
+  }
+
+  private async mergeImageAssetReference(store: relationalStore.RdbStore, noteId: string,
+    asset: OriginalImageAsset): Promise<string | null> {
+    const storageHash: string = originalAssetStorageHash(asset.assetHash.bits);
+    const legacyHash: string = originalAssetHashKey(asset.assetHash.bits);
+    const rows: StoredAssetRow[] = await this.readAssetRows(store, storageHash, legacyHash);
+    for (const row of rows) {
+      if (row.fileSize !== asset.fileSize ||
+        row.mimeType.toLowerCase() !== asset.mimeType.toLowerCase()) {
+        return 'CREATE_BLOCK_IMAGE_ASSET_METADATA_CONFLICT';
+      }
+    }
+    if (rows.length === 0) {
+      await store.insert('note_asset', {
+        'asset_hash': storageHash,
+        'status': AssetStatus.PENDING,
+        'note_ids': JSON.stringify([noteId]),
+        'file_size': asset.fileSize,
+        'mime_type': asset.mimeType,
+        'local_path': null,
+      });
+      return null;
+    }
+    if (rows.length === 1) {
+      const row: StoredAssetRow = rows[0];
+      const predicates = new relationalStore.RdbPredicates('note_asset');
+      predicates.equalTo('asset_hash', row.assetHash);
+      const updated: number = await store.update({
+        'note_ids': JSON.stringify(mergeNoteIds(row.noteIds, [noteId])),
+      }, predicates);
+      if (updated !== 1) {
+        throw new Error('original image asset reference changed concurrently');
+      }
+      return null;
+    }
+    const canonical: StoredAssetRow = rows.find(
+      (row: StoredAssetRow): boolean => row.assetHash === storageHash) as StoredAssetRow;
+    const legacy: StoredAssetRow = rows.find(
+      (row: StoredAssetRow): boolean => row.assetHash === legacyHash) as StoredAssetRow;
+    if (canonical.localPath !== null && legacy.localPath !== null &&
+      canonical.localPath !== legacy.localPath) {
+      return 'CREATE_BLOCK_IMAGE_ASSET_PATH_CONFLICT';
+    }
+    const preferred: StoredAssetRow = preferredAssetRow(canonical, legacy);
+    const mergedIds: string[] = mergeNoteIds(
+      mergeNoteIds(canonical.noteIds, legacy.noteIds), [noteId]);
+    const predicates = new relationalStore.RdbPredicates('note_asset');
+    predicates.equalTo('asset_hash', storageHash);
+    const updated: number = await store.update({
+      'status': preferred.status,
+      'note_ids': JSON.stringify(mergedIds),
+      'file_size': canonical.fileSize,
+      'mime_type': canonical.mimeType,
+      'local_path': preferred.localPath,
+    }, predicates);
+    if (updated !== 1) {
+      throw new Error('original canonical image asset changed concurrently');
+    }
+    const legacyPredicates = new relationalStore.RdbPredicates('note_asset');
+    legacyPredicates.equalTo('asset_hash', legacyHash);
+    if (await store.delete(legacyPredicates) !== 1) {
+      throw new Error('original legacy image asset changed concurrently');
+    }
+    return null;
+  }
+
+  private async readAssetRows(store: relationalStore.RdbStore,
+    storageHash: string, legacyHash: string): Promise<StoredAssetRow[]> {
+    const rows = storageHash === legacyHash ? await store.querySql(
+      `SELECT asset_hash, status, note_ids, file_size, mime_type, local_path
+       FROM note_asset WHERE asset_hash = ?`, [storageHash]) : await store.querySql(
+      `SELECT asset_hash, status, note_ids, file_size, mime_type, local_path
+       FROM note_asset WHERE asset_hash = ? OR asset_hash = ?`, [storageHash, legacyHash]);
+    const result: StoredAssetRow[] = [];
+    try {
+      while (rows.goToNextRow()) {
+        const localPathColumn: number = rows.getColumnIndex('local_path');
+        const status: number = rows.getLong(rows.getColumnIndex('status'));
+        if (status < AssetStatus.PENDING || status > AssetStatus.FAILED) {
+          throw new Error('original image asset has an invalid status');
+        }
+        result.push({
+          assetHash: rows.getString(rows.getColumnIndex('asset_hash')),
+          status: status,
+          noteIds: parseAssetNoteIds(rows.getString(rows.getColumnIndex('note_ids'))),
+          fileSize: rows.getLong(rows.getColumnIndex('file_size')),
+          mimeType: rows.getString(rows.getColumnIndex('mime_type')),
+          localPath: rows.isColumnNull(localPathColumn) ? null : rows.getString(localPathColumn),
+        });
+      }
+      return result;
+    } finally {
+      rows.close();
+    }
   }
 
   private async readTargetPage(store: relationalStore.RdbStore,
@@ -442,13 +614,16 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
 
   private async materializeOrder(store: relationalStore.RdbStore, noteId: string,
     page: OriginalSequenceIdentity, target: StoredTargetPage, rows: StoredZIndexRow[],
-    text: TextBlockElement, revision: number): Promise<void> {
+    element: TextBlockElement | ImageElement, kind: PageElementKind,
+    revision: number): Promise<void> {
     for (let index: number = 0; index < rows.length; index++) {
       const row: StoredZIndexRow = rows[index];
-      if (row.elementId === text.id && row.kind === PageElementKind.TEXT) {
-        const persisted: PersistedElement = { kind: 'text', data: text };
+      if (row.elementId === element.id && row.kind === kind) {
+        const persisted: PersistedElement = {
+          kind: kind === PageElementKind.IMAGE ? 'image' : 'text', data: element,
+        };
         const values: relationalStore.ValuesBucket = {
-          'note_id': noteId, 'element_id': text.id, 'kind': PageElementKind.TEXT,
+          'note_id': noteId, 'element_id': element.id, 'kind': kind,
           'payload': encodePersistedElement(persisted), 'revision': revision,
           'element_order': index,
         };
@@ -490,10 +665,12 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       if (updated !== 1) {
         throw new Error('original archived page revision changed concurrently');
       }
-      await store.executeSql(
-        `DELETE FROM original_deleted_page_search WHERE note_id = ? AND page_timestamp = ?
-         AND page_site_id = ? AND page_index = ? AND type = ?`,
-        [noteId, page.timestamp, page.siteId, page.index, SearchItemType.TEXT_BLOCK]);
+      if (kind === PageElementKind.TEXT) {
+        await store.executeSql(
+          `DELETE FROM original_deleted_page_search WHERE note_id = ? AND page_timestamp = ?
+           AND page_site_id = ? AND page_index = ? AND type = ?`,
+          [noteId, page.timestamp, page.siteId, page.index, SearchItemType.TEXT_BLOCK]);
+      }
     } else {
       const predicates = new relationalStore.RdbPredicates('page_info');
       predicates.equalTo('note_id', noteId);
@@ -505,11 +682,27 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       }
       await store.executeSql('DELETE FROM search_page_state WHERE note_id = ? AND page_id = ?',
         [noteId, target.pageId]);
-      await store.executeSql(
-        'DELETE FROM search_item WHERE note_id = ? AND page_id = ? AND type = ?',
-        [noteId, target.pageId, SearchItemType.TEXT_BLOCK]);
+      if (kind === PageElementKind.TEXT) {
+        await store.executeSql(
+          'DELETE FROM search_item WHERE note_id = ? AND page_id = ? AND type = ?',
+          [noteId, target.pageId, SearchItemType.TEXT_BLOCK]);
+      }
     }
   }
+}
+
+function preferredAssetRow(canonical: StoredAssetRow, legacy: StoredAssetRow): StoredAssetRow {
+  if (canonical.localPath !== null) {
+    return canonical;
+  }
+  if (legacy.localPath !== null) {
+    return legacy;
+  }
+  const canonicalUnavailable: boolean = canonical.status === AssetStatus.PENDING ||
+    canonical.status === AssetStatus.FAILED;
+  const legacyAvailable: boolean = legacy.status !== AssetStatus.PENDING &&
+    legacy.status !== AssetStatus.FAILED;
+  return canonicalUnavailable && legacyAvailable ? legacy : canonical;
 }
 
 function decodeOriginalImageAsset(table: OriginalFlatBufferTableReader): OriginalImageAsset {

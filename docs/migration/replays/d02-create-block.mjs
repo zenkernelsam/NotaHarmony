@@ -251,7 +251,7 @@ const schema = fs.readFileSync(new URL(
   '../../../note/src/main/ets/data/DatabaseHelper.ets', import.meta.url), 'utf8');
 assert.match(source, /ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE: number = 22/);
 assert.match(source, /marginBytes === null \? \{[\s\S]*top: 3, bottom: 10, left: 5, right: 5/);
-assert.match(source, /CREATE_BLOCK_IMAGE_UNSUPPORTED/);
+assert.doesNotMatch(source, /CREATE_BLOCK_IMAGE_UNSUPPORTED/);
 assert.match(source, /CREATE_BLOCK_MATH_UNSUPPORTED/);
 assert.doesNotMatch(source, /CREATE_BLOCK_POSITION_LOCK_UNSUPPORTED/);
 assert.match(source, /positionLocked: payload\.positionLocked/);
@@ -259,16 +259,16 @@ assert.match(source, /paper: cloneOriginalPaper\(payload\.paper\)/);
 assert.match(source, /resizesWidthToFitText: payload\.resizesWidthToFitText/);
 assert.doesNotMatch(source, /CREATE_BLOCK_TEXT_PAPER_UNSUPPORTED/);
 assert.doesNotMatch(source, /CREATE_BLOCK_RESIZE_TO_FIT_UNSUPPORTED/);
-assert.match(source, /kind: PageElementKind\.TEXT/);
+assert.match(source, /PageElementKind\.IMAGE[\s\S]*PageElementKind\.TEXT/);
 assert.match(dispatcher, /OriginalCreateBlockOperationApplier/);
-assert.match(schema, /DB_VERSION: number = 42/);
+assert.match(schema, /DB_VERSION: number = 43/);
 assert.match(schema, /DDL_ORIGINAL_BLOCK_STATE/);
 assert.match(schema, /40: \['ALTER TABLE original_block_state ADD COLUMN create_text_paper TEXT'\]/);
 
 console.log('success|flatbuffer-rl2=1|text-create=1|empty-richtext=1|transform=1|' +
   'margins=3,10,5,5|uint64-z=1|v34-v35=1|live-order=1|archive-apply=1|' +
   'search-invalidated=1|position-lock=1|text-paper=1|resize-to-fit=1|v39-v40=1|' +
-  'rollback=2|image-math-deferred=1');
+  'rollback=2|image-create-dispatched=1|math-deferred=1');
 
 function u16(bytes, offset) { return bytes[offset] | bytes[offset + 1] << 8; }
 function u32(bytes, offset) {

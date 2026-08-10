@@ -236,7 +236,9 @@ assert.match(source, /CREATE_BLOCK_IMAGE_FIELDS_ON_TEXT/);
 assert.match(source, /CREATE_BLOCK_IMAGE_FIELDS_ON_MATH/);
 assert.match(source, /CREATE_BLOCK_MATH_FIELDS_ON_IMAGE/);
 assert.match(source, /CREATE_BLOCK_TEXT_PAPER_ON_IMAGE/);
-assert.match(source, /CREATE_BLOCK_IMAGE_UNSUPPORTED/);
+assert.doesNotMatch(source, /CREATE_BLOCK_IMAGE_UNSUPPORTED/);
+assert.match(source, /buildImageBlock/);
+assert.match(source, /mergeImageAssetReference/);
 assert.match(source, /const unsupported:[\s\S]*if \(unsupported !== null\)[\s\S]*readTargetPage/);
 assert.match(reader, /readUtf8String\(field: number, required: boolean, maximumBytes: number\)/);
 assert.match(reader, /encodeInto\(value\)/);
@@ -244,7 +246,7 @@ assert.match(reader, /readOriginalInlineUint64Decimal/);
 
 console.log('success|image-asset=1|hash-u64x8=1|utf8=1|file-size-u32=1|' +
   'intrinsic-size=1|crop=1|web-url=1|flip-hv=1|budget=1|malformed=9|' +
-  'type-fields=1|deferred-zero-write=1');
+  'type-fields=1|type-reject-before-store=1');
 
 function validSize(width, height) {
   return Number.isFinite(width) && width >= 0 && Number.isFinite(height) && height >= 0;

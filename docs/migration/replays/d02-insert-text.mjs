@@ -323,7 +323,7 @@ assert.match(source, /compareOriginalSequenceIdentity/);
 assert.match(source, /INSERT_TEXT_STATE_DIVERGED/);
 assert.match(source, /advanceRevisionAndInvalidateSearch/);
 assert.match(dispatcher, /OriginalInsertTextOperationApplier/);
-assert.match(schema, /DB_VERSION: number = 42/);
+assert.match(schema, /DB_VERSION: number = 43/);
 assert.match(schema, /DDL_ORIGINAL_TEXT_CHARACTER/);
 
 console.log('success|flatbuffer-e46-f46=1|unicode-codepoints=1|utf8-replacement=1|' +
