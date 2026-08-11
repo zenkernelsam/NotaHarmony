@@ -71,6 +71,11 @@ import {
   ORIGINAL_PDF_FIELD_BOOLEAN_VALUE, ORIGINAL_PDF_FIELD_STRING_VALUE,
   OriginalModifyPdfFieldOperationApplier,
 } from '../main/ets/data/OriginalModifyPdfFieldOperation';
+import {
+  decodeOriginalTransientInteractionEnded,
+  ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE,
+  OriginalTransientInteractionStore,
+} from '../main/ets/data/OriginalTransientInteractionOperation';
 import { OriginalPageMutationBatch } from '../main/ets/data/OriginalPageMutationBatch';
 
 function operation(timestamp: number, serverTime: string,
@@ -227,7 +232,62 @@ export default function syncedOperationInboxTest() {
       expect(applier.supports(ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE)).assertTrue();
+      expect(applier.supports(ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(5)).assertFalse();
+    });
+
+    it('decodes and consumes original transient interaction endings in memory only', 0, async () => {
+      const raw: Uint8Array = flatBufferTransientInteractionEnded();
+      const payload = decodeOriginalTransientInteractionEnded(raw);
+      expect(payload.interactionId.timestamp).assertEqual(80);
+      expect(payload.interactionId.siteId).assertEqual(6);
+      expect(payload.replacedByOp?.timestamp).assertEqual(90);
+      expect(payload.replacedByOp?.siteId).assertEqual(7);
+      const transientStore = new OriginalTransientInteractionStore();
+      transientStore.recordPreview('note', payload.interactionId, { timestamp: 70, siteId: 5 });
+      transientStore.recordPreview('other', payload.interactionId, { timestamp: 71, siteId: 5 });
+      const applier = new OriginalPageOperationApplier(transientStore);
+      const operation: StoredSyncedOperation = {
+        noteId: 'note', timestamp: 300, siteId: 7, clientTime: '400', serverTime: '500',
+        schemaVersion: 1, payloadType: ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE,
+        rawOperation: raw, state: SyncedOperationInboxState.RECEIVED,
+        deferredReason: null, receivedAt: 1,
+      };
+      const noWriteStore = { executeSql: async (_sql: string): Promise<void> => {} };
+      expect((await applier.apply(noWriteStore, operation)).deferredReason === null).assertTrue();
+      expect(transientStore.previewCount('note', payload.interactionId)).assertEqual(0);
+      expect(transientStore.previewCount('other', payload.interactionId)).assertEqual(1);
+      expect((await applier.apply(noWriteStore, operation)).deferredReason === null).assertTrue();
+    });
+
+    it('rejects malformed transient endings and does not mistake audioTime for transient', 0, async () => {
+      let rejected: number = 0;
+      for (const raw of [
+        flatBufferTransientInteractionEnded(false),
+        flatBufferTransientInteractionEnded(true, false),
+        flatBufferTransientInteractionEnded(true, true, true),
+        flatBufferTransientInteractionEnded(true, true, false, true),
+      ]) {
+        try {
+          decodeOriginalTransientInteractionEnded(raw);
+        } catch (_error) {
+          rejected++;
+        }
+      }
+      expect(rejected).assertEqual(4);
+      const raw: Uint8Array = flatBufferAssetCloudPersisted(true, false, false, true);
+      const statements: string[] = [];
+      const fakeStore = {
+        executeSql: async (sql: string): Promise<void> => { statements.push(sql); },
+      };
+      const operation: StoredSyncedOperation = {
+        noteId: 'note', timestamp: 92, siteId: 7, clientTime: '123', serverTime: '124',
+        schemaVersion: 1, payloadType: 2, rawOperation: raw,
+        state: SyncedOperationInboxState.RECEIVED, deferredReason: null, receivedAt: 1,
+      };
+      expect((await new OriginalPageOperationApplier().apply(fakeStore, operation))
+        .deferredReason === null).assertTrue();
+      expect(statements.length).assertEqual(1);
     });
 
     it('decodes original INSERT_CHAR and INSERT_STRING Unicode code points', 0, () => {
@@ -2426,14 +2486,19 @@ function flatBufferOperation(timestamp: number, siteId: number, clientTime: stri
 }
 
 function flatBufferAssetCloudPersisted(includeHash: boolean = true,
-  truncated: boolean = false, extraField: boolean = false): Uint8Array {
+  truncated: boolean = false, extraField: boolean = false,
+  includeAudioTime: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
-  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  const root: number = builder.table([4, 12, 20, includeAudioTime ? 36 : 0, 28, 32],
+    includeAudioTime ? 44 : 36);
   builder.uint16(root + 4, 7);
   builder.uint32(root + 8, 92);
   writeDecimalU64At(builder, root + 12, '123');
   writeDecimalU64At(builder, root + 20, '124');
   builder.uint8(root + 28, 2);
+  if (includeAudioTime) {
+    writeDecimalU64At(builder, root + 36, '99');
+  }
   const objectSize: number = truncated ? 60 : (extraField ? 72 : 68);
   const payload: number = builder.table(
     [includeHash ? 4 : 0, extraField ? 68 : 0], objectSize);
@@ -2446,6 +2511,35 @@ function flatBufferAssetCloudPersisted(includeHash: boolean = true,
   }
   if (extraField) {
     builder.uint8(payload + 68, 1);
+  }
+  return builder.finish(root);
+}
+
+function flatBufferTransientInteractionEnded(includeMetadata: boolean = true,
+  matchingInteraction: boolean = true, includeTimeout: boolean = false,
+  includeUnknownPayloadField: boolean = false): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32, includeMetadata ? 36 : 0], 40);
+  builder.inlineIdentity(root + 4, 300, 7);
+  writeDecimalU64At(builder, root + 12, '400');
+  writeDecimalU64At(builder, root + 20, '500');
+  builder.uint8(root + 28, ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE);
+  const payload: number = builder.table([4, 12, includeUnknownPayloadField ? 20 : 0],
+    includeUnknownPayloadField ? 24 : 20);
+  builder.inlineIdentity(payload + 4, 80, 6);
+  builder.inlineIdentity(payload + 12, 90, 7);
+  if (includeUnknownPayloadField) {
+    builder.uint8(payload + 20, 1);
+  }
+  builder.pointer(root + 32, payload);
+  if (includeMetadata) {
+    const metadata: number = builder.table([4, includeTimeout ? 12 : 0],
+      includeTimeout ? 16 : 12);
+    builder.inlineIdentity(metadata + 4, matchingInteraction ? 80 : 81, 6);
+    if (includeTimeout) {
+      builder.uint32(metadata + 12, 10);
+    }
+    builder.pointer(root + 36, metadata);
   }
   return builder.finish(root);
 }

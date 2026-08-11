@@ -91,7 +91,7 @@ export class OriginalModifyPositionsOperationApplier implements SyncedOperationA
     operation: StoredSyncedOperation): Promise<SyncedOperationApplyResult> {
     let table: OriginalFlatBufferTableReader;
     try {
-      if (OriginalFlatBufferTableReader.fromRoot(operation.rawOperation).readUint8(3, 0) !== 0) {
+      if (OriginalFlatBufferTableReader.fromRoot(operation.rawOperation).hasField(6)) {
         return { deferredReason: 'TRANSIENT_MODIFY_POSITIONS_UNSUPPORTED' };
       }
       table = readOriginalPayloadTable(operation.rawOperation, ORIGINAL_MODIFY_POSITIONS_PAYLOAD_TYPE);

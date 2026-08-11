@@ -13,7 +13,8 @@ Accepted, 2026-08-11.
   A single payload may contain Ink, Shape, Block and Group targets.
 - Original reducers keep independent LWW identities for page/origin, rotation, scale and z-index.
   The operation identity, rather than vector order, decides each register winner.
-- Operation root field 3 marks transient interaction state. Persisting such preview operations into
+- Operation root field 6 contains transient interaction metadata. Root field 3 is optional
+  `audioTime`; it must not be interpreted as a boolean. Persisting field-6 preview operations into
   the durable Harmony page model would create state that the original does not commit.
 
 ## Decision
@@ -51,4 +52,6 @@ Accepted, 2026-08-11.
 
 This closes durable type 24 replay for Ink and TEXT/IMAGE/MATH Block targets. Shape/Group support
 requires their own verified entity state and reducers. Transient operations require a non-durable
-interaction layer and must not be redirected into the persisted model.
+interaction layer and must not be redirected into the persisted model. ADR-0056 supersedes this
+ADR's earlier incorrect field-3 identification and adds the shared field-6 guard plus type-26 cleanup
+boundary.

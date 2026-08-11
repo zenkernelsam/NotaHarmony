@@ -49,6 +49,11 @@ import {
   ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE, OriginalModifyPdfFieldOperationApplier,
 } from './OriginalModifyPdfFieldOperation';
 import {
+  decodeOriginalTransientInteractionEnded,
+  ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE,
+  OriginalTransientInteractionEndedPayload, OriginalTransientInteractionStore,
+} from './OriginalTransientInteractionOperation';
+import {
   OriginalFlatBufferTableReader,
 } from './OriginalSyncedOperationFlatBuffer';
 import {
@@ -56,6 +61,7 @@ import {
 } from './SyncedOperationInbox';
 
 export class OriginalPageOperationApplier implements SyncedOperationApplier {
+  private transientInteractions: OriginalTransientInteractionStore;
   private setMetadata: OriginalSetMetadataOperationApplier = new OriginalSetMetadataOperationApplier();
   private assetCloudPersisted: OriginalAssetCloudPersistedOperationApplier =
     new OriginalAssetCloudPersistedOperationApplier();
@@ -84,6 +90,11 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
   private modifyPdfField: OriginalModifyPdfFieldOperationApplier =
     new OriginalModifyPdfFieldOperationApplier();
 
+  constructor(transientInteractions: OriginalTransientInteractionStore =
+    new OriginalTransientInteractionStore()) {
+    this.transientInteractions = transientInteractions;
+  }
+
   supports(payloadType: number): boolean {
     return payloadType === ORIGINAL_SET_METADATA_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_ASSET_CLOUD_PERSISTED_PAYLOAD_TYPE ||
@@ -105,17 +116,31 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
       payloadType === ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE ||
-      payloadType === ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE;
+      payloadType === ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE;
   }
 
   async apply(store: relationalStore.RdbStore,
     operation: StoredSyncedOperation): Promise<SyncedOperationApplyResult> {
+    let root: OriginalFlatBufferTableReader;
     try {
-      if (OriginalFlatBufferTableReader.fromRoot(operation.rawOperation).readUint8(3, 0) !== 0) {
+      root = OriginalFlatBufferTableReader.fromRoot(operation.rawOperation);
+      if (operation.payloadType !== ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE &&
+        root.hasField(6)) {
         return { deferredReason: 'TRANSIENT_ORIGINAL_OPERATION_UNSUPPORTED' };
       }
     } catch (_error) {
       return { deferredReason: 'MALFORMED_ORIGINAL_OPERATION' };
+    }
+    if (operation.payloadType === ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE) {
+      let payload: OriginalTransientInteractionEndedPayload;
+      try {
+        payload = decodeOriginalTransientInteractionEnded(operation.rawOperation);
+      } catch (_error) {
+        return { deferredReason: 'MALFORMED_TRANSIENT_INTERACTION_ENDED_PAYLOAD' };
+      }
+      this.transientInteractions.endInteraction(operation.noteId, payload.interactionId);
+      return { deferredReason: null };
     }
     if (operation.payloadType === ORIGINAL_SET_METADATA_PAYLOAD_TYPE) {
       return this.setMetadata.apply(store, operation);
