@@ -7,7 +7,7 @@ import {
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { encodeOperationId, OriginalSequenceIdentity,
   validateOriginalSequenceIdentity } from './OperationIdentity';
-import { encodePersistedElement, PersistedElement } from './StrokePersistence';
+import { decodePersistedElement, encodePersistedElement, PersistedElement } from './StrokePersistence';
 import { SearchItemType } from './SearchItemType';
 import {
   OriginalFlatBufferTableReader, readOriginalInlineFloat32, readOriginalPayloadTable,
@@ -287,6 +287,16 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       'width_winner_timestamp': operation.timestamp,
       'width_winner_site_id': operation.siteId,
       'width_winner_present': 0,
+      'create_ink_effects': payload.inkEffects,
+      'create_ink_effects_tinted': payload.inkEffectsTinted ? 1 : 0,
+      'ink_effects_value': null,
+      'ink_effects_winner_timestamp': 0,
+      'ink_effects_winner_site_id': 0,
+      'ink_effects_winner_present': 0,
+      'ink_effects_tinted_value': null,
+      'ink_effects_tinted_winner_timestamp': 0,
+      'ink_effects_tinted_winner_site_id': 0,
+      'ink_effects_tinted_winner_present': 0,
       'create_origin_x': payload.originX,
       'create_origin_y': payload.originY,
       'create_page_timestamp': payload.page.timestamp,
@@ -376,6 +386,9 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       renderSpec: {
         color: payload.color, brushWidth: payload.width, inkStyle: style,
         isHighlighter: payload.tool === 2, isPencil: isPencil,
+        inkEffects: payload.inkEffects,
+        inkEffectsTinted: payload.inkEffectsTinted,
+        inkEffectPhase: styleEntry === undefined ? 0 : styleEntry.backingDashPhase,
       },
       transform: transform,
       // s06.G() multiplies Pencil width by 2.84 before the common cq.H() 2x padding.
@@ -461,9 +474,13 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
     const rows = await store.querySql(
       `SELECT z.kind, i.base_center_path, i.create_custom_path, i.create_fill_path,
               i.create_fill_color, i.create_style_map,
+              i.style_map_value, i.style_map_winner_present,
               i.style_value, i.style_winner_present,
               i.color_value, i.color_winner_present,
               i.width_value, i.width_winner_present,
+              i.create_ink_effects, i.create_ink_effects_tinted,
+              i.ink_effects_value, i.ink_effects_winner_present,
+              i.ink_effects_tinted_value, i.ink_effects_tinted_winner_present,
               i.create_origin_x, i.create_origin_y, i.create_rotation,
               i.create_scale_x, i.create_scale_y,
               i.create_page_timestamp, i.create_page_site_id, i.create_page_index,
@@ -498,6 +515,11 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
         rows.getDouble(rows.getColumnIndex('width_value')) !== payload.width) {
         return false;
       }
+      if (rows.getString(rows.getColumnIndex('create_ink_effects')) !== payload.inkEffects ||
+        (rows.getLong(rows.getColumnIndex('create_ink_effects_tinted')) !== 0) !==
+          payload.inkEffectsTinted) {
+        return false;
+      }
       const baselineMatches: boolean =
         rows.getDouble(rows.getColumnIndex('create_origin_x')) === payload.originX &&
         rows.getDouble(rows.getColumnIndex('create_origin_y')) === payload.originY &&
@@ -517,8 +539,34 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       if ((rows.getLong(rows.getColumnIndex('visible')) === 0) !== hidden) {
         return false;
       }
-      return await this.originalMaterializedElementExists(
-        store, operation, PageElementKind.STROKE, hidden);
+      if (!await this.originalMaterializedElementExists(
+        store, operation, PageElementKind.STROKE, hidden)) {
+        return false;
+      }
+      const effects: string | null =
+        rows.getLong(rows.getColumnIndex('ink_effects_winner_present')) === 0 ?
+          payload.inkEffects : readNullableString(rows, 'ink_effects_value');
+      const tintedValue: number | null =
+        rows.getLong(rows.getColumnIndex('ink_effects_tinted_winner_present')) === 0 ?
+          (payload.inkEffectsTinted ? 1 : 0) : readNullableLong(rows, 'ink_effects_tinted_value');
+      const styleMapBytes: Uint8Array | null =
+        rows.getLong(rows.getColumnIndex('style_map_winner_present')) === 0 ?
+          payload.styleMapBytes : readNullableBlob(rows, 'style_map_value');
+      if (effects === null || tintedValue === null ||
+        (tintedValue !== 0 && tintedValue !== 1)) {
+        return false;
+      }
+      let currentStyleMap: InkStyleMapEntry[];
+      try {
+        validateUnsignedLongDecimal(effects);
+        currentStyleMap = decodeOriginalInkStyleMap(styleMapBytes);
+      } catch (_error) {
+        return false;
+      }
+      const phase: number = currentStyleMap.length === 0 ? 0 :
+        currentStyleMap[0].backingDashPhase;
+      return await this.originalMaterializedEffectsMatch(
+        store, operation, effects, tintedValue !== 0, phase, hidden);
     } finally {
       rows.close();
     }
@@ -542,6 +590,43 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       return rows.goToFirstRow() &&
         rows.getLong(rows.getColumnIndex('active_count')) === (hidden ? 0 : 1) &&
         rows.getLong(rows.getColumnIndex('hidden_count')) === (hidden ? 1 : 0);
+    } finally {
+      rows.close();
+    }
+  }
+
+  private async originalMaterializedEffectsMatch(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, effects: string, tinted: boolean,
+    phase: number, hidden: boolean): Promise<boolean> {
+    const elementId: string = encodeOperationId(operation);
+    const rows = hidden ? await store.querySql(
+      `SELECT payload FROM original_deleted_entity WHERE note_id = ?
+       AND entity_timestamp = ? AND entity_site_id = ? AND element_id = ? AND kind = ?`,
+      [operation.noteId, operation.timestamp, operation.siteId, elementId,
+        PageElementKind.STROKE]) : await store.querySql(
+      `SELECT payload FROM page_element_snapshot WHERE note_id = ? AND element_id = ? AND kind = ?
+       UNION ALL
+       SELECT payload FROM original_deleted_page_element
+        WHERE note_id = ? AND element_id = ? AND kind = ?`,
+      [operation.noteId, elementId, PageElementKind.STROKE,
+        operation.noteId, elementId, PageElementKind.STROKE]);
+    try {
+      if (!rows.goToFirstRow()) {
+        return false;
+      }
+      const persisted: PersistedElement = decodePersistedElement(
+        rows.getBlob(rows.getColumnIndex('payload')));
+      if (persisted.kind !== 'stroke') {
+        return false;
+      }
+      return (persisted.data.renderSpec.inkEffects === undefined ? '0' :
+        persisted.data.renderSpec.inkEffects) === effects &&
+        (persisted.data.renderSpec.inkEffectsTinted === undefined ? true :
+          persisted.data.renderSpec.inkEffectsTinted) === tinted &&
+        (persisted.data.renderSpec.inkEffectPhase === undefined ? 0 :
+          persisted.data.renderSpec.inkEffectPhase) === phase;
+    } catch (_error) {
+      return false;
     } finally {
       rows.close();
     }
@@ -692,10 +777,10 @@ export function unsupportedOriginalCreateInkReason(
   }
   // Android 1.0.3 retains the legacy uint16 nib fields in dm2, but q06 never
   // puts them in the Ink register/render model. Preserve the raw op and ignore them likewise.
-  if (payload.inkEffects !== '0') {
-    return 'CREATE_INK_EFFECTS_UNSUPPORTED';
+  if (payload.inkEffects !== '0' && payload.tool !== 0 && payload.tool !== 2) {
+    return 'CREATE_INK_EFFECT_TOOL_UNSUPPORTED';
   }
-  if (!payload.inkEffectsTinted) {
+  if (!payload.inkEffectsTinted && payload.inkEffects === '0') {
     return 'CREATE_INK_INVALID_EFFECT_TINT';
   }
   return null;
@@ -708,6 +793,11 @@ function originalColorToArgb(bytes: Uint8Array): number {
 function readNullableLong(rows: relationalStore.ResultSet, columnName: string): number | null {
   const column: number = rows.getColumnIndex(columnName);
   return rows.isColumnNull(column) ? null : rows.getLong(column);
+}
+
+function readNullableString(rows: relationalStore.ResultSet, columnName: string): string | null {
+  const column: number = rows.getColumnIndex(columnName);
+  return rows.isColumnNull(column) ? null : rows.getString(column);
 }
 
 function readNullableBlob(rows: relationalStore.ResultSet,

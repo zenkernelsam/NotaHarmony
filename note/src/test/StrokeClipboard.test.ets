@@ -28,6 +28,9 @@ function stroke(id: string, left: number = 10, top: number = 20): StrokeElementD
       inkStyle: InkStyle.FIXED_WIDTH,
       isHighlighter: false,
       isPencil: false,
+      inkEffects: '3',
+      inkEffectsTinted: false,
+      inkEffectPhase: 7.5,
     },
     transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
     bounds: { left: left, top: top, right: left + 10, bottom: top + 10 },
@@ -81,6 +84,9 @@ export default function strokeClipboardTest() {
       source.cubicSegments[0].p1.x = 999;
       source.splatPoints[0].opacity = 0;
       source.renderSpec.brushWidth = 999;
+      source.renderSpec.inkEffects = '0';
+      source.renderSpec.inkEffectsTinted = true;
+      source.renderSpec.inkEffectPhase = -1;
       source.transform[2] = 999;
       source.maskPath[0].x = 999;
       const pasted: ClipboardPasteResult | null = clipboard.paste(800, 1100,
@@ -90,6 +96,9 @@ export default function strokeClipboardTest() {
       expect(pasted?.strokes[0].cubicSegments[0].p1.x).assertEqual(12);
       expect(pasted?.strokes[0].splatPoints[0].opacity).assertEqual(0.6);
       expect(pasted?.strokes[0].renderSpec.brushWidth).assertEqual(2);
+      expect(pasted?.strokes[0].renderSpec.inkEffects).assertEqual('3');
+      expect(pasted?.strokes[0].renderSpec.inkEffectsTinted).assertFalse();
+      expect(pasted?.strokes[0].renderSpec.inkEffectPhase).assertEqual(7.5);
       expect(pasted?.strokes[0].transform[2]).assertEqual(20);
       expect(pasted?.strokes[0].maskPath[0].x).assertEqual(11);
       expect(source.id).assertEqual('source');

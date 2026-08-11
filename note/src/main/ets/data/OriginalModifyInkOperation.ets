@@ -53,7 +53,9 @@ export interface OriginalModifyInkPayload {
   zIndex: string | null;
   nibAngle: number | null;
   nibFlatness: number | null;
-  hasUnsupportedFields: boolean;
+  tapePattern: number | null;
+  inkEffects: string | null;
+  inkEffectsTinted: boolean | null;
 }
 
 export interface OriginalInkPageOrigin {
@@ -100,6 +102,10 @@ interface StoredInkState {
   style: StoredRegister<number>;
   color: StoredRegister<number>;
   width: StoredRegister<number>;
+  baseInkEffects: string;
+  inkEffects: StoredRegister<string>;
+  baseInkEffectsTinted: boolean;
+  inkEffectsTinted: StoredRegister<boolean>;
   baseTransform: OriginalInkBaseTransform | null;
   basePage: OriginalSequenceIdentity | null;
   pageOrigin: StoredRegister<OriginalInkPageOrigin>;
@@ -150,6 +156,8 @@ interface PlannedReplacement {
   replaceStyle: boolean;
   replaceColor: boolean;
   replaceWidth: boolean;
+  replaceInkEffects: boolean;
+  replaceInkEffectsTinted: boolean;
   replaceRotation: boolean;
   replaceScale: boolean;
   replacePageOrigin: boolean;
@@ -166,6 +174,8 @@ interface PlannedReplacement {
   style: number;
   color: number;
   width: number;
+  inkEffects: string;
+  inkEffectsTinted: boolean;
   transform: TransformMatrix;
   baseTransform: OriginalInkBaseTransform | null;
   rotationValue: number | null;
@@ -200,15 +210,6 @@ export function decodeOriginalModifyInkTable(table: OriginalFlatBufferTableReade
     }
     identities.add(identity);
     inks.push(ink);
-  }
-  let hasUnsupportedFields: boolean = false;
-  for (let field: number = 1; field <= 18; field++) {
-    if (field !== 1 && field !== 2 && field !== 3 && field !== 4 && field !== 5 &&
-      field !== 6 && field !== 7 && field !== 8 && field !== 9 && field !== 10 &&
-      field !== 11 && field !== 12 && field !== 13 && field !== 14 && field !== 15 &&
-      table.hasField(field)) {
-      hasUnsupportedFields = true;
-    }
   }
   const rawPage: number[] | null = table.readInlineSequence(1);
   const origin: Uint8Array | null = table.readInlineBytes(2, 8);
@@ -266,7 +267,9 @@ export function decodeOriginalModifyInkTable(table: OriginalFlatBufferTableReade
     zIndex: table.readUint64Decimal(13),
     nibAngle: table.hasField(14) ? table.readUint16(14) : null,
     nibFlatness: table.hasField(15) ? table.readUint16(15) : null,
-    hasUnsupportedFields: hasUnsupportedFields,
+    tapePattern: table.hasField(16) ? table.readUint8(16, 0) : null,
+    inkEffects: table.readUint64Decimal(17),
+    inkEffectsTinted: table.hasField(18) ? table.readUint8(18, 1) !== 0 : null,
   };
 }
 
@@ -319,7 +322,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       payload.color === null && payload.width === null && payload.centerPath === null &&
       !payload.customPath.present && !payload.fillPath.present && !payload.fillColor.present &&
       !payload.styleMap.present &&
-      payload.zIndex === null) {
+      payload.zIndex === null && payload.inkEffects === null &&
+      payload.inkEffectsTinted === null) {
       // q06 does not register or apply wd8 nib fields; a nib-only op is an applied no-op.
       return { deferredReason: null };
     }
@@ -384,6 +388,10 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         registerAccepts(operation, state.color.winner);
       const replaceWidth: boolean = payload.width !== null &&
         registerAccepts(operation, state.width.winner);
+      const replaceInkEffects: boolean = payload.inkEffects !== null &&
+        registerAccepts(operation, state.inkEffects.winner);
+      const replaceInkEffectsTinted: boolean = payload.inkEffectsTinted !== null &&
+        registerAccepts(operation, state.inkEffectsTinted.winner);
       const replaceRotation: boolean = payload.rotation.present &&
         registerAccepts(operation, state.rotation.winner);
       const replaceScale: boolean = payload.scale.present &&
@@ -395,6 +403,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       if (!replaceCenterPath && !replaceCustomPath && !replaceFillPath && !replaceFillColor &&
         !replaceStyleMap &&
         !replaceStyle && !replaceColor && !replaceWidth &&
+        !replaceInkEffects && !replaceInkEffectsTinted &&
         !replaceRotation && !replaceScale && !replacePageOrigin && !replaceZIndex) {
         continue;
       }
@@ -427,15 +436,31 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         initial !== null ? initial.color : stroke.renderSpec.color;
       const oldWidth: number = state.width.value !== null ? state.width.value :
         initial !== null ? initial.width : stroke.renderSpec.brushWidth;
+      const oldInkEffects: string = state.inkEffects.winner !== null ?
+        state.inkEffects.value as string : state.baseInkEffects;
+      const oldInkEffectsTinted: boolean = state.inkEffectsTinted.winner !== null ?
+        state.inkEffectsTinted.value as boolean : state.baseInkEffectsTinted;
       if ((replaceStyle && stroke.renderSpec.inkStyle !== originalStyleToInkStyle(oldStyle)) ||
         (replaceColor && stroke.renderSpec.color !== oldColor) ||
-        (replaceWidth && stroke.renderSpec.brushWidth !== oldWidth)) {
+        (replaceWidth && stroke.renderSpec.brushWidth !== oldWidth) ||
+        ((replaceInkEffects || replaceInkEffectsTinted) &&
+          normalizedStoredInkEffects(stroke.renderSpec.inkEffects) !== oldInkEffects) ||
+        ((replaceInkEffects || replaceInkEffectsTinted) &&
+          normalizedStoredInkEffectsTinted(stroke.renderSpec.inkEffectsTinted) !==
+            oldInkEffectsTinted)) {
         return { deferredReason: 'MODIFY_INK_RENDER_STATE_DIVERGED' };
       }
       const style: number = replaceStyle ? payload.style as number :
         inkStyleToOriginalStyle(stroke.renderSpec.inkStyle);
       const color: number = replaceColor ? payload.color as number : stroke.renderSpec.color;
       const width: number = replaceWidth ? payload.width as number : stroke.renderSpec.brushWidth;
+      const inkEffects: string = replaceInkEffects ?
+        payload.inkEffects as string : oldInkEffects;
+      const inkEffectsTinted: boolean = replaceInkEffectsTinted ?
+        payload.inkEffectsTinted as boolean : oldInkEffectsTinted;
+      if (inkEffects !== '0' && stroke.renderSpec.isPencil) {
+        return { deferredReason: 'MODIFY_INK_EFFECT_TOOL_UNSUPPORTED' };
+      }
       const baseCustomPath: Uint8Array | null = state.baseCustomPath !== null ?
         state.baseCustomPath : initial !== null ? initial.customPathBytes : null;
       const baseFillPath: Uint8Array | null = state.baseFillPath !== null ?
@@ -470,6 +495,13 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       }
       if (replaceStyleMap && !sameInkStyleMap(stroke.styleMap, oldStyleMap)) {
         return { deferredReason: 'MODIFY_INK_STYLE_MAP_STATE_DIVERGED' };
+      }
+      const oldInkEffectPhase: number = oldStyleMap.length === 0 ? 0 :
+        oldStyleMap[0].backingDashPhase;
+      if ((replaceStyleMap || replaceInkEffects || replaceInkEffectsTinted) &&
+        stroke.renderSpec.inkEffectPhase !== undefined &&
+        stroke.renderSpec.inkEffectPhase !== oldInkEffectPhase) {
+        return { deferredReason: 'MODIFY_INK_EFFECT_PHASE_STATE_DIVERGED' };
       }
       const customPathBytes: Uint8Array | null = replaceCustomPath ?
         payload.customPath.value : oldCustomPathBytes;
@@ -545,6 +577,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       const renderSpec: RenderSpec = {
         color: color, brushWidth: width, inkStyle: originalStyleToInkStyle(style),
         isHighlighter: stroke.renderSpec.isHighlighter, isPencil: stroke.renderSpec.isPencil,
+        inkEffects: inkEffects, inkEffectsTinted: inkEffectsTinted,
+        inkEffectPhase: styleMap.length === 0 ? 0 : styleMap[0].backingDashPhase,
       };
       const candidateStroke: StrokeElementData = copyStroke(stroke, renderSpec, transform,
         customPath, fillPath, fillColorValue, styleMap);
@@ -581,13 +615,16 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         replaceStyleMap: replaceStyleMap,
         replaceStyle: replaceStyle,
         replaceColor: replaceColor, replaceWidth: replaceWidth,
+        replaceInkEffects: replaceInkEffects,
+        replaceInkEffectsTinted: replaceInkEffectsTinted,
         replaceRotation: replaceRotation, replaceScale: replaceScale,
         replacePageOrigin: replacePageOrigin, replaceZIndex: replaceZIndex,
         customPathBytes: customPathBytes, fillPathBytes: fillPathBytes,
         fillColorValue: fillColorValue, styleMapBytes: styleMapBytes, styleMap: styleMap,
         baseCustomPath: baseCustomPath, baseFillPath: baseFillPath,
         baseFillColor: baseFillColor, baseStyleMap: baseStyleMap,
-        style: style, color: color, width: width, transform: transform,
+        style: style, color: color, width: width,
+        inkEffects: inkEffects, inkEffectsTinted: inkEffectsTinted, transform: transform,
         baseTransform: state.baseTransform === null ? baseTransform : null,
         rotationValue: replaceRotation ? payload.rotation.value : state.rotation.value,
         scaleValue: replaceScale ? payload.scale.value : state.scale.value,
@@ -851,6 +888,11 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
               color_winner_present,
               width_value, width_winner_timestamp, width_winner_site_id,
               width_winner_present,
+              create_ink_effects, ink_effects_value, ink_effects_winner_timestamp,
+              ink_effects_winner_site_id, ink_effects_winner_present,
+              create_ink_effects_tinted, ink_effects_tinted_value,
+              ink_effects_tinted_winner_timestamp, ink_effects_tinted_winner_site_id,
+              ink_effects_tinted_winner_present,
               create_origin_x, create_origin_y, create_page_timestamp, create_page_site_id,
               create_page_index, create_rotation, create_scale_x, create_scale_y,
               rotation_value, rotation_winner_timestamp, rotation_winner_site_id,
@@ -882,6 +924,9 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       const styleWinner: OperationIdentity | null = readOptionalWinner(rows, 'style');
       const colorWinner: OperationIdentity | null = readOptionalWinner(rows, 'color');
       const widthWinner: OperationIdentity | null = readOptionalWinner(rows, 'width');
+      const inkEffectsWinner: OperationIdentity | null = readOptionalWinner(rows, 'ink_effects');
+      const inkEffectsTintedWinner: OperationIdentity | null =
+        readOptionalWinner(rows, 'ink_effects_tinted');
       const rotationWinner: OperationIdentity | null = readOptionalWinner(rows, 'rotation');
       const scaleWinner: OperationIdentity | null = readOptionalWinner(rows, 'scale');
       const pageOriginWinner: OperationIdentity | null = readOptionalWinner(rows, 'page_origin');
@@ -890,6 +935,20 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       const width: number | null = rows.isColumnNull(widthColumn) ? null : rows.getDouble(widthColumn);
       if (width !== null && !Number.isFinite(width)) {
         throw new Error('original modify-ink has an invalid stored width');
+      }
+      const baseInkEffects: string = rows.getString(rows.getColumnIndex('create_ink_effects'));
+      const inkEffectsValue: string | null = readNullableString(rows, 'ink_effects_value');
+      validateUnsignedLongDecimal(baseInkEffects);
+      if (inkEffectsValue !== null) {
+        validateUnsignedLongDecimal(inkEffectsValue);
+      }
+      const baseInkEffectsTinted: boolean =
+        rows.getLong(rows.getColumnIndex('create_ink_effects_tinted')) !== 0;
+      const inkEffectsTintedValue: boolean | null =
+        readNullableBoolean(rows, 'ink_effects_tinted_value');
+      if ((inkEffectsWinner === null) !== (inkEffectsValue === null) ||
+        (inkEffectsTintedWinner === null) !== (inkEffectsTintedValue === null)) {
+        throw new Error('original modify-ink has an invalid effect register');
       }
       if ((customPathWinner === null && readNullableBlob(rows, 'custom_path_value') !== null) ||
         (fillPathWinner === null && readNullableBlob(rows, 'fill_path_value') !== null) ||
@@ -948,6 +1007,12 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         style: { value: readNullableLong(rows, 'style_value'), winner: styleWinner },
         color: { value: readNullableLong(rows, 'color_value'), winner: colorWinner },
         width: { value: width, winner: widthWinner },
+        baseInkEffects: baseInkEffects,
+        inkEffects: { value: inkEffectsValue, winner: inkEffectsWinner },
+        baseInkEffectsTinted: baseInkEffectsTinted,
+        inkEffectsTinted: {
+          value: inkEffectsTintedValue, winner: inkEffectsTintedWinner,
+        },
         baseTransform: baseTransform,
         basePage: basePage,
         pageOrigin: {
@@ -1164,6 +1229,21 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       values['width_winner_site_id'] = winner.siteId;
       values['width_winner_present'] = 1;
     }
+    if (replacement.replaceInkEffects) {
+      addWinnerPredicates(predicates, 'ink_effects', replacement.state.inkEffects.winner);
+      values['ink_effects_value'] = replacement.inkEffects;
+      values['ink_effects_winner_timestamp'] = winner.timestamp;
+      values['ink_effects_winner_site_id'] = winner.siteId;
+      values['ink_effects_winner_present'] = 1;
+    }
+    if (replacement.replaceInkEffectsTinted) {
+      addWinnerPredicates(predicates, 'ink_effects_tinted',
+        replacement.state.inkEffectsTinted.winner);
+      values['ink_effects_tinted_value'] = replacement.inkEffectsTinted ? 1 : 0;
+      values['ink_effects_tinted_winner_timestamp'] = winner.timestamp;
+      values['ink_effects_tinted_winner_site_id'] = winner.siteId;
+      values['ink_effects_tinted_winner_present'] = 1;
+    }
     if (replacement.baseTransform !== null) {
       values['create_origin_x'] = replacement.baseTransform.originX;
       values['create_origin_y'] = replacement.baseTransform.originY;
@@ -1373,8 +1453,8 @@ function pageElementPredicates(noteId: string, target: StoredPageTarget,
 }
 
 function preflightOriginalModifyInk(payload: OriginalModifyInkPayload): string | null {
-  if (payload.hasUnsupportedFields) {
-    return 'MODIFY_INK_ADDITIONAL_FIELDS_UNSUPPORTED';
+  if (payload.tapePattern !== null) {
+    return 'MODIFY_INK_TAPE_PATTERN_UNSUPPORTED';
   }
   if ((payload.pageOrigin !== null && (!Number.isFinite(payload.pageOrigin.originX) ||
     !Number.isFinite(payload.pageOrigin.originY))) ||
@@ -1475,6 +1555,10 @@ function replacementStroke(replacement: PlannedReplacement): StrokeElementData {
       inkStyle: originalStyleToInkStyle(replacement.style),
       isHighlighter: stroke.renderSpec.isHighlighter,
       isPencil: stroke.renderSpec.isPencil,
+      inkEffects: replacement.inkEffects,
+      inkEffectsTinted: replacement.inkEffectsTinted,
+      inkEffectPhase: replacement.styleMap.length === 0 ? 0 :
+        replacement.styleMap[0].backingDashPhase,
     },
     transform: replacement.transform,
     bounds: replacement.geometry.bounds,
@@ -1540,6 +1624,19 @@ function readNullableDouble(rows: relationalStore.ResultSet, columnName: string)
 function readNullableString(rows: relationalStore.ResultSet, columnName: string): string | null {
   const column: number = rows.getColumnIndex(columnName);
   return rows.isColumnNull(column) ? null : rows.getString(column);
+}
+
+function readNullableBoolean(rows: relationalStore.ResultSet,
+  columnName: string): boolean | null {
+  const column: number = rows.getColumnIndex(columnName);
+  if (rows.isColumnNull(column)) {
+    return null;
+  }
+  const value: number = rows.getLong(column);
+  if (value !== 0 && value !== 1) {
+    throw new Error(`original modify-ink has an invalid ${columnName}`);
+  }
+  return value !== 0;
 }
 
 function readOptionalWinner(rows: relationalStore.ResultSet,
@@ -1639,6 +1736,15 @@ function assertMatchingModifyInkWinners(payload: OriginalModifyInkPayload,
     state.width.value !== payload.width) {
     throw new Error('original modify-ink identity conflicts with persisted width');
   }
+  if (payload.inkEffects !== null && winnerMatches(state.inkEffects.winner, operation) &&
+    state.inkEffects.value !== payload.inkEffects) {
+    throw new Error('original modify-ink identity conflicts with persisted effects');
+  }
+  if (payload.inkEffectsTinted !== null &&
+    winnerMatches(state.inkEffectsTinted.winner, operation) &&
+    state.inkEffectsTinted.value !== payload.inkEffectsTinted) {
+    throw new Error('original modify-ink identity conflicts with persisted effect tint');
+  }
   if (payload.rotation.present && winnerMatches(state.rotation.winner, operation) &&
     state.rotation.value !== payload.rotation.value) {
     throw new Error('original modify-ink identity conflicts with persisted rotation');
@@ -1674,6 +1780,14 @@ function sameNullableBytes(left: Uint8Array | null, right: Uint8Array | null): b
     }
   }
   return true;
+}
+
+function normalizedStoredInkEffects(value: string | undefined): string {
+  return value === undefined ? '0' : value;
+}
+
+function normalizedStoredInkEffectsTinted(value: boolean | undefined): boolean {
+  return value === undefined ? true : value;
 }
 
 function sameNullableScale(left: OriginalInkScale | null, right: OriginalInkScale | null): boolean {

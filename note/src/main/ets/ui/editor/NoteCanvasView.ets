@@ -3230,6 +3230,9 @@ export struct NoteCanvasView {
         inkStyle: s.renderSpec.inkStyle,
         isHighlighter: s.renderSpec.isHighlighter,
         isPencil: s.renderSpec.isPencil,
+        inkEffects: s.renderSpec.inkEffects,
+        inkEffectsTinted: s.renderSpec.inkEffectsTinted,
+        inkEffectPhase: s.renderSpec.inkEffectPhase,
       },
       transform: s.transform.slice(),
       bounds: {

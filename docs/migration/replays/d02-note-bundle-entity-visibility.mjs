@@ -303,7 +303,7 @@ assert.throws(() => applyVisibility(failed, { timestamp: 71, site: 7 },
 assert.equal(failed.prepare(`SELECT visible FROM original_element_z_index
   WHERE element_timestamp=20`).get().visible, 1);
 
-assert.match(helperSource, /export const DB_VERSION: number = 47/);
+assert.match(helperSource, /export const DB_VERSION: number = 48/);
 assert.match(helperSource, /kind INTEGER NOT NULL CHECK \(kind BETWEEN 1 AND 5\)/);
 assert.ok(deleteSource.indexOf('const appliesPageVisibility: boolean') <
   deleteSource.indexOf('const entityReason: string | null = await this.applyEntityVisibility'));

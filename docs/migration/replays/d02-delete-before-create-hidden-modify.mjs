@@ -266,7 +266,7 @@ function stateReplay() {
 }
 
 function staticGuards() {
-  assert.match(helper, /export const DB_VERSION: number = 47/);
+  assert.match(helper, /export const DB_VERSION: number = 48/);
   assert.doesNotMatch(ddl('DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER'),
     /REFERENCES original_element_z_index/);
   assert.match(deletion, /target: null/);

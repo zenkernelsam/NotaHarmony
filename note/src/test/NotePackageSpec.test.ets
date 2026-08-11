@@ -109,7 +109,9 @@ export default function notePackageSpecTest() {
         id: 's', pathPoints: [{ position: { x: 0, y: 0 }, widthFactor: 1,
           pressure: -1, altitudeAngleRadians: Math.PI / 2, azimuthUnitX: 1, azimuthUnitY: 0 }],
         cubicSegments: [], splatPoints: [], renderSpec: { color: -16777216, brushWidth: 2,
-          inkStyle: 0, isHighlighter: false, isPencil: false },
+          inkStyle: 0, isHighlighter: false, isPencil: false,
+          inkEffects: '18446744073709551615', inkEffectsTinted: false,
+          inkEffectPhase: -3.25 },
         transform: base.transform, bounds: base.bounds, maskPath: [], isFinished: true,
       } };
       const text = { kind: 'text', data: {
@@ -119,6 +121,13 @@ export default function notePackageSpecTest() {
         fontSize: 12, fontColor: -16777216, characterStyleRuns: undefined,
         paragraphStyleRuns: undefined,
       } };
+      expect(isValidPageElement(stroke)).assertTrue();
+      stroke.data.renderSpec.inkEffects = '18446744073709551616';
+      expect(isValidPageElement(stroke)).assertFalse();
+      stroke.data.renderSpec.inkEffects = '3';
+      stroke.data.renderSpec.inkEffectPhase = Number.POSITIVE_INFINITY;
+      expect(isValidPageElement(stroke)).assertFalse();
+      stroke.data.renderSpec.inkEffectPhase = 7.5;
       expect(isValidPageElement(stroke)).assertTrue();
       expect(isValidPageElement(text)).assertTrue();
       text.data.characterStyleRuns = [{ start: 0, end: 4,

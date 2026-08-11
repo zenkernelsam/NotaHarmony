@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v47: visibility winners may precede the entity CREATE operation.
-export const DB_VERSION: number = 47;
+// v48: preserve original Ink effect registers without losing uint64 precision.
+export const DB_VERSION: number = 48;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -533,6 +533,32 @@ CREATE TABLE IF NOT EXISTS original_ink_state (
   width_winner_site_id INTEGER NOT NULL
     CHECK (width_winner_site_id BETWEEN 0 AND 65535),
   width_winner_present INTEGER NOT NULL CHECK (width_winner_present IN (0, 1)),
+  create_ink_effects TEXT NOT NULL DEFAULT '0' CHECK (
+    typeof(create_ink_effects) = 'text' AND length(create_ink_effects) BETWEEN 1 AND 20
+    AND create_ink_effects NOT GLOB '*[^0-9]*'
+    AND (create_ink_effects = '0' OR substr(create_ink_effects, 1, 1) <> '0')
+    AND (length(create_ink_effects) < 20 OR create_ink_effects <= '18446744073709551615')),
+  create_ink_effects_tinted INTEGER NOT NULL DEFAULT 1
+    CHECK (create_ink_effects_tinted IN (0, 1)),
+  ink_effects_value TEXT CHECK (ink_effects_value IS NULL OR (
+    typeof(ink_effects_value) = 'text' AND length(ink_effects_value) BETWEEN 1 AND 20
+    AND ink_effects_value NOT GLOB '*[^0-9]*'
+    AND (ink_effects_value = '0' OR substr(ink_effects_value, 1, 1) <> '0')
+    AND (length(ink_effects_value) < 20 OR ink_effects_value <= '18446744073709551615'))),
+  ink_effects_winner_timestamp INTEGER NOT NULL DEFAULT 0
+    CHECK (ink_effects_winner_timestamp BETWEEN 0 AND 4294967295),
+  ink_effects_winner_site_id INTEGER NOT NULL DEFAULT 0
+    CHECK (ink_effects_winner_site_id BETWEEN 0 AND 65535),
+  ink_effects_winner_present INTEGER NOT NULL DEFAULT 0
+    CHECK (ink_effects_winner_present IN (0, 1)),
+  ink_effects_tinted_value INTEGER CHECK (ink_effects_tinted_value IS NULL OR
+    ink_effects_tinted_value IN (0, 1)),
+  ink_effects_tinted_winner_timestamp INTEGER NOT NULL DEFAULT 0
+    CHECK (ink_effects_tinted_winner_timestamp BETWEEN 0 AND 4294967295),
+  ink_effects_tinted_winner_site_id INTEGER NOT NULL DEFAULT 0
+    CHECK (ink_effects_tinted_winner_site_id BETWEEN 0 AND 65535),
+  ink_effects_tinted_winner_present INTEGER NOT NULL DEFAULT 0
+    CHECK (ink_effects_tinted_winner_present IN (0, 1)),
   create_origin_x REAL,
   create_origin_y REAL,
   create_page_timestamp INTEGER CHECK (create_page_timestamp IS NULL OR
@@ -602,6 +628,10 @@ CREATE TABLE IF NOT EXISTS original_ink_state (
       AND page_origin_y IS NOT NULL)),
   CHECK ((z_index_winner_present = 0 AND z_index_value IS NULL) OR
     (z_index_winner_present = 1 AND z_index_value IS NOT NULL)),
+  CHECK ((ink_effects_winner_present = 0 AND ink_effects_value IS NULL) OR
+    (ink_effects_winner_present = 1 AND ink_effects_value IS NOT NULL)),
+  CHECK ((ink_effects_tinted_winner_present = 0 AND ink_effects_tinted_value IS NULL) OR
+    (ink_effects_tinted_winner_present = 1 AND ink_effects_tinted_value IS NOT NULL)),
   PRIMARY KEY(note_id, ink_timestamp, ink_site_id),
   FOREIGN KEY(note_id, ink_timestamp, ink_site_id)
     REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
@@ -1878,5 +1908,34 @@ export const MIGRATIONS: Record<number, string[]> = {
     'DROP TABLE original_entity_visibility_winner',
     `ALTER TABLE original_entity_visibility_winner_v47
       RENAME TO original_entity_visibility_winner`,
+  ],
+  48: [
+    `ALTER TABLE original_ink_state ADD COLUMN create_ink_effects TEXT NOT NULL DEFAULT '0'
+      CHECK (typeof(create_ink_effects) = 'text' AND length(create_ink_effects) BETWEEN 1 AND 20
+        AND create_ink_effects NOT GLOB '*[^0-9]*'
+        AND (create_ink_effects = '0' OR substr(create_ink_effects, 1, 1) <> '0')
+        AND (length(create_ink_effects) < 20 OR create_ink_effects <= '18446744073709551615'))`,
+    `ALTER TABLE original_ink_state ADD COLUMN create_ink_effects_tinted INTEGER NOT NULL DEFAULT 1
+      CHECK (create_ink_effects_tinted IN (0, 1))`,
+    `ALTER TABLE original_ink_state ADD COLUMN ink_effects_value TEXT
+      CHECK (ink_effects_value IS NULL OR (typeof(ink_effects_value) = 'text'
+        AND length(ink_effects_value) BETWEEN 1 AND 20
+        AND ink_effects_value NOT GLOB '*[^0-9]*'
+        AND (ink_effects_value = '0' OR substr(ink_effects_value, 1, 1) <> '0')
+        AND (length(ink_effects_value) < 20 OR ink_effects_value <= '18446744073709551615')))`,
+    `ALTER TABLE original_ink_state ADD COLUMN ink_effects_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (ink_effects_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN ink_effects_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (ink_effects_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN ink_effects_winner_present INTEGER NOT NULL DEFAULT 0
+      CHECK (ink_effects_winner_present IN (0, 1))`,
+    `ALTER TABLE original_ink_state ADD COLUMN ink_effects_tinted_value INTEGER
+      CHECK (ink_effects_tinted_value IS NULL OR ink_effects_tinted_value IN (0, 1))`,
+    `ALTER TABLE original_ink_state ADD COLUMN ink_effects_tinted_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (ink_effects_tinted_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN ink_effects_tinted_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (ink_effects_tinted_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN ink_effects_tinted_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (ink_effects_tinted_winner_present IN (0, 1))`,
   ],
 };

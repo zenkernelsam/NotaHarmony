@@ -62,6 +62,11 @@ export interface RenderSpec {
   inkStyle: InkStyle;
   isHighlighter: boolean;
   isPencil: boolean;
+  // Original Ink effects are a uint64 bitmask (RAINBOW=1, GLITTER=2). Keep the
+  // decimal string precision-safe even when the current renderer cannot shade them yet.
+  inkEffects?: string;
+  inkEffectsTinted?: boolean;
+  inkEffectPhase?: number;
 }
 
 // 墨水样式（对应 sz5）

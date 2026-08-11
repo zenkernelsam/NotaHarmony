@@ -224,6 +224,18 @@ function isValidStroke(stroke: StrokeElementData): boolean {
     typeof stroke.renderSpec.isHighlighter !== 'boolean' || typeof stroke.renderSpec.isPencil !== 'boolean') {
     return false;
   }
+  if (stroke.renderSpec.inkEffects !== undefined &&
+    !isUnsignedLongDecimal(stroke.renderSpec.inkEffects)) {
+    return false;
+  }
+  if (stroke.renderSpec.inkEffectsTinted !== undefined &&
+    typeof stroke.renderSpec.inkEffectsTinted !== 'boolean') {
+    return false;
+  }
+  if (stroke.renderSpec.inkEffectPhase !== undefined &&
+    !isFiniteNumber(stroke.renderSpec.inkEffectPhase)) {
+    return false;
+  }
   for (const point of stroke.pathPoints) {
     if (!isValidStrokePoint(point)) {
       return false;
@@ -565,4 +577,16 @@ function isFiniteNumber(value: number): boolean {
 
 function isIntegerInRange(value: number, minimum: number, maximum: number): boolean {
   return Number.isSafeInteger(value) && value >= minimum && value <= maximum;
+}
+
+function isUnsignedLongDecimal(value: string): boolean {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  try {
+    validateUnsignedLongDecimal(value);
+    return true;
+  } catch (_error) {
+    return false;
+  }
 }

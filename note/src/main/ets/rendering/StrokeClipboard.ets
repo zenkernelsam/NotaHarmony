@@ -98,6 +98,9 @@ export function cloneStrokeElement(stroke: StrokeElementData, id: string = strok
     inkStyle: stroke.renderSpec.inkStyle,
     isHighlighter: stroke.renderSpec.isHighlighter,
     isPencil: stroke.renderSpec.isPencil,
+    inkEffects: stroke.renderSpec.inkEffects,
+    inkEffectsTinted: stroke.renderSpec.inkEffectsTinted,
+    inkEffectPhase: stroke.renderSpec.inkEffectPhase,
   };
   return {
     id: id,

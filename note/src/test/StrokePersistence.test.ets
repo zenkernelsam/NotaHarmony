@@ -23,6 +23,9 @@ export default function strokePersistenceTest() {
           inkStyle: InkStyle.FIXED_WIDTH,
           isHighlighter: false,
           isPencil: false,
+          inkEffects: '18446744073709551615',
+          inkEffectsTinted: false,
+          inkEffectPhase: -3.25,
         },
         transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 },
         bounds: { x: 1, y: 2, width: 3, height: 4 },
@@ -38,6 +41,9 @@ export default function strokePersistenceTest() {
       expect(restored.kind).assertEqual('stroke');
       expect(restoredStroke.id).assertEqual('stroke-1');
       expect(restoredStroke.renderSpec.inkStyle).assertEqual(InkStyle.FIXED_WIDTH);
+      expect(restoredStroke.renderSpec.inkEffects).assertEqual('18446744073709551615');
+      expect(restoredStroke.renderSpec.inkEffectsTinted).assertFalse();
+      expect(restoredStroke.renderSpec.inkEffectPhase).assertEqual(-3.25);
       expect(restoredStroke.bounds.width).assertEqual(3);
     });
 

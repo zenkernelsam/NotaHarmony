@@ -21,7 +21,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(47);
+      expect(DB_VERSION).assertEqual(48);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -91,6 +91,9 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[46].join('\n')).assertContain('original_entity_visibility_winner');
       expect(MIGRATIONS[46].join('\n')).assertContain('original_deleted_entity');
       expect(MIGRATIONS[47].join('\n')).assertContain('original_entity_visibility_winner_v47');
+      expect(MIGRATIONS[48].join('\n')).assertContain('create_ink_effects');
+      expect(MIGRATIONS[48].join('\n')).assertContain('ink_effects_winner_present');
+      expect(MIGRATIONS[48].join('\n')).assertContain('ink_effects_tinted_winner_present');
       expect(MIGRATIONS[35].join('\n')).assertContain('original_block_state');
       expect(MIGRATIONS[36].join('\n')).assertContain('page_origin_winner_present');
       expect(MIGRATIONS[36].join('\n')).assertContain('z_index_winner_present');
@@ -109,6 +112,10 @@ export default function databaseHelperTest() {
       expect(DDL_ORIGINAL_INK_STATE).assertContain('z_index_winner_present INTEGER NOT NULL');
       expect(DDL_ORIGINAL_INK_STATE).assertContain('create_style_map BLOB');
       expect(DDL_ORIGINAL_INK_STATE).assertContain('style_map_winner_present INTEGER NOT NULL');
+      expect(DDL_ORIGINAL_INK_STATE).assertContain('create_ink_effects TEXT NOT NULL');
+      expect(DDL_ORIGINAL_INK_STATE).assertContain('ink_effects_winner_present INTEGER NOT NULL');
+      expect(DDL_ORIGINAL_INK_STATE)
+        .assertContain('ink_effects_tinted_winner_present INTEGER NOT NULL');
       expect(DDL_ORIGINAL_INK_STATE).assertContain('estimated_center_path BLOB NOT NULL');
       expect(DDL_ORIGINAL_INK_STATE).assertContain('REFERENCES original_element_z_index');
       expect(DDL_ORIGINAL_INK_PATH_APPEND)
