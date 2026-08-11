@@ -78,6 +78,7 @@ import originalCreateTextPayloadEncoderTest from './OriginalCreateTextPayloadEnc
 import originalTextMutationPayloadEncoderTest from './OriginalTextMutationPayloadEncoder.test';
 import originalRichTextStylePayloadEncoderTest from './OriginalRichTextStylePayloadEncoder.test';
 import originalLocalCheckboxMutationTest from './OriginalLocalCheckboxMutation.test';
+import mathEditorOverlayTest from './MathEditorOverlay.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -160,4 +161,5 @@ export default function testsuite() {
   originalTextMutationPayloadEncoderTest();
   originalRichTextStylePayloadEncoderTest();
   originalLocalCheckboxMutationTest();
+  mathEditorOverlayTest();
 }

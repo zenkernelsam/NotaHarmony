@@ -2,11 +2,12 @@ import { describe, it, expect } from '@ohos/hypium';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import {
   classifyOriginalImageCropMutation, classifyOriginalImageFlipMutation,
-  classifyOriginalPositionLockMutation, classifyOriginalRenderMutation,
+  classifyOriginalMathLatexMutation, classifyOriginalPositionLockMutation,
+  classifyOriginalRenderMutation,
   decodeOriginalShapeStateTool, decodePersistedElement,
   encodePersistedElement,
   originalClipboardShapeForPaste,
-  OriginalClipboardPastePlan,
+  OriginalClipboardPastePlan, OriginalMathLatexMutation,
   OriginalImageCropMutation, OriginalImageFlipMutation, OriginalPositionLockMutation,
   OriginalRenderMutation, PersistedElement, validateOriginalClipboardPastePlan,
 } from '../main/ets/data/StrokePersistence';
@@ -19,6 +20,7 @@ import {
 } from '../main/ets/data/SearchIndexPolicy';
 import { cloneImageElement } from '../main/ets/core/model/ImageBlockGeometry';
 import { cloneShapeElement } from '../main/ets/core/model/ShapeGeometry';
+import { cloneMathElement } from '../main/ets/core/model/MathBlockGeometry';
 
 export default function strokePersistenceTest() {
   describe('StrokePersistence payload codec', () => {
@@ -56,6 +58,41 @@ export default function strokePersistenceTest() {
       expect(restoredStroke.renderSpec.inkEffectsTinted).assertFalse();
       expect(restoredStroke.renderSpec.inkEffectPhase).assertEqual(-3.25);
       expect(restoredStroke.bounds.width).assertEqual(3);
+    });
+
+    it('classifies one canonical Math latex-only edit and reverse Undo', 0, () => {
+      const before: MathElement = originalMath('op:74:2');
+      const after: MathElement = cloneMathElement(before);
+      after.latex = '\\sqrt{x}';
+      const forward: OriginalMathLatexMutation | null = classifyOriginalMathLatexMutation(
+        [mathSource(before)], [mathSource(after)]);
+      expect(forward?.identity.timestamp).assertEqual(74);
+      expect(forward?.identity.siteId).assertEqual(2);
+      expect(forward?.latex).assertEqual('\\sqrt{x}');
+      const reverse: OriginalMathLatexMutation | null = classifyOriginalMathLatexMutation(
+        [mathSource(after)], [mathSource(before)]);
+      expect(reverse?.latex).assertEqual('\\frac{a}{b}');
+    });
+
+    it('rejects noncanonical, multi-Math, and unrelated Math edits', 0, () => {
+      const before: MathElement = originalMath('op:74:2');
+      const after: MathElement = cloneMathElement(before);
+      after.latex = 'x';
+      const second: MathElement = originalMath('op:76:2');
+      const secondAfter: MathElement = cloneMathElement(second);
+      secondAfter.latex = 'y';
+      expect(classifyOriginalMathLatexMutation(
+        [mathSource(before), mathSource(second)],
+        [mathSource(after), mathSource(secondAfter)]) === null).assertTrue();
+      const unrelated: MathElement = cloneMathElement(after);
+      unrelated.color = -65536;
+      expect(classifyOriginalMathLatexMutation(
+        [mathSource(before)], [mathSource(unrelated)]) === null).assertTrue();
+      const local: MathElement = originalMath('local-math');
+      const localAfter: MathElement = cloneMathElement(local);
+      localAfter.latex = 'z';
+      expect(classifyOriginalMathLatexMutation(
+        [mathSource(local)], [mathSource(localAfter)]) === null).assertTrue();
     });
 
     it('rejects malformed snapshot bytes', 0, () => {
@@ -465,6 +502,13 @@ function originalMath(id: string): MathElement {
     latex: '\\frac{a}{b}', color: -16777216,
     blockWidth: 100, blockHeight: 50, rotationRadians: 0,
     corner: 0, textWrap: 0, enableCaption: false, positionLocked: false,
+  };
+}
+
+function mathSource(math: MathElement): SearchSourceElement {
+  return {
+    elementId: math.id, kind: PageElementKind.MATH,
+    payload: encodePersistedElement({ kind: 'math', data: math }),
   };
 }
 

@@ -1,3 +1,4 @@
+import { util } from '@kit.ArkTS';
 import {
   encodeOperationId, OperationIdentity, validateOperationIdentity,
 } from './OperationIdentity';
@@ -6,6 +7,46 @@ import { OriginalBlockRect } from './OriginalCreateBlockOperation';
 import { OriginalBlockPageOrigin, OriginalBlockScale } from './OriginalModifyBlockOperation';
 
 const MAX_ORIGINAL_MODIFY_BLOCK_COUNT: number = 10000;
+const MAX_ORIGINAL_MATH_LATEX_BYTES: number = 1048576;
+
+export function encodeOriginalMathLatex(blocks: OperationIdentity[], latex: string): Uint8Array {
+  const targets: OperationIdentity[] = validateTargets(blocks);
+  const encoded: Uint8Array = new util.TextEncoder().encodeInto(latex);
+  if (targets.length === 0 || targets.length > MAX_ORIGINAL_MODIFY_BLOCK_COUNT ||
+    encoded.length > MAX_ORIGINAL_MATH_LATEX_BYTES ||
+    util.TextDecoder.create('utf-8').decodeToString(encoded) !== latex) {
+    throw new Error('original MODIFY_BLOCK Math latex is invalid');
+  }
+
+  // td8 field 10 points to the nullable Math LaTeX setter. A normal edit always
+  // writes the setter's field 0 string, including an empty string used by Undo.
+  const table: number = 44;
+  const objectSize: number = 12;
+  const vector: number = table + objectSize;
+  const vectorEnd: number = vector + 4 + targets.length * 8;
+  const setterVtable: number = align4(vectorEnd);
+  const setterTable: number = align4(setterVtable + 6);
+  const stringVector: number = setterTable + 8;
+  const bytes: Uint8Array = new Uint8Array(align4(stringVector + 4 + encoded.length + 1));
+  const fields: number[] = new Array<number>(18).fill(0);
+  fields[0] = 4;
+  fields[10] = 8;
+  writeU32(bytes, 0, table);
+  writeVtable(bytes, 4, objectSize, fields);
+  writeU32(bytes, table, table - 4);
+  writeU32(bytes, table + 4, vector - (table + 4));
+  writeU32(bytes, table + 8, setterTable - (table + 8));
+  writeU32(bytes, vector, targets.length);
+  for (let index: number = 0; index < targets.length; index++) {
+    writeOperationIdentity(bytes, vector + 4 + index * 8, targets[index]);
+  }
+  writeVtable(bytes, setterVtable, 8, [4]);
+  writeU32(bytes, setterTable, setterTable - setterVtable);
+  writeU32(bytes, setterTable + 4, stringVector - (setterTable + 4));
+  writeU32(bytes, stringVector, encoded.length);
+  bytes.set(encoded, stringVector + 4);
+  return bytes;
+}
 
 export function encodeOriginalBlockSize(blocks: OperationIdentity[],
   width: number, height: number): Uint8Array {

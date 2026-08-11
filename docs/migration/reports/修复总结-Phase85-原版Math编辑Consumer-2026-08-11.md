@@ -39,6 +39,7 @@
 
 ## 未完成边界
 
-本阶段完成现有 Math Block 的编辑 consumer，不等于公式功能完全结束。LaTeX 内容编辑 UI、原版
-CREATE/MODIFY outbound writer、原生公式排版替代与设备像素验收仍待后续；Group clipboard 当前复制
-完整叶子但尚不写出新的 Group identity。31/31 入站生产路由保持成立，Goal 继续 active。
+本阶段完成现有 Math Block 的编辑 consumer，不等于公式功能完全结束。Phase 147/ADR-0124 后续完成
+LaTeX 内容编辑 UI 与原版 MODIFY_BLOCK field-10 writer；原版 CREATE_BLOCK authoring、原生公式排版替代
+与设备像素验收仍待后续。Group-preserving clipboard 已由 Phase 130–143 后续闭环。31/31 入站生产路由
+保持成立，Goal 继续 active。

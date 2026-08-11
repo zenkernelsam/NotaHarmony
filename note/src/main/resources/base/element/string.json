@@ -533,6 +533,13 @@
     { "name": "recording_subtitle", "value": "%s %s, %s" },
     { "name": "undo", "value": "Undo" },
     { "name": "group", "value": "Group" },
-    { "name": "ungroup", "value": "Ungroup" }
+    { "name": "ungroup", "value": "Ungroup" },
+    { "name": "edit_math", "value": "Edit Math" },
+    { "name": "math_editor_title", "value": "Math" },
+    { "name": "math_editor_placeholder", "value": "x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}" },
+    { "name": "math_editor_invalid", "value": "This isn't valid LaTeX" },
+    { "name": "math_editor_failed", "value": "Couldn't add math" },
+    { "name": "math_editor_cancel", "value": "Cancel" },
+    { "name": "math_editor_done", "value": "Done" }
   ]
 }

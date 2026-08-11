@@ -122,6 +122,9 @@ import { EditorViewModel } from './EditorViewModel';
 import { SelectionOverlay, SelectionMenuAction } from '../components/SelectionOverlay';
 import { ImageCropHandle, ImageCropOverlay } from '../components/ImageCropOverlay';
 import {
+  isOriginalMathLatexDraftValid, MathEditorOverlay,
+} from '../components/MathEditorOverlay';
+import {
   SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH, SelectionOverlayPosition,
   selectionOverlayPosition,
 } from '../components/SelectionOverlayLayout';
@@ -293,10 +296,16 @@ export struct NoteCanvasView {
   @State selectionCanLock: boolean = false;
   @State selectionCanGroup: boolean = false;
   @State selectionCanUngroup: boolean = false;
+  @State selectionCanEditMath: boolean = false;
   @State selectionPositionLocked: boolean = false;
   private imageCropSession: OriginalImageCropSession | null = null;
   @State imageCropVisible: boolean = false;
   @State imageCropDraft: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
+  @State mathEditorVisible: boolean = false;
+  @State mathEditorDraft: string = '';
+  @State mathEditorBusy: boolean = false;
+  @State mathEditorFailed: boolean = false;
+  private mathEditorOriginal: MathElement | null = null;
   @State clipboardAvailable: boolean = false;
   @State overlayWidth: number = 0;
   @State overlayHeight: number = 0;
@@ -546,6 +555,9 @@ export struct NoteCanvasView {
     }
     if (!this.persistence.isReady() || this.noteId.length === 0 || this.loadedPageId.length === 0) {
       return true;
+    }
+    if (this.mathEditorVisible) {
+      return false;
     }
     if (this.textEditing && this.editingTextBlock !== null) {
       if (!await this.onTextCommit(this.editingDraftText)) {
@@ -1272,7 +1284,7 @@ export struct NoteCanvasView {
   // === 触摸事件 ===
   private onCanvasTouch(event: TouchEvent): void {
     if (!this.loaded || this.dataLoading || this.dataLoadFailed || this.historyBusy ||
-      this.imageCropVisible) {
+      this.imageCropVisible || this.mathEditorVisible) {
       return;
     }
     if (event.type === TouchType.Down) {
@@ -3685,6 +3697,12 @@ export struct NoteCanvasView {
       this.findSelectionGroup(state.selectedGroupIds[0]) !== null &&
       resolveOriginalSelectedGroupLeaves(
         state.selectedGroupIds, selectedEntityIds, this.selectionGroups) !== null;
+    this.selectionCanEditMath = state.selectedMathIds.length === 1 &&
+      state.selectedStrokeIds.length === 0 && state.selectedShapeIds.length === 0 &&
+      state.selectedTextBlockIds.length === 0 && state.selectedImageIds.length === 0 &&
+      state.selectedGroupIds.length === 0 &&
+      this.mathBlocks.some((math: MathElement): boolean =>
+        math.id === state.selectedMathIds[0] && decodeOperationId(math.id) !== null);
     let lockableCount: number = 0;
     let lockedCount: number = 0;
     for (const shape of this.shapes) {
@@ -4004,12 +4022,102 @@ export struct NoteCanvasView {
       this.groupSelectedElements();
     } else if (action === SelectionMenuAction.UNGROUP) {
       this.ungroupSelectedElements();
+    } else if (action === SelectionMenuAction.EDIT_MATH) {
+      this.startMathEditing();
     } else if (action === SelectionMenuAction.COPY) {
       this.copySelectedToClipboard(
         state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
         state.selectedImageIds, state.selectedMathIds, state.selectedGroupIds);
     } else if (action === SelectionMenuAction.PASTE) {
       this.pasteClipboard();
+    }
+  }
+
+  private startMathEditing(): void {
+    if (this.mathEditorVisible || this.historyBusy || !this.selectionCanEditMath) {
+      return;
+    }
+    const selected: string[] = this.selectionTool.getState().selectedMathIds;
+    const math: MathElement | undefined = this.mathBlocks.find(
+      (candidate: MathElement): boolean => selected.length === 1 && candidate.id === selected[0]);
+    if (math === undefined || decodeOperationId(math.id) === null) {
+      return;
+    }
+    this.mathEditorOriginal = cloneMathElement(math);
+    this.mathEditorDraft = math.latex;
+    this.mathEditorFailed = false;
+    this.mathEditorBusy = false;
+    this.mathEditorVisible = true;
+    this.selectionVisible = false;
+  }
+
+  private cancelMathEditing(): void {
+    if (this.mathEditorBusy) {
+      return;
+    }
+    this.mathEditorVisible = false;
+    this.mathEditorDraft = '';
+    this.mathEditorFailed = false;
+    this.mathEditorOriginal = null;
+    this.updateSelectionOverlay();
+  }
+
+  private async confirmMathEditing(): Promise<void> {
+    const before: MathElement | null = this.mathEditorOriginal;
+    if (before === null || this.mathEditorBusy || this.historyBusy ||
+      !isOriginalMathLatexDraftValid(this.mathEditorDraft)) {
+      return;
+    }
+    const draft: string = this.mathEditorDraft;
+    if (before.latex === draft) {
+      this.cancelMathEditing();
+      return;
+    }
+    const pageId: string = this.loadedPageId;
+    const generation: number = this.pageLoadGeneration;
+    const after: MathElement = cloneMathElement(before);
+    after.latex = draft;
+    after.bounds = mathBlockWorldBounds(after);
+    const action: UndoableAction = {
+      type: UndoableActionType.TRANSFORM_ELEMENTS,
+      noteId: this.noteId,
+      pageId: pageId,
+      beforeStrokes: [], afterStrokes: [], beforeShapes: [], afterShapes: [],
+      beforeTextBlocks: [], afterTextBlocks: [], beforeImages: [], afterImages: [],
+      beforeMathBlocks: [before], afterMathBlocks: [after],
+    };
+    const prepared: HistoryMetadata = this.undoRedo.prepareHistoryMetadata(action);
+    const proposedMath: MathElement[] = this.mathBlocks.map(
+      (math: MathElement): MathElement => math.id === before.id ? after : math);
+    this.mathEditorBusy = true;
+    this.mathEditorFailed = false;
+    this.historyBusy = true;
+    try {
+      await this.persistence.commitOriginalMathLatex(
+        this.noteId, pageId, this.completedStrokes, this.textBlocks, this.elementOrder,
+        this.shapes, this.imageBlocks, proposedMath, prepared);
+      this.undoRedo.push(action, prepared);
+      this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+      this.mathEditorVisible = false;
+      this.mathEditorDraft = '';
+      this.mathEditorOriginal = null;
+      this.originalInkIneligiblePages.delete(pageId);
+      this.saveFailed = false;
+      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+        pageId === this.currentPage.pageId) {
+        this.mathBlocks = proposedMath;
+        this.updateSelectionOverlay();
+        this.renderFrame();
+      }
+      this.notifyUndoRedo();
+    } catch (e) {
+      this.mathEditorFailed = true;
+      this.reportSaveFailure(e as Object);
+      hilog.error(0x0001, 'NoteCanvasView',
+        'original Math latex commit failed: %{public}s', JSON.stringify(e));
+    } finally {
+      this.mathEditorBusy = false;
+      this.historyBusy = false;
     }
   }
 
@@ -5540,6 +5648,7 @@ export struct NoteCanvasView {
         canLock: this.selectionCanLock,
         canGroup: this.selectionCanGroup,
         canUngroup: this.selectionCanUngroup,
+        canEditMath: this.selectionCanEditMath,
         positionLocked: this.selectionPositionLocked,
         containerWidth: this.overlayWidth,
         containerHeight: this.overlayHeight,
@@ -5638,6 +5747,25 @@ export struct NoteCanvasView {
         .alignItems(HorizontalAlign.Center)
         .backgroundColor(this.resolveTokens().scrim)
       }
+      MathEditorOverlay({
+        visible: this.mathEditorVisible,
+        draft: this.mathEditorDraft,
+        busy: this.mathEditorBusy,
+        failed: this.mathEditorFailed,
+        containerWidth: this.overlayWidth,
+        onDraftChange: (value: string): void => {
+          this.mathEditorDraft = value;
+          this.mathEditorFailed = false;
+        },
+        onCancel: (): void => this.cancelMathEditing(),
+        onConfirm: (): void => {
+          this.confirmMathEditing().catch((e: Object): void => {
+            this.mathEditorFailed = true;
+            hilog.error(0x0001, 'NoteCanvasView',
+              'Math editor confirmation failed: %{public}s', JSON.stringify(e));
+          });
+        },
+      })
     }
     .width('100%')
     .height('100%')

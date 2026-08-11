@@ -2,6 +2,7 @@ import { describe, expect, it } from '@ohos/hypium';
 import { decodeOriginalModifyBlock } from '../main/ets/data/OriginalModifyBlockOperation';
 import {
   encodeOriginalBlockPositionLocked, encodeOriginalImageCrop, encodeOriginalImageFlip,
+  encodeOriginalMathLatex,
 } from '../main/ets/data/OriginalModifyBlockPayloadEncoder';
 import { encodeOriginalOperationEnvelope } from '../main/ets/data/OriginalOperationEnvelopeEncoder';
 
@@ -15,6 +16,30 @@ export default function originalModifyBlockPayloadEncoderTest() {
       const unlocked = decodeOriginalModifyBlock(wrap(encodeOriginalBlockPositionLocked(
         [{ timestamp: 19, siteId: 2 }], false)));
       expect(unlocked.positionLocked).assertFalse();
+    });
+
+    it('round-trips the Math latex nullable setter string', 0, () => {
+      const decoded = decodeOriginalModifyBlock(wrap(encodeOriginalMathLatex(
+        [{ timestamp: 17, siteId: 3 }], '\\sqrt{x^2+y^2}')));
+      expect(decoded.blocks.length).assertEqual(1);
+      expect(decoded.blocks[0].timestamp).assertEqual(17);
+      expect(decoded.mathLatex.present).assertTrue();
+      expect(decoded.mathLatex.value).assertEqual('\\sqrt{x^2+y^2}');
+      expect(decoded.mathColor.present).assertFalse();
+
+      const cleared = decodeOriginalModifyBlock(wrap(encodeOriginalMathLatex(
+        [{ timestamp: 17, siteId: 3 }], '')));
+      expect(cleared.mathLatex.present).assertTrue();
+      expect(cleared.mathLatex.value).assertEqual('');
+    });
+
+    it('rejects invalid Math latex target and UTF-8 budgets', 0, () => {
+      expect(() => encodeOriginalMathLatex([], 'x')).assertThrow();
+      expect(() => encodeOriginalMathLatex([
+        { timestamp: 17, siteId: 3 }, { timestamp: 17, siteId: 3 },
+      ], 'x')).assertThrow();
+      expect(() => encodeOriginalMathLatex(
+        [{ timestamp: 17, siteId: 3 }], 'x'.repeat(1048577))).assertThrow();
     });
 
     it('round-trips image flip registers including explicit false presence', 0, () => {

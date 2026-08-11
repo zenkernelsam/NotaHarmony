@@ -72,8 +72,9 @@ assert.match(persistence,
 assert.match(selectionTest, /selects locked Math when its bounds are hit/);
 assert.match(geometryTest, /leaves position-locked Math untouched/);
 assert.match(clipboardTest, /deep-copies Math and preserves five-kind z order/);
+assert.match(canvas, /this\.persistence\.commitOriginalMathLatex/);
 
 console.log('D02_MATH_EDITING_CONSUMER_REPLAY_OK ' +
   'positionable-evidence=u08-be5|locked-selectable-for-unlock=1|group-leaf=1|transform-bounds=1|' +
   'eraser-lock=2|history=add-delete-transform-erase-durable|clipboard=1|z-order=1|' +
-  'latex-editor=outbound-pending');
+  'latex-editor=type23-field10-complete|native-formula-engine=runtime-pending');

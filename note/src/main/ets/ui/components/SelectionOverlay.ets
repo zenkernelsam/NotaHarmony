@@ -22,6 +22,7 @@ export enum SelectionMenuAction {
   LOCK = 10,
   GROUP = 11,
   UNGROUP = 12,
+  EDIT_MATH = 13,
 }
 
 @Component
@@ -34,6 +35,7 @@ export struct SelectionOverlay {
   @Prop canLock: boolean = false;
   @Prop canGroup: boolean = false;
   @Prop canUngroup: boolean = false;
+  @Prop canEditMath: boolean = false;
   @Prop positionLocked: boolean = false;
   @Prop containerWidth: number = 0;
   @Prop containerHeight: number = 0;
@@ -107,6 +109,10 @@ export struct SelectionOverlay {
     }
     if (this.canCrop) {
       items.push({ value: $r('app.string.crop'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Crop clicked'); this.onMenuAction(SelectionMenuAction.CROP); } });
+    }
+    if (this.canEditMath) {
+      items.push({ value: $r('app.string.edit_math'),
+        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Edit Math clicked'); this.onMenuAction(SelectionMenuAction.EDIT_MATH); } });
     }
     if (this.canLock) {
       items.push({ value: this.positionLocked ? $r('app.string.unlock') : $r('app.string.lock'),

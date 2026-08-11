@@ -46,8 +46,9 @@ Accepted, 2026-08-11.
 
 ## Remaining Boundary
 
-This decision closes the existing Math Block's editor consumer lifecycle. It does not implement a
-LaTeX content-editing UI, original outbound CREATE/MODIFY Block operation writers, a replacement for
-the original native formula layout engine, or device-level formula pixel verification. Group
+This decision closes the existing Math Block's editor consumer lifecycle. ADR-0124 later completes
+the LaTeX editing UI and original MODIFY_BLOCK field-10 writer. Original CREATE_BLOCK authoring, a
+replacement for the original native formula layout engine, and device-level formula pixel
+verification remain separate boundaries. Group
 identity-preserving copy/paste still depends on separate Group writers rather than the leaf-only
 clipboard completed here.

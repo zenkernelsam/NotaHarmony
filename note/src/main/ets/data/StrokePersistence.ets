@@ -119,7 +119,7 @@ import {
 } from './OriginalShapeGroupOperation';
 import {
   encodeOriginalBlockPositionLocked, encodeOriginalBlockSize, encodeOriginalImageCrop,
-  encodeOriginalImageFlip,
+  encodeOriginalImageFlip, encodeOriginalMathLatex,
 } from './OriginalModifyBlockPayloadEncoder';
 import {
   decodeOriginalModifyBlock, ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE,
@@ -739,6 +739,53 @@ export interface OriginalImageFlipMutation {
   updates: OriginalImageFlipUpdate[];
 }
 
+export interface OriginalMathLatexMutation {
+  identity: OperationIdentity;
+  latex: string;
+}
+
+export function classifyOriginalMathLatexMutation(current: SearchSourceElement[],
+  next: PreparedElement[]): OriginalMathLatexMutation | null {
+  if (current.length !== next.length) {
+    return null;
+  }
+  let mutation: OriginalMathLatexMutation | null = null;
+  for (let index: number = 0; index < current.length; index++) {
+    if (current[index].elementId !== next[index].elementId ||
+      current[index].kind !== next[index].kind) {
+      return null;
+    }
+    if (sameByteArrays(current[index].payload, next[index].payload)) {
+      continue;
+    }
+    if (mutation !== null || current[index].kind !== PageElementKind.MATH) {
+      return null;
+    }
+    try {
+      const beforePersisted: PersistedElement = decodePersistedElement(current[index].payload);
+      const afterPersisted: PersistedElement = decodePersistedElement(next[index].payload);
+      if (beforePersisted.kind !== 'math' || afterPersisted.kind !== 'math') {
+        return null;
+      }
+      const before: MathElement = beforePersisted.data as MathElement;
+      const after: MathElement = afterPersisted.data as MathElement;
+      const identity: OperationIdentity | null = decodeOperationId(before.id);
+      const candidate: MathElement = cloneMathElement(before);
+      candidate.latex = after.latex;
+      if (identity === null || before.id !== after.id || before.latex === after.latex ||
+        !sameByteArrays(encodePersistedElement({ kind: 'math', data: candidate }),
+          next[index].payload)) {
+        return null;
+      }
+      encodeOriginalMathLatex([identity], after.latex);
+      mutation = { identity: identity, latex: after.latex };
+    } catch (_error) {
+      return null;
+    }
+  }
+  return mutation;
+}
+
 export interface OriginalImageCropUpdate {
   identity: OperationIdentity;
   originX: number;
@@ -1078,6 +1125,48 @@ export class StrokePersistence {
         characterStyleRuns: preview.characterStyleRuns,
         paragraphStyleRuns: preview.paragraphStyleRuns,
       };
+    });
+  }
+
+  async commitOriginalMathLatex(noteId: string, pageId: string,
+    strokes: StrokeElementData[], textBlocks: TextBlockElement[], elementOrder: PageElementRef[],
+    shapes: ShapeElement[], images: ImageElement[], mathBlocks: MathElement[],
+    history: HistoryMetadata): Promise<void> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    validateHistoryMetadata(history);
+    if (history.effect !== HistoryEffect.PUSH) {
+      throw new Error('Math latex edit requires PUSH history');
+    }
+    const snapshot: PreparedPageSave = this.prepareSave(
+      noteId, pageId, strokes, textBlocks, elementOrder, shapes, images, mathBlocks, history);
+    await this.flush(noteId, pageId);
+    await editorPersistenceMutex.runExclusive(async (): Promise<void> => {
+      if (this.store === null) {
+        throw new Error('StrokePersistence is not initialized');
+      }
+      const store: relationalStore.RdbStore = this.store;
+      await store.beginTransaction();
+      try {
+        const currentRevision: number = await this.readLivePageRevision(store, noteId, pageId);
+        const current: SearchSourceElement[] = await this.loadCurrentSnapshot(store, noteId, pageId);
+        const mathMutation: OriginalMathLatexMutation | null =
+          classifyOriginalMathLatexMutation(current, snapshot.elements);
+        if (mathMutation === null) {
+          throw new Error('Math latex source is stale or the edit changes unsupported fields');
+        }
+        const nextRevision: number = currentRevision + 1;
+        const mutation: PageMutationOpPayload = createPageMutation(
+          pageId, currentRevision, nextRevision, current, snapshot.elements);
+        await this.applyOriginalMathLatex(store, snapshot, mathMutation, nextRevision);
+        await this.rebuildPageSearchState(store, snapshot, nextRevision, false);
+        await this.appendHistoryCompanion(store, snapshot, mutation);
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`commit original Math latex failed: ${JSON.stringify(e)}`);
+      }
     });
   }
 
@@ -2003,6 +2092,16 @@ export class StrokePersistence {
         await store.commit();
         return;
       }
+      const originalMathLatex: OriginalMathLatexMutation | null =
+        classifyOriginalMathLatexMutation(current, snapshot.elements);
+      if (originalMathLatex !== null) {
+        await this.applyOriginalMathLatex(
+          store, snapshot, originalMathLatex, snapshotRevision);
+        await this.rebuildPageSearchState(store, snapshot, snapshotRevision, false);
+        await this.appendHistoryCompanion(store, snapshot, mutation);
+        await store.commit();
+        return;
+      }
       const originalStyle: OriginalRenderMutation | null =
         await this.originalRenderMutation(store, snapshot.noteId, current, snapshot.elements);
       if (originalStyle !== null) {
@@ -2445,8 +2544,11 @@ export class StrokePersistence {
         const originalText: OriginalTextMutation | null = originalVisibility === null &&
           originalPositionLock === null && originalCheckbox === null ? await this.originalTextMutation(
             store, step.noteId, step.pageId, current, step.elements) : null;
+        const originalMathLatex: OriginalMathLatexMutation | null = originalVisibility === null &&
+          originalPositionLock === null && originalCheckbox === null && originalText === null ?
+          classifyOriginalMathLatexMutation(current, step.elements) : null;
         const originalStyle: OriginalRenderMutation | null = originalVisibility === null &&
-          originalPositionLock === null && originalText === null ?
+          originalPositionLock === null && originalText === null && originalMathLatex === null ?
           await this.originalRenderMutation(store, step.noteId, current, step.elements) : null;
         const originalImageFlip: OriginalImageFlipMutation | null =
           originalVisibility === null && originalPositionLock === null && originalText === null &&
@@ -2470,6 +2572,8 @@ export class StrokePersistence {
           await this.applyOriginalCheckboxMutation(store, step, originalCheckbox, nextRevision);
         } else if (originalText !== null) {
           await this.applyOriginalTextMutation(store, step, originalText, nextRevision);
+        } else if (originalMathLatex !== null) {
+          await this.applyOriginalMathLatex(store, step, originalMathLatex, nextRevision);
         } else if (originalStyle !== null) {
           await this.applyOriginalRenderStyle(store, step, originalStyle, nextRevision);
         } else if (originalImageFlip !== null) {
@@ -3477,6 +3581,48 @@ export class StrokePersistence {
       store, step.noteId, step.pageId);
     if (!samePreparedIdentityOrder(materialized, step.elements)) {
       throw new Error('local MODIFY_BLOCK reducer produced an unexpected element order');
+    }
+    await this.reconcilePreparedRows(store, step, expectedRevision);
+  }
+
+  private async applyOriginalMathLatex(store: relationalStore.RdbStore,
+    step: PreparedPageSave, mutation: OriginalMathLatexMutation,
+    expectedRevision: number): Promise<void> {
+    if (await this.readEligibleOriginalInkPage(store, step.noteId, step.pageId) === null) {
+      throw new Error('local Math MODIFY_BLOCK page is no longer original-aligned');
+    }
+    const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, step.noteId);
+    const payload: Uint8Array = encodeOriginalMathLatex([mutation.identity], mutation.latex);
+    const metadata: OriginalInkCreateMetadata = {
+      timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
+      pageTimestamp: 0, pageSiteId: 0, pageIndex: 0, pencilSeed: 0,
+    };
+    const operation: StoredSyncedOperation = localStoredOperation(
+      step.noteId, metadata, ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE, payload, null);
+    const decoded: OriginalModifyBlockPayload = decodeOriginalModifyBlock(operation.rawOperation);
+    const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+    const result: SyncedOperationApplyResult =
+      await new OriginalModifyBlockOperationApplier().applyBatchedPayload(
+        store, operation, decoded, revisionBatch);
+    if (result.deferredReason !== null) {
+      throw new Error(`local Math latex MODIFY_BLOCK was deferred: ${result.deferredReason}`);
+    }
+    await appendOperation(store, {
+      noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_BLOCK,
+      payload: operation.rawOperation, clientTime: identity.clientTime,
+      opTimestamp: identity.timestamp, editorSiteId: identity.siteId,
+      uploadImmediately: true,
+    });
+    await revisionBatch.flush(store, step.noteId);
+    const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+      store, step.noteId, step.pageId);
+    if (!samePreparedIdentityOrder(materialized, step.elements)) {
+      throw new Error('local Math latex reducer produced an unexpected element order');
+    }
+    for (let index: number = 0; index < materialized.length; index++) {
+      if (!sameByteArrays(materialized[index].payload, step.elements[index].payload)) {
+        throw new Error('local Math latex reducer diverged from the requested canonical snapshot');
+      }
     }
     await this.reconcilePreparedRows(store, step, expectedRevision);
   }
