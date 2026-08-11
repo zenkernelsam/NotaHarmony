@@ -30,6 +30,7 @@ export enum UndoableActionType {
   ADD_ELEMENTS = 16,
   PERSISTED_PAGE_MUTATIONS = 17,
   GROUP_ELEMENTS = 18,
+  ORIGINAL_CLIPBOARD_PASTE = 19,
 }
 
 interface ActionBase {
@@ -196,11 +197,16 @@ export interface GroupElementsAction extends ActionBase, ElementOrderChange {
   afterGroups: OriginalSelectionGroup[];
 }
 
+export interface OriginalClipboardPasteAction extends ActionBase {
+  type: UndoableActionType.ORIGINAL_CLIPBOARD_PASTE;
+  operation: Op;
+}
+
 export type UndoableAction = AddStrokeAction | RemoveStrokeAction | TransformStrokesAction |
   AddElementAction | DeleteElementAction | ReplaceElementAction | ReorderElementsAction |
   AddShapeAction | AddElementsAction | DeleteElementsAction | TransformElementsAction | EraseElementsAction |
   AddPageAction | DeletePageAction | ReorderPagesAction | PageSettingsAction | PersistedPageMutationsAction |
-  GroupElementsAction;
+  GroupElementsAction | OriginalClipboardPasteAction;
 
 export interface RestoredHistoryAction {
   action: UndoableAction;
@@ -336,6 +342,9 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
   if (action.type === UndoableActionType.GROUP_ELEMENTS) {
     return bytes + estimateGroups(action.beforeGroups) + estimateGroups(action.afterGroups) +
       estimateElementOrderChange(action);
+  }
+  if (action.type === UndoableActionType.ORIGINAL_CLIPBOARD_PASTE) {
+    return bytes + action.operation.payload.length + action.operation.opId.length * 2 + 128;
   }
   return bytes + 512;
 }

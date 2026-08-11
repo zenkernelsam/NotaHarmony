@@ -19,13 +19,15 @@ import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextB
 import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockGeometry';
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import {
-  AddPageAction, DeletePageAction, GroupElementsAction, PageSettingsAction,
+  AddPageAction, DeletePageAction, GroupElementsAction, OriginalClipboardPasteAction, PageSettingsAction,
   PersistedPageMutationsAction, ReorderPagesAction, RestoredHistoryAction, UndoableAction,
   UndoableActionType,
 } from '../rendering/UndoRedoManager';
 import {
   decodeOriginalGroupMutation, OriginalGroupMutationOpPayload,
 } from './OriginalGroupMutationOpCodec';
+import { decodeOriginalClipboardPasteMutation,
+  OriginalClipboardPasteMutation } from './OriginalClipboardPasteMutationCodec';
 
 export interface PersistentHistoryAction {
   actionId: string;
@@ -227,6 +229,20 @@ function materializeAction(action: PersistentHistoryAction, currentPageId: strin
       afterGroups: mutation.afterGroups,
       elementOrderBefore: mutation.elementOrderBefore,
       elementOrderAfter: mutation.elementOrderAfter,
+    };
+    return restored;
+  }
+  if (action.operations[0].opType === OpType.ORIGINAL_CLIPBOARD_PASTE) {
+    if (action.operations.length !== 1) {
+      throw new Error('persistent original clipboard Paste action must contain exactly one mutation');
+    }
+    const mutation: OriginalClipboardPasteMutation =
+      decodeOriginalClipboardPasteMutation(action.operations[0].payload);
+    const restored: OriginalClipboardPasteAction = {
+      type: UndoableActionType.ORIGINAL_CLIPBOARD_PASTE,
+      noteId: noteId,
+      pageId: mutation.pageMutation.pageId,
+      operation: action.operations[0],
     };
     return restored;
   }

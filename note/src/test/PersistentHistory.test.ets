@@ -20,6 +20,8 @@ import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import { UndoableActionType } from '../main/ets/rendering/UndoRedoManager';
 import { ElementType, ImageElement } from '../main/ets/core/model/ElementTypes';
+import { encodeOriginalClipboardPasteMutation,
+  OriginalClipboardPasteMutation } from '../main/ets/data/OriginalClipboardPasteMutationCodec';
 import { encodeOriginalGroupMutation, OriginalGroupMutationOpPayload } from
   '../main/ets/data/OriginalGroupMutationOpCodec';
 
@@ -128,6 +130,27 @@ function groupHistoryOp(opId: string, effect: HistoryEffect): Op {
   };
 }
 
+function clipboardPasteHistoryOp(opId: string, effect: HistoryEffect): Op {
+  const before: SearchSourceElement[] = [element('op:a:1', PageElementKind.STROKE, 1)];
+  const after: SearchSourceElement[] = [before[0],
+    element('op:14:2', PageElementKind.STROKE, 2),
+    element('op:15:2', PageElementKind.SHAPE, 3)];
+  const mutation: OriginalClipboardPasteMutation = {
+    pageMutation: createPageMutation('page-1', 7, 8, before, after),
+    groups: [{ id: 'op:1e:3', timestamp: 30, siteId: 3,
+      members: ['op:14:2', 'op:15:2'] }],
+    topGroupIds: ['op:1e:3'],
+  };
+  return {
+    opId: opId, noteId: 'note-1', opType: OpType.ORIGINAL_CLIPBOARD_PASTE,
+    payload: encodeOriginalClipboardPasteMutation(mutation), clientTime: 100,
+    history: {
+      actionId: 'clipboard-paste-action', effect: effect,
+      coalesceTrack: HistoryCoalesceTrack.NONE, actionTime: 100,
+    },
+  };
+}
+
 function element(elementId: string, kind: number, value: number): SearchSourceElement {
   return { elementId: elementId, kind: kind, payload: new Uint8Array([value]) };
 }
@@ -195,6 +218,34 @@ function deleteCheckpoint(pageInfo: PageInfo): PageDeleteCheckpoint {
 
 export default function persistentHistoryTest() {
   describe('PersistentHistory', () => {
+    it('restores NCP1 Group Paste as one dedicated action across UNDO', 0, () => {
+      const restored: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([
+          clipboardPasteHistoryOp('paste-push', HistoryEffect.PUSH),
+          clipboardPasteHistoryOp('paste-undo', HistoryEffect.UNDO),
+        ]), 'page-1');
+      expect(restored.undo.length).assertEqual(0);
+      expect(restored.redo.length).assertEqual(1);
+      expect(restored.redo[0].action.type)
+        .assertEqual(UndoableActionType.ORIGINAL_CLIPBOARD_PASTE);
+      if (restored.redo[0].action.type === UndoableActionType.ORIGINAL_CLIPBOARD_PASTE) {
+        expect(restored.redo[0].action.pageId).assertEqual('page-1');
+        expect(restored.redo[0].action.operation.opType)
+          .assertEqual(OpType.ORIGINAL_CLIPBOARD_PASTE);
+      }
+    });
+
+    it('rejects mixed or corrupt NCP1 persistent actions', 0, () => {
+      const first: Op = clipboardPasteHistoryOp('paste-a', HistoryEffect.PUSH);
+      const second: Op = clipboardPasteHistoryOp('paste-b', HistoryEffect.PUSH);
+      second.history = first.history;
+      expect(materializeRejects(reducePersistentHistory([first, second]))).assertTrue();
+
+      const corrupt: Op = clipboardPasteHistoryOp('paste-corrupt', HistoryEffect.PUSH);
+      corrupt.payload = corrupt.payload.slice(0, corrupt.payload.length - 1);
+      expect(materializeRejects(reducePersistentHistory([corrupt]))).assertTrue();
+    });
+
     it('restores NGM1 Group actions across PUSH UNDO and REDO', 0, () => {
       const undone: RestoredHistoryState = materializePersistentHistory(
         reducePersistentHistory([

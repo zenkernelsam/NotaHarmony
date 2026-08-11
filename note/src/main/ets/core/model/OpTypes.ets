@@ -23,6 +23,8 @@ export enum OpType {
   // Harmony history companion for original Group visibility/authoring. The private-sync
   // operations remain separate ORIGINAL_* rows and this payload only restores editor history.
   GROUP_ELEMENTS = 31,
+  // Harmony history companion for one original Group-preserving clipboard Paste transaction.
+  ORIGINAL_CLIPBOARD_PASTE = 32,
   UNDO = 40,
   REDO = 41,
   // Harmony recovery checkpoint. This is deliberately distinct from the
