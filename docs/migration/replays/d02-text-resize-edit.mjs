@@ -46,7 +46,7 @@ const overlay = fs.readFileSync(new URL(
 assert.match(renderer, /measureNaturalWidth\(element: TextBlockElement, context: RenderContext\)/);
 assert.match(renderer, /this\.measureRange\(ctx, characters, characterStyles/);
 assert.match(renderer, /paragraph\.indentLevel/);
-assert.match(renderer, /this\.decoratorPrefix\(paragraph\.decoratorStyle/);
+assert.match(renderer, /this\.decoratorPrefix\(\s*paragraph\.decoratorStyle/);
 assert.match(tool, /updateWidthToFit\(element: TextBlockElement, measuredWidth: number\)/);
 assert.match(tool, /updated\.bounds = textBlockWorldBounds\(updated\)/);
 assert.match(canvas, /this\.textRenderer\.measureNaturalWidth\(element, this\.renderCtx\)/);

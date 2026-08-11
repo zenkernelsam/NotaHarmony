@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v52: preserve original per-note cloud-persisted asset state independently from local files.
-export const DB_VERSION: number = 52;
+// v53: preserve the original RichText location-keyed checkbox LWW register.
+export const DB_VERSION: number = 53;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -1036,6 +1036,24 @@ CREATE TABLE IF NOT EXISTS original_text_style_operation (
   end_type INTEGER NOT NULL CHECK (end_type BETWEEN 0 AND 3),
   attributes_json TEXT NOT NULL CHECK (length(attributes_json) BETWEEN 2 AND 65536),
   PRIMARY KEY(note_id, operation_timestamp, operation_site_id),
+  FOREIGN KEY(note_id, block_timestamp, block_site_id)
+    REFERENCES original_block_state(note_id, block_timestamp, block_site_id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_TEXT_CHECKBOX_STATE: string = `
+CREATE TABLE IF NOT EXISTS original_text_checkbox_state (
+  note_id TEXT NOT NULL,
+  block_timestamp INTEGER NOT NULL CHECK (block_timestamp BETWEEN 0 AND 4294967295),
+  block_site_id INTEGER NOT NULL CHECK (block_site_id BETWEEN 0 AND 65535),
+  location_timestamp INTEGER NOT NULL CHECK (location_timestamp BETWEEN 0 AND 4294967295),
+  location_site_id INTEGER NOT NULL CHECK (location_site_id BETWEEN 0 AND 65535),
+  location_index INTEGER NOT NULL CHECK (location_index BETWEEN 0 AND 4294967295),
+  is_checked INTEGER NOT NULL CHECK (is_checked IN (0, 1)),
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  PRIMARY KEY(note_id, block_timestamp, block_site_id,
+    location_timestamp, location_site_id, location_index),
+  UNIQUE(note_id, winner_timestamp, winner_site_id),
   FOREIGN KEY(note_id, block_timestamp, block_site_id)
     REFERENCES original_block_state(note_id, block_timestamp, block_site_id) ON DELETE CASCADE
 )`;
@@ -2111,5 +2129,8 @@ export const MIGRATIONS: Record<number, string[]> = {
   ],
   52: [
     DDL_ORIGINAL_ASSET_CLOUD_STATE,
+  ],
+  53: [
+    DDL_ORIGINAL_TEXT_CHECKBOX_STATE,
   ],
 };

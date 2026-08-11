@@ -11,7 +11,8 @@ import {
 import {
   emptyOriginalTextStyleAttributes, materializeOriginalTextStyles,
   OriginalTextBoundary, OriginalTextBoundaryType, OriginalTextStyleAttributes,
-  readOriginalTextStyleOperations, StoredOriginalTextStyleOperation,
+  readOriginalCheckboxStates, readOriginalTextStyleOperations, StoredOriginalCheckboxState,
+  StoredOriginalTextStyleOperation,
 } from './OriginalRichTextStyleState';
 import { OriginalFlatBufferTableReader, readOriginalPayloadTable } from
   './OriginalSyncedOperationFlatBuffer';
@@ -134,11 +135,13 @@ export class OriginalRichTextStyleOperationApplier implements SyncedOperationApp
       store, operation.noteId, block);
     const existing: StoredOriginalTextStyleOperation[] | null =
       await readOriginalTextStyleOperations(store, operation.noteId, block);
-    if (text === null || characters === null || existing === null ||
+    const checkboxStates: StoredOriginalCheckboxState[] | null =
+      await readOriginalCheckboxStates(store, operation.noteId, block);
+    if (text === null || characters === null || existing === null || checkboxStates === null ||
       (!target.hidden && target.revision >= Number.MAX_SAFE_INTEGER)) {
       return { deferredReason: 'RICH_TEXT_STYLE_STATE_DIVERGED' };
     }
-    const before = materializeOriginalTextStyles(characters, existing);
+    const before = materializeOriginalTextStyles(characters, existing, checkboxStates);
     if (before === null || !sameStyles(text, before.characterRuns, before.paragraphRuns)) {
       return { deferredReason: 'RICH_TEXT_STYLE_STATE_DIVERGED' };
     }
@@ -155,7 +158,8 @@ export class OriginalRichTextStyleOperationApplier implements SyncedOperationApp
       paragraph: payload.paragraph, clearAll: payload.clearAll,
       start: payload.start, end: payload.end, attributes: payload.attributes,
     };
-    const after = materializeOriginalTextStyles(characters, existing.concat([nextOperation]));
+    const after = materializeOriginalTextStyles(
+      characters, existing.concat([nextOperation]), checkboxStates);
     if (after === null) {
       return { deferredReason: 'RICH_TEXT_STYLE_BOUNDARY_MISSING_OR_REVERSED' };
     }

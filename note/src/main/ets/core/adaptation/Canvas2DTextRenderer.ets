@@ -30,7 +30,8 @@ export class Canvas2DTextRenderer {
         }
         const paragraph: RichTextParagraphStyle = paragraphStyles[Math.min(
           lineStart, Math.max(0, characters.length - 1))] ?? {};
-        const prefix: string = this.decoratorPrefix(paragraph.decoratorStyle, numberedParagraph);
+        const prefix: string = this.decoratorPrefix(
+          paragraph.decoratorStyle, numberedParagraph, paragraph.isChecked);
         if (paragraph.decoratorStyle === 2) {
           numberedParagraph++;
         }
@@ -70,7 +71,8 @@ export class Canvas2DTextRenderer {
     for (const index of lineEnds) {
       const paragraph: RichTextParagraphStyle = paragraphStyles[Math.min(
         lineStart, Math.max(0, characters.length - 1))] ?? {};
-      const prefix: string = this.decoratorPrefix(paragraph.decoratorStyle, numberedParagraph);
+      const prefix: string = this.decoratorPrefix(
+        paragraph.decoratorStyle, numberedParagraph, paragraph.isChecked);
       if (paragraph.decoratorStyle === 2) {
         numberedParagraph++;
       }
@@ -311,7 +313,8 @@ export class Canvas2DTextRenderer {
     return result;
   }
 
-  private decoratorPrefix(style: number | undefined, number: number): string {
+  private decoratorPrefix(style: number | undefined, number: number,
+    isChecked: boolean | undefined): string {
     if (style === 1) {
       return '\u2022 ';
     }
@@ -319,7 +322,7 @@ export class Canvas2DTextRenderer {
       return number.toString() + '. ';
     }
     if (style === 3) {
-      return '\u2610 ';
+      return isChecked === true ? '\u2611 ' : '\u2610 ';
     }
     if (style === 4) {
       return '> ';

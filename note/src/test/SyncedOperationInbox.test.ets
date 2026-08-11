@@ -62,6 +62,10 @@ import {
 import {
   decodeOriginalModifyPositions,
 } from '../main/ets/data/OriginalModifyPositionsOperation';
+import {
+  decodeOriginalUpdateCheckbox, ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE,
+  OriginalUpdateCheckboxOperationApplier,
+} from '../main/ets/data/OriginalUpdateCheckboxOperation';
 import { OriginalPageMutationBatch } from '../main/ets/data/OriginalPageMutationBatch';
 
 function operation(timestamp: number, serverTime: string,
@@ -216,6 +220,7 @@ export default function syncedOperationInboxTest() {
       expect(applier.supports(ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE)).assertTrue();
+      expect(applier.supports(ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(5)).assertFalse();
     });
 
@@ -375,6 +380,31 @@ export default function syncedOperationInboxTest() {
       expect(applier.preflightTable(readOriginalPayloadTable(
         flatBufferAssetCloudPersisted(true, false, true), 2))).assertEqual(
         'ASSET_CLOUD_PERSISTED_FIELDS_UNSUPPORTED');
+    });
+
+    it('decodes original UpdateCheckbox target, stable location and explicit false', 0, () => {
+      const checked = decodeOriginalUpdateCheckbox(flatBufferUpdateCheckbox(true));
+      expect(checked.textField.timestamp).assertEqual(20);
+      expect(checked.textField.siteId).assertEqual(2);
+      expect(checked.location.timestamp).assertEqual(100);
+      expect(checked.location.siteId).assertEqual(7);
+      expect(checked.location.index).assertEqual(3);
+      expect(checked.isChecked).assertTrue();
+      const unchecked = decodeOriginalUpdateCheckbox(flatBufferUpdateCheckbox(false));
+      expect(unchecked.isChecked).assertFalse();
+    });
+
+    it('rejects incomplete and extended original UpdateCheckbox payloads', 0, () => {
+      const applier = new OriginalUpdateCheckboxOperationApplier();
+      expect(applier.preflightTable(readOriginalPayloadTable(
+        flatBufferUpdateCheckbox(true, false, false), 28))).assertEqual(
+        'MALFORMED_UPDATE_CHECKBOX_PAYLOAD');
+      expect(applier.preflightTable(readOriginalPayloadTable(
+        flatBufferUpdateCheckbox(true, true, false, false), 28))).assertEqual(
+        'MALFORMED_UPDATE_CHECKBOX_PAYLOAD');
+      expect(applier.preflightTable(readOriginalPayloadTable(
+        flatBufferUpdateCheckbox(true, true, true), 28))).assertEqual(
+        'MALFORMED_UPDATE_CHECKBOX_PAYLOAD');
     });
 
     it('decodes per-target original ModifyPositions registers without number loss', 0, () => {
@@ -1479,6 +1509,28 @@ function styleEnvelope(payloadType: number, root: number, payload: number,
   builder.uint8(root + 28, payloadType);
   builder.pointer(root + 32, payload);
   return builder.finish(root);
+}
+
+function flatBufferUpdateCheckbox(checked: boolean, includeTarget: boolean = true,
+  includeUnknown: boolean = false, includeLocation: boolean = true): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  const payload: number = builder.table(
+    [includeTarget ? 4 : 0, includeLocation ? 12 : 0,
+      checked ? 24 : 0, includeUnknown ? 25 : 0], 28);
+  if (includeTarget) {
+    builder.inlineIdentity(payload + 4, 20, 2);
+  }
+  if (includeLocation) {
+    builder.inlineSequence(payload + 12, 100, 7, 3);
+  }
+  if (checked) {
+    builder.uint8(payload + 24, 1);
+  }
+  if (includeUnknown) {
+    builder.uint8(payload + 25, 1);
+  }
+  return styleEnvelope(28, root, payload, builder);
 }
 
 function boolWrapper(builder: FixtureFlatBufferBuilder, value: boolean | null): number {

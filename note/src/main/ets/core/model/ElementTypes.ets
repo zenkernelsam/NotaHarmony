@@ -103,6 +103,7 @@ export interface RichTextParagraphStyle {
   decoratorStyle?: number;
   programmingLanguage?: string;
   writingDirection?: number;
+  isChecked?: boolean;
 }
 
 export interface RichTextParagraphStyleRun {

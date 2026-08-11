@@ -220,7 +220,7 @@ assert.match(createSource, /kind === PageElementKind\.MATH \? 'math' : 'text'/);
 assert.match(modifySource, /replaceMathLatex[\s\S]*replaceMathColor/);
 assert.match(modifySource, /updatedMath\.latex = payload\.mathLatex\.value === null \? ''/);
 assert.match(modifySource, /updatedMath\.color = payload\.mathColor\.value === null \? DEFAULT_MATH_COLOR/);
-assert.match(schema, /DB_VERSION: number = 52/);
+assert.match(schema, /DB_VERSION: number = 53/);
 
 console.log('success|v44-v45=1|migration-rollback=1|missing-fields-zero-write=2|' +
   'kind=5|snapshot-kind=math|rgba-argb=1|independent-lww=2|stale-noop=1|latex-clear=1|' +

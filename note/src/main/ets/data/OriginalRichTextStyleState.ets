@@ -75,6 +75,12 @@ export interface StoredOriginalTextStyleOperation {
   attributes: OriginalTextStyleAttributes;
 }
 
+export interface StoredOriginalCheckboxState {
+  location: OriginalSequenceIdentity;
+  isChecked: boolean;
+  winner: OperationIdentity;
+}
+
 export interface OriginalTextStyleMaterialization {
   characterRuns: RichTextCharacterStyleRun[];
   paragraphRuns: RichTextParagraphStyleRun[];
@@ -123,8 +129,48 @@ export async function readOriginalTextStyleOperations(store: relationalStore.Rdb
   return result;
 }
 
+export async function readOriginalCheckboxStates(store: relationalStore.RdbStore,
+  noteId: string, block: OperationIdentity): Promise<StoredOriginalCheckboxState[] | null> {
+  const rows = await store.querySql(
+    `SELECT location_timestamp, location_site_id, location_index, is_checked,
+            winner_timestamp, winner_site_id
+     FROM original_text_checkbox_state
+     WHERE note_id = ? AND block_timestamp = ? AND block_site_id = ?`,
+    [noteId, block.timestamp, block.siteId]);
+  const result: StoredOriginalCheckboxState[] = [];
+  const winners: Set<string> = new Set<string>();
+  try {
+    while (rows.goToNextRow()) {
+      const location: OriginalSequenceIdentity = {
+        timestamp: rows.getLong(rows.getColumnIndex('location_timestamp')),
+        siteId: rows.getLong(rows.getColumnIndex('location_site_id')),
+        index: rows.getLong(rows.getColumnIndex('location_index')),
+      };
+      const winner: OperationIdentity = {
+        timestamp: rows.getLong(rows.getColumnIndex('winner_timestamp')),
+        siteId: rows.getLong(rows.getColumnIndex('winner_site_id')),
+      };
+      validateOriginalSequenceIdentity(location);
+      validateOperationIdentity(winner);
+      const checked: number = rows.getLong(rows.getColumnIndex('is_checked'));
+      const winnerKey: string = `${winner.timestamp}:${winner.siteId}`;
+      if ((checked !== 0 && checked !== 1) || winners.has(winnerKey)) {
+        return null;
+      }
+      winners.add(winnerKey);
+      result.push({ location: location, isChecked: checked === 1, winner: winner });
+    }
+    return result;
+  } catch (_error) {
+    return null;
+  } finally {
+    rows.close();
+  }
+}
+
 export function materializeOriginalTextStyles(characters: StoredOriginalTextCharacter[],
-  operations: StoredOriginalTextStyleOperation[]): OriginalTextStyleMaterialization | null {
+  operations: StoredOriginalTextStyleOperation[], checkboxStates: StoredOriginalCheckboxState[] = []):
+  OriginalTextStyleMaterialization | null {
   const ordered: StoredOriginalTextCharacter[] | null = orderCharacters(characters);
   if (ordered === null) {
     return null;
@@ -132,6 +178,24 @@ export function materializeOriginalTextStyles(characters: StoredOriginalTextChar
   const positions: Map<string, number> = new Map<string, number>();
   for (let index: number = 0; index < ordered.length; index++) {
     positions.set(encodeOriginalSequenceId(ordered[index].identity), index);
+  }
+  const checkboxByLocation: Map<string, StoredOriginalCheckboxState> = new Map();
+  const checkboxWinners: Set<string> = new Set<string>();
+  for (const state of checkboxStates) {
+    try {
+      validateOriginalSequenceIdentity(state.location);
+      validateOperationIdentity(state.winner);
+    } catch (_error) {
+      return null;
+    }
+    const locationKey: string = encodeOriginalSequenceId(state.location);
+    const winnerKey: string = `${state.winner.timestamp}:${state.winner.siteId}`;
+    if (!positions.has(locationKey) || checkboxByLocation.has(locationKey) ||
+      checkboxWinners.has(winnerKey)) {
+      return null;
+    }
+    checkboxByLocation.set(locationKey, state);
+    checkboxWinners.add(winnerKey);
   }
   const sorted: StoredOriginalTextStyleOperation[] = operations.slice();
   sorted.sort((left: StoredOriginalTextStyleOperation,
@@ -166,6 +230,11 @@ export function materializeOriginalTextStyles(characters: StoredOriginalTextChar
       } else {
         applyCharacterAttributes(characterStyle, operation.attributes);
       }
+    }
+    const checkbox: StoredOriginalCheckboxState | undefined = checkboxByLocation.get(
+      encodeOriginalSequenceId(character.identity));
+    if (checkbox !== undefined && paragraphStyle.decoratorStyle === 3) {
+      paragraphStyle.isChecked = checkbox.isChecked;
     }
     appendCharacterRun(characterRuns, visibleIndex, characterStyle);
     appendParagraphRun(paragraphRuns, visibleIndex, paragraphStyle);

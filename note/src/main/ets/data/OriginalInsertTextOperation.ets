@@ -11,8 +11,8 @@ import {
 import { OriginalBlockType } from './OriginalCreateBlockOperation';
 import { OriginalFlatBufferTableReader, readOriginalPayloadTable } from './OriginalSyncedOperationFlatBuffer';
 import {
-  materializeOriginalTextStyles, readOriginalTextStyleOperations,
-  StoredOriginalTextCharacter, StoredOriginalTextStyleOperation,
+  materializeOriginalTextStyles, readOriginalCheckboxStates, readOriginalTextStyleOperations,
+  StoredOriginalCheckboxState, StoredOriginalTextCharacter, StoredOriginalTextStyleOperation,
 } from './OriginalRichTextStyleState';
 import { SearchItemType } from './SearchItemType';
 import { decodePersistedElement, encodePersistedElement, PersistedElement } from './StrokePersistence';
@@ -203,8 +203,10 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     }
     const styleOperations: StoredOriginalTextStyleOperation[] | null =
       await readOriginalTextStyleOperations(store, operation.noteId, target.block);
-    const beforeStyles = styleOperations === null ? null :
-      materializeOriginalTextStyles(existing, styleOperations);
+    const checkboxStates: StoredOriginalCheckboxState[] | null =
+      await readOriginalCheckboxStates(store, operation.noteId, target.block);
+    const beforeStyles = styleOperations === null || checkboxStates === null ? null :
+      materializeOriginalTextStyles(existing, styleOperations, checkboxStates);
     if (beforeStyles === null || !sameMaterializedStyles(text, beforeStyles)) {
       return { deferredReason: 'INSERT_TEXT_STYLE_STATE_DIVERGED' };
     }
@@ -253,7 +255,8 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     const updatedText: TextBlockElement = cloneText(text);
     updatedText.richText = updatedValue;
     const updatedStyles = materializeOriginalTextStyles(
-      updatedCharacters as StoredCharacter[], styleOperations as StoredOriginalTextStyleOperation[]);
+      updatedCharacters as StoredCharacter[], styleOperations as StoredOriginalTextStyleOperation[],
+      checkboxStates as StoredOriginalCheckboxState[]);
     if (updatedStyles === null) {
       throw new Error('original insert-text produced invalid style boundaries');
     }
@@ -660,8 +663,10 @@ export class OriginalTextVisibilityOperationApplier implements SyncedOperationAp
     }
     const styleOperations: StoredOriginalTextStyleOperation[] | null =
       await readOriginalTextStyleOperations(store, operation.noteId, target.block);
-    const beforeStyles = styleOperations === null ? null :
-      materializeOriginalTextStyles(characters, styleOperations);
+    const checkboxStates: StoredOriginalCheckboxState[] | null =
+      await readOriginalCheckboxStates(store, operation.noteId, target.block);
+    const beforeStyles = styleOperations === null || checkboxStates === null ? null :
+      materializeOriginalTextStyles(characters, styleOperations, checkboxStates);
     if (beforeStyles === null || !sameMaterializedStyles(text, beforeStyles)) {
       return { deferredReason: 'TEXT_VISIBILITY_STYLE_STATE_DIVERGED' };
     }
@@ -716,7 +721,8 @@ export class OriginalTextVisibilityOperationApplier implements SyncedOperationAp
     const updatedText: TextBlockElement = cloneText(text);
     updatedText.richText = after;
     const updatedStyles = materializeOriginalTextStyles(
-      characters, styleOperations as StoredOriginalTextStyleOperation[]);
+      characters, styleOperations as StoredOriginalTextStyleOperation[],
+      checkboxStates as StoredOriginalCheckboxState[]);
     if (updatedStyles === null) {
       throw new Error('original text-visibility produced invalid style boundaries');
     }

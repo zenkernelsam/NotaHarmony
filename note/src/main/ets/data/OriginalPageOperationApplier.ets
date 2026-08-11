@@ -43,6 +43,9 @@ import {
   ORIGINAL_MODIFY_POSITIONS_PAYLOAD_TYPE, OriginalModifyPositionsOperationApplier,
 } from './OriginalModifyPositionsOperation';
 import {
+  ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE, OriginalUpdateCheckboxOperationApplier,
+} from './OriginalUpdateCheckboxOperation';
+import {
   OriginalFlatBufferTableReader,
 } from './OriginalSyncedOperationFlatBuffer';
 import {
@@ -73,6 +76,8 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
     new OriginalTextVisibilityOperationApplier();
   private richTextStyle: OriginalRichTextStyleOperationApplier =
     new OriginalRichTextStyleOperationApplier();
+  private updateCheckbox: OriginalUpdateCheckboxOperationApplier =
+    new OriginalUpdateCheckboxOperationApplier();
 
   supports(payloadType: number): boolean {
     return payloadType === ORIGINAL_SET_METADATA_PAYLOAD_TYPE ||
@@ -93,7 +98,8 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
       payloadType === ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE ||
-      payloadType === ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE;
+      payloadType === ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE;
   }
 
   async apply(store: relationalStore.RdbStore,
@@ -151,6 +157,9 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
       operation.payloadType === ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE) {
       return this.richTextStyle.apply(store, operation);
+    }
+    if (operation.payloadType === ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE) {
+      return this.updateCheckbox.apply(store, operation);
     }
     throw new Error('original page operation applier received an unsupported payload');
   }
