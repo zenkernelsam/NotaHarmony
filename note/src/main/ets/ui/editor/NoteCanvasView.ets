@@ -37,7 +37,9 @@ import {
 } from '../../rendering/UndoRedoManager';
 import { HistoryMetadata, Op } from '../../core/model/OpTypes';
 import { SelectionTool, SelectionMode } from '../../rendering/SelectionTool';
-import { ClipboardPasteResult, StrokeClipboard } from '../../rendering/StrokeClipboard';
+import {
+  ClipboardPasteResult, ClipboardSingleOriginalSource, StrokeClipboard,
+} from '../../rendering/StrokeClipboard';
 import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
 import {
@@ -55,6 +57,10 @@ import {
   OriginalAppliedOperationTime, OriginalOperationAudioTimeStore,
 } from '../../data/OriginalOperationAudioTimeStore';
 import { decodeOperationId, encodeOperationId } from '../../data/OperationIdentity';
+import { encodeOriginalLocalCreateInk } from '../../data/OriginalCreateInkPayloadEncoder';
+import { encodeOriginalLocalCreateShape } from '../../data/OriginalCreateShapePayloadEncoder';
+import { encodeOriginalLocalCreateTextBlock } from '../../data/OriginalCreateBlockPayloadEncoder';
+import { encodeOriginalInitialInsertString } from '../../data/OriginalInsertTextPayloadEncoder';
 import {
   AssetAvailabilityChange, assetAvailabilityHub,
 } from '../../data/AssetAvailabilityHub';
@@ -2122,10 +2128,20 @@ export struct NoteCanvasView {
 
   private isOriginalInkAction(action: UndoableAction): boolean {
     if (action.type === UndoableActionType.ADD_ELEMENTS) {
-      return action.addedStrokes.length === 0 && action.addedShapes.length === 1 &&
-        action.addedShapes[0].originalCreate !== undefined && action.addedTextBlocks.length === 0 &&
-        action.addedImages.length === 0 && (action.addedMathBlocks ?? []).length === 0 &&
-        this.areCanonicalOriginalPositionSelection([], [action.addedShapes[0].id], [], [], []);
+      if (action.addedImages.length > 0 || (action.addedMathBlocks ?? []).length > 0 ||
+        action.addedStrokes.length + action.addedShapes.length + action.addedTextBlocks.length !== 1) {
+        return false;
+      }
+      if (action.addedStrokes.length === 1) {
+        return action.addedStrokes[0].originalCreate !== undefined &&
+          this.areCanonicalOriginalStrokes(action.addedStrokes);
+      }
+      if (action.addedShapes.length === 1) {
+        return action.addedShapes[0].originalCreate !== undefined &&
+          this.areCanonicalOriginalPositionSelection([], [action.addedShapes[0].id], [], [], []);
+      }
+      return action.addedTextBlocks[0].originalCreate !== undefined &&
+        this.areCanonicalOriginalPositionSelection([], [], [action.addedTextBlocks[0].id], [], []);
     }
     if (action.type === UndoableActionType.ADD_STROKE) {
       return action.addedStrokes.length === 1 && action.addedStrokes[0].originalCreate !== undefined &&
@@ -3757,7 +3773,7 @@ export struct NoteCanvasView {
       const imageIds: string[] = state.selectedImageIds.slice();
       const mathIds: string[] = state.selectedMathIds.slice();
       if (action === SelectionMenuAction.CUT && !this.copySelectedToClipboard(
-        ids, shapeIds, textIds, imageIds, mathIds)) {
+        ids, shapeIds, textIds, imageIds, mathIds, state.selectedGroupIds)) {
         return;
       }
       this.selectionTool.deleteSelected();
@@ -3895,7 +3911,7 @@ export struct NoteCanvasView {
     } else if (action === SelectionMenuAction.COPY) {
       this.copySelectedToClipboard(
         state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
-        state.selectedImageIds, state.selectedMathIds);
+        state.selectedImageIds, state.selectedMathIds, state.selectedGroupIds);
     } else if (action === SelectionMenuAction.PASTE) {
       this.pasteClipboard();
     }
@@ -4214,7 +4230,8 @@ export struct NoteCanvasView {
   }
 
   private copySelectedToClipboard(ids: string[], shapeIds: string[] = [],
-    textIds: string[] = [], imageIds: string[] = [], mathIds: string[] = []): boolean {
+    textIds: string[] = [], imageIds: string[] = [], mathIds: string[] = [],
+    groupIds: string[] = []): boolean {
     const selected: StrokeElementData[] = [];
     for (const s of this.completedStrokes) {
       if (ids.indexOf(s.id) >= 0) {
@@ -4257,7 +4274,7 @@ export struct NoteCanvasView {
     }
     if (!this.strokeClipboard.copy(
       selected, this.loadedPageId, selectedShapes, selectedOrder, selectedTextBlocks,
-      selectedImages, selectedMathBlocks)) {
+      selectedImages, selectedMathBlocks, groupIds.length > 0)) {
       return false;
     }
     this.clipboardAvailable = true;
@@ -4616,13 +4633,82 @@ export struct NoteCanvasView {
       this.loadedPageId !== this.currentPage.pageId) {
       return;
     }
+    const source: ClipboardSingleOriginalSource | null =
+      this.strokeClipboard.singleOriginalCreateSource();
+    if (source !== null && decodeOperationId(source.elementId) !== null &&
+      this.canEncodeOriginalClipboardSource(source)) {
+      const generation: number = this.pageLoadGeneration;
+      const pageId: string = this.loadedPageId;
+      this.historyBusy = true;
+      this.persistence.reserveOriginalInkCreate(this.noteId, pageId).then(
+        (metadata: OriginalInkCreateMetadata | null): void => {
+          if (generation !== this.pageLoadGeneration || pageId !== this.loadedPageId ||
+            pageId !== this.currentPage.pageId || !this.loaded || this.dataLoading ||
+            this.dataLoadFailed) {
+            return;
+          }
+          this.applyClipboardPaste(metadata, source.kind);
+        }).catch((e: Object): void => {
+          this.reportSaveFailure(e);
+          hilog.error(0x0001, 'NoteCanvasView',
+            'Paste identity reservation failed: %{public}s', JSON.stringify(e));
+        }).finally((): void => {
+          this.historyBusy = false;
+        });
+      return;
+    }
+    this.applyClipboardPaste(null, null);
+  }
+
+  private canEncodeOriginalClipboardSource(source: ClipboardSingleOriginalSource): boolean {
+    try {
+      if (source.kind === PageElementKind.STROKE && source.stroke !== undefined) {
+        encodeOriginalLocalCreateInk({ timestamp: 1, siteId: 1, index: 0 }, source.stroke);
+        return true;
+      }
+      if (source.kind === PageElementKind.SHAPE && source.shape !== undefined) {
+        encodeOriginalLocalCreateShape({ timestamp: 1, siteId: 1, index: 0 }, source.shape, null);
+        return true;
+      }
+      if (source.kind === PageElementKind.TEXT && source.textBlock !== undefined) {
+        encodeOriginalLocalCreateTextBlock({ timestamp: 1, siteId: 1, index: 0 }, source.textBlock);
+        encodeOriginalInitialInsertString({ timestamp: 1, siteId: 1 }, source.textBlock.richText);
+        return true;
+      }
+    } catch (_error) {
+      return false;
+    }
+    return false;
+  }
+
+  private applyClipboardPaste(originalCreate: OriginalInkCreateMetadata | null,
+    originalCreateKind: PageElementKind | null): void {
     const result: ClipboardPasteResult | null = this.strokeClipboard.paste(
       this.getPaperWidth(), this.getPaperHeight(),
       (sourceId: string, sequence: number, index: number): string =>
-        this.createClipboardElementId(sourceId, sequence, index));
+        originalCreate === null ? this.createClipboardElementId(sourceId, sequence, index) :
+          encodeOperationId({ timestamp: originalCreate.timestamp, siteId: originalCreate.siteId }),
+      originalCreate === null ? null : originalCreateKind);
     if (result === null || (result.strokes.length === 0 && result.shapes.length === 0 &&
       result.textBlocks.length === 0 && result.images.length === 0 && result.mathBlocks.length === 0)) {
       return;
+    }
+    if (originalCreate !== null) {
+      if (result.strokes.length === 1) {
+        result.strokes[0].originalCreate = originalCreate;
+      } else if (result.shapes.length === 1) {
+        result.shapes[0].originalCreate = {
+          timestamp: originalCreate.timestamp, siteId: originalCreate.siteId,
+          clientTime: originalCreate.clientTime,
+          pageTimestamp: originalCreate.pageTimestamp, pageSiteId: originalCreate.pageSiteId,
+          pageIndex: originalCreate.pageIndex, pencilSeed: originalCreate.pencilSeed,
+          averageForce: null,
+        };
+      } else if (result.textBlocks.length === 1) {
+        result.textBlocks[0].originalCreate = originalCreate;
+      } else {
+        return;
+      }
     }
     const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
     this.completedStrokes = this.completedStrokes.concat(result.strokes);
@@ -4664,7 +4750,7 @@ export struct NoteCanvasView {
       pastedIds, pastedShapeIds, pastedTextIds, pastedImageIds, [], pastedMathIds);
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     this.updateSelectionOverlay();
-    this.persist();
+    this.persist(originalCreate !== null);
     this.notifyUndoRedo();
     this.renderFrame();
     if (result.images.length > 0) {

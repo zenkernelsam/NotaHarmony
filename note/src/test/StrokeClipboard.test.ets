@@ -40,6 +40,14 @@ function stroke(id: string, left: number = 10, top: number = 20): StrokeElementD
   };
 }
 
+function withOriginalCreate(value: StrokeElementData): StrokeElementData {
+  value.originalCreate = {
+    timestamp: 100, siteId: 7, clientTime: 101,
+    pageTimestamp: 10, pageSiteId: 2, pageIndex: 0, pencilSeed: 3,
+  };
+  return value;
+}
+
 function shape(id: string, left: number = 40, top: number = 50): PolygonElement {
   return {
     id: id, type: ElementType.POLYGON,
@@ -89,6 +97,7 @@ export default function strokeClipboardTest() {
     it('keeps a deep snapshot without mutating the copied document', 0, () => {
       const clipboard: StrokeClipboard = new StrokeClipboard();
       const source: StrokeElementData = stroke('source');
+      source.renderSpec.isPartialEraser = true;
       expect(clipboard.copy([source], 'page-1')).assertTrue();
       source.pathPoints[0].position.x = 999;
       source.cubicSegments[0].p1.x = 999;
@@ -109,6 +118,7 @@ export default function strokeClipboardTest() {
       expect(pasted?.strokes[0].renderSpec.inkEffects).assertEqual('3');
       expect(pasted?.strokes[0].renderSpec.inkEffectsTinted).assertFalse();
       expect(pasted?.strokes[0].renderSpec.inkEffectPhase).assertEqual(7.5);
+      expect(pasted?.strokes[0].renderSpec.isPartialEraser).assertTrue();
       expect(pasted?.strokes[0].transform[2]).assertEqual(20);
       expect(pasted?.strokes[0].maskPath[0].x).assertEqual(11);
       expect(source.id).assertEqual('source');
@@ -129,6 +139,58 @@ export default function strokeClipboardTest() {
       expect(second?.offset.x).assertEqual(40);
       expect(second?.strokes[0].id).assertEqual('a-2');
       expect(first?.sourcePageId).assertEqual('page-1');
+    });
+
+    it('drops the source create reservation and exposes only safe single-create candidates', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      expect(clipboard.copy([withOriginalCreate(stroke('op:100:7'))], 'page-1')).assertTrue();
+      expect(clipboard.singleOriginalCreateSource()?.kind).assertEqual(PageElementKind.STROKE);
+      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+        (): string => 'op:200:7');
+      expect(result?.strokes[0].originalCreate === undefined).assertTrue();
+
+      expect(clipboard.copy([stroke('op:100:7')], 'page-1', [], [], [], [], [], true)).assertTrue();
+      expect(clipboard.singleOriginalCreateSource() === null).assertTrue();
+      const styled: TextBlockElement = textBlock('op:300:7');
+      styled.characterStyleRuns = [{ start: 0, end: 1, style: { bold: true } }];
+      expect(clipboard.copy([], 'page-1', [], [], [styled])).assertTrue();
+      expect(clipboard.singleOriginalCreateSource() === null).assertTrue();
+    });
+
+    it('materializes original Ink and Shape paste offsets without transform registers', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      const sourceStroke: StrokeElementData = stroke('op:100:7');
+      sourceStroke.maskPath = [];
+      sourceStroke.styleMap = [{
+        backingPencilSeed: 3, backingPencilReferencePoint: { x: 5, y: 6 },
+        backingDashPhase: 0, backingDashPeriod: 1,
+      }];
+      expect(clipboard.copy([sourceStroke], 'page-1')).assertTrue();
+      const candidate = clipboard.singleOriginalCreateSource();
+      expect(candidate?.stroke?.pathPoints[0].position.x).assertEqual(10);
+      if (candidate?.stroke !== undefined) {
+        candidate.stroke.pathPoints[0].position.x = 999;
+      }
+      const inkPaste: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+        (): string => 'op:200:7', PageElementKind.STROKE);
+      expect(inkPaste?.strokes[0].transform[2]).assertEqual(0);
+      expect(inkPaste?.strokes[0].transform[5]).assertEqual(0);
+      expect(inkPaste?.strokes[0].pathPoints[0].position.x).assertEqual(30);
+      expect(inkPaste?.strokes[0].pathPoints[0].position.y).assertEqual(40);
+      expect(inkPaste?.strokes[0].cubicSegments[0].p3.x).assertEqual(40);
+      expect(inkPaste?.strokes[0].styleMap?.[0].backingPencilReferencePoint.x).assertEqual(25);
+      expect(inkPaste?.strokes[0].bounds.left).assertEqual(30);
+
+      const sourceShape: PolygonElement = shape('op:300:7');
+      sourceShape.originalTool = 0;
+      sourceShape.originalStyle = 1;
+      expect(clipboard.copy([], 'page-1', [sourceShape])).assertTrue();
+      const shapePaste: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+        (): string => 'op:400:7', PageElementKind.SHAPE);
+      expect(shapePaste?.shapes[0].transform[2]).assertEqual(0);
+      expect((shapePaste?.shapes[0] as PolygonElement).vertices[0].x).assertEqual(60);
+      expect((shapePaste?.shapes[0] as PolygonElement).vertices[0].y).assertEqual(70);
+      expect(shapePaste?.shapes[0].bounds.left).assertEqual(60);
     });
 
     it('keeps pasted content inside a smaller destination page', 0, () => {

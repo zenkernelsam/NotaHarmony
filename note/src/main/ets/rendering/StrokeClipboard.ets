@@ -2,7 +2,10 @@ import { CubicSegment, Point2D, Rect2D } from '../core/model/GeometryTypes';
 import {
   InkPathCommand, InkStyleMapEntry, PencilSplatPoint, RenderSpec, StrokeElementData, StrokePathPoint,
 } from '../core/model/StrokeTypes';
-import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import {
+  EllipseElement, ElementType, ImageElement, LineElement, MathElement, PolygonElement,
+  ShapeElement, TextBlockElement,
+} from '../core/model/ElementTypes';
 import { cloneShapeElement } from '../core/model/ShapeGeometry';
 import { cloneTextBlockElement } from '../core/model/TextBlockGeometry';
 import { cloneImageElement, imageBlockWorldBounds } from '../core/model/ImageBlockGeometry';
@@ -13,6 +16,14 @@ import {
 } from '../core/model/PageElementOrder';
 
 export type StrokeIdFactory = (sourceId: string, pasteSequence: number, index: number) => string;
+
+export interface ClipboardSingleOriginalSource {
+  kind: PageElementKind;
+  elementId: string;
+  stroke?: StrokeElementData;
+  shape?: ShapeElement;
+  textBlock?: TextBlockElement;
+}
 
 export interface ClipboardPasteResult {
   strokes: StrokeElementData[];
@@ -30,6 +41,7 @@ export function cloneClipboardShape(shape: ShapeElement, id: string = shape.id,
   dx: number = 0, dy: number = 0): ShapeElement {
   const result: ShapeElement = cloneShapeElement(shape);
   result.id = id;
+  result.originalCreate = undefined;
   result.transform[2] += dx;
   result.transform[5] += dy;
   result.bounds = {
@@ -43,6 +55,7 @@ export function cloneClipboardTextBlock(textBlock: TextBlockElement, id: string 
   dx: number = 0, dy: number = 0): TextBlockElement {
   const result: TextBlockElement = cloneTextBlockElement(textBlock);
   result.id = id;
+  result.originalCreate = undefined;
   result.transform[2] += dx;
   result.transform[5] += dy;
   result.bounds = {
@@ -110,6 +123,7 @@ export function cloneStrokeElement(stroke: StrokeElementData, id: string = strok
     inkStyle: stroke.renderSpec.inkStyle,
     isHighlighter: stroke.renderSpec.isHighlighter,
     isPencil: stroke.renderSpec.isPencil,
+    isPartialEraser: stroke.renderSpec.isPartialEraser,
     inkEffects: stroke.renderSpec.inkEffects,
     inkEffectsTinted: stroke.renderSpec.inkEffectsTinted,
     inkEffectPhase: stroke.renderSpec.inkEffectPhase,
@@ -143,6 +157,7 @@ export function cloneStrokeElement(stroke: StrokeElementData, id: string = strok
       })),
     audioStartTime: stroke.audioStartTime,
     audioDuration: stroke.audioDuration,
+    originalCreate: undefined,
     isFinished: stroke.isFinished,
   };
 }
@@ -166,10 +181,12 @@ export class StrokeClipboard {
   private elementOrder: PageElementRef[] = [];
   private sourcePageId: string = '';
   private pasteCount: number = 0;
+  private containsOriginalGroups: boolean = false;
 
   copy(strokes: StrokeElementData[], sourcePageId: string, shapes: ShapeElement[] = [],
     elementOrder: PageElementRef[] = [], textBlocks: TextBlockElement[] = [],
-    images: ImageElement[] = [], mathBlocks: MathElement[] = []): boolean {
+    images: ImageElement[] = [], mathBlocks: MathElement[] = [],
+    containsOriginalGroups: boolean = false): boolean {
     if ((strokes.length === 0 && shapes.length === 0 && textBlocks.length === 0 &&
       images.length === 0 && mathBlocks.length === 0) ||
       sourcePageId.length === 0) {
@@ -225,6 +242,7 @@ export class StrokeClipboard {
       elementOrder, copied, copiedTexts, copiedShapes, copiedImages, copiedMath);
     this.sourcePageId = sourcePageId;
     this.pasteCount = 0;
+    this.containsOriginalGroups = containsOriginalGroups;
     return true;
   }
 
@@ -238,6 +256,42 @@ export class StrokeClipboard {
       this.imageSnapshots.length + this.mathSnapshots.length;
   }
 
+  singleOriginalCreateSource(): ClipboardSingleOriginalSource | null {
+    if (this.containsOriginalGroups || this.size() !== 1 ||
+      this.imageSnapshots.length > 0 || this.mathSnapshots.length > 0) {
+      return null;
+    }
+    if (this.snapshots.length === 1) {
+      return {
+        kind: PageElementKind.STROKE, elementId: this.snapshots[0].id,
+        stroke: cloneStrokeElement(this.snapshots[0]),
+      };
+    }
+    if (this.shapeSnapshots.length === 1) {
+      const shape: ShapeElement = this.shapeSnapshots[0];
+      if ((shape.richText ?? '').length > 0 || (shape.characterStyleRuns ?? []).length > 0 ||
+        (shape.paragraphStyleRuns ?? []).length > 0) {
+        return null;
+      }
+      return {
+        kind: PageElementKind.SHAPE, elementId: shape.id,
+        shape: cloneClipboardShape(shape),
+      };
+    }
+    if (this.textSnapshots.length === 1) {
+      const text: TextBlockElement = this.textSnapshots[0];
+      if (text.richText.length === 0 || (text.characterStyleRuns ?? []).length > 0 ||
+        (text.paragraphStyleRuns ?? []).length > 0) {
+        return null;
+      }
+      return {
+        kind: PageElementKind.TEXT, elementId: text.id,
+        textBlock: cloneClipboardTextBlock(text),
+      };
+    }
+    return null;
+  }
+
   clear(): void {
     this.snapshots = [];
     this.shapeSnapshots = [];
@@ -247,9 +301,11 @@ export class StrokeClipboard {
     this.elementOrder = [];
     this.sourcePageId = '';
     this.pasteCount = 0;
+    this.containsOriginalGroups = false;
   }
 
-  paste(pageWidth: number, pageHeight: number, idFactory: StrokeIdFactory): ClipboardPasteResult | null {
+  paste(pageWidth: number, pageHeight: number, idFactory: StrokeIdFactory,
+    originalCreateKind: PageElementKind | null = null): ClipboardPasteResult | null {
     if (!this.hasContent() || !Number.isFinite(pageWidth) || !Number.isFinite(pageHeight) ||
       pageWidth <= PAGE_MARGIN * 2 || pageHeight <= PAGE_MARGIN * 2) {
       return null;
@@ -277,10 +333,14 @@ export class StrokeClipboard {
       }
       ids.add(id);
       if (source.kind === PageElementKind.STROKE) {
-        pasted.push(cloneStrokeElement(source.data, id, dx, dy));
+        const stroke: StrokeElementData = cloneStrokeElement(source.data, id, dx, dy);
+        pasted.push(originalCreateKind === PageElementKind.STROKE ?
+          materializeOriginalStrokeTranslation(stroke, dx, dy) : stroke);
         pastedOrder.push({ kind: PageElementKind.STROKE, elementId: id, zIndex: pastedOrder.length });
       } else if (source.kind === PageElementKind.SHAPE) {
-        pastedShapes.push(cloneClipboardShape(source.data, id, dx, dy));
+        const shape: ShapeElement = cloneClipboardShape(source.data, id, dx, dy);
+        pastedShapes.push(originalCreateKind === PageElementKind.SHAPE ?
+          materializeOriginalShapeTranslation(shape, dx, dy) : shape);
         pastedOrder.push({ kind: PageElementKind.SHAPE, elementId: id, zIndex: pastedOrder.length });
       } else if (source.kind === PageElementKind.TEXT) {
         pastedTexts.push(cloneClipboardTextBlock(source.data, id, dx, dy));
@@ -346,4 +406,74 @@ export class StrokeClipboard {
     }
     return PAGE_MARGIN - start;
   }
+}
+
+function materializeOriginalStrokeTranslation(stroke: StrokeElementData,
+  dx: number, dy: number): StrokeElementData {
+  for (const point of stroke.pathPoints) {
+    point.position.x += dx;
+    point.position.y += dy;
+  }
+  for (const segment of stroke.cubicSegments) {
+    translatePoint(segment.p0, dx, dy);
+    translatePoint(segment.p1, dx, dy);
+    translatePoint(segment.p2, dx, dy);
+    translatePoint(segment.p3, dx, dy);
+  }
+  for (const splat of stroke.splatPoints) {
+    splat.x += dx;
+    splat.y += dy;
+  }
+  for (const point of stroke.maskPath) {
+    translatePoint(point, dx, dy);
+  }
+  translateInkPath(stroke.customPath, dx, dy);
+  translateInkPath(stroke.fillPath, dx, dy);
+  if (stroke.styleMap !== undefined) {
+    for (const entry of stroke.styleMap) {
+      translatePoint(entry.backingPencilReferencePoint, dx, dy);
+    }
+  }
+  stroke.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  return stroke;
+}
+
+function materializeOriginalShapeTranslation(shape: ShapeElement,
+  dx: number, dy: number): ShapeElement {
+  if (shape.type === ElementType.ELLIPSE) {
+    translatePoint((shape as EllipseElement).center, dx, dy);
+  } else if (shape.type === ElementType.LINE) {
+    const line: LineElement = shape as LineElement;
+    translatePoint(line.start, dx, dy);
+    if (line.controlPoint1 !== null) {
+      translatePoint(line.controlPoint1, dx, dy);
+    }
+    if (line.controlPoint2 !== null) {
+      translatePoint(line.controlPoint2, dx, dy);
+    }
+    translatePoint(line.end, dx, dy);
+  } else {
+    for (const point of (shape as PolygonElement).vertices) {
+      translatePoint(point, dx, dy);
+    }
+  }
+  shape.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  return shape;
+}
+
+function translateInkPath(path: InkPathCommand[] | null | undefined,
+  dx: number, dy: number): void {
+  if (path === null || path === undefined) {
+    return;
+  }
+  for (const command of path) {
+    for (const point of command.points) {
+      translatePoint(point, dx, dy);
+    }
+  }
+}
+
+function translatePoint(point: Point2D, dx: number, dy: number): void {
+  point.x += dx;
+  point.y += dy;
 }
