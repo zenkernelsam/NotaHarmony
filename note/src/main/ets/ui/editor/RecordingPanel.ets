@@ -19,11 +19,14 @@ export struct RecordingPanel {
   @Prop cumulativePositionMs: number = 0;
   @Prop cumulativeDurationMs: number = 0;
   @Prop playbackSpeed: OriginalRecordingPlaybackSpeed = OriginalRecordingPlaybackSpeed.SPEED_1_0;
+  @Prop pendingDeleteIds: string[] = [];
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onToggle: (recordingId: string) => void = () => {};
   onSeek: (positionMs: number) => void = () => {};
   onSpeedChange: (speed: OriginalRecordingPlaybackSpeed) => void = () => {};
+  onDelete: (recordingId: string) => void = () => {};
+  onUndoDelete: (recordingId: string) => void = () => {};
   onClose: () => void = () => {};
 
   private resolveTokens(): ThemeTokens {
@@ -60,7 +63,11 @@ export struct RecordingPanel {
         List() {
           ForEach(this.recordings, (recording: MaterializedOriginalRecording) => {
             ListItem() {
-              this.RecordingRow(recording)
+              if (this.isPendingDelete(recording.id)) {
+                this.PendingDeleteRow(recording)
+              } else {
+                this.RecordingRow(recording)
+              }
             }
           }, (recording: MaterializedOriginalRecording): string => recording.id)
         }
@@ -138,9 +145,35 @@ export struct RecordingPanel {
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       }
       .layoutWeight(1).alignItems(HorizontalAlign.Start).margin({ left: 10 })
+      Button($r('app.string.delete'))
+        .height(32).fontSize(12).borderRadius(4)
+        .backgroundColor(Color.Transparent)
+        .fontColor(this.resolveTokens().danger)
+        .accessibilityText($r('app.string.delete_recording'))
+        .onClick(() => this.onDelete(recording.id))
     }
     .width('100%').height(58).padding({ left: 8, right: 12 })
     .backgroundColor(this.isSelected(recording.id) ? this.resolveTokens().control : Color.Transparent)
+  }
+
+  @Builder
+  private PendingDeleteRow(recording: MaterializedOriginalRecording) {
+    Row() {
+      Text($r('app.string.recording_deleted'))
+        .fontSize(14)
+        .fontColor(this.resolveTokens().textSecondary)
+        .layoutWeight(1)
+      Button($r('app.string.undo'))
+        .height(32).fontSize(12).borderRadius(4)
+        .backgroundColor(Color.Transparent)
+        .fontColor(this.resolveTokens().accent)
+        .onClick(() => this.onUndoDelete(recording.id))
+    }
+    .width('100%').height(58).padding({ left: 12, right: 12 })
+  }
+
+  private isPendingDelete(recordingId: string): boolean {
+    return this.pendingDeleteIds.indexOf(recordingId) >= 0;
   }
 
   private isSelected(recordingId: string): boolean {

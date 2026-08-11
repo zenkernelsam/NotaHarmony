@@ -486,6 +486,10 @@
     { "name": "recording_waiting_for_audio", "value": "Waiting for audio" },
     { "name": "recording_audio_missing", "value": "Audio is missing" },
     { "name": "recording_audio_failed", "value": "Audio is unavailable" },
-    { "name": "recordings_load_failed", "value": "Could not load recordings" }
+    { "name": "recordings_load_failed", "value": "Could not load recordings" },
+    { "name": "delete_recording", "value": "Delete recording" },
+    { "name": "recording_deleted", "value": "Recording deleted" },
+    { "name": "recording_delete_failed", "value": "Could not delete the recording" },
+    { "name": "undo", "value": "Undo" }
   ]
 }

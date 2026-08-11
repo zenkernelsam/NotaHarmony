@@ -201,6 +201,17 @@ export class OriginalRecordingPlaybackController {
     }
   }
 
+  async unload(): Promise<void> {
+    ++this.generation;
+    await this.mutex.runExclusive(async (): Promise<void> => {
+      if (this.permanentlyReleased) {
+        return;
+      }
+      await this.releaseCurrent();
+      this.publish(emptySnapshot(OriginalRecordingPlaybackState.IDLE));
+    });
+  }
+
   async release(): Promise<void> {
     ++this.generation;
     this.permanentlyReleased = true;

@@ -72,3 +72,5 @@ No emulator or device was started. Actual AV decode, callback cadence, animation
 pixel comparison with Android remain device acceptance work. Waveform rendering, recording capture,
 audio focus/output routing and outbound Recording mutations are separate contracts.
 
+ADR-0073 closes the local Recording delete/Undo lifecycle and exact payload journal; private server
+transport remains separate. Original 1.0.3 exposes no Recording rename command in this toolbox.

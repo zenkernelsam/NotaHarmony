@@ -25,6 +25,8 @@ export enum OpType {
   // Harmony recovery checkpoint. This is deliberately distinct from the
   // original app's fine-grained FlatBuffer operations.
   PAGE_SNAPSHOT = 50,
+  // Original 1.0.3 payload table retained for the private sync transport.
+  ORIGINAL_DELETE_ENTITIES = 60,
 }
 
 // History movement is metadata on a concrete mutation, not a replacement mutation type.

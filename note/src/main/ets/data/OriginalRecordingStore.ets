@@ -1,10 +1,23 @@
 import { relationalStore } from '@kit.ArkData';
 import { AssetStatus, NoteAsset } from '../core/model/AssetTypes';
 import { originalAssetHashKey, originalAssetStorageHash } from '../core/model/ImageBlockGeometry';
+import { OpType } from '../core/model/OpTypes';
 import { AssetRepositoryImpl } from './AssetRepositoryImpl';
 import { DatabaseManager } from './DatabaseManager';
+import { editorPersistenceMutex } from './EditorPersistenceMutex';
 import { encodeOperationId, OperationIdentity } from './OperationIdentity';
+import {
+  allocateOperationIdentity, AllocatedOperationIdentity, appendOperation,
+} from './OpStoreImpl';
+import {
+  ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE, OriginalDeleteEntitiesOperationApplier,
+} from './OriginalDeleteEntitiesOperation';
+import { encodeOriginalEntityDeletes } from './OriginalDeleteEntitiesPayloadEncoder';
 import { OriginalRecordingSegment } from './OriginalRecordingOperation';
+import { OriginalFlatBufferTableReader } from './OriginalSyncedOperationFlatBuffer';
+import {
+  StoredSyncedOperation, SyncedOperationApplyResult, SyncedOperationInboxState,
+} from './SyncedOperationInbox';
 import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './UnsignedDecimal';
 
 const MAX_RECORDING_SEGMENTS: number = 100000;
@@ -87,6 +100,82 @@ export class OriginalRecordingStore {
     recordings.sort(compareMaterializedRecordings);
     return recordings;
   }
+
+  async deleteVisible(noteId: string, targets: OperationIdentity[]): Promise<number> {
+    if (noteId.length === 0 || targets.length === 0) {
+      throw new Error('recording delete requires a note and targets');
+    }
+    return editorPersistenceMutex.runExclusive(async (): Promise<number> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      await store.beginTransaction();
+      try {
+        const visible: OperationIdentity[] = await filterVisibleRecordingTargets(
+          store, noteId, targets);
+        if (visible.length === 0) {
+          await store.commit();
+          return 0;
+        }
+        const identity: AllocatedOperationIdentity =
+          await allocateOperationIdentity(store, noteId);
+        const payload: Uint8Array = encodeOriginalEntityDeletes(visible);
+        const operation: StoredSyncedOperation = {
+          noteId: noteId, timestamp: identity.timestamp, siteId: identity.siteId,
+          clientTime: identity.clientTime.toString(), serverTime: '0', audioTime: null,
+          schemaVersion: 1, payloadType: ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE,
+          rawOperation: payload, state: SyncedOperationInboxState.APPLIED,
+          deferredReason: null, receivedAt: identity.clientTime,
+        };
+        const result: SyncedOperationApplyResult =
+          await new OriginalDeleteEntitiesOperationApplier().applyEntityTable(
+          store, operation, OriginalFlatBufferTableReader.fromRoot(payload));
+        if (result.deferredReason !== null) {
+          throw new Error(`recording delete was deferred: ${result.deferredReason}`);
+        }
+        await appendOperation(store, {
+          opId: identity.opId, noteId: noteId,
+          opType: OpType.ORIGINAL_DELETE_ENTITIES, payload: payload,
+          clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+          editorSiteId: identity.siteId, uploadImmediately: true,
+        });
+        await store.commit();
+        return visible.length;
+      } catch (error) {
+        await store.rollBack();
+        throw new Error(`delete original recordings failed: ${JSON.stringify(error)}`);
+      }
+    });
+  }
+}
+
+async function filterVisibleRecordingTargets(store: relationalStore.RdbStore, noteId: string,
+  targets: OperationIdentity[]): Promise<OperationIdentity[]> {
+  const unique: Map<string, OperationIdentity> = new Map<string, OperationIdentity>();
+  for (const target of targets) {
+    unique.set(encodeOperationId(target), target);
+  }
+  const result: OperationIdentity[] = [];
+  for (const target of unique.values()) {
+    const rows = await store.querySql(
+      `SELECT COALESCE(visibility.deleted, 0) AS deleted
+         FROM original_recording_state recording
+         LEFT JOIN original_entity_visibility_winner visibility
+           ON visibility.note_id = recording.note_id
+          AND visibility.entity_timestamp = recording.recording_timestamp
+          AND visibility.entity_site_id = recording.recording_site_id
+        WHERE recording.note_id = ? AND recording.recording_timestamp = ?
+          AND recording.recording_site_id = ?`, [noteId, target.timestamp, target.siteId]);
+    try {
+      if (!rows.goToFirstRow()) {
+        throw new Error('recording delete target does not exist');
+      }
+      if (rows.getLong(rows.getColumnIndex('deleted')) === 0) {
+        result.push({ timestamp: target.timestamp, siteId: target.siteId });
+      }
+    } finally {
+      rows.close();
+    }
+  }
+  return result;
 }
 
 async function readVisibleRows(store: relationalStore.RdbStore,

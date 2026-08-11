@@ -14,6 +14,7 @@ import { ToolRepositoryImpl } from '../../data/ToolRepositoryImpl';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { AssetAvailabilityChange, assetAvailabilityHub } from '../../data/AssetAvailabilityHub';
 import { MaterializedOriginalRecording, OriginalRecordingStore } from '../../data/OriginalRecordingStore';
+import { OperationIdentity } from '../../data/OperationIdentity';
 import {
   OriginalRecordingPlaybackController, OriginalRecordingPlaybackSnapshot,
   OriginalRecordingPlaybackSpeed, OriginalRecordingPlaybackState,
@@ -26,6 +27,8 @@ import {
 import {
   effectiveOriginalAudioSegments, OriginalAudioSegmentRange, originalAudioTimeAtPosition,
 } from '../../core/adaptation/OriginalAudioLinkedInkPlayback';
+import { OriginalRecordingDeleteController } from
+  '../../core/adaptation/OriginalRecordingDeleteController';
 import {
   AddPageAction, DeletePageAction, EditorHistoryBridge, PageContentSnapshot, UndoableAction,
   UndoableActionType,
@@ -66,6 +69,7 @@ struct NotePage {
   @State playbackCumulativeDurationMs: number = 0;
   @State recordingPlaybackSpeed: OriginalRecordingPlaybackSpeed =
     OriginalRecordingPlaybackSpeed.SPEED_1_0;
+  @State pendingRecordingDeleteIds: string[] = [];
   @State audioPlaybackTime: string | null = null;
   @State audioPlaybackSegments: OriginalAudioSegmentRange[] = [];
   private noteRepo: NoteRepositoryImpl | null = null;
@@ -76,6 +80,10 @@ struct NotePage {
   private recordingStore: OriginalRecordingStore | null = null;
   private recordingController: OriginalRecordingPlaybackController =
     new OriginalRecordingPlaybackController();
+  private recordingDeleteController: OriginalRecordingDeleteController =
+    new OriginalRecordingDeleteController(async (recordingIds: string[]): Promise<void> => {
+      await this.commitRecordingDeletes(recordingIds);
+    });
   private assetAvailabilitySubscription: number = -1;
   private recordingLoadGeneration: number = 0;
   private recordingTimeline: OriginalRecordingTimeline = {
@@ -99,6 +107,17 @@ struct NotePage {
     this.recordingController.setListener((snapshot: OriginalRecordingPlaybackSnapshot): void => {
       this.onRecordingPlaybackSnapshot(snapshot);
     });
+    this.recordingDeleteController.setListener((pendingIds: string[]): void => {
+      this.pendingRecordingDeleteIds = pendingIds;
+      this.rebuildRecordingTimeline();
+    });
+    this.recordingDeleteController.setFailureListener((error: Object): void => {
+      console.error(`Recording delete failed: ${JSON.stringify(error)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.recording_delete_failed'), duration: 2500 });
+      } catch (_toastError) {
+      }
+    });
     if (this.assetAvailabilitySubscription < 0) {
       this.assetAvailabilitySubscription = assetAvailabilityHub.subscribe(
         (change: AssetAvailabilityChange): void => this.onRecordingAssetAvailabilityChanged(change));
@@ -119,6 +138,9 @@ struct NotePage {
     this.recordingController.release().catch((error: Object) => {
       console.warn(`Recording player release failed: ${JSON.stringify(error)}`);
     });
+    this.recordingDeleteController.flush().catch((error: Object) => {
+      console.warn(`Recording delete flush failed: ${JSON.stringify(error)}`);
+    });
   }
 
   onBackPress(): boolean {
@@ -134,6 +156,7 @@ struct NotePage {
       return;
     }
     await this.viewModel.flushToolState();
+    await this.recordingDeleteController.flush();
     await this.recordingController.release();
     router.back();
   }
@@ -304,8 +327,13 @@ struct NotePage {
     return null;
   }
 
+  private visiblePlaybackRecordings(): MaterializedOriginalRecording[] {
+    return this.recordings.filter((recording: MaterializedOriginalRecording): boolean =>
+      this.pendingRecordingDeleteIds.indexOf(recording.id) < 0);
+  }
+
   private rebuildRecordingTimeline(): void {
-    this.recordingTimeline = buildOriginalRecordingTimeline(this.recordings);
+    this.recordingTimeline = buildOriginalRecordingTimeline(this.visiblePlaybackRecordings());
     this.playbackCumulativeDurationMs = this.recordingTimeline.totalDurationMs;
     this.rebuildAudioPlaybackSegments();
     this.updateCumulativePlaybackPosition(this.playbackSnapshot);
@@ -339,7 +367,7 @@ struct NotePage {
 
   private rebuildAudioPlaybackSegments(): void {
     const result: OriginalAudioSegmentRange[] = [];
-    for (const recording of this.recordings) {
+    for (const recording of this.visiblePlaybackRecordings()) {
       const sourceSegments: OriginalAudioSegmentRange[] = [];
       for (const segment of recording.segments) {
         sourceSegments.push({ startTime: segment.startTime, endTime: segment.endTime });
@@ -414,6 +442,39 @@ struct NotePage {
     if (this.recordingController.setSpeed(speed)) {
       this.recordingPlaybackSpeed = speed;
     }
+  }
+
+  private async requestRecordingDelete(recordingId: string): Promise<void> {
+    const recording: MaterializedOriginalRecording | null = this.findRecording(recordingId);
+    if (recording === null || !this.recordingDeleteController.request(recordingId)) {
+      return;
+    }
+    if (this.playbackSnapshot.recordingId === recordingId) {
+      await this.recordingController.unload();
+    }
+  }
+
+  private undoRecordingDelete(recordingId: string): void {
+    this.recordingDeleteController.undo(recordingId);
+  }
+
+  private async commitRecordingDeletes(recordingIds: string[]): Promise<void> {
+    if (this.recordingStore === null) {
+      throw new Error('recording store is unavailable');
+    }
+    const targets: MaterializedOriginalRecording[] = [];
+    for (const recordingId of recordingIds) {
+      const recording: MaterializedOriginalRecording | null = this.findRecording(recordingId);
+      if (recording === null) {
+        throw new Error('pending recording delete target disappeared');
+      }
+      targets.push(recording);
+    }
+    await this.recordingStore.deleteVisible(this.noteId, targets.map(
+      (recording: MaterializedOriginalRecording): OperationIdentity => ({
+        timestamp: recording.timestamp, siteId: recording.siteId,
+      })));
+    await this.loadRecordings();
   }
 
   private onRecordingAssetAvailabilityChanged(change: AssetAvailabilityChange): void {
@@ -502,6 +563,7 @@ struct NotePage {
           cumulativePositionMs: this.playbackCumulativePositionMs,
           cumulativeDurationMs: this.playbackCumulativeDurationMs,
           playbackSpeed: this.recordingPlaybackSpeed,
+          pendingDeleteIds: this.pendingRecordingDeleteIds,
           onToggle: (recordingId: string) => {
             this.toggleRecording(recordingId);
           },
@@ -510,6 +572,12 @@ struct NotePage {
           },
           onSpeedChange: (speed: OriginalRecordingPlaybackSpeed) => {
             this.changeRecordingPlaybackSpeed(speed);
+          },
+          onDelete: (recordingId: string) => {
+            this.requestRecordingDelete(recordingId);
+          },
+          onUndoDelete: (recordingId: string) => {
+            this.undoRecordingDelete(recordingId);
           },
           onClose: () => {
             this.showRecordings = false;

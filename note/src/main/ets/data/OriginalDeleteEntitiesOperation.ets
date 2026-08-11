@@ -65,6 +65,11 @@ interface PlannedEntityVisibility {
   changesVisibility: boolean;
 }
 
+interface DesiredEntityVisibility {
+  entity: OperationIdentity;
+  deleted: boolean;
+}
+
 interface StoredEntityOrderRow {
   elementId: string;
   kind: number;
@@ -258,8 +263,8 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
 
   private async applyEntityVisibility(store: relationalStore.RdbStore,
     operation: StoredSyncedOperation, payload: OriginalDeleteEntitiesPayload): Promise<string | null> {
-    const desired: Map<string, { entity: OperationIdentity, deleted: boolean }> =
-      new Map<string, { entity: OperationIdentity, deleted: boolean }>();
+    const desired: Map<string, DesiredEntityVisibility> =
+      new Map<string, DesiredEntityVisibility>();
     for (const entity of payload.entityDeletes) {
       desired.set(encodeOperationId(entity), { entity: entity, deleted: true });
     }

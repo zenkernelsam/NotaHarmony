@@ -36,6 +36,9 @@ Accepted, 2026-08-11.
 - Do not add capture, deletion, rename, playback speed, cross-recording automatic advance, waveform
   or audio-ink sync until their outbound/lifecycle contracts are implemented.
 
+Recording deletion is superseded by ADR-0073. Its 10-second/Undo lifecycle and local original
+payload journal are now implemented. Original 1.0.3 exposes no rename command in this toolbox.
+
 ## Consumer-discovered fix
 
 Production reachability exposed two latent compile defects: `ErrorCallback` was not a valid visible

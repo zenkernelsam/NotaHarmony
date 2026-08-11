@@ -167,6 +167,19 @@
     { "name": "shape_detection", "value": "形状识别" },
     { "name": "settings_loading", "value": "正在加载设置..." },
     { "name": "settings_load_failed", "value": "无法加载设置，请重试" },
-    { "name": "editor_setting_save_failed", "value": "无法保存设置，请重试" }
+    { "name": "editor_setting_save_failed", "value": "无法保存设置，请重试" },
+    { "name": "recordings", "value": "录音" },
+    { "name": "close_recordings", "value": "关闭录音" },
+    { "name": "no_recordings", "value": "没有录音" },
+    { "name": "play_recording", "value": "播放录音" },
+    { "name": "pause_recording", "value": "暂停录音" },
+    { "name": "recording_waiting_for_audio", "value": "正在等待音频" },
+    { "name": "recording_audio_missing", "value": "音频缺失" },
+    { "name": "recording_audio_failed", "value": "音频不可用" },
+    { "name": "recordings_load_failed", "value": "无法加载录音" },
+    { "name": "delete_recording", "value": "删除录音" },
+    { "name": "recording_deleted", "value": "录音已删除" },
+    { "name": "recording_delete_failed", "value": "无法删除录音" },
+    { "name": "undo", "value": "撤销" }
   ]
 }
