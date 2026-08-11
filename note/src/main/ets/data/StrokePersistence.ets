@@ -67,10 +67,17 @@ import {
   previewOriginalLocalTextMutation,
 } from './OriginalLocalTextMutation';
 import {
+  OriginalLocalCheckboxMutationPlan, planOriginalLocalCheckboxMutation,
+} from './OriginalLocalCheckboxMutation';
+import {
   materializeOriginalTextStyles, readOriginalCheckboxStates,
   readOriginalTextStyleOperations, StoredOriginalCheckboxState,
   StoredOriginalTextStyleOperation,
 } from './OriginalRichTextStyleState';
+import {
+  decodeOriginalUpdateCheckbox, encodeOriginalUpdateCheckbox,
+  ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE, OriginalUpdateCheckboxOperationApplier,
+} from './OriginalUpdateCheckboxOperation';
 import { encodeOriginalCreateGroup } from './OriginalGroupPayloadEncoder';
 import {
   encodeOriginalGroupMutation, OriginalGroupMutationOpPayload,
@@ -393,6 +400,10 @@ interface OriginalTextMutation {
   width: number;
   height: number;
   sizeChanged: boolean;
+}
+
+interface OriginalCheckboxMutation extends OriginalLocalCheckboxMutationPlan {
+  block: OperationIdentity;
 }
 
 export interface OriginalInkRenderMutationBatch extends OriginalInkRenderRegisterUpdate {
@@ -1972,6 +1983,17 @@ export class StrokePersistence {
         await store.commit();
         return;
       }
+      const originalCheckbox: OriginalCheckboxMutation | null =
+        await this.originalCheckboxMutation(
+          store, snapshot.noteId, snapshot.pageId, current, snapshot.elements);
+      if (originalCheckbox !== null) {
+        await this.applyOriginalCheckboxMutation(
+          store, snapshot, originalCheckbox, snapshotRevision);
+        await this.rebuildPageSearchState(store, snapshot, snapshotRevision, false);
+        await this.appendHistoryCompanion(store, snapshot, mutation);
+        await store.commit();
+        return;
+      }
       const originalText: OriginalTextMutation | null = await this.originalTextMutation(
         store, snapshot.noteId, snapshot.pageId, current, snapshot.elements);
       if (originalText !== null) {
@@ -2417,8 +2439,11 @@ export class StrokePersistence {
         const originalPositionLock: OriginalPositionLockMutation | null =
           originalVisibility === null ? await this.originalPositionLockMutation(
             store, step.noteId, current, step.elements) : null;
+        const originalCheckbox: OriginalCheckboxMutation | null = originalVisibility === null &&
+          originalPositionLock === null ? await this.originalCheckboxMutation(
+            store, step.noteId, step.pageId, current, step.elements) : null;
         const originalText: OriginalTextMutation | null = originalVisibility === null &&
-          originalPositionLock === null ? await this.originalTextMutation(
+          originalPositionLock === null && originalCheckbox === null ? await this.originalTextMutation(
             store, step.noteId, step.pageId, current, step.elements) : null;
         const originalStyle: OriginalRenderMutation | null = originalVisibility === null &&
           originalPositionLock === null && originalText === null ?
@@ -2441,6 +2466,8 @@ export class StrokePersistence {
             nextRevision);
         } else if (originalPositionLock !== null) {
           await this.applyOriginalPositionLock(store, step, originalPositionLock, nextRevision);
+        } else if (originalCheckbox !== null) {
+          await this.applyOriginalCheckboxMutation(store, step, originalCheckbox, nextRevision);
         } else if (originalText !== null) {
           await this.applyOriginalTextMutation(store, step, originalText, nextRevision);
         } else if (originalStyle !== null) {
@@ -2623,6 +2650,76 @@ export class StrokePersistence {
     return {
       block: block, plan: preview.plan, width: width, height: height,
       sizeChanged: sizeChanged,
+    };
+  }
+
+  private async originalCheckboxMutation(store: relationalStore.RdbStore, noteId: string,
+    pageId: string, current: SearchSourceElement[], next: PreparedElement[]):
+    Promise<OriginalCheckboxMutation | null> {
+    if (current.length !== next.length ||
+      await this.readEligibleOriginalInkPage(store, noteId, pageId) === null) {
+      return null;
+    }
+    let changedIndex: number = -1;
+    for (let index: number = 0; index < current.length; index++) {
+      if (current[index].elementId !== next[index].elementId ||
+        current[index].kind !== next[index].kind) {
+        return null;
+      }
+      if (!sameByteArrays(current[index].payload, next[index].payload)) {
+        if (changedIndex >= 0) {
+          return null;
+        }
+        changedIndex = index;
+      }
+    }
+    if (changedIndex < 0 || current[changedIndex].kind !== PageElementKind.TEXT) {
+      return null;
+    }
+    let beforePersisted: PersistedElement;
+    let afterPersisted: PersistedElement;
+    try {
+      beforePersisted = decodePersistedElement(current[changedIndex].payload);
+      afterPersisted = decodePersistedElement(next[changedIndex].payload);
+    } catch (_error) {
+      return null;
+    }
+    if (beforePersisted.kind !== 'text' || afterPersisted.kind !== 'text') {
+      return null;
+    }
+    const before: TextBlockElement = beforePersisted.data as TextBlockElement;
+    const after: TextBlockElement = afterPersisted.data as TextBlockElement;
+    const candidate: TextBlockElement = cloneTextBlockElement(before);
+    candidate.paragraphStyleRuns = after.paragraphStyleRuns;
+    if (before.id !== current[changedIndex].elementId ||
+      after.id !== next[changedIndex].elementId || before.id !== after.id ||
+      !sameByteArrays(encodePersistedElement({ kind: 'text', data: candidate }),
+        encodePersistedElement(afterPersisted))) {
+      return null;
+    }
+    const block: OperationIdentity | null = decodeOperationId(before.id);
+    if (block === null || !await this.isLiveOriginalTextBlock(store, noteId, pageId, block)) {
+      return null;
+    }
+    const textState: OriginalInsertTextOperationApplier = new OriginalInsertTextOperationApplier();
+    const characters: StoredCharacter[] | null = await textState.readCharacters(store, noteId, block);
+    const styleOperations: StoredOriginalTextStyleOperation[] | null =
+      await readOriginalTextStyleOperations(store, noteId, block);
+    const checkboxStates: StoredOriginalCheckboxState[] | null =
+      await readOriginalCheckboxStates(store, noteId, block);
+    if (characters === null || styleOperations === null || checkboxStates === null) {
+      return null;
+    }
+    const beforeStyles = materializeOriginalTextStyles(
+      characters, styleOperations, checkboxStates);
+    if (beforeStyles === null || !sameTextStyleRuns(
+      before, beforeStyles.characterRuns, beforeStyles.paragraphRuns)) {
+      return null;
+    }
+    const plan: OriginalLocalCheckboxMutationPlan | null =
+      planOriginalLocalCheckboxMutation(characters, before, after);
+    return plan === null ? null : {
+      block: block, location: plan.location, isChecked: plan.isChecked,
     };
   }
 
@@ -3141,6 +3238,49 @@ export class StrokePersistence {
       store, step.noteId, step.pageId);
     if (!samePreparedMembersAndPayloads(materialized, step.elements)) {
       throw new Error('local Text reducers produced unexpected final state');
+    }
+    await this.reconcilePreparedRows(store, step, expectedRevision);
+  }
+
+  private async applyOriginalCheckboxMutation(store: relationalStore.RdbStore,
+    step: PreparedPageSave, mutation: OriginalCheckboxMutation,
+    expectedRevision: number): Promise<void> {
+    if (await this.readEligibleOriginalInkPage(store, step.noteId, step.pageId) === null) {
+      throw new Error('local UpdateCheckbox page is no longer original-aligned');
+    }
+    const identity: AllocatedOperationIdentity = await allocateOperationIdentity(
+      store, step.noteId);
+    const metadata: OriginalInkCreateMetadata = allocatedOriginalMetadata(identity);
+    const payload: Uint8Array = encodeOriginalUpdateCheckbox({
+      textField: mutation.block, location: mutation.location,
+      isChecked: mutation.isChecked,
+    });
+    const operation: StoredSyncedOperation = localStoredOperation(
+      step.noteId, metadata, ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE, payload, null);
+    const result: SyncedOperationApplyResult =
+      await new OriginalUpdateCheckboxOperationApplier().apply(store, operation);
+    if (result.deferredReason !== null) {
+      throw new Error(`local UpdateCheckbox was deferred: ${result.deferredReason}`);
+    }
+    const decoded = decodeOriginalUpdateCheckbox(operation.rawOperation);
+    if (decoded.textField.timestamp !== mutation.block.timestamp ||
+      decoded.textField.siteId !== mutation.block.siteId ||
+      decoded.location.timestamp !== mutation.location.timestamp ||
+      decoded.location.siteId !== mutation.location.siteId ||
+      decoded.location.index !== mutation.location.index ||
+      decoded.isChecked !== mutation.isChecked) {
+      throw new Error('local UpdateCheckbox payload diverged after envelope decode');
+    }
+    await appendOperation(store, {
+      noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_UPDATE_CHECKBOX,
+      payload: operation.rawOperation, clientTime: identity.clientTime,
+      opTimestamp: identity.timestamp, editorSiteId: identity.siteId,
+      uploadImmediately: true,
+    });
+    const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+      store, step.noteId, step.pageId);
+    if (!samePreparedMembersAndPayloads(materialized, step.elements)) {
+      throw new Error('local UpdateCheckbox reducer produced unexpected final state');
     }
     await this.reconcilePreparedRows(store, step, expectedRevision);
   }

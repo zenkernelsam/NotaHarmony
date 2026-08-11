@@ -77,6 +77,7 @@ import originalClipboardPasteMutationCodecTest from './OriginalClipboardPasteMut
 import originalCreateTextPayloadEncoderTest from './OriginalCreateTextPayloadEncoder.test';
 import originalTextMutationPayloadEncoderTest from './OriginalTextMutationPayloadEncoder.test';
 import originalRichTextStylePayloadEncoderTest from './OriginalRichTextStylePayloadEncoder.test';
+import originalLocalCheckboxMutationTest from './OriginalLocalCheckboxMutation.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -158,4 +159,5 @@ export default function testsuite() {
   originalCreateTextPayloadEncoderTest();
   originalTextMutationPayloadEncoderTest();
   originalRichTextStylePayloadEncoderTest();
+  originalLocalCheckboxMutationTest();
 }

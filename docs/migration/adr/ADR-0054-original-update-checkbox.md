@@ -51,6 +51,6 @@ Accepted, 2026-08-11.
 
 ## Remaining Boundary
 
-This implements remote/original UpdateCheckbox replay and rendering. It does not invent a local
-outbound payload writer or checkbox interaction UI without further original interaction evidence.
-Device font-glyph and touch behavior still require later device acceptance.
+ADR-0121 later adds the local outbound writer and persistent history path after tracing the original
+`fm7/wh/gv0/u5j` toggle chain. Checkbox marker hit testing and interaction UI remain separate, and
+device font-glyph/touch behavior still require later device acceptance.

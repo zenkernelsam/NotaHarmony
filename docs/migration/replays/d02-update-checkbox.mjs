@@ -156,6 +156,7 @@ assert.match(schema, /DB_VERSION: number = 61/);
 assert.match(schema, /53: \[[\s\S]*DDL_ORIGINAL_TEXT_CHECKBOX_STATE/);
 assert.match(manager, /DDL_ORIGINAL_TEXT_CHECKBOX_STATE/);
 assert.match(reducer, /ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE: number = 28/);
+assert.match(reducer, /encodeOriginalUpdateCheckbox/);
 assert.match(reducer, /readInlineBytes\(0, 8\)/);
 assert.match(reducer, /readInlineSequence\(1\)/);
 assert.match(reducer, /readUint8\(2, 0\)/);

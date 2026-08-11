@@ -1,5 +1,6 @@
 import { relationalStore } from '@kit.ArkData';
 import { TextBlockElement } from '../core/model/ElementTypes';
+import { cloneTextBlockElement } from '../core/model/TextBlockGeometry';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import {
   compareOperationIdentity, OperationIdentity, OriginalSequenceIdentity,
@@ -15,7 +16,6 @@ import {
 } from './OriginalRichTextStyleState';
 import { OriginalFlatBufferTableReader, readOriginalPayloadTable } from
   './OriginalSyncedOperationFlatBuffer';
-import { decodePersistedElement, encodePersistedElement, PersistedElement } from './StrokePersistence';
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
@@ -26,6 +26,26 @@ export interface OriginalUpdateCheckboxPayload {
   textField: OperationIdentity;
   location: OriginalSequenceIdentity;
   isChecked: boolean;
+}
+
+export function encodeOriginalUpdateCheckbox(payload: OriginalUpdateCheckboxPayload): Uint8Array {
+  validateOperationIdentity(payload.textField);
+  validateOriginalSequenceIdentity(payload.location);
+  if (typeof payload.isChecked !== 'boolean') {
+    throw new Error('UpdateCheckbox has an invalid boolean');
+  }
+  const table: number = 16;
+  const objectSize: number = 28;
+  const bytes: Uint8Array = new Uint8Array(table + objectSize);
+  writeU32(bytes, 0, table);
+  writeVtable(bytes, 4, objectSize, [4, 12, payload.isChecked ? 24 : 0]);
+  writeU32(bytes, table, table - 4);
+  writeIdentity(bytes, table + 4, payload.textField);
+  writeSequence(bytes, table + 12, payload.location);
+  if (payload.isChecked) {
+    bytes[table + 24] = 1;
+  }
+  return bytes;
 }
 
 export function decodeOriginalUpdateCheckbox(bytes: Uint8Array): OriginalUpdateCheckboxPayload {
@@ -171,7 +191,7 @@ export class OriginalUpdateCheckboxOperationApplier implements SyncedOperationAp
     if (sameStyles(text, after.characterRuns, after.paragraphRuns)) {
       return { deferredReason: null };
     }
-    const updatedText: TextBlockElement = cloneText(text);
+    const updatedText: StoredRichTextElement = cloneText(text);
     updatedText.characterStyleRuns = after.characterRuns;
     updatedText.paragraphStyleRuns = after.paragraphRuns;
     await this.textState.writeTextPayload(store, operation.noteId, target, updatedText,
@@ -229,10 +249,43 @@ function sameStyles(text: TextBlockElement, characterRuns: Object[], paragraphRu
     JSON.stringify(text.paragraphStyleRuns ?? []) === JSON.stringify(paragraphRuns);
 }
 
-function cloneText(text: TextBlockElement): TextBlockElement {
-  const persisted: PersistedElement = decodePersistedElement(encodePersistedElement(
-    { kind: 'text', data: text }));
-  return persisted.data as TextBlockElement;
+function cloneText(text: TextBlockElement): StoredRichTextElement {
+  return cloneTextBlockElement(text) as Object as StoredRichTextElement;
+}
+
+function writeIdentity(bytes: Uint8Array, offset: number, identity: OperationIdentity): void {
+  writeU16(bytes, offset, identity.siteId);
+  writeU16(bytes, offset + 2, 0);
+  writeU32(bytes, offset + 4, identity.timestamp);
+}
+
+function writeSequence(bytes: Uint8Array, offset: number,
+  identity: OriginalSequenceIdentity): void {
+  writeU16(bytes, offset, identity.siteId);
+  writeU16(bytes, offset + 2, 0);
+  writeU32(bytes, offset + 4, identity.timestamp);
+  writeU32(bytes, offset + 8, identity.index);
+}
+
+function writeVtable(bytes: Uint8Array, offset: number, objectSize: number,
+  fields: number[]): void {
+  writeU16(bytes, offset, 4 + fields.length * 2);
+  writeU16(bytes, offset + 2, objectSize);
+  for (let index: number = 0; index < fields.length; index++) {
+    writeU16(bytes, offset + 4 + index * 2, fields[index]);
+  }
+}
+
+function writeU16(bytes: Uint8Array, offset: number, value: number): void {
+  bytes[offset] = value & 0xFF;
+  bytes[offset + 1] = value >>> 8 & 0xFF;
+}
+
+function writeU32(bytes: Uint8Array, offset: number, value: number): void {
+  bytes[offset] = value & 0xFF;
+  bytes[offset + 1] = value >>> 8 & 0xFF;
+  bytes[offset + 2] = value >>> 16 & 0xFF;
+  bytes[offset + 3] = value >>> 24 & 0xFF;
 }
 
 function readU16(bytes: Uint8Array, offset: number): number {
