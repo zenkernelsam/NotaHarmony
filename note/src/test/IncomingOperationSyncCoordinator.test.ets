@@ -4,6 +4,7 @@ import {
   IncomingOperationSyncCoordinator,
 } from '../main/ets/data/IncomingOperationSyncCoordinator';
 import { OriginalPageOperationApplier } from '../main/ets/data/OriginalPageOperationApplier';
+import { OriginalPeerInteractionStore } from '../main/ets/data/OriginalPeerInteractionOperation';
 import {
   IncomingSyncedOperation, ProcessSyncedOperationResult, ReceiveSyncedOperationsResult,
   SyncedOperationApplier,
@@ -53,6 +54,24 @@ class FakeAcknowledger implements IncomingOperationAcknowledger {
 
 export default function incomingOperationSyncCoordinatorTest() {
   describe('IncomingOperationSyncCoordinator', () => {
+    it('rejects incomplete or invalid production peer identity configuration', 0, () => {
+      let rejected: number = 0;
+      for (const create of [
+        (): IncomingOperationSyncCoordinator => new IncomingOperationSyncCoordinator(
+          new FakeIncomingInbox(), new OriginalPageOperationApplier(),
+          new OriginalPeerInteractionStore(), null),
+        (): IncomingOperationSyncCoordinator => IncomingOperationSyncCoordinator.createProduction(
+          new FakeIncomingInbox() as never, 0x10000),
+      ]) {
+        try {
+          create();
+        } catch (_error) {
+          rejected++;
+        }
+      }
+      expect(rejected).assertEqual(2);
+    });
+
     it('decodes the original zgb fields and reroots its nested uq9 operation', 0, () => {
       const decoded = decodeOriginalReceiveOpsEvent('note', receiveOpsEventFixture());
       expect(decoded.schemaVersion).assertEqual(7);

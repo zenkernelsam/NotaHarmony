@@ -76,6 +76,11 @@ import {
   ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE,
   OriginalTransientInteractionStore,
 } from '../main/ets/data/OriginalTransientInteractionOperation';
+import {
+  consumeOriginalPeerInteractionBatch, decodeOriginalPeerInteraction,
+  ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE,
+  OriginalPeerInteractionStore, OriginalPeerTool,
+} from '../main/ets/data/OriginalPeerInteractionOperation';
 import { OriginalPageMutationBatch } from '../main/ets/data/OriginalPageMutationBatch';
 
 function operation(timestamp: number, serverTime: string,
@@ -233,6 +238,7 @@ export default function syncedOperationInboxTest() {
       expect(applier.supports(ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE)).assertTrue();
+      expect(applier.supports(ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(5)).assertFalse();
     });
 
@@ -288,6 +294,111 @@ export default function syncedOperationInboxTest() {
       expect((await new OriginalPageOperationApplier().apply(fakeStore, operation))
         .deferredReason === null).assertTrue();
       expect(statements.length).assertEqual(1);
+    });
+
+    it('decodes original peer interaction and preserves its generated-reader fallbacks', 0, () => {
+      const payload = decodeOriginalPeerInteraction(flatBufferPeerInteraction(
+        true, true, false, false, true, 2, 2));
+      expect(payload.cursorPosition?.x).assertEqual(12.5);
+      expect(payload.cursorPosition?.y).assertEqual(-4.25);
+      expect(payload.selectedEntities.length).assertEqual(2);
+      expect(payload.selectedEntities[0].timestamp).assertEqual(20);
+      expect(payload.selectedEntities[1].timestamp).assertEqual(21);
+      expect(payload.tool).assertEqual(OriginalPeerTool.HIGHLIGHTER);
+      expect(payload.textSelection?.anchor?.timestamp).assertEqual(30);
+      expect(payload.textSelection?.focus?.index).assertEqual(4);
+      expect(payload.recordingInProgress).assertTrue();
+      const fallback = decodeOriginalPeerInteraction(flatBufferPeerInteraction(
+        true, true, false, false, false, 255, 0));
+      expect(fallback.cursorPosition === null).assertTrue();
+      expect(fallback.tool).assertEqual(OriginalPeerTool.POINTER);
+      expect(fallback.recordingInProgress).assertFalse();
+    });
+
+    it('coalesces peer interaction in memory without writing the durable model', 0, async () => {
+      const peerStore = new OriginalPeerInteractionStore();
+      const first = decodeOriginalPeerInteraction(flatBufferPeerInteraction());
+      const noCursor = decodeOriginalPeerInteraction(flatBufferPeerInteraction(
+        true, true, false, false, false, 3, 0));
+      expect(peerStore.consume('note', 8, first, 7)).assertTrue();
+      expect(peerStore.consume('note', 8, noCursor, 7)).assertTrue();
+      expect(peerStore.read('note', 8)?.cursorPosition?.x).assertEqual(12.5);
+      expect(peerStore.read('note', 8)?.tool).assertEqual(OriginalPeerTool.ERASER);
+      expect(peerStore.consume('note', 7, first, 7)).assertFalse();
+      expect(peerStore.read('note', 7) === null).assertTrue();
+      expect(peerStore.consume('other', 8, first, 7)).assertTrue();
+      peerStore.clearNote('note');
+      expect(peerStore.read('note', 8) === null).assertTrue();
+      expect(peerStore.read('other', 8) !== null).assertTrue();
+
+      const operation: StoredSyncedOperation = {
+        noteId: 'note', timestamp: 310, siteId: 8, clientTime: '410', serverTime: '510',
+        schemaVersion: 1, payloadType: ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE,
+        rawOperation: flatBufferPeerInteraction(), state: SyncedOperationInboxState.RECEIVED,
+        deferredReason: null, receivedAt: 1,
+      };
+      let writeCount: number = 0;
+      const noWriteStore = {
+        executeSql: async (_sql: string): Promise<void> => { writeCount++; },
+      };
+      const applier = new OriginalPageOperationApplier(new OriginalTransientInteractionStore());
+      expect((await applier.apply(noWriteStore, operation)).deferredReason === null).assertTrue();
+      expect(writeCount).assertEqual(0);
+      const batch = consumeOriginalPeerInteractionBatch('note', [operation], peerStore, 7);
+      expect(batch.operationCount).assertEqual(1);
+      expect(batch.updateCount).assertEqual(1);
+      expect(peerStore.read('note', 8)?.tool).assertEqual(OriginalPeerTool.PEN);
+
+      const beforeBatch = decodeOriginalPeerInteraction(flatBufferPeerInteraction());
+      if (beforeBatch.cursorPosition !== null) {
+        beforeBatch.cursorPosition.x = 1;
+        beforeBatch.cursorPosition.y = 2;
+      }
+      peerStore.consume('batch', 8, beforeBatch, 7);
+      const firstInBatch: IncomingSyncedOperation = {
+        noteId: 'batch', timestamp: 311, siteId: 8, clientTime: '411', serverTime: '511',
+        schemaVersion: 1, payloadType: ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE,
+        rawOperation: flatBufferPeerInteraction(true, true, false, false, true, 2, 1, 311),
+      };
+      const lastInBatch: IncomingSyncedOperation = {
+        noteId: 'batch', timestamp: 312, siteId: 8, clientTime: '412', serverTime: '512',
+        schemaVersion: 1, payloadType: ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE,
+        rawOperation: flatBufferPeerInteraction(true, true, false, false, false, 3, 0, 312),
+      };
+      const coalesced = consumeOriginalPeerInteractionBatch(
+        'batch', [firstInBatch, lastInBatch], peerStore, 7);
+      expect(coalesced.operationCount).assertEqual(2);
+      expect(coalesced.updateCount).assertEqual(1);
+      expect(peerStore.read('batch', 8)?.cursorPosition?.x).assertEqual(1);
+      expect(peerStore.read('batch', 8)?.tool).assertEqual(OriginalPeerTool.ERASER);
+
+      const malformedLast: IncomingSyncedOperation = {
+        noteId: 'batch', timestamp: 313, siteId: 8, clientTime: '413', serverTime: '513',
+        schemaVersion: 1, payloadType: ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE,
+        rawOperation: flatBufferPeerInteraction(true, true, false, true, true, 1, 1, 313),
+      };
+      const discarded = consumeOriginalPeerInteractionBatch(
+        'batch', [firstInBatch, malformedLast], peerStore, 7);
+      expect(discarded.updateCount).assertEqual(0);
+      expect(discarded.discardedCount).assertEqual(1);
+      expect(peerStore.read('batch', 8)?.tool).assertEqual(OriginalPeerTool.ERASER);
+    });
+
+    it('rejects malformed peer metadata, reserved fields and extensions', 0, () => {
+      let rejected: number = 0;
+      for (const raw of [
+        flatBufferPeerInteraction(false),
+        flatBufferPeerInteraction(true, false),
+        flatBufferPeerInteraction(true, true, true),
+        flatBufferPeerInteraction(true, true, false, true),
+      ]) {
+        try {
+          decodeOriginalPeerInteraction(raw);
+        } catch (_error) {
+          rejected++;
+        }
+      }
+      expect(rejected).assertEqual(4);
     });
 
     it('decodes original INSERT_CHAR and INSERT_STRING Unicode code points', 0, () => {
@@ -2539,6 +2650,52 @@ function flatBufferTransientInteractionEnded(includeMetadata: boolean = true,
     if (includeTimeout) {
       builder.uint32(metadata + 12, 10);
     }
+    builder.pointer(root + 36, metadata);
+  }
+  return builder.finish(root);
+}
+
+function flatBufferPeerInteraction(includeMetadata: boolean = true,
+  matchingInteraction: boolean = true, includeReservedField: boolean = false,
+  includeUnknownField: boolean = false, includeCursor: boolean = true,
+  tool: number = 1, recording: number = 1, operationTimestamp: number = 310): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32, includeMetadata ? 36 : 0], 40);
+  builder.inlineIdentity(root + 4, operationTimestamp, 8);
+  writeDecimalU64At(builder, root + 12, '410');
+  writeDecimalU64At(builder, root + 20, '510');
+  builder.uint8(root + 28, ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE);
+  const payload: number = builder.table([
+    includeCursor ? 4 : 0, includeReservedField ? 28 : 0, 0, 12, 16, 20, 24,
+    includeUnknownField ? 29 : 0,
+  ], 36);
+  if (includeCursor) {
+    builder.float32(payload + 4, 12.5);
+    builder.float32(payload + 8, -4.25);
+  }
+  const selected: number = builder.operationIdentityVector([
+    { timestamp: 20, siteId: 2 },
+    { timestamp: 20, siteId: 2 },
+    { timestamp: 21, siteId: 3 },
+  ]);
+  builder.pointer(payload + 12, selected);
+  builder.uint8(payload + 16, tool);
+  const selection: number = builder.table([4, 16], 28);
+  builder.inlineSequence(selection + 4, 30, 4, 2);
+  builder.inlineSequence(selection + 16, 31, 5, 4);
+  builder.pointer(payload + 20, selection);
+  builder.uint8(payload + 24, recording);
+  if (includeReservedField) {
+    builder.uint8(payload + 28, 1);
+  }
+  if (includeUnknownField) {
+    builder.uint8(payload + 29, 1);
+  }
+  builder.pointer(root + 32, payload);
+  if (includeMetadata) {
+    const metadata: number = builder.table([4], 12);
+    builder.inlineIdentity(metadata + 4,
+      matchingInteraction ? operationTimestamp : operationTimestamp + 1, 8);
     builder.pointer(root + 36, metadata);
   }
   return builder.finish(root);

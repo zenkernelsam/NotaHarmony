@@ -54,6 +54,9 @@ import {
   OriginalTransientInteractionEndedPayload, OriginalTransientInteractionStore,
 } from './OriginalTransientInteractionOperation';
 import {
+  decodeOriginalPeerInteraction, ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE,
+} from './OriginalPeerInteractionOperation';
+import {
   OriginalFlatBufferTableReader,
 } from './OriginalSyncedOperationFlatBuffer';
 import {
@@ -117,7 +120,8 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
       payloadType === ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE ||
-      payloadType === ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE;
+      payloadType === ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE;
   }
 
   async apply(store: relationalStore.RdbStore,
@@ -126,6 +130,7 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
     try {
       root = OriginalFlatBufferTableReader.fromRoot(operation.rawOperation);
       if (operation.payloadType !== ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE &&
+        operation.payloadType !== ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE &&
         root.hasField(6)) {
         return { deferredReason: 'TRANSIENT_ORIGINAL_OPERATION_UNSUPPORTED' };
       }
@@ -140,6 +145,15 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
         return { deferredReason: 'MALFORMED_TRANSIENT_INTERACTION_ENDED_PAYLOAD' };
       }
       this.transientInteractions.endInteraction(operation.noteId, payload.interactionId);
+      return { deferredReason: null };
+    }
+    if (operation.payloadType === ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE) {
+      try {
+        decodeOriginalPeerInteraction(operation.rawOperation);
+      } catch (_error) {
+        // The original mzc peer branch catches malformed peer payloads, removes them from model
+        // replay and continues the batch. They must not block unrelated durable operations.
+      }
       return { deferredReason: null };
     }
     if (operation.payloadType === ORIGINAL_SET_METADATA_PAYLOAD_TYPE) {

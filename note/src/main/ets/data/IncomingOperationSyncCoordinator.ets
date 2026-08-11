@@ -4,6 +4,11 @@ import {
   validateDeferredSyncedOperationBundle,
 } from './DeferredSyncedOperationBundle';
 import { OriginalPageOperationApplier } from './OriginalPageOperationApplier';
+import { validateOperationIdentity } from './OperationIdentity';
+import {
+  consumeOriginalPeerInteractionBatch, OriginalPeerInteractionBatchResult,
+  OriginalPeerInteractionStore,
+} from './OriginalPeerInteractionOperation';
 import {
   OriginalFlatBufferTableReader, OriginalSyncedOperationEnvelope,
   parseOriginalSyncedOperationEnvelope,
@@ -41,6 +46,9 @@ export interface IncomingOperationSyncResult extends ReceiveSyncedOperationsResu
   appliedOperationCount: number;
   terminalProcessResult: ProcessSyncedOperationResult;
   expectedAckReply: string | null;
+  peerInteractionOperationCount: number;
+  peerInteractionUpdateCount: number;
+  discardedPeerInteractionCount: number;
 }
 
 const MAX_INCOMING_OPERATION_COUNT: number = 4096;
@@ -50,15 +58,30 @@ const MAX_ACK_REPLY_BYTES: number = 4096;
 export class IncomingOperationSyncCoordinator {
   private inbox: IncomingOperationInbox;
   private applier: SyncedOperationApplier;
+  private peerInteractions: OriginalPeerInteractionStore | null;
+  private localSiteId: number | null;
   private mutex: AsyncMutex = new AsyncMutex();
 
-  constructor(inbox: IncomingOperationInbox, applier: SyncedOperationApplier) {
+  constructor(inbox: IncomingOperationInbox, applier: SyncedOperationApplier,
+    peerInteractions: OriginalPeerInteractionStore | null = null,
+    localSiteId: number | null = null) {
+    if ((peerInteractions === null) !== (localSiteId === null)) {
+      throw new Error('incoming peer interaction configuration is incomplete');
+    }
+    if (localSiteId !== null) {
+      validateOperationIdentity({ timestamp: 0, siteId: localSiteId });
+    }
     this.inbox = inbox;
     this.applier = applier;
+    this.peerInteractions = peerInteractions;
+    this.localSiteId = localSiteId;
   }
 
-  static createProduction(inbox: SyncedOperationInboxStore): IncomingOperationSyncCoordinator {
-    return new IncomingOperationSyncCoordinator(inbox, new OriginalPageOperationApplier());
+  static createProduction(inbox: SyncedOperationInboxStore, localSiteId: number,
+    peerInteractions: OriginalPeerInteractionStore = new OriginalPeerInteractionStore()):
+    IncomingOperationSyncCoordinator {
+    return new IncomingOperationSyncCoordinator(
+      inbox, new OriginalPageOperationApplier(), peerInteractions, localSiteId);
   }
 
   async receiveOpsEvent(noteId: string, payload: Uint8Array, receivedAt: number,
@@ -114,7 +137,17 @@ export class IncomingOperationSyncCoordinator {
           appliedOperationCount: 0,
           terminalProcessResult: ProcessSyncedOperationResult.EMPTY,
           expectedAckReply: bundle.expectedAckReply,
+          peerInteractionOperationCount: 0,
+          peerInteractionUpdateCount: 0,
+          discardedPeerInteractionCount: 0,
         };
+      }
+      let peers: OriginalPeerInteractionBatchResult = {
+        operationCount: 0, updateCount: 0, discardedCount: 0,
+      };
+      if (this.peerInteractions !== null && this.localSiteId !== null) {
+        peers = consumeOriginalPeerInteractionBatch(
+          noteId, bundle.operations, this.peerInteractions, this.localSiteId);
       }
       const received: ReceiveSyncedOperationsResult =
         await this.inbox.receiveBatch(noteId, bundle.operations, receivedAt);
@@ -138,6 +171,9 @@ export class IncomingOperationSyncCoordinator {
         appliedOperationCount: appliedOperationCount,
         terminalProcessResult: terminal,
         expectedAckReply: bundle.expectedAckReply,
+        peerInteractionOperationCount: peers.operationCount,
+        peerInteractionUpdateCount: peers.updateCount,
+        discardedPeerInteractionCount: peers.discardedCount,
       };
     });
   }
