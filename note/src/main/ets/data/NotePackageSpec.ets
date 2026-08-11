@@ -343,6 +343,8 @@ function isValidText(text: TextBlockElement): boolean {
     isNonNegativeFinite(text.blockWidth) && isNonNegativeFinite(text.blockHeight) &&
     isFiniteNumber(text.rotationRadians) && isFiniteNumber(text.contentLeftInset) &&
     isFiniteNumber(text.contentTopInset) && isNonNegativeFinite(text.fontSize) &&
+    (text.contentRightInset === undefined || isNonNegativeFinite(text.contentRightInset)) &&
+    (text.contentBottomInset === undefined || isNonNegativeFinite(text.contentBottomInset)) &&
     isFiniteNumber(text.fontColor) && isValidRichTextRuns(text, text.richText) &&
     (text.corner === undefined || text.corner === 0 || text.corner === 1) &&
     (text.textWrap === undefined || text.textWrap === 0 || text.textWrap === 1) &&

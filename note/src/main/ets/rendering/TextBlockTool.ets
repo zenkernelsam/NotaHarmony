@@ -44,7 +44,8 @@ export class TextBlockTool {
       return cloneTextBlockElement(element);
     }
     const lines: number = text.split('\n').length;
-    const height: number = Math.max(40, lines * (element.fontSize + 8) + element.contentTopInset * 2);
+    const height: number = Math.max(40, lines * (element.fontSize + 8) +
+      element.contentTopInset + (element.contentBottomInset ?? element.contentTopInset));
     const updated: TextBlockElement = cloneTextBlockElement(element);
     updated.richText = text;
     if ((characterStyleRuns === undefined) !== (paragraphStyleRuns === undefined)) {
@@ -68,7 +69,8 @@ export class TextBlockTool {
     if (updated.resizesWidthToFitText !== true || !Number.isFinite(measuredWidth)) {
       return updated;
     }
-    updated.blockWidth = Math.max(updated.contentLeftInset * 2 + 1, Math.ceil(measuredWidth));
+    updated.blockWidth = Math.max(updated.contentLeftInset +
+      (updated.contentRightInset ?? updated.contentLeftInset) + 1, Math.ceil(measuredWidth));
     updated.bounds = textBlockWorldBounds(updated);
     return updated;
   }

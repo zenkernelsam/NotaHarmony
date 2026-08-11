@@ -85,6 +85,10 @@ export interface TextBlockElement extends NoteElementBase {
   rotationRadians: number;
   contentLeftInset: number;
   contentTopInset: number;
+  // Original margins are asymmetric (defaults: top 3, bottom 10, left/right 5).
+  // Optional keeps pre-Phase-140 Harmony snapshots readable.
+  contentRightInset?: number;
+  contentBottomInset?: number;
   fontSize: number;
   fontColor: number;
   // Original BlockCommon registers retained on TEXT snapshots.

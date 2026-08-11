@@ -19,7 +19,8 @@ export class Canvas2DTextRenderer {
       characters.length, element.characterStyleRuns);
     const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
       characters.length, element.paragraphStyleRuns);
-    let maximum: number = Math.max(1, element.contentLeftInset * 2);
+    let maximum: number = Math.max(1, element.contentLeftInset +
+      (element.contentRightInset ?? element.contentLeftInset));
     let lineStart: number = 0;
     let numberedParagraph: number = 1;
     ctx.save();
@@ -38,7 +39,8 @@ export class Canvas2DTextRenderer {
         const indent: number = Math.max(0, paragraph.indentLevel ?? 0) * element.fontSize * 1.5;
         const lineWidth: number = this.measureRange(ctx, characters, characterStyles,
           lineStart, index, element, prefix);
-        maximum = Math.max(maximum, element.contentLeftInset * 2 + indent + lineWidth);
+        maximum = Math.max(maximum, element.contentLeftInset +
+          (element.contentRightInset ?? element.contentLeftInset) + indent + lineWidth);
         lineStart = index + 1;
       }
     } finally {
@@ -80,7 +82,8 @@ export class Canvas2DTextRenderer {
         lineStart, index, element, prefix);
       let x: number = element.textOrigin.x + element.contentLeftInset +
         Math.max(0, paragraph.indentLevel ?? 0) * element.fontSize * 1.5;
-      const available: number = Math.max(0, element.blockWidth - element.contentLeftInset * 2);
+      const available: number = Math.max(0, element.blockWidth - element.contentLeftInset -
+        (element.contentRightInset ?? element.contentLeftInset));
       if (paragraph.alignment === 2) {
         x += Math.max(0, (available - lineWidth) / 2);
       } else if (paragraph.alignment === 3) {
@@ -162,7 +165,8 @@ export class Canvas2DTextRenderer {
     const ends: number[] = [];
     const wrap: number = element.resizesWidthToFitText === true ? 1 :
       (element.textWrap === undefined ? 0 : element.textWrap);
-    const available: number = Math.max(1, element.blockWidth - element.contentLeftInset * 2);
+    const available: number = Math.max(1, element.blockWidth - element.contentLeftInset -
+      (element.contentRightInset ?? element.contentLeftInset));
     let start: number = 0;
     let width: number = 0;
     let lastBreak: number = -1;

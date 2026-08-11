@@ -67,8 +67,10 @@ export struct TextBlockOverlay {
             .padding({
               left: this.element.contentLeftInset * this.viewportZoom,
               top: this.element.contentTopInset * this.viewportZoom,
-              right: 0,
-              bottom: 0,
+              right: (this.element.contentRightInset ?? this.element.contentLeftInset) *
+                this.viewportZoom,
+              bottom: (this.element.contentBottomInset ?? this.element.contentTopInset) *
+                this.viewportZoom,
             })
             .onChange((value: string) => {
               this.draftText = value;

@@ -6,6 +6,8 @@ import { originalAssetHashKey, originalAssetStorageHash } from
 import { textBlockTransformComponents, TextBlockTransformComponents } from
   '../core/model/TextBlockGeometry';
 import { OriginalSequenceIdentity, validateOriginalSequenceIdentity } from './OperationIdentity';
+import { PagePaperBackground } from '../core/model/NoteTypes';
+import { validateOriginalPaper } from '../core/model/PageBackgroundModel';
 
 const DEFAULT_TEXT_COLOR: number = -16777216;
 const DEFAULT_TEXT_SIZE: number = 17;
@@ -146,31 +148,66 @@ export function encodeOriginalLocalCreateTextBlock(page: OriginalSequenceIdentit
   const hasRotation: boolean = Math.abs(placement.rotationRadians) > EPSILON;
   const hasScale: boolean = Math.abs(placement.scaleX - 1) > EPSILON ||
     Math.abs(placement.scaleY - 1) > EPSILON;
+  const paper: PagePaperBackground | null = text.paper === undefined ? null : text.paper;
   const table: number = 52;
-  const objectSize: number = 44;
-  const bytes: Uint8Array = new Uint8Array(table + objectSize);
+  const objectSize: number = 72;
+  const paperVtable: number = table + objectSize;
+  const paperTable: number = paperVtable + 16;
+  const bytes: Uint8Array = new Uint8Array(paper === null ? paperVtable : paperTable + 16);
   const fields: number[] = new Array<number>(21).fill(0);
-  fields[2] = 4;
-  fields[3] = 16;
-  fields[4] = hasRotation ? 24 : 0;
-  fields[5] = hasScale ? 28 : 0;
-  fields[6] = 36;
+  fields[1] = (text.corner ?? 0) === 0 ? 0 : 4;
+  fields[2] = 8;
+  fields[3] = 20;
+  fields[4] = hasRotation ? 28 : 0;
+  fields[5] = hasScale ? 32 : 0;
+  fields[6] = 40;
+  fields[7] = (text.textWrap ?? 0) === 0 ? 0 : 48;
+  fields[8] = text.enableCaption === true ? 49 : 0;
+  fields[15] = paper === null ? 0 : 52;
+  fields[18] = text.resizesWidthToFitText === true ? 50 : 0;
+  fields[19] = 56;
+  fields[20] = text.positionLocked === true ? 51 : 0;
 
   writeU32(bytes, 0, table);
   writeVtable(bytes, 4, objectSize, fields);
   writeU32(bytes, table, table - 4);
-  writeSequence(bytes, table + 4, page);
-  writeF32(bytes, table + 16, placement.origin.x);
-  writeF32(bytes, table + 20, placement.origin.y);
+  if ((text.corner ?? 0) !== 0) {
+    writeU8(bytes, table + 4, text.corner as number);
+  }
+  writeSequence(bytes, table + 8, page);
+  writeF32(bytes, table + 20, placement.origin.x);
+  writeF32(bytes, table + 24, placement.origin.y);
   if (hasRotation) {
-    writeF32(bytes, table + 24, placement.rotationRadians);
+    writeF32(bytes, table + 28, placement.rotationRadians);
   }
   if (hasScale) {
-    writeF32(bytes, table + 28, placement.scaleX);
-    writeF32(bytes, table + 32, placement.scaleY);
+    writeF32(bytes, table + 32, placement.scaleX);
+    writeF32(bytes, table + 36, placement.scaleY);
   }
-  writeF32(bytes, table + 36, text.blockWidth);
-  writeF32(bytes, table + 40, text.blockHeight);
+  writeF32(bytes, table + 40, text.blockWidth);
+  writeF32(bytes, table + 44, text.blockHeight);
+  if ((text.textWrap ?? 0) !== 0) {
+    writeU8(bytes, table + 48, text.textWrap as number);
+  }
+  if (text.enableCaption === true) {
+    writeU8(bytes, table + 49, 1);
+  }
+  if (text.resizesWidthToFitText === true) {
+    writeU8(bytes, table + 50, 1);
+  }
+  if (text.positionLocked === true) {
+    writeU8(bytes, table + 51, 1);
+  }
+  if (paper !== null) {
+    writeU32(bytes, table + 52, paperTable - (table + 52));
+  }
+  writeF32(bytes, table + 56, text.contentTopInset);
+  writeF32(bytes, table + 60, text.contentBottomInset ?? text.contentTopInset);
+  writeF32(bytes, table + 64, text.contentLeftInset);
+  writeF32(bytes, table + 68, text.contentRightInset ?? text.contentLeftInset);
+  if (paper !== null) {
+    writePaper(bytes, paperVtable, paperTable, paper);
+  }
   return bytes;
 }
 
@@ -326,20 +363,69 @@ function validUtf8RoundTrip(bytes: Uint8Array, value: string): boolean {
 
 function validateLocalTextBlock(text: TextBlockElement,
   placement: TextBlockTransformComponents): void {
+  const paper: PagePaperBackground | null = text.paper === undefined ? null : text.paper;
+  try {
+    validateOriginalPaper(paper);
+  } catch (_error) {
+    throw new Error('local Text Block cannot be represented by original CREATE_BLOCK');
+  }
+  const bottomInset: number = text.contentBottomInset ?? text.contentTopInset;
+  const rightInset: number = text.contentRightInset ?? text.contentLeftInset;
   if (!Number.isFinite(text.blockWidth) || text.blockWidth < 0 ||
     !Number.isFinite(text.blockHeight) || text.blockHeight < 0 ||
     !Number.isFinite(placement.origin.x) || !Number.isFinite(placement.origin.y) ||
     !Number.isFinite(placement.rotationRadians) || !Number.isFinite(placement.scaleX) ||
     !Number.isFinite(placement.scaleY) || Math.abs(placement.scaleX) <= EPSILON ||
-    Math.abs(placement.scaleY) <= EPSILON || text.contentLeftInset !== 5 ||
-    text.contentTopInset !== 3 || text.fontSize !== DEFAULT_TEXT_SIZE ||
-    text.fontColor !== DEFAULT_TEXT_COLOR || (text.corner ?? 0) !== 0 ||
-    (text.textWrap ?? 0) !== 0 || text.enableCaption === true || text.paper != null ||
-    text.resizesWidthToFitText === true || text.positionLocked === true ||
+    Math.abs(placement.scaleY) <= EPSILON || !Number.isFinite(text.contentLeftInset) ||
+    text.contentLeftInset < 0 || !Number.isFinite(text.contentTopInset) ||
+    text.contentTopInset < 0 || !Number.isFinite(rightInset) || rightInset < 0 ||
+    !Number.isFinite(bottomInset) || bottomInset < 0 || text.fontSize !== DEFAULT_TEXT_SIZE ||
+    text.fontColor !== DEFAULT_TEXT_COLOR || !Number.isInteger(text.corner ?? 0) ||
+    (text.corner ?? 0) < 0 || (text.corner ?? 0) > 1 ||
+    !Number.isInteger(text.textWrap ?? 0) || (text.textWrap ?? 0) < 0 ||
+    (text.textWrap ?? 0) > 1 ||
+    (text.enableCaption !== undefined && typeof text.enableCaption !== 'boolean') ||
+    (text.resizesWidthToFitText !== undefined &&
+      typeof text.resizesWidthToFitText !== 'boolean') ||
+    (text.positionLocked !== undefined && typeof text.positionLocked !== 'boolean') ||
     (text.characterStyleRuns !== undefined && text.characterStyleRuns.length !== 0) ||
     (text.paragraphStyleRuns !== undefined && text.paragraphStyleRuns.length !== 0) ||
     !isRepresentableTransform(text.transform, placement)) {
     throw new Error('local Text Block cannot be represented by original CREATE_BLOCK');
+  }
+}
+
+function writePaper(bytes: Uint8Array, vtable: number, table: number,
+  paper: PagePaperBackground): void {
+  const fields: number[] = new Array<number>(6).fill(0);
+  fields[0] = paper.flair === null ? 0 : 4;
+  fields[1] = paper.flairSpacingPt === null ? 0 : 8;
+  fields[2] = paper.flairBleeds === null ? 0 : 5;
+  fields[3] = paper.flairCentered === null ? 0 : 6;
+  fields[4] = paper.colorR === null ? 0 : 12;
+  fields[5] = paper.legacyPaperIndex === null ? 0 : 7;
+  writeVtable(bytes, vtable, 16, fields);
+  writeU32(bytes, table, table - vtable);
+  if (paper.flair !== null) {
+    writeU8(bytes, table + 4, paper.flair);
+  }
+  if (paper.flairBleeds !== null) {
+    writeU8(bytes, table + 5, paper.flairBleeds ? 1 : 0);
+  }
+  if (paper.flairCentered !== null) {
+    writeU8(bytes, table + 6, paper.flairCentered ? 1 : 0);
+  }
+  if (paper.legacyPaperIndex !== null) {
+    writeU8(bytes, table + 7, paper.legacyPaperIndex);
+  }
+  if (paper.flairSpacingPt !== null) {
+    writeF32(bytes, table + 8, paper.flairSpacingPt);
+  }
+  if (paper.colorR !== null) {
+    writeU8(bytes, table + 12, paper.colorR);
+    writeU8(bytes, table + 13, paper.colorG as number);
+    writeU8(bytes, table + 14, paper.colorB as number);
+    writeU8(bytes, table + 15, paper.colorA as number);
   }
 }
 

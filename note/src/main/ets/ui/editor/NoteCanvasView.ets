@@ -5109,6 +5109,8 @@ export struct NoteCanvasView {
       -16777216, 17);
     element.contentLeftInset = 5;
     element.contentTopInset = 3;
+    element.contentRightInset = 5;
+    element.contentBottomInset = 10;
     element.corner = 0;
     element.textWrap = 0;
     element.enableCaption = false;

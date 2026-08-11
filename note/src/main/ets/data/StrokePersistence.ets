@@ -1,6 +1,6 @@
 import { relationalStore } from '@kit.ArkData';
 import { PageInfo } from '../core/model/NoteTypes';
-import { parsePageBackground } from '../core/model/PageBackgroundModel';
+import { cloneOriginalPaper, parsePageBackground } from '../core/model/PageBackgroundModel';
 import { readEffectiveNoteBackground } from './OriginalSetMetadataOperation';
 import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op, OpType } from '../core/model/OpTypes';
 import { taskpool, util } from '@kit.ArkTS';
@@ -408,6 +408,13 @@ export interface OriginalShapeStateRenderMetadata {
   tool: number;
   style: number;
   positionLocked: boolean;
+}
+
+interface OriginalTextMarginMetadata {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
 }
 
 export function decodeOriginalShapeStateRenderMetadata(
@@ -3720,6 +3727,8 @@ export class StrokePersistence {
     try {
       const originalShapeMetadata: Map<string, OriginalShapeStateRenderMetadata> =
         await this.loadOriginalShapeMetadata(store, noteId);
+      const originalTextMargins: Map<string, OriginalTextMarginMetadata> =
+        await this.loadOriginalTextMargins(store, noteId);
       const predicates = new relationalStore.RdbPredicates('page_element_snapshot');
       predicates.equalTo('note_id', noteId);
       if (pageId !== null) {
@@ -3739,6 +3748,13 @@ export class StrokePersistence {
                 elementId: stroke.id, zIndex: result.elementOrder.length });
             } else if (parsed.kind === 'text') {
               const text: TextBlockElement = cloneTextBlockElement(parsed.data as TextBlockElement);
+              const margins: OriginalTextMarginMetadata | undefined = originalTextMargins.get(text.id);
+              if (margins !== undefined) {
+                text.contentTopInset = margins.top;
+                text.contentBottomInset = margins.bottom;
+                text.contentLeftInset = margins.left;
+                text.contentRightInset = margins.right;
+              }
               text.bounds = textBlockWorldBounds(text);
               result.textBlocks.push(text);
               result.elementOrder.push({ kind: PageElementKind.TEXT,
@@ -3813,6 +3829,36 @@ export class StrokePersistence {
           }
         } catch (_error) {
           // A malformed state row must not prevent the remaining page elements from loading.
+        }
+      }
+    } finally {
+      rows.close();
+    }
+    return result;
+  }
+
+  private async loadOriginalTextMargins(store: relationalStore.RdbStore,
+    noteId: string): Promise<Map<string, OriginalTextMarginMetadata>> {
+    const rows = await store.querySql(
+      `SELECT block_timestamp, block_site_id, create_margin_top, create_margin_bottom,
+        create_margin_left, create_margin_right FROM original_block_state
+       WHERE note_id = ? AND block_type = ?`, [noteId, OriginalBlockType.TEXT]);
+    const result: Map<string, OriginalTextMarginMetadata> =
+      new Map<string, OriginalTextMarginMetadata>();
+    try {
+      while (rows.goToNextRow()) {
+        const margins: OriginalTextMarginMetadata = {
+          top: rows.getDouble(rows.getColumnIndex('create_margin_top')),
+          bottom: rows.getDouble(rows.getColumnIndex('create_margin_bottom')),
+          left: rows.getDouble(rows.getColumnIndex('create_margin_left')),
+          right: rows.getDouble(rows.getColumnIndex('create_margin_right')),
+        };
+        if ([margins.top, margins.bottom, margins.left, margins.right]
+          .every((value: number): boolean => Number.isFinite(value) && value >= 0)) {
+          result.set(encodeOperationId({
+            timestamp: rows.getLong(rows.getColumnIndex('block_timestamp')),
+            siteId: rows.getLong(rows.getColumnIndex('block_site_id')),
+          }), margins);
         }
       }
     } finally {
@@ -4799,9 +4845,10 @@ function materializeOriginalTextCreate(id: string, payload: OriginalCreateBlockP
     blockWidth: payload.width, blockHeight: payload.height,
     rotationRadians: rotation,
     contentLeftInset: payload.margins.left, contentTopInset: payload.margins.top,
+    contentRightInset: payload.margins.right, contentBottomInset: payload.margins.bottom,
     fontSize: 17, fontColor: -16777216,
     corner: payload.corner, textWrap: payload.textWrap,
-    enableCaption: payload.enableCaption, paper: null,
+    enableCaption: payload.enableCaption, paper: cloneOriginalPaper(payload.paper),
     resizesWidthToFitText: payload.resizesWidthToFitText,
     positionLocked: payload.positionLocked,
     originalCreate: {

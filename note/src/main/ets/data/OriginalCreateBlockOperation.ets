@@ -445,6 +445,8 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       rotationRadians: rotation,
       contentLeftInset: payload.margins.left,
       contentTopInset: payload.margins.top,
+      contentRightInset: payload.margins.right,
+      contentBottomInset: payload.margins.bottom,
       fontSize: 17,
       fontColor: -16777216,
       corner: payload.corner,

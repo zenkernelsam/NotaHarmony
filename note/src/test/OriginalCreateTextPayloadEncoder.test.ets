@@ -54,6 +54,42 @@ export default function originalCreateTextPayloadEncoderTest() {
       expect(decoded.scalars[2]).assertEqual(0x4E2D);
     });
 
+    it('round-trips every original Text common field through CREATE_BLOCK', 0, () => {
+      const text: TextBlockElement = sampleText();
+      text.corner = 1;
+      text.textWrap = 1;
+      text.enableCaption = true;
+      text.resizesWidthToFitText = true;
+      text.positionLocked = true;
+      text.contentTopInset = 3.25;
+      text.contentBottomInset = 11.5;
+      text.contentLeftInset = 6.5;
+      text.contentRightInset = 7.25;
+      text.paper = {
+        flair: 0, flairSpacingPt: 18, flairBleeds: false, flairCentered: false,
+        colorR: 250, colorG: 251, colorB: 252, colorA: 255, legacyPaperIndex: 0,
+      };
+      const decoded = decodeOriginalCreateBlock(wrap(22,
+        encodeOriginalLocalCreateTextBlock(
+          { timestamp: 80, siteId: 7, index: 2 }, text)), '1234');
+      expect(decoded.corner).assertEqual(1);
+      expect(decoded.textWrap).assertEqual(1);
+      expect(decoded.enableCaption).assertTrue();
+      expect(decoded.resizesWidthToFitText).assertTrue();
+      expect(decoded.positionLocked).assertTrue();
+      expect(decoded.margins.top).assertEqual(3.25);
+      expect(decoded.margins.bottom).assertEqual(11.5);
+      expect(decoded.margins.left).assertEqual(6.5);
+      expect(decoded.margins.right).assertEqual(7.25);
+      expect(decoded.paper?.flair).assertEqual(0);
+      expect(decoded.paper?.flairSpacingPt).assertEqual(18);
+      expect(decoded.paper?.flairBleeds).assertFalse();
+      expect(decoded.paper?.flairCentered).assertFalse();
+      expect(decoded.paper?.colorR).assertEqual(250);
+      expect(decoded.paper?.colorA).assertEqual(255);
+      expect(decoded.paper?.legacyPaperIndex).assertEqual(0);
+    });
+
     it('round-trips original Math state through CREATE_BLOCK', 0, () => {
       const math: MathElement = {
         id: 'op:65:7', type: ElementType.MATH,
@@ -124,6 +160,17 @@ export default function originalCreateTextPayloadEncoderTest() {
       sheared.transform[1] = 0.25;
       expect(() => encodeOriginalLocalCreateTextBlock(
         { timestamp: 80, siteId: 7, index: 2 }, sheared)).assertThrow();
+      const invalidMargins: TextBlockElement = sampleText();
+      invalidMargins.contentRightInset = -1;
+      expect(() => encodeOriginalLocalCreateTextBlock(
+        { timestamp: 80, siteId: 7, index: 2 }, invalidMargins)).assertThrow();
+      const invalidPaper: TextBlockElement = sampleText();
+      invalidPaper.paper = {
+        flair: null, flairSpacingPt: null, flairBleeds: null, flairCentered: null,
+        colorR: 1, colorG: 2, colorB: 3, colorA: 128, legacyPaperIndex: null,
+      };
+      expect(() => encodeOriginalLocalCreateTextBlock(
+        { timestamp: 80, siteId: 7, index: 2 }, invalidPaper)).assertThrow();
       expect(() => encodeOriginalInitialInsertString(
         { timestamp: 100, siteId: 7 }, '')).assertThrow();
       expect(() => encodeOriginalInitialInsertString(
@@ -190,6 +237,7 @@ function sampleText(): TextBlockElement {
     richText: 'hello', characterStyleRuns: [], paragraphStyleRuns: [],
     textOrigin: { x: 0, y: 0 }, blockWidth: 200, blockHeight: 40,
     rotationRadians: 0, contentLeftInset: 5, contentTopInset: 3,
+    contentRightInset: 5, contentBottomInset: 10,
     fontSize: 17, fontColor: -16777216, corner: 0, textWrap: 0,
     enableCaption: false, paper: null, resizesWidthToFitText: false,
     positionLocked: false,

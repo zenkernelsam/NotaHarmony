@@ -118,6 +118,8 @@ interface StoredBlockState {
   positionLocked: StoredRegister<boolean>;
   baseLeftInset: number;
   baseTopInset: number;
+  baseRightInset: number;
+  baseBottomInset: number;
   baseZIndex: string;
   zIndex: StoredRegister<string>;
 }
@@ -776,9 +778,13 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       const basePositionLocked: number = rows.getLong(rows.getColumnIndex('create_position_locked'));
       const baseLeftInset: number = rows.getDouble(rows.getColumnIndex('create_margin_left'));
       const baseTopInset: number = rows.getDouble(rows.getColumnIndex('create_margin_top'));
-      if (![baseOriginX, baseOriginY, baseWidth, baseHeight, baseLeftInset, baseTopInset]
+      const baseRightInset: number = rows.getDouble(rows.getColumnIndex('create_margin_right'));
+      const baseBottomInset: number = rows.getDouble(rows.getColumnIndex('create_margin_bottom'));
+      if (![baseOriginX, baseOriginY, baseWidth, baseHeight, baseLeftInset, baseTopInset,
+        baseRightInset, baseBottomInset]
         .every((value: number) => Number.isFinite(value)) || baseWidth < 0 || baseHeight < 0 ||
-        baseLeftInset < 0 || baseTopInset < 0 || baseCorner < 0 || baseCorner > 1 ||
+        baseLeftInset < 0 || baseTopInset < 0 || baseRightInset < 0 || baseBottomInset < 0 ||
+        baseCorner < 0 || baseCorner > 1 ||
         baseTextWrap < 0 || baseTextWrap > 1 ||
         (baseEnableCaption !== 0 && baseEnableCaption !== 1) ||
         (baseResizesWidth !== 0 && baseResizesWidth !== 1) ||
@@ -839,6 +845,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         basePositionLocked: basePositionLocked !== 0,
         positionLocked: readBooleanRegister(rows, 'position_locked'),
         baseLeftInset: baseLeftInset, baseTopInset: baseTopInset,
+        baseRightInset: baseRightInset, baseBottomInset: baseBottomInset,
         baseZIndex: baseZIndex, zIndex: { value: zValue, winner: zWinner },
       };
     } catch (_error) {
@@ -915,6 +922,12 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     }
     if (target.kind === PageElementKind.TEXT) {
       const text: TextBlockElement = element as TextBlockElement;
+      if (text.contentRightInset === undefined) {
+        text.contentRightInset = state.baseRightInset;
+      }
+      if (text.contentBottomInset === undefined) {
+        text.contentBottomInset = state.baseBottomInset;
+      }
       const expectedText: TextBlockElement = cloneText(text);
       expectedText.transform = expectedTransform;
       expectedText.blockWidth = size.x;
@@ -925,6 +938,8 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       return rectsNear(text.bounds, textBlockWorldBounds(expectedText)) &&
         text.textOrigin.x === 0 && text.textOrigin.y === 0 &&
         text.contentLeftInset === state.baseLeftInset && text.contentTopInset === state.baseTopInset &&
+        text.contentRightInset === state.baseRightInset &&
+        text.contentBottomInset === state.baseBottomInset &&
         JSON.stringify(text.paper ?? null) === JSON.stringify(expectedText.paper ?? null) &&
         (text.resizesWidthToFitText === true) === (expectedText.resizesWidthToFitText === true);
     }
@@ -1760,7 +1775,9 @@ function cloneText(text: TextBlockElement): TextBlockElement {
     richText: text.richText, textOrigin: { x: text.textOrigin.x, y: text.textOrigin.y },
     blockWidth: text.blockWidth, blockHeight: text.blockHeight,
     rotationRadians: text.rotationRadians, contentLeftInset: text.contentLeftInset,
-    contentTopInset: text.contentTopInset, fontSize: text.fontSize, fontColor: text.fontColor,
+    contentTopInset: text.contentTopInset, contentRightInset: text.contentRightInset,
+    contentBottomInset: text.contentBottomInset,
+    fontSize: text.fontSize, fontColor: text.fontColor,
     characterStyleRuns: cloneCharacterStyleRuns(text.characterStyleRuns),
     paragraphStyleRuns: cloneParagraphStyleRuns(text.paragraphStyleRuns),
     corner: text.corner, textWrap: text.textWrap, enableCaption: text.enableCaption,
