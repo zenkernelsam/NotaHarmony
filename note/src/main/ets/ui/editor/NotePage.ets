@@ -968,7 +968,10 @@ struct NotePage {
     const history: HistoryMetadata | undefined = this.historyBridge === null
       ? undefined : this.historyBridge.preparePageAction(action);
     const assignedPage: PageInfo = await this.pageRepo.addPage(this.noteId, page, history);
+    action.pageId = assignedPage.pageId;
     action.pageAfter = this.clonePage(assignedPage);
+    action.pageOrderAfter = orderBefore.concat([assignedPage.pageId]);
+    action.selectedPageIdAfter = assignedPage.pageId;
     const updated: PageInfo[] = this.pages.slice();
     updated.push(assignedPage);
     this.pages = updated;
@@ -1244,8 +1247,11 @@ struct NotePage {
       this.selectPageById(action.selectedPageIdBefore);
       return true;
     }
-    await this.pageRepo.addPage(this.noteId, action.pageAfter, history);
-    const restored: PageInfo[] = this.pages.concat([this.clonePage(action.pageAfter)]);
+    const assignedPage: PageInfo = await this.pageRepo.addPage(this.noteId, action.pageAfter, history);
+    if (assignedPage.pageId !== action.pageId) {
+      throw new Error('ADD_PAGE redo changed the original page identity');
+    }
+    const restored: PageInfo[] = this.pages.concat([this.clonePage(assignedPage)]);
     this.pages = this.orderPages(restored, action.pageOrderAfter);
     this.selectPageById(action.selectedPageIdAfter);
     return true;

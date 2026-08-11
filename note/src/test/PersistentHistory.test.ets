@@ -283,6 +283,23 @@ export default function persistentHistoryTest() {
       expect(trailingLegacy.undo.length).assertEqual(0);
     });
 
+    it('keeps original outbound companions transparent to local history', 0, () => {
+      const createPage: Op = makeOp('original-page');
+      createPage.opType = OpType.ORIGINAL_CREATE_PAGE;
+      const recording: Op = makeOp('original-recording');
+      recording.opType = OpType.ORIGINAL_CREATE_RECORDING;
+      const state: PersistentHistoryState = reducePersistentHistory([
+        makeOp('op-a', 'action-a', HistoryEffect.PUSH, 100),
+        createPage,
+        makeOp('op-b', 'action-b', HistoryEffect.PUSH, 101),
+        recording,
+      ]);
+      expect(state.undo.length).assertEqual(2);
+      expect(state.undo[0].actionId).assertEqual('action-a');
+      expect(state.undo[1].actionId).assertEqual('action-b');
+      expect(state.legacyOperationCount).assertEqual(0);
+    });
+
     it('rejects unknown, stale, and duplicate action movements', 0, () => {
       expect(rejects([makeOp('undo-a', 'action-a', HistoryEffect.UNDO)])).assertTrue();
       expect(rejects([

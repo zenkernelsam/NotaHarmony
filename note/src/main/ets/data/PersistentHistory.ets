@@ -473,6 +473,9 @@ function groupEvents(operations: Op[], onLegacy: () => void): GroupedHistoryEven
   let segment: number = 0;
   for (const operation of operations) {
     if (operation.history === undefined) {
+      if (isOriginalOutboundCompanion(operation)) {
+        continue;
+      }
       onLegacy();
       active = undefined;
       segment++;
@@ -487,6 +490,12 @@ function groupEvents(operations: Op[], onLegacy: () => void): GroupedHistoryEven
     }
   }
   return { events: events, finalSegment: segment };
+}
+
+function isOriginalOutboundCompanion(operation: Op): boolean {
+  return operation.opType === OpType.ORIGINAL_DELETE_ENTITIES ||
+    operation.opType === OpType.ORIGINAL_CREATE_RECORDING ||
+    operation.opType === OpType.ORIGINAL_CREATE_PAGE;
 }
 
 function sameEvent(left: HistoryMetadata, right: HistoryMetadata): boolean {

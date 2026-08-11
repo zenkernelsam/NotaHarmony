@@ -294,7 +294,7 @@ export class NoteImporter {
           background: clonePageBackground(page.background),
           originalPageInAsset: page.originalPageInAsset,
         };
-        await pageRepo.addPage(note.id, pageInfo);
+        await pageRepo.addImportedPage(note.id, pageInfo);
         const pageStrokes: StrokeElementData[] = [];
         const pageTexts: TextBlockElement[] = [];
         const pageShapes: ShapeElement[] = [];
@@ -532,7 +532,7 @@ export class NoteImporter {
           widthMm: orientation === PageOrientation.LANDSCAPE ? mm[1] : mm[0],
           heightMm: orientation === PageOrientation.LANDSCAPE ? mm[0] : mm[1],
         };
-        await pageRepo.addPage(note.id, pageInfo);
+        await pageRepo.addImportedPage(note.id, pageInfo);
         await this.persistence.saveElements(note.id, pageInfo.pageId, pages[i].strokes, [],
           pages[i].elementOrder, pages[i].shapes);
         if (i < handwritingIndexPages.length && handwritingIndexPages[i].text.trim().length > 0) {

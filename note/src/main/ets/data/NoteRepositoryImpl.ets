@@ -1,21 +1,17 @@
 // T-017 NoteRepository 实现（relationalStore，全部方法异常安全）
 import { relationalStore } from '@kit.ArkData';
 import {
-  CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, NoteMeta, NoteViewState, PageInfo,
+  CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, NoteMeta, NoteViewState,
 } from '../core/model/NoteTypes';
-import { OpType } from '../core/model/OpTypes';
 import { NoteRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { assetMutationMutex, parseAssetNoteIds, unlinkAssetFile } from './AssetRepositoryImpl';
 import { escapeSearchLike, foldSearchText } from './SearchText';
 import { SearchItemType } from './SearchItemType';
 import {
-  allocateOperationIdentity, AllocatedOperationIdentity, appendOperation, initializeImportedNoteSyncMetadata,
+  initializeImportedNoteSyncMetadata,
 } from './OpStoreImpl';
-import {
-  classifyPageStructureMutation, createPageStructureMutation, encodePageStructureMutation,
-  PageStructureMutation,
-} from './PageStructureOpCodec';
+import { persistOriginalCreatePage } from './OriginalPagePersistence';
 
 interface NoteAssetReference {
   assetHash: string;
@@ -35,52 +31,11 @@ export class NoteRepositoryImpl implements NoteRepository {
     const now: number = Date.now();
     const id: string = this.generateId();
     const note: NoteMeta = this.buildNote(id, title, now, now, folderId, false);
-    const defaultPage: PageInfo = {
-      pageId: this.generateId(),
-      pageIndex: 0,
-      size: 1,
-      template: 0,
-      orientation: 0,
-      widthMm: 210.0,
-      heightMm: 297.0,
-    };
     await store.beginTransaction();
     try {
       await store.insert('note_meta', this.noteBucket(note));
-      const pageBucket: relationalStore.ValuesBucket = {
-        'page_id': defaultPage.pageId,
-        'note_id': id,
-        'page_index': defaultPage.pageIndex,
-        'size': defaultPage.size,
-        'template': defaultPage.template,
-        'orientation': defaultPage.orientation,
-        'width_mm': defaultPage.widthMm,
-        'height_mm': defaultPage.heightMm,
-      };
-      await store.insert('page_info', pageBucket);
-      const pageMutation: PageStructureMutation = createPageStructureMutation(
-        0, 1, [], [defaultPage]);
-      if (classifyPageStructureMutation(pageMutation) !== OpType.CREATE_PAGE) {
-        throw new Error('default page did not produce a create-page operation');
-      }
-      const revisionBucket: relationalStore.ValuesBucket = { 'structure_revision': 1 };
-      const revisionPredicates = new relationalStore.RdbPredicates('note_meta');
-      revisionPredicates.equalTo('id', note.id);
-      revisionPredicates.equalTo('structure_revision', 0);
-      const revisionRows: number = await store.update(revisionBucket, revisionPredicates);
-      if (revisionRows !== 1) {
-        throw new Error('default page structure revision was not initialized');
-      }
-      const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, note.id);
-      await appendOperation(store, {
-        noteId: note.id,
-        opId: identity.opId,
-        opType: OpType.CREATE_PAGE,
-        payload: encodePageStructureMutation(pageMutation),
-        clientTime: identity.clientTime,
-        opTimestamp: identity.timestamp,
-        editorSiteId: identity.siteId,
-      });
+      // Original 1.0.3 creates an implicit Letter page when nz9 background is absent.
+      await persistOriginalCreatePage(store, note.id, null);
       await this.upsertTitleSearchItem(store, note.id, note.title);
       await store.commit();
     } catch (e) {

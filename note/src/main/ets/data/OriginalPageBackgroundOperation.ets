@@ -51,12 +51,30 @@ export function decodeOriginalPageBackgroundTable(
   return {
     background: background,
     template: templateForOriginalPaper(paper),
-    size: PaperSize.LETTER,
+    size: inferPaperSize(widthMm, heightMm),
     orientation: widthMm > heightMm ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT,
     widthMm: widthMm,
     heightMm: heightMm,
     hasPdf: pdf !== null,
   };
+}
+
+function inferPaperSize(widthMm: number, heightMm: number): PaperSize {
+  const shortSide: number = Math.min(widthMm, heightMm);
+  const longSide: number = Math.max(widthMm, heightMm);
+  const candidates: number[][] = [
+    [PaperSize.A3, 297, 420], [PaperSize.A4, 210, 297], [PaperSize.A5, 148, 210],
+    [PaperSize.A6, 105, 148], [PaperSize.A7, 74, 105], [PaperSize.LETTER, 215.9, 279.4],
+    [PaperSize.LEGAL, 215.9, 355.6], [PaperSize.TABLOID, 279.4, 431.8],
+  ];
+  for (const candidate of candidates) {
+    if (Math.abs(shortSide - candidate[1]) < 0.2 && Math.abs(longSide - candidate[2]) < 0.2) {
+      return candidate[0] as PaperSize;
+    }
+  }
+  // Harmony has no CUSTOM enum. Keep Letter as the neutral legacy category while preserving the
+  // exact dimensions in widthMm/heightMm and background sourceSize.
+  return PaperSize.LETTER;
 }
 
 export function decodeOriginalPdfAsset(table: OriginalFlatBufferTableReader): PagePdfBackground {

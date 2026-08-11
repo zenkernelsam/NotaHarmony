@@ -105,7 +105,9 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
     if (payload.bookmarked) {
       return { deferredReason: 'CREATE_PAGE_BOOKMARK_UNSUPPORTED' };
     }
-    if (await this.groupExists(store, operation.noteId, operation)) {
+    if (await this.groupExists(store, operation.noteId, {
+      timestamp: operation.timestamp, siteId: operation.siteId, index: 0,
+    })) {
       throw new Error('original create-page operation was applied twice');
     }
     if (payload.location !== null &&

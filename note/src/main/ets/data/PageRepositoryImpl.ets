@@ -9,7 +9,8 @@ import {
 import { readEffectiveNoteBackground } from './OriginalSetMetadataOperation';
 import { PageRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
-import { AsyncMutex, MutexRelease } from './AsyncMutex';
+import { MutexRelease } from './AsyncMutex';
+import { editorPersistenceMutex } from './EditorPersistenceMutex';
 import { allocateOperationIdentity, AllocatedOperationIdentity, appendOperation } from './OpStoreImpl';
 import {
   classifyPageStructureMutation, createPageStructureMutation, encodePageStructureMutation,
@@ -21,6 +22,10 @@ import {
 } from './PageDeleteCheckpoint';
 import { SearchItemType } from './SearchItemType';
 import { decodePersistedElement, PersistedElement } from './StrokePersistence';
+import {
+  hasAlignedOriginalPageState, originalPageIdentityExists, persistOriginalCreatePage,
+  persistOriginalPageVisibility,
+} from './OriginalPagePersistence';
 
 interface CheckpointSearchRow {
   type: number;
@@ -30,7 +35,6 @@ interface CheckpointSearchRow {
 }
 
 export class PageRepositoryImpl implements PageRepository {
-  private static mutationMutex: AsyncMutex = new AsyncMutex();
   private db: DatabaseManager;
 
   constructor(db: DatabaseManager) {
@@ -46,17 +50,40 @@ export class PageRepositoryImpl implements PageRepository {
   }
 
   async addPage(noteId: string, page: PageInfo, history?: HistoryMetadata): Promise<PageInfo> {
+    return this.addPageInternal(noteId, page, history, true);
+  }
+
+  async addImportedPage(noteId: string, page: PageInfo): Promise<PageInfo> {
+    return this.addPageInternal(noteId, page, undefined, false);
+  }
+
+  private async addPageInternal(noteId: string, page: PageInfo, history: HistoryMetadata | undefined,
+    useOriginalOperation: boolean): Promise<PageInfo> {
     if (noteId.length === 0 || page.pageId.length === 0) {
       throw new Error('addPage failed: note ID and page ID are required');
     }
     validatePageDimensions(page);
-    const release: MutexRelease = await PageRepositoryImpl.mutationMutex.lock();
+    const release: MutexRelease = await editorPersistenceMutex.lock();
     const store: relationalStore.RdbStore = this.db.getStore();
     try {
       await store.beginTransaction();
       try {
         const revision: number = await this.queryStructureRevision(store, noteId);
         const before: PageInfo[] = await this.queryPages(store, noteId);
+        if (useOriginalOperation && await hasAlignedOriginalPageState(store, noteId)) {
+          const restored: boolean = history !== undefined && history.effect === HistoryEffect.REDO &&
+            await originalPageIdentityExists(store, noteId, page.pageId);
+          const assignedPage: PageInfo = restored
+            ? (await persistOriginalPageVisibility(store, noteId, page.pageId, false)).page
+            : (await persistOriginalCreatePage(store, noteId, page)).page;
+          const after: PageInfo[] = await this.queryPages(store, noteId);
+          if (history !== undefined) {
+            await this.appendStructureHistoryMutation(
+              store, noteId, revision, before, after, OpType.CREATE_PAGE, history);
+          }
+          await store.commit();
+          return assignedPage;
+        }
         const assignedPage: PageInfo = this.clonePage(page);
         assignedPage.pageIndex = before.length;
         const bucket: relationalStore.ValuesBucket = {
@@ -104,7 +131,7 @@ export class PageRepositoryImpl implements PageRepository {
     if (noteId.length === 0 || pageId.length === 0) {
       throw new Error('deletePage failed: note ID and page ID are required');
     }
-    const release: MutexRelease = await PageRepositoryImpl.mutationMutex.lock();
+    const release: MutexRelease = await editorPersistenceMutex.lock();
     const store: relationalStore.RdbStore = this.db.getStore();
     try {
       await store.beginTransaction();
@@ -126,6 +153,17 @@ export class PageRepositoryImpl implements PageRepository {
           } else {
             await this.verifyDeleteCheckpointState(store, noteId, pageId, history.actionId);
           }
+        }
+        if (await hasAlignedOriginalPageState(store, noteId) &&
+          await originalPageIdentityExists(store, noteId, pageId)) {
+          await persistOriginalPageVisibility(store, noteId, pageId, true);
+          const after: PageInfo[] = await this.queryPages(store, noteId);
+          if (history !== undefined) {
+            await this.appendStructureHistoryMutation(
+              store, noteId, revision, before, after, OpType.DELETE_PAGE, history);
+          }
+          await store.commit();
+          return;
         }
         const predicates = new relationalStore.RdbPredicates('page_info');
         predicates.equalTo('note_id', noteId);
@@ -162,7 +200,7 @@ export class PageRepositoryImpl implements PageRepository {
       history.effect !== HistoryEffect.UNDO) {
       throw new Error('restoreDeletedPage requires matching UNDO history');
     }
-    const release: MutexRelease = await PageRepositoryImpl.mutationMutex.lock();
+    const release: MutexRelease = await editorPersistenceMutex.lock();
     const store: relationalStore.RdbStore = this.db.getStore();
     try {
       await store.beginTransaction();
@@ -175,6 +213,15 @@ export class PageRepositoryImpl implements PageRepository {
         if (checkpoint.page.pageIndex < 0 || checkpoint.page.pageIndex > before.length ||
           this.findPageIndex(before, checkpoint.page.pageId) >= 0) {
           throw new Error('deleted-page checkpoint no longer matches page membership');
+        }
+        if (await hasAlignedOriginalPageState(store, noteId) &&
+          await originalPageIdentityExists(store, noteId, checkpoint.page.pageId)) {
+          await persistOriginalPageVisibility(store, noteId, checkpoint.page.pageId, false);
+          const after: PageInfo[] = await this.queryPages(store, noteId);
+          await this.appendStructureHistoryMutation(
+            store, noteId, revision, before, after, OpType.CREATE_PAGE, history);
+          await store.commit();
+          return;
         }
         for (let index: number = 0; index < before.length; index++) {
           await this.updatePageIndex(store, noteId, before[index].pageId, -(index + 1));
@@ -230,7 +277,7 @@ export class PageRepositoryImpl implements PageRepository {
       throw new Error('updatePage failed: page ID is required');
     }
     validatePageDimensions(page);
-    const release: MutexRelease = await PageRepositoryImpl.mutationMutex.lock();
+    const release: MutexRelease = await editorPersistenceMutex.lock();
     const store: relationalStore.RdbStore = this.db.getStore();
     try {
       await store.beginTransaction();
@@ -277,7 +324,7 @@ export class PageRepositoryImpl implements PageRepository {
     if (noteId.length === 0) {
       throw new Error('reorderPages failed: note ID is required');
     }
-    const release: MutexRelease = await PageRepositoryImpl.mutationMutex.lock();
+    const release: MutexRelease = await editorPersistenceMutex.lock();
     const store: relationalStore.RdbStore = this.db.getStore();
     try {
       await store.beginTransaction();
@@ -419,6 +466,27 @@ export class PageRepositoryImpl implements PageRepository {
       opTimestamp: identity.timestamp,
       editorSiteId: identity.siteId,
       history: history,
+    });
+  }
+
+  private async appendStructureHistoryMutation(store: relationalStore.RdbStore, noteId: string,
+    revision: number, before: PageInfo[], after: PageInfo[], expectedType: OpType,
+    history: HistoryMetadata): Promise<void> {
+    const mutation: PageStructureMutation = createPageStructureMutation(
+      revision, revision + 1, before, after);
+    const opType: OpType = classifyPageStructureMutation(mutation);
+    if (opType !== expectedType) {
+      throw new Error(`page history mutation type mismatch: expected ${expectedType}, got ${opType}`);
+    }
+    const currentRevision: number = await this.queryStructureRevision(store, noteId);
+    if (currentRevision !== mutation.toRevision) {
+      throw new Error('original page reducer did not advance the expected structure revision');
+    }
+    const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+    await appendOperation(store, {
+      noteId: noteId, opId: identity.opId, opType: opType,
+      payload: encodePageStructureMutation(mutation), clientTime: identity.clientTime,
+      opTimestamp: identity.timestamp, editorSiteId: identity.siteId, history: history,
     });
   }
 
