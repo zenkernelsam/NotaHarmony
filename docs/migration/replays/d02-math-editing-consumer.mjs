@@ -9,6 +9,7 @@ const clipboard = read('note/src/main/ets/rendering/StrokeClipboard.ets');
 const history = read('note/src/main/ets/rendering/UndoRedoManager.ets');
 const order = read('note/src/main/ets/core/model/PageElementOrder.ets');
 const canvas = read('note/src/main/ets/ui/editor/NoteCanvasView.ets');
+const persistence = read('note/src/main/ets/data/StrokePersistence.ets');
 const selectionTest = read('note/src/test/SelectionTool.test.ets');
 const geometryTest = read('note/src/test/MathBlockGeometry.test.ets');
 const clipboardTest = read('note/src/test/StrokeClipboard.test.ets');
@@ -62,11 +63,15 @@ assert.match(canvas, /this\.restoreRemovedMathBlocks/);
 assert.match(canvas, /this\.replaceMathBlocksById/);
 assert.match(canvas, /selectedImages, selectedMathBlocks/);
 assert.match(canvas, /addedMathBlocks: result\.mathBlocks/);
+assert.match(canvas,
+  /captureHistoryPageSnapshot[\s\S]*?mathBlocks: this\.mathBlocks\.map\([\s\S]*?cloneMathElement\(math\)/);
+assert.match(persistence,
+  /saveHistoryGroup[\s\S]*?initial\.mathBlocks \?\? \[\][\s\S]*?step\.mathBlocks \?\? \[\]/);
 assert.match(selectionTest, /expands Group selection to Math leaves/);
 assert.match(geometryTest, /leaves position-locked Math untouched/);
 assert.match(clipboardTest, /deep-copies Math and preserves five-kind z order/);
 
 console.log('D02_MATH_EDITING_CONSUMER_REPLAY_OK ' +
   'positionable-evidence=u08-be5|selection-lock=2|group-leaf=1|transform-bounds=1|' +
-  'eraser-lock=2|history=add-delete-transform-erase|clipboard=1|z-order=1|' +
+  'eraser-lock=2|history=add-delete-transform-erase-durable|clipboard=1|z-order=1|' +
   'latex-editor=outbound-pending');

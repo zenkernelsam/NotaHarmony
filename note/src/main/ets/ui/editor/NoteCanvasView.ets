@@ -1687,6 +1687,7 @@ export struct NoteCanvasView {
       elementOrder: clonePageElementOrder(this.elementOrder),
       shapes: this.shapes.slice(),
       images: this.imageBlocks.map((image: ImageElement): ImageElement => cloneImageElement(image)),
+      mathBlocks: this.mathBlocks.map((math: MathElement): MathElement => cloneMathElement(math)),
       history: history,
     };
   }
