@@ -27,7 +27,8 @@ Accepted, 2026-08-11.
 - Resolve both canonical 64-byte storage hash and the legacy word key. Expose explicit
   MISSING/PENDING/READY/FAILED states; metadata mismatch and `AssetStatus.FAILED` must never become
   playable. READY still means only that a non-empty local path is registered; byte/open/codec checks
-  belong to the eventual player loader.
+  belong to the eventual player loader. ADR-0066 now supplies the open/regular-file/exact-size
+  boundary; codec and playback remain later boundaries.
 - Do not claim audio playback, recording capture, waveform, segment seeking or asset transport in
   this phase.
 
