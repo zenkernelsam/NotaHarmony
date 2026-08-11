@@ -81,6 +81,7 @@ struct NotePage {
   @State selectionInkWidth: number = 5;
   @State selectionWidthMinimum: number = 0.5;
   @State selectionWidthMaximum: number = 30;
+  @State selectionVariableStyleEnabled: boolean = true;
   @State canUndo: boolean = false;
   @State canRedo: boolean = false;
   @State pageOperationBusy: boolean = false;
@@ -759,6 +760,7 @@ struct NotePage {
           selectionWidth: this.selectionInkWidth,
           selectionWidthMinimum: this.selectionWidthMinimum,
           selectionWidthMaximum: this.selectionWidthMaximum,
+          selectionVariableStyleEnabled: this.selectionVariableStyleEnabled,
           onSelectionColor: (color: number) => {
             this.selectionInkColor = color;
             this.selectionColorSignal++;
@@ -854,11 +856,12 @@ struct NotePage {
             this.historyBridge = bridge;
           },
           onSelectionInkControlsChanged: (color: number, width: number,
-            minimum: number, maximum: number) => {
+            minimum: number, maximum: number, variableStyleEnabled: boolean) => {
             this.selectionInkColor = color;
             this.selectionInkWidth = width;
             this.selectionWidthMinimum = minimum;
             this.selectionWidthMaximum = maximum;
+            this.selectionVariableStyleEnabled = variableStyleEnabled;
           },
           onApplyPageHistory: async (action: UndoableAction, isUndo: boolean,
             history: HistoryMetadata): Promise<boolean> => this.applyPageHistory(action, isUndo, history),

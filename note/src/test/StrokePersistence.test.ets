@@ -271,6 +271,7 @@ export default function strokePersistenceTest() {
       markerAfter.color = 0x6B445566;
       markerAfter.fillColor = 0x6B445566;
       markerAfter.strokeWidth = 30;
+      markerAfter.originalStyle = 2;
       const penAfter: ShapeElement = cloneShapeElement(pen);
       penAfter.color = -12298906;
       penAfter.strokeWidth = 30;
@@ -282,6 +283,7 @@ export default function strokePersistenceTest() {
       expect(forward?.shapeBatches[0].fillColor).assertEqual(0x6B445566);
       expect(forward?.shapeBatches[0].expectedTools[0]).assertEqual(2);
       expect(forward?.shapeBatches[0].expectedStyles[0]).assertEqual(1);
+      expect(forward?.shapeBatches[0].style).assertEqual(2);
       expect(forward?.shapeBatches[1].fillColorPresent).assertFalse();
       expect(forward?.shapeBatches[1].borderWidth).assertEqual(30);
       expect(forward?.shapeBatches[1].expectedTools[0]).assertEqual(0);
@@ -290,6 +292,8 @@ export default function strokePersistenceTest() {
         [shapeSource(markerAfter), shapeSource(penAfter)], [shapeSource(marker), shapeSource(pen)]);
       expect(reverse?.shapeBatches.length).assertEqual(2);
       expect(reverse?.shapeBatches[0].borderWidth).assertEqual(12);
+      expect(reverse?.shapeBatches[0].expectedStyles[0]).assertEqual(2);
+      expect(reverse?.shapeBatches[0].style).assertEqual(1);
       expect(reverse?.shapeBatches[1].borderWidth).assertEqual(3);
     });
 

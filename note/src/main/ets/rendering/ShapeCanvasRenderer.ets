@@ -20,8 +20,15 @@ export class ShapeCanvasRenderer {
       this.tracePolygon(shape, ctx);
     }
     ctx.setLineWidth(shape.strokeWidth);
-    ctx.setLineCap('round');
-    ctx.setLineJoin('round');
+    ctx.setLineCap(shape.originalStyle === 2 ? 'butt' : 'round');
+    ctx.setLineJoin(shape.originalStyle === 3 ? 'miter' : 'round');
+    if (shape.originalStyle === 2) {
+      ctx.setLineDash([2 * shape.strokeWidth, shape.strokeWidth]);
+    } else if (shape.originalStyle === 3) {
+      ctx.setLineDash([0.001 * shape.strokeWidth, 2 * shape.strokeWidth]);
+    } else {
+      ctx.setLineDash([]);
+    }
     if (shape.type !== ElementType.LINE && shape.fillColor !== null) {
       ctx.setFillStyle(this.colorToRgba(shape.fillColor));
       ctx.fill();

@@ -30,7 +30,8 @@ Selection color/width command to original Shape entities.
   Pen/Highlighter `0.5..30`, Pencil `1..10`, Tape `2..64`. Shape values are clamped directly and
   never multiplied by page width. Local recognized Shapes retain their source stroke's tool.
 - A color command writes alpha 107 to both border and fill for Highlighter Shape. Other Shape tools
-  receive alpha 255 border color and preserve their current fill register. Style remains Ink-only.
+  receive alpha 255 border color and preserve their current fill register. Shape style was outside
+  this phase and is subsequently closed by ADR-0097.
 - Color/width actions that include Shape use one `TRANSFORM_ELEMENTS` history entry containing both
   Ink and Shape before/after values. This gives Undo/Redo exact old tuple restoration without
   manufacturing a second user action.
@@ -67,5 +68,5 @@ Selection color/width command to original Shape entities.
 
 ## Remaining Boundary
 
-Other Shape registers, original local CREATE_SHAPE authoring, private authenticated upload/ACK,
+Other Shape registers except style, original local CREATE_SHAPE authoring, private authenticated upload/ACK,
 format closure and concentrated device acceptance remain outside this phase and the Goal stays active.

@@ -136,11 +136,12 @@ export default function originalCreateInkPayloadEncoderTest() {
       const highlighter = decodeOriginalModifyShape(wrap(19,
         encodeOriginalShapeRenderRegisters([
           { timestamp: 40, siteId: 4 }, { timestamp: 41, siteId: 5 },
-        ], { color: 0x6B112233, borderWidth: 7.5,
+        ], { style: 2, color: 0x6B112233, borderWidth: 7.5,
           fillColorPresent: true, fillColor: 0x6B112233 })));
       expect(highlighter.shapes.length).assertEqual(2);
       expect(highlighter.shapes[0].timestamp).assertEqual(40);
       expect(highlighter.shapes[1].siteId).assertEqual(5);
+      expect(highlighter.style).assertEqual(2);
       expect(highlighter.color).assertEqual(0x6B112233);
       expect(highlighter.borderWidth).assertEqual(7.5);
       expect(highlighter.fillColor.present).assertTrue();
@@ -148,7 +149,8 @@ export default function originalCreateInkPayloadEncoderTest() {
 
       const clear = decodeOriginalModifyShape(wrap(19,
         encodeOriginalShapeRenderRegisters([{ timestamp: 42, siteId: 6 }],
-          { color: null, borderWidth: null, fillColorPresent: true, fillColor: null })));
+          { style: null, color: null, borderWidth: null,
+            fillColorPresent: true, fillColor: null })));
       expect(clear.color === null).assertTrue();
       expect(clear.borderWidth === null).assertTrue();
       expect(clear.fillColor.present).assertTrue();
@@ -156,9 +158,13 @@ export default function originalCreateInkPayloadEncoderTest() {
 
       const width = decodeOriginalModifyShape(wrap(19,
         encodeOriginalShapeRenderRegisters([{ timestamp: 43, siteId: 7 }],
-          { color: null, borderWidth: 2.25, fillColorPresent: false, fillColor: null })));
+          { style: null, color: null, borderWidth: 2.25,
+            fillColorPresent: false, fillColor: null })));
       expect(width.borderWidth).assertEqual(2.25);
       expect(width.fillColor.present).assertFalse();
+      expect(() => encodeOriginalShapeRenderRegisters([{ timestamp: 44, siteId: 8 }],
+        { style: 0, color: null, borderWidth: null,
+          fillColorPresent: false, fillColor: null })).assertThrow();
     });
 
     it('round-trips local LINE POLYGON and rotated ELLIPSE CREATE_SHAPE payloads', 0, () => {

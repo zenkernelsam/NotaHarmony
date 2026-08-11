@@ -27,6 +27,7 @@ export struct EditorToolbar {
   @Prop selectionWidth: number = 5;
   @Prop selectionWidthMinimum: number = 0.5;
   @Prop selectionWidthMaximum: number = 30;
+  @Prop selectionVariableStyleEnabled: boolean = true;
   @Prop canUndo: boolean = false;
   @Prop canRedo: boolean = false;
   // T-038：主题状态
@@ -249,7 +250,8 @@ export struct EditorToolbar {
       .margin({ left: 2, right: 2 })
       .backgroundColor(this.resolveTokens().control)
       .fontColor(this.resolveTokens().textPrimary)
-      .enabled(!this.viewModel.toolStateLoading)
+      .enabled(!this.viewModel.toolStateLoading &&
+        (style !== BrushStyle.TAPER || this.selectionVariableStyleEnabled))
       .onClick(() => {
         this.onSelectionStyle(style);
       })

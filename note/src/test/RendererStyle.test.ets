@@ -3,7 +3,10 @@ import {
   Canvas2DOffscreenRenderContext, Canvas2DStrokeRenderer,
 } from '../main/ets/core/adaptation/Canvas2DStrokeRenderer';
 import { Canvas2DTextRenderer } from '../main/ets/core/adaptation/Canvas2DTextRenderer';
-import { ElementType, TextBlockElement } from '../main/ets/core/model/ElementTypes';
+import { ShapeCanvasRenderer } from '../main/ets/rendering/ShapeCanvasRenderer';
+import {
+  ElementType, ShapeArrowHead, ShapeElement, TextBlockElement,
+} from '../main/ets/core/model/ElementTypes';
 import {
   InkPathCommandType, InkStyle, RenderSpec, StrokeElementData, StrokePathPoint, TapePattern,
 } from '../main/ets/core/model/StrokeTypes';
@@ -132,6 +135,34 @@ export default function rendererStyleTest() {
       renderer.renderCenterPath(shifted, new Canvas2DOffscreenRenderContext(shiftedContext));
       expect(alphaAt(baseContext, 30, 20)).assertEqual(255);
       expect(alphaAt(shiftedContext, 30, 20)).assertEqual(0);
+    });
+
+    it('renders Shape DASH and DOTS with original fixed-width spacing', 0, () => {
+      const value: ShapeElement = {
+        id: 'shape-style', type: ElementType.LINE,
+        transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: 15, top: 15, right: 105, bottom: 25 },
+        start: { x: 20, y: 20 }, controlPoint1: null, controlPoint2: null,
+        end: { x: 100, y: 20 }, arrowHead: ShapeArrowHead.NONE, color: 0xFFFF0000,
+        strokeWidth: 10, fillColor: null, originalStyle: 2,
+      };
+      const renderer: ShapeCanvasRenderer = new ShapeCanvasRenderer();
+      const dashCanvas: OffscreenCanvas = new OffscreenCanvas(120, 40);
+      const dashContext: OffscreenCanvasRenderingContext2D =
+        dashCanvas.getContext('2d', new RenderingContextSettings(true));
+      renderer.renderShape(value, new Canvas2DOffscreenRenderContext(dashContext));
+      expect(alphaAt(dashContext, 16, 20)).assertEqual(0);
+      expect(alphaAt(dashContext, 25, 20)).assertEqual(255);
+      expect(alphaAt(dashContext, 45, 20)).assertEqual(0);
+
+      value.originalStyle = 3;
+      const dotsCanvas: OffscreenCanvas = new OffscreenCanvas(120, 40);
+      const dotsContext: OffscreenCanvasRenderingContext2D =
+        dotsCanvas.getContext('2d', new RenderingContextSettings(true));
+      renderer.renderShape(value, new Canvas2DOffscreenRenderContext(dotsContext));
+      expect(alphaAt(dotsContext, 16, 20) > 0).assertTrue();
+      expect(alphaAt(dotsContext, 30, 20)).assertEqual(0);
+      expect(alphaAt(dotsContext, 40, 20) > 0).assertTrue();
     });
 
     it('clips all original Tape overlays to the stroke and leaves PLAIN unpatterned', 0, () => {

@@ -333,15 +333,18 @@ export function classifyOriginalRenderMutation(current: SearchSourceElement[],
         const before: ShapeElement = beforePersisted.data as ShapeElement;
         const after: ShapeElement = afterPersisted.data as ShapeElement;
         const identity: OperationIdentity | null = decodeOperationId(before.id);
+        const styleChanged: boolean = before.originalStyle !== after.originalStyle;
         const colorChanged: boolean = before.color !== after.color;
         const widthChanged: boolean = before.strokeWidth !== after.strokeWidth;
         const fillChanged: boolean = before.fillColor !== after.fillColor;
         if (identity === null || before.id !== after.id || after.originalTool === undefined ||
           after.originalStyle === undefined ||
           (before.originalTool !== undefined && before.originalTool !== after.originalTool) ||
-          (before.originalStyle !== undefined && before.originalStyle !== after.originalStyle)) {
+          !Number.isInteger(after.originalStyle) || after.originalStyle < 1 || after.originalStyle > 3) {
           return null;
         }
+        const expectedStyle: number = before.originalStyle === undefined ?
+          after.originalStyle : before.originalStyle;
         const candidate: ShapeElement = cloneShapeElement(before);
         candidate.originalTool = after.originalTool;
         candidate.originalStyle = after.originalStyle;
@@ -352,29 +355,31 @@ export function classifyOriginalRenderMutation(current: SearchSourceElement[],
           next[index].payload)) {
           return null;
         }
-        if (!colorChanged && !widthChanged && !fillChanged) {
+        if (!styleChanged && !colorChanged && !widthChanged && !fillChanged) {
           continue;
         }
         const update: OriginalShapeRenderRegisterUpdate = {
+          style: styleChanged ? after.originalStyle : null,
           color: colorChanged ? after.color : null,
           borderWidth: widthChanged ? after.strokeWidth : null,
           fillColorPresent: fillChanged,
           fillColor: fillChanged ? after.fillColor : null,
         };
-        const key: string = `${update.color === null ? 'x' : update.color}|` +
+        const key: string = `${update.style === null ? 'x' : update.style}|` +
+          `${update.color === null ? 'x' : update.color}|` +
           `${update.borderWidth === null ? 'x' : update.borderWidth}|` +
           `${update.fillColorPresent ? update.fillColor === null ? 'n' : update.fillColor : 'x'}`;
         const batch: OriginalShapeRenderMutationBatch | undefined = shapeBatches.get(key);
         if (batch === undefined) {
           shapeBatches.set(key, { identities: [identity], expectedTools: [after.originalTool],
-            expectedStyles: [after.originalStyle],
+            expectedStyles: [expectedStyle], style: update.style,
             color: update.color,
             borderWidth: update.borderWidth, fillColorPresent: update.fillColorPresent,
             fillColor: update.fillColor });
         } else {
           batch.identities.push(identity);
           batch.expectedTools.push(after.originalTool);
-          batch.expectedStyles.push(after.originalStyle);
+          batch.expectedStyles.push(expectedStyle);
         }
         continue;
       }

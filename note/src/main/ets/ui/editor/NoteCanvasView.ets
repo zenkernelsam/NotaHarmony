@@ -160,8 +160,9 @@ export struct NoteCanvasView {
   onHistoryBridgeReady: (bridge: EditorHistoryBridge) => void = () => {
   };
   onSelectionInkControlsChanged: (color: number, width: number,
-    minimum: number, maximum: number) => void =
-    (_color: number, _width: number, _minimum: number, _maximum: number): void => {
+    minimum: number, maximum: number, variableStyleEnabled: boolean) => void =
+    (_color: number, _width: number, _minimum: number, _maximum: number,
+      _variableStyleEnabled: boolean): void => {
     };
   onApplyPageHistory: (action: UndoableAction, isUndo: boolean,
     history: HistoryMetadata) => Promise<boolean> =
@@ -3403,8 +3404,13 @@ export struct NoteCanvasView {
       }
     }
     if (selectedColor !== null || selectedWidth !== null) {
+      const selectedStrokeIds: Set<string> = new Set<string>(state.selectedStrokeIds);
+      const variableStyleEnabled: boolean = state.selectedShapeIds.length === 0 &&
+        !this.completedStrokes.some((stroke: StrokeElementData): boolean =>
+          selectedStrokeIds.has(stroke.id) && stroke.renderSpec.isPencil);
       this.onSelectionInkControlsChanged(selectedColor ?? this.selectionInkColor,
-        selectedWidth ?? this.selectionInkWidth, selectedMinimum, selectedMaximum);
+        selectedWidth ?? this.selectionInkWidth, selectedMinimum, selectedMaximum,
+        variableStyleEnabled);
     }
     this.selectionCanFlip = this.canFlipImageSelection(
       state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
@@ -4079,35 +4085,40 @@ export struct NoteCanvasView {
       after.push(replacement);
       replacements.set(stroke.id, replacement);
     }
-    if (style === null) {
-      for (const shape of this.shapes) {
-        if (!selectedShapes.has(shape.id)) {
-          continue;
-        }
-        const source: ShapeElement = cloneShapeElement(shape);
-        const replacement: ShapeElement = cloneShapeElement(shape);
-        const tool: number = shape.originalTool === undefined ? 0 : shape.originalTool;
-        if (color !== null) {
-          const alpha: number = tool === 2 ? 107 : 255;
-          replacement.color = ((alpha << 24) | (color & 0x00FFFFFF)) | 0;
-          if (tool === 2) {
-            replacement.fillColor = replacement.color;
-          }
-        }
-        if (controlWidth !== null) {
-          const minimum: number = tool === 3 ? 2 : tool === 1 ? 1 : 0.5;
-          const maximum: number = tool === 3 ? 64 : tool === 1 ? 10 : 30;
-          replacement.strokeWidth = Math.min(maximum, Math.max(minimum, controlWidth));
-        }
-        const sourceBytes: Uint8Array = encodePersistedElement({ kind: 'shape', data: source });
-        const replacementBytes: Uint8Array = encodePersistedElement({ kind: 'shape', data: replacement });
-        if (this.sameBytes(sourceBytes, replacementBytes)) {
-          continue;
-        }
-        beforeShapes.push(source);
-        afterShapes.push(replacement);
-        shapeReplacements.set(shape.id, replacement);
+    for (const shape of this.shapes) {
+      if (style === InkStyle.VARIABLE_WIDTH) {
+        continue;
       }
+      if (!selectedShapes.has(shape.id)) {
+        continue;
+      }
+      const source: ShapeElement = cloneShapeElement(shape);
+      const replacement: ShapeElement = cloneShapeElement(shape);
+      const tool: number = shape.originalTool === undefined ? 0 : shape.originalTool;
+      if (style !== null) {
+        replacement.originalStyle = style === InkStyle.FIXED_WIDTH ? 1 :
+          style === InkStyle.DASH ? 2 : 3;
+      }
+      if (color !== null) {
+        const alpha: number = tool === 2 ? 107 : 255;
+        replacement.color = ((alpha << 24) | (color & 0x00FFFFFF)) | 0;
+        if (tool === 2) {
+          replacement.fillColor = replacement.color;
+        }
+      }
+      if (controlWidth !== null) {
+        const minimum: number = tool === 3 ? 2 : tool === 1 ? 1 : 0.5;
+        const maximum: number = tool === 3 ? 64 : tool === 1 ? 10 : 30;
+        replacement.strokeWidth = Math.min(maximum, Math.max(minimum, controlWidth));
+      }
+      const sourceBytes: Uint8Array = encodePersistedElement({ kind: 'shape', data: source });
+      const replacementBytes: Uint8Array = encodePersistedElement({ kind: 'shape', data: replacement });
+      if (this.sameBytes(sourceBytes, replacementBytes)) {
+        continue;
+      }
+      beforeShapes.push(source);
+      afterShapes.push(replacement);
+      shapeReplacements.set(shape.id, replacement);
     }
     if (after.length === 0 && afterShapes.length === 0) {
       return;
