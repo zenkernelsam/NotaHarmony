@@ -38,7 +38,10 @@ assert.match(textReducer, /contentRightInset: text\.contentRightInset/);
 assert.match(textReducer, /contentBottomInset: text\.contentBottomInset/);
 assert.match(persistence, /loadOriginalTextMargins/);
 assert.match(persistence, /create_margin_top, create_margin_bottom/);
-assert.match(persistence, /paper: cloneOriginalPaper\(payload\.paper\)/);
+assert.match(persistence, /const canonicalText: TextBlockElement = await this\.readOriginalClipboardText\(/);
+assert.match(persistence, /createdTexts\.push\(canonicalText\)/);
+assert.match(persistence, /decodePersistedElement\(/);
+assert.doesNotMatch(persistence, /function materializeOriginalTextCreate/);
 assert.match(renderer, /element\.contentRightInset \?\? element\.contentLeftInset/);
 
 function writeU16(bytes, offset, value) {

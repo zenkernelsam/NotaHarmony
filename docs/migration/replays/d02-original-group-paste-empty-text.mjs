@@ -21,9 +21,10 @@ assert.match(insertEncoder, /original INSERT_STRING value is invalid/);
 
 assert.doesNotMatch(persistence, /empty Text is unsupported/);
 assert.match(persistence, /if \(text\.richText\.length > 0\)/);
-assert.match(persistence, /createdTexts\.push\(materializeOriginalTextCreate\(/);
-assert.match(persistence, /function materializeOriginalTextCreate/);
-assert.match(persistence, /textOrigin: \{ x: 0, y: 0 \}/);
+assert.match(persistence, /const canonicalText: TextBlockElement = await this\.readOriginalClipboardText\(/);
+assert.match(persistence, /createdTexts\.push\(canonicalText\)/);
+assert.match(persistence, /private async readOriginalClipboardText\(/);
+assert.doesNotMatch(persistence, /function materializeOriginalTextCreate/);
 assert.match(fixtures, /originalText\('op:73:2', ''\)/);
 
 function pasteText(value, failAt = '') {

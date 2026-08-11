@@ -76,6 +76,7 @@ import originalGroupMutationOpCodecTest from './OriginalGroupMutationOpCodec.tes
 import originalClipboardPasteMutationCodecTest from './OriginalClipboardPasteMutationCodec.test';
 import originalCreateTextPayloadEncoderTest from './OriginalCreateTextPayloadEncoder.test';
 import originalTextMutationPayloadEncoderTest from './OriginalTextMutationPayloadEncoder.test';
+import originalRichTextStylePayloadEncoderTest from './OriginalRichTextStylePayloadEncoder.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -156,4 +157,5 @@ export default function testsuite() {
   originalClipboardPasteMutationCodecTest();
   originalCreateTextPayloadEncoderTest();
   originalTextMutationPayloadEncoderTest();
+  originalRichTextStylePayloadEncoderTest();
 }

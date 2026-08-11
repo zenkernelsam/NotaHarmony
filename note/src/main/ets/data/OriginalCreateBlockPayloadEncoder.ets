@@ -388,8 +388,6 @@ function validateLocalTextBlock(text: TextBlockElement,
     (text.resizesWidthToFitText !== undefined &&
       typeof text.resizesWidthToFitText !== 'boolean') ||
     (text.positionLocked !== undefined && typeof text.positionLocked !== 'boolean') ||
-    (text.characterStyleRuns !== undefined && text.characterStyleRuns.length !== 0) ||
-    (text.paragraphStyleRuns !== undefined && text.paragraphStyleRuns.length !== 0) ||
     !isRepresentableTransform(text.transform, placement)) {
     throw new Error('local Text Block cannot be represented by original CREATE_BLOCK');
   }

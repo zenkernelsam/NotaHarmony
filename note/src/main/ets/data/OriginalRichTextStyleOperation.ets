@@ -19,6 +19,7 @@ import { OriginalFlatBufferTableReader, readOriginalPayloadTable } from
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
+import { OriginalPageMutationBatch } from './OriginalPageMutationBatch';
 
 export const ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE: number = 12;
 export const ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE: number = 13;
@@ -106,9 +107,16 @@ export class OriginalRichTextStyleOperationApplier implements SyncedOperationApp
     return this.applyPayload(store, operation, payload);
   }
 
+  async applyBatchedPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, payload: OriginalRichTextStylePayload,
+    revisionBatch: OriginalPageMutationBatch): Promise<SyncedOperationApplyResult> {
+    return this.applyPayload(store, operation, payload, revisionBatch);
+  }
+
   private async applyPayload(store: relationalStore.RdbStore,
     operation: StoredSyncedOperation,
-    payload: OriginalRichTextStylePayload): Promise<SyncedOperationApplyResult> {
+    payload: OriginalRichTextStylePayload,
+    revisionBatch: OriginalPageMutationBatch | null = null): Promise<SyncedOperationApplyResult> {
     if (!payload.clearAll && !hasRecognizedAttributes(payload.attributes, payload.paragraph)) {
       // Android 1.0.3 logs and skips code-only or otherwise unrecognized style payloads.
       if (await this.operationIdentityExists(store, operation)) {
@@ -188,7 +196,7 @@ export class OriginalRichTextStyleOperationApplier implements SyncedOperationApp
     updatedText.characterStyleRuns = after.characterRuns;
     updatedText.paragraphStyleRuns = after.paragraphRuns;
     await this.textState.writeTextPayload(store, operation.noteId, target, updatedText,
-      'original rich-text style lost its target snapshot');
+      'original rich-text style lost its target snapshot', revisionBatch);
     return { deferredReason: null };
   }
 
@@ -431,23 +439,74 @@ function readEnum(table: OriginalFlatBufferTableReader, field: number,
 }
 
 function assignBool(attributes: OriginalTextStyleAttributes, key: string, field: BoolField): void {
-  const values = attributes as Record<string, Object>;
-  values[`${key}Present`] = field.present;
-  values[key] = field.value;
+  if (key === 'bold') {
+    attributes.boldPresent = field.present;
+    attributes.bold = field.value;
+  } else if (key === 'italic') {
+    attributes.italicPresent = field.present;
+    attributes.italic = field.value;
+  } else if (key === 'underline') {
+    attributes.underlinePresent = field.present;
+    attributes.underline = field.value;
+  } else if (key === 'superscript') {
+    attributes.superscriptPresent = field.present;
+    attributes.superscript = field.value;
+  } else if (key === 'subscript') {
+    attributes.subscriptPresent = field.present;
+    attributes.subscript = field.value;
+  } else if (key === 'strikethrough') {
+    attributes.strikethroughPresent = field.present;
+    attributes.strikethrough = field.value;
+  } else {
+    throw new Error('original rich-text boolean field is unsupported');
+  }
 }
 
 function assignNumber(attributes: OriginalTextStyleAttributes, key: string,
   field: NumberField): void {
-  const values = attributes as Record<string, Object>;
-  values[`${key}Present`] = field.present;
-  values[key] = field.value;
+  if (key === 'highlightColor') {
+    attributes.highlightColorPresent = field.present;
+    attributes.highlightColor = field.value;
+  } else if (key === 'fontSize') {
+    attributes.fontSizePresent = field.present;
+    attributes.fontSize = field.value;
+  } else if (key === 'foregroundColor') {
+    attributes.foregroundColorPresent = field.present;
+    attributes.foregroundColor = field.value;
+  } else if (key === 'indentLevel') {
+    attributes.indentLevelPresent = field.present;
+    attributes.indentLevel = field.value;
+  } else if (key === 'alignment') {
+    attributes.alignmentPresent = field.present;
+    attributes.alignment = field.value;
+  } else if (key === 'lineSpacing') {
+    attributes.lineSpacingPresent = field.present;
+    attributes.lineSpacing = field.value;
+  } else if (key === 'decoratorStyle') {
+    attributes.decoratorStylePresent = field.present;
+    attributes.decoratorStyle = field.value;
+  } else if (key === 'writingDirection') {
+    attributes.writingDirectionPresent = field.present;
+    attributes.writingDirection = field.value;
+  } else {
+    throw new Error('original rich-text number field is unsupported');
+  }
 }
 
 function assignString(attributes: OriginalTextStyleAttributes, key: string,
   field: StringField): void {
-  const values = attributes as Record<string, Object>;
-  values[`${key}Present`] = field.present;
-  values[key] = field.value;
+  if (key === 'familyName') {
+    attributes.familyNamePresent = field.present;
+    attributes.familyName = field.value;
+  } else if (key === 'link') {
+    attributes.linkPresent = field.present;
+    attributes.link = field.value;
+  } else if (key === 'programmingLanguage') {
+    attributes.programmingLanguagePresent = field.present;
+    attributes.programmingLanguage = field.value;
+  } else {
+    throw new Error('original rich-text string field is unsupported');
+  }
 }
 
 function hasRecognizedAttributes(attributes: OriginalTextStyleAttributes,

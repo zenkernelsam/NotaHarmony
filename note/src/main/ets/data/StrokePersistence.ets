@@ -1,6 +1,6 @@
 import { relationalStore } from '@kit.ArkData';
 import { PageInfo } from '../core/model/NoteTypes';
-import { cloneOriginalPaper, parsePageBackground } from '../core/model/PageBackgroundModel';
+import { parsePageBackground } from '../core/model/PageBackgroundModel';
 import { readEffectiveNoteBackground } from './OriginalSetMetadataOperation';
 import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op, OpType } from '../core/model/OpTypes';
 import { taskpool, util } from '@kit.ArkTS';
@@ -53,6 +53,13 @@ import {
   EncodedOriginalTextOperation, encodeOriginalInitialInsertString,
   encodeOriginalTextInsertion, encodeOriginalTextVisibility,
 } from './OriginalInsertTextPayloadEncoder';
+import {
+  EncodedOriginalRichTextStyleOperation, encodeOriginalInitialRichTextStyles,
+} from './OriginalRichTextStylePayloadEncoder';
+import {
+  decodeOriginalRichTextStyle, ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE,
+  OriginalRichTextStyleOperationApplier,
+} from './OriginalRichTextStyleOperation';
 import {
   OriginalLocalTextMutationPlan, OriginalLocalTextMutationPreview,
   planOriginalLocalTextMutation, predictOriginalTextInsertionIdentity,
@@ -218,6 +225,8 @@ export function validateOriginalClipboardPastePlan(plan: OriginalClipboardPasteP
     if (text.richText.length > 0) {
       encodeOriginalInitialInsertString({ timestamp: 1, siteId: 1 }, text.richText);
     }
+    encodeOriginalInitialRichTextStyles(
+      { timestamp: 1, siteId: 1 }, { timestamp: 2, siteId: 1 }, text);
   }
   for (const image of plan.images) {
     addLeaf(image.id, PageElementKind.IMAGE);
@@ -1228,9 +1237,9 @@ export class StrokePersistence {
               }
               await this.appendOriginalCreateOperation(store, noteId, identity,
                 OpType.ORIGINAL_CREATE_BLOCK, createOperation.rawOperation);
+              let insertIdentity: AllocatedOperationIdentity | null = null;
               if (text.richText.length > 0) {
-                const insertIdentity: AllocatedOperationIdentity =
-                  await allocateOperationIdentity(store, noteId);
+                insertIdentity = await allocateOperationIdentity(store, noteId);
                 const insertMetadata: OriginalInkCreateMetadata =
                   allocatedOriginalMetadata(insertIdentity);
                 const insertPayload: Uint8Array = encodeOriginalInitialInsertString(
@@ -1249,8 +1258,42 @@ export class StrokePersistence {
                 await this.appendOriginalCreateOperation(store, noteId, insertIdentity,
                   OpType.ORIGINAL_INSERT_TEXT, insertOperation.rawOperation);
               }
-              createdTexts.push(materializeOriginalTextCreate(
-                identity.opId, createDecoded, text.richText, metadata));
+              const styleOperations: EncodedOriginalRichTextStyleOperation[] =
+                encodeOriginalInitialRichTextStyles(
+                  { timestamp: identity.timestamp, siteId: identity.siteId },
+                  insertIdentity === null ? { timestamp: 1, siteId: 1 } :
+                    { timestamp: insertIdentity.timestamp, siteId: insertIdentity.siteId }, text);
+              for (const style of styleOperations) {
+                if (insertIdentity === null) {
+                  throw new Error('original clipboard styled Text has no INSERT_STRING identity');
+                }
+                const styleIdentity: AllocatedOperationIdentity =
+                  await allocateOperationIdentity(store, noteId);
+                const styleMetadata: OriginalInkCreateMetadata =
+                  allocatedOriginalMetadata(styleIdentity);
+                const styleOperation: StoredSyncedOperation = localStoredOperation(
+                  noteId, styleMetadata, style.payloadType, style.payload, null);
+                const styleApplied: SyncedOperationApplyResult =
+                  await new OriginalRichTextStyleOperationApplier().applyBatchedPayload(
+                    store, styleOperation,
+                    decodeOriginalRichTextStyle(styleOperation.rawOperation, style.payloadType),
+                    revisionBatch);
+                if (styleApplied.deferredReason !== null) {
+                  throw new Error(
+                    `original clipboard RichText style was deferred: ${styleApplied.deferredReason}`);
+                }
+                await this.appendOriginalCreateOperation(store, noteId, styleIdentity,
+                  style.payloadType === ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE ?
+                    OpType.ORIGINAL_MODIFY_PARAGRAPH_STYLE : OpType.ORIGINAL_MODIFY_TEXT_STYLE,
+                  styleOperation.rawOperation);
+              }
+              const canonicalText: TextBlockElement = await this.readOriginalClipboardText(
+                store, noteId, pageId, identity.opId);
+              if (!sameTextStyleRuns(canonicalText, text.characterStyleRuns ?? [],
+                text.paragraphStyleRuns ?? [])) {
+                throw new Error('original clipboard RichText styles diverged after replay');
+              }
+              createdTexts.push(canonicalText);
             } else if (ref.kind === PageElementKind.IMAGE) {
               const source: ImageElement | undefined = imageById.get(ref.elementId);
               if (source === undefined) {
@@ -3600,6 +3643,28 @@ export class StrokePersistence {
     }
   }
 
+  private async readOriginalClipboardText(store: relationalStore.RdbStore,
+    noteId: string, pageId: string, elementId: string): Promise<TextBlockElement> {
+    const predicates = new relationalStore.RdbPredicates('page_element_snapshot');
+    predicates.equalTo('note_id', noteId);
+    predicates.equalTo('page_id', pageId);
+    predicates.equalTo('element_id', elementId);
+    const rows = await store.query(predicates, ['payload']);
+    try {
+      if (!rows.goToFirstRow()) {
+        throw new Error('original clipboard Text snapshot disappeared');
+      }
+      const persisted: PersistedElement = decodePersistedElement(
+        rows.getBlob(rows.getColumnIndex('payload')));
+      if (persisted.kind !== 'text' || persisted.data.id !== elementId || rows.goToNextRow()) {
+        throw new Error('original clipboard Text snapshot diverged');
+      }
+      return cloneTextBlockElement(persisted.data as TextBlockElement);
+    } finally {
+      rows.close();
+    }
+  }
+
   private async readEligibleOriginalInkPage(store: relationalStore.RdbStore,
     noteId: string, pageId: string): Promise<OriginalSequenceIdentity | null> {
     const guard = await store.querySql(
@@ -4821,45 +4886,6 @@ function materializeOriginalMathCreate(id: string,
   };
   math.bounds = mathBlockWorldBounds(math);
   return math;
-}
-
-function materializeOriginalTextCreate(id: string, payload: OriginalCreateBlockPayload,
-  richText: string, metadata: OriginalInkCreateMetadata): TextBlockElement {
-  if (payload.blockType !== OriginalBlockType.TEXT) {
-    throw new Error('original clipboard Text CREATE_BLOCK decoded to a different kind');
-  }
-  const rotation: number = payload.rotation === null ? 0 : payload.rotation;
-  const scaleX: number = payload.scaleX === null ? 1 : payload.scaleX;
-  const scaleY: number = payload.scaleY === null ? 1 : payload.scaleY;
-  const cosine: number = Math.cos(rotation);
-  const sine: number = Math.sin(rotation);
-  const text: TextBlockElement = {
-    id: id, type: ElementType.TEXT,
-    transform: [
-      cosine * scaleX, -sine * scaleY, payload.originX,
-      sine * scaleX, cosine * scaleY, payload.originY,
-      0, 0, 1,
-    ],
-    bounds: { left: 0, top: 0, right: 0, bottom: 0 },
-    richText: richText, textOrigin: { x: 0, y: 0 },
-    blockWidth: payload.width, blockHeight: payload.height,
-    rotationRadians: rotation,
-    contentLeftInset: payload.margins.left, contentTopInset: payload.margins.top,
-    contentRightInset: payload.margins.right, contentBottomInset: payload.margins.bottom,
-    fontSize: 17, fontColor: -16777216,
-    corner: payload.corner, textWrap: payload.textWrap,
-    enableCaption: payload.enableCaption, paper: cloneOriginalPaper(payload.paper),
-    resizesWidthToFitText: payload.resizesWidthToFitText,
-    positionLocked: payload.positionLocked,
-    originalCreate: {
-      timestamp: metadata.timestamp, siteId: metadata.siteId,
-      clientTime: metadata.clientTime,
-      pageTimestamp: metadata.pageTimestamp, pageSiteId: metadata.pageSiteId,
-      pageIndex: metadata.pageIndex, pencilSeed: metadata.pencilSeed,
-    },
-  };
-  text.bounds = textBlockWorldBounds(text);
-  return text;
 }
 
 function materializeOriginalImageCreate(id: string,
