@@ -42,6 +42,10 @@ import {
   OriginalModifyBlockOperationApplier,
 } from './OriginalModifyBlockOperation';
 import {
+  decodeOriginalModifyPositionsTable, ORIGINAL_MODIFY_POSITIONS_PAYLOAD_TYPE,
+  OriginalModifyPositionsOperationApplier,
+} from './OriginalModifyPositionsOperation';
+import {
   ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE, ORIGINAL_INSERT_STRING_PAYLOAD_TYPE,
   ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE, ORIGINAL_REMOVE_CHARS_PAYLOAD_TYPE,
   ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE, OriginalInsertTextOperationApplier,
@@ -72,6 +76,7 @@ export interface OriginalNoteBundleOperation extends OriginalSequenceIdentity {
   clientTime: string;
   serverTime: string | null;
   payloadType: number;
+  transient: boolean;
   payload: OriginalFlatBufferTableReader;
 }
 
@@ -172,6 +177,7 @@ export function decodeOriginalNoteBundle(bytes: Uint8Array): OriginalNoteBundle 
       clientTime: requireDecimal(table.readUint64Decimal(1, '0')),
       serverTime: table.readUint64Decimal(2, null),
       payloadType: payloadType,
+      transient: table.readUint8(3, 0) !== 0,
       payload: payload,
     };
     validateOperationIdentity(operation);
@@ -308,7 +314,12 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
   const textStyle: OriginalRichTextStyleOperationApplier =
     new OriginalRichTextStyleOperationApplier();
   const setMetadata: OriginalSetMetadataOperationApplier = new OriginalSetMetadataOperationApplier();
+  const modifyPositions: OriginalModifyPositionsOperationApplier =
+    new OriginalModifyPositionsOperationApplier();
   for (const operation of bundle.operations) {
+    if (operation.transient) {
+      return 'NOTE_BUNDLE_TRANSIENT_OPERATION_UNSUPPORTED';
+    }
     if (operation.payloadType === ORIGINAL_SET_METADATA_PAYLOAD_TYPE) {
       const reason: string | null = setMetadata.preflightTable(operation.payload);
       if (reason !== null) {
@@ -376,6 +387,20 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
       const pageOrigin = decodeOriginalModifyBlockTable(operation.payload).pageOrigin;
       if (pageOrigin !== null && !history.pages.has(encodeOriginalSequenceId(pageOrigin.page))) {
         return 'NOTE_BUNDLE_MODIFY_BLOCK_DESTINATION_PAGE_MISSING';
+      }
+      continue;
+    }
+    if (operation.payloadType === ORIGINAL_MODIFY_POSITIONS_PAYLOAD_TYPE) {
+      const reason: string | null = modifyPositions.preflightTable(operation.payload);
+      if (reason !== null) {
+        return `NOTE_BUNDLE_${reason}`;
+      }
+      const positions = decodeOriginalModifyPositionsTable(operation.payload);
+      for (const modification of positions.modifications) {
+        if (modification.pageOrigin !== null &&
+          !history.pages.has(encodeOriginalSequenceId(modification.pageOrigin.page))) {
+          return 'NOTE_BUNDLE_MODIFY_POSITIONS_DESTINATION_PAGE_MISSING';
+        }
       }
       continue;
     }
@@ -454,6 +479,8 @@ async function applyBundleContent(store: relationalStore.RdbStore,
   const textStyle: OriginalRichTextStyleOperationApplier =
     new OriginalRichTextStyleOperationApplier();
   const setMetadata: OriginalSetMetadataOperationApplier = new OriginalSetMetadataOperationApplier();
+  const modifyPositions: OriginalModifyPositionsOperationApplier =
+    new OriginalModifyPositionsOperationApplier();
   const before: number = await countRows(store,
     'SELECT COUNT(*) AS value FROM original_element_z_index WHERE note_id = ?', [bundle.noteId]);
   const revisionBefore: number = await contentRevisionTotal(store, bundle.noteId);
@@ -467,6 +494,7 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       operation.payloadType !== ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_MODIFY_POSITIONS_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_INSERT_STRING_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_REMOVE_CHAR_PAYLOAD_TYPE &&
@@ -505,6 +533,8 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       result = await createBlock.applyTable(store, stored, operation.payload);
     } else if (operation.payloadType === ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE) {
       result = await modifyBlock.applyTable(store, stored, operation.payload);
+    } else if (operation.payloadType === ORIGINAL_MODIFY_POSITIONS_PAYLOAD_TYPE) {
+      result = await modifyPositions.applyTable(store, stored, operation.payload);
     } else if (operation.payloadType === ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_INSERT_STRING_PAYLOAD_TYPE) {
       result = await insertText.applyTable(store, stored, operation.payload);
@@ -852,6 +882,15 @@ function bindArchivedContentPages(history: BootstrapHistory, bundle: OriginalNot
   noteId: string, pageIdBySequence: Map<string, string>): void {
   const contentPages: Set<string> = new Set<string>();
   for (const operation of bundle.operations) {
+    if (operation.payloadType === ORIGINAL_MODIFY_POSITIONS_PAYLOAD_TYPE) {
+      const positions = decodeOriginalModifyPositionsTable(operation.payload);
+      for (const modification of positions.modifications) {
+        if (modification.pageOrigin !== null) {
+          contentPages.add(encodeOriginalSequenceId(modification.pageOrigin.page));
+        }
+      }
+      continue;
+    }
     let page: OriginalSequenceIdentity | null = null;
     if (operation.payloadType === ORIGINAL_CREATE_INK_PAYLOAD_TYPE) {
       page = decodeOriginalCreateInkTable(operation.payload, operation.clientTime).page;

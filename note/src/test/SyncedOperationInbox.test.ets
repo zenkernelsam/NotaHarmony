@@ -59,6 +59,10 @@ import {
 import {
   decodeOriginalAssetCloudPersistedTable, OriginalAssetCloudPersistedOperationApplier,
 } from '../main/ets/data/OriginalAssetCloudPersistedOperation';
+import {
+  decodeOriginalModifyPositions,
+} from '../main/ets/data/OriginalModifyPositionsOperation';
+import { OriginalPageMutationBatch } from '../main/ets/data/OriginalPageMutationBatch';
 
 function operation(timestamp: number, serverTime: string,
   clientTime: string = serverTime, payloadType: number = 3): IncomingSyncedOperation {
@@ -371,6 +375,72 @@ export default function syncedOperationInboxTest() {
       expect(applier.preflightTable(readOriginalPayloadTable(
         flatBufferAssetCloudPersisted(true, false, true), 2))).assertEqual(
         'ASSET_CLOUD_PERSISTED_FIELDS_UNSUPPORTED');
+    });
+
+    it('decodes per-target original ModifyPositions registers without number loss', 0, () => {
+      const payload = decodeOriginalModifyPositions(flatBufferModifyPositions());
+      expect(payload.modifications.length).assertEqual(2);
+      const first = payload.modifications[0];
+      expect(first.target.timestamp).assertEqual(10);
+      expect(first.target.siteId).assertEqual(1);
+      expect(first.pageOrigin?.page.timestamp).assertEqual(100);
+      expect(first.pageOrigin?.page.siteId).assertEqual(2);
+      expect(first.pageOrigin?.page.index).assertEqual(3);
+      expect(first.pageOrigin?.originX).assertEqual(1.5);
+      expect(first.pageOrigin?.originY).assertEqual(-2);
+      expect(first.rotation.value).assertEqual(0.5);
+      expect(first.scale.value?.x).assertEqual(2);
+      expect(first.scale.value?.y).assertEqual(3);
+      expect(first.zIndex).assertEqual('18446744073709551615');
+      const second = payload.modifications[1];
+      expect(second.target.timestamp).assertEqual(20);
+      expect(second.rotation.present).assertTrue();
+      expect(second.rotation.value === null).assertTrue();
+      expect(second.scale.present).assertTrue();
+      expect(second.scale.value === null).assertTrue();
+      expect(second.zIndex === null).assertTrue();
+    });
+
+    it('rejects repeated ModifyPositions targets and unpaired page/origin', 0, () => {
+      let rejected: number = 0;
+      try {
+        decodeOriginalModifyPositions(flatBufferModifyPositions(true, false));
+      } catch (_error) {
+        rejected++;
+      }
+      try {
+        decodeOriginalModifyPositions(flatBufferModifyPositions(false, true));
+      } catch (_error) {
+        rejected++;
+      }
+      expect(rejected).assertEqual(2);
+    });
+
+    it('batches mixed position page revisions and search invalidation once', 0, async () => {
+      let updates: number = 0;
+      const statements: string[] = [];
+      const fakeStore = {
+        update: async (): Promise<number> => {
+          updates++;
+          return 1;
+        },
+        executeSql: async (sql: string): Promise<void> => {
+          statements.push(sql);
+        },
+      } as relationalStore.RdbStore;
+      const target = {
+        page: { timestamp: 10, siteId: 1, index: 2 }, pageId: 'page',
+        revisionTable: 'page_info', revision: 7, archived: false,
+      };
+      const batch = new OriginalPageMutationBatch();
+      batch.recordInk(target);
+      batch.recordBlock(target, true);
+      await batch.flush(fakeStore, 'note');
+      expect(updates).assertEqual(1);
+      expect(statements.length).assertEqual(3);
+      expect(statements[0]).assertContain('search_page_state');
+      expect(statements[1]).assertContain('search_item');
+      expect(statements[2]).assertContain('search_item');
     });
 
     it('does not reject valid IMAGE or MATH type-specific CREATE fields', 0, () => {
@@ -2250,6 +2320,47 @@ function flatBufferAssetCloudPersisted(includeHash: boolean = true,
   if (extraField) {
     builder.uint8(payload + 68, 1);
   }
+  return builder.finish(root);
+}
+
+function flatBufferModifyPositions(repeatTarget: boolean = false,
+  unpairedPage: boolean = false): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 300);
+  writeDecimalU64At(builder, root + 12, '400');
+  writeDecimalU64At(builder, root + 20, '500');
+  builder.uint8(root + 28, 24);
+  const payload: number = builder.table([4], 8);
+  builder.pointer(root + 32, payload);
+  const modifications: number = builder.tableVector(2);
+  builder.pointer(payload + 4, modifications);
+
+  const first: number = builder.table([4, 12, unpairedPage ? 0 : 24, 32, 36, 40], 48);
+  builder.pointer(modifications + 4, first);
+  builder.inlineIdentity(first + 4, 10, 1);
+  builder.inlineSequence(first + 12, 100, 2, 3);
+  if (!unpairedPage) {
+    builder.float32(first + 24, 1.5);
+    builder.float32(first + 28, -2);
+  }
+  const rotation: number = builder.table([4], 8);
+  builder.pointer(first + 32, rotation);
+  builder.float32(rotation + 4, 0.5);
+  const scale: number = builder.table([4], 12);
+  builder.pointer(first + 36, scale);
+  builder.float32(scale + 4, 2);
+  builder.float32(scale + 8, 3);
+  writeDecimalU64At(builder, first + 40, '18446744073709551615');
+
+  const second: number = builder.table([4, 0, 0, 12, 16, 0], 20);
+  builder.pointer(modifications + 8, second);
+  builder.inlineIdentity(second + 4, repeatTarget ? 10 : 20, repeatTarget ? 1 : 4);
+  const clearRotation: number = builder.table([0], 4);
+  builder.pointer(second + 12, clearRotation);
+  const clearScale: number = builder.table([0], 4);
+  builder.pointer(second + 16, clearScale);
   return builder.finish(root);
 }
 

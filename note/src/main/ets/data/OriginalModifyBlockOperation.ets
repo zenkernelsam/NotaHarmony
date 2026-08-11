@@ -19,6 +19,7 @@ import {
   OriginalFlatBufferTableReader, readOriginalInlineFloat32, readOriginalPayloadTable,
 } from './OriginalSyncedOperationFlatBuffer';
 import { SearchItemType } from './SearchItemType';
+import { OriginalPageMutationBatch } from './OriginalPageMutationBatch';
 import { decodePersistedElement, encodePersistedElement, PersistedElement } from './StrokePersistence';
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
@@ -339,9 +340,16 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
     return this.applyPayload(store, operation, payload);
   }
 
+  async applyPositionPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, payload: OriginalModifyBlockPayload,
+    revisionBatch: OriginalPageMutationBatch): Promise<SyncedOperationApplyResult> {
+    return this.applyPayload(store, operation, payload, revisionBatch);
+  }
+
   private async applyPayload(store: relationalStore.RdbStore,
     operation: StoredSyncedOperation,
-    payload: OriginalModifyBlockPayload): Promise<SyncedOperationApplyResult> {
+    payload: OriginalModifyBlockPayload,
+    revisionBatch: OriginalPageMutationBatch | null = null): Promise<SyncedOperationApplyResult> {
     const preflightReason: string | null = preflightOriginalModifyBlock(payload);
     if (preflightReason !== null) {
       return { deferredReason: preflightReason };
@@ -564,8 +572,12 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       await this.materializeOrder(store, operation.noteId, mutation);
     }
     for (const page of affected.values()) {
-      await this.advanceRevisionAndInvalidateSearch(
-        store, operation.noteId, page.target, page.textChanged);
+      if (revisionBatch === null) {
+        await this.advanceRevisionAndInvalidateSearch(
+          store, operation.noteId, page.target, page.textChanged);
+      } else {
+        revisionBatch.recordBlock(page.target, page.textChanged);
+      }
     }
     return { deferredReason: null };
   }

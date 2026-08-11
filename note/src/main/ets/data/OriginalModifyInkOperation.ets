@@ -25,6 +25,7 @@ import {
   OriginalFlatBufferTableReader, readOriginalInlineFloat32, readOriginalPayloadTable,
 } from './OriginalSyncedOperationFlatBuffer';
 import { SearchItemType } from './SearchItemType';
+import { OriginalPageMutationBatch } from './OriginalPageMutationBatch';
 import {
   decodePersistedElement, encodePersistedElement, PersistedElement,
 } from './StrokePersistence';
@@ -315,9 +316,16 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
     return this.applyPayload(store, operation, payload);
   }
 
+  async applyPositionPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, payload: OriginalModifyInkPayload,
+    revisionBatch: OriginalPageMutationBatch): Promise<SyncedOperationApplyResult> {
+    return this.applyPayload(store, operation, payload, revisionBatch);
+  }
+
   private async applyPayload(store: relationalStore.RdbStore,
     operation: StoredSyncedOperation,
-    payload: OriginalModifyInkPayload): Promise<SyncedOperationApplyResult> {
+    payload: OriginalModifyInkPayload,
+    revisionBatch: OriginalPageMutationBatch | null = null): Promise<SyncedOperationApplyResult> {
     const preflightReason: string | null = preflightOriginalModifyInk(payload);
     if (preflightReason !== null) {
       return { deferredReason: preflightReason };
@@ -683,7 +691,11 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       await this.materializeOrder(store, operation.noteId, mutation);
     }
     for (const target of affectedPages.values()) {
-      await this.advanceRevisionAndInvalidateSearch(store, operation.noteId, target);
+      if (revisionBatch === null) {
+        await this.advanceRevisionAndInvalidateSearch(store, operation.noteId, target);
+      } else {
+        revisionBatch.recordInk(target);
+      }
     }
     return { deferredReason: null };
   }
