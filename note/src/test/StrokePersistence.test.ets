@@ -10,7 +10,9 @@ import {
   OriginalRenderMutation, PersistedElement, validateOriginalClipboardPastePlan,
 } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
-import { ElementType, ImageElement, ShapeElement } from '../main/ets/core/model/ElementTypes';
+import {
+  ElementType, ImageElement, MathElement, ShapeElement,
+} from '../main/ets/core/model/ElementTypes';
 import {
   handwritingSourceChanged, pageSnapshotChanged, SearchSourceElement,
 } from '../main/ets/data/SearchIndexPolicy';
@@ -398,6 +400,13 @@ export default function strokePersistenceTest() {
       } catch (_error) {
         rejected++;
       }
+      const math: MathElement = originalMath('op:74:2');
+      validateOriginalClipboardPastePlan({
+        strokes: [], shapes: [], textBlocks: [], images: [], mathBlocks: [math],
+        elementOrder: [{ kind: PageElementKind.MATH, elementId: math.id, zIndex: 0 }],
+        groups: [{ id: 'op:76:2', timestamp: 76, siteId: 2, members: [math.id] }],
+        topGroupIds: ['op:76:2'],
+      });
       expect(rejected).assertEqual(2);
     });
   });
@@ -413,6 +422,16 @@ function originalImage(id: string): ImageElement {
     blockWidth: 100, blockHeight: 50, rotationRadians: 0, corner: 0, textWrap: 0,
     enableCaption: false, webUrl: null, imageFlippedHorizontally: false,
     imageFlippedVertically: false, positionLocked: false,
+  };
+}
+
+function originalMath(id: string): MathElement {
+  return {
+    id: id, type: ElementType.MATH, transform: [1, 0, 10, 0, 1, 20, 0, 0, 1],
+    bounds: { left: 10, top: 20, right: 110, bottom: 70 },
+    latex: '\\frac{a}{b}', color: -16777216,
+    blockWidth: 100, blockHeight: 50, rotationRadians: 0,
+    corner: 0, textWrap: 0, enableCaption: false, positionLocked: false,
   };
 }
 

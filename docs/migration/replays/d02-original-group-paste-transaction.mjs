@@ -25,7 +25,7 @@ assert.match(persistence, /validateOriginalClipboardPasteMutation\(mutation\)/);
 assert.match(persistence, /opType: OpType\.ORIGINAL_CLIPBOARD_PASTE/);
 assert.match(persistence, /await store\.commit\(\)/);
 assert.match(persistence, /await store\.rollBack\(\)/);
-assert.match(persistence, /does not yet support Image or Math CREATE_BLOCK/);
+assert.match(persistence, /does not yet support Image CREATE_BLOCK/);
 assert.match(persistence, /Shape RichText is unsupported/);
 assert.match(persistence, /empty Text is unsupported/);
 assert.match(fixtures, /validates bottom-up original clipboard Paste plans before persistence/);
@@ -34,7 +34,8 @@ function transact(failAt = '') {
   const initial = { revision: 7, operations: [], groups: [], history: [] };
   const state = structuredClone(initial);
   try {
-    for (const op of ['CREATE_INK', 'CREATE_BLOCK', 'INSERT_STRING', 'CREATE_SHAPE']) {
+    for (const op of ['CREATE_INK', 'CREATE_BLOCK', 'INSERT_STRING', 'CREATE_SHAPE',
+      'CREATE_MATH_BLOCK']) {
       if (failAt === op) throw new Error(op);
       state.operations.push(op);
     }
@@ -57,6 +58,7 @@ const committed = transact();
 assert.equal(committed.revision, 8);
 assert.deepEqual(committed.operations, [
   'CREATE_INK', 'CREATE_BLOCK', 'INSERT_STRING', 'CREATE_SHAPE',
+  'CREATE_MATH_BLOCK',
   'CREATE_GROUP', 'CREATE_GROUP',
 ]);
 assert.deepEqual(committed.groups, ['nested', 'top']);

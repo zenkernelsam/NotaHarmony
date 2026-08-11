@@ -4816,6 +4816,8 @@ export struct NoteCanvasView {
           this.completedStrokes = this.completedStrokes.concat(result.strokes);
           this.shapes = this.shapes.concat(result.shapes);
           this.textBlocks = this.textBlocks.concat(result.textBlocks);
+          this.imageBlocks = this.imageBlocks.concat(result.images);
+          this.mathBlocks = this.mathBlocks.concat(result.mathBlocks);
           this.elementOrder = clonePageElementOrder(result.elementOrder);
           this.selectionGroups = result.groups;
           this.synchronizeElementArraysByOrder();
@@ -4823,7 +4825,9 @@ export struct NoteCanvasView {
             result.strokes.map((stroke: StrokeElementData): string => stroke.id),
             result.shapes.map((shape: ShapeElement): string => shape.id),
             result.textBlocks.map((text: TextBlockElement): string => text.id),
-            [], result.topGroupIds, []);
+            result.images.map((image: ImageElement): string => image.id),
+            result.topGroupIds,
+            result.mathBlocks.map((math: MathElement): string => math.id));
           this.originalInkIneligiblePages.delete(pageId);
           this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
           this.updateSelectionOverlay();

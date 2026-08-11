@@ -6,7 +6,7 @@ import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op, OpType } from
 import { taskpool, util } from '@kit.ArkTS';
 import { InkStyle, OriginalInkCreateMetadata, StrokeElementData } from '../core/model/StrokeTypes';
 import {
-  ImageElement, MathElement, OriginalShapeCreateMetadata, RichTextCharacterStyleRun,
+  ElementType, ImageElement, MathElement, OriginalShapeCreateMetadata, RichTextCharacterStyleRun,
   RichTextParagraphStyleRun, ShapeElement, TextBlockElement,
 } from '../core/model/ElementTypes';
 import { Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
@@ -45,7 +45,9 @@ import {
 } from './UnsignedDecimal';
 import { encodeOriginalLocalCreateInk } from './OriginalCreateInkPayloadEncoder';
 import { encodeOriginalLocalCreateShape } from './OriginalCreateShapePayloadEncoder';
-import { encodeOriginalLocalCreateTextBlock } from './OriginalCreateBlockPayloadEncoder';
+import {
+  encodeOriginalLocalCreateMathBlock, encodeOriginalLocalCreateTextBlock,
+} from './OriginalCreateBlockPayloadEncoder';
 import {
   EncodedOriginalTextOperation, encodeOriginalInitialInsertString,
   encodeOriginalTextInsertion, encodeOriginalTextVisibility,
@@ -109,7 +111,7 @@ import {
 } from './OriginalModifyBlockOperation';
 import {
   decodeOriginalCreateBlock, ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE, OriginalBlockRect,
-  OriginalBlockType, OriginalCreateBlockOperationApplier,
+  OriginalBlockType, OriginalCreateBlockOperationApplier, OriginalCreateBlockPayload,
 } from './OriginalCreateBlockOperation';
 import {
   decodeOriginalInsertText, decodeOriginalTextVisibility,
@@ -160,6 +162,8 @@ export interface OriginalClipboardPastePersistenceResult {
   strokes: StrokeElementData[];
   shapes: ShapeElement[];
   textBlocks: TextBlockElement[];
+  images: ImageElement[];
+  mathBlocks: MathElement[];
   elementOrder: PageElementRef[];
   groups: OriginalSelectionGroup[];
   topGroupIds: string[];
@@ -176,10 +180,11 @@ export interface OriginalClipboardPasteHistoryResult {
 const MAX_ORIGINAL_CLIPBOARD_PASTE_LEAVES: number = 10000;
 
 export function validateOriginalClipboardPastePlan(plan: OriginalClipboardPastePlan): void {
-  if (plan.images.length !== 0 || plan.mathBlocks.length !== 0) {
-    throw new Error('original clipboard Paste does not yet support Image or Math CREATE_BLOCK');
+  if (plan.images.length !== 0) {
+    throw new Error('original clipboard Paste does not yet support Image CREATE_BLOCK');
   }
-  const leafCount: number = plan.strokes.length + plan.shapes.length + plan.textBlocks.length;
+  const leafCount: number = plan.strokes.length + plan.shapes.length + plan.textBlocks.length +
+    plan.mathBlocks.length;
   if (leafCount === 0 || leafCount > MAX_ORIGINAL_CLIPBOARD_PASTE_LEAVES ||
     plan.elementOrder.length !== leafCount || plan.groups.length === 0 ||
     plan.groups.length > MAX_ORIGINAL_CLIPBOARD_PASTE_LEAVES ||
@@ -216,6 +221,10 @@ export function validateOriginalClipboardPastePlan(plan: OriginalClipboardPasteP
     }
     encodeOriginalLocalCreateTextBlock(page, text);
     encodeOriginalInitialInsertString({ timestamp: 1, siteId: 1 }, text.richText);
+  }
+  for (const math of plan.mathBlocks) {
+    addLeaf(math.id, PageElementKind.MATH);
+    encodeOriginalLocalCreateMathBlock(page, math);
   }
   const orderedLeaves: Set<string> = new Set<string>();
   for (let index: number = 0; index < plan.elementOrder.length; index++) {
@@ -1105,17 +1114,21 @@ export class StrokePersistence {
           const strokeById: Map<string, StrokeElementData> = new Map<string, StrokeElementData>();
           const shapeById: Map<string, ShapeElement> = new Map<string, ShapeElement>();
           const textById: Map<string, TextBlockElement> = new Map<string, TextBlockElement>();
+          const mathById: Map<string, MathElement> = new Map<string, MathElement>();
           stablePlan.strokes.forEach(
             (value: StrokeElementData): void => { strokeById.set(value.id, value); });
           stablePlan.shapes.forEach(
             (value: ShapeElement): void => { shapeById.set(value.id, value); });
           stablePlan.textBlocks.forEach(
             (value: TextBlockElement): void => { textById.set(value.id, value); });
+          stablePlan.mathBlocks.forEach(
+            (value: MathElement): void => { mathById.set(value.id, value); });
 
           const mappedIds: Map<string, string> = new Map<string, string>();
           const createdStrokes: StrokeElementData[] = [];
           const createdShapes: ShapeElement[] = [];
           const createdTexts: TextBlockElement[] = [];
+          const createdMathBlocks: MathElement[] = [];
           const createdOrder: PageElementRef[] = [];
           const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
           let firstCreate: boolean = true;
@@ -1223,6 +1236,27 @@ export class StrokePersistence {
               await this.appendOriginalCreateOperation(store, noteId, insertIdentity,
                 OpType.ORIGINAL_INSERT_TEXT, insertOperation.rawOperation);
               createdTexts.push(text);
+            } else if (ref.kind === PageElementKind.MATH) {
+              const source: MathElement | undefined = mathById.get(ref.elementId);
+              if (source === undefined) {
+                throw new Error('original clipboard Paste Math source disappeared');
+              }
+              const math: MathElement = cloneMathElement(source);
+              math.id = identity.opId;
+              const payload: Uint8Array = encodeOriginalLocalCreateMathBlock(page, math);
+              const operation: StoredSyncedOperation = localStoredOperation(
+                noteId, metadata, ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE, payload, null);
+              const decoded: OriginalCreateBlockPayload = decodeOriginalCreateBlock(
+                operation.rawOperation, metadata.clientTime.toString());
+              const applied: SyncedOperationApplyResult =
+                await new OriginalCreateBlockOperationApplier().applyBatchedPayload(
+                  store, operation, decoded, revisionBatch);
+              if (applied.deferredReason !== null) {
+                throw new Error(`original clipboard Math CREATE_BLOCK was deferred: ${applied.deferredReason}`);
+              }
+              await this.appendOriginalCreateOperation(store, noteId, identity,
+                OpType.ORIGINAL_CREATE_BLOCK, operation.rawOperation);
+              createdMathBlocks.push(materializeOriginalMathCreate(identity.opId, decoded));
             } else {
               throw new Error('original clipboard Paste leaf kind is unsupported');
             }
@@ -1268,7 +1302,8 @@ export class StrokePersistence {
           const materialized: SearchSourceElement[] =
             await this.loadCurrentSnapshot(store, noteId, pageId);
           const createdPrepared: PreparedPageSave = this.prepareSave(
-            noteId, pageId, createdStrokes, createdTexts, createdOrder, createdShapes, [], []);
+            noteId, pageId, createdStrokes, createdTexts, createdOrder, createdShapes,
+            [], createdMathBlocks);
           const finalSnapshot: PreparedPageSave = this.reconcileOriginalClipboardPasteSnapshot(
             noteId, pageId, before, materialized, createdPrepared.elements, stableHistory);
           await this.reconcilePreparedRows(store, finalSnapshot, nextRevision);
@@ -1303,6 +1338,7 @@ export class StrokePersistence {
           await store.commit();
           return {
             strokes: createdStrokes, shapes: createdShapes, textBlocks: createdTexts,
+            images: [], mathBlocks: createdMathBlocks,
             elementOrder: finalSnapshot.elements.map(
               (element: PreparedElement, index: number): PageElementRef => ({
                 kind: element.kind, elementId: element.elementId, zIndex: index,
@@ -4682,6 +4718,34 @@ function cloneOriginalClipboardPastePlan(
     groups: plan.groups.map(cloneSelectionGroup),
     topGroupIds: plan.topGroupIds.slice(),
   };
+}
+
+function materializeOriginalMathCreate(id: string,
+  payload: OriginalCreateBlockPayload): MathElement {
+  if (payload.blockType !== OriginalBlockType.MATH || payload.mathLatex === null ||
+    payload.mathColor === null) {
+    throw new Error('original clipboard Math CREATE_BLOCK decoded to a different kind');
+  }
+  const rotation: number = payload.rotation === null ? 0 : payload.rotation;
+  const scaleX: number = payload.scaleX === null ? 1 : payload.scaleX;
+  const scaleY: number = payload.scaleY === null ? 1 : payload.scaleY;
+  const cosine: number = Math.cos(rotation);
+  const sine: number = Math.sin(rotation);
+  const math: MathElement = {
+    id: id, type: ElementType.MATH,
+    transform: [
+      cosine * scaleX, -sine * scaleY, payload.originX,
+      sine * scaleX, cosine * scaleY, payload.originY,
+      0, 0, 1,
+    ],
+    bounds: { left: 0, top: 0, right: 0, bottom: 0 },
+    latex: payload.mathLatex, color: payload.mathColor,
+    blockWidth: payload.width, blockHeight: payload.height,
+    rotationRadians: rotation, corner: payload.corner, textWrap: payload.textWrap,
+    enableCaption: payload.enableCaption, positionLocked: payload.positionLocked,
+  };
+  math.bounds = mathBlockWorldBounds(math);
+  return math;
 }
 
 function searchTextForElement(kind: number, payload: Uint8Array): string | null {
