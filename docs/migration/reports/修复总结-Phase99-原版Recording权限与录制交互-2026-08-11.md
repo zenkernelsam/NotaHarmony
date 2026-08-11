@@ -1,5 +1,9 @@
 # Phase 99 修复总结：原版 Recording 权限与录制交互
 
+> Phase 103 复核更正：原版 `i5h`/`b49` 中的 `ujb.a` 都属于录音按钮的状态切换，不能证明关闭
+> Recording 面板会停止录音。Harmony 已改为关闭面板仅隐藏、离开编辑器才 stop/save；以 ADR-0080
+> 和 Phase 103 总结为准。
+
 ## 原版证据
 
 - `xjb` 将 `tjb/ujb/rjb/sjb` 分别映射到 start、stop、pause、resume；`i5h` 在 start 前通过
@@ -7,7 +11,7 @@
   `Couldn't save recording`。
 - `wr8` 使用 gain type 1、usage 1、content type 1 的 audio focus；`tr8` 在 recorder start
   前请求焦点，永久或瞬时 focus loss 都会中断本次录音。
-- 关闭 Recording toolbox 时，原版会先触发 stop；权限拒绝说明使用
+- 原版只有明确的录音 toggle/stop 动作会触发 stop；权限拒绝说明使用
   `Microphone Access Required`，并提示用户前往应用设置开放麦克风。
 
 ## 已完成修复
@@ -21,9 +25,9 @@
 - `RecordingPanel` 新增固定高度的 Record/Pause/Resume/Stop 控制行、实时 elapsed、preparing 与
   saving 状态；保留原有录音列表、累计 seek、播放速度、删除/撤销与资产状态显示。
 - `NotePage` 完成生产接线：start 前卸载现有播放器，stop 结果进入原子 Recording 创建持久化；
-  关闭面板会等待活动录音保存，即使 close 与尚未完成的 start 竞态也会排队 stop；离开编辑器先
-  `finishAndRelease`，生命周期回调提供幂等兜底，不再直接 abort 丢弃有效录音。面板内部关闭键与
-  顶部 Recordings 切换键统一走相同关闭路径，不会留下不可见的后台录音。
+  明确 stop 与尚未完成的 start 竞态会通过 mutex 排队；离开编辑器先 `finishAndRelease`，生命周期
+  回调提供幂等兜底，不再直接 abort 丢弃有效录音。面板关闭语义已由 Phase 103 纠正为仅隐藏，活动
+  录音继续并可在重新打开面板后控制。
 - 权限拒绝、start 失败和 save/stop 失败分开建模并只上报一次；补齐中英文原版式权限说明、
   start/save 错误及录制控制资源。边修边审修正活动录音的异步 recorder error：只有 STARTING
   失败归入 start error，RECORDING/PAUSED/STOPPING 失败均按原版 save error 上报。

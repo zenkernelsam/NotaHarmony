@@ -426,13 +426,7 @@ struct NotePage {
     }
   }
 
-  private async closeRecordings(): Promise<void> {
-    const session: OriginalRecordingSessionController | null = this.recordingSessionController;
-    const snapshot: OriginalRecordingSessionSnapshot = this.recordingSessionSnapshot;
-    if (session !== null && (snapshot.preparing || snapshot.saving ||
-      isOriginalRecordingCaptureActive(snapshot.captureState))) {
-      await session.stop();
-    }
+  private closeRecordings(): void {
     this.showRecordings = false;
   }
 

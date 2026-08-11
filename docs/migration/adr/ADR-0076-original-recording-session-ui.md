@@ -2,13 +2,14 @@
 
 ## Status
 
-Accepted, 2026-08-11.
+Accepted, 2026-08-11; panel-close decision corrected by ADR-0080 on 2026-08-11.
 
 ## Evidence
 
 - Original 1.0.3 `xjb` maps `tjb/ujb/rjb/sjb` to start, stop, pause and resume. `i5h` gates
-  start with `fha.RECORD_AUDIO`, distinguishes "Couldn't start recording" from "Couldn't save
-  recording", and stops an active recording before the toolbox closes.
+  start with `fha.RECORD_AUDIO` and distinguishes "Couldn't start recording" from "Couldn't save
+  recording". The earlier panel-close interpretation was incorrect: both original `ujb` call sites
+  are record-button toggles, not toolbox-close callbacks.
 - `wr8` builds a gain-type-one audio focus request with media usage/content type. `tr8` requests
   focus before starting the recorder; permanent or transient focus loss interrupts the recording.
 - Original permission resources say "Microphone Access Required" and direct a denied user to
@@ -25,9 +26,9 @@ Accepted, 2026-08-11.
 - Expose stable Record, Pause, Resume and Stop controls in `RecordingPanel`, plus elapsed time and
   preparing/saving states. The panel emits commands only; it owns no recorder, database or asset
   persistence dependency.
-- Closing the recording panel queues Stop behind any start already in flight and waits for saving.
-  Leaving the editor calls `finishAndRelease`, which saves an active recording before permanently
-  releasing capture. `aboutToDisappear` is an idempotent fallback for non-toolbar exits.
+- Closing the recording panel only hides it and does not change capture state, as corrected by
+  ADR-0080. Leaving the editor calls `finishAndRelease`, which saves an active recording before
+  permanently releasing capture. `aboutToDisappear` is an idempotent fallback for non-toolbar exits.
 - Classify permission denial, start failure and save/stop failure separately and publish each
   transition once. Permission denial uses the original explanatory dialog; start/save use the
   original failure strings.
@@ -38,15 +39,15 @@ Accepted, 2026-08-11.
   prompt asks for sensitive access without user intent.
 - Let the panel call `AVRecorder` or persistence directly: this splits lifecycle ownership and makes
   focus loss, close and route exit race each other.
-- Abort on panel close or editor exit: that discards a valid active recording, unlike the original
-  close path which triggers Stop.
+- Abort on panel close or editor exit: editor exit must finish the capture, while panel close is not
+  a recorder lifecycle command and must leave the active capture intact.
 - Pause on Harmony audio-session deactivation: the original treats focus loss as interruption and
   finishes the recording, which also avoids leaving an invisible paused capture alive.
 
 ## Verification
 
 - ArkTS tests cover denial without side effects, ordered start/pause/resume/stop/persist, focus-loss
-  saving, close queued behind start, single failure publication, persistence failure and active
+  saving, explicit stop queued behind start, single failure publication, persistence failure and active
   finish/release.
 - `d02-recording-session-ui.mjs` locks the original action, permission, focus and strings evidence as
   well as Harmony gateways, session ordering, editor exit and panel controls. Historical recording

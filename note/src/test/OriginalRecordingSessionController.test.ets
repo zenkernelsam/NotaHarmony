@@ -142,7 +142,7 @@ export default function originalRecordingSessionControllerTest() {
       expect(calls[calls.length - 1]).assertEqual('persist');
     });
 
-    it('queues close-time stop behind an in-flight start', 0, async () => {
+    it('serializes an explicit stop behind an in-flight start', 0, async () => {
       const calls: string[] = [];
       const permission = new SessionTestPermission(calls);
       const focus = new SessionTestFocus(calls);
