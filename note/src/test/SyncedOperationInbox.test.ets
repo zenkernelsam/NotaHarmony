@@ -1007,6 +1007,10 @@ export default function syncedOperationInboxTest() {
         flatBufferCreateInk(0, 2, false, false, true), '123');
       expect(withLegacyNib.nibAngle).assertEqual(65535);
       expect(withLegacyNib.nibFlatness).assertEqual(40000);
+      const withAudioDuration = decodeOriginalCreateInk(
+        flatBufferCreateInk(0, 0, false, false, false, true), '123');
+      expect(withAudioDuration.audioDuration).assertEqual(4294967295);
+      expect(unsupportedOriginalCreateInkReason(withAudioDuration)).assertNull();
       const bounds = transformedExpandedBounds(payload.path?.localBounds as Rect2D, payload.width,
         originalInkTransform(payload.originX, payload.originY, payload.rotation,
           payload.scaleX, payload.scaleY));
@@ -2101,7 +2105,7 @@ function flatBufferClearStyle(): Uint8Array {
 
 function flatBufferCreateInk(tool: number = 0, style: number = 0,
   includeAuxiliary: boolean = false, includeStyleMap: boolean = false,
-  includeLegacyNib: boolean = false): Uint8Array {
+  includeLegacyNib: boolean = false, includeAudioDuration: boolean = false): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
   builder.uint16(root + 4, 7);
@@ -2111,9 +2115,9 @@ function flatBufferCreateInk(tool: number = 0, style: number = 0,
   builder.uint8(root + 28, 15);
   const fields: number[] = [4, 16, 24, 28, 36, 37, 0, 40, 44, 48,
     includeAuxiliary ? 52 : 0, includeAuxiliary ? 56 : 0, includeAuxiliary ? 60 : 0,
-    includeStyleMap ? 68 : 0, 64, 0,
+    includeStyleMap ? 68 : 0, 64, includeAudioDuration ? 76 : 0,
     includeLegacyNib ? 72 : 0, includeLegacyNib ? 74 : 0, 0, 0, 0];
-  const ink: number = builder.table(fields, 76);
+  const ink: number = builder.table(fields, 80);
   builder.pointer(root + 32, ink);
   builder.uint16(ink + 4, 1);
   builder.uint32(ink + 8, 10);
@@ -2149,6 +2153,9 @@ function flatBufferCreateInk(tool: number = 0, style: number = 0,
   if (includeLegacyNib) {
     builder.uint16(ink + 72, 65535);
     builder.uint16(ink + 74, 40000);
+  }
+  if (includeAudioDuration) {
+    builder.uint32(ink + 76, 4294967295);
   }
   return builder.finish(root);
 }

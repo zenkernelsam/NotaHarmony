@@ -1595,6 +1595,8 @@ function copyStroke(stroke: StrokeElementData, renderSpec: RenderSpec,
     bounds: stroke.bounds, maskPath: stroke.maskPath,
     customPath: customPath, fillPath: fillPath, fillColor: fillColor,
     styleMap: styleMap,
+    audioStartTime: stroke.audioStartTime,
+    audioDuration: stroke.audioDuration,
     isFinished: stroke.isFinished,
   };
 }
@@ -1627,6 +1629,8 @@ function replacementStroke(replacement: PlannedReplacement): StrokeElementData {
       decodeStoredAuxiliaryPath(replacement.fillPathBytes, 'MODIFY_INK_FILL_PATH'),
     fillColor: replacement.fillColorValue,
     styleMap: replacement.styleMap,
+    audioStartTime: stroke.audioStartTime,
+    audioDuration: stroke.audioDuration,
     isFinished: stroke.isFinished,
   };
 }

@@ -28,9 +28,11 @@ import {
   DDL_ORIGINAL_DELETED_PAGE_SEARCH,
   DDL_INDEXES, MIGRATIONS,
 } from './DatabaseHelper';
-import { backfillOriginalAppliedOperationTimes } from './OriginalOperationAudioTimeStore';
+import {
+  backfillOriginalAppliedOperationTimes, OriginalOperationTimeDatabase,
+} from './OriginalOperationAudioTimeStore';
 
-export class DatabaseManager {
+export class DatabaseManager implements OriginalOperationTimeDatabase {
   private static instance: DatabaseManager | null = null;
   private rdbStore: relationalStore.RdbStore | null = null;
   private initPromise: Promise<void> | null = null;

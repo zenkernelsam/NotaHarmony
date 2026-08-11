@@ -55,7 +55,7 @@ export interface OriginalCreateInkPayload {
   tapePattern: TapePattern | null;
   styleMapBytes: Uint8Array | null;
   styleMap: InkStyleMapEntry[];
-  hasAudioDuration: boolean;
+  audioDuration: number | null;
   nibAngle: number | null;
   nibFlatness: number | null;
   inkEffects: string;
@@ -140,7 +140,7 @@ export function decodeOriginalCreateInkTable(table: OriginalFlatBufferTableReade
     zIndex: zIndex,
     styleMapBytes: styleMapBytes,
     styleMap: styleMap,
-    hasAudioDuration: table.hasField(15),
+    audioDuration: table.hasField(15) ? table.readUint32(15, 0) : null,
     nibAngle: table.hasField(16) ? table.readUint16(16) : null,
     nibFlatness: table.hasField(17) ? table.readUint16(17) : null,
     inkEffects: table.readUint64Decimal(18, '0') as string,
@@ -414,6 +414,9 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       fillPath: payload.fillPath === null ? null : payload.fillPath.commands,
       fillColor: payload.fillColor,
       styleMap: payload.styleMap,
+      audioStartTime: operation.audioTime === null || operation.audioTime === undefined ?
+        operation.clientTime : operation.audioTime,
+      audioDuration: payload.audioDuration,
       isFinished: true,
     };
   }
@@ -795,9 +798,6 @@ export function unsupportedOriginalCreateInkReason(
   }
   if (payload.tool !== 1 && payload.style === 0 && !payload.path.attributed) {
     return 'CREATE_INK_VARIABLE_PATH_ATTRIBUTES_MISSING';
-  }
-  if (payload.hasAudioDuration) {
-    return 'CREATE_INK_AUDIO_DURATION_UNSUPPORTED';
   }
   // Android 1.0.3 retains the legacy uint16 nib fields in dm2, but q06 never
   // puts them in the Ink register/render model. Preserve the raw op and ignore them likewise.

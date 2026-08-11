@@ -128,5 +128,8 @@ export interface StrokeElementData {
   fillPath?: InkPathCommand[] | null;   // 原版填充区域；缺席时回退中心线
   fillColor?: number | null;            // 原版可空内部填充色
   styleMap?: InkStyleMapEntry[];        // 原版每个 center-path component 的稳定渲染状态
+  // Original AudioLinked timing. Decimal text preserves uint64 precision.
+  audioStartTime?: string;
+  audioDuration?: number | null;
   isFinished: boolean;
 }

@@ -24,6 +24,9 @@ import {
   timelinePositionForRecording,
 } from '../../core/adaptation/OriginalRecordingTimeline';
 import {
+  effectiveOriginalAudioSegments, OriginalAudioSegmentRange, originalAudioTimeAtPosition,
+} from '../../core/adaptation/OriginalAudioLinkedInkPlayback';
+import {
   AddPageAction, DeletePageAction, EditorHistoryBridge, PageContentSnapshot, UndoableAction,
   UndoableActionType,
 } from '../../rendering/UndoRedoManager';
@@ -63,6 +66,8 @@ struct NotePage {
   @State playbackCumulativeDurationMs: number = 0;
   @State recordingPlaybackSpeed: OriginalRecordingPlaybackSpeed =
     OriginalRecordingPlaybackSpeed.SPEED_1_0;
+  @State audioPlaybackTime: string | null = null;
+  @State audioPlaybackSegments: OriginalAudioSegmentRange[] = [];
   private noteRepo: NoteRepositoryImpl | null = null;
   private pageRepo: PageRepositoryImpl | null = null;
   private persistence: StrokePersistence = new StrokePersistence();
@@ -302,12 +307,15 @@ struct NotePage {
   private rebuildRecordingTimeline(): void {
     this.recordingTimeline = buildOriginalRecordingTimeline(this.recordings);
     this.playbackCumulativeDurationMs = this.recordingTimeline.totalDurationMs;
+    this.rebuildAudioPlaybackSegments();
     this.updateCumulativePlaybackPosition(this.playbackSnapshot);
+    this.updateAudioPlaybackTime(this.playbackSnapshot);
   }
 
   private onRecordingPlaybackSnapshot(snapshot: OriginalRecordingPlaybackSnapshot): void {
     this.playbackSnapshot = snapshot;
     this.updateCumulativePlaybackPosition(snapshot);
+    this.updateAudioPlaybackTime(snapshot);
     if (snapshot.state !== OriginalRecordingPlaybackState.COMPLETED) {
       this.completionAdvanceInFlight = false;
       return;
@@ -327,6 +335,49 @@ struct NotePage {
       Number.MAX_SAFE_INTEGER : snapshot.positionMs;
     this.playbackCumulativePositionMs = timelinePositionForRecording(
       this.recordingTimeline, snapshot.recordingId, localPosition);
+  }
+
+  private rebuildAudioPlaybackSegments(): void {
+    const result: OriginalAudioSegmentRange[] = [];
+    for (const recording of this.recordings) {
+      const sourceSegments: OriginalAudioSegmentRange[] = [];
+      for (const segment of recording.segments) {
+        sourceSegments.push({ startTime: segment.startTime, endTime: segment.endTime });
+      }
+      const ranges: OriginalAudioSegmentRange[] = effectiveOriginalAudioSegments(
+        sourceSegments, recording.startTime, recording.endTime);
+      result.push(...ranges);
+    }
+    this.audioPlaybackSegments = result;
+  }
+
+  private updateAudioPlaybackTime(snapshot: OriginalRecordingPlaybackSnapshot): void {
+    if (snapshot.recordingId === null || snapshot.state === OriginalRecordingPlaybackState.IDLE ||
+      snapshot.state === OriginalRecordingPlaybackState.FAILED ||
+      snapshot.state === OriginalRecordingPlaybackState.RELEASED) {
+      this.audioPlaybackTime = null;
+      return;
+    }
+    const recording: MaterializedOriginalRecording | null = this.findRecording(snapshot.recordingId);
+    if (recording === null) {
+      this.audioPlaybackTime = null;
+      return;
+    }
+    let range: OriginalAudioSegmentRange;
+    if (recording.segments.length === 0) {
+      range = { startTime: recording.startTime, endTime: recording.endTime };
+    } else {
+      range = { startTime: recording.segments[0].startTime,
+        endTime: recording.segments[0].endTime };
+    }
+    const localPosition: number = snapshot.state === OriginalRecordingPlaybackState.COMPLETED ?
+      Number.MAX_SAFE_INTEGER : snapshot.positionMs;
+    try {
+      this.audioPlaybackTime = originalAudioTimeAtPosition(
+        range.startTime, range.endTime, localPosition);
+    } catch (_error) {
+      this.audioPlaybackTime = null;
+    }
   }
 
   private async advanceAfterRecordingCompletion(recordingId: string): Promise<void> {
@@ -474,6 +525,8 @@ struct NotePage {
           currentPage: this.pages[this.currentPageIndex],
           undoSignal: this.undoSignal,
           redoSignal: this.redoSignal,
+          playbackAudioTime: this.audioPlaybackTime,
+          playbackAudioSegments: this.audioPlaybackSegments,
           onUndoRedoChanged: (u: boolean, r: boolean) => {
             hilog.info(0x0001, 'NotePage', 'undoRedoChanged u=%{public}s r=%{public}s',
               u.toString(), r.toString());

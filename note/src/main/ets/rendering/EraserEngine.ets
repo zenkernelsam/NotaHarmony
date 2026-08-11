@@ -84,6 +84,8 @@ export class EraserEngine {
           fillPath: stroke.fillPath,
           fillColor: stroke.fillColor,
           styleMap: stroke.styleMap,
+          audioStartTime: stroke.audioStartTime,
+          audioDuration: stroke.audioDuration,
           isFinished: stroke.isFinished,
         };
         affected.push(updated);

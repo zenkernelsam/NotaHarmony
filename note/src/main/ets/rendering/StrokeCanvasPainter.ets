@@ -6,6 +6,9 @@ import { RenderContext, StrokeRenderer } from '../core/adaptation/StrokeRenderer
 import { computeIsolatedLayerBounds, translateTransformToCrop } from '../core/adaptation/LayerCacheGeometry';
 import { Rect2D } from '../core/model/GeometryTypes';
 import { InkStyle, StrokeElementData } from '../core/model/StrokeTypes';
+import {
+  OriginalAudioLinkedPlayback, sliceStrokeForAudioProgress,
+} from '../core/adaptation/OriginalAudioLinkedInkPlayback';
 
 // Shared stroke composition contract for the editor cache and page thumbnails.
 export class StrokeCanvasPainter {
@@ -49,6 +52,23 @@ export class StrokeCanvasPainter {
     canvasContext.transform(stroke.transform);
     this.renderInk(stroke, rc);
     canvasContext.restore();
+  }
+
+  renderAudioLinkedStroke(stroke: StrokeElementData, playback: OriginalAudioLinkedPlayback,
+    rc: RenderContext, pageWidth: number, pageHeight: number): void {
+    if (playback.alpha === null) {
+      this.renderStroke(stroke, rc, pageWidth, pageHeight);
+      return;
+    }
+    const canvasContext: Canvas2DDrawingContext = rc as Canvas2DDrawingContext;
+    canvasContext.save();
+    canvasContext.setGlobalAlpha(playback.alpha);
+    this.renderStroke(stroke, rc, pageWidth, pageHeight);
+    canvasContext.restore();
+    if (playback.progress !== null && playback.progress > 0) {
+      this.renderStroke(sliceStrokeForAudioProgress(stroke, playback.progress),
+        rc, pageWidth, pageHeight);
+    }
   }
 
   private renderInk(stroke: StrokeElementData, rc: RenderContext): void {

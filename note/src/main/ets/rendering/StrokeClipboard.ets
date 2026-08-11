@@ -141,6 +141,8 @@ export function cloneStrokeElement(stroke: StrokeElementData, id: string = strok
         backingDashPhase: entry.backingDashPhase,
         backingDashPeriod: entry.backingDashPeriod,
       })),
+    audioStartTime: stroke.audioStartTime,
+    audioDuration: stroke.audioDuration,
     isFinished: stroke.isFinished,
   };
 }

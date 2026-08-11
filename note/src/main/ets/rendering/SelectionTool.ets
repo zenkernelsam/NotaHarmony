@@ -227,6 +227,8 @@ export class SelectionTool {
           fillPath: s.fillPath,
           fillColor: s.fillColor,
           styleMap: s.styleMap,
+          audioStartTime: s.audioStartTime,
+          audioDuration: s.audioDuration,
           isFinished: s.isFinished,
         });
       } else {

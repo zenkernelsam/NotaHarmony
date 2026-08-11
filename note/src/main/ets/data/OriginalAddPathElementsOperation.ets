@@ -268,6 +268,8 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
       fillPath: stroke.fillPath,
       fillColor: stroke.fillColor,
       styleMap: stroke.styleMap,
+      audioStartTime: stroke.audioStartTime,
+      audioDuration: stroke.audioDuration,
       isFinished: stroke.isFinished,
     };
     if (payload.centerPathElements !== null && existingAppend === undefined) {

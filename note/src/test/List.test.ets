@@ -62,6 +62,7 @@ import originalRecordingAssetLoaderTest from './OriginalRecordingAssetLoader.tes
 import originalRecordingPlaybackControllerTest from './OriginalRecordingPlaybackController.test';
 import recordingPanelTest from './RecordingPanel.test';
 import originalRecordingTimelineTest from './OriginalRecordingTimeline.test';
+import originalAudioLinkedInkPlaybackTest from './OriginalAudioLinkedInkPlayback.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -128,4 +129,5 @@ export default function testsuite() {
   originalRecordingPlaybackControllerTest();
   recordingPanelTest();
   originalRecordingTimelineTest();
+  originalAudioLinkedInkPlaybackTest();
 }

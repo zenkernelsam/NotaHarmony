@@ -42,6 +42,10 @@ import {
 import { SearchSourceElement } from '../../data/SearchIndexPolicy';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import {
+  OriginalAppliedOperationTime, OriginalOperationAudioTimeStore,
+} from '../../data/OriginalOperationAudioTimeStore';
+import { encodeOperationId } from '../../data/OperationIdentity';
+import {
   AssetAvailabilityChange, assetAvailabilityHub,
 } from '../../data/AssetAvailabilityHub';
 import { OpStoreImpl, PersistentHistoryReplay } from '../../data/OpStoreImpl';
@@ -97,10 +101,14 @@ import { ArkUIStylusAdapter, ArkUIStylusSample } from './ArkUIStylusAdapter';
 import {
   PointerInputBatches, PointerRawSample, PointerSampleStream,
 } from '../../core/adaptation/PointerSampleStream';
+import {
+  OriginalAudioLinkedPlayback, OriginalAudioSegmentRange, resolveOriginalAudioLinkedPlayback,
+} from '../../core/adaptation/OriginalAudioLinkedInkPlayback';
 
 const HISTORY_CHECKPOINT_TAIL_OPERATIONS: number = 256;
 const HISTORY_CHECKPOINT_MAX_ACTIONS: number = 128;
 const HISTORY_REPLAY_ATTEMPTS: number = 4;
+const ORIGINAL_CREATE_INK_PAYLOAD_TYPE: number = 15;
 
 interface ShapeDetectionAttempt {
   shapes: ShapeElement[];
@@ -118,6 +126,8 @@ export struct NoteCanvasView {
   };
   @Prop @Watch('onUndoSignalChange') undoSignal: number = 0;
   @Prop @Watch('onRedoSignalChange') redoSignal: number = 0;
+  @Prop @Watch('onAudioPlaybackChange') playbackAudioTime: string | null = null;
+  @Prop @Watch('onAudioPlaybackChange') playbackAudioSegments: OriginalAudioSegmentRange[] = [];
   // MyScript 的精确 hold 时长未出现在反编译配置中；保留注入点供设备对照后收敛。
   @Prop shapeHoldDelayMs: number = 500;
   onUndoRedoChanged: (canUndo: boolean, canRedo: boolean) => void = () => {
@@ -214,6 +224,8 @@ export struct NoteCanvasView {
   private historyBusy: boolean = false;
   private skipSavePageId: string = '';
   private pageLoadGeneration: number = 0;
+  private originalInkAudioStarts: Map<string, string> = new Map<string, string>();
+  private originalInkAudioStartsLoaded: boolean = false;
   private saveFailed: boolean = false;
   private lastQueuedHistoryRevision: number = 0;
   private historyLoaded: boolean = false;
@@ -280,9 +292,11 @@ export struct NoteCanvasView {
       this.pdfBackgroundLoader = new PdfBackgroundLoader(db);
       this.persistence.initialize(db);
       const loaded = await this.persistence.loadElements(this.noteId, targetPageId);
+      await this.loadOriginalInkAudioStarts(db);
       if (generation !== this.pageLoadGeneration || this.currentPage.pageId !== targetPageId) {
         return;
       }
+      this.hydrateOriginalStrokeAudioStarts(loaded.strokes);
       this.completedStrokes = loaded.strokes;
       this.textBlocks = loaded.textBlocks;
       this.shapes = loaded.shapes;
@@ -550,6 +564,12 @@ export struct NoteCanvasView {
     this.pageLoadPromise = this.switchPageData();
   }
 
+  onAudioPlaybackChange(_propName: string): void {
+    if (this.loaded) {
+      this.renderFrame(true);
+    }
+  }
+
   aboutToDisappear(): void {
     this.lifecycleActive = false;
     if (this.assetAvailabilitySubscription >= 0) {
@@ -623,9 +643,14 @@ export struct NoteCanvasView {
       }
       previousPageSaved = true;
       const loaded = await this.persistence.loadElements(this.noteId, targetPageId);
+      const db: DatabaseManager | null = this.database;
+      if (db !== null) {
+        await this.loadOriginalInkAudioStarts(db);
+      }
       if (generation !== this.pageLoadGeneration || this.currentPage.pageId !== targetPageId) {
         return;
       }
+      this.hydrateOriginalStrokeAudioStarts(loaded.strokes);
       this.completedStrokes = loaded.strokes;
       this.textBlocks = loaded.textBlocks;
       this.shapes = loaded.shapes;
@@ -787,7 +812,8 @@ export struct NoteCanvasView {
     const sessionStroke: StrokeElementData | null = this.strokeSession !== null && this.strokeSession.isActive()
       ? this.strokeSession.getCurrentStroke() : null;
     const current: StrokeElementData | null = this.heldShapes.length === 0 ? sessionStroke : null;
-    const orderedRender: boolean = this.requiresOrderedElementRender() || this.heldShapes.length > 0;
+    const orderedRender: boolean = this.requiresOrderedElementRender() || this.heldShapes.length > 0 ||
+      (this.playbackAudioTime !== null && this.playbackAudioSegments.length > 0);
     const fullRedraw: boolean = forceFull || orderedRender;
     if (fullRedraw) {
       this.canvasCtx.clearRect(0, 0, w, h);
@@ -848,7 +874,11 @@ export struct NoteCanvasView {
       this.mathBlocks);
     for (const element of elements) {
       if (element.kind === PageElementKind.STROKE) {
-        this.strokePainter.renderStroke(element.data, this.renderCtx, this.getPaperWidth(), this.getPaperHeight());
+        this.hydrateOriginalStrokeAudioStart(element.data);
+        const playback: OriginalAudioLinkedPlayback = resolveOriginalAudioLinkedPlayback(
+          element.data, this.playbackAudioTime, this.playbackAudioSegments);
+        this.strokePainter.renderAudioLinkedStroke(element.data, playback,
+          this.renderCtx, this.getPaperWidth(), this.getPaperHeight());
       } else if (element.kind === PageElementKind.TEXT) {
         this.textRenderer.renderText(element.data, this.renderCtx);
       } else if (element.kind === PageElementKind.SHAPE) {
@@ -862,6 +892,39 @@ export struct NoteCanvasView {
       } else if (element.kind === PageElementKind.MATH) {
         this.mathRenderer.renderMath(element.data, this.renderCtx);
       }
+    }
+  }
+
+  private async loadOriginalInkAudioStarts(db: DatabaseManager): Promise<void> {
+    if (this.originalInkAudioStartsLoaded) {
+      return;
+    }
+    const timings: OriginalAppliedOperationTime[] =
+      await new OriginalOperationAudioTimeStore(db).listForNote(this.noteId);
+    const starts: Map<string, string> = new Map<string, string>();
+    for (const timing of timings) {
+      if (timing.payloadType === ORIGINAL_CREATE_INK_PAYLOAD_TYPE) {
+        starts.set(encodeOperationId({ timestamp: timing.timestamp, siteId: timing.siteId }),
+          timing.effectiveAudioTime);
+      }
+    }
+    this.originalInkAudioStarts = starts;
+    this.originalInkAudioStartsLoaded = true;
+  }
+
+  private hydrateOriginalStrokeAudioStarts(strokes: StrokeElementData[]): void {
+    for (const stroke of strokes) {
+      this.hydrateOriginalStrokeAudioStart(stroke);
+    }
+  }
+
+  private hydrateOriginalStrokeAudioStart(stroke: StrokeElementData): void {
+    if (stroke.audioStartTime !== undefined) {
+      return;
+    }
+    const start: string | undefined = this.originalInkAudioStarts.get(stroke.id);
+    if (start !== undefined) {
+      stroke.audioStartTime = start;
     }
   }
 
@@ -3591,6 +3654,8 @@ export struct NoteCanvasView {
           backingDashPhase: entry.backingDashPhase,
           backingDashPeriod: entry.backingDashPeriod,
         })),
+      audioStartTime: s.audioStartTime,
+      audioDuration: s.audioDuration,
       isFinished: s.isFinished,
     };
   }
