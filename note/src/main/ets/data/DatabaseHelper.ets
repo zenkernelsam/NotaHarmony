@@ -3,8 +3,9 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
+// v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 57;
+export const DB_VERSION: number = 58;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -173,6 +174,30 @@ CREATE TABLE IF NOT EXISTS synced_operation_inbox (
   CHECK ((state = 1 AND deferred_reason IS NOT NULL AND length(deferred_reason) > 0)
     OR (state IN (0, 2) AND deferred_reason IS NULL)),
   PRIMARY KEY(note_id, op_timestamp, editor_site_id),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+// Materialized only after an original operation applies successfully. The nullable wire
+// audioTime is retained separately from its original clientTime fallback.
+export const DDL_ORIGINAL_APPLIED_OPERATION_TIME: string = `
+CREATE TABLE IF NOT EXISTS original_applied_operation_time (
+  note_id TEXT NOT NULL,
+  op_timestamp INTEGER NOT NULL CHECK (op_timestamp BETWEEN 0 AND 4294967295),
+  op_site_id INTEGER NOT NULL CHECK (op_site_id BETWEEN 0 AND 65535),
+  client_time TEXT NOT NULL CHECK (
+    typeof(client_time) = 'text' AND length(client_time) BETWEEN 1 AND 20
+    AND client_time NOT GLOB '*[^0-9]*'
+    AND (client_time = '0' OR substr(client_time, 1, 1) <> '0')
+    AND (length(client_time) < 20 OR client_time <= '18446744073709551615')
+  ),
+  audio_time TEXT CHECK (audio_time IS NULL OR (
+    typeof(audio_time) = 'text' AND length(audio_time) BETWEEN 1 AND 20
+    AND audio_time NOT GLOB '*[^0-9]*'
+    AND (audio_time = '0' OR substr(audio_time, 1, 1) <> '0')
+    AND (length(audio_time) < 20 OR audio_time <= '18446744073709551615')
+  )),
+  payload_type INTEGER NOT NULL CHECK (payload_type BETWEEN 1 AND 31),
+  PRIMARY KEY(note_id, op_timestamp, op_site_id),
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
@@ -1525,6 +1550,10 @@ export const DDL_INDEXES: string[] = [
       length(client_time), client_time, op_timestamp, editor_site_id)`,
   `CREATE INDEX IF NOT EXISTS idx_synced_operation_inbox_state
     ON synced_operation_inbox(note_id, state, received_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_original_applied_operation_audio_time
+    ON original_applied_operation_time(note_id,
+      length(COALESCE(audio_time, client_time)), COALESCE(audio_time, client_time),
+      op_timestamp, op_site_id)`,
   `CREATE INDEX IF NOT EXISTS idx_original_page_group_parent
     ON original_page_insert_group(note_id, parent_timestamp, parent_site_id, parent_index)`,
   `CREATE INDEX IF NOT EXISTS idx_original_page_identity_page
@@ -2370,5 +2399,8 @@ export const MIGRATIONS: Record<number, string[]> = {
        FROM original_text_style_operation`,
     'DROP TABLE original_text_style_operation',
     `ALTER TABLE original_text_style_operation_v57 RENAME TO original_text_style_operation`,
+  ],
+  58: [
+    DDL_ORIGINAL_APPLIED_OPERATION_TIME,
   ],
 };

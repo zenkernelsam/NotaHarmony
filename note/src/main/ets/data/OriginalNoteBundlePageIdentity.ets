@@ -85,6 +85,7 @@ import {
 import {
   mergeOriginalAssetReference, OriginalAssetReferenceConflict,
 } from './OriginalAssetReferenceStore';
+import { persistOriginalAppliedOperationTime } from './OriginalOperationAudioTimeStore';
 
 export const ORIGINAL_NOTE_BUNDLE_MAX_OPERATION_COUNT: number = 262144;
 const ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE: number = 3;
@@ -95,6 +96,7 @@ const ORIGINAL_PAYLOAD_TYPE_MAX: number = 31;
 export interface OriginalNoteBundleOperation extends OriginalSequenceIdentity {
   clientTime: string;
   serverTime: string | null;
+  audioTime: string | null;
   payloadType: number;
   transient: boolean;
   payload: OriginalFlatBufferTableReader;
@@ -196,8 +198,9 @@ export function decodeOriginalNoteBundle(bytes: Uint8Array): OriginalNoteBundle 
       index: 0,
       clientTime: requireDecimal(table.readUint64Decimal(1, '0')),
       serverTime: table.readUint64Decimal(2, null),
+      audioTime: table.readUint64Decimal(3, null),
       payloadType: payloadType,
-      transient: table.readUint8(3, 0) !== 0,
+      transient: table.hasField(6),
       payload: payload,
     };
     validateOperationIdentity(operation);
@@ -610,6 +613,7 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       siteId: operation.siteId,
       clientTime: operation.clientTime,
       serverTime: operation.serverTime === null ? operation.clientTime : operation.serverTime,
+      audioTime: operation.audioTime,
       schemaVersion: bundle.schemaVersion,
       payloadType: operation.payloadType,
       rawOperation: new Uint8Array(0),
@@ -661,6 +665,16 @@ async function applyBundleContent(store: relationalStore.RdbStore,
     if (result.deferredReason !== null) {
       throw new Error(`NOTE_BUNDLE content diverged after preflight: ${result.deferredReason}`);
     }
+  }
+  for (const operation of bundle.operations) {
+    await persistOriginalAppliedOperationTime(store, {
+      noteId: bundle.noteId,
+      timestamp: operation.timestamp,
+      siteId: operation.siteId,
+      clientTime: operation.clientTime,
+      audioTime: operation.audioTime,
+      payloadType: operation.payloadType,
+    });
   }
   const after: number = await countRows(store,
     'SELECT COUNT(*) AS value FROM original_element_z_index WHERE note_id = ?', [bundle.noteId]);

@@ -13,6 +13,7 @@ import {
   DDL_PAGE_DELETE_CHECKPOINT, DDL_PAGE_DELETE_CHECKPOINT_ELEMENT, DDL_PAGE_DELETE_CHECKPOINT_SEARCH,
   DDL_LOCAL_EDITOR_IDENTITY, DDL_NOTE_SYNC_METADATA,
   DDL_SYNCED_OPERATION_INBOX, DDL_DEFERRED_SYNCED_OPERATION_BUNDLE,
+  DDL_ORIGINAL_APPLIED_OPERATION_TIME,
   DDL_ORIGINAL_PAGE_INSERT_GROUP, DDL_ORIGINAL_PAGE_IDENTITY,
   DDL_ORIGINAL_PAGE_POSITION_GROUP, DDL_ORIGINAL_PAGE_POSITION,
   DDL_ORIGINAL_PAGE_POSITION_WINNER, DDL_ORIGINAL_PAGE_VISIBILITY_WINNER,
@@ -27,6 +28,7 @@ import {
   DDL_ORIGINAL_DELETED_PAGE_SEARCH,
   DDL_INDEXES, MIGRATIONS,
 } from './DatabaseHelper';
+import { backfillOriginalAppliedOperationTimes } from './OriginalOperationAudioTimeStore';
 
 export class DatabaseManager {
   private static instance: DatabaseManager | null = null;
@@ -79,6 +81,7 @@ export class DatabaseManager {
         DDL_PAGE_ELEMENT_SNAPSHOT, DDL_OPERATION_LOG,
         DDL_LOCAL_EDITOR_IDENTITY, DDL_NOTE_SYNC_METADATA,
         DDL_SYNCED_OPERATION_INBOX, DDL_DEFERRED_SYNCED_OPERATION_BUNDLE,
+        DDL_ORIGINAL_APPLIED_OPERATION_TIME,
         DDL_HISTORY_CHECKPOINT, DDL_HISTORY_CHECKPOINT_ACTION, DDL_HISTORY_CHECKPOINT_OPERATION,
         DDL_NOTE_ASSET, DDL_NOTE_META, DDL_PAGE_INFO, DDL_FOLDER,
         DDL_ORIGINAL_ASSET_CLOUD_STATE, DDL_ORIGINAL_PDF_FIELD_STATE,
@@ -134,6 +137,14 @@ export class DatabaseManager {
       // post-migration stores are then completed idempotently from the canonical DDL.
       for (const ddl of ddlList) {
         await store.executeSql(ddl);
+      }
+      await store.beginTransaction();
+      try {
+        await backfillOriginalAppliedOperationTimes(store);
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`Operation audio-time backfill failed: ${JSON.stringify(e)}`);
       }
       await store.executeSql(`INSERT OR IGNORE INTO local_editor_identity(singleton, editor_id)
         VALUES (1, lower(hex(randomblob(16))))`);

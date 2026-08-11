@@ -112,7 +112,7 @@ const clearWinner = db.prepare(`SELECT size,background_json FROM original_page_b
 assert.equal(clearWinner.size, null);
 assert.equal(clearWinner.background_json, null);
 
-assert.match(schema, /DB_VERSION: number = 57/);
+assert.match(schema, /DB_VERSION: number = 58/);
 assert.match(schema, /50: \[/);
 assert.match(schema, /DDL_ORIGINAL_NOTE_BACKGROUND_WINNER/);
 assert.match(schema, /DDL_ORIGINAL_NOTE_TITLE_WINNER/);

@@ -8,6 +8,7 @@ export interface OriginalSyncedOperationEnvelope {
   siteId: number;
   clientTime: string;
   serverTime: string;
+  audioTime: string | null;
   payloadType: number;
   payloadTypeKnown: boolean;
 }
@@ -17,6 +18,7 @@ export interface OriginalSyncedOperationCandidate {
   siteId: number;
   clientTime: string;
   serverTime: string;
+  audioTime?: string | null;
   payloadType: number;
   rawOperation: Uint8Array;
 }
@@ -363,6 +365,7 @@ export function parseOriginalSyncedOperationEnvelope(bytes: Uint8Array): Origina
   const idOffset: number = requireField(bytes, root, 0, 8, 'id');
   const clientOffset: number = fieldOffset(bytes, root, 1);
   const serverOffset: number = fieldOffset(bytes, root, 2);
+  const audioOffset: number = fieldOffset(bytes, root, 3);
   const payloadTypeOffset: number = fieldOffset(bytes, root, 4);
   const payloadOffset: number = fieldOffset(bytes, root, 5);
   if (clientOffset !== 0) {
@@ -372,6 +375,9 @@ export function parseOriginalSyncedOperationEnvelope(bytes: Uint8Array): Origina
     throw new Error('synced FlatBuffer operation has no serverTime');
   }
   requireObjectBytes(root, serverOffset, 8, 'serverTime');
+  if (audioOffset !== 0) {
+    requireObjectBytes(root, audioOffset, 8, 'audioTime');
+  }
   const payloadType: number = payloadTypeOffset === 0 ? 0 : bytes[root.table + payloadTypeOffset];
   if (payloadType !== 0) {
     if (payloadOffset === 0) {
@@ -390,6 +396,8 @@ export function parseOriginalSyncedOperationEnvelope(bytes: Uint8Array): Origina
     timestamp: readU32(bytes, root.table + idOffset + 4),
     clientTime: clientOffset === 0 ? '0' : unsignedLongBytesToDecimal(bytes, root.table + clientOffset),
     serverTime: unsignedLongBytesToDecimal(bytes, root.table + serverOffset),
+    audioTime: audioOffset === 0 ? null :
+      unsignedLongBytesToDecimal(bytes, root.table + audioOffset),
     payloadType: payloadType,
     payloadTypeKnown: payloadType >= ORIGINAL_PAYLOAD_TYPE_MIN && payloadType <= ORIGINAL_PAYLOAD_TYPE_MAX,
   };
@@ -401,6 +409,7 @@ export function validateOriginalSyncedOperation(operation: OriginalSyncedOperati
     parseOriginalSyncedOperationEnvelope(operation.rawOperation);
   if (envelope.timestamp !== operation.timestamp || envelope.siteId !== operation.siteId ||
     envelope.clientTime !== operation.clientTime || envelope.serverTime !== operation.serverTime ||
+    (operation.audioTime !== undefined && envelope.audioTime !== operation.audioTime) ||
     envelope.payloadType !== operation.payloadType) {
     throw new Error('synced FlatBuffer metadata does not match its persisted envelope');
   }

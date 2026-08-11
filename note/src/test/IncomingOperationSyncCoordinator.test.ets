@@ -81,6 +81,7 @@ export default function incomingOperationSyncCoordinatorTest() {
       expect(decoded.operations[0].siteId).assertEqual(3);
       expect(decoded.operations[0].clientTime).assertEqual('11');
       expect(decoded.operations[0].serverTime).assertEqual('12');
+      expect(decoded.operations[0].audioTime === null).assertTrue();
       expect(decoded.operations[0].payloadType).assertEqual(3);
     });
 

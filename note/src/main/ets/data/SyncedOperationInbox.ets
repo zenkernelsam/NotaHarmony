@@ -8,6 +8,7 @@ import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './Unsig
 import {
   OriginalSyncedOperationCandidate, OriginalSyncedOperationEnvelope, validateOriginalSyncedOperation,
 } from './OriginalSyncedOperationFlatBuffer';
+import { persistOriginalAppliedOperationTime } from './OriginalOperationAudioTimeStore';
 
 export enum SyncedOperationInboxState {
   RECEIVED = 0,
@@ -128,6 +129,7 @@ export class SyncedOperationInboxStore {
         siteId: operation.siteId,
         clientTime: operation.clientTime,
         serverTime: operation.serverTime,
+        audioTime: operation.audioTime,
         schemaVersion: operation.schemaVersion,
         payloadType: operation.payloadType,
         rawOperation: operation.rawOperation.slice(),
@@ -227,6 +229,7 @@ export class SyncedOperationInboxStore {
           await this.store.commit();
           return ProcessSyncedOperationResult.DEFERRED;
         }
+        operation.audioTime = envelope.audioTime;
         if (!envelope.payloadTypeKnown) {
           await this.markDeferred(operation, 'UNKNOWN_ORIGINAL_PAYLOAD_TYPE');
           await this.store.commit();
@@ -246,6 +249,14 @@ export class SyncedOperationInboxStore {
           await this.store.commit();
           return ProcessSyncedOperationResult.DEFERRED;
         }
+        await persistOriginalAppliedOperationTime(this.store, {
+          noteId: operation.noteId,
+          timestamp: operation.timestamp,
+          siteId: operation.siteId,
+          clientTime: operation.clientTime,
+          audioTime: envelope.audioTime,
+          payloadType: operation.payloadType,
+        });
         await this.advanceAppliedMetadata(operation);
         await this.store.executeSql(
           `UPDATE synced_operation_inbox SET state = ?, deferred_reason = NULL
@@ -374,7 +385,10 @@ function readStoredSyncedOperation(rows: relationalStore.ResultSet,
     receivedAt: rows.getLong(rows.getColumnIndex('received_at')),
   };
   if (validateEnvelope) {
-    validateIncomingSyncedOperation(operation, operation.noteId);
+    const envelope: OriginalSyncedOperationEnvelope =
+      validateOriginalSyncedOperation(operation);
+    operation.audioTime = envelope.audioTime;
+    validateIncomingSyncedOperationMetadata(operation, operation.noteId);
   } else {
     validateIncomingSyncedOperationMetadata(operation, operation.noteId);
   }

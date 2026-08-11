@@ -143,6 +143,7 @@ export default function syncedOperationInboxTest() {
       expect(parsed.siteId).assertEqual(7);
       expect(parsed.clientTime).assertEqual('9007199254740993');
       expect(parsed.serverTime).assertEqual('18446744073709551615');
+      expect(parsed.audioTime === null).assertTrue();
       expect(parsed.payloadType).assertEqual(31);
       expect(parsed.payloadTypeKnown).assertTrue();
     });
@@ -301,6 +302,8 @@ export default function syncedOperationInboxTest() {
       }
       expect(rejected).assertEqual(4);
       const raw: Uint8Array = flatBufferAssetCloudPersisted(true, false, false, true);
+      const envelope = parseOriginalSyncedOperationEnvelope(raw);
+      expect(envelope.audioTime).assertEqual('99');
       const statements: string[] = [];
       const fakeStore = {
         executeSql: async (sql: string): Promise<void> => { statements.push(sql); },
@@ -1206,6 +1209,8 @@ export default function syncedOperationInboxTest() {
       expect(bundle.operations[0].payloadType).assertEqual(3);
       expect(bundle.operations[0].clientTime).assertEqual('11');
       expect(bundle.operations[0].serverTime).assertEqual('12');
+      expect(bundle.operations[0].audioTime === null).assertTrue();
+      expect(bundle.operations[0].transient).assertFalse();
       const child = decodeOriginalCreatePageTable(bundle.operations[1].payload);
       expect(child.location?.timestamp).assertEqual(10);
       expect(child.location?.siteId).assertEqual(1);
@@ -1217,6 +1222,8 @@ export default function syncedOperationInboxTest() {
       const bundle = decodeOriginalNoteBundle(flatBufferNoteBundleWithCreateInk());
       expect(bundle.operations.length).assertEqual(2);
       expect(bundle.operations[1].payloadType).assertEqual(15);
+      expect(bundle.operations[1].audioTime).assertEqual('19');
+      expect(bundle.operations[1].transient).assertFalse();
       const ink = decodeOriginalCreateInkTable(bundle.operations[1].payload,
         bundle.operations[1].clientTime);
       expect(ink.page.timestamp).assertEqual(10);
@@ -1421,7 +1428,7 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
   const operations: number = builder.tableVector(operationCount);
   builder.pointer(root + 32, operations);
   const createPageOp: number = builder.table([4, 12, 20, 0, 28, 32, 0], 36);
-  const createInkOp: number = builder.table([4, 12, 20, 0, 28, 32, 0], 36);
+  const createInkOp: number = builder.table([4, 12, 20, 36, 28, 32, 0], 44);
   const appendOp: number = includeAppend ?
     builder.table([4, 12, 20, 0, 28, 32, 0], 36) : 0;
   const modifyOp: number = includeModify ?
@@ -1480,6 +1487,7 @@ function flatBufferNoteBundleWithCreateInk(includeAppend: boolean = false,
   }
   writeBundleOperation(builder, createPageOp, 1, 10, '11', '12', 3);
   writeBundleOperation(builder, createInkOp, 2, 20, '21', '22', 15);
+  writeDecimalU64At(builder, createInkOp + 36, '19');
   if (includeAppend) {
     writeBundleOperation(builder, appendOp, 3, 30, '31', '32', 16);
   }
