@@ -12,6 +12,10 @@ import { decodeOriginalDeleteEntities } from '../main/ets/data/OriginalDeleteEnt
 import { encodeOriginalInkRenderRegisters } from
   '../main/ets/data/OriginalModifyInkPayloadEncoder';
 import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOperation';
+import { decodeOriginalModifyPositions } from
+  '../main/ets/data/OriginalModifyPositionsOperation';
+import { encodeOriginalModifyPositions } from
+  '../main/ets/data/OriginalModifyPositionsPayloadEncoder';
 import { decodeOriginalAddPathElements } from
   '../main/ets/data/OriginalAddPathElementsOperation';
 import { decodeOriginalInkPathAppend } from '../main/ets/data/OriginalInkPathCodec';
@@ -97,6 +101,34 @@ export default function originalCreateInkPayloadEncoderTest() {
       expect(decoded.styleMap.present).assertTrue();
       expect(decoded.styleMap.value?.length).assertEqual(0);
       expect(decoded.centerPath === null).assertTrue();
+    });
+
+    it('round-trips batched original MODIFY_POSITIONS registers', 0, () => {
+      const decoded = decodeOriginalModifyPositions(wrap(24, encodeOriginalModifyPositions([{
+        target: { timestamp: 20, siteId: 2 },
+        pageOrigin: { page: { timestamp: 80, siteId: 7, index: 2 },
+          originX: 12.5, originY: -4.25 },
+        rotation: { present: true, value: 1.5 },
+        scale: { present: true, value: { x: 2.25, y: 0.5 } },
+        zIndex: '18446744073709551615',
+      }, {
+        target: { timestamp: 22, siteId: 4 }, pageOrigin: null,
+        rotation: { present: true, value: null },
+        scale: { present: true, value: null }, zIndex: null,
+      }])));
+      expect(decoded.modifications.length).assertEqual(2);
+      expect(decoded.modifications[0].target.timestamp).assertEqual(20);
+      expect(decoded.modifications[0].pageOrigin?.page.index).assertEqual(2);
+      expect(decoded.modifications[0].pageOrigin?.originX).assertEqual(12.5);
+      expect(decoded.modifications[0].pageOrigin?.originY).assertEqual(-4.25);
+      expect(decoded.modifications[0].rotation.value).assertEqual(1.5);
+      expect(decoded.modifications[0].scale.value?.x).assertEqual(2.25);
+      expect(decoded.modifications[0].scale.value?.y).assertEqual(0.5);
+      expect(decoded.modifications[0].zIndex).assertEqual('18446744073709551615');
+      expect(decoded.modifications[1].rotation.present).assertTrue();
+      expect(decoded.modifications[1].rotation.value === null).assertTrue();
+      expect(decoded.modifications[1].scale.present).assertTrue();
+      expect(decoded.modifications[1].scale.value === null).assertTrue();
     });
 
     it('round-trips ADD_PATH_ELEMENTS actual and estimated attributed appends', 0, () => {

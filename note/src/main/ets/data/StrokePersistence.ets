@@ -6,6 +6,7 @@ import { HistoryEffect, HistoryMetadata, OpType } from '../core/model/OpTypes';
 import { taskpool, util } from '@kit.ArkTS';
 import { InkStyle, OriginalInkCreateMetadata, StrokeElementData } from '../core/model/StrokeTypes';
 import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import { cloneImageElement, imageBlockWorldBounds } from '../core/model/ImageBlockGeometry';
 import { cloneShapeElement, recomputeShapeBounds } from '../core/model/ShapeGeometry';
 import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextBlockGeometry';
@@ -47,6 +48,11 @@ import { encodeOriginalOperationEnvelope } from './OriginalOperationEnvelopeEnco
 import {
   ORIGINAL_MODIFY_INK_PAYLOAD_TYPE, OriginalModifyInkOperationApplier,
 } from './OriginalModifyInkOperation';
+import { encodeOriginalModifyPositions } from './OriginalModifyPositionsPayloadEncoder';
+import {
+  ORIGINAL_MODIFY_POSITIONS_PAYLOAD_TYPE, OriginalModifyPosition,
+  OriginalModifyPositionsOperationApplier, OriginalModifyPositionsPayload,
+} from './OriginalModifyPositionsOperation';
 import {
   StoredSyncedOperation, SyncedOperationApplyResult, SyncedOperationInboxState,
 } from './SyncedOperationInbox';
@@ -125,6 +131,14 @@ interface OriginalEntityVisibilityMutation {
 interface OriginalInkStyleMutation {
   identities: OperationIdentity[];
   style: InkStyle;
+}
+
+interface PositionComponents {
+  originX: number;
+  originY: number;
+  rotation: number;
+  scaleX: number;
+  scaleY: number;
 }
 
 @Concurrent
@@ -490,6 +504,16 @@ export class StrokePersistence {
         await store.commit();
         return;
       }
+      const originalPositions: OriginalModifyPositionsPayload | null =
+        await this.originalModifyPositionsMutation(store, snapshot.noteId, snapshot.pageId,
+          current, snapshot.elements);
+      if (originalPositions !== null) {
+        await this.applyOriginalModifyPositions(store, snapshot, originalPositions, snapshotRevision);
+        await this.rebuildPageSearchState(store, snapshot, snapshotRevision, true);
+        await this.appendHistoryCompanion(store, snapshot, mutation);
+        await store.commit();
+        return;
+      }
       const originalCreate: PreparedElement | null = this.singleReservedOriginalCreate(
         current, snapshot.elements);
       if (originalCreate !== null) {
@@ -730,11 +754,17 @@ export class StrokePersistence {
           this.originalEntityVisibilityMutation(current, step.elements);
         const originalStyle: OriginalInkStyleMutation | null = originalVisibility === null ?
           this.originalInkStyleMutation(current, step.elements) : null;
+        const originalPositions: OriginalModifyPositionsPayload | null =
+          originalVisibility === null && originalStyle === null ?
+            await this.originalModifyPositionsMutation(store, step.noteId, step.pageId,
+              current, step.elements) : null;
         if (originalVisibility !== null) {
           await this.applyOriginalEntityVisibility(store, step, originalVisibility,
             nextRevision);
         } else if (originalStyle !== null) {
           await this.applyOriginalInkStyle(store, step, originalStyle, nextRevision);
+        } else if (originalPositions !== null) {
+          await this.applyOriginalModifyPositions(store, step, originalPositions, nextRevision);
         } else {
           await this.materializePreparedPage(store, step, currentRevision, nextRevision);
         }
@@ -865,6 +895,68 @@ export class StrokePersistence {
     };
   }
 
+  private async originalModifyPositionsMutation(store: relationalStore.RdbStore,
+    noteId: string, pageId: string, current: SearchSourceElement[],
+    next: PreparedElement[]): Promise<OriginalModifyPositionsPayload | null> {
+    if (!samePreparedIdentityOrder(current, next)) {
+      return null;
+    }
+    const page: OriginalSequenceIdentity | null = await this.readEligibleOriginalInkPage(
+      store, noteId, pageId);
+    if (page === null) {
+      return null;
+    }
+    const modifications: OriginalModifyPosition[] = [];
+    for (let index: number = 0; index < current.length; index++) {
+      if (sameByteArrays(current[index].payload, next[index].payload)) {
+        continue;
+      }
+      let beforePersisted: PersistedElement;
+      let afterPersisted: PersistedElement;
+      try {
+        beforePersisted = decodePersistedElement(current[index].payload);
+        afterPersisted = decodePersistedElement(next[index].payload);
+      } catch (_error) {
+        return null;
+      }
+      const before = beforePersisted.data;
+      const after = afterPersisted.data;
+      const identity: OperationIdentity | null = decodeOperationId(before.id);
+      if (identity === null || before.id !== after.id || beforePersisted.kind !== afterPersisted.kind ||
+        !positionOnlyMutation(current[index].kind, beforePersisted, afterPersisted)) {
+        return null;
+      }
+      const beforeComponents: PositionComponents | null = positionComponents(before.transform);
+      const afterComponents: PositionComponents | null = positionComponents(after.transform);
+      if (beforeComponents === null || afterComponents === null) {
+        return null;
+      }
+      const pageChanged: boolean = !numbersNear(beforeComponents.originX, afterComponents.originX) ||
+        !numbersNear(beforeComponents.originY, afterComponents.originY);
+      const rotationChanged: boolean = !anglesNear(
+        beforeComponents.rotation, afterComponents.rotation);
+      const scaleChanged: boolean = !numbersNear(beforeComponents.scaleX, afterComponents.scaleX) ||
+        !numbersNear(beforeComponents.scaleY, afterComponents.scaleY);
+      if (!pageChanged && !rotationChanged && !scaleChanged) {
+        return null;
+      }
+      modifications.push({
+        target: identity,
+        pageOrigin: pageChanged ? {
+          page: page, originX: Math.fround(afterComponents.originX),
+          originY: Math.fround(afterComponents.originY),
+        } : null,
+        rotation: { present: rotationChanged,
+          value: rotationChanged ? Math.fround(afterComponents.rotation) : null },
+        scale: { present: scaleChanged, value: scaleChanged ? {
+          x: Math.fround(afterComponents.scaleX), y: Math.fround(afterComponents.scaleY),
+        } : null },
+        zIndex: null,
+      });
+    }
+    return modifications.length === 0 ? null : { modifications: modifications };
+  }
+
   private originalStrokeIdentity(target: SearchSourceElement | PreparedElement): OperationIdentity | null {
     if (target.kind !== PageElementKind.STROKE) {
       return null;
@@ -943,6 +1035,35 @@ export class StrokePersistence {
       store, step.noteId, step.pageId);
     if (!samePreparedIdentityOrder(materialized, step.elements)) {
       throw new Error('local MODIFY_INK reducer produced an unexpected element order');
+    }
+    await this.reconcilePreparedRows(store, step, expectedRevision);
+  }
+
+  private async applyOriginalModifyPositions(store: relationalStore.RdbStore,
+    step: PreparedPageSave, mutation: OriginalModifyPositionsPayload,
+    expectedRevision: number): Promise<void> {
+    const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, step.noteId);
+    const payload: Uint8Array = encodeOriginalModifyPositions(mutation.modifications);
+    const metadata: OriginalInkCreateMetadata = {
+      timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
+      pageTimestamp: 0, pageSiteId: 0, pageIndex: 0, pencilSeed: 0,
+    };
+    const operation: StoredSyncedOperation = localStoredOperation(
+      step.noteId, metadata, ORIGINAL_MODIFY_POSITIONS_PAYLOAD_TYPE, payload, null);
+    const result: SyncedOperationApplyResult = await new OriginalModifyPositionsOperationApplier().apply(
+      store, operation);
+    if (result.deferredReason !== null) {
+      throw new Error(`local MODIFY_POSITIONS was deferred: ${result.deferredReason}`);
+    }
+    await appendOperation(store, {
+      noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_POSITIONS,
+      payload: operation.rawOperation, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+      editorSiteId: identity.siteId, uploadImmediately: true,
+    });
+    const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+      store, step.noteId, step.pageId);
+    if (!samePreparedIdentityOrder(materialized, step.elements)) {
+      throw new Error('local MODIFY_POSITIONS reducer produced an unexpected element order');
     }
     await this.reconcilePreparedRows(store, step, expectedRevision);
   }
@@ -1454,6 +1575,105 @@ function sameElement(left: SearchSourceElement | PreparedElement,
   right: SearchSourceElement | PreparedElement): boolean {
   return left.elementId === right.elementId && left.kind === right.kind &&
     sameByteArrays(left.payload, right.payload);
+}
+
+function positionOnlyMutation(kind: number, before: PersistedElement,
+  after: PersistedElement): boolean {
+  if (!finiteRect(after.data.bounds)) {
+    return false;
+  }
+  let candidate: PersistedElement;
+  if (kind === PageElementKind.STROKE && before.kind === 'stroke' && after.kind === 'stroke') {
+    const source: StrokeElementData = before.data as StrokeElementData;
+    const target: StrokeElementData = after.data as StrokeElementData;
+    const stroke: StrokeElementData = {
+      id: source.id, pathPoints: source.pathPoints, cubicSegments: source.cubicSegments,
+      splatPoints: source.splatPoints, renderSpec: source.renderSpec,
+      transform: target.transform, bounds: target.bounds, maskPath: source.maskPath,
+      customPath: source.customPath, fillPath: source.fillPath, fillColor: source.fillColor,
+      styleMap: source.styleMap, audioStartTime: source.audioStartTime,
+      audioDuration: source.audioDuration, originalCreate: source.originalCreate,
+      isFinished: source.isFinished,
+    };
+    candidate = { kind: 'stroke', data: stroke };
+  } else if (kind === PageElementKind.TEXT && before.kind === 'text' && after.kind === 'text') {
+    const text: TextBlockElement = cloneTextBlockElement(before.data as TextBlockElement);
+    text.transform = after.data.transform.slice();
+    text.rotationRadians = Math.atan2(text.transform[3], text.transform[0]);
+    text.bounds = textBlockWorldBounds(text);
+    candidate = { kind: 'text', data: text };
+  } else if (kind === PageElementKind.IMAGE && before.kind === 'image' && after.kind === 'image') {
+    const image: ImageElement = cloneImageElement(before.data as ImageElement);
+    image.transform = after.data.transform.slice();
+    image.rotationRadians = Math.atan2(image.transform[3], image.transform[0]);
+    image.bounds = imageBlockWorldBounds(image);
+    candidate = { kind: 'image', data: image };
+  } else if (kind === PageElementKind.MATH && before.kind === 'math' && after.kind === 'math') {
+    const math: MathElement = cloneMathElement(before.data as MathElement);
+    math.transform = after.data.transform.slice();
+    math.rotationRadians = Math.atan2(math.transform[3], math.transform[0]);
+    math.bounds = mathBlockWorldBounds(math);
+    candidate = { kind: 'math', data: math };
+  } else if (kind === PageElementKind.SHAPE && before.kind === 'shape' && after.kind === 'shape') {
+    const shape: ShapeElement = cloneShapeElement(before.data as ShapeElement);
+    shape.transform = after.data.transform.slice();
+    shape.bounds = recomputeShapeBounds(shape);
+    candidate = { kind: 'shape', data: shape };
+  } else {
+    return false;
+  }
+  return sameByteArrays(encodePersistedElement(candidate), encodePersistedElement(after));
+}
+
+function positionComponents(matrix: TransformMatrix): PositionComponents | null {
+  if (matrix.length !== 9 || !matrix.every((value: number): boolean => Number.isFinite(value)) ||
+    !numbersNear(matrix[6], 0) || !numbersNear(matrix[7], 0) || !numbersNear(matrix[8], 1)) {
+    return null;
+  }
+  const scaleX: number = Math.sqrt(matrix[0] * matrix[0] + matrix[3] * matrix[3]);
+  const determinant: number = matrix[0] * matrix[4] - matrix[1] * matrix[3];
+  if (scaleX <= 0.000001 || determinant <= 0.000001) {
+    return null;
+  }
+  const scaleY: number = determinant / scaleX;
+  const rotation: number = Math.atan2(matrix[3], matrix[0]);
+  const cosine: number = Math.cos(rotation);
+  const sine: number = Math.sin(rotation);
+  const expected: TransformMatrix = [cosine * scaleX, -sine * scaleY, matrix[2],
+    sine * scaleX, cosine * scaleY, matrix[5], 0, 0, 1];
+  if (!matricesNear(matrix, expected)) {
+    return null;
+  }
+  return { originX: matrix[2], originY: matrix[5], rotation: rotation,
+    scaleX: scaleX, scaleY: scaleY };
+}
+
+function matricesNear(left: TransformMatrix, right: TransformMatrix): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index: number = 0; index < left.length; index++) {
+    if (!numbersNear(left[index], right[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function numbersNear(left: number, right: number): boolean {
+  return Math.abs(left - right) <= 0.000001 * Math.max(1, Math.abs(left), Math.abs(right));
+}
+
+function anglesNear(left: number, right: number): boolean {
+  const fullTurn: number = Math.PI * 2;
+  const delta: number = ((left - right + Math.PI) % fullTurn + fullTurn) % fullTurn - Math.PI;
+  return Math.abs(delta) <= 0.000001;
+}
+
+function finiteRect(rect: Rect2D): boolean {
+  return Number.isFinite(rect.left) && Number.isFinite(rect.top) &&
+    Number.isFinite(rect.right) && Number.isFinite(rect.bottom) &&
+    rect.left <= rect.right && rect.top <= rect.bottom;
 }
 
 function localStoredOperation(noteId: string, metadata: OriginalInkCreateMetadata,

@@ -1,7 +1,10 @@
 import { relationalStore } from '@kit.ArkData';
-import { ElementType, EllipseElement, LineElement, PolygonElement, ShapeArrowHead,
-  ShapeElement } from '../core/model/ElementTypes';
-import { Point2D, TransformMatrix } from '../core/model/GeometryTypes';
+import {
+  ElementType, EllipseElement, LineElement, PolygonElement, RichTextCharacterStyle,
+  RichTextCharacterStyleRun, RichTextParagraphStyle, RichTextParagraphStyleRun,
+  ShapeArrowHead, ShapeElement,
+} from '../core/model/ElementTypes';
+import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { recomputeShapeBounds } from '../core/model/ShapeGeometry';
 import {
@@ -82,20 +85,26 @@ export interface OriginalCreateShapePayload {
   inkEffectsTinted: boolean;
 }
 
-interface NullableUpdate<T> { present: boolean; value: T | null; }
+export interface OriginalShapeNullableUpdate<T> { present: boolean; value: T | null; }
+
+export interface OriginalShapePageOrigin {
+  page: OriginalSequenceIdentity;
+  x: number;
+  y: number;
+}
 
 export interface OriginalModifyShapePayload {
   shapes: OperationIdentity[];
-  pageOrigin: { page: OriginalSequenceIdentity; x: number; y: number } | null;
-  rotation: NullableUpdate<number>;
-  scale: NullableUpdate<OriginalShapeScale>;
-  definition: NullableUpdate<OriginalShapeDefinition>;
+  pageOrigin: OriginalShapePageOrigin | null;
+  rotation: OriginalShapeNullableUpdate<number>;
+  scale: OriginalShapeNullableUpdate<OriginalShapeScale>;
+  definition: OriginalShapeNullableUpdate<OriginalShapeDefinition>;
   tool: number | null;
   style: number | null;
   tapePattern: number | null;
   color: number | null;
   borderWidth: number | null;
-  fillColor: NullableUpdate<number>;
+  fillColor: OriginalShapeNullableUpdate<number>;
   zIndex: string | null;
   positionLocked: boolean | null;
   inkEffects: string | null;
@@ -341,7 +350,7 @@ export class OriginalShapeGroupOperationApplier implements SyncedOperationApplie
       if (error instanceof ShapeGroupDeferredError) {
         return { deferredReason: error.reason };
       }
-      throw error;
+      throw new Error(`original Shape/Group apply failed: ${JSON.stringify(error)}`);
     }
   }
 
@@ -1012,12 +1021,32 @@ function materializeShape(identity: OperationIdentity,
 
 function copyShapeRichText(target: ShapeElement, source: ShapeElement): void {
   target.richText = source.richText === undefined ? '' : source.richText;
-  target.characterStyleRuns = source.characterStyleRuns === undefined ? undefined :
-    source.characterStyleRuns.map((run) => ({ start: run.start, end: run.end,
-      style: Object.assign({}, run.style) }));
-  target.paragraphStyleRuns = source.paragraphStyleRuns === undefined ? undefined :
-    source.paragraphStyleRuns.map((run) => ({ start: run.start, end: run.end,
-      style: Object.assign({}, run.style) }));
+  target.characterStyleRuns = cloneCharacterStyleRuns(source.characterStyleRuns);
+  target.paragraphStyleRuns = cloneParagraphStyleRuns(source.paragraphStyleRuns);
+}
+
+function cloneCharacterStyleRuns(runs: RichTextCharacterStyleRun[] | undefined):
+  RichTextCharacterStyleRun[] | undefined {
+  if (runs === undefined) {
+    return undefined;
+  }
+  return runs.map((run: RichTextCharacterStyleRun): RichTextCharacterStyleRun => {
+    const style: RichTextCharacterStyle = JSON.parse(JSON.stringify(run.style)) as
+      RichTextCharacterStyle;
+    return { start: run.start, end: run.end, style: style };
+  });
+}
+
+function cloneParagraphStyleRuns(runs: RichTextParagraphStyleRun[] | undefined):
+  RichTextParagraphStyleRun[] | undefined {
+  if (runs === undefined) {
+    return undefined;
+  }
+  return runs.map((run: RichTextParagraphStyleRun): RichTextParagraphStyleRun => {
+    const style: RichTextParagraphStyle = JSON.parse(JSON.stringify(run.style)) as
+      RichTextParagraphStyle;
+    return { start: run.start, end: run.end, style: style };
+  });
 }
 
 function shapeTransform(payload: OriginalCreateShapePayload): TransformMatrix {
@@ -1254,7 +1283,7 @@ function cloneSequence(value: OriginalSequenceIdentity): OriginalSequenceIdentit
 function cloneDefinition(value: OriginalShapeDefinition): OriginalShapeDefinition {
   return JSON.parse(JSON.stringify(value)) as OriginalShapeDefinition;
 }
-function emptyBounds(): { left: number; top: number; right: number; bottom: number } {
+function emptyBounds(): Rect2D {
   return { left: 0, top: 0, right: 0, bottom: 0 };
 }
 function pageKey(page: OriginalSequenceIdentity): string {

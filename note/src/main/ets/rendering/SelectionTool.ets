@@ -234,6 +234,7 @@ export class SelectionTool {
           styleMap: s.styleMap,
           audioStartTime: s.audioStartTime,
           audioDuration: s.audioDuration,
+          originalCreate: s.originalCreate,
           isFinished: s.isFinished,
         });
       } else {

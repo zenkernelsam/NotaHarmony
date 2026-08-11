@@ -1443,7 +1443,9 @@ export struct NoteCanvasView {
           beforeMathBlocks: this.filterMathBlocksByIds(this.dragBeforeMathBlocks, selectedMathIds),
           afterMathBlocks: this.filterMathBlocksByIds(this.mathBlocks, selectedMathIds),
         });
-        this.persist();
+        this.persist(this.areCanonicalOriginalPositionSelection(
+          selectedStrokeIds, selectedShapeIds, selectedTextBlockIds,
+          selectedImageIds, selectedMathIds));
         this.notifyUndoRedo();
       }
       this.selectionTool.selectElementIds(
@@ -2009,6 +2011,14 @@ export struct NoteCanvasView {
         this.areCanonicalOriginalStrokes(action.afterStrokes) &&
         this.sameStrokeIds(action.beforeStrokes, action.afterStrokes);
     }
+    if (action.type === UndoableActionType.TRANSFORM_ELEMENTS) {
+      return this.areCanonicalOriginalPositionSelection(
+        action.beforeStrokes.map((stroke: StrokeElementData): string => stroke.id),
+        action.beforeShapes.map((shape: ShapeElement): string => shape.id),
+        action.beforeTextBlocks.map((text: TextBlockElement): string => text.id),
+        action.beforeImages.map((image: ImageElement): string => image.id),
+        (action.beforeMathBlocks ?? []).map((math: MathElement): string => math.id));
+    }
     return false;
   }
 
@@ -2018,6 +2028,20 @@ export struct NoteCanvasView {
     }
     for (const stroke of strokes) {
       if (decodeOperationId(stroke.id) === null) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private areCanonicalOriginalPositionSelection(strokeIds: string[], shapeIds: string[],
+    textIds: string[], imageIds: string[], mathIds: string[]): boolean {
+    const ids: string[] = strokeIds.concat(shapeIds).concat(textIds).concat(imageIds).concat(mathIds);
+    if (ids.length === 0) {
+      return false;
+    }
+    for (const id of ids) {
+      if (decodeOperationId(id) === null) {
         return false;
       }
     }
@@ -3401,7 +3425,9 @@ export struct NoteCanvasView {
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     this.updateSelectionOverlay();
     if (notifyPersist) {
-      this.persist();
+      this.persist(this.areCanonicalOriginalPositionSelection(
+        selectedStrokeIds, selectedShapeIds, selectedTextBlockIds,
+        selectedImageIds, selectedMathIds));
       this.notifyUndoRedo();
     }
     this.renderFrame();

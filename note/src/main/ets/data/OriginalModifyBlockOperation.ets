@@ -1,5 +1,8 @@
 import { relationalStore } from '@kit.ArkData';
-import { ImageElement, MathElement, TextBlockElement } from '../core/model/ElementTypes';
+import {
+  ImageElement, MathElement, RichTextCharacterStyle, RichTextCharacterStyleRun,
+  RichTextParagraphStyle, RichTextParagraphStyleRun, TextBlockElement,
+} from '../core/model/ElementTypes';
 import { Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import {
   cloneImageElement, imageBlockWorldBounds, originalAssetHashKey,
@@ -19,7 +22,7 @@ import {
   OriginalFlatBufferTableReader, readOriginalInlineFloat32, readOriginalPayloadTable,
 } from './OriginalSyncedOperationFlatBuffer';
 import { SearchItemType } from './SearchItemType';
-import { OriginalPageMutationBatch } from './OriginalPageMutationBatch';
+import { OriginalMutationPageTarget, OriginalPageMutationBatch } from './OriginalPageMutationBatch';
 import { decodePersistedElement, encodePersistedElement, PersistedElement } from './StrokePersistence';
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
@@ -118,13 +121,8 @@ interface StoredBlockState {
   zIndex: StoredRegister<string>;
 }
 
-interface StoredPageTarget {
-  page: OriginalSequenceIdentity;
-  pageId: string;
+interface StoredPageTarget extends OriginalMutationPageTarget {
   table: string;
-  revisionTable: string;
-  revision: number;
-  archived: boolean;
 }
 
 interface StoredBlockTarget extends StoredPageTarget {
@@ -893,9 +891,9 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       pageOrigin.originX, pageOrigin.originY, rotation === null ? 0 : rotation, scale.x, scale.y);
     const commonMatches: boolean = samePageIdentity(target.page, pageOrigin.page) &&
       target.zIndex === effectiveZIndex(state) &&
-      JSON.stringify(element.transform) === JSON.stringify(expectedTransform) &&
+      transformMatricesNear(element.transform, expectedTransform) &&
       element.blockWidth === size.x && element.blockHeight === size.y &&
-      element.rotationRadians === (rotation === null ? 0 : rotation) &&
+      numbersNear(element.rotationRadians, rotation === null ? 0 : rotation) &&
       (element.corner === undefined ? 0 : element.corner) ===
         effectiveNumber(state.baseCorner, state.corner) &&
       (element.textWrap === undefined ? 0 : element.textWrap) ===
@@ -917,7 +915,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       expectedText.paper = cloneOriginalPaper(effectiveNullable(state.basePaper, state.paper));
       expectedText.resizesWidthToFitText = effectiveBoolean(
         state.baseResizesWidth, state.resizesWidth);
-      return JSON.stringify(text.bounds) === JSON.stringify(textBlockWorldBounds(expectedText)) &&
+      return rectsNear(text.bounds, textBlockWorldBounds(expectedText)) &&
         text.textOrigin.x === 0 && text.textOrigin.y === 0 &&
         text.contentLeftInset === state.baseLeftInset && text.contentTopInset === state.baseTopInset &&
         JSON.stringify(text.paper ?? null) === JSON.stringify(expectedText.paper ?? null) &&
@@ -934,7 +932,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       expectedMath.latex = latex === null ? '' : latex;
       expectedMath.color = color === null ? DEFAULT_MATH_COLOR : color;
       return math.latex === expectedMath.latex && math.color === expectedMath.color &&
-        JSON.stringify(math.bounds) === JSON.stringify(mathBlockWorldBounds(expectedMath));
+        rectsNear(math.bounds, mathBlockWorldBounds(expectedMath));
     }
     const image: ImageElement = element as ImageElement;
     const expectedImage: ImageElement = cloneImageElement(image);
@@ -947,7 +945,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       state.baseImageFlipHorizontal, state.imageFlipHorizontal);
     expectedImage.imageFlippedVertically = effectiveBoolean(
       state.baseImageFlipVertical, state.imageFlipVertical);
-    return JSON.stringify(image.bounds) === JSON.stringify(imageBlockWorldBounds(expectedImage)) &&
+    return rectsNear(image.bounds, imageBlockWorldBounds(expectedImage)) &&
       state.baseImageHashBits !== null &&
       image.assetHash === originalAssetHashKey(state.baseImageHashBits) &&
       JSON.stringify(image.assetHashBits) === JSON.stringify(state.baseImageHashBits) &&
@@ -1724,6 +1722,27 @@ function blockTransform(originX: number, originY: number, rotation: number,
     sine * scaleX, cosine * scaleY, originY, 0, 0, 1];
 }
 
+function transformMatricesNear(left: TransformMatrix, right: TransformMatrix): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index: number = 0; index < left.length; index++) {
+    if (!numbersNear(left[index], right[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function rectsNear(left: Rect2D, right: Rect2D): boolean {
+  return numbersNear(left.left, right.left) && numbersNear(left.top, right.top) &&
+    numbersNear(left.right, right.right) && numbersNear(left.bottom, right.bottom);
+}
+
+function numbersNear(left: number, right: number): boolean {
+  return Math.abs(left - right) <= 0.000001 * Math.max(1, Math.abs(left), Math.abs(right));
+}
+
 function cloneText(text: TextBlockElement): TextBlockElement {
   return {
     id: text.id, type: text.type, transform: text.transform.slice(),
@@ -1733,17 +1752,37 @@ function cloneText(text: TextBlockElement): TextBlockElement {
     blockWidth: text.blockWidth, blockHeight: text.blockHeight,
     rotationRadians: text.rotationRadians, contentLeftInset: text.contentLeftInset,
     contentTopInset: text.contentTopInset, fontSize: text.fontSize, fontColor: text.fontColor,
-    characterStyleRuns: text.characterStyleRuns === undefined ? undefined :
-      text.characterStyleRuns.map((run) => ({ start: run.start, end: run.end,
-        style: Object.assign({}, run.style) })),
-    paragraphStyleRuns: text.paragraphStyleRuns === undefined ? undefined :
-      text.paragraphStyleRuns.map((run) => ({ start: run.start, end: run.end,
-        style: Object.assign({}, run.style) })),
+    characterStyleRuns: cloneCharacterStyleRuns(text.characterStyleRuns),
+    paragraphStyleRuns: cloneParagraphStyleRuns(text.paragraphStyleRuns),
     corner: text.corner, textWrap: text.textWrap, enableCaption: text.enableCaption,
     paper: cloneOriginalPaper(text.paper === undefined ? null : text.paper),
     resizesWidthToFitText: text.resizesWidthToFitText,
     positionLocked: text.positionLocked === true,
   };
+}
+
+function cloneCharacterStyleRuns(runs: RichTextCharacterStyleRun[] | undefined):
+  RichTextCharacterStyleRun[] | undefined {
+  if (runs === undefined) {
+    return undefined;
+  }
+  return runs.map((run: RichTextCharacterStyleRun): RichTextCharacterStyleRun => {
+    const style: RichTextCharacterStyle = JSON.parse(JSON.stringify(run.style)) as
+      RichTextCharacterStyle;
+    return { start: run.start, end: run.end, style: style };
+  });
+}
+
+function cloneParagraphStyleRuns(runs: RichTextParagraphStyleRun[] | undefined):
+  RichTextParagraphStyleRun[] | undefined {
+  if (runs === undefined) {
+    return undefined;
+  }
+  return runs.map((run: RichTextParagraphStyleRun): RichTextParagraphStyleRun => {
+    const style: RichTextParagraphStyle = JSON.parse(JSON.stringify(run.style)) as
+      RichTextParagraphStyle;
+    return { start: run.start, end: run.end, style: style };
+  });
 }
 
 function samePageIdentity(left: OriginalSequenceIdentity,

@@ -1760,7 +1760,16 @@ function createBaseTransform(payload: OriginalCreateInkPayload): OriginalInkBase
 }
 
 function transformMatricesEqual(left: TransformMatrix, right: TransformMatrix): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index: number = 0; index < left.length; index++) {
+    const tolerance: number = 0.000001 * Math.max(1, Math.abs(left[index]), Math.abs(right[index]));
+    if (Math.abs(left[index] - right[index]) > tolerance) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function assertMatchingModifyInkWinners(payload: OriginalModifyInkPayload,

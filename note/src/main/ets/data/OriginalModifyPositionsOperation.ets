@@ -13,7 +13,8 @@ import {
   OriginalModifyBlockOperationApplier, OriginalModifyBlockPayload,
 } from './OriginalModifyBlockOperation';
 import {
-  OriginalModifyShapePayload, OriginalShapeGroupOperationApplier,
+  OriginalModifyShapePayload, OriginalShapeGroupOperationApplier, OriginalShapeNullableUpdate,
+  OriginalShapePageOrigin, OriginalShapeScale,
 } from './OriginalShapeGroupOperation';
 import { OriginalPageMutationBatch } from './OriginalPageMutationBatch';
 import {
@@ -177,7 +178,7 @@ export class OriginalModifyPositionsOperationApplier implements SyncedOperationA
           // Preserve the reducer failure; the inbox transaction remains the final rollback boundary.
         }
       }
-      throw error;
+      throw new Error(`original MODIFY_POSITIONS apply failed: ${JSON.stringify(error)}`);
     }
   }
 
@@ -315,9 +316,22 @@ function inkPayload(modification: OriginalModifyPosition): OriginalModifyInkPayl
 }
 
 function blockPayload(modification: OriginalModifyPosition): OriginalModifyBlockPayload {
-  const pageOrigin: OriginalBlockPageOrigin | null = modification.pageOrigin;
-  const rotation: NullableBlockRegisterUpdate<number> = modification.rotation;
-  const scale: NullableBlockRegisterUpdate<OriginalBlockScale> = modification.scale;
+  const pageOrigin: OriginalBlockPageOrigin | null = modification.pageOrigin === null ? null : {
+    page: modification.pageOrigin.page,
+    originX: modification.pageOrigin.originX,
+    originY: modification.pageOrigin.originY,
+  };
+  const rotation: NullableBlockRegisterUpdate<number> = {
+    present: modification.rotation.present,
+    value: modification.rotation.value,
+  };
+  const scale: NullableBlockRegisterUpdate<OriginalBlockScale> = {
+    present: modification.scale.present,
+    value: modification.scale.value === null ? null : {
+      x: modification.scale.value.x,
+      y: modification.scale.value.y,
+    },
+  };
   return {
     blocks: [modification.target], corner: null, pageOrigin: pageOrigin,
     rotation: rotation, scale: scale, width: null, height: null,
@@ -332,13 +346,26 @@ function blockPayload(modification: OriginalModifyPosition): OriginalModifyBlock
 }
 
 function shapePayload(modification: OriginalModifyPosition): OriginalModifyShapePayload {
+  const pageOrigin: OriginalShapePageOrigin | null = modification.pageOrigin === null ? null : {
+    page: modification.pageOrigin.page,
+    x: modification.pageOrigin.originX,
+    y: modification.pageOrigin.originY,
+  };
+  const rotation: OriginalShapeNullableUpdate<number> = {
+    present: modification.rotation.present,
+    value: modification.rotation.value,
+  };
+  const scale: OriginalShapeNullableUpdate<OriginalShapeScale> = {
+    present: modification.scale.present,
+    value: modification.scale.value === null ? null : {
+      x: modification.scale.value.x,
+      y: modification.scale.value.y,
+    },
+  };
   return {
     shapes: [modification.target],
-    pageOrigin: modification.pageOrigin === null ? null : {
-      page: modification.pageOrigin.page, x: modification.pageOrigin.originX,
-      y: modification.pageOrigin.originY,
-    },
-    rotation: modification.rotation, scale: modification.scale,
+    pageOrigin: pageOrigin,
+    rotation: rotation, scale: scale,
     definition: { present: false, value: null }, tool: null, style: null,
     tapePattern: null, color: null, borderWidth: null,
     fillColor: { present: false, value: null }, zIndex: modification.zIndex,
