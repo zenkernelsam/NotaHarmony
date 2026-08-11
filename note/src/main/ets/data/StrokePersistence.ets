@@ -44,7 +44,13 @@ import {
 import { encodeOriginalLocalCreateInk } from './OriginalCreateInkPayloadEncoder';
 import { encodeOriginalLocalCreateShape } from './OriginalCreateShapePayloadEncoder';
 import { encodeOriginalLocalCreateTextBlock } from './OriginalCreateBlockPayloadEncoder';
-import { encodeOriginalInitialInsertString } from './OriginalInsertTextPayloadEncoder';
+import {
+  EncodedOriginalTextOperation, encodeOriginalInitialInsertString,
+  encodeOriginalTextInsertion, encodeOriginalTextVisibility,
+} from './OriginalInsertTextPayloadEncoder';
+import {
+  OriginalLocalTextMutationPlan, planOriginalLocalTextMutation,
+} from './OriginalLocalTextMutation';
 import { encodeOriginalCreateGroup } from './OriginalGroupPayloadEncoder';
 import {
   encodeOriginalGroupMutation, OriginalGroupMutationOpPayload,
@@ -80,7 +86,8 @@ import {
   OriginalCreateShapePayload, OriginalModifyShapePayload, OriginalShapeGroupOperationApplier,
 } from './OriginalShapeGroupOperation';
 import {
-  encodeOriginalBlockPositionLocked, encodeOriginalImageCrop, encodeOriginalImageFlip,
+  encodeOriginalBlockPositionLocked, encodeOriginalBlockSize, encodeOriginalImageCrop,
+  encodeOriginalImageFlip,
 } from './OriginalModifyBlockPayloadEncoder';
 import {
   decodeOriginalModifyBlock, ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE,
@@ -88,10 +95,12 @@ import {
 } from './OriginalModifyBlockOperation';
 import {
   decodeOriginalCreateBlock, ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE, OriginalBlockRect,
-  OriginalCreateBlockOperationApplier,
+  OriginalBlockType, OriginalCreateBlockOperationApplier,
 } from './OriginalCreateBlockOperation';
 import {
-  decodeOriginalInsertText, ORIGINAL_INSERT_STRING_PAYLOAD_TYPE, OriginalInsertTextOperationApplier,
+  decodeOriginalInsertText, decodeOriginalTextVisibility,
+  ORIGINAL_INSERT_STRING_PAYLOAD_TYPE, OriginalInsertTextOperationApplier,
+  OriginalTextVisibilityOperationApplier, StoredCharacter,
 } from './OriginalInsertTextOperation';
 import { OriginalPageMutationBatch } from './OriginalPageMutationBatch';
 import { encodeOriginalModifyPositions } from './OriginalModifyPositionsPayloadEncoder';
@@ -220,6 +229,14 @@ interface OriginalModifyPositionsMutation {
 interface OriginalEntityVisibilityMutation {
   identities: OperationIdentity[];
   deleted: boolean;
+}
+
+interface OriginalTextMutation {
+  block: OperationIdentity;
+  plan: OriginalLocalTextMutationPlan;
+  width: number;
+  height: number;
+  sizeChanged: boolean;
 }
 
 export interface OriginalInkRenderMutationBatch extends OriginalInkRenderRegisterUpdate {
@@ -1271,6 +1288,15 @@ export class StrokePersistence {
         await store.commit();
         return;
       }
+      const originalText: OriginalTextMutation | null = await this.originalTextMutation(
+        store, snapshot.noteId, snapshot.pageId, current, snapshot.elements);
+      if (originalText !== null) {
+        await this.applyOriginalTextMutation(store, snapshot, originalText, snapshotRevision);
+        await this.rebuildPageSearchState(store, snapshot, snapshotRevision, false);
+        await this.appendHistoryCompanion(store, snapshot, mutation);
+        await store.commit();
+        return;
+      }
       const originalStyle: OriginalRenderMutation | null =
         await this.originalRenderMutation(store, snapshot.noteId, current, snapshot.elements);
       if (originalStyle !== null) {
@@ -1707,19 +1733,23 @@ export class StrokePersistence {
         const originalPositionLock: OriginalPositionLockMutation | null =
           originalVisibility === null ? await this.originalPositionLockMutation(
             store, step.noteId, current, step.elements) : null;
+        const originalText: OriginalTextMutation | null = originalVisibility === null &&
+          originalPositionLock === null ? await this.originalTextMutation(
+            store, step.noteId, step.pageId, current, step.elements) : null;
         const originalStyle: OriginalRenderMutation | null = originalVisibility === null &&
-          originalPositionLock === null ?
+          originalPositionLock === null && originalText === null ?
           await this.originalRenderMutation(store, step.noteId, current, step.elements) : null;
         const originalImageFlip: OriginalImageFlipMutation | null =
-          originalVisibility === null && originalPositionLock === null && originalStyle === null ?
+          originalVisibility === null && originalPositionLock === null && originalText === null &&
+            originalStyle === null ?
             classifyOriginalImageFlipMutation(current, step.elements) : null;
         const originalImageCrop: OriginalImageCropMutation | null =
-          originalVisibility === null && originalPositionLock === null && originalStyle === null &&
-            originalImageFlip === null ?
+          originalVisibility === null && originalPositionLock === null && originalText === null &&
+            originalStyle === null && originalImageFlip === null ?
             classifyOriginalImageCropMutation(current, step.elements) : null;
         const originalPositions: OriginalModifyPositionsMutation | null =
-          originalVisibility === null && originalPositionLock === null && originalStyle === null &&
-            originalImageFlip === null && originalImageCrop === null ?
+          originalVisibility === null && originalPositionLock === null && originalText === null &&
+            originalStyle === null && originalImageFlip === null && originalImageCrop === null ?
             await this.originalModifyPositionsMutation(store, step.noteId, step.pageId,
               current, step.elements, step.history, step.originalZOrderHint) : null;
         if (originalVisibility !== null) {
@@ -1727,6 +1757,8 @@ export class StrokePersistence {
             nextRevision);
         } else if (originalPositionLock !== null) {
           await this.applyOriginalPositionLock(store, step, originalPositionLock, nextRevision);
+        } else if (originalText !== null) {
+          await this.applyOriginalTextMutation(store, step, originalText, nextRevision);
         } else if (originalStyle !== null) {
           await this.applyOriginalRenderStyle(store, step, originalStyle, nextRevision);
         } else if (originalImageFlip !== null) {
@@ -1815,6 +1847,115 @@ export class StrokePersistence {
       return null;
     }
     return { identities: identities, deleted: deleted };
+  }
+
+  private async originalTextMutation(store: relationalStore.RdbStore, noteId: string,
+    pageId: string, current: SearchSourceElement[], next: PreparedElement[]):
+    Promise<OriginalTextMutation | null> {
+    if (current.length !== next.length ||
+      await this.readEligibleOriginalInkPage(store, noteId, pageId) === null) {
+      return null;
+    }
+    let changedIndex: number = -1;
+    for (let index: number = 0; index < current.length; index++) {
+      if (current[index].elementId !== next[index].elementId ||
+        current[index].kind !== next[index].kind) {
+        return null;
+      }
+      if (!sameByteArrays(current[index].payload, next[index].payload)) {
+        if (changedIndex >= 0) {
+          return null;
+        }
+        changedIndex = index;
+      }
+    }
+    if (changedIndex < 0 || current[changedIndex].kind !== PageElementKind.TEXT) {
+      return null;
+    }
+    let beforePersisted: PersistedElement;
+    let afterPersisted: PersistedElement;
+    try {
+      beforePersisted = decodePersistedElement(current[changedIndex].payload);
+      afterPersisted = decodePersistedElement(next[changedIndex].payload);
+    } catch (_error) {
+      return null;
+    }
+    if (beforePersisted.kind !== 'text' || afterPersisted.kind !== 'text') {
+      return null;
+    }
+    const before: TextBlockElement = beforePersisted.data as TextBlockElement;
+    const after: TextBlockElement = afterPersisted.data as TextBlockElement;
+    const beforeCharacterRuns: number = before.characterStyleRuns?.length ?? 0;
+    const beforeParagraphRuns: number = before.paragraphStyleRuns?.length ?? 0;
+    const afterCharacterRuns: number = after.characterStyleRuns?.length ?? 0;
+    const afterParagraphRuns: number = after.paragraphStyleRuns?.length ?? 0;
+    if (before.id !== current[changedIndex].elementId ||
+      after.id !== next[changedIndex].elementId || before.id !== after.id ||
+      before.richText === after.richText ||
+      beforeCharacterRuns !== 0 || beforeParagraphRuns !== 0 ||
+      afterCharacterRuns !== 0 || afterParagraphRuns !== 0 ||
+      !Number.isFinite(after.blockWidth) || !Number.isFinite(after.blockHeight) ||
+      after.blockWidth <= 0 || after.blockHeight <= 0) {
+      return null;
+    }
+    const sizeChanged: boolean = !numbersNear(before.blockWidth, after.blockWidth) ||
+      !numbersNear(before.blockHeight, after.blockHeight);
+    const width: number = sizeChanged ? Math.fround(after.blockWidth) : before.blockWidth;
+    const height: number = sizeChanged ? Math.fround(after.blockHeight) : before.blockHeight;
+    const candidate: TextBlockElement = cloneTextBlockElement(before);
+    candidate.richText = after.richText;
+    candidate.characterStyleRuns = after.characterStyleRuns;
+    candidate.paragraphStyleRuns = after.paragraphStyleRuns;
+    candidate.blockWidth = width;
+    candidate.blockHeight = height;
+    candidate.bounds = textBlockWorldBounds(candidate);
+    if (!sameByteArrays(encodePersistedElement({ kind: 'text', data: candidate }),
+      encodePersistedElement(afterPersisted))) {
+      return null;
+    }
+    const block: OperationIdentity | null = decodeOperationId(before.id);
+    if (block === null || !await this.isLiveOriginalTextBlock(
+      store, noteId, pageId, block)) {
+      return null;
+    }
+    const textState: OriginalInsertTextOperationApplier =
+      new OriginalInsertTextOperationApplier();
+    const characters: StoredCharacter[] | null = await textState.readCharacters(
+      store, noteId, block);
+    if (characters === null) {
+      return null;
+    }
+    const plan: OriginalLocalTextMutationPlan | null =
+      planOriginalLocalTextMutation(characters, before.richText, after.richText);
+    if (plan === null) {
+      return null;
+    }
+    return {
+      block: block, plan: plan, width: width, height: height,
+      sizeChanged: sizeChanged,
+    };
+  }
+
+  private async isLiveOriginalTextBlock(store: relationalStore.RdbStore, noteId: string,
+    pageId: string, block: OperationIdentity): Promise<boolean> {
+    const rows = await store.querySql(
+      `SELECT 1 FROM original_element_z_index element
+       JOIN original_page_identity page ON page.note_id = element.note_id
+        AND page.seq_timestamp = element.page_timestamp
+        AND page.seq_site_id = element.page_site_id AND page.seq_index = element.page_index
+       JOIN original_block_state state ON state.note_id = element.note_id
+        AND state.block_timestamp = element.element_timestamp
+        AND state.block_site_id = element.element_site_id
+       WHERE element.note_id = ? AND page.page_id = ? AND page.visible = 1
+        AND element.element_timestamp = ? AND element.element_site_id = ?
+        AND element.kind = ? AND element.visible = 1 AND state.block_type = ? LIMIT 1`,
+      [noteId, pageId, block.timestamp, block.siteId, PageElementKind.TEXT,
+        OriginalBlockType.TEXT]);
+    try {
+      return rows.goToFirstRow();
+    } finally {
+      rows.close();
+    }
   }
 
   private async originalRenderMutation(store: relationalStore.RdbStore, noteId: string,
@@ -2149,6 +2290,100 @@ export class StrokePersistence {
       store, step.noteId, step.pageId);
     if (!samePreparedIdentityOrder(materialized, step.elements)) {
       throw new Error('local Ink visibility reducer produced an unexpected element order');
+    }
+    await this.reconcilePreparedRows(store, step, expectedRevision);
+  }
+
+  private async applyOriginalTextMutation(store: relationalStore.RdbStore,
+    step: PreparedPageSave, mutation: OriginalTextMutation,
+    expectedRevision: number): Promise<void> {
+    if (await this.readEligibleOriginalInkPage(store, step.noteId, step.pageId) === null) {
+      throw new Error('local Text edit page is no longer original-aligned');
+    }
+    const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+    const visibilityApplier: OriginalTextVisibilityOperationApplier =
+      new OriginalTextVisibilityOperationApplier();
+    const visibilityUpdates: OriginalSequenceIdentity[][] = [
+      mutation.plan.removed, mutation.plan.revived,
+    ];
+    for (let index: number = 0; index < visibilityUpdates.length; index++) {
+      const locations: OriginalSequenceIdentity[] = visibilityUpdates[index];
+      if (locations.length === 0) {
+        continue;
+      }
+      const visible: boolean = index === 1;
+      const encoded: EncodedOriginalTextOperation = encodeOriginalTextVisibility(
+        locations, mutation.block, visible);
+      const identity: AllocatedOperationIdentity = await allocateOperationIdentity(
+        store, step.noteId);
+      const metadata: OriginalInkCreateMetadata = allocatedOriginalMetadata(identity);
+      const operation: StoredSyncedOperation = localStoredOperation(
+        step.noteId, metadata, encoded.payloadType, encoded.payload, null);
+      const result: SyncedOperationApplyResult = await visibilityApplier.applyBatchedPayload(
+        store, operation,
+        decodeOriginalTextVisibility(operation.rawOperation, encoded.payloadType), revisionBatch);
+      if (result.deferredReason !== null) {
+        throw new Error(`local Text visibility was deferred: ${result.deferredReason}`);
+      }
+      await appendOperation(store, {
+        noteId: step.noteId, opId: identity.opId,
+        opType: OpType.ORIGINAL_TEXT_VISIBILITY, payload: operation.rawOperation,
+        clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+        editorSiteId: identity.siteId, uploadImmediately: true,
+      });
+    }
+    if (mutation.plan.insertedScalars.length > 0) {
+      let value: string = '';
+      for (const scalar of mutation.plan.insertedScalars) {
+        value += String.fromCodePoint(scalar);
+      }
+      const encoded: EncodedOriginalTextOperation = encodeOriginalTextInsertion(
+        mutation.plan.insertionLocation, value, mutation.block);
+      const identity: AllocatedOperationIdentity = await allocateOperationIdentity(
+        store, step.noteId);
+      const metadata: OriginalInkCreateMetadata = allocatedOriginalMetadata(identity);
+      const operation: StoredSyncedOperation = localStoredOperation(
+        step.noteId, metadata, encoded.payloadType, encoded.payload, null);
+      const result: SyncedOperationApplyResult =
+        await new OriginalInsertTextOperationApplier().applyBatchedPayload(
+          store, operation,
+          decodeOriginalInsertText(operation.rawOperation, encoded.payloadType), revisionBatch);
+      if (result.deferredReason !== null) {
+        throw new Error(`local Text insertion was deferred: ${result.deferredReason}`);
+      }
+      await appendOperation(store, {
+        noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_INSERT_TEXT,
+        payload: operation.rawOperation, clientTime: identity.clientTime,
+        opTimestamp: identity.timestamp, editorSiteId: identity.siteId,
+        uploadImmediately: true,
+      });
+    }
+    if (mutation.sizeChanged) {
+      const identity: AllocatedOperationIdentity = await allocateOperationIdentity(
+        store, step.noteId);
+      const metadata: OriginalInkCreateMetadata = allocatedOriginalMetadata(identity);
+      const payload: Uint8Array = encodeOriginalBlockSize(
+        [mutation.block], mutation.width, mutation.height);
+      const operation: StoredSyncedOperation = localStoredOperation(
+        step.noteId, metadata, ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE, payload, null);
+      const result: SyncedOperationApplyResult =
+        await new OriginalModifyBlockOperationApplier().applyBatchedPayload(
+          store, operation, decodeOriginalModifyBlock(operation.rawOperation), revisionBatch);
+      if (result.deferredReason !== null) {
+        throw new Error(`local Text size was deferred: ${result.deferredReason}`);
+      }
+      await appendOperation(store, {
+        noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_BLOCK,
+        payload: operation.rawOperation, clientTime: identity.clientTime,
+        opTimestamp: identity.timestamp, editorSiteId: identity.siteId,
+        uploadImmediately: true,
+      });
+    }
+    await revisionBatch.flush(store, step.noteId);
+    const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+      store, step.noteId, step.pageId);
+    if (!samePreparedMembersAndPayloads(materialized, step.elements)) {
+      throw new Error('local Text reducers produced unexpected final state');
     }
     await this.reconcilePreparedRows(store, step, expectedRevision);
   }
@@ -3690,5 +3925,12 @@ function localStoredOperation(noteId: string, metadata: OriginalInkCreateMetadat
     schemaVersion: 1, payloadType: payloadType, rawOperation: rawOperation,
     state: SyncedOperationInboxState.APPLIED, deferredReason: null,
     receivedAt: metadata.clientTime,
+  };
+}
+
+function allocatedOriginalMetadata(identity: AllocatedOperationIdentity): OriginalInkCreateMetadata {
+  return {
+    timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
+    pageTimestamp: 0, pageSiteId: 0, pageIndex: 0, pencilSeed: 0,
   };
 }

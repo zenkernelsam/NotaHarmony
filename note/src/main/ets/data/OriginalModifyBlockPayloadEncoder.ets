@@ -7,6 +7,35 @@ import { OriginalBlockPageOrigin, OriginalBlockScale } from './OriginalModifyBlo
 
 const MAX_ORIGINAL_MODIFY_BLOCK_COUNT: number = 10000;
 
+export function encodeOriginalBlockSize(blocks: OperationIdentity[],
+  width: number, height: number): Uint8Array {
+  const targets: OperationIdentity[] = validateTargets(blocks);
+  if (targets.length === 0 || targets.length > MAX_ORIGINAL_MODIFY_BLOCK_COUNT ||
+    !validPositiveFloat32Pair(width, height)) {
+    throw new Error('original MODIFY_BLOCK has an invalid size update');
+  }
+
+  // td8 field 0 is the Block vector and field 6 is the inline SetSize pair.
+  const table: number = 44;
+  const objectSize: number = 16;
+  const vector: number = table + objectSize;
+  const bytes: Uint8Array = new Uint8Array(vector + 4 + targets.length * 8);
+  const fields: number[] = new Array<number>(18).fill(0);
+  fields[0] = 4;
+  fields[6] = 8;
+  writeU32(bytes, 0, table);
+  writeVtable(bytes, 4, objectSize, fields);
+  writeU32(bytes, table, table - 4);
+  writeU32(bytes, table + 4, vector - (table + 4));
+  writeF32(bytes, table + 8, width);
+  writeF32(bytes, table + 12, height);
+  writeU32(bytes, vector, targets.length);
+  for (let index: number = 0; index < targets.length; index++) {
+    writeOperationIdentity(bytes, vector + 4 + index * 8, targets[index]);
+  }
+  return bytes;
+}
+
 export function encodeOriginalBlockPositionLocked(blocks: OperationIdentity[],
   locked: boolean): Uint8Array {
   const targets: OperationIdentity[] = validateTargets(blocks);
@@ -179,6 +208,13 @@ function finitePair(x: number, y: number): boolean {
 
 function validPositivePair(x: number, y: number): boolean {
   return finitePair(x, y) && x > 0 && y > 0;
+}
+
+function validPositiveFloat32Pair(x: number, y: number): boolean {
+  const encodedX: number = Math.fround(x);
+  const encodedY: number = Math.fround(y);
+  return validPositivePair(x, y) && Number.isFinite(encodedX) && Number.isFinite(encodedY) &&
+    encodedX > 0 && encodedY > 0;
 }
 
 function validCrop(crop: OriginalBlockRect): boolean {

@@ -44,3 +44,10 @@ incoming identity 在 `so5.a(old,new) <= 0` 时覆盖；`so5` 先按 unsigned ti
 - `SyncedOperationInbox.test.ets` 注册真实 payload 9/10/11 fixture，并验证总分发器支持三类操作。
 - 本 ADR 不关闭 character style、paragraph style、RichText 字形/layout、Block 自动尺寸、
   IMAGE caption、NOTE_BUNDLE 内容 replay、认证 transport 或完整 D-02。
+
+## 2026-08-12 本地 REMOVE/REVIVE 补充
+
+ADR-0101 将 type-9/10/11 writer 接入既有无样式 Text。正向编辑按目标数选择单删或批删；
+Undo/Redo 优先复活能精确物化目标正文的 hidden identity，避免重复 INSERT 产生新身份。每次
+visibility op 仍经既有逐字符 LWW reducer；与同次 INSERT 和 type-19 size 共用事务及单 revision。
+Styled Text 的可见性编辑要等 style-boundary 出站规则闭合后再开放。

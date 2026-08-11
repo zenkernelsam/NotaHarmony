@@ -678,9 +678,16 @@ export class OriginalTextVisibilityOperationApplier implements SyncedOperationAp
     return this.applyPayload(store, operation, payload);
   }
 
+  async applyBatchedPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, payload: OriginalTextVisibilityPayload,
+    revisionBatch: OriginalPageMutationBatch): Promise<SyncedOperationApplyResult> {
+    return this.applyPayload(store, operation, payload, revisionBatch);
+  }
+
   private async applyPayload(store: relationalStore.RdbStore,
     operation: StoredSyncedOperation,
-    payload: OriginalTextVisibilityPayload): Promise<SyncedOperationApplyResult> {
+    payload: OriginalTextVisibilityPayload,
+    revisionBatch: OriginalPageMutationBatch | null = null): Promise<SyncedOperationApplyResult> {
     let block: OperationIdentity | null = payload.textField;
     const unique: Map<string, OriginalSequenceIdentity> = new Map<string, OriginalSequenceIdentity>();
     for (const location of payload.locations) {
@@ -789,12 +796,13 @@ export class OriginalTextVisibilityOperationApplier implements SyncedOperationAp
     updatedText.characterStyleRuns = updatedStyles.characterRuns;
     updatedText.paragraphStyleRuns = updatedStyles.paragraphRuns;
     await this.textState.writeTextPayload(store, operation.noteId, target, updatedText,
-      'original text-visibility lost its target snapshot');
+      'original text-visibility lost its target snapshot', revisionBatch);
     return { deferredReason: null };
   }
 }
 
-function materializeCharacters(characters: StoredCharacter[]): string | null {
+export function materializeOriginalTextCharacterOrder(
+  characters: StoredCharacter[]): StoredCharacter[] | null {
   const byId: Map<string, StoredCharacter> = new Map<string, StoredCharacter>();
   for (const character of characters) {
     const key: string = encodeOriginalSequenceId(character.identity);
@@ -819,7 +827,7 @@ function materializeCharacters(characters: StoredCharacter[]): string | null {
       -compareOriginalSequenceIdentity(left.identity, right.identity));
   }
   const visited: Set<string> = new Set<string>();
-  const values: string[] = [];
+  const ordered: StoredCharacter[] = [];
   const pending: StoredCharacter[] = [];
   const roots: StoredCharacter[] | undefined = children.get('ROOT');
   if (roots !== undefined) {
@@ -834,9 +842,7 @@ function materializeCharacters(characters: StoredCharacter[]): string | null {
       return null;
     }
     visited.add(key);
-    if (character.visible) {
-      values.push(String.fromCodePoint(character.scalar));
-    }
+    ordered.push(character);
     const descendants: StoredCharacter[] | undefined = children.get(key);
     if (descendants !== undefined) {
       for (let index: number = descendants.length - 1; index >= 0; index--) {
@@ -846,6 +852,20 @@ function materializeCharacters(characters: StoredCharacter[]): string | null {
   }
   if (visited.size !== characters.length) {
     return null;
+  }
+  return ordered;
+}
+
+export function materializeCharacters(characters: StoredCharacter[]): string | null {
+  const ordered: StoredCharacter[] | null = materializeOriginalTextCharacterOrder(characters);
+  if (ordered === null) {
+    return null;
+  }
+  const values: string[] = [];
+  for (const character of ordered) {
+    if (character.visible) {
+      values.push(String.fromCodePoint(character.scalar));
+    }
   }
   return values.join('');
 }

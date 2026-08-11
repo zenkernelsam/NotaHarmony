@@ -50,3 +50,10 @@ index 寻址。`ixc.a` 根锚点是 `site=0xFFFF,timestamp=0,index=0`。
 ADR-0100 新增严格的本地 root INSERT_STRING writer，仅服务于刚由 type-22 创建的空 Text
 Block：显式携带 Block identity，按严格 UTF-8 round trip 写 Unicode scalar，并与 CREATE_BLOCK
 共享一次页面 revision。它不等同于任意 caret 插入，也不关闭 REMOVE/REVIVE 或 style 出站。
+
+## 2026-08-12 既有 Text 本地插入补充
+
+ADR-0101 将原版 type-7/type-8 writer 接入既有无样式 Text：按 Unicode scalar 的公共前后缀
+定位一次连续编辑，单 scalar 写 INSERT_CHAR，多 scalar 写 INSERT_STRING，并以替换区前一可见
+字符或 root 为锚点。REMOVE/REVIVE 与可选尺寸共享一次页面 revision。Styled Text、字符/段落
+style writer 与完整布局仍不在本 ADR 的完成声明内。

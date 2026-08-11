@@ -44,7 +44,7 @@ assert.match(persistence, /payload: operation\.rawOperation/);
 assert.match(persistence, /uploadImmediately: true/);
 assert.match(persistence, /await this\.reconcilePreparedRows\(store, step, expectedRevision\)/);
 assert.match(persistence,
-  /originalVisibility === null && originalPositionLock === null && originalStyle === null[\s\S]*originalModifyPositionsMutation/);
+  /originalVisibility === null && originalPositionLock === null && originalText === null &&[\s\S]*originalStyle === null[\s\S]*originalModifyPositionsMutation/);
 assert.match(persistence, /positionComponents[\s\S]*determinant <= 0\.000001/);
 assert.match(persistence, /positionOnlyMutation/);
 assert.match(reducer, /PositionTargetType\.INK/);

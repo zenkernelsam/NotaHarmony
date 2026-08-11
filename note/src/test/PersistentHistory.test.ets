@@ -345,11 +345,13 @@ export default function persistentHistoryTest() {
       createBlock.opType = OpType.ORIGINAL_CREATE_BLOCK;
       const insertText: Op = makeOp('original-insert-text');
       insertText.opType = OpType.ORIGINAL_INSERT_TEXT;
+      const textVisibility: Op = makeOp('original-text-visibility');
+      textVisibility.opType = OpType.ORIGINAL_TEXT_VISIBILITY;
       const state: PersistentHistoryState = reducePersistentHistory([
         makeOp('op-a', 'action-a', HistoryEffect.PUSH, 100),
         createPage, positions,
         makeOp('op-b', 'action-b', HistoryEffect.PUSH, 101),
-        recording, block, createBlock, insertText,
+        recording, block, createBlock, insertText, textVisibility,
       ]);
       expect(state.undo.length).assertEqual(2);
       expect(state.undo[0].actionId).assertEqual('action-a');
