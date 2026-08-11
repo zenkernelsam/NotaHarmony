@@ -114,6 +114,18 @@ export interface InkStyleMapEntry {
   backingDashPeriod: number;
 }
 
+// Reserved original CREATE_INK identity carried only by a newly-authored local stroke until
+// its original operation and Harmony history companion have committed atomically.
+export interface OriginalInkCreateMetadata {
+  timestamp: number;
+  siteId: number;
+  clientTime: number;
+  pageTimestamp: number;
+  pageSiteId: number;
+  pageIndex: number;
+  pencilSeed: number;
+}
+
 // 渲染态笔画（对应 s78 的移植等价物）
 export interface StrokeElementData {
   id: string;
@@ -131,5 +143,6 @@ export interface StrokeElementData {
   // Original AudioLinked timing. Decimal text preserves uint64 precision.
   audioStartTime?: string;
   audioDuration?: number | null;
+  originalCreate?: OriginalInkCreateMetadata;
   isFinished: boolean;
 }

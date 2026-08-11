@@ -36,7 +36,7 @@ assert.match(capture, /this\.pausedAtUptime > 0/);
 assert.match(session, /return this\.released \? null : this\.capture\.getCurrentAudioTime\(\)/);
 assert.match(page, /readRecordingAudioTime:[\s\S]*session\.getCurrentAudioTime\(\)/);
 assert.match(canvas,
-  /beginStroke\([\s\S]*this\.viewport\.zoom, this\.readRecordingAudioTime\(\)\)/);
+  /beginStroke\([\s\S]*this\.viewport\.zoom, this\.readRecordingAudioTime\(\), originalCreate\)/);
 assert.match(strokeSession, /private audioStartTime: string \| null = null/);
 assert.match(strokeSession, /audioStartTime: this\.audioStartTime === null \? undefined/);
 assert.doesNotMatch(strokeSession, /audioDuration:/);

@@ -3,9 +3,10 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
+// v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 58;
+export const DB_VERSION: number = 59;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -46,6 +47,16 @@ CREATE TABLE IF NOT EXISTS page_element_snapshot (
   revision INTEGER NOT NULL,
   element_order INTEGER NOT NULL,
   PRIMARY KEY(note_id, page_id, element_id, kind),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE,
+  FOREIGN KEY(note_id, page_id) REFERENCES page_info(note_id, page_id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_LOCAL_INK_AUTHORING_GUARD: string = `
+CREATE TABLE IF NOT EXISTS original_local_ink_authoring_guard (
+  note_id TEXT NOT NULL,
+  page_id TEXT NOT NULL,
+  blocked INTEGER NOT NULL CHECK (blocked IN (0, 1)),
+  PRIMARY KEY(note_id, page_id),
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE,
   FOREIGN KEY(note_id, page_id) REFERENCES page_info(note_id, page_id) ON DELETE CASCADE
 )`;
@@ -2403,4 +2414,5 @@ export const MIGRATIONS: Record<number, string[]> = {
   58: [
     DDL_ORIGINAL_APPLIED_OPERATION_TIME,
   ],
+  59: [DDL_ORIGINAL_LOCAL_INK_AUTHORING_GUARD],
 };

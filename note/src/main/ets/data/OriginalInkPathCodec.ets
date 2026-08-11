@@ -27,6 +27,11 @@ interface DecodedElement {
   attributed: boolean;
 }
 
+interface DecodedPoint {
+  point: Point2D;
+  nextOffset: number;
+}
+
 export class OriginalInkPathDeferredError extends Error {
   readonly deferredReason: string;
 
@@ -293,7 +298,7 @@ export function inkPathCommandBounds(commands: InkPathCommand[] | null | undefin
 }
 
 function decodePoint(bytes: Uint8Array, offset: number,
-  encoding: number): { point: Point2D, nextOffset: number } {
+  encoding: number): DecodedPoint {
   if (encoding === 0) {
     requireBytes(bytes, offset, 4);
     return { point: {

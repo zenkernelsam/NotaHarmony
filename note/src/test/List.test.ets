@@ -69,6 +69,7 @@ import originalCreateRecordingPayloadEncoderTest from './OriginalCreateRecording
 import originalRecordingSessionControllerTest from './OriginalRecordingSessionController.test';
 import originalRecordingPresentationTest from './OriginalRecordingPresentation.test';
 import originalCreatePagePayloadEncoderTest from './OriginalCreatePagePayloadEncoder.test';
+import originalCreateInkPayloadEncoderTest from './OriginalCreateInkPayloadEncoder.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -142,4 +143,5 @@ export default function testsuite() {
   originalRecordingSessionControllerTest();
   originalRecordingPresentationTest();
   originalCreatePagePayloadEncoderTest();
+  originalCreateInkPayloadEncoderTest();
 }

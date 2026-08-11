@@ -2,9 +2,9 @@ import { relationalStore } from '@kit.ArkData';
 import { PageInfo } from '../core/model/NoteTypes';
 import { parsePageBackground } from '../core/model/PageBackgroundModel';
 import { readEffectiveNoteBackground } from './OriginalSetMetadataOperation';
-import { HistoryEffect, HistoryMetadata } from '../core/model/OpTypes';
+import { HistoryEffect, HistoryMetadata, OpType } from '../core/model/OpTypes';
 import { taskpool, util } from '@kit.ArkTS';
-import { StrokeElementData } from '../core/model/StrokeTypes';
+import { OriginalInkCreateMetadata, StrokeElementData } from '../core/model/StrokeTypes';
 import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { cloneImageElement, imageBlockWorldBounds } from '../core/model/ImageBlockGeometry';
 import { cloneShapeElement, recomputeShapeBounds } from '../core/model/ShapeGeometry';
@@ -26,24 +26,27 @@ import {
 } from './PageMutationOpCodec';
 import { validateHistoryMetadata } from './PersistentHistoryMetadata';
 import { OriginalSelectionGroup } from '../core/model/OriginalGroupSelection';
-import { encodeOperationId, OperationIdentity, validateOperationIdentity } from './OperationIdentity';
+import {
+  decodeOperationId, encodeOperationId, OperationIdentity, OriginalSequenceIdentity,
+  validateOperationIdentity,
+} from './OperationIdentity';
+import { compareUnsignedLongDecimal } from './UnsignedDecimal';
+import { encodeOriginalLocalCreateInk } from './OriginalCreateInkPayloadEncoder';
+import {
+  ORIGINAL_CREATE_INK_PAYLOAD_TYPE, OriginalCreateInkOperationApplier,
+} from './OriginalCreateInkOperation';
+import {
+  encodeOriginalEntityVisibility,
+} from './OriginalDeleteEntitiesPayloadEncoder';
+import {
+  ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE, OriginalDeleteEntitiesOperationApplier,
+} from './OriginalDeleteEntitiesOperation';
+import {
+  StoredSyncedOperation, SyncedOperationApplyResult, SyncedOperationInboxState,
+} from './SyncedOperationInbox';
+import { decodePersistedElement, encodePersistedElement, PersistedElement } from './PersistedElementCodec';
 
-export interface PersistedElement {
-  kind: string;
-  data: StrokeElementData | TextBlockElement | ShapeElement | ImageElement | MathElement;
-}
-
-// page_element_snapshot.payload is a SQLite BLOB containing UTF-8 JSON bytes.
-// Keeping one codec for every read/write path prevents TEXT/BLOB affinity drift.
-export function encodePersistedElement(element: PersistedElement): Uint8Array {
-  const encoder = new util.TextEncoder();
-  return encoder.encodeInto(JSON.stringify(element));
-}
-
-export function decodePersistedElement(payload: Uint8Array): PersistedElement {
-  const decoder = util.TextDecoder.create('utf-8');
-  return JSON.parse(decoder.decodeToString(payload)) as PersistedElement;
-}
+export { decodePersistedElement, encodePersistedElement, PersistedElement };
 
 export interface LoadedElements {
   strokes: StrokeElementData[];
@@ -101,6 +104,18 @@ interface ParsedSearchText {
   foldedText: string;
 }
 
+interface OriginalOrderEntry {
+  key: string;
+  timestamp: number;
+  siteId: number;
+  zIndex: string;
+}
+
+interface OriginalEntityVisibilityMutation {
+  identity: OperationIdentity;
+  deleted: boolean;
+}
+
 @Concurrent
 function parseSearchTextPayloads(payloads: Uint8Array[]): ParsedSearchText[] {
   const result: ParsedSearchText[] = [];
@@ -133,6 +148,45 @@ export class StrokePersistence {
 
   isReady(): boolean {
     return this.store !== null;
+  }
+
+  async reserveOriginalInkCreate(noteId: string, pageId: string,
+    wallClockTime: number = Date.now()): Promise<OriginalInkCreateMetadata | null> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    return editorPersistenceMutex.runExclusive(async (): Promise<OriginalInkCreateMetadata | null> => {
+      if (this.store === null) {
+        throw new Error('StrokePersistence is not initialized');
+      }
+      const store: relationalStore.RdbStore = this.store;
+      await store.beginTransaction();
+      try {
+        const page: OriginalSequenceIdentity | null = await this.readEligibleOriginalInkPage(
+          store, noteId, pageId);
+        if (page === null) {
+          await store.commit();
+          return null;
+        }
+        const identity: AllocatedOperationIdentity = await allocateOperationIdentity(
+          store, noteId, wallClockTime);
+        const maximumZIndex: string | null = await this.readMaximumOriginalZIndex(store, noteId, page);
+        if (maximumZIndex !== null &&
+          compareUnsignedLongDecimal(maximumZIndex, identity.clientTime.toString()) > 0) {
+          await store.commit();
+          return null;
+        }
+        await store.commit();
+        return {
+          timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
+          pageTimestamp: page.timestamp, pageSiteId: page.siteId, pageIndex: page.index,
+          pencilSeed: 0,
+        };
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`reserve original CREATE_INK failed: ${JSON.stringify(e)}`);
+      }
+    });
   }
 
   queueSaveElements(noteId: string, pageId: string, strokes: StrokeElementData[],
@@ -405,6 +459,26 @@ export class StrokePersistence {
       const snapshotRevision: number = currentRevision + 1;
       const mutation: PageMutationOpPayload = createPageMutation(
         snapshot.pageId, currentRevision, snapshotRevision, current, snapshot.elements);
+      const originalVisibility: OriginalEntityVisibilityMutation | null =
+        this.singleOriginalEntityVisibility(current, snapshot.elements);
+      if (originalVisibility !== null) {
+        await this.applyOriginalEntityVisibility(store, snapshot, originalVisibility,
+          snapshotRevision);
+        await this.rebuildPageSearchState(store, snapshot, snapshotRevision,
+          handwritingSourceChanged(current, snapshot.elements));
+        await this.appendHistoryCompanion(store, snapshot, mutation);
+        await store.commit();
+        return;
+      }
+      const originalCreate: PreparedElement | null = this.singleReservedOriginalCreate(
+        current, snapshot.elements);
+      if (originalCreate !== null) {
+        await this.writeOriginalCreateInk(store, snapshot, current, originalCreate,
+          mutation, currentRevision, snapshotRevision);
+        await store.commit();
+        return;
+      }
+      await this.blockOriginalInkAuthoring(store, snapshot.noteId, snapshot.pageId);
       const pageRevision: relationalStore.ValuesBucket = { 'content_revision': snapshotRevision };
       const pagePredicates = new relationalStore.RdbPredicates('page_info');
       pagePredicates.equalTo('note_id', snapshot.noteId);
@@ -481,6 +555,125 @@ export class StrokePersistence {
     }
   }
 
+  private singleReservedOriginalCreate(current: SearchSourceElement[],
+    next: PreparedElement[]): PreparedElement | null {
+    if (next.length !== current.length + 1) {
+      return null;
+    }
+    for (let index: number = 0; index < current.length; index++) {
+      if (current[index].elementId !== next[index].elementId ||
+        current[index].kind !== next[index].kind ||
+        !sameByteArrays(current[index].payload, next[index].payload)) {
+        return null;
+      }
+    }
+    const added: PreparedElement = next[next.length - 1];
+    if (added.kind !== PageElementKind.STROKE) {
+      return null;
+    }
+    try {
+      const persisted: PersistedElement = decodePersistedElement(added.payload);
+      if (persisted.kind !== 'stroke') {
+        return null;
+      }
+      const stroke: StrokeElementData = persisted.data as StrokeElementData;
+      const original: OriginalInkCreateMetadata | undefined = stroke.originalCreate;
+      const identity: OperationIdentity | null = decodeOperationId(stroke.id);
+      return original !== undefined && identity !== null &&
+        identity.timestamp === original.timestamp && identity.siteId === original.siteId ? added : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  private async writeOriginalCreateInk(store: relationalStore.RdbStore,
+    snapshot: PreparedPageSave, current: SearchSourceElement[], added: PreparedElement,
+    mutation: PageMutationOpPayload, currentRevision: number, snapshotRevision: number): Promise<void> {
+    const persisted: PersistedElement = decodePersistedElement(added.payload);
+    const stroke: StrokeElementData = persisted.data as StrokeElementData;
+    const metadata: OriginalInkCreateMetadata = stroke.originalCreate as OriginalInkCreateMetadata;
+    const page: OriginalSequenceIdentity = {
+      timestamp: metadata.pageTimestamp, siteId: metadata.pageSiteId, index: metadata.pageIndex,
+    };
+    const eligible: OriginalSequenceIdentity | null = await this.readEligibleOriginalInkPage(
+      store, snapshot.noteId, snapshot.pageId);
+    if (eligible === null || eligible.timestamp !== page.timestamp || eligible.siteId !== page.siteId ||
+      eligible.index !== page.index) {
+      throw new Error('reserved local CREATE_INK page is no longer original-aligned');
+    }
+    const payload: Uint8Array = encodeOriginalLocalCreateInk(page, stroke);
+    const operation: StoredSyncedOperation = localStoredOperation(
+      snapshot.noteId, metadata, ORIGINAL_CREATE_INK_PAYLOAD_TYPE, payload,
+      stroke.audioStartTime === undefined ? null : stroke.audioStartTime);
+    const result: SyncedOperationApplyResult = await new OriginalCreateInkOperationApplier().apply(
+      store, operation);
+    if (result.deferredReason !== null) {
+      throw new Error(`local CREATE_INK was deferred: ${result.deferredReason}`);
+    }
+    await appendOperation(store, {
+      noteId: snapshot.noteId, opId: stroke.id, opType: OpType.ORIGINAL_CREATE_INK,
+      payload: payload, clientTime: metadata.clientTime, opTimestamp: metadata.timestamp,
+      editorSiteId: metadata.siteId, uploadImmediately: true,
+    });
+    const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+      store, snapshot.noteId, snapshot.pageId);
+    if (!samePreparedIdentityOrder(materialized, snapshot.elements)) {
+      throw new Error('local CREATE_INK reducer produced an unexpected element order');
+    }
+    for (let index: number = 0; index < snapshot.elements.length; index++) {
+      const element: PreparedElement = snapshot.elements[index];
+      const predicates = new relationalStore.RdbPredicates('page_element_snapshot');
+      predicates.equalTo('note_id', snapshot.noteId);
+      predicates.equalTo('page_id', snapshot.pageId);
+      predicates.equalTo('element_id', element.elementId);
+      predicates.equalTo('kind', element.kind);
+      const values: relationalStore.ValuesBucket = {
+        'revision': snapshotRevision, 'element_order': index,
+      };
+      if (element.elementId === added.elementId && element.kind === added.kind) {
+        values['payload'] = added.payload;
+      }
+      if (await store.update(values, predicates) !== 1) {
+        throw new Error('local CREATE_INK snapshot reconciliation lost an element');
+      }
+    }
+    await this.rebuildPageSearchState(store, snapshot, snapshotRevision, true);
+    await this.appendHistoryCompanion(store, snapshot, mutation);
+    if (currentRevision + 1 !== snapshotRevision) {
+      throw new Error('local CREATE_INK revision contract changed');
+    }
+  }
+
+  private async appendHistoryCompanion(store: relationalStore.RdbStore,
+    snapshot: PreparedPageSave, mutation: PageMutationOpPayload): Promise<void> {
+    const companion: AllocatedOperationIdentity = await allocateOperationIdentity(store, snapshot.noteId);
+    await appendOperation(store, {
+      noteId: snapshot.noteId, opId: companion.opId, opType: classifyPageMutation(mutation),
+      payload: encodePageMutationOp(mutation), clientTime: companion.clientTime,
+      opTimestamp: companion.timestamp, editorSiteId: companion.siteId, history: snapshot.history,
+    });
+  }
+
+  private async rebuildPageSearchState(store: relationalStore.RdbStore,
+    snapshot: PreparedPageSave, revision: number, sourceChanged: boolean): Promise<void> {
+    await this.deletePageSearchType(store, snapshot.noteId, snapshot.pageId, SearchItemType.TEXT_BLOCK);
+    if (sourceChanged) {
+      await this.deletePageSearchType(store, snapshot.noteId, snapshot.pageId, SearchItemType.INK);
+    }
+    for (const element of snapshot.elements) {
+      if (element.searchText !== null) {
+        await store.insert('search_item', {
+          'note_id': snapshot.noteId, 'type': SearchItemType.TEXT_BLOCK,
+          'sub_id': element.elementId, 'page_id': snapshot.pageId,
+          'folded_text': element.searchText, 'rects': null,
+        }, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+      }
+    }
+    await store.insert('search_page_state', {
+      'note_id': snapshot.noteId, 'page_id': snapshot.pageId, 'indexed_revision': revision,
+    }, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+  }
+
   private async writeHistoryGroupLocked(initial: PreparedPageSave, steps: PreparedPageSave[]): Promise<void> {
     if (this.store === null) {
       throw new Error('StrokePersistence is not initialized');
@@ -505,6 +698,7 @@ export class StrokePersistence {
         throw new Error('history group database source does not match the editor');
       }
       const original: SearchSourceElement[] = current;
+      let sourceChanged: boolean = false;
       for (const step of steps) {
         if (!pageSnapshotChanged(current, step.elements) || step.history === undefined) {
           throw new Error('history group contains an empty mutation');
@@ -512,6 +706,14 @@ export class StrokePersistence {
         const nextRevision: number = currentRevision + 1;
         const mutation: PageMutationOpPayload = createPageMutation(
           step.pageId, currentRevision, nextRevision, current, step.elements);
+        const originalVisibility: OriginalEntityVisibilityMutation | null =
+          this.singleOriginalEntityVisibility(current, step.elements);
+        if (originalVisibility === null) {
+          await this.materializePreparedPage(store, step, currentRevision, nextRevision);
+        } else {
+          await this.applyOriginalEntityVisibility(store, step, originalVisibility,
+            nextRevision);
+        }
         const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, step.noteId);
         await appendOperation(store, {
           opId: identity.opId,
@@ -523,52 +725,133 @@ export class StrokePersistence {
           editorSiteId: identity.siteId,
           history: step.history,
         });
+        sourceChanged = sourceChanged || handwritingSourceChanged(current, step.elements);
         currentRevision = nextRevision;
         current = step.elements;
       }
-      const pageRevision: relationalStore.ValuesBucket = { 'content_revision': currentRevision };
-      const pagePredicates = new relationalStore.RdbPredicates('page_info');
-      pagePredicates.equalTo('note_id', initial.noteId);
-      pagePredicates.equalTo('page_id', initial.pageId);
-      const revisedPages: number = await store.update(pageRevision, pagePredicates);
-      if (revisedPages !== 1) {
-        throw new Error(`expected one page revision update, got ${revisedPages}`);
-      }
-      const del = new relationalStore.RdbPredicates('page_element_snapshot');
-      del.equalTo('note_id', initial.noteId);
-      del.equalTo('page_id', initial.pageId);
-      await store.delete(del);
       const final: PreparedPageSave = steps[steps.length - 1];
-      const buckets: relationalStore.ValuesBucket[] = [];
-      for (let seq: number = 0; seq < final.elements.length; seq++) {
-        const element: PreparedElement = final.elements[seq];
-        buckets.push({
-          'note_id': final.noteId, 'page_id': final.pageId, 'element_id': element.elementId,
-          'kind': element.kind, 'payload': element.payload, 'revision': currentRevision, 'element_order': seq,
-        });
-      }
-      if (buckets.length > 0) {
-        await store.batchInsert('page_element_snapshot', buckets);
-      }
-      await this.deletePageSearchType(store, final.noteId, final.pageId, SearchItemType.TEXT_BLOCK);
-      if (handwritingSourceChanged(original, final.elements)) {
-        await this.deletePageSearchType(store, final.noteId, final.pageId, SearchItemType.INK);
-      }
-      for (const element of final.elements) {
-        if (element.searchText !== null) {
-          await store.insert('search_item', {
-            'note_id': final.noteId, 'type': SearchItemType.TEXT_BLOCK, 'sub_id': element.elementId,
-            'page_id': final.pageId, 'folded_text': element.searchText, 'rects': null,
-          }, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
-        }
-      }
-      await store.insert('search_page_state', {
-        'note_id': final.noteId, 'page_id': final.pageId, 'indexed_revision': currentRevision,
-      }, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+      await this.rebuildPageSearchState(store, final, currentRevision,
+        sourceChanged || handwritingSourceChanged(original, final.elements));
       await store.commit();
     } catch (e) {
       await store.rollBack();
       throw new Error(`save history group failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  private singleOriginalEntityVisibility(current: SearchSourceElement[],
+    next: PreparedElement[]): OriginalEntityVisibilityMutation | null {
+    const deleted: boolean = current.length === next.length + 1;
+    const undeleted: boolean = next.length === current.length + 1;
+    if (!deleted && !undeleted) {
+      return null;
+    }
+    const larger: (SearchSourceElement | PreparedElement)[] = deleted ? current : next;
+    const smaller: (SearchSourceElement | PreparedElement)[] = deleted ? next : current;
+    let largerIndex: number = 0;
+    let smallerIndex: number = 0;
+    let target: SearchSourceElement | PreparedElement | null = null;
+    while (largerIndex < larger.length) {
+      if (smallerIndex < smaller.length &&
+        sameElement(larger[largerIndex], smaller[smallerIndex])) {
+        largerIndex++;
+        smallerIndex++;
+      } else if (target === null) {
+        target = larger[largerIndex++];
+      } else {
+        return null;
+      }
+    }
+    if (target === null || smallerIndex !== smaller.length || target.kind !== PageElementKind.STROKE) {
+      return null;
+    }
+    try {
+      const persisted: PersistedElement = decodePersistedElement(target.payload);
+      if (persisted.kind !== 'stroke') {
+        return null;
+      }
+      const stroke: StrokeElementData = persisted.data as StrokeElementData;
+      const identity: OperationIdentity | null = decodeOperationId(stroke.id);
+      return stroke.originalCreate !== undefined && identity !== null ?
+        { identity: identity, deleted: deleted } : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  private async applyOriginalEntityVisibility(store: relationalStore.RdbStore,
+    step: PreparedPageSave, visibility: OriginalEntityVisibilityMutation,
+    expectedRevision: number): Promise<void> {
+    const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, step.noteId);
+    const payload: Uint8Array = encodeOriginalEntityVisibility(
+      visibility.deleted ? [visibility.identity] : [], visibility.deleted ? [] : [visibility.identity]);
+    const metadata: OriginalInkCreateMetadata = {
+      timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
+      pageTimestamp: 0, pageSiteId: 0, pageIndex: 0,
+      pencilSeed: 0,
+    };
+    const operation: StoredSyncedOperation = localStoredOperation(
+      step.noteId, metadata, ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE, payload, null);
+    const result: SyncedOperationApplyResult = await new OriginalDeleteEntitiesOperationApplier().apply(
+      store, operation);
+    if (result.deferredReason !== null) {
+      throw new Error(`local Ink visibility was deferred: ${result.deferredReason}`);
+    }
+    await appendOperation(store, {
+      noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_DELETE_ENTITIES,
+      payload: payload, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+      editorSiteId: identity.siteId, uploadImmediately: true,
+    });
+    const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+      store, step.noteId, step.pageId);
+    if (!samePreparedIdentityOrder(materialized, step.elements)) {
+      throw new Error('local Ink visibility reducer produced an unexpected element order');
+    }
+    await this.reconcilePreparedRows(store, step, expectedRevision);
+  }
+
+  private async materializePreparedPage(store: relationalStore.RdbStore,
+    step: PreparedPageSave, currentRevision: number, nextRevision: number): Promise<void> {
+    await this.blockOriginalInkAuthoring(store, step.noteId, step.pageId);
+    const predicates = new relationalStore.RdbPredicates('page_info');
+    predicates.equalTo('note_id', step.noteId);
+    predicates.equalTo('page_id', step.pageId);
+    predicates.equalTo('content_revision', currentRevision);
+    if (await store.update({ 'content_revision': nextRevision }, predicates) !== 1) {
+      throw new Error('history page revision changed concurrently');
+    }
+    const del = new relationalStore.RdbPredicates('page_element_snapshot');
+    del.equalTo('note_id', step.noteId);
+    del.equalTo('page_id', step.pageId);
+    await store.delete(del);
+    const buckets: relationalStore.ValuesBucket[] = [];
+    for (let index: number = 0; index < step.elements.length; index++) {
+      const element: PreparedElement = step.elements[index];
+      buckets.push({
+        'note_id': step.noteId, 'page_id': step.pageId, 'element_id': element.elementId,
+        'kind': element.kind, 'payload': element.payload, 'revision': nextRevision,
+        'element_order': index,
+      });
+    }
+    if (buckets.length > 0) {
+      await store.batchInsert('page_element_snapshot', buckets);
+    }
+  }
+
+  private async reconcilePreparedRows(store: relationalStore.RdbStore,
+    step: PreparedPageSave, revision: number): Promise<void> {
+    for (let index: number = 0; index < step.elements.length; index++) {
+      const element: PreparedElement = step.elements[index];
+      const predicates = new relationalStore.RdbPredicates('page_element_snapshot');
+      predicates.equalTo('note_id', step.noteId);
+      predicates.equalTo('page_id', step.pageId);
+      predicates.equalTo('element_id', element.elementId);
+      predicates.equalTo('kind', element.kind);
+      if (await store.update({
+        'payload': element.payload, 'revision': revision, 'element_order': index,
+      }, predicates) !== 1) {
+        throw new Error('history original visibility reconciliation lost an element');
+      }
     }
   }
 
@@ -757,6 +1040,117 @@ export class StrokePersistence {
     return current;
   }
 
+  private async readEligibleOriginalInkPage(store: relationalStore.RdbStore,
+    noteId: string, pageId: string): Promise<OriginalSequenceIdentity | null> {
+    const guard = await store.querySql(
+      `SELECT blocked FROM original_local_ink_authoring_guard
+       WHERE note_id = ? AND page_id = ?`, [noteId, pageId]);
+    try {
+      if (guard.goToFirstRow() && guard.getLong(guard.getColumnIndex('blocked')) !== 0) {
+        return null;
+      }
+    } finally {
+      guard.close();
+    }
+    const identityRows = await store.querySql(
+      `SELECT seq_timestamp, seq_site_id, seq_index FROM original_page_identity
+       WHERE note_id = ? AND page_id = ? AND visible = 1`, [noteId, pageId]);
+    let page: OriginalSequenceIdentity | null = null;
+    try {
+      if (identityRows.goToFirstRow()) {
+        page = {
+          timestamp: identityRows.getLong(identityRows.getColumnIndex('seq_timestamp')),
+          siteId: identityRows.getLong(identityRows.getColumnIndex('seq_site_id')),
+          index: identityRows.getLong(identityRows.getColumnIndex('seq_index')),
+        };
+      }
+    } finally {
+      identityRows.close();
+    }
+    if (page === null) {
+      return null;
+    }
+    const snapshot = await store.querySql(
+      `SELECT element_id, kind FROM page_element_snapshot WHERE note_id = ? AND page_id = ?
+       ORDER BY element_order`, [noteId, pageId]);
+    const actual: string[] = [];
+    try {
+      while (snapshot.goToNextRow()) {
+        actual.push(`${snapshot.getLong(snapshot.getColumnIndex('kind'))}:` +
+          snapshot.getString(snapshot.getColumnIndex('element_id')));
+      }
+    } finally {
+      snapshot.close();
+    }
+    const tracked = await store.querySql(
+      `SELECT element_timestamp, element_site_id, kind, z_index FROM original_element_z_index
+       WHERE note_id = ? AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+       AND visible = 1`, [noteId, page.timestamp, page.siteId, page.index]);
+    const original: OriginalOrderEntry[] = [];
+    try {
+      while (tracked.goToNextRow()) {
+        const timestamp: number = tracked.getLong(tracked.getColumnIndex('element_timestamp'));
+        const siteId: number = tracked.getLong(tracked.getColumnIndex('element_site_id'));
+        original.push({
+          key: `${tracked.getLong(tracked.getColumnIndex('kind'))}:` +
+            encodeOperationId({ timestamp: timestamp, siteId: siteId }),
+          timestamp: timestamp, siteId: siteId,
+          zIndex: tracked.getString(tracked.getColumnIndex('z_index')),
+        });
+      }
+    } finally {
+      tracked.close();
+    }
+    original.sort(compareOriginalOrderEntries);
+    if (actual.length !== original.length) {
+      return null;
+    }
+    for (let index: number = 0; index < actual.length; index++) {
+      if (actual[index] !== original[index].key) {
+        return null;
+      }
+    }
+    return page;
+  }
+
+  private async blockOriginalInkAuthoring(store: relationalStore.RdbStore,
+    noteId: string, pageId: string): Promise<void> {
+    const original = await store.querySql(
+      `SELECT 1 FROM original_page_identity WHERE note_id = ? AND page_id = ? LIMIT 1`,
+      [noteId, pageId]);
+    let hasOriginalIdentity: boolean = false;
+    try {
+      hasOriginalIdentity = original.goToFirstRow();
+    } finally {
+      original.close();
+    }
+    if (hasOriginalIdentity) {
+      await store.insert('original_local_ink_authoring_guard', {
+        'note_id': noteId, 'page_id': pageId, 'blocked': 1,
+      }, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+    }
+  }
+
+  private async readMaximumOriginalZIndex(store: relationalStore.RdbStore, noteId: string,
+    page: OriginalSequenceIdentity): Promise<string | null> {
+    const rows = await store.querySql(
+      `SELECT z_index FROM original_element_z_index WHERE note_id = ? AND page_timestamp = ?
+       AND page_site_id = ? AND page_index = ? AND visible = 1`,
+      [noteId, page.timestamp, page.siteId, page.index]);
+    let maximum: string | null = null;
+    try {
+      while (rows.goToNextRow()) {
+        const value: string = rows.getString(rows.getColumnIndex('z_index'));
+        if (maximum === null || compareUnsignedLongDecimal(maximum, value) < 0) {
+          maximum = value;
+        }
+      }
+    } finally {
+      rows.close();
+    }
+    return maximum;
+  }
+
   private async loadMatchingElements(noteId: string, pageId: string | null): Promise<LoadedElements> {
     const result: LoadedElements = {
       strokes: [], textBlocks: [], shapes: [], images: [], mathBlocks: [],
@@ -878,4 +1272,60 @@ export class StrokePersistence {
     return groups;
   }
 
+}
+
+function compareOriginalOrderEntries(left: OriginalOrderEntry,
+  right: OriginalOrderEntry): number {
+  let compared: number = compareUnsignedLongDecimal(left.zIndex, right.zIndex);
+  if (compared !== 0) {
+    return compared;
+  }
+  compared = left.timestamp === right.timestamp ? 0 : left.timestamp < right.timestamp ? -1 : 1;
+  if (compared !== 0) {
+    return compared;
+  }
+  return left.siteId === right.siteId ? 0 : left.siteId < right.siteId ? -1 : 1;
+}
+
+function sameByteArrays(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index: number = 0; index < left.length; index++) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function samePreparedIdentityOrder(current: SearchSourceElement[],
+  expected: PreparedElement[]): boolean {
+  if (current.length !== expected.length) {
+    return false;
+  }
+  for (let index: number = 0; index < current.length; index++) {
+    if (current[index].elementId !== expected[index].elementId ||
+      current[index].kind !== expected[index].kind) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sameElement(left: SearchSourceElement | PreparedElement,
+  right: SearchSourceElement | PreparedElement): boolean {
+  return left.elementId === right.elementId && left.kind === right.kind &&
+    sameByteArrays(left.payload, right.payload);
+}
+
+function localStoredOperation(noteId: string, metadata: OriginalInkCreateMetadata,
+  payloadType: number, payload: Uint8Array, audioTime: string | null): StoredSyncedOperation {
+  return {
+    noteId: noteId, timestamp: metadata.timestamp, siteId: metadata.siteId,
+    clientTime: metadata.clientTime.toString(), serverTime: '0', audioTime: audioTime,
+    schemaVersion: 1, payloadType: payloadType, rawOperation: payload,
+    state: SyncedOperationInboxState.APPLIED, deferredReason: null,
+    receivedAt: metadata.clientTime,
+  };
 }

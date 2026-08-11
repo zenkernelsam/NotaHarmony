@@ -5,9 +5,29 @@ import {
 import { MAX_ORIGINAL_DELETE_ENTITY_COUNT } from './OriginalDeleteEntitiesOperation';
 
 export function encodeOriginalEntityDeletes(entities: OperationIdentity[]): Uint8Array {
-  if (entities.length === 0 || entities.length > MAX_ORIGINAL_DELETE_ENTITY_COUNT) {
-    throw new Error('original entity delete payload has an invalid target count');
+  return encodeOriginalEntityVisibility(entities, []);
+}
+
+export function encodeOriginalEntityVisibility(entityDeletes: OperationIdentity[],
+  entityUndeletes: OperationIdentity[]): Uint8Array {
+  if (entityDeletes.length + entityUndeletes.length === 0 ||
+    entityDeletes.length > MAX_ORIGINAL_DELETE_ENTITY_COUNT ||
+    entityUndeletes.length > MAX_ORIGINAL_DELETE_ENTITY_COUNT) {
+    throw new Error('original entity visibility payload has an invalid target count');
   }
+  const deletes: OperationIdentity[] = deduplicateOperations(entityDeletes);
+  const undeletes: OperationIdentity[] = deduplicateOperations(entityUndeletes);
+  const deletedKeys: Set<string> = new Set<string>(deletes.map(
+    (identity: OperationIdentity): string => encodeOperationId(identity)));
+  for (const identity of undeletes) {
+    if (deletedKeys.has(encodeOperationId(identity))) {
+      throw new Error('original entity cannot be deleted and undeleted together');
+    }
+  }
+  return encodeVisibilityVectors(deletes, undeletes, [], []);
+}
+
+function deduplicateOperations(entities: OperationIdentity[]): OperationIdentity[] {
   const deduplicated: OperationIdentity[] = [];
   const seen: Set<string> = new Set<string>();
   for (const entity of entities) {
@@ -19,7 +39,7 @@ export function encodeOriginalEntityDeletes(entities: OperationIdentity[]): Uint
     }
   }
 
-  return encodeVisibilityVectors(deduplicated, [], [], []);
+  return deduplicated;
 }
 
 export function encodeOriginalPageVisibility(pageDeletes: OriginalSequenceIdentity[],

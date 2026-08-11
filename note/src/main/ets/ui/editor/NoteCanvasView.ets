@@ -55,7 +55,8 @@ import {
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import {
-  InkPathCommand, InkStyleMapEntry, RenderSpec, StrokeElementData, StrokePathPoint,
+  InkPathCommand, InkStyleMapEntry, OriginalInkCreateMetadata, RenderSpec,
+  StrokeElementData, StrokePathPoint,
   InputBatch, InputBatchKind,
   PencilSplatPoint,
 } from '../../core/model/StrokeTypes';
@@ -166,6 +167,11 @@ export struct NoteCanvasView {
   private undoRedo: UndoRedoManager = new UndoRedoManager();
   private shapeDetector: ShapeDetector = new ShapeDetector();
   private persistence: StrokePersistence = new StrokePersistence();
+  private originalInkReservation: OriginalInkCreateMetadata | null = null;
+  private originalInkReservationPromise: Promise<OriginalInkCreateMetadata | null> | null = null;
+  private originalInkReservationGeneration: number = -1;
+  private originalInkReservationPageId: string = '';
+  private originalInkIneligiblePages: Set<string> = new Set<string>();
   private database: DatabaseManager | null = null;
   private imageAssetLoader: ImageAssetLoader | null = null;
   private imageAssets: Map<string, LoadedImageAsset> = new Map<string, LoadedImageAsset>();
@@ -294,6 +300,7 @@ export struct NoteCanvasView {
       this.persistence.initialize(db);
       const loaded = await this.persistence.loadElements(this.noteId, targetPageId);
       await this.loadOriginalInkAudioStarts(db);
+      await this.refreshOriginalInkReservation(generation, targetPageId);
       if (generation !== this.pageLoadGeneration || this.currentPage.pageId !== targetPageId) {
         return;
       }
@@ -393,11 +400,17 @@ export struct NoteCanvasView {
     return null;
   }
 
-  private persist(): void {
+  private persist(rearmOriginalInk: boolean = false): void {
     if (this.loaded && !this.dataLoading && !this.dataLoadFailed && this.persistence.isReady() &&
       this.noteId.length > 0 && this.loadedPageId.length > 0 &&
       this.loadedPageId !== this.skipSavePageId) {
       const pageId: string = this.loadedPageId;
+      this.originalInkReservation = null;
+      if (rearmOriginalInk) {
+        this.originalInkIneligiblePages.delete(pageId);
+      } else {
+        this.originalInkIneligiblePages.add(pageId);
+      }
       try {
         const historyRevision: number = this.undoRedo.getHistoryRevision();
         const preserveActionBoundary: boolean = historyRevision !== this.lastQueuedHistoryRevision;
@@ -410,9 +423,66 @@ export struct NoteCanvasView {
           if (!this.persistence.hasDirtySave(this.noteId, pageId)) {
             this.saveFailed = false;
           }
+          if (rearmOriginalInk) {
+            this.refreshOriginalInkReservation(this.pageLoadGeneration, pageId);
+          }
         }).catch((e: Object) => this.reportSaveFailure(e));
       } catch (e) {
         this.reportSaveFailure(e as Object);
+      }
+    }
+  }
+
+  private async refreshOriginalInkReservation(generation: number,
+    pageId: string): Promise<OriginalInkCreateMetadata | null> {
+    if (!this.persistence.isReady() || pageId.length === 0 ||
+      generation !== this.pageLoadGeneration || this.currentPage.pageId !== pageId ||
+      this.originalInkIneligiblePages.has(pageId)) {
+      return null;
+    }
+    if (this.originalInkReservation !== null) {
+      return this.originalInkReservation;
+    }
+    if (this.originalInkReservationPromise !== null) {
+      const inFlight: Promise<OriginalInkCreateMetadata | null> = this.originalInkReservationPromise;
+      if (this.originalInkReservationGeneration === generation &&
+        this.originalInkReservationPageId === pageId) {
+        try {
+          return await inFlight;
+        } catch (_error) {
+          return null;
+        }
+      }
+      try {
+        await inFlight;
+      } catch (_error) {
+        // The owning request reports its own failure. A current page may still be eligible.
+      }
+      if (generation !== this.pageLoadGeneration || this.currentPage.pageId !== pageId) {
+        return null;
+      }
+      return this.refreshOriginalInkReservation(generation, pageId);
+    }
+    const pending: Promise<OriginalInkCreateMetadata | null> =
+      this.persistence.reserveOriginalInkCreate(this.noteId, pageId);
+    this.originalInkReservationPromise = pending;
+    this.originalInkReservationGeneration = generation;
+    this.originalInkReservationPageId = pageId;
+    try {
+      const reserved: OriginalInkCreateMetadata | null = await pending;
+      if (generation === this.pageLoadGeneration && this.currentPage.pageId === pageId) {
+        this.originalInkReservation = reserved;
+      }
+      return reserved;
+    } catch (e) {
+      hilog.error(0x0001, 'NoteCanvasView',
+        'original CREATE_INK reservation skipped: %{public}s', JSON.stringify(e));
+      return null;
+    } finally {
+      if (this.originalInkReservationPromise === pending) {
+        this.originalInkReservationPromise = null;
+        this.originalInkReservationGeneration = -1;
+        this.originalInkReservationPageId = '';
       }
     }
   }
@@ -624,6 +694,7 @@ export struct NoteCanvasView {
       return;
     }
     const generation: number = ++this.pageLoadGeneration;
+    this.originalInkReservation = null;
     const fromPageId: string = this.loadedPageId;
     const targetPageId: string = this.currentPage.pageId;
     const snapshot: PageContentSnapshot = this.captureCurrentPage();
@@ -648,6 +719,7 @@ export struct NoteCanvasView {
       if (db !== null) {
         await this.loadOriginalInkAudioStarts(db);
       }
+      await this.refreshOriginalInkReservation(generation, targetPageId);
       if (generation !== this.pageLoadGeneration || this.currentPage.pageId !== targetPageId) {
         return;
       }
@@ -1192,9 +1264,15 @@ export struct NoteCanvasView {
     const batches: PointerInputBatches = this.pointerStream.append(
       this.collectPointerSamples(event, touch));
     const startTime: number = this.firstBatchTimestamp(batches, event.timestamp);
+    const originalCreate: OriginalInkCreateMetadata | null = this.originalInkReservation;
+    this.originalInkReservation = null;
+    if (originalCreate !== null) {
+      originalCreate.clientTime = Math.max(originalCreate.clientTime, Date.now());
+      originalCreate.pencilSeed = startTime | 0;
+    }
     // T-040 审核修复：传入当前 zoom（拟合容差按屏幕空间计算）
     this.strokeSession.beginStroke(
-      spec, startTime, this.viewport.zoom, this.readRecordingAudioTime());
+      spec, startTime, this.viewport.zoom, this.readRecordingAudioTime(), originalCreate);
     this.inputProvider.beginStroke(startTime);
     this.predictor.reset();
     this.addPointerBatches(batches);
@@ -1364,7 +1442,7 @@ export struct NoteCanvasView {
       }
       hilog.info(0x0001, 'NoteCanvasView', 'pushed drawing element, canUndo=%{public}s',
         this.undoRedo.canUndo().toString());
-      this.persist();
+      this.persist(finalShapes.length === 0 && stroke.originalCreate !== undefined);
       this.notifyUndoRedo();
       hilog.info(0x0001, 'NoteCanvasView', 'after notify, canUndo=%{public}s',
         this.undoRedo.canUndo().toString());
@@ -1383,6 +1461,7 @@ export struct NoteCanvasView {
     this.heldShapes = [];
     if (this.strokeSession !== null && this.strokeSession.isActive()) {
       this.strokeSession.cancelStroke();
+      this.refreshOriginalInkReservation(this.pageLoadGeneration, this.loadedPageId);
     }
     if (this.selectionDrag) {
       this.completedStrokes = this.dragBeforeStrokes.slice();
@@ -1709,6 +1788,7 @@ export struct NoteCanvasView {
     const touchesImages: boolean = group.some(
       (move: HistoryMove): boolean => this.actionTouchesImages(move.action));
     try {
+      this.originalInkReservation = null;
       await this.persistence.flush(this.noteId, this.loadedPageId);
       const initial: HistoryPageSnapshot = this.captureHistoryPageSnapshot();
       const steps: HistoryPageSnapshot[] = [];
@@ -1731,6 +1811,14 @@ export struct NoteCanvasView {
         throw new Error('history group stack changed after durable apply');
       }
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+      const originalInkOnly: boolean = group.every((move: HistoryMove): boolean =>
+        this.isOriginalAddStrokeAction(move.action));
+      if (originalInkOnly) {
+        this.originalInkIneligiblePages.delete(this.loadedPageId);
+        this.refreshOriginalInkReservation(this.pageLoadGeneration, this.loadedPageId);
+      } else {
+        this.originalInkIneligiblePages.add(this.loadedPageId);
+      }
       this.notifyUndoRedo();
       if (touchesImages) {
         this.refreshImageAssets(this.pageLoadGeneration, this.loadedPageId);
@@ -1769,9 +1857,14 @@ export struct NoteCanvasView {
     if (!committed) {
       hilog.error(0x0001, 'NoteCanvasView', 'history commit rejected after apply, type=%{public}d', action.type);
     } else if (!this.isPageAction(action.type)) {
-      this.persist();
+      this.persist(this.isOriginalAddStrokeAction(action));
     }
     this.notifyUndoRedo();
+  }
+
+  private isOriginalAddStrokeAction(action: UndoableAction): boolean {
+    return action.type === UndoableActionType.ADD_STROKE && action.addedStrokes.length === 1 &&
+      action.addedStrokes[0].originalCreate !== undefined;
   }
 
   private resumePendingHistory(): void {

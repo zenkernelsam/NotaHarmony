@@ -7,7 +7,7 @@ import {
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { encodeOperationId, OriginalSequenceIdentity,
   validateOriginalSequenceIdentity } from './OperationIdentity';
-import { decodePersistedElement, encodePersistedElement, PersistedElement } from './StrokePersistence';
+import { decodePersistedElement, encodePersistedElement, PersistedElement } from './PersistedElementCodec';
 import { SearchItemType } from './SearchItemType';
 import {
   OriginalFlatBufferTableReader, readOriginalInlineFloat32, readOriginalPayloadTable,
@@ -234,7 +234,10 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       if (_error instanceof PencilSplatLimitError) {
         return { deferredReason: 'CREATE_INK_PENCIL_SPLAT_BUDGET_EXCEEDED' };
       }
-      throw _error;
+      if (_error instanceof Error) {
+        throw _error;
+      }
+      throw new Error('CREATE_INK_BUILD_FAILED');
     }
     await store.insert('original_element_z_index', {
       'note_id': operation.noteId,
@@ -644,14 +647,15 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       if (persisted.kind !== 'stroke') {
         return false;
       }
-      return (persisted.data.renderSpec.inkEffects === undefined ? '0' :
-        persisted.data.renderSpec.inkEffects) === effects &&
-        (persisted.data.renderSpec.inkEffectsTinted === undefined ? true :
-          persisted.data.renderSpec.inkEffectsTinted) === tinted &&
-        (persisted.data.renderSpec.inkEffectPhase === undefined ? 0 :
-          persisted.data.renderSpec.inkEffectPhase) === phase &&
-        (persisted.data.renderSpec.tapePattern === undefined ? null :
-          persisted.data.renderSpec.tapePattern) === tapePattern;
+      const stroke: StrokeElementData = persisted.data as StrokeElementData;
+      return (stroke.renderSpec.inkEffects === undefined ? '0' :
+        stroke.renderSpec.inkEffects) === effects &&
+        (stroke.renderSpec.inkEffectsTinted === undefined ? true :
+          stroke.renderSpec.inkEffectsTinted) === tinted &&
+        (stroke.renderSpec.inkEffectPhase === undefined ? 0 :
+          stroke.renderSpec.inkEffectPhase) === phase &&
+        (stroke.renderSpec.tapePattern === undefined ? null :
+          stroke.renderSpec.tapePattern) === tapePattern;
     } catch (_error) {
       return false;
     } finally {

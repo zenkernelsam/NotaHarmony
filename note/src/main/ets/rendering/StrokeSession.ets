@@ -3,6 +3,7 @@
 import {
   InputBatch, InputBatchKind, InputPoint, StrokeElementData, StrokePathPoint,
   PencilSplatPoint, RenderSpec, InkStyle,
+  OriginalInkCreateMetadata,
 } from '../core/model/StrokeTypes';
 import { CubicSegment, Rect2D } from '../core/model/GeometryTypes';
 import { ForceSmoother } from '../core/algorithm/ForceSmoother';
@@ -44,6 +45,7 @@ export class StrokeSession {
   private startTime: number = 0;
   private audioStartTime: string | null = null;
   private currentStroke: StrokeElementData | null = null;
+  private originalCreate: OriginalInkCreateMetadata | null = null;
   // T-040 审核修复：画布缩放感知（拟合容差按屏幕空间计算）
   private zoom: number = 1.0;
 
@@ -75,7 +77,8 @@ export class StrokeSession {
 
   // 开始新笔画
   beginStroke(spec: RenderSpec, timestamp: number, zoom?: number,
-    audioStartTime: string | null = null): void {
+    audioStartTime: string | null = null,
+    originalCreate: OriginalInkCreateMetadata | null = null): void {
     this.renderSpec = spec;
     if (zoom !== undefined && zoom > 0) {
       this.zoom = zoom;
@@ -91,7 +94,9 @@ export class StrokeSession {
     this.active = true;
     this.startTime = timestamp;
     this.audioStartTime = audioStartTime;
-    this.strokeId = this.generateStrokeId();
+    this.originalCreate = originalCreate;
+    this.strokeId = originalCreate === null ? this.generateStrokeId() :
+      `op:${originalCreate.timestamp.toString(16)}:${originalCreate.siteId.toString(16)}`;
     this.smoother.reset();
     // 按当前笔刷宽度重建 splat 生成器（xaa 的 spacing = c0()），seed 用笔画起始时间戳
     this.splatGenerator = new PencilSplatGenerator({ spacing: this.renderSpec.brushWidth });
@@ -233,6 +238,18 @@ export class StrokeSession {
       bounds: bounds,
       maskPath: [],
       audioStartTime: this.audioStartTime === null ? undefined : this.audioStartTime,
+      originalCreate: this.originalCreate === null ? undefined : {
+        timestamp: this.originalCreate.timestamp, siteId: this.originalCreate.siteId,
+        clientTime: this.originalCreate.clientTime,
+        pageTimestamp: this.originalCreate.pageTimestamp,
+        pageSiteId: this.originalCreate.pageSiteId, pageIndex: this.originalCreate.pageIndex,
+        pencilSeed: this.originalCreate.pencilSeed,
+      },
+      styleMap: this.originalCreate !== null && this.renderSpec.isPencil ? [{
+        backingPencilSeed: this.originalCreate.pencilSeed,
+        backingPencilReferencePoint: { x: 0, y: 0 },
+        backingDashPhase: 0, backingDashPeriod: 0,
+      }] : undefined,
       isFinished: isFinished,
     };
   }

@@ -32,6 +32,22 @@ export function encodeOperationId(identity: OperationIdentity): string {
   return `op:${identity.timestamp.toString(16)}:${identity.siteId.toString(16)}`;
 }
 
+export function decodeOperationId(value: string): OperationIdentity | null {
+  const match: RegExpMatchArray | null = value.match(/^op:([0-9a-f]+):([0-9a-f]+)$/);
+  if (match === null) {
+    return null;
+  }
+  const identity: OperationIdentity = {
+    timestamp: parseInt(match[1], 16), siteId: parseInt(match[2], 16),
+  };
+  try {
+    validateOperationIdentity(identity);
+    return identity;
+  } catch (_error) {
+    return null;
+  }
+}
+
 export function validateOriginalSequenceIdentity(identity: OriginalSequenceIdentity): void {
   validateOperationIdentity(identity);
   if (!Number.isSafeInteger(identity.index) || identity.index < 0 || identity.index > MAX_OPERATION_TIMESTAMP) {
