@@ -4821,6 +4821,9 @@ export struct NoteCanvasView {
           this.elementOrder = clonePageElementOrder(result.elementOrder);
           this.selectionGroups = result.groups;
           this.synchronizeElementArraysByOrder();
+          if (result.images.length > 0) {
+            this.refreshImageAssets(this.pageLoadGeneration, pageId);
+          }
           this.selectionTool.selectElementIds(
             result.strokes.map((stroke: StrokeElementData): string => stroke.id),
             result.shapes.map((shape: ShapeElement): string => shape.id),

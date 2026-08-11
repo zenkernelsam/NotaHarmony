@@ -34,6 +34,7 @@ assert.match(canvas, /operation: result\.operation/);
 assert.match(canvas, /this\.elementOrder = clonePageElementOrder\(result\.elementOrder\)/);
 assert.match(canvas, /this\.selectionGroups = result\.groups/);
 assert.match(canvas, /result\.images\.map\(\(image: ImageElement\)/);
+assert.match(canvas, /this\.refreshImageAssets\(this\.pageLoadGeneration, pageId\)/);
 assert.match(canvas, /result\.topGroupIds,\s*result\.mathBlocks\.map\(\(math: MathElement\)/);
 assert.match(persistence, /groups: activeGroups\.map\(cloneSelectionGroup\)/);
 assert.match(fixtures, /commits Paste offsets only after durability/);

@@ -1,9 +1,13 @@
 import { describe, expect, it } from '@ohos/hypium';
 import { relationalStore } from '@kit.ArkData';
-import { ElementType, MathElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
+import { ElementType, ImageElement, MathElement, TextBlockElement } from
+  '../main/ets/core/model/ElementTypes';
 import { decodeOriginalCreateBlock, OriginalBlockType } from
   '../main/ets/data/OriginalCreateBlockOperation';
-import { encodeOriginalLocalCreateMathBlock, encodeOriginalLocalCreateTextBlock } from
+import {
+  encodeOriginalLocalCreateImageBlock, encodeOriginalLocalCreateMathBlock,
+  encodeOriginalLocalCreateTextBlock,
+} from
   '../main/ets/data/OriginalCreateBlockPayloadEncoder';
 import { decodeOriginalInsertText, ORIGINAL_INSERT_STRING_PAYLOAD_TYPE } from
   '../main/ets/data/OriginalInsertTextOperation';
@@ -76,6 +80,41 @@ export default function originalCreateTextPayloadEncoderTest() {
       expect(decoded.hasImage).assertFalse();
     });
 
+    it('round-trips original Image state through CREATE_BLOCK', 0, () => {
+      const bits: string[] = [
+        '1', '2', '3', '4', '5', '6', '7', '18446744073709551615',
+      ];
+      const image: ImageElement = {
+        id: 'op:66:7', type: ElementType.IMAGE,
+        transform: [0, -3, 25, 2, 0, 40, 0, 0, 1],
+        bounds: { left: -95, top: 40, right: 25, bottom: 120 },
+        assetHash: bits.join(':'), assetHashBits: bits,
+        fileName: 'photo.png', mimeType: 'image/png', fileSize: 1234,
+        intrinsicWidth: 640, intrinsicHeight: 480,
+        cropRect: { left: 10, top: 20, right: 610, bottom: 460 },
+        blockWidth: 40, blockHeight: 40, rotationRadians: Math.PI / 2,
+        corner: 1, textWrap: 1, enableCaption: true,
+        webUrl: 'https://example.invalid/image', imageFlippedHorizontally: true,
+        imageFlippedVertically: true, positionLocked: true,
+      };
+      const decoded = decodeOriginalCreateBlock(wrap(22,
+        encodeOriginalLocalCreateImageBlock(
+          { timestamp: 80, siteId: 7, index: 2 }, image)), '1234');
+      expect(decoded.blockType).assertEqual(OriginalBlockType.IMAGE);
+      expect(decoded.image?.assetHash.bits.join(',')).assertEqual(bits.join(','));
+      expect(decoded.image?.fileName).assertEqual('photo.png');
+      expect(decoded.image?.mimeType).assertEqual('image/png');
+      expect(decoded.image?.fileSize).assertEqual(1234);
+      expect(decoded.image?.width).assertEqual(640);
+      expect(decoded.image?.height).assertEqual(480);
+      expect(decoded.cropRect?.x).assertEqual(10);
+      expect(decoded.cropRect?.width).assertEqual(600);
+      expect(decoded.webUrl).assertEqual('https://example.invalid/image');
+      expect(decoded.imageFlippedHorizontally).assertTrue();
+      expect(decoded.imageFlippedVertically).assertTrue();
+      expect(decoded.positionLocked).assertTrue();
+    });
+
     it('rejects state that needs unsupported style or affine fields', 0, () => {
       const styled: TextBlockElement = sampleText();
       styled.fontSize = 24;
@@ -99,6 +138,19 @@ export default function originalCreateTextPayloadEncoderTest() {
       };
       expect(() => encodeOriginalLocalCreateMathBlock(
         { timestamp: 80, siteId: 7, index: 2 }, invalidMath)).assertThrow();
+      const invalidImage: ImageElement = {
+        id: 'op:66:7', type: ElementType.IMAGE, transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: 0, top: 0, right: 10, bottom: 10 },
+        assetHash: 'wrong', assetHashBits: ['1', '2', '3', '4', '5', '6', '7', '8'],
+        fileName: 'photo.png', mimeType: 'image/png', fileSize: 1,
+        intrinsicWidth: 10, intrinsicHeight: 10, cropRect: null,
+        blockWidth: 10, blockHeight: 10, rotationRadians: 0,
+        corner: 0, textWrap: 0, enableCaption: false, webUrl: null,
+        imageFlippedHorizontally: false, imageFlippedVertically: false,
+        positionLocked: false,
+      };
+      expect(() => encodeOriginalLocalCreateImageBlock(
+        { timestamp: 80, siteId: 7, index: 2 }, invalidImage)).assertThrow();
     });
 
     it('flushes CREATE_BLOCK and initial INSERT_STRING as one page revision', 0, async () => {

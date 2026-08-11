@@ -389,9 +389,11 @@ export default function strokePersistenceTest() {
       } catch (_error) {
         rejected++;
       }
+      const invalidImage: ImageElement = originalImage('op:70:2');
+      invalidImage.assetHash = 'not-the-eight-word-key';
       try {
         validateOriginalClipboardPastePlan({
-          strokes: [], shapes: [], textBlocks: [], images: [originalImage('op:70:2')],
+          strokes: [], shapes: [], textBlocks: [], images: [invalidImage],
           mathBlocks: [],
           elementOrder: [{ kind: PageElementKind.IMAGE, elementId: 'op:70:2', zIndex: 0 }],
           groups: [{ id: 'op:72:2', timestamp: 72, siteId: 2, members: ['op:70:2'] }],
@@ -400,11 +402,17 @@ export default function strokePersistenceTest() {
       } catch (_error) {
         rejected++;
       }
+      const image: ImageElement = originalImage('op:70:2');
       const math: MathElement = originalMath('op:74:2');
       validateOriginalClipboardPastePlan({
-        strokes: [], shapes: [], textBlocks: [], images: [], mathBlocks: [math],
-        elementOrder: [{ kind: PageElementKind.MATH, elementId: math.id, zIndex: 0 }],
-        groups: [{ id: 'op:76:2', timestamp: 76, siteId: 2, members: [math.id] }],
+        strokes: [], shapes: [], textBlocks: [], images: [image], mathBlocks: [math],
+        elementOrder: [
+          { kind: PageElementKind.IMAGE, elementId: image.id, zIndex: 0 },
+          { kind: PageElementKind.MATH, elementId: math.id, zIndex: 1 },
+        ],
+        groups: [{
+          id: 'op:76:2', timestamp: 76, siteId: 2, members: [image.id, math.id],
+        }],
         topGroupIds: ['op:76:2'],
       });
       expect(rejected).assertEqual(2);

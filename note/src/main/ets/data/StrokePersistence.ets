@@ -11,7 +11,7 @@ import {
 } from '../core/model/ElementTypes';
 import { Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import {
-  cloneImageElement, imageBlockWorldBounds, reflectImageCropRect,
+  cloneImageElement, imageBlockWorldBounds, originalAssetHashKey, reflectImageCropRect,
 } from '../core/model/ImageBlockGeometry';
 import { cloneShapeElement, recomputeShapeBounds } from '../core/model/ShapeGeometry';
 import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextBlockGeometry';
@@ -46,7 +46,8 @@ import {
 import { encodeOriginalLocalCreateInk } from './OriginalCreateInkPayloadEncoder';
 import { encodeOriginalLocalCreateShape } from './OriginalCreateShapePayloadEncoder';
 import {
-  encodeOriginalLocalCreateMathBlock, encodeOriginalLocalCreateTextBlock,
+  encodeOriginalLocalCreateImageBlock, encodeOriginalLocalCreateMathBlock,
+  encodeOriginalLocalCreateTextBlock,
 } from './OriginalCreateBlockPayloadEncoder';
 import {
   EncodedOriginalTextOperation, encodeOriginalInitialInsertString,
@@ -180,11 +181,8 @@ export interface OriginalClipboardPasteHistoryResult {
 const MAX_ORIGINAL_CLIPBOARD_PASTE_LEAVES: number = 10000;
 
 export function validateOriginalClipboardPastePlan(plan: OriginalClipboardPastePlan): void {
-  if (plan.images.length !== 0) {
-    throw new Error('original clipboard Paste does not yet support Image CREATE_BLOCK');
-  }
   const leafCount: number = plan.strokes.length + plan.shapes.length + plan.textBlocks.length +
-    plan.mathBlocks.length;
+    plan.images.length + plan.mathBlocks.length;
   if (leafCount === 0 || leafCount > MAX_ORIGINAL_CLIPBOARD_PASTE_LEAVES ||
     plan.elementOrder.length !== leafCount || plan.groups.length === 0 ||
     plan.groups.length > MAX_ORIGINAL_CLIPBOARD_PASTE_LEAVES ||
@@ -221,6 +219,10 @@ export function validateOriginalClipboardPastePlan(plan: OriginalClipboardPasteP
     }
     encodeOriginalLocalCreateTextBlock(page, text);
     encodeOriginalInitialInsertString({ timestamp: 1, siteId: 1 }, text.richText);
+  }
+  for (const image of plan.images) {
+    addLeaf(image.id, PageElementKind.IMAGE);
+    encodeOriginalLocalCreateImageBlock(page, image);
   }
   for (const math of plan.mathBlocks) {
     addLeaf(math.id, PageElementKind.MATH);
@@ -1114,6 +1116,7 @@ export class StrokePersistence {
           const strokeById: Map<string, StrokeElementData> = new Map<string, StrokeElementData>();
           const shapeById: Map<string, ShapeElement> = new Map<string, ShapeElement>();
           const textById: Map<string, TextBlockElement> = new Map<string, TextBlockElement>();
+          const imageById: Map<string, ImageElement> = new Map<string, ImageElement>();
           const mathById: Map<string, MathElement> = new Map<string, MathElement>();
           stablePlan.strokes.forEach(
             (value: StrokeElementData): void => { strokeById.set(value.id, value); });
@@ -1121,6 +1124,8 @@ export class StrokePersistence {
             (value: ShapeElement): void => { shapeById.set(value.id, value); });
           stablePlan.textBlocks.forEach(
             (value: TextBlockElement): void => { textById.set(value.id, value); });
+          stablePlan.images.forEach(
+            (value: ImageElement): void => { imageById.set(value.id, value); });
           stablePlan.mathBlocks.forEach(
             (value: MathElement): void => { mathById.set(value.id, value); });
 
@@ -1128,6 +1133,7 @@ export class StrokePersistence {
           const createdStrokes: StrokeElementData[] = [];
           const createdShapes: ShapeElement[] = [];
           const createdTexts: TextBlockElement[] = [];
+          const createdImages: ImageElement[] = [];
           const createdMathBlocks: MathElement[] = [];
           const createdOrder: PageElementRef[] = [];
           const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
@@ -1236,6 +1242,27 @@ export class StrokePersistence {
               await this.appendOriginalCreateOperation(store, noteId, insertIdentity,
                 OpType.ORIGINAL_INSERT_TEXT, insertOperation.rawOperation);
               createdTexts.push(text);
+            } else if (ref.kind === PageElementKind.IMAGE) {
+              const source: ImageElement | undefined = imageById.get(ref.elementId);
+              if (source === undefined) {
+                throw new Error('original clipboard Paste Image source disappeared');
+              }
+              const image: ImageElement = cloneImageElement(source);
+              image.id = identity.opId;
+              const payload: Uint8Array = encodeOriginalLocalCreateImageBlock(page, image);
+              const operation: StoredSyncedOperation = localStoredOperation(
+                noteId, metadata, ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE, payload, null);
+              const decoded: OriginalCreateBlockPayload = decodeOriginalCreateBlock(
+                operation.rawOperation, metadata.clientTime.toString());
+              const applied: SyncedOperationApplyResult =
+                await new OriginalCreateBlockOperationApplier().applyBatchedPayload(
+                  store, operation, decoded, revisionBatch);
+              if (applied.deferredReason !== null) {
+                throw new Error(`original clipboard Image CREATE_BLOCK was deferred: ${applied.deferredReason}`);
+              }
+              await this.appendOriginalCreateOperation(store, noteId, identity,
+                OpType.ORIGINAL_CREATE_BLOCK, operation.rawOperation);
+              createdImages.push(materializeOriginalImageCreate(identity.opId, decoded));
             } else if (ref.kind === PageElementKind.MATH) {
               const source: MathElement | undefined = mathById.get(ref.elementId);
               if (source === undefined) {
@@ -1303,7 +1330,7 @@ export class StrokePersistence {
             await this.loadCurrentSnapshot(store, noteId, pageId);
           const createdPrepared: PreparedPageSave = this.prepareSave(
             noteId, pageId, createdStrokes, createdTexts, createdOrder, createdShapes,
-            [], createdMathBlocks);
+            createdImages, createdMathBlocks);
           const finalSnapshot: PreparedPageSave = this.reconcileOriginalClipboardPasteSnapshot(
             noteId, pageId, before, materialized, createdPrepared.elements, stableHistory);
           await this.reconcilePreparedRows(store, finalSnapshot, nextRevision);
@@ -1338,7 +1365,7 @@ export class StrokePersistence {
           await store.commit();
           return {
             strokes: createdStrokes, shapes: createdShapes, textBlocks: createdTexts,
-            images: [], mathBlocks: createdMathBlocks,
+            images: createdImages, mathBlocks: createdMathBlocks,
             elementOrder: finalSnapshot.elements.map(
               (element: PreparedElement, index: number): PageElementRef => ({
                 kind: element.kind, elementId: element.elementId, zIndex: index,
@@ -4746,6 +4773,45 @@ function materializeOriginalMathCreate(id: string,
   };
   math.bounds = mathBlockWorldBounds(math);
   return math;
+}
+
+function materializeOriginalImageCreate(id: string,
+  payload: OriginalCreateBlockPayload): ImageElement {
+  if (payload.blockType !== OriginalBlockType.IMAGE || payload.image === null) {
+    throw new Error('original clipboard Image CREATE_BLOCK decoded to a different kind');
+  }
+  const rotation: number = payload.rotation === null ? 0 : payload.rotation;
+  const scaleX: number = payload.scaleX === null ? 1 : payload.scaleX;
+  const scaleY: number = payload.scaleY === null ? 1 : payload.scaleY;
+  const cosine: number = Math.cos(rotation);
+  const sine: number = Math.sin(rotation);
+  const asset = payload.image;
+  const image: ImageElement = {
+    id: id, type: ElementType.IMAGE,
+    transform: [
+      cosine * scaleX, -sine * scaleY, payload.originX,
+      sine * scaleX, cosine * scaleY, payload.originY,
+      0, 0, 1,
+    ],
+    bounds: { left: 0, top: 0, right: 0, bottom: 0 },
+    assetHash: originalAssetHashKey(asset.assetHash.bits),
+    assetHashBits: asset.assetHash.bits.slice(),
+    fileName: asset.fileName, mimeType: asset.mimeType, fileSize: asset.fileSize,
+    intrinsicWidth: asset.width, intrinsicHeight: asset.height,
+    cropRect: payload.cropRect === null ? null : {
+      left: payload.cropRect.x, top: payload.cropRect.y,
+      right: payload.cropRect.x + payload.cropRect.width,
+      bottom: payload.cropRect.y + payload.cropRect.height,
+    },
+    blockWidth: payload.width, blockHeight: payload.height,
+    rotationRadians: rotation, corner: payload.corner, textWrap: payload.textWrap,
+    enableCaption: payload.enableCaption, webUrl: payload.webUrl,
+    imageFlippedHorizontally: payload.imageFlippedHorizontally,
+    imageFlippedVertically: payload.imageFlippedVertically,
+    positionLocked: payload.positionLocked,
+  };
+  image.bounds = imageBlockWorldBounds(image);
+  return image;
 }
 
 function searchTextForElement(kind: number, payload: Uint8Array): string | null {

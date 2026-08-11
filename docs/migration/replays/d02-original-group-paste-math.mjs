@@ -26,15 +26,15 @@ assert.match(encoder, /fields\[0\] = 4/);
 assert.match(encoder, /fields\[13\] = 52/);
 assert.match(encoder, /fields\[14\] = 56/);
 assert.match(encoder, /fields\[20\] = math\.positionLocked \? 60 : 0/);
-assert.match(encoder, /isRepresentableMathTransform/);
+assert.match(encoder, /isRepresentableBlockTransform/);
 assert.match(reducer, /payload\.blockType === OriginalBlockType\.MATH \? this\.buildMathBlock/);
 
 assert.match(persistence, /plan\.mathBlocks\.length/);
 assert.match(persistence, /encodeOriginalLocalCreateMathBlock\(page, math\)/);
 assert.match(persistence, /original clipboard Math CREATE_BLOCK was deferred/);
 assert.match(persistence, /materializeOriginalMathCreate\(identity\.opId, decoded\)/);
-assert.match(persistence, /images: \[\], mathBlocks: createdMathBlocks/);
-assert.match(persistence, /does not yet support Image CREATE_BLOCK/);
+assert.match(persistence, /images: createdImages, mathBlocks: createdMathBlocks/);
+assert.match(persistence, /encodeOriginalLocalCreateImageBlock\(page, image\)/);
 assert.match(canvas, /this\.mathBlocks = this\.mathBlocks\.concat\(result\.mathBlocks\)/);
 assert.match(canvas, /result\.mathBlocks\.map\(\(math: MathElement\)/);
 assert.match(fixtures, /round-trips original Math state through CREATE_BLOCK/);
