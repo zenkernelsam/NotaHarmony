@@ -1,6 +1,8 @@
 import { describe, expect, it } from '@ohos/hypium';
 import { decodeOriginalModifyBlock } from '../main/ets/data/OriginalModifyBlockOperation';
-import { encodeOriginalImageFlip } from '../main/ets/data/OriginalModifyBlockPayloadEncoder';
+import {
+  encodeOriginalImageCrop, encodeOriginalImageFlip,
+} from '../main/ets/data/OriginalModifyBlockPayloadEncoder';
 import { encodeOriginalOperationEnvelope } from '../main/ets/data/OriginalOperationEnvelopeEncoder';
 
 export default function originalModifyBlockPayloadEncoderTest() {
@@ -35,6 +37,51 @@ export default function originalModifyBlockPayloadEncoderTest() {
       ], true, null)).assertThrow();
       expect(() => encodeOriginalImageFlip(
         [{ timestamp: 20, siteId: 2 }], null, null)).assertThrow();
+    });
+
+    it('round-trips the original composite image crop registers', 0, () => {
+      const decoded = decodeOriginalModifyBlock(wrap(encodeOriginalImageCrop(
+        [{ timestamp: 30, siteId: 3 }],
+        { page: { timestamp: 40, siteId: 4, index: 2 }, originX: 12.5, originY: -8.25 },
+        { x: 1.5, y: 2.25 }, 160, 90,
+        { x: 20, y: 10, width: 160, height: 90 })));
+      expect(decoded.blocks.length).assertEqual(1);
+      expect(decoded.pageOrigin?.page.timestamp).assertEqual(40);
+      expect(decoded.pageOrigin?.page.index).assertEqual(2);
+      expect(decoded.pageOrigin?.originX).assertEqual(12.5);
+      expect(decoded.pageOrigin?.originY).assertEqual(-8.25);
+      expect(decoded.scale.present).assertTrue();
+      expect(decoded.scale.value?.x).assertEqual(1.5);
+      expect(decoded.scale.value?.y).assertEqual(2.25);
+      expect(decoded.width).assertEqual(160);
+      expect(decoded.height).assertEqual(90);
+      expect(decoded.cropRect.present).assertTrue();
+      expect(decoded.cropRect.value?.x).assertEqual(20);
+      expect(decoded.cropRect.value?.height).assertEqual(90);
+    });
+
+    it('keeps field 12 present while clearing the nullable crop register for Undo', 0, () => {
+      const decoded = decodeOriginalModifyBlock(wrap(encodeOriginalImageCrop(
+        [{ timestamp: 30, siteId: 3 }],
+        { page: { timestamp: 40, siteId: 4, index: 2 }, originX: 1, originY: 2 },
+        { x: 1, y: 1 }, 200, 100, null)));
+      expect(decoded.cropRect.present).assertTrue();
+      expect(decoded.cropRect.value === null).assertTrue();
+      expect(decoded.scale.present).assertTrue();
+      expect(decoded.width).assertEqual(200);
+      expect(decoded.height).assertEqual(100);
+    });
+
+    it('rejects malformed composite crop geometry', 0, () => {
+      const page = { page: { timestamp: 40, siteId: 4, index: 2 }, originX: 1, originY: 2 };
+      expect(() => encodeOriginalImageCrop([], page, { x: 1, y: 1 }, 10, 10, null))
+        .assertThrow();
+      expect(() => encodeOriginalImageCrop([{ timestamp: 30, siteId: 3 }], page,
+        { x: 0, y: 1 }, 10, 10, null)).assertThrow();
+      expect(() => encodeOriginalImageCrop([{ timestamp: 30, siteId: 3 }], page,
+        { x: 1, y: 1 }, -1, 10, null)).assertThrow();
+      expect(() => encodeOriginalImageCrop([{ timestamp: 30, siteId: 3 }], page,
+        { x: 1, y: 1 }, 10, 10, { x: 0, y: 0, width: 0, height: 10 })).assertThrow();
     });
   });
 }

@@ -74,6 +74,10 @@ import {
   reflectImageCropRect, transformImageElements,
 } from '../../core/model/ImageBlockGeometry';
 import {
+  applyOriginalImageCropDraft, beginOriginalImageCrop, imageCropDraftCanvasCorners,
+  OriginalImageCropSession, originalImageCropLocalDelta, resetOriginalImageCropDraft,
+} from '../../core/model/OriginalImageCropGeometry';
+import {
   cloneShapeElement, eraserPathHitsShape, recomputeShapeBounds, transformShapeElements,
 } from '../../core/model/ShapeGeometry';
 import { prepareRecognizedShapes } from '../../core/model/ShapeRecognition';
@@ -98,6 +102,7 @@ import {
 } from '../../core/model/PageElementOrder';
 import { EditorViewModel } from './EditorViewModel';
 import { SelectionOverlay, SelectionMenuAction } from '../components/SelectionOverlay';
+import { ImageCropHandle, ImageCropOverlay } from '../components/ImageCropOverlay';
 import {
   SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH, SelectionOverlayPosition,
   selectionOverlayPosition,
@@ -257,6 +262,10 @@ export struct NoteCanvasView {
   @State selectionRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @State selectionVisible: boolean = false;
   @State selectionCanFlip: boolean = false;
+  @State selectionCanCrop: boolean = false;
+  private imageCropSession: OriginalImageCropSession | null = null;
+  @State imageCropVisible: boolean = false;
+  @State imageCropDraft: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @State clipboardAvailable: boolean = false;
   @State overlayWidth: number = 0;
   @State overlayHeight: number = 0;
@@ -644,6 +653,7 @@ export struct NoteCanvasView {
 
   // T-040 修复：页面设置变化 → 重绘（@Prop 更新不会自动触发 renderFrame）
   onPageChange(_propName: string): void {
+    this.cancelImageCrop();
     this.pageLoadPromise = this.switchPageData();
   }
 
@@ -655,6 +665,7 @@ export struct NoteCanvasView {
 
   aboutToDisappear(): void {
     this.lifecycleActive = false;
+    this.cancelImageCrop();
     if (this.assetAvailabilitySubscription >= 0) {
       assetAvailabilityHub.unsubscribe(this.assetAvailabilitySubscription);
       this.assetAvailabilitySubscription = -1;
@@ -1210,7 +1221,8 @@ export struct NoteCanvasView {
 
   // === 触摸事件 ===
   private onCanvasTouch(event: TouchEvent): void {
-    if (!this.loaded || this.dataLoading || this.dataLoadFailed || this.historyBusy) {
+    if (!this.loaded || this.dataLoading || this.dataLoadFailed || this.historyBusy ||
+      this.imageCropVisible) {
       return;
     }
     if (event.type === TouchType.Down) {
@@ -1835,6 +1847,9 @@ export struct NoteCanvasView {
   }
 
   private performHistory(isUndo: boolean): void {
+    if (this.imageCropVisible) {
+      this.cancelImageCrop();
+    }
     if (this.historyBusy || this.pendingHistoryDirection !== 0) {
       return;
     }
@@ -3311,6 +3326,9 @@ export struct NoteCanvasView {
     this.selectionCanFlip = this.canFlipImageSelection(
       state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
       state.selectedImageIds, state.selectedGroupIds, state.selectedMathIds);
+    this.selectionCanCrop = this.canCropImageSelection(
+      state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
+      state.selectedImageIds, state.selectedGroupIds, state.selectedMathIds);
     let rect: Rect2D | null = null;
     for (const s of this.completedStrokes) {
       if (state.selectedStrokeIds.indexOf(s.id) >= 0) {
@@ -3584,6 +3602,8 @@ export struct NoteCanvasView {
         state.selectedTextBlockIds, state.selectedImageIds, state.selectedGroupIds,
         state.selectedMathIds,
         action === SelectionMenuAction.FLIP_H);
+    } else if (action === SelectionMenuAction.CROP) {
+      this.startImageCrop();
     } else if (action === SelectionMenuAction.COPY) {
       this.copySelectedToClipboard(
         state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
@@ -3748,6 +3768,159 @@ export struct NoteCanvasView {
       return false;
     }
     this.clipboardAvailable = true;
+    return true;
+  }
+
+  private canCropImageSelection(ids: string[], shapeIds: string[], textIds: string[],
+    imageIds: string[], groupIds: string[], mathIds: string[]): boolean {
+    if (ids.length > 0 || shapeIds.length > 0 || textIds.length > 0 || groupIds.length > 0 ||
+      mathIds.length > 0 || imageIds.length !== 1) {
+      return false;
+    }
+    const images: ImageElement[] = this.filterImagesByIds(this.imageBlocks, imageIds);
+    return images.length === 1 && beginOriginalImageCrop(images[0]) !== null;
+  }
+
+  private startImageCrop(): void {
+    if (this.historyBusy || this.imageCropVisible) {
+      return;
+    }
+    const state = this.selectionTool.getState();
+    if (!this.canCropImageSelection(state.selectedStrokeIds, state.selectedShapeIds,
+      state.selectedTextBlockIds, state.selectedImageIds, state.selectedGroupIds,
+      state.selectedMathIds)) {
+      return;
+    }
+    const images: ImageElement[] = this.filterImagesByIds(this.imageBlocks, state.selectedImageIds);
+    const session: OriginalImageCropSession | null = beginOriginalImageCrop(images[0]);
+    if (session === null) {
+      return;
+    }
+    this.imageCropSession = session;
+    this.imageCropDraft = {
+      left: session.draft.left, top: session.draft.top,
+      right: session.draft.right, bottom: session.draft.bottom,
+    };
+    this.selectionVisible = false;
+    this.imageCropVisible = true;
+  }
+
+  private imageCropScreenCorners(): Point2D[] {
+    if (!this.imageCropVisible || this.imageCropSession === null) {
+      return [];
+    }
+    const canvasCorners: Point2D[] = imageCropDraftCanvasCorners(
+      this.imageCropSession, this.imageCropDraft);
+    return canvasCorners.map((point: Point2D): Point2D =>
+      this.viewport.canvasToScreen(point.x, point.y));
+  }
+
+  private moveImageCropHandle(handle: ImageCropHandle,
+    screenDeltaX: number, screenDeltaY: number): void {
+    const session: OriginalImageCropSession | null = this.imageCropSession;
+    if (!this.imageCropVisible || session === null || this.viewport.zoom <= 0) {
+      return;
+    }
+    const localDelta: Point2D | null = originalImageCropLocalDelta(session.original,
+      screenDeltaX / this.viewport.zoom, screenDeltaY / this.viewport.zoom);
+    if (localDelta === null) {
+      return;
+    }
+    const scaleX: number = Math.hypot(session.original.transform[0], session.original.transform[3]);
+    const scaleY: number = Math.hypot(session.original.transform[1], session.original.transform[4]);
+    const minimumWidth: number = Math.min(session.domain.right - session.domain.left,
+      32 / Math.max(0.0001, this.viewport.zoom * scaleX));
+    const minimumHeight: number = Math.min(session.domain.bottom - session.domain.top,
+      32 / Math.max(0.0001, this.viewport.zoom * scaleY));
+    const draft: Rect2D = {
+      left: this.imageCropDraft.left, top: this.imageCropDraft.top,
+      right: this.imageCropDraft.right, bottom: this.imageCropDraft.bottom,
+    };
+    if (handle === ImageCropHandle.TOP_LEFT || handle === ImageCropHandle.BOTTOM_LEFT ||
+      handle === ImageCropHandle.LEFT) {
+      draft.left = Math.max(session.domain.left,
+        Math.min(draft.left + localDelta.x, draft.right - minimumWidth));
+    }
+    if (handle === ImageCropHandle.TOP_RIGHT || handle === ImageCropHandle.RIGHT ||
+      handle === ImageCropHandle.BOTTOM_RIGHT) {
+      draft.right = Math.min(session.domain.right,
+        Math.max(draft.right + localDelta.x, draft.left + minimumWidth));
+    }
+    if (handle === ImageCropHandle.TOP_LEFT || handle === ImageCropHandle.TOP ||
+      handle === ImageCropHandle.TOP_RIGHT) {
+      draft.top = Math.max(session.domain.top,
+        Math.min(draft.top + localDelta.y, draft.bottom - minimumHeight));
+    }
+    if (handle === ImageCropHandle.BOTTOM_LEFT || handle === ImageCropHandle.BOTTOM ||
+      handle === ImageCropHandle.BOTTOM_RIGHT) {
+      draft.bottom = Math.min(session.domain.bottom,
+        Math.max(draft.bottom + localDelta.y, draft.top + minimumHeight));
+    }
+    this.imageCropDraft = draft;
+  }
+
+  private resetImageCrop(): void {
+    if (this.imageCropSession !== null) {
+      this.imageCropDraft = resetOriginalImageCropDraft(this.imageCropSession);
+    }
+  }
+
+  private cancelImageCrop(): void {
+    const imageId: string = this.imageCropSession === null ? '' : this.imageCropSession.original.id;
+    this.imageCropSession = null;
+    this.imageCropVisible = false;
+    this.imageCropDraft = { left: 0, top: 0, right: 0, bottom: 0 };
+    if (imageId.length > 0 && this.loadedPageId === this.currentPage.pageId &&
+      this.imageBlocks.some((image: ImageElement): boolean => image.id === imageId)) {
+      this.selectionTool.selectElementIds([], [], [], [imageId]);
+      this.updateSelectionOverlay();
+    }
+  }
+
+  private confirmImageCrop(): void {
+    const session: OriginalImageCropSession | null = this.imageCropSession;
+    if (!this.imageCropVisible || session === null || this.historyBusy) {
+      return;
+    }
+    const after: ImageElement | null = applyOriginalImageCropDraft(session, this.imageCropDraft);
+    if (after === null) {
+      return;
+    }
+    const before: ImageElement = cloneImageElement(session.original);
+    const beforeBytes: Uint8Array = encodePersistedElement({ kind: 'image', data: before });
+    const afterBytes: Uint8Array = encodePersistedElement({ kind: 'image', data: after });
+    this.imageCropSession = null;
+    this.imageCropVisible = false;
+    this.imageCropDraft = { left: 0, top: 0, right: 0, bottom: 0 };
+    this.selectionTool.selectElementIds([], [], [], [after.id]);
+    if (this.sameBytes(beforeBytes, afterBytes)) {
+      this.updateSelectionOverlay();
+      return;
+    }
+    this.replaceImagesById([after]);
+    this.undoRedo.push({
+      type: UndoableActionType.TRANSFORM_ELEMENTS,
+      noteId: this.noteId,
+      pageId: this.currentPage.pageId,
+      beforeStrokes: [], afterStrokes: [], beforeShapes: [], afterShapes: [],
+      beforeTextBlocks: [], afterTextBlocks: [], beforeImages: [before], afterImages: [after],
+      beforeMathBlocks: [], afterMathBlocks: [],
+    });
+    this.updateSelectionOverlay();
+    this.persist(true);
+    this.notifyUndoRedo();
+    this.renderFrame();
+  }
+
+  private sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+    if (left.length !== right.length) {
+      return false;
+    }
+    for (let index: number = 0; index < left.length; index++) {
+      if (left[index] !== right[index]) {
+        return false;
+      }
+    }
     return true;
   }
 
@@ -4359,11 +4532,24 @@ export struct NoteCanvasView {
         visible: this.selectionVisible,
         canPaste: this.clipboardAvailable,
         canFlip: this.selectionCanFlip,
+        canCrop: this.selectionCanCrop,
         containerWidth: this.overlayWidth,
         containerHeight: this.overlayHeight,
         onMenuAction: (action: SelectionMenuAction) => {
           this.onSelectionMenuAction(action);
         },
+      })
+      ImageCropOverlay({
+        visible: this.imageCropVisible,
+        corners: this.imageCropScreenCorners(),
+        containerWidth: this.overlayWidth,
+        containerHeight: this.overlayHeight,
+        onMove: (handle: ImageCropHandle, deltaX: number, deltaY: number) => {
+          this.moveImageCropHandle(handle, deltaX, deltaY);
+        },
+        onClose: () => this.cancelImageCrop(),
+        onReset: () => this.resetImageCrop(),
+        onConfirm: () => this.confirmImageCrop(),
       })
       // 文本框编辑覆盖层
       TextBlockOverlay({

@@ -173,6 +173,22 @@
       "value": "Flip Vertical"
     },
     {
+      "name": "crop",
+      "value": "Crop"
+    },
+    {
+      "name": "crop_close",
+      "value": "Cancel crop"
+    },
+    {
+      "name": "crop_reset",
+      "value": "Reset crop"
+    },
+    {
+      "name": "crop_confirm",
+      "value": "Apply crop"
+    },
+    {
       "name": "pen",
       "value": "Pen"
     },

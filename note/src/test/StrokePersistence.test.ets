@@ -1,8 +1,8 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import {
-  classifyOriginalImageFlipMutation, decodePersistedElement, encodePersistedElement,
-  OriginalImageFlipMutation, PersistedElement,
+  classifyOriginalImageCropMutation, classifyOriginalImageFlipMutation, decodePersistedElement,
+  encodePersistedElement, OriginalImageCropMutation, OriginalImageFlipMutation, PersistedElement,
 } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import { ElementType, ImageElement } from '../main/ets/core/model/ElementTypes';
@@ -198,6 +198,68 @@ export default function strokePersistenceTest() {
         [sourceElement('stroke', PageElementKind.STROKE, [1])],
         [sourceElement('stroke', PageElementKind.STROKE, [2])]) === null).assertTrue();
     });
+
+    it('classifies the original composite image crop and reverse nullable clear', 0, () => {
+      const before: ImageElement = canonicalOriginalImage('op:14:2');
+      const after: ImageElement = cloneImageElement(before);
+      after.cropRect = { left: 20, top: 10, right: 180, bottom: 90 };
+      after.blockWidth = 160;
+      after.blockHeight = 80;
+      after.transform[2] = 30;
+      after.transform[5] = 30;
+      after.bounds = { left: 30, top: 30, right: 190, bottom: 110 };
+      const forward: OriginalImageCropMutation | null = classifyOriginalImageCropMutation(
+        [imageSource(before)], [imageSource(after)]);
+      expect(forward?.updates.length).assertEqual(1);
+      expect(forward?.updates[0].originX).assertEqual(30);
+      expect(forward?.updates[0].originY).assertEqual(30);
+      expect(forward?.updates[0].width).assertEqual(160);
+      expect(forward?.updates[0].cropRect?.x).assertEqual(20);
+
+      const reverse: OriginalImageCropMutation | null = classifyOriginalImageCropMutation(
+        [imageSource(after)], [imageSource(before)]);
+      expect(reverse?.updates[0].originX).assertEqual(10);
+      expect(reverse?.updates[0].originY).assertEqual(20);
+      expect(reverse?.updates[0].cropRect === null).assertTrue();
+    });
+
+    it('classifies Reset confirmation as a full intrinsic crop rect', 0, () => {
+      const before: ImageElement = canonicalOriginalImage('op:14:2');
+      before.cropRect = { left: 20, top: 10, right: 180, bottom: 90 };
+      before.blockWidth = 160;
+      before.blockHeight = 80;
+      before.transform[2] = 30;
+      before.transform[5] = 30;
+      before.bounds = { left: 30, top: 30, right: 190, bottom: 110 };
+      const after: ImageElement = canonicalOriginalImage('op:14:2');
+      after.cropRect = { left: 0, top: 0, right: 200, bottom: 100 };
+      const mutation: OriginalImageCropMutation | null = classifyOriginalImageCropMutation(
+        [imageSource(before)], [imageSource(after)]);
+      expect(mutation?.updates[0].cropRect?.x).assertEqual(0);
+      expect(mutation?.updates[0].cropRect?.width).assertEqual(200);
+      expect(mutation?.updates[0].width).assertEqual(200);
+      expect(mutation?.updates[0].height).assertEqual(100);
+    });
+
+    it('rejects multi-image, scale, and unrelated composite crop mutations', 0, () => {
+      const first: ImageElement = canonicalOriginalImage('op:14:2');
+      const second: ImageElement = canonicalOriginalImage('op:16:4');
+      const firstCrop: ImageElement = cropOriginalImage(first, 10, 10, 180, 80);
+      const secondCrop: ImageElement = cropOriginalImage(second, 5, 5, 190, 90);
+      expect(classifyOriginalImageCropMutation(
+        [imageSource(first), imageSource(second)],
+        [imageSource(firstCrop), imageSource(secondCrop)]) === null).assertTrue();
+
+      const scaleChanged: ImageElement = cloneImageElement(firstCrop);
+      scaleChanged.transform[0] = 2;
+      scaleChanged.bounds = { left: 20, top: 30, right: 380, bottom: 110 };
+      expect(classifyOriginalImageCropMutation(
+        [imageSource(first)], [imageSource(scaleChanged)]) === null).assertTrue();
+      const unrelated: ImageElement = cloneImageElement(firstCrop);
+      unrelated.corner = 1;
+      expect(classifyOriginalImageCropMutation(
+        [imageSource(first)], [imageSource(unrelated)]) === null).assertTrue();
+    });
   });
 }
 
@@ -212,6 +274,30 @@ function originalImage(id: string): ImageElement {
     enableCaption: false, webUrl: null, imageFlippedHorizontally: false,
     imageFlippedVertically: false, positionLocked: false,
   };
+}
+
+function canonicalOriginalImage(id: string): ImageElement {
+  const image: ImageElement = originalImage(id);
+  image.blockWidth = 200;
+  image.blockHeight = 100;
+  image.bounds = { left: 10, top: 20, right: 210, bottom: 120 };
+  return image;
+}
+
+function cropOriginalImage(source: ImageElement, left: number, top: number,
+  right: number, bottom: number): ImageElement {
+  const image: ImageElement = cloneImageElement(source);
+  image.cropRect = { left: left, top: top, right: right, bottom: bottom };
+  image.blockWidth = right - left;
+  image.blockHeight = bottom - top;
+  image.transform[2] = source.transform[2] + left;
+  image.transform[5] = source.transform[5] + top;
+  image.bounds = {
+    left: image.transform[2], top: image.transform[5],
+    right: image.transform[2] + image.blockWidth,
+    bottom: image.transform[5] + image.blockHeight,
+  };
+  return image;
 }
 
 function imageSource(image: ImageElement): SearchSourceElement {

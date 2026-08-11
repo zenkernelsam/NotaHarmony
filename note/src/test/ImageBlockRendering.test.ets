@@ -6,6 +6,10 @@ import {
 } from '../main/ets/core/model/ImageBlockGeometry';
 import { ImageRenderGeometry, imageRenderGeometry } from '../main/ets/rendering/ImageCanvasRenderer';
 import { imageAssetPackageEntry } from '../main/ets/data/ImageAssetPackageStore';
+import {
+  applyOriginalImageCropDraft, beginOriginalImageCrop, OriginalImageCropSession,
+  resetOriginalImageCropDraft,
+} from '../main/ets/core/model/OriginalImageCropGeometry';
 
 function imageBlock(): ImageElement {
   const bits: string[] = ['0', '1', '72623859790382856', '18446744073709551615',
@@ -96,5 +100,66 @@ export default function imageBlockRenderingTest() {
       block.positionLocked = true;
       expect(eraserPathHitsImageBlock([{ x: 50, y: 70 }], block, 4)).assertFalse();
     });
+
+    it('applies a rotated and scaled intrinsic crop with the original origin shift', 0, () => {
+      const block: ImageElement = canonicalCropBlock();
+      const session: OriginalImageCropSession | null = beginOriginalImageCrop(block);
+      expect(session === null).assertFalse();
+      const cropped: ImageElement | null = applyOriginalImageCropDraft(
+        session as OriginalImageCropSession, { left: 20, top: 10, right: 160, bottom: 130 });
+      expect(cropped === null).assertFalse();
+      const result: ImageElement = cropped as ImageElement;
+      expect(result.cropRect?.left).assertEqual(120);
+      expect(result.cropRect?.top).assertEqual(35);
+      expect(result.cropRect?.right).assertEqual(260);
+      expect(result.cropRect?.bottom).assertEqual(155);
+      expect(result.blockWidth).assertEqual(140);
+      expect(result.blockHeight).assertEqual(120);
+      expect(result.transform[2]).assertEqual(-20);
+      expect(result.transform[5]).assertEqual(60);
+      expect(block.transform[2]).assertEqual(10);
+      expect(block.cropRect?.left).assertEqual(100);
+    });
+
+    it('resets an existing crop draft to the full intrinsic image domain', 0, () => {
+      const block: ImageElement = canonicalCropBlock();
+      const session: OriginalImageCropSession = beginOriginalImageCrop(block) as OriginalImageCropSession;
+      const reset = resetOriginalImageCropDraft(session);
+      const restored: ImageElement = applyOriginalImageCropDraft(session, reset) as ImageElement;
+      expect(reset.left).assertEqual(-100);
+      expect(reset.top).assertEqual(-25);
+      expect(reset.right).assertEqual(300);
+      expect(reset.bottom).assertEqual(175);
+      expect(restored.cropRect?.left).assertEqual(0);
+      expect(restored.cropRect?.right).assertEqual(400);
+      expect(restored.blockWidth).assertEqual(400);
+      expect(restored.blockHeight).assertEqual(200);
+      expect(restored.transform[2]).assertEqual(85);
+      expect(restored.transform[5]).assertEqual(-180);
+    });
+
+    it('rejects locked, sheared, invalid, and inconsistent crop models', 0, () => {
+      const locked: ImageElement = canonicalCropBlock();
+      locked.positionLocked = true;
+      expect(beginOriginalImageCrop(locked) === null).assertTrue();
+      const sheared: ImageElement = canonicalCropBlock();
+      sheared.transform = [1, 0.25, 10, 0, 1, 20, 0, 0, 1];
+      expect(beginOriginalImageCrop(sheared) === null).assertTrue();
+      const invalid: ImageElement = canonicalCropBlock();
+      invalid.cropRect = { left: -1, top: 0, right: 100, bottom: 50 };
+      expect(beginOriginalImageCrop(invalid) === null).assertTrue();
+      const inconsistent: ImageElement = canonicalCropBlock();
+      inconsistent.blockHeight = 75;
+      expect(beginOriginalImageCrop(inconsistent) === null).assertTrue();
+    });
   });
+}
+
+function canonicalCropBlock(): ImageElement {
+  const block: ImageElement = imageBlock();
+  block.transform = [0, -3, 10, 2, 0, 20, 0, 0, 1];
+  block.blockWidth = 200;
+  block.blockHeight = 150;
+  block.bounds = { left: -440, top: 20, right: 10, bottom: 420 };
+  return block;
 }

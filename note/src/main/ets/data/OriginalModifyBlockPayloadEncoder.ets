@@ -1,7 +1,9 @@
 import {
   encodeOperationId, OperationIdentity, validateOperationIdentity,
 } from './OperationIdentity';
+import { OriginalSequenceIdentity, validateOriginalSequenceIdentity } from './OperationIdentity';
 import { OriginalBlockRect } from './OriginalCreateBlockOperation';
+import { OriginalBlockPageOrigin, OriginalBlockScale } from './OriginalModifyBlockOperation';
 
 const MAX_ORIGINAL_MODIFY_BLOCK_COUNT: number = 10000;
 
@@ -66,6 +68,69 @@ export function encodeOriginalImageFlip(blocks: OperationIdentity[],
   return bytes;
 }
 
+export function encodeOriginalImageCrop(blocks: OperationIdentity[],
+  pageOrigin: OriginalBlockPageOrigin, scale: OriginalBlockScale,
+  width: number, height: number, cropRect: OriginalBlockRect | null): Uint8Array {
+  const targets: OperationIdentity[] = validateTargets(blocks);
+  if (targets.length === 0 || targets.length > MAX_ORIGINAL_MODIFY_BLOCK_COUNT) {
+    throw new Error('original MODIFY_BLOCK has an invalid target count');
+  }
+  validateOriginalSequenceIdentity(pageOrigin.page);
+  if (!finitePair(pageOrigin.originX, pageOrigin.originY) || !validPositivePair(scale.x, scale.y) ||
+    !validPositivePair(width, height) || (cropRect !== null && !validCrop(cropRect))) {
+    throw new Error('original MODIFY_BLOCK image crop geometry is invalid');
+  }
+
+  // td8 fields 2/3 are paired inline page/origin structs; field 5 is SetSize(scale),
+  // field 6 is block size, and field 12 is the nullable crop setter.
+  const table: number = 44;
+  const objectSize: number = 44;
+  const vector: number = table + objectSize;
+  const vectorEnd: number = vector + 4 + targets.length * 8;
+  const scaleVtable: number = align4(vectorEnd);
+  const scaleTable: number = align4(scaleVtable + 6);
+  const cropVtable: number = align4(scaleTable + 12);
+  const cropTable: number = align4(cropVtable + 6);
+  const cropObjectSize: number = cropRect === null ? 4 : 20;
+  const bytes: Uint8Array = new Uint8Array(cropTable + cropObjectSize);
+  const fields: number[] = new Array<number>(18).fill(0);
+  fields[0] = 4;
+  fields[2] = 8;
+  fields[3] = 20;
+  fields[5] = 28;
+  fields[6] = 32;
+  fields[12] = 40;
+
+  writeU32(bytes, 0, table);
+  writeVtable(bytes, 4, objectSize, fields);
+  writeU32(bytes, table, table - 4);
+  writeU32(bytes, table + 4, vector - (table + 4));
+  writeSequence(bytes, table + 8, pageOrigin.page);
+  writeF32(bytes, table + 20, pageOrigin.originX);
+  writeF32(bytes, table + 24, pageOrigin.originY);
+  writeU32(bytes, table + 28, scaleTable - (table + 28));
+  writeF32(bytes, table + 32, width);
+  writeF32(bytes, table + 36, height);
+  writeU32(bytes, table + 40, cropTable - (table + 40));
+  writeU32(bytes, vector, targets.length);
+  for (let index: number = 0; index < targets.length; index++) {
+    writeOperationIdentity(bytes, vector + 4 + index * 8, targets[index]);
+  }
+  writeVtable(bytes, scaleVtable, 12, [4]);
+  writeU32(bytes, scaleTable, scaleTable - scaleVtable);
+  writeF32(bytes, scaleTable + 4, scale.x);
+  writeF32(bytes, scaleTable + 8, scale.y);
+  writeVtable(bytes, cropVtable, cropObjectSize, [cropRect === null ? 0 : 4]);
+  writeU32(bytes, cropTable, cropTable - cropVtable);
+  if (cropRect !== null) {
+    writeF32(bytes, cropTable + 4, cropRect.x);
+    writeF32(bytes, cropTable + 8, cropRect.y);
+    writeF32(bytes, cropTable + 12, cropRect.width);
+    writeF32(bytes, cropTable + 16, cropRect.height);
+  }
+  return bytes;
+}
+
 function validateTargets(blocks: OperationIdentity[]): OperationIdentity[] {
   const targets: OperationIdentity[] = [];
   const seen: Set<string> = new Set<string>();
@@ -79,6 +144,32 @@ function validateTargets(blocks: OperationIdentity[]): OperationIdentity[] {
     targets.push({ timestamp: block.timestamp, siteId: block.siteId });
   }
   return targets;
+}
+
+function finitePair(x: number, y: number): boolean {
+  return Number.isFinite(x) && Number.isFinite(y);
+}
+
+function validPositivePair(x: number, y: number): boolean {
+  return finitePair(x, y) && x > 0 && y > 0;
+}
+
+function validCrop(crop: OriginalBlockRect): boolean {
+  return finitePair(crop.x, crop.y) && validPositivePair(crop.width, crop.height);
+}
+
+function writeSequence(bytes: Uint8Array, offset: number, page: OriginalSequenceIdentity): void {
+  writeU16(bytes, offset, page.siteId);
+  writeU16(bytes, offset + 2, 0);
+  writeU32(bytes, offset + 4, page.timestamp);
+  writeU32(bytes, offset + 8, page.index);
+}
+
+function writeOperationIdentity(bytes: Uint8Array, offset: number,
+  identity: OperationIdentity): void {
+  writeU16(bytes, offset, identity.siteId);
+  writeU16(bytes, offset + 2, 0);
+  writeU32(bytes, offset + 4, identity.timestamp);
 }
 
 function writeVtable(bytes: Uint8Array, offset: number, objectSize: number,

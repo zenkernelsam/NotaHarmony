@@ -55,7 +55,7 @@ import { encodeOriginalOperationEnvelope } from './OriginalOperationEnvelopeEnco
 import {
   ORIGINAL_MODIFY_INK_PAYLOAD_TYPE, OriginalModifyInkOperationApplier,
 } from './OriginalModifyInkOperation';
-import { encodeOriginalImageFlip } from './OriginalModifyBlockPayloadEncoder';
+import { encodeOriginalImageCrop, encodeOriginalImageFlip } from './OriginalModifyBlockPayloadEncoder';
 import {
   decodeOriginalModifyBlock, ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE,
   OriginalModifyBlockOperationApplier, OriginalModifyBlockPayload,
@@ -201,6 +201,21 @@ export interface OriginalImageFlipMutation {
   updates: OriginalImageFlipUpdate[];
 }
 
+export interface OriginalImageCropUpdate {
+  identity: OperationIdentity;
+  originX: number;
+  originY: number;
+  scaleX: number;
+  scaleY: number;
+  width: number;
+  height: number;
+  cropRect: OriginalBlockRect | null;
+}
+
+export interface OriginalImageCropMutation {
+  updates: OriginalImageCropUpdate[];
+}
+
 export function classifyOriginalImageFlipMutation(current: SearchSourceElement[],
   next: SearchSourceElement[]): OriginalImageFlipMutation | null {
   if (current.length !== next.length) {
@@ -271,6 +286,88 @@ export function classifyOriginalImageFlipMutation(current: SearchSourceElement[]
     }
   }
   return updates.length === 0 ? null : { updates: updates };
+}
+
+export function classifyOriginalImageCropMutation(current: SearchSourceElement[],
+  next: SearchSourceElement[]): OriginalImageCropMutation | null {
+  if (!samePreparedIdentityOrder(current, next)) {
+    return null;
+  }
+  const updates: OriginalImageCropUpdate[] = [];
+  for (let index: number = 0; index < current.length; index++) {
+    if (sameByteArrays(current[index].payload, next[index].payload)) {
+      continue;
+    }
+    if (current[index].kind !== PageElementKind.IMAGE) {
+      return null;
+    }
+    try {
+      const beforePersisted: PersistedElement = decodePersistedElement(current[index].payload);
+      const afterPersisted: PersistedElement = decodePersistedElement(next[index].payload);
+      if (beforePersisted.kind !== 'image' || afterPersisted.kind !== 'image') {
+        return null;
+      }
+      const before: ImageElement = beforePersisted.data as ImageElement;
+      const after: ImageElement = afterPersisted.data as ImageElement;
+      const identity: OperationIdentity | null = decodeOperationId(before.id);
+      const beforePosition: PositionComponents | null = positionComponents(before.transform);
+      const afterPosition: PositionComponents | null = positionComponents(after.transform);
+      const sourceCrop: Rect2D = before.cropRect === null ? {
+        left: 0, top: 0, right: before.intrinsicWidth, bottom: before.intrinsicHeight,
+      } : before.cropRect;
+      const targetCrop: Rect2D = after.cropRect === null ? {
+        left: 0, top: 0, right: after.intrinsicWidth, bottom: after.intrinsicHeight,
+      } : after.cropRect;
+      if (identity === null || before.id !== current[index].elementId || before.id !== after.id ||
+        after.id !== next[index].elementId || beforePosition === null || afterPosition === null ||
+        !sameImageCropDomain(before, after) || !validIntrinsicCrop(sourceCrop, before) ||
+        !validIntrinsicCrop(targetCrop, after) ||
+        !numbersNear(before.blockWidth, sourceCrop.right - sourceCrop.left) ||
+        !numbersNear(before.blockHeight, sourceCrop.bottom - sourceCrop.top) ||
+        !numbersNear(after.blockWidth, targetCrop.right - targetCrop.left) ||
+        !numbersNear(after.blockHeight, targetCrop.bottom - targetCrop.top) ||
+        !numbersNear(beforePosition.rotation, afterPosition.rotation) ||
+        !numbersNear(beforePosition.scaleX, afterPosition.scaleX) ||
+        !numbersNear(beforePosition.scaleY, afterPosition.scaleY)) {
+        return null;
+      }
+      const offsetX: number = targetCrop.left - sourceCrop.left;
+      const offsetY: number = targetCrop.top - sourceCrop.top;
+      const candidate: ImageElement = cloneImageElement(before);
+      candidate.transform[2] = Math.fround(before.transform[0] * offsetX +
+        before.transform[1] * offsetY + before.transform[2]);
+      candidate.transform[5] = Math.fround(before.transform[3] * offsetX +
+        before.transform[4] * offsetY + before.transform[5]);
+      candidate.blockWidth = Math.fround(targetCrop.right - targetCrop.left);
+      candidate.blockHeight = Math.fround(targetCrop.bottom - targetCrop.top);
+      candidate.cropRect = after.cropRect === null ? null : {
+        left: Math.fround(targetCrop.left), top: Math.fround(targetCrop.top),
+        right: Math.fround(targetCrop.right), bottom: Math.fround(targetCrop.bottom),
+      };
+      candidate.bounds = imageBlockWorldBounds(candidate);
+      if (!sameByteArrays(encodePersistedElement({ kind: 'image', data: candidate }),
+        next[index].payload)) {
+        return null;
+      }
+      updates.push({
+        identity: identity,
+        originX: Math.fround(afterPosition.originX),
+        originY: Math.fround(afterPosition.originY),
+        scaleX: Math.fround(afterPosition.scaleX),
+        scaleY: Math.fround(afterPosition.scaleY),
+        width: Math.fround(after.blockWidth),
+        height: Math.fround(after.blockHeight),
+        cropRect: after.cropRect === null ? null : {
+          x: Math.fround(after.cropRect.left), y: Math.fround(after.cropRect.top),
+          width: Math.fround(after.cropRect.right - after.cropRect.left),
+          height: Math.fround(after.cropRect.bottom - after.cropRect.top),
+        },
+      });
+    } catch (_error) {
+      return null;
+    }
+  }
+  return updates.length === 1 ? { updates: updates } : null;
 }
 
 interface PositionComponents {
@@ -655,6 +752,15 @@ export class StrokePersistence {
         await store.commit();
         return;
       }
+      const originalImageCrop: OriginalImageCropMutation | null =
+        classifyOriginalImageCropMutation(current, snapshot.elements);
+      if (originalImageCrop !== null) {
+        await this.applyOriginalImageCrop(store, snapshot, originalImageCrop, snapshotRevision);
+        await this.rebuildPageSearchState(store, snapshot, snapshotRevision, false);
+        await this.appendHistoryCompanion(store, snapshot, mutation);
+        await store.commit();
+        return;
+      }
       const originalPositions: OriginalModifyPositionsMutation | null =
         await this.originalModifyPositionsMutation(store, snapshot.noteId, snapshot.pageId,
           current, snapshot.elements, snapshot.history, snapshot.originalZOrderHint);
@@ -910,8 +1016,12 @@ export class StrokePersistence {
         const originalImageFlip: OriginalImageFlipMutation | null =
           originalVisibility === null && originalStyle === null ?
             classifyOriginalImageFlipMutation(current, step.elements) : null;
-        const originalPositions: OriginalModifyPositionsMutation | null =
+        const originalImageCrop: OriginalImageCropMutation | null =
           originalVisibility === null && originalStyle === null && originalImageFlip === null ?
+            classifyOriginalImageCropMutation(current, step.elements) : null;
+        const originalPositions: OriginalModifyPositionsMutation | null =
+          originalVisibility === null && originalStyle === null && originalImageFlip === null &&
+            originalImageCrop === null ?
             await this.originalModifyPositionsMutation(store, step.noteId, step.pageId,
               current, step.elements, step.history, step.originalZOrderHint) : null;
         if (originalVisibility !== null) {
@@ -921,6 +1031,8 @@ export class StrokePersistence {
           await this.applyOriginalInkStyle(store, step, originalStyle, nextRevision);
         } else if (originalImageFlip !== null) {
           await this.applyOriginalImageFlip(store, step, originalImageFlip, nextRevision);
+        } else if (originalImageCrop !== null) {
+          await this.applyOriginalImageCrop(store, step, originalImageCrop, nextRevision);
         } else if (originalPositions !== null) {
           await this.applyOriginalModifyPositions(store, step, originalPositions.payload, nextRevision);
           await this.recordOriginalZOrderHistory(store, step, originalPositions.zOrderHistory);
@@ -1389,6 +1501,49 @@ export class StrokePersistence {
       store, step.noteId, step.pageId);
     if (!samePreparedIdentityOrder(materialized, step.elements)) {
       throw new Error('local MODIFY_BLOCK reducer produced an unexpected element order');
+    }
+    await this.reconcilePreparedRows(store, step, expectedRevision);
+  }
+
+  private async applyOriginalImageCrop(store: relationalStore.RdbStore,
+    step: PreparedPageSave, mutation: OriginalImageCropMutation,
+    expectedRevision: number): Promise<void> {
+    const page: OriginalSequenceIdentity | null = await this.readEligibleOriginalInkPage(
+      store, step.noteId, step.pageId);
+    if (page === null) {
+      throw new Error('local MODIFY_BLOCK crop page is no longer original-aligned');
+    }
+    const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+    const applier: OriginalModifyBlockOperationApplier = new OriginalModifyBlockOperationApplier();
+    for (const update of mutation.updates) {
+      const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, step.noteId);
+      const payload: Uint8Array = encodeOriginalImageCrop([update.identity], {
+        page: page, originX: update.originX, originY: update.originY,
+      }, { x: update.scaleX, y: update.scaleY }, update.width, update.height, update.cropRect);
+      const metadata: OriginalInkCreateMetadata = {
+        timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
+        pageTimestamp: 0, pageSiteId: 0, pageIndex: 0, pencilSeed: 0,
+      };
+      const operation: StoredSyncedOperation = localStoredOperation(
+        step.noteId, metadata, ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE, payload, null);
+      const decoded: OriginalModifyBlockPayload = decodeOriginalModifyBlock(operation.rawOperation);
+      const result: SyncedOperationApplyResult = await applier.applyBatchedPayload(
+        store, operation, decoded, revisionBatch);
+      if (result.deferredReason !== null) {
+        throw new Error(`local MODIFY_BLOCK image crop was deferred: ${result.deferredReason}`);
+      }
+      await appendOperation(store, {
+        noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_BLOCK,
+        payload: operation.rawOperation, clientTime: identity.clientTime,
+        opTimestamp: identity.timestamp, editorSiteId: identity.siteId,
+        uploadImmediately: true,
+      });
+    }
+    await revisionBatch.flush(store, step.noteId);
+    const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+      store, step.noteId, step.pageId);
+    if (!samePreparedIdentityOrder(materialized, step.elements)) {
+      throw new Error('local MODIFY_BLOCK crop reducer produced an unexpected element order');
     }
     await this.reconcilePreparedRows(store, step, expectedRevision);
   }
@@ -2224,7 +2379,7 @@ function sameByteArrays(left: Uint8Array, right: Uint8Array): boolean {
 }
 
 function samePreparedIdentityOrder(current: SearchSourceElement[],
-  expected: PreparedElement[]): boolean {
+  expected: Array<PreparedElement | SearchSourceElement>): boolean {
   if (current.length !== expected.length) {
     return false;
   }
@@ -2235,6 +2390,31 @@ function samePreparedIdentityOrder(current: SearchSourceElement[],
     }
   }
   return true;
+}
+
+function sameImageCropDomain(before: ImageElement, after: ImageElement): boolean {
+  if (!numbersNear(before.intrinsicWidth, after.intrinsicWidth) ||
+    !numbersNear(before.intrinsicHeight, after.intrinsicHeight) ||
+    before.assetHash !== after.assetHash || before.fileName !== after.fileName ||
+    before.mimeType !== after.mimeType || before.fileSize !== after.fileSize ||
+    before.assetHashBits.length !== after.assetHashBits.length) {
+    return false;
+  }
+  for (let index: number = 0; index < before.assetHashBits.length; index++) {
+    if (before.assetHashBits[index] !== after.assetHashBits[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function validIntrinsicCrop(crop: Rect2D, image: ImageElement): boolean {
+  return finiteRect(crop) && Number.isFinite(image.intrinsicWidth) &&
+    Number.isFinite(image.intrinsicHeight) && image.intrinsicWidth > 0.0001 &&
+    image.intrinsicHeight > 0.0001 && crop.left >= -0.0001 && crop.top >= -0.0001 &&
+    crop.right <= image.intrinsicWidth + 0.0001 &&
+    crop.bottom <= image.intrinsicHeight + 0.0001 &&
+    crop.right - crop.left > 0.0001 && crop.bottom - crop.top > 0.0001;
 }
 
 function samePreparedMembersAndPayloads(current: SearchSourceElement[],
