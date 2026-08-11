@@ -43,6 +43,7 @@ import {
   OriginalDeleteEntitiesOperationApplier,
 } from './OriginalDeleteEntitiesOperation';
 import { encodeOriginalInkRenderRegisters } from './OriginalModifyInkPayloadEncoder';
+import { encodeOriginalOperationEnvelope } from './OriginalOperationEnvelopeEncoder';
 import {
   ORIGINAL_MODIFY_INK_PAYLOAD_TYPE, OriginalModifyInkOperationApplier,
 } from './OriginalModifyInkOperation';
@@ -631,7 +632,7 @@ export class StrokePersistence {
     }
     await appendOperation(store, {
       noteId: snapshot.noteId, opId: stroke.id, opType: OpType.ORIGINAL_CREATE_INK,
-      payload: payload, clientTime: metadata.clientTime, opTimestamp: metadata.timestamp,
+      payload: operation.rawOperation, clientTime: metadata.clientTime, opTimestamp: metadata.timestamp,
       editorSiteId: metadata.siteId, uploadImmediately: true,
     });
     const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
@@ -901,7 +902,7 @@ export class StrokePersistence {
     }
     await appendOperation(store, {
       noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_DELETE_ENTITIES,
-      payload: payload, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+      payload: operation.rawOperation, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
       editorSiteId: identity.siteId, uploadImmediately: true,
     });
     const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
@@ -935,7 +936,7 @@ export class StrokePersistence {
     }
     await appendOperation(store, {
       noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_INK,
-      payload: payload, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+      payload: operation.rawOperation, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
       editorSiteId: identity.siteId, uploadImmediately: true,
     });
     const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
@@ -1457,10 +1458,15 @@ function sameElement(left: SearchSourceElement | PreparedElement,
 
 function localStoredOperation(noteId: string, metadata: OriginalInkCreateMetadata,
   payloadType: number, payload: Uint8Array, audioTime: string | null): StoredSyncedOperation {
+  const rawOperation: Uint8Array = encodeOriginalOperationEnvelope({
+    identity: { timestamp: metadata.timestamp, siteId: metadata.siteId },
+    clientTime: metadata.clientTime.toString(), serverTime: null, audioTime: audioTime,
+    payloadType: payloadType,
+  }, payload);
   return {
     noteId: noteId, timestamp: metadata.timestamp, siteId: metadata.siteId,
     clientTime: metadata.clientTime.toString(), serverTime: '0', audioTime: audioTime,
-    schemaVersion: 1, payloadType: payloadType, rawOperation: payload,
+    schemaVersion: 1, payloadType: payloadType, rawOperation: rawOperation,
     state: SyncedOperationInboxState.APPLIED, deferredReason: null,
     receivedAt: metadata.clientTime,
   };

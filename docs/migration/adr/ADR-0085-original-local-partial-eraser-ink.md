@@ -48,3 +48,10 @@ Accepted, 2026-08-11.
 This decision does not implement local MODIFY_INK center-path replacement or ADD_PATH_ELEMENTS
 streaming. Device pixel comparison is still required for exact eraser width, caps, rapid gesture
 sampling and performance. No emulator, VM or device was started.
+
+## Phase 110 Correction
+
+Partial-eraser persistence reuses the local CREATE_INK path. Its model, renderer and history
+semantics were present in Phase 108, but the shared CREATE_INK reducer was still given a payload
+child rather than a complete `uq9`. Phase 110 repairs that common producer boundary; the visual
+and selection decisions in this ADR are otherwise unchanged.

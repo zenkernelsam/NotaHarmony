@@ -18,6 +18,7 @@ import {
 import {
   StoredSyncedOperation, SyncedOperationApplyResult, SyncedOperationInboxState,
 } from './SyncedOperationInbox';
+import { encodeOriginalOperationEnvelope } from './OriginalOperationEnvelopeEncoder';
 
 export interface PersistedOriginalPageMutation {
   page: PageInfo;
@@ -66,20 +67,22 @@ export async function persistOriginalCreatePage(store: relationalStore.RdbStore,
   const payload: Uint8Array = requestedPage === null
     ? encodeOriginalLocalCreatePage(location)
     : encodeOriginalLocalCreatePage(location, requestedPage.widthMm, requestedPage.heightMm);
+  const operation: StoredSyncedOperation = storedOperation(
+    noteId, identity, ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE, payload);
   const result: SyncedOperationApplyResult = await new OriginalCreatePageOperationApplier().apply(
-    store, storedOperation(noteId, identity, ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE, payload));
+    store, operation);
   if (result.deferredReason !== null) {
     throw new Error(`local CreatePage was deferred: ${result.deferredReason}`);
   }
   await appendOperation(store, {
     noteId: noteId, opId: identity.opId, opType: OpType.ORIGINAL_CREATE_PAGE,
-    payload: payload, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+    payload: operation.rawOperation, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
     editorSiteId: identity.siteId, uploadImmediately: true,
   });
   const pageId: string = encodeOriginalPageStorageId(noteId, {
     timestamp: identity.timestamp, siteId: identity.siteId, index: 0,
   });
-  return { page: await readPage(store, noteId, pageId), payload: payload };
+  return { page: await readPage(store, noteId, pageId), payload: operation.rawOperation };
 }
 
 export async function persistOriginalPageVisibility(store: relationalStore.RdbStore,
@@ -91,18 +94,20 @@ export async function persistOriginalPageVisibility(store: relationalStore.RdbSt
   const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
   const payload: Uint8Array = encodeOriginalPageVisibility(
     deleted ? [page] : [], deleted ? [] : [page]);
+  const operation: StoredSyncedOperation = storedOperation(
+    noteId, identity, ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE, payload);
   const result: SyncedOperationApplyResult = await new OriginalDeleteEntitiesOperationApplier().apply(
-    store, storedOperation(noteId, identity, ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE, payload));
+    store, operation);
   if (result.deferredReason !== null) {
     throw new Error(`local page visibility was deferred: ${result.deferredReason}`);
   }
   await appendOperation(store, {
     noteId: noteId, opId: identity.opId, opType: OpType.ORIGINAL_DELETE_ENTITIES,
-    payload: payload, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+    payload: operation.rawOperation, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
     editorSiteId: identity.siteId, uploadImmediately: true,
   });
   return { page: deleted ? emptyArchivedPage(pageId) : await readPage(store, noteId, pageId),
-    payload: payload };
+    payload: operation.rawOperation };
 }
 
 export async function originalPageIdentityExists(store: relationalStore.RdbStore,
@@ -192,10 +197,15 @@ async function readPage(store: relationalStore.RdbStore, noteId: string,
 
 function storedOperation(noteId: string, identity: AllocatedOperationIdentity,
   payloadType: number, payload: Uint8Array): StoredSyncedOperation {
+  const rawOperation: Uint8Array = encodeOriginalOperationEnvelope({
+    identity: { timestamp: identity.timestamp, siteId: identity.siteId },
+    clientTime: identity.clientTime.toString(), serverTime: null, audioTime: null,
+    payloadType: payloadType,
+  }, payload);
   return {
     noteId: noteId, timestamp: identity.timestamp, siteId: identity.siteId,
     clientTime: identity.clientTime.toString(), serverTime: '0', audioTime: null,
-    schemaVersion: 1, payloadType: payloadType, rawOperation: payload,
+    schemaVersion: 1, payloadType: payloadType, rawOperation: rawOperation,
     state: SyncedOperationInboxState.APPLIED, deferredReason: null,
     receivedAt: identity.clientTime,
   };

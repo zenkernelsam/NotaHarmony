@@ -58,3 +58,9 @@ Accepted, 2026-08-11.
 
 Private server upload/ACK, recording capture, Android/Harmony device playback behavior, audio focus
 and output routing remain separate work. Waveform is not added without stronger 1.0.3 evidence.
+
+## Phase 110 Correction
+
+The delete/undelete payload and delayed Undo policy remain correct, but the local production path
+passed the DELETE_ENTITIES child table where its reducer requires a complete `uq9`. Phase 110 wraps
+and journals the full operation, so the durable deletion transaction is effective from that phase.

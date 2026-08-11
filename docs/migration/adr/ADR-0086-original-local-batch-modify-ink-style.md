@@ -52,3 +52,10 @@ This decision does not claim selected-Ink color/width UI, local center-path repl
 ADD_PATH_ELEMENTS streaming, Shape style outbound, or private upload/ACK transport completion.
 Exact dashed/dotted phase and variable-width rendering still require device comparison. No emulator,
 VM or device was started.
+
+## Phase 110 Correction
+
+The Phase 109 `wd8` encoder and strict snapshot classifier were valid, but the reducer was passed
+the payload child directly. Phase 110 wraps it in a complete local `uq9`, applies that operation,
+and stores the identical complete bytes in `operation_log`. Thus the style production transaction
+described above becomes effective only with Phase 110.

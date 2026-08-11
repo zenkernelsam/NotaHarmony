@@ -38,6 +38,48 @@ export function encodeOriginalInkCenterPath(stroke: StrokeElementData): Uint8Arr
   return bytes;
 }
 
+// ldj.M2(..., true) uses the same attributed BITS_32 element encoding for
+// ADD_PATH_ELEMENTS, but an append must never contain a MOVE element.
+export function encodeOriginalInkPathAppend(stroke: StrokeElementData,
+  firstSegment: number = 0, segmentCount: number = stroke.cubicSegments.length - firstSegment):
+  Uint8Array {
+  if (!Number.isSafeInteger(firstSegment) || firstSegment < 0 ||
+    !Number.isSafeInteger(segmentCount) || segmentCount < 0 ||
+    firstSegment > stroke.cubicSegments.length - segmentCount) {
+    throw new Error('local ADD_PATH_ELEMENTS segment range is invalid');
+  }
+  const lineOnly: boolean = stroke.cubicSegments.length === 0 && firstSegment === 0 &&
+    segmentCount === 0 && stroke.pathPoints.length >= 2;
+  const count: number = lineOnly ? 1 : segmentCount;
+  if (count < 1 || count > MAX_PATH_ELEMENTS) {
+    throw new Error('local ADD_PATH_ELEMENTS path element count is invalid');
+  }
+  const byteCount: number = 3 + (lineOnly ? attributedElementBytes(1) :
+    count * attributedElementBytes(3));
+  const bytes: Uint8Array = new Uint8Array(byteCount);
+  bytes[0] = 1;
+  writeU16BE(bytes, 1, count);
+  if (lineOnly) {
+    writeAttributedElement(bytes, 3, 2,
+      [stroke.pathPoints[stroke.pathPoints.length - 1].position],
+      stroke.pathPoints[stroke.pathPoints.length - 1]);
+    return bytes;
+  }
+  if (stroke.pathPoints.length < 2) {
+    throw new Error('local ADD_PATH_ELEMENTS requires attributed path points');
+  }
+  let offset: number = 3;
+  const totalSegments: number = stroke.cubicSegments.length;
+  for (let index: number = firstSegment; index < firstSegment + segmentCount; index++) {
+    const segment: CubicSegment = stroke.cubicSegments[index];
+    const attributeIndex: number = Math.min(stroke.pathPoints.length - 1,
+      Math.max(1, Math.round((index + 1) * (stroke.pathPoints.length - 1) / totalSegments)));
+    offset = writeAttributedElement(bytes, offset, 0,
+      [segment.p1, segment.p2, segment.p3], stroke.pathPoints[attributeIndex]);
+  }
+  return bytes;
+}
+
 function attributedElementBytes(pointCount: number): number {
   return 1 + pointCount * 8 + 6;
 }

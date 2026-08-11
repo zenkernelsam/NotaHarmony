@@ -15,6 +15,7 @@ import {
 import { encodeOriginalEntityDeletes } from './OriginalDeleteEntitiesPayloadEncoder';
 import { OriginalRecordingSegment } from './OriginalRecordingOperation';
 import { OriginalFlatBufferTableReader } from './OriginalSyncedOperationFlatBuffer';
+import { encodeOriginalOperationEnvelope } from './OriginalOperationEnvelopeEncoder';
 import {
   StoredSyncedOperation, SyncedOperationApplyResult, SyncedOperationInboxState,
 } from './SyncedOperationInbox';
@@ -118,11 +119,16 @@ export class OriginalRecordingStore {
         const identity: AllocatedOperationIdentity =
           await allocateOperationIdentity(store, noteId);
         const payload: Uint8Array = encodeOriginalEntityDeletes(visible);
+        const rawOperation: Uint8Array = encodeOriginalOperationEnvelope({
+          identity: { timestamp: identity.timestamp, siteId: identity.siteId },
+          clientTime: identity.clientTime.toString(), serverTime: null, audioTime: null,
+          payloadType: ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE,
+        }, payload);
         const operation: StoredSyncedOperation = {
           noteId: noteId, timestamp: identity.timestamp, siteId: identity.siteId,
           clientTime: identity.clientTime.toString(), serverTime: '0', audioTime: null,
           schemaVersion: 1, payloadType: ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE,
-          rawOperation: payload, state: SyncedOperationInboxState.APPLIED,
+          rawOperation: rawOperation, state: SyncedOperationInboxState.APPLIED,
           deferredReason: null, receivedAt: identity.clientTime,
         };
         const result: SyncedOperationApplyResult =
@@ -133,7 +139,7 @@ export class OriginalRecordingStore {
         }
         await appendOperation(store, {
           opId: identity.opId, noteId: noteId,
-          opType: OpType.ORIGINAL_DELETE_ENTITIES, payload: payload,
+          opType: OpType.ORIGINAL_DELETE_ENTITIES, payload: rawOperation,
           clientTime: identity.clientTime, opTimestamp: identity.timestamp,
           editorSiteId: identity.siteId, uploadImmediately: true,
         });

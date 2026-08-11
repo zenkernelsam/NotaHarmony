@@ -75,3 +75,12 @@ Accepted, 2026-08-11.
 Local ADD_PATH_ELEMENTS streaming, MODIFY_INK for transforms/style/partial erase, whole-eraser
 multi-entity batching, original text/shape/image/math authoring, private transport ACK acceptance,
 and device-level visual/input verification remain later work. No emulator, VM or device was started.
+
+## Phase 110 Correction
+
+The Phase 106 dm2/path bytes were a valid payload child, but `OriginalCreateInkOperationApplier`
+decodes field 5 of a complete `uq9` operation. Supplying the child as `rawOperation` caused the local
+reducer to defer before durable CREATE_INK journal insertion. Phase 110 fixes the shared envelope
+producer and makes the operation log retain the complete original operation, including nullable
+audioTime. ADD_PATH_ELEMENTS encoding added in Phase 110 is a writer foundation only; transient
+move streaming still requires an explicit non-durable consumer/transport boundary.

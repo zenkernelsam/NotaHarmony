@@ -7,12 +7,14 @@ import { encodeOriginalPageVisibility } from
   '../main/ets/data/OriginalDeleteEntitiesPayloadEncoder';
 import { decodeOriginalDeleteEntities } from '../main/ets/data/OriginalDeleteEntitiesOperation';
 import { persistOriginalCreatePage } from '../main/ets/data/OriginalPagePersistence';
+import { encodeOriginalOperationEnvelope } from
+  '../main/ets/data/OriginalOperationEnvelopeEncoder';
 
 export default function originalCreatePagePayloadEncoderTest() {
   describe('OriginalCreatePagePayloadEncoder', () => {
     it('preserves the original implicit Letter root-page defaults', 0, () => {
       expect(persistOriginalCreatePage !== undefined).assertTrue();
-      const decoded = decodeOriginalCreatePage(encodeOriginalLocalCreatePage(null));
+      const decoded = decodeOriginalCreatePage(wrap(3, encodeOriginalLocalCreatePage(null)));
       expect(decoded.location === null).assertTrue();
       expect(decoded.hasBackground).assertFalse();
       expect(decoded.pageCount).assertEqual(1);
@@ -20,9 +22,9 @@ export default function originalCreatePagePayloadEncoderTest() {
     });
 
     it('round-trips a located A4 page through nz9 sourceSize', 0, () => {
-      const decoded = decodeOriginalCreatePage(encodeOriginalLocalCreatePage({
+      const decoded = decodeOriginalCreatePage(wrap(3, encodeOriginalLocalCreatePage({
         timestamp: 91, siteId: 7, index: 3,
-      }, 210, 297));
+      }, 210, 297)));
       expect(decoded.location === null).assertFalse();
       expect(decoded.location?.timestamp).assertEqual(91);
       expect(decoded.location?.siteId).assertEqual(7);
@@ -34,9 +36,9 @@ export default function originalCreatePagePayloadEncoderTest() {
     });
 
     it('round-trips page delete and undelete sequence vectors', 0, () => {
-      const decoded = decodeOriginalDeleteEntities(encodeOriginalPageVisibility(
+      const decoded = decodeOriginalDeleteEntities(wrap(25, encodeOriginalPageVisibility(
         [{ timestamp: 12, siteId: 2, index: 4 }],
-        [{ timestamp: 13, siteId: 3, index: 5 }]));
+        [{ timestamp: 13, siteId: 3, index: 5 }])));
       expect(decoded.entityDeleteCount).assertEqual(0);
       expect(decoded.entityUndeleteCount).assertEqual(0);
       expect(decoded.pageDeletes.length).assertEqual(1);
@@ -49,4 +51,11 @@ export default function originalCreatePagePayloadEncoderTest() {
       expect(decoded.pageUndeletes[0].index).assertEqual(5);
     });
   });
+}
+
+function wrap(payloadType: number, payload: Uint8Array): Uint8Array {
+  return encodeOriginalOperationEnvelope({
+    identity: { timestamp: 100, siteId: 7 }, clientTime: '1234', serverTime: null,
+    audioTime: null, payloadType: payloadType,
+  }, payload);
 }

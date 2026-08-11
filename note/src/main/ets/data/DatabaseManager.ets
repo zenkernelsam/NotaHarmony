@@ -32,6 +32,7 @@ import {
 import {
   backfillOriginalAppliedOperationTimes, OriginalOperationTimeDatabase,
 } from './OriginalOperationAudioTimeStore';
+import { repairLegacyOriginalOutboundEnvelopes } from './OriginalOutboundOperationRepair';
 
 export class DatabaseManager implements OriginalOperationTimeDatabase {
   private static instance: DatabaseManager | null = null;
@@ -143,6 +144,7 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
       }
       await store.beginTransaction();
       try {
+        await repairLegacyOriginalOutboundEnvelopes(store);
         await backfillOriginalAppliedOperationTimes(store);
         await store.commit();
       } catch (e) {

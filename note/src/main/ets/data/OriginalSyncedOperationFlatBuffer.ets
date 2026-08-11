@@ -13,6 +13,16 @@ export interface OriginalSyncedOperationEnvelope {
   payloadTypeKnown: boolean;
 }
 
+export interface OriginalOperationEnvelope {
+  timestamp: number;
+  siteId: number;
+  clientTime: string;
+  serverTime: string | null;
+  audioTime: string | null;
+  payloadType: number;
+  payloadTypeKnown: boolean;
+}
+
 export interface OriginalSyncedOperationCandidate {
   timestamp: number;
   siteId: number;
@@ -360,7 +370,7 @@ export class OriginalFlatBufferTableReader {
 
 const CRC32_TABLE: number[] = buildCrc32Table();
 
-export function parseOriginalSyncedOperationEnvelope(bytes: Uint8Array): OriginalSyncedOperationEnvelope {
+export function parseOriginalOperationEnvelope(bytes: Uint8Array): OriginalOperationEnvelope {
   const root: FlatBufferTable = readFlatBufferRoot(bytes);
   const idOffset: number = requireField(bytes, root, 0, 8, 'id');
   const clientOffset: number = fieldOffset(bytes, root, 1);
@@ -371,10 +381,9 @@ export function parseOriginalSyncedOperationEnvelope(bytes: Uint8Array): Origina
   if (clientOffset !== 0) {
     requireObjectBytes(root, clientOffset, 8, 'clientTime');
   }
-  if (serverOffset === 0) {
-    throw new Error('synced FlatBuffer operation has no serverTime');
+  if (serverOffset !== 0) {
+    requireObjectBytes(root, serverOffset, 8, 'serverTime');
   }
-  requireObjectBytes(root, serverOffset, 8, 'serverTime');
   if (audioOffset !== 0) {
     requireObjectBytes(root, audioOffset, 8, 'audioTime');
   }
@@ -395,11 +404,28 @@ export function parseOriginalSyncedOperationEnvelope(bytes: Uint8Array): Origina
     siteId: readU16(bytes, root.table + idOffset),
     timestamp: readU32(bytes, root.table + idOffset + 4),
     clientTime: clientOffset === 0 ? '0' : unsignedLongBytesToDecimal(bytes, root.table + clientOffset),
-    serverTime: unsignedLongBytesToDecimal(bytes, root.table + serverOffset),
+    serverTime: serverOffset === 0 ? null :
+      unsignedLongBytesToDecimal(bytes, root.table + serverOffset),
     audioTime: audioOffset === 0 ? null :
       unsignedLongBytesToDecimal(bytes, root.table + audioOffset),
     payloadType: payloadType,
     payloadTypeKnown: payloadType >= ORIGINAL_PAYLOAD_TYPE_MIN && payloadType <= ORIGINAL_PAYLOAD_TYPE_MAX,
+  };
+}
+
+export function parseOriginalSyncedOperationEnvelope(bytes: Uint8Array): OriginalSyncedOperationEnvelope {
+  const envelope: OriginalOperationEnvelope = parseOriginalOperationEnvelope(bytes);
+  if (envelope.serverTime === null) {
+    throw new Error('synced FlatBuffer operation has no serverTime');
+  }
+  return {
+    timestamp: envelope.timestamp,
+    siteId: envelope.siteId,
+    clientTime: envelope.clientTime,
+    serverTime: envelope.serverTime,
+    audioTime: envelope.audioTime,
+    payloadType: envelope.payloadType,
+    payloadTypeKnown: envelope.payloadTypeKnown,
   };
 }
 

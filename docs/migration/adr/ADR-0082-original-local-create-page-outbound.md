@@ -71,3 +71,12 @@ Local MODIFY_PAGE, MODIFY_POSITIONS/reorder, legacy-note identity bootstrap, sty
 CREATE_PAGE authoring, and private transport/ACK acceptance remain separate work. CREATE_INK may now
 use canonical page identities for newly created aligned notes, but must still preallocate the ink
 operation identity before replacing random stroke IDs. No device was started in this phase.
+
+## Phase 110 Correction
+
+The Phase 105 writer encoded the correct CREATE_PAGE/DELETE_ENTITIES payload child tables, but
+passed those children directly to reducers that require a complete `uq9` operation envelope. It
+therefore did not establish the claimed runtime production path. Phase 110 wraps the child in the
+original seven-field operation table before reducer application and journals that same complete
+operation. The identity, transaction, history and eligibility decisions above remain valid; their
+production closure is verified from Phase 110 onward.

@@ -61,3 +61,10 @@ The next phase may request runtime microphone permission and expose Record, paus
 then pass a successful stop result through this persistence bridge with visible busy/error states.
 Editor exit during active capture, audio focus/interruption, codec and microphone behavior still
 require explicit implementation or device validation. Private operation upload/ACK is also separate.
+
+## Phase 110 Correction
+
+Phase 98 materialized CREATE_RECORDING from its valid child table, but journaled that child rather
+than the complete original operation. Phase 110 wraps the payload before materialization and stores
+the identical complete `uq9`, allowing later envelope readers and upload code to preserve operation
+identity and nullable timing metadata.

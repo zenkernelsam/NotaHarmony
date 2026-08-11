@@ -48,3 +48,10 @@ Accepted, 2026-08-11.
 Partial erase still requires original MODIFY_INK/path semantics. ADD_PATH_ELEMENTS streaming,
 transform/style MODIFY_INK, original text/shape/image/math authoring, transport ACK acceptance and
 device visual/input verification remain later work. No emulator, VM or device was started.
+
+## Phase 110 Correction
+
+The Phase 107 batch vector and classifier were correct, but the local reducer received the
+DELETE_ENTITIES child table instead of a complete operation envelope. Phase 110 supplies and
+journals the complete `uq9`; only from that phase is the described batch production transaction
+runnable. Existing identity, batching, revision and rollback decisions are unchanged.
