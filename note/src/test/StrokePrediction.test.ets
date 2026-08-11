@@ -69,5 +69,20 @@ export default function strokePredictionTest() {
       session.addBatch(batch(InputBatchKind.PREDICTED, []));
       expect(session.getCurrentStroke()!.pathPoints.length).assertEqual(1);
     });
+
+    it('keeps the original touch-down audio time without inventing a duration', 0, () => {
+      const session: StrokeSession = new StrokeSession(SPEC);
+      session.beginStroke(SPEC, 400, 1, '1700000000123');
+      session.addBatch(batch(InputBatchKind.REAL, [point(0, 0, 0.5), point(5, 12, 0.5)]));
+
+      expect(session.getCurrentStroke()!.audioStartTime).assertEqual('1700000000123');
+      const finished: StrokeElementData = session.finishStroke();
+      expect(finished.audioStartTime).assertEqual('1700000000123');
+      expect(finished.audioDuration === undefined).assertTrue();
+
+      session.beginStroke(SPEC, 500, 1, null);
+      session.addBatch(batch(InputBatchKind.REAL, [point(0, 0, 0.5)]));
+      expect(session.finishStroke().audioStartTime === undefined).assertTrue();
+    });
   });
 }

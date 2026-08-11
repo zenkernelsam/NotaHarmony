@@ -88,18 +88,23 @@ export default function originalRecordingCaptureControllerTest() {
       const controller: OriginalRecordingCaptureController =
         new OriginalRecordingCaptureController(backend, clock);
       expect(await controller.start()).assertTrue();
+      expect(controller.getCurrentAudioTime()).assertEqual('100000');
       clock.uptime = 2000;
+      expect(controller.getCurrentAudioTime()).assertEqual('101000');
       expect(await controller.pause()).assertTrue();
       clock.uptime = 7000;
       expect(controller.getSnapshot().elapsedMs).assertEqual(1000);
+      expect(controller.getCurrentAudioTime()).assertNull();
       expect(await controller.resume()).assertTrue();
       clock.uptime = 8000;
+      expect(controller.getCurrentAudioTime()).assertEqual('102000');
       backend.mediaDurationMs = 1750;
       const result: OriginalRecordingCaptureResult | null = await controller.stop();
       expect(result?.durationMs).assertEqual(1750);
       expect(result?.startTime).assertEqual(100000);
       expect(result?.endTime).assertEqual(101750);
       expect(controller.getSnapshot().state).assertEqual(OriginalRecordingCaptureState.IDLE);
+      expect(controller.getCurrentAudioTime()).assertNull();
       expect(backend.calls.join(',')).assertEqual('start,pause,resume,stop');
     });
 

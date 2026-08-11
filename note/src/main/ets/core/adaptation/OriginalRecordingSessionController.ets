@@ -82,6 +82,10 @@ export class OriginalRecordingSessionController {
     };
   }
 
+  getCurrentAudioTime(): string | null {
+    return this.released ? null : this.capture.getCurrentAudioTime();
+  }
+
   async start(): Promise<boolean> {
     return await this.mutex.runExclusive(async (): Promise<boolean> => {
       if (this.released || this.preparing || this.saving ||

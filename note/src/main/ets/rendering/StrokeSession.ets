@@ -42,6 +42,7 @@ export class StrokeSession {
   private active: boolean = false;  // 字段名避开与 isActive() 方法重名（ArkTS 限制）
   private strokeId: string = '';
   private startTime: number = 0;
+  private audioStartTime: string | null = null;
   private currentStroke: StrokeElementData | null = null;
   // T-040 审核修复：画布缩放感知（拟合容差按屏幕空间计算）
   private zoom: number = 1.0;
@@ -73,7 +74,8 @@ export class StrokeSession {
   }
 
   // 开始新笔画
-  beginStroke(spec: RenderSpec, timestamp: number, zoom?: number): void {
+  beginStroke(spec: RenderSpec, timestamp: number, zoom?: number,
+    audioStartTime: string | null = null): void {
     this.renderSpec = spec;
     if (zoom !== undefined && zoom > 0) {
       this.zoom = zoom;
@@ -88,6 +90,7 @@ export class StrokeSession {
     this.currentStroke = null;
     this.active = true;
     this.startTime = timestamp;
+    this.audioStartTime = audioStartTime;
     this.strokeId = this.generateStrokeId();
     this.smoother.reset();
     // 按当前笔刷宽度重建 splat 生成器（xaa 的 spacing = c0()），seed 用笔画起始时间戳
@@ -229,6 +232,7 @@ export class StrokeSession {
       transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],  // 单位矩阵
       bounds: bounds,
       maskPath: [],
+      audioStartTime: this.audioStartTime === null ? undefined : this.audioStartTime,
       isFinished: isFinished,
     };
   }

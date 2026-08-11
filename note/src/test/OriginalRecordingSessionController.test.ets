@@ -112,9 +112,13 @@ export default function originalRecordingSessionControllerTest() {
           calls.push(`persist-${capture.durationMs}`);
         });
       expect(await session.start()).assertTrue();
+      expect(session.getCurrentAudioTime()).assertEqual('100000');
       expect(await session.pause()).assertTrue();
+      expect(session.getCurrentAudioTime()).assertNull();
       expect(await session.resume()).assertTrue();
+      expect(session.getCurrentAudioTime()).assertEqual('100000');
       expect(await session.stop()).assertTrue();
+      expect(session.getCurrentAudioTime()).assertNull();
       expect(calls.join(',')).assertEqual(
         'permission,before-start,focus-on,focus-off,persist-2500');
       expect(backend.calls.join(',')).assertEqual(

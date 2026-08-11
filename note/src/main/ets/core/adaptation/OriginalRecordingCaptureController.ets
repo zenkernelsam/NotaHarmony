@@ -86,6 +86,22 @@ export class OriginalRecordingCaptureController {
       elapsedMs: this.currentElapsedMs(), error: this.snapshot.error };
   }
 
+  // Original vcj.b exposes the recorder clock only while capture is active and not paused.
+  getCurrentAudioTime(): string | null {
+    const state: OriginalRecordingCaptureState = this.snapshot.state;
+    if (state !== OriginalRecordingCaptureState.RECORDING &&
+      state !== OriginalRecordingCaptureState.PAUSING &&
+      state !== OriginalRecordingCaptureState.STOPPING) {
+      return null;
+    }
+    // STOPPING can originate from PAUSED; the original paused flag still suppresses its clock.
+    if (this.pausedAtUptime > 0) {
+      return null;
+    }
+    const value: number = this.startWallTime + this.currentElapsedMs();
+    return Number.isSafeInteger(value) && value > 0 ? value.toString() : null;
+  }
+
   async start(): Promise<boolean> {
     return await this.mutex.runExclusive(async (): Promise<boolean> => {
       if (this.permanentlyReleased || (this.snapshot.state !== OriginalRecordingCaptureState.IDLE &&

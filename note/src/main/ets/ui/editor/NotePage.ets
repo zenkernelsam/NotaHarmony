@@ -768,6 +768,11 @@ struct NotePage {
           redoSignal: this.redoSignal,
           playbackAudioTime: this.audioPlaybackTime,
           playbackAudioSegments: this.audioPlaybackSegments,
+          readRecordingAudioTime: (): string | null => {
+            const session: OriginalRecordingSessionController | null =
+              this.recordingSessionController;
+            return session === null ? null : session.getCurrentAudioTime();
+          },
           onUndoRedoChanged: (u: boolean, r: boolean) => {
             hilog.info(0x0001, 'NotePage', 'undoRedoChanged u=%{public}s r=%{public}s',
               u.toString(), r.toString());

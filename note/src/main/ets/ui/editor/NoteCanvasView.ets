@@ -128,6 +128,7 @@ export struct NoteCanvasView {
   @Prop @Watch('onRedoSignalChange') redoSignal: number = 0;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioTime: string | null = null;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioSegments: OriginalAudioSegmentRange[] = [];
+  readRecordingAudioTime: () => string | null = (): string | null => null;
   // MyScript 的精确 hold 时长未出现在反编译配置中；保留注入点供设备对照后收敛。
   @Prop shapeHoldDelayMs: number = 500;
   onUndoRedoChanged: (canUndo: boolean, canRedo: boolean) => void = () => {
@@ -1192,7 +1193,8 @@ export struct NoteCanvasView {
       this.collectPointerSamples(event, touch));
     const startTime: number = this.firstBatchTimestamp(batches, event.timestamp);
     // T-040 审核修复：传入当前 zoom（拟合容差按屏幕空间计算）
-    this.strokeSession.beginStroke(spec, startTime, this.viewport.zoom);
+    this.strokeSession.beginStroke(
+      spec, startTime, this.viewport.zoom, this.readRecordingAudioTime());
     this.inputProvider.beginStroke(startTime);
     this.predictor.reset();
     this.addPointerBatches(batches);
