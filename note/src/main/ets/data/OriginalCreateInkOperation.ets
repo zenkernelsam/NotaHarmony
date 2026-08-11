@@ -1,5 +1,5 @@
 import { relationalStore } from '@kit.ArkData';
-import { InkStyle, InkStyleMapEntry, StrokeElementData } from '../core/model/StrokeTypes';
+import { InkStyle, InkStyleMapEntry, StrokeElementData, TapePattern } from '../core/model/StrokeTypes';
 import { Point2D } from '../core/model/GeometryTypes';
 import {
   ORIGINAL_PENCIL_FALLBACK_SEED, PencilSplatGenerator, PencilSplatLimitError,
@@ -52,6 +52,7 @@ export interface OriginalCreateInkPayload {
   fillColor: number | null;
   zIndex: string;
   hasTapePattern: boolean;
+  tapePattern: TapePattern | null;
   styleMapBytes: Uint8Array | null;
   styleMap: InkStyleMapEntry[];
   hasAudioDuration: boolean;
@@ -112,6 +113,7 @@ export function decodeOriginalCreateInkTable(table: OriginalFlatBufferTableReade
   }
   const zIndex: string = table.readUint64Decimal(14, defaultZIndex) as string;
   validateUnsignedLongDecimal(zIndex);
+  const hasTapePattern: boolean = table.hasField(6);
   return {
     page: page,
     originX: readOriginalInlineFloat32(origin, 0),
@@ -121,7 +123,9 @@ export function decodeOriginalCreateInkTable(table: OriginalFlatBufferTableReade
     scaleY: scale === null ? 1 : readOriginalInlineFloat32(scale, 4),
     tool: normalizeOriginalEnum(table.readUint8(4, 0), 7),
     style: normalizeOriginalEnum(table.readUint8(5, 0), 3),
-    hasTapePattern: table.hasField(6),
+    hasTapePattern: hasTapePattern,
+    tapePattern: hasTapePattern ?
+      normalizeOriginalEnum(table.readUint8(6, 0), TapePattern.CHECKERS) as TapePattern : null,
     color: ((color[3] << 24) | (color[0] << 16) | (color[1] << 8) | color[2]),
     width: table.readFloat32(8, 0),
     centerPathBytes: centerPath,
@@ -287,6 +291,12 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       'width_winner_timestamp': operation.timestamp,
       'width_winner_site_id': operation.siteId,
       'width_winner_present': 0,
+      'create_tape_pattern': payload.tool === 3 ?
+        (payload.tapePattern === null ? TapePattern.STRIPES : payload.tapePattern) : null,
+      'tape_pattern_value': null,
+      'tape_pattern_winner_timestamp': 0,
+      'tape_pattern_winner_site_id': 0,
+      'tape_pattern_winner_present': 0,
       'create_ink_effects': payload.inkEffects,
       'create_ink_effects_tinted': payload.inkEffectsTinted ? 1 : 0,
       'ink_effects_value': null,
@@ -365,6 +375,8 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       payload.style === 1 ? InkStyle.FIXED_WIDTH :
         payload.style === 2 ? InkStyle.DASH : InkStyle.DOTS;
     const isPencil: boolean = payload.tool === 1;
+    const tapePattern: TapePattern | undefined = payload.tool === 3 ?
+      (payload.tapePattern === null ? TapePattern.STRIPES : payload.tapePattern) : undefined;
     const styleEntry: InkStyleMapEntry | undefined = payload.styleMap.length === 0 ?
       undefined : payload.styleMap[0];
     const splatGenerator: PencilSplatGenerator = new PencilSplatGenerator({
@@ -389,6 +401,7 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
         inkEffects: payload.inkEffects,
         inkEffectsTinted: payload.inkEffectsTinted,
         inkEffectPhase: styleEntry === undefined ? 0 : styleEntry.backingDashPhase,
+        tapePattern: tapePattern,
       },
       transform: transform,
       // s06.G() multiplies Pencil width by 2.84 before the common cq.H() 2x padding.
@@ -478,6 +491,7 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
               i.style_value, i.style_winner_present,
               i.color_value, i.color_winner_present,
               i.width_value, i.width_winner_present,
+              i.create_tape_pattern, i.tape_pattern_value, i.tape_pattern_winner_present,
               i.create_ink_effects, i.create_ink_effects_tinted,
               i.ink_effects_value, i.ink_effects_winner_present,
               i.ink_effects_tinted_value, i.ink_effects_tinted_winner_present,
@@ -513,6 +527,11 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       }
       if (rows.getLong(rows.getColumnIndex('width_winner_present')) === 0 &&
         rows.getDouble(rows.getColumnIndex('width_value')) !== payload.width) {
+        return false;
+      }
+      const baselineTapePattern: TapePattern | null = payload.tool === 3 ?
+        (payload.tapePattern === null ? TapePattern.STRIPES : payload.tapePattern) : null;
+      if (readNullableLong(rows, 'create_tape_pattern') !== baselineTapePattern) {
         return false;
       }
       if (rows.getString(rows.getColumnIndex('create_ink_effects')) !== payload.inkEffects ||
@@ -552,6 +571,9 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       const styleMapBytes: Uint8Array | null =
         rows.getLong(rows.getColumnIndex('style_map_winner_present')) === 0 ?
           payload.styleMapBytes : readNullableBlob(rows, 'style_map_value');
+      const tapePattern: number | null =
+        rows.getLong(rows.getColumnIndex('tape_pattern_winner_present')) === 0 ?
+          baselineTapePattern : readNullableLong(rows, 'tape_pattern_value');
       if (effects === null || tintedValue === null ||
         (tintedValue !== 0 && tintedValue !== 1)) {
         return false;
@@ -566,7 +588,7 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       const phase: number = currentStyleMap.length === 0 ? 0 :
         currentStyleMap[0].backingDashPhase;
       return await this.originalMaterializedEffectsMatch(
-        store, operation, effects, tintedValue !== 0, phase, hidden);
+        store, operation, effects, tintedValue !== 0, phase, tapePattern, hidden);
     } finally {
       rows.close();
     }
@@ -597,7 +619,7 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
 
   private async originalMaterializedEffectsMatch(store: relationalStore.RdbStore,
     operation: StoredSyncedOperation, effects: string, tinted: boolean,
-    phase: number, hidden: boolean): Promise<boolean> {
+    phase: number, tapePattern: number | null, hidden: boolean): Promise<boolean> {
     const elementId: string = encodeOperationId(operation);
     const rows = hidden ? await store.querySql(
       `SELECT payload FROM original_deleted_entity WHERE note_id = ?
@@ -624,7 +646,9 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
         (persisted.data.renderSpec.inkEffectsTinted === undefined ? true :
           persisted.data.renderSpec.inkEffectsTinted) === tinted &&
         (persisted.data.renderSpec.inkEffectPhase === undefined ? 0 :
-          persisted.data.renderSpec.inkEffectPhase) === phase;
+          persisted.data.renderSpec.inkEffectPhase) === phase &&
+        (persisted.data.renderSpec.tapePattern === undefined ? null :
+          persisted.data.renderSpec.tapePattern) === tapePattern;
     } catch (_error) {
       return false;
     } finally {
@@ -749,11 +773,11 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
 
 export function unsupportedOriginalCreateInkReason(
   payload: OriginalCreateInkPayload): string | null {
-  if (payload.tool !== 0 && payload.tool !== 1 && payload.tool !== 2) {
-    return payload.tool === 3 ? 'CREATE_INK_TAPE_UNSUPPORTED' : 'CREATE_INK_TOOL_UNSUPPORTED';
+  if (payload.tool !== 0 && payload.tool !== 1 && payload.tool !== 2 && payload.tool !== 3) {
+    return 'CREATE_INK_TOOL_UNSUPPORTED';
   }
-  if (payload.hasTapePattern) {
-    return 'CREATE_INK_TAPE_PATTERN_UNSUPPORTED';
+  if (payload.tool !== 3 && payload.hasTapePattern) {
+    return 'CREATE_INK_TAPE_PATTERN_FOR_NON_TAPE';
   }
   if (payload.style < 0 || payload.style > 3) {
     return 'CREATE_INK_STYLE_UNSUPPORTED';

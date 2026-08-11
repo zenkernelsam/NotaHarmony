@@ -3233,6 +3233,7 @@ export struct NoteCanvasView {
         inkEffects: s.renderSpec.inkEffects,
         inkEffectsTinted: s.renderSpec.inkEffectsTinted,
         inkEffectPhase: s.renderSpec.inkEffectPhase,
+        tapePattern: s.renderSpec.tapePattern,
       },
       transform: s.transform.slice(),
       bounds: {

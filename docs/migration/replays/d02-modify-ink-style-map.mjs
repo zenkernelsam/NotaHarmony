@@ -241,11 +241,11 @@ const schema = fs.readFileSync(new URL(
   '../../../note/src/main/ets/data/DatabaseHelper.ets', import.meta.url), 'utf8');
 assert.match(renderer, /setLineDashOffset/); assert.match(renderer, /backingDashPhase/);
 assert.match(createSource, /create_style_map/); assert.match(createSource, /styleMap: payload\.styleMap/);
-assert.match(modifySource, /tapePattern: table\.hasField\(16\) \? table\.readUint8\(16, 0\) : null/);
+assert.match(modifySource, /normalizeOriginalEnum\(table\.readUint8\(16, 0\), TapePattern\.CHECKERS\)/);
 assert.match(modifySource, /inkEffectsTinted: table\.hasField\(18\)/);
-assert.match(modifySource, /MODIFY_INK_TAPE_PATTERN_UNSUPPORTED/);
+assert.match(modifySource, /tape_pattern_winner_present/);
 assert.match(modifySource, /MODIFY_INK_STYLE_MAP_STATE_DIVERGED/);
-assert.match(schema, /DB_VERSION: number = 48/); assert.match(schema, /style_map_winner_present/);
+assert.match(schema, /DB_VERSION: number = 49/); assert.match(schema, /style_map_winner_present/);
 
 console.log('success|flatbuffer-field-12=1|signed-seed-floats=5|nullable-clear=1|' +
   'v33-v34=1|legacy-create-fallback=1|lww-stale=1|multi-ink-atomic=2|' +

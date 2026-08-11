@@ -354,9 +354,9 @@ assert.match(modifySource, /registerAccepts\(operation, state\.inkEffects\.winne
 assert.match(modifySource, /registerAccepts\(operation, state\.inkEffectsTinted\.winner\)/);
 assert.match(modifySource, /inkEffectPhase: styleMap\.length === 0 \? 0/);
 assert.match(modifySource, /MODIFY_INK_EFFECT_PHASE_STATE_DIVERGED/);
-assert.match(modifySource, /MODIFY_INK_TAPE_PATTERN_UNSUPPORTED/);
+assert.match(modifySource, /tape_pattern_winner_present/);
 assert.doesNotMatch(modifySource, /MODIFY_INK_INVALID_EFFECT_TINT/);
-assert.match(schema, /DB_VERSION: number = 48/);
+assert.match(schema, /DB_VERSION: number = 49/);
 assert.match(schema, /create_ink_effects TEXT NOT NULL DEFAULT '0'/);
 assert.match(schema, /ink_effects_tinted_winner_present INTEGER NOT NULL/);
 assert.match(model, /inkEffects\?: string/); assert.match(model, /inkEffectPhase\?: number/);

@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v48: preserve original Ink effect registers without losing uint64 precision.
-export const DB_VERSION: number = 48;
+// v49: preserve original Tape pattern baseline and independent LWW register.
+export const DB_VERSION: number = 49;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -533,6 +533,16 @@ CREATE TABLE IF NOT EXISTS original_ink_state (
   width_winner_site_id INTEGER NOT NULL
     CHECK (width_winner_site_id BETWEEN 0 AND 65535),
   width_winner_present INTEGER NOT NULL CHECK (width_winner_present IN (0, 1)),
+  create_tape_pattern INTEGER CHECK (create_tape_pattern IS NULL OR
+    create_tape_pattern BETWEEN 0 AND 8),
+  tape_pattern_value INTEGER CHECK (tape_pattern_value IS NULL OR
+    tape_pattern_value BETWEEN 0 AND 8),
+  tape_pattern_winner_timestamp INTEGER NOT NULL DEFAULT 0
+    CHECK (tape_pattern_winner_timestamp BETWEEN 0 AND 4294967295),
+  tape_pattern_winner_site_id INTEGER NOT NULL DEFAULT 0
+    CHECK (tape_pattern_winner_site_id BETWEEN 0 AND 65535),
+  tape_pattern_winner_present INTEGER NOT NULL DEFAULT 0
+    CHECK (tape_pattern_winner_present IN (0, 1)),
   create_ink_effects TEXT NOT NULL DEFAULT '0' CHECK (
     typeof(create_ink_effects) = 'text' AND length(create_ink_effects) BETWEEN 1 AND 20
     AND create_ink_effects NOT GLOB '*[^0-9]*'
@@ -632,6 +642,8 @@ CREATE TABLE IF NOT EXISTS original_ink_state (
     (ink_effects_winner_present = 1 AND ink_effects_value IS NOT NULL)),
   CHECK ((ink_effects_tinted_winner_present = 0 AND ink_effects_tinted_value IS NULL) OR
     (ink_effects_tinted_winner_present = 1 AND ink_effects_tinted_value IS NOT NULL)),
+  CHECK ((tape_pattern_winner_present = 0 AND tape_pattern_value IS NULL) OR
+    (tape_pattern_winner_present = 1 AND tape_pattern_value IS NOT NULL)),
   PRIMARY KEY(note_id, ink_timestamp, ink_site_id),
   FOREIGN KEY(note_id, ink_timestamp, ink_site_id)
     REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
@@ -1937,5 +1949,17 @@ export const MIGRATIONS: Record<number, string[]> = {
       DEFAULT 0 CHECK (ink_effects_tinted_winner_site_id BETWEEN 0 AND 65535)`,
     `ALTER TABLE original_ink_state ADD COLUMN ink_effects_tinted_winner_present INTEGER NOT NULL
       DEFAULT 0 CHECK (ink_effects_tinted_winner_present IN (0, 1))`,
+  ],
+  49: [
+    `ALTER TABLE original_ink_state ADD COLUMN create_tape_pattern INTEGER
+      CHECK (create_tape_pattern IS NULL OR create_tape_pattern BETWEEN 0 AND 8)`,
+    `ALTER TABLE original_ink_state ADD COLUMN tape_pattern_value INTEGER
+      CHECK (tape_pattern_value IS NULL OR tape_pattern_value BETWEEN 0 AND 8)`,
+    `ALTER TABLE original_ink_state ADD COLUMN tape_pattern_winner_timestamp INTEGER NOT NULL
+      DEFAULT 0 CHECK (tape_pattern_winner_timestamp BETWEEN 0 AND 4294967295)`,
+    `ALTER TABLE original_ink_state ADD COLUMN tape_pattern_winner_site_id INTEGER NOT NULL
+      DEFAULT 0 CHECK (tape_pattern_winner_site_id BETWEEN 0 AND 65535)`,
+    `ALTER TABLE original_ink_state ADD COLUMN tape_pattern_winner_present INTEGER NOT NULL
+      DEFAULT 0 CHECK (tape_pattern_winner_present IN (0, 1))`,
   ],
 };

@@ -55,12 +55,18 @@ export class StrokeCanvasPainter {
     this.renderer.renderInkFill(stroke, rc);
     if (stroke.renderSpec.isPencil) {
       this.renderer.renderPencilSplats(stroke.splatPoints, stroke.renderSpec, rc);
-    } else if (this.renderer.renderCustomPath(stroke, rc)) {
-      return;
-    } else if (stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH) {
-      this.renderer.renderVariableWidthOutline(stroke, rc);
     } else {
-      this.renderer.renderCenterPath(stroke, rc);
+      const customRendered: boolean = this.renderer.renderCustomPath(stroke, rc);
+      if (!customRendered) {
+        if (stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH) {
+          this.renderer.renderVariableWidthOutline(stroke, rc);
+        } else {
+          this.renderer.renderCenterPath(stroke, rc);
+        }
+      }
+      if (stroke.renderSpec.tapePattern !== undefined) {
+        this.renderer.renderTapePattern(stroke, rc);
+      }
     }
   }
 }

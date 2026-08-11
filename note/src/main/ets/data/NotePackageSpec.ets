@@ -8,7 +8,7 @@ import { originalAssetHashKey } from '../core/model/ImageBlockGeometry';
 import { validateOriginalPaper } from '../core/model/PageBackgroundModel';
 import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import { InkPathCommand, InkPathCommandType, InkStyle, InkStyleMapEntry, StrokeElementData,
-  StrokePathPoint } from '../core/model/StrokeTypes';
+  StrokePathPoint, TapePattern } from '../core/model/StrokeTypes';
 import { PageBackground } from '../core/model/NoteTypes';
 import { clonePageBackground, validatePageBackground } from '../core/model/PageBackgroundModel';
 import { validateUnsignedLongDecimal } from './UnsignedDecimal';
@@ -234,6 +234,11 @@ function isValidStroke(stroke: StrokeElementData): boolean {
   }
   if (stroke.renderSpec.inkEffectPhase !== undefined &&
     !isFiniteNumber(stroke.renderSpec.inkEffectPhase)) {
+    return false;
+  }
+  if (stroke.renderSpec.tapePattern !== undefined &&
+    !isIntegerInRange(stroke.renderSpec.tapePattern, TapePattern.STRIPES,
+      TapePattern.CHECKERS)) {
     return false;
   }
   for (const point of stroke.pathPoints) {

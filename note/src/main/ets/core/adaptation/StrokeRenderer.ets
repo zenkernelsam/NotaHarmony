@@ -21,6 +21,8 @@ export interface StrokeRenderer {
   renderCenterPath(stroke: StrokeElementData, ctx: RenderContext): void;
   // 渲染可变宽度填充轮廓（Taper）
   renderVariableWidthOutline(stroke: StrokeElementData, ctx: RenderContext): void;
+  // Overlay the original Tape pattern inside the stroke outline.
+  renderTapePattern(stroke: StrokeElementData, ctx: RenderContext): void;
   // 渲染铅笔飞溅
   renderPencilSplats(splats: PencilSplatPoint[], spec: RenderSpec, ctx: RenderContext): void;
   // 渲染擦除遮罩

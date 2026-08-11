@@ -3,7 +3,7 @@ import { TransformMatrix } from '../core/model/GeometryTypes';
 import { PencilSplatLimitError } from '../core/algorithm/PencilSplatGenerator';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { InkPathCommand, InkStyle, InkStyleMapEntry, RenderSpec,
-  StrokeElementData } from '../core/model/StrokeTypes';
+  StrokeElementData, TapePattern } from '../core/model/StrokeTypes';
 import {
   compareOperationIdentity, encodeOperationId, OperationIdentity, OriginalSequenceIdentity,
   validateOperationIdentity, validateOriginalSequenceIdentity,
@@ -53,7 +53,7 @@ export interface OriginalModifyInkPayload {
   zIndex: string | null;
   nibAngle: number | null;
   nibFlatness: number | null;
-  tapePattern: number | null;
+  tapePattern: TapePattern | null;
   inkEffects: string | null;
   inkEffectsTinted: boolean | null;
 }
@@ -102,6 +102,8 @@ interface StoredInkState {
   style: StoredRegister<number>;
   color: StoredRegister<number>;
   width: StoredRegister<number>;
+  baseTapePattern: TapePattern | null;
+  tapePattern: StoredRegister<TapePattern>;
   baseInkEffects: string;
   inkEffects: StoredRegister<string>;
   baseInkEffectsTinted: boolean;
@@ -156,6 +158,7 @@ interface PlannedReplacement {
   replaceStyle: boolean;
   replaceColor: boolean;
   replaceWidth: boolean;
+  replaceTapePattern: boolean;
   replaceInkEffects: boolean;
   replaceInkEffectsTinted: boolean;
   replaceRotation: boolean;
@@ -174,6 +177,7 @@ interface PlannedReplacement {
   style: number;
   color: number;
   width: number;
+  tapePattern: TapePattern | undefined;
   inkEffects: string;
   inkEffectsTinted: boolean;
   transform: TransformMatrix;
@@ -267,7 +271,8 @@ export function decodeOriginalModifyInkTable(table: OriginalFlatBufferTableReade
     zIndex: table.readUint64Decimal(13),
     nibAngle: table.hasField(14) ? table.readUint16(14) : null,
     nibFlatness: table.hasField(15) ? table.readUint16(15) : null,
-    tapePattern: table.hasField(16) ? table.readUint8(16, 0) : null,
+    tapePattern: table.hasField(16) ?
+      normalizeOriginalEnum(table.readUint8(16, 0), TapePattern.CHECKERS) as TapePattern : null,
     inkEffects: table.readUint64Decimal(17),
     inkEffectsTinted: table.hasField(18) ? table.readUint8(18, 1) !== 0 : null,
   };
@@ -388,6 +393,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         registerAccepts(operation, state.color.winner);
       const replaceWidth: boolean = payload.width !== null &&
         registerAccepts(operation, state.width.winner);
+      const replaceTapePattern: boolean = payload.tapePattern !== null &&
+        registerAccepts(operation, state.tapePattern.winner);
       const replaceInkEffects: boolean = payload.inkEffects !== null &&
         registerAccepts(operation, state.inkEffects.winner);
       const replaceInkEffectsTinted: boolean = payload.inkEffectsTinted !== null &&
@@ -402,7 +409,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         registerAccepts(operation, state.zIndex.winner);
       if (!replaceCenterPath && !replaceCustomPath && !replaceFillPath && !replaceFillColor &&
         !replaceStyleMap &&
-        !replaceStyle && !replaceColor && !replaceWidth &&
+        !replaceStyle && !replaceColor && !replaceWidth && !replaceTapePattern &&
         !replaceInkEffects && !replaceInkEffectsTinted &&
         !replaceRotation && !replaceScale && !replacePageOrigin && !replaceZIndex) {
         continue;
@@ -440,9 +447,14 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         state.inkEffects.value as string : state.baseInkEffects;
       const oldInkEffectsTinted: boolean = state.inkEffectsTinted.winner !== null ?
         state.inkEffectsTinted.value as boolean : state.baseInkEffectsTinted;
+      const oldTapePattern: TapePattern | null = state.tapePattern.winner !== null ?
+        state.tapePattern.value : state.baseTapePattern;
       if ((replaceStyle && stroke.renderSpec.inkStyle !== originalStyleToInkStyle(oldStyle)) ||
         (replaceColor && stroke.renderSpec.color !== oldColor) ||
         (replaceWidth && stroke.renderSpec.brushWidth !== oldWidth) ||
+        (replaceTapePattern &&
+          (stroke.renderSpec.tapePattern === undefined ? null : stroke.renderSpec.tapePattern) !==
+            oldTapePattern) ||
         ((replaceInkEffects || replaceInkEffectsTinted) &&
           normalizedStoredInkEffects(stroke.renderSpec.inkEffects) !== oldInkEffects) ||
         ((replaceInkEffects || replaceInkEffectsTinted) &&
@@ -454,11 +466,17 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         inkStyleToOriginalStyle(stroke.renderSpec.inkStyle);
       const color: number = replaceColor ? payload.color as number : stroke.renderSpec.color;
       const width: number = replaceWidth ? payload.width as number : stroke.renderSpec.brushWidth;
+      const tapePattern: TapePattern | undefined = replaceTapePattern ?
+        payload.tapePattern as TapePattern :
+        (oldTapePattern === null ? undefined : oldTapePattern);
+      if (replaceTapePattern && state.baseTapePattern === null) {
+        return { deferredReason: 'MODIFY_INK_TAPE_PATTERN_FOR_NON_TAPE' };
+      }
       const inkEffects: string = replaceInkEffects ?
         payload.inkEffects as string : oldInkEffects;
       const inkEffectsTinted: boolean = replaceInkEffectsTinted ?
         payload.inkEffectsTinted as boolean : oldInkEffectsTinted;
-      if (inkEffects !== '0' && stroke.renderSpec.isPencil) {
+      if (inkEffects !== '0' && (stroke.renderSpec.isPencil || tapePattern !== undefined)) {
         return { deferredReason: 'MODIFY_INK_EFFECT_TOOL_UNSUPPORTED' };
       }
       const baseCustomPath: Uint8Array | null = state.baseCustomPath !== null ?
@@ -579,6 +597,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         isHighlighter: stroke.renderSpec.isHighlighter, isPencil: stroke.renderSpec.isPencil,
         inkEffects: inkEffects, inkEffectsTinted: inkEffectsTinted,
         inkEffectPhase: styleMap.length === 0 ? 0 : styleMap[0].backingDashPhase,
+        tapePattern: tapePattern,
       };
       const candidateStroke: StrokeElementData = copyStroke(stroke, renderSpec, transform,
         customPath, fillPath, fillColorValue, styleMap);
@@ -615,6 +634,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         replaceStyleMap: replaceStyleMap,
         replaceStyle: replaceStyle,
         replaceColor: replaceColor, replaceWidth: replaceWidth,
+        replaceTapePattern: replaceTapePattern,
         replaceInkEffects: replaceInkEffects,
         replaceInkEffectsTinted: replaceInkEffectsTinted,
         replaceRotation: replaceRotation, replaceScale: replaceScale,
@@ -623,7 +643,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         fillColorValue: fillColorValue, styleMapBytes: styleMapBytes, styleMap: styleMap,
         baseCustomPath: baseCustomPath, baseFillPath: baseFillPath,
         baseFillColor: baseFillColor, baseStyleMap: baseStyleMap,
-        style: style, color: color, width: width,
+        style: style, color: color, width: width, tapePattern: tapePattern,
         inkEffects: inkEffects, inkEffectsTinted: inkEffectsTinted, transform: transform,
         baseTransform: state.baseTransform === null ? baseTransform : null,
         rotationValue: replaceRotation ? payload.rotation.value : state.rotation.value,
@@ -888,6 +908,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
               color_winner_present,
               width_value, width_winner_timestamp, width_winner_site_id,
               width_winner_present,
+              create_tape_pattern, tape_pattern_value, tape_pattern_winner_timestamp,
+              tape_pattern_winner_site_id, tape_pattern_winner_present,
               create_ink_effects, ink_effects_value, ink_effects_winner_timestamp,
               ink_effects_winner_site_id, ink_effects_winner_present,
               create_ink_effects_tinted, ink_effects_tinted_value,
@@ -924,6 +946,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       const styleWinner: OperationIdentity | null = readOptionalWinner(rows, 'style');
       const colorWinner: OperationIdentity | null = readOptionalWinner(rows, 'color');
       const widthWinner: OperationIdentity | null = readOptionalWinner(rows, 'width');
+      const tapePatternWinner: OperationIdentity | null = readOptionalWinner(rows, 'tape_pattern');
       const inkEffectsWinner: OperationIdentity | null = readOptionalWinner(rows, 'ink_effects');
       const inkEffectsTintedWinner: OperationIdentity | null =
         readOptionalWinner(rows, 'ink_effects_tinted');
@@ -946,6 +969,17 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         rows.getLong(rows.getColumnIndex('create_ink_effects_tinted')) !== 0;
       const inkEffectsTintedValue: boolean | null =
         readNullableBoolean(rows, 'ink_effects_tinted_value');
+      const baseTapePatternValue: number | null = readNullableLong(rows, 'create_tape_pattern');
+      const tapePatternValue: number | null = readNullableLong(rows, 'tape_pattern_value');
+      if ((baseTapePatternValue !== null &&
+        (baseTapePatternValue < TapePattern.STRIPES ||
+          baseTapePatternValue > TapePattern.CHECKERS)) ||
+        (tapePatternValue !== null &&
+          (tapePatternValue < TapePattern.STRIPES ||
+            tapePatternValue > TapePattern.CHECKERS)) ||
+        (tapePatternWinner === null) !== (tapePatternValue === null)) {
+        throw new Error('original modify-ink has an invalid Tape pattern register');
+      }
       if ((inkEffectsWinner === null) !== (inkEffectsValue === null) ||
         (inkEffectsTintedWinner === null) !== (inkEffectsTintedValue === null)) {
         throw new Error('original modify-ink has an invalid effect register');
@@ -1007,6 +1041,9 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         style: { value: readNullableLong(rows, 'style_value'), winner: styleWinner },
         color: { value: readNullableLong(rows, 'color_value'), winner: colorWinner },
         width: { value: width, winner: widthWinner },
+        baseTapePattern: baseTapePatternValue as TapePattern | null,
+        tapePattern: { value: tapePatternValue as TapePattern | null,
+          winner: tapePatternWinner },
         baseInkEffects: baseInkEffects,
         inkEffects: { value: inkEffectsValue, winner: inkEffectsWinner },
         baseInkEffectsTinted: baseInkEffectsTinted,
@@ -1228,6 +1265,13 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       values['width_winner_timestamp'] = winner.timestamp;
       values['width_winner_site_id'] = winner.siteId;
       values['width_winner_present'] = 1;
+    }
+    if (replacement.replaceTapePattern) {
+      addWinnerPredicates(predicates, 'tape_pattern', replacement.state.tapePattern.winner);
+      values['tape_pattern_value'] = replacement.tapePattern as TapePattern;
+      values['tape_pattern_winner_timestamp'] = winner.timestamp;
+      values['tape_pattern_winner_site_id'] = winner.siteId;
+      values['tape_pattern_winner_present'] = 1;
     }
     if (replacement.replaceInkEffects) {
       addWinnerPredicates(predicates, 'ink_effects', replacement.state.inkEffects.winner);
@@ -1453,9 +1497,6 @@ function pageElementPredicates(noteId: string, target: StoredPageTarget,
 }
 
 function preflightOriginalModifyInk(payload: OriginalModifyInkPayload): string | null {
-  if (payload.tapePattern !== null) {
-    return 'MODIFY_INK_TAPE_PATTERN_UNSUPPORTED';
-  }
   if ((payload.pageOrigin !== null && (!Number.isFinite(payload.pageOrigin.originX) ||
     !Number.isFinite(payload.pageOrigin.originY))) ||
     (payload.rotation.value !== null && !Number.isFinite(payload.rotation.value)) ||
@@ -1490,6 +1531,10 @@ function preflightOriginalModifyInk(payload: OriginalModifyInkPayload): string |
 
 function normalizeOriginalInkStyle(value: number): number {
   return value >= 0 && value <= 3 ? value : 0;
+}
+
+function normalizeOriginalEnum(value: number, maximum: number): number {
+  return value >= 0 && value <= maximum ? value : 0;
 }
 
 function originalColorToArgb(bytes: Uint8Array): number {
@@ -1559,6 +1604,7 @@ function replacementStroke(replacement: PlannedReplacement): StrokeElementData {
       inkEffectsTinted: replacement.inkEffectsTinted,
       inkEffectPhase: replacement.styleMap.length === 0 ? 0 :
         replacement.styleMap[0].backingDashPhase,
+      tapePattern: replacement.tapePattern,
     },
     transform: replacement.transform,
     bounds: replacement.geometry.bounds,
@@ -1735,6 +1781,10 @@ function assertMatchingModifyInkWinners(payload: OriginalModifyInkPayload,
   if (payload.width !== null && winnerMatches(state.width.winner, operation) &&
     state.width.value !== payload.width) {
     throw new Error('original modify-ink identity conflicts with persisted width');
+  }
+  if (payload.tapePattern !== null && winnerMatches(state.tapePattern.winner, operation) &&
+    state.tapePattern.value !== payload.tapePattern) {
+    throw new Error('original modify-ink identity conflicts with persisted Tape pattern');
   }
   if (payload.inkEffects !== null && winnerMatches(state.inkEffects.winner, operation) &&
     state.inkEffects.value !== payload.inkEffects) {

@@ -131,12 +131,12 @@ assert.match(createSource, /nibAngle: table\.hasField\(16\) \? table\.readUint16
 assert.match(createSource, /nibFlatness: table\.hasField\(17\) \? table\.readUint16\(17\) : null/);
 assert.doesNotMatch(createSource, /CREATE_INK_NIB_ATTRIBUTES_UNSUPPORTED/);
 assert.match(modifySource, /nibAngle: table\.hasField\(14\) \? table\.readUint16\(14\) : null/);
-assert.match(modifySource, /tapePattern: table\.hasField\(16\) \? table\.readUint8\(16, 0\) : null/);
+assert.match(modifySource, /normalizeOriginalEnum\(table\.readUint8\(16, 0\), TapePattern\.CHECKERS\)/);
 assert.match(modifySource, /inkEffects: table\.readUint64Decimal\(17\)/);
 assert.match(modifySource, /inkEffectsTinted: table\.hasField\(18\)/);
-assert.match(modifySource, /MODIFY_INK_TAPE_PATTERN_UNSUPPORTED/);
+assert.match(modifySource, /tape_pattern_winner_present/);
 assert.match(modifySource, /nib-only op is an applied no-op/);
-assert.match(schema, /DB_VERSION: number = 48/);
+assert.match(schema, /DB_VERSION: number = 49/);
 assert.doesNotMatch(schema, /nib_angle|nib_flatness/);
 
 console.log('success|create-nib-u16=65535,40000|modify-nib-u16=65535,40000|' +

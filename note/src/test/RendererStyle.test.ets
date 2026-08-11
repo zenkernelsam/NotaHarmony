@@ -5,7 +5,7 @@ import {
 import { Canvas2DTextRenderer } from '../main/ets/core/adaptation/Canvas2DTextRenderer';
 import { ElementType, TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import {
-  InkStyle, RenderSpec, StrokeElementData, StrokePathPoint,
+  InkPathCommandType, InkStyle, RenderSpec, StrokeElementData, StrokePathPoint, TapePattern,
 } from '../main/ets/core/model/StrokeTypes';
 
 function pathPoint(x: number, y: number): StrokePathPoint {
@@ -132,6 +132,50 @@ export default function rendererStyleTest() {
       renderer.renderCenterPath(shifted, new Canvas2DOffscreenRenderContext(shiftedContext));
       expect(alphaAt(baseContext, 30, 20)).assertEqual(255);
       expect(alphaAt(shiftedContext, 30, 20)).assertEqual(0);
+    });
+
+    it('clips all original Tape overlays to the stroke and leaves PLAIN unpatterned', 0, () => {
+      const patterns: TapePattern[] = [TapePattern.STRIPES, TapePattern.GRID,
+        TapePattern.DOTS, TapePattern.STARS, TapePattern.FLOWERS, TapePattern.HEARTS,
+        TapePattern.WAVES, TapePattern.CHECKERS];
+      const renderer: Canvas2DStrokeRenderer = new Canvas2DStrokeRenderer();
+      for (const pattern of patterns) {
+        const canvas: OffscreenCanvas = new OffscreenCanvas(160, 80);
+        const context: OffscreenCanvasRenderingContext2D =
+          canvas.getContext('2d', new RenderingContextSettings(true));
+        const value: StrokeElementData = stroke(InkStyle.FIXED_WIDTH, false);
+        value.renderSpec.brushWidth = 20;
+        value.renderSpec.tapePattern = pattern;
+        renderer.renderTapePattern(value, new Canvas2DOffscreenRenderContext(context));
+        expect(countColor(context, 255, 255, 255) > 0).assertTrue();
+        if (pattern === TapePattern.FLOWERS) {
+          expect(countColor(context, 255, 0, 0) > 0).assertTrue();
+        }
+        expect(alphaAt(context, 60, 2)).assertEqual(0);
+      }
+      const plainCanvas: OffscreenCanvas = new OffscreenCanvas(160, 80);
+      const plainContext: OffscreenCanvasRenderingContext2D =
+        plainCanvas.getContext('2d', new RenderingContextSettings(true));
+      const plain: StrokeElementData = stroke(InkStyle.FIXED_WIDTH, false);
+      plain.renderSpec.tapePattern = TapePattern.PLAIN;
+      renderer.renderTapePattern(plain, new Canvas2DOffscreenRenderContext(plainContext));
+      expect(countColor(plainContext, 255, 255, 255)).assertEqual(0);
+
+      const customCanvas: OffscreenCanvas = new OffscreenCanvas(160, 80);
+      const customContext: OffscreenCanvasRenderingContext2D =
+        customCanvas.getContext('2d', new RenderingContextSettings(true));
+      const custom: StrokeElementData = stroke(InkStyle.FIXED_WIDTH, false);
+      custom.renderSpec.tapePattern = TapePattern.CHECKERS;
+      custom.customPath = [
+        { type: InkPathCommandType.MOVE_TO, points: [{ x: 20, y: 10 }] },
+        { type: InkPathCommandType.LINE_TO, points: [{ x: 40, y: 10 }] },
+        { type: InkPathCommandType.LINE_TO, points: [{ x: 40, y: 30 }] },
+        { type: InkPathCommandType.LINE_TO, points: [{ x: 20, y: 30 }] },
+        { type: InkPathCommandType.LINE_TO, points: [{ x: 20, y: 10 }] },
+      ];
+      renderer.renderTapePattern(custom, new Canvas2DOffscreenRenderContext(customContext));
+      expect(alphaAt(customContext, 24, 12) > 0).assertTrue();
+      expect(alphaAt(customContext, 60, 20)).assertEqual(0);
     });
 
     it('renders original rich-text character and paragraph style runs', 0, () => {

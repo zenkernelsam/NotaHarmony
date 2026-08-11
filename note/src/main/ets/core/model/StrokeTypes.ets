@@ -67,6 +67,20 @@ export interface RenderSpec {
   inkEffects?: string;
   inkEffectsTinted?: boolean;
   inkEffectPhase?: number;
+  // Presence identifies an original Tape stroke. CREATE defaults missing Tape fields to STRIPES.
+  tapePattern?: TapePattern;
+}
+
+export enum TapePattern {
+  STRIPES = 0,
+  GRID = 1,
+  DOTS = 2,
+  PLAIN = 3,
+  STARS = 4,
+  FLOWERS = 5,
+  HEARTS = 6,
+  WAVES = 7,
+  CHECKERS = 8,
 }
 
 // 墨水样式（对应 sz5）

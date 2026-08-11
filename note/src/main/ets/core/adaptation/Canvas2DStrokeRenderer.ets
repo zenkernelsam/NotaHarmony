@@ -3,10 +3,22 @@
 // ArkTS 不支持结构化类型赋值：主画布与 OffscreenCanvas 上下文分属两个包装类
 import { StrokeRenderer, RenderContext } from './StrokeRenderer';
 import { StrokeElementData, PencilSplatPoint, RenderSpec, InkStyle,
-  ERASER_PATH_BREAK_COORDINATE, InkPathCommand, InkPathCommandType } from '../model/StrokeTypes';
+  ERASER_PATH_BREAK_COORDINATE, InkPathCommand, InkPathCommandType,
+  TapePattern } from '../model/StrokeTypes';
 import { Point2D, Rect2D } from '../model/GeometryTypes';
 import { WidthOutlineBuilder } from '../algorithm/WidthOutlineBuilder';
 import { BitmapTransferKind, BitmapTransferTracker } from './BitmapTransferTracker';
+
+interface TapePatternTileSize {
+  width: number;
+  height: number;
+}
+
+interface TapePatternTile {
+  bitmap: ImageBitmap;
+  logicalWidth: number;
+  logicalHeight: number;
+}
 
 export interface Canvas2DDrawingContext extends RenderContext {
   beginPath(): void;
@@ -30,6 +42,7 @@ export interface Canvas2DDrawingContext extends RenderContext {
   setLineJoin(join: CanvasLineJoin): void;
   setStrokeStyle(color: string): void;
   setFillStyle(color: string): void;
+  setFillPattern(image: ImageBitmap, logicalWidth: number, logicalHeight: number): boolean;
   setFont(font: string): void;
   setGlobalAlpha(alpha: number): void;
   setGlobalCompositeOperation(op: string): void;
@@ -150,6 +163,16 @@ export class Canvas2DRenderContext implements Canvas2DDrawingContext {
 
   setFillStyle(color: string): void {
     this.ctx.fillStyle = color;
+  }
+
+  setFillPattern(image: ImageBitmap, logicalWidth: number, logicalHeight: number): boolean {
+    const pattern: CanvasPattern | null = this.ctx.createPattern(image, 'repeat');
+    if (pattern === null) {
+      return false;
+    }
+    pattern.setTransform(new Matrix2D().scale(logicalWidth / image.width, logicalHeight / image.height));
+    this.ctx.fillStyle = pattern;
+    return true;
   }
 
   setFont(font: string): void {
@@ -301,6 +324,16 @@ export class Canvas2DOffscreenRenderContext implements Canvas2DDrawingContext {
     this.ctx.fillStyle = color;
   }
 
+  setFillPattern(image: ImageBitmap, logicalWidth: number, logicalHeight: number): boolean {
+    const pattern: CanvasPattern | null = this.ctx.createPattern(image, 'repeat');
+    if (pattern === null) {
+      return false;
+    }
+    pattern.setTransform(new Matrix2D().scale(logicalWidth / image.width, logicalHeight / image.height));
+    this.ctx.fillStyle = pattern;
+    return true;
+  }
+
   setFont(font: string): void {
     this.ctx.font = font;
   }
@@ -344,6 +377,9 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
   private tintedSplatTextures: Map<number, ImageBitmap> = new Map<number, ImageBitmap>();
   private transferTracker: BitmapTransferTracker;
   private static readonly MAX_TINTED_SPLAT_TEXTURES: number = 4;
+  private static readonly TAPE_TILE_DENSITY: number = 8;
+  private static readonly MAX_TAPE_TILES: number = 32;
+  private tapeTiles: Map<string, TapePatternTile> = new Map<string, TapePatternTile>();
   // 擦除遮罩渲染宽度（可由页面设置）
   private eraserMaskWidth: number = 20;
 
@@ -403,6 +439,7 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
 
   dispose(): void {
     this.releaseTintedSplatTextures();
+    this.releaseTapeTiles();
     if (this.splatTexture !== null) {
       this.splatTexture.close();
       this.splatTexture = null;
@@ -636,6 +673,250 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       c.stroke();
     }
     c.restore();
+  }
+
+  // Original qfe uses a bounded tile bitmap and a repeated BitmapShader. Keep that architecture:
+  // direct page-bounds tiling would make malformed extreme coordinates unbounded work.
+  renderTapePattern(stroke: StrokeElementData, ctx: RenderContext): void {
+    const pattern: TapePattern | undefined = stroke.renderSpec.tapePattern;
+    if (pattern === undefined || pattern === TapePattern.PLAIN || stroke.pathPoints.length === 0) {
+      return;
+    }
+    const customPath: InkPathCommand[] | null =
+      stroke.customPath === undefined ? null : stroke.customPath;
+    let outlinePoints: Point2D[] = [];
+    if (customPath === null || customPath.length === 0) {
+      const builder: WidthOutlineBuilder = new WidthOutlineBuilder();
+      const outline = builder.build(stroke.pathPoints, stroke.renderSpec.brushWidth,
+        stroke.cubicSegments);
+      if (!outline.isValid) {
+        return;
+      }
+      outlinePoints = outline.outlinePoints;
+    }
+    const tile: TapePatternTile = this.getTapePatternTile(pattern, stroke.renderSpec.color,
+      0xFFFFFFFF);
+    const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
+    c.save();
+    c.beginPath();
+    if (customPath !== null && customPath.length > 0) {
+      this.appendInkPath(c, customPath);
+    } else {
+      c.moveTo(outlinePoints[0].x, outlinePoints[0].y);
+      for (let index: number = 1; index < outlinePoints.length; index++) {
+        c.lineTo(outlinePoints[index].x, outlinePoints[index].y);
+      }
+      c.closePath();
+    }
+    c.setGlobalAlpha(1);
+    c.setLineDash([]);
+    if (c.setFillPattern(tile.bitmap, tile.logicalWidth, tile.logicalHeight)) {
+      c.fill();
+    }
+    c.restore();
+  }
+
+  private getTapePatternTile(pattern: TapePattern, tapeColor: number,
+    overlayColor: number): TapePatternTile {
+    const colorKey: number = pattern === TapePattern.FLOWERS ? tapeColor : 0;
+    const key: string = `${pattern}:${overlayColor}:${colorKey}`;
+    const cached: TapePatternTile | undefined = this.tapeTiles.get(key);
+    if (cached !== undefined) {
+      this.tapeTiles.delete(key);
+      this.tapeTiles.set(key, cached);
+      return cached;
+    }
+    const size: TapePatternTileSize = this.tapePatternTileSize(pattern);
+    const density: number = Canvas2DStrokeRenderer.TAPE_TILE_DENSITY;
+    const pixelWidth: number = Math.max(1, Math.round(size.width * density));
+    const pixelHeight: number = Math.max(1, Math.round(size.height * density));
+    const canvas: OffscreenCanvas = new OffscreenCanvas(pixelWidth, pixelHeight);
+    const raw: OffscreenCanvasRenderingContext2D =
+      canvas.getContext('2d', new RenderingContextSettings(true));
+    raw.clearRect(0, 0, pixelWidth, pixelHeight);
+    raw.scale(pixelWidth / size.width, pixelHeight / size.height);
+    const drawing: Canvas2DOffscreenRenderContext = new Canvas2DOffscreenRenderContext(raw);
+    this.drawTapePatternTile(drawing, pattern, size.width, size.height, tapeColor, overlayColor);
+    const created: TapePatternTile = {
+      bitmap: canvas.transferToImageBitmap(), logicalWidth: size.width, logicalHeight: size.height,
+    };
+    this.tapeTiles.set(key, created);
+    if (this.tapeTiles.size > Canvas2DStrokeRenderer.MAX_TAPE_TILES) {
+      const oldest: string | undefined = this.tapeTiles.keys().next().value;
+      if (oldest !== undefined) {
+        const evicted: TapePatternTile | undefined = this.tapeTiles.get(oldest);
+        this.tapeTiles.delete(oldest);
+        if (evicted !== undefined) {
+          evicted.bitmap.close();
+        }
+      }
+    }
+    return created;
+  }
+
+  private tapePatternTileSize(pattern: TapePattern): TapePatternTileSize {
+    if (pattern === TapePattern.STRIPES) {
+      return { width: 11.313708, height: 11.313708 };
+    }
+    if (pattern === TapePattern.GRID) {
+      return { width: 8, height: 8 };
+    }
+    if (pattern === TapePattern.DOTS) {
+      return { width: 8, height: 16 };
+    }
+    if (pattern === TapePattern.STARS) {
+      return { width: 30, height: 13 };
+    }
+    if (pattern === TapePattern.FLOWERS) {
+      return { width: 28, height: 14 };
+    }
+    if (pattern === TapePattern.HEARTS) {
+      return { width: 26, height: 13 };
+    }
+    if (pattern === TapePattern.WAVES) {
+      return { width: 6, height: 8 };
+    }
+    return { width: 12, height: 12 };
+  }
+
+  private drawTapePatternTile(c: Canvas2DDrawingContext, pattern: TapePattern,
+    width: number, height: number, tapeColor: number, overlayColor: number): void {
+    const left: number = 0;
+    const right: number = width;
+    const top: number = 0;
+    const bottom: number = height;
+    c.setStrokeStyle(this.colorToRgba(overlayColor));
+    c.setFillStyle(this.colorToRgba(overlayColor));
+    if (pattern === TapePattern.STRIPES) {
+      c.setLineWidth(2);
+      const period: number = 11.313708;
+      const start: number = Math.floor((top - right) / period) * period;
+      for (let offset: number = start; offset <= bottom - left; offset += period) {
+        c.beginPath();
+        c.moveTo(left - 3, left - 3 + offset);
+        c.lineTo(right + 3, right + 3 + offset);
+        c.stroke();
+      }
+    } else if (pattern === TapePattern.GRID) {
+      c.setLineWidth(1);
+      for (let x: number = Math.ceil(left / 8) * 8; x <= right; x += 8) {
+        c.beginPath(); c.moveTo(x, top - 3); c.lineTo(x, bottom + 3); c.stroke();
+      }
+      for (let y: number = Math.ceil(top / 8) * 8; y <= bottom; y += 8) {
+        c.beginPath(); c.moveTo(left - 3, y); c.lineTo(right + 3, y); c.stroke();
+      }
+    } else if (pattern === TapePattern.DOTS) {
+      let row: number = Math.ceil(top / 8);
+      for (let y: number = row * 8; y <= bottom; y += 8, row++) {
+        const xOffset: number = row % 2 === 0 ? 0 : 4;
+        for (let x: number = Math.ceil((left - xOffset) / 8) * 8 + xOffset;
+          x <= right; x += 8) {
+          c.beginPath(); c.arc(x, y, 1.25, 0, Math.PI * 2); c.fill();
+        }
+      }
+    } else if (pattern === TapePattern.STARS) {
+      for (let column: number = Math.floor((left - 5) / 15);
+        column <= Math.ceil((right + 5) / 15); column++) {
+        const odd: boolean = column % 2 !== 0;
+        const yOffset: number = odd ? 7 : 0;
+        const radius: number = odd ? 3 : 5;
+        for (let row: number = Math.floor((top - radius - yOffset) / 13) - 1;
+          row <= Math.ceil((bottom + radius - yOffset) / 13) + 1; row++) {
+          this.fillStar(c, column * 15, row * 13 + yOffset, radius);
+        }
+      }
+    } else if (pattern === TapePattern.FLOWERS) {
+      for (let column: number = Math.floor((left - 2.8) / 14);
+        column <= Math.ceil((right + 2.8) / 14); column++) {
+        const odd: boolean = column % 2 !== 0;
+        const yOffset: number = odd ? 7 : 0;
+        const radius: number = odd ? 1.6 : 2.8;
+        for (let row: number = Math.floor((top - radius - yOffset) / 14) - 1;
+          row <= Math.ceil((bottom + radius - yOffset) / 14) + 1; row++) {
+          this.fillFlower(c, column * 14, row * 14 + yOffset, radius,
+            tapeColor, overlayColor);
+        }
+      }
+    } else if (pattern === TapePattern.HEARTS) {
+      for (let column: number = Math.floor((left - 4) / 13);
+        column <= Math.ceil((right + 4) / 13); column++) {
+        const odd: boolean = column % 2 !== 0;
+        const yOffset: number = odd ? 6 : 0;
+        const size: number = odd ? 2.5 : 4;
+        for (let row: number = Math.floor((top - size - yOffset) / 13) - 1;
+          row <= Math.ceil((bottom + size - yOffset) / 13) + 1; row++) {
+          this.fillHeart(c, column * 13, row * 13 + yOffset, size);
+        }
+      }
+    } else if (pattern === TapePattern.WAVES) {
+      c.setLineWidth(1);
+      const startX: number = Math.floor(left / 6) * 6 - 6;
+      for (let y: number = Math.floor(top / 8) * 8; y <= bottom; y += 8) {
+        c.beginPath(); c.moveTo(startX, y);
+        for (let x: number = startX; x <= right; x += 6) {
+          c.bezierCurveTo(x + 1.5, y - 3, x + 4.5, y + 3, x + 6, y);
+        }
+        c.stroke();
+      }
+    } else if (pattern === TapePattern.CHECKERS) {
+      for (let row: number = Math.floor(top / 6); row <= Math.ceil(bottom / 6); row++) {
+        for (let column: number = Math.floor(left / 6);
+          column <= Math.ceil(right / 6); column++) {
+          if ((row + column) % 2 === 0) {
+            c.fillRect(column * 6, row * 6, 6, 6);
+          }
+        }
+      }
+    }
+  }
+
+  private releaseTapeTiles(): void {
+    this.tapeTiles.forEach((tile: TapePatternTile): void => tile.bitmap.close());
+    this.tapeTiles.clear();
+  }
+
+  private fillStar(c: Canvas2DDrawingContext, centerX: number, centerY: number,
+    radius: number): void {
+    c.beginPath();
+    for (let point: number = 0; point < 5; point++) {
+      const outerAngle: number = point * 1.2566371 - Math.PI / 2;
+      const innerAngle: number = outerAngle + 0.62831855;
+      const outerX: number = centerX + Math.cos(outerAngle) * radius;
+      const outerY: number = centerY + Math.sin(outerAngle) * radius;
+      if (point === 0) { c.moveTo(outerX, outerY); } else { c.lineTo(outerX, outerY); }
+      c.lineTo(centerX + Math.cos(innerAngle) * radius * 0.4,
+        centerY + Math.sin(innerAngle) * radius * 0.4);
+    }
+    c.closePath(); c.fill();
+  }
+
+  private fillFlower(c: Canvas2DDrawingContext, centerX: number, centerY: number,
+    radius: number, tapeColor: number, overlayColor: number): void {
+    for (let petal: number = 0; petal < 5; petal++) {
+      const angle: number = petal * 1.2566371 - Math.PI / 2;
+      c.beginPath();
+      c.arc(centerX + Math.cos(angle) * radius * 0.8,
+        centerY + Math.sin(angle) * radius * 0.8, radius, 0, Math.PI * 2);
+      c.fill();
+    }
+    c.setFillStyle(this.colorToRgba(tapeColor));
+    c.beginPath(); c.arc(centerX, centerY, radius * 0.45, 0, Math.PI * 2); c.fill();
+    c.setFillStyle(this.colorToRgba(overlayColor));
+  }
+
+  private fillHeart(c: Canvas2DDrawingContext, centerX: number, centerY: number,
+    size: number): void {
+    c.beginPath();
+    c.moveTo(centerX, centerY + size);
+    c.bezierCurveTo(centerX + size * 0.3, centerY + size,
+      centerX + size, centerY + size * 0.5, centerX + size, centerY);
+    c.bezierCurveTo(centerX + size, centerY - size * 0.5,
+      centerX + size * 0.4, centerY - size * 0.6, centerX, centerY - size * 0.2);
+    c.bezierCurveTo(centerX - size * 0.4, centerY - size * 0.6,
+      centerX - size, centerY - size * 0.5, centerX - size, centerY);
+    c.bezierCurveTo(centerX - size, centerY + size * 0.5,
+      centerX - size * 0.3, centerY + size, centerX, centerY + size);
+    c.closePath(); c.fill();
   }
 
   private isMaskBreak(point: Point2D): boolean {
