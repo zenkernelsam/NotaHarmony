@@ -470,6 +470,10 @@ function isColorInteger(value: number): boolean {
   return Number.isSafeInteger(value) && value >= -2147483648 && value <= 4294967295;
 }
 
+function isNonNegativeSafeInteger(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
 function isOriginalLineSpacing(value: number): boolean {
   return isFiniteNumber(value) && (Math.abs(value) < 0.01 || Math.abs(value - 1) < 0.01 ||
     Math.abs(value - 1.5) < 0.01 || Math.abs(value - 2) < 0.01);
@@ -482,6 +486,18 @@ function isValidShape(shape: ShapeElement): boolean {
     (shape.positionLocked !== undefined && typeof shape.positionLocked !== 'boolean') ||
     (shape.originalTool !== undefined &&
       !isIntegerInRange(shape.originalTool, 0, 7)) ||
+    (shape.originalStyle !== undefined &&
+      !isIntegerInRange(shape.originalStyle, 0, 3)) ||
+    (shape.originalCreate !== undefined &&
+      (!isNonNegativeSafeInteger(shape.originalCreate.timestamp) ||
+        !isIntegerInRange(shape.originalCreate.siteId, 0, 65535) ||
+        !isNonNegativeSafeInteger(shape.originalCreate.clientTime) ||
+        !isNonNegativeSafeInteger(shape.originalCreate.pageTimestamp) ||
+        !isIntegerInRange(shape.originalCreate.pageSiteId, 0, 65535) ||
+        !isNonNegativeSafeInteger(shape.originalCreate.pageIndex) ||
+        !Number.isSafeInteger(shape.originalCreate.pencilSeed) ||
+        (shape.originalCreate.averageForce !== null &&
+          !isFiniteNumber(shape.originalCreate.averageForce)))) ||
     (shape.richText !== undefined &&
       (typeof shape.richText !== 'string' ||
         !isValidRichTextRuns(shape, shape.richText as string)))) {

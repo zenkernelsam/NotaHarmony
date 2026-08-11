@@ -2,7 +2,7 @@
 // 纯类型文件：禁止 import 任何 @ohos.* / @kit.* 平台模块
 import { Point2D, Rect2D, TransformMatrix } from './GeometryTypes';
 import { PagePaperBackground } from './NoteTypes';
-import { StrokeElementData } from './StrokeTypes';
+import { OriginalInkCreateMetadata, StrokeElementData } from './StrokeTypes';
 
 // 元素类型（对应 c9e 子类枚举）
 export enum ElementType {
@@ -19,6 +19,10 @@ export enum ElementType {
 export enum ShapeArrowHead {
   NONE = 0,
   SINGLE = 1,
+}
+
+export interface OriginalShapeCreateMetadata extends OriginalInkCreateMetadata {
+  averageForce: number | null;
 }
 
 // 元素基类（所有笔记元素的公共字段）
@@ -40,6 +44,10 @@ export interface ShapeRichTextContent {
   // Original InkTool register (Pen=0, Pencil=1, Highlighter=2, Tape=3).
   // Optional for pre-Phase-118 and non-original Shape snapshots.
   originalTool?: number;
+  // Original InkStyle register. CREATE_SHAPE rejects variable-width style 0.
+  originalStyle?: number;
+  // Reserved type-18 identity carried by one newly recognized local Shape until commit.
+  originalCreate?: OriginalShapeCreateMetadata;
 }
 
 // 椭圆元素

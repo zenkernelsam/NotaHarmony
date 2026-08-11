@@ -500,7 +500,8 @@ function isOriginalOutboundCompanion(operation: Op): boolean {
     operation.opType === OpType.ORIGINAL_MODIFY_INK ||
     operation.opType === OpType.ORIGINAL_MODIFY_POSITIONS ||
     operation.opType === OpType.ORIGINAL_MODIFY_BLOCK ||
-    operation.opType === OpType.ORIGINAL_MODIFY_SHAPE;
+    operation.opType === OpType.ORIGINAL_MODIFY_SHAPE ||
+    operation.opType === OpType.ORIGINAL_CREATE_SHAPE;
 }
 
 function sameEvent(left: HistoryMetadata, right: HistoryMetadata): boolean {

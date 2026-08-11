@@ -5,7 +5,9 @@ import { readEffectiveNoteBackground } from './OriginalSetMetadataOperation';
 import { HistoryEffect, HistoryMetadata, OpType } from '../core/model/OpTypes';
 import { taskpool, util } from '@kit.ArkTS';
 import { InkStyle, OriginalInkCreateMetadata, StrokeElementData } from '../core/model/StrokeTypes';
-import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import {
+  ImageElement, MathElement, OriginalShapeCreateMetadata, ShapeElement, TextBlockElement,
+} from '../core/model/ElementTypes';
 import { Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import {
   cloneImageElement, imageBlockWorldBounds, reflectImageCropRect,
@@ -40,6 +42,7 @@ import {
   compareUnsignedLongDecimal, MAX_UNSIGNED_LONG_DECIMAL, validateUnsignedLongDecimal,
 } from './UnsignedDecimal';
 import { encodeOriginalLocalCreateInk } from './OriginalCreateInkPayloadEncoder';
+import { encodeOriginalLocalCreateShape } from './OriginalCreateShapePayloadEncoder';
 import {
   ORIGINAL_CREATE_INK_PAYLOAD_TYPE, OriginalCreateInkOperationApplier,
 } from './OriginalCreateInkOperation';
@@ -65,7 +68,8 @@ import {
   OriginalModifyInkPayload,
 } from './OriginalModifyInkOperation';
 import {
-  decodeOriginalModifyShape, ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE,
+  decodeOriginalModifyShape, ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE,
+  ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE,
   OriginalCreateShapePayload, OriginalModifyShapePayload, OriginalShapeGroupOperationApplier,
 } from './OriginalShapeGroupOperation';
 import { encodeOriginalImageCrop, encodeOriginalImageFlip } from './OriginalModifyBlockPayloadEncoder';
@@ -205,6 +209,7 @@ export interface OriginalInkRenderMutationBatch extends OriginalInkRenderRegiste
 export interface OriginalShapeRenderMutationBatch extends OriginalShapeRenderRegisterUpdate {
   identities: OperationIdentity[];
   expectedTools: number[];
+  expectedStyles: number[];
 }
 
 export interface OriginalRenderMutation {
@@ -212,15 +217,30 @@ export interface OriginalRenderMutation {
   shapeBatches: OriginalShapeRenderMutationBatch[];
 }
 
-export function decodeOriginalShapeStateTool(resolvedPayload: string): number | null {
+export interface OriginalShapeStateRenderMetadata {
+  tool: number;
+  style: number;
+}
+
+export function decodeOriginalShapeStateRenderMetadata(
+  resolvedPayload: string): OriginalShapeStateRenderMetadata | null {
   try {
     const payload: OriginalCreateShapePayload =
       JSON.parse(resolvedPayload) as OriginalCreateShapePayload;
-    return Number.isInteger(payload.tool) && payload.tool >= 0 && payload.tool <= 7 ?
-      payload.tool : null;
+    if (!Number.isInteger(payload.tool) || payload.tool < 0 || payload.tool > 7 ||
+      !Number.isInteger(payload.style) || payload.style < 1 || payload.style > 3) {
+      return null;
+    }
+    return { tool: payload.tool, style: payload.style };
   } catch (_error) {
     return null;
   }
+}
+
+export function decodeOriginalShapeStateTool(resolvedPayload: string): number | null {
+  const metadata: OriginalShapeStateRenderMetadata | null =
+    decodeOriginalShapeStateRenderMetadata(resolvedPayload);
+  return metadata === null ? null : metadata.tool;
 }
 
 export function classifyOriginalRenderMutation(current: SearchSourceElement[],
@@ -317,11 +337,14 @@ export function classifyOriginalRenderMutation(current: SearchSourceElement[],
         const widthChanged: boolean = before.strokeWidth !== after.strokeWidth;
         const fillChanged: boolean = before.fillColor !== after.fillColor;
         if (identity === null || before.id !== after.id || after.originalTool === undefined ||
-          (before.originalTool !== undefined && before.originalTool !== after.originalTool)) {
+          after.originalStyle === undefined ||
+          (before.originalTool !== undefined && before.originalTool !== after.originalTool) ||
+          (before.originalStyle !== undefined && before.originalStyle !== after.originalStyle)) {
           return null;
         }
         const candidate: ShapeElement = cloneShapeElement(before);
         candidate.originalTool = after.originalTool;
+        candidate.originalStyle = after.originalStyle;
         candidate.color = colorChanged ? after.color : before.color;
         candidate.strokeWidth = widthChanged ? after.strokeWidth : before.strokeWidth;
         candidate.fillColor = fillChanged ? after.fillColor : before.fillColor;
@@ -344,12 +367,14 @@ export function classifyOriginalRenderMutation(current: SearchSourceElement[],
         const batch: OriginalShapeRenderMutationBatch | undefined = shapeBatches.get(key);
         if (batch === undefined) {
           shapeBatches.set(key, { identities: [identity], expectedTools: [after.originalTool],
+            expectedStyles: [after.originalStyle],
             color: update.color,
             borderWidth: update.borderWidth, fillColorPresent: update.fillColorPresent,
             fillColor: update.fillColor });
         } else {
           batch.identities.push(identity);
           batch.expectedTools.push(after.originalTool);
+          batch.expectedStyles.push(after.originalStyle);
         }
         continue;
       }
@@ -899,7 +924,8 @@ export class StrokePersistence {
       const mutation: PageMutationOpPayload = createPageMutation(
         snapshot.pageId, currentRevision, snapshotRevision, current, snapshot.elements);
       const originalVisibility: OriginalEntityVisibilityMutation | null =
-        this.originalEntityVisibilityMutation(current, snapshot.elements);
+        await this.originalEntityVisibilityMutation(
+          store, snapshot.noteId, current, snapshot.elements);
       if (originalVisibility !== null) {
         await this.applyOriginalEntityVisibility(store, snapshot, originalVisibility,
           snapshotRevision);
@@ -952,8 +978,13 @@ export class StrokePersistence {
       const originalCreate: PreparedElement | null = this.singleReservedOriginalCreate(
         current, snapshot.elements);
       if (originalCreate !== null) {
-        await this.writeOriginalCreateInk(store, snapshot, current, originalCreate,
-          mutation, currentRevision, snapshotRevision);
+        if (originalCreate.kind === PageElementKind.STROKE) {
+          await this.writeOriginalCreateInk(store, snapshot, current, originalCreate,
+            mutation, currentRevision, snapshotRevision);
+        } else {
+          await this.writeOriginalCreateShape(store, snapshot, originalCreate,
+            mutation, currentRevision, snapshotRevision);
+        }
         await store.commit();
         return;
       }
@@ -1047,19 +1078,29 @@ export class StrokePersistence {
       }
     }
     const added: PreparedElement = next[next.length - 1];
-    if (added.kind !== PageElementKind.STROKE) {
-      return null;
-    }
     try {
       const persisted: PersistedElement = decodePersistedElement(added.payload);
-      if (persisted.kind !== 'stroke') {
-        return null;
+      if (added.kind === PageElementKind.STROKE && persisted.kind === 'stroke') {
+        const stroke: StrokeElementData = persisted.data as StrokeElementData;
+        const original: OriginalInkCreateMetadata | undefined = stroke.originalCreate;
+        const identity: OperationIdentity | null = decodeOperationId(stroke.id);
+        return original !== undefined && identity !== null &&
+          identity.timestamp === original.timestamp && identity.siteId === original.siteId ?
+            added : null;
       }
-      const stroke: StrokeElementData = persisted.data as StrokeElementData;
-      const original: OriginalInkCreateMetadata | undefined = stroke.originalCreate;
-      const identity: OperationIdentity | null = decodeOperationId(stroke.id);
-      return original !== undefined && identity !== null &&
-        identity.timestamp === original.timestamp && identity.siteId === original.siteId ? added : null;
+      if (added.kind === PageElementKind.SHAPE && persisted.kind === 'shape') {
+        const shape: ShapeElement = persisted.data as ShapeElement;
+        const original: OriginalShapeCreateMetadata | undefined = shape.originalCreate;
+        const identity: OperationIdentity | null = decodeOperationId(shape.id);
+        if (original === undefined || identity === null ||
+          identity.timestamp !== original.timestamp || identity.siteId !== original.siteId) {
+          return null;
+        }
+        encodeOriginalLocalCreateShape({ timestamp: original.pageTimestamp,
+          siteId: original.pageSiteId, index: original.pageIndex }, shape, original.averageForce);
+        return added;
+      }
+      return null;
     } catch (_error) {
       return null;
     }
@@ -1120,6 +1161,49 @@ export class StrokePersistence {
     await this.appendHistoryCompanion(store, snapshot, mutation);
     if (currentRevision + 1 !== snapshotRevision) {
       throw new Error('local CREATE_INK revision contract changed');
+    }
+  }
+
+  private async writeOriginalCreateShape(store: relationalStore.RdbStore,
+    snapshot: PreparedPageSave, added: PreparedElement, mutation: PageMutationOpPayload,
+    currentRevision: number, snapshotRevision: number): Promise<void> {
+    const persisted: PersistedElement = decodePersistedElement(added.payload);
+    const shape: ShapeElement = persisted.data as ShapeElement;
+    const metadata: OriginalShapeCreateMetadata =
+      shape.originalCreate as OriginalShapeCreateMetadata;
+    const page: OriginalSequenceIdentity = {
+      timestamp: metadata.pageTimestamp, siteId: metadata.pageSiteId, index: metadata.pageIndex,
+    };
+    const eligible: OriginalSequenceIdentity | null = await this.readEligibleOriginalInkPage(
+      store, snapshot.noteId, snapshot.pageId);
+    if (eligible === null || eligible.timestamp !== page.timestamp || eligible.siteId !== page.siteId ||
+      eligible.index !== page.index) {
+      throw new Error('reserved local CREATE_SHAPE page is no longer original-aligned');
+    }
+    const payload: Uint8Array = encodeOriginalLocalCreateShape(
+      page, shape, metadata.averageForce);
+    const operation: StoredSyncedOperation = localStoredOperation(
+      snapshot.noteId, metadata, ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE, payload, null);
+    const result: SyncedOperationApplyResult =
+      await new OriginalShapeGroupOperationApplier().apply(store, operation);
+    if (result.deferredReason !== null) {
+      throw new Error(`local CREATE_SHAPE was deferred: ${result.deferredReason}`);
+    }
+    await appendOperation(store, {
+      noteId: snapshot.noteId, opId: shape.id, opType: OpType.ORIGINAL_CREATE_SHAPE,
+      payload: operation.rawOperation, clientTime: metadata.clientTime,
+      opTimestamp: metadata.timestamp, editorSiteId: metadata.siteId, uploadImmediately: true,
+    });
+    const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+      store, snapshot.noteId, snapshot.pageId);
+    if (!samePreparedIdentityOrder(materialized, snapshot.elements)) {
+      throw new Error('local CREATE_SHAPE reducer produced an unexpected element order');
+    }
+    await this.reconcilePreparedRows(store, snapshot, snapshotRevision);
+    await this.rebuildPageSearchState(store, snapshot, snapshotRevision, false);
+    await this.appendHistoryCompanion(store, snapshot, mutation);
+    if (currentRevision + 1 !== snapshotRevision) {
+      throw new Error('local CREATE_SHAPE revision contract changed');
     }
   }
 
@@ -1186,7 +1270,8 @@ export class StrokePersistence {
         const mutation: PageMutationOpPayload = createPageMutation(
           step.pageId, currentRevision, nextRevision, current, step.elements);
         const originalVisibility: OriginalEntityVisibilityMutation | null =
-          this.originalEntityVisibilityMutation(current, step.elements);
+          await this.originalEntityVisibilityMutation(
+            store, step.noteId, current, step.elements);
         const originalStyle: OriginalRenderMutation | null = originalVisibility === null ?
           await this.originalRenderMutation(store, step.noteId, current, step.elements) : null;
         const originalImageFlip: OriginalImageFlipMutation | null =
@@ -1240,8 +1325,8 @@ export class StrokePersistence {
     }
   }
 
-  private originalEntityVisibilityMutation(current: SearchSourceElement[],
-    next: PreparedElement[]): OriginalEntityVisibilityMutation | null {
+  private async originalEntityVisibilityMutation(store: relationalStore.RdbStore, noteId: string,
+    current: SearchSourceElement[], next: PreparedElement[]): Promise<OriginalEntityVisibilityMutation | null> {
     const deleted: boolean = current.length > next.length;
     const undeleted: boolean = next.length > current.length;
     if (!deleted && !undeleted) {
@@ -1262,9 +1347,26 @@ export class StrokePersistence {
         largerIndex++;
         smallerIndex++;
       } else {
-        const identity: OperationIdentity | null = this.originalStrokeIdentity(larger[largerIndex]);
+        const target: SearchSourceElement | PreparedElement = larger[largerIndex];
+        const identity: OperationIdentity | null = this.originalEntityIdentity(target);
         if (identity === null) {
           return null;
+        }
+        const table: string = target.kind === PageElementKind.STROKE ?
+          'original_ink_state' : 'original_shape_state';
+        const timestampColumn: string = target.kind === PageElementKind.STROKE ?
+          'ink_timestamp' : 'shape_timestamp';
+        const siteColumn: string = target.kind === PageElementKind.STROKE ?
+          'ink_site_id' : 'shape_site_id';
+        const rows = await store.querySql(
+          `SELECT 1 FROM ${table} WHERE note_id = ? AND ${timestampColumn} = ?
+           AND ${siteColumn} = ? LIMIT 1`, [noteId, identity.timestamp, identity.siteId]);
+        try {
+          if (!rows.goToFirstRow()) {
+            return null;
+          }
+        } finally {
+          rows.close();
         }
         identities.push(identity);
         largerIndex++;
@@ -1284,7 +1386,8 @@ export class StrokePersistence {
       return mutation;
     }
     for (const batch of mutation.shapeBatches) {
-      if (batch.identities.length !== batch.expectedTools.length) {
+      if (batch.identities.length !== batch.expectedTools.length ||
+        batch.identities.length !== batch.expectedStyles.length) {
         return null;
       }
       for (let index: number = 0; index < batch.identities.length; index++) {
@@ -1294,8 +1397,11 @@ export class StrokePersistence {
            AND shape_timestamp = ? AND shape_site_id = ? LIMIT 1`,
           [noteId, identity.timestamp, identity.siteId]);
         try {
-          if (!rows.goToFirstRow() || decodeOriginalShapeStateTool(
-            rows.getString(rows.getColumnIndex('resolved_payload'))) !== batch.expectedTools[index]) {
+          const metadata: OriginalShapeStateRenderMetadata | null = !rows.goToFirstRow() ? null :
+            decodeOriginalShapeStateRenderMetadata(
+              rows.getString(rows.getColumnIndex('resolved_payload')));
+          if (metadata === null || metadata.tool !== batch.expectedTools[index] ||
+            metadata.style !== batch.expectedStyles[index]) {
             return null;
           }
         } finally {
@@ -1494,17 +1600,17 @@ export class StrokePersistence {
         ORDER BY action_time DESC, action_id DESC LIMIT 512)`, [step.noteId, step.noteId]);
   }
 
-  private originalStrokeIdentity(target: SearchSourceElement | PreparedElement): OperationIdentity | null {
-    if (target.kind !== PageElementKind.STROKE) {
+  private originalEntityIdentity(target: SearchSourceElement | PreparedElement): OperationIdentity | null {
+    if (target.kind !== PageElementKind.STROKE && target.kind !== PageElementKind.SHAPE) {
       return null;
     }
     try {
       const persisted: PersistedElement = decodePersistedElement(target.payload);
-      if (persisted.kind !== 'stroke') {
+      if (target.kind === PageElementKind.STROKE && persisted.kind !== 'stroke' ||
+        target.kind === PageElementKind.SHAPE && persisted.kind !== 'shape') {
         return null;
       }
-      const stroke: StrokeElementData = persisted.data as StrokeElementData;
-      return decodeOperationId(stroke.id);
+      return decodeOperationId(persisted.data.id);
     } catch (_error) {
       return null;
     }
@@ -2077,8 +2183,8 @@ export class StrokePersistence {
     }
     const store: relationalStore.RdbStore = this.store;
     try {
-      const originalShapeTools: Map<string, number> =
-        await this.loadOriginalShapeTools(store, noteId);
+      const originalShapeMetadata: Map<string, OriginalShapeStateRenderMetadata> =
+        await this.loadOriginalShapeMetadata(store, noteId);
       const predicates = new relationalStore.RdbPredicates('page_element_snapshot');
       predicates.equalTo('note_id', noteId);
       if (pageId !== null) {
@@ -2104,9 +2210,15 @@ export class StrokePersistence {
                 elementId: text.id, zIndex: result.elementOrder.length });
             } else if (parsed.kind === 'shape') {
               const shape: ShapeElement = cloneShapeElement(parsed.data as ShapeElement);
-              const originalTool: number | undefined = originalShapeTools.get(shape.id);
-              if (shape.originalTool === undefined && originalTool !== undefined) {
-                shape.originalTool = originalTool;
+              const originalMetadata: OriginalShapeStateRenderMetadata | undefined =
+                originalShapeMetadata.get(shape.id);
+              if (originalMetadata !== undefined) {
+                if (shape.originalTool === undefined) {
+                  shape.originalTool = originalMetadata.tool;
+                }
+                if (shape.originalStyle === undefined) {
+                  shape.originalStyle = originalMetadata.style;
+                }
               }
               shape.bounds = recomputeShapeBounds(shape);
               result.shapes.push(shape);
@@ -2145,22 +2257,24 @@ export class StrokePersistence {
     return result;
   }
 
-  private async loadOriginalShapeTools(store: relationalStore.RdbStore,
-    noteId: string): Promise<Map<string, number>> {
+  private async loadOriginalShapeMetadata(store: relationalStore.RdbStore,
+    noteId: string): Promise<Map<string, OriginalShapeStateRenderMetadata>> {
     const rows = await store.querySql(
       `SELECT shape_timestamp, shape_site_id, resolved_payload
        FROM original_shape_state WHERE note_id = ?`, [noteId]);
-    const result: Map<string, number> = new Map<string, number>();
+    const result: Map<string, OriginalShapeStateRenderMetadata> =
+      new Map<string, OriginalShapeStateRenderMetadata>();
     try {
       while (rows.goToNextRow()) {
         try {
-          const tool: number | null = decodeOriginalShapeStateTool(
+          const metadata: OriginalShapeStateRenderMetadata | null =
+            decodeOriginalShapeStateRenderMetadata(
             rows.getString(rows.getColumnIndex('resolved_payload')));
-          if (tool !== null) {
+          if (metadata !== null) {
             result.set(encodeOperationId({
               timestamp: rows.getLong(rows.getColumnIndex('shape_timestamp')),
               siteId: rows.getLong(rows.getColumnIndex('shape_site_id')),
-            }), tool);
+            }), metadata);
           }
         } catch (_error) {
           // A malformed state row must not prevent the remaining page elements from loading.

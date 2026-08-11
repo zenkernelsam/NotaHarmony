@@ -41,8 +41,10 @@ assert.doesNotMatch(canvas,
 assert.match(persistence, /classifyOriginalRenderMutation/);
 assert.match(persistence, /Map<string, OriginalShapeRenderMutationBatch>/);
 assert.match(persistence, /expectedTools: number\[\]/);
+assert.match(persistence, /expectedStyles: number\[\]/);
 assert.match(persistence, /SELECT resolved_payload FROM original_shape_state WHERE note_id/);
-assert.match(persistence, /decodeOriginalShapeStateTool[\s\S]*!== batch\.expectedTools\[index\]/);
+assert.match(persistence,
+  /metadata\.tool !== batch\.expectedTools\[index\][\s\S]*metadata\.style !== batch\.expectedStyles\[index\]/);
 assert.match(persistence, /encodeOriginalShapeRenderRegisters\(batch\.identities, batch\)/);
 assert.match(persistence, /OriginalShapeGroupOperationApplier/);
 assert.match(persistence, /applyPositionPayload\([\s\S]*revisionBatch/);

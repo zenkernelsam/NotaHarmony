@@ -1,4 +1,5 @@
 import { ElementType, EllipseElement, LineElement, PolygonElement,
+  OriginalShapeCreateMetadata,
   RichTextCharacterStyle, RichTextCharacterStyleRun,
   RichTextParagraphStyle, RichTextParagraphStyleRun,
   ShapeArrowHead, ShapeElement } from './ElementTypes';
@@ -21,7 +22,8 @@ export function cloneShapeElement(shape: ShapeElement): ShapeElement {
       color: shape.color, strokeWidth: shape.strokeWidth, fillColor: shape.fillColor,
       richText: shape.richText, characterStyleRuns: cloneShapeCharacterRuns(shape),
       paragraphStyleRuns: cloneShapeParagraphRuns(shape), positionLocked: shape.positionLocked,
-      originalTool: shape.originalTool,
+      originalTool: shape.originalTool, originalStyle: shape.originalStyle,
+      originalCreate: cloneOriginalShapeCreate(shape),
     };
   }
   if (shape.type === ElementType.LINE) {
@@ -34,7 +36,8 @@ export function cloneShapeElement(shape: ShapeElement): ShapeElement {
       fillColor: shape.fillColor, richText: shape.richText,
       characterStyleRuns: cloneShapeCharacterRuns(shape),
       paragraphStyleRuns: cloneShapeParagraphRuns(shape), positionLocked: shape.positionLocked,
-      originalTool: shape.originalTool,
+      originalTool: shape.originalTool, originalStyle: shape.originalStyle,
+      originalCreate: cloneOriginalShapeCreate(shape),
     };
   }
   return {
@@ -45,7 +48,22 @@ export function cloneShapeElement(shape: ShapeElement): ShapeElement {
     fillColor: shape.fillColor, richText: shape.richText,
     characterStyleRuns: cloneShapeCharacterRuns(shape),
     paragraphStyleRuns: cloneShapeParagraphRuns(shape), positionLocked: shape.positionLocked,
-    originalTool: shape.originalTool,
+    originalTool: shape.originalTool, originalStyle: shape.originalStyle,
+    originalCreate: cloneOriginalShapeCreate(shape),
+  };
+}
+
+function cloneOriginalShapeCreate(shape: ShapeElement): OriginalShapeCreateMetadata | undefined {
+  if (shape.originalCreate === undefined) {
+    return undefined;
+  }
+  return {
+    timestamp: shape.originalCreate.timestamp, siteId: shape.originalCreate.siteId,
+    clientTime: shape.originalCreate.clientTime,
+    pageTimestamp: shape.originalCreate.pageTimestamp,
+    pageSiteId: shape.originalCreate.pageSiteId, pageIndex: shape.originalCreate.pageIndex,
+    pencilSeed: shape.originalCreate.pencilSeed,
+    averageForce: shape.originalCreate.averageForce,
   };
 }
 

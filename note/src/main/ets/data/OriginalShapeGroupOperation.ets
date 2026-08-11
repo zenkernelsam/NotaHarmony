@@ -1051,7 +1051,8 @@ function materializeShape(identity: OperationIdentity,
       arrowHead: definition.arrowHead === 1 ? ShapeArrowHead.SINGLE : ShapeArrowHead.NONE,
       color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor,
       richText: '', characterStyleRuns: [], paragraphStyleRuns: [],
-      positionLocked: payload.positionLocked, originalTool: payload.tool };
+      positionLocked: payload.positionLocked, originalTool: payload.tool,
+      originalStyle: payload.style };
     shape = line;
   } else if (payload.definition.type === OriginalShapeDefinitionType.POLYGON) {
     const definition: OriginalPolygonDefinition = payload.definition as OriginalPolygonDefinition;
@@ -1059,7 +1060,8 @@ function materializeShape(identity: OperationIdentity,
       bounds: emptyBounds(), vertices: definition.points.map(clonePoint), isClosed: true,
       color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor,
       richText: '', characterStyleRuns: [], paragraphStyleRuns: [],
-      positionLocked: payload.positionLocked, originalTool: payload.tool };
+      positionLocked: payload.positionLocked, originalTool: payload.tool,
+      originalStyle: payload.style };
     shape = polygon;
   } else {
     const definition: OriginalEllipseDefinition = payload.definition as OriginalEllipseDefinition;
@@ -1068,7 +1070,8 @@ function materializeShape(identity: OperationIdentity,
       radiusX: definition.width / 2, radiusY: definition.height / 2, rotationRadians: 0,
       color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor,
       richText: '', characterStyleRuns: [], paragraphStyleRuns: [],
-      positionLocked: payload.positionLocked, originalTool: payload.tool };
+      positionLocked: payload.positionLocked, originalTool: payload.tool,
+      originalStyle: payload.style };
     shape = ellipse;
   }
   shape.bounds = recomputeShapeBounds(shape);

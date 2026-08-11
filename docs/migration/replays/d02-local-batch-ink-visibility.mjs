@@ -31,7 +31,9 @@ assert.match(persistence, /MAX_ORIGINAL_DELETE_ENTITY_COUNT/);
 assert.match(canvas, /isOriginalInkAction/);
 assert.match(canvas, /areCanonicalOriginalStrokes/);
 assert.match(canvas, /partialBefore\.length === 0/);
-assert.match(canvas, /if \(changed\) \{\s*this\.persist\(originalInkOnly\)/);
+assert.match(canvas,
+  /originalEntityOnly: boolean = partialBefore\.length === 0[\s\S]*removedShapes\.map\(/);
+assert.match(canvas, /if \(changed\) \{\s*this\.persist\(originalEntityOnly\)/);
 assert.match(encoderTest, /entityDeletes\.length\)\.assertEqual\(3\)/);
 
 const db = new DatabaseSync(':memory:');

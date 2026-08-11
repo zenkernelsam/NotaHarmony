@@ -1529,7 +1529,8 @@ export struct NoteCanvasView {
       }
       hilog.info(0x0001, 'NoteCanvasView', 'pushed drawing element, canUndo=%{public}s',
         this.undoRedo.canUndo().toString());
-      this.persist(finalShapes.length === 0 && stroke.originalCreate !== undefined);
+      this.persist((finalShapes.length === 0 && stroke.originalCreate !== undefined) ||
+        (finalShapes.length === 1 && finalShapes[0].originalCreate !== undefined));
       this.notifyUndoRedo();
       hilog.info(0x0001, 'NoteCanvasView', 'after notify, canUndo=%{public}s',
         this.undoRedo.canUndo().toString());
@@ -1629,7 +1630,15 @@ export struct NoteCanvasView {
     hilog.info(0x0001, 'NoteCanvasView', 'shape detect: match confidence=%{public}f', result.confidence);
     const shapes: ShapeElement[] = prepareRecognizedShapes(
       result.elements, stroke.id, stroke.renderSpec.color, stroke.renderSpec.brushWidth,
-      this.originalToolForStroke(stroke));
+      this.originalToolForStroke(stroke), this.originalStyleForStroke(stroke),
+      stroke.originalCreate === undefined ? undefined : {
+        timestamp: stroke.originalCreate.timestamp, siteId: stroke.originalCreate.siteId,
+        clientTime: stroke.originalCreate.clientTime,
+        pageTimestamp: stroke.originalCreate.pageTimestamp,
+        pageSiteId: stroke.originalCreate.pageSiteId, pageIndex: stroke.originalCreate.pageIndex,
+        pencilSeed: stroke.originalCreate.pencilSeed,
+        averageForce: this.averageStrokeForce(stroke),
+      });
     return { shapes: shapes, replaced: shapes.length > 0 };
   }
 
@@ -1778,11 +1787,14 @@ export struct NoteCanvasView {
       });
     }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
-    const originalInkOnly: boolean = partialBefore.length === 0 && removed.length > 0 &&
-      removedShapes.length === 0 && removedTextBlocks.length === 0 && removedImages.length === 0 &&
-      removedMathBlocks.length === 0 && this.areCanonicalOriginalStrokes(removed);
+    const originalEntityOnly: boolean = partialBefore.length === 0 &&
+      (removed.length > 0 || removedShapes.length > 0) && removedTextBlocks.length === 0 &&
+      removedImages.length === 0 && removedMathBlocks.length === 0 &&
+      this.areCanonicalOriginalPositionSelection(
+        removed.map((stroke: StrokeElementData): string => stroke.id),
+        removedShapes.map((shape: ShapeElement): string => shape.id), [], [], []);
     if (changed) {
-      this.persist(originalInkOnly);
+      this.persist(originalEntityOnly);
     }
     this.notifyUndoRedo();
     if (removedImages.length > 0) {
@@ -2027,6 +2039,12 @@ export struct NoteCanvasView {
   }
 
   private isOriginalInkAction(action: UndoableAction): boolean {
+    if (action.type === UndoableActionType.ADD_ELEMENTS) {
+      return action.addedStrokes.length === 0 && action.addedShapes.length === 1 &&
+        action.addedShapes[0].originalCreate !== undefined && action.addedTextBlocks.length === 0 &&
+        action.addedImages.length === 0 && (action.addedMathBlocks ?? []).length === 0 &&
+        this.areCanonicalOriginalPositionSelection([], [action.addedShapes[0].id], [], [], []);
+    }
     if (action.type === UndoableActionType.ADD_STROKE) {
       return action.addedStrokes.length === 1 && action.addedStrokes[0].originalCreate !== undefined &&
         this.areCanonicalOriginalStrokes(action.addedStrokes);
@@ -2037,14 +2055,17 @@ export struct NoteCanvasView {
     }
     if (action.type === UndoableActionType.ERASE_ELEMENTS) {
       return action.beforeModifiedStrokes.length === 0 && action.afterModifiedStrokes.length === 0 &&
-        action.removedShapes.length === 0 && action.removedTextBlocks.length === 0 &&
-        action.removedImages.length === 0 && (action.removedMathBlocks ?? []).length === 0 &&
-        this.areCanonicalOriginalStrokes(action.removedStrokes);
+        action.removedTextBlocks.length === 0 && action.removedImages.length === 0 &&
+        (action.removedMathBlocks ?? []).length === 0 && this.areCanonicalOriginalPositionSelection(
+        action.removedStrokes.map((stroke: StrokeElementData): string => stroke.id),
+        action.removedShapes.map((shape: ShapeElement): string => shape.id), [], [], []);
     }
     if (action.type === UndoableActionType.DELETE_ELEMENTS) {
-      return action.removedShapes.length === 0 && action.removedTextBlocks.length === 0 &&
-        action.removedImages.length === 0 && (action.removedMathBlocks ?? []).length === 0 &&
-        this.areCanonicalOriginalStrokes(action.removedStrokes);
+      return action.removedTextBlocks.length === 0 && action.removedImages.length === 0 &&
+        (action.removedMathBlocks ?? []).length === 0 && this.areCanonicalOriginalPositionSelection(
+        action.removedStrokes.map((stroke: StrokeElementData): string => stroke.id),
+        action.removedShapes.map((shape: ShapeElement): string => shape.id),
+        [], [], []);
     }
     if (action.type === UndoableActionType.TRANSFORM_STROKES) {
       return this.areCanonicalOriginalStrokes(action.beforeStrokes) &&
@@ -3640,12 +3661,14 @@ export struct NoteCanvasView {
       }
       this.selectionVisible = false;
       this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
-      const originalInkOnly: boolean = removedShapes.length === 0 && removedTextBlocks.length === 0 &&
+      const originalEntityOnly: boolean = removedTextBlocks.length === 0 &&
         removedImages.length === 0 && removedMathBlocks.length === 0 &&
-        this.areCanonicalOriginalStrokes(removed);
+        this.areCanonicalOriginalPositionSelection(
+          removed.map((stroke: StrokeElementData): string => stroke.id),
+          removedShapes.map((shape: ShapeElement): string => shape.id), [], [], []);
       if (removed.length > 0 || removedShapes.length > 0 || removedTextBlocks.length > 0 ||
         removedImages.length > 0 || removedMathBlocks.length > 0) {
-        this.persist(originalInkOnly);
+        this.persist(originalEntityOnly);
       }
       this.notifyUndoRedo();
       this.renderFrame();
@@ -4125,6 +4148,24 @@ export struct NoteCanvasView {
       return 3;
     }
     return stroke.renderSpec.isPencil ? 1 : stroke.renderSpec.isHighlighter ? 2 : 0;
+  }
+
+  private originalStyleForStroke(stroke: StrokeElementData): number {
+    return stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH ? 0 :
+      stroke.renderSpec.inkStyle === InkStyle.FIXED_WIDTH ? 1 :
+        stroke.renderSpec.inkStyle === InkStyle.DASH ? 2 : 3;
+  }
+
+  private averageStrokeForce(stroke: StrokeElementData): number | null {
+    let total: number = 0;
+    let count: number = 0;
+    for (const point of stroke.pathPoints) {
+      if (Number.isFinite(point.pressure) && point.pressure >= 0) {
+        total += point.pressure;
+        count++;
+      }
+    }
+    return count === 0 ? null : total / count;
   }
 
   private removeShapeById(id: string): void {

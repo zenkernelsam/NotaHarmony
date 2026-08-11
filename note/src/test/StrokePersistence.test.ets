@@ -281,6 +281,7 @@ export default function strokePersistenceTest() {
       expect(forward?.shapeBatches[0].fillColorPresent).assertTrue();
       expect(forward?.shapeBatches[0].fillColor).assertEqual(0x6B445566);
       expect(forward?.shapeBatches[0].expectedTools[0]).assertEqual(2);
+      expect(forward?.shapeBatches[0].expectedStyles[0]).assertEqual(1);
       expect(forward?.shapeBatches[1].fillColorPresent).assertFalse();
       expect(forward?.shapeBatches[1].borderWidth).assertEqual(30);
       expect(forward?.shapeBatches[1].expectedTools[0]).assertEqual(0);
@@ -293,11 +294,12 @@ export default function strokePersistenceTest() {
     });
 
     it('strictly decodes the original Shape state tool preflight', 0, () => {
-      expect(decodeOriginalShapeStateTool('{"tool":2}')).assertEqual(2);
-      expect(decodeOriginalShapeStateTool('{"tool":7}')).assertEqual(7);
-      expect(decodeOriginalShapeStateTool('{"tool":8}') === null).assertTrue();
-      expect(decodeOriginalShapeStateTool('{"tool":1.5}') === null).assertTrue();
-      expect(decodeOriginalShapeStateTool('{"tool":"2"}') === null).assertTrue();
+      expect(decodeOriginalShapeStateTool('{"tool":2,"style":1}')).assertEqual(2);
+      expect(decodeOriginalShapeStateTool('{"tool":7,"style":3}')).assertEqual(7);
+      expect(decodeOriginalShapeStateTool('{"tool":8,"style":1}') === null).assertTrue();
+      expect(decodeOriginalShapeStateTool('{"tool":1.5,"style":1}') === null).assertTrue();
+      expect(decodeOriginalShapeStateTool('{"tool":"2","style":1}') === null).assertTrue();
+      expect(decodeOriginalShapeStateTool('{"tool":2,"style":0}') === null).assertTrue();
       expect(decodeOriginalShapeStateTool('{broken') === null).assertTrue();
     });
 
@@ -365,6 +367,7 @@ function originalShape(id: string, tool: number, color: number, width: number,
     bounds: { left: 0, top: 0, right: 10, bottom: 10 },
     vertices: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], isClosed: true,
     color: color, strokeWidth: width, fillColor: fillColor, originalTool: tool,
+    originalStyle: 1,
   };
 }
 

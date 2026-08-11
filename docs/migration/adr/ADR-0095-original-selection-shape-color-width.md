@@ -37,8 +37,8 @@ Selection color/width command to original Shape entities.
 - The strict render classifier accepts only byte-exact projections of Ink style/color/width and
   Shape color/borderWidth/fillColor. Identity, order, tool, definition, transform, geometry, rich
   text, lock state and unrelated fields cannot ride along. Production additionally verifies every
-  Shape target exists in `original_shape_state`, its resolved payload has a valid InkTool, and that
-  tool exactly matches the snapshot target; otherwise the established snapshot fallback is used.
+  Shape target exists in `original_shape_state`, its resolved payload has valid tool/style metadata,
+  and both exactly match the snapshot target; otherwise the established snapshot fallback is used.
 - Batch targets by the exact final register tuple. Type-17 and type-19 batches share one
   `OriginalPageMutationBatch`, one transaction and one revision flush. Every canonical operation is
   upload-immediate and transparent to persistent Harmony history reconstruction.

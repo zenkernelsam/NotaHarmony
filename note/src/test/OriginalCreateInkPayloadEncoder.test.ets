@@ -1,10 +1,15 @@
 import { describe, expect, it } from '@ohos/hypium';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import {
+  ElementType, ShapeArrowHead, ShapeElement,
+} from '../main/ets/core/model/ElementTypes';
+import {
   decodeOriginalCreateInk, unsupportedOriginalCreateInkReason,
 } from '../main/ets/data/OriginalCreateInkOperation';
 import { encodeOriginalLocalCreateInk } from
   '../main/ets/data/OriginalCreateInkPayloadEncoder';
+import { encodeOriginalLocalCreateShape } from
+  '../main/ets/data/OriginalCreateShapePayloadEncoder';
 import { decodeOperationId } from '../main/ets/data/OperationIdentity';
 import { encodeOriginalEntityVisibility } from
   '../main/ets/data/OriginalDeleteEntitiesPayloadEncoder';
@@ -14,7 +19,10 @@ import { encodeOriginalInkRenderRegisters } from
 import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOperation';
 import { encodeOriginalShapeRenderRegisters } from
   '../main/ets/data/OriginalModifyShapePayloadEncoder';
-import { decodeOriginalModifyShape } from '../main/ets/data/OriginalShapeGroupOperation';
+import {
+  decodeOriginalCreateShape, decodeOriginalModifyShape, OriginalEllipseDefinition,
+  OriginalLineDefinition, OriginalPolygonDefinition,
+} from '../main/ets/data/OriginalShapeGroupOperation';
 import { decodeOriginalModifyPositions } from
   '../main/ets/data/OriginalModifyPositionsOperation';
 import { encodeOriginalModifyPositions } from
@@ -151,6 +159,64 @@ export default function originalCreateInkPayloadEncoderTest() {
           { color: null, borderWidth: 2.25, fillColorPresent: false, fillColor: null })));
       expect(width.borderWidth).assertEqual(2.25);
       expect(width.fillColor.present).assertFalse();
+    });
+
+    it('round-trips local LINE POLYGON and rotated ELLIPSE CREATE_SHAPE payloads', 0, () => {
+      const line: ShapeElement = {
+        id: 'op:64:7', type: ElementType.LINE,
+        transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: 1, top: 2, right: 9, bottom: 8 },
+        start: { x: 1, y: 2 }, controlPoint1: { x: 3, y: 4 },
+        controlPoint2: { x: 6, y: 7 }, end: { x: 9, y: 8 },
+        arrowHead: ShapeArrowHead.SINGLE, color: 0x6B112233, strokeWidth: 7.5,
+        fillColor: null, originalTool: 2, originalStyle: 1,
+      };
+      const decodedLine = decodeOriginalCreateShape(wrap(18,
+        encodeOriginalLocalCreateShape({ timestamp: 80, siteId: 7, index: 2 }, line, 0.6)), '1234');
+      const lineDefinition: OriginalLineDefinition = decodedLine.definition as OriginalLineDefinition;
+      expect(decodedLine.page.timestamp).assertEqual(80);
+      expect(decodedLine.tool).assertEqual(2);
+      expect(decodedLine.style).assertEqual(1);
+      expect(decodedLine.force).assertEqual(0.6000000238418579);
+      expect(decodedLine.zIndex).assertEqual('1234');
+      expect(lineDefinition.controlPoint2?.x).assertEqual(6);
+      expect(lineDefinition.arrowHead).assertEqual(1);
+
+      const polygon: ShapeElement = {
+        id: 'op:65:7', type: ElementType.POLYGON,
+        transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: 0, top: 0, right: 20, bottom: 10 },
+        vertices: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 10, y: 10 }], isClosed: true,
+        color: -16777216, strokeWidth: 4, fillColor: null, originalTool: 0, originalStyle: 2,
+      };
+      const decodedPolygon = decodeOriginalCreateShape(wrap(18,
+        encodeOriginalLocalCreateShape({ timestamp: 80, siteId: 7, index: 2 }, polygon, null)), '1234');
+      const polygonDefinition: OriginalPolygonDefinition =
+        decodedPolygon.definition as OriginalPolygonDefinition;
+      expect(decodedPolygon.style).assertEqual(2);
+      expect(polygonDefinition.points.length).assertEqual(3);
+      expect(polygonDefinition.points[2].y).assertEqual(10);
+
+      const ellipse: ShapeElement = {
+        id: 'op:66:7', type: ElementType.ELLIPSE,
+        transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: 90, top: 30, right: 110, bottom: 70 },
+        center: { x: 100, y: 50 }, radiusX: 20, radiusY: 10,
+        rotationRadians: Math.PI / 2, color: -16777216, strokeWidth: 3,
+        fillColor: null, originalTool: 1, originalStyle: 1,
+      };
+      const decodedEllipse = decodeOriginalCreateShape(wrap(18,
+        encodeOriginalLocalCreateShape({ timestamp: 80, siteId: 7, index: 2 }, ellipse, null)), '1234');
+      const ellipseDefinition: OriginalEllipseDefinition =
+        decodedEllipse.definition as OriginalEllipseDefinition;
+      expect(decodedEllipse.originX).assertEqual(110);
+      expect(decodedEllipse.originY).assertEqual(30);
+      expect(ellipseDefinition.width).assertEqual(40);
+      expect(ellipseDefinition.height).assertEqual(20);
+
+      line.originalStyle = 0;
+      expect(() => encodeOriginalLocalCreateShape(
+        { timestamp: 80, siteId: 7, index: 2 }, line, null)).assertThrow();
     });
 
     it('round-trips batched original MODIFY_POSITIONS registers', 0, () => {

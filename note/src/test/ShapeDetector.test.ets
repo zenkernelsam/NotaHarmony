@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { ShapeDetector } from '../main/ets/core/algorithm/ShapeDetector';
-import { ElementType, EllipseElement, LineElement, ShapeElement,
+import { ElementType, EllipseElement, LineElement, OriginalShapeCreateMetadata, ShapeElement,
   PolygonElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import { Point2D } from '../main/ets/core/model/GeometryTypes';
 import { RecognitionResult } from '../main/ets/core/adaptation/RecognitionProvider';
@@ -128,13 +128,28 @@ export default function shapeDetectorTest() {
         [{ x: 0, y: 0 }, { x: 80, y: 0 }, { x: 160, y: 0 }])!;
       const ellipseResult: RecognitionResult = detector.recognizeShape(
         ellipsePoints(100, 100, 40, 20))!;
+      const reserved: OriginalShapeCreateMetadata = { timestamp: 20, siteId: 2, clientTime: 1000,
+        pageTimestamp: 10, pageSiteId: 1, pageIndex: 0, pencilSeed: 7,
+        averageForce: 0.5 };
       const shapes: ShapeElement[] = prepareRecognizedShapes(
-        [lineResult.elements[0], ellipseResult.elements[0]], 'stroke', 0xFF123456, 7);
+        [lineResult.elements[0], ellipseResult.elements[0]], 'stroke', 0xFF123456, 7,
+        2, 1, reserved);
       expect(shapes.length).assertEqual(2);
       expect(shapes[0].id).assertEqual('stroke:shape:0');
       expect(shapes[1].id).assertEqual('stroke:shape:1');
       expect(shapes[0].color).assertEqual(0xFF123456);
       expect(shapes[1].strokeWidth).assertEqual(7);
+      expect(shapes[0].originalCreate === undefined).assertTrue();
+
+      const single: ShapeElement[] = prepareRecognizedShapes(
+        [lineResult.elements[0]], 'op:14:2', 0xFF123456, 7, 2, 1, reserved);
+      expect(single[0].id).assertEqual('op:14:2');
+      expect(single[0].originalTool).assertEqual(2);
+      expect(single[0].originalStyle).assertEqual(1);
+      expect(single[0].originalCreate?.averageForce).assertEqual(0.5);
+      const variableWidth: ShapeElement[] = prepareRecognizedShapes(
+        [lineResult.elements[0]], 'op:14:2', 0xFF123456, 7, 0, 0, reserved);
+      expect(variableWidth[0].originalCreate === undefined).assertTrue();
     });
 
     it('rejects the entire recognition result when one element is unsupported', 0, () => {
