@@ -95,7 +95,17 @@ export struct RecordingPanel {
         .divider({ strokeWidth: 1, color: this.resolveTokens().border, startMargin: 56 })
       }
 
-      if (this.snapshot.recordingId !== null) {
+      this.PlaybackControls()
+    }
+    .width('100%').height(320)
+    .backgroundColor(this.resolveTokens().surface)
+    .border({ width: { top: 1, bottom: 1 }, color: this.resolveTokens().border })
+  }
+
+  @Builder
+  private PlaybackControls() {
+    Column() {
+      if (shouldShowRecordingTimeline(this.snapshot.recordingId)) {
         Column() {
           Slider({ value: this.cumulativePositionMs, min: 0,
             max: Math.max(1, this.cumulativeDurationMs), step: 1 })
@@ -108,21 +118,27 @@ export struct RecordingPanel {
             Text(formatRecordingTime(this.cumulativePositionMs))
               .fontSize(11).fontColor(this.resolveTokens().textSecondary)
             Blank()
-            this.SpeedButton('1x', OriginalRecordingPlaybackSpeed.SPEED_1_0)
-            this.SpeedButton('1.5x', OriginalRecordingPlaybackSpeed.SPEED_1_5)
-            this.SpeedButton('2x', OriginalRecordingPlaybackSpeed.SPEED_2_0)
-            Blank()
             Text(formatRecordingTime(this.cumulativeDurationMs))
               .fontSize(11).fontColor(this.resolveTokens().textSecondary)
           }
           .width('100%')
         }
-        .height(52).padding({ left: 12, right: 12 })
+        .height(48)
       }
+      Row() {
+        Text($r('app.string.recording_playback_speed'))
+          .fontSize(12)
+          .fontColor(this.resolveTokens().textSecondary)
+        Blank()
+        this.SpeedButton('1x', OriginalRecordingPlaybackSpeed.SPEED_1_0)
+        this.SpeedButton('1.5x', OriginalRecordingPlaybackSpeed.SPEED_1_5)
+        this.SpeedButton('2x', OriginalRecordingPlaybackSpeed.SPEED_2_0)
+      }
+      .width('100%').height(40)
     }
-    .width('100%').height(276)
-    .backgroundColor(this.resolveTokens().surface)
-    .border({ width: { top: 1, bottom: 1 }, color: this.resolveTokens().border })
+    .width('100%')
+    .padding({ left: 12, right: 12 })
+    .border({ width: { top: 1 }, color: this.resolveTokens().border })
   }
 
   @Builder
@@ -320,4 +336,8 @@ export function formatRecordingTime(milliseconds: number): string {
       `${seconds < 10 ? '0' : ''}${seconds}`;
   }
   return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+}
+
+export function shouldShowRecordingTimeline(recordingId: string | null): boolean {
+  return recordingId !== null;
 }

@@ -1,5 +1,7 @@
 import { describe, expect, it } from '@ohos/hypium';
-import { formatRecordingTime } from '../main/ets/ui/editor/RecordingPanel';
+import {
+  formatRecordingTime, shouldShowRecordingTimeline,
+} from '../main/ets/ui/editor/RecordingPanel';
 
 export default function recordingPanelTest() {
   describe('RecordingPanel', () => {
@@ -12,6 +14,11 @@ export default function recordingPanelTest() {
     it('normalizes invalid progress values', 0, () => {
       expect(formatRecordingTime(-1)).assertEqual('0:00');
       expect(formatRecordingTime(Number.NaN)).assertEqual('0:00');
+    });
+
+    it('keeps only the timeline conditional on a selected recording', 0, () => {
+      expect(shouldShowRecordingTimeline(null)).assertFalse();
+      expect(shouldShowRecordingTimeline('recording-id')).assertTrue();
     });
   });
 }

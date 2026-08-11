@@ -501,6 +501,7 @@
     { "name": "saving_recording", "value": "Saving recording..." },
     { "name": "recording_start_failed", "value": "Couldn't start recording" },
     { "name": "recording_save_failed", "value": "Couldn't save recording" },
+    { "name": "recording_playback_speed", "value": "Playback speed" },
     { "name": "recording_user_facing_name", "value": "Recording %d" },
     { "name": "recording_subtitle", "value": "%s %s, %s" },
     { "name": "undo", "value": "Undo" }
