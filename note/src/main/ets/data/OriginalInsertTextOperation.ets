@@ -1,6 +1,8 @@
 import { relationalStore } from '@kit.ArkData';
 import { util } from '@kit.ArkTS';
-import { TextBlockElement } from '../core/model/ElementTypes';
+import { RichTextCharacterStyleRun, RichTextParagraphStyleRun,
+  ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { cloneShapeElement } from '../core/model/ShapeGeometry';
 import { cloneOriginalPaper } from '../core/model/PageBackgroundModel';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import {
@@ -42,6 +44,7 @@ export interface OriginalTextVisibilityPayload {
 
 export interface StoredTextTarget {
   block: OperationIdentity;
+  kind: number;
   page: OriginalSequenceIdentity;
   pageId: string;
   table: string;
@@ -52,6 +55,13 @@ export interface StoredTextTarget {
 }
 
 export interface StoredCharacter extends StoredOriginalTextCharacter {}
+
+export interface StoredRichTextElement {
+  id: string;
+  richText: string;
+  characterStyleRuns?: RichTextCharacterStyleRun[];
+  paragraphStyleRuns?: RichTextParagraphStyleRun[];
+}
 
 export function decodeOriginalInsertText(bytes: Uint8Array,
   payloadType: number): OriginalInsertTextPayload {
@@ -190,7 +200,7 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     if (target === null) {
       return { deferredReason: 'INSERT_TEXT_TARGET_MISSING_OR_UNBOUND' };
     }
-    const text: TextBlockElement | null = await this.readText(store, operation.noteId, target);
+    const text: StoredRichTextElement | null = await this.readText(store, operation.noteId, target);
     const existing: StoredCharacter[] | null = await this.readCharacters(
       store, operation.noteId, target.block);
     if (text === null || existing === null) {
@@ -252,7 +262,7 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     if (updatedValue === null) {
       throw new Error('original insert-text produced an invalid sequence tree');
     }
-    const updatedText: TextBlockElement = cloneText(text);
+    const updatedText: StoredRichTextElement = cloneRichTextElement(text, target.kind);
     updatedText.richText = updatedValue;
     const updatedStyles = materializeOriginalTextStyles(
       updatedCharacters as StoredCharacter[], styleOperations as StoredOriginalTextStyleOperation[],
@@ -341,25 +351,39 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     }
     const rows = await store.querySql(
       `SELECT element.page_timestamp, element.page_site_id, element.page_index,
-              identity.page_id, identity.visible, state.block_type,
-              element.visible AS element_visible
+              identity.page_id, identity.visible, element.kind, element.visible AS element_visible,
+              state.block_type, state.block_timestamp AS block_owner,
+              shape.shape_timestamp AS shape_owner
        FROM original_element_z_index element
        JOIN original_page_identity identity ON identity.note_id = element.note_id
         AND identity.seq_timestamp = element.page_timestamp
         AND identity.seq_site_id = element.page_site_id AND identity.seq_index = element.page_index
-       JOIN original_block_state state ON state.note_id = element.note_id
+       LEFT JOIN original_block_state state ON state.note_id = element.note_id
         AND state.block_timestamp = element.element_timestamp
         AND state.block_site_id = element.element_site_id
+       LEFT JOIN original_shape_state shape ON shape.note_id = element.note_id
+        AND shape.shape_timestamp = element.element_timestamp
+        AND shape.shape_site_id = element.element_site_id
        WHERE element.note_id = ? AND element.element_timestamp = ? AND element.element_site_id = ?
-        AND element.kind = ?`,
-      [operation.noteId, block.timestamp, block.siteId, PageElementKind.TEXT]);
+        AND element.kind IN (?, ?)`,
+      [operation.noteId, block.timestamp, block.siteId,
+        PageElementKind.TEXT, PageElementKind.SHAPE]);
     let page: OriginalSequenceIdentity;
     let pageId: string;
     let hidden: boolean;
+    let kind: number;
     try {
       if (!rows.goToFirstRow() || rows.getLong(rows.getColumnIndex('visible')) !== 1 ||
-        rows.getLong(rows.getColumnIndex('block_type')) !== OriginalBlockType.TEXT ||
         rows.isColumnNull(rows.getColumnIndex('page_id'))) {
+        return null;
+      }
+      kind = rows.getLong(rows.getColumnIndex('kind'));
+      const blockOwner: boolean = !rows.isColumnNull(rows.getColumnIndex('block_owner'));
+      const shapeOwner: boolean = !rows.isColumnNull(rows.getColumnIndex('shape_owner'));
+      if ((kind === PageElementKind.TEXT && (!blockOwner || shapeOwner ||
+        rows.getLong(rows.getColumnIndex('block_type')) !== OriginalBlockType.TEXT)) ||
+        (kind === PageElementKind.SHAPE && (!shapeOwner || blockOwner)) ||
+        (kind !== PageElementKind.TEXT && kind !== PageElementKind.SHAPE)) {
         return null;
       }
       page = {
@@ -384,10 +408,10 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
       return null;
     }
     return liveRevision !== null ? {
-      block: block, page: page, pageId: pageId, table: 'page_element_snapshot',
+      block: block, kind: kind, page: page, pageId: pageId, table: 'page_element_snapshot',
       revisionTable: 'page_info', revision: liveRevision, archived: false, hidden: hidden,
     } : {
-      block: block, page: page, pageId: pageId, table: 'original_deleted_page_element',
+      block: block, kind: kind, page: page, pageId: pageId, table: 'original_deleted_page_element',
       revisionTable: 'original_deleted_page', revision: archivedRevision as number,
       archived: true, hidden: hidden,
     };
@@ -415,7 +439,7 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
   }
 
   async readText(store: relationalStore.RdbStore, noteId: string,
-    target: StoredTextTarget): Promise<TextBlockElement | null> {
+    target: StoredTextTarget): Promise<StoredRichTextElement | null> {
     const rows = await store.querySql(target.hidden ?
       `SELECT payload FROM original_deleted_entity WHERE note_id = ?
        AND entity_timestamp = ? AND entity_site_id = ?
@@ -429,21 +453,28 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
        AND element_id = ? AND kind = ?`, target.hidden ?
       [noteId, target.block.timestamp, target.block.siteId,
         target.page.timestamp, target.page.siteId, target.page.index,
-        encodeOperationId(target.block), PageElementKind.TEXT] : target.archived ?
+        encodeOperationId(target.block), target.kind] : target.archived ?
       [noteId, target.page.timestamp, target.page.siteId, target.page.index,
-        encodeOperationId(target.block), PageElementKind.TEXT] :
-      [noteId, target.pageId, encodeOperationId(target.block), PageElementKind.TEXT]);
+        encodeOperationId(target.block), target.kind] :
+      [noteId, target.pageId, encodeOperationId(target.block), target.kind]);
     try {
       if (!rows.goToFirstRow()) {
         return null;
       }
       const persisted: PersistedElement = decodePersistedElement(
         rows.getBlob(rows.getColumnIndex('payload')));
-      if (persisted.kind !== 'text') {
+      if ((target.kind === PageElementKind.TEXT && persisted.kind !== 'text') ||
+        (target.kind === PageElementKind.SHAPE && persisted.kind !== 'shape')) {
         return null;
       }
-      const text: TextBlockElement = persisted.data as TextBlockElement;
-      return text.id === encodeOperationId(target.block) ? text : null;
+      const text = persisted.data as Object as StoredRichTextElement;
+      if (text.id !== encodeOperationId(target.block)) {
+        return null;
+      }
+      if (target.kind === PageElementKind.SHAPE && text.richText === undefined) {
+        text.richText = '';
+      }
+      return typeof text.richText === 'string' ? text : null;
     } catch (_error) {
       return null;
     } finally {
@@ -452,8 +483,10 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
   }
 
   async writeTextPayload(store: relationalStore.RdbStore, noteId: string,
-    target: StoredTextTarget, text: TextBlockElement, failureMessage: string): Promise<void> {
-    const persisted: PersistedElement = { kind: 'text', data: text };
+    target: StoredTextTarget, text: StoredRichTextElement, failureMessage: string): Promise<void> {
+    const persisted: PersistedElement = target.kind === PageElementKind.SHAPE ?
+      { kind: 'shape', data: text as Object as ShapeElement } :
+      { kind: 'text', data: text as Object as TextBlockElement };
     let predicates: relationalStore.RdbPredicates;
     if (target.hidden) {
       predicates = new relationalStore.RdbPredicates('original_deleted_entity');
@@ -464,7 +497,7 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
       predicates.equalTo('page_site_id', target.page.siteId);
       predicates.equalTo('page_index', target.page.index);
       predicates.equalTo('element_id', text.id);
-      predicates.equalTo('kind', PageElementKind.TEXT);
+      predicates.equalTo('kind', target.kind);
     } else {
       predicates = pageElementPredicates(noteId, target, text.id);
     }
@@ -649,7 +682,7 @@ export class OriginalTextVisibilityOperationApplier implements SyncedOperationAp
     if (target === null) {
       return { deferredReason: 'TEXT_VISIBILITY_TARGET_MISSING' };
     }
-    const text: TextBlockElement | null = await this.textState.readText(
+    const text: StoredRichTextElement | null = await this.textState.readText(
       store, operation.noteId, target);
     const characters: StoredCharacter[] | null = await this.textState.readCharacters(
       store, operation.noteId, target.block);
@@ -718,7 +751,7 @@ export class OriginalTextVisibilityOperationApplier implements SyncedOperationAp
     if (after === before) {
       return { deferredReason: null };
     }
-    const updatedText: TextBlockElement = cloneText(text);
+    const updatedText: StoredRichTextElement = cloneRichTextElement(text, target.kind);
     updatedText.richText = after;
     const updatedStyles = materializeOriginalTextStyles(
       characters, styleOperations as StoredOriginalTextStyleOperation[],
@@ -802,7 +835,7 @@ function pageElementPredicates(noteId: string, target: StoredTextTarget,
     predicates.equalTo('page_id', target.pageId);
   }
   predicates.equalTo('element_id', elementId);
-  predicates.equalTo('kind', PageElementKind.TEXT);
+  predicates.equalTo('kind', target.kind);
   return predicates;
 }
 
@@ -869,6 +902,18 @@ function sameNullableSequence(left: OriginalSequenceIdentity | null,
   return left === null || right === null ? left === right : sameSequence(left, right);
 }
 
+export function cloneRichTextElement(text: StoredRichTextElement,
+  kind: number): StoredRichTextElement {
+  if (kind === PageElementKind.SHAPE) {
+    const shape: ShapeElement = cloneShapeElement(text as Object as ShapeElement);
+    shape.richText = text.richText;
+    shape.characterStyleRuns = cloneCharacterStyleRuns(text.characterStyleRuns);
+    shape.paragraphStyleRuns = cloneParagraphStyleRuns(text.paragraphStyleRuns);
+    return shape as Object as StoredRichTextElement;
+  }
+  return cloneText(text as Object as TextBlockElement);
+}
+
 function cloneText(text: TextBlockElement): TextBlockElement {
   return {
     id: text.id, type: text.type, transform: text.transform.slice(),
@@ -891,7 +936,21 @@ function cloneText(text: TextBlockElement): TextBlockElement {
   };
 }
 
-function sameMaterializedStyles(text: TextBlockElement,
+function cloneCharacterStyleRuns(runs: RichTextCharacterStyleRun[] | undefined):
+  RichTextCharacterStyleRun[] | undefined {
+  return runs === undefined ? undefined : runs.map((run: RichTextCharacterStyleRun):
+    RichTextCharacterStyleRun => ({ start: run.start, end: run.end,
+      style: Object.assign({}, run.style) }));
+}
+
+function cloneParagraphStyleRuns(runs: RichTextParagraphStyleRun[] | undefined):
+  RichTextParagraphStyleRun[] | undefined {
+  return runs === undefined ? undefined : runs.map((run: RichTextParagraphStyleRun):
+    RichTextParagraphStyleRun => ({ start: run.start, end: run.end,
+      style: Object.assign({}, run.style) }));
+}
+
+function sameMaterializedStyles(text: StoredRichTextElement,
   styles: { characterRuns: Object[], paragraphRuns: Object[] }): boolean {
   return JSON.stringify(text.characterStyleRuns ?? []) === JSON.stringify(styles.characterRuns) &&
     JSON.stringify(text.paragraphStyleRuns ?? []) === JSON.stringify(styles.paragraphRuns);

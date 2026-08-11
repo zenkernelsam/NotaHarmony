@@ -1,4 +1,6 @@
 import { ElementType, EllipseElement, LineElement, PolygonElement,
+  RichTextCharacterStyle, RichTextCharacterStyleRun,
+  RichTextParagraphStyle, RichTextParagraphStyleRun,
   ShapeArrowHead, ShapeElement } from './ElementTypes';
 import { Point2D, Rect2D, TransformMatrix } from './GeometryTypes';
 
@@ -17,6 +19,8 @@ export function cloneShapeElement(shape: ShapeElement): ShapeElement {
       bounds: cloneRect(shape.bounds), center: clonePoint(shape.center),
       radiusX: shape.radiusX, radiusY: shape.radiusY, rotationRadians: shape.rotationRadians,
       color: shape.color, strokeWidth: shape.strokeWidth, fillColor: shape.fillColor,
+      richText: shape.richText, characterStyleRuns: cloneShapeCharacterRuns(shape),
+      paragraphStyleRuns: cloneShapeParagraphRuns(shape),
     };
   }
   if (shape.type === ElementType.LINE) {
@@ -26,7 +30,9 @@ export function cloneShapeElement(shape: ShapeElement): ShapeElement {
       controlPoint1: cloneNullablePoint(shape.controlPoint1),
       controlPoint2: cloneNullablePoint(shape.controlPoint2), end: clonePoint(shape.end),
       arrowHead: shape.arrowHead, color: shape.color, strokeWidth: shape.strokeWidth,
-      fillColor: shape.fillColor,
+      fillColor: shape.fillColor, richText: shape.richText,
+      characterStyleRuns: cloneShapeCharacterRuns(shape),
+      paragraphStyleRuns: cloneShapeParagraphRuns(shape),
     };
   }
   return {
@@ -34,8 +40,36 @@ export function cloneShapeElement(shape: ShapeElement): ShapeElement {
     bounds: cloneRect(shape.bounds),
     vertices: shape.vertices.map((point: Point2D): Point2D => clonePoint(point)),
     isClosed: shape.isClosed, color: shape.color, strokeWidth: shape.strokeWidth,
-    fillColor: shape.fillColor,
+    fillColor: shape.fillColor, richText: shape.richText,
+    characterStyleRuns: cloneShapeCharacterRuns(shape),
+    paragraphStyleRuns: cloneShapeParagraphRuns(shape),
   };
+}
+
+export function cloneShapeCharacterRuns(shape: ShapeElement):
+  RichTextCharacterStyleRun[] | undefined {
+  if (shape.characterStyleRuns === undefined) {
+    return undefined;
+  }
+  return shape.characterStyleRuns.map((run: RichTextCharacterStyleRun):
+    RichTextCharacterStyleRun => {
+    const style: RichTextCharacterStyle = JSON.parse(JSON.stringify(run.style)) as
+      RichTextCharacterStyle;
+    return { start: run.start, end: run.end, style: style };
+  });
+}
+
+export function cloneShapeParagraphRuns(shape: ShapeElement):
+  RichTextParagraphStyleRun[] | undefined {
+  if (shape.paragraphStyleRuns === undefined) {
+    return undefined;
+  }
+  return shape.paragraphStyleRuns.map((run: RichTextParagraphStyleRun):
+    RichTextParagraphStyleRun => {
+    const style: RichTextParagraphStyle = JSON.parse(JSON.stringify(run.style)) as
+      RichTextParagraphStyle;
+    return { start: run.start, end: run.end, style: style };
+  });
 }
 
 export function transformShapeElements(shapes: ShapeElement[], selectedIds: string[],

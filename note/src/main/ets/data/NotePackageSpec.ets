@@ -338,7 +338,7 @@ function isValidText(text: TextBlockElement): boolean {
     isNonNegativeFinite(text.blockWidth) && isNonNegativeFinite(text.blockHeight) &&
     isFiniteNumber(text.rotationRadians) && isFiniteNumber(text.contentLeftInset) &&
     isFiniteNumber(text.contentTopInset) && isNonNegativeFinite(text.fontSize) &&
-    isFiniteNumber(text.fontColor) && isValidRichTextRuns(text) &&
+    isFiniteNumber(text.fontColor) && isValidRichTextRuns(text, text.richText) &&
     (text.corner === undefined || text.corner === 0 || text.corner === 1) &&
     (text.textWrap === undefined || text.textWrap === 0 || text.textWrap === 1) &&
     (text.enableCaption === undefined || typeof text.enableCaption === 'boolean') &&
@@ -359,9 +359,9 @@ function isValidOptionalTextPaper(text: TextBlockElement): boolean {
   }
 }
 
-function isValidRichTextRuns(text: TextBlockElement): boolean {
+function isValidRichTextRuns(text: TextBlockElement | ShapeElement, richText: string): boolean {
   let codePointLength: number = 0;
-  for (const _character of text.richText) {
+  for (const _character of richText) {
     codePointLength++;
   }
   if (text.characterStyleRuns !== undefined) {
@@ -474,7 +474,10 @@ function isOriginalLineSpacing(value: number): boolean {
 function isValidShape(shape: ShapeElement): boolean {
   if (!isElementBase(shape.id, shape.transform, shape.bounds) || !isFiniteNumber(shape.color) ||
     !isNonNegativeFinite(shape.strokeWidth) ||
-    (shape.fillColor !== null && !isFiniteNumber(shape.fillColor))) {
+    (shape.fillColor !== null && !isFiniteNumber(shape.fillColor)) ||
+    (shape.richText !== undefined &&
+      (typeof shape.richText !== 'string' ||
+        !isValidRichTextRuns(shape, shape.richText as string)))) {
     return false;
   }
   if (shape.type === ElementType.ELLIPSE) {

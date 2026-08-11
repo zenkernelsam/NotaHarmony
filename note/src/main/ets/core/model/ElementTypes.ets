@@ -29,8 +29,16 @@ export interface NoteElementBase {
   bounds: Rect2D;
 }
 
+// Original Shapes own the same RichText CRDT as Text Blocks. These fields stay optional so
+// pre-v57 Harmony snapshots and locally detected shapes remain readable as empty rich text.
+export interface ShapeRichTextContent {
+  richText?: string;
+  characterStyleRuns?: RichTextCharacterStyleRun[];
+  paragraphStyleRuns?: RichTextParagraphStyleRun[];
+}
+
 // 椭圆元素
-export interface EllipseElement extends NoteElementBase {
+export interface EllipseElement extends NoteElementBase, ShapeRichTextContent {
   type: ElementType.ELLIPSE;
   center: Point2D;
   radiusX: number;
@@ -42,7 +50,7 @@ export interface EllipseElement extends NoteElementBase {
 }
 
 // 多边形元素
-export interface PolygonElement extends NoteElementBase {
+export interface PolygonElement extends NoteElementBase, ShapeRichTextContent {
   type: ElementType.POLYGON;
   vertices: Point2D[];
   isClosed: boolean;
@@ -150,7 +158,7 @@ export interface MathElement extends NoteElementBase {
 }
 
 // 原版 1.0.3 uf7/s4d：cp1+cp2 为 cubic，仅 cp1 为 quadratic，无控制点为直线。
-export interface LineElement extends NoteElementBase {
+export interface LineElement extends NoteElementBase, ShapeRichTextContent {
   type: ElementType.LINE;
   start: Point2D;
   controlPoint1: Point2D | null;

@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v56: preserve and materialize original Shape/Group entities and their LWW registers.
-export const DB_VERSION: number = 56;
+// v57: allow original Shape entities to own the shared RichText character/style CRDT.
+export const DB_VERSION: number = 57;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -1014,7 +1014,7 @@ CREATE TABLE IF NOT EXISTS original_text_character (
       AND visibility_winner_site_id IS NOT NULL)),
   PRIMARY KEY(note_id, char_timestamp, char_site_id, char_index),
   FOREIGN KEY(note_id, block_timestamp, block_site_id)
-    REFERENCES original_block_state(note_id, block_timestamp, block_site_id) ON DELETE CASCADE
+    REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
 )`;
 
 export const DDL_ORIGINAL_TEXT_STYLE_OPERATION: string = `
@@ -1037,7 +1037,63 @@ CREATE TABLE IF NOT EXISTS original_text_style_operation (
   attributes_json TEXT NOT NULL CHECK (length(attributes_json) BETWEEN 2 AND 65536),
   PRIMARY KEY(note_id, operation_timestamp, operation_site_id),
   FOREIGN KEY(note_id, block_timestamp, block_site_id)
-    REFERENCES original_block_state(note_id, block_timestamp, block_site_id) ON DELETE CASCADE
+    REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
+)`;
+
+// v57 rebuilds the two RichText tables whose historical foreign keys only admitted Text Blocks.
+// Column names remain stable because they are persisted protocol terminology throughout the reducer.
+const DDL_ORIGINAL_TEXT_CHARACTER_V57: string = `
+CREATE TABLE original_text_character_v57 (
+  note_id TEXT NOT NULL,
+  block_timestamp INTEGER NOT NULL CHECK (block_timestamp BETWEEN 0 AND 4294967295),
+  block_site_id INTEGER NOT NULL CHECK (block_site_id BETWEEN 0 AND 65535),
+  char_timestamp INTEGER NOT NULL CHECK (char_timestamp BETWEEN 0 AND 4294967295),
+  char_site_id INTEGER NOT NULL CHECK (char_site_id BETWEEN 0 AND 65535),
+  char_index INTEGER NOT NULL CHECK (char_index BETWEEN 0 AND 4294967295),
+  parent_timestamp INTEGER,
+  parent_site_id INTEGER,
+  parent_index INTEGER,
+  unicode_scalar INTEGER NOT NULL CHECK (unicode_scalar BETWEEN 0 AND 1114111),
+  visible INTEGER NOT NULL DEFAULT 1 CHECK (visible IN (0, 1)),
+  visibility_winner_timestamp INTEGER CHECK
+    (visibility_winner_timestamp IS NULL OR visibility_winner_timestamp BETWEEN 0 AND 4294967295),
+  visibility_winner_site_id INTEGER CHECK
+    (visibility_winner_site_id IS NULL OR visibility_winner_site_id BETWEEN 0 AND 65535),
+  visibility_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (visibility_winner_present IN (0, 1)),
+  CHECK ((parent_timestamp IS NULL AND parent_site_id IS NULL AND parent_index IS NULL) OR
+    (parent_timestamp IS NOT NULL AND parent_timestamp BETWEEN 0 AND 4294967295
+      AND parent_site_id IS NOT NULL AND parent_site_id BETWEEN 0 AND 65535
+      AND parent_index IS NOT NULL AND parent_index BETWEEN 0 AND 4294967295)),
+  CHECK ((visibility_winner_present = 0 AND visibility_winner_timestamp IS NULL
+      AND visibility_winner_site_id IS NULL) OR
+    (visibility_winner_present = 1 AND visibility_winner_timestamp IS NOT NULL
+      AND visibility_winner_site_id IS NOT NULL)),
+  PRIMARY KEY(note_id, char_timestamp, char_site_id, char_index),
+  FOREIGN KEY(note_id, block_timestamp, block_site_id)
+    REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
+)`;
+
+const DDL_ORIGINAL_TEXT_STYLE_OPERATION_V57: string = `
+CREATE TABLE original_text_style_operation_v57 (
+  note_id TEXT NOT NULL,
+  block_timestamp INTEGER NOT NULL CHECK (block_timestamp BETWEEN 0 AND 4294967295),
+  block_site_id INTEGER NOT NULL CHECK (block_site_id BETWEEN 0 AND 65535),
+  operation_timestamp INTEGER NOT NULL CHECK (operation_timestamp BETWEEN 0 AND 4294967295),
+  operation_site_id INTEGER NOT NULL CHECK (operation_site_id BETWEEN 0 AND 65535),
+  paragraph INTEGER NOT NULL CHECK (paragraph IN (0, 1)),
+  clear_all INTEGER NOT NULL CHECK (clear_all IN (0, 1)),
+  start_timestamp INTEGER NOT NULL CHECK (start_timestamp BETWEEN 0 AND 4294967295),
+  start_site_id INTEGER NOT NULL CHECK (start_site_id BETWEEN 0 AND 65535),
+  start_index INTEGER NOT NULL CHECK (start_index BETWEEN 0 AND 4294967295),
+  start_type INTEGER NOT NULL CHECK (start_type BETWEEN 0 AND 3),
+  end_timestamp INTEGER NOT NULL CHECK (end_timestamp BETWEEN 0 AND 4294967295),
+  end_site_id INTEGER NOT NULL CHECK (end_site_id BETWEEN 0 AND 65535),
+  end_index INTEGER NOT NULL CHECK (end_index BETWEEN 0 AND 4294967295),
+  end_type INTEGER NOT NULL CHECK (end_type BETWEEN 0 AND 3),
+  attributes_json TEXT NOT NULL CHECK (length(attributes_json) BETWEEN 2 AND 65536),
+  PRIMARY KEY(note_id, operation_timestamp, operation_site_id),
+  FOREIGN KEY(note_id, block_timestamp, block_site_id)
+    REFERENCES original_element_z_index(note_id, element_timestamp, element_site_id) ON DELETE CASCADE
 )`;
 
 export const DDL_ORIGINAL_TEXT_CHECKBOX_STATE: string = `
@@ -2290,5 +2346,29 @@ export const MIGRATIONS: Record<number, string[]> = {
     DDL_ORIGINAL_SHAPE_MODIFICATION,
     DDL_ORIGINAL_GROUP_STATE,
     DDL_ORIGINAL_GROUP_MODIFICATION,
+  ],
+  57: [
+    DDL_ORIGINAL_TEXT_CHARACTER_V57,
+    `INSERT INTO original_text_character_v57
+      (note_id, block_timestamp, block_site_id, char_timestamp, char_site_id, char_index,
+       parent_timestamp, parent_site_id, parent_index, unicode_scalar, visible,
+       visibility_winner_timestamp, visibility_winner_site_id, visibility_winner_present)
+     SELECT note_id, block_timestamp, block_site_id, char_timestamp, char_site_id, char_index,
+       parent_timestamp, parent_site_id, parent_index, unicode_scalar, visible,
+       visibility_winner_timestamp, visibility_winner_site_id, visibility_winner_present
+       FROM original_text_character`,
+    'DROP TABLE original_text_character',
+    `ALTER TABLE original_text_character_v57 RENAME TO original_text_character`,
+    DDL_ORIGINAL_TEXT_STYLE_OPERATION_V57,
+    `INSERT INTO original_text_style_operation_v57
+      (note_id, block_timestamp, block_site_id, operation_timestamp, operation_site_id,
+       paragraph, clear_all, start_timestamp, start_site_id, start_index, start_type,
+       end_timestamp, end_site_id, end_index, end_type, attributes_json)
+     SELECT note_id, block_timestamp, block_site_id, operation_timestamp, operation_site_id,
+       paragraph, clear_all, start_timestamp, start_site_id, start_index, start_type,
+       end_timestamp, end_site_id, end_index, end_type, attributes_json
+       FROM original_text_style_operation`,
+    'DROP TABLE original_text_style_operation',
+    `ALTER TABLE original_text_style_operation_v57 RENAME TO original_text_style_operation`,
   ],
 };

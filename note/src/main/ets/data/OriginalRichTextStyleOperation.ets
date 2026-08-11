@@ -1,12 +1,12 @@
 import { relationalStore } from '@kit.ArkData';
 import { util } from '@kit.ArkTS';
-import { TextBlockElement } from '../core/model/ElementTypes';
 import {
   encodeOriginalSequenceId, OperationIdentity, OriginalSequenceIdentity,
   validateOperationIdentity, validateOriginalSequenceIdentity,
 } from './OperationIdentity';
 import {
-  OriginalInsertTextOperationApplier, OriginalInsertTextPayload, StoredCharacter, StoredTextTarget,
+  cloneRichTextElement, OriginalInsertTextOperationApplier, OriginalInsertTextPayload,
+  StoredCharacter, StoredRichTextElement, StoredTextTarget,
 } from './OriginalInsertTextOperation';
 import {
   emptyOriginalTextStyleAttributes, materializeOriginalTextStyles,
@@ -16,7 +16,6 @@ import {
 } from './OriginalRichTextStyleState';
 import { OriginalFlatBufferTableReader, readOriginalPayloadTable } from
   './OriginalSyncedOperationFlatBuffer';
-import { decodePersistedElement, encodePersistedElement, PersistedElement } from './StrokePersistence';
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
@@ -130,7 +129,8 @@ export class OriginalRichTextStyleOperationApplier implements SyncedOperationApp
     if (target === null) {
       return { deferredReason: 'RICH_TEXT_STYLE_TARGET_MISSING' };
     }
-    const text: TextBlockElement | null = await this.textState.readText(store, operation.noteId, target);
+    const text: StoredRichTextElement | null = await this.textState.readText(
+      store, operation.noteId, target);
     const characters: StoredCharacter[] | null = await this.textState.readCharacters(
       store, operation.noteId, block);
     const existing: StoredOriginalTextStyleOperation[] | null =
@@ -184,7 +184,7 @@ export class OriginalRichTextStyleOperationApplier implements SyncedOperationApp
     if (sameStyles(text, after.characterRuns, after.paragraphRuns)) {
       return { deferredReason: null };
     }
-    const updatedText: TextBlockElement = cloneText(text);
+    const updatedText: StoredRichTextElement = cloneRichTextElement(text, target.kind);
     updatedText.characterStyleRuns = after.characterRuns;
     updatedText.paragraphStyleRuns = after.paragraphRuns;
     await this.textState.writeTextPayload(store, operation.noteId, target, updatedText,
@@ -484,17 +484,12 @@ function sameBoundaryRow(rows: relationalStore.ResultSet, prefix: string,
     rows.getLong(rows.getColumnIndex(`${prefix}_type`)) === boundary.type;
 }
 
-function sameStyles(text: TextBlockElement, characterRuns: Object[],
+function sameStyles(text: StoredRichTextElement, characterRuns: Object[],
   paragraphRuns: Object[]): boolean {
   return JSON.stringify(text.characterStyleRuns ?? []) === JSON.stringify(characterRuns) &&
     JSON.stringify(text.paragraphStyleRuns ?? []) === JSON.stringify(paragraphRuns);
 }
 
-function cloneText(text: TextBlockElement): TextBlockElement {
-  const persisted: PersistedElement = decodePersistedElement(encodePersistedElement(
-    { kind: 'text', data: text }));
-  return persisted.data as TextBlockElement;
-}
 
 function isLineSpacing(value: number): boolean {
   return Math.abs(value) < 0.01 || Math.abs(value - 1) < 0.01 ||

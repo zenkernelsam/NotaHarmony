@@ -150,6 +150,17 @@ export default function notePackageSpecTest() {
       text.data.characterStyleRuns = [{ start: 0, end: 4, style: { superscript: true,
         subscript: true } }];
       expect(isValidPageElement(text)).assertFalse();
+
+      const shape = { kind: 'shape', data: {
+        id: 'shape-text', type: ElementType.ELLIPSE, transform: base.transform,
+        bounds: base.bounds, center: { x: 5, y: 5 }, radiusX: 5, radiusY: 5,
+        rotationRadians: 0, color: -16777216, strokeWidth: 1, fillColor: null,
+        richText: 'A😀', characterStyleRuns: [{ start: 1, end: 2,
+          style: { italic: true } }], paragraphStyleRuns: [],
+      } };
+      expect(isValidPageElement(shape)).assertTrue();
+      shape.data.characterStyleRuns = [{ start: 1, end: 3, style: { italic: true } }];
+      expect(isValidPageElement(shape)).assertFalse();
     });
 
     it('normalizes legacy v1 stroke attributes before validation', 0, () => {

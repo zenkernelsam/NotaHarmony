@@ -1,11 +1,13 @@
 import { relationalStore } from '@kit.ArkData';
 import { TextBlockElement } from '../core/model/ElementTypes';
+import { PageElementKind } from '../core/model/PageElementOrder';
 import {
   compareOperationIdentity, OperationIdentity, OriginalSequenceIdentity,
   validateOperationIdentity, validateOriginalSequenceIdentity,
 } from './OperationIdentity';
 import {
-  OriginalInsertTextOperationApplier, OriginalInsertTextPayload, StoredCharacter, StoredTextTarget,
+  OriginalInsertTextOperationApplier, OriginalInsertTextPayload, StoredCharacter,
+  StoredRichTextElement, StoredTextTarget,
 } from './OriginalInsertTextOperation';
 import {
   materializeOriginalTextStyles, readOriginalCheckboxStates, readOriginalTextStyleOperations,
@@ -103,11 +105,13 @@ export class OriginalUpdateCheckboxOperationApplier implements SyncedOperationAp
     };
     const target: StoredTextTarget | null = await this.textState.resolveTarget(
       store, operation, targetPayload);
-    if (target === null) {
+    if (target === null || target.kind !== PageElementKind.TEXT) {
       return { deferredReason: 'UPDATE_CHECKBOX_TARGET_MISSING_OR_CROSS_BLOCK' };
     }
-    const text: TextBlockElement | null = await this.textState.readText(
+    const richText: StoredRichTextElement | null = await this.textState.readText(
       store, operation.noteId, target);
+    const text: TextBlockElement | null = richText === null ? null :
+      richText as Object as TextBlockElement;
     const characters: StoredCharacter[] | null = await this.textState.readCharacters(
       store, operation.noteId, target.block);
     const styles: StoredOriginalTextStyleOperation[] | null =

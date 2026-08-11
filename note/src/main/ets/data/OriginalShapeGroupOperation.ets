@@ -13,7 +13,7 @@ import { OriginalPageMutationBatch, OriginalMutationPageTarget } from './Origina
 import {
   OriginalFlatBufferTableReader, readOriginalInlineFloat32, readOriginalPayloadTable,
 } from './OriginalSyncedOperationFlatBuffer';
-import { encodePersistedElement, PersistedElement } from './StrokePersistence';
+import { decodePersistedElement, encodePersistedElement, PersistedElement } from './StrokePersistence';
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
@@ -444,6 +444,7 @@ export class OriginalShapeGroupOperationApplier implements SyncedOperationApplie
     }
     const states: StoredShapeState[] = [];
     const targets: StoredShapeTarget[] = [];
+    const snapshots: ShapeElement[] = [];
     const pageTargets: Map<string, OriginalMutationPageTarget> =
       new Map<string, OriginalMutationPageTarget>();
     for (const shape of payload.shapes) {
@@ -452,8 +453,14 @@ export class OriginalShapeGroupOperationApplier implements SyncedOperationApplie
       if (state === null || target === null) {
         return { deferredReason: 'MODIFY_SHAPE_TARGET_MISSING_OR_UNBOUND' };
       }
+      const snapshot: ShapeElement | null = await readMaterializedShape(
+        store, operation.noteId, target);
+      if (snapshot === null) {
+        return { deferredReason: 'MODIFY_SHAPE_SNAPSHOT_DIVERGED' };
+      }
       states.push(state);
       targets.push(target);
+      snapshots.push(snapshot);
       if (target.visible) {
         pageTargets.set(pageKey(target.page), target.target);
       }
@@ -495,6 +502,7 @@ export class OriginalShapeGroupOperationApplier implements SyncedOperationApplie
       const oldPage: OriginalSequenceIdentity = target.page;
       const newPage: OriginalSequenceIdentity = state.resolved.page;
       const shapeElement: ShapeElement = materializeShape(shape, state.resolved);
+      copyShapeRichText(shapeElement, snapshots[index]);
       const persisted: PersistedElement = { kind: 'shape', data: shapeElement };
       await updateShapeState(store, operation.noteId, shape, state);
       await updateShapeOrderState(store, operation.noteId, shape, target,
@@ -752,6 +760,42 @@ async function readShapeTarget(store: relationalStore.RdbStore, noteId: string,
     kind: kind, visible: visible, target: target };
 }
 
+async function readMaterializedShape(store: relationalStore.RdbStore, noteId: string,
+  target: StoredShapeTarget): Promise<ShapeElement | null> {
+  const rows = await store.querySql(target.visible ? target.target.archived ?
+    `SELECT payload FROM original_deleted_page_element WHERE note_id = ?
+     AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+     AND element_id = ? AND kind = ?` :
+    `SELECT payload FROM page_element_snapshot WHERE note_id = ? AND page_id = ?
+     AND element_id = ? AND kind = ?` :
+    `SELECT payload FROM original_deleted_entity WHERE note_id = ?
+     AND entity_timestamp = ? AND entity_site_id = ?
+     AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+     AND element_id = ? AND kind = ?`, target.visible ? target.target.archived ?
+    [noteId, target.page.timestamp, target.page.siteId, target.page.index,
+      encodeOperationId(target.shape), PageElementKind.SHAPE] :
+    [noteId, target.pageId, encodeOperationId(target.shape), PageElementKind.SHAPE] :
+    [noteId, target.shape.timestamp, target.shape.siteId,
+      target.page.timestamp, target.page.siteId, target.page.index,
+      encodeOperationId(target.shape), PageElementKind.SHAPE]);
+  try {
+    if (!rows.goToFirstRow()) {
+      return null;
+    }
+    const persisted: PersistedElement = decodePersistedElement(
+      rows.getBlob(rows.getColumnIndex('payload')));
+    if (persisted.kind !== 'shape') {
+      return null;
+    }
+    const shape: ShapeElement = persisted.data as ShapeElement;
+    return shape.id === encodeOperationId(target.shape) ? shape : null;
+  } catch (_error) {
+    return null;
+  } finally {
+    rows.close();
+  }
+}
+
 async function readPageTarget(store: relationalStore.RdbStore, noteId: string,
   page: OriginalSequenceIdentity): Promise<OriginalMutationPageTarget | null> {
   validateOriginalSequenceIdentity(page);
@@ -940,24 +984,37 @@ function materializeShape(identity: OperationIdentity,
       controlPoint1: cloneNullablePoint(definition.controlPoint1),
       controlPoint2: cloneNullablePoint(definition.controlPoint2), end: clonePoint(definition.end),
       arrowHead: definition.arrowHead === 1 ? ShapeArrowHead.SINGLE : ShapeArrowHead.NONE,
-      color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor };
+      color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor,
+      richText: '', characterStyleRuns: [], paragraphStyleRuns: [] };
     shape = line;
   } else if (payload.definition.type === OriginalShapeDefinitionType.POLYGON) {
     const definition: OriginalPolygonDefinition = payload.definition as OriginalPolygonDefinition;
     const polygon: PolygonElement = { id: id, type: ElementType.POLYGON, transform: transform,
       bounds: emptyBounds(), vertices: definition.points.map(clonePoint), isClosed: true,
-      color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor };
+      color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor,
+      richText: '', characterStyleRuns: [], paragraphStyleRuns: [] };
     shape = polygon;
   } else {
     const definition: OriginalEllipseDefinition = payload.definition as OriginalEllipseDefinition;
     const ellipse: EllipseElement = { id: id, type: ElementType.ELLIPSE, transform: transform,
       bounds: emptyBounds(), center: { x: definition.width / 2, y: definition.height / 2 },
       radiusX: definition.width / 2, radiusY: definition.height / 2, rotationRadians: 0,
-      color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor };
+      color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor,
+      richText: '', characterStyleRuns: [], paragraphStyleRuns: [] };
     shape = ellipse;
   }
   shape.bounds = recomputeShapeBounds(shape);
   return shape;
+}
+
+function copyShapeRichText(target: ShapeElement, source: ShapeElement): void {
+  target.richText = source.richText === undefined ? '' : source.richText;
+  target.characterStyleRuns = source.characterStyleRuns === undefined ? undefined :
+    source.characterStyleRuns.map((run) => ({ start: run.start, end: run.end,
+      style: Object.assign({}, run.style) }));
+  target.paragraphStyleRuns = source.paragraphStyleRuns === undefined ? undefined :
+    source.paragraphStyleRuns.map((run) => ({ start: run.start, end: run.end,
+      style: Object.assign({}, run.style) }));
 }
 
 function shapeTransform(payload: OriginalCreateShapePayload): TransformMatrix {

@@ -101,8 +101,8 @@ function parseSearchTextPayloads(payloads: Uint8Array[]): ParsedSearchText[] {
       // @Concurrent functions may only reference imports and locals.
       const decoder = util.TextDecoder.create('utf-8');
       const parsed = JSON.parse(decoder.decodeToString(payload)) as PersistedElement;
-      if (parsed.kind === 'text') {
-        const text = parsed.data as TextBlockElement;
+      if (parsed.kind === 'text' || parsed.kind === 'shape') {
+        const text = parsed.data as TextBlockElement | ShapeElement;
         if (typeof text.id === 'string' && typeof text.richText === 'string') {
           result.push({ subId: text.id, foldedText: text.richText.toLowerCase() });
         }
@@ -686,7 +686,8 @@ export class StrokePersistence {
       } else if (element.kind === PageElementKind.SHAPE) {
         const payload: PersistedElement = { kind: 'shape', data: element.data };
         elements.push({ elementId: element.elementId, kind: PageElementKind.SHAPE,
-          payload: encodePersistedElement(payload), searchText: null });
+          payload: encodePersistedElement(payload),
+          searchText: foldSearchText(element.data.richText ?? '') });
       } else if (element.kind === PageElementKind.IMAGE) {
         const payload: PersistedElement = { kind: 'image', data: element.data };
         elements.push({ elementId: element.elementId, kind: PageElementKind.IMAGE,
