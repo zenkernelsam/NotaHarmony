@@ -5,6 +5,7 @@ import {
   classifyOriginalPositionLockMutation, classifyOriginalRenderMutation,
   decodeOriginalShapeStateTool, decodePersistedElement,
   encodePersistedElement,
+  originalClipboardShapeForPaste,
   OriginalClipboardPastePlan,
   OriginalImageCropMutation, OriginalImageFlipMutation, OriginalPositionLockMutation,
   OriginalRenderMutation, PersistedElement, validateOriginalClipboardPastePlan,
@@ -418,6 +419,28 @@ export default function strokePersistenceTest() {
         topGroupIds: ['op:76:2'],
       });
       expect(rejected).assertEqual(2);
+    });
+
+    it('resets Shape RichText during original clipboard Paste without mutating source', 0, () => {
+      const source: ShapeElement = originalShape('op:80:2', 0, -16777216, 4, null);
+      source.richText = 'AB';
+      source.characterStyleRuns = [{ start: 0, end: 2, style: { bold: true } }];
+      source.paragraphStyleRuns = [{
+        start: 0, end: 2, style: { alignment: 2, decoratorStyle: 1 },
+      }];
+      const copy: ShapeElement = originalClipboardShapeForPaste(source);
+      expect(copy.richText).assertEqual('');
+      expect(copy.characterStyleRuns?.length).assertEqual(0);
+      expect(copy.paragraphStyleRuns?.length).assertEqual(0);
+      expect(source.richText).assertEqual('AB');
+      expect(source.characterStyleRuns?.length).assertEqual(1);
+      expect(source.paragraphStyleRuns?.length).assertEqual(1);
+      validateOriginalClipboardPastePlan({
+        strokes: [], shapes: [source], textBlocks: [], images: [], mathBlocks: [],
+        elementOrder: [{ kind: PageElementKind.SHAPE, elementId: source.id, zIndex: 0 }],
+        groups: [{ id: 'op:82:2', timestamp: 82, siteId: 2, members: [source.id] }],
+        topGroupIds: ['op:82:2'],
+      });
     });
   });
 }

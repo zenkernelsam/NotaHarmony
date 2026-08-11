@@ -26,7 +26,7 @@ assert.match(persistence, /opType: OpType\.ORIGINAL_CLIPBOARD_PASTE/);
 assert.match(persistence, /await store\.commit\(\)/);
 assert.match(persistence, /await store\.rollBack\(\)/);
 assert.match(persistence, /encodeOriginalLocalCreateImageBlock\(page, image\)/);
-assert.match(persistence, /Shape RichText is unsupported/);
+assert.match(persistence, /originalClipboardShapeForPaste\(source\)/);
 assert.match(persistence, /if \(text\.richText\.length > 0\)/);
 assert.match(fixtures, /validates bottom-up original clipboard Paste plans before persistence/);
 

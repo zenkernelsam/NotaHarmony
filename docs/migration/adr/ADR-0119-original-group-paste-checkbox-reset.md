@@ -55,4 +55,5 @@ Accepted, 2026-08-12.
 
 This decision concerns copy/paste fidelity only. Local user checkbox toggling still needs its own
 original type-28 outbound interaction path; remote type-28 replay remains implemented by ADR-0054.
-Shape-owned RichText copy is still separate.
+ADR-0120 separately establishes that Shape-owned RichText is not copied by original `n5d.u()` at
+all: the Shape is admitted, while the new CREATE_SHAPE owns an empty RichText state.

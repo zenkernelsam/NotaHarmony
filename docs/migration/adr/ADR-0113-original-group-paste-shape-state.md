@@ -41,12 +41,14 @@ Accepted, 2026-08-12.
 - `OriginalCreateInkPayloadEncoder.test.ets` round-trips field 11 and field 15 through the production
   decoder and asserts transparent-fill rejection.
 - `d02-original-group-paste-shape-state.mjs` locks the original writer/validator evidence, encoder and
-  decoder offsets, Group Paste production call, RichText gate and fixture coverage.
+  decoder offsets, Group Paste production call, RichText reset and fixture coverage.
 - Full desktop replay passes with `TOTAL=122 FAILED=0`. After `hvigorw clean`, both `note@ohosTest`
   and `note@default` HAP builds succeed. No emulator, VM, device or Hypium is used.
 
 ## Remaining Boundary
 
-Shape RichText still requires original text operation production and remains explicitly rejected.
-Image/Math CREATE_BLOCK, Styled or empty Text creation, and non-similarity Shape transforms also
-remain outside the current Group Paste production capability.
+ADR-0120 later proved that original `n5d.u()` deliberately omits Shape-owned RichText and that the
+new CREATE_SHAPE starts with an empty `m4c`; Group Paste therefore resets that state instead of
+rejecting the Shape or producing text operations. ADR-0114 through ADR-0118 separately closed the
+listed Image, Math and Text boundaries. Non-similarity Shape transforms remain unsupported because
+the original CREATE_SHAPE payload cannot represent them losslessly.

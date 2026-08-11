@@ -29,7 +29,8 @@ assert.match(reducer, /const fillBytes: Uint8Array \| null = table\.readInlineBy
 assert.match(reducer, /positionLocked: table\.readUint8\(15, 0\) !== 0/);
 assert.match(reducer, /CreateShape uses a transparent fill color/);
 assert.match(persistence, /encodeOriginalLocalCreateShape\(page, shape, null\)/);
-assert.match(persistence, /Shape RichText is unsupported/);
+assert.match(persistence, /encodeOriginalLocalCreateShape\(page, originalClipboardShapeForPaste\(shape\), null\)/);
+assert.match(persistence, /const shape: ShapeElement = originalClipboardShapeForPaste\(source\)/);
 
 assert.match(fixtures, /line\.fillColor = 0x7F445566/);
 assert.match(fixtures, /decodedFilledLockedLine\.fillColor/);
@@ -48,4 +49,4 @@ assert.equal(decodedFill, fill);
 assert.equal(fields[80] !== 0, true);
 
 console.log('originalGroupPasteShapeState=' +
-  'type18-fill-lock-roundtrip-transparent-reject-richtext-gate-group-paste');
+  'type18-fill-lock-roundtrip-transparent-richtext-reset-group-paste');

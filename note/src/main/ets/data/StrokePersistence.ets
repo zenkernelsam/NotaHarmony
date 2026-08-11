@@ -214,11 +214,7 @@ export function validateOriginalClipboardPastePlan(plan: OriginalClipboardPasteP
   }
   for (const shape of plan.shapes) {
     addLeaf(shape.id, PageElementKind.SHAPE);
-    if ((shape.characterStyleRuns ?? []).length !== 0 ||
-      (shape.paragraphStyleRuns ?? []).length !== 0) {
-      throw new Error('original clipboard Paste Shape RichText is unsupported');
-    }
-    encodeOriginalLocalCreateShape(page, shape, null);
+    encodeOriginalLocalCreateShape(page, originalClipboardShapeForPaste(shape), null);
   }
   for (const text of plan.textBlocks) {
     addLeaf(text.id, PageElementKind.TEXT);
@@ -1195,7 +1191,7 @@ export class StrokePersistence {
               if (source === undefined) {
                 throw new Error('original clipboard Paste Shape source disappeared');
               }
-              const shape: ShapeElement = cloneShapeElement(source);
+              const shape: ShapeElement = originalClipboardShapeForPaste(source);
               shape.id = identity.opId;
               const shapeMetadata: OriginalShapeCreateMetadata = {
                 timestamp: identity.timestamp, siteId: identity.siteId,
@@ -4845,6 +4841,14 @@ function cloneStrokeThroughPersistence(stroke: StrokeElementData): StrokeElement
     throw new Error('original clipboard Paste Ink clone changed kind');
   }
   return persisted.data as StrokeElementData;
+}
+
+export function originalClipboardShapeForPaste(source: ShapeElement): ShapeElement {
+  const shape: ShapeElement = cloneShapeElement(source);
+  shape.richText = '';
+  shape.characterStyleRuns = [];
+  shape.paragraphStyleRuns = [];
+  return shape;
 }
 
 function cloneOriginalClipboardPastePlan(
