@@ -19,9 +19,13 @@ import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextB
 import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockGeometry';
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import {
-  AddPageAction, DeletePageAction, PageSettingsAction, PersistedPageMutationsAction, ReorderPagesAction,
-  RestoredHistoryAction, UndoableAction, UndoableActionType,
+  AddPageAction, DeletePageAction, GroupElementsAction, PageSettingsAction,
+  PersistedPageMutationsAction, ReorderPagesAction, RestoredHistoryAction, UndoableAction,
+  UndoableActionType,
 } from '../rendering/UndoRedoManager';
+import {
+  decodeOriginalGroupMutation, OriginalGroupMutationOpPayload,
+} from './OriginalGroupMutationOpCodec';
 
 export interface PersistentHistoryAction {
   actionId: string;
@@ -208,6 +212,23 @@ function materializeAction(action: PersistentHistoryAction, currentPageId: strin
       operation.history.actionTime !== action.actionTime) {
       throw new Error('persistent action operation identity mismatch');
     }
+  }
+  if (action.operations[0].opType === OpType.GROUP_ELEMENTS) {
+    if (action.operations.length !== 1) {
+      throw new Error('persistent Group action must contain exactly one mutation');
+    }
+    const mutation: OriginalGroupMutationOpPayload =
+      decodeOriginalGroupMutation(action.operations[0].payload);
+    const restored: GroupElementsAction = {
+      type: UndoableActionType.GROUP_ELEMENTS,
+      noteId: noteId,
+      pageId: mutation.pageId,
+      beforeGroups: mutation.beforeGroups,
+      afterGroups: mutation.afterGroups,
+      elementOrderBefore: mutation.elementOrderBefore,
+      elementOrderAfter: mutation.elementOrderAfter,
+    };
+    return restored;
   }
   if (isElementOperation(action.operations[0])) {
     let pageId: string = '';
@@ -501,7 +522,9 @@ function isOriginalOutboundCompanion(operation: Op): boolean {
     operation.opType === OpType.ORIGINAL_MODIFY_POSITIONS ||
     operation.opType === OpType.ORIGINAL_MODIFY_BLOCK ||
     operation.opType === OpType.ORIGINAL_MODIFY_SHAPE ||
-    operation.opType === OpType.ORIGINAL_CREATE_SHAPE;
+    operation.opType === OpType.ORIGINAL_CREATE_SHAPE ||
+    operation.opType === OpType.ORIGINAL_CREATE_GROUP ||
+    operation.opType === OpType.ORIGINAL_MODIFY_GROUP;
 }
 
 function sameEvent(left: HistoryMetadata, right: HistoryMetadata): boolean {

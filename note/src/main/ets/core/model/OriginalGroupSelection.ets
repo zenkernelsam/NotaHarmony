@@ -103,6 +103,32 @@ export function resolveOriginalSelectedGroupLeaves(groupIds: string[], selectedE
   return leaves;
 }
 
+export function resolveOriginalGroupAuthoringMembers(selectedEntityIds: string[],
+  selectedGroupIds: string[], groups: OriginalSelectionGroup[]): string[] | null {
+  const groupedLeaves: string[] | null = resolveOriginalSelectedGroupLeaves(
+    selectedGroupIds, selectedEntityIds, groups);
+  if (groupedLeaves === null) {
+    return null;
+  }
+  const grouped: Set<string> = new Set<string>(groupedLeaves);
+  const members: string[] = [];
+  const seen: Set<string> = new Set<string>();
+  for (const entityId of selectedEntityIds) {
+    if (!grouped.has(entityId) && !seen.has(entityId)) {
+      seen.add(entityId);
+      members.push(entityId);
+    }
+  }
+  for (const groupId of selectedGroupIds) {
+    if (seen.has(groupId)) {
+      return null;
+    }
+    seen.add(groupId);
+    members.push(groupId);
+  }
+  return members;
+}
+
 export function resolveOriginalSelectionLayerUnits(orderedEntityIds: string[],
   groups: OriginalSelectionGroup[]): OriginalSelectionLayerUnit[] | null {
   const parentByMember: Map<string, OriginalSelectionGroup> =

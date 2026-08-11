@@ -48,8 +48,12 @@ Accepted, 2026-08-11.
 
 ## Remaining Boundary
 
+ADR-0099 consumes the retained selected Group IDs to implement local Group/Ungroup authoring,
+original outbound operations and persistent Undo/Redo. The resolver now also exposes the original
+direct-entity-plus-Group member units required by `dhb` case 4.
+
 This decision originally closed Group-aware selection and transform for stroke, Shape, Text Block
 and Image leaves while a Group containing Math used the safe no-partial-expansion fallback. ADR-0063
 supersedes that temporary boundary by completing the Math editor lifecycle and making Math an
-available Group leaf. Group CREATE/MODIFY/ungroup outbound writers, Group-preserving copy/paste/export
+available Group leaf. Evidence-backed type-21 membership editing, Group-preserving copy/paste/export
 and complete private-package CRDT export remain separate work.

@@ -531,6 +531,8 @@
     { "name": "recording_playback_speed", "value": "Playback speed" },
     { "name": "recording_user_facing_name", "value": "Recording %d" },
     { "name": "recording_subtitle", "value": "%s %s, %s" },
-    { "name": "undo", "value": "Undo" }
+    { "name": "undo", "value": "Undo" },
+    { "name": "group", "value": "Group" },
+    { "name": "ungroup", "value": "Ungroup" }
   ]
 }

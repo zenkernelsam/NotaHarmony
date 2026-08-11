@@ -203,6 +203,8 @@
     { "name": "recording_playback_speed", "value": "播放速度" },
     { "name": "recording_user_facing_name", "value": "录音 %d" },
     { "name": "recording_subtitle", "value": "%s %s，%s" },
-    { "name": "undo", "value": "撤销" }
+    { "name": "undo", "value": "撤销" },
+    { "name": "group", "value": "组合" },
+    { "name": "ungroup", "value": "取消组合" }
   ]
 }

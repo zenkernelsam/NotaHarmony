@@ -1,6 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
-  AddStrokeAction, HistoryMetrics, RestoredHistoryAction, UndoableAction, UndoableActionType, UndoRedoManager,
+  AddStrokeAction, estimateHistoryActionBytes, GroupElementsAction, HistoryMetrics,
+  RestoredHistoryAction, UndoableAction, UndoableActionType, UndoRedoManager,
 } from '../main/ets/rendering/UndoRedoManager';
 import { HistoryCoalesceTrack, HistoryEffect } from '../main/ets/core/model/OpTypes';
 
@@ -39,6 +40,28 @@ function restoreRejects(manager: UndoRedoManager, undo: RestoredHistoryAction[],
 
 export default function undoRedoManagerTest() {
   describe('UndoRedoManager', () => {
+    it('accounts and moves a persisted Group action as a single boundary', 0, () => {
+      const manager: UndoRedoManager = new UndoRedoManager();
+      const action: GroupElementsAction = {
+        type: UndoableActionType.GROUP_ELEMENTS, noteId: 'note-1', pageId: 'page-1',
+        beforeGroups: [], afterGroups: [{ id: 'op:28:4', timestamp: 40, siteId: 4,
+          members: ['op:14:2', 'op:1e:3'] }],
+        elementOrderBefore: [
+          { kind: 1, elementId: 'op:14:2', zIndex: 0 },
+          { kind: 3, elementId: 'op:1e:3', zIndex: 1 },
+        ],
+        elementOrderAfter: [
+          { kind: 3, elementId: 'op:1e:3', zIndex: 0 },
+          { kind: 1, elementId: 'op:14:2', zIndex: 1 },
+        ],
+      };
+      expect(estimateHistoryActionBytes(action) > 256).assertTrue();
+      manager.push(action);
+      expect(manager.peekUndoGroup().length).assertEqual(1);
+      expect(manager.commitUndo(action)).assertTrue();
+      expect(manager.peekRedo() === action).assertTrue();
+    });
+
     it('does not move history until the caller commits a successful apply', 0, () => {
       const manager: UndoRedoManager = new UndoRedoManager();
       const action: UndoableAction = makeAction('page-2');

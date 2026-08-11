@@ -32,8 +32,8 @@ import { StrokeSession } from '../../rendering/StrokeSession';
 import { EraserEngine, EraserMode } from '../../rendering/EraserEngine';
 import { PaperRenderer } from '../../rendering/PaperRenderer';
 import {
-  EditorHistoryBridge, HistoryMove, PageContentSnapshot, UndoRedoManager, UndoableAction,
-  UndoableActionType,
+  EditorHistoryBridge, GroupElementsAction, HistoryMove, PageContentSnapshot, UndoRedoManager,
+  UndoableAction, UndoableActionType,
 } from '../../rendering/UndoRedoManager';
 import { HistoryMetadata, Op } from '../../core/model/OpTypes';
 import { SelectionTool, SelectionMode } from '../../rendering/SelectionTool';
@@ -42,8 +42,9 @@ import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
 import {
   decodePersistedElement, encodePersistedElement, HistoryPageSnapshot, OriginalZOrderCommand,
-  OriginalZOrderHint, PersistedElement, StrokePersistence,
+  OriginalGroupMutationResult, OriginalZOrderHint, PersistedElement, StrokePersistence,
 } from '../../data/StrokePersistence';
+import { OriginalGroupMutationOpPayload } from '../../data/OriginalGroupMutationOpCodec';
 import {
   rebuildOriginalPencilWidth, RebuiltOriginalPencilWidth,
 } from '../../core/adaptation/OriginalPencilWidthGeometry';
@@ -90,7 +91,7 @@ import {
 } from '../../core/model/TextBlockGeometry';
 import { Point2D, Rect2D, CubicSegment } from '../../core/model/GeometryTypes';
 import {
-  OriginalSelectionGroup, resolveOriginalSelectedGroupLeaves,
+  OriginalSelectionGroup, resolveOriginalGroupAuthoringMembers, resolveOriginalSelectedGroupLeaves,
 } from '../../core/model/OriginalGroupSelection';
 import { cloneMathElement, eraserPathHitsMathBlock, mathBlockWorldBounds,
   transformMathElements } from '../../core/model/MathBlockGeometry';
@@ -276,6 +277,8 @@ export struct NoteCanvasView {
   @State selectionCanFlip: boolean = false;
   @State selectionCanCrop: boolean = false;
   @State selectionCanLock: boolean = false;
+  @State selectionCanGroup: boolean = false;
+  @State selectionCanUngroup: boolean = false;
   @State selectionPositionLocked: boolean = false;
   private imageCropSession: OriginalImageCropSession | null = null;
   @State imageCropVisible: boolean = false;
@@ -1931,6 +1934,31 @@ export struct NoteCanvasView {
       });
       return;
     }
+    if (action.type === UndoableActionType.GROUP_ELEMENTS) {
+      if (group.length !== 1) {
+        hilog.error(0x0001, 'NoteCanvasView', 'Group history cannot be coalesced');
+        return;
+      }
+      if (action.pageId !== this.loadedPageId) {
+        this.pendingHistoryDirection = isUndo ? -1 : 1;
+        this.onRequestPage(action.pageId);
+        return;
+      }
+      if (!this.validateActionState(action, isUndo)) {
+        hilog.error(0x0001, 'NoteCanvasView', 'Group history source state is stale');
+        return;
+      }
+      const history: HistoryMetadata | null = this.undoRedo.getHistoryMetadataForMove(action, isUndo);
+      if (history === null) {
+        hilog.error(0x0001, 'NoteCanvasView', 'Group history metadata is stale');
+        return;
+      }
+      this.historyBusy = true;
+      this.applyOriginalGroupHistoryMove(action, isUndo, history).finally((): void => {
+        this.historyBusy = false;
+      });
+      return;
+    }
     if (action.pageId !== this.loadedPageId) {
       this.pendingHistoryDirection = isUndo ? -1 : 1;
       this.onRequestPage(action.pageId);
@@ -1948,14 +1976,50 @@ export struct NoteCanvasView {
     return this.undoRedo.prepareHistoryMetadata(action);
   }
 
+  private async applyOriginalGroupHistoryMove(action: GroupElementsAction, isUndo: boolean,
+    history: HistoryMetadata): Promise<void> {
+    const mutation: OriginalGroupMutationOpPayload = {
+      pageId: action.pageId,
+      beforeGroups: action.beforeGroups,
+      afterGroups: action.afterGroups,
+      elementOrderBefore: action.elementOrderBefore,
+      elementOrderAfter: action.elementOrderAfter,
+    };
+    try {
+      const result: OriginalGroupMutationResult = await this.persistence.applyOriginalGroupHistory(
+        this.noteId, mutation, !isUndo, history);
+      const committed: boolean = isUndo ?
+        this.undoRedo.commitUndo(action) : this.undoRedo.commitRedo(action);
+      if (!committed) {
+        throw new Error('Group history stack changed after durable apply');
+      }
+      this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+      this.selectionGroups = result.groups;
+      this.elementOrder = clonePageElementOrder(
+        isUndo ? action.elementOrderBefore : action.elementOrderAfter);
+      this.synchronizeElementArraysByOrder();
+      this.selectionTool.deselect();
+      this.selectionVisible = false;
+      this.originalInkIneligiblePages.delete(action.pageId);
+      this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+      this.renderFrame();
+      this.notifyUndoRedo();
+    } catch (e) {
+      this.reportSaveFailure(e as Object);
+      hilog.error(0x0001, 'NoteCanvasView',
+        'Group history apply failed: %{public}s', JSON.stringify(e));
+    }
+  }
+
   private isSinglePageElementGroup(group: HistoryMove[]): boolean {
-    if (group.length === 0 || this.isPageAction(group[0].action.type)) {
+    if (group.length === 0 || this.isPageAction(group[0].action.type) ||
+      group[0].action.type === UndoableActionType.GROUP_ELEMENTS) {
       return false;
     }
     const pageId: string = group[0].action.pageId;
     for (const move of group) {
       if (move.action.noteId !== this.noteId || move.action.pageId !== pageId ||
-        this.isPageAction(move.action.type)) {
+        this.isPageAction(move.action.type) || move.action.type === UndoableActionType.GROUP_ELEMENTS) {
         return false;
       }
     }
@@ -2309,6 +2373,8 @@ export struct NoteCanvasView {
       if (!this.applyPersistedPageMutations(action.operations, isUndo)) {
         return false;
       }
+    } else if (action.type === UndoableActionType.GROUP_ELEMENTS) {
+      this.applyGroupActionState(action, isUndo);
     } else {
       hilog.error(0x0001, 'NoteCanvasView', 'unsupported history action type=%{public}d', action.type);
       return false;
@@ -2335,6 +2401,9 @@ export struct NoteCanvasView {
     }
     if (action.type === UndoableActionType.PERSISTED_PAGE_MUTATIONS) {
       return action.operations.length > 0;
+    }
+    if (action.type === UndoableActionType.GROUP_ELEMENTS) {
+      return this.validateGroupActionState(action, isUndo);
     }
     if (action.type === UndoableActionType.ADD_STROKE) {
       return action.addedStrokes.length > 0 && this.hasUniqueStrokeIds(action.addedStrokes) &&
@@ -2503,6 +2572,49 @@ export struct NoteCanvasView {
     }
   }
 
+  private validateGroupActionState(action: GroupElementsAction, isUndo: boolean): boolean {
+    if (action.beforeGroups.length > 1 || action.afterGroups.length > 1 ||
+      action.beforeGroups.length + action.afterGroups.length !== 1) {
+      return false;
+    }
+    const source: OriginalSelectionGroup[] = isUndo ? action.afterGroups : action.beforeGroups;
+    const other: OriginalSelectionGroup[] = isUndo ? action.beforeGroups : action.afterGroups;
+    const group: OriginalSelectionGroup = source.length === 1 ? source[0] : other[0];
+    if (decodeOperationId(group.id) === null || !this.allCanonicalOperationIds(group.members)) {
+      return false;
+    }
+    const active: OriginalSelectionGroup | null = this.findSelectionGroup(group.id);
+    return source.length === 0 ? active === null :
+      active !== null && this.sameSelectionGroup(active, group);
+  }
+
+  private applyGroupActionState(action: GroupElementsAction, isUndo: boolean): void {
+    const target: OriginalSelectionGroup[] = isUndo ? action.beforeGroups : action.afterGroups;
+    const source: OriginalSelectionGroup[] = isUndo ? action.afterGroups : action.beforeGroups;
+    const affected: OriginalSelectionGroup = target.length === 1 ? target[0] : source[0];
+    const groups: OriginalSelectionGroup[] = this.selectionGroups.filter(
+      (group: OriginalSelectionGroup): boolean => group.id !== affected.id);
+    if (target.length === 1) {
+      groups.push({ id: target[0].id, timestamp: target[0].timestamp,
+        siteId: target[0].siteId, members: target[0].members.slice() });
+    }
+    this.selectionGroups = groups;
+  }
+
+  private sameSelectionGroup(left: OriginalSelectionGroup,
+    right: OriginalSelectionGroup): boolean {
+    if (left.id !== right.id || left.timestamp !== right.timestamp ||
+      left.siteId !== right.siteId || left.members.length !== right.members.length) {
+      return false;
+    }
+    for (let index: number = 0; index < left.members.length; index++) {
+      if (left.members[index] !== right.members[index]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private currentMutationElements(): SearchSourceElement[] {
     const ordered: OrderedPageElement[] = materializePageElements(
       this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks,
@@ -2637,6 +2749,9 @@ export struct NoteCanvasView {
       return samePageElementOrder(action.elementOrderAfter,
         removePageElementRefs(withoutImages, PageElementKind.MATH, mathIds));
     }
+    if (action.type === UndoableActionType.GROUP_ELEMENTS) {
+      return samePageElementMembers(action.elementOrderBefore, action.elementOrderAfter);
+    }
     return action.type === UndoableActionType.REORDER_ELEMENTS &&
       samePageElementMembers(action.elementOrderBefore, action.elementOrderAfter);
   }
@@ -2646,7 +2761,8 @@ export struct NoteCanvasView {
       action.type === UndoableActionType.ERASE_ELEMENTS || action.type === UndoableActionType.ADD_ELEMENT ||
       action.type === UndoableActionType.DELETE_ELEMENT || action.type === UndoableActionType.REORDER_ELEMENTS ||
       action.type === UndoableActionType.ADD_SHAPE || action.type === UndoableActionType.ADD_ELEMENTS ||
-      action.type === UndoableActionType.DELETE_ELEMENTS) {
+      action.type === UndoableActionType.DELETE_ELEMENTS ||
+      action.type === UndoableActionType.GROUP_ELEMENTS) {
       return isUndo ? action.elementOrderAfter : action.elementOrderBefore;
     }
     return null;
@@ -2657,7 +2773,8 @@ export struct NoteCanvasView {
       action.type === UndoableActionType.ERASE_ELEMENTS || action.type === UndoableActionType.ADD_ELEMENT ||
       action.type === UndoableActionType.DELETE_ELEMENT || action.type === UndoableActionType.REORDER_ELEMENTS ||
       action.type === UndoableActionType.ADD_SHAPE || action.type === UndoableActionType.ADD_ELEMENTS ||
-      action.type === UndoableActionType.DELETE_ELEMENTS) {
+      action.type === UndoableActionType.DELETE_ELEMENTS ||
+      action.type === UndoableActionType.GROUP_ELEMENTS) {
       return isUndo ? action.elementOrderBefore : action.elementOrderAfter;
     }
     return null;
@@ -3420,6 +3537,16 @@ export struct NoteCanvasView {
     this.selectionCanCrop = this.canCropImageSelection(
       state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
       state.selectedImageIds, state.selectedGroupIds, state.selectedMathIds);
+    const selectedEntityIds: string[] = state.selectedStrokeIds.concat(state.selectedShapeIds)
+      .concat(state.selectedTextBlockIds).concat(state.selectedImageIds).concat(state.selectedMathIds);
+    const groupMembers: string[] | null = resolveOriginalGroupAuthoringMembers(
+      selectedEntityIds, state.selectedGroupIds, this.selectionGroups);
+    this.selectionCanGroup = groupMembers !== null && groupMembers.length >= 2 &&
+      this.allCanonicalOperationIds(groupMembers);
+    this.selectionCanUngroup = state.selectedGroupIds.length === 1 &&
+      this.findSelectionGroup(state.selectedGroupIds[0]) !== null &&
+      resolveOriginalSelectedGroupLeaves(
+        state.selectedGroupIds, selectedEntityIds, this.selectionGroups) !== null;
     let lockableCount: number = 0;
     let lockedCount: number = 0;
     for (const shape of this.shapes) {
@@ -3734,6 +3861,10 @@ export struct NoteCanvasView {
       this.startImageCrop();
     } else if (action === SelectionMenuAction.LOCK) {
       this.setSelectedPositionLocked(!this.selectionPositionLocked);
+    } else if (action === SelectionMenuAction.GROUP) {
+      this.groupSelectedElements();
+    } else if (action === SelectionMenuAction.UNGROUP) {
+      this.ungroupSelectedElements();
     } else if (action === SelectionMenuAction.COPY) {
       this.copySelectedToClipboard(
         state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
@@ -3741,6 +3872,135 @@ export struct NoteCanvasView {
     } else if (action === SelectionMenuAction.PASTE) {
       this.pasteClipboard();
     }
+  }
+
+  private groupSelectedElements(): void {
+    const state = this.selectionTool.getState();
+    const strokeIds: string[] = state.selectedStrokeIds.slice();
+    const shapeIds: string[] = state.selectedShapeIds.slice();
+    const textIds: string[] = state.selectedTextBlockIds.slice();
+    const imageIds: string[] = state.selectedImageIds.slice();
+    const mathIds: string[] = state.selectedMathIds.slice();
+    const groupIds: string[] = state.selectedGroupIds.slice();
+    const selected: Set<string> = new Set<string>(strokeIds.concat(shapeIds).concat(textIds)
+      .concat(imageIds).concat(mathIds));
+    const orderedIds: string[] = this.elementOrder
+      .filter((ref: PageElementRef): boolean => selected.has(ref.elementId))
+      .map((ref: PageElementRef): string => ref.elementId);
+    const members: string[] | null = resolveOriginalGroupAuthoringMembers(
+      orderedIds, groupIds, this.selectionGroups);
+    if (members === null || members.length < 2 || !this.allCanonicalOperationIds(members)) {
+      return;
+    }
+    const pageId: string = this.loadedPageId;
+    const beforeOrder: PageElementRef[] = clonePageElementOrder(this.elementOrder);
+    const draft: GroupElementsAction = {
+      type: UndoableActionType.GROUP_ELEMENTS, noteId: this.noteId, pageId: pageId,
+      beforeGroups: [], afterGroups: [], elementOrderBefore: beforeOrder,
+      elementOrderAfter: beforeOrder,
+    };
+    const prepared: HistoryMetadata = this.undoRedo.prepareHistoryMetadata(draft);
+    this.historyBusy = true;
+    this.persistence.createOriginalGroup(
+      this.noteId, pageId, members, beforeOrder, prepared).then(
+      (result: OriginalGroupMutationResult): void => {
+        const action: GroupElementsAction = this.groupActionFromMutation(result.mutation);
+        this.undoRedo.push(action, prepared);
+        this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+        this.selectionGroups = result.groups;
+        this.elementOrder = clonePageElementOrder(result.mutation.elementOrderAfter);
+        this.synchronizeElementArraysByOrder();
+        const created: OriginalSelectionGroup = result.mutation.afterGroups[0];
+        this.selectionTool.selectElementIds(
+          strokeIds, shapeIds, textIds, imageIds, [created.id], mathIds);
+        this.originalInkIneligiblePages.delete(pageId);
+        this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+        this.updateSelectionOverlay();
+        this.renderFrame();
+        this.notifyUndoRedo();
+      }).catch((e: Object): void => {
+        this.reportSaveFailure(e);
+        hilog.error(0x0001, 'NoteCanvasView', 'Group failed: %{public}s', JSON.stringify(e));
+      }).finally((): void => {
+        this.historyBusy = false;
+      });
+  }
+
+  private ungroupSelectedElements(): void {
+    const state = this.selectionTool.getState();
+    if (state.selectedGroupIds.length !== 1) {
+      return;
+    }
+    const group: OriginalSelectionGroup | null = this.findSelectionGroup(state.selectedGroupIds[0]);
+    if (group === null) {
+      return;
+    }
+    const strokeIds: string[] = state.selectedStrokeIds.slice();
+    const shapeIds: string[] = state.selectedShapeIds.slice();
+    const textIds: string[] = state.selectedTextBlockIds.slice();
+    const imageIds: string[] = state.selectedImageIds.slice();
+    const mathIds: string[] = state.selectedMathIds.slice();
+    const pageId: string = this.loadedPageId;
+    const beforeOrder: PageElementRef[] = clonePageElementOrder(this.elementOrder);
+    const draft: GroupElementsAction = {
+      type: UndoableActionType.GROUP_ELEMENTS, noteId: this.noteId, pageId: pageId,
+      beforeGroups: [], afterGroups: [], elementOrderBefore: beforeOrder,
+      elementOrderAfter: beforeOrder,
+    };
+    const prepared: HistoryMetadata = this.undoRedo.prepareHistoryMetadata(draft);
+    this.historyBusy = true;
+    this.persistence.ungroupOriginalGroup(
+      this.noteId, pageId, group, beforeOrder, prepared).then(
+      (result: OriginalGroupMutationResult): void => {
+        const action: GroupElementsAction = this.groupActionFromMutation(result.mutation);
+        this.undoRedo.push(action, prepared);
+        this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+        this.selectionGroups = result.groups;
+        this.elementOrder = clonePageElementOrder(result.mutation.elementOrderAfter);
+        this.synchronizeElementArraysByOrder();
+        this.selectionTool.selectElementIds(
+          strokeIds, shapeIds, textIds, imageIds, [], mathIds);
+        this.originalInkIneligiblePages.delete(pageId);
+        this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+        this.updateSelectionOverlay();
+        this.renderFrame();
+        this.notifyUndoRedo();
+      }).catch((e: Object): void => {
+        this.reportSaveFailure(e);
+        hilog.error(0x0001, 'NoteCanvasView', 'Ungroup failed: %{public}s', JSON.stringify(e));
+      }).finally((): void => {
+        this.historyBusy = false;
+      });
+  }
+
+  private groupActionFromMutation(mutation: OriginalGroupMutationOpPayload): GroupElementsAction {
+    return {
+      type: UndoableActionType.GROUP_ELEMENTS, noteId: this.noteId, pageId: mutation.pageId,
+      beforeGroups: mutation.beforeGroups, afterGroups: mutation.afterGroups,
+      elementOrderBefore: mutation.elementOrderBefore,
+      elementOrderAfter: mutation.elementOrderAfter,
+    };
+  }
+
+  private allCanonicalOperationIds(ids: string[]): boolean {
+    if (ids.length === 0) {
+      return false;
+    }
+    for (const id of ids) {
+      if (decodeOperationId(id) === null) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private findSelectionGroup(id: string): OriginalSelectionGroup | null {
+    for (const group of this.selectionGroups) {
+      if (group.id === id) {
+        return group;
+      }
+    }
+    return null;
   }
 
   private reorderSelected(ids: string[], shapeIds: string[], textIds: string[], imageIds: string[],
@@ -4864,6 +5124,8 @@ export struct NoteCanvasView {
         canFlip: this.selectionCanFlip,
         canCrop: this.selectionCanCrop,
         canLock: this.selectionCanLock,
+        canGroup: this.selectionCanGroup,
+        canUngroup: this.selectionCanUngroup,
         positionLocked: this.selectionPositionLocked,
         containerWidth: this.overlayWidth,
         containerHeight: this.overlayHeight,

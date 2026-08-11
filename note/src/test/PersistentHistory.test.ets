@@ -20,6 +20,8 @@ import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import { UndoableActionType } from '../main/ets/rendering/UndoRedoManager';
 import { ElementType, ImageElement } from '../main/ets/core/model/ElementTypes';
+import { encodeOriginalGroupMutation, OriginalGroupMutationOpPayload } from
+  '../main/ets/data/OriginalGroupMutationOpCodec';
 
 function makeOp(opId: string, actionId?: string, effect: HistoryEffect = HistoryEffect.PUSH,
   actionTime: number = 100): Op {
@@ -102,6 +104,30 @@ function pageOp(opId: string, actionId: string, opType: OpType, fromRevision: nu
   };
 }
 
+function groupHistoryOp(opId: string, effect: HistoryEffect): Op {
+  const mutation: OriginalGroupMutationOpPayload = {
+    pageId: 'page-1', beforeGroups: [],
+    afterGroups: [{ id: 'op:28:4', timestamp: 40, siteId: 4,
+      members: ['op:14:2', 'op:1e:3'] }],
+    elementOrderBefore: [
+      { kind: PageElementKind.STROKE, elementId: 'op:14:2', zIndex: 0 },
+      { kind: PageElementKind.SHAPE, elementId: 'op:1e:3', zIndex: 1 },
+    ],
+    elementOrderAfter: [
+      { kind: PageElementKind.SHAPE, elementId: 'op:1e:3', zIndex: 0 },
+      { kind: PageElementKind.STROKE, elementId: 'op:14:2', zIndex: 1 },
+    ],
+  };
+  return {
+    opId: opId, noteId: 'note-1', opType: OpType.GROUP_ELEMENTS,
+    payload: encodeOriginalGroupMutation(mutation), clientTime: 100,
+    history: {
+      actionId: 'group-action', effect: effect,
+      coalesceTrack: HistoryCoalesceTrack.NONE, actionTime: 100,
+    },
+  };
+}
+
 function element(elementId: string, kind: number, value: number): SearchSourceElement {
   return { elementId: elementId, kind: kind, payload: new Uint8Array([value]) };
 }
@@ -169,6 +195,29 @@ function deleteCheckpoint(pageInfo: PageInfo): PageDeleteCheckpoint {
 
 export default function persistentHistoryTest() {
   describe('PersistentHistory', () => {
+    it('restores NGM1 Group actions across PUSH UNDO and REDO', 0, () => {
+      const undone: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([
+          groupHistoryOp('group-push', HistoryEffect.PUSH),
+          groupHistoryOp('group-undo', HistoryEffect.UNDO),
+        ]), 'page-1');
+      expect(undone.undo.length).assertEqual(0);
+      expect(undone.redo.length).assertEqual(1);
+      expect(undone.redo[0].action.type).assertEqual(UndoableActionType.GROUP_ELEMENTS);
+      if (undone.redo[0].action.type === UndoableActionType.GROUP_ELEMENTS) {
+        expect(undone.redo[0].action.afterGroups[0].id).assertEqual('op:28:4');
+        expect(undone.redo[0].action.elementOrderAfter[0].elementId).assertEqual('op:1e:3');
+      }
+      const redone: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([
+          groupHistoryOp('group-push', HistoryEffect.PUSH),
+          groupHistoryOp('group-undo', HistoryEffect.UNDO),
+          groupHistoryOp('group-redo', HistoryEffect.REDO),
+        ]), 'page-1');
+      expect(redone.undo.length).assertEqual(1);
+      expect(redone.redo.length).assertEqual(0);
+    });
+
     it('rebuilds PUSH UNDO REDO without treating reverse mutations as new actions', 0, () => {
       const state = reducePersistentHistory([
         makeOp('op-a', 'action-a', HistoryEffect.PUSH, 100),

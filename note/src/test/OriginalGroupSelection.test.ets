@@ -1,7 +1,8 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { OriginalSelectionGroup, resolveOriginalGroupSelection,
   OriginalGroupSelectionResult, OriginalSelectionLayerUnit,
-  resolveOriginalSelectedGroupLeaves, resolveOriginalSelectionLayerUnits } from
+  resolveOriginalGroupAuthoringMembers, resolveOriginalSelectedGroupLeaves,
+  resolveOriginalSelectionLayerUnits } from
   '../main/ets/core/model/OriginalGroupSelection';
 
 function group(id: string, timestamp: number, siteId: number,
@@ -71,6 +72,19 @@ export default function originalGroupSelectionTest() {
       expect(resolveOriginalSelectionLayerUnits(['a'], [
         group('one', 10, 1, ['a', 'two']), group('two', 11, 1, ['one']),
       ]) === null).assertTrue();
+    });
+
+    it('authors direct entities and selected Groups as distinct member units', 0, () => {
+      const groups: OriginalSelectionGroup[] = [group('inner', 10, 1, ['a', 'b']),
+        group('outer', 20, 1, ['inner', 'c'])];
+      const members: string[] | null = resolveOriginalGroupAuthoringMembers(
+        ['a', 'b', 'c', 'direct'], ['outer'], groups);
+      expect(members !== null).assertTrue();
+      expect((members as string[]).join(',')).assertEqual('direct,outer');
+      expect(resolveOriginalGroupAuthoringMembers(
+        ['a', 'b'], ['outer'], groups) === null).assertTrue();
+      expect(resolveOriginalGroupAuthoringMembers(
+        ['a', 'b', 'c'], ['outer', 'outer'], groups) === null).assertTrue();
     });
   });
 }

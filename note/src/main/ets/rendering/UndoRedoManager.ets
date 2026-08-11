@@ -6,6 +6,7 @@ import { ElementType, RichTextCharacterStyleRun, RichTextParagraphStyleRun,
   ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { PageInfo } from '../core/model/NoteTypes';
 import { PageElementRef } from '../core/model/PageElementOrder';
+import { OriginalSelectionGroup } from '../core/model/OriginalGroupSelection';
 import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op } from '../core/model/OpTypes';
 
 // 可撤销的操作类型
@@ -28,6 +29,7 @@ export enum UndoableActionType {
   ERASE_ELEMENTS = 15,
   ADD_ELEMENTS = 16,
   PERSISTED_PAGE_MUTATIONS = 17,
+  GROUP_ELEMENTS = 18,
 }
 
 interface ActionBase {
@@ -188,10 +190,17 @@ export interface PersistedPageMutationsAction extends ActionBase {
   operations: Op[];
 }
 
+export interface GroupElementsAction extends ActionBase, ElementOrderChange {
+  type: UndoableActionType.GROUP_ELEMENTS;
+  beforeGroups: OriginalSelectionGroup[];
+  afterGroups: OriginalSelectionGroup[];
+}
+
 export type UndoableAction = AddStrokeAction | RemoveStrokeAction | TransformStrokesAction |
   AddElementAction | DeleteElementAction | ReplaceElementAction | ReorderElementsAction |
   AddShapeAction | AddElementsAction | DeleteElementsAction | TransformElementsAction | EraseElementsAction |
-  AddPageAction | DeletePageAction | ReorderPagesAction | PageSettingsAction | PersistedPageMutationsAction;
+  AddPageAction | DeletePageAction | ReorderPagesAction | PageSettingsAction | PersistedPageMutationsAction |
+  GroupElementsAction;
 
 export interface RestoredHistoryAction {
   action: UndoableAction;
@@ -324,7 +333,22 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
     }
     return bytes + operationBytes;
   }
+  if (action.type === UndoableActionType.GROUP_ELEMENTS) {
+    return bytes + estimateGroups(action.beforeGroups) + estimateGroups(action.afterGroups) +
+      estimateElementOrderChange(action);
+  }
   return bytes + 512;
+}
+
+function estimateGroups(groups: OriginalSelectionGroup[]): number {
+  let bytes: number = 0;
+  for (const group of groups) {
+    bytes += 96 + group.id.length * 2;
+    for (const member of group.members) {
+      bytes += 16 + member.length * 2;
+    }
+  }
+  return bytes;
 }
 
 function estimateElementOrderChange(action: ElementOrderChange): number {

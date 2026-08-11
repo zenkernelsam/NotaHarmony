@@ -17,7 +17,7 @@ import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextB
 import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockGeometry';
 import {
   legacyPageElementOrder, materializePageElements, normalizePageElementOrder, OrderedPageElement,
-  PageElementKind, PageElementRef,
+  PageElementKind, PageElementRef, samePageElementOrder,
 } from '../core/model/PageElementOrder';
 import { DatabaseManager } from './DatabaseManager';
 import { LatestWriteQueue } from './LatestWriteQueue';
@@ -43,6 +43,11 @@ import {
 } from './UnsignedDecimal';
 import { encodeOriginalLocalCreateInk } from './OriginalCreateInkPayloadEncoder';
 import { encodeOriginalLocalCreateShape } from './OriginalCreateShapePayloadEncoder';
+import { encodeOriginalCreateGroup } from './OriginalGroupPayloadEncoder';
+import {
+  encodeOriginalGroupMutation, OriginalGroupMutationOpPayload,
+  sameOriginalSelectionGroups, validateOriginalGroupMutation,
+} from './OriginalGroupMutationOpCodec';
 import {
   ORIGINAL_CREATE_INK_PAYLOAD_TYPE, OriginalCreateInkOperationApplier,
 } from './OriginalCreateInkOperation';
@@ -69,7 +74,7 @@ import {
 } from './OriginalModifyInkOperation';
 import {
   decodeOriginalModifyShape, ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE,
-  ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE,
+  ORIGINAL_CREATE_GROUP_PAYLOAD_TYPE, ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE,
   OriginalCreateShapePayload, OriginalModifyShapePayload, OriginalShapeGroupOperationApplier,
 } from './OriginalShapeGroupOperation';
 import {
@@ -101,6 +106,11 @@ export interface LoadedElements {
   mathBlocks: MathElement[];
   elementOrder: PageElementRef[];
   elements: OrderedPageElement[];
+  groups: OriginalSelectionGroup[];
+}
+
+export interface OriginalGroupMutationResult {
+  mutation: OriginalGroupMutationOpPayload;
   groups: OriginalSelectionGroup[];
 }
 
@@ -814,6 +824,182 @@ export class StrokePersistence {
     this.queueSaveElements(noteId, pageId, strokes, textBlocks, elementOrder, shapes,
       false, undefined, images, mathBlocks);
     await this.flush(noteId, pageId);
+  }
+
+  async createOriginalGroup(noteId: string, pageId: string, memberIds: string[],
+    elementOrderBefore: PageElementRef[], history: HistoryMetadata):
+    Promise<OriginalGroupMutationResult> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    validateHistoryMetadata(history);
+    if (history.effect !== HistoryEffect.PUSH) {
+      throw new Error('new Group requires PUSH history');
+    }
+    const members: OperationIdentity[] = this.decodeUniqueGroupMembers(memberIds, 2);
+    await this.flush(noteId, pageId);
+    return editorPersistenceMutex.runExclusive(async (): Promise<OriginalGroupMutationResult> => {
+      if (this.store === null) {
+        throw new Error('StrokePersistence is not initialized');
+      }
+      const store: relationalStore.RdbStore = this.store;
+      await store.beginTransaction();
+      try {
+        await this.preflightOriginalGroupPage(store, noteId, pageId, elementOrderBefore);
+        const active: OriginalSelectionGroup[] =
+          await this.loadOriginalSelectionGroups(store, noteId);
+        const current: SearchSourceElement[] = await this.loadCurrentSnapshot(store, noteId, pageId);
+        if (!this.localGroupMembersAreValid(memberIds, active, current)) {
+          throw new Error('local CREATE_GROUP members are not current top-level page units');
+        }
+        const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+        const group: OriginalSelectionGroup = {
+          id: identity.opId, timestamp: identity.timestamp, siteId: identity.siteId,
+          members: memberIds.slice(),
+        };
+        const payload: Uint8Array = encodeOriginalCreateGroup(members);
+        const metadata: OriginalInkCreateMetadata = this.groupOperationMetadata(identity);
+        const operation: StoredSyncedOperation = localStoredOperation(
+          noteId, metadata, ORIGINAL_CREATE_GROUP_PAYLOAD_TYPE, payload, null);
+        const result: SyncedOperationApplyResult =
+          await new OriginalShapeGroupOperationApplier().apply(store, operation);
+        if (result.deferredReason !== null) {
+          throw new Error(`local CREATE_GROUP was deferred: ${result.deferredReason}`);
+        }
+        await appendOperation(store, {
+          noteId: noteId, opId: identity.opId, opType: OpType.ORIGINAL_CREATE_GROUP,
+          payload: operation.rawOperation, clientTime: identity.clientTime,
+          opTimestamp: identity.timestamp, editorSiteId: identity.siteId, uploadImmediately: true,
+        });
+        const groups: OriginalSelectionGroup[] =
+          await this.loadOriginalSelectionGroups(store, noteId);
+        const elementOrderAfter: PageElementRef[] =
+          await this.readCurrentPageElementOrder(store, noteId, pageId);
+        if (!this.containsExactGroup(groups, group)) {
+          throw new Error('local CREATE_GROUP reducer did not materialize the Group');
+        }
+        const mutation: OriginalGroupMutationOpPayload = {
+          pageId: pageId, beforeGroups: [], afterGroups: [group],
+          elementOrderBefore: clonePageElementRefs(elementOrderBefore),
+          elementOrderAfter: elementOrderAfter,
+        };
+        validateOriginalGroupMutation(mutation);
+        await this.appendOriginalGroupHistory(store, noteId, mutation, history);
+        await store.commit();
+        return { mutation: mutation, groups: groups };
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`create original Group failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  async ungroupOriginalGroup(noteId: string, pageId: string, group: OriginalSelectionGroup,
+    elementOrderBefore: PageElementRef[], history: HistoryMetadata):
+    Promise<OriginalGroupMutationResult> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    validateHistoryMetadata(history);
+    if (history.effect !== HistoryEffect.PUSH) {
+      throw new Error('new Ungroup requires PUSH history');
+    }
+    this.validateSelectionGroup(group);
+    await this.flush(noteId, pageId);
+    return editorPersistenceMutex.runExclusive(async (): Promise<OriginalGroupMutationResult> => {
+      if (this.store === null) {
+        throw new Error('StrokePersistence is not initialized');
+      }
+      const store: relationalStore.RdbStore = this.store;
+      await store.beginTransaction();
+      try {
+        await this.preflightOriginalGroupPage(store, noteId, pageId, elementOrderBefore);
+        const active: OriginalSelectionGroup[] =
+          await this.loadOriginalSelectionGroups(store, noteId);
+        const current: SearchSourceElement[] = await this.loadCurrentSnapshot(store, noteId, pageId);
+        if (!this.containsExactGroup(active, group) ||
+          !this.groupLeavesBelongToPage(group.id, active, current)) {
+          throw new Error('local Ungroup source Group is stale or crosses the current page');
+        }
+        await this.applyOriginalGroupVisibility(store, noteId, group, true);
+        const groups: OriginalSelectionGroup[] =
+          await this.loadOriginalSelectionGroups(store, noteId);
+        const elementOrderAfter: PageElementRef[] =
+          await this.readCurrentPageElementOrder(store, noteId, pageId);
+        if (this.containsGroupId(groups, group.id)) {
+          throw new Error('local Ungroup reducer left the Group active');
+        }
+        const mutation: OriginalGroupMutationOpPayload = {
+          pageId: pageId, beforeGroups: [cloneSelectionGroup(group)], afterGroups: [],
+          elementOrderBefore: clonePageElementRefs(elementOrderBefore),
+          elementOrderAfter: elementOrderAfter,
+        };
+        validateOriginalGroupMutation(mutation);
+        await this.appendOriginalGroupHistory(store, noteId, mutation, history);
+        await store.commit();
+        return { mutation: mutation, groups: groups };
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`ungroup original Group failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  async applyOriginalGroupHistory(noteId: string, mutation: OriginalGroupMutationOpPayload,
+    forward: boolean, history: HistoryMetadata): Promise<OriginalGroupMutationResult> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    validateOriginalGroupMutation(mutation);
+    validateHistoryMetadata(history);
+    if (history.effect === HistoryEffect.PUSH) {
+      throw new Error('Group history movement cannot be PUSH');
+    }
+    await this.flush(noteId, mutation.pageId);
+    return editorPersistenceMutex.runExclusive(async (): Promise<OriginalGroupMutationResult> => {
+      if (this.store === null) {
+        throw new Error('StrokePersistence is not initialized');
+      }
+      const store: relationalStore.RdbStore = this.store;
+      await store.beginTransaction();
+      try {
+        const sourceGroups: OriginalSelectionGroup[] = forward ?
+          mutation.beforeGroups : mutation.afterGroups;
+        const targetGroups: OriginalSelectionGroup[] = forward ?
+          mutation.afterGroups : mutation.beforeGroups;
+        const sourceOrder: PageElementRef[] = forward ?
+          mutation.elementOrderBefore : mutation.elementOrderAfter;
+        const targetOrder: PageElementRef[] = forward ?
+          mutation.elementOrderAfter : mutation.elementOrderBefore;
+        await this.preflightOriginalGroupPage(store, noteId, mutation.pageId, sourceOrder);
+        const active: OriginalSelectionGroup[] =
+          await this.loadOriginalSelectionGroups(store, noteId);
+        if (!this.affectedGroupStateMatches(active, sourceGroups, targetGroups)) {
+          throw new Error('original Group history source state is stale');
+        }
+        const group: OriginalSelectionGroup = sourceGroups.length === 1 ?
+          sourceGroups[0] : targetGroups[0];
+        const stored: OriginalSelectionGroup | null = await this.readStoredGroup(store, noteId, group);
+        if (stored === null || !sameOriginalSelectionGroups([stored], [group])) {
+          throw new Error('original Group history state no longer matches its CREATE payload');
+        }
+        await this.applyOriginalGroupVisibility(store, noteId, group, targetGroups.length === 0);
+        const groups: OriginalSelectionGroup[] =
+          await this.loadOriginalSelectionGroups(store, noteId);
+        const actualOrder: PageElementRef[] =
+          await this.readCurrentPageElementOrder(store, noteId, mutation.pageId);
+        if (!samePageElementOrder(actualOrder, targetOrder) ||
+          !this.affectedGroupStateMatches(groups, targetGroups, sourceGroups)) {
+          throw new Error('original Group history reducer produced unexpected state');
+        }
+        await this.appendOriginalGroupHistory(store, noteId, mutation, history);
+        await store.commit();
+        return { mutation: mutation, groups: groups };
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`apply original Group history failed: ${JSON.stringify(e)}`);
+      }
+    });
   }
 
   async saveHistoryGroup(noteId: string, pageId: string, initial: HistoryPageSnapshot,
@@ -2565,6 +2751,237 @@ export class StrokePersistence {
     return result;
   }
 
+  private async preflightOriginalGroupPage(store: relationalStore.RdbStore, noteId: string,
+    pageId: string, expectedOrder: PageElementRef[]): Promise<void> {
+    if (await this.readEligibleOriginalInkPage(store, noteId, pageId) === null) {
+      throw new Error('local Group page is not original-aligned');
+    }
+    const actual: PageElementRef[] = await this.readCurrentPageElementOrder(store, noteId, pageId);
+    if (!samePageElementOrder(actual, expectedOrder)) {
+      throw new Error('local Group page order changed before apply');
+    }
+  }
+
+  private async readCurrentPageElementOrder(store: relationalStore.RdbStore,
+    noteId: string, pageId: string): Promise<PageElementRef[]> {
+    const current: SearchSourceElement[] = await this.loadCurrentSnapshot(store, noteId, pageId);
+    return current.map((element: SearchSourceElement, index: number): PageElementRef => ({
+      kind: element.kind, elementId: element.elementId, zIndex: index,
+    }));
+  }
+
+  private decodeUniqueGroupMembers(memberIds: string[], minimum: number): OperationIdentity[] {
+    if (memberIds.length < minimum || memberIds.length > 10000) {
+      throw new Error('local Group member count is invalid');
+    }
+    const result: OperationIdentity[] = [];
+    const seen: Set<string> = new Set<string>();
+    for (const memberId of memberIds) {
+      const identity: OperationIdentity | null = decodeOperationId(memberId);
+      if (identity === null || seen.has(memberId)) {
+        throw new Error('local Group member identity is invalid');
+      }
+      seen.add(memberId);
+      result.push(identity);
+    }
+    return result;
+  }
+
+  private validateSelectionGroup(group: OriginalSelectionGroup): void {
+    const identity: OperationIdentity | null = decodeOperationId(group.id);
+    if (identity === null || identity.timestamp !== group.timestamp || identity.siteId !== group.siteId) {
+      throw new Error('local Group identity is invalid');
+    }
+    this.decodeUniqueGroupMembers(group.members, 1);
+  }
+
+  private localGroupMembersAreValid(memberIds: string[], groups: OriginalSelectionGroup[],
+    current: SearchSourceElement[]): boolean {
+    const available: Set<string> = new Set<string>(current.map(
+      (element: SearchSourceElement): string => element.elementId));
+    const byId: Map<string, OriginalSelectionGroup> = this.groupMap(groups);
+    const parentMembers: Set<string> = new Set<string>();
+    for (const group of groups) {
+      for (const member of group.members) {
+        parentMembers.add(member);
+      }
+    }
+    const leaves: Set<string> = new Set<string>();
+    for (const memberId of memberIds) {
+      const group: OriginalSelectionGroup | undefined = byId.get(memberId);
+      if (parentMembers.has(memberId)) {
+        return false;
+      }
+      if (group === undefined) {
+        if (!available.has(memberId) || leaves.has(memberId)) {
+          return false;
+        }
+        leaves.add(memberId);
+        continue;
+      }
+      const expanded: string[] | null = this.expandStoredGroup(
+        group.id, byId, available, new Set<string>());
+      if (expanded === null || expanded.length === 0) {
+        return false;
+      }
+      for (const leaf of expanded) {
+        if (leaves.has(leaf)) {
+          return false;
+        }
+        leaves.add(leaf);
+      }
+    }
+    return leaves.size >= 2;
+  }
+
+  private groupLeavesBelongToPage(groupId: string, groups: OriginalSelectionGroup[],
+    current: SearchSourceElement[]): boolean {
+    const available: Set<string> = new Set<string>(current.map(
+      (element: SearchSourceElement): string => element.elementId));
+    const expanded: string[] | null = this.expandStoredGroup(
+      groupId, this.groupMap(groups), available, new Set<string>());
+    return expanded !== null && expanded.length > 0;
+  }
+
+  private expandStoredGroup(groupId: string, byId: Map<string, OriginalSelectionGroup>,
+    available: Set<string>, visiting: Set<string>): string[] | null {
+    if (visiting.has(groupId)) {
+      return null;
+    }
+    const group: OriginalSelectionGroup | undefined = byId.get(groupId);
+    if (group === undefined) {
+      return null;
+    }
+    visiting.add(groupId);
+    const leaves: string[] = [];
+    const seen: Set<string> = new Set<string>();
+    for (const member of group.members) {
+      if (byId.has(member)) {
+        const nested: string[] | null = this.expandStoredGroup(member, byId, available, visiting);
+        if (nested === null) {
+          visiting.delete(groupId);
+          return null;
+        }
+        for (const leaf of nested) {
+          if (!seen.has(leaf)) {
+            seen.add(leaf);
+            leaves.push(leaf);
+          }
+        }
+      } else if (!available.has(member)) {
+        visiting.delete(groupId);
+        return null;
+      } else if (!seen.has(member)) {
+        seen.add(member);
+        leaves.push(member);
+      }
+    }
+    visiting.delete(groupId);
+    return leaves;
+  }
+
+  private groupMap(groups: OriginalSelectionGroup[]): Map<string, OriginalSelectionGroup> {
+    const result: Map<string, OriginalSelectionGroup> = new Map<string, OriginalSelectionGroup>();
+    for (const group of groups) {
+      if (result.has(group.id)) {
+        return new Map<string, OriginalSelectionGroup>();
+      }
+      result.set(group.id, group);
+    }
+    return result;
+  }
+
+  private containsExactGroup(groups: OriginalSelectionGroup[], group: OriginalSelectionGroup): boolean {
+    const found: OriginalSelectionGroup | undefined = groups.find(
+      (candidate: OriginalSelectionGroup): boolean => candidate.id === group.id);
+    return found !== undefined && sameOriginalSelectionGroups([found], [group]);
+  }
+
+  private containsGroupId(groups: OriginalSelectionGroup[], groupId: string): boolean {
+    return groups.some((group: OriginalSelectionGroup): boolean => group.id === groupId);
+  }
+
+  private affectedGroupStateMatches(active: OriginalSelectionGroup[],
+    expected: OriginalSelectionGroup[], other: OriginalSelectionGroup[]): boolean {
+    const group: OriginalSelectionGroup = expected.length === 1 ? expected[0] : other[0];
+    return expected.length === 1 ? this.containsExactGroup(active, group) :
+      !this.containsGroupId(active, group.id);
+  }
+
+  private async readStoredGroup(store: relationalStore.RdbStore, noteId: string,
+    expected: OriginalSelectionGroup): Promise<OriginalSelectionGroup | null> {
+    const rows = await store.querySql(
+      `SELECT members_value FROM original_group_state WHERE note_id = ?
+       AND group_timestamp = ? AND group_site_id = ? LIMIT 1`,
+      [noteId, expected.timestamp, expected.siteId]);
+    try {
+      if (!rows.goToFirstRow()) {
+        return null;
+      }
+      const raw: PersistedGroupMember[] = JSON.parse(
+        rows.getString(rows.getColumnIndex('members_value'))) as PersistedGroupMember[];
+      if (!Array.isArray(raw) || raw.length === 0 || raw.length > 10000) {
+        return null;
+      }
+      const members: string[] = [];
+      const seen: Set<string> = new Set<string>();
+      for (const value of raw) {
+        const member: OperationIdentity = { timestamp: value.timestamp, siteId: value.siteId };
+        validateOperationIdentity(member);
+        const memberId: string = encodeOperationId(member);
+        if (seen.has(memberId)) {
+          return null;
+        }
+        seen.add(memberId);
+        members.push(memberId);
+      }
+      return { id: expected.id, timestamp: expected.timestamp,
+        siteId: expected.siteId, members: members };
+    } catch (_error) {
+      return null;
+    } finally {
+      rows.close();
+    }
+  }
+
+  private groupOperationMetadata(identity: AllocatedOperationIdentity): OriginalInkCreateMetadata {
+    return {
+      timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
+      pageTimestamp: 0, pageSiteId: 0, pageIndex: 0, pencilSeed: 0,
+    };
+  }
+
+  private async applyOriginalGroupVisibility(store: relationalStore.RdbStore, noteId: string,
+    group: OriginalSelectionGroup, deleted: boolean): Promise<void> {
+    const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+    const target: OperationIdentity = { timestamp: group.timestamp, siteId: group.siteId };
+    const payload: Uint8Array = encodeOriginalEntityVisibility(
+      deleted ? [target] : [], deleted ? [] : [target]);
+    const operation: StoredSyncedOperation = localStoredOperation(
+      noteId, this.groupOperationMetadata(identity), ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE,
+      payload, null);
+    const result: SyncedOperationApplyResult =
+      await new OriginalDeleteEntitiesOperationApplier().apply(store, operation);
+    if (result.deferredReason !== null) {
+      throw new Error(`local Group visibility was deferred: ${result.deferredReason}`);
+    }
+    await appendOperation(store, {
+      noteId: noteId, opId: identity.opId, opType: OpType.ORIGINAL_DELETE_ENTITIES,
+      payload: operation.rawOperation, clientTime: identity.clientTime,
+      opTimestamp: identity.timestamp, editorSiteId: identity.siteId, uploadImmediately: true,
+    });
+  }
+
+  private async appendOriginalGroupHistory(store: relationalStore.RdbStore, noteId: string,
+    mutation: OriginalGroupMutationOpPayload, history: HistoryMetadata): Promise<void> {
+    const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+    await appendOperation(store, {
+      noteId: noteId, opId: identity.opId, opType: OpType.GROUP_ELEMENTS,
+      payload: encodeOriginalGroupMutation(mutation), clientTime: identity.clientTime,
+      opTimestamp: identity.timestamp, editorSiteId: identity.siteId, history: history,
+    });
+  }
+
   private async loadOriginalSelectionGroups(store: relationalStore.RdbStore,
     noteId: string): Promise<OriginalSelectionGroup[]> {
     const rows = await store.querySql(
@@ -3135,6 +3552,23 @@ function finiteRect(rect: Rect2D): boolean {
   return Number.isFinite(rect.left) && Number.isFinite(rect.top) &&
     Number.isFinite(rect.right) && Number.isFinite(rect.bottom) &&
     rect.left <= rect.right && rect.top <= rect.bottom;
+}
+
+function clonePageElementRefs(order: PageElementRef[]): PageElementRef[] {
+  return order.map((ref: PageElementRef): PageElementRef => ({
+    kind: ref.kind,
+    elementId: ref.elementId,
+    zIndex: ref.zIndex,
+  }));
+}
+
+function cloneSelectionGroup(group: OriginalSelectionGroup): OriginalSelectionGroup {
+  return {
+    id: group.id,
+    timestamp: group.timestamp,
+    siteId: group.siteId,
+    members: group.members.slice(),
+  };
 }
 
 function localStoredOperation(noteId: string, metadata: OriginalInkCreateMetadata,

@@ -52,8 +52,12 @@ Accepted, 2026-08-11.
 
 ## Remaining Boundary
 
+ADR-0099 supersedes the original outbound boundary for local CREATE_GROUP and Ungroup: both now use
+original operations, production reducers, Group-aware layering and persistent Undo/Redo. Its strict
+type-21 writer is fixture-covered, but no speculative member-editing UI has been added.
+
 This decision closes inbound storage and page materialization for the four Shape/Group payloads. It
-does not claim embedded Shape RichText, Group selection/transform UI, outbound writers, complete
+does not claim embedded Shape RichText, complete type-21 member editing, complete
 original CRDT export/import, or device pixel parity. Existing `ShapeElement` can render geometry,
 color, fill and border width, while tool/style/tape/position-lock/effects are retained in original
 state until consumers can implement them with original evidence.

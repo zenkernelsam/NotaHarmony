@@ -71,6 +71,8 @@ import originalRecordingPresentationTest from './OriginalRecordingPresentation.t
 import originalCreatePagePayloadEncoderTest from './OriginalCreatePagePayloadEncoder.test';
 import originalCreateInkPayloadEncoderTest from './OriginalCreateInkPayloadEncoder.test';
 import originalModifyBlockPayloadEncoderTest from './OriginalModifyBlockPayloadEncoder.test';
+import originalGroupPayloadEncoderTest from './OriginalGroupPayloadEncoder.test';
+import originalGroupMutationOpCodecTest from './OriginalGroupMutationOpCodec.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -146,4 +148,6 @@ export default function testsuite() {
   originalCreatePagePayloadEncoderTest();
   originalCreateInkPayloadEncoderTest();
   originalModifyBlockPayloadEncoderTest();
+  originalGroupPayloadEncoderTest();
+  originalGroupMutationOpCodecTest();
 }

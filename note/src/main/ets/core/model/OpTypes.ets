@@ -20,6 +20,9 @@ export enum OpType {
   ERASE_WHOLE = 21,     // 整条删除
   // 笔记级
   UPDATE_TITLE = 30,
+  // Harmony history companion for original Group visibility/authoring. The private-sync
+  // operations remain separate ORIGINAL_* rows and this payload only restores editor history.
+  GROUP_ELEMENTS = 31,
   UNDO = 40,
   REDO = 41,
   // Harmony recovery checkpoint. This is deliberately distinct from the
@@ -35,6 +38,8 @@ export enum OpType {
   ORIGINAL_MODIFY_BLOCK = 66,
   ORIGINAL_MODIFY_SHAPE = 67,
   ORIGINAL_CREATE_SHAPE = 68,
+  ORIGINAL_CREATE_GROUP = 69,
+  ORIGINAL_MODIFY_GROUP = 70,
 }
 
 // History movement is metadata on a concrete mutation, not a replacement mutation type.

@@ -20,6 +20,8 @@ export enum SelectionMenuAction {
   PASTE = 8,
   CROP = 9,
   LOCK = 10,
+  GROUP = 11,
+  UNGROUP = 12,
 }
 
 @Component
@@ -30,6 +32,8 @@ export struct SelectionOverlay {
   @Prop canFlip: boolean = false;
   @Prop canCrop: boolean = false;
   @Prop canLock: boolean = false;
+  @Prop canGroup: boolean = false;
+  @Prop canUngroup: boolean = false;
   @Prop positionLocked: boolean = false;
   @Prop containerWidth: number = 0;
   @Prop containerHeight: number = 0;
@@ -107,6 +111,14 @@ export struct SelectionOverlay {
     if (this.canLock) {
       items.push({ value: this.positionLocked ? $r('app.string.unlock') : $r('app.string.lock'),
         action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Lock clicked'); this.onMenuAction(SelectionMenuAction.LOCK); } });
+    }
+    if (this.canGroup) {
+      items.push({ value: $r('app.string.group'),
+        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Group clicked'); this.onMenuAction(SelectionMenuAction.GROUP); } });
+    }
+    if (this.canUngroup) {
+      items.push({ value: $r('app.string.ungroup'),
+        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Ungroup clicked'); this.onMenuAction(SelectionMenuAction.UNGROUP); } });
     }
     items.push({ value: $r('app.string.done'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu OK clicked'); this.onMenuAction(SelectionMenuAction.DESELECT); } });
     return items;
