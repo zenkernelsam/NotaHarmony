@@ -6,7 +6,7 @@ import {
 } from './OperationIdentity';
 import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './UnsignedDecimal';
 import {
-  OriginalSyncedOperationEnvelope, validateOriginalSyncedOperation,
+  OriginalSyncedOperationCandidate, OriginalSyncedOperationEnvelope, validateOriginalSyncedOperation,
 } from './OriginalSyncedOperationFlatBuffer';
 
 export enum SyncedOperationInboxState {
@@ -15,13 +15,9 @@ export enum SyncedOperationInboxState {
   APPLIED = 2,
 }
 
-export interface IncomingSyncedOperation extends OperationIdentity {
+export interface IncomingSyncedOperation extends OperationIdentity, OriginalSyncedOperationCandidate {
   noteId: string;
-  clientTime: string;
-  serverTime: string;
   schemaVersion: number;
-  payloadType: number;
-  rawOperation: Uint8Array;
 }
 
 export interface StoredSyncedOperation extends IncomingSyncedOperation {

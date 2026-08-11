@@ -4,8 +4,9 @@ import { PageBackground, PageInfo } from '../core/model/NoteTypes';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { validatePageDimensions } from '../core/model/PageCoordinateSpace';
 import {
-  clonePageInfo, parsePageBackground, samePageBackground, serializePageBackground,
+  clonePageBackground, clonePageInfo, parsePageBackground, samePageBackground, serializePageBackground,
 } from '../core/model/PageBackgroundModel';
+import { readEffectiveNoteBackground } from './OriginalSetMetadataOperation';
 import { PageRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { AsyncMutex, MutexRelease } from './AsyncMutex';
@@ -337,7 +338,26 @@ export class PageRepositoryImpl implements PageRepository {
     } finally {
       resultSet.close();
     }
+    if (pages.some((page: PageInfo): boolean => page.background === null) &&
+      await this.noteHasOriginalPages(store, noteId)) {
+      const fallback: PageBackground = (await readEffectiveNoteBackground(store, noteId)).background;
+      for (const page of pages) {
+        if (page.background === null) {
+          page.noteBackgroundFallback = clonePageBackground(fallback);
+        }
+      }
+    }
     return pages;
+  }
+
+  private async noteHasOriginalPages(store: relationalStore.RdbStore, noteId: string): Promise<boolean> {
+    const rows = await store.querySql(
+      'SELECT 1 FROM original_page_identity WHERE note_id = ? LIMIT 1', [noteId]);
+    try {
+      return rows.goToFirstRow();
+    } finally {
+      rows.close();
+    }
   }
 
   private async queryStructureRevision(store: relationalStore.RdbStore, noteId: string): Promise<number> {

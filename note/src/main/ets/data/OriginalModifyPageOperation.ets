@@ -15,6 +15,7 @@ import {
   decodeOriginalPageBackgroundTable, OriginalDecodedPageBackground,
   originalPageBackgroundFitsHarmony,
 } from './OriginalPageBackgroundOperation';
+import { readEffectiveNoteBackground } from './OriginalSetMetadataOperation';
 
 export const ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE: number = 4;
 export const MAX_ORIGINAL_MODIFY_PAGE_COUNT: number = 10000;
@@ -103,9 +104,6 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
     if (payload.pages.length < 1) {
       return { deferredReason: 'MODIFY_PAGE_HAS_NO_PAGES' };
     }
-    if (payload.hasBackground && payload.background === null) {
-      return { deferredReason: 'MODIFY_PAGE_BACKGROUND_CLEAR_REQUIRES_NOTE_BACKGROUND' };
-    }
     if (payload.background !== null && payload.background.hasPdf) {
       return { deferredReason: 'MODIFY_PAGE_PDF_BACKGROUND_UNSUPPORTED' };
     }
@@ -148,7 +146,7 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
       await this.orderStore.assignFinalIndexes(store, operation.noteId, newOrder);
       changed = true;
     }
-    if (payload.background !== null &&
+    if (payload.hasBackground &&
       await this.applyBackground(store, operation, payload.pages, payload.background)) {
       changed = true;
     }
@@ -160,7 +158,7 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
 
   private async applyBackground(store: relationalStore.RdbStore,
     operation: StoredSyncedOperation, pages: OriginalSequenceIdentity[],
-    background: OriginalDecodedPageBackground): Promise<boolean> {
+    background: OriginalDecodedPageBackground | null): Promise<boolean> {
     let changed: boolean = false;
     for (const page of pages) {
       const winner: OperationIdentity | null =
@@ -197,7 +195,7 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
 
   private async writeBackgroundWinner(store: relationalStore.RdbStore,
     operation: StoredSyncedOperation, page: OriginalSequenceIdentity,
-    background: OriginalDecodedPageBackground, previous: OperationIdentity | null): Promise<void> {
+    background: OriginalDecodedPageBackground | null, previous: OperationIdentity | null): Promise<void> {
     const values: relationalStore.ValuesBucket = {
       'note_id': operation.noteId,
       'page_timestamp': page.timestamp,
@@ -205,12 +203,12 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
       'page_index': page.index,
       'winner_timestamp': operation.timestamp,
       'winner_site_id': operation.siteId,
-      'size': background.size,
-      'template': background.template,
-      'orientation': background.orientation,
-      'width_mm': background.widthMm,
-      'height_mm': background.heightMm,
-      'background_json': serializePageBackground(background.background),
+      'size': background === null ? null : background.size,
+      'template': background === null ? null : background.template,
+      'orientation': background === null ? null : background.orientation,
+      'width_mm': background === null ? null : background.widthMm,
+      'height_mm': background === null ? null : background.heightMm,
+      'background_json': background === null ? null : serializePageBackground(background.background),
     };
     if (previous === null) {
       await store.insert('original_page_background_winner', values);
@@ -230,7 +228,7 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
   }
 
   private async updateMaterializedBackground(store: relationalStore.RdbStore, noteId: string,
-    page: OriginalSequenceIdentity, background: OriginalDecodedPageBackground): Promise<void> {
+    page: OriginalSequenceIdentity, background: OriginalDecodedPageBackground | null): Promise<void> {
     const rows = await store.querySql(
       `SELECT page_id FROM original_page_identity
        WHERE note_id = ? AND seq_timestamp = ? AND seq_site_id = ? AND seq_index = ?`,
@@ -248,13 +246,15 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
     if (pageId === null) {
       return;
     }
+    const materialized: OriginalDecodedPageBackground = background === null
+      ? await readEffectiveNoteBackground(store, noteId) : background;
     const values: relationalStore.ValuesBucket = {
-      'size': background.size,
-      'template': background.template,
-      'orientation': background.orientation,
-      'width_mm': background.widthMm,
-      'height_mm': background.heightMm,
-      'background_json': serializePageBackground(background.background),
+      'size': materialized.size,
+      'template': materialized.template,
+      'orientation': materialized.orientation,
+      'width_mm': materialized.widthMm,
+      'height_mm': materialized.heightMm,
+      'background_json': background === null ? null : serializePageBackground(background.background),
     };
     const live = new relationalStore.RdbPredicates('page_info');
     live.equalTo('note_id', noteId);

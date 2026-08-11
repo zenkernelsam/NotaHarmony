@@ -1,10 +1,12 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
-  OriginalPaperFlair, PageBackground, PagePaperBackground, PaperTemplate,
+  OriginalPaperFlair, PageBackground, PageInfo, PageOrientation, PagePaperBackground,
+  PaperSize, PaperTemplate,
 } from '../main/ets/core/model/NoteTypes';
 import {
-  clonePageBackground, pageBackgroundCssColor, parsePageBackground, samePageBackground,
-  serializePageBackground, templateForOriginalPaper, validatePageBackground,
+  clonePageBackground, clonePageInfo, effectivePageBackground, originalDefaultNoteBackground,
+  pageBackgroundCssColor, parsePageBackground, samePageBackground, serializePageBackground,
+  templateForOriginalPaper, validatePageBackground,
 } from '../main/ets/core/model/PageBackgroundModel';
 
 export default function pageBackgroundModelTest() {
@@ -49,6 +51,25 @@ export default function pageBackgroundModelTest() {
         margins.margins.leftPt = 700;
       }
       expectThrow((): void => validatePageBackground(margins));
+    });
+
+    it('keeps a nullable page register separate from the note fallback', 0, () => {
+      const fallback: PageBackground = background();
+      const page: PageInfo = {
+        pageId: 'page', pageIndex: 0, size: PaperSize.LETTER, template: PaperTemplate.GRID,
+        orientation: PageOrientation.PORTRAIT, widthMm: 215.9, heightMm: 279.4,
+        background: null, noteBackgroundFallback: fallback,
+      };
+      const effective: PageBackground | null = effectivePageBackground(page);
+      expect(samePageBackground(effective, fallback)).assertTrue();
+      const cloned: PageInfo = clonePageInfo(page);
+      expect(cloned.background === null).assertTrue();
+      expect(samePageBackground(cloned.noteBackgroundFallback, fallback)).assertTrue();
+      const explicit: PageBackground = originalDefaultNoteBackground();
+      page.background = explicit;
+      expect(samePageBackground(effectivePageBackground(page), explicit)).assertTrue();
+      expect(originalDefaultNoteBackground().sourceWidthPt).assertEqual(612);
+      expect(originalDefaultNoteBackground().sourceHeightPt).assertEqual(792);
     });
   });
 }

@@ -6,7 +6,7 @@ import {
   SyncedOperationInboxState, validateIncomingSyncedBatch,
 } from '../main/ets/data/SyncedOperationInbox';
 import {
-  crc32Signed, parseOriginalSyncedOperationEnvelope,
+  crc32Signed, parseOriginalSyncedOperationEnvelope, readOriginalPayloadTable,
 } from '../main/ets/data/OriginalSyncedOperationFlatBuffer';
 import {
   DeferredSyncedOperationTableType, validateDeferredSyncedOperationTableType,
@@ -53,6 +53,9 @@ import { decodeOriginalInkPath, decodeOriginalInkPathAppend } from
   '../main/ets/data/OriginalInkPathCodec';
 import { Rect2D } from '../main/ets/core/model/GeometryTypes';
 import { InkPathCommandType } from '../main/ets/core/model/StrokeTypes';
+import {
+  decodeOriginalSetMetadataTable, OriginalSetMetadataOperationApplier,
+} from '../main/ets/data/OriginalSetMetadataOperation';
 
 function operation(timestamp: number, serverTime: string,
   clientTime: string = serverTime, payloadType: number = 3): IncomingSyncedOperation {
@@ -567,6 +570,27 @@ export default function syncedOperationInboxTest() {
       const clear = decodeOriginalModifyPage(flatBufferModifyPageBackground(false));
       expect(clear.hasBackground).assertTrue();
       expect(clear.background === null).assertTrue();
+    });
+
+    it('decodes note-level background SET_METADATA including an explicit null', 0, () => {
+      const applier = new OriginalSetMetadataOperationApplier();
+      const valueTable = readOriginalPayloadTable(flatBufferSetMetadataBackground(true), 1);
+      const value = decodeOriginalSetMetadataTable(valueTable);
+      expect(value.hasPageBackground).assertTrue();
+      expect(value.pageBackground?.background.paper?.flair).assertEqual(2);
+      expect(value.pageBackground?.background.sourceWidthPt).assertEqual(612);
+      expect(applier.preflightTable(valueTable) === null).assertTrue();
+      const clearTable = readOriginalPayloadTable(flatBufferSetMetadataBackground(false), 1);
+      const clear = decodeOriginalSetMetadataTable(clearTable);
+      expect(clear.hasPageBackground).assertTrue();
+      expect(clear.pageBackground === null).assertTrue();
+      expect(applier.preflightTable(clearTable) === null).assertTrue();
+      const combinedTable = readOriginalPayloadTable(flatBufferSetMetadataBackground(true, 'Imported title'), 1);
+      const combined = decodeOriginalSetMetadataTable(combinedTable);
+      expect(combined.hasTitle).assertTrue();
+      expect(combined.title).assertEqual('Imported title');
+      expect(combined.hasPageBackground).assertTrue();
+      expect(applier.preflightTable(combinedTable) === null).assertTrue();
     });
 
     it('decodes original DELETE_ENTITIES page tombstones independently from entities', 0, () => {
@@ -1896,6 +1920,38 @@ function flatBufferModifyPageBackground(includeValue: boolean): Uint8Array {
   builder.pointer(modify + 4, pages);
   const setter: number = builder.table([includeValue ? 4 : 0], includeValue ? 8 : 4);
   builder.pointer(modify + 8, setter);
+  if (includeValue) {
+    const background: number = builder.table([4, 0, 8, 12, 0], 20);
+    builder.pointer(setter + 4, background);
+    builder.float32(background + 8, 0);
+    builder.float32(background + 12, 612);
+    builder.float32(background + 16, 792);
+    const paper: number = builder.table([4, 8, 12, 13, 16, 20], 24);
+    builder.pointer(background + 4, paper);
+    builder.uint8(paper + 4, 2);
+    builder.float32(paper + 8, 18);
+    builder.uint8(paper + 12, 1);
+    builder.uint8(paper + 13, 1);
+    builder.color(paper + 16, [244, 245, 246, 255]);
+    builder.uint8(paper + 20, 7);
+  }
+  return builder.finish(root);
+}
+
+function flatBufferSetMetadataBackground(includeValue: boolean, title: string | null = null): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 91);
+  builder.uint8(root + 28, 1);
+  const metadata: number = builder.table([title === null ? 0 : 4, 8, 0, 0, 0, 0, 0, 0], 12);
+  builder.pointer(root + 32, metadata);
+  if (title !== null) {
+    const titleSetter: number = stringWrapper(builder, title);
+    builder.pointer(metadata + 4, titleSetter);
+  }
+  const setter: number = builder.table([includeValue ? 4 : 0], includeValue ? 8 : 4);
+  builder.pointer(metadata + 8, setter);
   if (includeValue) {
     const background: number = builder.table([4, 0, 8, 12, 0], 20);
     builder.pointer(setter + 4, background);

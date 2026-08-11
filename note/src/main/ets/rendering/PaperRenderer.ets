@@ -2,8 +2,9 @@
 // T-038：theme 参数（纸张底色/线色随主题）
 import { PageInfo, PagePaperBackground, PaperTemplate } from '../core/model/NoteTypes';
 import {
-  pageBackgroundCssColor, POINTS_TO_PAGE_UNITS,
+  effectivePageBackground, pageBackgroundCssColor, POINTS_TO_PAGE_UNITS,
 } from '../core/model/PageBackgroundModel';
+import { PageBackground } from '../core/model/NoteTypes';
 import { LightTheme, ThemeTokens } from '../ui/theme/EditorTheme';
 import {
   Canvas2DDrawingContext, Canvas2DOffscreenRenderContext, Canvas2DRenderContext,
@@ -27,11 +28,11 @@ export class PaperRenderer {
 
   private renderToContext(ctx: Canvas2DDrawingContext, paperW: number, paperH: number,
     page: PageInfo, zoom: number, theme: ThemeTokens): void {
+    const effectiveBackground: PageBackground | null = effectivePageBackground(page);
     ctx.save();
-    ctx.setFillStyle(pageBackgroundCssColor(page.background, theme.paperBackground));
+    ctx.setFillStyle(pageBackgroundCssColor(effectiveBackground, theme.paperBackground));
     ctx.fillRect(0, 0, paperW, paperH);
-    const paper: PagePaperBackground | null = page.background === undefined || page.background === null
-      ? null : page.background.paper;
+    const paper: PagePaperBackground | null = effectiveBackground === null ? null : effectiveBackground.paper;
     const spacing: number = paper === null || paper.flairSpacingPt === null
       ? 28 : paper.flairSpacingPt * POINTS_TO_PAGE_UNITS;
     if (!Number.isFinite(spacing) || spacing <= 1) {

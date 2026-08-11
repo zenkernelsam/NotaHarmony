@@ -7,6 +7,7 @@ import {
   DDL_DEFERRED_SYNCED_OPERATION_BUNDLE, DDL_LOCAL_EDITOR_IDENTITY, DDL_NOTE_SYNC_METADATA,
   DDL_SYNCED_OPERATION_INBOX, DDL_ORIGINAL_PAGE_INSERT_GROUP, DDL_ORIGINAL_PAGE_IDENTITY,
   DDL_ORIGINAL_PAGE_VISIBILITY_WINNER, DDL_ORIGINAL_PAGE_BACKGROUND_WINNER,
+  DDL_ORIGINAL_NOTE_BACKGROUND_WINNER, DDL_ORIGINAL_NOTE_TITLE_WINNER,
   DDL_ORIGINAL_ELEMENT_Z_INDEX, DDL_ORIGINAL_INK_STATE, DDL_ORIGINAL_INK_PATH_APPEND,
   DDL_ORIGINAL_BLOCK_STATE, DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER,
   DDL_ORIGINAL_DELETED_ENTITY,
@@ -21,7 +22,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(48);
+      expect(DB_VERSION).assertEqual(50);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -94,6 +95,10 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[48].join('\n')).assertContain('create_ink_effects');
       expect(MIGRATIONS[48].join('\n')).assertContain('ink_effects_winner_present');
       expect(MIGRATIONS[48].join('\n')).assertContain('ink_effects_tinted_winner_present');
+      expect(MIGRATIONS[49].join('\n')).assertContain('tape_pattern_winner_present');
+      expect(MIGRATIONS[50].join('\n')).assertContain('original_page_background_winner_v50');
+      expect(MIGRATIONS[50].join('\n')).assertContain('original_note_background_winner');
+      expect(MIGRATIONS[50].join('\n')).assertContain('original_note_title_winner');
       expect(MIGRATIONS[35].join('\n')).assertContain('original_block_state');
       expect(MIGRATIONS[36].join('\n')).assertContain('page_origin_winner_present');
       expect(MIGRATIONS[36].join('\n')).assertContain('z_index_winner_present');
@@ -137,7 +142,11 @@ export default function databaseHelperTest() {
       expect(DDL_ORIGINAL_DELETED_ENTITY).assertContain('REFERENCES original_element_z_index');
       expect(DDL_ORIGINAL_PAGE_VISIBILITY_WINNER).assertContain('deleted IN (0, 1)');
       expect(DDL_ORIGINAL_PAGE_BACKGROUND_WINNER).assertContain('winner_timestamp');
-      expect(DDL_ORIGINAL_PAGE_BACKGROUND_WINNER).assertContain('background_json TEXT NOT NULL');
+      expect(DDL_ORIGINAL_PAGE_BACKGROUND_WINNER).assertContain('background_json TEXT CHECK');
+      expect(DDL_ORIGINAL_PAGE_BACKGROUND_WINNER).assertContain('background_json IS NULL');
+      expect(DDL_ORIGINAL_NOTE_BACKGROUND_WINNER).assertContain('winner_timestamp');
+      expect(DDL_ORIGINAL_NOTE_BACKGROUND_WINNER).assertContain('background_json IS NULL');
+      expect(DDL_ORIGINAL_NOTE_TITLE_WINNER).assertContain('length(title) BETWEEN 1 AND 256');
       expect(DDL_ORIGINAL_DELETED_PAGE).assertContain('indexed_revision');
       expect(DDL_ORIGINAL_DELETED_PAGE.includes('REFERENCES page_info')).assertFalse();
       expect(DDL_ORIGINAL_DELETED_PAGE_ELEMENT).assertContain('payload BLOB NOT NULL');

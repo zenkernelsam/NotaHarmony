@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v49: preserve original Tape pattern baseline and independent LWW register.
-export const DB_VERSION: number = 49;
+// v50: preserve nullable page-background winners and the note-level fallback register.
+export const DB_VERSION: number = 50;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -293,15 +293,46 @@ CREATE TABLE IF NOT EXISTS original_page_background_winner (
   page_index INTEGER NOT NULL CHECK (page_index BETWEEN 0 AND 4294967295),
   winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
   winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
-  size INTEGER NOT NULL,
-  template INTEGER NOT NULL,
-  orientation INTEGER NOT NULL,
-  width_mm REAL NOT NULL CHECK (width_mm > 0),
-  height_mm REAL NOT NULL CHECK (height_mm > 0),
-  background_json TEXT NOT NULL CHECK (length(background_json) > 0),
+  size INTEGER,
+  template INTEGER,
+  orientation INTEGER,
+  width_mm REAL CHECK (width_mm IS NULL OR width_mm > 0),
+  height_mm REAL CHECK (height_mm IS NULL OR height_mm > 0),
+  background_json TEXT CHECK (background_json IS NULL OR length(background_json) > 0),
+  CHECK ((background_json IS NULL AND size IS NULL AND template IS NULL AND orientation IS NULL
+      AND width_mm IS NULL AND height_mm IS NULL)
+    OR (background_json IS NOT NULL AND size IS NOT NULL AND template IS NOT NULL
+      AND orientation IS NOT NULL AND width_mm IS NOT NULL AND height_mm IS NOT NULL)),
   PRIMARY KEY(note_id, page_timestamp, page_site_id, page_index),
   FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
     REFERENCES original_page_identity(note_id, seq_timestamp, seq_site_id, seq_index) ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_NOTE_BACKGROUND_WINNER: string = `
+CREATE TABLE IF NOT EXISTS original_note_background_winner (
+  note_id TEXT PRIMARY KEY,
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  size INTEGER,
+  template INTEGER,
+  orientation INTEGER,
+  width_mm REAL CHECK (width_mm IS NULL OR width_mm > 0),
+  height_mm REAL CHECK (height_mm IS NULL OR height_mm > 0),
+  background_json TEXT CHECK (background_json IS NULL OR length(background_json) > 0),
+  CHECK ((background_json IS NULL AND size IS NULL AND template IS NULL AND orientation IS NULL
+      AND width_mm IS NULL AND height_mm IS NULL)
+    OR (background_json IS NOT NULL AND size IS NOT NULL AND template IS NOT NULL
+      AND orientation IS NOT NULL AND width_mm IS NOT NULL AND height_mm IS NOT NULL)),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_NOTE_TITLE_WINNER: string = `
+CREATE TABLE IF NOT EXISTS original_note_title_winner (
+  note_id TEXT PRIMARY KEY,
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 256),
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
@@ -1961,5 +1992,39 @@ export const MIGRATIONS: Record<number, string[]> = {
       DEFAULT 0 CHECK (tape_pattern_winner_site_id BETWEEN 0 AND 65535)`,
     `ALTER TABLE original_ink_state ADD COLUMN tape_pattern_winner_present INTEGER NOT NULL
       DEFAULT 0 CHECK (tape_pattern_winner_present IN (0, 1))`,
+  ],
+  50: [
+    `CREATE TABLE original_page_background_winner_v50 (
+      note_id TEXT NOT NULL,
+      page_timestamp INTEGER NOT NULL CHECK (page_timestamp BETWEEN 0 AND 4294967295),
+      page_site_id INTEGER NOT NULL CHECK (page_site_id BETWEEN 0 AND 65535),
+      page_index INTEGER NOT NULL CHECK (page_index BETWEEN 0 AND 4294967295),
+      winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+      winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+      size INTEGER, template INTEGER, orientation INTEGER,
+      width_mm REAL CHECK (width_mm IS NULL OR width_mm > 0),
+      height_mm REAL CHECK (height_mm IS NULL OR height_mm > 0),
+      background_json TEXT CHECK (background_json IS NULL OR length(background_json) > 0),
+      CHECK ((background_json IS NULL AND size IS NULL AND template IS NULL AND orientation IS NULL
+          AND width_mm IS NULL AND height_mm IS NULL)
+        OR (background_json IS NOT NULL AND size IS NOT NULL AND template IS NOT NULL
+          AND orientation IS NOT NULL AND width_mm IS NOT NULL AND height_mm IS NOT NULL)),
+      PRIMARY KEY(note_id, page_timestamp, page_site_id, page_index),
+      FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
+        REFERENCES original_page_identity(note_id, seq_timestamp, seq_site_id, seq_index)
+        ON DELETE CASCADE,
+      FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+    )`,
+    `INSERT INTO original_page_background_winner_v50
+      (note_id, page_timestamp, page_site_id, page_index, winner_timestamp, winner_site_id,
+       size, template, orientation, width_mm, height_mm, background_json)
+     SELECT note_id, page_timestamp, page_site_id, page_index, winner_timestamp, winner_site_id,
+       size, template, orientation, width_mm, height_mm, background_json
+       FROM original_page_background_winner`,
+    'DROP TABLE original_page_background_winner',
+    `ALTER TABLE original_page_background_winner_v50
+      RENAME TO original_page_background_winner`,
+    DDL_ORIGINAL_NOTE_BACKGROUND_WINNER,
+    DDL_ORIGINAL_NOTE_TITLE_WINNER,
   ],
 };

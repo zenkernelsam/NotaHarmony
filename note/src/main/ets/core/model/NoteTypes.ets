@@ -76,6 +76,9 @@ export interface PageInfo {
   widthMm: number;
   heightMm: number;
   background?: PageBackground | null;
+  // Effective note-level fallback. This is loaded separately from the nullable
+  // page register and must never be written back as the page background.
+  noteBackgroundFallback?: PageBackground | null;
 }
 
 // 笔记元数据（对应 SyncedNoteMetadata 简化版）

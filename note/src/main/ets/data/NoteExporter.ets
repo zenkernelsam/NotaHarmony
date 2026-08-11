@@ -9,7 +9,7 @@ import {
   NOTE_FORMAT, NOTE_FORMAT_VERSION, NOTE_SOURCE,
 } from './NotePackageSpec';
 import { NoteMeta, PageInfo, PaperSize } from '../core/model/NoteTypes';
-import { clonePageBackground } from '../core/model/PageBackgroundModel';
+import { effectivePageBackground } from '../core/model/PageBackgroundModel';
 import { DatabaseManager } from './DatabaseManager';
 import { NoteRepositoryImpl } from './NoteRepositoryImpl';
 import { PageRepositoryImpl } from './PageRepositoryImpl';
@@ -110,7 +110,9 @@ export class NoteExporter {
           orientation: p.orientation,
           widthMm: p.widthMm,
           heightMm: p.heightMm,
-          background: clonePageBackground(p.background),
+          // Harmony packages have no CRDT register history. Preserve the resolved
+          // appearance so a nullable original page does not lose its note fallback.
+          background: effectivePageBackground(p),
           elements: elementObjects,
         };
         writer.addEntry(`pages/page_${i}.json`, stringToBytes(serializePage(pageData)), true, note.updatedAt);

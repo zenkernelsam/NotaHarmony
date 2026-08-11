@@ -1,6 +1,7 @@
 import { relationalStore } from '@kit.ArkData';
 import { PageInfo } from '../core/model/NoteTypes';
 import { parsePageBackground } from '../core/model/PageBackgroundModel';
+import { readEffectiveNoteBackground } from './OriginalSetMetadataOperation';
 import { HistoryEffect, HistoryMetadata } from '../core/model/OpTypes';
 import { taskpool, util } from '@kit.ArkTS';
 import { StrokeElementData } from '../core/model/StrokeTypes';
@@ -257,6 +258,8 @@ export class StrokePersistence {
         page.orientation AS orientation, page.width_mm AS width_mm, page.height_mm AS height_mm,
         page.background_json AS background_json,
         page.content_revision AS content_revision,
+        EXISTS(SELECT 1 FROM original_page_identity identity
+          WHERE identity.note_id = page.note_id AND identity.page_id = page.page_id) AS original_page,
         (SELECT COUNT(*) FROM page_element_snapshot snapshot
          WHERE snapshot.note_id = page.note_id AND snapshot.page_id = page.page_id) AS element_count
        FROM page_info page WHERE page.note_id = ? ORDER BY page.page_index LIMIT 1`, [noteId]);
@@ -275,6 +278,12 @@ export class StrokePersistence {
         background: parsePageBackground(resultSet.isColumnNull(resultSet.getColumnIndex('background_json'))
           ? null : resultSet.getString(resultSet.getColumnIndex('background_json'))),
       };
+      let fallbackSignature: string = '';
+      if (page.background === null &&
+        resultSet.getLong(resultSet.getColumnIndex('original_page')) === 1) {
+        page.noteBackgroundFallback = (await readEffectiveNoteBackground(this.store, noteId)).background;
+        fallbackSignature = JSON.stringify(page.noteBackgroundFallback);
+      }
       const maxRevision: number = resultSet.getLong(resultSet.getColumnIndex('content_revision'));
       const elementCount: number = resultSet.getLong(resultSet.getColumnIndex('element_count'));
       return {
@@ -282,7 +291,7 @@ export class StrokePersistence {
         revision: `${page.pageId}:${page.size}:${page.template}:${page.orientation}:` +
           `${page.widthMm}:${page.heightMm}:${resultSet.isColumnNull(resultSet.getColumnIndex('background_json'))
             ? '' : resultSet.getString(resultSet.getColumnIndex('background_json'))}:` +
-          `${maxRevision}:${elementCount}`,
+          `${fallbackSignature}:${maxRevision}:${elementCount}`,
       };
     } finally {
       resultSet.close();

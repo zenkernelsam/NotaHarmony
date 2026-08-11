@@ -47,6 +47,10 @@ import {
   ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE, OriginalRichTextStyleOperationApplier,
 } from './OriginalRichTextStyleOperation';
 import {
+  ORIGINAL_SET_METADATA_PAYLOAD_TYPE, OriginalSetMetadataOperationApplier,
+  readEffectiveNoteBackground,
+} from './OriginalSetMetadataOperation';
+import {
   StoredSyncedOperation, SyncedOperationInboxState, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 
@@ -222,17 +226,12 @@ export class OriginalNoteBundlePageIdentityBootstrapper {
     }
     const pageIdBySequence: Map<string, string> = bindVisiblePages(history.visibleOrder, pageIds);
     let applied: boolean = false;
-    if (await existingMappingMatches(store, expectedNoteId, history, pageIdBySequence)) {
-      const changed: boolean = await applyBootstrapBackgrounds(
-        store, expectedNoteId, history, pageIdBySequence);
-      applied = changed;
-    } else {
+    if (!await existingMappingMatches(store, expectedNoteId, history, pageIdBySequence)) {
       if (await hasExistingMapping(store, expectedNoteId)) {
         return deferred('ORIGINAL_PAGE_IDENTITY_CONFLICT');
       }
       if (history.createGroups.length > 0) {
         await insertBootstrapHistory(store, expectedNoteId, history, pageIdBySequence);
-        await applyBootstrapBackgrounds(store, expectedNoteId, history, pageIdBySequence);
         applied = true;
       }
     }
@@ -241,7 +240,9 @@ export class OriginalNoteBundlePageIdentityBootstrapper {
     if (contentResult.deferredReason !== null) {
       return contentResult;
     }
-    return { applied: applied || contentResult.applied, deferredReason: null };
+    const backgroundChanged: boolean = await applyBootstrapBackgrounds(
+      store, expectedNoteId, history, pageIdBySequence);
+    return { applied: applied || contentResult.applied || backgroundChanged, deferredReason: null };
   }
 }
 
@@ -263,7 +264,15 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
     new OriginalTextVisibilityOperationApplier();
   const textStyle: OriginalRichTextStyleOperationApplier =
     new OriginalRichTextStyleOperationApplier();
+  const setMetadata: OriginalSetMetadataOperationApplier = new OriginalSetMetadataOperationApplier();
   for (const operation of bundle.operations) {
+    if (operation.payloadType === ORIGINAL_SET_METADATA_PAYLOAD_TYPE) {
+      const reason: string | null = setMetadata.preflightTable(operation.payload);
+      if (reason !== null) {
+        return `NOTE_BUNDLE_${reason}`;
+      }
+      continue;
+    }
     if (operation.payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE) {
       continue;
@@ -396,11 +405,15 @@ async function applyBundleContent(store: relationalStore.RdbStore,
     new OriginalTextVisibilityOperationApplier();
   const textStyle: OriginalRichTextStyleOperationApplier =
     new OriginalRichTextStyleOperationApplier();
+  const setMetadata: OriginalSetMetadataOperationApplier = new OriginalSetMetadataOperationApplier();
   const before: number = await countRows(store,
     'SELECT COUNT(*) AS value FROM original_element_z_index WHERE note_id = ?', [bundle.noteId]);
   const revisionBefore: number = await contentRevisionTotal(store, bundle.noteId);
+  const structureRevisionBefore: number = await countRows(store,
+    'SELECT structure_revision AS value FROM note_meta WHERE id = ?', [bundle.noteId]);
   for (const operation of bundle.operations) {
-    if (operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE &&
+    if (operation.payloadType !== ORIGINAL_SET_METADATA_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_MODIFY_INK_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE &&
@@ -430,7 +443,9 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       receivedAt: 0,
     };
     let result: SyncedOperationApplyResult;
-    if (operation.payloadType === ORIGINAL_CREATE_INK_PAYLOAD_TYPE) {
+    if (operation.payloadType === ORIGINAL_SET_METADATA_PAYLOAD_TYPE) {
+      result = await setMetadata.applyTable(store, stored, operation.payload);
+    } else if (operation.payloadType === ORIGINAL_CREATE_INK_PAYLOAD_TYPE) {
       result = await createInk.applyTable(store, stored, operation.payload);
     } else if (operation.payloadType === ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE) {
       result = await addPath.applyTable(store, stored, operation.payload);
@@ -459,7 +474,10 @@ async function applyBundleContent(store: relationalStore.RdbStore,
   const after: number = await countRows(store,
     'SELECT COUNT(*) AS value FROM original_element_z_index WHERE note_id = ?', [bundle.noteId]);
   const revisionAfter: number = await contentRevisionTotal(store, bundle.noteId);
-  return { applied: after > before || revisionAfter > revisionBefore, deferredReason: null };
+  const structureRevisionAfter: number = await countRows(store,
+    'SELECT structure_revision AS value FROM note_meta WHERE id = ?', [bundle.noteId]);
+  return { applied: after > before || revisionAfter > revisionBefore ||
+    structureRevisionAfter > structureRevisionBefore, deferredReason: null };
 }
 
 async function contentRevisionTotal(store: relationalStore.RdbStore,
@@ -543,9 +561,6 @@ function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): Boot
     if (payload.pages.length < 1) {
       return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_HAS_NO_PAGES');
     }
-    if (payload.hasBackground && payload.background === null) {
-      return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_BACKGROUND_CLEAR_REQUIRES_NOTE_BACKGROUND');
-    }
     if (payload.background !== null && payload.background.hasPdf) {
       return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_PDF_BACKGROUND_UNSUPPORTED');
     }
@@ -563,7 +578,7 @@ function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): Boot
         return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_PAGE_MISSING');
       }
     }
-    if (payload.background !== null) {
+    if (payload.hasBackground) {
       for (const page of payload.pages) {
         const state: BootstrapPageState | undefined = pages.get(encodeOriginalSequenceId(page));
         if (state === undefined) {
@@ -835,7 +850,8 @@ async function insertBootstrapHistory(store: relationalStore.RdbStore, noteId: s
         'deleted': page.visibility.deleted ? 1 : 0,
       });
     }
-    if (page.backgroundWinner !== null && page.background !== null) {
+    if (page.backgroundWinner !== null) {
+      const background: OriginalDecodedPageBackground | null = page.background;
       await store.insert('original_page_background_winner', {
         'note_id': noteId,
         'page_timestamp': page.identity.timestamp,
@@ -843,12 +859,12 @@ async function insertBootstrapHistory(store: relationalStore.RdbStore, noteId: s
         'page_index': page.identity.index,
         'winner_timestamp': page.backgroundWinner.timestamp,
         'winner_site_id': page.backgroundWinner.siteId,
-        'size': page.background.size,
-        'template': page.background.template,
-        'orientation': page.background.orientation,
-        'width_mm': page.background.widthMm,
-        'height_mm': page.background.heightMm,
-        'background_json': serializePageBackground(page.background.background),
+        'size': background === null ? null : background.size,
+        'template': background === null ? null : background.template,
+        'orientation': background === null ? null : background.orientation,
+        'width_mm': background === null ? null : background.widthMm,
+        'height_mm': background === null ? null : background.heightMm,
+        'background_json': background === null ? null : serializePageBackground(background.background),
       });
     }
   }
@@ -863,22 +879,25 @@ async function applyBootstrapBackgrounds(store: relationalStore.RdbStore, noteId
   });
   for (const state of states) {
     const pageId: string | undefined = pageIdBySequence.get(encodeOriginalSequenceId(state.identity));
-    if (pageId === undefined || state.background === null) {
+    if (pageId === undefined || (state.background === null && state.backgroundWinner === null)) {
       continue;
     }
-    const backgroundJson: string | null = serializePageBackground(state.background.background);
-    if (await storedPageBackgroundMatches(store, noteId, pageId, state.background, backgroundJson)) {
+    const materialized: OriginalDecodedPageBackground = state.background === null
+      ? await readEffectiveNoteBackground(store, noteId) : state.background;
+    const backgroundJson: string | null = state.background === null ? null :
+      serializePageBackground(state.background.background);
+    if (await storedPageBackgroundMatches(store, noteId, pageId, materialized, backgroundJson)) {
       continue;
     }
     const predicates = new relationalStore.RdbPredicates('page_info');
     predicates.equalTo('note_id', noteId);
     predicates.equalTo('page_id', pageId);
     const updated: number = await store.update({
-      'size': state.background.size,
-      'template': state.background.template,
-      'orientation': state.background.orientation,
-      'width_mm': state.background.widthMm,
-      'height_mm': state.background.heightMm,
+      'size': materialized.size,
+      'template': materialized.template,
+      'orientation': materialized.orientation,
+      'width_mm': materialized.widthMm,
+      'height_mm': materialized.heightMm,
       'background_json': backgroundJson,
     }, predicates);
     if (updated !== 1) {
@@ -994,18 +1013,28 @@ async function existingMappingMatches(store: relationalStore.RdbStore, noteId: s
         page.visibility.timestamp, page.visibility.siteId, page.visibility.deleted ? 1 : 0])) {
       return false;
     }
-    if (page.backgroundWinner !== null && page.background !== null && !await rowExists(store,
-      `SELECT 1 FROM original_page_background_winner WHERE note_id = ?
-       AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
-       AND winner_timestamp = ? AND winner_site_id = ?
-       AND size = ? AND template = ? AND orientation = ?
-       AND width_mm = ? AND height_mm = ? AND background_json = ? LIMIT 1`,
-      [noteId, page.identity.timestamp, page.identity.siteId, page.identity.index,
-        page.backgroundWinner.timestamp, page.backgroundWinner.siteId,
-        page.background.size, page.background.template, page.background.orientation,
-        page.background.widthMm, page.background.heightMm,
-        serializePageBackground(page.background.background)])) {
-      return false;
+    if (page.backgroundWinner !== null) {
+      const winnerMatches: boolean = page.background === null ? await rowExists(store,
+        `SELECT 1 FROM original_page_background_winner WHERE note_id = ?
+         AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+         AND winner_timestamp = ? AND winner_site_id = ?
+         AND size IS NULL AND template IS NULL AND orientation IS NULL
+         AND width_mm IS NULL AND height_mm IS NULL AND background_json IS NULL LIMIT 1`,
+        [noteId, page.identity.timestamp, page.identity.siteId, page.identity.index,
+          page.backgroundWinner.timestamp, page.backgroundWinner.siteId]) : await rowExists(store,
+        `SELECT 1 FROM original_page_background_winner WHERE note_id = ?
+         AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+         AND winner_timestamp = ? AND winner_site_id = ?
+         AND size = ? AND template = ? AND orientation = ?
+         AND width_mm = ? AND height_mm = ? AND background_json = ? LIMIT 1`,
+        [noteId, page.identity.timestamp, page.identity.siteId, page.identity.index,
+          page.backgroundWinner.timestamp, page.backgroundWinner.siteId,
+          page.background.size, page.background.template, page.background.orientation,
+          page.background.widthMm, page.background.heightMm,
+          serializePageBackground(page.background.background)]);
+      if (!winnerMatches) {
+        return false;
+      }
     }
   }
   return true;

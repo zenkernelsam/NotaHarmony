@@ -31,6 +31,26 @@ export function clonePageInfo(page: PageInfo): PageInfo {
     widthMm: page.widthMm,
     heightMm: page.heightMm,
     background: clonePageBackground(page.background),
+    noteBackgroundFallback: clonePageBackground(page.noteBackgroundFallback),
+  };
+}
+
+export function effectivePageBackground(page: PageInfo): PageBackground | null {
+  return page.background === undefined || page.background === null
+    ? clonePageBackground(page.noteBackgroundFallback) : clonePageBackground(page.background);
+}
+
+export function originalDefaultNoteBackground(): PageBackground {
+  return {
+    schemaVersion: PAGE_BACKGROUND_SCHEMA_VERSION,
+    paper: {
+      flair: null, flairSpacingPt: null, flairBleeds: null, flairCentered: null,
+      colorR: 255, colorG: 255, colorB: 255, colorA: 255, legacyPaperIndex: null,
+    },
+    rotationRadians: 0,
+    sourceWidthPt: 612,
+    sourceHeightPt: 792,
+    margins: null,
   };
 }
 
