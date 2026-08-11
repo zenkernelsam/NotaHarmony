@@ -103,6 +103,25 @@ export class OriginalFlatBufferTableReader {
     return this.bytes.slice(start, start + size);
   }
 
+  readIndirectInlineBytes(field: number, size: number): Uint8Array | null {
+    if (!Number.isSafeInteger(size) || size < 1 || size > 1024) {
+      throw new Error('FlatBuffer indirect inline byte count is invalid');
+    }
+    const offset: number = this.readFieldOffset(field);
+    if (offset === 0) {
+      return null;
+    }
+    requireObjectBytes(this.table, offset, 4, `indirect inline field ${field}`);
+    const pointer: number = this.table.table + offset;
+    const relative: number = readU32(this.bytes, pointer);
+    if (relative < 4 || relative > this.bytes.length - pointer - size) {
+      throw new Error(`FlatBuffer indirect inline field ${field} offset is invalid`);
+    }
+    const start: number = pointer + relative;
+    requireRange(this.bytes, start, size, `indirect inline field ${field}`);
+    return this.bytes.slice(start, start + size);
+  }
+
   readInlineSequence(field: number): number[] | null {
     const offset: number = this.readFieldOffset(field);
     if (offset === 0) {

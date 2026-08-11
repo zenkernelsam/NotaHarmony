@@ -62,6 +62,10 @@ import {
   ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE, OriginalModifyPdfFieldOperationApplier,
 } from './OriginalModifyPdfFieldOperation';
 import {
+  ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE, ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE,
+  preflightOriginalCommentTable,
+} from './OriginalCommentOperation';
+import {
   ORIGINAL_SET_METADATA_PAYLOAD_TYPE, OriginalSetMetadataOperationApplier,
   readEffectiveNoteBackground,
 } from './OriginalSetMetadataOperation';
@@ -457,6 +461,15 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
       }
       continue;
     }
+    if (operation.payloadType === ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE) {
+      const reason: string | null =
+        preflightOriginalCommentTable(operation.payload, operation.payloadType);
+      if (reason !== null) {
+        return `NOTE_BUNDLE_${reason}`;
+      }
+      continue;
+    }
     if (operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE) {
       return `NOTE_BUNDLE_PAYLOAD_${operation.payloadType}_UNSUPPORTED`;
     }
@@ -533,7 +546,9 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       operation.payloadType !== ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE &&
-      operation.payloadType !== ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE) {
+      operation.payloadType !== ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE) {
       continue;
     }
     const stored: StoredSyncedOperation = {
@@ -577,6 +592,10 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       result = await updateCheckbox.applyTable(store, stored, operation.payload);
     } else if (operation.payloadType === ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE) {
       result = await modifyPdfField.applyTable(store, stored, operation.payload);
+    } else if (operation.payloadType === ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE) {
+      // Original v69 consumes validated comment payloads without a model mutation.
+      result = { deferredReason: null };
     } else {
       result = await textStyle.applyTable(store, stored, operation.payload);
     }

@@ -81,6 +81,11 @@ import {
   ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE,
   OriginalPeerInteractionStore, OriginalPeerTool,
 } from '../main/ets/data/OriginalPeerInteractionOperation';
+import {
+  decodeOriginalCreateComment, decodeOriginalModifyComment,
+  ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE, ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE,
+  OriginalCommentAnchorType, preflightOriginalCommentTable,
+} from '../main/ets/data/OriginalCommentOperation';
 import { OriginalPageMutationBatch } from '../main/ets/data/OriginalPageMutationBatch';
 
 function operation(timestamp: number, serverTime: string,
@@ -239,6 +244,8 @@ export default function syncedOperationInboxTest() {
       expect(applier.supports(ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE)).assertTrue();
+      expect(applier.supports(ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE)).assertTrue();
+      expect(applier.supports(ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(5)).assertFalse();
     });
 
@@ -399,6 +406,109 @@ export default function syncedOperationInboxTest() {
         }
       }
       expect(rejected).assertEqual(4);
+    });
+
+    it('decodes all original CREATE_COMMENT anchor unions', 0, () => {
+      const canvas = decodeOriginalCreateComment(
+        flatBufferCreateComment(OriginalCommentAnchorType.CANVAS));
+      expect(canvas.anchor.type).assertEqual(OriginalCommentAnchorType.CANVAS);
+      if (canvas.anchor.type === OriginalCommentAnchorType.CANVAS) {
+        expect(canvas.anchor.page.timestamp).assertEqual(40);
+        expect(canvas.anchor.page.index).assertEqual(3);
+        expect(canvas.anchor.origin.x).assertEqual(12.5);
+      }
+      const text = decodeOriginalCreateComment(
+        flatBufferCreateComment(OriginalCommentAnchorType.TEXT));
+      expect(text.anchor.type).assertEqual(OriginalCommentAnchorType.TEXT);
+      if (text.anchor.type === OriginalCommentAnchorType.TEXT) {
+        expect(text.anchor.textField?.timestamp).assertEqual(50);
+        expect(text.anchor.selection.anchor?.index).assertEqual(4);
+        expect(text.anchor.selection.focus?.timestamp).assertEqual(61);
+      }
+      const entity = decodeOriginalCreateComment(
+        flatBufferCreateComment(OriginalCommentAnchorType.ENTITY));
+      expect(entity.anchor.type).assertEqual(OriginalCommentAnchorType.ENTITY);
+      if (entity.anchor.type === OriginalCommentAnchorType.ENTITY) {
+        expect(entity.anchor.entities.length).assertEqual(2);
+        expect(entity.anchor.entities[1].timestamp).assertEqual(71);
+      }
+      const reply = decodeOriginalCreateComment(
+        flatBufferCreateComment(OriginalCommentAnchorType.REPLY));
+      expect(reply.anchor.type).assertEqual(OriginalCommentAnchorType.REPLY);
+      if (reply.anchor.type === OriginalCommentAnchorType.REPLY) {
+        expect(reply.anchor.root.timestamp).assertEqual(80);
+      }
+      expect(reply.text).assertEqual('comment');
+      expect(preflightOriginalCommentTable(readOriginalPayloadTable(
+        flatBufferCreateComment(OriginalCommentAnchorType.REPLY),
+        ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE), ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE) === null)
+        .assertTrue();
+    });
+
+    it('decodes MODIFY_COMMENT nullable setters and generated boolean behavior', 0, () => {
+      const changed = decodeOriginalModifyComment(
+        flatBufferModifyComment(true, true, 'updated', true, 2));
+      expect(changed.comment.timestamp).assertEqual(90);
+      expect(changed.anchor?.page.index).assertEqual(5);
+      expect(changed.text?.value).assertEqual('updated');
+      expect(changed.resolved?.value).assertTrue();
+      const cleared = decodeOriginalModifyComment(
+        flatBufferModifyComment(false, true, null, true, null));
+      expect(cleared.anchor === null).assertTrue();
+      expect(cleared.text?.value === null).assertTrue();
+      expect(cleared.resolved?.value === null).assertTrue();
+      expect(preflightOriginalCommentTable(readOriginalPayloadTable(
+        flatBufferModifyComment(false, true, null, true, null),
+        ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE), ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE) === null)
+        .assertTrue();
+    });
+
+    it('consumes validated comments without original-model writes and defers malformed ones', 0,
+      async () => {
+        let writeCount: number = 0;
+        const noWriteStore = {
+          executeSql: async (_sql: string): Promise<void> => { writeCount++; },
+        };
+        const applier = new OriginalPageOperationApplier(new OriginalTransientInteractionStore());
+        const create: StoredSyncedOperation = {
+          noteId: 'note', timestamp: 320, siteId: 8, clientTime: '1', serverTime: '2',
+          schemaVersion: 1, payloadType: ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE,
+          rawOperation: flatBufferCreateComment(OriginalCommentAnchorType.REPLY),
+          state: SyncedOperationInboxState.RECEIVED, deferredReason: null, receivedAt: 1,
+        };
+        expect((await applier.apply(noWriteStore, create)).deferredReason === null).assertTrue();
+        expect(writeCount).assertEqual(0);
+        create.rawOperation = flatBufferCreateComment(0);
+        expect((await applier.apply(noWriteStore, create)).deferredReason)
+          .assertEqual('MALFORMED_COMMENT_PAYLOAD');
+        expect(writeCount).assertEqual(0);
+      });
+
+    it('rejects malformed original comment schemas before consumption', 0, () => {
+      let rejected: number = 0;
+      for (const decode of [
+        (): void => { decodeOriginalCreateComment(flatBufferCreateComment(0)); },
+        (): void => { decodeOriginalCreateComment(flatBufferCreateComment(255)); },
+        (): void => { decodeOriginalCreateComment(
+          flatBufferCreateComment(OriginalCommentAnchorType.CANVAS, '', true)); },
+        (): void => { decodeOriginalCreateComment(
+          flatBufferCreateComment(OriginalCommentAnchorType.CANVAS, 'comment', true, true)); },
+        (): void => { decodeOriginalCreateComment(
+          flatBufferCreateComment(OriginalCommentAnchorType.CANVAS, 'comment', false)); },
+        (): void => { decodeOriginalModifyComment(
+          flatBufferModifyComment(false, false, null, false, null)); },
+        (): void => { decodeOriginalModifyComment(
+          flatBufferModifyComment(false, true, 'value', false, null, false, false)); },
+        (): void => { decodeOriginalModifyComment(
+          flatBufferModifyComment(false, true, 'value', false, null, true)); },
+      ]) {
+        try {
+          decode();
+        } catch (_error) {
+          rejected++;
+        }
+      }
+      expect(rejected).assertEqual(8);
     });
 
     it('decodes original INSERT_CHAR and INSERT_STRING Unicode code points', 0, () => {
@@ -1603,6 +1713,13 @@ class FixtureFlatBufferBuilder {
     return vector;
   }
 
+  inlineBytes(size: number): number {
+    this.align(4);
+    const start: number = this.cursor;
+    this.cursor += size;
+    return start;
+  }
+
   byteVector(values: number[]): number {
     this.align(4);
     const vector: number = this.cursor;
@@ -2698,6 +2815,95 @@ function flatBufferPeerInteraction(includeMetadata: boolean = true,
       matchingInteraction ? operationTimestamp : operationTimestamp + 1, 8);
     builder.pointer(root + 36, metadata);
   }
+  return builder.finish(root);
+}
+
+function flatBufferCreateComment(anchorType: number, text: string = 'comment',
+  finiteOrigin: boolean = true, includeUnknown: boolean = false): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.inlineIdentity(root + 4, 320, 8);
+  writeDecimalU64At(builder, root + 12, '1');
+  writeDecimalU64At(builder, root + 20, '2');
+  builder.uint8(root + 28, ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE);
+  const payload: number = builder.table([4, anchorType === 0 ? 0 : 8, 12,
+    includeUnknown ? 16 : 0], 20);
+  builder.uint8(payload + 4, anchorType);
+  builder.pointer(payload + 12, builder.string(text));
+  if (anchorType === OriginalCommentAnchorType.CANVAS) {
+    const anchor: number = builder.inlineBytes(20);
+    builder.inlineSequence(anchor, 40, 2, 3);
+    builder.float32(anchor + 12, finiteOrigin ? 12.5 : Number.NaN);
+    builder.float32(anchor + 16, -4.25);
+    builder.pointer(payload + 8, anchor);
+  } else if (anchorType === OriginalCommentAnchorType.TEXT) {
+    const anchor: number = builder.table([4, 12], 16);
+    builder.inlineIdentity(anchor + 4, 50, 5);
+    const selection: number = builder.table([4, 16], 28);
+    builder.inlineSequence(selection + 4, 60, 6, 4);
+    builder.inlineSequence(selection + 16, 61, 6, 7);
+    builder.pointer(anchor + 12, selection);
+    builder.pointer(payload + 8, anchor);
+  } else if (anchorType === OriginalCommentAnchorType.ENTITY) {
+    const anchor: number = builder.table([4], 8);
+    const entities: number = builder.operationIdentityVector([
+      { timestamp: 70, siteId: 7 }, { timestamp: 70, siteId: 7 },
+      { timestamp: 71, siteId: 8 },
+    ]);
+    builder.pointer(anchor + 4, entities);
+    builder.pointer(payload + 8, anchor);
+  } else if (anchorType === OriginalCommentAnchorType.REPLY) {
+    const anchor: number = builder.inlineBytes(8);
+    builder.inlineIdentity(anchor, 80, 9);
+    builder.pointer(payload + 8, anchor);
+  }
+  if (includeUnknown) {
+    builder.uint8(payload + 16, 1);
+  }
+  builder.pointer(root + 32, payload);
+  return builder.finish(root);
+}
+
+function flatBufferModifyComment(includeAnchor: boolean, includeText: boolean,
+  text: string | null, includeResolved: boolean, resolved: number | null,
+  includeUnknown: boolean = false, includeComment: boolean = true): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.inlineIdentity(root + 4, 321, 8);
+  writeDecimalU64At(builder, root + 12, '3');
+  writeDecimalU64At(builder, root + 20, '4');
+  builder.uint8(root + 28, ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE);
+  const payload: number = builder.table([
+    includeComment ? 4 : 0, includeAnchor ? 12 : 0,
+    includeText ? 32 : 0, includeResolved ? 36 : 0,
+    includeUnknown ? 40 : 0,
+  ], 44);
+  if (includeComment) {
+    builder.inlineIdentity(payload + 4, 90, 10);
+  }
+  if (includeAnchor) {
+    builder.inlineSequence(payload + 12, 41, 2, 5);
+    builder.float32(payload + 24, 20);
+    builder.float32(payload + 28, 30);
+  }
+  if (includeText) {
+    const setter: number = builder.table([text === null ? 0 : 4], 8);
+    if (text !== null) {
+      builder.pointer(setter + 4, builder.string(text));
+    }
+    builder.pointer(payload + 32, setter);
+  }
+  if (includeResolved) {
+    const setter: number = builder.table([resolved === null ? 0 : 4], 8);
+    if (resolved !== null) {
+      builder.uint8(setter + 4, resolved);
+    }
+    builder.pointer(payload + 36, setter);
+  }
+  if (includeUnknown) {
+    builder.uint8(payload + 40, 1);
+  }
+  builder.pointer(root + 32, payload);
   return builder.finish(root);
 }
 
