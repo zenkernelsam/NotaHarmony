@@ -8,8 +8,20 @@ import {
 
 export const ORIGINAL_ASSET_CLOUD_PERSISTED_PAYLOAD_TYPE: number = 2;
 
-const ASSET_HASH_BYTES: number = 64;
+export const ORIGINAL_ASSET_HASH_BYTES: number = 64;
 const HEX_DIGITS: string = '0123456789abcdef';
+
+export function originalAssetHashBytesToStorageHash(bytes: Uint8Array): string {
+  if (bytes.length !== ORIGINAL_ASSET_HASH_BYTES) {
+    throw new Error('original asset hash must contain 64 bytes');
+  }
+  let storageHash: string = '';
+  for (let index: number = 0; index < bytes.length; index++) {
+    storageHash += HEX_DIGITS.charAt((bytes[index] >>> 4) & 0x0F);
+    storageHash += HEX_DIGITS.charAt(bytes[index] & 0x0F);
+  }
+  return storageHash;
+}
 
 export interface OriginalAssetCloudPersistedPayload {
   storageHash: string;
@@ -17,16 +29,11 @@ export interface OriginalAssetCloudPersistedPayload {
 
 export function decodeOriginalAssetCloudPersistedTable(
   table: OriginalFlatBufferTableReader): OriginalAssetCloudPersistedPayload {
-  const bytes: Uint8Array | null = table.readInlineBytes(0, ASSET_HASH_BYTES);
+  const bytes: Uint8Array | null = table.readInlineBytes(0, ORIGINAL_ASSET_HASH_BYTES);
   if (bytes === null) {
     throw new Error('AssetCloudPersisted has no required assetHash');
   }
-  let storageHash: string = '';
-  for (let index: number = 0; index < bytes.length; index++) {
-    storageHash += HEX_DIGITS.charAt((bytes[index] >>> 4) & 0x0F);
-    storageHash += HEX_DIGITS.charAt(bytes[index] & 0x0F);
-  }
-  return { storageHash: storageHash };
+  return { storageHash: originalAssetHashBytesToStorageHash(bytes) };
 }
 
 export class OriginalAssetCloudPersistedOperationApplier implements SyncedOperationApplier {

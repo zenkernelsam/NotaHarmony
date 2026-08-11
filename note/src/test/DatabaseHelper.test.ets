@@ -10,7 +10,7 @@ import {
   DDL_ORIGINAL_NOTE_BACKGROUND_WINNER, DDL_ORIGINAL_NOTE_TITLE_WINNER,
   DDL_ORIGINAL_ELEMENT_Z_INDEX, DDL_ORIGINAL_INK_STATE, DDL_ORIGINAL_INK_PATH_APPEND,
   DDL_ORIGINAL_BLOCK_STATE, DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER,
-  DDL_ORIGINAL_TEXT_CHECKBOX_STATE,
+  DDL_ORIGINAL_TEXT_CHECKBOX_STATE, DDL_ORIGINAL_PDF_FIELD_STATE,
   DDL_ORIGINAL_DELETED_ENTITY,
   DDL_ORIGINAL_DELETED_PAGE,
   DDL_ORIGINAL_DELETED_PAGE_ELEMENT, DDL_ORIGINAL_DELETED_PAGE_SEARCH,
@@ -23,7 +23,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(53);
+      expect(DB_VERSION).assertEqual(54);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -102,6 +102,7 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[50].join('\n')).assertContain('original_note_title_winner');
       expect(MIGRATIONS[52].join('\n')).assertContain('original_asset_cloud_state');
       expect(MIGRATIONS[53].join('\n')).assertContain('original_text_checkbox_state');
+      expect(MIGRATIONS[54].join('\n')).assertContain('original_pdf_field_state');
       expect(MIGRATIONS[35].join('\n')).assertContain('original_block_state');
       expect(MIGRATIONS[36].join('\n')).assertContain('page_origin_winner_present');
       expect(MIGRATIONS[36].join('\n')).assertContain('z_index_winner_present');
@@ -142,6 +143,11 @@ export default function databaseHelperTest() {
         'PRIMARY KEY(note_id, block_timestamp, block_site_id');
       expect(DDL_ORIGINAL_TEXT_CHECKBOX_STATE).assertContain(
         'UNIQUE(note_id, winner_timestamp, winner_site_id)');
+      expect(DDL_ORIGINAL_PDF_FIELD_STATE).assertContain(
+        'PRIMARY KEY(note_id, asset_hash, field_key)');
+      expect(DDL_ORIGINAL_PDF_FIELD_STATE).assertContain(
+        'UNIQUE(note_id, winner_timestamp, winner_site_id)');
+      expect(DDL_ORIGINAL_PDF_FIELD_STATE).assertNotContain('REFERENCES note_asset');
       expect(DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER)
         .assertContain('REFERENCES note_meta(id) ON DELETE CASCADE');
       expect(DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER)

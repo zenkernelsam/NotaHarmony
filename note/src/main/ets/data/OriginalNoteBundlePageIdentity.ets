@@ -59,6 +59,9 @@ import {
   ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE, OriginalUpdateCheckboxOperationApplier,
 } from './OriginalUpdateCheckboxOperation';
 import {
+  ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE, OriginalModifyPdfFieldOperationApplier,
+} from './OriginalModifyPdfFieldOperation';
+import {
   ORIGINAL_SET_METADATA_PAYLOAD_TYPE, OriginalSetMetadataOperationApplier,
   readEffectiveNoteBackground,
 } from './OriginalSetMetadataOperation';
@@ -318,6 +321,8 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
     new OriginalRichTextStyleOperationApplier();
   const updateCheckbox: OriginalUpdateCheckboxOperationApplier =
     new OriginalUpdateCheckboxOperationApplier();
+  const modifyPdfField: OriginalModifyPdfFieldOperationApplier =
+    new OriginalModifyPdfFieldOperationApplier();
   const setMetadata: OriginalSetMetadataOperationApplier = new OriginalSetMetadataOperationApplier();
   const modifyPositions: OriginalModifyPositionsOperationApplier =
     new OriginalModifyPositionsOperationApplier();
@@ -445,6 +450,13 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
       }
       continue;
     }
+    if (operation.payloadType === ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE) {
+      const reason: string | null = modifyPdfField.preflightTable(operation.payload);
+      if (reason !== null) {
+        return `NOTE_BUNDLE_${reason}`;
+      }
+      continue;
+    }
     if (operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE) {
       return `NOTE_BUNDLE_PAYLOAD_${operation.payloadType}_UNSUPPORTED`;
     }
@@ -492,6 +504,8 @@ async function applyBundleContent(store: relationalStore.RdbStore,
     new OriginalRichTextStyleOperationApplier();
   const updateCheckbox: OriginalUpdateCheckboxOperationApplier =
     new OriginalUpdateCheckboxOperationApplier();
+  const modifyPdfField: OriginalModifyPdfFieldOperationApplier =
+    new OriginalModifyPdfFieldOperationApplier();
   const setMetadata: OriginalSetMetadataOperationApplier = new OriginalSetMetadataOperationApplier();
   const modifyPositions: OriginalModifyPositionsOperationApplier =
     new OriginalModifyPositionsOperationApplier();
@@ -500,6 +514,7 @@ async function applyBundleContent(store: relationalStore.RdbStore,
   const revisionBefore: number = await contentRevisionTotal(store, bundle.noteId);
   const structureRevisionBefore: number = await countRows(store,
     'SELECT structure_revision AS value FROM note_meta WHERE id = ?', [bundle.noteId]);
+  const pdfFieldStateBefore: string = await originalPdfFieldStateSignature(store, bundle.noteId);
   for (const operation of bundle.operations) {
     if (operation.payloadType !== ORIGINAL_SET_METADATA_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE &&
@@ -517,7 +532,8 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       operation.payloadType !== ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE &&
-      operation.payloadType !== ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE) {
+      operation.payloadType !== ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE) {
       continue;
     }
     const stored: StoredSyncedOperation = {
@@ -559,6 +575,8 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       result = await textVisibility.applyTable(store, stored, operation.payload);
     } else if (operation.payloadType === ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE) {
       result = await updateCheckbox.applyTable(store, stored, operation.payload);
+    } else if (operation.payloadType === ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE) {
+      result = await modifyPdfField.applyTable(store, stored, operation.payload);
     } else {
       result = await textStyle.applyTable(store, stored, operation.payload);
     }
@@ -572,7 +590,35 @@ async function applyBundleContent(store: relationalStore.RdbStore,
   const structureRevisionAfter: number = await countRows(store,
     'SELECT structure_revision AS value FROM note_meta WHERE id = ?', [bundle.noteId]);
   return { applied: after > before || revisionAfter > revisionBefore ||
-    structureRevisionAfter > structureRevisionBefore, deferredReason: null };
+    structureRevisionAfter > structureRevisionBefore ||
+    await originalPdfFieldStateSignature(store, bundle.noteId) !== pdfFieldStateBefore,
+    deferredReason: null };
+}
+
+async function originalPdfFieldStateSignature(store: relationalStore.RdbStore,
+  noteId: string): Promise<string> {
+  const rows = await store.querySql(
+    `SELECT asset_hash, field_key, value_type, string_value, boolean_value,
+            winner_timestamp, winner_site_id
+     FROM original_pdf_field_state WHERE note_id = ? ORDER BY asset_hash, field_key`, [noteId]);
+  let signature: string = '';
+  try {
+    while (rows.goToNextRow()) {
+      const assetHash: string = rows.getString(rows.getColumnIndex('asset_hash'));
+      const fieldKey: string = rows.getString(rows.getColumnIndex('field_key'));
+      const valueType: number = rows.getLong(rows.getColumnIndex('value_type'));
+      const value: string = valueType === 0 ?
+        rows.getString(rows.getColumnIndex('string_value')) :
+        rows.getLong(rows.getColumnIndex('boolean_value')).toString();
+      signature += `${assetHash.length}:${assetHash}${fieldKey.length}:${fieldKey}` +
+        `${valueType}:${value.length}:${value}:` +
+        `${rows.getLong(rows.getColumnIndex('winner_timestamp'))}:` +
+        `${rows.getLong(rows.getColumnIndex('winner_site_id'))};`;
+    }
+  } finally {
+    rows.close();
+  }
+  return signature;
 }
 
 async function contentRevisionTotal(store: relationalStore.RdbStore,

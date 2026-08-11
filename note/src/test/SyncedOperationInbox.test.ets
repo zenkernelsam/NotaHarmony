@@ -66,6 +66,11 @@ import {
   decodeOriginalUpdateCheckbox, ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE,
   OriginalUpdateCheckboxOperationApplier,
 } from '../main/ets/data/OriginalUpdateCheckboxOperation';
+import {
+  decodeOriginalModifyPdfField, ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE,
+  ORIGINAL_PDF_FIELD_BOOLEAN_VALUE, ORIGINAL_PDF_FIELD_STRING_VALUE,
+  OriginalModifyPdfFieldOperationApplier,
+} from '../main/ets/data/OriginalModifyPdfFieldOperation';
 import { OriginalPageMutationBatch } from '../main/ets/data/OriginalPageMutationBatch';
 
 function operation(timestamp: number, serverTime: string,
@@ -221,6 +226,7 @@ export default function syncedOperationInboxTest() {
       expect(applier.supports(ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE)).assertTrue();
+      expect(applier.supports(ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE)).assertTrue();
       expect(applier.supports(5)).assertFalse();
     });
 
@@ -405,6 +411,41 @@ export default function syncedOperationInboxTest() {
       expect(applier.preflightTable(readOriginalPayloadTable(
         flatBufferUpdateCheckbox(true, true, true), 28))).assertEqual(
         'MALFORMED_UPDATE_CHECKBOX_PAYLOAD');
+    });
+
+    it('decodes original ModifyPDFField string and explicit boolean values', 0, () => {
+      const stringValue = decodeOriginalModifyPdfField(flatBufferModifyPdfField(
+        ORIGINAL_PDF_FIELD_STRING_VALUE, true, true, true, false, false, 'Alice'));
+      expect(stringValue.storageHash.length).assertEqual(128);
+      expect(stringValue.storageHash.substring(0, 8)).assertEqual('00010203');
+      expect(stringValue.key).assertEqual('name');
+      expect(stringValue.stringValue).assertEqual('Alice');
+      expect(stringValue.booleanValue === null).assertTrue();
+      const checked = decodeOriginalModifyPdfField(flatBufferModifyPdfField(
+        ORIGINAL_PDF_FIELD_BOOLEAN_VALUE, true, true, false, true, false));
+      expect(checked.booleanValue).assertTrue();
+      const unchecked = decodeOriginalModifyPdfField(flatBufferModifyPdfField(
+        ORIGINAL_PDF_FIELD_BOOLEAN_VALUE, true, true, false, true, false, '', false));
+      expect(unchecked.booleanValue).assertFalse();
+    });
+
+    it('rejects incomplete, mismatched and extended original ModifyPDFField values', 0, () => {
+      const applier = new OriginalModifyPdfFieldOperationApplier();
+      expect(applier.preflightTable(readOriginalPayloadTable(flatBufferModifyPdfField(
+        ORIGINAL_PDF_FIELD_STRING_VALUE, false), 27))).assertEqual(
+        'MALFORMED_MODIFY_PDF_FIELD_PAYLOAD');
+      expect(applier.preflightTable(readOriginalPayloadTable(flatBufferModifyPdfField(
+        ORIGINAL_PDF_FIELD_BOOLEAN_VALUE, true, true, false, false), 27))).assertEqual(
+        'MALFORMED_MODIFY_PDF_FIELD_PAYLOAD');
+      expect(applier.preflightTable(readOriginalPayloadTable(flatBufferModifyPdfField(
+        ORIGINAL_PDF_FIELD_STRING_VALUE, true, true, true, true), 27))).assertEqual(
+        'MALFORMED_MODIFY_PDF_FIELD_PAYLOAD');
+      expect(applier.preflightTable(readOriginalPayloadTable(flatBufferModifyPdfField(
+        2, true, true, false, false), 27))).assertEqual(
+        'MALFORMED_MODIFY_PDF_FIELD_PAYLOAD');
+      expect(applier.preflightTable(readOriginalPayloadTable(flatBufferModifyPdfField(
+        ORIGINAL_PDF_FIELD_STRING_VALUE, true, true, true, false, true), 27))).assertEqual(
+        'MALFORMED_MODIFY_PDF_FIELD_PAYLOAD');
     });
 
     it('decodes per-target original ModifyPositions registers without number loss', 0, () => {
@@ -1531,6 +1572,40 @@ function flatBufferUpdateCheckbox(checked: boolean, includeTarget: boolean = tru
     builder.uint8(payload + 25, 1);
   }
   return styleEnvelope(28, root, payload, builder);
+}
+
+function flatBufferModifyPdfField(valueType: number, includeHash: boolean = true,
+  includeKey: boolean = true, includeString: boolean = false,
+  includeBoolean: boolean = false, includeUnknown: boolean = false,
+  stringValue: string = '', booleanValue: boolean = true): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  const payload: number = builder.table([
+    includeHash ? 4 : 0, includeKey ? 68 : 0,
+    valueType === 0 ? 0 : 72, includeString ? 76 : 0,
+    includeBoolean ? 80 : 0, includeUnknown ? 81 : 0,
+  ], 84);
+  if (includeHash) {
+    for (let index: number = 0; index < 64; index++) {
+      builder.uint8(payload + 4 + index, index);
+    }
+  }
+  if (includeKey) {
+    builder.pointer(payload + 68, builder.string('name'));
+  }
+  if (valueType !== 0) {
+    builder.uint8(payload + 72, valueType);
+  }
+  if (includeString) {
+    builder.pointer(payload + 76, builder.string(stringValue));
+  }
+  if (includeBoolean) {
+    builder.uint8(payload + 80, booleanValue ? 1 : 0);
+  }
+  if (includeUnknown) {
+    builder.uint8(payload + 81, 1);
+  }
+  return styleEnvelope(27, root, payload, builder);
 }
 
 function boolWrapper(builder: FixtureFlatBufferBuilder, value: boolean | null): number {

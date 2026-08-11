@@ -136,7 +136,7 @@ assert.match(modifySource, /inkEffects: table\.readUint64Decimal\(17\)/);
 assert.match(modifySource, /inkEffectsTinted: table\.hasField\(18\)/);
 assert.match(modifySource, /tape_pattern_winner_present/);
 assert.match(modifySource, /nib-only op is an applied no-op/);
-assert.match(schema, /DB_VERSION: number = 53/);
+assert.match(schema, /DB_VERSION: number = 54/);
 assert.doesNotMatch(schema, /nib_angle|nib_flatness/);
 
 console.log('success|create-nib-u16=65535,40000|modify-nib-u16=65535,40000|' +

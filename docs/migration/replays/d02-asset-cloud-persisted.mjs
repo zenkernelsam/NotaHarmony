@@ -76,11 +76,11 @@ assert.equal(failed.prepare(`SELECT COUNT(*) count FROM sqlite_master
   WHERE type='table' AND name='original_asset_cloud_state'`).get().count, 0);
 failed.close();
 
-assert.match(schema, /DB_VERSION: number = 53/);
+assert.match(schema, /DB_VERSION: number = 54/);
 assert.match(schema, /52: \[[\s\S]*DDL_ORIGINAL_ASSET_CLOUD_STATE/);
 assert.match(schema, /PRIMARY KEY\(note_id, asset_hash\)/);
 assert.match(manager, /DDL_ORIGINAL_ASSET_CLOUD_STATE/);
-assert.match(reducer, /readInlineBytes\(0, ASSET_HASH_BYTES\)/);
+assert.match(reducer, /readInlineBytes\(0, ORIGINAL_ASSET_HASH_BYTES\)/);
 assert.match(reducer, /INSERT OR IGNORE INTO original_asset_cloud_state/);
 assert.doesNotMatch(reducer, /AssetStatus\.UPLOADED/);
 assert.doesNotMatch(reducer, /UPDATE note_asset/);

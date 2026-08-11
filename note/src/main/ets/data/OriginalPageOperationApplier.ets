@@ -46,6 +46,9 @@ import {
   ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE, OriginalUpdateCheckboxOperationApplier,
 } from './OriginalUpdateCheckboxOperation';
 import {
+  ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE, OriginalModifyPdfFieldOperationApplier,
+} from './OriginalModifyPdfFieldOperation';
+import {
   OriginalFlatBufferTableReader,
 } from './OriginalSyncedOperationFlatBuffer';
 import {
@@ -78,6 +81,8 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
     new OriginalRichTextStyleOperationApplier();
   private updateCheckbox: OriginalUpdateCheckboxOperationApplier =
     new OriginalUpdateCheckboxOperationApplier();
+  private modifyPdfField: OriginalModifyPdfFieldOperationApplier =
+    new OriginalModifyPdfFieldOperationApplier();
 
   supports(payloadType: number): boolean {
     return payloadType === ORIGINAL_SET_METADATA_PAYLOAD_TYPE ||
@@ -99,7 +104,8 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
       payloadType === ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE ||
-      payloadType === ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE;
+      payloadType === ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE;
   }
 
   async apply(store: relationalStore.RdbStore,
@@ -160,6 +166,9 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
     }
     if (operation.payloadType === ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE) {
       return this.updateCheckbox.apply(store, operation);
+    }
+    if (operation.payloadType === ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE) {
+      return this.modifyPdfField.apply(store, operation);
     }
     throw new Error('original page operation applier received an unsupported payload');
   }

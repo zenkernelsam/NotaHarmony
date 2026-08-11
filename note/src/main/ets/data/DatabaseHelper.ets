@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v53: preserve the original RichText location-keyed checkbox LWW register.
-export const DB_VERSION: number = 53;
+// v54: preserve the original PDF asset-field typed LWW map.
+export const DB_VERSION: number = 54;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -1238,6 +1238,23 @@ CREATE TABLE IF NOT EXISTS original_asset_cloud_state (
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
+export const DDL_ORIGINAL_PDF_FIELD_STATE: string = `
+CREATE TABLE IF NOT EXISTS original_pdf_field_state (
+  note_id TEXT NOT NULL,
+  asset_hash TEXT NOT NULL CHECK (length(asset_hash) = 128),
+  field_key TEXT NOT NULL CHECK (length(field_key) BETWEEN 1 AND 65536),
+  value_type INTEGER NOT NULL CHECK (value_type IN (0, 1)),
+  string_value TEXT,
+  boolean_value INTEGER CHECK (boolean_value IN (0, 1)),
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  PRIMARY KEY(note_id, asset_hash, field_key),
+  UNIQUE(note_id, winner_timestamp, winner_site_id),
+  CHECK ((value_type = 0 AND string_value IS NOT NULL AND boolean_value IS NULL) OR
+    (value_type = 1 AND string_value IS NULL AND boolean_value IS NOT NULL)),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
 export const DDL_NOTE_META: string = `
 CREATE TABLE IF NOT EXISTS note_meta (
   id TEXT PRIMARY KEY,
@@ -2132,5 +2149,8 @@ export const MIGRATIONS: Record<number, string[]> = {
   ],
   53: [
     DDL_ORIGINAL_TEXT_CHECKBOX_STATE,
+  ],
+  54: [
+    DDL_ORIGINAL_PDF_FIELD_STATE,
   ],
 };
