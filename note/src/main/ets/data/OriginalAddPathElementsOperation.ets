@@ -1,7 +1,9 @@
 import { relationalStore } from '@kit.ArkData';
-import { Point2D, Rect2D } from '../core/model/GeometryTypes';
+import { CubicSegment, Point2D, Rect2D } from '../core/model/GeometryTypes';
 import { PageElementKind } from '../core/model/PageElementOrder';
-import { InkStyle, StrokeElementData, StrokePathPoint } from '../core/model/StrokeTypes';
+import {
+  InkStyle, PencilSplatPoint, StrokeElementData, StrokePathPoint,
+} from '../core/model/StrokeTypes';
 import {
   ORIGINAL_PENCIL_FALLBACK_SEED, PencilSplatGenerator, PencilSplatLimitError,
 } from '../core/algorithm/PencilSplatGenerator';
@@ -57,8 +59,8 @@ export interface OriginalInkAppendRecord extends OperationIdentity {
 
 export interface RebuiltOriginalInkGeometry {
   pathPoints: StrokePathPoint[];
-  cubicSegments: StrokeElementData['cubicSegments'];
-  splatPoints: StrokeElementData['splatPoints'];
+  cubicSegments: CubicSegment[];
+  splatPoints: PencilSplatPoint[];
   bounds: Rect2D;
   attributed: boolean;
 }
@@ -585,7 +587,7 @@ export function rebuildOriginalInkGeometry(baseBytes: Uint8Array,
   estimatedBytes?: Uint8Array | null): RebuiltOriginalInkGeometry {
   const base: DecodedOriginalInkPath = decodeOriginalInkPath(baseBytes);
   const pathPoints: StrokePathPoint[] = base.pathPoints.slice();
-  const cubicSegments: StrokeElementData['cubicSegments'] = base.cubicSegments.slice();
+  const cubicSegments: CubicSegment[] = base.cubicSegments.slice();
   let localBounds: Rect2D = base.localBounds;
   let attributed: boolean = base.attributed;
   let current: Point2D = pathPoints[pathPoints.length - 1].position;
@@ -627,7 +629,7 @@ export function rebuildOriginalInkGeometry(baseBytes: Uint8Array,
     styleEntry.backingPencilReferencePoint.y !== 0)) {
     referencePoint = styleEntry.backingPencilReferencePoint;
   }
-  const splatPoints: StrokeElementData['splatPoints'] = stroke.renderSpec.isPencil ?
+  const splatPoints: PencilSplatPoint[] = stroke.renderSpec.isPencil ?
     splatGenerator.generate(cubicSegments, pathPoints, undefined, referencePoint) : [];
   return {
     pathPoints: pathPoints,

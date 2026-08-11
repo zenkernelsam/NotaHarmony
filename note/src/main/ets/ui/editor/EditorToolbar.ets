@@ -17,6 +17,8 @@ export struct EditorToolbar {
   };
   onRedo: () => void = () => {
   };
+  onSelectionStyle: (style: BrushStyle) => void = (_style: BrushStyle): void => {
+  };
   @Prop canUndo: boolean = false;
   @Prop canRedo: boolean = false;
   // T-038：主题状态
@@ -141,18 +143,26 @@ export struct EditorToolbar {
         .height(40)
         .justifyContent(FlexAlign.Center)
       } else if (this.viewModel.isSelectionActive()) {
-        Row() {
-          Text($r('app.string.selection'))
-          Button(this.viewModel.selectionIsFreehand ? $r('app.string.freehand') : $r('app.string.rectangle'))
-            .height(32)
-            .margin({ left: 12 })
-            .onClick(() => {
-              this.viewModel.setSelectionIsFreehand(!this.viewModel.selectionIsFreehand);
-            })
+        Column() {
+          Row() {
+            Text($r('app.string.selection'))
+            Button(this.viewModel.selectionIsFreehand ? $r('app.string.freehand') : $r('app.string.rectangle'))
+              .height(30)
+              .margin({ left: 12 })
+              .onClick(() => {
+                this.viewModel.setSelectionIsFreehand(!this.viewModel.selectionIsFreehand);
+              })
+          }
+          Row() {
+            this.SelectionStyleButton($r('app.string.style_mono'), BrushStyle.MONO)
+            this.SelectionStyleButton($r('app.string.style_taper'), BrushStyle.TAPER)
+            this.SelectionStyleButton($r('app.string.style_dash'), BrushStyle.DASH)
+            this.SelectionStyleButton($r('app.string.style_dots'), BrushStyle.DOT)
+          }
         }
         .width('100%')
-        .height(40)
-        .justifyContent(FlexAlign.Center)
+        .height(72)
+        .alignItems(HorizontalAlign.Center)
       }
     }
     .width('100%')
@@ -201,6 +211,21 @@ export struct EditorToolbar {
       .enabled(!this.viewModel.toolStateLoading)
       .onClick(() => {
         this.viewModel.setBrushStyle(style);
+      })
+  }
+
+  @Builder
+  SelectionStyleButton(label: ResourceStr, style: BrushStyle) {
+    Button(label)
+      .height(30)
+      .fontSize(12)
+      .borderRadius(4)
+      .margin({ left: 2, right: 2 })
+      .backgroundColor(this.resolveTokens().control)
+      .fontColor(this.resolveTokens().textPrimary)
+      .enabled(!this.viewModel.toolStateLoading)
+      .onClick(() => {
+        this.onSelectionStyle(style);
       })
   }
 }

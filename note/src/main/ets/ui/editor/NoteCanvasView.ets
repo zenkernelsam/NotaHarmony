@@ -131,6 +131,8 @@ export struct NoteCanvasView {
   };
   @Prop @Watch('onUndoSignalChange') undoSignal: number = 0;
   @Prop @Watch('onRedoSignalChange') redoSignal: number = 0;
+  @Prop @Watch('onSelectionStyleSignalChange') selectionStyleSignal: number = 0;
+  @Prop selectionInkStyle: InkStyle = InkStyle.FIXED_WIDTH;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioTime: string | null = null;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioSegments: OriginalAudioSegmentRange[] = [];
   readRecordingAudioTime: () => string | null = (): string | null => null;
@@ -826,6 +828,10 @@ export struct NoteCanvasView {
       this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     }
     this.renderFrame(true);
+  }
+
+  onSelectionStyleSignalChange(_propName: string): void {
+    this.modifySelectedInkStyle(this.selectionInkStyle);
   }
 
   private async ensurePencilTexture(): Promise<void> {
@@ -1997,6 +2003,11 @@ export struct NoteCanvasView {
       return action.removedShapes.length === 0 && action.removedTextBlocks.length === 0 &&
         action.removedImages.length === 0 && (action.removedMathBlocks ?? []).length === 0 &&
         this.areCanonicalOriginalStrokes(action.removedStrokes);
+    }
+    if (action.type === UndoableActionType.TRANSFORM_STROKES) {
+      return this.areCanonicalOriginalStrokes(action.beforeStrokes) &&
+        this.areCanonicalOriginalStrokes(action.afterStrokes) &&
+        this.sameStrokeIds(action.beforeStrokes, action.afterStrokes);
     }
     return false;
   }
@@ -3677,6 +3688,46 @@ export struct NoteCanvasView {
     return true;
   }
 
+  private modifySelectedInkStyle(style: InkStyle): void {
+    if (this.historyBusy || !this.loaded || !this.viewModel.isSelectionActive()) {
+      return;
+    }
+    const selected: Set<string> = new Set<string>(
+      this.selectionTool.getState().selectedStrokeIds);
+    const before: StrokeElementData[] = [];
+    const after: StrokeElementData[] = [];
+    const replacements: Map<string, StrokeElementData> = new Map<string, StrokeElementData>();
+    for (const stroke of this.completedStrokes) {
+      if (!selected.has(stroke.id) || stroke.renderSpec.isPencil ||
+        stroke.renderSpec.isPartialEraser === true || stroke.renderSpec.inkStyle === style) {
+        continue;
+      }
+      const source: StrokeElementData = this.cloneStrokeSnapshot(stroke);
+      const replacement: StrokeElementData = this.cloneStrokeSnapshot(stroke);
+      replacement.renderSpec.inkStyle = style;
+      replacement.styleMap = [];
+      before.push(source);
+      after.push(replacement);
+      replacements.set(stroke.id, replacement);
+    }
+    if (after.length === 0) {
+      return;
+    }
+    this.completedStrokes = this.completedStrokes.map((stroke: StrokeElementData): StrokeElementData =>
+      replacements.get(stroke.id) ?? stroke);
+    this.undoRedo.push({
+      type: UndoableActionType.TRANSFORM_STROKES,
+      noteId: this.noteId,
+      pageId: this.currentPage.pageId,
+      beforeStrokes: before,
+      afterStrokes: after,
+    });
+    this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+    this.persist(this.areCanonicalOriginalStrokes(before));
+    this.notifyUndoRedo();
+    this.renderFrame();
+  }
+
   private removeShapeById(id: string): void {
     const remaining: ShapeElement[] = [];
     for (const shape of this.shapes) {
@@ -3870,6 +3921,7 @@ export struct NoteCanvasView {
         inkStyle: s.renderSpec.inkStyle,
         isHighlighter: s.renderSpec.isHighlighter,
         isPencil: s.renderSpec.isPencil,
+        isPartialEraser: s.renderSpec.isPartialEraser,
         inkEffects: s.renderSpec.inkEffects,
         inkEffectsTinted: s.renderSpec.inkEffectsTinted,
         inkEffectPhase: s.renderSpec.inkEffectPhase,
@@ -3881,18 +3933,18 @@ export struct NoteCanvasView {
         right: s.bounds.right, bottom: s.bounds.bottom,
       },
       maskPath: s.maskPath.map((point: Point2D): Point2D => ({ x: point.x, y: point.y })),
-      customPath: s.customPath === undefined || s.customPath === null ? null :
+      customPath: s.customPath === undefined ? undefined : s.customPath === null ? null :
         s.customPath.map((command: InkPathCommand): InkPathCommand => ({
           type: command.type,
           points: command.points.map((point: Point2D): Point2D => ({ x: point.x, y: point.y })),
         })),
-      fillPath: s.fillPath === undefined || s.fillPath === null ? null :
+      fillPath: s.fillPath === undefined ? undefined : s.fillPath === null ? null :
         s.fillPath.map((command: InkPathCommand): InkPathCommand => ({
           type: command.type,
           points: command.points.map((point: Point2D): Point2D => ({ x: point.x, y: point.y })),
         })),
-      fillColor: s.fillColor === undefined ? null : s.fillColor,
-      styleMap: s.styleMap === undefined ? [] :
+      fillColor: s.fillColor,
+      styleMap: s.styleMap === undefined ? undefined :
         s.styleMap.map((entry: InkStyleMapEntry): InkStyleMapEntry => ({
           backingPencilSeed: entry.backingPencilSeed,
           backingPencilReferencePoint: {
@@ -3903,6 +3955,13 @@ export struct NoteCanvasView {
         })),
       audioStartTime: s.audioStartTime,
       audioDuration: s.audioDuration,
+      originalCreate: s.originalCreate === undefined ? undefined : {
+        timestamp: s.originalCreate.timestamp, siteId: s.originalCreate.siteId,
+        clientTime: s.originalCreate.clientTime,
+        pageTimestamp: s.originalCreate.pageTimestamp,
+        pageSiteId: s.originalCreate.pageSiteId, pageIndex: s.originalCreate.pageIndex,
+        pencilSeed: s.originalCreate.pencilSeed,
+      },
       isFinished: s.isFinished,
     };
   }

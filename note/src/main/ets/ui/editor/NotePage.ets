@@ -5,6 +5,8 @@ import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { audio } from '@kit.AudioKit';
 import { NoteMeta, PageInfo } from '../../core/model/NoteTypes';
+import { BrushStyle, brushStyleToInkStyle } from '../../core/model/BrushTypes';
+import { InkStyle } from '../../core/model/StrokeTypes';
 import { clonePageInfo, samePageBackground } from '../../core/model/PageBackgroundModel';
 import { HistoryMetadata } from '../../core/model/OpTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
@@ -71,6 +73,8 @@ struct NotePage {
   @State currentPageIndex: number = 0;
   @State undoSignal: number = 0;
   @State redoSignal: number = 0;
+  @State selectionStyleSignal: number = 0;
+  @State selectionInkStyle: InkStyle = InkStyle.FIXED_WIDTH;
   @State canUndo: boolean = false;
   @State canRedo: boolean = false;
   @State pageOperationBusy: boolean = false;
@@ -741,6 +745,10 @@ struct NotePage {
           onRedo: () => {
             this.redoSignal++;
           },
+          onSelectionStyle: (style: BrushStyle) => {
+            this.selectionInkStyle = brushStyleToInkStyle(style);
+            this.selectionStyleSignal++;
+          },
         })
       }
 
@@ -796,6 +804,8 @@ struct NotePage {
           currentPage: this.pages[this.currentPageIndex],
           undoSignal: this.undoSignal,
           redoSignal: this.redoSignal,
+          selectionStyleSignal: this.selectionStyleSignal,
+          selectionInkStyle: this.selectionInkStyle,
           playbackAudioTime: this.audioPlaybackTime,
           playbackAudioSegments: this.audioPlaybackSegments,
           readRecordingAudioTime: (): string | null => {

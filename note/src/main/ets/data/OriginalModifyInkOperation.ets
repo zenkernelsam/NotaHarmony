@@ -25,7 +25,9 @@ import {
   OriginalFlatBufferTableReader, readOriginalInlineFloat32, readOriginalPayloadTable,
 } from './OriginalSyncedOperationFlatBuffer';
 import { SearchItemType } from './SearchItemType';
-import { OriginalPageMutationBatch } from './OriginalPageMutationBatch';
+import {
+  OriginalMutationPageTarget, OriginalPageMutationBatch,
+} from './OriginalPageMutationBatch';
 import {
   decodePersistedElement, encodePersistedElement, PersistedElement,
 } from './StrokePersistence';
@@ -118,13 +120,8 @@ interface StoredInkState {
   zIndex: StoredRegister<string>;
 }
 
-interface StoredPageTarget {
-  page: OriginalSequenceIdentity;
-  pageId: string;
+interface StoredPageTarget extends OriginalMutationPageTarget {
   table: string;
-  revisionTable: string;
-  revision: number;
-  archived: boolean;
 }
 
 interface StoredInkTarget extends StoredPageTarget {

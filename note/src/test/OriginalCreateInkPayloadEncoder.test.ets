@@ -9,6 +9,9 @@ import { decodeOperationId } from '../main/ets/data/OperationIdentity';
 import { encodeOriginalEntityVisibility } from
   '../main/ets/data/OriginalDeleteEntitiesPayloadEncoder';
 import { decodeOriginalDeleteEntities } from '../main/ets/data/OriginalDeleteEntitiesOperation';
+import { encodeOriginalInkRenderRegisters } from
+  '../main/ets/data/OriginalModifyInkPayloadEncoder';
+import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOperation';
 
 export default function originalCreateInkPayloadEncoderTest() {
   describe('OriginalCreateInkPayloadEncoder', () => {
@@ -64,6 +67,21 @@ export default function originalCreateInkPayloadEncoderTest() {
       expect(decoded.style).assertEqual(1);
       expect(decoded.width).assertEqual(4.5);
       expect(unsupportedOriginalCreateInkReason(decoded) === null).assertTrue();
+    });
+
+    it('round-trips batched original MODIFY_INK render registers', 0, () => {
+      const decoded = decodeOriginalModifyInk(encodeOriginalInkRenderRegisters([
+        { timestamp: 20, siteId: 2 }, { timestamp: 22, siteId: 4 },
+      ], { style: InkStyle.DASH, color: -2146360781, width: 7.5 }));
+      expect(decoded.inks.length).assertEqual(2);
+      expect(decoded.inks[0].timestamp).assertEqual(20);
+      expect(decoded.inks[1].siteId).assertEqual(4);
+      expect(decoded.style).assertEqual(2);
+      expect(decoded.color).assertEqual(-2146360781);
+      expect(decoded.width).assertEqual(7.5);
+      expect(decoded.styleMap.present).assertTrue();
+      expect(decoded.styleMap.value?.length).assertEqual(0);
+      expect(decoded.centerPath === null).assertTrue();
     });
   });
 }
