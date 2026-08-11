@@ -67,6 +67,7 @@ import originalRecordingDeleteControllerTest from './OriginalRecordingDeleteCont
 import originalRecordingCaptureControllerTest from './OriginalRecordingCaptureController.test';
 import originalCreateRecordingPayloadEncoderTest from './OriginalCreateRecordingPayloadEncoder.test';
 import originalRecordingSessionControllerTest from './OriginalRecordingSessionController.test';
+import originalRecordingPresentationTest from './OriginalRecordingPresentation.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -138,4 +139,5 @@ export default function testsuite() {
   originalRecordingCaptureControllerTest();
   originalCreateRecordingPayloadEncoderTest();
   originalRecordingSessionControllerTest();
+  originalRecordingPresentationTest();
 }

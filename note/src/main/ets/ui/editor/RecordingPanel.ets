@@ -8,6 +8,9 @@ import {
   OriginalRecordingSessionFailure, OriginalRecordingSessionSnapshot,
 } from '../../core/adaptation/OriginalRecordingSessionController';
 import {
+  buildOriginalRecordingPresentation, OriginalRecordingPresentation,
+} from '../../core/adaptation/OriginalRecordingPresentation';
+import {
   MaterializedOriginalRecording, OriginalRecordingAssetState,
 } from '../../data/OriginalRecordingStore';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
@@ -77,12 +80,12 @@ export struct RecordingPanel {
           .textAlign(TextAlign.Center)
       } else {
         List() {
-          ForEach(this.recordings, (recording: MaterializedOriginalRecording) => {
+          ForEach(this.recordings, (recording: MaterializedOriginalRecording, index: number) => {
             ListItem() {
               if (this.isPendingDelete(recording.id)) {
                 this.PendingDeleteRow(recording)
               } else {
-                this.RecordingRow(recording)
+                this.RecordingRow(recording, index)
               }
             }
           }, (recording: MaterializedOriginalRecording): string => recording.id)
@@ -193,7 +196,7 @@ export struct RecordingPanel {
   }
 
   @Builder
-  private RecordingRow(recording: MaterializedOriginalRecording) {
+  private RecordingRow(recording: MaterializedOriginalRecording, index: number) {
     Row() {
       Button(this.isPlaying(recording.id) ? 'Ⅱ' : '▶')
         .width(40).height(40).fontSize(16).borderRadius(4)
@@ -207,12 +210,12 @@ export struct RecordingPanel {
           $r('app.string.play_recording'))
         .onClick(() => this.onToggle(recording.id))
       Column() {
-        Text(recording.name)
+        Text($r('app.string.recording_user_facing_name', index + 1))
           .fontSize(14)
           .fontWeight(this.isSelected(recording.id) ? FontWeight.Medium : FontWeight.Regular)
           .fontColor(this.resolveTokens().textPrimary)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(this.assetStatus(recording))
+        Text(this.recordingSubtitle(recording))
           .fontSize(11)
           .fontColor(recording.assetState === OriginalRecordingAssetState.FAILED ?
             this.resolveTokens().danger : this.resolveTokens().textSecondary)
@@ -282,6 +285,24 @@ export struct RecordingPanel {
       return $r('app.string.recording_audio_missing');
     }
     return $r('app.string.recording_audio_failed');
+  }
+
+  private recordingSubtitle(recording: MaterializedOriginalRecording): ResourceStr {
+    if (recording.assetState !== OriginalRecordingAssetState.READY) {
+      return this.assetStatus(recording);
+    }
+    try {
+      const presentation: OriginalRecordingPresentation =
+        buildOriginalRecordingPresentation(recording);
+      const date: Date = new Date(presentation.startTimeMs);
+      const dateText: string = new Intl.DateTimeFormat(undefined,
+        { dateStyle: 'medium' }).format(date);
+      const timeText: string = new Intl.DateTimeFormat(undefined,
+        { timeStyle: 'short' }).format(date);
+      return $r('app.string.recording_subtitle', presentation.duration, dateText, timeText);
+    } catch (_error) {
+      return recording.assetFileName;
+    }
   }
 }
 

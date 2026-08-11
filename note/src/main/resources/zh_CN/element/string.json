@@ -191,6 +191,8 @@
     { "name": "saving_recording", "value": "正在保存录音…" },
     { "name": "recording_start_failed", "value": "无法开始录音" },
     { "name": "recording_save_failed", "value": "无法保存录音" },
+    { "name": "recording_user_facing_name", "value": "录音 %d" },
+    { "name": "recording_subtitle", "value": "%s %s，%s" },
     { "name": "undo", "value": "撤销" }
   ]
 }
