@@ -866,7 +866,7 @@ export default function syncedOperationInboxTest() {
       expect(rejected).assertEqual(2);
     });
 
-    it('batches mixed position page revisions and search invalidation once', 0, async () => {
+    it('batches mixed create page revisions and search invalidation once', 0, async () => {
       let updates: number = 0;
       const statements: string[] = [];
       const fakeStore = {
@@ -885,6 +885,7 @@ export default function syncedOperationInboxTest() {
       const batch = new OriginalPageMutationBatch();
       batch.recordInk(target);
       batch.recordBlock(target, true);
+      batch.recordBlock(target, false);
       await batch.flush(fakeStore, 'note');
       expect(updates).assertEqual(1);
       expect(statements.length).assertEqual(3);

@@ -312,6 +312,23 @@ export class OriginalShapeGroupOperationApplier implements SyncedOperationApplie
     return this.applyTable(store, operation, table);
   }
 
+  async applyCreateShapeBatchedPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, payload: OriginalCreateShapePayload,
+    revisionBatch: OriginalPageMutationBatch): Promise<SyncedOperationApplyResult> {
+    if (operation.payloadType !== ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE) {
+      return { deferredReason: 'SHAPE_GROUP_PAYLOAD_TYPE_UNSUPPORTED' };
+    }
+    try {
+      validateOperationIdentity(operation);
+      return await this.applyCreateShape(store, operation, payload, revisionBatch);
+    } catch (error) {
+      if (error instanceof ShapeGroupDeferredError) {
+        return { deferredReason: error.reason };
+      }
+      throw new Error(`original Shape/Group batched apply failed: ${JSON.stringify(error)}`);
+    }
+  }
+
   preflightTable(table: OriginalFlatBufferTableReader, payloadType: number,
     defaultZIndex: string): string | null {
     try {
@@ -376,7 +393,8 @@ export class OriginalShapeGroupOperationApplier implements SyncedOperationApplie
 
   private async applyCreateShape(store: relationalStore.RdbStore,
     operation: StoredSyncedOperation,
-    payload: OriginalCreateShapePayload): Promise<SyncedOperationApplyResult> {
+    payload: OriginalCreateShapePayload,
+    revisionBatch: OriginalPageMutationBatch | null = null): Promise<SyncedOperationApplyResult> {
     const signature: string = JSON.stringify(payload);
     const existing: string | null = await scalarString(store,
       `SELECT create_signature FROM original_shape_state WHERE note_id = ?
@@ -439,9 +457,12 @@ export class OriginalShapeGroupOperationApplier implements SyncedOperationApplie
     await insertPageElement(store, operation.noteId, target, shape.id,
       encodePersistedElement(persisted), target.revision + 1);
     await assignPageOrder(store, operation.noteId, target);
-    const batch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+    const batch: OriginalPageMutationBatch = revisionBatch === null ?
+      new OriginalPageMutationBatch() : revisionBatch;
     batch.recordBlock(target, false);
-    await batch.flush(store, operation.noteId);
+    if (revisionBatch === null) {
+      await batch.flush(store, operation.noteId);
+    }
     return { deferredReason: null };
   }
 

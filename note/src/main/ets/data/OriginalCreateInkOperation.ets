@@ -19,6 +19,7 @@ import {
   OriginalEntityVisibilityWinner, readOriginalEntityVisibilityWinner,
 } from './OriginalEntityVisibilityState';
 import { originalGroupLayerRanks, OriginalLayeringEntity } from './OriginalGroupLayering';
+import { OriginalMutationPageTarget, OriginalPageMutationBatch } from './OriginalPageMutationBatch';
 import {
   decodeOriginalAuxiliaryInkPath, decodeOriginalInkPath, DecodedOriginalAuxiliaryInkPath,
   DecodedOriginalInkPath, originalInkTransform,
@@ -168,6 +169,12 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
     return this.applyPayload(store, operation, payload);
   }
 
+  async applyBatchedPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, payload: OriginalCreateInkPayload,
+    revisionBatch: OriginalPageMutationBatch): Promise<SyncedOperationApplyResult> {
+    return this.applyPayload(store, operation, payload, revisionBatch);
+  }
+
   preflightTable(table: OriginalFlatBufferTableReader, defaultZIndex: string): string | null {
     try {
       return unsupportedOriginalCreateInkReason(
@@ -196,7 +203,8 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
 
   private async applyPayload(store: relationalStore.RdbStore,
     operation: StoredSyncedOperation,
-    payload: OriginalCreateInkPayload): Promise<SyncedOperationApplyResult> {
+    payload: OriginalCreateInkPayload,
+    revisionBatch: OriginalPageMutationBatch | null = null): Promise<SyncedOperationApplyResult> {
     const unsupported: string | null = unsupportedOriginalCreateInkReason(payload);
     if (unsupported !== null) {
       return { deferredReason: unsupported };
@@ -368,7 +376,7 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       return { deferredReason: null };
     }
     await this.materializeOrder(store, operation.noteId, payload.page, target,
-      existingRows, stroke, target.revision + 1);
+      existingRows, stroke, target.revision + 1, revisionBatch);
     return { deferredReason: null };
   }
 
@@ -713,7 +721,8 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
 
   private async materializeOrder(store: relationalStore.RdbStore, noteId: string,
     page: OriginalSequenceIdentity, target: StoredTargetPage, rows: StoredZIndexRow[],
-    stroke: StrokeElementData, revision: number): Promise<void> {
+    stroke: StrokeElementData, revision: number,
+    revisionBatch: OriginalPageMutationBatch | null): Promise<void> {
     for (let index: number = 0; index < rows.length; index++) {
       const row: StoredZIndexRow = rows[index];
       if (row.elementId === stroke.id && row.kind === PageElementKind.STROKE) {
@@ -748,7 +757,13 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
         }
       }
     }
-    if (target.archived) {
+    if (revisionBatch !== null) {
+      const batchTarget: OriginalMutationPageTarget = {
+        page: page, pageId: target.pageId, revisionTable: target.revisionTable,
+        revision: target.revision, archived: target.archived,
+      };
+      revisionBatch.recordInk(batchTarget);
+    } else if (target.archived) {
       const predicates = new relationalStore.RdbPredicates('original_deleted_page');
       predicates.equalTo('note_id', noteId);
       predicates.equalTo('page_timestamp', page.timestamp);
