@@ -142,6 +142,19 @@ export class OriginalFlatBufferTableReader {
     return result;
   }
 
+  readTableVectorAsRoots(field: number, maximumCount: number,
+    maximumTotalBytes: number): Uint8Array[] {
+    if (!Number.isSafeInteger(maximumTotalBytes) || maximumTotalBytes < 0) {
+      throw new Error('FlatBuffer re-root byte budget is invalid');
+    }
+    const tables: OriginalFlatBufferTableReader[] = this.readTableVector(field, maximumCount);
+    if (tables.length > 0 && this.bytes.length > Math.floor(maximumTotalBytes / tables.length)) {
+      throw new Error('FlatBuffer re-root copies exceed their byte budget');
+    }
+    return tables.map((table: OriginalFlatBufferTableReader): Uint8Array =>
+      table.copyBufferWithThisTableAsRoot());
+  }
+
   readInlineVectorCount(field: number, elementSize: number, maximumCount: number): number {
     if (!Number.isSafeInteger(elementSize) || elementSize < 1 || elementSize > 1024) {
       throw new Error('FlatBuffer inline vector element size is invalid');
@@ -239,6 +252,17 @@ export class OriginalFlatBufferTableReader {
       throw new Error(`FlatBuffer string field ${field} is not valid UTF-8`);
     }
     return value;
+  }
+
+  private copyBufferWithThisTableAsRoot(): Uint8Array {
+    const result: Uint8Array = this.bytes.slice();
+    const tablePosition: number = this.table.table;
+    result[0] = tablePosition & 0xFF;
+    result[1] = (tablePosition >>> 8) & 0xFF;
+    result[2] = (tablePosition >>> 16) & 0xFF;
+    result[3] = (tablePosition >>> 24) & 0xFF;
+    readFlatBufferRoot(result);
+    return result;
   }
 
   private readVector(field: number, elementSize: number, maximumCount: number): number | null {

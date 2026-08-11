@@ -50,6 +50,7 @@ import persistentHistoryTest from './PersistentHistory.test';
 import importIdentityTest from './ImportIdentity.test';
 import operationCompactionTest from './OperationCompaction.test';
 import operationSyncCoordinatorTest from './OperationSyncCoordinator.test';
+import incomingOperationSyncCoordinatorTest from './IncomingOperationSyncCoordinator.test';
 import syncedOperationInboxTest from './SyncedOperationInbox.test';
 import imageBlockRenderingTest from './ImageBlockRendering.test';
 import assetArrivalTest from './AssetArrival.test';
@@ -109,6 +110,7 @@ export default function testsuite() {
   importIdentityTest();
   operationCompactionTest();
   operationSyncCoordinatorTest();
+  incomingOperationSyncCoordinatorTest();
   syncedOperationInboxTest();
   imageBlockRenderingTest();
   assetArrivalTest();

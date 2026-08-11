@@ -134,7 +134,7 @@ export class DeferredSyncedOperationBundleStore {
         checksum: rows.getLong(rows.getColumnIndex('checksum')),
         receivedAt: rows.getLong(rows.getColumnIndex('received_at')),
       };
-      validateStoredBundle(bundle);
+      validateDeferredSyncedOperationBundle(bundle);
       return bundle;
     } finally {
       rows.close();
@@ -153,7 +153,7 @@ function validateBundleInput(noteId: string, schemaVersion: number,
   validateFlatBufferRoot(payload);
 }
 
-function validateStoredBundle(bundle: DeferredSyncedOperationBundle): void {
+export function validateDeferredSyncedOperationBundle(bundle: DeferredSyncedOperationBundle): void {
   validateBundleInput(bundle.noteId, bundle.schemaVersion, bundle.tableType,
     bundle.payload, bundle.receivedAt);
   if (bundle.payload.length !== bundle.payloadSize || crc32Signed(bundle.payload) !== bundle.checksum) {
