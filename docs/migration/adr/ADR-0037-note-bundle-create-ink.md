@@ -46,6 +46,6 @@ deferred 时外层仍会 commit；现改为显式 rollback，因此第二支 Ink
 
 ## Deferred 边界
 
-本阶段只关闭最终可见页面的 NOTE_BUNDLE CREATE_INK。归档页内容、entity visibility、ADD_PATH_ELEMENTS、MODIFY_INK、
+本阶段原先只关闭最终可见页面的 NOTE_BUNDLE CREATE_INK；归档页内容现已由 ADR-0050 修正并闭环。entity visibility、ADD_PATH_ELEMENTS、MODIFY_INK、
 CREATE/MODIFY_BLOCK、富文本字符/样式、NOTE_BUNDLE background fallback、Tape/effects、公式引擎、认证 transport 与服务端
 note/site 创建仍未关闭。下一步应沿同一 table-level preflight/apply 边界逐类加入，并保持整批零部分写入。

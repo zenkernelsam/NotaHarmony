@@ -11,7 +11,8 @@ import {
   decodeOriginalModifyPageTable, OriginalModifyPagePayload,
 } from './OriginalModifyPageOperation';
 import {
-  compareOperationIdentity, compareOriginalSequenceIdentity, encodeOriginalSequenceId,
+  compareOperationIdentity, compareOriginalSequenceIdentity, encodeOriginalPageStorageId,
+  encodeOriginalSequenceId,
   OperationIdentity, OriginalSequenceIdentity, validateOperationIdentity,
   validateOriginalSequenceIdentity,
 } from './OperationIdentity';
@@ -22,19 +23,23 @@ import {
   OriginalDecodedPageBackground, originalPageBackgroundFitsHarmony,
 } from './OriginalPageBackgroundOperation';
 import {
-  ORIGINAL_CREATE_INK_PAYLOAD_TYPE, OriginalCreateInkOperationApplier,
+  decodeOriginalCreateInkTable, ORIGINAL_CREATE_INK_PAYLOAD_TYPE,
+  OriginalCreateInkOperationApplier,
 } from './OriginalCreateInkOperation';
 import {
   ORIGINAL_ADD_PATH_ELEMENTS_PAYLOAD_TYPE, OriginalAddPathElementsOperationApplier,
 } from './OriginalAddPathElementsOperation';
 import {
-  ORIGINAL_MODIFY_INK_PAYLOAD_TYPE, OriginalModifyInkOperationApplier,
+  decodeOriginalModifyInkTable, ORIGINAL_MODIFY_INK_PAYLOAD_TYPE,
+  OriginalModifyInkOperationApplier,
 } from './OriginalModifyInkOperation';
 import {
-  ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE, OriginalCreateBlockOperationApplier,
+  decodeOriginalCreateBlockTable, ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE,
+  OriginalCreateBlockOperationApplier,
 } from './OriginalCreateBlockOperation';
 import {
-  ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE, OriginalModifyBlockOperationApplier,
+  decodeOriginalModifyBlockTable, ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE,
+  OriginalModifyBlockOperationApplier,
 } from './OriginalModifyBlockOperation';
 import {
   ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE, ORIGINAL_INSERT_STRING_PAYLOAD_TYPE,
@@ -235,6 +240,7 @@ export class OriginalNoteBundlePageIdentityBootstrapper {
       return deferred('LOCAL_PAGE_STRUCTURE_DIVERGED');
     }
     const pageIdBySequence: Map<string, string> = bindVisiblePages(history.visibleOrder, pageIds);
+    bindArchivedContentPages(history, bundle, expectedNoteId, pageIdBySequence);
     let applied: boolean = false;
     if (!await existingMappingMatches(store, expectedNoteId, history, pageIdBySequence)) {
       if (await hasExistingMapping(store, expectedNoteId)) {
@@ -333,6 +339,10 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
       if (reason !== null) {
         return `NOTE_BUNDLE_${reason}`;
       }
+      const pageOrigin = decodeOriginalModifyInkTable(operation.payload).pageOrigin;
+      if (pageOrigin !== null && !history.pages.has(encodeOriginalSequenceId(pageOrigin.page))) {
+        return 'NOTE_BUNDLE_MODIFY_INK_DESTINATION_PAGE_MISSING';
+      }
       continue;
     }
     if (operation.payloadType === ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE) {
@@ -362,6 +372,10 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
       const reason: string | null = modifyBlock.preflightTable(operation.payload);
       if (reason !== null) {
         return `NOTE_BUNDLE_${reason}`;
+      }
+      const pageOrigin = decodeOriginalModifyBlockTable(operation.payload).pageOrigin;
+      if (pageOrigin !== null && !history.pages.has(encodeOriginalSequenceId(pageOrigin.page))) {
+        return 'NOTE_BUNDLE_MODIFY_BLOCK_DESTINATION_PAGE_MISSING';
       }
       continue;
     }
@@ -416,9 +430,6 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
     const page: BootstrapPageState | undefined = history.pages.get(pageKey);
     if (page === undefined) {
       return 'NOTE_BUNDLE_CREATE_INK_PAGE_MISSING';
-    }
-    if (page.visibility !== null && page.visibility.deleted) {
-      return 'NOTE_BUNDLE_CREATE_INK_ARCHIVED_PAGE_UNSUPPORTED';
     }
   }
   return null;
@@ -837,6 +848,37 @@ function bindVisiblePages(order: OriginalSequenceIdentity[],
   return result;
 }
 
+function bindArchivedContentPages(history: BootstrapHistory, bundle: OriginalNoteBundle,
+  noteId: string, pageIdBySequence: Map<string, string>): void {
+  const contentPages: Set<string> = new Set<string>();
+  for (const operation of bundle.operations) {
+    let page: OriginalSequenceIdentity | null = null;
+    if (operation.payloadType === ORIGINAL_CREATE_INK_PAYLOAD_TYPE) {
+      page = decodeOriginalCreateInkTable(operation.payload, operation.clientTime).page;
+    } else if (operation.payloadType === ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE) {
+      page = decodeOriginalCreateBlockTable(operation.payload, operation.clientTime).page;
+    } else if (operation.payloadType === ORIGINAL_MODIFY_INK_PAYLOAD_TYPE) {
+      const pageOrigin = decodeOriginalModifyInkTable(operation.payload).pageOrigin;
+      page = pageOrigin === null ? null : pageOrigin.page;
+    } else if (operation.payloadType === ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE) {
+      const pageOrigin = decodeOriginalModifyBlockTable(operation.payload).pageOrigin;
+      page = pageOrigin === null ? null : pageOrigin.page;
+    }
+    if (page !== null) {
+      contentPages.add(encodeOriginalSequenceId(page));
+    }
+  }
+  contentPages.forEach((key: string): void => {
+    const page: BootstrapPageState | undefined = history.pages.get(key);
+    if (page === undefined) {
+      throw new Error('validated note bundle content page disappeared');
+    }
+    if (page.visibility !== null && page.visibility.deleted && !pageIdBySequence.has(key)) {
+      pageIdBySequence.set(key, encodeOriginalPageStorageId(noteId, page.identity));
+    }
+  });
+}
+
 async function insertBootstrapHistory(store: relationalStore.RdbStore, noteId: string,
   history: BootstrapHistory, pageIdBySequence: Map<string, string>): Promise<void> {
   for (const group of history.createGroups) {
@@ -931,6 +973,37 @@ async function insertBootstrapHistory(store: relationalStore.RdbStore, noteId: s
       'page_in_asset': page.pageInAsset,
     });
   }
+  let fallback: OriginalDecodedPageBackground | null = null;
+  for (const page of pageStates) {
+    const key: string = encodeOriginalSequenceId(page.identity);
+    const pageId: string | undefined = pageIdBySequence.get(key);
+    const archived: boolean = page.visibility !== null && page.visibility.deleted;
+    if (pageId === undefined || !archived) {
+      continue;
+    }
+    if (page.background === null && fallback === null) {
+      fallback = await readEffectiveNoteBackground(store, noteId);
+    }
+    const materialized: OriginalDecodedPageBackground = page.background === null
+      ? fallback as OriginalDecodedPageBackground : page.background;
+    await store.insert('original_deleted_page', {
+      'note_id': noteId,
+      'page_timestamp': page.identity.timestamp,
+      'page_site_id': page.identity.siteId,
+      'page_index': page.identity.index,
+      'page_id': pageId,
+      'size': materialized.size,
+      'template': materialized.template,
+      'orientation': materialized.orientation,
+      'width_mm': materialized.widthMm,
+      'height_mm': materialized.heightMm,
+      'background_json': page.background === null ? null :
+        serializePageBackground(page.background.background),
+      'original_page_in_asset': page.pageInAsset,
+      'content_revision': 0,
+      'indexed_revision': null,
+    });
+  }
 }
 
 async function applyBootstrapBackgrounds(store: relationalStore.RdbStore, noteId: string,
@@ -949,13 +1022,23 @@ async function applyBootstrapBackgrounds(store: relationalStore.RdbStore, noteId
       ? await readEffectiveNoteBackground(store, noteId) : state.background;
     const backgroundJson: string | null = state.background === null ? null :
       serializePageBackground(state.background.background);
+    const archived: boolean = state.visibility !== null && state.visibility.deleted;
     if (await storedPageBackgroundMatches(
-      store, noteId, pageId, materialized, backgroundJson, state.pageInAsset)) {
+      store, noteId, pageId, state.identity, archived,
+      materialized, backgroundJson, state.pageInAsset)) {
       continue;
     }
-    const predicates = new relationalStore.RdbPredicates('page_info');
+    const table: string = archived ? 'original_deleted_page' : 'page_info';
+    const predicates = new relationalStore.RdbPredicates(table);
     predicates.equalTo('note_id', noteId);
-    predicates.equalTo('page_id', pageId);
+    if (archived) {
+      predicates.equalTo('page_timestamp', state.identity.timestamp);
+      predicates.equalTo('page_site_id', state.identity.siteId);
+      predicates.equalTo('page_index', state.identity.index);
+      predicates.equalTo('page_id', pageId);
+    } else {
+      predicates.equalTo('page_id', pageId);
+    }
     const updated: number = await store.update({
       'size': materialized.size,
       'template': materialized.template,
@@ -974,12 +1057,18 @@ async function applyBootstrapBackgrounds(store: relationalStore.RdbStore, noteId
 }
 
 async function storedPageBackgroundMatches(store: relationalStore.RdbStore, noteId: string,
-  pageId: string, expected: OriginalDecodedPageBackground,
+  pageId: string, identity: OriginalSequenceIdentity, archived: boolean,
+  expected: OriginalDecodedPageBackground,
   backgroundJson: string | null, pageInAsset: number): Promise<boolean> {
-  const rows = await store.querySql(
+  const rows = archived ? await store.querySql(
     `SELECT size, template, orientation, width_mm, height_mm, background_json,
-      original_page_in_asset
-     FROM page_info WHERE note_id = ? AND page_id = ?`, [noteId, pageId]);
+      original_page_in_asset FROM original_deleted_page
+     WHERE note_id = ? AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+       AND page_id = ?`, [noteId, identity.timestamp, identity.siteId, identity.index, pageId]) :
+    await store.querySql(
+      `SELECT size, template, orientation, width_mm, height_mm, background_json,
+        original_page_in_asset FROM page_info WHERE note_id = ? AND page_id = ?`,
+      [noteId, pageId]);
   try {
     if (!rows.goToFirstRow()) {
       throw new Error('note bundle background page is missing');
@@ -1030,7 +1119,8 @@ async function existingMappingMatches(store: relationalStore.RdbStore, noteId: s
     !await exactCount(store, 'original_page_background_winner', noteId,
       countBackgroundWinners(history.pages)) ||
     !await exactCount(store, 'original_page_in_asset_winner', noteId, history.pages.size) ||
-    !await exactCount(store, 'original_deleted_page', noteId, 0)) {
+    !await exactCount(store, 'original_deleted_page', noteId,
+      countBoundArchivedPages(history, pageIdBySequence))) {
     return false;
   }
   for (const group of history.createGroups) {
@@ -1063,6 +1153,14 @@ async function existingMappingMatches(store: relationalStore.RdbStore, noteId: s
     const key: string = encodeOriginalSequenceId(page.identity);
     const pageId: string | undefined = pageIdBySequence.get(key);
     if (!await identityMatches(store, noteId, page.identity, pageId)) {
+      return false;
+    }
+    if (pageId !== undefined && page.visibility !== null && page.visibility.deleted &&
+      !await rowExists(store,
+        `SELECT 1 FROM original_deleted_page WHERE note_id = ?
+         AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+         AND page_id = ? LIMIT 1`,
+        [noteId, page.identity.timestamp, page.identity.siteId, page.identity.index, pageId])) {
       return false;
     }
     const winner: BootstrapPositionWinner | undefined = history.positionWinners.get(key);
@@ -1196,6 +1294,17 @@ function countBackgroundWinners(pages: Map<string, BootstrapPageState>): number 
   let result: number = 0;
   pages.forEach((page: BootstrapPageState): void => {
     if (page.backgroundWinner !== null) {
+      result++;
+    }
+  });
+  return result;
+}
+
+function countBoundArchivedPages(history: BootstrapHistory,
+  pageIdBySequence: Map<string, string>): number {
+  let result: number = 0;
+  history.pages.forEach((page: BootstrapPageState, key: string): void => {
+    if (page.visibility !== null && page.visibility.deleted && pageIdBySequence.has(key)) {
       result++;
     }
   });

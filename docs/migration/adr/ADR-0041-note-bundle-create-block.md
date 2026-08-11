@@ -50,6 +50,11 @@ Accepted, 2026-08-11.
 
 ## Remaining boundary
 
+ADR-0050 later found that this phase's standalone reducer was archive-capable,
+but NOTE_BUNDLE bootstrap had not created the production archive container.
+ADR-0050 supplies that missing binding/materialization step and the production-
+shaped replay; the archived-page claim above must be read together with it.
+
 NOTE_BUNDLE MODIFY_BLOCK and Text character/style children remain deferred.
 Delete-before-create and modification of hidden entities also remain deferred.
 Tape/effects, PDF background, private authentication transport and server-side
