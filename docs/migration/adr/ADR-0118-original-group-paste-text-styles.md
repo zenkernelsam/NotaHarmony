@@ -58,3 +58,7 @@ Accepted, 2026-08-12.
 
 Initial checkbox state still requires a separately proven type-28 UpdateCheckbox copy sequence.
 Shape-owned RichText remains outside this Text Block phase.
+
+The checkbox question was resolved by ADR-0119: original 1.0.3 copy deliberately omits its
+independent checkbox map and therefore resets copied checkbox decorators to unchecked without a
+type-28 operation.

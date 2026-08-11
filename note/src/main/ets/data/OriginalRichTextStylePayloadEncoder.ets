@@ -38,9 +38,10 @@ export function encodeOriginalInitialRichTextStyles(block: OperationIdentity,
   validateOperationIdentity(insertion);
   const length: number = strictCodePointLength(text.richText);
   const characterRuns: RichTextCharacterStyleRun[] = text.characterStyleRuns ?? [];
-  const paragraphRuns: RichTextParagraphStyleRun[] = text.paragraphStyleRuns ?? [];
-  validateRuns(characterRuns, length, false);
-  validateRuns(paragraphRuns, length, true);
+  const paragraphRuns: RichTextParagraphStyleRun[] =
+    originalClipboardParagraphStyleRuns(text.paragraphStyleRuns ?? []);
+  validateRuns(characterRuns, length);
+  validateRuns(paragraphRuns, length);
   const result: EncodedOriginalRichTextStyleOperation[] = [];
   for (const run of characterRuns) {
     result.push({
@@ -90,9 +91,6 @@ function encodeCharacterStyle(block: OperationIdentity, insertion: OperationIden
 
 function encodeParagraphStyle(block: OperationIdentity, insertion: OperationIdentity,
   length: number, run: RichTextParagraphStyleRun): Uint8Array {
-  if (run.style.isChecked !== undefined) {
-    throw new Error('original initial checkbox state requires UpdateCheckbox replay');
-  }
   const fields: EncodedField[] = paragraphFields(run.style);
   if (fields.length === 0) {
     throw new Error('original paragraph style run has no recognized attributes');
@@ -224,7 +222,7 @@ function encodeWrapper(builder: ForwardFlatBufferBuilder, field: EncodedField): 
 }
 
 function validateRuns(runs: Array<RichTextCharacterStyleRun | RichTextParagraphStyleRun>,
-  length: number, paragraph: boolean): void {
+  length: number): void {
   let end: number = 0;
   for (const run of runs) {
     if (!Number.isSafeInteger(run.start) || !Number.isSafeInteger(run.end) ||
@@ -232,11 +230,37 @@ function validateRuns(runs: Array<RichTextCharacterStyleRun | RichTextParagraphS
       run.style === null || typeof run.style !== 'object') {
       throw new Error('original initial rich-text runs are invalid');
     }
-    if (paragraph && (run.style as RichTextParagraphStyle).isChecked !== undefined) {
-      throw new Error('original initial checkbox state requires UpdateCheckbox replay');
-    }
     end = run.end;
   }
+}
+
+export function originalClipboardParagraphStyleRuns(
+  source: RichTextParagraphStyleRun[]): RichTextParagraphStyleRun[] {
+  const result: RichTextParagraphStyleRun[] = [];
+  for (const run of source) {
+    if (run.style.isChecked !== undefined && typeof run.style.isChecked !== 'boolean') {
+      throw new Error('original clipboard checkbox state is invalid');
+    }
+    const style: RichTextParagraphStyle = {};
+    if (run.style.indentLevel !== undefined) style.indentLevel = run.style.indentLevel;
+    if (run.style.alignment !== undefined) style.alignment = run.style.alignment;
+    if (run.style.lineSpacing !== undefined) style.lineSpacing = run.style.lineSpacing;
+    if (run.style.decoratorStyle !== undefined) style.decoratorStyle = run.style.decoratorStyle;
+    if (run.style.programmingLanguage !== undefined) {
+      style.programmingLanguage = run.style.programmingLanguage;
+    }
+    if (run.style.writingDirection !== undefined) {
+      style.writingDirection = run.style.writingDirection;
+    }
+    const previous: RichTextParagraphStyleRun | undefined = result[result.length - 1];
+    if (previous !== undefined && previous.end === run.start &&
+      JSON.stringify(previous.style) === JSON.stringify(style)) {
+      previous.end = run.end;
+    } else {
+      result.push({ start: run.start, end: run.end, style: style });
+    }
+  }
+  return result;
 }
 
 function strictCodePointLength(value: string): number {

@@ -90,17 +90,33 @@ export default function originalRichTextStylePayloadEncoderTest() {
       }];
       expect(() => encode(nonCanonicalColor)).assertThrowError();
 
-      const checkbox: TextBlockElement = styledText();
-      checkbox.paragraphStyleRuns = [{
-        start: 0, end: 1, style: { decoratorStyle: 3, isChecked: false },
-      }];
-      expect(() => encode(checkbox)).assertThrowError();
-
       const malformedUnicode: TextBlockElement = styledText();
       malformedUnicode.richText = '\uD800';
       malformedUnicode.characterStyleRuns = [];
       malformedUnicode.paragraphStyleRuns = [];
       expect(() => encode(malformedUnicode)).assertThrowError();
+    });
+
+    it('copies checkbox decorators but resets checked state like original m4c copy', 0, () => {
+      const source: TextBlockElement = styledText();
+      source.richText = 'AB';
+      source.characterStyleRuns = [];
+      source.paragraphStyleRuns = [
+        { start: 0, end: 1, style: { decoratorStyle: 3, isChecked: true } },
+        { start: 1, end: 2, style: { decoratorStyle: 3, isChecked: false } },
+      ];
+      const encoded: EncodedOriginalRichTextStyleOperation[] = encode(source);
+      expect(encoded.length).assertEqual(1);
+      const decoded: OriginalRichTextStylePayload = decodeOriginalRichTextStyle(
+        wrap(encoded[0].payloadType, encoded[0].payload, 100), encoded[0].payloadType);
+      const materialized = materializeOriginalTextStyles(checkboxCharacters(), [{
+        identity: { timestamp: 100, siteId: 9 }, paragraph: decoded.paragraph,
+        clearAll: decoded.clearAll, start: decoded.start, end: decoded.end,
+        attributes: decoded.attributes,
+      }]);
+      expect(JSON.stringify(materialized?.paragraphRuns)).assertEqual(JSON.stringify([
+        { start: 0, end: 2, style: { decoratorStyle: 3 } },
+      ]));
     });
   });
 }
@@ -148,6 +164,16 @@ function characters(): StoredOriginalTextCharacter[] {
     });
   }
   return result;
+}
+
+function checkboxCharacters(): StoredOriginalTextCharacter[] {
+  return [
+    { identity: { timestamp: 80, siteId: 9, index: 0 }, parent: null,
+      scalar: 0x41, visible: true, visibilityWinner: null },
+    { identity: { timestamp: 80, siteId: 9, index: 1 },
+      parent: { timestamp: 80, siteId: 9, index: 0 },
+      scalar: 0x42, visible: true, visibilityWinner: null },
+  ];
 }
 
 function wrap(payloadType: number, payload: Uint8Array, timestamp: number): Uint8Array {

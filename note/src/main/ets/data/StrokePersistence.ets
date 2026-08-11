@@ -55,6 +55,7 @@ import {
 } from './OriginalInsertTextPayloadEncoder';
 import {
   EncodedOriginalRichTextStyleOperation, encodeOriginalInitialRichTextStyles,
+  originalClipboardParagraphStyleRuns,
 } from './OriginalRichTextStylePayloadEncoder';
 import {
   decodeOriginalRichTextStyle, ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE,
@@ -1290,7 +1291,7 @@ export class StrokePersistence {
               const canonicalText: TextBlockElement = await this.readOriginalClipboardText(
                 store, noteId, pageId, identity.opId);
               if (!sameTextStyleRuns(canonicalText, text.characterStyleRuns ?? [],
-                text.paragraphStyleRuns ?? [])) {
+                originalClipboardParagraphStyleRuns(text.paragraphStyleRuns ?? []))) {
                 throw new Error('original clipboard RichText styles diverged after replay');
               }
               createdTexts.push(canonicalText);

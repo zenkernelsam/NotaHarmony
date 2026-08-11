@@ -28,7 +28,7 @@ assert.match(encoder, /ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE/);
 assert.match(encoder, /strictCodePointLength\(text\.richText\)/);
 assert.match(encoder, /characterIdentity\(insertion, run\.start\)/);
 assert.match(encoder, /OriginalTextBoundaryType\.END_OF_DOC/);
-assert.match(encoder, /original initial checkbox state requires UpdateCheckbox replay/);
+assert.match(encoder, /originalClipboardParagraphStyleRuns/);
 assert.match(applier, /applyBatchedPayload/);
 assert.match(applier, /writeTextPayload\([\s\S]*?revisionBatch\)/);
 
@@ -84,4 +84,4 @@ for (const stage of ['MODIFY_STYLE', 'MODIFY_PARAGRAPH_STYLE', 'STYLE_CANONICAL'
 }
 
 console.log('originalGroupPasteTextStyles=' +
-  'type12-type13-unicode-seqid-end-of-doc-canonical-single-revision-rollback-checkbox-gated');
+  'type12-type13-unicode-seqid-end-of-doc-canonical-single-revision-rollback-checkbox-reset');
