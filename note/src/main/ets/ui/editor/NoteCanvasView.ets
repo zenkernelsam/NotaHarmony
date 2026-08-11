@@ -73,7 +73,8 @@ import {
 } from '../../core/model/TextBlockGeometry';
 import { Point2D, Rect2D, CubicSegment } from '../../core/model/GeometryTypes';
 import { OriginalSelectionGroup } from '../../core/model/OriginalGroupSelection';
-import { cloneMathElement, mathBlockWorldBounds } from '../../core/model/MathBlockGeometry';
+import { cloneMathElement, eraserPathHitsMathBlock, mathBlockWorldBounds,
+  transformMathElements } from '../../core/model/MathBlockGeometry';
 import {
   CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, PageInfo,
 } from '../../core/model/NoteTypes';
@@ -196,6 +197,7 @@ export struct NoteCanvasView {
   private dragBeforeShapes: ShapeElement[] = [];
   private dragBeforeTextBlocks: TextBlockElement[] = [];
   private dragBeforeImages: ImageElement[] = [];
+  private dragBeforeMathBlocks: MathElement[] = [];
   private lastDragPoint: Point2D = { x: 0, y: 0 };
   private lastTapTime: number = 0;
   private lastTapPos: Point2D = { x: 0, y: 0 };
@@ -1103,6 +1105,7 @@ export struct NoteCanvasView {
         this.dragBeforeShapes = this.shapes.slice();
         this.dragBeforeTextBlocks = this.textBlocks.slice();
         this.dragBeforeImages = this.imageBlocks.slice();
+        this.dragBeforeMathBlocks = this.mathBlocks.slice();
         this.lastDragPoint = { x: canvasP.x, y: canvasP.y };
       } else {
         hilog.info(0x0001, 'NoteCanvasView', 'selection begin at (%{public}f,%{public}f) visible=%{public}s',
@@ -1215,7 +1218,7 @@ export struct NoteCanvasView {
     } else if (this.selectionDrawing) {
       const ids: string[] = this.selectionTool.finalizeSelection(
         this.completedStrokes, this.shapes, this.textBlocks, this.imageBlocks,
-        this.selectionGroups);
+        this.selectionGroups, this.mathBlocks);
       this.selectionDrawing = false;
       hilog.info(0x0001, 'NoteCanvasView', 'selection finalized, ids=%{public}d strokes=%{public}d',
         ids.length, this.completedStrokes.length);
@@ -1230,6 +1233,7 @@ export struct NoteCanvasView {
       const selectedShapeIds: string[] = this.selectionTool.getState().selectedShapeIds.slice();
       const selectedTextBlockIds: string[] = this.selectionTool.getState().selectedTextBlockIds.slice();
       const selectedImageIds: string[] = this.selectionTool.getState().selectedImageIds.slice();
+      const selectedMathIds: string[] = this.selectionTool.getState().selectedMathIds.slice();
       const selectedGroupIds: string[] = this.selectionTool.getState().selectedGroupIds.slice();
       if (!this.isIdentityTransform(this.selectionTool.getState().transform)) {
         this.undoRedo.push({
@@ -1244,13 +1248,15 @@ export struct NoteCanvasView {
           afterTextBlocks: this.filterTextBlocksByIds(this.textBlocks, selectedTextBlockIds),
           beforeImages: this.filterImagesByIds(this.dragBeforeImages, selectedImageIds),
           afterImages: this.filterImagesByIds(this.imageBlocks, selectedImageIds),
+          beforeMathBlocks: this.filterMathBlocksByIds(this.dragBeforeMathBlocks, selectedMathIds),
+          afterMathBlocks: this.filterMathBlocksByIds(this.mathBlocks, selectedMathIds),
         });
         this.persist();
         this.notifyUndoRedo();
       }
       this.selectionTool.selectElementIds(
         selectedStrokeIds, selectedShapeIds, selectedTextBlockIds, selectedImageIds,
-        selectedGroupIds);
+        selectedGroupIds, selectedMathIds);
     } else if (this.strokeSession !== null && this.strokeSession.isActive()) {
       const stroke: StrokeElementData = this.strokeSession.finishStroke();
       hilog.info(0x0001, 'NoteCanvasView', 'stroke finished, pts=%{public}d', stroke.pathPoints.length);
@@ -1318,6 +1324,7 @@ export struct NoteCanvasView {
       this.shapes = this.dragBeforeShapes.slice();
       this.textBlocks = this.dragBeforeTextBlocks.slice();
       this.imageBlocks = this.dragBeforeImages.slice();
+      this.mathBlocks = this.dragBeforeMathBlocks.slice();
       if (this.layerManager.isInitialized()) {
         this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
       }
@@ -1334,6 +1341,7 @@ export struct NoteCanvasView {
     this.dragBeforeShapes = [];
     this.dragBeforeTextBlocks = [];
     this.dragBeforeImages = [];
+    this.dragBeforeMathBlocks = [];
     this.isDrawing = false;
     this.resetPointerTracking();
     this.renderFrame();
@@ -1399,6 +1407,7 @@ export struct NoteCanvasView {
     const beforeShapes: ShapeElement[] = this.shapes.slice();
     const beforeTextBlocks: TextBlockElement[] = this.textBlocks.slice();
     const beforeImages: ImageElement[] = this.imageBlocks.slice();
+    const beforeMathBlocks: MathElement[] = this.mathBlocks.slice();
     const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
     const result = this.eraserEngine.erase(this.eraserPath, this.completedStrokes);
     for (const id of result.deletedStrokeIds) {
@@ -1479,6 +1488,19 @@ export struct NoteCanvasView {
     const removedImageIds: string[] = removedImages.map((image: ImageElement): string => image.id);
     this.elementOrder = removePageElementRefs(
       this.elementOrder, PageElementKind.IMAGE, removedImageIds);
+    const removedMathBlocks: MathElement[] = [];
+    const removedMathBlockIndices: number[] = [];
+    for (let mathIndex: number = 0; mathIndex < beforeMathBlocks.length; mathIndex++) {
+      const math: MathElement = beforeMathBlocks[mathIndex];
+      if (eraserPathHitsMathBlock(this.eraserPath, math, this.eraserEngine.getWidth())) {
+        removedMathBlocks.push(math);
+        removedMathBlockIndices.push(mathIndex);
+        this.removeMathBlockById(math.id);
+      }
+    }
+    const removedMathIds: string[] = removedMathBlocks.map((math: MathElement): string => math.id);
+    this.elementOrder = removePageElementRefs(
+      this.elementOrder, PageElementKind.MATH, removedMathIds);
     const partialBefore: StrokeElementData[] = [];
     const partialAfter: StrokeElementData[] = [];
     for (const updated of result.affectedStrokes) {
@@ -1491,7 +1513,7 @@ export struct NoteCanvasView {
       }
     }
     if (partialBefore.length > 0 || removed.length > 0 || removedShapes.length > 0 ||
-      removedTextBlocks.length > 0 || removedImages.length > 0) {
+      removedTextBlocks.length > 0 || removedImages.length > 0 || removedMathBlocks.length > 0) {
       this.undoRedo.push({
         type: UndoableActionType.ERASE_ELEMENTS,
         noteId: this.noteId,
@@ -1506,6 +1528,8 @@ export struct NoteCanvasView {
         removedTextBlockIndices: removedTextBlockIndices,
         removedImages: removedImages,
         removedImageIndices: removedImageIndices,
+        removedMathBlocks: removedMathBlocks,
+        removedMathBlockIndices: removedMathBlockIndices,
         elementOrderBefore: elementOrderBefore,
         elementOrderAfter: clonePageElementOrder(this.elementOrder),
       });
@@ -1723,11 +1747,14 @@ export struct NoteCanvasView {
         }
       }
     } else if (action.type === UndoableActionType.ERASE_ELEMENTS) {
+      const removedMathBlocks: MathElement[] = action.removedMathBlocks ?? [];
+      const removedMathBlockIndices: number[] = action.removedMathBlockIndices ?? [];
       if (isUndo) {
         this.restoreRemovedStrokes(action.removedStrokes, action.removedStrokeIndices);
         this.restoreRemovedShapes(action.removedShapes, action.removedShapeIndices);
         this.restoreRemovedTextBlocks(action.removedTextBlocks, action.removedTextBlockIndices);
         this.restoreRemovedImages(action.removedImages, action.removedImageIndices);
+        this.restoreRemovedMathBlocks(removedMathBlocks, removedMathBlockIndices);
         this.replaceStrokesById(action.beforeModifiedStrokes);
       } else {
         for (const s of action.removedStrokes) {
@@ -1741,6 +1768,9 @@ export struct NoteCanvasView {
         }
         for (const image of action.removedImages) {
           this.removeImageById(image.id);
+        }
+        for (const math of removedMathBlocks) {
+          this.removeMathBlockById(math.id);
         }
         this.replaceStrokesById(action.afterModifiedStrokes);
       }
@@ -1809,6 +1839,7 @@ export struct NoteCanvasView {
         this.shapes.push(action.addedShape);
       }
     } else if (action.type === UndoableActionType.ADD_ELEMENTS) {
+      const addedMathBlocks: MathElement[] = action.addedMathBlocks ?? [];
       if (isUndo) {
         for (const stroke of action.addedStrokes) {
           this.removeStrokeById(stroke.id);
@@ -1822,18 +1853,25 @@ export struct NoteCanvasView {
         for (const image of action.addedImages) {
           this.removeImageById(image.id);
         }
+        for (const math of addedMathBlocks) {
+          this.removeMathBlockById(math.id);
+        }
       } else {
         this.completedStrokes = this.completedStrokes.concat(action.addedStrokes);
         this.shapes = this.shapes.concat(action.addedShapes);
         this.textBlocks = this.textBlocks.concat(action.addedTextBlocks);
         this.imageBlocks = this.imageBlocks.concat(action.addedImages);
+        this.mathBlocks = this.mathBlocks.concat(addedMathBlocks);
       }
     } else if (action.type === UndoableActionType.DELETE_ELEMENTS) {
+      const removedMathBlocks: MathElement[] = action.removedMathBlocks ?? [];
+      const removedMathBlockIndices: number[] = action.removedMathBlockIndices ?? [];
       if (isUndo) {
         this.restoreRemovedStrokes(action.removedStrokes, action.removedStrokeIndices);
         this.restoreRemovedShapes(action.removedShapes, action.removedShapeIndices);
         this.restoreRemovedTextBlocks(action.removedTextBlocks, action.removedTextBlockIndices);
         this.restoreRemovedImages(action.removedImages, action.removedImageIndices);
+        this.restoreRemovedMathBlocks(removedMathBlocks, removedMathBlockIndices);
       } else {
         for (const stroke of action.removedStrokes) {
           this.removeStrokeById(stroke.id);
@@ -1847,12 +1885,16 @@ export struct NoteCanvasView {
         for (const image of action.removedImages) {
           this.removeImageById(image.id);
         }
+        for (const math of removedMathBlocks) {
+          this.removeMathBlockById(math.id);
+        }
       }
     } else if (action.type === UndoableActionType.TRANSFORM_ELEMENTS) {
       this.replaceStrokesById(isUndo ? action.beforeStrokes : action.afterStrokes);
       this.replaceShapesById(isUndo ? action.beforeShapes : action.afterShapes);
       this.replaceTextBlocksById(isUndo ? action.beforeTextBlocks : action.afterTextBlocks);
       this.replaceImagesById(isUndo ? action.beforeImages : action.afterImages);
+      this.replaceMathBlocksById(isUndo ? (action.beforeMathBlocks ?? []) : (action.afterMathBlocks ?? []));
     } else if (action.type === UndoableActionType.PERSISTED_PAGE_MUTATIONS) {
       if (!this.applyPersistedPageMutations(action.operations, isUndo)) {
         return false;
@@ -1910,28 +1952,34 @@ export struct NoteCanvasView {
       return true;
     }
     if (action.type === UndoableActionType.ERASE_ELEMENTS) {
+      const removedMathBlocks: MathElement[] = action.removedMathBlocks ?? [];
+      const removedMathBlockIndices: number[] = action.removedMathBlockIndices ?? [];
       const hasChange: boolean = action.removedStrokes.length > 0 ||
         action.beforeModifiedStrokes.length > 0 || action.removedShapes.length > 0 ||
-        action.removedTextBlocks.length > 0 || action.removedImages.length > 0;
+        action.removedTextBlocks.length > 0 || action.removedImages.length > 0 ||
+        removedMathBlocks.length > 0;
       const sourceModified: StrokeElementData[] = isUndo
         ? action.afterModifiedStrokes : action.beforeModifiedStrokes;
       if (!hasChange || !this.hasUniqueStrokeIds(action.removedStrokes) ||
         !this.sameStrokeIds(action.beforeModifiedStrokes, action.afterModifiedStrokes) ||
         !this.hasUniqueShapeIds(action.removedShapes) ||
         !this.hasUniqueTextBlockIds(action.removedTextBlocks) ||
-        !this.hasUniqueImageIds(action.removedImages) || !this.allStrokeIdsPresent(sourceModified)) {
+        !this.hasUniqueImageIds(action.removedImages) ||
+        !this.hasUniqueMathBlockIds(removedMathBlocks) || !this.allStrokeIdsPresent(sourceModified)) {
         return false;
       }
       if (!isUndo) {
         return this.allStrokeIdsPresent(action.removedStrokes) &&
           this.allShapeIdsPresent(action.removedShapes) &&
           this.allTextBlockIdsPresent(action.removedTextBlocks) &&
-          this.allImageIdsPresent(action.removedImages);
+          this.allImageIdsPresent(action.removedImages) &&
+          this.allMathBlockIdsPresent(removedMathBlocks);
       }
       return this.validateRemovedStrokeIndices(action.removedStrokes, action.removedStrokeIndices) &&
         this.validateRemovedShapeIndices(action.removedShapes, action.removedShapeIndices) &&
         this.validateRemovedTextBlockIndices(action.removedTextBlocks, action.removedTextBlockIndices) &&
-        this.validateRemovedImageIndices(action.removedImages, action.removedImageIndices);
+        this.validateRemovedImageIndices(action.removedImages, action.removedImageIndices) &&
+        this.validateRemovedMathBlockIndices(removedMathBlocks, removedMathBlockIndices);
     }
     if (action.type === UndoableActionType.TRANSFORM_STROKES) {
       const source: StrokeElementData[] = isUndo ? action.afterStrokes : action.beforeStrokes;
@@ -1965,56 +2013,70 @@ export struct NoteCanvasView {
         this.countShapeId(action.addedShape.id) === 0;
     }
     if (action.type === UndoableActionType.ADD_ELEMENTS) {
+      const addedMathBlocks: MathElement[] = action.addedMathBlocks ?? [];
       const hasAdded: boolean = action.addedStrokes.length > 0 || action.addedShapes.length > 0 ||
-        action.addedTextBlocks.length > 0 || action.addedImages.length > 0;
+        action.addedTextBlocks.length > 0 || action.addedImages.length > 0 || addedMathBlocks.length > 0;
       if (!hasAdded || !this.hasUniqueStrokeIds(action.addedStrokes) ||
         !this.hasUniqueShapeIds(action.addedShapes) || !this.hasUniqueTextBlockIds(action.addedTextBlocks) ||
-        !this.hasUniqueImageIds(action.addedImages) ||
+        !this.hasUniqueImageIds(action.addedImages) || !this.hasUniqueMathBlockIds(addedMathBlocks) ||
         !this.sameAddedElementRefs(
           action.addedStrokes, action.addedShapes, action.addedTextBlocks, action.addedImages,
+          addedMathBlocks,
           action.addedElementOrder)) {
         return false;
       }
       return isUndo
         ? this.allStrokeIdsPresent(action.addedStrokes) && this.allShapeIdsPresent(action.addedShapes) &&
           this.allTextBlockIdsPresent(action.addedTextBlocks)
-          && this.allImageIdsPresent(action.addedImages)
+          && this.allImageIdsPresent(action.addedImages) && this.allMathBlockIdsPresent(addedMathBlocks)
         : this.allPageElementIdsAbsent(
-          action.addedStrokes, action.addedShapes, action.addedTextBlocks, action.addedImages);
+          action.addedStrokes, action.addedShapes, action.addedTextBlocks, action.addedImages,
+          addedMathBlocks);
     }
     if (action.type === UndoableActionType.DELETE_ELEMENTS) {
+      const removedMathBlocks: MathElement[] = action.removedMathBlocks ?? [];
+      const removedMathBlockIndices: number[] = action.removedMathBlockIndices ?? [];
       const hasRemoved: boolean = action.removedStrokes.length > 0 || action.removedShapes.length > 0 ||
-        action.removedTextBlocks.length > 0 || action.removedImages.length > 0;
+        action.removedTextBlocks.length > 0 || action.removedImages.length > 0 ||
+        removedMathBlocks.length > 0;
       if (!hasRemoved || !this.hasUniqueStrokeIds(action.removedStrokes) ||
         !this.hasUniqueShapeIds(action.removedShapes) ||
         !this.hasUniqueTextBlockIds(action.removedTextBlocks) ||
-        !this.hasUniqueImageIds(action.removedImages)) {
+        !this.hasUniqueImageIds(action.removedImages) ||
+        !this.hasUniqueMathBlockIds(removedMathBlocks)) {
         return false;
       }
       if (!isUndo) {
         return this.allStrokeIdsPresent(action.removedStrokes) &&
           this.allShapeIdsPresent(action.removedShapes) &&
           this.allTextBlockIdsPresent(action.removedTextBlocks) &&
-          this.allImageIdsPresent(action.removedImages);
+          this.allImageIdsPresent(action.removedImages) &&
+          this.allMathBlockIdsPresent(removedMathBlocks);
       }
       return this.validateRemovedStrokeIndices(action.removedStrokes, action.removedStrokeIndices) &&
         this.validateRemovedShapeIndices(action.removedShapes, action.removedShapeIndices) &&
         this.validateRemovedTextBlockIndices(action.removedTextBlocks, action.removedTextBlockIndices) &&
-        this.validateRemovedImageIndices(action.removedImages, action.removedImageIndices);
+        this.validateRemovedImageIndices(action.removedImages, action.removedImageIndices) &&
+        this.validateRemovedMathBlockIndices(removedMathBlocks, removedMathBlockIndices);
     }
     if (action.type === UndoableActionType.TRANSFORM_ELEMENTS) {
       const sourceStrokes: StrokeElementData[] = isUndo ? action.afterStrokes : action.beforeStrokes;
       const sourceShapes: ShapeElement[] = isUndo ? action.afterShapes : action.beforeShapes;
       const sourceTextBlocks: TextBlockElement[] = isUndo ? action.afterTextBlocks : action.beforeTextBlocks;
       const sourceImages: ImageElement[] = isUndo ? action.afterImages : action.beforeImages;
+      const beforeMathBlocks: MathElement[] = action.beforeMathBlocks ?? [];
+      const afterMathBlocks: MathElement[] = action.afterMathBlocks ?? [];
+      const sourceMathBlocks: MathElement[] = isUndo ? afterMathBlocks : beforeMathBlocks;
       const hasTransform: boolean = sourceStrokes.length > 0 || sourceShapes.length > 0 ||
-        sourceTextBlocks.length > 0 || sourceImages.length > 0;
+        sourceTextBlocks.length > 0 || sourceImages.length > 0 || sourceMathBlocks.length > 0;
       return hasTransform && this.sameStrokeIds(action.beforeStrokes, action.afterStrokes) &&
         this.sameShapeIds(action.beforeShapes, action.afterShapes) &&
         this.sameTextBlockIds(action.beforeTextBlocks, action.afterTextBlocks) &&
         this.sameImageIds(action.beforeImages, action.afterImages) &&
+        this.sameMathBlockIds(beforeMathBlocks, afterMathBlocks) &&
         this.allStrokeIdsPresent(sourceStrokes) && this.allShapeIdsPresent(sourceShapes) &&
-        this.allTextBlockIdsPresent(sourceTextBlocks) && this.allImageIdsPresent(sourceImages);
+        this.allTextBlockIdsPresent(sourceTextBlocks) && this.allImageIdsPresent(sourceImages) &&
+        this.allMathBlockIdsPresent(sourceMathBlocks);
     }
     return false;
   }
@@ -2114,14 +2176,18 @@ export struct NoteCanvasView {
       const textIds: string[] = action.removedTextBlocks.map(
         (textBlock: TextBlockElement): string => textBlock.id);
       const imageIds: string[] = action.removedImages.map((image: ImageElement): string => image.id);
+      const mathIds: string[] = (action.removedMathBlocks ?? []).map(
+        (math: MathElement): string => math.id);
       const withoutStrokes: PageElementRef[] = removePageElementRefs(
         action.elementOrderBefore, PageElementKind.STROKE, strokeIds);
       const withoutShapes: PageElementRef[] = removePageElementRefs(
         withoutStrokes, PageElementKind.SHAPE, shapeIds);
       const withoutTexts: PageElementRef[] = removePageElementRefs(
         withoutShapes, PageElementKind.TEXT, textIds);
+      const withoutImages: PageElementRef[] = removePageElementRefs(
+        withoutTexts, PageElementKind.IMAGE, imageIds);
       return samePageElementOrder(action.elementOrderAfter,
-        removePageElementRefs(withoutTexts, PageElementKind.IMAGE, imageIds));
+        removePageElementRefs(withoutImages, PageElementKind.MATH, mathIds));
     }
     if (action.type === UndoableActionType.ADD_ELEMENT) {
       return samePageElementOrder(action.elementOrderAfter,
@@ -2148,14 +2214,18 @@ export struct NoteCanvasView {
       const textIds: string[] = action.removedTextBlocks.map(
         (textBlock: TextBlockElement): string => textBlock.id);
       const imageIds: string[] = action.removedImages.map((image: ImageElement): string => image.id);
+      const mathIds: string[] = (action.removedMathBlocks ?? []).map(
+        (math: MathElement): string => math.id);
       const withoutStrokes: PageElementRef[] = removePageElementRefs(
         action.elementOrderBefore, PageElementKind.STROKE, strokeIds);
       const withoutShapes: PageElementRef[] = removePageElementRefs(
         withoutStrokes, PageElementKind.SHAPE, shapeIds);
       const withoutTexts: PageElementRef[] = removePageElementRefs(
         withoutShapes, PageElementKind.TEXT, textIds);
+      const withoutImages: PageElementRef[] = removePageElementRefs(
+        withoutTexts, PageElementKind.IMAGE, imageIds);
       return samePageElementOrder(action.elementOrderAfter,
-        removePageElementRefs(withoutTexts, PageElementKind.IMAGE, imageIds));
+        removePageElementRefs(withoutImages, PageElementKind.MATH, mathIds));
     }
     return action.type === UndoableActionType.REORDER_ELEMENTS &&
       samePageElementMembers(action.elementOrderBefore, action.elementOrderAfter);
@@ -2213,6 +2283,16 @@ export struct NoteCanvasView {
     return count;
   }
 
+  private countMathBlockId(id: string): number {
+    let count: number = 0;
+    for (const math of this.mathBlocks) {
+      if (math.id === id) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   private hasUniqueStrokeIds(strokes: StrokeElementData[]): boolean {
     const ids: Set<string> = new Set<string>();
     for (const stroke of strokes) {
@@ -2253,6 +2333,17 @@ export struct NoteCanvasView {
         return false;
       }
       ids.add(image.id);
+    }
+    return true;
+  }
+
+  private hasUniqueMathBlockIds(mathBlocks: MathElement[]): boolean {
+    const ids: Set<string> = new Set<string>();
+    for (const math of mathBlocks) {
+      if (ids.has(math.id)) {
+        return false;
+      }
+      ids.add(math.id);
     }
     return true;
   }
@@ -2321,6 +2412,22 @@ export struct NoteCanvasView {
     return true;
   }
 
+  private sameMathBlockIds(a: MathElement[], b: MathElement[]): boolean {
+    if (a.length !== b.length || !this.hasUniqueMathBlockIds(a) || !this.hasUniqueMathBlockIds(b)) {
+      return false;
+    }
+    const ids: Set<string> = new Set<string>();
+    for (const math of b) {
+      ids.add(math.id);
+    }
+    for (const math of a) {
+      if (!ids.has(math.id)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private filterStrokesByIds(strokes: StrokeElementData[], ids: string[]): StrokeElementData[] {
     const selected: Set<string> = new Set<string>(ids);
     const result: StrokeElementData[] = [];
@@ -2365,6 +2472,17 @@ export struct NoteCanvasView {
     return result;
   }
 
+  private filterMathBlocksByIds(mathBlocks: MathElement[], ids: string[]): MathElement[] {
+    const selected: Set<string> = new Set<string>(ids);
+    const result: MathElement[] = [];
+    for (const math of mathBlocks) {
+      if (selected.has(math.id)) {
+        result.push(math);
+      }
+    }
+    return result;
+  }
+
   private isIdentityTransform(transform: number[]): boolean {
     const identity: number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
     if (transform.length !== identity.length) {
@@ -2379,8 +2497,10 @@ export struct NoteCanvasView {
   }
 
   private sameAddedElementRefs(strokes: StrokeElementData[], shapes: ShapeElement[],
-    textBlocks: TextBlockElement[], images: ImageElement[], refs: PageElementRef[]): boolean {
-    if (refs.length !== strokes.length + shapes.length + textBlocks.length + images.length) {
+    textBlocks: TextBlockElement[], images: ImageElement[], mathBlocks: MathElement[],
+    refs: PageElementRef[]): boolean {
+    if (refs.length !== strokes.length + shapes.length + textBlocks.length + images.length +
+      mathBlocks.length) {
       return false;
     }
     const expected: Set<string> = new Set<string>();
@@ -2396,13 +2516,17 @@ export struct NoteCanvasView {
     for (const image of images) {
       expected.add(`${PageElementKind.IMAGE}:${image.id}`);
     }
+    for (const math of mathBlocks) {
+      expected.add(`${PageElementKind.MATH}:${math.id}`);
+    }
     if (expected.size !== refs.length) {
       return false;
     }
     const actual: Set<string> = new Set<string>();
     for (const ref of refs) {
       if ((ref.kind !== PageElementKind.STROKE && ref.kind !== PageElementKind.SHAPE &&
-        ref.kind !== PageElementKind.TEXT && ref.kind !== PageElementKind.IMAGE) ||
+        ref.kind !== PageElementKind.TEXT && ref.kind !== PageElementKind.IMAGE &&
+        ref.kind !== PageElementKind.MATH) ||
         ref.elementId.length === 0 || actual.has(`${ref.kind}:${ref.elementId}`)) {
         return false;
       }
@@ -2420,7 +2544,7 @@ export struct NoteCanvasView {
   }
 
   private allPageElementIdsAbsent(strokes: StrokeElementData[], shapes: ShapeElement[],
-    textBlocks: TextBlockElement[], images: ImageElement[]): boolean {
+    textBlocks: TextBlockElement[], images: ImageElement[], mathBlocks: MathElement[]): boolean {
     const existing: Set<string> = new Set<string>();
     for (const stroke of this.completedStrokes) {
       existing.add(stroke.id);
@@ -2433,6 +2557,9 @@ export struct NoteCanvasView {
     }
     for (const image of this.imageBlocks) {
       existing.add(image.id);
+    }
+    for (const math of this.mathBlocks) {
+      existing.add(math.id);
     }
     const added: Set<string> = new Set<string>();
     for (const stroke of strokes) {
@@ -2459,6 +2586,12 @@ export struct NoteCanvasView {
       }
       added.add(image.id);
     }
+    for (const math of mathBlocks) {
+      if (existing.has(math.id) || added.has(math.id)) {
+        return false;
+      }
+      added.add(math.id);
+    }
     return true;
   }
 
@@ -2468,7 +2601,8 @@ export struct NoteCanvasView {
     for (const ref of refs) {
       const key: string = `${ref.kind}:${ref.elementId}`;
       if ((ref.kind !== PageElementKind.STROKE && ref.kind !== PageElementKind.SHAPE &&
-        ref.kind !== PageElementKind.TEXT && ref.kind !== PageElementKind.IMAGE) ||
+        ref.kind !== PageElementKind.TEXT && ref.kind !== PageElementKind.IMAGE &&
+        ref.kind !== PageElementKind.MATH) ||
         ref.elementId.length === 0 || appended.has(key)) {
         return null;
       }
@@ -2566,6 +2700,24 @@ export struct NoteCanvasView {
     return true;
   }
 
+  private allMathBlockIdsPresent(mathBlocks: MathElement[]): boolean {
+    for (const math of mathBlocks) {
+      if (this.countMathBlockId(math.id) !== 1) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private allMathBlockIdsAbsent(mathBlocks: MathElement[]): boolean {
+    for (const math of mathBlocks) {
+      if (this.countMathBlockId(math.id) !== 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private validateRemovedStrokeIndices(strokes: StrokeElementData[], indices: number[]): boolean {
     if (!this.allStrokeIdsAbsent(strokes) || indices.length !== strokes.length) {
       return false;
@@ -2627,6 +2779,22 @@ export struct NoteCanvasView {
     return true;
   }
 
+  private validateRemovedMathBlockIndices(mathBlocks: MathElement[], indices: number[]): boolean {
+    if (!this.allMathBlockIdsAbsent(mathBlocks) || indices.length !== mathBlocks.length) {
+      return false;
+    }
+    let previous: number = -1;
+    for (let i: number = 0; i < indices.length; i++) {
+      const index: number = indices[i];
+      if (!Number.isInteger(index) || index < previous || index < 0 ||
+        index > this.mathBlocks.length + i) {
+        return false;
+      }
+      previous = index;
+    }
+    return true;
+  }
+
   private removeTextBlockById(id: string): void {
     const remaining: TextBlockElement[] = [];
     for (const t of this.textBlocks) {
@@ -2658,6 +2826,12 @@ export struct NoteCanvasView {
   private restoreRemovedImages(images: ImageElement[], indices: number[]): void {
     for (let i: number = 0; i < images.length; i++) {
       this.imageBlocks.splice(indices[i], 0, images[i]);
+    }
+  }
+
+  private restoreRemovedMathBlocks(mathBlocks: MathElement[], indices: number[]): void {
+    for (let i: number = 0; i < mathBlocks.length; i++) {
+      this.mathBlocks.splice(indices[i], 0, mathBlocks[i]);
     }
   }
 
@@ -2699,6 +2873,17 @@ export struct NoteCanvasView {
       for (let i: number = 0; i < this.imageBlocks.length; i++) {
         if (this.imageBlocks[i].id === replacement.id) {
           this.imageBlocks[i] = replacement;
+          break;
+        }
+      }
+    }
+  }
+
+  private replaceMathBlocksById(replacements: MathElement[]): void {
+    for (const replacement of replacements) {
+      for (let i: number = 0; i < this.mathBlocks.length; i++) {
+        if (this.mathBlocks[i].id === replacement.id) {
+          this.mathBlocks[i] = replacement;
           break;
         }
       }
@@ -2831,6 +3016,19 @@ export struct NoteCanvasView {
         }
       }
     }
+    for (const math of this.mathBlocks) {
+      if (state.selectedMathIds.indexOf(math.id) >= 0) {
+        if (rect === null) {
+          rect = { left: math.bounds.left, top: math.bounds.top,
+            right: math.bounds.right, bottom: math.bounds.bottom };
+        } else {
+          rect = { left: Math.min(rect.left, math.bounds.left),
+            top: Math.min(rect.top, math.bounds.top),
+            right: Math.max(rect.right, math.bounds.right),
+            bottom: Math.max(rect.bottom, math.bounds.bottom) };
+        }
+      }
+    }
     if (rect !== null) {
       // T-034：画布坐标 → 屏幕坐标（覆盖层 position 用屏幕坐标）
       const tl: Point2D = this.viewport.canvasToScreen(rect.left, rect.top);
@@ -2846,15 +3044,18 @@ export struct NoteCanvasView {
     const selectedShapeIds: string[] = this.selectionTool.getState().selectedShapeIds;
     const selectedTextBlockIds: string[] = this.selectionTool.getState().selectedTextBlockIds;
     const selectedImageIds: string[] = this.selectionTool.getState().selectedImageIds;
+    const selectedMathIds: string[] = this.selectionTool.getState().selectedMathIds;
     const before: StrokeElementData[] = this.filterStrokesByIds(this.completedStrokes, selectedStrokeIds);
     const beforeShapes: ShapeElement[] = this.filterShapesByIds(this.shapes, selectedShapeIds);
     const beforeTextBlocks: TextBlockElement[] = this.filterTextBlocksByIds(
       this.textBlocks, selectedTextBlockIds);
     const beforeImages: ImageElement[] = this.filterImagesByIds(this.imageBlocks, selectedImageIds);
+    const beforeMathBlocks: MathElement[] = this.filterMathBlocksByIds(this.mathBlocks, selectedMathIds);
     const source: StrokeElementData[] = this.selectionDrag ? this.dragBeforeStrokes : this.completedStrokes;
     const sourceShapes: ShapeElement[] = this.selectionDrag ? this.dragBeforeShapes : this.shapes;
     const sourceTextBlocks: TextBlockElement[] = this.selectionDrag ? this.dragBeforeTextBlocks : this.textBlocks;
     const sourceImages: ImageElement[] = this.selectionDrag ? this.dragBeforeImages : this.imageBlocks;
+    const sourceMathBlocks: MathElement[] = this.selectionDrag ? this.dragBeforeMathBlocks : this.mathBlocks;
     this.completedStrokes = this.selectionTool.applyTransform(source);
     this.shapes = transformShapeElements(sourceShapes,
       this.selectionTool.getState().selectedShapeIds, this.selectionTool.getState().transform);
@@ -2862,6 +3063,8 @@ export struct NoteCanvasView {
       sourceTextBlocks, selectedTextBlockIds, this.selectionTool.getState().transform);
     this.imageBlocks = transformImageElements(
       sourceImages, selectedImageIds, this.selectionTool.getState().transform);
+    this.mathBlocks = transformMathElements(
+      sourceMathBlocks, selectedMathIds, this.selectionTool.getState().transform);
     if (pushUndo) {
       this.undoRedo.push({
         type: UndoableActionType.TRANSFORM_ELEMENTS,
@@ -2875,6 +3078,8 @@ export struct NoteCanvasView {
         afterTextBlocks: this.filterTextBlocksByIds(this.textBlocks, selectedTextBlockIds),
         beforeImages: beforeImages,
         afterImages: this.filterImagesByIds(this.imageBlocks, selectedImageIds),
+        beforeMathBlocks: beforeMathBlocks,
+        afterMathBlocks: this.filterMathBlocksByIds(this.mathBlocks, selectedMathIds),
       });
     }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
@@ -2897,8 +3102,9 @@ export struct NoteCanvasView {
       const shapeIds: string[] = state.selectedShapeIds.slice();
       const textIds: string[] = state.selectedTextBlockIds.slice();
       const imageIds: string[] = state.selectedImageIds.slice();
+      const mathIds: string[] = state.selectedMathIds.slice();
       if (action === SelectionMenuAction.CUT && !this.copySelectedToClipboard(
-        ids, shapeIds, textIds, imageIds)) {
+        ids, shapeIds, textIds, imageIds, mathIds)) {
         return;
       }
       this.selectionTool.deleteSelected();
@@ -2910,6 +3116,8 @@ export struct NoteCanvasView {
       const removedTextBlockIndices: number[] = [];
       const removedImages: ImageElement[] = [];
       const removedImageIndices: number[] = [];
+      const removedMathBlocks: MathElement[] = [];
+      const removedMathBlockIndices: number[] = [];
       const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
       for (let strokeIndex: number = 0; strokeIndex < this.completedStrokes.length; strokeIndex++) {
         const s: StrokeElementData = this.completedStrokes[strokeIndex];
@@ -2948,11 +3156,22 @@ export struct NoteCanvasView {
       for (const image of removedImages) {
         this.removeImageById(image.id);
       }
+      for (let mathIndex: number = 0; mathIndex < this.mathBlocks.length; mathIndex++) {
+        if (mathIds.indexOf(this.mathBlocks[mathIndex].id) >= 0) {
+          removedMathBlocks.push(this.mathBlocks[mathIndex]);
+          removedMathBlockIndices.push(mathIndex);
+        }
+      }
+      for (const math of removedMathBlocks) {
+        this.removeMathBlockById(math.id);
+      }
       this.elementOrder = removePageElementRefs(this.elementOrder, PageElementKind.STROKE, ids);
       this.elementOrder = removePageElementRefs(this.elementOrder, PageElementKind.SHAPE, shapeIds);
       this.elementOrder = removePageElementRefs(this.elementOrder, PageElementKind.TEXT, textIds);
       this.elementOrder = removePageElementRefs(this.elementOrder, PageElementKind.IMAGE, imageIds);
-      if (removedShapes.length > 0 || removedTextBlocks.length > 0 || removedImages.length > 0) {
+      this.elementOrder = removePageElementRefs(this.elementOrder, PageElementKind.MATH, mathIds);
+      if (removedShapes.length > 0 || removedTextBlocks.length > 0 || removedImages.length > 0 ||
+        removedMathBlocks.length > 0) {
         this.undoRedo.push({
           type: UndoableActionType.DELETE_ELEMENTS,
           noteId: this.noteId,
@@ -2965,6 +3184,8 @@ export struct NoteCanvasView {
           removedTextBlockIndices: removedTextBlockIndices,
           removedImages: removedImages,
           removedImageIndices: removedImageIndices,
+          removedMathBlocks: removedMathBlocks,
+          removedMathBlockIndices: removedMathBlockIndices,
           elementOrderBefore: elementOrderBefore,
           elementOrderAfter: clonePageElementOrder(this.elementOrder),
         });
@@ -2994,23 +3215,26 @@ export struct NoteCanvasView {
       this.selectionVisible = false;
     } else if (action === SelectionMenuAction.SEND_FORWARD || action === SelectionMenuAction.SEND_BACKWARD) {
       this.reorderSelected(state.selectedStrokeIds, state.selectedShapeIds,
-        state.selectedTextBlockIds, state.selectedImageIds,
+        state.selectedTextBlockIds, state.selectedImageIds, state.selectedMathIds,
         action === SelectionMenuAction.SEND_FORWARD);
     } else if (action === SelectionMenuAction.FLIP_H || action === SelectionMenuAction.FLIP_V) {
       this.flipSelected(state.selectedStrokeIds, state.selectedShapeIds,
-        state.selectedTextBlockIds, state.selectedImageIds, action === SelectionMenuAction.FLIP_H);
+        state.selectedTextBlockIds, state.selectedImageIds, state.selectedMathIds,
+        action === SelectionMenuAction.FLIP_H);
     } else if (action === SelectionMenuAction.COPY) {
       this.copySelectedToClipboard(
-        state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds, state.selectedImageIds);
+        state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
+        state.selectedImageIds, state.selectedMathIds);
     } else if (action === SelectionMenuAction.PASTE) {
       this.pasteClipboard();
     }
   }
 
   private reorderSelected(ids: string[], shapeIds: string[], textIds: string[], imageIds: string[],
-    forward: boolean): void {
+    mathIds: string[], forward: boolean): void {
     const before: PageElementRef[] = clonePageElementOrder(this.elementOrder);
-    const after: PageElementRef[] = movePageElementRefs(before, ids, shapeIds, forward, textIds, imageIds);
+    const after: PageElementRef[] = movePageElementRefs(
+      before, ids, shapeIds, forward, textIds, imageIds, mathIds);
     if (samePageElementOrder(before, after)) {
       return;
     }
@@ -3030,7 +3254,7 @@ export struct NoteCanvasView {
   }
 
   private flipSelected(ids: string[], shapeIds: string[], textIds: string[], imageIds: string[],
-    horizontal: boolean): void {
+    mathIds: string[], horizontal: boolean): void {
     let minX: number = Number.MAX_VALUE;
     let minY: number = Number.MAX_VALUE;
     let maxX: number = -Number.MAX_VALUE;
@@ -3075,6 +3299,14 @@ export struct NoteCanvasView {
         maxY = Math.max(maxY, image.bounds.bottom);
       }
     }
+    for (const math of this.mathBlocks) {
+      if (mathIds.indexOf(math.id) >= 0) {
+        minX = Math.min(minX, math.bounds.left);
+        minY = Math.min(minY, math.bounds.top);
+        maxX = Math.max(maxX, math.bounds.right);
+        maxY = Math.max(maxY, math.bounds.bottom);
+      }
+    }
     const cx: number = (minX + maxX) / 2;
     const cy: number = (minY + maxY) / 2;
     const flip: number[] = horizontal ? [-1, 0, cx * 2, 0, 1, 0, 0, 0, 1] : [1, 0, 0, 0, -1, cy * 2, 0, 0, 1];
@@ -3084,7 +3316,7 @@ export struct NoteCanvasView {
   }
 
   private copySelectedToClipboard(ids: string[], shapeIds: string[] = [],
-    textIds: string[] = [], imageIds: string[] = []): boolean {
+    textIds: string[] = [], imageIds: string[] = [], mathIds: string[] = []): boolean {
     const selected: StrokeElementData[] = [];
     for (const s of this.completedStrokes) {
       if (ids.indexOf(s.id) >= 0) {
@@ -3109,17 +3341,25 @@ export struct NoteCanvasView {
         selectedImages.push(image);
       }
     }
+    const selectedMathBlocks: MathElement[] = [];
+    for (const math of this.mathBlocks) {
+      if (mathIds.indexOf(math.id) >= 0) {
+        selectedMathBlocks.push(math);
+      }
+    }
     const selectedOrder: PageElementRef[] = [];
     for (const ref of this.elementOrder) {
       if ((ref.kind === PageElementKind.STROKE && ids.indexOf(ref.elementId) >= 0) ||
         (ref.kind === PageElementKind.SHAPE && shapeIds.indexOf(ref.elementId) >= 0) ||
         (ref.kind === PageElementKind.TEXT && textIds.indexOf(ref.elementId) >= 0) ||
-        (ref.kind === PageElementKind.IMAGE && imageIds.indexOf(ref.elementId) >= 0)) {
+        (ref.kind === PageElementKind.IMAGE && imageIds.indexOf(ref.elementId) >= 0) ||
+        (ref.kind === PageElementKind.MATH && mathIds.indexOf(ref.elementId) >= 0)) {
         selectedOrder.push({ kind: ref.kind, elementId: ref.elementId, zIndex: selectedOrder.length });
       }
     }
     if (!this.strokeClipboard.copy(
-      selected, this.loadedPageId, selectedShapes, selectedOrder, selectedTextBlocks, selectedImages)) {
+      selected, this.loadedPageId, selectedShapes, selectedOrder, selectedTextBlocks,
+      selectedImages, selectedMathBlocks)) {
       return false;
     }
     this.clipboardAvailable = true;
@@ -3146,6 +3386,16 @@ export struct NoteCanvasView {
     this.imageBlocks = remaining;
   }
 
+  private removeMathBlockById(id: string): void {
+    const remaining: MathElement[] = [];
+    for (const math of this.mathBlocks) {
+      if (math.id !== id) {
+        remaining.push(math);
+      }
+    }
+    this.mathBlocks = remaining;
+  }
+
   private pasteClipboard(): void {
     if (!this.loaded || this.dataLoading || this.dataLoadFailed || this.historyBusy ||
       this.loadedPageId !== this.currentPage.pageId) {
@@ -3156,7 +3406,7 @@ export struct NoteCanvasView {
       (sourceId: string, sequence: number, index: number): string =>
         this.createClipboardElementId(sourceId, sequence, index));
     if (result === null || (result.strokes.length === 0 && result.shapes.length === 0 &&
-      result.textBlocks.length === 0 && result.images.length === 0)) {
+      result.textBlocks.length === 0 && result.images.length === 0 && result.mathBlocks.length === 0)) {
       return;
     }
     const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
@@ -3164,11 +3414,13 @@ export struct NoteCanvasView {
     this.shapes = this.shapes.concat(result.shapes);
     this.textBlocks = this.textBlocks.concat(result.textBlocks);
     this.imageBlocks = this.imageBlocks.concat(result.images);
+    this.mathBlocks = this.mathBlocks.concat(result.mathBlocks);
     const pastedIds: string[] = result.strokes.map((stroke: StrokeElementData): string => stroke.id);
     const pastedShapeIds: string[] = result.shapes.map((shape: ShapeElement): string => shape.id);
     const pastedTextIds: string[] = result.textBlocks.map(
       (textBlock: TextBlockElement): string => textBlock.id);
     const pastedImageIds: string[] = result.images.map((image: ImageElement): string => image.id);
+    const pastedMathIds: string[] = result.mathBlocks.map((math: MathElement): string => math.id);
     const elementOrderAfter: PageElementRef[] | null = this.appendMixedElementRefs(
       this.elementOrder, result.elementOrder);
     if (elementOrderAfter === null) {
@@ -3176,6 +3428,7 @@ export struct NoteCanvasView {
       this.shapes.splice(this.shapes.length - result.shapes.length, result.shapes.length);
       this.textBlocks.splice(this.textBlocks.length - result.textBlocks.length, result.textBlocks.length);
       this.imageBlocks.splice(this.imageBlocks.length - result.images.length, result.images.length);
+      this.mathBlocks.splice(this.mathBlocks.length - result.mathBlocks.length, result.mathBlocks.length);
       return;
     }
     this.elementOrder = elementOrderAfter;
@@ -3187,11 +3440,13 @@ export struct NoteCanvasView {
       addedShapes: result.shapes,
       addedTextBlocks: result.textBlocks,
       addedImages: result.images,
+      addedMathBlocks: result.mathBlocks,
       addedElementOrder: clonePageElementOrder(result.elementOrder),
       elementOrderBefore: elementOrderBefore,
       elementOrderAfter: clonePageElementOrder(this.elementOrder),
     });
-    this.selectionTool.selectElementIds(pastedIds, pastedShapeIds, pastedTextIds, pastedImageIds);
+    this.selectionTool.selectElementIds(
+      pastedIds, pastedShapeIds, pastedTextIds, pastedImageIds, [], pastedMathIds);
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     this.updateSelectionOverlay();
     this.persist();
@@ -3233,6 +3488,14 @@ export struct NoteCanvasView {
       if (!exists) {
         for (const image of this.imageBlocks) {
           if (image.id === id) {
+            exists = true;
+            break;
+          }
+        }
+      }
+      if (!exists) {
+        for (const math of this.mathBlocks) {
+          if (math.id === id) {
             exists = true;
             break;
           }

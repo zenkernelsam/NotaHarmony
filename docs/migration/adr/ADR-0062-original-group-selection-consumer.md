@@ -48,8 +48,8 @@ Accepted, 2026-08-11.
 
 ## Remaining Boundary
 
-This decision closes Group-aware selection and transform for the editor's currently supported
-stroke, Shape, Text Block and Image leaves. Math is materialized and rendered but still lacks the
-editor-wide selection/transform/undo/clipboard lifecycle; a Group containing Math therefore takes
-the safe no-partial-expansion fallback. Group CREATE/MODIFY/ungroup outbound writers, Group-preserving
-copy/paste/export and complete private-package CRDT export remain separate work.
+This decision originally closed Group-aware selection and transform for stroke, Shape, Text Block
+and Image leaves while a Group containing Math used the safe no-partial-expansion fallback. ADR-0063
+supersedes that temporary boundary by completing the Math editor lifecycle and making Math an
+available Group leaf. Group CREATE/MODIFY/ungroup outbound writers, Group-preserving copy/paste/export
+and complete private-package CRDT export remain separate work.

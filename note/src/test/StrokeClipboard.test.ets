@@ -1,6 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
-import { ElementType, ImageElement, PolygonElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
+import { ElementType, ImageElement, MathElement, PolygonElement,
+  TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import { PageElementKind, PageElementRef } from '../main/ets/core/model/PageElementOrder';
 import { ClipboardPasteResult, StrokeClipboard } from '../main/ets/rendering/StrokeClipboard';
 
@@ -71,6 +72,15 @@ function imageBlock(id: string, left: number = 180, top: number = 120): ImageEle
     cropRect: { left: 10, top: 20, right: 150, bottom: 110 }, blockWidth: 80, blockHeight: 60,
     rotationRadians: 0, corner: 0, textWrap: 0, enableCaption: false, webUrl: null,
     imageFlippedHorizontally: true, imageFlippedVertically: false, positionLocked: false,
+  };
+}
+
+function mathBlock(id: string, left: number = 260, top: number = 180): MathElement {
+  return {
+    id: id, type: ElementType.MATH, transform: [1, 0, left, 0, 1, top, 0, 0, 1],
+    bounds: { left: left, top: top, right: left + 70, bottom: top + 40 }, latex: 'x^2+y^2',
+    color: 0xFF102030, blockWidth: 70, blockHeight: 40, rotationRadians: 0,
+    corner: 0, textWrap: 0, enableCaption: false, positionLocked: false,
   };
 }
 
@@ -237,6 +247,28 @@ export default function strokeClipboardTest() {
       expect(result?.images[0].bounds.left).assertEqual(200);
       expect(result?.elementOrder[0].kind).assertEqual(PageElementKind.IMAGE);
       expect(result?.elementOrder[1].kind).assertEqual(PageElementKind.TEXT);
+    });
+
+    it('deep-copies Math and preserves five-kind z order', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      const source: MathElement = mathBlock('math-1');
+      const order: PageElementRef[] = [
+        { kind: PageElementKind.MATH, elementId: 'math-1', zIndex: 0 },
+        { kind: PageElementKind.IMAGE, elementId: 'image-1', zIndex: 1 },
+      ];
+      expect(clipboard.copy([], 'page-1', [], order, [], [imageBlock('image-1')],
+        [source])).assertTrue();
+      source.transform[2] = 999;
+      source.bounds.left = 999;
+      source.latex = 'mutated';
+      const result: ClipboardPasteResult | null = clipboard.paste(900, 1100,
+        (_sourceId: string, _sequence: number, index: number): string => `math-${index}`);
+      expect(result?.mathBlocks.length).assertEqual(1);
+      expect(result?.mathBlocks[0].latex).assertEqual('x^2+y^2');
+      expect(result?.mathBlocks[0].transform[2]).assertEqual(280);
+      expect(result?.mathBlocks[0].bounds.left).assertEqual(280);
+      expect(result?.elementOrder[0].kind).assertEqual(PageElementKind.MATH);
+      expect(result?.elementOrder[1].kind).assertEqual(PageElementKind.IMAGE);
     });
   });
 }

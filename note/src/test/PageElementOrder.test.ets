@@ -144,6 +144,11 @@ export default function pageElementOrderTest() {
       expect(elements[1].kind).assertEqual(PageElementKind.MATH);
       expect(elements[1].elementId).assertEqual('m1');
       expect(elements[2].kind).assertEqual(PageElementKind.TEXT);
+      const moved: PageElementRef[] = movePageElementRefs(
+        normalized, [], [], false, [], [], ['m1']);
+      expect(moved[0].kind).assertEqual(PageElementKind.MATH);
+      expect(moved[0].elementId).assertEqual('m1');
+      expect(samePageElementMembers(normalized, moved)).assertTrue();
     });
 
     it('moves selected strokes across text and restores exact before order', 0, () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@ohos/hypium';
 import { ElementType, MathElement } from '../main/ets/core/model/ElementTypes';
-import { cloneMathElement, mathBlockWorldBounds } from '../main/ets/core/model/MathBlockGeometry';
+import { cloneMathElement, eraserPathHitsMathBlock, isMathBlockPositionLocked,
+  mathBlockWorldBounds, transformMathElements } from '../main/ets/core/model/MathBlockGeometry';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 
 function mathBlock(): MathElement {
@@ -46,6 +47,28 @@ export default function mathBlockGeometryTest() {
       const source: MathElement = mathBlock();
       source.latex = '';
       expect(cloneMathElement(source).latex.length).assertEqual(0);
+    });
+
+    it('transforms editable Math and leaves position-locked Math untouched', 0, () => {
+      const editable: MathElement = mathBlock();
+      const locked: MathElement = mathBlock();
+      locked.id = 'math-locked';
+      locked.positionLocked = true;
+      const transformed: MathElement[] = transformMathElements(
+        [editable, locked], ['math-1', 'math-locked'], [1, 0, 5, 0, 1, 7, 0, 0, 1]);
+      expect(transformed[0].transform[2]).assertEqual(35);
+      expect(transformed[0].bounds.left).assertEqual(15);
+      expect(transformed[0].bounds.top).assertEqual(47);
+      expect(transformed[1] === locked).assertTrue();
+      expect(isMathBlockPositionLocked(locked)).assertTrue();
+    });
+
+    it('uses transformed block geometry for whole-element erasing', 0, () => {
+      const editable: MathElement = mathBlock();
+      expect(eraserPathHitsMathBlock([{ x: 20, y: 60 }], editable, 10)).assertTrue();
+      expect(eraserPathHitsMathBlock([{ x: 100, y: 100 }], editable, 10)).assertFalse();
+      editable.positionLocked = true;
+      expect(eraserPathHitsMathBlock([{ x: 20, y: 60 }], editable, 10)).assertFalse();
     });
   });
 }

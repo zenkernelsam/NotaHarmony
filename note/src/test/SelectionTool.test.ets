@@ -1,5 +1,6 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { ElementType, ImageElement, PolygonElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
+import { ElementType, ImageElement, MathElement, PolygonElement,
+  TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import { SelectionMode, SelectionTool } from '../main/ets/rendering/SelectionTool';
 import { OriginalSelectionGroup } from '../main/ets/core/model/OriginalGroupSelection';
@@ -43,6 +44,15 @@ function imageBlock(id: string): ImageElement {
     intrinsicWidth: 80, intrinsicHeight: 60, cropRect: null, blockWidth: 80, blockHeight: 60,
     rotationRadians: 0, corner: 0, textWrap: 0, enableCaption: false, webUrl: null,
     imageFlippedHorizontally: false, imageFlippedVertically: false, positionLocked: false,
+  };
+}
+
+function mathBlock(id: string): MathElement {
+  return {
+    id: id, type: ElementType.MATH, transform: [1, 0, 200, 0, 1, 200, 0, 0, 1],
+    bounds: { left: 200, top: 200, right: 260, bottom: 240 }, latex: 'x^2',
+    color: 0xFF000000, blockWidth: 60, blockHeight: 40, rotationRadians: 0,
+    corner: 0, textWrap: 0, enableCaption: false, positionLocked: false,
   };
 }
 
@@ -143,6 +153,24 @@ export default function selectionToolTest() {
       expect(tool.getState().selectedShapeIds[0]).assertEqual('shape-1');
       expect(tool.getState().selectedGroupIds[0]).assertEqual('group-1');
       expect(tool.getState().selectedShapeIds.indexOf('shape-locked') < 0).assertTrue();
+    });
+
+    it('expands Group selection to Math leaves and excludes locked Math', 0, () => {
+      const tool: SelectionTool = new SelectionTool();
+      const editableMath: MathElement = mathBlock('math-1');
+      const lockedMath: MathElement = mathBlock('math-locked');
+      lockedMath.positionLocked = true;
+      const groups: OriginalSelectionGroup[] = [{ id: 'group-math', timestamp: 40, siteId: 1,
+        members: ['shape-1', 'math-1'] }];
+      tool.beginSelection(SelectionMode.RECTANGLE, { x: 15, y: 15 });
+      tool.updateSelection({ x: 45, y: 45 });
+      const ids: string[] = tool.finalizeSelection(
+        [], [shape('shape-1')], [], [], groups, [editableMath, lockedMath]);
+      expect(ids.length).assertEqual(2);
+      expect(tool.getState().selectedShapeIds[0]).assertEqual('shape-1');
+      expect(tool.getState().selectedMathIds[0]).assertEqual('math-1');
+      expect(tool.getState().selectedMathIds.indexOf('math-locked') < 0).assertTrue();
+      expect(tool.getState().selectedGroupIds[0]).assertEqual('group-math');
     });
   });
 }

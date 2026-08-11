@@ -2,10 +2,11 @@ import { CubicSegment, Point2D, Rect2D } from '../core/model/GeometryTypes';
 import {
   InkPathCommand, InkStyleMapEntry, PencilSplatPoint, RenderSpec, StrokeElementData, StrokePathPoint,
 } from '../core/model/StrokeTypes';
-import { ImageElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { cloneShapeElement } from '../core/model/ShapeGeometry';
 import { cloneTextBlockElement } from '../core/model/TextBlockGeometry';
 import { cloneImageElement, imageBlockWorldBounds } from '../core/model/ImageBlockGeometry';
+import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockGeometry';
 import {
   materializePageElements, normalizePageElementOrder, OrderedPageElement,
   PageElementKind, PageElementRef,
@@ -18,6 +19,7 @@ export interface ClipboardPasteResult {
   shapes: ShapeElement[];
   textBlocks: TextBlockElement[];
   images: ImageElement[];
+  mathBlocks: MathElement[];
   elementOrder: PageElementRef[];
   sourcePageId: string;
   pasteSequence: number;
@@ -57,6 +59,16 @@ export function cloneClipboardImage(image: ImageElement, id: string = image.id,
   result.transform[2] += dx;
   result.transform[5] += dy;
   result.bounds = imageBlockWorldBounds(result);
+  return result;
+}
+
+export function cloneClipboardMath(math: MathElement, id: string = math.id,
+  dx: number = 0, dy: number = 0): MathElement {
+  const result: MathElement = cloneMathElement(math);
+  result.id = id;
+  result.transform[2] += dx;
+  result.transform[5] += dy;
+  result.bounds = mathBlockWorldBounds(result);
   return result;
 }
 
@@ -148,14 +160,16 @@ export class StrokeClipboard {
   private shapeSnapshots: ShapeElement[] = [];
   private textSnapshots: TextBlockElement[] = [];
   private imageSnapshots: ImageElement[] = [];
+  private mathSnapshots: MathElement[] = [];
   private elementOrder: PageElementRef[] = [];
   private sourcePageId: string = '';
   private pasteCount: number = 0;
 
   copy(strokes: StrokeElementData[], sourcePageId: string, shapes: ShapeElement[] = [],
     elementOrder: PageElementRef[] = [], textBlocks: TextBlockElement[] = [],
-    images: ImageElement[] = []): boolean {
-    if ((strokes.length === 0 && shapes.length === 0 && textBlocks.length === 0 && images.length === 0) ||
+    images: ImageElement[] = [], mathBlocks: MathElement[] = []): boolean {
+    if ((strokes.length === 0 && shapes.length === 0 && textBlocks.length === 0 &&
+      images.length === 0 && mathBlocks.length === 0) ||
       sourcePageId.length === 0) {
       return false;
     }
@@ -192,12 +206,21 @@ export class StrokeClipboard {
       ids.add(image.id);
       copiedImages.push(cloneClipboardImage(image));
     }
+    const copiedMath: MathElement[] = [];
+    for (const math of mathBlocks) {
+      if (math.id.length === 0 || ids.has(math.id)) {
+        return false;
+      }
+      ids.add(math.id);
+      copiedMath.push(cloneClipboardMath(math));
+    }
     this.snapshots = copied;
     this.shapeSnapshots = copiedShapes;
     this.textSnapshots = copiedTexts;
     this.imageSnapshots = copiedImages;
+    this.mathSnapshots = copiedMath;
     this.elementOrder = normalizePageElementOrder(
-      elementOrder, copied, copiedTexts, copiedShapes, copiedImages);
+      elementOrder, copied, copiedTexts, copiedShapes, copiedImages, copiedMath);
     this.sourcePageId = sourcePageId;
     this.pasteCount = 0;
     return true;
@@ -205,12 +228,12 @@ export class StrokeClipboard {
 
   hasContent(): boolean {
     return this.snapshots.length > 0 || this.shapeSnapshots.length > 0 || this.textSnapshots.length > 0 ||
-      this.imageSnapshots.length > 0;
+      this.imageSnapshots.length > 0 || this.mathSnapshots.length > 0;
   }
 
   size(): number {
     return this.snapshots.length + this.shapeSnapshots.length + this.textSnapshots.length +
-      this.imageSnapshots.length;
+      this.imageSnapshots.length + this.mathSnapshots.length;
   }
 
   clear(): void {
@@ -218,6 +241,7 @@ export class StrokeClipboard {
     this.shapeSnapshots = [];
     this.textSnapshots = [];
     this.imageSnapshots = [];
+    this.mathSnapshots = [];
     this.elementOrder = [];
     this.sourcePageId = '';
     this.pasteCount = 0;
@@ -238,11 +262,13 @@ export class StrokeClipboard {
     const pastedShapes: ShapeElement[] = [];
     const pastedTexts: TextBlockElement[] = [];
     const pastedImages: ImageElement[] = [];
+    const pastedMath: MathElement[] = [];
     const pastedOrder: PageElementRef[] = [];
-    const ordered: OrderedPageElement[] = materializePageElements(
-      this.elementOrder, this.snapshots, this.textSnapshots, this.shapeSnapshots, this.imageSnapshots);
-    for (let i: number = 0; i < ordered.length; i++) {
-      const source: OrderedPageElement = ordered[i];
+    const orderedWithMath: OrderedPageElement[] = materializePageElements(
+      this.elementOrder, this.snapshots, this.textSnapshots, this.shapeSnapshots,
+      this.imageSnapshots, this.mathSnapshots);
+    for (let i: number = 0; i < orderedWithMath.length; i++) {
+      const source: OrderedPageElement = orderedWithMath[i];
       const id: string = idFactory(source.elementId, sequence, i);
       if (id.length === 0 || ids.has(id)) {
         return null;
@@ -260,6 +286,9 @@ export class StrokeClipboard {
       } else if (source.kind === PageElementKind.IMAGE) {
         pastedImages.push(cloneClipboardImage(source.data, id, dx, dy));
         pastedOrder.push({ kind: PageElementKind.IMAGE, elementId: id, zIndex: pastedOrder.length });
+      } else if (source.kind === PageElementKind.MATH) {
+        pastedMath.push(cloneClipboardMath(source.data, id, dx, dy));
+        pastedOrder.push({ kind: PageElementKind.MATH, elementId: id, zIndex: pastedOrder.length });
       }
     }
     this.pasteCount = sequence;
@@ -268,6 +297,7 @@ export class StrokeClipboard {
       shapes: pastedShapes,
       textBlocks: pastedTexts,
       images: pastedImages,
+      mathBlocks: pastedMath,
       elementOrder: pastedOrder,
       sourcePageId: this.sourcePageId,
       pasteSequence: sequence,
@@ -292,6 +322,9 @@ export class StrokeClipboard {
     }
     for (const image of this.imageSnapshots) {
       allBounds.push(image.bounds);
+    }
+    for (const math of this.mathSnapshots) {
+      allBounds.push(math.bounds);
     }
     for (const strokeBounds of allBounds) {
       bounds = {

@@ -214,18 +214,21 @@ export function moveStrokeRefs(order: PageElementRef[], strokeIds: string[], for
 }
 
 export function movePageElementRefs(order: PageElementRef[], strokeIds: string[], shapeIds: string[],
-  forward: boolean, textIds: string[] = [], imageIds: string[] = []): PageElementRef[] {
+  forward: boolean, textIds: string[] = [], imageIds: string[] = [],
+  mathIds: string[] = []): PageElementRef[] {
   const selectedStrokes: Set<string> = new Set<string>(strokeIds);
   const selectedShapes: Set<string> = new Set<string>(shapeIds);
   const selectedTexts: Set<string> = new Set<string>(textIds);
   const selectedImages: Set<string> = new Set<string>(imageIds);
+  const selectedMath: Set<string> = new Set<string>(mathIds);
   const selected: PageElementRef[] = [];
   const remaining: PageElementRef[] = [];
   for (const ref of order) {
     const isSelected: boolean = ref.kind === PageElementKind.STROKE
       ? selectedStrokes.has(ref.elementId) : ref.kind === PageElementKind.SHAPE
         ? selectedShapes.has(ref.elementId) : ref.kind === PageElementKind.TEXT
-          ? selectedTexts.has(ref.elementId) : ref.kind === PageElementKind.IMAGE && selectedImages.has(ref.elementId);
+          ? selectedTexts.has(ref.elementId) : ref.kind === PageElementKind.IMAGE
+            ? selectedImages.has(ref.elementId) : ref.kind === PageElementKind.MATH && selectedMath.has(ref.elementId);
     if (isSelected) {
       selected.push(ref);
     } else {
