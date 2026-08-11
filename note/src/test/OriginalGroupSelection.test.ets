@@ -1,6 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { OriginalSelectionGroup, resolveOriginalGroupSelection,
-  OriginalGroupSelectionResult, resolveOriginalSelectedGroupLeaves } from
+  OriginalGroupSelectionResult, OriginalSelectionLayerUnit,
+  resolveOriginalSelectedGroupLeaves, resolveOriginalSelectionLayerUnits } from
   '../main/ets/core/model/OriginalGroupSelection';
 
 function group(id: string, timestamp: number, siteId: number,
@@ -53,6 +54,23 @@ export default function originalGroupSelectionTest() {
       expect((leaves as string[]).indexOf('direct')).assertEqual(-1);
       expect(resolveOriginalSelectedGroupLeaves(
         ['outer'], ['a', 'b'], groups) === null).assertTrue();
+    });
+
+    it('materializes contiguous top-level layer units and rejects corrupt ordering', 0, () => {
+      const groups: OriginalSelectionGroup[] = [group('inner', 10, 1, ['a', 'b']),
+        group('outer', 20, 1, ['inner', 'c'])];
+      const units: OriginalSelectionLayerUnit[] | null =
+        resolveOriginalSelectionLayerUnits(['direct', 'a', 'b', 'c', 'tail'], groups);
+      expect(units !== null).assertTrue();
+      expect((units as OriginalSelectionLayerUnit[]).length).assertEqual(3);
+      expect((units as OriginalSelectionLayerUnit[])[1].id).assertEqual('outer');
+      expect((units as OriginalSelectionLayerUnit[])[1].entityIds.join(','))
+        .assertEqual('a,b,c');
+      expect(resolveOriginalSelectionLayerUnits(
+        ['a', 'direct', 'b', 'c'], groups) === null).assertTrue();
+      expect(resolveOriginalSelectionLayerUnits(['a'], [
+        group('one', 10, 1, ['a', 'two']), group('two', 11, 1, ['one']),
+      ]) === null).assertTrue();
     });
   });
 }

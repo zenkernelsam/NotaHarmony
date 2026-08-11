@@ -4,9 +4,11 @@ import {
 } from '../main/ets/core/model/ElementTypes';
 import {
   appendPageElementRefs, hasStrokeAboveText, legacyPageElementOrder, materializePageElements, moveStrokeRefs,
-  movePageElementRefs, normalizePageElementOrder, OrderedPageElement, PageElementKind, PageElementRef,
+  movePageElementRefs, movePageElementRefsOneStep, normalizePageElementOrder,
+  OrderedPageElement, PageElementKind, PageElementRef,
   removePageElementRefs, requiresUnifiedElementRender, samePageElementMembers, samePageElementOrder,
 } from '../main/ets/core/model/PageElementOrder';
+import { OriginalSelectionGroup } from '../main/ets/core/model/OriginalGroupSelection';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import { PageData, parsePage, serializePage } from '../main/ets/data/NotePackageSpec';
 
@@ -180,6 +182,50 @@ export default function pageElementOrderTest() {
       expect(after[2].elementId).assertEqual('t1');
       expect(after[3].elementId).assertEqual('s1');
       expect(samePageElementMembers(before, after)).assertTrue();
+    });
+
+    it('moves each selected original unit exactly one layer forward or backward', 0, () => {
+      const before: PageElementRef[] = [
+        { kind: PageElementKind.STROKE, elementId: 'a', zIndex: 0 },
+        { kind: PageElementKind.TEXT, elementId: 'b', zIndex: 1 },
+        { kind: PageElementKind.SHAPE, elementId: 'c', zIndex: 2 },
+        { kind: PageElementKind.IMAGE, elementId: 'd', zIndex: 3 },
+        { kind: PageElementKind.MATH, elementId: 'e', zIndex: 4 },
+      ];
+      const forward: PageElementRef[] = movePageElementRefsOneStep(
+        before, ['b', 'd'], [], [], true);
+      expect(forward.map((ref: PageElementRef): string => ref.elementId).join(','))
+        .assertEqual('a,c,b,e,d');
+      const backward: PageElementRef[] = movePageElementRefsOneStep(
+        before, ['b', 'd'], [], [], false);
+      expect(backward.map((ref: PageElementRef): string => ref.elementId).join(','))
+        .assertEqual('b,a,d,c,e');
+      const adjacent: PageElementRef[] = movePageElementRefsOneStep(
+        before, ['b', 'c'], [], [], true);
+      expect(adjacent.map((ref: PageElementRef): string => ref.elementId).join(','))
+        .assertEqual('a,b,d,c,e');
+    });
+
+    it('crosses an adjacent Group as one unit without moving selected groups or leaves', 0, () => {
+      const before: PageElementRef[] = [
+        { kind: PageElementKind.STROKE, elementId: 'a', zIndex: 0 },
+        { kind: PageElementKind.TEXT, elementId: 'g1', zIndex: 1 },
+        { kind: PageElementKind.SHAPE, elementId: 'g2', zIndex: 2 },
+        { kind: PageElementKind.IMAGE, elementId: 'b', zIndex: 3 },
+      ];
+      const groups: OriginalSelectionGroup[] = [
+        { id: 'group', timestamp: 10, siteId: 1, members: ['g1', 'g2'] },
+      ];
+      const crossed: PageElementRef[] = movePageElementRefsOneStep(
+        before, ['a'], [], groups, true);
+      expect(crossed.map((ref: PageElementRef): string => ref.elementId).join(','))
+        .assertEqual('g1,g2,a,b');
+      const selectedGroup: PageElementRef[] = movePageElementRefsOneStep(
+        before, [], ['group'], groups, true);
+      expect(samePageElementOrder(before, selectedGroup)).assertTrue();
+      const selectedLeaf: PageElementRef[] = movePageElementRefsOneStep(
+        before, ['g1'], [], groups, true);
+      expect(samePageElementOrder(before, selectedLeaf)).assertTrue();
     });
 
     it('appends and removes refs without disturbing remaining z order', 0, () => {

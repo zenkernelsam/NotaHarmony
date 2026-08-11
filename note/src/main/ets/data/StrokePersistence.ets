@@ -113,6 +113,8 @@ interface PreparedPageSave {
 export enum OriginalZOrderCommand {
   SEND_BACK = 0,
   BRING_FRONT = 1,
+  SEND_BACKWARD = 2,
+  BRING_FORWARD = 3,
 }
 
 export interface OriginalZOrderHint {
@@ -2005,6 +2007,38 @@ function createOriginalZOrderHistory(order: OriginalOrderEntry[], next: Prepared
           appendZOrderChange(before, after, unit.entries[0], candidate);
         }
         index++;
+      }
+    }
+  } else if (hint.command === OriginalZOrderCommand.BRING_FORWARD ||
+    hint.command === OriginalZOrderCommand.SEND_BACKWARD) {
+    const forward: boolean = hint.command === OriginalZOrderCommand.BRING_FORWARD;
+    const offset: number = forward ? 1 : -1;
+    for (let index: number = 0; index < units.length; index++) {
+      const unit: OriginalOrderUnit = units[index];
+      if (!selectedUnitIds.has(unit.id) || unit.group) {
+        continue;
+      }
+      const neighborIndex: number = index + offset;
+      if (neighborIndex < 0 || neighborIndex >= units.length) {
+        continue;
+      }
+      const neighbor: OriginalOrderUnit = units[neighborIndex];
+      if (selectedUnitIds.has(neighbor.id) || unit.entries.length !== 1) {
+        continue;
+      }
+      if (neighbor.group) {
+        const zIndex: string | null = forward ? addUnsignedSmall(neighbor.zIndex, 1) :
+          neighbor.zIndex === '0' ? '0' : subtractUnsignedSmall(neighbor.zIndex, 1);
+        if (zIndex === null) {
+          return null;
+        }
+        appendZOrderChange(before, after, unit.entries[0], zIndex);
+      } else {
+        if (neighbor.entries.length !== 1) {
+          return null;
+        }
+        appendZOrderChange(before, after, unit.entries[0], neighbor.zIndex);
+        appendZOrderChange(before, after, neighbor.entries[0], unit.zIndex);
       }
     }
   } else {

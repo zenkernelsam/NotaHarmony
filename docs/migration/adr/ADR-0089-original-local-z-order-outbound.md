@@ -7,8 +7,9 @@ Accepted, 2026-08-11.
 ## Original Evidence
 
 - Original 1.0.3 `dhb` routes its four layer commands separately. Cases 6/7 call `py(..., 26)`
-  for one-step movement, while cases 8/9 call `cfc(9/8)` for bring-to-front/send-to-back. Harmony's
-  exposed commands and `movePageElementRefs` implement the latter pair.
+  for one-step movement, while cases 8/9 call `cfc(9/8)` for bring-to-front/send-to-back. At Phase
+  112, Harmony's handler and `movePageElementRefs` implemented the latter pair even though its two
+  visible labels described one-step movement; ADR-0092 corrects that UI dispatch error.
 - `zh9.p` materializes page units, resolves selected ungrouped entities, sorts the resulting
   `ZIndexData` by unsigned uint64 zIndex and passes the rows returned by `cfc` through
   `x0j.a(list, true)` and durable `xsc.i` submission.
@@ -75,7 +76,7 @@ a restart or concurrent/source-state divergence.
 
 ## Remaining Boundary
 
-This decision covers ungrouped same-page bring-to-front/send-to-back. One-step layer movement,
-Group CREATE/MODIFY/ungroup and Group-unit ordering, reflection/Flip, other entity outbound,
-authenticated upload/ACK, transient collaboration and device verification remain separate work. No
-emulator, VM, device or Hypium run is part of this decision.
+This decision covers ungrouped same-page bring-to-front/send-to-back. ADR-0092 subsequently closes
+the production selection menu's one-step layer movement. Group CREATE/MODIFY/ungroup and remaining
+entity outbound, authenticated upload/ACK, transient collaboration and device verification remain
+separate work. No emulator, VM, device or Hypium run is part of this decision.

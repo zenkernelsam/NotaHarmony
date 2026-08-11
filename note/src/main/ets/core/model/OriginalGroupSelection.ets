@@ -10,6 +10,12 @@ export interface OriginalGroupSelectionResult {
   groupIds: string[];
 }
 
+export interface OriginalSelectionLayerUnit {
+  id: string;
+  group: boolean;
+  entityIds: string[];
+}
+
 interface GroupExpansion {
   valid: boolean;
   leaves: string[];
@@ -97,6 +103,51 @@ export function resolveOriginalSelectedGroupLeaves(groupIds: string[], selectedE
   return leaves;
 }
 
+export function resolveOriginalSelectionLayerUnits(orderedEntityIds: string[],
+  groups: OriginalSelectionGroup[]): OriginalSelectionLayerUnit[] | null {
+  const parentByMember: Map<string, OriginalSelectionGroup> =
+    new Map<string, OriginalSelectionGroup>();
+  for (const group of groups) {
+    if (group.id.length === 0 || group.members.length === 0) {
+      continue;
+    }
+    for (const member of group.members) {
+      const current: OriginalSelectionGroup | undefined = parentByMember.get(member);
+      if (current === undefined || compareGroupIdentity(group, current) > 0) {
+        parentByMember.set(member, group);
+      }
+    }
+  }
+  const units: OriginalSelectionLayerUnit[] = [];
+  const seenEntities: Set<string> = new Set<string>();
+  const closedUnits: Set<string> = new Set<string>();
+  let current: OriginalSelectionLayerUnit | null = null;
+  for (const entityId of orderedEntityIds) {
+    if (entityId.length === 0 || seenEntities.has(entityId)) {
+      return null;
+    }
+    seenEntities.add(entityId);
+    const top: OriginalSelectionGroup | null | false =
+      topContainingGroupStrict(entityId, parentByMember);
+    if (top === false) {
+      return null;
+    }
+    const unitId: string = top === null ? entityId : top.id;
+    if (current === null || current.id !== unitId) {
+      if (closedUnits.has(unitId)) {
+        return null;
+      }
+      if (current !== null) {
+        closedUnits.add(current.id);
+      }
+      current = { id: unitId, group: top !== null, entityIds: [] };
+      units.push(current);
+    }
+    current.entityIds.push(entityId);
+  }
+  return units;
+}
+
 function topContainingGroup(entityId: string,
   parentByMember: Map<string, OriginalSelectionGroup>): OriginalSelectionGroup | null {
   let current: OriginalSelectionGroup | undefined = parentByMember.get(entityId);
@@ -116,6 +167,27 @@ function topContainingGroup(entityId: string,
     current = parent;
   }
   return null;
+}
+
+function topContainingGroupStrict(entityId: string,
+  parentByMember: Map<string, OriginalSelectionGroup>): OriginalSelectionGroup | null | false {
+  let current: OriginalSelectionGroup | undefined = parentByMember.get(entityId);
+  if (current === undefined) {
+    return null;
+  }
+  const visited: Set<string> = new Set<string>();
+  while (current !== undefined) {
+    if (visited.has(current.id)) {
+      return false;
+    }
+    visited.add(current.id);
+    const parent: OriginalSelectionGroup | undefined = parentByMember.get(current.id);
+    if (parent === undefined) {
+      return current;
+    }
+    current = parent;
+  }
+  return false;
 }
 
 function expandGroup(groupId: string, byId: Map<string, OriginalSelectionGroup>,

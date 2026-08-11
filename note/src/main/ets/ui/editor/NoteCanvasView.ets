@@ -92,7 +92,7 @@ import {
 } from '../../core/model/NoteTypes';
 import { effectivePageBackground } from '../../core/model/PageBackgroundModel';
 import {
-  appendPageElementRefs, clonePageElementOrder, materializePageElements, movePageElementRefs,
+  appendPageElementRefs, clonePageElementOrder, materializePageElements, movePageElementRefsOneStep,
   normalizePageElementOrder, OrderedPageElement, PageElementKind, PageElementRef,
   removePageElementRefs, requiresUnifiedElementRender, samePageElementMembers, samePageElementOrder,
 } from '../../core/model/PageElementOrder';
@@ -3614,9 +3614,8 @@ export struct NoteCanvasView {
       return;
     }
     const before: PageElementRef[] = clonePageElementOrder(this.elementOrder);
-    const after: PageElementRef[] = movePageElementRefs(
-      before, directStrokeIds, directShapeIds, forward,
-      directTextIds, directImageIds, directMathIds);
+    const after: PageElementRef[] = movePageElementRefsOneStep(
+      before, selectedIds, groupIds, this.selectionGroups, forward);
     if (samePageElementOrder(before, after)) {
       return;
     }
@@ -3633,7 +3632,7 @@ export struct NoteCanvasView {
     const originalEligible: boolean = this.areCanonicalOriginalPositionSelection(
       directStrokeIds, directShapeIds, directTextIds, directImageIds, directMathIds);
     const hint: OriginalZOrderHint | undefined = originalEligible ? {
-      command: forward ? OriginalZOrderCommand.BRING_FRONT : OriginalZOrderCommand.SEND_BACK,
+      command: forward ? OriginalZOrderCommand.BRING_FORWARD : OriginalZOrderCommand.SEND_BACKWARD,
       selectedElementIds: selectedIds,
       selectedGroupIds: groupIds.slice(),
     } : undefined;
