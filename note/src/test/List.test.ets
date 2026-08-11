@@ -59,6 +59,7 @@ import mathBlockGeometryTest from './MathBlockGeometry.test';
 import originalEntityVisibilityStateTest from './OriginalEntityVisibilityState.test';
 import originalRecordingStoreTest from './OriginalRecordingStore.test';
 import originalRecordingAssetLoaderTest from './OriginalRecordingAssetLoader.test';
+import originalRecordingPlaybackControllerTest from './OriginalRecordingPlaybackController.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -122,4 +123,5 @@ export default function testsuite() {
   originalEntityVisibilityStateTest();
   originalRecordingStoreTest();
   originalRecordingAssetLoaderTest();
+  originalRecordingPlaybackControllerTest();
 }
