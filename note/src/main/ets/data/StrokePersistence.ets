@@ -214,11 +214,10 @@ export function validateOriginalClipboardPastePlan(plan: OriginalClipboardPasteP
   }
   for (const text of plan.textBlocks) {
     addLeaf(text.id, PageElementKind.TEXT);
-    if (text.richText.length === 0) {
-      throw new Error('original clipboard Paste empty Text is unsupported');
-    }
     encodeOriginalLocalCreateTextBlock(page, text);
-    encodeOriginalInitialInsertString({ timestamp: 1, siteId: 1 }, text.richText);
+    if (text.richText.length > 0) {
+      encodeOriginalInitialInsertString({ timestamp: 1, siteId: 1 }, text.richText);
+    }
   }
   for (const image of plan.images) {
     addLeaf(image.id, PageElementKind.IMAGE);
@@ -1212,36 +1211,39 @@ export class StrokePersistence {
               const createPayload: Uint8Array = encodeOriginalLocalCreateTextBlock(page, text);
               const createOperation: StoredSyncedOperation = localStoredOperation(
                 noteId, metadata, ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE, createPayload, null);
+              const createDecoded: OriginalCreateBlockPayload = decodeOriginalCreateBlock(
+                createOperation.rawOperation, metadata.clientTime.toString());
               const createApplied: SyncedOperationApplyResult =
                 await new OriginalCreateBlockOperationApplier().applyBatchedPayload(
-                  store, createOperation,
-                  decodeOriginalCreateBlock(createOperation.rawOperation,
-                    metadata.clientTime.toString()), revisionBatch);
+                  store, createOperation, createDecoded, revisionBatch);
               if (createApplied.deferredReason !== null) {
                 throw new Error(`original clipboard CREATE_BLOCK was deferred: ${createApplied.deferredReason}`);
               }
               await this.appendOriginalCreateOperation(store, noteId, identity,
                 OpType.ORIGINAL_CREATE_BLOCK, createOperation.rawOperation);
-              const insertIdentity: AllocatedOperationIdentity =
-                await allocateOperationIdentity(store, noteId);
-              const insertMetadata: OriginalInkCreateMetadata =
-                allocatedOriginalMetadata(insertIdentity);
-              const insertPayload: Uint8Array = encodeOriginalInitialInsertString(
-                { timestamp: identity.timestamp, siteId: identity.siteId }, text.richText);
-              const insertOperation: StoredSyncedOperation = localStoredOperation(
-                noteId, insertMetadata, ORIGINAL_INSERT_STRING_PAYLOAD_TYPE,
-                insertPayload, null);
-              const insertApplied: SyncedOperationApplyResult =
-                await new OriginalInsertTextOperationApplier().applyBatchedPayload(
-                  store, insertOperation,
-                  decodeOriginalInsertText(insertOperation.rawOperation,
-                    ORIGINAL_INSERT_STRING_PAYLOAD_TYPE), revisionBatch);
-              if (insertApplied.deferredReason !== null) {
-                throw new Error(`original clipboard INSERT_STRING was deferred: ${insertApplied.deferredReason}`);
+              if (text.richText.length > 0) {
+                const insertIdentity: AllocatedOperationIdentity =
+                  await allocateOperationIdentity(store, noteId);
+                const insertMetadata: OriginalInkCreateMetadata =
+                  allocatedOriginalMetadata(insertIdentity);
+                const insertPayload: Uint8Array = encodeOriginalInitialInsertString(
+                  { timestamp: identity.timestamp, siteId: identity.siteId }, text.richText);
+                const insertOperation: StoredSyncedOperation = localStoredOperation(
+                  noteId, insertMetadata, ORIGINAL_INSERT_STRING_PAYLOAD_TYPE,
+                  insertPayload, null);
+                const insertApplied: SyncedOperationApplyResult =
+                  await new OriginalInsertTextOperationApplier().applyBatchedPayload(
+                    store, insertOperation,
+                    decodeOriginalInsertText(insertOperation.rawOperation,
+                      ORIGINAL_INSERT_STRING_PAYLOAD_TYPE), revisionBatch);
+                if (insertApplied.deferredReason !== null) {
+                  throw new Error(`original clipboard INSERT_STRING was deferred: ${insertApplied.deferredReason}`);
+                }
+                await this.appendOriginalCreateOperation(store, noteId, insertIdentity,
+                  OpType.ORIGINAL_INSERT_TEXT, insertOperation.rawOperation);
               }
-              await this.appendOriginalCreateOperation(store, noteId, insertIdentity,
-                OpType.ORIGINAL_INSERT_TEXT, insertOperation.rawOperation);
-              createdTexts.push(text);
+              createdTexts.push(materializeOriginalTextCreate(
+                identity.opId, createDecoded, text.richText, metadata));
             } else if (ref.kind === PageElementKind.IMAGE) {
               const source: ImageElement | undefined = imageById.get(ref.elementId);
               if (source === undefined) {
@@ -4773,6 +4775,44 @@ function materializeOriginalMathCreate(id: string,
   };
   math.bounds = mathBlockWorldBounds(math);
   return math;
+}
+
+function materializeOriginalTextCreate(id: string, payload: OriginalCreateBlockPayload,
+  richText: string, metadata: OriginalInkCreateMetadata): TextBlockElement {
+  if (payload.blockType !== OriginalBlockType.TEXT) {
+    throw new Error('original clipboard Text CREATE_BLOCK decoded to a different kind');
+  }
+  const rotation: number = payload.rotation === null ? 0 : payload.rotation;
+  const scaleX: number = payload.scaleX === null ? 1 : payload.scaleX;
+  const scaleY: number = payload.scaleY === null ? 1 : payload.scaleY;
+  const cosine: number = Math.cos(rotation);
+  const sine: number = Math.sin(rotation);
+  const text: TextBlockElement = {
+    id: id, type: ElementType.TEXT,
+    transform: [
+      cosine * scaleX, -sine * scaleY, payload.originX,
+      sine * scaleX, cosine * scaleY, payload.originY,
+      0, 0, 1,
+    ],
+    bounds: { left: 0, top: 0, right: 0, bottom: 0 },
+    richText: richText, textOrigin: { x: 0, y: 0 },
+    blockWidth: payload.width, blockHeight: payload.height,
+    rotationRadians: rotation,
+    contentLeftInset: payload.margins.left, contentTopInset: payload.margins.top,
+    fontSize: 17, fontColor: -16777216,
+    corner: payload.corner, textWrap: payload.textWrap,
+    enableCaption: payload.enableCaption, paper: null,
+    resizesWidthToFitText: payload.resizesWidthToFitText,
+    positionLocked: payload.positionLocked,
+    originalCreate: {
+      timestamp: metadata.timestamp, siteId: metadata.siteId,
+      clientTime: metadata.clientTime,
+      pageTimestamp: metadata.pageTimestamp, pageSiteId: metadata.pageSiteId,
+      pageIndex: metadata.pageIndex, pencilSeed: metadata.pencilSeed,
+    },
+  };
+  text.bounds = textBlockWorldBounds(text);
+  return text;
 }
 
 function materializeOriginalImageCreate(id: string,

@@ -11,7 +11,7 @@ import {
 } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import {
-  ElementType, ImageElement, MathElement, ShapeElement,
+  ElementType, ImageElement, MathElement, ShapeElement, TextBlockElement,
 } from '../main/ets/core/model/ElementTypes';
 import {
   handwritingSourceChanged, pageSnapshotChanged, SearchSourceElement,
@@ -404,14 +404,16 @@ export default function strokePersistenceTest() {
       }
       const image: ImageElement = originalImage('op:70:2');
       const math: MathElement = originalMath('op:74:2');
+      const text: TextBlockElement = originalText('op:73:2', '');
       validateOriginalClipboardPastePlan({
-        strokes: [], shapes: [], textBlocks: [], images: [image], mathBlocks: [math],
+        strokes: [], shapes: [], textBlocks: [text], images: [image], mathBlocks: [math],
         elementOrder: [
           { kind: PageElementKind.IMAGE, elementId: image.id, zIndex: 0 },
-          { kind: PageElementKind.MATH, elementId: math.id, zIndex: 1 },
+          { kind: PageElementKind.TEXT, elementId: text.id, zIndex: 1 },
+          { kind: PageElementKind.MATH, elementId: math.id, zIndex: 2 },
         ],
         groups: [{
-          id: 'op:76:2', timestamp: 76, siteId: 2, members: [image.id, math.id],
+          id: 'op:76:2', timestamp: 76, siteId: 2, members: [image.id, text.id, math.id],
         }],
         topGroupIds: ['op:76:2'],
       });
@@ -440,6 +442,16 @@ function originalMath(id: string): MathElement {
     latex: '\\frac{a}{b}', color: -16777216,
     blockWidth: 100, blockHeight: 50, rotationRadians: 0,
     corner: 0, textWrap: 0, enableCaption: false, positionLocked: false,
+  };
+}
+
+function originalText(id: string, richText: string): TextBlockElement {
+  return {
+    id: id, type: ElementType.TEXT, transform: [1, 0, 10, 0, 1, 20, 0, 0, 1],
+    bounds: { left: 10, top: 20, right: 110, bottom: 70 }, richText: richText,
+    textOrigin: { x: 0, y: 0 }, blockWidth: 100, blockHeight: 50,
+    rotationRadians: 0, contentLeftInset: 5, contentTopInset: 3,
+    fontSize: 17, fontColor: -16777216,
   };
 }
 
