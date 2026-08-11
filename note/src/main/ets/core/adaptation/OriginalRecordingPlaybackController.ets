@@ -35,6 +35,7 @@ export class OriginalRecordingPlaybackController {
   private generation: number = 0;
   private permanentlyReleased: boolean = false;
   private autoPlay: boolean = false;
+  private initialPositionMs: number = 0;
   private listener: OriginalRecordingPlaybackListener | null = null;
   private snapshot: OriginalRecordingPlaybackSnapshot = emptySnapshot(OriginalRecordingPlaybackState.IDLE);
   private stateHandler: media.OnAVPlayerStateChangeHandle | null = null;
@@ -59,7 +60,8 @@ export class OriginalRecordingPlaybackController {
       error: this.snapshot.error };
   }
 
-  async load(recording: MaterializedOriginalRecording, autoPlay: boolean = false): Promise<boolean> {
+  async load(recording: MaterializedOriginalRecording, autoPlay: boolean = false,
+    initialPositionMs: number = 0): Promise<boolean> {
     const requestGeneration: number = ++this.generation;
     return await this.mutex.runExclusive(async (): Promise<boolean> => {
       if (this.permanentlyReleased || requestGeneration !== this.generation) {
@@ -86,6 +88,7 @@ export class OriginalRecordingPlaybackController {
         this.player = player;
         this.lease = opened.lease;
         this.autoPlay = autoPlay;
+        this.initialPositionMs = sanitizeInitialPosition(initialPositionMs);
         this.installHandlers(player, requestGeneration);
         this.publish({ state: OriginalRecordingPlaybackState.LOADING, recordingId: recording.id,
           positionMs: 0, durationMs: 0, error: null });
@@ -217,10 +220,7 @@ export class OriginalRecordingPlaybackController {
     }
     if (state === 'prepared') {
       this.publishState(OriginalRecordingPlaybackState.READY);
-      if (this.autoPlay) {
-        this.autoPlay = false;
-        this.playPrepared(player, generation);
-      }
+      this.finishPreparedLoad(player, generation);
     } else if (state === 'playing') {
       this.publishState(OriginalRecordingPlaybackState.PLAYING);
     } else if (state === 'paused') {
@@ -252,12 +252,30 @@ export class OriginalRecordingPlaybackController {
     }
   }
 
+  private finishPreparedLoad(player: media.AVPlayer, generation: number): void {
+    try {
+      if (this.initialPositionMs > 0) {
+        player.seek(this.initialPositionMs);
+        this.initialPositionMs = 0;
+      }
+      if (this.autoPlay) {
+        this.autoPlay = false;
+        this.playPrepared(player, generation);
+      }
+    } catch (error) {
+      if (generation === this.generation && player === this.player) {
+        this.publishFailure(this.snapshot.recordingId, error);
+      }
+    }
+  }
+
   private async releaseCurrent(): Promise<void> {
     const player: media.AVPlayer | null = this.player;
     const lease: OriginalRecordingAssetLease | null = this.lease;
     this.player = null;
     this.lease = null;
     this.autoPlay = false;
+    this.initialPositionMs = 0;
     if (player !== null) {
       this.removeHandlers(player);
       try {
@@ -323,6 +341,10 @@ export function clampRecordingSeek(positionMs: number, durationMs: number): numb
 
 function validDuration(durationMs: number): number {
   return Number.isSafeInteger(durationMs) && durationMs > 0 ? durationMs : 0;
+}
+
+function sanitizeInitialPosition(positionMs: number): number {
+  return Number.isSafeInteger(positionMs) && positionMs > 0 ? positionMs : 0;
 }
 
 function emptySnapshot(state: OriginalRecordingPlaybackState): OriginalRecordingPlaybackSnapshot {

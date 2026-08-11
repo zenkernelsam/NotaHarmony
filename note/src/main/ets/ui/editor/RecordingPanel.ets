@@ -15,6 +15,8 @@ export struct RecordingPanel {
     state: OriginalRecordingPlaybackState.IDLE, recordingId: null,
     positionMs: 0, durationMs: 0, error: null,
   };
+  @Prop cumulativePositionMs: number = 0;
+  @Prop cumulativeDurationMs: number = 0;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onToggle: (recordingId: string) => void = () => {};
@@ -66,18 +68,18 @@ export struct RecordingPanel {
 
       if (this.snapshot.recordingId !== null) {
         Column() {
-          Slider({ value: this.snapshot.positionMs, min: 0,
-            max: Math.max(1, this.snapshot.durationMs), step: 1 })
+          Slider({ value: this.cumulativePositionMs, min: 0,
+            max: Math.max(1, this.cumulativeDurationMs), step: 1 })
             .width('100%')
             .enabled(this.canSeek())
             .opacity(this.canSeek() ? 1 : 0.45)
             .selectedColor(this.resolveTokens().accent)
             .onChange((value: number) => this.onSeek(value))
           Row() {
-            Text(formatRecordingTime(this.snapshot.positionMs))
+            Text(formatRecordingTime(this.cumulativePositionMs))
               .fontSize(11).fontColor(this.resolveTokens().textSecondary)
             Blank()
-            Text(formatRecordingTime(this.snapshot.durationMs))
+            Text(formatRecordingTime(this.cumulativeDurationMs))
               .fontSize(11).fontColor(this.resolveTokens().textSecondary)
           }
           .width('100%')
@@ -132,7 +134,7 @@ export struct RecordingPanel {
   }
 
   private canSeek(): boolean {
-    return this.snapshot.durationMs > 0 &&
+    return this.cumulativeDurationMs > 0 &&
       (this.snapshot.state === OriginalRecordingPlaybackState.READY ||
         this.snapshot.state === OriginalRecordingPlaybackState.PLAYING ||
         this.snapshot.state === OriginalRecordingPlaybackState.PAUSED ||

@@ -19,6 +19,11 @@ import {
   OriginalRecordingPlaybackState,
 } from '../../core/adaptation/OriginalRecordingPlaybackController';
 import {
+  buildOriginalRecordingTimeline, locateOriginalRecordingTimeline,
+  nextTimelineRecordingId, OriginalRecordingTimeline, OriginalRecordingTimelineLocation,
+  timelinePositionForRecording,
+} from '../../core/adaptation/OriginalRecordingTimeline';
+import {
   AddPageAction, DeletePageAction, EditorHistoryBridge, PageContentSnapshot, UndoableAction,
   UndoableActionType,
 } from '../../rendering/UndoRedoManager';
@@ -54,6 +59,8 @@ struct NotePage {
     state: OriginalRecordingPlaybackState.IDLE, recordingId: null,
     positionMs: 0, durationMs: 0, error: null,
   };
+  @State playbackCumulativePositionMs: number = 0;
+  @State playbackCumulativeDurationMs: number = 0;
   private noteRepo: NoteRepositoryImpl | null = null;
   private pageRepo: PageRepositoryImpl | null = null;
   private persistence: StrokePersistence = new StrokePersistence();
@@ -64,6 +71,10 @@ struct NotePage {
     new OriginalRecordingPlaybackController();
   private assetAvailabilitySubscription: number = -1;
   private recordingLoadGeneration: number = 0;
+  private recordingTimeline: OriginalRecordingTimeline = {
+    entries: [], boundaryTimesMs: [], totalDurationMs: 0,
+  };
+  private completionAdvanceInFlight: boolean = false;
   // T-038：主题状态
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -79,7 +90,7 @@ struct NotePage {
       this.noteId = params['noteId'];
     }
     this.recordingController.setListener((snapshot: OriginalRecordingPlaybackSnapshot): void => {
-      this.playbackSnapshot = snapshot;
+      this.onRecordingPlaybackSnapshot(snapshot);
     });
     if (this.assetAvailabilitySubscription < 0) {
       this.assetAvailabilitySubscription = assetAvailabilityHub.subscribe(
@@ -179,6 +190,7 @@ struct NotePage {
       this.noteRepo = null;
       this.recordingStore = null;
       this.recordings = [];
+      this.rebuildRecordingTimeline();
       this.pageLoadFailed = true;
       console.error(`NotePage loadPages failed: ${JSON.stringify(e)}`);
       try {
@@ -233,12 +245,14 @@ struct NotePage {
         await this.recordingStore.listVisible(this.noteId);
       if (generation === this.recordingLoadGeneration) {
         this.recordings = recordings;
+        this.rebuildRecordingTimeline();
       }
     } catch (error) {
       if (generation !== this.recordingLoadGeneration) {
         return;
       }
       this.recordings = [];
+      this.rebuildRecordingTimeline();
       console.error(`Recording list load failed: ${JSON.stringify(error)}`);
       try {
         promptAction.showToast({ message: $r('app.string.recordings_load_failed'), duration: 2500 });
@@ -283,6 +297,66 @@ struct NotePage {
     return null;
   }
 
+  private rebuildRecordingTimeline(): void {
+    this.recordingTimeline = buildOriginalRecordingTimeline(this.recordings);
+    this.playbackCumulativeDurationMs = this.recordingTimeline.totalDurationMs;
+    this.updateCumulativePlaybackPosition(this.playbackSnapshot);
+  }
+
+  private onRecordingPlaybackSnapshot(snapshot: OriginalRecordingPlaybackSnapshot): void {
+    this.playbackSnapshot = snapshot;
+    this.updateCumulativePlaybackPosition(snapshot);
+    if (snapshot.state !== OriginalRecordingPlaybackState.COMPLETED) {
+      this.completionAdvanceInFlight = false;
+      return;
+    }
+    if (!this.completionAdvanceInFlight && snapshot.recordingId !== null) {
+      this.completionAdvanceInFlight = true;
+      this.advanceAfterRecordingCompletion(snapshot.recordingId);
+    }
+  }
+
+  private updateCumulativePlaybackPosition(snapshot: OriginalRecordingPlaybackSnapshot): void {
+    if (snapshot.recordingId === null) {
+      this.playbackCumulativePositionMs = 0;
+      return;
+    }
+    const localPosition: number = snapshot.state === OriginalRecordingPlaybackState.COMPLETED ?
+      Number.MAX_SAFE_INTEGER : snapshot.positionMs;
+    this.playbackCumulativePositionMs = timelinePositionForRecording(
+      this.recordingTimeline, snapshot.recordingId, localPosition);
+  }
+
+  private async advanceAfterRecordingCompletion(recordingId: string): Promise<void> {
+    const nextId: string | null = nextTimelineRecordingId(this.recordingTimeline, recordingId);
+    if (nextId === null) {
+      return;
+    }
+    const next: MaterializedOriginalRecording | null = this.findRecording(nextId);
+    if (next !== null) {
+      await this.recordingController.load(next, true);
+    }
+  }
+
+  private async seekRecordingTimeline(positionMs: number): Promise<void> {
+    const location: OriginalRecordingTimelineLocation | null =
+      locateOriginalRecordingTimeline(this.recordingTimeline, positionMs);
+    if (location === null) {
+      return;
+    }
+    if (this.playbackSnapshot.recordingId === location.recordingId) {
+      this.recordingController.seek(location.localPositionMs);
+      return;
+    }
+    const recording: MaterializedOriginalRecording | null = this.findRecording(location.recordingId);
+    if (recording === null) {
+      return;
+    }
+    const resumePlayback: boolean =
+      this.playbackSnapshot.state === OriginalRecordingPlaybackState.PLAYING;
+    await this.recordingController.load(recording, resumePlayback, location.localPositionMs);
+  }
+
   private onRecordingAssetAvailabilityChanged(change: AssetAvailabilityChange): void {
     if (change.noteIds.indexOf(this.noteId) >= 0) {
       this.loadRecordings();
@@ -298,14 +372,7 @@ struct NotePage {
           .fontSize(14)
           .onClick(async () => {
             // T-040 修复：先等待标题保存完成再返回，避免与 LibraryPage onPageShow 刷新竞态
-            if (this.editingTitle) {
-              await this.saveTitle();
-            }
-            if (this.historyBridge !== null && !await this.historyBridge.flushCurrentPage()) {
-              return;
-            }
-            await this.viewModel.flushToolState();
-            router.back();
+            await this.leaveEditor();
           })
         if (this.editingTitle) {
           // T-036：标题编辑态（TextInput，失焦/回车保存）
@@ -373,11 +440,13 @@ struct NotePage {
           recordings: this.recordings,
           loading: this.recordingsLoading,
           snapshot: this.playbackSnapshot,
+          cumulativePositionMs: this.playbackCumulativePositionMs,
+          cumulativeDurationMs: this.playbackCumulativeDurationMs,
           onToggle: (recordingId: string) => {
             this.toggleRecording(recordingId);
           },
           onSeek: (positionMs: number) => {
-            this.recordingController.seek(positionMs);
+            this.seekRecordingTimeline(positionMs);
           },
           onClose: () => {
             this.showRecordings = false;

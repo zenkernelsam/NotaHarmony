@@ -22,7 +22,7 @@ assert.match(page, /recordingController\.release\(\)/);
 assert.match(panel, /OriginalRecordingAssetState\.PENDING/);
 assert.match(panel, /OriginalRecordingAssetState\.MISSING/);
 assert.match(panel, /OriginalRecordingAssetState\.FAILED/);
-assert.match(panel, /this\.snapshot\.durationMs > 0/);
+assert.match(panel, /this\.cumulativeDurationMs > 0/);
 assert.match(panel, /onSeek\(value\)/);
 assert.match(tests, /3661000/);
 assert.match(list, /recordingPanelTest\(\)/);
