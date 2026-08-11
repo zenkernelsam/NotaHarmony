@@ -56,6 +56,9 @@ import { InkPathCommandType } from '../main/ets/core/model/StrokeTypes';
 import {
   decodeOriginalSetMetadataTable, OriginalSetMetadataOperationApplier,
 } from '../main/ets/data/OriginalSetMetadataOperation';
+import {
+  decodeOriginalAssetCloudPersistedTable, OriginalAssetCloudPersistedOperationApplier,
+} from '../main/ets/data/OriginalAssetCloudPersistedOperation';
 
 function operation(timestamp: number, serverTime: string,
   clientTime: string = serverTime, payloadType: number = 3): IncomingSyncedOperation {
@@ -327,6 +330,47 @@ export default function syncedOperationInboxTest() {
       const result = await new OriginalCreateBlockOperationApplier().apply(
         {} as relationalStore.RdbStore, operation);
       expect(result.deferredReason).assertEqual('CREATE_BLOCK_IMAGE_FIELDS_ON_MATH');
+    });
+
+    it('decodes cloud-persisted asset hashes without changing local asset status', 0, async () => {
+      const raw: Uint8Array = flatBufferAssetCloudPersisted();
+      const table = readOriginalPayloadTable(raw, 2);
+      const payload = decodeOriginalAssetCloudPersistedTable(table);
+      let expectedHash: string = '';
+      for (let index: number = 0; index < 64; index++) {
+        expectedHash += index.toString(16).padStart(2, '0');
+      }
+      expect(payload.storageHash).assertEqual(expectedHash);
+      const statements: string[] = [];
+      const fakeStore = {
+        executeSql: async (sql: string): Promise<void> => {
+          statements.push(sql);
+        },
+      } as relationalStore.RdbStore;
+      const cloudOperation: StoredSyncedOperation = {
+        noteId: 'note', timestamp: 92, siteId: 7, clientTime: '123', serverTime: '124',
+        schemaVersion: 1, payloadType: 2, rawOperation: raw,
+        state: SyncedOperationInboxState.RECEIVED, deferredReason: null, receivedAt: 1,
+      };
+      const applier = new OriginalAssetCloudPersistedOperationApplier();
+      expect((await applier.apply(fakeStore, cloudOperation)).deferredReason === null).assertTrue();
+      expect((await applier.apply(fakeStore, cloudOperation)).deferredReason === null).assertTrue();
+      expect(statements.length).assertEqual(2);
+      expect(statements[0]).assertContain('INSERT OR IGNORE INTO original_asset_cloud_state');
+      expect(statements[0].includes('note_asset')).assertFalse();
+    });
+
+    it('defers missing, truncated and extended AssetCloudPersisted tables', 0, () => {
+      const applier = new OriginalAssetCloudPersistedOperationApplier();
+      expect(applier.preflightTable(readOriginalPayloadTable(
+        flatBufferAssetCloudPersisted(false), 2))).assertEqual(
+        'MALFORMED_ASSET_CLOUD_PERSISTED_PAYLOAD');
+      expect(applier.preflightTable(readOriginalPayloadTable(
+        flatBufferAssetCloudPersisted(true, true), 2))).assertEqual(
+        'MALFORMED_ASSET_CLOUD_PERSISTED_PAYLOAD');
+      expect(applier.preflightTable(readOriginalPayloadTable(
+        flatBufferAssetCloudPersisted(true, false, true), 2))).assertEqual(
+        'ASSET_CLOUD_PERSISTED_FIELDS_UNSUPPORTED');
     });
 
     it('does not reject valid IMAGE or MATH type-specific CREATE fields', 0, () => {
@@ -2182,6 +2226,31 @@ function flatBufferOperation(timestamp: number, siteId: number, clientTime: stri
   writeU16(bytes, 62, 4);
   writeU32(bytes, 64, 4);
   return bytes;
+}
+
+function flatBufferAssetCloudPersisted(includeHash: boolean = true,
+  truncated: boolean = false, extraField: boolean = false): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 92);
+  writeDecimalU64At(builder, root + 12, '123');
+  writeDecimalU64At(builder, root + 20, '124');
+  builder.uint8(root + 28, 2);
+  const objectSize: number = truncated ? 60 : (extraField ? 72 : 68);
+  const payload: number = builder.table(
+    [includeHash ? 4 : 0, extraField ? 68 : 0], objectSize);
+  builder.pointer(root + 32, payload);
+  if (includeHash) {
+    const byteCount: number = truncated ? 56 : 64;
+    for (let index: number = 0; index < byteCount; index++) {
+      builder.uint8(payload + 4 + index, index);
+    }
+  }
+  if (extraField) {
+    builder.uint8(payload + 68, 1);
+  }
+  return builder.finish(root);
 }
 
 function writeU16(bytes: Uint8Array, offset: number, value: number): void {

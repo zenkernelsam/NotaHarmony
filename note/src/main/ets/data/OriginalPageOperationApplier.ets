@@ -37,11 +37,16 @@ import {
   ORIGINAL_SET_METADATA_PAYLOAD_TYPE, OriginalSetMetadataOperationApplier,
 } from './OriginalSetMetadataOperation';
 import {
+  ORIGINAL_ASSET_CLOUD_PERSISTED_PAYLOAD_TYPE, OriginalAssetCloudPersistedOperationApplier,
+} from './OriginalAssetCloudPersistedOperation';
+import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 
 export class OriginalPageOperationApplier implements SyncedOperationApplier {
   private setMetadata: OriginalSetMetadataOperationApplier = new OriginalSetMetadataOperationApplier();
+  private assetCloudPersisted: OriginalAssetCloudPersistedOperationApplier =
+    new OriginalAssetCloudPersistedOperationApplier();
   private createPage: OriginalCreatePageOperationApplier = new OriginalCreatePageOperationApplier();
   private modifyPage: OriginalModifyPageOperationApplier = new OriginalModifyPageOperationApplier();
   private deleteEntities: OriginalDeleteEntitiesOperationApplier =
@@ -63,6 +68,7 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
 
   supports(payloadType: number): boolean {
     return payloadType === ORIGINAL_SET_METADATA_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_ASSET_CLOUD_PERSISTED_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE ||
@@ -85,6 +91,9 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
     operation: StoredSyncedOperation): Promise<SyncedOperationApplyResult> {
     if (operation.payloadType === ORIGINAL_SET_METADATA_PAYLOAD_TYPE) {
       return this.setMetadata.apply(store, operation);
+    }
+    if (operation.payloadType === ORIGINAL_ASSET_CLOUD_PERSISTED_PAYLOAD_TYPE) {
+      return this.assetCloudPersisted.apply(store, operation);
     }
     if (operation.payloadType === ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE) {
       return this.createPage.apply(store, operation);

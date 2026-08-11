@@ -22,7 +22,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(50);
+      expect(DB_VERSION).assertEqual(52);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -99,6 +99,7 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[50].join('\n')).assertContain('original_page_background_winner_v50');
       expect(MIGRATIONS[50].join('\n')).assertContain('original_note_background_winner');
       expect(MIGRATIONS[50].join('\n')).assertContain('original_note_title_winner');
+      expect(MIGRATIONS[52].join('\n')).assertContain('original_asset_cloud_state');
       expect(MIGRATIONS[35].join('\n')).assertContain('original_block_state');
       expect(MIGRATIONS[36].join('\n')).assertContain('page_origin_winner_present');
       expect(MIGRATIONS[36].join('\n')).assertContain('z_index_winner_present');

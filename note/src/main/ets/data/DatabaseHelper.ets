@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v51: preserve original PDF pageInAsset registers independently from backgrounds.
-export const DB_VERSION: number = 51;
+// v52: preserve original per-note cloud-persisted asset state independently from local files.
+export const DB_VERSION: number = 52;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -1211,6 +1211,15 @@ CREATE TABLE IF NOT EXISTS note_asset (
   local_path TEXT
 )`;
 
+export const DDL_ORIGINAL_ASSET_CLOUD_STATE: string = `
+CREATE TABLE IF NOT EXISTS original_asset_cloud_state (
+  note_id TEXT NOT NULL,
+  asset_hash TEXT NOT NULL CHECK (length(asset_hash) = 128),
+  cloud_persisted INTEGER NOT NULL DEFAULT 1 CHECK (cloud_persisted = 1),
+  PRIMARY KEY(note_id, asset_hash),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
 export const DDL_NOTE_META: string = `
 CREATE TABLE IF NOT EXISTS note_meta (
   id TEXT PRIMARY KEY,
@@ -2099,5 +2108,8 @@ export const MIGRATIONS: Record<number, string[]> = {
        ON winner.note_id = page.note_id AND winner.page_timestamp = page.page_timestamp
        AND winner.page_site_id = page.page_site_id AND winner.page_index = page.page_index
      WHERE winner.note_id IS NULL`,
+  ],
+  52: [
+    DDL_ORIGINAL_ASSET_CLOUD_STATE,
   ],
 };
