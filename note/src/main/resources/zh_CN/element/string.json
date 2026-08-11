@@ -181,6 +181,16 @@
     { "name": "recording_deleted", "value": "录音已删除" },
     { "name": "recording_delete_failed", "value": "无法删除录音" },
     { "name": "microphone_permission_reason", "value": "使用麦克风在笔记中录制音频。" },
+    { "name": "microphone_permission_title", "value": "需要麦克风访问权限" },
+    { "name": "microphone_permission_message", "value": "Notability 需要麦克风权限才能录制音频。请在应用设置中允许麦克风访问，然后重试。" },
+    { "name": "dismiss", "value": "好" },
+    { "name": "start_recording", "value": "录音" },
+    { "name": "resume_recording", "value": "继续" },
+    { "name": "stop_recording", "value": "停止" },
+    { "name": "preparing_recording", "value": "正在开始录音…" },
+    { "name": "saving_recording", "value": "正在保存录音…" },
+    { "name": "recording_start_failed", "value": "无法开始录音" },
+    { "name": "recording_save_failed", "value": "无法保存录音" },
     { "name": "undo", "value": "撤销" }
   ]
 }

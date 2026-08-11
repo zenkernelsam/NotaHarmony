@@ -51,8 +51,9 @@ assert.match(manifest, /ohos\.permission\.MICROPHONE/);
 assert.match(manifest, /abilities[\s\S]*NoteAbility/);
 assert.match(manifest, /when[\s\S]*inuse/);
 assert.match(page, /new OriginalRecordingMicrophoneBackend\(context\.tempDir\)/);
-assert.match(page, /recordingCaptureController\.release\(\)/);
-assert.doesNotMatch(page, /recordingCaptureController\.start\(\)/);
+assert.match(page, /new OriginalRecordingSessionController\(/);
+assert.match(page, /session\.finishAndRelease\(\)/);
+assert.doesNotMatch(page, /capture\.start\(\)/);
 assert.match(tests, /asynchronous recorder error/);
 assert.match(tests, /start,pause,resume,stop/);
 

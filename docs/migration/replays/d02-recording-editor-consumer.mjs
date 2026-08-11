@@ -30,6 +30,9 @@ assert.doesNotMatch(operation, /throw error;/);
 assert.match(operation, /applying original Recording operation failed/);
 assert.match(controller, /\(\(error: BusinessError\) => void\) \| null/);
 assert(strings.string.some(value => value.name === 'recordings'));
-assert.doesNotMatch(panel, /capture|deleteRecording|renameRecording/);
+assert.match(panel, /onRecord/);
+assert.match(panel, /onStopCapture/);
+assert.doesNotMatch(panel,
+  /OriginalRecordingMicrophoneBackend|persistCapturedOriginalRecording|DatabaseManager|renameRecording/);
 
 console.log('recordingEditor=list-select-toggle-seek-late-asset-release');

@@ -66,6 +66,7 @@ import originalAudioLinkedInkPlaybackTest from './OriginalAudioLinkedInkPlayback
 import originalRecordingDeleteControllerTest from './OriginalRecordingDeleteController.test';
 import originalRecordingCaptureControllerTest from './OriginalRecordingCaptureController.test';
 import originalCreateRecordingPayloadEncoderTest from './OriginalCreateRecordingPayloadEncoder.test';
+import originalRecordingSessionControllerTest from './OriginalRecordingSessionController.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -136,4 +137,5 @@ export default function testsuite() {
   originalRecordingDeleteControllerTest();
   originalRecordingCaptureControllerTest();
   originalCreateRecordingPayloadEncoderTest();
+  originalRecordingSessionControllerTest();
 }

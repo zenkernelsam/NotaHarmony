@@ -2,6 +2,11 @@ import {
   OriginalRecordingPlaybackSnapshot, OriginalRecordingPlaybackSpeed,
   OriginalRecordingPlaybackState,
 } from '../../core/adaptation/OriginalRecordingPlaybackController';
+import { OriginalRecordingCaptureState } from
+  '../../core/adaptation/OriginalRecordingCaptureController';
+import {
+  OriginalRecordingSessionFailure, OriginalRecordingSessionSnapshot,
+} from '../../core/adaptation/OriginalRecordingSessionController';
 import {
   MaterializedOriginalRecording, OriginalRecordingAssetState,
 } from '../../data/OriginalRecordingStore';
@@ -20,6 +25,11 @@ export struct RecordingPanel {
   @Prop cumulativeDurationMs: number = 0;
   @Prop playbackSpeed: OriginalRecordingPlaybackSpeed = OriginalRecordingPlaybackSpeed.SPEED_1_0;
   @Prop pendingDeleteIds: string[] = [];
+  @Prop captureSnapshot: OriginalRecordingSessionSnapshot = {
+    captureState: OriginalRecordingCaptureState.IDLE, elapsedMs: 0,
+    preparing: false, saving: false,
+    failure: OriginalRecordingSessionFailure.NONE, failureSequence: 0,
+  };
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onToggle: (recordingId: string) => void = () => {};
@@ -27,6 +37,10 @@ export struct RecordingPanel {
   onSpeedChange: (speed: OriginalRecordingPlaybackSpeed) => void = () => {};
   onDelete: (recordingId: string) => void = () => {};
   onUndoDelete: (recordingId: string) => void = () => {};
+  onRecord: () => void = () => {};
+  onPauseCapture: () => void = () => {};
+  onResumeCapture: () => void = () => {};
+  onStopCapture: () => void = () => {};
   onClose: () => void = () => {};
 
   private resolveTokens(): ThemeTokens {
@@ -52,6 +66,8 @@ export struct RecordingPanel {
           .onClick(() => this.onClose())
       }
       .width('100%').height(40).padding({ left: 12, right: 8 })
+
+      this.CaptureControls()
 
       if (!this.loading && this.recordings.length === 0) {
         Text($r('app.string.no_recordings'))
@@ -101,9 +117,67 @@ export struct RecordingPanel {
         .height(52).padding({ left: 12, right: 12 })
       }
     }
-    .width('100%').height(220)
+    .width('100%').height(276)
     .backgroundColor(this.resolveTokens().surface)
     .border({ width: { top: 1, bottom: 1 }, color: this.resolveTokens().border })
+  }
+
+  @Builder
+  private CaptureControls() {
+    Row() {
+      if (this.captureSnapshot.preparing || this.captureSnapshot.saving) {
+        LoadingProgress().width(20).height(20)
+        Text(this.captureSnapshot.saving ? $r('app.string.saving_recording') :
+          $r('app.string.preparing_recording'))
+          .fontSize(13)
+          .fontColor(this.resolveTokens().textSecondary)
+          .margin({ left: 10 })
+      } else if (this.isCapturing()) {
+        Text(formatRecordingTime(this.captureSnapshot.elapsedMs))
+          .width(64)
+          .fontSize(14)
+          .fontColor(this.resolveTokens().textPrimary)
+        if (this.captureSnapshot.captureState === OriginalRecordingCaptureState.RECORDING) {
+          Button($r('app.string.pause_recording'))
+            .height(34).fontSize(12).borderRadius(4)
+            .backgroundColor(this.resolveTokens().control)
+            .fontColor(this.resolveTokens().textPrimary)
+            .onClick(() => this.onPauseCapture())
+        } else if (this.captureSnapshot.captureState === OriginalRecordingCaptureState.PAUSED) {
+          Button($r('app.string.resume_recording'))
+            .height(34).fontSize(12).borderRadius(4)
+            .backgroundColor(this.resolveTokens().control)
+            .fontColor(this.resolveTokens().textPrimary)
+            .onClick(() => this.onResumeCapture())
+        }
+        Blank()
+        Button($r('app.string.stop_recording'))
+          .height(34).fontSize(12).borderRadius(4)
+          .enabled(this.captureSnapshot.captureState === OriginalRecordingCaptureState.RECORDING ||
+            this.captureSnapshot.captureState === OriginalRecordingCaptureState.PAUSED)
+          .backgroundColor(this.resolveTokens().danger)
+          .fontColor(this.resolveTokens().onAccent)
+          .onClick(() => this.onStopCapture())
+      } else {
+        Button($r('app.string.start_recording'))
+          .height(34).fontSize(13).borderRadius(4)
+          .backgroundColor(this.resolveTokens().accent)
+          .fontColor(this.resolveTokens().onAccent)
+          .onClick(() => this.onRecord())
+      }
+    }
+    .width('100%').height(56).padding({ left: 12, right: 12 })
+    .border({ width: { bottom: 1 }, color: this.resolveTokens().border })
+  }
+
+  private isCapturing(): boolean {
+    const state: OriginalRecordingCaptureState = this.captureSnapshot.captureState;
+    return state === OriginalRecordingCaptureState.STARTING ||
+      state === OriginalRecordingCaptureState.RECORDING ||
+      state === OriginalRecordingCaptureState.PAUSING ||
+      state === OriginalRecordingCaptureState.PAUSED ||
+      state === OriginalRecordingCaptureState.RESUMING ||
+      state === OriginalRecordingCaptureState.STOPPING;
   }
 
   @Builder

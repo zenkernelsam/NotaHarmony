@@ -29,11 +29,21 @@ import {
 } from '../../core/adaptation/OriginalAudioLinkedInkPlayback';
 import { OriginalRecordingDeleteController } from
   '../../core/adaptation/OriginalRecordingDeleteController';
-import { OriginalRecordingCaptureController, OriginalRecordingCaptureResult } from
+import {
+  OriginalRecordingCaptureController, OriginalRecordingCaptureResult,
+  OriginalRecordingCaptureState,
+} from
   '../../core/adaptation/OriginalRecordingCaptureController';
 import {
   HarmonyOriginalRecordingCaptureClock, OriginalRecordingMicrophoneBackend,
 } from '../../core/adaptation/OriginalRecordingMicrophoneBackend';
+import {
+  isOriginalRecordingCaptureActive, OriginalRecordingSessionController,
+  OriginalRecordingSessionFailure, OriginalRecordingSessionSnapshot,
+} from '../../core/adaptation/OriginalRecordingSessionController';
+import {
+  HarmonyOriginalRecordingAudioFocusGateway, HarmonyOriginalRecordingPermissionGateway,
+} from '../../core/adaptation/OriginalRecordingHarmonyGateways';
 import { persistCapturedOriginalRecording } from '../../data/OriginalRecordingPersistence';
 import {
   AddPageAction, DeletePageAction, EditorHistoryBridge, PageContentSnapshot, UndoableAction,
@@ -76,6 +86,11 @@ struct NotePage {
   @State recordingPlaybackSpeed: OriginalRecordingPlaybackSpeed =
     OriginalRecordingPlaybackSpeed.SPEED_1_0;
   @State pendingRecordingDeleteIds: string[] = [];
+  @State recordingSessionSnapshot: OriginalRecordingSessionSnapshot = {
+    captureState: OriginalRecordingCaptureState.IDLE, elapsedMs: 0,
+    preparing: false, saving: false,
+    failure: OriginalRecordingSessionFailure.NONE, failureSequence: 0,
+  };
   @State audioPlaybackTime: string | null = null;
   @State audioPlaybackSegments: OriginalAudioSegmentRange[] = [];
   private noteRepo: NoteRepositoryImpl | null = null;
@@ -90,7 +105,9 @@ struct NotePage {
     new OriginalRecordingDeleteController(async (recordingIds: string[]): Promise<void> => {
       await this.commitRecordingDeletes(recordingIds);
     });
-  private recordingCaptureController: OriginalRecordingCaptureController | null = null;
+  private recordingSessionController: OriginalRecordingSessionController | null = null;
+  private recordingSessionTimer: number = -1;
+  private recordingFailureSequence: number = 0;
   private assetAvailabilitySubscription: number = -1;
   private recordingLoadGeneration: number = 0;
   private recordingTimeline: OriginalRecordingTimeline = {
@@ -111,11 +128,23 @@ struct NotePage {
     if (params !== undefined && params !== null && params['noteId'] !== undefined) {
       this.noteId = params['noteId'];
     }
-    if (this.recordingCaptureController === null) {
+    if (this.recordingSessionController === null) {
       const context = getContext(this) as common.UIAbilityContext;
-      this.recordingCaptureController = new OriginalRecordingCaptureController(
+      const capture = new OriginalRecordingCaptureController(
         new OriginalRecordingMicrophoneBackend(context.tempDir),
         new HarmonyOriginalRecordingCaptureClock());
+      this.recordingSessionController = new OriginalRecordingSessionController(
+        capture, new HarmonyOriginalRecordingPermissionGateway(context),
+        new HarmonyOriginalRecordingAudioFocusGateway(),
+        async (result: OriginalRecordingCaptureResult): Promise<void> => {
+          await this.persistCapturedRecording(result);
+        },
+        async (): Promise<void> => {
+          await this.recordingController.unload();
+        });
+      this.recordingSessionController.setListener((snapshot: OriginalRecordingSessionSnapshot): void => {
+        this.onRecordingSessionSnapshot(snapshot);
+      });
     }
     this.recordingController.setListener((snapshot: OriginalRecordingPlaybackSnapshot): void => {
       this.onRecordingPlaybackSnapshot(snapshot);
@@ -154,12 +183,7 @@ struct NotePage {
     this.recordingDeleteController.flush().catch((error: Object) => {
       console.warn(`Recording delete flush failed: ${JSON.stringify(error)}`);
     });
-    if (this.recordingCaptureController !== null) {
-      this.recordingCaptureController.release().catch((error: Object) => {
-        console.warn(`Recording capture release failed: ${JSON.stringify(error)}`);
-      });
-      this.recordingCaptureController = null;
-    }
+    this.finishRecordingSession();
   }
 
   onBackPress(): boolean {
@@ -176,10 +200,7 @@ struct NotePage {
     }
     await this.viewModel.flushToolState();
     await this.recordingDeleteController.flush();
-    if (this.recordingCaptureController !== null) {
-      await this.recordingCaptureController.release();
-      this.recordingCaptureController = null;
-    }
+    await this.finishRecordingSession();
     await this.recordingController.release();
     router.back();
   }
@@ -321,6 +342,113 @@ struct NotePage {
   private async persistCapturedRecording(capture: OriginalRecordingCaptureResult): Promise<void> {
     await persistCapturedOriginalRecording(DatabaseManager.getInstance(), this.noteId, capture);
     await this.loadRecordings();
+  }
+
+  private onRecordingSessionSnapshot(snapshot: OriginalRecordingSessionSnapshot): void {
+    this.recordingSessionSnapshot = snapshot;
+    if (snapshot.failureSequence !== this.recordingFailureSequence) {
+      this.recordingFailureSequence = snapshot.failureSequence;
+      this.showRecordingFailure(snapshot.failure);
+    }
+    if (snapshot.preparing || snapshot.saving ||
+      isOriginalRecordingCaptureActive(snapshot.captureState)) {
+      this.scheduleRecordingSessionRefresh();
+    } else {
+      this.cancelRecordingSessionRefresh();
+    }
+  }
+
+  private scheduleRecordingSessionRefresh(): void {
+    if (this.recordingSessionTimer >= 0) {
+      return;
+    }
+    this.recordingSessionTimer = setTimeout((): void => {
+      this.recordingSessionTimer = -1;
+      const session: OriginalRecordingSessionController | null = this.recordingSessionController;
+      if (session !== null) {
+        this.onRecordingSessionSnapshot(session.getSnapshot());
+      }
+    }, 250);
+  }
+
+  private cancelRecordingSessionRefresh(): void {
+    if (this.recordingSessionTimer >= 0) {
+      clearTimeout(this.recordingSessionTimer);
+      this.recordingSessionTimer = -1;
+    }
+  }
+
+  private showRecordingFailure(failure: OriginalRecordingSessionFailure): void {
+    if (failure === OriginalRecordingSessionFailure.NONE) {
+      return;
+    }
+    if (failure === OriginalRecordingSessionFailure.PERMISSION_DENIED) {
+      promptAction.showDialog({
+        title: $r('app.string.microphone_permission_title'),
+        message: $r('app.string.microphone_permission_message'),
+        buttons: [{ text: $r('app.string.dismiss'), color: this.resolveTokens().accent }],
+      }).catch((_error: Object): void => {});
+      return;
+    }
+    const message: ResourceStr = failure === OriginalRecordingSessionFailure.SAVE_FAILED ?
+      $r('app.string.recording_save_failed') : $r('app.string.recording_start_failed');
+    try {
+      promptAction.showToast({ message: message, duration: 2500 });
+    } catch (_toastError) {
+    }
+  }
+
+  private async startRecording(): Promise<void> {
+    const session: OriginalRecordingSessionController | null = this.recordingSessionController;
+    if (session !== null) {
+      await session.start();
+    }
+  }
+
+  private async pauseRecording(): Promise<void> {
+    const session: OriginalRecordingSessionController | null = this.recordingSessionController;
+    if (session !== null) {
+      await session.pause();
+    }
+  }
+
+  private async resumeRecording(): Promise<void> {
+    const session: OriginalRecordingSessionController | null = this.recordingSessionController;
+    if (session !== null) {
+      await session.resume();
+    }
+  }
+
+  private async stopRecording(): Promise<void> {
+    const session: OriginalRecordingSessionController | null = this.recordingSessionController;
+    if (session !== null) {
+      await session.stop();
+    }
+  }
+
+  private async closeRecordings(): Promise<void> {
+    const session: OriginalRecordingSessionController | null = this.recordingSessionController;
+    const snapshot: OriginalRecordingSessionSnapshot = this.recordingSessionSnapshot;
+    if (session !== null && (snapshot.preparing || snapshot.saving ||
+      isOriginalRecordingCaptureActive(snapshot.captureState))) {
+      await session.stop();
+    }
+    this.showRecordings = false;
+  }
+
+  private async finishRecordingSession(): Promise<boolean> {
+    const session: OriginalRecordingSessionController | null = this.recordingSessionController;
+    if (session === null) {
+      return true;
+    }
+    this.recordingSessionController = null;
+    this.cancelRecordingSessionRefresh();
+    try {
+      return await session.finishAndRelease();
+    } catch (error) {
+      console.warn(`Recording session release failed: ${JSON.stringify(error)}`);
+      return false;
+    }
   }
 
   private async toggleRecording(recordingId: string): Promise<void> {
@@ -560,7 +688,11 @@ struct NotePage {
           .margin({ left: 8 })
           .enabled(!this.pageLoading && !this.pageLoadFailed)
           .onClick(() => {
-            this.showRecordings = !this.showRecordings;
+            if (this.showRecordings) {
+              this.closeRecordings();
+            } else {
+              this.showRecordings = true;
+            }
           })
       }
       .width('100%')
@@ -592,6 +724,19 @@ struct NotePage {
           cumulativeDurationMs: this.playbackCumulativeDurationMs,
           playbackSpeed: this.recordingPlaybackSpeed,
           pendingDeleteIds: this.pendingRecordingDeleteIds,
+          captureSnapshot: this.recordingSessionSnapshot,
+          onRecord: () => {
+            this.startRecording();
+          },
+          onPauseCapture: () => {
+            this.pauseRecording();
+          },
+          onResumeCapture: () => {
+            this.resumeRecording();
+          },
+          onStopCapture: () => {
+            this.stopRecording();
+          },
           onToggle: (recordingId: string) => {
             this.toggleRecording(recordingId);
           },
@@ -608,7 +753,7 @@ struct NotePage {
             this.undoRecordingDelete(recordingId);
           },
           onClose: () => {
-            this.showRecordings = false;
+            this.closeRecordings();
           },
         })
       }

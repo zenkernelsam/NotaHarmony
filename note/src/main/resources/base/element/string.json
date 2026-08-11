@@ -491,6 +491,16 @@
     { "name": "recording_deleted", "value": "Recording deleted" },
     { "name": "recording_delete_failed", "value": "Could not delete the recording" },
     { "name": "microphone_permission_reason", "value": "Use the microphone to record audio in your notes." },
+    { "name": "microphone_permission_title", "value": "Microphone Access Required" },
+    { "name": "microphone_permission_message", "value": "Notability requires microphone access to record audio. Allow microphone access in application settings, then try again." },
+    { "name": "dismiss", "value": "OK" },
+    { "name": "start_recording", "value": "Record" },
+    { "name": "resume_recording", "value": "Resume" },
+    { "name": "stop_recording", "value": "Stop" },
+    { "name": "preparing_recording", "value": "Starting recording..." },
+    { "name": "saving_recording", "value": "Saving recording..." },
+    { "name": "recording_start_failed", "value": "Couldn't start recording" },
+    { "name": "recording_save_failed", "value": "Couldn't save recording" },
     { "name": "undo", "value": "Undo" }
   ]
 }
