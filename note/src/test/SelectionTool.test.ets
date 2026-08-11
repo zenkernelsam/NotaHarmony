@@ -2,6 +2,7 @@ import { describe, it, expect } from '@ohos/hypium';
 import { ElementType, ImageElement, PolygonElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import { SelectionMode, SelectionTool } from '../main/ets/rendering/SelectionTool';
+import { OriginalSelectionGroup } from '../main/ets/core/model/OriginalGroupSelection';
 
 function stroke(id: string): StrokeElementData {
   return {
@@ -124,6 +125,24 @@ export default function selectionToolTest() {
       expect(tool.getState().selectedImageIds[0]).assertEqual('image-2');
       tool.deselect();
       expect(tool.getState().selectedImageIds.length).assertEqual(0);
+    });
+
+    it('expands an original Group hit and excludes position-locked Shapes', 0, () => {
+      const tool: SelectionTool = new SelectionTool();
+      const editableShape: PolygonElement = shape('shape-1');
+      const lockedShape: PolygonElement = shape('shape-locked');
+      lockedShape.positionLocked = true;
+      const groups: OriginalSelectionGroup[] = [{ id: 'group-1', timestamp: 30, siteId: 2,
+        members: ['shape-1', 'stroke-1'] }];
+      tool.beginSelection(SelectionMode.RECTANGLE, { x: 15, y: 15 });
+      tool.updateSelection({ x: 45, y: 45 });
+      const ids: string[] = tool.finalizeSelection(
+        [stroke('stroke-1')], [editableShape, lockedShape], [], [], groups);
+      expect(ids.length).assertEqual(2);
+      expect(tool.getState().selectedStrokeIds[0]).assertEqual('stroke-1');
+      expect(tool.getState().selectedShapeIds[0]).assertEqual('shape-1');
+      expect(tool.getState().selectedGroupIds[0]).assertEqual('group-1');
+      expect(tool.getState().selectedShapeIds.indexOf('shape-locked') < 0).assertTrue();
     });
   });
 }

@@ -72,6 +72,7 @@ import {
   textBlockWorldBounds, transformTextBlockElements,
 } from '../../core/model/TextBlockGeometry';
 import { Point2D, Rect2D, CubicSegment } from '../../core/model/GeometryTypes';
+import { OriginalSelectionGroup } from '../../core/model/OriginalGroupSelection';
 import { cloneMathElement, mathBlockWorldBounds } from '../../core/model/MathBlockGeometry';
 import {
   CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, PageInfo,
@@ -185,6 +186,7 @@ export struct NoteCanvasView {
   private imageBlocks: ImageElement[] = [];
   private mathBlocks: MathElement[] = [];
   private elementOrder: PageElementRef[] = [];
+  private selectionGroups: OriginalSelectionGroup[] = [];
   private eraserPath: Point2D[] = [];
   private isDrawing: boolean = false;
   private eraserActive: boolean = false;
@@ -285,6 +287,7 @@ export struct NoteCanvasView {
       this.imageBlocks = loaded.images;
       this.mathBlocks = loaded.mathBlocks;
       this.elementOrder = loaded.elementOrder;
+      this.selectionGroups = loaded.groups;
       this.loadedPageId = targetPageId;
       if (!this.historyLoaded) {
         const restored: RestoredHistoryState | null = await this.readPersistentHistory(db, targetPageId);
@@ -627,6 +630,7 @@ export struct NoteCanvasView {
       this.imageBlocks = loaded.images;
       this.mathBlocks = loaded.mathBlocks;
       this.elementOrder = loaded.elementOrder;
+      this.selectionGroups = loaded.groups;
       this.loadedPageId = targetPageId;
       this.loaded = true;
       this.dataLoadFailed = false;
@@ -1210,7 +1214,8 @@ export struct NoteCanvasView {
       this.eraserPath = [];
     } else if (this.selectionDrawing) {
       const ids: string[] = this.selectionTool.finalizeSelection(
-        this.completedStrokes, this.shapes, this.textBlocks, this.imageBlocks);
+        this.completedStrokes, this.shapes, this.textBlocks, this.imageBlocks,
+        this.selectionGroups);
       this.selectionDrawing = false;
       hilog.info(0x0001, 'NoteCanvasView', 'selection finalized, ids=%{public}d strokes=%{public}d',
         ids.length, this.completedStrokes.length);
@@ -1225,6 +1230,7 @@ export struct NoteCanvasView {
       const selectedShapeIds: string[] = this.selectionTool.getState().selectedShapeIds.slice();
       const selectedTextBlockIds: string[] = this.selectionTool.getState().selectedTextBlockIds.slice();
       const selectedImageIds: string[] = this.selectionTool.getState().selectedImageIds.slice();
+      const selectedGroupIds: string[] = this.selectionTool.getState().selectedGroupIds.slice();
       if (!this.isIdentityTransform(this.selectionTool.getState().transform)) {
         this.undoRedo.push({
           type: UndoableActionType.TRANSFORM_ELEMENTS,
@@ -1243,7 +1249,8 @@ export struct NoteCanvasView {
         this.notifyUndoRedo();
       }
       this.selectionTool.selectElementIds(
-        selectedStrokeIds, selectedShapeIds, selectedTextBlockIds, selectedImageIds);
+        selectedStrokeIds, selectedShapeIds, selectedTextBlockIds, selectedImageIds,
+        selectedGroupIds);
     } else if (this.strokeSession !== null && this.strokeSession.isActive()) {
       const stroke: StrokeElementData = this.strokeSession.finishStroke();
       hilog.info(0x0001, 'NoteCanvasView', 'stroke finished, pts=%{public}d', stroke.pathPoints.length);

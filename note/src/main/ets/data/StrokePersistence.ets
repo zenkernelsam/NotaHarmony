@@ -25,6 +25,8 @@ import {
   classifyPageMutation, createPageMutation, encodePageMutationOp, PageMutationOpPayload,
 } from './PageMutationOpCodec';
 import { validateHistoryMetadata } from './PersistentHistoryMetadata';
+import { OriginalSelectionGroup } from '../core/model/OriginalGroupSelection';
+import { encodeOperationId, OperationIdentity, validateOperationIdentity } from './OperationIdentity';
 
 export interface PersistedElement {
   kind: string;
@@ -51,6 +53,12 @@ export interface LoadedElements {
   mathBlocks: MathElement[];
   elementOrder: PageElementRef[];
   elements: OrderedPageElement[];
+  groups: OriginalSelectionGroup[];
+}
+
+interface PersistedGroupMember {
+  timestamp: number;
+  siteId: number;
 }
 
 export interface FirstPageThumbnailState {
@@ -246,7 +254,8 @@ export class StrokePersistence {
     }
     pageSet.close();
     return pageId.length > 0 ? this.loadElements(noteId, pageId) :
-      { strokes: [], textBlocks: [], shapes: [], images: [], mathBlocks: [], elementOrder: [], elements: [] };
+      { strokes: [], textBlocks: [], shapes: [], images: [], mathBlocks: [],
+        elementOrder: [], elements: [], groups: [] };
   }
 
   async getFirstPageThumbnailState(noteId: string): Promise<FirstPageThumbnailState | null> {
@@ -750,7 +759,8 @@ export class StrokePersistence {
 
   private async loadMatchingElements(noteId: string, pageId: string | null): Promise<LoadedElements> {
     const result: LoadedElements = {
-      strokes: [], textBlocks: [], shapes: [], images: [], mathBlocks: [], elementOrder: [], elements: [],
+      strokes: [], textBlocks: [], shapes: [], images: [], mathBlocks: [],
+      elementOrder: [], elements: [], groups: [],
     };
     if (this.store === null) {
       throw new Error('StrokePersistence is not initialized');
@@ -806,6 +816,7 @@ export class StrokePersistence {
       } finally {
         resultSet.close();
       }
+      result.groups = await this.loadOriginalSelectionGroups(store, noteId);
     } catch (e) {
       throw new Error(`loadElements failed: ${JSON.stringify(e)}`);
     }
@@ -816,6 +827,55 @@ export class StrokePersistence {
       result.elementOrder, result.strokes, result.textBlocks, result.shapes, result.images,
       result.mathBlocks);
     return result;
+  }
+
+  private async loadOriginalSelectionGroups(store: relationalStore.RdbStore,
+    noteId: string): Promise<OriginalSelectionGroup[]> {
+    const rows = await store.querySql(
+      `SELECT state.group_timestamp, state.group_site_id, state.members_value
+       FROM original_group_state state
+       LEFT JOIN original_entity_visibility_winner visibility
+        ON visibility.note_id = state.note_id
+        AND visibility.entity_timestamp = state.group_timestamp
+        AND visibility.entity_site_id = state.group_site_id
+       WHERE state.note_id = ? AND (visibility.deleted IS NULL OR visibility.deleted = 0)
+       ORDER BY state.group_timestamp, state.group_site_id`, [noteId]);
+    const groups: OriginalSelectionGroup[] = [];
+    try {
+      while (rows.goToNextRow()) {
+        try {
+          const timestamp: number = rows.getLong(rows.getColumnIndex('group_timestamp'));
+          const siteId: number = rows.getLong(rows.getColumnIndex('group_site_id'));
+          const identity: OperationIdentity = { timestamp: timestamp, siteId: siteId };
+          validateOperationIdentity(identity);
+          const raw: PersistedGroupMember[] = JSON.parse(
+            rows.getString(rows.getColumnIndex('members_value'))) as PersistedGroupMember[];
+          if (!Array.isArray(raw) || raw.length === 0) {
+            continue;
+          }
+          const members: string[] = [];
+          const seen: Set<string> = new Set<string>();
+          for (const value of raw) {
+            const member: OperationIdentity = { timestamp: value.timestamp, siteId: value.siteId };
+            validateOperationIdentity(member);
+            const memberId: string = encodeOperationId(member);
+            if (!seen.has(memberId)) {
+              seen.add(memberId);
+              members.push(memberId);
+            }
+          }
+          if (members.length > 0) {
+            groups.push({ id: encodeOperationId(identity), timestamp: timestamp,
+              siteId: siteId, members: members });
+          }
+        } catch (_error) {
+          // Ignore one corrupt group without making its page contents unreadable.
+        }
+      }
+    } finally {
+      rows.close();
+    }
+    return groups;
   }
 
 }

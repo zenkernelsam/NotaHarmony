@@ -985,14 +985,16 @@ function materializeShape(identity: OperationIdentity,
       controlPoint2: cloneNullablePoint(definition.controlPoint2), end: clonePoint(definition.end),
       arrowHead: definition.arrowHead === 1 ? ShapeArrowHead.SINGLE : ShapeArrowHead.NONE,
       color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor,
-      richText: '', characterStyleRuns: [], paragraphStyleRuns: [] };
+      richText: '', characterStyleRuns: [], paragraphStyleRuns: [],
+      positionLocked: payload.positionLocked };
     shape = line;
   } else if (payload.definition.type === OriginalShapeDefinitionType.POLYGON) {
     const definition: OriginalPolygonDefinition = payload.definition as OriginalPolygonDefinition;
     const polygon: PolygonElement = { id: id, type: ElementType.POLYGON, transform: transform,
       bounds: emptyBounds(), vertices: definition.points.map(clonePoint), isClosed: true,
       color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor,
-      richText: '', characterStyleRuns: [], paragraphStyleRuns: [] };
+      richText: '', characterStyleRuns: [], paragraphStyleRuns: [],
+      positionLocked: payload.positionLocked };
     shape = polygon;
   } else {
     const definition: OriginalEllipseDefinition = payload.definition as OriginalEllipseDefinition;
@@ -1000,7 +1002,8 @@ function materializeShape(identity: OperationIdentity,
       bounds: emptyBounds(), center: { x: definition.width / 2, y: definition.height / 2 },
       radiusX: definition.width / 2, radiusY: definition.height / 2, rotationRadians: 0,
       color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor,
-      richText: '', characterStyleRuns: [], paragraphStyleRuns: [] };
+      richText: '', characterStyleRuns: [], paragraphStyleRuns: [],
+      positionLocked: payload.positionLocked };
     shape = ellipse;
   }
   shape.bounds = recomputeShapeBounds(shape);

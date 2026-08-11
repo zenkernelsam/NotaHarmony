@@ -20,7 +20,7 @@ export function cloneShapeElement(shape: ShapeElement): ShapeElement {
       radiusX: shape.radiusX, radiusY: shape.radiusY, rotationRadians: shape.rotationRadians,
       color: shape.color, strokeWidth: shape.strokeWidth, fillColor: shape.fillColor,
       richText: shape.richText, characterStyleRuns: cloneShapeCharacterRuns(shape),
-      paragraphStyleRuns: cloneShapeParagraphRuns(shape),
+      paragraphStyleRuns: cloneShapeParagraphRuns(shape), positionLocked: shape.positionLocked,
     };
   }
   if (shape.type === ElementType.LINE) {
@@ -32,7 +32,7 @@ export function cloneShapeElement(shape: ShapeElement): ShapeElement {
       arrowHead: shape.arrowHead, color: shape.color, strokeWidth: shape.strokeWidth,
       fillColor: shape.fillColor, richText: shape.richText,
       characterStyleRuns: cloneShapeCharacterRuns(shape),
-      paragraphStyleRuns: cloneShapeParagraphRuns(shape),
+      paragraphStyleRuns: cloneShapeParagraphRuns(shape), positionLocked: shape.positionLocked,
     };
   }
   return {
@@ -42,7 +42,7 @@ export function cloneShapeElement(shape: ShapeElement): ShapeElement {
     isClosed: shape.isClosed, color: shape.color, strokeWidth: shape.strokeWidth,
     fillColor: shape.fillColor, richText: shape.richText,
     characterStyleRuns: cloneShapeCharacterRuns(shape),
-    paragraphStyleRuns: cloneShapeParagraphRuns(shape),
+    paragraphStyleRuns: cloneShapeParagraphRuns(shape), positionLocked: shape.positionLocked,
   };
 }
 

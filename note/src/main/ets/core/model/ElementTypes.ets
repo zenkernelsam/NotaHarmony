@@ -35,6 +35,8 @@ export interface ShapeRichTextContent {
   richText?: string;
   characterStyleRuns?: RichTextCharacterStyleRun[];
   paragraphStyleRuns?: RichTextParagraphStyleRun[];
+  // Missing on locally detected and legacy snapshots; original Shapes default to unlocked.
+  positionLocked?: boolean;
 }
 
 // 椭圆元素

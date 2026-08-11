@@ -13,6 +13,7 @@ import editorViewModelTest from './EditorViewModel.test';
 import libraryViewModelTest from './LibraryViewModel.test';
 import folderRepositoryTest from './FolderRepository.test';
 import searchTextTest from './SearchText.test';
+import originalGroupSelectionTest from './OriginalGroupSelection.test';
 import notabilitySessionParserTest from './NotabilitySessionParser.test';
 import webDAVClientTest from './WebDAVClient.test';
 import backupBatchSpecTest from './BackupBatchSpec.test';
@@ -73,6 +74,7 @@ export default function testsuite() {
   libraryViewModelTest();
   folderRepositoryTest();
   searchTextTest();
+  originalGroupSelectionTest();
   notabilitySessionParserTest();
   webDAVClientTest();
   backupBatchSpecTest();

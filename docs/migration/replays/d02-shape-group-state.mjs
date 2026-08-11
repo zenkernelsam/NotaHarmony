@@ -261,7 +261,7 @@ console.log('D02_SHAPE_GROUP_STATE_REPLAY_OK ' +
   'v55-v56=1|shape-create-retry-conflict=2|independent-lww-null=4|stale-site-tie=3|' +
   'cross-page-z-index=1|hidden-modify-undelete=3|group-whole-list-lww=4|' +
   'modify-positions-shape=2|bundle-state-signature=1|routing=31/31|' +
-  'shape-rich-text=pending|group-selection-consumer=pending');
+  'shape-rich-text=complete|group-selection-consumer=complete');
 
 function extractTemplate(source, name) {
   const match = source.match(new RegExp('(?:export )?const ' + name +

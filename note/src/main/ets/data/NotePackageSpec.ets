@@ -475,6 +475,7 @@ function isValidShape(shape: ShapeElement): boolean {
   if (!isElementBase(shape.id, shape.transform, shape.bounds) || !isFiniteNumber(shape.color) ||
     !isNonNegativeFinite(shape.strokeWidth) ||
     (shape.fillColor !== null && !isFiniteNumber(shape.fillColor)) ||
+    (shape.positionLocked !== undefined && typeof shape.positionLocked !== 'boolean') ||
     (shape.richText !== undefined &&
       (typeof shape.richText !== 'string' ||
         !isValidRichTextRuns(shape, shape.richText as string)))) {

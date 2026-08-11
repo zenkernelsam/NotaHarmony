@@ -1,0 +1,45 @@
+import { describe, it, expect } from '@ohos/hypium';
+import { OriginalSelectionGroup, resolveOriginalGroupSelection,
+  OriginalGroupSelectionResult } from '../main/ets/core/model/OriginalGroupSelection';
+
+function group(id: string, timestamp: number, siteId: number,
+  members: string[]): OriginalSelectionGroup {
+  return { id: id, timestamp: timestamp, siteId: siteId, members: members };
+}
+
+export default function originalGroupSelectionTest() {
+  describe('OriginalGroupSelection', () => {
+    it('selects every leaf of the latest containing group', 0, () => {
+      const result: OriginalGroupSelectionResult = resolveOriginalGroupSelection(
+        ['a'], ['a', 'b', 'c'], [group('old', 10, 1, ['a', 'b']),
+          group('new', 10, 2, ['a', 'c'])]);
+      expect(result.groupIds.length).assertEqual(1);
+      expect(result.groupIds[0]).assertEqual('new');
+      expect(result.entityIds.indexOf('a') >= 0).assertTrue();
+      expect(result.entityIds.indexOf('c') >= 0).assertTrue();
+      expect(result.entityIds.indexOf('b') < 0).assertTrue();
+    });
+
+    it('walks to the top group and recursively expands nested leaves', 0, () => {
+      const result: OriginalGroupSelectionResult = resolveOriginalGroupSelection(
+        ['a'], ['a', 'b', 'c'], [group('inner', 10, 1, ['a', 'b']),
+          group('outer', 20, 1, ['inner', 'c'])]);
+      expect(result.groupIds[0]).assertEqual('outer');
+      expect(result.entityIds.length).assertEqual(3);
+      expect(result.entityIds.indexOf('b') >= 0).assertTrue();
+      expect(result.entityIds.indexOf('c') >= 0).assertTrue();
+    });
+
+    it('falls back to the hit entity for missing and cyclic group state', 0, () => {
+      const missing: OriginalGroupSelectionResult = resolveOriginalGroupSelection(
+        ['a'], ['a'], [group('broken', 10, 1, ['a', 'missing'])]);
+      expect(missing.groupIds.length).assertEqual(0);
+      expect(missing.entityIds[0]).assertEqual('a');
+      const cyclic: OriginalGroupSelectionResult = resolveOriginalGroupSelection(
+        ['a'], ['a'], [group('one', 10, 1, ['a', 'two']),
+          group('two', 11, 1, ['one'])]);
+      expect(cyclic.groupIds.length).assertEqual(0);
+      expect(cyclic.entityIds[0]).assertEqual('a');
+    });
+  });
+}

@@ -5,6 +5,8 @@ import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import { ImageElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { isTextBlockPositionLocked } from '../core/model/TextBlockGeometry';
 import { isImageBlockPositionLocked } from '../core/model/ImageBlockGeometry';
+import { OriginalSelectionGroup, resolveOriginalGroupSelection,
+  OriginalGroupSelectionResult } from '../core/model/OriginalGroupSelection';
 
 export enum SelectionMode {
   RECTANGLE = 0,
@@ -20,6 +22,7 @@ export interface SelectionState {
   selectedShapeIds: string[];
   selectedTextBlockIds: string[];
   selectedImageIds: string[];
+  selectedGroupIds: string[];
   transform: TransformMatrix;    // 当前变换矩阵（单位矩阵起始）
 }
 
@@ -36,6 +39,7 @@ export class SelectionTool {
       selectedShapeIds: [],
       selectedTextBlockIds: [],
       selectedImageIds: [],
+      selectedGroupIds: [],
       transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
     };
   }
@@ -50,6 +54,7 @@ export class SelectionTool {
     this.state.selectedShapeIds = [];
     this.state.selectedTextBlockIds = [];
     this.state.selectedImageIds = [];
+    this.state.selectedGroupIds = [];
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
@@ -72,7 +77,8 @@ export class SelectionTool {
 
   // 完成选区 → 计算命中笔画 ID
   finalizeSelection(strokes: StrokeElementData[], shapes: ShapeElement[] = [],
-    textBlocks: TextBlockElement[] = [], images: ImageElement[] = []): string[] {
+    textBlocks: TextBlockElement[] = [], images: ImageElement[] = [],
+    groups: OriginalSelectionGroup[] = []): string[] {
     if (!this.state.isActive) {
       return [];
     }
@@ -94,7 +100,7 @@ export class SelectionTool {
     this.state.selectedStrokeIds = ids;
     const shapeIds: string[] = [];
     for (const shape of shapes) {
-      if (this.elementBoundsSelected(shape.bounds)) {
+      if (shape.positionLocked !== true && this.elementBoundsSelected(shape.bounds)) {
         shapeIds.push(shape.id);
       }
     }
@@ -113,7 +119,42 @@ export class SelectionTool {
       }
     }
     this.state.selectedImageIds = imageIds;
-    return ids.concat(shapeIds).concat(textIds).concat(imageIds);
+    const availableIds: string[] = [];
+    for (const stroke of strokes) {
+      availableIds.push(stroke.id);
+    }
+    for (const shape of shapes) {
+      if (shape.positionLocked !== true) {
+        availableIds.push(shape.id);
+      }
+    }
+    for (const text of textBlocks) {
+      if (!isTextBlockPositionLocked(text)) {
+        availableIds.push(text.id);
+      }
+    }
+    for (const image of images) {
+      if (!isImageBlockPositionLocked(image)) {
+        availableIds.push(image.id);
+      }
+    }
+    const grouped: OriginalGroupSelectionResult = resolveOriginalGroupSelection(
+      ids.concat(shapeIds).concat(textIds).concat(imageIds), availableIds, groups);
+    const selected: Set<string> = new Set<string>(grouped.entityIds);
+    this.state.selectedStrokeIds = strokes.filter((stroke: StrokeElementData): boolean =>
+      selected.has(stroke.id)).map((stroke: StrokeElementData): string => stroke.id);
+    this.state.selectedShapeIds = shapes.filter((shape: ShapeElement): boolean =>
+      selected.has(shape.id) && shape.positionLocked !== true)
+      .map((shape: ShapeElement): string => shape.id);
+    this.state.selectedTextBlockIds = textBlocks.filter((text: TextBlockElement): boolean =>
+      selected.has(text.id) && !isTextBlockPositionLocked(text))
+      .map((text: TextBlockElement): string => text.id);
+    this.state.selectedImageIds = images.filter((image: ImageElement): boolean =>
+      selected.has(image.id) && !isImageBlockPositionLocked(image))
+      .map((image: ImageElement): string => image.id);
+    this.state.selectedGroupIds = grouped.groupIds;
+    return this.state.selectedStrokeIds.concat(this.state.selectedShapeIds)
+      .concat(this.state.selectedTextBlockIds).concat(this.state.selectedImageIds);
   }
 
   // 移动选中内容（平移矩阵）
@@ -183,6 +224,7 @@ export class SelectionTool {
     this.state.selectedShapeIds = [];
     this.state.selectedTextBlockIds = [];
     this.state.selectedImageIds = [];
+    this.state.selectedGroupIds = [];
     this.deselect();
     return ids;
   }
@@ -193,19 +235,21 @@ export class SelectionTool {
     this.state.selectedShapeIds = [];
     this.state.selectedTextBlockIds = [];
     this.state.selectedImageIds = [];
+    this.state.selectedGroupIds = [];
     this.state.lassoPoints = [];
     this.state.rect = null;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
   selectElementIds(strokeIds: string[], shapeIds: string[], textBlockIds: string[] = [],
-    imageIds: string[] = []): void {
+    imageIds: string[] = [], groupIds: string[] = []): void {
     this.state.isActive = strokeIds.length > 0 || shapeIds.length > 0 || textBlockIds.length > 0 ||
       imageIds.length > 0;
     this.state.selectedStrokeIds = strokeIds.slice();
     this.state.selectedShapeIds = shapeIds.slice();
     this.state.selectedTextBlockIds = textBlockIds.slice();
     this.state.selectedImageIds = imageIds.slice();
+    this.state.selectedGroupIds = groupIds.slice();
     this.state.lassoPoints = [];
     this.state.rect = null;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -218,6 +262,7 @@ export class SelectionTool {
     this.state.selectedShapeIds = [];
     this.state.selectedTextBlockIds = [];
     this.state.selectedImageIds = [];
+    this.state.selectedGroupIds = [];
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
