@@ -1,13 +1,109 @@
-import { OriginalSequenceIdentity } from './OperationIdentity';
 import {
-  materializeOriginalTextCharacterOrder, StoredCharacter,
+  nextOperationTimestamp, OperationIdentity, OriginalSequenceIdentity, validateOperationIdentity,
+} from './OperationIdentity';
+import {
+  RichTextCharacterStyleRun, RichTextParagraphStyleRun,
+} from '../core/model/ElementTypes';
+import {
+  materializeCharacters, materializeOriginalTextCharacterOrder, StoredCharacter,
 } from './OriginalInsertTextOperation';
+import {
+  materializeOriginalTextStyles, StoredOriginalCheckboxState,
+  StoredOriginalTextStyleOperation,
+} from './OriginalRichTextStyleState';
 
 export interface OriginalLocalTextMutationPlan {
   removed: OriginalSequenceIdentity[];
   revived: OriginalSequenceIdentity[];
   insertedScalars: number[];
   insertionLocation: OriginalSequenceIdentity | null;
+}
+
+export interface OriginalLocalTextMutationPreview {
+  plan: OriginalLocalTextMutationPlan;
+  characterStyleRuns: RichTextCharacterStyleRun[];
+  paragraphStyleRuns: RichTextParagraphStyleRun[];
+}
+
+export function predictOriginalTextInsertionIdentity(maxTimestamp: number, siteId: number,
+  plan: OriginalLocalTextMutationPlan): OperationIdentity | null {
+  if (plan.insertedScalars.length === 0) {
+    return null;
+  }
+  try {
+    validateOperationIdentity({ timestamp: maxTimestamp, siteId: siteId });
+    let timestamp: number = maxTimestamp;
+    if (plan.removed.length > 0) {
+      timestamp = nextOperationTimestamp(timestamp);
+    }
+    if (plan.revived.length > 0) {
+      timestamp = nextOperationTimestamp(timestamp);
+    }
+    timestamp = nextOperationTimestamp(timestamp);
+    return { timestamp: timestamp, siteId: siteId };
+  } catch (_error) {
+    return null;
+  }
+}
+
+export function previewOriginalLocalTextMutation(characters: StoredCharacter[],
+  styleOperations: StoredOriginalTextStyleOperation[], checkboxStates: StoredOriginalCheckboxState[],
+  before: string, after: string, insertionIdentity: OperationIdentity | null):
+  OriginalLocalTextMutationPreview | null {
+  const plan: OriginalLocalTextMutationPlan | null =
+    planOriginalLocalTextMutation(characters, before, after);
+  if (plan === null || (plan.insertedScalars.length > 0) !== (insertionIdentity !== null)) {
+    return null;
+  }
+  if (insertionIdentity !== null) {
+    try {
+      validateOperationIdentity(insertionIdentity);
+    } catch (_error) {
+      return null;
+    }
+  }
+  const simulated: StoredCharacter[] = characters.map(
+    (character: StoredCharacter): StoredCharacter => cloneCharacter(character));
+  const byId: Map<string, StoredCharacter> = new Map<string, StoredCharacter>();
+  for (const character of simulated) {
+    byId.set(identityKey(character.identity), character);
+  }
+  for (const identity of plan.removed) {
+    const character: StoredCharacter | undefined = byId.get(identityKey(identity));
+    if (character === undefined) {
+      return null;
+    }
+    character.visible = false;
+  }
+  for (const identity of plan.revived) {
+    const character: StoredCharacter | undefined = byId.get(identityKey(identity));
+    if (character === undefined) {
+      return null;
+    }
+    character.visible = true;
+  }
+  if (insertionIdentity !== null) {
+    let parent: OriginalSequenceIdentity | null = plan.insertionLocation === null ? null :
+      cloneIdentity(plan.insertionLocation);
+    for (let index: number = 0; index < plan.insertedScalars.length; index++) {
+      const identity: OriginalSequenceIdentity = {
+        timestamp: insertionIdentity.timestamp, siteId: insertionIdentity.siteId, index: index,
+      };
+      simulated.push({
+        identity: identity, parent: parent, scalar: plan.insertedScalars[index], visible: true,
+        visibilityWinner: null,
+      });
+      parent = identity;
+    }
+  }
+  if (materializeCharacters(simulated) !== after) {
+    return null;
+  }
+  const styles = materializeOriginalTextStyles(simulated, styleOperations, checkboxStates);
+  return styles === null ? null : {
+    plan: plan, characterStyleRuns: styles.characterRuns,
+    paragraphStyleRuns: styles.paragraphRuns,
+  };
 }
 
 export function planOriginalLocalTextMutation(characters: StoredCharacter[],
@@ -128,4 +224,15 @@ function identityKey(identity: OriginalSequenceIdentity): string {
 
 function cloneIdentity(identity: OriginalSequenceIdentity): OriginalSequenceIdentity {
   return { timestamp: identity.timestamp, siteId: identity.siteId, index: identity.index };
+}
+
+function cloneCharacter(character: StoredCharacter): StoredCharacter {
+  return {
+    identity: cloneIdentity(character.identity),
+    parent: character.parent === null ? null : cloneIdentity(character.parent),
+    scalar: character.scalar, visible: character.visible,
+    visibilityWinner: character.visibilityWinner === null ? null : {
+      timestamp: character.visibilityWinner.timestamp, siteId: character.visibilityWinner.siteId,
+    },
+  };
 }

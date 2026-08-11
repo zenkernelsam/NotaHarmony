@@ -6,7 +6,8 @@ import { HistoryEffect, HistoryMetadata, OpType } from '../core/model/OpTypes';
 import { taskpool, util } from '@kit.ArkTS';
 import { InkStyle, OriginalInkCreateMetadata, StrokeElementData } from '../core/model/StrokeTypes';
 import {
-  ImageElement, MathElement, OriginalShapeCreateMetadata, ShapeElement, TextBlockElement,
+  ImageElement, MathElement, OriginalShapeCreateMetadata, RichTextCharacterStyleRun,
+  RichTextParagraphStyleRun, ShapeElement, TextBlockElement,
 } from '../core/model/ElementTypes';
 import { Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import {
@@ -49,8 +50,15 @@ import {
   encodeOriginalTextInsertion, encodeOriginalTextVisibility,
 } from './OriginalInsertTextPayloadEncoder';
 import {
-  OriginalLocalTextMutationPlan, planOriginalLocalTextMutation,
+  OriginalLocalTextMutationPlan, OriginalLocalTextMutationPreview,
+  planOriginalLocalTextMutation, predictOriginalTextInsertionIdentity,
+  previewOriginalLocalTextMutation,
 } from './OriginalLocalTextMutation';
+import {
+  materializeOriginalTextStyles, readOriginalCheckboxStates,
+  readOriginalTextStyleOperations, StoredOriginalCheckboxState,
+  StoredOriginalTextStyleOperation,
+} from './OriginalRichTextStyleState';
 import { encodeOriginalCreateGroup } from './OriginalGroupPayloadEncoder';
 import {
   encodeOriginalGroupMutation, OriginalGroupMutationOpPayload,
@@ -129,6 +137,11 @@ export interface LoadedElements {
 export interface OriginalGroupMutationResult {
   mutation: OriginalGroupMutationOpPayload;
   groups: OriginalSelectionGroup[];
+}
+
+export interface OriginalTextEditPreview {
+  characterStyleRuns: RichTextCharacterStyleRun[];
+  paragraphStyleRuns: RichTextParagraphStyleRun[];
 }
 
 interface PersistedGroupMember {
@@ -835,6 +848,76 @@ export class StrokePersistence {
     if (queue !== undefined) {
       await queue.flush();
     }
+  }
+
+  async previewOriginalTextEdit(noteId: string, pageId: string,
+    before: TextBlockElement, afterText: string): Promise<OriginalTextEditPreview | null> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    await this.flush(noteId, pageId);
+    return editorPersistenceMutex.runExclusive(async (): Promise<OriginalTextEditPreview | null> => {
+      if (this.store === null) {
+        throw new Error('StrokePersistence is not initialized');
+      }
+      const store: relationalStore.RdbStore = this.store;
+      if (before.richText === afterText ||
+        await this.readEligibleOriginalInkPage(store, noteId, pageId) === null) {
+        return null;
+      }
+      const block: OperationIdentity | null = decodeOperationId(before.id);
+      if (block === null || !await this.isLiveOriginalTextBlock(store, noteId, pageId, block)) {
+        return null;
+      }
+      const current: SearchSourceElement[] = await this.loadCurrentSnapshot(store, noteId, pageId);
+      const expectedPayload: Uint8Array = encodePersistedElement({ kind: 'text', data: before });
+      let matched: boolean = false;
+      for (const element of current) {
+        if (element.elementId === before.id && element.kind === PageElementKind.TEXT) {
+          if (matched || !sameByteArrays(element.payload, expectedPayload)) {
+            return null;
+          }
+          matched = true;
+        }
+      }
+      if (!matched) {
+        return null;
+      }
+      const textState: OriginalInsertTextOperationApplier =
+        new OriginalInsertTextOperationApplier();
+      const characters: StoredCharacter[] | null = await textState.readCharacters(
+        store, noteId, block);
+      const styleOperations: StoredOriginalTextStyleOperation[] | null =
+        await readOriginalTextStyleOperations(store, noteId, block);
+      const checkboxStates: StoredOriginalCheckboxState[] | null =
+        await readOriginalCheckboxStates(store, noteId, block);
+      if (characters === null || styleOperations === null || checkboxStates === null) {
+        return null;
+      }
+      const beforeStyles = materializeOriginalTextStyles(
+        characters, styleOperations, checkboxStates);
+      if (beforeStyles === null || !sameTextStyleRuns(before,
+        beforeStyles.characterRuns, beforeStyles.paragraphRuns)) {
+        return null;
+      }
+      const plan: OriginalLocalTextMutationPlan | null =
+        planOriginalLocalTextMutation(characters, before.richText, afterText);
+      if (plan === null) {
+        return null;
+      }
+      const insertionIdentity: OperationIdentity | null = await this.predictTextInsertionIdentity(
+        store, noteId, plan);
+      if (plan.insertedScalars.length > 0 && insertionIdentity === null) {
+        return null;
+      }
+      const preview: OriginalLocalTextMutationPreview | null =
+        previewOriginalLocalTextMutation(characters, styleOperations, checkboxStates,
+          before.richText, afterText, insertionIdentity);
+      return preview === null ? null : {
+        characterStyleRuns: preview.characterStyleRuns,
+        paragraphStyleRuns: preview.paragraphStyleRuns,
+      };
+    });
   }
 
   hasDirtySave(noteId: string, pageId: string): boolean {
@@ -1885,15 +1968,9 @@ export class StrokePersistence {
     }
     const before: TextBlockElement = beforePersisted.data as TextBlockElement;
     const after: TextBlockElement = afterPersisted.data as TextBlockElement;
-    const beforeCharacterRuns: number = before.characterStyleRuns?.length ?? 0;
-    const beforeParagraphRuns: number = before.paragraphStyleRuns?.length ?? 0;
-    const afterCharacterRuns: number = after.characterStyleRuns?.length ?? 0;
-    const afterParagraphRuns: number = after.paragraphStyleRuns?.length ?? 0;
     if (before.id !== current[changedIndex].elementId ||
       after.id !== next[changedIndex].elementId || before.id !== after.id ||
       before.richText === after.richText ||
-      beforeCharacterRuns !== 0 || beforeParagraphRuns !== 0 ||
-      afterCharacterRuns !== 0 || afterParagraphRuns !== 0 ||
       !Number.isFinite(after.blockWidth) || !Number.isFinite(after.blockHeight) ||
       after.blockWidth <= 0 || after.blockHeight <= 0) {
       return null;
@@ -1925,15 +2002,60 @@ export class StrokePersistence {
     if (characters === null) {
       return null;
     }
+    const styleOperations: StoredOriginalTextStyleOperation[] | null =
+      await readOriginalTextStyleOperations(store, noteId, block);
+    const checkboxStates: StoredOriginalCheckboxState[] | null =
+      await readOriginalCheckboxStates(store, noteId, block);
+    if (styleOperations === null || checkboxStates === null) {
+      return null;
+    }
+    const beforeStyles = materializeOriginalTextStyles(
+      characters, styleOperations, checkboxStates);
+    if (beforeStyles === null || !sameTextStyleRuns(before,
+      beforeStyles.characterRuns, beforeStyles.paragraphRuns)) {
+      return null;
+    }
     const plan: OriginalLocalTextMutationPlan | null =
       planOriginalLocalTextMutation(characters, before.richText, after.richText);
     if (plan === null) {
       return null;
     }
+    const insertionIdentity: OperationIdentity | null = await this.predictTextInsertionIdentity(
+      store, noteId, plan);
+    if (plan.insertedScalars.length > 0 && insertionIdentity === null) {
+      return null;
+    }
+    const preview: OriginalLocalTextMutationPreview | null =
+      previewOriginalLocalTextMutation(characters, styleOperations, checkboxStates,
+        before.richText, after.richText, insertionIdentity);
+    if (preview === null || !sameTextStyleRuns(after,
+      preview.characterStyleRuns, preview.paragraphStyleRuns)) {
+      return null;
+    }
     return {
-      block: block, plan: plan, width: width, height: height,
+      block: block, plan: preview.plan, width: width, height: height,
       sizeChanged: sizeChanged,
     };
+  }
+
+  private async predictTextInsertionIdentity(store: relationalStore.RdbStore, noteId: string,
+    plan: OriginalLocalTextMutationPlan): Promise<OperationIdentity | null> {
+    if (plan.insertedScalars.length === 0) {
+      return null;
+    }
+    const rows = await store.querySql(
+      `SELECT editor_site_id, max_op_timestamp FROM note_sync_metadata WHERE note_id = ? LIMIT 1`,
+      [noteId]);
+    try {
+      if (!rows.goToFirstRow()) {
+        return null;
+      }
+      return predictOriginalTextInsertionIdentity(
+        rows.getLong(rows.getColumnIndex('max_op_timestamp')),
+        rows.getLong(rows.getColumnIndex('editor_site_id')), plan);
+    } finally {
+      rows.close();
+    }
   }
 
   private async isLiveOriginalTextBlock(store: relationalStore.RdbStore, noteId: string,
@@ -3727,6 +3849,13 @@ function sameByteArrays(left: Uint8Array, right: Uint8Array): boolean {
     }
   }
   return true;
+}
+
+function sameTextStyleRuns(text: TextBlockElement,
+  characterRuns: RichTextCharacterStyleRun[],
+  paragraphRuns: RichTextParagraphStyleRun[]): boolean {
+  return JSON.stringify(text.characterStyleRuns ?? []) === JSON.stringify(characterRuns) &&
+    JSON.stringify(text.paragraphStyleRuns ?? []) === JSON.stringify(paragraphRuns);
 }
 
 function samePreparedIdentityOrder(current: SearchSourceElement[],

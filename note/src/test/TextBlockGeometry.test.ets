@@ -121,6 +121,23 @@ export default function textBlockGeometryTest() {
       expect(source.characterStyleRuns?.[0].style.bold).assertTrue();
     });
 
+    it('uses an exact detached style preview for a changed original Text commit', 0, () => {
+      const tool: TextBlockTool = new TextBlockTool();
+      const source: TextBlockElement = textBlock();
+      const characterRuns = [{ start: 1, end: 3, style: { bold: true } }];
+      const paragraphRuns = [{ start: 1, end: 2, style: { decoratorStyle: 3,
+        isChecked: true } }];
+      const updated: TextBlockElement = tool.updateText(
+        source, 'hXello', characterRuns, paragraphRuns);
+      expect(updated.characterStyleRuns?.[0].start).assertEqual(1);
+      expect(updated.characterStyleRuns?.[0].end).assertEqual(3);
+      expect(updated.paragraphStyleRuns?.[0].style.isChecked).assertTrue();
+      characterRuns[0].style.bold = false;
+      paragraphRuns[0].style.isChecked = false;
+      expect(updated.characterStyleRuns?.[0].style.bold).assertTrue();
+      expect(updated.paragraphStyleRuns?.[0].style.isChecked).assertTrue();
+    });
+
     it('writes measured resize-to-fit width and transformed bounds atomically', 0, () => {
       const tool: TextBlockTool = new TextBlockTool();
       const source: TextBlockElement = textBlock();

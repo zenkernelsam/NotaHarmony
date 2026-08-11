@@ -42,7 +42,8 @@ import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
 import {
   decodePersistedElement, encodePersistedElement, HistoryPageSnapshot, OriginalZOrderCommand,
-  OriginalGroupMutationResult, OriginalZOrderHint, PersistedElement, StrokePersistence,
+  OriginalGroupMutationResult, OriginalTextEditPreview, OriginalZOrderHint, PersistedElement,
+  StrokePersistence,
 } from '../../data/StrokePersistence';
 import { OriginalGroupMutationOpPayload } from '../../data/OriginalGroupMutationOpCodec';
 import {
@@ -534,7 +535,9 @@ export struct NoteCanvasView {
       return true;
     }
     if (this.textEditing && this.editingTextBlock !== null) {
-      this.onTextCommit(this.editingDraftText);
+      if (!await this.onTextCommit(this.editingDraftText)) {
+        return false;
+      }
     } else if (this.loadedPageId !== this.skipSavePageId) {
       this.persistence.queueSaveElements(this.noteId, this.loadedPageId,
         this.completedStrokes, this.textBlocks, this.elementOrder, this.shapes,
@@ -698,10 +701,19 @@ export struct NoteCanvasView {
     }
     this.saveViewportState();
     if (this.textEditing && this.editingTextBlock !== null) {
-      this.onTextCommit(this.editingDraftText);
+      this.onTextCommit(this.editingDraftText).catch((e: Object): void => {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'final Text commit failed: %{public}s', JSON.stringify(e));
+      }).finally((): void => {
+        this.disposeRenderingResources();
+      });
     } else {
       this.persist();
+      this.disposeRenderingResources();
     }
+  }
+
+  private disposeRenderingResources(): void {
     const renderMetrics: BitmapTransferMetrics = this.layerManager.getRenderMetrics();
     hilog.info(0x0001, 'NoteCanvasView',
       'render metrics frames=%{public}d full=%{public}d transfers=%{public}d completed=%{public}d ' +
@@ -4875,16 +4887,16 @@ export struct NoteCanvasView {
     return this.textBlockTool.updateWidthToFit(element, measuredWidth);
   }
 
-  onTextCommit(text: string): void {
+  async onTextCommit(text: string): Promise<boolean> {
     if (this.historyBusy) {
-      return;
+      return false;
     }
     let changed: boolean = false;
     let rearmOriginalCreate: boolean = false;
     if (this.editingTextBlock !== null) {
       if (text.trim().length === 0) {
         this.onTextCancel();
-        return;
+        return true;
       }
       if (this.editingOriginalTextBlock === null) {
         let updated: TextBlockElement = this.textBlockTool.updateText(this.editingTextBlock, text);
@@ -4903,7 +4915,32 @@ export struct NoteCanvasView {
         changed = true;
         rearmOriginalCreate = updated.originalCreate !== undefined;
       } else if (this.editingOriginalTextBlock.richText !== text) {
-        let updated: TextBlockElement = this.textBlockTool.updateText(this.editingTextBlock, text);
+        const editing: TextBlockElement = this.editingTextBlock;
+        const original: TextBlockElement = this.editingOriginalTextBlock;
+        const pageId: string = this.currentPage.pageId;
+        const loadedPageId: string = this.loadedPageId;
+        this.historyBusy = true;
+        let preview: OriginalTextEditPreview | null = null;
+        try {
+          preview = await this.persistence.previewOriginalTextEdit(
+            this.noteId, pageId, original, text);
+        } catch (e) {
+          hilog.error(0x0001, 'NoteCanvasView',
+            'original Text edit preview failed: %{public}s', JSON.stringify(e));
+        } finally {
+          this.historyBusy = false;
+        }
+        if (preview === null) {
+          hilog.error(0x0001, 'NoteCanvasView',
+            'original Text edit rejected because CRDT style preview diverged');
+          return false;
+        }
+        if (this.editingTextBlock !== editing || this.editingOriginalTextBlock !== original ||
+          this.currentPage.pageId !== pageId || this.loadedPageId !== loadedPageId) {
+          return false;
+        }
+        let updated: TextBlockElement = this.textBlockTool.updateText(
+          editing, text, preview.characterStyleRuns, preview.paragraphStyleRuns);
         updated = this.fitEditedTextWidth(updated);
         this.replaceTextBlock(updated);
         this.undoRedo.push({
@@ -4927,7 +4964,10 @@ export struct NoteCanvasView {
     if (changed) {
       this.persist(rearmOriginalCreate);
     }
-    this.renderFrame(true);
+    if (this.lifecycleActive) {
+      this.renderFrame(true);
+    }
+    return true;
   }
 
   onTextCancel(): void {
@@ -5201,7 +5241,10 @@ export struct NoteCanvasView {
           }
         },
         onCommit: (text: string) => {
-          this.onTextCommit(text);
+          this.onTextCommit(text).catch((e: Object): void => {
+            hilog.error(0x0001, 'NoteCanvasView',
+              'Text commit failed: %{public}s', JSON.stringify(e));
+          });
         },
         onCancel: () => {
           this.onTextCancel();

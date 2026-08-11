@@ -37,7 +37,7 @@ export function cloneTextBlockElement(element: TextBlockElement): TextBlockEleme
   };
 }
 
-function cloneCharacterStyleRuns(runs: RichTextCharacterStyleRun[] | undefined):
+export function cloneCharacterStyleRuns(runs: RichTextCharacterStyleRun[] | undefined):
   RichTextCharacterStyleRun[] | undefined {
   if (runs === undefined) {
     return undefined;
@@ -49,7 +49,7 @@ function cloneCharacterStyleRuns(runs: RichTextCharacterStyleRun[] | undefined):
   });
 }
 
-function cloneParagraphStyleRuns(runs: RichTextParagraphStyleRun[] | undefined):
+export function cloneParagraphStyleRuns(runs: RichTextParagraphStyleRun[] | undefined):
   RichTextParagraphStyleRun[] | undefined {
   if (runs === undefined) {
     return undefined;

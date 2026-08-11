@@ -1,7 +1,12 @@
 // T-024 文本框逻辑（§30 TextBlockInfo 简化版，纯逻辑禁止平台 import）
-import { TextBlockElement, ElementType } from '../core/model/ElementTypes';
+import {
+  ElementType, RichTextCharacterStyleRun, RichTextParagraphStyleRun, TextBlockElement,
+} from '../core/model/ElementTypes';
 import { Point2D } from '../core/model/GeometryTypes';
-import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextBlockGeometry';
+import {
+  cloneCharacterStyleRuns, cloneParagraphStyleRuns, cloneTextBlockElement,
+  textBlockWorldBounds,
+} from '../core/model/TextBlockGeometry';
 
 export class TextBlockTool {
   // 创建文本框（双击位置）
@@ -30,7 +35,9 @@ export class TextBlockTool {
   }
 
   // 更新文本内容（重算 bounds 高度按行数自适应，最少 40）
-  updateText(element: TextBlockElement, text: string): TextBlockElement {
+  updateText(element: TextBlockElement, text: string,
+    characterStyleRuns?: RichTextCharacterStyleRun[],
+    paragraphStyleRuns?: RichTextParagraphStyleRun[]): TextBlockElement {
     // The original RichText register treats an unchanged editor commit as a no-op.
     // Rebuilding it would discard imported character/paragraph runs without an Undo entry.
     if (text === element.richText) {
@@ -40,9 +47,17 @@ export class TextBlockTool {
     const height: number = Math.max(40, lines * (element.fontSize + 8) + element.contentTopInset * 2);
     const updated: TextBlockElement = cloneTextBlockElement(element);
     updated.richText = text;
-    // The local plain-text editor replaces the whole backing string and has no span editor.
-    updated.characterStyleRuns = [];
-    updated.paragraphStyleRuns = [];
+    if ((characterStyleRuns === undefined) !== (paragraphStyleRuns === undefined)) {
+      throw new Error('Text style preview requires both character and paragraph runs');
+    }
+    if (characterStyleRuns !== undefined && paragraphStyleRuns !== undefined) {
+      updated.characterStyleRuns = cloneCharacterStyleRuns(characterStyleRuns);
+      updated.paragraphStyleRuns = cloneParagraphStyleRuns(paragraphStyleRuns);
+    } else {
+      // Local non-original text still has no span authoring surface.
+      updated.characterStyleRuns = [];
+      updated.paragraphStyleRuns = [];
+    }
     updated.blockHeight = height;
     updated.bounds = textBlockWorldBounds(updated);
     return updated;
