@@ -5,9 +5,13 @@ import {
 import { CubicSourceRange } from '../main/ets/core/algorithm/CubicFitter';
 import { CubicSegment } from '../main/ets/core/model/GeometryTypes';
 import {
-  InkStyle, InputBatchKind, InputPoint, InputToolType, PencilSplatPoint, RenderSpec, StrokePathPoint,
+  InkStyle, InputBatchKind, InputPoint, InputToolType, PencilSplatPoint, RenderSpec,
+  StrokeElementData, StrokePathPoint,
 } from '../main/ets/core/model/StrokeTypes';
 import { StrokeSession } from '../main/ets/rendering/StrokeSession';
+import {
+  rebuildOriginalPencilWidth, RebuiltOriginalPencilWidth,
+} from '../main/ets/core/adaptation/OriginalPencilWidthGeometry';
 
 function straightSegment(): CubicSegment {
   return {
@@ -196,6 +200,66 @@ export default function pencilSplatGeneratorTest() {
       expect(narrow.length > wide.length).assertTrue();
       expect(wide[0].scale > narrow[0].scale).assertTrue();
       expect(wide[0].x).assertEqual(narrow[0].x * 2);
+    });
+
+    it('rebuilds an original Pencil snapshot for a local width register update', 0, () => {
+      const points: StrokePathPoint[] = [
+        pencilPoint(0, 0.8, 0.2, 1, 0), pencilPoint(30, 0.8, 0.2, 1, 0),
+      ];
+      const oldGenerator: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 4 });
+      oldGenerator.reset(12345);
+      const stroke: StrokeElementData = {
+        id: '1:1', pathPoints: points, cubicSegments: [straightSegment()],
+        splatPoints: oldGenerator.generate([straightSegment()], points),
+        renderSpec: {
+          color: -16777216, brushWidth: 4, inkStyle: InkStyle.FIXED_WIDTH,
+          isHighlighter: false, isPencil: true,
+        },
+        transform: [0, -2, 100, 3, 0, 200, 0, 0, 1],
+        bounds: { left: 54.56, top: 131.84, right: 145.44, bottom: 358.16 },
+        maskPath: [], styleMap: [{
+          backingPencilSeed: 12345, backingPencilReferencePoint: { x: 0, y: 0 },
+          backingDashPhase: 0, backingDashPeriod: 0,
+        }], isFinished: true,
+      };
+      const rebuilt: RebuiltOriginalPencilWidth = rebuildOriginalPencilWidth(stroke, 8);
+      const direct: PencilSplatGenerator = new PencilSplatGenerator({ spacing: 8 });
+      direct.reset(12345);
+      expect(JSON.stringify(rebuilt.splatPoints)).assertEqual(
+        JSON.stringify(direct.generate([straightSegment()], points)));
+      expect(Math.abs(rebuilt.bounds.left - 9.12) < 1e-10).assertTrue();
+      expect(Math.abs(rebuilt.bounds.top - 63.68) < 1e-10).assertTrue();
+      expect(Math.abs(rebuilt.bounds.right - 190.88) < 1e-10).assertTrue();
+      expect(Math.abs(rebuilt.bounds.bottom - 426.32) < 1e-10).assertTrue();
+    });
+
+    it('recovers original quadratic and auxiliary control hulls for Pencil width bounds', 0, () => {
+      const quadratic: CubicSegment = {
+        p0: { x: 0, y: 0 }, p1: { x: 33.5, y: -13.666666666666666 },
+        p2: { x: 43.5, y: -13.666666666666666 }, p3: { x: 30, y: 0 },
+      };
+      const points: StrokePathPoint[] = [
+        pencilPoint(0, 0.8, 0.2, 1, 0), pencilPoint(30, 0.8, 0.2, 1, 0),
+      ];
+      const stroke: StrokeElementData = {
+        id: '2:1', pathPoints: points, cubicSegments: [quadratic], splatPoints: [],
+        renderSpec: {
+          color: -16777216, brushWidth: 4, inkStyle: InkStyle.FIXED_WIDTH,
+          isHighlighter: false, isPencil: true,
+        },
+        transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: -1, top: -1, right: 1, bottom: 1 }, maskPath: [],
+        customPath: [{ type: 0, points: [{ x: 200, y: 10 }] }],
+        styleMap: [{
+          backingPencilSeed: 12345, backingPencilReferencePoint: { x: 0, y: 0 },
+          backingDashPhase: 0, backingDashPeriod: 0,
+        }], isFinished: true,
+      };
+      const rebuilt: RebuiltOriginalPencilWidth = rebuildOriginalPencilWidth(stroke, 8);
+      expect(Math.abs(rebuilt.bounds.left - (-45.44)) < 1e-10).assertTrue();
+      expect(Math.abs(rebuilt.bounds.top - (-65.94)) < 1e-10).assertTrue();
+      expect(rebuilt.bounds.right).assertEqual(200);
+      expect(Math.abs(rebuilt.bounds.bottom - 45.44) < 1e-10).assertTrue();
     });
 
     it('rebuilds from a winning style-map seed and reference', 0, () => {

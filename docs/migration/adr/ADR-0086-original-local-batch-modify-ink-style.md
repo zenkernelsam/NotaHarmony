@@ -59,3 +59,10 @@ The Phase 109 `wd8` encoder and strict snapshot classifier were valid, but the r
 the payload child directly. Phase 110 wraps it in a complete local `uq9`, applies that operation,
 and stores the identical complete bytes in `operation_log`. Thus the style production transaction
 described above becomes effective only with Phase 110.
+
+## Phase 117 Extension
+
+ADR-0094 establishes the direct original call paths for selected-Ink color and width and extends the
+same strict type-17 writer. The earlier statement that production emits style only is historical,
+not a current boundary. Color-only and width-only payloads omit field 12; Pencil width additionally
+rebuilds deterministic splats and bounds before strict snapshot classification.

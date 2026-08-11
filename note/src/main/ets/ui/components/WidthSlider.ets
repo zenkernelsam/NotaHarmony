@@ -6,6 +6,12 @@ import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/Them
 @Component
 export struct WidthSlider {
   @ObjectLink viewModel: EditorViewModel;
+  @Prop selectionMode: boolean = false;
+  @Prop selectionWidth: number = 5;
+  @Prop selectionMinimum: number = 0.5;
+  @Prop selectionMaximum: number = 30;
+  onSelectionWidth: (width: number) => void = (_width: number): void => {
+  };
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
 
@@ -15,19 +21,24 @@ export struct WidthSlider {
 
   build() {
     Column() {
-      Text('Width: ' + Math.round(this.viewModel.brushWidth).toString())
+      Text('Width: ' + (this.selectionMode ? this.selectionWidth.toString() :
+        Math.round(this.viewModel.brushWidth).toString()))
         .fontSize(14)
         .fontColor(this.resolveTokens().textPrimary)
         .margin({ bottom: 8 })
       Slider({
-        value: this.viewModel.brushWidth,
-        min: 2,
-        max: 100,
-        step: 2,
+        value: this.selectionMode ? this.selectionWidth : this.viewModel.brushWidth,
+        min: this.selectionMode ? this.selectionMinimum : 2,
+        max: this.selectionMode ? this.selectionMaximum : 100,
+        step: this.selectionMode ? 0.5 : 2,
       })
         .width(220)
         .onChange((value: number) => {
-          this.viewModel.setBrushWidth(value, Math.round((value - 2) / 2));
+          if (this.selectionMode) {
+            this.onSelectionWidth(value);
+          } else {
+            this.viewModel.setBrushWidth(value, Math.round((value - 2) / 2));
+          }
         })
     }
     .padding(16)

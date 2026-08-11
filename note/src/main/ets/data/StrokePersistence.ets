@@ -44,16 +44,22 @@ import {
   ORIGINAL_CREATE_INK_PAYLOAD_TYPE, OriginalCreateInkOperationApplier,
 } from './OriginalCreateInkOperation';
 import {
+  rebuildOriginalPencilWidth, RebuiltOriginalPencilWidth,
+} from '../core/adaptation/OriginalPencilWidthGeometry';
+import {
   encodeOriginalEntityVisibility,
 } from './OriginalDeleteEntitiesPayloadEncoder';
 import {
   MAX_ORIGINAL_DELETE_ENTITY_COUNT, ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE,
   OriginalDeleteEntitiesOperationApplier,
 } from './OriginalDeleteEntitiesOperation';
-import { encodeOriginalInkRenderRegisters } from './OriginalModifyInkPayloadEncoder';
+import {
+  encodeOriginalInkRenderRegisters, OriginalInkRenderRegisterUpdate,
+} from './OriginalModifyInkPayloadEncoder';
 import { encodeOriginalOperationEnvelope } from './OriginalOperationEnvelopeEncoder';
 import {
-  ORIGINAL_MODIFY_INK_PAYLOAD_TYPE, OriginalModifyInkOperationApplier,
+  decodeOriginalModifyInk, ORIGINAL_MODIFY_INK_PAYLOAD_TYPE, OriginalModifyInkOperationApplier,
+  OriginalModifyInkPayload,
 } from './OriginalModifyInkOperation';
 import { encodeOriginalImageCrop, encodeOriginalImageFlip } from './OriginalModifyBlockPayloadEncoder';
 import {
@@ -185,9 +191,12 @@ interface OriginalEntityVisibilityMutation {
   deleted: boolean;
 }
 
-interface OriginalInkStyleMutation {
+interface OriginalInkRenderMutationBatch extends OriginalInkRenderRegisterUpdate {
   identities: OperationIdentity[];
-  style: InkStyle;
+}
+
+interface OriginalInkRenderMutation {
+  batches: OriginalInkRenderMutationBatch[];
 }
 
 export interface OriginalImageFlipUpdate {
@@ -734,7 +743,7 @@ export class StrokePersistence {
         await store.commit();
         return;
       }
-      const originalStyle: OriginalInkStyleMutation | null =
+      const originalStyle: OriginalInkRenderMutation | null =
         this.originalInkStyleMutation(current, snapshot.elements);
       if (originalStyle !== null) {
         await this.applyOriginalInkStyle(store, snapshot, originalStyle, snapshotRevision);
@@ -1011,7 +1020,7 @@ export class StrokePersistence {
           step.pageId, currentRevision, nextRevision, current, step.elements);
         const originalVisibility: OriginalEntityVisibilityMutation | null =
           this.originalEntityVisibilityMutation(current, step.elements);
-        const originalStyle: OriginalInkStyleMutation | null = originalVisibility === null ?
+        const originalStyle: OriginalInkRenderMutation | null = originalVisibility === null ?
           this.originalInkStyleMutation(current, step.elements) : null;
         const originalImageFlip: OriginalImageFlipMutation | null =
           originalVisibility === null && originalStyle === null ?
@@ -1101,12 +1110,12 @@ export class StrokePersistence {
   }
 
   private originalInkStyleMutation(current: SearchSourceElement[],
-    next: PreparedElement[]): OriginalInkStyleMutation | null {
+    next: PreparedElement[]): OriginalInkRenderMutation | null {
     if (!samePreparedIdentityOrder(current, next)) {
       return null;
     }
-    const identities: OperationIdentity[] = [];
-    let style: InkStyle | null = null;
+    const batches: Map<string, OriginalInkRenderMutationBatch> =
+      new Map<string, OriginalInkRenderMutationBatch>();
     for (let index: number = 0; index < current.length; index++) {
       if (sameByteArrays(current[index].payload, next[index].payload)) {
         continue;
@@ -1123,20 +1132,33 @@ export class StrokePersistence {
         const before: StrokeElementData = beforePersisted.data as StrokeElementData;
         const after: StrokeElementData = afterPersisted.data as StrokeElementData;
         const identity: OperationIdentity | null = decodeOperationId(before.id);
-        if (identity === null || before.id !== after.id || before.renderSpec.isPencil ||
+        const styleChanged: boolean = before.renderSpec.inkStyle !== after.renderSpec.inkStyle;
+        const styleMapCleared: boolean = after.styleMap !== undefined && after.styleMap.length === 0 &&
+          (before.styleMap === undefined || before.styleMap.length > 0);
+        const styleUpdated: boolean = styleChanged || styleMapCleared;
+        const colorChanged: boolean = before.renderSpec.color !== after.renderSpec.color;
+        const widthChanged: boolean = before.renderSpec.brushWidth !== after.renderSpec.brushWidth;
+        if (identity === null || before.id !== after.id ||
           before.renderSpec.isPartialEraser === true ||
-          before.renderSpec.inkStyle === after.renderSpec.inkStyle) {
+          (!styleUpdated && !colorChanged && !widthChanged) ||
+          (styleUpdated && before.renderSpec.isPencil)) {
           return null;
         }
-        if (style !== null && style !== after.renderSpec.inkStyle) {
-          return null;
+        let pencilWidth: RebuiltOriginalPencilWidth | null = null;
+        if (widthChanged && before.renderSpec.isPencil) {
+          try {
+            pencilWidth = rebuildOriginalPencilWidth(before, after.renderSpec.brushWidth);
+          } catch (_error) {
+            return null;
+          }
         }
         const candidate: StrokeElementData = {
           id: before.id, pathPoints: before.pathPoints, cubicSegments: before.cubicSegments,
-          splatPoints: before.splatPoints,
+          splatPoints: pencilWidth === null ? before.splatPoints : pencilWidth.splatPoints,
           renderSpec: {
-            color: before.renderSpec.color, brushWidth: before.renderSpec.brushWidth,
-            inkStyle: after.renderSpec.inkStyle,
+            color: colorChanged ? after.renderSpec.color : before.renderSpec.color,
+            brushWidth: widthChanged ? after.renderSpec.brushWidth : before.renderSpec.brushWidth,
+            inkStyle: styleUpdated ? after.renderSpec.inkStyle : before.renderSpec.inkStyle,
             isHighlighter: before.renderSpec.isHighlighter,
             isPencil: before.renderSpec.isPencil,
             isPartialEraser: before.renderSpec.isPartialEraser,
@@ -1145,9 +1167,11 @@ export class StrokePersistence {
             inkEffectPhase: before.renderSpec.inkEffectPhase,
             tapePattern: before.renderSpec.tapePattern,
           },
-          transform: before.transform, bounds: before.bounds, maskPath: before.maskPath,
+          transform: before.transform,
+          bounds: pencilWidth === null ? before.bounds : pencilWidth.bounds,
+          maskPath: before.maskPath,
           customPath: before.customPath, fillPath: before.fillPath, fillColor: before.fillColor,
-          styleMap: [], audioStartTime: before.audioStartTime,
+          styleMap: styleUpdated ? [] : before.styleMap, audioStartTime: before.audioStartTime,
           audioDuration: before.audioDuration, originalCreate: before.originalCreate,
           isFinished: before.isFinished,
         };
@@ -1155,15 +1179,27 @@ export class StrokePersistence {
         if (!sameByteArrays(encoded, next[index].payload)) {
           return null;
         }
-        style = after.renderSpec.inkStyle;
-        identities.push(identity);
+        const update: OriginalInkRenderRegisterUpdate = {
+          style: styleUpdated ? after.renderSpec.inkStyle : null,
+          color: colorChanged ? after.renderSpec.color : null,
+          width: widthChanged ? after.renderSpec.brushWidth : null,
+        };
+        const key: string = `${update.style === null ? 'x' : update.style}|` +
+          `${update.color === null ? 'x' : update.color}|` +
+          `${update.width === null ? 'x' : update.width}`;
+        const batch: OriginalInkRenderMutationBatch | undefined = batches.get(key);
+        if (batch === undefined) {
+          batches.set(key, {
+            identities: [identity], style: update.style, color: update.color, width: update.width,
+          });
+        } else {
+          batch.identities.push(identity);
+        }
       } catch (_error) {
         return null;
       }
     }
-    return identities.length === 0 || style === null ? null : {
-      identities: identities, style: style,
-    };
+    return batches.size === 0 ? null : { batches: Array.from(batches.values()) };
   }
 
   private async originalModifyPositionsMutation(store: relationalStore.RdbStore,
@@ -1403,31 +1439,35 @@ export class StrokePersistence {
   }
 
   private async applyOriginalInkStyle(store: relationalStore.RdbStore,
-    step: PreparedPageSave, mutation: OriginalInkStyleMutation,
+    step: PreparedPageSave, mutation: OriginalInkRenderMutation,
     expectedRevision: number): Promise<void> {
     if (await this.readEligibleOriginalInkPage(store, step.noteId, step.pageId) === null) {
       throw new Error('local MODIFY_INK page is no longer original-aligned');
     }
-    const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, step.noteId);
-    const payload: Uint8Array = encodeOriginalInkRenderRegisters(mutation.identities, {
-      style: mutation.style, color: null, width: null,
-    });
-    const metadata: OriginalInkCreateMetadata = {
-      timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
-      pageTimestamp: 0, pageSiteId: 0, pageIndex: 0, pencilSeed: 0,
-    };
-    const operation: StoredSyncedOperation = localStoredOperation(
-      step.noteId, metadata, ORIGINAL_MODIFY_INK_PAYLOAD_TYPE, payload, null);
-    const result: SyncedOperationApplyResult = await new OriginalModifyInkOperationApplier().apply(
-      store, operation);
-    if (result.deferredReason !== null) {
-      throw new Error(`local MODIFY_INK was deferred: ${result.deferredReason}`);
+    const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+    const applier: OriginalModifyInkOperationApplier = new OriginalModifyInkOperationApplier();
+    for (const batch of mutation.batches) {
+      const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, step.noteId);
+      const payload: Uint8Array = encodeOriginalInkRenderRegisters(batch.identities, batch);
+      const metadata: OriginalInkCreateMetadata = {
+        timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
+        pageTimestamp: 0, pageSiteId: 0, pageIndex: 0, pencilSeed: 0,
+      };
+      const operation: StoredSyncedOperation = localStoredOperation(
+        step.noteId, metadata, ORIGINAL_MODIFY_INK_PAYLOAD_TYPE, payload, null);
+      const decoded: OriginalModifyInkPayload = decodeOriginalModifyInk(operation.rawOperation);
+      const result: SyncedOperationApplyResult = await applier.applyPositionPayload(
+        store, operation, decoded, revisionBatch);
+      if (result.deferredReason !== null) {
+        throw new Error(`local MODIFY_INK was deferred: ${result.deferredReason}`);
+      }
+      await appendOperation(store, {
+        noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_INK,
+        payload: operation.rawOperation, clientTime: identity.clientTime,
+        opTimestamp: identity.timestamp, editorSiteId: identity.siteId, uploadImmediately: true,
+      });
     }
-    await appendOperation(store, {
-      noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_INK,
-      payload: operation.rawOperation, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
-      editorSiteId: identity.siteId, uploadImmediately: true,
-    });
+    await revisionBatch.flush(store, step.noteId);
     const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
       store, step.noteId, step.pageId);
     if (!samePreparedIdentityOrder(materialized, step.elements)) {

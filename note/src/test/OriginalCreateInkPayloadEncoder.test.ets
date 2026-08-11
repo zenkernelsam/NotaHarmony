@@ -103,6 +103,24 @@ export default function originalCreateInkPayloadEncoderTest() {
       expect(decoded.centerPath === null).assertTrue();
     });
 
+    it('keeps style-map absent for original color-only and width-only updates', 0, () => {
+      const color = decodeOriginalModifyInk(wrap(17, encodeOriginalInkRenderRegisters([
+        { timestamp: 30, siteId: 3 },
+      ], { style: null, color: -16711936, width: null })));
+      expect(color.style === null).assertTrue();
+      expect(color.color).assertEqual(-16711936);
+      expect(color.width === null).assertTrue();
+      expect(color.styleMap.present).assertFalse();
+
+      const width = decodeOriginalModifyInk(wrap(17, encodeOriginalInkRenderRegisters([
+        { timestamp: 31, siteId: 3 },
+      ], { style: null, color: null, width: 6.25 })));
+      expect(width.style === null).assertTrue();
+      expect(width.color === null).assertTrue();
+      expect(width.width).assertEqual(6.25);
+      expect(width.styleMap.present).assertFalse();
+    });
+
     it('round-trips batched original MODIFY_POSITIONS registers', 0, () => {
       const decoded = decodeOriginalModifyPositions(wrap(24, encodeOriginalModifyPositions([{
         target: { timestamp: 20, siteId: 2 },

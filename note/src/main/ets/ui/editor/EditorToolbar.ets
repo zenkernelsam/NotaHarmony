@@ -19,6 +19,14 @@ export struct EditorToolbar {
   };
   onSelectionStyle: (style: BrushStyle) => void = (_style: BrushStyle): void => {
   };
+  onSelectionColor: (color: number) => void = (_color: number): void => {
+  };
+  onSelectionWidth: (width: number) => void = (_width: number): void => {
+  };
+  @Prop selectionColor: number = -16777216;
+  @Prop selectionWidth: number = 5;
+  @Prop selectionWidthMinimum: number = 0.5;
+  @Prop selectionWidthMaximum: number = 30;
   @Prop canUndo: boolean = false;
   @Prop canRedo: boolean = false;
   // T-038：主题状态
@@ -62,23 +70,29 @@ export struct EditorToolbar {
           .width(32)
           .height(32)
           .borderRadius(16)
-          .backgroundColor(this.viewModel.colorToHex(this.viewModel.brushColor))
+          .backgroundColor(this.viewModel.colorToHex(this.viewModel.isSelectionActive() ?
+            this.selectionColor : this.viewModel.brushColor))
           .margin({ left: 4, right: 4 })
-          .enabled(this.viewModel.supportsBrushControls() && !this.viewModel.toolStateLoading)
-          .opacity(this.viewModel.supportsBrushControls() && !this.viewModel.toolStateLoading ? 1 : 0.4)
+          .enabled((this.viewModel.supportsBrushControls() || this.viewModel.isSelectionActive()) &&
+            !this.viewModel.toolStateLoading)
+          .opacity((this.viewModel.supportsBrushControls() || this.viewModel.isSelectionActive()) &&
+            !this.viewModel.toolStateLoading ? 1 : 0.4)
           .onClick(() => {
             this.viewModel.showColorPicker = !this.viewModel.showColorPicker;
             this.viewModel.showWidthSlider = false;
           })
 
         // 粗细按钮（当前宽度指示）
-        Button(Math.round(this.viewModel.brushWidth).toString())
+        Button((this.viewModel.isSelectionActive() ? this.selectionWidth :
+          Math.round(this.viewModel.brushWidth)).toString())
           .width(48)
           .height(32)
           .fontSize(13)
           .margin({ left: 4, right: 4 })
-          .enabled(this.viewModel.supportsBrushControls() && !this.viewModel.toolStateLoading)
-          .opacity(this.viewModel.supportsBrushControls() && !this.viewModel.toolStateLoading ? 1 : 0.4)
+          .enabled((this.viewModel.supportsBrushControls() || this.viewModel.isSelectionActive()) &&
+            !this.viewModel.toolStateLoading)
+          .opacity((this.viewModel.supportsBrushControls() || this.viewModel.isSelectionActive()) &&
+            !this.viewModel.toolStateLoading ? 1 : 0.4)
           .onClick(() => {
             this.viewModel.showWidthSlider = !this.viewModel.showWidthSlider;
             this.viewModel.showColorPicker = false;
@@ -118,7 +132,12 @@ export struct EditorToolbar {
       // 弹层（颜色/粗细面板）
       if (this.viewModel.showColorPicker) {
         Row() {
-          ColorPickerView({ viewModel: this.viewModel })
+          ColorPickerView({
+            viewModel: this.viewModel,
+            selectionMode: this.viewModel.isSelectionActive(),
+            selectionColor: this.selectionColor,
+            onSelectionColor: (color: number): void => this.onSelectionColor(color),
+          })
         }
         .width('100%')
         .justifyContent(FlexAlign.Center)
@@ -126,7 +145,14 @@ export struct EditorToolbar {
       }
       if (this.viewModel.showWidthSlider) {
         Row() {
-          WidthSlider({ viewModel: this.viewModel })
+          WidthSlider({
+            viewModel: this.viewModel,
+            selectionMode: this.viewModel.isSelectionActive(),
+            selectionWidth: this.selectionWidth,
+            selectionMinimum: this.selectionWidthMinimum,
+            selectionMaximum: this.selectionWidthMaximum,
+            onSelectionWidth: (width: number): void => this.onSelectionWidth(width),
+          })
         }
         .width('100%')
         .justifyContent(FlexAlign.Center)

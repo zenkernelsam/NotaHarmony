@@ -75,6 +75,12 @@ struct NotePage {
   @State redoSignal: number = 0;
   @State selectionStyleSignal: number = 0;
   @State selectionInkStyle: InkStyle = InkStyle.FIXED_WIDTH;
+  @State selectionColorSignal: number = 0;
+  @State selectionInkColor: number = -16777216;
+  @State selectionWidthSignal: number = 0;
+  @State selectionInkWidth: number = 5;
+  @State selectionWidthMinimum: number = 0.5;
+  @State selectionWidthMaximum: number = 30;
   @State canUndo: boolean = false;
   @State canRedo: boolean = false;
   @State pageOperationBusy: boolean = false;
@@ -749,6 +755,18 @@ struct NotePage {
             this.selectionInkStyle = brushStyleToInkStyle(style);
             this.selectionStyleSignal++;
           },
+          selectionColor: this.selectionInkColor,
+          selectionWidth: this.selectionInkWidth,
+          selectionWidthMinimum: this.selectionWidthMinimum,
+          selectionWidthMaximum: this.selectionWidthMaximum,
+          onSelectionColor: (color: number) => {
+            this.selectionInkColor = color;
+            this.selectionColorSignal++;
+          },
+          onSelectionWidth: (width: number) => {
+            this.selectionInkWidth = width;
+            this.selectionWidthSignal++;
+          },
         })
       }
 
@@ -806,6 +824,10 @@ struct NotePage {
           redoSignal: this.redoSignal,
           selectionStyleSignal: this.selectionStyleSignal,
           selectionInkStyle: this.selectionInkStyle,
+          selectionColorSignal: this.selectionColorSignal,
+          selectionInkColor: this.selectionInkColor,
+          selectionWidthSignal: this.selectionWidthSignal,
+          selectionInkWidth: this.selectionInkWidth,
           playbackAudioTime: this.audioPlaybackTime,
           playbackAudioSegments: this.audioPlaybackSegments,
           readRecordingAudioTime: (): string | null => {
@@ -830,6 +852,13 @@ struct NotePage {
           },
           onHistoryBridgeReady: (bridge: EditorHistoryBridge) => {
             this.historyBridge = bridge;
+          },
+          onSelectionInkControlsChanged: (color: number, width: number,
+            minimum: number, maximum: number) => {
+            this.selectionInkColor = color;
+            this.selectionInkWidth = width;
+            this.selectionWidthMinimum = minimum;
+            this.selectionWidthMaximum = maximum;
           },
           onApplyPageHistory: async (action: UndoableAction, isUndo: boolean,
             history: HistoryMetadata): Promise<boolean> => this.applyPageHistory(action, isUndo, history),

@@ -7,6 +7,10 @@ import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/Them
 @Component
 export struct ColorPickerView {
   @ObjectLink viewModel: EditorViewModel;
+  @Prop selectionMode: boolean = false;
+  @Prop selectionColor: number = -16777216;
+  onSelectionColor: (color: number) => void = (_color: number): void => {
+  };
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   private presetColors: number[] = [
@@ -39,12 +43,18 @@ export struct ColorPickerView {
               .borderRadius(16)
               .backgroundColor(this.viewModel.colorToHex(color))
               .border({
-                width: color === this.viewModel.brushColor ? 3 : 1,
-                color: color === this.viewModel.brushColor ? this.resolveTokens().accent :
+                width: color === (this.selectionMode ? this.selectionColor :
+                  this.viewModel.brushColor) ? 3 : 1,
+                color: color === (this.selectionMode ? this.selectionColor :
+                  this.viewModel.brushColor) ? this.resolveTokens().accent :
                   this.resolveTokens().border,
               })
               .onClick(() => {
-                this.viewModel.setBrushColor(color, index);
+                if (this.selectionMode) {
+                  this.onSelectionColor(color);
+                } else {
+                  this.viewModel.setBrushColor(color, index);
+                }
               })
           }
         }, (color: number) => color.toString())

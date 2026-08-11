@@ -44,6 +44,9 @@ import {
   decodePersistedElement, encodePersistedElement, HistoryPageSnapshot, OriginalZOrderCommand,
   OriginalZOrderHint, PersistedElement, StrokePersistence,
 } from '../../data/StrokePersistence';
+import {
+  rebuildOriginalPencilWidth, RebuiltOriginalPencilWidth,
+} from '../../core/adaptation/OriginalPencilWidthGeometry';
 import { SearchSourceElement } from '../../data/SearchIndexPolicy';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import {
@@ -141,6 +144,10 @@ export struct NoteCanvasView {
   @Prop @Watch('onRedoSignalChange') redoSignal: number = 0;
   @Prop @Watch('onSelectionStyleSignalChange') selectionStyleSignal: number = 0;
   @Prop selectionInkStyle: InkStyle = InkStyle.FIXED_WIDTH;
+  @Prop @Watch('onSelectionColorSignalChange') selectionColorSignal: number = 0;
+  @Prop selectionInkColor: number = -16777216;
+  @Prop @Watch('onSelectionWidthSignalChange') selectionWidthSignal: number = 0;
+  @Prop selectionInkWidth: number = 5;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioTime: string | null = null;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioSegments: OriginalAudioSegmentRange[] = [];
   readRecordingAudioTime: () => string | null = (): string | null => null;
@@ -152,6 +159,10 @@ export struct NoteCanvasView {
   };
   onHistoryBridgeReady: (bridge: EditorHistoryBridge) => void = () => {
   };
+  onSelectionInkControlsChanged: (color: number, width: number,
+    minimum: number, maximum: number) => void =
+    (_color: number, _width: number, _minimum: number, _maximum: number): void => {
+    };
   onApplyPageHistory: (action: UndoableAction, isUndo: boolean,
     history: HistoryMetadata) => Promise<boolean> =
     async (_action: UndoableAction, _isUndo: boolean, _history: HistoryMetadata): Promise<boolean> => false;
@@ -848,6 +859,14 @@ export struct NoteCanvasView {
 
   onSelectionStyleSignalChange(_propName: string): void {
     this.modifySelectedInkStyle(this.selectionInkStyle);
+  }
+
+  onSelectionColorSignalChange(_propName: string): void {
+    this.modifySelectedInkColor(this.selectionInkColor);
+  }
+
+  onSelectionWidthSignalChange(_propName: string): void {
+    this.modifySelectedInkWidth(this.selectionInkWidth);
   }
 
   private async ensurePencilTexture(): Promise<void> {
@@ -3323,6 +3342,33 @@ export struct NoteCanvasView {
   // === 选区 ===
   private updateSelectionOverlay(): void {
     const state = this.selectionTool.getState();
+    let selectedColor: number | null = null;
+    let selectedWidth: number | null = null;
+    let selectedMinimum: number = 0.5;
+    let selectedMaximum: number = 30;
+    const pageWidth: number = this.getPaperWidth();
+    for (const stroke of this.completedStrokes) {
+      if (state.selectedStrokeIds.indexOf(stroke.id) < 0 ||
+        stroke.renderSpec.isPartialEraser === true) {
+        continue;
+      }
+      if (selectedColor === null) {
+        selectedColor = (0xFF000000 | (stroke.renderSpec.color & 0x00FFFFFF)) | 0;
+      }
+      if (selectedWidth === null) {
+        const tape: boolean = stroke.renderSpec.tapePattern !== undefined &&
+          stroke.renderSpec.tapePattern !== null;
+        selectedMinimum = tape ? 2 : stroke.renderSpec.isPencil ? 1 : 0.5;
+        selectedMaximum = tape ? 64 : stroke.renderSpec.isPencil ? 10 : 30;
+        const controlWidth: number = stroke.renderSpec.brushWidth * 768 / pageWidth;
+        selectedWidth = Math.round(Math.min(selectedMaximum,
+          Math.max(selectedMinimum, controlWidth)) * 2) / 2;
+      }
+    }
+    if (selectedColor !== null || selectedWidth !== null) {
+      this.onSelectionInkControlsChanged(selectedColor ?? this.selectionInkColor,
+        selectedWidth ?? this.selectionInkWidth, selectedMinimum, selectedMaximum);
+    }
     this.selectionCanFlip = this.canFlipImageSelection(
       state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
       state.selectedImageIds, state.selectedGroupIds, state.selectedMathIds);
@@ -3925,6 +3971,19 @@ export struct NoteCanvasView {
   }
 
   private modifySelectedInkStyle(style: InkStyle): void {
+    this.modifySelectedInkRegisters(style, null, null);
+  }
+
+  private modifySelectedInkColor(color: number): void {
+    this.modifySelectedInkRegisters(null, color, null);
+  }
+
+  private modifySelectedInkWidth(controlWidth: number): void {
+    this.modifySelectedInkRegisters(null, null, controlWidth);
+  }
+
+  private modifySelectedInkRegisters(style: InkStyle | null, color: number | null,
+    controlWidth: number | null): void {
     if (this.historyBusy || !this.loaded || !this.viewModel.isSelectionActive()) {
       return;
     }
@@ -3934,14 +3993,44 @@ export struct NoteCanvasView {
     const after: StrokeElementData[] = [];
     const replacements: Map<string, StrokeElementData> = new Map<string, StrokeElementData>();
     for (const stroke of this.completedStrokes) {
-      if (!selected.has(stroke.id) || stroke.renderSpec.isPencil ||
-        stroke.renderSpec.isPartialEraser === true || stroke.renderSpec.inkStyle === style) {
+      if (!selected.has(stroke.id) || stroke.renderSpec.isPartialEraser === true ||
+        (style !== null && stroke.renderSpec.isPencil)) {
         continue;
       }
       const source: StrokeElementData = this.cloneStrokeSnapshot(stroke);
       const replacement: StrokeElementData = this.cloneStrokeSnapshot(stroke);
-      replacement.renderSpec.inkStyle = style;
-      replacement.styleMap = [];
+      if (style !== null) {
+        replacement.renderSpec.inkStyle = style;
+        replacement.styleMap = [];
+      }
+      if (color !== null) {
+        const alpha: number = stroke.renderSpec.isHighlighter ? 107 : 255;
+        replacement.renderSpec.color = ((alpha << 24) | (color & 0x00FFFFFF)) | 0;
+      }
+      if (controlWidth !== null) {
+        const tape: boolean = stroke.renderSpec.tapePattern !== undefined &&
+          stroke.renderSpec.tapePattern !== null;
+        const minimum: number = tape ? 2 : stroke.renderSpec.isPencil ? 1 : 0.5;
+        const maximum: number = tape ? 64 : stroke.renderSpec.isPencil ? 10 : 30;
+        const bounded: number = Math.min(maximum, Math.max(minimum, controlWidth));
+        const persistedWidth: number = bounded * this.getPaperWidth() / 768;
+        if (stroke.renderSpec.isPencil) {
+          try {
+            const rebuilt: RebuiltOriginalPencilWidth = rebuildOriginalPencilWidth(
+              stroke, persistedWidth);
+            replacement.splatPoints = rebuilt.splatPoints;
+            replacement.bounds = rebuilt.bounds;
+          } catch (_error) {
+            continue;
+          }
+        }
+        replacement.renderSpec.brushWidth = persistedWidth;
+      }
+      const sourceBytes: Uint8Array = encodePersistedElement({ kind: 'stroke', data: source });
+      const replacementBytes: Uint8Array = encodePersistedElement({ kind: 'stroke', data: replacement });
+      if (this.sameBytes(sourceBytes, replacementBytes)) {
+        continue;
+      }
       before.push(source);
       after.push(replacement);
       replacements.set(stroke.id, replacement);
