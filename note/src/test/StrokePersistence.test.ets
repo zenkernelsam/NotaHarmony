@@ -1,13 +1,15 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import {
-  decodePersistedElement, encodePersistedElement, PersistedElement,
+  classifyOriginalImageFlipMutation, decodePersistedElement, encodePersistedElement,
+  OriginalImageFlipMutation, PersistedElement,
 } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import { ElementType, ImageElement } from '../main/ets/core/model/ElementTypes';
 import {
   handwritingSourceChanged, pageSnapshotChanged, SearchSourceElement,
 } from '../main/ets/data/SearchIndexPolicy';
+import { cloneImageElement } from '../main/ets/core/model/ImageBlockGeometry';
 
 export default function strokePersistenceTest() {
   describe('StrokePersistence payload codec', () => {
@@ -117,7 +119,106 @@ export default function strokePersistenceTest() {
       expect(pageSnapshotChanged(current, reordered)).assertTrue();
       expect(pageSnapshotChanged(current, textChanged)).assertTrue();
     });
+
+    it('classifies image-only horizontal and vertical flip register writes', 0, () => {
+      const first: ImageElement = originalImage('op:14:2');
+      const second: ImageElement = originalImage('op:16:4');
+      second.imageFlippedHorizontally = true;
+      const firstHorizontal: ImageElement = cloneImageElement(first);
+      const secondHorizontal: ImageElement = cloneImageElement(second);
+      firstHorizontal.imageFlippedHorizontally = true;
+      secondHorizontal.imageFlippedHorizontally = false;
+      const current: SearchSourceElement[] = [imageSource(first), imageSource(second)];
+      const afterHorizontal: SearchSourceElement[] = [
+        imageSource(firstHorizontal), imageSource(secondHorizontal),
+      ];
+      const horizontal: OriginalImageFlipMutation | null =
+        classifyOriginalImageFlipMutation(current, afterHorizontal);
+      expect(horizontal?.updates.length).assertEqual(2);
+      expect(horizontal?.updates[0].horizontal).assertTrue();
+      expect(horizontal?.updates[0].vertical === null).assertTrue();
+      expect(horizontal?.updates[1].horizontal).assertFalse();
+
+      const firstVertical: ImageElement = cloneImageElement(firstHorizontal);
+      const secondVertical: ImageElement = cloneImageElement(secondHorizontal);
+      firstVertical.imageFlippedVertically = true;
+      secondVertical.imageFlippedVertically = true;
+      const vertical: OriginalImageFlipMutation | null = classifyOriginalImageFlipMutation(
+        afterHorizontal, [imageSource(firstVertical), imageSource(secondVertical)]);
+      expect(vertical?.updates[0].horizontal === null).assertTrue();
+      expect(vertical?.updates[0].vertical).assertTrue();
+    });
+
+    it('classifies explicit false and reverse image flip writes for Undo and Redo', 0, () => {
+      const before: ImageElement = originalImage('op:14:2');
+      before.imageFlippedHorizontally = true;
+      const after: ImageElement = cloneImageElement(before);
+      after.imageFlippedHorizontally = false;
+      const forward: OriginalImageFlipMutation | null = classifyOriginalImageFlipMutation(
+        [imageSource(before)], [imageSource(after)]);
+      const reverse: OriginalImageFlipMutation | null = classifyOriginalImageFlipMutation(
+        [imageSource(after)], [imageSource(before)]);
+      expect(forward?.updates[0].horizontal).assertFalse();
+      expect(reverse?.updates[0].horizontal).assertTrue();
+    });
+
+    it('mirrors an existing crop rect with the original image flip register', 0, () => {
+      const before: ImageElement = originalImage('op:14:2');
+      before.cropRect = { left: 20, top: 10, right: 100, bottom: 50 };
+      const after: ImageElement = cloneImageElement(before);
+      after.imageFlippedHorizontally = true;
+      after.cropRect = { left: 100, top: 10, right: 180, bottom: 50 };
+      const mutation: OriginalImageFlipMutation | null = classifyOriginalImageFlipMutation(
+        [imageSource(before)], [imageSource(after)]);
+      expect(mutation?.updates[0].cropRect?.x).assertEqual(100);
+      expect(mutation?.updates[0].cropRect?.width).assertEqual(80);
+
+      const unmirrored: ImageElement = cloneImageElement(before);
+      unmirrored.imageFlippedHorizontally = true;
+      expect(classifyOriginalImageFlipMutation(
+        [imageSource(before)], [imageSource(unmirrored)]) === null).assertTrue();
+    });
+
+    it('rejects mixed-axis, non-image, and unrelated image mutations', 0, () => {
+      const first: ImageElement = originalImage('op:14:2');
+      const second: ImageElement = originalImage('op:16:4');
+      const firstHorizontal: ImageElement = cloneImageElement(first);
+      const secondVertical: ImageElement = cloneImageElement(second);
+      firstHorizontal.imageFlippedHorizontally = true;
+      secondVertical.imageFlippedVertically = true;
+      expect(classifyOriginalImageFlipMutation(
+        [imageSource(first), imageSource(second)],
+        [imageSource(firstHorizontal), imageSource(secondVertical)]) === null).assertTrue();
+
+      const unrelated: ImageElement = cloneImageElement(firstHorizontal);
+      unrelated.corner = 1;
+      expect(classifyOriginalImageFlipMutation(
+        [imageSource(first)], [imageSource(unrelated)]) === null).assertTrue();
+      expect(classifyOriginalImageFlipMutation(
+        [sourceElement('stroke', PageElementKind.STROKE, [1])],
+        [sourceElement('stroke', PageElementKind.STROKE, [2])]) === null).assertTrue();
+    });
   });
+}
+
+function originalImage(id: string): ImageElement {
+  const bits: string[] = ['0', '1', '2', '3', '4', '5', '6', '7'];
+  return {
+    id: id, type: ElementType.IMAGE, transform: [1, 0, 10, 0, 1, 20, 0, 0, 1],
+    bounds: { left: 10, top: 20, right: 110, bottom: 70 },
+    assetHash: bits.join(':'), assetHashBits: bits, fileName: 'photo.png', mimeType: 'image/png',
+    fileSize: 100, intrinsicWidth: 200, intrinsicHeight: 100, cropRect: null,
+    blockWidth: 100, blockHeight: 50, rotationRadians: 0, corner: 0, textWrap: 0,
+    enableCaption: false, webUrl: null, imageFlippedHorizontally: false,
+    imageFlippedVertically: false, positionLocked: false,
+  };
+}
+
+function imageSource(image: ImageElement): SearchSourceElement {
+  return {
+    elementId: image.id, kind: PageElementKind.IMAGE,
+    payload: encodePersistedElement({ kind: 'image', data: image }),
+  };
 }
 
 function sourceElement(elementId: string, kind: number, bytes: number[]): SearchSourceElement {

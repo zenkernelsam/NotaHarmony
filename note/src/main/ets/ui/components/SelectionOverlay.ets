@@ -25,6 +25,7 @@ export struct SelectionOverlay {
   @Prop selectionRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @Prop visible: boolean = false;
   @Prop canPaste: boolean = false;
+  @Prop canFlip: boolean = false;
   @Prop containerWidth: number = 0;
   @Prop containerHeight: number = 0;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -57,16 +58,7 @@ export struct SelectionOverlay {
             y: selectionOverlayPosition(this.selectionRect, this.containerWidth,
               this.containerHeight, this.canPaste).actionY,
           })
-          .bindMenu([
-            { value: $r('app.string.copy'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Copy clicked'); this.onMenuAction(SelectionMenuAction.COPY); } },
-            { value: $r('app.string.cut'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Cut clicked'); this.onMenuAction(SelectionMenuAction.CUT); } },
-            { value: $r('app.string.delete'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Del clicked'); this.onMenuAction(SelectionMenuAction.DELETE); } },
-            { value: $r('app.string.bring_forward'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Fwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_FORWARD); } },
-            { value: $r('app.string.send_backward'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Bwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_BACKWARD); } },
-            { value: $r('app.string.flip_horizontal'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipH clicked'); this.onMenuAction(SelectionMenuAction.FLIP_H); } },
-            { value: $r('app.string.flip_vertical'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipV clicked'); this.onMenuAction(SelectionMenuAction.FLIP_V); } },
-            { value: $r('app.string.done'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu OK clicked'); this.onMenuAction(SelectionMenuAction.DESELECT); } },
-          ])
+          .bindMenu(this.buildSelectionMenu())
       }
       if (this.canPaste) {
         Button($r('app.string.paste'))
@@ -90,5 +82,21 @@ export struct SelectionOverlay {
     .width('100%')
     .height('100%')
     .hitTestBehavior(HitTestMode.Transparent)
+  }
+
+  private buildSelectionMenu(): MenuElement[] {
+    const items: MenuElement[] = [
+      { value: $r('app.string.copy'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Copy clicked'); this.onMenuAction(SelectionMenuAction.COPY); } },
+      { value: $r('app.string.cut'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Cut clicked'); this.onMenuAction(SelectionMenuAction.CUT); } },
+      { value: $r('app.string.delete'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Del clicked'); this.onMenuAction(SelectionMenuAction.DELETE); } },
+      { value: $r('app.string.bring_forward'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Fwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_FORWARD); } },
+      { value: $r('app.string.send_backward'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Bwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_BACKWARD); } },
+    ];
+    if (this.canFlip) {
+      items.push({ value: $r('app.string.flip_horizontal'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipH clicked'); this.onMenuAction(SelectionMenuAction.FLIP_H); } });
+      items.push({ value: $r('app.string.flip_vertical'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipV clicked'); this.onMenuAction(SelectionMenuAction.FLIP_V); } });
+    }
+    items.push({ value: $r('app.string.done'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu OK clicked'); this.onMenuAction(SelectionMenuAction.DESELECT); } });
+    return items;
   }
 }

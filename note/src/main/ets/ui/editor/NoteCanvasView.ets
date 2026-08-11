@@ -71,7 +71,7 @@ import {
 } from '../../core/model/ElementTypes';
 import {
   cloneImageElement, eraserPathHitsImageBlock, imageBlockWorldBounds, originalAssetStorageHash,
-  transformImageElements,
+  reflectImageCropRect, transformImageElements,
 } from '../../core/model/ImageBlockGeometry';
 import {
   cloneShapeElement, eraserPathHitsShape, recomputeShapeBounds, transformShapeElements,
@@ -256,6 +256,7 @@ export struct NoteCanvasView {
   @State editingTextLayoutWidth: number = 0;
   @State selectionRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @State selectionVisible: boolean = false;
+  @State selectionCanFlip: boolean = false;
   @State clipboardAvailable: boolean = false;
   @State overlayWidth: number = 0;
   @State overlayHeight: number = 0;
@@ -3307,6 +3308,9 @@ export struct NoteCanvasView {
   // === 选区 ===
   private updateSelectionOverlay(): void {
     const state = this.selectionTool.getState();
+    this.selectionCanFlip = this.canFlipImageSelection(
+      state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
+      state.selectedImageIds, state.selectedGroupIds, state.selectedMathIds);
     let rect: Rect2D | null = null;
     for (const s of this.completedStrokes) {
       if (state.selectedStrokeIds.indexOf(s.id) >= 0) {
@@ -3577,7 +3581,8 @@ export struct NoteCanvasView {
         state.selectedGroupIds, action === SelectionMenuAction.SEND_FORWARD);
     } else if (action === SelectionMenuAction.FLIP_H || action === SelectionMenuAction.FLIP_V) {
       this.flipSelected(state.selectedStrokeIds, state.selectedShapeIds,
-        state.selectedTextBlockIds, state.selectedImageIds, state.selectedMathIds,
+        state.selectedTextBlockIds, state.selectedImageIds, state.selectedGroupIds,
+        state.selectedMathIds,
         action === SelectionMenuAction.FLIP_H);
     } else if (action === SelectionMenuAction.COPY) {
       this.copySelectedToClipboard(
@@ -3638,65 +3643,62 @@ export struct NoteCanvasView {
   }
 
   private flipSelected(ids: string[], shapeIds: string[], textIds: string[], imageIds: string[],
-    mathIds: string[], horizontal: boolean): void {
-    let minX: number = Number.MAX_VALUE;
-    let minY: number = Number.MAX_VALUE;
-    let maxX: number = -Number.MAX_VALUE;
-    let maxY: number = -Number.MAX_VALUE;
-    for (const s of this.completedStrokes) {
-      if (ids.indexOf(s.id) >= 0) {
-        if (s.bounds.left < minX) {
-          minX = s.bounds.left;
-        }
-        if (s.bounds.top < minY) {
-          minY = s.bounds.top;
-        }
-        if (s.bounds.right > maxX) {
-          maxX = s.bounds.right;
-        }
-        if (s.bounds.bottom > maxY) {
-          maxY = s.bounds.bottom;
-        }
+    groupIds: string[], mathIds: string[], horizontal: boolean): void {
+    if (!this.canFlipImageSelection(ids, shapeIds, textIds, imageIds, groupIds, mathIds)) {
+      return;
+    }
+    const beforeImages: ImageElement[] = this.filterImagesByIds(this.imageBlocks, imageIds)
+      .map((image: ImageElement): ImageElement => cloneImageElement(image));
+    const afterImages: ImageElement[] = beforeImages.map((image: ImageElement): ImageElement => {
+      const replacement: ImageElement = cloneImageElement(image);
+      if (horizontal) {
+        replacement.imageFlippedHorizontally = !replacement.imageFlippedHorizontally;
+      } else {
+        replacement.imageFlippedVertically = !replacement.imageFlippedVertically;
+      }
+      if (replacement.cropRect !== null) {
+        replacement.cropRect = reflectImageCropRect(replacement.cropRect,
+          replacement.intrinsicWidth, replacement.intrinsicHeight, horizontal);
+      }
+      return replacement;
+    });
+    this.replaceImagesById(afterImages);
+    this.undoRedo.push({
+      type: UndoableActionType.TRANSFORM_ELEMENTS,
+      noteId: this.noteId,
+      pageId: this.currentPage.pageId,
+      beforeStrokes: [], afterStrokes: [], beforeShapes: [], afterShapes: [],
+      beforeTextBlocks: [], afterTextBlocks: [], beforeImages: beforeImages,
+      afterImages: afterImages, beforeMathBlocks: [], afterMathBlocks: [],
+    });
+    this.updateSelectionOverlay();
+    this.persist(this.areCanonicalOriginalPositionSelection([], [], [], imageIds, []));
+    this.notifyUndoRedo();
+    this.renderFrame();
+  }
+
+  private canFlipImageSelection(ids: string[], shapeIds: string[], textIds: string[],
+    imageIds: string[], groupIds: string[], mathIds: string[]): boolean {
+    if (ids.length > 0 || shapeIds.length > 0 || textIds.length > 0 ||
+      groupIds.length > 0 || mathIds.length > 0 || imageIds.length === 0 ||
+      new Set<string>(imageIds).size !== imageIds.length) {
+      return false;
+    }
+    const images: ImageElement[] = this.filterImagesByIds(this.imageBlocks, imageIds);
+    if (images.length !== imageIds.length) {
+      return false;
+    }
+    for (const image of images) {
+      if (image.positionLocked || (image.cropRect !== null &&
+        (!Number.isFinite(image.intrinsicWidth) || !Number.isFinite(image.intrinsicHeight) ||
+          !Number.isFinite(image.cropRect.left) || !Number.isFinite(image.cropRect.top) ||
+          !Number.isFinite(image.cropRect.right) || !Number.isFinite(image.cropRect.bottom) ||
+          image.cropRect.right < image.cropRect.left ||
+          image.cropRect.bottom < image.cropRect.top))) {
+        return false;
       }
     }
-    for (const shape of this.shapes) {
-      if (shapeIds.indexOf(shape.id) >= 0) {
-        minX = Math.min(minX, shape.bounds.left);
-        minY = Math.min(minY, shape.bounds.top);
-        maxX = Math.max(maxX, shape.bounds.right);
-        maxY = Math.max(maxY, shape.bounds.bottom);
-      }
-    }
-    for (const textBlock of this.textBlocks) {
-      if (textIds.indexOf(textBlock.id) >= 0) {
-        minX = Math.min(minX, textBlock.bounds.left);
-        minY = Math.min(minY, textBlock.bounds.top);
-        maxX = Math.max(maxX, textBlock.bounds.right);
-        maxY = Math.max(maxY, textBlock.bounds.bottom);
-      }
-    }
-    for (const image of this.imageBlocks) {
-      if (imageIds.indexOf(image.id) >= 0) {
-        minX = Math.min(minX, image.bounds.left);
-        minY = Math.min(minY, image.bounds.top);
-        maxX = Math.max(maxX, image.bounds.right);
-        maxY = Math.max(maxY, image.bounds.bottom);
-      }
-    }
-    for (const math of this.mathBlocks) {
-      if (mathIds.indexOf(math.id) >= 0) {
-        minX = Math.min(minX, math.bounds.left);
-        minY = Math.min(minY, math.bounds.top);
-        maxX = Math.max(maxX, math.bounds.right);
-        maxY = Math.max(maxY, math.bounds.bottom);
-      }
-    }
-    const cx: number = (minX + maxX) / 2;
-    const cy: number = (minY + maxY) / 2;
-    const flip: number[] = horizontal ? [-1, 0, cx * 2, 0, 1, 0, 0, 0, 1] : [1, 0, 0, 0, -1, cy * 2, 0, 0, 1];
-    this.selectionTool.getState().transform = flip;
-    this.applySelectionTransform(true, true);
-    this.selectionTool.getState().transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    return true;
   }
 
   private copySelectedToClipboard(ids: string[], shapeIds: string[] = [],
@@ -4357,6 +4359,7 @@ export struct NoteCanvasView {
         selectionRect: this.selectionRect,
         visible: this.selectionVisible,
         canPaste: this.clipboardAvailable,
+        canFlip: this.selectionCanFlip,
         containerWidth: this.overlayWidth,
         containerHeight: this.overlayHeight,
         onMenuAction: (action: SelectionMenuAction) => {

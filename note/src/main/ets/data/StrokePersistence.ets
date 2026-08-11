@@ -7,7 +7,9 @@ import { taskpool, util } from '@kit.ArkTS';
 import { InkStyle, OriginalInkCreateMetadata, StrokeElementData } from '../core/model/StrokeTypes';
 import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
-import { cloneImageElement, imageBlockWorldBounds } from '../core/model/ImageBlockGeometry';
+import {
+  cloneImageElement, imageBlockWorldBounds, reflectImageCropRect,
+} from '../core/model/ImageBlockGeometry';
 import { cloneShapeElement, recomputeShapeBounds } from '../core/model/ShapeGeometry';
 import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextBlockGeometry';
 import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockGeometry';
@@ -53,6 +55,13 @@ import { encodeOriginalOperationEnvelope } from './OriginalOperationEnvelopeEnco
 import {
   ORIGINAL_MODIFY_INK_PAYLOAD_TYPE, OriginalModifyInkOperationApplier,
 } from './OriginalModifyInkOperation';
+import { encodeOriginalImageFlip } from './OriginalModifyBlockPayloadEncoder';
+import {
+  decodeOriginalModifyBlock, ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE,
+  OriginalModifyBlockOperationApplier, OriginalModifyBlockPayload,
+} from './OriginalModifyBlockOperation';
+import { OriginalBlockRect } from './OriginalCreateBlockOperation';
+import { OriginalPageMutationBatch } from './OriginalPageMutationBatch';
 import { encodeOriginalModifyPositions } from './OriginalModifyPositionsPayloadEncoder';
 import {
   ORIGINAL_MODIFY_POSITIONS_PAYLOAD_TYPE, OriginalModifyPosition,
@@ -177,6 +186,89 @@ interface OriginalEntityVisibilityMutation {
 interface OriginalInkStyleMutation {
   identities: OperationIdentity[];
   style: InkStyle;
+}
+
+export interface OriginalImageFlipUpdate {
+  identity: OperationIdentity;
+  horizontal: boolean | null;
+  vertical: boolean | null;
+  cropRect: OriginalBlockRect | null;
+}
+
+export interface OriginalImageFlipMutation {
+  updates: OriginalImageFlipUpdate[];
+}
+
+export function classifyOriginalImageFlipMutation(current: SearchSourceElement[],
+  next: SearchSourceElement[]): OriginalImageFlipMutation | null {
+  if (current.length !== next.length) {
+    return null;
+  }
+  const updates: OriginalImageFlipUpdate[] = [];
+  let axis: number = -1;
+  for (let index: number = 0; index < current.length; index++) {
+    if (current[index].elementId !== next[index].elementId ||
+      current[index].kind !== next[index].kind) {
+      return null;
+    }
+    if (sameByteArrays(current[index].payload, next[index].payload)) {
+      continue;
+    }
+    if (current[index].kind !== PageElementKind.IMAGE) {
+      return null;
+    }
+    try {
+      const beforePersisted: PersistedElement = decodePersistedElement(current[index].payload);
+      const afterPersisted: PersistedElement = decodePersistedElement(next[index].payload);
+      if (beforePersisted.kind !== 'image' || afterPersisted.kind !== 'image') {
+        return null;
+      }
+      const before: ImageElement = beforePersisted.data as ImageElement;
+      const after: ImageElement = afterPersisted.data as ImageElement;
+      const identity: OperationIdentity | null = decodeOperationId(before.id);
+      const horizontalChanged: boolean =
+        before.imageFlippedHorizontally !== after.imageFlippedHorizontally;
+      const verticalChanged: boolean =
+        before.imageFlippedVertically !== after.imageFlippedVertically;
+      if (identity === null || before.id !== current[index].elementId ||
+        after.id !== next[index].elementId || before.id !== after.id ||
+        horizontalChanged === verticalChanged) {
+        return null;
+      }
+      const updateAxis: number = horizontalChanged ? 0 : 1;
+      if (axis >= 0 && axis !== updateAxis) {
+        return null;
+      }
+      axis = updateAxis;
+      const candidate: ImageElement = cloneImageElement(before);
+      if (horizontalChanged) {
+        candidate.imageFlippedHorizontally = after.imageFlippedHorizontally;
+      } else {
+        candidate.imageFlippedVertically = after.imageFlippedVertically;
+      }
+      if (candidate.cropRect !== null) {
+        candidate.cropRect = reflectImageCropRect(candidate.cropRect,
+          candidate.intrinsicWidth, candidate.intrinsicHeight, horizontalChanged);
+      }
+      if (!sameByteArrays(encodePersistedElement({ kind: 'image', data: candidate }),
+        next[index].payload)) {
+        return null;
+      }
+      updates.push({
+        identity: identity,
+        horizontal: horizontalChanged ? after.imageFlippedHorizontally : null,
+        vertical: verticalChanged ? after.imageFlippedVertically : null,
+        cropRect: candidate.cropRect === null ? null : {
+          x: candidate.cropRect.left, y: candidate.cropRect.top,
+          width: candidate.cropRect.right - candidate.cropRect.left,
+          height: candidate.cropRect.bottom - candidate.cropRect.top,
+        },
+      });
+    } catch (_error) {
+      return null;
+    }
+  }
+  return updates.length === 0 ? null : { updates: updates };
 }
 
 interface PositionComponents {
@@ -552,6 +644,15 @@ export class StrokePersistence {
         await store.commit();
         return;
       }
+      const originalImageFlip: OriginalImageFlipMutation | null =
+        classifyOriginalImageFlipMutation(current, snapshot.elements);
+      if (originalImageFlip !== null) {
+        await this.applyOriginalImageFlip(store, snapshot, originalImageFlip, snapshotRevision);
+        await this.rebuildPageSearchState(store, snapshot, snapshotRevision, false);
+        await this.appendHistoryCompanion(store, snapshot, mutation);
+        await store.commit();
+        return;
+      }
       const originalPositions: OriginalModifyPositionsMutation | null =
         await this.originalModifyPositionsMutation(store, snapshot.noteId, snapshot.pageId,
           current, snapshot.elements, snapshot.history, snapshot.originalZOrderHint);
@@ -804,8 +905,11 @@ export class StrokePersistence {
           this.originalEntityVisibilityMutation(current, step.elements);
         const originalStyle: OriginalInkStyleMutation | null = originalVisibility === null ?
           this.originalInkStyleMutation(current, step.elements) : null;
-        const originalPositions: OriginalModifyPositionsMutation | null =
+        const originalImageFlip: OriginalImageFlipMutation | null =
           originalVisibility === null && originalStyle === null ?
+            classifyOriginalImageFlipMutation(current, step.elements) : null;
+        const originalPositions: OriginalModifyPositionsMutation | null =
+          originalVisibility === null && originalStyle === null && originalImageFlip === null ?
             await this.originalModifyPositionsMutation(store, step.noteId, step.pageId,
               current, step.elements, step.history, step.originalZOrderHint) : null;
         if (originalVisibility !== null) {
@@ -813,6 +917,8 @@ export class StrokePersistence {
             nextRevision);
         } else if (originalStyle !== null) {
           await this.applyOriginalInkStyle(store, step, originalStyle, nextRevision);
+        } else if (originalImageFlip !== null) {
+          await this.applyOriginalImageFlip(store, step, originalImageFlip, nextRevision);
         } else if (originalPositions !== null) {
           await this.applyOriginalModifyPositions(store, step, originalPositions.payload, nextRevision);
           await this.recordOriginalZOrderHistory(store, step, originalPositions.zOrderHistory);
@@ -1241,6 +1347,46 @@ export class StrokePersistence {
       store, step.noteId, step.pageId);
     if (!samePreparedIdentityOrder(materialized, step.elements)) {
       throw new Error('local MODIFY_POSITIONS reducer produced an unexpected element order');
+    }
+    await this.reconcilePreparedRows(store, step, expectedRevision);
+  }
+
+  private async applyOriginalImageFlip(store: relationalStore.RdbStore,
+    step: PreparedPageSave, mutation: OriginalImageFlipMutation,
+    expectedRevision: number): Promise<void> {
+    if (await this.readEligibleOriginalInkPage(store, step.noteId, step.pageId) === null) {
+      throw new Error('local MODIFY_BLOCK page is no longer original-aligned');
+    }
+    const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+    const applier: OriginalModifyBlockOperationApplier = new OriginalModifyBlockOperationApplier();
+    for (const update of mutation.updates) {
+      const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, step.noteId);
+      const payload: Uint8Array = encodeOriginalImageFlip(
+        [update.identity], update.horizontal, update.vertical, update.cropRect);
+      const metadata: OriginalInkCreateMetadata = {
+        timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
+        pageTimestamp: 0, pageSiteId: 0, pageIndex: 0, pencilSeed: 0,
+      };
+      const operation: StoredSyncedOperation = localStoredOperation(
+        step.noteId, metadata, ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE, payload, null);
+      const decoded: OriginalModifyBlockPayload = decodeOriginalModifyBlock(operation.rawOperation);
+      const result: SyncedOperationApplyResult = await applier.applyBatchedPayload(
+        store, operation, decoded, revisionBatch);
+      if (result.deferredReason !== null) {
+        throw new Error(`local MODIFY_BLOCK image flip was deferred: ${result.deferredReason}`);
+      }
+      await appendOperation(store, {
+        noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_BLOCK,
+        payload: operation.rawOperation, clientTime: identity.clientTime,
+        opTimestamp: identity.timestamp, editorSiteId: identity.siteId,
+        uploadImmediately: true,
+      });
+    }
+    await revisionBatch.flush(store, step.noteId);
+    const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+      store, step.noteId, step.pageId);
+    if (!samePreparedIdentityOrder(materialized, step.elements)) {
+      throw new Error('local MODIFY_BLOCK reducer produced an unexpected element order');
     }
     await this.reconcilePreparedRows(store, step, expectedRevision);
   }

@@ -497,7 +497,9 @@ function isOriginalOutboundCompanion(operation: Op): boolean {
     operation.opType === OpType.ORIGINAL_CREATE_RECORDING ||
     operation.opType === OpType.ORIGINAL_CREATE_PAGE ||
     operation.opType === OpType.ORIGINAL_CREATE_INK ||
-    operation.opType === OpType.ORIGINAL_MODIFY_INK;
+    operation.opType === OpType.ORIGINAL_MODIFY_INK ||
+    operation.opType === OpType.ORIGINAL_MODIFY_POSITIONS ||
+    operation.opType === OpType.ORIGINAL_MODIFY_BLOCK;
 }
 
 function sameEvent(left: HistoryMetadata, right: HistoryMetadata): boolean {

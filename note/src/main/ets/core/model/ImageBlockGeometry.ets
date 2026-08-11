@@ -102,6 +102,22 @@ export function cloneImageElement(element: ImageElement): ImageElement {
   };
 }
 
+export function reflectImageCropRect(crop: Rect2D, intrinsicWidth: number,
+  intrinsicHeight: number, horizontal: boolean): Rect2D {
+  const x: number = Math.fround(crop.left);
+  const y: number = Math.fround(crop.top);
+  const width: number = Math.fround(crop.right - crop.left);
+  const height: number = Math.fround(crop.bottom - crop.top);
+  const reflectedX: number = horizontal ? Math.fround(Math.fround(intrinsicWidth) -
+    Math.fround(x + width)) : x;
+  const reflectedY: number = horizontal ? y : Math.fround(Math.fround(intrinsicHeight) -
+    Math.fround(y + height));
+  return {
+    left: reflectedX, top: reflectedY,
+    right: reflectedX + width, bottom: reflectedY + height,
+  };
+}
+
 export function imageBlockWorldBounds(element: ImageElement): Rect2D {
   const corners: Point2D[] = [
     transformPoint({ x: 0, y: 0 }, element.transform),

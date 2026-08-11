@@ -32,6 +32,7 @@ export enum OpType {
   ORIGINAL_CREATE_INK = 63,
   ORIGINAL_MODIFY_INK = 64,
   ORIGINAL_MODIFY_POSITIONS = 65,
+  ORIGINAL_MODIFY_BLOCK = 66,
 }
 
 // History movement is metadata on a concrete mutation, not a replacement mutation type.

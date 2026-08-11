@@ -17,6 +17,7 @@ const blockReducer = read('note/src/main/ets/data/OriginalModifyBlockOperation.e
 const canvas = read('note/src/main/ets/ui/editor/NoteCanvasView.ets');
 const selection = read('note/src/main/ets/rendering/SelectionTool.ets');
 const tests = read('note/src/test/OriginalCreateInkPayloadEncoder.test.ets');
+const history = read('note/src/main/ets/data/PersistentHistory.ets');
 
 for (const method of ['t', 'l', 'o', 'p', 'q']) {
   assert.match(avc, new RegExp(`avcVar\\.${method}\\(`));
@@ -57,6 +58,7 @@ assert.match(canvas, /persist\(this\.areCanonicalOriginalPositionSelection/);
 assert.match(canvas, /action\.type === UndoableActionType\.TRANSFORM_ELEMENTS[\s\S]*areCanonicalOriginalPositionSelection/);
 assert.match(selection, /originalCreate: s\.originalCreate/);
 assert.match(tests, /round-trips batched original MODIFY_POSITIONS registers/);
+assert.match(history, /OpType\.ORIGINAL_MODIFY_POSITIONS/);
 
 const near = (left, right) => Math.abs(left - right) <=
   0.000001 * Math.max(1, Math.abs(left), Math.abs(right));

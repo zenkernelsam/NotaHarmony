@@ -342,6 +342,12 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
   async applyPositionPayload(store: relationalStore.RdbStore,
     operation: StoredSyncedOperation, payload: OriginalModifyBlockPayload,
     revisionBatch: OriginalPageMutationBatch): Promise<SyncedOperationApplyResult> {
+    return this.applyBatchedPayload(store, operation, payload, revisionBatch);
+  }
+
+  async applyBatchedPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, payload: OriginalModifyBlockPayload,
+    revisionBatch: OriginalPageMutationBatch): Promise<SyncedOperationApplyResult> {
     return this.applyPayload(store, operation, payload, revisionBatch);
   }
 

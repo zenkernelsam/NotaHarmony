@@ -18,9 +18,10 @@
 
 - `SelectionState/SelectionTool` 增加 `selectedMathIds`；矩形与套索按 Math world bounds 命中，锁定
   Math 排除。Group resolver 的 available leaf 纳入 Math，Phase 84 的临时含 Math 回退边界已解除。
-- 新增 Math 变换和真实四边形擦除几何：drag/scale/rotate/flip 左乘现有矩阵，更新 rotation 与 world
+- 新增 Math 变换和真实四边形擦除几何：drag/scale/rotate 左乘现有矩阵，更新 rotation 与 world
   bounds；擦除按变换后四边形、路径线段和擦除半径判断，锁定 Math 不响应。
-- 画布 drag 前快照、取消恢复、选区 overlay、delete/cut、erase、前后层移动与 flip 全部纳入 Math。
+- 画布 drag 前快照、取消恢复、选区 overlay、delete/cut、erase 与前后层移动全部纳入 Math。Phase 114
+  依据 `mub/td8/rl2` 更正：原版 Selection Flip 是 Image-only `MODIFY_BLOCK`，Math 不参与 Flip。
 - ADD/DELETE/TRANSFORM/ERASE 混合历史加入向后兼容的可选 Math 快照；apply/undo、ID/索引/source-state、
   elementOrder 校验和内存估算同步闭环，旧 action 缺字段时按空数组处理。
 - Clipboard 对 Math 深复制并生成 fresh ID，平移 transform 后重算 bounds；粘贴和撤销维持
