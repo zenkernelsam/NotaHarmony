@@ -42,6 +42,7 @@
 
 ## 未完成边界
 
-Shape RichText 的入站模型、持久化、复制、包校验与搜索已经闭环，但 Canvas 仍只绘制 Shape 几何，
-尚未实现原版 Shape 内文字的可见排版、编辑、光标、命中、字体/inset 规则与像素一致性。outbound writer
-和完整 CRDT export 也仍待后续阶段。31/31 生产 payload 路由保持不变，Goal 继续 active。
+Shape RichText 的入站模型、持久化、复制、包校验与搜索已经闭环。Phase 87/ADR-0064 后续通过原版
+`itd/z5c/kkf/fu1` 更正了本段旧结论：Android 1.0.3 的静态文字生成器不枚举 Shape，Shape tile 与命中
+也只消费几何，因此 Canvas 只绘制 Shape 几何是原版边界，不再把可见 Shape 文字列为待办。outbound
+writer 和完整 CRDT export 仍待后续阶段。31/31 生产 payload 路由保持不变，Goal 继续 active。

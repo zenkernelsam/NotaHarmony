@@ -48,6 +48,7 @@ Accepted, 2026-08-11.
 ## Remaining Boundary
 
 This decision closes inbound Shape RichText state, persistence, copy/package validation and search.
-It does not claim visible Shape text layout, editing UI, caret/hit testing, original font/inset rules,
-outbound operation writers or full CRDT export. Those consumers require further direct original-code
-evidence and device/pixel verification.
+ADR-0064 later established that Android 1.0.3 has no visible Shape RichText consumer: its static text
+state generator enumerates Text Blocks, while its Shape tile and hit-test paths consume geometry only.
+Visible Shape text layout/editing is therefore not an outstanding 1.0.3 parity task. Outbound operation
+writers and full CRDT export remain outside this decision.
