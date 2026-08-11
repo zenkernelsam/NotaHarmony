@@ -7,8 +7,9 @@ import {
 import { originalAssetHashKey } from '../core/model/ImageBlockGeometry';
 import { validateOriginalPaper } from '../core/model/PageBackgroundModel';
 import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
-import { InkPathCommand, InkPathCommandType, InkStyle, InkStyleMapEntry, StrokeElementData,
-  StrokePathPoint, TapePattern } from '../core/model/StrokeTypes';
+import { InkPathCommand, InkPathCommandType, InkStyle, InkStyleMapEntry,
+  OriginalInkCreateMetadata, StrokeElementData, StrokePathPoint, TapePattern } from
+  '../core/model/StrokeTypes';
 import { PageBackground } from '../core/model/NoteTypes';
 import { clonePageBackground, validatePageBackground } from '../core/model/PageBackgroundModel';
 import { validateUnsignedLongDecimal } from './UnsignedDecimal';
@@ -348,7 +349,19 @@ function isValidText(text: TextBlockElement): boolean {
     (text.enableCaption === undefined || typeof text.enableCaption === 'boolean') &&
     isValidOptionalTextPaper(text) &&
     (text.resizesWidthToFitText === undefined || typeof text.resizesWidthToFitText === 'boolean') &&
-    (text.positionLocked === undefined || typeof text.positionLocked === 'boolean');
+    (text.positionLocked === undefined || typeof text.positionLocked === 'boolean') &&
+    (text.originalCreate === undefined || isValidOriginalCreate(text.originalCreate));
+}
+
+function isValidOriginalCreate(metadata: OriginalInkCreateMetadata): boolean {
+  return metadata !== null && typeof metadata === 'object' &&
+    isNonNegativeSafeInteger(metadata.timestamp) &&
+    isIntegerInRange(metadata.siteId, 0, 65535) &&
+    isNonNegativeSafeInteger(metadata.clientTime) &&
+    isNonNegativeSafeInteger(metadata.pageTimestamp) &&
+    isIntegerInRange(metadata.pageSiteId, 0, 65535) &&
+    isNonNegativeSafeInteger(metadata.pageIndex) &&
+    Number.isSafeInteger(metadata.pencilSeed);
 }
 
 function isValidOptionalTextPaper(text: TextBlockElement): boolean {

@@ -44,3 +44,9 @@ index 寻址。`ixc.a` 根锚点是 `site=0xFFFF,timestamp=0,index=0`。
 - `SyncedOperationInbox.test.ets` 注册真实 payload 7/8 fixture，并验证总分发器支持两类操作。
 - 本 ADR 不关闭 REMOVE/REVIVE、style/paragraph-style、RichText 字形布局、Block 自动尺寸、
   IMAGE caption、NOTE_BUNDLE 内容 replay、认证 transport 或完整 D-02。
+
+## 2026-08-12 本地初始插入补充
+
+ADR-0100 新增严格的本地 root INSERT_STRING writer，仅服务于刚由 type-22 创建的空 Text
+Block：显式携带 Block identity，按严格 UTF-8 round trip 写 Unicode scalar，并与 CREATE_BLOCK
+共享一次页面 revision。它不等同于任意 caret 插入，也不关闭 REMOVE/REVIVE 或 style 出站。

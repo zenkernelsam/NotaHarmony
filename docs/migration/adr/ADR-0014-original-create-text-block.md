@@ -47,3 +47,9 @@ fsi.f(3,10,5,5)` 证明 margins 字段缺席时依次采用 top=3、bottom=10、
   margins 和 uint64 上界；数据库契约测试覆盖 migration 与外键。
 - 本阶段不关闭 MODIFY_BLOCK、payload 7～14 字符/样式操作、完整富文本、IMAGE/MATH
   block、Pencil/Tape/effects、NOTE_BUNDLE 内容 replay、认证 transport 或 D-02。
+
+## 2026-08-12 本地创建出站补充
+
+ADR-0100 在不改变上述入站基线的前提下增加严格本地 Text 子集：type-22 只创建空容器，
+初始非空正文由独立 type-8 写入；两条生产 reducer 共享一个 revision batch，使同一用户命令
+保持 `N→N+1`。IMAGE/MATH CREATE_BLOCK 与既有 Text 的完整编辑出站仍未因此关闭。

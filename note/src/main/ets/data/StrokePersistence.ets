@@ -43,6 +43,8 @@ import {
 } from './UnsignedDecimal';
 import { encodeOriginalLocalCreateInk } from './OriginalCreateInkPayloadEncoder';
 import { encodeOriginalLocalCreateShape } from './OriginalCreateShapePayloadEncoder';
+import { encodeOriginalLocalCreateTextBlock } from './OriginalCreateBlockPayloadEncoder';
+import { encodeOriginalInitialInsertString } from './OriginalInsertTextPayloadEncoder';
 import { encodeOriginalCreateGroup } from './OriginalGroupPayloadEncoder';
 import {
   encodeOriginalGroupMutation, OriginalGroupMutationOpPayload,
@@ -84,7 +86,13 @@ import {
   decodeOriginalModifyBlock, ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE,
   OriginalModifyBlockOperationApplier, OriginalModifyBlockPayload,
 } from './OriginalModifyBlockOperation';
-import { OriginalBlockRect } from './OriginalCreateBlockOperation';
+import {
+  decodeOriginalCreateBlock, ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE, OriginalBlockRect,
+  OriginalCreateBlockOperationApplier,
+} from './OriginalCreateBlockOperation';
+import {
+  decodeOriginalInsertText, ORIGINAL_INSERT_STRING_PAYLOAD_TYPE, OriginalInsertTextOperationApplier,
+} from './OriginalInsertTextOperation';
 import { OriginalPageMutationBatch } from './OriginalPageMutationBatch';
 import { encodeOriginalModifyPositions } from './OriginalModifyPositionsPayloadEncoder';
 import {
@@ -1235,6 +1243,8 @@ export class StrokePersistence {
         await store.commit();
         return;
       }
+      const originalCreate: PreparedElement | null = this.singleReservedOriginalCreate(
+        current, snapshot.elements);
       const snapshotRevision: number = currentRevision + 1;
       const mutation: PageMutationOpPayload = createPageMutation(
         snapshot.pageId, currentRevision, snapshotRevision, current, snapshot.elements);
@@ -1301,14 +1311,15 @@ export class StrokePersistence {
         await store.commit();
         return;
       }
-      const originalCreate: PreparedElement | null = this.singleReservedOriginalCreate(
-        current, snapshot.elements);
       if (originalCreate !== null) {
         if (originalCreate.kind === PageElementKind.STROKE) {
           await this.writeOriginalCreateInk(store, snapshot, current, originalCreate,
             mutation, currentRevision, snapshotRevision);
-        } else {
+        } else if (originalCreate.kind === PageElementKind.SHAPE) {
           await this.writeOriginalCreateShape(store, snapshot, originalCreate,
+            mutation, currentRevision, snapshotRevision);
+        } else {
+          await this.writeOriginalCreateText(store, snapshot, originalCreate,
             mutation, currentRevision, snapshotRevision);
         }
         await store.commit();
@@ -1426,6 +1437,19 @@ export class StrokePersistence {
           siteId: original.pageSiteId, index: original.pageIndex }, shape, original.averageForce);
         return added;
       }
+      if (added.kind === PageElementKind.TEXT && persisted.kind === 'text') {
+        const text: TextBlockElement = persisted.data as TextBlockElement;
+        const original: OriginalInkCreateMetadata | undefined = text.originalCreate;
+        const identity: OperationIdentity | null = decodeOperationId(text.id);
+        if (original === undefined || identity === null || text.richText.length === 0 ||
+          identity.timestamp !== original.timestamp || identity.siteId !== original.siteId) {
+          return null;
+        }
+        encodeOriginalLocalCreateTextBlock({ timestamp: original.pageTimestamp,
+          siteId: original.pageSiteId, index: original.pageIndex }, text);
+        encodeOriginalInitialInsertString(identity, text.richText);
+        return added;
+      }
       return null;
     } catch (_error) {
       return null;
@@ -1531,6 +1555,88 @@ export class StrokePersistence {
     if (currentRevision + 1 !== snapshotRevision) {
       throw new Error('local CREATE_SHAPE revision contract changed');
     }
+  }
+
+  private async writeOriginalCreateText(store: relationalStore.RdbStore,
+    snapshot: PreparedPageSave, added: PreparedElement, mutation: PageMutationOpPayload,
+    currentRevision: number, snapshotRevision: number): Promise<void> {
+    if (snapshotRevision !== currentRevision + 1) {
+      throw new Error('local CREATE_BLOCK revision contract changed');
+    }
+    const persisted: PersistedElement = decodePersistedElement(added.payload);
+    const text: TextBlockElement = persisted.data as TextBlockElement;
+    const metadata: OriginalInkCreateMetadata = text.originalCreate as OriginalInkCreateMetadata;
+    const page: OriginalSequenceIdentity = {
+      timestamp: metadata.pageTimestamp, siteId: metadata.pageSiteId, index: metadata.pageIndex,
+    };
+    const eligible: OriginalSequenceIdentity | null = await this.readEligibleOriginalInkPage(
+      store, snapshot.noteId, snapshot.pageId);
+    if (eligible === null || eligible.timestamp !== page.timestamp ||
+      eligible.siteId !== page.siteId || eligible.index !== page.index) {
+      throw new Error('reserved local CREATE_BLOCK page is no longer original-aligned');
+    }
+    const createPayload: Uint8Array = encodeOriginalLocalCreateTextBlock(page, text);
+    const createOperation: StoredSyncedOperation = localStoredOperation(
+      snapshot.noteId, metadata, ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE, createPayload, null);
+    const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+    const createResult: SyncedOperationApplyResult =
+      await new OriginalCreateBlockOperationApplier().applyBatchedPayload(
+        store, createOperation,
+        decodeOriginalCreateBlock(createOperation.rawOperation, metadata.clientTime.toString()),
+        revisionBatch);
+    if (createResult.deferredReason !== null) {
+      throw new Error(`local CREATE_BLOCK was deferred: ${createResult.deferredReason}`);
+    }
+    await appendOperation(store, {
+      noteId: snapshot.noteId, opId: text.id, opType: OpType.ORIGINAL_CREATE_BLOCK,
+      payload: createOperation.rawOperation, clientTime: metadata.clientTime,
+      opTimestamp: metadata.timestamp, editorSiteId: metadata.siteId, uploadImmediately: true,
+    });
+
+    const insertIdentity: AllocatedOperationIdentity = await allocateOperationIdentity(
+      store, snapshot.noteId);
+    const insertMetadata: OriginalInkCreateMetadata = {
+      timestamp: insertIdentity.timestamp, siteId: insertIdentity.siteId,
+      clientTime: insertIdentity.clientTime, pageTimestamp: 0, pageSiteId: 0,
+      pageIndex: 0, pencilSeed: 0,
+    };
+    const insertPayload: Uint8Array = encodeOriginalInitialInsertString(
+      { timestamp: metadata.timestamp, siteId: metadata.siteId }, text.richText);
+    const insertOperation: StoredSyncedOperation = localStoredOperation(
+      snapshot.noteId, insertMetadata, ORIGINAL_INSERT_STRING_PAYLOAD_TYPE, insertPayload, null);
+    const insertResult: SyncedOperationApplyResult =
+      await new OriginalInsertTextOperationApplier().applyBatchedPayload(
+        store, insertOperation,
+        decodeOriginalInsertText(insertOperation.rawOperation, ORIGINAL_INSERT_STRING_PAYLOAD_TYPE),
+        revisionBatch);
+    if (insertResult.deferredReason !== null) {
+      throw new Error(`local INSERT_STRING was deferred: ${insertResult.deferredReason}`);
+    }
+    await appendOperation(store, {
+      noteId: snapshot.noteId, opId: insertIdentity.opId, opType: OpType.ORIGINAL_INSERT_TEXT,
+      payload: insertOperation.rawOperation, clientTime: insertIdentity.clientTime,
+      opTimestamp: insertIdentity.timestamp, editorSiteId: insertIdentity.siteId,
+      uploadImmediately: true,
+    });
+    await revisionBatch.flush(store, snapshot.noteId);
+
+    const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+      store, snapshot.noteId, snapshot.pageId);
+    if (!samePreparedIdentityOrder(materialized, snapshot.elements)) {
+      throw new Error('local CREATE_BLOCK reducer produced an unexpected element order');
+    }
+    const created: SearchSourceElement | undefined = materialized.find(
+      (element: SearchSourceElement): boolean => element.elementId === text.id &&
+        element.kind === PageElementKind.TEXT);
+    const expected: TextBlockElement = cloneTextBlockElement(text);
+    expected.originalCreate = undefined;
+    if (created === undefined || !sameByteArrays(created.payload,
+      encodePersistedElement({ kind: 'text', data: expected }))) {
+      throw new Error('local CREATE_BLOCK reducer produced unexpected Text state');
+    }
+    await this.reconcilePreparedRows(store, snapshot, snapshotRevision);
+    await this.rebuildPageSearchState(store, snapshot, snapshotRevision, false);
+    await this.appendHistoryCompanion(store, snapshot, mutation);
   }
 
   private async appendHistoryCompanion(store: relationalStore.RdbStore,

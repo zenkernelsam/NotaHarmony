@@ -27,6 +27,13 @@ export function cloneTextBlockElement(element: TextBlockElement): TextBlockEleme
     characterStyleRuns: cloneCharacterStyleRuns(element.characterStyleRuns),
     paragraphStyleRuns: cloneParagraphStyleRuns(element.paragraphStyleRuns),
     positionLocked: isTextBlockPositionLocked(element),
+    originalCreate: element.originalCreate === undefined ? undefined : {
+      timestamp: element.originalCreate.timestamp, siteId: element.originalCreate.siteId,
+      clientTime: element.originalCreate.clientTime,
+      pageTimestamp: element.originalCreate.pageTimestamp,
+      pageSiteId: element.originalCreate.pageSiteId, pageIndex: element.originalCreate.pageIndex,
+      pencilSeed: element.originalCreate.pencilSeed,
+    },
   };
 }
 

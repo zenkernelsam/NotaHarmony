@@ -209,8 +209,8 @@ export function materializeOriginalTextStyles(characters: StoredOriginalTextChar
     if (!character.visible) {
       continue;
     }
-    const characterStyle: RichTextCharacterStyle = {};
-    const paragraphStyle: RichTextParagraphStyle = {};
+    let characterStyle: RichTextCharacterStyle = {};
+    let paragraphStyle: RichTextParagraphStyle = {};
     for (const operation of sorted) {
       const range: number[] | null = resolveRange(operation, positions, ordered.length);
       if (range === null) {
@@ -221,14 +221,14 @@ export function materializeOriginalTextStyles(characters: StoredOriginalTextChar
       }
       if (operation.paragraph) {
         if (operation.clearAll) {
-          clearParagraphStyle(paragraphStyle);
+          paragraphStyle = {};
         } else {
-          applyParagraphAttributes(paragraphStyle, operation.attributes);
+          paragraphStyle = applyParagraphAttributes(paragraphStyle, operation.attributes);
         }
       } else if (operation.clearAll) {
-        clearCharacterStyle(characterStyle);
+        characterStyle = {};
       } else {
-        applyCharacterAttributes(characterStyle, operation.attributes);
+        characterStyle = applyCharacterAttributes(characterStyle, operation.attributes);
       }
     }
     const checkbox: StoredOriginalCheckboxState | undefined = checkboxByLocation.get(
@@ -371,53 +371,87 @@ function appendParagraphRun(runs: RichTextParagraphStyleRun[], index: number,
 }
 
 function applyCharacterAttributes(style: RichTextCharacterStyle,
-  attributes: OriginalTextStyleAttributes): void {
-  setValue(style, 'bold', attributes.boldPresent, attributes.bold);
-  setValue(style, 'italic', attributes.italicPresent, attributes.italic);
-  setValue(style, 'underline', attributes.underlinePresent, attributes.underline);
-  setValue(style, 'highlightColor', attributes.highlightColorPresent, attributes.highlightColor);
-  setValue(style, 'familyName', attributes.familyNamePresent, attributes.familyName);
-  setValue(style, 'fontSize', attributes.fontSizePresent, attributes.fontSize);
-  setValue(style, 'foregroundColor', attributes.foregroundColorPresent, attributes.foregroundColor);
-  setValue(style, 'link', attributes.linkPresent, attributes.link);
-  setValue(style, 'superscript', attributes.superscriptPresent, attributes.superscript);
-  setValue(style, 'subscript', attributes.subscriptPresent, attributes.subscript);
-  setValue(style, 'strikethrough', attributes.strikethroughPresent, attributes.strikethrough);
+  attributes: OriginalTextStyleAttributes): RichTextCharacterStyle {
+  const updated: RichTextCharacterStyle = {};
+  if (attributes.boldPresent ? attributes.bold !== null : style.bold !== undefined) {
+    updated.bold = attributes.boldPresent ? attributes.bold as boolean : style.bold;
+  }
+  if (attributes.italicPresent ? attributes.italic !== null : style.italic !== undefined) {
+    updated.italic = attributes.italicPresent ? attributes.italic as boolean : style.italic;
+  }
+  if (attributes.underlinePresent ? attributes.underline !== null : style.underline !== undefined) {
+    updated.underline = attributes.underlinePresent ? attributes.underline as boolean : style.underline;
+  }
+  if (attributes.highlightColorPresent ? attributes.highlightColor !== null :
+    style.highlightColor !== undefined) {
+    updated.highlightColor = attributes.highlightColorPresent ?
+      attributes.highlightColor as number : style.highlightColor;
+  }
+  if (attributes.familyNamePresent ? attributes.familyName !== null : style.familyName !== undefined) {
+    updated.familyName = attributes.familyNamePresent ? attributes.familyName as string : style.familyName;
+  }
+  if (attributes.fontSizePresent ? attributes.fontSize !== null : style.fontSize !== undefined) {
+    updated.fontSize = attributes.fontSizePresent ? attributes.fontSize as number : style.fontSize;
+  }
+  if (attributes.foregroundColorPresent ? attributes.foregroundColor !== null :
+    style.foregroundColor !== undefined) {
+    updated.foregroundColor = attributes.foregroundColorPresent ?
+      attributes.foregroundColor as number : style.foregroundColor;
+  }
+  if (attributes.linkPresent ? attributes.link !== null : style.link !== undefined) {
+    updated.link = attributes.linkPresent ? attributes.link as string : style.link;
+  }
+  if (attributes.superscriptPresent ? attributes.superscript !== null :
+    style.superscript !== undefined) {
+    updated.superscript = attributes.superscriptPresent ?
+      attributes.superscript as boolean : style.superscript;
+  }
+  if (attributes.subscriptPresent ? attributes.subscript !== null : style.subscript !== undefined) {
+    updated.subscript = attributes.subscriptPresent ? attributes.subscript as boolean : style.subscript;
+  }
+  if (attributes.strikethroughPresent ? attributes.strikethrough !== null :
+    style.strikethrough !== undefined) {
+    updated.strikethrough = attributes.strikethroughPresent ?
+      attributes.strikethrough as boolean : style.strikethrough;
+  }
+  return updated;
 }
 
 function applyParagraphAttributes(style: RichTextParagraphStyle,
-  attributes: OriginalTextStyleAttributes): void {
-  setValue(style, 'indentLevel', attributes.indentLevelPresent, attributes.indentLevel);
-  setValue(style, 'alignment', attributes.alignmentPresent, attributes.alignment);
-  setValue(style, 'lineSpacing', attributes.lineSpacingPresent, attributes.lineSpacing);
-  setValue(style, 'decoratorStyle', attributes.decoratorStylePresent, attributes.decoratorStyle);
-  setValue(style, 'programmingLanguage', attributes.programmingLanguagePresent,
-    attributes.programmingLanguage);
-  setValue(style, 'writingDirection', attributes.writingDirectionPresent, attributes.writingDirection);
-}
-
-function setValue(target: Object, key: string, present: boolean, value: Object | null): void {
-  if (!present) {
-    return;
+  attributes: OriginalTextStyleAttributes): RichTextParagraphStyle {
+  const updated: RichTextParagraphStyle = {};
+  if (attributes.indentLevelPresent ? attributes.indentLevel !== null :
+    style.indentLevel !== undefined) {
+    updated.indentLevel = attributes.indentLevelPresent ?
+      attributes.indentLevel as number : style.indentLevel;
   }
-  const values = target as Record<string, Object>;
-  if (value === null) {
-    delete values[key];
-  } else {
-    values[key] = value;
+  if (attributes.alignmentPresent ? attributes.alignment !== null : style.alignment !== undefined) {
+    updated.alignment = attributes.alignmentPresent ? attributes.alignment as number : style.alignment;
   }
-}
-
-function clearCharacterStyle(style: RichTextCharacterStyle): void {
-  for (const key of Object.keys(style)) {
-    delete (style as Record<string, Object>)[key];
+  if (attributes.lineSpacingPresent ? attributes.lineSpacing !== null :
+    style.lineSpacing !== undefined) {
+    updated.lineSpacing = attributes.lineSpacingPresent ?
+      attributes.lineSpacing as number : style.lineSpacing;
   }
-}
-
-function clearParagraphStyle(style: RichTextParagraphStyle): void {
-  for (const key of Object.keys(style)) {
-    delete (style as Record<string, Object>)[key];
+  if (attributes.decoratorStylePresent ? attributes.decoratorStyle !== null :
+    style.decoratorStyle !== undefined) {
+    updated.decoratorStyle = attributes.decoratorStylePresent ?
+      attributes.decoratorStyle as number : style.decoratorStyle;
   }
+  if (attributes.programmingLanguagePresent ? attributes.programmingLanguage !== null :
+    style.programmingLanguage !== undefined) {
+    updated.programmingLanguage = attributes.programmingLanguagePresent ?
+      attributes.programmingLanguage as string : style.programmingLanguage;
+  }
+  if (attributes.writingDirectionPresent ? attributes.writingDirection !== null :
+    style.writingDirection !== undefined) {
+    updated.writingDirection = attributes.writingDirectionPresent ?
+      attributes.writingDirection as number : style.writingDirection;
+  }
+  if (style.isChecked !== undefined) {
+    updated.isChecked = style.isChecked;
+  }
+  return updated;
 }
 
 function validateAttributes(attributes: OriginalTextStyleAttributes,
@@ -425,47 +459,18 @@ function validateAttributes(attributes: OriginalTextStyleAttributes,
   if (attributes === null || typeof attributes !== 'object') {
     return false;
   }
-  const keys: string[] = [
-    'boldPresent', 'bold', 'italicPresent', 'italic', 'underlinePresent', 'underline',
-    'highlightColorPresent', 'highlightColor', 'familyNamePresent', 'familyName',
-    'fontSizePresent', 'fontSize', 'foregroundColorPresent', 'foregroundColor',
-    'linkPresent', 'link', 'superscriptPresent', 'superscript', 'subscriptPresent',
-    'subscript', 'strikethroughPresent', 'strikethrough', 'indentLevelPresent',
-    'indentLevel', 'alignmentPresent', 'alignment', 'lineSpacingPresent', 'lineSpacing',
-    'decoratorStylePresent', 'decoratorStyle', 'programmingLanguagePresent',
-    'programmingLanguage', 'writingDirectionPresent', 'writingDirection',
-  ];
-  for (const key of keys) {
-    if (!(key in attributes)) {
-      return false;
-    }
-  }
-  for (const key of ['bold', 'italic', 'underline', 'superscript', 'subscript', 'strikethrough']) {
-    if (!isNullableBoolean(attributes, key) || !isBooleanPresent(attributes, `${key}Present`)) {
-      return false;
-    }
-  }
-  for (const key of ['highlightColor', 'foregroundColor']) {
-    if (!isNullableColor(attributes, key) || !isBooleanPresent(attributes, `${key}Present`)) {
-      return false;
-    }
-  }
-  if (!isNullableString(attributes, 'familyName') || !isBooleanPresent(attributes, 'familyNamePresent') ||
-    !isNullableString(attributes, 'link') || !isBooleanPresent(attributes, 'linkPresent') ||
-    !isNullableString(attributes, 'programmingLanguage') ||
-    !isBooleanPresent(attributes, 'programmingLanguagePresent')) {
-    return false;
-  }
-  if (!isNullableFinite(attributes, 'fontSize') || !isBooleanPresent(attributes, 'fontSizePresent') ||
-    !isNullableIntegerRange(attributes, 'indentLevel', 0, 7) ||
-    !isBooleanPresent(attributes, 'indentLevelPresent') ||
-    !isNullableIntegerRange(attributes, 'alignment', 1, 3) ||
-    !isBooleanPresent(attributes, 'alignmentPresent') ||
-    !isNullableFinite(attributes, 'lineSpacing') || !isBooleanPresent(attributes, 'lineSpacingPresent') ||
-    !isNullableIntegerRange(attributes, 'decoratorStyle', 0, 5) ||
-    !isBooleanPresent(attributes, 'decoratorStylePresent') ||
-    !isNullableIntegerRange(attributes, 'writingDirection', 0, 1) ||
-    !isBooleanPresent(attributes, 'writingDirectionPresent')) {
+  if (!allPresenceFlagsAreBoolean(attributes) ||
+    !isNullableBoolean(attributes.bold) || !isNullableBoolean(attributes.italic) ||
+    !isNullableBoolean(attributes.underline) || !isNullableBoolean(attributes.superscript) ||
+    !isNullableBoolean(attributes.subscript) || !isNullableBoolean(attributes.strikethrough) ||
+    !isNullableColor(attributes.highlightColor) || !isNullableColor(attributes.foregroundColor) ||
+    !isNullableString(attributes.familyName) || !isNullableString(attributes.link) ||
+    !isNullableString(attributes.programmingLanguage) || !isNullableFinite(attributes.fontSize) ||
+    !isNullableIntegerRange(attributes.indentLevel, 0, 7) ||
+    !isNullableIntegerRange(attributes.alignment, 1, 3) ||
+    !isNullableFinite(attributes.lineSpacing) ||
+    !isNullableIntegerRange(attributes.decoratorStyle, 0, 5) ||
+    !isNullableIntegerRange(attributes.writingDirection, 0, 1)) {
     return false;
   }
   if (attributes.familyNamePresent && attributes.familyName !== null && attributes.familyName.length === 0) {
@@ -490,34 +495,43 @@ function validateAttributes(attributes: OriginalTextStyleAttributes,
   return paragraph ? hasParagraph && !hasCharacter : hasCharacter && !hasParagraph;
 }
 
-function isBooleanPresent(attributes: OriginalTextStyleAttributes, key: string): boolean {
-  return typeof (attributes as Record<string, Object>)[key] === 'boolean';
+function allPresenceFlagsAreBoolean(attributes: OriginalTextStyleAttributes): boolean {
+  return typeof attributes.boldPresent === 'boolean' &&
+    typeof attributes.italicPresent === 'boolean' &&
+    typeof attributes.underlinePresent === 'boolean' &&
+    typeof attributes.highlightColorPresent === 'boolean' &&
+    typeof attributes.familyNamePresent === 'boolean' &&
+    typeof attributes.fontSizePresent === 'boolean' &&
+    typeof attributes.foregroundColorPresent === 'boolean' &&
+    typeof attributes.linkPresent === 'boolean' &&
+    typeof attributes.superscriptPresent === 'boolean' &&
+    typeof attributes.subscriptPresent === 'boolean' &&
+    typeof attributes.strikethroughPresent === 'boolean' &&
+    typeof attributes.indentLevelPresent === 'boolean' &&
+    typeof attributes.alignmentPresent === 'boolean' &&
+    typeof attributes.lineSpacingPresent === 'boolean' &&
+    typeof attributes.decoratorStylePresent === 'boolean' &&
+    typeof attributes.programmingLanguagePresent === 'boolean' &&
+    typeof attributes.writingDirectionPresent === 'boolean';
 }
 
-function isNullableBoolean(attributes: OriginalTextStyleAttributes, key: string): boolean {
-  const value: Object = (attributes as Record<string, Object>)[key];
+function isNullableBoolean(value: boolean | null): boolean {
   return value === null || typeof value === 'boolean';
 }
 
-function isNullableString(attributes: OriginalTextStyleAttributes, key: string): boolean {
-  const value: Object = (attributes as Record<string, Object>)[key];
-  return value === null || (typeof value === 'string' && (value as string).length <= 65536);
+function isNullableString(value: string | null): boolean {
+  return value === null || (typeof value === 'string' && value.length <= 65536);
 }
 
-function isNullableColor(attributes: OriginalTextStyleAttributes, key: string): boolean {
-  const value: Object = (attributes as Record<string, Object>)[key];
-  return value === null || (Number.isSafeInteger(value as number) &&
-    (value as number) >= -2147483648 && (value as number) <= 4294967295);
+function isNullableColor(value: number | null): boolean {
+  return value === null || (Number.isSafeInteger(value) &&
+    value >= -2147483648 && value <= 4294967295);
 }
 
-function isNullableFinite(attributes: OriginalTextStyleAttributes, key: string): boolean {
-  const value: Object = (attributes as Record<string, Object>)[key];
-  return value === null || (typeof value === 'number' && Number.isFinite(value as number));
+function isNullableFinite(value: number | null): boolean {
+  return value === null || (typeof value === 'number' && Number.isFinite(value));
 }
 
-function isNullableIntegerRange(attributes: OriginalTextStyleAttributes, key: string,
-  minimum: number, maximum: number): boolean {
-  const value: Object = (attributes as Record<string, Object>)[key];
-  return value === null || (Number.isSafeInteger(value as number) &&
-    (value as number) >= minimum && (value as number) <= maximum);
+function isNullableIntegerRange(value: number | null, minimum: number, maximum: number): boolean {
+  return value === null || (Number.isSafeInteger(value) && value >= minimum && value <= maximum);
 }

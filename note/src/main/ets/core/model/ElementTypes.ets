@@ -95,6 +95,8 @@ export interface TextBlockElement extends NoteElementBase {
   resizesWidthToFitText?: boolean;
   // Missing on legacy Harmony snapshots; the original Block default is unlocked.
   positionLocked?: boolean;
+  // Reserved type-22 identity carried by one newly authored local Text Block until commit.
+  originalCreate?: OriginalInkCreateMetadata;
 }
 
 export interface RichTextCharacterStyle {

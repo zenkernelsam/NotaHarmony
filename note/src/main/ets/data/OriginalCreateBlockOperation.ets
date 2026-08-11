@@ -26,6 +26,7 @@ import {
   OriginalEntityVisibilityWinner, readOriginalEntityVisibilityWinner,
 } from './OriginalEntityVisibilityState';
 import { originalGroupLayerRanks, OriginalLayeringEntity } from './OriginalGroupLayering';
+import { OriginalPageMutationBatch } from './OriginalPageMutationBatch';
 
 export const ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE: number = 22;
 
@@ -286,8 +287,15 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     return this.applyPayload(store, operation, payload);
   }
 
+  async applyBatchedPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, payload: OriginalCreateBlockPayload,
+    revisionBatch: OriginalPageMutationBatch): Promise<SyncedOperationApplyResult> {
+    return this.applyPayload(store, operation, payload, revisionBatch);
+  }
+
   private async applyPayload(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
-    payload: OriginalCreateBlockPayload): Promise<SyncedOperationApplyResult> {
+    payload: OriginalCreateBlockPayload,
+    revisionBatch: OriginalPageMutationBatch | null = null): Promise<SyncedOperationApplyResult> {
     const unsupported: string | null = unsupportedOriginalCreateBlockReason(payload);
     if (unsupported !== null) {
       return { deferredReason: unsupported };
@@ -414,7 +422,7 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       return { deferredReason: null };
     }
     await this.materializeOrder(store, operation.noteId, payload.page, target,
-      existingRows, element, kind, target.revision + 1);
+      existingRows, element, kind, target.revision + 1, revisionBatch);
     return { deferredReason: null };
   }
 
@@ -825,7 +833,7 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
   private async materializeOrder(store: relationalStore.RdbStore, noteId: string,
     page: OriginalSequenceIdentity, target: StoredTargetPage, rows: StoredZIndexRow[],
     element: TextBlockElement | ImageElement | MathElement, kind: PageElementKind,
-    revision: number): Promise<void> {
+    revision: number, revisionBatch: OriginalPageMutationBatch | null): Promise<void> {
     for (let index: number = 0; index < rows.length; index++) {
       const row: StoredZIndexRow = rows[index];
       if (row.elementId === element.id && row.kind === kind) {
@@ -864,7 +872,13 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
         }
       }
     }
-    if (target.archived) {
+    if (revisionBatch !== null) {
+      revisionBatch.recordBlock({
+        page: page, pageId: target.pageId,
+        revisionTable: target.archived ? 'original_deleted_page' : 'page_info',
+        revision: target.revision, archived: target.archived,
+      }, kind === PageElementKind.TEXT);
+    } else if (target.archived) {
       const predicates = new relationalStore.RdbPredicates('original_deleted_page');
       predicates.equalTo('note_id', noteId);
       predicates.equalTo('page_timestamp', page.timestamp);

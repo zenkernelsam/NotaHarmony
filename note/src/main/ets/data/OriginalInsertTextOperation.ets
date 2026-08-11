@@ -1,6 +1,7 @@
 import { relationalStore } from '@kit.ArkData';
 import { util } from '@kit.ArkTS';
-import { RichTextCharacterStyleRun, RichTextParagraphStyleRun,
+import { RichTextCharacterStyle, RichTextCharacterStyleRun, RichTextParagraphStyle,
+  RichTextParagraphStyleRun,
   ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { cloneShapeElement } from '../core/model/ShapeGeometry';
 import { cloneOriginalPaper } from '../core/model/PageBackgroundModel';
@@ -14,13 +15,15 @@ import { OriginalBlockType } from './OriginalCreateBlockOperation';
 import { OriginalFlatBufferTableReader, readOriginalPayloadTable } from './OriginalSyncedOperationFlatBuffer';
 import {
   materializeOriginalTextStyles, readOriginalCheckboxStates, readOriginalTextStyleOperations,
-  StoredOriginalCheckboxState, StoredOriginalTextCharacter, StoredOriginalTextStyleOperation,
+  OriginalTextStyleMaterialization, StoredOriginalCheckboxState, StoredOriginalTextCharacter,
+  StoredOriginalTextStyleOperation,
 } from './OriginalRichTextStyleState';
 import { SearchItemType } from './SearchItemType';
 import { decodePersistedElement, encodePersistedElement, PersistedElement } from './StrokePersistence';
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
+import { OriginalMutationPageTarget, OriginalPageMutationBatch } from './OriginalPageMutationBatch';
 
 export const ORIGINAL_INSERT_CHAR_PAYLOAD_TYPE: number = 7;
 export const ORIGINAL_INSERT_STRING_PAYLOAD_TYPE: number = 8;
@@ -61,6 +64,13 @@ export interface StoredRichTextElement {
   richText: string;
   characterStyleRuns?: RichTextCharacterStyleRun[];
   paragraphStyleRuns?: RichTextParagraphStyleRun[];
+}
+
+interface StoredInsertBaselineRow {
+  blockTimestamp: number;
+  blockSiteId: number;
+  parent: OriginalSequenceIdentity | null;
+  scalar: number;
 }
 
 export function decodeOriginalInsertText(bytes: Uint8Array,
@@ -190,9 +200,16 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     return this.applyPayload(store, operation, payload);
   }
 
+  async applyBatchedPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, payload: OriginalInsertTextPayload,
+    revisionBatch: OriginalPageMutationBatch): Promise<SyncedOperationApplyResult> {
+    return this.applyPayload(store, operation, payload, revisionBatch);
+  }
+
   private async applyPayload(store: relationalStore.RdbStore,
     operation: StoredSyncedOperation,
-    payload: OriginalInsertTextPayload): Promise<SyncedOperationApplyResult> {
+    payload: OriginalInsertTextPayload,
+    revisionBatch: OriginalPageMutationBatch | null = null): Promise<SyncedOperationApplyResult> {
     if (payload.scalars.length - 1 > 0xFFFFFFFF) {
       return { deferredReason: 'INSERT_TEXT_SEQUENCE_EXHAUSTED' };
     }
@@ -273,7 +290,7 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     updatedText.characterStyleRuns = updatedStyles.characterRuns;
     updatedText.paragraphStyleRuns = updatedStyles.paragraphRuns;
     await this.writeTextPayload(store, operation.noteId, target, updatedText,
-      'original insert-text lost its target snapshot');
+      'original insert-text lost its target snapshot', revisionBatch);
     return { deferredReason: null };
   }
 
@@ -285,10 +302,8 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
               parent_index, unicode_scalar FROM original_text_character WHERE note_id = ?
        AND char_timestamp = ? AND char_site_id = ?`,
       [operation.noteId, operation.timestamp, operation.siteId]);
-    const persisted: Map<number, {
-      blockTimestamp: number, blockSiteId: number, parent: OriginalSequenceIdentity | null,
-      scalar: number,
-    }> = new Map();
+    const persisted: Map<number, StoredInsertBaselineRow> =
+      new Map<number, StoredInsertBaselineRow>();
     try {
       while (rows.goToNextRow()) {
         const index: number = rows.getLong(rows.getColumnIndex('char_index'));
@@ -307,11 +322,12 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
         if (persisted.has(index)) {
           return -1;
         }
-        persisted.set(index, {
+        const persistedRow: StoredInsertBaselineRow = {
           blockTimestamp: rows.getLong(rows.getColumnIndex('block_timestamp')),
           blockSiteId: rows.getLong(rows.getColumnIndex('block_site_id')),
           parent: parent, scalar: rows.getLong(rows.getColumnIndex('unicode_scalar')),
-        });
+        };
+        persisted.set(index, persistedRow);
       }
     } finally {
       rows.close();
@@ -324,7 +340,7 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
     }
     let parent: OriginalSequenceIdentity | null = payload.location;
     for (let index: number = 0; index < payload.scalars.length; index++) {
-      const row = persisted.get(index);
+      const row: StoredInsertBaselineRow | undefined = persisted.get(index);
       if (row === undefined || row.blockTimestamp !== block.timestamp ||
         row.blockSiteId !== block.siteId || row.scalar !== payload.scalars[index] ||
         !sameNullableSequence(row.parent, parent)) {
@@ -483,7 +499,8 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
   }
 
   async writeTextPayload(store: relationalStore.RdbStore, noteId: string,
-    target: StoredTextTarget, text: StoredRichTextElement, failureMessage: string): Promise<void> {
+    target: StoredTextTarget, text: StoredRichTextElement, failureMessage: string,
+    revisionBatch: OriginalPageMutationBatch | null = null): Promise<void> {
     const persisted: PersistedElement = target.kind === PageElementKind.SHAPE ?
       { kind: 'shape', data: text as Object as ShapeElement } :
       { kind: 'text', data: text as Object as TextBlockElement };
@@ -511,7 +528,15 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
       throw new Error(failureMessage);
     }
     if (!target.hidden) {
-      await this.advanceRevisionAndInvalidateSearch(store, noteId, target);
+      if (revisionBatch === null) {
+        await this.advanceRevisionAndInvalidateSearch(store, noteId, target);
+      } else {
+        const batchTarget: OriginalMutationPageTarget = {
+          page: target.page, pageId: target.pageId, revisionTable: target.revisionTable,
+          revision: target.revision, archived: target.archived,
+        };
+        revisionBatch.recordBlock(batchTarget, true);
+      }
     }
   }
 
@@ -676,9 +701,11 @@ export class OriginalTextVisibilityOperationApplier implements SyncedOperationAp
     if (block === null) {
       return { deferredReason: 'TEXT_VISIBILITY_TARGET_UNBOUND' };
     }
-    const target: StoredTextTarget | null = await this.textState.resolveTarget(store, operation, {
+    const targetPayload: OriginalInsertTextPayload = {
       location: payload.locations[0], scalars: [], textField: block,
-    });
+    };
+    const target: StoredTextTarget | null = await this.textState.resolveTarget(
+      store, operation, targetPayload);
     if (target === null) {
       return { deferredReason: 'TEXT_VISIBILITY_TARGET_MISSING' };
     }
@@ -708,7 +735,7 @@ export class OriginalTextVisibilityOperationApplier implements SyncedOperationAp
       byId.set(encodeOriginalSequenceId(character.identity), character);
     }
     const winning: StoredCharacter[] = [];
-    for (const [key] of unique) {
+    for (const key of unique.keys()) {
       const character: StoredCharacter | undefined = byId.get(key);
       if (character === undefined) {
         return { deferredReason: 'TEXT_VISIBILITY_CHARACTER_MISSING' };
@@ -923,12 +950,8 @@ function cloneText(text: TextBlockElement): TextBlockElement {
     blockWidth: text.blockWidth, blockHeight: text.blockHeight,
     rotationRadians: text.rotationRadians, contentLeftInset: text.contentLeftInset,
     contentTopInset: text.contentTopInset, fontSize: text.fontSize, fontColor: text.fontColor,
-    characterStyleRuns: text.characterStyleRuns === undefined ? undefined :
-      text.characterStyleRuns.map((run) => ({ start: run.start, end: run.end,
-        style: Object.assign({}, run.style) })),
-    paragraphStyleRuns: text.paragraphStyleRuns === undefined ? undefined :
-      text.paragraphStyleRuns.map((run) => ({ start: run.start, end: run.end,
-        style: Object.assign({}, run.style) })),
+    characterStyleRuns: cloneCharacterStyleRuns(text.characterStyleRuns),
+    paragraphStyleRuns: cloneParagraphStyleRuns(text.paragraphStyleRuns),
     corner: text.corner, textWrap: text.textWrap, enableCaption: text.enableCaption,
     paper: cloneOriginalPaper(text.paper === undefined ? null : text.paper),
     resizesWidthToFitText: text.resizesWidthToFitText,
@@ -938,20 +961,60 @@ function cloneText(text: TextBlockElement): TextBlockElement {
 
 function cloneCharacterStyleRuns(runs: RichTextCharacterStyleRun[] | undefined):
   RichTextCharacterStyleRun[] | undefined {
-  return runs === undefined ? undefined : runs.map((run: RichTextCharacterStyleRun):
-    RichTextCharacterStyleRun => ({ start: run.start, end: run.end,
-      style: Object.assign({}, run.style) }));
+  if (runs === undefined) {
+    return undefined;
+  }
+  const cloned: RichTextCharacterStyleRun[] = [];
+  for (const run of runs) {
+    cloned.push({ start: run.start, end: run.end, style: cloneCharacterStyle(run.style) });
+  }
+  return cloned;
 }
 
 function cloneParagraphStyleRuns(runs: RichTextParagraphStyleRun[] | undefined):
   RichTextParagraphStyleRun[] | undefined {
-  return runs === undefined ? undefined : runs.map((run: RichTextParagraphStyleRun):
-    RichTextParagraphStyleRun => ({ start: run.start, end: run.end,
-      style: Object.assign({}, run.style) }));
+  if (runs === undefined) {
+    return undefined;
+  }
+  const cloned: RichTextParagraphStyleRun[] = [];
+  for (const run of runs) {
+    cloned.push({ start: run.start, end: run.end, style: cloneParagraphStyle(run.style) });
+  }
+  return cloned;
 }
 
 function sameMaterializedStyles(text: StoredRichTextElement,
-  styles: { characterRuns: Object[], paragraphRuns: Object[] }): boolean {
+  styles: OriginalTextStyleMaterialization): boolean {
   return JSON.stringify(text.characterStyleRuns ?? []) === JSON.stringify(styles.characterRuns) &&
     JSON.stringify(text.paragraphStyleRuns ?? []) === JSON.stringify(styles.paragraphRuns);
+}
+
+function cloneCharacterStyle(style: RichTextCharacterStyle): RichTextCharacterStyle {
+  const cloned: RichTextCharacterStyle = {};
+  if (style.bold !== undefined) cloned.bold = style.bold;
+  if (style.italic !== undefined) cloned.italic = style.italic;
+  if (style.underline !== undefined) cloned.underline = style.underline;
+  if (style.highlightColor !== undefined) cloned.highlightColor = style.highlightColor;
+  if (style.familyName !== undefined) cloned.familyName = style.familyName;
+  if (style.fontSize !== undefined) cloned.fontSize = style.fontSize;
+  if (style.foregroundColor !== undefined) cloned.foregroundColor = style.foregroundColor;
+  if (style.link !== undefined) cloned.link = style.link;
+  if (style.superscript !== undefined) cloned.superscript = style.superscript;
+  if (style.subscript !== undefined) cloned.subscript = style.subscript;
+  if (style.strikethrough !== undefined) cloned.strikethrough = style.strikethrough;
+  return cloned;
+}
+
+function cloneParagraphStyle(style: RichTextParagraphStyle): RichTextParagraphStyle {
+  const cloned: RichTextParagraphStyle = {};
+  if (style.indentLevel !== undefined) cloned.indentLevel = style.indentLevel;
+  if (style.alignment !== undefined) cloned.alignment = style.alignment;
+  if (style.lineSpacing !== undefined) cloned.lineSpacing = style.lineSpacing;
+  if (style.decoratorStyle !== undefined) cloned.decoratorStyle = style.decoratorStyle;
+  if (style.programmingLanguage !== undefined) {
+    cloned.programmingLanguage = style.programmingLanguage;
+  }
+  if (style.writingDirection !== undefined) cloned.writingDirection = style.writingDirection;
+  if (style.isChecked !== undefined) cloned.isChecked = style.isChecked;
+  return cloned;
 }

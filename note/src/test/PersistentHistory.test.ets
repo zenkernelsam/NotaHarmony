@@ -341,11 +341,15 @@ export default function persistentHistoryTest() {
       positions.opType = OpType.ORIGINAL_MODIFY_POSITIONS;
       const block: Op = makeOp('original-block');
       block.opType = OpType.ORIGINAL_MODIFY_BLOCK;
+      const createBlock: Op = makeOp('original-create-block');
+      createBlock.opType = OpType.ORIGINAL_CREATE_BLOCK;
+      const insertText: Op = makeOp('original-insert-text');
+      insertText.opType = OpType.ORIGINAL_INSERT_TEXT;
       const state: PersistentHistoryState = reducePersistentHistory([
         makeOp('op-a', 'action-a', HistoryEffect.PUSH, 100),
         createPage, positions,
         makeOp('op-b', 'action-b', HistoryEffect.PUSH, 101),
-        recording, block,
+        recording, block, createBlock, insertText,
       ]);
       expect(state.undo.length).assertEqual(2);
       expect(state.undo[0].actionId).assertEqual('action-a');

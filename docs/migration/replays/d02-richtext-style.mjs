@@ -254,7 +254,8 @@ assert.match(operationSource, /ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE: number = 12/)
 assert.match(operationSource, /ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE: number = 13/);
 assert.match(operationSource, /ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE: number = 14/);
 assert.match(stateSource, /compareOperationIdentity/);
-assert.match(stateSource, /clearCharacterStyle/);
+assert.match(stateSource, /characterStyle = \{\}/);
+assert.doesNotMatch(stateSource, /delete \(style as Record/);
 assert.match(insertSource, /INSERT_TEXT_STYLE_STATE_DIVERGED/);
 assert.match(dispatcher, /OriginalRichTextStyleOperationApplier/);
 assert.match(renderer, /highlightColor/);

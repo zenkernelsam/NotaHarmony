@@ -73,6 +73,7 @@ import originalCreateInkPayloadEncoderTest from './OriginalCreateInkPayloadEncod
 import originalModifyBlockPayloadEncoderTest from './OriginalModifyBlockPayloadEncoder.test';
 import originalGroupPayloadEncoderTest from './OriginalGroupPayloadEncoder.test';
 import originalGroupMutationOpCodecTest from './OriginalGroupMutationOpCodec.test';
+import originalCreateTextPayloadEncoderTest from './OriginalCreateTextPayloadEncoder.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -150,4 +151,5 @@ export default function testsuite() {
   originalModifyBlockPayloadEncoderTest();
   originalGroupPayloadEncoderTest();
   originalGroupMutationOpCodecTest();
+  originalCreateTextPayloadEncoderTest();
 }

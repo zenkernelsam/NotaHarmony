@@ -4807,7 +4807,32 @@ export struct NoteCanvasView {
   // === 文本框 ===
   private createTextBlockAt(position: Point2D): void {
     const element: TextBlockElement = this.textBlockTool.createTextBlock(position,
-      this.viewModel.brushColor, 24);
+      -16777216, 17);
+    element.contentLeftInset = 5;
+    element.contentTopInset = 3;
+    element.corner = 0;
+    element.textWrap = 0;
+    element.enableCaption = false;
+    element.paper = null;
+    element.resizesWidthToFitText = false;
+    const originalCreate: OriginalInkCreateMetadata | null = this.originalInkReservation;
+    this.originalInkReservation = null;
+    if (originalCreate !== null) {
+      originalCreate.clientTime = Math.max(originalCreate.clientTime, Date.now());
+      element.id = encodeOperationId({
+        timestamp: originalCreate.timestamp, siteId: originalCreate.siteId,
+      });
+      element.originalCreate = {
+        timestamp: originalCreate.timestamp, siteId: originalCreate.siteId,
+        clientTime: originalCreate.clientTime,
+        pageTimestamp: originalCreate.pageTimestamp,
+        pageSiteId: originalCreate.pageSiteId, pageIndex: originalCreate.pageIndex,
+        pencilSeed: 0,
+      };
+      element.textOrigin = { x: 0, y: 0 };
+      element.transform = [1, 0, position.x, 0, 1, position.y, 0, 0, 1];
+      element.bounds = textBlockWorldBounds(element);
+    }
     this.textBlocks.push(element);
     this.elementOrder = appendPageElementRefs(this.elementOrder, PageElementKind.TEXT, [element.id]);
     this.editingTextBlock = element;
@@ -4855,6 +4880,7 @@ export struct NoteCanvasView {
       return;
     }
     let changed: boolean = false;
+    let rearmOriginalCreate: boolean = false;
     if (this.editingTextBlock !== null) {
       if (text.trim().length === 0) {
         this.onTextCancel();
@@ -4875,6 +4901,7 @@ export struct NoteCanvasView {
           elementOrderAfter: elementOrderAfter,
         });
         changed = true;
+        rearmOriginalCreate = updated.originalCreate !== undefined;
       } else if (this.editingOriginalTextBlock.richText !== text) {
         let updated: TextBlockElement = this.textBlockTool.updateText(this.editingTextBlock, text);
         updated = this.fitEditedTextWidth(updated);
@@ -4898,7 +4925,7 @@ export struct NoteCanvasView {
     this.editingTextLayoutWidth = 0;
     this.notifyUndoRedo();
     if (changed) {
-      this.persist();
+      this.persist(rearmOriginalCreate);
     }
     this.renderFrame(true);
   }
@@ -4907,8 +4934,10 @@ export struct NoteCanvasView {
     if (this.historyBusy) {
       return;
     }
+    let cancelledOriginalCreate: boolean = false;
     if (this.editingTextBlock !== null && this.editingOriginalTextBlock === null) {
       const id: string = this.editingTextBlock.id;
+      cancelledOriginalCreate = this.editingTextBlock.originalCreate !== undefined;
       const remaining: TextBlockElement[] = [];
       for (const t of this.textBlocks) {
         if (t.id !== id) {
@@ -4925,7 +4954,11 @@ export struct NoteCanvasView {
     this.editingOriginalTextBlock = null;
     this.editingDraftText = '';
     this.editingTextLayoutWidth = 0;
-    this.persist();
+    if (cancelledOriginalCreate) {
+      this.refreshOriginalInkReservation(this.pageLoadGeneration, this.loadedPageId);
+    } else {
+      this.persist();
+    }
     this.renderFrame(true);
   }
 

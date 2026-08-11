@@ -125,6 +125,8 @@ export default function notePackageSpecTest() {
         rotationRadians: 0, contentLeftInset: 0, contentTopInset: 0,
         fontSize: 12, fontColor: -16777216, characterStyleRuns: undefined,
         paragraphStyleRuns: undefined,
+        originalCreate: { timestamp: 10, siteId: 7, clientTime: 20,
+          pageTimestamp: 30, pageSiteId: 8, pageIndex: 1, pencilSeed: 0 },
       } };
       expect(isValidPageElement(stroke)).assertTrue();
       stroke.data.renderSpec.inkEffects = '18446744073709551616';
@@ -150,6 +152,17 @@ export default function notePackageSpecTest() {
       text.data.characterStyleRuns = [{ start: 0, end: 4, style: { superscript: true,
         subscript: true } }];
       expect(isValidPageElement(text)).assertFalse();
+      text.data.characterStyleRuns = [];
+      text.data.originalCreate.siteId = 65536;
+      expect(isValidPageElement(text)).assertFalse();
+      text.data.originalCreate.siteId = 7;
+      text.data.originalCreate.timestamp = -1;
+      expect(isValidPageElement(text)).assertFalse();
+      text.data.originalCreate.timestamp = 10;
+      text.data.originalCreate.pencilSeed = 0.5;
+      expect(isValidPageElement(text)).assertFalse();
+      text.data.originalCreate.pencilSeed = 0;
+      expect(isValidPageElement(text)).assertTrue();
 
       const shape = { kind: 'shape', data: {
         id: 'shape-text', type: ElementType.ELLIPSE, transform: base.transform,

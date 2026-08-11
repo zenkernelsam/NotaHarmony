@@ -524,7 +524,9 @@ function isOriginalOutboundCompanion(operation: Op): boolean {
     operation.opType === OpType.ORIGINAL_MODIFY_SHAPE ||
     operation.opType === OpType.ORIGINAL_CREATE_SHAPE ||
     operation.opType === OpType.ORIGINAL_CREATE_GROUP ||
-    operation.opType === OpType.ORIGINAL_MODIFY_GROUP;
+    operation.opType === OpType.ORIGINAL_MODIFY_GROUP ||
+    operation.opType === OpType.ORIGINAL_CREATE_BLOCK ||
+    operation.opType === OpType.ORIGINAL_INSERT_TEXT;
 }
 
 function sameEvent(left: HistoryMetadata, right: HistoryMetadata): boolean {
