@@ -41,6 +41,8 @@
     { "name": "flip_horizontal", "value": "水平翻转" },
     { "name": "flip_vertical", "value": "垂直翻转" },
     { "name": "crop", "value": "裁剪" },
+    { "name": "lock", "value": "锁定" },
+    { "name": "unlock", "value": "解锁" },
     { "name": "crop_close", "value": "取消裁剪" },
     { "name": "crop_reset", "value": "重置裁剪" },
     { "name": "crop_confirm", "value": "应用裁剪" },

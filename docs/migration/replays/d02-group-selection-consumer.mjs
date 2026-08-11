@@ -128,7 +128,9 @@ assert.match(resolverSource, /return \{ valid: false, leaves: \[\] \}/);
 assert.match(persistenceSource, /state\.members_value/);
 assert.match(persistenceSource, /visibility\.deleted IS NULL OR visibility\.deleted = 0/);
 assert.match(persistenceSource, /result\.groups = await this\.loadOriginalSelectionGroups/);
-assert.match(selectionSource, /shape\.positionLocked !== true && this\.elementBoundsSelected/);
+assert.match(selectionSource, /if \(this\.elementBoundsSelected\(shape\.bounds\)\)/);
+assert.match(shapeGeometrySource,
+  /!selected\.has\(shape\.id\) \|\| shape\.positionLocked === true/);
 assert.match(selectionSource, /resolveOriginalGroupSelection\(/);
 assert.match(selectionSource, /this\.state\.selectedGroupIds = grouped\.groupIds/);
 assert.match(canvasSource, /this\.selectionGroups = loaded\.groups/);
@@ -140,4 +142,5 @@ assert.match(packageSource,
 
 console.log('D02_GROUP_SELECTION_CONSUMER_REPLAY_OK ' +
   'latest-containing=2|nested-top=1|missing-cycle-fallback=2|deleted-group=1|' +
-  'shape-lock-materialization=3|selection-state-group-id=1|outbound-group-writer=pending');
+  'shape-lock-materialization=3|locked-selectable-for-unlock=1|selection-state-group-id=1|' +
+  'outbound-group-writer=pending');

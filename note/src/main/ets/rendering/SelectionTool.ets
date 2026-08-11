@@ -3,9 +3,6 @@
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
-import { isTextBlockPositionLocked } from '../core/model/TextBlockGeometry';
-import { isImageBlockPositionLocked } from '../core/model/ImageBlockGeometry';
-import { isMathBlockPositionLocked } from '../core/model/MathBlockGeometry';
 import { OriginalSelectionGroup, resolveOriginalGroupSelection,
   OriginalGroupSelectionResult } from '../core/model/OriginalGroupSelection';
 
@@ -107,28 +104,28 @@ export class SelectionTool {
     this.state.selectedStrokeIds = ids;
     const shapeIds: string[] = [];
     for (const shape of shapes) {
-      if (shape.positionLocked !== true && this.elementBoundsSelected(shape.bounds)) {
+      if (this.elementBoundsSelected(shape.bounds)) {
         shapeIds.push(shape.id);
       }
     }
     this.state.selectedShapeIds = shapeIds;
     const textIds: string[] = [];
     for (const textBlock of textBlocks) {
-      if (!isTextBlockPositionLocked(textBlock) && this.elementBoundsSelected(textBlock.bounds)) {
+      if (this.elementBoundsSelected(textBlock.bounds)) {
         textIds.push(textBlock.id);
       }
     }
     this.state.selectedTextBlockIds = textIds;
     const imageIds: string[] = [];
     for (const image of images) {
-      if (!isImageBlockPositionLocked(image) && this.elementBoundsSelected(image.bounds)) {
+      if (this.elementBoundsSelected(image.bounds)) {
         imageIds.push(image.id);
       }
     }
     this.state.selectedImageIds = imageIds;
     const mathIds: string[] = [];
     for (const math of mathBlocks) {
-      if (!isMathBlockPositionLocked(math) && this.elementBoundsSelected(math.bounds)) {
+      if (this.elementBoundsSelected(math.bounds)) {
         mathIds.push(math.id);
       }
     }
@@ -140,24 +137,16 @@ export class SelectionTool {
       }
     }
     for (const shape of shapes) {
-      if (shape.positionLocked !== true) {
-        availableIds.push(shape.id);
-      }
+      availableIds.push(shape.id);
     }
     for (const text of textBlocks) {
-      if (!isTextBlockPositionLocked(text)) {
-        availableIds.push(text.id);
-      }
+      availableIds.push(text.id);
     }
     for (const image of images) {
-      if (!isImageBlockPositionLocked(image)) {
-        availableIds.push(image.id);
-      }
+      availableIds.push(image.id);
     }
     for (const math of mathBlocks) {
-      if (!isMathBlockPositionLocked(math)) {
-        availableIds.push(math.id);
-      }
+      availableIds.push(math.id);
     }
     const grouped: OriginalGroupSelectionResult = resolveOriginalGroupSelection(
       ids.concat(shapeIds).concat(textIds).concat(imageIds).concat(mathIds), availableIds, groups);
@@ -165,16 +154,16 @@ export class SelectionTool {
     this.state.selectedStrokeIds = strokes.filter((stroke: StrokeElementData): boolean =>
       selected.has(stroke.id)).map((stroke: StrokeElementData): string => stroke.id);
     this.state.selectedShapeIds = shapes.filter((shape: ShapeElement): boolean =>
-      selected.has(shape.id) && shape.positionLocked !== true)
+      selected.has(shape.id))
       .map((shape: ShapeElement): string => shape.id);
     this.state.selectedTextBlockIds = textBlocks.filter((text: TextBlockElement): boolean =>
-      selected.has(text.id) && !isTextBlockPositionLocked(text))
+      selected.has(text.id))
       .map((text: TextBlockElement): string => text.id);
     this.state.selectedImageIds = images.filter((image: ImageElement): boolean =>
-      selected.has(image.id) && !isImageBlockPositionLocked(image))
+      selected.has(image.id))
       .map((image: ImageElement): string => image.id);
     this.state.selectedMathIds = mathBlocks.filter((math: MathElement): boolean =>
-      selected.has(math.id) && !isMathBlockPositionLocked(math))
+      selected.has(math.id))
       .map((math: MathElement): string => math.id);
     this.state.selectedGroupIds = grouped.groupIds;
     return this.state.selectedStrokeIds.concat(this.state.selectedShapeIds)

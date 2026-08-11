@@ -45,7 +45,9 @@ assert.match(geometry, /updated\.bounds = mathBlockWorldBounds\(updated\)/);
 assert.match(geometry, /eraserPathHitsMathBlock/);
 assert.match(geometry, /if \(eraserPath\.length === 0 \|\| isMathBlockPositionLocked\(element\)\)/);
 assert.match(selection, /selectedMathIds: string\[\]/);
-assert.match(selection, /!isMathBlockPositionLocked\(math\) && this\.elementBoundsSelected/);
+assert.match(selection, /if \(this\.elementBoundsSelected\(math\.bounds\)\)/);
+assert.doesNotMatch(selection,
+  /!isMathBlockPositionLocked\(math\) && this\.elementBoundsSelected/);
 assert.match(selection, /availableIds\.push\(math\.id\)/);
 assert.match(selection, /\.concat\(this\.state\.selectedMathIds\)/);
 assert.match(clipboard, /cloneClipboardMath/);
@@ -67,11 +69,11 @@ assert.match(canvas,
   /captureHistoryPageSnapshot[\s\S]*?mathBlocks: this\.mathBlocks\.map\([\s\S]*?cloneMathElement\(math\)/);
 assert.match(persistence,
   /saveHistoryGroup[\s\S]*?initial\.mathBlocks \?\? \[\][\s\S]*?step\.mathBlocks \?\? \[\]/);
-assert.match(selectionTest, /expands Group selection to Math leaves/);
+assert.match(selectionTest, /selects locked Math when its bounds are hit/);
 assert.match(geometryTest, /leaves position-locked Math untouched/);
 assert.match(clipboardTest, /deep-copies Math and preserves five-kind z order/);
 
 console.log('D02_MATH_EDITING_CONSUMER_REPLAY_OK ' +
-  'positionable-evidence=u08-be5|selection-lock=2|group-leaf=1|transform-bounds=1|' +
+  'positionable-evidence=u08-be5|locked-selectable-for-unlock=1|group-leaf=1|transform-bounds=1|' +
   'eraser-lock=2|history=add-delete-transform-erase-durable|clipboard=1|z-order=1|' +
   'latex-editor=outbound-pending');

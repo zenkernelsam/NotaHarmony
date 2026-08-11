@@ -121,6 +121,16 @@ export default function shapeGeometryTest() {
       expect(result[1].id).assertEqual('polygon');
     });
 
+    it('keeps position-locked Shapes immovable and whole-eraser safe', 0, () => {
+      const locked: EllipseElement = ellipse('locked');
+      locked.positionLocked = true;
+      const transformed: ShapeElement = transformShapeElements(
+        [locked], ['locked'], [1, 0, 50, 0, 1, 60, 0, 0, 1])[0];
+      expect(transformed === locked).assertTrue();
+      expect(transformed.transform[2]).assertEqual(0);
+      expect(eraserPathHitsShape([{ x: 20, y: 30 }], locked, 20)).assertFalse();
+    });
+
     it('recomputes bounds from semantic geometry across repeated rotations', 0, () => {
       const angle: number = Math.PI / 4;
       const rotation: TransformMatrix = [Math.cos(angle), -Math.sin(angle), 0,

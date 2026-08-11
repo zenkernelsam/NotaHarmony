@@ -98,7 +98,7 @@ export function transformShapeElements(shapes: ShapeElement[], selectedIds: stri
   const selected: Set<string> = new Set<string>(selectedIds);
   const result: ShapeElement[] = [];
   for (const shape of shapes) {
-    if (!selected.has(shape.id)) {
+    if (!selected.has(shape.id) || shape.positionLocked === true) {
       result.push(shape);
       continue;
     }
@@ -127,7 +127,7 @@ export function shapePathPoints(shape: ShapeElement): Point2D[] {
 
 export function eraserPathHitsShape(eraserPath: Point2D[], shape: ShapeElement,
   eraserWidth: number): boolean {
-  if (eraserPath.length === 0) {
+  if (eraserPath.length === 0 || shape.positionLocked === true) {
     return false;
   }
   const localSubpaths: Point2D[][] = shapeLocalSubpaths(shape);

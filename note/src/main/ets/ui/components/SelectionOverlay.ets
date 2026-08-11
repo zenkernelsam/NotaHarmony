@@ -19,6 +19,7 @@ export enum SelectionMenuAction {
   DESELECT = 7,
   PASTE = 8,
   CROP = 9,
+  LOCK = 10,
 }
 
 @Component
@@ -28,6 +29,8 @@ export struct SelectionOverlay {
   @Prop canPaste: boolean = false;
   @Prop canFlip: boolean = false;
   @Prop canCrop: boolean = false;
+  @Prop canLock: boolean = false;
+  @Prop positionLocked: boolean = false;
   @Prop containerWidth: number = 0;
   @Prop containerHeight: number = 0;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -100,6 +103,10 @@ export struct SelectionOverlay {
     }
     if (this.canCrop) {
       items.push({ value: $r('app.string.crop'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Crop clicked'); this.onMenuAction(SelectionMenuAction.CROP); } });
+    }
+    if (this.canLock) {
+      items.push({ value: this.positionLocked ? $r('app.string.unlock') : $r('app.string.lock'),
+        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Lock clicked'); this.onMenuAction(SelectionMenuAction.LOCK); } });
     }
     items.push({ value: $r('app.string.done'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu OK clicked'); this.onMenuAction(SelectionMenuAction.DESELECT); } });
     return items;

@@ -2,9 +2,11 @@ import { describe, it, expect } from '@ohos/hypium';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import {
   classifyOriginalImageCropMutation, classifyOriginalImageFlipMutation,
-  classifyOriginalRenderMutation, decodeOriginalShapeStateTool, decodePersistedElement,
+  classifyOriginalPositionLockMutation, classifyOriginalRenderMutation,
+  decodeOriginalShapeStateTool, decodePersistedElement,
   encodePersistedElement,
-  OriginalImageCropMutation, OriginalImageFlipMutation, OriginalRenderMutation, PersistedElement,
+  OriginalImageCropMutation, OriginalImageFlipMutation, OriginalPositionLockMutation,
+  OriginalRenderMutation, PersistedElement,
 } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import { ElementType, ImageElement, ShapeElement } from '../main/ets/core/model/ElementTypes';
@@ -298,12 +300,22 @@ export default function strokePersistenceTest() {
     });
 
     it('strictly decodes the original Shape state tool preflight', 0, () => {
+      expect(decodeOriginalShapeStateTool(
+        '{"tool":2,"style":1,"positionLocked":false}')).assertEqual(2);
+      expect(decodeOriginalShapeStateTool(
+        '{"tool":7,"style":3,"positionLocked":true}')).assertEqual(7);
+      // Pre-Phase-121 resolved rows predate the retained register. FlatBuffer defaults it false.
       expect(decodeOriginalShapeStateTool('{"tool":2,"style":1}')).assertEqual(2);
-      expect(decodeOriginalShapeStateTool('{"tool":7,"style":3}')).assertEqual(7);
-      expect(decodeOriginalShapeStateTool('{"tool":8,"style":1}') === null).assertTrue();
-      expect(decodeOriginalShapeStateTool('{"tool":1.5,"style":1}') === null).assertTrue();
-      expect(decodeOriginalShapeStateTool('{"tool":"2","style":1}') === null).assertTrue();
-      expect(decodeOriginalShapeStateTool('{"tool":2,"style":0}') === null).assertTrue();
+      expect(decodeOriginalShapeStateTool(
+        '{"tool":8,"style":1,"positionLocked":false}') === null).assertTrue();
+      expect(decodeOriginalShapeStateTool(
+        '{"tool":1.5,"style":1,"positionLocked":false}') === null).assertTrue();
+      expect(decodeOriginalShapeStateTool(
+        '{"tool":"2","style":1,"positionLocked":false}') === null).assertTrue();
+      expect(decodeOriginalShapeStateTool(
+        '{"tool":2,"style":0,"positionLocked":false}') === null).assertTrue();
+      expect(decodeOriginalShapeStateTool(
+        '{"tool":2,"style":1,"positionLocked":0}') === null).assertTrue();
       expect(decodeOriginalShapeStateTool('{broken') === null).assertTrue();
     });
 
@@ -316,6 +328,34 @@ export default function strokePersistenceTest() {
       after.color = -15654349;
       expect(classifyOriginalRenderMutation(
         [shapeSource(before)], [shapeSource(after)]) === null).assertTrue();
+    });
+
+    it('classifies mixed Shape and Block lock with reversible source state', 0, () => {
+      const shape: ShapeElement = originalShape('op:50:2', 0, -16777216, 4, null);
+      shape.positionLocked = false;
+      const image: ImageElement = originalImage('op:51:3');
+      const lockedShape: ShapeElement = cloneShapeElement(shape);
+      lockedShape.positionLocked = true;
+      const lockedImage: ImageElement = cloneImageElement(image);
+      lockedImage.positionLocked = true;
+      const forward: OriginalPositionLockMutation | null = classifyOriginalPositionLockMutation(
+        [shapeSource(shape), imageSource(image)],
+        [shapeSource(lockedShape), imageSource(lockedImage)]);
+      expect(forward?.shapeBatches.length).assertEqual(1);
+      expect(forward?.shapeBatches[0].locked).assertTrue();
+      expect(forward?.shapeBatches[0].expectedLocked[0]).assertFalse();
+      expect(forward?.blockBatches.length).assertEqual(1);
+      expect(forward?.blockBatches[0].identities[0].timestamp).assertEqual(51);
+      const reverse: OriginalPositionLockMutation | null = classifyOriginalPositionLockMutation(
+        [shapeSource(lockedShape), imageSource(lockedImage)],
+        [shapeSource(shape), imageSource(image)]);
+      expect(reverse?.shapeBatches[0].locked).assertFalse();
+      expect(reverse?.shapeBatches[0].expectedLocked[0]).assertTrue();
+      const invalid: ImageElement = cloneImageElement(image);
+      invalid.positionLocked = true;
+      invalid.blockWidth = 101;
+      expect(classifyOriginalPositionLockMutation(
+        [imageSource(image)], [imageSource(invalid)]) === null).assertTrue();
     });
   });
 }

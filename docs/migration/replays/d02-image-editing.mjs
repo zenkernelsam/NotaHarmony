@@ -32,8 +32,9 @@ assert.match(imageGeometry, /eraserPathHitsImageBlock/);
 assert.match(imageGeometry, /pointOnSegment/);
 
 assert.match(selection, /selectedImageIds: string\[\]/);
-assert.match(selection, /!isImageBlockPositionLocked\(image\)/);
 assert.match(selection, /this\.elementBoundsSelected\(image\.bounds\)/);
+assert.doesNotMatch(selection,
+  /!isImageBlockPositionLocked\(image\) && this\.elementBoundsSelected\(image\.bounds\)/);
 assert.match(selection, /concat\(this\.state\.selectedImageIds\)/);
 
 assert.match(clipboard, /cloneClipboardImage/);

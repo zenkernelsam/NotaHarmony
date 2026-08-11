@@ -10,6 +10,7 @@ export interface OriginalShapeRenderRegisterUpdate {
   borderWidth: number | null;
   fillColorPresent: boolean;
   fillColor: number | null;
+  positionLocked: boolean | null;
 }
 
 export function encodeOriginalShapeRenderRegisters(shapes: OperationIdentity[],
@@ -19,12 +20,15 @@ export function encodeOriginalShapeRenderRegisters(shapes: OperationIdentity[],
     throw new Error('original MODIFY_SHAPE has an invalid target count');
   }
   if (update.style === null && update.color === null &&
-    update.borderWidth === null && !update.fillColorPresent) {
+    update.borderWidth === null && !update.fillColorPresent && update.positionLocked === null) {
     throw new Error('original MODIFY_SHAPE has no render register update');
   }
   if (update.style !== null &&
     (!Number.isInteger(update.style) || update.style < 1 || update.style > 3)) {
     throw new Error('original MODIFY_SHAPE style is invalid');
+  }
+  if (update.positionLocked !== null && typeof update.positionLocked !== 'boolean') {
+    throw new Error('original MODIFY_SHAPE position lock is invalid');
   }
   if (update.color !== null && !validColor(update.color)) {
     throw new Error('original MODIFY_SHAPE color is invalid');
@@ -41,9 +45,9 @@ export function encodeOriginalShapeRenderRegisters(shapes: OperationIdentity[],
     throw new Error('original MODIFY_SHAPE fill color is transparent');
   }
 
-  // le8 has 17 fields. u5j.x writes style/color/borderWidth/fillColor at fields 8/10/11/12.
+  // le8 has 17 fields. u5j.x writes style/color/borderWidth/fillColor/lock at 8/10/11/12/14.
   const table: number = 44;
-  const objectSize: number = 24;
+  const objectSize: number = 28;
   const vector: number = table + objectSize;
   const vectorEnd: number = vector + 4 + targets.length * 8;
   const setterVtable: number = update.fillColorPresent ? align4(vectorEnd) : 0;
@@ -57,6 +61,7 @@ export function encodeOriginalShapeRenderRegisters(shapes: OperationIdentity[],
   fields[10] = update.color === null ? 0 : 12;
   fields[11] = update.borderWidth === null ? 0 : 16;
   fields[12] = update.fillColorPresent ? 20 : 0;
+  fields[14] = update.positionLocked === null ? 0 : 24;
 
   writeU32(bytes, 0, table);
   writeVtable(bytes, 4, objectSize, fields);
@@ -73,6 +78,9 @@ export function encodeOriginalShapeRenderRegisters(shapes: OperationIdentity[],
   }
   if (update.fillColorPresent) {
     writeU32(bytes, table + 20, setterTable - (table + 20));
+  }
+  if (update.positionLocked !== null) {
+    bytes[table + 24] = update.positionLocked ? 1 : 0;
   }
   writeU32(bytes, vector, targets.length);
   for (let index: number = 0; index < targets.length; index++) {

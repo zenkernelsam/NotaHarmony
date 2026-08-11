@@ -18,9 +18,9 @@ Android 1.0.3 的 `ry0` 把 `positionLocked` 保存为 Block common 的独立 LW
    `original_block_state.create_position_locked` 与文本 snapshot。
 3. `MODIFY_BLOCK` 开放 `positionLocked` 这一组 common LWW。CREATE 值只是无 winner fallback；
    首次较小 op 可获胜，旧/相等 op 不覆盖，寄存器与 snapshot 仍由 inbox 外层事务原子提交。
-4. 锁定文本不进入 Harmony 编辑选区，不接受选区 transform，不接受对象橡皮命中，也不能
-   通过文本工具进入编辑。当前 UI 尚未产生本地原版 MODIFY_BLOCK，因此不提供会绕过同步
-   identity/register 的本地“解锁”写法。
+4. Phase 121 根据原版 `dsc/dhb/ux9/cz3` 修正早期结论：锁定文本仍可进入矩形/套索选区，
+   否则原版 `UNLOCK` 菜单无法恢复它；但它仍不接受选区 transform、对象橡皮命中或文本编辑。
+   本地 Lock/Unlock 现通过 canonical identity 写 type-23 field 17，不再绕过同步 register。
 5. `corner`、`textWrap` 与 `enableCaption` 继续 DEFERRED。前两者依赖完整 Block/RichText
    layout，caption 依赖 IMAGE caption rich text；只存 register 后推进 cursor 不构成功能支持。
 
@@ -29,5 +29,6 @@ Android 1.0.3 的 `ry0` 把 `positionLocked` 保存为 Block common 的独立 LW
 - `d02-create-block.mjs` 覆盖 create-time locked snapshot。
 - `d02-modify-block-common.mjs` 覆盖 position-lock winner、较小首次获胜、stale no-op、payload
   同事务更新，以及 selection/eraser/package consumer 的源码契约。
-- `TextBlockGeometry.test.ets` 与 `SelectionTool.test.ets` 覆盖锁定块不变换、不命中和不入选区；
-  测试源码通过 ohosTest ArkTS 编译。设备 Hypium 与真实同步 UI 刷新仍待设备验收。
+- `TextBlockGeometry.test.ets` 与 `SelectionTool.test.ets` 覆盖锁定块不变换、不被对象橡皮命中，
+  但可被选中并解锁；Phase 121 的完整出站与事务验证见 ADR-0098。设备 Hypium 与真实同步 UI
+  刷新仍待设备验收。

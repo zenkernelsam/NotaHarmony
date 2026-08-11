@@ -7,6 +7,33 @@ import { OriginalBlockPageOrigin, OriginalBlockScale } from './OriginalModifyBlo
 
 const MAX_ORIGINAL_MODIFY_BLOCK_COUNT: number = 10000;
 
+export function encodeOriginalBlockPositionLocked(blocks: OperationIdentity[],
+  locked: boolean): Uint8Array {
+  const targets: OperationIdentity[] = validateTargets(blocks);
+  if (targets.length === 0 || targets.length > MAX_ORIGINAL_MODIFY_BLOCK_COUNT) {
+    throw new Error('original MODIFY_BLOCK has an invalid target count');
+  }
+
+  // td8 has 18 fields. Field 17 is positionLocked and must remain present for false.
+  const table: number = 44;
+  const objectSize: number = 12;
+  const vector: number = table + objectSize;
+  const bytes: Uint8Array = new Uint8Array(vector + 4 + targets.length * 8);
+  const fields: number[] = new Array<number>(18).fill(0);
+  fields[0] = 4;
+  fields[17] = 8;
+  writeU32(bytes, 0, table);
+  writeVtable(bytes, 4, objectSize, fields);
+  writeU32(bytes, table, table - 4);
+  writeU32(bytes, table + 4, vector - (table + 4));
+  bytes[table + 8] = locked ? 1 : 0;
+  writeU32(bytes, vector, targets.length);
+  for (let index: number = 0; index < targets.length; index++) {
+    writeOperationIdentity(bytes, vector + 4 + index * 8, targets[index]);
+  }
+  return bytes;
+}
+
 export function encodeOriginalImageFlip(blocks: OperationIdentity[],
   horizontal: boolean | null, vertical: boolean | null,
   cropRect: OriginalBlockRect | null = null): Uint8Array {

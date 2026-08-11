@@ -72,7 +72,9 @@ import {
   ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE,
   OriginalCreateShapePayload, OriginalModifyShapePayload, OriginalShapeGroupOperationApplier,
 } from './OriginalShapeGroupOperation';
-import { encodeOriginalImageCrop, encodeOriginalImageFlip } from './OriginalModifyBlockPayloadEncoder';
+import {
+  encodeOriginalBlockPositionLocked, encodeOriginalImageCrop, encodeOriginalImageFlip,
+} from './OriginalModifyBlockPayloadEncoder';
 import {
   decodeOriginalModifyBlock, ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE,
   OriginalModifyBlockOperationApplier, OriginalModifyBlockPayload,
@@ -220,6 +222,7 @@ export interface OriginalRenderMutation {
 export interface OriginalShapeStateRenderMetadata {
   tool: number;
   style: number;
+  positionLocked: boolean;
 }
 
 export function decodeOriginalShapeStateRenderMetadata(
@@ -227,11 +230,15 @@ export function decodeOriginalShapeStateRenderMetadata(
   try {
     const payload: OriginalCreateShapePayload =
       JSON.parse(resolvedPayload) as OriginalCreateShapePayload;
+    const positionLocked: boolean = payload.positionLocked === undefined ? false :
+      payload.positionLocked;
     if (!Number.isInteger(payload.tool) || payload.tool < 0 || payload.tool > 7 ||
-      !Number.isInteger(payload.style) || payload.style < 1 || payload.style > 3) {
+      !Number.isInteger(payload.style) || payload.style < 1 || payload.style > 3 ||
+      typeof positionLocked !== 'boolean') {
       return null;
     }
-    return { tool: payload.tool, style: payload.style };
+    return { tool: payload.tool, style: payload.style,
+      positionLocked: positionLocked };
   } catch (_error) {
     return null;
   }
@@ -364,6 +371,7 @@ export function classifyOriginalRenderMutation(current: SearchSourceElement[],
           borderWidth: widthChanged ? after.strokeWidth : null,
           fillColorPresent: fillChanged,
           fillColor: fillChanged ? after.fillColor : null,
+          positionLocked: null,
         };
         const key: string = `${update.style === null ? 'x' : update.style}|` +
           `${update.color === null ? 'x' : update.color}|` +
@@ -375,7 +383,7 @@ export function classifyOriginalRenderMutation(current: SearchSourceElement[],
             expectedStyles: [expectedStyle], style: update.style,
             color: update.color,
             borderWidth: update.borderWidth, fillColorPresent: update.fillColorPresent,
-            fillColor: update.fillColor });
+            fillColor: update.fillColor, positionLocked: null });
         } else {
           batch.identities.push(identity);
           batch.expectedTools.push(after.originalTool);
@@ -393,6 +401,122 @@ export function classifyOriginalRenderMutation(current: SearchSourceElement[],
   }
   return { inkBatches: Array.from(inkBatches.values()),
     shapeBatches: Array.from(shapeBatches.values()) };
+}
+
+export interface OriginalPositionLockMutationBatch {
+  identities: OperationIdentity[];
+  expectedLocked: boolean[];
+  locked: boolean;
+}
+
+export interface OriginalPositionLockMutation {
+  shapeBatches: OriginalPositionLockMutationBatch[];
+  blockBatches: OriginalPositionLockMutationBatch[];
+}
+
+export function classifyOriginalPositionLockMutation(current: SearchSourceElement[],
+  next: SearchSourceElement[]): OriginalPositionLockMutation | null {
+  if (!samePreparedIdentityOrder(current, next)) {
+    return null;
+  }
+  const shapeBatches: Map<string, OriginalPositionLockMutationBatch> =
+    new Map<string, OriginalPositionLockMutationBatch>();
+  const blockBatches: Map<string, OriginalPositionLockMutationBatch> =
+    new Map<string, OriginalPositionLockMutationBatch>();
+  for (let index: number = 0; index < current.length; index++) {
+    if (sameByteArrays(current[index].payload, next[index].payload)) {
+      continue;
+    }
+    try {
+      const beforePersisted: PersistedElement = decodePersistedElement(current[index].payload);
+      const afterPersisted: PersistedElement = decodePersistedElement(next[index].payload);
+      let identity: OperationIdentity | null = null;
+      let expectedLocked: boolean = false;
+      let locked: boolean = false;
+      let batches: Map<string, OriginalPositionLockMutationBatch> | null = null;
+      if (current[index].kind === PageElementKind.SHAPE &&
+        beforePersisted.kind === 'shape' && afterPersisted.kind === 'shape') {
+        const before: ShapeElement = beforePersisted.data as ShapeElement;
+        const after: ShapeElement = afterPersisted.data as ShapeElement;
+        identity = decodeOperationId(before.id);
+        expectedLocked = before.positionLocked === true;
+        locked = after.positionLocked === true;
+        const candidate: ShapeElement = cloneShapeElement(before);
+        candidate.positionLocked = locked;
+        if (before.id !== after.id || expectedLocked === locked ||
+          !sameByteArrays(encodePersistedElement({ kind: 'shape', data: candidate }),
+            next[index].payload)) {
+          return null;
+        }
+        batches = shapeBatches;
+      } else if (current[index].kind === PageElementKind.TEXT &&
+        beforePersisted.kind === 'text' && afterPersisted.kind === 'text') {
+        const before: TextBlockElement = beforePersisted.data as TextBlockElement;
+        const after: TextBlockElement = afterPersisted.data as TextBlockElement;
+        identity = decodeOperationId(before.id);
+        expectedLocked = before.positionLocked === true;
+        locked = after.positionLocked === true;
+        const candidate: TextBlockElement = cloneTextBlockElement(before);
+        candidate.positionLocked = locked;
+        if (before.id !== after.id || expectedLocked === locked ||
+          !sameByteArrays(encodePersistedElement({ kind: 'text', data: candidate }),
+            next[index].payload)) {
+          return null;
+        }
+        batches = blockBatches;
+      } else if (current[index].kind === PageElementKind.IMAGE &&
+        beforePersisted.kind === 'image' && afterPersisted.kind === 'image') {
+        const before: ImageElement = beforePersisted.data as ImageElement;
+        const after: ImageElement = afterPersisted.data as ImageElement;
+        identity = decodeOperationId(before.id);
+        expectedLocked = before.positionLocked;
+        locked = after.positionLocked;
+        const candidate: ImageElement = cloneImageElement(before);
+        candidate.positionLocked = locked;
+        if (before.id !== after.id || expectedLocked === locked ||
+          !sameByteArrays(encodePersistedElement({ kind: 'image', data: candidate }),
+            next[index].payload)) {
+          return null;
+        }
+        batches = blockBatches;
+      } else if (current[index].kind === PageElementKind.MATH &&
+        beforePersisted.kind === 'math' && afterPersisted.kind === 'math') {
+        const before: MathElement = beforePersisted.data as MathElement;
+        const after: MathElement = afterPersisted.data as MathElement;
+        identity = decodeOperationId(before.id);
+        expectedLocked = before.positionLocked;
+        locked = after.positionLocked;
+        const candidate: MathElement = cloneMathElement(before);
+        candidate.positionLocked = locked;
+        if (before.id !== after.id || expectedLocked === locked ||
+          !sameByteArrays(encodePersistedElement({ kind: 'math', data: candidate }),
+            next[index].payload)) {
+          return null;
+        }
+        batches = blockBatches;
+      } else {
+        return null;
+      }
+      if (identity === null || batches === null) {
+        return null;
+      }
+      const key: string = locked ? '1' : '0';
+      const batch: OriginalPositionLockMutationBatch | undefined = batches.get(key);
+      if (batch === undefined) {
+        batches.set(key, { identities: [identity], expectedLocked: [expectedLocked], locked: locked });
+      } else {
+        batch.identities.push(identity);
+        batch.expectedLocked.push(expectedLocked);
+      }
+    } catch (_error) {
+      return null;
+    }
+  }
+  if (shapeBatches.size === 0 && blockBatches.size === 0) {
+    return null;
+  }
+  return { shapeBatches: Array.from(shapeBatches.values()),
+    blockBatches: Array.from(blockBatches.values()) };
 }
 
 export interface OriginalImageFlipUpdate {
@@ -940,6 +1064,17 @@ export class StrokePersistence {
         await store.commit();
         return;
       }
+      const originalPositionLock: OriginalPositionLockMutation | null =
+        await this.originalPositionLockMutation(
+          store, snapshot.noteId, current, snapshot.elements);
+      if (originalPositionLock !== null) {
+        await this.applyOriginalPositionLock(
+          store, snapshot, originalPositionLock, snapshotRevision);
+        await this.rebuildPageSearchState(store, snapshot, snapshotRevision, false);
+        await this.appendHistoryCompanion(store, snapshot, mutation);
+        await store.commit();
+        return;
+      }
       const originalStyle: OriginalRenderMutation | null =
         await this.originalRenderMutation(store, snapshot.noteId, current, snapshot.elements);
       if (originalStyle !== null) {
@@ -1277,22 +1412,29 @@ export class StrokePersistence {
         const originalVisibility: OriginalEntityVisibilityMutation | null =
           await this.originalEntityVisibilityMutation(
             store, step.noteId, current, step.elements);
-        const originalStyle: OriginalRenderMutation | null = originalVisibility === null ?
+        const originalPositionLock: OriginalPositionLockMutation | null =
+          originalVisibility === null ? await this.originalPositionLockMutation(
+            store, step.noteId, current, step.elements) : null;
+        const originalStyle: OriginalRenderMutation | null = originalVisibility === null &&
+          originalPositionLock === null ?
           await this.originalRenderMutation(store, step.noteId, current, step.elements) : null;
         const originalImageFlip: OriginalImageFlipMutation | null =
-          originalVisibility === null && originalStyle === null ?
+          originalVisibility === null && originalPositionLock === null && originalStyle === null ?
             classifyOriginalImageFlipMutation(current, step.elements) : null;
         const originalImageCrop: OriginalImageCropMutation | null =
-          originalVisibility === null && originalStyle === null && originalImageFlip === null ?
+          originalVisibility === null && originalPositionLock === null && originalStyle === null &&
+            originalImageFlip === null ?
             classifyOriginalImageCropMutation(current, step.elements) : null;
         const originalPositions: OriginalModifyPositionsMutation | null =
-          originalVisibility === null && originalStyle === null && originalImageFlip === null &&
-            originalImageCrop === null ?
+          originalVisibility === null && originalPositionLock === null && originalStyle === null &&
+            originalImageFlip === null && originalImageCrop === null ?
             await this.originalModifyPositionsMutation(store, step.noteId, step.pageId,
               current, step.elements, step.history, step.originalZOrderHint) : null;
         if (originalVisibility !== null) {
           await this.applyOriginalEntityVisibility(store, step, originalVisibility,
             nextRevision);
+        } else if (originalPositionLock !== null) {
+          await this.applyOriginalPositionLock(store, step, originalPositionLock, nextRevision);
         } else if (originalStyle !== null) {
           await this.applyOriginalRenderStyle(store, step, originalStyle, nextRevision);
         } else if (originalImageFlip !== null) {
@@ -1407,6 +1549,72 @@ export class StrokePersistence {
               rows.getString(rows.getColumnIndex('resolved_payload')));
           if (metadata === null || metadata.tool !== batch.expectedTools[index] ||
             metadata.style !== batch.expectedStyles[index]) {
+            return null;
+          }
+        } finally {
+          rows.close();
+        }
+      }
+    }
+    return mutation;
+  }
+
+  private async originalPositionLockMutation(store: relationalStore.RdbStore, noteId: string,
+    current: SearchSourceElement[], next: PreparedElement[]): Promise<OriginalPositionLockMutation | null> {
+    const mutation: OriginalPositionLockMutation | null =
+      classifyOriginalPositionLockMutation(current, next);
+    if (mutation === null) {
+      return null;
+    }
+    for (const batch of mutation.shapeBatches) {
+      if (batch.identities.length !== batch.expectedLocked.length) {
+        return null;
+      }
+      for (let index: number = 0; index < batch.identities.length; index++) {
+        const identity: OperationIdentity = batch.identities[index];
+        const rows = await store.querySql(
+          `SELECT resolved_payload FROM original_shape_state WHERE note_id = ?
+           AND shape_timestamp = ? AND shape_site_id = ? LIMIT 1`,
+          [noteId, identity.timestamp, identity.siteId]);
+        try {
+          const metadata: OriginalShapeStateRenderMetadata | null = !rows.goToFirstRow() ? null :
+            decodeOriginalShapeStateRenderMetadata(
+              rows.getString(rows.getColumnIndex('resolved_payload')));
+          if (metadata === null || metadata.positionLocked !== batch.expectedLocked[index]) {
+            return null;
+          }
+        } finally {
+          rows.close();
+        }
+      }
+    }
+    for (const batch of mutation.blockBatches) {
+      if (batch.identities.length !== batch.expectedLocked.length) {
+        return null;
+      }
+      for (let index: number = 0; index < batch.identities.length; index++) {
+        const identity: OperationIdentity = batch.identities[index];
+        const rows = await store.querySql(
+          `SELECT create_position_locked, position_locked_value,
+             position_locked_winner_present FROM original_block_state WHERE note_id = ?
+           AND block_timestamp = ? AND block_site_id = ? LIMIT 1`,
+          [noteId, identity.timestamp, identity.siteId]);
+        try {
+          if (!rows.goToFirstRow()) {
+            return null;
+          }
+          const baseColumn: number = rows.getColumnIndex('create_position_locked');
+          const valueColumn: number = rows.getColumnIndex('position_locked_value');
+          const winnerColumn: number = rows.getColumnIndex('position_locked_winner_present');
+          const base: number = rows.getLong(baseColumn);
+          const winnerPresent: number = rows.getLong(winnerColumn);
+          if ((base !== 0 && base !== 1) || (winnerPresent !== 0 && winnerPresent !== 1) ||
+            (winnerPresent === 1 && rows.isColumnNull(valueColumn))) {
+            return null;
+          }
+          const value: number = winnerPresent === 1 ? rows.getLong(valueColumn) : base;
+          if ((value !== 0 && value !== 1) ||
+            (value !== 0) !== batch.expectedLocked[index]) {
             return null;
           }
         } finally {
@@ -1710,6 +1918,72 @@ export class StrokePersistence {
       store, step.noteId, step.pageId);
     if (!samePreparedIdentityOrder(materialized, step.elements)) {
       throw new Error('local render register reducer produced an unexpected element order');
+    }
+    await this.reconcilePreparedRows(store, step, expectedRevision);
+  }
+
+  private async applyOriginalPositionLock(store: relationalStore.RdbStore,
+    step: PreparedPageSave, mutation: OriginalPositionLockMutation,
+    expectedRevision: number): Promise<void> {
+    if (await this.readEligibleOriginalInkPage(store, step.noteId, step.pageId) === null) {
+      throw new Error('local position-lock page is no longer original-aligned');
+    }
+    const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+    const shapeApplier: OriginalShapeGroupOperationApplier =
+      new OriginalShapeGroupOperationApplier();
+    for (const batch of mutation.shapeBatches) {
+      const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, step.noteId);
+      const payload: Uint8Array = encodeOriginalShapeRenderRegisters(batch.identities, {
+        style: null, color: null, borderWidth: null, fillColorPresent: false,
+        fillColor: null, positionLocked: batch.locked,
+      });
+      const metadata: OriginalInkCreateMetadata = {
+        timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
+        pageTimestamp: 0, pageSiteId: 0, pageIndex: 0, pencilSeed: 0,
+      };
+      const operation: StoredSyncedOperation = localStoredOperation(
+        step.noteId, metadata, ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE, payload, null);
+      const decoded: OriginalModifyShapePayload = decodeOriginalModifyShape(operation.rawOperation);
+      const result: SyncedOperationApplyResult = await shapeApplier.applyPositionPayload(
+        store, operation, decoded, revisionBatch);
+      if (result.deferredReason !== null) {
+        throw new Error(`local MODIFY_SHAPE position lock was deferred: ${result.deferredReason}`);
+      }
+      await appendOperation(store, {
+        noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_SHAPE,
+        payload: operation.rawOperation, clientTime: identity.clientTime,
+        opTimestamp: identity.timestamp, editorSiteId: identity.siteId, uploadImmediately: true,
+      });
+    }
+    const blockApplier: OriginalModifyBlockOperationApplier =
+      new OriginalModifyBlockOperationApplier();
+    for (const batch of mutation.blockBatches) {
+      const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, step.noteId);
+      const payload: Uint8Array = encodeOriginalBlockPositionLocked(
+        batch.identities, batch.locked);
+      const metadata: OriginalInkCreateMetadata = {
+        timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
+        pageTimestamp: 0, pageSiteId: 0, pageIndex: 0, pencilSeed: 0,
+      };
+      const operation: StoredSyncedOperation = localStoredOperation(
+        step.noteId, metadata, ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE, payload, null);
+      const decoded: OriginalModifyBlockPayload = decodeOriginalModifyBlock(operation.rawOperation);
+      const result: SyncedOperationApplyResult = await blockApplier.applyBatchedPayload(
+        store, operation, decoded, revisionBatch);
+      if (result.deferredReason !== null) {
+        throw new Error(`local MODIFY_BLOCK position lock was deferred: ${result.deferredReason}`);
+      }
+      await appendOperation(store, {
+        noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_BLOCK,
+        payload: operation.rawOperation, clientTime: identity.clientTime,
+        opTimestamp: identity.timestamp, editorSiteId: identity.siteId, uploadImmediately: true,
+      });
+    }
+    await revisionBatch.flush(store, step.noteId);
+    const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+      store, step.noteId, step.pageId);
+    if (!samePreparedIdentityOrder(materialized, step.elements)) {
+      throw new Error('local position-lock reducer produced an unexpected element order');
     }
     await this.reconcilePreparedRows(store, step, expectedRevision);
   }

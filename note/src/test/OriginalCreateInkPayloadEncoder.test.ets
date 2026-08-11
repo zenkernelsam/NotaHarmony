@@ -137,7 +137,7 @@ export default function originalCreateInkPayloadEncoderTest() {
         encodeOriginalShapeRenderRegisters([
           { timestamp: 40, siteId: 4 }, { timestamp: 41, siteId: 5 },
         ], { style: 2, color: 0x6B112233, borderWidth: 7.5,
-          fillColorPresent: true, fillColor: 0x6B112233 })));
+          fillColorPresent: true, fillColor: 0x6B112233, positionLocked: null })));
       expect(highlighter.shapes.length).assertEqual(2);
       expect(highlighter.shapes[0].timestamp).assertEqual(40);
       expect(highlighter.shapes[1].siteId).assertEqual(5);
@@ -150,7 +150,7 @@ export default function originalCreateInkPayloadEncoderTest() {
       const clear = decodeOriginalModifyShape(wrap(19,
         encodeOriginalShapeRenderRegisters([{ timestamp: 42, siteId: 6 }],
           { style: null, color: null, borderWidth: null,
-            fillColorPresent: true, fillColor: null })));
+            fillColorPresent: true, fillColor: null, positionLocked: null })));
       expect(clear.color === null).assertTrue();
       expect(clear.borderWidth === null).assertTrue();
       expect(clear.fillColor.present).assertTrue();
@@ -159,12 +159,18 @@ export default function originalCreateInkPayloadEncoderTest() {
       const width = decodeOriginalModifyShape(wrap(19,
         encodeOriginalShapeRenderRegisters([{ timestamp: 43, siteId: 7 }],
           { style: null, color: null, borderWidth: 2.25,
-            fillColorPresent: false, fillColor: null })));
+            fillColorPresent: false, fillColor: null, positionLocked: null })));
       expect(width.borderWidth).assertEqual(2.25);
       expect(width.fillColor.present).assertFalse();
+      const unlocked = decodeOriginalModifyShape(wrap(19,
+        encodeOriginalShapeRenderRegisters([{ timestamp: 44, siteId: 8 }],
+          { style: null, color: null, borderWidth: null, fillColorPresent: false,
+            fillColor: null, positionLocked: false })));
+      expect(unlocked.positionLocked).assertFalse();
+      expect(unlocked.style === null).assertTrue();
       expect(() => encodeOriginalShapeRenderRegisters([{ timestamp: 44, siteId: 8 }],
         { style: 0, color: null, borderWidth: null,
-          fillColorPresent: false, fillColor: null })).assertThrow();
+          fillColorPresent: false, fillColor: null, positionLocked: null })).assertThrow();
     });
 
     it('round-trips local LINE POLYGON and rotated ELLIPSE CREATE_SHAPE payloads', 0, () => {

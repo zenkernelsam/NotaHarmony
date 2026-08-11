@@ -1,12 +1,22 @@
 import { describe, expect, it } from '@ohos/hypium';
 import { decodeOriginalModifyBlock } from '../main/ets/data/OriginalModifyBlockOperation';
 import {
-  encodeOriginalImageCrop, encodeOriginalImageFlip,
+  encodeOriginalBlockPositionLocked, encodeOriginalImageCrop, encodeOriginalImageFlip,
 } from '../main/ets/data/OriginalModifyBlockPayloadEncoder';
 import { encodeOriginalOperationEnvelope } from '../main/ets/data/OriginalOperationEnvelopeEncoder';
 
 export default function originalModifyBlockPayloadEncoderTest() {
   describe('OriginalModifyBlockPayloadEncoder', () => {
+    it('round-trips position lock presence for true and false', 0, () => {
+      const locked = decodeOriginalModifyBlock(wrap(encodeOriginalBlockPositionLocked(
+        [{ timestamp: 18, siteId: 1 }], true)));
+      expect(locked.positionLocked).assertTrue();
+      expect(locked.imageFlippedHorizontally === null).assertTrue();
+      const unlocked = decodeOriginalModifyBlock(wrap(encodeOriginalBlockPositionLocked(
+        [{ timestamp: 19, siteId: 2 }], false)));
+      expect(unlocked.positionLocked).assertFalse();
+    });
+
     it('round-trips image flip registers including explicit false presence', 0, () => {
       const horizontal = decodeOriginalModifyBlock(wrap(encodeOriginalImageFlip([
         { timestamp: 20, siteId: 2 }, { timestamp: 22, siteId: 4 },

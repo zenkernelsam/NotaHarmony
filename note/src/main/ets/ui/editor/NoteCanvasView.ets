@@ -275,6 +275,8 @@ export struct NoteCanvasView {
   @State selectionVisible: boolean = false;
   @State selectionCanFlip: boolean = false;
   @State selectionCanCrop: boolean = false;
+  @State selectionCanLock: boolean = false;
+  @State selectionPositionLocked: boolean = false;
   private imageCropSession: OriginalImageCropSession | null = null;
   @State imageCropVisible: boolean = false;
   @State imageCropDraft: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
@@ -3418,6 +3420,41 @@ export struct NoteCanvasView {
     this.selectionCanCrop = this.canCropImageSelection(
       state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
       state.selectedImageIds, state.selectedGroupIds, state.selectedMathIds);
+    let lockableCount: number = 0;
+    let lockedCount: number = 0;
+    for (const shape of this.shapes) {
+      if (state.selectedShapeIds.indexOf(shape.id) >= 0) {
+        lockableCount++;
+        lockedCount += shape.positionLocked === true ? 1 : 0;
+      }
+    }
+    for (const text of this.textBlocks) {
+      if (state.selectedTextBlockIds.indexOf(text.id) >= 0) {
+        lockableCount++;
+        lockedCount += text.positionLocked === true ? 1 : 0;
+      }
+    }
+    for (const image of this.imageBlocks) {
+      if (state.selectedImageIds.indexOf(image.id) >= 0) {
+        lockableCount++;
+        lockedCount += image.positionLocked ? 1 : 0;
+      }
+    }
+    for (const math of this.mathBlocks) {
+      if (state.selectedMathIds.indexOf(math.id) >= 0) {
+        lockableCount++;
+        lockedCount += math.positionLocked ? 1 : 0;
+      }
+    }
+    const selectedCount: number = state.selectedStrokeIds.length + lockableCount;
+    const onlyShapesSelected: boolean = state.selectedShapeIds.length > 0 &&
+      state.selectedShapeIds.length === selectedCount;
+    // Original 1.0.3 dhb handles a tapped Block directly; drawn/group selections use xsc.k,
+    // which accepts only Shapes. Harmony has no separate tap-selection state, so one selected
+    // entity is the equivalent direct-selection path.
+    this.selectionCanLock = onlyShapesSelected ||
+      (selectedCount === 1 && state.selectedGroupIds.length === 0);
+    this.selectionPositionLocked = lockableCount > 0 && lockedCount === lockableCount;
     let rect: Rect2D | null = null;
     for (const s of this.completedStrokes) {
       if (state.selectedStrokeIds.indexOf(s.id) >= 0) {
@@ -3695,6 +3732,8 @@ export struct NoteCanvasView {
         action === SelectionMenuAction.FLIP_H);
     } else if (action === SelectionMenuAction.CROP) {
       this.startImageCrop();
+    } else if (action === SelectionMenuAction.LOCK) {
+      this.setSelectedPositionLocked(!this.selectionPositionLocked);
     } else if (action === SelectionMenuAction.COPY) {
       this.copySelectedToClipboard(
         state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
@@ -3783,6 +3822,82 @@ export struct NoteCanvasView {
     });
     this.updateSelectionOverlay();
     this.persist(this.areCanonicalOriginalPositionSelection([], [], [], imageIds, []));
+    this.notifyUndoRedo();
+    this.renderFrame();
+  }
+
+  private setSelectedPositionLocked(locked: boolean): void {
+    const state = this.selectionTool.getState();
+    const beforeShapes: ShapeElement[] = [];
+    const afterShapes: ShapeElement[] = [];
+    const beforeTextBlocks: TextBlockElement[] = [];
+    const afterTextBlocks: TextBlockElement[] = [];
+    const beforeImages: ImageElement[] = [];
+    const afterImages: ImageElement[] = [];
+    const beforeMathBlocks: MathElement[] = [];
+    const afterMathBlocks: MathElement[] = [];
+    for (const shape of this.shapes) {
+      if (state.selectedShapeIds.indexOf(shape.id) < 0 || (shape.positionLocked === true) === locked) {
+        continue;
+      }
+      const before: ShapeElement = cloneShapeElement(shape);
+      const after: ShapeElement = cloneShapeElement(shape);
+      after.positionLocked = locked;
+      beforeShapes.push(before);
+      afterShapes.push(after);
+    }
+    for (const text of this.textBlocks) {
+      if (state.selectedTextBlockIds.indexOf(text.id) < 0 || (text.positionLocked === true) === locked) {
+        continue;
+      }
+      const before: TextBlockElement = cloneTextBlockElement(text);
+      const after: TextBlockElement = cloneTextBlockElement(text);
+      after.positionLocked = locked;
+      beforeTextBlocks.push(before);
+      afterTextBlocks.push(after);
+    }
+    for (const image of this.imageBlocks) {
+      if (state.selectedImageIds.indexOf(image.id) < 0 || image.positionLocked === locked) {
+        continue;
+      }
+      const before: ImageElement = cloneImageElement(image);
+      const after: ImageElement = cloneImageElement(image);
+      after.positionLocked = locked;
+      beforeImages.push(before);
+      afterImages.push(after);
+    }
+    for (const math of this.mathBlocks) {
+      if (state.selectedMathIds.indexOf(math.id) < 0 || math.positionLocked === locked) {
+        continue;
+      }
+      const before: MathElement = cloneMathElement(math);
+      const after: MathElement = cloneMathElement(math);
+      after.positionLocked = locked;
+      beforeMathBlocks.push(before);
+      afterMathBlocks.push(after);
+    }
+    if (afterShapes.length === 0 && afterTextBlocks.length === 0 &&
+      afterImages.length === 0 && afterMathBlocks.length === 0) {
+      return;
+    }
+    this.replaceShapesById(afterShapes);
+    this.replaceTextBlocksById(afterTextBlocks);
+    this.replaceImagesById(afterImages);
+    this.replaceMathBlocksById(afterMathBlocks);
+    this.undoRedo.push({
+      type: UndoableActionType.TRANSFORM_ELEMENTS,
+      noteId: this.noteId, pageId: this.currentPage.pageId,
+      beforeStrokes: [], afterStrokes: [], beforeShapes: beforeShapes, afterShapes: afterShapes,
+      beforeTextBlocks: beforeTextBlocks, afterTextBlocks: afterTextBlocks,
+      beforeImages: beforeImages, afterImages: afterImages,
+      beforeMathBlocks: beforeMathBlocks, afterMathBlocks: afterMathBlocks,
+    });
+    this.updateSelectionOverlay();
+    this.persist(this.areCanonicalOriginalPositionSelection([],
+      beforeShapes.map((shape: ShapeElement): string => shape.id),
+      beforeTextBlocks.map((text: TextBlockElement): string => text.id),
+      beforeImages.map((image: ImageElement): string => image.id),
+      beforeMathBlocks.map((math: MathElement): string => math.id)));
     this.notifyUndoRedo();
     this.renderFrame();
   }
@@ -4748,6 +4863,8 @@ export struct NoteCanvasView {
         canPaste: this.clipboardAvailable,
         canFlip: this.selectionCanFlip,
         canCrop: this.selectionCanCrop,
+        canLock: this.selectionCanLock,
+        positionLocked: this.selectionPositionLocked,
         containerWidth: this.overlayWidth,
         containerHeight: this.overlayHeight,
         onMenuAction: (action: SelectionMenuAction) => {

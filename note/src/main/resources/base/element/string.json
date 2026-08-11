@@ -177,6 +177,14 @@
       "value": "Crop"
     },
     {
+      "name": "lock",
+      "value": "Lock"
+    },
+    {
+      "name": "unlock",
+      "value": "Unlock"
+    },
+    {
       "name": "crop_close",
       "value": "Cancel crop"
     },
