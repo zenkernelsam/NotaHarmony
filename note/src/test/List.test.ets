@@ -57,6 +57,7 @@ import imageBlockRenderingTest from './ImageBlockRendering.test';
 import assetArrivalTest from './AssetArrival.test';
 import mathBlockGeometryTest from './MathBlockGeometry.test';
 import originalEntityVisibilityStateTest from './OriginalEntityVisibilityState.test';
+import originalRecordingStoreTest from './OriginalRecordingStore.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -118,4 +119,5 @@ export default function testsuite() {
   assetArrivalTest();
   mathBlockGeometryTest();
   originalEntityVisibilityStateTest();
+  originalRecordingStoreTest();
 }
