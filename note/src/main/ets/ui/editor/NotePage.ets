@@ -12,6 +12,12 @@ import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import { StrokePersistence } from '../../data/StrokePersistence';
 import { ToolRepositoryImpl } from '../../data/ToolRepositoryImpl';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
+import { AssetAvailabilityChange, assetAvailabilityHub } from '../../data/AssetAvailabilityHub';
+import { MaterializedOriginalRecording, OriginalRecordingStore } from '../../data/OriginalRecordingStore';
+import {
+  OriginalRecordingPlaybackController, OriginalRecordingPlaybackSnapshot,
+  OriginalRecordingPlaybackState,
+} from '../../core/adaptation/OriginalRecordingPlaybackController';
 import {
   AddPageAction, DeletePageAction, EditorHistoryBridge, PageContentSnapshot, UndoableAction,
   UndoableActionType,
@@ -20,6 +26,7 @@ import { EditorViewModel } from './EditorViewModel';
 import { EditorToolbar } from './EditorToolbar';
 import { NoteCanvasView } from './NoteCanvasView';
 import { PageManagerBar } from './PageManagerBar';
+import { RecordingPanel } from './RecordingPanel';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
@@ -40,11 +47,23 @@ struct NotePage {
   @State noteTitle: string = '';          // T-036：标题
   @State editingTitle: boolean = false;   // T-036：标题编辑态
   @State titleDraft: string = '';
+  @State recordings: MaterializedOriginalRecording[] = [];
+  @State recordingsLoading: boolean = false;
+  @State showRecordings: boolean = false;
+  @State playbackSnapshot: OriginalRecordingPlaybackSnapshot = {
+    state: OriginalRecordingPlaybackState.IDLE, recordingId: null,
+    positionMs: 0, durationMs: 0, error: null,
+  };
   private noteRepo: NoteRepositoryImpl | null = null;
   private pageRepo: PageRepositoryImpl | null = null;
   private persistence: StrokePersistence = new StrokePersistence();
   private historyBridge: EditorHistoryBridge | null = null;
   private pageLoadInFlight: boolean = false;
+  private recordingStore: OriginalRecordingStore | null = null;
+  private recordingController: OriginalRecordingPlaybackController =
+    new OriginalRecordingPlaybackController();
+  private assetAvailabilitySubscription: number = -1;
+  private recordingLoadGeneration: number = 0;
   // T-038：主题状态
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -59,14 +78,29 @@ struct NotePage {
     if (params !== undefined && params !== null && params['noteId'] !== undefined) {
       this.noteId = params['noteId'];
     }
+    this.recordingController.setListener((snapshot: OriginalRecordingPlaybackSnapshot): void => {
+      this.playbackSnapshot = snapshot;
+    });
+    if (this.assetAvailabilitySubscription < 0) {
+      this.assetAvailabilitySubscription = assetAvailabilityHub.subscribe(
+        (change: AssetAvailabilityChange): void => this.onRecordingAssetAvailabilityChanged(change));
+    }
     this.loadPages();
   }
 
   // T-040 修复：路由返回时 TextInput 的 onBlur 不保证触发，必须在页面销毁时兜底保存标题
   aboutToDisappear(): void {
+    this.recordingLoadGeneration++;
     if (this.editingTitle) {
       this.saveTitle();
     }
+    if (this.assetAvailabilitySubscription >= 0) {
+      assetAvailabilityHub.unsubscribe(this.assetAvailabilitySubscription);
+      this.assetAvailabilitySubscription = -1;
+    }
+    this.recordingController.release().catch((error: Object) => {
+      console.warn(`Recording player release failed: ${JSON.stringify(error)}`);
+    });
   }
 
   onBackPress(): boolean {
@@ -82,6 +116,7 @@ struct NotePage {
       return;
     }
     await this.viewModel.flushToolState();
+    await this.recordingController.release();
     router.back();
   }
 
@@ -98,6 +133,7 @@ struct NotePage {
       await db.initialize(context);
       this.pageRepo = new PageRepositoryImpl(db);
       this.persistence.initialize(db);
+      this.recordingStore = new OriginalRecordingStore(db);
       this.viewModel.onPersistenceError = (message: string): void => {
         hilog.error(0x0001, 'NotePage', '%{public}s', message);
         try {
@@ -134,12 +170,15 @@ struct NotePage {
       }
       this.currentPageIndex = 0;
       this.pageLoadFailed = false;
+      await this.loadRecordings();
     } catch (e) {
       this.pages = [];
       this.currentPageIndex = 0;
       this.historyBridge = null;
       this.pageRepo = null;
       this.noteRepo = null;
+      this.recordingStore = null;
+      this.recordings = [];
       this.pageLoadFailed = true;
       console.error(`NotePage loadPages failed: ${JSON.stringify(e)}`);
       try {
@@ -180,6 +219,73 @@ struct NotePage {
       } catch (toastError) {
         console.error(`Title save failure toast failed: ${JSON.stringify(toastError)}`);
       }
+    }
+  }
+
+  private async loadRecordings(): Promise<void> {
+    if (this.recordingStore === null || this.noteId.length === 0) {
+      return;
+    }
+    const generation: number = ++this.recordingLoadGeneration;
+    this.recordingsLoading = true;
+    try {
+      const recordings: MaterializedOriginalRecording[] =
+        await this.recordingStore.listVisible(this.noteId);
+      if (generation === this.recordingLoadGeneration) {
+        this.recordings = recordings;
+      }
+    } catch (error) {
+      if (generation !== this.recordingLoadGeneration) {
+        return;
+      }
+      this.recordings = [];
+      console.error(`Recording list load failed: ${JSON.stringify(error)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.recordings_load_failed'), duration: 2500 });
+      } catch (_toastError) {
+      }
+    } finally {
+      if (generation === this.recordingLoadGeneration) {
+        this.recordingsLoading = false;
+      }
+    }
+  }
+
+  private async toggleRecording(recordingId: string): Promise<void> {
+    const selected: MaterializedOriginalRecording | null = this.findRecording(recordingId);
+    if (selected === null) {
+      return;
+    }
+    if (this.playbackSnapshot.recordingId !== recordingId) {
+      await this.recordingController.load(selected, true);
+      return;
+    }
+    if (this.playbackSnapshot.state === OriginalRecordingPlaybackState.PLAYING) {
+      await this.recordingController.pause();
+      return;
+    }
+    if (this.playbackSnapshot.state === OriginalRecordingPlaybackState.LOADING) {
+      return;
+    }
+    if (this.playbackSnapshot.state === OriginalRecordingPlaybackState.FAILED) {
+      await this.recordingController.load(selected, true);
+      return;
+    }
+    await this.recordingController.play();
+  }
+
+  private findRecording(recordingId: string): MaterializedOriginalRecording | null {
+    for (const recording of this.recordings) {
+      if (recording.id === recordingId) {
+        return recording;
+      }
+    }
+    return null;
+  }
+
+  private onRecordingAssetAvailabilityChanged(change: AssetAvailabilityChange): void {
+    if (change.noteIds.indexOf(this.noteId) >= 0) {
+      this.loadRecordings();
     }
   }
 
@@ -233,6 +339,14 @@ struct NotePage {
               this.editingTitle = true;
             })
         }
+        Button($r('app.string.recordings'))
+          .height(36)
+          .fontSize(13)
+          .margin({ left: 8 })
+          .enabled(!this.pageLoading && !this.pageLoadFailed)
+          .onClick(() => {
+            this.showRecordings = !this.showRecordings;
+          })
       }
       .width('100%')
       .height(48)
@@ -250,6 +364,23 @@ struct NotePage {
           },
           onRedo: () => {
             this.redoSignal++;
+          },
+        })
+      }
+
+      if (this.showRecordings && this.pages.length > 0) {
+        RecordingPanel({
+          recordings: this.recordings,
+          loading: this.recordingsLoading,
+          snapshot: this.playbackSnapshot,
+          onToggle: (recordingId: string) => {
+            this.toggleRecording(recordingId);
+          },
+          onSeek: (positionMs: number) => {
+            this.recordingController.seek(positionMs);
+          },
+          onClose: () => {
+            this.showRecordings = false;
           },
         })
       }

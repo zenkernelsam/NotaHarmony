@@ -40,7 +40,7 @@ export class OriginalRecordingPlaybackController {
   private stateHandler: media.OnAVPlayerStateChangeHandle | null = null;
   private timeHandler: Callback<number> | null = null;
   private durationHandler: Callback<number> | null = null;
-  private errorHandler: ErrorCallback | null = null;
+  private errorHandler: ((error: BusinessError) => void) | null = null;
 
   constructor(loader: OriginalRecordingAssetLoader = new OriginalRecordingAssetLoader()) {
     this.loader = loader;

@@ -60,6 +60,7 @@ import originalEntityVisibilityStateTest from './OriginalEntityVisibilityState.t
 import originalRecordingStoreTest from './OriginalRecordingStore.test';
 import originalRecordingAssetLoaderTest from './OriginalRecordingAssetLoader.test';
 import originalRecordingPlaybackControllerTest from './OriginalRecordingPlaybackController.test';
+import recordingPanelTest from './RecordingPanel.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -124,4 +125,5 @@ export default function testsuite() {
   originalRecordingStoreTest();
   originalRecordingAssetLoaderTest();
   originalRecordingPlaybackControllerTest();
+  recordingPanelTest();
 }

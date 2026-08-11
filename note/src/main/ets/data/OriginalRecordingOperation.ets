@@ -181,7 +181,7 @@ export class OriginalRecordingOperationApplier implements SyncedOperationApplier
       if (error instanceof RecordingDeferredError) {
         return { deferredReason: error.reason };
       }
-      throw error;
+      throw new Error(`applying original Recording operation failed: ${JSON.stringify(error)}`);
     }
   }
 

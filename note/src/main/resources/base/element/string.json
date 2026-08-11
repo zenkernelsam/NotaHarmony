@@ -477,6 +477,15 @@
     { "name": "reset_undo_history", "value": "Reset Undo History" },
     { "name": "history_recovery_needed", "value": "Saved undo history could not be verified. Editing remains available." },
     { "name": "history_recovery_complete", "value": "Undo history reset. New edits can be undone." },
-    { "name": "history_recovery_failed", "value": "Could not reset undo history. Editing remains available without saved Undo." }
+    { "name": "history_recovery_failed", "value": "Could not reset undo history. Editing remains available without saved Undo." },
+    { "name": "recordings", "value": "Recordings" },
+    { "name": "close_recordings", "value": "Close recordings" },
+    { "name": "no_recordings", "value": "No recordings" },
+    { "name": "play_recording", "value": "Play recording" },
+    { "name": "pause_recording", "value": "Pause recording" },
+    { "name": "recording_waiting_for_audio", "value": "Waiting for audio" },
+    { "name": "recording_audio_missing", "value": "Audio is missing" },
+    { "name": "recording_audio_failed", "value": "Audio is unavailable" },
+    { "name": "recordings_load_failed", "value": "Could not load recordings" }
   ]
 }
