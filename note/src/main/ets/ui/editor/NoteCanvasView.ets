@@ -4909,7 +4909,7 @@ export struct NoteCanvasView {
     let changed: boolean = false;
     let rearmOriginalCreate: boolean = false;
     if (this.editingTextBlock !== null) {
-      if (text.trim().length === 0) {
+      if (text.length === 0) {
         this.onTextCancel();
         return true;
       }
@@ -5255,11 +5255,14 @@ export struct NoteCanvasView {
               preview, this.renderCtx);
           }
         },
-        onCommit: (text: string) => {
-          this.onTextCommit(text).catch((e: Object): void => {
+        onCommit: async (text: string): Promise<boolean> => {
+          try {
+            return await this.onTextCommit(text);
+          } catch (e) {
             hilog.error(0x0001, 'NoteCanvasView',
               'Text commit failed: %{public}s', JSON.stringify(e));
-          });
+            return false;
+          }
         },
         onCancel: () => {
           this.onTextCancel();

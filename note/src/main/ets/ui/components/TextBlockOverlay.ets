@@ -16,7 +16,8 @@ export struct TextBlockOverlay {
   @State draftText: string = '';
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
-  onCommit: (text: string) => void = () => {
+  onCommit: (text: string) => Promise<boolean> = async (_text: string): Promise<boolean> => {
+    return false;
   };
   onCancel: () => void = () => {
   };
@@ -95,9 +96,10 @@ export struct TextBlockOverlay {
           Button($r('app.string.done'))
             .height(32)
             .fontSize(12)
-            .onClick(() => {
-              this.onCommit(this.draftText);
-              this.draftText = '';
+            .onClick(async () => {
+              if (await this.onCommit(this.draftText)) {
+                this.draftText = '';
+              }
             })
           Button($r('app.string.cancel'))
             .height(32)
