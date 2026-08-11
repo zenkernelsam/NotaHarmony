@@ -44,7 +44,7 @@ import { DatabaseManager } from '../../data/DatabaseManager';
 import {
   OriginalAppliedOperationTime, OriginalOperationAudioTimeStore,
 } from '../../data/OriginalOperationAudioTimeStore';
-import { encodeOperationId } from '../../data/OperationIdentity';
+import { decodeOperationId, encodeOperationId } from '../../data/OperationIdentity';
 import {
   AssetAvailabilityChange, assetAvailabilityHub,
 } from '../../data/AssetAvailabilityHub';
@@ -1656,8 +1656,9 @@ export struct NoteCanvasView {
         }
       }
     }
-    if (partialBefore.length > 0 || removed.length > 0 || removedShapes.length > 0 ||
-      removedTextBlocks.length > 0 || removedImages.length > 0 || removedMathBlocks.length > 0) {
+    const changed: boolean = partialBefore.length > 0 || removed.length > 0 || removedShapes.length > 0 ||
+      removedTextBlocks.length > 0 || removedImages.length > 0 || removedMathBlocks.length > 0;
+    if (changed) {
       this.undoRedo.push({
         type: UndoableActionType.ERASE_ELEMENTS,
         noteId: this.noteId,
@@ -1679,7 +1680,12 @@ export struct NoteCanvasView {
       });
     }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
-    this.persist();
+    const originalInkOnly: boolean = partialBefore.length === 0 && removed.length > 0 &&
+      removedShapes.length === 0 && removedTextBlocks.length === 0 && removedImages.length === 0 &&
+      removedMathBlocks.length === 0 && this.areCanonicalOriginalStrokes(removed);
+    if (changed) {
+      this.persist(originalInkOnly);
+    }
     this.notifyUndoRedo();
     if (removedImages.length > 0) {
       this.refreshImageAssets(this.pageLoadGeneration, this.loadedPageId);
@@ -1812,7 +1818,7 @@ export struct NoteCanvasView {
       }
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
       const originalInkOnly: boolean = group.every((move: HistoryMove): boolean =>
-        this.isOriginalAddStrokeAction(move.action));
+        this.isOriginalInkAction(move.action));
       if (originalInkOnly) {
         this.originalInkIneligiblePages.delete(this.loadedPageId);
         this.refreshOriginalInkReservation(this.pageLoadGeneration, this.loadedPageId);
@@ -1857,14 +1863,44 @@ export struct NoteCanvasView {
     if (!committed) {
       hilog.error(0x0001, 'NoteCanvasView', 'history commit rejected after apply, type=%{public}d', action.type);
     } else if (!this.isPageAction(action.type)) {
-      this.persist(this.isOriginalAddStrokeAction(action));
+      this.persist(this.isOriginalInkAction(action));
     }
     this.notifyUndoRedo();
   }
 
-  private isOriginalAddStrokeAction(action: UndoableAction): boolean {
-    return action.type === UndoableActionType.ADD_STROKE && action.addedStrokes.length === 1 &&
-      action.addedStrokes[0].originalCreate !== undefined;
+  private isOriginalInkAction(action: UndoableAction): boolean {
+    if (action.type === UndoableActionType.ADD_STROKE) {
+      return action.addedStrokes.length === 1 && action.addedStrokes[0].originalCreate !== undefined &&
+        this.areCanonicalOriginalStrokes(action.addedStrokes);
+    }
+    if (action.type === UndoableActionType.DELETE_STROKE) {
+      return action.beforeModifiedStrokes.length === 0 && action.afterModifiedStrokes.length === 0 &&
+        this.areCanonicalOriginalStrokes(action.removedStrokes);
+    }
+    if (action.type === UndoableActionType.ERASE_ELEMENTS) {
+      return action.beforeModifiedStrokes.length === 0 && action.afterModifiedStrokes.length === 0 &&
+        action.removedShapes.length === 0 && action.removedTextBlocks.length === 0 &&
+        action.removedImages.length === 0 && (action.removedMathBlocks ?? []).length === 0 &&
+        this.areCanonicalOriginalStrokes(action.removedStrokes);
+    }
+    if (action.type === UndoableActionType.DELETE_ELEMENTS) {
+      return action.removedShapes.length === 0 && action.removedTextBlocks.length === 0 &&
+        action.removedImages.length === 0 && (action.removedMathBlocks ?? []).length === 0 &&
+        this.areCanonicalOriginalStrokes(action.removedStrokes);
+    }
+    return false;
+  }
+
+  private areCanonicalOriginalStrokes(strokes: StrokeElementData[]): boolean {
+    if (strokes.length === 0) {
+      return false;
+    }
+    for (const stroke of strokes) {
+      if (decodeOperationId(stroke.id) === null) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private resumePendingHistory(): void {
@@ -3363,7 +3399,13 @@ export struct NoteCanvasView {
       }
       this.selectionVisible = false;
       this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
-      this.persist();
+      const originalInkOnly: boolean = removedShapes.length === 0 && removedTextBlocks.length === 0 &&
+        removedImages.length === 0 && removedMathBlocks.length === 0 &&
+        this.areCanonicalOriginalStrokes(removed);
+      if (removed.length > 0 || removedShapes.length > 0 || removedTextBlocks.length > 0 ||
+        removedImages.length > 0 || removedMathBlocks.length > 0) {
+        this.persist(originalInkOnly);
+      }
       this.notifyUndoRedo();
       this.renderFrame();
       if (removedImages.length > 0) {

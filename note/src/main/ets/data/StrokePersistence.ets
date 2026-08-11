@@ -39,7 +39,8 @@ import {
   encodeOriginalEntityVisibility,
 } from './OriginalDeleteEntitiesPayloadEncoder';
 import {
-  ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE, OriginalDeleteEntitiesOperationApplier,
+  MAX_ORIGINAL_DELETE_ENTITY_COUNT, ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE,
+  OriginalDeleteEntitiesOperationApplier,
 } from './OriginalDeleteEntitiesOperation';
 import {
   StoredSyncedOperation, SyncedOperationApplyResult, SyncedOperationInboxState,
@@ -112,7 +113,7 @@ interface OriginalOrderEntry {
 }
 
 interface OriginalEntityVisibilityMutation {
-  identity: OperationIdentity;
+  identities: OperationIdentity[];
   deleted: boolean;
 }
 
@@ -460,7 +461,7 @@ export class StrokePersistence {
       const mutation: PageMutationOpPayload = createPageMutation(
         snapshot.pageId, currentRevision, snapshotRevision, current, snapshot.elements);
       const originalVisibility: OriginalEntityVisibilityMutation | null =
-        this.singleOriginalEntityVisibility(current, snapshot.elements);
+        this.originalEntityVisibilityMutation(current, snapshot.elements);
       if (originalVisibility !== null) {
         await this.applyOriginalEntityVisibility(store, snapshot, originalVisibility,
           snapshotRevision);
@@ -707,7 +708,7 @@ export class StrokePersistence {
         const mutation: PageMutationOpPayload = createPageMutation(
           step.pageId, currentRevision, nextRevision, current, step.elements);
         const originalVisibility: OriginalEntityVisibilityMutation | null =
-          this.singleOriginalEntityVisibility(current, step.elements);
+          this.originalEntityVisibilityMutation(current, step.elements);
         if (originalVisibility === null) {
           await this.materializePreparedPage(store, step, currentRevision, nextRevision);
         } else {
@@ -739,30 +740,44 @@ export class StrokePersistence {
     }
   }
 
-  private singleOriginalEntityVisibility(current: SearchSourceElement[],
+  private originalEntityVisibilityMutation(current: SearchSourceElement[],
     next: PreparedElement[]): OriginalEntityVisibilityMutation | null {
-    const deleted: boolean = current.length === next.length + 1;
-    const undeleted: boolean = next.length === current.length + 1;
+    const deleted: boolean = current.length > next.length;
+    const undeleted: boolean = next.length > current.length;
     if (!deleted && !undeleted) {
+      return null;
+    }
+    const targetCount: number = Math.abs(current.length - next.length);
+    if (targetCount > MAX_ORIGINAL_DELETE_ENTITY_COUNT) {
       return null;
     }
     const larger: (SearchSourceElement | PreparedElement)[] = deleted ? current : next;
     const smaller: (SearchSourceElement | PreparedElement)[] = deleted ? next : current;
     let largerIndex: number = 0;
     let smallerIndex: number = 0;
-    let target: SearchSourceElement | PreparedElement | null = null;
+    const identities: OperationIdentity[] = [];
     while (largerIndex < larger.length) {
       if (smallerIndex < smaller.length &&
         sameElement(larger[largerIndex], smaller[smallerIndex])) {
         largerIndex++;
         smallerIndex++;
-      } else if (target === null) {
-        target = larger[largerIndex++];
       } else {
-        return null;
+        const identity: OperationIdentity | null = this.originalStrokeIdentity(larger[largerIndex]);
+        if (identity === null) {
+          return null;
+        }
+        identities.push(identity);
+        largerIndex++;
       }
     }
-    if (target === null || smallerIndex !== smaller.length || target.kind !== PageElementKind.STROKE) {
+    if (smallerIndex !== smaller.length || identities.length !== targetCount) {
+      return null;
+    }
+    return { identities: identities, deleted: deleted };
+  }
+
+  private originalStrokeIdentity(target: SearchSourceElement | PreparedElement): OperationIdentity | null {
+    if (target.kind !== PageElementKind.STROKE) {
       return null;
     }
     try {
@@ -771,9 +786,7 @@ export class StrokePersistence {
         return null;
       }
       const stroke: StrokeElementData = persisted.data as StrokeElementData;
-      const identity: OperationIdentity | null = decodeOperationId(stroke.id);
-      return stroke.originalCreate !== undefined && identity !== null ?
-        { identity: identity, deleted: deleted } : null;
+      return decodeOperationId(stroke.id);
     } catch (_error) {
       return null;
     }
@@ -784,7 +797,8 @@ export class StrokePersistence {
     expectedRevision: number): Promise<void> {
     const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, step.noteId);
     const payload: Uint8Array = encodeOriginalEntityVisibility(
-      visibility.deleted ? [visibility.identity] : [], visibility.deleted ? [] : [visibility.identity]);
+      visibility.deleted ? visibility.identities : [],
+      visibility.deleted ? [] : visibility.identities);
     const metadata: OriginalInkCreateMetadata = {
       timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
       pageTimestamp: 0, pageSiteId: 0, pageIndex: 0,

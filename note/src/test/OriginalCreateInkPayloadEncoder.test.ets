@@ -37,13 +37,17 @@ export default function originalCreateInkPayloadEncoderTest() {
       expect(pencil.styleMap[0].backingPencilSeed).assertEqual(-1234);
     });
 
-    it('encodes entity delete and undelete vectors without changing identity', 0, () => {
+    it('encodes batched entity delete and undelete vectors without changing identity', 0, () => {
       const decoded = decodeOriginalDeleteEntities(encodeOriginalEntityVisibility(
-        [{ timestamp: 20, siteId: 2 }], [{ timestamp: 21, siteId: 3 }]));
-      expect(decoded.entityDeletes.length).assertEqual(1);
+        [{ timestamp: 20, siteId: 2 }, { timestamp: 22, siteId: 4 },
+          { timestamp: 24, siteId: 6 }],
+        [{ timestamp: 21, siteId: 3 }, { timestamp: 23, siteId: 5 }]));
+      expect(decoded.entityDeletes.length).assertEqual(3);
       expect(decoded.entityDeletes[0].timestamp).assertEqual(20);
-      expect(decoded.entityUndeletes.length).assertEqual(1);
+      expect(decoded.entityDeletes[2].siteId).assertEqual(6);
+      expect(decoded.entityUndeletes.length).assertEqual(2);
       expect(decoded.entityUndeletes[0].siteId).assertEqual(3);
+      expect(decoded.entityUndeletes[1].timestamp).assertEqual(23);
       expect(decodeOperationId('op:14:2')?.timestamp).assertEqual(20);
       expect(decodeOperationId('not-an-operation') === null).assertTrue();
     });

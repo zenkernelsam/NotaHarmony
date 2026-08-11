@@ -38,7 +38,7 @@ assert.match(persistence, /reserveOriginalInkCreate/);
 assert.match(persistence, /readEligibleOriginalInkPage/);
 assert.match(persistence, /OriginalCreateInkOperationApplier\(\)\.apply/);
 assert.match(persistence, /uploadImmediately: true/);
-assert.match(persistence, /singleOriginalEntityVisibility/);
+assert.match(persistence, /originalEntityVisibilityMutation/);
 assert.match(persistence, /OriginalDeleteEntitiesOperationApplier\(\)\.apply/);
 assert.match(persistence, /blockOriginalInkAuthoring/);
 assert.match(canvas, /originalInkReservation/);
