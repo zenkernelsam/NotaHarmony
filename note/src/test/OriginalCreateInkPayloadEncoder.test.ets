@@ -191,8 +191,17 @@ export default function originalCreateInkPayloadEncoderTest() {
       expect(decodedLine.style).assertEqual(1);
       expect(decodedLine.force).assertEqual(0.6000000238418579);
       expect(decodedLine.zIndex).assertEqual('1234');
+      expect(decodedLine.fillColor === null).assertTrue();
+      expect(decodedLine.positionLocked).assertFalse();
       expect(lineDefinition.controlPoint2?.x).assertEqual(6);
       expect(lineDefinition.arrowHead).assertEqual(1);
+
+      line.fillColor = 0x7F445566;
+      line.positionLocked = true;
+      const decodedFilledLockedLine = decodeOriginalCreateShape(wrap(18,
+        encodeOriginalLocalCreateShape({ timestamp: 80, siteId: 7, index: 2 }, line, null)), '1234');
+      expect(decodedFilledLockedLine.fillColor).assertEqual(0x7F445566);
+      expect(decodedFilledLockedLine.positionLocked).assertTrue();
 
       const polygon: ShapeElement = {
         id: 'op:65:7', type: ElementType.POLYGON,
@@ -226,6 +235,12 @@ export default function originalCreateInkPayloadEncoderTest() {
       expect(ellipseDefinition.width).assertEqual(40);
       expect(ellipseDefinition.height).assertEqual(20);
 
+      line.fillColor = 0x00112233;
+      expect(() => encodeOriginalLocalCreateShape(
+        { timestamp: 80, siteId: 7, index: 2 }, line, null)).assertThrow();
+
+      line.fillColor = null;
+      line.positionLocked = false;
       line.originalStyle = 0;
       expect(() => encodeOriginalLocalCreateShape(
         { timestamp: 80, siteId: 7, index: 2 }, line, null)).assertThrow();

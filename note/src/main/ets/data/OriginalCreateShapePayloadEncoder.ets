@@ -32,9 +32,10 @@ export function encodeOriginalLocalCreateShape(page: OriginalSequenceIdentity,
     4, 16, placement.rotation === null ? 0 : 24, 0, 36, 40,
     shape.originalTool === 0 ? 0 : 44,
     shape.originalStyle === 1 ? 0 : 45,
-    0, 48, 52, 0, 0, 0, averageForce === null ? 0 : 76, 0, 0, 0,
+    0, 48, 52, shape.fillColor === null ? 0 : 56, 0, 0,
+    averageForce === null ? 0 : 76, shape.positionLocked === true ? 80 : 0, 0, 0,
   ];
-  const root: number = builder.table(fields, 80);
+  const root: number = builder.table(fields, 84);
   builder.inlineSequence(root + 4, page);
   builder.float32(root + 16, placement.originX);
   builder.float32(root + 20, placement.originY);
@@ -46,8 +47,14 @@ export function encodeOriginalLocalCreateShape(page: OriginalSequenceIdentity,
   builder.uint8(root + 45, shape.originalStyle as number);
   builder.color(root + 48, shape.color);
   builder.float32(root + 52, shape.strokeWidth);
+  if (shape.fillColor !== null) {
+    builder.color(root + 56, shape.fillColor);
+  }
   if (averageForce !== null) {
     builder.float32(root + 76, averageForce);
+  }
+  if (shape.positionLocked === true) {
+    builder.uint8(root + 80, 1);
   }
   const definition: EncodedDefinition = encodeDefinition(builder, shape);
   if (definition.type !== definitionType) {
@@ -125,7 +132,8 @@ function validateLocalShape(shape: ShapeElement, averageForce: number | null): v
     !Number.isInteger(shape.originalTool) || shape.originalStyle === undefined ||
     !Number.isInteger(shape.originalStyle) || shape.originalStyle < 1 || shape.originalStyle > 3 ||
     !validColor(shape.color) || !Number.isFinite(shape.strokeWidth) || shape.strokeWidth < 0 ||
-    shape.fillColor !== null || shape.positionLocked === true ||
+    shape.fillColor !== null && (!validColor(shape.fillColor) || colorAlpha(shape.fillColor) === 0) ||
+    shape.positionLocked !== undefined && typeof shape.positionLocked !== 'boolean' ||
     shape.richText !== undefined && shape.richText.length > 0 ||
     !identityTransform(shape.transform) || averageForce !== null && !Number.isFinite(averageForce)) {
     throw new Error('local Shape cannot be represented by original CREATE_SHAPE');
@@ -176,6 +184,10 @@ function identityTransform(transform: number[]): boolean {
 
 function validColor(color: number): boolean {
   return Number.isSafeInteger(color) && color >= -2147483648 && color <= 4294967295;
+}
+
+function colorAlpha(color: number): number {
+  return color >>> 24 & 0xFF;
 }
 
 class ForwardFlatBufferBuilder {
