@@ -32,10 +32,10 @@ import { StrokeSession } from '../../rendering/StrokeSession';
 import { EraserEngine, EraserMode } from '../../rendering/EraserEngine';
 import { PaperRenderer } from '../../rendering/PaperRenderer';
 import {
-  EditorHistoryBridge, GroupElementsAction, HistoryMove, PageContentSnapshot, UndoRedoManager,
-  UndoableAction, UndoableActionType,
+  EditorHistoryBridge, GroupElementsAction, HistoryMove, OriginalClipboardPasteAction,
+  PageContentSnapshot, UndoRedoManager, UndoableAction, UndoableActionType,
 } from '../../rendering/UndoRedoManager';
-import { HistoryMetadata, Op } from '../../core/model/OpTypes';
+import { HistoryMetadata, Op, OpType } from '../../core/model/OpTypes';
 import { SelectionTool, SelectionMode } from '../../rendering/SelectionTool';
 import {
   ClipboardPasteResult, ClipboardSingleOriginalSource, StrokeClipboard,
@@ -44,10 +44,13 @@ import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
 import {
   decodePersistedElement, encodePersistedElement, HistoryPageSnapshot, OriginalZOrderCommand,
-  OriginalGroupMutationResult, OriginalTextEditPreview, OriginalZOrderHint, PersistedElement,
-  StrokePersistence,
+  OriginalClipboardPasteHistoryResult, OriginalGroupMutationResult, OriginalTextEditPreview,
+  OriginalZOrderHint, PersistedElement, StrokePersistence,
 } from '../../data/StrokePersistence';
 import { OriginalGroupMutationOpPayload } from '../../data/OriginalGroupMutationOpCodec';
+import {
+  decodeOriginalClipboardPasteMutation, OriginalClipboardPasteMutation,
+} from '../../data/OriginalClipboardPasteMutationCodec';
 import {
   rebuildOriginalPencilWidth, RebuiltOriginalPencilWidth,
 } from '../../core/adaptation/OriginalPencilWidthGeometry';
@@ -68,6 +71,7 @@ import { OpStoreImpl, PersistentHistoryReplay } from '../../data/OpStoreImpl';
 import {
   materializePersistentHistory, replayPersistentPageMutations, RestoredHistoryState,
 } from '../../data/PersistentHistory';
+import { replayPageMutation } from '../../data/PageMutationOpCodec';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import {
@@ -1980,6 +1984,34 @@ export struct NoteCanvasView {
       });
       return;
     }
+    if (action.type === UndoableActionType.ORIGINAL_CLIPBOARD_PASTE) {
+      if (group.length !== 1) {
+        hilog.error(0x0001, 'NoteCanvasView', 'original clipboard Paste history cannot be coalesced');
+        return;
+      }
+      if (action.pageId !== this.loadedPageId) {
+        this.pendingHistoryDirection = isUndo ? -1 : 1;
+        this.onRequestPage(action.pageId);
+        return;
+      }
+      if (!this.validateOriginalClipboardPasteActionState(action, isUndo)) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original clipboard Paste history source state is stale');
+        return;
+      }
+      const history: HistoryMetadata | null =
+        this.undoRedo.getHistoryMetadataForMove(action, isUndo);
+      if (history === null) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original clipboard Paste history metadata is stale');
+        return;
+      }
+      this.historyBusy = true;
+      this.applyOriginalClipboardPasteHistoryMove(action, isUndo, history).finally((): void => {
+        this.historyBusy = false;
+      });
+      return;
+    }
     if (action.pageId !== this.loadedPageId) {
       this.pendingHistoryDirection = isUndo ? -1 : 1;
       this.onRequestPage(action.pageId);
@@ -2032,15 +2064,47 @@ export struct NoteCanvasView {
     }
   }
 
+  private async applyOriginalClipboardPasteHistoryMove(
+    action: OriginalClipboardPasteAction, isUndo: boolean,
+    history: HistoryMetadata): Promise<void> {
+    try {
+      const mutation: OriginalClipboardPasteMutation =
+        decodeOriginalClipboardPasteMutation(action.operation.payload);
+      const result: OriginalClipboardPasteHistoryResult =
+        await this.persistence.applyOriginalClipboardPasteHistory(
+          this.noteId, mutation, !isUndo, history);
+      const committed: boolean = isUndo ?
+        this.undoRedo.commitUndo(action) : this.undoRedo.commitRedo(action);
+      if (!committed) {
+        throw new Error('original clipboard Paste history stack changed after durable apply');
+      }
+      this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+      this.installMutationElements(result.elements);
+      this.selectionGroups = result.groups;
+      this.selectionTool.deselect();
+      this.selectionVisible = false;
+      this.originalInkIneligiblePages.delete(action.pageId);
+      this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+      this.renderFrame();
+      this.notifyUndoRedo();
+    } catch (e) {
+      this.reportSaveFailure(e as Object);
+      hilog.error(0x0001, 'NoteCanvasView',
+        'original clipboard Paste history apply failed: %{public}s', JSON.stringify(e));
+    }
+  }
+
   private isSinglePageElementGroup(group: HistoryMove[]): boolean {
     if (group.length === 0 || this.isPageAction(group[0].action.type) ||
-      group[0].action.type === UndoableActionType.GROUP_ELEMENTS) {
+      group[0].action.type === UndoableActionType.GROUP_ELEMENTS ||
+      group[0].action.type === UndoableActionType.ORIGINAL_CLIPBOARD_PASTE) {
       return false;
     }
     const pageId: string = group[0].action.pageId;
     for (const move of group) {
       if (move.action.noteId !== this.noteId || move.action.pageId !== pageId ||
-        this.isPageAction(move.action.type) || move.action.type === UndoableActionType.GROUP_ELEMENTS) {
+        this.isPageAction(move.action.type) || move.action.type === UndoableActionType.GROUP_ELEMENTS ||
+        move.action.type === UndoableActionType.ORIGINAL_CLIPBOARD_PASTE) {
         return false;
       }
     }
@@ -2628,6 +2692,32 @@ export struct NoteCanvasView {
     const active: OriginalSelectionGroup | null = this.findSelectionGroup(group.id);
     return source.length === 0 ? active === null :
       active !== null && this.sameSelectionGroup(active, group);
+  }
+
+  private validateOriginalClipboardPasteActionState(
+    action: OriginalClipboardPasteAction, isUndo: boolean): boolean {
+    if (action.operation.noteId !== action.noteId ||
+      action.operation.opType !== OpType.ORIGINAL_CLIPBOARD_PASTE) {
+      return false;
+    }
+    try {
+      const mutation: OriginalClipboardPasteMutation =
+        decodeOriginalClipboardPasteMutation(action.operation.payload);
+      if (mutation.pageMutation.pageId !== action.pageId) {
+        return false;
+      }
+      const current: SearchSourceElement[] = this.currentMutationElements();
+      replayPageMutation(current, mutation.pageMutation, !isUndo);
+      for (const group of mutation.groups) {
+        const active: OriginalSelectionGroup | null = this.findSelectionGroup(group.id);
+        if (isUndo ? active === null || !this.sameSelectionGroup(active, group) : active !== null) {
+          return false;
+        }
+      }
+      return true;
+    } catch (_error) {
+      return false;
+    }
   }
 
   private applyGroupActionState(action: GroupElementsAction, isUndo: boolean): void {
