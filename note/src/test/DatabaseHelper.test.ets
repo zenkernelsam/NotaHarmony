@@ -12,6 +12,8 @@ import {
   DDL_ORIGINAL_BLOCK_STATE, DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER,
   DDL_ORIGINAL_TEXT_CHECKBOX_STATE, DDL_ORIGINAL_PDF_FIELD_STATE,
   DDL_ORIGINAL_RECORDING_STATE, DDL_ORIGINAL_RECORDING_MODIFICATION,
+  DDL_ORIGINAL_SHAPE_STATE, DDL_ORIGINAL_SHAPE_MODIFICATION,
+  DDL_ORIGINAL_GROUP_STATE, DDL_ORIGINAL_GROUP_MODIFICATION,
   DDL_ORIGINAL_DELETED_ENTITY,
   DDL_ORIGINAL_DELETED_PAGE,
   DDL_ORIGINAL_DELETED_PAGE_ELEMENT, DDL_ORIGINAL_DELETED_PAGE_SEARCH,
@@ -24,7 +26,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(55);
+      expect(DB_VERSION).assertEqual(56);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -106,6 +108,10 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[54].join('\n')).assertContain('original_pdf_field_state');
       expect(MIGRATIONS[55].join('\n')).assertContain('original_recording_state');
       expect(MIGRATIONS[55].join('\n')).assertContain('original_recording_modification');
+      expect(MIGRATIONS[56].join('\n')).assertContain('original_shape_state');
+      expect(MIGRATIONS[56].join('\n')).assertContain('original_shape_modification');
+      expect(MIGRATIONS[56].join('\n')).assertContain('original_group_state');
+      expect(MIGRATIONS[56].join('\n')).assertContain('original_group_modification');
       expect(MIGRATIONS[35].join('\n')).assertContain('original_block_state');
       expect(MIGRATIONS[36].join('\n')).assertContain('page_origin_winner_present');
       expect(MIGRATIONS[36].join('\n')).assertContain('z_index_winner_present');
@@ -128,6 +134,11 @@ export default function databaseHelperTest() {
       expect(DDL_ORIGINAL_INK_STATE).assertContain('ink_effects_winner_present INTEGER NOT NULL');
       expect(DDL_ORIGINAL_INK_STATE)
         .assertContain('ink_effects_tinted_winner_present INTEGER NOT NULL');
+      expect(DDL_ORIGINAL_SHAPE_STATE).assertContain('resolved_payload TEXT NOT NULL');
+      expect(DDL_ORIGINAL_SHAPE_STATE).assertContain("register_winners TEXT NOT NULL DEFAULT '[]'");
+      expect(DDL_ORIGINAL_SHAPE_MODIFICATION).assertContain('payload_signature TEXT NOT NULL');
+      expect(DDL_ORIGINAL_GROUP_STATE).assertContain('members_winner_present INTEGER NOT NULL');
+      expect(DDL_ORIGINAL_GROUP_MODIFICATION).assertContain('REFERENCES original_group_state');
       expect(DDL_ORIGINAL_INK_STATE).assertContain('estimated_center_path BLOB NOT NULL');
       expect(DDL_ORIGINAL_INK_STATE).assertContain('REFERENCES original_element_z_index');
       expect(DDL_ORIGINAL_INK_PATH_APPEND)

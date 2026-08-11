@@ -70,6 +70,12 @@ import {
   OriginalRecordingOperationApplier,
 } from './OriginalRecordingOperation';
 import {
+  decodeOriginalCreateShapeTable, decodeOriginalModifyShapeTable,
+  ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE, ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE,
+  ORIGINAL_CREATE_GROUP_PAYLOAD_TYPE, ORIGINAL_MODIFY_GROUP_PAYLOAD_TYPE,
+  OriginalShapeGroupOperationApplier,
+} from './OriginalShapeGroupOperation';
+import {
   ORIGINAL_SET_METADATA_PAYLOAD_TYPE, OriginalSetMetadataOperationApplier,
   readEffectiveNoteBackground,
 } from './OriginalSetMetadataOperation';
@@ -332,6 +338,7 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
   const modifyPdfField: OriginalModifyPdfFieldOperationApplier =
     new OriginalModifyPdfFieldOperationApplier();
   const recording: OriginalRecordingOperationApplier = new OriginalRecordingOperationApplier();
+  const shapeGroup: OriginalShapeGroupOperationApplier = new OriginalShapeGroupOperationApplier();
   const setMetadata: OriginalSetMetadataOperationApplier = new OriginalSetMetadataOperationApplier();
   const modifyPositions: OriginalModifyPositionsOperationApplier =
     new OriginalModifyPositionsOperationApplier();
@@ -475,6 +482,28 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
       }
       continue;
     }
+    if (operation.payloadType >= ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE &&
+      operation.payloadType <= ORIGINAL_MODIFY_GROUP_PAYLOAD_TYPE) {
+      const reason: string | null = shapeGroup.preflightTable(
+        operation.payload, operation.payloadType, operation.clientTime);
+      if (reason !== null) {
+        return `NOTE_BUNDLE_${reason}`;
+      }
+      if (operation.payloadType === ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE) {
+        const page = decodeOriginalCreateShapeTable(
+          operation.payload, operation.clientTime).page;
+        if (!history.pages.has(encodeOriginalSequenceId(page))) {
+          return 'NOTE_BUNDLE_CREATE_SHAPE_PAGE_MISSING';
+        }
+      } else if (operation.payloadType === ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE) {
+        const pageOrigin = decodeOriginalModifyShapeTable(operation.payload).pageOrigin;
+        if (pageOrigin !== null &&
+          !history.pages.has(encodeOriginalSequenceId(pageOrigin.page))) {
+          return 'NOTE_BUNDLE_MODIFY_SHAPE_DESTINATION_PAGE_MISSING';
+        }
+      }
+      continue;
+    }
     if (operation.payloadType === ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE) {
       const reason: string | null =
@@ -534,6 +563,7 @@ async function applyBundleContent(store: relationalStore.RdbStore,
   const modifyPdfField: OriginalModifyPdfFieldOperationApplier =
     new OriginalModifyPdfFieldOperationApplier();
   const recording: OriginalRecordingOperationApplier = new OriginalRecordingOperationApplier();
+  const shapeGroup: OriginalShapeGroupOperationApplier = new OriginalShapeGroupOperationApplier();
   const setMetadata: OriginalSetMetadataOperationApplier = new OriginalSetMetadataOperationApplier();
   const modifyPositions: OriginalModifyPositionsOperationApplier =
     new OriginalModifyPositionsOperationApplier();
@@ -544,6 +574,7 @@ async function applyBundleContent(store: relationalStore.RdbStore,
     'SELECT structure_revision AS value FROM note_meta WHERE id = ?', [bundle.noteId]);
   const pdfFieldStateBefore: string = await originalPdfFieldStateSignature(store, bundle.noteId);
   const recordingStateBefore: string = await originalRecordingStateSignature(store, bundle.noteId);
+  const shapeGroupStateBefore: string = await originalShapeGroupStateSignature(store, bundle.noteId);
   for (const operation of bundle.operations) {
     if (operation.payloadType !== ORIGINAL_SET_METADATA_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE &&
@@ -565,6 +596,10 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       operation.payloadType !== ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_CREATE_GROUP_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_MODIFY_GROUP_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE) {
       continue;
@@ -613,6 +648,9 @@ async function applyBundleContent(store: relationalStore.RdbStore,
     } else if (operation.payloadType === ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE) {
       result = await recording.applyTable(store, stored, operation.payload);
+    } else if (operation.payloadType >= ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE &&
+      operation.payloadType <= ORIGINAL_MODIFY_GROUP_PAYLOAD_TYPE) {
+      result = await shapeGroup.applyTable(store, stored, operation.payload);
     } else if (operation.payloadType === ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE) {
       // Original v69 consumes validated comment payloads without a model mutation.
@@ -632,7 +670,8 @@ async function applyBundleContent(store: relationalStore.RdbStore,
   return { applied: after > before || revisionAfter > revisionBefore ||
     structureRevisionAfter > structureRevisionBefore ||
     await originalPdfFieldStateSignature(store, bundle.noteId) !== pdfFieldStateBefore ||
-    await originalRecordingStateSignature(store, bundle.noteId) !== recordingStateBefore,
+    await originalRecordingStateSignature(store, bundle.noteId) !== recordingStateBefore ||
+    await originalShapeGroupStateSignature(store, bundle.noteId) !== shapeGroupStateBefore,
     deferredReason: null };
 }
 
@@ -668,6 +707,32 @@ async function originalRecordingStateSignature(store: relationalStore.RdbStore,
     return signature;
   } finally {
     rows.close();
+  }
+}
+
+async function originalShapeGroupStateSignature(store: relationalStore.RdbStore,
+  noteId: string): Promise<string> {
+  const shapes = await store.querySql(
+    `SELECT shape_timestamp, shape_site_id, resolved_payload, register_winners
+     FROM original_shape_state WHERE note_id = ? ORDER BY shape_timestamp, shape_site_id`, [noteId]);
+  const groups = await store.querySql(
+    `SELECT group_timestamp, group_site_id, members_value, members_winner_timestamp,
+            members_winner_site_id, members_winner_present
+     FROM original_group_state WHERE note_id = ? ORDER BY group_timestamp, group_site_id`, [noteId]);
+  let signature: string = '';
+  try {
+    while (shapes.goToNextRow()) {
+      signature += `S:${shapes.getLong(0)}:${shapes.getLong(1)}:${shapes.getString(2)}:` +
+        `${shapes.getString(3)};`;
+    }
+    while (groups.goToNextRow()) {
+      signature += `G:${groups.getLong(0)}:${groups.getLong(1)}:${groups.getString(2)}:` +
+        `${groups.getLong(3)}:${groups.getLong(4)}:${groups.getLong(5)};`;
+    }
+    return signature;
+  } finally {
+    shapes.close();
+    groups.close();
   }
 }
 

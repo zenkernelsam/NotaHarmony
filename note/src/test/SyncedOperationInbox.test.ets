@@ -91,6 +91,13 @@ import {
   ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE, ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE,
   OriginalRecordingOperationApplier,
 } from '../main/ets/data/OriginalRecordingOperation';
+import {
+  decodeOriginalCreateGroup, decodeOriginalCreateShape, decodeOriginalModifyGroup,
+  decodeOriginalModifyShape, ORIGINAL_CREATE_GROUP_PAYLOAD_TYPE,
+  ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE, ORIGINAL_MODIFY_GROUP_PAYLOAD_TYPE,
+  ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE, OriginalShapeDefinitionType,
+  OriginalShapeGroupOperationApplier,
+} from '../main/ets/data/OriginalShapeGroupOperation';
 import { OriginalPageMutationBatch } from '../main/ets/data/OriginalPageMutationBatch';
 
 function operation(timestamp: number, serverTime: string,
@@ -556,6 +563,47 @@ export default function syncedOperationInboxTest() {
       const router: OriginalPageOperationApplier = new OriginalPageOperationApplier();
       expect(router.supports(ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE)).assertTrue();
       expect(router.supports(ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE)).assertTrue();
+    });
+
+    it('decodes original Shape definitions, nullable registers and Group members', 0, () => {
+      const created = decodeOriginalCreateShape(flatBufferCreateShape(), '77');
+      expect(created.page.timestamp).assertEqual(400);
+      expect(created.originX).assertEqual(12.5);
+      expect(created.originY).assertEqual(-3.25);
+      expect(created.definition.type).assertEqual(OriginalShapeDefinitionType.ELLIPSE);
+      expect(created.color).assertEqual(-16116706);
+      expect(created.zIndex).assertEqual('77');
+
+      const modified = decodeOriginalModifyShape(flatBufferModifyShape());
+      expect(modified.shapes.length).assertEqual(2);
+      expect(modified.rotation.present).assertTrue();
+      expect(modified.rotation.value === null).assertTrue();
+      expect(modified.color).assertEqual(-2147417597);
+      expect(modified.zIndex).assertEqual('18446744073709551615');
+
+      const group = decodeOriginalCreateGroup(flatBufferCreateGroup());
+      expect(group.members.length).assertEqual(2);
+      expect(group.members[1].timestamp).assertEqual(102);
+      const groupModify = decodeOriginalModifyGroup(flatBufferModifyGroup());
+      expect(groupModify.group.timestamp).assertEqual(500);
+      expect(groupModify.members[0].siteId).assertEqual(4);
+    });
+
+    it('strictly routes all four original Shape and Group operation types', 0, () => {
+      const applier: OriginalShapeGroupOperationApplier = new OriginalShapeGroupOperationApplier();
+      const router: OriginalPageOperationApplier = new OriginalPageOperationApplier();
+      for (const type of [ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE,
+        ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE, ORIGINAL_CREATE_GROUP_PAYLOAD_TYPE,
+        ORIGINAL_MODIFY_GROUP_PAYLOAD_TYPE]) {
+        expect(applier.supports(type)).assertTrue();
+        expect(router.supports(type)).assertTrue();
+      }
+      expect(applier.preflightTable(readOriginalPayloadTable(
+        flatBufferCreateShape(true), ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE),
+      ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE, '1')).assertEqual('MALFORMED_SHAPE_GROUP_PAYLOAD');
+      expect(applier.preflightTable(readOriginalPayloadTable(
+        flatBufferModifyGroup(false), ORIGINAL_MODIFY_GROUP_PAYLOAD_TYPE),
+      ORIGINAL_MODIFY_GROUP_PAYLOAD_TYPE, '1')).assertEqual('MALFORMED_SHAPE_GROUP_PAYLOAD');
     });
 
     it('decodes original INSERT_CHAR and INSERT_STRING Unicode code points', 0, () => {
@@ -1768,6 +1816,18 @@ class FixtureFlatBufferBuilder {
     for (let index: number = 0; index < values.length; index++) {
       writeDecimalU64(this.bytes, vector + 4 + index * 16, values[index].startTime);
       writeDecimalU64(this.bytes, vector + 12 + index * 16, values[index].endTime);
+    }
+    return vector;
+  }
+
+  pointVector(values: { x: number, y: number }[]): number {
+    this.align(4);
+    const vector: number = this.cursor;
+    this.cursor += 4 + values.length * 8;
+    writeU32(this.bytes, vector, values.length);
+    for (let index: number = 0; index < values.length; index++) {
+      this.float32(vector + 4 + index * 8, values[index].x);
+      this.float32(vector + 8 + index * 8, values[index].y);
     }
     return vector;
   }
@@ -3035,6 +3095,88 @@ function flatBufferModifyRecording(includeName: boolean = true,
   if (includeZIndex) {
     writeDecimalU64At(builder, payload + 24, '18446744073709551613');
   }
+  builder.pointer(root + 32, payload);
+  return builder.finish(root);
+}
+
+function flatBufferCreateShape(includeUnknown: boolean = false): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.inlineIdentity(root + 4, 410, 7);
+  writeDecimalU64At(builder, root + 12, '70');
+  writeDecimalU64At(builder, root + 20, '80');
+  builder.uint8(root + 28, ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE);
+  const offsets: number[] = [4, 16, 0, 0, 24, 28, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0];
+  if (includeUnknown) {
+    offsets.push(36);
+  }
+  const payload: number = builder.table(offsets, 40);
+  builder.inlineSequence(payload + 4, 400, 5, 2);
+  builder.float32(payload + 16, 12.5);
+  builder.float32(payload + 20, -3.25);
+  builder.uint8(payload + 24, OriginalShapeDefinitionType.ELLIPSE);
+  const ellipse: number = builder.table([0, 4], 12);
+  builder.float32(ellipse + 4, 20);
+  builder.float32(ellipse + 8, 10);
+  builder.pointer(payload + 28, ellipse);
+  builder.color(payload + 32, [10, 20, 30, 255]);
+  if (includeUnknown) {
+    builder.uint8(payload + 36, 1);
+  }
+  builder.pointer(root + 32, payload);
+  return builder.finish(root);
+}
+
+function flatBufferModifyShape(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.inlineIdentity(root + 4, 420, 7);
+  writeDecimalU64At(builder, root + 12, '81');
+  writeDecimalU64At(builder, root + 20, '82');
+  builder.uint8(root + 28, ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE);
+  const payload: number = builder.table([
+    4, 0, 0, 8, 0, 0, 0, 0, 0, 0, 12, 0, 0, 16, 0, 0, 0,
+  ], 24);
+  builder.pointer(payload + 4, builder.operationIdentityVector([
+    { timestamp: 410, siteId: 7 }, { timestamp: 411, siteId: 8 },
+  ]));
+  const clearRotation: number = builder.table([0], 4);
+  builder.pointer(payload + 8, clearRotation);
+  builder.color(payload + 12, [1, 2, 3, 128]);
+  writeDecimalU64At(builder, payload + 16, '18446744073709551615');
+  builder.pointer(root + 32, payload);
+  return builder.finish(root);
+}
+
+function flatBufferCreateGroup(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.inlineIdentity(root + 4, 500, 9);
+  writeDecimalU64At(builder, root + 12, '83');
+  writeDecimalU64At(builder, root + 20, '84');
+  builder.uint8(root + 28, ORIGINAL_CREATE_GROUP_PAYLOAD_TYPE);
+  const payload: number = builder.table([4], 8);
+  builder.pointer(payload + 4, builder.operationIdentityVector([
+    { timestamp: 101, siteId: 3 }, { timestamp: 102, siteId: 4 },
+  ]));
+  builder.pointer(root + 32, payload);
+  return builder.finish(root);
+}
+
+function flatBufferModifyGroup(includeGroup: boolean = true): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.inlineIdentity(root + 4, 501, 9);
+  writeDecimalU64At(builder, root + 12, '85');
+  writeDecimalU64At(builder, root + 20, '86');
+  builder.uint8(root + 28, ORIGINAL_MODIFY_GROUP_PAYLOAD_TYPE);
+  const payload: number = builder.table([includeGroup ? 4 : 0, 12], 16);
+  if (includeGroup) {
+    builder.inlineIdentity(payload + 4, 500, 9);
+  }
+  builder.pointer(payload + 12, builder.operationIdentityVector([
+    { timestamp: 102, siteId: 4 },
+  ]));
   builder.pointer(root + 32, payload);
   return builder.finish(root);
 }

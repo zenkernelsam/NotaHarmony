@@ -185,7 +185,7 @@ assert.equal(failed.prepare(`SELECT COUNT(*) count FROM sqlite_master
   WHERE type='table' AND name='original_recording_state'`).get().count, 0);
 failed.close();
 
-assert.match(schema, /DB_VERSION: number = 55/);
+assert.match(schema, /DB_VERSION: number = 56/);
 assert.match(schema, /55: \[[\s\S]*DDL_ORIGINAL_RECORDING_STATE/);
 assert.match(manager, /DDL_ORIGINAL_RECORDING_MODIFICATION/);
 assert.match(reducer, /ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE: number = 5/);

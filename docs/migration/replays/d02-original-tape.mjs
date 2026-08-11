@@ -66,7 +66,7 @@ db.exec('ROLLBACK');
 tape = db.prepare('SELECT * FROM ink_state WHERE ink_timestamp=20 AND ink_site=3').get();
 assert.equal(tape.tape_pattern_value, 6);
 
-assert.match(schema, /DB_VERSION: number = 55/);
+assert.match(schema, /DB_VERSION: number = 56/);
 assert.match(schema, /49: \[/);
 assert.match(schema, /create_tape_pattern INTEGER/);
 assert.match(schema, /tape_pattern_winner_present INTEGER NOT NULL/);

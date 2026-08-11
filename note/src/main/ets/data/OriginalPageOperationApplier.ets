@@ -65,6 +65,11 @@ import {
   OriginalRecordingOperationApplier,
 } from './OriginalRecordingOperation';
 import {
+  ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE, ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE,
+  ORIGINAL_CREATE_GROUP_PAYLOAD_TYPE, ORIGINAL_MODIFY_GROUP_PAYLOAD_TYPE,
+  OriginalShapeGroupOperationApplier,
+} from './OriginalShapeGroupOperation';
+import {
   OriginalFlatBufferTableReader,
 } from './OriginalSyncedOperationFlatBuffer';
 import {
@@ -101,6 +106,7 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
   private modifyPdfField: OriginalModifyPdfFieldOperationApplier =
     new OriginalModifyPdfFieldOperationApplier();
   private recording: OriginalRecordingOperationApplier = new OriginalRecordingOperationApplier();
+  private shapeGroup: OriginalShapeGroupOperationApplier = new OriginalShapeGroupOperationApplier();
 
   constructor(transientInteractions: OriginalTransientInteractionStore =
     new OriginalTransientInteractionStore()) {
@@ -131,6 +137,10 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
       payloadType === ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_CREATE_GROUP_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_MODIFY_GROUP_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE ||
@@ -239,6 +249,10 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
     if (operation.payloadType === ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE) {
       return this.recording.apply(store, operation);
+    }
+    if (operation.payloadType >= ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE &&
+      operation.payloadType <= ORIGINAL_MODIFY_GROUP_PAYLOAD_TYPE) {
+      return this.shapeGroup.apply(store, operation);
     }
     throw new Error('original page operation applier received an unsupported payload');
   }

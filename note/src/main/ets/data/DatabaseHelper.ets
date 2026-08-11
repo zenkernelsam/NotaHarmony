@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v55: preserve original Recording entities and their independent LWW registers.
-export const DB_VERSION: number = 55;
+// v56: preserve and materialize original Shape/Group entities and their LWW registers.
+export const DB_VERSION: number = 56;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -1326,6 +1326,63 @@ CREATE TABLE IF NOT EXISTS original_recording_modification (
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
+// Shape payloads are stored as canonical JSON because a shape has fourteen independently
+// writable registers, including nullable register values and a tagged definition union.
+// register_winners records each register name with its winning operation identity.
+export const DDL_ORIGINAL_SHAPE_STATE: string = `
+CREATE TABLE IF NOT EXISTS original_shape_state (
+  note_id TEXT NOT NULL,
+  shape_timestamp INTEGER NOT NULL CHECK (shape_timestamp BETWEEN 0 AND 4294967295),
+  shape_site_id INTEGER NOT NULL CHECK (shape_site_id BETWEEN 0 AND 65535),
+  create_payload TEXT NOT NULL CHECK (length(create_payload) > 0),
+  resolved_payload TEXT NOT NULL CHECK (length(resolved_payload) > 0),
+  register_winners TEXT NOT NULL DEFAULT '[]' CHECK (length(register_winners) > 0),
+  create_signature TEXT NOT NULL CHECK (length(create_signature) > 0),
+  PRIMARY KEY(note_id, shape_timestamp, shape_site_id),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_SHAPE_MODIFICATION: string = `
+CREATE TABLE IF NOT EXISTS original_shape_modification (
+  note_id TEXT NOT NULL,
+  operation_timestamp INTEGER NOT NULL CHECK (operation_timestamp BETWEEN 0 AND 4294967295),
+  operation_site_id INTEGER NOT NULL CHECK (operation_site_id BETWEEN 0 AND 65535),
+  payload_signature TEXT NOT NULL CHECK (length(payload_signature) > 0),
+  PRIMARY KEY(note_id, operation_timestamp, operation_site_id),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_GROUP_STATE: string = `
+CREATE TABLE IF NOT EXISTS original_group_state (
+  note_id TEXT NOT NULL,
+  group_timestamp INTEGER NOT NULL CHECK (group_timestamp BETWEEN 0 AND 4294967295),
+  group_site_id INTEGER NOT NULL CHECK (group_site_id BETWEEN 0 AND 65535),
+  create_members TEXT NOT NULL CHECK (length(create_members) > 0),
+  members_value TEXT NOT NULL CHECK (length(members_value) > 0),
+  members_winner_timestamp INTEGER NOT NULL DEFAULT 0
+    CHECK (members_winner_timestamp BETWEEN 0 AND 4294967295),
+  members_winner_site_id INTEGER NOT NULL DEFAULT 0
+    CHECK (members_winner_site_id BETWEEN 0 AND 65535),
+  members_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (members_winner_present IN (0, 1)),
+  create_signature TEXT NOT NULL CHECK (length(create_signature) > 0),
+  PRIMARY KEY(note_id, group_timestamp, group_site_id),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_GROUP_MODIFICATION: string = `
+CREATE TABLE IF NOT EXISTS original_group_modification (
+  note_id TEXT NOT NULL,
+  operation_timestamp INTEGER NOT NULL CHECK (operation_timestamp BETWEEN 0 AND 4294967295),
+  operation_site_id INTEGER NOT NULL CHECK (operation_site_id BETWEEN 0 AND 65535),
+  group_timestamp INTEGER NOT NULL CHECK (group_timestamp BETWEEN 0 AND 4294967295),
+  group_site_id INTEGER NOT NULL CHECK (group_site_id BETWEEN 0 AND 65535),
+  payload_signature TEXT NOT NULL CHECK (length(payload_signature) > 0),
+  PRIMARY KEY(note_id, operation_timestamp, operation_site_id),
+  FOREIGN KEY(note_id, group_timestamp, group_site_id)
+    REFERENCES original_group_state(note_id, group_timestamp, group_site_id) ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
 export const DDL_NOTE_META: string = `
 CREATE TABLE IF NOT EXISTS note_meta (
   id TEXT PRIMARY KEY,
@@ -2227,5 +2284,11 @@ export const MIGRATIONS: Record<number, string[]> = {
   55: [
     DDL_ORIGINAL_RECORDING_STATE,
     DDL_ORIGINAL_RECORDING_MODIFICATION,
+  ],
+  56: [
+    DDL_ORIGINAL_SHAPE_STATE,
+    DDL_ORIGINAL_SHAPE_MODIFICATION,
+    DDL_ORIGINAL_GROUP_STATE,
+    DDL_ORIGINAL_GROUP_MODIFICATION,
   ],
 };

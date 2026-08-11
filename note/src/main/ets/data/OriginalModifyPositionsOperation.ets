@@ -12,6 +12,9 @@ import {
   NullableBlockRegisterUpdate, OriginalBlockPageOrigin, OriginalBlockScale,
   OriginalModifyBlockOperationApplier, OriginalModifyBlockPayload,
 } from './OriginalModifyBlockOperation';
+import {
+  OriginalModifyShapePayload, OriginalShapeGroupOperationApplier,
+} from './OriginalShapeGroupOperation';
 import { OriginalPageMutationBatch } from './OriginalPageMutationBatch';
 import {
   OriginalFlatBufferTableReader, readOriginalInlineFloat32,
@@ -42,6 +45,7 @@ export interface OriginalModifyPositionsPayload {
 enum PositionTargetType {
   INK = 1,
   BLOCK = 2,
+  SHAPE = 3,
 }
 
 interface ClassifiedPositionModification {
@@ -82,6 +86,7 @@ export function decodeOriginalModifyPositionsTable(
 export class OriginalModifyPositionsOperationApplier implements SyncedOperationApplier {
   private ink: OriginalModifyInkOperationApplier = new OriginalModifyInkOperationApplier();
   private block: OriginalModifyBlockOperationApplier = new OriginalModifyBlockOperationApplier();
+  private shape: OriginalShapeGroupOperationApplier = new OriginalShapeGroupOperationApplier();
 
   supports(payloadType: number): boolean {
     return payloadType === ORIGINAL_MODIFY_POSITIONS_PAYLOAD_TYPE;
@@ -143,11 +148,17 @@ export class OriginalModifyPositionsOperationApplier implements SyncedOperationA
       active = true;
       const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
       for (const item of classified) {
-        const result: SyncedOperationApplyResult = item.type === PositionTargetType.INK ?
-          await this.ink.applyPositionPayload(store, operation,
-            inkPayload(item.modification), revisionBatch) :
-          await this.block.applyPositionPayload(store, operation,
+        let result: SyncedOperationApplyResult;
+        if (item.type === PositionTargetType.INK) {
+          result = await this.ink.applyPositionPayload(store, operation,
+            inkPayload(item.modification), revisionBatch);
+        } else if (item.type === PositionTargetType.BLOCK) {
+          result = await this.block.applyPositionPayload(store, operation,
             blockPayload(item.modification), revisionBatch);
+        } else {
+          result = await this.shape.applyPositionPayload(store, operation,
+            shapePayload(item.modification), revisionBatch);
+        }
         if (result.deferredReason !== null) {
           active = false;
           await rollbackSavepoint(store);
@@ -181,7 +192,10 @@ export class OriginalModifyPositionsOperationApplier implements SyncedOperationA
             AND ink.ink_site_id = element.element_site_id) AS has_ink,
           EXISTS(SELECT 1 FROM original_block_state block WHERE block.note_id = element.note_id
             AND block.block_timestamp = element.element_timestamp
-            AND block.block_site_id = element.element_site_id) AS has_block
+            AND block.block_site_id = element.element_site_id) AS has_block,
+          EXISTS(SELECT 1 FROM original_shape_state shape WHERE shape.note_id = element.note_id
+            AND shape.shape_timestamp = element.element_timestamp
+            AND shape.shape_site_id = element.element_site_id) AS has_shape
          FROM original_element_z_index element WHERE element.note_id = ?
            AND element.element_timestamp = ? AND element.element_site_id = ?`,
         [noteId, modification.target.timestamp, modification.target.siteId]);
@@ -192,13 +206,14 @@ export class OriginalModifyPositionsOperationApplier implements SyncedOperationA
         const kind: number = rows.getLong(rows.getColumnIndex('kind'));
         const hasInk: boolean = rows.getLong(rows.getColumnIndex('has_ink')) === 1;
         const hasBlock: boolean = rows.getLong(rows.getColumnIndex('has_block')) === 1;
-        if (kind === PageElementKind.STROKE && hasInk && !hasBlock) {
+        const hasShape: boolean = rows.getLong(rows.getColumnIndex('has_shape')) === 1;
+        if (kind === PageElementKind.STROKE && hasInk && !hasBlock && !hasShape) {
           result.push({ modification: modification, type: PositionTargetType.INK });
         } else if ((kind === PageElementKind.TEXT || kind === PageElementKind.IMAGE ||
-          kind === PageElementKind.MATH) && hasBlock && !hasInk) {
+          kind === PageElementKind.MATH) && hasBlock && !hasInk && !hasShape) {
           result.push({ modification: modification, type: PositionTargetType.BLOCK });
-        } else if (kind === PageElementKind.SHAPE) {
-          return 'MODIFY_POSITIONS_SHAPE_OR_GROUP_UNSUPPORTED';
+        } else if (kind === PageElementKind.SHAPE && hasShape && !hasInk && !hasBlock) {
+          result.push({ modification: modification, type: PositionTargetType.SHAPE });
         } else {
           return 'MODIFY_POSITIONS_TARGET_STATE_DIVERGED';
         }
@@ -313,6 +328,21 @@ function blockPayload(modification: OriginalModifyPosition): OriginalModifyBlock
     zIndex: modification.zIndex, positionLocked: null,
     mathLatex: { present: false, value: null },
     mathColor: { present: false, value: null },
+  };
+}
+
+function shapePayload(modification: OriginalModifyPosition): OriginalModifyShapePayload {
+  return {
+    shapes: [modification.target],
+    pageOrigin: modification.pageOrigin === null ? null : {
+      page: modification.pageOrigin.page, x: modification.pageOrigin.originX,
+      y: modification.pageOrigin.originY,
+    },
+    rotation: modification.rotation, scale: modification.scale,
+    definition: { present: false, value: null }, tool: null, style: null,
+    tapePattern: null, color: null, borderWidth: null,
+    fillColor: { present: false, value: null }, zIndex: modification.zIndex,
+    positionLocked: null, inkEffects: null, inkEffectsTinted: null,
   };
 }
 
