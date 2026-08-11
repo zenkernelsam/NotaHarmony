@@ -21,6 +21,9 @@ import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './UnsignedDecimal';
+import {
+  originalGroupLayerRanks, OriginalLayeringEntity, refreshOriginalGroupLayeredOrder,
+} from './OriginalGroupLayering';
 
 export const ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE: number = 18;
 export const ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE: number = 19;
@@ -399,6 +402,17 @@ export class OriginalShapeGroupOperationApplier implements SyncedOperationApplie
       return { deferredReason: 'CREATE_SHAPE_PAGE_REVISION_EXHAUSTED' };
     }
     const shape: ShapeElement = materializeShape(operation, payload);
+    let rows: StoredOrderRow[];
+    try {
+      rows = await readOriginalOrder(store, operation.noteId, payload.page);
+    } catch (_error) {
+      return { deferredReason: 'CREATE_SHAPE_GROUP_LAYERING_DIVERGED' };
+    }
+    rows.push({ timestamp: operation.timestamp, siteId: operation.siteId,
+      elementId: shape.id, kind: PageElementKind.SHAPE, zIndex: payload.zIndex });
+    if (!await sortOrderRows(store, operation.noteId, rows)) {
+      return { deferredReason: 'CREATE_SHAPE_GROUP_LAYERING_DIVERGED' };
+    }
     await store.insert('original_element_z_index', {
       'note_id': operation.noteId, 'element_timestamp': operation.timestamp,
       'element_site_id': operation.siteId, 'page_timestamp': payload.page.timestamp,
@@ -412,10 +426,6 @@ export class OriginalShapeGroupOperationApplier implements SyncedOperationApplie
     });
     const persisted: PersistedElement = { kind: 'shape', data: shape };
     if (hidden) {
-      const rows: StoredOrderRow[] = await readOriginalOrder(store, operation.noteId, payload.page);
-      rows.push({ timestamp: operation.timestamp, siteId: operation.siteId,
-        elementId: shape.id, kind: PageElementKind.SHAPE, zIndex: payload.zIndex });
-      rows.sort(compareOrderRows);
       await store.insert('original_deleted_entity', {
         'note_id': operation.noteId, 'entity_timestamp': operation.timestamp,
         'entity_site_id': operation.siteId, 'page_timestamp': payload.page.timestamp,
@@ -553,23 +563,49 @@ export class OriginalShapeGroupOperationApplier implements SyncedOperationApplie
     operation: StoredSyncedOperation,
     payload: OriginalCreateGroupPayload): Promise<SyncedOperationApplyResult> {
     const signature: string = JSON.stringify(payload.members);
-    const previous: string | null = await scalarString(store,
-      `SELECT create_signature FROM original_group_state WHERE note_id = ?
+    const existing = await store.querySql(
+      `SELECT create_signature, z_index FROM original_group_state WHERE note_id = ?
        AND group_timestamp = ? AND group_site_id = ?`,
       [operation.noteId, operation.timestamp, operation.siteId]);
-    if (previous !== null) {
-      if (previous !== signature) {
-        throw new Error('original CreateGroup identity conflicts with persisted state');
+    try {
+      if (existing.goToFirstRow()) {
+        if (existing.getString(existing.getColumnIndex('create_signature')) !== signature) {
+          throw new Error('original CreateGroup identity conflicts with persisted state');
+        }
+        if (existing.isColumnNull(existing.getColumnIndex('z_index'))) {
+          const predicates = new relationalStore.RdbPredicates('original_group_state');
+          predicates.equalTo('note_id', operation.noteId);
+          predicates.equalTo('group_timestamp', operation.timestamp);
+          predicates.equalTo('group_site_id', operation.siteId);
+          if (await store.update({ 'z_index': operation.clientTime }, predicates) !== 1) {
+            throw new Error('original CreateGroup legacy z-index backfill changed concurrently');
+          }
+        } else if (existing.getString(existing.getColumnIndex('z_index')) !== operation.clientTime) {
+          throw new Error('original CreateGroup z-index conflicts with persisted state');
+        }
+        if (!await refreshOriginalGroupLayeredOrder(store, operation.noteId)) {
+          throw new Error('original CreateGroup layering diverged');
+        }
+        return { deferredReason: null };
       }
-      return { deferredReason: null };
+    } finally {
+      existing.close();
+    }
+    try {
+      validateUnsignedLongDecimal(operation.clientTime);
+    } catch (_error) {
+      return { deferredReason: 'MALFORMED_CREATE_GROUP_CLIENT_TIME' };
     }
     await store.insert('original_group_state', {
       'note_id': operation.noteId, 'group_timestamp': operation.timestamp,
       'group_site_id': operation.siteId, 'create_members': signature,
       'members_value': signature, 'members_winner_timestamp': 0,
       'members_winner_site_id': 0, 'members_winner_present': 0,
-      'create_signature': signature,
+      'z_index': operation.clientTime, 'create_signature': signature,
     });
+    if (!await refreshOriginalGroupLayeredOrder(store, operation.noteId)) {
+      throw new Error('original CreateGroup layering diverged');
+    }
     return { deferredReason: null };
   }
 
@@ -620,6 +656,9 @@ export class OriginalShapeGroupOperationApplier implements SyncedOperationApplie
         'members_winner_site_id': operation.siteId, 'members_winner_present': 1,
       }, predicates) !== 1) {
         throw new Error('original group members changed concurrently');
+      }
+      if (!await refreshOriginalGroupLayeredOrder(store, operation.noteId)) {
+        throw new Error('original ModifyGroup layering diverged');
       }
     }
     return { deferredReason: null };
@@ -962,8 +1001,25 @@ async function readOriginalOrder(store: relationalStore.RdbStore, noteId: string
   } finally {
     result.close();
   }
-  rows.sort(compareOrderRows);
+  if (!await sortOrderRows(store, noteId, rows)) {
+    throw new Error('original Group layering state diverged');
+  }
   return rows;
+}
+
+async function sortOrderRows(store: relationalStore.RdbStore, noteId: string,
+  rows: StoredOrderRow[]): Promise<boolean> {
+  const entities: OriginalLayeringEntity[] = rows.map(
+    (row: StoredOrderRow): OriginalLayeringEntity => ({
+      id: row.elementId, timestamp: row.timestamp, siteId: row.siteId, zIndex: row.zIndex,
+    }));
+  const ranks: Map<string, number> | null = await originalGroupLayerRanks(store, noteId, entities);
+  if (ranks === null || ranks.size !== rows.length) {
+    return false;
+  }
+  rows.sort((left: StoredOrderRow, right: StoredOrderRow): number =>
+    (ranks.get(left.elementId) as number) - (ranks.get(right.elementId) as number));
+  return true;
 }
 
 function pagePredicates(noteId: string,
@@ -1225,14 +1281,6 @@ function pointScale(bytes: Uint8Array): OriginalShapeScale {
 
 function originalColorToArgb(bytes: Uint8Array): number {
   return bytes[3] << 24 | bytes[0] << 16 | bytes[1] << 8 | bytes[2];
-}
-
-function compareOrderRows(left: StoredOrderRow, right: StoredOrderRow): number {
-  const z: number = compareUnsignedLongDecimal(left.zIndex, right.zIndex);
-  if (z !== 0) return z;
-  if (left.timestamp !== right.timestamp) return left.timestamp < right.timestamp ? -1 : 1;
-  if (left.siteId !== right.siteId) return left.siteId < right.siteId ? -1 : 1;
-  return left.kind - right.kind;
 }
 
 function orderIndex(rows: StoredOrderRow[], elementId: string, kind: number): number {

@@ -25,6 +25,7 @@ import { mergeNoteIds, parseAssetNoteIds } from './AssetRepositoryImpl';
 import {
   OriginalEntityVisibilityWinner, readOriginalEntityVisibilityWinner,
 } from './OriginalEntityVisibilityState';
+import { originalGroupLayerRanks, OriginalLayeringEntity } from './OriginalGroupLayering';
 
 export const ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE: number = 22;
 
@@ -321,6 +322,13 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       payload.blockType === OriginalBlockType.IMAGE ? this.buildImageBlock(operation, payload) :
         payload.blockType === OriginalBlockType.MATH ? this.buildMathBlock(operation, payload) :
           this.buildTextBlock(operation, payload);
+    existingRows.push({
+      elementId: element.id, kind: kind,
+      timestamp: operation.timestamp, siteId: operation.siteId, zIndex: payload.zIndex,
+    });
+    if (!await sortStoredZIndexRows(store, operation.noteId, existingRows)) {
+      return { deferredReason: 'CREATE_BLOCK_GROUP_LAYERING_DIVERGED' };
+    }
     if (payload.blockType === OriginalBlockType.IMAGE) {
       const assetReason: string | null = await this.mergeImageAssetReference(
         store, operation.noteId, payload.image as OriginalImageAsset);
@@ -384,11 +392,6 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
       'create_margin_right': payload.margins.right,
       'create_z_index': payload.zIndex,
     });
-    existingRows.push({
-      elementId: element.id, kind: kind,
-      timestamp: operation.timestamp, siteId: operation.siteId, zIndex: payload.zIndex,
-    });
-    existingRows.sort(compareStoredZIndexRows);
     if (hidden) {
       const persisted: PersistedElement = {
         kind: kind === PageElementKind.IMAGE ? 'image' :
@@ -963,16 +966,18 @@ function blockTransform(originX: number, originY: number, rotation: number,
     sine * scaleX, cosine * scaleY, originY, 0, 0, 1];
 }
 
-function compareStoredZIndexRows(left: StoredZIndexRow, right: StoredZIndexRow): number {
-  let compared: number = compareUnsignedLongDecimal(left.zIndex, right.zIndex);
-  if (compared !== 0) {
-    return compared;
+async function sortStoredZIndexRows(store: relationalStore.RdbStore, noteId: string,
+  rows: StoredZIndexRow[]): Promise<boolean> {
+  const entities: OriginalLayeringEntity[] = rows.map(
+    (row: StoredZIndexRow): OriginalLayeringEntity => ({ id: row.elementId,
+      timestamp: row.timestamp, siteId: row.siteId, zIndex: row.zIndex }));
+  const ranks: Map<string, number> | null = await originalGroupLayerRanks(store, noteId, entities);
+  if (ranks === null || ranks.size !== rows.length) {
+    return false;
   }
-  compared = left.timestamp === right.timestamp ? 0 : left.timestamp < right.timestamp ? -1 : 1;
-  if (compared !== 0) {
-    return compared;
-  }
-  return left.siteId === right.siteId ? 0 : left.siteId < right.siteId ? -1 : 1;
+  rows.sort((left: StoredZIndexRow, right: StoredZIndexRow): number =>
+    (ranks.get(left.elementId) as number) - (ranks.get(right.elementId) as number));
+  return true;
 }
 
 function readNullableLong(rows: relationalStore.ResultSet, columnName: string): number | null {

@@ -82,7 +82,9 @@ import {
   textBlockWorldBounds, transformTextBlockElements,
 } from '../../core/model/TextBlockGeometry';
 import { Point2D, Rect2D, CubicSegment } from '../../core/model/GeometryTypes';
-import { OriginalSelectionGroup } from '../../core/model/OriginalGroupSelection';
+import {
+  OriginalSelectionGroup, resolveOriginalSelectedGroupLeaves,
+} from '../../core/model/OriginalGroupSelection';
 import { cloneMathElement, eraserPathHitsMathBlock, mathBlockWorldBounds,
   transformMathElements } from '../../core/model/MathBlockGeometry';
 import {
@@ -3572,7 +3574,7 @@ export struct NoteCanvasView {
     } else if (action === SelectionMenuAction.SEND_FORWARD || action === SelectionMenuAction.SEND_BACKWARD) {
       this.reorderSelected(state.selectedStrokeIds, state.selectedShapeIds,
         state.selectedTextBlockIds, state.selectedImageIds, state.selectedMathIds,
-        action === SelectionMenuAction.SEND_FORWARD);
+        state.selectedGroupIds, action === SelectionMenuAction.SEND_FORWARD);
     } else if (action === SelectionMenuAction.FLIP_H || action === SelectionMenuAction.FLIP_V) {
       this.flipSelected(state.selectedStrokeIds, state.selectedShapeIds,
         state.selectedTextBlockIds, state.selectedImageIds, state.selectedMathIds,
@@ -3587,10 +3589,29 @@ export struct NoteCanvasView {
   }
 
   private reorderSelected(ids: string[], shapeIds: string[], textIds: string[], imageIds: string[],
-    mathIds: string[], forward: boolean): void {
+    mathIds: string[], groupIds: string[], forward: boolean): void {
+    const allSelectedIds: string[] = ids.concat(shapeIds).concat(textIds).concat(imageIds)
+      .concat(mathIds);
+    const groupedLeaves: string[] | null = resolveOriginalSelectedGroupLeaves(
+      groupIds, allSelectedIds, this.selectionGroups);
+    if (groupedLeaves === null) {
+      return;
+    }
+    const grouped: Set<string> = new Set<string>(groupedLeaves);
+    const directStrokeIds: string[] = ids.filter((id: string): boolean => !grouped.has(id));
+    const directShapeIds: string[] = shapeIds.filter((id: string): boolean => !grouped.has(id));
+    const directTextIds: string[] = textIds.filter((id: string): boolean => !grouped.has(id));
+    const directImageIds: string[] = imageIds.filter((id: string): boolean => !grouped.has(id));
+    const directMathIds: string[] = mathIds.filter((id: string): boolean => !grouped.has(id));
+    const selectedIds: string[] = directStrokeIds.concat(directShapeIds).concat(directTextIds)
+      .concat(directImageIds).concat(directMathIds);
+    if (selectedIds.length === 0) {
+      return;
+    }
     const before: PageElementRef[] = clonePageElementOrder(this.elementOrder);
     const after: PageElementRef[] = movePageElementRefs(
-      before, ids, shapeIds, forward, textIds, imageIds, mathIds);
+      before, directStrokeIds, directShapeIds, forward,
+      directTextIds, directImageIds, directMathIds);
     if (samePageElementOrder(before, after)) {
       return;
     }
@@ -3604,12 +3625,12 @@ export struct NoteCanvasView {
       elementOrderAfter: clonePageElementOrder(after),
     });
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
-    const selectedIds: string[] = ids.concat(shapeIds).concat(textIds).concat(imageIds).concat(mathIds);
     const originalEligible: boolean = this.areCanonicalOriginalPositionSelection(
-      ids, shapeIds, textIds, imageIds, mathIds);
+      directStrokeIds, directShapeIds, directTextIds, directImageIds, directMathIds);
     const hint: OriginalZOrderHint | undefined = originalEligible ? {
       command: forward ? OriginalZOrderCommand.BRING_FRONT : OriginalZOrderCommand.SEND_BACK,
       selectedElementIds: selectedIds,
+      selectedGroupIds: groupIds.slice(),
     } : undefined;
     this.persist(originalEligible, hint);
     this.notifyUndoRedo();

@@ -30,7 +30,7 @@ assert.match(zh9, /xsc\.i\(xscVar, listL0, this\)/);
 assert.match(x0j, /new q5\(24, \(ie8\)/);
 assert.match(w0j, /aVar\.f\(5, tmfVar\.I\)/);
 
-assert.match(database, /DB_VERSION: number = 60/);
+assert.match(database, /DB_VERSION: number = 61/);
 assert.match(database, /CREATE TABLE IF NOT EXISTS original_local_z_order_history/);
 assert.match(database, /PRIMARY KEY\(note_id, action_id\)/);
 assert.match(database, /60: \[DDL_ORIGINAL_LOCAL_Z_ORDER_HISTORY\]/);
@@ -40,7 +40,7 @@ assert.match(canvas, /OriginalZOrderCommand\.BRING_FRONT : OriginalZOrderCommand
 assert.match(canvas, /selectedElementIds: selectedIds/);
 assert.match(canvas, /action\.type === UndoableActionType\.REORDER_ELEMENTS/);
 assert.match(persistence, /samePreparedMembersAndPayloads\(current, next\)/);
-assert.match(persistence, /originalPageHasGroups\(store, noteId, current\)/);
+assert.match(persistence, /originalGroupLayerUnits\(store, noteId, entities\)/);
 assert.match(persistence, /history\.effect === HistoryEffect\.UNDO \?[\s\S]*zHistory\.after : zHistory\.before/);
 assert.match(persistence, /history\.effect === HistoryEffect\.UNDO \?[\s\S]*zHistory\.before : zHistory\.after/);
 assert.match(persistence, /recordOriginalZOrderHistory/);
@@ -57,8 +57,8 @@ function addSmall(value, amount) {
   return result > MAX ? null : result;
 }
 
-function originalReorder(entries, selectedIds, command, hasGroup = false) {
-  if (hasGroup || selectedIds.length === 0 || new Set(selectedIds).size !== selectedIds.length) {
+function originalReorder(entries, selectedIds, command) {
+  if (selectedIds.length === 0 || new Set(selectedIds).size !== selectedIds.length) {
     return null;
   }
   const order = entries.slice().sort(compare);
@@ -125,7 +125,6 @@ assert.deepEqual(sortedIds(sparse.projected), ['B', 'A', 'C']);
 assert.deepEqual([...sparse.after.entries()], [['B', 0n], ['A', 1n]]);
 assert.equal(sparse.after.has('C'), false, 'a sparse unaffected high z-index must not be rewritten');
 assert.equal(originalReorder([{ id: 'A', z: MAX - 1n }, { id: 'B', z: MAX }], ['A'], 'front'), null);
-assert.equal(originalReorder([{ id: 'A', z: 0n }, { id: 'B', z: 1n }], ['A'], 'back', true), null);
 
 const db = new DatabaseSync(':memory:');
 db.exec(`CREATE TABLE z_state(id TEXT PRIMARY KEY,z TEXT NOT NULL);
@@ -182,4 +181,4 @@ assert.equal(JSON.stringify(db.prepare('SELECT * FROM z_state ORDER BY id').all(
 assert.equal(db.prepare('SELECT COUNT(*) AS value FROM journal').get().value, journalCount);
 db.close();
 
-console.log('localZOrder=original-uint64-front-back-durable-history-group-fallback-rollback');
+console.log('localZOrder=original-uint64-front-back-durable-history-group-aware-rollback');

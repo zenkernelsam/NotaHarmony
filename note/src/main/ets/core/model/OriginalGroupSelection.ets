@@ -63,6 +63,40 @@ export function resolveOriginalGroupSelection(selectedIds: string[], availableId
   return { entityIds: Array.from(selected), groupIds: Array.from(selectedGroups) };
 }
 
+export function resolveOriginalSelectedGroupLeaves(groupIds: string[], selectedEntityIds: string[],
+  groups: OriginalSelectionGroup[]): string[] | null {
+  if (groupIds.length === 0) {
+    return [];
+  }
+  const available: Set<string> = new Set<string>(selectedEntityIds);
+  const byId: Map<string, OriginalSelectionGroup> = new Map<string, OriginalSelectionGroup>();
+  for (const group of groups) {
+    if (group.id.length > 0 && group.members.length > 0 && !byId.has(group.id)) {
+      byId.set(group.id, group);
+    }
+  }
+  const leaves: string[] = [];
+  const seenGroups: Set<string> = new Set<string>();
+  const seenLeaves: Set<string> = new Set<string>();
+  for (const groupId of groupIds) {
+    if (seenGroups.has(groupId)) {
+      return null;
+    }
+    seenGroups.add(groupId);
+    const expansion: GroupExpansion = expandGroup(groupId, byId, available, new Set<string>());
+    if (!expansion.valid || expansion.leaves.length === 0) {
+      return null;
+    }
+    for (const leaf of expansion.leaves) {
+      if (!seenLeaves.has(leaf)) {
+        seenLeaves.add(leaf);
+        leaves.push(leaf);
+      }
+    }
+  }
+  return leaves;
+}
+
 function topContainingGroup(entityId: string,
   parentByMember: Map<string, OriginalSelectionGroup>): OriginalSelectionGroup | null {
   let current: OriginalSelectionGroup | undefined = parentByMember.get(entityId);

@@ -10,12 +10,14 @@ import {
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
-import { compareUnsignedLongDecimal } from './UnsignedDecimal';
 import { refreshOriginalRecordingPresence } from './OriginalRecordingOperation';
 import {
   OriginalEntityVisibilityWinner, originalEntityVisibilityUpdateApplies,
   readOriginalEntityVisibilityWinner,
 } from './OriginalEntityVisibilityState';
+import {
+  originalGroupLayerRanks, OriginalLayeringEntity, refreshOriginalGroupLayeredOrder,
+} from './OriginalGroupLayering';
 
 export const ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE: number = 25;
 export const MAX_ORIGINAL_DELETE_ENTITY_COUNT: number = 10000;
@@ -279,6 +281,7 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
     const planned: PlannedEntityVisibility[] = [];
     const affectedPages: Map<string, StoredEntityTarget> = new Map<string, StoredEntityTarget>();
     let recordingVisibilityMayChange: boolean = false;
+    let groupVisibilityMayChange: boolean = false;
     for (const desiredVisibility of desired.values()) {
       const target: StoredEntityTarget | null = await this.readEntityTarget(
         store, operation.noteId, desiredVisibility.entity);
@@ -295,6 +298,18 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
             winner: winner, deleted: desiredVisibility.deleted, changesVisibility: false,
           });
           recordingVisibilityMayChange = true;
+          continue;
+        }
+        if (await this.originalGroupExists(store, operation.noteId, desiredVisibility.entity)) {
+          if (!originalEntityVisibilityUpdateApplies(
+            operation, desiredVisibility.deleted, winner)) {
+            continue;
+          }
+          planned.push({
+            entity: desiredVisibility.entity, target: null,
+            winner: winner, deleted: desiredVisibility.deleted, changesVisibility: false,
+          });
+          groupVisibilityMayChange = true;
           continue;
         }
         if (await this.originalEntityExists(store, operation.noteId, desiredVisibility.entity)) {
@@ -348,7 +363,24 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
     if (recordingVisibilityMayChange) {
       await refreshOriginalRecordingPresence(store, operation.noteId);
     }
+    if (groupVisibilityMayChange &&
+      !await refreshOriginalGroupLayeredOrder(store, operation.noteId)) {
+      throw new Error('original Group visibility layering diverged');
+    }
     return null;
+  }
+
+  private async originalGroupExists(store: relationalStore.RdbStore, noteId: string,
+    entity: OperationIdentity): Promise<boolean> {
+    const rows = await store.querySql(
+      `SELECT 1 FROM original_group_state WHERE note_id = ?
+       AND group_timestamp = ? AND group_site_id = ? LIMIT 1`,
+      [noteId, entity.timestamp, entity.siteId]);
+    try {
+      return rows.goToFirstRow();
+    } finally {
+      rows.close();
+    }
   }
 
   private async originalRecordingExists(store: relationalStore.RdbStore, noteId: string,
@@ -665,7 +697,17 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
     if (count !== rows.length) {
       return false;
     }
-    rows.sort(compareStoredEntityOrderRows);
+    const entities: OriginalLayeringEntity[] = rows.map(
+      (row: StoredEntityOrderRow): OriginalLayeringEntity => ({
+        id: row.elementId, timestamp: row.timestamp, siteId: row.siteId, zIndex: row.zIndex,
+      }));
+    const ranks: Map<string, number> | null =
+      await originalGroupLayerRanks(store, noteId, entities);
+    if (ranks === null || ranks.size !== rows.length) {
+      return false;
+    }
+    rows.sort((left: StoredEntityOrderRow, right: StoredEntityOrderRow): number =>
+      (ranks.get(left.elementId) as number) - (ranks.get(right.elementId) as number));
     for (let index: number = 0; index < rows.length; index++) {
       const updated: number = await store.update({ 'element_order': index },
         this.entityPagePredicates(noteId, target, rows[index].elementId, rows[index].kind));
@@ -1060,19 +1102,4 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
     }
     return true;
   }
-}
-
-function compareStoredEntityOrderRows(left: StoredEntityOrderRow,
-  right: StoredEntityOrderRow): number {
-  const zOrder: number = compareUnsignedLongDecimal(left.zIndex, right.zIndex);
-  if (zOrder !== 0) {
-    return zOrder;
-  }
-  if (left.timestamp !== right.timestamp) {
-    return left.timestamp < right.timestamp ? -1 : 1;
-  }
-  if (left.siteId !== right.siteId) {
-    return left.siteId < right.siteId ? -1 : 1;
-  }
-  return left.kind - right.kind;
 }

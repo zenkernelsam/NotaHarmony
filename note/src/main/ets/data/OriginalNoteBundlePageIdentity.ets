@@ -730,8 +730,8 @@ async function originalShapeGroupStateSignature(store: relationalStore.RdbStore,
     `SELECT shape_timestamp, shape_site_id, resolved_payload, register_winners
      FROM original_shape_state WHERE note_id = ? ORDER BY shape_timestamp, shape_site_id`, [noteId]);
   const groups = await store.querySql(
-    `SELECT group_timestamp, group_site_id, members_value, members_winner_timestamp,
-            members_winner_site_id, members_winner_present
+    `SELECT group_timestamp, group_site_id, members_value, z_index,
+            members_winner_timestamp, members_winner_site_id, members_winner_present
      FROM original_group_state WHERE note_id = ? ORDER BY group_timestamp, group_site_id`, [noteId]);
   let signature: string = '';
   try {
@@ -740,8 +740,9 @@ async function originalShapeGroupStateSignature(store: relationalStore.RdbStore,
         `${shapes.getString(3)};`;
     }
     while (groups.goToNextRow()) {
+      const zIndex: string = groups.isColumnNull(3) ? 'null' : groups.getString(3);
       signature += `G:${groups.getLong(0)}:${groups.getLong(1)}:${groups.getString(2)}:` +
-        `${groups.getLong(3)}:${groups.getLong(4)}:${groups.getLong(5)};`;
+        `${zIndex}:${groups.getLong(4)}:${groups.getLong(5)}:${groups.getLong(6)};`;
     }
     return signature;
   } finally {

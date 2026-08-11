@@ -21,6 +21,7 @@ import {
   decodeOriginalInkStyleMap, MAX_ORIGINAL_INK_STYLE_MAP_ENTRIES,
   ORIGINAL_INK_STYLE_MAP_ENTRY_BYTES, sameInkStyleMap,
 } from './OriginalInkStyleMapCodec';
+import { originalGroupLayerRanks, OriginalLayeringEntity } from './OriginalGroupLayering';
 import {
   OriginalFlatBufferTableReader, readOriginalInlineFloat32, readOriginalPayloadTable,
 } from './OriginalSyncedOperationFlatBuffer';
@@ -818,7 +819,6 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       };
       if (!changesPage) {
         source.rows[sourceIndex] = moved;
-        source.rows.sort(compareStoredZIndexRows);
         continue;
       }
       const destination: PageMutation | null = await this.loadPageMutation(
@@ -829,8 +829,11 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       }
       source.rows.splice(sourceIndex, 1);
       destination.rows.push(moved);
-      source.rows.sort(compareStoredZIndexRows);
-      destination.rows.sort(compareStoredZIndexRows);
+    }
+    for (const mutation of mutations.values()) {
+      if (!await sortStoredZIndexRows(store, noteId, mutation.rows)) {
+        return null;
+      }
     }
     return mutations;
   }
@@ -1908,16 +1911,19 @@ function pageKey(target: StoredPageTarget): string {
   return `${target.page.timestamp}:${target.page.siteId}:${target.page.index}`;
 }
 
-function compareStoredZIndexRows(left: StoredZIndexRow, right: StoredZIndexRow): number {
-  let compared: number = compareUnsignedLongDecimal(left.zIndex, right.zIndex);
-  if (compared !== 0) {
-    return compared;
+async function sortStoredZIndexRows(store: relationalStore.RdbStore, noteId: string,
+  rows: StoredZIndexRow[]): Promise<boolean> {
+  const entities: OriginalLayeringEntity[] = rows.map(
+    (row: StoredZIndexRow): OriginalLayeringEntity => ({
+      id: row.elementId, timestamp: row.timestamp, siteId: row.siteId, zIndex: row.zIndex,
+    }));
+  const ranks: Map<string, number> | null = await originalGroupLayerRanks(store, noteId, entities);
+  if (ranks === null || ranks.size !== rows.length) {
+    return false;
   }
-  compared = left.timestamp === right.timestamp ? 0 : left.timestamp < right.timestamp ? -1 : 1;
-  if (compared !== 0) {
-    return compared;
-  }
-  return left.siteId === right.siteId ? 0 : left.siteId < right.siteId ? -1 : 1;
+  rows.sort((left: StoredZIndexRow, right: StoredZIndexRow): number =>
+    (ranks.get(left.elementId) as number) - (ranks.get(right.elementId) as number));
+  return true;
 }
 
 async function readSingleRevision(store: relationalStore.RdbStore, sql: string,

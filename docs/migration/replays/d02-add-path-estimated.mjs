@@ -119,7 +119,7 @@ assert.match(addSource, /estimatedState\.winner === null/);
 assert.match(addSource, /payload\.centerPathEstimatedElements === null \? new Uint8Array\(0\)/);
 assert.match(addSource, /rebuildOriginalInkGeometry\(basePath, allAppends, stroke, estimatedBytes\)/);
 assert.match(modifySource, /state\.estimatedPath\.value/);
-assert.match(schema, /DB_VERSION: number = 60/);
+assert.match(schema, /DB_VERSION: number = 61/);
 assert.match(schema, /42: \[/);
 
 console.log('success|v41-v42=1|estimated-only=1|actual-order=1|lww-stale=1|' +

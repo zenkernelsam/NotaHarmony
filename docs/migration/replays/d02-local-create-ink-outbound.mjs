@@ -49,7 +49,7 @@ assert.match(canvas, /return this\.refreshOriginalInkReservation\(generation, pa
 assert.match(session, /originalCreate: OriginalInkCreateMetadata \| null/);
 assert.match(visibility, /encodeOriginalEntityVisibility/);
 assert.match(history, /OpType\.ORIGINAL_CREATE_INK/);
-assert.match(schema, /DB_VERSION: number = 60/);
+assert.match(schema, /DB_VERSION: number = 61/);
 assert.match(schema, /original_local_ink_authoring_guard/);
 assert.match(tests, /round-trips a BITS_32 cubic local pen through dm2/);
 

@@ -28,6 +28,9 @@ import {
 import { validateHistoryMetadata } from './PersistentHistoryMetadata';
 import { OriginalSelectionGroup } from '../core/model/OriginalGroupSelection';
 import {
+  originalGroupLayerUnits, OriginalLayeringEntity, OriginalLayeringUnit,
+} from './OriginalGroupLayering';
+import {
   decodeOperationId, encodeOperationId, OperationIdentity, OriginalSequenceIdentity,
   validateOperationIdentity,
 } from './OperationIdentity';
@@ -106,6 +109,7 @@ export enum OriginalZOrderCommand {
 export interface OriginalZOrderHint {
   command: OriginalZOrderCommand;
   selectedElementIds: string[];
+  selectedGroupIds?: string[];
 }
 
 export interface HistoryPageSnapshot {
@@ -134,6 +138,20 @@ interface OriginalOrderEntry {
   timestamp: number;
   siteId: number;
   zIndex: string;
+  unitId: string;
+  unitTimestamp: number;
+  unitSiteId: number;
+  unitZIndex: string;
+  unitGroup: boolean;
+}
+
+interface OriginalOrderUnit {
+  id: string;
+  timestamp: number;
+  siteId: number;
+  zIndex: string;
+  group: boolean;
+  entries: OriginalOrderEntry[];
 }
 
 interface OriginalZOrderValue {
@@ -1003,7 +1021,7 @@ export class StrokePersistence {
     }
     const page: OriginalSequenceIdentity | null = await this.readEligibleOriginalInkPage(
       store, noteId, pageId);
-    if (page === null || await this.originalPageHasGroups(store, noteId, current)) {
+    if (page === null) {
       return null;
     }
     const order: OriginalOrderEntry[] | null = await this.readOriginalOrder(
@@ -1040,23 +1058,6 @@ export class StrokePersistence {
       zOrderHistory: history.effect === HistoryEffect.PUSH ? zHistory : null };
   }
 
-  private async originalPageHasGroups(store: relationalStore.RdbStore, noteId: string,
-    current: SearchSourceElement[]): Promise<boolean> {
-    const ids: Set<string> = new Set<string>();
-    for (const element of current) {
-      ids.add(element.elementId);
-    }
-    const groups: OriginalSelectionGroup[] = await this.loadOriginalSelectionGroups(store, noteId);
-    for (const group of groups) {
-      for (const member of group.members) {
-        if (ids.has(member)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
   private async readOriginalOrder(store: relationalStore.RdbStore, noteId: string,
     page: OriginalSequenceIdentity,
     current: SearchSourceElement[]): Promise<OriginalOrderEntry[] | null> {
@@ -1074,21 +1075,25 @@ export class StrokePersistence {
             encodeOperationId({ timestamp: timestamp, siteId: siteId }),
           timestamp: timestamp, siteId: siteId,
           zIndex: rows.getString(rows.getColumnIndex('z_index')),
+          unitId: encodeOperationId({ timestamp: timestamp, siteId: siteId }),
+          unitTimestamp: timestamp, unitSiteId: siteId,
+          unitZIndex: rows.getString(rows.getColumnIndex('z_index')), unitGroup: false,
         });
       }
     } finally {
       rows.close();
     }
-    result.sort(compareOriginalOrderEntries);
-    if (result.length !== current.length) {
+    const layered: OriginalOrderEntry[] | null =
+      await layerOriginalOrderEntries(store, noteId, result);
+    if (layered === null || layered.length !== current.length) {
       return null;
     }
-    for (let index: number = 0; index < result.length; index++) {
-      if (result[index].key !== `${current[index].kind}:${current[index].elementId}`) {
+    for (let index: number = 0; index < layered.length; index++) {
+      if (layered[index].key !== `${current[index].kind}:${current[index].elementId}`) {
         return null;
       }
     }
-    return result;
+    return layered;
   }
 
   private async readOriginalZOrderHistory(store: relationalStore.RdbStore,
@@ -1423,6 +1428,8 @@ export class StrokePersistence {
     const hint: OriginalZOrderHint | undefined = originalZOrderHint === undefined ? undefined : {
       command: originalZOrderHint.command,
       selectedElementIds: originalZOrderHint.selectedElementIds.slice(),
+      selectedGroupIds: originalZOrderHint.selectedGroupIds === undefined ? [] :
+        originalZOrderHint.selectedGroupIds.slice(),
     };
     return { noteId: noteId, pageId: pageId, elements: elements, history: history,
       originalZOrderHint: hint };
@@ -1531,17 +1538,21 @@ export class StrokePersistence {
             encodeOperationId({ timestamp: timestamp, siteId: siteId }),
           timestamp: timestamp, siteId: siteId,
           zIndex: tracked.getString(tracked.getColumnIndex('z_index')),
+          unitId: encodeOperationId({ timestamp: timestamp, siteId: siteId }),
+          unitTimestamp: timestamp, unitSiteId: siteId,
+          unitZIndex: tracked.getString(tracked.getColumnIndex('z_index')), unitGroup: false,
         });
       }
     } finally {
       tracked.close();
     }
-    original.sort(compareOriginalOrderEntries);
-    if (actual.length !== original.length) {
+    const layered: OriginalOrderEntry[] | null =
+      await layerOriginalOrderEntries(store, noteId, original);
+    if (layered === null || actual.length !== layered.length) {
       return null;
     }
     for (let index: number = 0; index < actual.length; index++) {
-      if (actual[index] !== original[index].key) {
+      if (actual[index] !== layered[index].key) {
         return null;
       }
     }
@@ -1709,17 +1720,64 @@ export class StrokePersistence {
 
 }
 
+async function layerOriginalOrderEntries(store: relationalStore.RdbStore, noteId: string,
+  entries: OriginalOrderEntry[]): Promise<OriginalOrderEntry[] | null> {
+  const byId: Map<string, OriginalOrderEntry> = new Map<string, OriginalOrderEntry>();
+  const entities: OriginalLayeringEntity[] = [];
+  for (const entry of entries) {
+    const id: string = encodeOperationId({ timestamp: entry.timestamp, siteId: entry.siteId });
+    if (byId.has(id)) {
+      return null;
+    }
+    byId.set(id, entry);
+    entities.push({ id: id, timestamp: entry.timestamp, siteId: entry.siteId,
+      zIndex: entry.zIndex });
+  }
+  const units: OriginalLayeringUnit[] | null =
+    await originalGroupLayerUnits(store, noteId, entities);
+  if (units === null) {
+    return null;
+  }
+  const layered: OriginalOrderEntry[] = [];
+  for (const unit of units) {
+    for (const entity of unit.entities) {
+      const entry: OriginalOrderEntry | undefined = byId.get(entity.id);
+      if (entry === undefined) {
+        return null;
+      }
+      layered.push({
+        key: entry.key, timestamp: entry.timestamp, siteId: entry.siteId, zIndex: entry.zIndex,
+        unitId: unit.id, unitTimestamp: unit.timestamp, unitSiteId: unit.siteId,
+        unitZIndex: unit.zIndex, unitGroup: unit.group,
+      });
+    }
+  }
+  return layered.length === entries.length ? layered : null;
+}
+
 function compareOriginalOrderEntries(left: OriginalOrderEntry,
   right: OriginalOrderEntry): number {
-  let compared: number = compareUnsignedLongDecimal(left.zIndex, right.zIndex);
+  let compared: number = compareUnsignedLongDecimal(left.unitZIndex, right.unitZIndex);
+  if (compared !== 0) {
+    return compared;
+  }
+  compared = left.unitTimestamp === right.unitTimestamp ? 0 :
+    left.unitTimestamp < right.unitTimestamp ? -1 : 1;
+  if (compared !== 0) {
+    return compared;
+  }
+  compared = left.unitSiteId === right.unitSiteId ? 0 :
+    left.unitSiteId < right.unitSiteId ? -1 : 1;
+  if (compared !== 0 || left.unitId !== right.unitId) {
+    return compared !== 0 ? compared : left.unitId < right.unitId ? -1 : 1;
+  }
+  compared = compareUnsignedLongDecimal(left.zIndex, right.zIndex);
   if (compared !== 0) {
     return compared;
   }
   compared = left.timestamp === right.timestamp ? 0 : left.timestamp < right.timestamp ? -1 : 1;
-  if (compared !== 0) {
-    return compared;
-  }
-  return left.siteId === right.siteId ? 0 : left.siteId < right.siteId ? -1 : 1;
+  return compared !== 0 ? compared :
+    left.siteId === right.siteId ? 0 : left.siteId < right.siteId ? -1 : 1;
 }
 
 function createOriginalZOrderHistory(order: OriginalOrderEntry[], next: PreparedElement[],
@@ -1734,28 +1792,33 @@ function createOriginalZOrderHistory(order: OriginalOrderEntry[], next: Prepared
     }
     selectedIds.add(id);
   }
-  const selected: OriginalOrderEntry[] = [];
-  const remaining: OriginalOrderEntry[] = [];
-  for (const entry of order) {
-    const id: string = encodeOperationId({ timestamp: entry.timestamp, siteId: entry.siteId });
-    if (selectedIds.has(id)) {
-      selected.push(entry);
-    } else {
-      remaining.push(entry);
+  const selected: OriginalOrderEntry[] = order.filter(
+    (entry: OriginalOrderEntry): boolean => selectedIds.has(encodeOperationId({
+      timestamp: entry.timestamp, siteId: entry.siteId,
+    })));
+  if (selected.length !== selectedIds.size ||
+    selected.some((entry: OriginalOrderEntry): boolean => entry.unitGroup)) {
+    return null;
+  }
+  const units: OriginalOrderUnit[] | null = originalOrderUnits(order);
+  if (units === null || units.length === 0) {
+    return null;
+  }
+  const selectedUnitIds: Set<string> = new Set<string>(selectedIds);
+  const groupIds: string[] = hint.selectedGroupIds === undefined ? [] : hint.selectedGroupIds;
+  const availableGroupIds: Set<string> = new Set<string>(units.filter(
+    (unit: OriginalOrderUnit): boolean => unit.group).map(
+      (unit: OriginalOrderUnit): string => unit.id));
+  for (const groupId of groupIds) {
+    if (selectedUnitIds.has(groupId) || !availableGroupIds.has(groupId)) {
+      return null;
     }
-  }
-  if (selected.length !== selectedIds.size || selected.length === order.length) {
-    return null;
-  }
-  const expected: OriginalOrderEntry[] = hint.command === OriginalZOrderCommand.BRING_FRONT ?
-    remaining.concat(selected) : selected.concat(remaining);
-  if (!orderEntriesMatchPrepared(expected, next)) {
-    return null;
+    selectedUnitIds.add(groupId);
   }
   const before: OriginalZOrderValue[] = [];
   const after: OriginalZOrderValue[] = [];
   if (hint.command === OriginalZOrderCommand.BRING_FRONT) {
-    const maximum: string = order[order.length - 1].zIndex;
+    const maximum: string = units[units.length - 1].zIndex;
     for (let index: number = 0; index < selected.length; index++) {
       const zIndex: string | null = addUnsignedSmall(maximum, index + 1);
       if (zIndex === null) {
@@ -1764,23 +1827,38 @@ function createOriginalZOrderHistory(order: OriginalOrderEntry[], next: Prepared
       appendZOrderChange(before, after, selected[index], zIndex);
     }
   } else if (hint.command === OriginalZOrderCommand.SEND_BACK) {
-    const minimum: string = order[0].zIndex;
+    const first: OriginalOrderUnit = units[0];
+    const minimum: string = first.zIndex;
+    const start: string | null = first.group ? subtractUnsignedSmall(minimum, selected.length) :
+      minimum;
+    if (start === null) {
+      return null;
+    }
     for (let index: number = 0; index < selected.length; index++) {
-      const zIndex: string | null = addUnsignedSmall(minimum, index);
+      const zIndex: string | null = addUnsignedSmall(start, index);
       if (zIndex === null) {
         return null;
       }
       appendZOrderChange(before, after, selected[index], zIndex);
     }
-    let shifted: number = 0;
-    for (const entry of remaining) {
-      const candidate: string | null = addUnsignedSmall(minimum, selected.length + shifted);
-      if (candidate === null) {
-        return null;
-      }
-      if (compareUnsignedLongDecimal(entry.zIndex, candidate) < 0) {
-        appendZOrderChange(before, after, entry, candidate);
-        shifted++;
+    if (!first.group) {
+      let index: number = 0;
+      for (const unit of units) {
+        if (selectedUnitIds.has(unit.id)) {
+          continue;
+        }
+        const candidate: string | null = addUnsignedSmall(
+          minimum, selected.length + index);
+        if (candidate === null) {
+          return null;
+        }
+        if (compareUnsignedLongDecimal(unit.zIndex, candidate) < 0 && !unit.group) {
+          if (unit.entries.length !== 1) {
+            return null;
+          }
+          appendZOrderChange(before, after, unit.entries[0], candidate);
+        }
+        index++;
       }
     }
   } else {
@@ -1788,6 +1866,25 @@ function createOriginalZOrderHistory(order: OriginalOrderEntry[], next: Prepared
   }
   return before.length > 0 && sameZOrderTargets(before, after) &&
     zOrderValuesProduce(order, after, next) ? { before: before, after: after } : null;
+}
+
+function originalOrderUnits(order: OriginalOrderEntry[]): OriginalOrderUnit[] | null {
+  const units: OriginalOrderUnit[] = [];
+  const byId: Map<string, OriginalOrderUnit> = new Map<string, OriginalOrderUnit>();
+  for (const entry of order) {
+    let unit: OriginalOrderUnit | undefined = byId.get(entry.unitId);
+    if (unit === undefined) {
+      unit = { id: entry.unitId, timestamp: entry.unitTimestamp, siteId: entry.unitSiteId,
+        zIndex: entry.unitZIndex, group: entry.unitGroup, entries: [] };
+      byId.set(entry.unitId, unit);
+      units.push(unit);
+    } else if (unit.timestamp !== entry.unitTimestamp || unit.siteId !== entry.unitSiteId ||
+      unit.zIndex !== entry.unitZIndex || unit.group !== entry.unitGroup) {
+      return null;
+    }
+    unit.entries.push(entry);
+  }
+  return units;
 }
 
 function appendZOrderChange(before: OriginalZOrderValue[], after: OriginalZOrderValue[],
@@ -1826,7 +1923,11 @@ function zOrderValuesProduce(order: OriginalOrderEntry[], values: OriginalZOrder
       const id: string = encodeOperationId({ timestamp: entry.timestamp, siteId: entry.siteId });
       const zIndex: string | undefined = replacements.get(id);
       return { key: entry.key, timestamp: entry.timestamp, siteId: entry.siteId,
-        zIndex: zIndex === undefined ? entry.zIndex : zIndex };
+        zIndex: zIndex === undefined ? entry.zIndex : zIndex,
+        unitId: entry.unitId, unitTimestamp: entry.unitTimestamp,
+        unitSiteId: entry.unitSiteId,
+        unitZIndex: zIndex !== undefined && !entry.unitGroup ? zIndex : entry.unitZIndex,
+        unitGroup: entry.unitGroup };
     });
   projected.sort(compareOriginalOrderEntries);
   return orderEntriesMatchPrepared(projected, next);
@@ -1895,6 +1996,36 @@ function addUnsignedSmall(value: string, amount: number): string | null {
       (result.length === MAX_UNSIGNED_LONG_DECIMAL.length && result > MAX_UNSIGNED_LONG_DECIMAL)) {
       return null;
     }
+    remaining--;
+  }
+  return result;
+}
+
+function subtractUnsignedSmall(value: string, amount: number): string | null {
+  validateUnsignedLongDecimal(value);
+  if (!Number.isSafeInteger(amount) || amount < 0) {
+    return null;
+  }
+  let result: string = value;
+  let remaining: number = amount;
+  while (remaining > 0 && result !== '0') {
+    let borrow: number = 1;
+    let next: string = '';
+    for (let index: number = result.length - 1; index >= 0; index--) {
+      let digit: number = result.charCodeAt(index) - 0x30 - borrow;
+      if (digit < 0) {
+        digit += 10;
+        borrow = 1;
+      } else {
+        borrow = 0;
+      }
+      next = digit.toString() + next;
+    }
+    let first: number = 0;
+    while (first < next.length - 1 && next.charCodeAt(first) === 0x30) {
+      first++;
+    }
+    result = next.substring(first);
     remaining--;
   }
   return result;

@@ -18,6 +18,7 @@ import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './Unsig
 import {
   OriginalEntityVisibilityWinner, readOriginalEntityVisibilityWinner,
 } from './OriginalEntityVisibilityState';
+import { originalGroupLayerRanks, OriginalLayeringEntity } from './OriginalGroupLayering';
 import {
   decodeOriginalAuxiliaryInkPath, decodeOriginalInkPath, DecodedOriginalAuxiliaryInkPath,
   DecodedOriginalInkPath, originalInkTransform,
@@ -239,6 +240,13 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       }
       throw new Error('CREATE_INK_BUILD_FAILED');
     }
+    existingRows.push({
+      elementId: stroke.id, kind: PageElementKind.STROKE,
+      timestamp: operation.timestamp, siteId: operation.siteId, zIndex: payload.zIndex,
+    });
+    if (!await sortStoredZIndexRows(store, operation.noteId, existingRows)) {
+      return { deferredReason: 'CREATE_INK_GROUP_LAYERING_DIVERGED' };
+    }
     await store.insert('original_element_z_index', {
       'note_id': operation.noteId,
       'element_timestamp': operation.timestamp,
@@ -341,11 +349,6 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       'z_index_winner_site_id': 0,
       'z_index_winner_present': 0,
     });
-    existingRows.push({
-      elementId: stroke.id, kind: PageElementKind.STROKE,
-      timestamp: operation.timestamp, siteId: operation.siteId, zIndex: payload.zIndex,
-    });
-    existingRows.sort(compareStoredZIndexRows);
     if (hidden) {
       const persisted: PersistedElement = { kind: 'stroke', data: stroke };
       await store.insert('original_deleted_entity', {
@@ -860,17 +863,18 @@ function normalizeOriginalEnum(value: number, maximum: number): number {
   return value >= 0 && value <= maximum ? value : 0;
 }
 
-function compareStoredZIndexRows(left: StoredZIndexRow, right: StoredZIndexRow): number {
-  // vnd.c compares z-index as uint64, then qo5 identity as unsigned timestamp/site.
-  let compared: number = compareUnsignedLongDecimal(left.zIndex, right.zIndex);
-  if (compared !== 0) {
-    return compared;
+async function sortStoredZIndexRows(store: relationalStore.RdbStore, noteId: string,
+  rows: StoredZIndexRow[]): Promise<boolean> {
+  const entities: OriginalLayeringEntity[] = rows.map(
+    (row: StoredZIndexRow): OriginalLayeringEntity => ({ id: row.elementId,
+      timestamp: row.timestamp, siteId: row.siteId, zIndex: row.zIndex }));
+  const ranks: Map<string, number> | null = await originalGroupLayerRanks(store, noteId, entities);
+  if (ranks === null || ranks.size !== rows.length) {
+    return false;
   }
-  compared = left.timestamp === right.timestamp ? 0 : left.timestamp < right.timestamp ? -1 : 1;
-  if (compared !== 0) {
-    return compared;
-  }
-  return left.siteId === right.siteId ? 0 : left.siteId < right.siteId ? -1 : 1;
+  rows.sort((left: StoredZIndexRow, right: StoredZIndexRow): number =>
+    (ranks.get(left.elementId) as number) - (ranks.get(right.elementId) as number));
+  return true;
 }
 
 async function readSingleRevision(store: relationalStore.RdbStore, sql: string,

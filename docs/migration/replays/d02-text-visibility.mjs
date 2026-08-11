@@ -301,7 +301,7 @@ assert.match(source, /text-visibility identity conflicts with persisted visibili
 assert.match(source, /else if \(comparison > 0\)/);
 assert.match(source, /if \(after === before\)/);
 assert.match(dispatcher, /OriginalTextVisibilityOperationApplier/);
-assert.match(schema, /DB_VERSION: number = 60/);
+assert.match(schema, /DB_VERSION: number = 61/);
 assert.match(schema, /visibility_winner_present/);
 
 console.log('success|flatbuffer-pub-qub-f2c=1|v37-v38=1|remove-parent-keeps-descendants=1|' +

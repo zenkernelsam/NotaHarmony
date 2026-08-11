@@ -128,8 +128,9 @@ function createGroup(db, noteId, group, members, signature = JSON.stringify(memb
     return 'IDEMPOTENT';
   }
   const value = JSON.stringify(members);
-  db.prepare(`INSERT INTO original_group_state VALUES(?,?,?,?,?,?,?,?,?)`).run(
-    noteId, group.timestamp, group.siteId, value, value, 0, 0, 0, signature);
+  db.prepare(`INSERT INTO original_group_state VALUES(?,?,?,?,?,?,?,?,?,?)`).run(
+    noteId, group.timestamp, group.siteId, value, value, 0, 0, 0,
+    group.timestamp.toString(), signature);
   return 'APPLIED';
 }
 
@@ -232,7 +233,7 @@ assert.equal(failed.prepare(`SELECT COUNT(*) count FROM sqlite_master WHERE type
     'original_group_state','original_group_modification')`).get().count, 0);
 failed.close();
 
-assert.match(schema, /DB_VERSION: number = 60/);
+assert.match(schema, /DB_VERSION: number = 61/);
 assert.match(shapeStateDdl, /register_winners TEXT NOT NULL DEFAULT '\[\]'/);
 assert.match(schema, /56: \[[\s\S]*DDL_ORIGINAL_SHAPE_STATE[\s\S]*DDL_ORIGINAL_GROUP_MODIFICATION/);
 assert.match(manager, /DDL_ORIGINAL_SHAPE_STATE[\s\S]*DDL_ORIGINAL_GROUP_MODIFICATION/);

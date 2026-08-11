@@ -1,6 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { OriginalSelectionGroup, resolveOriginalGroupSelection,
-  OriginalGroupSelectionResult } from '../main/ets/core/model/OriginalGroupSelection';
+  OriginalGroupSelectionResult, resolveOriginalSelectedGroupLeaves } from
+  '../main/ets/core/model/OriginalGroupSelection';
 
 function group(id: string, timestamp: number, siteId: number,
   members: string[]): OriginalSelectionGroup {
@@ -40,6 +41,18 @@ export default function originalGroupSelectionTest() {
           group('two', 11, 1, ['one'])]);
       expect(cyclic.groupIds.length).assertEqual(0);
       expect(cyclic.entityIds[0]).assertEqual('a');
+    });
+
+    it('separates recursively grouped leaves from a mixed selection', 0, () => {
+      const groups: OriginalSelectionGroup[] = [group('inner', 10, 1, ['a', 'b']),
+        group('outer', 20, 1, ['inner', 'c'])];
+      const leaves: string[] | null = resolveOriginalSelectedGroupLeaves(
+        ['outer'], ['a', 'b', 'c', 'direct'], groups);
+      expect(leaves !== null).assertTrue();
+      expect((leaves as string[]).length).assertEqual(3);
+      expect((leaves as string[]).indexOf('direct')).assertEqual(-1);
+      expect(resolveOriginalSelectedGroupLeaves(
+        ['outer'], ['a', 'b'], groups) === null).assertTrue();
     });
   });
 }

@@ -3,11 +3,12 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
+// v61: retain CREATE_GROUP clientTime for original group-layered element ordering.
 // v60: retain original z-index values for durable selection reorder Undo/Redo.
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 60;
+export const DB_VERSION: number = 61;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -1468,6 +1469,12 @@ CREATE TABLE IF NOT EXISTS original_group_state (
   members_winner_site_id INTEGER NOT NULL DEFAULT 0
     CHECK (members_winner_site_id BETWEEN 0 AND 65535),
   members_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (members_winner_present IN (0, 1)),
+  z_index TEXT CHECK (z_index IS NULL OR (
+    typeof(z_index) = 'text' AND length(z_index) BETWEEN 1 AND 20
+    AND z_index NOT GLOB '*[^0-9]*'
+    AND (z_index = '0' OR substr(z_index, 1, 1) <> '0')
+    AND (length(z_index) < 20 OR z_index <= '18446744073709551615')
+  )),
   create_signature TEXT NOT NULL CHECK (length(create_signature) > 0),
   PRIMARY KEY(note_id, group_timestamp, group_site_id),
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
@@ -2428,4 +2435,19 @@ export const MIGRATIONS: Record<number, string[]> = {
   ],
   59: [DDL_ORIGINAL_LOCAL_INK_AUTHORING_GUARD],
   60: [DDL_ORIGINAL_LOCAL_Z_ORDER_HISTORY],
+  61: [
+    `ALTER TABLE original_group_state ADD COLUMN z_index TEXT CHECK (z_index IS NULL OR (
+      typeof(z_index) = 'text' AND length(z_index) BETWEEN 1 AND 20
+      AND z_index NOT GLOB '*[^0-9]*'
+      AND (z_index = '0' OR substr(z_index, 1, 1) <> '0')
+      AND (length(z_index) < 20 OR z_index <= '18446744073709551615')
+    ))`,
+    `UPDATE original_group_state SET z_index = (
+       SELECT timing.client_time FROM original_applied_operation_time timing
+       WHERE timing.note_id = original_group_state.note_id
+         AND timing.op_timestamp = original_group_state.group_timestamp
+         AND timing.op_site_id = original_group_state.group_site_id
+         AND timing.payload_type = 20
+     ) WHERE z_index IS NULL`,
+  ],
 };

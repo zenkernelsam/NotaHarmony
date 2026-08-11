@@ -30,7 +30,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(60);
+      expect(DB_VERSION).assertEqual(61);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -123,6 +123,8 @@ export default function databaseHelperTest() {
       expect(DDL_ORIGINAL_LOCAL_INK_AUTHORING_GUARD).assertContain('blocked INTEGER NOT NULL');
       expect(MIGRATIONS[60].join('\n')).assertContain('original_local_z_order_history');
       expect(DDL_ORIGINAL_LOCAL_Z_ORDER_HISTORY).assertContain('before_values TEXT NOT NULL');
+      expect(MIGRATIONS[61].join('\n')).assertContain('original_group_state ADD COLUMN z_index');
+      expect(DDL_ORIGINAL_GROUP_STATE).assertContain('z_index TEXT');
       expect(DDL_ORIGINAL_APPLIED_OPERATION_TIME).assertContain('audio_time TEXT');
       expect(DDL_ORIGINAL_APPLIED_OPERATION_TIME).assertContain(
         'PRIMARY KEY(note_id, op_timestamp, op_site_id)');
