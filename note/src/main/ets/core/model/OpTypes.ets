@@ -27,6 +27,7 @@ export enum OpType {
   PAGE_SNAPSHOT = 50,
   // Original 1.0.3 payload table retained for the private sync transport.
   ORIGINAL_DELETE_ENTITIES = 60,
+  ORIGINAL_CREATE_RECORDING = 61,
 }
 
 // History movement is metadata on a concrete mutation, not a replacement mutation type.

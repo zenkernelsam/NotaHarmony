@@ -29,11 +29,12 @@ import {
 } from '../../core/adaptation/OriginalAudioLinkedInkPlayback';
 import { OriginalRecordingDeleteController } from
   '../../core/adaptation/OriginalRecordingDeleteController';
-import { OriginalRecordingCaptureController } from
+import { OriginalRecordingCaptureController, OriginalRecordingCaptureResult } from
   '../../core/adaptation/OriginalRecordingCaptureController';
 import {
   HarmonyOriginalRecordingCaptureClock, OriginalRecordingMicrophoneBackend,
 } from '../../core/adaptation/OriginalRecordingMicrophoneBackend';
+import { persistCapturedOriginalRecording } from '../../data/OriginalRecordingPersistence';
 import {
   AddPageAction, DeletePageAction, EditorHistoryBridge, PageContentSnapshot, UndoableAction,
   UndoableActionType,
@@ -315,6 +316,11 @@ struct NotePage {
         this.recordingsLoading = false;
       }
     }
+  }
+
+  private async persistCapturedRecording(capture: OriginalRecordingCaptureResult): Promise<void> {
+    await persistCapturedOriginalRecording(DatabaseManager.getInstance(), this.noteId, capture);
+    await this.loadRecordings();
   }
 
   private async toggleRecording(recordingId: string): Promise<void> {
