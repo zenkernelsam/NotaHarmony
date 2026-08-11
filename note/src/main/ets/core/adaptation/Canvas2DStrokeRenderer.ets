@@ -526,6 +526,9 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     c.save();
     c.beginPath();
     this.appendCenterPath(c, stroke);
+    if (stroke.pathPoints.length === 1) {
+      c.lineTo(stroke.pathPoints[0].position.x, stroke.pathPoints[0].position.y);
+    }
     c.setLineWidth(spec.brushWidth);
     // 原版 c5g：DASH 使用 BUTT，DOTS 与实线使用 ROUND。
     if (spec.inkStyle === InkStyle.DASH) {
@@ -643,6 +646,26 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
   }
 
   // === 擦除遮罩（destination-out 挖洞）===
+  renderPartialEraser(stroke: StrokeElementData, ctx: RenderContext): void {
+    if (stroke.pathPoints.length === 0) {
+      return;
+    }
+    const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
+    c.save();
+    c.setGlobalCompositeOperation('destination-out');
+    c.beginPath();
+    this.appendCenterPath(c, stroke);
+    if (stroke.pathPoints.length === 1) {
+      c.lineTo(stroke.pathPoints[0].position.x, stroke.pathPoints[0].position.y);
+    }
+    c.setLineWidth(stroke.renderSpec.brushWidth);
+    c.setLineCap('round');
+    c.setLineJoin('round');
+    c.setLineDash([]);
+    c.stroke();
+    c.restore();
+  }
+
   renderEraserMask(stroke: StrokeElementData, ctx: RenderContext): void {
     if (stroke.maskPath.length === 0) {
       return;

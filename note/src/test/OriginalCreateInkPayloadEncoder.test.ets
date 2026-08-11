@@ -1,6 +1,8 @@
 import { describe, expect, it } from '@ohos/hypium';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
-import { decodeOriginalCreateInk } from '../main/ets/data/OriginalCreateInkOperation';
+import {
+  decodeOriginalCreateInk, unsupportedOriginalCreateInkReason,
+} from '../main/ets/data/OriginalCreateInkOperation';
 import { encodeOriginalLocalCreateInk } from
   '../main/ets/data/OriginalCreateInkPayloadEncoder';
 import { decodeOperationId } from '../main/ets/data/OperationIdentity';
@@ -50,6 +52,18 @@ export default function originalCreateInkPayloadEncoderTest() {
       expect(decoded.entityUndeletes[1].timestamp).assertEqual(23);
       expect(decodeOperationId('op:14:2')?.timestamp).assertEqual(20);
       expect(decodeOperationId('not-an-operation') === null).assertTrue();
+    });
+
+    it('round-trips original partial eraser as CREATE_INK tool 5', 0, () => {
+      const stroke: StrokeElementData = sampleStroke();
+      stroke.renderSpec.inkStyle = InkStyle.FIXED_WIDTH;
+      stroke.renderSpec.isPartialEraser = true;
+      const decoded = decodeOriginalCreateInk(encodeOriginalLocalCreateInk(
+        { timestamp: 80, siteId: 7, index: 2 }, stroke), '1234');
+      expect(decoded.tool).assertEqual(5);
+      expect(decoded.style).assertEqual(1);
+      expect(decoded.width).assertEqual(4.5);
+      expect(unsupportedOriginalCreateInkReason(decoded) === null).assertTrue();
     });
   });
 }

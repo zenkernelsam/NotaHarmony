@@ -22,6 +22,13 @@ export class StrokeCanvasPainter {
 
   renderStroke(stroke: StrokeElementData, rc: RenderContext, pageWidth: number, pageHeight: number): void {
     const canvasContext: Canvas2DDrawingContext = rc as Canvas2DDrawingContext;
+    if (stroke.renderSpec.isPartialEraser === true) {
+      canvasContext.save();
+      canvasContext.transform(stroke.transform);
+      this.renderer.renderPartialEraser(stroke, rc);
+      canvasContext.restore();
+      return;
+    }
     if (stroke.maskPath.length > 0) {
       const crop: Rect2D = computeIsolatedLayerBounds(stroke.bounds, pageWidth, pageHeight);
       const width: number = crop.right - crop.left;

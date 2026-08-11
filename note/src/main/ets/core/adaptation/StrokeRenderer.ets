@@ -26,5 +26,6 @@ export interface StrokeRenderer {
   // 渲染铅笔飞溅
   renderPencilSplats(splats: PencilSplatPoint[], spec: RenderSpec, ctx: RenderContext): void;
   // 渲染擦除遮罩
+  renderPartialEraser(stroke: StrokeElementData, ctx: RenderContext): void;
   renderEraserMask(stroke: StrokeElementData, ctx: RenderContext): void;
 }

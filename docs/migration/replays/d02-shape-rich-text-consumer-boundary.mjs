@@ -14,7 +14,8 @@ const textReducer = read('note/src/main/ets/data/OriginalInsertTextOperation.ets
 // Android 1.0.3 stores RichText on Shape, but its visible consumers submit only Shape geometry.
 assert.match(shapeRenderer, /renderShape\(shape: ShapeElement, context: RenderContext\)/);
 assert.doesNotMatch(shapeRenderer, /Canvas2DTextRenderer|richText|fillText/);
-assert.match(canvas, /this\.shapeRenderer\.renderShape\(element\.data, this\.renderCtx\)/);
+assert.match(canvas, /renderOrderedElements\(renderContext: Canvas2DRenderContext \| Canvas2DOffscreenRenderContext\)/);
+assert.match(canvas, /this\.shapeRenderer\.renderShape\(element\.data, renderContext\)/);
 assert.match(thumbnail, /this\.shapeRenderer\.renderShape\(element\.data, renderContext\)/);
 
 // The visible text renderer remains a Text Block consumer, not a Shape label renderer.

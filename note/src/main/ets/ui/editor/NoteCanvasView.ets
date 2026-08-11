@@ -8,7 +8,9 @@ import { RawPointerEvent } from '../../core/adaptation/InkInputProvider';
 import { InkInputProviderImpl } from '../../core/adaptation/InkInputProviderImpl';
 import { PenKitPredictor } from '../../core/adaptation/PenKitPredictor';
 import { PredictionCoordinates } from '../../core/adaptation/Predictor';
-import { Canvas2DStrokeRenderer, Canvas2DRenderContext } from '../../core/adaptation/Canvas2DStrokeRenderer';
+import {
+  Canvas2DOffscreenRenderContext, Canvas2DStrokeRenderer, Canvas2DRenderContext,
+} from '../../core/adaptation/Canvas2DStrokeRenderer';
 import { Canvas2DTextRenderer } from '../../core/adaptation/Canvas2DTextRenderer';
 import { LoadedPencilTexture, loadOriginalPencilTexture } from '../../core/adaptation/PencilTextureLoader';
 import { ImageAssetLoader, ImageAssetLoadState, LoadedImageAsset } from
@@ -21,7 +23,9 @@ import { StrokeCanvasPainter } from '../../rendering/StrokeCanvasPainter';
 import { ShapeCanvasRenderer } from '../../rendering/ShapeCanvasRenderer';
 import { ImageCanvasRenderer } from '../../rendering/ImageCanvasRenderer';
 import { MathCanvasRenderer } from '../../rendering/MathCanvasRenderer';
-import { BitmapTransferMetrics, BitmapTransferTracker } from '../../core/adaptation/BitmapTransferTracker';
+import {
+  BitmapTransferKind, BitmapTransferMetrics, BitmapTransferTracker,
+} from '../../core/adaptation/BitmapTransferTracker';
 import { CanvasViewport, CumulativeGestureTracker } from '../../rendering/CanvasViewport';
 import { pagePixelSize, PAGE_UNITS_PER_MM, PagePixelSize } from '../../core/model/PageCoordinateSpace';
 import { StrokeSession } from '../../rendering/StrokeSession';
@@ -55,7 +59,7 @@ import {
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import {
-  InkPathCommand, InkStyleMapEntry, OriginalInkCreateMetadata, RenderSpec,
+  InkPathCommand, InkStyle, InkStyleMapEntry, OriginalInkCreateMetadata, RenderSpec,
   StrokeElementData, StrokePathPoint,
   InputBatch, InputBatchKind,
   PencilSplatPoint,
@@ -168,6 +172,7 @@ export struct NoteCanvasView {
   private shapeDetector: ShapeDetector = new ShapeDetector();
   private persistence: StrokePersistence = new StrokePersistence();
   private originalInkReservation: OriginalInkCreateMetadata | null = null;
+  private eraserOriginalCreate: OriginalInkCreateMetadata | null = null;
   private originalInkReservationPromise: Promise<OriginalInkCreateMetadata | null> | null = null;
   private originalInkReservationGeneration: number = -1;
   private originalInkReservationPageId: string = '';
@@ -898,7 +903,11 @@ export struct NoteCanvasView {
     this.canvasCtx.scale(this.viewport.zoom, this.viewport.zoom);
     if (orderedRender) {
       this.renderPaper(theme);
-      this.renderOrderedElements();
+      if (this.hasOriginalPartialEraser()) {
+        this.renderOrderedContentLayer();
+      } else {
+        this.renderOrderedElements(this.renderCtx);
+      }
       for (const heldShape of this.heldShapes) {
         this.shapeRenderer.renderShape(heldShape, this.renderCtx);
       }
@@ -941,7 +950,31 @@ export struct NoteCanvasView {
     return requiresUnifiedElementRender(this.elementOrder);
   }
 
-  private renderOrderedElements(): void {
+  private hasOriginalPartialEraser(): boolean {
+    return this.completedStrokes.some((stroke: StrokeElementData): boolean =>
+      stroke.renderSpec.isPartialEraser === true);
+  }
+
+  private renderOrderedContentLayer(): void {
+    const width: number = this.getPaperWidth();
+    const height: number = this.getPaperHeight();
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    const layer: OffscreenCanvas = new OffscreenCanvas(width, height);
+    const context: OffscreenCanvasRenderingContext2D =
+      layer.getContext('2d', new RenderingContextSettings(true));
+    this.renderOrderedElements(new Canvas2DOffscreenRenderContext(context));
+    const bitmap: ImageBitmap = layer.transferToImageBitmap();
+    this.bitmapTransferTracker.recordTransfer(BitmapTransferKind.COMPLETED_LAYER);
+    try {
+      this.canvasCtx.drawImage(bitmap, 0, 0, width, height);
+    } finally {
+      bitmap.close();
+    }
+  }
+
+  private renderOrderedElements(renderContext: Canvas2DRenderContext | Canvas2DOffscreenRenderContext): void {
     const elements: OrderedPageElement[] = materializePageElements(
       this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks,
       this.mathBlocks);
@@ -951,19 +984,19 @@ export struct NoteCanvasView {
         const playback: OriginalAudioLinkedPlayback = resolveOriginalAudioLinkedPlayback(
           element.data, this.playbackAudioTime, this.playbackAudioSegments);
         this.strokePainter.renderAudioLinkedStroke(element.data, playback,
-          this.renderCtx, this.getPaperWidth(), this.getPaperHeight());
+          renderContext, this.getPaperWidth(), this.getPaperHeight());
       } else if (element.kind === PageElementKind.TEXT) {
-        this.textRenderer.renderText(element.data, this.renderCtx);
+        this.textRenderer.renderText(element.data, renderContext);
       } else if (element.kind === PageElementKind.SHAPE) {
-        this.shapeRenderer.renderShape(element.data, this.renderCtx);
+        this.shapeRenderer.renderShape(element.data, renderContext);
       } else if (element.kind === PageElementKind.IMAGE) {
         const loaded: LoadedImageAsset | undefined = this.imageAssets.get(
           originalAssetStorageHash(element.data.assetHashBits));
         if (loaded !== undefined && loaded.state === ImageAssetLoadState.READY && loaded.bitmap !== null) {
-          this.imageRenderer.renderImage(element.data, loaded.bitmap, this.renderCtx);
+          this.imageRenderer.renderImage(element.data, loaded.bitmap, renderContext);
         }
       } else if (element.kind === PageElementKind.MATH) {
-        this.mathRenderer.renderMath(element.data, this.renderCtx);
+        this.mathRenderer.renderMath(element.data, renderContext);
       }
     }
   }
@@ -1221,6 +1254,16 @@ export struct NoteCanvasView {
 
     if (this.viewModel.isEraserActive()) {
       this.eraserEngine.setMode(this.viewModel.eraserIsPartial ? EraserMode.PARTIAL : EraserMode.WHOLE);
+      this.eraserOriginalCreate = null;
+      if (this.viewModel.eraserIsPartial) {
+        this.eraserOriginalCreate = this.originalInkReservation;
+        this.originalInkReservation = null;
+        if (this.eraserOriginalCreate !== null) {
+          this.eraserOriginalCreate.clientTime = Math.max(
+            this.eraserOriginalCreate.clientTime, Date.now());
+          this.eraserOriginalCreate.pencilSeed = event.timestamp | 0;
+        }
+      }
       this.eraserActive = true;
       this.eraserPath = [];
       this.isDrawing = true;
@@ -1479,6 +1522,10 @@ export struct NoteCanvasView {
     }
     this.eraserActive = false;
     this.eraserPath = [];
+    if (this.eraserOriginalCreate !== null) {
+      this.eraserOriginalCreate = null;
+      this.refreshOriginalInkReservation(this.pageLoadGeneration, this.loadedPageId);
+    }
     this.selectionDrawing = false;
     this.selectionDrag = false;
     this.dragBeforeStrokes = [];
@@ -1547,6 +1594,11 @@ export struct NoteCanvasView {
     if (this.eraserPath.length === 0) {
       return;
     }
+    if (this.eraserEngine.getMode() === EraserMode.PARTIAL && this.eraserOriginalCreate !== null) {
+      this.commitOriginalPartialEraser(this.eraserOriginalCreate);
+      this.eraserOriginalCreate = null;
+      return;
+    }
     const before: StrokeElementData[] = this.completedStrokes.slice();
     const beforeShapes: ShapeElement[] = this.shapes.slice();
     const beforeTextBlocks: TextBlockElement[] = this.textBlocks.slice();
@@ -1592,11 +1644,12 @@ export struct NoteCanvasView {
     }
     // T-040 审核修复：PARTIAL 擦除（maskPath 挖洞）也需入栈可撤销
     // （before=受影响笔画擦除前快照，after=擦除后快照；undo 恢复原笔画，redo 重新挖洞）
+    const eraseObjects: boolean = this.eraserEngine.getMode() === EraserMode.WHOLE;
     const removedShapes: ShapeElement[] = [];
     const removedShapeIndices: number[] = [];
     for (let shapeIndex: number = 0; shapeIndex < beforeShapes.length; shapeIndex++) {
       const shape: ShapeElement = beforeShapes[shapeIndex];
-      if (eraserPathHitsShape(this.eraserPath, shape, this.eraserEngine.getWidth())) {
+      if (eraseObjects && eraserPathHitsShape(this.eraserPath, shape, this.eraserEngine.getWidth())) {
         removedShapes.push(shape);
         removedShapeIndices.push(shapeIndex);
         this.removeShapeById(shape.id);
@@ -1609,7 +1662,7 @@ export struct NoteCanvasView {
     const removedTextBlockIndices: number[] = [];
     for (let textIndex: number = 0; textIndex < beforeTextBlocks.length; textIndex++) {
       const textBlock: TextBlockElement = beforeTextBlocks[textIndex];
-      if (eraserPathHitsTextBlock(this.eraserPath, textBlock, this.eraserEngine.getWidth())) {
+      if (eraseObjects && eraserPathHitsTextBlock(this.eraserPath, textBlock, this.eraserEngine.getWidth())) {
         removedTextBlocks.push(textBlock);
         removedTextBlockIndices.push(textIndex);
         this.removeTextBlockById(textBlock.id);
@@ -1623,7 +1676,7 @@ export struct NoteCanvasView {
     const removedImageIndices: number[] = [];
     for (let imageIndex: number = 0; imageIndex < beforeImages.length; imageIndex++) {
       const image: ImageElement = beforeImages[imageIndex];
-      if (eraserPathHitsImageBlock(this.eraserPath, image, this.eraserEngine.getWidth())) {
+      if (eraseObjects && eraserPathHitsImageBlock(this.eraserPath, image, this.eraserEngine.getWidth())) {
         removedImages.push(image);
         removedImageIndices.push(imageIndex);
         this.removeImageById(image.id);
@@ -1636,7 +1689,7 @@ export struct NoteCanvasView {
     const removedMathBlockIndices: number[] = [];
     for (let mathIndex: number = 0; mathIndex < beforeMathBlocks.length; mathIndex++) {
       const math: MathElement = beforeMathBlocks[mathIndex];
-      if (eraserPathHitsMathBlock(this.eraserPath, math, this.eraserEngine.getWidth())) {
+      if (eraseObjects && eraserPathHitsMathBlock(this.eraserPath, math, this.eraserEngine.getWidth())) {
         removedMathBlocks.push(math);
         removedMathBlockIndices.push(mathIndex);
         this.removeMathBlockById(math.id);
@@ -1690,6 +1743,63 @@ export struct NoteCanvasView {
     if (removedImages.length > 0) {
       this.refreshImageAssets(this.pageLoadGeneration, this.loadedPageId);
     }
+  }
+
+  private commitOriginalPartialEraser(originalCreate: OriginalInkCreateMetadata): void {
+    const width: number = this.eraserEngine.getWidth();
+    const pathPoints: StrokePathPoint[] = this.eraserPath.map((point: Point2D): StrokePathPoint => ({
+      position: { x: point.x, y: point.y }, widthFactor: 1, pressure: -1,
+      altitudeAngleRadians: -1, azimuthUnitX: 0, azimuthUnitY: 0,
+    }));
+    const cubicSegments: CubicSegment[] = [];
+    for (let index: number = 1; index < this.eraserPath.length; index++) {
+      const p0: Point2D = this.eraserPath[index - 1];
+      const p3: Point2D = this.eraserPath[index];
+      cubicSegments.push({
+        p0: { x: p0.x, y: p0.y },
+        p1: { x: p0.x + (p3.x - p0.x) / 3, y: p0.y + (p3.y - p0.y) / 3 },
+        p2: { x: p0.x + (p3.x - p0.x) * 2 / 3, y: p0.y + (p3.y - p0.y) * 2 / 3 },
+        p3: { x: p3.x, y: p3.y },
+      });
+    }
+    let left: number = this.eraserPath[0].x;
+    let right: number = left;
+    let top: number = this.eraserPath[0].y;
+    let bottom: number = top;
+    for (const point of this.eraserPath) {
+      left = Math.min(left, point.x);
+      right = Math.max(right, point.x);
+      top = Math.min(top, point.y);
+      bottom = Math.max(bottom, point.y);
+    }
+    const stroke: StrokeElementData = {
+      id: encodeOperationId({ timestamp: originalCreate.timestamp, siteId: originalCreate.siteId }),
+      pathPoints: pathPoints,
+      cubicSegments: cubicSegments, splatPoints: [],
+      renderSpec: {
+        color: 0xFF000000, brushWidth: width, inkStyle: InkStyle.FIXED_WIDTH,
+        isHighlighter: false, isPencil: false, isPartialEraser: true,
+      },
+      transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+      bounds: { left: left - width, top: top - width,
+        right: right + width, bottom: bottom + width },
+      maskPath: [], customPath: null, fillPath: null, fillColor: null, styleMap: [],
+      audioStartTime: this.readRecordingAudioTime() ?? undefined,
+      originalCreate: originalCreate, isFinished: true,
+    };
+    const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
+    this.completedStrokes.push(stroke);
+    this.elementOrder = appendPageElementRefs(
+      this.elementOrder, PageElementKind.STROKE, [stroke.id]);
+    this.undoRedo.push({
+      type: UndoableActionType.ADD_STROKE, noteId: this.noteId,
+      pageId: this.currentPage.pageId, addedStrokes: [stroke],
+      elementOrderBefore: elementOrderBefore,
+      elementOrderAfter: clonePageElementOrder(this.elementOrder),
+    });
+    this.layerManager.commitStroke(stroke, this.renderCtx, this.viewport.zoom);
+    this.persist(true);
+    this.notifyUndoRedo();
   }
 
   private collectEraserPoint(touch: TouchObject): void {

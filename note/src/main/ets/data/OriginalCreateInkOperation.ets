@@ -401,6 +401,7 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
       renderSpec: {
         color: payload.color, brushWidth: payload.width, inkStyle: style,
         isHighlighter: payload.tool === 2, isPencil: isPencil,
+        isPartialEraser: payload.tool === 5,
         inkEffects: payload.inkEffects,
         inkEffectsTinted: payload.inkEffectsTinted,
         inkEffectPhase: styleEntry === undefined ? 0 : styleEntry.backingDashPhase,
@@ -780,7 +781,8 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
 
 export function unsupportedOriginalCreateInkReason(
   payload: OriginalCreateInkPayload): string | null {
-  if (payload.tool !== 0 && payload.tool !== 1 && payload.tool !== 2 && payload.tool !== 3) {
+  if (payload.tool !== 0 && payload.tool !== 1 && payload.tool !== 2 && payload.tool !== 3 &&
+    payload.tool !== 5) {
     return 'CREATE_INK_TOOL_UNSUPPORTED';
   }
   if (payload.tool !== 3 && payload.hasTapePattern) {

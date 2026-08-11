@@ -62,6 +62,8 @@ export interface RenderSpec {
   inkStyle: InkStyle;
   isHighlighter: boolean;
   isPencil: boolean;
+  // Original Ink tool 5 is a persistent partial-eraser path.
+  isPartialEraser?: boolean;
   // Original Ink effects are a uint64 bitmask (RAINBOW=1, GLITTER=2). Keep the
   // decimal string precision-safe even when the current renderer cannot shade them yet.
   inkEffects?: string;

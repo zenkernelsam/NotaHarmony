@@ -603,6 +603,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       const renderSpec: RenderSpec = {
         color: color, brushWidth: width, inkStyle: originalStyleToInkStyle(style),
         isHighlighter: stroke.renderSpec.isHighlighter, isPencil: stroke.renderSpec.isPencil,
+        isPartialEraser: stroke.renderSpec.isPartialEraser,
         inkEffects: inkEffects, inkEffectsTinted: inkEffectsTinted,
         inkEffectPhase: styleMap.length === 0 ? 0 : styleMap[0].backingDashPhase,
         tapePattern: tapePattern,
@@ -1614,6 +1615,7 @@ function replacementStroke(replacement: PlannedReplacement): StrokeElementData {
       inkStyle: originalStyleToInkStyle(replacement.style),
       isHighlighter: stroke.renderSpec.isHighlighter,
       isPencil: stroke.renderSpec.isPencil,
+      isPartialEraser: stroke.renderSpec.isPartialEraser,
       inkEffects: replacement.inkEffects,
       inkEffectsTinted: replacement.inkEffectsTinted,
       inkEffectPhase: replacement.styleMap.length === 0 ? 0 :

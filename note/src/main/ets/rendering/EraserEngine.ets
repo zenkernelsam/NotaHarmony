@@ -41,6 +41,9 @@ export class EraserEngine {
     }
     const radius: number = this.eraserWidth / 2;
     for (const stroke of strokes) {
+      if (stroke.renderSpec.isPartialEraser === true) {
+        continue;
+      }
       if (this.pathHitsStroke(eraserPath, stroke, radius)) {
         deleted.push(stroke.id);
       }
@@ -56,6 +59,9 @@ export class EraserEngine {
     }
     const radius: number = this.eraserWidth / 2;
     for (const stroke of strokes) {
+      if (stroke.renderSpec.isPartialEraser === true) {
+        continue;
+      }
       if (this.pathHitsStroke(eraserPath, stroke, radius)) {
         const localPath: Point2D[] | null = this.toStrokeLocalPath(eraserPath, stroke.transform);
         if (localPath === null) {

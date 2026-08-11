@@ -78,6 +78,9 @@ function validateStroke(stroke: StrokeElementData): void {
 }
 
 function originalTool(stroke: StrokeElementData): number {
+  if (stroke.renderSpec.isPartialEraser === true) {
+    return 5;
+  }
   if (stroke.renderSpec.tapePattern !== undefined) {
     return 3;
   }

@@ -88,6 +88,9 @@ export class SelectionTool {
     }
     const ids: string[] = [];
     for (const s of strokes) {
+      if (s.renderSpec.isPartialEraser === true) {
+        continue;
+      }
       if (this.state.mode === SelectionMode.RECTANGLE) {
         if (this.state.rect !== null && this.rectIntersects(this.state.rect, s.bounds)) {
           ids.push(s.id);
@@ -132,7 +135,9 @@ export class SelectionTool {
     this.state.selectedMathIds = mathIds;
     const availableIds: string[] = [];
     for (const stroke of strokes) {
-      availableIds.push(stroke.id);
+      if (stroke.renderSpec.isPartialEraser !== true) {
+        availableIds.push(stroke.id);
+      }
     }
     for (const shape of shapes) {
       if (shape.positionLocked !== true) {

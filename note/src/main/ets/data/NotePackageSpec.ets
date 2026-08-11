@@ -238,6 +238,10 @@ function isValidStroke(stroke: StrokeElementData): boolean {
     typeof stroke.renderSpec.inkEffectsTinted !== 'boolean') {
     return false;
   }
+  if (stroke.renderSpec.isPartialEraser !== undefined &&
+    typeof stroke.renderSpec.isPartialEraser !== 'boolean') {
+    return false;
+  }
   if (stroke.renderSpec.inkEffectPhase !== undefined &&
     !isFiniteNumber(stroke.renderSpec.inkEffectPhase)) {
     return false;
