@@ -25,7 +25,8 @@ Accepted, 2026-08-12.
   hard wraps retain their first character and continuation lines retain the paragraph style without
   gaining another marker.
 - Expose renderer-owned checkbox marker geometry. Marker centers use the exact aligned/indented
-  prefix origin and Canvas font metrics; radius follows the original natural-line-height formula.
+  marker column; radius follows the original natural-line-height formula. ADR-0123 subsequently
+  makes vector drawing consume that same center instead of a platform glyph.
 - Convert canvas points through the full inverse Text transform and apply the original strict
   `radius * 1.5` distance test. Singular transforms are not interactive.
 - In DEFAULT mode, test the topmost unlocked Text block marker before recording a normal double tap.

@@ -287,5 +287,35 @@ export default function rendererStyleTest() {
       const outsideWorld: Point2D = { x: 120 - outsideLocal.y, y: 10 + outsideLocal.x };
       expect(renderer.hitCheckboxMarker(element, renderContext, outsideWorld) === null).assertTrue();
     });
+
+    it('draws original circular checkbox markers without platform glyphs', 0, () => {
+      const canvas: OffscreenCanvas = new OffscreenCanvas(160, 80);
+      const context: OffscreenCanvasRenderingContext2D =
+        canvas.getContext('2d', new RenderingContextSettings(true));
+      const element: TextBlockElement = {
+        id: 'checkbox-vector', type: ElementType.TEXT, richText: 'A\nB',
+        paragraphStyleRuns: [
+          { start: 0, end: 2, style: { decoratorStyle: 3, isChecked: false } },
+          { start: 2, end: 3, style: { decoratorStyle: 3, isChecked: true } },
+        ],
+        textOrigin: { x: 0, y: 0 }, blockWidth: 150, blockHeight: 70,
+        rotationRadians: 0, contentLeftInset: 4, contentTopInset: 4,
+        contentRightInset: 4, fontSize: 20, fontColor: 0xFF000000 | 0,
+        transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: 0, top: 0, right: 150, bottom: 70 },
+      };
+      const renderer: Canvas2DTextRenderer = new Canvas2DTextRenderer();
+      const renderContext: Canvas2DOffscreenRenderContext =
+        new Canvas2DOffscreenRenderContext(context);
+      const markers: TextCheckboxMarker[] = renderer.checkboxMarkers(element, renderContext);
+      renderer.renderText(element, renderContext);
+      expect(markers.length).assertEqual(2);
+      expect(Math.round(markers[0].center.x)).assertEqual(17);
+      expect(alphaAt(context, Math.round(markers[0].center.x),
+        Math.round(markers[0].center.y))).assertEqual(0);
+      expect(alphaAt(context, Math.round(markers[1].center.x),
+        Math.round(markers[1].center.y)) > 0).assertTrue();
+      expect(countColor(context, 255, 255, 255) > 0).assertTrue();
+    });
   });
 }

@@ -34,8 +34,8 @@ Accepted, 2026-08-11.
   state without changing snapshot or page revision, so changing the decorator back restores it.
 - Every INSERT/REMOVE/REVIVE and character/paragraph style materialization reads checkbox state.
   Hidden characters retain the register and recover it when revived.
-- Render checkbox decorator 3 as U+2611 when checked and U+2610 otherwise. Width measurement and
-  drawing use the same prefix.
+- ADR-0123 supersedes the temporary U+2610/U+2611 rendering: checkbox decorator 3 now uses the
+  original vector circle/check geometry, fixed marker column and shared draw/hit center.
 - Route type 28 through standalone and NOTE_BUNDLE paths. Existing outer transactions and transient
   guards remain authoritative.
 

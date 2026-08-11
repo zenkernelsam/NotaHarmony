@@ -169,7 +169,8 @@ assert.match(style, /readOriginalCheckboxStates/);
 assert.match(router, /ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE/);
 assert.match(bundle, /updateCheckbox\.preflightTable/);
 assert.match(bundle, /updateCheckbox\.applyTable/);
-assert.match(renderer, /isChecked === true \? '\\u2611 ' : '\\u2610 '/);
+assert.match(renderer, /drawCheckboxMarker\(ctx, center, this\.checkboxRadius\(element\)/);
+assert.match(renderer, /ctx\.arc\(center\.x, center\.y, isChecked \? radius \+ 0\.5 : radius/);
 assert.match(fixture, /flatBufferUpdateCheckbox/);
 assert.match(fixture, /MALFORMED_UPDATE_CHECKBOX_PAYLOAD/);
 

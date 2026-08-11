@@ -49,9 +49,9 @@ export class Canvas2DTextRenderer {
         if (paragraph.decoratorStyle === 2) {
           numberedParagraph++;
         }
-        const indent: number = Math.max(0, paragraph.indentLevel ?? 0) * element.fontSize * 1.5;
+        const indent: number = this.paragraphIndent(element, paragraph);
         const lineWidth: number = this.measureRange(ctx, characters, characterStyles,
-          lineStart, index, element, prefix);
+          lineStart, index, element, prefix, paragraph.decoratorStyle === 3);
         maximum = Math.max(maximum, element.contentLeftInset +
           (element.contentRightInset ?? element.contentLeftInset) + indent + lineWidth);
         lineStart = index + 1;
@@ -92,9 +92,10 @@ export class Canvas2DTextRenderer {
         numberedParagraph++;
       }
       const lineWidth: number = this.measureRange(ctx, characters, characterStyles,
-        lineStart, line.end, element, prefix);
+        lineStart, line.end, element, prefix,
+        line.paragraphStart && paragraph.decoratorStyle === 3);
       let x: number = element.textOrigin.x + element.contentLeftInset +
-        Math.max(0, paragraph.indentLevel ?? 0) * element.fontSize * 1.5;
+        this.paragraphIndent(element, paragraph);
       const available: number = Math.max(0, element.blockWidth - element.contentLeftInset -
         (element.contentRightInset ?? element.contentLeftInset));
       if (paragraph.alignment === 2) {
@@ -102,7 +103,16 @@ export class Canvas2DTextRenderer {
       } else if (paragraph.alignment === 3) {
         x += Math.max(0, available - lineWidth);
       }
-      if (prefix.length > 0) {
+      if (line.paragraphStart && paragraph.decoratorStyle === 3) {
+        const center: Point2D = {
+          x: x + this.checkboxRadius(element),
+          y: this.checkboxCenterY(element, baseline),
+        };
+        this.drawCheckboxMarker(ctx, center, this.checkboxRadius(element),
+          paragraph.isChecked === true, characterStyles[lineStart]?.foregroundColor ??
+            element.fontColor);
+        x += this.checkboxColumnWidth(element);
+      } else if (prefix.length > 0) {
         const prefixStyle: RichTextCharacterStyle = characterStyles[lineStart] ?? {};
         this.applyFont(ctx, element, prefixStyle);
         ctx.setFillStyle(this.colorToRgba(prefixStyle.foregroundColor ?? element.fontColor));
@@ -154,9 +164,10 @@ export class Canvas2DTextRenderer {
           numberedParagraph++;
         }
         const lineWidth: number = this.measureRange(ctx, characters, characterStyles,
-          line.start, line.end, element, prefix);
+          line.start, line.end, element, prefix,
+          line.paragraphStart && paragraph.decoratorStyle === 3);
         let x: number = element.textOrigin.x + element.contentLeftInset +
-          Math.max(0, paragraph.indentLevel ?? 0) * element.fontSize * 1.5;
+          this.paragraphIndent(element, paragraph);
         const available: number = Math.max(0, element.blockWidth - element.contentLeftInset -
           (element.contentRightInset ?? element.contentLeftInset));
         if (paragraph.alignment === 2) {
@@ -165,17 +176,12 @@ export class Canvas2DTextRenderer {
           x += Math.max(0, available - lineWidth);
         }
         if (line.paragraphStart && paragraph.decoratorStyle === 3) {
-          const prefixStyle: RichTextCharacterStyle = characterStyles[line.start] ?? {};
-          this.applyFont(ctx, element, prefixStyle);
-          const glyph: string = paragraph.isChecked === true ? '\u2611' : '\u2610';
-          const glyphWidth: number = ctx.measureText(glyph);
-          const naturalLineHeight: number = element.fontSize + 8;
-          const radius: number = Math.max(naturalLineHeight / 2 - 1, naturalLineHeight / 4);
+          const radius: number = this.checkboxRadius(element);
           result.push({
             codePointIndex: line.start,
             center: {
-              x: x + glyphWidth / 2,
-              y: baseline - element.fontSize + naturalLineHeight / 2,
+              x: x + radius,
+              y: this.checkboxCenterY(element, baseline),
             },
             radius: radius,
           });
@@ -271,7 +277,7 @@ export class Canvas2DTextRenderer {
       }
       const paragraph: RichTextParagraphStyle = paragraphStyles[paragraphStart] ?? {};
       const available: number = Math.max(1, baseAvailable -
-        Math.max(0, paragraph.indentLevel ?? 0) * element.fontSize * 1.5);
+        this.paragraphIndent(element, paragraph));
       let start: number = paragraphStart;
       let firstLine: boolean = true;
       if (start === paragraphEnd) {
@@ -281,7 +287,8 @@ export class Canvas2DTextRenderer {
         const prefix: string = firstLine ? this.decoratorPrefix(
           paragraph.decoratorStyle, numberedParagraph, paragraph.isChecked) : '';
         let width: number = this.measureRange(ctx, characters, styles,
-          start, start, element, prefix);
+          start, start, element, prefix,
+          firstLine && paragraph.decoratorStyle === 3);
         let end: number = start;
         let lastBreak: number = -1;
         while (end < paragraphEnd) {
@@ -370,8 +377,8 @@ export class Canvas2DTextRenderer {
 
   private measureRange(ctx: Canvas2DDrawingContext, characters: string[],
     styles: RichTextCharacterStyle[], start: number, end: number,
-    element: TextBlockElement, prefix: string): number {
-    let width: number = 0;
+    element: TextBlockElement, prefix: string, checkboxPrefix: boolean = false): number {
+    let width: number = checkboxPrefix ? this.checkboxColumnWidth(element) : 0;
     const prefixStyle: RichTextCharacterStyle = styles[start] ?? {};
     if (prefix.length > 0) {
       this.applyFont(ctx, element, prefixStyle);
@@ -455,7 +462,7 @@ export class Canvas2DTextRenderer {
       return number.toString() + '. ';
     }
     if (style === 3) {
-      return isChecked === true ? '\u2611 ' : '\u2610 ';
+      return '';
     }
     if (style === 4) {
       return '> ';
@@ -463,8 +470,62 @@ export class Canvas2DTextRenderer {
     return '';
   }
 
-  private colorToRgba(argb: number): string {
-    const alpha: number = (argb >>> 24) & 0xFF;
+  private paragraphIndent(element: TextBlockElement, paragraph: RichTextParagraphStyle): number {
+    return Math.max(0, paragraph.indentLevel ?? 0) * element.fontSize * 36 / 14;
+  }
+
+  private checkboxColumnWidth(element: TextBlockElement): number {
+    return element.fontSize * 1.6;
+  }
+
+  private checkboxRadius(element: TextBlockElement): number {
+    const naturalLineHeight: number = element.fontSize + 8;
+    return Math.max(naturalLineHeight / 2 - 1, naturalLineHeight / 4);
+  }
+
+  private checkboxCenterY(element: TextBlockElement, baseline: number): number {
+    return baseline - element.fontSize + (element.fontSize + 8) / 2;
+  }
+
+  private drawCheckboxMarker(ctx: Canvas2DDrawingContext, center: Point2D, radius: number,
+    isChecked: boolean, color: number): void {
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, isChecked ? radius + 0.5 : radius, 0, Math.PI * 2);
+    if (!isChecked) {
+      ctx.setLineWidth(1);
+      ctx.setStrokeStyle(this.colorToRgba(color, 0.75));
+      ctx.stroke();
+      return;
+    }
+    ctx.setFillStyle(this.colorToRgba(color));
+    ctx.fill();
+    const unit: number = radius * 2 / 15;
+    const left: number = center.x - radius;
+    const top: number = center.y - radius;
+    const anchorX: number = left + unit * 3;
+    const anchorY: number = top + unit * 4;
+    ctx.beginPath();
+    ctx.moveTo(anchorX + unit * 1.08, anchorY + unit * 3.24);
+    ctx.lineTo(anchorX + unit * 2.88, anchorY + unit * 5.04);
+    ctx.lineTo(anchorX + unit * 7.92, anchorY);
+    ctx.lineTo(anchorX + unit * 9, anchorY + unit * 1.08);
+    ctx.lineTo(anchorX + unit * 2.88, anchorY + unit * 7.2);
+    ctx.lineTo(anchorX, anchorY + unit * 4.32);
+    ctx.closePath();
+    ctx.setFillStyle(this.checkboxCheckColor(color));
+    ctx.fill();
+  }
+
+  private checkboxCheckColor(argb: number): string {
+    const red: number = (argb >>> 16) & 0xFF;
+    const green: number = (argb >>> 8) & 0xFF;
+    const blue: number = argb & 0xFF;
+    const luminance: number = (red * 0.299 + green * 0.587 + blue * 0.114) / 255;
+    return luminance > 0.7 ? 'rgba(0,0,0,1)' : 'rgba(255,255,255,1)';
+  }
+
+  private colorToRgba(argb: number, alphaMultiplier: number = 1): string {
+    const alpha: number = ((argb >>> 24) & 0xFF) * alphaMultiplier;
     const red: number = (argb >>> 16) & 0xFF;
     const green: number = (argb >>> 8) & 0xFF;
     const blue: number = argb & 0xFF;
