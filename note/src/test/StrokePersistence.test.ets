@@ -5,8 +5,9 @@ import {
   classifyOriginalPositionLockMutation, classifyOriginalRenderMutation,
   decodeOriginalShapeStateTool, decodePersistedElement,
   encodePersistedElement,
+  OriginalClipboardPastePlan,
   OriginalImageCropMutation, OriginalImageFlipMutation, OriginalPositionLockMutation,
-  OriginalRenderMutation, PersistedElement,
+  OriginalRenderMutation, PersistedElement, validateOriginalClipboardPastePlan,
 } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import { ElementType, ImageElement, ShapeElement } from '../main/ets/core/model/ElementTypes';
@@ -356,6 +357,48 @@ export default function strokePersistenceTest() {
       invalid.blockWidth = 101;
       expect(classifyOriginalPositionLockMutation(
         [imageSource(image)], [imageSource(invalid)]) === null).assertTrue();
+    });
+
+    it('validates bottom-up original clipboard Paste plans before persistence', 0, () => {
+      const first: ShapeElement = originalShape('op:50:2', 0, -16777216, 4, null);
+      const second: ShapeElement = originalShape('op:52:2', 0, -16777216, 4, null);
+      const third: ShapeElement = originalShape('op:54:2', 0, -16777216, 4, null);
+      const valid: OriginalClipboardPastePlan = {
+        strokes: [], shapes: [first, second, third], textBlocks: [], images: [], mathBlocks: [],
+        elementOrder: [
+          { kind: PageElementKind.SHAPE, elementId: first.id, zIndex: 0 },
+          { kind: PageElementKind.SHAPE, elementId: second.id, zIndex: 1 },
+          { kind: PageElementKind.SHAPE, elementId: third.id, zIndex: 2 },
+        ],
+        groups: [
+          { id: 'op:60:2', timestamp: 60, siteId: 2, members: [first.id, second.id] },
+          { id: 'op:62:2', timestamp: 62, siteId: 2, members: ['op:60:2', third.id] },
+        ],
+        topGroupIds: ['op:62:2'],
+      };
+      validateOriginalClipboardPastePlan(valid);
+      let rejected: number = 0;
+      try {
+        validateOriginalClipboardPastePlan({
+          strokes: [], shapes: valid.shapes, textBlocks: [], images: [], mathBlocks: [],
+          elementOrder: valid.elementOrder,
+          groups: [valid.groups[1], valid.groups[0]], topGroupIds: valid.topGroupIds,
+        });
+      } catch (_error) {
+        rejected++;
+      }
+      try {
+        validateOriginalClipboardPastePlan({
+          strokes: [], shapes: [], textBlocks: [], images: [originalImage('op:70:2')],
+          mathBlocks: [],
+          elementOrder: [{ kind: PageElementKind.IMAGE, elementId: 'op:70:2', zIndex: 0 }],
+          groups: [{ id: 'op:72:2', timestamp: 72, siteId: 2, members: ['op:70:2'] }],
+          topGroupIds: ['op:72:2'],
+        });
+      } catch (_error) {
+        rejected++;
+      }
+      expect(rejected).assertEqual(2);
     });
   });
 }

@@ -2,7 +2,7 @@ import { relationalStore } from '@kit.ArkData';
 import { PageInfo } from '../core/model/NoteTypes';
 import { parsePageBackground } from '../core/model/PageBackgroundModel';
 import { readEffectiveNoteBackground } from './OriginalSetMetadataOperation';
-import { HistoryEffect, HistoryMetadata, OpType } from '../core/model/OpTypes';
+import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, OpType } from '../core/model/OpTypes';
 import { taskpool, util } from '@kit.ArkTS';
 import { InkStyle, OriginalInkCreateMetadata, StrokeElementData } from '../core/model/StrokeTypes';
 import {
@@ -65,7 +65,11 @@ import {
   sameOriginalSelectionGroups, validateOriginalGroupMutation,
 } from './OriginalGroupMutationOpCodec';
 import {
-  ORIGINAL_CREATE_INK_PAYLOAD_TYPE, OriginalCreateInkOperationApplier,
+  encodeOriginalClipboardPasteMutation, OriginalClipboardPasteMutation,
+  validateOriginalClipboardPasteMutation,
+} from './OriginalClipboardPasteMutationCodec';
+import {
+  decodeOriginalCreateInk, ORIGINAL_CREATE_INK_PAYLOAD_TYPE, OriginalCreateInkOperationApplier,
 } from './OriginalCreateInkOperation';
 import {
   rebuildOriginalPencilWidth, RebuiltOriginalPencilWidth,
@@ -89,7 +93,7 @@ import {
   OriginalModifyInkPayload,
 } from './OriginalModifyInkOperation';
 import {
-  decodeOriginalModifyShape, ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE,
+  decodeOriginalCreateShape, decodeOriginalModifyShape, ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE,
   ORIGINAL_CREATE_GROUP_PAYLOAD_TYPE, ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE,
   OriginalCreateShapePayload, OriginalModifyShapePayload, OriginalShapeGroupOperationApplier,
 } from './OriginalShapeGroupOperation';
@@ -137,6 +141,117 @@ export interface LoadedElements {
 export interface OriginalGroupMutationResult {
   mutation: OriginalGroupMutationOpPayload;
   groups: OriginalSelectionGroup[];
+}
+
+export interface OriginalClipboardPastePlan {
+  strokes: StrokeElementData[];
+  shapes: ShapeElement[];
+  textBlocks: TextBlockElement[];
+  images: ImageElement[];
+  mathBlocks: MathElement[];
+  elementOrder: PageElementRef[];
+  groups: OriginalSelectionGroup[];
+  topGroupIds: string[];
+}
+
+export interface OriginalClipboardPastePersistenceResult {
+  strokes: StrokeElementData[];
+  shapes: ShapeElement[];
+  textBlocks: TextBlockElement[];
+  elementOrder: PageElementRef[];
+  groups: OriginalSelectionGroup[];
+  topGroupIds: string[];
+  mutation: OriginalClipboardPasteMutation;
+}
+
+const MAX_ORIGINAL_CLIPBOARD_PASTE_LEAVES: number = 10000;
+
+export function validateOriginalClipboardPastePlan(plan: OriginalClipboardPastePlan): void {
+  if (plan.images.length !== 0 || plan.mathBlocks.length !== 0) {
+    throw new Error('original clipboard Paste does not yet support Image or Math CREATE_BLOCK');
+  }
+  const leafCount: number = plan.strokes.length + plan.shapes.length + plan.textBlocks.length;
+  if (leafCount === 0 || leafCount > MAX_ORIGINAL_CLIPBOARD_PASTE_LEAVES ||
+    plan.elementOrder.length !== leafCount || plan.groups.length === 0 ||
+    plan.groups.length > MAX_ORIGINAL_CLIPBOARD_PASTE_LEAVES ||
+    plan.topGroupIds.length === 0 || plan.topGroupIds.length > plan.groups.length) {
+    throw new Error('original clipboard Paste plan has an invalid size');
+  }
+  const page: OriginalSequenceIdentity = { timestamp: 1, siteId: 1, index: 0 };
+  const leafKinds: Map<string, PageElementKind> = new Map<string, PageElementKind>();
+  const addLeaf = (id: string, kind: PageElementKind): void => {
+    if (decodeOperationId(id) === null || leafKinds.has(id)) {
+      throw new Error('original clipboard Paste repeats or has a non-original leaf');
+    }
+    leafKinds.set(id, kind);
+  };
+  for (const stroke of plan.strokes) {
+    addLeaf(stroke.id, PageElementKind.STROKE);
+    encodeOriginalLocalCreateInk(page, stroke);
+  }
+  for (const shape of plan.shapes) {
+    addLeaf(shape.id, PageElementKind.SHAPE);
+    if ((shape.characterStyleRuns ?? []).length !== 0 ||
+      (shape.paragraphStyleRuns ?? []).length !== 0) {
+      throw new Error('original clipboard Paste Shape RichText is unsupported');
+    }
+    encodeOriginalLocalCreateShape(page, shape, null);
+  }
+  for (const text of plan.textBlocks) {
+    addLeaf(text.id, PageElementKind.TEXT);
+    if (text.richText.length === 0) {
+      throw new Error('original clipboard Paste empty Text is unsupported');
+    }
+    encodeOriginalLocalCreateTextBlock(page, text);
+    encodeOriginalInitialInsertString({ timestamp: 1, siteId: 1 }, text.richText);
+  }
+  const orderedLeaves: Set<string> = new Set<string>();
+  for (let index: number = 0; index < plan.elementOrder.length; index++) {
+    const ref: PageElementRef = plan.elementOrder[index];
+    if (ref.zIndex !== index || leafKinds.get(ref.elementId) !== ref.kind ||
+      orderedLeaves.has(ref.elementId)) {
+      throw new Error('original clipboard Paste leaf order is invalid');
+    }
+    orderedLeaves.add(ref.elementId);
+  }
+  const available: Set<string> = new Set<string>();
+  leafKinds.forEach((_kind: PageElementKind, id: string): void => { available.add(id); });
+  const groupIds: Set<string> = new Set<string>();
+  const parentByMember: Map<string, string> = new Map<string, string>();
+  for (const group of plan.groups) {
+    const identity: OperationIdentity | null = decodeOperationId(group.id);
+    if (identity === null || identity.timestamp !== group.timestamp ||
+      identity.siteId !== group.siteId || available.has(group.id) || groupIds.has(group.id) ||
+      group.members.length === 0 || group.members.length > MAX_ORIGINAL_CLIPBOARD_PASTE_LEAVES) {
+      throw new Error('original clipboard Paste source Group is invalid');
+    }
+    const members: Set<string> = new Set<string>();
+    for (const member of group.members) {
+      if (!available.has(member) || members.has(member) || parentByMember.has(member)) {
+        throw new Error('original clipboard Paste Groups are not a bottom-up single-parent graph');
+      }
+      members.add(member);
+      parentByMember.set(member, group.id);
+    }
+    groupIds.add(group.id);
+    available.add(group.id);
+  }
+  const expectedRoots: Set<string> = new Set<string>();
+  groupIds.forEach((id: string): void => {
+    if (!parentByMember.has(id)) {
+      expectedRoots.add(id);
+    }
+  });
+  const actualRoots: Set<string> = new Set<string>();
+  for (const id of plan.topGroupIds) {
+    if (!expectedRoots.has(id) || actualRoots.has(id)) {
+      throw new Error('original clipboard Paste top Group set is invalid');
+    }
+    actualRoots.add(id);
+  }
+  if (actualRoots.size !== expectedRoots.size) {
+    throw new Error('original clipboard Paste omits a top Group');
+  }
 }
 
 export interface OriginalTextEditPreview {
@@ -932,6 +1047,261 @@ export class StrokePersistence {
     this.queueSaveElements(noteId, pageId, strokes, textBlocks, elementOrder, shapes,
       false, undefined, images, mathBlocks);
     await this.flush(noteId, pageId);
+  }
+
+  async commitOriginalClipboardPaste(noteId: string, pageId: string,
+    plan: OriginalClipboardPastePlan, history: HistoryMetadata):
+    Promise<OriginalClipboardPastePersistenceResult> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    validateHistoryMetadata(history);
+    if (history.effect !== HistoryEffect.PUSH ||
+      history.coalesceTrack !== HistoryCoalesceTrack.NONE) {
+      throw new Error('original clipboard Paste requires non-coalesced PUSH history');
+    }
+    validateOriginalClipboardPastePlan(plan);
+    const stablePlan: OriginalClipboardPastePlan = cloneOriginalClipboardPastePlan(plan);
+    const stableHistory: HistoryMetadata = {
+      actionId: history.actionId, effect: history.effect,
+      coalesceTrack: history.coalesceTrack, actionTime: history.actionTime,
+    };
+    validateOriginalClipboardPastePlan(stablePlan);
+    validateHistoryMetadata(stableHistory);
+    await this.flush(noteId, pageId);
+    return editorPersistenceMutex.runExclusive(
+      async (): Promise<OriginalClipboardPastePersistenceResult> => {
+        if (this.store === null) {
+          throw new Error('StrokePersistence is not initialized');
+        }
+        const store: relationalStore.RdbStore = this.store;
+        await store.beginTransaction();
+        try {
+          const page: OriginalSequenceIdentity | null = await this.readEligibleOriginalInkPage(
+            store, noteId, pageId);
+          if (page === null) {
+            throw new Error('original clipboard Paste page is not original-aligned');
+          }
+          const before: SearchSourceElement[] = await this.loadCurrentSnapshot(store, noteId, pageId);
+          const currentRevision: number = await this.readLivePageRevision(store, noteId, pageId);
+          if (currentRevision >= Number.MAX_SAFE_INTEGER) {
+            throw new Error('original clipboard Paste page revision is exhausted');
+          }
+          const nextRevision: number = currentRevision + 1;
+          const maximumZIndex: string | null = await this.readMaximumOriginalZIndex(
+            store, noteId, page);
+          const strokeById: Map<string, StrokeElementData> = new Map<string, StrokeElementData>();
+          const shapeById: Map<string, ShapeElement> = new Map<string, ShapeElement>();
+          const textById: Map<string, TextBlockElement> = new Map<string, TextBlockElement>();
+          stablePlan.strokes.forEach(
+            (value: StrokeElementData): void => { strokeById.set(value.id, value); });
+          stablePlan.shapes.forEach(
+            (value: ShapeElement): void => { shapeById.set(value.id, value); });
+          stablePlan.textBlocks.forEach(
+            (value: TextBlockElement): void => { textById.set(value.id, value); });
+
+          const mappedIds: Map<string, string> = new Map<string, string>();
+          const createdStrokes: StrokeElementData[] = [];
+          const createdShapes: ShapeElement[] = [];
+          const createdTexts: TextBlockElement[] = [];
+          const createdOrder: PageElementRef[] = [];
+          const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+          let firstCreate: boolean = true;
+          for (const ref of stablePlan.elementOrder) {
+            const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+            if (firstCreate && maximumZIndex !== null &&
+              compareUnsignedLongDecimal(maximumZIndex, identity.clientTime.toString()) > 0) {
+              throw new Error('original clipboard Paste cannot append below the current z-index clock');
+            }
+            firstCreate = false;
+            const metadata: OriginalInkCreateMetadata = {
+              timestamp: identity.timestamp, siteId: identity.siteId,
+              clientTime: identity.clientTime, pageTimestamp: page.timestamp,
+              pageSiteId: page.siteId, pageIndex: page.index, pencilSeed: 0,
+            };
+            mappedIds.set(ref.elementId, identity.opId);
+            if (ref.kind === PageElementKind.STROKE) {
+              const source: StrokeElementData | undefined = strokeById.get(ref.elementId);
+              if (source === undefined) {
+                throw new Error('original clipboard Paste Ink source disappeared');
+              }
+              const stroke: StrokeElementData = cloneStrokeThroughPersistence(source);
+              stroke.id = identity.opId;
+              stroke.originalCreate = metadata;
+              const payload: Uint8Array = encodeOriginalLocalCreateInk(page, stroke);
+              const operation: StoredSyncedOperation = localStoredOperation(
+                noteId, metadata, ORIGINAL_CREATE_INK_PAYLOAD_TYPE, payload,
+                stroke.audioStartTime === undefined ? null : stroke.audioStartTime);
+              const applied: SyncedOperationApplyResult =
+                await new OriginalCreateInkOperationApplier().applyBatchedPayload(
+                  store, operation,
+                  decodeOriginalCreateInk(operation.rawOperation, metadata.clientTime.toString()),
+                  revisionBatch);
+              if (applied.deferredReason !== null) {
+                throw new Error(`original clipboard CREATE_INK was deferred: ${applied.deferredReason}`);
+              }
+              await this.appendOriginalCreateOperation(store, noteId, identity,
+                OpType.ORIGINAL_CREATE_INK, operation.rawOperation);
+              createdStrokes.push(stroke);
+            } else if (ref.kind === PageElementKind.SHAPE) {
+              const source: ShapeElement | undefined = shapeById.get(ref.elementId);
+              if (source === undefined) {
+                throw new Error('original clipboard Paste Shape source disappeared');
+              }
+              const shape: ShapeElement = cloneShapeElement(source);
+              shape.id = identity.opId;
+              const shapeMetadata: OriginalShapeCreateMetadata = {
+                timestamp: identity.timestamp, siteId: identity.siteId,
+                clientTime: identity.clientTime, pageTimestamp: page.timestamp,
+                pageSiteId: page.siteId, pageIndex: page.index, pencilSeed: 0, averageForce: null,
+              };
+              shape.originalCreate = shapeMetadata;
+              const payload: Uint8Array = encodeOriginalLocalCreateShape(page, shape, null);
+              const operation: StoredSyncedOperation = localStoredOperation(
+                noteId, shapeMetadata, ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE, payload, null);
+              const applied: SyncedOperationApplyResult =
+                await new OriginalShapeGroupOperationApplier().applyCreateShapeBatchedPayload(
+                  store, operation,
+                  decodeOriginalCreateShape(operation.rawOperation, metadata.clientTime.toString()),
+                  revisionBatch);
+              if (applied.deferredReason !== null) {
+                throw new Error(`original clipboard CREATE_SHAPE was deferred: ${applied.deferredReason}`);
+              }
+              await this.appendOriginalCreateOperation(store, noteId, identity,
+                OpType.ORIGINAL_CREATE_SHAPE, operation.rawOperation);
+              createdShapes.push(shape);
+            } else if (ref.kind === PageElementKind.TEXT) {
+              const source: TextBlockElement | undefined = textById.get(ref.elementId);
+              if (source === undefined) {
+                throw new Error('original clipboard Paste Text source disappeared');
+              }
+              const text: TextBlockElement = cloneTextBlockElement(source);
+              text.id = identity.opId;
+              text.originalCreate = metadata;
+              const createPayload: Uint8Array = encodeOriginalLocalCreateTextBlock(page, text);
+              const createOperation: StoredSyncedOperation = localStoredOperation(
+                noteId, metadata, ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE, createPayload, null);
+              const createApplied: SyncedOperationApplyResult =
+                await new OriginalCreateBlockOperationApplier().applyBatchedPayload(
+                  store, createOperation,
+                  decodeOriginalCreateBlock(createOperation.rawOperation,
+                    metadata.clientTime.toString()), revisionBatch);
+              if (createApplied.deferredReason !== null) {
+                throw new Error(`original clipboard CREATE_BLOCK was deferred: ${createApplied.deferredReason}`);
+              }
+              await this.appendOriginalCreateOperation(store, noteId, identity,
+                OpType.ORIGINAL_CREATE_BLOCK, createOperation.rawOperation);
+              const insertIdentity: AllocatedOperationIdentity =
+                await allocateOperationIdentity(store, noteId);
+              const insertMetadata: OriginalInkCreateMetadata =
+                allocatedOriginalMetadata(insertIdentity);
+              const insertPayload: Uint8Array = encodeOriginalInitialInsertString(
+                { timestamp: identity.timestamp, siteId: identity.siteId }, text.richText);
+              const insertOperation: StoredSyncedOperation = localStoredOperation(
+                noteId, insertMetadata, ORIGINAL_INSERT_STRING_PAYLOAD_TYPE,
+                insertPayload, null);
+              const insertApplied: SyncedOperationApplyResult =
+                await new OriginalInsertTextOperationApplier().applyBatchedPayload(
+                  store, insertOperation,
+                  decodeOriginalInsertText(insertOperation.rawOperation,
+                    ORIGINAL_INSERT_STRING_PAYLOAD_TYPE), revisionBatch);
+              if (insertApplied.deferredReason !== null) {
+                throw new Error(`original clipboard INSERT_STRING was deferred: ${insertApplied.deferredReason}`);
+              }
+              await this.appendOriginalCreateOperation(store, noteId, insertIdentity,
+                OpType.ORIGINAL_INSERT_TEXT, insertOperation.rawOperation);
+              createdTexts.push(text);
+            } else {
+              throw new Error('original clipboard Paste leaf kind is unsupported');
+            }
+            createdOrder.push({ kind: ref.kind, elementId: identity.opId,
+              zIndex: createdOrder.length });
+          }
+          await revisionBatch.flush(store, noteId);
+
+          const createdGroups: OriginalSelectionGroup[] = [];
+          const groupApplier: OriginalShapeGroupOperationApplier =
+            new OriginalShapeGroupOperationApplier();
+          for (const sourceGroup of stablePlan.groups) {
+            const members: OperationIdentity[] = [];
+            const memberIds: string[] = [];
+            for (const sourceMember of sourceGroup.members) {
+              const mapped: string | undefined = mappedIds.get(sourceMember);
+              const member: OperationIdentity | null = mapped === undefined ? null : decodeOperationId(mapped);
+              if (mapped === undefined || member === null) {
+                throw new Error('original clipboard Paste Group member mapping disappeared');
+              }
+              memberIds.push(mapped);
+              members.push(member);
+            }
+            const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+            const group: OriginalSelectionGroup = {
+              id: identity.opId, timestamp: identity.timestamp, siteId: identity.siteId,
+              members: memberIds,
+            };
+            const payload: Uint8Array = encodeOriginalCreateGroup(members);
+            const operation: StoredSyncedOperation = localStoredOperation(
+              noteId, this.groupOperationMetadata(identity),
+              ORIGINAL_CREATE_GROUP_PAYLOAD_TYPE, payload, null);
+            const applied: SyncedOperationApplyResult = await groupApplier.apply(store, operation);
+            if (applied.deferredReason !== null) {
+              throw new Error(`original clipboard CREATE_GROUP was deferred: ${applied.deferredReason}`);
+            }
+            await this.appendOriginalCreateOperation(store, noteId, identity,
+              OpType.ORIGINAL_CREATE_GROUP, operation.rawOperation);
+            mappedIds.set(sourceGroup.id, identity.opId);
+            createdGroups.push(group);
+          }
+
+          const materialized: SearchSourceElement[] =
+            await this.loadCurrentSnapshot(store, noteId, pageId);
+          const createdPrepared: PreparedPageSave = this.prepareSave(
+            noteId, pageId, createdStrokes, createdTexts, createdOrder, createdShapes, [], []);
+          const finalSnapshot: PreparedPageSave = this.reconcileOriginalClipboardPasteSnapshot(
+            noteId, pageId, before, materialized, createdPrepared.elements, stableHistory);
+          await this.reconcilePreparedRows(store, finalSnapshot, nextRevision);
+          await this.rebuildPageSearchState(
+            store, finalSnapshot, nextRevision, createdStrokes.length > 0);
+          const after: SearchSourceElement[] = finalSnapshot.elements.map(
+            (element: PreparedElement): SearchSourceElement => ({
+              elementId: element.elementId, kind: element.kind, payload: element.payload,
+            }));
+          const pageMutation: PageMutationOpPayload = createPageMutation(
+            pageId, currentRevision, nextRevision, before, after);
+          const topGroupIds: string[] = stablePlan.topGroupIds.map((sourceId: string): string => {
+            const mapped: string | undefined = mappedIds.get(sourceId);
+            if (mapped === undefined) {
+              throw new Error('original clipboard Paste top Group mapping disappeared');
+            }
+            return mapped;
+          });
+          const mutation: OriginalClipboardPasteMutation = {
+            pageMutation: pageMutation, groups: createdGroups, topGroupIds: topGroupIds,
+          };
+          validateOriginalClipboardPasteMutation(mutation);
+          const activeGroups: OriginalSelectionGroup[] =
+            await this.loadOriginalSelectionGroups(store, noteId);
+          for (const group of createdGroups) {
+            if (!this.containsExactGroup(activeGroups, group)) {
+              throw new Error('original clipboard Paste reducer lost a created Group');
+            }
+          }
+          await this.appendOriginalClipboardPasteHistory(store, noteId, mutation, stableHistory);
+          await store.commit();
+          return {
+            strokes: createdStrokes, shapes: createdShapes, textBlocks: createdTexts,
+            elementOrder: finalSnapshot.elements.map(
+              (element: PreparedElement, index: number): PageElementRef => ({
+                kind: element.kind, elementId: element.elementId, zIndex: index,
+              })),
+            groups: createdGroups.map(cloneSelectionGroup),
+            topGroupIds: topGroupIds.slice(), mutation: mutation,
+          };
+        } catch (e) {
+          await store.rollBack();
+          throw new Error(`commit original clipboard Paste failed: ${JSON.stringify(e)}`);
+        }
+      });
   }
 
   async createOriginalGroup(noteId: string, pageId: string, memberIds: string[],
@@ -3020,6 +3390,25 @@ export class StrokePersistence {
     return current;
   }
 
+  private async readLivePageRevision(store: relationalStore.RdbStore,
+    noteId: string, pageId: string): Promise<number> {
+    const rows = await store.querySql(
+      'SELECT content_revision FROM page_info WHERE note_id = ? AND page_id = ?',
+      [noteId, pageId]);
+    try {
+      if (!rows.goToFirstRow()) {
+        throw new Error('original clipboard Paste page disappeared');
+      }
+      const revision: number = rows.getLong(rows.getColumnIndex('content_revision'));
+      if (!Number.isSafeInteger(revision) || revision < 0) {
+        throw new Error('original clipboard Paste page revision is invalid');
+      }
+      return revision;
+    } finally {
+      rows.close();
+    }
+  }
+
   private async readEligibleOriginalInkPage(store: relationalStore.RdbStore,
     noteId: string, pageId: string): Promise<OriginalSequenceIdentity | null> {
     const guard = await store.querySql(
@@ -3477,6 +3866,69 @@ export class StrokePersistence {
       payload: encodeOriginalGroupMutation(mutation), clientTime: identity.clientTime,
       opTimestamp: identity.timestamp, editorSiteId: identity.siteId, history: history,
     });
+  }
+
+  private async appendOriginalClipboardPasteHistory(store: relationalStore.RdbStore,
+    noteId: string, mutation: OriginalClipboardPasteMutation,
+    history: HistoryMetadata): Promise<void> {
+    const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+    await appendOperation(store, {
+      noteId: noteId, opId: identity.opId, opType: OpType.ORIGINAL_CLIPBOARD_PASTE,
+      payload: encodeOriginalClipboardPasteMutation(mutation), clientTime: identity.clientTime,
+      opTimestamp: identity.timestamp, editorSiteId: identity.siteId, history: history,
+    });
+  }
+
+  private async appendOriginalCreateOperation(store: relationalStore.RdbStore,
+    noteId: string, identity: AllocatedOperationIdentity, opType: OpType,
+    payload: Uint8Array): Promise<void> {
+    await appendOperation(store, {
+      noteId: noteId, opId: identity.opId, opType: opType, payload: payload,
+      clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+      editorSiteId: identity.siteId, uploadImmediately: true,
+    });
+  }
+
+  private reconcileOriginalClipboardPasteSnapshot(noteId: string, pageId: string,
+    before: SearchSourceElement[], materialized: SearchSourceElement[],
+    created: PreparedElement[], history: HistoryMetadata): PreparedPageSave {
+    if (materialized.length !== before.length + created.length) {
+      throw new Error('original clipboard Paste materialized an unexpected element count');
+    }
+    const beforeByKey: Map<string, SearchSourceElement> = new Map<string, SearchSourceElement>();
+    const createdByKey: Map<string, PreparedElement> = new Map<string, PreparedElement>();
+    for (const element of before) {
+      beforeByKey.set(`${element.kind}:${element.elementId}`, element);
+    }
+    for (const element of created) {
+      createdByKey.set(`${element.kind}:${element.elementId}`, element);
+    }
+    const elements: PreparedElement[] = [];
+    for (const actual of materialized) {
+      const key: string = `${actual.kind}:${actual.elementId}`;
+      const pasted: PreparedElement | undefined = createdByKey.get(key);
+      if (pasted !== undefined) {
+        elements.push({
+          elementId: pasted.elementId, kind: pasted.kind,
+          payload: pasted.payload, searchText: pasted.searchText,
+        });
+        createdByKey.delete(key);
+        continue;
+      }
+      const previous: SearchSourceElement | undefined = beforeByKey.get(key);
+      if (previous === undefined || !sameByteArrays(previous.payload, actual.payload)) {
+        throw new Error('original clipboard Paste changed a pre-existing element');
+      }
+      elements.push({
+        elementId: previous.elementId, kind: previous.kind, payload: previous.payload,
+        searchText: searchTextForElement(previous.kind, previous.payload),
+      });
+      beforeByKey.delete(key);
+    }
+    if (beforeByKey.size !== 0 || createdByKey.size !== 0) {
+      throw new Error('original clipboard Paste materialized an incomplete page');
+    }
+    return { noteId: noteId, pageId: pageId, elements: elements, history: history };
   }
 
   private async loadOriginalSelectionGroups(store: relationalStore.RdbStore,
@@ -4073,6 +4525,44 @@ function cloneSelectionGroup(group: OriginalSelectionGroup): OriginalSelectionGr
     siteId: group.siteId,
     members: group.members.slice(),
   };
+}
+
+function cloneStrokeThroughPersistence(stroke: StrokeElementData): StrokeElementData {
+  const persisted: PersistedElement = decodePersistedElement(
+    encodePersistedElement({ kind: 'stroke', data: stroke }));
+  if (persisted.kind !== 'stroke') {
+    throw new Error('original clipboard Paste Ink clone changed kind');
+  }
+  return persisted.data as StrokeElementData;
+}
+
+function cloneOriginalClipboardPastePlan(
+  plan: OriginalClipboardPastePlan): OriginalClipboardPastePlan {
+  return {
+    strokes: plan.strokes.map(cloneStrokeThroughPersistence),
+    shapes: plan.shapes.map(cloneShapeElement),
+    textBlocks: plan.textBlocks.map(cloneTextBlockElement),
+    images: plan.images.map(cloneImageElement),
+    mathBlocks: plan.mathBlocks.map(cloneMathElement),
+    elementOrder: clonePageElementRefs(plan.elementOrder),
+    groups: plan.groups.map(cloneSelectionGroup),
+    topGroupIds: plan.topGroupIds.slice(),
+  };
+}
+
+function searchTextForElement(kind: number, payload: Uint8Array): string | null {
+  try {
+    const persisted: PersistedElement = decodePersistedElement(payload);
+    if (kind === PageElementKind.TEXT && persisted.kind === 'text') {
+      return foldSearchText((persisted.data as TextBlockElement).richText);
+    }
+    if (kind === PageElementKind.SHAPE && persisted.kind === 'shape') {
+      return foldSearchText((persisted.data as ShapeElement).richText ?? '');
+    }
+  } catch (_error) {
+    return null;
+  }
+  return null;
 }
 
 function localStoredOperation(noteId: string, metadata: OriginalInkCreateMetadata,
