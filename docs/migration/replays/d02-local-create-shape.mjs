@@ -43,7 +43,7 @@ assert.match(canvas,
 assert.match(canvas,
   /action\.type === UndoableActionType\.ERASE_ELEMENTS[\s\S]*action\.removedShapes\.map\(/);
 assert.match(canvas,
-  /originalEntityOnly: boolean = removedTextBlocks\.length === 0[\s\S]*removedShapes\.map\(/);
+  /originalEntityOnly: boolean = this\.areCanonicalOriginalPositionSelection\([\s\S]*removedShapes\.map\([\s\S]*removedTextBlocks\.map\([\s\S]*removedImages\.map\([\s\S]*removedMathBlocks\.map\(/);
 assert.match(encoder, /encodeOriginalLocalCreateShape/);
 assert.match(encoder, /ORIGINAL_LINE_DEFINITION: number = 1/);
 assert.match(encoder, /ORIGINAL_POLYGON_DEFINITION: number = 2/);

@@ -1906,21 +1906,8 @@ export class StrokePersistence {
         if (identity === null) {
           return null;
         }
-        const table: string = target.kind === PageElementKind.STROKE ?
-          'original_ink_state' : 'original_shape_state';
-        const timestampColumn: string = target.kind === PageElementKind.STROKE ?
-          'ink_timestamp' : 'shape_timestamp';
-        const siteColumn: string = target.kind === PageElementKind.STROKE ?
-          'ink_site_id' : 'shape_site_id';
-        const rows = await store.querySql(
-          `SELECT 1 FROM ${table} WHERE note_id = ? AND ${timestampColumn} = ?
-           AND ${siteColumn} = ? LIMIT 1`, [noteId, identity.timestamp, identity.siteId]);
-        try {
-          if (!rows.goToFirstRow()) {
-            return null;
-          }
-        } finally {
-          rows.close();
+        if (!await this.originalEntityStateExists(store, noteId, target.kind, identity)) {
+          return null;
         }
         identities.push(identity);
         largerIndex++;
@@ -2369,18 +2356,64 @@ export class StrokePersistence {
   }
 
   private originalEntityIdentity(target: SearchSourceElement | PreparedElement): OperationIdentity | null {
-    if (target.kind !== PageElementKind.STROKE && target.kind !== PageElementKind.SHAPE) {
-      return null;
-    }
     try {
       const persisted: PersistedElement = decodePersistedElement(target.payload);
-      if (target.kind === PageElementKind.STROKE && persisted.kind !== 'stroke' ||
-        target.kind === PageElementKind.SHAPE && persisted.kind !== 'shape') {
+      const kindMatches: boolean =
+        (target.kind === PageElementKind.STROKE && persisted.kind === 'stroke') ||
+        (target.kind === PageElementKind.SHAPE && persisted.kind === 'shape') ||
+        (target.kind === PageElementKind.TEXT && persisted.kind === 'text') ||
+        (target.kind === PageElementKind.IMAGE && persisted.kind === 'image') ||
+        (target.kind === PageElementKind.MATH && persisted.kind === 'math');
+      if (!kindMatches || target.elementId !== persisted.data.id) {
         return null;
       }
       return decodeOperationId(persisted.data.id);
     } catch (_error) {
       return null;
+    }
+  }
+
+  private async originalEntityStateExists(store: relationalStore.RdbStore, noteId: string,
+    kind: number, identity: OperationIdentity): Promise<boolean> {
+    let sql: string;
+    let args: Array<string | number>;
+    if (kind === PageElementKind.STROKE) {
+      sql = `SELECT 1 FROM original_element_z_index element
+        JOIN original_ink_state state ON state.note_id = element.note_id
+         AND state.ink_timestamp = element.element_timestamp
+         AND state.ink_site_id = element.element_site_id
+        WHERE element.note_id = ? AND element.element_timestamp = ?
+         AND element.element_site_id = ? AND element.kind = ? LIMIT 1`;
+      args = [noteId, identity.timestamp, identity.siteId, kind];
+    } else if (kind === PageElementKind.SHAPE) {
+      sql = `SELECT 1 FROM original_element_z_index element
+        JOIN original_shape_state state ON state.note_id = element.note_id
+         AND state.shape_timestamp = element.element_timestamp
+         AND state.shape_site_id = element.element_site_id
+        WHERE element.note_id = ? AND element.element_timestamp = ?
+         AND element.element_site_id = ? AND element.kind = ? LIMIT 1`;
+      args = [noteId, identity.timestamp, identity.siteId, kind];
+    } else {
+      const blockType: number = kind === PageElementKind.TEXT ? OriginalBlockType.TEXT :
+        kind === PageElementKind.IMAGE ? OriginalBlockType.IMAGE :
+          kind === PageElementKind.MATH ? OriginalBlockType.MATH : -1;
+      if (blockType < 0) {
+        return false;
+      }
+      sql = `SELECT 1 FROM original_element_z_index element
+        JOIN original_block_state state ON state.note_id = element.note_id
+         AND state.block_timestamp = element.element_timestamp
+         AND state.block_site_id = element.element_site_id
+        WHERE element.note_id = ? AND element.element_timestamp = ?
+         AND element.element_site_id = ? AND element.kind = ?
+         AND state.block_type = ? LIMIT 1`;
+      args = [noteId, identity.timestamp, identity.siteId, kind, blockType];
+    }
+    const rows = await store.querySql(sql, args);
+    try {
+      return rows.goToFirstRow();
+    } finally {
+      rows.close();
     }
   }
 
@@ -2401,7 +2434,7 @@ export class StrokePersistence {
     const result: SyncedOperationApplyResult = await new OriginalDeleteEntitiesOperationApplier().apply(
       store, operation);
     if (result.deferredReason !== null) {
-      throw new Error(`local Ink visibility was deferred: ${result.deferredReason}`);
+      throw new Error(`local entity visibility was deferred: ${result.deferredReason}`);
     }
     await appendOperation(store, {
       noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_DELETE_ENTITIES,
@@ -2410,8 +2443,9 @@ export class StrokePersistence {
     });
     const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
       store, step.noteId, step.pageId);
-    if (!samePreparedIdentityOrder(materialized, step.elements)) {
-      throw new Error('local Ink visibility reducer produced an unexpected element order');
+    if (!samePreparedIdentityOrder(materialized, step.elements) ||
+      !samePreparedMembersAndPayloads(materialized, step.elements)) {
+      throw new Error('local entity visibility reducer produced unexpected page state');
     }
     await this.reconcilePreparedRows(store, step, expectedRevision);
   }

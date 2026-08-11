@@ -1806,11 +1806,14 @@ export struct NoteCanvasView {
     }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     const originalEntityOnly: boolean = partialBefore.length === 0 &&
-      (removed.length > 0 || removedShapes.length > 0) && removedTextBlocks.length === 0 &&
-      removedImages.length === 0 && removedMathBlocks.length === 0 &&
+      (removed.length > 0 || removedShapes.length > 0 || removedTextBlocks.length > 0 ||
+        removedImages.length > 0 || removedMathBlocks.length > 0) &&
       this.areCanonicalOriginalPositionSelection(
         removed.map((stroke: StrokeElementData): string => stroke.id),
-        removedShapes.map((shape: ShapeElement): string => shape.id), [], [], []);
+        removedShapes.map((shape: ShapeElement): string => shape.id),
+        removedTextBlocks.map((text: TextBlockElement): string => text.id),
+        removedImages.map((image: ImageElement): string => image.id),
+        removedMathBlocks.map((math: MathElement): string => math.id));
     if (changed) {
       this.persist(originalEntityOnly);
     }
@@ -2128,23 +2131,34 @@ export struct NoteCanvasView {
       return action.addedStrokes.length === 1 && action.addedStrokes[0].originalCreate !== undefined &&
         this.areCanonicalOriginalStrokes(action.addedStrokes);
     }
+    if (action.type === UndoableActionType.ADD_ELEMENT) {
+      return action.addedElement.originalCreate !== undefined &&
+        this.areCanonicalOriginalPositionSelection([], [], [action.addedElement.id], [], []);
+    }
+    if (action.type === UndoableActionType.DELETE_ELEMENT) {
+      return this.areCanonicalOriginalPositionSelection([], [], action.removedElements.map(
+        (text: TextBlockElement): string => text.id), [], []);
+    }
     if (action.type === UndoableActionType.DELETE_STROKE) {
       return action.beforeModifiedStrokes.length === 0 && action.afterModifiedStrokes.length === 0 &&
         this.areCanonicalOriginalStrokes(action.removedStrokes);
     }
     if (action.type === UndoableActionType.ERASE_ELEMENTS) {
       return action.beforeModifiedStrokes.length === 0 && action.afterModifiedStrokes.length === 0 &&
-        action.removedTextBlocks.length === 0 && action.removedImages.length === 0 &&
-        (action.removedMathBlocks ?? []).length === 0 && this.areCanonicalOriginalPositionSelection(
-        action.removedStrokes.map((stroke: StrokeElementData): string => stroke.id),
-        action.removedShapes.map((shape: ShapeElement): string => shape.id), [], [], []);
-    }
-    if (action.type === UndoableActionType.DELETE_ELEMENTS) {
-      return action.removedTextBlocks.length === 0 && action.removedImages.length === 0 &&
-        (action.removedMathBlocks ?? []).length === 0 && this.areCanonicalOriginalPositionSelection(
+        this.areCanonicalOriginalPositionSelection(
         action.removedStrokes.map((stroke: StrokeElementData): string => stroke.id),
         action.removedShapes.map((shape: ShapeElement): string => shape.id),
-        [], [], []);
+        action.removedTextBlocks.map((text: TextBlockElement): string => text.id),
+        action.removedImages.map((image: ImageElement): string => image.id),
+        (action.removedMathBlocks ?? []).map((math: MathElement): string => math.id));
+    }
+    if (action.type === UndoableActionType.DELETE_ELEMENTS) {
+      return this.areCanonicalOriginalPositionSelection(
+        action.removedStrokes.map((stroke: StrokeElementData): string => stroke.id),
+        action.removedShapes.map((shape: ShapeElement): string => shape.id),
+        action.removedTextBlocks.map((text: TextBlockElement): string => text.id),
+        action.removedImages.map((image: ImageElement): string => image.id),
+        (action.removedMathBlocks ?? []).map((math: MathElement): string => math.id));
     }
     if (action.type === UndoableActionType.TRANSFORM_STROKES) {
       return this.areCanonicalOriginalStrokes(action.beforeStrokes) &&
@@ -3843,11 +3857,12 @@ export struct NoteCanvasView {
       }
       this.selectionVisible = false;
       this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
-      const originalEntityOnly: boolean = removedTextBlocks.length === 0 &&
-        removedImages.length === 0 && removedMathBlocks.length === 0 &&
-        this.areCanonicalOriginalPositionSelection(
+      const originalEntityOnly: boolean = this.areCanonicalOriginalPositionSelection(
           removed.map((stroke: StrokeElementData): string => stroke.id),
-          removedShapes.map((shape: ShapeElement): string => shape.id), [], [], []);
+          removedShapes.map((shape: ShapeElement): string => shape.id),
+          removedTextBlocks.map((text: TextBlockElement): string => text.id),
+          removedImages.map((image: ImageElement): string => image.id),
+          removedMathBlocks.map((math: MathElement): string => math.id));
       if (removed.length > 0 || removedShapes.length > 0 || removedTextBlocks.length > 0 ||
         removedImages.length > 0 || removedMathBlocks.length > 0) {
         this.persist(originalEntityOnly);
