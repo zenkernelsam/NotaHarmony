@@ -66,6 +66,10 @@ import {
   preflightOriginalCommentTable,
 } from './OriginalCommentOperation';
 import {
+  ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE, ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE,
+  OriginalRecordingOperationApplier,
+} from './OriginalRecordingOperation';
+import {
   ORIGINAL_SET_METADATA_PAYLOAD_TYPE, OriginalSetMetadataOperationApplier,
   readEffectiveNoteBackground,
 } from './OriginalSetMetadataOperation';
@@ -327,6 +331,7 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
     new OriginalUpdateCheckboxOperationApplier();
   const modifyPdfField: OriginalModifyPdfFieldOperationApplier =
     new OriginalModifyPdfFieldOperationApplier();
+  const recording: OriginalRecordingOperationApplier = new OriginalRecordingOperationApplier();
   const setMetadata: OriginalSetMetadataOperationApplier = new OriginalSetMetadataOperationApplier();
   const modifyPositions: OriginalModifyPositionsOperationApplier =
     new OriginalModifyPositionsOperationApplier();
@@ -461,6 +466,15 @@ function preflightBundleContent(bundle: OriginalNoteBundle,
       }
       continue;
     }
+    if (operation.payloadType === ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE) {
+      const reason: string | null = recording.preflightTable(
+        operation.payload, operation.payloadType);
+      if (reason !== null) {
+        return `NOTE_BUNDLE_${reason}`;
+      }
+      continue;
+    }
     if (operation.payloadType === ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE) {
       const reason: string | null =
@@ -519,6 +533,7 @@ async function applyBundleContent(store: relationalStore.RdbStore,
     new OriginalUpdateCheckboxOperationApplier();
   const modifyPdfField: OriginalModifyPdfFieldOperationApplier =
     new OriginalModifyPdfFieldOperationApplier();
+  const recording: OriginalRecordingOperationApplier = new OriginalRecordingOperationApplier();
   const setMetadata: OriginalSetMetadataOperationApplier = new OriginalSetMetadataOperationApplier();
   const modifyPositions: OriginalModifyPositionsOperationApplier =
     new OriginalModifyPositionsOperationApplier();
@@ -528,6 +543,7 @@ async function applyBundleContent(store: relationalStore.RdbStore,
   const structureRevisionBefore: number = await countRows(store,
     'SELECT structure_revision AS value FROM note_meta WHERE id = ?', [bundle.noteId]);
   const pdfFieldStateBefore: string = await originalPdfFieldStateSignature(store, bundle.noteId);
+  const recordingStateBefore: string = await originalRecordingStateSignature(store, bundle.noteId);
   for (const operation of bundle.operations) {
     if (operation.payloadType !== ORIGINAL_SET_METADATA_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_CREATE_INK_PAYLOAD_TYPE &&
@@ -547,6 +563,8 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       operation.payloadType !== ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE &&
+      operation.payloadType !== ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE &&
       operation.payloadType !== ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE) {
       continue;
@@ -592,6 +610,9 @@ async function applyBundleContent(store: relationalStore.RdbStore,
       result = await updateCheckbox.applyTable(store, stored, operation.payload);
     } else if (operation.payloadType === ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE) {
       result = await modifyPdfField.applyTable(store, stored, operation.payload);
+    } else if (operation.payloadType === ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE) {
+      result = await recording.applyTable(store, stored, operation.payload);
     } else if (operation.payloadType === ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE ||
       operation.payloadType === ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE) {
       // Original v69 consumes validated comment payloads without a model mutation.
@@ -610,8 +631,44 @@ async function applyBundleContent(store: relationalStore.RdbStore,
     'SELECT structure_revision AS value FROM note_meta WHERE id = ?', [bundle.noteId]);
   return { applied: after > before || revisionAfter > revisionBefore ||
     structureRevisionAfter > structureRevisionBefore ||
-    await originalPdfFieldStateSignature(store, bundle.noteId) !== pdfFieldStateBefore,
+    await originalPdfFieldStateSignature(store, bundle.noteId) !== pdfFieldStateBefore ||
+    await originalRecordingStateSignature(store, bundle.noteId) !== recordingStateBefore,
     deferredReason: null };
+}
+
+async function originalRecordingStateSignature(store: relationalStore.RdbStore,
+  noteId: string): Promise<string> {
+  const rows = await store.querySql(
+    `SELECT recording_timestamp, recording_site_id, name_value, name_winner_timestamp,
+            name_winner_site_id, segments_value, segments_winner_timestamp,
+            segments_winner_site_id, z_index_value, z_index_winner_timestamp,
+            z_index_winner_site_id
+     FROM original_recording_state WHERE note_id = ?
+     ORDER BY recording_timestamp, recording_site_id`, [noteId]);
+  let signature: string = '';
+  try {
+    while (rows.goToNextRow()) {
+      const fields: string[] = [
+        rows.getLong(rows.getColumnIndex('recording_timestamp')).toString(),
+        rows.getLong(rows.getColumnIndex('recording_site_id')).toString(),
+        rows.getString(rows.getColumnIndex('name_value')),
+        rows.getLong(rows.getColumnIndex('name_winner_timestamp')).toString(),
+        rows.getLong(rows.getColumnIndex('name_winner_site_id')).toString(),
+        rows.getString(rows.getColumnIndex('segments_value')),
+        rows.getLong(rows.getColumnIndex('segments_winner_timestamp')).toString(),
+        rows.getLong(rows.getColumnIndex('segments_winner_site_id')).toString(),
+        rows.getString(rows.getColumnIndex('z_index_value')),
+        rows.getLong(rows.getColumnIndex('z_index_winner_timestamp')).toString(),
+        rows.getLong(rows.getColumnIndex('z_index_winner_site_id')).toString(),
+      ];
+      for (const field of fields) {
+        signature += `${field.length}:${field}`;
+      }
+    }
+    return signature;
+  } finally {
+    rows.close();
+  }
 }
 
 async function originalPdfFieldStateSignature(store: relationalStore.RdbStore,

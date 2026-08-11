@@ -61,6 +61,10 @@ import {
   ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE, ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE,
 } from './OriginalCommentOperation';
 import {
+  ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE, ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE,
+  OriginalRecordingOperationApplier,
+} from './OriginalRecordingOperation';
+import {
   OriginalFlatBufferTableReader,
 } from './OriginalSyncedOperationFlatBuffer';
 import {
@@ -96,6 +100,7 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
     new OriginalUpdateCheckboxOperationApplier();
   private modifyPdfField: OriginalModifyPdfFieldOperationApplier =
     new OriginalModifyPdfFieldOperationApplier();
+  private recording: OriginalRecordingOperationApplier = new OriginalRecordingOperationApplier();
 
   constructor(transientInteractions: OriginalTransientInteractionStore =
     new OriginalTransientInteractionStore()) {
@@ -124,6 +129,8 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
       payloadType === ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE ||
+      payloadType === ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_TRANSIENT_INTERACTION_ENDED_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_PEER_INTERACTION_PAYLOAD_TYPE ||
       payloadType === ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE ||
@@ -228,6 +235,10 @@ export class OriginalPageOperationApplier implements SyncedOperationApplier {
     }
     if (operation.payloadType === ORIGINAL_MODIFY_PDF_FIELD_PAYLOAD_TYPE) {
       return this.modifyPdfField.apply(store, operation);
+    }
+    if (operation.payloadType === ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE ||
+      operation.payloadType === ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE) {
+      return this.recording.apply(store, operation);
     }
     throw new Error('original page operation applier received an unsupported payload');
   }

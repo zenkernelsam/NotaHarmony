@@ -86,6 +86,11 @@ import {
   ORIGINAL_CREATE_COMMENT_PAYLOAD_TYPE, ORIGINAL_MODIFY_COMMENT_PAYLOAD_TYPE,
   OriginalCommentAnchorType, preflightOriginalCommentTable,
 } from '../main/ets/data/OriginalCommentOperation';
+import {
+  decodeOriginalCreateRecording, decodeOriginalModifyRecording,
+  ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE, ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE,
+  OriginalRecordingOperationApplier,
+} from '../main/ets/data/OriginalRecordingOperation';
 import { OriginalPageMutationBatch } from '../main/ets/data/OriginalPageMutationBatch';
 
 function operation(timestamp: number, serverTime: string,
@@ -509,6 +514,48 @@ export default function syncedOperationInboxTest() {
         }
       }
       expect(rejected).assertEqual(8);
+    });
+
+    it('decodes original Recording assets, uint64 bounds, segments and nullable modifications', 0, () => {
+      const created = decodeOriginalCreateRecording(flatBufferCreateRecording());
+      expect(created.metadata.fileName).assertEqual('audio.m4a');
+      expect(created.metadata.mimeType).assertEqual('audio/mp4');
+      expect(created.metadata.fileSize).assertEqual(4096);
+      expect(created.startTime).assertEqual('18446744073709551600');
+      expect(created.endTime).assertEqual('18446744073709551615');
+      expect(created.name).assertEqual('Lecture');
+      expect(created.segments?.length).assertEqual(2);
+      expect(created.zIndex).assertEqual('18446744073709551614');
+
+      const modified = decodeOriginalModifyRecording(flatBufferModifyRecording());
+      expect(modified.recording.timestamp).assertEqual(330);
+      expect(modified.recording.siteId).assertEqual(9);
+      expect(modified.name).assertEqual('Renamed');
+      expect(modified.segments?.length).assertEqual(1);
+      expect(modified.zIndex).assertEqual('18446744073709551613');
+      const emptyModify = decodeOriginalModifyRecording(
+        flatBufferModifyRecording(false, false, false));
+      expect(emptyModify.name === null && emptyModify.segments === null &&
+        emptyModify.zIndex === null).assertTrue();
+    });
+
+    it('strictly rejects malformed original Recording payloads and routes both durable types', 0, () => {
+      const applier: OriginalRecordingOperationApplier = new OriginalRecordingOperationApplier();
+      expect(applier.supports(ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE)).assertTrue();
+      expect(applier.supports(ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE)).assertTrue();
+      expect(applier.preflightTable(readOriginalPayloadTable(
+        flatBufferCreateRecording(false), ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE),
+      ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE)).assertEqual('MALFORMED_RECORDING_PAYLOAD');
+      expect(applier.preflightTable(readOriginalPayloadTable(
+        flatBufferCreateRecording(true, true), ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE),
+      ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE)).assertEqual('MALFORMED_RECORDING_PAYLOAD');
+      expect(applier.preflightTable(readOriginalPayloadTable(
+        flatBufferModifyRecording(true, true, true, false),
+        ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE), ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE))
+        .assertEqual('MALFORMED_RECORDING_PAYLOAD');
+      const router: OriginalPageOperationApplier = new OriginalPageOperationApplier();
+      expect(router.supports(ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE)).assertTrue();
+      expect(router.supports(ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE)).assertTrue();
     });
 
     it('decodes original INSERT_CHAR and INSERT_STRING Unicode code points', 0, () => {
@@ -1713,6 +1760,18 @@ class FixtureFlatBufferBuilder {
     return vector;
   }
 
+  recordingSegmentVector(values: { startTime: string, endTime: string }[]): number {
+    this.align(8);
+    const vector: number = this.cursor;
+    this.cursor += 4 + values.length * 16;
+    writeU32(this.bytes, vector, values.length);
+    for (let index: number = 0; index < values.length; index++) {
+      writeDecimalU64(this.bytes, vector + 4 + index * 16, values[index].startTime);
+      writeDecimalU64(this.bytes, vector + 12 + index * 16, values[index].endTime);
+    }
+    return vector;
+  }
+
   inlineBytes(size: number): number {
     this.align(4);
     const start: number = this.cursor;
@@ -2902,6 +2961,79 @@ function flatBufferModifyComment(includeAnchor: boolean, includeText: boolean,
   }
   if (includeUnknown) {
     builder.uint8(payload + 40, 1);
+  }
+  builder.pointer(root + 32, payload);
+  return builder.finish(root);
+}
+
+function flatBufferCreateRecording(includeAsset: boolean = true,
+  segmentPastEnd: boolean = false, includeUnknown: boolean = false): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.inlineIdentity(root + 4, 330, 9);
+  writeDecimalU64At(builder, root + 12, '18446744073709551614');
+  writeDecimalU64At(builder, root + 20, '18446744073709551615');
+  builder.uint8(root + 28, ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE);
+  const payload: number = builder.table([
+    includeAsset ? 4 : 0, 8, 16, 24, 28, 32, includeUnknown ? 40 : 0,
+  ], 44);
+  writeDecimalU64At(builder, payload + 8, '18446744073709551600');
+  writeDecimalU64At(builder, payload + 16,
+    segmentPastEnd ? '18446744073709551610' : '18446744073709551615');
+  builder.pointer(payload + 24, builder.string('Lecture'));
+  const segments: number = builder.recordingSegmentVector([
+    { startTime: '18446744073709551600', endTime: '18446744073709551605' },
+    {
+      startTime: '18446744073709551606',
+      endTime: '18446744073709551615',
+    },
+  ]);
+  builder.pointer(payload + 28, segments);
+  writeDecimalU64At(builder, payload + 32, '18446744073709551614');
+  if (includeUnknown) {
+    builder.uint8(payload + 40, 1);
+  }
+  if (includeAsset) {
+    const recording: number = builder.table([4], 8);
+    builder.pointer(payload + 4, recording);
+    const metadata: number = builder.table([4, 68, 72, 76], 80);
+    builder.pointer(recording + 4, metadata);
+    for (let index: number = 0; index < 8; index++) {
+      writeDecimalU64At(builder, metadata + 4 + index * 8, (index + 1).toString());
+    }
+    builder.pointer(metadata + 68, builder.string('audio.m4a'));
+    builder.pointer(metadata + 72, builder.string('audio/mp4'));
+    builder.uint32(metadata + 76, 4096);
+  }
+  return builder.finish(root);
+}
+
+function flatBufferModifyRecording(includeName: boolean = true,
+  includeSegments: boolean = true, includeZIndex: boolean = true,
+  includeTarget: boolean = true): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.inlineIdentity(root + 4, 331, 9);
+  writeDecimalU64At(builder, root + 12, '18446744073709551613');
+  writeDecimalU64At(builder, root + 20, '18446744073709551614');
+  builder.uint8(root + 28, ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE);
+  const payload: number = builder.table([
+    includeTarget ? 4 : 0, includeName ? 12 : 0,
+    includeSegments ? 16 : 0, includeZIndex ? 24 : 0,
+  ], 32);
+  if (includeTarget) {
+    builder.inlineIdentity(payload + 4, 330, 9);
+  }
+  if (includeName) {
+    builder.pointer(payload + 12, builder.string('Renamed'));
+  }
+  if (includeSegments) {
+    builder.pointer(payload + 16, builder.recordingSegmentVector([
+      { startTime: '18446744073709551600', endTime: '18446744073709551615' },
+    ]));
+  }
+  if (includeZIndex) {
+    writeDecimalU64At(builder, payload + 24, '18446744073709551613');
   }
   builder.pointer(root + 32, payload);
   return builder.finish(root);

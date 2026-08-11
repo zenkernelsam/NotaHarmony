@@ -11,6 +11,7 @@ import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 import { compareUnsignedLongDecimal } from './UnsignedDecimal';
+import { refreshOriginalRecordingPresence } from './OriginalRecordingOperation';
 import {
   OriginalEntityVisibilityWinner, originalEntityVisibilityUpdateApplies,
   readOriginalEntityVisibilityWinner,
@@ -272,12 +273,25 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
 
     const planned: PlannedEntityVisibility[] = [];
     const affectedPages: Map<string, StoredEntityTarget> = new Map<string, StoredEntityTarget>();
+    let recordingVisibilityMayChange: boolean = false;
     for (const desiredVisibility of desired.values()) {
       const target: StoredEntityTarget | null = await this.readEntityTarget(
         store, operation.noteId, desiredVisibility.entity);
       const winner: VisibilityWinner | null = await readOriginalEntityVisibilityWinner(
         store, operation.noteId, desiredVisibility.entity);
       if (target === null) {
+        if (await this.originalRecordingExists(store, operation.noteId, desiredVisibility.entity)) {
+          if (!originalEntityVisibilityUpdateApplies(
+            operation, desiredVisibility.deleted, winner)) {
+            continue;
+          }
+          planned.push({
+            entity: desiredVisibility.entity, target: null,
+            winner: winner, deleted: desiredVisibility.deleted, changesVisibility: false,
+          });
+          recordingVisibilityMayChange = true;
+          continue;
+        }
         if (await this.originalEntityExists(store, operation.noteId, desiredVisibility.entity)) {
           return 'DELETE_ENTITIES_ENTITY_MISSING_OR_UNBOUND';
         }
@@ -326,7 +340,23 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
       }
       await this.advanceEntityPageRevision(store, operation.noteId, target);
     }
+    if (recordingVisibilityMayChange) {
+      await refreshOriginalRecordingPresence(store, operation.noteId);
+    }
     return null;
+  }
+
+  private async originalRecordingExists(store: relationalStore.RdbStore, noteId: string,
+    entity: OperationIdentity): Promise<boolean> {
+    const rows = await store.querySql(
+      `SELECT 1 FROM original_recording_state WHERE note_id = ?
+       AND recording_timestamp = ? AND recording_site_id = ? LIMIT 1`,
+      [noteId, entity.timestamp, entity.siteId]);
+    try {
+      return rows.goToFirstRow();
+    } finally {
+      rows.close();
+    }
   }
 
   private async originalEntityExists(store: relationalStore.RdbStore, noteId: string,

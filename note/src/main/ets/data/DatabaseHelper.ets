@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v54: preserve the original PDF asset-field typed LWW map.
-export const DB_VERSION: number = 54;
+// v55: preserve original Recording entities and their independent LWW registers.
+export const DB_VERSION: number = 55;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -1255,6 +1255,77 @@ CREATE TABLE IF NOT EXISTS original_pdf_field_state (
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
+export const DDL_ORIGINAL_RECORDING_STATE: string = `
+CREATE TABLE IF NOT EXISTS original_recording_state (
+  note_id TEXT NOT NULL,
+  recording_timestamp INTEGER NOT NULL CHECK (recording_timestamp BETWEEN 0 AND 4294967295),
+  recording_site_id INTEGER NOT NULL CHECK (recording_site_id BETWEEN 0 AND 65535),
+  asset_hash_bits TEXT NOT NULL CHECK (length(asset_hash_bits) > 0),
+  asset_file_name TEXT NOT NULL CHECK (length(asset_file_name) > 0),
+  asset_mime_type TEXT NOT NULL CHECK (length(asset_mime_type) > 0),
+  asset_file_size INTEGER NOT NULL CHECK (asset_file_size BETWEEN 1 AND 4294967295),
+  start_time TEXT NOT NULL CHECK (
+    typeof(start_time) = 'text' AND length(start_time) BETWEEN 1 AND 20
+    AND start_time NOT GLOB '*[^0-9]*'
+    AND (start_time = '0' OR substr(start_time, 1, 1) <> '0')
+    AND (length(start_time) < 20 OR start_time <= '18446744073709551615')
+  ),
+  end_time TEXT NOT NULL CHECK (
+    typeof(end_time) = 'text' AND length(end_time) BETWEEN 1 AND 20
+    AND end_time NOT GLOB '*[^0-9]*'
+    AND (end_time = '0' OR substr(end_time, 1, 1) <> '0')
+    AND (length(end_time) < 20 OR end_time <= '18446744073709551615')
+  ),
+  create_name TEXT NOT NULL,
+  name_value TEXT NOT NULL,
+  name_winner_timestamp INTEGER NOT NULL DEFAULT 0
+    CHECK (name_winner_timestamp BETWEEN 0 AND 4294967295),
+  name_winner_site_id INTEGER NOT NULL DEFAULT 0 CHECK (name_winner_site_id BETWEEN 0 AND 65535),
+  name_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (name_winner_present IN (0, 1)),
+  create_segments TEXT NOT NULL,
+  segments_value TEXT NOT NULL,
+  segments_winner_timestamp INTEGER NOT NULL DEFAULT 0
+    CHECK (segments_winner_timestamp BETWEEN 0 AND 4294967295),
+  segments_winner_site_id INTEGER NOT NULL DEFAULT 0
+    CHECK (segments_winner_site_id BETWEEN 0 AND 65535),
+  segments_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (segments_winner_present IN (0, 1)),
+  create_z_index TEXT NOT NULL CHECK (
+    typeof(create_z_index) = 'text' AND length(create_z_index) BETWEEN 1 AND 20
+    AND create_z_index NOT GLOB '*[^0-9]*'
+    AND (create_z_index = '0' OR substr(create_z_index, 1, 1) <> '0')
+    AND (length(create_z_index) < 20 OR create_z_index <= '18446744073709551615')
+  ),
+  z_index_value TEXT NOT NULL CHECK (
+    typeof(z_index_value) = 'text' AND length(z_index_value) BETWEEN 1 AND 20
+    AND z_index_value NOT GLOB '*[^0-9]*'
+    AND (z_index_value = '0' OR substr(z_index_value, 1, 1) <> '0')
+    AND (length(z_index_value) < 20 OR z_index_value <= '18446744073709551615')
+  ),
+  z_index_winner_timestamp INTEGER NOT NULL DEFAULT 0
+    CHECK (z_index_winner_timestamp BETWEEN 0 AND 4294967295),
+  z_index_winner_site_id INTEGER NOT NULL DEFAULT 0
+    CHECK (z_index_winner_site_id BETWEEN 0 AND 65535),
+  z_index_winner_present INTEGER NOT NULL DEFAULT 0 CHECK (z_index_winner_present IN (0, 1)),
+  create_signature TEXT NOT NULL CHECK (length(create_signature) > 0),
+  PRIMARY KEY(note_id, recording_timestamp, recording_site_id),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_RECORDING_MODIFICATION: string = `
+CREATE TABLE IF NOT EXISTS original_recording_modification (
+  note_id TEXT NOT NULL,
+  operation_timestamp INTEGER NOT NULL CHECK (operation_timestamp BETWEEN 0 AND 4294967295),
+  operation_site_id INTEGER NOT NULL CHECK (operation_site_id BETWEEN 0 AND 65535),
+  recording_timestamp INTEGER NOT NULL CHECK (recording_timestamp BETWEEN 0 AND 4294967295),
+  recording_site_id INTEGER NOT NULL CHECK (recording_site_id BETWEEN 0 AND 65535),
+  payload_signature TEXT NOT NULL CHECK (length(payload_signature) > 0),
+  PRIMARY KEY(note_id, operation_timestamp, operation_site_id),
+  FOREIGN KEY(note_id, recording_timestamp, recording_site_id)
+    REFERENCES original_recording_state(note_id, recording_timestamp, recording_site_id)
+    ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
 export const DDL_NOTE_META: string = `
 CREATE TABLE IF NOT EXISTS note_meta (
   id TEXT PRIMARY KEY,
@@ -2152,5 +2223,9 @@ export const MIGRATIONS: Record<number, string[]> = {
   ],
   54: [
     DDL_ORIGINAL_PDF_FIELD_STATE,
+  ],
+  55: [
+    DDL_ORIGINAL_RECORDING_STATE,
+    DDL_ORIGINAL_RECORDING_MODIFICATION,
   ],
 };
