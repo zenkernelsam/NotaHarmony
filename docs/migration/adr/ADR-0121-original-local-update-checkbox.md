@@ -53,6 +53,6 @@ Accepted, 2026-08-12.
 
 ## Remaining Boundary
 
-The data and history path is ready for an editor interaction, but the current Harmony TextArea does
-not expose original list-marker hit regions. A following phase must add renderer-consistent checkbox
-hit testing and route the successful toggle into the existing REPLACE_ELEMENT Undo/Redo workflow.
+ADR-0122 completes the durable canvas interaction with renderer-owned marker geometry and the
+existing `REPLACE_ELEMENT` workflow. The active platform `TextArea` still cannot expose rich
+per-paragraph marker layout; that narrower draft-editing boundary remains explicit there.

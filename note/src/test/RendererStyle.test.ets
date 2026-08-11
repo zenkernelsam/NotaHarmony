@@ -2,11 +2,14 @@ import { describe, it, expect } from '@ohos/hypium';
 import {
   Canvas2DOffscreenRenderContext, Canvas2DStrokeRenderer,
 } from '../main/ets/core/adaptation/Canvas2DStrokeRenderer';
-import { Canvas2DTextRenderer } from '../main/ets/core/adaptation/Canvas2DTextRenderer';
+import {
+  Canvas2DTextRenderer, TextCheckboxMarker,
+} from '../main/ets/core/adaptation/Canvas2DTextRenderer';
 import { ShapeCanvasRenderer } from '../main/ets/rendering/ShapeCanvasRenderer';
 import {
   ElementType, ShapeArrowHead, ShapeElement, TextBlockElement,
 } from '../main/ets/core/model/ElementTypes';
+import { Point2D } from '../main/ets/core/model/GeometryTypes';
 import {
   InkPathCommandType, InkStyle, RenderSpec, StrokeElementData, StrokePathPoint, TapePattern,
 } from '../main/ets/core/model/StrokeTypes';
@@ -252,6 +255,37 @@ export default function rendererStyleTest() {
         new Canvas2DOffscreenRenderContext(context));
       context.font = '20px sans-serif';
       expect(measured).assertEqual(Math.ceil(context.measureText('WW').width + 8));
+    });
+
+    it('hits original checkbox markers from shared wrapped and transformed layout', 0, () => {
+      const canvas: OffscreenCanvas = new OffscreenCanvas(240, 180);
+      const context: OffscreenCanvasRenderingContext2D =
+        canvas.getContext('2d', new RenderingContextSettings(true));
+      const element: TextBlockElement = {
+        id: 'checkbox-hit', type: ElementType.TEXT, richText: 'ABCDEFGHIJKLMN\nB',
+        paragraphStyleRuns: [
+          { start: 0, end: 15, style: { decoratorStyle: 3, isChecked: false } },
+          { start: 15, end: 16, style: { decoratorStyle: 3, isChecked: true } },
+        ],
+        textOrigin: { x: 0, y: 0 }, blockWidth: 70, blockHeight: 140,
+        rotationRadians: Math.PI / 2, contentLeftInset: 4, contentTopInset: 4,
+        contentRightInset: 4, fontSize: 20, fontColor: 0xFF000000 | 0,
+        transform: [0, -1, 120, 1, 0, 10, 0, 0, 1],
+        bounds: { left: -20, top: 10, right: 120, bottom: 80 },
+      };
+      const renderer: Canvas2DTextRenderer = new Canvas2DTextRenderer();
+      const renderContext: Canvas2DOffscreenRenderContext =
+        new Canvas2DOffscreenRenderContext(context);
+      const markers: TextCheckboxMarker[] = renderer.checkboxMarkers(element, renderContext);
+      expect(markers.length).assertEqual(2);
+      expect(markers[0].codePointIndex).assertEqual(0);
+      expect(markers[1].codePointIndex).assertEqual(15);
+      const local: Point2D = markers[1].center;
+      const world: Point2D = { x: 120 - local.y, y: 10 + local.x };
+      expect(renderer.hitCheckboxMarker(element, renderContext, world)).assertEqual(15);
+      const outsideLocal: Point2D = { x: local.x + markers[1].radius * 1.51, y: local.y };
+      const outsideWorld: Point2D = { x: 120 - outsideLocal.y, y: 10 + outsideLocal.x };
+      expect(renderer.hitCheckboxMarker(element, renderContext, outsideWorld) === null).assertTrue();
     });
   });
 }

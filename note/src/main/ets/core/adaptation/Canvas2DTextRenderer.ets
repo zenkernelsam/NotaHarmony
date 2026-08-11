@@ -5,8 +5,21 @@ import {
 import { RenderContext } from './StrokeRenderer';
 import { Canvas2DDrawingContext } from './Canvas2DStrokeRenderer';
 import { OriginalPaperFlair, PagePaperBackground } from '../model/NoteTypes';
+import { Point2D } from '../model/GeometryTypes';
 
 const TEXT_PAPER_POINTS_TO_UNITS: number = 96 / 72;
+
+interface TextLayoutLine {
+  start: number;
+  end: number;
+  paragraphStart: boolean;
+}
+
+export interface TextCheckboxMarker {
+  codePointIndex: number;
+  center: Point2D;
+  radius: number;
+}
 
 export class Canvas2DTextRenderer {
   measureNaturalWidth(element: TextBlockElement, context: RenderContext): number {
@@ -66,20 +79,20 @@ export class Canvas2DTextRenderer {
       characters.length, element.characterStyleRuns);
     const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
       characters.length, element.paragraphStyleRuns);
-    let lineStart: number = 0;
     let baseline: number = element.textOrigin.y + element.contentTopInset + element.fontSize;
     let numberedParagraph: number = 1;
-    const lineEnds: number[] = this.lineEnds(ctx, characters, characterStyles, element);
-    for (const index of lineEnds) {
+    const lines: TextLayoutLine[] = this.layoutLines(ctx, characters, characterStyles, element);
+    for (const line of lines) {
+      const lineStart: number = line.start;
       const paragraph: RichTextParagraphStyle = paragraphStyles[Math.min(
         lineStart, Math.max(0, characters.length - 1))] ?? {};
-      const prefix: string = this.decoratorPrefix(
-        paragraph.decoratorStyle, numberedParagraph, paragraph.isChecked);
-      if (paragraph.decoratorStyle === 2) {
+      const prefix: string = line.paragraphStart ? this.decoratorPrefix(
+        paragraph.decoratorStyle, numberedParagraph, paragraph.isChecked) : '';
+      if (line.paragraphStart && paragraph.decoratorStyle === 2) {
         numberedParagraph++;
       }
       const lineWidth: number = this.measureRange(ctx, characters, characterStyles,
-        lineStart, index, element, prefix);
+        lineStart, line.end, element, prefix);
       let x: number = element.textOrigin.x + element.contentLeftInset +
         Math.max(0, paragraph.indentLevel ?? 0) * element.fontSize * 1.5;
       const available: number = Math.max(0, element.blockWidth - element.contentLeftInset -
@@ -96,9 +109,9 @@ export class Canvas2DTextRenderer {
         ctx.fillText(prefix, x, baseline);
         x += ctx.measureText(prefix);
       }
-      for (let characterIndex: number = lineStart; characterIndex < index;) {
+      for (let characterIndex: number = lineStart; characterIndex < line.end;) {
         let runEnd: number = characterIndex + 1;
-        while (runEnd < index && this.sameCharacterStyle(
+        while (runEnd < line.end && this.sameCharacterStyle(
           characterStyles[characterIndex], characterStyles[runEnd])) {
           runEnd++;
         }
@@ -109,9 +122,89 @@ export class Canvas2DTextRenderer {
       const spacing: number = paragraph.lineSpacing === undefined || paragraph.lineSpacing <= 0 ?
         1 : paragraph.lineSpacing;
       baseline += (element.fontSize + 8) * spacing;
-      lineStart = index + 1;
     }
     ctx.restore();
+  }
+
+  checkboxMarkers(element: TextBlockElement, context: RenderContext): TextCheckboxMarker[] {
+    if (element.richText.length === 0) {
+      return [];
+    }
+    const ctx: Canvas2DDrawingContext = context as Canvas2DDrawingContext;
+    const characters: string[] = [];
+    for (const character of element.richText) {
+      characters.push(character);
+    }
+    const characterStyles: RichTextCharacterStyle[] = this.characterStyles(
+      characters.length, element.characterStyleRuns);
+    const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
+      characters.length, element.paragraphStyleRuns);
+    const result: TextCheckboxMarker[] = [];
+    let baseline: number = element.textOrigin.y + element.contentTopInset + element.fontSize;
+    let numberedParagraph: number = 1;
+    ctx.save();
+    try {
+      const lines: TextLayoutLine[] = this.layoutLines(ctx, characters, characterStyles, element);
+      for (const line of lines) {
+        const paragraph: RichTextParagraphStyle = paragraphStyles[Math.min(
+          line.start, Math.max(0, characters.length - 1))] ?? {};
+        const prefix: string = line.paragraphStart ? this.decoratorPrefix(
+          paragraph.decoratorStyle, numberedParagraph, paragraph.isChecked) : '';
+        if (line.paragraphStart && paragraph.decoratorStyle === 2) {
+          numberedParagraph++;
+        }
+        const lineWidth: number = this.measureRange(ctx, characters, characterStyles,
+          line.start, line.end, element, prefix);
+        let x: number = element.textOrigin.x + element.contentLeftInset +
+          Math.max(0, paragraph.indentLevel ?? 0) * element.fontSize * 1.5;
+        const available: number = Math.max(0, element.blockWidth - element.contentLeftInset -
+          (element.contentRightInset ?? element.contentLeftInset));
+        if (paragraph.alignment === 2) {
+          x += Math.max(0, (available - lineWidth) / 2);
+        } else if (paragraph.alignment === 3) {
+          x += Math.max(0, available - lineWidth);
+        }
+        if (line.paragraphStart && paragraph.decoratorStyle === 3) {
+          const prefixStyle: RichTextCharacterStyle = characterStyles[line.start] ?? {};
+          this.applyFont(ctx, element, prefixStyle);
+          const glyph: string = paragraph.isChecked === true ? '\u2611' : '\u2610';
+          const glyphWidth: number = ctx.measureText(glyph);
+          const naturalLineHeight: number = element.fontSize + 8;
+          const radius: number = Math.max(naturalLineHeight / 2 - 1, naturalLineHeight / 4);
+          result.push({
+            codePointIndex: line.start,
+            center: {
+              x: x + glyphWidth / 2,
+              y: baseline - element.fontSize + naturalLineHeight / 2,
+            },
+            radius: radius,
+          });
+        }
+        const spacing: number = paragraph.lineSpacing === undefined || paragraph.lineSpacing <= 0 ?
+          1 : paragraph.lineSpacing;
+        baseline += (element.fontSize + 8) * spacing;
+      }
+    } finally {
+      ctx.restore();
+    }
+    return result;
+  }
+
+  hitCheckboxMarker(element: TextBlockElement, context: RenderContext,
+    worldPoint: Point2D): number | null {
+    const local: Point2D | null = this.inverseTransformPoint(worldPoint, element);
+    if (local === null) {
+      return null;
+    }
+    for (const marker of this.checkboxMarkers(element, context)) {
+      const dx: number = local.x - marker.center.x;
+      const dy: number = local.y - marker.center.y;
+      const tolerance: number = marker.radius * 1.5;
+      if (dx * dx + dy * dy < tolerance * tolerance) {
+        return marker.codePointIndex;
+      }
+    }
+    return null;
   }
 
   private renderPaper(ctx: Canvas2DDrawingContext, element: TextBlockElement): void {
@@ -160,46 +253,82 @@ export class Canvas2DTextRenderer {
     ctx.restore();
   }
 
-  private lineEnds(ctx: Canvas2DDrawingContext, characters: string[],
-    styles: RichTextCharacterStyle[], element: TextBlockElement): number[] {
-    const ends: number[] = [];
+  private layoutLines(ctx: Canvas2DDrawingContext, characters: string[],
+    styles: RichTextCharacterStyle[], element: TextBlockElement): TextLayoutLine[] {
+    const lines: TextLayoutLine[] = [];
     const wrap: number = element.resizesWidthToFitText === true ? 1 :
       (element.textWrap === undefined ? 0 : element.textWrap);
-    const available: number = Math.max(1, element.blockWidth - element.contentLeftInset -
+    const baseAvailable: number = Math.max(1, element.blockWidth - element.contentLeftInset -
       (element.contentRightInset ?? element.contentLeftInset));
-    let start: number = 0;
-    let width: number = 0;
-    let lastBreak: number = -1;
-    for (let index: number = 0; index <= characters.length; index++) {
-      const atEnd: boolean = index === characters.length;
-      const character: string = atEnd ? '' : characters[index];
-      if (atEnd || character === '\n') {
-        ends.push(index);
-        start = index + 1;
-        width = 0;
-        lastBreak = -1;
-        continue;
+    const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
+      characters.length, element.paragraphStyleRuns);
+    let numberedParagraph: number = 1;
+    let paragraphStart: number = 0;
+    while (paragraphStart < characters.length) {
+      let paragraphEnd: number = paragraphStart;
+      while (paragraphEnd < characters.length && characters[paragraphEnd] !== '\n') {
+        paragraphEnd++;
       }
-      const nextWidth: number = width + this.measureRange(ctx, characters, styles,
-        index, index + 1, element, '');
-      if (wrap === 0 && nextWidth > available && index > start) {
-        const end: number = lastBreak > start ? lastBreak : index;
-        ends.push(end);
+      const paragraph: RichTextParagraphStyle = paragraphStyles[paragraphStart] ?? {};
+      const available: number = Math.max(1, baseAvailable -
+        Math.max(0, paragraph.indentLevel ?? 0) * element.fontSize * 1.5);
+      let start: number = paragraphStart;
+      let firstLine: boolean = true;
+      if (start === paragraphEnd) {
+        lines.push({ start: start, end: start, paragraphStart: true });
+      }
+      while (start < paragraphEnd) {
+        const prefix: string = firstLine ? this.decoratorPrefix(
+          paragraph.decoratorStyle, numberedParagraph, paragraph.isChecked) : '';
+        let width: number = this.measureRange(ctx, characters, styles,
+          start, start, element, prefix);
+        let end: number = start;
+        let lastBreak: number = -1;
+        while (end < paragraphEnd) {
+          const nextWidth: number = width + this.measureRange(ctx, characters, styles,
+            end, end + 1, element, '');
+          if (wrap === 0 && nextWidth > available && end > start) {
+            break;
+          }
+          width = nextWidth;
+          if (characters[end] === ' ' || characters[end] === '\t') {
+            lastBreak = end;
+          }
+          end++;
+        }
+        if (end < paragraphEnd && lastBreak > start) {
+          end = lastBreak;
+        }
+        lines.push({ start: start, end: end, paragraphStart: firstLine });
+        if (end >= paragraphEnd) {
+          break;
+        }
         start = end;
-        while (start < characters.length && characters[start] === ' ') {
+        while (start < paragraphEnd && (characters[start] === ' ' || characters[start] === '\t')) {
           start++;
         }
-        index = start - 1;
-        width = 0;
-        lastBreak = -1;
-        continue;
+        firstLine = false;
       }
-      width = nextWidth;
-      if (character === ' ' || character === '\t') {
-        lastBreak = index;
+      if (paragraph.decoratorStyle === 2) {
+        numberedParagraph++;
       }
+      paragraphStart = paragraphEnd + 1;
     }
-    return ends;
+    return lines;
+  }
+
+  private inverseTransformPoint(point: Point2D, element: TextBlockElement): Point2D | null {
+    const matrix = element.transform;
+    const determinant: number = matrix[0] * matrix[4] - matrix[1] * matrix[3];
+    if (!Number.isFinite(determinant) || Math.abs(determinant) < 0.000001) {
+      return null;
+    }
+    const dx: number = point.x - matrix[2];
+    const dy: number = point.y - matrix[5];
+    return {
+      x: (matrix[4] * dx - matrix[1] * dy) / determinant,
+      y: (-matrix[3] * dx + matrix[0] * dy) / determinant,
+    };
   }
 
   private renderSpan(ctx: Canvas2DDrawingContext, text: string, x: number,

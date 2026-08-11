@@ -66,6 +66,7 @@ import { encodeOriginalLocalCreateInk } from '../../data/OriginalCreateInkPayloa
 import { encodeOriginalLocalCreateShape } from '../../data/OriginalCreateShapePayloadEncoder';
 import { encodeOriginalLocalCreateTextBlock } from '../../data/OriginalCreateBlockPayloadEncoder';
 import { encodeOriginalInitialInsertString } from '../../data/OriginalInsertTextPayloadEncoder';
+import { toggleOriginalCheckboxAt } from '../../data/OriginalLocalCheckboxMutation';
 import {
   AssetAvailabilityChange, assetAvailabilityHub,
 } from '../../data/AssetAvailabilityHub';
@@ -1295,9 +1296,14 @@ export struct NoteCanvasView {
       return;
     }
     const touch: TouchObject = event.touches[0];
+    const canvasP: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
     // 原版工具枚举没有 TEXT；移植侧用 DEFAULT 表示临时文本输入模式。
     // 只有该模式响应标准双击，避免橡皮、选区和书写快速点按误建文本框。
     if (this.viewModel.currentTool === ToolType.DEFAULT) {
+      if (this.toggleCheckboxMarkerAt(canvasP)) {
+        this.lastTapTime = 0;
+        return;
+      }
       const now: number = Date.now();
       const dx: number = touch.x - this.lastTapPos.x;
       const dy: number = touch.y - this.lastTapPos.y;
@@ -1314,8 +1320,6 @@ export struct NoteCanvasView {
     this.lastTapTime = 0;
 
     // T-034：后续逻辑统一使用画布坐标（视口逆映射）
-    const canvasP: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
-
     // 选区菜单区域：交给 SelectionOverlay 按钮处理，不进入画布逻辑
     // （避免 Canvas onTouch 触发 rebuild 导致按钮 click 识别失效；菜单按钮为屏幕坐标）
     if (this.selectionVisible && this.isInSelectionMenu(touch.x, touch.y)) {
@@ -5157,6 +5161,39 @@ export struct NoteCanvasView {
       }
     }
     this.createTextBlockAt(position);
+  }
+
+  private toggleCheckboxMarkerAt(position: Point2D): boolean {
+    for (let index: number = this.textBlocks.length - 1; index >= 0; index--) {
+      const before: TextBlockElement = this.textBlocks[index];
+      if (!pointHitsTextBlock(position, before)) {
+        continue;
+      }
+      const codePointIndex: number | null = this.textRenderer.hitCheckboxMarker(
+        before, this.renderCtx, position);
+      if (codePointIndex === null) {
+        continue;
+      }
+      const after: TextBlockElement | null = toggleOriginalCheckboxAt(before, codePointIndex);
+      if (after === null) {
+        return false;
+      }
+      this.replaceTextBlock(after);
+      this.undoRedo.push({
+        type: UndoableActionType.REPLACE_ELEMENT,
+        noteId: this.noteId,
+        pageId: this.currentPage.pageId,
+        beforeStrokes: [],
+        afterStrokes: [],
+        beforeElements: [before],
+        afterElements: [after],
+      });
+      this.notifyUndoRedo();
+      this.persist();
+      this.renderFrame(true);
+      return true;
+    }
+    return false;
   }
 
   private textBlockScreenBounds(element: TextBlockElement | null): Rect2D {
