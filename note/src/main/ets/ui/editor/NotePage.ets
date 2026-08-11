@@ -29,6 +29,11 @@ import {
 } from '../../core/adaptation/OriginalAudioLinkedInkPlayback';
 import { OriginalRecordingDeleteController } from
   '../../core/adaptation/OriginalRecordingDeleteController';
+import { OriginalRecordingCaptureController } from
+  '../../core/adaptation/OriginalRecordingCaptureController';
+import {
+  HarmonyOriginalRecordingCaptureClock, OriginalRecordingMicrophoneBackend,
+} from '../../core/adaptation/OriginalRecordingMicrophoneBackend';
 import {
   AddPageAction, DeletePageAction, EditorHistoryBridge, PageContentSnapshot, UndoableAction,
   UndoableActionType,
@@ -84,6 +89,7 @@ struct NotePage {
     new OriginalRecordingDeleteController(async (recordingIds: string[]): Promise<void> => {
       await this.commitRecordingDeletes(recordingIds);
     });
+  private recordingCaptureController: OriginalRecordingCaptureController | null = null;
   private assetAvailabilitySubscription: number = -1;
   private recordingLoadGeneration: number = 0;
   private recordingTimeline: OriginalRecordingTimeline = {
@@ -103,6 +109,12 @@ struct NotePage {
     const params = router.getParams() as Record<string, string>;
     if (params !== undefined && params !== null && params['noteId'] !== undefined) {
       this.noteId = params['noteId'];
+    }
+    if (this.recordingCaptureController === null) {
+      const context = getContext(this) as common.UIAbilityContext;
+      this.recordingCaptureController = new OriginalRecordingCaptureController(
+        new OriginalRecordingMicrophoneBackend(context.tempDir),
+        new HarmonyOriginalRecordingCaptureClock());
     }
     this.recordingController.setListener((snapshot: OriginalRecordingPlaybackSnapshot): void => {
       this.onRecordingPlaybackSnapshot(snapshot);
@@ -141,6 +153,12 @@ struct NotePage {
     this.recordingDeleteController.flush().catch((error: Object) => {
       console.warn(`Recording delete flush failed: ${JSON.stringify(error)}`);
     });
+    if (this.recordingCaptureController !== null) {
+      this.recordingCaptureController.release().catch((error: Object) => {
+        console.warn(`Recording capture release failed: ${JSON.stringify(error)}`);
+      });
+      this.recordingCaptureController = null;
+    }
   }
 
   onBackPress(): boolean {
@@ -157,6 +175,10 @@ struct NotePage {
     }
     await this.viewModel.flushToolState();
     await this.recordingDeleteController.flush();
+    if (this.recordingCaptureController !== null) {
+      await this.recordingCaptureController.release();
+      this.recordingCaptureController = null;
+    }
     await this.recordingController.release();
     router.back();
   }

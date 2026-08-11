@@ -490,6 +490,7 @@
     { "name": "delete_recording", "value": "Delete recording" },
     { "name": "recording_deleted", "value": "Recording deleted" },
     { "name": "recording_delete_failed", "value": "Could not delete the recording" },
+    { "name": "microphone_permission_reason", "value": "Use the microphone to record audio in your notes." },
     { "name": "undo", "value": "Undo" }
   ]
 }

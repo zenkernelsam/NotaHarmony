@@ -180,6 +180,7 @@
     { "name": "delete_recording", "value": "删除录音" },
     { "name": "recording_deleted", "value": "录音已删除" },
     { "name": "recording_delete_failed", "value": "无法删除录音" },
+    { "name": "microphone_permission_reason", "value": "使用麦克风在笔记中录制音频。" },
     { "name": "undo", "value": "撤销" }
   ]
 }
