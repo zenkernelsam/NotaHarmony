@@ -1,15 +1,18 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import {
-  classifyOriginalImageCropMutation, classifyOriginalImageFlipMutation, decodePersistedElement,
-  encodePersistedElement, OriginalImageCropMutation, OriginalImageFlipMutation, PersistedElement,
+  classifyOriginalImageCropMutation, classifyOriginalImageFlipMutation,
+  classifyOriginalRenderMutation, decodeOriginalShapeStateTool, decodePersistedElement,
+  encodePersistedElement,
+  OriginalImageCropMutation, OriginalImageFlipMutation, OriginalRenderMutation, PersistedElement,
 } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
-import { ElementType, ImageElement } from '../main/ets/core/model/ElementTypes';
+import { ElementType, ImageElement, ShapeElement } from '../main/ets/core/model/ElementTypes';
 import {
   handwritingSourceChanged, pageSnapshotChanged, SearchSourceElement,
 } from '../main/ets/data/SearchIndexPolicy';
 import { cloneImageElement } from '../main/ets/core/model/ImageBlockGeometry';
+import { cloneShapeElement } from '../main/ets/core/model/ShapeGeometry';
 
 export default function strokePersistenceTest() {
   describe('StrokePersistence payload codec', () => {
@@ -260,6 +263,54 @@ export default function strokePersistenceTest() {
       expect(classifyOriginalImageCropMutation(
         [imageSource(first)], [imageSource(unrelated)]) === null).assertTrue();
     });
+
+    it('classifies original Shape render tuples and reverse Undo values', 0, () => {
+      const marker: ShapeElement = originalShape('op:20:2', 2, 0x6B102030, 12, 0x6B102030);
+      const pen: ShapeElement = originalShape('op:22:4', 0, -15720400, 3, null);
+      const markerAfter: ShapeElement = cloneShapeElement(marker);
+      markerAfter.color = 0x6B445566;
+      markerAfter.fillColor = 0x6B445566;
+      markerAfter.strokeWidth = 30;
+      const penAfter: ShapeElement = cloneShapeElement(pen);
+      penAfter.color = -12298906;
+      penAfter.strokeWidth = 30;
+      const forward: OriginalRenderMutation | null = classifyOriginalRenderMutation(
+        [shapeSource(marker), shapeSource(pen)], [shapeSource(markerAfter), shapeSource(penAfter)]);
+      expect(forward?.inkBatches.length).assertEqual(0);
+      expect(forward?.shapeBatches.length).assertEqual(2);
+      expect(forward?.shapeBatches[0].fillColorPresent).assertTrue();
+      expect(forward?.shapeBatches[0].fillColor).assertEqual(0x6B445566);
+      expect(forward?.shapeBatches[0].expectedTools[0]).assertEqual(2);
+      expect(forward?.shapeBatches[1].fillColorPresent).assertFalse();
+      expect(forward?.shapeBatches[1].borderWidth).assertEqual(30);
+      expect(forward?.shapeBatches[1].expectedTools[0]).assertEqual(0);
+
+      const reverse: OriginalRenderMutation | null = classifyOriginalRenderMutation(
+        [shapeSource(markerAfter), shapeSource(penAfter)], [shapeSource(marker), shapeSource(pen)]);
+      expect(reverse?.shapeBatches.length).assertEqual(2);
+      expect(reverse?.shapeBatches[0].borderWidth).assertEqual(12);
+      expect(reverse?.shapeBatches[1].borderWidth).assertEqual(3);
+    });
+
+    it('strictly decodes the original Shape state tool preflight', 0, () => {
+      expect(decodeOriginalShapeStateTool('{"tool":2}')).assertEqual(2);
+      expect(decodeOriginalShapeStateTool('{"tool":7}')).assertEqual(7);
+      expect(decodeOriginalShapeStateTool('{"tool":8}') === null).assertTrue();
+      expect(decodeOriginalShapeStateTool('{"tool":1.5}') === null).assertTrue();
+      expect(decodeOriginalShapeStateTool('{"tool":"2"}') === null).assertTrue();
+      expect(decodeOriginalShapeStateTool('{broken') === null).assertTrue();
+    });
+
+    it('rejects unrelated Shape geometry from the render register writer', 0, () => {
+      const before: ShapeElement = originalShape('op:24:6', 0, -16777216, 4, null);
+      const after: ShapeElement = cloneShapeElement(before);
+      if (after.type === ElementType.POLYGON) {
+        after.vertices[0].x = 9;
+      }
+      after.color = -15654349;
+      expect(classifyOriginalRenderMutation(
+        [shapeSource(before)], [shapeSource(after)]) === null).assertTrue();
+    });
   });
 }
 
@@ -304,6 +355,23 @@ function imageSource(image: ImageElement): SearchSourceElement {
   return {
     elementId: image.id, kind: PageElementKind.IMAGE,
     payload: encodePersistedElement({ kind: 'image', data: image }),
+  };
+}
+
+function originalShape(id: string, tool: number, color: number, width: number,
+  fillColor: number | null): ShapeElement {
+  return {
+    id: id, type: ElementType.POLYGON, transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    bounds: { left: 0, top: 0, right: 10, bottom: 10 },
+    vertices: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], isClosed: true,
+    color: color, strokeWidth: width, fillColor: fillColor, originalTool: tool,
+  };
+}
+
+function shapeSource(shape: ShapeElement): SearchSourceElement {
+  return {
+    elementId: shape.id, kind: PageElementKind.SHAPE,
+    payload: encodePersistedElement({ kind: 'shape', data: shape }),
   };
 }
 

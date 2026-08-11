@@ -4,7 +4,7 @@ import { cloneShapeElement, recomputeShapeBounds } from './ShapeGeometry';
 // MyScript may return several ShapeDefinition elements for one held gesture.
 // Normalize the result atomically: one unsupported element rejects the whole replacement.
 export function prepareRecognizedShapes(elements: NoteElement[], sourceId: string,
-  color: number, strokeWidth: number): ShapeElement[] {
+  color: number, strokeWidth: number, originalTool?: number): ShapeElement[] {
   const result: ShapeElement[] = [];
   for (let i: number = 0; i < elements.length; i++) {
     const element: NoteElement = elements[i];
@@ -17,6 +17,7 @@ export function prepareRecognizedShapes(elements: NoteElement[], sourceId: strin
     shape.color = color;
     shape.strokeWidth = strokeWidth;
     shape.fillColor = null;
+    shape.originalTool = originalTool;
     shape.bounds = recomputeShapeBounds(shape);
     result.push(shape);
   }

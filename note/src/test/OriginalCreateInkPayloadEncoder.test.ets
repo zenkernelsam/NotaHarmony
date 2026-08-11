@@ -12,6 +12,9 @@ import { decodeOriginalDeleteEntities } from '../main/ets/data/OriginalDeleteEnt
 import { encodeOriginalInkRenderRegisters } from
   '../main/ets/data/OriginalModifyInkPayloadEncoder';
 import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOperation';
+import { encodeOriginalShapeRenderRegisters } from
+  '../main/ets/data/OriginalModifyShapePayloadEncoder';
+import { decodeOriginalModifyShape } from '../main/ets/data/OriginalShapeGroupOperation';
 import { decodeOriginalModifyPositions } from
   '../main/ets/data/OriginalModifyPositionsOperation';
 import { encodeOriginalModifyPositions } from
@@ -119,6 +122,35 @@ export default function originalCreateInkPayloadEncoderTest() {
       expect(width.color === null).assertTrue();
       expect(width.width).assertEqual(6.25);
       expect(width.styleMap.present).assertFalse();
+    });
+
+    it('round-trips original MODIFY_SHAPE color width and nullable fill registers', 0, () => {
+      const highlighter = decodeOriginalModifyShape(wrap(19,
+        encodeOriginalShapeRenderRegisters([
+          { timestamp: 40, siteId: 4 }, { timestamp: 41, siteId: 5 },
+        ], { color: 0x6B112233, borderWidth: 7.5,
+          fillColorPresent: true, fillColor: 0x6B112233 })));
+      expect(highlighter.shapes.length).assertEqual(2);
+      expect(highlighter.shapes[0].timestamp).assertEqual(40);
+      expect(highlighter.shapes[1].siteId).assertEqual(5);
+      expect(highlighter.color).assertEqual(0x6B112233);
+      expect(highlighter.borderWidth).assertEqual(7.5);
+      expect(highlighter.fillColor.present).assertTrue();
+      expect(highlighter.fillColor.value).assertEqual(0x6B112233);
+
+      const clear = decodeOriginalModifyShape(wrap(19,
+        encodeOriginalShapeRenderRegisters([{ timestamp: 42, siteId: 6 }],
+          { color: null, borderWidth: null, fillColorPresent: true, fillColor: null })));
+      expect(clear.color === null).assertTrue();
+      expect(clear.borderWidth === null).assertTrue();
+      expect(clear.fillColor.present).assertTrue();
+      expect(clear.fillColor.value === null).assertTrue();
+
+      const width = decodeOriginalModifyShape(wrap(19,
+        encodeOriginalShapeRenderRegisters([{ timestamp: 43, siteId: 7 }],
+          { color: null, borderWidth: 2.25, fillColorPresent: false, fillColor: null })));
+      expect(width.borderWidth).assertEqual(2.25);
+      expect(width.fillColor.present).assertFalse();
     });
 
     it('round-trips batched original MODIFY_POSITIONS registers', 0, () => {

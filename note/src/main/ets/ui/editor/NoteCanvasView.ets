@@ -1628,7 +1628,8 @@ export struct NoteCanvasView {
     }
     hilog.info(0x0001, 'NoteCanvasView', 'shape detect: match confidence=%{public}f', result.confidence);
     const shapes: ShapeElement[] = prepareRecognizedShapes(
-      result.elements, stroke.id, stroke.renderSpec.color, stroke.renderSpec.brushWidth);
+      result.elements, stroke.id, stroke.renderSpec.color, stroke.renderSpec.brushWidth,
+      this.originalToolForStroke(stroke));
     return { shapes: shapes, replaced: shapes.length > 0 };
   }
 
@@ -3365,6 +3366,21 @@ export struct NoteCanvasView {
           Math.max(selectedMinimum, controlWidth)) * 2) / 2;
       }
     }
+    for (const shape of this.shapes) {
+      if (state.selectedShapeIds.indexOf(shape.id) < 0) {
+        continue;
+      }
+      if (selectedColor === null) {
+        selectedColor = (0xFF000000 | (shape.color & 0x00FFFFFF)) | 0;
+      }
+      if (selectedWidth === null) {
+        const tool: number = shape.originalTool === undefined ? 0 : shape.originalTool;
+        selectedMinimum = tool === 3 ? 2 : tool === 1 ? 1 : 0.5;
+        selectedMaximum = tool === 3 ? 64 : tool === 1 ? 10 : 30;
+        selectedWidth = Math.round(Math.min(selectedMaximum,
+          Math.max(selectedMinimum, shape.strokeWidth)) * 2) / 2;
+      }
+    }
     if (selectedColor !== null || selectedWidth !== null) {
       this.onSelectionInkControlsChanged(selectedColor ?? this.selectionInkColor,
         selectedWidth ?? this.selectionInkWidth, selectedMinimum, selectedMaximum);
@@ -3989,9 +4005,14 @@ export struct NoteCanvasView {
     }
     const selected: Set<string> = new Set<string>(
       this.selectionTool.getState().selectedStrokeIds);
+    const selectedShapes: Set<string> = new Set<string>(
+      this.selectionTool.getState().selectedShapeIds);
     const before: StrokeElementData[] = [];
     const after: StrokeElementData[] = [];
+    const beforeShapes: ShapeElement[] = [];
+    const afterShapes: ShapeElement[] = [];
     const replacements: Map<string, StrokeElementData> = new Map<string, StrokeElementData>();
+    const shapeReplacements: Map<string, ShapeElement> = new Map<string, ShapeElement>();
     for (const stroke of this.completedStrokes) {
       if (!selected.has(stroke.id) || stroke.renderSpec.isPartialEraser === true ||
         (style !== null && stroke.renderSpec.isPencil)) {
@@ -4035,22 +4056,75 @@ export struct NoteCanvasView {
       after.push(replacement);
       replacements.set(stroke.id, replacement);
     }
-    if (after.length === 0) {
+    if (style === null) {
+      for (const shape of this.shapes) {
+        if (!selectedShapes.has(shape.id)) {
+          continue;
+        }
+        const source: ShapeElement = cloneShapeElement(shape);
+        const replacement: ShapeElement = cloneShapeElement(shape);
+        const tool: number = shape.originalTool === undefined ? 0 : shape.originalTool;
+        if (color !== null) {
+          const alpha: number = tool === 2 ? 107 : 255;
+          replacement.color = ((alpha << 24) | (color & 0x00FFFFFF)) | 0;
+          if (tool === 2) {
+            replacement.fillColor = replacement.color;
+          }
+        }
+        if (controlWidth !== null) {
+          const minimum: number = tool === 3 ? 2 : tool === 1 ? 1 : 0.5;
+          const maximum: number = tool === 3 ? 64 : tool === 1 ? 10 : 30;
+          replacement.strokeWidth = Math.min(maximum, Math.max(minimum, controlWidth));
+        }
+        const sourceBytes: Uint8Array = encodePersistedElement({ kind: 'shape', data: source });
+        const replacementBytes: Uint8Array = encodePersistedElement({ kind: 'shape', data: replacement });
+        if (this.sameBytes(sourceBytes, replacementBytes)) {
+          continue;
+        }
+        beforeShapes.push(source);
+        afterShapes.push(replacement);
+        shapeReplacements.set(shape.id, replacement);
+      }
+    }
+    if (after.length === 0 && afterShapes.length === 0) {
       return;
     }
     this.completedStrokes = this.completedStrokes.map((stroke: StrokeElementData): StrokeElementData =>
       replacements.get(stroke.id) ?? stroke);
-    this.undoRedo.push({
-      type: UndoableActionType.TRANSFORM_STROKES,
-      noteId: this.noteId,
-      pageId: this.currentPage.pageId,
-      beforeStrokes: before,
-      afterStrokes: after,
-    });
+    this.shapes = this.shapes.map((shape: ShapeElement): ShapeElement =>
+      shapeReplacements.get(shape.id) ?? shape);
+    if (afterShapes.length === 0) {
+      this.undoRedo.push({
+        type: UndoableActionType.TRANSFORM_STROKES,
+        noteId: this.noteId,
+        pageId: this.currentPage.pageId,
+        beforeStrokes: before,
+        afterStrokes: after,
+      });
+    } else {
+      this.undoRedo.push({
+        type: UndoableActionType.TRANSFORM_ELEMENTS,
+        noteId: this.noteId,
+        pageId: this.currentPage.pageId,
+        beforeStrokes: before, afterStrokes: after,
+        beforeShapes: beforeShapes, afterShapes: afterShapes,
+        beforeTextBlocks: [], afterTextBlocks: [], beforeImages: [], afterImages: [],
+        beforeMathBlocks: [], afterMathBlocks: [],
+      });
+    }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
-    this.persist(this.areCanonicalOriginalStrokes(before));
+    this.persist(this.areCanonicalOriginalPositionSelection(
+      before.map((stroke: StrokeElementData): string => stroke.id),
+      beforeShapes.map((shape: ShapeElement): string => shape.id), [], [], []));
     this.notifyUndoRedo();
     this.renderFrame();
+  }
+
+  private originalToolForStroke(stroke: StrokeElementData): number {
+    if (stroke.renderSpec.tapePattern !== undefined && stroke.renderSpec.tapePattern !== null) {
+      return 3;
+    }
+    return stroke.renderSpec.isPencil ? 1 : stroke.renderSpec.isHighlighter ? 2 : 0;
   }
 
   private removeShapeById(id: string): void {

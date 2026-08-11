@@ -56,11 +56,18 @@ import {
 import {
   encodeOriginalInkRenderRegisters, OriginalInkRenderRegisterUpdate,
 } from './OriginalModifyInkPayloadEncoder';
+import {
+  encodeOriginalShapeRenderRegisters, OriginalShapeRenderRegisterUpdate,
+} from './OriginalModifyShapePayloadEncoder';
 import { encodeOriginalOperationEnvelope } from './OriginalOperationEnvelopeEncoder';
 import {
   decodeOriginalModifyInk, ORIGINAL_MODIFY_INK_PAYLOAD_TYPE, OriginalModifyInkOperationApplier,
   OriginalModifyInkPayload,
 } from './OriginalModifyInkOperation';
+import {
+  decodeOriginalModifyShape, ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE,
+  OriginalCreateShapePayload, OriginalModifyShapePayload, OriginalShapeGroupOperationApplier,
+} from './OriginalShapeGroupOperation';
 import { encodeOriginalImageCrop, encodeOriginalImageFlip } from './OriginalModifyBlockPayloadEncoder';
 import {
   decodeOriginalModifyBlock, ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE,
@@ -191,12 +198,171 @@ interface OriginalEntityVisibilityMutation {
   deleted: boolean;
 }
 
-interface OriginalInkRenderMutationBatch extends OriginalInkRenderRegisterUpdate {
+export interface OriginalInkRenderMutationBatch extends OriginalInkRenderRegisterUpdate {
   identities: OperationIdentity[];
 }
 
-interface OriginalInkRenderMutation {
-  batches: OriginalInkRenderMutationBatch[];
+export interface OriginalShapeRenderMutationBatch extends OriginalShapeRenderRegisterUpdate {
+  identities: OperationIdentity[];
+  expectedTools: number[];
+}
+
+export interface OriginalRenderMutation {
+  inkBatches: OriginalInkRenderMutationBatch[];
+  shapeBatches: OriginalShapeRenderMutationBatch[];
+}
+
+export function decodeOriginalShapeStateTool(resolvedPayload: string): number | null {
+  try {
+    const payload: OriginalCreateShapePayload =
+      JSON.parse(resolvedPayload) as OriginalCreateShapePayload;
+    return Number.isInteger(payload.tool) && payload.tool >= 0 && payload.tool <= 7 ?
+      payload.tool : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+export function classifyOriginalRenderMutation(current: SearchSourceElement[],
+  next: SearchSourceElement[]): OriginalRenderMutation | null {
+  if (!samePreparedIdentityOrder(current, next)) {
+    return null;
+  }
+  const inkBatches: Map<string, OriginalInkRenderMutationBatch> =
+    new Map<string, OriginalInkRenderMutationBatch>();
+  const shapeBatches: Map<string, OriginalShapeRenderMutationBatch> =
+    new Map<string, OriginalShapeRenderMutationBatch>();
+  for (let index: number = 0; index < current.length; index++) {
+    if (sameByteArrays(current[index].payload, next[index].payload)) {
+      continue;
+    }
+    try {
+      const beforePersisted: PersistedElement = decodePersistedElement(current[index].payload);
+      const afterPersisted: PersistedElement = decodePersistedElement(next[index].payload);
+      if (current[index].kind === PageElementKind.STROKE &&
+        beforePersisted.kind === 'stroke' && afterPersisted.kind === 'stroke') {
+        const before: StrokeElementData = beforePersisted.data as StrokeElementData;
+        const after: StrokeElementData = afterPersisted.data as StrokeElementData;
+        const identity: OperationIdentity | null = decodeOperationId(before.id);
+        const styleChanged: boolean = before.renderSpec.inkStyle !== after.renderSpec.inkStyle;
+        const styleMapCleared: boolean = after.styleMap !== undefined && after.styleMap.length === 0 &&
+          (before.styleMap === undefined || before.styleMap.length > 0);
+        const styleUpdated: boolean = styleChanged || styleMapCleared;
+        const colorChanged: boolean = before.renderSpec.color !== after.renderSpec.color;
+        const widthChanged: boolean = before.renderSpec.brushWidth !== after.renderSpec.brushWidth;
+        if (identity === null || before.id !== after.id ||
+          before.renderSpec.isPartialEraser === true ||
+          (!styleUpdated && !colorChanged && !widthChanged) ||
+          (styleUpdated && before.renderSpec.isPencil)) {
+          return null;
+        }
+        let pencilWidth: RebuiltOriginalPencilWidth | null = null;
+        if (widthChanged && before.renderSpec.isPencil) {
+          try {
+            pencilWidth = rebuildOriginalPencilWidth(before, after.renderSpec.brushWidth);
+          } catch (_error) {
+            return null;
+          }
+        }
+        const candidate: StrokeElementData = {
+          id: before.id, pathPoints: before.pathPoints, cubicSegments: before.cubicSegments,
+          splatPoints: pencilWidth === null ? before.splatPoints : pencilWidth.splatPoints,
+          renderSpec: {
+            color: colorChanged ? after.renderSpec.color : before.renderSpec.color,
+            brushWidth: widthChanged ? after.renderSpec.brushWidth : before.renderSpec.brushWidth,
+            inkStyle: styleUpdated ? after.renderSpec.inkStyle : before.renderSpec.inkStyle,
+            isHighlighter: before.renderSpec.isHighlighter,
+            isPencil: before.renderSpec.isPencil,
+            isPartialEraser: before.renderSpec.isPartialEraser,
+            inkEffects: before.renderSpec.inkEffects,
+            inkEffectsTinted: before.renderSpec.inkEffectsTinted,
+            inkEffectPhase: before.renderSpec.inkEffectPhase,
+            tapePattern: before.renderSpec.tapePattern,
+          },
+          transform: before.transform,
+          bounds: pencilWidth === null ? before.bounds : pencilWidth.bounds,
+          maskPath: before.maskPath,
+          customPath: before.customPath, fillPath: before.fillPath, fillColor: before.fillColor,
+          styleMap: styleUpdated ? [] : before.styleMap, audioStartTime: before.audioStartTime,
+          audioDuration: before.audioDuration, originalCreate: before.originalCreate,
+          isFinished: before.isFinished,
+        };
+        if (!sameByteArrays(encodePersistedElement({ kind: 'stroke', data: candidate }),
+          next[index].payload)) {
+          return null;
+        }
+        const update: OriginalInkRenderRegisterUpdate = {
+          style: styleUpdated ? after.renderSpec.inkStyle : null,
+          color: colorChanged ? after.renderSpec.color : null,
+          width: widthChanged ? after.renderSpec.brushWidth : null,
+        };
+        const key: string = `${update.style === null ? 'x' : update.style}|` +
+          `${update.color === null ? 'x' : update.color}|` +
+          `${update.width === null ? 'x' : update.width}`;
+        const batch: OriginalInkRenderMutationBatch | undefined = inkBatches.get(key);
+        if (batch === undefined) {
+          inkBatches.set(key, { identities: [identity], style: update.style,
+            color: update.color, width: update.width });
+        } else {
+          batch.identities.push(identity);
+        }
+        continue;
+      }
+      if (current[index].kind === PageElementKind.SHAPE &&
+        beforePersisted.kind === 'shape' && afterPersisted.kind === 'shape') {
+        const before: ShapeElement = beforePersisted.data as ShapeElement;
+        const after: ShapeElement = afterPersisted.data as ShapeElement;
+        const identity: OperationIdentity | null = decodeOperationId(before.id);
+        const colorChanged: boolean = before.color !== after.color;
+        const widthChanged: boolean = before.strokeWidth !== after.strokeWidth;
+        const fillChanged: boolean = before.fillColor !== after.fillColor;
+        if (identity === null || before.id !== after.id || after.originalTool === undefined ||
+          (before.originalTool !== undefined && before.originalTool !== after.originalTool)) {
+          return null;
+        }
+        const candidate: ShapeElement = cloneShapeElement(before);
+        candidate.originalTool = after.originalTool;
+        candidate.color = colorChanged ? after.color : before.color;
+        candidate.strokeWidth = widthChanged ? after.strokeWidth : before.strokeWidth;
+        candidate.fillColor = fillChanged ? after.fillColor : before.fillColor;
+        if (!sameByteArrays(encodePersistedElement({ kind: 'shape', data: candidate }),
+          next[index].payload)) {
+          return null;
+        }
+        if (!colorChanged && !widthChanged && !fillChanged) {
+          continue;
+        }
+        const update: OriginalShapeRenderRegisterUpdate = {
+          color: colorChanged ? after.color : null,
+          borderWidth: widthChanged ? after.strokeWidth : null,
+          fillColorPresent: fillChanged,
+          fillColor: fillChanged ? after.fillColor : null,
+        };
+        const key: string = `${update.color === null ? 'x' : update.color}|` +
+          `${update.borderWidth === null ? 'x' : update.borderWidth}|` +
+          `${update.fillColorPresent ? update.fillColor === null ? 'n' : update.fillColor : 'x'}`;
+        const batch: OriginalShapeRenderMutationBatch | undefined = shapeBatches.get(key);
+        if (batch === undefined) {
+          shapeBatches.set(key, { identities: [identity], expectedTools: [after.originalTool],
+            color: update.color,
+            borderWidth: update.borderWidth, fillColorPresent: update.fillColorPresent,
+            fillColor: update.fillColor });
+        } else {
+          batch.identities.push(identity);
+          batch.expectedTools.push(after.originalTool);
+        }
+        continue;
+      }
+      return null;
+    } catch (_error) {
+      return null;
+    }
+  }
+  if (inkBatches.size === 0 && shapeBatches.size === 0) {
+    return null;
+  }
+  return { inkBatches: Array.from(inkBatches.values()),
+    shapeBatches: Array.from(shapeBatches.values()) };
 }
 
 export interface OriginalImageFlipUpdate {
@@ -743,11 +909,12 @@ export class StrokePersistence {
         await store.commit();
         return;
       }
-      const originalStyle: OriginalInkRenderMutation | null =
-        this.originalInkStyleMutation(current, snapshot.elements);
+      const originalStyle: OriginalRenderMutation | null =
+        await this.originalRenderMutation(store, snapshot.noteId, current, snapshot.elements);
       if (originalStyle !== null) {
-        await this.applyOriginalInkStyle(store, snapshot, originalStyle, snapshotRevision);
-        await this.rebuildPageSearchState(store, snapshot, snapshotRevision, true);
+        await this.applyOriginalRenderStyle(store, snapshot, originalStyle, snapshotRevision);
+        await this.rebuildPageSearchState(store, snapshot, snapshotRevision,
+          originalStyle.inkBatches.length > 0);
         await this.appendHistoryCompanion(store, snapshot, mutation);
         await store.commit();
         return;
@@ -1020,8 +1187,8 @@ export class StrokePersistence {
           step.pageId, currentRevision, nextRevision, current, step.elements);
         const originalVisibility: OriginalEntityVisibilityMutation | null =
           this.originalEntityVisibilityMutation(current, step.elements);
-        const originalStyle: OriginalInkRenderMutation | null = originalVisibility === null ?
-          this.originalInkStyleMutation(current, step.elements) : null;
+        const originalStyle: OriginalRenderMutation | null = originalVisibility === null ?
+          await this.originalRenderMutation(store, step.noteId, current, step.elements) : null;
         const originalImageFlip: OriginalImageFlipMutation | null =
           originalVisibility === null && originalStyle === null ?
             classifyOriginalImageFlipMutation(current, step.elements) : null;
@@ -1037,7 +1204,7 @@ export class StrokePersistence {
           await this.applyOriginalEntityVisibility(store, step, originalVisibility,
             nextRevision);
         } else if (originalStyle !== null) {
-          await this.applyOriginalInkStyle(store, step, originalStyle, nextRevision);
+          await this.applyOriginalRenderStyle(store, step, originalStyle, nextRevision);
         } else if (originalImageFlip !== null) {
           await this.applyOriginalImageFlip(store, step, originalImageFlip, nextRevision);
         } else if (originalImageCrop !== null) {
@@ -1109,97 +1276,34 @@ export class StrokePersistence {
     return { identities: identities, deleted: deleted };
   }
 
-  private originalInkStyleMutation(current: SearchSourceElement[],
-    next: PreparedElement[]): OriginalInkRenderMutation | null {
-    if (!samePreparedIdentityOrder(current, next)) {
-      return null;
+  private async originalRenderMutation(store: relationalStore.RdbStore, noteId: string,
+    current: SearchSourceElement[], next: PreparedElement[]): Promise<OriginalRenderMutation | null> {
+    const mutation: OriginalRenderMutation | null =
+      classifyOriginalRenderMutation(current, next);
+    if (mutation === null || mutation.shapeBatches.length === 0) {
+      return mutation;
     }
-    const batches: Map<string, OriginalInkRenderMutationBatch> =
-      new Map<string, OriginalInkRenderMutationBatch>();
-    for (let index: number = 0; index < current.length; index++) {
-      if (sameByteArrays(current[index].payload, next[index].payload)) {
-        continue;
-      }
-      if (current[index].kind !== PageElementKind.STROKE) {
+    for (const batch of mutation.shapeBatches) {
+      if (batch.identities.length !== batch.expectedTools.length) {
         return null;
       }
-      try {
-        const beforePersisted: PersistedElement = decodePersistedElement(current[index].payload);
-        const afterPersisted: PersistedElement = decodePersistedElement(next[index].payload);
-        if (beforePersisted.kind !== 'stroke' || afterPersisted.kind !== 'stroke') {
-          return null;
-        }
-        const before: StrokeElementData = beforePersisted.data as StrokeElementData;
-        const after: StrokeElementData = afterPersisted.data as StrokeElementData;
-        const identity: OperationIdentity | null = decodeOperationId(before.id);
-        const styleChanged: boolean = before.renderSpec.inkStyle !== after.renderSpec.inkStyle;
-        const styleMapCleared: boolean = after.styleMap !== undefined && after.styleMap.length === 0 &&
-          (before.styleMap === undefined || before.styleMap.length > 0);
-        const styleUpdated: boolean = styleChanged || styleMapCleared;
-        const colorChanged: boolean = before.renderSpec.color !== after.renderSpec.color;
-        const widthChanged: boolean = before.renderSpec.brushWidth !== after.renderSpec.brushWidth;
-        if (identity === null || before.id !== after.id ||
-          before.renderSpec.isPartialEraser === true ||
-          (!styleUpdated && !colorChanged && !widthChanged) ||
-          (styleUpdated && before.renderSpec.isPencil)) {
-          return null;
-        }
-        let pencilWidth: RebuiltOriginalPencilWidth | null = null;
-        if (widthChanged && before.renderSpec.isPencil) {
-          try {
-            pencilWidth = rebuildOriginalPencilWidth(before, after.renderSpec.brushWidth);
-          } catch (_error) {
+      for (let index: number = 0; index < batch.identities.length; index++) {
+        const identity: OperationIdentity = batch.identities[index];
+        const rows = await store.querySql(
+          `SELECT resolved_payload FROM original_shape_state WHERE note_id = ?
+           AND shape_timestamp = ? AND shape_site_id = ? LIMIT 1`,
+          [noteId, identity.timestamp, identity.siteId]);
+        try {
+          if (!rows.goToFirstRow() || decodeOriginalShapeStateTool(
+            rows.getString(rows.getColumnIndex('resolved_payload'))) !== batch.expectedTools[index]) {
             return null;
           }
+        } finally {
+          rows.close();
         }
-        const candidate: StrokeElementData = {
-          id: before.id, pathPoints: before.pathPoints, cubicSegments: before.cubicSegments,
-          splatPoints: pencilWidth === null ? before.splatPoints : pencilWidth.splatPoints,
-          renderSpec: {
-            color: colorChanged ? after.renderSpec.color : before.renderSpec.color,
-            brushWidth: widthChanged ? after.renderSpec.brushWidth : before.renderSpec.brushWidth,
-            inkStyle: styleUpdated ? after.renderSpec.inkStyle : before.renderSpec.inkStyle,
-            isHighlighter: before.renderSpec.isHighlighter,
-            isPencil: before.renderSpec.isPencil,
-            isPartialEraser: before.renderSpec.isPartialEraser,
-            inkEffects: before.renderSpec.inkEffects,
-            inkEffectsTinted: before.renderSpec.inkEffectsTinted,
-            inkEffectPhase: before.renderSpec.inkEffectPhase,
-            tapePattern: before.renderSpec.tapePattern,
-          },
-          transform: before.transform,
-          bounds: pencilWidth === null ? before.bounds : pencilWidth.bounds,
-          maskPath: before.maskPath,
-          customPath: before.customPath, fillPath: before.fillPath, fillColor: before.fillColor,
-          styleMap: styleUpdated ? [] : before.styleMap, audioStartTime: before.audioStartTime,
-          audioDuration: before.audioDuration, originalCreate: before.originalCreate,
-          isFinished: before.isFinished,
-        };
-        const encoded: Uint8Array = encodePersistedElement({ kind: 'stroke', data: candidate });
-        if (!sameByteArrays(encoded, next[index].payload)) {
-          return null;
-        }
-        const update: OriginalInkRenderRegisterUpdate = {
-          style: styleUpdated ? after.renderSpec.inkStyle : null,
-          color: colorChanged ? after.renderSpec.color : null,
-          width: widthChanged ? after.renderSpec.brushWidth : null,
-        };
-        const key: string = `${update.style === null ? 'x' : update.style}|` +
-          `${update.color === null ? 'x' : update.color}|` +
-          `${update.width === null ? 'x' : update.width}`;
-        const batch: OriginalInkRenderMutationBatch | undefined = batches.get(key);
-        if (batch === undefined) {
-          batches.set(key, {
-            identities: [identity], style: update.style, color: update.color, width: update.width,
-          });
-        } else {
-          batch.identities.push(identity);
-        }
-      } catch (_error) {
-        return null;
       }
     }
-    return batches.size === 0 ? null : { batches: Array.from(batches.values()) };
+    return mutation;
   }
 
   private async originalModifyPositionsMutation(store: relationalStore.RdbStore,
@@ -1438,15 +1542,15 @@ export class StrokePersistence {
     await this.reconcilePreparedRows(store, step, expectedRevision);
   }
 
-  private async applyOriginalInkStyle(store: relationalStore.RdbStore,
-    step: PreparedPageSave, mutation: OriginalInkRenderMutation,
+  private async applyOriginalRenderStyle(store: relationalStore.RdbStore,
+    step: PreparedPageSave, mutation: OriginalRenderMutation,
     expectedRevision: number): Promise<void> {
     if (await this.readEligibleOriginalInkPage(store, step.noteId, step.pageId) === null) {
       throw new Error('local MODIFY_INK page is no longer original-aligned');
     }
     const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
     const applier: OriginalModifyInkOperationApplier = new OriginalModifyInkOperationApplier();
-    for (const batch of mutation.batches) {
+    for (const batch of mutation.inkBatches) {
       const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, step.noteId);
       const payload: Uint8Array = encodeOriginalInkRenderRegisters(batch.identities, batch);
       const metadata: OriginalInkCreateMetadata = {
@@ -1467,11 +1571,34 @@ export class StrokePersistence {
         opTimestamp: identity.timestamp, editorSiteId: identity.siteId, uploadImmediately: true,
       });
     }
+    const shapeApplier: OriginalShapeGroupOperationApplier =
+      new OriginalShapeGroupOperationApplier();
+    for (const batch of mutation.shapeBatches) {
+      const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, step.noteId);
+      const payload: Uint8Array = encodeOriginalShapeRenderRegisters(batch.identities, batch);
+      const metadata: OriginalInkCreateMetadata = {
+        timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
+        pageTimestamp: 0, pageSiteId: 0, pageIndex: 0, pencilSeed: 0,
+      };
+      const operation: StoredSyncedOperation = localStoredOperation(
+        step.noteId, metadata, ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE, payload, null);
+      const decoded: OriginalModifyShapePayload = decodeOriginalModifyShape(operation.rawOperation);
+      const result: SyncedOperationApplyResult = await shapeApplier.applyPositionPayload(
+        store, operation, decoded, revisionBatch);
+      if (result.deferredReason !== null) {
+        throw new Error(`local MODIFY_SHAPE was deferred: ${result.deferredReason}`);
+      }
+      await appendOperation(store, {
+        noteId: step.noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_SHAPE,
+        payload: operation.rawOperation, clientTime: identity.clientTime,
+        opTimestamp: identity.timestamp, editorSiteId: identity.siteId, uploadImmediately: true,
+      });
+    }
     await revisionBatch.flush(store, step.noteId);
     const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
       store, step.noteId, step.pageId);
     if (!samePreparedIdentityOrder(materialized, step.elements)) {
-      throw new Error('local MODIFY_INK reducer produced an unexpected element order');
+      throw new Error('local render register reducer produced an unexpected element order');
     }
     await this.reconcilePreparedRows(store, step, expectedRevision);
   }
@@ -1950,6 +2077,8 @@ export class StrokePersistence {
     }
     const store: relationalStore.RdbStore = this.store;
     try {
+      const originalShapeTools: Map<string, number> =
+        await this.loadOriginalShapeTools(store, noteId);
       const predicates = new relationalStore.RdbPredicates('page_element_snapshot');
       predicates.equalTo('note_id', noteId);
       if (pageId !== null) {
@@ -1975,6 +2104,10 @@ export class StrokePersistence {
                 elementId: text.id, zIndex: result.elementOrder.length });
             } else if (parsed.kind === 'shape') {
               const shape: ShapeElement = cloneShapeElement(parsed.data as ShapeElement);
+              const originalTool: number | undefined = originalShapeTools.get(shape.id);
+              if (shape.originalTool === undefined && originalTool !== undefined) {
+                shape.originalTool = originalTool;
+              }
               shape.bounds = recomputeShapeBounds(shape);
               result.shapes.push(shape);
               result.elementOrder.push({ kind: PageElementKind.SHAPE,
@@ -2009,6 +2142,33 @@ export class StrokePersistence {
     result.elements = materializePageElements(
       result.elementOrder, result.strokes, result.textBlocks, result.shapes, result.images,
       result.mathBlocks);
+    return result;
+  }
+
+  private async loadOriginalShapeTools(store: relationalStore.RdbStore,
+    noteId: string): Promise<Map<string, number>> {
+    const rows = await store.querySql(
+      `SELECT shape_timestamp, shape_site_id, resolved_payload
+       FROM original_shape_state WHERE note_id = ?`, [noteId]);
+    const result: Map<string, number> = new Map<string, number>();
+    try {
+      while (rows.goToNextRow()) {
+        try {
+          const tool: number | null = decodeOriginalShapeStateTool(
+            rows.getString(rows.getColumnIndex('resolved_payload')));
+          if (tool !== null) {
+            result.set(encodeOperationId({
+              timestamp: rows.getLong(rows.getColumnIndex('shape_timestamp')),
+              siteId: rows.getLong(rows.getColumnIndex('shape_site_id')),
+            }), tool);
+          }
+        } catch (_error) {
+          // A malformed state row must not prevent the remaining page elements from loading.
+        }
+      }
+    } finally {
+      rows.close();
+    }
     return result;
   }
 

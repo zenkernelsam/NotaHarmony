@@ -37,6 +37,9 @@ export interface ShapeRichTextContent {
   paragraphStyleRuns?: RichTextParagraphStyleRun[];
   // Missing on locally detected and legacy snapshots; original Shapes default to unlocked.
   positionLocked?: boolean;
+  // Original InkTool register (Pen=0, Pencil=1, Highlighter=2, Tape=3).
+  // Optional for pre-Phase-118 and non-original Shape snapshots.
+  originalTool?: number;
 }
 
 // 椭圆元素

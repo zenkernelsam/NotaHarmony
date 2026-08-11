@@ -10,7 +10,8 @@ paths and closes the selected-Ink render-register boundary left by Phase 109.
 - Original 1.0.3 `wj9` case 11 dispatches selected color through `zn3`. Its recovered coroutine
   partitions Highlighter Ink from ordinary Ink, forces Highlighter alpha to `107/255`, forces
   ordinary Ink alpha to `255/255`, and calls `u5j.q` once per resulting color group. Pencil is not
-  excluded from this color path. Shape color is submitted separately as type-23.
+  excluded from this color path. Shape color is submitted separately as type-19 `MODIFY_SHAPE`
+  (corrected and implemented by Phase 118; it is not type-23 `MODIFY_BLOCK`).
 - `dhb`/`fsc` dispatch selected width through `ks0(..., case 4)`. Targets are partitioned by Ink tool
   type before `u5j.q` writes width. `w4g.a` proves the original tool ranges: Pen/Highlighter
   `0.5..30`, Pencil `1..10`, and Tape `2..64`.
@@ -57,8 +58,8 @@ paths and closes the selected-Ink render-register boundary left by Phase 109.
 - Always include an empty style map: original `u5j.q` does so for style, not color-only or width-only.
 - Emit one operation per target: the original batches targets with the same effective register value
   and one user command must remain one revision/transaction.
-- Treat selected Shape color/width as Ink: original Shape uses a separate type-23 path and remains a
-  later outbound phase.
+- Treat selected Shape color/width as Ink: original Shape uses a separate type-19 path. Phase 118
+  now combines the UI command while retaining distinct type-17/type-19 payloads.
 
 ## Verification
 
@@ -73,7 +74,8 @@ paths and closes the selected-Ink render-register boundary left by Phase 109.
 
 ## Remaining Boundary
 
-Selected Shape color/width and other Shape render registers still require their original type-23
-outbound phase. Device acceptance still needs mixed Pen/Highlighter/Pencil/Tape selections, slider
+Phase 118 closes selected Shape color/width through type-19 `MODIFY_SHAPE`; the earlier type-23
+statement was a temporary incorrect boundary. Other Shape registers remain separate. Device
+acceptance still needs mixed Pen/Highlighter/Pencil/Tape selections, slider
 range switching, alpha rendering, Pencil texture/bounds, restart Undo/Redo and remote replay. Private
 authenticated upload/ACK and the wider remaining migration goal are not closed by this decision.

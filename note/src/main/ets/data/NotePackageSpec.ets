@@ -480,6 +480,8 @@ function isValidShape(shape: ShapeElement): boolean {
     !isNonNegativeFinite(shape.strokeWidth) ||
     (shape.fillColor !== null && !isFiniteNumber(shape.fillColor)) ||
     (shape.positionLocked !== undefined && typeof shape.positionLocked !== 'boolean') ||
+    (shape.originalTool !== undefined &&
+      !isIntegerInRange(shape.originalTool, 0, 7)) ||
     (shape.richText !== undefined &&
       (typeof shape.richText !== 'string' ||
         !isValidRichTextRuns(shape, shape.richText as string)))) {
