@@ -100,6 +100,19 @@ export default function originalTextMutationPayloadEncoderTest() {
       expect(interleavedRedo?.revived[0].timestamp).assertEqual(20);
     });
 
+    it('removes every character without inserting when an existing Block becomes empty', 0, () => {
+      const emptied = planOriginalLocalTextMutation(initialCharacters(), 'ABC', '');
+      expect(emptied?.removed.length).assertEqual(3);
+      expect(emptied?.revived.length).assertEqual(0);
+      expect(emptied?.insertedScalars.length).assertEqual(0);
+      expect(emptied?.insertionLocation === null).assertTrue();
+      const preview = previewOriginalLocalTextMutation(
+        initialCharacters(), [], [], 'ABC', '', null);
+      expect(preview?.plan.removed.length).assertEqual(3);
+      expect(preview?.characterStyleRuns.length).assertEqual(0);
+      expect(preview?.paragraphStyleRuns.length).assertEqual(0);
+    });
+
     it('encodes Text auto-height as the original block size register', 0, () => {
       const decoded = decodeOriginalModifyBlock(wrap(19,
         encodeOriginalBlockSize([{ timestamp: 50, siteId: 7 }], 200, 64)));

@@ -39,3 +39,9 @@ Accepted, 2026-08-12.
 - Full replay and clean sequential HAP results are recorded in the Phase 127 report.
 - This phase does not add a formatting surface, alter search folding of whitespace-only documents,
   or decide empty-Block deletion semantics.
+
+## Phase 128 Correction
+
+Original `awb` replacement evidence subsequently proved the existing-Block case: replacing the
+whole range with an empty string emits REMOVE_CHAR(S), skips insertion and preserves the Block.
+Phase 128 therefore narrows this ADR's empty-string cancellation rule to newly created Text only.

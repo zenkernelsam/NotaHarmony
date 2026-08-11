@@ -4909,7 +4909,7 @@ export struct NoteCanvasView {
     let changed: boolean = false;
     let rearmOriginalCreate: boolean = false;
     if (this.editingTextBlock !== null) {
-      if (text.length === 0) {
+      if (this.editingOriginalTextBlock === null && text.length === 0) {
         this.onTextCancel();
         return true;
       }
@@ -4929,6 +4929,21 @@ export struct NoteCanvasView {
         });
         changed = true;
         rearmOriginalCreate = updated.originalCreate !== undefined;
+      } else if (this.editingOriginalTextBlock.richText !== text &&
+        decodeOperationId(this.editingOriginalTextBlock.id) === null) {
+        let updated: TextBlockElement = this.textBlockTool.updateText(this.editingTextBlock, text);
+        updated = this.fitEditedTextWidth(updated);
+        this.replaceTextBlock(updated);
+        this.undoRedo.push({
+          type: UndoableActionType.REPLACE_ELEMENT,
+          noteId: this.noteId,
+          pageId: this.currentPage.pageId,
+          beforeStrokes: [],
+          afterStrokes: [],
+          beforeElements: [this.editingOriginalTextBlock],
+          afterElements: [updated],
+        });
+        changed = true;
       } else if (this.editingOriginalTextBlock.richText !== text) {
         const editing: TextBlockElement = this.editingTextBlock;
         const original: TextBlockElement = this.editingOriginalTextBlock;

@@ -14,7 +14,8 @@ assert.match(originalInsert, /Cannot insert empty string/);
 assert.match(originalFactory,
   /str\.length\(\) > 2 \|\| Character\.codePointCount\(str, 0, str\.length\(\)\) != 1/);
 assert.match(originalFactory, /return kci\.b\(excVar, str, qo5Var\)/);
-assert.match(canvas, /if \(text\.length === 0\) \{[\s\S]*this\.onTextCancel\(\)/);
+assert.match(canvas,
+  /if \(this\.editingOriginalTextBlock === null && text\.length === 0\) \{[\s\S]*this\.onTextCancel\(\)/);
 assert.doesNotMatch(canvas, /if \(text\.trim\(\)\.length === 0\)/);
 assert.match(canvas,
   /onCommit: async \(text: string\): Promise<boolean> => \{[\s\S]*return await this\.onTextCommit\(text\)[\s\S]*return false/);
