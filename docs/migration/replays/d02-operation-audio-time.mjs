@@ -69,7 +69,7 @@ assert.equal(failed.prepare(`SELECT COUNT(*) count FROM sqlite_master
   WHERE type='table' AND name='original_applied_operation_time'`).get().count, 0);
 failed.close();
 
-assert.match(schema, /DB_VERSION: number = 59/);
+assert.match(schema, /DB_VERSION: number = 60/);
 assert.match(schema, /58: \[\s*DDL_ORIGINAL_APPLIED_OPERATION_TIME/);
 assert.match(envelope, /audioTime: string \| null/);
 assert.match(envelope, /fieldOffset\(bytes, root, 3\)/);

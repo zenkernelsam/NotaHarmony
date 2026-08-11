@@ -173,7 +173,7 @@ assert.equal(failed.prepare(`SELECT COUNT(*) count FROM pragma_table_info('page_
   WHERE name='original_page_in_asset'`).get().count, 0);
 failed.close();
 
-assert.match(schema, /DB_VERSION: number = 59/);
+assert.match(schema, /DB_VERSION: number = 60/);
 assert.match(schema, /51: \[/);
 assert.match(schema, /DDL_ORIGINAL_PAGE_IN_ASSET_WINNER/);
 assert.match(decoder, /decodeOriginalPdfAsset/);

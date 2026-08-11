@@ -8,6 +8,7 @@ import {
   DDL_SYNCED_OPERATION_INBOX, DDL_ORIGINAL_PAGE_INSERT_GROUP, DDL_ORIGINAL_PAGE_IDENTITY,
   DDL_ORIGINAL_APPLIED_OPERATION_TIME,
   DDL_ORIGINAL_LOCAL_INK_AUTHORING_GUARD,
+  DDL_ORIGINAL_LOCAL_Z_ORDER_HISTORY,
   DDL_ORIGINAL_PAGE_VISIBILITY_WINNER, DDL_ORIGINAL_PAGE_BACKGROUND_WINNER,
   DDL_ORIGINAL_NOTE_BACKGROUND_WINNER, DDL_ORIGINAL_NOTE_TITLE_WINNER,
   DDL_ORIGINAL_ELEMENT_Z_INDEX, DDL_ORIGINAL_INK_STATE, DDL_ORIGINAL_INK_PATH_APPEND,
@@ -29,7 +30,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(59);
+      expect(DB_VERSION).assertEqual(60);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -120,6 +121,8 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[58].join('\n')).assertContain('original_applied_operation_time');
       expect(MIGRATIONS[59].join('\n')).assertContain('original_local_ink_authoring_guard');
       expect(DDL_ORIGINAL_LOCAL_INK_AUTHORING_GUARD).assertContain('blocked INTEGER NOT NULL');
+      expect(MIGRATIONS[60].join('\n')).assertContain('original_local_z_order_history');
+      expect(DDL_ORIGINAL_LOCAL_Z_ORDER_HISTORY).assertContain('before_values TEXT NOT NULL');
       expect(DDL_ORIGINAL_APPLIED_OPERATION_TIME).assertContain('audio_time TEXT');
       expect(DDL_ORIGINAL_APPLIED_OPERATION_TIME).assertContain(
         'PRIMARY KEY(note_id, op_timestamp, op_site_id)');

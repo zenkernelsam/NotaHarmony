@@ -152,7 +152,7 @@ assert.equal(failed.prepare(`SELECT COUNT(*) count FROM sqlite_master
   WHERE type='table' AND name='original_text_checkbox_state'`).get().count, 0);
 failed.close();
 
-assert.match(schema, /DB_VERSION: number = 59/);
+assert.match(schema, /DB_VERSION: number = 60/);
 assert.match(schema, /53: \[[\s\S]*DDL_ORIGINAL_TEXT_CHECKBOX_STATE/);
 assert.match(manager, /DDL_ORIGINAL_TEXT_CHECKBOX_STATE/);
 assert.match(reducer, /ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE: number = 28/);

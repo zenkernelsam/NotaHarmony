@@ -3,10 +3,11 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
+// v60: retain original z-index values for durable selection reorder Undo/Redo.
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 59;
+export const DB_VERSION: number = 60;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -59,6 +60,17 @@ CREATE TABLE IF NOT EXISTS original_local_ink_authoring_guard (
   PRIMARY KEY(note_id, page_id),
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE,
   FOREIGN KEY(note_id, page_id) REFERENCES page_info(note_id, page_id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_LOCAL_Z_ORDER_HISTORY: string = `
+CREATE TABLE IF NOT EXISTS original_local_z_order_history (
+  note_id TEXT NOT NULL,
+  action_id TEXT NOT NULL CHECK (length(action_id) BETWEEN 1 AND 512),
+  before_values TEXT NOT NULL CHECK (length(before_values) > 0),
+  after_values TEXT NOT NULL CHECK (length(after_values) > 0),
+  action_time INTEGER NOT NULL CHECK (action_time >= 0),
+  PRIMARY KEY(note_id, action_id),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
 export const DDL_OPERATION_LOG: string = `
@@ -2415,4 +2427,5 @@ export const MIGRATIONS: Record<number, string[]> = {
     DDL_ORIGINAL_APPLIED_OPERATION_TIME,
   ],
   59: [DDL_ORIGINAL_LOCAL_INK_AUTHORING_GUARD],
+  60: [DDL_ORIGINAL_LOCAL_Z_ORDER_HISTORY],
 };

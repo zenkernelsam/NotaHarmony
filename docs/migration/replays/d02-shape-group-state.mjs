@@ -232,7 +232,7 @@ assert.equal(failed.prepare(`SELECT COUNT(*) count FROM sqlite_master WHERE type
     'original_group_state','original_group_modification')`).get().count, 0);
 failed.close();
 
-assert.match(schema, /DB_VERSION: number = 59/);
+assert.match(schema, /DB_VERSION: number = 60/);
 assert.match(shapeStateDdl, /register_winners TEXT NOT NULL DEFAULT '\[\]'/);
 assert.match(schema, /56: \[[\s\S]*DDL_ORIGINAL_SHAPE_STATE[\s\S]*DDL_ORIGINAL_GROUP_MODIFICATION/);
 assert.match(manager, /DDL_ORIGINAL_SHAPE_STATE[\s\S]*DDL_ORIGINAL_GROUP_MODIFICATION/);

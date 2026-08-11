@@ -41,7 +41,8 @@ import { ClipboardPasteResult, StrokeClipboard } from '../../rendering/StrokeCli
 import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
 import {
-  decodePersistedElement, encodePersistedElement, HistoryPageSnapshot, PersistedElement, StrokePersistence,
+  decodePersistedElement, encodePersistedElement, HistoryPageSnapshot, OriginalZOrderCommand,
+  OriginalZOrderHint, PersistedElement, StrokePersistence,
 } from '../../data/StrokePersistence';
 import { SearchSourceElement } from '../../data/SearchIndexPolicy';
 import { DatabaseManager } from '../../data/DatabaseManager';
@@ -407,7 +408,8 @@ export struct NoteCanvasView {
     return null;
   }
 
-  private persist(rearmOriginalInk: boolean = false): void {
+  private persist(rearmOriginalInk: boolean = false,
+    originalZOrderHint?: OriginalZOrderHint): void {
     if (this.loaded && !this.dataLoading && !this.dataLoadFailed && this.persistence.isReady() &&
       this.noteId.length > 0 && this.loadedPageId.length > 0 &&
       this.loadedPageId !== this.skipSavePageId) {
@@ -424,7 +426,7 @@ export struct NoteCanvasView {
         const history = preserveActionBoundary ? this.undoRedo.getLatestHistoryMetadata() : undefined;
         this.persistence.queueSaveElements(this.noteId, pageId, this.completedStrokes, this.textBlocks,
           this.elementOrder, this.shapes, preserveActionBoundary, history === null ? undefined : history,
-          this.imageBlocks, this.mathBlocks);
+          this.imageBlocks, this.mathBlocks, originalZOrderHint);
         this.lastQueuedHistoryRevision = historyRevision;
         this.persistence.flush(this.noteId, pageId).then(() => {
           if (!this.persistence.hasDirtySave(this.noteId, pageId)) {
@@ -2019,6 +2021,12 @@ export struct NoteCanvasView {
         action.beforeImages.map((image: ImageElement): string => image.id),
         (action.beforeMathBlocks ?? []).map((math: MathElement): string => math.id));
     }
+    if (action.type === UndoableActionType.REORDER_ELEMENTS) {
+      const ids: string[] = action.elementOrderBefore.map(
+        (ref: PageElementRef): string => ref.elementId);
+      return samePageElementMembers(action.elementOrderBefore, action.elementOrderAfter) &&
+        this.areCanonicalOriginalPositionSelection(ids, [], [], [], []);
+    }
     return false;
   }
 
@@ -3596,7 +3604,14 @@ export struct NoteCanvasView {
       elementOrderAfter: clonePageElementOrder(after),
     });
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
-    this.persist();
+    const selectedIds: string[] = ids.concat(shapeIds).concat(textIds).concat(imageIds).concat(mathIds);
+    const originalEligible: boolean = this.areCanonicalOriginalPositionSelection(
+      ids, shapeIds, textIds, imageIds, mathIds);
+    const hint: OriginalZOrderHint | undefined = originalEligible ? {
+      command: forward ? OriginalZOrderCommand.BRING_FRONT : OriginalZOrderCommand.SEND_BACK,
+      selectedElementIds: selectedIds,
+    } : undefined;
+    this.persist(originalEligible, hint);
     this.notifyUndoRedo();
     this.renderFrame();
   }

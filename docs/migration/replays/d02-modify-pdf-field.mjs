@@ -124,7 +124,7 @@ assert.equal(failed.prepare(`SELECT COUNT(*) count FROM sqlite_master
   WHERE type='table' AND name='original_pdf_field_state'`).get().count, 0);
 failed.close();
 
-assert.match(schema, /DB_VERSION: number = 59/);
+assert.match(schema, /DB_VERSION: number = 60/);
 assert.match(schema, /54: \[[\s\S]*DDL_ORIGINAL_PDF_FIELD_STATE/);
 assert.match(schema, /UNIQUE\(note_id, winner_timestamp, winner_site_id\)/);
 assert.doesNotMatch(ddl, /REFERENCES note_asset/);

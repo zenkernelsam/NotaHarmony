@@ -388,7 +388,7 @@ assert.match(source, /originalAssetStorageHash\(asset\.assetHash\.bits\)/);
 assert.match(source, /AssetStatus\.PENDING/);
 assert.match(source, /kind === PageElementKind\.MATH \? 'math' : 'text'/);
 assert.match(source, /CREATE_BLOCK_IMAGE_ASSET_METADATA_CONFLICT/);
-assert.match(schema, /DB_VERSION: number = 59/);
+assert.match(schema, /DB_VERSION: number = 60/);
 assert.match(schema, /43: \[[\s\S]*create_image_hash_bits/);
 
 console.log('success|v42-v43=1|metadata-only=1|pending=1|local-preserved=1|' +

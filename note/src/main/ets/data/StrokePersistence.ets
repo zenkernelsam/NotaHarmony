@@ -31,7 +31,9 @@ import {
   decodeOperationId, encodeOperationId, OperationIdentity, OriginalSequenceIdentity,
   validateOperationIdentity,
 } from './OperationIdentity';
-import { compareUnsignedLongDecimal } from './UnsignedDecimal';
+import {
+  compareUnsignedLongDecimal, MAX_UNSIGNED_LONG_DECIMAL, validateUnsignedLongDecimal,
+} from './UnsignedDecimal';
 import { encodeOriginalLocalCreateInk } from './OriginalCreateInkPayloadEncoder';
 import {
   ORIGINAL_CREATE_INK_PAYLOAD_TYPE, OriginalCreateInkOperationApplier,
@@ -93,6 +95,17 @@ interface PreparedPageSave {
   pageId: string;
   elements: PreparedElement[];
   history?: HistoryMetadata;
+  originalZOrderHint?: OriginalZOrderHint;
+}
+
+export enum OriginalZOrderCommand {
+  SEND_BACK = 0,
+  BRING_FRONT = 1,
+}
+
+export interface OriginalZOrderHint {
+  command: OriginalZOrderCommand;
+  selectedElementIds: string[];
 }
 
 export interface HistoryPageSnapshot {
@@ -121,6 +134,21 @@ interface OriginalOrderEntry {
   timestamp: number;
   siteId: number;
   zIndex: string;
+}
+
+interface OriginalZOrderValue {
+  target: OperationIdentity;
+  zIndex: string;
+}
+
+interface OriginalZOrderHistory {
+  before: OriginalZOrderValue[];
+  after: OriginalZOrderValue[];
+}
+
+interface OriginalModifyPositionsMutation {
+  payload: OriginalModifyPositionsPayload;
+  zOrderHistory: OriginalZOrderHistory | null;
 }
 
 interface OriginalEntityVisibilityMutation {
@@ -217,12 +245,14 @@ export class StrokePersistence {
   queueSaveElements(noteId: string, pageId: string, strokes: StrokeElementData[],
     textBlocks: TextBlockElement[], elementOrder: PageElementRef[] = [], shapes: ShapeElement[] = [],
     preserveActionBoundary: boolean = false, history?: HistoryMetadata,
-    images: ImageElement[] = [], mathBlocks: MathElement[] = []): number {
+    images: ImageElement[] = [], mathBlocks: MathElement[] = [],
+    originalZOrderHint?: OriginalZOrderHint): number {
     if (this.store === null) {
       throw new Error('StrokePersistence is not initialized');
     }
     const snapshot: PreparedPageSave = this.prepareSave(
-      noteId, pageId, strokes, textBlocks, elementOrder, shapes, images, mathBlocks, history);
+      noteId, pageId, strokes, textBlocks, elementOrder, shapes, images, mathBlocks, history,
+      originalZOrderHint);
     return this.getSaveQueue(noteId, pageId).enqueue(snapshot, preserveActionBoundary);
   }
 
@@ -504,11 +534,13 @@ export class StrokePersistence {
         await store.commit();
         return;
       }
-      const originalPositions: OriginalModifyPositionsPayload | null =
+      const originalPositions: OriginalModifyPositionsMutation | null =
         await this.originalModifyPositionsMutation(store, snapshot.noteId, snapshot.pageId,
-          current, snapshot.elements);
+          current, snapshot.elements, snapshot.history, snapshot.originalZOrderHint);
       if (originalPositions !== null) {
-        await this.applyOriginalModifyPositions(store, snapshot, originalPositions, snapshotRevision);
+        await this.applyOriginalModifyPositions(
+          store, snapshot, originalPositions.payload, snapshotRevision);
+        await this.recordOriginalZOrderHistory(store, snapshot, originalPositions.zOrderHistory);
         await this.rebuildPageSearchState(store, snapshot, snapshotRevision, true);
         await this.appendHistoryCompanion(store, snapshot, mutation);
         await store.commit();
@@ -754,17 +786,18 @@ export class StrokePersistence {
           this.originalEntityVisibilityMutation(current, step.elements);
         const originalStyle: OriginalInkStyleMutation | null = originalVisibility === null ?
           this.originalInkStyleMutation(current, step.elements) : null;
-        const originalPositions: OriginalModifyPositionsPayload | null =
+        const originalPositions: OriginalModifyPositionsMutation | null =
           originalVisibility === null && originalStyle === null ?
             await this.originalModifyPositionsMutation(store, step.noteId, step.pageId,
-              current, step.elements) : null;
+              current, step.elements, step.history, step.originalZOrderHint) : null;
         if (originalVisibility !== null) {
           await this.applyOriginalEntityVisibility(store, step, originalVisibility,
             nextRevision);
         } else if (originalStyle !== null) {
           await this.applyOriginalInkStyle(store, step, originalStyle, nextRevision);
         } else if (originalPositions !== null) {
-          await this.applyOriginalModifyPositions(store, step, originalPositions, nextRevision);
+          await this.applyOriginalModifyPositions(store, step, originalPositions.payload, nextRevision);
+          await this.recordOriginalZOrderHistory(store, step, originalPositions.zOrderHistory);
         } else {
           await this.materializePreparedPage(store, step, currentRevision, nextRevision);
         }
@@ -897,9 +930,11 @@ export class StrokePersistence {
 
   private async originalModifyPositionsMutation(store: relationalStore.RdbStore,
     noteId: string, pageId: string, current: SearchSourceElement[],
-    next: PreparedElement[]): Promise<OriginalModifyPositionsPayload | null> {
+    next: PreparedElement[], history?: HistoryMetadata,
+    zOrderHint?: OriginalZOrderHint): Promise<OriginalModifyPositionsMutation | null> {
     if (!samePreparedIdentityOrder(current, next)) {
-      return null;
+      return this.originalZOrderMutation(
+        store, noteId, pageId, current, next, history, zOrderHint);
     }
     const page: OriginalSequenceIdentity | null = await this.readEligibleOriginalInkPage(
       store, noteId, pageId);
@@ -954,7 +989,144 @@ export class StrokePersistence {
         zIndex: null,
       });
     }
-    return modifications.length === 0 ? null : { modifications: modifications };
+    return modifications.length === 0 ? null : {
+      payload: { modifications: modifications }, zOrderHistory: null,
+    };
+  }
+
+  private async originalZOrderMutation(store: relationalStore.RdbStore,
+    noteId: string, pageId: string, current: SearchSourceElement[], next: PreparedElement[],
+    history?: HistoryMetadata,
+    hint?: OriginalZOrderHint): Promise<OriginalModifyPositionsMutation | null> {
+    if (!samePreparedMembersAndPayloads(current, next) || history === undefined) {
+      return null;
+    }
+    const page: OriginalSequenceIdentity | null = await this.readEligibleOriginalInkPage(
+      store, noteId, pageId);
+    if (page === null || await this.originalPageHasGroups(store, noteId, current)) {
+      return null;
+    }
+    const order: OriginalOrderEntry[] | null = await this.readOriginalOrder(
+      store, noteId, page, current);
+    if (order === null) {
+      return null;
+    }
+    let zHistory: OriginalZOrderHistory | null = null;
+    if (history.effect === HistoryEffect.PUSH) {
+      if (hint === undefined) {
+        return null;
+      }
+      zHistory = createOriginalZOrderHistory(order, next, hint);
+    } else {
+      zHistory = await this.readOriginalZOrderHistory(store, noteId, history.actionId);
+    }
+    if (zHistory === null) {
+      return null;
+    }
+    const expected: OriginalZOrderValue[] = history.effect === HistoryEffect.UNDO ?
+      zHistory.after : zHistory.before;
+    const desired: OriginalZOrderValue[] = history.effect === HistoryEffect.UNDO ?
+      zHistory.before : zHistory.after;
+    if (!zOrderValuesMatch(order, expected) || !zOrderValuesProduce(order, desired, next)) {
+      return null;
+    }
+    const modifications: OriginalModifyPosition[] = desired.map(
+      (value: OriginalZOrderValue): OriginalModifyPosition => ({
+        target: value.target, pageOrigin: null,
+        rotation: { present: false, value: null },
+        scale: { present: false, value: null }, zIndex: value.zIndex,
+      }));
+    return { payload: { modifications: modifications },
+      zOrderHistory: history.effect === HistoryEffect.PUSH ? zHistory : null };
+  }
+
+  private async originalPageHasGroups(store: relationalStore.RdbStore, noteId: string,
+    current: SearchSourceElement[]): Promise<boolean> {
+    const ids: Set<string> = new Set<string>();
+    for (const element of current) {
+      ids.add(element.elementId);
+    }
+    const groups: OriginalSelectionGroup[] = await this.loadOriginalSelectionGroups(store, noteId);
+    for (const group of groups) {
+      for (const member of group.members) {
+        if (ids.has(member)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private async readOriginalOrder(store: relationalStore.RdbStore, noteId: string,
+    page: OriginalSequenceIdentity,
+    current: SearchSourceElement[]): Promise<OriginalOrderEntry[] | null> {
+    const rows = await store.querySql(
+      `SELECT element_timestamp, element_site_id, kind, z_index FROM original_element_z_index
+       WHERE note_id = ? AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+       AND visible = 1`, [noteId, page.timestamp, page.siteId, page.index]);
+    const result: OriginalOrderEntry[] = [];
+    try {
+      while (rows.goToNextRow()) {
+        const timestamp: number = rows.getLong(rows.getColumnIndex('element_timestamp'));
+        const siteId: number = rows.getLong(rows.getColumnIndex('element_site_id'));
+        result.push({
+          key: `${rows.getLong(rows.getColumnIndex('kind'))}:` +
+            encodeOperationId({ timestamp: timestamp, siteId: siteId }),
+          timestamp: timestamp, siteId: siteId,
+          zIndex: rows.getString(rows.getColumnIndex('z_index')),
+        });
+      }
+    } finally {
+      rows.close();
+    }
+    result.sort(compareOriginalOrderEntries);
+    if (result.length !== current.length) {
+      return null;
+    }
+    for (let index: number = 0; index < result.length; index++) {
+      if (result[index].key !== `${current[index].kind}:${current[index].elementId}`) {
+        return null;
+      }
+    }
+    return result;
+  }
+
+  private async readOriginalZOrderHistory(store: relationalStore.RdbStore,
+    noteId: string, actionId: string): Promise<OriginalZOrderHistory | null> {
+    const rows = await store.querySql(
+      `SELECT before_values, after_values FROM original_local_z_order_history
+       WHERE note_id = ? AND action_id = ?`, [noteId, actionId]);
+    try {
+      if (!rows.goToFirstRow()) {
+        return null;
+      }
+      const before: OriginalZOrderValue[] = decodeOriginalZOrderValues(
+        rows.getString(rows.getColumnIndex('before_values')));
+      const after: OriginalZOrderValue[] = decodeOriginalZOrderValues(
+        rows.getString(rows.getColumnIndex('after_values')));
+      return sameZOrderTargets(before, after) ? { before: before, after: after } : null;
+    } catch (_error) {
+      return null;
+    } finally {
+      rows.close();
+    }
+  }
+
+  private async recordOriginalZOrderHistory(store: relationalStore.RdbStore,
+    step: PreparedPageSave, history: OriginalZOrderHistory | null): Promise<void> {
+    if (history === null || step.history === undefined ||
+      step.history.effect !== HistoryEffect.PUSH) {
+      return;
+    }
+    await store.insert('original_local_z_order_history', {
+      'note_id': step.noteId, 'action_id': step.history.actionId,
+      'before_values': JSON.stringify(history.before),
+      'after_values': JSON.stringify(history.after), 'action_time': step.history.actionTime,
+    }, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+    await store.executeSql(
+      `DELETE FROM original_local_z_order_history WHERE note_id = ? AND action_id NOT IN
+       (SELECT action_id FROM original_local_z_order_history WHERE note_id = ?
+        ORDER BY action_time DESC, action_id DESC LIMIT 512)`, [step.noteId, step.noteId]);
   }
 
   private originalStrokeIdentity(target: SearchSourceElement | PreparedElement): OperationIdentity | null {
@@ -1218,7 +1390,7 @@ export class StrokePersistence {
   private prepareSave(noteId: string, pageId: string, strokes: StrokeElementData[],
     textBlocks: TextBlockElement[], elementOrder: PageElementRef[], shapes: ShapeElement[],
     images: ImageElement[], mathBlocks: MathElement[],
-    history?: HistoryMetadata): PreparedPageSave {
+    history?: HistoryMetadata, originalZOrderHint?: OriginalZOrderHint): PreparedPageSave {
     const elements: PreparedElement[] = [];
     const preferredOrder: PageElementRef[] = elementOrder.length > 0
       ? elementOrder : legacyPageElementOrder(strokes, textBlocks, shapes, images, mathBlocks);
@@ -1248,7 +1420,12 @@ export class StrokePersistence {
           payload: encodePersistedElement(payload), searchText: null });
       }
     }
-    return { noteId: noteId, pageId: pageId, elements: elements, history: history };
+    const hint: OriginalZOrderHint | undefined = originalZOrderHint === undefined ? undefined : {
+      command: originalZOrderHint.command,
+      selectedElementIds: originalZOrderHint.selectedElementIds.slice(),
+    };
+    return { noteId: noteId, pageId: pageId, elements: elements, history: history,
+      originalZOrderHint: hint };
   }
 
   private getSaveQueue(noteId: string, pageId: string): LatestWriteQueue<PreparedPageSave> {
@@ -1545,6 +1722,184 @@ function compareOriginalOrderEntries(left: OriginalOrderEntry,
   return left.siteId === right.siteId ? 0 : left.siteId < right.siteId ? -1 : 1;
 }
 
+function createOriginalZOrderHistory(order: OriginalOrderEntry[], next: PreparedElement[],
+  hint: OriginalZOrderHint): OriginalZOrderHistory | null {
+  if (hint.selectedElementIds.length === 0) {
+    return null;
+  }
+  const selectedIds: Set<string> = new Set<string>();
+  for (const id of hint.selectedElementIds) {
+    if (selectedIds.has(id) || decodeOperationId(id) === null) {
+      return null;
+    }
+    selectedIds.add(id);
+  }
+  const selected: OriginalOrderEntry[] = [];
+  const remaining: OriginalOrderEntry[] = [];
+  for (const entry of order) {
+    const id: string = encodeOperationId({ timestamp: entry.timestamp, siteId: entry.siteId });
+    if (selectedIds.has(id)) {
+      selected.push(entry);
+    } else {
+      remaining.push(entry);
+    }
+  }
+  if (selected.length !== selectedIds.size || selected.length === order.length) {
+    return null;
+  }
+  const expected: OriginalOrderEntry[] = hint.command === OriginalZOrderCommand.BRING_FRONT ?
+    remaining.concat(selected) : selected.concat(remaining);
+  if (!orderEntriesMatchPrepared(expected, next)) {
+    return null;
+  }
+  const before: OriginalZOrderValue[] = [];
+  const after: OriginalZOrderValue[] = [];
+  if (hint.command === OriginalZOrderCommand.BRING_FRONT) {
+    const maximum: string = order[order.length - 1].zIndex;
+    for (let index: number = 0; index < selected.length; index++) {
+      const zIndex: string | null = addUnsignedSmall(maximum, index + 1);
+      if (zIndex === null) {
+        return null;
+      }
+      appendZOrderChange(before, after, selected[index], zIndex);
+    }
+  } else if (hint.command === OriginalZOrderCommand.SEND_BACK) {
+    const minimum: string = order[0].zIndex;
+    for (let index: number = 0; index < selected.length; index++) {
+      const zIndex: string | null = addUnsignedSmall(minimum, index);
+      if (zIndex === null) {
+        return null;
+      }
+      appendZOrderChange(before, after, selected[index], zIndex);
+    }
+    let shifted: number = 0;
+    for (const entry of remaining) {
+      const candidate: string | null = addUnsignedSmall(minimum, selected.length + shifted);
+      if (candidate === null) {
+        return null;
+      }
+      if (compareUnsignedLongDecimal(entry.zIndex, candidate) < 0) {
+        appendZOrderChange(before, after, entry, candidate);
+        shifted++;
+      }
+    }
+  } else {
+    return null;
+  }
+  return before.length > 0 && sameZOrderTargets(before, after) &&
+    zOrderValuesProduce(order, after, next) ? { before: before, after: after } : null;
+}
+
+function appendZOrderChange(before: OriginalZOrderValue[], after: OriginalZOrderValue[],
+  entry: OriginalOrderEntry, zIndex: string): void {
+  const target: OperationIdentity = { timestamp: entry.timestamp, siteId: entry.siteId };
+  before.push({ target: target, zIndex: entry.zIndex });
+  after.push({ target: target, zIndex: zIndex });
+}
+
+function zOrderValuesMatch(order: OriginalOrderEntry[], values: OriginalZOrderValue[]): boolean {
+  const byId: Map<string, OriginalOrderEntry> = new Map<string, OriginalOrderEntry>();
+  for (const entry of order) {
+    byId.set(encodeOperationId({ timestamp: entry.timestamp, siteId: entry.siteId }), entry);
+  }
+  for (const value of values) {
+    const entry: OriginalOrderEntry | undefined = byId.get(encodeOperationId(value.target));
+    if (entry === undefined || entry.zIndex !== value.zIndex) {
+      return false;
+    }
+  }
+  return values.length > 0;
+}
+
+function zOrderValuesProduce(order: OriginalOrderEntry[], values: OriginalZOrderValue[],
+  next: PreparedElement[]): boolean {
+  const replacements: Map<string, string> = new Map<string, string>();
+  for (const value of values) {
+    const id: string = encodeOperationId(value.target);
+    if (replacements.has(id)) {
+      return false;
+    }
+    replacements.set(id, value.zIndex);
+  }
+  const projected: OriginalOrderEntry[] = order.map(
+    (entry: OriginalOrderEntry): OriginalOrderEntry => {
+      const id: string = encodeOperationId({ timestamp: entry.timestamp, siteId: entry.siteId });
+      const zIndex: string | undefined = replacements.get(id);
+      return { key: entry.key, timestamp: entry.timestamp, siteId: entry.siteId,
+        zIndex: zIndex === undefined ? entry.zIndex : zIndex };
+    });
+  projected.sort(compareOriginalOrderEntries);
+  return orderEntriesMatchPrepared(projected, next);
+}
+
+function orderEntriesMatchPrepared(order: OriginalOrderEntry[], next: PreparedElement[]): boolean {
+  if (order.length !== next.length) {
+    return false;
+  }
+  for (let index: number = 0; index < order.length; index++) {
+    if (order[index].key !== `${next[index].kind}:${next[index].elementId}`) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sameZOrderTargets(before: OriginalZOrderValue[], after: OriginalZOrderValue[]): boolean {
+  if (before.length === 0 || before.length !== after.length) {
+    return false;
+  }
+  const ids: Set<string> = new Set<string>();
+  for (let index: number = 0; index < before.length; index++) {
+    validateOperationIdentity(before[index].target);
+    validateOperationIdentity(after[index].target);
+    validateUnsignedLongDecimal(before[index].zIndex);
+    validateUnsignedLongDecimal(after[index].zIndex);
+    const beforeId: string = encodeOperationId(before[index].target);
+    if (beforeId !== encodeOperationId(after[index].target) || ids.has(beforeId)) {
+      return false;
+    }
+    ids.add(beforeId);
+  }
+  return true;
+}
+
+function decodeOriginalZOrderValues(encoded: string): OriginalZOrderValue[] {
+  const values: OriginalZOrderValue[] = JSON.parse(encoded) as OriginalZOrderValue[];
+  if (!Array.isArray(values) || values.length === 0 || values.length > 10000) {
+    throw new Error('original z-order history has an invalid count');
+  }
+  for (const value of values) {
+    validateOperationIdentity(value.target);
+    validateUnsignedLongDecimal(value.zIndex);
+  }
+  return values;
+}
+
+function addUnsignedSmall(value: string, amount: number): string | null {
+  validateUnsignedLongDecimal(value);
+  if (!Number.isSafeInteger(amount) || amount < 0) {
+    return null;
+  }
+  let result: string = value;
+  let remaining: number = amount;
+  while (remaining > 0) {
+    let carry: number = 1;
+    let next: string = '';
+    for (let index: number = result.length - 1; index >= 0; index--) {
+      const digit: number = result.charCodeAt(index) - 0x30 + carry;
+      next = (digit % 10).toString() + next;
+      carry = Math.floor(digit / 10);
+    }
+    result = carry === 0 ? next : '1' + next;
+    if (result.length > MAX_UNSIGNED_LONG_DECIMAL.length ||
+      (result.length === MAX_UNSIGNED_LONG_DECIMAL.length && result > MAX_UNSIGNED_LONG_DECIMAL)) {
+      return null;
+    }
+    remaining--;
+  }
+  return result;
+}
+
 function sameByteArrays(left: Uint8Array, right: Uint8Array): boolean {
   if (left.length !== right.length) {
     return false;
@@ -1569,6 +1924,28 @@ function samePreparedIdentityOrder(current: SearchSourceElement[],
     }
   }
   return true;
+}
+
+function samePreparedMembersAndPayloads(current: SearchSourceElement[],
+  expected: PreparedElement[]): boolean {
+  if (current.length !== expected.length) {
+    return false;
+  }
+  const byKey: Map<string, SearchSourceElement> = new Map<string, SearchSourceElement>();
+  for (const element of current) {
+    byKey.set(`${element.kind}:${element.elementId}`, element);
+  }
+  if (byKey.size !== current.length) {
+    return false;
+  }
+  for (const element of expected) {
+    const source: SearchSourceElement | undefined = byKey.get(`${element.kind}:${element.elementId}`);
+    if (source === undefined || !sameByteArrays(source.payload, element.payload)) {
+      return false;
+    }
+    byKey.delete(`${element.kind}:${element.elementId}`);
+  }
+  return byKey.size === 0;
 }
 
 function sameElement(left: SearchSourceElement | PreparedElement,
