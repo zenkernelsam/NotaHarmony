@@ -24,19 +24,23 @@ assert.match(lg2, /setH = ys2\.H\(au1\.X1\(arrayList8\), linkedHashSet\)/);
 // Clipboard snapshots never retain the source CREATE reservation or silently flatten Groups.
 assert.match(clipboard, /result\.originalCreate = undefined/);
 assert.match(clipboard, /originalCreate: undefined/);
-assert.match(clipboard, /containsOriginalGroups/);
-assert.match(clipboard, /this\.containsOriginalGroups \|\| this\.size\(\) !== 1/);
+assert.match(clipboard, /private groupSnapshots: OriginalSelectionGroup\[\]/);
+assert.match(clipboard, /this\.groupSnapshots\.length > 0 \|\| this\.size\(\) !== 1/);
+assert.match(clipboard, /copyOriginalGroupGraph\(/);
 assert.match(clipboard, /this\.imageSnapshots\.length > 0 \|\| this\.mathSnapshots\.length > 0/);
 assert.match(clipboard, /text\.richText\.length === 0/);
 assert.match(clipboard, /characterStyleRuns \?\? \[\]/);
 assert.match(clipboard, /paragraphStyleRuns \?\? \[\]/);
 
 // CREATE_INK/CREATE_SHAPE carry page-space geometry; paste translation is materialized before encode.
-assert.match(clipboard, /materializeOriginalStrokeTranslation\(stroke, dx, dy\)/);
-assert.match(clipboard, /materializeOriginalShapeTranslation\(shape, dx, dy\)/);
+assert.match(clipboard, /materializeOriginalStrokeTransform\(stroke\)/);
+assert.match(clipboard, /materializeOriginalShapeTransform\(shape\)/);
 assert.match(clipboard, /stroke\.transform = \[1, 0, 0, 0, 1, 0, 0, 0, 1\]/);
 assert.match(clipboard, /shape\.transform = \[1, 0, 0, 0, 1, 0, 0, 0, 1\]/);
-assert.match(clipboard, /translatePoint\(entry\.backingPencilReferencePoint, dx, dy\)/);
+assert.match(clipboard, /transformPointInPlace\(entry\.backingPencilReferencePoint, transform\)/);
+assert.match(clipboard, /stroke\.renderSpec\.brushWidth \*= scale/);
+assert.match(clipboard, /point\.azimuthUnitX = \(transform\[0\] \* azimuthX/);
+assert.match(clipboard, /splat\.rotation = Math\.atan2/);
 
 // UI reserves only after strict production encoders accept the copied snapshot.
 assert.match(canvas, /this\.canEncodeOriginalClipboardSource\(source\)/);
@@ -104,4 +108,4 @@ assert.equal(db.prepare('SELECT COUNT(*) count FROM operation_log').get().count,
 db.close();
 
 console.log('originalSingleClipboardPaste=fresh-identity-strict-preflight-page-space-' +
-  'ink-shape-text-create-type25-undo-redo-rollback-group-guard');
+  'ink-shape-text-create-type25-undo-redo-rollback-group-graph-guard');

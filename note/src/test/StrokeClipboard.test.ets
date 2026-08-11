@@ -3,7 +3,9 @@ import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes'
 import { ElementType, ImageElement, MathElement, PolygonElement,
   TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import { PageElementKind, PageElementRef } from '../main/ets/core/model/PageElementOrder';
-import { ClipboardPasteResult, StrokeClipboard } from '../main/ets/rendering/StrokeClipboard';
+import {
+  ClipboardOriginalGroupPastePreview, ClipboardPasteResult, StrokeClipboard,
+} from '../main/ets/rendering/StrokeClipboard';
 
 function stroke(id: string, left: number = 10, top: number = 20): StrokeElementData {
   return {
@@ -149,12 +151,67 @@ export default function strokeClipboardTest() {
         (): string => 'op:200:7');
       expect(result?.strokes[0].originalCreate === undefined).assertTrue();
 
-      expect(clipboard.copy([stroke('op:100:7')], 'page-1', [], [], [], [], [], true)).assertTrue();
+      expect(clipboard.copy([stroke('op:100:7')], 'page-1', [], [], [], [], [], [{
+        id: 'op:101:7', timestamp: 101, siteId: 7, members: ['op:100:7'],
+      }], ['op:101:7'])).assertTrue();
       expect(clipboard.singleOriginalCreateSource() === null).assertTrue();
       const styled: TextBlockElement = textBlock('op:300:7');
       styled.characterStyleRuns = [{ start: 0, end: 1, style: { bold: true } }];
       expect(clipboard.copy([], 'page-1', [], [], [styled])).assertTrue();
       expect(clipboard.singleOriginalCreateSource() === null).assertTrue();
+    });
+
+    it('deep-copies nested original Groups and commits Paste offsets only after durability', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      const first: StrokeElementData = stroke('op:100:7');
+      first.maskPath = [];
+      const second: StrokeElementData = stroke('op:101:7', 30, 40);
+      second.maskPath = [];
+      const groups = [{
+        id: 'op:102:7', timestamp: 102, siteId: 7,
+        members: ['op:100:7', 'op:101:7'],
+      }, {
+        id: 'op:103:7', timestamp: 103, siteId: 7, members: ['op:102:7'],
+      }];
+      expect(clipboard.copy([first, second], 'page-1', [], [], [], [], [],
+        groups, ['op:103:7'])).assertTrue();
+      groups[0].members[0] = 'mutated';
+
+      const preview: ClipboardOriginalGroupPastePreview | null =
+        clipboard.prepareOriginalGroupPaste(800, 1100);
+      expect(preview !== null).assertTrue();
+      expect(preview?.paste.pasteSequence).assertEqual(1);
+      expect(preview?.paste.offset.x).assertEqual(20);
+      expect(preview?.paste.strokes[0].id).assertEqual('op:100:7');
+      expect(preview?.paste.strokes[0].transform[2]).assertEqual(0);
+      expect(preview?.paste.strokes[0].pathPoints[0].position.x).assertEqual(30);
+      expect(preview?.groups[0].id).assertEqual('op:102:7');
+      expect(preview?.groups[0].members[0]).assertEqual('op:100:7');
+      expect(preview?.groups[1].id).assertEqual('op:103:7');
+      expect(preview?.topGroupIds[0]).assertEqual('op:103:7');
+
+      expect(clipboard.commitPreparedPaste(2)).assertFalse();
+      expect(clipboard.prepareOriginalGroupPaste(800, 1100)?.paste.pasteSequence).assertEqual(1);
+      expect(clipboard.commitPreparedPaste(1)).assertTrue();
+      expect(clipboard.prepareOriginalGroupPaste(800, 1100)?.paste.pasteSequence).assertEqual(2);
+      expect(clipboard.prepareOriginalGroupPaste(800, 1100)?.paste.offset.x).assertEqual(40);
+    });
+
+    it('rejects incomplete or multi-parent original Group snapshots without replacing content', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      expect(clipboard.copy([stroke('safe')], 'page-1')).assertTrue();
+      expect(clipboard.copy([stroke('op:100:7')], 'page-1', [], [], [], [], [], [{
+        id: 'op:101:7', timestamp: 101, siteId: 7, members: ['missing'],
+      }], ['op:101:7'])).assertFalse();
+      expect(clipboard.size()).assertEqual(1);
+      expect(clipboard.hasOriginalGroupGraph()).assertFalse();
+
+      expect(clipboard.copy([stroke('op:100:7')], 'page-1', [], [], [], [], [], [{
+        id: 'op:101:7', timestamp: 101, siteId: 7, members: ['op:100:7'],
+      }, {
+        id: 'op:102:7', timestamp: 102, siteId: 7, members: ['op:100:7'],
+      }], ['op:101:7', 'op:102:7'])).assertFalse();
+      expect(clipboard.size()).assertEqual(1);
     });
 
     it('materializes original Ink and Shape paste offsets without transform registers', 0, () => {
@@ -191,6 +248,21 @@ export default function strokeClipboardTest() {
       expect((shapePaste?.shapes[0] as PolygonElement).vertices[0].x).assertEqual(60);
       expect((shapePaste?.shapes[0] as PolygonElement).vertices[0].y).assertEqual(70);
       expect(shapePaste?.shapes[0].bounds.left).assertEqual(60);
+
+      const transformed: StrokeElementData = stroke('op:500:7');
+      transformed.maskPath = [];
+      transformed.transform = [0, -2, 100, 2, 0, 50, 0, 0, 1];
+      transformed.bounds = { left: 40, top: 70, right: 80, bottom: 110 };
+      expect(clipboard.copy([transformed], 'page-1')).assertTrue();
+      const transformedPaste: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+        (): string => 'op:600:7', PageElementKind.STROKE);
+      expect(transformedPaste?.strokes[0].transform[0]).assertEqual(1);
+      expect(transformedPaste?.strokes[0].pathPoints[0].position.x).assertEqual(80);
+      expect(transformedPaste?.strokes[0].pathPoints[0].position.y).assertEqual(90);
+      expect(transformedPaste?.strokes[0].renderSpec.brushWidth).assertEqual(4);
+      expect(transformedPaste?.strokes[0].splatPoints[0].scale).assertEqual(1.6);
+      expect(Math.abs((transformedPaste?.strokes[0].splatPoints[0].rotation ?? 0) -
+        (0.4 + Math.PI / 2)) < 0.000001).assertTrue();
     });
 
     it('keeps pasted content inside a smaller destination page', 0, () => {

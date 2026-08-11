@@ -14,6 +14,7 @@ import {
   materializePageElements, normalizePageElementOrder, OrderedPageElement,
   PageElementKind, PageElementRef,
 } from '../core/model/PageElementOrder';
+import { OriginalSelectionGroup } from '../core/model/OriginalGroupSelection';
 
 export type StrokeIdFactory = (sourceId: string, pasteSequence: number, index: number) => string;
 
@@ -35,6 +36,17 @@ export interface ClipboardPasteResult {
   sourcePageId: string;
   pasteSequence: number;
   offset: Point2D;
+}
+
+export interface ClipboardOriginalGroupPastePreview {
+  paste: ClipboardPasteResult;
+  groups: OriginalSelectionGroup[];
+  topGroupIds: string[];
+}
+
+interface ClipboardOriginalGroupGraph {
+  groups: OriginalSelectionGroup[];
+  topGroupIds: string[];
 }
 
 export function cloneClipboardShape(shape: ShapeElement, id: string = shape.id,
@@ -181,12 +193,13 @@ export class StrokeClipboard {
   private elementOrder: PageElementRef[] = [];
   private sourcePageId: string = '';
   private pasteCount: number = 0;
-  private containsOriginalGroups: boolean = false;
+  private groupSnapshots: OriginalSelectionGroup[] = [];
+  private topGroupIds: string[] = [];
 
   copy(strokes: StrokeElementData[], sourcePageId: string, shapes: ShapeElement[] = [],
     elementOrder: PageElementRef[] = [], textBlocks: TextBlockElement[] = [],
     images: ImageElement[] = [], mathBlocks: MathElement[] = [],
-    containsOriginalGroups: boolean = false): boolean {
+    sourceGroups: OriginalSelectionGroup[] = [], topGroupIds: string[] = []): boolean {
     if ((strokes.length === 0 && shapes.length === 0 && textBlocks.length === 0 &&
       images.length === 0 && mathBlocks.length === 0) ||
       sourcePageId.length === 0) {
@@ -233,6 +246,11 @@ export class StrokeClipboard {
       ids.add(math.id);
       copiedMath.push(cloneClipboardMath(math));
     }
+    const groupGraph: ClipboardOriginalGroupGraph | null = copyOriginalGroupGraph(
+      sourceGroups, topGroupIds, ids);
+    if (groupGraph === null) {
+      return false;
+    }
     this.snapshots = copied;
     this.shapeSnapshots = copiedShapes;
     this.textSnapshots = copiedTexts;
@@ -242,7 +260,8 @@ export class StrokeClipboard {
       elementOrder, copied, copiedTexts, copiedShapes, copiedImages, copiedMath);
     this.sourcePageId = sourcePageId;
     this.pasteCount = 0;
-    this.containsOriginalGroups = containsOriginalGroups;
+    this.groupSnapshots = groupGraph.groups;
+    this.topGroupIds = groupGraph.topGroupIds;
     return true;
   }
 
@@ -257,7 +276,7 @@ export class StrokeClipboard {
   }
 
   singleOriginalCreateSource(): ClipboardSingleOriginalSource | null {
-    if (this.containsOriginalGroups || this.size() !== 1 ||
+    if (this.groupSnapshots.length > 0 || this.size() !== 1 ||
       this.imageSnapshots.length > 0 || this.mathSnapshots.length > 0) {
       return null;
     }
@@ -301,11 +320,54 @@ export class StrokeClipboard {
     this.elementOrder = [];
     this.sourcePageId = '';
     this.pasteCount = 0;
-    this.containsOriginalGroups = false;
+    this.groupSnapshots = [];
+    this.topGroupIds = [];
   }
 
   paste(pageWidth: number, pageHeight: number, idFactory: StrokeIdFactory,
     originalCreateKind: PageElementKind | null = null): ClipboardPasteResult | null {
+    const result: ClipboardPasteResult | null = this.buildPaste(
+      pageWidth, pageHeight, idFactory, originalCreateKind, false);
+    if (result === null || !this.commitPreparedPaste(result.pasteSequence)) {
+      return null;
+    }
+    return result;
+  }
+
+  hasOriginalGroupGraph(): boolean {
+    return this.groupSnapshots.length > 0 && this.topGroupIds.length > 0;
+  }
+
+  prepareOriginalGroupPaste(pageWidth: number,
+    pageHeight: number): ClipboardOriginalGroupPastePreview | null {
+    if (!this.hasOriginalGroupGraph()) {
+      return null;
+    }
+    const paste: ClipboardPasteResult | null = this.buildPaste(
+      pageWidth, pageHeight,
+      (sourceId: string, _pasteSequence: number, _index: number): string => sourceId,
+      null, true);
+    if (paste === null) {
+      return null;
+    }
+    return {
+      paste: paste,
+      groups: this.groupSnapshots.map(cloneSelectionGroup),
+      topGroupIds: this.topGroupIds.slice(),
+    };
+  }
+
+  commitPreparedPaste(pasteSequence: number): boolean {
+    if (!Number.isSafeInteger(pasteSequence) || pasteSequence !== this.pasteCount + 1) {
+      return false;
+    }
+    this.pasteCount = pasteSequence;
+    return true;
+  }
+
+  private buildPaste(pageWidth: number, pageHeight: number, idFactory: StrokeIdFactory,
+    originalCreateKind: PageElementKind | null,
+    materializeAllOriginal: boolean): ClipboardPasteResult | null {
     if (!this.hasContent() || !Number.isFinite(pageWidth) || !Number.isFinite(pageHeight) ||
       pageWidth <= PAGE_MARGIN * 2 || pageHeight <= PAGE_MARGIN * 2) {
       return null;
@@ -334,13 +396,13 @@ export class StrokeClipboard {
       ids.add(id);
       if (source.kind === PageElementKind.STROKE) {
         const stroke: StrokeElementData = cloneStrokeElement(source.data, id, dx, dy);
-        pasted.push(originalCreateKind === PageElementKind.STROKE ?
-          materializeOriginalStrokeTranslation(stroke, dx, dy) : stroke);
+        pasted.push(materializeAllOriginal || originalCreateKind === PageElementKind.STROKE ?
+          materializeOriginalStrokeTransform(stroke) : stroke);
         pastedOrder.push({ kind: PageElementKind.STROKE, elementId: id, zIndex: pastedOrder.length });
       } else if (source.kind === PageElementKind.SHAPE) {
         const shape: ShapeElement = cloneClipboardShape(source.data, id, dx, dy);
-        pastedShapes.push(originalCreateKind === PageElementKind.SHAPE ?
-          materializeOriginalShapeTranslation(shape, dx, dy) : shape);
+        pastedShapes.push(materializeAllOriginal || originalCreateKind === PageElementKind.SHAPE ?
+          materializeOriginalShapeTransform(shape) : shape);
         pastedOrder.push({ kind: PageElementKind.SHAPE, elementId: id, zIndex: pastedOrder.length });
       } else if (source.kind === PageElementKind.TEXT) {
         pastedTexts.push(cloneClipboardTextBlock(source.data, id, dx, dy));
@@ -353,7 +415,6 @@ export class StrokeClipboard {
         pastedOrder.push({ kind: PageElementKind.MATH, elementId: id, zIndex: pastedOrder.length });
       }
     }
-    this.pasteCount = sequence;
     return {
       strokes: pasted,
       shapes: pastedShapes,
@@ -408,72 +469,184 @@ export class StrokeClipboard {
   }
 }
 
-function materializeOriginalStrokeTranslation(stroke: StrokeElementData,
-  dx: number, dy: number): StrokeElementData {
+function copyOriginalGroupGraph(sourceGroups: OriginalSelectionGroup[], topGroupIds: string[],
+  copiedLeafIds: Set<string>): ClipboardOriginalGroupGraph | null {
+  if (topGroupIds.length === 0) {
+    return { groups: [], topGroupIds: [] };
+  }
+  const byId: Map<string, OriginalSelectionGroup> = new Map<string, OriginalSelectionGroup>();
+  for (const group of sourceGroups) {
+    if (group.id.length === 0 || group.members.length === 0 || byId.has(group.id)) {
+      return null;
+    }
+    byId.set(group.id, group);
+  }
+  const ordered: OriginalSelectionGroup[] = [];
+  const visiting: Set<string> = new Set<string>();
+  const visited: Set<string> = new Set<string>();
+  const parentByMember: Map<string, string> = new Map<string, string>();
+  const visit = (groupId: string): boolean => {
+    if (visiting.has(groupId)) {
+      return false;
+    }
+    if (visited.has(groupId)) {
+      return true;
+    }
+    const group: OriginalSelectionGroup | undefined = byId.get(groupId);
+    if (group === undefined) {
+      return false;
+    }
+    visiting.add(groupId);
+    const members: Set<string> = new Set<string>();
+    for (const member of group.members) {
+      if (members.has(member)) {
+        return false;
+      }
+      members.add(member);
+      const parent: string | undefined = parentByMember.get(member);
+      if (parent !== undefined && parent !== group.id) {
+        return false;
+      }
+      parentByMember.set(member, group.id);
+      if (byId.has(member)) {
+        if (!visit(member)) {
+          return false;
+        }
+      } else if (!copiedLeafIds.has(member)) {
+        return false;
+      }
+    }
+    visiting.delete(groupId);
+    visited.add(groupId);
+    ordered.push(cloneSelectionGroup(group));
+    return true;
+  };
+  const roots: Set<string> = new Set<string>();
+  for (const groupId of topGroupIds) {
+    if (roots.has(groupId) || !visit(groupId)) {
+      return null;
+    }
+    roots.add(groupId);
+  }
+  return { groups: ordered, topGroupIds: topGroupIds.slice() };
+}
+
+function cloneSelectionGroup(group: OriginalSelectionGroup): OriginalSelectionGroup {
+  return {
+    id: group.id, timestamp: group.timestamp, siteId: group.siteId,
+    members: group.members.slice(),
+  };
+}
+
+function materializeOriginalStrokeTransform(stroke: StrokeElementData): StrokeElementData {
+  const transform: number[] = stroke.transform.slice();
+  const scale: number = originalMaterializationScale(transform);
   for (const point of stroke.pathPoints) {
-    point.position.x += dx;
-    point.position.y += dy;
+    transformPointInPlace(point.position, transform);
+    const azimuthX: number = point.azimuthUnitX;
+    const azimuthY: number = point.azimuthUnitY;
+    point.azimuthUnitX = (transform[0] * azimuthX + transform[1] * azimuthY) / scale;
+    point.azimuthUnitY = (transform[3] * azimuthX + transform[4] * azimuthY) / scale;
   }
   for (const segment of stroke.cubicSegments) {
-    translatePoint(segment.p0, dx, dy);
-    translatePoint(segment.p1, dx, dy);
-    translatePoint(segment.p2, dx, dy);
-    translatePoint(segment.p3, dx, dy);
+    transformPointInPlace(segment.p0, transform);
+    transformPointInPlace(segment.p1, transform);
+    transformPointInPlace(segment.p2, transform);
+    transformPointInPlace(segment.p3, transform);
   }
   for (const splat of stroke.splatPoints) {
-    splat.x += dx;
-    splat.y += dy;
+    const point: Point2D = { x: splat.x, y: splat.y };
+    transformPointInPlace(point, transform);
+    splat.x = point.x;
+    splat.y = point.y;
+    const rotationX: number = Math.cos(splat.rotation);
+    const rotationY: number = Math.sin(splat.rotation);
+    splat.rotation = Math.atan2(
+      transform[3] * rotationX + transform[4] * rotationY,
+      transform[0] * rotationX + transform[1] * rotationY);
+    splat.scale *= scale;
   }
   for (const point of stroke.maskPath) {
-    translatePoint(point, dx, dy);
+    transformPointInPlace(point, transform);
   }
-  translateInkPath(stroke.customPath, dx, dy);
-  translateInkPath(stroke.fillPath, dx, dy);
+  transformInkPath(stroke.customPath, transform);
+  transformInkPath(stroke.fillPath, transform);
   if (stroke.styleMap !== undefined) {
     for (const entry of stroke.styleMap) {
-      translatePoint(entry.backingPencilReferencePoint, dx, dy);
+      transformPointInPlace(entry.backingPencilReferencePoint, transform);
+      entry.backingDashPeriod *= scale;
     }
   }
+  stroke.renderSpec.brushWidth *= scale;
   stroke.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   return stroke;
 }
 
-function materializeOriginalShapeTranslation(shape: ShapeElement,
-  dx: number, dy: number): ShapeElement {
+function materializeOriginalShapeTransform(shape: ShapeElement): ShapeElement {
+  const transform: number[] = shape.transform.slice();
+  const scale: number = originalMaterializationScale(transform);
   if (shape.type === ElementType.ELLIPSE) {
-    translatePoint((shape as EllipseElement).center, dx, dy);
+    const ellipse: EllipseElement = shape as EllipseElement;
+    const axisX: number = Math.cos(ellipse.rotationRadians);
+    const axisY: number = Math.sin(ellipse.rotationRadians);
+    const transformedAxisX: number = transform[0] * axisX + transform[1] * axisY;
+    const transformedAxisY: number = transform[3] * axisX + transform[4] * axisY;
+    transformPointInPlace(ellipse.center, transform);
+    ellipse.radiusX *= scale;
+    ellipse.radiusY *= scale;
+    ellipse.rotationRadians = Math.atan2(transformedAxisY, transformedAxisX);
   } else if (shape.type === ElementType.LINE) {
     const line: LineElement = shape as LineElement;
-    translatePoint(line.start, dx, dy);
+    transformPointInPlace(line.start, transform);
     if (line.controlPoint1 !== null) {
-      translatePoint(line.controlPoint1, dx, dy);
+      transformPointInPlace(line.controlPoint1, transform);
     }
     if (line.controlPoint2 !== null) {
-      translatePoint(line.controlPoint2, dx, dy);
+      transformPointInPlace(line.controlPoint2, transform);
     }
-    translatePoint(line.end, dx, dy);
+    transformPointInPlace(line.end, transform);
   } else {
     for (const point of (shape as PolygonElement).vertices) {
-      translatePoint(point, dx, dy);
+      transformPointInPlace(point, transform);
     }
   }
+  shape.strokeWidth *= scale;
   shape.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   return shape;
 }
 
-function translateInkPath(path: InkPathCommand[] | null | undefined,
-  dx: number, dy: number): void {
+function transformInkPath(path: InkPathCommand[] | null | undefined,
+  transform: number[]): void {
   if (path === null || path === undefined) {
     return;
   }
   for (const command of path) {
     for (const point of command.points) {
-      translatePoint(point, dx, dy);
+      transformPointInPlace(point, transform);
     }
   }
 }
 
-function translatePoint(point: Point2D, dx: number, dy: number): void {
-  point.x += dx;
-  point.y += dy;
+function originalMaterializationScale(transform: number[]): number {
+  if (transform.length !== 9 || !transform.every((value: number): boolean => Number.isFinite(value)) ||
+    Math.abs(transform[6]) > 0.000001 || Math.abs(transform[7]) > 0.000001 ||
+    Math.abs(transform[8] - 1) > 0.000001) {
+    throw new Error('original clipboard Paste transform is not affine');
+  }
+  const scaleX: number = Math.hypot(transform[0], transform[3]);
+  const scaleY: number = Math.hypot(transform[1], transform[4]);
+  const dot: number = transform[0] * transform[1] + transform[3] * transform[4];
+  const tolerance: number = Math.max(1, scaleX, scaleY) * 0.000001;
+  if (scaleX <= 0.000001 || Math.abs(scaleX - scaleY) > tolerance ||
+    Math.abs(dot) > tolerance) {
+    throw new Error('original clipboard Paste transform cannot be materialized exactly');
+  }
+  return scaleX;
+}
+
+function transformPointInPlace(point: Point2D, transform: number[]): void {
+  const x: number = point.x;
+  const y: number = point.y;
+  point.x = transform[0] * x + transform[1] * y + transform[2];
+  point.y = transform[3] * x + transform[4] * y + transform[5];
 }

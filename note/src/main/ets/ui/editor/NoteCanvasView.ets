@@ -38,14 +38,16 @@ import {
 import { HistoryMetadata, Op, OpType } from '../../core/model/OpTypes';
 import { SelectionTool, SelectionMode } from '../../rendering/SelectionTool';
 import {
-  ClipboardPasteResult, ClipboardSingleOriginalSource, StrokeClipboard,
+  ClipboardOriginalGroupPastePreview, ClipboardPasteResult, ClipboardSingleOriginalSource,
+  StrokeClipboard,
 } from '../../rendering/StrokeClipboard';
 import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
 import {
   decodePersistedElement, encodePersistedElement, HistoryPageSnapshot, OriginalZOrderCommand,
-  OriginalClipboardPasteHistoryResult, OriginalGroupMutationResult, OriginalTextEditPreview,
-  OriginalZOrderHint, PersistedElement, StrokePersistence,
+  OriginalClipboardPasteHistoryResult, OriginalClipboardPastePersistenceResult,
+  OriginalClipboardPastePlan, OriginalGroupMutationResult, OriginalTextEditPreview,
+  OriginalZOrderHint, PersistedElement, StrokePersistence, validateOriginalClipboardPastePlan,
 } from '../../data/StrokePersistence';
 import { OriginalGroupMutationOpPayload } from '../../data/OriginalGroupMutationOpCodec';
 import {
@@ -4364,7 +4366,7 @@ export struct NoteCanvasView {
     }
     if (!this.strokeClipboard.copy(
       selected, this.loadedPageId, selectedShapes, selectedOrder, selectedTextBlocks,
-      selectedImages, selectedMathBlocks, groupIds.length > 0)) {
+      selectedImages, selectedMathBlocks, this.selectionGroups, groupIds)) {
       return false;
     }
     this.clipboardAvailable = true;
@@ -4723,6 +4725,23 @@ export struct NoteCanvasView {
       this.loadedPageId !== this.currentPage.pageId) {
       return;
     }
+    if (this.strokeClipboard.hasOriginalGroupGraph()) {
+      let preview: ClipboardOriginalGroupPastePreview | null = null;
+      try {
+        preview = this.strokeClipboard.prepareOriginalGroupPaste(
+          this.getPaperWidth(), this.getPaperHeight());
+      } catch (e) {
+        this.reportSaveFailure(e as Object);
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original Group Paste geometry failed: %{public}s', JSON.stringify(e));
+        return;
+      }
+      if (preview === null) {
+        return;
+      }
+      this.applyOriginalGroupClipboardPaste(preview);
+      return;
+    }
     const source: ClipboardSingleOriginalSource | null =
       this.strokeClipboard.singleOriginalCreateSource();
     if (source !== null && decodeOperationId(source.elementId) !== null &&
@@ -4748,6 +4767,76 @@ export struct NoteCanvasView {
       return;
     }
     this.applyClipboardPaste(null, null);
+  }
+
+  private applyOriginalGroupClipboardPaste(preview: ClipboardOriginalGroupPastePreview): void {
+    const paste: ClipboardPasteResult = preview.paste;
+    const plan: OriginalClipboardPastePlan = {
+      strokes: paste.strokes, shapes: paste.shapes, textBlocks: paste.textBlocks,
+      images: paste.images, mathBlocks: paste.mathBlocks,
+      elementOrder: paste.elementOrder, groups: preview.groups,
+      topGroupIds: preview.topGroupIds,
+    };
+    try {
+      validateOriginalClipboardPastePlan(plan);
+    } catch (e) {
+      this.reportSaveFailure(e as Object);
+      hilog.error(0x0001, 'NoteCanvasView',
+        'original Group Paste preflight failed: %{public}s', JSON.stringify(e));
+      return;
+    }
+    const generation: number = this.pageLoadGeneration;
+    const pageId: string = this.loadedPageId;
+    const draftOperation: Op = {
+      opId: 'pending-original-clipboard-paste', noteId: this.noteId,
+      opType: OpType.ORIGINAL_CLIPBOARD_PASTE, payload: new Uint8Array(0), clientTime: 0,
+    };
+    const draft: OriginalClipboardPasteAction = {
+      type: UndoableActionType.ORIGINAL_CLIPBOARD_PASTE,
+      noteId: this.noteId, pageId: pageId, operation: draftOperation,
+    };
+    const prepared: HistoryMetadata = this.undoRedo.prepareHistoryMetadata(draft);
+    this.historyBusy = true;
+    this.persistence.commitOriginalClipboardPaste(
+      this.noteId, pageId, plan, prepared).then(
+      (result: OriginalClipboardPastePersistenceResult): void => {
+        if (!this.strokeClipboard.commitPreparedPaste(paste.pasteSequence)) {
+          hilog.error(0x0001, 'NoteCanvasView',
+            'original Group Paste sequence changed after durable apply');
+        }
+        const action: OriginalClipboardPasteAction = {
+          type: UndoableActionType.ORIGINAL_CLIPBOARD_PASTE,
+          noteId: this.noteId, pageId: pageId, operation: result.operation,
+        };
+        this.undoRedo.push(action, prepared);
+        this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+        if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+          pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
+          !this.dataLoadFailed) {
+          this.completedStrokes = this.completedStrokes.concat(result.strokes);
+          this.shapes = this.shapes.concat(result.shapes);
+          this.textBlocks = this.textBlocks.concat(result.textBlocks);
+          this.elementOrder = clonePageElementOrder(result.elementOrder);
+          this.selectionGroups = result.groups;
+          this.synchronizeElementArraysByOrder();
+          this.selectionTool.selectElementIds(
+            result.strokes.map((stroke: StrokeElementData): string => stroke.id),
+            result.shapes.map((shape: ShapeElement): string => shape.id),
+            result.textBlocks.map((text: TextBlockElement): string => text.id),
+            [], result.topGroupIds, []);
+          this.originalInkIneligiblePages.delete(pageId);
+          this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+          this.updateSelectionOverlay();
+          this.renderFrame();
+        }
+        this.notifyUndoRedo();
+      }).catch((e: Object): void => {
+        this.reportSaveFailure(e);
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original Group Paste transaction failed: %{public}s', JSON.stringify(e));
+      }).finally((): void => {
+        this.historyBusy = false;
+      });
   }
 
   private canEncodeOriginalClipboardSource(source: ClipboardSingleOriginalSource): boolean {

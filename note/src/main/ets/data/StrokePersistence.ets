@@ -1307,7 +1307,7 @@ export class StrokePersistence {
               (element: PreparedElement, index: number): PageElementRef => ({
                 kind: element.kind, elementId: element.elementId, zIndex: index,
               })),
-            groups: createdGroups.map(cloneSelectionGroup),
+            groups: activeGroups.map(cloneSelectionGroup),
             topGroupIds: topGroupIds.slice(), mutation: mutation, operation: historyOperation,
           };
         } catch (e) {
