@@ -73,6 +73,7 @@ import originalCreateInkPayloadEncoderTest from './OriginalCreateInkPayloadEncod
 import originalModifyBlockPayloadEncoderTest from './OriginalModifyBlockPayloadEncoder.test';
 import originalGroupPayloadEncoderTest from './OriginalGroupPayloadEncoder.test';
 import originalGroupMutationOpCodecTest from './OriginalGroupMutationOpCodec.test';
+import originalClipboardPasteMutationCodecTest from './OriginalClipboardPasteMutationCodec.test';
 import originalCreateTextPayloadEncoderTest from './OriginalCreateTextPayloadEncoder.test';
 import originalTextMutationPayloadEncoderTest from './OriginalTextMutationPayloadEncoder.test';
 
@@ -152,6 +153,7 @@ export default function testsuite() {
   originalModifyBlockPayloadEncoderTest();
   originalGroupPayloadEncoderTest();
   originalGroupMutationOpCodecTest();
+  originalClipboardPasteMutationCodecTest();
   originalCreateTextPayloadEncoderTest();
   originalTextMutationPayloadEncoderTest();
 }
