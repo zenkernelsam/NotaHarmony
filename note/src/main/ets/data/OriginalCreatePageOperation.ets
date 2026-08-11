@@ -16,6 +16,10 @@ import {
   decodeOriginalPageBackgroundTable, OriginalDecodedPageBackground,
   originalPageBackgroundFitsHarmony,
 } from './OriginalPageBackgroundOperation';
+import {
+  mergeOriginalAssetReference, OriginalAssetReferenceConflict,
+} from './OriginalAssetReferenceStore';
+import { initializeOriginalPageInAsset } from './OriginalPageInAssetState';
 
 export const ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE: number = 3;
 export const MAX_ORIGINAL_CREATE_PAGE_COUNT: number = 10000;
@@ -90,11 +94,13 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
     if (payload.pageCount < 1 || payload.pageCount > MAX_ORIGINAL_CREATE_PAGE_COUNT) {
       return { deferredReason: 'UNSUPPORTED_CREATE_PAGE_COUNT' };
     }
-    if (payload.background !== null && payload.background.hasPdf) {
-      return { deferredReason: 'CREATE_PAGE_PDF_BACKGROUND_UNSUPPORTED' };
-    }
     if (payload.background !== null && !originalPageBackgroundFitsHarmony(payload.background)) {
       return { deferredReason: 'CREATE_PAGE_BACKGROUND_SIZE_UNSUPPORTED' };
+    }
+    if (payload.background !== null && payload.background.background.pdf !== undefined &&
+      payload.background.background.pdf !== null &&
+      payload.background.background.pdf.pagesConsumed !== payload.pageCount) {
+      return { deferredReason: 'CREATE_PAGE_PDF_PAGE_COUNT_MISMATCH' };
     }
     if (payload.bookmarked) {
       return { deferredReason: 'CREATE_PAGE_BOOKMARK_UNSUPPORTED' };
@@ -111,8 +117,12 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
     if (!this.orderStore.samePageIds(existingPageIds, mappedPageIds)) {
       return { deferredReason: 'ORIGINAL_PAGE_ORDER_DIVERGED' };
     }
+    const assetReason: string | null = await this.mergePdfAsset(store, operation.noteId, payload.background);
+    if (assetReason !== null) {
+      return { deferredReason: assetReason };
+    }
     await this.insertGroup(store, operation, payload);
-    const newPageIds: string[] = await this.insertIdentities(store, operation, payload.pageCount);
+    const newPageIds: string[] = await this.insertIdentities(store, operation, payload);
     const orderedPageIds: string[] = await this.orderStore.readOriginalVisibleOrder(store, operation.noteId);
     if (orderedPageIds.length !== existingPageIds.length + newPageIds.length) {
       throw new Error('original page sequence did not materialize every visible page');
@@ -214,9 +224,9 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
   }
 
   private async insertIdentities(store: relationalStore.RdbStore,
-    operation: StoredSyncedOperation, pageCount: number): Promise<string[]> {
+    operation: StoredSyncedOperation, payload: OriginalCreatePagePayload): Promise<string[]> {
     const pageIds: string[] = [];
-    for (let index: number = 0; index < pageCount; index++) {
+    for (let index: number = 0; index < payload.pageCount; index++) {
       const identity: OriginalSequenceIdentity = {
         timestamp: operation.timestamp, siteId: operation.siteId, index: index,
       };
@@ -247,9 +257,51 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
         'winner_site_id': identity.siteId,
         'position_index': identity.index,
       });
+      const initialPageInAsset: number = payload.background === null ||
+        payload.background.background.pdf === undefined || payload.background.background.pdf === null
+        ? index : payload.background.background.pdf.pageOffset + index;
+      await initializeOriginalPageInAsset(store, operation.noteId, identity,
+        operation, initialPageInAsset);
+      await this.insertInitialBackgroundWinner(store, operation, identity, payload.background);
       pageIds.push(pageId);
     }
     return pageIds;
+  }
+
+  private async insertInitialBackgroundWinner(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, page: OriginalSequenceIdentity,
+    background: OriginalDecodedPageBackground | null): Promise<void> {
+    await store.insert('original_page_background_winner', {
+      'note_id': operation.noteId,
+      'page_timestamp': page.timestamp,
+      'page_site_id': page.siteId,
+      'page_index': page.index,
+      'winner_timestamp': operation.timestamp,
+      'winner_site_id': operation.siteId,
+      'size': background === null ? null : background.size,
+      'template': background === null ? null : background.template,
+      'orientation': background === null ? null : background.orientation,
+      'width_mm': background === null ? null : background.widthMm,
+      'height_mm': background === null ? null : background.heightMm,
+      'background_json': background === null ? null : serializePageBackground(background.background),
+    });
+  }
+
+  private async mergePdfAsset(store: relationalStore.RdbStore, noteId: string,
+    background: OriginalDecodedPageBackground | null): Promise<string | null> {
+    if (background === null || background.background.pdf === undefined ||
+      background.background.pdf === null) {
+      return null;
+    }
+    const conflict: OriginalAssetReferenceConflict = await mergeOriginalAssetReference(
+      store, noteId, background.background.pdf.metadata);
+    if (conflict === OriginalAssetReferenceConflict.METADATA) {
+      return 'CREATE_PAGE_PDF_ASSET_METADATA_CONFLICT';
+    }
+    if (conflict === OriginalAssetReferenceConflict.LOCAL_PATH) {
+      return 'CREATE_PAGE_PDF_ASSET_PATH_CONFLICT';
+    }
+    return null;
   }
 
   private async readOriginalVisibleOrder(store: relationalStore.RdbStore,
@@ -443,6 +495,8 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
         'width_mm': decoded === null ? ORIGINAL_DEFAULT_PAGE_WIDTH_MM : decoded.widthMm,
         'height_mm': decoded === null ? ORIGINAL_DEFAULT_PAGE_HEIGHT_MM : decoded.heightMm,
         'background_json': serializePageBackground(background),
+        'original_page_in_asset': decoded === null || decoded.background.pdf === undefined ||
+          decoded.background.pdf === null ? index : decoded.background.pdf.pageOffset + index,
         'content_revision': 0,
       });
     }

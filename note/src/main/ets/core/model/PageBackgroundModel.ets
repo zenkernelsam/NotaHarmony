@@ -1,9 +1,10 @@
 import {
-  OriginalPaperFlair, PageBackground, PageBackgroundMargins, PageInfo, PagePaperBackground,
-  PaperTemplate,
+  OriginalAssetMetadata, OriginalPaperFlair, PageBackground, PageBackgroundMargins, PageInfo,
+  PagePaperBackground, PagePdfBackground, PaperTemplate, PdfCropBoxSize, PdfLayoutBehavior,
 } from './NoteTypes';
 
-export const PAGE_BACKGROUND_SCHEMA_VERSION: number = 1;
+export const PAGE_BACKGROUND_SCHEMA_VERSION: number = 2;
+const LEGACY_PAGE_BACKGROUND_SCHEMA_VERSION: number = 1;
 export const POINTS_TO_MM: number = 25.4 / 72.0;
 export const POINTS_TO_PAGE_UNITS: number = 96.0 / 72.0;
 
@@ -14,6 +15,7 @@ export function clonePageBackground(value: PageBackground | null | undefined): P
   return {
     schemaVersion: value.schemaVersion,
     paper: cloneOriginalPaper(value.paper),
+    pdf: clonePdfBackground(value.pdf === undefined ? null : value.pdf),
     rotationRadians: value.rotationRadians,
     sourceWidthPt: value.sourceWidthPt,
     sourceHeightPt: value.sourceHeightPt,
@@ -32,12 +34,18 @@ export function clonePageInfo(page: PageInfo): PageInfo {
     heightMm: page.heightMm,
     background: clonePageBackground(page.background),
     noteBackgroundFallback: clonePageBackground(page.noteBackgroundFallback),
+    originalPageInAsset: page.originalPageInAsset,
   };
 }
 
 export function effectivePageBackground(page: PageInfo): PageBackground | null {
-  return page.background === undefined || page.background === null
+  const result: PageBackground | null = page.background === undefined || page.background === null
     ? clonePageBackground(page.noteBackgroundFallback) : clonePageBackground(page.background);
+  if (result !== null && result.pdf !== undefined && result.pdf !== null &&
+    page.originalPageInAsset !== undefined) {
+    result.pdf.pageInAsset = page.originalPageInAsset;
+  }
+  return result;
 }
 
 export function originalDefaultNoteBackground(): PageBackground {
@@ -47,6 +55,7 @@ export function originalDefaultNoteBackground(): PageBackground {
       flair: null, flairSpacingPt: null, flairBleeds: null, flairCentered: null,
       colorR: 255, colorG: 255, colorB: 255, colorA: 255, legacyPaperIndex: null,
     },
+    pdf: null,
     rotationRadians: 0,
     sourceWidthPt: 612,
     sourceHeightPt: 792,
@@ -63,7 +72,8 @@ export function validatePageBackground(value: PageBackground | null | undefined)
   if (value === undefined || value === null) {
     return;
   }
-  if (value.schemaVersion !== PAGE_BACKGROUND_SCHEMA_VERSION ||
+  if ((value.schemaVersion !== PAGE_BACKGROUND_SCHEMA_VERSION &&
+    value.schemaVersion !== LEGACY_PAGE_BACKGROUND_SCHEMA_VERSION) ||
     !isCardinalRotation(value.rotationRadians) || !isOptionalNonNegativeFinite(value.sourceWidthPt) ||
     !isOptionalNonNegativeFinite(value.sourceHeightPt) ||
     (value.sourceWidthPt === null) !== (value.sourceHeightPt === null)) {
@@ -71,6 +81,8 @@ export function validatePageBackground(value: PageBackground | null | undefined)
   }
   validateMargins(value.margins, value.sourceWidthPt, value.sourceHeightPt);
   validateOriginalPaper(value.paper);
+  validatePdfBackground(value.pdf === undefined ? null : value.pdf, value.sourceWidthPt, value.sourceHeightPt,
+    value.schemaVersion);
 }
 
 export function serializePageBackground(value: PageBackground | null | undefined): string | null {
@@ -126,6 +138,74 @@ export function cloneOriginalPaper(value: PagePaperBackground | null): PagePaper
     flairCentered: value.flairCentered, colorR: value.colorR, colorG: value.colorG,
     colorB: value.colorB, colorA: value.colorA, legacyPaperIndex: value.legacyPaperIndex,
   };
+}
+
+export function clonePdfBackground(value: PagePdfBackground | null): PagePdfBackground | null {
+  if (value === null) {
+    return null;
+  }
+  const cropBoxes: PdfCropBoxSize[] = [];
+  for (const crop of value.cropBoxes) {
+    cropBoxes.push({ widthPt: crop.widthPt, heightPt: crop.heightPt });
+  }
+  return {
+    metadata: cloneAssetMetadata(value.metadata),
+    layoutBehavior: value.layoutBehavior,
+    totalPageCount: value.totalPageCount,
+    pagesConsumed: value.pagesConsumed,
+    pageOffset: value.pageOffset,
+    cropBoxes: cropBoxes,
+    pageInAsset: value.pageInAsset,
+  };
+}
+
+function cloneAssetMetadata(value: OriginalAssetMetadata): OriginalAssetMetadata {
+  return {
+    assetHashBits: value.assetHashBits.slice(),
+    fileName: value.fileName,
+    mimeType: value.mimeType,
+    fileSize: value.fileSize,
+  };
+}
+
+function validatePdfBackground(value: PagePdfBackground | null, width: number | null,
+  height: number | null, schemaVersion: number): void {
+  if (value === null) {
+    return;
+  }
+  if (schemaVersion !== PAGE_BACKGROUND_SCHEMA_VERSION || width === null || height === null ||
+    !isUint32(value.totalPageCount) || value.totalPageCount === 0 ||
+    !isUint32(value.pagesConsumed) || value.pagesConsumed === 0 ||
+    !isUint32(value.pageOffset) || !isUint32(value.pageInAsset) ||
+    value.pageOffset + value.pagesConsumed > value.totalPageCount ||
+    value.pageInAsset < value.pageOffset || value.pageInAsset >= value.pageOffset + value.pagesConsumed ||
+    value.cropBoxes.length !== value.pagesConsumed ||
+    value.layoutBehavior < PdfLayoutBehavior.DOWNSCALING_AND_MAX_BOX ||
+    value.layoutBehavior > PdfLayoutBehavior.FIT_AND_CROP_BOX ||
+    !Number.isSafeInteger(value.layoutBehavior)) {
+    throw new Error('page PDF background header is invalid');
+  }
+  validateAssetMetadata(value.metadata);
+  for (const crop of value.cropBoxes) {
+    if (!isNonNegativeFinite(crop.widthPt) || !isNonNegativeFinite(crop.heightPt)) {
+      throw new Error('page PDF crop box is invalid');
+    }
+  }
+}
+
+function validateAssetMetadata(value: OriginalAssetMetadata): void {
+  if (!Array.isArray(value.assetHashBits) || value.assetHashBits.length !== 8 ||
+    value.fileName.length === 0 || value.mimeType.length === 0 ||
+    !isUint32(value.fileSize) || value.fileSize === 0) {
+    throw new Error('page PDF asset metadata is invalid');
+  }
+  for (const word of value.assetHashBits) {
+    if (typeof word !== 'string' || word.length === 0 || word.length > 20 ||
+      !/^\d+$/.test(word) || (word.length > 1 && word.charAt(0) === '0') ||
+      (word.length === 20 && word > '18446744073709551615')) {
+      throw new Error('page PDF asset hash is invalid');
+    }
+  }
 }
 
 function cloneMargins(value: PageBackgroundMargins | null): PageBackgroundMargins | null {
@@ -189,6 +269,10 @@ function isOptionalNonNegativeFinite(value: number | null): boolean {
 
 function isNonNegativeFinite(value: number): boolean {
   return Number.isFinite(value) && value >= 0;
+}
+
+function isUint32(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 0 && value <= 4294967295;
 }
 
 function isOptionalBoolean(value: boolean | null): boolean {

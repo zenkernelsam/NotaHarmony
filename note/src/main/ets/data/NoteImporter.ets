@@ -7,7 +7,9 @@ import { ZipReader, ZipEntry, ZipParseResult } from './ZipArchive';
 import {
   NoteManifest, PageData, parseManifest, parsePage, parsePageElement,
 } from './NotePackageSpec';
-import { NoteMeta, PageInfo, PaperSize, PaperTemplate, PageOrientation } from '../core/model/NoteTypes';
+import {
+  NoteMeta, OriginalAssetMetadata, PageInfo, PaperSize, PaperTemplate, PageOrientation,
+} from '../core/model/NoteTypes';
 import { clonePageBackground } from '../core/model/PageBackgroundModel';
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
@@ -19,8 +21,7 @@ import { StrokePersistence, PersistedElement } from './StrokePersistence';
 import { paperSizeToMm } from './NoteExporter';
 import { AsyncMutex, MutexRelease } from './AsyncMutex';
 import { importedLegacyNoteId, importedPageNeedsRemap } from './ImportIdentity';
-import { imageAssetPackageEntry, storeImportedImageAsset } from './ImageAssetPackageStore';
-import { imageAssetPackageMetadataMatches } from '../core/model/ImageBlockGeometry';
+import { originalAssetPackageEntry, storeImportedOriginalAsset } from './ImageAssetPackageStore';
 import {
   NotabilityMetadataParser, NotabilitySessionParser, NotabilityMetadata,
   NotabilitySession, NotabilityPageElements, NotabilityHandwritingIndexPage,
@@ -45,8 +46,8 @@ export interface ImportReport {
   message: string;          // 用户可读的结果描述
 }
 
-interface PackagedImageAsset {
-  element: ImageElement;
+interface PackagedOriginalAsset {
+  metadata: OriginalAssetMetadata;
   data: Uint8Array;
 }
 
@@ -187,16 +188,17 @@ export class NoteImporter {
       parsedPages.push({ pageId: page.pageId, pageIndex: page.pageIndex,
         paperSize: page.paperSize, paperTemplate: page.paperTemplate,
         orientation: page.orientation, widthMm: page.widthMm, heightMm: page.heightMm,
-        background: clonePageBackground(page.background), elements: elements });
+        background: clonePageBackground(page.background),
+        originalPageInAsset: packagePageInAsset(page), elements: elements });
     }
     if (parsedPages.length === 0 && manifest.pageCount > 0) {
       return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
         missingAssets: [], warnings: [],
         message: '未找到可解析的页面数据' };
     }
-    const packagedImageAssets: Map<string, PackagedImageAsset> = new Map<string, PackagedImageAsset>();
-    const declaredImageAssets: Map<string, ImageElement> = new Map<string, ImageElement>();
-    const missingImageAssetPaths: Set<string> = new Set<string>();
+    const packagedAssets: Map<string, PackagedOriginalAsset> = new Map<string, PackagedOriginalAsset>();
+    const declaredAssets: Map<string, OriginalAssetMetadata> = new Map<string, OriginalAssetMetadata>();
+    const missingAssetPaths: Set<string> = new Set<string>();
     for (const page of parsedPages) {
       for (const sourceElement of page.elements) {
         const persisted: PersistedElement = sourceElement as PersistedElement;
@@ -204,28 +206,54 @@ export class NoteImporter {
           continue;
         }
         const element: ImageElement = persisted.data as ImageElement;
-        const packagePath: string = imageAssetPackageEntry(element);
-        const declared: ImageElement | undefined = declaredImageAssets.get(packagePath);
-        if (declared !== undefined && !imageAssetPackageMetadataMatches(declared, element)) {
+        const metadata: OriginalAssetMetadata = {
+          assetHashBits: element.assetHashBits,
+          fileName: element.fileName,
+          mimeType: element.mimeType,
+          fileSize: element.fileSize,
+        };
+        const packagePath: string = originalAssetPackageEntry(metadata);
+        const declared: OriginalAssetMetadata | undefined = declaredAssets.get(packagePath);
+        if (declared !== undefined && !sameAssetMetadata(declared, metadata)) {
           return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
-            missingAssets: [`图片资产 ${packagePath} 的元数据互相冲突`], warnings: [],
-            message: '图片资产元数据冲突，导入未完成' };
+            missingAssets: [`资产 ${packagePath} 的元数据互相冲突`], warnings: [],
+            message: '资产元数据冲突，导入未完成' };
         }
         if (declared === undefined) {
-          declaredImageAssets.set(packagePath, element);
+          declaredAssets.set(packagePath, metadata);
         }
-        if (packagedImageAssets.has(packagePath) || missingImageAssetPaths.has(packagePath)) {
+        if (packagedAssets.has(packagePath) || missingAssetPaths.has(packagePath)) {
           continue;
         }
         const assetEntry: ZipEntry | null = ZipReader.findEntry(entries, packagePath);
-        if (assetEntry === null || assetEntry.data.length !== element.fileSize) {
-          missingImageAssetPaths.add(packagePath);
+        if (assetEntry === null || assetEntry.data.length !== metadata.fileSize) {
+          missingAssetPaths.add(packagePath);
           continue;
         }
-        packagedImageAssets.set(packagePath, { element: element, data: assetEntry.data });
+        packagedAssets.set(packagePath, { metadata: metadata, data: assetEntry.data });
+      }
+      if (page.background !== undefined && page.background !== null &&
+        page.background.pdf !== undefined && page.background.pdf !== null) {
+        const metadata: OriginalAssetMetadata = page.background.pdf.metadata;
+        const packagePath: string = originalAssetPackageEntry(metadata);
+        const declared: OriginalAssetMetadata | undefined = declaredAssets.get(packagePath);
+        if (declared !== undefined && !sameAssetMetadata(declared, metadata)) {
+          return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+            missingAssets: [`PDF 资产 ${packagePath} 的元数据互相冲突`], warnings: [],
+            message: 'PDF 资产元数据冲突，导入未完成' };
+        }
+        declaredAssets.set(packagePath, metadata);
+        if (!packagedAssets.has(packagePath) && !missingAssetPaths.has(packagePath)) {
+          const assetEntry: ZipEntry | null = ZipReader.findEntry(entries, packagePath);
+          if (assetEntry === null || assetEntry.data.length !== metadata.fileSize) {
+            missingAssetPaths.add(packagePath);
+          } else {
+            packagedAssets.set(packagePath, { metadata: metadata, data: assetEntry.data });
+          }
+        }
       }
     }
-    const missingImageAssets: number = missingImageAssetPaths.size;
+    const missingPackageAssets: number = missingAssetPaths.size;
 
     // === 阶段 2：写库（创建新笔记，不覆盖已有）===
     const release: MutexRelease = await NoteImporter.importMutex.lock();
@@ -245,8 +273,8 @@ export class NoteImporter {
         noteId, title, createdAt, updatedAt, null, false, importedLegacyNoteId(preferredId, noteId));
       createdNoteId = note.id;
 
-      for (const packaged of packagedImageAssets.values()) {
-        await storeImportedImageAsset(this.db, packaged.element, packaged.data, note.id);
+      for (const packaged of packagedAssets.values()) {
+        await storeImportedOriginalAsset(this.db, packaged.metadata, packaged.data, note.id);
       }
 
       let writtenPages: number = 0;
@@ -264,6 +292,7 @@ export class NoteImporter {
           widthMm: page.widthMm === undefined ? (landscape ? mm[1] : mm[0]) : page.widthMm,
           heightMm: page.heightMm === undefined ? (landscape ? mm[0] : mm[1]) : page.heightMm,
           background: clonePageBackground(page.background),
+          originalPageInAsset: page.originalPageInAsset,
         };
         await pageRepo.addPage(note.id, pageInfo);
         const pageStrokes: StrokeElementData[] = [];
@@ -309,7 +338,7 @@ export class NoteImporter {
         writtenPages++;
       }
       const partial: boolean = writtenPages < manifest.pageCount || failedPages > 0 ||
-        failedElements > 0 || failedEntries.length > 0 || missingImageAssets > 0;
+        failedElements > 0 || failedEntries.length > 0 || missingPackageAssets > 0;
       const failureSummary: string = failedEntries.length > 0
         ? `；跳过损坏条目：${failedEntries.join('、')}` : '';
       const encryptedSummary: string = encryptedEntries.length > 0
@@ -323,8 +352,8 @@ export class NoteImporter {
       if (failedElements > 0) {
         missingAssets.push(`${failedElements} 个页面元素损坏或不受支持`);
       }
-      if (missingImageAssets > 0) {
-        missingAssets.push(`${missingImageAssets} 个图片资产缺失或长度不符`);
+      if (missingPackageAssets > 0) {
+        missingAssets.push(`${missingPackageAssets} 个图片/PDF 资产缺失或长度不符`);
       }
       for (const failed of failedEntries) {
         missingAssets.push(`损坏或不支持的包条目：${failed}`);
@@ -683,6 +712,29 @@ function appendUnique(values: string[], value: string): void {
   if (value.length > 0 && values.indexOf(value) < 0) {
     values.push(value);
   }
+}
+
+function sameAssetMetadata(left: OriginalAssetMetadata, right: OriginalAssetMetadata): boolean {
+  if (left.assetHashBits.length !== right.assetHashBits.length ||
+    left.fileSize !== right.fileSize || left.mimeType.toLowerCase() !== right.mimeType.toLowerCase()) {
+    return false;
+  }
+  for (let index: number = 0; index < left.assetHashBits.length; index++) {
+    if (left.assetHashBits[index] !== right.assetHashBits[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function packagePageInAsset(page: PageData): number | undefined {
+  if (page.originalPageInAsset !== undefined) {
+    return page.originalPageInAsset;
+  }
+  const background = page.background;
+  return background !== undefined && background !== null &&
+    background.pdf !== undefined && background.pdf !== null
+    ? background.pdf.pageInAsset : undefined;
 }
 
 function countRecordingEntries(entries: ZipEntry[]): number {

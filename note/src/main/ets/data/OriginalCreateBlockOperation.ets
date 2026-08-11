@@ -4,7 +4,7 @@ import { TransformMatrix } from '../core/model/GeometryTypes';
 import { AssetStatus } from '../core/model/AssetTypes';
 import { imageBlockWorldBounds, originalAssetHashKey,
   originalAssetStorageHash } from '../core/model/ImageBlockGeometry';
-import { PagePaperBackground } from '../core/model/NoteTypes';
+import { OriginalAssetMetadata, PagePaperBackground } from '../core/model/NoteTypes';
 import { cloneOriginalPaper } from '../core/model/PageBackgroundModel';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { textBlockWorldBounds } from '../core/model/TextBlockGeometry';
@@ -14,8 +14,9 @@ import { encodeOperationId, OriginalSequenceIdentity,
 import { encodePersistedElement, PersistedElement } from './StrokePersistence';
 import { SearchItemType } from './SearchItemType';
 import { OriginalFlatBufferTableReader, readOriginalInlineFloat32,
-  readOriginalInlineUint64Decimal, readOriginalPayloadTable } from
+  readOriginalPayloadTable } from
   './OriginalSyncedOperationFlatBuffer';
+import { decodeOriginalAssetMetadata } from './OriginalAssetMetadata';
 import { decodeOriginalPaper } from './OriginalPageBackgroundOperation';
 import { StoredSyncedOperation, SyncedOperationApplier,
   SyncedOperationApplyResult } from './SyncedOperationInbox';
@@ -92,8 +93,6 @@ export interface OriginalCreateBlockPayload {
   positionLocked: boolean;
 }
 
-const MAX_ORIGINAL_ASSET_FILE_NAME_BYTES: number = 65536;
-const MAX_ORIGINAL_ASSET_MIME_TYPE_BYTES: number = 4096;
 const MAX_ORIGINAL_BLOCK_WEB_URL_BYTES: number = 1048576;
 const MAX_ORIGINAL_MATH_LATEX_BYTES: number = 1048576;
 
@@ -924,28 +923,16 @@ function decodeOriginalImageAsset(table: OriginalFlatBufferTableReader): Origina
   if (metadata === null || size === null) {
     throw new Error('original image asset is missing metadata or size');
   }
-  const hash: Uint8Array | null = metadata.readInlineBytes(0, 64);
-  const fileName: string | null = metadata.readUtf8String(
-    1, true, MAX_ORIGINAL_ASSET_FILE_NAME_BYTES);
-  const mimeType: string | null = metadata.readUtf8String(
-    2, true, MAX_ORIGINAL_ASSET_MIME_TYPE_BYTES);
-  const fileSize: number = metadata.readUint32(3, 0);
-  if (hash === null || fileName === null || fileName.length === 0 ||
-    mimeType === null || mimeType.length === 0 || fileSize === 0) {
-    throw new Error('original image asset metadata is invalid');
-  }
+  const decodedMetadata: OriginalAssetMetadata = decodeOriginalAssetMetadata(metadata);
   const width: number = readOriginalInlineFloat32(size, 0);
   const height: number = readOriginalInlineFloat32(size, 4);
   if (!validSize(width, height)) {
     throw new Error('original image asset size is invalid');
   }
-  const bits: string[] = [];
-  for (let index: number = 0; index < 8; index++) {
-    bits.push(readOriginalInlineUint64Decimal(hash, index * 8));
-  }
   return {
-    assetHash: { bits: bits }, fileName: fileName, mimeType: mimeType,
-    fileSize: fileSize, width: width, height: height,
+    assetHash: { bits: decodedMetadata.assetHashBits }, fileName: decodedMetadata.fileName,
+    mimeType: decodedMetadata.mimeType, fileSize: decodedMetadata.fileSize,
+    width: width, height: height,
   };
 }
 

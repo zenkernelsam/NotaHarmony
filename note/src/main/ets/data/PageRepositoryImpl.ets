@@ -69,6 +69,8 @@ export class PageRepositoryImpl implements PageRepository {
           'width_mm': assignedPage.widthMm,
           'height_mm': assignedPage.heightMm,
           'background_json': serializePageBackground(assignedPage.background),
+          'original_page_in_asset': assignedPage.originalPageInAsset === undefined
+            ? null : assignedPage.originalPageInAsset,
         };
         await store.insert('page_info', bucket);
         const after: PageInfo[] = await this.queryPages(store, noteId);
@@ -316,6 +318,7 @@ export class PageRepositoryImpl implements PageRepository {
       widthMm: resultSet.getDouble(resultSet.getColumnIndex('width_mm')),
       heightMm: resultSet.getDouble(resultSet.getColumnIndex('height_mm')),
       background: this.readBackground(resultSet),
+      originalPageInAsset: this.readPageInAsset(resultSet),
     };
     validatePageDimensions(page);
     return page;
@@ -442,6 +445,7 @@ export class PageRepositoryImpl implements PageRepository {
       'width_mm': page.widthMm,
       'height_mm': page.heightMm,
       'background_json': serializePageBackground(page.background),
+      'original_page_in_asset': page.originalPageInAsset === undefined ? null : page.originalPageInAsset,
       'content_revision': contentRevision,
       'indexed_revision': indexedRevision,
       'created_time': history.actionTime,
@@ -513,6 +517,7 @@ export class PageRepositoryImpl implements PageRepository {
     actionId: string): Promise<PageDeleteCheckpoint> {
     const resultSet = await store.querySql(
       `SELECT page_id, page_index, size, template, orientation, width_mm, height_mm, background_json,
+        original_page_in_asset,
         content_revision, indexed_revision, created_time
        FROM page_delete_checkpoint WHERE note_id = ? AND action_id = ?`, [noteId, actionId]);
     let checkpoint: PageDeleteCheckpoint | undefined = undefined;
@@ -529,6 +534,7 @@ export class PageRepositoryImpl implements PageRepository {
         widthMm: resultSet.getDouble(resultSet.getColumnIndex('width_mm')),
         heightMm: resultSet.getDouble(resultSet.getColumnIndex('height_mm')),
         background: this.readBackground(resultSet),
+        originalPageInAsset: this.readPageInAsset(resultSet),
       };
       validatePageDimensions(page);
       const indexedColumn: number = resultSet.getColumnIndex('indexed_revision');
@@ -745,6 +751,7 @@ export class PageRepositoryImpl implements PageRepository {
       'width_mm': page.widthMm,
       'height_mm': page.heightMm,
       'background_json': serializePageBackground(page.background),
+      'original_page_in_asset': page.originalPageInAsset === undefined ? null : page.originalPageInAsset,
       'content_revision': checkpoint.contentRevision,
     });
   }
@@ -872,7 +879,8 @@ export class PageRepositoryImpl implements PageRepository {
     return left.pageId === right.pageId && left.pageIndex === right.pageIndex &&
       left.size === right.size && left.template === right.template &&
       left.orientation === right.orientation && left.widthMm === right.widthMm &&
-      left.heightMm === right.heightMm && samePageBackground(left.background, right.background);
+      left.heightMm === right.heightMm && left.originalPageInAsset === right.originalPageInAsset &&
+      samePageBackground(left.background, right.background);
   }
 
   private clonePage(page: PageInfo): PageInfo {
@@ -882,6 +890,11 @@ export class PageRepositoryImpl implements PageRepository {
   private readBackground(resultSet: relationalStore.ResultSet): PageBackground | null {
     const column: number = resultSet.getColumnIndex('background_json');
     return parsePageBackground(resultSet.isColumnNull(column) ? null : resultSet.getString(column));
+  }
+
+  private readPageInAsset(resultSet: relationalStore.ResultSet): number | undefined {
+    const column: number = resultSet.getColumnIndex('original_page_in_asset');
+    return resultSet.isColumnNull(column) ? undefined : resultSet.getLong(column);
   }
 
   private async updatePageIndex(store: relationalStore.RdbStore, noteId: string,

@@ -1,6 +1,6 @@
 import {
   OriginalPaperFlair, PageBackground, PageBackgroundMargins, PageOrientation, PagePaperBackground,
-  PaperSize, PaperTemplate,
+  PagePdfBackground, PaperSize, PaperTemplate, PdfCropBoxSize, PdfLayoutBehavior,
 } from '../core/model/NoteTypes';
 import {
   PAGE_BACKGROUND_SCHEMA_VERSION, POINTS_TO_MM, templateForOriginalPaper, validatePageBackground,
@@ -9,6 +9,7 @@ import { pagePixelSize } from '../core/model/PageCoordinateSpace';
 import {
   OriginalFlatBufferTableReader, readOriginalInlineFloat32,
 } from './OriginalSyncedOperationFlatBuffer';
+import { decodeOriginalAssetMetadata } from './OriginalAssetMetadata';
 
 export interface OriginalDecodedPageBackground {
   background: PageBackground;
@@ -24,7 +25,8 @@ export function decodeOriginalPageBackgroundTable(
   table: OriginalFlatBufferTableReader): OriginalDecodedPageBackground {
   const paperTable: OriginalFlatBufferTableReader | null = table.readTable(0);
   const paper: PagePaperBackground | null = paperTable === null ? null : decodeOriginalPaper(paperTable);
-  const hasPdf: boolean = table.readTable(1) !== null;
+  const pdfTable: OriginalFlatBufferTableReader | null = table.readTable(1);
+  const pdf: PagePdfBackground | null = pdfTable === null ? null : decodeOriginalPdfAsset(pdfTable);
   const rotation: number = normalizeCardinalRotation(table.readFloat32(2, 0));
   const sourceSize: number[] | null = readInlineFloats(table, 3, 2);
   const marginsRaw: number[] | null = readInlineFloats(table, 4, 4);
@@ -34,6 +36,7 @@ export function decodeOriginalPageBackgroundTable(
   const background: PageBackground = {
     schemaVersion: PAGE_BACKGROUND_SCHEMA_VERSION,
     paper: paper,
+    pdf: pdf,
     rotationRadians: rotation,
     sourceWidthPt: sourceSize === null ? null : sourceSize[0],
     sourceHeightPt: sourceSize === null ? null : sourceSize[1],
@@ -52,7 +55,41 @@ export function decodeOriginalPageBackgroundTable(
     orientation: widthMm > heightMm ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT,
     widthMm: widthMm,
     heightMm: heightMm,
-    hasPdf: hasPdf,
+    hasPdf: pdf !== null,
+  };
+}
+
+export function decodeOriginalPdfAsset(table: OriginalFlatBufferTableReader): PagePdfBackground {
+  const metadataTable: OriginalFlatBufferTableReader | null = table.readTable(0);
+  if (metadataTable === null) {
+    throw new Error('original PDF asset is missing required metadata');
+  }
+  const layoutValue: number = table.readUint8(1, PdfLayoutBehavior.FIT_AND_CROP_BOX);
+  if (layoutValue < PdfLayoutBehavior.DOWNSCALING_AND_MAX_BOX ||
+    layoutValue > PdfLayoutBehavior.FIT_AND_CROP_BOX) {
+    throw new Error('original PDF layout behavior is unknown');
+  }
+  const totalPageCount: number = table.readUint32(2, 1);
+  const pagesConsumed: number = table.readUint32(3, 1);
+  const pageOffset: number = table.readUint32(4, 0);
+  const cropBytes: Uint8Array | null = table.readInlineVectorBytes(5, 8, 10000);
+  const cropBoxes: PdfCropBoxSize[] = [];
+  if (cropBytes !== null) {
+    for (let offset: number = 0; offset < cropBytes.length; offset += 8) {
+      cropBoxes.push({
+        widthPt: readOriginalInlineFloat32(cropBytes, offset),
+        heightPt: readOriginalInlineFloat32(cropBytes, offset + 4),
+      });
+    }
+  }
+  return {
+    metadata: decodeOriginalAssetMetadata(metadataTable),
+    layoutBehavior: layoutValue as PdfLayoutBehavior,
+    totalPageCount: totalPageCount,
+    pagesConsumed: pagesConsumed,
+    pageOffset: pageOffset,
+    cropBoxes: cropBoxes,
+    pageInAsset: pageOffset,
   };
 }
 

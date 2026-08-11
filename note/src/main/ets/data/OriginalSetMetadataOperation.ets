@@ -16,6 +16,9 @@ import {
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
+import {
+  mergeOriginalAssetReference, OriginalAssetReferenceConflict,
+} from './OriginalAssetReferenceStore';
 
 export const ORIGINAL_SET_METADATA_PAYLOAD_TYPE: number = 1;
 
@@ -86,9 +89,6 @@ export class OriginalSetMetadataOperationApplier implements SyncedOperationAppli
     if (!payload.hasPageBackground) {
       return 'SET_METADATA_HAS_NO_SUPPORTED_FIELD';
     }
-    if (payload.pageBackground !== null && payload.pageBackground.hasPdf) {
-      return 'SET_METADATA_PDF_BACKGROUND_UNSUPPORTED';
-    }
     if (payload.pageBackground !== null && !originalPageBackgroundFitsHarmony(payload.pageBackground)) {
       return 'SET_METADATA_BACKGROUND_SIZE_UNSUPPORTED';
     }
@@ -102,6 +102,11 @@ export class OriginalSetMetadataOperationApplier implements SyncedOperationAppli
       return { deferredReason: reason };
     }
     const payload: OriginalSetMetadataPayload = decodeOriginalSetMetadataTable(table);
+    const assetReason: string | null = await this.mergePdfAsset(store, operation.noteId,
+      payload.pageBackground);
+    if (assetReason !== null) {
+      return { deferredReason: assetReason };
+    }
     const titleWinner: StoredNoteTitleWinner | null = payload.hasTitle
       ? await this.readTitleWinner(store, operation.noteId) : null;
     const winner: StoredNoteBackgroundWinner | null = await this.readBackgroundWinner(store, operation.noteId);
@@ -141,6 +146,23 @@ export class OriginalSetMetadataOperationApplier implements SyncedOperationAppli
       await this.advanceStructureRevision(store, operation.noteId);
     }
     return { deferredReason: null };
+  }
+
+  private async mergePdfAsset(store: relationalStore.RdbStore, noteId: string,
+    background: OriginalDecodedPageBackground | null): Promise<string | null> {
+    if (background === null || background.background.pdf === undefined ||
+      background.background.pdf === null) {
+      return null;
+    }
+    const conflict: OriginalAssetReferenceConflict = await mergeOriginalAssetReference(
+      store, noteId, background.background.pdf.metadata);
+    if (conflict === OriginalAssetReferenceConflict.METADATA) {
+      return 'SET_METADATA_PDF_ASSET_METADATA_CONFLICT';
+    }
+    if (conflict === OriginalAssetReferenceConflict.LOCAL_PATH) {
+      return 'SET_METADATA_PDF_ASSET_PATH_CONFLICT';
+    }
+    return null;
   }
 
   private async readBackgroundWinner(store: relationalStore.RdbStore,
@@ -373,7 +395,7 @@ export async function readEffectiveNoteBackground(store: relationalStore.RdbStor
       orientation: rows.getLong(rows.getColumnIndex('orientation')) as PageOrientation,
       widthMm: rows.getDouble(rows.getColumnIndex('width_mm')),
       heightMm: rows.getDouble(rows.getColumnIndex('height_mm')),
-      hasPdf: false,
+      hasPdf: background.pdf !== undefined && background.pdf !== null,
     };
   } finally {
     rows.close();

@@ -56,10 +56,10 @@ assert.match(packageStore, /fileIo\.fsyncSync/);
 assert.match(packageStore, /fileContentsEqual/);
 assert.match(packageStore, /preferredAvailableRecord/);
 assert.match(packageStore, /AssetStatus\.UPLOADED \|\| status === AssetStatus\.DOWNLOADED/);
-assert.match(exporter, /readVerifiedImageAsset/);
-assert.match(importer, /missingImageAssets > 0/);
-assert.match(importer, /storeImportedImageAsset/);
-assert.match(importer, /imageAssetPackageMetadataMatches/);
+assert.match(exporter, /readVerifiedOriginalAsset/);
+assert.match(importer, /missingPackageAssets > 0/);
+assert.match(importer, /storeImportedOriginalAsset/);
+assert.match(importer, /sameAssetMetadata/);
 assert.match(canvas, /ImageAssetLoadState\.READY/);
 assert.match(canvas, /this\.releaseImageAssets\(\)/);
 

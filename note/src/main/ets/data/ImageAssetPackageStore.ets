@@ -5,6 +5,7 @@ import {
   originalAssetHashKey, originalAssetLookupKeys, originalAssetStorageHash,
 } from '../core/model/ImageBlockGeometry';
 import { AssetStatus, NoteAsset } from '../core/model/AssetTypes';
+import { OriginalAssetMetadata } from '../core/model/NoteTypes';
 import { assetMutationMutex, AssetRepositoryImpl, mergeNoteIds, parseAssetNoteIds } from './AssetRepositoryImpl';
 import { assetAvailabilityHub } from './AssetAvailabilityHub';
 import { sha512Hex } from './AssetDigest';
@@ -15,6 +16,39 @@ export interface OriginalImageAssetArrival {
   bytes: Uint8Array;
   expectedFileSize: number;
   expectedMimeType: string;
+}
+
+export type OriginalAssetArrival = OriginalImageAssetArrival;
+
+export function originalAssetPackageEntry(metadata: OriginalAssetMetadata): string {
+  return `assets/${originalAssetStorageHash(metadata.assetHashBits)}`;
+}
+
+export async function resolveOriginalAsset(repository: AssetRepositoryImpl,
+  metadata: OriginalAssetMetadata): Promise<NoteAsset | null> {
+  const storageHash: string = originalAssetStorageHash(metadata.assetHashBits);
+  const legacyHash: string = originalAssetHashKey(metadata.assetHashBits);
+  const canonical: NoteAsset | null = await repository.getAsset(storageHash);
+  return canonical !== null || legacyHash === storageHash
+    ? canonical : await repository.getAsset(legacyHash);
+}
+
+export function readVerifiedOriginalAsset(asset: NoteAsset,
+  metadata: OriginalAssetMetadata): Uint8Array {
+  if (asset.localPath === null || asset.localPath.length === 0) {
+    throw new Error(`asset ${originalAssetStorageHash(metadata.assetHashBits)} has no local file`);
+  }
+  const stat = fileIo.statSync(asset.localPath);
+  if (stat.size <= 0 || stat.size !== metadata.fileSize ||
+    (asset.fileSize > 0 && stat.size !== asset.fileSize)) {
+    throw new Error('asset file size does not match metadata');
+  }
+  const file: fileIo.File = fileIo.openSync(asset.localPath, fileIo.OpenMode.READ_ONLY);
+  try {
+    return readFileFully(file.fd, stat.size);
+  } finally {
+    fileIo.closeSync(file);
+  }
 }
 
 interface StoredAssetRecord {
@@ -83,6 +117,24 @@ export async function storeImportedImageAsset(database: DatabaseManager, element
 export async function receiveOriginalImageAsset(database: DatabaseManager,
   arrival: OriginalImageAssetArrival): Promise<void> {
   const result: AssetWriteResult = await writeOriginalImageAssetBytes(database, arrival, null, false);
+  if (result.becameAvailable) {
+    assetAvailabilityHub.publish(result.storageHash, result.noteIds);
+  }
+}
+
+export async function receiveOriginalAsset(database: DatabaseManager,
+  arrival: OriginalAssetArrival): Promise<void> {
+  return receiveOriginalImageAsset(database, arrival);
+}
+
+export async function storeImportedOriginalAsset(database: DatabaseManager,
+  metadata: OriginalAssetMetadata, bytes: Uint8Array, noteId: string): Promise<void> {
+  const result: AssetWriteResult = await writeOriginalImageAssetBytes(database, {
+    assetHashBits: metadata.assetHashBits,
+    bytes: bytes,
+    expectedFileSize: metadata.fileSize,
+    expectedMimeType: metadata.mimeType,
+  }, noteId, true);
   if (result.becameAvailable) {
     assetAvailabilityHub.publish(result.storageHash, result.noteIds);
   }

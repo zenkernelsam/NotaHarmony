@@ -76,6 +76,11 @@ export default function notePackageSpecTest() {
       const parsed = parsePage(JSON.stringify(page));
       expect(parsed === null).assertFalse();
       expect(parsed === null ? 0 : parsed.widthMm).assertEqual(279.4);
+      page.originalPageInAsset = 0xFFFFFFFF;
+      expect(parsePage(JSON.stringify(page))?.originalPageInAsset).assertEqual(0xFFFFFFFF);
+      page.originalPageInAsset = -1;
+      expect(parsePage(JSON.stringify(page)) === null).assertTrue();
+      page.originalPageInAsset = 0;
       page.heightMm = 0;
       expect(parsePage(JSON.stringify(page)) === null).assertTrue();
       page.heightMm = 215.9;

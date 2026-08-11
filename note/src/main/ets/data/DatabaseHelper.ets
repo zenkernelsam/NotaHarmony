@@ -3,8 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
-// v50: preserve nullable page-background winners and the note-level fallback register.
-export const DB_VERSION: number = 50;
+// v51: preserve original PDF pageInAsset registers independently from backgrounds.
+export const DB_VERSION: number = 51;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -309,6 +309,21 @@ CREATE TABLE IF NOT EXISTS original_page_background_winner (
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
+export const DDL_ORIGINAL_PAGE_IN_ASSET_WINNER: string = `
+CREATE TABLE IF NOT EXISTS original_page_in_asset_winner (
+  note_id TEXT NOT NULL,
+  page_timestamp INTEGER NOT NULL CHECK (page_timestamp BETWEEN 0 AND 4294967295),
+  page_site_id INTEGER NOT NULL CHECK (page_site_id BETWEEN 0 AND 65535),
+  page_index INTEGER NOT NULL CHECK (page_index BETWEEN 0 AND 4294967295),
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  page_in_asset INTEGER NOT NULL CHECK (page_in_asset BETWEEN 0 AND 4294967295),
+  PRIMARY KEY(note_id, page_timestamp, page_site_id, page_index),
+  FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
+    REFERENCES original_page_identity(note_id, seq_timestamp, seq_site_id, seq_index) ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
 export const DDL_ORIGINAL_NOTE_BACKGROUND_WINNER: string = `
 CREATE TABLE IF NOT EXISTS original_note_background_winner (
   note_id TEXT PRIMARY KEY,
@@ -349,6 +364,8 @@ CREATE TABLE IF NOT EXISTS original_deleted_page (
   width_mm REAL NOT NULL,
   height_mm REAL NOT NULL,
   background_json TEXT,
+  original_page_in_asset INTEGER CHECK (original_page_in_asset IS NULL OR
+    original_page_in_asset BETWEEN 0 AND 4294967295),
   content_revision INTEGER NOT NULL CHECK (content_revision >= 0),
   indexed_revision INTEGER CHECK (indexed_revision IS NULL OR
     (indexed_revision >= 0 AND indexed_revision <= content_revision)),
@@ -1069,6 +1086,8 @@ CREATE TABLE IF NOT EXISTS page_delete_checkpoint (
   width_mm REAL NOT NULL,
   height_mm REAL NOT NULL,
   background_json TEXT,
+  original_page_in_asset INTEGER CHECK (original_page_in_asset IS NULL OR
+    original_page_in_asset BETWEEN 0 AND 4294967295),
   content_revision INTEGER NOT NULL,
   indexed_revision INTEGER,
   created_time INTEGER NOT NULL,
@@ -1217,6 +1236,8 @@ CREATE TABLE IF NOT EXISTS page_info (
   width_mm REAL NOT NULL DEFAULT 210.0,
   height_mm REAL NOT NULL DEFAULT 297.0,
   background_json TEXT,
+  original_page_in_asset INTEGER CHECK (original_page_in_asset IS NULL OR
+    original_page_in_asset BETWEEN 0 AND 4294967295),
   content_revision INTEGER NOT NULL DEFAULT 0,
   UNIQUE(note_id, page_index),
   UNIQUE(note_id, page_id),
@@ -2026,5 +2047,57 @@ export const MIGRATIONS: Record<number, string[]> = {
       RENAME TO original_page_background_winner`,
     DDL_ORIGINAL_NOTE_BACKGROUND_WINNER,
     DDL_ORIGINAL_NOTE_TITLE_WINNER,
+  ],
+  51: [
+    'ALTER TABLE page_info ADD COLUMN original_page_in_asset INTEGER CHECK ' +
+      '(original_page_in_asset IS NULL OR original_page_in_asset BETWEEN 0 AND 4294967295)',
+    'ALTER TABLE original_deleted_page ADD COLUMN original_page_in_asset INTEGER CHECK ' +
+      '(original_page_in_asset IS NULL OR original_page_in_asset BETWEEN 0 AND 4294967295)',
+    'ALTER TABLE page_delete_checkpoint ADD COLUMN original_page_in_asset INTEGER CHECK ' +
+      '(original_page_in_asset IS NULL OR original_page_in_asset BETWEEN 0 AND 4294967295)',
+    DDL_ORIGINAL_PAGE_IN_ASSET_WINNER,
+    `INSERT INTO original_page_in_asset_winner
+      (note_id, page_timestamp, page_site_id, page_index,
+       winner_timestamp, winner_site_id, page_in_asset)
+     SELECT note_id, seq_timestamp, seq_site_id, seq_index,
+       seq_timestamp, seq_site_id, seq_index FROM original_page_identity`,
+    `UPDATE page_info SET original_page_in_asset =
+      (SELECT identity.seq_index FROM original_page_identity identity
+       WHERE identity.note_id = page_info.note_id AND identity.page_id = page_info.page_id)
+     WHERE EXISTS (SELECT 1 FROM original_page_identity identity
+       WHERE identity.note_id = page_info.note_id AND identity.page_id = page_info.page_id)`,
+    `UPDATE original_deleted_page SET original_page_in_asset = page_index`,
+    `INSERT INTO original_page_background_winner
+      (note_id, page_timestamp, page_site_id, page_index, winner_timestamp, winner_site_id,
+       size, template, orientation, width_mm, height_mm, background_json)
+     SELECT identity.note_id, identity.seq_timestamp, identity.seq_site_id, identity.seq_index,
+       identity.seq_timestamp, identity.seq_site_id,
+       CASE WHEN page.background_json IS NULL THEN NULL ELSE page.size END,
+       CASE WHEN page.background_json IS NULL THEN NULL ELSE page.template END,
+       CASE WHEN page.background_json IS NULL THEN NULL ELSE page.orientation END,
+       CASE WHEN page.background_json IS NULL THEN NULL ELSE page.width_mm END,
+       CASE WHEN page.background_json IS NULL THEN NULL ELSE page.height_mm END,
+       page.background_json
+     FROM original_page_identity identity JOIN page_info page
+       ON page.note_id = identity.note_id AND page.page_id = identity.page_id
+     LEFT JOIN original_page_background_winner winner
+       ON winner.note_id = identity.note_id AND winner.page_timestamp = identity.seq_timestamp
+       AND winner.page_site_id = identity.seq_site_id AND winner.page_index = identity.seq_index
+     WHERE winner.note_id IS NULL`,
+    `INSERT INTO original_page_background_winner
+      (note_id, page_timestamp, page_site_id, page_index, winner_timestamp, winner_site_id,
+       size, template, orientation, width_mm, height_mm, background_json)
+     SELECT page.note_id, page.page_timestamp, page.page_site_id, page.page_index,
+       page.page_timestamp, page.page_site_id,
+       CASE WHEN page.background_json IS NULL THEN NULL ELSE page.size END,
+       CASE WHEN page.background_json IS NULL THEN NULL ELSE page.template END,
+       CASE WHEN page.background_json IS NULL THEN NULL ELSE page.orientation END,
+       CASE WHEN page.background_json IS NULL THEN NULL ELSE page.width_mm END,
+       CASE WHEN page.background_json IS NULL THEN NULL ELSE page.height_mm END,
+       page.background_json
+     FROM original_deleted_page page LEFT JOIN original_page_background_winner winner
+       ON winner.note_id = page.note_id AND winner.page_timestamp = page.page_timestamp
+       AND winner.page_site_id = page.page_site_id AND winner.page_index = page.page_index
+     WHERE winner.note_id IS NULL`,
   ],
 };

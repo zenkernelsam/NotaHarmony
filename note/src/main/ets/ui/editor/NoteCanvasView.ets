@@ -13,6 +13,9 @@ import { Canvas2DTextRenderer } from '../../core/adaptation/Canvas2DTextRenderer
 import { LoadedPencilTexture, loadOriginalPencilTexture } from '../../core/adaptation/PencilTextureLoader';
 import { ImageAssetLoader, ImageAssetLoadState, LoadedImageAsset } from
   '../../core/adaptation/ImageAssetLoader';
+import {
+  LoadedPdfBackground, PdfBackgroundLoader, PdfBackgroundLoadState,
+} from '../../core/adaptation/PdfBackgroundLoader';
 import { StrokeLayerManager } from '../../rendering/StrokeLayerManager';
 import { StrokeCanvasPainter } from '../../rendering/StrokeCanvasPainter';
 import { ShapeCanvasRenderer } from '../../rendering/ShapeCanvasRenderer';
@@ -73,6 +76,7 @@ import { cloneMathElement, mathBlockWorldBounds } from '../../core/model/MathBlo
 import {
   CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, PageInfo,
 } from '../../core/model/NoteTypes';
+import { effectivePageBackground } from '../../core/model/PageBackgroundModel';
 import {
   appendPageElementRefs, clonePageElementOrder, materializePageElements, movePageElementRefs,
   normalizePageElementOrder, OrderedPageElement, PageElementKind, PageElementRef,
@@ -153,6 +157,9 @@ export struct NoteCanvasView {
   private imageAssetLoader: ImageAssetLoader | null = null;
   private imageAssets: Map<string, LoadedImageAsset> = new Map<string, LoadedImageAsset>();
   private imageAssetGeneration: number = 0;
+  private pdfBackgroundLoader: PdfBackgroundLoader | null = null;
+  private pdfBackground: LoadedPdfBackground | null = null;
+  private pdfBackgroundGeneration: number = 0;
   private assetAvailabilitySubscription: number = -1;
   private selectionTool: SelectionTool = new SelectionTool();
   private strokeClipboard: StrokeClipboard = new StrokeClipboard();
@@ -266,6 +273,7 @@ export struct NoteCanvasView {
       await db.initialize(context);
       this.database = db;
       this.imageAssetLoader = new ImageAssetLoader(db);
+      this.pdfBackgroundLoader = new PdfBackgroundLoader(db);
       this.persistence.initialize(db);
       const loaded = await this.persistence.loadElements(this.noteId, targetPageId);
       if (generation !== this.pageLoadGeneration || this.currentPage.pageId !== targetPageId) {
@@ -316,6 +324,7 @@ export struct NoteCanvasView {
         this.renderFrame(true);
       }
       this.refreshImageAssets(generation, targetPageId);
+      this.refreshPdfBackground(generation, targetPageId);
       this.promptPersistentHistoryRecovery();
     } catch (e) {
       if (generation === this.pageLoadGeneration) {
@@ -543,6 +552,7 @@ export struct NoteCanvasView {
       this.assetAvailabilitySubscription = -1;
     }
     this.releaseImageAssets();
+    this.releasePdfBackground();
     this.strokeClipboard.clear();
     this.clipboardAvailable = false;
     this.cancelShapeDetectionTimer();
@@ -584,6 +594,7 @@ export struct NoteCanvasView {
       this.initializeLayerForPage();
       this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
       this.renderFrame(true);
+      this.refreshPdfBackground(this.pageLoadGeneration, this.loadedPageId);
       return;
     }
     const generation: number = ++this.pageLoadGeneration;
@@ -627,6 +638,7 @@ export struct NoteCanvasView {
       this.notifyUndoRedo();
       this.renderFrame(true);
       this.refreshImageAssets(generation, targetPageId);
+      this.refreshPdfBackground(generation, targetPageId);
       this.resumePendingHistory();
     } catch (e) {
       if (generation === this.pageLoadGeneration) {
@@ -646,6 +658,7 @@ export struct NoteCanvasView {
           this.loaded = true;
           this.dataLoadFailed = false;
           this.refreshImageAssets(generation, fromPageId);
+          this.refreshPdfBackground(generation, fromPageId);
           this.onRequestPage(fromPageId);
         } else {
           this.enterLoadFailureState();
@@ -806,8 +819,11 @@ export struct NoteCanvasView {
   }
 
   private renderPaper(theme: ThemeTokens): void {
+    const bitmap: ImageBitmap | null = this.pdfBackground !== null &&
+      this.pdfBackground.state === PdfBackgroundLoadState.READY
+      ? this.pdfBackground.bitmap : null;
     this.paperRenderer.renderBackground(this.canvasCtx, this.getPaperWidth(), this.getPaperHeight(),
-      this.currentPage, this.viewport.zoom, theme);
+      this.currentPage, this.viewport.zoom, theme, bitmap);
   }
 
   private renderTextBlocks(): void {
@@ -865,6 +881,12 @@ export struct NoteCanvasView {
     if (!this.lifecycleActive || change.noteIds.indexOf(this.noteId) < 0 || this.loadedPageId.length === 0) {
       return;
     }
+    const effective = effectivePageBackground(this.currentPage);
+    if (effective !== null && effective.pdf !== undefined && effective.pdf !== null &&
+      originalAssetStorageHash(effective.pdf.metadata.assetHashBits) === change.storageHash) {
+      this.refreshPdfBackground(this.pageLoadGeneration, this.loadedPageId);
+      return;
+    }
     for (const block of this.imageBlocks) {
       if (originalAssetStorageHash(block.assetHashBits) === change.storageHash) {
         this.refreshImageAssets(this.pageLoadGeneration, this.loadedPageId);
@@ -899,6 +921,43 @@ export struct NoteCanvasView {
       this.imageAssets.forEach((loaded: LoadedImageAsset): void => loader.release(loaded));
     }
     this.imageAssets.clear();
+  }
+
+  private refreshPdfBackground(pageGeneration: number, pageId: string): void {
+    const loader: PdfBackgroundLoader | null = this.pdfBackgroundLoader;
+    this.releasePdfBackground();
+    const effective = effectivePageBackground(this.currentPage);
+    if (loader === null || effective === null || effective.pdf === undefined || effective.pdf === null) {
+      return;
+    }
+    const generation: number = this.pdfBackgroundGeneration;
+    loader.load(effective.pdf).then((loaded: LoadedPdfBackground): void => {
+      if (!this.lifecycleActive || pageGeneration !== this.pageLoadGeneration ||
+        generation !== this.pdfBackgroundGeneration || this.loadedPageId !== pageId) {
+        loader.release(loaded);
+        return;
+      }
+      this.pdfBackground = loaded;
+      if (loaded.state !== PdfBackgroundLoadState.READY) {
+        hilog.warn(0x0001, 'NoteCanvasView',
+          'PDF background unavailable state=%{public}d reason=%{public}s',
+          loaded.state, loaded.error === null ? '' : loaded.error);
+      }
+      if (this.layerManager.isInitialized()) {
+        this.renderFrame(true);
+      }
+    }).catch((error: Object): void => {
+      hilog.error(0x0001, 'NoteCanvasView',
+        'PDF background load failed: %{public}s', JSON.stringify(error));
+    });
+  }
+
+  private releasePdfBackground(): void {
+    this.pdfBackgroundGeneration++;
+    if (this.pdfBackground !== null && this.pdfBackgroundLoader !== null) {
+      this.pdfBackgroundLoader.release(this.pdfBackground);
+    }
+    this.pdfBackground = null;
   }
 
   // === T-034：视口操作 ===

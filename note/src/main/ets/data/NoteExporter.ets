@@ -8,7 +8,7 @@ import {
   NoteManifest, PageData, serializeManifest, serializePage,
   NOTE_FORMAT, NOTE_FORMAT_VERSION, NOTE_SOURCE,
 } from './NotePackageSpec';
-import { NoteMeta, PageInfo, PaperSize } from '../core/model/NoteTypes';
+import { NoteMeta, OriginalAssetMetadata, PageBackground, PageInfo, PaperSize } from '../core/model/NoteTypes';
 import { effectivePageBackground } from '../core/model/PageBackgroundModel';
 import { DatabaseManager } from './DatabaseManager';
 import { NoteRepositoryImpl } from './NoteRepositoryImpl';
@@ -20,7 +20,7 @@ import { ImageElement } from '../core/model/ElementTypes';
 import { NoteAsset } from '../core/model/AssetTypes';
 import { AssetRepositoryImpl } from './AssetRepositoryImpl';
 import {
-  imageAssetPackageEntry, readVerifiedImageAsset, resolveImageAsset,
+  originalAssetPackageEntry, readVerifiedOriginalAsset, resolveOriginalAsset,
 } from './ImageAssetPackageStore';
 
 // 纸张尺寸 → 毫米（A3~TABLOID，与 Phase 3 默认一致）
@@ -80,7 +80,7 @@ export class NoteExporter {
       };
 
       const writer = new ZipWriter();
-      const imageAssets: Map<string, ImageElement> = new Map<string, ImageElement>();
+      const assets: Map<string, OriginalAssetMetadata> = new Map<string, OriginalAssetMetadata>();
       writer.addEntry('manifest.json', stringToBytes(serializeManifest(manifest)), true, note.updatedAt);
       writer.addDirectory('pages/', note.updatedAt);
       for (let i = 0; i < pages.length; i++) {
@@ -97,10 +97,19 @@ export class NoteExporter {
           } else if (element.kind === PageElementKind.IMAGE) {
             elementObjects.push({ kind: 'image', data: element.data });
             const imageElement: ImageElement = element.data as ImageElement;
-            imageAssets.set(imageAssetPackageEntry(imageElement), imageElement);
+            this.addAsset(assets, {
+              assetHashBits: imageElement.assetHashBits,
+              fileName: imageElement.fileName,
+              mimeType: imageElement.mimeType,
+              fileSize: imageElement.fileSize,
+            });
           } else if (element.kind === PageElementKind.MATH) {
             elementObjects.push({ kind: 'math', data: element.data });
           }
+        }
+        const background: PageBackground | null = effectivePageBackground(p);
+        if (background !== null && background.pdf !== undefined && background.pdf !== null) {
+          this.addAsset(assets, background.pdf.metadata);
         }
         const pageData: PageData = {
           pageId: p.pageId,
@@ -112,22 +121,23 @@ export class NoteExporter {
           heightMm: p.heightMm,
           // Harmony packages have no CRDT register history. Preserve the resolved
           // appearance so a nullable original page does not lose its note fallback.
-          background: effectivePageBackground(p),
+          background: background,
+          originalPageInAsset: p.originalPageInAsset,
           elements: elementObjects,
         };
         writer.addEntry(`pages/page_${i}.json`, stringToBytes(serializePage(pageData)), true, note.updatedAt);
       }
-      if (imageAssets.size > 0) {
+      if (assets.size > 0) {
         writer.addDirectory('assets/', note.updatedAt);
         const assetRepository: AssetRepositoryImpl = new AssetRepositoryImpl(this.db);
-        for (const entry of imageAssets.entries()) {
+        for (const entry of assets.entries()) {
           const packagePath: string = entry[0];
-          const element: ImageElement = entry[1];
-          const asset: NoteAsset | null = await resolveImageAsset(assetRepository, element);
+          const metadata: OriginalAssetMetadata = entry[1];
+          const asset: NoteAsset | null = await resolveOriginalAsset(assetRepository, metadata);
           if (asset === null) {
-            throw new Error(`image asset metadata is missing for ${element.id}`);
+            throw new Error(`asset metadata is missing for ${packagePath}`);
           }
-          writer.addEntry(packagePath, readVerifiedImageAsset(asset, element), false, note.updatedAt);
+          writer.addEntry(packagePath, readVerifiedOriginalAsset(asset, metadata), false, note.updatedAt);
         }
       }
       return await writer.build();
@@ -208,6 +218,18 @@ export class NoteExporter {
       result.push({ noteId: note.id, updatedAt: note.updatedAt, revision: revisionAfter, data: data });
     }
     return result;
+  }
+
+  private addAsset(assets: Map<string, OriginalAssetMetadata>, metadata: OriginalAssetMetadata): void {
+    const path: string = originalAssetPackageEntry(metadata);
+    const existing: OriginalAssetMetadata | undefined = assets.get(path);
+    if (existing !== undefined && (existing.fileSize !== metadata.fileSize ||
+      existing.mimeType.toLowerCase() !== metadata.mimeType.toLowerCase())) {
+      throw new Error(`asset metadata conflicts for ${path}`);
+    }
+    if (existing === undefined) {
+      assets.set(path, metadata);
+    }
   }
 }
 

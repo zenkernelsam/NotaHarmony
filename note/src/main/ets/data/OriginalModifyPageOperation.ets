@@ -16,6 +16,10 @@ import {
   originalPageBackgroundFitsHarmony,
 } from './OriginalPageBackgroundOperation';
 import { readEffectiveNoteBackground } from './OriginalSetMetadataOperation';
+import {
+  mergeOriginalAssetReference, OriginalAssetReferenceConflict,
+} from './OriginalAssetReferenceStore';
+import { applyOriginalPageInAsset } from './OriginalPageInAssetState';
 
 export const ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE: number = 4;
 export const MAX_ORIGINAL_MODIFY_PAGE_COUNT: number = 10000;
@@ -104,11 +108,13 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
     if (payload.pages.length < 1) {
       return { deferredReason: 'MODIFY_PAGE_HAS_NO_PAGES' };
     }
-    if (payload.background !== null && payload.background.hasPdf) {
-      return { deferredReason: 'MODIFY_PAGE_PDF_BACKGROUND_UNSUPPORTED' };
-    }
     if (payload.background !== null && !originalPageBackgroundFitsHarmony(payload.background)) {
       return { deferredReason: 'MODIFY_PAGE_BACKGROUND_SIZE_UNSUPPORTED' };
+    }
+    if (payload.background !== null && payload.background.background.pdf !== undefined &&
+      payload.background.background.pdf !== null &&
+      payload.background.background.pdf.pagesConsumed !== payload.pages.length) {
+      return { deferredReason: 'MODIFY_PAGE_PDF_PAGE_COUNT_MISMATCH' };
     }
     if (payload.hasBookmarked) {
       return { deferredReason: 'MODIFY_PAGE_BOOKMARK_UNSUPPORTED' };
@@ -127,6 +133,10 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
     if (payload.moveTo !== null &&
       !await this.positionExists(store, operation.noteId, payload.moveTo)) {
       return { deferredReason: 'MODIFY_PAGE_TARGET_MISSING' };
+    }
+    const assetReason: string | null = await this.mergePdfAsset(store, operation.noteId, payload.background);
+    if (assetReason !== null) {
+      return { deferredReason: assetReason };
     }
 
     let changed: boolean = false;
@@ -150,10 +160,36 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
       await this.applyBackground(store, operation, payload.pages, payload.background)) {
       changed = true;
     }
+    if (payload.hasBackground && payload.background !== null &&
+      payload.background.background.pdf !== undefined && payload.background.background.pdf !== null) {
+      const offset: number = payload.background.background.pdf.pageOffset;
+      for (let index: number = 0; index < payload.pages.length; index++) {
+        if (await applyOriginalPageInAsset(store, operation, payload.pages[index], offset + index)) {
+          changed = true;
+        }
+      }
+    }
     if (changed) {
       await this.orderStore.advanceStructureRevision(store, operation.noteId, 'modify-page');
     }
     return { deferredReason: null };
+  }
+
+  private async mergePdfAsset(store: relationalStore.RdbStore, noteId: string,
+    background: OriginalDecodedPageBackground | null): Promise<string | null> {
+    if (background === null || background.background.pdf === undefined ||
+      background.background.pdf === null) {
+      return null;
+    }
+    const conflict: OriginalAssetReferenceConflict = await mergeOriginalAssetReference(
+      store, noteId, background.background.pdf.metadata);
+    if (conflict === OriginalAssetReferenceConflict.METADATA) {
+      return 'MODIFY_PAGE_PDF_ASSET_METADATA_CONFLICT';
+    }
+    if (conflict === OriginalAssetReferenceConflict.LOCAL_PATH) {
+      return 'MODIFY_PAGE_PDF_ASSET_PATH_CONFLICT';
+    }
+    return null;
   }
 
   private async applyBackground(store: relationalStore.RdbStore,

@@ -112,7 +112,7 @@ const clearWinner = db.prepare(`SELECT size,background_json FROM original_page_b
 assert.equal(clearWinner.size, null);
 assert.equal(clearWinner.background_json, null);
 
-assert.match(schema, /DB_VERSION: number = 50/);
+assert.match(schema, /DB_VERSION: number = 51/);
 assert.match(schema, /50: \[/);
 assert.match(schema, /DDL_ORIGINAL_NOTE_BACKGROUND_WINNER/);
 assert.match(schema, /DDL_ORIGINAL_NOTE_TITLE_WINNER/);
@@ -131,7 +131,8 @@ assert.match(bundle, /state\.background === null[\s\S]*readEffectiveNoteBackgrou
 assert.match(model, /effectivePageBackground/);
 assert.match(model, /sourceWidthPt: 612/);
 assert.match(renderer, /effectivePageBackground\(page\)/);
-assert.match(exporter, /background: effectivePageBackground\(p\)/);
+assert.match(exporter, /const background: PageBackground \| null = effectivePageBackground\(p\)/);
+assert.match(exporter, /background: background/);
 
 console.log('D02_NOTE_BACKGROUND_FALLBACK_REPLAY_OK ' +
   'v49-v50-preserve=1|note-lww-stale=2|page-clear-null-winner=1|' +

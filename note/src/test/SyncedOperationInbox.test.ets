@@ -151,6 +151,20 @@ export default function syncedOperationInboxTest() {
       expect(rootPayload.hasBackground).assertTrue();
       expect(rootPayload.bookmarked).assertTrue();
       expect(rootPayload.background?.background.paper?.colorA).assertEqual(255);
+      const pdfPayload = decodeOriginalCreatePage(flatBufferCreatePagePdfBackground());
+      expect(pdfPayload.pageCount).assertEqual(2);
+      expect(pdfPayload.background?.background.pdf?.layoutBehavior).assertEqual(1);
+      expect(pdfPayload.background?.background.pdf?.totalPageCount).assertEqual(12);
+      expect(pdfPayload.background?.background.pdf?.pagesConsumed).assertEqual(2);
+      expect(pdfPayload.background?.background.pdf?.pageOffset).assertEqual(4);
+      expect(pdfPayload.background?.background.pdf?.pageInAsset).assertEqual(4);
+      expect(pdfPayload.background?.background.pdf?.cropBoxes.length).assertEqual(2);
+      expect(pdfPayload.background?.background.pdf?.cropBoxes[1].widthPt).assertEqual(612);
+      expect(pdfPayload.background?.background.pdf?.metadata.assetHashBits[7])
+        .assertEqual('18446744073709551615');
+      expect(pdfPayload.background?.background.pdf?.metadata.fileName).assertEqual('source.pdf');
+      expect(pdfPayload.background?.background.pdf?.metadata.mimeType).assertEqual('application/pdf');
+      expect(pdfPayload.background?.background.pdf?.metadata.fileSize).assertEqual(4096);
     });
 
     it('keeps original SeqId comparison and note-scoped storage IDs', 0, () => {
@@ -570,6 +584,10 @@ export default function syncedOperationInboxTest() {
       const clear = decodeOriginalModifyPage(flatBufferModifyPageBackground(false));
       expect(clear.hasBackground).assertTrue();
       expect(clear.background === null).assertTrue();
+      const pdf = decodeOriginalModifyPage(flatBufferModifyPagePdfBackground());
+      expect(pdf.pages.length).assertEqual(2);
+      expect(pdf.background?.background.pdf?.pagesConsumed).assertEqual(2);
+      expect(pdf.background?.background.pdf?.pageOffset).assertEqual(7);
     });
 
     it('decodes note-level background SET_METADATA including an explicit null', 0, () => {
@@ -591,6 +609,11 @@ export default function syncedOperationInboxTest() {
       expect(combined.title).assertEqual('Imported title');
       expect(combined.hasPageBackground).assertTrue();
       expect(applier.preflightTable(combinedTable) === null).assertTrue();
+      const pdfTable = readOriginalPayloadTable(flatBufferSetMetadataPdfBackground(), 1);
+      const pdf = decodeOriginalSetMetadataTable(pdfTable);
+      expect(pdf.hasPageBackground).assertTrue();
+      expect(pdf.pageBackground?.background.pdf?.metadata.fileName).assertEqual('source.pdf');
+      expect(applier.preflightTable(pdfTable) === null).assertTrue();
     });
 
     it('decodes original DELETE_ENTITIES page tombstones independently from entities', 0, () => {
@@ -1233,6 +1256,18 @@ class FixtureFlatBufferBuilder {
       this.bytes[vector + 4 + index] = values[index];
     }
     this.bytes[vector + 4 + values.length] = 0;
+    return vector;
+  }
+
+  cropBoxVector(values: { width: number, height: number }[]): number {
+    this.align(4);
+    const vector: number = this.cursor;
+    this.cursor += 4 + values.length * 8;
+    writeU32(this.bytes, vector, values.length);
+    for (let index: number = 0; index < values.length; index++) {
+      this.float32(vector + 4 + index * 8, values[index].width);
+      this.float32(vector + 8 + index * 8, values[index].height);
+    }
     return vector;
   }
 
@@ -1994,6 +2029,83 @@ function flatBufferCreatePageBackground(): Uint8Array {
   builder.color(paper + 16, [244, 245, 246, 255]);
   builder.uint8(paper + 20, 7);
   return builder.finish(root);
+}
+
+function flatBufferCreatePagePdfBackground(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 4);
+  builder.uint32(root + 8, 10);
+  builder.uint8(root + 28, 3);
+  const create: number = builder.table([0, 4, 8, 0], 12);
+  builder.pointer(root + 32, create);
+  builder.uint32(create + 8, 2);
+  builder.pointer(create + 4, pdfPageBackground(builder, 2, 4));
+  return builder.finish(root);
+}
+
+function flatBufferModifyPagePdfBackground(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 92);
+  builder.uint8(root + 28, 4);
+  const modify: number = builder.table([4, 0, 8, 0], 12);
+  builder.pointer(root + 32, modify);
+  const pages: number = builder.sequenceIdentityVector([
+    { timestamp: 10, siteId: 1, index: 2 },
+    { timestamp: 20, siteId: 3, index: 4 },
+  ]);
+  builder.pointer(modify + 4, pages);
+  const setter: number = builder.table([4], 8);
+  builder.pointer(modify + 8, setter);
+  builder.pointer(setter + 4, pdfPageBackground(builder, 2, 7));
+  return builder.finish(root);
+}
+
+function flatBufferSetMetadataPdfBackground(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 93);
+  builder.uint8(root + 28, 1);
+  const metadata: number = builder.table([0, 4, 0, 0, 0, 0, 0, 0], 8);
+  builder.pointer(root + 32, metadata);
+  const setter: number = builder.table([4], 8);
+  builder.pointer(metadata + 4, setter);
+  builder.pointer(setter + 4, pdfPageBackground(builder, 1, 3));
+  return builder.finish(root);
+}
+
+function pdfPageBackground(builder: FixtureFlatBufferBuilder,
+  pagesConsumed: number, pageOffset: number): number {
+  const background: number = builder.table([0, 4, 8, 12, 0], 20);
+  builder.float32(background + 8, 0);
+  builder.float32(background + 12, 612);
+  builder.float32(background + 16, 792);
+  const pdf: number = builder.table([4, 8, 12, 16, 20, 24], 28);
+  builder.pointer(background + 4, pdf);
+  builder.uint8(pdf + 8, 1);
+  builder.uint32(pdf + 12, 12);
+  builder.uint32(pdf + 16, pagesConsumed);
+  builder.uint32(pdf + 20, pageOffset);
+  const asset: number = builder.table([4, 68, 72, 76], 80);
+  builder.pointer(pdf + 4, asset);
+  const hashWords: string[] = ['1', '2', '3', '4', '5', '6', '7', '18446744073709551615'];
+  for (let index: number = 0; index < hashWords.length; index++) {
+    writeDecimalU64At(builder, asset + 4 + index * 8, hashWords[index]);
+  }
+  const fileName: number = builder.string('source.pdf');
+  builder.pointer(asset + 68, fileName);
+  const mimeType: number = builder.string('application/pdf');
+  builder.pointer(asset + 72, mimeType);
+  builder.uint32(asset + 76, 4096);
+  const crops: { width: number, height: number }[] = [];
+  for (let index: number = 0; index < pagesConsumed; index++) {
+    crops.push({ width: 612, height: 792 });
+  }
+  builder.pointer(pdf + 24, builder.cropBoxVector(crops));
+  return background;
 }
 
 function flatBufferDeleteEntities(): Uint8Array {

@@ -256,7 +256,7 @@ export class StrokePersistence {
     const resultSet = await this.store.querySql(
       `SELECT page.page_id AS page_id, page.page_index AS page_index, page.size AS size, page.template AS template,
         page.orientation AS orientation, page.width_mm AS width_mm, page.height_mm AS height_mm,
-        page.background_json AS background_json,
+        page.background_json AS background_json, page.original_page_in_asset AS original_page_in_asset,
         page.content_revision AS content_revision,
         EXISTS(SELECT 1 FROM original_page_identity identity
           WHERE identity.note_id = page.note_id AND identity.page_id = page.page_id) AS original_page,
@@ -277,6 +277,8 @@ export class StrokePersistence {
         heightMm: resultSet.getDouble(resultSet.getColumnIndex('height_mm')),
         background: parsePageBackground(resultSet.isColumnNull(resultSet.getColumnIndex('background_json'))
           ? null : resultSet.getString(resultSet.getColumnIndex('background_json'))),
+        originalPageInAsset: resultSet.isColumnNull(resultSet.getColumnIndex('original_page_in_asset'))
+          ? undefined : resultSet.getLong(resultSet.getColumnIndex('original_page_in_asset')),
       };
       let fallbackSignature: string = '';
       if (page.background === null &&
@@ -291,6 +293,7 @@ export class StrokePersistence {
         revision: `${page.pageId}:${page.size}:${page.template}:${page.orientation}:` +
           `${page.widthMm}:${page.heightMm}:${resultSet.isColumnNull(resultSet.getColumnIndex('background_json'))
             ? '' : resultSet.getString(resultSet.getColumnIndex('background_json'))}:` +
+          `${page.originalPageInAsset === undefined ? '' : page.originalPageInAsset}:` +
           `${fallbackSignature}:${maxRevision}:${elementCount}`,
       };
     } finally {
@@ -304,7 +307,7 @@ export class StrokePersistence {
     }
     const resultSet = await this.store.querySql(
       `SELECT page_id, page_index, size, template, orientation, width_mm, height_mm,
-        background_json, content_revision
+        background_json, original_page_in_asset, content_revision
        FROM page_info WHERE note_id = ? ORDER BY page_index, page_id`, [noteId]);
     try {
       const rows: string[] = [];
@@ -318,6 +321,8 @@ export class StrokePersistence {
           `${resultSet.getDouble(resultSet.getColumnIndex('height_mm'))},` +
           `${resultSet.isColumnNull(resultSet.getColumnIndex('background_json')) ? '' :
             resultSet.getString(resultSet.getColumnIndex('background_json'))},` +
+          `${resultSet.isColumnNull(resultSet.getColumnIndex('original_page_in_asset')) ? '' :
+            resultSet.getLong(resultSet.getColumnIndex('original_page_in_asset'))},` +
           `${resultSet.getLong(resultSet.getColumnIndex('content_revision'))}`);
       }
       return rows.join(';');

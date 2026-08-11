@@ -16,6 +16,7 @@ export default function pageStructureOpCodecTest() {
     it('round-trips create and delete with strict bidirectional replay', 0, () => {
       const first: PageInfo = page('first', 0, PaperTemplate.PLAIN);
       const second: PageInfo = page('second-中文', 1, PaperTemplate.GRID);
+      second.originalPageInAsset = 7;
       second.background = {
         schemaVersion: 1,
         paper: { flair: 2, flairSpacingPt: 18, flairBleeds: true, flairCentered: false,
@@ -124,6 +125,8 @@ function assertReplay(current: PageInfo[], revision: number, mutation: PageStruc
     expect(result.pages[index].orientation).assertEqual(expectedPages[index].orientation);
     expect(result.pages[index].widthMm).assertEqual(expectedPages[index].widthMm);
     expect(result.pages[index].heightMm).assertEqual(expectedPages[index].heightMm);
+    expect(result.pages[index].originalPageInAsset).assertEqual(
+      expectedPages[index].originalPageInAsset);
     expect(serializePageBackground(result.pages[index].background))
       .assertEqual(serializePageBackground(expectedPages[index].background));
   }

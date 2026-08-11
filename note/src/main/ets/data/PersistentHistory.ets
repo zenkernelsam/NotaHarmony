@@ -417,6 +417,7 @@ function samePageInfo(left: PageInfo, right: PageInfo): boolean {
   return left.pageId === right.pageId && left.pageIndex === right.pageIndex && left.size === right.size &&
     left.template === right.template && left.orientation === right.orientation &&
     left.widthMm === right.widthMm && left.heightMm === right.heightMm &&
+    left.originalPageInAsset === right.originalPageInAsset &&
     samePageBackground(left.background, right.background);
 }
 
@@ -440,6 +441,7 @@ function changedPages(before: PageInfo[], after: PageInfo[]): PageInfo[] {
     if (source.pageIndex !== page.pageIndex || source.size !== page.size ||
       source.template !== page.template || source.orientation !== page.orientation ||
       source.widthMm !== page.widthMm || source.heightMm !== page.heightMm ||
+      source.originalPageInAsset !== page.originalPageInAsset ||
       !samePageBackground(source.background, page.background)) {
       result.push(page);
     }

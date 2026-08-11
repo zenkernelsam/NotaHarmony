@@ -55,11 +55,41 @@ export interface PageBackgroundMargins {
   rightPt: number;
 }
 
-// Lossless paper-backed subset of original nz9. PDF-backed nz9 stays deferred
-// until its asset, crop-box and renderer contract can be preserved as a unit.
+// Original 1.0.3 xw9 wire values.
+export enum PdfLayoutBehavior {
+  DOWNSCALING_AND_MAX_BOX = 0,
+  DOWNSCALING_AND_CROP_BOX = 1,
+  FIT_AND_CROP_BOX = 2,
+}
+
+export interface OriginalAssetMetadata {
+  assetHashBits: string[];
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+}
+
+export interface PdfCropBoxSize {
+  widthPt: number;
+  heightPt: number;
+}
+
+export interface PagePdfBackground {
+  metadata: OriginalAssetMetadata;
+  layoutBehavior: PdfLayoutBehavior;
+  totalPageCount: number;
+  pagesConsumed: number;
+  pageOffset: number;
+  cropBoxes: PdfCropBoxSize[];
+  // wz9 keeps this in an independent register. It is copied here only on the
+  // effective/renderable value so package exports remain self-contained.
+  pageInAsset: number;
+}
+
 export interface PageBackground {
   schemaVersion: number;
   paper: PagePaperBackground | null;
+  pdf?: PagePdfBackground | null;
   rotationRadians: number;
   sourceWidthPt: number | null;
   sourceHeightPt: number | null;
@@ -79,6 +109,9 @@ export interface PageInfo {
   // Effective note-level fallback. This is loaded separately from the nullable
   // page register and must never be written back as the page background.
   noteBackgroundFallback?: PageBackground | null;
+  // Original wz9 pageInAsset register. Undefined denotes a local/non-original
+  // page; original pages always materialize an unsigned uint32 value.
+  originalPageInAsset?: number;
 }
 
 // 笔记元数据（对应 SyncedNoteMetadata 简化版）

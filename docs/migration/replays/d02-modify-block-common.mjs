@@ -303,7 +303,7 @@ assert.match(source, /registerAccepts/);
 assert.match(source, /readOptionalWinner/);
 assert.match(source, /isFiniteNullableScale/);
 assert.match(source, /advanceRevisionAndInvalidateSearch/);
-assert.match(schema, /DB_VERSION: number = 50/);
+assert.match(schema, /DB_VERSION: number = 51/);
 assert.match(dispatcher, /ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE/);
 assert.match(geometry, /isTextBlockPositionLocked/);
 assert.match(geometry, /eraserPath\.length === 0 \|\| isTextBlockPositionLocked/);

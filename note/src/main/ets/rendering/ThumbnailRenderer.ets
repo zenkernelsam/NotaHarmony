@@ -7,10 +7,14 @@ import {
 import { Canvas2DTextRenderer } from '../core/adaptation/Canvas2DTextRenderer';
 import { ImageAssetLoader, ImageAssetLoadState, LoadedImageAsset } from
   '../core/adaptation/ImageAssetLoader';
+import {
+  LoadedPdfBackground, PdfBackgroundLoader, PdfBackgroundLoadState,
+} from '../core/adaptation/PdfBackgroundLoader';
 import { LoadedPencilTexture, loadOriginalPencilTexture } from '../core/adaptation/PencilTextureLoader';
 import { originalAssetStorageHash } from '../core/model/ImageBlockGeometry';
 import { PagePixelSize, pagePixelSize } from '../core/model/PageCoordinateSpace';
 import { PageInfo } from '../core/model/NoteTypes';
+import { effectivePageBackground } from '../core/model/PageBackgroundModel';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { DatabaseManager } from '../data/DatabaseManager';
 import { StrokePersistence } from '../data/StrokePersistence';
@@ -82,13 +86,19 @@ export class ThumbnailRenderer {
     }
     const loaded = await persistence.loadElements(noteId, page.pageId);
     const imageLoader: ImageAssetLoader = new ImageAssetLoader(database);
+    const pdfLoader: PdfBackgroundLoader = new PdfBackgroundLoader(database);
     const imageAssets: Map<string, LoadedImageAsset> = new Map<string, LoadedImageAsset>();
+    let pdfBackground: LoadedPdfBackground | null = null;
     try {
       for (const block of loaded.images) {
         const storageHash: string = originalAssetStorageHash(block.assetHashBits);
         if (!imageAssets.has(storageHash)) {
           imageAssets.set(storageHash, await imageLoader.load(block));
         }
+      }
+      const effective = effectivePageBackground(page);
+      if (effective !== null && effective.pdf !== undefined && effective.pdf !== null) {
+        pdfBackground = await pdfLoader.load(effective.pdf);
       }
       const pageSize: PagePixelSize = pagePixelSize(page.widthMm, page.heightMm);
       const pageTransform: ThumbnailPageTransform = fitPageInThumbnail(
@@ -101,7 +111,9 @@ export class ThumbnailRenderer {
       ctx.translate(pageTransform.offset.x, pageTransform.offset.y);
       ctx.scale(pageTransform.scale, pageTransform.scale);
       this.paperRenderer.renderOffscreenBackground(ctx, pageSize.width, pageSize.height,
-        page, pageTransform.scale, theme);
+        page, pageTransform.scale, theme,
+        pdfBackground !== null && pdfBackground.state === PdfBackgroundLoadState.READY
+          ? pdfBackground.bitmap : null);
       const renderContext: Canvas2DOffscreenRenderContext = new Canvas2DOffscreenRenderContext(ctx);
       for (const element of loaded.elements) {
         if (element.kind === PageElementKind.STROKE) {
@@ -137,6 +149,9 @@ export class ThumbnailRenderer {
       });
     } finally {
       imageAssets.forEach((asset: LoadedImageAsset): void => imageLoader.release(asset));
+      if (pdfBackground !== null) {
+        pdfLoader.release(pdfBackground);
+      }
     }
   }
 

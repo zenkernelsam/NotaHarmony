@@ -43,6 +43,7 @@ export interface PageData {
   widthMm?: number;
   heightMm?: number;
   background?: PageBackground | null;
+  originalPageInAsset?: number;
   elements: object[];    // NoteElement JSON 数组
 }
 
@@ -197,6 +198,11 @@ export function parsePage(json: string): PageData | null {
     const hasHeight: boolean = parsed.heightMm !== undefined;
     if (hasWidth !== hasHeight || (hasWidth && (!isPositiveFinite(parsed.widthMm as number) ||
       !isPositiveFinite(parsed.heightMm as number)))) {
+      return null;
+    }
+    if (parsed.originalPageInAsset !== undefined &&
+      (!Number.isSafeInteger(parsed.originalPageInAsset) || parsed.originalPageInAsset < 0 ||
+        parsed.originalPageInAsset > 0xFFFFFFFF)) {
       return null;
     }
     try {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
   OriginalPaperFlair, PageBackground, PageInfo, PageOrientation, PagePaperBackground,
-  PaperSize, PaperTemplate,
+  PaperSize, PaperTemplate, PdfLayoutBehavior,
 } from '../main/ets/core/model/NoteTypes';
 import {
   clonePageBackground, clonePageInfo, effectivePageBackground, originalDefaultNoteBackground,
@@ -71,6 +71,32 @@ export default function pageBackgroundModelTest() {
       expect(originalDefaultNoteBackground().sourceWidthPt).assertEqual(612);
       expect(originalDefaultNoteBackground().sourceHeightPt).assertEqual(792);
     });
+
+    it('keeps PDF assets and pageInAsset lossless but independently owned', 0, () => {
+      const fallback: PageBackground = pdfBackground();
+      const page: PageInfo = {
+        pageId: 'pdf', pageIndex: 0, size: PaperSize.LETTER, template: PaperTemplate.PLAIN,
+        orientation: PageOrientation.PORTRAIT, widthMm: 215.9, heightMm: 279.4,
+        background: null, noteBackgroundFallback: fallback, originalPageInAsset: 5,
+      };
+      const effective: PageBackground | null = effectivePageBackground(page);
+      expect(effective?.pdf?.pageInAsset).assertEqual(5);
+      expect(fallback.pdf?.pageInAsset).assertEqual(4);
+      const encoded: string | null = serializePageBackground(fallback);
+      const decoded: PageBackground | null = parsePageBackground(encoded);
+      expect(samePageBackground(fallback, decoded)).assertTrue();
+      if (decoded !== null && decoded.pdf !== undefined && decoded.pdf !== null) {
+        decoded.pdf.metadata.assetHashBits[0] = '99';
+        decoded.pdf.cropBoxes[0].widthPt = 1;
+      }
+      expect(fallback.pdf?.metadata.assetHashBits[0]).assertEqual('1');
+      expect(fallback.pdf?.cropBoxes[0].widthPt).assertEqual(612);
+      const invalid: PageBackground = pdfBackground();
+      if (invalid.pdf !== undefined && invalid.pdf !== null) {
+        invalid.pdf.cropBoxes.pop();
+      }
+      expectThrow((): void => validatePageBackground(invalid));
+    });
   });
 }
 
@@ -86,6 +112,27 @@ function background(): PageBackground {
     sourceWidthPt: 612,
     sourceHeightPt: 792,
     margins: { topPt: 12, bottomPt: 14, leftPt: 16, rightPt: 18 },
+  };
+}
+
+function pdfBackground(): PageBackground {
+  return {
+    schemaVersion: 2,
+    paper: null,
+    pdf: {
+      metadata: {
+        assetHashBits: ['1', '2', '3', '4', '5', '6', '7', '18446744073709551615'],
+        fileName: 'source.pdf', mimeType: 'application/pdf', fileSize: 4096,
+      },
+      layoutBehavior: PdfLayoutBehavior.DOWNSCALING_AND_CROP_BOX,
+      totalPageCount: 12, pagesConsumed: 2, pageOffset: 4,
+      cropBoxes: [{ widthPt: 612, heightPt: 792 }, { widthPt: 612, heightPt: 792 }],
+      pageInAsset: 4,
+    },
+    rotationRadians: 0,
+    sourceWidthPt: 612,
+    sourceHeightPt: 792,
+    margins: null,
   };
 }
 

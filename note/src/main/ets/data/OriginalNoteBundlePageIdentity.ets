@@ -53,6 +53,9 @@ import {
 import {
   StoredSyncedOperation, SyncedOperationInboxState, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
+import {
+  mergeOriginalAssetReference, OriginalAssetReferenceConflict,
+} from './OriginalAssetReferenceStore';
 
 export const ORIGINAL_NOTE_BUNDLE_MAX_OPERATION_COUNT: number = 262144;
 const ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE: number = 3;
@@ -112,6 +115,8 @@ interface BootstrapPageState {
   visibility: BootstrapVisibilityWinner | null;
   background: OriginalDecodedPageBackground | null;
   backgroundWinner: OperationIdentity | null;
+  pageInAsset: number;
+  pageInAssetWinner: OperationIdentity;
 }
 
 interface BootstrapHistory {
@@ -213,6 +218,11 @@ export class OriginalNoteBundlePageIdentityBootstrapper {
     if (contentPreflightReason !== null) {
       return deferred(contentPreflightReason);
     }
+    const pdfAssetReason: string | null = await mergeBootstrapPdfAssets(
+      store, expectedNoteId, history.pages);
+    if (pdfAssetReason !== null) {
+      return deferred(pdfAssetReason);
+    }
     const pageIds: string[] = await readPageIds(store, expectedNoteId);
     if (pageIds.length !== history.visibleOrder.length) {
       return deferred('NOTE_BUNDLE_PAGE_COUNT_MISMATCH');
@@ -244,6 +254,33 @@ export class OriginalNoteBundlePageIdentityBootstrapper {
       store, expectedNoteId, history, pageIdBySequence);
     return { applied: applied || contentResult.applied || backgroundChanged, deferredReason: null };
   }
+}
+
+async function mergeBootstrapPdfAssets(store: relationalStore.RdbStore, noteId: string,
+  pages: Map<string, BootstrapPageState>): Promise<string | null> {
+  const merged: Set<string> = new Set<string>();
+  const states: BootstrapPageState[] = [];
+  pages.forEach((state: BootstrapPageState): void => states.push(state));
+  for (const state of states) {
+    if (state.background === null || state.background.background.pdf === undefined ||
+      state.background.background.pdf === null) {
+      continue;
+    }
+    const key: string = JSON.stringify(state.background.background.pdf.metadata.assetHashBits);
+    if (merged.has(key)) {
+      continue;
+    }
+    merged.add(key);
+    const conflict: OriginalAssetReferenceConflict = await mergeOriginalAssetReference(
+      store, noteId, state.background.background.pdf.metadata);
+    if (conflict === OriginalAssetReferenceConflict.METADATA) {
+      return 'NOTE_BUNDLE_PDF_ASSET_METADATA_CONFLICT';
+    }
+    if (conflict === OriginalAssetReferenceConflict.LOCAL_PATH) {
+      return 'NOTE_BUNDLE_PDF_ASSET_PATH_CONFLICT';
+    }
+  }
+  return null;
 }
 
 function preflightBundleContent(bundle: OriginalNoteBundle,
@@ -511,11 +548,13 @@ function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): Boot
     if (payload.pageCount < 1 || payload.pageCount > MAX_ORIGINAL_CREATE_PAGE_COUNT) {
       return replayDeferred('NOTE_BUNDLE_CREATE_PAGE_COUNT_UNSUPPORTED');
     }
-    if (payload.background !== null && payload.background.hasPdf) {
-      return replayDeferred('NOTE_BUNDLE_CREATE_PAGE_PDF_BACKGROUND_UNSUPPORTED');
-    }
     if (payload.background !== null && !originalPageBackgroundFitsHarmony(payload.background)) {
       return replayDeferred('NOTE_BUNDLE_CREATE_PAGE_BACKGROUND_SIZE_UNSUPPORTED');
+    }
+    if (payload.background !== null && payload.background.background.pdf !== undefined &&
+      payload.background.background.pdf !== null &&
+      payload.background.background.pdf.pagesConsumed !== payload.pageCount) {
+      return replayDeferred('NOTE_BUNDLE_CREATE_PAGE_PDF_PAGE_COUNT_MISMATCH');
     }
     totalPageCount += payload.pageCount;
     if (!Number.isSafeInteger(totalPageCount) || totalPageCount > ORIGINAL_NOTE_BUNDLE_MAX_OPERATION_COUNT) {
@@ -531,8 +570,14 @@ function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): Boot
       if (pages.has(key) || positions.has(key)) {
         throw new Error('note bundle repeats a page identity');
       }
+      const initialPageInAsset: number = payload.background === null ||
+        payload.background.background.pdf === undefined || payload.background.background.pdf === null
+        ? index : payload.background.background.pdf.pageOffset + index;
       pages.set(key, {
-        identity: identity, visibility: null, background: payload.background, backgroundWinner: null,
+        identity: identity, visibility: null, background: payload.background,
+        backgroundWinner: { timestamp: operation.timestamp, siteId: operation.siteId },
+        pageInAsset: initialPageInAsset,
+        pageInAssetWinner: { timestamp: operation.timestamp, siteId: operation.siteId },
       });
       positions.add(key);
       positionWinners.set(key, {
@@ -561,11 +606,13 @@ function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): Boot
     if (payload.pages.length < 1) {
       return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_HAS_NO_PAGES');
     }
-    if (payload.background !== null && payload.background.hasPdf) {
-      return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_PDF_BACKGROUND_UNSUPPORTED');
-    }
     if (payload.background !== null && !originalPageBackgroundFitsHarmony(payload.background)) {
       return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_BACKGROUND_SIZE_UNSUPPORTED');
+    }
+    if (payload.background !== null && payload.background.background.pdf !== undefined &&
+      payload.background.background.pdf !== null &&
+      payload.background.background.pdf.pagesConsumed !== payload.pages.length) {
+      return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_PDF_PAGE_COUNT_MISMATCH');
     }
     if (payload.hasBookmarked) {
       return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_BOOKMARK_UNSUPPORTED');
@@ -579,7 +626,8 @@ function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): Boot
       }
     }
     if (payload.hasBackground) {
-      for (const page of payload.pages) {
+      for (let pageIndex: number = 0; pageIndex < payload.pages.length; pageIndex++) {
+        const page: OriginalSequenceIdentity = payload.pages[pageIndex];
         const state: BootstrapPageState | undefined = pages.get(encodeOriginalSequenceId(page));
         if (state === undefined) {
           throw new Error('validated note bundle background page disappeared');
@@ -588,6 +636,12 @@ function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): Boot
           compareOperationIdentity(operation, state.backgroundWinner) > 0) {
           state.background = payload.background;
           state.backgroundWinner = { timestamp: operation.timestamp, siteId: operation.siteId };
+        }
+        if (payload.background !== null && payload.background.background.pdf !== undefined &&
+          payload.background.background.pdf !== null &&
+          compareOperationIdentity(operation, state.pageInAssetWinner) > 0) {
+          state.pageInAsset = payload.background.background.pdf.pageOffset + pageIndex;
+          state.pageInAssetWinner = { timestamp: operation.timestamp, siteId: operation.siteId };
         }
       }
     }
@@ -867,6 +921,15 @@ async function insertBootstrapHistory(store: relationalStore.RdbStore, noteId: s
         'background_json': background === null ? null : serializePageBackground(background.background),
       });
     }
+    await store.insert('original_page_in_asset_winner', {
+      'note_id': noteId,
+      'page_timestamp': page.identity.timestamp,
+      'page_site_id': page.identity.siteId,
+      'page_index': page.identity.index,
+      'winner_timestamp': page.pageInAssetWinner.timestamp,
+      'winner_site_id': page.pageInAssetWinner.siteId,
+      'page_in_asset': page.pageInAsset,
+    });
   }
 }
 
@@ -886,7 +949,8 @@ async function applyBootstrapBackgrounds(store: relationalStore.RdbStore, noteId
       ? await readEffectiveNoteBackground(store, noteId) : state.background;
     const backgroundJson: string | null = state.background === null ? null :
       serializePageBackground(state.background.background);
-    if (await storedPageBackgroundMatches(store, noteId, pageId, materialized, backgroundJson)) {
+    if (await storedPageBackgroundMatches(
+      store, noteId, pageId, materialized, backgroundJson, state.pageInAsset)) {
       continue;
     }
     const predicates = new relationalStore.RdbPredicates('page_info');
@@ -899,6 +963,7 @@ async function applyBootstrapBackgrounds(store: relationalStore.RdbStore, noteId
       'width_mm': materialized.widthMm,
       'height_mm': materialized.heightMm,
       'background_json': backgroundJson,
+      'original_page_in_asset': state.pageInAsset,
     }, predicates);
     if (updated !== 1) {
       throw new Error(`note bundle background update affected ${updated} rows`);
@@ -910,9 +975,10 @@ async function applyBootstrapBackgrounds(store: relationalStore.RdbStore, noteId
 
 async function storedPageBackgroundMatches(store: relationalStore.RdbStore, noteId: string,
   pageId: string, expected: OriginalDecodedPageBackground,
-  backgroundJson: string | null): Promise<boolean> {
+  backgroundJson: string | null, pageInAsset: number): Promise<boolean> {
   const rows = await store.querySql(
-    `SELECT size, template, orientation, width_mm, height_mm, background_json
+    `SELECT size, template, orientation, width_mm, height_mm, background_json,
+      original_page_in_asset
      FROM page_info WHERE note_id = ? AND page_id = ?`, [noteId, pageId]);
   try {
     if (!rows.goToFirstRow()) {
@@ -926,7 +992,9 @@ async function storedPageBackgroundMatches(store: relationalStore.RdbStore, note
       rows.getLong(rows.getColumnIndex('orientation')) === expected.orientation &&
       rows.getDouble(rows.getColumnIndex('width_mm')) === expected.widthMm &&
       rows.getDouble(rows.getColumnIndex('height_mm')) === expected.heightMm &&
-      storedBackground === backgroundJson;
+      storedBackground === backgroundJson &&
+      !rows.isColumnNull(rows.getColumnIndex('original_page_in_asset')) &&
+      rows.getLong(rows.getColumnIndex('original_page_in_asset')) === pageInAsset;
   } finally {
     rows.close();
   }
@@ -961,6 +1029,7 @@ async function existingMappingMatches(store: relationalStore.RdbStore, noteId: s
       countVisibilityWinners(history.pages)) ||
     !await exactCount(store, 'original_page_background_winner', noteId,
       countBackgroundWinners(history.pages)) ||
+    !await exactCount(store, 'original_page_in_asset_winner', noteId, history.pages.size) ||
     !await exactCount(store, 'original_deleted_page', noteId, 0)) {
     return false;
   }
@@ -1036,6 +1105,14 @@ async function existingMappingMatches(store: relationalStore.RdbStore, noteId: s
         return false;
       }
     }
+    if (!await rowExists(store,
+      `SELECT 1 FROM original_page_in_asset_winner WHERE note_id = ?
+       AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+       AND winner_timestamp = ? AND winner_site_id = ? AND page_in_asset = ? LIMIT 1`,
+      [noteId, page.identity.timestamp, page.identity.siteId, page.identity.index,
+        page.pageInAssetWinner.timestamp, page.pageInAssetWinner.siteId, page.pageInAsset])) {
+      return false;
+    }
   }
   return true;
 }
@@ -1079,6 +1156,7 @@ async function hasExistingMapping(store: relationalStore.RdbStore, noteId: strin
     'original_page_insert_group', 'original_page_identity', 'original_page_position_group',
     'original_page_position', 'original_page_position_winner',
     'original_page_visibility_winner', 'original_page_background_winner',
+    'original_page_in_asset_winner',
     'original_deleted_page',
   ];
   for (const table of tables) {

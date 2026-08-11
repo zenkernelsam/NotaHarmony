@@ -16,22 +16,28 @@ export class PaperRenderer {
   // T-038：theme 提供 paperBackground/paperLineColor
   // 纸张固定在页面坐标 (0,0)；屏幕上的居中/平移完全由 CanvasViewport 负责。
   renderBackground(ctx: CanvasRenderingContext2D, paperW: number, paperH: number,
-    page: PageInfo, zoom: number = 1.0, theme: ThemeTokens = LightTheme): void {
-    this.renderToContext(new Canvas2DRenderContext(ctx), paperW, paperH, page, zoom, theme);
+    page: PageInfo, zoom: number = 1.0, theme: ThemeTokens = LightTheme,
+    pdfBitmap: ImageBitmap | null = null): void {
+    this.renderToContext(new Canvas2DRenderContext(ctx), paperW, paperH, page, zoom, theme, pdfBitmap);
   }
 
   renderOffscreenBackground(ctx: OffscreenCanvasRenderingContext2D, paperW: number, paperH: number,
-    page: PageInfo, zoom: number = 1.0, theme: ThemeTokens = LightTheme): void {
+    page: PageInfo, zoom: number = 1.0, theme: ThemeTokens = LightTheme,
+    pdfBitmap: ImageBitmap | null = null): void {
     this.renderToContext(new Canvas2DOffscreenRenderContext(ctx),
-      paperW, paperH, page, zoom, theme);
+      paperW, paperH, page, zoom, theme, pdfBitmap);
   }
 
   private renderToContext(ctx: Canvas2DDrawingContext, paperW: number, paperH: number,
-    page: PageInfo, zoom: number, theme: ThemeTokens): void {
+    page: PageInfo, zoom: number, theme: ThemeTokens, pdfBitmap: ImageBitmap | null): void {
     const effectiveBackground: PageBackground | null = effectivePageBackground(page);
     ctx.save();
     ctx.setFillStyle(pageBackgroundCssColor(effectiveBackground, theme.paperBackground));
     ctx.fillRect(0, 0, paperW, paperH);
+    if (effectiveBackground !== null && effectiveBackground.pdf !== undefined &&
+      effectiveBackground.pdf !== null && pdfBitmap !== null) {
+      this.drawPdfBackground(ctx, paperW, paperH, effectiveBackground, pdfBitmap);
+    }
     const paper: PagePaperBackground | null = effectiveBackground === null ? null : effectiveBackground.paper;
     const spacing: number = paper === null || paper.flairSpacingPt === null
       ? 28 : paper.flairSpacingPt * POINTS_TO_PAGE_UNITS;
@@ -54,6 +60,33 @@ export class PaperRenderer {
       default:
         break;  // PLAIN 空白
     }
+    ctx.restore();
+  }
+
+  private drawPdfBackground(ctx: Canvas2DDrawingContext, paperW: number, paperH: number,
+    background: PageBackground, bitmap: ImageBitmap): void {
+    const margins = background.margins;
+    const left: number = margins === null ? 0 : margins.leftPt * POINTS_TO_PAGE_UNITS;
+    const top: number = margins === null ? 0 : margins.topPt * POINTS_TO_PAGE_UNITS;
+    const right: number = margins === null ? 0 : margins.rightPt * POINTS_TO_PAGE_UNITS;
+    const bottom: number = margins === null ? 0 : margins.bottomPt * POINTS_TO_PAGE_UNITS;
+    const rotated: boolean = Math.abs(background.rotationRadians - Math.PI / 2) < 0.0001 ||
+      Math.abs(background.rotationRadians - Math.PI * 3 / 2) < 0.0001;
+    const sourceWidth: number = rotated ? paperH : paperW;
+    const sourceHeight: number = rotated ? paperW : paperH;
+    ctx.save();
+    if (Math.abs(background.rotationRadians - Math.PI / 2) < 0.0001) {
+      ctx.translate(paperW, 0);
+      ctx.rotate(Math.PI / 2);
+    } else if (Math.abs(background.rotationRadians - Math.PI) < 0.0001) {
+      ctx.translate(paperW, paperH);
+      ctx.rotate(Math.PI);
+    } else if (Math.abs(background.rotationRadians - Math.PI * 3 / 2) < 0.0001) {
+      ctx.translate(0, paperH);
+      ctx.rotate(Math.PI * 3 / 2);
+    }
+    ctx.drawImage(bitmap, left, top,
+      Math.max(0, sourceWidth - left - right), Math.max(0, sourceHeight - top - bottom));
     ctx.restore();
   }
 

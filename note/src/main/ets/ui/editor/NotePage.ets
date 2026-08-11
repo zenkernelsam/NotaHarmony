@@ -785,6 +785,7 @@ struct NotePage {
   private samePageSettings(a: PageInfo, b: PageInfo): boolean {
     return a.size === b.size && a.template === b.template && a.orientation === b.orientation &&
       a.widthMm === b.widthMm && a.heightMm === b.heightMm &&
+      a.originalPageInAsset === b.originalPageInAsset &&
       samePageBackground(a.background, b.background) &&
       samePageBackground(a.noteBackgroundFallback, b.noteBackgroundFallback);
   }
