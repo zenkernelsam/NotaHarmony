@@ -3,6 +3,7 @@
 import { router, promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { audio } from '@kit.AudioKit';
 import { NoteMeta, PageInfo } from '../../core/model/NoteTypes';
 import { clonePageInfo, samePageBackground } from '../../core/model/PageBackgroundModel';
 import { HistoryMetadata } from '../../core/model/OpTypes';
@@ -30,13 +31,17 @@ import {
 import { OriginalRecordingDeleteController } from
   '../../core/adaptation/OriginalRecordingDeleteController';
 import {
-  OriginalRecordingCaptureController, OriginalRecordingCaptureResult,
+  OriginalRecordingAudioSource, OriginalRecordingCaptureController, OriginalRecordingCaptureResult,
   OriginalRecordingCaptureState,
 } from
   '../../core/adaptation/OriginalRecordingCaptureController';
 import {
   HarmonyOriginalRecordingCaptureClock, OriginalRecordingMicrophoneBackend,
 } from '../../core/adaptation/OriginalRecordingMicrophoneBackend';
+import { OriginalRecordingInternalAudioBackend } from
+  '../../core/adaptation/OriginalRecordingInternalAudioBackend';
+import { OriginalRecordingSourceBackend } from
+  '../../core/adaptation/OriginalRecordingSourceBackend';
 import {
   isOriginalRecordingCaptureActive, OriginalRecordingSessionController,
   OriginalRecordingSessionFailure, OriginalRecordingSessionSnapshot,
@@ -91,6 +96,7 @@ struct NotePage {
     preparing: false, saving: false,
     failure: OriginalRecordingSessionFailure.NONE, failureSequence: 0,
   };
+  @State recordingPauseSupported: boolean = true;
   @State audioPlaybackTime: string | null = null;
   @State audioPlaybackSegments: OriginalAudioSegmentRange[] = [];
   private noteRepo: NoteRepositoryImpl | null = null;
@@ -130,9 +136,11 @@ struct NotePage {
     }
     if (this.recordingSessionController === null) {
       const context = getContext(this) as common.UIAbilityContext;
-      const capture = new OriginalRecordingCaptureController(
+      const sourceBackend: OriginalRecordingSourceBackend = new OriginalRecordingSourceBackend(
         new OriginalRecordingMicrophoneBackend(context.tempDir),
-        new HarmonyOriginalRecordingCaptureClock());
+        new OriginalRecordingInternalAudioBackend(context.tempDir));
+      const capture = new OriginalRecordingCaptureController(sourceBackend,
+        new HarmonyOriginalRecordingCaptureClock(), sourceBackend);
       this.recordingSessionController = new OriginalRecordingSessionController(
         capture, new HarmonyOriginalRecordingPermissionGateway(context),
         new HarmonyOriginalRecordingAudioFocusGateway(),
@@ -346,6 +354,8 @@ struct NotePage {
 
   private onRecordingSessionSnapshot(snapshot: OriginalRecordingSessionSnapshot): void {
     this.recordingSessionSnapshot = snapshot;
+    const session: OriginalRecordingSessionController | null = this.recordingSessionController;
+    this.recordingPauseSupported = session === null ? true : session.canPause();
     if (snapshot.failureSequence !== this.recordingFailureSequence) {
       this.recordingFailureSequence = snapshot.failureSequence;
       this.showRecordingFailure(snapshot.failure);
@@ -400,8 +410,33 @@ struct NotePage {
 
   private async startRecording(): Promise<void> {
     const session: OriginalRecordingSessionController | null = this.recordingSessionController;
-    if (session !== null) {
-      await session.start();
+    if (session === null) {
+      return;
+    }
+    let musicActive: boolean = false;
+    try {
+      musicActive = audio.getAudioManager().getStreamManager().isStreamActive(
+        audio.StreamUsage.STREAM_USAGE_MUSIC);
+    } catch (_error) {
+    }
+    if (!musicActive) {
+      await session.start(OriginalRecordingAudioSource.MICROPHONE);
+      return;
+    }
+    try {
+      const response: promptAction.ShowDialogSuccessResponse = await promptAction.showDialog({
+        title: $r('app.string.select_audio_source'),
+        buttons: [
+          { text: $r('app.string.audio_source_microphone'), color: this.resolveTokens().textPrimary },
+          { text: $r('app.string.audio_source_internal'), color: this.resolveTokens().textPrimary },
+        ],
+      });
+      if (response.index === 0) {
+        await session.start(OriginalRecordingAudioSource.MICROPHONE);
+      } else if (response.index === 1) {
+        await session.start(OriginalRecordingAudioSource.DEVICE_ONLY);
+      }
+    } catch (_error) {
     }
   }
 
@@ -719,6 +754,7 @@ struct NotePage {
           playbackSpeed: this.recordingPlaybackSpeed,
           pendingDeleteIds: this.pendingRecordingDeleteIds,
           captureSnapshot: this.recordingSessionSnapshot,
+          capturePauseSupported: this.recordingPauseSupported,
           onRecord: () => {
             this.startRecording();
           },

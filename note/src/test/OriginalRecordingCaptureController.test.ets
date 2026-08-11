@@ -2,6 +2,7 @@ import { describe, expect, it } from '@ohos/hypium';
 import {
   OriginalRecordingCaptureBackend, OriginalRecordingCaptureClock,
   OriginalRecordingCaptureController, OriginalRecordingCaptureErrorListener,
+  OriginalRecordingCaptureInterruptionListener,
   OriginalRecordingCaptureResult, OriginalRecordingCaptureStart,
   OriginalRecordingCaptureState, OriginalRecordingCaptureStop,
 } from '../main/ets/core/adaptation/OriginalRecordingCaptureController';
@@ -27,6 +28,7 @@ class CaptureTestClock implements OriginalRecordingCaptureClock {
 
 class CaptureTestBackend implements OriginalRecordingCaptureBackend {
   listener: OriginalRecordingCaptureErrorListener | null = null;
+  interruptionListener: OriginalRecordingCaptureInterruptionListener | null = null;
   calls: string[] = [];
   failStart: boolean = false;
   mediaDurationMs: number | null = null;
@@ -34,6 +36,12 @@ class CaptureTestBackend implements OriginalRecordingCaptureBackend {
   setErrorListener(listener: OriginalRecordingCaptureErrorListener | null): void {
     this.listener = listener;
   }
+
+  setInterruptionListener(listener: OriginalRecordingCaptureInterruptionListener | null): void {
+    this.interruptionListener = listener;
+  }
+
+  supportsPause(): boolean { return true; }
 
   async start(): Promise<OriginalRecordingCaptureStart> {
     this.calls.push('start');

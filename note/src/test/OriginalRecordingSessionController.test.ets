@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@ohos/hypium';
 import {
-  OriginalRecordingCaptureBackend, OriginalRecordingCaptureClock,
+  OriginalRecordingAudioSource, OriginalRecordingCaptureBackend, OriginalRecordingCaptureClock,
   OriginalRecordingCaptureController, OriginalRecordingCaptureErrorListener,
+  OriginalRecordingCaptureInterruptionListener,
   OriginalRecordingCaptureResult, OriginalRecordingCaptureStart,
   OriginalRecordingCaptureStop,
 } from '../main/ets/core/adaptation/OriginalRecordingCaptureController';
@@ -9,6 +10,8 @@ import {
   OriginalRecordingAudioFocusGateway, OriginalRecordingPermissionGateway,
   OriginalRecordingSessionController, OriginalRecordingSessionFailure,
 } from '../main/ets/core/adaptation/OriginalRecordingSessionController';
+import { OriginalRecordingSourceBackend } from
+  '../main/ets/core/adaptation/OriginalRecordingSourceBackend';
 
 class SessionTestClock implements OriginalRecordingCaptureClock {
   wall: number = 100000;
@@ -21,15 +24,25 @@ class SessionTestClock implements OriginalRecordingCaptureClock {
 class SessionTestBackend implements OriginalRecordingCaptureBackend {
   calls: string[] = [];
   listener: OriginalRecordingCaptureErrorListener | null = null;
+  interruptionListener: OriginalRecordingCaptureInterruptionListener | null = null;
   failStart: boolean = false;
+  interruptDuringStart: boolean = false;
+  pauseSupported: boolean = true;
 
   setErrorListener(listener: OriginalRecordingCaptureErrorListener | null): void {
     this.listener = listener;
   }
+  setInterruptionListener(listener: OriginalRecordingCaptureInterruptionListener | null): void {
+    this.interruptionListener = listener;
+  }
+  supportsPause(): boolean { return this.pauseSupported; }
   async start(): Promise<OriginalRecordingCaptureStart> {
     this.calls.push('capture-start');
     if (this.failStart) {
       throw new Error('capture start failed');
+    }
+    if (this.interruptDuringStart) {
+      this.interrupt();
     }
     return { temporaryPath: '/tmp/session.m4a', mimeType: 'audio/mp4' };
   }
@@ -45,6 +58,12 @@ class SessionTestBackend implements OriginalRecordingCaptureBackend {
     const listener: OriginalRecordingCaptureErrorListener | null = this.listener;
     if (listener !== null) {
       listener(new Error('active capture failed'));
+    }
+  }
+  interrupt(): void {
+    const listener: OriginalRecordingCaptureInterruptionListener | null = this.interruptionListener;
+    if (listener !== null) {
+      listener();
     }
   }
 }
@@ -124,6 +143,57 @@ export default function originalRecordingSessionControllerTest() {
       expect(backend.calls.join(',')).assertEqual(
         'capture-start,capture-pause,capture-resume,capture-stop');
       expect(session.getSnapshot().failure).assertEqual(OriginalRecordingSessionFailure.NONE);
+    });
+
+    it('matches original internal audio capability permission and focus behavior', 0, async () => {
+      const calls: string[] = [];
+      const permission = new SessionTestPermission(calls);
+      const focus = new SessionTestFocus(calls);
+      const microphone = new SessionTestBackend();
+      const internalAudio = new SessionTestBackend();
+      internalAudio.pauseSupported = false;
+      const sourceBackend = new OriginalRecordingSourceBackend(microphone, internalAudio);
+      const capture = new OriginalRecordingCaptureController(sourceBackend,
+        new SessionTestClock(), sourceBackend);
+      const session = new OriginalRecordingSessionController(capture, permission, focus,
+        async (_capture: OriginalRecordingCaptureResult): Promise<void> => { calls.push('persist'); },
+        async (): Promise<void> => { calls.push('before-start'); });
+
+      expect(await session.start(OriginalRecordingAudioSource.DEVICE_ONLY)).assertTrue();
+      expect(session.canPause()).assertFalse();
+      expect(await session.pause()).assertFalse();
+      expect(calls.join(',')).assertEqual('before-start');
+      expect(microphone.calls.length).assertEqual(0);
+      expect(internalAudio.calls.join(',')).assertEqual('capture-start');
+      internalAudio.interrupt();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(internalAudio.calls.join(',')).assertEqual('capture-start,capture-stop');
+      expect(calls.join(',')).assertEqual('before-start,persist');
+    });
+
+    it('saves when internal audio is interrupted immediately after native start', 0, async () => {
+      const calls: string[] = [];
+      const permission = new SessionTestPermission(calls);
+      const focus = new SessionTestFocus(calls);
+      const microphone = new SessionTestBackend();
+      const internalAudio = new SessionTestBackend();
+      internalAudio.pauseSupported = false;
+      internalAudio.interruptDuringStart = true;
+      const sourceBackend = new OriginalRecordingSourceBackend(microphone, internalAudio);
+      const capture = new OriginalRecordingCaptureController(sourceBackend,
+        new SessionTestClock(), sourceBackend);
+      const session = new OriginalRecordingSessionController(capture, permission, focus,
+        async (_capture: OriginalRecordingCaptureResult): Promise<void> => { calls.push('persist'); },
+        async (): Promise<void> => { calls.push('before-start'); });
+
+      expect(await session.start(OriginalRecordingAudioSource.DEVICE_ONLY)).assertTrue();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(internalAudio.calls.join(',')).assertEqual('capture-start,capture-stop');
+      expect(calls.join(',')).assertEqual('before-start,persist');
     });
 
     it('stops and saves when original audio focus is interrupted', 0, async () => {

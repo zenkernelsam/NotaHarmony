@@ -5,6 +5,8 @@
   "main": "",
   "author": "",
   "license": "",
-  "dependencies": {}
+  "dependencies": {
+    "libnota_recording.so": "file:./src/main/cpp/types/libnota_recording"
+  }
 }
 

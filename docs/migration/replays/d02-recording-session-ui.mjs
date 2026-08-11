@@ -45,9 +45,9 @@ assert.match(gateways, /CONCURRENCY_PAUSE_OTHERS/);
 assert.match(gateways, /audioSessionDeactivated/);
 assert.match(session, /new AsyncMutex\(\)/);
 assert.match(session,
-  /requestMicrophonePermission\(\)[\s\S]*beforeStart\(\)[\s\S]*focus\.activate[\s\S]*capture\.start\(\)/);
+  /source === OriginalRecordingAudioSource\.MICROPHONE[\s\S]*requestMicrophonePermission\(\)[\s\S]*beforeStart\(\)[\s\S]*source === OriginalRecordingAudioSource\.MICROPHONE[\s\S]*focus\.activate[\s\S]*capture\.start\(\)/);
 assert.match(session, /capture\.stop\(\)[\s\S]*deactivateFocus\(\)[\s\S]*persistCapture\(result\)/);
-assert.match(session, /onAudioInterrupted\(\)[\s\S]*this\.stop\(\)/);
+assert.match(session, /onCaptureInterrupted\(\)[\s\S]*this\.stop\(\)/);
 assert.match(session, /finishAndRelease\(\)[\s\S]*stopInternal\(\)[\s\S]*capture\.release\(\)/);
 
 assert.match(page, /new OriginalRecordingSessionController\([\s\S]*recordingController\.unload\(\)/);

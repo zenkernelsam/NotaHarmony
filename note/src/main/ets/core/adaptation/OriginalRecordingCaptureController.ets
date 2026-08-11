@@ -12,6 +12,11 @@ export enum OriginalRecordingCaptureState {
   RELEASED = 8,
 }
 
+export enum OriginalRecordingAudioSource {
+  MICROPHONE = 0,
+  DEVICE_ONLY = 1,
+}
+
 export interface OriginalRecordingCaptureSnapshot {
   state: OriginalRecordingCaptureState;
   temporaryPath: string | null;
@@ -36,14 +41,22 @@ export interface OriginalRecordingCaptureResult extends OriginalRecordingCapture
 }
 
 export type OriginalRecordingCaptureErrorListener = (error: Object) => void;
+export type OriginalRecordingCaptureInterruptionListener = () => void;
 
 export interface OriginalRecordingCaptureBackend {
   setErrorListener(listener: OriginalRecordingCaptureErrorListener | null): void;
+  setInterruptionListener(listener: OriginalRecordingCaptureInterruptionListener | null): void;
+  supportsPause(): boolean;
   start(): Promise<OriginalRecordingCaptureStart>;
   pause(): Promise<void>;
   resume(): Promise<void>;
   stop(): Promise<OriginalRecordingCaptureStop>;
   abort(): Promise<void>;
+}
+
+export interface OriginalRecordingAudioSourceSelector {
+  selectSource(source: OriginalRecordingAudioSource): boolean;
+  getSource(): OriginalRecordingAudioSource;
 }
 
 export interface OriginalRecordingCaptureClock {
@@ -56,6 +69,7 @@ export type OriginalRecordingCaptureListener =
 
 export class OriginalRecordingCaptureController {
   private backend: OriginalRecordingCaptureBackend;
+  private sourceSelector: OriginalRecordingAudioSourceSelector | null;
   private clock: OriginalRecordingCaptureClock;
   private mutex: AsyncMutex = new AsyncMutex();
   private listener: OriginalRecordingCaptureListener | null = null;
@@ -67,11 +81,15 @@ export class OriginalRecordingCaptureController {
   private accumulatedPauseMs: number = 0;
   private mimeType: string = '';
   private permanentlyReleased: boolean = false;
+  private interruptionListener: OriginalRecordingCaptureInterruptionListener | null = null;
 
-  constructor(backend: OriginalRecordingCaptureBackend, clock: OriginalRecordingCaptureClock) {
+  constructor(backend: OriginalRecordingCaptureBackend, clock: OriginalRecordingCaptureClock,
+    sourceSelector: OriginalRecordingAudioSourceSelector | null = null) {
     this.backend = backend;
     this.clock = clock;
+    this.sourceSelector = sourceSelector;
     this.backend.setErrorListener((error: Object): void => this.handleBackendError(error));
+    this.backend.setInterruptionListener((): void => this.handleBackendInterruption());
   }
 
   setListener(listener: OriginalRecordingCaptureListener | null): void {
@@ -100,6 +118,30 @@ export class OriginalRecordingCaptureController {
     }
     const value: number = this.startWallTime + this.currentElapsedMs();
     return Number.isSafeInteger(value) && value > 0 ? value.toString() : null;
+  }
+
+  selectAudioSource(source: OriginalRecordingAudioSource): boolean {
+    if (this.permanentlyReleased || (this.snapshot.state !== OriginalRecordingCaptureState.IDLE &&
+      this.snapshot.state !== OriginalRecordingCaptureState.FAILED)) {
+      return false;
+    }
+    if (this.sourceSelector === null) {
+      return source === OriginalRecordingAudioSource.MICROPHONE;
+    }
+    return this.sourceSelector.selectSource(source);
+  }
+
+  getAudioSource(): OriginalRecordingAudioSource {
+    return this.sourceSelector === null ? OriginalRecordingAudioSource.MICROPHONE :
+      this.sourceSelector.getSource();
+  }
+
+  canPause(): boolean {
+    return !this.permanentlyReleased && this.backend.supportsPause();
+  }
+
+  setInterruptionListener(listener: OriginalRecordingCaptureInterruptionListener | null): void {
+    this.interruptionListener = listener;
   }
 
   async start(): Promise<boolean> {
@@ -131,7 +173,7 @@ export class OriginalRecordingCaptureController {
 
   async pause(): Promise<boolean> {
     return await this.mutex.runExclusive(async (): Promise<boolean> => {
-      if (this.permanentlyReleased ||
+      if (this.permanentlyReleased || !this.backend.supportsPause() ||
         this.snapshot.state !== OriginalRecordingCaptureState.RECORDING) {
         return false;
       }
@@ -150,7 +192,7 @@ export class OriginalRecordingCaptureController {
 
   async resume(): Promise<boolean> {
     return await this.mutex.runExclusive(async (): Promise<boolean> => {
-      if (this.permanentlyReleased ||
+      if (this.permanentlyReleased || !this.backend.supportsPause() ||
         this.snapshot.state !== OriginalRecordingCaptureState.PAUSED) {
         return false;
       }
@@ -219,6 +261,8 @@ export class OriginalRecordingCaptureController {
       }
       this.permanentlyReleased = true;
       this.backend.setErrorListener(null);
+      this.backend.setInterruptionListener(null);
+      this.interruptionListener = null;
       await this.abortBackend();
       this.resetTiming();
       this.publish(emptySnapshot(OriginalRecordingCaptureState.RELEASED));
@@ -237,6 +281,16 @@ export class OriginalRecordingCaptureController {
       this.resetTiming();
       this.publishFailure(error);
     }).catch((): void => {});
+  }
+
+  private handleBackendInterruption(): void {
+    if (this.permanentlyReleased || !isCaptureRunning(this.snapshot.state)) {
+      return;
+    }
+    const listener: OriginalRecordingCaptureInterruptionListener | null = this.interruptionListener;
+    if (listener !== null) {
+      listener();
+    }
   }
 
   private currentElapsedMs(): number {
@@ -285,6 +339,14 @@ export class OriginalRecordingCaptureController {
     this.accumulatedPauseMs = 0;
     this.mimeType = '';
   }
+}
+
+function isCaptureRunning(state: OriginalRecordingCaptureState): boolean {
+  return state === OriginalRecordingCaptureState.STARTING ||
+    state === OriginalRecordingCaptureState.RECORDING ||
+    state === OriginalRecordingCaptureState.PAUSING ||
+    state === OriginalRecordingCaptureState.PAUSED ||
+    state === OriginalRecordingCaptureState.RESUMING;
 }
 
 function validateCaptureStart(started: OriginalRecordingCaptureStart): void {

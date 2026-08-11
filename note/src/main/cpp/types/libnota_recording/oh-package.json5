@@ -1,0 +1,6 @@
+{
+  "name": "libnota_recording.so",
+  "types": "./Index.d.ts",
+  "version": "1.0.0",
+  "description": "Native internal-audio recording bridge."
+}

@@ -1,6 +1,6 @@
 import { AsyncMutex } from '../../data/AsyncMutex';
 import {
-  OriginalRecordingCaptureController, OriginalRecordingCaptureResult,
+  OriginalRecordingAudioSource, OriginalRecordingCaptureController, OriginalRecordingCaptureResult,
   OriginalRecordingCaptureSnapshot, OriginalRecordingCaptureState,
 } from './OriginalRecordingCaptureController';
 
@@ -63,6 +63,7 @@ export class OriginalRecordingSessionController {
     this.capture.setListener((snapshot: OriginalRecordingCaptureSnapshot): void => {
       this.onCaptureSnapshot(snapshot);
     });
+    this.capture.setInterruptionListener((): void => this.onCaptureInterrupted());
   }
 
   setListener(listener: OriginalRecordingSessionListener | null): void {
@@ -86,25 +87,36 @@ export class OriginalRecordingSessionController {
     return this.released ? null : this.capture.getCurrentAudioTime();
   }
 
-  async start(): Promise<boolean> {
+  canPause(): boolean {
+    return this.capture.canPause();
+  }
+
+  async start(source: OriginalRecordingAudioSource =
+    OriginalRecordingAudioSource.MICROPHONE): Promise<boolean> {
     return await this.mutex.runExclusive(async (): Promise<boolean> => {
       if (this.released || this.preparing || this.saving ||
         (this.captureSnapshot.state !== OriginalRecordingCaptureState.IDLE &&
           this.captureSnapshot.state !== OriginalRecordingCaptureState.FAILED)) {
         return false;
       }
+      if (!this.capture.selectAudioSource(source)) {
+        return false;
+      }
       this.preparing = true;
       this.failure = OriginalRecordingSessionFailure.NONE;
       this.publish();
       try {
-        if (!await this.permission.requestMicrophonePermission()) {
+        if (source === OriginalRecordingAudioSource.MICROPHONE &&
+          !await this.permission.requestMicrophonePermission()) {
           this.preparing = false;
           this.publishFailure(OriginalRecordingSessionFailure.PERMISSION_DENIED);
           return false;
         }
         await this.beforeStart();
-        await this.focus.activate((): void => this.onAudioInterrupted());
-        this.focusActive = true;
+        if (source === OriginalRecordingAudioSource.MICROPHONE) {
+          await this.focus.activate((): void => this.onCaptureInterrupted());
+          this.focusActive = true;
+        }
         const started: boolean = await this.capture.start();
         this.preparing = false;
         if (!started) {
@@ -166,6 +178,7 @@ export class OriginalRecordingSessionController {
       }
       this.released = true;
       this.capture.setListener(null);
+      this.capture.setInterruptionListener(null);
       await this.capture.release();
       this.preparing = false;
       this.saving = false;
@@ -221,7 +234,7 @@ export class OriginalRecordingSessionController {
     this.publish();
   }
 
-  private onAudioInterrupted(): void {
+  private onCaptureInterrupted(): void {
     this.focusActive = false;
     this.stop().catch((error: Object): void => {
       console.error(`interrupted recording stop failed: ${JSON.stringify(error)}`);

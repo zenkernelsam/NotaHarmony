@@ -33,6 +33,7 @@ export struct RecordingPanel {
     preparing: false, saving: false,
     failure: OriginalRecordingSessionFailure.NONE, failureSequence: 0,
   };
+  @Prop capturePauseSupported: boolean = true;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onToggle: (recordingId: string) => void = () => {};
@@ -157,11 +158,13 @@ export struct RecordingPanel {
           .fontSize(14)
           .fontColor(this.resolveTokens().textPrimary)
         if (this.captureSnapshot.captureState === OriginalRecordingCaptureState.RECORDING) {
-          Button($r('app.string.pause_recording'))
-            .height(34).fontSize(12).borderRadius(4)
-            .backgroundColor(this.resolveTokens().control)
-            .fontColor(this.resolveTokens().textPrimary)
-            .onClick(() => this.onPauseCapture())
+          if (this.capturePauseSupported) {
+            Button($r('app.string.pause_recording'))
+              .height(34).fontSize(12).borderRadius(4)
+              .backgroundColor(this.resolveTokens().control)
+              .fontColor(this.resolveTokens().textPrimary)
+              .onClick(() => this.onPauseCapture())
+          }
         } else if (this.captureSnapshot.captureState === OriginalRecordingCaptureState.PAUSED) {
           Button($r('app.string.resume_recording'))
             .height(34).fontSize(12).borderRadius(4)

@@ -3,7 +3,8 @@ import { fileIo } from '@kit.CoreFileKit';
 import { media } from '@kit.MediaKit';
 import {
   OriginalRecordingCaptureBackend, OriginalRecordingCaptureClock,
-  OriginalRecordingCaptureErrorListener, OriginalRecordingCaptureStart,
+  OriginalRecordingCaptureErrorListener, OriginalRecordingCaptureInterruptionListener,
+  OriginalRecordingCaptureStart,
   OriginalRecordingCaptureStop,
 } from './OriginalRecordingCaptureController';
 
@@ -52,6 +53,13 @@ export class OriginalRecordingMicrophoneBackend implements OriginalRecordingCapt
 
   setErrorListener(listener: OriginalRecordingCaptureErrorListener | null): void {
     this.errorListener = listener;
+  }
+
+  setInterruptionListener(_listener: OriginalRecordingCaptureInterruptionListener | null): void {
+  }
+
+  supportsPause(): boolean {
+    return true;
   }
 
   async start(): Promise<OriginalRecordingCaptureStart> {
