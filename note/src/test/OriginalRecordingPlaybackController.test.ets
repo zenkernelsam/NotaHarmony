@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@ohos/hypium';
 import {
-  clampRecordingSeek, OriginalRecordingPlaybackState,
+  clampRecordingSeek, isSupportedRecordingPlaybackSpeed,
+  OriginalRecordingPlaybackSpeed, OriginalRecordingPlaybackState,
 } from '../main/ets/core/adaptation/OriginalRecordingPlaybackController';
 
 export default function originalRecordingPlaybackControllerTest() {
@@ -21,6 +22,16 @@ export default function originalRecordingPlaybackControllerTest() {
       expect(OriginalRecordingPlaybackState.IDLE).assertEqual(0);
       expect(OriginalRecordingPlaybackState.COMPLETED).assertEqual(5);
       expect(OriginalRecordingPlaybackState.RELEASED).assertEqual(7);
+    });
+
+    it('accepts only the three playback speeds exposed by the original app', 0, () => {
+      expect(isSupportedRecordingPlaybackSpeed(
+        OriginalRecordingPlaybackSpeed.SPEED_1_0)).assertTrue();
+      expect(isSupportedRecordingPlaybackSpeed(
+        OriginalRecordingPlaybackSpeed.SPEED_1_5)).assertTrue();
+      expect(isSupportedRecordingPlaybackSpeed(
+        OriginalRecordingPlaybackSpeed.SPEED_2_0)).assertTrue();
+      expect(isSupportedRecordingPlaybackSpeed(3 as OriginalRecordingPlaybackSpeed)).assertFalse();
     });
   });
 }

@@ -16,7 +16,7 @@ import { AssetAvailabilityChange, assetAvailabilityHub } from '../../data/AssetA
 import { MaterializedOriginalRecording, OriginalRecordingStore } from '../../data/OriginalRecordingStore';
 import {
   OriginalRecordingPlaybackController, OriginalRecordingPlaybackSnapshot,
-  OriginalRecordingPlaybackState,
+  OriginalRecordingPlaybackSpeed, OriginalRecordingPlaybackState,
 } from '../../core/adaptation/OriginalRecordingPlaybackController';
 import {
   buildOriginalRecordingTimeline, locateOriginalRecordingTimeline,
@@ -61,6 +61,8 @@ struct NotePage {
   };
   @State playbackCumulativePositionMs: number = 0;
   @State playbackCumulativeDurationMs: number = 0;
+  @State recordingPlaybackSpeed: OriginalRecordingPlaybackSpeed =
+    OriginalRecordingPlaybackSpeed.SPEED_1_0;
   private noteRepo: NoteRepositoryImpl | null = null;
   private pageRepo: PageRepositoryImpl | null = null;
   private persistence: StrokePersistence = new StrokePersistence();
@@ -357,6 +359,12 @@ struct NotePage {
     await this.recordingController.load(recording, resumePlayback, location.localPositionMs);
   }
 
+  private changeRecordingPlaybackSpeed(speed: OriginalRecordingPlaybackSpeed): void {
+    if (this.recordingController.setSpeed(speed)) {
+      this.recordingPlaybackSpeed = speed;
+    }
+  }
+
   private onRecordingAssetAvailabilityChanged(change: AssetAvailabilityChange): void {
     if (change.noteIds.indexOf(this.noteId) >= 0) {
       this.loadRecordings();
@@ -442,11 +450,15 @@ struct NotePage {
           snapshot: this.playbackSnapshot,
           cumulativePositionMs: this.playbackCumulativePositionMs,
           cumulativeDurationMs: this.playbackCumulativeDurationMs,
+          playbackSpeed: this.recordingPlaybackSpeed,
           onToggle: (recordingId: string) => {
             this.toggleRecording(recordingId);
           },
           onSeek: (positionMs: number) => {
             this.seekRecordingTimeline(positionMs);
+          },
+          onSpeedChange: (speed: OriginalRecordingPlaybackSpeed) => {
+            this.changeRecordingPlaybackSpeed(speed);
           },
           onClose: () => {
             this.showRecordings = false;

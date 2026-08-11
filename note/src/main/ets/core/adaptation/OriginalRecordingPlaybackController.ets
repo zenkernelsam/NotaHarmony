@@ -17,6 +17,12 @@ export enum OriginalRecordingPlaybackState {
   RELEASED = 7,
 }
 
+export enum OriginalRecordingPlaybackSpeed {
+  SPEED_1_0 = 0,
+  SPEED_1_5 = 1,
+  SPEED_2_0 = 2,
+}
+
 export interface OriginalRecordingPlaybackSnapshot {
   state: OriginalRecordingPlaybackState;
   recordingId: string | null;
@@ -36,11 +42,13 @@ export class OriginalRecordingPlaybackController {
   private permanentlyReleased: boolean = false;
   private autoPlay: boolean = false;
   private initialPositionMs: number = 0;
+  private playbackSpeed: OriginalRecordingPlaybackSpeed = OriginalRecordingPlaybackSpeed.SPEED_1_0;
   private listener: OriginalRecordingPlaybackListener | null = null;
   private snapshot: OriginalRecordingPlaybackSnapshot = emptySnapshot(OriginalRecordingPlaybackState.IDLE);
   private stateHandler: media.OnAVPlayerStateChangeHandle | null = null;
   private timeHandler: Callback<number> | null = null;
   private durationHandler: Callback<number> | null = null;
+  private speedHandler: Callback<number> | null = null;
   private errorHandler: ((error: BusinessError) => void) | null = null;
 
   constructor(loader: OriginalRecordingAssetLoader = new OriginalRecordingAssetLoader()) {
@@ -58,6 +66,30 @@ export class OriginalRecordingPlaybackController {
     return { state: this.snapshot.state, recordingId: this.snapshot.recordingId,
       positionMs: this.snapshot.positionMs, durationMs: this.snapshot.durationMs,
       error: this.snapshot.error };
+  }
+
+  getSpeed(): OriginalRecordingPlaybackSpeed {
+    return this.playbackSpeed;
+  }
+
+  setSpeed(speed: OriginalRecordingPlaybackSpeed): boolean {
+    if (!isSupportedRecordingPlaybackSpeed(speed) || this.permanentlyReleased) {
+      return false;
+    }
+    const previous: OriginalRecordingPlaybackSpeed = this.playbackSpeed;
+    this.playbackSpeed = speed;
+    const player: media.AVPlayer | null = this.player;
+    if (player !== null && (player.state === 'prepared' || player.state === 'playing' ||
+      player.state === 'paused' || player.state === 'completed')) {
+      try {
+        player.setSpeed(toMediaPlaybackSpeed(speed));
+      } catch (error) {
+        this.playbackSpeed = previous;
+        this.publishFailure(this.snapshot.recordingId, error);
+        return false;
+      }
+    }
+    return true;
   }
 
   async load(recording: MaterializedOriginalRecording, autoPlay: boolean = false,
@@ -203,10 +235,18 @@ export class OriginalRecordingPlaybackController {
         this.publishFailure(this.snapshot.recordingId, error);
       }
     };
+    this.speedHandler = (speed: number): void => {
+      if (generation === this.generation && player === this.player &&
+        !isOriginalMediaPlaybackSpeed(speed)) {
+        this.publishFailure(this.snapshot.recordingId,
+          new Error(`AVPlayer applied unexpected playback speed ${speed}`));
+      }
+    };
     player.on('stateChange', this.stateHandler);
     player.on('timeUpdate', this.timeHandler);
     player.on('durationUpdate', this.durationHandler);
     player.on('error', this.errorHandler);
+    player.on('speedDone', this.speedHandler);
   }
 
   private handleStateChange(player: media.AVPlayer, generation: number,
@@ -254,6 +294,7 @@ export class OriginalRecordingPlaybackController {
 
   private finishPreparedLoad(player: media.AVPlayer, generation: number): void {
     try {
+      player.setSpeed(toMediaPlaybackSpeed(this.playbackSpeed));
       if (this.initialPositionMs > 0) {
         player.seek(this.initialPositionMs);
         this.initialPositionMs = 0;
@@ -303,10 +344,14 @@ export class OriginalRecordingPlaybackController {
     if (this.errorHandler !== null) {
       player.off('error', this.errorHandler);
     }
+    if (this.speedHandler !== null) {
+      player.off('speedDone', this.speedHandler);
+    }
     this.stateHandler = null;
     this.timeHandler = null;
     this.durationHandler = null;
     this.errorHandler = null;
+    this.speedHandler = null;
   }
 
   private publishState(state: OriginalRecordingPlaybackState): void {
@@ -345,6 +390,28 @@ function validDuration(durationMs: number): number {
 
 function sanitizeInitialPosition(positionMs: number): number {
   return Number.isSafeInteger(positionMs) && positionMs > 0 ? positionMs : 0;
+}
+
+export function isSupportedRecordingPlaybackSpeed(speed: OriginalRecordingPlaybackSpeed): boolean {
+  return speed === OriginalRecordingPlaybackSpeed.SPEED_1_0 ||
+    speed === OriginalRecordingPlaybackSpeed.SPEED_1_5 ||
+    speed === OriginalRecordingPlaybackSpeed.SPEED_2_0;
+}
+
+function toMediaPlaybackSpeed(speed: OriginalRecordingPlaybackSpeed): media.PlaybackSpeed {
+  if (speed === OriginalRecordingPlaybackSpeed.SPEED_1_5) {
+    return media.PlaybackSpeed.SPEED_FORWARD_1_50_X;
+  }
+  if (speed === OriginalRecordingPlaybackSpeed.SPEED_2_0) {
+    return media.PlaybackSpeed.SPEED_FORWARD_2_00_X;
+  }
+  return media.PlaybackSpeed.SPEED_FORWARD_1_00_X;
+}
+
+function isOriginalMediaPlaybackSpeed(speed: number): boolean {
+  return speed === media.PlaybackSpeed.SPEED_FORWARD_1_00_X ||
+    speed === media.PlaybackSpeed.SPEED_FORWARD_1_50_X ||
+    speed === media.PlaybackSpeed.SPEED_FORWARD_2_00_X;
 }
 
 function emptySnapshot(state: OriginalRecordingPlaybackState): OriginalRecordingPlaybackSnapshot {

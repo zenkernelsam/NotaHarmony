@@ -1,5 +1,6 @@
 import {
-  OriginalRecordingPlaybackSnapshot, OriginalRecordingPlaybackState,
+  OriginalRecordingPlaybackSnapshot, OriginalRecordingPlaybackSpeed,
+  OriginalRecordingPlaybackState,
 } from '../../core/adaptation/OriginalRecordingPlaybackController';
 import {
   MaterializedOriginalRecording, OriginalRecordingAssetState,
@@ -17,10 +18,12 @@ export struct RecordingPanel {
   };
   @Prop cumulativePositionMs: number = 0;
   @Prop cumulativeDurationMs: number = 0;
+  @Prop playbackSpeed: OriginalRecordingPlaybackSpeed = OriginalRecordingPlaybackSpeed.SPEED_1_0;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onToggle: (recordingId: string) => void = () => {};
   onSeek: (positionMs: number) => void = () => {};
+  onSpeedChange: (speed: OriginalRecordingPlaybackSpeed) => void = () => {};
   onClose: () => void = () => {};
 
   private resolveTokens(): ThemeTokens {
@@ -79,6 +82,10 @@ export struct RecordingPanel {
             Text(formatRecordingTime(this.cumulativePositionMs))
               .fontSize(11).fontColor(this.resolveTokens().textSecondary)
             Blank()
+            this.SpeedButton('1x', OriginalRecordingPlaybackSpeed.SPEED_1_0)
+            this.SpeedButton('1.5x', OriginalRecordingPlaybackSpeed.SPEED_1_5)
+            this.SpeedButton('2x', OriginalRecordingPlaybackSpeed.SPEED_2_0)
+            Blank()
             Text(formatRecordingTime(this.cumulativeDurationMs))
               .fontSize(11).fontColor(this.resolveTokens().textSecondary)
           }
@@ -90,6 +97,18 @@ export struct RecordingPanel {
     .width('100%').height(220)
     .backgroundColor(this.resolveTokens().surface)
     .border({ width: { top: 1, bottom: 1 }, color: this.resolveTokens().border })
+  }
+
+  @Builder
+  private SpeedButton(label: string, speed: OriginalRecordingPlaybackSpeed) {
+    Button(label)
+      .width(42).height(26).fontSize(11).borderRadius(4)
+      .margin({ left: 2, right: 2 })
+      .backgroundColor(this.playbackSpeed === speed ? this.resolveTokens().accent :
+        this.resolveTokens().control)
+      .fontColor(this.playbackSpeed === speed ? this.resolveTokens().onAccent :
+        this.resolveTokens().textPrimary)
+      .onClick(() => this.onSpeedChange(speed))
   }
 
   @Builder
