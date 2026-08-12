@@ -1,6 +1,8 @@
 export const BACKUP_BATCH_FORMAT: string = 'nota.backup-batch';
 export const BACKUP_BATCH_VERSION: number = 1;
 export const BACKUP_MANIFEST_SUFFIX: string = '.manifest.json';
+export const BACKUP_MAX_ENTRY_COUNT: number = 10000;
+export const BACKUP_MAX_TOTAL_BYTES: number = 1024 * 1024 * 1024;
 
 export interface BackupBatchEntry {
   noteId: string;
@@ -47,11 +49,12 @@ export function parseBackupBatch(json: string): BackupBatchManifest | null {
     if (parsed === null || typeof parsed !== 'object' || parsed.format !== BACKUP_BATCH_FORMAT ||
       parsed.version !== BACKUP_BATCH_VERSION || !isValidBackupBatchId(parsed.batchId) ||
       !Number.isFinite(parsed.createdAt) || parsed.createdAt <= 0 || !Array.isArray(parsed.entries) ||
-      parsed.entries.length === 0) {
+      parsed.entries.length === 0 || parsed.entries.length > BACKUP_MAX_ENTRY_COUNT) {
       return null;
     }
     const noteIds: Set<string> = new Set<string>();
     const fileNames: Set<string> = new Set<string>();
+    let totalBytes: number = 0;
     for (let i: number = 0; i < parsed.entries.length; i++) {
       const entry: BackupBatchEntry = parsed.entries[i];
       if (entry === null || typeof entry !== 'object' || typeof entry.noteId !== 'string' ||
@@ -63,6 +66,10 @@ export function parseBackupBatch(json: string): BackupBatchManifest | null {
         noteIds.has(entry.noteId) || fileNames.has(entry.fileName)) {
         return null;
       }
+      if (totalBytes > BACKUP_MAX_TOTAL_BYTES - entry.size) {
+        return null;
+      }
+      totalBytes += entry.size;
       noteIds.add(entry.noteId);
       fileNames.add(entry.fileName);
     }

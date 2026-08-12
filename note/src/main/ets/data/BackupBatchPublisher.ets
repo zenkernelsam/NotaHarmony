@@ -1,6 +1,7 @@
 import { util } from '@kit.ArkTS';
 import {
-  BACKUP_BATCH_FORMAT, BACKUP_BATCH_VERSION, BackupBatchEntry, BackupBatchManifest,
+  BACKUP_BATCH_FORMAT, BACKUP_BATCH_VERSION, BACKUP_MAX_ENTRY_COUNT, BACKUP_MAX_TOTAL_BYTES,
+  BackupBatchEntry, BackupBatchManifest,
   BackupSourcePackage, serializeBackupBatch,
 } from './BackupBatchSpec';
 import { sha256Hex } from './BackupHash';
@@ -53,6 +54,16 @@ export class BackupBatchPublisher {
   async publish(packages: BackupSourcePackage[], batchId: string,
     completedAt: number): Promise<BackupPublishResult> {
     const total: number = packages.length;
+    if (total === 0 || total > BACKUP_MAX_ENTRY_COUNT) {
+      return this.failed(BackupPublishStage.OBJECT_UPLOAD, 0, total);
+    }
+    let totalBytes: number = 0;
+    for (const source of packages) {
+      if (source.data.length <= 0 || totalBytes > BACKUP_MAX_TOTAL_BYTES - source.data.length) {
+        return this.failed(BackupPublishStage.OBJECT_UPLOAD, 0, total);
+      }
+      totalBytes += source.data.length;
+    }
     if (!await this.transport.ensureBackupDir() ||
       !await this.transport.ensureBackupBatchDir(batchId)) {
       return this.failed(BackupPublishStage.DIRECTORY, 0, total);
