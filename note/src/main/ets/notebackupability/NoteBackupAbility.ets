@@ -229,7 +229,10 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
 
   private writeText(path: string, value: string): void {
     const file = fileIo.openSync(path, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
-    try { fileIo.writeSync(file.fd, new util.TextEncoder().encodeInto(value).buffer); } finally { fileIo.closeSync(file); }
+    const bytes: Uint8Array = new util.TextEncoder().encodeInto(value);
+    const exact: ArrayBuffer = bytes.buffer.slice(
+      bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    try { fileIo.writeSync(file.fd, exact); } finally { fileIo.closeSync(file); }
   }
 
   private resultJson(success: boolean, operation: string, input: string, error?: Object): string {
