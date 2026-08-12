@@ -3,7 +3,7 @@
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
-import { ZipReader, ZipEntry, ZipParseResult } from './ZipArchive';
+import { ZipReader, ZipEntry, ZipParseResult, ZIP_MAX_ARCHIVE_BYTES } from './ZipArchive';
 import {
   NoteManifest, PageData, parseManifest, parsePage, parsePageElement,
 } from './NotePackageSpec';
@@ -128,6 +128,13 @@ export class NoteImporter {
       file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
       const stat = fileIo.statSync(uri);
       const size: number = stat.size;
+      if (!Number.isSafeInteger(size) || size > ZIP_MAX_ARCHIVE_BYTES) {
+        fileIo.closeSync(file);
+        file = null;
+        return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+          missingAssets: [], warnings: [],
+          message: `文件超过导入大小上限 ${ZIP_MAX_ARCHIVE_BYTES} bytes` };
+      }
       if (size <= 0) {
         fileIo.closeSync(file);
         file = null;

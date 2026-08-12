@@ -28,6 +28,8 @@ const METHOD_DEFLATE: number = 8;
 export const ZIP_MAX_ENTRY_COUNT: number = 65535;
 export const ZIP_MAX_ENTRY_UNCOMPRESSED_SIZE: number = 512 * 1024 * 1024;
 export const ZIP_MAX_TOTAL_UNCOMPRESSED_SIZE: number = 1024 * 1024 * 1024;
+// The importer must reject an archive before allocating a picker-sized buffer.
+export const ZIP_MAX_ARCHIVE_BYTES: number = 1024 * 1024 * 1024;
 export const ZIP_MAX_COMPRESSION_RATIO: number = 1000;
 const ZIP_RATIO_BUDGET_MIN_SIZE: number = 1024 * 1024;
 
