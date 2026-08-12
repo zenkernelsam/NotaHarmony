@@ -193,45 +193,44 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
       assets.close();
     }
     for (const assetRow of assetRows) {
-        const hash: string = assetRow.hash;
-        const raw: string = assetRow.raw;
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(raw);
-        } catch (_error) {
-          throw new Error(`invalid note_asset.note_ids JSON for ${hash}`);
+      const hash: string = assetRow.hash;
+      const raw: string = assetRow.raw;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (_error) {
+        throw new Error(`invalid note_asset.note_ids JSON for ${hash}`);
+      }
+      if (!Array.isArray(parsed)) {
+        throw new Error(`note_asset.note_ids is not an array for ${hash}`);
+      }
+      const filtered: string[] = [];
+      for (const value of parsed) {
+        if (typeof value !== 'string' || value.length === 0) {
+          throw new Error(`invalid note_asset note ID for ${hash}`);
         }
-        if (!Array.isArray(parsed)) {
-          throw new Error(`note_asset.note_ids is not an array for ${hash}`);
+        if (valid.has(value) && filtered.indexOf(value) < 0) {
+          filtered.push(value);
         }
-        const filtered: string[] = [];
-        for (const value of parsed) {
-          if (typeof value !== 'string' || value.length === 0) {
-            throw new Error(`invalid note_asset note ID for ${hash}`);
+      }
+      let unchanged: boolean = filtered.length === parsed.length;
+      if (unchanged) {
+        for (let index: number = 0; index < filtered.length; index++) {
+          if (filtered[index] !== parsed[index]) {
+            unchanged = false;
+            break;
           }
-          if (valid.has(value) && filtered.indexOf(value) < 0) {
-            filtered.push(value);
-          }
         }
-        let unchanged: boolean = filtered.length === parsed.length;
-        if (unchanged) {
-          for (let index: number = 0; index < filtered.length; index++) {
-            if (filtered[index] !== parsed[index]) {
-              unchanged = false;
-              break;
-            }
-          }
-        }
-        if (unchanged) {
-          continue;
-        }
-        const predicates = new relationalStore.RdbPredicates('note_asset');
-        predicates.equalTo('asset_hash', hash);
-        if (filtered.length === 0) {
-          await store.delete(predicates);
-        } else if (await store.update({ 'note_ids': JSON.stringify(filtered) }, predicates) !== 1) {
-          throw new Error(`asset reference repair affected an unexpected number of rows: ${hash}`);
-        }
+      }
+      if (unchanged) {
+        continue;
+      }
+      const predicates = new relationalStore.RdbPredicates('note_asset');
+      predicates.equalTo('asset_hash', hash);
+      if (filtered.length === 0) {
+        await store.delete(predicates);
+      } else if (await store.update({ 'note_ids': JSON.stringify(filtered) }, predicates) !== 1) {
+        throw new Error(`asset reference repair affected an unexpected number of rows: ${hash}`);
       }
     }
   }
