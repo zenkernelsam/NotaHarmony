@@ -170,6 +170,8 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
           this.ensureParent(rollback);
           fileIo.renameSync(destination, rollback);
         }
+        // Register before copying so a partially created new file is removed on failure.
+        replaced.push({ destination: destination, rollback: rollback, existed: existed });
         try {
           this.ensureParent(destination);
           fileIo.copyFileSync(source, destination);
@@ -179,7 +181,6 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
           }
           throw e;
         }
-        replaced.push({ destination: destination, rollback: rollback, existed: existed });
         this.state.processed++;
       }
       this.removeTreeInside(backupDir, RESTORE_ROLLBACK);
