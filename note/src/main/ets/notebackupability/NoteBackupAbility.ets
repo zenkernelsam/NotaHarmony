@@ -262,8 +262,14 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
   }
 
   private assertRelative(path: string): void {
-    if (path.length === 0 || path.startsWith('/') || path.startsWith('\\') || path.indexOf('..') >= 0 || path.indexOf(':') >= 0) {
+    if (path.length === 0 || path.startsWith('/') || path.startsWith('\\') || path.indexOf(':') >= 0) {
       throw new Error(`unsafe backup path: ${path}`);
+    }
+    const segments: string[] = path.replace(/\\/g, '/').split('/');
+    for (const segment of segments) {
+      if (segment.length === 0 || segment === '.' || segment === '..') {
+        throw new Error(`unsafe backup path: ${path}`);
+      }
     }
   }
 
