@@ -30,6 +30,13 @@ export class ForceSmoother {
         merged.maxForceChange = config.maxForceChange;
       }
     }
+    // Keep the original time-weighted filter defined for malformed tool/config input.
+    if (!Number.isFinite(merged.smoothingWindowMs) || merged.smoothingWindowMs <= 0) {
+      merged.smoothingWindowMs = 8;
+    }
+    if (!Number.isFinite(merged.maxForceChange) || merged.maxForceChange < 0) {
+      merged.maxForceChange = 0.15;
+    }
     this.config = merged;
   }
 
@@ -44,7 +51,7 @@ export class ForceSmoother {
 
       // 有意偏离原版：HarmonyOS 输入适配层用 -1 表示设备没有压感能力。
       // 哨兵不能参与数值平滑，也不能覆盖最后一个有效压力状态。
-      if (p.pressure < 0) {
+      if (!Number.isFinite(p.pressure) || p.pressure < 0) {
         result.push(p);
         continue;
       }
