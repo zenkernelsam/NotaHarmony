@@ -401,11 +401,8 @@ class ParseContext {
       return null;
     }
     if (this.visiting.has(index)) {
-      const warning: string = `检测到循环对象引用 index=${index}，已用 null 占位`;
-      if (this.warnings.indexOf(warning) < 0) {
-        this.warnings.push(warning);
-      }
-      return PlistValue.ofNull();
+      this.fail(`检测到循环对象引用 index=${index}`);
+      return null;
     }
     this.visiting.add(index);
     const value: PlistValue | null = this.decode(this.offsets[index], depth);
