@@ -59,12 +59,20 @@ export class BackupBatchPublisher {
       return this.failed(BackupPublishStage.OBJECT_UPLOAD, 0, total);
     }
     let totalBytes: number = 0;
+    const noteIds: Set<string> = new Set<string>();
+    const fileNames: Set<string> = new Set<string>();
     for (const source of packages) {
       if (source.noteId.length === 0 || source.revision.length === 0 ||
         !Number.isFinite(source.updatedAt) || source.updatedAt <= 0 || source.data.length <= 0 ||
         totalBytes > BACKUP_MAX_TOTAL_BYTES - source.data.length) {
         return this.failed(BackupPublishStage.OBJECT_UPLOAD, 0, total);
       }
+      const fileName: string = `${noteIds.size}-${safeObjectId(source.noteId)}.note`;
+      if (noteIds.has(source.noteId) || fileNames.has(fileName)) {
+        return this.failed(BackupPublishStage.OBJECT_UPLOAD, 0, total);
+      }
+      noteIds.add(source.noteId);
+      fileNames.add(fileName);
       totalBytes += source.data.length;
     }
     if (!await this.transport.ensureBackupDir() ||
