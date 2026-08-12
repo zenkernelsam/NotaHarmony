@@ -235,13 +235,12 @@ struct BackupPage {
       let degraded: number = 0;
       const restorer = new BackupBatchRestorer(client, new CryptoBackupBatchHasher());
       const fetched: BackupFetchResult = await restorer.fetch(manifest);
-      if (fetched.failedNoteIds.length > 0 || fetched.verified.length !== manifest.entries.length) {
+      let failed: number = fetched.failedNoteIds.length;
+      if (fetched.verified.length === 0) {
         this.showAlert($r('app.string.restore_result'),
-          $r('app.string.cloud_restore_partial', 0, manifest.entries.length,
-            fetched.failedNoteIds.length, 0));
+          $r('app.string.cloud_restore_partial', 0, manifest.entries.length, failed, 0));
         return;
       }
-      let failed: number = 0;
       for (let i: number = 0; i < fetched.verified.length; i++) {
         const object: VerifiedBackupObject = fetched.verified[i];
         const report: ImportReport = await importer.importFromData(object.data);

@@ -7,7 +7,8 @@ const checks = [
   ['restorer imports manifest parser', source.includes('parseBackupBatch, serializeBackupBatch')],
   ['restorer validates manifest', source.includes('parseBackupBatch(serializeBackupBatch(manifest))')],
   ['invalid manifest fails explicitly', source.includes('backup manifest failed structural validation before download')],
-  ['validation precedes download loop', source.indexOf('const validated: BackupBatchManifest') < source.indexOf('for (let i: number = 0; i < manifest.entries.length; i++)')],
+  ['validation precedes validated download loop', source.indexOf('const validated: BackupBatchManifest') <
+    source.indexOf('for (let i: number = 0; i < validated.entries.length; i++)')],
 ];
 for (const [name, ok] of checks) {
   if (!ok) throw new Error(`FAILED: ${name}`);

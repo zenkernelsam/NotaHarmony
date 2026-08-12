@@ -27,10 +27,10 @@ export class BackupBatchRestorer {
     if (validated === null) {
       throw new Error('backup manifest failed structural validation before download');
     }
-    for (let i: number = 0; i < manifest.entries.length; i++) {
-      const entry: BackupBatchEntry = manifest.entries[i];
+    for (let i: number = 0; i < validated.entries.length; i++) {
+      const entry: BackupBatchEntry = validated.entries[i];
       const data: Uint8Array | null = await this.transport.download(
-        this.transport.backupBatchObjectUrl(manifest.batchId, entry.fileName));
+        this.transport.backupBatchObjectUrl(validated.batchId, entry.fileName));
       if (data === null || data.length !== entry.size ||
         await this.hasher.hash(data) !== entry.sha256) {
         failedNoteIds.push(entry.noteId);
