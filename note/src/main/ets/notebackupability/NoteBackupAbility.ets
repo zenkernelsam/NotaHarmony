@@ -160,11 +160,17 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
       throw new Error('invalid backup manifest');
     }
     let bytes: number = 0;
+    const seen: Set<string> = new Set<string>();
     for (const entry of manifest.entries) {
       if (ROOTS.indexOf(entry.root) < 0 || !Number.isFinite(entry.size) || entry.size < 0) {
         throw new Error('invalid backup entry');
       }
       this.assertRelative(entry.relativePath);
+      const identity: string = `${entry.root}:${entry.relativePath}`;
+      if (seen.has(identity)) {
+        throw new Error(`duplicate backup entry: ${identity}`);
+      }
+      seen.add(identity);
       bytes += entry.size;
       if (bytes > MAX_BYTES) {
         throw new Error('backup manifest exceeds budget');

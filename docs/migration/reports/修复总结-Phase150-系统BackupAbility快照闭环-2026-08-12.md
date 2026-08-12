@@ -11,6 +11,7 @@
 - 使用 staging -> manifest -> 原子发布流程，避免半批次被系统视为成功。
 - manifest 约束 schema、相对路径、文件数（10000）和总大小（256 MiB）。
 - 恢复逐项校验 manifest 和源文件大小，拒绝绝对路径、盘符、`..` 越界路径。
+- 恢复拒绝同一根目录下的重复 manifest 对象，避免重复写入掩盖快照损坏。
 - 实现 `onBackup/onRestore`、`onBackupEx/onRestoreEx`、`onProcess/onRelease`。
 - 在 `module.json5` 注册 `type: backup` 扩展并加入 `backup_config.json`。
 
