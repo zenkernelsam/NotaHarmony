@@ -124,12 +124,18 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
     const manifest: BackupManifest = JSON.parse(fileIo.readTextSync(manifestPath)) as BackupManifest;
     this.validateManifest(manifest);
     this.state.total = manifest.entries.length;
+    // Validate every source before writing any destination file. A late mismatch must not
+    // leave the application with a partially restored snapshot.
     for (const entry of manifest.entries) {
       const source: string = this.join(this.join(snapshot, entry.root), entry.relativePath);
-      const destination: string = this.join(this.rootPath(entry.root), entry.relativePath);
       if (!this.isFile(source) || fileIo.statSync(source).size !== entry.size) {
         throw new Error(`backup object mismatch: ${entry.root}/${entry.relativePath}`);
       }
+    }
+    this.state.phase = 'restoring';
+    for (const entry of manifest.entries) {
+      const source: string = this.join(this.join(snapshot, entry.root), entry.relativePath);
+      const destination: string = this.join(this.rootPath(entry.root), entry.relativePath);
       this.ensureParent(destination);
       fileIo.copyFileSync(source, destination);
       this.state.processed++;
