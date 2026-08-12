@@ -5,7 +5,7 @@ const root = process.env.NOTA_HARMONY_ROOT ?? path.resolve(import.meta.dirname, 
 const source = fs.readFileSync(
   path.join(root, 'note/src/main/ets/data/AssetRepositoryImpl.ets'), 'utf8');
 const method = source.indexOf('async deleteAsset(hash: string)');
-const query = source.indexOf("store.query(queryPredicates, ['local_path'])", method);
+const query = source.indexOf("store.query(queryPredicates, ['local_path', 'note_ids'])", method);
 const parse = source.indexOf('parseAssetNoteIds', query);
 const gate = source.indexOf('asset is still referenced', parse);
 const remove = source.indexOf('await store.delete(predicates)', gate);

@@ -94,7 +94,7 @@ export class AssetRepositoryImpl implements AssetRepository {
         try {
           const queryPredicates = new relationalStore.RdbPredicates('note_asset');
           queryPredicates.equalTo('asset_hash', hash);
-          const resultSet = await store.query(queryPredicates, ['local_path']);
+          const resultSet = await store.query(queryPredicates, ['local_path', 'note_ids']);
           try {
             if (resultSet.goToNextRow()) {
               const pathColumn: number = resultSet.getColumnIndex('local_path');
