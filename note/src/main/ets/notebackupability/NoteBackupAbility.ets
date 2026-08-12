@@ -4,6 +4,7 @@ import { util } from '@kit.ArkTS';
 const MANIFEST = 'nota-backup-manifest.json';
 const SNAPSHOT = 'nota-snapshot';
 const STAGING = 'nota-snapshot.staging';
+const RESTORE_ROLLBACK = 'nota-restore.rollback';
 const PREVIOUS = 'nota-snapshot.previous';
 const MAX_FILES = 10000;
 const MAX_BYTES = 256 * 1024 * 1024;
@@ -155,12 +156,50 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
       }
     }
     this.state.phase = 'restoring';
-    for (const entry of manifest.entries) {
-      const source: string = this.join(this.join(snapshot, entry.root), entry.relativePath);
-      const destination: string = this.join(this.rootPath(entry.root), entry.relativePath);
-      this.ensureParent(destination);
-      fileIo.copyFileSync(source, destination);
-      this.state.processed++;
+    const rollbackRoot: string = this.join(backupDir, RESTORE_ROLLBACK);
+    const replaced: Array<{ destination: string; rollback: string; existed: boolean }> = [];
+    try {
+      this.removeTreeInside(backupDir, RESTORE_ROLLBACK);
+      fileIo.mkdirSync(rollbackRoot, true);
+      for (const entry of manifest.entries) {
+        const source: string = this.join(this.join(snapshot, entry.root), entry.relativePath);
+        const destination: string = this.join(this.rootPath(entry.root), entry.relativePath);
+        const rollback: string = this.join(this.join(rollbackRoot, entry.root), entry.relativePath);
+        const existed: boolean = this.isFile(destination);
+        if (existed) {
+          this.ensureParent(rollback);
+          fileIo.renameSync(destination, rollback);
+        }
+        try {
+          this.ensureParent(destination);
+          fileIo.copyFileSync(source, destination);
+        } catch (e) {
+          if (existed && this.isFile(rollback)) {
+            fileIo.renameSync(rollback, destination);
+          }
+          throw e;
+        }
+        replaced.push({ destination: destination, rollback: rollback, existed: existed });
+        this.state.processed++;
+      }
+      this.removeTreeInside(backupDir, RESTORE_ROLLBACK);
+    } catch (e) {
+      for (let index: number = replaced.length - 1; index >= 0; index--) {
+        const item = replaced[index];
+        try {
+          if (this.isFile(item.destination)) {
+            fileIo.unlinkSync(item.destination);
+          }
+          if (item.existed && this.isFile(item.rollback)) {
+            this.ensureParent(item.destination);
+            fileIo.renameSync(item.rollback, item.destination);
+          }
+        } catch (_rollbackError) {
+          // Preserve the original restore failure; device fault injection reports rollback loss.
+        }
+      }
+      try { this.removeTreeInside(backupDir, RESTORE_ROLLBACK); } catch (_cleanupError) { }
+      throw new Error(`backup restore apply failed: ${JSON.stringify(e)}`);
     }
     this.state.phase = `complete:${bundleVersion.name}`;
   }
