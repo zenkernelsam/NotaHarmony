@@ -97,7 +97,28 @@ export class PencilSplatGenerator {
         merged.maximumSplatCount = config.maximumSplatCount;
       }
     }
-    this.config = merged;
+    // Keep the original formulas unchanged, but prevent optional caller values
+    // from turning angle/LCG loops or the splat budget into non-terminating or
+    // non-deterministic arithmetic.
+    this.config = {
+      spacing: Number.isFinite(merged.spacing) && merged.spacing > 0 ? merged.spacing : 2.0,
+      pressurePower: Number.isFinite(merged.pressurePower) && merged.pressurePower >= 0 ?
+        merged.pressurePower : 5,
+      tiltNormalize: Number.isFinite(merged.tiltNormalize) && Math.abs(merged.tiltNormalize) > 1e-9 ?
+        merged.tiltNormalize : -0.9424777960769379,
+      ellipseShrink: Number.isFinite(merged.ellipseShrink) && merged.ellipseShrink >= 0 ?
+        merged.ellipseShrink : 0.9,
+      angleStep: Number.isFinite(merged.angleStep) && merged.angleStep > 0 ?
+        merged.angleStep : Math.PI / 125,
+      maxSubdivisions: Number.isFinite(merged.maxSubdivisions) && merged.maxSubdivisions >= 1 ?
+        Math.floor(merged.maxSubdivisions) : 26,
+      lcgMultiplier: Number.isFinite(merged.lcgMultiplier) && merged.lcgMultiplier >= 0 ?
+        Math.floor(merged.lcgMultiplier) : 1118393071,
+      lcgModulus: Number.isFinite(merged.lcgModulus) && merged.lcgModulus > 1 ?
+        Math.floor(merged.lcgModulus) : 1946926193,
+      maximumSplatCount: Number.isFinite(merged.maximumSplatCount) && merged.maximumSplatCount >= 0 ?
+        Math.floor(merged.maximumSplatCount) : Number.MAX_SAFE_INTEGER,
+    };
     this.seed = ORIGINAL_PENCIL_FALLBACK_SEED;
   }
 
