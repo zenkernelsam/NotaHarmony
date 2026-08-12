@@ -14,7 +14,7 @@ const checks = [
   ['asset save merges references first', merge > save],
   ['merged references are validated before insert', validate > merge && validate < source.indexOf("await store.insert('note_asset'", validate)],
   ['validation checks note existence', helper > validate && missing > helper],
-  ['validation runs inside transaction failure path', rollback > save && rollback < validate],
+  ['validation runs inside transaction failure path', rollback > validate],
   ['empty IDs are rejected', source.indexOf('contains an empty note ID', helper) > helper],
 ];
 for (const [name, ok] of checks) {
