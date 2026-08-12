@@ -1,7 +1,7 @@
 import { util } from '@kit.ArkTS';
 import {
   BACKUP_BATCH_FORMAT, BACKUP_BATCH_VERSION, BACKUP_MAX_ENTRY_COUNT, BACKUP_MAX_TOTAL_BYTES,
-  BackupBatchEntry, BackupBatchManifest,
+  BackupBatchEntry, BackupBatchManifest, isValidBackupBatchId,
   BackupSourcePackage, serializeBackupBatch,
 } from './BackupBatchSpec';
 import { sha256Hex } from './BackupHash';
@@ -54,12 +54,15 @@ export class BackupBatchPublisher {
   async publish(packages: BackupSourcePackage[], batchId: string,
     completedAt: number): Promise<BackupPublishResult> {
     const total: number = packages.length;
-    if (total === 0 || total > BACKUP_MAX_ENTRY_COUNT) {
+    if (!isValidBackupBatchId(batchId) || !Number.isFinite(completedAt) || completedAt <= 0 ||
+      total === 0 || total > BACKUP_MAX_ENTRY_COUNT) {
       return this.failed(BackupPublishStage.OBJECT_UPLOAD, 0, total);
     }
     let totalBytes: number = 0;
     for (const source of packages) {
-      if (source.data.length <= 0 || totalBytes > BACKUP_MAX_TOTAL_BYTES - source.data.length) {
+      if (source.noteId.length === 0 || source.revision.length === 0 ||
+        !Number.isFinite(source.updatedAt) || source.updatedAt <= 0 || source.data.length <= 0 ||
+        totalBytes > BACKUP_MAX_TOTAL_BYTES - source.data.length) {
         return this.failed(BackupPublishStage.OBJECT_UPLOAD, 0, total);
       }
       totalBytes += source.data.length;
