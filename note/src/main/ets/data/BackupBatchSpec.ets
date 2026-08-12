@@ -48,7 +48,7 @@ export function parseBackupBatch(json: string): BackupBatchManifest | null {
     const parsed = JSON.parse(json) as BackupBatchManifest;
     if (parsed === null || typeof parsed !== 'object' || parsed.format !== BACKUP_BATCH_FORMAT ||
       parsed.version !== BACKUP_BATCH_VERSION || !isValidBackupBatchId(parsed.batchId) ||
-      !Number.isFinite(parsed.createdAt) || parsed.createdAt <= 0 || !Array.isArray(parsed.entries) ||
+      !Number.isSafeInteger(parsed.createdAt) || parsed.createdAt <= 0 || !Array.isArray(parsed.entries) ||
       parsed.entries.length === 0 || parsed.entries.length > BACKUP_MAX_ENTRY_COUNT) {
       return null;
     }
@@ -61,7 +61,7 @@ export function parseBackupBatch(json: string): BackupBatchManifest | null {
         entry.noteId.length === 0 || typeof entry.fileName !== 'string' ||
         !isSafeBackupFileName(entry.fileName) || !Number.isSafeInteger(entry.size) || entry.size <= 0 ||
         typeof entry.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(entry.sha256) ||
-        !Number.isFinite(entry.updatedAt) || entry.updatedAt <= 0 ||
+        !Number.isSafeInteger(entry.updatedAt) || entry.updatedAt <= 0 ||
         typeof entry.revision !== 'string' || entry.revision.length === 0 ||
         noteIds.has(entry.noteId) || fileNames.has(entry.fileName)) {
         return null;

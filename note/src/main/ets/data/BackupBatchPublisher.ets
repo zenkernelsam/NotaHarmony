@@ -54,7 +54,7 @@ export class BackupBatchPublisher {
   async publish(packages: BackupSourcePackage[], batchId: string,
     completedAt: number): Promise<BackupPublishResult> {
     const total: number = packages.length;
-    if (!isValidBackupBatchId(batchId) || !Number.isFinite(completedAt) || completedAt <= 0 ||
+    if (!isValidBackupBatchId(batchId) || !Number.isSafeInteger(completedAt) || completedAt <= 0 ||
       total === 0 || total > BACKUP_MAX_ENTRY_COUNT) {
       return this.failed(BackupPublishStage.OBJECT_UPLOAD, 0, total);
     }
@@ -63,7 +63,7 @@ export class BackupBatchPublisher {
     const fileNames: Set<string> = new Set<string>();
     for (const source of packages) {
       if (source.noteId.length === 0 || source.revision.length === 0 ||
-        !Number.isFinite(source.updatedAt) || source.updatedAt <= 0 || source.data.length <= 0 ||
+        !Number.isSafeInteger(source.updatedAt) || source.updatedAt <= 0 || source.data.length <= 0 ||
         totalBytes > BACKUP_MAX_TOTAL_BYTES - source.data.length) {
         return this.failed(BackupPublishStage.OBJECT_UPLOAD, 0, total);
       }
