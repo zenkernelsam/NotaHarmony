@@ -216,10 +216,21 @@ export class FolderRepositoryImpl {
       const store: relationalStore.RdbStore = this.db.getStore();
       await store.beginTransaction();
       try {
-        const noteBucket: relationalStore.ValuesBucket = { 'folder_id': null };
-        const notePredicates = new relationalStore.RdbPredicates('note_meta');
-        notePredicates.equalTo('folder_id', folderId);
-        await store.update(noteBucket, notePredicates);
+        const folders: NoteFolder[] = await this.queryFolders(store);
+        if (findFolder(folders, folderId) === null) {
+          throw new Error('folder does not exist');
+        }
+        // Deleting a parent cascades through child folders at the DB level. Move every
+        // note in the full subtree first so nested-folder notes are not deleted by FK cascade.
+        for (const folder of folders) {
+          if (!isFolderInSubtree(folders, folderId, folder.id)) {
+            continue;
+          }
+          const noteBucket: relationalStore.ValuesBucket = { 'folder_id': null };
+          const notePredicates = new relationalStore.RdbPredicates('note_meta');
+          notePredicates.equalTo('folder_id', folder.id);
+          await store.update(noteBucket, notePredicates);
+        }
         const predicates = new relationalStore.RdbPredicates('folder');
         predicates.equalTo('id', folderId);
         const deleted: number = await store.delete(predicates);
