@@ -21,7 +21,7 @@ import { decodeOriginalPaper } from './OriginalPageBackgroundOperation';
 import { StoredSyncedOperation, SyncedOperationApplier,
   SyncedOperationApplyResult } from './SyncedOperationInbox';
 import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './UnsignedDecimal';
-import { mergeNoteIds, parseAssetNoteIds } from './AssetRepositoryImpl';
+import { mergeNoteIds, parseAssetNoteIds, validateNoteReferences } from './AssetRepositoryImpl';
 import {
   OriginalEntityVisibilityWinner, readOriginalEntityVisibilityWinner,
 } from './OriginalEntityVisibilityState';
@@ -528,6 +528,7 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     const storageHash: string = originalAssetStorageHash(asset.assetHash.bits);
     const legacyHash: string = originalAssetHashKey(asset.assetHash.bits);
     const rows: StoredAssetRow[] = await this.readAssetRows(store, storageHash, legacyHash);
+    await validateNoteReferences(store, [noteId]);
     for (const row of rows) {
       if (row.fileSize !== asset.fileSize ||
         row.mimeType.toLowerCase() !== asset.mimeType.toLowerCase()) {
@@ -568,6 +569,7 @@ export class OriginalCreateBlockOperationApplier implements SyncedOperationAppli
     const preferred: StoredAssetRow = preferredAssetRow(canonical, legacy);
     const mergedIds: string[] = mergeNoteIds(
       mergeNoteIds(canonical.noteIds, legacy.noteIds), [noteId]);
+    await validateNoteReferences(store, mergedIds);
     const predicates = new relationalStore.RdbPredicates('note_asset');
     predicates.equalTo('asset_hash', storageHash);
     const updated: number = await store.update({

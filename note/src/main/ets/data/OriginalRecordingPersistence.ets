@@ -7,7 +7,7 @@ import { OriginalAssetMetadata } from '../core/model/NoteTypes';
 import { OpType } from '../core/model/OpTypes';
 import { OriginalRecordingCaptureResult } from '../core/adaptation/OriginalRecordingCaptureController';
 import {
-  assetMutationMutex, mergeNoteIds, parseAssetNoteIds,
+  assetMutationMutex, mergeNoteIds, parseAssetNoteIds, validateNoteReferences,
 } from './AssetRepositoryImpl';
 import {
   originalAssetHashBitsFromSha512, sha512BytesToHex,
@@ -252,6 +252,7 @@ async function markAssetLocal(store: relationalStore.RdbStore, noteId: string,
       targetStatus = AssetStatus.DOWNLOADED;
     }
   }
+  await validateNoteReferences(store, noteIds);
   const canonical: StoredAssetRow | undefined = rows.find(
     (row: StoredAssetRow): boolean => row.assetHash === prepared.storageHash);
   const bucket: relationalStore.ValuesBucket = {
