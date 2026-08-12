@@ -158,7 +158,7 @@ export class NoteExporter {
       // 1. 写入应用沙箱临时文件
       tmpPath = `${context.tempDir}/export_${Date.now()}.note`;
       const tmpFile = fileIo.openSync(tmpPath, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE);
-      fileIo.writeSync(tmpFile.fd, data.buffer);
+      fileIo.writeSync(tmpFile.fd, exactArrayBuffer(data));
       fileIo.closeSync(tmpFile);
 
       // 2. 系统保存对话框
@@ -180,7 +180,7 @@ export class NoteExporter {
       const bytes: Uint8Array = readFileFully(srcFile.fd, size);
       fileIo.closeSync(srcFile);
       const dstFile = fileIo.openSync(targetUri, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
-      fileIo.writeSync(dstFile.fd, bytes.buffer);
+      fileIo.writeSync(dstFile.fd, exactArrayBuffer(bytes));
       fileIo.closeSync(dstFile);
       console.info(`exportToFile success: note=${noteId} bytes=${size}`);
       return true;
@@ -241,6 +241,12 @@ function safeFileName(title: string): string {
 function stringToBytes(text: string): Uint8Array {
   const encoder = new util.TextEncoder();
   return encoder.encodeInto(text);
+}
+
+// Uint8Array may be a view into a larger backing buffer; file writes must use
+// only the exported byte range.
+function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 function readFileFully(fd: number, size: number): Uint8Array {
