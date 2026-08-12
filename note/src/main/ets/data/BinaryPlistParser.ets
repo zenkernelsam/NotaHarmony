@@ -442,7 +442,15 @@ class ParseContext {
             this.fail('URL 对象引用越界');
             return null;
           }
-          // URLWithBase 的首个引用是 base，最后一个引用是 URL 字符串。
+          // URLWithBase 的首个引用是 base。即使当前模型只保留最终字符串，
+          // 也必须遍历 base 引用以拒绝越界或循环对象图。
+          if (low === 0xD) {
+            const baseRef: number = uintBE(this.data, pos + 1, this.refSize);
+            if (this.objectAt(baseRef, depth + 1) === null) {
+              this.fail('URL-with-base 的 base 引用无效');
+              return null;
+            }
+          }
           const stringRefOffset: number = pos + 1 + (refCount - 1) * this.refSize;
           const stringRef: number = uintBE(this.data, stringRefOffset, this.refSize);
           const stringValue: PlistValue | null = this.objectAt(stringRef, depth + 1);
