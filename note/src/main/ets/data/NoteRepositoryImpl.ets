@@ -264,8 +264,9 @@ export class NoteRepositoryImpl implements NoteRepository {
         throw new Error(`deleteNote failed: ${JSON.stringify(e)}`);
       }
     });
+    const filesRoot: string = this.db.getFilesDir();
     for (let i: number = 0; i < filesToDelete.length; i++) {
-      unlinkAssetFile(filesToDelete[i]);
+      unlinkAssetFile(filesToDelete[i], filesRoot);
     }
   }
 

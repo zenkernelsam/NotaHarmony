@@ -114,7 +114,7 @@ export class AssetRepositoryImpl implements AssetRepository {
         }
       });
     if (localPath !== null && localPath.length > 0) {
-      unlinkAssetFile(localPath);
+      unlinkAssetFile(localPath, this.db.getFilesDir());
     }
   }
 
@@ -203,7 +203,11 @@ export function mergeNoteIds(existing: string[], incoming: string[]): string[] {
   return merged;
 }
 
-export function unlinkAssetFile(path: string): void {
+export function unlinkAssetFile(path: string, filesRoot?: string): void {
+  if (filesRoot !== undefined && !isPathInside(filesRoot, path)) {
+    console.error(`Asset file cleanup refused outside app files dir: ${path}`);
+    return;
+  }
   try {
     fileIo.unlinkSync(path);
   } catch (e) {
@@ -212,4 +216,11 @@ export function unlinkAssetFile(path: string): void {
       console.error(`Asset file cleanup failed: path=${path}, error=${JSON.stringify(e)}`);
     }
   }
+}
+
+function isPathInside(root: string, candidate: string): boolean {
+  const normalizedRoot: string = root.replace(/\\/g, '/').replace(/\/+$/, '');
+  const normalizedCandidate: string = candidate.replace(/\\/g, '/');
+  return normalizedCandidate.startsWith(normalizedRoot + '/') &&
+    normalizedCandidate.indexOf('/../') < 0 && !normalizedCandidate.endsWith('/..');
 }
