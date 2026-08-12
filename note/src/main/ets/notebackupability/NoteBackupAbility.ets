@@ -34,18 +34,19 @@ interface BackupState {
 /** System backup bridge. The snapshot is deliberately independent of picker/UIAbility APIs. */
 export default class NoteBackupAbility extends BackupExtensionAbility {
   private state: BackupState = { operation: 'idle', phase: 'idle', processed: 0, total: 0 };
+  private operationChain: Promise<void> = Promise.resolve();
 
   async onBackup(): Promise<void> {
-    await this.createSnapshot();
+    await this.enqueueOperation(async (): Promise<void> => this.createSnapshot());
   }
 
   async onRestore(bundleVersion: BundleVersion): Promise<void> {
-    await this.restoreSnapshot(bundleVersion);
+    await this.enqueueOperation(async (): Promise<void> => this.restoreSnapshot(bundleVersion));
   }
 
   async onBackupEx(backupInfo: string): Promise<string> {
     try {
-      await this.createSnapshot();
+      await this.enqueueOperation(async (): Promise<void> => this.createSnapshot());
       return this.resultJson(true, 'backup', backupInfo);
     } catch (e) {
       return this.resultJson(false, 'backup', backupInfo, e);
@@ -54,7 +55,7 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
 
   async onRestoreEx(bundleVersion: BundleVersion, restoreInfo: string): Promise<string> {
     try {
-      await this.restoreSnapshot(bundleVersion);
+      await this.enqueueOperation(async (): Promise<void> => this.restoreSnapshot(bundleVersion));
       return this.resultJson(true, 'restore', restoreInfo);
     } catch (e) {
       return this.resultJson(false, 'restore', restoreInfo, e);
@@ -63,6 +64,13 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
 
   onProcess(): string {
     return JSON.stringify(this.state);
+  }
+
+  private enqueueOperation(operation: () => Promise<void>): Promise<void> {
+    const next: Promise<void> = this.operationChain.then(operation);
+    this.operationChain = next.catch((_error: Object): void => {
+    });
+    return next;
   }
 
   async onRelease(scenario: number): Promise<void> {
