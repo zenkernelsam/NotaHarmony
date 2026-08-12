@@ -7,8 +7,8 @@ export class DirtyRectTracker {
   private maxRegions: number;
 
   constructor(screenPadding: number = 3, maxRegions: number = 8) {
-    this.screenPadding = Math.max(0, screenPadding);
-    this.maxRegions = Math.max(1, maxRegions);
+    this.screenPadding = Number.isFinite(screenPadding) ? Math.max(0, screenPadding) : 3;
+    this.maxRegions = Number.isFinite(maxRegions) ? Math.max(1, Math.floor(maxRegions)) : 8;
   }
 
   markDirty(bounds: Rect2D, zoom: number = 1): void {
