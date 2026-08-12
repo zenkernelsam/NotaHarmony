@@ -199,18 +199,18 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
       try {
         parsed = JSON.parse(raw);
       } catch (_error) {
-        await this.quarantineInvalidAssetReference(store, hash);
+        await this.removeInvalidAssetReference(store, hash);
         continue;
       }
       if (!Array.isArray(parsed)) {
-        await this.quarantineInvalidAssetReference(store, hash);
+        await this.removeInvalidAssetReference(store, hash);
         continue;
       }
       const filtered: string[] = [];
       let invalidEntries: boolean = false;
       for (const value of parsed) {
         if (typeof value !== 'string' || value.length === 0) {
-          await this.quarantineInvalidAssetReference(store, hash);
+          await this.removeInvalidAssetReference(store, hash);
           invalidEntries = true;
           break;
         }
@@ -245,12 +245,12 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
     }
   }
 
-  private async quarantineInvalidAssetReference(store: relationalStore.RdbStore,
+  private async removeInvalidAssetReference(store: relationalStore.RdbStore,
     hash: string): Promise<void> {
     const predicates = new relationalStore.RdbPredicates('note_asset');
     predicates.equalTo('asset_hash', hash);
-    if (await store.update({ 'note_ids': '[]', 'status': 4 }, predicates) !== 1) {
-      throw new Error(`asset quarantine affected an unexpected number of rows: ${hash}`);
+    if (await store.delete(predicates) !== 1) {
+      throw new Error(`invalid asset removal affected an unexpected number of rows: ${hash}`);
     }
   }
 

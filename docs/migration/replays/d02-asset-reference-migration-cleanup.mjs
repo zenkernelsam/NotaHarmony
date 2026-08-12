@@ -15,8 +15,8 @@ const checks = [
     manager.indexOf('if (unchanged)')],
   ['asset rows are snapshotted before mutation', manager.indexOf('const assetRows') >= 0 &&
     manager.indexOf('assets.close()', manager.indexOf('const assetRows')) >= 0],
-  ['invalid JSON is quarantined instead of aborting startup', manager.indexOf('quarantineInvalidAssetReference') >= 0],
-  ['quarantine marks asset failed with empty references', manager.indexOf("'note_ids': '[]', 'status': 4") >= 0],
+  ['invalid JSON is removed instead of aborting startup', manager.indexOf('removeInvalidAssetReference') >= 0],
+  ['invalid removal requires exactly one row', manager.indexOf('invalid asset removal affected') >= 0],
 ];
 for (const [name, ok] of checks) {
   if (!ok) throw new Error(`FAILED: ${name}`);
