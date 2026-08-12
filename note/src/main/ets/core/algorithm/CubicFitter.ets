@@ -41,13 +41,16 @@ export class CubicFitter {
       baseTolerance: 0.5,
     };
     if (config !== undefined) {
-      if (config.maxPointsPerSegment !== undefined) {
+      if (config.maxPointsPerSegment !== undefined && Number.isFinite(config.maxPointsPerSegment) &&
+        Number.isInteger(config.maxPointsPerSegment) && config.maxPointsPerSegment >= 2) {
         merged.maxPointsPerSegment = config.maxPointsPerSegment;
       }
-      if (config.contextExpansion !== undefined) {
+      if (config.contextExpansion !== undefined && Number.isFinite(config.contextExpansion) &&
+        Number.isInteger(config.contextExpansion) && config.contextExpansion >= 0) {
         merged.contextExpansion = config.contextExpansion;
       }
-      if (config.baseTolerance !== undefined) {
+      if (config.baseTolerance !== undefined && Number.isFinite(config.baseTolerance) &&
+        config.baseTolerance > 0) {
         merged.baseTolerance = config.baseTolerance;
       }
     }
