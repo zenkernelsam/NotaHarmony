@@ -1,4 +1,5 @@
 import { BackupExtensionAbility, BundleVersion, fileIo } from '@kit.CoreFileKit';
+import { bundleManager } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 
 const MANIFEST = 'nota-backup-manifest.json';
@@ -8,6 +9,8 @@ const RESTORE_ROLLBACK = 'nota-restore.rollback';
 const PREVIOUS = 'nota-snapshot.previous';
 const MAX_FILES = 10000;
 const MAX_BYTES = 256 * 1024 * 1024;
+const MAX_VERSION_CODE = 2147483647;
+const MAX_VERSION_NAME_BYTES = 127;
 const ROOTS: string[] = ['filesDir', 'databaseDir'];
 
 interface BackupEntry {
@@ -20,6 +23,7 @@ interface BackupManifest {
   schema: number;
   createdAt: number;
   bundleVersion: string;
+  bundleVersionCode?: number;
   entries: BackupEntry[];
 }
 
@@ -85,6 +89,7 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
     const previous: string = this.join(backupDir, PREVIOUS);
     this.state = { operation: 'backup', phase: 'collecting', processed: 0, total: 0 };
     try {
+      const currentVersion: BundleVersion = this.currentBundleVersion();
       this.removeTreeInside(backupDir, STAGING);
       fileIo.mkdirSync(staging, true);
       const entries: BackupEntry[] = [];
@@ -115,7 +120,8 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
       const manifest: BackupManifest = {
         schema: 1,
         createdAt: Date.now(),
-        bundleVersion: '1.0.0',
+        bundleVersion: currentVersion.name,
+        bundleVersionCode: currentVersion.code,
         entries: entries,
       };
       this.writeText(this.join(staging, MANIFEST), JSON.stringify(manifest));
@@ -155,6 +161,8 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
       }
       const manifest: BackupManifest = JSON.parse(fileIo.readTextSync(manifestPath)) as BackupManifest;
       this.validateManifest(manifest);
+      const currentVersion: BundleVersion = this.currentBundleVersion();
+      this.validateRestoreVersion(manifest, bundleVersion, currentVersion);
       this.state.total = manifest.entries.length;
       // Validate every source before writing any destination file. A late mismatch must not
       // leave the application with a partially restored snapshot.
@@ -232,6 +240,8 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
 
   private validateManifest(manifest: BackupManifest): void {
     if (manifest.schema !== 1 || !Number.isSafeInteger(manifest.createdAt) || manifest.createdAt <= 0 ||
+      typeof manifest.bundleVersion !== 'string' || !this.isValidVersionName(manifest.bundleVersion) ||
+      (manifest.bundleVersionCode !== undefined && !this.isValidVersionCode(manifest.bundleVersionCode)) ||
       !Array.isArray(manifest.entries) || manifest.entries.length > MAX_FILES) {
       throw new Error('invalid backup manifest');
     }
@@ -252,6 +262,52 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
         throw new Error('backup manifest exceeds budget');
       }
     }
+  }
+
+  private currentBundleVersion(): BundleVersion {
+    const info = bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
+    const version: BundleVersion = { code: info.versionCode, name: info.versionName };
+    this.assertBundleVersion(version, 'current bundle');
+    return version;
+  }
+
+  private validateRestoreVersion(manifest: BackupManifest, source: BundleVersion, current: BundleVersion): void {
+    this.assertBundleVersion(source, 'restore source');
+    this.assertBundleVersion(current, 'current bundle');
+    if (manifest.bundleVersion !== source.name) {
+      throw new Error('backup source version name mismatch');
+    }
+    if (manifest.bundleVersionCode !== undefined && manifest.bundleVersionCode !== source.code) {
+      throw new Error('backup source version code mismatch');
+    }
+    if (source.code > current.code) {
+      throw new Error('backup was created by a newer app version');
+    }
+  }
+
+  private assertBundleVersion(version: BundleVersion, label: string): void {
+    if (!this.isValidVersionCode(version.code) || typeof version.name !== 'string' ||
+      !this.isValidVersionName(version.name)) {
+      throw new Error(`invalid ${label} version`);
+    }
+  }
+
+  private isValidVersionCode(value: number): boolean {
+    return Number.isSafeInteger(value) && value >= 0 && value <= MAX_VERSION_CODE;
+  }
+
+  private isValidVersionName(value: string): boolean {
+    if (value.length === 0 || value !== value.trim() ||
+      new util.TextEncoder().encodeInto(value).byteLength > MAX_VERSION_NAME_BYTES) {
+      return false;
+    }
+    for (let index: number = 0; index < value.length; index++) {
+      const code: number = value.charCodeAt(index);
+      if (code <= 31 || (code >= 127 && code <= 159)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private rootPath(root: string): string {
