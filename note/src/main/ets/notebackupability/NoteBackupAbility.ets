@@ -75,56 +75,64 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
     const snapshot: string = this.join(backupDir, SNAPSHOT);
     const previous: string = this.join(backupDir, PREVIOUS);
     this.state = { operation: 'backup', phase: 'collecting', processed: 0, total: 0 };
-    this.removeTreeInside(backupDir, STAGING);
-    fileIo.mkdirSync(staging, true);
-    const entries: BackupEntry[] = [];
-    let totalBytes: number = 0;
-    for (const rootName of ROOTS) {
-      const rootPath: string = this.rootPath(rootName);
-      if (!this.isDirectory(rootPath)) {
-        continue;
-      }
-      this.collect(rootPath, rootPath, rootName, entries);
-      for (const entry of entries) {
-        if (entry.root === rootName) {
-          totalBytes += entry.size;
+    try {
+      this.removeTreeInside(backupDir, STAGING);
+      fileIo.mkdirSync(staging, true);
+      const entries: BackupEntry[] = [];
+      let totalBytes: number = 0;
+      for (const rootName of ROOTS) {
+        const rootPath: string = this.rootPath(rootName);
+        if (!this.isDirectory(rootPath)) {
+          continue;
+        }
+        this.collect(rootPath, rootPath, rootName, entries);
+        for (const entry of entries) {
+          if (entry.root === rootName) {
+            totalBytes += entry.size;
+          }
+        }
+        if (entries.length > MAX_FILES || totalBytes > MAX_BYTES) {
+          throw new Error('backup budget exceeded');
         }
       }
-      if (entries.length > MAX_FILES || totalBytes > MAX_BYTES) {
-        throw new Error('backup budget exceeded');
+      this.state.total = entries.length;
+      for (const entry of entries) {
+        const source: string = this.join(this.rootPath(entry.root), entry.relativePath);
+        const destination: string = this.join(this.join(staging, entry.root), entry.relativePath);
+        this.ensureParent(destination);
+        fileIo.copyFileSync(source, destination);
+        this.state.processed++;
       }
-    }
-    this.state.total = entries.length;
-    for (const entry of entries) {
-      const source: string = this.join(this.rootPath(entry.root), entry.relativePath);
-      const destination: string = this.join(this.join(staging, entry.root), entry.relativePath);
-      this.ensureParent(destination);
-      fileIo.copyFileSync(source, destination);
-      this.state.processed++;
-    }
-    const manifest: BackupManifest = {
-      schema: 1,
-      createdAt: Date.now(),
-      bundleVersion: '1.0.0',
-      entries: entries,
-    };
-    this.writeText(this.join(staging, MANIFEST), JSON.stringify(manifest));
-    this.state.phase = 'publishing';
-    this.removeTreeInside(backupDir, PREVIOUS);
-    const hadSnapshot: boolean = this.isDirectory(snapshot) || this.isFile(snapshot);
-    if (hadSnapshot) {
-      fileIo.renameSync(snapshot, previous);
-    }
-    try {
-      fileIo.renameSync(staging, snapshot);
+      const manifest: BackupManifest = {
+        schema: 1,
+        createdAt: Date.now(),
+        bundleVersion: '1.0.0',
+        entries: entries,
+      };
+      this.writeText(this.join(staging, MANIFEST), JSON.stringify(manifest));
+      this.state.phase = 'publishing';
+      this.removeTreeInside(backupDir, PREVIOUS);
+      const hadSnapshot: boolean = this.isDirectory(snapshot) || this.isFile(snapshot);
+      if (hadSnapshot) {
+        fileIo.renameSync(snapshot, previous);
+      }
+      try {
+        fileIo.renameSync(staging, snapshot);
+      } catch (e) {
+        if (hadSnapshot && !this.isDirectory(snapshot) && !this.isFile(snapshot) && this.isDirectory(previous)) {
+          fileIo.renameSync(previous, snapshot);
+        }
+        throw new Error(`backup snapshot publish failed: ${JSON.stringify(e)}`);
+      }
+      this.removeTreeInside(backupDir, PREVIOUS);
+      this.state.phase = 'complete';
     } catch (e) {
-      if (hadSnapshot && !this.isDirectory(snapshot) && !this.isFile(snapshot) && this.isDirectory(previous)) {
-        fileIo.renameSync(previous, snapshot);
-      }
-      throw new Error(`backup snapshot publish failed: ${JSON.stringify(e)}`);
+      // A failed collection/copy must not leave an apparently usable staging tree.
+      try { this.removeTreeInside(backupDir, STAGING); } catch (_cleanupError) { }
+      this.state.phase = 'failed';
+      this.state.error = String(e);
+      throw e;
     }
-    this.removeTreeInside(backupDir, PREVIOUS);
-    this.state.phase = 'complete';
   }
 
   private async restoreSnapshot(bundleVersion: BundleVersion): Promise<void> {
