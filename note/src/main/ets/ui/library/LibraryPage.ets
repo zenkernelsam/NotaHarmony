@@ -205,11 +205,9 @@ struct LibraryPage {
           }
           const oldRevision: string | undefined = oldRevisions.get(noteId);
           const oldPixelMap: PixelMap | undefined = oldMap.get(noteId);
-          if (oldRevision === revision) {
+          if (oldRevision === revision && oldPixelMap !== undefined) {
             newRevisions.set(noteId, revision);
-            if (oldPixelMap !== undefined) {
-              newMap.set(noteId, oldPixelMap);
-            }
+            newMap.set(noteId, oldPixelMap);
             continue;
           }
           const pixelMap: PixelMap | null = pageState === null ? null :
@@ -223,8 +221,8 @@ struct LibraryPage {
           if (pixelMap !== null) {
             createdMaps.push(pixelMap);
           }
-          newRevisions.set(noteId, revision);
           if (pixelMap !== null) {
+            newRevisions.set(noteId, revision);
             newMap.set(noteId, pixelMap);
           }
         } catch (e) {
