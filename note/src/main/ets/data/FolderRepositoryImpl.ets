@@ -152,6 +152,8 @@ export class FolderRepositoryImpl {
         if (rowId < 0) {
           throw new Error('insert returned an invalid row id');
         }
+        const afterCreate: NoteFolder[] = await this.queryFolders(store);
+        await this.normalizeSiblingOrders(store, afterCreate, parentId);
         await store.commit();
         return folder;
       } catch (e) {
