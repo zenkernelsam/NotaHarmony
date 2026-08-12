@@ -98,6 +98,12 @@ export class AssetRepositoryImpl implements AssetRepository {
           try {
             if (resultSet.goToNextRow()) {
               const pathColumn: number = resultSet.getColumnIndex('local_path');
+              const noteIdsColumn: number = resultSet.getColumnIndex('note_ids');
+              const noteIds: string[] = parseAssetNoteIds(
+                resultSet.getString(noteIdsColumn));
+              if (noteIds.length > 0) {
+                throw new Error(`asset is still referenced by ${noteIds.length} note(s)`);
+              }
               path = resultSet.isColumnNull(pathColumn) ? null : resultSet.getString(pathColumn);
             }
           } finally {
