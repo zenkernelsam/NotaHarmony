@@ -3,8 +3,11 @@ import path from 'node:path';
 
 const root = process.env.NOTA_HARMONY_ROOT ?? path.resolve(import.meta.dirname, '../../..');
 const source = fs.readFileSync(path.join(root, 'note/src/main/ets/ui/settings/BackupPage.ets'), 'utf8');
+const client = fs.readFileSync(path.join(root, 'note/src/main/ets/data/WebDAVClient.ets'), 'utf8');
 const checks = [
   ['canonical manifest filename helper imported', source.includes('backupManifestFileName, parseBackupBatch')],
+  ['candidate name comes from DAV href rather than displayname',
+    client.includes('name: fallbackName') && client.includes('displayName: response.displayName.length > 0')],
   ['candidate filename is bound to parsed batch id', source.includes('candidates[i].name === backupManifestFileName(parsed.batchId)')],
   ['identity check precedes latest selection', source.indexOf('candidates[i].name === backupManifestFileName(parsed.batchId)') < source.indexOf('(latest === null || parsed.createdAt > latest.createdAt)')],
 ];

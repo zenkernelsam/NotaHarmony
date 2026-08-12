@@ -14,7 +14,8 @@ export interface WebDAVConfig {
 }
 
 export interface WebDAVFileInfo {
-  name: string;
+  name: string;           // Decoded final DAV:href segment; safe for protocol identity.
+  displayName: string;    // Optional server display property; never use as object identity.
   path: string;
   size: number;
   lastModified: number;   // 毫秒时间戳（无则 0）
@@ -395,8 +396,11 @@ export class WebDAVClient implements BackupBatchTransport {
             propstatDepth = -1;
           } else if (name === 'response' && response !== null && responseDepth === depth) {
             const file: WebDAVFileInfo | null = this.toFileInfo(response, requestUrl);
-            if (file !== null && !this.sameResourceUrl(file.path, requestUrl)) {
-              files.push(file);
+            if (file !== null) {
+              this.assertPropfindMemberUrl(file.path, requestUrl);
+              if (!this.sameResourceUrl(file.path, requestUrl)) {
+                files.push(file);
+              }
             }
             response = null;
             responseDepth = -1;
@@ -457,15 +461,14 @@ export class WebDAVClient implements BackupBatchTransport {
     if (!response.hasSuccessfulPropstat || response.href.length === 0) {
       return null;
     }
-    const decodedHref: string = this.decodeHref(response.href);
-    const path: string = this.urlForHref(decodedHref, requestUrl);
-    const hrefWithoutSlash: string = decodedHref.replace(/\/+$/, '');
-    const fallbackName: string = hrefWithoutSlash.split('/').pop() ?? hrefWithoutSlash;
+    const path: string = this.urlForHref(response.href, requestUrl);
+    const fallbackName: string = this.resourceNameFromUrl(path);
     const sizeValue: number = response.sizeText.length > 0 ? Number(response.sizeText) : 0;
     const size: number = Number.isFinite(sizeValue) && sizeValue >= 0 ? sizeValue : 0;
     const parsedTime: number = response.modifiedText.length > 0 ? Date.parse(response.modifiedText) : 0;
     return {
-      name: response.displayName.length > 0 ? response.displayName : fallbackName,
+      name: fallbackName,
+      displayName: response.displayName.length > 0 ? response.displayName : fallbackName,
       path: path,
       size: size,
       lastModified: Number.isNaN(parsedTime) ? 0 : parsedTime,
@@ -481,14 +484,83 @@ export class WebDAVClient implements BackupBatchTransport {
   }
 
   private sameResourceUrl(left: string, right: string): boolean {
-    return left.replace(/\/+$/, '') === right.replace(/\/+$/, '');
+    return this.urlOrigin(left) === this.urlOrigin(right) &&
+      this.urlPath(left).replace(/\/+$/, '') === this.urlPath(right).replace(/\/+$/, '');
   }
 
-  private decodeHref(value: string): string {
+  private assertPropfindMemberUrl(resourceUrl: string, requestUrl: string): void {
+    if (this.urlOrigin(resourceUrl) !== this.urlOrigin(requestUrl)) {
+      throw new Error('WebDAV href points to a different server origin');
+    }
+    const resourcePath: string = this.urlPath(resourceUrl);
+    const requestPath: string = this.urlPath(requestUrl);
+    this.assertCanonicalUrlPath(resourcePath);
+    this.assertCanonicalUrlPath(requestPath);
+    const requestIdentity: string = requestPath.replace(/\/+$/, '');
+    const resourceIdentity: string = resourcePath.replace(/\/+$/, '');
+    if (resourceIdentity === requestIdentity) {
+      return;
+    }
+    const collectionPrefix: string = requestIdentity + '/';
+    if (!resourceIdentity.startsWith(collectionPrefix)) {
+      throw new Error('WebDAV href is outside the requested collection');
+    }
+    const child: string = resourceIdentity.slice(collectionPrefix.length);
+    if (child.length === 0 || child.indexOf('/') >= 0) {
+      throw new Error('WebDAV Depth:1 response contains a non-child resource');
+    }
+  }
+
+  private urlPath(value: string): string {
+    const authorityStart: number = value.indexOf('://') + 3;
+    if (authorityStart < 3) {
+      throw new Error('WebDAV URL has no valid origin');
+    }
+    const pathStart: number = value.indexOf('/', authorityStart);
+    if (pathStart < 0) {
+      return '/';
+    }
+    let end: number = value.length;
+    const query: number = value.indexOf('?', pathStart);
+    const fragment: number = value.indexOf('#', pathStart);
+    if (query >= 0 && query < end) {
+      end = query;
+    }
+    if (fragment >= 0 && fragment < end) {
+      end = fragment;
+    }
+    return value.slice(pathStart, end);
+  }
+
+  private assertCanonicalUrlPath(path: string): void {
+    const segments: string[] = path.split('/');
+    for (const segment of segments) {
+      if (segment === '.' || segment === '..') {
+        throw new Error('WebDAV href contains a dot path segment');
+      }
+    }
+  }
+
+  private resourceNameFromUrl(value: string): string {
+    let end: number = value.length;
+    const query: number = value.indexOf('?');
+    const fragment: number = value.indexOf('#');
+    if (query >= 0 && query < end) {
+      end = query;
+    }
+    if (fragment >= 0 && fragment < end) {
+      end = fragment;
+    }
+    const path: string = value.slice(0, end).replace(/\/+$/, '');
+    const slash: number = path.lastIndexOf('/');
+    return this.decodePathSegment(slash >= 0 ? path.slice(slash + 1) : path);
+  }
+
+  private decodePathSegment(value: string): string {
     try {
       return decodeURIComponent(value);
     } catch (e) {
-      console.warn(`WebDAV href is not valid percent-encoding: ${value}`);
+      console.warn(`WebDAV path segment is not valid percent-encoding: ${value}`);
       return value;
     }
   }

@@ -49,7 +49,8 @@ export default function webDAVClientTest() {
         </x:multistatus>`;
       const files: WebDAVFileInfo[] = client.parsePropfindResponse(source, directory);
       expect(files.length).assertEqual(1);
-      expect(files[0].name).assertEqual('Alpha & Beta.note');
+      expect(files[0].name).assertEqual('alpha.note');
+      expect(files[0].displayName).assertEqual('Alpha & Beta.note');
       expect(files[0].size).assertEqual(42);
       expect(files[0].path).assertEqual(directory + 'alpha.note');
     });
@@ -63,6 +64,8 @@ export default function webDAVClientTest() {
         <status>HTTP/1.1 200 OK</status></propstat></response></multistatus>`;
       const files: WebDAVFileInfo[] = client.parsePropfindResponse(valid, directory);
       expect(files.length).assertEqual(1);
+      expect(files[0].name).assertEqual('beta.note');
+      expect(files[0].displayName).assertEqual('beta.note');
       expect(files[0].path).assertEqual(
         'https://dav.example.com/remote.php/dav/files/user/nota%20backup/beta.note');
       expect(throws(() => client.parsePropfindResponse(
@@ -71,6 +74,38 @@ export default function webDAVClientTest() {
         <href>https://attacker.example/steal.note</href><propstat><prop/>
         <status>HTTP/1.1 200 OK</status></propstat></response></multistatus>`;
       expect(throws(() => client.parsePropfindResponse(crossOrigin, directory))).assertTrue();
+    });
+
+    it('keeps an encoded slash inside one href path segment', 0, () => {
+      const client: WebDAVClient = createClient();
+      const directory: string = client.backupDirectoryUrl();
+      const source: string = `<multistatus xmlns="DAV:"><response>
+        <href>folder%2Fname.note</href><propstat><prop/>
+        <status>HTTP/1.1 200 OK</status></propstat></response></multistatus>`;
+      const files: WebDAVFileInfo[] = client.parsePropfindResponse(source, directory);
+      expect(files.length).assertEqual(1);
+      expect(files[0].path).assertEqual(directory + 'folder%2Fname.note');
+      expect(files[0].name).assertEqual('folder/name.note');
+    });
+
+    it('rejects hrefs outside the requested Depth:1 collection', 0, () => {
+      const client: WebDAVClient = createClient();
+      const directory: string = client.backupDirectoryUrl();
+      const outside: string = `<multistatus xmlns="DAV:"><response>
+        <href>/remote.php/dav/files/user/other/batch-evil.manifest.json</href>
+        <propstat><prop/><status>HTTP/1.1 200 OK</status></propstat>
+        </response></multistatus>`;
+      expect(throws(() => client.parsePropfindResponse(outside, directory))).assertTrue();
+      const parent: string = `<multistatus xmlns="DAV:"><response>
+        <href>../batch-evil.manifest.json</href>
+        <propstat><prop/><status>HTTP/1.1 200 OK</status></propstat>
+        </response></multistatus>`;
+      expect(throws(() => client.parsePropfindResponse(parent, directory))).assertTrue();
+      const nested: string = `<multistatus xmlns="DAV:"><response>
+        <href>nested/batch-evil.manifest.json</href>
+        <propstat><prop/><status>HTTP/1.1 200 OK</status></propstat>
+        </response></multistatus>`;
+      expect(throws(() => client.parsePropfindResponse(nested, directory))).assertTrue();
     });
   });
 }
