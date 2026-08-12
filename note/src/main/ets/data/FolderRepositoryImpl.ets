@@ -243,24 +243,31 @@ export class FolderRepositoryImpl {
   }
 
   async moveNoteToFolder(noteId: string, folderId: string | null): Promise<void> {
-    const store: relationalStore.RdbStore = this.db.getStore();
-    if (folderId !== null) {
-      const folders: NoteFolder[] = await this.queryFolders(store);
-      if (findFolder(folders, folderId) === null) {
-        throw new Error('moveNoteToFolder failed: folder does not exist');
+    await FolderRepositoryImpl.writeMutex.runExclusive(async (): Promise<void> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      await store.beginTransaction();
+      try {
+        // Validate the target and perform the note update under the same writer gate as
+        // folder deletion/rename/move, so a target cannot disappear between the checks.
+        if (folderId !== null) {
+          const folders: NoteFolder[] = await this.queryFolders(store);
+          if (findFolder(folders, folderId) === null) {
+            throw new Error('folder does not exist');
+          }
+        }
+        const bucket: relationalStore.ValuesBucket = { 'folder_id': folderId };
+        const predicates = new relationalStore.RdbPredicates('note_meta');
+        predicates.equalTo('id', noteId);
+        const changed: number = await store.update(bucket, predicates);
+        if (changed === 0) {
+          throw new Error('note does not exist');
+        }
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`moveNoteToFolder failed: ${JSON.stringify(e)}`);
       }
-    }
-    const bucket: relationalStore.ValuesBucket = { 'folder_id': folderId };
-    const predicates = new relationalStore.RdbPredicates('note_meta');
-    predicates.equalTo('id', noteId);
-    try {
-      const changed: number = await store.update(bucket, predicates);
-      if (changed === 0) {
-        throw new Error('note does not exist');
-      }
-    } catch (e) {
-      throw new Error(`moveNoteToFolder failed: ${JSON.stringify(e)}`);
-    }
+    });
   }
 
   private async queryFolders(store: relationalStore.RdbStore): Promise<NoteFolder[]> {
