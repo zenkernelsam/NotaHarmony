@@ -1,5 +1,6 @@
 import { image } from '@kit.ImageKit';
 import { pdfService } from '@kit.PDFKit';
+import { fileIo } from '@kit.CoreFileKit';
 import { AssetStatus, NoteAsset } from '../model/AssetTypes';
 import { originalAssetHashKey, originalAssetStorageHash } from '../model/ImageBlockGeometry';
 import { PagePdfBackground } from '../model/NoteTypes';
@@ -31,6 +32,12 @@ export class PdfBackgroundLoader {
   async load(pdf: PagePdfBackground): Promise<LoadedPdfBackground> {
     const storageHash: string = originalAssetStorageHash(pdf.metadata.assetHashBits);
     const legacyHash: string = originalAssetHashKey(pdf.metadata.assetHashBits);
+    if (!Number.isSafeInteger(pdf.totalPageCount) || pdf.totalPageCount <= 0 ||
+      !Number.isSafeInteger(pdf.pageInAsset) || pdf.pageInAsset < 0 ||
+      pdf.pageInAsset >= pdf.totalPageCount ||
+      !Number.isSafeInteger(pdf.metadata.fileSize) || pdf.metadata.fileSize <= 0) {
+      return this.empty(PdfBackgroundLoadState.FAILED, storageHash, 'PDF background metadata is invalid');
+    }
     let asset: NoteAsset | null = await this.repository.getAsset(storageHash);
     if (asset === null && legacyHash !== storageHash) {
       asset = await this.repository.getAsset(legacyHash);
@@ -69,12 +76,19 @@ export class PdfBackgroundLoader {
     const document: pdfService.PdfDocument = new pdfService.PdfDocument();
     let pixelMap: image.PixelMap | null = null;
     try {
+      const stat = fileIo.statSync(path);
+      if (!stat.isFile() || stat.size !== pdf.metadata.fileSize) {
+        return this.empty(PdfBackgroundLoadState.FAILED, storageHash,
+          'PDF asset file size does not match metadata');
+      }
       const parsed: pdfService.ParseResult = document.loadDocument(path);
       if (parsed !== pdfService.ParseResult.PARSE_SUCCESS) {
         return this.empty(PdfBackgroundLoadState.FAILED, storageHash,
           `PDFKit parse failed with result ${parsed}`);
       }
-      if (document.getPageCount() !== pdf.totalPageCount || pdf.pageInAsset >= document.getPageCount()) {
+      const pageCount: number = document.getPageCount();
+      if (!Number.isSafeInteger(pageCount) || pageCount <= 0 ||
+        pageCount !== pdf.totalPageCount || pdf.pageInAsset >= pageCount) {
         return this.empty(PdfBackgroundLoadState.FAILED, storageHash,
           'PDF document page count conflicts with metadata');
       }
