@@ -5,12 +5,10 @@ const root = process.env.NOTA_HARMONY_ROOT ?? path.resolve(import.meta.dirname, 
 const source = fs.readFileSync(
   path.join(root, 'note/src/main/ets/core/adaptation/Canvas2DStrokeRenderer.ets'), 'utf8');
 const checks = [
-  ['render passes Tape brush width', source.includes('0xFFFFFFFF, stroke.renderSpec.brushWidth')],
-  ['width is bounded to original range', source.includes('Math.min(8, Math.max(1, brushWidth))')],
-  ['bucket uses original doubled rounding', source.includes('Math.round(boundedWidth * 2)')],
-  ['bucket is part of cache identity', source.includes('`${pattern}:${overlayColor}:${colorKey}:${scaleBucket}`')],
-  ['logical tile size follows bucket', source.includes('size.width * scaleFactor') && source.includes('size.height * scaleFactor')],
+  ['Tape renderer does not misuse brush width as zoom', !source.includes('0xFFFFFFFF, stroke.renderSpec.brushWidth')],
+  ['current cache key remains color-correct', source.includes('`${pattern}:${overlayColor}:${colorKey}`')],
   ['FLOWERS remains the only tape-color variant', source.includes('pattern === TapePattern.FLOWERS ? tapeColor : 0')],
+  ['zoom gap is documented', fs.readFileSync(path.join(root, 'docs/migration/adr/ADR-0132-original-tape-pattern-scale-bucket.md'), 'utf8').includes('zoom')],
 ];
 for (const [name, ok] of checks) {
   if (!ok) throw new Error(`FAILED: ${name}`);

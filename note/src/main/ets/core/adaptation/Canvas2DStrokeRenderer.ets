@@ -718,7 +718,7 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       outlinePoints = outline.outlinePoints;
     }
     const tile: TapePatternTile = this.getTapePatternTile(pattern, stroke.renderSpec.color,
-      0xFFFFFFFF, stroke.renderSpec.brushWidth);
+      0xFFFFFFFF);
     const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
     c.save();
     c.beginPath();
@@ -740,15 +740,9 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
   }
 
   private getTapePatternTile(pattern: TapePattern, tapeColor: number,
-    overlayColor: number, brushWidth: number): TapePatternTile {
-    // Original qfe keys its bitmap by round(clamp(width, 1..8) * 2), so the
-    // pattern period grows with Tape width instead of reusing one fixed tile.
-    const boundedWidth: number = Number.isFinite(brushWidth) ?
-      Math.min(8, Math.max(1, brushWidth)) : 1;
-    const scaleBucket: number = Math.min(16, Math.max(2, Math.round(boundedWidth * 2)));
-    const scaleFactor: number = scaleBucket / 2;
+    overlayColor: number): TapePatternTile {
     const colorKey: number = pattern === TapePattern.FLOWERS ? tapeColor : 0;
-    const key: string = `${pattern}:${overlayColor}:${colorKey}:${scaleBucket}`;
+    const key: string = `${pattern}:${overlayColor}:${colorKey}`;
     const cached: TapePatternTile | undefined = this.tapeTiles.get(key);
     if (cached !== undefined) {
       this.tapeTiles.delete(key);
@@ -757,10 +751,8 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     }
     const size: TapePatternTileSize = this.tapePatternTileSize(pattern);
     const density: number = Canvas2DStrokeRenderer.TAPE_TILE_DENSITY;
-    const logicalWidth: number = size.width * scaleFactor;
-    const logicalHeight: number = size.height * scaleFactor;
-    const pixelWidth: number = Math.max(1, Math.round(logicalWidth * density));
-    const pixelHeight: number = Math.max(1, Math.round(logicalHeight * density));
+    const pixelWidth: number = Math.max(1, Math.round(size.width * density));
+    const pixelHeight: number = Math.max(1, Math.round(size.height * density));
     const canvas: OffscreenCanvas = new OffscreenCanvas(pixelWidth, pixelHeight);
     const raw: OffscreenCanvasRenderingContext2D =
       canvas.getContext('2d', new RenderingContextSettings(true));
@@ -769,7 +761,7 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     const drawing: Canvas2DOffscreenRenderContext = new Canvas2DOffscreenRenderContext(raw);
     this.drawTapePatternTile(drawing, pattern, size.width, size.height, tapeColor, overlayColor);
     const created: TapePatternTile = {
-      bitmap: canvas.transferToImageBitmap(), logicalWidth, logicalHeight,
+      bitmap: canvas.transferToImageBitmap(), logicalWidth: size.width, logicalHeight: size.height,
     };
     this.tapeTiles.set(key, created);
     if (this.tapeTiles.size > Canvas2DStrokeRenderer.MAX_TAPE_TILES) {
