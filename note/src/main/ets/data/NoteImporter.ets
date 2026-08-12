@@ -112,6 +112,7 @@ export class NoteImporter {
 
   // 从文件导入（系统 picker 选择 .note 文件）
   async importFromFile(context: common.UIAbilityContext): Promise<ImportReport> {
+    let file: fileIo.File | null = null;
     try {
       const documentPicker = new picker.DocumentViewPicker(context);
       const selectOptions = new picker.DocumentSelectOptions();
@@ -124,17 +125,19 @@ export class NoteImporter {
       }
       // 读取文件内容
       const uri: string = uris[0];
-      const file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+      file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
       const stat = fileIo.statSync(uri);
       const size: number = stat.size;
       if (size <= 0) {
         fileIo.closeSync(file);
+        file = null;
         return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
           missingAssets: [], warnings: [],
           message: '所选文件为空' };
       }
       const bytes: Uint8Array = readFileFully(file.fd, size);
       fileIo.closeSync(file);
+      file = null;
       return await this.importFromData(bytes);
     } catch (e) {
       console.error(`importFromFile failed: ${JSON.stringify(e)}`);
@@ -602,6 +605,10 @@ export class NoteImporter {
         message: '写入数据库失败，导入未完成' };
     } finally {
       release();
+    } finally {
+      if (file !== null) {
+        try { fileIo.closeSync(file); } catch (_) { }
+      }
     }
   }
 
