@@ -11,8 +11,12 @@ const checks = [
   ['repair parses JSON structurally', manager.indexOf('JSON.parse(raw)') >= 0],
   ['repair filters against note_meta', manager.indexOf('valid.has(value)') >= 0],
   ['empty assets are removed', manager.indexOf('if (filtered.length === 0)') >= 0],
+  ['empty removal precedes unchanged fast path', manager.indexOf('if (filtered.length === 0)') <
+    manager.indexOf('if (unchanged)')],
   ['asset rows are snapshotted before mutation', manager.indexOf('const assetRows') >= 0 &&
     manager.indexOf('assets.close()', manager.indexOf('const assetRows')) >= 0],
+  ['invalid JSON is quarantined instead of aborting startup', manager.indexOf('quarantineInvalidAssetReference') >= 0],
+  ['quarantine marks asset failed with empty references', manager.indexOf("'note_ids': '[]', 'status': 4") >= 0],
 ];
 for (const [name, ok] of checks) {
   if (!ok) throw new Error(`FAILED: ${name}`);

@@ -199,19 +199,33 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
       try {
         parsed = JSON.parse(raw);
       } catch (_error) {
-        throw new Error(`invalid note_asset.note_ids JSON for ${hash}`);
+        await this.quarantineInvalidAssetReference(store, hash);
+        continue;
       }
       if (!Array.isArray(parsed)) {
-        throw new Error(`note_asset.note_ids is not an array for ${hash}`);
+        await this.quarantineInvalidAssetReference(store, hash);
+        continue;
       }
       const filtered: string[] = [];
+      let invalidEntries: boolean = false;
       for (const value of parsed) {
         if (typeof value !== 'string' || value.length === 0) {
-          throw new Error(`invalid note_asset note ID for ${hash}`);
+          await this.quarantineInvalidAssetReference(store, hash);
+          invalidEntries = true;
+          break;
         }
         if (valid.has(value) && filtered.indexOf(value) < 0) {
           filtered.push(value);
         }
+      }
+      if (invalidEntries) {
+        continue;
+      }
+      const predicates = new relationalStore.RdbPredicates('note_asset');
+      predicates.equalTo('asset_hash', hash);
+      if (filtered.length === 0) {
+        await store.delete(predicates);
+        continue;
       }
       let unchanged: boolean = filtered.length === parsed.length;
       if (unchanged) {
@@ -225,13 +239,18 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
       if (unchanged) {
         continue;
       }
-      const predicates = new relationalStore.RdbPredicates('note_asset');
-      predicates.equalTo('asset_hash', hash);
-      if (filtered.length === 0) {
-        await store.delete(predicates);
-      } else if (await store.update({ 'note_ids': JSON.stringify(filtered) }, predicates) !== 1) {
+      if (await store.update({ 'note_ids': JSON.stringify(filtered) }, predicates) !== 1) {
         throw new Error(`asset reference repair affected an unexpected number of rows: ${hash}`);
       }
+    }
+  }
+
+  private async quarantineInvalidAssetReference(store: relationalStore.RdbStore,
+    hash: string): Promise<void> {
+    const predicates = new relationalStore.RdbPredicates('note_asset');
+    predicates.equalTo('asset_hash', hash);
+    if (await store.update({ 'note_ids': '[]', 'status': 4 }, predicates) !== 1) {
+      throw new Error(`asset quarantine affected an unexpected number of rows: ${hash}`);
     }
   }
 
