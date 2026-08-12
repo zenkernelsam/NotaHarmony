@@ -44,7 +44,7 @@ export class AssetRepositoryImpl implements AssetRepository {
       try {
         const existingNoteIds: string[] = await this.queryNoteIds(store, asset.assetHash);
         const mergedNoteIds: string[] = mergeNoteIds(existingNoteIds, asset.noteIds);
-        await this.validateNoteReferences(store, mergedNoteIds);
+        await validateNoteReferences(store, mergedNoteIds);
         const bucket: relationalStore.ValuesBucket = {
           'asset_hash': asset.assetHash,
           'status': asset.status,
@@ -149,21 +149,23 @@ export class AssetRepositoryImpl implements AssetRepository {
     }
   }
 
-  private async validateNoteReferences(store: relationalStore.RdbStore, noteIds: string[]): Promise<void> {
-    for (const noteId of noteIds) {
-      if (noteId.length === 0) {
-        throw new Error('note_asset.note_ids contains an empty note ID');
+}
+
+export async function validateNoteReferences(store: relationalStore.RdbStore,
+  noteIds: string[]): Promise<void> {
+  for (const noteId of noteIds) {
+    if (noteId.length === 0) {
+      throw new Error('note_asset.note_ids contains an empty note ID');
+    }
+    const predicates = new relationalStore.RdbPredicates('note_meta');
+    predicates.equalTo('id', noteId);
+    const rows = await store.query(predicates, ['id']);
+    try {
+      if (!rows.goToFirstRow()) {
+        throw new Error(`note_asset references a missing note: ${noteId}`);
       }
-      const predicates = new relationalStore.RdbPredicates('note_meta');
-      predicates.equalTo('id', noteId);
-      const rows = await store.query(predicates, ['id']);
-      try {
-        if (!rows.goToFirstRow()) {
-          throw new Error(`note_asset references a missing note: ${noteId}`);
-        }
-      } finally {
-        rows.close();
-      }
+    } finally {
+      rows.close();
     }
   }
 }

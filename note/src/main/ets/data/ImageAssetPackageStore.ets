@@ -6,7 +6,9 @@ import {
 } from '../core/model/ImageBlockGeometry';
 import { AssetStatus, NoteAsset } from '../core/model/AssetTypes';
 import { OriginalAssetMetadata } from '../core/model/NoteTypes';
-import { assetMutationMutex, AssetRepositoryImpl, mergeNoteIds, parseAssetNoteIds } from './AssetRepositoryImpl';
+import {
+  assetMutationMutex, AssetRepositoryImpl, mergeNoteIds, parseAssetNoteIds, validateNoteReferences,
+} from './AssetRepositoryImpl';
 import { assetAvailabilityHub } from './AssetAvailabilityHub';
 import { sha512Hex } from './AssetDigest';
 import { DatabaseManager } from './DatabaseManager';
@@ -172,6 +174,7 @@ async function writeOriginalImageAssetBytes(database: DatabaseManager, arrival: 
       if (noteId !== null) {
         noteIds = mergeNoteIds(noteIds, [noteId]);
       }
+      await validateNoteReferences(store, noteIds);
 
       const available: StoredAssetRecord | null = preferredAvailableRecord(rows, storageHash);
       let targetStatus: AssetStatus = AssetStatus.LOCAL;
