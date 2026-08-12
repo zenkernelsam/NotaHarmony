@@ -49,7 +49,19 @@ export class ShapeDetector implements RecognitionProvider {
         merged.confidenceThreshold = config.confidenceThreshold;
       }
     }
-    this.config = merged;
+    this.config = {
+      lineThreshold: Number.isFinite(merged.lineThreshold) && merged.lineThreshold >= 0 ?
+        merged.lineThreshold : 0.6,
+      lineMinLength: Number.isFinite(merged.lineMinLength) && merged.lineMinLength >= 0 ?
+        merged.lineMinLength : 60,
+      ellipseMaxGap: Number.isFinite(merged.ellipseMaxGap) && merged.ellipseMaxGap >= 0 ?
+        merged.ellipseMaxGap : 120,
+      refitThreshold: Number.isFinite(merged.refitThreshold) && merged.refitThreshold > 0 ?
+        merged.refitThreshold : 5.0,
+      confidenceThreshold: Number.isFinite(merged.confidenceThreshold) &&
+        merged.confidenceThreshold >= 0 && merged.confidenceThreshold <= 1 ?
+        merged.confidenceThreshold : 0.5,
+    };
   }
 
   isAvailable(): boolean {
