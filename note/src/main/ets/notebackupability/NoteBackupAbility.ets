@@ -176,9 +176,6 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
           this.ensureParent(destination);
           fileIo.copyFileSync(source, destination);
         } catch (e) {
-          if (existed && this.isFile(rollback)) {
-            fileIo.renameSync(rollback, destination);
-          }
           throw e;
         }
         this.state.processed++;
