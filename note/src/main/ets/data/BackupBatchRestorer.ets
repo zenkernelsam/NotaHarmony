@@ -1,4 +1,4 @@
-import { BackupBatchEntry, BackupBatchManifest } from './BackupBatchSpec';
+import { BackupBatchEntry, BackupBatchManifest, parseBackupBatch, serializeBackupBatch } from './BackupBatchSpec';
 import { BackupBatchHasher, BackupBatchTransport } from './BackupBatchPublisher';
 
 export interface VerifiedBackupObject {
@@ -23,6 +23,10 @@ export class BackupBatchRestorer {
   async fetch(manifest: BackupBatchManifest): Promise<BackupFetchResult> {
     const verified: VerifiedBackupObject[] = [];
     const failedNoteIds: string[] = [];
+    const validated: BackupBatchManifest | null = parseBackupBatch(serializeBackupBatch(manifest));
+    if (validated === null) {
+      throw new Error('backup manifest failed structural validation before download');
+    }
     for (let i: number = 0; i < manifest.entries.length; i++) {
       const entry: BackupBatchEntry = manifest.entries[i];
       const data: Uint8Array | null = await this.transport.download(
