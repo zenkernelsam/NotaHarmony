@@ -3,12 +3,13 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
+// v62: remove orphan note_asset references during startup migration.
 // v61: retain CREATE_GROUP clientTime for original group-layered element ordering.
 // v60: retain original z-index values for durable selection reorder Undo/Redo.
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 61;
+export const DB_VERSION: number = 62;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -2450,4 +2451,5 @@ export const MIGRATIONS: Record<number, string[]> = {
          AND timing.payload_type = 20
      ) WHERE z_index IS NULL`,
   ],
+  62: [],
 };

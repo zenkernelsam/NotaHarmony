@@ -148,6 +148,7 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
       try {
         await repairLegacyOriginalOutboundEnvelopes(store);
         await backfillOriginalAppliedOperationTimes(store);
+        await this.repairAssetNoteReferences(store);
         await store.commit();
       } catch (e) {
         await store.rollBack();
@@ -165,6 +166,73 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
     } catch (e) {
       this.rdbStore = null;
       throw new Error(`Database migration failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  private async repairAssetNoteReferences(store: relationalStore.RdbStore): Promise<void> {
+    const notes = await store.querySql('SELECT id FROM note_meta');
+    const valid: Set<string> = new Set<string>();
+    try {
+      while (notes.goToNextRow()) {
+        valid.add(notes.getString(notes.getColumnIndex('id')));
+      }
+    } finally {
+      notes.close();
+    }
+    const assets = await store.querySql(
+      'SELECT asset_hash, note_ids FROM note_asset');
+    const assetRows: Array<{ hash: string; raw: string }> = [];
+    try {
+      while (assets.goToNextRow()) {
+        assetRows.push({
+          hash: assets.getString(assets.getColumnIndex('asset_hash')),
+          raw: assets.getString(assets.getColumnIndex('note_ids')),
+        });
+      }
+    } finally {
+      assets.close();
+    }
+    for (const assetRow of assetRows) {
+        const hash: string = assetRow.hash;
+        const raw: string = assetRow.raw;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(raw);
+        } catch (_error) {
+          throw new Error(`invalid note_asset.note_ids JSON for ${hash}`);
+        }
+        if (!Array.isArray(parsed)) {
+          throw new Error(`note_asset.note_ids is not an array for ${hash}`);
+        }
+        const filtered: string[] = [];
+        for (const value of parsed) {
+          if (typeof value !== 'string' || value.length === 0) {
+            throw new Error(`invalid note_asset note ID for ${hash}`);
+          }
+          if (valid.has(value) && filtered.indexOf(value) < 0) {
+            filtered.push(value);
+          }
+        }
+        let unchanged: boolean = filtered.length === parsed.length;
+        if (unchanged) {
+          for (let index: number = 0; index < filtered.length; index++) {
+            if (filtered[index] !== parsed[index]) {
+              unchanged = false;
+              break;
+            }
+          }
+        }
+        if (unchanged) {
+          continue;
+        }
+        const predicates = new relationalStore.RdbPredicates('note_asset');
+        predicates.equalTo('asset_hash', hash);
+        if (filtered.length === 0) {
+          await store.delete(predicates);
+        } else if (await store.update({ 'note_ids': JSON.stringify(filtered) }, predicates) !== 1) {
+          throw new Error(`asset reference repair affected an unexpected number of rows: ${hash}`);
+        }
+      }
     }
   }
 
