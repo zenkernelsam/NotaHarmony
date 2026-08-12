@@ -193,6 +193,11 @@ export class FolderRepositoryImpl {
       try {
         const folders: NoteFolder[] = await this.queryFolders(store);
         validateFolderMove(folders, folderId, newParentId);
+        const current: NoteFolder | null = findFolder(folders, folderId);
+        if (current === null) {
+          throw new Error('folder does not exist');
+        }
+        const oldParentId: string | null = current.parentId;
         const bucket: relationalStore.ValuesBucket = {
           'parent_id': newParentId,
           'sibling_order': this.nextSiblingOrder(folders, newParentId),
@@ -202,6 +207,11 @@ export class FolderRepositoryImpl {
         const changed: number = await store.update(bucket, predicates);
         if (changed === 0) {
           throw new Error('folder does not exist');
+        }
+        const afterMove: NoteFolder[] = await this.queryFolders(store);
+        await this.normalizeSiblingOrders(store, afterMove, oldParentId);
+        if (!sameParent(oldParentId, newParentId)) {
+          await this.normalizeSiblingOrders(store, afterMove, newParentId);
         }
         await store.commit();
       } catch (e) {
@@ -236,6 +246,25 @@ export class FolderRepositoryImpl {
         const deleted: number = await store.delete(predicates);
         if (deleted === 0) {
           throw new Error('folder does not exist');
+        }
+        const remaining: NoteFolder[] = await this.queryFolders(store);
+        const affectedParents: Array<string | null> = [];
+        for (const folder of folders) {
+          if (isFolderInSubtree(folders, folderId, folder.id)) {
+            let alreadyAdded: boolean = false;
+            for (const parent of affectedParents) {
+              if (sameParent(parent, folder.parentId)) {
+                alreadyAdded = true;
+                break;
+              }
+            }
+            if (!alreadyAdded) {
+              affectedParents.push(folder.parentId);
+            }
+          }
+        }
+        for (const parent of affectedParents) {
+          await this.normalizeSiblingOrders(store, remaining, parent);
         }
         await store.commit();
       } catch (e) {
@@ -312,6 +341,31 @@ export class FolderRepositoryImpl {
       }
     }
     return order + 1;
+  }
+
+  private async normalizeSiblingOrders(store: relationalStore.RdbStore,
+    folders: NoteFolder[], parentId: string | null): Promise<void> {
+    const siblings: NoteFolder[] = folders.filter((folder: NoteFolder): boolean =>
+      sameParent(folder.parentId, parentId));
+    siblings.sort((left: NoteFolder, right: NoteFolder): number => {
+      if (left.siblingOrder !== right.siblingOrder) {
+        return left.siblingOrder - right.siblingOrder;
+      }
+      if (left.createdAt !== right.createdAt) {
+        return left.createdAt - right.createdAt;
+      }
+      return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+    });
+    for (let index: number = 0; index < siblings.length; index++) {
+      if (siblings[index].siblingOrder === index) {
+        continue;
+      }
+      const predicates = new relationalStore.RdbPredicates('folder');
+      predicates.equalTo('id', siblings[index].id);
+      if (await store.update({ 'sibling_order': index }, predicates) !== 1) {
+        throw new Error('folder sibling order update affected an unexpected number of rows');
+      }
+    }
   }
 
   private folderBucket(folder: NoteFolder): relationalStore.ValuesBucket {
