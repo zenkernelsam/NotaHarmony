@@ -187,6 +187,11 @@ export interface OriginalClipboardPastePersistenceResult {
   operation: Op;
 }
 
+export interface OriginalMathInsertResult {
+  math: MathElement;
+  elementOrder: PageElementRef[];
+}
+
 export interface OriginalClipboardPasteHistoryResult {
   elements: SearchSourceElement[];
   elementOrder: PageElementRef[];
@@ -1170,6 +1175,104 @@ export class StrokePersistence {
     });
   }
 
+  async commitOriginalMathInsert(noteId: string, pageId: string,
+    draft: MathElement, history: HistoryMetadata): Promise<OriginalMathInsertResult> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    validateHistoryMetadata(history);
+    if (history.effect !== HistoryEffect.PUSH ||
+      history.coalesceTrack !== HistoryCoalesceTrack.NONE) {
+      throw new Error('Math insert requires non-coalesced PUSH history');
+    }
+    if (draft.id.length !== 0 || draft.type !== ElementType.MATH) {
+      throw new Error('Math insert draft must not carry an entity identity');
+    }
+    const stableDraft: MathElement = cloneMathElement(draft);
+    encodeOriginalLocalCreateMathBlock({ timestamp: 1, siteId: 1, index: 0 }, stableDraft);
+    const stableHistory: HistoryMetadata = {
+      actionId: history.actionId, effect: history.effect,
+      coalesceTrack: history.coalesceTrack, actionTime: history.actionTime,
+    };
+    await this.flush(noteId, pageId);
+    return editorPersistenceMutex.runExclusive(async (): Promise<OriginalMathInsertResult> => {
+      if (this.store === null) {
+        throw new Error('StrokePersistence is not initialized');
+      }
+      const store: relationalStore.RdbStore = this.store;
+      await store.beginTransaction();
+      try {
+        const page: OriginalSequenceIdentity | null = await this.readEligibleOriginalInkPage(
+          store, noteId, pageId);
+        if (page === null) {
+          throw new Error('Math insert page is not original-aligned');
+        }
+        const before: SearchSourceElement[] = await this.loadCurrentSnapshot(store, noteId, pageId);
+        const currentRevision: number = await this.readLivePageRevision(store, noteId, pageId);
+        if (currentRevision >= Number.MAX_SAFE_INTEGER) {
+          throw new Error('Math insert page revision is exhausted');
+        }
+        const nextRevision: number = currentRevision + 1;
+        const maximumZIndex: string | null = await this.readMaximumOriginalZIndex(
+          store, noteId, page);
+        const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+        if (maximumZIndex !== null &&
+          compareUnsignedLongDecimal(maximumZIndex, identity.clientTime.toString()) > 0) {
+          throw new Error('Math insert cannot append below the current z-index clock');
+        }
+        const requested: MathElement = cloneMathElement(stableDraft);
+        requested.id = identity.opId;
+        const payload: Uint8Array = encodeOriginalLocalCreateMathBlock(page, requested);
+        const metadata: OriginalInkCreateMetadata = allocatedOriginalMetadata(identity);
+        const operation: StoredSyncedOperation = localStoredOperation(
+          noteId, metadata, ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE, payload, null);
+        const decoded: OriginalCreateBlockPayload = decodeOriginalCreateBlock(
+          operation.rawOperation, metadata.clientTime.toString());
+        const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+        const applied: SyncedOperationApplyResult =
+          await new OriginalCreateBlockOperationApplier().applyBatchedPayload(
+            store, operation, decoded, revisionBatch);
+        if (applied.deferredReason !== null) {
+          throw new Error(`Math CREATE_BLOCK was deferred: ${applied.deferredReason}`);
+        }
+        await this.appendOriginalCreateOperation(store, noteId, identity,
+          OpType.ORIGINAL_CREATE_BLOCK, operation.rawOperation);
+        await revisionBatch.flush(store, noteId);
+
+        const created: MathElement = materializeOriginalMathCreate(identity.opId, decoded);
+        const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+          store, noteId, pageId);
+        const createdOrder: PageElementRef[] = [{
+          kind: PageElementKind.MATH, elementId: created.id, zIndex: 0,
+        }];
+        const createdPrepared: PreparedPageSave = this.prepareSave(
+          noteId, pageId, [], [], createdOrder, [], [], [created]);
+        const finalSnapshot: PreparedPageSave = this.reconcileOriginalCreatedElementsSnapshot(
+          noteId, pageId, before, materialized, createdPrepared.elements, stableHistory);
+        await this.reconcilePreparedRows(store, finalSnapshot, nextRevision);
+        await this.rebuildPageSearchState(store, finalSnapshot, nextRevision, false);
+        const after: SearchSourceElement[] = finalSnapshot.elements.map(
+          (element: PreparedElement): SearchSourceElement => ({
+            elementId: element.elementId, kind: element.kind, payload: element.payload,
+          }));
+        const mutation: PageMutationOpPayload = createPageMutation(
+          pageId, currentRevision, nextRevision, before, after);
+        await this.appendHistoryCompanion(store, finalSnapshot, mutation);
+        await store.commit();
+        return {
+          math: created,
+          elementOrder: finalSnapshot.elements.map(
+            (element: PreparedElement, index: number): PageElementRef => ({
+              kind: element.kind, elementId: element.elementId, zIndex: index,
+            })),
+        };
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`commit original Math insert failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
   hasDirtySave(noteId: string, pageId: string): boolean {
     const queue: LatestWriteQueue<PreparedPageSave> | undefined =
       this.saveQueues.get(this.saveKey(noteId, pageId));
@@ -1480,7 +1583,7 @@ export class StrokePersistence {
           const createdPrepared: PreparedPageSave = this.prepareSave(
             noteId, pageId, createdStrokes, createdTexts, createdOrder, createdShapes,
             createdImages, createdMathBlocks);
-          const finalSnapshot: PreparedPageSave = this.reconcileOriginalClipboardPasteSnapshot(
+          const finalSnapshot: PreparedPageSave = this.reconcileOriginalCreatedElementsSnapshot(
             noteId, pageId, before, materialized, createdPrepared.elements, stableHistory);
           await this.reconcilePreparedRows(store, finalSnapshot, nextRevision);
           await this.rebuildPageSearchState(
@@ -4469,11 +4572,11 @@ export class StrokePersistence {
     });
   }
 
-  private reconcileOriginalClipboardPasteSnapshot(noteId: string, pageId: string,
+  private reconcileOriginalCreatedElementsSnapshot(noteId: string, pageId: string,
     before: SearchSourceElement[], materialized: SearchSourceElement[],
     created: PreparedElement[], history: HistoryMetadata): PreparedPageSave {
     if (materialized.length !== before.length + created.length) {
-      throw new Error('original clipboard Paste materialized an unexpected element count');
+      throw new Error('original element creation materialized an unexpected element count');
     }
     const beforeByKey: Map<string, SearchSourceElement> = new Map<string, SearchSourceElement>();
     const createdByKey: Map<string, PreparedElement> = new Map<string, PreparedElement>();
@@ -4497,7 +4600,7 @@ export class StrokePersistence {
       }
       const previous: SearchSourceElement | undefined = beforeByKey.get(key);
       if (previous === undefined || !sameByteArrays(previous.payload, actual.payload)) {
-        throw new Error('original clipboard Paste changed a pre-existing element');
+        throw new Error('original element creation changed a pre-existing element');
       }
       elements.push({
         elementId: previous.elementId, kind: previous.kind, payload: previous.payload,
@@ -4506,7 +4609,7 @@ export class StrokePersistence {
       beforeByKey.delete(key);
     }
     if (beforeByKey.size !== 0 || createdByKey.size !== 0) {
-      throw new Error('original clipboard Paste materialized an incomplete page');
+      throw new Error('original element creation materialized an incomplete page');
     }
     return { noteId: noteId, pageId: pageId, elements: elements, history: history };
   }

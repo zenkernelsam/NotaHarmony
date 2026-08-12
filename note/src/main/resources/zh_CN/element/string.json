@@ -54,6 +54,7 @@
     { "name": "partial_eraser", "value": "局部擦除" },
     { "name": "selection", "value": "选择" },
     { "name": "text", "value": "文本" },
+    { "name": "insert_math", "value": "公式" },
     { "name": "more_tools", "value": "更多工具" },
     { "name": "style_mono", "value": "均匀" },
     { "name": "style_taper", "value": "收锋" },

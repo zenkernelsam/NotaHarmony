@@ -73,6 +73,7 @@ struct NotePage {
   @State currentPageIndex: number = 0;
   @State undoSignal: number = 0;
   @State redoSignal: number = 0;
+  @State mathInsertSignal: number = 0;
   @State selectionStyleSignal: number = 0;
   @State selectionInkStyle: InkStyle = InkStyle.FIXED_WIDTH;
   @State selectionColorSignal: number = 0;
@@ -752,6 +753,9 @@ struct NotePage {
           onRedo: () => {
             this.redoSignal++;
           },
+          onInsertMath: () => {
+            this.mathInsertSignal++;
+          },
           onSelectionStyle: (style: BrushStyle) => {
             this.selectionInkStyle = brushStyleToInkStyle(style);
             this.selectionStyleSignal++;
@@ -824,6 +828,7 @@ struct NotePage {
           currentPage: this.pages[this.currentPageIndex],
           undoSignal: this.undoSignal,
           redoSignal: this.redoSignal,
+          mathInsertSignal: this.mathInsertSignal,
           selectionStyleSignal: this.selectionStyleSignal,
           selectionInkStyle: this.selectionInkStyle,
           selectionColorSignal: this.selectionColorSignal,

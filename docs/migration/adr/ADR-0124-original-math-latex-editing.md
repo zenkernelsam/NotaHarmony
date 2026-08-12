@@ -43,3 +43,9 @@ Harmony 当前没有原版使用的公式 bitmap/layout engine。本阶段不编
 - ArkTS fixture 覆盖 field-10 setter round-trip、空字符串 Undo、目标/预算拒绝、单 Math 严格 classifier、
   reverse Undo、混合字段拒绝和 draft 门禁。
 - 全量 replay 与 clean 双 HAP 结果记录在 Phase 147 总结；未启动设备或 Hypium。
+
+## 后续状态
+
+Phase 148 / ADR-0125 已完成新的 Math `CREATE_BLOCK` authoring、空 draft Insert 会话和 viewport-center
+放置。因此本文原先隐含的 CREATE writer 未完成边界已关闭；等价公式引擎、语法级 Invalid/Ok、真实测量尺寸
+回写和设备像素验收仍未完成。

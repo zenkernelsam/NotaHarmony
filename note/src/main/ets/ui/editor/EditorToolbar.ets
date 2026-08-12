@@ -17,6 +17,8 @@ export struct EditorToolbar {
   };
   onRedo: () => void = () => {
   };
+  onInsertMath: () => void = () => {
+  };
   onSelectionStyle: (style: BrushStyle) => void = (_style: BrushStyle): void => {
   };
   onSelectionColor: (color: number) => void = (_color: number): void => {
@@ -100,6 +102,18 @@ export struct EditorToolbar {
           })
 
         Divider().vertical(true).height(24).margin({ left: 8, right: 8 })
+
+        if (!this.compact) {
+          Button($r('app.string.insert_math'))
+            .height(32)
+            .fontSize(13)
+            .margin({ left: 2, right: 2 })
+            .enabled(!this.viewModel.toolStateLoading)
+            .onClick(() => {
+              this.onInsertMath();
+            })
+          Divider().vertical(true).height(24).margin({ left: 8, right: 8 })
+        }
 
         // Undo / Redo（T-021 实现功能）
         Button('↶')
@@ -204,6 +218,7 @@ export struct EditorToolbar {
       { value: $r('app.string.partial_eraser'), action: () => { this.viewModel.selectTool(ToolType.PARTIAL_ERASER); } },
       { value: $r('app.string.selection'), action: () => { this.viewModel.selectTool(ToolType.SELECTION); } },
       { value: $r('app.string.text'), action: () => { this.viewModel.selectTool(ToolType.DEFAULT); } },
+      { value: $r('app.string.insert_math'), action: () => { this.onInsertMath(); } },
     ];
   }
 

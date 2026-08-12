@@ -46,7 +46,8 @@ import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
 import {
   decodePersistedElement, encodePersistedElement, HistoryPageSnapshot, OriginalZOrderCommand,
   OriginalClipboardPasteHistoryResult, OriginalClipboardPastePersistenceResult,
-  OriginalClipboardPastePlan, OriginalGroupMutationResult, OriginalTextEditPreview,
+  OriginalClipboardPastePlan, OriginalGroupMutationResult, OriginalMathInsertResult,
+  OriginalTextEditPreview,
   OriginalZOrderHint, PersistedElement, StrokePersistence, validateOriginalClipboardPastePlan,
 } from '../../data/StrokePersistence';
 import { OriginalGroupMutationOpPayload } from '../../data/OriginalGroupMutationOpCodec';
@@ -109,6 +110,7 @@ import {
 } from '../../core/model/OriginalGroupSelection';
 import { cloneMathElement, eraserPathHitsMathBlock, mathBlockWorldBounds,
   transformMathElements } from '../../core/model/MathBlockGeometry';
+import { createOriginalMathInsertDraft } from '../../core/model/OriginalMathInsertPlan';
 import {
   CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, PageInfo,
 } from '../../core/model/NoteTypes';
@@ -160,6 +162,7 @@ export struct NoteCanvasView {
   };
   @Prop @Watch('onUndoSignalChange') undoSignal: number = 0;
   @Prop @Watch('onRedoSignalChange') redoSignal: number = 0;
+  @Prop @Watch('onMathInsertSignalChange') mathInsertSignal: number = 0;
   @Prop @Watch('onSelectionStyleSignalChange') selectionStyleSignal: number = 0;
   @Prop selectionInkStyle: InkStyle = InkStyle.FIXED_WIDTH;
   @Prop @Watch('onSelectionColorSignalChange') selectionColorSignal: number = 0;
@@ -306,6 +309,7 @@ export struct NoteCanvasView {
   @State mathEditorBusy: boolean = false;
   @State mathEditorFailed: boolean = false;
   private mathEditorOriginal: MathElement | null = null;
+  private mathEditorInsert: boolean = false;
   @State clipboardAvailable: boolean = false;
   @State overlayWidth: number = 0;
   @State overlayHeight: number = 0;
@@ -699,6 +703,7 @@ export struct NoteCanvasView {
   // T-040 修复：页面设置变化 → 重绘（@Prop 更新不会自动触发 renderFrame）
   onPageChange(_propName: string): void {
     this.cancelImageCrop();
+    this.cancelMathEditing();
     this.pageLoadPromise = this.switchPageData();
   }
 
@@ -878,6 +883,10 @@ export struct NoteCanvasView {
     hilog.info(0x0001, 'NoteCanvasView', 'redo signal received, canRedo=%{public}s',
       this.undoRedo.canRedo().toString());
     this.redoStroke();
+  }
+
+  onMathInsertSignalChange(_propName: string): void {
+    this.startMathInsert();
   }
 
   // === 画布初始化 ===
@@ -4044,11 +4053,27 @@ export struct NoteCanvasView {
       return;
     }
     this.mathEditorOriginal = cloneMathElement(math);
+    this.mathEditorInsert = false;
     this.mathEditorDraft = math.latex;
     this.mathEditorFailed = false;
     this.mathEditorBusy = false;
     this.mathEditorVisible = true;
     this.selectionVisible = false;
+  }
+
+  private startMathInsert(): void {
+    if (this.mathEditorVisible || this.historyBusy || !this.loaded || this.dataLoading ||
+      this.dataLoadFailed || !this.persistence.isReady() || this.loadedPageId.length === 0) {
+      return;
+    }
+    this.selectionTool.deselect();
+    this.selectionVisible = false;
+    this.mathEditorOriginal = null;
+    this.mathEditorInsert = true;
+    this.mathEditorDraft = '';
+    this.mathEditorFailed = false;
+    this.mathEditorBusy = false;
+    this.mathEditorVisible = true;
   }
 
   private cancelMathEditing(): void {
@@ -4059,13 +4084,21 @@ export struct NoteCanvasView {
     this.mathEditorDraft = '';
     this.mathEditorFailed = false;
     this.mathEditorOriginal = null;
+    this.mathEditorInsert = false;
     this.updateSelectionOverlay();
   }
 
   private async confirmMathEditing(): Promise<void> {
     const before: MathElement | null = this.mathEditorOriginal;
-    if (before === null || this.mathEditorBusy || this.historyBusy ||
+    if (this.mathEditorBusy || this.historyBusy ||
       !isOriginalMathLatexDraftValid(this.mathEditorDraft)) {
+      return;
+    }
+    if (this.mathEditorInsert) {
+      await this.confirmMathInsert();
+      return;
+    }
+    if (before === null) {
       return;
     }
     const draft: string = this.mathEditorDraft;
@@ -4101,6 +4134,7 @@ export struct NoteCanvasView {
       this.mathEditorVisible = false;
       this.mathEditorDraft = '';
       this.mathEditorOriginal = null;
+      this.mathEditorInsert = false;
       this.originalInkIneligiblePages.delete(pageId);
       this.saveFailed = false;
       if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
@@ -4115,6 +4149,84 @@ export struct NoteCanvasView {
       this.reportSaveFailure(e as Object);
       hilog.error(0x0001, 'NoteCanvasView',
         'original Math latex commit failed: %{public}s', JSON.stringify(e));
+    } finally {
+      this.mathEditorBusy = false;
+      this.historyBusy = false;
+    }
+  }
+
+  private async confirmMathInsert(): Promise<void> {
+    const pageId: string = this.loadedPageId;
+    const generation: number = this.pageLoadGeneration;
+    const center: Point2D = this.viewport.screenToCanvas(
+      this.canvasCtx.width / 2, this.canvasCtx.height / 2);
+    const draft: MathElement | null = createOriginalMathInsertDraft(
+      this.mathEditorDraft, center, this.getPaperWidth(), this.getPaperHeight());
+    if (draft === null) {
+      this.mathEditorFailed = true;
+      return;
+    }
+    const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
+    const pending: MathElement = cloneMathElement(draft);
+    pending.id = 'pending-original-math-insert';
+    const pendingRef: PageElementRef = {
+      kind: PageElementKind.MATH, elementId: pending.id, zIndex: elementOrderBefore.length,
+    };
+    const draftAction: UndoableAction = {
+      type: UndoableActionType.ADD_ELEMENTS,
+      noteId: this.noteId, pageId: pageId,
+      addedStrokes: [], addedShapes: [], addedTextBlocks: [], addedImages: [],
+      addedMathBlocks: [pending], addedElementOrder: [pendingRef],
+      elementOrderBefore: elementOrderBefore,
+      elementOrderAfter: elementOrderBefore.concat([pendingRef]),
+    };
+    const prepared: HistoryMetadata = this.undoRedo.prepareHistoryMetadata(draftAction);
+    this.mathEditorBusy = true;
+    this.mathEditorFailed = false;
+    this.historyBusy = true;
+    try {
+      const result: OriginalMathInsertResult = await this.persistence.commitOriginalMathInsert(
+        this.noteId, pageId, draft, prepared);
+      const addedRef: PageElementRef = {
+        kind: PageElementKind.MATH, elementId: result.math.id,
+        zIndex: result.elementOrder.findIndex(
+          (ref: PageElementRef): boolean => ref.kind === PageElementKind.MATH &&
+            ref.elementId === result.math.id),
+      };
+      if (addedRef.zIndex < 0) {
+        throw new Error('durable Math insert omitted its element order');
+      }
+      const action: UndoableAction = {
+        type: UndoableActionType.ADD_ELEMENTS,
+        noteId: this.noteId, pageId: pageId,
+        addedStrokes: [], addedShapes: [], addedTextBlocks: [], addedImages: [],
+        addedMathBlocks: [result.math], addedElementOrder: [addedRef],
+        elementOrderBefore: elementOrderBefore,
+        elementOrderAfter: clonePageElementOrder(result.elementOrder),
+      };
+      this.undoRedo.push(action, prepared);
+      this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+      this.mathEditorVisible = false;
+      this.mathEditorDraft = '';
+      this.mathEditorOriginal = null;
+      this.mathEditorInsert = false;
+      this.originalInkIneligiblePages.delete(pageId);
+      this.saveFailed = false;
+      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+        pageId === this.currentPage.pageId) {
+        this.mathBlocks = this.mathBlocks.concat([result.math]);
+        this.elementOrder = clonePageElementOrder(result.elementOrder);
+        this.synchronizeElementArraysByOrder();
+        this.selectionTool.selectElementIds([], [], [], [], [], [result.math.id]);
+        this.updateSelectionOverlay();
+        this.renderFrame();
+      }
+      this.notifyUndoRedo();
+    } catch (e) {
+      this.mathEditorFailed = true;
+      this.reportSaveFailure(e as Object);
+      hilog.error(0x0001, 'NoteCanvasView',
+        'original Math insert failed: %{public}s', JSON.stringify(e));
     } finally {
       this.mathEditorBusy = false;
       this.historyBusy = false;
