@@ -902,12 +902,13 @@ struct NotePage {
           currentPage: this.pages[this.currentPageIndex],
           busy: this.pageOperationBusy,
           onPrev: () => {
-            if (this.currentPageIndex > 0) {
+            if (!this.pageLoading && !this.pageOperationBusy && this.currentPageIndex > 0) {
               this.currentPageIndex--;
             }
           },
           onNext: () => {
-            if (this.currentPageIndex < this.pages.length - 1) {
+            if (!this.pageLoading && !this.pageOperationBusy &&
+              this.currentPageIndex < this.pages.length - 1) {
               this.currentPageIndex++;
             }
           },
