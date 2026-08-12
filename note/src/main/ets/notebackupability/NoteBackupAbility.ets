@@ -4,6 +4,7 @@ import { util } from '@kit.ArkTS';
 const MANIFEST = 'nota-backup-manifest.json';
 const SNAPSHOT = 'nota-snapshot';
 const STAGING = 'nota-snapshot.staging';
+const PREVIOUS = 'nota-snapshot.previous';
 const MAX_FILES = 10000;
 const MAX_BYTES = 256 * 1024 * 1024;
 const ROOTS: string[] = ['filesDir', 'databaseDir'];
@@ -72,6 +73,7 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
     const backupDir: string = this.context.backupDir;
     const staging: string = this.join(backupDir, STAGING);
     const snapshot: string = this.join(backupDir, SNAPSHOT);
+    const previous: string = this.join(backupDir, PREVIOUS);
     this.state = { operation: 'backup', phase: 'collecting', processed: 0, total: 0 };
     this.removeTreeInside(backupDir, STAGING);
     fileIo.mkdirSync(staging, true);
@@ -108,8 +110,20 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
     };
     this.writeText(this.join(staging, MANIFEST), JSON.stringify(manifest));
     this.state.phase = 'publishing';
-    this.removeTreeInside(backupDir, SNAPSHOT);
-    fileIo.renameSync(staging, snapshot);
+    this.removeTreeInside(backupDir, PREVIOUS);
+    const hadSnapshot: boolean = this.isDirectory(snapshot) || this.isFile(snapshot);
+    if (hadSnapshot) {
+      fileIo.renameSync(snapshot, previous);
+    }
+    try {
+      fileIo.renameSync(staging, snapshot);
+    } catch (e) {
+      if (hadSnapshot && !this.isDirectory(snapshot) && !this.isFile(snapshot) && this.isDirectory(previous)) {
+        fileIo.renameSync(previous, snapshot);
+      }
+      throw new Error(`backup snapshot publish failed: ${JSON.stringify(e)}`);
+    }
+    this.removeTreeInside(backupDir, PREVIOUS);
     this.state.phase = 'complete';
   }
 
