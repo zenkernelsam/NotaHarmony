@@ -161,6 +161,7 @@
     { "name": "insecure_connection_cancelled", "value": "已取消不安全的 HTTP 连接" },
     { "name": "testing_connection_status", "value": "正在测试连接..." },
     { "name": "connection_request_failed", "value": "网络请求失败：无法连接服务器或超时（30s）" },
+    { "name": "invalid_webdav_config", "value": "请输入有效的 HTTP(S) 服务器 URL 和备份路径" },
     { "name": "insecure_save_cancelled", "value": "已取消保存不安全连接" },
     { "name": "settings_saved", "value": "配置已保存" },
     { "name": "settings_saved_cleanup_pending", "value": "配置已保存，旧凭据清理稍后重试" },

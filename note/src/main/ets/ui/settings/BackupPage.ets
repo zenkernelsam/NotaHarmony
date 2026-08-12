@@ -9,7 +9,9 @@ import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { StrokePersistence } from '../../data/StrokePersistence';
 import { NoteExporter } from '../../data/NoteExporter';
 import { NoteImporter, ImportReport, ImportResult } from '../../data/NoteImporter';
-import { WebDAVClient, WebDAVConfig, WebDAVFileInfo, WebDAVListResult } from '../../data/WebDAVClient';
+import {
+  DEFAULT_WEBDAV_BACKUP_PATH, WebDAVClient, WebDAVConfig, WebDAVFileInfo, WebDAVListResult,
+} from '../../data/WebDAVClient';
 import { WebDAVConfigStore } from '../../data/WebDAVConfigStore';
 import {
   BACKUP_MANIFEST_SUFFIX, BackupBatchManifest, BackupSourcePackage,
@@ -43,7 +45,9 @@ struct BackupPage {
 
   private db: DatabaseManager = DatabaseManager.getInstance();
   private persistence: StrokePersistence = new StrokePersistence();
-  private config: WebDAVConfig = { serverUrl: '', username: '', password: '', backupPath: '/nota-backup/' };
+  private config: WebDAVConfig = {
+    serverUrl: '', username: '', password: '', backupPath: DEFAULT_WEBDAV_BACKUP_PATH,
+  };
   private initialized: boolean = false;
   private loadGeneration: number = 0;
   // T-038：主题状态
@@ -87,7 +91,9 @@ struct BackupPage {
       this.loadState = BackupLoadState.READY;
     } catch (e) {
       if (generation === this.loadGeneration) {
-        this.config = { serverUrl: '', username: '', password: '', backupPath: '/nota-backup/' };
+        this.config = {
+          serverUrl: '', username: '', password: '', backupPath: DEFAULT_WEBDAV_BACKUP_PATH,
+        };
         this.serverText = '';
         this.lastBackupText = '';
         this.loadState = BackupLoadState.ERROR;

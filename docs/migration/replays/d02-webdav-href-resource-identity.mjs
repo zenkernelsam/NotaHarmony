@@ -24,7 +24,8 @@ const checks = [
     client.includes('WebDAV href is outside the requested collection') &&
     client.includes('WebDAV Depth:1 response contains a non-child resource')],
   ['dot path segments are rejected before collection comparison',
-    client.includes("segment === '.' || segment === '..'") &&
+    client.includes('decoded = decodeURIComponent(segment)') &&
+    client.includes("decoded === '.' || decoded === '..'") &&
     client.includes('WebDAV href contains a dot path segment')],
   ['DAV displayname remains display-only metadata', toFile >= 0 &&
     client.indexOf('displayName: response.displayName.length > 0 ? response.displayName : fallbackName', toFile) > toFile],

@@ -1,7 +1,10 @@
 // T-030 WebDAV 配置页面（服务器/用户名/密码/备份路径 + 测试连接 + 保存）
 import { promptAction, router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
-import { WebDAVClient, WebDAVConfig, ConnectionResult } from '../../data/WebDAVClient';
+import {
+  DEFAULT_WEBDAV_BACKUP_PATH, WebDAVClient, WebDAVConfig, ConnectionResult, normalizeWebDAVConfig,
+  webDAVBackupPathForDisplay,
+} from '../../data/WebDAVClient';
 import { WebDAVConfigStore } from '../../data/WebDAVConfigStore';
 import { WebDAVConfigSaveResult } from '../../data/WebDAVConfigTransaction';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
@@ -13,7 +16,7 @@ struct WebDAVSettingsPage {
   @State serverUrl: string = '';
   @State username: string = '';
   @State password: string = '';
-  @State backupPath: string = '/nota-backup/';
+  @State backupPath: string = DEFAULT_WEBDAV_BACKUP_PATH;
   @State allowInsecureHttp: boolean = false;
   @State isTesting: boolean = false;
   @State testResult: ResourceStr = '';
@@ -39,7 +42,7 @@ struct WebDAVSettingsPage {
       this.serverUrl = config.serverUrl;
       this.username = config.username;
       this.password = config.password;
-      this.backupPath = config.backupPath;
+      this.backupPath = webDAVBackupPathForDisplay(config.backupPath);
       this.allowInsecureHttp = config.allowInsecureHttp === true;
     } catch (e) {
       console.error(`loadConfig failed: ${JSON.stringify(e)}`);
@@ -56,10 +59,30 @@ struct WebDAVSettingsPage {
       this.hasTestResult = true;
       return;
     }
-    const allowInsecureHttp: boolean = await this.confirmInsecureHttp();
+    let allowInsecureHttp: boolean;
+    try {
+      allowInsecureHttp = await this.confirmInsecureHttp();
+    } catch (e) {
+      console.error(`insecure HTTP confirmation failed: ${JSON.stringify(e)}`);
+      this.testSucceeded = false;
+      this.testResult = $r('app.string.connection_request_failed');
+      this.hasTestResult = true;
+      return;
+    }
     if (this.isInsecureHttp() && !allowInsecureHttp) {
       this.testSucceeded = false;
       this.testResult = $r('app.string.insecure_connection_cancelled');
+      this.hasTestResult = true;
+      return;
+    }
+    let config: WebDAVConfig;
+    try {
+      config = this.normalizedDraft(allowInsecureHttp);
+      this.applyNormalizedDraft(config);
+    } catch (e) {
+      console.error(`invalid WebDAV test configuration: ${JSON.stringify(e)}`);
+      this.testSucceeded = false;
+      this.testResult = $r('app.string.invalid_webdav_config');
       this.hasTestResult = true;
       return;
     }
@@ -68,13 +91,6 @@ struct WebDAVSettingsPage {
     this.testResult = $r('app.string.testing_connection_status');
     this.hasTestResult = true;
     try {
-      const config: WebDAVConfig = {
-        serverUrl: this.serverUrl,
-        username: this.username,
-        password: this.password,
-        backupPath: this.backupPath,
-        allowInsecureHttp: allowInsecureHttp,
-      };
       const client = new WebDAVClient(config);
       const result: ConnectionResult = await client.testConnection();
       this.testSucceeded = result.success;
@@ -91,22 +107,31 @@ struct WebDAVSettingsPage {
   }
 
   private async saveConfig(): Promise<void> {
+    let allowInsecureHttp: boolean;
     try {
-      const allowInsecureHttp: boolean = await this.confirmInsecureHttp();
-      if (this.isInsecureHttp() && !allowInsecureHttp) {
-        this.safeToast($r('app.string.insecure_save_cancelled'));
-        return;
-      }
+      allowInsecureHttp = await this.confirmInsecureHttp();
+    } catch (e) {
+      console.error(`insecure HTTP confirmation failed: ${JSON.stringify(e)}`);
+      this.safeToast($r('app.string.save_failed'));
+      return;
+    }
+    if (this.isInsecureHttp() && !allowInsecureHttp) {
+      this.safeToast($r('app.string.insecure_save_cancelled'));
+      return;
+    }
+    let config: WebDAVConfig;
+    try {
+      config = this.normalizedDraft(allowInsecureHttp);
+    } catch (e) {
+      console.error(`invalid WebDAV save configuration: ${JSON.stringify(e)}`);
+      this.safeToast($r('app.string.invalid_webdav_config'));
+      return;
+    }
+    try {
       const context = getContext(this) as common.UIAbilityContext;
-      const config: WebDAVConfig = {
-        serverUrl: this.serverUrl.trim(),
-        username: this.username,
-        password: this.password,
-        backupPath: this.backupPath.trim().length > 0 ? this.backupPath.trim() : '/nota-backup/',
-        allowInsecureHttp: allowInsecureHttp,
-      };
       const result: WebDAVConfigSaveResult = await WebDAVConfigStore.save(context, config);
       if (result.committed) {
+        this.applyNormalizedDraft(config);
         this.safeToast(result.cleanupPending ? $r('app.string.settings_saved_cleanup_pending') :
           $r('app.string.settings_saved'));
       } else {
@@ -117,6 +142,24 @@ struct WebDAVSettingsPage {
       console.error(`saveConfig failed: ${JSON.stringify(e)}`);
       this.safeToast($r('app.string.save_failed'));
     }
+  }
+
+  private normalizedDraft(allowInsecureHttp: boolean): WebDAVConfig {
+    return normalizeWebDAVConfig({
+      serverUrl: this.serverUrl,
+      username: this.username,
+      password: this.password,
+      backupPath: this.backupPath,
+      allowInsecureHttp: allowInsecureHttp,
+    });
+  }
+
+  private applyNormalizedDraft(config: WebDAVConfig): void {
+    this.serverUrl = config.serverUrl;
+    this.username = config.username;
+    this.password = config.password;
+    this.backupPath = webDAVBackupPathForDisplay(config.backupPath);
+    this.allowInsecureHttp = config.allowInsecureHttp === true;
   }
 
   private safeToast(message: ResourceStr): void {

@@ -4,7 +4,9 @@ import { asset } from '@kit.AssetStoreKit';
 import { util } from '@kit.ArkTS';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { AsyncMutex } from './AsyncMutex';
-import { WebDAVConfig } from './WebDAVClient';
+import {
+  DEFAULT_WEBDAV_BACKUP_PATH, WebDAVConfig, normalizeWebDAVConfig,
+} from './WebDAVClient';
 import {
   LEGACY_WEBDAV_PASSWORD_ALIAS, SecretReadResult, SecretReadState, WebDAVConfigSaveResult, WebDAVConfigStorage,
   WebDAVConfigTransaction,
@@ -131,14 +133,15 @@ export class WebDAVConfigStore {
       }
       const legacy: LegacyWebDAVConfigResult = await WebDAVConfigStore.loadLegacy(context, storage);
       if (!legacy.present) {
-        return legacy.config;
+        return normalizeWebDAVConfig(legacy.config);
       }
+      const normalized: WebDAVConfig = normalizeWebDAVConfig(legacy.config);
       const migrated: WebDAVConfigSaveResult =
-        await transaction.save(legacy.config, [LEGACY_WEBDAV_PASSWORD_ALIAS]);
+        await transaction.save(normalized, [LEGACY_WEBDAV_PASSWORD_ALIAS]);
       if (!migrated.committed) {
         throw new Error(`legacy WebDAV configuration migration failed: ${migrated.message}`);
       }
-      return legacy.config;
+      return normalized;
     });
   }
 
@@ -184,7 +187,7 @@ export class WebDAVConfigStore {
     const password: string = legacySecret.state === SecretReadState.FOUND ? legacySecret.value : plainPassword;
     const serverUrl: string = pref.getSync(KEY_SERVER_URL, '') as string;
     const username: string = pref.getSync(KEY_USERNAME, '') as string;
-    const backupPath: string = pref.getSync(KEY_BACKUP_PATH, '/nota-backup/') as string;
+    const backupPath: string = pref.getSync(KEY_BACKUP_PATH, DEFAULT_WEBDAV_BACKUP_PATH) as string;
     const allowInsecureHttp: boolean = pref.getSync(KEY_ALLOW_INSECURE_HTTP, false) as boolean;
     const config: WebDAVConfig = {
       serverUrl: serverUrl,
@@ -194,7 +197,7 @@ export class WebDAVConfigStore {
       allowInsecureHttp: allowInsecureHttp,
     };
     const present: boolean = serverUrl.length > 0 || username.length > 0 || password.length > 0 ||
-      backupPath !== '/nota-backup/' || allowInsecureHttp;
+      backupPath !== DEFAULT_WEBDAV_BACKUP_PATH || allowInsecureHttp;
     return new LegacyWebDAVConfigResult(config, present);
   }
 

@@ -1,4 +1,6 @@
-import { WebDAVConfig } from './WebDAVClient';
+import {
+  DEFAULT_WEBDAV_BACKUP_PATH, WebDAVConfig, normalizeWebDAVConfig,
+} from './WebDAVClient';
 
 export const WEBDAV_CONFIG_FORMAT: string = 'nota.webdav-config';
 export const WEBDAV_CONFIG_VERSION: number = 1;
@@ -79,22 +81,32 @@ export class WebDAVConfigTransaction {
       }
       password = secret.value;
     }
-    return {
+    return normalizeWebDAVConfig({
       serverUrl: record.serverUrl,
       username: record.username,
       password: password,
       backupPath: record.backupPath,
       allowInsecureHttp: record.allowInsecureHttp,
-    };
+    });
   }
 
   async save(config: WebDAVConfig, extraCleanupAliases: string[] = []): Promise<WebDAVConfigSaveResult> {
+    let normalized: WebDAVConfig;
+    try {
+      normalized = normalizeWebDAVConfig(config);
+    } catch (e) {
+      return new WebDAVConfigSaveResult(false, false,
+        `invalid WebDAV configuration: ${JSON.stringify(e)}`);
+    }
     const oldRaw: string | null = await this.storage.readRecord();
     let oldRecord: StoredWebDAVConfig | null = null;
     if (oldRaw !== null) {
       oldRecord = parseStoredWebDAVConfig(oldRaw);
       if (oldRecord === null) {
-        return new WebDAVConfigSaveResult(false, false, 'existing configuration record is corrupted');
+        oldRecord = parseStoredWebDAVConfigForReplacement(oldRaw);
+        if (oldRecord === null) {
+          return new WebDAVConfigSaveResult(false, false, 'existing configuration record is corrupted');
+        }
       }
     }
 
@@ -102,16 +114,16 @@ export class WebDAVConfigTransaction {
     if (!isValidGeneration(generation)) {
       return new WebDAVConfigSaveResult(false, false, 'invalid configuration generation');
     }
-    const secretAlias: string = config.password.length > 0 ? passwordAlias(generation) : '';
+    const secretAlias: string = normalized.password.length > 0 ? passwordAlias(generation) : '';
     const cleanupAliases: string[] = collectCleanupAliases(oldRecord, secretAlias, extraCleanupAliases);
     const nextRecord: StoredWebDAVConfig = {
       format: WEBDAV_CONFIG_FORMAT,
       version: WEBDAV_CONFIG_VERSION,
       generation: generation,
-      serverUrl: config.serverUrl,
-      username: config.username,
-      backupPath: config.backupPath.length > 0 ? config.backupPath : '/nota-backup/',
-      allowInsecureHttp: config.allowInsecureHttp === true,
+      serverUrl: normalized.serverUrl,
+      username: normalized.username,
+      backupPath: normalized.backupPath,
+      allowInsecureHttp: normalized.allowInsecureHttp === true,
       secretAlias: secretAlias,
       cleanupAliases: cleanupAliases,
     };
@@ -119,7 +131,7 @@ export class WebDAVConfigTransaction {
     let secretWritten: boolean = false;
     try {
       if (secretAlias.length > 0) {
-        await this.storage.writeSecret(secretAlias, config.password);
+        await this.storage.writeSecret(secretAlias, normalized.password);
         secretWritten = true;
       }
       await this.storage.writeRecord(JSON.stringify(nextRecord));
@@ -164,11 +176,38 @@ export class WebDAVConfigTransaction {
 
 export function parseStoredWebDAVConfig(raw: string): StoredWebDAVConfig | null {
   try {
+    const parsed: StoredWebDAVConfig | null = parseStoredWebDAVConfigForReplacement(raw);
+    if (parsed === null) {
+      return null;
+    }
+    const normalized: WebDAVConfig = normalizeWebDAVConfig({
+      serverUrl: parsed.serverUrl,
+      username: parsed.username,
+      password: '',
+      backupPath: parsed.backupPath.length > 0 ? parsed.backupPath : DEFAULT_WEBDAV_BACKUP_PATH,
+      allowInsecureHttp: parsed.allowInsecureHttp,
+    });
+    parsed.serverUrl = normalized.serverUrl;
+    parsed.backupPath = normalized.backupPath;
+    parsed.allowInsecureHttp = normalized.allowInsecureHttp === true;
+    if (parsed.serverUrl.length === 0 && parsed.secretAlias.length > 0) {
+      return null;
+    }
+    return parsed;
+  } catch (_error) {
+    return null;
+  }
+}
+
+// Replacement may proceed when the record envelope and credential aliases are trustworthy even if
+// a legacy URL/path value no longer passes the current canonicalization rules. Loading remains strict.
+function parseStoredWebDAVConfigForReplacement(raw: string): StoredWebDAVConfig | null {
+  try {
     const parsed = JSON.parse(raw) as StoredWebDAVConfig;
     if (parsed === null || typeof parsed !== 'object' || parsed.format !== WEBDAV_CONFIG_FORMAT ||
       parsed.version !== WEBDAV_CONFIG_VERSION || !isValidGeneration(parsed.generation) ||
       typeof parsed.serverUrl !== 'string' || typeof parsed.username !== 'string' ||
-      typeof parsed.backupPath !== 'string' || parsed.backupPath.length === 0 ||
+      typeof parsed.backupPath !== 'string' ||
       typeof parsed.allowInsecureHttp !== 'boolean' || typeof parsed.secretAlias !== 'string' ||
       (parsed.secretAlias.length > 0 && parsed.secretAlias !== passwordAlias(parsed.generation)) ||
       !Array.isArray(parsed.cleanupAliases) || parsed.cleanupAliases.length > 32) {
@@ -177,7 +216,8 @@ export function parseStoredWebDAVConfig(raw: string): StoredWebDAVConfig | null 
     const aliases: Set<string> = new Set<string>();
     for (let i: number = 0; i < parsed.cleanupAliases.length; i++) {
       const alias: string = parsed.cleanupAliases[i];
-      if (!isValidPasswordAlias(alias) || alias === parsed.secretAlias || aliases.has(alias)) {
+      if (typeof alias !== 'string' || !isValidPasswordAlias(alias) ||
+        alias === parsed.secretAlias || aliases.has(alias)) {
         return null;
       }
       aliases.add(alias);

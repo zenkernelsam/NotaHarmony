@@ -15,6 +15,7 @@ class FakeConfigStorage implements WebDAVConfigStorage {
   failRemoveAt: number = 0;
   writeRecordCount: number = 0;
   removeCount: number = 0;
+  readSecretCount: number = 0;
 
   async readRecord(): Promise<string | null> {
     if (this.failReadRecord) {
@@ -32,6 +33,7 @@ class FakeConfigStorage implements WebDAVConfigStorage {
   }
 
   async readSecret(alias: string): Promise<SecretReadResult> {
+    this.readSecretCount++;
     if (this.failReadSecret) {
       throw new Error('injected secret query failure');
     }
@@ -70,6 +72,13 @@ function transaction(storage: FakeConfigStorage, generation: string): WebDAVConf
   return new WebDAVConfigTransaction(storage, (): string => generation);
 }
 
+function storedConfig(storage: FakeConfigStorage): WebDAVConfig {
+  if (storage.record === null) {
+    throw new Error('expected a stored WebDAV record');
+  }
+  return JSON.parse(storage.record) as WebDAVConfig;
+}
+
 export default function webDAVConfigTransactionTest() {
   describe('WebDAVConfigTransaction', () => {
     it('publishes the record only after the generation credential exists', 0, async () => {
@@ -80,6 +89,103 @@ export default function webDAVConfigTransactionTest() {
       const loaded: WebDAVConfig | null = await transaction(storage, 'unused-0001').load();
       expect(loaded?.serverUrl).assertEqual('https://old.example');
       expect(loaded?.password).assertEqual('secret-1');
+    });
+
+    it('persists and reloads the same canonical WebDAV resource identity', 0, async () => {
+      const storage = new FakeConfigStorage();
+      const source: WebDAVConfig = config(
+        ' HTTPS://dav.example.com/remote.php/dav/files/user/// ', 'secret-1');
+      source.backupPath = '团队%20备份/Nota';
+      const result: WebDAVConfigSaveResult = await transaction(storage, 'generation-0001').save(source);
+      expect(result.committed).assertTrue();
+      const stored: WebDAVConfig = storedConfig(storage);
+      expect(stored.serverUrl).assertEqual('https://dav.example.com/remote.php/dav/files/user');
+      expect(stored.backupPath).assertEqual(
+        '/%E5%9B%A2%E9%98%9F%20%E5%A4%87%E4%BB%BD/Nota/');
+      const loaded: WebDAVConfig | null = await transaction(storage, 'unused-0001').load();
+      expect(loaded?.serverUrl).assertEqual(stored.serverUrl);
+      expect(loaded?.backupPath).assertEqual(stored.backupPath);
+    });
+
+    it('rejects invalid configuration before writing a credential or record', 0, async () => {
+      const storage = new FakeConfigStorage();
+      const invalid: WebDAVConfig = config('https://dav.example.com/root?share=1', 'secret-1');
+      invalid.backupPath = '/backup/%2Fescape/';
+      const result: WebDAVConfigSaveResult = await transaction(storage, 'generation-0001').save(invalid);
+      expect(result.committed).assertFalse();
+      expect(storage.record === null).assertTrue();
+      expect(storage.secrets.size).assertEqual(0);
+    });
+
+    it('rejects a corrupted stored path before reading its credential', 0, async () => {
+      const storage = new FakeConfigStorage();
+      storage.record = JSON.stringify({
+        format: 'nota.webdav-config',
+        version: 1,
+        generation: 'generation-0001',
+        serverUrl: 'https://dav.example.com/root',
+        username: 'user',
+        backupPath: '/backup/%2Fescape/',
+        allowInsecureHttp: false,
+        secretAlias: 'nota.webdav.password.generation-0001',
+        cleanupAliases: [],
+      });
+      storage.secrets.set('nota.webdav.password.generation-0001', 'secret-1');
+      let failed: boolean = false;
+      try {
+        await transaction(storage, 'unused-0001').load();
+      } catch (_error) {
+        failed = true;
+      }
+      expect(failed).assertTrue();
+      expect(storage.readSecretCount).assertEqual(0);
+    });
+
+    it('rejects an orphaned credential alias before querying AssetStore', 0, async () => {
+      const storage = new FakeConfigStorage();
+      storage.record = JSON.stringify({
+        format: 'nota.webdav-config',
+        version: 1,
+        generation: 'generation-0001',
+        serverUrl: '',
+        username: '',
+        backupPath: '/backup/',
+        allowInsecureHttp: false,
+        secretAlias: 'nota.webdav.password.generation-0001',
+        cleanupAliases: [],
+      });
+      storage.secrets.set('nota.webdav.password.generation-0001', 'orphaned-secret');
+      let failed: boolean = false;
+      try {
+        await transaction(storage, 'unused-0001').load();
+      } catch (_error) {
+        failed = true;
+      }
+      expect(failed).assertTrue();
+      expect(storage.readSecretCount).assertEqual(0);
+    });
+
+    it('allows a valid replacement to retire an obsolete invalid stored path', 0, async () => {
+      const storage = new FakeConfigStorage();
+      storage.record = JSON.stringify({
+        format: 'nota.webdav-config',
+        version: 1,
+        generation: 'generation-0001',
+        serverUrl: 'https://dav.example.com/root',
+        username: 'user',
+        backupPath: '/backup/%2Fescape/',
+        allowInsecureHttp: false,
+        secretAlias: 'nota.webdav.password.generation-0001',
+        cleanupAliases: [],
+      });
+      storage.secrets.set('nota.webdav.password.generation-0001', 'old-secret');
+      const result: WebDAVConfigSaveResult = await transaction(storage, 'generation-0002')
+        .save(config('https://dav.example.com/root', 'new-secret'));
+      expect(result.committed).assertTrue();
+      expect(storage.secrets.has('nota.webdav.password.generation-0001')).assertFalse();
+      const loaded: WebDAVConfig | null = await transaction(storage, 'unused-0001').load();
+      expect(loaded?.backupPath).assertEqual('/backup/');
+      expect(loaded?.password).assertEqual('new-secret');
     });
 
     it('keeps the old generation when secret add fails', 0, async () => {

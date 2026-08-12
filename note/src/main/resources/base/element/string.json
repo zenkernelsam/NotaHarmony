@@ -481,6 +481,7 @@
     { "name": "insecure_connection_cancelled", "value": "Insecure HTTP connection cancelled" },
     { "name": "testing_connection_status", "value": "Testing connection..." },
     { "name": "connection_request_failed", "value": "Connection failed or timed out (30s)" },
+    { "name": "invalid_webdav_config", "value": "Enter a valid HTTP(S) server URL and backup path" },
     { "name": "insecure_save_cancelled", "value": "Insecure connection was not saved" },
     { "name": "settings_saved", "value": "Settings saved" },
     { "name": "settings_saved_cleanup_pending", "value": "Settings saved; old credential cleanup will be retried" },
