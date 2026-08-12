@@ -141,65 +141,67 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
     const snapshot: string = this.join(backupDir, SNAPSHOT);
     const manifestPath: string = this.join(snapshot, MANIFEST);
     this.state = { operation: 'restore', phase: 'reading-manifest', processed: 0, total: 0 };
-    if (!this.isFile(manifestPath)) {
-      throw new Error('backup manifest is missing');
-    }
-    const manifest: BackupManifest = JSON.parse(fileIo.readTextSync(manifestPath)) as BackupManifest;
-    this.validateManifest(manifest);
-    this.state.total = manifest.entries.length;
-    // Validate every source before writing any destination file. A late mismatch must not
-    // leave the application with a partially restored snapshot.
-    for (const entry of manifest.entries) {
-      const source: string = this.join(this.join(snapshot, entry.root), entry.relativePath);
-      if (!this.isFile(source) || fileIo.statSync(source).size !== entry.size) {
-        throw new Error(`backup object mismatch: ${entry.root}/${entry.relativePath}`);
-      }
-    }
-    this.state.phase = 'restoring';
-    const rollbackRoot: string = this.join(backupDir, RESTORE_ROLLBACK);
-    const replaced: Array<{ destination: string; rollback: string; existed: boolean }> = [];
     try {
-      this.removeTreeInside(backupDir, RESTORE_ROLLBACK);
-      fileIo.mkdirSync(rollbackRoot, true);
+      if (!this.isFile(manifestPath)) {
+        throw new Error('backup manifest is missing');
+      }
+      const manifest: BackupManifest = JSON.parse(fileIo.readTextSync(manifestPath)) as BackupManifest;
+      this.validateManifest(manifest);
+      this.state.total = manifest.entries.length;
+      // Validate every source before writing any destination file. A late mismatch must not
+      // leave the application with a partially restored snapshot.
       for (const entry of manifest.entries) {
         const source: string = this.join(this.join(snapshot, entry.root), entry.relativePath);
-        const destination: string = this.join(this.rootPath(entry.root), entry.relativePath);
-        const rollback: string = this.join(this.join(rollbackRoot, entry.root), entry.relativePath);
-        const existed: boolean = this.isFile(destination);
-        if (existed) {
-          this.ensureParent(rollback);
-          fileIo.renameSync(destination, rollback);
+        if (!this.isFile(source) || fileIo.statSync(source).size !== entry.size) {
+          throw new Error(`backup object mismatch: ${entry.root}/${entry.relativePath}`);
         }
-        // Register before copying so a partially created new file is removed on failure.
-        replaced.push({ destination: destination, rollback: rollback, existed: existed });
-        try {
+      }
+      this.state.phase = 'restoring';
+      const rollbackRoot: string = this.join(backupDir, RESTORE_ROLLBACK);
+      const replaced: Array<{ destination: string; rollback: string; existed: boolean }> = [];
+      try {
+        this.removeTreeInside(backupDir, RESTORE_ROLLBACK);
+        fileIo.mkdirSync(rollbackRoot, true);
+        for (const entry of manifest.entries) {
+          const source: string = this.join(this.join(snapshot, entry.root), entry.relativePath);
+          const destination: string = this.join(this.rootPath(entry.root), entry.relativePath);
+          const rollback: string = this.join(this.join(rollbackRoot, entry.root), entry.relativePath);
+          const existed: boolean = this.isFile(destination);
+          if (existed) {
+            this.ensureParent(rollback);
+            fileIo.renameSync(destination, rollback);
+          }
+          // Register before copying so a partially created new file is removed on failure.
+          replaced.push({ destination: destination, rollback: rollback, existed: existed });
           this.ensureParent(destination);
           fileIo.copyFileSync(source, destination);
-        } catch (e) {
-          throw e;
+          this.state.processed++;
         }
-        this.state.processed++;
+        this.removeTreeInside(backupDir, RESTORE_ROLLBACK);
+      } catch (e) {
+        for (let index: number = replaced.length - 1; index >= 0; index--) {
+          const item = replaced[index];
+          try {
+            if (this.isFile(item.destination)) {
+              fileIo.unlinkSync(item.destination);
+            }
+            if (item.existed && this.isFile(item.rollback)) {
+              this.ensureParent(item.destination);
+              fileIo.renameSync(item.rollback, item.destination);
+            }
+          } catch (_rollbackError) {
+            // Preserve the original restore failure; device fault injection reports rollback loss.
+          }
+        }
+        try { this.removeTreeInside(backupDir, RESTORE_ROLLBACK); } catch (_cleanupError) { }
+        throw new Error(`backup restore apply failed: ${JSON.stringify(e)}`);
       }
-      this.removeTreeInside(backupDir, RESTORE_ROLLBACK);
+      this.state.phase = `complete:${bundleVersion.name}`;
     } catch (e) {
-      for (let index: number = replaced.length - 1; index >= 0; index--) {
-        const item = replaced[index];
-        try {
-          if (this.isFile(item.destination)) {
-            fileIo.unlinkSync(item.destination);
-          }
-          if (item.existed && this.isFile(item.rollback)) {
-            this.ensureParent(item.destination);
-            fileIo.renameSync(item.rollback, item.destination);
-          }
-        } catch (_rollbackError) {
-          // Preserve the original restore failure; device fault injection reports rollback loss.
-        }
-      }
-      try { this.removeTreeInside(backupDir, RESTORE_ROLLBACK); } catch (_cleanupError) { }
-      throw new Error(`backup restore apply failed: ${JSON.stringify(e)}`);
+      this.state.phase = 'failed';
+      this.state.error = String(e);
+      throw e;
     }
-    this.state.phase = `complete:${bundleVersion.name}`;
   }
 
   private collect(rootPath: string, current: string, rootName: string, entries: BackupEntry[]): void {
