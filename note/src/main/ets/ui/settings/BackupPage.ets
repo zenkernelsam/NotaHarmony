@@ -13,7 +13,7 @@ import { WebDAVClient, WebDAVConfig, WebDAVFileInfo, WebDAVListResult } from '..
 import { WebDAVConfigStore } from '../../data/WebDAVConfigStore';
 import {
   BACKUP_MANIFEST_SUFFIX, BackupBatchManifest, BackupSourcePackage,
-  parseBackupBatch,
+  backupManifestFileName, parseBackupBatch,
 } from '../../data/BackupBatchSpec';
 import {
   BackupBatchPublisher, BackupPublishResult, BackupPublishStage, CryptoBackupBatchHasher,
@@ -279,7 +279,8 @@ struct BackupPage {
       try {
         const text: string = util.TextDecoder.create('utf-8').decodeToString(bytes);
         const parsed: BackupBatchManifest | null = parseBackupBatch(text);
-        if (parsed !== null && (latest === null || parsed.createdAt > latest.createdAt)) {
+        if (parsed !== null && candidates[i].name === backupManifestFileName(parsed.batchId) &&
+          (latest === null || parsed.createdAt > latest.createdAt)) {
           latest = parsed;
         }
       } catch (e) {
