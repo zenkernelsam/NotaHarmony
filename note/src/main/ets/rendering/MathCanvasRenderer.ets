@@ -1,29 +1,67 @@
 import { Canvas2DDrawingContext } from '../core/adaptation/Canvas2DStrokeRenderer';
 import { MathElement } from '../core/model/ElementTypes';
+import { originalMathEngine, OriginalMathBitmap } from './OriginalMathEngine';
 
-// The original uses its private GLMath native engine. Until an equivalent engine is available,
-// render only a non-semantic block boundary instead of misrepresenting LaTeX as plain text.
+interface MathBitmapCacheEntry {
+  key: string;
+  texture: OriginalMathBitmap;
+  bytes: number;
+  lastUsed: number;
+}
+
+const DEFAULT_MATH_FONT_SIZE: number = 20;
+const PIXEL_SCALE: number = 2;
+const MAX_CACHE_BYTES: number = 4 * 1024 * 1024;
+
+// Mirrors the original w18 cache: parse/layout is native, while the canvas only composites a bitmap.
 export class MathCanvasRenderer {
+  private cache: MathBitmapCacheEntry[] = [];
+  private cacheBytes: number = 0;
+  private clock: number = 0;
+
   renderMath(element: MathElement, ctx: Canvas2DDrawingContext): void {
-    if (element.latex.length === 0 || element.blockWidth <= 0 || element.blockHeight <= 0) {
+    if (element.latex.length === 0 || element.blockWidth <= 0 || element.blockHeight <= 0 ||
+      !originalMathEngine.isReady()) {
       return;
+    }
+    const key: string = `${element.latex}\u0000${element.blockWidth}\u0000${element.blockHeight}\u0000` +
+      `${element.color}\u0000${PIXEL_SCALE}`;
+    let entry: MathBitmapCacheEntry | undefined = this.cache.find((candidate: MathBitmapCacheEntry): boolean =>
+      candidate.key === key);
+    if (entry === undefined) {
+      const texture: OriginalMathBitmap | null = originalMathEngine.render(
+        element.latex, element.blockWidth, element.blockHeight, DEFAULT_MATH_FONT_SIZE,
+        element.color, PIXEL_SCALE);
+      if (texture === null) return;
+      entry = { key, texture, bytes: texture.width * texture.height * 4, lastUsed: ++this.clock };
+      this.cache.push(entry);
+      this.cacheBytes += entry.bytes;
+      this.evictCache();
+    } else {
+      entry.lastUsed = ++this.clock;
     }
     ctx.save();
     ctx.transform(element.transform);
-    ctx.beginPath();
-    ctx.rect(0, 0, element.blockWidth, element.blockHeight);
-    ctx.setLineWidth(1);
-    ctx.setLineDash([4, 3]);
-    ctx.setStrokeStyle(colorToRgba(element.color, 0.35));
-    ctx.stroke();
+    ctx.drawImage(entry.texture.bitmap, 0, 0, element.blockWidth, element.blockHeight);
     ctx.restore();
   }
-}
 
-function colorToRgba(argb: number, alphaScale: number): string {
-  const alpha: number = ((argb >>> 24) & 0xFF) / 255 * alphaScale;
-  const red: number = (argb >>> 16) & 0xFF;
-  const green: number = (argb >>> 8) & 0xFF;
-  const blue: number = argb & 0xFF;
-  return `rgba(${red},${green},${blue},${alpha})`;
+  clear(): void {
+    for (const entry of this.cache) {
+      entry.texture.pixelMap.release().catch(() => {});
+    }
+    this.cache = [];
+    this.cacheBytes = 0;
+  }
+
+  private evictCache(): void {
+    while (this.cacheBytes > MAX_CACHE_BYTES && this.cache.length > 0) {
+      this.cache.sort((left: MathBitmapCacheEntry, right: MathBitmapCacheEntry): number =>
+        left.lastUsed - right.lastUsed);
+      const removed: MathBitmapCacheEntry | undefined = this.cache.shift();
+      if (removed === undefined) break;
+      this.cacheBytes -= removed.bytes;
+      removed.texture.pixelMap.release().catch(() => {});
+    }
+  }
 }

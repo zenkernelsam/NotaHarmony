@@ -1,0 +1,6 @@
+{
+  "name": "libnota_math.so",
+  "types": "./Index.d.ts",
+  "version": "1.0.0",
+  "description": "MicroTeX formula parser and Native Drawing renderer."
+}

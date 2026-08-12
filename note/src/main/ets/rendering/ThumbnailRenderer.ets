@@ -21,6 +21,7 @@ import { StrokePersistence } from '../data/StrokePersistence';
 import { ThemeTokens } from '../ui/theme/EditorTheme';
 import { ImageCanvasRenderer } from './ImageCanvasRenderer';
 import { MathCanvasRenderer } from './MathCanvasRenderer';
+import { originalMathEngine } from './OriginalMathEngine';
 import { PaperRenderer } from './PaperRenderer';
 import { StrokeCanvasPainter } from './StrokeCanvasPainter';
 import { ShapeCanvasRenderer } from './ShapeCanvasRenderer';
@@ -61,6 +62,7 @@ export class ThumbnailRenderer {
 
   private async initializeTexture(context: common.UIAbilityContext): Promise<void> {
     try {
+      await originalMathEngine.initialize(context);
       const texture: LoadedPencilTexture = await loadOriginalPencilTexture(context);
       if (this.disposed) {
         texture.bitmap.close();

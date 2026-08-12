@@ -23,6 +23,7 @@ import { StrokeCanvasPainter } from '../../rendering/StrokeCanvasPainter';
 import { ShapeCanvasRenderer } from '../../rendering/ShapeCanvasRenderer';
 import { ImageCanvasRenderer } from '../../rendering/ImageCanvasRenderer';
 import { MathCanvasRenderer } from '../../rendering/MathCanvasRenderer';
+import { originalMathEngine } from '../../rendering/OriginalMathEngine';
 import {
   BitmapTransferKind, BitmapTransferMetrics, BitmapTransferTracker,
 } from '../../core/adaptation/BitmapTransferTracker';
@@ -110,7 +111,8 @@ import {
 } from '../../core/model/OriginalGroupSelection';
 import { cloneMathElement, eraserPathHitsMathBlock, mathBlockWorldBounds,
   transformMathElements } from '../../core/model/MathBlockGeometry';
-import { createOriginalMathInsertDraft } from '../../core/model/OriginalMathInsertPlan';
+import { createOriginalMathInsertDraft, fitOriginalMathMeasuredSize } from
+  '../../core/model/OriginalMathInsertPlan';
 import {
   CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, PageInfo,
 } from '../../core/model/NoteTypes';
@@ -316,6 +318,11 @@ export struct NoteCanvasView {
 
   aboutToAppear(): void {
     this.lifecycleActive = true;
+    originalMathEngine.initialize(getContext(this) as common.UIAbilityContext).then((ready: boolean): void => {
+      if (ready && this.lifecycleActive && this.loaded) {
+        this.renderFrame(true);
+      }
+    });
     if (this.assetAvailabilitySubscription < 0) {
       this.assetAvailabilitySubscription = assetAvailabilityHub.subscribe(
         (change: AssetAvailabilityChange): void => this.onImageAssetAvailabilityChanged(change));
@@ -4109,7 +4116,14 @@ export struct NoteCanvasView {
     const pageId: string = this.loadedPageId;
     const generation: number = this.pageLoadGeneration;
     const after: MathElement = cloneMathElement(before);
+    const measured = originalMathEngine.measure(draft, before.blockWidth, 20);
+    if (!measured.valid || measured.width === undefined || measured.height === undefined) {
+      this.mathEditorFailed = true;
+      return;
+    }
     after.latex = draft;
+    after.blockWidth = Math.max(1, Math.min(240, Math.floor(measured.width)));
+    after.blockHeight = Math.max(1, Math.min(120, Math.ceil(measured.height)));
     after.bounds = mathBlockWorldBounds(after);
     const action: UndoableAction = {
       type: UndoableActionType.TRANSFORM_ELEMENTS,
@@ -4160,8 +4174,12 @@ export struct NoteCanvasView {
     const generation: number = this.pageLoadGeneration;
     const center: Point2D = this.viewport.screenToCanvas(
       this.canvasCtx.width / 2, this.canvasCtx.height / 2);
-    const draft: MathElement | null = createOriginalMathInsertDraft(
-      this.mathEditorDraft, center, this.getPaperWidth(), this.getPaperHeight());
+    const measured = originalMathEngine.measure(this.mathEditorDraft, 100000, 20);
+    const fitted = measured.valid && measured.width !== undefined && measured.height !== undefined
+      ? fitOriginalMathMeasuredSize(measured.width, measured.height) : null;
+    const draft: MathElement | null = fitted === null ? null : createOriginalMathInsertDraft(
+      this.mathEditorDraft, center, this.getPaperWidth(), this.getPaperHeight(),
+      fitted.width, fitted.height);
     if (draft === null) {
       this.mathEditorFailed = true;
       return;

@@ -5,6 +5,25 @@ import { mathBlockWorldBounds } from './MathBlockGeometry';
 export const ORIGINAL_MATH_INSERT_MAX_WIDTH: number = 240;
 export const ORIGINAL_MATH_INSERT_MAX_HEIGHT: number = 120;
 
+export interface OriginalMathMeasuredSize {
+  width: number;
+  height: number;
+}
+
+export function fitOriginalMathMeasuredSize(measuredWidth: number,
+  measuredHeight: number): OriginalMathMeasuredSize | null {
+  if (!Number.isFinite(measuredWidth) || measuredWidth <= 0 ||
+    !Number.isFinite(measuredHeight) || measuredHeight <= 0) {
+    return null;
+  }
+  const scale: number = Math.min(1, ORIGINAL_MATH_INSERT_MAX_WIDTH / measuredWidth,
+    ORIGINAL_MATH_INSERT_MAX_HEIGHT / measuredHeight);
+  const width: number = Math.max(1, Math.floor(measuredWidth * scale));
+  const height: number = Math.max(1, Math.ceil(measuredHeight * scale));
+  return width <= ORIGINAL_MATH_INSERT_MAX_WIDTH && height <= ORIGINAL_MATH_INSERT_MAX_HEIGHT
+    ? { width, height } : null;
+}
+
 export function createOriginalMathInsertDraft(latex: string, viewportCenter: Point2D,
   pageWidth: number, pageHeight: number,
   measuredWidth: number = ORIGINAL_MATH_INSERT_MAX_WIDTH,

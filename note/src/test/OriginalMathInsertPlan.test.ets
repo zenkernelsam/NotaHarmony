@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@ohos/hypium';
 import {
   createOriginalMathInsertDraft, ORIGINAL_MATH_INSERT_MAX_HEIGHT,
-  ORIGINAL_MATH_INSERT_MAX_WIDTH,
+  ORIGINAL_MATH_INSERT_MAX_WIDTH, fitOriginalMathMeasuredSize,
 } from '../main/ets/core/model/OriginalMathInsertPlan';
 
 export default function originalMathInsertPlanTest() {
@@ -38,6 +38,13 @@ export default function originalMathInsertPlanTest() {
         { x: 100, y: 100 }, 800, 1100, 241, 40) === null).assertTrue();
       expect(createOriginalMathInsertDraft(' ',
         { x: 100, y: 100 }, 800, 1100) === null).assertTrue();
+    });
+
+    it('fits native natural dimensions proportionally into the original 240x120 frame', 0, () => {
+      const fitted = fitOriginalMathMeasuredSize(480, 60);
+      expect(fitted?.width).assertEqual(240);
+      expect(fitted?.height).assertEqual(30);
+      expect(fitOriginalMathMeasuredSize(0, 40) === null).assertTrue();
     });
   });
 }
