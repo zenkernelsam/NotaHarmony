@@ -192,6 +192,16 @@ export class NoteRepositoryImpl implements NoteRepository {
     await assetMutationMutex.runExclusive(async (): Promise<void> => {
       await store.beginTransaction();
       try {
+        const noteCheck = new relationalStore.RdbPredicates('note_meta');
+        noteCheck.equalTo('id', noteId);
+        const noteRows = await store.query(noteCheck, ['id']);
+        try {
+          if (!noteRows.goToFirstRow()) {
+            throw new Error('note does not exist');
+          }
+        } finally {
+          noteRows.close();
+        }
         const assetReferences: NoteAssetReference[] = [];
         const assetResultSet = await store.query(new relationalStore.RdbPredicates('note_asset'));
         try {
@@ -244,7 +254,10 @@ export class NoteRepositoryImpl implements NoteRepository {
         await store.delete(p4);
         const p1 = new relationalStore.RdbPredicates('note_meta');
         p1.equalTo('id', noteId);
-        await store.delete(p1);
+        const deleted: number = await store.delete(p1);
+        if (deleted !== 1) {
+          throw new Error(`expected to delete one note, deleted ${deleted}`);
+        }
         await store.commit();
       } catch (e) {
         await store.rollBack();
