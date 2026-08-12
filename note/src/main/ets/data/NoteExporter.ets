@@ -150,6 +150,9 @@ export class NoteExporter {
   // 导出并保存到文件（系统 picker 保存对话框）；成功返回 true
   async exportToFile(context: common.UIAbilityContext, noteId: string, title: string): Promise<boolean> {
     let tmpPath: string = '';
+    let tmpFile: fileIo.File | null = null;
+    let srcFile: fileIo.File | null = null;
+    let dstFile: fileIo.File | null = null;
     try {
       const data: Uint8Array | null = await this.exportNote(noteId);
       if (data === null) {
@@ -157,9 +160,11 @@ export class NoteExporter {
       }
       // 1. 写入应用沙箱临时文件
       tmpPath = `${context.tempDir}/export_${Date.now()}.note`;
-      const tmpFile = fileIo.openSync(tmpPath, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE);
+      tmpFile = fileIo.openSync(tmpPath, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
       fileIo.writeSync(tmpFile.fd, exactArrayBuffer(data));
+      fileIo.fsyncSync(tmpFile.fd);
       fileIo.closeSync(tmpFile);
+      tmpFile = null;
 
       // 2. 系统保存对话框
       const documentPicker = new picker.DocumentViewPicker(context);
@@ -174,20 +179,32 @@ export class NoteExporter {
       }
       // 3. 复制到用户选择的位置
       const targetUri: string = uris[0];
-      const srcFile = fileIo.openSync(tmpPath, fileIo.OpenMode.READ_ONLY);
+      srcFile = fileIo.openSync(tmpPath, fileIo.OpenMode.READ_ONLY);
       const stat = fileIo.statSync(tmpPath);
       const size: number = stat.size;
       const bytes: Uint8Array = readFileFully(srcFile.fd, size);
       fileIo.closeSync(srcFile);
-      const dstFile = fileIo.openSync(targetUri, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      srcFile = null;
+      dstFile = fileIo.openSync(targetUri, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
       fileIo.writeSync(dstFile.fd, exactArrayBuffer(bytes));
+      fileIo.fsyncSync(dstFile.fd);
       fileIo.closeSync(dstFile);
+      dstFile = null;
       console.info(`exportToFile success: note=${noteId} bytes=${size}`);
       return true;
     } catch (e) {
       console.error(`exportToFile failed: ${JSON.stringify(e)}`);
       return false;
     } finally {
+      if (tmpFile !== null) {
+        try { fileIo.closeSync(tmpFile); } catch (_) { }
+      }
+      if (srcFile !== null) {
+        try { fileIo.closeSync(srcFile); } catch (_) { }
+      }
+      if (dstFile !== null) {
+        try { fileIo.closeSync(dstFile); } catch (_) { }
+      }
       // 4. 清理临时文件
       if (tmpPath.length > 0) {
         try {
