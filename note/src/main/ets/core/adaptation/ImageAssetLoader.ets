@@ -87,6 +87,10 @@ export class ImageAssetLoader {
       openedFile = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
       source = image.createImageSource(openedFile.fd);
       const info: image.ImageInfo = await source.getImageInfo();
+      if (!Number.isSafeInteger(info.size.width) || !Number.isSafeInteger(info.size.height) ||
+        info.size.width <= 0 || info.size.height <= 0) {
+        return this.empty(ImageAssetLoadState.FAILED, lookupKey, 'asset image dimensions are invalid');
+      }
       const maximum: number = Math.max(info.size.width, info.size.height);
       const options: image.DecodingOptions = { editable: false };
       if (maximum > ORIGINAL_MAX_IMAGE_EDGE) {
