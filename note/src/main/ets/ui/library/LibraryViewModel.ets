@@ -19,6 +19,7 @@ export class LibraryViewModel {
   currentFolderId: string | null = null;
   private repo: NoteRepository;
   private loadGeneration: number = 0;
+  private mutationChain: Promise<void> = Promise.resolve();
 
   constructor(repo: NoteRepository) {
     this.repo = repo;
@@ -92,18 +93,30 @@ export class LibraryViewModel {
 
   // 创建并返回 noteId
   async createNote(query: string): Promise<string> {
-    const note: NoteMeta = await this.repo.createNote('Untitled Note', this.currentFolderId);
-    await this.loadNotes(query);
-    return note.id;
+    return this.enqueueMutation(async (): Promise<string> => {
+      const note: NoteMeta = await this.repo.createNote('Untitled Note', this.currentFolderId);
+      await this.loadNotes(query);
+      return note.id;
+    });
   }
 
   async deleteNote(noteId: string, query: string): Promise<void> {
-    await this.repo.deleteNote(noteId);
-    await this.loadNotes(query);
+    await this.enqueueMutation(async (): Promise<void> => {
+      await this.repo.deleteNote(noteId);
+      await this.loadNotes(query);
+    });
   }
 
   // Search, folder and sort are resolved into one observable list by loadNotes().
   getFilteredNotes(): NoteMeta[] {
     return this.notes;
+  }
+
+  private enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const next: Promise<T> = this.mutationChain.then(operation);
+    this.mutationChain = next.then((): void => {
+    }, (): void => {
+    });
+    return next;
   }
 }
