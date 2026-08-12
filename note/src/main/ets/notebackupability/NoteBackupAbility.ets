@@ -156,13 +156,14 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
   }
 
   private validateManifest(manifest: BackupManifest): void {
-    if (manifest.schema !== 1 || !Array.isArray(manifest.entries) || manifest.entries.length > MAX_FILES) {
+    if (manifest.schema !== 1 || !Number.isSafeInteger(manifest.createdAt) || manifest.createdAt <= 0 ||
+      !Array.isArray(manifest.entries) || manifest.entries.length > MAX_FILES) {
       throw new Error('invalid backup manifest');
     }
     let bytes: number = 0;
     const seen: Set<string> = new Set<string>();
     for (const entry of manifest.entries) {
-      if (ROOTS.indexOf(entry.root) < 0 || !Number.isFinite(entry.size) || entry.size < 0) {
+      if (ROOTS.indexOf(entry.root) < 0 || !Number.isSafeInteger(entry.size) || entry.size < 0) {
         throw new Error('invalid backup entry');
       }
       this.assertRelative(entry.relativePath);
