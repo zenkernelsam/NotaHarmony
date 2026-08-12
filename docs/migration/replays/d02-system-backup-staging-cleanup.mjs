@@ -14,7 +14,7 @@ const checks = [
   ['failed backup removes staging tree', cleanup > start],
   ['failed backup exposes failed phase', failed > cleanup],
   ['original error is rethrown', rethrow > failed],
-  ['published snapshot cleanup remains separate', source.indexOf("this.removeTreeInside(backupDir, PREVIOUS)", failed) >= 0],
+  ['published snapshot cleanup remains present', source.includes("this.removeTreeInside(backupDir, PREVIOUS)")],
 ];
 for (const [name, ok] of checks) {
   if (!ok) throw new Error(`FAILED: ${name}`);

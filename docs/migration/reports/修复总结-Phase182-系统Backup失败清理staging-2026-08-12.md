@@ -16,7 +16,7 @@
 
 ## 验证
 
-- Replay：待执行
+- Replay：`TOTAL=5 FAILED=0`
 - HAP 构建：本轮未执行，仓库根目录无 `hvigorw`/`hvigorw.bat`
 - 未启动设备、模拟器、虚拟机或 Hypium
 
