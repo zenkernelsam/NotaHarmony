@@ -41,15 +41,17 @@ export class InkInputProviderImpl implements InkInputProvider {
       points.push({
         x: raw.x,
         y: raw.y,
-        elapsedTimeMillis: this.strokeStartTime >= 0 ?
+        elapsedTimeMillis: this.strokeStartTime >= 0 && Number.isFinite(raw.timestamp) ?
           Math.max(0, raw.timestamp - this.strokeStartTime) : 0,
         // §5 映射：stylus/eraser→STYLUS(0)、mouse→MOUSE(1)、其他→TOUCH(2)
         // （页面层将 stylus/eraser 归类为 0，mouse 归类为 1）
         toolType: this.mapToolType(raw.toolType),
-        pressure: this.pressureSupported && raw.pressure >= 0 ? this.clamp(raw.pressure, 0, 1) : -1,
-        tiltRadians: this.tiltSupported && raw.tiltRadians >= 0
+        pressure: this.pressureSupported && Number.isFinite(raw.pressure) && raw.pressure >= 0 ?
+          this.clamp(raw.pressure, 0, 1) : -1,
+        tiltRadians: this.tiltSupported && Number.isFinite(raw.tiltRadians) && raw.tiltRadians >= 0
           ? this.clamp(raw.tiltRadians, 0, Math.PI / 2) : -1,
-        orientationRadians: this.orientationSupported && raw.orientationRadians >= 0
+        orientationRadians: this.orientationSupported && Number.isFinite(raw.orientationRadians) &&
+          raw.orientationRadians >= 0
           ? this.normalizeOrientation(raw.orientationRadians) : -1,
       });
     }
