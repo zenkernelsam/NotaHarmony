@@ -18,9 +18,19 @@ const KEY_USERNAME: string = 'webdav_username';
 const KEY_PASSWORD: string = 'webdav_password';
 const KEY_BACKUP_PATH: string = 'webdav_backup_path';
 const KEY_LAST_BACKUP: string = 'webdav_last_backup';
+const KEY_LAST_BACKUP_TARGET: string = 'webdav_last_backup_target_v1';
 const KEY_ALLOW_INSECURE_HTTP: string = 'webdav_allow_insecure_http';
 const KEY_CONFIG_RECORD: string = 'webdav_config_record_v1';
 const ASSET_NOT_FOUND: number = 24000002;
+
+export function webDAVBackupTargetIdentity(config: WebDAVConfig): string {
+  const normalized: WebDAVConfig = normalizeWebDAVConfig(config);
+  if (normalized.serverUrl.length === 0) {
+    return '';
+  }
+  return 'v1|' + identityPart(normalized.serverUrl) + identityPart(normalized.username) +
+    identityPart(normalized.backupPath);
+}
 
 class LegacyWebDAVConfigResult {
   config: WebDAVConfig;
@@ -153,30 +163,66 @@ export class WebDAVConfigStore {
     });
   }
 
-  static async getLastBackup(context: common.UIAbilityContext): Promise<number> {
-    try {
-      const pref = await preferences.getPreferences(context, PREF_NAME);
-      const value: number = pref.getSync(KEY_LAST_BACKUP, 0) as number;
-      if (!Number.isFinite(value) || value < 0) {
-        throw new Error('invalid last backup timestamp');
-      }
-      return value;
-    } catch (e) {
-      throw new Error(`WebDAVConfigStore.getLastBackup failed: ${JSON.stringify(e)}`);
+  static async getLastBackup(context: common.UIAbilityContext, config: WebDAVConfig): Promise<number> {
+    const targetIdentity: string = webDAVBackupTargetIdentity(config);
+    if (targetIdentity.length === 0) {
+      return 0;
     }
+    return WebDAVConfigStore.mutex.runExclusive(async (): Promise<number> => {
+      try {
+        const pref = await preferences.getPreferences(context, PREF_NAME);
+        const storedTarget: string = pref.getSync(KEY_LAST_BACKUP_TARGET, '') as string;
+        if (storedTarget !== targetIdentity) {
+          return 0;
+        }
+        const value: number = pref.getSync(KEY_LAST_BACKUP, 0) as number;
+        if (!Number.isSafeInteger(value) || value <= 0) {
+          throw new Error('invalid last backup timestamp');
+        }
+        return value;
+      } catch (e) {
+        throw new Error(`WebDAVConfigStore.getLastBackup failed: ${JSON.stringify(e)}`);
+      }
+    });
   }
 
-  static async setLastBackup(context: common.UIAbilityContext, time: number): Promise<void> {
-    if (!Number.isFinite(time) || time <= 0) {
+  static async setLastBackup(context: common.UIAbilityContext, config: WebDAVConfig,
+    time: number): Promise<void> {
+    if (!Number.isSafeInteger(time) || time <= 0) {
       throw new Error('WebDAVConfigStore.setLastBackup requires a positive timestamp');
     }
-    try {
-      const pref = await preferences.getPreferences(context, PREF_NAME);
-      pref.putSync(KEY_LAST_BACKUP, time);
-      await pref.flush();
-    } catch (e) {
-      throw new Error(`WebDAVConfigStore.setLastBackup failed: ${JSON.stringify(e)}`);
+    const targetIdentity: string = webDAVBackupTargetIdentity(config);
+    if (targetIdentity.length === 0) {
+      throw new Error('WebDAVConfigStore.setLastBackup requires a configured target');
     }
+    await WebDAVConfigStore.mutex.runExclusive(async (): Promise<void> => {
+      const pref = await preferences.getPreferences(context, PREF_NAME);
+      const oldTarget: string = pref.getSync(KEY_LAST_BACKUP_TARGET, '') as string;
+      const oldTime: number = pref.getSync(KEY_LAST_BACKUP, 0) as number;
+      try {
+        pref.putSync(KEY_LAST_BACKUP_TARGET, targetIdentity);
+        pref.putSync(KEY_LAST_BACKUP, time);
+        await pref.flush();
+      } catch (e) {
+        if (oldTarget.length > 0) {
+          pref.putSync(KEY_LAST_BACKUP_TARGET, oldTarget);
+        } else {
+          pref.deleteSync(KEY_LAST_BACKUP_TARGET);
+        }
+        if (oldTime > 0) {
+          pref.putSync(KEY_LAST_BACKUP, oldTime);
+        } else {
+          pref.deleteSync(KEY_LAST_BACKUP);
+        }
+        try {
+          await pref.flush();
+        } catch (rollbackError) {
+          throw new Error(`WebDAVConfigStore.setLastBackup commit and rollback failed: ` +
+            `${JSON.stringify(e)}; ${JSON.stringify(rollbackError)}`);
+        }
+        throw new Error(`WebDAVConfigStore.setLastBackup failed: ${JSON.stringify(e)}`);
+      }
+    });
   }
 
   private static async loadLegacy(context: common.UIAbilityContext,
@@ -208,4 +254,8 @@ export class WebDAVConfigStore {
 
 function encode(value: string): Uint8Array {
   return new util.TextEncoder().encodeInto(value);
+}
+
+function identityPart(value: string): string {
+  return `${value.length}:${value}|`;
 }

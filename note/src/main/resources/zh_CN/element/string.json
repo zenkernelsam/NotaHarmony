@@ -145,6 +145,7 @@
     { "name": "cloud_backup_publish_failed", "value": "无法发布或校验备份完成清单" },
     { "name": "network_server_unreachable", "value": "网络错误或服务器不可达，请稍后重试" },
     { "name": "restoring_cloud", "value": "正在从云端恢复..." },
+    { "name": "backup_operation_in_progress", "value": "另一项备份、恢复、导入、导出或 WebDAV 配置保存正在进行。" },
     { "name": "no_cloud_backup", "value": "云端没有可恢复的备份" },
     { "name": "restore_failed", "value": "恢复失败" },
     { "name": "backup_download_failed", "value": "下载备份文件失败" },

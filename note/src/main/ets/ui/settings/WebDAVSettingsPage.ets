@@ -7,6 +7,7 @@ import {
 } from '../../data/WebDAVClient';
 import { WebDAVConfigStore } from '../../data/WebDAVConfigStore';
 import { WebDAVConfigSaveResult } from '../../data/WebDAVConfigTransaction';
+import { backupOperationLease, BackupOperationRelease } from '../../data/BackupOperationLease';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
@@ -19,6 +20,7 @@ struct WebDAVSettingsPage {
   @State backupPath: string = DEFAULT_WEBDAV_BACKUP_PATH;
   @State allowInsecureHttp: boolean = false;
   @State isTesting: boolean = false;
+  @State isSaving: boolean = false;
   @State testResult: ResourceStr = '';
   @State hasTestResult: boolean = false;
   @State testSucceeded: boolean = false;
@@ -50,9 +52,18 @@ struct WebDAVSettingsPage {
   }
 
   private async testConnection(): Promise<void> {
-    if (this.isTesting) {
+    if (this.isTesting || this.isSaving) {
       return;
     }
+    this.isTesting = true;
+    try {
+      await this.testConnectionOnce();
+    } finally {
+      this.isTesting = false;
+    }
+  }
+
+  private async testConnectionOnce(): Promise<void> {
     if (this.serverUrl.trim().length === 0) {
       this.testSucceeded = false;
       this.testResult = $r('app.string.enter_server_url');
@@ -86,7 +97,6 @@ struct WebDAVSettingsPage {
       this.hasTestResult = true;
       return;
     }
-    this.isTesting = true;
     this.testSucceeded = false;
     this.testResult = $r('app.string.testing_connection_status');
     this.hasTestResult = true;
@@ -101,12 +111,22 @@ struct WebDAVSettingsPage {
       this.testSucceeded = false;
       this.testResult = $r('app.string.connection_request_failed');
       this.hasTestResult = true;
-    } finally {
-      this.isTesting = false;
     }
   }
 
   private async saveConfig(): Promise<void> {
+    if (this.isSaving || this.isTesting) {
+      return;
+    }
+    this.isSaving = true;
+    try {
+      await this.saveConfigOnce();
+    } finally {
+      this.isSaving = false;
+    }
+  }
+
+  private async saveConfigOnce(): Promise<void> {
     let allowInsecureHttp: boolean;
     try {
       allowInsecureHttp = await this.confirmInsecureHttp();
@@ -127,6 +147,11 @@ struct WebDAVSettingsPage {
       this.safeToast($r('app.string.invalid_webdav_config'));
       return;
     }
+    const releaseOperation: BackupOperationRelease | null = backupOperationLease.tryAcquire();
+    if (releaseOperation === null) {
+      this.safeToast($r('app.string.backup_operation_in_progress'));
+      return;
+    }
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const result: WebDAVConfigSaveResult = await WebDAVConfigStore.save(context, config);
@@ -141,6 +166,8 @@ struct WebDAVSettingsPage {
     } catch (e) {
       console.error(`saveConfig failed: ${JSON.stringify(e)}`);
       this.safeToast($r('app.string.save_failed'));
+    } finally {
+      releaseOperation();
     }
   }
 
@@ -255,7 +282,7 @@ struct WebDAVSettingsPage {
       Button($r('app.string.test_connection'))
         .width('90%')
         .margin({ bottom: 8 })
-        .enabled(!this.isTesting)
+        .enabled(!this.isTesting && !this.isSaving)
         .onClick(() => {
           this.testConnection();
         })
@@ -270,6 +297,7 @@ struct WebDAVSettingsPage {
 
       Button($r('app.string.save_settings'))
         .width('90%')
+        .enabled(!this.isTesting && !this.isSaving)
         .onClick(() => {
           this.saveConfig();
         })

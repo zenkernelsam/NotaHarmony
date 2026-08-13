@@ -27,6 +27,7 @@ import {
   BackupBatchApplier, BackupBatchApplyResult, BackupBatchApplyStatus, BackupObjectImporter,
   ImportedNoteRemover,
 } from '../../data/BackupBatchApplier';
+import { backupOperationLease, BackupOperationRelease } from '../../data/BackupOperationLease';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
@@ -99,7 +100,7 @@ struct BackupPage {
       await this.db.initialize(context);
       this.persistence.initialize(this.db);
       const config: WebDAVConfig = await WebDAVConfigStore.load(context);
-      const lastBackup: number = await WebDAVConfigStore.getLastBackup(context);
+      const lastBackup: number = await WebDAVConfigStore.getLastBackup(context, config);
       if (generation !== this.loadGeneration) {
         return;
       }
@@ -131,6 +132,11 @@ struct BackupPage {
     if (this.isBusy) {
       return;
     }
+    const releaseOperation: BackupOperationRelease | null = backupOperationLease.tryAcquire();
+    if (releaseOperation === null) {
+      this.showToast($r('app.string.backup_operation_in_progress'));
+      return;
+    }
     this.isBusy = true;
     this.statusText = $r('app.string.exporting');
     try {
@@ -157,12 +163,18 @@ struct BackupPage {
     } finally {
       this.isBusy = false;
       this.statusText = '';
+      releaseOperation();
     }
   }
 
   // === 本地：从 .note 导入 ===
   private async importLocal(): Promise<void> {
     if (this.isBusy) {
+      return;
+    }
+    const releaseOperation: BackupOperationRelease | null = backupOperationLease.tryAcquire();
+    if (releaseOperation === null) {
+      this.showToast($r('app.string.backup_operation_in_progress'));
       return;
     }
     this.isBusy = true;
@@ -186,6 +198,7 @@ struct BackupPage {
     } finally {
       this.isBusy = false;
       this.statusText = '';
+      releaseOperation();
     }
   }
 
@@ -194,11 +207,17 @@ struct BackupPage {
     if (this.isBusy || !this.hasConfig) {
       return;
     }
+    const releaseOperation: BackupOperationRelease | null = backupOperationLease.tryAcquire();
+    if (releaseOperation === null) {
+      this.showToast($r('app.string.backup_operation_in_progress'));
+      return;
+    }
     this.isBusy = true;
     this.statusText = $r('app.string.backing_up_cloud');
     try {
       const context = getContext(this) as common.UIAbilityContext;
-      const client = new WebDAVClient(this.config);
+      const operationConfig: WebDAVConfig = this.snapshotConfig();
+      const client = new WebDAVClient(operationConfig);
       const exporter = new NoteExporter(this.db, this.persistence);
       const backups: BackupSourcePackage[] = await exporter.exportAllNotes();
       if (backups.length === 0) {
@@ -222,7 +241,7 @@ struct BackupPage {
         }
         return;
       }
-      await WebDAVConfigStore.setLastBackup(context, completedAt);
+      await WebDAVConfigStore.setLastBackup(context, operationConfig, completedAt);
       this.hasLastBackup = true;
       this.lastBackupText = this.formatTime(completedAt);
       this.showToast($r('app.string.cloud_backup_count', result.verified, result.total));
@@ -232,6 +251,7 @@ struct BackupPage {
     } finally {
       this.isBusy = false;
       this.statusText = '';
+      releaseOperation();
     }
   }
 
@@ -240,10 +260,16 @@ struct BackupPage {
     if (this.isBusy || !this.hasConfig) {
       return;
     }
+    const releaseOperation: BackupOperationRelease | null = backupOperationLease.tryAcquire();
+    if (releaseOperation === null) {
+      this.showToast($r('app.string.backup_operation_in_progress'));
+      return;
+    }
     this.isBusy = true;
     this.statusText = $r('app.string.restoring_cloud');
     try {
-      const client = new WebDAVClient(this.config);
+      const operationConfig: WebDAVConfig = this.snapshotConfig();
+      const client = new WebDAVClient(operationConfig);
       const listResult: WebDAVListResult = await client.listDir(client.backupDirectoryUrl());
       if (!listResult.success) {
         console.error(`WebDAV list failed: HTTP ${listResult.responseCode}: ${listResult.message}`);
@@ -295,6 +321,7 @@ struct BackupPage {
     } finally {
       this.isBusy = false;
       this.statusText = '';
+      releaseOperation();
     }
   }
 
@@ -327,6 +354,16 @@ struct BackupPage {
 
   private generateBatchId(): string {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  }
+
+  private snapshotConfig(): WebDAVConfig {
+    return {
+      serverUrl: this.config.serverUrl,
+      username: this.config.username,
+      password: this.config.password,
+      backupPath: this.config.backupPath,
+      allowInsecureHttp: this.config.allowInsecureHttp === true,
+    };
   }
 
   private navigateToSettings(): void {

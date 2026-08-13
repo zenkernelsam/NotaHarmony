@@ -2,6 +2,7 @@ import { describe, it, expect } from '@ohos/hypium';
 import {
   WebDAVClient, WebDAVConfig, WebDAVFileInfo, normalizeWebDAVConfig, webDAVBackupPathForDisplay,
 } from '../main/ets/data/WebDAVClient';
+import { webDAVBackupTargetIdentity } from '../main/ets/data/WebDAVConfigStore';
 
 function createClient(): WebDAVClient {
   const config: WebDAVConfig = {
@@ -60,6 +61,34 @@ export default function webDAVClientTest() {
         backupPath: display,
       });
       expect(fromDisplay.backupPath).assertEqual(first.backupPath);
+    });
+
+    it('binds last-backup identity to server user and path but not the rotated password', 0, () => {
+      const first: WebDAVConfig = {
+        serverUrl: 'HTTPS://dav.example.com/root/', username: 'user', password: 'old',
+        backupPath: '/team%20notes/',
+      };
+      const rotated: WebDAVConfig = {
+        serverUrl: 'https://dav.example.com/root', username: 'user', password: 'new',
+        backupPath: '/team notes/',
+      };
+      const firstIdentity: string = webDAVBackupTargetIdentity(first);
+      expect(firstIdentity).assertEqual(webDAVBackupTargetIdentity(rotated));
+      expect(firstIdentity === webDAVBackupTargetIdentity({
+        serverUrl: rotated.serverUrl, username: 'other', password: rotated.password,
+        backupPath: rotated.backupPath,
+      })).assertFalse();
+      expect(firstIdentity === webDAVBackupTargetIdentity({
+        serverUrl: 'https://other.example.com/root', username: rotated.username,
+        password: rotated.password, backupPath: rotated.backupPath,
+      })).assertFalse();
+      expect(firstIdentity === webDAVBackupTargetIdentity({
+        serverUrl: rotated.serverUrl, username: rotated.username, password: rotated.password,
+        backupPath: '/another/',
+      })).assertFalse();
+      expect(webDAVBackupTargetIdentity({
+        serverUrl: '', username: '', password: '', backupPath: '/backup/',
+      })).assertEqual('');
     });
 
     it('rejects ambiguous server and backup path configurations', 0, () => {

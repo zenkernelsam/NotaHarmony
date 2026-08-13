@@ -465,6 +465,7 @@
     { "name": "cloud_backup_publish_failed", "value": "The backup completion manifest could not be published or verified." },
     { "name": "network_server_unreachable", "value": "The server is unreachable. Check the network and try again." },
     { "name": "restoring_cloud", "value": "Restoring from the cloud..." },
+    { "name": "backup_operation_in_progress", "value": "Another backup, restore, import, export, or WebDAV settings save is already in progress." },
     { "name": "no_cloud_backup", "value": "No cloud backup is available" },
     { "name": "restore_failed", "value": "Restore Failed" },
     { "name": "backup_download_failed", "value": "Could not download the backup file." },
