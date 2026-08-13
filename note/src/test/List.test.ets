@@ -18,6 +18,7 @@ import notabilitySessionParserTest from './NotabilitySessionParser.test';
 import webDAVClientTest from './WebDAVClient.test';
 import backupBatchSpecTest from './BackupBatchSpec.test';
 import backupBatchPublisherTest from './BackupBatchPublisher.test';
+import backupBatchApplierTest from './BackupBatchApplier.test';
 import webDAVConfigTransactionTest from './WebDAVConfigTransaction.test';
 import pointerSampleStreamTest from './PointerSampleStream.test';
 import widthOutlineBuilderTest from './WidthOutlineBuilder.test';
@@ -102,6 +103,7 @@ export default function testsuite() {
   webDAVClientTest();
   backupBatchSpecTest();
   backupBatchPublisherTest();
+  backupBatchApplierTest();
   webDAVConfigTransactionTest();
   pointerSampleStreamTest();
   widthOutlineBuilderTest();

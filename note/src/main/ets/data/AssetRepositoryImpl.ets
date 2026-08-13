@@ -86,42 +86,40 @@ export class AssetRepositoryImpl implements AssetRepository {
   }
 
   async deleteAsset(hash: string): Promise<void> {
-    const localPath: string | null = await assetMutationMutex.runExclusive(
-      async (): Promise<string | null> => {
-        const store: relationalStore.RdbStore = this.db.getStore();
-        let path: string | null = null;
-        await store.beginTransaction();
+    await assetMutationMutex.runExclusive(async (): Promise<void> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      let localPath: string | null = null;
+      await store.beginTransaction();
+      try {
+        const queryPredicates = new relationalStore.RdbPredicates('note_asset');
+        queryPredicates.equalTo('asset_hash', hash);
+        const resultSet = await store.query(queryPredicates, ['local_path', 'note_ids']);
         try {
-          const queryPredicates = new relationalStore.RdbPredicates('note_asset');
-          queryPredicates.equalTo('asset_hash', hash);
-          const resultSet = await store.query(queryPredicates, ['local_path', 'note_ids']);
-          try {
-            if (resultSet.goToNextRow()) {
-              const pathColumn: number = resultSet.getColumnIndex('local_path');
-              const noteIdsColumn: number = resultSet.getColumnIndex('note_ids');
-              const noteIds: string[] = parseAssetNoteIds(
-                resultSet.getString(noteIdsColumn));
-              if (noteIds.length > 0) {
-                throw new Error(`asset is still referenced by ${noteIds.length} note(s)`);
-              }
-              path = resultSet.isColumnNull(pathColumn) ? null : resultSet.getString(pathColumn);
+          if (resultSet.goToNextRow()) {
+            const pathColumn: number = resultSet.getColumnIndex('local_path');
+            const noteIdsColumn: number = resultSet.getColumnIndex('note_ids');
+            const noteIds: string[] = parseAssetNoteIds(
+              resultSet.getString(noteIdsColumn));
+            if (noteIds.length > 0) {
+              throw new Error(`asset is still referenced by ${noteIds.length} note(s)`);
             }
-          } finally {
-            resultSet.close();
+            localPath = resultSet.isColumnNull(pathColumn) ? null : resultSet.getString(pathColumn);
           }
-          const predicates = new relationalStore.RdbPredicates('note_asset');
-          predicates.equalTo('asset_hash', hash);
-          await store.delete(predicates);
-          await store.commit();
-          return path;
-        } catch (e) {
-          await store.rollBack();
-          throw new Error(`deleteAsset failed: ${JSON.stringify(e)}`);
+        } finally {
+          resultSet.close();
         }
-      });
-    if (localPath !== null && localPath.length > 0) {
-      unlinkAssetFile(localPath, this.db.getFilesDir());
-    }
+        const predicates = new relationalStore.RdbPredicates('note_asset');
+        predicates.equalTo('asset_hash', hash);
+        await store.delete(predicates);
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`deleteAsset failed: ${JSON.stringify(e)}`);
+      }
+      if (localPath !== null && localPath.length > 0) {
+        unlinkAssetFile(localPath, this.db.getFilesDir());
+      }
+    });
   }
 
   private rowToAsset(resultSet: relationalStore.ResultSet): NoteAsset {

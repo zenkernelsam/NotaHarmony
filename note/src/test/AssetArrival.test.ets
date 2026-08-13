@@ -39,6 +39,9 @@ export default function assetArrivalTest() {
       hub.publish(ABC_SHA512, ['note-a']);
       expect(changes.length).assertEqual(1);
       expect(hub.getNoteGeneration('note-a') > first.generation).assertTrue();
+      hub.forgetNote('note-a');
+      expect(hub.getNoteGeneration('note-a')).assertEqual(0);
+      expect(hub.getNoteGeneration('note-b')).assertEqual(first.generation);
     });
   });
 }

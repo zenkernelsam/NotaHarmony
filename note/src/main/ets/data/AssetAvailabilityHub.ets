@@ -52,6 +52,10 @@ export class AssetAvailabilityHub {
   getNoteGeneration(noteId: string): number {
     return this.noteGenerations.get(noteId) ?? 0;
   }
+
+  forgetNote(noteId: string): void {
+    this.noteGenerations.delete(noteId);
+  }
 }
 
 export const assetAvailabilityHub: AssetAvailabilityHub = new AssetAvailabilityHub();

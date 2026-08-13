@@ -10,11 +10,13 @@ const parse = source.indexOf('parseAssetNoteIds', query);
 const gate = source.indexOf('asset is still referenced', parse);
 const remove = source.indexOf('await store.delete(predicates)', gate);
 const unlink = source.indexOf('unlinkAssetFile(localPath', method);
+const exclusiveEnd = source.indexOf('    });', unlink);
 const checks = [
   ['delete reads reference set', query > method && parse > query],
   ['referenced assets are rejected', gate > parse],
   ['database delete follows gate', remove > gate],
   ['file unlink occurs only after transaction', unlink > remove],
+  ['file unlink remains inside the asset mutation mutex', exclusiveEnd > unlink],
   ['failure rolls back transaction', source.indexOf('await store.rollBack()', gate) > gate],
 ];
 for (const [name, ok] of checks) {

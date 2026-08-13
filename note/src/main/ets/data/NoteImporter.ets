@@ -38,7 +38,9 @@ export enum ImportResult {
 
 export interface ImportReport {
   result: ImportResult;
-  noteId: string | null;    // 成功时返回新 noteId
+  // SUCCESS/PARTIAL returns the new noteId. A failed import returns a non-null ID only when its
+  // own cleanup could not remove the partially created note, allowing a batch owner to retry it.
+  noteId: string | null;
   title: string | null;
   pageCount: number;
   missingAssets: string[];  // 未导入的内容/条目，供 UI 逐项呈现
@@ -394,10 +396,12 @@ export class NoteImporter {
       };
     } catch (e) {
       console.error(`importOurFormat write failed: ${JSON.stringify(e)}`);
-      await this.removeFailedImport(createdNoteId);
-      return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+      const cleaned: boolean = await this.removeFailedImport(createdNoteId);
+      return { result: ImportResult.CORRUPTED, noteId: cleaned ? null : createdNoteId,
+        title: null, pageCount: 0,
         missingAssets: [], warnings: [],
-        message: '写入数据库失败，导入未完成' };
+        message: cleaned ? '写入数据库失败，导入未完成' :
+          '写入数据库失败，且自动清理未完成' };
     } finally {
       release();
     }
@@ -440,6 +444,7 @@ export class NoteImporter {
     }
     if (title !== null) {
       // 有标题但无标准结构 → PARTIAL（仅创建空白笔记）
+      const release: MutexRelease = await NoteImporter.importMutex.lock();
       try {
         const noteRepo = new NoteRepositoryImpl(this.db);
         const note: NoteMeta = await noteRepo.createNote(title, null);
@@ -450,6 +455,8 @@ export class NoteImporter {
         return { result: ImportResult.UNSUPPORTED_FORMAT, noteId: null, title: null, pageCount: 0,
           missingAssets: [], warnings: [],
           message: `外部包结构无法识别。内部文件：${fileList}` };
+      } finally {
+        release();
       }
     }
     // 完全无法识别
@@ -610,10 +617,12 @@ export class NoteImporter {
       };
     } catch (e) {
       console.error(`importNotability write failed: ${JSON.stringify(e)}`);
-      await this.removeFailedImport(createdNoteId);
-      return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+      const cleaned: boolean = await this.removeFailedImport(createdNoteId);
+      return { result: ImportResult.CORRUPTED, noteId: cleaned ? null : createdNoteId,
+        title: null, pageCount: 0,
         missingAssets: [], warnings: [],
-        message: '写入数据库失败，导入未完成' };
+        message: cleaned ? '写入数据库失败，导入未完成' :
+          '写入数据库失败，且自动清理未完成' };
     } finally {
       release();
     }
@@ -681,15 +690,38 @@ export class NoteImporter {
     }
   }
 
-  private async removeFailedImport(noteId: string | null): Promise<void> {
-    if (noteId === null) {
-      return;
+  async removeImportedNote(noteId: string): Promise<boolean> {
+    const release: MutexRelease = await NoteImporter.importMutex.lock();
+    try {
+      return await this.removeImportedNoteLocked(noteId);
+    } finally {
+      release();
     }
+  }
+
+  private async removeImportedNoteLocked(noteId: string): Promise<boolean> {
     try {
       await new NoteRepositoryImpl(this.db).deleteNote(noteId);
+      return true;
     } catch (cleanupError) {
-      console.error(`failed import cleanup failed: ${JSON.stringify(cleanupError)}`);
+      console.error(`imported note cleanup failed: ${JSON.stringify(cleanupError)}`);
+      try {
+        if (!await this.noteIdExists(noteId)) {
+          return true;
+        }
+      } catch (verifyError) {
+        console.error(`imported note cleanup verification failed: ${JSON.stringify(verifyError)}`);
+      }
+      return false;
     }
+  }
+
+  private async removeFailedImport(noteId: string | null): Promise<boolean> {
+    if (noteId === null) {
+      return true;
+    }
+    // Both import writers call this while they already own importMutex.
+    return await this.removeImportedNoteLocked(noteId);
   }
 }
 

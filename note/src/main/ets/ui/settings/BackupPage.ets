@@ -21,8 +21,12 @@ import {
   BackupBatchPublisher, BackupPublishResult, BackupPublishStage, CryptoBackupBatchHasher,
 } from '../../data/BackupBatchPublisher';
 import {
-  BackupBatchRestorer, BackupFetchResult, VerifiedBackupObject,
+  BackupBatchRestorer, BackupFetchResult,
 } from '../../data/BackupBatchRestorer';
+import {
+  BackupBatchApplier, BackupBatchApplyResult, BackupBatchApplyStatus, BackupObjectImporter,
+  ImportedNoteRemover,
+} from '../../data/BackupBatchApplier';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
@@ -30,6 +34,22 @@ enum BackupLoadState {
   LOADING = 'loading',
   ERROR = 'error',
   READY = 'ready',
+}
+
+class NoteImporterBackupAdapter implements BackupObjectImporter, ImportedNoteRemover {
+  private importer: NoteImporter;
+
+  constructor(importer: NoteImporter) {
+    this.importer = importer;
+  }
+
+  async importFromData(data: Uint8Array): Promise<ImportReport> {
+    return await this.importer.importFromData(data);
+  }
+
+  async removeImportedNote(noteId: string): Promise<boolean> {
+    return await this.importer.removeImportedNote(noteId);
+  }
 }
 
 @Entry
@@ -237,33 +257,37 @@ struct BackupPage {
         return;
       }
       const importer = new NoteImporter(this.db, this.persistence);
-      let restored: number = 0;
-      let degraded: number = 0;
       const restorer = new BackupBatchRestorer(client, new CryptoBackupBatchHasher());
       const fetched: BackupFetchResult = await restorer.fetch(manifest);
-      let failed: number = fetched.failedNoteIds.length;
+      const verificationFailures: number = fetched.failedNoteIds.length;
       if (fetched.verified.length === 0) {
         this.showAlert($r('app.string.restore_result'),
-          $r('app.string.cloud_restore_partial', 0, manifest.entries.length, failed, 0));
+          $r('app.string.cloud_restore_partial', 0, manifest.entries.length, verificationFailures, 0));
         return;
       }
-      for (let i: number = 0; i < fetched.verified.length; i++) {
-        const object: VerifiedBackupObject = fetched.verified[i];
-        const report: ImportReport = await importer.importFromData(object.data);
-        if (report.result === ImportResult.SUCCESS) {
-          restored++;
-        } else if (report.result === ImportResult.PARTIAL) {
-          restored++;
-          degraded++;
-        } else {
-          failed++;
-        }
+      const adapter: NoteImporterBackupAdapter = new NoteImporterBackupAdapter(importer);
+      const applier = new BackupBatchApplier(adapter, adapter);
+      const applied: BackupBatchApplyResult = await applier.apply(fetched.verified);
+      if (applied.status === BackupBatchApplyStatus.ROLLED_BACK) {
+        console.error(`cloud restore import failed for ${applied.failedSourceNoteId}; ` +
+          `rolled back ${applied.rolledBack} note(s)`);
+        this.showAlert($r('app.string.restore_failed'),
+          $r('app.string.cloud_restore_rolled_back', applied.rolledBack, verificationFailures));
+        return;
       }
-      if (failed > 0 || degraded > 0) {
+      if (applied.status === BackupBatchApplyStatus.ROLLBACK_INCOMPLETE) {
+        console.error(`cloud restore rollback incomplete for ${applied.failedSourceNoteId}: ` +
+          `${applied.rollbackFailedNoteIds.join(',')}`);
+        this.showAlert($r('app.string.restore_failed'),
+          $r('app.string.cloud_restore_rollback_incomplete', applied.unresolvedRollbackCount));
+        return;
+      }
+      if (verificationFailures > 0 || applied.degraded > 0) {
         this.showAlert($r('app.string.restore_result'),
-          $r('app.string.cloud_restore_partial', restored, manifest.entries.length, failed, degraded));
+          $r('app.string.cloud_restore_partial', applied.restored, manifest.entries.length,
+            verificationFailures, applied.degraded));
       } else {
-        this.showToast($r('app.string.cloud_restore_complete', restored));
+        this.showToast($r('app.string.cloud_restore_complete', applied.restored));
       }
     } catch (e) {
       console.error(`restoreFromCloud failed: ${JSON.stringify(e)}`);

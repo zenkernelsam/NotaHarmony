@@ -151,6 +151,8 @@
     { "name": "cloud_backup_list_failed", "value": "无法读取云端备份目录，请检查服务器连接和凭据" },
     { "name": "cloud_restore_complete", "value": "已恢复 %d 篇笔记" },
     { "name": "cloud_restore_partial", "value": "已恢复 %d/%d 篇笔记；%d 篇校验或导入失败，%d 篇为部分恢复" },
+    { "name": "cloud_restore_rolled_back", "value": "一篇已校验笔记无法导入；已移除本次创建的 %d 篇笔记，因此本次没有保留任何已校验笔记。另有 %d 个远端对象校验失败。" },
+    { "name": "cloud_restore_rollback_incomplete", "value": "恢复已停止，但清理未完成；有 %d 篇可能已导入的笔记无法确认已清除。请先检查资料库，再重试。" },
     { "name": "restored_message", "value": "已恢复：%s" },
     { "name": "restore_result", "value": "恢复结果" },
     { "name": "server_value", "value": "服务器：%s" },

@@ -6,6 +6,7 @@ import {
 import { NoteRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { assetMutationMutex, parseAssetNoteIds, unlinkAssetFile } from './AssetRepositoryImpl';
+import { assetAvailabilityHub } from './AssetAvailabilityHub';
 import { escapeSearchLike, foldSearchText } from './SearchText';
 import { SearchItemType } from './SearchItemType';
 import {
@@ -188,8 +189,8 @@ export class NoteRepositoryImpl implements NoteRepository {
 
   async deleteNote(noteId: string): Promise<void> {
     const store: relationalStore.RdbStore = this.db.getStore();
-    const filesToDelete: string[] = [];
     await assetMutationMutex.runExclusive(async (): Promise<void> => {
+      const filesToDelete: string[] = [];
       await store.beginTransaction();
       try {
         const noteCheck = new relationalStore.RdbPredicates('note_meta');
@@ -263,11 +264,12 @@ export class NoteRepositoryImpl implements NoteRepository {
         await store.rollBack();
         throw new Error(`deleteNote failed: ${JSON.stringify(e)}`);
       }
+      const filesRoot: string = this.db.getFilesDir();
+      for (let i: number = 0; i < filesToDelete.length; i++) {
+        unlinkAssetFile(filesToDelete[i], filesRoot);
+      }
+      assetAvailabilityHub.forgetNote(noteId);
     });
-    const filesRoot: string = this.db.getFilesDir();
-    for (let i: number = 0; i < filesToDelete.length; i++) {
-      unlinkAssetFile(filesToDelete[i], filesRoot);
-    }
   }
 
   async getViewState(noteId: string): Promise<NoteViewState | null> {

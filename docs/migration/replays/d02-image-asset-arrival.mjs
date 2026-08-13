@@ -16,6 +16,8 @@ const canvasSource = fs.readFileSync(new URL(
   'note/src/main/ets/ui/editor/NoteCanvasView.ets', rootPath), 'utf8');
 const librarySource = fs.readFileSync(new URL(
   'note/src/main/ets/ui/library/LibraryPage.ets', rootPath), 'utf8');
+const noteRepositorySource = fs.readFileSync(new URL(
+  'note/src/main/ets/data/NoteRepositoryImpl.ets', rootPath), 'utf8');
 const thumbnailSource = fs.readFileSync(new URL(
   'note/src/main/ets/rendering/ThumbnailRenderPolicy.ets', rootPath), 'utf8');
 const testSource = fs.readFileSync(new URL(
@@ -172,6 +174,11 @@ try {
   assert.throws(() => receive(bytes), /metadata missing/);
 
   assert(hubSource.includes('getNoteGeneration(noteId: string)'));
+  assert(hubSource.includes('forgetNote(noteId: string)'));
+  const deleteNote = noteRepositorySource.indexOf('async deleteNote');
+  assert(noteRepositorySource.indexOf('await store.commit()', deleteNote) <
+    noteRepositorySource.indexOf('assetAvailabilityHub.forgetNote(noteId)',
+      deleteNote));
   assert(hubSource.includes('unsubscribe(listenerId: number)'));
   assert(canvasSource.includes('onImageAssetAvailabilityChanged'));
   assert(canvasSource.includes('assetAvailabilityHub.unsubscribe'));

@@ -471,6 +471,8 @@
     { "name": "cloud_backup_list_failed", "value": "Could not read the cloud backup directory. Check the server connection and credentials." },
     { "name": "cloud_restore_complete", "value": "Restored %d notes" },
     { "name": "cloud_restore_partial", "value": "Restored %d of %d notes. %d failed verification or import; %d were partially recovered." },
+    { "name": "cloud_restore_rolled_back", "value": "A verified note could not be imported. %d notes created by this attempt were removed, so no verified note from this attempt was kept. %d remote objects also failed verification." },
+    { "name": "cloud_restore_rollback_incomplete", "value": "Restore stopped, but cleanup was incomplete. Removal could not be confirmed for %d possible imported notes. Review the library before retrying." },
     { "name": "restored_message", "value": "Restored: %s" },
     { "name": "restore_result", "value": "Restore Result" },
     { "name": "server_value", "value": "Server: %s" },
