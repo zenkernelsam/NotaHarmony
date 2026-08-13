@@ -14,7 +14,11 @@ const checks = [
   ['create is queued', create > 0],
   ['delete is queued', remove > 0],
   ['queue advances after success or failure', continuation > helper],
-  ['refresh remains inside create mutation', source.indexOf('await this.loadNotes(query)', create) > create],
+  ['create publishes committed metadata locally', source.indexOf('next.push(note)', create) > create],
+  ['delete removes committed metadata locally', source.indexOf('this.removeVisibleNote(noteId)', remove) > remove],
+  ['mutation result is not coupled to a reload', source.indexOf('await this.loadNotes(query)', create) < 0],
+  ['stale reads retry after a committed mutation', source.includes(
+    'if (mutationGeneration !== this.mutationGeneration) {\n          continue;')],
 ];
 for (const [name, ok] of checks) {
   if (!ok) throw new Error(`FAILED: ${name}`);

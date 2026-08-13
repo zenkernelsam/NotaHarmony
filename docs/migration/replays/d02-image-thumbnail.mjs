@@ -17,7 +17,7 @@ assert.match(thumbnail, /asset\.state === ImageAssetLoadState\.READY/);
 assert.match(thumbnail, /this\.imageRenderer\.renderImage\(element\.data, asset\.bitmap, renderContext\)/);
 assert.match(thumbnail, /finally \{/);
 assert.match(thumbnail, /imageLoader\.release\(asset\)/);
-assert.match(library, /renderThumbnail\(noteId, this\.persistence, pageState\.page, theme, this\.db\)/);
+assert.match(library, /renderer\.renderThumbnail\(noteId, this\.persistence, pageState\.page, theme, this\.db\)/);
 
 assert.match(imageRenderer, /imageRenderGeometry/);
 assert.ok(imageRenderer.indexOf('ctx.clip()') <

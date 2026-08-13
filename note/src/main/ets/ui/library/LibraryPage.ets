@@ -54,7 +54,8 @@ struct LibraryPage {
   private searchTimer: number = -1;
   private thumbnailRequestTimer: number = -1;
   private thumbnailPriorityIds: string[] = [];
-  private pageActive: boolean = true;
+  private pageActive: boolean = false;
+  private lifecycleGeneration: number = 0;
   private readonly THUMBNAIL_CONCURRENCY: number = 3;
   private readonly MAX_THUMBNAILS: number = 64;
   private thumbnailRefreshMutex: AsyncMutex = new AsyncMutex();
@@ -91,16 +92,13 @@ struct LibraryPage {
   }
 
   aboutToAppear(): void {
-    this.pageActive = true;
-    if (this.assetAvailabilitySubscription < 0) {
-      this.assetAvailabilitySubscription = assetAvailabilityHub.subscribe(
-        (change: AssetAvailabilityChange): void => this.onAssetAvailabilityChanged(change));
-    }
-    this.initData();
+    const generation: number = this.activatePage();
+    this.initData(generation);
   }
 
   aboutToDisappear(): void {
     this.pageActive = false;
+    this.lifecycleGeneration++;
     if (this.assetAvailabilitySubscription >= 0) {
       assetAvailabilityHub.unsubscribe(this.assetAvailabilitySubscription);
       this.assetAvailabilitySubscription = -1;
@@ -121,21 +119,25 @@ struct LibraryPage {
     this.thumbnailPriorityIds = [];
     const renderer: ThumbnailRenderer = this.thumbRenderer;
     this.thumbRenderer = new ThumbnailRenderer();
-    renderer.dispose().catch((e: Error) => {
+    this.retireThumbnailRenderer(renderer).catch((e: Error) => {
       console.warn(`ThumbnailRenderer dispose failed: ${JSON.stringify(e)}`);
     });
   }
 
   // The ViewModel owns async operations; each successful result publishes a fresh @State notes snapshot.
   onPageShow(): void {
-    this.pageActive = true;
+    const lifecycleGeneration: number = this.activatePage();
     if (this.viewModel !== null) {
       const vm: LibraryViewModel = this.viewModel;
+      const renderer: ThumbnailRenderer = this.thumbRenderer;
       if (this.notes.length === 0) {
         this.libraryLoading = true;
       }
       const context = getContext(this) as common.UIAbilityContext;
-      this.thumbRenderer.initialize(context).then(() => vm.loadNotes(this.searchText)).then(() => {
+      renderer.initialize(context).then(() => vm.loadNotes(this.searchText)).then(() => {
+        if (!this.isCurrentLifecycle(lifecycleGeneration, vm, renderer)) {
+          return;
+        }
         this.initError = '';
         this.hasInitError = false;
         this.viewModel = vm;
@@ -143,6 +145,9 @@ struct LibraryPage {
         this.libraryLoading = false;
         return this.refreshThumbnails();
       }).catch((e: Error) => {
+        if (!this.isCurrentLifecycle(lifecycleGeneration, vm, renderer)) {
+          return;
+        }
         this.libraryLoading = false;
         this.initError = $r('app.string.load_notes_failed');
         this.hasInitError = true;
@@ -164,16 +169,48 @@ struct LibraryPage {
       return;
     }
     const generation: number = ++this.thumbnailGeneration;
+    const renderer: ThumbnailRenderer = this.thumbRenderer;
+    const lifecycleGeneration: number = this.lifecycleGeneration;
     const release: MutexRelease = await this.thumbnailRefreshMutex.lock();
     try {
-      await this.refreshThumbnailGeneration(generation);
+      await this.refreshThumbnailGeneration(generation, lifecycleGeneration, renderer);
     } finally {
       release();
     }
   }
 
-  private async refreshThumbnailGeneration(generation: number): Promise<void> {
-    if (generation !== this.thumbnailGeneration || !this.pageActive || this.viewModel === null) {
+  private activatePage(): number {
+    if (!this.pageActive) {
+      this.pageActive = true;
+      this.lifecycleGeneration++;
+    }
+    if (this.assetAvailabilitySubscription < 0) {
+      this.assetAvailabilitySubscription = assetAvailabilityHub.subscribe(
+        (change: AssetAvailabilityChange): void => this.onAssetAvailabilityChanged(change));
+    }
+    return this.lifecycleGeneration;
+  }
+
+  private isCurrentLifecycle(generation: number, viewModel: LibraryViewModel,
+    renderer: ThumbnailRenderer): boolean {
+    return this.pageActive && generation === this.lifecycleGeneration &&
+      this.viewModel === viewModel && this.thumbRenderer === renderer;
+  }
+
+  private async retireThumbnailRenderer(renderer: ThumbnailRenderer): Promise<void> {
+    const release: MutexRelease = await this.thumbnailRefreshMutex.lock();
+    try {
+      await renderer.dispose();
+    } finally {
+      release();
+    }
+  }
+
+  private async refreshThumbnailGeneration(generation: number, lifecycleGeneration: number,
+    renderer: ThumbnailRenderer): Promise<void> {
+    if (generation !== this.thumbnailGeneration || lifecycleGeneration !== this.lifecycleGeneration ||
+      !this.pageActive || this.viewModel === null ||
+      renderer !== this.thumbRenderer) {
       return;
     }
     const allNoteIds: string[] = this.notes.map((note: NoteMeta) => note.id);
@@ -200,7 +237,8 @@ struct LibraryPage {
           const assetGeneration: number = assetAvailabilityHub.getNoteGeneration(noteId);
           const revision: string = thumbnailCacheKey(contentRevision,
             theme.paperBackground, theme.paperLineColor, assetGeneration);
-          if (generation !== this.thumbnailGeneration || !this.pageActive) {
+          if (generation !== this.thumbnailGeneration || lifecycleGeneration !== this.lifecycleGeneration ||
+            !this.pageActive || renderer !== this.thumbRenderer) {
             return;
           }
           const oldRevision: string | undefined = oldRevisions.get(noteId);
@@ -211,8 +249,9 @@ struct LibraryPage {
             continue;
           }
           const pixelMap: PixelMap | null = pageState === null ? null :
-            await this.thumbRenderer.renderThumbnail(noteId, this.persistence, pageState.page, theme, this.db);
-          if (generation !== this.thumbnailGeneration || !this.pageActive) {
+            await renderer.renderThumbnail(noteId, this.persistence, pageState.page, theme, this.db);
+          if (generation !== this.thumbnailGeneration || lifecycleGeneration !== this.lifecycleGeneration ||
+            !this.pageActive || renderer !== this.thumbRenderer) {
             if (pixelMap !== null) {
               pixelMap.release();
             }
@@ -229,7 +268,8 @@ struct LibraryPage {
           console.error(`LibraryPage thumbnail failed note=${noteId}: ${JSON.stringify(e)}`);
           const oldPixelMap: PixelMap | undefined = oldMap.get(noteId);
           const oldRevision: string | undefined = oldRevisions.get(noteId);
-          if (generation === this.thumbnailGeneration && this.pageActive &&
+          if (generation === this.thumbnailGeneration && lifecycleGeneration === this.lifecycleGeneration &&
+            this.pageActive && renderer === this.thumbRenderer &&
             oldPixelMap !== undefined && oldRevision !== undefined) {
             newMap.set(noteId, oldPixelMap);
             newRevisions.set(noteId, oldRevision);
@@ -243,7 +283,8 @@ struct LibraryPage {
       workers.push(worker());
     }
     await Promise.all(workers);
-    if (generation !== this.thumbnailGeneration || !this.pageActive) {
+    if (generation !== this.thumbnailGeneration || lifecycleGeneration !== this.lifecycleGeneration ||
+      !this.pageActive || renderer !== this.thumbRenderer) {
       for (const pixelMap of createdMaps) {
         pixelMap.release();
       }
@@ -425,6 +466,18 @@ struct LibraryPage {
     }
   }
 
+  private reloadVisibleNotesAfterMutation(vm: LibraryViewModel, operation: string): void {
+    vm.loadNotes(this.searchText).then(() => {
+      if (this.pageActive && this.viewModel === vm) {
+        this.notes = vm.getFilteredNotes().slice();
+        return this.refreshThumbnails();
+      }
+      return Promise.resolve();
+    }).catch((e: Error) => {
+      console.error(`${operation} authoritative note refresh failed: ${JSON.stringify(e)}`);
+    });
+  }
+
   // 切换浏览文件夹
   private async selectFolder(folderId: string | null): Promise<void> {
     if (this.viewModel === null || this.folderBusy) {
@@ -474,7 +527,7 @@ struct LibraryPage {
     }
   }
 
-  private async initData(): Promise<void> {
+  private async initData(expectedLifecycleGeneration: number = this.lifecycleGeneration): Promise<void> {
     this.initError = '';
     this.hasInitError = false;
     if (this.notes.length === 0) {
@@ -484,16 +537,32 @@ struct LibraryPage {
       const context = getContext(this) as common.UIAbilityContext;
       const pref: preferences.Preferences =
         await preferences.getPreferences(context, THEME_PREFERENCES_NAME);
+      if (!this.pageActive || expectedLifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
       await this.db.initialize(context);
       this.persistence.initialize(this.db);
-      await this.thumbRenderer.initialize(context);
-      this.noteRepo = new NoteRepositoryImpl(this.db);
-      this.folderRepo = new FolderRepositoryImpl(this.db);
-      const vm: LibraryViewModel = new LibraryViewModel(this.noteRepo);
+      const renderer: ThumbnailRenderer = this.thumbRenderer;
+      await renderer.initialize(context);
+      if (!this.pageActive || expectedLifecycleGeneration !== this.lifecycleGeneration ||
+        renderer !== this.thumbRenderer) {
+        return;
+      }
+      const noteRepo: NoteRepositoryImpl = new NoteRepositoryImpl(this.db);
+      const folderRepo: FolderRepositoryImpl = new FolderRepositoryImpl(this.db);
+      const vm: LibraryViewModel = new LibraryViewModel(noteRepo);
+      this.noteRepo = noteRepo;
+      this.folderRepo = folderRepo;
       this.viewModel = vm;
       try {
-        this.folders = await this.folderRepo.getAllFolders();
+        const loadedFolders: NoteFolder[] = await folderRepo.getAllFolders();
+        if (this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer)) {
+          this.folders = loadedFolders;
+        }
       } catch (folderError) {
+        if (!this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer)) {
+          return;
+        }
         console.error(`LibraryPage folder load failed: ${JSON.stringify(folderError)}`);
         promptAction.showToast({ message: $r('app.string.load_folders_failed') });
       }
@@ -501,10 +570,16 @@ struct LibraryPage {
       const saved: number = pref.getSync(this.PREF_SORT_KEY, 0) as number;
       vm.sortMode = saved as NoteSortMode;
       await vm.loadNotes(this.searchText);
+      if (!this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer)) {
+        return;
+      }
       this.viewModel = vm;
       this.notes = vm.getFilteredNotes().slice();
       this.libraryLoading = false;
       await this.refreshThumbnails();
+      if (!this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer)) {
+        return;
+      }
       this.persistence.backfillSearchIndex().then(() => {
         const activeViewModel: LibraryViewModel | null = this.viewModel;
         const activeQuery: string = this.searchText;
@@ -524,6 +599,9 @@ struct LibraryPage {
         console.error(`search index backfill failed: ${JSON.stringify(e)}`);
       });
     } catch (e) {
+      if (!this.pageActive || expectedLifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
       this.libraryLoading = false;
       this.initError = $r('app.string.library_load_failed');
       this.hasInitError = true;
@@ -717,7 +795,8 @@ struct LibraryPage {
               .height(36)
               .margin({ top: 12 })
               .onClick(() => {
-                this.initData();
+                const lifecycleGeneration: number = this.activatePage();
+                this.initData(lifecycleGeneration);
               })
           }
           .width('100%')
@@ -1050,18 +1129,22 @@ struct LibraryPage {
       return;
     }
     this.deleteBusy = true;
+    const vm: LibraryViewModel = this.viewModel;
     try {
-      const vm: LibraryViewModel = this.viewModel;
-      await vm.deleteNote(noteId, this.searchText);
+      await vm.deleteNote(noteId);
       this.viewModel = vm;
       this.notes = vm.getFilteredNotes().slice();
-      await this.refreshThumbnails();
     } catch (e) {
       promptAction.showToast({ message: $r('app.string.delete_note_failed') });
       console.error(`delete note failed: ${JSON.stringify(e)}`);
+      return;
     } finally {
       this.deleteBusy = false;
     }
+    this.refreshThumbnails().catch((e: Error) => {
+      console.error(`delete note thumbnail refresh failed: ${JSON.stringify(e)}`);
+    });
+    this.reloadVisibleNotesAfterMutation(vm, 'delete note');
   }
 
   private async createAndOpen(): Promise<void> {
@@ -1069,14 +1152,23 @@ struct LibraryPage {
       return;
     }
     this.createBusy = true;
+    const vm: LibraryViewModel = this.viewModel;
+    let noteId: string;
     try {
-      const vm: LibraryViewModel = this.viewModel;
-      const noteId: string = await vm.createNote(this.searchText);
+      noteId = await vm.createNote(this.searchText);
       this.notes = vm.getFilteredNotes().slice();
-      await router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: noteId } });
     } catch (e) {
       promptAction.showToast({ message: $r('app.string.create_note_failed') });
-      console.error(`createAndOpen failed: ${JSON.stringify(e)}`);
+      console.error(`create note failed: ${JSON.stringify(e)}`);
+      this.createBusy = false;
+      return;
+    }
+    this.reloadVisibleNotesAfterMutation(vm, 'create note');
+    try {
+      await router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: noteId } });
+    } catch (e) {
+      promptAction.showToast({ message: $r('app.string.created_note_open_failed') });
+      console.error(`open created note failed: ${JSON.stringify(e)}`);
     } finally {
       this.createBusy = false;
     }

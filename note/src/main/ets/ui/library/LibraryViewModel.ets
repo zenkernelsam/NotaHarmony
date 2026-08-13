@@ -19,6 +19,7 @@ export class LibraryViewModel {
   currentFolderId: string | null = null;
   private repo: NoteRepository;
   private loadGeneration: number = 0;
+  private mutationGeneration: number = 0;
   private mutationChain: Promise<void> = Promise.resolve();
 
   constructor(repo: NoteRepository) {
@@ -30,25 +31,39 @@ export class LibraryViewModel {
     this.isLoading = true;
     this.loadError = '';
     try {
-      let loaded: NoteMeta[];
-      if (query.trim().length > 0) {
-        loaded = await this.repo.searchNotes(query, this.currentFolderId);
-      } else if (this.currentFolderId === null) {
-        loaded = await this.repo.getAllNotes();
-      } else {
-        loaded = await this.repo.getNotesByFolder(this.currentFolderId);
-      }
-      if (generation === this.loadGeneration) {
+      while (generation === this.loadGeneration) {
+        const mutationGeneration: number = this.mutationGeneration;
+        const folderId: string | null = this.currentFolderId;
+        let loaded: NoteMeta[];
+        try {
+          if (query.trim().length > 0) {
+            loaded = await this.repo.searchNotes(query, folderId);
+          } else if (folderId === null) {
+            loaded = await this.repo.getAllNotes();
+          } else {
+            loaded = await this.repo.getNotesByFolder(folderId);
+          }
+        } catch (e) {
+          if (generation !== this.loadGeneration) {
+            return;
+          }
+          if (mutationGeneration !== this.mutationGeneration) {
+            continue;
+          }
+          const error: string = `loadNotes failed: ${JSON.stringify(e)}`;
+          this.loadError = error;
+          throw new Error(error);
+        }
+        if (generation !== this.loadGeneration) {
+          return;
+        }
+        if (mutationGeneration !== this.mutationGeneration) {
+          continue;
+        }
         this.notes = loaded;
         this.applySort();
-      }
-    } catch (e) {
-      const error: string = `loadNotes failed: ${JSON.stringify(e)}`;
-      if (generation !== this.loadGeneration) {
         return;
       }
-      this.loadError = error;
-      throw new Error(error);
     } finally {
       if (generation === this.loadGeneration) {
         this.isLoading = false;
@@ -93,18 +108,37 @@ export class LibraryViewModel {
 
   // 创建并返回 noteId
   async createNote(query: string): Promise<string> {
+    const folderId: string | null = this.currentFolderId;
+    const viewGeneration: number = this.loadGeneration;
     return this.enqueueMutation(async (): Promise<string> => {
-      const note: NoteMeta = await this.repo.createNote('Untitled Note', this.currentFolderId);
-      await this.loadNotes(query);
+      const note: NoteMeta = await this.repo.createNote('Untitled Note', folderId);
+      this.mutationGeneration++;
+      if (viewGeneration === this.loadGeneration && this.currentFolderId === folderId &&
+        this.createdNoteMatchesQuery(note, query)) {
+        const next: NoteMeta[] = this.notes.filter((item: NoteMeta) => item.id !== note.id);
+        next.push(note);
+        this.notes = next;
+        this.applySort();
+      }
       return note.id;
     });
   }
 
-  async deleteNote(noteId: string, query: string): Promise<void> {
+  async deleteNote(noteId: string): Promise<void> {
     await this.enqueueMutation(async (): Promise<void> => {
       await this.repo.deleteNote(noteId);
-      await this.loadNotes(query);
+      this.removeVisibleNote(noteId);
     });
+  }
+
+  private removeVisibleNote(noteId: string): void {
+    this.mutationGeneration++;
+    this.notes = this.notes.filter((note: NoteMeta) => note.id !== noteId);
+  }
+
+  private createdNoteMatchesQuery(note: NoteMeta, query: string): boolean {
+    const foldedQuery: string = query.trim().toLowerCase();
+    return foldedQuery.length === 0 || note.title.toLowerCase().includes(foldedQuery);
   }
 
   // Search, folder and sort are resolved into one observable list by loadNotes().

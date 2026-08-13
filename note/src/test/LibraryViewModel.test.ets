@@ -7,10 +7,17 @@ class FakeNoteRepository implements NoteRepository {
   notes: NoteMeta[] = [];
   failReads: boolean = false;
   createdFolderId: string | null = null;
+  createCount: number = 0;
+  deleteCount: number = 0;
+  readGate: Promise<void> | null = null;
+  readStarted: (() => void) | null = null;
+  snapshotBeforeGate: boolean = false;
+  private nextCreatedId: number = 1;
 
   async createNote(_title: string, folderId: string | null): Promise<NoteMeta> {
+    this.createCount++;
     this.createdFolderId = folderId;
-    const note: NoteMeta = makeNote('created', folderId);
+    const note: NoteMeta = makeNote(`created-${this.nextCreatedId++}`, folderId);
     this.notes.push(note);
     return note;
   }
@@ -25,10 +32,25 @@ class FakeNoteRepository implements NoteRepository {
   }
 
   async getAllNotes(): Promise<NoteMeta[]> {
+    let snapshot: NoteMeta[] | null = null;
+    if (this.snapshotBeforeGate) {
+      snapshot = this.notes.slice();
+      this.snapshotBeforeGate = false;
+    }
+    if (this.readGate !== null) {
+      const gate: Promise<void> = this.readGate;
+      this.readGate = null;
+      if (this.readStarted !== null) {
+        const started: () => void = this.readStarted;
+        this.readStarted = null;
+        started();
+      }
+      await gate;
+    }
     if (this.failReads) {
       throw new Error('read failed');
     }
-    return this.notes.slice();
+    return snapshot === null ? this.notes.slice() : snapshot;
   }
 
   async getNotesByFolder(folderId: string): Promise<NoteMeta[]> {
@@ -59,6 +81,8 @@ class FakeNoteRepository implements NoteRepository {
   }
 
   async deleteNote(_noteId: string): Promise<void> {
+    this.deleteCount++;
+    this.notes = this.notes.filter((note: NoteMeta) => note.id !== _noteId);
   }
 
   async getViewState(_noteId: string): Promise<NoteViewState | null> {
@@ -119,10 +143,78 @@ export default function libraryViewModelTest() {
       const viewModel = new LibraryViewModel(repository);
       viewModel.currentFolderId = 'folder-a';
       const noteId: string = await viewModel.createNote('');
-      expect(noteId).assertEqual('created');
+      expect(noteId).assertEqual('created-1');
       expect(repository.createdFolderId).assertEqual('folder-a');
       expect(viewModel.notes.length).assertEqual(1);
       expect(viewModel.notes[0].folderId).assertEqual('folder-a');
+    });
+
+    it('keeps a committed create successful when the authoritative refresh fails', 0, async () => {
+      const repository = new FakeNoteRepository();
+      repository.failReads = true;
+      const viewModel = new LibraryViewModel(repository);
+      const noteId: string = await viewModel.createNote('');
+      expect(noteId).assertEqual('created-1');
+      expect(repository.createCount).assertEqual(1);
+      expect(viewModel.notes.length).assertEqual(1);
+      expect(viewModel.notes[0].id).assertEqual('created-1');
+      try {
+        await viewModel.loadNotes('');
+      } catch (_error) {
+      }
+      expect(repository.createCount).assertEqual(1);
+      expect(viewModel.notes.length).assertEqual(1);
+      expect(viewModel.notes[0].id).assertEqual('created-1');
+    });
+
+    it('publishes a created note when it matches the active search query', 0, async () => {
+      const repository = new FakeNoteRepository();
+      const viewModel = new LibraryViewModel(repository);
+      const noteId: string = await viewModel.createNote('untitled');
+      expect(noteId).assertEqual('created-1');
+      expect(viewModel.notes.length).assertEqual(1);
+      expect(viewModel.notes[0].id).assertEqual('created-1');
+    });
+
+    it('removes a committed delete even when the authoritative refresh fails', 0, async () => {
+      const repository = new FakeNoteRepository();
+      repository.notes = [makeNote('existing', null)];
+      const viewModel = new LibraryViewModel(repository);
+      await viewModel.loadNotes('');
+      await viewModel.deleteNote('existing');
+      expect(repository.deleteCount).assertEqual(1);
+      expect(viewModel.notes.length).assertEqual(0);
+      repository.failReads = true;
+      try {
+        await viewModel.loadNotes('');
+      } catch (_error) {
+      }
+      expect(repository.deleteCount).assertEqual(1);
+      expect(viewModel.notes.length).assertEqual(0);
+    });
+
+    it('retries an in-flight read made stale by a committed create', 0, async () => {
+      const repository = new FakeNoteRepository();
+      repository.snapshotBeforeGate = true;
+      let releaseRead: () => void = (): void => {};
+      let notifyReadStarted: () => void = (): void => {};
+      repository.readGate = new Promise<void>((resolve: () => void) => {
+        releaseRead = resolve;
+      });
+      const readStarted: Promise<void> = new Promise<void>((resolve: () => void) => {
+        notifyReadStarted = resolve;
+      });
+      repository.readStarted = notifyReadStarted;
+      const viewModel = new LibraryViewModel(repository);
+      const load: Promise<void> = viewModel.loadNotes('');
+      await readStarted;
+      const created: Promise<string> = viewModel.createNote('');
+      await created;
+      releaseRead();
+      await load;
+      expect(repository.createCount).assertEqual(1);
+      expect(viewModel.notes.length).assertEqual(1);
+      expect(viewModel.notes[0].id).assertEqual('created-1');
     });
 
     it('loads search results through the repository query state', 0, async () => {

@@ -121,6 +121,7 @@
     { "name": "search_failed", "value": "搜索失败，请重试" },
     { "name": "delete_note_failed", "value": "删除笔记失败，请重试" },
     { "name": "create_note_failed", "value": "新建笔记失败，请重试" },
+    { "name": "created_note_open_failed", "value": "笔记已创建，但暂时无法打开" },
     { "name": "move_to_named_folder", "value": "移动到“%s”" },
     { "name": "move_to_folder_path", "value": "移动到：%s" },
     { "name": "not_configured", "value": "未配置" },
