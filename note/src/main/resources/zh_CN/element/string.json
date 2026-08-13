@@ -138,6 +138,8 @@
     { "name": "backing_up_cloud", "value": "正在备份到云端..." },
     { "name": "no_notes_to_backup", "value": "没有可备份的笔记" },
     { "name": "backup_failed", "value": "备份失败" },
+    { "name": "backup_snapshot_changed", "value": "准备备份快照期间笔记发生了变化。请等待保存完成后重试。" },
+    { "name": "backup_prepare_failed", "value": "无法准备完整的本地备份包。请确认笔记资产均可用后重试。" },
     { "name": "backup_directory_failed", "value": "无法创建备份目录，请检查服务器配置" },
     { "name": "cloud_backup_count", "value": "云端备份完成：%d/%d" },
     { "name": "cloud_backup_incomplete", "value": "仅上传了 %d/%d 篇笔记，本次备份未标记为完成" },

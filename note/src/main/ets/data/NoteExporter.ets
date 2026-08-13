@@ -22,6 +22,9 @@ import { AssetRepositoryImpl } from './AssetRepositoryImpl';
 import {
   originalAssetPackageEntry, readVerifiedOriginalAsset, resolveOriginalAsset,
 } from './ImageAssetPackageStore';
+import {
+  assertStableBackupSnapshot, BackupPreparationError, BackupSnapshotChangedError, BackupSnapshotEntry,
+} from './BackupSnapshotGuard';
 
 // 纸张尺寸 → 毫米（A3~TABLOID，与 Phase 3 默认一致）
 export function paperSizeToMm(size: PaperSize): number[] {
@@ -216,24 +219,44 @@ export class NoteExporter {
     }
   }
 
-  // 导出全部笔记；每篇导出前后复核内容 revision，变化时拒绝发布不一致批次。
+  // 导出全部笔记；逐篇校验后再原子复核整库集合，拒绝跨时刻拼接的完成批次。
   async exportAllNotes(): Promise<BackupSourcePackage[]> {
     const result: BackupSourcePackage[] = [];
-    const noteRepo = new NoteRepositoryImpl(this.db);
-    const notes: NoteMeta[] = await noteRepo.getAllNotes();
-    for (const note of notes) {
-      const revisionBefore: string = await this.persistence.getNoteRevisionSignature(note.id);
-      const data: Uint8Array | null = await this.exportNote(note.id);
-      if (data === null) {
-        throw new Error(`exportAllNotes failed: note ${note.id} could not be exported`);
-      }
-      const revisionAfter: string = await this.persistence.getNoteRevisionSignature(note.id);
-      const currentNote: NoteMeta | null = await noteRepo.getNote(note.id);
-      if (revisionBefore !== revisionAfter || currentNote === null || currentNote.updatedAt !== note.updatedAt) {
-        throw new Error(`exportAllNotes failed: note ${note.id} changed during export`);
-      }
-      result.push({ noteId: note.id, updatedAt: note.updatedAt, revision: revisionAfter, data: data });
+    await this.persistence.flushAll();
+    const saveGeneration: number = this.persistence.getSaveEnqueueGeneration();
+    if (this.persistence.hasPendingSaves()) {
+      throw new BackupSnapshotChangedError('editor saves are still pending before backup export');
     }
+    const expectedSnapshot: BackupSnapshotEntry[] =
+      await this.persistence.getBackupRevisionSnapshot();
+    for (const note of expectedSnapshot) {
+      const revisionBefore: string = await this.persistence.getNoteRevisionSignature(note.noteId);
+      if (revisionBefore !== note.revision) {
+        throw new BackupSnapshotChangedError(`note ${note.noteId} changed before export`);
+      }
+      const data: Uint8Array | null = await this.exportNote(note.noteId);
+      if (data === null) {
+        throw new BackupPreparationError(`note ${note.noteId} could not be exported`);
+      }
+      const revisionAfter: string = await this.persistence.getNoteRevisionSignature(note.noteId);
+      if (revisionBefore !== revisionAfter) {
+        throw new BackupSnapshotChangedError(`note ${note.noteId} changed during export`);
+      }
+      result.push({
+        noteId: note.noteId, updatedAt: note.updatedAt, revision: revisionAfter, data: data,
+      });
+    }
+    if (this.persistence.getSaveEnqueueGeneration() !== saveGeneration ||
+      this.persistence.hasPendingSaves()) {
+      throw new BackupSnapshotChangedError('editor content changed while backup files were exported');
+    }
+    const currentSnapshot: BackupSnapshotEntry[] =
+      await this.persistence.getBackupRevisionSnapshot();
+    if (this.persistence.getSaveEnqueueGeneration() !== saveGeneration ||
+      this.persistence.hasPendingSaves()) {
+      throw new BackupSnapshotChangedError('editor content changed during final backup validation');
+    }
+    assertStableBackupSnapshot(expectedSnapshot, currentSnapshot);
     return result;
   }
 

@@ -28,6 +28,7 @@ import {
   ImportedNoteRemover,
 } from '../../data/BackupBatchApplier';
 import { backupOperationLease, BackupOperationRelease } from '../../data/BackupOperationLease';
+import { BackupSnapshotChangedError } from '../../data/BackupSnapshotGuard';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
@@ -219,7 +220,16 @@ struct BackupPage {
       const operationConfig: WebDAVConfig = this.snapshotConfig();
       const client = new WebDAVClient(operationConfig);
       const exporter = new NoteExporter(this.db, this.persistence);
-      const backups: BackupSourcePackage[] = await exporter.exportAllNotes();
+      let backups: BackupSourcePackage[];
+      try {
+        backups = await exporter.exportAllNotes();
+      } catch (e) {
+        console.error(`backupAll preparation failed: ${JSON.stringify(e)}`);
+        const message: ResourceStr = e instanceof BackupSnapshotChangedError
+          ? $r('app.string.backup_snapshot_changed') : $r('app.string.backup_prepare_failed');
+        this.showAlert($r('app.string.backup_failed'), message);
+        return;
+      }
       if (backups.length === 0) {
         this.showToast($r('app.string.no_notes_to_backup'));
         return;

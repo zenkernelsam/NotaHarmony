@@ -458,6 +458,8 @@
     { "name": "backing_up_cloud", "value": "Backing up to the cloud..." },
     { "name": "no_notes_to_backup", "value": "There are no notes to back up" },
     { "name": "backup_failed", "value": "Backup Failed" },
+    { "name": "backup_snapshot_changed", "value": "Notes changed while the backup snapshot was being prepared. Wait for pending saves to finish, then try again." },
+    { "name": "backup_prepare_failed", "value": "A complete local backup package could not be prepared. Check that note assets are available, then try again." },
     { "name": "backup_directory_failed", "value": "Could not create the backup folder. Check the server settings." },
     { "name": "cloud_backup_count", "value": "Cloud backup complete: %d/%d" },
     { "name": "cloud_backup_incomplete", "value": "Only %d of %d notes were uploaded. This backup was not marked complete." },

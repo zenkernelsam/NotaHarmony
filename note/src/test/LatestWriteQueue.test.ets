@@ -35,11 +35,15 @@ export default function latestWriteQueueTest() {
 
     it('keeps a failed snapshot dirty and retries it on flush', 0, async () => {
       let attempts: number = 0;
+      let idleCount: number = 0;
       const queue = new LatestWriteQueue<number>(async (_value: number, _revision: number): Promise<void> => {
         attempts++;
         if (attempts === 1) {
           throw new Error('injected failure');
         }
+      });
+      queue.setIdleHandler((): void => {
+        idleCount++;
       });
 
       queue.enqueue(7);
@@ -51,10 +55,16 @@ export default function latestWriteQueueTest() {
       }
       expect(failed).assertTrue();
       expect(queue.isDirty()).assertTrue();
+      expect(idleCount).assertEqual(0);
 
       await queue.flush();
       expect(attempts).assertEqual(2);
       expect(queue.isDirty()).assertFalse();
+      expect(idleCount).assertEqual(1);
+
+      queue.enqueue(8);
+      await queue.flush();
+      expect(idleCount).assertEqual(2);
     });
 
     it('preserves every pending user-action boundary in FIFO order', 0, async () => {

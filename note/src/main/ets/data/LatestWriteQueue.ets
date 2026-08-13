@@ -9,6 +9,7 @@ export type RevisionWriter<T> = (value: T, revision: number) => Promise<void>;
 // A single-writer queue. Ordinary snapshots coalesce, while user-action boundaries stay FIFO.
 export class LatestWriteQueue<T> {
   private writer: RevisionWriter<T>;
+  private idleHandler: (() => void) | null = null;
   private nextRevision: number = 0;
   private pending: RevisionedWrite<T>[] = [];
   private running: Promise<void> | null = null;
@@ -16,6 +17,10 @@ export class LatestWriteQueue<T> {
 
   constructor(writer: RevisionWriter<T>) {
     this.writer = writer;
+  }
+
+  setIdleHandler(handler: () => void): void {
+    this.idleHandler = handler;
   }
 
   enqueue(value: T, preserveBoundary: boolean = false): number {
@@ -79,6 +84,9 @@ export class LatestWriteQueue<T> {
       throw new Error(`queued write failed: ${JSON.stringify(e)}`);
     } finally {
       this.running = null;
+      if (!this.dirty && this.idleHandler !== null) {
+        this.idleHandler();
+      }
     }
   }
 }

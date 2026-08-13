@@ -20,6 +20,7 @@ import backupBatchSpecTest from './BackupBatchSpec.test';
 import backupBatchPublisherTest from './BackupBatchPublisher.test';
 import backupBatchApplierTest from './BackupBatchApplier.test';
 import backupOperationLeaseTest from './BackupOperationLease.test';
+import backupSnapshotGuardTest from './BackupSnapshotGuard.test';
 import webDAVConfigTransactionTest from './WebDAVConfigTransaction.test';
 import pointerSampleStreamTest from './PointerSampleStream.test';
 import widthOutlineBuilderTest from './WidthOutlineBuilder.test';
@@ -106,6 +107,7 @@ export default function testsuite() {
   backupBatchPublisherTest();
   backupBatchApplierTest();
   backupOperationLeaseTest();
+  backupSnapshotGuardTest();
   webDAVConfigTransactionTest();
   pointerSampleStreamTest();
   widthOutlineBuilderTest();

@@ -144,6 +144,8 @@ import {
   StoredSyncedOperation, SyncedOperationApplyResult, SyncedOperationInboxState,
 } from './SyncedOperationInbox';
 import { decodePersistedElement, encodePersistedElement, PersistedElement } from './PersistedElementCodec';
+import { BackupSnapshotEntry } from './BackupSnapshotGuard';
+import { sha256Hex } from './BackupHash';
 
 export { decodePersistedElement, encodePersistedElement, PersistedElement };
 
@@ -322,6 +324,37 @@ interface PreparedPageSave {
   elements: PreparedElement[];
   history?: HistoryMetadata;
   originalZOrderHint?: OriginalZOrderHint;
+}
+
+interface BackupPageRevision {
+  pageId: string;
+  pageIndex: number;
+  size: number;
+  template: number;
+  orientation: number;
+  widthMm: number;
+  heightMm: number;
+  backgroundJson: string | null;
+  originalPageInAsset: number | null;
+  contentRevision: number;
+  elementCount: number;
+}
+
+interface BackupNoteRevision {
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  structureRevision: number;
+  pages: BackupPageRevision[];
+}
+
+interface BackupRevisionAccumulator {
+  noteId: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  structureRevision: number;
+  pages: BackupPageRevision[];
 }
 
 export enum OriginalZOrderCommand {
@@ -990,6 +1023,9 @@ function parseSearchTextPayloads(payloads: Uint8Array[]): ParsedSearchText[] {
 }
 
 export class StrokePersistence {
+  private static saveQueueRegistry: Set<LatestWriteQueue<PreparedPageSave>> =
+    new Set<LatestWriteQueue<PreparedPageSave>>();
+  private static saveEnqueueGeneration: number = 0;
   private store: relationalStore.RdbStore | null = null;
   private saveQueues: Map<string, LatestWriteQueue<PreparedPageSave>> = new Map();
   private searchBackfillPromise: Promise<void> | null = null;
@@ -1052,15 +1088,68 @@ export class StrokePersistence {
     const snapshot: PreparedPageSave = this.prepareSave(
       noteId, pageId, strokes, textBlocks, elementOrder, shapes, images, mathBlocks, history,
       originalZOrderHint);
-    return this.getSaveQueue(noteId, pageId).enqueue(snapshot, preserveActionBoundary);
+    if (StrokePersistence.saveEnqueueGeneration >= Number.MAX_SAFE_INTEGER) {
+      throw new Error('editor save generation is exhausted');
+    }
+    StrokePersistence.saveEnqueueGeneration++;
+    const queue: LatestWriteQueue<PreparedPageSave> = this.getSaveQueue(noteId, pageId);
+    StrokePersistence.saveQueueRegistry.add(queue);
+    return queue.enqueue(snapshot, preserveActionBoundary);
   }
 
   async flush(noteId: string, pageId: string): Promise<void> {
     const queue: LatestWriteQueue<PreparedPageSave> | undefined =
       this.saveQueues.get(this.saveKey(noteId, pageId));
     if (queue !== undefined) {
-      await queue.flush();
+      try {
+        await queue.flush();
+      } finally {
+        if (!queue.isDirty()) {
+          StrokePersistence.saveQueueRegistry.delete(queue);
+        }
+      }
     }
+  }
+
+  async flushAll(): Promise<void> {
+    while (true) {
+      const dirtyQueues: LatestWriteQueue<PreparedPageSave>[] = [];
+      StrokePersistence.saveQueueRegistry.forEach(
+        (queue: LatestWriteQueue<PreparedPageSave>): void => {
+          if (queue.isDirty()) {
+            dirtyQueues.push(queue);
+          } else {
+            StrokePersistence.saveQueueRegistry.delete(queue);
+          }
+        });
+      if (dirtyQueues.length === 0) {
+        return;
+      }
+      for (const queue of dirtyQueues) {
+        try {
+          await queue.flush();
+        } finally {
+          if (!queue.isDirty()) {
+            StrokePersistence.saveQueueRegistry.delete(queue);
+          }
+        }
+      }
+    }
+  }
+
+  hasPendingSaves(): boolean {
+    let pending: boolean = false;
+    StrokePersistence.saveQueueRegistry.forEach(
+      (queue: LatestWriteQueue<PreparedPageSave>): void => {
+        if (queue.isDirty()) {
+          pending = true;
+        }
+      });
+    return pending;
+  }
+
+  getSaveEnqueueGeneration(): number {
+    return StrokePersistence.saveEnqueueGeneration;
   }
 
   async previewOriginalTextEdit(noteId: string, pageId: string,
@@ -2056,33 +2145,13 @@ export class StrokePersistence {
   }
 
   async getNoteRevisionSignature(noteId: string): Promise<string> {
-    if (this.store === null) {
-      throw new Error('StrokePersistence is not initialized');
-    }
-    const resultSet = await this.store.querySql(
-      `SELECT page_id, page_index, size, template, orientation, width_mm, height_mm,
-        background_json, original_page_in_asset, content_revision
-       FROM page_info WHERE note_id = ? ORDER BY page_index, page_id`, [noteId]);
-    try {
-      const rows: string[] = [];
-      while (resultSet.goToNextRow()) {
-        rows.push(`${resultSet.getString(resultSet.getColumnIndex('page_id'))},` +
-          `${resultSet.getLong(resultSet.getColumnIndex('page_index'))},` +
-          `${resultSet.getLong(resultSet.getColumnIndex('size'))},` +
-          `${resultSet.getLong(resultSet.getColumnIndex('template'))},` +
-          `${resultSet.getLong(resultSet.getColumnIndex('orientation'))},` +
-          `${resultSet.getDouble(resultSet.getColumnIndex('width_mm'))},` +
-          `${resultSet.getDouble(resultSet.getColumnIndex('height_mm'))},` +
-          `${resultSet.isColumnNull(resultSet.getColumnIndex('background_json')) ? '' :
-            resultSet.getString(resultSet.getColumnIndex('background_json'))},` +
-          `${resultSet.isColumnNull(resultSet.getColumnIndex('original_page_in_asset')) ? '' :
-            resultSet.getLong(resultSet.getColumnIndex('original_page_in_asset'))},` +
-          `${resultSet.getLong(resultSet.getColumnIndex('content_revision'))}`);
-      }
-      return rows.join(';');
-    } finally {
-      resultSet.close();
-    }
+    const snapshot: BackupSnapshotEntry[] = await this.readBackupRevisionSnapshot(noteId);
+    return snapshot.length === 1 ? snapshot[0].revision : '';
+  }
+
+  /** One SQL statement gives the final gate one SQLite statement-level consistent library view. */
+  async getBackupRevisionSnapshot(): Promise<BackupSnapshotEntry[]> {
+    return this.readBackupRevisionSnapshot(null);
   }
 
   async backfillSearchIndex(): Promise<void> {
@@ -3967,12 +4036,121 @@ export class StrokePersistence {
     const key: string = this.saveKey(noteId, pageId);
     let queue: LatestWriteQueue<PreparedPageSave> | undefined = this.saveQueues.get(key);
     if (queue === undefined) {
-      queue = new LatestWriteQueue<PreparedPageSave>(
+      const createdQueue: LatestWriteQueue<PreparedPageSave> = new LatestWriteQueue<PreparedPageSave>(
         async (snapshot: PreparedPageSave, revision: number): Promise<void> =>
           this.writePrepared(snapshot, revision));
+      createdQueue.setIdleHandler((): void => {
+        StrokePersistence.saveQueueRegistry.delete(createdQueue);
+      });
+      queue = createdQueue;
       this.saveQueues.set(key, queue);
     }
     return queue;
+  }
+
+  private async readBackupRevisionSnapshot(noteId: string | null): Promise<BackupSnapshotEntry[]> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    const sql: string = `SELECT note.id AS note_id, note.title AS note_title,
+        note.created_at AS note_created_at, note.updated_at AS note_updated_at,
+        note.structure_revision AS note_structure_revision,
+        page.page_id AS page_id, page.page_index AS page_index, page.size AS size,
+        page.template AS template, page.orientation AS orientation, page.width_mm AS width_mm,
+        page.height_mm AS height_mm, page.background_json AS background_json,
+        page.original_page_in_asset AS original_page_in_asset,
+        page.content_revision AS content_revision,
+        (SELECT COUNT(*) FROM page_element_snapshot element
+          WHERE element.note_id = page.note_id AND element.page_id = page.page_id) AS element_count
+      FROM note_meta note LEFT JOIN page_info page ON page.note_id = note.id` +
+      (noteId === null ? '' : ' WHERE note.id = ?') +
+      ' ORDER BY note.id, page.page_index, page.page_id';
+    const resultSet: relationalStore.ResultSet = noteId === null
+      ? await this.store.querySql(sql) : await this.store.querySql(sql, [noteId]);
+    const accumulators: BackupRevisionAccumulator[] = [];
+    let current: BackupRevisionAccumulator | null = null;
+    try {
+      while (resultSet.goToNextRow()) {
+        const rowNoteId: string = resultSet.getString(resultSet.getColumnIndex('note_id'));
+        if (current === null || current.noteId !== rowNoteId) {
+          if (current !== null) {
+            accumulators.push(current);
+          }
+          current = {
+            noteId: rowNoteId,
+            title: resultSet.getString(resultSet.getColumnIndex('note_title')),
+            createdAt: resultSet.getLong(resultSet.getColumnIndex('note_created_at')),
+            updatedAt: resultSet.getLong(resultSet.getColumnIndex('note_updated_at')),
+            structureRevision: resultSet.getLong(
+              resultSet.getColumnIndex('note_structure_revision')),
+            pages: [],
+          };
+        }
+        const pageIdColumn: number = resultSet.getColumnIndex('page_id');
+        if (!resultSet.isColumnNull(pageIdColumn)) {
+          const backgroundColumn: number = resultSet.getColumnIndex('background_json');
+          const pageInAssetColumn: number = resultSet.getColumnIndex('original_page_in_asset');
+          current.pages.push({
+            pageId: resultSet.getString(pageIdColumn),
+            pageIndex: resultSet.getLong(resultSet.getColumnIndex('page_index')),
+            size: resultSet.getLong(resultSet.getColumnIndex('size')),
+            template: resultSet.getLong(resultSet.getColumnIndex('template')),
+            orientation: resultSet.getLong(resultSet.getColumnIndex('orientation')),
+            widthMm: resultSet.getDouble(resultSet.getColumnIndex('width_mm')),
+            heightMm: resultSet.getDouble(resultSet.getColumnIndex('height_mm')),
+            backgroundJson: resultSet.isColumnNull(backgroundColumn) ? null :
+              resultSet.getString(backgroundColumn),
+            originalPageInAsset: resultSet.isColumnNull(pageInAssetColumn) ? null :
+              resultSet.getLong(pageInAssetColumn),
+            contentRevision: resultSet.getLong(resultSet.getColumnIndex('content_revision')),
+            elementCount: resultSet.getLong(resultSet.getColumnIndex('element_count')),
+          });
+        }
+      }
+      if (current !== null) {
+        accumulators.push(current);
+      }
+    } finally {
+      resultSet.close();
+    }
+    const result: BackupSnapshotEntry[] = [];
+    for (const value of accumulators) {
+      result.push(await this.finishBackupRevision(value));
+    }
+    return result;
+  }
+
+  private async finishBackupRevision(value: BackupRevisionAccumulator): Promise<BackupSnapshotEntry> {
+    if (value.noteId.length === 0 || !Number.isSafeInteger(value.createdAt) || value.createdAt < 0 ||
+      !Number.isSafeInteger(value.updatedAt) || value.updatedAt <= 0 ||
+      !Number.isSafeInteger(value.structureRevision) || value.structureRevision < 0) {
+      throw new Error('backup note revision metadata is invalid');
+    }
+    for (let index: number = 0; index < value.pages.length; index++) {
+      const page: BackupPageRevision = value.pages[index];
+      if (page.pageId.length === 0 || page.pageIndex !== index ||
+        !Number.isSafeInteger(page.contentRevision) || page.contentRevision < 0 ||
+        !Number.isSafeInteger(page.elementCount) || page.elementCount < 0 ||
+        (page.originalPageInAsset !== null && (!Number.isSafeInteger(page.originalPageInAsset) ||
+          page.originalPageInAsset < 0))) {
+        throw new Error('backup page revision metadata is invalid');
+      }
+    }
+    const revision: BackupNoteRevision = {
+      title: value.title,
+      createdAt: value.createdAt,
+      updatedAt: value.updatedAt,
+      structureRevision: value.structureRevision,
+      pages: value.pages,
+    };
+    const revisionBytes: Uint8Array = new util.TextEncoder().encodeInto(JSON.stringify(revision));
+    return {
+      noteId: value.noteId,
+      title: value.title,
+      createdAt: value.createdAt,
+      updatedAt: value.updatedAt,
+      revision: `v2:${await sha256Hex(revisionBytes)}`,
+    };
   }
 
   private saveKey(noteId: string, pageId: string): string {
