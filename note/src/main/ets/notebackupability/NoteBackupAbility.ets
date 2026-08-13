@@ -35,6 +35,12 @@ interface BackupState {
   error?: string;
 }
 
+interface RestoreReplacement {
+  destination: string;
+  rollback: string;
+  existed: boolean;
+}
+
 /** System backup bridge. The snapshot is deliberately independent of picker/UIAbility APIs. */
 export default class NoteBackupAbility extends BackupExtensionAbility {
   private state: BackupState = { operation: 'idle', phase: 'idle', processed: 0, total: 0 };
@@ -145,8 +151,8 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
       // A failed collection/copy must not leave an apparently usable staging tree.
       try { this.removeTreeInside(backupDir, STAGING); } catch (_cleanupError) { }
       this.state.phase = 'failed';
-      this.state.error = String(e);
-      throw e;
+      this.state.error = this.errorMessage(e);
+      throw new Error(this.state.error);
     }
   }
 
@@ -174,7 +180,7 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
       }
       this.state.phase = 'restoring';
       const rollbackRoot: string = this.join(backupDir, RESTORE_ROLLBACK);
-      const replaced: Array<{ destination: string; rollback: string; existed: boolean }> = [];
+      const replaced: RestoreReplacement[] = [];
       try {
         this.removeTreeInside(backupDir, RESTORE_ROLLBACK);
         fileIo.mkdirSync(rollbackRoot, true);
@@ -188,7 +194,12 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
             fileIo.renameSync(destination, rollback);
           }
           // Register before copying so a partially created new file is removed on failure.
-          replaced.push({ destination: destination, rollback: rollback, existed: existed });
+          const replacement: RestoreReplacement = {
+            destination: destination,
+            rollback: rollback,
+            existed: existed,
+          };
+          replaced.push(replacement);
           this.ensureParent(destination);
           fileIo.copyFileSync(source, destination);
           this.state.processed++;
@@ -215,8 +226,8 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
       this.state.phase = `complete:${bundleVersion.name}`;
     } catch (e) {
       this.state.phase = 'failed';
-      this.state.error = String(e);
-      throw e;
+      this.state.error = this.errorMessage(e);
+      throw new Error(this.state.error);
     }
   }
 
@@ -371,6 +382,10 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
     const exact: ArrayBuffer = bytes.buffer.slice(
       bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
     try { fileIo.writeSync(file.fd, exact); } finally { fileIo.closeSync(file); }
+  }
+
+  private errorMessage(error: Object): string {
+    return error instanceof Error ? error.message : String(error);
   }
 
   private resultJson(success: boolean, operation: string, input: string, error?: Object): string {

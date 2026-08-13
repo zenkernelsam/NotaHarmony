@@ -151,6 +151,10 @@ export class NoteImporter {
       return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
         missingAssets: [], warnings: [],
         message: '读取文件失败' };
+    } finally {
+      if (file !== null) {
+        try { fileIo.closeSync(file); } catch (_closeError) { }
+      }
     }
   }
 
@@ -612,10 +616,6 @@ export class NoteImporter {
         message: '写入数据库失败，导入未完成' };
     } finally {
       release();
-    } finally {
-      if (file !== null) {
-        try { fileIo.closeSync(file); } catch (_) { }
-      }
     }
   }
 

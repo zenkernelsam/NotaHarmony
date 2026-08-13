@@ -8,12 +8,14 @@ const create = source.indexOf('private async createSnapshot()');
 const start = source.indexOf('try {', create);
 const cleanup = source.indexOf("this.removeTreeInside(backupDir, STAGING)", start);
 const failed = source.indexOf("this.state.phase = 'failed'", cleanup);
-const rethrow = source.indexOf('throw e;', failed);
+const captureError = source.indexOf('this.state.error = this.errorMessage(e);', failed);
+const rethrow = source.indexOf('throw new Error(this.state.error);', captureError);
 const checks = [
   ['snapshot creation has guarded failure path', create >= 0 && start > create],
   ['failed backup removes staging tree', cleanup > start],
   ['failed backup exposes failed phase', failed > cleanup],
-  ['original error is rethrown', rethrow > failed],
+  ['failure message is normalized before rethrow', captureError > failed],
+  ['failure is rethrown as an Error', rethrow > captureError],
   ['published snapshot cleanup remains present', source.includes("this.removeTreeInside(backupDir, PREVIOUS)")],
 ];
 for (const [name, ok] of checks) {

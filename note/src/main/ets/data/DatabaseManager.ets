@@ -35,6 +35,11 @@ import {
 } from './OriginalOperationAudioTimeStore';
 import { repairLegacyOriginalOutboundEnvelopes } from './OriginalOutboundOperationRepair';
 
+interface AssetReferenceRepairRow {
+  hash: string;
+  raw: string;
+}
+
 export class DatabaseManager implements OriginalOperationTimeDatabase {
   private static instance: DatabaseManager | null = null;
   private rdbStore: relationalStore.RdbStore | null = null;
@@ -181,13 +186,14 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
     }
     const assets = await store.querySql(
       'SELECT asset_hash, note_ids FROM note_asset');
-    const assetRows: Array<{ hash: string; raw: string }> = [];
+    const assetRows: AssetReferenceRepairRow[] = [];
     try {
       while (assets.goToNextRow()) {
-        assetRows.push({
+        const row: AssetReferenceRepairRow = {
           hash: assets.getString(assets.getColumnIndex('asset_hash')),
           raw: assets.getString(assets.getColumnIndex('note_ids')),
-        });
+        };
+        assetRows.push(row);
       }
     } finally {
       assets.close();
@@ -195,9 +201,9 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
     for (const assetRow of assetRows) {
       const hash: string = assetRow.hash;
       const raw: string = assetRow.raw;
-      let parsed: unknown;
+      let parsed: string[];
       try {
-        parsed = JSON.parse(raw);
+        parsed = JSON.parse(raw) as string[];
       } catch (_error) {
         await this.removeInvalidAssetReference(store, hash);
         continue;
