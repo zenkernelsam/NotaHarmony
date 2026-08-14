@@ -47,8 +47,9 @@ check('Harmony attempts every nonempty source as a font file',
 check('Harmony invalid font files fall back to the platform default typeface',
   /if \(typeface_ == nullptr\) \{[\s\S]*?typeface_ = OH_Drawing_TypefaceCreateDefault\(\)/.test(native));
 check('Harmony applies requested style to both loaded and fallback typefaces',
-  /OH_Drawing_FontSetFakeBoldText\(font_, \(style_ & tex::BOLD\) != 0\)/.test(native) &&
-  /OH_Drawing_FontSetTextSkewX\(font_, \(style_ & tex::ITALIC\) != 0/.test(native));
+  /OH_Drawing_FontSetFakeBoldText\(font, \(style_ & tex::BOLD\) != 0\)/.test(native) &&
+  /OH_Drawing_FontSetTextSkewX\(font, \(style_ & tex::ITALIC\) != 0/.test(native) &&
+  /configureNativeFont\(font_, true\);[\s\S]*?configureNativeFont\(measureFont_, false\);/.test(native));
 check('Harmony file-font creation preserves the original source with plain style',
   /Font \*Font::create\(const std::string &file, float size\)[\s\S]*?new HarmonyFont\(file, PLAIN, size\)/.test(native));
 check('Harmony named-font creation no longer discards the requested source',

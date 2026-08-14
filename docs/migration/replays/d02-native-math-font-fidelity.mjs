@@ -35,11 +35,13 @@ check('Harmony font stores style and deriveFont propagates the requested style',
 check('Harmony font identity includes style as in the original native port',
   /font->file_ == file_ && font->style_ == style_ && font->size_ == size_/.test(native));
 check('Harmony synthesizes bold and italic when the platform typeface lacks a styled clone',
-  /OH_Drawing_FontSetFakeBoldText\(font_, \(style_ & tex::BOLD\) != 0\)/.test(native) &&
-  /OH_Drawing_FontSetTextSkewX\(font_, \(style_ & tex::ITALIC\) != 0 \? ITALIC_SKEW_X : 0\.0f\)/.test(native));
+  /OH_Drawing_FontSetFakeBoldText\(font, \(style_ & tex::BOLD\) != 0\)/.test(native) &&
+  /OH_Drawing_FontSetTextSkewX\(font, \(style_ & tex::ITALIC\) != 0 \? ITALIC_SKEW_X : 0\.0f\)/.test(native) &&
+  /configureNativeFont\(font_, true\);[\s\S]*?configureNativeFont\(measureFont_, false\);/.test(native));
 check('Harmony measures advance separately from baseline font metrics',
-  /OH_Drawing_FontGetMetrics\(font->native\(\), &metrics\)/.test(native) &&
-  /OH_Drawing_FontMeasureText\([\s\S]*?TEXT_ENCODING_UTF8, nullptr, &width\)/.test(native));
+  /OH_Drawing_Font \*measureFont = font == nullptr \? nullptr : font->measureNative\(\)/.test(native) &&
+  /OH_Drawing_FontGetMetrics\(measureFont, &metrics\)/.test(native) &&
+  /OH_Drawing_FontMeasureText\(measureFont,[\s\S]*?TEXT_ENCODING_UTF8, nullptr, &width\)/.test(native));
 check('Harmony recreates the original zero-x ascent descent layout box',
   /bounds\.x = 0;[\s\S]*?bounds\.y = metrics\.ascent;[\s\S]*?bounds\.w = width;[\s\S]*?bounds\.h = metrics\.descent - metrics\.ascent/.test(native));
 check('Harmony validates finite ordered metrics before exposing a layout',

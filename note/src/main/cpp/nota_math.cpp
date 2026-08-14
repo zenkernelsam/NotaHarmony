@@ -63,18 +63,14 @@ public:
             typeface_ = OH_Drawing_TypefaceCreateDefault();
         }
         font_ = OH_Drawing_FontCreate();
-        if (font_ != nullptr) {
-            if (typeface_ != nullptr) OH_Drawing_FontSetTypeface(font_, typeface_);
-            OH_Drawing_FontSetTextSize(font_, size_);
-            OH_Drawing_FontSetSubpixel(font_, true);
-            OH_Drawing_FontSetEdging(font_, FONT_EDGING_ANTI_ALIAS);
-            OH_Drawing_FontSetFakeBoldText(font_, (style_ & tex::BOLD) != 0);
-            OH_Drawing_FontSetTextSkewX(font_, (style_ & tex::ITALIC) != 0 ? ITALIC_SKEW_X : 0.0f);
-        }
+        measureFont_ = OH_Drawing_FontCreate();
+        configureNativeFont(font_, true);
+        configureNativeFont(measureFont_, false);
     }
 
     ~HarmonyFont() override
     {
+        if (measureFont_ != nullptr) OH_Drawing_FontDestroy(measureFont_);
         if (font_ != nullptr) OH_Drawing_FontDestroy(font_);
         if (typeface_ != nullptr) OH_Drawing_TypefaceDestroy(typeface_);
     }
@@ -95,14 +91,27 @@ public:
     bool operator!=(const tex::Font &other) const override { return !(*this == other); }
 
     OH_Drawing_Font *native() const { return typeface_ == nullptr ? nullptr : font_; }
+    OH_Drawing_Font *measureNative() const { return typeface_ == nullptr ? nullptr : measureFont_; }
     const std::string &file() const { return file_; }
 
 private:
+    void configureNativeFont(OH_Drawing_Font *font, bool subpixel)
+    {
+        if (font == nullptr) return;
+        if (typeface_ != nullptr) OH_Drawing_FontSetTypeface(font, typeface_);
+        OH_Drawing_FontSetTextSize(font, size_);
+        OH_Drawing_FontSetSubpixel(font, subpixel);
+        OH_Drawing_FontSetEdging(font, FONT_EDGING_ANTI_ALIAS);
+        OH_Drawing_FontSetFakeBoldText(font, (style_ & tex::BOLD) != 0);
+        OH_Drawing_FontSetTextSkewX(font, (style_ & tex::ITALIC) != 0 ? ITALIC_SKEW_X : 0.0f);
+    }
+
     std::string file_;
     int style_;
     float size_;
     OH_Drawing_Typeface *typeface_ = nullptr;
     OH_Drawing_Font *font_ = nullptr;
+    OH_Drawing_Font *measureFont_ = nullptr;
 };
 
 class HarmonyTextLayout final : public tex::TextLayout {
@@ -113,15 +122,16 @@ public:
     void getBounds(tex::Rect &bounds) override
     {
         const auto *font = dynamic_cast<const HarmonyFont *>(font_.get());
-        if (font == nullptr || font->native() == nullptr) {
+        OH_Drawing_Font *measureFont = font == nullptr ? nullptr : font->measureNative();
+        if (measureFont == nullptr) {
             bounds = tex::Rect();
             return;
         }
         const std::string utf8 = tex::wide2utf8(text_);
         float width = 0;
         OH_Drawing_Font_Metrics metrics = {};
-        OH_Drawing_FontGetMetrics(font->native(), &metrics);
-        if ((!utf8.empty() && OH_Drawing_FontMeasureText(font->native(), utf8.data(), utf8.size(),
+        OH_Drawing_FontGetMetrics(measureFont, &metrics);
+        if ((!utf8.empty() && OH_Drawing_FontMeasureText(measureFont, utf8.data(), utf8.size(),
                 TEXT_ENCODING_UTF8, nullptr, &width) != OH_DRAWING_SUCCESS) ||
             !std::isfinite(width) || !std::isfinite(metrics.ascent) || !std::isfinite(metrics.descent) ||
             width < 0 || metrics.descent <= metrics.ascent) {
