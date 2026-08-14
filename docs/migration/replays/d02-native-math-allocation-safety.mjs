@@ -57,8 +57,8 @@ check('graphics destructor detaches and destroys any partially allocated tools',
 check('font and primitive allocations are guarded before native use',
   /if \(typeface_ != nullptr\) OH_Drawing_FontSetTypeface/.test(native) &&
   /OH_Drawing_Font \*native\(\) const \{ return typeface_ == nullptr \? nullptr : font_; \}/.test(native) &&
-  (native.match(/if \(rect == nullptr\) return;/g) ?? []).length >= 2 &&
-  /if \(round == nullptr\) \{[\s\S]*?OH_Drawing_RectDestroy\(rect\);[\s\S]*?return;/.test(native));
+  (native.match(/if \(rect == nullptr\) \{[\s\S]*?failed_ = true;[\s\S]*?return;[\s\S]*?\}/g) ?? []).length >= 2 &&
+  /if \(round == nullptr\) \{[\s\S]*?failed_ = true;[\s\S]*?OH_Drawing_RectDestroy\(rect\);[\s\S]*?return;/.test(native));
 check('ArrayBuffer status destination and value are checked before memcpy',
   /napi_value pixels = nullptr/.test(render) &&
   /napi_create_arraybuffer\([\s\S]*?\) != napi_ok \|\|[\s\S]*?destination == nullptr \|\| pixels == nullptr/.test(render) &&

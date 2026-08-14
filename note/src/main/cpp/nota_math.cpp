@@ -173,6 +173,7 @@ public:
     }
 
     bool valid() const { return canvas_ != nullptr && pen_ != nullptr && brush_ != nullptr; }
+    bool failed() const { return failed_; }
 
     void setColor(tex::color color) override
     {
@@ -240,12 +241,19 @@ public:
 
     void drawText(const std::wstring &text, float x, float y) override
     {
+        if (text.empty()) return;
         const auto *font = dynamic_cast<const HarmonyFont *>(font_);
-        if (canvas_ == nullptr || brush_ == nullptr || font == nullptr || font->native() == nullptr) return;
+        if (canvas_ == nullptr || brush_ == nullptr || font == nullptr || font->native() == nullptr) {
+            failed_ = true;
+            return;
+        }
         const std::string utf8 = tex::wide2utf8(text);
         OH_Drawing_TextBlob *blob = OH_Drawing_TextBlobCreateFromText(
             utf8.data(), utf8.size(), font->native(), TEXT_ENCODING_UTF8);
-        if (blob == nullptr) return;
+        if (blob == nullptr) {
+            failed_ = true;
+            return;
+        }
         OH_Drawing_CanvasAttachBrush(canvas_, brush_);
         OH_Drawing_CanvasDrawTextBlob(canvas_, blob, x, y);
         OH_Drawing_CanvasDetachBrush(canvas_);
@@ -254,7 +262,10 @@ public:
 
     void drawLine(float x1, float y1, float x2, float y2) override
     {
-        if (canvas_ == nullptr || pen_ == nullptr) return;
+        if (canvas_ == nullptr || pen_ == nullptr) {
+            failed_ = true;
+            return;
+        }
         OH_Drawing_CanvasAttachPen(canvas_, pen_);
         OH_Drawing_CanvasDrawLine(canvas_, x1, y1, x2, y2);
         OH_Drawing_CanvasDetachPen(canvas_);
@@ -280,9 +291,15 @@ public:
 private:
     void drawRectInternal(float x, float y, float width, float height, bool fill)
     {
-        if (canvas_ == nullptr || (fill ? brush_ == nullptr : pen_ == nullptr)) return;
+        if (canvas_ == nullptr || (fill ? brush_ == nullptr : pen_ == nullptr)) {
+            failed_ = true;
+            return;
+        }
         OH_Drawing_Rect *rect = OH_Drawing_RectCreate(x, y, x + width, y + height);
-        if (rect == nullptr) return;
+        if (rect == nullptr) {
+            failed_ = true;
+            return;
+        }
         if (fill) OH_Drawing_CanvasAttachBrush(canvas_, brush_);
         else OH_Drawing_CanvasAttachPen(canvas_, pen_);
         OH_Drawing_CanvasDrawRect(canvas_, rect);
@@ -293,11 +310,18 @@ private:
 
     void drawRoundRectInternal(float x, float y, float width, float height, float rx, float ry, bool fill)
     {
-        if (canvas_ == nullptr || (fill ? brush_ == nullptr : pen_ == nullptr)) return;
+        if (canvas_ == nullptr || (fill ? brush_ == nullptr : pen_ == nullptr)) {
+            failed_ = true;
+            return;
+        }
         OH_Drawing_Rect *rect = OH_Drawing_RectCreate(x, y, x + width, y + height);
-        if (rect == nullptr) return;
+        if (rect == nullptr) {
+            failed_ = true;
+            return;
+        }
         OH_Drawing_RoundRect *round = OH_Drawing_RoundRectCreate(rect, rx, ry);
         if (round == nullptr) {
+            failed_ = true;
             OH_Drawing_RectDestroy(rect);
             return;
         }
@@ -318,6 +342,7 @@ private:
     tex::color color_ = tex::black;
     float sx_ = 1;
     float sy_ = 1;
+    bool failed_ = false;
 };
 
 bool ReadString(napi_env env, napi_value value, std::string &result)
@@ -510,6 +535,7 @@ napi_value Render(napi_env env, napi_callback_info info)
         const int drawX = renderWidth < width ? static_cast<int>(width - renderWidth) / 2 : 0;
         const int drawY = renderHeight < height ? static_cast<int>(height - renderHeight) / 2 : 0;
         render->draw(graphics, drawX, drawY);
+        if (graphics.failed()) return ErrorResult(env, "formula drawing failed");
         const size_t byteLength = static_cast<size_t>(pixelWidth) * pixelHeight * 4;
         void *destination = nullptr;
         napi_value pixels = nullptr;
