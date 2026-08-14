@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -27,6 +26,7 @@ constexpr int MAX_LATEX_BYTES = 64 * 1024;
 constexpr int MAX_BITMAP_EDGE = 4096;
 constexpr int MAX_BITMAP_BYTES = 16 * 1024 * 1024;
 constexpr float DEFAULT_LINE_SPACE = 4.0f;
+constexpr float ITALIC_SKEW_X = -0.25f;
 
 std::mutex gMathMutex;
 bool gInitialized = false;
@@ -51,7 +51,8 @@ using CanvasHandle = std::unique_ptr<OH_Drawing_Canvas, CanvasDeleter>;
 
 class HarmonyFont final : public tex::Font {
 public:
-    HarmonyFont(std::string file, float size) : file_(std::move(file)), size_(size)
+    HarmonyFont(std::string file, int style, float size)
+        : file_(std::move(file)), style_(style), size_(size)
     {
         typeface_ = file_.empty() ? OH_Drawing_TypefaceCreateDefault() :
             OH_Drawing_TypefaceCreateFromFile(file_.c_str(), 0);
@@ -64,6 +65,8 @@ public:
             OH_Drawing_FontSetTextSize(font_, size_);
             OH_Drawing_FontSetSubpixel(font_, true);
             OH_Drawing_FontSetEdging(font_, FONT_EDGING_ANTI_ALIAS);
+            OH_Drawing_FontSetFakeBoldText(font_, (style_ & tex::BOLD) != 0);
+            OH_Drawing_FontSetTextSkewX(font_, (style_ & tex::ITALIC) != 0 ? ITALIC_SKEW_X : 0.0f);
         }
     }
 
@@ -75,15 +78,15 @@ public:
 
     float getSize() const override { return size_; }
 
-    tex::sptr<tex::Font> deriveFont(int) const override
+    tex::sptr<tex::Font> deriveFont(int style) const override
     {
-        return std::make_shared<HarmonyFont>(file_, size_);
+        return std::make_shared<HarmonyFont>(file_, style, size_);
     }
 
     bool operator==(const tex::Font &other) const override
     {
         const auto *font = dynamic_cast<const HarmonyFont *>(&other);
-        return font != nullptr && font->file_ == file_ && font->size_ == size_;
+        return font != nullptr && font->file_ == file_ && font->style_ == style_ && font->size_ == size_;
     }
 
     bool operator!=(const tex::Font &other) const override { return !(*this == other); }
@@ -93,6 +96,7 @@ public:
 
 private:
     std::string file_;
+    int style_;
     float size_;
     OH_Drawing_Typeface *typeface_ = nullptr;
     OH_Drawing_Font *font_ = nullptr;
@@ -106,20 +110,25 @@ public:
     void getBounds(tex::Rect &bounds) override
     {
         const auto *font = dynamic_cast<const HarmonyFont *>(font_.get());
+        if (font == nullptr || font->native() == nullptr) {
+            bounds = tex::Rect();
+            return;
+        }
         const std::string utf8 = tex::wide2utf8(text_);
-        OH_Drawing_Rect *rect = OH_Drawing_RectCreate(0, 0, 0, 0);
         float width = 0;
-        if (font == nullptr || font->native() == nullptr || rect == nullptr ||
-            OH_Drawing_FontMeasureText(font->native(), utf8.data(), utf8.size(), TEXT_ENCODING_UTF8,
-                rect, &width) != OH_DRAWING_SUCCESS) {
+        OH_Drawing_Font_Metrics metrics = {};
+        OH_Drawing_FontGetMetrics(font->native(), &metrics);
+        if ((!utf8.empty() && OH_Drawing_FontMeasureText(font->native(), utf8.data(), utf8.size(),
+                TEXT_ENCODING_UTF8, nullptr, &width) != OH_DRAWING_SUCCESS) ||
+            !std::isfinite(width) || !std::isfinite(metrics.ascent) || !std::isfinite(metrics.descent) ||
+            width < 0 || metrics.descent <= metrics.ascent) {
             bounds = tex::Rect();
         } else {
-            bounds.x = OH_Drawing_RectGetLeft(rect);
-            bounds.y = OH_Drawing_RectGetTop(rect);
-            bounds.w = std::max(width, OH_Drawing_RectGetWidth(rect));
-            bounds.h = OH_Drawing_RectGetHeight(rect);
+            bounds.x = 0;
+            bounds.y = metrics.ascent;
+            bounds.w = width;
+            bounds.h = metrics.descent - metrics.ascent;
         }
-        if (rect != nullptr) OH_Drawing_RectDestroy(rect);
     }
 
     void draw(tex::Graphics2D &graphics, float x, float y) override
@@ -174,7 +183,7 @@ public:
         stroke_ = stroke;
         if (pen_ == nullptr) return;
         OH_Drawing_PenSetWidth(pen_, stroke.lineWidth);
-        OH_Drawing_PenSetMiterLimit(pen_, stroke.miterLimit);
+        if (stroke.miterLimit > 0) OH_Drawing_PenSetMiterLimit(pen_, stroke.miterLimit);
         OH_Drawing_PenSetCap(pen_, stroke.cap == tex::CAP_ROUND ? LINE_ROUND_CAP :
             (stroke.cap == tex::CAP_SQUARE ? LINE_SQUARE_CAP : LINE_FLAT_CAP));
         OH_Drawing_PenSetJoin(pen_, stroke.join == tex::JOIN_ROUND ? LINE_ROUND_JOIN :
@@ -508,12 +517,12 @@ napi_value Init(napi_env env, napi_value exports)
 namespace tex {
 Font *Font::create(const std::string &file, float size)
 {
-    return new HarmonyFont(file, size);
+    return new HarmonyFont(file, PLAIN, size);
 }
 
-sptr<Font> Font::_create(const std::string &, int, float size)
+sptr<Font> Font::_create(const std::string &, int style, float size)
 {
-    return std::make_shared<HarmonyFont>(std::string(), size);
+    return std::make_shared<HarmonyFont>(std::string(), style, size);
 }
 
 sptr<TextLayout> TextLayout::create(const std::wstring &text, const sptr<Font> &font)
