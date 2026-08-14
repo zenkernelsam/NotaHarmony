@@ -26,6 +26,8 @@ import {
   assertStableBackupSnapshot, BackupPreparationError, BackupSnapshotChangedError, BackupSnapshotEntry,
 } from './BackupSnapshotGuard';
 
+const FILE_WRITE_CHUNK_SIZE: number = 64 * 1024;
+
 // 纸张尺寸 → 毫米（A3~TABLOID，与 Phase 3 默认一致）
 export function paperSizeToMm(size: PaperSize): number[] {
   switch (size) {
@@ -164,7 +166,7 @@ export class NoteExporter {
       // 1. 写入应用沙箱临时文件
       tmpPath = `${context.tempDir}/export_${Date.now()}.note`;
       tmpFile = fileIo.openSync(tmpPath, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
-      fileIo.writeSync(tmpFile.fd, exactArrayBuffer(data));
+      writeFileFully(tmpFile.fd, data, 'temporary export');
       fileIo.fsyncSync(tmpFile.fd);
       fileIo.closeSync(tmpFile);
       tmpFile = null;
@@ -189,7 +191,7 @@ export class NoteExporter {
       fileIo.closeSync(srcFile);
       srcFile = null;
       dstFile = fileIo.openSync(targetUri, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
-      fileIo.writeSync(dstFile.fd, exactArrayBuffer(bytes));
+      writeFileFully(dstFile.fd, bytes, 'destination export');
       fileIo.fsyncSync(dstFile.fd);
       fileIo.closeSync(dstFile);
       dstFile = null;
@@ -287,6 +289,19 @@ function stringToBytes(text: string): Uint8Array {
 // only the exported byte range.
 function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+function writeFileFully(fd: number, bytes: Uint8Array, label: string): void {
+  let total: number = 0;
+  while (total < bytes.byteLength) {
+    const end: number = Math.min(bytes.byteLength, total + FILE_WRITE_CHUNK_SIZE);
+    const chunk: Uint8Array = bytes.subarray(total, end);
+    const written: number = fileIo.writeSync(fd, exactArrayBuffer(chunk));
+    if (written <= 0 || written > chunk.byteLength) {
+      throw new Error(`${label} write made invalid progress: ${total}/${bytes.byteLength} bytes`);
+    }
+    total += written;
+  }
 }
 
 function readFileFully(fd: number, size: number): Uint8Array {
