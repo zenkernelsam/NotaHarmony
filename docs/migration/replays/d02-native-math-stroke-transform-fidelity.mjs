@@ -8,6 +8,7 @@ const original = value => fs.readFileSync(originalRoot + value, 'utf8');
 
 const target = original('com/gingerlabs/notability/core/glmath/MathDrawTarget.java');
 const native = read('note/src/main/cpp/nota_math.cpp');
+const graphicsHeader = read('note/src/main/cpp/third_party/microtex/src/graphic/graphic.h');
 const render = read('note/src/main/cpp/third_party/microtex/src/render.cpp');
 const boxes = read('note/src/main/cpp/third_party/microtex/src/box/box_single.cpp');
 const graphicsStart = native.indexOf('class HarmonyGraphics');
@@ -35,6 +36,9 @@ check('original setStroke applies width cap join and only positive miter limits'
 check('original transforms are delegated to the Android canvas',
   /canvas\.translate\(dx, dy\)/.test(target) && /canvas\.scale\(sx, sy\)/.test(target) &&
   /canvas\.rotate\(degrees, px, py\)/.test(target));
+check('MicroTeX rotation input is radians while the original Android target consumes degrees',
+  /Rotate the context with the given angle \(in radian\)/.test(graphicsHeader) &&
+  /public final void rotate\(float degrees, float px, float py\)/.test(target));
 check('MicroTeX line boxes mutate width and later restore the logical stroke width',
   /g2\.setStrokeWidth\(_thickness\)/.test(boxes) &&
   /g2\.setStrokeWidth\(oldThickness\)/.test(boxes));
@@ -60,6 +64,10 @@ check('Harmony translate delegates directly without maintaining stale pseudo-mat
 check('Harmony reset only restores logical scale and never clears the native canvas matrix',
   /void reset\(\) override[\s\S]*?sx_ = sy_ = 1;/.test(graphics) &&
   !/OH_Drawing_CanvasResetMatrix/.test(graphics));
+check('Harmony rotation preserves original double conversion order before the final float API call',
+  /const double degrees = static_cast<double>\(angle\) \/ M_PI \* 180\.0;/.test(graphics) &&
+  /OH_Drawing_CanvasRotate\(canvas_, static_cast<float>\(degrees\), px, py\)/.test(graphics) &&
+  !/angle \* 180\.0f \/ static_cast<float>\(M_PI\)/.test(graphics));
 check('Harmony outer pixel scale is established before formula drawing',
   /OH_Drawing_CanvasScale\(canvas\.get\(\), pixelScale, pixelScale\)[\s\S]*?render->draw\(graphics, drawX, drawY\)/
     .test(native));
@@ -78,6 +86,14 @@ check('runtime model keeps the outer pixel scale after logical reset', (() => {
   let logicalScale = 12;
   logicalScale = 1;
   return canvasScale === 2 && logicalScale === 1;
+})());
+check('runtime model preserves original rotation rounding instead of float-first conversion', (() => {
+  const angle = Math.fround(1);
+  const originalDegrees = Math.fround(angle / Math.PI * 180);
+  const floatFirstDegrees = Math.fround(
+    Math.fround(Math.fround(angle * Math.fround(180)) / Math.fround(Math.PI)));
+  return originalDegrees === 57.295780181884766 &&
+    floatFirstDegrees === 57.2957763671875 && originalDegrees !== floatFirstDegrees;
 })());
 
 console.log(`TOTAL=${checks.length} FAILED=0`);

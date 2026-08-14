@@ -221,7 +221,8 @@ public:
     void rotate(float angle, float px, float py) override
     {
         if (canvas_ != nullptr) {
-            OH_Drawing_CanvasRotate(canvas_, angle * 180.0f / static_cast<float>(M_PI), px, py);
+            const double degrees = static_cast<double>(angle) / M_PI * 180.0;
+            OH_Drawing_CanvasRotate(canvas_, static_cast<float>(degrees), px, py);
         }
     }
 
