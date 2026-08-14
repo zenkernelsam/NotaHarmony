@@ -4,6 +4,7 @@ import { mathBlockWorldBounds } from './MathBlockGeometry';
 
 export const ORIGINAL_MATH_INSERT_MAX_WIDTH: number = 240;
 export const ORIGINAL_MATH_INSERT_MAX_HEIGHT: number = 120;
+const ORIGINAL_MATH_FLOAT32_ROUNDING_OVERSHOOT: number = 1;
 
 export interface OriginalMathMeasuredSize {
   width: number;
@@ -13,12 +14,14 @@ export interface OriginalMathMeasuredSize {
 
 export function originalMathMeasurementFontSize(boxWidth: number,
   boxHeight: number): number | null {
-  if (!Number.isFinite(boxWidth) || !Number.isFinite(boxHeight)) {
+  const originalWidth: number = Math.fround(boxWidth);
+  const originalHeight: number = Math.fround(boxHeight);
+  if (!Number.isFinite(originalWidth) || !Number.isFinite(originalHeight)) {
     return null;
   }
-  const width: number = Math.floor(boxWidth);
-  const height: number = Math.floor(boxHeight);
-  const fontSize: number = Math.max(width, height);
+  const width: number = Math.fround(Math.floor(originalWidth));
+  const height: number = Math.fround(Math.floor(originalHeight));
+  const fontSize: number = Math.fround(Math.max(width, height));
   return width > 0 && height > 0 && fontSize > 0 ? fontSize : null;
 }
 
@@ -28,21 +31,27 @@ export function fitOriginalMathMeasuredSizeToBox(boxWidth: number, boxHeight: nu
   measuredWidth: number, measuredHeight: number): OriginalMathMeasuredSize | null {
   const measurementFontSize: number | null =
     originalMathMeasurementFontSize(boxWidth, boxHeight);
+  const originalMeasuredWidth: number = Math.fround(measuredWidth);
+  const originalMeasuredHeight: number = Math.fround(measuredHeight);
   if (measurementFontSize === null ||
-    !Number.isFinite(measuredWidth) || measuredWidth <= 0 ||
-    !Number.isFinite(measuredHeight) || measuredHeight <= 0) {
+    !Number.isFinite(originalMeasuredWidth) || originalMeasuredWidth <= 0 ||
+    !Number.isFinite(originalMeasuredHeight) || originalMeasuredHeight <= 0) {
     return null;
   }
-  const widthLimit: number = Math.floor(boxWidth);
-  const heightLimit: number = Math.floor(boxHeight);
-  const scale: number = Math.min(widthLimit / measuredWidth, heightLimit / measuredHeight);
+  const widthLimit: number = Math.fround(Math.floor(Math.fround(boxWidth)));
+  const heightLimit: number = Math.fround(Math.floor(Math.fround(boxHeight)));
+  const widthScale: number = Math.fround(widthLimit / originalMeasuredWidth);
+  const heightScale: number = Math.fround(heightLimit / originalMeasuredHeight);
+  const scale: number = Math.fround(Math.min(widthScale, heightScale));
   if (!Number.isFinite(scale) || scale <= 0) {
     return null;
   }
-  const fontSize: number = Math.floor(measurementFontSize * scale);
-  const width: number = Math.max(1, Math.ceil(measuredWidth * scale));
-  const height: number = Math.max(1, Math.ceil(measuredHeight * scale));
-  return fontSize > 0 && width <= widthLimit && height <= heightLimit
+  const fontSize: number = Math.floor(Math.fround(measurementFontSize * scale));
+  const width: number = Math.max(1, Math.ceil(Math.fround(originalMeasuredWidth * scale)));
+  const height: number = Math.max(1, Math.ceil(Math.fround(originalMeasuredHeight * scale)));
+  return fontSize > 0 &&
+    width <= widthLimit + ORIGINAL_MATH_FLOAT32_ROUNDING_OVERSHOOT &&
+    height <= heightLimit + ORIGINAL_MATH_FLOAT32_ROUNDING_OVERSHOOT
     ? { width: width, height: height, fontSize: fontSize } : null;
 }
 
@@ -56,9 +65,9 @@ export function createOriginalMathInsertDraft(latex: string, viewportCenter: Poi
     viewportCenter.x < 0 || viewportCenter.x > pageWidth ||
     viewportCenter.y < 0 || viewportCenter.y > pageHeight ||
     !Number.isFinite(measuredWidth) || measuredWidth <= 0 ||
-    measuredWidth > ORIGINAL_MATH_INSERT_MAX_WIDTH ||
+    measuredWidth > ORIGINAL_MATH_INSERT_MAX_WIDTH + ORIGINAL_MATH_FLOAT32_ROUNDING_OVERSHOOT ||
     !Number.isFinite(measuredHeight) || measuredHeight <= 0 ||
-    measuredHeight > ORIGINAL_MATH_INSERT_MAX_HEIGHT) {
+    measuredHeight > ORIGINAL_MATH_INSERT_MAX_HEIGHT + ORIGINAL_MATH_FLOAT32_ROUNDING_OVERSHOOT) {
     return null;
   }
   const originX: number = viewportCenter.x - measuredWidth / 2;

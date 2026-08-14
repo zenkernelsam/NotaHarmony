@@ -36,7 +36,7 @@ export default function originalMathInsertPlanTest() {
       expect(createOriginalMathInsertDraft('x',
         { x: -1, y: 100 }, 800, 1100) === null).assertTrue();
       expect(createOriginalMathInsertDraft('x',
-        { x: 100, y: 100 }, 800, 1100, 241, 40) === null).assertTrue();
+        { x: 100, y: 100 }, 800, 1100, 242, 40) === null).assertTrue();
       expect(createOriginalMathInsertDraft(' ',
         { x: 100, y: 100 }, 800, 1100) === null).assertTrue();
     });
@@ -52,6 +52,21 @@ export default function originalMathInsertPlanTest() {
       expect(enlarged?.height).assertEqual(120);
       expect(enlarged?.fontSize).assertEqual(360);
       expect(fitOriginalMathMeasuredSizeToBox(240, 120, 0, 40) === null).assertTrue();
+    });
+
+    it('preserves original Float32 fitting at exact-axis rounding boundaries', 0, () => {
+      expect(originalMathMeasurementFontSize(10.9999999, 4)).assertEqual(11);
+      const exactAxis = fitOriginalMathMeasuredSizeToBox(27, 55, 126, 319);
+      expect(exactAxis?.fontSize).assertEqual(9);
+      expect(exactAxis?.width).assertEqual(22);
+      expect(exactAxis?.height).assertEqual(55);
+      const roundedOvershoot = fitOriginalMathMeasuredSizeToBox(240, 81, 852, 133);
+      expect(roundedOvershoot?.fontSize).assertEqual(67);
+      expect(roundedOvershoot?.width).assertEqual(241);
+      expect(roundedOvershoot?.height).assertEqual(38);
+      const draft = createOriginalMathInsertDraft('x',
+        { x: 200, y: 200 }, 800, 1100, 241, 81);
+      expect(draft?.blockWidth).assertEqual(241);
     });
   });
 }

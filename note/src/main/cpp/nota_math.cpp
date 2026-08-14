@@ -366,6 +366,16 @@ bool ReadDouble(napi_env env, napi_value value, double &result)
     return napi_get_value_double(env, value, &result) == napi_ok && std::isfinite(result);
 }
 
+bool ReadPositiveFloat(napi_env env, napi_value value, double maximum, float &result)
+{
+    double number = 0;
+    if (!ReadDouble(env, value, number) || number <= 0 || number > maximum) return false;
+    const float narrowed = static_cast<float>(number);
+    if (!std::isfinite(narrowed) || narrowed <= 0) return false;
+    result = narrowed;
+    return true;
+}
+
 bool ReadArgb(napi_env env, napi_value value, uint32_t &result)
 {
     double number = 0;
@@ -456,17 +466,17 @@ napi_value Measure(napi_env env, napi_callback_info info)
     napi_value arguments[3] = {nullptr};
     if (napi_get_cb_info(env, info, &argc, arguments, nullptr, nullptr) != napi_ok) return nullptr;
     std::string latex;
-    double width = 0;
-    double fontSize = 0;
+    float width = 0;
+    float fontSize = 0;
     if (argc != 3 || !ReadString(env, arguments[0], latex) ||
-        !ReadDouble(env, arguments[1], width) || !ReadDouble(env, arguments[2], fontSize) ||
-        width <= 0 || width > MAX_LOGICAL_EDGE || fontSize <= 0 || fontSize > MAX_FONT_SIZE) {
+        !ReadPositiveFloat(env, arguments[1], MAX_LOGICAL_EDGE, width) ||
+        !ReadPositiveFloat(env, arguments[2], MAX_FONT_SIZE, fontSize)) {
         return ErrorResult(env, "invalid arguments");
     }
     std::lock_guard<std::mutex> lock(gMathMutex);
     if (!gInitialized) return ErrorResult(env, "math engine is not initialized");
     try {
-        const auto render = Parse(latex, static_cast<int>(width), static_cast<float>(fontSize), tex::black);
+        const auto render = Parse(latex, static_cast<int>(width), fontSize, tex::black);
         if (!render) return ErrorResult(env, "formula produced no layout");
         napi_value result = nullptr;
         if (napi_create_object(env, &result) != napi_ok || result == nullptr ||
@@ -491,14 +501,14 @@ napi_value Render(napi_env env, napi_callback_info info)
     napi_value arguments[6] = {nullptr};
     if (napi_get_cb_info(env, info, &argc, arguments, nullptr, nullptr) != napi_ok) return nullptr;
     std::string latex;
-    double width = 0, height = 0, fontSize = 0, pixelScale = 0;
+    float width = 0, height = 0, fontSize = 0, pixelScale = 0;
     uint32_t color = 0;
     if (argc != 6 || !ReadString(env, arguments[0], latex) ||
-        !ReadDouble(env, arguments[1], width) || !ReadDouble(env, arguments[2], height) ||
-        !ReadDouble(env, arguments[3], fontSize) || !ReadArgb(env, arguments[4], color) ||
-        !ReadDouble(env, arguments[5], pixelScale) || width <= 0 || height <= 0 ||
-        width > MAX_LOGICAL_EDGE || height > MAX_LOGICAL_EDGE ||
-        fontSize <= 0 || fontSize > MAX_FONT_SIZE || pixelScale <= 0 || pixelScale > 4) {
+        !ReadPositiveFloat(env, arguments[1], MAX_LOGICAL_EDGE, width) ||
+        !ReadPositiveFloat(env, arguments[2], MAX_LOGICAL_EDGE, height) ||
+        !ReadPositiveFloat(env, arguments[3], MAX_FONT_SIZE, fontSize) ||
+        !ReadArgb(env, arguments[4], color) ||
+        !ReadPositiveFloat(env, arguments[5], 4.0, pixelScale)) {
         return ErrorResult(env, "invalid arguments");
     }
     const int pixelWidth = static_cast<int>(std::ceil(width * pixelScale));
@@ -510,7 +520,7 @@ napi_value Render(napi_env env, napi_callback_info info)
     std::lock_guard<std::mutex> lock(gMathMutex);
     if (!gInitialized) return ErrorResult(env, "math engine is not initialized");
     try {
-        const auto render = Parse(latex, static_cast<int>(width), static_cast<float>(fontSize), color);
+        const auto render = Parse(latex, static_cast<int>(width), fontSize, color);
         if (!render) return ErrorResult(env, "formula produced no layout");
         BitmapHandle bitmap(OH_Drawing_BitmapCreate());
         if (!bitmap) return ErrorResult(env, "formula bitmap allocation failed");

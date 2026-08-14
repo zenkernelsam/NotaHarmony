@@ -10,7 +10,9 @@ const originalNative = original('com/gingerlabs/notability/core/glmath/GLMathNat
 const originalDraw = original('defpackage/p18.java');
 const native = read('note/src/main/cpp/nota_math.cpp');
 const insertPlan = read('note/src/main/ets/core/model/OriginalMathInsertPlan.ets');
+const readPositiveStart = native.indexOf('bool ReadPositiveFloat(');
 const readArgbStart = native.indexOf('bool ReadArgb(');
+const readPositiveFloat = native.slice(readPositiveStart, readArgbStart);
 const setNumberStart = native.indexOf('\nvoid SetNumber(', readArgbStart);
 const readArgb = native.slice(readArgbStart, setNumberStart);
 const measureStart = native.indexOf('napi_value Measure(');
@@ -52,18 +54,27 @@ check('render stores color as uint32 and validates it with the dedicated reader'
   /uint32_t color = 0;/.test(render) &&
   /ReadArgb\(env, arguments\[4\], color\)/.test(render));
 check('render forwards the validated ARGB bits without another numeric reinterpretation',
-  /Parse\(latex, static_cast<int>\(width\), static_cast<float>\(fontSize\), color\)/.test(render) &&
+  /Parse\(latex, static_cast<int>\(width\), fontSize, color\)/.test(render) &&
   !/static_cast<uint32_t>\(color\)/.test(render));
-check('measure and render share explicit logical and font-size narrowing limits',
+check('positive native Float arguments are bounded before narrowing',
+  /ReadDouble\(env, value, number\)/.test(readPositiveFloat) &&
+  /number <= 0 \|\| number > maximum/.test(readPositiveFloat) &&
+  /const float narrowed = static_cast<float>\(number\)/.test(readPositiveFloat) &&
+  /!std::isfinite\(narrowed\) \|\| narrowed <= 0/.test(readPositiveFloat));
+check('measure and render share explicit logical and font-size Float readers',
   /constexpr double MAX_LOGICAL_EDGE = 100000\.0/.test(native) &&
   /constexpr double MAX_FONT_SIZE = 512\.0/.test(native) &&
-  /width > MAX_LOGICAL_EDGE/.test(measure) && /fontSize > MAX_FONT_SIZE/.test(measure) &&
-  /width > MAX_LOGICAL_EDGE/.test(render) && /height > MAX_LOGICAL_EDGE/.test(render) &&
-  /fontSize > MAX_FONT_SIZE/.test(render));
-check('render rejects logical overflow before ceil and integer narrowing',
-  render.indexOf('width > MAX_LOGICAL_EDGE') < render.indexOf('const int pixelWidth') &&
-  render.indexOf('height > MAX_LOGICAL_EDGE') < render.indexOf('const int pixelHeight') &&
-  render.indexOf('fontSize > MAX_FONT_SIZE') < render.indexOf('static_cast<float>(fontSize)'));
+  /ReadPositiveFloat\(env, arguments\[1\], MAX_LOGICAL_EDGE, width\)/.test(measure) &&
+  /ReadPositiveFloat\(env, arguments\[2\], MAX_FONT_SIZE, fontSize\)/.test(measure) &&
+  (render.match(/ReadPositiveFloat\(env, arguments\[[12]\], MAX_LOGICAL_EDGE, (?:width|height)\)/g) ?? []).length === 2 &&
+  /ReadPositiveFloat\(env, arguments\[3\], MAX_FONT_SIZE, fontSize\)/.test(render));
+check('render rejects or narrows logical inputs before ceil and integer conversion',
+  render.indexOf('ReadPositiveFloat(env, arguments[1], MAX_LOGICAL_EDGE, width)') <
+    render.indexOf('const int pixelWidth') &&
+  render.indexOf('ReadPositiveFloat(env, arguments[2], MAX_LOGICAL_EDGE, height)') <
+    render.indexOf('const int pixelHeight') &&
+  render.indexOf('ReadPositiveFloat(env, arguments[3], MAX_FONT_SIZE, fontSize)') <
+    render.indexOf('Parse(latex, static_cast<int>(width), fontSize, color)'));
 
 function readArgbModel(number) {
   if (!Number.isFinite(number) || !Number.isInteger(number) ||

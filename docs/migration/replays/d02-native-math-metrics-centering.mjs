@@ -42,10 +42,10 @@ check('Harmony parses formulas with the original zero line spacing',
   /constexpr float ORIGINAL_LINE_SPACE = 0\.0f/.test(native) &&
   /fontSize, ORIGINAL_LINE_SPACE, color/.test(native));
 check('Harmony measure truncates logical width before parsing',
-  /Parse\(latex, static_cast<int>\(width\), static_cast<float>\(fontSize\), tex::black\)/.test(measureNative) &&
+  /Parse\(latex, static_cast<int>\(width\), fontSize, tex::black\)/.test(measureNative) &&
   !/Parse\(latex, static_cast<int>\(std::ceil\(width\)\)/.test(measureNative));
 check('Harmony render truncates parse width while retaining ceil bitmap allocation',
-  /Parse\(latex, static_cast<int>\(width\), static_cast<float>\(fontSize\)/.test(renderNative) &&
+  /Parse\(latex, static_cast<int>\(width\), fontSize/.test(renderNative) &&
   /static_cast<int>\(std::ceil\(width \* pixelScale\)\)/.test(renderNative));
 check('Harmony measure exposes the original four independent values',
   /SetNumber\(env, result, "width", render->getWidth\(\)\)/.test(measureNative) &&
@@ -69,9 +69,11 @@ check('Harmony validates drawing resources before calculating and using the offs
   renderNative.indexOf('const int drawX') < renderNative.indexOf('render->draw(graphics, drawX, drawY)'));
 
 function originalCenter(blockWidth, blockHeight, renderWidth, renderHeight) {
+  const originalWidth = Math.fround(blockWidth);
+  const originalHeight = Math.fround(blockHeight);
   return {
-    x: renderWidth < blockWidth ? Math.trunc(Math.trunc(blockWidth - renderWidth) / 2) : 0,
-    y: renderHeight < blockHeight ? Math.trunc(Math.trunc(blockHeight - renderHeight) / 2) : 0,
+    x: renderWidth < originalWidth ? Math.trunc(Math.trunc(Math.fround(originalWidth - renderWidth)) / 2) : 0,
+    y: renderHeight < originalHeight ? Math.trunc(Math.trunc(Math.fround(originalHeight - renderHeight)) / 2) : 0,
   };
 }
 

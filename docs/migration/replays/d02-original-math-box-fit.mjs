@@ -46,12 +46,13 @@ check('original latex edit writes only the latex register and does not remeasure
   /dhh\.a\(r4\)/.test(editMethod) && /u5j\.o\(/.test(editMethod) &&
   !/s18\.d|SizeF|nativeMeasure/.test(editMethod));
 
-check('Harmony pure layout helper mirrors the original floor/max/min/floor/ceil algorithm',
-  /Math\.floor\(boxWidth\)/.test(layout) && /Math\.floor\(boxHeight\)/.test(layout) &&
-  /Math\.max\(width, height\)/.test(layout) &&
-  /Math\.min\(widthLimit \/ measuredWidth, heightLimit \/ measuredHeight\)/.test(layout) &&
-  /Math\.floor\(measurementFontSize \* scale\)/.test(layout) &&
-  (layout.match(/Math\.ceil\(measured(?:Width|Height) \* scale\)/g) ?? []).length === 2);
+check('Harmony pure layout helper mirrors the original Float floor max min floor ceil algorithm',
+  /Math\.fround\(boxWidth\)/.test(layout) && /Math\.fround\(boxHeight\)/.test(layout) &&
+  /Math\.fround\(Math\.max\(width, height\)\)/.test(layout) &&
+  /Math\.fround\(widthLimit \/ originalMeasuredWidth\)/.test(layout) &&
+  /Math\.fround\(heightLimit \/ originalMeasuredHeight\)/.test(layout) &&
+  /Math\.floor\(Math\.fround\(measurementFontSize \* scale\)\)/.test(layout) &&
+  (layout.match(/Math\.ceil\(Math\.fround\(originalMeasured(?:Width|Height) \* scale\)\)/g) ?? []).length === 2);
 check('Harmony engine measures first and renders with the fitted font',
   /const measured: MathMeasureResult = this\.measure\(latex, width, measurementFontSize\)/.test(engine) &&
   /fitOriginalMathMeasuredSizeToBox\(width, height, measured\.width, measured\.height\)/.test(engine) &&
@@ -78,16 +79,22 @@ check('ArkTS fixture locks down fitted font, downscale, and upscale behavior',
   /fitted\?\.fontSize/.test(fixture) && /enlarged\?\.fontSize/.test(fixture));
 
 function fit(boxWidth, boxHeight, measuredWidth, measuredHeight) {
-  const widthLimit = Math.floor(boxWidth);
-  const heightLimit = Math.floor(boxHeight);
-  const measurementFontSize = Math.max(widthLimit, heightLimit);
-  if (![widthLimit, heightLimit, measuredWidth, measuredHeight].every(Number.isFinite) ||
-      widthLimit <= 0 || heightLimit <= 0 || measuredWidth <= 0 || measuredHeight <= 0) return null;
-  const scale = Math.min(widthLimit / measuredWidth, heightLimit / measuredHeight);
-  const fontSize = Math.floor(measurementFontSize * scale);
-  const width = Math.max(1, Math.ceil(measuredWidth * scale));
-  const height = Math.max(1, Math.ceil(measuredHeight * scale));
-  return fontSize > 0 && width <= widthLimit && height <= heightLimit
+  const originalWidth = Math.fround(boxWidth);
+  const originalHeight = Math.fround(boxHeight);
+  const originalMeasuredWidth = Math.fround(measuredWidth);
+  const originalMeasuredHeight = Math.fround(measuredHeight);
+  const widthLimit = Math.fround(Math.floor(originalWidth));
+  const heightLimit = Math.fround(Math.floor(originalHeight));
+  const measurementFontSize = Math.fround(Math.max(widthLimit, heightLimit));
+  if (![widthLimit, heightLimit, originalMeasuredWidth, originalMeasuredHeight].every(Number.isFinite) ||
+      widthLimit <= 0 || heightLimit <= 0 || originalMeasuredWidth <= 0 || originalMeasuredHeight <= 0) return null;
+  const scale = Math.fround(Math.min(
+    Math.fround(widthLimit / originalMeasuredWidth),
+    Math.fround(heightLimit / originalMeasuredHeight)));
+  const fontSize = Math.floor(Math.fround(measurementFontSize * scale));
+  const width = Math.max(1, Math.ceil(Math.fround(originalMeasuredWidth * scale)));
+  const height = Math.max(1, Math.ceil(Math.fround(originalMeasuredHeight * scale)));
+  return fontSize > 0 && width <= widthLimit + 1 && height <= heightLimit + 1
     ? { fontSize, width, height } : null;
 }
 
@@ -97,6 +104,10 @@ check('runtime model enlarges a small formula to fill its limiting axis',
   assert.deepEqual(fit(240, 120, 40, 80), { fontSize: 360, width: 60, height: 120 }) === undefined);
 check('runtime model floors box dimensions before fitting',
   assert.deepEqual(fit(240.9, 120.9, 480, 60), { fontSize: 120, width: 240, height: 30 }) === undefined);
+check('runtime model preserves an exact limiting axis after Float32 division and multiplication',
+  assert.deepEqual(fit(27, 55, 126, 319), { fontSize: 9, width: 22, height: 55 }) === undefined);
+check('runtime model preserves the original one-pixel Float32 ceil overshoot',
+  assert.deepEqual(fit(240, 81, 852, 133), { fontSize: 67, width: 241, height: 38 }) === undefined);
 check('runtime model rejects unusable measurements', fit(240, 120, 0, 40) === null);
 
 console.log(`TOTAL=${checks.length} FAILED=0`);
