@@ -9,7 +9,6 @@ interface MathBitmapCacheEntry {
   lastUsed: number;
 }
 
-const DEFAULT_MATH_FONT_SIZE: number = 20;
 const PIXEL_SCALE: number = 2;
 const MAX_CACHE_BYTES: number = 4 * 1024 * 1024;
 
@@ -30,8 +29,7 @@ export class MathCanvasRenderer {
       candidate.key === key);
     if (entry === undefined) {
       const texture: OriginalMathBitmap | null = originalMathEngine.render(
-        element.latex, element.blockWidth, element.blockHeight, DEFAULT_MATH_FONT_SIZE,
-        element.color, PIXEL_SCALE);
+        element.latex, element.blockWidth, element.blockHeight, element.color, PIXEL_SCALE);
       if (texture === null) return;
       entry = { key, texture, bytes: texture.width * texture.height * 4, lastUsed: ++this.clock };
       this.cache.push(entry);

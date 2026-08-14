@@ -111,8 +111,8 @@ import {
 } from '../../core/model/OriginalGroupSelection';
 import { cloneMathElement, eraserPathHitsMathBlock, mathBlockWorldBounds,
   transformMathElements } from '../../core/model/MathBlockGeometry';
-import { createOriginalMathInsertDraft, fitOriginalMathMeasuredSize } from
-  '../../core/model/OriginalMathInsertPlan';
+import { createOriginalMathInsertDraft, ORIGINAL_MATH_INSERT_MAX_HEIGHT,
+  ORIGINAL_MATH_INSERT_MAX_WIDTH } from '../../core/model/OriginalMathInsertPlan';
 import {
   CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, PageInfo,
 } from '../../core/model/NoteTypes';
@@ -4116,15 +4116,11 @@ export struct NoteCanvasView {
     const pageId: string = this.loadedPageId;
     const generation: number = this.pageLoadGeneration;
     const after: MathElement = cloneMathElement(before);
-    const measured = originalMathEngine.measure(draft, before.blockWidth, 20);
-    if (!measured.valid || measured.width === undefined || measured.height === undefined) {
+    if (originalMathEngine.fit(draft, before.blockWidth, before.blockHeight) === null) {
       this.mathEditorFailed = true;
       return;
     }
     after.latex = draft;
-    after.blockWidth = Math.max(1, Math.min(240, Math.floor(measured.width)));
-    after.blockHeight = Math.max(1, Math.min(120, Math.ceil(measured.height)));
-    after.bounds = mathBlockWorldBounds(after);
     const action: UndoableAction = {
       type: UndoableActionType.TRANSFORM_ELEMENTS,
       noteId: this.noteId,
@@ -4174,9 +4170,8 @@ export struct NoteCanvasView {
     const generation: number = this.pageLoadGeneration;
     const center: Point2D = this.viewport.screenToCanvas(
       this.canvasCtx.width / 2, this.canvasCtx.height / 2);
-    const measured = originalMathEngine.measure(this.mathEditorDraft, 100000, 20);
-    const fitted = measured.valid && measured.width !== undefined && measured.height !== undefined
-      ? fitOriginalMathMeasuredSize(measured.width, measured.height) : null;
+    const fitted = originalMathEngine.fit(this.mathEditorDraft,
+      ORIGINAL_MATH_INSERT_MAX_WIDTH, ORIGINAL_MATH_INSERT_MAX_HEIGHT);
     const draft: MathElement | null = fitted === null ? null : createOriginalMathInsertDraft(
       this.mathEditorDraft, center, this.getPaperWidth(), this.getPaperHeight(),
       fitted.width, fitted.height);

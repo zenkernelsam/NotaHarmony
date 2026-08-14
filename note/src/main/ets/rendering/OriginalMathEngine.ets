@@ -3,6 +3,8 @@ import { fileIo } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { initialize as initializeNative, MathMeasureResult, measure as measureNative,
   MathRenderResult, render as renderNative } from 'libnota_math.so';
+import { fitOriginalMathMeasuredSizeToBox, OriginalMathMeasuredSize,
+  originalMathMeasurementFontSize } from '../core/model/OriginalMathInsertPlan';
 
 const ROOT_NAME: string = 'glmath';
 const RESOURCE_VERSION: string = 'v1';
@@ -37,10 +39,24 @@ class OriginalMathEngine {
     return measureNative(latex, width, fontSize);
   }
 
-  render(latex: string, width: number, height: number, fontSize: number,
+  fit(latex: string, width: number, height: number): OriginalMathMeasuredSize | null {
+    if (!this.ready || latex.trim().length === 0) return null;
+    const measurementFontSize: number | null = originalMathMeasurementFontSize(width, height);
+    if (measurementFontSize === null) return null;
+    const measured: MathMeasureResult = this.measure(latex, width, measurementFontSize);
+    if (!measured.valid || measured.width === undefined || measured.height === undefined) {
+      return null;
+    }
+    return fitOriginalMathMeasuredSizeToBox(width, height, measured.width, measured.height);
+  }
+
+  render(latex: string, width: number, height: number,
     argbColor: number, pixelScale: number): OriginalMathBitmap | null {
     if (!this.ready) return null;
-    const result: MathRenderResult = renderNative(latex, width, height, fontSize, argbColor, pixelScale);
+    const fitted: OriginalMathMeasuredSize | null = this.fit(latex, width, height);
+    if (fitted === null) return null;
+    const result: MathRenderResult = renderNative(
+      latex, width, height, fitted.fontSize, argbColor, pixelScale);
     if (!result.valid || result.pixels === undefined || result.width === undefined || result.height === undefined) {
       return null;
     }

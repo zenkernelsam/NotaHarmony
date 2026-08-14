@@ -8,20 +8,42 @@ export const ORIGINAL_MATH_INSERT_MAX_HEIGHT: number = 120;
 export interface OriginalMathMeasuredSize {
   width: number;
   height: number;
+  fontSize: number;
 }
 
-export function fitOriginalMathMeasuredSize(measuredWidth: number,
-  measuredHeight: number): OriginalMathMeasuredSize | null {
-  if (!Number.isFinite(measuredWidth) || measuredWidth <= 0 ||
+export function originalMathMeasurementFontSize(boxWidth: number,
+  boxHeight: number): number | null {
+  if (!Number.isFinite(boxWidth) || !Number.isFinite(boxHeight)) {
+    return null;
+  }
+  const width: number = Math.floor(boxWidth);
+  const height: number = Math.floor(boxHeight);
+  const fontSize: number = Math.max(width, height);
+  return width > 0 && height > 0 && fontSize > 0 ? fontSize : null;
+}
+
+// Mirrors s18.d: nativeMeasure is first called with max(floor(width), floor(height))
+// as the font size, then the measured layout is proportionally fitted into the box.
+export function fitOriginalMathMeasuredSizeToBox(boxWidth: number, boxHeight: number,
+  measuredWidth: number, measuredHeight: number): OriginalMathMeasuredSize | null {
+  const measurementFontSize: number | null =
+    originalMathMeasurementFontSize(boxWidth, boxHeight);
+  if (measurementFontSize === null ||
+    !Number.isFinite(measuredWidth) || measuredWidth <= 0 ||
     !Number.isFinite(measuredHeight) || measuredHeight <= 0) {
     return null;
   }
-  const scale: number = Math.min(1, ORIGINAL_MATH_INSERT_MAX_WIDTH / measuredWidth,
-    ORIGINAL_MATH_INSERT_MAX_HEIGHT / measuredHeight);
-  const width: number = Math.max(1, Math.floor(measuredWidth * scale));
+  const widthLimit: number = Math.floor(boxWidth);
+  const heightLimit: number = Math.floor(boxHeight);
+  const scale: number = Math.min(widthLimit / measuredWidth, heightLimit / measuredHeight);
+  if (!Number.isFinite(scale) || scale <= 0) {
+    return null;
+  }
+  const fontSize: number = Math.floor(measurementFontSize * scale);
+  const width: number = Math.max(1, Math.ceil(measuredWidth * scale));
   const height: number = Math.max(1, Math.ceil(measuredHeight * scale));
-  return width <= ORIGINAL_MATH_INSERT_MAX_WIDTH && height <= ORIGINAL_MATH_INSERT_MAX_HEIGHT
-    ? { width, height } : null;
+  return fontSize > 0 && width <= widthLimit && height <= heightLimit
+    ? { width: width, height: height, fontSize: fontSize } : null;
 }
 
 export function createOriginalMathInsertDraft(latex: string, viewportCenter: Point2D,
