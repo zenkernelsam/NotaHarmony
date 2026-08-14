@@ -6,7 +6,10 @@ import {
 import { NoteRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { databaseWriteMutex } from './DatabaseWriteMutex';
-import { assetMutationMutex, parseAssetNoteIds, unlinkAssetFile } from './AssetRepositoryImpl';
+import {
+  assetMutationMutex, detachAssetFileForDeletion, isAssetFilePathReferenced, parseAssetNoteIds,
+  unlinkAssetFile,
+} from './AssetRepositoryImpl';
 import { assetAvailabilityHub } from './AssetAvailabilityHub';
 import { libraryMetadataMutationMutex } from './LibraryMetadataMutationMutex';
 import { escapeSearchLike, foldSearchText } from './SearchText';
@@ -195,7 +198,10 @@ export class NoteRepositoryImpl implements NoteRepository {
 
   async deleteNote(noteId: string): Promise<void> {
     await assetMutationMutex.runExclusive(async (): Promise<void> => {
-      const filesToDelete: string[] = [];
+      const candidateFilesToDelete: string[] = [];
+      const filesToDetach: string[] = [];
+      const detachedFiles: string[] = [];
+      const filesRoot: string = this.db.getFilesDir();
       await libraryMetadataMutationMutex.runExclusive(async (): Promise<void> => {
         const store: relationalStore.RdbStore = this.db.getStore();
         await store.beginTransaction();
@@ -242,13 +248,20 @@ export class NoteRepositoryImpl implements NoteRepository {
             if (remainingNoteIds.length === 0) {
               await store.delete(assetPredicates);
               if (reference.localPath !== null && reference.localPath.length > 0) {
-                filesToDelete.push(reference.localPath);
+                candidateFilesToDelete.push(reference.localPath);
               }
             } else {
               const assetBucket: relationalStore.ValuesBucket = {
                 'note_ids': JSON.stringify(remainingNoteIds),
               };
               await store.update(assetBucket, assetPredicates);
+            }
+          }
+          for (let i: number = 0; i < candidateFilesToDelete.length; i++) {
+            const candidatePath: string = candidateFilesToDelete[i];
+            if (filesToDetach.indexOf(candidatePath) < 0 &&
+              !await isAssetFilePathReferenced(store, candidatePath)) {
+              filesToDetach.push(candidatePath);
             }
           }
           const p2 = new relationalStore.RdbPredicates('page_info');
@@ -271,10 +284,16 @@ export class NoteRepositoryImpl implements NoteRepository {
           await store.rollBack();
           throw new Error(`deleteNote failed: ${JSON.stringify(e)}`);
         }
+        for (let i: number = 0; i < filesToDetach.length; i++) {
+          const detachedPath: string | null = detachAssetFileForDeletion(
+            filesToDetach[i], filesRoot);
+          if (detachedPath !== null) {
+            detachedFiles.push(detachedPath);
+          }
+        }
       });
-      const filesRoot: string = this.db.getFilesDir();
-      for (let i: number = 0; i < filesToDelete.length; i++) {
-        unlinkAssetFile(filesToDelete[i], filesRoot);
+      for (let i: number = 0; i < detachedFiles.length; i++) {
+        unlinkAssetFile(detachedFiles[i], filesRoot);
       }
       assetAvailabilityHub.forgetNote(noteId);
     });

@@ -56,14 +56,24 @@ const checks = [
   ['note deletion unbinds assets before deleting the note row',
     repository.indexOf('const assetReferences', repository.indexOf('async deleteNote')) <
     repository.indexOf("const p1 = new relationalStore.RdbPredicates('note_meta')")],
+  ['note deletion retains files still owned by another asset row',
+    repository.indexOf('isAssetFilePathReferenced(store, candidatePath)',
+      repository.indexOf('async deleteNote')) < repository.indexOf('await store.commit()',
+      repository.indexOf('async deleteNote'))],
   ['successful note deletion forgets stale asset availability generations',
     repository.indexOf('assetAvailabilityHub.forgetNote(noteId)',
       repository.indexOf('async deleteNote')) > repository.indexOf('await store.commit()',
       repository.indexOf('async deleteNote'))],
-  ['note-owned file cleanup remains inside the asset mutation mutex',
-    repository.indexOf('unlinkAssetFile(filesToDelete[i], filesRoot)',
+  ['note-owned canonical files detach before the database writer is released',
+    repository.indexOf('detachAssetFileForDeletion(', repository.indexOf('async deleteNote')) >
+      repository.indexOf('await store.commit()', repository.indexOf('async deleteNote')) &&
+    repository.indexOf('detachAssetFileForDeletion(', repository.indexOf('async deleteNote')) <
+      repository.indexOf('      });', repository.indexOf('detachAssetFileForDeletion(',
+        repository.indexOf('async deleteNote')))],
+  ['note-owned quarantine cleanup remains inside the asset mutation mutex',
+    repository.indexOf('unlinkAssetFile(detachedFiles[i], filesRoot)',
       repository.indexOf('async deleteNote')) < repository.indexOf('    });',
-      repository.indexOf('unlinkAssetFile(filesToDelete[i], filesRoot)',
+      repository.indexOf('unlinkAssetFile(detachedFiles[i], filesRoot)',
         repository.indexOf('async deleteNote')))],
   ['note-owned database state has cascade roots',
     (schema.match(/REFERENCES note_meta\(id\) ON DELETE CASCADE/g) ?? []).length >= 20],

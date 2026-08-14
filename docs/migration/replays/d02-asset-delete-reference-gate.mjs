@@ -9,13 +9,20 @@ const query = source.indexOf("store.query(queryPredicates, ['local_path', 'note_
 const parse = source.indexOf('parseAssetNoteIds', query);
 const gate = source.indexOf('asset is still referenced', parse);
 const remove = source.indexOf('await store.delete(predicates)', gate);
-const unlink = source.indexOf('unlinkAssetFile(localPath', method);
+const pathGate = source.indexOf('isAssetFilePathReferenced(store, committedLocalPath)', remove);
+const commit = source.indexOf('await store.commit()', pathGate);
+const detach = source.indexOf('detachAssetFileForDeletion(committedLocalPath, filesRoot)', commit);
+const writerRelease = source.indexOf('        });', detach);
+const unlink = source.indexOf('unlinkAssetFile(detachedPath, filesRoot)', writerRelease);
 const exclusiveEnd = source.indexOf('    });', unlink);
 const checks = [
   ['delete reads reference set', query > method && parse > query],
   ['referenced assets are rejected', gate > parse],
   ['database delete follows gate', remove > gate],
-  ['file unlink occurs only after transaction', unlink > remove],
+  ['shared local paths remain owned by surviving asset rows', pathGate > remove && commit > pathGate],
+  ['transaction commits before canonical file detachment', commit > remove && detach > commit],
+  ['canonical file detaches before the database writer is released', writerRelease > detach],
+  ['quarantined file unlink occurs after the database writer is released', unlink > writerRelease],
   ['file unlink remains inside the asset mutation mutex', exclusiveEnd > unlink],
   ['failure rolls back transaction', source.indexOf('await store.rollBack()', gate) > gate],
 ];

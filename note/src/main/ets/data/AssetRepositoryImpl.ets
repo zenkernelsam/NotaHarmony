@@ -90,7 +90,8 @@ export class AssetRepositoryImpl implements AssetRepository {
 
   async deleteAsset(hash: string): Promise<void> {
     await assetMutationMutex.runExclusive(async (): Promise<void> => {
-      const localPath: string | null = await databaseWriteMutex.runExclusive(
+      const filesRoot: string = this.db.getFilesDir();
+      const detachedPath: string | null = await databaseWriteMutex.runExclusive(
         async (): Promise<string | null> => {
           const store: relationalStore.RdbStore = this.db.getStore();
           let committedLocalPath: string | null = null;
@@ -117,15 +118,20 @@ export class AssetRepositoryImpl implements AssetRepository {
             const predicates = new relationalStore.RdbPredicates('note_asset');
             predicates.equalTo('asset_hash', hash);
             await store.delete(predicates);
+            if (committedLocalPath !== null &&
+              await isAssetFilePathReferenced(store, committedLocalPath)) {
+              committedLocalPath = null;
+            }
             await store.commit();
-            return committedLocalPath;
           } catch (e) {
             await store.rollBack();
             throw new Error(`deleteAsset failed: ${JSON.stringify(e)}`);
           }
+          return committedLocalPath === null || committedLocalPath.length === 0 ? null :
+            detachAssetFileForDeletion(committedLocalPath, filesRoot);
         });
-      if (localPath !== null && localPath.length > 0) {
-        unlinkAssetFile(localPath, this.db.getFilesDir());
+      if (detachedPath !== null) {
+        unlinkAssetFile(detachedPath, filesRoot);
       }
     });
   }
@@ -215,6 +221,21 @@ export function mergeNoteIds(existing: string[], incoming: string[]): string[] {
   return merged;
 }
 
+export async function isAssetFilePathReferenced(store: relationalStore.RdbStore,
+  path: string): Promise<boolean> {
+  if (path.length === 0) {
+    return false;
+  }
+  const predicates = new relationalStore.RdbPredicates('note_asset');
+  predicates.equalTo('local_path', path);
+  const rows = await store.query(predicates, ['asset_hash']);
+  try {
+    return rows.goToFirstRow();
+  } finally {
+    rows.close();
+  }
+}
+
 export function unlinkAssetFile(path: string, filesRoot?: string): void {
   if (filesRoot !== undefined && !isPathInside(filesRoot, path)) {
     console.error(`Asset file cleanup refused outside app files dir: ${path}`);
@@ -228,6 +249,34 @@ export function unlinkAssetFile(path: string, filesRoot?: string): void {
       console.error(`Asset file cleanup failed: path=${path}, error=${JSON.stringify(e)}`);
     }
   }
+}
+
+export function detachAssetFileForDeletion(path: string, filesRoot: string): string | null {
+  if (!isPathInside(filesRoot, path)) {
+    console.error(`Asset file detach refused outside app files dir: ${path}`);
+    return null;
+  }
+  const quarantineDirectory: string = filesRoot.replace(/\\/g, '/').replace(/\/+$/, '') +
+    '/assets/trash';
+  try {
+    if (!fileIo.accessSync(path)) {
+      return null;
+    }
+    fileIo.mkdirSync(quarantineDirectory, true);
+    for (let attempt: number = 0; attempt < 4; attempt++) {
+      const quarantinePath: string = quarantineDirectory +
+        `/deleted_asset_${Date.now()}_${Math.floor(Math.random() * 0x1000000)}_${attempt}.tmp`;
+      if (fileIo.accessSync(quarantinePath)) {
+        continue;
+      }
+      fileIo.renameSync(path, quarantinePath);
+      return quarantinePath;
+    }
+    console.error(`Asset file detach could not allocate a quarantine path: ${path}`);
+  } catch (e) {
+    console.error(`Asset file detach failed: path=${path}, error=${JSON.stringify(e)}`);
+  }
+  return null;
 }
 
 function isPathInside(root: string, candidate: string): boolean {

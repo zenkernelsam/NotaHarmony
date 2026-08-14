@@ -69,8 +69,16 @@ const checks = [
       saveAsset.indexOf('databaseWriteMutex.runExclusive') &&
     deleteAsset.indexOf('assetMutationMutex.runExclusive') <
       deleteAsset.indexOf('databaseWriteMutex.runExclusive')],
-  ['asset file cleanup is outside the database writer', deleteAsset.includes(
-    '});\n      if (localPath !== null')],
+  ['asset canonical file detaches after commit but before writer release',
+    deleteAsset.indexOf('await store.commit()') <
+      deleteAsset.indexOf('detachAssetFileForDeletion(committedLocalPath, filesRoot)') &&
+    deleteAsset.indexOf('detachAssetFileForDeletion(committedLocalPath, filesRoot)') <
+      deleteAsset.indexOf('        });',
+        deleteAsset.indexOf('detachAssetFileForDeletion(committedLocalPath, filesRoot)'))],
+  ['asset quarantine unlink is outside the database writer',
+    deleteAsset.indexOf('        });',
+      deleteAsset.indexOf('detachAssetFileForDeletion(committedLocalPath, filesRoot)')) <
+      deleteAsset.indexOf('unlinkAssetFile(detachedPath, filesRoot)')],
   ['image arrival keeps asset-before-database lock order',
     writeImage.indexOf('assetMutationMutex.runExclusive') <
       writeImage.indexOf('databaseWriteMutex.runExclusive') &&
