@@ -12,6 +12,9 @@ const checks = [
   ['native uses Native Drawing bitmap', native.includes('OH_Drawing_BitmapBuild')],
   ['native enforces parser and bitmap budgets', native.includes('MAX_LATEX_BYTES') && native.includes('MAX_BITMAP_BYTES')],
   ['ArkTS extracts rawfile resources', engine.includes('getRawFileListSync') && engine.includes('getRawFileContentSync')],
+  ['ArkTS publishes a versioned complete resource tree',
+    engine.includes("const RESOURCE_VERSION: string = 'v1'") &&
+      engine.includes("const COMPLETE_MARKER: string = '.complete'")],
   ['renderer composites bitmap and has no placeholder border', renderer.includes('drawImage') && !renderer.includes('setLineDash')],
   ['resource marker is packaged', fs.existsSync(path.join(rawRoot, '.clatexmath-res_root'))],
 ];
