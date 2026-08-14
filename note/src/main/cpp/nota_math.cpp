@@ -153,9 +153,11 @@ public:
         brush_ = OH_Drawing_BrushCreate();
         if (pen_ == nullptr || brush_ == nullptr) return;
         OH_Drawing_PenSetAntiAlias(pen_, true);
+        OH_Drawing_PenSetWidth(pen_, 0);
+        OH_Drawing_PenSetCap(pen_, LINE_FLAT_CAP);
+        OH_Drawing_PenSetJoin(pen_, LINE_MITER_JOIN);
         OH_Drawing_BrushSetAntiAlias(brush_, true);
         setColor(tex::black);
-        setStroke(tex::Stroke());
     }
 
     ~HarmonyGraphics()
@@ -194,15 +196,13 @@ public:
     void setStrokeWidth(float width) override
     {
         stroke_.lineWidth = width;
-        if (pen_ != nullptr) OH_Drawing_PenSetWidth(pen_, width);
+        setStroke(stroke_);
     }
     const tex::Font *getFont() const override { return font_; }
     void setFont(const tex::Font *font) override { font_ = font; }
 
     void translate(float dx, float dy) override
     {
-        tx_ += sx_ * dx;
-        ty_ += sy_ * dy;
         if (canvas_ != nullptr) OH_Drawing_CanvasTranslate(canvas_, dx, dy);
     }
 
@@ -224,8 +224,6 @@ public:
     void reset() override
     {
         sx_ = sy_ = 1;
-        tx_ = ty_ = 0;
-        if (canvas_ != nullptr) OH_Drawing_CanvasResetMatrix(canvas_);
     }
 
     float sx() const override { return sx_; }
@@ -316,8 +314,6 @@ private:
     tex::color color_ = tex::black;
     float sx_ = 1;
     float sy_ = 1;
-    float tx_ = 0;
-    float ty_ = 0;
 };
 
 bool ReadString(napi_env env, napi_value value, std::string &result)
