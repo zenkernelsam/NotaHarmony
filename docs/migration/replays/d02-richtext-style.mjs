@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const rootPath = new URL('../../../', import.meta.url);
 const operationSource = fs.readFileSync(new URL(
@@ -249,7 +250,7 @@ assert.equal(db.prepare('SELECT count(*) count FROM original_text_style_operatio
 db.exec(`DELETE FROM original_element_z_index WHERE note_id='n' AND element_timestamp=20 AND element_site_id=2`);
 assert.equal(db.prepare('SELECT count(*) count FROM original_text_style_operation').get().count, 0);
 
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.match(operationSource, /ORIGINAL_MODIFY_STYLE_PAYLOAD_TYPE: number = 12/);
 assert.match(operationSource, /ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE: number = 13/);
 assert.match(operationSource, /ORIGINAL_CLEAR_STYLE_PAYLOAD_TYPE: number = 14/);

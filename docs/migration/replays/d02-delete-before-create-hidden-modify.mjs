@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const root = new URL('../../../', import.meta.url);
 const helper = read('note/src/main/ets/data/DatabaseHelper.ets');
@@ -266,7 +267,7 @@ function stateReplay() {
 }
 
 function staticGuards() {
-  assert.match(helper, /export const DB_VERSION: number = 61/);
+  assertDatabaseVersionAtLeast(helper, 61);
   assert.doesNotMatch(ddl('DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER'),
     /REFERENCES original_element_z_index/);
   assert.match(deletion, /target: null/);

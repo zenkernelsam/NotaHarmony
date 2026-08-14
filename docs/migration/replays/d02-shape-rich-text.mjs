@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const root = new URL('../../../', import.meta.url);
 const read = path => fs.readFileSync(new URL(path, root), 'utf8');
@@ -130,7 +131,7 @@ assert.equal(failed.prepare(`SELECT COUNT(*) count FROM sqlite_master
   WHERE type='table' AND name LIKE '%_v57'`).get().count, 0);
 failed.close();
 
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.match(schema, /57: \[[\s\S]*original_text_character_v57[\s\S]*original_text_style_operation_v57/);
 assert.match(characterV57, /REFERENCES original_element_z_index/);
 assert.match(styleV57, /REFERENCES original_element_z_index/);

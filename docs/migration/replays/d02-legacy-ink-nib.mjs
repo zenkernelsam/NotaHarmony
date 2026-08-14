@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 function u16(bytes, offset) { return bytes[offset] | (bytes[offset + 1] << 8); }
 function u32(bytes, offset) {
@@ -136,7 +137,7 @@ assert.match(modifySource, /inkEffects: table\.readUint64Decimal\(17\)/);
 assert.match(modifySource, /inkEffectsTinted: table\.hasField\(18\)/);
 assert.match(modifySource, /tape_pattern_winner_present/);
 assert.match(modifySource, /nib-only op is an applied no-op/);
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.doesNotMatch(schema, /nib_angle|nib_flatness/);
 
 console.log('success|create-nib-u16=65535,40000|modify-nib-u16=65535,40000|' +

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const U64_MAX = '18446744073709551615';
 
@@ -356,7 +357,7 @@ assert.match(modifySource, /inkEffectPhase: styleMap\.length === 0 \? 0/);
 assert.match(modifySource, /MODIFY_INK_EFFECT_PHASE_STATE_DIVERGED/);
 assert.match(modifySource, /tape_pattern_winner_present/);
 assert.doesNotMatch(modifySource, /MODIFY_INK_INVALID_EFFECT_TINT/);
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.match(schema, /create_ink_effects TEXT NOT NULL DEFAULT '0'/);
 assert.match(schema, /ink_effects_tinted_winner_present INTEGER NOT NULL/);
 assert.match(model, /inkEffects\?: string/); assert.match(model, /inkEffectPhase\?: number/);

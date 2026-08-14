@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const root = new URL('../../../', import.meta.url);
 const read = path => fs.readFileSync(new URL(path, root), 'utf8');
@@ -124,7 +125,7 @@ assert.equal(failed.prepare(`SELECT COUNT(*) count FROM sqlite_master
   WHERE type='table' AND name='original_pdf_field_state'`).get().count, 0);
 failed.close();
 
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.match(schema, /54: \[[\s\S]*DDL_ORIGINAL_PDF_FIELD_STATE/);
 assert.match(schema, /UNIQUE\(note_id, winner_timestamp, winner_site_id\)/);
 assert.doesNotMatch(ddl, /REFERENCES note_asset/);

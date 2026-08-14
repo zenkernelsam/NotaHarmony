@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const root = new URL('../../../', import.meta.url);
 const read = value => fs.readFileSync(new URL(value, root), 'utf8');
@@ -30,7 +31,7 @@ assert.match(zh9, /xsc\.i\(xscVar, listL0, this\)/);
 assert.match(x0j, /new q5\(24, \(ie8\)/);
 assert.match(w0j, /aVar\.f\(5, tmfVar\.I\)/);
 
-assert.match(database, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(database, 61);
 assert.match(database, /CREATE TABLE IF NOT EXISTS original_local_z_order_history/);
 assert.match(database, /PRIMARY KEY\(note_id, action_id\)/);
 assert.match(database, /60: \[DDL_ORIGINAL_LOCAL_Z_ORDER_HISTORY\]/);

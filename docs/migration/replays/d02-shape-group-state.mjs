@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const root = new URL('../../../', import.meta.url);
 const read = path => fs.readFileSync(new URL(path, root), 'utf8');
@@ -233,7 +234,7 @@ assert.equal(failed.prepare(`SELECT COUNT(*) count FROM sqlite_master WHERE type
     'original_group_state','original_group_modification')`).get().count, 0);
 failed.close();
 
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.match(shapeStateDdl, /register_winners TEXT NOT NULL DEFAULT '\[\]'/);
 assert.match(schema, /56: \[[\s\S]*DDL_ORIGINAL_SHAPE_STATE[\s\S]*DDL_ORIGINAL_GROUP_MODIFICATION/);
 assert.match(manager, /DDL_ORIGINAL_SHAPE_STATE[\s\S]*DDL_ORIGINAL_GROUP_MODIFICATION/);

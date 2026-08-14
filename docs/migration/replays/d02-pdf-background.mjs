@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const root = new URL('../../../', import.meta.url);
 const read = (path) => fs.readFileSync(new URL(path, root), 'utf8');
@@ -173,7 +174,7 @@ assert.equal(failed.prepare(`SELECT COUNT(*) count FROM pragma_table_info('page_
   WHERE name='original_page_in_asset'`).get().count, 0);
 failed.close();
 
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.match(schema, /51: \[/);
 assert.match(schema, /DDL_ORIGINAL_PAGE_IN_ASSET_WINNER/);
 assert.match(decoder, /decodeOriginalPdfAsset/);
@@ -189,7 +190,8 @@ assert.doesNotMatch(bundle, /PDF_BACKGROUND_UNSUPPORTED/);
 assert.match(assetStore, /legacyHash/);
 assert.match(assetStore, /OriginalAssetReferenceConflict\.LOCAL_PATH/);
 assert.match(loader, /from '@kit\.PDFKit'/);
-assert.match(loader, /document\.getPageCount\(\) !== pdf\.totalPageCount/);
+assert.match(loader, /const pageCount: number = document\.getPageCount\(\)/);
+assert.match(loader, /!Number\.isSafeInteger\(pageCount\)[\s\S]*pageCount !== pdf\.totalPageCount[\s\S]*pdf\.pageInAsset >= pageCount/);
 assert.match(loader, /getPage\(pdf\.pageInAsset\)\.getPagePixelMap\(\)/);
 assert.match(loader, /document\.releaseDocument\(\)/);
 assert.match(renderer, /drawPdfBackground/);

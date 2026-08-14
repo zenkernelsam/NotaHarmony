@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 class Builder {
   constructor() { this.bytes = new Uint8Array(512); this.cursor = 4; }
@@ -261,7 +262,7 @@ assert.doesNotMatch(source, /CREATE_BLOCK_TEXT_PAPER_UNSUPPORTED/);
 assert.doesNotMatch(source, /CREATE_BLOCK_RESIZE_TO_FIT_UNSUPPORTED/);
 assert.match(source, /PageElementKind\.IMAGE[\s\S]*PageElementKind\.TEXT/);
 assert.match(dispatcher, /OriginalCreateBlockOperationApplier/);
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.match(schema, /DDL_ORIGINAL_BLOCK_STATE/);
 assert.match(schema, /40: \['ALTER TABLE original_block_state ADD COLUMN create_text_paper TEXT'\]/);
 

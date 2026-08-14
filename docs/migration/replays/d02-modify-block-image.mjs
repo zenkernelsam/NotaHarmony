@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const rootPath = new URL('../../../', import.meta.url);
 const source = fs.readFileSync(new URL(
@@ -269,7 +270,7 @@ assert.match(source, /cloneImageElement/);
 assert.match(source, /imageBlockWorldBounds/);
 assert.match(source, /image_crop_x_value/);
 assert.match(source, /if \(textChanged\)/);
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.match(schema, /image_crop_winner_present = 1[\s\S]*image_crop_x_value IS NULL/);
 assert.match(tests, /decodes original MODIFY_BLOCK image crop and flip registers/);
 

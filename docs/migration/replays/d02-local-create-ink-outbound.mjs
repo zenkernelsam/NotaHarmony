@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const root = new URL('../../../', import.meta.url);
 const read = value => fs.readFileSync(new URL(value, root), 'utf8');
@@ -49,7 +50,7 @@ assert.match(canvas, /return this\.refreshOriginalInkReservation\(generation, pa
 assert.match(session, /originalCreate: OriginalInkCreateMetadata \| null/);
 assert.match(visibility, /encodeOriginalEntityVisibility/);
 assert.match(history, /OpType\.ORIGINAL_CREATE_INK/);
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.match(schema, /original_local_ink_authoring_guard/);
 assert.match(tests, /round-trips a BITS_32 cubic local pen through dm2/);
 

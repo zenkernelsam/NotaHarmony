@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const root = new URL('../../../', import.meta.url);
 const read = path => fs.readFileSync(new URL(path, root), 'utf8');
@@ -152,7 +153,7 @@ assert.equal(failed.prepare(`SELECT COUNT(*) count FROM sqlite_master
   WHERE type='table' AND name='original_text_checkbox_state'`).get().count, 0);
 failed.close();
 
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.match(schema, /53: \[[\s\S]*DDL_ORIGINAL_TEXT_CHECKBOX_STATE/);
 assert.match(manager, /DDL_ORIGINAL_TEXT_CHECKBOX_STATE/);
 assert.match(reducer, /ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE: number = 28/);

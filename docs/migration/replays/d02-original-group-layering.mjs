@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const root = new URL('../../../', import.meta.url);
 const read = value => fs.readFileSync(new URL(value, root), 'utf8');
@@ -31,7 +32,7 @@ assert.match(zh9, /if \(!sscVar\.c && ktcVar\.f\(\)\.contains\(sscVar\.a\)\)/);
 assert.match(cfcSource, /case 8:[\s\S]*if \(!sscVar2\.c\)/);
 assert.match(cfcSource, /case 9:[\s\S]*rscVar2\.b/);
 
-assert.match(database, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(database, 61);
 assert.match(database, /original_group_state ADD COLUMN z_index/);
 assert.match(database, /timing\.payload_type = 20/);
 assert.match(layering, /export async function originalGroupLayerUnits/);

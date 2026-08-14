@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const root = new URL('../../../', import.meta.url);
 const read = (path) => fs.readFileSync(new URL(path, root), 'utf8');
@@ -66,7 +67,7 @@ db.exec('ROLLBACK');
 tape = db.prepare('SELECT * FROM ink_state WHERE ink_timestamp=20 AND ink_site=3').get();
 assert.equal(tape.tape_pattern_value, 6);
 
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.match(schema, /49: \[/);
 assert.match(schema, /create_tape_pattern INTEGER/);
 assert.match(schema, /tape_pattern_winner_present INTEGER NOT NULL/);

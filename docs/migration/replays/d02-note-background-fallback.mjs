@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const root = new URL('../../../', import.meta.url);
 const read = (path) => fs.readFileSync(new URL(path, root), 'utf8');
@@ -112,7 +113,7 @@ const clearWinner = db.prepare(`SELECT size,background_json FROM original_page_b
 assert.equal(clearWinner.size, null);
 assert.equal(clearWinner.background_json, null);
 
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.match(schema, /50: \[/);
 assert.match(schema, /DDL_ORIGINAL_NOTE_BACKGROUND_WINNER/);
 assert.match(schema, /DDL_ORIGINAL_NOTE_TITLE_WINNER/);

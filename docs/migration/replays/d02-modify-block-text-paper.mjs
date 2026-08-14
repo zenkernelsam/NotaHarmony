@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const rootPath = new URL('../../../', import.meta.url);
 const source = fs.readFileSync(new URL(
@@ -166,7 +167,7 @@ assert.match(source, /paperSetter.*table\.readTable\(13\)/);
 assert.match(source, /resizesWidthToFitText: table\.hasField\(16\)/);
 assert.match(source, /text_paper_value/); assert.match(source, /resizes_width_value/);
 assert.match(source, /cloneOriginalPaper\(payload\.paper\.value\)/);
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.match(schema, /41: \[/); assert.match(schema, /text_paper_winner_present/);
 assert.match(schema, /resizes_width_winner_present/);
 

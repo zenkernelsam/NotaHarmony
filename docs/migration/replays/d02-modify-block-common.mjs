@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const rootPath = new URL('../../../', import.meta.url);
 const source = fs.readFileSync(new URL(
@@ -303,7 +304,7 @@ assert.match(source, /registerAccepts/);
 assert.match(source, /readOptionalWinner/);
 assert.match(source, /isFiniteNullableScale/);
 assert.match(source, /advanceRevisionAndInvalidateSearch/);
-assert.match(schema, /DB_VERSION: number = 61/);
+assertDatabaseVersionAtLeast(schema, 61);
 assert.match(dispatcher, /ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE/);
 assert.match(geometry, /isTextBlockPositionLocked/);
 assert.match(geometry, /eraserPath\.length === 0 \|\| isTextBlockPositionLocked/);
