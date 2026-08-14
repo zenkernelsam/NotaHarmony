@@ -1,6 +1,6 @@
 import { AsyncMutex } from './AsyncMutex';
+import { databaseWriteMutex } from './DatabaseWriteMutex';
 
-// Repository mutations that change note/folder metadata share one writer gate across instances.
-// When an operation also needs assetMutationMutex, acquire the asset mutex first and this mutex
-// second. Metadata-only operations must not retain this mutex while doing post-commit I/O.
-export const libraryMetadataMutationMutex: AsyncMutex = new AsyncMutex();
+// Compatibility name for note/folder metadata mutations. When an operation also needs
+// assetMutationMutex, acquire the asset mutex first and this shared database writer second.
+export const libraryMetadataMutationMutex: AsyncMutex = databaseWriteMutex;

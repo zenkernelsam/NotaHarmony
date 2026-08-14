@@ -1,11 +1,10 @@
 import { relationalStore } from '@kit.ArkData';
 import { EditorToolboxState, ToolState } from '../core/model/BrushTypes';
 import { ToolRepository } from './RepositoryInterfaces';
-import { AsyncMutex } from './AsyncMutex';
 import { DatabaseManager } from './DatabaseManager';
+import { databaseWriteMutex } from './DatabaseWriteMutex';
 
 export class ToolRepositoryImpl implements ToolRepository {
-  private static writeMutex: AsyncMutex = new AsyncMutex();
   private db: DatabaseManager;
 
   constructor(db: DatabaseManager) {
@@ -51,7 +50,7 @@ export class ToolRepositoryImpl implements ToolRepository {
   }
 
   async saveToolState(state: ToolState): Promise<void> {
-    await ToolRepositoryImpl.writeMutex.runExclusive(async (): Promise<void> => {
+    await databaseWriteMutex.runExclusive(async (): Promise<void> => {
       try {
         await this.db.getStore().insert('tool_state', this.toBucket(state),
           relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
@@ -71,7 +70,7 @@ export class ToolRepositoryImpl implements ToolRepository {
         throw new Error('saveToolStates requires one toolbox owner per batch');
       }
     }
-    await ToolRepositoryImpl.writeMutex.runExclusive(async (): Promise<void> => {
+    await databaseWriteMutex.runExclusive(async (): Promise<void> => {
       const store: relationalStore.RdbStore = this.db.getStore();
       await store.beginTransaction();
       try {
@@ -93,7 +92,7 @@ export class ToolRepositoryImpl implements ToolRepository {
   }
 
   async deleteToolState(toolId: string): Promise<void> {
-    await ToolRepositoryImpl.writeMutex.runExclusive(async (): Promise<void> => {
+    await databaseWriteMutex.runExclusive(async (): Promise<void> => {
       try {
         const predicates = new relationalStore.RdbPredicates('tool_state');
         predicates.equalTo('tool_id', toolId);
@@ -128,7 +127,7 @@ export class ToolRepositoryImpl implements ToolRepository {
   }
 
   async saveToolboxState(state: EditorToolboxState): Promise<void> {
-    await ToolRepositoryImpl.writeMutex.runExclusive(async (): Promise<void> => {
+    await databaseWriteMutex.runExclusive(async (): Promise<void> => {
       const bucket: relationalStore.ValuesBucket = {
         'owner_id': state.ownerId,
         'most_recent_tool_id': state.mostRecentlySelectedToolId,

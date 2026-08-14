@@ -31,7 +31,7 @@ const moveNote = section(page, 'private async moveNote(', 'private publishCommit
 
 const checks = [
   ['shared metadata mutex is module-level', mutex.includes(
-    'export const libraryMetadataMutationMutex: AsyncMutex = new AsyncMutex()')],
+    'export const libraryMetadataMutationMutex: AsyncMutex = databaseWriteMutex')],
   ['note create paths share the metadata writer', createNote.includes(
     'libraryMetadataMutationMutex.runExclusive') && createWithMeta.includes(
     'libraryMetadataMutationMutex.runExclusive')],

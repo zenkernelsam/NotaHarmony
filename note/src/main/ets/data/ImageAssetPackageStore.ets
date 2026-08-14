@@ -12,6 +12,7 @@ import {
 import { assetAvailabilityHub } from './AssetAvailabilityHub';
 import { sha512Hex } from './AssetDigest';
 import { DatabaseManager } from './DatabaseManager';
+import { databaseWriteMutex } from './DatabaseWriteMutex';
 
 export interface OriginalImageAssetArrival {
   assetHashBits: string[];
@@ -152,6 +153,16 @@ async function writeOriginalImageAssetBytes(database: DatabaseManager, arrival: 
   }
   const legacyHash: string = originalAssetHashKey(arrival.assetHashBits);
   return await assetMutationMutex.runExclusive(async (): Promise<AssetWriteResult> => {
+    return await databaseWriteMutex.runExclusive(async (): Promise<AssetWriteResult> => {
+      return writeOriginalImageAssetBytesLocked(
+        database, arrival, noteId, allowCreate, storageHash, legacyHash);
+    });
+  });
+}
+
+async function writeOriginalImageAssetBytesLocked(database: DatabaseManager,
+  arrival: OriginalImageAssetArrival, noteId: string | null, allowCreate: boolean,
+  storageHash: string, legacyHash: string): Promise<AssetWriteResult> {
     const store: relationalStore.RdbStore = database.getStore();
     const finalDirectory: string = database.getFilesDir() + '/assets/final';
     const pendingDirectory: string = database.getFilesDir() + '/assets/pending';
@@ -260,7 +271,6 @@ async function writeOriginalImageAssetBytes(database: DatabaseManager, arrival: 
       }
       throw new Error(`storing original image asset failed: ${JSON.stringify(error)}`);
     }
-  });
 }
 
 function validateArrivalMetadata(arrival: OriginalImageAssetArrival): void {

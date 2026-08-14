@@ -5,6 +5,7 @@ import {
 } from '../core/model/NoteTypes';
 import { NoteRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
+import { databaseWriteMutex } from './DatabaseWriteMutex';
 import { assetMutationMutex, parseAssetNoteIds, unlinkAssetFile } from './AssetRepositoryImpl';
 import { assetAvailabilityHub } from './AssetAvailabilityHub';
 import { libraryMetadataMutationMutex } from './LibraryMetadataMutationMutex';
@@ -310,19 +311,22 @@ export class NoteRepositoryImpl implements NoteRepository {
     if (!isCurrentViewCoordinateModel(state.coordinateModelVersion)) {
       throw new Error(`saveViewState coordinate model mismatch: ${state.coordinateModelVersion}`);
     }
-    const store: relationalStore.RdbStore = this.db.getStore();
-    const bucket: relationalStore.ValuesBucket = {
-      'note_id': state.noteId,
-      'zoom': state.zoom,
-      'scroll_offset_x': state.scrollOffsetX,
-      'scroll_offset_y': state.scrollOffsetY,
-      'coordinate_model_version': CURRENT_VIEW_COORDINATE_MODEL_VERSION,
-    };
-    try {
-      await store.insert('note_state', bucket, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
-    } catch (e) {
-      throw new Error(`saveViewState failed: ${JSON.stringify(e)}`);
-    }
+    await databaseWriteMutex.runExclusive(async (): Promise<void> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      const bucket: relationalStore.ValuesBucket = {
+        'note_id': state.noteId,
+        'zoom': state.zoom,
+        'scroll_offset_x': state.scrollOffsetX,
+        'scroll_offset_y': state.scrollOffsetY,
+        'coordinate_model_version': CURRENT_VIEW_COORDINATE_MODEL_VERSION,
+      };
+      try {
+        await store.insert('note_state', bucket,
+          relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+      } catch (e) {
+        throw new Error(`saveViewState failed: ${JSON.stringify(e)}`);
+      }
+    });
   }
 
   private rowToNote(resultSet: relationalStore.ResultSet): NoteMeta {

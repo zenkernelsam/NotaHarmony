@@ -1,4 +1,6 @@
 import { AsyncMutex } from './AsyncMutex';
+import { databaseWriteMutex } from './DatabaseWriteMutex';
 
-// Serializes editor snapshot transactions with persistent-history checkpoint replacement.
-export const editorPersistenceMutex: AsyncMutex = new AsyncMutex();
+// Compatibility name for editor callers. DatabaseManager exposes one RdbStore, so editor writes
+// share the same writer with library metadata, assets and tool state.
+export const editorPersistenceMutex: AsyncMutex = databaseWriteMutex;
