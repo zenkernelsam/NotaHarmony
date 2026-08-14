@@ -131,6 +131,53 @@ export class LibraryViewModel {
     });
   }
 
+  publishCommittedNoteMove(noteId: string, folderId: string | null): void {
+    this.mutationGeneration++;
+    const next: NoteMeta[] = [];
+    for (const note of this.notes) {
+      if (note.id !== noteId) {
+        next.push(note);
+        continue;
+      }
+      if (this.currentFolderId === null || this.currentFolderId === folderId) {
+        next.push(this.noteWithFolder(note, folderId));
+      }
+    }
+    this.notes = next;
+    this.applySort();
+  }
+
+  publishCommittedFolderDelete(deletedFolderIds: string[], movedNoteIds: string[],
+    committedNotes: NoteMeta[], query: string): void {
+    this.mutationGeneration++;
+    const deleted: Set<string> = new Set<string>(deletedFolderIds);
+    const moved: Set<string> = new Set<string>(movedNoteIds);
+    if (this.currentFolderId !== null && deleted.has(this.currentFolderId)) {
+      this.currentFolderId = null;
+    }
+    if (this.currentFolderId === null && query.trim().length === 0) {
+      this.notes = committedNotes.slice();
+      this.applySort();
+      return;
+    }
+    const next: NoteMeta[] = [];
+    for (const note of this.notes) {
+      let candidate: NoteMeta = note;
+      if (moved.has(note.id)) {
+        candidate = this.noteWithFolder(note, null);
+      } else if (note.folderId !== null && deleted.has(note.folderId)) {
+        // The committed transaction did not move this stale card, so it was changed or deleted
+        // by an earlier serialized mutation and must not survive this local projection.
+        continue;
+      }
+      if (this.currentFolderId === null || candidate.folderId === this.currentFolderId) {
+        next.push(candidate);
+      }
+    }
+    this.notes = next;
+    this.applySort();
+  }
+
   private removeVisibleNote(noteId: string): void {
     this.mutationGeneration++;
     this.notes = this.notes.filter((note: NoteMeta) => note.id !== noteId);
@@ -139,6 +186,19 @@ export class LibraryViewModel {
   private createdNoteMatchesQuery(note: NoteMeta, query: string): boolean {
     const foldedQuery: string = query.trim().toLowerCase();
     return foldedQuery.length === 0 || note.title.toLowerCase().includes(foldedQuery);
+  }
+
+  private noteWithFolder(note: NoteMeta, folderId: string | null): NoteMeta {
+    return {
+      id: note.id,
+      title: note.title,
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt,
+      favorite: note.favorite,
+      lastOpened: note.lastOpened,
+      folderId: folderId,
+      hasRecordings: note.hasRecordings,
+    };
   }
 
   // Search, folder and sort are resolved into one observable list by loadNotes().

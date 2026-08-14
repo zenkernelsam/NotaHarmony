@@ -217,6 +217,73 @@ export default function libraryViewModelTest() {
       expect(viewModel.notes[0].id).assertEqual('created-1');
     });
 
+    it('keeps a moved note visible in all notes and publishes its committed folder', 0, () => {
+      const repository = new FakeNoteRepository();
+      const viewModel = new LibraryViewModel(repository);
+      viewModel.notes = [makeNote('existing', 'folder-a')];
+      viewModel.publishCommittedNoteMove('existing', 'folder-b');
+      expect(viewModel.notes.length).assertEqual(1);
+      expect(viewModel.notes[0].folderId).assertEqual('folder-b');
+    });
+
+    it('removes a moved note from the selected source folder', 0, () => {
+      const repository = new FakeNoteRepository();
+      const viewModel = new LibraryViewModel(repository);
+      viewModel.currentFolderId = 'folder-a';
+      viewModel.notes = [makeNote('existing', 'folder-a')];
+      viewModel.publishCommittedNoteMove('existing', 'folder-b');
+      expect(viewModel.notes.length).assertEqual(0);
+    });
+
+    it('projects a committed subtree delete before the authoritative reload', 0, () => {
+      const repository = new FakeNoteRepository();
+      const viewModel = new LibraryViewModel(repository);
+      viewModel.currentFolderId = 'child';
+      viewModel.notes = [makeNote('moved', 'child'), makeNote('stale', 'child')];
+      viewModel.publishCommittedFolderDelete(
+        ['parent', 'child'], ['moved'], [makeNote('moved', null)], 'query');
+      expect(viewModel.currentFolderId === null).assertTrue();
+      expect(viewModel.notes.length).assertEqual(1);
+      expect(viewModel.notes[0].id).assertEqual('moved');
+      expect(viewModel.notes[0].folderId === null).assertTrue();
+    });
+
+    it('publishes the complete all-notes snapshot when the selected folder is deleted', 0, () => {
+      const repository = new FakeNoteRepository();
+      const viewModel = new LibraryViewModel(repository);
+      viewModel.currentFolderId = 'child';
+      viewModel.notes = [makeNote('moved', 'child')];
+      viewModel.publishCommittedFolderDelete(['child'], ['moved'],
+        [makeNote('moved', null), makeNote('other', 'other-folder')], '');
+      expect(viewModel.currentFolderId === null).assertTrue();
+      expect(viewModel.notes.length).assertEqual(2);
+    });
+
+    it('retries an in-flight read made stale by a committed folder move', 0, async () => {
+      const repository = new FakeNoteRepository();
+      repository.notes = [makeNote('existing', 'folder-a')];
+      repository.snapshotBeforeGate = true;
+      let releaseRead: () => void = (): void => {};
+      let notifyReadStarted: () => void = (): void => {};
+      repository.readGate = new Promise<void>((resolve: () => void) => {
+        releaseRead = resolve;
+      });
+      const readStarted: Promise<void> = new Promise<void>((resolve: () => void) => {
+        notifyReadStarted = resolve;
+      });
+      repository.readStarted = notifyReadStarted;
+      const viewModel = new LibraryViewModel(repository);
+      const load: Promise<void> = viewModel.loadNotes('');
+      await readStarted;
+      repository.notes = [makeNote('existing', 'folder-b')];
+      viewModel.notes = [makeNote('existing', 'folder-a')];
+      viewModel.publishCommittedNoteMove('existing', 'folder-b');
+      releaseRead();
+      await load;
+      expect(viewModel.notes.length).assertEqual(1);
+      expect(viewModel.notes[0].folderId).assertEqual('folder-b');
+    });
+
     it('loads search results through the repository query state', 0, async () => {
       const repository = new FakeNoteRepository();
       repository.notes = [makeNote('Alpha', 'folder-a'), makeNote('Beta', 'folder-a'),

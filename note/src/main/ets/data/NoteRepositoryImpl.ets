@@ -7,6 +7,7 @@ import { NoteRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { assetMutationMutex, parseAssetNoteIds, unlinkAssetFile } from './AssetRepositoryImpl';
 import { assetAvailabilityHub } from './AssetAvailabilityHub';
+import { libraryMetadataMutationMutex } from './LibraryMetadataMutationMutex';
 import { escapeSearchLike, foldSearchText } from './SearchText';
 import { SearchItemType } from './SearchItemType';
 import {
@@ -28,42 +29,46 @@ export class NoteRepositoryImpl implements NoteRepository {
   }
 
   async createNote(title: string, folderId: string | null): Promise<NoteMeta> {
-    const store: relationalStore.RdbStore = this.db.getStore();
-    const now: number = Date.now();
-    const id: string = this.generateId();
-    const note: NoteMeta = this.buildNote(id, title, now, now, folderId, false);
-    await store.beginTransaction();
-    try {
-      await store.insert('note_meta', this.noteBucket(note));
-      // Original 1.0.3 creates an implicit Letter page when nz9 background is absent.
-      await persistOriginalCreatePage(store, note.id, null);
-      await this.upsertTitleSearchItem(store, note.id, note.title);
-      await store.commit();
-    } catch (e) {
-      await store.rollBack();
-      throw new Error(`createNote failed: ${JSON.stringify(e)}`);
-    }
-    return note;
+    return libraryMetadataMutationMutex.runExclusive(async (): Promise<NoteMeta> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      const now: number = Date.now();
+      const id: string = this.generateId();
+      const note: NoteMeta = this.buildNote(id, title, now, now, folderId, false);
+      await store.beginTransaction();
+      try {
+        await store.insert('note_meta', this.noteBucket(note));
+        // Original 1.0.3 creates an implicit Letter page when nz9 background is absent.
+        await persistOriginalCreatePage(store, note.id, null);
+        await this.upsertTitleSearchItem(store, note.id, note.title);
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`createNote failed: ${JSON.stringify(e)}`);
+      }
+      return note;
+    });
   }
 
   // Import path: restore metadata without creating the normal default blank page.
   async createNoteWithMeta(id: string, title: string, createdAt: number, updatedAt: number,
     folderId: string | null, hasRecordings?: boolean, legacyId?: string | null): Promise<NoteMeta> {
-    const note: NoteMeta = this.buildNote(id, title, createdAt, updatedAt, folderId,
-      hasRecordings === true);
-    const store: relationalStore.RdbStore = this.db.getStore();
-    await store.beginTransaction();
-    try {
-      await store.insert('note_meta', this.noteBucket(note));
-      await initializeImportedNoteSyncMetadata(
-        store, note.id, legacyId === undefined ? null : legacyId, createdAt, updatedAt);
-      await this.upsertTitleSearchItem(store, note.id, note.title);
-      await store.commit();
-    } catch (e) {
-      await store.rollBack();
-      throw new Error(`createNoteWithMeta failed: ${JSON.stringify(e)}`);
-    }
-    return note;
+    return libraryMetadataMutationMutex.runExclusive(async (): Promise<NoteMeta> => {
+      const note: NoteMeta = this.buildNote(id, title, createdAt, updatedAt, folderId,
+        hasRecordings === true);
+      const store: relationalStore.RdbStore = this.db.getStore();
+      await store.beginTransaction();
+      try {
+        await store.insert('note_meta', this.noteBucket(note));
+        await initializeImportedNoteSyncMetadata(
+          store, note.id, legacyId === undefined ? null : legacyId, createdAt, updatedAt);
+        await this.upsertTitleSearchItem(store, note.id, note.title);
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`createNoteWithMeta failed: ${JSON.stringify(e)}`);
+      }
+      return note;
+    });
   }
 
   async getNote(noteId: string): Promise<NoteMeta | null> {
@@ -162,108 +167,110 @@ export class NoteRepositoryImpl implements NoteRepository {
   }
 
   async updateNote(note: NoteMeta): Promise<void> {
-    const store: relationalStore.RdbStore = this.db.getStore();
-    const bucket: relationalStore.ValuesBucket = {
-      'title': note.title,
-      'updated_at': Date.now(),
-      'favorite': note.favorite ? 1 : 0,
-      'last_opened': note.lastOpened,
-      'folder_id': note.folderId,
-      'has_recordings': note.hasRecordings ? 1 : 0,
-    };
-    const predicates = new relationalStore.RdbPredicates('note_meta');
-    predicates.equalTo('id', note.id);
-    await store.beginTransaction();
-    try {
-      const changed: number = await store.update(bucket, predicates);
-      if (changed === 0) {
-        throw new Error('note does not exist');
-      }
-      await this.upsertTitleSearchItem(store, note.id, note.title);
-      await store.commit();
-    } catch (e) {
-      await store.rollBack();
-      throw new Error(`updateNote failed: ${JSON.stringify(e)}`);
-    }
-  }
-
-  async deleteNote(noteId: string): Promise<void> {
-    const store: relationalStore.RdbStore = this.db.getStore();
-    await assetMutationMutex.runExclusive(async (): Promise<void> => {
-      const filesToDelete: string[] = [];
+    await libraryMetadataMutationMutex.runExclusive(async (): Promise<void> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      // Original metadata edits are field patches. The current caller edits only the title;
+      // replaying a previously read whole NoteMeta would undo a newer folder/recording mutation.
+      const bucket: relationalStore.ValuesBucket = {
+        'title': note.title,
+        'updated_at': Date.now(),
+      };
+      const predicates = new relationalStore.RdbPredicates('note_meta');
+      predicates.equalTo('id', note.id);
       await store.beginTransaction();
       try {
-        const noteCheck = new relationalStore.RdbPredicates('note_meta');
-        noteCheck.equalTo('id', noteId);
-        const noteRows = await store.query(noteCheck, ['id']);
-        try {
-          if (!noteRows.goToFirstRow()) {
-            throw new Error('note does not exist');
-          }
-        } finally {
-          noteRows.close();
+        const changed: number = await store.update(bucket, predicates);
+        if (changed === 0) {
+          throw new Error('note does not exist');
         }
-        const assetReferences: NoteAssetReference[] = [];
-        const assetResultSet = await store.query(new relationalStore.RdbPredicates('note_asset'));
-        try {
-          while (assetResultSet.goToNextRow()) {
-            const noteIds: string[] = parseAssetNoteIds(
-              assetResultSet.getString(assetResultSet.getColumnIndex('note_ids')));
-            if (noteIds.indexOf(noteId) >= 0) {
-              const localPathColumn: number = assetResultSet.getColumnIndex('local_path');
-              assetReferences.push({
-                assetHash: assetResultSet.getString(assetResultSet.getColumnIndex('asset_hash')),
-                noteIds: noteIds,
-                localPath: assetResultSet.isColumnNull(localPathColumn) ? null :
-                  assetResultSet.getString(localPathColumn),
-              });
-            }
-          }
-        } finally {
-          assetResultSet.close();
-        }
-        for (let i: number = 0; i < assetReferences.length; i++) {
-          const reference: NoteAssetReference = assetReferences[i];
-          const remainingNoteIds: string[] = [];
-          for (let j: number = 0; j < reference.noteIds.length; j++) {
-            if (reference.noteIds[j] !== noteId) {
-              remainingNoteIds.push(reference.noteIds[j]);
-            }
-          }
-          const assetPredicates = new relationalStore.RdbPredicates('note_asset');
-          assetPredicates.equalTo('asset_hash', reference.assetHash);
-          if (remainingNoteIds.length === 0) {
-            await store.delete(assetPredicates);
-            if (reference.localPath !== null && reference.localPath.length > 0) {
-              filesToDelete.push(reference.localPath);
-            }
-          } else {
-            const assetBucket: relationalStore.ValuesBucket = {
-              'note_ids': JSON.stringify(remainingNoteIds),
-            };
-            await store.update(assetBucket, assetPredicates);
-          }
-        }
-        const p2 = new relationalStore.RdbPredicates('page_info');
-        p2.equalTo('note_id', noteId);
-        await store.delete(p2);
-        const p3 = new relationalStore.RdbPredicates('page_element_snapshot');
-        p3.equalTo('note_id', noteId);
-        await store.delete(p3);
-        const p4 = new relationalStore.RdbPredicates('note_state');
-        p4.equalTo('note_id', noteId);
-        await store.delete(p4);
-        const p1 = new relationalStore.RdbPredicates('note_meta');
-        p1.equalTo('id', noteId);
-        const deleted: number = await store.delete(p1);
-        if (deleted !== 1) {
-          throw new Error(`expected to delete one note, deleted ${deleted}`);
-        }
+        await this.upsertTitleSearchItem(store, note.id, note.title);
         await store.commit();
       } catch (e) {
         await store.rollBack();
-        throw new Error(`deleteNote failed: ${JSON.stringify(e)}`);
+        throw new Error(`updateNote failed: ${JSON.stringify(e)}`);
       }
+    });
+  }
+
+  async deleteNote(noteId: string): Promise<void> {
+    await assetMutationMutex.runExclusive(async (): Promise<void> => {
+      const filesToDelete: string[] = [];
+      await libraryMetadataMutationMutex.runExclusive(async (): Promise<void> => {
+        const store: relationalStore.RdbStore = this.db.getStore();
+        await store.beginTransaction();
+        try {
+          const noteCheck = new relationalStore.RdbPredicates('note_meta');
+          noteCheck.equalTo('id', noteId);
+          const noteRows = await store.query(noteCheck, ['id']);
+          try {
+            if (!noteRows.goToFirstRow()) {
+              throw new Error('note does not exist');
+            }
+          } finally {
+            noteRows.close();
+          }
+          const assetReferences: NoteAssetReference[] = [];
+          const assetResultSet = await store.query(new relationalStore.RdbPredicates('note_asset'));
+          try {
+            while (assetResultSet.goToNextRow()) {
+              const noteIds: string[] = parseAssetNoteIds(
+                assetResultSet.getString(assetResultSet.getColumnIndex('note_ids')));
+              if (noteIds.indexOf(noteId) >= 0) {
+                const localPathColumn: number = assetResultSet.getColumnIndex('local_path');
+                assetReferences.push({
+                  assetHash: assetResultSet.getString(assetResultSet.getColumnIndex('asset_hash')),
+                  noteIds: noteIds,
+                  localPath: assetResultSet.isColumnNull(localPathColumn) ? null :
+                    assetResultSet.getString(localPathColumn),
+                });
+              }
+            }
+          } finally {
+            assetResultSet.close();
+          }
+          for (let i: number = 0; i < assetReferences.length; i++) {
+            const reference: NoteAssetReference = assetReferences[i];
+            const remainingNoteIds: string[] = [];
+            for (let j: number = 0; j < reference.noteIds.length; j++) {
+              if (reference.noteIds[j] !== noteId) {
+                remainingNoteIds.push(reference.noteIds[j]);
+              }
+            }
+            const assetPredicates = new relationalStore.RdbPredicates('note_asset');
+            assetPredicates.equalTo('asset_hash', reference.assetHash);
+            if (remainingNoteIds.length === 0) {
+              await store.delete(assetPredicates);
+              if (reference.localPath !== null && reference.localPath.length > 0) {
+                filesToDelete.push(reference.localPath);
+              }
+            } else {
+              const assetBucket: relationalStore.ValuesBucket = {
+                'note_ids': JSON.stringify(remainingNoteIds),
+              };
+              await store.update(assetBucket, assetPredicates);
+            }
+          }
+          const p2 = new relationalStore.RdbPredicates('page_info');
+          p2.equalTo('note_id', noteId);
+          await store.delete(p2);
+          const p3 = new relationalStore.RdbPredicates('page_element_snapshot');
+          p3.equalTo('note_id', noteId);
+          await store.delete(p3);
+          const p4 = new relationalStore.RdbPredicates('note_state');
+          p4.equalTo('note_id', noteId);
+          await store.delete(p4);
+          const p1 = new relationalStore.RdbPredicates('note_meta');
+          p1.equalTo('id', noteId);
+          const deleted: number = await store.delete(p1);
+          if (deleted !== 1) {
+            throw new Error(`expected to delete one note, deleted ${deleted}`);
+          }
+          await store.commit();
+        } catch (e) {
+          await store.rollBack();
+          throw new Error(`deleteNote failed: ${JSON.stringify(e)}`);
+        }
+      });
       const filesRoot: string = this.db.getFilesDir();
       for (let i: number = 0; i < filesToDelete.length; i++) {
         unlinkAssetFile(filesToDelete[i], filesRoot);

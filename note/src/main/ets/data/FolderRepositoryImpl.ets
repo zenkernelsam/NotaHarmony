@@ -1,6 +1,7 @@
 import { relationalStore } from '@kit.ArkData';
-import { AsyncMutex } from './AsyncMutex';
+import { NoteMeta } from '../core/model/NoteTypes';
 import { DatabaseManager } from './DatabaseManager';
+import { libraryMetadataMutationMutex } from './LibraryMetadataMutationMutex';
 
 export const MAX_FOLDER_DEPTH: number = 6;
 
@@ -10,6 +11,25 @@ export interface NoteFolder {
   createdAt: number;
   parentId: string | null;
   siblingOrder: number;
+}
+
+export interface FolderMutationResult {
+  folders: NoteFolder[];
+}
+
+export interface FolderCreateResult extends FolderMutationResult {
+  folder: NoteFolder;
+}
+
+export interface FolderDeleteResult extends FolderMutationResult {
+  deletedFolderIds: string[];
+  movedNoteIds: string[];
+  notes: NoteMeta[];
+}
+
+export interface NoteFolderMoveResult {
+  noteId: string;
+  folderId: string | null;
 }
 
 function sameParent(left: string | null, right: string | null): boolean {
@@ -123,15 +143,14 @@ export function validateFolderMove(folders: NoteFolder[], folderId: string,
 }
 
 export class FolderRepositoryImpl {
-  private static writeMutex: AsyncMutex = new AsyncMutex();
   private db: DatabaseManager;
 
   constructor(db: DatabaseManager) {
     this.db = db;
   }
 
-  async createFolder(name: string, parentId: string | null = null): Promise<NoteFolder> {
-    return FolderRepositoryImpl.writeMutex.runExclusive(async (): Promise<NoteFolder> => {
+  async createFolder(name: string, parentId: string | null = null): Promise<FolderCreateResult> {
+    return libraryMetadataMutationMutex.runExclusive(async (): Promise<FolderCreateResult> => {
       const store: relationalStore.RdbStore = this.db.getStore();
       await store.beginTransaction();
       try {
@@ -154,8 +173,13 @@ export class FolderRepositoryImpl {
         }
         const afterCreate: NoteFolder[] = await this.queryFolders(store);
         await this.normalizeSiblingOrders(store, afterCreate, parentId);
+        const committedFolders: NoteFolder[] = await this.queryFolders(store);
+        const committedFolder: NoteFolder | null = findFolder(committedFolders, folder.id);
+        if (committedFolder === null) {
+          throw new Error('created folder is missing from the committed snapshot');
+        }
         await store.commit();
-        return folder;
+        return { folder: committedFolder, folders: committedFolders };
       } catch (e) {
         await store.rollBack();
         throw new Error(`createFolder failed: ${JSON.stringify(e)}`);
@@ -163,8 +187,8 @@ export class FolderRepositoryImpl {
     });
   }
 
-  async renameFolder(folderId: string, name: string): Promise<void> {
-    await FolderRepositoryImpl.writeMutex.runExclusive(async (): Promise<void> => {
+  async renameFolder(folderId: string, name: string): Promise<FolderMutationResult> {
+    return libraryMetadataMutationMutex.runExclusive(async (): Promise<FolderMutationResult> => {
       const store: relationalStore.RdbStore = this.db.getStore();
       await store.beginTransaction();
       try {
@@ -180,7 +204,9 @@ export class FolderRepositoryImpl {
         if (changed === 0) {
           throw new Error('folder does not exist');
         }
+        const committedFolders: NoteFolder[] = await this.queryFolders(store);
         await store.commit();
+        return { folders: committedFolders };
       } catch (e) {
         await store.rollBack();
         throw new Error(`renameFolder failed: ${JSON.stringify(e)}`);
@@ -188,8 +214,8 @@ export class FolderRepositoryImpl {
     });
   }
 
-  async moveFolder(folderId: string, newParentId: string | null): Promise<void> {
-    await FolderRepositoryImpl.writeMutex.runExclusive(async (): Promise<void> => {
+  async moveFolder(folderId: string, newParentId: string | null): Promise<FolderMutationResult> {
+    return libraryMetadataMutationMutex.runExclusive(async (): Promise<FolderMutationResult> => {
       const store: relationalStore.RdbStore = this.db.getStore();
       await store.beginTransaction();
       try {
@@ -215,7 +241,9 @@ export class FolderRepositoryImpl {
         if (!sameParent(oldParentId, newParentId)) {
           await this.normalizeSiblingOrders(store, afterMove, newParentId);
         }
+        const committedFolders: NoteFolder[] = await this.queryFolders(store);
         await store.commit();
+        return { folders: committedFolders };
       } catch (e) {
         await store.rollBack();
         throw new Error(`moveFolder failed: ${JSON.stringify(e)}`);
@@ -223,8 +251,8 @@ export class FolderRepositoryImpl {
     });
   }
 
-  async deleteFolder(folderId: string): Promise<void> {
-    await FolderRepositoryImpl.writeMutex.runExclusive(async (): Promise<void> => {
+  async deleteFolder(folderId: string): Promise<FolderDeleteResult> {
+    return libraryMetadataMutationMutex.runExclusive(async (): Promise<FolderDeleteResult> => {
       const store: relationalStore.RdbStore = this.db.getStore();
       await store.beginTransaction();
       try {
@@ -232,15 +260,17 @@ export class FolderRepositoryImpl {
         if (findFolder(folders, folderId) === null) {
           throw new Error('folder does not exist');
         }
+        const deletedFolders: NoteFolder[] = folders.filter((folder: NoteFolder): boolean =>
+          isFolderInSubtree(folders, folderId, folder.id));
+        const deletedFolderIds: string[] = deletedFolders.map(
+          (folder: NoteFolder): string => folder.id);
+        const movedNoteIds: string[] = await this.queryNoteIdsInFolders(store, deletedFolderIds);
         // Deleting a parent cascades through child folders at the DB level. Move every
         // note in the full subtree first so nested-folder notes are not deleted by FK cascade.
-        for (const folder of folders) {
-          if (!isFolderInSubtree(folders, folderId, folder.id)) {
-            continue;
-          }
+        for (const deletedFolderId of deletedFolderIds) {
           const noteBucket: relationalStore.ValuesBucket = { 'folder_id': null };
           const notePredicates = new relationalStore.RdbPredicates('note_meta');
-          notePredicates.equalTo('folder_id', folder.id);
+          notePredicates.equalTo('folder_id', deletedFolderId);
           await store.update(noteBucket, notePredicates);
         }
         const predicates = new relationalStore.RdbPredicates('folder');
@@ -251,24 +281,30 @@ export class FolderRepositoryImpl {
         }
         const remaining: NoteFolder[] = await this.queryFolders(store);
         const affectedParents: Array<string | null> = [];
-        for (const folder of folders) {
-          if (isFolderInSubtree(folders, folderId, folder.id)) {
-            let alreadyAdded: boolean = false;
-            for (const parent of affectedParents) {
-              if (sameParent(parent, folder.parentId)) {
-                alreadyAdded = true;
-                break;
-              }
+        for (const folder of deletedFolders) {
+          let alreadyAdded: boolean = false;
+          for (const parent of affectedParents) {
+            if (sameParent(parent, folder.parentId)) {
+              alreadyAdded = true;
+              break;
             }
-            if (!alreadyAdded) {
-              affectedParents.push(folder.parentId);
-            }
+          }
+          if (!alreadyAdded) {
+            affectedParents.push(folder.parentId);
           }
         }
         for (const parent of affectedParents) {
           await this.normalizeSiblingOrders(store, remaining, parent);
         }
+        const committedFolders: NoteFolder[] = await this.queryFolders(store);
+        const committedNotes: NoteMeta[] = await this.queryAllNotes(store);
         await store.commit();
+        return {
+          folders: committedFolders,
+          deletedFolderIds: deletedFolderIds,
+          movedNoteIds: movedNoteIds,
+          notes: committedNotes,
+        };
       } catch (e) {
         await store.rollBack();
         throw new Error(`deleteFolder failed: ${JSON.stringify(e)}`);
@@ -284,8 +320,8 @@ export class FolderRepositoryImpl {
     }
   }
 
-  async moveNoteToFolder(noteId: string, folderId: string | null): Promise<void> {
-    await FolderRepositoryImpl.writeMutex.runExclusive(async (): Promise<void> => {
+  async moveNoteToFolder(noteId: string, folderId: string | null): Promise<NoteFolderMoveResult> {
+    return libraryMetadataMutationMutex.runExclusive(async (): Promise<NoteFolderMoveResult> => {
       const store: relationalStore.RdbStore = this.db.getStore();
       await store.beginTransaction();
       try {
@@ -305,6 +341,7 @@ export class FolderRepositoryImpl {
           throw new Error('note does not exist');
         }
         await store.commit();
+        return { noteId: noteId, folderId: folderId };
       } catch (e) {
         await store.rollBack();
         throw new Error(`moveNoteToFolder failed: ${JSON.stringify(e)}`);
@@ -333,6 +370,50 @@ export class FolderRepositoryImpl {
       resultSet.close();
     }
     return folders;
+  }
+
+  private async queryNoteIdsInFolders(store: relationalStore.RdbStore,
+    folderIds: string[]): Promise<string[]> {
+    const resultSet = await store.query(new relationalStore.RdbPredicates('note_meta'),
+      ['id', 'folder_id']);
+    const noteIds: string[] = [];
+    try {
+      while (resultSet.goToNextRow()) {
+        const folderColumn: number = resultSet.getColumnIndex('folder_id');
+        if (!resultSet.isColumnNull(folderColumn) && folderIds.indexOf(
+          resultSet.getString(folderColumn)) >= 0) {
+          noteIds.push(resultSet.getString(resultSet.getColumnIndex('id')));
+        }
+      }
+    } finally {
+      resultSet.close();
+    }
+    return noteIds;
+  }
+
+  private async queryAllNotes(store: relationalStore.RdbStore): Promise<NoteMeta[]> {
+    const predicates = new relationalStore.RdbPredicates('note_meta');
+    predicates.orderByDesc('updated_at');
+    const resultSet = await store.query(predicates);
+    const notes: NoteMeta[] = [];
+    try {
+      while (resultSet.goToNextRow()) {
+        const folderColumn: number = resultSet.getColumnIndex('folder_id');
+        notes.push({
+          id: resultSet.getString(resultSet.getColumnIndex('id')),
+          title: resultSet.getString(resultSet.getColumnIndex('title')),
+          createdAt: resultSet.getLong(resultSet.getColumnIndex('created_at')),
+          updatedAt: resultSet.getLong(resultSet.getColumnIndex('updated_at')),
+          favorite: resultSet.getLong(resultSet.getColumnIndex('favorite')) !== 0,
+          lastOpened: resultSet.getLong(resultSet.getColumnIndex('last_opened')),
+          folderId: resultSet.isColumnNull(folderColumn) ? null : resultSet.getString(folderColumn),
+          hasRecordings: resultSet.getLong(resultSet.getColumnIndex('has_recordings')) !== 0,
+        });
+      }
+    } finally {
+      resultSet.close();
+    }
+    return notes;
   }
 
   private nextSiblingOrder(folders: NoteFolder[], parentId: string | null): number {

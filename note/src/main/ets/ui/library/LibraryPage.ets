@@ -10,7 +10,10 @@ import {
   AssetAvailabilityChange, assetAvailabilityHub,
 } from '../../data/AssetAvailabilityHub';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
-import { FolderRepositoryImpl, NoteFolder, isFolderInSubtree } from '../../data/FolderRepositoryImpl';
+import {
+  FolderCreateResult, FolderDeleteResult, FolderMutationResult, FolderRepositoryImpl,
+  NoteFolder, NoteFolderMoveResult, isFolderInSubtree,
+} from '../../data/FolderRepositoryImpl';
 import { FirstPageThumbnailState, StrokePersistence } from '../../data/StrokePersistence';
 import { AsyncMutex, MutexRelease } from '../../data/AsyncMutex';
 import { ThumbnailRenderer } from '../../rendering/ThumbnailRenderer';
@@ -64,6 +67,8 @@ struct LibraryPage {
   private folderRepo: FolderRepositoryImpl | null = null;
   @State folders: NoteFolder[] = [];
   @State currentFolderId: string | null = null;
+  private folderReadGeneration: number = 0;
+  private folderMutationGeneration: number = 0;
   @State folderDialogTitle: ResourceStr = $r('app.string.new_folder');
   @State folderDialogInitialText: string = '';
   @State folderDialogMode: number = 0;  // 0=新建 1=重命名
@@ -127,6 +132,9 @@ struct LibraryPage {
   // The ViewModel owns async operations; each successful result publishes a fresh @State notes snapshot.
   onPageShow(): void {
     const lifecycleGeneration: number = this.activatePage();
+    if (this.folderRepo !== null) {
+      this.reloadFoldersBestEffort(this.folderRepo, 'page show');
+    }
     if (this.viewModel !== null) {
       const vm: LibraryViewModel = this.viewModel;
       const renderer: ThumbnailRenderer = this.thumbRenderer;
@@ -383,15 +391,18 @@ struct LibraryPage {
     if (this.folderBusy) {
       return false;
     }
+    const repo: FolderRepositoryImpl = this.folderRepo;
     this.folderBusy = true;
+    let result: FolderMutationResult | null = null;
     try {
       if (this.folderDialogMode === 0) {
-        await this.folderRepo.createFolder(trimmed, this.folderDialogParentId);
+        const created: FolderCreateResult = await repo.createFolder(trimmed, this.folderDialogParentId);
+        result = created;
       } else if (this.folderDialogMode === 1) {
-        await this.folderRepo.renameFolder(this.folderDialogTargetId, trimmed);
+        result = await repo.renameFolder(this.folderDialogTargetId, trimmed);
+      } else {
+        throw new Error(`unsupported folder dialog mode: ${this.folderDialogMode}`);
       }
-      this.folders = await this.folderRepo.getAllFolders();
-      return true;
     } catch (e) {
       promptAction.showToast({ message: $r('app.string.folder_operation_failed') });
       console.error(`folder operation failed: ${JSON.stringify(e)}`);
@@ -399,6 +410,12 @@ struct LibraryPage {
     } finally {
       this.folderBusy = false;
     }
+    if (result === null) {
+      return false;
+    }
+    this.publishCommittedFolders(result.folders);
+    this.reloadFoldersBestEffort(repo, 'folder create/rename');
+    return true;
   }
 
   // 删除文件夹：内部笔记回根目录（不删笔记）
@@ -406,43 +423,54 @@ struct LibraryPage {
     if (this.folderRepo === null || this.viewModel === null || this.folderBusy) {
       return;
     }
+    const repo: FolderRepositoryImpl = this.folderRepo;
+    const vm: LibraryViewModel = this.viewModel;
     this.folderBusy = true;
+    let result: FolderDeleteResult | null = null;
     try {
-      const vm: LibraryViewModel = this.viewModel;
-      const selectedFolderId: string | null = this.currentFolderId;
-      const removesCurrent: boolean = selectedFolderId !== null &&
-        isFolderInSubtree(this.folders, folderId, selectedFolderId);
-      await this.folderRepo.deleteFolder(folderId);
-      this.folders = await this.folderRepo.getAllFolders();
-      if (removesCurrent) {
-        this.currentFolderId = null;
-        await vm.setFolder(null, this.searchText);
-      }
-      this.viewModel = vm;
-      this.notes = vm.getFilteredNotes().slice();
-      await this.refreshThumbnails();
+      result = await repo.deleteFolder(folderId);
     } catch (e) {
       promptAction.showToast({ message: $r('app.string.delete_folder_failed') });
       console.error(`delete folder failed: ${JSON.stringify(e)}`);
     } finally {
       this.folderBusy = false;
     }
+    if (result === null) {
+      return;
+    }
+    this.publishCommittedFolders(result.folders);
+    vm.publishCommittedFolderDelete(
+      result.deletedFolderIds, result.movedNoteIds, result.notes, this.searchText);
+    this.currentFolderId = vm.currentFolderId;
+    this.viewModel = vm;
+    this.notes = vm.getFilteredNotes().slice();
+    this.reloadFoldersBestEffort(repo, 'delete folder');
+    this.refreshThumbnails().catch((e: Error) => {
+      console.error(`delete folder thumbnail refresh failed: ${JSON.stringify(e)}`);
+    });
+    this.reloadVisibleNotesAfterMutation(vm, 'delete folder');
   }
 
   private async moveFolder(folderId: string, parentId: string | null): Promise<void> {
     if (this.folderRepo === null || this.folderBusy) {
       return;
     }
+    const repo: FolderRepositoryImpl = this.folderRepo;
     this.folderBusy = true;
+    let result: FolderMutationResult | null = null;
     try {
-      await this.folderRepo.moveFolder(folderId, parentId);
-      this.folders = await this.folderRepo.getAllFolders();
+      result = await repo.moveFolder(folderId, parentId);
     } catch (e) {
       promptAction.showToast({ message: $r('app.string.move_folder_failed') });
       console.error(`move folder failed: ${JSON.stringify(e)}`);
     } finally {
       this.folderBusy = false;
     }
+    if (result === null) {
+      return;
+    }
+    this.publishCommittedFolders(result.folders);
+    this.reloadFoldersBestEffort(repo, 'move folder');
   }
 
   // 移动笔记到文件夹（null=根目录）
@@ -450,20 +478,50 @@ struct LibraryPage {
     if (this.folderRepo === null || this.viewModel === null || this.folderBusy) {
       return;
     }
+    const repo: FolderRepositoryImpl = this.folderRepo;
+    const vm: LibraryViewModel = this.viewModel;
     this.folderBusy = true;
+    let result: NoteFolderMoveResult | null = null;
     try {
-      const vm: LibraryViewModel = this.viewModel;
-      await this.folderRepo.moveNoteToFolder(noteId, folderId);
-      await vm.loadNotes(this.searchText);
-      this.viewModel = vm;
-      this.notes = vm.getFilteredNotes().slice();
-      await this.refreshThumbnails();
+      result = await repo.moveNoteToFolder(noteId, folderId);
     } catch (e) {
       promptAction.showToast({ message: $r('app.string.move_note_failed') });
       console.error(`move note failed: ${JSON.stringify(e)}`);
     } finally {
       this.folderBusy = false;
     }
+    if (result === null) {
+      return;
+    }
+    vm.publishCommittedNoteMove(result.noteId, result.folderId);
+    this.viewModel = vm;
+    this.notes = vm.getFilteredNotes().slice();
+    this.refreshThumbnails().catch((e: Error) => {
+      console.error(`move note thumbnail refresh failed: ${JSON.stringify(e)}`);
+    });
+    this.reloadVisibleNotesAfterMutation(vm, 'move note');
+  }
+
+  private publishCommittedFolders(folders: NoteFolder[]): void {
+    this.folderMutationGeneration++;
+    this.folderReadGeneration++;
+    this.folders = folders.slice();
+  }
+
+  private reloadFoldersBestEffort(repo: FolderRepositoryImpl, operation: string): void {
+    const readGeneration: number = ++this.folderReadGeneration;
+    const mutationGeneration: number = this.folderMutationGeneration;
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    repo.getAllFolders().then((folders: NoteFolder[]) => {
+      if (this.pageActive && this.folderRepo === repo &&
+        lifecycleGeneration === this.lifecycleGeneration &&
+        readGeneration === this.folderReadGeneration &&
+        mutationGeneration === this.folderMutationGeneration) {
+        this.folders = folders;
+      }
+    }).catch((e: Error) => {
+      console.error(`${operation} authoritative folder refresh failed: ${JSON.stringify(e)}`);
+    });
   }
 
   private reloadVisibleNotesAfterMutation(vm: LibraryViewModel, operation: string): void {
@@ -554,13 +612,19 @@ struct LibraryPage {
       this.noteRepo = noteRepo;
       this.folderRepo = folderRepo;
       this.viewModel = vm;
+      const folderReadGeneration: number = ++this.folderReadGeneration;
+      const folderMutationGeneration: number = this.folderMutationGeneration;
       try {
         const loadedFolders: NoteFolder[] = await folderRepo.getAllFolders();
-        if (this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer)) {
+        if (this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer) &&
+          folderReadGeneration === this.folderReadGeneration &&
+          folderMutationGeneration === this.folderMutationGeneration) {
           this.folders = loadedFolders;
         }
       } catch (folderError) {
-        if (!this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer)) {
+        if (!this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer) ||
+          folderReadGeneration !== this.folderReadGeneration ||
+          folderMutationGeneration !== this.folderMutationGeneration) {
           return;
         }
         console.error(`LibraryPage folder load failed: ${JSON.stringify(folderError)}`);
