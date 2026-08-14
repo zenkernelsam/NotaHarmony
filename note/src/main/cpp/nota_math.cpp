@@ -25,7 +25,7 @@ namespace {
 constexpr int MAX_LATEX_BYTES = 64 * 1024;
 constexpr int MAX_BITMAP_EDGE = 4096;
 constexpr int MAX_BITMAP_BYTES = 16 * 1024 * 1024;
-constexpr float DEFAULT_LINE_SPACE = 4.0f;
+constexpr float ORIGINAL_LINE_SPACE = 0.0f;
 constexpr float ITALIC_SKEW_X = -0.25f;
 
 std::mutex gMathMutex;
@@ -370,7 +370,7 @@ napi_value ErrorResult(napi_env env, const std::string &message)
 std::unique_ptr<tex::TeXRender> Parse(const std::string &latex, int width, float fontSize, uint32_t color)
 {
     return std::unique_ptr<tex::TeXRender>(tex::LaTeX::parse(
-        tex::utf82wide(latex), width, fontSize, DEFAULT_LINE_SPACE, color));
+        tex::utf82wide(latex), width, fontSize, ORIGINAL_LINE_SPACE, color));
 }
 
 napi_value Initialize(napi_env env, napi_callback_info info)
@@ -410,14 +410,15 @@ napi_value Measure(napi_env env, napi_callback_info info)
     std::lock_guard<std::mutex> lock(gMathMutex);
     if (!gInitialized) return ErrorResult(env, "math engine is not initialized");
     try {
-        const auto render = Parse(latex, static_cast<int>(std::ceil(width)), static_cast<float>(fontSize), tex::black);
+        const auto render = Parse(latex, static_cast<int>(width), static_cast<float>(fontSize), tex::black);
         if (!render) return ErrorResult(env, "formula produced no layout");
         napi_value result;
         napi_create_object(env, &result);
         SetBoolean(env, result, "valid", true);
         SetNumber(env, result, "width", render->getWidth());
-        SetNumber(env, result, "height", render->getHeight() + render->getDepth());
+        SetNumber(env, result, "height", render->getHeight());
         SetNumber(env, result, "baseline", render->getBaseline());
+        SetNumber(env, result, "depth", render->getDepth());
         return result;
     } catch (const std::exception &error) {
         return ErrorResult(env, error.what());
@@ -449,7 +450,7 @@ napi_value Render(napi_env env, napi_callback_info info)
     std::lock_guard<std::mutex> lock(gMathMutex);
     if (!gInitialized) return ErrorResult(env, "math engine is not initialized");
     try {
-        const auto render = Parse(latex, static_cast<int>(std::ceil(width)), static_cast<float>(fontSize),
+        const auto render = Parse(latex, static_cast<int>(width), static_cast<float>(fontSize),
             static_cast<uint32_t>(color));
         if (!render) return ErrorResult(env, "formula produced no layout");
         BitmapHandle bitmap(OH_Drawing_BitmapCreate());
@@ -469,7 +470,11 @@ napi_value Render(napi_env env, napi_callback_info info)
         OH_Drawing_CanvasScale(canvas.get(), pixelScale, pixelScale);
         HarmonyGraphics graphics(canvas.get());
         if (!graphics.valid()) return ErrorResult(env, "formula drawing resources allocation failed");
-        render->draw(graphics, 0, 0);
+        const int renderWidth = render->getWidth();
+        const int renderHeight = render->getHeight();
+        const int drawX = renderWidth < width ? static_cast<int>(width - renderWidth) / 2 : 0;
+        const int drawY = renderHeight < height ? static_cast<int>(height - renderHeight) / 2 : 0;
+        render->draw(graphics, drawX, drawY);
         const size_t byteLength = static_cast<size_t>(pixelWidth) * pixelHeight * 4;
         void *destination = nullptr;
         napi_value pixels = nullptr;

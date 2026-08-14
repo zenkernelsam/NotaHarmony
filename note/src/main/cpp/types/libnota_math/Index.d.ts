@@ -3,6 +3,7 @@ export interface MathMeasureResult {
   width?: number;
   height?: number;
   baseline?: number;
+  depth?: number;
   error?: string;
 }
 

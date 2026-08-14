@@ -48,7 +48,7 @@ check('bitmap object and backing storage allocations are both validated',
 check('canvas and drawing resources fail closed before any formula draw',
   /CanvasHandle canvas\(OH_Drawing_CanvasCreate\(\)\);[\s\S]*?if \(!canvas\)/.test(render) &&
   /HarmonyGraphics graphics\(canvas\.get\(\)\);[\s\S]*?if \(!graphics\.valid\(\)\)/.test(render) &&
-  render.indexOf('if (!graphics.valid())') < render.indexOf('render->draw(graphics, 0, 0)'));
+  render.indexOf('if (!graphics.valid())') < render.indexOf('render->draw(graphics, drawX, drawY)'));
 check('graphics validity requires canvas pen and brush allocations',
   /if \(canvas_ == nullptr\) return;[\s\S]*?pen_ = OH_Drawing_PenCreate\(\);[\s\S]*?brush_ = OH_Drawing_BrushCreate\(\);[\s\S]*?if \(pen_ == nullptr \|\| brush_ == nullptr\) return;/.test(native) &&
   /bool valid\(\) const \{ return canvas_ != nullptr && pen_ != nullptr && brush_ != nullptr; \}/.test(native));
@@ -64,7 +64,7 @@ check('ArrayBuffer status destination and value are checked before memcpy',
   /napi_create_arraybuffer\([\s\S]*?\) != napi_ok \|\|[\s\S]*?destination == nullptr \|\| pixels == nullptr/.test(render) &&
   render.indexOf('destination == nullptr') < render.indexOf('std::memcpy(destination, source, byteLength)'));
 check('draw exceptions cross scoped owners and degrade to an error result',
-  /render->draw\(graphics, 0, 0\)/.test(render) &&
+  /render->draw\(graphics, drawX, drawY\)/.test(render) &&
   /catch \(const std::exception &error\)[\s\S]*?return ErrorResult\(env, error\.what\(\)\)/.test(render) &&
   /catch \(\.\.\.\)[\s\S]*?return ErrorResult\(env, "formula renderer failed"\)/.test(render));
 
