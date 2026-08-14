@@ -27,26 +27,37 @@ export class MathCanvasRenderer {
       `${element.color}\u0000${PIXEL_SCALE}`;
     let entry: MathBitmapCacheEntry | undefined = this.cache.find((candidate: MathBitmapCacheEntry): boolean =>
       candidate.key === key);
+    let transientTexture: OriginalMathBitmap | null = null;
     if (entry === undefined) {
       const texture: OriginalMathBitmap | null = originalMathEngine.render(
         element.latex, element.blockWidth, element.blockHeight, element.color, PIXEL_SCALE);
       if (texture === null) return;
       entry = { key, texture, bytes: texture.width * texture.height * 4, lastUsed: ++this.clock };
-      this.cache.push(entry);
-      this.cacheBytes += entry.bytes;
-      this.evictCache();
+      if (entry.bytes <= MAX_CACHE_BYTES) {
+        this.cache.push(entry);
+        this.cacheBytes += entry.bytes;
+        this.evictCache();
+      } else {
+        transientTexture = texture;
+      }
     } else {
       entry.lastUsed = ++this.clock;
     }
     ctx.save();
-    ctx.transform(element.transform);
-    ctx.drawImage(entry.texture.bitmap, 0, 0, element.blockWidth, element.blockHeight);
-    ctx.restore();
+    try {
+      ctx.transform(element.transform);
+      ctx.drawImage(entry.texture.bitmap, 0, 0, element.blockWidth, element.blockHeight);
+    } finally {
+      ctx.restore();
+      if (transientTexture !== null) {
+        this.releaseTexture(transientTexture);
+      }
+    }
   }
 
   clear(): void {
     for (const entry of this.cache) {
-      entry.texture.pixelMap.release().catch(() => {});
+      this.releaseTexture(entry.texture);
     }
     this.cache = [];
     this.cacheBytes = 0;
@@ -59,7 +70,14 @@ export class MathCanvasRenderer {
       const removed: MathBitmapCacheEntry | undefined = this.cache.shift();
       if (removed === undefined) break;
       this.cacheBytes -= removed.bytes;
-      removed.texture.pixelMap.release().catch(() => {});
+      this.releaseTexture(removed.texture);
     }
+  }
+
+  private releaseTexture(texture: OriginalMathBitmap): void {
+    try {
+      texture.bitmap.close();
+    } catch (_error) { }
+    texture.pixelMap.release().catch(() => {});
   }
 }

@@ -760,6 +760,7 @@ export struct NoteCanvasView {
       renderMetrics.completedLayerTransfers, renderMetrics.isolatedMaskTransfers,
       renderMetrics.pencilTintTransfers, renderMetrics.pencilTextureTransfers,
       renderMetrics.maxFrameTransfers, renderMetrics.maxDirtyRegionCount);
+    this.mathRenderer.clear();
     this.layerManager.dispose();
     this.renderer.dispose();
     if (this.pencilPixelMap !== null) {

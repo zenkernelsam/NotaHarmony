@@ -162,6 +162,7 @@ export class ThumbnailRenderer {
       return;
     }
     this.disposed = true;
+    this.mathRenderer.clear();
     this.strokeRenderer.dispose();
     if (this.pencilPixelMap !== null) {
       await this.pencilPixelMap.release();
