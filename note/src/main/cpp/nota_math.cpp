@@ -325,11 +325,16 @@ bool ReadString(napi_env env, napi_value value, std::string &result)
     size_t length = 0;
     if (napi_get_value_string_utf8(env, value, nullptr, 0, &length) != napi_ok ||
         length == 0 || length > MAX_LATEX_BYTES) return false;
-    result.resize(length + 1);
-    size_t copied = 0;
-    if (napi_get_value_string_utf8(env, value, result.data(), result.size(), &copied) != napi_ok) return false;
-    result.resize(copied);
-    return copied == length;
+    try {
+        result.resize(length + 1);
+        size_t copied = 0;
+        if (napi_get_value_string_utf8(env, value, result.data(), result.size(), &copied) != napi_ok) return false;
+        result.resize(copied);
+        return copied == length;
+    } catch (...) {
+        result.clear();
+        return false;
+    }
 }
 
 bool ReadDouble(napi_env env, napi_value value, double &result)
@@ -351,33 +356,34 @@ bool ReadArgb(napi_env env, napi_value value, uint32_t &result)
     return true;
 }
 
-void SetNumber(napi_env env, napi_value object, const char *name, double value)
+bool SetNumber(napi_env env, napi_value object, const char *name, double value)
 {
-    napi_value number;
-    napi_create_double(env, value, &number);
-    napi_set_named_property(env, object, name, number);
+    napi_value number = nullptr;
+    return napi_create_double(env, value, &number) == napi_ok && number != nullptr &&
+        napi_set_named_property(env, object, name, number) == napi_ok;
 }
 
-void SetBoolean(napi_env env, napi_value object, const char *name, bool value)
+bool SetBoolean(napi_env env, napi_value object, const char *name, bool value)
 {
-    napi_value boolean;
-    napi_get_boolean(env, value, &boolean);
-    napi_set_named_property(env, object, name, boolean);
+    napi_value boolean = nullptr;
+    return napi_get_boolean(env, value, &boolean) == napi_ok && boolean != nullptr &&
+        napi_set_named_property(env, object, name, boolean) == napi_ok;
 }
 
-void SetString(napi_env env, napi_value object, const char *name, const std::string &value)
+bool SetString(napi_env env, napi_value object, const char *name, const std::string &value)
 {
-    napi_value string;
-    napi_create_string_utf8(env, value.c_str(), value.size(), &string);
-    napi_set_named_property(env, object, name, string);
+    napi_value string = nullptr;
+    return napi_create_string_utf8(env, value.c_str(), value.size(), &string) == napi_ok && string != nullptr &&
+        napi_set_named_property(env, object, name, string) == napi_ok;
 }
 
 napi_value ErrorResult(napi_env env, const std::string &message)
 {
-    napi_value result;
-    napi_create_object(env, &result);
-    SetBoolean(env, result, "valid", false);
-    SetString(env, result, "error", message);
+    napi_value result = nullptr;
+    if (napi_create_object(env, &result) != napi_ok || result == nullptr ||
+        !SetBoolean(env, result, "valid", false) || !SetString(env, result, "error", message)) {
+        return nullptr;
+    }
     return result;
 }
 
@@ -391,7 +397,7 @@ napi_value Initialize(napi_env env, napi_callback_info info)
 {
     size_t argc = 1;
     napi_value arguments[1] = {nullptr};
-    napi_get_cb_info(env, info, &argc, arguments, nullptr, nullptr);
+    if (napi_get_cb_info(env, info, &argc, arguments, nullptr, nullptr) != napi_ok) return nullptr;
     std::string root;
     if (argc != 1 || !ReadString(env, arguments[0], root)) {
         napi_throw_type_error(env, nullptr, "initialize requires a non-empty resource root path");
@@ -424,7 +430,7 @@ napi_value Measure(napi_env env, napi_callback_info info)
 {
     size_t argc = 3;
     napi_value arguments[3] = {nullptr};
-    napi_get_cb_info(env, info, &argc, arguments, nullptr, nullptr);
+    if (napi_get_cb_info(env, info, &argc, arguments, nullptr, nullptr) != napi_ok) return nullptr;
     std::string latex;
     double width = 0;
     double fontSize = 0;
@@ -438,13 +444,15 @@ napi_value Measure(napi_env env, napi_callback_info info)
     try {
         const auto render = Parse(latex, static_cast<int>(width), static_cast<float>(fontSize), tex::black);
         if (!render) return ErrorResult(env, "formula produced no layout");
-        napi_value result;
-        napi_create_object(env, &result);
-        SetBoolean(env, result, "valid", true);
-        SetNumber(env, result, "width", render->getWidth());
-        SetNumber(env, result, "height", render->getHeight());
-        SetNumber(env, result, "baseline", render->getBaseline());
-        SetNumber(env, result, "depth", render->getDepth());
+        napi_value result = nullptr;
+        if (napi_create_object(env, &result) != napi_ok || result == nullptr ||
+            !SetBoolean(env, result, "valid", true) ||
+            !SetNumber(env, result, "width", render->getWidth()) ||
+            !SetNumber(env, result, "height", render->getHeight()) ||
+            !SetNumber(env, result, "baseline", render->getBaseline()) ||
+            !SetNumber(env, result, "depth", render->getDepth())) {
+            return nullptr;
+        }
         return result;
     } catch (const std::exception &error) {
         return ErrorResult(env, error.what());
@@ -457,7 +465,7 @@ napi_value Render(napi_env env, napi_callback_info info)
 {
     size_t argc = 6;
     napi_value arguments[6] = {nullptr};
-    napi_get_cb_info(env, info, &argc, arguments, nullptr, nullptr);
+    if (napi_get_cb_info(env, info, &argc, arguments, nullptr, nullptr) != napi_ok) return nullptr;
     std::string latex;
     double width = 0, height = 0, fontSize = 0, pixelScale = 0;
     uint32_t color = 0;
@@ -511,12 +519,14 @@ napi_value Render(napi_env env, napi_callback_info info)
         }
         std::memcpy(destination, source, byteLength);
 
-        napi_value result;
-        napi_create_object(env, &result);
-        SetBoolean(env, result, "valid", true);
-        SetNumber(env, result, "width", pixelWidth);
-        SetNumber(env, result, "height", pixelHeight);
-        napi_set_named_property(env, result, "pixels", pixels);
+        napi_value result = nullptr;
+        if (napi_create_object(env, &result) != napi_ok || result == nullptr ||
+            !SetBoolean(env, result, "valid", true) ||
+            !SetNumber(env, result, "width", pixelWidth) ||
+            !SetNumber(env, result, "height", pixelHeight) ||
+            napi_set_named_property(env, result, "pixels", pixels) != napi_ok) {
+            return nullptr;
+        }
         return result;
     } catch (const std::exception &error) {
         return ErrorResult(env, error.what());
@@ -546,8 +556,10 @@ napi_value Init(napi_env env, napi_value exports)
         {"measure", nullptr, Measure, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"render", nullptr, Render, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
-    napi_define_properties(env, exports, sizeof(descriptors) / sizeof(descriptors[0]), descriptors);
-    napi_add_env_cleanup_hook(env, Cleanup, nullptr);
+    if (napi_define_properties(env, exports, sizeof(descriptors) / sizeof(descriptors[0]), descriptors) != napi_ok ||
+        napi_add_env_cleanup_hook(env, Cleanup, nullptr) != napi_ok) {
+        return nullptr;
+    }
     return exports;
 }
 } // namespace
