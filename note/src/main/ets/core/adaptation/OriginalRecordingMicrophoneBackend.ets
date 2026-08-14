@@ -41,7 +41,11 @@ export class OriginalRecordingMicrophoneBackend implements OriginalRecordingCapt
   private outputFile: fileIo.File | null = null;
   private outputPath: string = '';
   private errorListener: OriginalRecordingCaptureErrorListener | null = null;
+  private interruptionListener: OriginalRecordingCaptureInterruptionListener | null = null;
   private recorderErrorHandler: ((error: BusinessError) => void) | null = null;
+  private recorderStateHandler:
+    ((state: media.AVRecorderState, reason: media.StateChangeReason) => void) | null = null;
+  private interruptionNotified: boolean = false;
   private sequence: number = 0;
 
   constructor(temporaryDirectory: string) {
@@ -55,7 +59,8 @@ export class OriginalRecordingMicrophoneBackend implements OriginalRecordingCapt
     this.errorListener = listener;
   }
 
-  setInterruptionListener(_listener: OriginalRecordingCaptureInterruptionListener | null): void {
+  setInterruptionListener(listener: OriginalRecordingCaptureInterruptionListener | null): void {
+    this.interruptionListener = listener;
   }
 
   supportsPause(): boolean {
@@ -78,7 +83,22 @@ export class OriginalRecordingMicrophoneBackend implements OriginalRecordingCapt
           this.errorListener(error);
         }
       };
+      this.interruptionNotified = false;
+      this.recorderStateHandler = (state: media.AVRecorderState,
+        reason: media.StateChangeReason): void => {
+        if (recorder !== this.recorder || reason !== media.StateChangeReason.BACKGROUND ||
+          (state !== 'paused' && state !== 'stopped') || this.interruptionNotified) {
+          return;
+        }
+        this.interruptionNotified = true;
+        const listener: OriginalRecordingCaptureInterruptionListener | null =
+          this.interruptionListener;
+        if (listener !== null) {
+          listener();
+        }
+      };
       recorder.on('error', this.recorderErrorHandler);
+      recorder.on('stateChange', this.recorderStateHandler);
       const config: media.AVRecorderConfig = {
         audioSourceType: ORIGINAL_RECORDING_AUDIO_SOURCE_TYPE,
         profile: originalRecordingCaptureProfile(),
@@ -111,12 +131,15 @@ export class OriginalRecordingMicrophoneBackend implements OriginalRecordingCapt
 
   async stop(): Promise<OriginalRecordingCaptureStop> {
     const recorder: media.AVRecorder | null = this.recorder;
-    if (recorder === null || (recorder.state !== 'started' && recorder.state !== 'paused')) {
+    if (recorder === null || (recorder.state !== 'started' && recorder.state !== 'paused' &&
+      recorder.state !== 'stopped')) {
       throw new Error('recording backend cannot stop in its current state');
     }
     const completedPath: string = this.outputPath;
     try {
-      await recorder.stop();
+      if (recorder.state !== 'stopped') {
+        await recorder.stop();
+      }
       await this.releaseRecorder(recorder);
       const file: fileIo.File | null = this.outputFile;
       if (file === null) {
@@ -163,6 +186,8 @@ export class OriginalRecordingMicrophoneBackend implements OriginalRecordingCapt
       await this.releaseRecorder(recorder);
     }
     this.recorderErrorHandler = null;
+    this.recorderStateHandler = null;
+    this.interruptionNotified = false;
     if (file !== null) {
       try {
         fileIo.closeSync(file);
@@ -185,6 +210,14 @@ export class OriginalRecordingMicrophoneBackend implements OriginalRecordingCapt
       }
     }
     this.recorderErrorHandler = null;
+    if (this.recorderStateHandler !== null) {
+      try {
+        recorder.off('stateChange', this.recorderStateHandler);
+      } catch (_offError) {
+      }
+    }
+    this.recorderStateHandler = null;
+    this.interruptionNotified = false;
     if (recorder.state !== 'released') {
       try {
         await recorder.release();

@@ -14,6 +14,7 @@ const backend = read('note/src/main/ets/core/adaptation/OriginalRecordingMicroph
 const manifest = read('note/src/main/module.json5');
 const page = read('note/src/main/ets/ui/editor/NotePage.ets');
 const tests = read('note/src/test/OriginalRecordingCaptureController.test.ets');
+const sessionTests = read('note/src/test/OriginalRecordingSessionController.test.ets');
 
 assert.match(originalRecorder, /setAudioSource\(6\)/);
 assert.match(originalRecorder, /setOutputFormat\(2\)/);
@@ -37,6 +38,12 @@ assert.match(backend, /AUDIO_AAC/);
 assert.match(backend, /CFT_MPEG_4A/);
 assert.match(backend, /fileIo\.OpenMode\.TRUNC/);
 assert.match(backend, /recorder\.on\('error'/);
+assert.match(backend, /recorder\.on\('stateChange'/);
+assert.match(backend, /reason !== media\.StateChangeReason\.BACKGROUND/);
+assert.match(backend, /state !== 'paused' && state !== 'stopped'/);
+assert.match(backend, /recorder\.state !== 'started' && recorder\.state !== 'paused' &&[\s\S]*recorder\.state !== 'stopped'/);
+assert.match(backend, /if \(recorder\.state !== 'stopped'\) \{[\s\S]*await recorder\.stop\(\)/);
+assert.match(backend, /recorder\.off\('stateChange'/);
 assert.match(backend, /AVMetadataExtractor/);
 assert.match(backend, /await this\.dispose\(true, true\)/);
 assert.match(backend, /fileIo\.unlinkSync\(path\)/);
@@ -56,5 +63,8 @@ assert.match(page, /session\.finishAndRelease\(\)/);
 assert.doesNotMatch(page, /capture\.start\(\)/);
 assert.match(tests, /asynchronous recorder error/);
 assert.match(tests, /start,pause,resume,stop/);
+assert.match(sessionTests, /microphone backend is interrupted/);
+assert.doesNotMatch(read('note/src/main/ets/core/adaptation/OriginalRecordingSessionController.ets'),
+  /private onCaptureInterrupted\(\): void \{\s*this\.focusActive = false;/);
 
 console.log('recordingCapture=original-aac-pause-duration-temp-cleanup');

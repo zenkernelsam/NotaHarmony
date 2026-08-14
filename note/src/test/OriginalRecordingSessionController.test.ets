@@ -209,7 +209,25 @@ export default function originalRecordingSessionControllerTest() {
       await Promise.resolve();
       await Promise.resolve();
       expect(backend.calls[backend.calls.length - 1]).assertEqual('capture-stop');
+      expect(calls.includes('focus-off')).assertTrue();
       expect(calls[calls.length - 1]).assertEqual('persist');
+    });
+
+    it('stops saves and releases focus when the microphone backend is interrupted', 0, async () => {
+      const calls: string[] = [];
+      const permission = new SessionTestPermission(calls);
+      const focus = new SessionTestFocus(calls);
+      const backend = new SessionTestBackend();
+      const session = createSession(calls, permission, focus, backend,
+        async (_capture: OriginalRecordingCaptureResult): Promise<void> => { calls.push('persist'); });
+      expect(await session.start()).assertTrue();
+      backend.interrupt();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(backend.calls.join(',')).assertEqual('capture-start,capture-stop');
+      expect(calls.join(',')).assertEqual(
+        'permission,before-start,focus-on,focus-off,persist');
     });
 
     it('serializes an explicit stop behind an in-flight start', 0, async () => {

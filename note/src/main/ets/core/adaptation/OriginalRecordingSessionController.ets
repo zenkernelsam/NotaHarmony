@@ -235,7 +235,6 @@ export class OriginalRecordingSessionController {
   }
 
   private onCaptureInterrupted(): void {
-    this.focusActive = false;
     this.stop().catch((error: Object): void => {
       console.error(`interrupted recording stop failed: ${JSON.stringify(error)}`);
     });
