@@ -64,6 +64,7 @@ class OriginalMathEngine {
       editable: false,
       srcPixelFormat: image.PixelMapFormat.RGBA_8888,
       pixelFormat: image.PixelMapFormat.RGBA_8888,
+      alphaType: image.AlphaType.PREMUL,
       size: { width: result.width, height: result.height },
     });
     return { bitmap: new ImageBitmap(pixelMap), pixelMap, width: result.width, height: result.height };
