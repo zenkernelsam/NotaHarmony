@@ -41,6 +41,10 @@ import {
   cleanupInterruptedOriginalRecordingCaptures,
   OriginalRecordingCaptureArtifactCleanupReport,
 } from '../core/adaptation/OriginalRecordingCaptureArtifactCleanup';
+import {
+  cleanupInterruptedNoteExports,
+  NoteExportTemporaryArtifactCleanupReport,
+} from './NoteExportTemporaryArtifactCleanup';
 
 interface AssetReferenceRepairRow {
   hash: string;
@@ -93,6 +97,13 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
       console.info(`Original recording capture startup cleanup: scanned=${recordingCleanup.scanned}, ` +
         `removed=${recordingCleanup.removed}, skipped=${recordingCleanup.skipped}, ` +
         `failed=${recordingCleanup.failed}`);
+    }
+    const exportCleanup: NoteExportTemporaryArtifactCleanupReport =
+      cleanupInterruptedNoteExports(context.tempDir);
+    if (exportCleanup.removed > 0 || exportCleanup.failed > 0) {
+      console.info(`Note export temporary artifact startup cleanup: scanned=${exportCleanup.scanned}, ` +
+        `removed=${exportCleanup.removed}, skipped=${exportCleanup.skipped}, ` +
+        `failed=${exportCleanup.failed}`);
     }
     const config: relationalStore.StoreConfig = {
       name: DB_NAME,
