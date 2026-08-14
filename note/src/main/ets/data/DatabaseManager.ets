@@ -37,6 +37,10 @@ import { repairLegacyOriginalOutboundEnvelopes } from './OriginalOutboundOperati
 import {
   AssetTemporaryArtifactCleanupReport, cleanupInterruptedAssetArtifacts,
 } from './AssetTemporaryArtifactCleanup';
+import {
+  cleanupInterruptedOriginalRecordingCaptures,
+  OriginalRecordingCaptureArtifactCleanupReport,
+} from '../core/adaptation/OriginalRecordingCaptureArtifactCleanup';
 
 interface AssetReferenceRepairRow {
   hash: string;
@@ -82,6 +86,13 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
     if (cleanup.removed > 0 || cleanup.failed > 0) {
       console.info(`Asset temporary artifact startup cleanup: scanned=${cleanup.scanned}, ` +
         `removed=${cleanup.removed}, skipped=${cleanup.skipped}, failed=${cleanup.failed}`);
+    }
+    const recordingCleanup: OriginalRecordingCaptureArtifactCleanupReport =
+      cleanupInterruptedOriginalRecordingCaptures(context.tempDir);
+    if (recordingCleanup.removed > 0 || recordingCleanup.failed > 0) {
+      console.info(`Original recording capture startup cleanup: scanned=${recordingCleanup.scanned}, ` +
+        `removed=${recordingCleanup.removed}, skipped=${recordingCleanup.skipped}, ` +
+        `failed=${recordingCleanup.failed}`);
     }
     const config: relationalStore.StoreConfig = {
       name: DB_NAME,
