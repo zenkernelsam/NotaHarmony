@@ -1,6 +1,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -25,6 +26,8 @@ namespace {
 constexpr int MAX_LATEX_BYTES = 64 * 1024;
 constexpr int MAX_BITMAP_EDGE = 4096;
 constexpr int MAX_BITMAP_BYTES = 16 * 1024 * 1024;
+constexpr double MAX_LOGICAL_EDGE = 100000.0;
+constexpr double MAX_FONT_SIZE = 512.0;
 constexpr float ORIGINAL_LINE_SPACE = 0.0f;
 constexpr float ITALIC_SKEW_X = -0.25f;
 
@@ -333,6 +336,20 @@ bool ReadDouble(napi_env env, napi_value value, double &result)
     return napi_get_value_double(env, value, &result) == napi_ok && std::isfinite(result);
 }
 
+bool ReadArgb(napi_env env, napi_value value, uint32_t &result)
+{
+    double number = 0;
+    if (!ReadDouble(env, value, number) || std::trunc(number) != number ||
+        number < std::numeric_limits<int32_t>::min() ||
+        number > std::numeric_limits<uint32_t>::max()) {
+        return false;
+    }
+    result = number < 0
+        ? static_cast<uint32_t>(static_cast<int32_t>(number))
+        : static_cast<uint32_t>(number);
+    return true;
+}
+
 void SetNumber(napi_env env, napi_value object, const char *name, double value)
 {
     napi_value number;
@@ -400,7 +417,7 @@ napi_value Measure(napi_env env, napi_callback_info info)
     double fontSize = 0;
     if (argc != 3 || !ReadString(env, arguments[0], latex) ||
         !ReadDouble(env, arguments[1], width) || !ReadDouble(env, arguments[2], fontSize) ||
-        width <= 0 || width > 100000 || fontSize <= 0 || fontSize > 512) {
+        width <= 0 || width > MAX_LOGICAL_EDGE || fontSize <= 0 || fontSize > MAX_FONT_SIZE) {
         return ErrorResult(env, "invalid arguments");
     }
     std::lock_guard<std::mutex> lock(gMathMutex);
@@ -429,12 +446,14 @@ napi_value Render(napi_env env, napi_callback_info info)
     napi_value arguments[6] = {nullptr};
     napi_get_cb_info(env, info, &argc, arguments, nullptr, nullptr);
     std::string latex;
-    double width = 0, height = 0, fontSize = 0, color = 0, pixelScale = 0;
+    double width = 0, height = 0, fontSize = 0, pixelScale = 0;
+    uint32_t color = 0;
     if (argc != 6 || !ReadString(env, arguments[0], latex) ||
         !ReadDouble(env, arguments[1], width) || !ReadDouble(env, arguments[2], height) ||
-        !ReadDouble(env, arguments[3], fontSize) || !ReadDouble(env, arguments[4], color) ||
+        !ReadDouble(env, arguments[3], fontSize) || !ReadArgb(env, arguments[4], color) ||
         !ReadDouble(env, arguments[5], pixelScale) || width <= 0 || height <= 0 ||
-        fontSize <= 0 || pixelScale <= 0 || pixelScale > 4) {
+        width > MAX_LOGICAL_EDGE || height > MAX_LOGICAL_EDGE ||
+        fontSize <= 0 || fontSize > MAX_FONT_SIZE || pixelScale <= 0 || pixelScale > 4) {
         return ErrorResult(env, "invalid arguments");
     }
     const int pixelWidth = static_cast<int>(std::ceil(width * pixelScale));
@@ -446,8 +465,7 @@ napi_value Render(napi_env env, napi_callback_info info)
     std::lock_guard<std::mutex> lock(gMathMutex);
     if (!gInitialized) return ErrorResult(env, "math engine is not initialized");
     try {
-        const auto render = Parse(latex, static_cast<int>(width), static_cast<float>(fontSize),
-            static_cast<uint32_t>(color));
+        const auto render = Parse(latex, static_cast<int>(width), static_cast<float>(fontSize), color);
         if (!render) return ErrorResult(env, "formula produced no layout");
         BitmapHandle bitmap(OH_Drawing_BitmapCreate());
         if (!bitmap) return ErrorResult(env, "formula bitmap allocation failed");
