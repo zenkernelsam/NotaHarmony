@@ -525,9 +525,9 @@ Font *Font::create(const std::string &file, float size)
     return new HarmonyFont(file, PLAIN, size);
 }
 
-sptr<Font> Font::_create(const std::string &, int style, float size)
+sptr<Font> Font::_create(const std::string &name, int style, float size)
 {
-    return std::make_shared<HarmonyFont>(std::string(), style, size);
+    return std::make_shared<HarmonyFont>(name, style, size);
 }
 
 sptr<TextLayout> TextLayout::create(const std::wstring &text, const sptr<Font> &font)
