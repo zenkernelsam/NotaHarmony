@@ -9,8 +9,11 @@ const database = read('note/src/main/ets/data/DatabaseManager.ets');
 const createStart = backup.indexOf('private async createSnapshot()');
 const restoreStart = backup.indexOf('private async restoreSnapshot(');
 const collectStart = backup.indexOf('private collect(', restoreStart);
+const replaceStart = backup.indexOf('private replaceFile(', collectStart);
+const rollbackStart = backup.indexOf('private rollbackFiles(', replaceStart);
 const create = backup.slice(createStart, restoreStart);
 const restore = backup.slice(restoreStart, collectStart);
+const replace = backup.slice(replaceStart, rollbackStart);
 const repairStart = database.indexOf('private async repairAssetNoteReferences(');
 const repairEnd = database.indexOf('private async removeInvalidAssetReference(', repairStart);
 const repair = database.slice(repairStart, repairEnd);
@@ -25,9 +28,10 @@ const checks = [
     restore.includes('throw new Error(this.state.error);') && !backup.includes('throw e;')],
   ['restore rollback uses a named interface', backup.includes('interface RestoreReplacement {') &&
     restore.includes('const replaced: RestoreReplacement[] = [];')],
-  ['restore rollback object is explicitly typed', restore.includes('const replacement: RestoreReplacement = {') &&
-    restore.includes('replaced.push(replacement);')],
-  ['restore rollback has no anonymous array type', !restore.includes('Array<{ destination: string;')],
+  ['restore rollback object is explicitly typed', replaceStart > collectStart && rollbackStart > replaceStart &&
+    replace.includes('const replacement: RestoreReplacement = {') && replace.includes('replaced.push(replacement);')],
+  ['restore rollback has no anonymous array type',
+    !restore.includes('Array<{ destination: string;') && !replace.includes('Array<{ destination: string;')],
   ['asset repair method boundaries are found', repairStart >= 0 && repairEnd > repairStart],
   ['asset repair rows use a named interface', database.includes('interface AssetReferenceRepairRow {') &&
     repair.includes('const assetRows: AssetReferenceRepairRow[] = [];')],

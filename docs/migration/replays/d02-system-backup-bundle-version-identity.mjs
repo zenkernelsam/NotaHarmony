@@ -15,7 +15,10 @@ const checks = [
     source.indexOf('bundleVersion: currentVersion.name', create) > create &&
     source.indexOf('bundleVersionCode: currentVersion.code', create) > create],
   ['legacy schema-1 manifests keep an optional version code',
-    source.includes('bundleVersionCode?: number;') && source.includes('schema: 1')],
+    source.includes('bundleVersionCode?: number;') &&
+    source.includes('const LEGACY_MANIFEST_SCHEMA = 1;') &&
+    source.includes('const CURRENT_MANIFEST_SCHEMA = 2;') &&
+    source.includes('(manifest.schema === CURRENT_MANIFEST_SCHEMA && manifest.bundleVersionCode === undefined)')],
   ['manifest version name and optional code are bounded', validateManifest >= 0 &&
     source.indexOf('isValidVersionName(manifest.bundleVersion)', validateManifest) > validateManifest &&
     source.indexOf('isValidVersionCode(manifest.bundleVersionCode)', validateManifest) > validateManifest],
