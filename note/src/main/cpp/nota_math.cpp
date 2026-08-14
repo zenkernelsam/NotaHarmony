@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -31,6 +32,23 @@ std::mutex gMathMutex;
 bool gInitialized = false;
 std::string gResourceRoot;
 
+struct BitmapDeleter {
+    void operator()(OH_Drawing_Bitmap *bitmap) const
+    {
+        if (bitmap != nullptr) OH_Drawing_BitmapDestroy(bitmap);
+    }
+};
+
+struct CanvasDeleter {
+    void operator()(OH_Drawing_Canvas *canvas) const
+    {
+        if (canvas != nullptr) OH_Drawing_CanvasDestroy(canvas);
+    }
+};
+
+using BitmapHandle = std::unique_ptr<OH_Drawing_Bitmap, BitmapDeleter>;
+using CanvasHandle = std::unique_ptr<OH_Drawing_Canvas, CanvasDeleter>;
+
 class HarmonyFont final : public tex::Font {
 public:
     HarmonyFont(std::string file, float size) : file_(std::move(file)), size_(size)
@@ -42,7 +60,7 @@ public:
         }
         font_ = OH_Drawing_FontCreate();
         if (font_ != nullptr) {
-            OH_Drawing_FontSetTypeface(font_, typeface_);
+            if (typeface_ != nullptr) OH_Drawing_FontSetTypeface(font_, typeface_);
             OH_Drawing_FontSetTextSize(font_, size_);
             OH_Drawing_FontSetSubpixel(font_, true);
             OH_Drawing_FontSetEdging(font_, FONT_EDGING_ANTI_ALIAS);
@@ -70,7 +88,7 @@ public:
 
     bool operator!=(const tex::Font &other) const override { return !(*this == other); }
 
-    OH_Drawing_Font *native() const { return font_; }
+    OH_Drawing_Font *native() const { return typeface_ == nullptr ? nullptr : font_; }
     const std::string &file() const { return file_; }
 
 private:
@@ -121,8 +139,10 @@ class HarmonyGraphics final : public tex::Graphics2D {
 public:
     explicit HarmonyGraphics(OH_Drawing_Canvas *canvas) : canvas_(canvas)
     {
+        if (canvas_ == nullptr) return;
         pen_ = OH_Drawing_PenCreate();
         brush_ = OH_Drawing_BrushCreate();
+        if (pen_ == nullptr || brush_ == nullptr) return;
         OH_Drawing_PenSetAntiAlias(pen_, true);
         OH_Drawing_BrushSetAntiAlias(brush_, true);
         setColor(tex::black);
@@ -131,17 +151,18 @@ public:
 
     ~HarmonyGraphics()
     {
-        if (canvas_ != nullptr) {
-            OH_Drawing_CanvasDetachPen(canvas_);
-            OH_Drawing_CanvasDetachBrush(canvas_);
-        }
+        if (canvas_ != nullptr && pen_ != nullptr) OH_Drawing_CanvasDetachPen(canvas_);
+        if (canvas_ != nullptr && brush_ != nullptr) OH_Drawing_CanvasDetachBrush(canvas_);
         if (pen_ != nullptr) OH_Drawing_PenDestroy(pen_);
         if (brush_ != nullptr) OH_Drawing_BrushDestroy(brush_);
     }
 
+    bool valid() const { return canvas_ != nullptr && pen_ != nullptr && brush_ != nullptr; }
+
     void setColor(tex::color color) override
     {
         color_ = color;
+        if (pen_ == nullptr || brush_ == nullptr) return;
         OH_Drawing_PenSetColor(pen_, color);
         OH_Drawing_BrushSetColor(brush_, color);
     }
@@ -151,6 +172,7 @@ public:
     void setStroke(const tex::Stroke &stroke) override
     {
         stroke_ = stroke;
+        if (pen_ == nullptr) return;
         OH_Drawing_PenSetWidth(pen_, stroke.lineWidth);
         OH_Drawing_PenSetMiterLimit(pen_, stroke.miterLimit);
         OH_Drawing_PenSetCap(pen_, stroke.cap == tex::CAP_ROUND ? LINE_ROUND_CAP :
@@ -163,7 +185,7 @@ public:
     void setStrokeWidth(float width) override
     {
         stroke_.lineWidth = width;
-        OH_Drawing_PenSetWidth(pen_, width);
+        if (pen_ != nullptr) OH_Drawing_PenSetWidth(pen_, width);
     }
     const tex::Font *getFont() const override { return font_; }
     void setFont(const tex::Font *font) override { font_ = font; }
@@ -172,27 +194,29 @@ public:
     {
         tx_ += sx_ * dx;
         ty_ += sy_ * dy;
-        OH_Drawing_CanvasTranslate(canvas_, dx, dy);
+        if (canvas_ != nullptr) OH_Drawing_CanvasTranslate(canvas_, dx, dy);
     }
 
     void scale(float sx, float sy) override
     {
         sx_ *= sx;
         sy_ *= sy;
-        OH_Drawing_CanvasScale(canvas_, sx, sy);
+        if (canvas_ != nullptr) OH_Drawing_CanvasScale(canvas_, sx, sy);
     }
 
     void rotate(float angle) override { rotate(angle, 0, 0); }
     void rotate(float angle, float px, float py) override
     {
-        OH_Drawing_CanvasRotate(canvas_, angle * 180.0f / static_cast<float>(M_PI), px, py);
+        if (canvas_ != nullptr) {
+            OH_Drawing_CanvasRotate(canvas_, angle * 180.0f / static_cast<float>(M_PI), px, py);
+        }
     }
 
     void reset() override
     {
         sx_ = sy_ = 1;
         tx_ = ty_ = 0;
-        OH_Drawing_CanvasResetMatrix(canvas_);
+        if (canvas_ != nullptr) OH_Drawing_CanvasResetMatrix(canvas_);
     }
 
     float sx() const override { return sx_; }
@@ -206,7 +230,7 @@ public:
     void drawText(const std::wstring &text, float x, float y) override
     {
         const auto *font = dynamic_cast<const HarmonyFont *>(font_);
-        if (font == nullptr || font->native() == nullptr) return;
+        if (canvas_ == nullptr || brush_ == nullptr || font == nullptr || font->native() == nullptr) return;
         const std::string utf8 = tex::wide2utf8(text);
         OH_Drawing_TextBlob *blob = OH_Drawing_TextBlobCreateFromText(
             utf8.data(), utf8.size(), font->native(), TEXT_ENCODING_UTF8);
@@ -219,6 +243,7 @@ public:
 
     void drawLine(float x1, float y1, float x2, float y2) override
     {
+        if (canvas_ == nullptr || pen_ == nullptr) return;
         OH_Drawing_CanvasAttachPen(canvas_, pen_);
         OH_Drawing_CanvasDrawLine(canvas_, x1, y1, x2, y2);
         OH_Drawing_CanvasDetachPen(canvas_);
@@ -244,7 +269,9 @@ public:
 private:
     void drawRectInternal(float x, float y, float width, float height, bool fill)
     {
+        if (canvas_ == nullptr || (fill ? brush_ == nullptr : pen_ == nullptr)) return;
         OH_Drawing_Rect *rect = OH_Drawing_RectCreate(x, y, x + width, y + height);
+        if (rect == nullptr) return;
         if (fill) OH_Drawing_CanvasAttachBrush(canvas_, brush_);
         else OH_Drawing_CanvasAttachPen(canvas_, pen_);
         OH_Drawing_CanvasDrawRect(canvas_, rect);
@@ -255,8 +282,14 @@ private:
 
     void drawRoundRectInternal(float x, float y, float width, float height, float rx, float ry, bool fill)
     {
+        if (canvas_ == nullptr || (fill ? brush_ == nullptr : pen_ == nullptr)) return;
         OH_Drawing_Rect *rect = OH_Drawing_RectCreate(x, y, x + width, y + height);
+        if (rect == nullptr) return;
         OH_Drawing_RoundRect *round = OH_Drawing_RoundRectCreate(rect, rx, ry);
+        if (round == nullptr) {
+            OH_Drawing_RectDestroy(rect);
+            return;
+        }
         if (fill) OH_Drawing_CanvasAttachBrush(canvas_, brush_);
         else OH_Drawing_CanvasAttachPen(canvas_, pen_);
         OH_Drawing_CanvasDrawRoundRect(canvas_, round);
@@ -410,22 +443,32 @@ napi_value Render(napi_env env, napi_callback_info info)
         const auto render = Parse(latex, static_cast<int>(std::ceil(width)), static_cast<float>(fontSize),
             static_cast<uint32_t>(color));
         if (!render) return ErrorResult(env, "formula produced no layout");
-        OH_Drawing_Bitmap *bitmap = OH_Drawing_BitmapCreate();
+        BitmapHandle bitmap(OH_Drawing_BitmapCreate());
+        if (!bitmap) return ErrorResult(env, "formula bitmap allocation failed");
         OH_Drawing_BitmapFormat format = {COLOR_FORMAT_RGBA_8888, ALPHA_FORMAT_PREMUL};
-        OH_Drawing_BitmapBuild(bitmap, pixelWidth, pixelHeight, &format);
-        OH_Drawing_Canvas *canvas = OH_Drawing_CanvasCreate();
-        OH_Drawing_CanvasBind(canvas, bitmap);
-        OH_Drawing_CanvasClear(canvas, 0x00000000);
-        OH_Drawing_CanvasScale(canvas, pixelScale, pixelScale);
-        HarmonyGraphics graphics(canvas);
+        OH_Drawing_BitmapBuild(bitmap.get(), pixelWidth, pixelHeight, &format);
+        void *source = OH_Drawing_BitmapGetPixels(bitmap.get());
+        if (source == nullptr ||
+            OH_Drawing_BitmapGetWidth(bitmap.get()) != static_cast<uint32_t>(pixelWidth) ||
+            OH_Drawing_BitmapGetHeight(bitmap.get()) != static_cast<uint32_t>(pixelHeight)) {
+            return ErrorResult(env, "formula bitmap storage allocation failed");
+        }
+        CanvasHandle canvas(OH_Drawing_CanvasCreate());
+        if (!canvas) return ErrorResult(env, "formula canvas allocation failed");
+        OH_Drawing_CanvasBind(canvas.get(), bitmap.get());
+        OH_Drawing_CanvasClear(canvas.get(), 0x00000000);
+        OH_Drawing_CanvasScale(canvas.get(), pixelScale, pixelScale);
+        HarmonyGraphics graphics(canvas.get());
+        if (!graphics.valid()) return ErrorResult(env, "formula drawing resources allocation failed");
         render->draw(graphics, 0, 0);
         const size_t byteLength = static_cast<size_t>(pixelWidth) * pixelHeight * 4;
         void *destination = nullptr;
-        napi_value pixels;
-        napi_create_arraybuffer(env, byteLength, &destination, &pixels);
-        std::memcpy(destination, OH_Drawing_BitmapGetPixels(bitmap), byteLength);
-        OH_Drawing_CanvasDestroy(canvas);
-        OH_Drawing_BitmapDestroy(bitmap);
+        napi_value pixels = nullptr;
+        if (napi_create_arraybuffer(env, byteLength, &destination, &pixels) != napi_ok ||
+            destination == nullptr || pixels == nullptr) {
+            return ErrorResult(env, "formula pixel transfer allocation failed");
+        }
+        std::memcpy(destination, source, byteLength);
 
         napi_value result;
         napi_create_object(env, &result);
