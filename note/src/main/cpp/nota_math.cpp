@@ -33,6 +33,7 @@ constexpr float ITALIC_SKEW_X = -0.25f;
 
 std::mutex gMathMutex;
 bool gInitialized = false;
+bool gInitializationAttempted = false;
 std::string gResourceRoot;
 
 struct BitmapDeleter {
@@ -397,13 +398,25 @@ napi_value Initialize(napi_env env, napi_callback_info info)
         return nullptr;
     }
     std::lock_guard<std::mutex> lock(gMathMutex);
-    if (!gInitialized) {
-        tex::LaTeX::init(root);
-        gResourceRoot = tex::LaTeX::getResRootPath();
-        gInitialized = true;
+    if (!gInitializationAttempted) {
+        gInitializationAttempted = true;
+        try {
+            tex::LaTeX::init(root);
+            std::string resourceRoot = tex::LaTeX::getResRootPath();
+            if (!resourceRoot.empty()) {
+                gResourceRoot = std::move(resourceRoot);
+                gInitialized = true;
+            }
+        } catch (const std::exception &) {
+            gInitialized = false;
+            gResourceRoot.clear();
+        } catch (...) {
+            gInitialized = false;
+            gResourceRoot.clear();
+        }
     }
-    napi_value result;
-    napi_get_boolean(env, gInitialized && !gResourceRoot.empty(), &result);
+    napi_value result = nullptr;
+    if (napi_get_boolean(env, gInitialized, &result) != napi_ok) return nullptr;
     return result;
 }
 
@@ -515,8 +528,14 @@ napi_value Render(napi_env env, napi_callback_info info)
 void Cleanup(void *)
 {
     std::lock_guard<std::mutex> lock(gMathMutex);
-    if (gInitialized) tex::LaTeX::release();
+    if (gInitialized) {
+        try {
+            tex::LaTeX::release();
+        } catch (...) {
+        }
+    }
     gInitialized = false;
+    gInitializationAttempted = false;
     gResourceRoot.clear();
 }
 
