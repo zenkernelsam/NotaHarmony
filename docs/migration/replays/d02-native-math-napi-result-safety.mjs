@@ -66,10 +66,10 @@ check('measure success checks the result object and all six required fields',
   /!SetNumber\(env, result, "height"/.test(measure) &&
   /!SetNumber\(env, result, "baseline"/.test(measure) &&
   /!SetNumber\(env, result, "depth"/.test(measure));
-check('render validates ArrayBuffer allocation before copying pixels',
+check('render validates ArrayBuffer allocation before exporting pixels',
   /napi_value pixels = nullptr/.test(render) &&
   /napi_create_arraybuffer[\s\S]*?!= napi_ok \|\|[\s\S]*?destination == nullptr \|\| pixels == nullptr/.test(render) &&
-  render.indexOf('destination == nullptr') < render.indexOf('std::memcpy(destination, source, byteLength)'));
+  render.indexOf('destination == nullptr') < render.indexOf('OH_Drawing_BitmapReadPixels'));
 check('render success checks the result object scalar fields and pixels property',
   /napi_create_object\(env, &result\) != napi_ok \|\| result == nullptr/.test(render) &&
   /!SetBoolean\(env, result, "valid", true\)/.test(render) &&

@@ -1,6 +1,5 @@
 #include <cmath>
 #include <cstdint>
-#include <cstring>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -520,7 +519,9 @@ napi_value Render(napi_env env, napi_callback_info info)
         void *source = OH_Drawing_BitmapGetPixels(bitmap.get());
         if (source == nullptr ||
             OH_Drawing_BitmapGetWidth(bitmap.get()) != static_cast<uint32_t>(pixelWidth) ||
-            OH_Drawing_BitmapGetHeight(bitmap.get()) != static_cast<uint32_t>(pixelHeight)) {
+            OH_Drawing_BitmapGetHeight(bitmap.get()) != static_cast<uint32_t>(pixelHeight) ||
+            OH_Drawing_BitmapGetColorFormat(bitmap.get()) != COLOR_FORMAT_RGBA_8888 ||
+            OH_Drawing_BitmapGetAlphaFormat(bitmap.get()) != ALPHA_FORMAT_PREMUL) {
             return ErrorResult(env, "formula bitmap storage allocation failed");
         }
         CanvasHandle canvas(OH_Drawing_CanvasCreate());
@@ -536,14 +537,19 @@ napi_value Render(napi_env env, napi_callback_info info)
         const int drawY = renderHeight < height ? static_cast<int>(height - renderHeight) / 2 : 0;
         render->draw(graphics, drawX, drawY);
         if (graphics.failed()) return ErrorResult(env, "formula drawing failed");
-        const size_t byteLength = static_cast<size_t>(pixelWidth) * pixelHeight * 4;
+        const size_t rowBytes = static_cast<size_t>(pixelWidth) * 4;
+        const size_t byteLength = rowBytes * pixelHeight;
         void *destination = nullptr;
         napi_value pixels = nullptr;
         if (napi_create_arraybuffer(env, byteLength, &destination, &pixels) != napi_ok ||
             destination == nullptr || pixels == nullptr) {
             return ErrorResult(env, "formula pixel transfer allocation failed");
         }
-        std::memcpy(destination, source, byteLength);
+        const OH_Drawing_Image_Info destinationInfo = {
+            pixelWidth, pixelHeight, COLOR_FORMAT_RGBA_8888, ALPHA_FORMAT_PREMUL};
+        if (!OH_Drawing_BitmapReadPixels(bitmap.get(), &destinationInfo, destination, rowBytes, 0, 0)) {
+            return ErrorResult(env, "formula pixel transfer failed");
+        }
 
         napi_value result = nullptr;
         if (napi_create_object(env, &result) != napi_ok || result == nullptr ||

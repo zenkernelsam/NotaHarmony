@@ -44,7 +44,9 @@ check('bitmap object and backing storage allocations are both validated',
   /void \*source = OH_Drawing_BitmapGetPixels\(bitmap\.get\(\)\)/.test(render) &&
   /source == nullptr/.test(render) &&
   /OH_Drawing_BitmapGetWidth\(bitmap\.get\(\)\) != static_cast<uint32_t>\(pixelWidth\)/.test(render) &&
-  /OH_Drawing_BitmapGetHeight\(bitmap\.get\(\)\) != static_cast<uint32_t>\(pixelHeight\)/.test(render));
+  /OH_Drawing_BitmapGetHeight\(bitmap\.get\(\)\) != static_cast<uint32_t>\(pixelHeight\)/.test(render) &&
+  /OH_Drawing_BitmapGetColorFormat\(bitmap\.get\(\)\) != COLOR_FORMAT_RGBA_8888/.test(render) &&
+  /OH_Drawing_BitmapGetAlphaFormat\(bitmap\.get\(\)\) != ALPHA_FORMAT_PREMUL/.test(render));
 check('canvas and drawing resources fail closed before any formula draw',
   /CanvasHandle canvas\(OH_Drawing_CanvasCreate\(\)\);[\s\S]*?if \(!canvas\)/.test(render) &&
   /HarmonyGraphics graphics\(canvas\.get\(\)\);[\s\S]*?if \(!graphics\.valid\(\)\)/.test(render) &&
@@ -59,10 +61,10 @@ check('font and primitive allocations are guarded before native use',
   /OH_Drawing_Font \*native\(\) const \{ return typeface_ == nullptr \? nullptr : font_; \}/.test(native) &&
   (native.match(/if \(rect == nullptr\) \{[\s\S]*?failed_ = true;[\s\S]*?return;[\s\S]*?\}/g) ?? []).length >= 2 &&
   /if \(round == nullptr\) \{[\s\S]*?failed_ = true;[\s\S]*?OH_Drawing_RectDestroy\(rect\);[\s\S]*?return;/.test(native));
-check('ArrayBuffer status destination and value are checked before memcpy',
+check('ArrayBuffer status destination and value are checked before pixel export',
   /napi_value pixels = nullptr/.test(render) &&
   /napi_create_arraybuffer\([\s\S]*?\) != napi_ok \|\|[\s\S]*?destination == nullptr \|\| pixels == nullptr/.test(render) &&
-  render.indexOf('destination == nullptr') < render.indexOf('std::memcpy(destination, source, byteLength)'));
+  render.indexOf('destination == nullptr') < render.indexOf('OH_Drawing_BitmapReadPixels'));
 check('draw exceptions cross scoped owners and degrade to an error result',
   /render->draw\(graphics, drawX, drawY\)/.test(render) &&
   /catch \(const std::exception &error\)[\s\S]*?return ErrorResult\(env, error\.what\(\)\)/.test(render) &&

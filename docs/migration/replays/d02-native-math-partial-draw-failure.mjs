@@ -52,9 +52,9 @@ check('round-rectangle allocation failure marks sticky failure and releases its 
 
 check('render checks sticky graphics failure immediately after the complete formula draw',
   /render->draw\(graphics, drawX, drawY\);[\s\S]*?if \(graphics\.failed\(\)\) return ErrorResult\(env, "formula drawing failed"\);/.test(render));
-check('partial pixels are rejected before ArrayBuffer allocation or memcpy',
+check('partial pixels are rejected before ArrayBuffer allocation or pixel export',
   render.indexOf('if (graphics.failed())') < render.indexOf('napi_create_arraybuffer') &&
-  render.indexOf('if (graphics.failed())') < render.indexOf('std::memcpy(destination, source, byteLength)'));
+  render.indexOf('if (graphics.failed())') < render.indexOf('OH_Drawing_BitmapReadPixels'));
 check('partial drawing failure still exits through scoped graphics canvas and bitmap owners',
   render.indexOf('BitmapHandle bitmap(') < render.indexOf('CanvasHandle canvas(') &&
   render.indexOf('CanvasHandle canvas(') < render.indexOf('HarmonyGraphics graphics(') &&
