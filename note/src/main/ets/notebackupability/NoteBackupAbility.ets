@@ -502,21 +502,17 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
         let total: number = 0;
         while (total < size) {
           const requested: number = Math.min(COPY_BUFFER_SIZE, size - total);
-          const leftBuffer: ArrayBuffer = new ArrayBuffer(requested);
-          const rightBuffer: ArrayBuffer = new ArrayBuffer(requested);
-          const leftRead: number = fileIo.readSync(left.fd, leftBuffer);
-          const rightRead: number = fileIo.readSync(right.fd, rightBuffer);
-          if (leftRead <= 0 || leftRead !== rightRead || leftRead > requested) {
+          const leftBytes: Uint8Array | null = this.readChunkFully(left.fd, requested);
+          const rightBytes: Uint8Array | null = this.readChunkFully(right.fd, requested);
+          if (leftBytes === null || rightBytes === null) {
             return false;
           }
-          const leftBytes: Uint8Array = new Uint8Array(leftBuffer, 0, leftRead);
-          const rightBytes: Uint8Array = new Uint8Array(rightBuffer, 0, rightRead);
-          for (let index: number = 0; index < leftRead; index++) {
+          for (let index: number = 0; index < requested; index++) {
             if (leftBytes[index] !== rightBytes[index]) {
               return false;
             }
           }
-          total += leftRead;
+          total += requested;
         }
         return total === size;
       } finally {
@@ -525,6 +521,22 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
     } finally {
       fileIo.closeSync(left);
     }
+  }
+
+  private readChunkFully(fd: number, size: number): Uint8Array | null {
+    const output: Uint8Array = new Uint8Array(size);
+    let total: number = 0;
+    while (total < size) {
+      const requested: number = size - total;
+      const buffer: ArrayBuffer = new ArrayBuffer(requested);
+      const read: number = fileIo.readSync(fd, buffer);
+      if (read <= 0 || read > requested) {
+        return null;
+      }
+      output.set(new Uint8Array(buffer, 0, read), total);
+      total += read;
+    }
+    return output;
   }
 
   private replaceFile(source: string, destination: string, rollback: string, expectedSize: number,

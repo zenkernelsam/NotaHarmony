@@ -13,7 +13,8 @@ const originalCopy = fs.readFileSync(path.join(originalRoot, 'fag.java'), 'utf8'
 const exportToFile = exporter.slice(exporter.indexOf('async exportToFile('),
   exporter.indexOf('async exportAllNotes('));
 const writeHelper = exporter.slice(exporter.indexOf('function writeFileFully('),
-  exporter.indexOf('function readFileFully('));
+  exporter.indexOf('function copyFileFully('));
+const copyHelper = exporter.slice(exporter.indexOf('function copyFileFully('));
 
 const checks = [
   ['original private-file copy uses a buffered output stream',
@@ -22,9 +23,9 @@ const checks = [
     originalCopy.includes('byte[] bArr = new byte[8192]') &&
       originalCopy.includes('while (true)') &&
       originalCopy.includes('outputStream.write(bArr, 0, i)')],
-  ['both Harmony export destinations use complete-write handling',
+  ['Harmony temporary and picker destinations use complete I/O handling',
     exportToFile.includes("writeFileFully(tmpFile.fd, data, 'temporary export')") &&
-      exportToFile.includes("writeFileFully(dstFile.fd, bytes, 'destination export')")],
+      exportToFile.includes("copyFileFully(srcFile.fd, dstFile.fd, size, 'destination export')")],
   ['export path no longer ignores raw writeSync results',
     !exportToFile.includes('fileIo.writeSync(')],
   ['complete-write helper loops until the full byte view is consumed',
@@ -36,10 +37,17 @@ const checks = [
       writeHelper.includes('exactArrayBuffer(chunk)')],
   ['zero, negative, or oversized progress is rejected',
     writeHelper.includes('written <= 0 || written > chunk.byteLength')],
+  ['picker copy uses bounded reads and complete writes for each exact read view',
+    exporter.includes('const FILE_READ_CHUNK_SIZE: number = 64 * 1024') &&
+      copyHelper.includes('Math.min(FILE_READ_CHUNK_SIZE, size - total)') &&
+      copyHelper.includes('new Uint8Array(chunkBuffer, 0, read)') &&
+      copyHelper.includes('writeFileFully(destinationFd')],
+  ['picker copy rejects zero negative and oversized read progress',
+    copyHelper.includes('read <= 0 || read > requested')],
   ['temporary and destination files remain synced only after complete writing',
     exportToFile.indexOf("writeFileFully(tmpFile.fd, data, 'temporary export')") <
       exportToFile.indexOf('fileIo.fsyncSync(tmpFile.fd)') &&
-      exportToFile.indexOf("writeFileFully(dstFile.fd, bytes, 'destination export')") <
+      exportToFile.indexOf("copyFileFully(srcFile.fd, dstFile.fd, size, 'destination export')") <
         exportToFile.indexOf('fileIo.fsyncSync(dstFile.fd)')],
 ];
 

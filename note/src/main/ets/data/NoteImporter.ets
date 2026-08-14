@@ -29,6 +29,8 @@ import {
   summarizeNotabilityContentLoss,
 } from './NotabilitySessionParser';
 
+const FILE_READ_CHUNK_SIZE: number = 64 * 1024;
+
 export enum ImportResult {
   SUCCESS = 0,
   UNSUPPORTED_FORMAT = 1,
@@ -841,12 +843,16 @@ function bytesToString(bytes: Uint8Array): string {
 }
 
 function readFileFully(fd: number, size: number): Uint8Array {
+  if (!Number.isSafeInteger(size) || size < 0) {
+    throw new Error(`无效文件长度：${size}`);
+  }
   const output = new Uint8Array(size);
   let total: number = 0;
   while (total < size) {
-    const chunkBuffer = new ArrayBuffer(size - total);
+    const requested: number = Math.min(FILE_READ_CHUNK_SIZE, size - total);
+    const chunkBuffer = new ArrayBuffer(requested);
     const read: number = fileIo.readSync(fd, chunkBuffer);
-    if (read <= 0) {
+    if (read <= 0 || read > requested) {
       throw new Error(`文件读取不完整：${total}/${size} bytes`);
     }
     output.set(new Uint8Array(chunkBuffer, 0, read), total);

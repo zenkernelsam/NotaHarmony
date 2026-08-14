@@ -27,6 +27,7 @@ import {
 } from './BackupSnapshotGuard';
 
 const FILE_WRITE_CHUNK_SIZE: number = 64 * 1024;
+const FILE_READ_CHUNK_SIZE: number = 64 * 1024;
 
 // 纸张尺寸 → 毫米（A3~TABLOID，与 Phase 3 默认一致）
 export function paperSizeToMm(size: PaperSize): number[] {
@@ -159,10 +160,11 @@ export class NoteExporter {
     let srcFile: fileIo.File | null = null;
     let dstFile: fileIo.File | null = null;
     try {
-      const data: Uint8Array | null = await this.exportNote(noteId);
+      let data: Uint8Array | null = await this.exportNote(noteId);
       if (data === null) {
         return false;
       }
+      const expectedSize: number = data.byteLength;
       // 1. 写入应用沙箱临时文件
       tmpPath = `${context.tempDir}/export_${Date.now()}.note`;
       tmpFile = fileIo.openSync(tmpPath, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
@@ -170,6 +172,9 @@ export class NoteExporter {
       fileIo.fsyncSync(tmpFile.fd);
       fileIo.closeSync(tmpFile);
       tmpFile = null;
+      // The picker can remain open for a long time. The temporary file now owns the archive bytes,
+      // so do not retain another full in-memory copy across that await.
+      data = null;
 
       // 2. 系统保存对话框
       const documentPicker = new picker.DocumentViewPicker(context);
@@ -187,14 +192,16 @@ export class NoteExporter {
       srcFile = fileIo.openSync(tmpPath, fileIo.OpenMode.READ_ONLY);
       const stat = fileIo.statSync(tmpPath);
       const size: number = stat.size;
-      const bytes: Uint8Array = readFileFully(srcFile.fd, size);
-      fileIo.closeSync(srcFile);
-      srcFile = null;
+      if (!Number.isSafeInteger(size) || size !== expectedSize) {
+        throw new Error(`temporary export changed before copy: ${size}/${expectedSize} bytes`);
+      }
       dstFile = fileIo.openSync(targetUri, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
-      writeFileFully(dstFile.fd, bytes, 'destination export');
+      copyFileFully(srcFile.fd, dstFile.fd, size, 'destination export');
       fileIo.fsyncSync(dstFile.fd);
       fileIo.closeSync(dstFile);
       dstFile = null;
+      fileIo.closeSync(srcFile);
+      srcFile = null;
       console.info(`exportToFile success: note=${noteId} bytes=${size}`);
       return true;
     } catch (e) {
@@ -304,17 +311,19 @@ function writeFileFully(fd: number, bytes: Uint8Array, label: string): void {
   }
 }
 
-function readFileFully(fd: number, size: number): Uint8Array {
-  const output = new Uint8Array(size);
+function copyFileFully(sourceFd: number, destinationFd: number, size: number, label: string): void {
+  if (!Number.isSafeInteger(size) || size < 0) {
+    throw new Error(`${label} has an invalid size: ${size}`);
+  }
   let total: number = 0;
   while (total < size) {
-    const chunkBuffer = new ArrayBuffer(size - total);
-    const read: number = fileIo.readSync(fd, chunkBuffer);
-    if (read <= 0) {
-      throw new Error(`文件读取不完整：${total}/${size} bytes`);
+    const requested: number = Math.min(FILE_READ_CHUNK_SIZE, size - total);
+    const chunkBuffer: ArrayBuffer = new ArrayBuffer(requested);
+    const read: number = fileIo.readSync(sourceFd, chunkBuffer);
+    if (read <= 0 || read > requested) {
+      throw new Error(`${label} read made invalid progress: ${total}/${size} bytes`);
     }
-    output.set(new Uint8Array(chunkBuffer, 0, read), total);
+    writeFileFully(destinationFd, new Uint8Array(chunkBuffer, 0, read), label);
     total += read;
   }
-  return output;
 }

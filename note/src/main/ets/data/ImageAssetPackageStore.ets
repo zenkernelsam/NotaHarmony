@@ -14,6 +14,8 @@ import { sha512Hex } from './AssetDigest';
 import { DatabaseManager } from './DatabaseManager';
 import { databaseWriteMutex } from './DatabaseWriteMutex';
 
+const FILE_IO_CHUNK_SIZE: number = 64 * 1024;
+
 export interface OriginalImageAssetArrival {
   assetHashBits: string[];
   bytes: Uint8Array;
@@ -332,12 +334,16 @@ function isAvailableStatus(status: AssetStatus): boolean {
 }
 
 function readFileFully(fd: number, size: number): Uint8Array {
+  if (!Number.isSafeInteger(size) || size < 0) {
+    throw new Error(`invalid image asset size: ${size}`);
+  }
   const output: Uint8Array = new Uint8Array(size);
   let total: number = 0;
   while (total < size) {
-    const chunkBuffer: ArrayBuffer = new ArrayBuffer(size - total);
+    const requested: number = Math.min(FILE_IO_CHUNK_SIZE, size - total);
+    const chunkBuffer: ArrayBuffer = new ArrayBuffer(requested);
     const read: number = fileIo.readSync(fd, chunkBuffer);
-    if (read <= 0) {
+    if (read <= 0 || read > requested) {
       throw new Error(`short image asset read at ${total}/${size}`);
     }
     output.set(new Uint8Array(chunkBuffer, 0, read), total);
@@ -364,10 +370,12 @@ function writeFileAtomically(pendingDirectory: string, finalPath: string, bytes:
   try {
     let offset: number = 0;
     while (offset < bytes.length) {
-      const chunk: ArrayBuffer = bytes.buffer.slice(bytes.byteOffset + offset,
-        bytes.byteOffset + bytes.length) as ArrayBuffer;
+      const end: number = Math.min(bytes.length, offset + FILE_IO_CHUNK_SIZE);
+      const view: Uint8Array = bytes.subarray(offset, end);
+      const chunk: ArrayBuffer = view.buffer.slice(view.byteOffset,
+        view.byteOffset + view.byteLength) as ArrayBuffer;
       const written: number = fileIo.writeSync(file.fd, chunk);
-      if (written <= 0) {
+      if (written <= 0 || written > view.byteLength) {
         throw new Error(`short image asset write at ${offset}/${bytes.length}`);
       }
       offset += written;
@@ -392,15 +400,29 @@ function writeFileAtomically(pendingDirectory: string, finalPath: string, bytes:
 }
 
 function fileContentsEqual(path: string, expected: Uint8Array): boolean {
+  const stat = fileIo.statSync(path);
+  if (!stat.isFile() || stat.size !== expected.length) {
+    return false;
+  }
   const file: fileIo.File = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
   try {
-    const actual: Uint8Array = readFileFully(file.fd, expected.length);
-    for (let index: number = 0; index < expected.length; index++) {
-      if (actual[index] !== expected[index]) {
+    let total: number = 0;
+    while (total < expected.length) {
+      const requested: number = Math.min(FILE_IO_CHUNK_SIZE, expected.length - total);
+      const buffer: ArrayBuffer = new ArrayBuffer(requested);
+      const read: number = fileIo.readSync(file.fd, buffer);
+      if (read <= 0 || read > requested) {
         return false;
       }
+      const actual: Uint8Array = new Uint8Array(buffer, 0, read);
+      for (let index: number = 0; index < read; index++) {
+        if (actual[index] !== expected[total + index]) {
+          return false;
+        }
+      }
+      total += read;
     }
-    return true;
+    return total === expected.length && fileIo.statSync(path).size === expected.length;
   } finally {
     fileIo.closeSync(file);
   }
