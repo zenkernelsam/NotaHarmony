@@ -34,6 +34,9 @@ import {
   backfillOriginalAppliedOperationTimes, OriginalOperationTimeDatabase,
 } from './OriginalOperationAudioTimeStore';
 import { repairLegacyOriginalOutboundEnvelopes } from './OriginalOutboundOperationRepair';
+import {
+  AssetTemporaryArtifactCleanupReport, cleanupInterruptedAssetArtifacts,
+} from './AssetTemporaryArtifactCleanup';
 
 interface AssetReferenceRepairRow {
   hash: string;
@@ -74,6 +77,12 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
 
   private async openAndMigrate(context: common.Context): Promise<void> {
     this.applicationFilesDir = context.filesDir;
+    const cleanup: AssetTemporaryArtifactCleanupReport =
+      cleanupInterruptedAssetArtifacts(this.applicationFilesDir);
+    if (cleanup.removed > 0 || cleanup.failed > 0) {
+      console.info(`Asset temporary artifact startup cleanup: scanned=${cleanup.scanned}, ` +
+        `removed=${cleanup.removed}, skipped=${cleanup.skipped}, failed=${cleanup.failed}`);
+    }
     const config: relationalStore.StoreConfig = {
       name: DB_NAME,
       securityLevel: relationalStore.SecurityLevel.S1,
