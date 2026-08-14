@@ -684,9 +684,25 @@ export default class NoteBackupAbility extends BackupExtensionAbility {
   private writeText(path: string, value: string): void {
     const file = fileIo.openSync(path, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
     const bytes: Uint8Array = new util.TextEncoder().encodeInto(value);
-    const exact: ArrayBuffer = bytes.buffer.slice(
-      bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-    try { fileIo.writeSync(file.fd, exact); } finally { fileIo.closeSync(file); }
+    try {
+      let total: number = 0;
+      while (total < bytes.byteLength) {
+        const requested: number = Math.min(COPY_BUFFER_SIZE, bytes.byteLength - total);
+        const exact: ArrayBuffer = bytes.buffer.slice(bytes.byteOffset + total,
+          bytes.byteOffset + total + requested) as ArrayBuffer;
+        const written: number = fileIo.writeSync(file.fd, exact);
+        if (written <= 0 || written > requested) {
+          throw new Error(`backup text write made invalid progress: ${total}/${bytes.byteLength}`);
+        }
+        total += written;
+      }
+      fileIo.fsyncSync(file.fd);
+    } finally {
+      fileIo.closeSync(file);
+    }
+    if (!this.isFile(path) || fileIo.statSync(path).size !== bytes.byteLength) {
+      throw new Error(`backup text write verification failed: ${path}`);
+    }
   }
 
   private errorMessage(error: Object): string {
