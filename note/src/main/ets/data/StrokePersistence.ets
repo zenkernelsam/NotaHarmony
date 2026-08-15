@@ -89,6 +89,10 @@ import {
   validateOriginalClipboardPasteMutation,
 } from './OriginalClipboardPasteMutationCodec';
 import {
+  decodeOriginalPartialEraseMutation, encodeOriginalPartialEraseMutation,
+  OriginalPartialEraseMutation, validateOriginalPartialEraseMutation,
+} from './OriginalPartialEraseMutationCodec';
+import {
   decodeOriginalCreateInk, ORIGINAL_CREATE_INK_PAYLOAD_TYPE, OriginalCreateInkOperationApplier,
 } from './OriginalCreateInkOperation';
 import {
@@ -194,6 +198,27 @@ export interface OriginalMathInsertResult {
   elementOrder: PageElementRef[];
 }
 
+export interface OriginalPartialEraseReplacementPlan {
+  source: StrokeElementData;
+  remnants: StrokeElementData[];
+}
+
+export interface OriginalPartialErasePlan {
+  replacements: OriginalPartialEraseReplacementPlan[];
+}
+
+export interface OriginalPartialErasePersistenceResult {
+  elements: SearchSourceElement[];
+  elementOrder: PageElementRef[];
+  mutation: OriginalPartialEraseMutation;
+  operation: Op;
+}
+
+export interface OriginalPartialEraseHistoryResult {
+  elements: SearchSourceElement[];
+  elementOrder: PageElementRef[];
+}
+
 export interface OriginalClipboardPasteHistoryResult {
   elements: SearchSourceElement[];
   elementOrder: PageElementRef[];
@@ -201,6 +226,38 @@ export interface OriginalClipboardPasteHistoryResult {
 }
 
 const MAX_ORIGINAL_CLIPBOARD_PASTE_LEAVES: number = 10000;
+
+export function validateOriginalPartialErasePlan(plan: OriginalPartialErasePlan): void {
+  if (plan.replacements.length === 0 ||
+    plan.replacements.length > MAX_ORIGINAL_DELETE_ENTITY_COUNT) {
+    throw new Error('original partial erase plan has an invalid replacement count');
+  }
+  const sourceIds: Set<string> = new Set<string>();
+  const remnantIds: Set<string> = new Set<string>();
+  let entityCount: number = 0;
+  const page: OriginalSequenceIdentity = { timestamp: 1, siteId: 1, index: 0 };
+  for (const replacement of plan.replacements) {
+    if (decodeOperationId(replacement.source.id) === null || sourceIds.has(replacement.source.id) ||
+      remnantIds.has(replacement.source.id) ||
+      replacement.source.renderSpec.isPencil || replacement.source.renderSpec.isPartialEraser === true) {
+      throw new Error('original partial erase plan has an invalid source Ink');
+    }
+    sourceIds.add(replacement.source.id);
+    entityCount++;
+    for (const remnant of replacement.remnants) {
+      if (remnant.id.length === 0 || sourceIds.has(remnant.id) || remnantIds.has(remnant.id) ||
+        remnant.originalCreate !== undefined) {
+        throw new Error('original partial erase plan has an invalid remnant Ink');
+      }
+      encodeOriginalLocalCreateInk(page, remnant, '1');
+      remnantIds.add(remnant.id);
+      entityCount++;
+    }
+  }
+  if (entityCount > MAX_ORIGINAL_DELETE_ENTITY_COUNT) {
+    throw new Error('original partial erase exceeds one type-25 visibility payload');
+  }
+}
 
 export function validateOriginalClipboardPastePlan(plan: OriginalClipboardPastePlan): void {
   const leafCount: number = plan.strokes.length + plan.shapes.length + plan.textBlocks.length +
@@ -1374,6 +1431,260 @@ export class StrokePersistence {
     this.queueSaveElements(noteId, pageId, strokes, textBlocks, elementOrder, shapes,
       false, undefined, images, mathBlocks);
     await this.flush(noteId, pageId);
+  }
+
+  async commitOriginalPartialErase(noteId: string, pageId: string,
+    plan: OriginalPartialErasePlan, history: HistoryMetadata):
+    Promise<OriginalPartialErasePersistenceResult> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    validateOriginalPartialErasePlan(plan);
+    validateHistoryMetadata(history);
+    if (history.effect !== HistoryEffect.PUSH ||
+      history.coalesceTrack !== HistoryCoalesceTrack.NONE) {
+      throw new Error('original partial erase requires non-coalesced PUSH history');
+    }
+    const stablePlan: OriginalPartialErasePlan = cloneOriginalPartialErasePlan(plan);
+    const stableHistory: HistoryMetadata = {
+      actionId: history.actionId, effect: history.effect,
+      coalesceTrack: history.coalesceTrack, actionTime: history.actionTime,
+    };
+    validateOriginalPartialErasePlan(stablePlan);
+    await this.flush(noteId, pageId);
+    return editorPersistenceMutex.runExclusive(
+      async (): Promise<OriginalPartialErasePersistenceResult> => {
+        if (this.store === null) {
+          throw new Error('StrokePersistence is not initialized');
+        }
+        const store: relationalStore.RdbStore = this.store;
+        await store.beginTransaction();
+        try {
+          const page: OriginalSequenceIdentity | null = await this.readEligibleOriginalInkPage(
+            store, noteId, pageId);
+          if (page === null) {
+            throw new Error('original partial erase page is not original-aligned');
+          }
+          const activeGroups: OriginalSelectionGroup[] =
+            await this.loadOriginalSelectionGroups(store, noteId);
+          const groupedMembers: Set<string> = new Set<string>();
+          for (const group of activeGroups) {
+            for (const member of group.members) {
+              groupedMembers.add(member);
+            }
+          }
+          const before: SearchSourceElement[] = await this.loadCurrentSnapshot(store, noteId, pageId);
+          const beforeById: Map<string, SearchSourceElement> = new Map<string, SearchSourceElement>();
+          for (const element of before) {
+            beforeById.set(`${element.kind}:${element.elementId}`, element);
+          }
+          for (const replacement of stablePlan.replacements) {
+            if (groupedMembers.has(replacement.source.id)) {
+              throw new Error('original partial erase Group member replacement is not enabled yet');
+            }
+            const stored: SearchSourceElement | undefined =
+              beforeById.get(`${PageElementKind.STROKE}:${replacement.source.id}`);
+            const expected: Uint8Array = encodePersistedElement({
+              kind: 'stroke', data: replacement.source,
+            });
+            if (stored === undefined || !sameByteArrays(stored.payload, expected)) {
+              throw new Error('original partial erase source Ink is stale');
+            }
+          }
+          const currentRevision: number = await this.readLivePageRevision(store, noteId, pageId);
+          if (currentRevision >= Number.MAX_SAFE_INTEGER) {
+            throw new Error('original partial erase page revision is exhausted');
+          }
+          const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+          const createApplier: OriginalCreateInkOperationApplier =
+            new OriginalCreateInkOperationApplier();
+          const createdIds: string[] = [];
+          for (const replacement of stablePlan.replacements) {
+            const sourceIdentity: OperationIdentity =
+              decodeOperationId(replacement.source.id) as OperationIdentity;
+            const sourceZIndex: string | null = await this.readOriginalEntityZIndex(
+              store, noteId, page, sourceIdentity);
+            if (sourceZIndex === null) {
+              throw new Error('original partial erase source z-index disappeared');
+            }
+            for (const draft of replacement.remnants) {
+              const identity: AllocatedOperationIdentity =
+                await allocateOperationIdentity(store, noteId);
+              const metadata: OriginalInkCreateMetadata = {
+                timestamp: identity.timestamp, siteId: identity.siteId,
+                clientTime: identity.clientTime, pageTimestamp: page.timestamp,
+                pageSiteId: page.siteId, pageIndex: page.index, pencilSeed: 0,
+              };
+              const stroke: StrokeElementData = cloneStrokeThroughPersistence(draft);
+              stroke.id = identity.opId;
+              stroke.originalCreate = metadata;
+              const payload: Uint8Array = encodeOriginalLocalCreateInk(
+                page, stroke, sourceZIndex);
+              const operation: StoredSyncedOperation = localStoredOperation(
+                noteId, metadata, ORIGINAL_CREATE_INK_PAYLOAD_TYPE, payload,
+                stroke.audioStartTime === undefined ? null : stroke.audioStartTime);
+              const applied: SyncedOperationApplyResult = await createApplier.applyBatchedPayload(
+                store, operation,
+                decodeOriginalCreateInk(operation.rawOperation, metadata.clientTime.toString()),
+                revisionBatch);
+              if (applied.deferredReason !== null) {
+                throw new Error(`original partial erase CREATE_INK was deferred: ${applied.deferredReason}`);
+              }
+              await this.appendOriginalCreateOperation(store, noteId, identity,
+                OpType.ORIGINAL_CREATE_INK, operation.rawOperation);
+              createdIds.push(identity.opId);
+            }
+          }
+
+          const sourceIdentities: OperationIdentity[] = stablePlan.replacements.map(
+            (replacement: OriginalPartialEraseReplacementPlan): OperationIdentity =>
+              decodeOperationId(replacement.source.id) as OperationIdentity);
+          const deleteIdentity: AllocatedOperationIdentity =
+            await allocateOperationIdentity(store, noteId);
+          const deletePayload: Uint8Array = encodeOriginalEntityVisibility(sourceIdentities, []);
+          const deleteOperation: StoredSyncedOperation = localStoredOperation(
+            noteId, allocatedOriginalMetadata(deleteIdentity),
+            ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE, deletePayload, null);
+          const deleteApplied: SyncedOperationApplyResult =
+            await new OriginalDeleteEntitiesOperationApplier().apply(store, deleteOperation);
+          if (deleteApplied.deferredReason !== null) {
+            throw new Error(`original partial erase DELETE_ENTITIES was deferred: ${deleteApplied.deferredReason}`);
+          }
+          await this.appendOriginalCreateOperation(store, noteId, deleteIdentity,
+            OpType.ORIGINAL_DELETE_ENTITIES, deleteOperation.rawOperation);
+
+          const revisionAfter: number = await this.readLivePageRevision(store, noteId, pageId);
+          if (revisionAfter !== currentRevision + 1) {
+            throw new Error('original partial erase did not advance one page revision');
+          }
+          const materialized: SearchSourceElement[] =
+            await this.loadCurrentSnapshot(store, noteId, pageId);
+          if (materialized.length !== before.length - sourceIdentities.length + createdIds.length) {
+            throw new Error('original partial erase materialized an unexpected element count');
+          }
+          const materializedIds: Set<string> = new Set<string>();
+          for (const element of materialized) {
+            materializedIds.add(`${element.kind}:${element.elementId}`);
+          }
+          for (const replacement of stablePlan.replacements) {
+            if (materializedIds.has(`${PageElementKind.STROKE}:${replacement.source.id}`)) {
+              throw new Error('original partial erase retained a source Ink');
+            }
+          }
+          for (const id of createdIds) {
+            if (!materializedIds.has(`${PageElementKind.STROKE}:${id}`)) {
+              throw new Error('original partial erase lost a remnant Ink');
+            }
+          }
+          const mutation: OriginalPartialEraseMutation = createPageMutation(
+            pageId, currentRevision, revisionAfter, before, materialized);
+          validateOriginalPartialEraseMutation(mutation);
+          const finalSnapshot: PreparedPageSave = this.preparedSnapshotFromSearchElements(
+            noteId, pageId, materialized, stableHistory);
+          await this.reconcilePreparedRows(store, finalSnapshot, revisionAfter);
+          await this.rebuildPageSearchState(store, finalSnapshot, revisionAfter, true);
+          const historyOperation: Op = await this.appendOriginalPartialEraseHistory(
+            store, noteId, mutation, stableHistory);
+          await store.commit();
+          return {
+            elements: materialized,
+            elementOrder: materialized.map(
+              (element: SearchSourceElement, index: number): PageElementRef => ({
+                kind: element.kind, elementId: element.elementId, zIndex: index,
+              })),
+            mutation: mutation,
+            operation: historyOperation,
+          };
+        } catch (e) {
+          await store.rollBack();
+          throw new Error(`commit original partial erase failed: ${JSON.stringify(e)}`);
+        }
+      });
+  }
+
+  async applyOriginalPartialEraseHistory(noteId: string,
+    sourceMutation: OriginalPartialEraseMutation, forward: boolean,
+    history: HistoryMetadata): Promise<OriginalPartialEraseHistoryResult> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    validateOriginalPartialEraseMutation(sourceMutation);
+    validateHistoryMetadata(history);
+    if (history.effect === HistoryEffect.PUSH ||
+      history.coalesceTrack !== HistoryCoalesceTrack.NONE) {
+      throw new Error('original partial erase history movement is invalid');
+    }
+    const mutation: OriginalPartialEraseMutation = decodeOriginalPartialEraseMutation(
+      encodeOriginalPartialEraseMutation(sourceMutation));
+    const stableHistory: HistoryMetadata = {
+      actionId: history.actionId, effect: history.effect,
+      coalesceTrack: history.coalesceTrack, actionTime: history.actionTime,
+    };
+    const pageId: string = mutation.pageId;
+    await this.flush(noteId, pageId);
+    return editorPersistenceMutex.runExclusive(
+      async (): Promise<OriginalPartialEraseHistoryResult> => {
+        if (this.store === null) {
+          throw new Error('StrokePersistence is not initialized');
+        }
+        const store: relationalStore.RdbStore = this.store;
+        await store.beginTransaction();
+        try {
+          if (await this.readEligibleOriginalInkPage(store, noteId, pageId) === null) {
+            throw new Error('original partial erase history page is not original-aligned');
+          }
+          const current: SearchSourceElement[] = await this.loadCurrentSnapshot(store, noteId, pageId);
+          const targetElements: SearchSourceElement[] = replayPageMutation(current, mutation, forward);
+          const sourceElements: SearchSourceElement[] = forward ?
+            mutation.beforeElements : mutation.afterElements;
+          const targetVisibleElements: SearchSourceElement[] = forward ?
+            mutation.afterElements : mutation.beforeElements;
+          const deletes: OperationIdentity[] = sourceElements.map(
+            (element: SearchSourceElement): OperationIdentity =>
+              decodeOperationId(element.elementId) as OperationIdentity);
+          const undeletes: OperationIdentity[] = targetVisibleElements.map(
+            (element: SearchSourceElement): OperationIdentity =>
+              decodeOperationId(element.elementId) as OperationIdentity);
+          const revisionBefore: number = await this.readLivePageRevision(store, noteId, pageId);
+          const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+          const payload: Uint8Array = encodeOriginalEntityVisibility(deletes, undeletes);
+          const operation: StoredSyncedOperation = localStoredOperation(
+            noteId, allocatedOriginalMetadata(identity),
+            ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE, payload, null);
+          const applied: SyncedOperationApplyResult =
+            await new OriginalDeleteEntitiesOperationApplier().apply(store, operation);
+          if (applied.deferredReason !== null) {
+            throw new Error(`original partial erase history visibility was deferred: ${applied.deferredReason}`);
+          }
+          await this.appendOriginalCreateOperation(store, noteId, identity,
+            OpType.ORIGINAL_DELETE_ENTITIES, operation.rawOperation);
+          const materialized: SearchSourceElement[] =
+            await this.loadCurrentSnapshot(store, noteId, pageId);
+          if (!sameSearchSourceElements(materialized, targetElements)) {
+            throw new Error('original partial erase history produced an unexpected page');
+          }
+          const revisionAfter: number = await this.readLivePageRevision(store, noteId, pageId);
+          if (revisionAfter !== revisionBefore + 1) {
+            throw new Error('original partial erase history did not advance one page revision');
+          }
+          const finalSnapshot: PreparedPageSave = this.preparedSnapshotFromSearchElements(
+            noteId, pageId, materialized, stableHistory);
+          await this.reconcilePreparedRows(store, finalSnapshot, revisionAfter);
+          await this.rebuildPageSearchState(store, finalSnapshot, revisionAfter, true);
+          await this.appendOriginalPartialEraseHistory(store, noteId, mutation, stableHistory);
+          await store.commit();
+          return {
+            elements: materialized,
+            elementOrder: materialized.map(
+              (element: SearchSourceElement, index: number): PageElementRef => ({
+                kind: element.kind, elementId: element.elementId, zIndex: index,
+              })),
+          };
+        } catch (e) {
+          await store.rollBack();
+          throw new Error(`apply original partial erase history failed: ${JSON.stringify(e)}`);
+        }
+      });
   }
 
   async commitOriginalClipboardPaste(noteId: string, pageId: string,
@@ -4689,6 +5000,25 @@ export class StrokePersistence {
     }
   }
 
+  private async readOriginalEntityZIndex(store: relationalStore.RdbStore, noteId: string,
+    page: OriginalSequenceIdentity, entity: OperationIdentity): Promise<string | null> {
+    const rows = await store.querySql(
+      `SELECT z_index FROM original_element_z_index WHERE note_id = ?
+       AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+       AND element_timestamp = ? AND element_site_id = ? AND kind = ? AND visible = 1`,
+      [noteId, page.timestamp, page.siteId, page.index,
+        entity.timestamp, entity.siteId, PageElementKind.STROKE]);
+    try {
+      if (!rows.goToFirstRow()) {
+        return null;
+      }
+      const zIndex: string = rows.getString(rows.getColumnIndex('z_index'));
+      return rows.goToNextRow() ? null : zIndex;
+    } finally {
+      rows.close();
+    }
+  }
+
   private groupOperationMetadata(identity: AllocatedOperationIdentity): OriginalInkCreateMetadata {
     return {
       timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
@@ -4734,6 +5064,19 @@ export class StrokePersistence {
     const operation: Op = {
       noteId: noteId, opId: identity.opId, opType: OpType.ORIGINAL_CLIPBOARD_PASTE,
       payload: encodeOriginalClipboardPasteMutation(mutation), clientTime: identity.clientTime,
+      opTimestamp: identity.timestamp, editorSiteId: identity.siteId, history: history,
+    };
+    await appendOperation(store, operation);
+    return operation;
+  }
+
+  private async appendOriginalPartialEraseHistory(store: relationalStore.RdbStore,
+    noteId: string, mutation: OriginalPartialEraseMutation,
+    history: HistoryMetadata): Promise<Op> {
+    const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+    const operation: Op = {
+      noteId: noteId, opId: identity.opId, opType: OpType.ORIGINAL_PARTIAL_ERASE,
+      payload: encodeOriginalPartialEraseMutation(mutation), clientTime: identity.clientTime,
       opTimestamp: identity.timestamp, editorSiteId: identity.siteId, history: history,
     };
     await appendOperation(store, operation);
@@ -4790,6 +5133,21 @@ export class StrokePersistence {
       throw new Error('original element creation materialized an incomplete page');
     }
     return { noteId: noteId, pageId: pageId, elements: elements, history: history };
+  }
+
+  private preparedSnapshotFromSearchElements(noteId: string, pageId: string,
+    elements: SearchSourceElement[], history: HistoryMetadata): PreparedPageSave {
+    return {
+      noteId: noteId,
+      pageId: pageId,
+      elements: elements.map((element: SearchSourceElement): PreparedElement => ({
+        elementId: element.elementId,
+        kind: element.kind,
+        payload: element.payload,
+        searchText: searchTextForElement(element.kind, element.payload),
+      })),
+      history: history,
+    };
   }
 
   private async loadOriginalSelectionGroups(store: relationalStore.RdbStore,
@@ -5429,6 +5787,16 @@ function cloneOriginalClipboardPastePlan(
     elementOrder: clonePageElementRefs(plan.elementOrder),
     groups: plan.groups.map(cloneSelectionGroup),
     topGroupIds: plan.topGroupIds.slice(),
+  };
+}
+
+function cloneOriginalPartialErasePlan(plan: OriginalPartialErasePlan): OriginalPartialErasePlan {
+  return {
+    replacements: plan.replacements.map(
+      (replacement: OriginalPartialEraseReplacementPlan): OriginalPartialEraseReplacementPlan => ({
+        source: cloneStrokeThroughPersistence(replacement.source),
+        remnants: replacement.remnants.map(cloneStrokeThroughPersistence),
+      })),
   };
 }
 

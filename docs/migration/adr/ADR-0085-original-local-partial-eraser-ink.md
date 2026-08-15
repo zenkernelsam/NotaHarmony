@@ -1,57 +1,52 @@
-# ADR-0085: Persist local partial eraser as original tool-5 Ink
+# ADR-0085：把本地 partial eraser 持久化为 tool-5 Ink（已废止）
 
-## Status
+## 状态
 
-Accepted, 2026-08-11.
+Superseded，2026-08-15。由 ADR-0214 取代。
 
-## Original Evidence
+## 更正原因
 
-- Original 1.0.3 `u16` declares `PARTIAL_ERASER((byte) 5)`.
-- In `kt1`, the partial-eraser input branch selects `u16.PARTIAL_ERASER` and then calls
-  `u5j.g(...)`, the same Ink creation path used by other persistent tools.
-- The resulting entity is therefore a CREATE_INK whose tool field is 5. It is not a set of
-  MODIFY_INK center-path replacements for every crossed Ink. MODIFY_INK field 8 remains a
-  separate center-path register operation.
+本 ADR 在 Phase 108 把两件事错误地等同起来：
 
-## Decision
+- 原版枚举与 CREATE_INK reducer 确实认识 tool 5；
+- 原版本地 partial-erase 手势的最终页面持久结果。
 
-- A local partial-eraser gesture consumes the same reserved canonical operation identity as a
-  drawable Ink gesture and creates one fixed-width Ink with tool 5. Its path, z-order, audio time,
-  local snapshot and original outbound row share that identity.
-- Encode `RenderSpec.isPartialEraser` as CREATE_INK tool 5. The original reducer accepts tool 5 and
-  materializes the flag; MODIFY_INK reconstruction and self-owned package validation preserve it.
-- Render tool-5 Ink with `destination-out`, round caps and the Ink's own width. A single-point tap
-  emits a zero-length line segment so the round cap is visible.
-- Preserve original element ordering. Pages containing a tool-5 Ink render all ordered elements to
-  a transparent offscreen content layer, then composite that layer over paper/PDF. This prevents
-  destination-out from punching the page background transparent and still lets later Ink appear
-  above an earlier eraser.
-- Tool-5 Ink is not directly selectable and is ignored by whole/partial eraser hit testing. Its
-  lifecycle is controlled through the gesture's ADD_STROKE history entry; Undo/Redo uses the
-  existing canonical DELETE_ENTITIES delete/undelete path.
-- If the current page cannot reserve original authoring identity, keep the legacy local mask
-  fallback. Partial erasing must never delete an entire Shape, Text, Image or Math element; object
-  deletion remains exclusive to whole eraser mode.
-- On cancellation, discard the consumed identity and asynchronously reserve a fresh one for the
-  same page/generation. On successful persistence, rearm only after the original transaction
-  completes.
+重新直读 `dh5`、`o8j`，并对普通 JADX 缺失的 `jt1.invokeSuspend()`、`wc.invoke()` 做 JADX 1.5.6
+fallback 线性反编译后，证据表明这两个语义不同。tool 5 用于 partial-erase 交互输入，也可能存在于历史/输入
+operation 中；但手势提交并不会永久保留一条 `destination-out` tool-5 Ink。
 
-## Verification
+## 原版证据更正
 
-- `OriginalCreateInkPayloadEncoder.test.ets` verifies tool 5 round-trip and reducer eligibility.
-- `d02-local-partial-eraser-ink.mjs` locks the original tool evidence, encoder/reducer/renderer
-  wiring, z-order, Undo/Redo visibility and paper-safe content-layer boundary.
-- Full replay and clean sequential HAP results are recorded in the Phase 108 report.
+- `dh5` 中普通 Ink 落笔走 `new wc(..., 2)`，并立即要求出现 CREATE_INK。
+- 工具为 partial eraser 时，`dh5` 改走 `new jt1(...)`，不是普通 CREATE_INK 提交分支。
+- `jt1` 调用 `n8j.e(...)` 与 `o8j.a(...)` 计算每个源 Ink 的零至多个几何残片；源 Ink 进入删除集合，
+  残片进入 replacement map，最后交给 `new wc(..., 3)`。
+- `o8j.a()` 为每段保留区间重新创建 Ink，并按路径比例重算 AudioLinked Ink 的开始时间与持续时间。
+- `wc` mode 3 创建残片、替换 Group member/处理空 Group、调用 `u5j.l(...)` 删除源实体，并通过
+  `oqi.a(...)` 结束 transient interaction。
 
-## Remaining Boundary
+完整 APK 哈希、fallback 文件哈希、命令与最小摘录见
+`docs/migration/evidence/original-partial-erase-entity-replacement-jadx-2026-08-15.md`。
 
-This decision does not implement local MODIFY_INK center-path replacement or ADD_PATH_ELEMENTS
-streaming. Device pixel comparison is still required for exact eraser width, caps, rapid gesture
-sampling and performance. No emulator, VM or device was started.
+## 被废止的决策
 
-## Phase 110 Correction
+以下 Phase 108 决策不再作为本地 authoring 契约：
 
-Partial-eraser persistence reuses the local CREATE_INK path. Its model, renderer and history
-semantics were present in Phase 108, but the shared CREATE_INK reducer was still given a payload
-child rather than a complete `uq9`. Phase 110 repairs that common producer boundary; the visual
-and selection decisions in this ADR are otherwise unchanged.
+- 每次局部擦除创建一条永久 fixed-width tool-5 Ink；
+- 通过整页 `OffscreenCanvas` 与 `destination-out` 让该实体持续擦除较早元素；
+- 以 ADD_STROKE 历史和对该 tool-5 Ink 的 DELETE_ENTITIES 实现 Undo/Redo；
+- 无 canonical reservation 时继续写入同类永久 mask 实体。
+
+这些做法会让擦除效果依赖永久图层顺序，与原版的实体替换、Group 维护、音频区间和搜索快照语义不一致。
+
+## 仍保留的兼容能力
+
+- CREATE_INK tool 5 的 decoder、模型字段与 renderer 继续保留，用于读取历史/外来 operation；不能因为本地
+  writer 改为实体替换就把已有数据降级或丢弃。
+- partial eraser 不应整删 Shape/Text/Image/Math；对象删除仍只属于 whole eraser。Shape/Pencil/custom outline
+  的精确 partial clipping 必须按各自原版路径实现，不能用中心线近似破坏内容。
+
+## 替代决策
+
+本地 partial eraser 的当前决策、事务边界、Undo/Redo 和剩余范围统一见
+`docs/migration/adr/ADR-0214-original-partial-erase-entity-replacement.md`。

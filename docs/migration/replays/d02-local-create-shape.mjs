@@ -39,7 +39,7 @@ assert.match(recognition,
 assert.match(canvas, /averageForce: this\.averageStrokeForce\(stroke\)/);
 assert.match(canvas, /finalShapes\.length === 1 && finalShapes\[0\]\.originalCreate !== undefined/);
 assert.match(canvas,
-  /originalEntityOnly: boolean = partialBefore\.length === 0[\s\S]*removedShapes\.map\(/);
+  /if \(this\.eraserEngine\.getMode\(\) === EraserMode\.PARTIAL\)[\s\S]*return;[\s\S]*const beforeShapes/);
 assert.match(canvas,
   /action\.type === UndoableActionType\.ERASE_ELEMENTS[\s\S]*action\.removedShapes\.map\(/);
 assert.match(canvas,

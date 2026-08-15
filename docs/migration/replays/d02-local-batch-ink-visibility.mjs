@@ -30,9 +30,11 @@ assert.match(persistence, /visibility\.deleted \? visibility\.identities : \[\]/
 assert.match(persistence, /MAX_ORIGINAL_DELETE_ENTITY_COUNT/);
 assert.match(canvas, /isOriginalInkAction/);
 assert.match(canvas, /areCanonicalOriginalStrokes/);
-assert.match(canvas, /partialBefore\.length === 0/);
 assert.match(canvas,
-  /originalEntityOnly: boolean = partialBefore\.length === 0[\s\S]*removedShapes\.map\(/);
+  /if \(this\.eraserEngine\.getMode\(\) === EraserMode\.PARTIAL\)[\s\S]*commitOriginalPartialErase/);
+assert.match(canvas,
+  /const originalEntityOnly: boolean =[\s\S]*removed\.length > 0[\s\S]*areCanonicalOriginalPositionSelection\(/);
+assert.match(canvas, /action\.type === UndoableActionType\.ERASE_ELEMENTS[\s\S]*addedStrokes \?\? \[\]/);
 assert.match(canvas, /if \(changed\) \{\s*this\.persist\(originalEntityOnly\)/);
 assert.match(encoderTest, /entityDeletes\.length\)\.assertEqual\(3\)/);
 

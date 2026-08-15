@@ -16,7 +16,7 @@ export enum OpType {
   REPLACE_ELEMENTS = 14,
   REORDER_ELEMENTS = 15,
   // 擦除
-  ERASE_PARTIAL = 20,   // 像素擦除（写入 maskPath）
+  ERASE_PARTIAL = 20,   // 旧 Harmony maskPath 历史兼容；新原版式擦除不再写入
   ERASE_WHOLE = 21,     // 整条删除
   // 笔记级
   UPDATE_TITLE = 30,
@@ -25,6 +25,8 @@ export enum OpType {
   GROUP_ELEMENTS = 31,
   // Harmony history companion for one original Group-preserving clipboard Paste transaction.
   ORIGINAL_CLIPBOARD_PASTE = 32,
+  // Harmony history companion for original CREATE-remnants + DELETE-sources partial erase.
+  ORIGINAL_PARTIAL_ERASE = 33,
   UNDO = 40,
   REDO = 41,
   // Harmony recovery checkpoint. This is deliberately distinct from the

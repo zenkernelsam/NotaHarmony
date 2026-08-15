@@ -30,11 +30,15 @@ import {
 import { CanvasViewport, CumulativeGestureTracker } from '../../rendering/CanvasViewport';
 import { pagePixelSize, PAGE_UNITS_PER_MM, PagePixelSize } from '../../core/model/PageCoordinateSpace';
 import { StrokeSession } from '../../rendering/StrokeSession';
-import { EraserEngine, EraserMode } from '../../rendering/EraserEngine';
+import {
+  EraserEngine, EraserMode, PartialEraseReplacement,
+} from '../../rendering/EraserEngine';
 import { PaperRenderer } from '../../rendering/PaperRenderer';
 import {
-  EditorHistoryBridge, GroupElementsAction, HistoryMove, OriginalClipboardPasteAction,
-  PageContentSnapshot, UndoRedoManager, UndoableAction, UndoableActionType,
+  buildPartialEraseReplacementMap, EditorHistoryBridge, GroupElementsAction, HistoryMove,
+  OriginalClipboardPasteAction, OriginalPartialEraseAction, PageContentSnapshot,
+  partialEraseElementOrder, UndoRedoManager, UndoableAction, UndoableActionType,
+  validatePartialEraseStrokeHistoryState,
 } from '../../rendering/UndoRedoManager';
 import { HistoryMetadata, Op, OpType } from '../../core/model/OpTypes';
 import { SelectionTool, SelectionMode } from '../../rendering/SelectionTool';
@@ -48,13 +52,18 @@ import {
   decodePersistedElement, encodePersistedElement, HistoryPageSnapshot, OriginalZOrderCommand,
   OriginalClipboardPasteHistoryResult, OriginalClipboardPastePersistenceResult,
   OriginalClipboardPastePlan, OriginalGroupMutationResult, OriginalMathInsertResult,
-  OriginalTextEditPreview,
+  OriginalPartialEraseHistoryResult, OriginalPartialErasePersistenceResult,
+  OriginalPartialErasePlan, OriginalPartialEraseReplacementPlan, OriginalTextEditPreview,
   OriginalZOrderHint, PersistedElement, StrokePersistence, validateOriginalClipboardPastePlan,
+  validateOriginalPartialErasePlan,
 } from '../../data/StrokePersistence';
 import { OriginalGroupMutationOpPayload } from '../../data/OriginalGroupMutationOpCodec';
 import {
   decodeOriginalClipboardPasteMutation, OriginalClipboardPasteMutation,
 } from '../../data/OriginalClipboardPasteMutationCodec';
+import {
+  decodeOriginalPartialEraseMutation, OriginalPartialEraseMutation,
+} from '../../data/OriginalPartialEraseMutationCodec';
 import {
   rebuildOriginalPencilWidth, RebuiltOriginalPencilWidth,
 } from '../../core/adaptation/OriginalPencilWidthGeometry';
@@ -221,7 +230,7 @@ export struct NoteCanvasView {
   private shapeDetector: ShapeDetector = new ShapeDetector();
   private persistence: StrokePersistence = new StrokePersistence();
   private originalInkReservation: OriginalInkCreateMetadata | null = null;
-  private eraserOriginalCreate: OriginalInkCreateMetadata | null = null;
+  private originalInkReservationEpoch: number = 0;
   private originalInkReservationPromise: Promise<OriginalInkCreateMetadata | null> | null = null;
   private originalInkReservationGeneration: number = -1;
   private originalInkReservationPageId: string = '';
@@ -491,7 +500,7 @@ export struct NoteCanvasView {
       this.noteId.length > 0 && this.loadedPageId.length > 0 &&
       this.loadedPageId !== this.skipSavePageId) {
       const pageId: string = this.loadedPageId;
-      this.originalInkReservation = null;
+      this.invalidateOriginalInkReservation();
       if (rearmOriginalInk) {
         this.originalInkIneligiblePages.delete(pageId);
       } else {
@@ -551,15 +560,18 @@ export struct NoteCanvasView {
     }
     const pending: Promise<OriginalInkCreateMetadata | null> =
       this.persistence.reserveOriginalInkCreate(this.noteId, pageId);
+    const reservationEpoch: number = this.originalInkReservationEpoch;
     this.originalInkReservationPromise = pending;
     this.originalInkReservationGeneration = generation;
     this.originalInkReservationPageId = pageId;
     try {
       const reserved: OriginalInkCreateMetadata | null = await pending;
-      if (generation === this.pageLoadGeneration && this.currentPage.pageId === pageId) {
+      if (reservationEpoch === this.originalInkReservationEpoch &&
+        generation === this.pageLoadGeneration && this.currentPage.pageId === pageId) {
         this.originalInkReservation = reserved;
+        return reserved;
       }
-      return reserved;
+      return null;
     } catch (e) {
       hilog.error(0x0001, 'NoteCanvasView',
         'original CREATE_INK reservation skipped: %{public}s', JSON.stringify(e));
@@ -571,6 +583,14 @@ export struct NoteCanvasView {
         this.originalInkReservationPageId = '';
       }
     }
+  }
+
+  private invalidateOriginalInkReservation(): void {
+    this.originalInkReservationEpoch++;
+    this.originalInkReservation = null;
+    this.originalInkReservationPromise = null;
+    this.originalInkReservationGeneration = -1;
+    this.originalInkReservationPageId = '';
   }
 
   private async flushCurrentPage(): Promise<boolean> {
@@ -802,7 +822,7 @@ export struct NoteCanvasView {
       return;
     }
     const generation: number = ++this.pageLoadGeneration;
-    this.originalInkReservation = null;
+    this.invalidateOriginalInkReservation();
     const fromPageId: string = this.loadedPageId;
     const targetPageId: string = this.currentPage.pageId;
     const snapshot: PageContentSnapshot = this.captureCurrentPage();
@@ -1378,16 +1398,6 @@ export struct NoteCanvasView {
 
     if (this.viewModel.isEraserActive()) {
       this.eraserEngine.setMode(this.viewModel.eraserIsPartial ? EraserMode.PARTIAL : EraserMode.WHOLE);
-      this.eraserOriginalCreate = null;
-      if (this.viewModel.eraserIsPartial) {
-        this.eraserOriginalCreate = this.originalInkReservation;
-        this.originalInkReservation = null;
-        if (this.eraserOriginalCreate !== null) {
-          this.eraserOriginalCreate.clientTime = Math.max(
-            this.eraserOriginalCreate.clientTime, Date.now());
-          this.eraserOriginalCreate.pencilSeed = event.timestamp | 0;
-        }
-      }
       this.eraserActive = true;
       this.eraserPath = [];
       this.isDrawing = true;
@@ -1649,10 +1659,6 @@ export struct NoteCanvasView {
     }
     this.eraserActive = false;
     this.eraserPath = [];
-    if (this.eraserOriginalCreate !== null) {
-      this.eraserOriginalCreate = null;
-      this.refreshOriginalInkReservation(this.pageLoadGeneration, this.loadedPageId);
-    }
     this.selectionDrawing = false;
     this.selectionDrag = false;
     this.dragBeforeStrokes = [];
@@ -1730,9 +1736,24 @@ export struct NoteCanvasView {
     if (this.eraserPath.length === 0) {
       return;
     }
-    if (this.eraserEngine.getMode() === EraserMode.PARTIAL && this.eraserOriginalCreate !== null) {
-      this.commitOriginalPartialEraser(this.eraserOriginalCreate);
-      this.eraserOriginalCreate = null;
+    if (this.eraserEngine.getMode() === EraserMode.PARTIAL) {
+      const result = this.eraserEngine.erase(
+        this.eraserPath, this.partialEraserCandidateStrokes());
+      if (result.partialReplacements.length === 0) {
+        return;
+      }
+      const plan: OriginalPartialErasePlan = {
+        replacements: result.partialReplacements.map(
+          (replacement: PartialEraseReplacement): OriginalPartialEraseReplacementPlan => ({
+            source: replacement.sourceStroke,
+            remnants: replacement.remnants,
+          })),
+      };
+      if (this.canCommitOriginalPartialErase(plan)) {
+        this.commitOriginalPartialErase(plan, result.partialReplacements);
+      } else {
+        this.applyPartialEraseLocally(result.partialReplacements);
+      }
       return;
     }
     const before: StrokeElementData[] = this.completedStrokes.slice();
@@ -1750,14 +1771,6 @@ export struct NoteCanvasView {
         }
       }
       this.completedStrokes = remaining;
-    }
-    for (const updated of result.affectedStrokes) {
-      for (let i = 0; i < this.completedStrokes.length; i++) {
-        if (this.completedStrokes[i].id === updated.id) {
-          this.completedStrokes[i] = updated;
-          break;
-        }
-      }
     }
     this.elementOrder = removePageElementRefs(
       this.elementOrder, PageElementKind.STROKE, result.deletedStrokeIds);
@@ -1778,9 +1791,7 @@ export struct NoteCanvasView {
         removedIndices.push(beforeIndex);
       }
     }
-    // T-040 审核修复：PARTIAL 擦除（maskPath 挖洞）也需入栈可撤销
-    // （before=受影响笔画擦除前快照，after=擦除后快照；undo 恢复原笔画，redo 重新挖洞）
-    const eraseObjects: boolean = this.eraserEngine.getMode() === EraserMode.WHOLE;
+    const eraseObjects: boolean = true;
     const removedShapes: ShapeElement[] = [];
     const removedShapeIndices: number[] = [];
     for (let shapeIndex: number = 0; shapeIndex < beforeShapes.length; shapeIndex++) {
@@ -1834,18 +1845,7 @@ export struct NoteCanvasView {
     const removedMathIds: string[] = removedMathBlocks.map((math: MathElement): string => math.id);
     this.elementOrder = removePageElementRefs(
       this.elementOrder, PageElementKind.MATH, removedMathIds);
-    const partialBefore: StrokeElementData[] = [];
-    const partialAfter: StrokeElementData[] = [];
-    for (const updated of result.affectedStrokes) {
-      for (const s of before) {
-        if (s.id === updated.id) {
-          partialBefore.push(s);
-          partialAfter.push(updated);
-          break;
-        }
-      }
-    }
-    const changed: boolean = partialBefore.length > 0 || removed.length > 0 || removedShapes.length > 0 ||
+    const changed: boolean = removed.length > 0 || removedShapes.length > 0 ||
       removedTextBlocks.length > 0 || removedImages.length > 0 || removedMathBlocks.length > 0;
     if (changed) {
       this.undoRedo.push({
@@ -1854,8 +1854,9 @@ export struct NoteCanvasView {
         pageId: this.currentPage.pageId,
         removedStrokes: removed,
         removedStrokeIndices: removedIndices,
-        beforeModifiedStrokes: partialBefore,
-        afterModifiedStrokes: partialAfter,
+        addedStrokes: [],
+        beforeModifiedStrokes: [],
+        afterModifiedStrokes: [],
         removedShapes: removedShapes,
         removedShapeIndices: removedShapeIndices,
         removedTextBlocks: removedTextBlocks,
@@ -1869,7 +1870,7 @@ export struct NoteCanvasView {
       });
     }
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
-    const originalEntityOnly: boolean = partialBefore.length === 0 &&
+    const originalEntityOnly: boolean =
       (removed.length > 0 || removedShapes.length > 0 || removedTextBlocks.length > 0 ||
         removedImages.length > 0 || removedMathBlocks.length > 0) &&
       this.areCanonicalOriginalPositionSelection(
@@ -1887,61 +1888,171 @@ export struct NoteCanvasView {
     }
   }
 
-  private commitOriginalPartialEraser(originalCreate: OriginalInkCreateMetadata): void {
-    const width: number = this.eraserEngine.getWidth();
-    const pathPoints: StrokePathPoint[] = this.eraserPath.map((point: Point2D): StrokePathPoint => ({
-      position: { x: point.x, y: point.y }, widthFactor: 1, pressure: -1,
-      altitudeAngleRadians: -1, azimuthUnitX: 0, azimuthUnitY: 0,
-    }));
-    const cubicSegments: CubicSegment[] = [];
-    for (let index: number = 1; index < this.eraserPath.length; index++) {
-      const p0: Point2D = this.eraserPath[index - 1];
-      const p3: Point2D = this.eraserPath[index];
-      cubicSegments.push({
-        p0: { x: p0.x, y: p0.y },
-        p1: { x: p0.x + (p3.x - p0.x) / 3, y: p0.y + (p3.y - p0.y) / 3 },
-        p2: { x: p0.x + (p3.x - p0.x) * 2 / 3, y: p0.y + (p3.y - p0.y) * 2 / 3 },
-        p3: { x: p3.x, y: p3.y },
-      });
+  private partialEraserCandidateStrokes(): StrokeElementData[] {
+    const grouped: Set<string> = new Set<string>();
+    for (const group of this.selectionGroups) {
+      for (const member of group.members) {
+        grouped.add(member);
+      }
     }
-    let left: number = this.eraserPath[0].x;
-    let right: number = left;
-    let top: number = this.eraserPath[0].y;
-    let bottom: number = top;
-    for (const point of this.eraserPath) {
-      left = Math.min(left, point.x);
-      right = Math.max(right, point.x);
-      top = Math.min(top, point.y);
-      bottom = Math.max(bottom, point.y);
+    return this.completedStrokes.filter(
+      (stroke: StrokeElementData): boolean => !grouped.has(stroke.id));
+  }
+
+  private canCommitOriginalPartialErase(plan: OriginalPartialErasePlan): boolean {
+    if (this.originalInkIneligiblePages.has(this.loadedPageId)) {
+      return false;
     }
-    const stroke: StrokeElementData = {
-      id: encodeOperationId({ timestamp: originalCreate.timestamp, siteId: originalCreate.siteId }),
-      pathPoints: pathPoints,
-      cubicSegments: cubicSegments, splatPoints: [],
-      renderSpec: {
-        color: 0xFF000000, brushWidth: width, inkStyle: InkStyle.FIXED_WIDTH,
-        isHighlighter: false, isPencil: false, isPartialEraser: true,
-      },
-      transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-      bounds: { left: left - width, top: top - width,
-        right: right + width, bottom: bottom + width },
-      maskPath: [], customPath: null, fillPath: null, fillColor: null, styleMap: [],
-      audioStartTime: this.readRecordingAudioTime() ?? undefined,
-      originalCreate: originalCreate, isFinished: true,
+    const sources: StrokeElementData[] = plan.replacements.map(
+      (replacement: OriginalPartialEraseReplacementPlan): StrokeElementData => replacement.source);
+    if (!this.areCanonicalOriginalStrokes(sources)) {
+      return false;
+    }
+    try {
+      validateOriginalPartialErasePlan(plan);
+      return true;
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  private commitOriginalPartialErase(plan: OriginalPartialErasePlan,
+    replacements: PartialEraseReplacement[]): void {
+    const generation: number = this.pageLoadGeneration;
+    const pageId: string = this.loadedPageId;
+    const draftOperation: Op = {
+      opId: 'pending-original-partial-erase', noteId: this.noteId,
+      opType: OpType.ORIGINAL_PARTIAL_ERASE, payload: new Uint8Array(0), clientTime: 0,
     };
+    const draft: OriginalPartialEraseAction = {
+      type: UndoableActionType.ORIGINAL_PARTIAL_ERASE,
+      noteId: this.noteId, pageId: pageId, operation: draftOperation,
+    };
+    const prepared: HistoryMetadata = this.undoRedo.prepareHistoryMetadata(draft);
+    this.historyBusy = true;
+    this.invalidateOriginalInkReservation();
+    this.persistence.commitOriginalPartialErase(this.noteId, pageId, plan, prepared).then(
+      (result: OriginalPartialErasePersistenceResult): void => {
+        const action: OriginalPartialEraseAction = {
+          type: UndoableActionType.ORIGINAL_PARTIAL_ERASE,
+          noteId: this.noteId, pageId: pageId, operation: result.operation,
+        };
+        this.undoRedo.push(action, prepared);
+        this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+        if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+          pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
+          !this.dataLoadFailed) {
+          this.installMutationElements(result.elements);
+          this.selectionTool.deselect();
+          this.selectionVisible = false;
+          this.originalInkIneligiblePages.delete(pageId);
+          this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+          this.renderFrame();
+        }
+        this.notifyUndoRedo();
+      }).catch((e: Object): void => {
+        this.reportSaveFailure(e);
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original partial erase transaction failed: %{public}s', JSON.stringify(e));
+        if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+          pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
+          !this.dataLoadFailed) {
+          this.applyPartialEraseLocally(replacements, prepared);
+        }
+      }).finally((): void => {
+        this.historyBusy = false;
+        if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+          !this.originalInkIneligiblePages.has(pageId)) {
+          this.refreshOriginalInkReservation(generation, pageId);
+        }
+      });
+  }
+
+  private applyPartialEraseLocally(replacements: PartialEraseReplacement[],
+    history?: HistoryMetadata): void {
+    const replacementById: Map<string, StrokeElementData[]> = new Map<string, StrokeElementData[]>();
+    const sourceIds: Set<string> = new Set<string>();
+    for (const replacement of replacements) {
+      if (replacement.sourceStroke.id.length === 0 || sourceIds.has(replacement.sourceStroke.id)) {
+        return;
+      }
+      sourceIds.add(replacement.sourceStroke.id);
+      replacementById.set(replacement.sourceStroke.id, replacement.remnants);
+    }
+    const existingStrokeIds: Set<string> = new Set<string>();
+    for (const stroke of this.completedStrokes) {
+      existingStrokeIds.add(stroke.id);
+    }
+    const remnantIds: Set<string> = new Set<string>();
+    for (const replacement of replacements) {
+      for (const remnant of replacement.remnants) {
+        if (remnant.id.length === 0 || sourceIds.has(remnant.id) ||
+          existingStrokeIds.has(remnant.id) || remnantIds.has(remnant.id)) {
+          return;
+        }
+        remnantIds.add(remnant.id);
+      }
+    }
     const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
-    this.completedStrokes.push(stroke);
-    this.elementOrder = appendPageElementRefs(
-      this.elementOrder, PageElementKind.STROKE, [stroke.id]);
+    const elementOrderAfter: PageElementRef[] | null = partialEraseElementOrder(
+      this.elementOrder, replacementById);
+    if (elementOrderAfter === null) {
+      return;
+    }
+    const removed: StrokeElementData[] = [];
+    const removedIndices: number[] = [];
+    const added: StrokeElementData[] = [];
+    const addedIndices: number[] = [];
+    const addedCounts: number[] = [];
+    const next: StrokeElementData[] = [];
+    for (let index: number = 0; index < this.completedStrokes.length; index++) {
+      const stroke: StrokeElementData = this.completedStrokes[index];
+      const remnants: StrokeElementData[] | undefined = replacementById.get(stroke.id);
+      if (remnants === undefined) {
+        next.push(stroke);
+        continue;
+      }
+      removed.push(stroke);
+      removedIndices.push(index);
+      addedCounts.push(remnants.length);
+      for (const remnant of remnants) {
+        addedIndices.push(next.length);
+        next.push(remnant);
+        added.push(remnant);
+      }
+    }
+    if (removed.length !== replacements.length) {
+      return;
+    }
+    this.completedStrokes = next;
+    this.elementOrder = elementOrderAfter;
     this.undoRedo.push({
-      type: UndoableActionType.ADD_STROKE, noteId: this.noteId,
-      pageId: this.currentPage.pageId, addedStrokes: [stroke],
+      type: UndoableActionType.ERASE_ELEMENTS,
+      noteId: this.noteId,
+      pageId: this.currentPage.pageId,
+      removedStrokes: removed,
+      removedStrokeIndices: removedIndices,
+      addedStrokes: added,
+      addedStrokeIndices: addedIndices,
+      addedStrokeCounts: addedCounts,
+      beforeModifiedStrokes: [],
+      afterModifiedStrokes: [],
+      removedShapes: [],
+      removedShapeIndices: [],
+      removedTextBlocks: [],
+      removedTextBlockIndices: [],
+      removedImages: [],
+      removedImageIndices: [],
+      removedMathBlocks: [],
+      removedMathBlockIndices: [],
       elementOrderBefore: elementOrderBefore,
-      elementOrderAfter: clonePageElementOrder(this.elementOrder),
-    });
-    this.layerManager.commitStroke(stroke, this.renderCtx, this.viewport.zoom);
-    this.persist(true);
+      elementOrderAfter: clonePageElementOrder(elementOrderAfter),
+    }, history);
+    this.originalInkIneligiblePages.add(this.loadedPageId);
+    this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+    this.persist(false);
     this.notifyUndoRedo();
+    this.renderFrame();
   }
 
   private collectEraserPoint(touch: TouchObject): void {
@@ -2066,6 +2177,35 @@ export struct NoteCanvasView {
       });
       return;
     }
+    if (action.type === UndoableActionType.ORIGINAL_PARTIAL_ERASE) {
+      if (group.length !== 1) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original partial erase history cannot be coalesced');
+        return;
+      }
+      if (action.pageId !== this.loadedPageId) {
+        this.pendingHistoryDirection = isUndo ? -1 : 1;
+        this.onRequestPage(action.pageId);
+        return;
+      }
+      if (!this.validateOriginalPartialEraseActionState(action, isUndo)) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original partial erase history source state is stale');
+        return;
+      }
+      const history: HistoryMetadata | null =
+        this.undoRedo.getHistoryMetadataForMove(action, isUndo);
+      if (history === null) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original partial erase history metadata is stale');
+        return;
+      }
+      this.historyBusy = true;
+      this.applyOriginalPartialEraseHistoryMove(action, isUndo, history).finally((): void => {
+        this.historyBusy = false;
+      });
+      return;
+    }
     if (action.pageId !== this.loadedPageId) {
       this.pendingHistoryDirection = isUndo ? -1 : 1;
       this.onRequestPage(action.pageId);
@@ -2148,17 +2288,50 @@ export struct NoteCanvasView {
     }
   }
 
+  private async applyOriginalPartialEraseHistoryMove(
+    action: OriginalPartialEraseAction, isUndo: boolean,
+    history: HistoryMetadata): Promise<void> {
+    try {
+      const mutation: OriginalPartialEraseMutation =
+        decodeOriginalPartialEraseMutation(action.operation.payload);
+      const result: OriginalPartialEraseHistoryResult =
+        await this.persistence.applyOriginalPartialEraseHistory(
+          this.noteId, mutation, !isUndo, history);
+      const committed: boolean = isUndo ?
+        this.undoRedo.commitUndo(action) : this.undoRedo.commitRedo(action);
+      if (!committed) {
+        throw new Error('original partial erase history stack changed after durable apply');
+      }
+      this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+      this.installMutationElements(result.elements);
+      this.selectionTool.deselect();
+      this.selectionVisible = false;
+      this.originalInkIneligiblePages.delete(action.pageId);
+      this.invalidateOriginalInkReservation();
+      this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+      this.renderFrame();
+      this.notifyUndoRedo();
+      this.refreshOriginalInkReservation(this.pageLoadGeneration, action.pageId);
+    } catch (e) {
+      this.reportSaveFailure(e as Object);
+      hilog.error(0x0001, 'NoteCanvasView',
+        'original partial erase history apply failed: %{public}s', JSON.stringify(e));
+    }
+  }
+
   private isSinglePageElementGroup(group: HistoryMove[]): boolean {
     if (group.length === 0 || this.isPageAction(group[0].action.type) ||
       group[0].action.type === UndoableActionType.GROUP_ELEMENTS ||
-      group[0].action.type === UndoableActionType.ORIGINAL_CLIPBOARD_PASTE) {
+      group[0].action.type === UndoableActionType.ORIGINAL_CLIPBOARD_PASTE ||
+      group[0].action.type === UndoableActionType.ORIGINAL_PARTIAL_ERASE) {
       return false;
     }
     const pageId: string = group[0].action.pageId;
     for (const move of group) {
       if (move.action.noteId !== this.noteId || move.action.pageId !== pageId ||
         this.isPageAction(move.action.type) || move.action.type === UndoableActionType.GROUP_ELEMENTS ||
-        move.action.type === UndoableActionType.ORIGINAL_CLIPBOARD_PASTE) {
+        move.action.type === UndoableActionType.ORIGINAL_CLIPBOARD_PASTE ||
+        move.action.type === UndoableActionType.ORIGINAL_PARTIAL_ERASE) {
         return false;
       }
     }
@@ -2170,7 +2343,7 @@ export struct NoteCanvasView {
     const touchesImages: boolean = group.some(
       (move: HistoryMove): boolean => this.actionTouchesImages(move.action));
     try {
-      this.originalInkReservation = null;
+      this.invalidateOriginalInkReservation();
       await this.persistence.flush(this.noteId, this.loadedPageId);
       const initial: HistoryPageSnapshot = this.captureHistoryPageSnapshot();
       const steps: HistoryPageSnapshot[] = [];
@@ -2278,7 +2451,8 @@ export struct NoteCanvasView {
         this.areCanonicalOriginalStrokes(action.removedStrokes);
     }
     if (action.type === UndoableActionType.ERASE_ELEMENTS) {
-      return action.beforeModifiedStrokes.length === 0 && action.afterModifiedStrokes.length === 0 &&
+      return (action.addedStrokes ?? []).length === 0 &&
+        action.beforeModifiedStrokes.length === 0 && action.afterModifiedStrokes.length === 0 &&
         this.areCanonicalOriginalPositionSelection(
         action.removedStrokes.map((stroke: StrokeElementData): string => stroke.id),
         action.removedShapes.map((shape: ShapeElement): string => shape.id),
@@ -2383,7 +2557,12 @@ export struct NoteCanvasView {
     } else if (action.type === UndoableActionType.ERASE_ELEMENTS) {
       const removedMathBlocks: MathElement[] = action.removedMathBlocks ?? [];
       const removedMathBlockIndices: number[] = action.removedMathBlockIndices ?? [];
+      const addedStrokes: StrokeElementData[] = action.addedStrokes ?? [];
+      const addedStrokeIndices: number[] = action.addedStrokeIndices ?? [];
       if (isUndo) {
+        for (const stroke of addedStrokes) {
+          this.removeStrokeById(stroke.id);
+        }
         this.restoreRemovedStrokes(action.removedStrokes, action.removedStrokeIndices);
         this.restoreRemovedShapes(action.removedShapes, action.removedShapeIndices);
         this.restoreRemovedTextBlocks(action.removedTextBlocks, action.removedTextBlockIndices);
@@ -2406,6 +2585,7 @@ export struct NoteCanvasView {
         for (const math of removedMathBlocks) {
           this.removeMathBlockById(math.id);
         }
+        this.restoreRemovedStrokes(addedStrokes, addedStrokeIndices);
         this.replaceStrokesById(action.afterModifiedStrokes);
       }
     } else if (action.type === UndoableActionType.DELETE_STROKE) {
@@ -2593,13 +2773,21 @@ export struct NoteCanvasView {
     if (action.type === UndoableActionType.ERASE_ELEMENTS) {
       const removedMathBlocks: MathElement[] = action.removedMathBlocks ?? [];
       const removedMathBlockIndices: number[] = action.removedMathBlockIndices ?? [];
+      const addedStrokes: StrokeElementData[] = action.addedStrokes ?? [];
+      const addedStrokeIndices: number[] = action.addedStrokeIndices ?? [];
+      const addedStrokeCounts: number[] = action.addedStrokeCounts ?? [];
+      const hasPartialReplacement: boolean = addedStrokes.length > 0 ||
+        addedStrokeIndices.length > 0 || addedStrokeCounts.length > 0;
       const hasChange: boolean = action.removedStrokes.length > 0 ||
-        action.beforeModifiedStrokes.length > 0 || action.removedShapes.length > 0 ||
+        addedStrokes.length > 0 || action.beforeModifiedStrokes.length > 0 ||
+        action.removedShapes.length > 0 ||
         action.removedTextBlocks.length > 0 || action.removedImages.length > 0 ||
         removedMathBlocks.length > 0;
       const sourceModified: StrokeElementData[] = isUndo
         ? action.afterModifiedStrokes : action.beforeModifiedStrokes;
       if (!hasChange || !this.hasUniqueStrokeIds(action.removedStrokes) ||
+        !this.hasUniqueStrokeIds(addedStrokes) ||
+        !this.strokeIdsDisjoint(action.removedStrokes, addedStrokes) ||
         !this.sameStrokeIds(action.beforeModifiedStrokes, action.afterModifiedStrokes) ||
         !this.hasUniqueShapeIds(action.removedShapes) ||
         !this.hasUniqueTextBlockIds(action.removedTextBlocks) ||
@@ -2607,14 +2795,24 @@ export struct NoteCanvasView {
         !this.hasUniqueMathBlockIds(removedMathBlocks) || !this.allStrokeIdsPresent(sourceModified)) {
         return false;
       }
+      if (hasPartialReplacement && !validatePartialEraseStrokeHistoryState(
+        this.completedStrokes, action.removedStrokes, action.removedStrokeIndices,
+        addedStrokes, addedStrokeIndices, addedStrokeCounts, isUndo)) {
+        return false;
+      }
       if (!isUndo) {
-        return this.allStrokeIdsPresent(action.removedStrokes) &&
+        const validStrokeState: boolean = hasPartialReplacement ||
+          (this.allStrokeIdsPresent(action.removedStrokes) && this.allStrokeIdsAbsent(addedStrokes));
+        return validStrokeState &&
           this.allShapeIdsPresent(action.removedShapes) &&
           this.allTextBlockIdsPresent(action.removedTextBlocks) &&
           this.allImageIdsPresent(action.removedImages) &&
           this.allMathBlockIdsPresent(removedMathBlocks);
       }
-      return this.validateRemovedStrokeIndices(action.removedStrokes, action.removedStrokeIndices) &&
+      const validStrokeState: boolean = hasPartialReplacement ||
+        (this.allStrokeIdsPresent(addedStrokes) &&
+          this.validateRemovedStrokeIndices(action.removedStrokes, action.removedStrokeIndices));
+      return validStrokeState &&
         this.validateRemovedShapeIndices(action.removedShapes, action.removedShapeIndices) &&
         this.validateRemovedTextBlockIndices(action.removedTextBlocks, action.removedTextBlockIndices) &&
         this.validateRemovedImageIndices(action.removedImages, action.removedImageIndices) &&
@@ -2774,6 +2972,25 @@ export struct NoteCanvasView {
     }
   }
 
+  private validateOriginalPartialEraseActionState(
+    action: OriginalPartialEraseAction, isUndo: boolean): boolean {
+    if (action.operation.noteId !== action.noteId ||
+      action.operation.opType !== OpType.ORIGINAL_PARTIAL_ERASE) {
+      return false;
+    }
+    try {
+      const mutation: OriginalPartialEraseMutation =
+        decodeOriginalPartialEraseMutation(action.operation.payload);
+      if (mutation.pageId !== action.pageId) {
+        return false;
+      }
+      replayPageMutation(this.currentMutationElements(), mutation, !isUndo);
+      return true;
+    } catch (_error) {
+      return false;
+    }
+  }
+
   private applyGroupActionState(action: GroupElementsAction, isUndo: boolean): void {
     const target: OriginalSelectionGroup[] = isUndo ? action.beforeGroups : action.afterGroups;
     const source: OriginalSelectionGroup[] = isUndo ? action.afterGroups : action.beforeGroups;
@@ -2886,8 +3103,29 @@ export struct NoteCanvasView {
       const imageIds: string[] = action.removedImages.map((image: ImageElement): string => image.id);
       const mathIds: string[] = (action.removedMathBlocks ?? []).map(
         (math: MathElement): string => math.id);
-      const withoutStrokes: PageElementRef[] = removePageElementRefs(
-        action.elementOrderBefore, PageElementKind.STROKE, strokeIds);
+      const addedStrokes: StrokeElementData[] = action.addedStrokes ?? [];
+      const addedStrokeIndices: number[] = action.addedStrokeIndices ?? [];
+      const addedStrokeCounts: number[] = action.addedStrokeCounts ?? [];
+      const hasPartialReplacement: boolean = addedStrokes.length > 0 ||
+        addedStrokeIndices.length > 0 || addedStrokeCounts.length > 0;
+      let withoutStrokes: PageElementRef[];
+      if (hasPartialReplacement) {
+        const replacementById: Map<string, StrokeElementData[]> | null =
+          buildPartialEraseReplacementMap(
+            action.removedStrokes, addedStrokes, addedStrokeCounts);
+        if (replacementById === null) {
+          return false;
+        }
+        const replaced: PageElementRef[] | null = partialEraseElementOrder(
+          action.elementOrderBefore, replacementById);
+        if (replaced === null) {
+          return false;
+        }
+        withoutStrokes = replaced;
+      } else {
+        withoutStrokes = removePageElementRefs(
+          action.elementOrderBefore, PageElementKind.STROKE, strokeIds);
+      }
       const withoutShapes: PageElementRef[] = removePageElementRefs(
         withoutStrokes, PageElementKind.SHAPE, shapeIds);
       const withoutTexts: PageElementRef[] = removePageElementRefs(
@@ -3013,6 +3251,19 @@ export struct NoteCanvasView {
         return false;
       }
       ids.add(stroke.id);
+    }
+    return true;
+  }
+
+  private strokeIdsDisjoint(left: StrokeElementData[], right: StrokeElementData[]): boolean {
+    const ids: Set<string> = new Set<string>();
+    for (const stroke of left) {
+      ids.add(stroke.id);
+    }
+    for (const stroke of right) {
+      if (ids.has(stroke.id)) {
+        return false;
+      }
     }
     return true;
   }

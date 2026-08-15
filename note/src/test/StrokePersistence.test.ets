@@ -9,7 +9,8 @@ import {
   originalClipboardShapeForPaste,
   OriginalClipboardPastePlan, OriginalMathLatexMutation,
   OriginalImageCropMutation, OriginalImageFlipMutation, OriginalPositionLockMutation,
-  OriginalRenderMutation, PersistedElement, validateOriginalClipboardPastePlan,
+  OriginalPartialErasePlan, OriginalRenderMutation, PersistedElement,
+  validateOriginalClipboardPastePlan, validateOriginalPartialErasePlan,
 } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import {
@@ -458,6 +459,28 @@ export default function strokePersistenceTest() {
       expect(rejected).assertEqual(2);
     });
 
+    it('rejects a partial-erase source identity already used by an earlier remnant', 0, () => {
+      const firstSource: StrokeElementData = partialEraseStroke('op:50:2');
+      const secondSource: StrokeElementData = partialEraseStroke('op:52:2');
+      const valid: OriginalPartialErasePlan = {
+        replacements: [{
+          source: firstSource, remnants: [partialEraseStroke('draft-remnant')],
+        }, { source: secondSource, remnants: [] }],
+      };
+      validateOriginalPartialErasePlan(valid);
+      let rejected: boolean = false;
+      try {
+        validateOriginalPartialErasePlan({
+          replacements: [{
+            source: firstSource, remnants: [partialEraseStroke(secondSource.id)],
+          }, { source: secondSource, remnants: [] }],
+        });
+      } catch (_error) {
+        rejected = true;
+      }
+      expect(rejected).assertTrue();
+    });
+
     it('resets Shape RichText during original clipboard Paste without mutating source', 0, () => {
       const source: ShapeElement = originalShape('op:80:2', 0, -16777216, 4, null);
       source.richText = 'AB';
@@ -480,6 +503,30 @@ export default function strokePersistenceTest() {
       });
     });
   });
+}
+
+function partialEraseStroke(id: string): StrokeElementData {
+  return {
+    id: id,
+    pathPoints: [
+      { position: { x: 0, y: 0 }, widthFactor: 1, pressure: 1,
+        altitudeAngleRadians: 1, azimuthUnitX: 1, azimuthUnitY: 0 },
+      { position: { x: 10, y: 0 }, widthFactor: 1, pressure: 1,
+        altitudeAngleRadians: 1, azimuthUnitX: 1, azimuthUnitY: 0 },
+    ],
+    cubicSegments: [{
+      p0: { x: 0, y: 0 }, p1: { x: 3, y: 0 },
+      p2: { x: 7, y: 0 }, p3: { x: 10, y: 0 },
+    }],
+    splatPoints: [],
+    renderSpec: {
+      color: -16777216, brushWidth: 2, inkStyle: InkStyle.FIXED_WIDTH,
+      isHighlighter: false, isPencil: false,
+    },
+    transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    bounds: { left: -1, top: -1, right: 11, bottom: 1 },
+    maskPath: [], isFinished: true,
+  };
 }
 
 function originalImage(id: string): ImageElement {

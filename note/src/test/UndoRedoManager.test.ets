@@ -1,9 +1,12 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
-  AddStrokeAction, estimateHistoryActionBytes, GroupElementsAction, HistoryMetrics,
-  RestoredHistoryAction, UndoableAction, UndoableActionType, UndoRedoManager,
+  AddStrokeAction, buildPartialEraseReplacementMap, estimateHistoryActionBytes,
+  GroupElementsAction, HistoryMetrics, partialEraseElementOrder, RestoredHistoryAction,
+  UndoableAction, UndoableActionType, UndoRedoManager, validatePartialEraseStrokeHistoryState,
 } from '../main/ets/rendering/UndoRedoManager';
 import { HistoryCoalesceTrack, HistoryEffect } from '../main/ets/core/model/OpTypes';
+import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
+import { PageElementKind, PageElementRef } from '../main/ets/core/model/PageElementOrder';
 
 function makeAction(pageId: string): AddStrokeAction {
   return {
@@ -40,6 +43,51 @@ function restoreRejects(manager: UndoRedoManager, undo: RestoredHistoryAction[],
 
 export default function undoRedoManagerTest() {
   describe('UndoRedoManager', () => {
+    it('preserves local partial-erase remnant positions across undo and redo', 0, () => {
+      const keepBefore: StrokeElementData = historyStroke('keep-before');
+      const sourceA: StrokeElementData = historyStroke('source-a');
+      const keepMiddle: StrokeElementData = historyStroke('keep-middle');
+      const sourceB: StrokeElementData = historyStroke('source-b');
+      const keepAfter: StrokeElementData = historyStroke('keep-after');
+      const remnantA0: StrokeElementData = historyStroke('remnant-a-0');
+      const remnantA1: StrokeElementData = historyStroke('remnant-a-1');
+      const remnantB0: StrokeElementData = historyStroke('remnant-b-0');
+      const sources: StrokeElementData[] = [sourceA, sourceB];
+      const remnants: StrokeElementData[] = [remnantA0, remnantA1, remnantB0];
+      const sourceIndices: number[] = [1, 3];
+      const remnantIndices: number[] = [1, 2, 4];
+      const remnantCounts: number[] = [2, 1];
+      const before: StrokeElementData[] = [
+        keepBefore, sourceA, keepMiddle, sourceB, keepAfter,
+      ];
+      const after: StrokeElementData[] = [
+        keepBefore, remnantA0, remnantA1, keepMiddle, remnantB0, keepAfter,
+      ];
+      expect(validatePartialEraseStrokeHistoryState(
+        before, sources, sourceIndices, remnants, remnantIndices, remnantCounts, false)).assertTrue();
+      expect(validatePartialEraseStrokeHistoryState(
+        after, sources, sourceIndices, remnants, remnantIndices, remnantCounts, true)).assertTrue();
+      expect(validatePartialEraseStrokeHistoryState(
+        after, sources, sourceIndices, remnants, [1, 3, 4], remnantCounts, true)).assertFalse();
+      const replacementById: Map<string, StrokeElementData[]> | null =
+        buildPartialEraseReplacementMap(sources, remnants, remnantCounts);
+      expect(replacementById !== null).assertTrue();
+      if (replacementById !== null) {
+        const orderBefore: PageElementRef[] = [
+          { kind: PageElementKind.STROKE, elementId: keepBefore.id, zIndex: 0 },
+          { kind: PageElementKind.STROKE, elementId: sourceA.id, zIndex: 1 },
+          { kind: PageElementKind.SHAPE, elementId: 'shape-middle', zIndex: 2 },
+          { kind: PageElementKind.STROKE, elementId: sourceB.id, zIndex: 3 },
+          { kind: PageElementKind.STROKE, elementId: keepAfter.id, zIndex: 4 },
+        ];
+        const orderAfter: PageElementRef[] | null = partialEraseElementOrder(
+          orderBefore, replacementById);
+        expect(orderAfter?.map((ref: PageElementRef): string => ref.elementId).join(','))
+          .assertEqual('keep-before,remnant-a-0,remnant-a-1,shape-middle,remnant-b-0,keep-after');
+      }
+      expect(buildPartialEraseReplacementMap(sources, remnants, [1, 1]) === null).assertTrue();
+    });
+
     it('accounts and moves a persisted Group action as a single boundary', 0, () => {
       const manager: UndoRedoManager = new UndoRedoManager();
       const action: GroupElementsAction = {
@@ -283,4 +331,16 @@ export default function undoRedoManagerTest() {
       expect(manager.getMetrics().estimatedBytes).assertEqual(before.estimatedBytes);
     });
   });
+}
+
+function historyStroke(id: string): StrokeElementData {
+  return {
+    id: id, pathPoints: [], cubicSegments: [], splatPoints: [],
+    renderSpec: {
+      color: -16777216, brushWidth: 2, inkStyle: InkStyle.FIXED_WIDTH,
+      isHighlighter: false, isPencil: false,
+    },
+    transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    bounds: { left: 0, top: 0, right: 1, bottom: 1 }, maskPath: [], isFinished: true,
+  };
 }

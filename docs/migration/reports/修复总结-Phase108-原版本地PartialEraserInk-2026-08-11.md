@@ -1,40 +1,39 @@
-# Phase 108 修复总结：原版本地 Partial Eraser Ink
+# Phase 108 历史总结：本地 Partial Eraser Ink（结论已由 Phase 237 更正）
 
-## 原版证据
+## 2026-08-15 更正
 
-- 原版 `u16` 明确声明 `PARTIAL_ERASER((byte) 5)`。
-- 原版 `kt1` 的局部橡皮分支选择 `u16.PARTIAL_ERASER`，随后仍调用 `u5j.g(...)` 创建 Ink；因此它是
-  持久化的 tool-5 CREATE_INK，不是把每条命中 Ink 改写为 MODIFY_INK center-path replacement。
-- MODIFY_INK field 8 仍是独立的中心路径寄存器语义，保留给后续本地 writer 阶段，不能与局部橡皮混为一谈。
+Phase 108 将原版 `u16.PARTIAL_ERASER((byte) 5)` 和 `kt1/u5j.g(...)` 证据解释为“本地手势最终持久化一条
+tool-5 CREATE_INK”。该结论不完整，并导致 Harmony 曾把 `destination-out` Ink 当成永久页面实体。
 
-## 已完成修复
+Phase 237 重新闭环 `dh5 → jt1 → n8j/o8j → wc mode 3` 后确认：
 
-- `RenderSpec` 新增可选 `isPartialEraser`；CREATE_INK encoder 写出 tool 5，原版 reducer 接受并物化该
-  工具，MODIFY_INK 重建和自有包校验均保留标志。
-- 原版对齐页面上的局部橡皮在 touch-down 消费预留 operation identity，创建 fixed-width tool-5 Ink，
-  追加统一元素层序并走 ADD_STROKE Undo action；`persist(true)` 将其写入原版 CREATE_INK outbound，
-  后续 Undo/Redo 复用 DELETE_ENTITIES 删除/恢复同一 canonical Ink。
-- Cancel、第二指接管或指针丢失会丢弃已消费 identity，并只为当前 page-load generation 重新预留；成功
-  persistence 后再 rearm，避免复用 operation identity 或跨页串写。
-- renderer 使用 Ink 自身宽度、round cap/join 和 `destination-out` 合成；单点 tap 通过同点 lineTo 形成
-  可见圆帽。tool-5 Ink 不参与 SelectionTool，也不会被 EraserEngine 当普通 Ink 再次命中。
-- 为保护纸张/PDF 背景，仅当页面存在 tool-5 Ink 时，把统一层序元素绘制到透明离屏内容层，再叠到纸张；
-  bitmap 始终在 `finally` 中关闭。这样 eraser 只擦较早内容，后画 Ink 仍可覆盖其上，Undo 也可恢复。
-- 边修边审纠正旧逻辑：partial eraser 不再把命中的 Shape/Text/Image/Math 整体删除；只有 whole eraser
-  执行对象删除。不能进入原版 authoring 的旧/混合页面继续使用已有 mask fallback。
+- tool 5 是 partial-erase 交互输入和兼容数据语义，不等于最终页面表示；
+- 普通 Ink 被裁成零至多个新 Ink 残片；
+- 原 source Ink 被 DELETE_ENTITIES；
+- AudioLinked Ink 的每个残片按路径区间重算 `audioStartTime/audioDuration`；
+- 原版还会替换 Group member、删除空 Group，并结束 transient interaction。
 
-## 验证
+因此，Phase 108 关于“永久 tool-5 Ink + ADD_STROKE Undo/Redo + 整页 destination-out 图层”的本地 writer
+结论已废止。当前契约见 ADR-0214 与 Phase 237 总结。
 
-- ArkTS fixture 覆盖 CREATE_INK tool 5 编解码与 reducer eligibility。
-- 专项 replay 输出：
-  `localPartialEraser=original-create-tool5-zorder-undo-redo-paper-safe`。
-- 更新旧 Shape consumer replay，使其约束参数化 render context；全量桌面 replay 为
-  `TOTAL=94 FAILED=0`。
-- 增量 `note@ohosTest` 为 `BUILD SUCCESSFUL`。最终执行 `hvigor clean` 后，严格串行构建
-  `note@ohosTest` 与 `note@default`，两套均为 `BUILD SUCCESSFUL`；对应 unsigned HAP 均已落盘。
+## Phase 108 当时实际完成且仍保留的部分
 
-## 仍待后续
+- 模型、CREATE_INK decoder/encoder 与 renderer 能识别 tool 5，保证已有或外来原版数据不会被静默降成普通 Pen。
+- tool-5 Ink 不参与普通 SelectionTool 与 eraser hit testing，避免兼容实体被当作普通可编辑 Ink。
+- partial eraser 不再把命中的 Shape/Text/Image/Math 整体删除；对象删除只属于 whole eraser。
+- touch cancellation、page generation 与 original identity reservation 的防跨页/防复用加固，为后续 canonical
+  authoring 继续复用。
 
-- 本阶段没有虚报本地 MODIFY_INK center-path replacement、ADD_PATH_ELEMENTS streaming、其余元素
-  outbound authoring 或设备像素/性能已经完成。
-- 未启动模拟器、虚拟机、真机或 Hypium。Goal 保持 active。
+## Phase 108 的历史验证记录
+
+- 当时 ArkTS fixture 只覆盖 CREATE_INK tool 5 编解码与 reducer eligibility。
+- 当时专项 replay 输出为
+  `localPartialEraser=original-create-tool5-zorder-undo-redo-paper-safe`，全量 replay 为 `TOTAL=94 FAILED=0`。
+- 当时 clean 后 `note@ohosTest` 与 `note@default` 均构建通过；这些结果只能证明旧实现内部自洽，不能证明
+  持久语义与原版一致。
+
+## 当前替代实现
+
+Phase 237 已将本地普通 Ink partial erase 改为 CREATE_INK remnants + DELETE_ENTITIES sources，并增加专用持久
+Undo/Redo、单 revision 事务、search 重建、残片顺序历史与失败回滚验证。仍未完成的 Group、Shape、Pencil/custom
+outline 和 transient protocol 边界以 Phase 237 文档为准。

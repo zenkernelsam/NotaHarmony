@@ -19,7 +19,8 @@ import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextB
 import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockGeometry';
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import {
-  AddPageAction, DeletePageAction, GroupElementsAction, OriginalClipboardPasteAction, PageSettingsAction,
+  AddPageAction, DeletePageAction, GroupElementsAction, OriginalClipboardPasteAction,
+  OriginalPartialEraseAction, PageSettingsAction,
   PersistedPageMutationsAction, ReorderPagesAction, RestoredHistoryAction, UndoableAction,
   UndoableActionType,
 } from '../rendering/UndoRedoManager';
@@ -28,6 +29,9 @@ import {
 } from './OriginalGroupMutationOpCodec';
 import { decodeOriginalClipboardPasteMutation,
   OriginalClipboardPasteMutation } from './OriginalClipboardPasteMutationCodec';
+import {
+  decodeOriginalPartialEraseMutation, OriginalPartialEraseMutation,
+} from './OriginalPartialEraseMutationCodec';
 
 export interface PersistentHistoryAction {
   actionId: string;
@@ -242,6 +246,20 @@ function materializeAction(action: PersistentHistoryAction, currentPageId: strin
       type: UndoableActionType.ORIGINAL_CLIPBOARD_PASTE,
       noteId: noteId,
       pageId: mutation.pageMutation.pageId,
+      operation: action.operations[0],
+    };
+    return restored;
+  }
+  if (action.operations[0].opType === OpType.ORIGINAL_PARTIAL_ERASE) {
+    if (action.operations.length !== 1) {
+      throw new Error('persistent original partial erase action must contain exactly one mutation');
+    }
+    const mutation: OriginalPartialEraseMutation =
+      decodeOriginalPartialEraseMutation(action.operations[0].payload);
+    const restored: OriginalPartialEraseAction = {
+      type: UndoableActionType.ORIGINAL_PARTIAL_ERASE,
+      noteId: noteId,
+      pageId: mutation.pageId,
       operation: action.operations[0],
     };
     return restored;

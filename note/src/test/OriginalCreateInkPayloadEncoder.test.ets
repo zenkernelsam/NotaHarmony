@@ -13,7 +13,9 @@ import { encodeOriginalLocalCreateShape } from
 import { decodeOperationId } from '../main/ets/data/OperationIdentity';
 import { encodeOriginalEntityVisibility } from
   '../main/ets/data/OriginalDeleteEntitiesPayloadEncoder';
-import { decodeOriginalDeleteEntities } from '../main/ets/data/OriginalDeleteEntitiesOperation';
+import {
+  decodeOriginalDeleteEntities, MAX_ORIGINAL_DELETE_ENTITY_COUNT,
+} from '../main/ets/data/OriginalDeleteEntitiesOperation';
 import { encodeOriginalInkRenderRegisters } from
   '../main/ets/data/OriginalModifyInkPayloadEncoder';
 import { decodeOriginalModifyInk } from '../main/ets/data/OriginalModifyInkOperation';
@@ -42,6 +44,12 @@ import { decodeOriginalTransientInteractionEnded, decodeOriginalTransientInterac
   '../main/ets/data/OriginalTransientInteractionOperation';
 import { encodeOriginalTransientInteractionEndedPayload } from
   '../main/ets/data/OriginalTransientInteractionPayloadEncoder';
+import { SearchSourceElement } from '../main/ets/data/SearchIndexPolicy';
+import { createPageMutation } from '../main/ets/data/PageMutationOpCodec';
+import {
+  decodeOriginalPartialEraseMutation, encodeOriginalPartialEraseMutation,
+  validateOriginalPartialEraseMutation,
+} from '../main/ets/data/OriginalPartialEraseMutationCodec';
 
 export default function originalCreateInkPayloadEncoderTest() {
   describe('OriginalCreateInkPayloadEncoder', () => {
@@ -72,6 +80,30 @@ export default function originalCreateInkPayloadEncoderTest() {
       expect(pencil.styleMap[0].backingPencilSeed).assertEqual(-1234);
     });
 
+    it('preserves CREATE_INK origin rotation scale and source z-index for erase remnants', 0, () => {
+      const stroke: StrokeElementData = sampleStroke();
+      stroke.transform = [0, -0.5, 12.5, 2, 0, -4.25, 0, 0, 1];
+      const decoded = decodeOriginalCreateInk(wrap(15, encodeOriginalLocalCreateInk(
+        { timestamp: 80, siteId: 7, index: 2 }, stroke, '987654321')), '1234');
+      expect(decoded.originX).assertEqual(12.5);
+      expect(decoded.originY).assertEqual(-4.25);
+      expect(Math.abs(decoded.rotation - Math.PI / 2) < 0.000001).assertTrue();
+      expect(decoded.scaleX).assertEqual(2);
+      expect(decoded.scaleY).assertEqual(0.5);
+      expect(decoded.zIndex).assertEqual('987654321');
+    });
+
+    it('preserves the uint32 audio interval on CREATE_INK erase remnants', 0, () => {
+      const stroke: StrokeElementData = sampleStroke();
+      stroke.audioDuration = 0xFFFFFFFF;
+      const decoded = decodeOriginalCreateInk(wrap(15, encodeOriginalLocalCreateInk(
+        { timestamp: 80, siteId: 7, index: 2 }, stroke)), '1234');
+      expect(decoded.audioDuration).assertEqual(0xFFFFFFFF);
+      stroke.audioDuration = -1;
+      expect(() => encodeOriginalLocalCreateInk(
+        { timestamp: 80, siteId: 7, index: 2 }, stroke)).assertThrow();
+    });
+
     it('encodes batched entity delete and undelete vectors without changing identity', 0, () => {
       const decoded = decodeOriginalDeleteEntities(wrap(25, encodeOriginalEntityVisibility(
         [{ timestamp: 20, siteId: 2 }, { timestamp: 22, siteId: 4 },
@@ -85,6 +117,35 @@ export default function originalCreateInkPayloadEncoderTest() {
       expect(decoded.entityUndeletes[1].timestamp).assertEqual(23);
       expect(decodeOperationId('op:14:2')?.timestamp).assertEqual(20);
       expect(decodeOperationId('not-an-operation') === null).assertTrue();
+    });
+
+    it('round-trips the original partial-erase history companion as source/remnant replacement', 0, () => {
+      const before: SearchSourceElement[] = [{
+        elementId: 'op:14:2', kind: 1, payload: new Uint8Array([1, 2, 3]),
+      }];
+      const after: SearchSourceElement[] = [{
+        elementId: 'op:15:2', kind: 1, payload: new Uint8Array([4, 5]),
+      }, {
+        elementId: 'op:16:2', kind: 1, payload: new Uint8Array([6, 7]),
+      }];
+      const mutation = decodeOriginalPartialEraseMutation(encodeOriginalPartialEraseMutation(
+        createPageMutation('page-1', 9, 10, before, after)));
+      expect(mutation.beforeElements.length).assertEqual(1);
+      expect(mutation.afterElements.length).assertEqual(2);
+      expect(mutation.beforeElements[0].elementId).assertEqual('op:14:2');
+      expect(mutation.afterElements[1].elementId).assertEqual('op:16:2');
+    });
+
+    it('caps original partial-erase history at one type-25 visibility payload', 0, () => {
+      const before: SearchSourceElement[] = [];
+      for (let index: number = 0; index <= MAX_ORIGINAL_DELETE_ENTITY_COUNT; index++) {
+        before.push({
+          elementId: `op:${(index + 1).toString(16)}:1`, kind: 1,
+          payload: new Uint8Array([index & 0xFF]),
+        });
+      }
+      const oversized = createPageMutation('page-1', 1, 2, before, []);
+      expect(() => validateOriginalPartialEraseMutation(oversized)).assertThrow();
     });
 
     it('round-trips original partial eraser as CREATE_INK tool 5', 0, () => {

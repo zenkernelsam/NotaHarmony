@@ -5,7 +5,7 @@ import { InkPathCommand, StrokeElementData } from '../core/model/StrokeTypes';
 import { ElementType, RichTextCharacterStyleRun, RichTextParagraphStyleRun,
   ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { PageInfo } from '../core/model/NoteTypes';
-import { PageElementRef } from '../core/model/PageElementOrder';
+import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import { OriginalSelectionGroup } from '../core/model/OriginalGroupSelection';
 import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op } from '../core/model/OpTypes';
 
@@ -31,6 +31,7 @@ export enum UndoableActionType {
   PERSISTED_PAGE_MUTATIONS = 17,
   GROUP_ELEMENTS = 18,
   ORIGINAL_CLIPBOARD_PASTE = 19,
+  ORIGINAL_PARTIAL_ERASE = 20,
 }
 
 interface ActionBase {
@@ -61,6 +62,11 @@ export interface EraseElementsAction extends ActionBase, ElementOrderChange {
   type: UndoableActionType.ERASE_ELEMENTS;
   removedStrokes: StrokeElementData[];
   removedStrokeIndices: number[];
+  // Original-style partial erase replaces each source Ink with zero or more
+  // newly identified remnants. Optional keeps older whole/mask history valid.
+  addedStrokes?: StrokeElementData[];
+  addedStrokeIndices?: number[];
+  addedStrokeCounts?: number[];
   beforeModifiedStrokes: StrokeElementData[];
   afterModifiedStrokes: StrokeElementData[];
   removedShapes: ShapeElement[];
@@ -71,6 +77,125 @@ export interface EraseElementsAction extends ActionBase, ElementOrderChange {
   removedImageIndices: number[];
   removedMathBlocks?: MathElement[];
   removedMathBlockIndices?: number[];
+}
+
+export function buildPartialEraseReplacementMap(sources: StrokeElementData[],
+  remnants: StrokeElementData[], remnantCounts: number[]): Map<string, StrokeElementData[]> | null {
+  if (sources.length === 0 || remnantCounts.length !== sources.length) {
+    return null;
+  }
+  const sourceIds: Set<string> = new Set<string>();
+  for (const source of sources) {
+    if (source.id.length === 0 || sourceIds.has(source.id)) {
+      return null;
+    }
+    sourceIds.add(source.id);
+  }
+  const remnantIds: Set<string> = new Set<string>();
+  for (const remnant of remnants) {
+    if (remnant.id.length === 0 || sourceIds.has(remnant.id) || remnantIds.has(remnant.id)) {
+      return null;
+    }
+    remnantIds.add(remnant.id);
+  }
+  const result: Map<string, StrokeElementData[]> = new Map<string, StrokeElementData[]>();
+  let offset: number = 0;
+  for (let index: number = 0; index < sources.length; index++) {
+    const count: number = remnantCounts[index];
+    if (!Number.isInteger(count) || count < 0 || offset + count > remnants.length) {
+      return null;
+    }
+    const group: StrokeElementData[] = [];
+    for (let remnantIndex: number = 0; remnantIndex < count; remnantIndex++) {
+      group.push(remnants[offset + remnantIndex]);
+    }
+    result.set(sources[index].id, group);
+    offset += count;
+  }
+  return offset === remnants.length ? result : null;
+}
+
+export function partialEraseElementOrder(order: PageElementRef[],
+  replacementById: Map<string, StrokeElementData[]>): PageElementRef[] | null {
+  const result: PageElementRef[] = [];
+  const consumed: Set<string> = new Set<string>();
+  for (const ref of order) {
+    const remnants: StrokeElementData[] | undefined = ref.kind === PageElementKind.STROKE ?
+      replacementById.get(ref.elementId) : undefined;
+    if (remnants === undefined) {
+      result.push({ kind: ref.kind, elementId: ref.elementId, zIndex: result.length });
+      continue;
+    }
+    if (consumed.has(ref.elementId)) {
+      return null;
+    }
+    consumed.add(ref.elementId);
+    for (const remnant of remnants) {
+      result.push({ kind: PageElementKind.STROKE,
+        elementId: remnant.id, zIndex: result.length });
+    }
+  }
+  return consumed.size === replacementById.size ? result : null;
+}
+
+export function validatePartialEraseStrokeHistoryState(current: StrokeElementData[],
+  sources: StrokeElementData[], sourceIndices: number[], remnants: StrokeElementData[],
+  remnantIndices: number[], remnantCounts: number[], isUndo: boolean): boolean {
+  if (buildPartialEraseReplacementMap(sources, remnants, remnantCounts) === null) {
+    return false;
+  }
+  if (isUndo) {
+    return strokeIdsAbsent(current, sources) && strokesMatchIndices(current, remnants, remnantIndices) &&
+      validInsertionIndices(sourceIndices, sources.length, current.length - remnants.length);
+  }
+  return strokesMatchIndices(current, sources, sourceIndices) && strokeIdsAbsent(current, remnants) &&
+    validInsertionIndices(remnantIndices, remnants.length, current.length - sources.length);
+}
+
+function strokesMatchIndices(current: StrokeElementData[], expected: StrokeElementData[],
+  indices: number[]): boolean {
+  if (indices.length !== expected.length) {
+    return false;
+  }
+  let previous: number = -1;
+  for (let index: number = 0; index < indices.length; index++) {
+    const position: number = indices[index];
+    if (!Number.isInteger(position) || position <= previous || position < 0 ||
+      position >= current.length || current[position].id !== expected[index].id) {
+      return false;
+    }
+    previous = position;
+  }
+  return true;
+}
+
+function strokeIdsAbsent(current: StrokeElementData[], strokes: StrokeElementData[]): boolean {
+  const ids: Set<string> = new Set<string>();
+  for (const stroke of current) {
+    ids.add(stroke.id);
+  }
+  for (const stroke of strokes) {
+    if (ids.has(stroke.id)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function validInsertionIndices(indices: number[], itemCount: number, baseLength: number): boolean {
+  if (indices.length !== itemCount || baseLength < 0) {
+    return false;
+  }
+  let previous: number = -1;
+  for (let index: number = 0; index < indices.length; index++) {
+    const position: number = indices[index];
+    if (!Number.isInteger(position) || position <= previous || position < 0 ||
+      position > baseLength + index) {
+      return false;
+    }
+    previous = position;
+  }
+  return true;
 }
 
 export interface TransformStrokesAction extends ActionBase {
@@ -202,11 +327,16 @@ export interface OriginalClipboardPasteAction extends ActionBase {
   operation: Op;
 }
 
+export interface OriginalPartialEraseAction extends ActionBase {
+  type: UndoableActionType.ORIGINAL_PARTIAL_ERASE;
+  operation: Op;
+}
+
 export type UndoableAction = AddStrokeAction | RemoveStrokeAction | TransformStrokesAction |
   AddElementAction | DeleteElementAction | ReplaceElementAction | ReorderElementsAction |
   AddShapeAction | AddElementsAction | DeleteElementsAction | TransformElementsAction | EraseElementsAction |
   AddPageAction | DeletePageAction | ReorderPagesAction | PageSettingsAction | PersistedPageMutationsAction |
-  GroupElementsAction | OriginalClipboardPasteAction;
+  GroupElementsAction | OriginalClipboardPasteAction | OriginalPartialEraseAction;
 
 export interface RestoredHistoryAction {
   action: UndoableAction;
@@ -272,7 +402,9 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
       estimateElementOrderChange(action);
   }
   if (action.type === UndoableActionType.ERASE_ELEMENTS) {
-    return bytes + estimateStrokes(action.removedStrokes) + action.removedStrokeIndices.length * 8 +
+    return bytes + estimateStrokes(action.removedStrokes) + estimateStrokes(action.addedStrokes ?? []) +
+      action.removedStrokeIndices.length * 8 + (action.addedStrokeIndices ?? []).length * 8 +
+      (action.addedStrokeCounts ?? []).length * 8 +
       estimateStrokes(action.beforeModifiedStrokes) + estimateStrokes(action.afterModifiedStrokes) +
       estimateShapes(action.removedShapes) + action.removedShapeIndices.length * 8 +
       estimateTextBlocks(action.removedTextBlocks) + action.removedTextBlockIndices.length * 8 +
@@ -344,6 +476,9 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
       estimateElementOrderChange(action);
   }
   if (action.type === UndoableActionType.ORIGINAL_CLIPBOARD_PASTE) {
+    return bytes + action.operation.payload.length + action.operation.opId.length * 2 + 128;
+  }
+  if (action.type === UndoableActionType.ORIGINAL_PARTIAL_ERASE) {
     return bytes + action.operation.payload.length + action.operation.opId.length * 2 + 128;
   }
   return bytes + 512;

@@ -24,6 +24,8 @@ import { encodeOriginalClipboardPasteMutation,
   OriginalClipboardPasteMutation } from '../main/ets/data/OriginalClipboardPasteMutationCodec';
 import { encodeOriginalGroupMutation, OriginalGroupMutationOpPayload } from
   '../main/ets/data/OriginalGroupMutationOpCodec';
+import { encodeOriginalPartialEraseMutation } from
+  '../main/ets/data/OriginalPartialEraseMutationCodec';
 
 function makeOp(opId: string, actionId?: string, effect: HistoryEffect = HistoryEffect.PUSH,
   actionTime: number = 100): Op {
@@ -151,6 +153,28 @@ function clipboardPasteHistoryOp(opId: string, effect: HistoryEffect): Op {
   };
 }
 
+function partialEraseHistoryOp(opId: string, effect: HistoryEffect): Op {
+  const before: SearchSourceElement[] = [
+    element('op:a:1', PageElementKind.STROKE, 1),
+    element('op:14:2', PageElementKind.STROKE, 2),
+  ];
+  const after: SearchSourceElement[] = [
+    before[0],
+    element('op:15:2', PageElementKind.STROKE, 3),
+    element('op:16:2', PageElementKind.STROKE, 4),
+  ];
+  return {
+    opId: opId, noteId: 'note-1', opType: OpType.ORIGINAL_PARTIAL_ERASE,
+    payload: encodeOriginalPartialEraseMutation(
+      createPageMutation('page-1', 8, 9, before, after)),
+    clientTime: 100,
+    history: {
+      actionId: 'partial-erase-action', effect: effect,
+      coalesceTrack: HistoryCoalesceTrack.NONE, actionTime: 100,
+    },
+  };
+}
+
 function element(elementId: string, kind: number, value: number): SearchSourceElement {
   return { elementId: elementId, kind: kind, payload: new Uint8Array([value]) };
 }
@@ -232,6 +256,23 @@ export default function persistentHistoryTest() {
         expect(restored.redo[0].action.pageId).assertEqual('page-1');
         expect(restored.redo[0].action.operation.opType)
           .assertEqual(OpType.ORIGINAL_CLIPBOARD_PASTE);
+      }
+    });
+
+    it('restores original partial erase as one dedicated action across UNDO', 0, () => {
+      const restored: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([
+          partialEraseHistoryOp('erase-push', HistoryEffect.PUSH),
+          partialEraseHistoryOp('erase-undo', HistoryEffect.UNDO),
+        ]), 'page-1');
+      expect(restored.undo.length).assertEqual(0);
+      expect(restored.redo.length).assertEqual(1);
+      expect(restored.redo[0].action.type)
+        .assertEqual(UndoableActionType.ORIGINAL_PARTIAL_ERASE);
+      if (restored.redo[0].action.type === UndoableActionType.ORIGINAL_PARTIAL_ERASE) {
+        expect(restored.redo[0].action.pageId).assertEqual('page-1');
+        expect(restored.redo[0].action.operation.opType)
+          .assertEqual(OpType.ORIGINAL_PARTIAL_ERASE);
       }
     });
 
