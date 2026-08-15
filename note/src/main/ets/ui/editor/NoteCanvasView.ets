@@ -148,8 +148,8 @@ const HISTORY_CHECKPOINT_TAIL_OPERATIONS: number = 256;
 const HISTORY_CHECKPOINT_MAX_ACTIONS: number = 128;
 const HISTORY_REPLAY_ATTEMPTS: number = 4;
 const ORIGINAL_CREATE_INK_PAYLOAD_TYPE: number = 15;
-const ORIGINAL_MATH_EDITOR_PREVIEW_WIDTH: number = 280;
-const ORIGINAL_MATH_EDITOR_PREVIEW_HEIGHT: number = 96;
+const ORIGINAL_MATH_EDITOR_PREVIEW_WIDTH_VP: number = 280;
+const ORIGINAL_MATH_EDITOR_PREVIEW_HEIGHT_VP: number = 96;
 const ORIGINAL_MATH_EDITOR_PREVIEW_PIXEL_SCALE: number = 1;
 
 interface ShapeDetectionAttempt {
@@ -4095,6 +4095,13 @@ export struct NoteCanvasView {
     }
     const generation: number = this.mathEditorValidationGeneration;
     const color: number = this.mathEditorPreviewArgb();
+    const previewWidthPixels: number = vp2px(ORIGINAL_MATH_EDITOR_PREVIEW_WIDTH_VP);
+    const previewHeightPixels: number = vp2px(ORIGINAL_MATH_EDITOR_PREVIEW_HEIGHT_VP);
+    if (!Number.isFinite(previewWidthPixels) || !Number.isFinite(previewHeightPixels) ||
+      previewWidthPixels <= 0 || previewHeightPixels <= 0) {
+      this.mathEditorDraftState = OriginalMathEditorDraftState.INVALID;
+      return;
+    }
     this.mathEditorValidationTimer = setTimeout((): void => {
       this.mathEditorValidationTimer = -1;
       if (generation !== this.mathEditorValidationGeneration || !this.lifecycleActive ||
@@ -4104,7 +4111,7 @@ export struct NoteCanvasView {
       let preview: OriginalMathBitmap | null = null;
       try {
         preview = originalMathEngine.render(draft,
-          ORIGINAL_MATH_EDITOR_PREVIEW_WIDTH, ORIGINAL_MATH_EDITOR_PREVIEW_HEIGHT,
+          previewWidthPixels, previewHeightPixels,
           color, ORIGINAL_MATH_EDITOR_PREVIEW_PIXEL_SCALE);
       } catch (error) {
         console.warn(`Math editor preview render failed: ${JSON.stringify(error)}`);

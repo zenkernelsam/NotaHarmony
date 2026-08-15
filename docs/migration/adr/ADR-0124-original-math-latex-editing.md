@@ -35,14 +35,16 @@
 ## 校验边界
 
 Phase 149 已接入可失败关闭的 Native 公式 bitmap/layout engine，Phase 217 已恢复原版框内 fit 与编辑时几何不变，
-Phase 234 又把同一引擎接入 280×96、1× 的编辑器预览与 Empty/Loading/Invalid/Ok 状态机。因此 Harmony
+Phase 234 又把同一引擎接入 280vp×96vp 的编辑器预览与 Empty/Loading/Invalid/Ok 状态机；Phase 235
+补回原版在 1× Native draw 前先把该逻辑框转换为物理像素的 Density 契约。因此 Harmony
 不再用 raw LaTeX 或静态字符串门禁冒充语法成功；只有 Native 完整绘制成功才产生 Ok。平台字体 fallback、
 hinting、透明边缘、主题颜色以及极端 LaTeX 的像素一致性仍需设备验收。
 
 ## 验证
 
 - `d02-local-math-latex-edit.mjs`、`d02-math-editing-consumer.mjs` 与
-  `d02-original-math-editor-four-state.mjs` 锁定原版菜单、Native 四态、280×96 预览、Done/失败证据、
+  `d02-original-math-editor-four-state.mjs` 与 `d02-original-math-editor-density-preview.mjs` 锁定原版菜单、
+  Native 四态、280vp×96vp 密度预览、Done/失败证据、
   迟到结果丢弃和 Harmony transaction/UI 接线。
 - ArkTS fixture 覆盖 field-10 setter round-trip、空字符串 Undo、目标/预算拒绝、单 Math 严格 classifier、
   reverse Undo、混合字段拒绝、四态初值，以及仅 idle Ok 可 Done。
@@ -52,6 +54,7 @@ hinting、透明边缘、主题颜色以及极端 LaTeX 的像素一致性仍需
 ## 后续状态
 
 Phase 148 / ADR-0125 已完成新的 Math `CREATE_BLOCK` authoring、空 draft Insert 会话和 viewport-center
-放置；Phase 149、217 与 234 已完成 Native 引擎、原版框内 fit/编辑几何和语法级 Invalid/Ok 预览。
+放置；Phase 149、217、234 与 235 已完成 Native 引擎、原版框内 fit/编辑几何、语法级 Invalid/Ok 预览及
+preview Density 像素契约。
 因此本文原先隐含的 CREATE writer、公式引擎和编辑器状态边界均已关闭；剩余工作是设备上的像素、输入法、
 主题切换和极端公式兼容性验收。

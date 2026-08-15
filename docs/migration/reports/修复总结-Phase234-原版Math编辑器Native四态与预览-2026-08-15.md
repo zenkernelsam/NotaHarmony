@@ -75,3 +75,9 @@ overlay 虽然能 durable 修改/插入 LaTeX，但仍把“非空、UTF-8 round
 - 测试分式、根号、矩阵、上下标、旋转盒、CJK、希腊文与 emoji fallback，比较原版 280×96 preview 的
   fit、裁切、baseline、透明边缘和抗锯齿。
 - 在 preview 更新、Cancel、Done 和页面返回之间高频切换，观察 Native 内存与 `PixelMap` 生命周期。
+
+## Phase 235 后续更正
+
+Phase 234 首版把原版 `p18` 的 `scale=1` 直接解释为 raw 280×96 bitmap。Phase 235 继续追踪 `axi/r93` 后确认：
+原版在进入 `p18` 前已把 280dp×96dp 乘以当前 Density，因此高密度设备必须先生成对应物理像素框，再保持
+`scale=1`。该偏差已由 ADR-0212 和 Phase 235 修复；Phase 234 的四态、异步所有权与提交门禁结论不变。
