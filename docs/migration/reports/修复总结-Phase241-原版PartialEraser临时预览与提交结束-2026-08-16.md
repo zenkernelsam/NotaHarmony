@@ -30,11 +30,10 @@ transient tool-5 Ink，移动时实时追加，抬手后在 durable replacement 
    都有明确清理路径。
 4. 每次 preview 使用单调 token。旧 transaction 的完成回调无法清除后来建立的新手势，避免异步跨手势串扰。
 5. preview 最多接受 65,535 个点；非法点或超预算时整次手势 fail-closed，不允许用被截断的路径执行实际删除。
-6. 常见 Stroke→Text 页面新增 `StrokeLayerManager.compositeWithPartialEraser()`：只复制累积 dirty crop 内的
-   completed handwriting bitmap，在隔离层执行 destination-out，再重画 Text 前景；纸张背景不会被挖穿，Text
-   也不会被普通 handwriting mask 暂时隐藏。
-7. 含 Shape/Image/Math 或 mixed z-order 的页面继续使用统一内容离屏层，避免破坏既有元素顺序；后续真机回归需
-   继续量测长路径整页 transfer、复杂对象叠放和内存峰值。
+6. Phase 241 最初为 Stroke→Text 页面加入 handwriting-only crop，并把 Text 重画为前景；Phase 242 继续追踪
+   原版 `clientTime → s06.g → vnd.compareTo → aa6/aeg` 后确认该推断错误，现已由完整有序内容 dirty crop 取代。
+7. 当前所有页面都在透明 crop 内按 Stroke/Text/Shape/Image/Math 顺序重建，最后追加 transient tool-5 Ink；Paper
+   单独恢复，既保持原版 z-index，又避免 destination-out 挖穿背景。
 8. `commitOriginalPartialErase()` 改用 Promise 的独立 fulfilled/rejected handler。durable transaction 已成功后，
    即使 Undo/UI 安装抛错，也只记录错误并重新加载当前页，绝不会被下游 `.catch()` 误判为 transaction 失败后
    再执行一次 local replacement。
@@ -59,8 +58,8 @@ transient tool-5 Ink，移动时实时追加，抬手后在 durable replacement 
   - stale token 不得清除新手势；
   - 超预算整次失败而非提交截断路径；
   - 非有限坐标、非法宽度和非法预算在渲染前拒绝。
-- 新增专项 replay：
-  `originalPartialEraserTransientPreview=tool5-memory-preview-dirty-crop-commit-end-cancel-fail-closed`。
+- 新增专项 replay；Phase 242 更正后当前门禁为：
+  `originalPartialEraserTransientPreview=tool5-memory-preview-ordered-dirty-crop-commit-end-cancel-fail-closed`。
 - 更新既有 local partial-eraser replay，使其验证 preview token 与 durable replacement 的新接线。
 - 全量桌面 replay：`REPLAY_FILES=226 FAILED=0`。
 - `git diff --check`：通过；仅有项目既有 LF→CRLF 提示。
@@ -87,3 +86,9 @@ transient tool-5 Ink，移动时实时追加，抬手后在 durable replacement 
 - 项目仍没有已认证的原版协作 transport consumer 与 incoming transient reducer，因此没有伪造远端 tool-5
   CREATE/ADD/end outbox；远端实时预览仍属于后续同步阶段。
 - Goal 保持 active，下一阶段继续按修复总纲与边修边审结果选择高优先级原版差异。
+
+## 2026-08-16 后续审计更正（Phase 242）
+
+Phase 241 关于“Text 不应被普通 preview 暂时隐藏”的描述不成立。原版 transient CREATE_INK 使用当前
+clientTime/Realtime 参与统一实体排序，新 tool-5 Ink 位于既有 Text/Image/Math/Shape 之后。最终实现、证据和
+回归门禁见 ADR-0219、`original-partial-eraser-preview-z-order-jadx-2026-08-16.md` 与 Phase 242 Report。

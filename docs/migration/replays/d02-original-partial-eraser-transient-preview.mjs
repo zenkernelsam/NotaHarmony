@@ -15,8 +15,10 @@ const wq9 = original('sources/defpackage/wq9.java');
 const preview = read('note/src/main/ets/rendering/OriginalPartialEraserTransientPreview.ets');
 const canvas = read('note/src/main/ets/ui/editor/NoteCanvasView.ets');
 const layers = read('note/src/main/ets/rendering/StrokeLayerManager.ets');
+const pageOrder = read('note/src/main/ets/core/model/PageElementOrder.ets');
 const strokeTypes = read('note/src/main/ets/core/model/StrokeTypes.ets');
 const fixture = read('note/src/test/OriginalPartialEraserTransientPreview.test.ets');
+const orderFixture = read('note/src/test/PageElementOrder.test.ets');
 const fixtureList = read('note/src/test/List.test.ets');
 const evidence = read(
   'docs/migration/evidence/original-partial-eraser-transient-preview-jadx-2026-08-16.md');
@@ -54,13 +56,19 @@ assert.match(canvas,
 assert.match(canvas, /this\.cancelActiveInteraction\(\);[\s\S]{0,80}if \(!this\.loaded\)/);
 assert.match(canvas, /aboutToDisappear\(\)[\s\S]{0,100}partialEraserPreview\.cancel\(\)/);
 
-// Common pages isolate only handwriting dirty bounds; paper and text are redrawn outside the mask.
-assert.match(layers, /compositeWithPartialEraser\(/);
+// The preview uses an ordered dirty crop: paper stays outside destination-out,
+// while every durable content type remains below the newest transient Ink.
+assert.match(layers, /compositeWithOrderedPartialEraser\(/);
 assert.match(layers, /pixelAlignedPageCrop\(dirty\)/);
 assert.match(layers, /BitmapTransferKind\.ISOLATED_MASK/);
-assert.match(layers, /renderBackground\(\);[\s\S]{0,1200}renderForeground\(\)/);
-assert.match(canvas, /layerManager\.compositeWithPartialEraser/);
-assert.match(canvas, /this\.renderTextBlocks\(\);[\s\S]{0,80}this\.viewport\.zoom, forceFull/);
+assert.match(layers, /renderBackground\(\);[\s\S]{0,1500}renderOrderedContent\(isolatedRenderContext\)/);
+assert.match(canvas, /layerManager\.compositeWithOrderedPartialEraser/);
+assert.match(canvas,
+  /this\.renderOrderedElements\(renderContext, partialEraserPreviewStroke\);[\s\S]{0,100}this\.viewport\.zoom, forceFull/);
+assert.doesNotMatch(canvas, /isolatedPartialEraserPreview/);
+assert.match(pageOrder,
+  /transientTopStroke: StrokeElementData \| null = null[\s\S]{0,2600}elementId: transientTopStroke\.id/);
+assert.match(orderFixture, /places transient partial-eraser Ink above every durable element without persisting it/);
 
 // A fulfilled durable promise has its own guarded handler; UI failure cannot fall into local fallback.
 assert.match(canvas,
@@ -84,4 +92,4 @@ assert.equal(second, 2);
 assert.notEqual(first, second);
 
 console.log(
-  'originalPartialEraserTransientPreview=tool5-memory-preview-dirty-crop-commit-end-cancel-fail-closed');
+  'originalPartialEraserTransientPreview=tool5-memory-preview-ordered-dirty-crop-commit-end-cancel-fail-closed');

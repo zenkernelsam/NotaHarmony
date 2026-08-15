@@ -96,6 +96,29 @@ export default function pageElementOrderTest() {
       expect(elements[2].elementId).assertEqual('s2');
     });
 
+    it('places transient partial-eraser Ink above every durable element without persisting it', 0, () => {
+      const order: PageElementRef[] = [
+        { kind: PageElementKind.STROKE, elementId: 's1', zIndex: 0 },
+        { kind: PageElementKind.TEXT, elementId: 't1', zIndex: 1 },
+        { kind: PageElementKind.SHAPE, elementId: 'p1', zIndex: 2 },
+        { kind: PageElementKind.IMAGE, elementId: 'i1', zIndex: 3 },
+        { kind: PageElementKind.MATH, elementId: 'm1', zIndex: 4 },
+      ];
+      const preview: StrokeElementData = stroke('transient-partial-eraser-1');
+      preview.renderSpec.isPartialEraser = true;
+      preview.isFinished = false;
+      const elements: OrderedPageElement[] = materializePageElements(
+        order, [stroke('s1')], [text('t1')], [shape('p1')], [image('i1')], [math('m1')], preview);
+      expect(elements.length).assertEqual(6);
+      expect(elements[4].kind).assertEqual(PageElementKind.MATH);
+      expect(elements[5].kind).assertEqual(PageElementKind.STROKE);
+      expect(elements[5].elementId).assertEqual(preview.id);
+      expect(elements[5].zIndex).assertEqual(5);
+      expect(elements[5].data === preview).assertTrue();
+      expect(order.length).assertEqual(5);
+      expect(order.some((ref: PageElementRef): boolean => ref.elementId === preview.id)).assertFalse();
+    });
+
     it('materializes and moves semantic shapes without losing mixed z order', 0, () => {
       const before: PageElementRef[] = [
         { kind: PageElementKind.SHAPE, elementId: 'p1', zIndex: 0 },

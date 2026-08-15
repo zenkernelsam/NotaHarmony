@@ -108,13 +108,14 @@ export class StrokeLayerManager {
     this.transferTracker.finishFrame(true, 1);
   }
 
-  // The original partial eraser is a transient Ink preview over the handwriting
-  // layer, not a durable page element. On the common strokes-then-text layout,
-  // isolate only the growing preview bounds so destination-out cannot punch a
-  // hole through the paper background or temporarily hide text.
-  compositeWithPartialEraser(mainCtx: CanvasRenderingContext2D,
-    preview: StrokeElementData, renderBackground: () => void = () => {},
-    renderForeground: () => void = () => {}, zoom: number = 1,
+  // The original tool-5 preview is the newest z-indexed Ink, so each dirty crop
+  // must contain the complete ordered page content before destination-out runs.
+  // Isolating that content from the paper keeps the eraser paper-safe while the
+  // crop transfer avoids rebuilding a full-page bitmap on every pointer move.
+  compositeWithOrderedPartialEraser(mainCtx: CanvasRenderingContext2D,
+    preview: StrokeElementData, renderBackground: () => void,
+    renderOrderedContent: (renderContext: Canvas2DOffscreenRenderContext) => void,
+    zoom: number = 1,
     forceFull: boolean = false): void {
     if (forceFull) {
       this.markFullPageDirty();
@@ -131,17 +132,16 @@ export class StrokeLayerManager {
       return;
     }
     mainCtx.save();
-    mainCtx.beginPath();
-    for (const dirty of dirtyRegions) {
-      mainCtx.rect(dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top);
-    }
-    mainCtx.clip();
-    for (const dirty of dirtyRegions) {
-      mainCtx.clearRect(dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top);
-    }
-    renderBackground();
-    const completed: ImageBitmap | null = this.completedBitmap;
-    if (completed !== null) {
+    try {
+      mainCtx.beginPath();
+      for (const dirty of dirtyRegions) {
+        mainCtx.rect(dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top);
+      }
+      mainCtx.clip();
+      for (const dirty of dirtyRegions) {
+        mainCtx.clearRect(dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top);
+      }
+      renderBackground();
       for (const dirty of dirtyRegions) {
         const crop: Rect2D | null = this.pixelAlignedPageCrop(dirty);
         if (crop === null) {
@@ -152,15 +152,15 @@ export class StrokeLayerManager {
         const isolatedLayer: OffscreenCanvas = new OffscreenCanvas(width, height);
         const isolatedContext: OffscreenCanvasRenderingContext2D =
           isolatedLayer.getContext('2d', new RenderingContextSettings(true));
-        isolatedContext.drawImage(completed, crop.left, crop.top, width, height,
-          0, 0, width, height);
         const isolatedRenderContext: Canvas2DOffscreenRenderContext =
           new Canvas2DOffscreenRenderContext(isolatedContext);
         isolatedRenderContext.save();
-        isolatedRenderContext.transform([1, 0, -crop.left, 0, 1, -crop.top, 0, 0, 1]);
-        this.strokePainter.renderStroke(
-          preview, isolatedRenderContext, this.pageWidth, this.pageHeight);
-        isolatedRenderContext.restore();
+        try {
+          isolatedRenderContext.transform([1, 0, -crop.left, 0, 1, -crop.top, 0, 0, 1]);
+          renderOrderedContent(isolatedRenderContext);
+        } finally {
+          isolatedRenderContext.restore();
+        }
         const bitmap: ImageBitmap = isolatedLayer.transferToImageBitmap();
         this.transferTracker.recordTransfer(BitmapTransferKind.ISOLATED_MASK);
         try {
@@ -169,10 +169,10 @@ export class StrokeLayerManager {
           bitmap.close();
         }
       }
+    } finally {
+      mainCtx.restore();
+      this.transferTracker.finishFrame(forceFull, dirtyRegions.length);
     }
-    renderForeground();
-    mainCtx.restore();
-    this.transferTracker.finishFrame(forceFull, dirtyRegions.length);
   }
 
   // 清空全部（新建笔记/撤销全部）

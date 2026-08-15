@@ -1046,8 +1046,7 @@ export struct NoteCanvasView {
     const partialEraserPreviewStroke: StrokeElementData | null = this.partialEraserPreview.getStroke();
     const orderedRender: boolean = this.requiresOrderedElementRender() || this.heldShapes.length > 0 ||
       (this.playbackAudioTime !== null && this.playbackAudioSegments.length > 0);
-    const isolatedPartialEraserPreview: boolean = partialEraserPreviewStroke !== null && !orderedRender;
-    const fullRedraw: boolean = forceFull || orderedRender;
+    const fullRedraw: boolean = forceFull || (partialEraserPreviewStroke === null && orderedRender);
     if (fullRedraw) {
       this.canvasCtx.clearRect(0, 0, w, h);
       this.canvasCtx.fillStyle = theme.background;
@@ -1056,20 +1055,20 @@ export struct NoteCanvasView {
     this.canvasCtx.save();
     this.canvasCtx.translate(this.viewport.scrollX, this.viewport.scrollY);
     this.canvasCtx.scale(this.viewport.zoom, this.viewport.zoom);
-    if (isolatedPartialEraserPreview && partialEraserPreviewStroke !== null) {
-      this.layerManager.compositeWithPartialEraser(this.canvasCtx, partialEraserPreviewStroke, () => {
+    if (partialEraserPreviewStroke !== null) {
+      this.layerManager.compositeWithOrderedPartialEraser(this.canvasCtx, partialEraserPreviewStroke, () => {
         const visibleLeft: number = -this.viewport.scrollX / this.viewport.zoom;
         const visibleTop: number = -this.viewport.scrollY / this.viewport.zoom;
         this.canvasCtx.fillStyle = theme.background;
         this.canvasCtx.fillRect(visibleLeft, visibleTop, w / this.viewport.zoom, h / this.viewport.zoom);
         this.renderPaper(theme);
-      }, () => {
-        this.renderTextBlocks();
+      }, (renderContext: Canvas2DOffscreenRenderContext): void => {
+        this.renderOrderedElements(renderContext, partialEraserPreviewStroke);
       }, this.viewport.zoom, forceFull);
     } else if (orderedRender) {
       this.renderPaper(theme);
-      if (this.hasOriginalPartialEraser() || partialEraserPreviewStroke !== null) {
-        this.renderOrderedContentLayer(partialEraserPreviewStroke);
+      if (this.hasOriginalPartialEraser()) {
+        this.renderOrderedContentLayer();
       } else {
         this.renderOrderedElements(this.renderCtx);
       }
@@ -1120,7 +1119,7 @@ export struct NoteCanvasView {
       stroke.renderSpec.isPartialEraser === true);
   }
 
-  private renderOrderedContentLayer(partialEraserPreview: StrokeElementData | null = null): void {
+  private renderOrderedContentLayer(): void {
     const width: number = this.getPaperWidth();
     const height: number = this.getPaperHeight();
     if (width <= 0 || height <= 0) {
@@ -1131,9 +1130,6 @@ export struct NoteCanvasView {
       layer.getContext('2d', new RenderingContextSettings(true));
     const renderContext: Canvas2DOffscreenRenderContext = new Canvas2DOffscreenRenderContext(context);
     this.renderOrderedElements(renderContext);
-    if (partialEraserPreview !== null) {
-      this.strokePainter.renderStroke(partialEraserPreview, renderContext, width, height);
-    }
     const bitmap: ImageBitmap = layer.transferToImageBitmap();
     this.bitmapTransferTracker.recordTransfer(BitmapTransferKind.COMPLETED_LAYER);
     try {
@@ -1143,13 +1139,19 @@ export struct NoteCanvasView {
     }
   }
 
-  private renderOrderedElements(renderContext: Canvas2DRenderContext | Canvas2DOffscreenRenderContext): void {
+  private renderOrderedElements(renderContext: Canvas2DRenderContext | Canvas2DOffscreenRenderContext,
+    transientTopStroke: StrokeElementData | null = null): void {
     const elements: OrderedPageElement[] = materializePageElements(
       this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks,
-      this.mathBlocks);
+      this.mathBlocks, transientTopStroke);
     const mathRasterScale: number = originalMathRasterScale(this.viewport.zoom, vp2px(1));
     for (const element of elements) {
       if (element.kind === PageElementKind.STROKE) {
+        if (transientTopStroke !== null && element.data === transientTopStroke) {
+          this.strokePainter.renderStroke(
+            element.data, renderContext, this.getPaperWidth(), this.getPaperHeight());
+          continue;
+        }
         this.hydrateOriginalStrokeAudioStart(element.data);
         const playback: OriginalAudioLinkedPlayback = resolveOriginalAudioLinkedPlayback(
           element.data, this.playbackAudioTime, this.playbackAudioSegments);

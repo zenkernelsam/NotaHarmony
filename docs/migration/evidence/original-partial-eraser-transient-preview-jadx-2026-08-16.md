@@ -103,3 +103,10 @@ in-progress ID 时 `z2=true`；type 26 `TRANSIENT_INTERACTION_ENDED` 默认也�
 本阶段闭环本机可见的 transient preview、成功/失败/取消清理和非持久门禁。项目仍没有已认证的原版协作
 transport，也没有 incoming transient CREATE_INK/ADD_PATH_ELEMENTS 的 view-model reducer；因此没有把
 preview bytes 写进 durable outbox，也不宣称远端实时墨迹协作已经完成。
+
+## 后续层级补证
+
+本文件只证明 transient 生命周期，不据此推断 Text/Image/Math 是否处于 preview 前景。完整 z-index 分配、排序
+方向与 tile renderer 交错类型证据见
+`original-partial-eraser-preview-z-order-jadx-2026-08-16.md`；该补证已否定 handwriting-only + Text 固定前景
+的早期优化。

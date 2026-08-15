@@ -118,7 +118,8 @@ export function normalizePageElementOrder(order: PageElementRef[], strokes: Stro
 
 export function materializePageElements(order: PageElementRef[], strokes: StrokeElementData[],
   textBlocks: TextBlockElement[], shapes: ShapeElement[] = [],
-  images: ImageElement[] = [], mathBlocks: MathElement[] = []): OrderedPageElement[] {
+  images: ImageElement[] = [], mathBlocks: MathElement[] = [],
+  transientTopStroke: StrokeElementData | null = null): OrderedPageElement[] {
   const normalized: PageElementRef[] = normalizePageElementOrder(
     order, strokes, textBlocks, shapes, images, mathBlocks);
   const strokesById: Map<string, StrokeElementData> = new Map<string, StrokeElementData>();
@@ -169,6 +170,14 @@ export function materializePageElements(order: PageElementRef[], strokes: Stroke
         result.push({ kind: PageElementKind.MATH, elementId: ref.elementId, zIndex: ref.zIndex, data: math });
       }
     }
+  }
+  if (transientTopStroke !== null) {
+    result.push({
+      kind: PageElementKind.STROKE,
+      elementId: transientTopStroke.id,
+      zIndex: result.length,
+      data: transientTopStroke,
+    });
   }
   return result;
 }
