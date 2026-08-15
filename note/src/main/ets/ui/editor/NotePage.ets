@@ -1102,7 +1102,7 @@ struct NotePage {
       pageOrderAfter: orderAfter,
     };
     const history: HistoryMetadata = this.historyBridge.preparePageAction(action);
-    await this.pageRepo.reorderPages(this.noteId, orderAfter, history);
+    await this.pageRepo.reorderPages(this.noteId, orderAfter, selectedPageId, history);
     this.pages = this.orderPages(this.pages, orderAfter);
     this.currentPageIndex = targetIndex;
     this.historyBridge.pushPageAction(action, history);
@@ -1138,7 +1138,7 @@ struct NotePage {
       }
       if (action.type === UndoableActionType.REORDER_PAGES) {
         const order: string[] = isUndo ? action.pageOrderBefore : action.pageOrderAfter;
-        await this.pageRepo.reorderPages(this.noteId, order, history);
+        await this.pageRepo.reorderPages(this.noteId, order, action.pageId, history);
         this.pages = this.orderPages(this.pages, order);
         this.selectPageById(action.pageId);
         return true;

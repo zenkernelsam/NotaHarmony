@@ -21,7 +21,7 @@ export interface PageRepository {
   addPage(noteId: string, page: PageInfo): Promise<PageInfo>;
   deletePage(noteId: string, pageId: string): Promise<void>;
   updatePage(page: PageInfo): Promise<void>;
-  reorderPages(noteId: string, pageIds: string[]): Promise<void>;
+  reorderPages(noteId: string, pageIds: string[], movedPageId?: string): Promise<void>;
 }
 
 export interface ToolRepository {

@@ -562,6 +562,9 @@ function isOriginalOutboundCompanion(operation: Op): boolean {
     operation.opType === OpType.ORIGINAL_CREATE_BLOCK ||
     operation.opType === OpType.ORIGINAL_INSERT_TEXT ||
     operation.opType === OpType.ORIGINAL_TEXT_VISIBILITY ||
+    operation.opType === OpType.ORIGINAL_MODIFY_TEXT_STYLE ||
+    operation.opType === OpType.ORIGINAL_MODIFY_PARAGRAPH_STYLE ||
+    operation.opType === OpType.ORIGINAL_MODIFY_PAGE ||
     operation.opType === OpType.ORIGINAL_UPDATE_CHECKBOX;
 }
 

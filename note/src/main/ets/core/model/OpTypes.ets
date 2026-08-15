@@ -50,6 +50,7 @@ export enum OpType {
   ORIGINAL_MODIFY_TEXT_STYLE = 74,
   ORIGINAL_MODIFY_PARAGRAPH_STYLE = 75,
   ORIGINAL_UPDATE_CHECKBOX = 76,
+  ORIGINAL_MODIFY_PAGE = 77,
 }
 
 // History movement is metadata on a concrete mutation, not a replacement mutation type.

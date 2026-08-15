@@ -24,7 +24,7 @@ import { SearchItemType } from './SearchItemType';
 import { decodePersistedElement, PersistedElement } from './StrokePersistence';
 import {
   hasAlignedOriginalPageState, originalPageIdentityExists, persistOriginalCreatePage,
-  persistOriginalPageVisibility,
+  persistOriginalPageReorder, persistOriginalPageVisibility,
 } from './OriginalPagePersistence';
 
 interface CheckpointSearchRow {
@@ -320,7 +320,8 @@ export class PageRepositoryImpl implements PageRepository {
     }
   }
 
-  async reorderPages(noteId: string, pageIds: string[], history?: HistoryMetadata): Promise<void> {
+  async reorderPages(noteId: string, pageIds: string[], movedPageId?: string,
+    history?: HistoryMetadata): Promise<void> {
     if (noteId.length === 0) {
       throw new Error('reorderPages failed: note ID is required');
     }
@@ -333,6 +334,19 @@ export class PageRepositoryImpl implements PageRepository {
         const before: PageInfo[] = await this.queryPages(store, noteId);
         this.validateRequestedOrder(before, pageIds);
         if (this.samePageOrder(before, pageIds)) {
+          await store.commit();
+          return;
+        }
+        if (await this.noteHasOriginalPages(store, noteId)) {
+          if (movedPageId === undefined || movedPageId.length === 0) {
+            throw new Error('original page reorder requires the moved page identity');
+          }
+          await persistOriginalPageReorder(store, noteId, pageIds, movedPageId);
+          const after: PageInfo[] = await this.queryPages(store, noteId);
+          if (history !== undefined) {
+            await this.appendStructureHistoryMutation(
+              store, noteId, revision, before, after, OpType.REORDER_PAGES, history);
+          }
           await store.commit();
           return;
         }

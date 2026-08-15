@@ -72,6 +72,7 @@ import originalCreateRecordingPayloadEncoderTest from './OriginalCreateRecording
 import originalRecordingSessionControllerTest from './OriginalRecordingSessionController.test';
 import originalRecordingPresentationTest from './OriginalRecordingPresentation.test';
 import originalCreatePagePayloadEncoderTest from './OriginalCreatePagePayloadEncoder.test';
+import originalModifyPagePayloadEncoderTest from './OriginalModifyPagePayloadEncoder.test';
 import originalCreateInkPayloadEncoderTest from './OriginalCreateInkPayloadEncoder.test';
 import originalModifyBlockPayloadEncoderTest from './OriginalModifyBlockPayloadEncoder.test';
 import originalGroupPayloadEncoderTest from './OriginalGroupPayloadEncoder.test';
@@ -164,6 +165,7 @@ export default function testsuite() {
   originalRecordingSessionControllerTest();
   originalRecordingPresentationTest();
   originalCreatePagePayloadEncoderTest();
+  originalModifyPagePayloadEncoderTest();
   originalCreateInkPayloadEncoderTest();
   originalModifyBlockPayloadEncoderTest();
   originalGroupPayloadEncoderTest();

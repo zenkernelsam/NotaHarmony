@@ -67,8 +67,8 @@ Accepted, 2026-08-11.
 
 ## Remaining Boundary
 
-Local MODIFY_PAGE, MODIFY_POSITIONS/reorder, legacy-note identity bootstrap, styled paper/PDF
-CREATE_PAGE authoring, and private transport/ACK acceptance remain separate work. CREATE_INK may now
+Local MODIFY_PAGE/reorder is now implemented by ADR-0220. Legacy-note identity bootstrap, styled
+paper/PDF CREATE_PAGE authoring, and private transport/ACK acceptance remain separate work. CREATE_INK may now
 use canonical page identities for newly created aligned notes, but must still preallocate the ink
 operation identity before replacing random stroke IDs. No device was started in this phase.
 

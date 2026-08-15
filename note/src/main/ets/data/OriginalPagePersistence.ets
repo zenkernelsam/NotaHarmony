@@ -6,9 +6,16 @@ import { encodeOriginalLocalCreatePage } from './OriginalCreatePagePayloadEncode
 import {
   ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE, OriginalCreatePageOperationApplier,
 } from './OriginalCreatePageOperation';
+import { encodeOriginalModifyPageMove } from './OriginalModifyPagePayloadEncoder';
+import {
+  ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE, OriginalModifyPageOperationApplier,
+} from './OriginalModifyPageOperation';
 import { encodeOriginalPageStorageId, OriginalSequenceIdentity } from './OperationIdentity';
 import { allocateOperationIdentity, AllocatedOperationIdentity, appendOperation } from './OpStoreImpl';
 import { OriginalPageOrderStore } from './OriginalPageOrderStore';
+import {
+  OriginalPageReorderPlan, planOriginalPageReorder,
+} from './OriginalPageReorderPlanner';
 import {
   encodeOriginalPageVisibility,
 } from './OriginalDeleteEntitiesPayloadEncoder';
@@ -22,6 +29,12 @@ import { encodeOriginalOperationEnvelope } from './OriginalOperationEnvelopeEnco
 
 export interface PersistedOriginalPageMutation {
   page: PageInfo;
+  payload: Uint8Array;
+}
+
+export interface PersistedOriginalPageReorder {
+  movedPageId: string;
+  predecessorPageId: string | null;
   payload: Uint8Array;
 }
 
@@ -110,6 +123,48 @@ export async function persistOriginalPageVisibility(store: relationalStore.RdbSt
     payload: operation.rawOperation };
 }
 
+export async function persistOriginalPageReorder(store: relationalStore.RdbStore,
+  noteId: string, requestedOrder: string[], movedPageId: string): Promise<PersistedOriginalPageReorder> {
+  if (noteId.length === 0 || !await hasAlignedOriginalPageState(store, noteId)) {
+    throw new Error('local ModifyPage requires complete aligned original page identity coverage');
+  }
+  const orderStore: OriginalPageOrderStore = new OriginalPageOrderStore();
+  const currentOrder: string[] = await orderStore.readStoredPageIds(store, noteId);
+  const plan: OriginalPageReorderPlan = planOriginalPageReorder(
+    currentOrder, requestedOrder, movedPageId);
+  const movedPage: OriginalSequenceIdentity = await readPageIdentity(
+    store, noteId, plan.movedPageId);
+  const moveTo: OriginalSequenceIdentity | null = plan.predecessorPageId === null ? null :
+    await readWinningPosition(store, noteId, plan.predecessorPageId);
+  const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+  const payload: Uint8Array = encodeOriginalModifyPageMove([movedPage], moveTo);
+  const operation: StoredSyncedOperation = storedOperation(
+    noteId, identity, ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE, payload);
+  const result: SyncedOperationApplyResult = await new OriginalModifyPageOperationApplier().apply(
+    store, operation);
+  if (result.deferredReason !== null) {
+    throw new Error(`local ModifyPage was deferred: ${result.deferredReason}`);
+  }
+  const materializedOrder: string[] = await orderStore.readStoredPageIds(store, noteId);
+  if (!orderStore.samePageIds(materializedOrder, requestedOrder)) {
+    throw new Error('local ModifyPage reducer produced an unexpected page order');
+  }
+  const originalOrder: string[] = await orderStore.readOriginalVisibleOrder(store, noteId);
+  if (!orderStore.samePageIds(originalOrder, requestedOrder)) {
+    throw new Error('local ModifyPage CRDT order diverged after reducer apply');
+  }
+  await appendOperation(store, {
+    noteId: noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_PAGE,
+    payload: operation.rawOperation, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+    editorSiteId: identity.siteId, uploadImmediately: true,
+  });
+  return {
+    movedPageId: plan.movedPageId,
+    predecessorPageId: plan.predecessorPageId,
+    payload: operation.rawOperation,
+  };
+}
+
 export async function originalPageIdentityExists(store: relationalStore.RdbStore,
   noteId: string, pageId: string): Promise<boolean> {
   const rows = await store.querySql(
@@ -135,6 +190,31 @@ async function readTailPosition(store: relationalStore.RdbStore,
   try {
     if (!rows.goToFirstRow()) {
       return null;
+    }
+    return {
+      timestamp: rows.getLong(rows.getColumnIndex('winner_timestamp')),
+      siteId: rows.getLong(rows.getColumnIndex('winner_site_id')),
+      index: rows.getLong(rows.getColumnIndex('position_index')),
+    };
+  } finally {
+    rows.close();
+  }
+}
+
+async function readWinningPosition(store: relationalStore.RdbStore, noteId: string,
+  pageId: string): Promise<OriginalSequenceIdentity> {
+  const rows = await store.querySql(
+    `SELECT winner.winner_timestamp, winner.winner_site_id, winner.position_index
+       FROM original_page_identity identity JOIN original_page_position_winner winner
+         ON winner.note_id = identity.note_id
+        AND winner.page_timestamp = identity.seq_timestamp
+        AND winner.page_site_id = identity.seq_site_id
+        AND winner.page_index = identity.seq_index
+      WHERE identity.note_id = ? AND identity.page_id = ? AND identity.visible = 1`,
+    [noteId, pageId]);
+  try {
+    if (!rows.goToFirstRow()) {
+      throw new Error('local ModifyPage predecessor has no winning position');
     }
     return {
       timestamp: rows.getLong(rows.getColumnIndex('winner_timestamp')),
