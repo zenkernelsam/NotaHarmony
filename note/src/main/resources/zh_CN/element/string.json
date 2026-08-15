@@ -72,7 +72,7 @@
     { "name": "move_page_later", "value": "页面后移" },
     { "name": "delete_page", "value": "删除页面" },
     { "name": "back", "value": "返回" },
-    { "name": "untitled_note", "value": "未命名笔记" },
+    { "name": "untitled_note", "value": "新笔记" },
     { "name": "loading_note", "value": "正在加载笔记..." },
     { "name": "fit_width", "value": "适应宽度" },
     { "name": "page_unavailable", "value": "页面暂不可用" },

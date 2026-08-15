@@ -19,6 +19,7 @@ export enum OpType {
   ERASE_PARTIAL = 20,   // 旧 Harmony maskPath 历史兼容；新原版式擦除不再写入
   ERASE_WHOLE = 21,     // 整条删除
   // 笔记级
+  // Harmony history companion for original SET_METADATA.title.
   UPDATE_TITLE = 30,
   // Harmony history companion for original Group visibility/authoring. The private-sync
   // operations remain separate ORIGINAL_* rows and this payload only restores editor history.

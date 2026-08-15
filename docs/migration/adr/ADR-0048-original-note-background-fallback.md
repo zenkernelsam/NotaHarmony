@@ -75,3 +75,15 @@ proved. SET_METADATA fields for handwriting language, text alignment, default
 font, layout mode and block wrapping also remain deferred. Note/page PDF decode,
 fallback, asset loading and local paper-setting preservation are implemented;
 their remaining boundary is device pixel comparison and multi-device sync.
+
+## Phase 245 local-title outbound closure
+
+ADR-0222 now routes local title editing through original payload type 1 `SET_METADATA.title`. The writer emits
+`l2d.field0 → z2d.field0` while leaving `l2d.field1` absent; the reducer consequently treats title and background as
+independent field patches and no longer defers a normal title-only operation or mistakes the absent background field for an
+explicit-null reset. The same transaction updates the title winner, `note_meta`, title search row, monotonic `updated_at`,
+upload row and NTL1 durable-history companion.
+
+An explicit-null title wrapper remains deferred: the proven editor path converts exact empty input to `New Note` and never
+emits null. The separate new-note bootstrap path can combine title and background, but its full creation ordering remains a
+follow-up boundary rather than part of ADR-0222.

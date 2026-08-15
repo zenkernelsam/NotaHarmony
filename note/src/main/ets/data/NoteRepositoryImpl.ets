@@ -3,6 +3,7 @@ import { relationalStore } from '@kit.ArkData';
 import {
   CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, NoteMeta, NoteViewState,
 } from '../core/model/NoteTypes';
+import { HistoryMetadata } from '../core/model/OpTypes';
 import { NoteRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { databaseWriteMutex } from './DatabaseWriteMutex';
@@ -17,6 +18,9 @@ import { SearchItemType } from './SearchItemType';
 import {
   initializeImportedNoteSyncMetadata,
 } from './OpStoreImpl';
+import {
+  persistOriginalNoteTitle, PersistedOriginalNoteTitle,
+} from './OriginalNoteTitlePersistence';
 import { persistOriginalCreatePage } from './OriginalPagePersistence';
 
 interface NoteAssetReference {
@@ -171,27 +175,24 @@ export class NoteRepositoryImpl implements NoteRepository {
   }
 
   async updateNote(note: NoteMeta): Promise<void> {
-    await libraryMetadataMutationMutex.runExclusive(async (): Promise<void> => {
+    await this.updateNoteTitle(note.id, note.title);
+  }
+
+  async updateNoteTitle(noteId: string, title: string, selectedPageId?: string,
+    history?: HistoryMetadata): Promise<string> {
+    return libraryMetadataMutationMutex.runExclusive(async (): Promise<string> => {
       const store: relationalStore.RdbStore = this.db.getStore();
-      // Original metadata edits are field patches. The current caller edits only the title;
-      // replaying a previously read whole NoteMeta would undo a newer folder/recording mutation.
-      const bucket: relationalStore.ValuesBucket = {
-        'title': note.title,
-        'updated_at': Date.now(),
-      };
-      const predicates = new relationalStore.RdbPredicates('note_meta');
-      predicates.equalTo('id', note.id);
       await store.beginTransaction();
       try {
-        const changed: number = await store.update(bucket, predicates);
-        if (changed === 0) {
-          throw new Error('note does not exist');
-        }
-        await this.upsertTitleSearchItem(store, note.id, note.title);
+        // Title, its LWW winner, search materialization, upload operation and optional
+        // durable history companion must commit as one original SET_METADATA transaction.
+        const persisted: PersistedOriginalNoteTitle = await persistOriginalNoteTitle(
+          store, noteId, title, selectedPageId, history);
         await store.commit();
+        return persisted.after;
       } catch (e) {
         await store.rollBack();
-        throw new Error(`updateNote failed: ${JSON.stringify(e)}`);
+        throw new Error(`updateNoteTitle failed: ${JSON.stringify(e)}`);
       }
     });
   }

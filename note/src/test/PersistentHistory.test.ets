@@ -33,6 +33,7 @@ import { decodeOriginalPartialEraseMutation, encodeOriginalPartialEraseMutation 
   '../main/ets/data/OriginalPartialEraseMutationCodec';
 import { encodeNoteBackgroundMutation } from
   '../main/ets/data/NoteBackgroundMutationCodec';
+import { encodeNoteTitleMutation } from '../main/ets/data/NoteTitleMutationCodec';
 
 function makeOp(opId: string, actionId?: string, effect: HistoryEffect = HistoryEffect.PUSH,
   actionTime: number = 100): Op {
@@ -121,6 +122,19 @@ function noteBackgroundOp(opId: string, actionId: string, fromRevision: number,
   return {
     opId: opId, noteId: 'note-1', opType: OpType.UPDATE_NOTE_BACKGROUND,
     payload: encodeNoteBackgroundMutation({
+      fromRevision: fromRevision, toRevision: fromRevision + 1,
+      selectedPageId: selectedPageId, before: before, after: after,
+    }),
+    clientTime: fromRevision + 1,
+    history: history(actionId),
+  };
+}
+
+function noteTitleOp(opId: string, actionId: string, fromRevision: number,
+  selectedPageId: string, before: string, after: string): Op {
+  return {
+    opId: opId, noteId: 'note-1', opType: OpType.UPDATE_TITLE,
+    payload: encodeNoteTitleMutation({
       fromRevision: fromRevision, toRevision: fromRevision + 1,
       selectedPageId: selectedPageId, before: before, after: after,
     }),
@@ -599,6 +613,26 @@ export default function persistentHistoryTest() {
           restored.undo[0].action.backgroundBefore, before)).assertTrue();
         expect(sameNoteBackgroundSettings(
           restored.undo[0].action.backgroundAfter, after)).assertTrue();
+      } else {
+        expect(false).assertTrue();
+      }
+    });
+
+    it('restores note title history after its original SET_METADATA row', 0, () => {
+      const original: Op = makeOp('original-title-set-metadata');
+      original.opType = OpType.ORIGINAL_SET_METADATA;
+      const restored: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([
+          original,
+          noteTitleOp('title-history', 'title-action', 12, 'page-2', 'Before', 'After'),
+        ]), 'page-1');
+      expect(restored.legacyOperationCount).assertEqual(0);
+      expect(restored.undo.length).assertEqual(1);
+      expect(restored.undo[0].action.type).assertEqual(UndoableActionType.NOTE_TITLE);
+      if (restored.undo[0].action.type === UndoableActionType.NOTE_TITLE) {
+        expect(restored.undo[0].action.pageId).assertEqual('page-2');
+        expect(restored.undo[0].action.titleBefore).assertEqual('Before');
+        expect(restored.undo[0].action.titleAfter).assertEqual('After');
       } else {
         expect(false).assertTrue();
       }

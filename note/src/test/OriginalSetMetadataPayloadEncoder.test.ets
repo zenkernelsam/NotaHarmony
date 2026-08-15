@@ -4,20 +4,28 @@ import {
   PaperTemplate, PdfLayoutBehavior,
 } from '../main/ets/core/model/NoteTypes';
 import {
+  commitOriginalNoteTitleDraft, ORIGINAL_NOTE_DEFAULT_TITLE,
+  truncateOriginalNoteTitleDraft,
+} from '../main/ets/core/model/OriginalNoteTitlePolicy';
+import {
   applyOriginalPaperSettings, originalDefaultNoteBackgroundSettings, sameNoteBackgroundSettings,
   originalPaperOrientation,
 } from '../main/ets/core/model/PageBackgroundModel';
 import {
   decodeNoteBackgroundMutation, encodeNoteBackgroundMutation,
 } from '../main/ets/data/NoteBackgroundMutationCodec';
+import {
+  decodeNoteTitleMutation, encodeNoteTitleMutation,
+} from '../main/ets/data/NoteTitleMutationCodec';
 import { persistOriginalNoteBackground } from
   '../main/ets/data/OriginalNoteBackgroundPersistence';
 import { encodeOriginalOperationEnvelope } from
   '../main/ets/data/OriginalOperationEnvelopeEncoder';
-import { encodeOriginalSetMetadataPageBackground } from
+import { encodeOriginalSetMetadataPageBackground, encodeOriginalSetMetadataTitle } from
   '../main/ets/data/OriginalSetMetadataPayloadEncoder';
 import {
   decodeOriginalSetMetadataTable, ORIGINAL_SET_METADATA_PAYLOAD_TYPE,
+  OriginalSetMetadataOperationApplier,
 } from '../main/ets/data/OriginalSetMetadataOperation';
 import { readOriginalPayloadTable } from
   '../main/ets/data/OriginalSyncedOperationFlatBuffer';
@@ -72,6 +80,43 @@ export default function originalSetMetadataPayloadEncoderTest() {
         ORIGINAL_SET_METADATA_PAYLOAD_TYPE));
       expect(decoded.hasPageBackground).assertTrue();
       expect(decoded.pageBackground === null).assertTrue();
+    });
+
+    it('writes a title-only SetMetadata without resetting note background', 0, () => {
+      const table = readOriginalPayloadTable(
+        wrap(encodeOriginalSetMetadataTitle('标题 😀')),
+        ORIGINAL_SET_METADATA_PAYLOAD_TYPE);
+      const decoded = decodeOriginalSetMetadataTable(table);
+      expect(decoded.hasTitle).assertTrue();
+      expect(decoded.title).assertEqual('标题 😀');
+      expect(decoded.hasPageBackground).assertFalse();
+      expect(decoded.pageBackground === null).assertTrue();
+      expect(new OriginalSetMetadataOperationApplier().preflightTable(table) === null).assertTrue();
+      expect(() => encodeOriginalSetMetadataTitle('')).assertThrow();
+      expect(() => encodeOriginalSetMetadataTitle('x'.repeat(257))).assertThrow();
+      expect(decodeOriginalSetMetadataTable(readOriginalPayloadTable(
+        wrap(encodeOriginalSetMetadataTitle('x'.repeat(256))),
+        ORIGINAL_SET_METADATA_PAYLOAD_TYPE)).title?.length).assertEqual(256);
+    });
+
+    it('mirrors original title draft and empty-submit policy', 0, () => {
+      expect(truncateOriginalNoteTitleDraft('x'.repeat(201)).length).assertEqual(200);
+      expect(truncateOriginalNoteTitleDraft('x'.repeat(199) + '😀')).assertEqual('x'.repeat(199));
+      expect(commitOriginalNoteTitleDraft('')).assertEqual(ORIGINAL_NOTE_DEFAULT_TITLE);
+      expect(commitOriginalNoteTitleDraft('   ')).assertEqual('   ');
+      expect(commitOriginalNoteTitleDraft('x'.repeat(201)).length).assertEqual(200);
+    });
+
+    it('round-trips NTL1 durable title history state', 0, () => {
+      const decoded = decodeNoteTitleMutation(encodeNoteTitleMutation({
+        fromRevision: 4, toRevision: 5, selectedPageId: 'page-2',
+        before: 'Before', after: 'After',
+      }));
+      expect(decoded.fromRevision).assertEqual(4);
+      expect(decoded.toRevision).assertEqual(5);
+      expect(decoded.selectedPageId).assertEqual('page-2');
+      expect(decoded.before).assertEqual('Before');
+      expect(decoded.after).assertEqual('After');
     });
 
     it('mirrors original paper conversion and preserves PDF plus rotation', 0, () => {

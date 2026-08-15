@@ -5,6 +5,10 @@ import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { audio } from '@kit.AudioKit';
 import { NoteBackgroundSettings, NoteMeta, PageInfo } from '../../core/model/NoteTypes';
+import {
+  commitOriginalNoteTitleDraft, isOriginalNoteTitleWireValue,
+  truncateOriginalNoteTitleDraft,
+} from '../../core/model/OriginalNoteTitlePolicy';
 import { BrushStyle, brushStyleToInkStyle } from '../../core/model/BrushTypes';
 import { InkStyle } from '../../core/model/StrokeTypes';
 import {
@@ -56,7 +60,7 @@ import {
 } from '../../core/adaptation/OriginalRecordingHarmonyGateways';
 import { persistCapturedOriginalRecording } from '../../data/OriginalRecordingPersistence';
 import {
-  AddPageAction, DeletePageAction, EditorHistoryBridge, NoteBackgroundAction,
+  AddPageAction, DeletePageAction, EditorHistoryBridge, NoteBackgroundAction, NoteTitleAction,
   PageContentSnapshot, UndoableAction, UndoableActionType,
 } from '../../rendering/UndoRedoManager';
 import { EditorViewModel } from './EditorViewModel';
@@ -116,6 +120,8 @@ struct NotePage {
   @State audioPlaybackTime: string | null = null;
   @State audioPlaybackSegments: OriginalAudioSegmentRange[] = [];
   private noteRepo: NoteRepositoryImpl | null = null;
+  private titleSaveQueue: Promise<void> = Promise.resolve();
+  private titleSaveGeneration: number = 0;
   private pageRepo: PageRepositoryImpl | null = null;
   private persistence: StrokePersistence = new StrokePersistence();
   private historyBridge: EditorHistoryBridge | null = null;
@@ -218,6 +224,10 @@ struct NotePage {
   private async leaveEditor(): Promise<void> {
     if (this.editingTitle) {
       await this.saveTitle();
+    } else {
+      // onSubmit/onBlur may already have hidden the editor while their durable
+      // SET_METADATA transaction is still running.  Navigation must wait for it.
+      await this.titleSaveQueue;
     }
     if (this.historyBridge !== null && !await this.historyBridge.flushCurrentPage()) {
       return;
@@ -304,33 +314,81 @@ struct NotePage {
     }
   }
 
-  // T-036：标题编辑保存（updateNote 持久化）
-  private async saveTitle(): Promise<void> {
+  // Original title commits are serialized so onSubmit + onBlur + route teardown cannot
+  // race two SET_METADATA operations or let navigation overtake an earlier save.
+  private saveTitle(): Promise<void> {
     this.editingTitle = false;
-    const draft: string = this.titleDraft.trim();
-    if (draft.length === 0) {
-      return;  // 空标题不保存（显示占位）
-    }
+    const requested: string = commitOriginalNoteTitleDraft(this.titleDraft);
+    const generation: number = ++this.titleSaveGeneration;
+    const queued: Promise<void> = this.titleSaveQueue.then(
+      async (): Promise<void> => this.commitTitle(requested, generation));
+    // Keep the tail usable even if an unexpected exception escapes commitTitle.
+    // Callers can await `queued`, while the internal chain remains available to a
+    // later edit instead of being permanently poisoned by one transient failure.
+    this.titleSaveQueue = queued.catch((_error: Object): void => {
+    });
+    return queued;
+  }
+
+  private async commitTitle(requested: string, generation: number): Promise<void> {
     const previousTitle: string = this.noteTitle;
-    this.noteTitle = draft;
+    if (requested === previousTitle) {
+      this.publishTitleDraft(requested, generation);
+      return;
+    }
     try {
       if (this.noteRepo === null) {
         throw new Error('note repository is unavailable');
       }
-      const note: NoteMeta | null = await this.noteRepo.getNote(this.noteId);
-      if (note === null) {
-        throw new Error('note does not exist');
+      if (this.pages.length === 0 || this.currentPageIndex < 0 ||
+        this.currentPageIndex >= this.pages.length) {
+        throw new Error('note title requires a live selected page');
       }
-      note.title = draft;
-      await this.noteRepo.updateNote(note);
+      const selectedPageId: string = this.pages[this.currentPageIndex].pageId;
+      const action: NoteTitleAction = {
+        type: UndoableActionType.NOTE_TITLE,
+        noteId: this.noteId,
+        pageId: selectedPageId,
+        titleBefore: previousTitle,
+        titleAfter: requested,
+      };
+      const bridge: EditorHistoryBridge | null = this.historyBridge;
+      const history: HistoryMetadata | undefined = bridge === null
+        ? undefined : bridge.preparePageAction(action);
+      this.noteTitle = requested;
+      this.publishTitleDraft(requested, generation);
+      const materialized: string = await this.noteRepo.updateNoteTitle(
+        this.noteId, requested, selectedPageId, history);
+      action.titleAfter = materialized;
+      this.noteTitle = materialized;
+      this.publishTitleDraft(materialized, generation);
+      if (bridge !== null) {
+        try {
+          bridge.pushPageAction(action, history);
+        } catch (historyError) {
+          // The SQLite transaction already committed both the original operation and
+          // its durable history companion.  A runtime-stack race must not present the
+          // old title again while reopening the note would materialize the new one.
+          console.error(`saveTitle runtime history sync failed after durable commit: ${JSON.stringify(historyError)}`);
+        }
+      }
     } catch (e) {
       this.noteTitle = previousTitle;
+      this.publishTitleDraft(previousTitle, generation);
       console.error(`saveTitle failed: ${JSON.stringify(e)}`);
       try {
         promptAction.showToast({ message: $r('app.string.note_save_failed'), duration: 2500 });
       } catch (toastError) {
         console.error(`Title save failure toast failed: ${JSON.stringify(toastError)}`);
       }
+    }
+  }
+
+  private publishTitleDraft(value: string, generation: number): void {
+    // A completed older save must not overwrite a newer queued draft or text the
+    // user has already started editing while the database operation was in flight.
+    if (generation === this.titleSaveGeneration && !this.editingTitle) {
+      this.titleDraft = value;
     }
   }
 
@@ -705,7 +763,7 @@ struct NotePage {
             .fontSize(16)
             .margin({ left: 12 })
             .onChange((value: string) => {
-              this.titleDraft = value;
+              this.titleDraft = truncateOriginalNoteTitleDraft(value);
             })
             .onSubmit(() => {
               this.saveTitle();
@@ -1122,11 +1180,16 @@ struct NotePage {
 
   private async applyPageHistory(action: UndoableAction, isUndo: boolean,
     history: HistoryMetadata): Promise<boolean> {
-    if (this.pageRepo === null || action.noteId !== this.noteId) {
-      if (action.noteId !== this.noteId) {
-        hilog.error(0x0001, 'NotePage',
-          'page history note mismatch, actionNote=%{public}s currentNote=%{public}s', action.noteId, this.noteId);
-      }
+    const pageRepository: PageRepositoryImpl | null = this.pageRepo;
+    if (action.noteId !== this.noteId) {
+      hilog.error(0x0001, 'NotePage',
+        'page history note mismatch, actionNote=%{public}s currentNote=%{public}s', action.noteId, this.noteId);
+      return false;
+    }
+    if (action.type === UndoableActionType.NOTE_TITLE && this.noteRepo === null) {
+      return false;
+    }
+    if (action.type !== UndoableActionType.NOTE_TITLE && pageRepository === null) {
       return false;
     }
     if (!this.validatePageActionState(action, isUndo)) {
@@ -1135,6 +1198,21 @@ struct NotePage {
       return false;
     }
     try {
+      if (action.type === UndoableActionType.NOTE_TITLE) {
+        const repository: NoteRepositoryImpl | null = this.noteRepo;
+        if (repository === null) {
+          return false;
+        }
+        const title: string = isUndo ? action.titleBefore : action.titleAfter;
+        const materialized: string = await repository.updateNoteTitle(
+          this.noteId, title, action.pageId, history);
+        this.noteTitle = materialized;
+        this.titleDraft = materialized;
+        return true;
+      }
+      if (pageRepository === null) {
+        return false;
+      }
       if (action.type === UndoableActionType.ADD_PAGE) {
         return await this.applyAddPageHistory(action, isUndo, history);
       }
@@ -1143,7 +1221,7 @@ struct NotePage {
       }
       if (action.type === UndoableActionType.PAGE_SETTINGS) {
         const page: PageInfo = isUndo ? action.pageBefore : action.pageAfter;
-        await this.pageRepo.updatePage(page, history);
+        await pageRepository.updatePage(page, history);
         this.replacePage(page);
         this.selectPageById(page.pageId);
         return true;
@@ -1151,16 +1229,16 @@ struct NotePage {
       if (action.type === UndoableActionType.NOTE_BACKGROUND) {
         const settings: NoteBackgroundSettings = isUndo
           ? action.backgroundBefore : action.backgroundAfter;
-        const materialized: NoteBackgroundSettings = await this.pageRepo.updateNoteBackground(
+        const materialized: NoteBackgroundSettings = await pageRepository.updateNoteBackground(
           this.noteId, settings, action.selectedPageId, history);
-        this.pages = await this.pageRepo.getPages(this.noteId);
+        this.pages = await pageRepository.getPages(this.noteId);
         this.noteBackground = materialized;
         this.selectPageById(action.selectedPageId);
         return true;
       }
       if (action.type === UndoableActionType.REORDER_PAGES) {
         const order: string[] = isUndo ? action.pageOrderBefore : action.pageOrderAfter;
-        await this.pageRepo.reorderPages(this.noteId, order, action.pageId, history);
+        await pageRepository.reorderPages(this.noteId, order, action.pageId, history);
         this.pages = this.orderPages(this.pages, order);
         this.selectPageById(action.pageId);
         return true;
@@ -1223,6 +1301,13 @@ struct NotePage {
       return action.pageId === action.selectedPageId &&
         this.countString(currentOrder, action.selectedPageId) === 1 &&
         sameNoteBackgroundSettings(this.noteBackground, source);
+    }
+    if (action.type === UndoableActionType.NOTE_TITLE) {
+      const source: string = isUndo ? action.titleAfter : action.titleBefore;
+      return action.titleBefore !== action.titleAfter &&
+        isOriginalNoteTitleWireValue(action.titleBefore) &&
+        isOriginalNoteTitleWireValue(action.titleAfter) &&
+        this.countString(currentOrder, action.pageId) === 1 && this.noteTitle === source;
     }
     return false;
   }

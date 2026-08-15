@@ -18,6 +18,11 @@
 
 标题保存继续保留 `NoteRepository.updateNote()` 既有接口，但实现改为标题字段补丁，只更新 `title`、`updated_at` 和标题搜索项。它不再把读取时的 `folderId`、`hasRecordings`、收藏或最近打开时间整行写回，从而避免覆盖排队期间已经提交的文件夹移动或录音状态。
 
+Phase 245 / ADR-0222 进一步把该字段补丁升级为原版 `SET_METADATA.title` 事务。`updateNote()` 接口仍保留，
+但现在委托给 title-only 原版 operation：生产 reducer 更新独立 LWW winner、标题与搜索项，随后原事务追加上传行
+和可选 NTL1 history companion；`updated_at` 取当前值与 operation client time 的较大者。字段级不覆盖其他元数据
+的决策保持不变，但“只做本地 SQL 补丁”的旧实现说明已被此阶段取代。
+
 ## 原因
 
 此前 `FolderRepositoryImpl` 有私有静态写锁，而 `NoteRepositoryImpl` 使用其他事务边界；资料库页面的 `folderBusy`、`createBusy`、`deleteBusy` 又彼此独立。创建笔记、保存标题、删除笔记、删除文件夹或移动笔记可以从不同入口同时在同一 store 上开始元数据事务。即使 UI 暂时禁用某个按钮，导入、编辑器和其他仓储实例仍能绕过页面状态，因此 UI busy 标志不能承担仓储一致性。

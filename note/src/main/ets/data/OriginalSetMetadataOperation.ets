@@ -1,4 +1,5 @@
 import { relationalStore } from '@kit.ArkData';
+import { isOriginalNoteTitleWireValue } from '../core/model/OriginalNoteTitlePolicy';
 import { PageBackground, PageOrientation, PaperSize, PaperTemplate } from '../core/model/NoteTypes';
 import {
   originalDefaultNoteBackground, parsePageBackground, serializePageBackground,
@@ -91,10 +92,10 @@ export class OriginalSetMetadataOperationApplier implements SyncedOperationAppli
       table.hasField(5) || table.hasField(6) || table.hasField(7)) {
       return 'SET_METADATA_FIELDS_UNSUPPORTED';
     }
-    if (payload.hasTitle && (payload.title === null || payload.title.length < 1 || payload.title.length > 256)) {
+    if (payload.hasTitle && !isOriginalNoteTitleWireValue(payload.title)) {
       return 'SET_METADATA_TITLE_UNSUPPORTED';
     }
-    if (!payload.hasPageBackground) {
+    if (!payload.hasTitle && !payload.hasPageBackground) {
       return 'SET_METADATA_HAS_NO_SUPPORTED_FIELD';
     }
     if (payload.pageBackground !== null && !originalPageBackgroundFitsHarmony(payload.pageBackground)) {
@@ -110,14 +111,15 @@ export class OriginalSetMetadataOperationApplier implements SyncedOperationAppli
       return { deferredReason: reason };
     }
     const payload: OriginalSetMetadataPayload = decodeOriginalSetMetadataTable(table);
-    const assetReason: string | null = await this.mergePdfAsset(store, operation.noteId,
-      payload.pageBackground);
+    const assetReason: string | null = payload.hasPageBackground
+      ? await this.mergePdfAsset(store, operation.noteId, payload.pageBackground) : null;
     if (assetReason !== null) {
       return { deferredReason: assetReason };
     }
     const titleWinner: StoredNoteTitleWinner | null = payload.hasTitle
       ? await this.readTitleWinner(store, operation.noteId) : null;
-    const winner: StoredNoteBackgroundWinner | null = await this.readBackgroundWinner(store, operation.noteId);
+    const winner: StoredNoteBackgroundWinner | null = payload.hasPageBackground
+      ? await this.readBackgroundWinner(store, operation.noteId) : null;
     let applyTitle: boolean = payload.hasTitle;
     if (payload.hasTitle && titleWinner !== null) {
       const titleCompared: number = compareOperationIdentity(operation, titleWinner);
@@ -130,8 +132,8 @@ export class OriginalSetMetadataOperationApplier implements SyncedOperationAppli
         applyTitle = false;
       }
     }
-    let applyBackground: boolean = true;
-    if (winner !== null) {
+    let applyBackground: boolean = payload.hasPageBackground;
+    if (payload.hasPageBackground && winner !== null) {
       const compared: number = compareOperationIdentity(operation, winner);
       if (compared < 0) {
         applyBackground = false;

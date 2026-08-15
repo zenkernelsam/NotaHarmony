@@ -33,6 +33,7 @@ export enum UndoableActionType {
   ORIGINAL_CLIPBOARD_PASTE = 19,
   ORIGINAL_PARTIAL_ERASE = 20,
   NOTE_BACKGROUND = 21,
+  NOTE_TITLE = 22,
 }
 
 interface ActionBase {
@@ -482,6 +483,12 @@ export interface NoteBackgroundAction extends ActionBase {
   backgroundAfter: NoteBackgroundSettings;
 }
 
+export interface NoteTitleAction extends ActionBase {
+  type: UndoableActionType.NOTE_TITLE;
+  titleBefore: string;
+  titleAfter: string;
+}
+
 export interface PersistedPageMutationsAction extends ActionBase {
   type: UndoableActionType.PERSISTED_PAGE_MUTATIONS;
   operations: Op[];
@@ -507,7 +514,8 @@ export type UndoableAction = AddStrokeAction | RemoveStrokeAction | TransformStr
   AddElementAction | DeleteElementAction | ReplaceElementAction | ReorderElementsAction |
   AddShapeAction | AddElementsAction | DeleteElementsAction | TransformElementsAction | EraseElementsAction |
   AddPageAction | DeletePageAction | ReorderPagesAction | PageSettingsAction | PersistedPageMutationsAction |
-  GroupElementsAction | OriginalClipboardPasteAction | OriginalPartialEraseAction | NoteBackgroundAction;
+  GroupElementsAction | OriginalClipboardPasteAction | OriginalPartialEraseAction | NoteBackgroundAction |
+  NoteTitleAction;
 
 export interface RestoredHistoryAction {
   action: UndoableAction;
@@ -642,6 +650,9 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
     return bytes + action.selectedPageId.length * 2 +
       JSON.stringify(action.backgroundBefore).length * 2 +
       JSON.stringify(action.backgroundAfter).length * 2;
+  }
+  if (action.type === UndoableActionType.NOTE_TITLE) {
+    return bytes + (action.titleBefore.length + action.titleAfter.length) * 2;
   }
   if (action.type === UndoableActionType.PERSISTED_PAGE_MUTATIONS) {
     let operationBytes: number = 0;

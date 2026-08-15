@@ -1,4 +1,5 @@
 import { util } from '@kit.ArkTS';
+import { validateOriginalNoteTitleWireValue } from '../core/model/OriginalNoteTitlePolicy';
 import { originalAssetStorageHash } from '../core/model/ImageBlockGeometry';
 import {
   PageBackground, PagePaperBackground, PagePdfBackground, PdfLayoutBehavior,
@@ -7,6 +8,7 @@ import { validatePageBackground } from '../core/model/PageBackgroundModel';
 
 const MAX_ASSET_FILE_NAME_BYTES: number = 65536;
 const MAX_ASSET_MIME_TYPE_BYTES: number = 4096;
+const MAX_TITLE_BYTES: number = 1024;
 
 interface PdfEncoding {
   value: PagePdfBackground;
@@ -58,6 +60,37 @@ export function encodeOriginalSetMetadataPageBackground(
   writeU32(bytes, layout.setterTable + 4,
     layout.backgroundTable - (layout.setterTable + 4));
   writeBackground(bytes, layout, background, pdf);
+  return bytes;
+}
+
+// Original 1.0.3 wire chain:
+// l2d SetMetadata.field0 -> z2d SetString.field0 -> UTF-8 title.
+// A title-only operation leaves l2d.field1 absent; that is not a background reset.
+export function encodeOriginalSetMetadataTitle(title: string): Uint8Array {
+  validateOriginalNoteTitleWireValue(title);
+  const encoder: util.TextEncoder = new util.TextEncoder();
+  const encoded: Uint8Array = encoder.encodeInto(title);
+  if (encoded.length === 0 || encoded.length > MAX_TITLE_BYTES ||
+    !validUtf8RoundTrip(encoded, title)) {
+    throw new Error('local SET_METADATA title UTF-8 is invalid');
+  }
+  const rootVtable: number = 4;
+  const rootTable: number = 24;
+  const setterVtable: number = 32;
+  const setterTable: number = 40;
+  const titleVector: number = 48;
+  const bytes: Uint8Array = new Uint8Array(
+    align4(titleVector + 4 + encoded.length + 1));
+
+  writeU32(bytes, 0, rootTable);
+  writeVtable(bytes, rootVtable, 8, [4, 0, 0, 0, 0, 0, 0, 0]);
+  writeU32(bytes, rootTable, rootTable - rootVtable);
+  writeU32(bytes, rootTable + 4, setterTable - (rootTable + 4));
+
+  writeVtable(bytes, setterVtable, 8, [4]);
+  writeU32(bytes, setterTable, setterTable - setterVtable);
+  writeU32(bytes, setterTable + 4, titleVector - (setterTable + 4));
+  writeString(bytes, titleVector, encoded);
   return bytes;
 }
 

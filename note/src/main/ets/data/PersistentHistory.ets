@@ -20,7 +20,7 @@ import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockG
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import {
   AddPageAction, DeletePageAction, GroupElementsAction, OriginalClipboardPasteAction,
-  NoteBackgroundAction, OriginalPartialEraseAction, PageSettingsAction,
+  NoteBackgroundAction, NoteTitleAction, OriginalPartialEraseAction, PageSettingsAction,
   PersistedPageMutationsAction, ReorderPagesAction, RestoredHistoryAction, UndoableAction,
   UndoableActionType,
 } from '../rendering/UndoRedoManager';
@@ -35,6 +35,7 @@ import {
 import {
   decodeNoteBackgroundMutation, NoteBackgroundMutation,
 } from './NoteBackgroundMutationCodec';
+import { decodeNoteTitleMutation, NoteTitleMutation } from './NoteTitleMutationCodec';
 
 export interface PersistentHistoryAction {
   actionId: string;
@@ -221,6 +222,20 @@ function materializeAction(action: PersistentHistoryAction, currentPageId: strin
       operation.history.actionTime !== action.actionTime) {
       throw new Error('persistent action operation identity mismatch');
     }
+  }
+  if (action.operations[0].opType === OpType.UPDATE_TITLE) {
+    if (action.operations.length !== 1) {
+      throw new Error('persistent note title action must contain exactly one mutation');
+    }
+    const mutation: NoteTitleMutation = decodeNoteTitleMutation(action.operations[0].payload);
+    const restored: NoteTitleAction = {
+      type: UndoableActionType.NOTE_TITLE,
+      noteId: noteId,
+      pageId: mutation.selectedPageId,
+      titleBefore: mutation.before,
+      titleAfter: mutation.after,
+    };
+    return restored;
   }
   if (action.operations[0].opType === OpType.UPDATE_NOTE_BACKGROUND) {
     if (action.operations.length !== 1) {
