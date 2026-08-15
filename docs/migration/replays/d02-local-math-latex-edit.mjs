@@ -47,11 +47,13 @@ assert.match(canvas, /this\.persistence\.commitOriginalMathLatex/);
 assert.match(canvas, /this\.undoRedo\.push\(action, prepared\)/);
 assert.match(canvas, /this\.mathEditorFailed = true/);
 assert.match(overlay, /isOriginalMathLatexDraftValid/);
-assert.match(overlay, /enabled\(!this\.busy && isOriginalMathLatexDraftValid\(this\.draft\)\)/);
+assert.match(overlay, /OriginalMathEditorDraftState/);
+assert.match(overlay, /enabled\(isOriginalMathEditorDoneEnabled\(this\.draftState, this\.busy\)\)/);
+assert.match(canvas, /originalMathEngine\.render\(draft/);
 assert.match(encoderFixture, /round-trips the Math latex nullable setter string/);
 assert.match(persistenceFixture, /classifies one canonical Math latex-only edit and reverse Undo/);
-assert.match(overlayFixture, /rejects drafts outside the original decoder budget/);
+assert.match(overlayFixture, /enables Done only for an idle native-rendered Ok state/);
 
 console.log('localMathLatexEdit=' +
-  'original-edit-menu-prefill-validation-done|type23-field10|single-transaction|' +
+  'original-edit-menu-prefill-native-four-state-preview-done|type23-field10|single-transaction|' +
   'upload-immediate|canonical-reducer|persistent-history|failure-keeps-draft');

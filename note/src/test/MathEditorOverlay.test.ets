@@ -1,5 +1,7 @@
 import { describe, expect, it } from '@ohos/hypium';
-import { isOriginalMathLatexDraftValid } from '../main/ets/ui/components/MathEditorOverlay';
+import { initialOriginalMathEditorDraftState, isOriginalMathEditorDoneEnabled,
+  isOriginalMathLatexDraftValid, OriginalMathEditorDraftState } from
+  '../main/ets/ui/components/MathEditorOverlay';
 
 export default function mathEditorOverlayTest() {
   describe('MathEditorOverlay', () => {
@@ -12,6 +14,22 @@ export default function mathEditorOverlayTest() {
 
     it('rejects drafts outside the original decoder budget', 0, () => {
       expect(isOriginalMathLatexDraftValid('x'.repeat(1048577))).assertFalse();
+    });
+
+    it('starts the original four-state machine at Empty, Invalid, or Loading', 0, () => {
+      expect(initialOriginalMathEditorDraftState('   ')).assertEqual(OriginalMathEditorDraftState.EMPTY);
+      expect(initialOriginalMathEditorDraftState('x'.repeat(1048577))).assertEqual(
+        OriginalMathEditorDraftState.INVALID);
+      expect(initialOriginalMathEditorDraftState('\\frac{a}{b}')).assertEqual(
+        OriginalMathEditorDraftState.LOADING);
+    });
+
+    it('enables Done only for an idle native-rendered Ok state', 0, () => {
+      expect(isOriginalMathEditorDoneEnabled(OriginalMathEditorDraftState.OK, false)).assertTrue();
+      expect(isOriginalMathEditorDoneEnabled(OriginalMathEditorDraftState.OK, true)).assertFalse();
+      expect(isOriginalMathEditorDoneEnabled(OriginalMathEditorDraftState.LOADING, false)).assertFalse();
+      expect(isOriginalMathEditorDoneEnabled(OriginalMathEditorDraftState.INVALID, false)).assertFalse();
+      expect(isOriginalMathEditorDoneEnabled(OriginalMathEditorDraftState.EMPTY, false)).assertFalse();
     });
   });
 }

@@ -1,8 +1,16 @@
 import { util } from '@kit.ArkTS';
+import { image } from '@kit.ImageKit';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 
 const MAX_ORIGINAL_MATH_LATEX_BYTES: number = 1048576;
+
+export enum OriginalMathEditorDraftState {
+  EMPTY,
+  LOADING,
+  INVALID,
+  OK,
+}
 
 export function isOriginalMathLatexDraftValid(value: string): boolean {
   if (value.trim().length === 0) {
@@ -13,10 +21,25 @@ export function isOriginalMathLatexDraftValid(value: string): boolean {
     util.TextDecoder.create('utf-8').decodeToString(encoded) === value;
 }
 
+export function initialOriginalMathEditorDraftState(value: string): OriginalMathEditorDraftState {
+  if (value.trim().length === 0) {
+    return OriginalMathEditorDraftState.EMPTY;
+  }
+  return isOriginalMathLatexDraftValid(value) ?
+    OriginalMathEditorDraftState.LOADING : OriginalMathEditorDraftState.INVALID;
+}
+
+export function isOriginalMathEditorDoneEnabled(state: OriginalMathEditorDraftState,
+  busy: boolean): boolean {
+  return !busy && state === OriginalMathEditorDraftState.OK;
+}
+
 @Component
 export struct MathEditorOverlay {
   @Prop visible: boolean = false;
   @Prop draft: string = '';
+  @Prop draftState: OriginalMathEditorDraftState = OriginalMathEditorDraftState.EMPTY;
+  @Prop preview: image.PixelMap | null = null;
   @Prop busy: boolean = false;
   @Prop failed: boolean = false;
   @Prop containerWidth: number = 0;
@@ -31,7 +54,7 @@ export struct MathEditorOverlay {
   }
 
   private panelWidth(): number {
-    return Math.max(200, Math.min(360, this.containerWidth - 32));
+    return Math.max(200, Math.min(320, this.containerWidth - 32));
   }
 
   build() {
@@ -43,13 +66,32 @@ export struct MathEditorOverlay {
             .fontSize(20)
             .fontWeight(FontWeight.Medium)
             .fontColor(this.resolveTokens().textPrimary)
+          Column() {
+            if (this.draftState === OriginalMathEditorDraftState.OK && this.preview !== null) {
+              Image(this.preview)
+                .width('100%')
+                .height('100%')
+                .objectFit(ImageFit.Contain)
+            } else if (this.draftState === OriginalMathEditorDraftState.INVALID) {
+              Text($r('app.string.math_editor_invalid'))
+                .width('100%')
+                .fontSize(13)
+                .fontColor(this.resolveTokens().danger)
+                .textAlign(TextAlign.Center)
+            }
+          }
+          .width('100%')
+          .height(96)
+          .margin({ top: 12 })
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
           TextArea({
             text: this.draft,
             placeholder: $r('app.string.math_editor_placeholder'),
           })
             .width('100%')
             .height(112)
-            .margin({ top: 16 })
+            .margin({ top: 12 })
             .fontSize(16)
             .fontColor(this.resolveTokens().textPrimary)
             .placeholderColor(this.resolveTokens().textSecondary)
@@ -58,9 +100,8 @@ export struct MathEditorOverlay {
             .borderRadius(6)
             .enabled(!this.busy)
             .onChange((value: string): void => this.onDraftChange(value))
-          if (this.failed || (this.draft.length > 0 && !isOriginalMathLatexDraftValid(this.draft))) {
-            Text(this.failed ? $r('app.string.math_editor_failed') :
-              $r('app.string.math_editor_invalid'))
+          if (this.failed) {
+            Text($r('app.string.math_editor_failed'))
               .width('100%')
               .margin({ top: 8 })
               .fontSize(13)
@@ -81,7 +122,7 @@ export struct MathEditorOverlay {
               .fontSize(14)
               .fontColor(this.resolveTokens().onAccent)
               .backgroundColor(this.resolveTokens().accent)
-              .enabled(!this.busy && isOriginalMathLatexDraftValid(this.draft))
+              .enabled(isOriginalMathEditorDoneEnabled(this.draftState, this.busy))
               .onClick((): void => this.onConfirm())
           }
           .width('100%')

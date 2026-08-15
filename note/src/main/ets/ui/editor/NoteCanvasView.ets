@@ -23,7 +23,7 @@ import { StrokeCanvasPainter } from '../../rendering/StrokeCanvasPainter';
 import { ShapeCanvasRenderer } from '../../rendering/ShapeCanvasRenderer';
 import { ImageCanvasRenderer } from '../../rendering/ImageCanvasRenderer';
 import { MathCanvasRenderer } from '../../rendering/MathCanvasRenderer';
-import { originalMathEngine } from '../../rendering/OriginalMathEngine';
+import { originalMathEngine, OriginalMathBitmap } from '../../rendering/OriginalMathEngine';
 import {
   BitmapTransferKind, BitmapTransferMetrics, BitmapTransferTracker,
 } from '../../core/adaptation/BitmapTransferTracker';
@@ -126,7 +126,8 @@ import { EditorViewModel } from './EditorViewModel';
 import { SelectionOverlay, SelectionMenuAction } from '../components/SelectionOverlay';
 import { ImageCropHandle, ImageCropOverlay } from '../components/ImageCropOverlay';
 import {
-  isOriginalMathLatexDraftValid, MathEditorOverlay,
+  initialOriginalMathEditorDraftState, isOriginalMathLatexDraftValid, MathEditorOverlay,
+  OriginalMathEditorDraftState,
 } from '../components/MathEditorOverlay';
 import {
   SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH, SelectionOverlayPosition,
@@ -147,6 +148,9 @@ const HISTORY_CHECKPOINT_TAIL_OPERATIONS: number = 256;
 const HISTORY_CHECKPOINT_MAX_ACTIONS: number = 128;
 const HISTORY_REPLAY_ATTEMPTS: number = 4;
 const ORIGINAL_CREATE_INK_PAYLOAD_TYPE: number = 15;
+const ORIGINAL_MATH_EDITOR_PREVIEW_WIDTH: number = 280;
+const ORIGINAL_MATH_EDITOR_PREVIEW_HEIGHT: number = 96;
+const ORIGINAL_MATH_EDITOR_PREVIEW_PIXEL_SCALE: number = 1;
 
 interface ShapeDetectionAttempt {
   shapes: ShapeElement[];
@@ -240,8 +244,8 @@ export struct NoteCanvasView {
   private gestureTracker: CumulativeGestureTracker = new CumulativeGestureTracker();
   @State zoomPercent: number = 100;         // 控制条显示（100 = 100%）
   // T-038：主题状态
-  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
-  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+  @StorageLink(THEME_MODE_KEY) @Watch('onMathEditorThemeChange') themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) @Watch('onMathEditorThemeChange') systemDark: boolean = false;
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
@@ -308,17 +312,27 @@ export struct NoteCanvasView {
   @State imageCropDraft: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @State mathEditorVisible: boolean = false;
   @State mathEditorDraft: string = '';
+  @State mathEditorDraftState: OriginalMathEditorDraftState = OriginalMathEditorDraftState.EMPTY;
   @State mathEditorBusy: boolean = false;
   @State mathEditorFailed: boolean = false;
   private mathEditorOriginal: MathElement | null = null;
   private mathEditorInsert: boolean = false;
+  private mathEditorPreview: OriginalMathBitmap | null = null;
+  private mathEditorValidationTimer: number = -1;
+  private mathEditorValidationGeneration: number = 0;
+  private mathEngineInitializationComplete: boolean = false;
   @State clipboardAvailable: boolean = false;
   @State overlayWidth: number = 0;
   @State overlayHeight: number = 0;
 
   aboutToAppear(): void {
     this.lifecycleActive = true;
+    this.mathEngineInitializationComplete = originalMathEngine.isReady();
     originalMathEngine.initialize(getContext(this) as common.UIAbilityContext).then((ready: boolean): void => {
+      this.mathEngineInitializationComplete = true;
+      if (this.lifecycleActive && this.mathEditorVisible) {
+        this.requestMathEditorDraftValidation();
+      }
       if (ready && this.lifecycleActive && this.loaded) {
         this.renderFrame(true);
       }
@@ -723,6 +737,10 @@ export struct NoteCanvasView {
   aboutToDisappear(): void {
     this.lifecycleActive = false;
     this.cancelImageCrop();
+    this.cancelMathEditorDraftValidation();
+    this.releaseMathEditorPreview();
+    this.mathEditorDraftState = this.mathEditorVisible ?
+      initialOriginalMathEditorDraftState(this.mathEditorDraft) : OriginalMathEditorDraftState.EMPTY;
     if (this.assetAvailabilitySubscription >= 0) {
       assetAvailabilityHub.unsubscribe(this.assetAvailabilitySubscription);
       this.assetAvailabilitySubscription = -1;
@@ -4050,6 +4068,109 @@ export struct NoteCanvasView {
     }
   }
 
+  private onMathEditorThemeChange(): void {
+    if (this.lifecycleActive && this.mathEditorVisible) {
+      this.requestMathEditorDraftValidation();
+    }
+  }
+
+  private requestMathEditorDraftValidation(): void {
+    this.cancelMathEditorDraftValidation();
+    this.releaseMathEditorPreview();
+    if (!this.mathEditorVisible) {
+      this.mathEditorDraftState = OriginalMathEditorDraftState.EMPTY;
+      return;
+    }
+    const draft: string = this.mathEditorDraft;
+    const initialState: OriginalMathEditorDraftState = initialOriginalMathEditorDraftState(draft);
+    this.mathEditorDraftState = initialState;
+    if (initialState !== OriginalMathEditorDraftState.LOADING) {
+      return;
+    }
+    if (!originalMathEngine.isReady()) {
+      if (this.mathEngineInitializationComplete) {
+        this.mathEditorDraftState = OriginalMathEditorDraftState.INVALID;
+      }
+      return;
+    }
+    const generation: number = this.mathEditorValidationGeneration;
+    const color: number = this.mathEditorPreviewArgb();
+    this.mathEditorValidationTimer = setTimeout((): void => {
+      this.mathEditorValidationTimer = -1;
+      if (generation !== this.mathEditorValidationGeneration || !this.lifecycleActive ||
+        !this.mathEditorVisible || draft !== this.mathEditorDraft) {
+        return;
+      }
+      let preview: OriginalMathBitmap | null = null;
+      try {
+        preview = originalMathEngine.render(draft,
+          ORIGINAL_MATH_EDITOR_PREVIEW_WIDTH, ORIGINAL_MATH_EDITOR_PREVIEW_HEIGHT,
+          color, ORIGINAL_MATH_EDITOR_PREVIEW_PIXEL_SCALE);
+      } catch (error) {
+        console.warn(`Math editor preview render failed: ${JSON.stringify(error)}`);
+      }
+      if (generation !== this.mathEditorValidationGeneration || !this.lifecycleActive ||
+        !this.mathEditorVisible || draft !== this.mathEditorDraft) {
+        if (preview !== null) {
+          this.releaseOriginalMathBitmap(preview);
+        }
+        return;
+      }
+      if (preview === null) {
+        this.mathEditorDraftState = OriginalMathEditorDraftState.INVALID;
+        return;
+      }
+      this.mathEditorPreview = preview;
+      this.mathEditorDraftState = OriginalMathEditorDraftState.OK;
+    }, 0);
+  }
+
+  private cancelMathEditorDraftValidation(): void {
+    this.mathEditorValidationGeneration++;
+    if (this.mathEditorValidationTimer >= 0) {
+      clearTimeout(this.mathEditorValidationTimer);
+      this.mathEditorValidationTimer = -1;
+    }
+  }
+
+  private releaseMathEditorPreview(): void {
+    const preview: OriginalMathBitmap | null = this.mathEditorPreview;
+    this.mathEditorPreview = null;
+    if (preview !== null) {
+      this.releaseOriginalMathBitmap(preview);
+    }
+  }
+
+  private releaseOriginalMathBitmap(preview: OriginalMathBitmap): void {
+    try {
+      preview.bitmap.close();
+    } catch (_error) {
+    }
+    try {
+      preview.pixelMap.release().catch((error: Object): void => {
+        console.warn(`Math editor preview PixelMap release failed: ${JSON.stringify(error)}`);
+      });
+    } catch (error) {
+      console.warn(`Math editor preview cleanup failed: ${JSON.stringify(error)}`);
+    }
+  }
+
+  private mathEditorPreviewArgb(): number {
+    const token: string = this.resolveTokens().textPrimary;
+    if (token.startsWith('#') && token.length === 7) {
+      const rgb: number = parseInt(token.substring(1), 16);
+      if (Number.isFinite(rgb)) {
+        return (0xFF000000 | rgb) | 0;
+      }
+    } else if (token.startsWith('#') && token.length === 9) {
+      const argb: number = parseInt(token.substring(1), 16);
+      if (Number.isFinite(argb)) {
+        return argb | 0;
+      }
+    }
+    return -16777216;
+  }
+
   private startMathEditing(): void {
     if (this.mathEditorVisible || this.historyBusy || !this.selectionCanEditMath) {
       return;
@@ -4066,6 +4187,7 @@ export struct NoteCanvasView {
     this.mathEditorFailed = false;
     this.mathEditorBusy = false;
     this.mathEditorVisible = true;
+    this.requestMathEditorDraftValidation();
     this.selectionVisible = false;
   }
 
@@ -4082,6 +4204,7 @@ export struct NoteCanvasView {
     this.mathEditorFailed = false;
     this.mathEditorBusy = false;
     this.mathEditorVisible = true;
+    this.requestMathEditorDraftValidation();
   }
 
   private cancelMathEditing(): void {
@@ -4089,6 +4212,9 @@ export struct NoteCanvasView {
       return;
     }
     this.mathEditorVisible = false;
+    this.cancelMathEditorDraftValidation();
+    this.releaseMathEditorPreview();
+    this.mathEditorDraftState = OriginalMathEditorDraftState.EMPTY;
     this.mathEditorDraft = '';
     this.mathEditorFailed = false;
     this.mathEditorOriginal = null;
@@ -4099,7 +4225,8 @@ export struct NoteCanvasView {
   private async confirmMathEditing(): Promise<void> {
     const before: MathElement | null = this.mathEditorOriginal;
     if (this.mathEditorBusy || this.historyBusy ||
-      !isOriginalMathLatexDraftValid(this.mathEditorDraft)) {
+      this.mathEditorDraftState !== OriginalMathEditorDraftState.OK ||
+      this.mathEditorPreview === null || !isOriginalMathLatexDraftValid(this.mathEditorDraft)) {
       return;
     }
     if (this.mathEditorInsert) {
@@ -4143,6 +4270,9 @@ export struct NoteCanvasView {
       this.undoRedo.push(action, prepared);
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
       this.mathEditorVisible = false;
+      this.cancelMathEditorDraftValidation();
+      this.releaseMathEditorPreview();
+      this.mathEditorDraftState = OriginalMathEditorDraftState.EMPTY;
       this.mathEditorDraft = '';
       this.mathEditorOriginal = null;
       this.mathEditorInsert = false;
@@ -4221,6 +4351,9 @@ export struct NoteCanvasView {
       this.undoRedo.push(action, prepared);
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
       this.mathEditorVisible = false;
+      this.cancelMathEditorDraftValidation();
+      this.releaseMathEditorPreview();
+      this.mathEditorDraftState = OriginalMathEditorDraftState.EMPTY;
       this.mathEditorDraft = '';
       this.mathEditorOriginal = null;
       this.mathEditorInsert = false;
@@ -5876,12 +6009,15 @@ export struct NoteCanvasView {
       MathEditorOverlay({
         visible: this.mathEditorVisible,
         draft: this.mathEditorDraft,
+        draftState: this.mathEditorDraftState,
+        preview: this.mathEditorPreview === null ? null : this.mathEditorPreview.pixelMap,
         busy: this.mathEditorBusy,
         failed: this.mathEditorFailed,
         containerWidth: this.overlayWidth,
         onDraftChange: (value: string): void => {
           this.mathEditorDraft = value;
           this.mathEditorFailed = false;
+          this.requestMathEditorDraftValidation();
         },
         onCancel: (): void => this.cancelMathEditing(),
         onConfirm: (): void => {

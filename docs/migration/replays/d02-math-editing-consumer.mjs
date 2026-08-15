@@ -77,4 +77,4 @@ assert.match(canvas, /this\.persistence\.commitOriginalMathLatex/);
 console.log('D02_MATH_EDITING_CONSUMER_REPLAY_OK ' +
   'positionable-evidence=u08-be5|locked-selectable-for-unlock=1|group-leaf=1|transform-bounds=1|' +
   'eraser-lock=2|history=add-delete-transform-erase-durable|clipboard=1|z-order=1|' +
-  'latex-editor=type23-field10-complete|native-formula-engine=runtime-pending');
+  'latex-editor=type23-field10-complete|native-formula-engine=four-state-preview-complete');
