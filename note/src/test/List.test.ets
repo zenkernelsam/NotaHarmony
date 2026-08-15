@@ -80,6 +80,7 @@ import originalClipboardPasteMutationCodecTest from './OriginalClipboardPasteMut
 import originalPartialEraseGroupPlannerTest from './OriginalPartialEraseGroupPlanner.test';
 import originalInkPartialEraserTest from './OriginalInkPartialEraser.test';
 import originalShapePartialEraserTest from './OriginalShapePartialEraser.test';
+import originalPartialEraserTransientPreviewTest from './OriginalPartialEraserTransientPreview.test';
 import originalCreateTextPayloadEncoderTest from './OriginalCreateTextPayloadEncoder.test';
 import originalTextMutationPayloadEncoderTest from './OriginalTextMutationPayloadEncoder.test';
 import originalRichTextStylePayloadEncoderTest from './OriginalRichTextStylePayloadEncoder.test';
@@ -171,6 +172,7 @@ export default function testsuite() {
   originalPartialEraseGroupPlannerTest();
   originalInkPartialEraserTest();
   originalShapePartialEraserTest();
+  originalPartialEraserTransientPreviewTest();
   originalCreateTextPayloadEncoderTest();
   originalTextMutationPayloadEncoderTest();
   originalRichTextStylePayloadEncoderTest();

@@ -65,7 +65,8 @@ assert.match(eraser, /shiftAudioStart/);
 assert.match(eraser,
   /inkEffectPhase: \(source\.renderSpec\.inkEffectPhase \?\? 0\) \+ run\[0\]\.distance/);
 
-assert.match(canvas, /commitOriginalPartialErase\(plan\)/);
+assert.match(canvas, /const previewToken: number \| null = this\.partialEraserPreview\.finish\(\)/);
+assert.match(canvas, /commitOriginalPartialErase\(plan, previewToken\)/);
 assert.doesNotMatch(canvas, /commitOriginalPartialEraser/);
 assert.match(canvas, /this\.areCanonicalOriginalPositionSelection\(strokeIds, shapeIds/);
 assert.match(canvas, /this\.applyPartialEraseLocally\(plan\)/);

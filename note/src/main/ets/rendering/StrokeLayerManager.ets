@@ -108,6 +108,73 @@ export class StrokeLayerManager {
     this.transferTracker.finishFrame(true, 1);
   }
 
+  // The original partial eraser is a transient Ink preview over the handwriting
+  // layer, not a durable page element. On the common strokes-then-text layout,
+  // isolate only the growing preview bounds so destination-out cannot punch a
+  // hole through the paper background or temporarily hide text.
+  compositeWithPartialEraser(mainCtx: CanvasRenderingContext2D,
+    preview: StrokeElementData, renderBackground: () => void = () => {},
+    renderForeground: () => void = () => {}, zoom: number = 1,
+    forceFull: boolean = false): void {
+    if (forceFull) {
+      this.markFullPageDirty();
+    } else {
+      if (this.previousCurrentBounds !== null) {
+        this.dirtyTracker.markDirty(this.previousCurrentBounds, zoom);
+      }
+      this.dirtyTracker.markDirty(preview.bounds, zoom);
+    }
+    const dirtyRegions: Rect2D[] = this.dirtyTracker.consume();
+    this.previousCurrentBounds = this.cloneRect(preview.bounds);
+    if (dirtyRegions.length === 0) {
+      this.transferTracker.finishFrame(false, 0);
+      return;
+    }
+    mainCtx.save();
+    mainCtx.beginPath();
+    for (const dirty of dirtyRegions) {
+      mainCtx.rect(dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top);
+    }
+    mainCtx.clip();
+    for (const dirty of dirtyRegions) {
+      mainCtx.clearRect(dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top);
+    }
+    renderBackground();
+    const completed: ImageBitmap | null = this.completedBitmap;
+    if (completed !== null) {
+      for (const dirty of dirtyRegions) {
+        const crop: Rect2D | null = this.pixelAlignedPageCrop(dirty);
+        if (crop === null) {
+          continue;
+        }
+        const width: number = crop.right - crop.left;
+        const height: number = crop.bottom - crop.top;
+        const isolatedLayer: OffscreenCanvas = new OffscreenCanvas(width, height);
+        const isolatedContext: OffscreenCanvasRenderingContext2D =
+          isolatedLayer.getContext('2d', new RenderingContextSettings(true));
+        isolatedContext.drawImage(completed, crop.left, crop.top, width, height,
+          0, 0, width, height);
+        const isolatedRenderContext: Canvas2DOffscreenRenderContext =
+          new Canvas2DOffscreenRenderContext(isolatedContext);
+        isolatedRenderContext.save();
+        isolatedRenderContext.transform([1, 0, -crop.left, 0, 1, -crop.top, 0, 0, 1]);
+        this.strokePainter.renderStroke(
+          preview, isolatedRenderContext, this.pageWidth, this.pageHeight);
+        isolatedRenderContext.restore();
+        const bitmap: ImageBitmap = isolatedLayer.transferToImageBitmap();
+        this.transferTracker.recordTransfer(BitmapTransferKind.ISOLATED_MASK);
+        try {
+          mainCtx.drawImage(bitmap, crop.left, crop.top, width, height);
+        } finally {
+          bitmap.close();
+        }
+      }
+    }
+    renderForeground();
+    mainCtx.restore();
+    this.transferTracker.finishFrame(forceFull, dirtyRegions.length);
+  }
+
   // 清空全部（新建笔记/撤销全部）
   clearAll(): void {
     if (this.completedCtx === null) {
@@ -160,6 +227,17 @@ export class StrokeLayerManager {
 
   private cloneRect(rect: Rect2D): Rect2D {
     return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+  }
+
+  private pixelAlignedPageCrop(rect: Rect2D): Rect2D | null {
+    const left: number = Math.max(0, Math.floor(rect.left));
+    const top: number = Math.max(0, Math.floor(rect.top));
+    const right: number = Math.min(this.pageWidth, Math.ceil(rect.right));
+    const bottom: number = Math.min(this.pageHeight, Math.ceil(rect.bottom));
+    if (right <= left || bottom <= top) {
+      return null;
+    }
+    return { left: left, top: top, right: right, bottom: bottom };
   }
 
   private restoreWorkingLayer(): void {

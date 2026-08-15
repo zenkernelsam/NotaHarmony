@@ -33,6 +33,9 @@ import { StrokeSession } from '../../rendering/StrokeSession';
 import { EraserEngine, EraserMode } from '../../rendering/EraserEngine';
 import { OriginalInkPartialEraser } from '../../rendering/OriginalInkPartialEraser';
 import {
+  OriginalPartialEraserPreviewPhase, OriginalPartialEraserTransientPreview,
+} from '../../rendering/OriginalPartialEraserTransientPreview';
+import {
   OriginalShapePartialEraser, ShapePartialEraseReplacement,
 } from '../../rendering/OriginalShapePartialEraser';
 import { PaperRenderer } from '../../rendering/PaperRenderer';
@@ -275,6 +278,8 @@ export struct NoteCanvasView {
   private elementOrder: PageElementRef[] = [];
   private selectionGroups: OriginalSelectionGroup[] = [];
   private eraserPath: Point2D[] = [];
+  private partialEraserPreview: OriginalPartialEraserTransientPreview =
+    new OriginalPartialEraserTransientPreview();
   private isDrawing: boolean = false;
   private eraserActive: boolean = false;
   private selectionDrawing: boolean = false;
@@ -386,6 +391,7 @@ export struct NoteCanvasView {
 
   // === 数据加载与持久化 ===
   private async loadNoteData(): Promise<void> {
+    this.partialEraserPreview.cancel();
     const generation: number = ++this.pageLoadGeneration;
     const targetPageId: string = this.currentPage.pageId;
     this.dataLoading = true;
@@ -762,6 +768,7 @@ export struct NoteCanvasView {
 
   aboutToDisappear(): void {
     this.lifecycleActive = false;
+    this.partialEraserPreview.cancel();
     this.cancelImageCrop();
     this.cancelMathEditorDraftValidation();
     this.releaseMathEditorPreview();
@@ -816,6 +823,7 @@ export struct NoteCanvasView {
   }
 
   private async switchPageData(): Promise<void> {
+    this.cancelActiveInteraction();
     if (!this.loaded) {
       await this.loadNoteData();
       return;
@@ -1035,8 +1043,10 @@ export struct NoteCanvasView {
     const sessionStroke: StrokeElementData | null = this.strokeSession !== null && this.strokeSession.isActive()
       ? this.strokeSession.getCurrentStroke() : null;
     const current: StrokeElementData | null = this.heldShapes.length === 0 ? sessionStroke : null;
+    const partialEraserPreviewStroke: StrokeElementData | null = this.partialEraserPreview.getStroke();
     const orderedRender: boolean = this.requiresOrderedElementRender() || this.heldShapes.length > 0 ||
       (this.playbackAudioTime !== null && this.playbackAudioSegments.length > 0);
+    const isolatedPartialEraserPreview: boolean = partialEraserPreviewStroke !== null && !orderedRender;
     const fullRedraw: boolean = forceFull || orderedRender;
     if (fullRedraw) {
       this.canvasCtx.clearRect(0, 0, w, h);
@@ -1046,10 +1056,20 @@ export struct NoteCanvasView {
     this.canvasCtx.save();
     this.canvasCtx.translate(this.viewport.scrollX, this.viewport.scrollY);
     this.canvasCtx.scale(this.viewport.zoom, this.viewport.zoom);
-    if (orderedRender) {
+    if (isolatedPartialEraserPreview && partialEraserPreviewStroke !== null) {
+      this.layerManager.compositeWithPartialEraser(this.canvasCtx, partialEraserPreviewStroke, () => {
+        const visibleLeft: number = -this.viewport.scrollX / this.viewport.zoom;
+        const visibleTop: number = -this.viewport.scrollY / this.viewport.zoom;
+        this.canvasCtx.fillStyle = theme.background;
+        this.canvasCtx.fillRect(visibleLeft, visibleTop, w / this.viewport.zoom, h / this.viewport.zoom);
+        this.renderPaper(theme);
+      }, () => {
+        this.renderTextBlocks();
+      }, this.viewport.zoom, forceFull);
+    } else if (orderedRender) {
       this.renderPaper(theme);
-      if (this.hasOriginalPartialEraser()) {
-        this.renderOrderedContentLayer();
+      if (this.hasOriginalPartialEraser() || partialEraserPreviewStroke !== null) {
+        this.renderOrderedContentLayer(partialEraserPreviewStroke);
       } else {
         this.renderOrderedElements(this.renderCtx);
       }
@@ -1100,7 +1120,7 @@ export struct NoteCanvasView {
       stroke.renderSpec.isPartialEraser === true);
   }
 
-  private renderOrderedContentLayer(): void {
+  private renderOrderedContentLayer(partialEraserPreview: StrokeElementData | null = null): void {
     const width: number = this.getPaperWidth();
     const height: number = this.getPaperHeight();
     if (width <= 0 || height <= 0) {
@@ -1109,7 +1129,11 @@ export struct NoteCanvasView {
     const layer: OffscreenCanvas = new OffscreenCanvas(width, height);
     const context: OffscreenCanvasRenderingContext2D =
       layer.getContext('2d', new RenderingContextSettings(true));
-    this.renderOrderedElements(new Canvas2DOffscreenRenderContext(context));
+    const renderContext: Canvas2DOffscreenRenderContext = new Canvas2DOffscreenRenderContext(context);
+    this.renderOrderedElements(renderContext);
+    if (partialEraserPreview !== null) {
+      this.strokePainter.renderStroke(partialEraserPreview, renderContext, width, height);
+    }
     const bitmap: ImageBitmap = layer.transferToImageBitmap();
     this.bitmapTransferTracker.recordTransfer(BitmapTransferKind.COMPLETED_LAYER);
     try {
@@ -1404,6 +1428,7 @@ export struct NoteCanvasView {
 
     if (this.viewModel.isEraserActive()) {
       this.eraserEngine.setMode(this.viewModel.eraserIsPartial ? EraserMode.PARTIAL : EraserMode.WHOLE);
+      this.partialEraserPreview.cancel();
       this.eraserActive = true;
       this.eraserPath = [];
       this.isDrawing = true;
@@ -1640,7 +1665,11 @@ export struct NoteCanvasView {
 
   private cancelActiveInteraction(): void {
     if (!this.isDrawing) {
+      const previewCleared: boolean = this.partialEraserPreview.cancel();
       this.resetPointerTracking();
+      if (previewCleared && this.layerManager.isInitialized() && this.lifecycleActive) {
+        this.renderFrame(true);
+      }
       return;
     }
     this.cancelShapeDetectionTimer();
@@ -1665,6 +1694,7 @@ export struct NoteCanvasView {
     }
     this.eraserActive = false;
     this.eraserPath = [];
+    this.partialEraserPreview.cancel();
     this.selectionDrawing = false;
     this.selectionDrag = false;
     this.dragBeforeStrokes = [];
@@ -1739,16 +1769,20 @@ export struct NoteCanvasView {
   // 识别元素 → 形状笔画（采样点序列，保持渲染链不变）
   // === 橡皮擦 ===
   private applyEraser(): void {
-    if (this.eraserPath.length === 0) {
-      return;
-    }
     if (this.eraserEngine.getMode() === EraserMode.PARTIAL) {
+      const eraserPath: Point2D[] = this.partialEraserPreview.getPath();
+      const previewToken: number | null = this.partialEraserPreview.finish();
+      if (previewToken === null || eraserPath.length === 0) {
+        this.partialEraserPreview.cancel();
+        this.renderFrame(true);
+        return;
+      }
       const strokeReplacements =
         new OriginalInkPartialEraser(this.eraserEngine.getWidth()).erase(
-          this.eraserPath, this.partialEraserCandidateStrokes());
+          eraserPath, this.partialEraserCandidateStrokes());
       const shapeReplacements: ShapePartialEraseReplacement[] =
         new OriginalShapePartialEraser(this.eraserEngine.getWidth()).erase(
-          this.eraserPath, this.shapes);
+          eraserPath, this.shapes);
       const replacements: OriginalPartialEraseReplacementPlan[] = [];
       for (const replacement of strokeReplacements) {
         replacements.push({
@@ -1765,6 +1799,8 @@ export struct NoteCanvasView {
         });
       }
       if (replacements.length === 0) {
+        this.partialEraserPreview.complete(previewToken);
+        this.renderFrame(true);
         return;
       }
       const orderRanks: Map<string, number> = new Map<string, number>();
@@ -1780,10 +1816,15 @@ export struct NoteCanvasView {
         replacements: replacements,
       };
       if (this.canCommitOriginalPartialErase(plan)) {
-        this.commitOriginalPartialErase(plan);
+        this.commitOriginalPartialErase(plan, previewToken);
       } else {
+        this.partialEraserPreview.complete(previewToken);
         this.applyPartialEraseLocally(plan);
+        this.renderFrame(true);
       }
+      return;
+    }
+    if (this.eraserPath.length === 0) {
       return;
     }
     const before: StrokeElementData[] = this.completedStrokes.slice();
@@ -1948,7 +1989,8 @@ export struct NoteCanvasView {
     }
   }
 
-  private commitOriginalPartialErase(plan: OriginalPartialErasePlan): void {
+  private commitOriginalPartialErase(plan: OriginalPartialErasePlan,
+    previewToken: number): void {
     const generation: number = this.pageLoadGeneration;
     const pageId: string = this.loadedPageId;
     const draftOperation: Op = {
@@ -1964,25 +2006,39 @@ export struct NoteCanvasView {
     this.invalidateOriginalInkReservation();
     this.persistence.commitOriginalPartialErase(this.noteId, pageId, plan, prepared).then(
       (result: OriginalPartialErasePersistenceResult): void => {
-        const action: OriginalPartialEraseAction = {
-          type: UndoableActionType.ORIGINAL_PARTIAL_ERASE,
-          noteId: this.noteId, pageId: pageId, operation: result.operation,
-        };
-        this.undoRedo.push(action, prepared);
-        this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
-        if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-          pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
-          !this.dataLoadFailed) {
-          this.installMutationElements(result.elements);
-          this.selectionGroups = result.groups;
-          this.selectionTool.deselect();
-          this.selectionVisible = false;
-          this.originalInkIneligiblePages.delete(pageId);
-          this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
-          this.renderFrame();
+        this.partialEraserPreview.complete(previewToken);
+        try {
+          const action: OriginalPartialEraseAction = {
+            type: UndoableActionType.ORIGINAL_PARTIAL_ERASE,
+            noteId: this.noteId, pageId: pageId, operation: result.operation,
+          };
+          this.undoRedo.push(action, prepared);
+          this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+          if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+            pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
+            !this.dataLoadFailed) {
+            this.installMutationElements(result.elements);
+            this.selectionGroups = result.groups;
+            this.selectionTool.deselect();
+            this.selectionVisible = false;
+            this.originalInkIneligiblePages.delete(pageId);
+            this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+            this.renderFrame();
+          }
+          this.notifyUndoRedo();
+        } catch (e) {
+          // The durable transaction has already committed. Never reinterpret a
+          // local UI/history installation failure as permission to apply the
+          // replacement a second time through the snapshot fallback.
+          hilog.error(0x0001, 'NoteCanvasView',
+            'original partial erase committed but UI install failed: %{public}s', JSON.stringify(e));
+          if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+            pageId === this.currentPage.pageId && this.lifecycleActive) {
+            this.pageLoadPromise = this.loadNoteData();
+          }
         }
-        this.notifyUndoRedo();
-      }).catch((e: Object): void => {
+      }, (e: Object): void => {
+        this.partialEraserPreview.complete(previewToken);
         this.reportSaveFailure(e);
         hilog.error(0x0001, 'NoteCanvasView',
           'original partial erase transaction failed: %{public}s', JSON.stringify(e));
@@ -1990,9 +2046,15 @@ export struct NoteCanvasView {
           pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
           !this.dataLoadFailed) {
           this.applyPartialEraseLocally(plan, prepared);
+          this.renderFrame(true);
         }
       }).finally((): void => {
+        const previewCleared: boolean = this.partialEraserPreview.complete(previewToken);
         this.historyBusy = false;
+        if (previewCleared && generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+          this.layerManager.isInitialized() && this.lifecycleActive) {
+          this.renderFrame(true);
+        }
         if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
           !this.originalInkIneligiblePages.has(pageId)) {
           this.refreshOriginalInkReservation(generation, pageId);
@@ -2200,10 +2262,32 @@ export struct NoteCanvasView {
 
   private collectEraserPoint(touch: TouchObject): void {
     const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
-    this.eraserPath.push({
+    const point: Point2D = {
       x: Math.min(Math.max(p.x, 0), this.getPaperWidth()),
       y: Math.min(Math.max(p.y, 0), this.getPaperHeight()),
-    });
+    };
+    if (this.eraserEngine.getMode() === EraserMode.PARTIAL) {
+      let changed: boolean = false;
+      try {
+        if (this.partialEraserPreview.getPhase() !== OriginalPartialEraserPreviewPhase.TRACKING) {
+          this.partialEraserPreview.begin(point, this.eraserEngine.getWidth());
+          changed = true;
+        } else {
+          changed = this.partialEraserPreview.append(point);
+        }
+      } catch (e) {
+        this.partialEraserPreview.cancel();
+        hilog.error(0x0001, 'NoteCanvasView',
+          'partial eraser preview rejected input: %{public}s', JSON.stringify(e));
+      }
+      if (changed) {
+        this.renderFrame();
+      } else if (this.partialEraserPreview.isFailed()) {
+        this.renderFrame(true);
+      }
+      return;
+    }
+    this.eraserPath.push(point);
   }
 
   // === Undo / Redo ===
