@@ -27,6 +27,8 @@ export enum OpType {
   ORIGINAL_CLIPBOARD_PASTE = 32,
   // Harmony history companion for original CREATE-remnants + DELETE-sources partial erase.
   ORIGINAL_PARTIAL_ERASE = 33,
+  // Harmony history companion for original SET_METADATA.pageBackground.
+  UPDATE_NOTE_BACKGROUND = 34,
   UNDO = 40,
   REDO = 41,
   // Harmony recovery checkpoint. This is deliberately distinct from the
@@ -51,6 +53,7 @@ export enum OpType {
   ORIGINAL_MODIFY_PARAGRAPH_STYLE = 75,
   ORIGINAL_UPDATE_CHECKBOX = 76,
   ORIGINAL_MODIFY_PAGE = 77,
+  ORIGINAL_SET_METADATA = 78,
 }
 
 // History movement is metadata on a concrete mutation, not a replacement mutation type.

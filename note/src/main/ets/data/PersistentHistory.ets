@@ -20,7 +20,7 @@ import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockG
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import {
   AddPageAction, DeletePageAction, GroupElementsAction, OriginalClipboardPasteAction,
-  OriginalPartialEraseAction, PageSettingsAction,
+  NoteBackgroundAction, OriginalPartialEraseAction, PageSettingsAction,
   PersistedPageMutationsAction, ReorderPagesAction, RestoredHistoryAction, UndoableAction,
   UndoableActionType,
 } from '../rendering/UndoRedoManager';
@@ -32,6 +32,9 @@ import { decodeOriginalClipboardPasteMutation,
 import {
   decodeOriginalPartialEraseMutation, OriginalPartialEraseMutation,
 } from './OriginalPartialEraseMutationCodec';
+import {
+  decodeNoteBackgroundMutation, NoteBackgroundMutation,
+} from './NoteBackgroundMutationCodec';
 
 export interface PersistentHistoryAction {
   actionId: string;
@@ -218,6 +221,22 @@ function materializeAction(action: PersistentHistoryAction, currentPageId: strin
       operation.history.actionTime !== action.actionTime) {
       throw new Error('persistent action operation identity mismatch');
     }
+  }
+  if (action.operations[0].opType === OpType.UPDATE_NOTE_BACKGROUND) {
+    if (action.operations.length !== 1) {
+      throw new Error('persistent note background action must contain exactly one mutation');
+    }
+    const mutation: NoteBackgroundMutation =
+      decodeNoteBackgroundMutation(action.operations[0].payload);
+    const restored: NoteBackgroundAction = {
+      type: UndoableActionType.NOTE_BACKGROUND,
+      noteId: noteId,
+      pageId: mutation.selectedPageId,
+      selectedPageId: mutation.selectedPageId,
+      backgroundBefore: mutation.before,
+      backgroundAfter: mutation.after,
+    };
+    return restored;
   }
   if (action.operations[0].opType === OpType.GROUP_ELEMENTS) {
     if (action.operations.length !== 1) {
@@ -565,6 +584,7 @@ function isOriginalOutboundCompanion(operation: Op): boolean {
     operation.opType === OpType.ORIGINAL_MODIFY_TEXT_STYLE ||
     operation.opType === OpType.ORIGINAL_MODIFY_PARAGRAPH_STYLE ||
     operation.opType === OpType.ORIGINAL_MODIFY_PAGE ||
+    operation.opType === OpType.ORIGINAL_SET_METADATA ||
     operation.opType === OpType.ORIGINAL_UPDATE_CHECKBOX;
 }
 

@@ -54,12 +54,24 @@ Accepted, 2026-08-11.
   both `note@ohosTest` and `note@default` assembleHap builds succeed. Device
   Hypium was not executed.
 
+## Phase 244 local-outbound closure
+
+ADR-0221 now routes the active paper size/template/orientation UI through original payload type 1
+`SET_METADATA.pageBackground`. The local writer preserves the present-wrapper/null-value distinction, calls the same
+production reducer, rematerializes only page-register-null pages, and appends the upload row plus durable-history companion
+atomically. Durable history stores both the effective Letter fallback and the exact nullable register value, so Undo from a
+previous null winner emits `SetPageBackground(null)` exactly as original `vnf` does.
+
+Normal local `CREATE_PAGE` now leaves its page background null and materializes from the current note winner. This preserves
+future inheritance instead of copying the current note background into a page-level register. Full evidence and the local
+transaction decision are recorded in ADR-0221 and
+`docs/migration/evidence/original-local-set-metadata-background-outbound-jadx-2026-08-16.md`.
+
 ## Remaining boundary
 
 An explicit null title is still deferred because Harmony currently stores a
 non-null materialized title and the original display fallback has not yet been
 proved. SET_METADATA fields for handwriting language, text alignment, default
-font, layout mode and block wrapping also remain deferred. Full PDF background
-support is the next independent D-02 batch: it must preserve asset metadata,
-layout behavior, total and consumed page counts, page offset and per-page crop
-boxes before note/page PDF fallback can be declared compatible.
+font, layout mode and block wrapping also remain deferred. Note/page PDF decode,
+fallback, asset loading and local paper-setting preservation are implemented;
+their remaining boundary is device pixel comparison and multi-device sync.

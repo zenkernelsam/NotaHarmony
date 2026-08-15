@@ -29,6 +29,14 @@ export interface OriginalSetMetadataPayload {
   pageBackground: OriginalDecodedPageBackground | null;
 }
 
+// The original register value and its effective rendering value are not the
+// same state: a null winner renders as the Letter fallback, but Undo must keep
+// the nullable value so it can emit an explicit SetPageBackground(null).
+export interface OriginalNoteBackgroundState {
+  registerValue: OriginalDecodedPageBackground | null;
+  effective: OriginalDecodedPageBackground;
+}
+
 interface StoredNoteBackgroundWinner extends OperationIdentity {
   size: number | null;
   template: number | null;
@@ -373,30 +381,49 @@ export function defaultDecodedBackground(): OriginalDecodedPageBackground {
 
 export async function readEffectiveNoteBackground(store: relationalStore.RdbStore,
   noteId: string): Promise<OriginalDecodedPageBackground> {
+  return (await readOriginalNoteBackgroundState(store, noteId)).effective;
+}
+
+export async function readOriginalNoteBackgroundState(store: relationalStore.RdbStore,
+  noteId: string): Promise<OriginalNoteBackgroundState> {
   const rows = await store.querySql(
     `SELECT size, template, orientation, width_mm, height_mm, background_json
      FROM original_note_background_winner WHERE note_id = ?`, [noteId]);
   try {
     if (!rows.goToFirstRow()) {
-      return defaultDecodedBackground();
+      return { registerValue: null, effective: defaultDecodedBackground() };
     }
     const backgroundColumn: number = rows.getColumnIndex('background_json');
     if (rows.isColumnNull(backgroundColumn)) {
-      return defaultDecodedBackground();
+      return { registerValue: null, effective: defaultDecodedBackground() };
+    }
+    const sizeColumn: number = rows.getColumnIndex('size');
+    const templateColumn: number = rows.getColumnIndex('template');
+    const orientationColumn: number = rows.getColumnIndex('orientation');
+    const widthColumn: number = rows.getColumnIndex('width_mm');
+    const heightColumn: number = rows.getColumnIndex('height_mm');
+    if (rows.isColumnNull(sizeColumn) || rows.isColumnNull(templateColumn) ||
+      rows.isColumnNull(orientationColumn) || rows.isColumnNull(widthColumn) ||
+      rows.isColumnNull(heightColumn)) {
+      throw new Error('stored original note background has partial concrete columns');
     }
     const background: PageBackground | null = parsePageBackground(rows.getString(backgroundColumn));
     if (background === null) {
       throw new Error('stored original note background unexpectedly decoded as null');
     }
-    return {
+    const decoded: OriginalDecodedPageBackground = {
       background: background,
-      size: rows.getLong(rows.getColumnIndex('size')) as PaperSize,
-      template: rows.getLong(rows.getColumnIndex('template')) as PaperTemplate,
-      orientation: rows.getLong(rows.getColumnIndex('orientation')) as PageOrientation,
-      widthMm: rows.getDouble(rows.getColumnIndex('width_mm')),
-      heightMm: rows.getDouble(rows.getColumnIndex('height_mm')),
+      size: rows.getLong(sizeColumn) as PaperSize,
+      template: rows.getLong(templateColumn) as PaperTemplate,
+      orientation: rows.getLong(orientationColumn) as PageOrientation,
+      widthMm: rows.getDouble(widthColumn),
+      heightMm: rows.getDouble(heightColumn),
       hasPdf: background.pdf !== undefined && background.pdf !== null,
     };
+    if (!originalPageBackgroundFitsHarmony(decoded)) {
+      throw new Error('stored original note background no longer fits Harmony');
+    }
+    return { registerValue: decoded, effective: decoded };
   } finally {
     rows.close();
   }

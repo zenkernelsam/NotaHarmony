@@ -2,7 +2,12 @@ import { describe, it, expect } from '@ohos/hypium';
 import {
   HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op, OpType,
 } from '../main/ets/core/model/OpTypes';
-import { PageInfo, PageOrientation, PaperSize, PaperTemplate } from '../main/ets/core/model/NoteTypes';
+import {
+  NoteBackgroundSettings, PageInfo, PageOrientation, PaperSize, PaperTemplate,
+} from '../main/ets/core/model/NoteTypes';
+import {
+  applyOriginalPaperSettings, originalDefaultNoteBackgroundSettings, sameNoteBackgroundSettings,
+} from '../main/ets/core/model/PageBackgroundModel';
 import {
   materializePersistentHistory, PersistentHistoryState, reducePersistentHistory, reducePersistentHistoryTail,
   replayPersistentPageMutations, RestoredHistoryState,
@@ -26,6 +31,8 @@ import { encodeOriginalGroupMutation, OriginalGroupMutationOpPayload } from
   '../main/ets/data/OriginalGroupMutationOpCodec';
 import { decodeOriginalPartialEraseMutation, encodeOriginalPartialEraseMutation } from
   '../main/ets/data/OriginalPartialEraseMutationCodec';
+import { encodeNoteBackgroundMutation } from
+  '../main/ets/data/NoteBackgroundMutationCodec';
 
 function makeOp(opId: string, actionId?: string, effect: HistoryEffect = HistoryEffect.PUSH,
   actionTime: number = 100): Op {
@@ -105,6 +112,20 @@ function pageOp(opId: string, actionId: string, opType: OpType, fromRevision: nu
       actionId: actionId, effect: effect,
       coalesceTrack: HistoryCoalesceTrack.NONE, actionTime: actionTime,
     },
+  };
+}
+
+function noteBackgroundOp(opId: string, actionId: string, fromRevision: number,
+  selectedPageId: string, before: NoteBackgroundSettings,
+  after: NoteBackgroundSettings): Op {
+  return {
+    opId: opId, noteId: 'note-1', opType: OpType.UPDATE_NOTE_BACKGROUND,
+    payload: encodeNoteBackgroundMutation({
+      fromRevision: fromRevision, toRevision: fromRevision + 1,
+      selectedPageId: selectedPageId, before: before, after: after,
+    }),
+    clientTime: fromRevision + 1,
+    history: history(actionId),
   };
 }
 
@@ -471,11 +492,14 @@ export default function persistentHistoryTest() {
       paragraphStyle.opType = OpType.ORIGINAL_MODIFY_PARAGRAPH_STYLE;
       const modifyPage: Op = makeOp('original-modify-page');
       modifyPage.opType = OpType.ORIGINAL_MODIFY_PAGE;
+      const setMetadata: Op = makeOp('original-set-metadata');
+      setMetadata.opType = OpType.ORIGINAL_SET_METADATA;
       const state: PersistentHistoryState = reducePersistentHistory([
         makeOp('op-a', 'action-a', HistoryEffect.PUSH, 100),
         createPage, positions,
         makeOp('op-b', 'action-b', HistoryEffect.PUSH, 101),
-        recording, block, createBlock, insertText, textVisibility, textStyle, paragraphStyle, modifyPage,
+        recording, block, createBlock, insertText, textVisibility, textStyle, paragraphStyle,
+        modifyPage, setMetadata,
       ]);
       expect(state.undo.length).assertEqual(2);
       expect(state.undo[0].actionId).assertEqual('action-a');
@@ -552,6 +576,32 @@ export default function persistentHistoryTest() {
       expect(restored.undo[1].action.type).assertEqual(UndoableActionType.PAGE_SETTINGS);
       expect(restored.undo[2].action.type).assertEqual(UndoableActionType.REORDER_PAGES);
       expect(restored.undo[2].action.pageId).assertEqual('page-2');
+    });
+
+    it('restores note-level background history after its original SET_METADATA row', 0, () => {
+      const before: NoteBackgroundSettings = originalDefaultNoteBackgroundSettings();
+      const after: NoteBackgroundSettings = applyOriginalPaperSettings(
+        before, PaperSize.A4, PaperTemplate.GRID, PageOrientation.LANDSCAPE);
+      const original: Op = makeOp('original-set-metadata');
+      original.opType = OpType.ORIGINAL_SET_METADATA;
+      const restored: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([
+          original,
+          noteBackgroundOp('background-history', 'background-action', 7,
+            'page-2', before, after),
+        ]), 'page-1');
+      expect(restored.legacyOperationCount).assertEqual(0);
+      expect(restored.undo.length).assertEqual(1);
+      expect(restored.undo[0].action.type).assertEqual(UndoableActionType.NOTE_BACKGROUND);
+      if (restored.undo[0].action.type === UndoableActionType.NOTE_BACKGROUND) {
+        expect(restored.undo[0].action.selectedPageId).assertEqual('page-2');
+        expect(sameNoteBackgroundSettings(
+          restored.undo[0].action.backgroundBefore, before)).assertTrue();
+        expect(sameNoteBackgroundSettings(
+          restored.undo[0].action.backgroundAfter, after)).assertTrue();
+      } else {
+        expect(false).assertTrue();
+      }
     });
 
     it('materializes DELETE_PAGE only with its exact durable checkpoint', 0, () => {

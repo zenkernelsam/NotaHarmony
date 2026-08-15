@@ -2761,7 +2761,8 @@ export struct NoteCanvasView {
 
   private isPageAction(type: UndoableActionType): boolean {
     return type === UndoableActionType.ADD_PAGE || type === UndoableActionType.DELETE_PAGE ||
-      type === UndoableActionType.REORDER_PAGES || type === UndoableActionType.PAGE_SETTINGS;
+      type === UndoableActionType.REORDER_PAGES || type === UndoableActionType.PAGE_SETTINGS ||
+      type === UndoableActionType.NOTE_BACKGROUND;
   }
 
   // isUndo=true 执行反向；false 执行正向

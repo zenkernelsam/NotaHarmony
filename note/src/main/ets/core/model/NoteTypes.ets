@@ -96,6 +96,23 @@ export interface PageBackground {
   margins: PageBackgroundMargins | null;
 }
 
+// Materialized note-level PageBackground register. Original 1.0.3 edits paper
+// size/orientation/flair through SET_METADATA, then fallback pages inherit it.
+export interface NoteBackgroundSettings {
+  // Effective value used for materialization/rendering. When the original
+  // register contains null, this is the original Letter fallback.
+  background: PageBackground;
+  // Exact nullable value stored in the original pageBackground register.
+  // Keeping it separate is required for Undo to emit qgh.b(null), rather than
+  // replacing a null winner with a visually equivalent concrete Letter nz9.
+  registerBackground: PageBackground | null;
+  template: PaperTemplate;
+  size: PaperSize;
+  orientation: PageOrientation;
+  widthMm: number;
+  heightMm: number;
+}
+
 // 页面信息
 export interface PageInfo {
   pageId: string;

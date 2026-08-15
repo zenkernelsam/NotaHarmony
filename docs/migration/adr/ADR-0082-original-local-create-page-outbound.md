@@ -13,17 +13,19 @@ Accepted, 2026-08-11.
   `site:uint16, padding, timestamp:uint32, index:uint32`.
 - Original page identity is `(CREATE_PAGE.timestamp, siteId, indexWithinPayload)`. A later page
   insertion references a position SeqId, not a storage UUID or `page_index`.
-- A missing `nz9` background materializes the original Letter default, 215.9 x 279.4 mm. A local
-  A4 page therefore must carry `nz9.sourceSize`; silently omitting it changes document geometry.
+- A missing page-level `nz9` leaves the page register null. Its effective value resolves through the
+  note `pageBackgroundRegister`, whose terminal null fallback is Letter 215.9 x 279.4 mm. A normal
+  local A4 note therefore writes A4 through `SET_METADATA`, not by freezing A4 into every CREATE_PAGE.
 - The existing Harmony add path generated an unrelated random page ID and only journaled NPG
   history. Appending original payload bytes afterward would create a second logical page instead
   of assigning the local page the original operation identity.
 
 ## Decision
 
-- Encode local CREATE_PAGE directly as the original FlatBuffer. Root pages omit location and
-  background and retain the original Letter default. Plain non-root pages encode exact dimensions
-  in `nz9.sourceSize` and anchor to the winning position of the current visible tail page.
+- Encode local CREATE_PAGE directly as the original FlatBuffer. Normal authoring pages omit the
+  page-level background and inherit the current note winner; root pages omit location, while
+  appended pages anchor to the winning position of the current visible tail page. Explicit
+  per-page backgrounds remain for imported/protocol operations that actually carry that setter.
 - Allocate the operation identity before materialization and let
   `OriginalCreatePageOperationApplier` create the canonical storage page ID. Return that assigned
   ID to `NotePage` and rewrite the in-memory AddPage action before it enters Undo history.
@@ -48,8 +50,9 @@ Accepted, 2026-08-11.
   and CREATE_INK would still be unable to reference the page SeqId.
 - Anchor with the largest `page_index` identity: after MODIFY_POSITIONS the winning position can
   differ from the page's stable identity.
-- Omit an A4 background because a blank page looks similar: the original decoder defaults to
-  Letter, producing a measurable cross-device geometry divergence.
+- Omit both note-level A4 metadata and page-level background: only then does the terminal Letter
+  fallback apply, producing a measurable cross-device geometry divergence. A normal new page
+  should omit its own background only after the note-level A4 winner exists.
 - Run original CREATE_PAGE for import loops: this would upload duplicate authoring operations and
   replace package page IDs.
 - Treat original companion rows as untracked legacy edits: recording/page outbound traffic would
@@ -67,8 +70,9 @@ Accepted, 2026-08-11.
 
 ## Remaining Boundary
 
-Local MODIFY_PAGE/reorder is now implemented by ADR-0220. Legacy-note identity bootstrap, styled
-paper/PDF CREATE_PAGE authoring, and private transport/ACK acceptance remain separate work. CREATE_INK may now
+Local MODIFY_PAGE/reorder is now implemented by ADR-0220, and local note paper settings plus normal
+CREATE_PAGE inheritance are implemented by ADR-0221. Legacy-note identity bootstrap, explicit
+page-level styled/PDF CREATE_PAGE authoring, and private transport/ACK acceptance remain separate work. CREATE_INK may now
 use canonical page identities for newly created aligned notes, but must still preallocate the ink
 operation identity before replacing random stroke IDs. No device was started in this phase.
 
@@ -80,3 +84,11 @@ therefore did not establish the claimed runtime production path. Phase 110 wraps
 original seven-field operation table before reducer application and journals that same complete
 operation. The identity, transaction, history and eligibility decisions above remain valid; their
 production closure is verified from Phase 110 onward.
+
+## Phase 244 Correction
+
+The Phase 105 decision treated a missing CREATE_PAGE background as always selecting Letter. That is
+only the terminal fallback when the note register is null. Original paper UI updates the note via
+`SET_METADATA.pageBackground`; ordinary pages keep a null page register and inherit it. Phase 244
+therefore changed local normal CREATE_PAGE to omit `nz9`, let the production reducer materialize the
+current effective note dimensions, and retain `background_json = NULL` for future inheritance.

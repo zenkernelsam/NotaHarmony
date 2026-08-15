@@ -1,6 +1,10 @@
 // T-037 页面设置面板（尺寸/模板/方向选择，bindPopup 承载）
-import { PageInfo, PaperSize, PaperTemplate, PageOrientation } from '../../core/model/NoteTypes';
-import { clonePageInfo } from '../../core/model/PageBackgroundModel';
+import {
+  NoteBackgroundSettings, PageOrientation, PaperSize, PaperTemplate,
+} from '../../core/model/NoteTypes';
+import {
+  applyOriginalPaperSettings, originalDefaultNoteBackgroundSettings,
+} from '../../core/model/PageBackgroundModel';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 
@@ -23,11 +27,10 @@ interface PaperSizeOption {
 
 @Component
 export struct PageSettingsPanel {
-  @Prop page: PageInfo = { pageId: '', pageIndex: 0, size: 1, template: 0, orientation: 0,
-    widthMm: 210, heightMm: 297 };
+  @Prop settings: NoteBackgroundSettings = originalDefaultNoteBackgroundSettings();
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
-  onApply: (page: PageInfo) => void = () => {
+  onApply: (settings: NoteBackgroundSettings) => void = () => {
   };
 
   private resolveTokens(): ThemeTokens {
@@ -49,23 +52,13 @@ export struct PageSettingsPanel {
             .height(52)
             .justifyContent(FlexAlign.Center)
             .borderRadius(8)
-            .backgroundColor(opt.size === this.page.size ? this.resolveTokens().accent :
+            .backgroundColor(opt.size === this.settings.size ? this.resolveTokens().accent :
               this.resolveTokens().control)
-            .border({ width: 1, color: opt.size === this.page.size ? this.resolveTokens().accent :
+            .border({ width: 1, color: opt.size === this.settings.size ? this.resolveTokens().accent :
               this.resolveTokens().border })
             .onClick(() => {
-              const updated: PageInfo = this.clonePage();
-              updated.background = null;
-              updated.size = opt.size;
-              const dims: number[] = this.dimForSize(opt.size);
-              if (updated.orientation === PageOrientation.LANDSCAPE) {
-                updated.widthMm = dims[1];
-                updated.heightMm = dims[0];
-              } else {
-                updated.widthMm = dims[0];
-                updated.heightMm = dims[1];
-              }
-              this.onApply(updated);
+              this.onApply(applyOriginalPaperSettings(
+                this.settings, opt.size, this.settings.template, this.settings.orientation));
             })
           }
         }, (opt: PaperSizeOption) => opt.size.toString())
@@ -88,10 +81,8 @@ export struct PageSettingsPanel {
             }
             .margin({ right: 12 })
             .onClick(() => {
-              const updated: PageInfo = this.clonePage();
-              updated.background = null;
-              updated.template = tpl;
-              this.onApply(updated);
+              this.onApply(applyOriginalPaperSettings(
+                this.settings, this.settings.size, tpl, this.settings.orientation));
             })
           }, (tpl: PaperTemplate) => tpl.toString())
       }
@@ -104,37 +95,27 @@ export struct PageSettingsPanel {
           .height(36)
           .fontSize(13)
           .margin({ right: 8 })
-          .backgroundColor(this.page.orientation === PageOrientation.PORTRAIT ? this.resolveTokens().accent :
+          .backgroundColor(this.settings.orientation === PageOrientation.PORTRAIT ? this.resolveTokens().accent :
             this.resolveTokens().control)
-          .fontColor(this.page.orientation === PageOrientation.PORTRAIT ? this.resolveTokens().onAccent :
+          .fontColor(this.settings.orientation === PageOrientation.PORTRAIT ? this.resolveTokens().onAccent :
             this.resolveTokens().textPrimary)
           .onClick(() => {
-            const updated: PageInfo = this.clonePage();
-            if (updated.orientation !== PageOrientation.PORTRAIT) {
-              const w: number = updated.widthMm;
-              updated.widthMm = updated.heightMm;
-              updated.heightMm = w;
-              updated.orientation = PageOrientation.PORTRAIT;
-              updated.background = null;
-              this.onApply(updated);
+            if (this.settings.orientation !== PageOrientation.PORTRAIT) {
+              this.onApply(applyOriginalPaperSettings(
+                this.settings, this.settings.size, this.settings.template, PageOrientation.PORTRAIT));
             }
           })
         Button($r('app.string.landscape'))
           .height(36)
           .fontSize(13)
-          .backgroundColor(this.page.orientation === PageOrientation.LANDSCAPE ? this.resolveTokens().accent :
+          .backgroundColor(this.settings.orientation === PageOrientation.LANDSCAPE ? this.resolveTokens().accent :
             this.resolveTokens().control)
-          .fontColor(this.page.orientation === PageOrientation.LANDSCAPE ? this.resolveTokens().onAccent :
+          .fontColor(this.settings.orientation === PageOrientation.LANDSCAPE ? this.resolveTokens().onAccent :
             this.resolveTokens().textPrimary)
           .onClick(() => {
-            const updated: PageInfo = this.clonePage();
-            if (updated.orientation !== PageOrientation.LANDSCAPE) {
-              const w: number = updated.widthMm;
-              updated.widthMm = updated.heightMm;
-              updated.heightMm = w;
-              updated.orientation = PageOrientation.LANDSCAPE;
-              updated.background = null;
-              this.onApply(updated);
+            if (this.settings.orientation !== PageOrientation.LANDSCAPE) {
+              this.onApply(applyOriginalPaperSettings(
+                this.settings, this.settings.size, this.settings.template, PageOrientation.LANDSCAPE));
             }
           })
       }
@@ -153,8 +134,8 @@ export struct PageSettingsPanel {
         .width(60)
         .height(78)
         .backgroundColor(this.resolveTokens().paperBackground)
-        .border({ width: tpl === this.page.template ? 2 : 1,
-          color: tpl === this.page.template ? this.resolveTokens().accent : this.resolveTokens().border })
+        .border({ width: tpl === this.settings.template ? 2 : 1,
+          color: tpl === this.settings.template ? this.resolveTokens().accent : this.resolveTokens().border })
         .borderRadius(4)
       if (tpl === PaperTemplate.LINES) {
         Column() {
@@ -197,33 +178,6 @@ export struct PageSettingsPanel {
     }
     .width(60)
     .height(78)
-  }
-
-  private clonePage(): PageInfo {
-    return clonePageInfo(this.page);
-  }
-
-  private dimForSize(size: PaperSize): number[] {
-    switch (size) {
-      case PaperSize.A3:
-        return [297, 420];
-      case PaperSize.A4:
-        return [210, 297];
-      case PaperSize.A5:
-        return [148, 210];
-      case PaperSize.A6:
-        return [105, 148];
-      case PaperSize.A7:
-        return [74, 105];
-      case PaperSize.LETTER:
-        return [216, 279];
-      case PaperSize.LEGAL:
-        return [216, 356];
-      case PaperSize.TABLOID:
-        return [279, 432];
-      default:
-        return [210, 297];
-    }
   }
 
   private templateLabel(tpl: PaperTemplate): ResourceStr {

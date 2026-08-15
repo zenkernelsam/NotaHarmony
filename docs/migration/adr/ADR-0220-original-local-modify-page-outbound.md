@@ -45,5 +45,9 @@ Accepted，2026-08-16。
 move 虽是原版协议能力，但在没有明确 UI identity 与 Undo 语义前不开放。本阶段仅静态、fixture、Node/SQLite
 与 HAP 构建验证；多端并发和真实上传需设备/服务端联调。
 
+ADR-0221 已进一步划清字段边界：纸张尺寸、模板和方向属于笔记级 `SET_METADATA.pageBackground`，不得借用
+`MODIFY_PAGE.background` 或直接修改当前页物化列。`MODIFY_PAGE.background` 只保留给有明确页面级 setter 证据的
+operation；旧 PAGE_SETTINGS history 命中 original page identity 时会 fail closed，防止绕过 note-level winner。
+
 原版线性证据见
 `docs/migration/evidence/original-local-modify-page-outbound-jadx-2026-08-16.md`。

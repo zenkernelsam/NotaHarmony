@@ -74,3 +74,10 @@ Device acceptance must compare real PDF pixels for all four rotations,
 non-zero margins, mixed crop boxes, missing/pending/corrupt assets, rapid page
 switching and thumbnail refresh. Layout enum behavior stays evidence-gated
 until an original runtime comparison proves additional rendering semantics.
+
+## Phase 244 local paper-setting boundary
+
+ADR-0221 adds the original local `SET_METADATA.pageBackground` writer. Choosing paper size/template/orientation now
+round-trips the complete existing PDF table, 64-byte asset hash, metadata, layout, counts, offset and crop vector while
+replacing only the paper/source-size/margins fields and retaining cardinal rotation. The source orientation shown by the
+picker deliberately ignores that retained rotation, matching original `fad.t()`; rendered width/height still include it.

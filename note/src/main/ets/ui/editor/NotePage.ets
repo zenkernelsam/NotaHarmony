@@ -4,10 +4,13 @@ import { router, promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { audio } from '@kit.AudioKit';
-import { NoteMeta, PageInfo } from '../../core/model/NoteTypes';
+import { NoteBackgroundSettings, NoteMeta, PageInfo } from '../../core/model/NoteTypes';
 import { BrushStyle, brushStyleToInkStyle } from '../../core/model/BrushTypes';
 import { InkStyle } from '../../core/model/StrokeTypes';
-import { clonePageInfo, samePageBackground } from '../../core/model/PageBackgroundModel';
+import {
+  cloneNoteBackgroundSettings, clonePageInfo, originalDefaultNoteBackgroundSettings,
+  sameNoteBackgroundSettings, samePageBackground,
+} from '../../core/model/PageBackgroundModel';
 import { HistoryMetadata } from '../../core/model/OpTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
@@ -53,8 +56,8 @@ import {
 } from '../../core/adaptation/OriginalRecordingHarmonyGateways';
 import { persistCapturedOriginalRecording } from '../../data/OriginalRecordingPersistence';
 import {
-  AddPageAction, DeletePageAction, EditorHistoryBridge, PageContentSnapshot, UndoableAction,
-  UndoableActionType,
+  AddPageAction, DeletePageAction, EditorHistoryBridge, NoteBackgroundAction,
+  PageContentSnapshot, UndoableAction, UndoableActionType,
 } from '../../rendering/UndoRedoManager';
 import { EditorViewModel } from './EditorViewModel';
 import { EditorToolbar } from './EditorToolbar';
@@ -70,6 +73,7 @@ struct NotePage {
   private noteId: string = '';
   @State viewModel: EditorViewModel = new EditorViewModel();
   @State pages: PageInfo[] = [];
+  @State noteBackground: NoteBackgroundSettings = originalDefaultNoteBackgroundSettings();
   @State currentPageIndex: number = 0;
   @State undoSignal: number = 0;
   @State redoSignal: number = 0;
@@ -273,11 +277,13 @@ struct NotePage {
       } else {
         this.pages = loaded;
       }
+      this.noteBackground = await this.pageRepo.getNoteBackground(this.noteId);
       this.currentPageIndex = 0;
       this.pageLoadFailed = false;
       await this.loadRecordings();
     } catch (e) {
       this.pages = [];
+      this.noteBackground = originalDefaultNoteBackgroundSettings();
       this.currentPageIndex = 0;
       this.historyBridge = null;
       this.pageRepo = null;
@@ -899,7 +905,7 @@ struct NotePage {
         PageManagerBar({
           currentPageIndex: this.currentPageIndex,
           pageCount: this.pages.length,
-          currentPage: this.pages[this.currentPageIndex],
+          noteBackground: this.noteBackground,
           busy: this.pageOperationBusy,
           onPrev: () => {
             if (!this.pageLoading && !this.pageOperationBusy && this.currentPageIndex > 0) {
@@ -924,8 +930,9 @@ struct NotePage {
           onMoveNext: () => {
             this.runPageOperation(async (): Promise<void> => this.moveCurrentPage(1));
           },
-          onApplyPage: (page: PageInfo) => {
-            this.runPageOperation(async (): Promise<void> => this.applyPageSettings(page));
+          onApplyNoteBackground: (settings: NoteBackgroundSettings) => {
+            this.runPageOperation(
+              async (): Promise<void> => this.applyNoteBackgroundSettings(settings));
           },
         })
       }
@@ -935,28 +942,32 @@ struct NotePage {
     .backgroundColor(this.resolveTokens().background)
   }
 
-  // T-037：应用页面设置（模板/尺寸/方向 → updatePage 持久化 + 更新当前页）
-  private async applyPageSettings(page: PageInfo): Promise<void> {
+  // Original 1.0.3 applies size/template/orientation through note-level SET_METADATA.
+  private async applyNoteBackgroundSettings(settings: NoteBackgroundSettings): Promise<void> {
     if (this.pageRepo === null) {
       return;
     }
-    const before: PageInfo = this.clonePage(this.pages[this.currentPageIndex]);
-    if (this.samePageSettings(before, page)) {
+    const before: NoteBackgroundSettings = cloneNoteBackgroundSettings(this.noteBackground);
+    if (sameNoteBackgroundSettings(before, settings)) {
       return;
     }
-    const action: UndoableAction = {
-      type: UndoableActionType.PAGE_SETTINGS,
+    const selectedPageId: string = this.pages[this.currentPageIndex].pageId;
+    const action: NoteBackgroundAction = {
+      type: UndoableActionType.NOTE_BACKGROUND,
       noteId: this.noteId,
-      pageId: page.pageId,
-      pageBefore: before,
-      pageAfter: this.clonePage(page),
+      pageId: selectedPageId,
+      selectedPageId: selectedPageId,
+      backgroundBefore: before,
+      backgroundAfter: cloneNoteBackgroundSettings(settings),
     };
     const history: HistoryMetadata | undefined = this.historyBridge === null
       ? undefined : this.historyBridge.preparePageAction(action);
-    await this.pageRepo.updatePage(page, history);
-    const updated: PageInfo[] = this.pages.slice();
-    updated[this.currentPageIndex] = page;
-    this.pages = updated;
+    const materialized: NoteBackgroundSettings = await this.pageRepo.updateNoteBackground(
+      this.noteId, settings, selectedPageId, history);
+    action.backgroundAfter = cloneNoteBackgroundSettings(materialized);
+    this.pages = await this.pageRepo.getPages(this.noteId);
+    this.noteBackground = materialized;
+    this.selectPageById(selectedPageId);
     if (this.historyBridge !== null) {
       this.historyBridge.pushPageAction(action, history);
     }
@@ -990,11 +1001,12 @@ struct NotePage {
     const page: PageInfo = {
       pageId: this.generateId(),
       pageIndex: this.pages.length,
-      size: 1,
-      template: 0,
-      orientation: 0,
-      widthMm: 210.0,
-      heightMm: 297.0,
+      size: this.noteBackground.size,
+      template: this.noteBackground.template,
+      orientation: this.noteBackground.orientation,
+      widthMm: this.noteBackground.widthMm,
+      heightMm: this.noteBackground.heightMm,
+      background: null,
     };
     const orderAfter: string[] = orderBefore.concat([page.pageId]);
     const action: AddPageAction = {
@@ -1136,6 +1148,16 @@ struct NotePage {
         this.selectPageById(page.pageId);
         return true;
       }
+      if (action.type === UndoableActionType.NOTE_BACKGROUND) {
+        const settings: NoteBackgroundSettings = isUndo
+          ? action.backgroundBefore : action.backgroundAfter;
+        const materialized: NoteBackgroundSettings = await this.pageRepo.updateNoteBackground(
+          this.noteId, settings, action.selectedPageId, history);
+        this.pages = await this.pageRepo.getPages(this.noteId);
+        this.noteBackground = materialized;
+        this.selectPageById(action.selectedPageId);
+        return true;
+      }
       if (action.type === UndoableActionType.REORDER_PAGES) {
         const order: string[] = isUndo ? action.pageOrderBefore : action.pageOrderAfter;
         await this.pageRepo.reorderPages(this.noteId, order, action.pageId, history);
@@ -1194,6 +1216,13 @@ struct NotePage {
         }
       }
       return matched === 1;
+    }
+    if (action.type === UndoableActionType.NOTE_BACKGROUND) {
+      const source: NoteBackgroundSettings = isUndo
+        ? action.backgroundAfter : action.backgroundBefore;
+      return action.pageId === action.selectedPageId &&
+        this.countString(currentOrder, action.selectedPageId) === 1 &&
+        sameNoteBackgroundSettings(this.noteBackground, source);
     }
     return false;
   }

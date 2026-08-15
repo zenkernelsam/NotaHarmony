@@ -4,7 +4,7 @@
 import { InkPathCommand, StrokeElementData } from '../core/model/StrokeTypes';
 import { ElementType, RichTextCharacterStyleRun, RichTextParagraphStyleRun,
   ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
-import { PageInfo } from '../core/model/NoteTypes';
+import { NoteBackgroundSettings, PageInfo } from '../core/model/NoteTypes';
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import { OriginalSelectionGroup } from '../core/model/OriginalGroupSelection';
 import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op } from '../core/model/OpTypes';
@@ -32,6 +32,7 @@ export enum UndoableActionType {
   GROUP_ELEMENTS = 18,
   ORIGINAL_CLIPBOARD_PASTE = 19,
   ORIGINAL_PARTIAL_ERASE = 20,
+  NOTE_BACKGROUND = 21,
 }
 
 interface ActionBase {
@@ -474,6 +475,13 @@ export interface PageSettingsAction extends ActionBase {
   pageAfter: PageInfo;
 }
 
+export interface NoteBackgroundAction extends ActionBase {
+  type: UndoableActionType.NOTE_BACKGROUND;
+  selectedPageId: string;
+  backgroundBefore: NoteBackgroundSettings;
+  backgroundAfter: NoteBackgroundSettings;
+}
+
 export interface PersistedPageMutationsAction extends ActionBase {
   type: UndoableActionType.PERSISTED_PAGE_MUTATIONS;
   operations: Op[];
@@ -499,7 +507,7 @@ export type UndoableAction = AddStrokeAction | RemoveStrokeAction | TransformStr
   AddElementAction | DeleteElementAction | ReplaceElementAction | ReorderElementsAction |
   AddShapeAction | AddElementsAction | DeleteElementsAction | TransformElementsAction | EraseElementsAction |
   AddPageAction | DeletePageAction | ReorderPagesAction | PageSettingsAction | PersistedPageMutationsAction |
-  GroupElementsAction | OriginalClipboardPasteAction | OriginalPartialEraseAction;
+  GroupElementsAction | OriginalClipboardPasteAction | OriginalPartialEraseAction | NoteBackgroundAction;
 
 export interface RestoredHistoryAction {
   action: UndoableAction;
@@ -629,6 +637,11 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
   }
   if (action.type === UndoableActionType.REORDER_PAGES) {
     return bytes + estimateStringList(action.pageOrderBefore) + estimateStringList(action.pageOrderAfter);
+  }
+  if (action.type === UndoableActionType.NOTE_BACKGROUND) {
+    return bytes + action.selectedPageId.length * 2 +
+      JSON.stringify(action.backgroundBefore).length * 2 +
+      JSON.stringify(action.backgroundAfter).length * 2;
   }
   if (action.type === UndoableActionType.PERSISTED_PAGE_MUTATIONS) {
     let operationBytes: number = 0;

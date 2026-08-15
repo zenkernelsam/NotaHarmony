@@ -1,12 +1,16 @@
 import { relationalStore } from '@kit.ArkData';
 import { HistoryEffect, HistoryMetadata, OpType } from '../core/model/OpTypes';
-import { PageBackground, PageInfo } from '../core/model/NoteTypes';
+import { NoteBackgroundSettings, PageBackground, PageInfo } from '../core/model/NoteTypes';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { validatePageDimensions } from '../core/model/PageCoordinateSpace';
 import {
-  clonePageBackground, clonePageInfo, parsePageBackground, samePageBackground, serializePageBackground,
+  cloneNoteBackgroundSettings, clonePageBackground, clonePageInfo, noteBackgroundSettingsFromPage,
+  originalDefaultNoteBackgroundSettings, originalPaperOrientation, parsePageBackground,
+  samePageBackground, serializePageBackground,
 } from '../core/model/PageBackgroundModel';
-import { readEffectiveNoteBackground } from './OriginalSetMetadataOperation';
+import {
+  OriginalNoteBackgroundState, readEffectiveNoteBackground, readOriginalNoteBackgroundState,
+} from './OriginalSetMetadataOperation';
 import { PageRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { MutexRelease } from './AsyncMutex';
@@ -26,6 +30,9 @@ import {
   hasAlignedOriginalPageState, originalPageIdentityExists, persistOriginalCreatePage,
   persistOriginalPageReorder, persistOriginalPageVisibility,
 } from './OriginalPagePersistence';
+import {
+  persistOriginalNoteBackground, PersistedOriginalNoteBackground,
+} from './OriginalNoteBackgroundPersistence';
 
 interface CheckpointSearchRow {
   type: number;
@@ -46,6 +53,53 @@ export class PageRepositoryImpl implements PageRepository {
       return await this.queryPages(this.db.getStore(), noteId);
     } catch (e) {
       throw new Error(`getPages failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  async getNoteBackground(noteId: string): Promise<NoteBackgroundSettings> {
+    if (noteId.length === 0) {
+      throw new Error('getNoteBackground failed: note ID is required');
+    }
+    try {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      if (await this.noteHasOriginalPages(store, noteId)) {
+        const state: OriginalNoteBackgroundState = await readOriginalNoteBackgroundState(store, noteId);
+        const decoded = state.effective;
+        return cloneNoteBackgroundSettings({
+          background: decoded.background,
+          registerBackground: state.registerValue === null ? null : state.registerValue.background,
+          template: decoded.template,
+          size: decoded.size,
+          orientation: originalPaperOrientation(decoded.background),
+          widthMm: decoded.widthMm,
+          heightMm: decoded.heightMm,
+        });
+      }
+      const pages: PageInfo[] = await this.queryPages(store, noteId);
+      return pages.length === 0 ? originalDefaultNoteBackgroundSettings() :
+        noteBackgroundSettingsFromPage(pages[0]);
+    } catch (e) {
+      throw new Error(`getNoteBackground failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  async updateNoteBackground(noteId: string, requested: NoteBackgroundSettings,
+    selectedPageId: string, history?: HistoryMetadata): Promise<NoteBackgroundSettings> {
+    const release: MutexRelease = await editorPersistenceMutex.lock();
+    const store: relationalStore.RdbStore = this.db.getStore();
+    try {
+      await store.beginTransaction();
+      try {
+        const persisted: PersistedOriginalNoteBackground = await persistOriginalNoteBackground(
+          store, noteId, requested, selectedPageId, history);
+        await store.commit();
+        return cloneNoteBackgroundSettings(persisted.after);
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`updateNoteBackground failed: ${JSON.stringify(e)}`);
+      }
+    } finally {
+      release();
     }
   }
 
@@ -75,14 +129,18 @@ export class PageRepositoryImpl implements PageRepository {
             await originalPageIdentityExists(store, noteId, page.pageId);
           const assignedPage: PageInfo = restored
             ? (await persistOriginalPageVisibility(store, noteId, page.pageId, false)).page
-            : (await persistOriginalCreatePage(store, noteId, page)).page;
+            : (await persistOriginalCreatePage(store, noteId, null)).page;
           const after: PageInfo[] = await this.queryPages(store, noteId);
           if (history !== undefined) {
             await this.appendStructureHistoryMutation(
               store, noteId, revision, before, after, OpType.CREATE_PAGE, history);
           }
+          const materializedIndex: number = this.findPageIndex(after, assignedPage.pageId);
+          if (materializedIndex < 0) {
+            throw new Error('original CreatePage did not materialize its assigned page');
+          }
           await store.commit();
-          return assignedPage;
+          return this.clonePage(after[materializedIndex]);
         }
         const assignedPage: PageInfo = this.clonePage(page);
         assignedPage.pageIndex = before.length;
@@ -283,6 +341,9 @@ export class PageRepositoryImpl implements PageRepository {
       await store.beginTransaction();
       try {
         const noteId: string = await this.queryPageNoteId(store, page.pageId);
+        if (await originalPageIdentityExists(store, noteId, page.pageId)) {
+          throw new Error('original page settings must use note-level SET_METADATA');
+        }
         const revision: number = await this.queryStructureRevision(store, noteId);
         const before: PageInfo[] = await this.queryPages(store, noteId);
         const pageIndex: number = this.findPageIndex(before, page.pageId);

@@ -1,4 +1,5 @@
-import { PageInfo } from '../../core/model/NoteTypes';
+import { NoteBackgroundSettings } from '../../core/model/NoteTypes';
+import { originalDefaultNoteBackgroundSettings } from '../../core/model/PageBackgroundModel';
 import { PageSettingsPanel } from '../components/PageSettingsPanel';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
@@ -12,8 +13,7 @@ export struct PageManagerBar {
   @Prop currentPageIndex: number = 0;
   @Prop pageCount: number = 1;
   @Prop busy: boolean = false;
-  @Prop currentPage: PageInfo = { pageId: '', pageIndex: 0, size: 1, template: 0, orientation: 0,
-    widthMm: 210, heightMm: 297 };
+  @Prop noteBackground: NoteBackgroundSettings = originalDefaultNoteBackgroundSettings();
   @State showSettings: boolean = false;
   @State compact: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -31,7 +31,7 @@ export struct PageManagerBar {
   };
   onMoveNext: () => void = () => {
   };
-  onApplyPage: (page: PageInfo) => void = () => {
+  onApplyNoteBackground: (settings: NoteBackgroundSettings) => void = () => {
   };
 
   private resolveTokens(): ThemeTokens {
@@ -178,10 +178,10 @@ export struct PageManagerBar {
   @Builder
   PageSettingsBuilder() {
     PageSettingsPanel({
-      page: this.currentPage,
-      onApply: (page: PageInfo) => {
+      settings: this.noteBackground,
+      onApply: (settings: NoteBackgroundSettings) => {
         this.showSettings = false;
-        this.onApplyPage(page);
+        this.onApplyNoteBackground(settings);
       },
     })
   }

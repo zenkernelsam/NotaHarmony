@@ -1,5 +1,5 @@
 import { relationalStore } from '@kit.ArkData';
-import { PageBackground, PageOrientation, PaperSize, PaperTemplate } from '../core/model/NoteTypes';
+import { PageBackground } from '../core/model/NoteTypes';
 import { serializePageBackground } from '../core/model/PageBackgroundModel';
 import {
   compareOriginalSequenceIdentity, encodeOriginalPageStorageId, encodeOriginalSequenceId,
@@ -20,6 +20,7 @@ import {
   mergeOriginalAssetReference, OriginalAssetReferenceConflict,
 } from './OriginalAssetReferenceStore';
 import { initializeOriginalPageInAsset } from './OriginalPageInAssetState';
+import { readEffectiveNoteBackground } from './OriginalSetMetadataOperation';
 
 export const ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE: number = 3;
 export const MAX_ORIGINAL_CREATE_PAGE_COUNT: number = 10000;
@@ -485,17 +486,21 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
   private async insertBlankPages(store: relationalStore.RdbStore, noteId: string,
     pageIds: string[], existingPageCount: number,
     decoded: OriginalDecodedPageBackground | null): Promise<void> {
+    // A normal original CREATE_PAGE omits nz9 and inherits SET_METADATA. Letter is
+    // only the fallback when the note has no materialized background winner.
+    const effective: OriginalDecodedPageBackground = decoded === null
+      ? await readEffectiveNoteBackground(store, noteId) : decoded;
     for (let index: number = 0; index < pageIds.length; index++) {
       const background: PageBackground | null = decoded === null ? null : decoded.background;
       await store.insert('page_info', {
         'page_id': pageIds[index],
         'note_id': noteId,
         'page_index': -(existingPageCount + index + 1),
-        'size': decoded === null ? PaperSize.LETTER : decoded.size,
-        'template': decoded === null ? PaperTemplate.PLAIN : decoded.template,
-        'orientation': decoded === null ? PageOrientation.PORTRAIT : decoded.orientation,
-        'width_mm': decoded === null ? ORIGINAL_DEFAULT_PAGE_WIDTH_MM : decoded.widthMm,
-        'height_mm': decoded === null ? ORIGINAL_DEFAULT_PAGE_HEIGHT_MM : decoded.heightMm,
+        'size': effective.size,
+        'template': effective.template,
+        'orientation': effective.orientation,
+        'width_mm': effective.widthMm,
+        'height_mm': effective.heightMm,
         'background_json': serializePageBackground(background),
         'original_page_in_asset': decoded === null || decoded.background.pdf === undefined ||
           decoded.background.pdf === null ? index : decoded.background.pdf.pageOffset + index,
