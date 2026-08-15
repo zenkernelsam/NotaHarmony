@@ -1,12 +1,15 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
-  AddStrokeAction, buildPartialEraseReplacementMap, estimateHistoryActionBytes,
+  AddStrokeAction, buildPartialEraseElementReplacementMap, buildPartialEraseReplacementMap,
+  estimateHistoryActionBytes,
   GroupElementsAction, HistoryMetrics, partialEraseElementOrder, RestoredHistoryAction,
-  UndoableAction, UndoableActionType, UndoRedoManager, validatePartialEraseStrokeHistoryState,
+  partialEraseMixedElementOrder, UndoableAction, UndoableActionType, UndoRedoManager,
+  validatePartialEraseElementHistoryState, validatePartialEraseStrokeHistoryState,
 } from '../main/ets/rendering/UndoRedoManager';
 import { HistoryCoalesceTrack, HistoryEffect } from '../main/ets/core/model/OpTypes';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import { PageElementKind, PageElementRef } from '../main/ets/core/model/PageElementOrder';
+import { ElementType, ShapeElement } from '../main/ets/core/model/ElementTypes';
 
 function makeAction(pageId: string): AddStrokeAction {
   return {
@@ -86,6 +89,44 @@ export default function undoRedoManagerTest() {
           .assertEqual('keep-before,remnant-a-0,remnant-a-1,shape-middle,remnant-b-0,keep-after');
       }
       expect(buildPartialEraseReplacementMap(sources, remnants, [1, 1]) === null).assertTrue();
+    });
+
+    it('replaces mixed Stroke and Shape sources with Ink in full-page order', 0, () => {
+      const keep: StrokeElementData = historyStroke('keep');
+      const sourceStroke: StrokeElementData = historyStroke('source-stroke');
+      const sourceShape: ShapeElement = {
+        id: 'source-shape', type: ElementType.POLYGON,
+        transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: 0, top: 0, right: 10, bottom: 10 },
+        vertices: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 0, y: 10 }],
+        isClosed: true, color: 0xFF102030, strokeWidth: 2, fillColor: null,
+      };
+      const strokeRemnant: StrokeElementData = historyStroke('stroke-remnant');
+      const shapeRemnant0: StrokeElementData = historyStroke('shape-remnant-0');
+      const shapeRemnant1: StrokeElementData = historyStroke('shape-remnant-1');
+      const sourceRefs: PageElementRef[] = [
+        { kind: PageElementKind.STROKE, elementId: sourceStroke.id, zIndex: 1 },
+        { kind: PageElementKind.SHAPE, elementId: sourceShape.id, zIndex: 3 },
+      ];
+      const remnants: StrokeElementData[] = [strokeRemnant, shapeRemnant0, shapeRemnant1];
+      const replacement = buildPartialEraseElementReplacementMap(sourceRefs, remnants, [1, 2]);
+      expect(replacement !== null).assertTrue();
+      const orderBefore: PageElementRef[] = [
+        { kind: PageElementKind.STROKE, elementId: keep.id, zIndex: 0 },
+        sourceRefs[0],
+        { kind: PageElementKind.TEXT, elementId: 'text-middle', zIndex: 2 },
+        sourceRefs[1],
+      ];
+      const orderAfter: PageElementRef[] | null = replacement === null ? null :
+        partialEraseMixedElementOrder(orderBefore, replacement);
+      expect(orderAfter?.map((ref: PageElementRef): string => ref.elementId).join(','))
+        .assertEqual('keep,stroke-remnant,text-middle,shape-remnant-0,shape-remnant-1');
+      expect(validatePartialEraseElementHistoryState(
+        [keep, sourceStroke], [sourceShape], sourceRefs, [sourceStroke], [1], [sourceShape], [0],
+        remnants, [1, 2, 3], [1, 2], false)).assertTrue();
+      expect(validatePartialEraseElementHistoryState(
+        [keep, strokeRemnant, shapeRemnant0, shapeRemnant1], [], sourceRefs,
+        [sourceStroke], [1], [sourceShape], [0], remnants, [1, 2, 3], [1, 2], true)).assertTrue();
     });
 
     it('accounts and moves a persisted Group action as a single boundary', 0, () => {

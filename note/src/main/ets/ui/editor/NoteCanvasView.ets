@@ -30,15 +30,16 @@ import {
 import { CanvasViewport, CumulativeGestureTracker } from '../../rendering/CanvasViewport';
 import { pagePixelSize, PAGE_UNITS_PER_MM, PagePixelSize } from '../../core/model/PageCoordinateSpace';
 import { StrokeSession } from '../../rendering/StrokeSession';
+import { EraserEngine, EraserMode } from '../../rendering/EraserEngine';
 import {
-  EraserEngine, EraserMode, PartialEraseReplacement,
-} from '../../rendering/EraserEngine';
+  OriginalShapePartialEraser, ShapePartialEraseReplacement,
+} from '../../rendering/OriginalShapePartialEraser';
 import { PaperRenderer } from '../../rendering/PaperRenderer';
 import {
-  buildPartialEraseReplacementMap, EditorHistoryBridge, GroupElementsAction, HistoryMove,
+  buildPartialEraseElementReplacementMap, EditorHistoryBridge, GroupElementsAction, HistoryMove,
   OriginalClipboardPasteAction, OriginalPartialEraseAction, PageContentSnapshot,
-  partialEraseElementOrder, UndoRedoManager, UndoableAction, UndoableActionType,
-  validatePartialEraseStrokeHistoryState,
+  PartialEraseElementReplacement, partialEraseMixedElementOrder, UndoRedoManager,
+  UndoableAction, UndoableActionType, validatePartialEraseElementHistoryState,
 } from '../../rendering/UndoRedoManager';
 import { HistoryMetadata, Op, OpType } from '../../core/model/OpTypes';
 import { SelectionTool, SelectionMode } from '../../rendering/SelectionTool';
@@ -1741,22 +1742,45 @@ export struct NoteCanvasView {
       return;
     }
     if (this.eraserEngine.getMode() === EraserMode.PARTIAL) {
-      const result = this.eraserEngine.erase(
+      const strokeResult = this.eraserEngine.erase(
         this.eraserPath, this.partialEraserCandidateStrokes());
-      if (result.partialReplacements.length === 0) {
+      const shapeReplacements: ShapePartialEraseReplacement[] =
+        new OriginalShapePartialEraser(this.eraserEngine.getWidth()).erase(
+          this.eraserPath, this.shapes);
+      const replacements: OriginalPartialEraseReplacementPlan[] = [];
+      for (const replacement of strokeResult.partialReplacements) {
+        replacements.push({
+          sourceKind: PageElementKind.STROKE,
+          source: replacement.sourceStroke,
+          remnants: replacement.remnants,
+        });
+      }
+      for (const replacement of shapeReplacements) {
+        replacements.push({
+          sourceKind: PageElementKind.SHAPE,
+          source: replacement.sourceShape,
+          remnants: replacement.remnants,
+        });
+      }
+      if (replacements.length === 0) {
         return;
       }
+      const orderRanks: Map<string, number> = new Map<string, number>();
+      for (let index: number = 0; index < this.elementOrder.length; index++) {
+        const ref: PageElementRef = this.elementOrder[index];
+        orderRanks.set(`${ref.kind}:${ref.elementId}`, index);
+      }
+      replacements.sort((left: OriginalPartialEraseReplacementPlan,
+        right: OriginalPartialEraseReplacementPlan): number =>
+        (orderRanks.get(`${left.sourceKind}:${left.source.id}`) ?? Number.MAX_SAFE_INTEGER) -
+        (orderRanks.get(`${right.sourceKind}:${right.source.id}`) ?? Number.MAX_SAFE_INTEGER));
       const plan: OriginalPartialErasePlan = {
-        replacements: result.partialReplacements.map(
-          (replacement: PartialEraseReplacement): OriginalPartialEraseReplacementPlan => ({
-            source: replacement.sourceStroke,
-            remnants: replacement.remnants,
-          })),
+        replacements: replacements,
       };
       if (this.canCommitOriginalPartialErase(plan)) {
-        this.commitOriginalPartialErase(plan, result.partialReplacements);
+        this.commitOriginalPartialErase(plan);
       } else {
-        this.applyPartialEraseLocally(result.partialReplacements);
+        this.applyPartialEraseLocally(plan);
       }
       return;
     }
@@ -1900,9 +1924,18 @@ export struct NoteCanvasView {
     if (this.originalInkIneligiblePages.has(this.loadedPageId)) {
       return false;
     }
-    const sources: StrokeElementData[] = plan.replacements.map(
-      (replacement: OriginalPartialEraseReplacementPlan): StrokeElementData => replacement.source);
-    if (!this.areCanonicalOriginalStrokes(sources)) {
+    const strokeIds: string[] = [];
+    const shapeIds: string[] = [];
+    for (const replacement of plan.replacements) {
+      if (replacement.sourceKind === PageElementKind.STROKE) {
+        strokeIds.push(replacement.source.id);
+      } else if (replacement.sourceKind === PageElementKind.SHAPE) {
+        shapeIds.push(replacement.source.id);
+      } else {
+        return false;
+      }
+    }
+    if (!this.areCanonicalOriginalPositionSelection(strokeIds, shapeIds, [], [], [])) {
       return false;
     }
     try {
@@ -1913,8 +1946,7 @@ export struct NoteCanvasView {
     }
   }
 
-  private commitOriginalPartialErase(plan: OriginalPartialErasePlan,
-    replacements: PartialEraseReplacement[]): void {
+  private commitOriginalPartialErase(plan: OriginalPartialErasePlan): void {
     const generation: number = this.pageLoadGeneration;
     const pageId: string = this.loadedPageId;
     const draftOperation: Op = {
@@ -1955,7 +1987,7 @@ export struct NoteCanvasView {
         if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
           pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
           !this.dataLoadFailed) {
-          this.applyPartialEraseLocally(replacements, prepared);
+          this.applyPartialEraseLocally(plan, prepared);
         }
       }).finally((): void => {
         this.historyBusy = false;
@@ -1966,37 +1998,70 @@ export struct NoteCanvasView {
       });
   }
 
-  private applyPartialEraseLocally(replacements: PartialEraseReplacement[],
+  private applyPartialEraseLocally(plan: OriginalPartialErasePlan,
     history?: HistoryMetadata): void {
-    const replacementById: Map<string, StrokeElementData[]> = new Map<string, StrokeElementData[]>();
+    if (plan.replacements.length === 0) {
+      return;
+    }
+    const planByKey: Map<string, OriginalPartialEraseReplacementPlan> =
+      new Map<string, OriginalPartialEraseReplacementPlan>();
     const sourceIds: Set<string> = new Set<string>();
-    for (const replacement of replacements) {
-      if (replacement.sourceStroke.id.length === 0 || sourceIds.has(replacement.sourceStroke.id)) {
+    for (const replacement of plan.replacements) {
+      if ((replacement.sourceKind !== PageElementKind.STROKE &&
+        replacement.sourceKind !== PageElementKind.SHAPE) || replacement.source.id.length === 0 ||
+        sourceIds.has(replacement.source.id)) {
         return;
       }
-      sourceIds.add(replacement.sourceStroke.id);
-      replacementById.set(replacement.sourceStroke.id, replacement.remnants);
+      sourceIds.add(replacement.source.id);
+      planByKey.set(`${replacement.sourceKind}:${replacement.source.id}`, replacement);
     }
-    const existingStrokeIds: Set<string> = new Set<string>();
-    for (const stroke of this.completedStrokes) {
-      existingStrokeIds.add(stroke.id);
+    const existingElementIds: Set<string> = new Set<string>();
+    for (const ref of this.elementOrder) {
+      existingElementIds.add(ref.elementId);
     }
     const remnantIds: Set<string> = new Set<string>();
-    for (const replacement of replacements) {
+    for (const replacement of plan.replacements) {
       for (const remnant of replacement.remnants) {
         if (remnant.id.length === 0 || sourceIds.has(remnant.id) ||
-          existingStrokeIds.has(remnant.id) || remnantIds.has(remnant.id)) {
+          existingElementIds.has(remnant.id) || remnantIds.has(remnant.id)) {
           return;
         }
         remnantIds.add(remnant.id);
       }
     }
-    const groupReplacements: OriginalPartialEraseGroupReplacement[] = replacements.map(
-      (replacement: PartialEraseReplacement): OriginalPartialEraseGroupReplacement => ({
-        sourceId: replacement.sourceStroke.id,
+    const sourceRefs: PageElementRef[] = [];
+    for (const ref of this.elementOrder) {
+      if (planByKey.has(`${ref.kind}:${ref.elementId}`)) {
+        sourceRefs.push({ kind: ref.kind, elementId: ref.elementId, zIndex: ref.zIndex });
+      }
+    }
+    if (sourceRefs.length !== plan.replacements.length) {
+      return;
+    }
+    const added: StrokeElementData[] = [];
+    const addedCounts: number[] = [];
+    const groupReplacements: OriginalPartialEraseGroupReplacement[] = [];
+    for (const ref of sourceRefs) {
+      const replacement: OriginalPartialEraseReplacementPlan | undefined =
+        planByKey.get(`${ref.kind}:${ref.elementId}`);
+      if (replacement === undefined) {
+        return;
+      }
+      addedCounts.push(replacement.remnants.length);
+      for (const remnant of replacement.remnants) {
+        added.push(remnant);
+      }
+      groupReplacements.push({
+        sourceId: ref.elementId,
         remnantIds: replacement.remnants.map(
           (remnant: StrokeElementData): string => remnant.id),
-      }));
+      });
+    }
+    const replacementByKey: Map<string, PartialEraseElementReplacement> | null =
+      buildPartialEraseElementReplacementMap(sourceRefs, added, addedCounts);
+    if (replacementByKey === null) {
+      return;
+    }
     let groupPlan: OriginalPartialEraseGroupPlan;
     try {
       groupPlan = planLocalPartialEraseGroups(this.selectionGroups, groupReplacements);
@@ -2004,37 +2069,90 @@ export struct NoteCanvasView {
       return;
     }
     const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
-    const elementOrderAfter: PageElementRef[] | null = partialEraseElementOrder(
-      this.elementOrder, replacementById);
+    const elementOrderAfter: PageElementRef[] | null = partialEraseMixedElementOrder(
+      this.elementOrder, replacementByKey);
     if (elementOrderAfter === null) {
       return;
     }
-    const removed: StrokeElementData[] = [];
-    const removedIndices: number[] = [];
-    const added: StrokeElementData[] = [];
-    const addedIndices: number[] = [];
-    const addedCounts: number[] = [];
-    const next: StrokeElementData[] = [];
-    for (let index: number = 0; index < this.completedStrokes.length; index++) {
-      const stroke: StrokeElementData = this.completedStrokes[index];
-      const remnants: StrokeElementData[] | undefined = replacementById.get(stroke.id);
-      if (remnants === undefined) {
-        next.push(stroke);
-        continue;
-      }
-      removed.push(stroke);
-      removedIndices.push(index);
-      addedCounts.push(remnants.length);
-      for (const remnant of remnants) {
-        addedIndices.push(next.length);
-        next.push(remnant);
-        added.push(remnant);
+    const sourceStrokeIds: Set<string> = new Set<string>();
+    const sourceShapeIds: Set<string> = new Set<string>();
+    for (const ref of sourceRefs) {
+      if (ref.kind === PageElementKind.STROKE) {
+        sourceStrokeIds.add(ref.elementId);
+      } else {
+        sourceShapeIds.add(ref.elementId);
       }
     }
-    if (removed.length !== replacements.length) {
+    const removed: StrokeElementData[] = [];
+    const removedIndices: number[] = [];
+    const retainedStrokesById: Map<string, StrokeElementData> = new Map<string, StrokeElementData>();
+    for (let index: number = 0; index < this.completedStrokes.length; index++) {
+      const stroke: StrokeElementData = this.completedStrokes[index];
+      if (sourceStrokeIds.has(stroke.id)) {
+        removed.push(stroke);
+        removedIndices.push(index);
+      } else if (retainedStrokesById.has(stroke.id)) {
+        return;
+      } else {
+        retainedStrokesById.set(stroke.id, stroke);
+      }
+    }
+    const removedShapes: ShapeElement[] = [];
+    const removedShapeIndices: number[] = [];
+    const nextShapes: ShapeElement[] = [];
+    for (let index: number = 0; index < this.shapes.length; index++) {
+      const shape: ShapeElement = this.shapes[index];
+      if (sourceShapeIds.has(shape.id)) {
+        removedShapes.push(shape);
+        removedShapeIndices.push(index);
+      } else {
+        nextShapes.push(shape);
+      }
+    }
+    if (removed.length !== sourceStrokeIds.size || removedShapes.length !== sourceShapeIds.size) {
+      return;
+    }
+    const addedById: Map<string, StrokeElementData> = new Map<string, StrokeElementData>();
+    for (const remnant of added) {
+      addedById.set(remnant.id, remnant);
+    }
+    const next: StrokeElementData[] = [];
+    const nextIds: Set<string> = new Set<string>();
+    for (const ref of elementOrderAfter) {
+      if (ref.kind !== PageElementKind.STROKE) {
+        continue;
+      }
+      const stroke: StrokeElementData | undefined =
+        retainedStrokesById.get(ref.elementId) ?? addedById.get(ref.elementId);
+      if (stroke === undefined || nextIds.has(stroke.id)) {
+        return;
+      }
+      nextIds.add(stroke.id);
+      next.push(stroke);
+    }
+    if (next.length !== retainedStrokesById.size + added.length) {
+      return;
+    }
+    const nextStrokeIndexById: Map<string, number> = new Map<string, number>();
+    for (let index: number = 0; index < next.length; index++) {
+      nextStrokeIndexById.set(next[index].id, index);
+    }
+    const addedIndices: number[] = [];
+    for (const remnant of added) {
+      const index: number | undefined = nextStrokeIndexById.get(remnant.id);
+      if (index === undefined || (addedIndices.length > 0 &&
+        index <= addedIndices[addedIndices.length - 1])) {
+        return;
+      }
+      addedIndices.push(index);
+    }
+    if (!validatePartialEraseElementHistoryState(
+      this.completedStrokes, this.shapes, sourceRefs, removed, removedIndices,
+      removedShapes, removedShapeIndices, added, addedIndices, addedCounts, false)) {
       return;
     }
     this.completedStrokes = next;
+    this.shapes = nextShapes;
     this.elementOrder = elementOrderAfter;
     this.undoRedo.push({
       type: UndoableActionType.ERASE_ELEMENTS,
@@ -2045,12 +2163,13 @@ export struct NoteCanvasView {
       addedStrokes: added,
       addedStrokeIndices: addedIndices,
       addedStrokeCounts: addedCounts,
+      partialEraseSourceRefs: sourceRefs,
       partialEraseBeforeGroups: groupPlan.beforeGroups,
       partialEraseAfterGroups: groupPlan.afterGroups,
       beforeModifiedStrokes: [],
       afterModifiedStrokes: [],
-      removedShapes: [],
-      removedShapeIndices: [],
+      removedShapes: removedShapes,
+      removedShapeIndices: removedShapeIndices,
       removedTextBlocks: [],
       removedTextBlockIndices: [],
       removedImages: [],
@@ -2465,6 +2584,10 @@ export struct NoteCanvasView {
         this.areCanonicalOriginalStrokes(action.removedStrokes);
     }
     if (action.type === UndoableActionType.ERASE_ELEMENTS) {
+      if ((action.partialEraseSourceRefs ?? []).length > 0 ||
+        (action.addedStrokeCounts ?? []).length > 0) {
+        return false;
+      }
       return (action.addedStrokes ?? []).length === 0 &&
         action.beforeModifiedStrokes.length === 0 && action.afterModifiedStrokes.length === 0 &&
         this.areCanonicalOriginalPositionSelection(
@@ -2574,7 +2697,8 @@ export struct NoteCanvasView {
       const addedStrokes: StrokeElementData[] = action.addedStrokes ?? [];
       const addedStrokeIndices: number[] = action.addedStrokeIndices ?? [];
       const addedStrokeCounts: number[] = action.addedStrokeCounts ?? [];
-      const hasPartialReplacement: boolean = addedStrokes.length > 0 ||
+      const hasPartialReplacement: boolean = (action.partialEraseSourceRefs ?? []).length > 0 ||
+        addedStrokes.length > 0 ||
         addedStrokeIndices.length > 0 || addedStrokeCounts.length > 0;
       const partialTargetGroups: OriginalSelectionGroup[] | null = hasPartialReplacement ?
         replayOriginalPartialEraseGroups(
@@ -2803,7 +2927,12 @@ export struct NoteCanvasView {
       const addedStrokes: StrokeElementData[] = action.addedStrokes ?? [];
       const addedStrokeIndices: number[] = action.addedStrokeIndices ?? [];
       const addedStrokeCounts: number[] = action.addedStrokeCounts ?? [];
-      const hasPartialReplacement: boolean = addedStrokes.length > 0 ||
+      const partialEraseSourceRefs: PageElementRef[] = action.partialEraseSourceRefs ??
+        action.removedStrokes.map((stroke: StrokeElementData, index: number): PageElementRef => ({
+          kind: PageElementKind.STROKE, elementId: stroke.id, zIndex: index,
+        }));
+      const hasPartialReplacement: boolean = (action.partialEraseSourceRefs ?? []).length > 0 ||
+        addedStrokes.length > 0 ||
         addedStrokeIndices.length > 0 || addedStrokeCounts.length > 0;
       const partialEraseBeforeGroups: OriginalSelectionGroup[] =
         action.partialEraseBeforeGroups ?? [];
@@ -2830,8 +2959,10 @@ export struct NoteCanvasView {
           this.selectionGroups, partialEraseBeforeGroups, partialEraseAfterGroups, !isUndo) === null)) {
         return false;
       }
-      if (hasPartialReplacement && !validatePartialEraseStrokeHistoryState(
-        this.completedStrokes, action.removedStrokes, action.removedStrokeIndices,
+      if (hasPartialReplacement && !validatePartialEraseElementHistoryState(
+        this.completedStrokes, this.shapes, partialEraseSourceRefs,
+        action.removedStrokes, action.removedStrokeIndices,
+        action.removedShapes, action.removedShapeIndices,
         addedStrokes, addedStrokeIndices, addedStrokeCounts, isUndo)) {
         return false;
       }
@@ -3142,18 +3273,23 @@ export struct NoteCanvasView {
       const addedStrokes: StrokeElementData[] = action.addedStrokes ?? [];
       const addedStrokeIndices: number[] = action.addedStrokeIndices ?? [];
       const addedStrokeCounts: number[] = action.addedStrokeCounts ?? [];
-      const hasPartialReplacement: boolean = addedStrokes.length > 0 ||
+      const partialEraseSourceRefs: PageElementRef[] = action.partialEraseSourceRefs ??
+        action.removedStrokes.map((stroke: StrokeElementData, index: number): PageElementRef => ({
+          kind: PageElementKind.STROKE, elementId: stroke.id, zIndex: index,
+        }));
+      const hasPartialReplacement: boolean = (action.partialEraseSourceRefs ?? []).length > 0 ||
+        addedStrokes.length > 0 ||
         addedStrokeIndices.length > 0 || addedStrokeCounts.length > 0;
       let withoutStrokes: PageElementRef[];
       if (hasPartialReplacement) {
-        const replacementById: Map<string, StrokeElementData[]> | null =
-          buildPartialEraseReplacementMap(
-            action.removedStrokes, addedStrokes, addedStrokeCounts);
-        if (replacementById === null) {
+        const replacementByKey: Map<string, PartialEraseElementReplacement> | null =
+          buildPartialEraseElementReplacementMap(
+            partialEraseSourceRefs, addedStrokes, addedStrokeCounts);
+        if (replacementByKey === null) {
           return false;
         }
-        const replaced: PageElementRef[] | null = partialEraseElementOrder(
-          action.elementOrderBefore, replacementById);
+        const replaced: PageElementRef[] | null = partialEraseMixedElementOrder(
+          action.elementOrderBefore, replacementByKey);
         if (replaced === null) {
           return false;
         }
@@ -3162,8 +3298,8 @@ export struct NoteCanvasView {
         withoutStrokes = removePageElementRefs(
           action.elementOrderBefore, PageElementKind.STROKE, strokeIds);
       }
-      const withoutShapes: PageElementRef[] = removePageElementRefs(
-        withoutStrokes, PageElementKind.SHAPE, shapeIds);
+      const withoutShapes: PageElementRef[] = hasPartialReplacement ? withoutStrokes :
+        removePageElementRefs(withoutStrokes, PageElementKind.SHAPE, shapeIds);
       const withoutTexts: PageElementRef[] = removePageElementRefs(
         withoutShapes, PageElementKind.TEXT, textIds);
       const withoutImages: PageElementRef[] = removePageElementRefs(

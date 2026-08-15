@@ -204,7 +204,8 @@ export interface OriginalMathInsertResult {
 }
 
 export interface OriginalPartialEraseReplacementPlan {
-  source: StrokeElementData;
+  sourceKind: PageElementKind.STROKE | PageElementKind.SHAPE;
+  source: StrokeElementData | ShapeElement;
   remnants: StrokeElementData[];
 }
 
@@ -244,12 +245,29 @@ export function validateOriginalPartialErasePlan(plan: OriginalPartialErasePlan)
   let entityCount: number = 0;
   const page: OriginalSequenceIdentity = { timestamp: 1, siteId: 1, index: 0 };
   for (const replacement of plan.replacements) {
-    if (decodeOperationId(replacement.source.id) === null || sourceIds.has(replacement.source.id) ||
-      remnantIds.has(replacement.source.id) ||
-      replacement.source.renderSpec.isPencil || replacement.source.renderSpec.isPartialEraser === true) {
-      throw new Error('original partial erase plan has an invalid source Ink');
+    const sourceId: string = replacement.source.id;
+    if (decodeOperationId(sourceId) === null || sourceIds.has(sourceId) || remnantIds.has(sourceId)) {
+      throw new Error('original partial erase plan has an invalid source entity');
     }
-    sourceIds.add(replacement.source.id);
+    if (replacement.sourceKind === PageElementKind.STROKE) {
+      const source: StrokeElementData = replacement.source as StrokeElementData;
+      if (source.renderSpec === undefined || source.renderSpec.isPencil ||
+        source.renderSpec.isPartialEraser === true) {
+        throw new Error('original partial erase plan has an invalid source Ink');
+      }
+    } else if (replacement.sourceKind === PageElementKind.SHAPE) {
+      const source: ShapeElement = replacement.source as ShapeElement;
+      if ((source.type !== ElementType.ELLIPSE && source.type !== ElementType.POLYGON &&
+        source.type !== ElementType.LINE) || source.positionLocked === true ||
+        !Number.isInteger(source.originalTool) || (source.originalTool as number) < 0 ||
+        (source.originalTool as number) > 3 || !Number.isInteger(source.originalStyle) ||
+        (source.originalStyle as number) < 1 || (source.originalStyle as number) > 3) {
+        throw new Error('original partial erase plan has an invalid source Shape');
+      }
+    } else {
+      throw new Error('original partial erase plan has an unsupported source kind');
+    }
+    sourceIds.add(sourceId);
     entityCount++;
     for (const remnant of replacement.remnants) {
       if (remnant.id.length === 0 || sourceIds.has(remnant.id) || remnantIds.has(remnant.id) ||
@@ -1481,19 +1499,18 @@ export class StrokePersistence {
           }
           for (const replacement of stablePlan.replacements) {
             const stored: SearchSourceElement | undefined =
-              beforeById.get(`${PageElementKind.STROKE}:${replacement.source.id}`);
-            const expected: Uint8Array = encodePersistedElement({
-              kind: 'stroke', data: replacement.source,
-            });
+              beforeById.get(`${replacement.sourceKind}:${replacement.source.id}`);
+            const expected: Uint8Array = encodePersistedElement(
+              partialEraseSourcePersistedElement(replacement));
             if (stored === undefined || !sameByteArrays(stored.payload, expected)) {
-              throw new Error('original partial erase source Ink is stale');
+              throw new Error('original partial erase source entity is stale');
             }
           }
           const draftGroupPlan: OriginalPartialEraseGroupPlan =
             planOriginalPartialEraseGroups(activeGroups, stablePlan.replacements.map(
               (replacement: OriginalPartialEraseReplacementPlan):
                 OriginalPartialEraseGroupReplacement => ({
-                sourceId: replacement.source.id,
+                 sourceId: replacement.source.id,
                 remnantIds: replacement.remnants.map(
                   (remnant: StrokeElementData): string => remnant.id),
               })));
@@ -1518,7 +1535,7 @@ export class StrokePersistence {
             const sourceIdentity: OperationIdentity =
               decodeOperationId(replacement.source.id) as OperationIdentity;
             const sourceZIndex: string | null = await this.readOriginalEntityZIndex(
-              store, noteId, page, sourceIdentity);
+              store, noteId, page, sourceIdentity, replacement.sourceKind);
             if (sourceZIndex === null) {
               throw new Error('original partial erase source z-index disappeared');
             }
@@ -1604,8 +1621,8 @@ export class StrokePersistence {
             materializedIds.add(`${element.kind}:${element.elementId}`);
           }
           for (const replacement of stablePlan.replacements) {
-            if (materializedIds.has(`${PageElementKind.STROKE}:${replacement.source.id}`)) {
-              throw new Error('original partial erase retained a source Ink');
+            if (materializedIds.has(`${replacement.sourceKind}:${replacement.source.id}`)) {
+              throw new Error('original partial erase retained a source entity');
             }
           }
           for (const id of createdIds) {
@@ -5087,13 +5104,14 @@ export class StrokePersistence {
   }
 
   private async readOriginalEntityZIndex(store: relationalStore.RdbStore, noteId: string,
-    page: OriginalSequenceIdentity, entity: OperationIdentity): Promise<string | null> {
+    page: OriginalSequenceIdentity, entity: OperationIdentity,
+    kind: PageElementKind = PageElementKind.STROKE): Promise<string | null> {
     const rows = await store.querySql(
       `SELECT z_index FROM original_element_z_index WHERE note_id = ?
        AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
        AND element_timestamp = ? AND element_site_id = ? AND kind = ? AND visible = 1`,
       [noteId, page.timestamp, page.siteId, page.index,
-        entity.timestamp, entity.siteId, PageElementKind.STROKE]);
+        entity.timestamp, entity.siteId, kind]);
     try {
       if (!rows.goToFirstRow()) {
         return null;
@@ -5947,10 +5965,21 @@ function cloneOriginalPartialErasePlan(plan: OriginalPartialErasePlan): Original
   return {
     replacements: plan.replacements.map(
       (replacement: OriginalPartialEraseReplacementPlan): OriginalPartialEraseReplacementPlan => ({
-        source: cloneStrokeThroughPersistence(replacement.source),
+        sourceKind: replacement.sourceKind,
+        source: replacement.sourceKind === PageElementKind.STROKE ?
+          cloneStrokeThroughPersistence(replacement.source as StrokeElementData) :
+          cloneShapeElement(replacement.source as ShapeElement),
         remnants: replacement.remnants.map(cloneStrokeThroughPersistence),
       })),
   };
+}
+
+function partialEraseSourcePersistedElement(
+  replacement: OriginalPartialEraseReplacementPlan): PersistedElement {
+  if (replacement.sourceKind === PageElementKind.STROKE) {
+    return { kind: 'stroke', data: replacement.source as StrokeElementData };
+  }
+  return { kind: 'shape', data: replacement.source as ShapeElement };
 }
 
 function materializeOriginalMathCreate(id: string,

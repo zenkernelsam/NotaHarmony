@@ -67,6 +67,9 @@ export interface EraseElementsAction extends ActionBase, ElementOrderChange {
   addedStrokes?: StrokeElementData[];
   addedStrokeIndices?: number[];
   addedStrokeCounts?: number[];
+  // Full-page source order for mixed Stroke/Shape -> Ink partial erase.
+  // Optional keeps pre-Phase-239 stroke-only in-memory actions readable.
+  partialEraseSourceRefs?: PageElementRef[];
   partialEraseBeforeGroups?: OriginalSelectionGroup[];
   partialEraseAfterGroups?: OriginalSelectionGroup[];
   beforeModifiedStrokes: StrokeElementData[];
@@ -79,6 +82,82 @@ export interface EraseElementsAction extends ActionBase, ElementOrderChange {
   removedImageIndices: number[];
   removedMathBlocks?: MathElement[];
   removedMathBlockIndices?: number[];
+}
+
+export interface PartialEraseElementReplacement {
+  sourceKind: PageElementKind.STROKE | PageElementKind.SHAPE;
+  sourceId: string;
+  remnants: StrokeElementData[];
+}
+
+export function buildPartialEraseElementReplacementMap(sources: PageElementRef[],
+  remnants: StrokeElementData[], remnantCounts: number[]):
+  Map<string, PartialEraseElementReplacement> | null {
+  if (sources.length === 0 || remnantCounts.length !== sources.length) {
+    return null;
+  }
+  const sourceIds: Set<string> = new Set<string>();
+  const sourceKeys: Set<string> = new Set<string>();
+  for (const source of sources) {
+    if ((source.kind !== PageElementKind.STROKE && source.kind !== PageElementKind.SHAPE) ||
+      source.elementId.length === 0 || sourceIds.has(source.elementId)) {
+      return null;
+    }
+    const key: string = partialEraseSourceKey(source.kind, source.elementId);
+    if (sourceKeys.has(key)) {
+      return null;
+    }
+    sourceIds.add(source.elementId);
+    sourceKeys.add(key);
+  }
+  const remnantIds: Set<string> = new Set<string>();
+  for (const remnant of remnants) {
+    if (remnant.id.length === 0 || sourceIds.has(remnant.id) || remnantIds.has(remnant.id)) {
+      return null;
+    }
+    remnantIds.add(remnant.id);
+  }
+  const result: Map<string, PartialEraseElementReplacement> =
+    new Map<string, PartialEraseElementReplacement>();
+  let offset: number = 0;
+  for (let index: number = 0; index < sources.length; index++) {
+    const count: number = remnantCounts[index];
+    if (!Number.isInteger(count) || count < 0 || offset + count > remnants.length) {
+      return null;
+    }
+    const source: PageElementRef = sources[index];
+    result.set(partialEraseSourceKey(source.kind, source.elementId), {
+      sourceKind: source.kind as PageElementKind.STROKE | PageElementKind.SHAPE,
+      sourceId: source.elementId,
+      remnants: remnants.slice(offset, offset + count),
+    });
+    offset += count;
+  }
+  return offset === remnants.length ? result : null;
+}
+
+export function partialEraseMixedElementOrder(order: PageElementRef[],
+  replacementByKey: Map<string, PartialEraseElementReplacement>): PageElementRef[] | null {
+  const result: PageElementRef[] = [];
+  const consumed: Set<string> = new Set<string>();
+  for (const ref of order) {
+    const key: string = partialEraseSourceKey(ref.kind, ref.elementId);
+    const replacement: PartialEraseElementReplacement | undefined = replacementByKey.get(key);
+    if (replacement === undefined) {
+      result.push({ kind: ref.kind, elementId: ref.elementId, zIndex: result.length });
+      continue;
+    }
+    if (consumed.has(key) || replacement.sourceKind !== ref.kind ||
+      replacement.sourceId !== ref.elementId) {
+      return null;
+    }
+    consumed.add(key);
+    for (const remnant of replacement.remnants) {
+      result.push({ kind: PageElementKind.STROKE,
+        elementId: remnant.id, zIndex: result.length });
+    }
+  }
+  return consumed.size === replacementByKey.size ? result : null;
 }
 
 export function buildPartialEraseReplacementMap(sources: StrokeElementData[],
@@ -154,7 +233,72 @@ export function validatePartialEraseStrokeHistoryState(current: StrokeElementDat
     validInsertionIndices(remnantIndices, remnants.length, current.length - sources.length);
 }
 
+export function validatePartialEraseElementHistoryState(currentStrokes: StrokeElementData[],
+  currentShapes: ShapeElement[], sourceRefs: PageElementRef[], sourceStrokes: StrokeElementData[],
+  sourceStrokeIndices: number[], sourceShapes: ShapeElement[], sourceShapeIndices: number[],
+  remnants: StrokeElementData[], remnantIndices: number[], remnantCounts: number[],
+  isUndo: boolean): boolean {
+  if (buildPartialEraseElementReplacementMap(sourceRefs, remnants, remnantCounts) === null ||
+    !partialEraseSourceSnapshotsMatch(sourceRefs, sourceStrokes, sourceShapes)) {
+    return false;
+  }
+  if (isUndo) {
+    return strokeIdsAbsent(currentStrokes, sourceStrokes) &&
+      shapeIdsAbsent(currentShapes, sourceShapes) &&
+      strokesMatchIndices(currentStrokes, remnants, remnantIndices) &&
+      validInsertionIndices(sourceStrokeIndices, sourceStrokes.length,
+        currentStrokes.length - remnants.length) &&
+      validInsertionIndices(sourceShapeIndices, sourceShapes.length, currentShapes.length);
+  }
+  return strokesMatchIndices(currentStrokes, sourceStrokes, sourceStrokeIndices) &&
+    shapesMatchIndices(currentShapes, sourceShapes, sourceShapeIndices) &&
+    strokeIdsAbsent(currentStrokes, remnants) &&
+    validInsertionIndices(remnantIndices, remnants.length,
+      currentStrokes.length - sourceStrokes.length);
+}
+
+function partialEraseSourceSnapshotsMatch(sourceRefs: PageElementRef[],
+  sourceStrokes: StrokeElementData[], sourceShapes: ShapeElement[]): boolean {
+  const strokeIds: string[] = sourceRefs.filter(
+    (ref: PageElementRef): boolean => ref.kind === PageElementKind.STROKE)
+    .map((ref: PageElementRef): string => ref.elementId);
+  const shapeIds: string[] = sourceRefs.filter(
+    (ref: PageElementRef): boolean => ref.kind === PageElementKind.SHAPE)
+    .map((ref: PageElementRef): string => ref.elementId);
+  if (strokeIds.length !== sourceStrokes.length || shapeIds.length !== sourceShapes.length) {
+    return false;
+  }
+  for (let index: number = 0; index < strokeIds.length; index++) {
+    if (strokeIds[index] !== sourceStrokes[index].id) {
+      return false;
+    }
+  }
+  for (let index: number = 0; index < shapeIds.length; index++) {
+    if (shapeIds[index] !== sourceShapes[index].id) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function strokesMatchIndices(current: StrokeElementData[], expected: StrokeElementData[],
+  indices: number[]): boolean {
+  if (indices.length !== expected.length) {
+    return false;
+  }
+  let previous: number = -1;
+  for (let index: number = 0; index < indices.length; index++) {
+    const position: number = indices[index];
+    if (!Number.isInteger(position) || position <= previous || position < 0 ||
+      position >= current.length || current[position].id !== expected[index].id) {
+      return false;
+    }
+    previous = position;
+  }
+  return true;
+}
+
+function shapesMatchIndices(current: ShapeElement[], expected: ShapeElement[],
   indices: number[]): boolean {
   if (indices.length !== expected.length) {
     return false;
@@ -182,6 +326,23 @@ function strokeIdsAbsent(current: StrokeElementData[], strokes: StrokeElementDat
     }
   }
   return true;
+}
+
+function shapeIdsAbsent(current: ShapeElement[], shapes: ShapeElement[]): boolean {
+  const ids: Set<string> = new Set<string>();
+  for (const shape of current) {
+    ids.add(shape.id);
+  }
+  for (const shape of shapes) {
+    if (ids.has(shape.id)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function partialEraseSourceKey(kind: PageElementKind, elementId: string): string {
+  return `${kind}:${elementId}`;
 }
 
 function validInsertionIndices(indices: number[], itemCount: number, baseLength: number): boolean {
@@ -407,6 +568,7 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
     return bytes + estimateStrokes(action.removedStrokes) + estimateStrokes(action.addedStrokes ?? []) +
       action.removedStrokeIndices.length * 8 + (action.addedStrokeIndices ?? []).length * 8 +
       (action.addedStrokeCounts ?? []).length * 8 +
+      estimateElementOrder(action.partialEraseSourceRefs ?? []) +
       estimateStrokes(action.beforeModifiedStrokes) + estimateStrokes(action.afterModifiedStrokes) +
       estimateShapes(action.removedShapes) + action.removedShapeIndices.length * 8 +
       estimateTextBlocks(action.removedTextBlocks) + action.removedTextBlockIndices.length * 8 +

@@ -57,10 +57,12 @@ OffscreenCanvas 维持擦除效果。该模型有四个根本偏差：
 ## 后续修订
 
 - Group member replacement、空 Group 递归删除及相应持久 Undo/Redo 已由 ADR-0215 / Phase 238 补齐。
+- Shape source 的原生 Path 裁切、Shape→Ink、mixed order 与同一 Group/history 管线已由 ADR-0216 /
+  Phase 239 补齐。
 
 ## 边界
 
-- Shape partial erase、Pencil/custom/fill outline 精确 clipping 尚未实现；当前不会用中心线近似破坏这些实体。
+- 已有 Pencil Ink 及任意已有 custom/fill Ink 的精确 clipping 仍未实现；当前不会用普通中心线近似破坏它们。
 - transient preview/end 的完整原版协议尚未闭环。
 - 真机仍需验证高速手势、端点、极短残片、复杂 transform、录音同步和跨 Group 场景。
 - 本阶段不启动设备、模拟器、虚拟机或 Hypium。

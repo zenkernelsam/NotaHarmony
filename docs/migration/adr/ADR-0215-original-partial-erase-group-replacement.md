@@ -56,10 +56,15 @@ ADR-0214 已把普通 Ink partial erase 改为 `CREATE_INK remnants + DELETE_ENT
 - 空 Group 与连续空 parent 不再残留，Undo/Redo 可恢复原成员和 visibility。
 - restart 后的专用持久历史仍是单一动作边界，且旧 NPM1 动作继续可读。
 
+## 后续修订
+
+- ADR-0216 / Phase 239 已把同一 planner、NPE2、持久 Undo/Redo 与本地 fallback 扩展到 Shape source；
+  remnants 仍统一为 Ink。
+
 ## 边界
 
-- 本 ADR 只覆盖 ADR-0214 已支持的普通 Ink 中心线裁剪；Shape、Pencil、custom/fill outline clipping 仍需
-  后续阶段。
+- 已有 Pencil Ink 与任意已有 custom/fill Ink 的精确 clipping 仍需后续阶段；Shape source 已由 ADR-0216
+  补齐。
 - transient preview/end 的完整原版协议仍未闭环。
 - transaction failure 的非 original fallback 会保留当前会话 Group 对称历史，但不会伪造 original
   MODIFY_GROUP 协作 operation。

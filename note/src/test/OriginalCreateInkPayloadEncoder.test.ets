@@ -1,5 +1,7 @@
 import { describe, expect, it } from '@ohos/hypium';
-import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
+import {
+  InkPathCommandType, InkStyle, StrokeElementData,
+} from '../main/ets/core/model/StrokeTypes';
 import {
   ElementType, ShapeArrowHead, ShapeElement,
 } from '../main/ets/core/model/ElementTypes';
@@ -46,6 +48,7 @@ import { encodeOriginalTransientInteractionEndedPayload } from
   '../main/ets/data/OriginalTransientInteractionPayloadEncoder';
 import { SearchSourceElement } from '../main/ets/data/SearchIndexPolicy';
 import { createPageMutation } from '../main/ets/data/PageMutationOpCodec';
+import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import {
   decodeOriginalPartialEraseMutation, encodeOriginalPartialEraseMutation,
   validateOriginalPartialEraseMutation,
@@ -93,6 +96,41 @@ export default function originalCreateInkPayloadEncoderTest() {
       expect(decoded.zIndex).assertEqual('987654321');
     });
 
+    it('round-trips multi-component custom/fill paths and fill color for Shape remnants', 0, () => {
+      const stroke: StrokeElementData = sampleStroke();
+      stroke.customPath = [
+        { type: InkPathCommandType.MOVE_TO, points: [{ x: 0, y: 0 }] },
+        { type: InkPathCommandType.LINE_TO, points: [{ x: 8, y: 0 }] },
+        { type: InkPathCommandType.QUADRATIC,
+          points: [{ x: 10, y: 2 }, { x: 8, y: 4 }] },
+        { type: InkPathCommandType.CUBIC,
+          points: [{ x: 6, y: 6 }, { x: 2, y: 6 }, { x: 0, y: 4 }] },
+        { type: InkPathCommandType.MOVE_TO, points: [{ x: 20, y: 20 }] },
+        { type: InkPathCommandType.LINE_TO, points: [{ x: 24, y: 20 }] },
+      ];
+      stroke.fillPath = [
+        { type: InkPathCommandType.MOVE_TO, points: [{ x: 1, y: 1 }] },
+        { type: InkPathCommandType.LINE_TO, points: [{ x: 7, y: 1 }] },
+        { type: InkPathCommandType.LINE_TO, points: [{ x: 7, y: 3 }] },
+        { type: InkPathCommandType.LINE_TO, points: [{ x: 1, y: 3 }] },
+        { type: InkPathCommandType.LINE_TO, points: [{ x: 1, y: 1 }] },
+      ];
+      stroke.fillColor = 0x6B112233;
+      stroke.transform = [0, -0.5, 12.5, 2, 0, -4.25, 0, 0, 1];
+      const decoded = decodeOriginalCreateInk(wrap(15, encodeOriginalLocalCreateInk(
+        { timestamp: 80, siteId: 7, index: 2 }, stroke, '987654321')), '1234');
+      expect(decoded.customPath?.commands.length).assertEqual(6);
+      expect(decoded.customPath?.commands[0].type).assertEqual(InkPathCommandType.MOVE_TO);
+      expect(decoded.customPath?.commands[3].type).assertEqual(InkPathCommandType.CUBIC);
+      expect(decoded.customPath?.commands[3].points[2].x).assertEqual(0);
+      expect(decoded.customPath?.commands[4].points[0].x).assertEqual(20);
+      expect(decoded.fillPath?.commands.length).assertEqual(5);
+      expect(decoded.fillPath?.commands[2].points[0].y).assertEqual(3);
+      expect(decoded.fillColor).assertEqual(0x6B112233);
+      expect(decoded.originX).assertEqual(12.5);
+      expect(decoded.zIndex).assertEqual('987654321');
+    });
+
     it('preserves the uint32 audio interval on CREATE_INK erase remnants', 0, () => {
       const stroke: StrokeElementData = sampleStroke();
       stroke.audioDuration = 0xFFFFFFFF;
@@ -135,6 +173,23 @@ export default function originalCreateInkPayloadEncoderTest() {
       expect(mutation.pageMutation.afterElements.length).assertEqual(2);
       expect(mutation.pageMutation.beforeElements[0].elementId).assertEqual('op:14:2');
       expect(mutation.pageMutation.afterElements[1].elementId).assertEqual('op:16:2');
+    });
+
+    it('round-trips a Shape-to-Ink partial-erase page mutation', 0, () => {
+      const before: SearchSourceElement[] = [{
+        elementId: 'op:20:2', kind: PageElementKind.SHAPE,
+        payload: new Uint8Array([1, 2, 3]),
+      }];
+      const after: SearchSourceElement[] = [{
+        elementId: 'op:21:2', kind: PageElementKind.STROKE,
+        payload: new Uint8Array([4, 5, 6]),
+      }];
+      const mutation = decodeOriginalPartialEraseMutation(encodeOriginalPartialEraseMutation({
+        pageMutation: createPageMutation('page-1', 10, 11, before, after),
+        replacements: [], beforeGroups: [], afterGroups: [],
+      }));
+      expect(mutation.pageMutation.beforeElements[0].kind).assertEqual(PageElementKind.SHAPE);
+      expect(mutation.pageMutation.afterElements[0].kind).assertEqual(PageElementKind.STROKE);
     });
 
     it('caps original partial-erase history at one type-25 visibility payload', 0, () => {

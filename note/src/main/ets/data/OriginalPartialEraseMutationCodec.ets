@@ -101,9 +101,10 @@ export function validateOriginalPartialEraseMutation(
   }
   const beforeIds: Set<string> = new Set<string>();
   for (const element of pageMutation.beforeElements) {
-    if (element.kind !== PageElementKind.STROKE || decodeOperationId(element.elementId) === null ||
+    if ((element.kind !== PageElementKind.STROKE && element.kind !== PageElementKind.SHAPE) ||
+      decodeOperationId(element.elementId) === null ||
       beforeIds.has(element.elementId)) {
-      throw new Error('original partial erase has an invalid source Ink identity');
+      throw new Error('original partial erase has an invalid source entity identity');
     }
     beforeIds.add(element.elementId);
   }
@@ -117,23 +118,21 @@ export function validateOriginalPartialEraseMutation(
   }
   const beforeOrder: Set<string> = new Set<string>();
   for (const ref of pageMutation.beforeOrder) {
-    if (ref.kind === PageElementKind.STROKE) {
-      beforeOrder.add(ref.elementId);
-    }
+    beforeOrder.add(`${ref.kind}:${ref.elementId}`);
   }
   const afterOrder: Set<string> = new Set<string>();
   for (const ref of pageMutation.afterOrder) {
-    if (ref.kind === PageElementKind.STROKE) {
-      afterOrder.add(ref.elementId);
+    afterOrder.add(`${ref.kind}:${ref.elementId}`);
+  }
+  for (const element of pageMutation.beforeElements) {
+    const key: string = `${element.kind}:${element.elementId}`;
+    if (!beforeOrder.has(key) || afterOrder.has(key)) {
+      throw new Error('original partial erase did not remove a source entity');
     }
   }
-  beforeIds.forEach((id: string): void => {
-    if (!beforeOrder.has(id) || afterOrder.has(id)) {
-      throw new Error('original partial erase did not remove a source Ink');
-    }
-  });
   afterIds.forEach((id: string): void => {
-    if (beforeOrder.has(id) || !afterOrder.has(id)) {
+    const key: string = `${PageElementKind.STROKE}:${id}`;
+    if (beforeOrder.has(key) || !afterOrder.has(key)) {
       throw new Error('original partial erase did not insert a remnant Ink');
     }
   });

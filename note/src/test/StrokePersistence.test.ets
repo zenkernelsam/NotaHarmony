@@ -1,5 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
+import {
+  InkPathCommandType, InkStyle, StrokeElementData,
+} from '../main/ets/core/model/StrokeTypes';
 import {
   classifyOriginalImageCropMutation, classifyOriginalImageFlipMutation,
   classifyOriginalMathLatexMutation, classifyOriginalPositionLockMutation,
@@ -464,21 +466,43 @@ export default function strokePersistenceTest() {
       const secondSource: StrokeElementData = partialEraseStroke('op:52:2');
       const valid: OriginalPartialErasePlan = {
         replacements: [{
+          sourceKind: PageElementKind.STROKE,
           source: firstSource, remnants: [partialEraseStroke('draft-remnant')],
-        }, { source: secondSource, remnants: [] }],
+        }, { sourceKind: PageElementKind.STROKE, source: secondSource, remnants: [] }],
       };
       validateOriginalPartialErasePlan(valid);
       let rejected: boolean = false;
       try {
         validateOriginalPartialErasePlan({
           replacements: [{
+            sourceKind: PageElementKind.STROKE,
             source: firstSource, remnants: [partialEraseStroke(secondSource.id)],
-          }, { source: secondSource, remnants: [] }],
+          }, { sourceKind: PageElementKind.STROKE, source: secondSource, remnants: [] }],
         });
       } catch (_error) {
         rejected = true;
       }
       expect(rejected).assertTrue();
+    });
+
+    it('accepts a canonical Shape source that is replaced by auxiliary-path Ink', 0, () => {
+      const source: ShapeElement = originalShape('op:54:2', 0, -16777216, 4, 0x6B102030);
+      const remnant: StrokeElementData = partialEraseStroke('shape-remnant');
+      remnant.customPath = [
+        { type: InkPathCommandType.MOVE_TO, points: [{ x: 0, y: 0 }] },
+        { type: InkPathCommandType.LINE_TO, points: [{ x: 10, y: 0 }] },
+      ];
+      remnant.fillPath = [
+        { type: InkPathCommandType.MOVE_TO, points: [{ x: 0, y: 0 }] },
+        { type: InkPathCommandType.LINE_TO, points: [{ x: 10, y: 0 }] },
+        { type: InkPathCommandType.LINE_TO, points: [{ x: 0, y: 0 }] },
+      ];
+      remnant.fillColor = source.fillColor;
+      validateOriginalPartialErasePlan({
+        replacements: [{
+          sourceKind: PageElementKind.SHAPE, source: source, remnants: [remnant],
+        }],
+      });
     });
 
     it('resets Shape RichText during original clipboard Paste without mutating source', 0, () => {

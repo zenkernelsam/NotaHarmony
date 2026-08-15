@@ -1,5 +1,7 @@
 import { CubicSegment, Point2D } from '../core/model/GeometryTypes';
-import { StrokeElementData, StrokePathPoint } from '../core/model/StrokeTypes';
+import {
+  InkPathCommand, InkPathCommandType, StrokeElementData, StrokePathPoint,
+} from '../core/model/StrokeTypes';
 
 const MAX_PATH_ELEMENTS: number = 65535;
 const HALF_MAX: number = 65504;
@@ -78,6 +80,66 @@ export function encodeOriginalInkPathAppend(stroke: StrokeElementData,
       [segment.p1, segment.p2, segment.p3], stroke.pathPoints[attributeIndex]);
   }
   return bytes;
+}
+
+// Original CREATE_INK fields 10/11 use the same path container as centerPath,
+// but their elements are deliberately unattributed (Android types 4..7).
+// Unlike centerPath, auxiliary paths may contain multiple MOVE components.
+export function encodeOriginalAuxiliaryInkPath(commands: InkPathCommand[]): Uint8Array {
+  if (commands.length > MAX_PATH_ELEMENTS) {
+    throw new Error('local CREATE_INK auxiliary path exceeds the original element limit');
+  }
+  let byteCount: number = 3;
+  for (const command of commands) {
+    const pointCount: number = auxiliaryPointCount(command.type);
+    if (command.points.length !== pointCount) {
+      throw new Error('local CREATE_INK auxiliary path command has an invalid point count');
+    }
+    byteCount += 1 + pointCount * 8;
+  }
+  const bytes: Uint8Array = new Uint8Array(byteCount);
+  // Version 0, BITS_32 coordinates, matching ldj.M2(..., false).
+  bytes[0] = 1;
+  writeU16BE(bytes, 1, commands.length);
+  let offset: number = 3;
+  for (const command of commands) {
+    bytes[offset++] = auxiliaryElementType(command.type);
+    for (const point of command.points) {
+      if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+        throw new Error('local CREATE_INK auxiliary path contains a non-finite coordinate');
+      }
+      writeF32LE(bytes, offset, point.x);
+      writeF32LE(bytes, offset + 4, point.y);
+      offset += 8;
+    }
+  }
+  return bytes;
+}
+
+function auxiliaryPointCount(type: InkPathCommandType): number {
+  if (type === InkPathCommandType.CUBIC) {
+    return 3;
+  }
+  if (type === InkPathCommandType.QUADRATIC) {
+    return 2;
+  }
+  return 1;
+}
+
+function auxiliaryElementType(type: InkPathCommandType): number {
+  if (type === InkPathCommandType.CUBIC) {
+    return 4;
+  }
+  if (type === InkPathCommandType.QUADRATIC) {
+    return 5;
+  }
+  if (type === InkPathCommandType.LINE_TO) {
+    return 6;
+  }
+  if (type === InkPathCommandType.MOVE_TO) {
+    return 7;
+  }
+  throw new Error('local CREATE_INK auxiliary path command is unknown');
 }
 
 function attributedElementBytes(pointCount: number): number {

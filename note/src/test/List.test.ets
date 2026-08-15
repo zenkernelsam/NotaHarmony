@@ -78,6 +78,7 @@ import originalGroupPayloadEncoderTest from './OriginalGroupPayloadEncoder.test'
 import originalGroupMutationOpCodecTest from './OriginalGroupMutationOpCodec.test';
 import originalClipboardPasteMutationCodecTest from './OriginalClipboardPasteMutationCodec.test';
 import originalPartialEraseGroupPlannerTest from './OriginalPartialEraseGroupPlanner.test';
+import originalShapePartialEraserTest from './OriginalShapePartialEraser.test';
 import originalCreateTextPayloadEncoderTest from './OriginalCreateTextPayloadEncoder.test';
 import originalTextMutationPayloadEncoderTest from './OriginalTextMutationPayloadEncoder.test';
 import originalRichTextStylePayloadEncoderTest from './OriginalRichTextStylePayloadEncoder.test';
@@ -167,6 +168,7 @@ export default function testsuite() {
   originalGroupMutationOpCodecTest();
   originalClipboardPasteMutationCodecTest();
   originalPartialEraseGroupPlannerTest();
+  originalShapePartialEraserTest();
   originalCreateTextPayloadEncoderTest();
   originalTextMutationPayloadEncoderTest();
   originalRichTextStylePayloadEncoderTest();

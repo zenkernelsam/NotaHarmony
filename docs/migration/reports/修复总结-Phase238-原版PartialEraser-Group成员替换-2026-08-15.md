@@ -70,4 +70,5 @@
 ## 尚未执行/后续
 
 - 未启动设备、模拟器、虚拟机或 Hypium。
-- 下一条原版 partial-erase 缺口仍是 Shape/Pencil/custom/fill outline 精确 clipping 与 transient protocol。
+- Shape source、Shape→Ink 与其 custom/fill outline clipping 已由 Phase 239 补齐；剩余主要是已有 Pencil/
+  custom/fill Ink 的精确 clipping 与 transient protocol。

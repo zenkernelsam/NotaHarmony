@@ -65,10 +65,12 @@ assert.match(eraser, /shiftAudioStart/);
 assert.match(eraser,
   /inkEffectPhase: \(source\.renderSpec\.inkEffectPhase \?\? 0\) \+ run\[0\]\.distance/);
 
-assert.match(canvas, /commitOriginalPartialErase\(plan, result\.partialReplacements\)/);
+assert.match(canvas, /commitOriginalPartialErase\(plan\)/);
 assert.doesNotMatch(canvas, /commitOriginalPartialEraser/);
-assert.match(canvas, /this\.areCanonicalOriginalStrokes\(sources\)/);
-assert.match(canvas, /this\.applyPartialEraseLocally\(result\.partialReplacements\)/);
+assert.match(canvas, /this\.areCanonicalOriginalPositionSelection\(strokeIds, shapeIds/);
+assert.match(canvas, /this\.applyPartialEraseLocally\(plan\)/);
+assert.match(canvas, /new OriginalShapePartialEraser\(this\.eraserEngine\.getWidth\(\)\)/);
+assert.match(canvas, /sourceKind: PageElementKind\.SHAPE/);
 assert.match(canvas, /addedStrokes: added/);
 assert.match(canvas, /addedStrokeIndices: addedIndices/);
 assert.match(canvas, /addedStrokeCounts: addedCounts/);
@@ -77,8 +79,8 @@ assert.match(canvas, /partialEraseAfterGroups: groupPlan\.afterGroups/);
 assert.match(canvas, /planLocalPartialEraseGroups\(this\.selectionGroups, groupReplacements\)/);
 assert.match(canvas, /private partialEraserCandidateStrokes\(\)[\s\S]{0,120}completedStrokes\.slice/);
 assert.match(canvas, /restoreRemovedStrokes\(addedStrokes, addedStrokeIndices\)/);
-assert.match(canvas, /validatePartialEraseStrokeHistoryState/);
-assert.match(canvas, /existingStrokeIds\.has\(remnant\.id\)/);
+assert.match(canvas, /validatePartialEraseElementHistoryState/);
+assert.match(canvas, /existingElementIds\.has\(remnant\.id\)/);
 assert.match(canvas, /invalidateOriginalInkReservation\(\)/);
 assert.match(undo, /buildPartialEraseReplacementMap/);
 assert.match(undo, /partialEraseElementOrder/);
@@ -138,7 +140,7 @@ assert.match(codec, /LEGACY_PAGE_MAGIC/);
 assert.match(codec, /NPE2/);
 assert.match(codec, /planOriginalPartialEraseGroups/);
 assert.match(codec, /Group snapshots contradict replacement mapping/);
-assert.match(persistence, /remnantIds\.has\(replacement\.source\.id\)/);
+assert.match(persistence, /remnantIds\.has\(sourceId\)/);
 
 assert.match(encoderFixture, /preserves CREATE_INK origin rotation scale and source z-index/);
 assert.match(encoderFixture, /decoded\.audioDuration\)\.assertEqual\(0xFFFFFFFF\)/);
