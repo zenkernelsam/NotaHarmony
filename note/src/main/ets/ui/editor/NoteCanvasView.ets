@@ -22,7 +22,7 @@ import { StrokeLayerManager } from '../../rendering/StrokeLayerManager';
 import { StrokeCanvasPainter } from '../../rendering/StrokeCanvasPainter';
 import { ShapeCanvasRenderer } from '../../rendering/ShapeCanvasRenderer';
 import { ImageCanvasRenderer } from '../../rendering/ImageCanvasRenderer';
-import { MathCanvasRenderer } from '../../rendering/MathCanvasRenderer';
+import { MathCanvasRenderer, originalMathRasterScale } from '../../rendering/MathCanvasRenderer';
 import { originalMathEngine, OriginalMathBitmap } from '../../rendering/OriginalMathEngine';
 import {
   BitmapTransferKind, BitmapTransferMetrics, BitmapTransferTracker,
@@ -1097,6 +1097,7 @@ export struct NoteCanvasView {
     const elements: OrderedPageElement[] = materializePageElements(
       this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks,
       this.mathBlocks);
+    const mathRasterScale: number = originalMathRasterScale(this.viewport.zoom, vp2px(1));
     for (const element of elements) {
       if (element.kind === PageElementKind.STROKE) {
         this.hydrateOriginalStrokeAudioStart(element.data);
@@ -1115,7 +1116,7 @@ export struct NoteCanvasView {
           this.imageRenderer.renderImage(element.data, loaded.bitmap, renderContext);
         }
       } else if (element.kind === PageElementKind.MATH) {
-        this.mathRenderer.renderMath(element.data, renderContext);
+        this.mathRenderer.renderMath(element.data, renderContext, mathRasterScale);
       }
     }
   }

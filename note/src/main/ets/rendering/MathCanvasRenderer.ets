@@ -9,8 +9,24 @@ interface MathBitmapCacheEntry {
   lastUsed: number;
 }
 
-const PIXEL_SCALE: number = 2;
+const MIN_RASTER_SCALE: number = 1;
+const MAX_RASTER_SCALE: number = 4;
+const RASTER_SCALE_STEPS_PER_UNIT: number = 2;
 const MAX_CACHE_BYTES: number = 4 * 1024 * 1024;
+
+// Original ue4.v: round(clamp(viewportZoom * density, 1, 4) * 2) / 2.
+export function originalMathRasterScale(viewportZoom: number, density: number): number {
+  const zoom: number = Math.fround(viewportZoom);
+  const pixelsPerVp: number = Math.fround(density);
+  if (!Number.isFinite(zoom) || !Number.isFinite(pixelsPerVp) || zoom <= 0 || pixelsPerVp <= 0) {
+    return MIN_RASTER_SCALE;
+  }
+  const physicalScale: number = Math.fround(zoom * pixelsPerVp);
+  const clampedScale: number = physicalScale < MIN_RASTER_SCALE ? MIN_RASTER_SCALE :
+    (physicalScale > MAX_RASTER_SCALE ? MAX_RASTER_SCALE : physicalScale);
+  return Math.round(Math.fround(clampedScale * RASTER_SCALE_STEPS_PER_UNIT)) /
+    RASTER_SCALE_STEPS_PER_UNIT;
+}
 
 // Mirrors the original w18 cache: parse/layout is native, while the canvas only composites a bitmap.
 export class MathCanvasRenderer {
@@ -18,19 +34,21 @@ export class MathCanvasRenderer {
   private cacheBytes: number = 0;
   private clock: number = 0;
 
-  renderMath(element: MathElement, ctx: Canvas2DDrawingContext): void {
+  renderMath(element: MathElement, ctx: Canvas2DDrawingContext, rasterScale: number): void {
+    const pixelScale: number = Math.fround(rasterScale);
     if (element.latex.length === 0 || element.blockWidth <= 0 || element.blockHeight <= 0 ||
+      !Number.isFinite(pixelScale) || pixelScale < MIN_RASTER_SCALE || pixelScale > MAX_RASTER_SCALE ||
       !originalMathEngine.isReady()) {
       return;
     }
     const key: string = `${element.latex}\u0000${element.blockWidth}\u0000${element.blockHeight}\u0000` +
-      `${element.color}\u0000${PIXEL_SCALE}`;
+      `${element.color}\u0000${pixelScale}`;
     let entry: MathBitmapCacheEntry | undefined = this.cache.find((candidate: MathBitmapCacheEntry): boolean =>
       candidate.key === key);
     let transientTexture: OriginalMathBitmap | null = null;
     if (entry === undefined) {
       const texture: OriginalMathBitmap | null = originalMathEngine.render(
-        element.latex, element.blockWidth, element.blockHeight, element.color, PIXEL_SCALE);
+        element.latex, element.blockWidth, element.blockHeight, element.color, pixelScale);
       if (texture === null) return;
       entry = { key, texture, bytes: texture.width * texture.height * 4, lastUsed: ++this.clock };
       if (entry.bytes <= MAX_CACHE_BYTES) {

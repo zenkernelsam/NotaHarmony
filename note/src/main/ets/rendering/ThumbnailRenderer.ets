@@ -20,7 +20,7 @@ import { DatabaseManager } from '../data/DatabaseManager';
 import { StrokePersistence } from '../data/StrokePersistence';
 import { ThemeTokens } from '../ui/theme/EditorTheme';
 import { ImageCanvasRenderer } from './ImageCanvasRenderer';
-import { MathCanvasRenderer } from './MathCanvasRenderer';
+import { MathCanvasRenderer, originalMathRasterScale } from './MathCanvasRenderer';
 import { originalMathEngine } from './OriginalMathEngine';
 import { PaperRenderer } from './PaperRenderer';
 import { StrokeCanvasPainter } from './StrokeCanvasPainter';
@@ -117,6 +117,7 @@ export class ThumbnailRenderer {
         pdfBackground !== null && pdfBackground.state === PdfBackgroundLoadState.READY
           ? pdfBackground.bitmap : null);
       const renderContext: Canvas2DOffscreenRenderContext = new Canvas2DOffscreenRenderContext(ctx);
+      const mathRasterScale: number = originalMathRasterScale(pageTransform.scale, 1);
       for (const element of loaded.elements) {
         if (element.kind === PageElementKind.STROKE) {
           this.strokePainter.renderStroke(element.data, renderContext, pageSize.width, pageSize.height);
@@ -131,7 +132,7 @@ export class ThumbnailRenderer {
             this.imageRenderer.renderImage(element.data, asset.bitmap, renderContext);
           }
         } else if (element.kind === PageElementKind.MATH) {
-          this.mathRenderer.renderMath(element.data, renderContext);
+          this.mathRenderer.renderMath(element.data, renderContext, mathRasterScale);
         }
       }
       ctx.restore();

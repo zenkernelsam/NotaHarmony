@@ -83,6 +83,7 @@ import originalRichTextStylePayloadEncoderTest from './OriginalRichTextStylePayl
 import originalLocalCheckboxMutationTest from './OriginalLocalCheckboxMutation.test';
 import mathEditorOverlayTest from './MathEditorOverlay.test';
 import originalMathInsertPlanTest from './OriginalMathInsertPlan.test';
+import mathCanvasRendererTest from './MathCanvasRenderer.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -170,4 +171,5 @@ export default function testsuite() {
   originalLocalCheckboxMutationTest();
   mathEditorOverlayTest();
   originalMathInsertPlanTest();
+  mathCanvasRendererTest();
 }

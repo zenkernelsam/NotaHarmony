@@ -73,4 +73,5 @@ JNI 异常，然后保留零 bounds 返回。因此当前零 fallback 与原版�
 - 构造宽或高恰好贴合 block 的长分式、矩阵和多行公式，确认不再偶发插入/编辑无响应。
 - 检查新插入公式是否偶尔出现 241×N 或 N×121 的原版舍入尺寸，并确认选区、缓存与绘制均正常。
 - 对同一 LaTeX 连续执行 fit/render，确认 Float32 结果稳定且缓存 key 不发生抖动。
-- 对小数 block 尺寸和 2x bitmap scale 做原版截图比较，核对一像素边界、居中和裁切。
+- 对小数 block 尺寸和 bitmap scale 做原版截图比较，核对一像素边界、居中和裁切。后续 Phase 236 已确认
+  standalone Math 的原版 scale 不是固定 2×，而是 `zoom × Density` 经 1–4 clamp 和 0.5 步长量化。

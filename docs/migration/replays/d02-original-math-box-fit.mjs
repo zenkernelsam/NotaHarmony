@@ -59,7 +59,7 @@ check('Harmony engine measures first and renders with the fitted font',
   /latex, width, height, fitted\.fontSize, argbColor, pixelScale/.test(engine));
 check('Harmony renderer no longer hard-codes a 20px formula font',
   !/DEFAULT_MATH_FONT_SIZE/.test(renderer) &&
-  /element\.blockHeight, element\.color, PIXEL_SCALE/.test(renderer));
+  /element\.blockHeight, element\.color, pixelScale/.test(renderer));
 
 const editUiStart = canvas.indexOf('private async confirmMathEditing');
 const insertUiStart = canvas.indexOf('private async confirmMathInsert');
