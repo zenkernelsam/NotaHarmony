@@ -235,7 +235,16 @@ export interface OriginalClipboardPasteHistoryResult {
 
 const MAX_ORIGINAL_CLIPBOARD_PASTE_LEAVES: number = 10000;
 
+export function validatePartialEraseMaterializationPlan(plan: OriginalPartialErasePlan): void {
+  validatePartialErasePlan(plan, false);
+}
+
 export function validateOriginalPartialErasePlan(plan: OriginalPartialErasePlan): void {
+  validatePartialErasePlan(plan, true);
+}
+
+function validatePartialErasePlan(plan: OriginalPartialErasePlan,
+  requireOriginalSourceIdentity: boolean): void {
   if (plan.replacements.length === 0 ||
     plan.replacements.length > MAX_ORIGINAL_DELETE_ENTITY_COUNT) {
     throw new Error('original partial erase plan has an invalid replacement count');
@@ -246,22 +255,24 @@ export function validateOriginalPartialErasePlan(plan: OriginalPartialErasePlan)
   const page: OriginalSequenceIdentity = { timestamp: 1, siteId: 1, index: 0 };
   for (const replacement of plan.replacements) {
     const sourceId: string = replacement.source.id;
-    if (decodeOperationId(sourceId) === null || sourceIds.has(sourceId) || remnantIds.has(sourceId)) {
+    if (sourceId.length === 0 ||
+      (requireOriginalSourceIdentity && decodeOperationId(sourceId) === null) ||
+      sourceIds.has(sourceId) || remnantIds.has(sourceId)) {
       throw new Error('original partial erase plan has an invalid source entity');
     }
     if (replacement.sourceKind === PageElementKind.STROKE) {
       const source: StrokeElementData = replacement.source as StrokeElementData;
-      if (source.renderSpec === undefined || source.renderSpec.isPencil ||
-        source.renderSpec.isPartialEraser === true) {
+      if (source.renderSpec === undefined || source.renderSpec.isPartialEraser === true) {
         throw new Error('original partial erase plan has an invalid source Ink');
       }
     } else if (replacement.sourceKind === PageElementKind.SHAPE) {
       const source: ShapeElement = replacement.source as ShapeElement;
       if ((source.type !== ElementType.ELLIPSE && source.type !== ElementType.POLYGON &&
         source.type !== ElementType.LINE) || source.positionLocked === true ||
-        !Number.isInteger(source.originalTool) || (source.originalTool as number) < 0 ||
-        (source.originalTool as number) > 3 || !Number.isInteger(source.originalStyle) ||
-        (source.originalStyle as number) < 1 || (source.originalStyle as number) > 3) {
+        (requireOriginalSourceIdentity &&
+          (!Number.isInteger(source.originalTool) || (source.originalTool as number) < 0 ||
+            (source.originalTool as number) > 3 || !Number.isInteger(source.originalStyle) ||
+            (source.originalStyle as number) < 1 || (source.originalStyle as number) > 3))) {
         throw new Error('original partial erase plan has an invalid source Shape');
       }
     } else {

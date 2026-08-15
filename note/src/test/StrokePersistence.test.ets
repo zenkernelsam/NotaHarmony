@@ -13,6 +13,7 @@ import {
   OriginalImageCropMutation, OriginalImageFlipMutation, OriginalPositionLockMutation,
   OriginalPartialErasePlan, OriginalRenderMutation, PersistedElement,
   validateOriginalClipboardPastePlan, validateOriginalPartialErasePlan,
+  validatePartialEraseMaterializationPlan,
 } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import {
@@ -478,6 +479,29 @@ export default function strokePersistenceTest() {
             sourceKind: PageElementKind.STROKE,
             source: firstSource, remnants: [partialEraseStroke(secondSource.id)],
           }, { sourceKind: PageElementKind.STROKE, source: secondSource, remnants: [] }],
+        });
+      } catch (_error) {
+        rejected = true;
+      }
+      expect(rejected).assertTrue();
+    });
+
+    it('preflights local partial-erase remnants before deleting their source', 0, () => {
+      const source: StrokeElementData = partialEraseStroke('local-source');
+      const remnant: StrokeElementData = partialEraseStroke('local-remnant');
+      validatePartialEraseMaterializationPlan({
+        replacements: [{
+          sourceKind: PageElementKind.STROKE, source: source, remnants: [remnant],
+        }],
+      });
+
+      remnant.renderSpec.inkEffects = 'not-a-uint64';
+      let rejected: boolean = false;
+      try {
+        validatePartialEraseMaterializationPlan({
+          replacements: [{
+            sourceKind: PageElementKind.STROKE, source: source, remnants: [remnant],
+          }],
         });
       } catch (_error) {
         rejected = true;

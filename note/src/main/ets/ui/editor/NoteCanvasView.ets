@@ -31,6 +31,7 @@ import { CanvasViewport, CumulativeGestureTracker } from '../../rendering/Canvas
 import { pagePixelSize, PAGE_UNITS_PER_MM, PagePixelSize } from '../../core/model/PageCoordinateSpace';
 import { StrokeSession } from '../../rendering/StrokeSession';
 import { EraserEngine, EraserMode } from '../../rendering/EraserEngine';
+import { OriginalInkPartialEraser } from '../../rendering/OriginalInkPartialEraser';
 import {
   OriginalShapePartialEraser, ShapePartialEraseReplacement,
 } from '../../rendering/OriginalShapePartialEraser';
@@ -56,7 +57,7 @@ import {
   OriginalPartialEraseHistoryResult, OriginalPartialErasePersistenceResult,
   OriginalPartialErasePlan, OriginalPartialEraseReplacementPlan, OriginalTextEditPreview,
   OriginalZOrderHint, PersistedElement, StrokePersistence, validateOriginalClipboardPastePlan,
-  validateOriginalPartialErasePlan,
+  validateOriginalPartialErasePlan, validatePartialEraseMaterializationPlan,
 } from '../../data/StrokePersistence';
 import { OriginalGroupMutationOpPayload } from '../../data/OriginalGroupMutationOpCodec';
 import {
@@ -1742,13 +1743,14 @@ export struct NoteCanvasView {
       return;
     }
     if (this.eraserEngine.getMode() === EraserMode.PARTIAL) {
-      const strokeResult = this.eraserEngine.erase(
-        this.eraserPath, this.partialEraserCandidateStrokes());
+      const strokeReplacements =
+        new OriginalInkPartialEraser(this.eraserEngine.getWidth()).erase(
+          this.eraserPath, this.partialEraserCandidateStrokes());
       const shapeReplacements: ShapePartialEraseReplacement[] =
         new OriginalShapePartialEraser(this.eraserEngine.getWidth()).erase(
           this.eraserPath, this.shapes);
       const replacements: OriginalPartialEraseReplacementPlan[] = [];
-      for (const replacement of strokeResult.partialReplacements) {
+      for (const replacement of strokeReplacements) {
         replacements.push({
           sourceKind: PageElementKind.STROKE,
           source: replacement.sourceStroke,
@@ -2001,6 +2003,15 @@ export struct NoteCanvasView {
   private applyPartialEraseLocally(plan: OriginalPartialErasePlan,
     history?: HistoryMetadata): void {
     if (plan.replacements.length === 0) {
+      return;
+    }
+    try {
+      // A failed original preflight is not permission to delete the source in
+      // the snapshot fallback.  Match wc/u5j's all-or-nothing materialization:
+      // every remnant must be representable as CREATE_INK before local state
+      // or history is touched, even when the source itself has a local ID.
+      validatePartialEraseMaterializationPlan(plan);
+    } catch (_error) {
       return;
     }
     const planByKey: Map<string, OriginalPartialEraseReplacementPlan> =

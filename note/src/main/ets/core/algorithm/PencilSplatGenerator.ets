@@ -32,6 +32,21 @@ export interface CurveWalkPoint {
   t: number;
 }
 
+// State returned by the original cfa.b() walk.  The Android renderer carries
+// the post-component random seed and the last emitted splat position into the
+// next clipped component; exposing it keeps a locally materialized Pencil
+// remnant deterministic after it is persisted and reloaded.
+export interface PencilSplatGenerationState {
+  finalSeed: number;
+  finalReferencePoint: Point2D | undefined;
+  emitted: boolean;
+}
+
+export interface PencilSplatGenerationResult {
+  splatPoints: PencilSplatPoint[];
+  state: PencilSplatGenerationState;
+}
+
 export const ORIGINAL_PENCIL_FALLBACK_SEED: number = 1544949492;
 
 export class PencilSplatLimitError extends Error {
@@ -55,6 +70,8 @@ interface CubicControlPoints {
 export class PencilSplatGenerator {
   private config: SplatGeneratorConfig;
   private seed: number;
+  private lastReferencePoint: Point2D | undefined;
+  private emittedInLastGeneration: boolean;
 
   constructor(config?: Partial<SplatGeneratorConfig>) {
     const merged: SplatGeneratorConfig = {
@@ -120,6 +137,8 @@ export class PencilSplatGenerator {
         Math.floor(merged.maximumSplatCount) : Number.MAX_SAFE_INTEGER,
     };
     this.seed = ORIGINAL_PENCIL_FALLBACK_SEED;
+    this.lastReferencePoint = undefined;
+    this.emittedInLastGeneration = false;
   }
 
   // 主入口：沿曲线行走生成 splat 点（xaa.b() 语义）
@@ -127,8 +146,37 @@ export class PencilSplatGenerator {
   // 后续步长 = spacing*0.25*(sizeFactor*0.5+0.5)（xaa.b L259，随尺寸变化）
   generate(segments: CubicSegment[], pathPoints: StrokePathPoint[],
     sourceRanges?: CubicSourceRange[], referencePoint?: Point2D): PencilSplatPoint[] {
+    const result: PencilSplatGenerationResult = this.generateInternal(
+      segments, pathPoints, sourceRanges, referencePoint);
+    return result.splatPoints;
+  }
+
+  // Same walk as generate(), plus the state that the original Pencil style
+  // supplier stores at a clipped boundary.  Keeping generate() byte/API
+  // compatible avoids changing existing rendering callers and fixtures.
+  generateWithState(segments: CubicSegment[], pathPoints: StrokePathPoint[],
+    sourceRanges?: CubicSourceRange[], referencePoint?: Point2D): PencilSplatGenerationResult {
+    return this.generateInternal(segments, pathPoints, sourceRanges, referencePoint);
+  }
+
+  getCurrentSeed(): number {
+    return this.seed;
+  }
+
+  getCurrentReferencePoint(): Point2D | undefined {
+    return this.lastReferencePoint === undefined ? undefined : {
+      x: this.lastReferencePoint.x, y: this.lastReferencePoint.y,
+    };
+  }
+
+  private generateInternal(segments: CubicSegment[], pathPoints: StrokePathPoint[],
+    sourceRanges?: CubicSourceRange[], referencePoint?: Point2D): PencilSplatGenerationResult {
+    this.lastReferencePoint = referencePoint === undefined ? undefined : {
+      x: referencePoint.x, y: referencePoint.y,
+    };
+    this.emittedInLastGeneration = false;
     if (this.config.spacing <= 0 || segments.length === 0 || pathPoints.length === 0) {
-      return [];
+      return { splatPoints: [], state: this.generationState() };
     }
     const splats: PencilSplatPoint[] = [];
     let cursor: CurveCursor = { segmentIndex: 0, t: 0 };
@@ -154,13 +202,26 @@ export class PencilSplatGenerator {
       }
       for (const s of atPos) {
         splats.push(s);
+        // cfa.f is the last emitted splat, rather than the curve walk point.
+        this.lastReferencePoint = { x: s.x, y: s.y };
+        this.emittedInLastGeneration = true;
       }
       // 步进（xaa.b L259）：step = spacing*0.25*(sizeFactor*0.5+0.5)
       cursor = { segmentIndex: walk.segmentIndex, t: walk.t };
       previousPosition = walk.pos;
       step = this.config.spacing * 0.25 * (sizeF * 0.5 + 0.5);
     }
-    return splats;
+    return { splatPoints: splats, state: this.generationState() };
+  }
+
+  private generationState(): PencilSplatGenerationState {
+    return {
+      finalSeed: this.seed,
+      finalReferencePoint: this.lastReferencePoint === undefined ? undefined : {
+        x: this.lastReferencePoint.x, y: this.lastReferencePoint.y,
+      },
+      emitted: this.emittedInLastGeneration,
+    };
   }
 
   // sizeFactor = sizeP*sizeT + (1-sizeT)*1.0（xaa.d()）
@@ -417,5 +478,7 @@ export class PencilSplatGenerator {
   reset(seed: number): void {
     // cfa.b() sign-extends the int32 backing seed to long and takes its absolute value.
     this.seed = Math.abs(Math.trunc(seed));
+    this.lastReferencePoint = undefined;
+    this.emittedInLastGeneration = false;
   }
 }

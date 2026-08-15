@@ -5,7 +5,9 @@ import {
 import { RenderContext, StrokeRenderer } from '../core/adaptation/StrokeRenderer';
 import { computeIsolatedLayerBounds, translateTransformToCrop } from '../core/adaptation/LayerCacheGeometry';
 import { Rect2D } from '../core/model/GeometryTypes';
-import { InkStyle, StrokeElementData } from '../core/model/StrokeTypes';
+import {
+  InkPathCommand, InkPathCommandType, InkStyle, StrokeElementData,
+} from '../core/model/StrokeTypes';
 import {
   OriginalAudioLinkedPlayback, sliceStrokeForAudioProgress,
 } from '../core/adaptation/OriginalAudioLinkedInkPlayback';
@@ -81,7 +83,19 @@ export class StrokeCanvasPainter {
   private renderInk(stroke: StrokeElementData, rc: RenderContext): void {
     this.renderer.renderInkFill(stroke, rc);
     if (stroke.renderSpec.isPencil) {
-      this.renderer.renderPencilSplats(stroke.splatPoints, stroke.renderSpec, rc);
+      const customPath: InkPathCommand[] | null =
+        stroke.customPath === undefined ? null : stroke.customPath;
+      if (customPath !== null && customPath.length > 0) {
+        const canvasContext: Canvas2DDrawingContext = rc as Canvas2DDrawingContext;
+        canvasContext.save();
+        canvasContext.beginPath();
+        this.appendInkPath(canvasContext, customPath);
+        canvasContext.clip();
+        this.renderer.renderPencilSplats(stroke.splatPoints, stroke.renderSpec, rc);
+        canvasContext.restore();
+      } else {
+        this.renderer.renderPencilSplats(stroke.splatPoints, stroke.renderSpec, rc);
+      }
     } else {
       const customRendered: boolean = this.renderer.renderCustomPath(stroke, rc);
       if (!customRendered) {
@@ -93,6 +107,24 @@ export class StrokeCanvasPainter {
       }
       if (stroke.renderSpec.tapePattern !== undefined) {
         this.renderer.renderTapePattern(stroke, rc);
+      }
+    }
+  }
+
+  private appendInkPath(context: Canvas2DDrawingContext,
+    commands: InkPathCommand[]): void {
+    for (const command of commands) {
+      if (command.type === InkPathCommandType.MOVE_TO) {
+        context.moveTo(command.points[0].x, command.points[0].y);
+      } else if (command.type === InkPathCommandType.LINE_TO) {
+        context.lineTo(command.points[0].x, command.points[0].y);
+      } else if (command.type === InkPathCommandType.QUADRATIC) {
+        context.quadraticCurveTo(command.points[0].x, command.points[0].y,
+          command.points[1].x, command.points[1].y);
+      } else {
+        context.bezierCurveTo(command.points[0].x, command.points[0].y,
+          command.points[1].x, command.points[1].y,
+          command.points[2].x, command.points[2].y);
       }
     }
   }
