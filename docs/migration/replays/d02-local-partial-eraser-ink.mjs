@@ -11,6 +11,8 @@ const dh5 = original('sources/defpackage/dh5.java');
 const o8j = original('sources/defpackage/o8j.java');
 const evidence = read(
   'docs/migration/evidence/original-partial-erase-entity-replacement-jadx-2026-08-15.md');
+const groupEvidence = read(
+  'docs/migration/evidence/original-partial-erase-group-replacement-jadx-2026-08-15.md');
 const eraser = read('note/src/main/ets/rendering/EraserEngine.ets');
 const encoder = read('note/src/main/ets/data/OriginalCreateInkPayloadEncoder.ets');
 const persistence = read('note/src/main/ets/data/StrokePersistence.ets');
@@ -18,11 +20,13 @@ const canvas = read('note/src/main/ets/ui/editor/NoteCanvasView.ets');
 const undo = read('note/src/main/ets/rendering/UndoRedoManager.ets');
 const persistentHistory = read('note/src/main/ets/data/PersistentHistory.ets');
 const codec = read('note/src/main/ets/data/OriginalPartialEraseMutationCodec.ets');
+const groupPlanner = read('note/src/main/ets/data/OriginalPartialEraseGroupPlanner.ets');
 const encoderFixture = read('note/src/test/OriginalCreateInkPayloadEncoder.test.ets');
 const eraserFixture = read('note/src/test/EraserEngine.test.ets');
 const historyFixture = read('note/src/test/PersistentHistory.test.ets');
 const undoFixture = read('note/src/test/UndoRedoManager.test.ets');
 const persistenceFixture = read('note/src/test/StrokePersistence.test.ets');
+const groupPlannerFixture = read('note/src/test/OriginalPartialEraseGroupPlanner.test.ets');
 const fixtureList = read('note/src/test/List.test.ets');
 
 // Direct original evidence: normal drawing expects CREATE_INK, while partial erase takes jt1.
@@ -45,6 +49,10 @@ assert.match(evidence, /u5j\.l/);
 assert.match(evidence, /oqi\.a/);
 assert.match(evidence, /22E7F02B2483D45FEB577541C79CD90A601BC17EBE8FACAFE94859B06856BEA5/);
 assert.match(evidence, /17A0E86702415B5A4181F8F2B1E81E147AD23D3B6DA1DEDB3C60B58B97679895/);
+assert.match(groupEvidence, /removeAll\(sourceId\)/);
+assert.match(groupEvidence, /append all remnants/);
+assert.match(groupEvidence, /CREATE_INK → MODIFY_GROUP → DELETE_ENTITIES/);
+assert.match(groupEvidence, /B4DA5DB3C578DD38D308B38DCFCD87E12BB5CDE42CE3A875708825E2CA950E5B/);
 
 // Harmony authoring clips into entities. Historical incoming tool-5 Ink remains supported, but
 // local partial erase no longer appends a permanent destination-out maskPath entity.
@@ -64,6 +72,10 @@ assert.match(canvas, /this\.applyPartialEraseLocally\(result\.partialReplacement
 assert.match(canvas, /addedStrokes: added/);
 assert.match(canvas, /addedStrokeIndices: addedIndices/);
 assert.match(canvas, /addedStrokeCounts: addedCounts/);
+assert.match(canvas, /partialEraseBeforeGroups: groupPlan\.beforeGroups/);
+assert.match(canvas, /partialEraseAfterGroups: groupPlan\.afterGroups/);
+assert.match(canvas, /planLocalPartialEraseGroups\(this\.selectionGroups, groupReplacements\)/);
+assert.match(canvas, /private partialEraserCandidateStrokes\(\)[\s\S]{0,120}completedStrokes\.slice/);
 assert.match(canvas, /restoreRemovedStrokes\(addedStrokes, addedStrokeIndices\)/);
 assert.match(canvas, /validatePartialEraseStrokeHistoryState/);
 assert.match(canvas, /existingStrokeIds\.has\(remnant\.id\)/);
@@ -71,6 +83,10 @@ assert.match(canvas, /invalidateOriginalInkReservation\(\)/);
 assert.match(undo, /buildPartialEraseReplacementMap/);
 assert.match(undo, /partialEraseElementOrder/);
 assert.match(undo, /validInsertionIndices/);
+assert.match(groupPlanner, /highestIdentityParentByMember/);
+assert.match(groupPlanner, /withoutMember\(working\.members, replacement\.sourceId\)/);
+assert.match(groupPlanner, /working\.members\.push\(remnantId\)/);
+assert.match(groupPlanner, /firstEmptyAffectedGroup/);
 
 // CREATE_INK remnants retain transform, source z-index and nullable uint32 audioDuration.
 assert.match(encoder, /decomposeInkTransform/);
@@ -95,14 +111,22 @@ assert.match(commitSource, /applyBatchedPayload\([\s\S]*?revisionBatch\)/);
 assert.doesNotMatch(commitSource, /revisionBatch\.flush/);
 assert.ok(commitSource.indexOf('applyBatchedPayload(') <
   commitSource.indexOf('new OriginalDeleteEntitiesOperationApplier().apply'));
+assert.ok(commitSource.indexOf('applyBatchedPayload(') <
+  commitSource.indexOf('applyOriginalPartialEraseGroupModifications('));
+assert.ok(commitSource.indexOf('applyOriginalPartialEraseGroupModifications(') <
+  commitSource.indexOf('new OriginalDeleteEntitiesOperationApplier().apply'));
+assert.match(commitSource, /groupPlan\.emptyGroups/);
 assert.match(commitSource, /revisionAfter !== currentRevision \+ 1/);
 assert.match(commitSource, /rebuildPageSearchState\(store, finalSnapshot, revisionAfter, true\)/);
 assert.match(commitSource, /appendOriginalPartialEraseHistory/);
 assert.match(commitSource, /await store\.commit\(\)/);
 assert.match(commitSource, /await store\.rollBack\(\)/);
 
-// Undo/redo are one visibility operation and one page revision each, restored as one action.
-assert.match(historySource, /replayPageMutation\(current, mutation, forward\)/);
+// Undo/redo reverse Group member registers plus one visibility operation/page revision,
+// while persistent history still moves as one dedicated action.
+assert.match(historySource, /replayPageMutation\([\s\S]{0,80}mutation\.pageMutation, forward\)/);
+assert.match(historySource, /replayOriginalPartialEraseGroups/);
+assert.match(historySource, /applyOriginalPartialEraseGroupModifications/);
 assert.match(historySource, /encodeOriginalEntityVisibility\(deletes, undeletes\)/);
 assert.match(historySource, /revisionAfter !== revisionBefore \+ 1/);
 assert.match(historySource, /rebuildPageSearchState\(store, finalSnapshot, revisionAfter, true\)/);
@@ -110,7 +134,10 @@ assert.match(undo, /ORIGINAL_PARTIAL_ERASE/);
 assert.match(persistentHistory, /decodeOriginalPartialEraseMutation/);
 assert.match(codec, /validateOriginalPartialEraseMutation/);
 assert.match(codec, /MAX_ORIGINAL_DELETE_ENTITY_COUNT/);
-assert.doesNotMatch(codec, /MAX_OPERATION_ELEMENTS/);
+assert.match(codec, /LEGACY_PAGE_MAGIC/);
+assert.match(codec, /NPE2/);
+assert.match(codec, /planOriginalPartialEraseGroups/);
+assert.match(codec, /Group snapshots contradict replacement mapping/);
 assert.match(persistence, /remnantIds\.has\(replacement\.source\.id\)/);
 
 assert.match(encoderFixture, /preserves CREATE_INK origin rotation scale and source z-index/);
@@ -122,9 +149,15 @@ assert.match(undoFixture, /preserves local partial-erase remnant positions acros
 assert.match(persistenceFixture,
   /rejects a partial-erase source identity already used by an earlier remnant/);
 assert.match(encoderFixture, /caps original partial-erase history at one type-25 visibility payload/);
+assert.match(encoderFixture, /round-trips NPE2 modified and recursively deleted Group snapshots/);
+assert.match(groupPlannerFixture, /uses the highest-identity parent and appends remnants/);
+assert.match(groupPlannerFixture, /recursively deletes empty Groups/);
+assert.match(groupPlannerFixture, /draft remnant IDs/);
+assert.match(groupPlannerFixture, /another local erase after a draft remnant entered the Group/);
 assert.match(fixtureList, /eraserEngineTest\(\)/);
 assert.match(fixtureList, /originalCreateInkPayloadEncoderTest\(\)/);
 assert.match(fixtureList, /persistentHistoryTest\(\)/);
+assert.match(fixtureList, /originalPartialEraseGroupPlannerTest\(\)/);
 
 function createFixture() {
   const db = new DatabaseSync(':memory:');

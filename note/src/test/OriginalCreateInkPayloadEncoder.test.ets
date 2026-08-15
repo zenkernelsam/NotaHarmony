@@ -129,11 +129,12 @@ export default function originalCreateInkPayloadEncoderTest() {
         elementId: 'op:16:2', kind: 1, payload: new Uint8Array([6, 7]),
       }];
       const mutation = decodeOriginalPartialEraseMutation(encodeOriginalPartialEraseMutation(
-        createPageMutation('page-1', 9, 10, before, after)));
-      expect(mutation.beforeElements.length).assertEqual(1);
-      expect(mutation.afterElements.length).assertEqual(2);
-      expect(mutation.beforeElements[0].elementId).assertEqual('op:14:2');
-      expect(mutation.afterElements[1].elementId).assertEqual('op:16:2');
+        { pageMutation: createPageMutation('page-1', 9, 10, before, after),
+          replacements: [], beforeGroups: [], afterGroups: [] }));
+      expect(mutation.pageMutation.beforeElements.length).assertEqual(1);
+      expect(mutation.pageMutation.afterElements.length).assertEqual(2);
+      expect(mutation.pageMutation.beforeElements[0].elementId).assertEqual('op:14:2');
+      expect(mutation.pageMutation.afterElements[1].elementId).assertEqual('op:16:2');
     });
 
     it('caps original partial-erase history at one type-25 visibility payload', 0, () => {
@@ -144,8 +145,41 @@ export default function originalCreateInkPayloadEncoderTest() {
           payload: new Uint8Array([index & 0xFF]),
         });
       }
-      const oversized = createPageMutation('page-1', 1, 2, before, []);
+      const oversized = {
+        pageMutation: createPageMutation('page-1', 1, 2, before, []),
+        replacements: [], beforeGroups: [], afterGroups: [],
+      };
       expect(() => validateOriginalPartialEraseMutation(oversized)).assertThrow();
+    });
+
+    it('round-trips NPE2 modified and recursively deleted Group snapshots', 0, () => {
+      const before: SearchSourceElement[] = [{
+        elementId: 'op:a:1', kind: 1, payload: new Uint8Array([1]),
+      }, {
+        elementId: 'op:14:1', kind: 1, payload: new Uint8Array([2]),
+      }];
+      const after: SearchSourceElement[] = [before[1]];
+      const bytes: Uint8Array = encodeOriginalPartialEraseMutation({
+        pageMutation: createPageMutation('page-1', 10, 11, before, after),
+        replacements: [{ sourceId: 'op:a:1', remnantIds: [] }],
+        beforeGroups: [
+          { id: 'op:64:1', timestamp: 100, siteId: 1, members: ['op:a:1'] },
+          { id: 'op:c8:1', timestamp: 200, siteId: 1,
+            members: ['op:64:1', 'op:14:1'] },
+        ],
+        afterGroups: [
+          { id: 'op:c8:1', timestamp: 200, siteId: 1, members: ['op:14:1'] },
+        ],
+      });
+      expect(bytes[0]).assertEqual(0x4E);
+      expect(bytes[3]).assertEqual(0x32);
+      const mutation = decodeOriginalPartialEraseMutation(bytes);
+      expect(mutation.beforeGroups.length).assertEqual(2);
+      expect(mutation.afterGroups.length).assertEqual(1);
+      expect(mutation.afterGroups[0].members.join(',')).assertEqual('op:14:1');
+      expect(mutation.replacements[0].sourceId).assertEqual('op:a:1');
+      mutation.afterGroups[0].members.push('op:b:1');
+      expect(() => validateOriginalPartialEraseMutation(mutation)).assertThrow();
     });
 
     it('round-trips original partial eraser as CREATE_INK tool 5', 0, () => {

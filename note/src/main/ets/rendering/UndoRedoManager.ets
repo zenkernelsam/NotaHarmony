@@ -67,6 +67,8 @@ export interface EraseElementsAction extends ActionBase, ElementOrderChange {
   addedStrokes?: StrokeElementData[];
   addedStrokeIndices?: number[];
   addedStrokeCounts?: number[];
+  partialEraseBeforeGroups?: OriginalSelectionGroup[];
+  partialEraseAfterGroups?: OriginalSelectionGroup[];
   beforeModifiedStrokes: StrokeElementData[];
   afterModifiedStrokes: StrokeElementData[];
   removedShapes: ShapeElement[];
@@ -411,6 +413,8 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
       estimateImages(action.removedImages) + action.removedImageIndices.length * 8 +
       estimateMathBlocks(action.removedMathBlocks ?? []) +
       (action.removedMathBlockIndices ?? []).length * 8 +
+      estimateGroups(action.partialEraseBeforeGroups ?? []) +
+      estimateGroups(action.partialEraseAfterGroups ?? []) +
       estimateElementOrderChange(action);
   }
   if (action.type === UndoableActionType.TRANSFORM_STROKES) {

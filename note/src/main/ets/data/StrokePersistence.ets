@@ -78,7 +78,7 @@ import {
   decodeOriginalUpdateCheckbox, encodeOriginalUpdateCheckbox,
   ORIGINAL_UPDATE_CHECKBOX_PAYLOAD_TYPE, OriginalUpdateCheckboxOperationApplier,
 } from './OriginalUpdateCheckboxOperation';
-import { encodeOriginalCreateGroup } from './OriginalGroupPayloadEncoder';
+import { encodeOriginalCreateGroup, encodeOriginalModifyGroup } from './OriginalGroupPayloadEncoder';
 import {
   encodeOriginalGroupMutation, OriginalGroupMutationOpPayload,
   sameOriginalSelectionGroups, validateOriginalGroupMutation,
@@ -92,6 +92,10 @@ import {
   decodeOriginalPartialEraseMutation, encodeOriginalPartialEraseMutation,
   OriginalPartialEraseMutation, validateOriginalPartialEraseMutation,
 } from './OriginalPartialEraseMutationCodec';
+import {
+  OriginalPartialEraseGroupPlan, OriginalPartialEraseGroupReplacement,
+  planOriginalPartialEraseGroups, replayOriginalPartialEraseGroups,
+} from './OriginalPartialEraseGroupPlanner';
 import {
   decodeOriginalCreateInk, ORIGINAL_CREATE_INK_PAYLOAD_TYPE, OriginalCreateInkOperationApplier,
 } from './OriginalCreateInkOperation';
@@ -118,7 +122,8 @@ import {
 } from './OriginalModifyInkOperation';
 import {
   decodeOriginalCreateShape, decodeOriginalModifyShape, ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE,
-  ORIGINAL_CREATE_GROUP_PAYLOAD_TYPE, ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE,
+  ORIGINAL_CREATE_GROUP_PAYLOAD_TYPE, ORIGINAL_MODIFY_GROUP_PAYLOAD_TYPE,
+  ORIGINAL_MODIFY_SHAPE_PAYLOAD_TYPE,
   OriginalCreateShapePayload, OriginalModifyShapePayload, OriginalShapeGroupOperationApplier,
 } from './OriginalShapeGroupOperation';
 import {
@@ -210,6 +215,7 @@ export interface OriginalPartialErasePlan {
 export interface OriginalPartialErasePersistenceResult {
   elements: SearchSourceElement[];
   elementOrder: PageElementRef[];
+  groups: OriginalSelectionGroup[];
   mutation: OriginalPartialEraseMutation;
   operation: Op;
 }
@@ -217,6 +223,7 @@ export interface OriginalPartialErasePersistenceResult {
 export interface OriginalPartialEraseHistoryResult {
   elements: SearchSourceElement[];
   elementOrder: PageElementRef[];
+  groups: OriginalSelectionGroup[];
 }
 
 export interface OriginalClipboardPasteHistoryResult {
@@ -1467,21 +1474,12 @@ export class StrokePersistence {
           }
           const activeGroups: OriginalSelectionGroup[] =
             await this.loadOriginalSelectionGroups(store, noteId);
-          const groupedMembers: Set<string> = new Set<string>();
-          for (const group of activeGroups) {
-            for (const member of group.members) {
-              groupedMembers.add(member);
-            }
-          }
           const before: SearchSourceElement[] = await this.loadCurrentSnapshot(store, noteId, pageId);
           const beforeById: Map<string, SearchSourceElement> = new Map<string, SearchSourceElement>();
           for (const element of before) {
             beforeById.set(`${element.kind}:${element.elementId}`, element);
           }
           for (const replacement of stablePlan.replacements) {
-            if (groupedMembers.has(replacement.source.id)) {
-              throw new Error('original partial erase Group member replacement is not enabled yet');
-            }
             const stored: SearchSourceElement | undefined =
               beforeById.get(`${PageElementKind.STROKE}:${replacement.source.id}`);
             const expected: Uint8Array = encodePersistedElement({
@@ -1491,6 +1489,21 @@ export class StrokePersistence {
               throw new Error('original partial erase source Ink is stale');
             }
           }
+          const draftGroupPlan: OriginalPartialEraseGroupPlan =
+            planOriginalPartialEraseGroups(activeGroups, stablePlan.replacements.map(
+              (replacement: OriginalPartialEraseReplacementPlan):
+                OriginalPartialEraseGroupReplacement => ({
+                sourceId: replacement.source.id,
+                remnantIds: replacement.remnants.map(
+                  (remnant: StrokeElementData): string => remnant.id),
+              })));
+          const draftRemnantCount: number = stablePlan.replacements.reduce(
+            (count: number, replacement: OriginalPartialEraseReplacementPlan): number =>
+              count + replacement.remnants.length, 0);
+          if (stablePlan.replacements.length + draftRemnantCount +
+            draftGroupPlan.emptyGroups.length > MAX_ORIGINAL_DELETE_ENTITY_COUNT) {
+            throw new Error('original partial erase exceeds one type-25 history payload');
+          }
           const currentRevision: number = await this.readLivePageRevision(store, noteId, pageId);
           if (currentRevision >= Number.MAX_SAFE_INTEGER) {
             throw new Error('original partial erase page revision is exhausted');
@@ -1499,7 +1512,9 @@ export class StrokePersistence {
           const createApplier: OriginalCreateInkOperationApplier =
             new OriginalCreateInkOperationApplier();
           const createdIds: string[] = [];
+          const createdBySource: Map<string, string[]> = new Map<string, string[]>();
           for (const replacement of stablePlan.replacements) {
+            const replacementIds: string[] = [];
             const sourceIdentity: OperationIdentity =
               decodeOperationId(replacement.source.id) as OperationIdentity;
             const sourceZIndex: string | null = await this.readOriginalEntityZIndex(
@@ -1533,15 +1548,37 @@ export class StrokePersistence {
               await this.appendOriginalCreateOperation(store, noteId, identity,
                 OpType.ORIGINAL_CREATE_INK, operation.rawOperation);
               createdIds.push(identity.opId);
+              replacementIds.push(identity.opId);
             }
+            createdBySource.set(replacement.source.id, replacementIds);
           }
 
           const sourceIdentities: OperationIdentity[] = stablePlan.replacements.map(
             (replacement: OriginalPartialEraseReplacementPlan): OperationIdentity =>
               decodeOperationId(replacement.source.id) as OperationIdentity);
+          const groupReplacements: OriginalPartialEraseGroupReplacement[] =
+            stablePlan.replacements.map(
+              (replacement: OriginalPartialEraseReplacementPlan):
+                OriginalPartialEraseGroupReplacement => ({
+                sourceId: replacement.source.id,
+                remnantIds: (createdBySource.get(replacement.source.id) ?? []).slice(),
+              }));
+          const groupPlan: OriginalPartialEraseGroupPlan =
+            planOriginalPartialEraseGroups(activeGroups, groupReplacements);
+          if (groupPlan.emptyGroups.length !== draftGroupPlan.emptyGroups.length ||
+            groupPlan.emptyGroups.some((group: OriginalSelectionGroup, index: number): boolean =>
+              group.id !== draftGroupPlan.emptyGroups[index].id)) {
+            throw new Error('original partial erase Group plan changed after identity allocation');
+          }
+          await this.applyOriginalPartialEraseGroupModifications(
+            store, noteId, groupPlan.modifiedGroups);
+          const deleteTargets: OperationIdentity[] = sourceIdentities.slice();
+          for (const group of groupPlan.emptyGroups) {
+            deleteTargets.push({ timestamp: group.timestamp, siteId: group.siteId });
+          }
           const deleteIdentity: AllocatedOperationIdentity =
             await allocateOperationIdentity(store, noteId);
-          const deletePayload: Uint8Array = encodeOriginalEntityVisibility(sourceIdentities, []);
+          const deletePayload: Uint8Array = encodeOriginalEntityVisibility(deleteTargets, []);
           const deleteOperation: StoredSyncedOperation = localStoredOperation(
             noteId, allocatedOriginalMetadata(deleteIdentity),
             ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE, deletePayload, null);
@@ -1576,8 +1613,18 @@ export class StrokePersistence {
               throw new Error('original partial erase lost a remnant Ink');
             }
           }
-          const mutation: OriginalPartialEraseMutation = createPageMutation(
-            pageId, currentRevision, revisionAfter, before, materialized);
+          const activeGroupsAfter: OriginalSelectionGroup[] =
+            await this.loadOriginalSelectionGroups(store, noteId);
+          if (!sameOriginalSelectionGroups(activeGroupsAfter, groupPlan.groups)) {
+            throw new Error('original partial erase produced unexpected Groups');
+          }
+          const mutation: OriginalPartialEraseMutation = {
+            pageMutation: createPageMutation(
+              pageId, currentRevision, revisionAfter, before, materialized),
+            replacements: groupPlan.beforeGroups.length === 0 ? [] : groupReplacements,
+            beforeGroups: groupPlan.beforeGroups,
+            afterGroups: groupPlan.afterGroups,
+          };
           validateOriginalPartialEraseMutation(mutation);
           const finalSnapshot: PreparedPageSave = this.preparedSnapshotFromSearchElements(
             noteId, pageId, materialized, stableHistory);
@@ -1592,6 +1639,7 @@ export class StrokePersistence {
               (element: SearchSourceElement, index: number): PageElementRef => ({
                 kind: element.kind, elementId: element.elementId, zIndex: index,
               })),
+            groups: activeGroupsAfter.map(cloneSelectionGroup),
             mutation: mutation,
             operation: historyOperation,
           };
@@ -1620,7 +1668,7 @@ export class StrokePersistence {
       actionId: history.actionId, effect: history.effect,
       coalesceTrack: history.coalesceTrack, actionTime: history.actionTime,
     };
-    const pageId: string = mutation.pageId;
+    const pageId: string = mutation.pageMutation.pageId;
     await this.flush(noteId, pageId);
     return editorPersistenceMutex.runExclusive(
       async (): Promise<OriginalPartialEraseHistoryResult> => {
@@ -1634,17 +1682,49 @@ export class StrokePersistence {
             throw new Error('original partial erase history page is not original-aligned');
           }
           const current: SearchSourceElement[] = await this.loadCurrentSnapshot(store, noteId, pageId);
-          const targetElements: SearchSourceElement[] = replayPageMutation(current, mutation, forward);
+          const targetElements: SearchSourceElement[] = replayPageMutation(
+            current, mutation.pageMutation, forward);
+          const activeGroupsBefore: OriginalSelectionGroup[] =
+            await this.loadOriginalSelectionGroups(store, noteId);
+          const targetGroups: OriginalSelectionGroup[] | null = replayOriginalPartialEraseGroups(
+            activeGroupsBefore, mutation.beforeGroups, mutation.afterGroups, forward);
+          if (targetGroups === null) {
+            throw new Error('original partial erase history source Group state is stale');
+          }
+          await this.validateOriginalPartialEraseStoredGroups(store, noteId, mutation, forward);
+          await this.applyOriginalPartialEraseGroupModifications(
+            store, noteId, this.originalPartialEraseModifiedTargets(mutation, forward));
           const sourceElements: SearchSourceElement[] = forward ?
-            mutation.beforeElements : mutation.afterElements;
+            mutation.pageMutation.beforeElements : mutation.pageMutation.afterElements;
           const targetVisibleElements: SearchSourceElement[] = forward ?
-            mutation.afterElements : mutation.beforeElements;
+            mutation.pageMutation.afterElements : mutation.pageMutation.beforeElements;
           const deletes: OperationIdentity[] = sourceElements.map(
             (element: SearchSourceElement): OperationIdentity =>
               decodeOperationId(element.elementId) as OperationIdentity);
           const undeletes: OperationIdentity[] = targetVisibleElements.map(
             (element: SearchSourceElement): OperationIdentity =>
               decodeOperationId(element.elementId) as OperationIdentity);
+          const sourceGroups: OriginalSelectionGroup[] = forward ?
+            mutation.beforeGroups : mutation.afterGroups;
+          const targetVisibleGroups: OriginalSelectionGroup[] = forward ?
+            mutation.afterGroups : mutation.beforeGroups;
+          const sourceGroupIds: Set<string> = new Set<string>(
+            sourceGroups.map((group: OriginalSelectionGroup): string => group.id));
+          const targetGroupIds: Set<string> = new Set<string>(
+            targetVisibleGroups.map((group: OriginalSelectionGroup): string => group.id));
+          for (const group of sourceGroups) {
+            if (!targetGroupIds.has(group.id)) {
+              deletes.push({ timestamp: group.timestamp, siteId: group.siteId });
+            }
+          }
+          for (const group of targetVisibleGroups) {
+            if (!sourceGroupIds.has(group.id)) {
+              undeletes.push({ timestamp: group.timestamp, siteId: group.siteId });
+            }
+          }
+          if (deletes.length + undeletes.length > MAX_ORIGINAL_DELETE_ENTITY_COUNT) {
+            throw new Error('original partial erase history exceeds one type-25 payload');
+          }
           const revisionBefore: number = await this.readLivePageRevision(store, noteId, pageId);
           const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
           const payload: Uint8Array = encodeOriginalEntityVisibility(deletes, undeletes);
@@ -1663,6 +1743,11 @@ export class StrokePersistence {
           if (!sameSearchSourceElements(materialized, targetElements)) {
             throw new Error('original partial erase history produced an unexpected page');
           }
+          const activeGroupsAfter: OriginalSelectionGroup[] =
+            await this.loadOriginalSelectionGroups(store, noteId);
+          if (!sameOriginalSelectionGroups(activeGroupsAfter, targetGroups)) {
+            throw new Error('original partial erase history produced unexpected Groups');
+          }
           const revisionAfter: number = await this.readLivePageRevision(store, noteId, pageId);
           if (revisionAfter !== revisionBefore + 1) {
             throw new Error('original partial erase history did not advance one page revision');
@@ -1679,6 +1764,7 @@ export class StrokePersistence {
               (element: SearchSourceElement, index: number): PageElementRef => ({
                 kind: element.kind, elementId: element.elementId, zIndex: index,
               })),
+            groups: activeGroupsAfter.map(cloneSelectionGroup),
           };
         } catch (e) {
           await store.rollBack();
@@ -5024,6 +5110,73 @@ export class StrokePersistence {
       timestamp: identity.timestamp, siteId: identity.siteId, clientTime: identity.clientTime,
       pageTimestamp: 0, pageSiteId: 0, pageIndex: 0, pencilSeed: 0,
     };
+  }
+
+  private originalPartialEraseModifiedTargets(mutation: OriginalPartialEraseMutation,
+    forward: boolean): OriginalSelectionGroup[] {
+    const source: OriginalSelectionGroup[] = forward ?
+      mutation.beforeGroups : mutation.afterGroups;
+    const target: OriginalSelectionGroup[] = forward ?
+      mutation.afterGroups : mutation.beforeGroups;
+    const sourceIds: Set<string> = new Set<string>(
+      source.map((group: OriginalSelectionGroup): string => group.id));
+    return target.filter(
+      (group: OriginalSelectionGroup): boolean => sourceIds.has(group.id))
+      .map(cloneSelectionGroup);
+  }
+
+  private async validateOriginalPartialEraseStoredGroups(store: relationalStore.RdbStore,
+    noteId: string, mutation: OriginalPartialEraseMutation, forward: boolean): Promise<void> {
+    const source: OriginalSelectionGroup[] = forward ?
+      mutation.beforeGroups : mutation.afterGroups;
+    const target: OriginalSelectionGroup[] = forward ?
+      mutation.afterGroups : mutation.beforeGroups;
+    const sourceById: Map<string, OriginalSelectionGroup> =
+      new Map<string, OriginalSelectionGroup>();
+    const targetById: Map<string, OriginalSelectionGroup> =
+      new Map<string, OriginalSelectionGroup>();
+    for (const group of source) {
+      sourceById.set(group.id, group);
+    }
+    for (const group of target) {
+      targetById.set(group.id, group);
+    }
+    for (const affected of mutation.beforeGroups) {
+      const expected: OriginalSelectionGroup | undefined =
+        sourceById.get(affected.id) ?? targetById.get(affected.id);
+      if (expected === undefined) {
+        throw new Error('original partial erase history lost an affected Group');
+      }
+      const stored: OriginalSelectionGroup | null =
+        await this.readStoredGroup(store, noteId, expected);
+      if (stored === null || !sameOriginalSelectionGroups([stored], [expected])) {
+        throw new Error('original partial erase history stored Group state is stale');
+      }
+    }
+  }
+
+  private async applyOriginalPartialEraseGroupModifications(store: relationalStore.RdbStore,
+    noteId: string, groups: OriginalSelectionGroup[]): Promise<void> {
+    const applier: OriginalShapeGroupOperationApplier =
+      new OriginalShapeGroupOperationApplier();
+    for (const group of groups) {
+      this.validateSelectionGroup(group);
+      const groupIdentity: OperationIdentity = {
+        timestamp: group.timestamp, siteId: group.siteId,
+      };
+      const members: OperationIdentity[] = this.decodeUniqueGroupMembers(group.members, 1);
+      const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+      const payload: Uint8Array = encodeOriginalModifyGroup(groupIdentity, members);
+      const operation: StoredSyncedOperation = localStoredOperation(
+        noteId, this.groupOperationMetadata(identity), ORIGINAL_MODIFY_GROUP_PAYLOAD_TYPE,
+        payload, null);
+      const result: SyncedOperationApplyResult = await applier.apply(store, operation);
+      if (result.deferredReason !== null) {
+        throw new Error(`original partial erase MODIFY_GROUP was deferred: ${result.deferredReason}`);
+      }
+      await this.appendOriginalCreateOperation(store, noteId, identity,
+        OpType.ORIGINAL_MODIFY_GROUP, operation.rawOperation);
+    }
   }
 
   private async applyOriginalGroupVisibility(store: relationalStore.RdbStore, noteId: string,

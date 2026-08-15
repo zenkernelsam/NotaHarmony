@@ -54,9 +54,12 @@ OffscreenCanvas 维持擦除效果。该模型有四个根本偏差：
 - AudioLinked Ink 的播放区间随残片几何收窄，不会重复播放整条 source Ink 的录音区间。
 - fallback Undo/Redo 可保持残片位于被替换 source 的原位置，并拒绝损坏的索引、计数或身份元数据。
 
+## 后续修订
+
+- Group member replacement、空 Group 递归删除及相应持久 Undo/Redo 已由 ADR-0215 / Phase 238 补齐。
+
 ## 边界
 
-- Group member replacement 与空 Group 递归删除尚未实现。
 - Shape partial erase、Pencil/custom/fill outline 精确 clipping 尚未实现；当前不会用中心线近似破坏这些实体。
 - transient preview/end 的完整原版协议尚未闭环。
 - 真机仍需验证高速手势、端点、极短残片、复杂 transform、录音同步和跨 Group 场景。

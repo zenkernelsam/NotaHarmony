@@ -65,6 +65,10 @@ import {
   decodeOriginalPartialEraseMutation, OriginalPartialEraseMutation,
 } from '../../data/OriginalPartialEraseMutationCodec';
 import {
+  OriginalPartialEraseGroupPlan, OriginalPartialEraseGroupReplacement,
+  planLocalPartialEraseGroups, replayOriginalPartialEraseGroups,
+} from '../../data/OriginalPartialEraseGroupPlanner';
+import {
   rebuildOriginalPencilWidth, RebuiltOriginalPencilWidth,
 } from '../../core/adaptation/OriginalPencilWidthGeometry';
 import { SearchSourceElement } from '../../data/SearchIndexPolicy';
@@ -1889,14 +1893,7 @@ export struct NoteCanvasView {
   }
 
   private partialEraserCandidateStrokes(): StrokeElementData[] {
-    const grouped: Set<string> = new Set<string>();
-    for (const group of this.selectionGroups) {
-      for (const member of group.members) {
-        grouped.add(member);
-      }
-    }
-    return this.completedStrokes.filter(
-      (stroke: StrokeElementData): boolean => !grouped.has(stroke.id));
+    return this.completedStrokes.slice();
   }
 
   private canCommitOriginalPartialErase(plan: OriginalPartialErasePlan): boolean {
@@ -1943,6 +1940,7 @@ export struct NoteCanvasView {
           pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
           !this.dataLoadFailed) {
           this.installMutationElements(result.elements);
+          this.selectionGroups = result.groups;
           this.selectionTool.deselect();
           this.selectionVisible = false;
           this.originalInkIneligiblePages.delete(pageId);
@@ -1993,6 +1991,18 @@ export struct NoteCanvasView {
         remnantIds.add(remnant.id);
       }
     }
+    const groupReplacements: OriginalPartialEraseGroupReplacement[] = replacements.map(
+      (replacement: PartialEraseReplacement): OriginalPartialEraseGroupReplacement => ({
+        sourceId: replacement.sourceStroke.id,
+        remnantIds: replacement.remnants.map(
+          (remnant: StrokeElementData): string => remnant.id),
+      }));
+    let groupPlan: OriginalPartialEraseGroupPlan;
+    try {
+      groupPlan = planLocalPartialEraseGroups(this.selectionGroups, groupReplacements);
+    } catch (_error) {
+      return;
+    }
     const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
     const elementOrderAfter: PageElementRef[] | null = partialEraseElementOrder(
       this.elementOrder, replacementById);
@@ -2035,6 +2045,8 @@ export struct NoteCanvasView {
       addedStrokes: added,
       addedStrokeIndices: addedIndices,
       addedStrokeCounts: addedCounts,
+      partialEraseBeforeGroups: groupPlan.beforeGroups,
+      partialEraseAfterGroups: groupPlan.afterGroups,
       beforeModifiedStrokes: [],
       afterModifiedStrokes: [],
       removedShapes: [],
@@ -2048,6 +2060,7 @@ export struct NoteCanvasView {
       elementOrderBefore: elementOrderBefore,
       elementOrderAfter: clonePageElementOrder(elementOrderAfter),
     }, history);
+    this.selectionGroups = groupPlan.groups;
     this.originalInkIneligiblePages.add(this.loadedPageId);
     this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
     this.persist(false);
@@ -2304,6 +2317,7 @@ export struct NoteCanvasView {
       }
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
       this.installMutationElements(result.elements);
+      this.selectionGroups = result.groups;
       this.selectionTool.deselect();
       this.selectionVisible = false;
       this.originalInkIneligiblePages.delete(action.pageId);
@@ -2559,6 +2573,16 @@ export struct NoteCanvasView {
       const removedMathBlockIndices: number[] = action.removedMathBlockIndices ?? [];
       const addedStrokes: StrokeElementData[] = action.addedStrokes ?? [];
       const addedStrokeIndices: number[] = action.addedStrokeIndices ?? [];
+      const addedStrokeCounts: number[] = action.addedStrokeCounts ?? [];
+      const hasPartialReplacement: boolean = addedStrokes.length > 0 ||
+        addedStrokeIndices.length > 0 || addedStrokeCounts.length > 0;
+      const partialTargetGroups: OriginalSelectionGroup[] | null = hasPartialReplacement ?
+        replayOriginalPartialEraseGroups(
+          this.selectionGroups, action.partialEraseBeforeGroups ?? [],
+          action.partialEraseAfterGroups ?? [], !isUndo) : [];
+      if (partialTargetGroups === null) {
+        return false;
+      }
       if (isUndo) {
         for (const stroke of addedStrokes) {
           this.removeStrokeById(stroke.id);
@@ -2587,6 +2611,9 @@ export struct NoteCanvasView {
         }
         this.restoreRemovedStrokes(addedStrokes, addedStrokeIndices);
         this.replaceStrokesById(action.afterModifiedStrokes);
+      }
+      if (hasPartialReplacement) {
+        this.selectionGroups = partialTargetGroups;
       }
     } else if (action.type === UndoableActionType.DELETE_STROKE) {
       if (isUndo) {
@@ -2778,6 +2805,10 @@ export struct NoteCanvasView {
       const addedStrokeCounts: number[] = action.addedStrokeCounts ?? [];
       const hasPartialReplacement: boolean = addedStrokes.length > 0 ||
         addedStrokeIndices.length > 0 || addedStrokeCounts.length > 0;
+      const partialEraseBeforeGroups: OriginalSelectionGroup[] =
+        action.partialEraseBeforeGroups ?? [];
+      const partialEraseAfterGroups: OriginalSelectionGroup[] =
+        action.partialEraseAfterGroups ?? [];
       const hasChange: boolean = action.removedStrokes.length > 0 ||
         addedStrokes.length > 0 || action.beforeModifiedStrokes.length > 0 ||
         action.removedShapes.length > 0 ||
@@ -2792,7 +2823,11 @@ export struct NoteCanvasView {
         !this.hasUniqueShapeIds(action.removedShapes) ||
         !this.hasUniqueTextBlockIds(action.removedTextBlocks) ||
         !this.hasUniqueImageIds(action.removedImages) ||
-        !this.hasUniqueMathBlockIds(removedMathBlocks) || !this.allStrokeIdsPresent(sourceModified)) {
+        !this.hasUniqueMathBlockIds(removedMathBlocks) || !this.allStrokeIdsPresent(sourceModified) ||
+        (!hasPartialReplacement &&
+          (partialEraseBeforeGroups.length > 0 || partialEraseAfterGroups.length > 0)) ||
+        (hasPartialReplacement && replayOriginalPartialEraseGroups(
+          this.selectionGroups, partialEraseBeforeGroups, partialEraseAfterGroups, !isUndo) === null)) {
         return false;
       }
       if (hasPartialReplacement && !validatePartialEraseStrokeHistoryState(
@@ -2981,11 +3016,12 @@ export struct NoteCanvasView {
     try {
       const mutation: OriginalPartialEraseMutation =
         decodeOriginalPartialEraseMutation(action.operation.payload);
-      if (mutation.pageId !== action.pageId) {
+      if (mutation.pageMutation.pageId !== action.pageId) {
         return false;
       }
-      replayPageMutation(this.currentMutationElements(), mutation, !isUndo);
-      return true;
+      replayPageMutation(this.currentMutationElements(), mutation.pageMutation, !isUndo);
+      return replayOriginalPartialEraseGroups(
+        this.selectionGroups, mutation.beforeGroups, mutation.afterGroups, !isUndo) !== null;
     } catch (_error) {
       return false;
     }

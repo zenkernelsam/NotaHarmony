@@ -75,7 +75,7 @@ Phase 108 把原版 partial eraser 的 tool-5 输入语义误当成最终持久�
 
 ## 尚未完成的原版边界
 
-- Group member replacement 与空 Group 递归删除。
+- Group member replacement 与空 Group 递归删除（已由 Phase 238 补齐）。
 - Shape partial erase。
 - Pencil/custom/fill outline 的原版精确 clipping。
 - transient preview/end 完整协议。
@@ -87,4 +87,5 @@ Phase 108 把原版 partial eraser 的 tool-5 输入语义误当成最终持久�
 - AudioLinked Ink：比较 source 时间线与多个 remnant 的开始/持续区间，确认播放高亮无重叠或整段重复。
 - Undo/Redo 多轮与重启恢复，确认每一步只变化一次 revision，search 与页面实体同步。
 - transaction 失败后的本地 fallback，确认 remnant 留在 source 原位置且后续 Undo/Redo 对称。
-- 含 Group、Shape、Pencil/custom outline 的页面目前应保持未破坏，并作为后续实现验收样本。
+- 含 Shape、Pencil/custom outline 的页面目前应保持未破坏，并作为后续实现验收样本；Group 场景转由
+  Phase 238 的 nested/multi-parent fixture 与后续真机测试覆盖。

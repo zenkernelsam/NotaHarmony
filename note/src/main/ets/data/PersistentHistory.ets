@@ -259,7 +259,7 @@ function materializeAction(action: PersistentHistoryAction, currentPageId: strin
     const restored: OriginalPartialEraseAction = {
       type: UndoableActionType.ORIGINAL_PARTIAL_ERASE,
       noteId: noteId,
-      pageId: mutation.pageId,
+      pageId: mutation.pageMutation.pageId,
       operation: action.operations[0],
     };
     return restored;

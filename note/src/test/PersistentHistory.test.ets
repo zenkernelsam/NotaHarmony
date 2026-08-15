@@ -24,7 +24,7 @@ import { encodeOriginalClipboardPasteMutation,
   OriginalClipboardPasteMutation } from '../main/ets/data/OriginalClipboardPasteMutationCodec';
 import { encodeOriginalGroupMutation, OriginalGroupMutationOpPayload } from
   '../main/ets/data/OriginalGroupMutationOpCodec';
-import { encodeOriginalPartialEraseMutation } from
+import { decodeOriginalPartialEraseMutation, encodeOriginalPartialEraseMutation } from
   '../main/ets/data/OriginalPartialEraseMutationCodec';
 
 function makeOp(opId: string, actionId?: string, effect: HistoryEffect = HistoryEffect.PUSH,
@@ -153,7 +153,8 @@ function clipboardPasteHistoryOp(opId: string, effect: HistoryEffect): Op {
   };
 }
 
-function partialEraseHistoryOp(opId: string, effect: HistoryEffect): Op {
+function partialEraseHistoryOp(opId: string, effect: HistoryEffect,
+  grouped: boolean = false): Op {
   const before: SearchSourceElement[] = [
     element('op:a:1', PageElementKind.STROKE, 1),
     element('op:14:2', PageElementKind.STROKE, 2),
@@ -166,7 +167,13 @@ function partialEraseHistoryOp(opId: string, effect: HistoryEffect): Op {
   return {
     opId: opId, noteId: 'note-1', opType: OpType.ORIGINAL_PARTIAL_ERASE,
     payload: encodeOriginalPartialEraseMutation(
-      createPageMutation('page-1', 8, 9, before, after)),
+      { pageMutation: createPageMutation('page-1', 8, 9, before, after),
+        replacements: grouped ? [{ sourceId: 'op:14:2',
+          remnantIds: ['op:15:2', 'op:16:2'] }] : [],
+        beforeGroups: grouped ? [{ id: 'op:1e:3', timestamp: 30, siteId: 3,
+          members: ['op:14:2', 'op:a:1'] }] : [],
+        afterGroups: grouped ? [{ id: 'op:1e:3', timestamp: 30, siteId: 3,
+          members: ['op:a:1', 'op:15:2', 'op:16:2'] }] : [] }),
     clientTime: 100,
     history: {
       actionId: 'partial-erase-action', effect: effect,
@@ -273,6 +280,25 @@ export default function persistentHistoryTest() {
         expect(restored.redo[0].action.pageId).assertEqual('page-1');
         expect(restored.redo[0].action.operation.opType)
           .assertEqual(OpType.ORIGINAL_PARTIAL_ERASE);
+      }
+    });
+
+    it('restores NPE2 partial erase Group history as one dedicated action', 0, () => {
+      const restored: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([
+          partialEraseHistoryOp('erase-push', HistoryEffect.PUSH, true),
+          partialEraseHistoryOp('erase-undo', HistoryEffect.UNDO, true),
+        ]), 'page-1');
+      expect(restored.redo.length).assertEqual(1);
+      expect(restored.redo[0].action.type)
+        .assertEqual(UndoableActionType.ORIGINAL_PARTIAL_ERASE);
+      if (restored.redo[0].action.type === UndoableActionType.ORIGINAL_PARTIAL_ERASE) {
+        const mutation = decodeOriginalPartialEraseMutation(
+          restored.redo[0].action.operation.payload);
+        expect(mutation.beforeGroups[0].members.join(','))
+          .assertEqual('op:14:2,op:a:1');
+        expect(mutation.afterGroups[0].members.join(','))
+          .assertEqual('op:a:1,op:15:2,op:16:2');
       }
     });
 

@@ -123,6 +123,8 @@ s83 r15 = defpackage.u5j.l(r1, r0, 0, 14)
 ## 当前 Harmony 实现边界
 
 - 已实现：普通非 Pencil、非 custom/fill outline Ink 的实体残片替换；保留 transform、源 z-index、Ink
-  effects/path phase 与 AudioLinked 区间；CREATE remnants + DELETE sources；专用持久 Undo/Redo。
-- 尚未宣称完成：Group member replacement/空 Group 删除、Shape partial erase、Pencil/custom outline 精确
-  clipping，以及 transient preview/end 的完整协议对齐。
+  effects/path phase 与 AudioLinked 区间；CREATE remnants + DELETE sources；专用持久 Undo/Redo；Phase 238
+  又补齐 Group member replacement 与空 Group 递归删除。精确顺序证据见
+  `original-partial-erase-group-replacement-jadx-2026-08-15.md`。
+- 尚未宣称完成：Shape partial erase、Pencil/custom outline 精确 clipping，以及 transient preview/end 的
+  完整协议对齐。
