@@ -21,7 +21,10 @@ import { persistOriginalNoteBackground } from
   '../main/ets/data/OriginalNoteBackgroundPersistence';
 import { encodeOriginalOperationEnvelope } from
   '../main/ets/data/OriginalOperationEnvelopeEncoder';
-import { encodeOriginalSetMetadataPageBackground, encodeOriginalSetMetadataTitle } from
+import {
+  encodeOriginalSetMetadataPageBackground, encodeOriginalSetMetadataTitle,
+  encodeOriginalSetMetadataTitleAndPageBackground,
+} from
   '../main/ets/data/OriginalSetMetadataPayloadEncoder';
 import {
   decodeOriginalSetMetadataTable, ORIGINAL_SET_METADATA_PAYLOAD_TYPE,
@@ -97,6 +100,29 @@ export default function originalSetMetadataPayloadEncoderTest() {
       expect(decodeOriginalSetMetadataTable(readOriginalPayloadTable(
         wrap(encodeOriginalSetMetadataTitle('x'.repeat(256))),
         ORIGINAL_SET_METADATA_PAYLOAD_TYPE)).title?.length).assertEqual(256);
+    });
+
+    it('writes the combined title and concrete default background used by blank notes', 0, () => {
+      const requested: NoteBackgroundSettings = applyOriginalPaperSettings(
+        originalDefaultNoteBackgroundSettings(), PaperSize.LETTER,
+        PaperTemplate.PLAIN, PageOrientation.PORTRAIT);
+      const table = readOriginalPayloadTable(wrap(
+        encodeOriginalSetMetadataTitleAndPageBackground(
+          'New Note', requested.registerBackground as PageBackground)),
+      ORIGINAL_SET_METADATA_PAYLOAD_TYPE);
+      const decoded = decodeOriginalSetMetadataTable(table);
+      expect(decoded.hasTitle).assertTrue();
+      expect(decoded.title).assertEqual('New Note');
+      expect(decoded.hasPageBackground).assertTrue();
+      expect(decoded.pageBackground === null).assertFalse();
+      expect(new OriginalSetMetadataOperationApplier().preflightTable(table) === null).assertTrue();
+      if (decoded.pageBackground !== null) {
+        expect(decoded.pageBackground.size).assertEqual(PaperSize.LETTER);
+        expect(decoded.pageBackground.template).assertEqual(PaperTemplate.PLAIN);
+        expect(decoded.pageBackground.background.margins?.topPt).assertEqual(36);
+        expect(decoded.pageBackground.background.paper?.flairBleeds).assertTrue();
+        expect(decoded.pageBackground.background.paper?.flairCentered).assertFalse();
+      }
     });
 
     it('mirrors original title draft and empty-submit policy', 0, () => {

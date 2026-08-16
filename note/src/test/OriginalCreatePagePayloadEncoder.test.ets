@@ -21,6 +21,16 @@ export default function originalCreatePagePayloadEncoderTest() {
       expect(decoded.bookmarked).assertFalse();
     });
 
+    it('writes the original two-page blank-note create group', 0, () => {
+      const decoded = decodeOriginalCreatePage(
+        wrap(3, encodeOriginalLocalCreatePage(null, null, null, 2)));
+      expect(decoded.location === null).assertTrue();
+      expect(decoded.hasBackground).assertFalse();
+      expect(decoded.pageCount).assertEqual(2);
+      expect(decoded.bookmarked).assertFalse();
+      expect(() => encodeOriginalLocalCreatePage(null, null, null, 0)).assertThrow();
+    });
+
     it('round-trips a located A4 page through nz9 sourceSize', 0, () => {
       const decoded = decodeOriginalCreatePage(wrap(3, encodeOriginalLocalCreatePage({
         timestamp: 91, siteId: 7, index: 3,

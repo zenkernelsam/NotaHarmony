@@ -32,6 +32,8 @@ export struct PageSettingsPanel {
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onApply: (settings: NoteBackgroundSettings) => void = () => {
   };
+  onSetDefault: (settings: NoteBackgroundSettings) => void = () => {
+  };
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
@@ -119,6 +121,14 @@ export struct PageSettingsPanel {
             }
           })
       }
+
+      Button($r('app.string.set_default_template'))
+        .height(36)
+        .margin({ top: 16 })
+        .fontSize(13)
+        .onClick(() => {
+          this.onSetDefault(this.settings);
+        })
     }
     .padding(16)
     .width(380)

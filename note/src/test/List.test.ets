@@ -74,6 +74,7 @@ import originalRecordingPresentationTest from './OriginalRecordingPresentation.t
 import originalCreatePagePayloadEncoderTest from './OriginalCreatePagePayloadEncoder.test';
 import originalModifyPagePayloadEncoderTest from './OriginalModifyPagePayloadEncoder.test';
 import originalSetMetadataPayloadEncoderTest from './OriginalSetMetadataPayloadEncoder.test';
+import originalBlankNoteBootstrapTest from './OriginalBlankNoteBootstrap.test';
 import originalCreateInkPayloadEncoderTest from './OriginalCreateInkPayloadEncoder.test';
 import originalModifyBlockPayloadEncoderTest from './OriginalModifyBlockPayloadEncoder.test';
 import originalGroupPayloadEncoderTest from './OriginalGroupPayloadEncoder.test';
@@ -168,6 +169,7 @@ export default function testsuite() {
   originalCreatePagePayloadEncoderTest();
   originalModifyPagePayloadEncoderTest();
   originalSetMetadataPayloadEncoderTest();
+  originalBlankNoteBootstrapTest();
   originalCreateInkPayloadEncoderTest();
   originalModifyBlockPayloadEncoderTest();
   originalGroupPayloadEncoderTest();

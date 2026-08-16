@@ -79,3 +79,10 @@ PUSH/UNDO/REDO 在同一条可恢复事务链上保持一致。
 - T-042 APK 版本追踪严格留到整个 Goal 最后。完成时单独建立追踪文档／工具，并另写中文 Report 明确说明
   建立了什么、各自功能及使用方法；随后把它归纳进 Wiki、技术/API 文档和新手入门，明确入口、适用场景、
   阅读顺序，以及新版 APK 的接收、哈希、decompile、语义 diff 与任务映射流程。
+
+## Phase 246 Follow-up
+
+本报告末尾保留的新笔记 combined bootstrap 已在 Phase 246 闭环。完整 `id7.d()`/DEX 证明初始列表依次为
+combined `SET_METADATA(title + selectedDefaultTemplate)` 与 `CREATE_PAGE(pageCount=2)`；默认模板来自 root
+`nz9` 二进制偏好。Phase 245 的 title-only 编辑、200/256 上限、独立 LWW 与持久 Undo/Redo 结论不变，不能把
+combined writer 回用于普通既有标题修改。详见 ADR-0223、Phase 246 evidence 与报告。

@@ -10,6 +10,7 @@ import {
   AssetAvailabilityChange, assetAvailabilityHub,
 } from '../../data/AssetAvailabilityHub';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
+import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import {
   FolderCreateResult, FolderDeleteResult, FolderMutationResult, FolderRepositoryImpl,
   NoteFolder, NoteFolderMoveResult, isFolderInSubtree,
@@ -606,7 +607,8 @@ struct LibraryPage {
         renderer !== this.thumbRenderer) {
         return;
       }
-      const noteRepo: NoteRepositoryImpl = new NoteRepositoryImpl(this.db);
+      const noteRepo: NoteRepositoryImpl = new NoteRepositoryImpl(
+        this.db, new EditorSettingsStore(context));
       const folderRepo: FolderRepositoryImpl = new FolderRepositoryImpl(this.db);
       const vm: LibraryViewModel = new LibraryViewModel(noteRepo);
       this.noteRepo = noteRepo;

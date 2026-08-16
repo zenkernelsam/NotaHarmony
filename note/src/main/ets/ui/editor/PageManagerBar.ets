@@ -33,6 +33,8 @@ export struct PageManagerBar {
   };
   onApplyNoteBackground: (settings: NoteBackgroundSettings) => void = () => {
   };
+  onSetDefaultNoteBackground: (settings: NoteBackgroundSettings) => void = () => {
+  };
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
@@ -182,6 +184,10 @@ export struct PageManagerBar {
       onApply: (settings: NoteBackgroundSettings) => {
         this.showSettings = false;
         this.onApplyNoteBackground(settings);
+      },
+      onSetDefault: (settings: NoteBackgroundSettings) => {
+        this.showSettings = false;
+        this.onSetDefaultNoteBackground(settings);
       },
     })
   }

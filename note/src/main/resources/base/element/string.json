@@ -133,6 +133,14 @@
       "value": "Dots"
     },
     {
+      "name": "set_default_template",
+      "value": "Set as Default Paper"
+    },
+    {
+      "name": "default_template_saved",
+      "value": "Default paper updated"
+    },
+    {
       "name": "type_here",
       "value": "Type here..."
     },

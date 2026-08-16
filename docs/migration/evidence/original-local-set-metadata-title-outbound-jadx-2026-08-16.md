@@ -142,3 +142,11 @@ combined title/background `SET_METADATA`。本阶段只闭环已经存在笔记�
 本阶段不启动设备、模拟器、虚拟机或 Hypium。真机需验证中文/emoji 边界、纯空格标题、快速连续提交、
 onSubmit + onBlur、返回手势、失败后重试、连续 Undo/Redo、杀进程重开、搜索结果与最近修改排序，以及真实上传
 ACK／重新下载后的 title LWW 表现。
+
+## Phase 246 Follow-up
+
+第 7 节当时只凭 `zm7` 判断“可能合并”。Phase 246 已继续复核 `id7.d()/h()`、`haj/ln2`、`pq1/oq1` 与
+APK DEX，确认普通空白新笔记固定先写 combined title/background `SET_METADATA`，随后写一个
+`pageCount=2` 的 CREATE_PAGE。完整线性证据移至
+`docs/migration/evidence/original-blank-note-bootstrap-jadx-dex-2026-08-16.md`；本文件其余关于既有笔记
+title-only 编辑的证据不变。

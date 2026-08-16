@@ -9,6 +9,8 @@ import {
   commitOriginalNoteTitleDraft, isOriginalNoteTitleWireValue,
   truncateOriginalNoteTitleDraft,
 } from '../../core/model/OriginalNoteTitlePolicy';
+import { originalDefaultTemplateFromSettings } from
+  '../../core/model/OriginalDefaultTemplate';
 import { BrushStyle, brushStyleToInkStyle } from '../../core/model/BrushTypes';
 import { InkStyle } from '../../core/model/StrokeTypes';
 import {
@@ -123,6 +125,7 @@ struct NotePage {
   private titleSaveQueue: Promise<void> = Promise.resolve();
   private titleSaveGeneration: number = 0;
   private pageRepo: PageRepositoryImpl | null = null;
+  private editorSettingsStore: EditorSettingsStore | null = null;
   private persistence: StrokePersistence = new StrokePersistence();
   private historyBridge: EditorHistoryBridge | null = null;
   private pageLoadInFlight: boolean = false;
@@ -261,8 +264,10 @@ struct NotePage {
           console.error(`Tool settings toast failed: ${JSON.stringify(toastError)}`);
         }
       };
-      await this.viewModel.initialize(new ToolRepositoryImpl(db), 'primary-editor',
-        new EditorSettingsStore(context));
+      const editorSettingsStore: EditorSettingsStore = new EditorSettingsStore(context);
+      this.editorSettingsStore = editorSettingsStore;
+      await this.viewModel.initialize(
+        new ToolRepositoryImpl(db), 'primary-editor', editorSettingsStore);
       // T-036：加载标题
       this.noteRepo = new NoteRepositoryImpl(db);
       const note: NoteMeta | null = await this.noteRepo.getNote(this.noteId);
@@ -272,15 +277,17 @@ struct NotePage {
       this.noteTitle = note.title;
       const loaded: PageInfo[] = await this.pageRepo.getPages(this.noteId);
       if (loaded.length === 0) {
-        // 创建默认首页（A4 / PLAIN）
+        // Legacy/corrupt zero-page recovery only. Normal original blank-note creation has
+        // already committed two inherited Letter pages before this editor can open it.
+        const fallback: NoteBackgroundSettings = originalDefaultNoteBackgroundSettings();
         const defaultPage: PageInfo = {
           pageId: this.generateId(),
           pageIndex: 0,
-          size: 1,
-          template: 0,
-          orientation: 0,
-          widthMm: 210.0,
-          heightMm: 297.0,
+          size: fallback.size,
+          template: fallback.template,
+          orientation: fallback.orientation,
+          widthMm: fallback.widthMm,
+          heightMm: fallback.heightMm,
         };
         const assignedPage: PageInfo = await this.pageRepo.addPage(this.noteId, defaultPage);
         this.pages = [assignedPage];
@@ -992,6 +999,10 @@ struct NotePage {
             this.runPageOperation(
               async (): Promise<void> => this.applyNoteBackgroundSettings(settings));
           },
+          onSetDefaultNoteBackground: (settings: NoteBackgroundSettings) => {
+            this.runPageOperation(
+              async (): Promise<void> => this.saveDefaultNoteBackground(settings));
+          },
         })
       }
     }
@@ -1028,6 +1039,18 @@ struct NotePage {
     this.selectPageById(selectedPageId);
     if (this.historyBridge !== null) {
       this.historyBridge.pushPageAction(action, history);
+    }
+  }
+
+  private async saveDefaultNoteBackground(settings: NoteBackgroundSettings): Promise<void> {
+    if (this.editorSettingsStore === null) {
+      throw new Error('editor settings are unavailable');
+    }
+    await this.editorSettingsStore.saveSelectedDefaultTemplate(
+      originalDefaultTemplateFromSettings(settings));
+    try {
+      promptAction.showToast({ message: $r('app.string.default_template_saved'), duration: 1800 });
+    } catch (_toastError) {
     }
   }
 

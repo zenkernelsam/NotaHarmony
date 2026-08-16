@@ -68,3 +68,10 @@ winner 或持久 Undo。原版 1.0.3 的 `dp → dhh → xj2 → l2d` 路径明�
   `docs/migration/evidence/original-local-set-metadata-title-outbound-jadx-2026-08-16.md`。
 - 本阶段不运行设备、模拟器、虚拟机或 Hypium；真实 UI 竞态、系统返回手势、多端 title LWW 与上传 ACK 留待
   集中真机验收。
+
+## Phase 246 Follow-up
+
+本 ADR 刻意保留的创建 bootstrap 边界现已由 ADR-0223 闭环。原版 `id7.d()` 不是复用 title-only writer：
+它先读取 `selectedDefaultTemplate`，在同一 `SET_METADATA` 同时写 title 与 concrete pageBackground，再按 List
+顺序追加 `CREATE_PAGE(pageCount=2)`。既有笔记标题编辑仍必须保持本 ADR 的 title-only 语义；只有普通新笔记
+bootstrap 使用 combined writer。

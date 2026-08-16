@@ -35,6 +35,20 @@ interface BackgroundLayout {
   total: number;
 }
 
+// Original o59 stores selectedDefaultTemplate as a byte[] whose FlatBuffer root is nz9
+// itself. Harmony Preferences supports Uint8Array, so retain that wire representation
+// instead of introducing a JSON-only settings format.
+export function encodeOriginalPageBackgroundRoot(background: PageBackground): Uint8Array {
+  validatePageBackground(background);
+  const pdf: PdfEncoding | null = background.pdf === undefined || background.pdf === null
+    ? null : preparePdf(background.pdf);
+  const layout: BackgroundLayout = planBackgroundRootLayout(background, pdf);
+  const bytes: Uint8Array = new Uint8Array(layout.total);
+  writeU32(bytes, 0, layout.backgroundTable);
+  writeBackground(bytes, layout, background, pdf);
+  return bytes;
+}
+
 // Original 1.0.3 wire chain:
 // l2d SetMetadata.field1 -> m2d SetPageBackground.field0 -> nz9 PageBackground.
 // The m2d table is deliberately retained when value is null: null resets the note-level
@@ -94,6 +108,53 @@ export function encodeOriginalSetMetadataTitle(title: string): Uint8Array {
   return bytes;
 }
 
+// Original id7.h() emits both l2d.field0 title and l2d.field1 pageBackground for a
+// newly-created blank note. Unlike title-only edits, the background wrapper is present
+// and concrete; unlike background-only edits, the title setter shares the same operation.
+export function encodeOriginalSetMetadataTitleAndPageBackground(title: string,
+  background: PageBackground): Uint8Array {
+  validateOriginalNoteTitleWireValue(title);
+  validatePageBackground(background);
+  const encoder: util.TextEncoder = new util.TextEncoder();
+  const encodedTitle: Uint8Array = encoder.encodeInto(title);
+  if (encodedTitle.length === 0 || encodedTitle.length > MAX_TITLE_BYTES ||
+    !validUtf8RoundTrip(encodedTitle, title)) {
+    throw new Error('local combined SET_METADATA title UTF-8 is invalid');
+  }
+  const pdf: PdfEncoding | null = background.pdf === undefined || background.pdf === null
+    ? null : preparePdf(background.pdf);
+  const rootVtable: number = 4;
+  const rootTable: number = 24;
+  const titleSetterVtable: number = 36;
+  const titleSetterTable: number = 44;
+  const titleVector: number = 52;
+  const backgroundSetterVtable: number = align4(
+    titleVector + 4 + encodedTitle.length + 1);
+  const backgroundSetterTable: number = align4(backgroundSetterVtable + 6);
+  const layout: BackgroundLayout = planLayoutFrom(
+    rootVtable, rootTable, backgroundSetterVtable, backgroundSetterTable,
+    background, pdf);
+  const bytes: Uint8Array = new Uint8Array(layout.total);
+
+  writeU32(bytes, 0, rootTable);
+  writeVtable(bytes, rootVtable, 12, [4, 8, 0, 0, 0, 0, 0, 0]);
+  writeU32(bytes, rootTable, rootTable - rootVtable);
+  writeU32(bytes, rootTable + 4, titleSetterTable - (rootTable + 4));
+  writeU32(bytes, rootTable + 8, backgroundSetterTable - (rootTable + 8));
+
+  writeVtable(bytes, titleSetterVtable, 8, [4]);
+  writeU32(bytes, titleSetterTable, titleSetterTable - titleSetterVtable);
+  writeU32(bytes, titleSetterTable + 4, titleVector - (titleSetterTable + 4));
+  writeString(bytes, titleVector, encodedTitle);
+
+  writeVtable(bytes, layout.setterVtable, 8, [4]);
+  writeU32(bytes, layout.setterTable, layout.setterTable - layout.setterVtable);
+  writeU32(bytes, layout.setterTable + 4,
+    layout.backgroundTable - (layout.setterTable + 4));
+  writeBackground(bytes, layout, background, pdf);
+  return bytes;
+}
+
 function preparePdf(value: PagePdfBackground): PdfEncoding {
   const encoder: util.TextEncoder = new util.TextEncoder();
   const fileName: Uint8Array = encoder.encodeInto(value.metadata.fileName);
@@ -113,11 +174,36 @@ function planLayout(background: PageBackground | null,
   const rootTable: number = 24;
   const setterVtable: number = 32;
   const setterTable: number = 40;
+  return planLayoutFrom(rootVtable, rootTable, setterVtable, setterTable, background, pdf);
+}
+
+function planLayoutFrom(rootVtable: number, rootTable: number, setterVtable: number,
+  setterTable: number, background: PageBackground | null,
+  pdf: PdfEncoding | null): BackgroundLayout {
   if (background === null) {
-    return emptyLayout(rootVtable, rootTable, setterVtable, setterTable, 48);
+    return emptyLayout(rootVtable, rootTable, setterVtable, setterTable,
+      align4(setterTable + 8));
   }
-  const backgroundVtable: number = 48;
-  const backgroundTable: number = 64;
+  const backgroundVtable: number = setterTable + 8;
+  const backgroundTable: number = align4(backgroundVtable + 14);
+  return planConcreteBackgroundLayout(
+    rootVtable, rootTable, setterVtable, setterTable,
+    backgroundVtable, backgroundTable, background, pdf);
+}
+
+function planBackgroundRootLayout(background: PageBackground,
+  pdf: PdfEncoding | null): BackgroundLayout {
+  const backgroundVtable: number = 4;
+  const backgroundTable: number = align4(backgroundVtable + 14);
+  return planConcreteBackgroundLayout(
+    backgroundVtable, backgroundTable, 0, 0,
+    backgroundVtable, backgroundTable, background, pdf);
+}
+
+function planConcreteBackgroundLayout(rootVtable: number, rootTable: number,
+  setterVtable: number, setterTable: number, backgroundVtable: number,
+  backgroundTable: number, background: PageBackground,
+  pdf: PdfEncoding | null): BackgroundLayout {
   let cursor: number = backgroundTable + 40;
   let paperVtable: number = 0;
   let paperTable: number = 0;

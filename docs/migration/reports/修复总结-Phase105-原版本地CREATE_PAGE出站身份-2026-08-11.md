@@ -52,3 +52,12 @@
   operation identity，并用它取代随机 stroke ID，才能避免笔迹双实体。
 - 未启动模拟器、虚拟机或真机，未执行设备 Hypium。页面默认尺寸、Undo/Redo、导入隔离和跨端同步仍需明早设备集中验收。
   Goal 保持 active，继续边修边补审。
+
+## Phase 246 修正
+
+本报告“普通 `createNote()` 创建原版默认 Letter 首页”的结论已被更完整的 `id7.d()` 与 APK DEX 证据修正。
+原版普通空白新笔记不是单页，而是先写 combined `SET_METADATA(title + selectedDefaultTemplate)`，再写一条
+`CREATE_PAGE(location=null, background=null, pageCount=2)`。Phase 246 已让两张初始页共享同一 operation identity
+的 index 0/1、继承 note background，并与 note/search/winner/两条上传 op 在一个事务内提交。Phase 105 对后续
+交互式单页 CREATE_PAGE、canonical page identity 和 page delete/undelete 的结论继续有效。详见 ADR-0223 与
+Phase 246 报告。

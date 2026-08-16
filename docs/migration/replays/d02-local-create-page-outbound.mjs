@@ -45,7 +45,7 @@ assert.match(pageRepo, /history\.effect === HistoryEffect\.REDO/);
 assert.match(pageRepo, /appendStructureHistoryMutation/);
 assert.match(pageRepo, /editorPersistenceMutex\.lock\(\)/);
 assert.match(deleteEncoder, /encodeOriginalPageVisibility/);
-assert.match(noteRepo, /persistOriginalCreatePage\(store, note\.id, null\)/);
+assert.match(noteRepo, /persistOriginalBlankNoteBootstrap\(store, note\.id, note\.title, defaultTemplate\)/);
 assert.equal((importer.match(/addImportedPage\(note\.id, pageInfo\)/g) ?? []).length, 2);
 assert.match(editor, /action\.pageId = assignedPage\.pageId/);
 assert.match(editor, /ADD_PAGE redo changed the original page identity/);

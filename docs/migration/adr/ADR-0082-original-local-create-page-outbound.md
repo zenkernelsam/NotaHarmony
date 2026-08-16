@@ -92,3 +92,12 @@ only the terminal fallback when the note register is null. Original paper UI upd
 `SET_METADATA.pageBackground`; ordinary pages keep a null page register and inherit it. Phase 244
 therefore changed local normal CREATE_PAGE to omit `nz9`, let the production reducer materialize the
 current effective note dimensions, and retain `background_json = NULL` for future inheritance.
+
+## Phase 246 Correction
+
+Phase 105 also assumed ordinary blank-note creation used one implicit page. `id7.d()` plus APK DEX now
+prove that the original bootstrap emits an ordered combined `SET_METADATA` followed by one
+`CREATE_PAGE(location=null, background=null, pageCount=2)`. Phase 246 therefore keeps the decisions
+above for interactive one-page additions, but supersedes the initial-note special case: both initial
+pages share one CREATE_PAGE identity with payload indexes 0 and 1, inherit the note winner, and are
+committed atomically before the editor opens. See ADR-0223.

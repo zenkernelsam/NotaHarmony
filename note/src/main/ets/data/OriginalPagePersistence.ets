@@ -4,7 +4,8 @@ import { PageInfo, PaperTemplate } from '../core/model/NoteTypes';
 import { clonePageInfo, parsePageBackground } from '../core/model/PageBackgroundModel';
 import { encodeOriginalLocalCreatePage } from './OriginalCreatePagePayloadEncoder';
 import {
-  ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE, OriginalCreatePageOperationApplier,
+  MAX_ORIGINAL_CREATE_PAGE_COUNT, ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE,
+  OriginalCreatePageOperationApplier,
 } from './OriginalCreatePageOperation';
 import { encodeOriginalModifyPageMove } from './OriginalModifyPagePayloadEncoder';
 import {
@@ -29,6 +30,11 @@ import { encodeOriginalOperationEnvelope } from './OriginalOperationEnvelopeEnco
 
 export interface PersistedOriginalPageMutation {
   page: PageInfo;
+  payload: Uint8Array;
+}
+
+export interface PersistedOriginalPageGroup {
+  pages: PageInfo[];
   payload: Uint8Array;
 }
 
@@ -68,8 +74,19 @@ export async function hasAlignedOriginalPageState(store: relationalStore.RdbStor
 
 export async function persistOriginalCreatePage(store: relationalStore.RdbStore, noteId: string,
   requestedPage: PageInfo | null): Promise<PersistedOriginalPageMutation> {
+  const group: PersistedOriginalPageGroup = await persistOriginalCreatePages(
+    store, noteId, requestedPage, 1);
+  return { page: group.pages[0], payload: group.payload };
+}
+
+export async function persistOriginalCreatePages(store: relationalStore.RdbStore, noteId: string,
+  requestedPage: PageInfo | null, pageCount: number): Promise<PersistedOriginalPageGroup> {
   if (noteId.length === 0 || !await hasAlignedOriginalPageState(store, noteId)) {
     throw new Error('local CreatePage requires complete original page identity coverage');
+  }
+  if (!Number.isSafeInteger(pageCount) || pageCount < 1 ||
+    pageCount > MAX_ORIGINAL_CREATE_PAGE_COUNT) {
+    throw new Error('local CreatePage count is invalid');
   }
   if (requestedPage !== null && (requestedPage.template !== PaperTemplate.PLAIN ||
     (requestedPage.background !== undefined && requestedPage.background !== null))) {
@@ -78,8 +95,9 @@ export async function persistOriginalCreatePage(store: relationalStore.RdbStore,
   const location: OriginalSequenceIdentity | null = await readTailPosition(store, noteId);
   const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
   const payload: Uint8Array = requestedPage === null
-    ? encodeOriginalLocalCreatePage(location)
-    : encodeOriginalLocalCreatePage(location, requestedPage.widthMm, requestedPage.heightMm);
+    ? encodeOriginalLocalCreatePage(location, null, null, pageCount)
+    : encodeOriginalLocalCreatePage(
+      location, requestedPage.widthMm, requestedPage.heightMm, pageCount);
   const operation: StoredSyncedOperation = storedOperation(
     noteId, identity, ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE, payload);
   const result: SyncedOperationApplyResult = await new OriginalCreatePageOperationApplier().apply(
@@ -92,10 +110,14 @@ export async function persistOriginalCreatePage(store: relationalStore.RdbStore,
     payload: operation.rawOperation, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
     editorSiteId: identity.siteId, uploadImmediately: true,
   });
-  const pageId: string = encodeOriginalPageStorageId(noteId, {
-    timestamp: identity.timestamp, siteId: identity.siteId, index: 0,
-  });
-  return { page: await readPage(store, noteId, pageId), payload: operation.rawOperation };
+  const pages: PageInfo[] = [];
+  for (let index: number = 0; index < pageCount; index++) {
+    const pageId: string = encodeOriginalPageStorageId(noteId, {
+      timestamp: identity.timestamp, siteId: identity.siteId, index: index,
+    });
+    pages.push(await readPage(store, noteId, pageId));
+  }
+  return { pages: pages, payload: operation.rawOperation };
 }
 
 export async function persistOriginalPageVisibility(store: relationalStore.RdbStore,

@@ -1,8 +1,13 @@
 // T-017 NoteRepository 实现（relationalStore，全部方法异常安全）
 import { relationalStore } from '@kit.ArkData';
 import {
-  CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, NoteMeta, NoteViewState,
+  CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, NoteBackgroundSettings,
+  NoteMeta, NoteViewState,
 } from '../core/model/NoteTypes';
+import {
+  OriginalDefaultTemplateSelection, originalDefaultTemplateSettings,
+  originalFallbackDefaultTemplate,
+} from '../core/model/OriginalDefaultTemplate';
 import { HistoryMetadata } from '../core/model/OpTypes';
 import { NoteRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
@@ -21,7 +26,8 @@ import {
 import {
   persistOriginalNoteTitle, PersistedOriginalNoteTitle,
 } from './OriginalNoteTitlePersistence';
-import { persistOriginalCreatePage } from './OriginalPagePersistence';
+import { persistOriginalBlankNoteBootstrap } from './OriginalBlankNoteBootstrapPersistence';
+import { DefaultNoteTemplateRepository } from './EditorSettingsStore';
 
 interface NoteAssetReference {
   assetHash: string;
@@ -31,9 +37,12 @@ interface NoteAssetReference {
 
 export class NoteRepositoryImpl implements NoteRepository {
   private db: DatabaseManager;
+  private defaultTemplateRepository: DefaultNoteTemplateRepository | null;
 
-  constructor(db: DatabaseManager) {
+  constructor(db: DatabaseManager,
+    defaultTemplateRepository: DefaultNoteTemplateRepository | null = null) {
     this.db = db;
+    this.defaultTemplateRepository = defaultTemplateRepository;
   }
 
   async createNote(title: string, folderId: string | null): Promise<NoteMeta> {
@@ -42,12 +51,13 @@ export class NoteRepositoryImpl implements NoteRepository {
       const now: number = Date.now();
       const id: string = this.generateId();
       const note: NoteMeta = this.buildNote(id, title, now, now, folderId, false);
+      const defaultTemplate = await this.resolveDefaultTemplate();
       await store.beginTransaction();
       try {
         await store.insert('note_meta', this.noteBucket(note));
-        // Original 1.0.3 creates an implicit Letter page when nz9 background is absent.
-        await persistOriginalCreatePage(store, note.id, null);
-        await this.upsertTitleSearchItem(store, note.id, note.title);
+        // Original id7.d(): combined title + selected default background, followed by
+        // one CREATE_PAGE operation whose pageCount is two.
+        await persistOriginalBlankNoteBootstrap(store, note.id, note.title, defaultTemplate);
         await store.commit();
       } catch (e) {
         await store.rollBack();
@@ -405,6 +415,18 @@ export class NoteRepositoryImpl implements NoteRepository {
       'rects': null,
     };
     await store.insert('search_item', bucket, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+  }
+
+  private async resolveDefaultTemplate(): Promise<NoteBackgroundSettings> {
+    let selection: OriginalDefaultTemplateSelection = originalFallbackDefaultTemplate();
+    if (this.defaultTemplateRepository !== null) {
+      try {
+        selection = await this.defaultTemplateRepository.getSelectedDefaultTemplate();
+      } catch (e) {
+        console.warn(`selected default template fallback: ${JSON.stringify(e)}`);
+      }
+    }
+    return originalDefaultTemplateSettings(selection);
   }
 
   private generateId(): string {

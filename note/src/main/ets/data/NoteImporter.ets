@@ -16,6 +16,7 @@ import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../co
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import { DatabaseManager } from './DatabaseManager';
 import { NoteRepositoryImpl } from './NoteRepositoryImpl';
+import { ORIGINAL_BLANK_NOTE_PAGE_COUNT } from './OriginalBlankNoteBootstrapPersistence';
 import { PageRepositoryImpl } from './PageRepositoryImpl';
 import { StrokePersistence, PersistedElement } from './StrokePersistence';
 import { paperSizeToMm } from './NoteExporter';
@@ -450,7 +451,8 @@ export class NoteImporter {
       try {
         const noteRepo = new NoteRepositoryImpl(this.db);
         const note: NoteMeta = await noteRepo.createNote(title, null);
-        return { result: ImportResult.PARTIAL, noteId: note.id, title: note.title, pageCount: 1,
+        return { result: ImportResult.PARTIAL, noteId: note.id, title: note.title,
+          pageCount: ORIGINAL_BLANK_NOTE_PAGE_COUNT,
           missingAssets: ['笔记内容结构无法识别，仅恢复了标题'], warnings: [],
           message: `已导入外部包的基本信息（${note.title}），内容结构无法识别。内部文件：${fileList}` };
       } catch (e) {

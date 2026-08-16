@@ -3,9 +3,13 @@ import { OriginalSequenceIdentity, validateOriginalSequenceIdentity } from './Op
 const MM_TO_POINTS: number = 72.0 / 25.4;
 
 export function encodeOriginalLocalCreatePage(location: OriginalSequenceIdentity | null,
-  widthMm: number | null = null, heightMm: number | null = null): Uint8Array {
+  widthMm: number | null = null, heightMm: number | null = null,
+  pageCount: number = 1): Uint8Array {
   if (location !== null) {
     validateOriginalSequenceIdentity(location);
+  }
+  if (!Number.isSafeInteger(pageCount) || pageCount < 1 || pageCount > 10000) {
+    throw new Error('local CreatePage count is invalid');
   }
   const hasSize: boolean = widthMm !== null || heightMm !== null;
   if (hasSize && (widthMm === null || heightMm === null || !Number.isFinite(widthMm) ||
@@ -14,7 +18,7 @@ export function encodeOriginalLocalCreatePage(location: OriginalSequenceIdentity
   }
 
   // ln2 fields are location(cxc), background(nz9), pageCount and bookmark. The local writer
-  // creates one unbookmarked page. A missing background preserves the original Letter default;
+  // creates an unbookmarked page group. A missing background inherits note SET_METADATA;
   // an explicit nz9.sourceSize preserves custom/A-series page dimensions without inventing paper.
   const rootVtable: number = 4;
   const rootTable: number = 16;
@@ -23,7 +27,9 @@ export function encodeOriginalLocalCreatePage(location: OriginalSequenceIdentity
   const total: number = hasSize ? 72 : 44;
   const bytes: Uint8Array = new Uint8Array(total);
   writeU32(bytes, 0, rootTable);
-  writeVtable(bytes, rootVtable, 28, [location === null ? 0 : 4, hasSize ? 16 : 0, 0, 0]);
+  writeVtable(bytes, rootVtable, 28, [
+    location === null ? 0 : 4, hasSize ? 16 : 0, pageCount === 1 ? 0 : 20, 0,
+  ]);
   writeU32(bytes, rootTable, rootTable - rootVtable);
   if (location !== null) {
     writeSequence(bytes, rootTable + 4, location);
@@ -34,6 +40,9 @@ export function encodeOriginalLocalCreatePage(location: OriginalSequenceIdentity
     writeU32(bytes, backgroundTable, backgroundTable - backgroundVtable);
     writeF32(bytes, backgroundTable + 4, (widthMm as number) * MM_TO_POINTS);
     writeF32(bytes, backgroundTable + 8, (heightMm as number) * MM_TO_POINTS);
+  }
+  if (pageCount !== 1) {
+    writeU32(bytes, rootTable + 20, pageCount);
   }
   return bytes;
 }

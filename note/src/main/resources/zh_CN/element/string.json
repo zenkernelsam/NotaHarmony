@@ -30,6 +30,8 @@
     { "name": "template_lines", "value": "横线" },
     { "name": "template_grid", "value": "方格" },
     { "name": "template_dots", "value": "点阵" },
+    { "name": "set_default_template", "value": "设为默认纸张" },
+    { "name": "default_template_saved", "value": "默认纸张已更新" },
     { "name": "type_here", "value": "在此输入..." },
     { "name": "done", "value": "完成" },
     { "name": "selection_actions", "value": "操作" },

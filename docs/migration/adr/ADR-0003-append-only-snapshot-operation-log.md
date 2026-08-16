@@ -238,3 +238,11 @@ upload/ACK 前缀契约、本地导入身份映射、共同水位压缩、严格
 CRDT/LWW 语义落地。但还没有经过认证的远端 WebSocket 适配器、CREATE/MODIFY_INK、blocks、text 等内容 payload reducer、PDF 页面背景、
 显式空背景后的 note-level fallback 或服务端 site 创建流程。后续仍需实现：跨页/文本细粒度成组执行、实际双向传输与服务端聚合。完成这些之前，不得声称具有
 原版协作或完整增量同步语义。
+
+## Phase 246 Correction
+
+本 ADR 早期“普通新建笔记默认首页产生 `0→1 CREATE_PAGE`”以及“默认首页 legacy CREATE_PAGE”的表述只代表
+当时 Harmony 过渡实现，现被原版 `id7.d()`/DEX 硬证据取代。普通空白新笔记实际在同一创建事务内先写 combined
+`SET_METADATA(title + selectedDefaultTemplate)`，再写一个 `pageCount=2` 的 CREATE_PAGE；最终 structure revision
+从 0 经两次 reducer 物化到 2。两条原版上传 operation 均无 history metadata，仍不作为用户可撤销动作。
+交互式后续 ADD_PAGE 的单页历史决策不受影响。详见 ADR-0223。
