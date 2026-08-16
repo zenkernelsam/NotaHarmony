@@ -2,10 +2,14 @@ import { image } from '@kit.ImageKit';
 import { pdfService } from '@kit.PDFKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { AssetStatus, NoteAsset } from '../model/AssetTypes';
+import { Rect2D } from '../model/GeometryTypes';
 import { originalAssetHashKey, originalAssetStorageHash } from '../model/ImageBlockGeometry';
 import { PagePdfBackground } from '../model/NoteTypes';
 import { AssetRepositoryImpl } from '../../data/AssetRepositoryImpl';
 import { DatabaseManager } from '../../data/DatabaseManager';
+import {
+  buildPdfRasterPlan, PdfRasterPlan, PdfRasterRequest,
+} from '../../rendering/PdfRasterPlan';
 
 export enum PdfBackgroundLoadState {
   MISSING = 0,
@@ -19,6 +23,8 @@ export interface LoadedPdfBackground {
   storageHash: string;
   bitmap: ImageBitmap | null;
   pixelMap: image.PixelMap | null;
+  rasterPlan: PdfRasterPlan | null;
+  renderRect: Rect2D | null;
   error: string | null;
 }
 
@@ -57,7 +63,8 @@ export class PdfBackgroundLoader {
     this.repository = new AssetRepositoryImpl(database);
   }
 
-  async load(pdf: PagePdfBackground): Promise<LoadedPdfBackground> {
+  async load(pdf: PagePdfBackground,
+    rasterRequest: PdfRasterRequest | null = null): Promise<LoadedPdfBackground> {
     const storageHash: string = originalAssetStorageHash(pdf.metadata.assetHashBits);
     const legacyHash: string = originalAssetHashKey(pdf.metadata.assetHashBits);
     if (!Number.isSafeInteger(pdf.totalPageCount) || pdf.totalPageCount <= 0 ||
@@ -83,7 +90,7 @@ export class PdfBackgroundLoader {
     if (asset.localPath === null || asset.localPath.length === 0) {
       return this.empty(PdfBackgroundLoadState.PENDING, storageHash, 'PDF asset has no local file yet');
     }
-    return this.renderLocalPage(asset.localPath, pdf, storageHash);
+    return this.renderLocalPage(asset.localPath, pdf, storageHash, rasterRequest);
   }
 
   release(loaded: LoadedPdfBackground): void {
@@ -100,7 +107,7 @@ export class PdfBackgroundLoader {
   }
 
   private renderLocalPage(path: string, pdf: PagePdfBackground,
-    storageHash: string): LoadedPdfBackground {
+    storageHash: string, rasterRequest: PdfRasterRequest | null): LoadedPdfBackground {
     const document: pdfService.PdfDocument = new pdfService.PdfDocument();
     let page: pdfService.PdfPage | null = null;
     let pixelMap: image.PixelMap | null = null;
@@ -122,12 +129,45 @@ export class PdfBackgroundLoader {
           'PDF document page count conflicts with metadata');
       }
       page = document.getPage(pdf.pageInAsset);
-      pixelMap = page.getPagePixelMap();
+      let rasterPlan: PdfRasterPlan | null = null;
+      let renderRect: Rect2D | null = null;
+      if (rasterRequest !== null) {
+        rasterPlan = buildPdfRasterPlan(rasterRequest, page.getWidth(), page.getHeight());
+        if (rasterPlan === null) {
+          return {
+            state: PdfBackgroundLoadState.READY,
+            storageHash: storageHash,
+            bitmap: null,
+            pixelMap: null,
+            rasterPlan: null,
+            renderRect: null,
+            error: null,
+          };
+        }
+        const matrix: pdfService.PdfMatrix = new pdfService.PdfMatrix();
+        matrix.x = rasterPlan.matrixX;
+        matrix.y = rasterPlan.matrixY;
+        matrix.width = rasterPlan.matrixWidth;
+        matrix.height = rasterPlan.matrixHeight;
+        matrix.rotate = 0;
+        try {
+          pixelMap = page.getAreaPixelMap(matrix, rasterPlan.bitmapWidth,
+            rasterPlan.bitmapHeight, false, true);
+          renderRect = rasterPlan.destinationRect;
+        } catch (areaError) {
+          console.warn(`PDF visible-area raster failed; using full-page fallback: ${JSON.stringify(areaError)}`);
+          pixelMap = page.getPagePixelMap();
+        }
+      } else {
+        pixelMap = page.getPagePixelMap();
+      }
       return {
         state: PdfBackgroundLoadState.READY,
         storageHash: storageHash,
         bitmap: new ImageBitmap(pixelMap),
         pixelMap: pixelMap,
+        rasterPlan: rasterPlan,
+        renderRect: renderRect,
         error: null,
       };
     } catch (error) {
@@ -155,6 +195,14 @@ export class PdfBackgroundLoader {
 
   private empty(state: PdfBackgroundLoadState, storageHash: string,
     error: string): LoadedPdfBackground {
-    return { state: state, storageHash: storageHash, bitmap: null, pixelMap: null, error: error };
+    return {
+      state: state,
+      storageHash: storageHash,
+      bitmap: null,
+      pixelMap: null,
+      rasterPlan: null,
+      renderRect: null,
+      error: error,
+    };
   }
 }

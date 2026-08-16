@@ -16,7 +16,7 @@ import {
 } from '../core/adaptation/OriginalPaperTextureLoader';
 import { originalAssetStorageHash } from '../core/model/ImageBlockGeometry';
 import { PagePixelSize, pagePixelSize } from '../core/model/PageCoordinateSpace';
-import { PageInfo } from '../core/model/NoteTypes';
+import { PageBackground, PageInfo } from '../core/model/NoteTypes';
 import { effectivePageBackground } from '../core/model/PageBackgroundModel';
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { DatabaseManager } from '../data/DatabaseManager';
@@ -29,6 +29,7 @@ import { PaperRenderer } from './PaperRenderer';
 import { StrokeCanvasPainter } from './StrokeCanvasPainter';
 import { ShapeCanvasRenderer } from './ShapeCanvasRenderer';
 import { ThumbnailPageTransform, fitPageInThumbnail } from './ThumbnailRenderPolicy';
+import { PdfRasterRequest } from './PdfRasterPlan';
 
 const THUMB_W: number = 300;
 const THUMB_H: number = 400;
@@ -99,15 +100,27 @@ export class ThumbnailRenderer {
     let pdfBackground: LoadedPdfBackground | null = null;
     let paperTexture: LoadedOriginalPaperTexture | null = null;
     try {
+      const pageSize: PagePixelSize = pagePixelSize(page.widthMm, page.heightMm);
+      const pageTransform: ThumbnailPageTransform = fitPageInThumbnail(
+        pageSize.width, pageSize.height, THUMB_W, THUMB_H, MARGIN);
       for (const block of loaded.images) {
         const storageHash: string = originalAssetStorageHash(block.assetHashBits);
         if (!imageAssets.has(storageHash)) {
           imageAssets.set(storageHash, await imageLoader.load(block));
         }
       }
-      const effective = effectivePageBackground(page);
+      const effective: PageBackground | null = effectivePageBackground(page);
       if (effective !== null && effective.pdf !== undefined && effective.pdf !== null) {
-        pdfBackground = await pdfLoader.load(effective.pdf);
+        const rasterRequest: PdfRasterRequest = {
+          paperWidth: pageSize.width,
+          paperHeight: pageSize.height,
+          visiblePageRect: { left: 0, top: 0, right: pageSize.width, bottom: pageSize.height },
+          outputScale: pageTransform.scale,
+          rotationRadians: effective.rotationRadians,
+          margins: effective.margins,
+          overscanRatio: 0,
+        };
+        pdfBackground = await pdfLoader.load(effective.pdf, rasterRequest);
       }
       const legacyPaperIndex: number | null = effective === null || effective.paper === null
         ? null : effective.paper.legacyPaperIndex;
@@ -118,9 +131,6 @@ export class ThumbnailRenderer {
           console.warn(`Thumbnail legacy paper texture unavailable: ${JSON.stringify(error)}`);
         }
       }
-      const pageSize: PagePixelSize = pagePixelSize(page.widthMm, page.heightMm);
-      const pageTransform: ThumbnailPageTransform = fitPageInThumbnail(
-        pageSize.width, pageSize.height, THUMB_W, THUMB_H, MARGIN);
       const canvas: OffscreenCanvas = new OffscreenCanvas(THUMB_W, THUMB_H);
       const ctx: OffscreenCanvasRenderingContext2D =
         canvas.getContext('2d', new RenderingContextSettings(true));
@@ -131,7 +141,9 @@ export class ThumbnailRenderer {
       this.paperRenderer.renderOffscreenBackground(ctx, pageSize.width, pageSize.height,
         page, pageTransform.scale, theme,
         pdfBackground !== null && pdfBackground.state === PdfBackgroundLoadState.READY
-          ? pdfBackground.bitmap : null, paperTexture);
+          ? pdfBackground.bitmap : null, paperTexture,
+        pdfBackground !== null && pdfBackground.state === PdfBackgroundLoadState.READY
+          ? pdfBackground.renderRect : null);
       const renderContext: Canvas2DOffscreenRenderContext = new Canvas2DOffscreenRenderContext(ctx);
       const mathRasterScale: number = originalMathRasterScale(pageTransform.scale, 1);
       for (const element of loaded.elements) {

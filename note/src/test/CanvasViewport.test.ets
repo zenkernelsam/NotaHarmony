@@ -69,5 +69,20 @@ export default function canvasViewportTest() {
       expect(delta.x).assertEqual(2);
       expect(delta.y).assertEqual(6);
     });
+
+    it('reports the visible page rectangle through the shared viewport transform', 0, () => {
+      const viewport: CanvasViewport = new CanvasViewport();
+      viewport.setZoomRaw(2);
+      viewport.setScroll(-100, 50);
+      const visible = viewport.visibleCanvasRect(800, 600);
+      expect(visible !== null).assertTrue();
+      if (visible !== null) {
+        expect(visible.left).assertEqual(50);
+        expect(visible.top).assertEqual(-25);
+        expect(visible.right).assertEqual(450);
+        expect(visible.bottom).assertEqual(275);
+      }
+      expect(viewport.visibleCanvasRect(0, 600) === null).assertTrue();
+    });
   });
 }

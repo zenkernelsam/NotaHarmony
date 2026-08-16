@@ -65,6 +65,14 @@
 
 该差异会影响高倍清晰度和大页面内存，但不能在没有验证 PDFKit `PdfMatrix` 坐标、rotation/margins 映射和缓存上限时直接改成 8× 整页位图。它已登记为后续独立修复边界，不因本阶段的生命周期闭环被误报完成。
 
+## Phase 257 后续状态
+
+上述 deferred 已由 ADR-0235 独立实现：主画布按 `viewport.zoom × density` 请求 25% overscan 可见区，
+缩略图按 fitted output scale 请求；top-origin 页面矩形转换为 bottom-origin PDF Points matrix，rotation 继续由
+Canvas 独占。单张 raster 设 4096/8,388,608 像素 hard cap，区域 API 失败回退整页，异步交换前保留旧图。
+本 Phase 的 page→document release 契约继续复用且未被绕过。真实 PDF 内建 rotation、像素边缘和 native 内存
+曲线仍属于设备验收，不回写为 Phase 256 当时已经完成。
+
 ## 仍需设备验收
 
 - 含真实 PDF 的连续切页、快速往返和批量缩略图 native 内存曲线；

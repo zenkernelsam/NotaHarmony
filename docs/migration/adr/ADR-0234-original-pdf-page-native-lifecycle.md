@@ -19,9 +19,12 @@
 3. 两个释放动作分别捕获错误并返回诊断，page 释放失败不得阻止 document 释放；清理异常也不得覆盖已经成功生成、仍由调用者持有的 ImageBitmap/PixelMap。
 4. Editor 与 Thumbnail 已分别通过 generation/finally 释放最终 ImageBitmap/PixelMap，本阶段不改变其所有权。
 
-## 不在本阶段处理
+## 后续闭环
 
-原版 `iy9/sba` 按 viewport 输出倍率设置 PDF DPI，并按相交区域裁剪 raster；Harmony 当前仍使用默认整页 PixelMap。该差异需单独设计 zoom/crop cache，避免在本次资源修复中猜测 PDFKit 坐标与创建高倍整页巨型位图。
+本阶段当时暂缓的输出倍率/相交区域差异已由 Phase 257/ADR-0235 独立闭环：Harmony 现通过
+`PdfMatrix/getAreaPixelMap()` 请求可见区 raster，并以 4096 单边、8,388,608 总像素 hard cap 防止高倍整页巨型
+位图。ADR-0234 的 page→document native 生命周期不因区域 raster 改写；每次成功、fallback、不可见或异常路径
+仍由同一 finally 边界释放。
 
 ## 验证
 

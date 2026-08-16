@@ -15,6 +15,7 @@ import {
 import {
   OriginalPaperRenderStyle, originalPaperRenderStyle,
 } from '../core/model/OriginalPaperColor';
+import { Rect2D } from '../core/model/GeometryTypes';
 
 export class PaperRenderer {
   // 在给定 Canvas 上绘制纸张背景（先填充底色，再叠加模板）
@@ -24,22 +25,24 @@ export class PaperRenderer {
   renderBackground(ctx: CanvasRenderingContext2D, paperW: number, paperH: number,
     page: PageInfo, zoom: number = 1.0, theme: ThemeTokens = LightTheme,
     pdfBitmap: ImageBitmap | null = null,
-    legacyTexture: LoadedOriginalPaperTexture | null = null): void {
+    legacyTexture: LoadedOriginalPaperTexture | null = null,
+    pdfRenderRect: Rect2D | null = null): void {
     this.renderToContext(new Canvas2DRenderContext(ctx), paperW, paperH, page, zoom, theme,
-      pdfBitmap, legacyTexture);
+      pdfBitmap, legacyTexture, pdfRenderRect);
   }
 
   renderOffscreenBackground(ctx: OffscreenCanvasRenderingContext2D, paperW: number, paperH: number,
     page: PageInfo, zoom: number = 1.0, theme: ThemeTokens = LightTheme,
     pdfBitmap: ImageBitmap | null = null,
-    legacyTexture: LoadedOriginalPaperTexture | null = null): void {
+    legacyTexture: LoadedOriginalPaperTexture | null = null,
+    pdfRenderRect: Rect2D | null = null): void {
     this.renderToContext(new Canvas2DOffscreenRenderContext(ctx),
-      paperW, paperH, page, zoom, theme, pdfBitmap, legacyTexture);
+      paperW, paperH, page, zoom, theme, pdfBitmap, legacyTexture, pdfRenderRect);
   }
 
   private renderToContext(ctx: Canvas2DDrawingContext, paperW: number, paperH: number,
     page: PageInfo, zoom: number, theme: ThemeTokens, pdfBitmap: ImageBitmap | null,
-    legacyTexture: LoadedOriginalPaperTexture | null): void {
+    legacyTexture: LoadedOriginalPaperTexture | null, pdfRenderRect: Rect2D | null): void {
     const effectiveBackground: PageBackground | null = effectivePageBackground(page);
     const paper: PagePaperBackground | null = effectiveBackground === null ? null : effectiveBackground.paper;
     const style: OriginalPaperRenderStyle = originalPaperRenderStyle(
@@ -59,7 +62,7 @@ export class PaperRenderer {
     }
     if (effectiveBackground !== null && effectiveBackground.pdf !== undefined &&
       effectiveBackground.pdf !== null && pdfBitmap !== null) {
-      this.drawPdfBackground(ctx, paperW, paperH, effectiveBackground, pdfBitmap);
+      this.drawPdfBackground(ctx, paperW, paperH, effectiveBackground, pdfBitmap, pdfRenderRect);
     }
     const spacing: number = paper === null || paper.flairSpacingPt === null
       ? 28 : paper.flairSpacingPt * POINTS_TO_PAGE_UNITS;
@@ -91,7 +94,7 @@ export class PaperRenderer {
   }
 
   private drawPdfBackground(ctx: Canvas2DDrawingContext, paperW: number, paperH: number,
-    background: PageBackground, bitmap: ImageBitmap): void {
+    background: PageBackground, bitmap: ImageBitmap, pdfRenderRect: Rect2D | null): void {
     const margins = background.margins;
     const left: number = margins === null ? 0 : margins.leftPt * POINTS_TO_PAGE_UNITS;
     const top: number = margins === null ? 0 : margins.topPt * POINTS_TO_PAGE_UNITS;
@@ -101,6 +104,21 @@ export class PaperRenderer {
       Math.abs(background.rotationRadians - Math.PI * 3 / 2) < 0.0001;
     const sourceWidth: number = rotated ? paperH : paperW;
     const sourceHeight: number = rotated ? paperW : paperH;
+    const contentRect: Rect2D = {
+      left: left,
+      top: top,
+      right: Math.max(left, sourceWidth - right),
+      bottom: Math.max(top, sourceHeight - bottom),
+    };
+    const destination: Rect2D = pdfRenderRect === null ? contentRect : {
+      left: Math.max(contentRect.left, pdfRenderRect.left),
+      top: Math.max(contentRect.top, pdfRenderRect.top),
+      right: Math.min(contentRect.right, pdfRenderRect.right),
+      bottom: Math.min(contentRect.bottom, pdfRenderRect.bottom),
+    };
+    if (destination.left >= destination.right || destination.top >= destination.bottom) {
+      return;
+    }
     ctx.save();
     if (Math.abs(background.rotationRadians - Math.PI / 2) < 0.0001) {
       ctx.translate(paperW, 0);
@@ -112,8 +130,8 @@ export class PaperRenderer {
       ctx.translate(0, paperH);
       ctx.rotate(Math.PI * 3 / 2);
     }
-    ctx.drawImage(bitmap, left, top,
-      Math.max(0, sourceWidth - left - right), Math.max(0, sourceHeight - top - bottom));
+    ctx.drawImage(bitmap, destination.left, destination.top,
+      destination.right - destination.left, destination.bottom - destination.top);
     ctx.restore();
   }
 

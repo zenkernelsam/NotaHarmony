@@ -31,6 +31,9 @@ import {
   BitmapTransferKind, BitmapTransferMetrics, BitmapTransferTracker,
 } from '../../core/adaptation/BitmapTransferTracker';
 import { CanvasViewport, CumulativeGestureTracker } from '../../rendering/CanvasViewport';
+import {
+  PDF_RASTER_OVERSCAN_RATIO, pdfRasterPlanCovers, PdfRasterRequest,
+} from '../../rendering/PdfRasterPlan';
 import { pagePixelSize, PAGE_UNITS_PER_MM, PagePixelSize } from '../../core/model/PageCoordinateSpace';
 import { StrokeSession } from '../../rendering/StrokeSession';
 import { EraserEngine, EraserMode } from '../../rendering/EraserEngine';
@@ -135,7 +138,7 @@ import { cloneMathElement, eraserPathHitsMathBlock, mathBlockWorldBounds,
 import { createOriginalMathInsertDraft, ORIGINAL_MATH_INSERT_MAX_HEIGHT,
   ORIGINAL_MATH_INSERT_MAX_WIDTH } from '../../core/model/OriginalMathInsertPlan';
 import {
-  CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, PageInfo,
+  CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, PageBackground, PageInfo,
 } from '../../core/model/NoteTypes';
 import { effectivePageBackground } from '../../core/model/PageBackgroundModel';
 import {
@@ -172,6 +175,7 @@ const ORIGINAL_CREATE_INK_PAYLOAD_TYPE: number = 15;
 const ORIGINAL_MATH_EDITOR_PREVIEW_WIDTH_VP: number = 280;
 const ORIGINAL_MATH_EDITOR_PREVIEW_HEIGHT_VP: number = 96;
 const ORIGINAL_MATH_EDITOR_PREVIEW_PIXEL_SCALE: number = 1;
+const PDF_RASTER_REFRESH_DELAY_MS: number = 120;
 
 interface ShapeDetectionAttempt {
   shapes: ShapeElement[];
@@ -254,6 +258,7 @@ export struct NoteCanvasView {
   private pdfBackgroundLoader: PdfBackgroundLoader | null = null;
   private pdfBackground: LoadedPdfBackground | null = null;
   private pdfBackgroundGeneration: number = 0;
+  private pdfRasterRefreshTimer: number = -1;
   private paperTextureLoader: OriginalPaperTextureLoader = new OriginalPaperTextureLoader();
   private paperTexture: LoadedOriginalPaperTexture | null = null;
   private paperTextureGeneration: number = 0;
@@ -786,6 +791,7 @@ export struct NoteCanvasView {
       assetAvailabilityHub.unsubscribe(this.assetAvailabilitySubscription);
       this.assetAvailabilitySubscription = -1;
     }
+    this.cancelPdfRasterRefresh();
     this.releaseImageAssets();
     this.releasePdfBackground();
     this.releasePaperTexture();
@@ -984,6 +990,7 @@ export struct NoteCanvasView {
         this.completedStrokes, this.renderCtx, this.viewport.zoom);
     }
     this.renderFrame(true);
+    this.schedulePdfRasterRefresh(0);
   }
 
   onSelectionStyleSignalChange(_propName: string): void {
@@ -1117,11 +1124,12 @@ export struct NoteCanvasView {
   }
 
   private renderPaper(theme: ThemeTokens): void {
-    const bitmap: ImageBitmap | null = this.pdfBackground !== null &&
-      this.pdfBackground.state === PdfBackgroundLoadState.READY
-      ? this.pdfBackground.bitmap : null;
+    const loaded: LoadedPdfBackground | null = this.pdfBackground !== null &&
+      this.pdfBackground.state === PdfBackgroundLoadState.READY ? this.pdfBackground : null;
+    const bitmap: ImageBitmap | null = loaded === null ? null : loaded.bitmap;
     this.paperRenderer.renderBackground(this.canvasCtx, this.getPaperWidth(), this.getPaperHeight(),
-      this.currentPage, this.viewport.zoom, theme, bitmap, this.paperTexture);
+      this.currentPage, this.viewport.zoom, theme, bitmap, this.paperTexture,
+      loaded === null ? null : loaded.renderRect);
   }
 
   private renderTextBlocks(): void {
@@ -1291,21 +1299,40 @@ export struct NoteCanvasView {
     this.imageAssets.clear();
   }
 
-  private refreshPdfBackground(pageGeneration: number, pageId: string): void {
+  private refreshPdfBackground(pageGeneration: number, pageId: string,
+    preserveCurrent: boolean = false): void {
     const loader: PdfBackgroundLoader | null = this.pdfBackgroundLoader;
-    this.releasePdfBackground();
-    const effective = effectivePageBackground(this.currentPage);
+    const effective: PageBackground | null = effectivePageBackground(this.currentPage);
     if (loader === null || effective === null || effective.pdf === undefined || effective.pdf === null) {
+      this.releasePdfBackground();
       return;
     }
+    if (preserveCurrent) {
+      this.pdfBackgroundGeneration++;
+    } else {
+      this.releasePdfBackground();
+    }
     const generation: number = this.pdfBackgroundGeneration;
-    loader.load(effective.pdf).then((loaded: LoadedPdfBackground): void => {
+    const rasterRequest: PdfRasterRequest | null = this.currentPdfRasterRequest(effective);
+    loader.load(effective.pdf, rasterRequest).then((loaded: LoadedPdfBackground): void => {
       if (!this.lifecycleActive || pageGeneration !== this.pageLoadGeneration ||
         generation !== this.pdfBackgroundGeneration || this.loadedPageId !== pageId) {
         loader.release(loaded);
         return;
       }
+      const previous: LoadedPdfBackground | null = this.pdfBackground;
+      if (preserveCurrent && previous !== null && previous.state === PdfBackgroundLoadState.READY &&
+        loaded.state !== PdfBackgroundLoadState.READY) {
+        loader.release(loaded);
+        hilog.warn(0x0001, 'NoteCanvasView',
+          'PDF reraster kept previous bitmap state=%{public}d reason=%{public}s',
+          loaded.state, loaded.error === null ? '' : loaded.error);
+        return;
+      }
       this.pdfBackground = loaded;
+      if (previous !== null && previous !== loaded) {
+        loader.release(previous);
+      }
       if (loaded.state !== PdfBackgroundLoadState.READY) {
         hilog.warn(0x0001, 'NoteCanvasView',
           'PDF background unavailable state=%{public}d reason=%{public}s',
@@ -1314,13 +1341,63 @@ export struct NoteCanvasView {
       if (this.layerManager.isInitialized()) {
         this.renderFrame(true);
       }
+      this.schedulePdfRasterRefresh(0);
     }).catch((error: Object): void => {
       hilog.error(0x0001, 'NoteCanvasView',
         'PDF background load failed: %{public}s', JSON.stringify(error));
     });
   }
 
+  private currentPdfRasterRequest(background: PageBackground): PdfRasterRequest | null {
+    const visiblePageRect: Rect2D | null = this.viewport.visibleCanvasRect(
+      this.canvasCtx.width, this.canvasCtx.height);
+    if (visiblePageRect === null) {
+      return null;
+    }
+    const density: number = vp2px(1);
+    const outputScale: number = this.viewport.zoom *
+      (Number.isFinite(density) && density > 0 ? density : 1);
+    return {
+      paperWidth: this.getPaperWidth(),
+      paperHeight: this.getPaperHeight(),
+      visiblePageRect: visiblePageRect,
+      outputScale: outputScale,
+      rotationRadians: background.rotationRadians,
+      margins: background.margins,
+      overscanRatio: PDF_RASTER_OVERSCAN_RATIO,
+    };
+  }
+
+  private schedulePdfRasterRefresh(delayMs: number = PDF_RASTER_REFRESH_DELAY_MS): void {
+    this.cancelPdfRasterRefresh();
+    if (!this.lifecycleActive || !this.loaded || this.loadedPageId.length === 0) {
+      return;
+    }
+    this.pdfRasterRefreshTimer = setTimeout((): void => {
+      this.pdfRasterRefreshTimer = -1;
+      const effective: PageBackground | null = effectivePageBackground(this.currentPage);
+      const loaded: LoadedPdfBackground | null = this.pdfBackground;
+      if (effective === null || effective.pdf === undefined || effective.pdf === null ||
+        loaded === null || loaded.state !== PdfBackgroundLoadState.READY) {
+        return;
+      }
+      const request: PdfRasterRequest | null = this.currentPdfRasterRequest(effective);
+      if (request === null || pdfRasterPlanCovers(loaded.rasterPlan, request)) {
+        return;
+      }
+      this.refreshPdfBackground(this.pageLoadGeneration, this.loadedPageId, true);
+    }, Math.max(0, delayMs));
+  }
+
+  private cancelPdfRasterRefresh(): void {
+    if (this.pdfRasterRefreshTimer >= 0) {
+      clearTimeout(this.pdfRasterRefreshTimer);
+      this.pdfRasterRefreshTimer = -1;
+    }
+  }
+
   private releasePdfBackground(): void {
+    this.cancelPdfRasterRefresh();
     this.pdfBackgroundGeneration++;
     if (this.pdfBackground !== null && this.pdfBackgroundLoader !== null) {
       this.pdfBackgroundLoader.release(this.pdfBackground);
@@ -1378,6 +1455,7 @@ export struct NoteCanvasView {
       this.updateSelectionOverlay();
     }
     this.renderFrame(true);
+    this.schedulePdfRasterRefresh();
     this.scheduleViewportSave();
   }
 
@@ -6486,9 +6564,11 @@ export struct NoteCanvasView {
                 })
                 .onActionEnd(() => {
                   this.gestureTracker.resetScale();
+                  this.schedulePdfRasterRefresh(0);
                 })
                 .onActionCancel(() => {
                   this.gestureTracker.resetScale();
+                  this.schedulePdfRasterRefresh(0);
                 }),
               PanGesture({ fingers: 2 })
                 .onActionUpdate((event: GestureEvent) => {
@@ -6500,9 +6580,11 @@ export struct NoteCanvasView {
                 })
                 .onActionEnd(() => {
                   this.gestureTracker.resetPan();
+                  this.schedulePdfRasterRefresh(0);
                 })
                 .onActionCancel(() => {
                   this.gestureTracker.resetPan();
+                  this.schedulePdfRasterRefresh(0);
                 }),
             ),
           ),
@@ -6650,6 +6732,7 @@ export struct NoteCanvasView {
         if (this.selectionVisible) {
           this.updateSelectionOverlay();
         }
+        this.schedulePdfRasterRefresh(0);
       }
     })
   }

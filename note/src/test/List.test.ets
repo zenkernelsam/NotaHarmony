@@ -33,6 +33,7 @@ import pageBackgroundModelTest from './PageBackgroundModel.test';
 import bitmapTransferTrackerTest from './BitmapTransferTracker.test';
 import layerCacheGeometryTest from './LayerCacheGeometry.test';
 import canvasViewportTest from './CanvasViewport.test';
+import pdfRasterPlanTest from './PdfRasterPlan.test';
 import thumbnailRenderPolicyTest from './ThumbnailRenderPolicy.test';
 import strokeClipboardTest from './StrokeClipboard.test';
 import pageElementOrderTest from './PageElementOrder.test';
@@ -132,6 +133,7 @@ export default function testsuite() {
   bitmapTransferTrackerTest();
   layerCacheGeometryTest();
   canvasViewportTest();
+  pdfRasterPlanTest();
   thumbnailRenderPolicyTest();
   strokeClipboardTest();
   pageElementOrderTest();

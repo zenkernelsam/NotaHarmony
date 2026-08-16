@@ -8,7 +8,7 @@ const fixture = fs.readFileSync(
   path.join(root, 'note/src/test/PdfResourceLifecycle.test.ets'), 'utf8');
 
 const pageAcquire = loader.indexOf('page = document.getPage(pdf.pageInAsset)');
-const pageRaster = loader.indexOf('pixelMap = page.getPagePixelMap()');
+const pageRaster = loader.indexOf('pixelMap = page.getAreaPixelMap(matrix');
 const pageRelease = loader.indexOf('pageToRelease.release()');
 const documentRelease = loader.indexOf('document.releaseDocument()');
 const checks = [

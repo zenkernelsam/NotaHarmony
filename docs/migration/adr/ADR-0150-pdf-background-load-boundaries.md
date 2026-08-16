@@ -21,3 +21,10 @@
 ADR-0234 发现本 ADR 当时只验证 document 释放，遗漏 SDK 明确要求的 `PdfPage.release()`。loader 现显式保存
 page 句柄，并在所有路径先释放 page、再释放 document；两次清理分别捕获错误。静态所有权缺口已关闭，
 真实连续切页/缩略图的 native 内存曲线仍保留为设备验收项。
+
+## Phase 257 可见区栅格补正
+
+ADR-0235 为 loader 增加独立 `PdfRasterRequest` 边界：纯逻辑 plan 在进入 PDFKit 前验证 page/visible/output
+geometry，生成 bottom-origin Points matrix 和有 hard cap 的输出尺寸。区域 API 失败只回退整页 PixelMap，
+不会绕过本 ADR 的 metadata、文件大小、页数和 page index 校验。完全不可见页面可返回 READY/null；恢复可见后
+由 viewport coverage 重新请求。真实 PDFKit matrix 边缘、内建 page rotation 和内存峰值仍需设备验收。

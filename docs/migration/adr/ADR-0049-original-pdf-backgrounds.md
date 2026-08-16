@@ -46,6 +46,9 @@ Accepted, 2026-08-11.
   count, renders the resolved page to PixelMap/ImageBitmap, and releases the
   page, document and pixel resources. ADR-0234 corrected the earlier chained
   `getPage().getPagePixelMap()` path so `PdfPage.release()` is no longer lost.
+  ADR-0235 then replaced permanent default full-page scaling with output-scale,
+  visible-region `PdfMatrix/getAreaPixelMap()` raster, bounded allocation,
+  generation-guarded swap and full-page failure fallback.
   Editor and thumbnail paths share the loader;
   generation guards discard late page results and asset arrival refreshes a
   pending PDF. A failed PDF keeps the normal paper fallback and does not block
@@ -73,9 +76,10 @@ Accepted, 2026-08-11.
 ## Remaining Boundary
 
 Device acceptance must compare real PDF pixels for all four rotations,
-non-zero margins, mixed crop boxes, missing/pending/corrupt assets, rapid page
-switching and thumbnail refresh. Layout enum behavior stays evidence-gated
-until an original runtime comparison proves additional rendering semantics.
+non-zero margins, PDF intrinsic page rotation, mixed crop boxes,
+missing/pending/corrupt assets, rapid zoom/pan/page switching and thumbnail
+refresh. Layout enum behavior stays evidence-gated until an original runtime
+comparison proves additional rendering semantics.
 
 ## Phase 244 local paper-setting boundary
 

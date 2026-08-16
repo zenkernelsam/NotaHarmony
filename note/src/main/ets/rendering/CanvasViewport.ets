@@ -1,6 +1,6 @@
 // T-034 画布视口状态管理（缩放/平移 + 坐标映射）
 // 纯逻辑模块：不 import 平台 API
-import { Point2D } from '../core/model/GeometryTypes';
+import { Point2D, Rect2D } from '../core/model/GeometryTypes';
 
 export class CanvasViewport {
   zoom: number = 1.0;          // [0.25, 4.0]
@@ -17,6 +17,22 @@ export class CanvasViewport {
   // 画布坐标 → 屏幕坐标（选区边框/覆盖层显示用）
   canvasToScreen(cx: number, cy: number): Point2D {
     return { x: cx * this.zoom + this.scrollX, y: cy * this.zoom + this.scrollY };
+  }
+
+  visibleCanvasRect(screenWidth: number, screenHeight: number): Rect2D | null {
+    if (!Number.isFinite(screenWidth) || !Number.isFinite(screenHeight) ||
+      screenWidth <= 0 || screenHeight <= 0 || !Number.isFinite(this.zoom) || this.zoom <= 0 ||
+      !Number.isFinite(this.scrollX) || !Number.isFinite(this.scrollY)) {
+      return null;
+    }
+    const topLeft: Point2D = this.screenToCanvas(0, 0);
+    const bottomRight: Point2D = this.screenToCanvas(screenWidth, screenHeight);
+    return {
+      left: Math.min(topLeft.x, bottomRight.x),
+      top: Math.min(topLeft.y, bottomRight.y),
+      right: Math.max(topLeft.x, bottomRight.x),
+      bottom: Math.max(topLeft.y, bottomRight.y),
+    };
   }
 
   // 以某屏幕点为中心缩放（保持该点下的画布内容不动）
