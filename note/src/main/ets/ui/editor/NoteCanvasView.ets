@@ -2472,7 +2472,12 @@ export struct NoteCanvasView {
         'history note mismatch, actionNote=%{public}s currentNote=%{public}s', action.noteId, this.noteId);
       return;
     }
-    if (group.length > 1 && this.isSinglePageElementGroup(group)) {
+    if (group.length > 1) {
+      if (!this.isSinglePageElementGroup(group)) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'history group crossed its note/page/type domain; refusing a partial move');
+        return;
+      }
       if (action.pageId !== this.loadedPageId) {
         this.pendingHistoryDirection = isUndo ? -1 : 1;
         this.onRequestPage(action.pageId);

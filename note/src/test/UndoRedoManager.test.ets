@@ -11,10 +11,10 @@ import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes'
 import { PageElementKind, PageElementRef } from '../main/ets/core/model/PageElementOrder';
 import { ElementType, ShapeElement } from '../main/ets/core/model/ElementTypes';
 
-function makeAction(pageId: string): AddStrokeAction {
+function makeAction(pageId: string, noteId: string = 'note-1'): AddStrokeAction {
   return {
     type: UndoableActionType.ADD_STROKE,
-    noteId: 'note-1',
+    noteId: noteId,
     pageId: pageId,
     addedStrokes: [],
     elementOrderBefore: [],
@@ -332,6 +332,42 @@ export default function undoRedoManagerTest() {
       expect(redo[2].action === third).assertTrue();
       expect(manager.commitRedoGroup(redo)).assertTrue();
       expect(manager.peekUndo() === third).assertTrue();
+    });
+
+    it('bounds coalescing by concrete note and page identity', 0, () => {
+      const manager: UndoRedoManager = new UndoRedoManager();
+      const pageOne: UndoableAction = makeAction('page-1');
+      const pageTwoFirst: UndoableAction = makeAction('page-2');
+      const pageTwoSecond: UndoableAction = makeAction('page-2');
+      manager.restore([
+        restored(pageOne, 'page-a', HistoryCoalesceTrack.CREATE_INK, 100),
+        restored(pageTwoFirst, 'page-b', HistoryCoalesceTrack.CREATE_INK, 105),
+        restored(pageTwoSecond, 'page-c', HistoryCoalesceTrack.CREATE_INK, 110),
+      ], []);
+
+      const pageGroup = manager.peekUndoGroup();
+      expect(pageGroup.length).assertEqual(2);
+      expect(pageGroup[0].action === pageTwoSecond).assertTrue();
+      expect(pageGroup[1].action === pageTwoFirst).assertTrue();
+      expect(manager.commitUndoGroup(pageGroup)).assertTrue();
+      const pageRedoGroup = manager.peekRedoGroup();
+      expect(pageRedoGroup.length).assertEqual(2);
+      expect(pageRedoGroup[0].action === pageTwoFirst).assertTrue();
+      expect(pageRedoGroup[1].action === pageTwoSecond).assertTrue();
+
+      const noteOne: UndoableAction = makeAction('page-1', 'note-1');
+      const noteTwoFirst: UndoableAction = makeAction('page-1', 'note-2');
+      const noteTwoSecond: UndoableAction = makeAction('page-1', 'note-2');
+      manager.restore([
+        restored(noteOne, 'note-a', HistoryCoalesceTrack.INSERT_TEXT, 100),
+        restored(noteTwoFirst, 'note-b', HistoryCoalesceTrack.INSERT_TEXT, 500),
+        restored(noteTwoSecond, 'note-c', HistoryCoalesceTrack.INSERT_TEXT, 900),
+      ], []);
+
+      const noteGroup = manager.peekUndoGroup();
+      expect(noteGroup.length).assertEqual(2);
+      expect(noteGroup[0].action === noteTwoSecond).assertTrue();
+      expect(noteGroup[1].action === noteTwoFirst).assertTrue();
     });
 
     it('stops grouping at a mismatched track or adjacent window gap', 0, () => {

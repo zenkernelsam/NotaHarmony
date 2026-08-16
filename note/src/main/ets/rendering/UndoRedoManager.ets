@@ -1026,7 +1026,12 @@ export class UndoRedoManager {
     for (let index: number = stack.length - 2; index >= 0; index--) {
       const candidate: HistoryEntry = stack[index];
       const window: number = this.coalesceWindow(candidate.history.coalesceTrack);
-      if (window < 0 || candidate.history.coalesceTrack !== anchor.history.coalesceTrack ||
+      // Original vnf owns one editor history and groups adjacent entries by track/time.
+      // Harmony persists a note-wide history across asynchronously loaded pages, so the
+      // concrete note/page identity must bound the group before the UI applies it.
+      if (candidate.action.noteId !== anchor.action.noteId ||
+        candidate.action.pageId !== anchor.action.pageId ||
+        window < 0 || candidate.history.coalesceTrack !== anchor.history.coalesceTrack ||
         Math.abs(anchor.history.actionTime - candidate.history.actionTime) > window) {
         break;
       }

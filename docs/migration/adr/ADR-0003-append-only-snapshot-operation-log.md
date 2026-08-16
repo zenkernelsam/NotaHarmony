@@ -93,7 +93,10 @@ Notability 1.0.3 的证据表明 ClientOp 是独立的追加存储：
   严格校验并形成中间页面状态；一个 SQLite 事务为每个原 actionId 顺序追加独立 NPM1 UNDO/REDO、连续推进 content revision，并只
   发布最终 snapshot/search 状态。组内任一步、日志写入或来源快照核对失败会回滚数据库并恢复执行前画布，历史栈不移动。
 - 持久 reducer 不引入新的“组合 actionId”；连续移动事件仍引用每个原身份，因此重启后 Undo 的 `newest→oldest` 与 Redo 的
-  `oldest→newest` 顺序可还原。跨页 coalesced 执行以及尚未建模为逐次文本 op 的 INSERT_TEXT/REMOVE_TEXT 仍不作完成声明。
+  `oldest→newest` 顺序可还原。尚未建模为逐次文本 op 的 INSERT_TEXT/REMOVE_TEXT 仍不作完成声明。
+- Phase 261 明确了跨页边界：原版 `vnf/qnf` 没有 pageId，但 Harmony 的 group durable apply 只针对一个异步加载页面，
+  因此 `peekGroup()` 在 track/time 之外要求相邻动作 `noteId + pageId` 相同。跨页 coalesced group 不再形成；UI 对任何仍违反
+  note/page/type domain 的多项 group fail closed，不能退化成只提交顶部动作。该约束是 Harmony 架构适配，不伪称原版字段。
 - 第十阶段把数据库升至 v17，并新增独立于 `operation_log` 的本地 `history_checkpoint`、action 与 operation 子表。checkpoint 保存
   已严格归约的 undo/redo 栈、legacy 计数及覆盖到的全局 sequence；启动只归约 checkpoint 之后的 tail，避免每次打开都重放整张日志。
   checkpoint header、连续栈/operation 索引、action/op 唯一身份、PUSH 元数据、客户端时间和水位对应的本 note 日志行均严格校验。
