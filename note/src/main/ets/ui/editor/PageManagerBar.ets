@@ -61,6 +61,7 @@ export struct PageManagerBar {
             this.onAdd();
           })
         Button('...')
+          .width(44)
           .height(40)
           .fontSize(12)
           .margin({ left: 4, right: 8 })
@@ -109,7 +110,10 @@ export struct PageManagerBar {
     .padding({ left: this.compact ? 4 : 8 })
     .backgroundColor(this.resolveTokens().surface)
     .onAreaChange((_oldArea: Area, newArea: Area) => {
-      this.compact = (newArea.width as number) < 600;
+      // The regular row contains two localized move actions.  Keep it out of
+      // the 600vp tablet/phone width class; those actions remain available in
+      // the native overflow menu below.
+      this.compact = (newArea.width as number) < 720;
     })
   }
 
@@ -135,12 +139,14 @@ export struct PageManagerBar {
 
   @Builder
   SettingsButton(compact: boolean) {
-    Button($r('app.string.page_settings'))
+    Button(compact ? '⚙' : $r('app.string.page_settings'))
+      .width(compact ? 44 : 112)
       .height(40)
-      .fontSize(13)
-      .margin({ left: 8 })
+      .fontSize(compact ? 20 : 13)
+      .margin({ left: compact ? 2 : 8 })
       .enabled(!this.busy)
       .opacity(this.busy ? 0.4 : 1)
+      .accessibilityText($r('app.string.page_settings'))
       .onClick(() => {
         this.showSettings = true;
       })
@@ -180,6 +186,7 @@ export struct PageManagerBar {
     PageSettingsPanel({
       settings: this.noteBackground,
       busy: this.busy,
+      popupMode: true,
       onApply: (settings: NoteBackgroundSettings) => {
         this.onApplyNoteBackground(settings);
       },

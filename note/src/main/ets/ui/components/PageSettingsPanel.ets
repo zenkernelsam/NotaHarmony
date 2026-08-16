@@ -54,6 +54,10 @@ export struct PageSettingsPanel {
   @Prop @Watch('onSettingsChange') settings: NoteBackgroundSettings =
     originalDefaultNoteBackgroundSettings();
   @Prop busy: boolean = false;
+  // The editor opens this component from a popup.  The settings page itself
+  // already owns the outer Scroll, so only the popup instance gets an inner
+  // bounded scroller (otherwise the two pages would compete for gestures).
+  @Prop popupMode: boolean = false;
   @State draft: OriginalTemplatePickerDraft = {
     size: PaperSize.LETTER,
     orientation: PageOrientation.PORTRAIT,
@@ -403,6 +407,21 @@ export struct PageSettingsPanel {
   }
 
   build() {
+    if (this.popupMode) {
+      Scroll() {
+        this.buildPanelContent()
+      }
+      .width('100%')
+      .constraintSize({ maxHeight: 560 })
+      .scrollable(ScrollDirection.Vertical)
+      .scrollBar(BarState.Auto)
+    } else {
+      this.buildPanelContent()
+    }
+  }
+
+  @Builder
+  private buildPanelContent() {
     Column() {
       // === 尺寸 ===
       Text($r('app.string.paper_size')).fontSize(14).fontWeight(FontWeight.Medium).margin({ bottom: 8 })
@@ -413,7 +432,7 @@ export struct PageSettingsPanel {
               Text(opt.label).fontSize(13)
               Text(opt.dim).fontSize(10).fontColor(this.resolveTokens().textSecondary)
             }
-            .width(76)
+            .width('100%')
             .height(52)
             .justifyContent(FlexAlign.Center)
             .borderRadius(8)
@@ -432,7 +451,7 @@ export struct PageSettingsPanel {
       .columnsTemplate('1fr 1fr 1fr 1fr')
       .columnsGap(8)
       .rowsGap(8)
-      .width(340)
+      .width('100%')
       .height(130)
 
       // === 原版纸色：六个 legacy swatch + 无 alpha 的 HSV 自定义色 ===
@@ -462,10 +481,10 @@ export struct PageSettingsPanel {
               .fontColor(this.resolveTokens().textSecondary)
               .margin({ top: 3 })
           }
-          .width(52)
+          .layoutWeight(1)
         }, (legacyPaperIndex: number) => legacyPaperIndex.toString())
       }
-      .width(340)
+      .width('100%')
       .justifyContent(FlexAlign.SpaceBetween)
 
       Row() {
@@ -501,7 +520,7 @@ export struct PageSettingsPanel {
             })
         }
       }
-      .width(340)
+      .width('100%')
       .margin({ top: 8 })
 
       if (this.customColorExpanded) {
@@ -535,7 +554,7 @@ export struct PageSettingsPanel {
             .fontSize(9)
             .fontColor(this.resolveTokens().textSecondary)
         }
-        .width(340)
+        .width('100%')
         .padding(10)
         .margin({ top: 8 })
         .backgroundColor(this.resolveTokens().control)
@@ -576,7 +595,7 @@ export struct PageSettingsPanel {
                     this.toggleFavorite(tpl);
                   })
               }
-              .width(68)
+              .width('100%')
               .height(78)
               Text(this.templateLabel(tpl)).fontSize(10).margin({ top: 4 })
               if (tpl !== PaperTemplate.PLAIN &&
@@ -599,10 +618,10 @@ export struct PageSettingsPanel {
                   })
               }
             }
-            .width(76)
+            .layoutWeight(1)
           }, (tpl: PaperTemplate) => tpl.toString())
       }
-      .width(340)
+      .width('100%')
       .justifyContent(FlexAlign.SpaceBetween)
 
       if (this.sharedBusy && this.paperStore === null) {
@@ -627,7 +646,7 @@ export struct PageSettingsPanel {
               this.reloadSharedPaperSettings();
             })
         }
-        .width(340)
+        .width('100%')
         .margin({ top: 8 })
       }
 
@@ -672,7 +691,7 @@ export struct PageSettingsPanel {
     }
     .padding(16)
     .width('100%')
-    .constraintSize({ minWidth: 320, maxWidth: 420 })
+    .constraintSize({ minWidth: 280, maxWidth: 420 })
     .backgroundColor(this.resolveTokens().surface)
     .borderRadius(12)
     .enabled(!this.busy)
@@ -723,7 +742,7 @@ export struct PageSettingsPanel {
           this.previewSharedSpacing(template, value, mode);
         })
     }
-    .width(340)
+    .width('100%')
     .padding(10)
     .margin({ top: 10 })
     .backgroundColor(this.resolveTokens().control)
