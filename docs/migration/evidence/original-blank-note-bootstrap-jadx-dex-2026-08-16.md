@@ -165,6 +165,12 @@ while (it.hasNext()) {
 - legacy/corrupt 零页恢复也应使用 Letter，不应继续造 A4；
 - 正常新笔记不会进入编辑器的零页补偿，因为两页已经在创建事务内提交。
 
+## 9. Phase 247 UI 入口更正
+
+本文件对 `selectedDefaultTemplate` 的存储与消费结论不变。后续继续追踪设置导航确认：写入该偏好的 UI 所有者是
+Settings 下独立 `TemplateRoute/rge`，不是编辑器 `vge`。Phase 246 临时加入编辑器 popup 的保存按钮已移除；
+完整入口证据见 `original-default-template-route-jadx-2026-08-16.md`。
+
 ## 文件 SHA-256
 
 - `id7.java`：`1BB5FDA05605AA7361498FAC3B5BC4F083CDE9A4658B5A32A40B8BEE12E9FF80`

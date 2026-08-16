@@ -34,7 +34,8 @@ Phase 105 曾把普通新笔记实现为一条默认首页 `CREATE_PAGE`；Phase
    NPG/NTL history companion。
 6. 两张页面的稳定身份分别是 CREATE_PAGE identity 的 index 0、1；页面自己的 background register 保持 null，
    通过 note-level winner 继承所选默认模板。最终 `structure_revision=2`。
-7. `PageSettingsPanel` 提供原版对应的“设为默认纸张”动作，保存当前纸张语义供下一篇普通新笔记使用。
+7. 默认模板由 Settings 下独立 `TemplateRoute` 对应页面保存；编辑器 `PageSettingsPanel` 只改当前笔记，
+   不得写 `selectedDefaultTemplate`。此入口所有权由 Phase 247 / ADR-0224 更正并闭环。
 8. `NotePage` 的零页分支只保留为 legacy/corrupt 恢复，并改用 Letter。普通新笔记在路由进入编辑器前已原子
    完成两页创建。无法识别内容包的 partial import 回报也同步为两张恢复页。
 
@@ -67,3 +68,8 @@ Phase 105 曾把普通新笔记实现为一条默认首页 `CREATE_PAGE`；Phase
 - 最终全量桌面 replay 为 `REPLAY_FILES=231 FAILED=0`；clean 后 `note@ohosTest` 与 `note@default` HAP
   均成功构建。
 - 本阶段不启动设备、模拟器、虚拟机或 Hypium；真实路由、双页 UI、偏好持久化和私有同步仍留给集中设备验收。
+
+## Phase 247 后续更正
+
+Phase 246 的 storage/wire/bootstrap 决策不变，但当时把“设为默认纸张”临时接进编辑器 popup 的 UI 位置不符合
+原版。原版由设置页 `TemplateRoute/rge` 写偏好，编辑器 `vge` 只写当前 note background。修复见 ADR-0224。

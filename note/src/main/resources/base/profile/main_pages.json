@@ -4,6 +4,7 @@
     "ui/library/LibraryPage",
     "ui/editor/NotePage",
     "ui/settings/SettingsPage",
+    "ui/settings/DefaultTemplatePage",
     "ui/settings/BackupPage",
     "ui/settings/WebDAVSettingsPage"
   ]

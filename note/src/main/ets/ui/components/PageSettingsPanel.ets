@@ -3,8 +3,13 @@ import {
   NoteBackgroundSettings, PageOrientation, PaperSize, PaperTemplate,
 } from '../../core/model/NoteTypes';
 import {
-  applyOriginalPaperSettings, originalDefaultNoteBackgroundSettings,
+  originalDefaultNoteBackgroundSettings,
 } from '../../core/model/PageBackgroundModel';
+import {
+  applyOriginalTemplatePickerSelection, isOriginalTemplatePickerSelection,
+  OriginalTemplatePickerDraft, originalTemplatePickerDraft,
+  stageOriginalTemplateOrientation, stageOriginalTemplateSize,
+} from '../../core/model/OriginalTemplatePickerState';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 
@@ -27,13 +32,29 @@ interface PaperSizeOption {
 
 @Component
 export struct PageSettingsPanel {
-  @Prop settings: NoteBackgroundSettings = originalDefaultNoteBackgroundSettings();
+  @Prop @Watch('onSettingsChange') settings: NoteBackgroundSettings =
+    originalDefaultNoteBackgroundSettings();
+  @Prop busy: boolean = false;
+  @State draft: OriginalTemplatePickerDraft = {
+    size: PaperSize.LETTER,
+    orientation: PageOrientation.PORTRAIT,
+  };
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onApply: (settings: NoteBackgroundSettings) => void = () => {
   };
-  onSetDefault: (settings: NoteBackgroundSettings) => void = () => {
-  };
+
+  aboutToAppear(): void {
+    this.resetDraft();
+  }
+
+  private onSettingsChange(): void {
+    this.resetDraft();
+  }
+
+  private resetDraft(): void {
+    this.draft = originalTemplatePickerDraft(this.settings);
+  }
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
@@ -54,13 +75,14 @@ export struct PageSettingsPanel {
             .height(52)
             .justifyContent(FlexAlign.Center)
             .borderRadius(8)
-            .backgroundColor(opt.size === this.settings.size ? this.resolveTokens().accent :
+            .backgroundColor(opt.size === this.draft.size ? this.resolveTokens().accent :
               this.resolveTokens().control)
-            .border({ width: 1, color: opt.size === this.settings.size ? this.resolveTokens().accent :
+            .border({ width: 1, color: opt.size === this.draft.size ? this.resolveTokens().accent :
               this.resolveTokens().border })
             .onClick(() => {
-              this.onApply(applyOriginalPaperSettings(
-                this.settings, opt.size, this.settings.template, this.settings.orientation));
+              if (!this.busy) {
+                this.draft = stageOriginalTemplateSize(this.draft, opt.size);
+              }
             })
           }
         }, (opt: PaperSizeOption) => opt.size.toString())
@@ -74,6 +96,10 @@ export struct PageSettingsPanel {
       // === 模板（自绘迷你预览：展示类，无原生等价物）===
       Text($r('app.string.paper_template')).fontSize(14).fontWeight(FontWeight.Medium)
         .margin({ top: 12, bottom: 8 })
+      Text($r('app.string.template_pick_hint'))
+        .fontSize(11)
+        .fontColor(this.resolveTokens().textSecondary)
+        .margin({ bottom: 8 })
       Row() {
         ForEach([PaperTemplate.PLAIN, PaperTemplate.LINES, PaperTemplate.GRID, PaperTemplate.DOTS],
           (tpl: PaperTemplate) => {
@@ -83,8 +109,9 @@ export struct PageSettingsPanel {
             }
             .margin({ right: 12 })
             .onClick(() => {
-              this.onApply(applyOriginalPaperSettings(
-                this.settings, this.settings.size, tpl, this.settings.orientation));
+              if (!this.busy) {
+                this.onApply(applyOriginalTemplatePickerSelection(this.settings, this.draft, tpl));
+              }
             })
           }, (tpl: PaperTemplate) => tpl.toString())
       }
@@ -97,43 +124,38 @@ export struct PageSettingsPanel {
           .height(36)
           .fontSize(13)
           .margin({ right: 8 })
-          .backgroundColor(this.settings.orientation === PageOrientation.PORTRAIT ? this.resolveTokens().accent :
+          .backgroundColor(this.draft.orientation === PageOrientation.PORTRAIT ? this.resolveTokens().accent :
             this.resolveTokens().control)
-          .fontColor(this.settings.orientation === PageOrientation.PORTRAIT ? this.resolveTokens().onAccent :
+          .fontColor(this.draft.orientation === PageOrientation.PORTRAIT ? this.resolveTokens().onAccent :
             this.resolveTokens().textPrimary)
           .onClick(() => {
-            if (this.settings.orientation !== PageOrientation.PORTRAIT) {
-              this.onApply(applyOriginalPaperSettings(
-                this.settings, this.settings.size, this.settings.template, PageOrientation.PORTRAIT));
+            if (!this.busy && this.draft.orientation !== PageOrientation.PORTRAIT) {
+              this.draft = stageOriginalTemplateOrientation(
+                this.draft, PageOrientation.PORTRAIT);
             }
           })
         Button($r('app.string.landscape'))
           .height(36)
           .fontSize(13)
-          .backgroundColor(this.settings.orientation === PageOrientation.LANDSCAPE ? this.resolveTokens().accent :
+          .backgroundColor(this.draft.orientation === PageOrientation.LANDSCAPE ? this.resolveTokens().accent :
             this.resolveTokens().control)
-          .fontColor(this.settings.orientation === PageOrientation.LANDSCAPE ? this.resolveTokens().onAccent :
+          .fontColor(this.draft.orientation === PageOrientation.LANDSCAPE ? this.resolveTokens().onAccent :
             this.resolveTokens().textPrimary)
           .onClick(() => {
-            if (this.settings.orientation !== PageOrientation.LANDSCAPE) {
-              this.onApply(applyOriginalPaperSettings(
-                this.settings, this.settings.size, this.settings.template, PageOrientation.LANDSCAPE));
+            if (!this.busy && this.draft.orientation !== PageOrientation.LANDSCAPE) {
+              this.draft = stageOriginalTemplateOrientation(
+                this.draft, PageOrientation.LANDSCAPE);
             }
           })
       }
-
-      Button($r('app.string.set_default_template'))
-        .height(36)
-        .margin({ top: 16 })
-        .fontSize(13)
-        .onClick(() => {
-          this.onSetDefault(this.settings);
-        })
     }
     .padding(16)
-    .width(380)
+    .width('100%')
+    .constraintSize({ minWidth: 320, maxWidth: 420 })
     .backgroundColor(this.resolveTokens().surface)
     .borderRadius(12)
+    .enabled(!this.busy)
+    .opacity(this.busy ? 0.6 : 1)
   }
 
   // 模板迷你预览（自绘：白色底 + 线/点模拟）
@@ -144,8 +166,9 @@ export struct PageSettingsPanel {
         .width(60)
         .height(78)
         .backgroundColor(this.resolveTokens().paperBackground)
-        .border({ width: tpl === this.settings.template ? 2 : 1,
-          color: tpl === this.settings.template ? this.resolveTokens().accent : this.resolveTokens().border })
+        .border({ width: isOriginalTemplatePickerSelection(this.settings, this.draft, tpl) ? 2 : 1,
+          color: isOriginalTemplatePickerSelection(this.settings, this.draft, tpl) ?
+            this.resolveTokens().accent : this.resolveTokens().border })
         .borderRadius(4)
       if (tpl === PaperTemplate.LINES) {
         Column() {

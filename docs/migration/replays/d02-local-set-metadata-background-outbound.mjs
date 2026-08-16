@@ -26,6 +26,7 @@ const repository = read('note/src/main/ets/data/PageRepositoryImpl.ets');
 const history = read('note/src/main/ets/data/PersistentHistory.ets');
 const editor = read('note/src/main/ets/ui/editor/NotePage.ets');
 const panel = read('note/src/main/ets/ui/components/PageSettingsPanel.ets');
+const picker = read('note/src/main/ets/core/model/OriginalTemplatePickerState.ets');
 const opTypes = read('note/src/main/ets/core/model/OpTypes.ets');
 const fixtures = read('note/src/test/OriginalSetMetadataPayloadEncoder.test.ets');
 const fixtureList = read('note/src/test/List.test.ets');
@@ -74,7 +75,8 @@ assert.match(repository, /original page settings must use note-level SET_METADAT
 assert.match(repository, /persistOriginalNoteBackground/);
 assert.match(editor, /UndoableActionType\.NOTE_BACKGROUND/);
 assert.match(editor, /this\.pages = await this\.pageRepo\.getPages\(this\.noteId\)/);
-assert.match(panel, /applyOriginalPaperSettings/);
+assert.match(panel, /applyOriginalTemplatePickerSelection/);
+assert.match(picker, /applyOriginalPaperSettings/);
 assert.match(opTypes, /UPDATE_NOTE_BACKGROUND = 34/);
 assert.match(opTypes, /ORIGINAL_SET_METADATA = 78/);
 assert.match(history, /OpType\.ORIGINAL_SET_METADATA/);

@@ -37,8 +37,8 @@
    upload-immediate、无 history metadata 与最终 `structure_revision=2`。
 8. `NoteRepositoryImpl.createNote()` 不再创建单张默认首页；它先解析默认模板，再把 note insert 与完整
    bootstrap 放入同一事务，任一步失败整篇笔记回滚。
-9. `LibraryPage` 注入 `EditorSettingsStore`；`PageSettingsPanel/PageManagerBar/NotePage` 接入“设为默认纸张”
-   原版动作，并在成功后给出提示。
+9. `LibraryPage` 注入 `EditorSettingsStore`；本阶段曾把“设为默认纸张”临时接入编辑器 popup。Phase 247
+   继续追证后确认原版应由 Settings 独立 `TemplateRoute` 保存，现已迁移并移除编辑器保存链。
 10. `NotePage` 的 legacy 零页恢复从错误 A4 改为 Letter；正常新笔记在编辑器打开前已有两页。
 11. 无法识别内容结构的 partial import 现在回报两张已恢复空白页，不再硬编码 1。
 
@@ -77,3 +77,8 @@
 - T-042 APK 版本追踪严格留到整个 Goal 最后。届时单独建立追踪文档／工具并另写中文 Report，说明建立了
   什么、功能和使用方法；随后归纳进 Wiki、技术/API 文档和新手入门，明确用途、入口、使用时机，以及新版
   APK 接收、哈希、decompile、语义 diff 与任务映射流程。
+
+## Phase 247 correction
+
+Phase 246 的 root `nz9`、两页 bootstrap、事务和回滚结论全部保留；仅 UI 入口位置被更正。原版
+`TemplateRoute/rge` 属设置页，编辑器 `vge` 不写 `selectedDefaultTemplate`。详见 ADR-0224 与 Phase 247 报告。

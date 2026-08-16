@@ -95,6 +95,12 @@ struct SettingsPage {
     });
   }
 
+  private openDefaultTemplate(): void {
+    router.pushUrl({ url: 'ui/settings/DefaultTemplatePage' }).catch((e: Error) => {
+      console.error(`SettingsPage push DefaultTemplatePage failed: ${JSON.stringify(e)}`);
+    });
+  }
+
   build() {
     Column() {
       Row() {
@@ -163,6 +169,14 @@ struct SettingsPage {
             .height(56)
             .padding({ left: 12, right: 12 })
             .backgroundColor(this.resolveTokens().surface)
+
+            Button($r('app.string.default_template'))
+              .width('100%')
+              .height(48)
+              .margin({ top: 12 })
+              .onClick(() => {
+                this.openDefaultTemplate();
+              })
 
             Divider()
               .color(this.resolveTokens().border)

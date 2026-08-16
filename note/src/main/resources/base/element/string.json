@@ -133,12 +133,32 @@
       "value": "Dots"
     },
     {
-      "name": "set_default_template",
-      "value": "Set as Default Paper"
-    },
-    {
       "name": "default_template_saved",
       "value": "Default paper updated"
+    },
+    {
+      "name": "default_template",
+      "value": "Template"
+    },
+    {
+      "name": "default_template_description",
+      "value": "Choose the paper used for new notes. Select a size and orientation, then tap a template to confirm."
+    },
+    {
+      "name": "default_template_loading",
+      "value": "Loading the default paper..."
+    },
+    {
+      "name": "default_template_load_failed",
+      "value": "Could not load the default paper. Try again."
+    },
+    {
+      "name": "default_template_save_failed",
+      "value": "Could not update the default paper. Try again."
+    },
+    {
+      "name": "template_pick_hint",
+      "value": "Choose a size and orientation, then select a template."
     },
     {
       "name": "type_here",

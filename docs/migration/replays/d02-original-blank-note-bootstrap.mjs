@@ -25,6 +25,8 @@ const defaultTemplateCodec = read('note/src/main/ets/data/OriginalDefaultTemplat
 const library = read('note/src/main/ets/ui/library/LibraryPage.ets');
 const editor = read('note/src/main/ets/ui/editor/NotePage.ets');
 const panel = read('note/src/main/ets/ui/components/PageSettingsPanel.ets');
+const settingsPage = read('note/src/main/ets/ui/settings/SettingsPage.ets');
+const defaultTemplatePage = read('note/src/main/ets/ui/settings/DefaultTemplatePage.ets');
 const fixtures = read('note/src/test/OriginalBlankNoteBootstrap.test.ets');
 const fixtureList = read('note/src/test/List.test.ets');
 const importer = read('note/src/main/ets/data/NoteImporter.ets');
@@ -79,8 +81,10 @@ assert.match(defaultTemplateCodec, /OriginalFlatBufferTableReader\.fromRoot\(enc
 assert.match(metadataEncoder, /encodeOriginalPageBackgroundRoot/);
 assert.match(metadataEncoder, /writeU32\(bytes, 0, layout\.backgroundTable\)/);
 assert.match(library, /new NoteRepositoryImpl\([\s\S]*new EditorSettingsStore\(context\)\)/);
-assert.match(editor, /saveSelectedDefaultTemplate/);
-assert.match(panel, /set_default_template/);
+assert.doesNotMatch(editor, /saveSelectedDefaultTemplate/);
+assert.doesNotMatch(panel, /set_default_template|onSetDefault/);
+assert.match(settingsPage, /ui\/settings\/DefaultTemplatePage/);
+assert.match(defaultTemplatePage, /saveSelectedDefaultTemplate/);
 assert.match(fixtures, /ORIGINAL_BLANK_NOTE_PAGE_COUNT\)\.assertEqual\(2\)/);
 assert.match(fixtures, /paper\.flairSpacingPt\)\.assertEqual\(18\)/);
 assert.match(fixtures, /paper\.legacyPaperIndex\)\.assertEqual\(7\)/);

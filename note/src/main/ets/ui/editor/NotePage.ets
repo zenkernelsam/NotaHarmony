@@ -9,8 +9,6 @@ import {
   commitOriginalNoteTitleDraft, isOriginalNoteTitleWireValue,
   truncateOriginalNoteTitleDraft,
 } from '../../core/model/OriginalNoteTitlePolicy';
-import { originalDefaultTemplateFromSettings } from
-  '../../core/model/OriginalDefaultTemplate';
 import { BrushStyle, brushStyleToInkStyle } from '../../core/model/BrushTypes';
 import { InkStyle } from '../../core/model/StrokeTypes';
 import {
@@ -125,7 +123,6 @@ struct NotePage {
   private titleSaveQueue: Promise<void> = Promise.resolve();
   private titleSaveGeneration: number = 0;
   private pageRepo: PageRepositoryImpl | null = null;
-  private editorSettingsStore: EditorSettingsStore | null = null;
   private persistence: StrokePersistence = new StrokePersistence();
   private historyBridge: EditorHistoryBridge | null = null;
   private pageLoadInFlight: boolean = false;
@@ -265,7 +262,6 @@ struct NotePage {
         }
       };
       const editorSettingsStore: EditorSettingsStore = new EditorSettingsStore(context);
-      this.editorSettingsStore = editorSettingsStore;
       await this.viewModel.initialize(
         new ToolRepositoryImpl(db), 'primary-editor', editorSettingsStore);
       // T-036：加载标题
@@ -999,10 +995,6 @@ struct NotePage {
             this.runPageOperation(
               async (): Promise<void> => this.applyNoteBackgroundSettings(settings));
           },
-          onSetDefaultNoteBackground: (settings: NoteBackgroundSettings) => {
-            this.runPageOperation(
-              async (): Promise<void> => this.saveDefaultNoteBackground(settings));
-          },
         })
       }
     }
@@ -1039,18 +1031,6 @@ struct NotePage {
     this.selectPageById(selectedPageId);
     if (this.historyBridge !== null) {
       this.historyBridge.pushPageAction(action, history);
-    }
-  }
-
-  private async saveDefaultNoteBackground(settings: NoteBackgroundSettings): Promise<void> {
-    if (this.editorSettingsStore === null) {
-      throw new Error('editor settings are unavailable');
-    }
-    await this.editorSettingsStore.saveSelectedDefaultTemplate(
-      originalDefaultTemplateFromSettings(settings));
-    try {
-      promptAction.showToast({ message: $r('app.string.default_template_saved'), duration: 1800 });
-    } catch (_toastError) {
     }
   }
 
