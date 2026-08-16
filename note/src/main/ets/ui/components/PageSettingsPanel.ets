@@ -15,8 +15,14 @@ import {
 import {
   applyOriginalTemplatePickerSelection, isOriginalTemplatePickerSelection,
   OriginalTemplatePickerDraft, originalTemplatePickerDraft, originalTemplatePickerFavorite,
+  stageOriginalTemplateCustomColor, stageOriginalTemplateLegacyPaper,
   stageOriginalTemplateOrientation, stageOriginalTemplateSize,
 } from '../../core/model/OriginalTemplatePickerState';
+import {
+  ORIGINAL_LEGACY_PAPER_PICKER_INDICES, OriginalHsvColor, originalArgbCssColor,
+  originalHsvFromArgb, originalLegacyPaperPickerSwatchArgb, originalOpaqueArgbFromHsv,
+  originalPaperPickerPreviewColor, originalPaperPickerPreviewLineColor,
+} from '../../core/model/OriginalPaperColor';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { OriginalPaperSettingsStore } from '../../data/OriginalPaperSettingsStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
@@ -51,7 +57,13 @@ export struct PageSettingsPanel {
   @State draft: OriginalTemplatePickerDraft = {
     size: PaperSize.LETTER,
     orientation: PageOrientation.PORTRAIT,
+    backgroundColor: -1,
+    legacyPaperIndex: null,
   };
+  @State customColorExpanded: boolean = false;
+  @State customHue: number = 0;
+  @State customSaturation: number = 0;
+  @State customValue: number = 100;
   @State backgroundInfos: OriginalBackgroundInfo[] = [
     defaultOriginalBackgroundInfo(OriginalPaperLineType.PLAIN),
     defaultOriginalBackgroundInfo(OriginalPaperLineType.LINES),
@@ -87,10 +99,92 @@ export struct PageSettingsPanel {
 
   private resetDraft(): void {
     this.draft = originalTemplatePickerDraft(this.settings);
+    this.customColorExpanded = false;
+    this.resetCustomColorControls();
   }
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  private isDarkMode(): boolean {
+    return this.themeMode === 'dark' || (this.themeMode === 'system' && this.systemDark);
+  }
+
+  private resetCustomColorControls(): void {
+    let source: number | null = this.draft.backgroundColor;
+    if (source === null && this.draft.legacyPaperIndex !== null) {
+      source = originalLegacyPaperPickerSwatchArgb(this.draft.legacyPaperIndex);
+    }
+    const hsv: OriginalHsvColor = originalHsvFromArgb(source === null ? -1 : source);
+    this.customHue = hsv.hue;
+    this.customSaturation = hsv.saturation * 100;
+    this.customValue = hsv.value * 100;
+  }
+
+  private selectLegacyPaper(legacyPaperIndex: number): void {
+    if (this.busy || this.sharedBusy || this.spacingSaveBusy) {
+      return;
+    }
+    this.draft = stageOriginalTemplateLegacyPaper(this.draft, legacyPaperIndex);
+    const swatch: number | null = originalLegacyPaperPickerSwatchArgb(legacyPaperIndex);
+    if (swatch !== null) {
+      const hsv: OriginalHsvColor = originalHsvFromArgb(swatch);
+      this.customHue = hsv.hue;
+      this.customSaturation = hsv.saturation * 100;
+      this.customValue = hsv.value * 100;
+    }
+  }
+
+  private activateCustomColor(): void {
+    if (this.busy || this.sharedBusy || this.spacingSaveBusy) {
+      return;
+    }
+    this.customColorExpanded = true;
+    // Opening the no-alpha HSV controls must not rewrite an existing ARGB value.
+    // Only switching from legacy/no-color, or an actual slider edit, writes opaque.
+    if (this.draft.backgroundColor === null) {
+      this.stageCustomColor();
+    }
+  }
+
+  private stageCustomColor(): void {
+    const color: number = originalOpaqueArgbFromHsv(
+      this.customHue, this.customSaturation / 100, this.customValue / 100);
+    this.draft = stageOriginalTemplateCustomColor(this.draft, color);
+  }
+
+  private updateCustomHue(value: number): void {
+    this.customHue = Math.max(0, Math.min(360, value));
+    this.stageCustomColor();
+  }
+
+  private updateCustomSaturation(value: number): void {
+    this.customSaturation = Math.max(0, Math.min(100, value));
+    this.stageCustomColor();
+  }
+
+  private updateCustomValue(value: number): void {
+    this.customValue = Math.max(0, Math.min(100, value));
+    this.stageCustomColor();
+  }
+
+  private customColorCss(): string {
+    if (this.draft.backgroundColor !== null) {
+      return originalArgbCssColor(this.draft.backgroundColor);
+    }
+    return originalArgbCssColor(originalOpaqueArgbFromHsv(
+      this.customHue, this.customSaturation / 100, this.customValue / 100));
+  }
+
+  private templatePreviewBackground(): string {
+    return originalPaperPickerPreviewColor(this.draft.backgroundColor,
+      this.draft.legacyPaperIndex, this.resolveTokens().paperBackground, this.isDarkMode());
+  }
+
+  private templatePreviewLineColor(): string {
+    return originalPaperPickerPreviewLineColor(this.draft.backgroundColor,
+      this.draft.legacyPaperIndex, this.resolveTokens().paperLineColor, this.isDarkMode());
   }
 
   private async reloadSharedPaperSettings(): Promise<void> {
@@ -341,6 +435,113 @@ export struct PageSettingsPanel {
       .width(340)
       .height(130)
 
+      // === 原版纸色：六个 legacy swatch + 无 alpha 的 HSV 自定义色 ===
+      Text($r('app.string.paper_color')).fontSize(14).fontWeight(FontWeight.Medium)
+        .margin({ top: 12, bottom: 8 })
+      Row() {
+        ForEach(ORIGINAL_LEGACY_PAPER_PICKER_INDICES, (legacyPaperIndex: number) => {
+          Column() {
+            Column()
+              .width(34)
+              .height(34)
+              .borderRadius(17)
+              .backgroundColor(originalArgbCssColor(
+                originalLegacyPaperPickerSwatchArgb(legacyPaperIndex) as number))
+              .border({
+                width: this.draft.backgroundColor === null &&
+                  this.draft.legacyPaperIndex === legacyPaperIndex ? 3 : 1,
+                color: this.draft.backgroundColor === null &&
+                  this.draft.legacyPaperIndex === legacyPaperIndex ?
+                  this.resolveTokens().accent : this.resolveTokens().border,
+              })
+              .onClick(() => {
+                this.selectLegacyPaper(legacyPaperIndex);
+              })
+            Text(this.legacyPaperLabel(legacyPaperIndex))
+              .fontSize(9)
+              .fontColor(this.resolveTokens().textSecondary)
+              .margin({ top: 3 })
+          }
+          .width(52)
+        }, (legacyPaperIndex: number) => legacyPaperIndex.toString())
+      }
+      .width(340)
+      .justifyContent(FlexAlign.SpaceBetween)
+
+      Row() {
+        Column()
+          .width(26)
+          .height(26)
+          .borderRadius(13)
+          .backgroundColor(this.customColorCss())
+          .border({ width: 1, color: this.resolveTokens().border })
+        Button($r('app.string.paper_custom_color'))
+          .height(34)
+          .fontSize(12)
+          .margin({ left: 8 })
+          .backgroundColor(this.draft.backgroundColor !== null ?
+            this.resolveTokens().accent : this.resolveTokens().control)
+          .fontColor(this.draft.backgroundColor !== null ?
+            this.resolveTokens().onAccent : this.resolveTokens().textPrimary)
+          .enabled(!this.busy && !this.sharedBusy && !this.spacingSaveBusy)
+          .onClick(() => {
+            this.activateCustomColor();
+          })
+        Blank()
+        if (this.customColorExpanded) {
+          Button('×')
+            .width(30)
+            .height(28)
+            .fontSize(16)
+            .padding(0)
+            .backgroundColor(this.resolveTokens().control)
+            .accessibilityText($r('app.string.paper_custom_color_close'))
+            .onClick(() => {
+              this.customColorExpanded = false;
+            })
+        }
+      }
+      .width(340)
+      .margin({ top: 8 })
+
+      if (this.customColorExpanded) {
+        Column() {
+          Text($r('app.string.paper_color_hue', Math.round(this.customHue)))
+            .width('100%').fontSize(10).fontColor(this.resolveTokens().textSecondary)
+          Slider({ value: this.customHue, min: 0, max: 360, step: 1 })
+            .width('100%')
+            .selectedColor(this.resolveTokens().accent)
+            .onChange((value: number, _mode: SliderChangeMode) => {
+              this.updateCustomHue(value);
+            })
+          Text($r('app.string.paper_color_saturation', Math.round(this.customSaturation)))
+            .width('100%').fontSize(10).fontColor(this.resolveTokens().textSecondary)
+          Slider({ value: this.customSaturation, min: 0, max: 100, step: 1 })
+            .width('100%')
+            .selectedColor(this.resolveTokens().accent)
+            .onChange((value: number, _mode: SliderChangeMode) => {
+              this.updateCustomSaturation(value);
+            })
+          Text($r('app.string.paper_color_value', Math.round(this.customValue)))
+            .width('100%').fontSize(10).fontColor(this.resolveTokens().textSecondary)
+          Slider({ value: this.customValue, min: 0, max: 100, step: 1 })
+            .width('100%')
+            .selectedColor(this.resolveTokens().accent)
+            .onChange((value: number, _mode: SliderChangeMode) => {
+              this.updateCustomValue(value);
+            })
+          Text($r('app.string.paper_color_opaque_hint'))
+            .width('100%')
+            .fontSize(9)
+            .fontColor(this.resolveTokens().textSecondary)
+        }
+        .width(340)
+        .padding(10)
+        .margin({ top: 8 })
+        .backgroundColor(this.resolveTokens().control)
+        .borderRadius(8)
+      }
+
       // === 模板（自绘迷你预览：展示类，无原生等价物）===
       Text($r('app.string.paper_template')).fontSize(14).fontWeight(FontWeight.Medium)
         .margin({ top: 12, bottom: 8 })
@@ -537,7 +738,7 @@ export struct PageSettingsPanel {
       Column()
         .width(60)
         .height(78)
-        .backgroundColor(this.resolveTokens().paperBackground)
+        .backgroundColor(this.templatePreviewBackground())
         .border({ width: this.isTemplateSelected(tpl) ? 2 : 1,
           color: this.isTemplateSelected(tpl) ?
             this.resolveTokens().accent : this.resolveTokens().border })
@@ -545,7 +746,7 @@ export struct PageSettingsPanel {
       if (tpl === PaperTemplate.LINES) {
         Column() {
           ForEach([1, 2, 3, 4], (_i: number) => {
-            Divider().color(this.resolveTokens().paperLineColor).strokeWidth(1).margin({ top: 12 })
+            Divider().color(this.templatePreviewLineColor()).strokeWidth(1).margin({ top: 12 })
           }, (_i: number) => _i.toString())
         }
         .width(48)
@@ -555,7 +756,7 @@ export struct PageSettingsPanel {
         Grid() {
           ForEach([1, 2, 3, 4], (_i: number) => {
             GridItem() {
-              Column().width(8).height(8).backgroundColor(this.resolveTokens().paperLineColor)
+              Column().width(8).height(8).backgroundColor(this.templatePreviewLineColor())
             }
           }, (_i: number) => _i.toString())
         }
@@ -569,7 +770,7 @@ export struct PageSettingsPanel {
         Grid() {
           ForEach([1, 2, 3, 4], (_i: number) => {
             GridItem() {
-              Column().width(5).height(5).borderRadius(3).backgroundColor(this.resolveTokens().paperLineColor)
+              Column().width(5).height(5).borderRadius(3).backgroundColor(this.templatePreviewLineColor())
             }
           }, (_i: number) => _i.toString())
         }
@@ -595,6 +796,25 @@ export struct PageSettingsPanel {
         return $r('app.string.template_grid');
       case PaperTemplate.DOTS:
         return $r('app.string.template_dots');
+      default:
+        return '';
+    }
+  }
+
+  private legacyPaperLabel(legacyPaperIndex: number): ResourceStr {
+    switch (legacyPaperIndex) {
+      case 13:
+        return $r('app.string.paper_legacy_white');
+      case 1:
+        return $r('app.string.paper_legacy_cream');
+      case 2:
+        return $r('app.string.paper_legacy_yellow');
+      case 15:
+        return $r('app.string.paper_legacy_black');
+      case 7:
+        return $r('app.string.paper_legacy_blue');
+      case 6:
+        return $r('app.string.paper_legacy_tan');
       default:
         return '';
     }

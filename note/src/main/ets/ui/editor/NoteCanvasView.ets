@@ -18,6 +18,9 @@ import { ImageAssetLoader, ImageAssetLoadState, LoadedImageAsset } from
 import {
   LoadedPdfBackground, PdfBackgroundLoader, PdfBackgroundLoadState,
 } from '../../core/adaptation/PdfBackgroundLoader';
+import {
+  LoadedOriginalPaperTexture, OriginalPaperTextureLoader,
+} from '../../core/adaptation/OriginalPaperTextureLoader';
 import { StrokeLayerManager } from '../../rendering/StrokeLayerManager';
 import { StrokeCanvasPainter } from '../../rendering/StrokeCanvasPainter';
 import { ShapeCanvasRenderer } from '../../rendering/ShapeCanvasRenderer';
@@ -251,6 +254,9 @@ export struct NoteCanvasView {
   private pdfBackgroundLoader: PdfBackgroundLoader | null = null;
   private pdfBackground: LoadedPdfBackground | null = null;
   private pdfBackgroundGeneration: number = 0;
+  private paperTextureLoader: OriginalPaperTextureLoader = new OriginalPaperTextureLoader();
+  private paperTexture: LoadedOriginalPaperTexture | null = null;
+  private paperTextureGeneration: number = 0;
   private assetAvailabilitySubscription: number = -1;
   private selectionTool: SelectionTool = new SelectionTool();
   private strokeClipboard: StrokeClipboard = new StrokeClipboard();
@@ -458,6 +464,7 @@ export struct NoteCanvasView {
       }
       this.refreshImageAssets(generation, targetPageId);
       this.refreshPdfBackground(generation, targetPageId);
+      this.refreshPaperTexture(generation, targetPageId);
       this.promptPersistentHistoryRecovery();
     } catch (e) {
       if (generation === this.pageLoadGeneration) {
@@ -780,6 +787,7 @@ export struct NoteCanvasView {
     }
     this.releaseImageAssets();
     this.releasePdfBackground();
+    this.releasePaperTexture();
     this.strokeClipboard.clear();
     this.clipboardAvailable = false;
     this.cancelShapeDetectionTimer();
@@ -833,6 +841,7 @@ export struct NoteCanvasView {
       this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
       this.renderFrame(true);
       this.refreshPdfBackground(this.pageLoadGeneration, this.loadedPageId);
+      this.refreshPaperTexture(this.pageLoadGeneration, this.loadedPageId);
       return;
     }
     const generation: number = ++this.pageLoadGeneration;
@@ -885,6 +894,7 @@ export struct NoteCanvasView {
       this.renderFrame(true);
       this.refreshImageAssets(generation, targetPageId);
       this.refreshPdfBackground(generation, targetPageId);
+      this.refreshPaperTexture(generation, targetPageId);
       this.resumePendingHistory();
     } catch (e) {
       if (generation === this.pageLoadGeneration) {
@@ -905,6 +915,7 @@ export struct NoteCanvasView {
           this.dataLoadFailed = false;
           this.refreshImageAssets(generation, fromPageId);
           this.refreshPdfBackground(generation, fromPageId);
+          this.refreshPaperTexture(generation, fromPageId);
           this.onRequestPage(fromPageId);
         } else {
           this.enterLoadFailureState();
@@ -920,6 +931,8 @@ export struct NoteCanvasView {
 
   private enterLoadFailureState(): void {
     this.releaseImageAssets();
+    this.releasePdfBackground();
+    this.releasePaperTexture();
     this.loaded = false;
     this.loadedPageId = '';
     this.completedStrokes = [];
@@ -1101,7 +1114,7 @@ export struct NoteCanvasView {
       this.pdfBackground.state === PdfBackgroundLoadState.READY
       ? this.pdfBackground.bitmap : null;
     this.paperRenderer.renderBackground(this.canvasCtx, this.getPaperWidth(), this.getPaperHeight(),
-      this.currentPage, this.viewport.zoom, theme, bitmap);
+      this.currentPage, this.viewport.zoom, theme, bitmap, this.paperTexture);
   }
 
   private renderTextBlocks(): void {
@@ -1305,6 +1318,49 @@ export struct NoteCanvasView {
       this.pdfBackgroundLoader.release(this.pdfBackground);
     }
     this.pdfBackground = null;
+  }
+
+  private refreshPaperTexture(pageGeneration: number, pageId: string): void {
+    const effective = effectivePageBackground(this.currentPage);
+    const legacyPaperIndex: number | null = effective === null || effective.paper === null
+      ? null : effective.paper.legacyPaperIndex;
+    if (legacyPaperIndex !== null && this.paperTexture !== null &&
+      this.paperTexture.legacyPaperIndex === legacyPaperIndex) {
+      return;
+    }
+    this.releasePaperTexture();
+    if (legacyPaperIndex === null) {
+      return;
+    }
+    const generation: number = this.paperTextureGeneration;
+    const context = getContext(this) as common.UIAbilityContext;
+    this.paperTextureLoader.load(context, legacyPaperIndex).then(
+      (loaded: LoadedOriginalPaperTexture): void => {
+        if (!this.lifecycleActive || pageGeneration !== this.pageLoadGeneration ||
+          generation !== this.paperTextureGeneration || this.loadedPageId !== pageId) {
+          this.paperTextureLoader.release(loaded);
+          return;
+        }
+        this.paperTexture = loaded;
+        if (this.layerManager.isInitialized()) {
+          this.renderFrame(true);
+        }
+      }).catch((error: Object): void => {
+        if (generation === this.paperTextureGeneration &&
+          pageGeneration === this.pageLoadGeneration && this.loadedPageId === pageId) {
+          hilog.warn(0x0001, 'NoteCanvasView',
+            'legacy paper texture unavailable index=%{public}d reason=%{public}s',
+            legacyPaperIndex, JSON.stringify(error));
+        }
+      });
+  }
+
+  private releasePaperTexture(): void {
+    this.paperTextureGeneration++;
+    if (this.paperTexture !== null) {
+      this.paperTextureLoader.release(this.paperTexture);
+      this.paperTexture = null;
+    }
   }
 
   // === T-034：视口操作 ===

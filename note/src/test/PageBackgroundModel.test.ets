@@ -39,10 +39,14 @@ export default function pageBackgroundModelTest() {
       expect(templateForOriginalPaper(paper)).assertEqual(PaperTemplate.DOTS);
     });
 
-    it('rejects invalid original background values', 0, () => {
+    it('preserves original ARGB alpha while rejecting incomplete colors', 0, () => {
       const translucent: PageBackground = background();
       (translucent.paper as PagePaperBackground).colorA = 128;
-      expectThrow((): void => validatePageBackground(translucent));
+      validatePageBackground(translucent);
+      expect(parsePageBackground(serializePageBackground(translucent))?.paper?.colorA).assertEqual(128);
+      const incomplete: PageBackground = background();
+      (incomplete.paper as PagePaperBackground).colorA = null;
+      expectThrow((): void => validatePageBackground(incomplete));
       const rotated: PageBackground = background();
       rotated.rotationRadians = 0.25;
       expectThrow((): void => validatePageBackground(rotated));

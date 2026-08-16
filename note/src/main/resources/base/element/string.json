@@ -105,6 +105,58 @@
       "value": "Paper Template"
     },
     {
+      "name": "paper_color",
+      "value": "Paper Color"
+    },
+    {
+      "name": "paper_legacy_white",
+      "value": "White"
+    },
+    {
+      "name": "paper_legacy_cream",
+      "value": "Cream"
+    },
+    {
+      "name": "paper_legacy_yellow",
+      "value": "Yellow"
+    },
+    {
+      "name": "paper_legacy_black",
+      "value": "Black"
+    },
+    {
+      "name": "paper_legacy_blue",
+      "value": "Blue"
+    },
+    {
+      "name": "paper_legacy_tan",
+      "value": "Tan"
+    },
+    {
+      "name": "paper_custom_color",
+      "value": "Custom HSV color"
+    },
+    {
+      "name": "paper_custom_color_close",
+      "value": "Close custom paper color"
+    },
+    {
+      "name": "paper_color_hue",
+      "value": "Hue %d°"
+    },
+    {
+      "name": "paper_color_saturation",
+      "value": "Saturation %d%%"
+    },
+    {
+      "name": "paper_color_value",
+      "value": "Brightness %d%%"
+    },
+    {
+      "name": "paper_color_opaque_hint",
+      "value": "New custom colors are opaque, matching the original picker."
+    },
+    {
       "name": "page_orientation",
       "value": "Orientation"
     },

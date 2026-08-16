@@ -46,6 +46,7 @@ export interface Canvas2DDrawingContext extends RenderContext {
   setFont(font: string): void;
   setGlobalAlpha(alpha: number): void;
   setGlobalCompositeOperation(op: string): void;
+  setFilter(filter: string): void;
   translate(x: number, y: number): void;
   rotate(angle: number): void;
   scale(sx: number, sy: number): void;
@@ -185,6 +186,10 @@ export class Canvas2DRenderContext implements Canvas2DDrawingContext {
 
   setGlobalCompositeOperation(op: string): void {
     this.ctx.globalCompositeOperation = op;
+  }
+
+  setFilter(filter: string): void {
+    this.ctx.filter = filter;
   }
 
   translate(x: number, y: number): void {
@@ -344,6 +349,10 @@ export class Canvas2DOffscreenRenderContext implements Canvas2DDrawingContext {
 
   setGlobalCompositeOperation(op: string): void {
     this.ctx.globalCompositeOperation = op;
+  }
+
+  setFilter(filter: string): void {
+    this.ctx.filter = filter;
   }
 
   translate(x: number, y: number): void {

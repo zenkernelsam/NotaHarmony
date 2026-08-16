@@ -2,13 +2,19 @@
 // T-038：theme 参数（纸张底色/线色随主题）
 import { PageInfo, PagePaperBackground, PaperTemplate } from '../core/model/NoteTypes';
 import {
-  effectivePageBackground, pageBackgroundCssColor, POINTS_TO_PAGE_UNITS,
+  effectivePageBackground, POINTS_TO_PAGE_UNITS,
 } from '../core/model/PageBackgroundModel';
 import { PageBackground } from '../core/model/NoteTypes';
-import { LightTheme, ThemeTokens } from '../ui/theme/EditorTheme';
+import { DarkTheme, LightTheme, ThemeTokens } from '../ui/theme/EditorTheme';
 import {
   Canvas2DDrawingContext, Canvas2DOffscreenRenderContext, Canvas2DRenderContext,
 } from '../core/adaptation/Canvas2DStrokeRenderer';
+import {
+  LoadedOriginalPaperTexture, ORIGINAL_LEGACY_PAPER_TEXTURE_SIZE,
+} from '../core/adaptation/OriginalPaperTextureLoader';
+import {
+  OriginalPaperRenderStyle, originalPaperRenderStyle,
+} from '../core/model/OriginalPaperColor';
 
 export class PaperRenderer {
   // 在给定 Canvas 上绘制纸张背景（先填充底色，再叠加模板）
@@ -17,28 +23,44 @@ export class PaperRenderer {
   // 纸张固定在页面坐标 (0,0)；屏幕上的居中/平移完全由 CanvasViewport 负责。
   renderBackground(ctx: CanvasRenderingContext2D, paperW: number, paperH: number,
     page: PageInfo, zoom: number = 1.0, theme: ThemeTokens = LightTheme,
-    pdfBitmap: ImageBitmap | null = null): void {
-    this.renderToContext(new Canvas2DRenderContext(ctx), paperW, paperH, page, zoom, theme, pdfBitmap);
+    pdfBitmap: ImageBitmap | null = null,
+    legacyTexture: LoadedOriginalPaperTexture | null = null): void {
+    this.renderToContext(new Canvas2DRenderContext(ctx), paperW, paperH, page, zoom, theme,
+      pdfBitmap, legacyTexture);
   }
 
   renderOffscreenBackground(ctx: OffscreenCanvasRenderingContext2D, paperW: number, paperH: number,
     page: PageInfo, zoom: number = 1.0, theme: ThemeTokens = LightTheme,
-    pdfBitmap: ImageBitmap | null = null): void {
+    pdfBitmap: ImageBitmap | null = null,
+    legacyTexture: LoadedOriginalPaperTexture | null = null): void {
     this.renderToContext(new Canvas2DOffscreenRenderContext(ctx),
-      paperW, paperH, page, zoom, theme, pdfBitmap);
+      paperW, paperH, page, zoom, theme, pdfBitmap, legacyTexture);
   }
 
   private renderToContext(ctx: Canvas2DDrawingContext, paperW: number, paperH: number,
-    page: PageInfo, zoom: number, theme: ThemeTokens, pdfBitmap: ImageBitmap | null): void {
+    page: PageInfo, zoom: number, theme: ThemeTokens, pdfBitmap: ImageBitmap | null,
+    legacyTexture: LoadedOriginalPaperTexture | null): void {
     const effectiveBackground: PageBackground | null = effectivePageBackground(page);
+    const paper: PagePaperBackground | null = effectiveBackground === null ? null : effectiveBackground.paper;
+    const style: OriginalPaperRenderStyle = originalPaperRenderStyle(
+      paper, theme.paperBackground, theme.paperLineColor, this.isDarkTheme(theme));
     ctx.save();
-    ctx.setFillStyle(pageBackgroundCssColor(effectiveBackground, theme.paperBackground));
+    ctx.setFillStyle(style.backgroundColor);
     ctx.fillRect(0, 0, paperW, paperH);
+    if (paper !== null && paper.legacyPaperIndex !== null && legacyTexture !== null &&
+      legacyTexture.legacyPaperIndex === paper.legacyPaperIndex) {
+      ctx.save();
+      ctx.setFilter(style.invertLegacyTexture ? 'invert(1)' : 'none');
+      if (ctx.setFillPattern(legacyTexture.bitmap, ORIGINAL_LEGACY_PAPER_TEXTURE_SIZE,
+        ORIGINAL_LEGACY_PAPER_TEXTURE_SIZE)) {
+        ctx.fillRect(0, 0, paperW, paperH);
+      }
+      ctx.restore();
+    }
     if (effectiveBackground !== null && effectiveBackground.pdf !== undefined &&
       effectiveBackground.pdf !== null && pdfBitmap !== null) {
       this.drawPdfBackground(ctx, paperW, paperH, effectiveBackground, pdfBitmap);
     }
-    const paper: PagePaperBackground | null = effectiveBackground === null ? null : effectiveBackground.paper;
     const spacing: number = paper === null || paper.flairSpacingPt === null
       ? 28 : paper.flairSpacingPt * POINTS_TO_PAGE_UNITS;
     if (!Number.isFinite(spacing) || spacing <= 1) {
@@ -49,18 +71,23 @@ export class PaperRenderer {
     const bleeds: boolean = paper !== null && paper.flairBleeds === true;
     switch (page.template) {
       case PaperTemplate.LINES:
-        this.drawLines(ctx, paperW, paperH, spacing, centered, bleeds, zoom, theme.paperLineColor);
+        this.drawLines(ctx, paperW, paperH, spacing, centered, bleeds, zoom, style.lineColor);
         break;
       case PaperTemplate.GRID:
-        this.drawGrid(ctx, paperW, paperH, spacing, centered, bleeds, zoom, theme.paperLineColor);
+        this.drawGrid(ctx, paperW, paperH, spacing, centered, bleeds, zoom, style.lineColor);
         break;
       case PaperTemplate.DOTS:
-        this.drawDots(ctx, paperW, paperH, spacing, centered, bleeds, zoom, theme.paperLineColor);
+        this.drawDots(ctx, paperW, paperH, spacing, centered, bleeds, zoom, style.lineColor);
         break;
       default:
         break;  // PLAIN 空白
     }
     ctx.restore();
+  }
+
+  private isDarkTheme(theme: ThemeTokens): boolean {
+    return theme.background === DarkTheme.background &&
+      theme.paperBackground === DarkTheme.paperBackground;
   }
 
   private drawPdfBackground(ctx: Canvas2DDrawingContext, paperW: number, paperH: number,

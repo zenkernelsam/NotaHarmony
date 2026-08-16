@@ -8,6 +8,7 @@ import {
 import {
   applyOriginalTemplatePickerSelection, isOriginalTemplatePickerSelection,
   OriginalTemplatePickerDraft, originalTemplatePickerDraft, originalTemplatePickerFavorite,
+  stageOriginalTemplateCustomColor, stageOriginalTemplateLegacyPaper,
   stageOriginalTemplateOrientation, stageOriginalTemplateSize,
 } from '../main/ets/core/model/OriginalTemplatePickerState';
 import {
@@ -47,6 +48,7 @@ export default function originalTemplatePickerTest() {
       expect(selected.background.paper?.colorR).assertEqual(12);
       expect(selected.background.paper?.colorG).assertEqual(34);
       expect(selected.background.paper?.colorB).assertEqual(56);
+      expect(selected.background.paper?.colorA).assertEqual(255);
       expect(selected.background.paper?.legacyPaperIndex).assertEqual(7);
       expect(isOriginalTemplatePickerSelection(selected, draft, PaperTemplate.LINES)).assertTrue();
     });
@@ -86,6 +88,36 @@ export default function originalTemplatePickerTest() {
       expect(favorite.paperLineType).assertEqual(OriginalPaperLineType.LINES);
       expect(favorite.spacingInches).assertEqual(Math.fround(0.75));
       expect(favorite.backgroundColor).assertEqual(packOriginalArgb(255, 255, 255));
+    });
+
+    it('keeps color and legacy mutually exclusive for new picker actions', 0, () => {
+      const current = originalDefaultNoteBackgroundSettings();
+      let draft: OriginalTemplatePickerDraft = originalTemplatePickerDraft(current);
+      draft = stageOriginalTemplateLegacyPaper(draft, 15);
+      expect(draft.backgroundColor === null).assertTrue();
+      expect(draft.legacyPaperIndex).assertEqual(15);
+      let selected = applyOriginalTemplatePickerSelection(
+        current, draft, PaperTemplate.PLAIN);
+      expect(selected.background.paper?.colorR === null).assertTrue();
+      expect(selected.background.paper?.colorA === null).assertTrue();
+      expect(selected.background.paper?.legacyPaperIndex).assertEqual(15);
+      expect(isOriginalTemplatePickerSelection(
+        selected, draft, PaperTemplate.PLAIN)).assertTrue();
+
+      const custom: number = packOriginalArgb(18, 52, 86, 128);
+      draft = stageOriginalTemplateCustomColor(draft, custom);
+      expect(draft.backgroundColor).assertEqual(custom);
+      expect(draft.legacyPaperIndex === null).assertTrue();
+      selected = applyOriginalTemplatePickerSelection(selected, draft, PaperTemplate.PLAIN);
+      expect(selected.background.paper?.colorR).assertEqual(18);
+      expect(selected.background.paper?.colorG).assertEqual(52);
+      expect(selected.background.paper?.colorB).assertEqual(86);
+      expect(selected.background.paper?.colorA).assertEqual(128);
+      expect(selected.background.paper?.legacyPaperIndex === null).assertTrue();
+      const differentColor: OriginalTemplatePickerDraft = stageOriginalTemplateCustomColor(
+        draft, packOriginalArgb(1, 2, 3));
+      expect(isOriginalTemplatePickerSelection(
+        selected, differentColor, PaperTemplate.PLAIN)).assertFalse();
     });
   });
 }

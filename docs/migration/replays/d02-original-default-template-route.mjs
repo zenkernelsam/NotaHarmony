@@ -56,8 +56,14 @@ assert.doesNotMatch(pageManager, /onSetDefaultNoteBackground|onSetDefault/);
 assert.doesNotMatch(notePage, /saveSelectedDefaultTemplate|saveDefaultNoteBackground/);
 assert.match(store, /SELECTED_DEFAULT_TEMPLATE_KEY: string = 'selectedDefaultTemplate'/);
 assert.match(store, /raw instanceof Uint8Array/);
-assert.match(picker, /target\.colorR = source\.colorR/);
-assert.match(picker, /template === current\.template[\s\S]*target\.flairSpacingPt = source\.flairSpacingPt/);
+assert.match(picker, /backgroundColor: packedPaperColor\(paper\)/);
+assert.match(picker, /stageOriginalTemplateCustomColor[\s\S]*legacyPaperIndex: null/);
+assert.match(picker, /stageOriginalTemplateLegacyPaper[\s\S]*backgroundColor: null/);
+assert.match(picker, /const color = unpackOriginalArgb\(draft\.backgroundColor\)/);
+assert.match(picker, /target\.legacyPaperIndex = draft\.legacyPaperIndex/);
+assert.match(picker,
+  /template === current\.template && current\.background\.paper !== null[\s\S]*target\.flairSpacingPt = current\.background\.paper\.flairSpacingPt/);
+assert.match(picker, /packedPaperColor\(paper\) !== draft\.backgroundColor/);
 assert.match(fixture, /stages size and orientation until a template card is selected/);
 assert.match(fixtureList, /originalTemplatePickerTest\(\)/);
 

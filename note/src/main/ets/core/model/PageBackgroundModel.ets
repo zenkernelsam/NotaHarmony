@@ -409,7 +409,8 @@ export function validateOriginalPaper(value: PagePaperBackground | null): void {
   const colorCount: number = (value.colorR === null ? 0 : 1) + (value.colorG === null ? 0 : 1) +
     (value.colorB === null ? 0 : 1) + (value.colorA === null ? 0 : 1);
   if (colorCount !== 0 && (colorCount !== 4 || !isOptionalByte(value.colorR) ||
-    !isOptionalByte(value.colorG) || !isOptionalByte(value.colorB) || value.colorA !== 255)) {
+    !isOptionalByte(value.colorG) || !isOptionalByte(value.colorB) ||
+    !isOptionalByte(value.colorA))) {
     throw new Error('page paper color is invalid');
   }
 }

@@ -11,6 +11,9 @@ import {
   LoadedPdfBackground, PdfBackgroundLoader, PdfBackgroundLoadState,
 } from '../core/adaptation/PdfBackgroundLoader';
 import { LoadedPencilTexture, loadOriginalPencilTexture } from '../core/adaptation/PencilTextureLoader';
+import {
+  LoadedOriginalPaperTexture, OriginalPaperTextureLoader,
+} from '../core/adaptation/OriginalPaperTextureLoader';
 import { originalAssetStorageHash } from '../core/model/ImageBlockGeometry';
 import { PagePixelSize, pagePixelSize } from '../core/model/PageCoordinateSpace';
 import { PageInfo } from '../core/model/NoteTypes';
@@ -40,7 +43,9 @@ export class ThumbnailRenderer {
   private imageRenderer: ImageCanvasRenderer = new ImageCanvasRenderer();
   private mathRenderer: MathCanvasRenderer = new MathCanvasRenderer();
   private paperRenderer: PaperRenderer = new PaperRenderer();
+  private paperTextureLoader: OriginalPaperTextureLoader = new OriginalPaperTextureLoader();
   private pencilPixelMap: image.PixelMap | null = null;
+  private abilityContext: common.UIAbilityContext | null = null;
   private textureReady: boolean = false;
   private disposed: boolean = false;
   private initializePromise: Promise<void> | null = null;
@@ -49,6 +54,7 @@ export class ThumbnailRenderer {
     if (this.textureReady || this.disposed) {
       return;
     }
+    this.abilityContext = context;
     if (this.initializePromise !== null) {
       return this.initializePromise;
     }
@@ -91,6 +97,7 @@ export class ThumbnailRenderer {
     const pdfLoader: PdfBackgroundLoader = new PdfBackgroundLoader(database);
     const imageAssets: Map<string, LoadedImageAsset> = new Map<string, LoadedImageAsset>();
     let pdfBackground: LoadedPdfBackground | null = null;
+    let paperTexture: LoadedOriginalPaperTexture | null = null;
     try {
       for (const block of loaded.images) {
         const storageHash: string = originalAssetStorageHash(block.assetHashBits);
@@ -101,6 +108,15 @@ export class ThumbnailRenderer {
       const effective = effectivePageBackground(page);
       if (effective !== null && effective.pdf !== undefined && effective.pdf !== null) {
         pdfBackground = await pdfLoader.load(effective.pdf);
+      }
+      const legacyPaperIndex: number | null = effective === null || effective.paper === null
+        ? null : effective.paper.legacyPaperIndex;
+      if (legacyPaperIndex !== null && this.abilityContext !== null) {
+        try {
+          paperTexture = await this.paperTextureLoader.load(this.abilityContext, legacyPaperIndex);
+        } catch (error) {
+          console.warn(`Thumbnail legacy paper texture unavailable: ${JSON.stringify(error)}`);
+        }
       }
       const pageSize: PagePixelSize = pagePixelSize(page.widthMm, page.heightMm);
       const pageTransform: ThumbnailPageTransform = fitPageInThumbnail(
@@ -115,7 +131,7 @@ export class ThumbnailRenderer {
       this.paperRenderer.renderOffscreenBackground(ctx, pageSize.width, pageSize.height,
         page, pageTransform.scale, theme,
         pdfBackground !== null && pdfBackground.state === PdfBackgroundLoadState.READY
-          ? pdfBackground.bitmap : null);
+          ? pdfBackground.bitmap : null, paperTexture);
       const renderContext: Canvas2DOffscreenRenderContext = new Canvas2DOffscreenRenderContext(ctx);
       const mathRasterScale: number = originalMathRasterScale(pageTransform.scale, 1);
       for (const element of loaded.elements) {
@@ -155,6 +171,9 @@ export class ThumbnailRenderer {
       if (pdfBackground !== null) {
         pdfLoader.release(pdfBackground);
       }
+      if (paperTexture !== null) {
+        this.paperTextureLoader.release(paperTexture);
+      }
     }
   }
 
@@ -163,6 +182,7 @@ export class ThumbnailRenderer {
       return;
     }
     this.disposed = true;
+    this.abilityContext = null;
     this.mathRenderer.clear();
     this.strokeRenderer.dispose();
     if (this.pencilPixelMap !== null) {

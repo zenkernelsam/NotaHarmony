@@ -7,37 +7,73 @@ import {
 import {
   OriginalBackgroundInfo, OriginalPaperBackground, originalPaperLineTypeFromTemplate,
   originalPaperSpacingPointsFromInches, packOriginalArgb, paperTemplateFromOriginalLineType,
-  validateOriginalBackgroundInfo, validateOriginalPaperBackground,
+  unpackOriginalArgb, validateOriginalBackgroundInfo, validateOriginalPaperBackground,
 } from './OriginalPaperSettings';
+import { originalLegacyPaperResourceName } from './OriginalPaperColor';
 
 export interface OriginalTemplatePickerDraft {
   size: PaperSize;
   orientation: PageOrientation;
+  backgroundColor: number | null;
+  legacyPaperIndex: number | null;
 }
 
 export function originalTemplatePickerDraft(
   settings: NoteBackgroundSettings): OriginalTemplatePickerDraft {
   validateNoteBackgroundSettings(settings);
-  return { size: settings.size, orientation: settings.orientation };
+  const paper: PagePaperBackground | null = settings.background.paper;
+  return {
+    size: settings.size,
+    orientation: settings.orientation,
+    backgroundColor: packedPaperColor(paper),
+    legacyPaperIndex: paper === null ? null : paper.legacyPaperIndex,
+  };
 }
 
 export function stageOriginalTemplateSize(draft: OriginalTemplatePickerDraft,
   size: PaperSize): OriginalTemplatePickerDraft {
   validateDraft(draft);
   validateSize(size);
-  return { size: size, orientation: draft.orientation };
+  return {
+    size: size, orientation: draft.orientation,
+    backgroundColor: draft.backgroundColor, legacyPaperIndex: draft.legacyPaperIndex,
+  };
 }
 
 export function stageOriginalTemplateOrientation(draft: OriginalTemplatePickerDraft,
   orientation: PageOrientation): OriginalTemplatePickerDraft {
   validateDraft(draft);
   validateOrientation(orientation);
-  return { size: draft.size, orientation: orientation };
+  return {
+    size: draft.size, orientation: orientation,
+    backgroundColor: draft.backgroundColor, legacyPaperIndex: draft.legacyPaperIndex,
+  };
 }
 
-// Original rge/vge keep paper size/orientation in a draft s3a. The persisted/default or
-// current-note l3a changes only when a paper-line card is selected. Preserve the current
-// paper color and legacy index; for the same line style, preserve its configured spacing.
+export function stageOriginalTemplateCustomColor(draft: OriginalTemplatePickerDraft,
+  backgroundColor: number): OriginalTemplatePickerDraft {
+  validateDraft(draft);
+  unpackOriginalArgb(backgroundColor);
+  return {
+    size: draft.size, orientation: draft.orientation,
+    backgroundColor: backgroundColor, legacyPaperIndex: null,
+  };
+}
+
+export function stageOriginalTemplateLegacyPaper(draft: OriginalTemplatePickerDraft,
+  legacyPaperIndex: number): OriginalTemplatePickerDraft {
+  validateDraft(draft);
+  if (originalLegacyPaperResourceName(legacyPaperIndex) === null) {
+    throw new Error('original picker legacy paper is unsupported');
+  }
+  return {
+    size: draft.size, orientation: draft.orientation,
+    backgroundColor: null, legacyPaperIndex: legacyPaperIndex,
+  };
+}
+
+// Original rge/vge keep the complete s3a (size/orientation/color/legacy) as a draft.
+// The persisted/default or current-note l3a changes only when a paper-line card is selected.
 export function applyOriginalTemplatePickerSelection(current: NoteBackgroundSettings,
   draft: OriginalTemplatePickerDraft, template: PaperTemplate,
   backgroundInfo?: OriginalBackgroundInfo): NoteBackgroundSettings {
@@ -53,19 +89,26 @@ export function applyOriginalTemplatePickerSelection(current: NoteBackgroundSett
   }
   const selected: NoteBackgroundSettings = applyOriginalPaperSettings(
     current, draft.size, template, draft.orientation);
-  const source = current.background.paper;
   const target = selected.background.paper;
-  if (source !== null && target !== null) {
-    target.colorR = source.colorR;
-    target.colorG = source.colorG;
-    target.colorB = source.colorB;
-    target.colorA = source.colorA;
-    target.legacyPaperIndex = source.legacyPaperIndex;
+  if (target !== null) {
+    if (draft.backgroundColor === null) {
+      target.colorR = null;
+      target.colorG = null;
+      target.colorB = null;
+      target.colorA = null;
+    } else {
+      const color = unpackOriginalArgb(draft.backgroundColor);
+      target.colorR = color.red;
+      target.colorG = color.green;
+      target.colorB = color.blue;
+      target.colorA = color.alpha;
+    }
+    target.legacyPaperIndex = draft.legacyPaperIndex;
     if (normalizedInfo !== null) {
       target.flairSpacingPt = normalizedInfo.spacingInches === null ? null :
         originalPaperSpacingPointsFromInches(normalizedInfo.spacingInches);
-    } else if (template === current.template) {
-      target.flairSpacingPt = source.flairSpacingPt;
+    } else if (template === current.template && current.background.paper !== null) {
+      target.flairSpacingPt = current.background.paper.flairSpacingPt;
     }
     selected.registerBackground = clonePageBackground(selected.background);
   }
@@ -118,16 +161,20 @@ export function isOriginalTemplatePickerSelection(settings: NoteBackgroundSettin
     settings.template !== template) {
     return false;
   }
+  const paper: PagePaperBackground | null = settings.background.paper;
+  if (paper === null) {
+    return false;
+  }
+  if (packedPaperColor(paper) !== draft.backgroundColor ||
+    paper.legacyPaperIndex !== draft.legacyPaperIndex) {
+    return false;
+  }
   if (backgroundInfo === undefined) {
     return true;
   }
   const normalizedInfo: OriginalBackgroundInfo = validateOriginalBackgroundInfo(backgroundInfo);
   if (normalizedInfo.paperLineType !== originalPaperLineTypeFromTemplate(template)) {
     throw new Error('original picker background info does not match the selected template');
-  }
-  const paper: PagePaperBackground | null = settings.background.paper;
-  if (paper === null) {
-    return false;
   }
   const expectedSpacing: number | null = normalizedInfo.spacingInches === null ? null :
     originalPaperSpacingPointsFromInches(normalizedInfo.spacingInches);
@@ -140,6 +187,30 @@ function validateDraft(draft: OriginalTemplatePickerDraft): void {
   }
   validateSize(draft.size);
   validateOrientation(draft.orientation);
+  if (draft.backgroundColor !== null) {
+    unpackOriginalArgb(draft.backgroundColor);
+  }
+  if (draft.legacyPaperIndex !== null && (!Number.isSafeInteger(draft.legacyPaperIndex) ||
+    draft.legacyPaperIndex < 0 || draft.legacyPaperIndex > 255)) {
+    throw new Error('original template picker legacy paper is invalid');
+  }
+}
+
+function packedPaperColor(paper: PagePaperBackground | null): number | null {
+  if (paper === null) {
+    return null;
+  }
+  const colorCount: number = (paper.colorR === null ? 0 : 1) +
+    (paper.colorG === null ? 0 : 1) + (paper.colorB === null ? 0 : 1) +
+    (paper.colorA === null ? 0 : 1);
+  if (colorCount === 0) {
+    return null;
+  }
+  if (colorCount !== 4) {
+    throw new Error('original template picker paper color is incomplete');
+  }
+  return packOriginalArgb(paper.colorR as number, paper.colorG as number,
+    paper.colorB as number, paper.colorA as number);
 }
 
 function validateSize(size: PaperSize): void {
