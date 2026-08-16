@@ -29,6 +29,12 @@ export function thumbnailCacheKey(contentRevision: string, paperBackground: stri
   return `${contentRevision}@${paperBackground}@${paperLineColor}@asset:${assetGeneration}`;
 }
 
+export function isThumbnailSourceUnchanged(expectedPageId: string, expectedRevision: string,
+  currentPageId: string, currentRevision: string): boolean {
+  return expectedPageId.length > 0 && expectedPageId === currentPageId &&
+    expectedRevision === currentRevision;
+}
+
 export function limitThumbnailNoteIds(noteIds: string[], maxCount: number): string[] {
   if (maxCount <= 0) {
     return [];

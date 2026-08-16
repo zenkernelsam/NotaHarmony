@@ -1,7 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
-  fitPageInThumbnail, limitThumbnailNoteIds, prioritizeThumbnailNoteIds, thumbnailCacheKey,
-  ThumbnailPageTransform,
+  fitPageInThumbnail, isThumbnailSourceUnchanged, limitThumbnailNoteIds, prioritizeThumbnailNoteIds,
+  thumbnailCacheKey, ThumbnailPageTransform,
 } from '../main/ets/rendering/ThumbnailRenderPolicy';
 
 export default function thumbnailRenderPolicyTest() {
@@ -31,6 +31,13 @@ export default function thumbnailRenderPolicyTest() {
       const local: string = thumbnailCacheKey('page:a4:grid:1', '#FFFFFF', '#E0E0E0', 12);
       expect(pending === local).assertFalse();
       expect(local === thumbnailCacheKey('page:a4:grid:1', '#FFFFFF', '#E0E0E0', 12)).assertTrue();
+    });
+
+    it('publishes a rendered bitmap only for the same first-page source revision', 0, () => {
+      expect(isThumbnailSourceUnchanged('page-a', 'revision-7', 'page-a', 'revision-7')).assertTrue();
+      expect(isThumbnailSourceUnchanged('page-a', 'revision-7', 'page-a', 'revision-8')).assertFalse();
+      expect(isThumbnailSourceUnchanged('page-a', 'revision-7', 'page-b', 'revision-7')).assertFalse();
+      expect(isThumbnailSourceUnchanged('', 'revision-7', '', 'revision-7')).assertFalse();
     });
 
     it('caps retained note ids for large libraries', 0, () => {

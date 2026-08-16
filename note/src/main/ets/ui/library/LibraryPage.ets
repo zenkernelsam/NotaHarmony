@@ -20,7 +20,7 @@ import { FirstPageThumbnailState, StrokePersistence } from '../../data/StrokePer
 import { AsyncMutex, MutexRelease } from '../../data/AsyncMutex';
 import { ThumbnailRenderer } from '../../rendering/ThumbnailRenderer';
 import {
-  prioritizeThumbnailNoteIds, thumbnailCacheKey,
+  isThumbnailSourceUnchanged, prioritizeThumbnailNoteIds, thumbnailCacheKey,
 } from '../../rendering/ThumbnailRenderPolicy';
 import { LibraryViewModel, NoteSortMode } from './LibraryViewModel';
 import {
@@ -70,6 +70,7 @@ struct LibraryPage {
   private notesRequestGeneration: number = 0;
   private readonly THUMBNAIL_CONCURRENCY: number = 3;
   private readonly MAX_THUMBNAILS: number = 64;
+  private readonly THUMBNAIL_SOURCE_ATTEMPTS: number = 2;
   private thumbnailRefreshMutex: AsyncMutex = new AsyncMutex();
   private noteRepo: NoteRepositoryImpl | null = null;
   // T-039：文件夹
@@ -273,47 +274,90 @@ struct LibraryPage {
           return;
         }
         const noteId: string = noteIds[index];
+        let requestedPageId: string | null = null;
+        let requestedRevision: string | null = null;
+        let unpublishedPixelMap: PixelMap | null = null;
         try {
-          const pageState: FirstPageThumbnailState | null =
+          let pageState: FirstPageThumbnailState | null =
             await this.persistence.getFirstPageThumbnailState(noteId);
-          const contentRevision: string = pageState === null ? 'missing' : pageState.revision;
-          const assetGeneration: number = assetAvailabilityHub.getNoteGeneration(noteId);
-          const revision: string = thumbnailCacheKey(contentRevision,
-            theme.paperBackground, theme.paperLineColor, assetGeneration);
-          if (generation !== this.thumbnailGeneration || lifecycleGeneration !== this.lifecycleGeneration ||
-            !this.pageActive || renderer !== this.thumbRenderer) {
-            return;
-          }
-          const oldRevision: string | undefined = oldRevisions.get(noteId);
-          const oldPixelMap: PixelMap | undefined = oldMap.get(noteId);
-          if (oldRevision === revision && oldPixelMap !== undefined) {
-            newRevisions.set(noteId, revision);
-            newMap.set(noteId, oldPixelMap);
-            continue;
-          }
-          const pixelMap: PixelMap | null = pageState === null ? null :
-            await renderer.renderThumbnail(noteId, this.persistence, pageState.page, theme, this.db);
-          if (generation !== this.thumbnailGeneration || lifecycleGeneration !== this.lifecycleGeneration ||
-            !this.pageActive || renderer !== this.thumbRenderer) {
-            if (pixelMap !== null) {
-              pixelMap.release();
+          for (let attempt: number = 0;
+            attempt < this.THUMBNAIL_SOURCE_ATTEMPTS && pageState !== null; attempt++) {
+            const sourceState: FirstPageThumbnailState = pageState;
+            const assetGeneration: number = assetAvailabilityHub.getNoteGeneration(noteId);
+            const revision: string = this.thumbnailRevision(sourceState, theme, assetGeneration);
+            requestedPageId = sourceState.page.pageId;
+            requestedRevision = revision;
+            if (generation !== this.thumbnailGeneration || lifecycleGeneration !== this.lifecycleGeneration ||
+              !this.pageActive || renderer !== this.thumbRenderer) {
+              return;
             }
-            return;
-          }
-          if (pixelMap !== null) {
-            createdMaps.push(pixelMap);
-          }
-          if (pixelMap !== null) {
-            newRevisions.set(noteId, revision);
-            newMap.set(noteId, pixelMap);
+            const oldRevision: string | undefined = oldRevisions.get(noteId);
+            const oldPixelMap: PixelMap | undefined = oldMap.get(noteId);
+            if (oldRevision === revision && oldPixelMap !== undefined) {
+              newRevisions.set(noteId, revision);
+              newMap.set(noteId, oldPixelMap);
+              break;
+            }
+            unpublishedPixelMap = await renderer.renderThumbnail(
+              noteId, this.persistence, sourceState.page, theme, this.db);
+            if (generation !== this.thumbnailGeneration || lifecycleGeneration !== this.lifecycleGeneration ||
+              !this.pageActive || renderer !== this.thumbRenderer) {
+              if (unpublishedPixelMap !== null) {
+                await this.releaseThumbnailPixelMap(unpublishedPixelMap, 'stale generation');
+                unpublishedPixelMap = null;
+              }
+              return;
+            }
+            if (unpublishedPixelMap === null) {
+              break;
+            }
+            const verifiedState: FirstPageThumbnailState | null =
+              await this.persistence.getFirstPageThumbnailState(noteId);
+            const verifiedAssetGeneration: number = assetAvailabilityHub.getNoteGeneration(noteId);
+            const verifiedRevision: string = verifiedState === null ? '' :
+              this.thumbnailRevision(verifiedState, theme, verifiedAssetGeneration);
+            if (generation !== this.thumbnailGeneration || lifecycleGeneration !== this.lifecycleGeneration ||
+              !this.pageActive || renderer !== this.thumbRenderer) {
+              await this.releaseThumbnailPixelMap(unpublishedPixelMap, 'stale verified generation');
+              unpublishedPixelMap = null;
+              return;
+            }
+            if (verifiedState !== null && isThumbnailSourceUnchanged(
+              sourceState.page.pageId, revision, verifiedState.page.pageId, verifiedRevision)) {
+              createdMaps.push(unpublishedPixelMap);
+              newRevisions.set(noteId, revision);
+              newMap.set(noteId, unpublishedPixelMap);
+              unpublishedPixelMap = null;
+              break;
+            }
+            await this.releaseThumbnailPixelMap(unpublishedPixelMap, 'source changed during render');
+            unpublishedPixelMap = null;
+            pageState = verifiedState;
           }
         } catch (e) {
+          if (unpublishedPixelMap !== null) {
+            await this.releaseThumbnailPixelMap(unpublishedPixelMap, 'render failure');
+            unpublishedPixelMap = null;
+          }
           console.error(`LibraryPage thumbnail failed note=${noteId}: ${JSON.stringify(e)}`);
           const oldPixelMap: PixelMap | undefined = oldMap.get(noteId);
           const oldRevision: string | undefined = oldRevisions.get(noteId);
+          let sourceStillCurrent: boolean = false;
+          try {
+            const currentState: FirstPageThumbnailState | null =
+              await this.persistence.getFirstPageThumbnailState(noteId);
+            const currentRevision: string = currentState === null ? '' : this.thumbnailRevision(
+              currentState, theme, assetAvailabilityHub.getNoteGeneration(noteId));
+            sourceStillCurrent = currentState !== null && requestedPageId !== null && requestedRevision !== null &&
+              isThumbnailSourceUnchanged(requestedPageId, requestedRevision,
+                currentState.page.pageId, currentRevision);
+          } catch (verificationError) {
+            console.warn(`LibraryPage thumbnail failure verification failed note=${noteId}: ` +
+              `${JSON.stringify(verificationError)}`);
+          }
           if (generation === this.thumbnailGeneration && lifecycleGeneration === this.lifecycleGeneration &&
-            this.pageActive && renderer === this.thumbRenderer &&
-            oldPixelMap !== undefined && oldRevision !== undefined) {
+            this.pageActive && renderer === this.thumbRenderer && sourceStillCurrent &&
+            oldPixelMap !== undefined && oldRevision === requestedRevision) {
             newMap.set(noteId, oldPixelMap);
             newRevisions.set(noteId, oldRevision);
           }
@@ -329,7 +373,7 @@ struct LibraryPage {
     if (generation !== this.thumbnailGeneration || lifecycleGeneration !== this.lifecycleGeneration ||
       !this.pageActive || renderer !== this.thumbRenderer) {
       for (const pixelMap of createdMaps) {
-        pixelMap.release();
+        await this.releaseThumbnailPixelMap(pixelMap, 'discarded generation');
       }
       return;
     }
@@ -343,14 +387,28 @@ struct LibraryPage {
   private releaseReplacedThumbnails(oldMap: Map<string, PixelMap>, newMap: Map<string, PixelMap>): void {
     for (const entry of oldMap.entries()) {
       if (newMap.get(entry[0]) !== entry[1]) {
-        entry[1].release();
+        this.releaseThumbnailPixelMap(entry[1], 'replaced cache entry');
       }
     }
   }
 
   private releaseThumbnails(thumbnails: Map<string, PixelMap>): void {
     for (const pixelMap of thumbnails.values()) {
-      pixelMap.release();
+      this.releaseThumbnailPixelMap(pixelMap, 'page release');
+    }
+  }
+
+  private thumbnailRevision(pageState: FirstPageThumbnailState, theme: ThemeTokens,
+    assetGeneration: number): string {
+    return thumbnailCacheKey(pageState.revision,
+      theme.paperBackground, theme.paperLineColor, assetGeneration);
+  }
+
+  private async releaseThumbnailPixelMap(pixelMap: PixelMap, reason: string): Promise<void> {
+    try {
+      await pixelMap.release();
+    } catch (error) {
+      console.warn(`LibraryPage thumbnail PixelMap release failed (${reason}): ${JSON.stringify(error)}`);
     }
   }
 
