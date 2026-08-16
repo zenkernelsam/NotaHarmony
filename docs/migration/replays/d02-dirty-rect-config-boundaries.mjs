@@ -9,7 +9,8 @@ const checks = [
   ['padding keeps default fallback', source.includes(': 3;')],
   ['region limit rejects non-finite values', source.includes('Number.isFinite(maxRegions)')],
   ['region limit is an integer with minimum one', source.includes('Math.floor(maxRegions)') && source.includes('Math.max(1')],
-  ['zoom fallback remains present', source.includes('zoom > 0 ? zoom : 1')],
+  ['zoom fallback rejects non-finite values',
+    source.includes('Number.isFinite(zoom) && zoom > 0 ? zoom : 1')],
 ];
 for (const [name, ok] of checks) {
   if (!ok) throw new Error(`FAILED: ${name}`);

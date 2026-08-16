@@ -10,32 +10,35 @@ export class ShapeCanvasRenderer {
   renderShape(shape: ShapeElement, context: RenderContext): void {
     const ctx: Canvas2DDrawingContext = context as Canvas2DDrawingContext;
     ctx.save();
-    ctx.transform(shape.transform);
-    ctx.beginPath();
-    if (shape.type === ElementType.ELLIPSE) {
-      this.traceEllipse(shape, ctx);
-    } else if (shape.type === ElementType.LINE) {
-      this.traceLine(shape, ctx);
-    } else {
-      this.tracePolygon(shape, ctx);
+    try {
+      ctx.transform(shape.transform);
+      ctx.beginPath();
+      if (shape.type === ElementType.ELLIPSE) {
+        this.traceEllipse(shape, ctx);
+      } else if (shape.type === ElementType.LINE) {
+        this.traceLine(shape, ctx);
+      } else {
+        this.tracePolygon(shape, ctx);
+      }
+      ctx.setLineWidth(shape.strokeWidth);
+      ctx.setLineCap(shape.originalStyle === 2 ? 'butt' : 'round');
+      ctx.setLineJoin(shape.originalStyle === 3 ? 'miter' : 'round');
+      if (shape.originalStyle === 2) {
+        ctx.setLineDash([2 * shape.strokeWidth, shape.strokeWidth]);
+      } else if (shape.originalStyle === 3) {
+        ctx.setLineDash([0.001 * shape.strokeWidth, 2 * shape.strokeWidth]);
+      } else {
+        ctx.setLineDash([]);
+      }
+      if (shape.type !== ElementType.LINE && shape.fillColor !== null) {
+        ctx.setFillStyle(this.colorToRgba(shape.fillColor));
+        ctx.fill();
+      }
+      ctx.setStrokeStyle(this.colorToRgba(shape.color));
+      ctx.stroke();
+    } finally {
+      ctx.restore();
     }
-    ctx.setLineWidth(shape.strokeWidth);
-    ctx.setLineCap(shape.originalStyle === 2 ? 'butt' : 'round');
-    ctx.setLineJoin(shape.originalStyle === 3 ? 'miter' : 'round');
-    if (shape.originalStyle === 2) {
-      ctx.setLineDash([2 * shape.strokeWidth, shape.strokeWidth]);
-    } else if (shape.originalStyle === 3) {
-      ctx.setLineDash([0.001 * shape.strokeWidth, 2 * shape.strokeWidth]);
-    } else {
-      ctx.setLineDash([]);
-    }
-    if (shape.type !== ElementType.LINE && shape.fillColor !== null) {
-      ctx.setFillStyle(this.colorToRgba(shape.fillColor));
-      ctx.fill();
-    }
-    ctx.setStrokeStyle(this.colorToRgba(shape.color));
-    ctx.stroke();
-    ctx.restore();
   }
 
   private traceLine(shape: LineElement, ctx: Canvas2DDrawingContext): void {

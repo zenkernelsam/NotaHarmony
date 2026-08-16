@@ -27,9 +27,12 @@ export class StrokeCanvasPainter {
     const canvasContext: Canvas2DDrawingContext = rc as Canvas2DDrawingContext;
     if (stroke.renderSpec.isPartialEraser === true) {
       canvasContext.save();
-      canvasContext.transform(stroke.transform);
-      this.renderer.renderPartialEraser(stroke, rc);
-      canvasContext.restore();
+      try {
+        canvasContext.transform(stroke.transform);
+        this.renderer.renderPartialEraser(stroke, rc);
+      } finally {
+        canvasContext.restore();
+      }
       return;
     }
     if (stroke.maskPath.length > 0) {
@@ -45,13 +48,16 @@ export class StrokeCanvasPainter {
       const isolatedRenderContext: Canvas2DOffscreenRenderContext =
         new Canvas2DOffscreenRenderContext(isolatedContext);
       isolatedRenderContext.save();
-      isolatedRenderContext.transform(translateTransformToCrop(stroke.transform, crop));
-      this.renderInk(stroke, isolatedRenderContext, viewportZoom);
-      this.renderer.renderEraserMask(stroke, isolatedRenderContext);
-      isolatedRenderContext.restore();
-      const bitmap: ImageBitmap = isolatedLayer.transferToImageBitmap();
-      this.transferTracker.recordTransfer(BitmapTransferKind.ISOLATED_MASK);
       try {
+        isolatedRenderContext.transform(translateTransformToCrop(stroke.transform, crop));
+        this.renderInk(stroke, isolatedRenderContext, viewportZoom);
+        this.renderer.renderEraserMask(stroke, isolatedRenderContext);
+      } finally {
+        isolatedRenderContext.restore();
+      }
+      const bitmap: ImageBitmap = isolatedLayer.transferToImageBitmap();
+      try {
+        this.transferTracker.recordTransfer(BitmapTransferKind.ISOLATED_MASK);
         canvasContext.drawImage(bitmap, crop.left, crop.top, width, height);
       } finally {
         bitmap.close();
@@ -59,9 +65,12 @@ export class StrokeCanvasPainter {
       return;
     }
     canvasContext.save();
-    canvasContext.transform(stroke.transform);
-    this.renderInk(stroke, rc, viewportZoom);
-    canvasContext.restore();
+    try {
+      canvasContext.transform(stroke.transform);
+      this.renderInk(stroke, rc, viewportZoom);
+    } finally {
+      canvasContext.restore();
+    }
   }
 
   renderAudioLinkedStroke(stroke: StrokeElementData, playback: OriginalAudioLinkedPlayback,
@@ -72,9 +81,12 @@ export class StrokeCanvasPainter {
     }
     const canvasContext: Canvas2DDrawingContext = rc as Canvas2DDrawingContext;
     canvasContext.save();
-    canvasContext.setGlobalAlpha(playback.alpha);
-    this.renderStroke(stroke, rc, pageWidth, pageHeight, viewportZoom);
-    canvasContext.restore();
+    try {
+      canvasContext.setGlobalAlpha(playback.alpha);
+      this.renderStroke(stroke, rc, pageWidth, pageHeight, viewportZoom);
+    } finally {
+      canvasContext.restore();
+    }
     if (playback.progress !== null && playback.progress > 0) {
       this.renderStroke(sliceStrokeForAudioProgress(stroke, playback.progress),
         rc, pageWidth, pageHeight, viewportZoom);
@@ -89,11 +101,14 @@ export class StrokeCanvasPainter {
       if (customPath !== null && customPath.length > 0) {
         const canvasContext: Canvas2DDrawingContext = rc as Canvas2DDrawingContext;
         canvasContext.save();
-        canvasContext.beginPath();
-        this.appendInkPath(canvasContext, customPath);
-        canvasContext.clip();
-        this.renderer.renderPencilSplats(stroke.splatPoints, stroke.renderSpec, rc);
-        canvasContext.restore();
+        try {
+          canvasContext.beginPath();
+          this.appendInkPath(canvasContext, customPath);
+          canvasContext.clip();
+          this.renderer.renderPencilSplats(stroke.splatPoints, stroke.renderSpec, rc);
+        } finally {
+          canvasContext.restore();
+        }
       } else {
         this.renderer.renderPencilSplats(stroke.splatPoints, stroke.renderSpec, rc);
       }

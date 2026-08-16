@@ -48,44 +48,49 @@ export class PaperRenderer {
     const style: OriginalPaperRenderStyle = originalPaperRenderStyle(
       paper, theme.paperBackground, theme.paperLineColor, this.isDarkTheme(theme));
     ctx.save();
-    ctx.setFillStyle(style.backgroundColor);
-    ctx.fillRect(0, 0, paperW, paperH);
-    if (paper !== null && paper.legacyPaperIndex !== null && legacyTexture !== null &&
-      legacyTexture.legacyPaperIndex === paper.legacyPaperIndex) {
-      ctx.save();
-      ctx.setFilter(style.invertLegacyTexture ? 'invert(1)' : 'none');
-      if (ctx.setFillPattern(legacyTexture.bitmap, ORIGINAL_LEGACY_PAPER_TEXTURE_SIZE,
-        ORIGINAL_LEGACY_PAPER_TEXTURE_SIZE)) {
-        ctx.fillRect(0, 0, paperW, paperH);
+    try {
+      ctx.setFillStyle(style.backgroundColor);
+      ctx.fillRect(0, 0, paperW, paperH);
+      if (paper !== null && paper.legacyPaperIndex !== null && legacyTexture !== null &&
+        legacyTexture.legacyPaperIndex === paper.legacyPaperIndex) {
+        ctx.save();
+        try {
+          ctx.setFilter(style.invertLegacyTexture ? 'invert(1)' : 'none');
+          if (ctx.setFillPattern(legacyTexture.bitmap, ORIGINAL_LEGACY_PAPER_TEXTURE_SIZE,
+            ORIGINAL_LEGACY_PAPER_TEXTURE_SIZE)) {
+            ctx.fillRect(0, 0, paperW, paperH);
+          }
+        } finally {
+          ctx.restore();
+        }
       }
+      if (effectiveBackground !== null && effectiveBackground.pdf !== undefined &&
+        effectiveBackground.pdf !== null && pdfBitmap !== null) {
+        this.drawPdfBackground(ctx, paperW, paperH, effectiveBackground, pdfBitmap, pdfRenderRect);
+      }
+      const spacing: number = paper === null || paper.flairSpacingPt === null
+        ? 28 : paper.flairSpacingPt * POINTS_TO_PAGE_UNITS;
+      if (!Number.isFinite(spacing) || spacing <= 1) {
+        return;
+      }
+      const centered: boolean = paper !== null && paper.flairCentered === true;
+      const bleeds: boolean = paper !== null && paper.flairBleeds === true;
+      switch (page.template) {
+        case PaperTemplate.LINES:
+          this.drawLines(ctx, paperW, paperH, spacing, centered, bleeds, zoom, style.lineColor);
+          break;
+        case PaperTemplate.GRID:
+          this.drawGrid(ctx, paperW, paperH, spacing, centered, bleeds, zoom, style.lineColor);
+          break;
+        case PaperTemplate.DOTS:
+          this.drawDots(ctx, paperW, paperH, spacing, centered, bleeds, zoom, style.lineColor);
+          break;
+        default:
+          break;  // PLAIN 空白
+      }
+    } finally {
       ctx.restore();
     }
-    if (effectiveBackground !== null && effectiveBackground.pdf !== undefined &&
-      effectiveBackground.pdf !== null && pdfBitmap !== null) {
-      this.drawPdfBackground(ctx, paperW, paperH, effectiveBackground, pdfBitmap, pdfRenderRect);
-    }
-    const spacing: number = paper === null || paper.flairSpacingPt === null
-      ? 28 : paper.flairSpacingPt * POINTS_TO_PAGE_UNITS;
-    if (!Number.isFinite(spacing) || spacing <= 1) {
-      ctx.restore();
-      return;
-    }
-    const centered: boolean = paper !== null && paper.flairCentered === true;
-    const bleeds: boolean = paper !== null && paper.flairBleeds === true;
-    switch (page.template) {
-      case PaperTemplate.LINES:
-        this.drawLines(ctx, paperW, paperH, spacing, centered, bleeds, zoom, style.lineColor);
-        break;
-      case PaperTemplate.GRID:
-        this.drawGrid(ctx, paperW, paperH, spacing, centered, bleeds, zoom, style.lineColor);
-        break;
-      case PaperTemplate.DOTS:
-        this.drawDots(ctx, paperW, paperH, spacing, centered, bleeds, zoom, style.lineColor);
-        break;
-      default:
-        break;  // PLAIN 空白
-    }
-    ctx.restore();
   }
 
   private isDarkTheme(theme: ThemeTokens): boolean {
@@ -120,19 +125,22 @@ export class PaperRenderer {
       return;
     }
     ctx.save();
-    if (Math.abs(background.rotationRadians - Math.PI / 2) < 0.0001) {
-      ctx.translate(paperW, 0);
-      ctx.rotate(Math.PI / 2);
-    } else if (Math.abs(background.rotationRadians - Math.PI) < 0.0001) {
-      ctx.translate(paperW, paperH);
-      ctx.rotate(Math.PI);
-    } else if (Math.abs(background.rotationRadians - Math.PI * 3 / 2) < 0.0001) {
-      ctx.translate(0, paperH);
-      ctx.rotate(Math.PI * 3 / 2);
+    try {
+      if (Math.abs(background.rotationRadians - Math.PI / 2) < 0.0001) {
+        ctx.translate(paperW, 0);
+        ctx.rotate(Math.PI / 2);
+      } else if (Math.abs(background.rotationRadians - Math.PI) < 0.0001) {
+        ctx.translate(paperW, paperH);
+        ctx.rotate(Math.PI);
+      } else if (Math.abs(background.rotationRadians - Math.PI * 3 / 2) < 0.0001) {
+        ctx.translate(0, paperH);
+        ctx.rotate(Math.PI * 3 / 2);
+      }
+      ctx.drawImage(bitmap, destination.left, destination.top,
+        destination.right - destination.left, destination.bottom - destination.top);
+    } finally {
+      ctx.restore();
     }
-    ctx.drawImage(bitmap, destination.left, destination.top,
-      destination.right - destination.left, destination.bottom - destination.top);
-    ctx.restore();
   }
 
   // LINES: 水平线，间距 28vp，线宽保持视觉 0.5px

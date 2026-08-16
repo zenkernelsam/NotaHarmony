@@ -55,16 +55,19 @@ export class ImageCanvasRenderer {
     }
     const crop: Rect2D = geometry.cropPixels;
     ctx.save();
-    ctx.transform(element.transform);
-    ctx.scale(geometry.scaleX, geometry.scaleY);
-    ctx.translate(-crop.left, -crop.top);
-    ctx.beginPath();
-    ctx.rect(crop.left, crop.top, crop.right - crop.left, crop.bottom - crop.top);
-    ctx.clip();
-    ctx.translate(geometry.flipTranslateX, geometry.flipTranslateY);
-    ctx.scale(geometry.flipScaleX, geometry.flipScaleY);
-    ctx.drawImage(bitmap, 0, 0, bitmap.width, bitmap.height);
-    ctx.restore();
+    try {
+      ctx.transform(element.transform);
+      ctx.scale(geometry.scaleX, geometry.scaleY);
+      ctx.translate(-crop.left, -crop.top);
+      ctx.beginPath();
+      ctx.rect(crop.left, crop.top, crop.right - crop.left, crop.bottom - crop.top);
+      ctx.clip();
+      ctx.translate(geometry.flipTranslateX, geometry.flipTranslateY);
+      ctx.scale(geometry.flipScaleX, geometry.flipScaleY);
+      ctx.drawImage(bitmap, 0, 0, bitmap.width, bitmap.height);
+    } finally {
+      ctx.restore();
+    }
   }
 }
 

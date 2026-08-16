@@ -490,36 +490,39 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
     const fillPath: InkPathCommand[] | null = stroke.fillPath === undefined ? null : stroke.fillPath;
     c.save();
-    const alpha: number = (fillColor >>> 24) & 0xFF;
-    if (alpha < 255 && stroke.renderSpec.brushWidth > 0) {
-      const exclusion: InkPathCommand[] | null = stroke.customPath === undefined ? null : stroke.customPath;
-      c.beginPath();
-      c.rect(-10000000, -10000000, 20000000, 20000000);
-      if (exclusion !== null && exclusion.length > 0) {
-        this.appendInkPath(c, exclusion);
-      } else {
-        const builder: WidthOutlineBuilder = new WidthOutlineBuilder();
-        const outline = builder.build(stroke.pathPoints, stroke.renderSpec.brushWidth,
-          stroke.cubicSegments);
-        if (outline.isValid) {
-          c.moveTo(outline.outlinePoints[0].x, outline.outlinePoints[0].y);
-          for (let index: number = 1; index < outline.outlinePoints.length; index++) {
-            c.lineTo(outline.outlinePoints[index].x, outline.outlinePoints[index].y);
+    try {
+      const alpha: number = (fillColor >>> 24) & 0xFF;
+      if (alpha < 255 && stroke.renderSpec.brushWidth > 0) {
+        const exclusion: InkPathCommand[] | null = stroke.customPath === undefined ? null : stroke.customPath;
+        c.beginPath();
+        c.rect(-10000000, -10000000, 20000000, 20000000);
+        if (exclusion !== null && exclusion.length > 0) {
+          this.appendInkPath(c, exclusion);
+        } else {
+          const builder: WidthOutlineBuilder = new WidthOutlineBuilder();
+          const outline = builder.build(stroke.pathPoints, stroke.renderSpec.brushWidth,
+            stroke.cubicSegments);
+          if (outline.isValid) {
+            c.moveTo(outline.outlinePoints[0].x, outline.outlinePoints[0].y);
+            for (let index: number = 1; index < outline.outlinePoints.length; index++) {
+              c.lineTo(outline.outlinePoints[index].x, outline.outlinePoints[index].y);
+            }
+            c.closePath();
           }
-          c.closePath();
         }
+        c.clip('evenodd');
       }
-      c.clip('evenodd');
+      c.beginPath();
+      if (fillPath !== null && fillPath.length > 0) {
+        this.appendInkPath(c, fillPath);
+      } else {
+        this.appendCenterPath(c, stroke);
+      }
+      c.setFillStyle(this.colorToRgba(fillColor));
+      c.fill();
+    } finally {
+      c.restore();
     }
-    c.beginPath();
-    if (fillPath !== null && fillPath.length > 0) {
-      this.appendInkPath(c, fillPath);
-    } else {
-      this.appendCenterPath(c, stroke);
-    }
-    c.setFillStyle(this.colorToRgba(fillColor));
-    c.fill();
-    c.restore();
   }
 
   renderCustomPath(stroke: StrokeElementData, ctx: RenderContext): boolean {
@@ -530,18 +533,21 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     }
     const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
     c.save();
-    c.beginPath();
-    this.appendInkPath(c, customPath);
-    if (stroke.renderSpec.inkStyle === InkStyle.DASH ||
-      stroke.renderSpec.inkStyle === InkStyle.DOTS) {
-      c.clip();
-      this.renderCenterPath(stroke, ctx);
-    } else {
-      c.setFillStyle(this.colorToRgba(stroke.renderSpec.color,
-        stroke.renderSpec.isHighlighter ? 107 : undefined));
-      c.fill();
+    try {
+      c.beginPath();
+      this.appendInkPath(c, customPath);
+      if (stroke.renderSpec.inkStyle === InkStyle.DASH ||
+        stroke.renderSpec.inkStyle === InkStyle.DOTS) {
+        c.clip();
+        this.renderCenterPath(stroke, ctx);
+      } else {
+        c.setFillStyle(this.colorToRgba(stroke.renderSpec.color,
+          stroke.renderSpec.isHighlighter ? 107 : undefined));
+        c.fill();
+      }
+    } finally {
+      c.restore();
     }
-    c.restore();
     return true;
   }
 
@@ -554,35 +560,38 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       return;
     }
     c.save();
-    c.beginPath();
-    this.appendCenterPath(c, stroke);
-    if (stroke.pathPoints.length === 1) {
-      c.lineTo(stroke.pathPoints[0].position.x, stroke.pathPoints[0].position.y);
+    try {
+      c.beginPath();
+      this.appendCenterPath(c, stroke);
+      if (stroke.pathPoints.length === 1) {
+        c.lineTo(stroke.pathPoints[0].position.x, stroke.pathPoints[0].position.y);
+      }
+      c.setLineWidth(spec.brushWidth);
+      // 原版 c5g：DASH 使用 BUTT，DOTS 与实线使用 ROUND。
+      if (spec.inkStyle === InkStyle.DASH) {
+        c.setLineCap('butt');
+      } else {
+        c.setLineCap('round');
+      }
+      c.setLineJoin(spec.inkStyle === InkStyle.DOTS ? 'miter' : 'round');
+      // 原版 zx1.e(color, 107) 覆盖 alpha，而不是把已有 alpha 再乘 107/255。
+      c.setStrokeStyle(this.colorToRgba(spec.color, spec.isHighlighter ? 107 : undefined));
+      if (spec.inkStyle === InkStyle.DASH) {
+        c.setLineDash([2 * spec.brushWidth, 1 * spec.brushWidth]);
+      } else if (spec.inkStyle === InkStyle.DOTS) {
+        c.setLineDash([0.001 * spec.brushWidth, 2 * spec.brushWidth]);
+      }
+      if ((spec.inkStyle === InkStyle.DASH || spec.inkStyle === InkStyle.DOTS) &&
+        stroke.styleMap !== undefined && stroke.styleMap.length > 0) {
+        const period: number = spec.inkStyle === InkStyle.DASH ?
+          3 * spec.brushWidth : 2.001 * spec.brushWidth;
+        const phase: number = stroke.styleMap[0].backingDashPhase;
+        c.setLineDashOffset(period > 0 ? ((phase % period) + period) % period : 0);
+      }
+      c.stroke();
+    } finally {
+      c.restore();
     }
-    c.setLineWidth(spec.brushWidth);
-    // 原版 c5g：DASH 使用 BUTT，DOTS 与实线使用 ROUND。
-    if (spec.inkStyle === InkStyle.DASH) {
-      c.setLineCap('butt');
-    } else {
-      c.setLineCap('round');
-    }
-    c.setLineJoin(spec.inkStyle === InkStyle.DOTS ? 'miter' : 'round');
-    // 原版 zx1.e(color, 107) 覆盖 alpha，而不是把已有 alpha 再乘 107/255。
-    c.setStrokeStyle(this.colorToRgba(spec.color, spec.isHighlighter ? 107 : undefined));
-    if (spec.inkStyle === InkStyle.DASH) {
-      c.setLineDash([2 * spec.brushWidth, 1 * spec.brushWidth]);
-    } else if (spec.inkStyle === InkStyle.DOTS) {
-      c.setLineDash([0.001 * spec.brushWidth, 2 * spec.brushWidth]);
-    }
-    if ((spec.inkStyle === InkStyle.DASH || spec.inkStyle === InkStyle.DOTS) &&
-      stroke.styleMap !== undefined && stroke.styleMap.length > 0) {
-      const period: number = spec.inkStyle === InkStyle.DASH ?
-        3 * spec.brushWidth : 2.001 * spec.brushWidth;
-      const phase: number = stroke.styleMap[0].backingDashPhase;
-      c.setLineDashOffset(period > 0 ? ((phase % period) + period) % period : 0);
-    }
-    c.stroke();
-    c.restore();
   }
 
   // === 可变宽度填充轮廓（Taper，w4a.b()）===
@@ -595,16 +604,19 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       return;
     }
     c.save();
-    c.beginPath();
-    c.moveTo(outline.outlinePoints[0].x, outline.outlinePoints[0].y);
-    for (let i = 1; i < outline.outlinePoints.length; i++) {
-      c.lineTo(outline.outlinePoints[i].x, outline.outlinePoints[i].y);
+    try {
+      c.beginPath();
+      c.moveTo(outline.outlinePoints[0].x, outline.outlinePoints[0].y);
+      for (let i = 1; i < outline.outlinePoints.length; i++) {
+        c.lineTo(outline.outlinePoints[i].x, outline.outlinePoints[i].y);
+      }
+      c.closePath();
+      c.setFillStyle(this.colorToRgba(stroke.renderSpec.color,
+        stroke.renderSpec.isHighlighter ? 107 : undefined));
+      c.fill();
+    } finally {
+      c.restore();
     }
-    c.closePath();
-    c.setFillStyle(this.colorToRgba(stroke.renderSpec.color,
-      stroke.renderSpec.isHighlighter ? 107 : undefined));
-    c.fill();
-    c.restore();
   }
 
   // === PencilSplat 渲染（持久着色纹理 + 直接 splat，避免实时笔迹每帧位图 transfer）===
@@ -616,20 +628,23 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     const tintedTexture: ImageBitmap | null = this.getTintedSplatTexture(spec.color);
     for (const s of splats) {
       c.save();
-      c.translate(s.x, s.y);
-      c.rotate(s.rotation);
-      c.setGlobalAlpha(s.opacity);
-      if (tintedTexture !== null) {
-        // s.scale 的唯一单位是页面半径；原版纹理无论原始分辨率均映射到直径 2*scale。
-        c.drawImage(tintedTexture, -s.scale, -s.scale, 2 * s.scale, 2 * s.scale);
-      } else {
-        // fallback 与纹理路径使用完全相同的外接尺寸，避免二次 scale。
-        c.beginPath();
-        c.arc(0, 0, s.scale, 0, Math.PI * 2);
-        c.setFillStyle(this.colorToRgba(spec.color));
-        c.fill();
+      try {
+        c.translate(s.x, s.y);
+        c.rotate(s.rotation);
+        c.setGlobalAlpha(s.opacity);
+        if (tintedTexture !== null) {
+          // s.scale 的唯一单位是页面半径；原版纹理无论原始分辨率均映射到直径 2*scale。
+          c.drawImage(tintedTexture, -s.scale, -s.scale, 2 * s.scale, 2 * s.scale);
+        } else {
+          // fallback 与纹理路径使用完全相同的外接尺寸，避免二次 scale。
+          c.beginPath();
+          c.arc(0, 0, s.scale, 0, Math.PI * 2);
+          c.setFillStyle(this.colorToRgba(spec.color));
+          c.fill();
+        }
+      } finally {
+        c.restore();
       }
-      c.restore();
     }
   }
 
@@ -682,18 +697,21 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     }
     const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
     c.save();
-    c.setGlobalCompositeOperation('destination-out');
-    c.beginPath();
-    this.appendCenterPath(c, stroke);
-    if (stroke.pathPoints.length === 1) {
-      c.lineTo(stroke.pathPoints[0].position.x, stroke.pathPoints[0].position.y);
+    try {
+      c.setGlobalCompositeOperation('destination-out');
+      c.beginPath();
+      this.appendCenterPath(c, stroke);
+      if (stroke.pathPoints.length === 1) {
+        c.lineTo(stroke.pathPoints[0].position.x, stroke.pathPoints[0].position.y);
+      }
+      c.setLineWidth(stroke.renderSpec.brushWidth);
+      c.setLineCap('round');
+      c.setLineJoin('round');
+      c.setLineDash([]);
+      c.stroke();
+    } finally {
+      c.restore();
     }
-    c.setLineWidth(stroke.renderSpec.brushWidth);
-    c.setLineCap('round');
-    c.setLineJoin('round');
-    c.setLineDash([]);
-    c.stroke();
-    c.restore();
   }
 
   renderEraserMask(stroke: StrokeElementData, ctx: RenderContext): void {
@@ -702,30 +720,33 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     }
     const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
     c.save();
-    c.setGlobalCompositeOperation('destination-out');
-    c.setLineWidth(this.eraserMaskWidth);
-    c.setLineCap('round');
-    c.setLineJoin('round');
-    let index: number = 0;
-    while (index < stroke.maskPath.length) {
-      while (index < stroke.maskPath.length && this.isMaskBreak(stroke.maskPath[index])) {
+    try {
+      c.setGlobalCompositeOperation('destination-out');
+      c.setLineWidth(this.eraserMaskWidth);
+      c.setLineCap('round');
+      c.setLineJoin('round');
+      let index: number = 0;
+      while (index < stroke.maskPath.length) {
+        while (index < stroke.maskPath.length && this.isMaskBreak(stroke.maskPath[index])) {
+          index++;
+        }
+        if (index >= stroke.maskPath.length) {
+          break;
+        }
+        const first = stroke.maskPath[index];
+        c.beginPath();
+        c.moveTo(first.x, first.y);
+        c.lineTo(first.x, first.y);
         index++;
+        while (index < stroke.maskPath.length && !this.isMaskBreak(stroke.maskPath[index])) {
+          c.lineTo(stroke.maskPath[index].x, stroke.maskPath[index].y);
+          index++;
+        }
+        c.stroke();
       }
-      if (index >= stroke.maskPath.length) {
-        break;
-      }
-      const first = stroke.maskPath[index];
-      c.beginPath();
-      c.moveTo(first.x, first.y);
-      c.lineTo(first.x, first.y);
-      index++;
-      while (index < stroke.maskPath.length && !this.isMaskBreak(stroke.maskPath[index])) {
-        c.lineTo(stroke.maskPath[index].x, stroke.maskPath[index].y);
-        index++;
-      }
-      c.stroke();
+    } finally {
+      c.restore();
     }
-    c.restore();
   }
 
   // Original qfe uses a bounded tile bitmap and a repeated BitmapShader. Keep that architecture:
@@ -752,22 +773,25 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       0xFFFFFFFF, viewportZoom);
     const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
     c.save();
-    c.beginPath();
-    if (customPath !== null && customPath.length > 0) {
-      this.appendInkPath(c, customPath);
-    } else {
-      c.moveTo(outlinePoints[0].x, outlinePoints[0].y);
-      for (let index: number = 1; index < outlinePoints.length; index++) {
-        c.lineTo(outlinePoints[index].x, outlinePoints[index].y);
+    try {
+      c.beginPath();
+      if (customPath !== null && customPath.length > 0) {
+        this.appendInkPath(c, customPath);
+      } else {
+        c.moveTo(outlinePoints[0].x, outlinePoints[0].y);
+        for (let index: number = 1; index < outlinePoints.length; index++) {
+          c.lineTo(outlinePoints[index].x, outlinePoints[index].y);
+        }
+        c.closePath();
       }
-      c.closePath();
+      c.setGlobalAlpha(1);
+      c.setLineDash([]);
+      if (c.setFillPattern(tile.bitmap, tile.logicalWidth, tile.logicalHeight)) {
+        c.fill();
+      }
+    } finally {
+      c.restore();
     }
-    c.setGlobalAlpha(1);
-    c.setLineDash([]);
-    if (c.setFillPattern(tile.bitmap, tile.logicalWidth, tile.logicalHeight)) {
-      c.fill();
-    }
-    c.restore();
   }
 
   private getTapePatternTile(pattern: TapePattern, tapeColor: number,

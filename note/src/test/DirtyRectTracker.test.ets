@@ -37,6 +37,19 @@ export default function dirtyRectTrackerTest() {
       expect(padded.bottom).assertEqual(52);
     });
 
+    it('falls back to unit zoom for non-finite zoom values', 0, () => {
+      const invalidZooms: number[] = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
+      for (const invalidZoom of invalidZooms) {
+        const tracker: DirtyRectTracker = new DirtyRectTracker(3, 8);
+        tracker.markDirty(rect(10, 20, 30, 40), invalidZoom);
+        const padded: Rect2D = tracker.consume()[0];
+        expect(padded.left).assertEqual(7);
+        expect(padded.top).assertEqual(17);
+        expect(padded.right).assertEqual(33);
+        expect(padded.bottom).assertEqual(43);
+      }
+    });
+
     it('collapses to one union only after the region limit is exceeded', 0, () => {
       const tracker: DirtyRectTracker = new DirtyRectTracker(0, 2);
       tracker.markDirty(rect(0, 0, 1, 1));

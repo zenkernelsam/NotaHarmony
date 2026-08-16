@@ -136,35 +136,38 @@ export class ThumbnailRenderer {
         canvas.getContext('2d', new RenderingContextSettings(true));
       ctx.clearRect(0, 0, THUMB_W, THUMB_H);
       ctx.save();
-      ctx.translate(pageTransform.offset.x, pageTransform.offset.y);
-      ctx.scale(pageTransform.scale, pageTransform.scale);
-      this.paperRenderer.renderOffscreenBackground(ctx, pageSize.width, pageSize.height,
-        page, pageTransform.scale, theme,
-        pdfBackground !== null && pdfBackground.state === PdfBackgroundLoadState.READY
-          ? pdfBackground.bitmap : null, paperTexture,
-        pdfBackground !== null && pdfBackground.state === PdfBackgroundLoadState.READY
-          ? pdfBackground.renderRect : null);
-      const renderContext: Canvas2DOffscreenRenderContext = new Canvas2DOffscreenRenderContext(ctx);
-      const mathRasterScale: number = originalMathRasterScale(pageTransform.scale, 1);
-      for (const element of loaded.elements) {
-        if (element.kind === PageElementKind.STROKE) {
-          this.strokePainter.renderStroke(element.data, renderContext, pageSize.width, pageSize.height,
-            pageTransform.scale);
-        } else if (element.kind === PageElementKind.TEXT) {
-          this.textRenderer.renderText(element.data, renderContext);
-        } else if (element.kind === PageElementKind.SHAPE) {
-          this.shapeRenderer.renderShape(element.data, renderContext);
-        } else if (element.kind === PageElementKind.IMAGE) {
-          const asset: LoadedImageAsset | undefined = imageAssets.get(
-            originalAssetStorageHash(element.data.assetHashBits));
-          if (asset !== undefined && asset.state === ImageAssetLoadState.READY && asset.bitmap !== null) {
-            this.imageRenderer.renderImage(element.data, asset.bitmap, renderContext);
+      try {
+        ctx.translate(pageTransform.offset.x, pageTransform.offset.y);
+        ctx.scale(pageTransform.scale, pageTransform.scale);
+        this.paperRenderer.renderOffscreenBackground(ctx, pageSize.width, pageSize.height,
+          page, pageTransform.scale, theme,
+          pdfBackground !== null && pdfBackground.state === PdfBackgroundLoadState.READY
+            ? pdfBackground.bitmap : null, paperTexture,
+          pdfBackground !== null && pdfBackground.state === PdfBackgroundLoadState.READY
+            ? pdfBackground.renderRect : null);
+        const renderContext: Canvas2DOffscreenRenderContext = new Canvas2DOffscreenRenderContext(ctx);
+        const mathRasterScale: number = originalMathRasterScale(pageTransform.scale, 1);
+        for (const element of loaded.elements) {
+          if (element.kind === PageElementKind.STROKE) {
+            this.strokePainter.renderStroke(element.data, renderContext, pageSize.width, pageSize.height,
+              pageTransform.scale);
+          } else if (element.kind === PageElementKind.TEXT) {
+            this.textRenderer.renderText(element.data, renderContext);
+          } else if (element.kind === PageElementKind.SHAPE) {
+            this.shapeRenderer.renderShape(element.data, renderContext);
+          } else if (element.kind === PageElementKind.IMAGE) {
+            const asset: LoadedImageAsset | undefined = imageAssets.get(
+              originalAssetStorageHash(element.data.assetHashBits));
+            if (asset !== undefined && asset.state === ImageAssetLoadState.READY && asset.bitmap !== null) {
+              this.imageRenderer.renderImage(element.data, asset.bitmap, renderContext);
+            }
+          } else if (element.kind === PageElementKind.MATH) {
+            this.mathRenderer.renderMath(element.data, renderContext, mathRasterScale);
           }
-        } else if (element.kind === PageElementKind.MATH) {
-          this.mathRenderer.renderMath(element.data, renderContext, mathRasterScale);
         }
+      } finally {
+        ctx.restore();
       }
-      ctx.restore();
 
       const imageData: ImageData = ctx.getImageData(0, 0, THUMB_W, THUMB_H);
       const copyBuffer: ArrayBuffer = new ArrayBuffer(THUMB_W * THUMB_H * 4);

@@ -2,7 +2,7 @@
 
 ## 状态
 
-Accepted - Phase 156（2026-08-12）
+Accepted - Phase 156（2026-08-12）；Phase 258（2026-08-17）修正 zoom 漏洞
 
 ## 背景
 
@@ -14,9 +14,10 @@ Accepted - Phase 156（2026-08-12）
 
 - 有限 `screenPadding` 仍按 `max(0, value)` 处理；非有限值回退默认 3。
 - 有限 `maxRegions` 向下取整并至少为 1；非有限值回退默认 8。
-- `markDirty()` 原有非法/非正 zoom 回退 1 的行为保持不变。
+- `markDirty()` 非正 zoom 回退 1。Phase 258 复核发现旧条件 `zoom > 0` 会误接纳 `+Infinity`，现补为
+  “有限且大于 0”，`NaN/+Infinity/-Infinity` 均回退 1；详见 ADR-0236。
 
 ## 后果
 
-异常配置不会污染脏区几何或区域上限；正常调用的结果不变。未对 bounds 本身做猜测性修复，
+异常配置和非有限 zoom 不会污染脏区几何或取消 padding；正常调用的结果不变。未对 bounds 本身做猜测性修复，
 调用方仍需提供页面坐标矩形。

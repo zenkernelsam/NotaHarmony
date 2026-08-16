@@ -1079,48 +1079,51 @@ export struct NoteCanvasView {
       this.canvasCtx.fillRect(0, 0, w, h);
     }
     this.canvasCtx.save();
-    this.canvasCtx.translate(this.viewport.scrollX, this.viewport.scrollY);
-    this.canvasCtx.scale(this.viewport.zoom, this.viewport.zoom);
-    if (partialEraserPreviewStroke !== null) {
-      this.layerManager.compositeWithOrderedPartialEraser(this.canvasCtx, partialEraserPreviewStroke, () => {
-        const visibleLeft: number = -this.viewport.scrollX / this.viewport.zoom;
-        const visibleTop: number = -this.viewport.scrollY / this.viewport.zoom;
-        this.canvasCtx.fillStyle = theme.background;
-        this.canvasCtx.fillRect(visibleLeft, visibleTop, w / this.viewport.zoom, h / this.viewport.zoom);
+    try {
+      this.canvasCtx.translate(this.viewport.scrollX, this.viewport.scrollY);
+      this.canvasCtx.scale(this.viewport.zoom, this.viewport.zoom);
+      if (partialEraserPreviewStroke !== null) {
+        this.layerManager.compositeWithOrderedPartialEraser(this.canvasCtx, partialEraserPreviewStroke, () => {
+          const visibleLeft: number = -this.viewport.scrollX / this.viewport.zoom;
+          const visibleTop: number = -this.viewport.scrollY / this.viewport.zoom;
+          this.canvasCtx.fillStyle = theme.background;
+          this.canvasCtx.fillRect(visibleLeft, visibleTop, w / this.viewport.zoom, h / this.viewport.zoom);
+          this.renderPaper(theme);
+        }, (renderContext: Canvas2DOffscreenRenderContext): void => {
+          this.renderOrderedElements(renderContext, partialEraserPreviewStroke);
+        }, this.viewport.zoom, forceFull);
+      } else if (orderedRender) {
         this.renderPaper(theme);
-      }, (renderContext: Canvas2DOffscreenRenderContext): void => {
-        this.renderOrderedElements(renderContext, partialEraserPreviewStroke);
-      }, this.viewport.zoom, forceFull);
-    } else if (orderedRender) {
-      this.renderPaper(theme);
-      if (this.hasOriginalPartialEraser()) {
-        this.renderOrderedContentLayer();
-      } else {
-        this.renderOrderedElements(this.renderCtx);
-      }
-      for (const heldShape of this.heldShapes) {
-        this.shapeRenderer.renderShape(heldShape, this.renderCtx);
-      }
-      if (current !== null) {
-        this.strokePainter.renderStroke(current, this.renderCtx, this.getPaperWidth(),
-          this.getPaperHeight(), this.viewport.zoom);
-      }
-    } else if (forceFull) {
-      this.renderPaper(theme);
-      this.layerManager.compositeFull(this.canvasCtx, current, this.renderCtx, this.viewport.zoom);
-      this.renderTextBlocks();
-    } else {
-      this.layerManager.composite(this.canvasCtx, current, this.renderCtx, () => {
-        const visibleLeft: number = -this.viewport.scrollX / this.viewport.zoom;
-        const visibleTop: number = -this.viewport.scrollY / this.viewport.zoom;
-        this.canvasCtx.fillStyle = theme.background;
-        this.canvasCtx.fillRect(visibleLeft, visibleTop, w / this.viewport.zoom, h / this.viewport.zoom);
+        if (this.hasOriginalPartialEraser()) {
+          this.renderOrderedContentLayer();
+        } else {
+          this.renderOrderedElements(this.renderCtx);
+        }
+        for (const heldShape of this.heldShapes) {
+          this.shapeRenderer.renderShape(heldShape, this.renderCtx);
+        }
+        if (current !== null) {
+          this.strokePainter.renderStroke(current, this.renderCtx, this.getPaperWidth(),
+            this.getPaperHeight(), this.viewport.zoom);
+        }
+      } else if (forceFull) {
         this.renderPaper(theme);
-      }, () => {
+        this.layerManager.compositeFull(this.canvasCtx, current, this.renderCtx, this.viewport.zoom);
         this.renderTextBlocks();
-      }, this.viewport.zoom);
+      } else {
+        this.layerManager.composite(this.canvasCtx, current, this.renderCtx, () => {
+          const visibleLeft: number = -this.viewport.scrollX / this.viewport.zoom;
+          const visibleTop: number = -this.viewport.scrollY / this.viewport.zoom;
+          this.canvasCtx.fillStyle = theme.background;
+          this.canvasCtx.fillRect(visibleLeft, visibleTop, w / this.viewport.zoom, h / this.viewport.zoom);
+          this.renderPaper(theme);
+        }, () => {
+          this.renderTextBlocks();
+        }, this.viewport.zoom);
+      }
+    } finally {
+      this.canvasCtx.restore();
     }
-    this.canvasCtx.restore();
   }
 
   private renderPaper(theme: ThemeTokens): void {

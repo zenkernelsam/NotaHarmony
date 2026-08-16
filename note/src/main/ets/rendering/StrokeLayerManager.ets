@@ -71,26 +71,29 @@ export class StrokeLayerManager {
       return;
     }
     mainCtx.save();
-    mainCtx.beginPath();
-    for (const dirty of dirtyRegions) {
-      mainCtx.rect(dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top);
+    try {
+      mainCtx.beginPath();
+      for (const dirty of dirtyRegions) {
+        mainCtx.rect(dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top);
+      }
+      mainCtx.clip();
+      for (const dirty of dirtyRegions) {
+        mainCtx.clearRect(dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top);
+      }
+      renderBackground();
+      const completed: ImageBitmap | null = this.completedBitmap;
+      if (completed !== null) {
+        mainCtx.drawImage(completed, 0, 0, this.pageWidth, this.pageHeight);
+      }
+      if (currentStroke !== null && currentRenderCtx !== null) {
+        this.strokePainter.renderStroke(currentStroke, currentRenderCtx, this.pageWidth, this.pageHeight,
+          zoom);
+      }
+      renderForeground();
+    } finally {
+      mainCtx.restore();
+      this.transferTracker.finishFrame(false, dirtyRegions.length);
     }
-    mainCtx.clip();
-    for (const dirty of dirtyRegions) {
-      mainCtx.clearRect(dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top);
-    }
-    renderBackground();
-    const completed: ImageBitmap | null = this.completedBitmap;
-    if (completed !== null) {
-      mainCtx.drawImage(completed, 0, 0, this.pageWidth, this.pageHeight);
-    }
-    if (currentStroke !== null && currentRenderCtx !== null) {
-      this.strokePainter.renderStroke(currentStroke, currentRenderCtx, this.pageWidth, this.pageHeight,
-        zoom);
-    }
-    renderForeground();
-    mainCtx.restore();
-    this.transferTracker.finishFrame(false, dirtyRegions.length);
   }
 
   // 全屏合成（无脏区优化）：纸张背景每帧重绘场景使用，避免脏区清屏破坏背景
@@ -100,15 +103,18 @@ export class StrokeLayerManager {
     // This path redraws the full frame, so earlier dirty bounds have been satisfied.
     this.dirtyTracker.consume();
     this.previousCurrentBounds = currentStroke !== null ? this.cloneRect(currentStroke.bounds) : null;
-    const completed: ImageBitmap | null = this.completedBitmap;
-    if (completed !== null) {
-      mainCtx.drawImage(completed, 0, 0, this.pageWidth, this.pageHeight);
+    try {
+      const completed: ImageBitmap | null = this.completedBitmap;
+      if (completed !== null) {
+        mainCtx.drawImage(completed, 0, 0, this.pageWidth, this.pageHeight);
+      }
+      if (currentStroke !== null && currentRenderCtx !== null) {
+        this.strokePainter.renderStroke(currentStroke, currentRenderCtx, this.pageWidth, this.pageHeight,
+          zoom);
+      }
+    } finally {
+      this.transferTracker.finishFrame(true, 1);
     }
-    if (currentStroke !== null && currentRenderCtx !== null) {
-      this.strokePainter.renderStroke(currentStroke, currentRenderCtx, this.pageWidth, this.pageHeight,
-        zoom);
-    }
-    this.transferTracker.finishFrame(true, 1);
   }
 
   // The original tool-5 preview is the newest z-indexed Ink, so each dirty crop
@@ -165,8 +171,8 @@ export class StrokeLayerManager {
           isolatedRenderContext.restore();
         }
         const bitmap: ImageBitmap = isolatedLayer.transferToImageBitmap();
-        this.transferTracker.recordTransfer(BitmapTransferKind.ISOLATED_MASK);
         try {
+          this.transferTracker.recordTransfer(BitmapTransferKind.ISOLATED_MASK);
           mainCtx.drawImage(bitmap, crop.left, crop.top, width, height);
         } finally {
           bitmap.close();

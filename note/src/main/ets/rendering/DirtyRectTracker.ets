@@ -12,7 +12,7 @@ export class DirtyRectTracker {
   }
 
   markDirty(bounds: Rect2D, zoom: number = 1): void {
-    const safeZoom: number = zoom > 0 ? zoom : 1;
+    const safeZoom: number = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
     const pagePadding: number = this.screenPadding / safeZoom;
     let candidate: Rect2D = {
       left: bounds.left - pagePadding,

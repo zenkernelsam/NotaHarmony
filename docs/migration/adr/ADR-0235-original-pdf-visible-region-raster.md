@@ -40,7 +40,8 @@ DPI 与 clip 后 raster。Harmony PDFKit 的 `PdfMatrix + getAreaPixelMap()` 可
 - 与原版 80 MiB 共享 renderer cache 不做逐字节照搬；Harmony 使用更保守的单张 32 MiB hard cap，以覆盖
   PixelMap、ImageBitmap、Canvas cache 同时存在的峰值。
 - PDF 文件自身 page rotation、区域 API 像素边缘、快速 pinch/pan 抖动及 native 内存曲线仍需设备验收。
-  M2-R-04 的完成层 transfer/dirty-region 总体性能门也未因本 ADR 关闭。
+  Phase 258 后更正：M2-R-04 的 retained transfer/dirty-region 静态实现已闭环，仍开放的只是设备帧时、长时
+  内存、裁剪边缘和 native 峰值验收。
 
 ## 验证契约
 
