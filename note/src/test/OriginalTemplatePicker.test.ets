@@ -7,9 +7,12 @@ import {
 } from '../main/ets/core/model/PageBackgroundModel';
 import {
   applyOriginalTemplatePickerSelection, isOriginalTemplatePickerSelection,
-  OriginalTemplatePickerDraft, originalTemplatePickerDraft,
+  OriginalTemplatePickerDraft, originalTemplatePickerDraft, originalTemplatePickerFavorite,
   stageOriginalTemplateOrientation, stageOriginalTemplateSize,
 } from '../main/ets/core/model/OriginalTemplatePickerState';
+import {
+  OriginalPaperLineType, packOriginalArgb,
+} from '../main/ets/core/model/OriginalPaperSettings';
 
 export default function originalTemplatePickerTest() {
   describe('OriginalTemplatePickerState', () => {
@@ -63,6 +66,26 @@ export default function originalTemplatePickerTest() {
       expect(selected.background.paper?.flair).assertEqual(OriginalPaperFlair.GRID);
       expect(selected.background.paper?.flairSpacingPt).assertEqual(36);
       expect(selected.background.paper?.colorR).assertEqual(244);
+    });
+
+    it('uses shared per-line spacing for selection and complete favorite semantics', 0, () => {
+      const current = originalDefaultNoteBackgroundSettings();
+      const draft: OriginalTemplatePickerDraft = originalTemplatePickerDraft(current);
+      const info = {
+        paperLineType: OriginalPaperLineType.LINES,
+        spacingInches: Math.fround(0.75),
+        hasOptions: true,
+      };
+      const selected = applyOriginalTemplatePickerSelection(
+        current, draft, PaperTemplate.LINES, info);
+      expect(selected.background.paper?.flairSpacingPt).assertEqual(54);
+      expect(isOriginalTemplatePickerSelection(
+        selected, draft, PaperTemplate.LINES, info)).assertTrue();
+      const favorite = originalTemplatePickerFavorite(selected, draft, info);
+      expect(favorite.id).assertEqual(0);
+      expect(favorite.paperLineType).assertEqual(OriginalPaperLineType.LINES);
+      expect(favorite.spacingInches).assertEqual(Math.fround(0.75));
+      expect(favorite.backgroundColor).assertEqual(packOriginalArgb(255, 255, 255));
     });
   });
 }

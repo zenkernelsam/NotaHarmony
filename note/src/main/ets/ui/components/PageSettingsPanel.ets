@@ -1,15 +1,24 @@
 // T-037 页面设置面板（尺寸/模板/方向选择，bindPopup 承载）
+import { common } from '@kit.AbilityKit';
+import { promptAction } from '@kit.ArkUI';
 import {
   NoteBackgroundSettings, PageOrientation, PaperSize, PaperTemplate,
 } from '../../core/model/NoteTypes';
+import {
+  defaultOriginalBackgroundInfo, ORIGINAL_PAPER_SPACING_INCHES, OriginalBackgroundInfo,
+  OriginalPaperBackground, OriginalPaperLineType, originalPaperLineTypeFromTemplate,
+  sameOriginalPaperBackground,
+} from '../../core/model/OriginalPaperSettings';
 import {
   originalDefaultNoteBackgroundSettings,
 } from '../../core/model/PageBackgroundModel';
 import {
   applyOriginalTemplatePickerSelection, isOriginalTemplatePickerSelection,
-  OriginalTemplatePickerDraft, originalTemplatePickerDraft,
+  OriginalTemplatePickerDraft, originalTemplatePickerDraft, originalTemplatePickerFavorite,
   stageOriginalTemplateOrientation, stageOriginalTemplateSize,
 } from '../../core/model/OriginalTemplatePickerState';
+import { DatabaseManager } from '../../data/DatabaseManager';
+import { OriginalPaperSettingsStore } from '../../data/OriginalPaperSettingsStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 
@@ -22,6 +31,10 @@ const SIZE_OPTIONS: PaperSizeOption[] = [
   { size: PaperSize.LETTER, label: 'Letter', dim: '216×279' },
   { size: PaperSize.LEGAL, label: 'Legal', dim: '216×356' },
   { size: PaperSize.TABLOID, label: 'Tabloid', dim: '279×432' },
+];
+
+const TEMPLATE_OPTIONS: PaperTemplate[] = [
+  PaperTemplate.PLAIN, PaperTemplate.LINES, PaperTemplate.GRID, PaperTemplate.DOTS,
 ];
 
 interface PaperSizeOption {
@@ -39,13 +52,33 @@ export struct PageSettingsPanel {
     size: PaperSize.LETTER,
     orientation: PageOrientation.PORTRAIT,
   };
+  @State backgroundInfos: OriginalBackgroundInfo[] = [
+    defaultOriginalBackgroundInfo(OriginalPaperLineType.PLAIN),
+    defaultOriginalBackgroundInfo(OriginalPaperLineType.LINES),
+    defaultOriginalBackgroundInfo(OriginalPaperLineType.GRID),
+    defaultOriginalBackgroundInfo(OriginalPaperLineType.DOTS),
+  ];
+  @State favorites: OriginalPaperBackground[] = [];
+  @State sharedBusy: boolean = false;
+  @State sharedLoadFailed: boolean = false;
+  @State spacingTemplate: PaperTemplate | null = null;
+  @State spacingPreviewIndex: number = -1;
+  @State spacingSaveBusy: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onApply: (settings: NoteBackgroundSettings) => void = () => {
   };
 
+  private paperStore: OriginalPaperSettingsStore | null = null;
+  private sharedLoadGeneration: number = 0;
+
   aboutToAppear(): void {
     this.resetDraft();
+    this.reloadSharedPaperSettings();
+  }
+
+  aboutToDisappear(): void {
+    this.sharedLoadGeneration++;
   }
 
   private onSettingsChange(): void {
@@ -58,6 +91,221 @@ export struct PageSettingsPanel {
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  private async reloadSharedPaperSettings(): Promise<void> {
+    const generation: number = ++this.sharedLoadGeneration;
+    this.sharedBusy = true;
+    this.sharedLoadFailed = false;
+    try {
+      const database: DatabaseManager = DatabaseManager.getInstance();
+      await database.initialize(getContext(this) as common.UIAbilityContext);
+      const store: OriginalPaperSettingsStore = new OriginalPaperSettingsStore(database);
+      const infos: OriginalBackgroundInfo[] = await store.listBackgroundInfos();
+      const favorites: OriginalPaperBackground[] = await store.listFavorites();
+      if (generation !== this.sharedLoadGeneration) {
+        return;
+      }
+      this.paperStore = store;
+      this.backgroundInfos = infos;
+      this.favorites = favorites;
+      this.spacingPreviewIndex = -1;
+    } catch (error) {
+      if (generation !== this.sharedLoadGeneration) {
+        return;
+      }
+      this.paperStore = null;
+      this.sharedLoadFailed = true;
+      this.spacingPreviewIndex = -1;
+      console.error(`PageSettingsPanel shared paper settings load failed: ${JSON.stringify(error)}`);
+    } finally {
+      if (generation === this.sharedLoadGeneration) {
+        this.sharedBusy = false;
+      }
+    }
+  }
+
+  private storedBackgroundInfoForTemplate(template: PaperTemplate): OriginalBackgroundInfo {
+    const paperLineType: OriginalPaperLineType = originalPaperLineTypeFromTemplate(template);
+    for (const info of this.backgroundInfos) {
+      if (info.paperLineType === paperLineType) {
+        return info;
+      }
+    }
+    return defaultOriginalBackgroundInfo(paperLineType);
+  }
+
+  private backgroundInfoForTemplate(template: PaperTemplate): OriginalBackgroundInfo {
+    const stored: OriginalBackgroundInfo = this.storedBackgroundInfoForTemplate(template);
+    if (template === PaperTemplate.PLAIN || this.spacingTemplate !== template ||
+      this.spacingPreviewIndex < 0 ||
+      this.spacingPreviewIndex >= ORIGINAL_PAPER_SPACING_INCHES.length) {
+      return stored;
+    }
+    return {
+      paperLineType: stored.paperLineType,
+      spacingInches: ORIGINAL_PAPER_SPACING_INCHES[this.spacingPreviewIndex],
+      hasOptions: stored.hasOptions,
+    };
+  }
+
+  private isTemplateSelected(template: PaperTemplate): boolean {
+    return isOriginalTemplatePickerSelection(
+      this.settings, this.draft, template, this.backgroundInfoForTemplate(template));
+  }
+
+  private favoriteCandidate(template: PaperTemplate): OriginalPaperBackground {
+    return originalTemplatePickerFavorite(
+      this.settings, this.draft, this.backgroundInfoForTemplate(template));
+  }
+
+  private isTemplateFavorite(template: PaperTemplate): boolean {
+    const candidate: OriginalPaperBackground = this.favoriteCandidate(template);
+    for (const favorite of this.favorites) {
+      if (sameOriginalPaperBackground(favorite, candidate)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private applyTemplate(template: PaperTemplate): void {
+    if (this.busy || this.sharedBusy || this.spacingSaveBusy) {
+      return;
+    }
+    this.onApply(applyOriginalTemplatePickerSelection(
+      this.settings, this.draft, template, this.backgroundInfoForTemplate(template)));
+  }
+
+  private async toggleFavorite(template: PaperTemplate): Promise<void> {
+    const store: OriginalPaperSettingsStore | null = this.paperStore;
+    if (store === null || this.busy || this.sharedBusy || this.spacingSaveBusy) {
+      return;
+    }
+    const candidate: OriginalPaperBackground = this.favoriteCandidate(template);
+    const remove: boolean = this.isTemplateFavorite(template);
+    this.sharedBusy = true;
+    try {
+      if (remove) {
+        await store.removeFavorite(candidate);
+      } else {
+        await store.addFavorite(candidate);
+      }
+      this.favorites = await store.listFavorites();
+    } catch (error) {
+      console.error(`PageSettingsPanel favorite update failed: ${JSON.stringify(error)}`);
+      this.showSharedPaperFailure();
+    } finally {
+      this.sharedBusy = false;
+    }
+  }
+
+  private spacingIndex(template: PaperTemplate): number {
+    if (this.spacingTemplate === template && this.spacingPreviewIndex >= 0 &&
+      this.spacingPreviewIndex < ORIGINAL_PAPER_SPACING_INCHES.length) {
+      return this.spacingPreviewIndex;
+    }
+    return this.storedSpacingIndex(template);
+  }
+
+  private storedSpacingIndex(template: PaperTemplate): number {
+    const spacing: number | null = this.storedBackgroundInfoForTemplate(template).spacingInches;
+    if (spacing === null) {
+      return 3;
+    }
+    const index: number = ORIGINAL_PAPER_SPACING_INCHES.indexOf(spacing);
+    return index < 0 ? 3 : index;
+  }
+
+  private toggleSpacingSettings(template: PaperTemplate): void {
+    if (this.busy || this.sharedBusy || this.spacingSaveBusy || this.paperStore === null) {
+      return;
+    }
+    if (this.spacingTemplate === template) {
+      this.spacingTemplate = null;
+      this.spacingPreviewIndex = -1;
+      return;
+    }
+    this.spacingTemplate = template;
+    this.spacingPreviewIndex = this.storedSpacingIndex(template);
+  }
+
+  private previewSharedSpacing(template: PaperTemplate, rawIndex: number,
+    mode: SliderChangeMode): void {
+    if (this.paperStore === null || this.busy || this.sharedBusy || this.spacingSaveBusy ||
+      this.spacingTemplate !== template || template === PaperTemplate.PLAIN) {
+      return;
+    }
+    const index: number = Math.max(0, Math.min(
+      ORIGINAL_PAPER_SPACING_INCHES.length - 1, Math.round(rawIndex)));
+    this.spacingPreviewIndex = index;
+    // ArkUI emits Begin/Moving repeatedly while dragging. Persist only the final End/Click
+    // value so the original continuous preview cannot lose its last position behind an async write.
+    if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) {
+      this.saveSharedSpacing(template, index);
+    }
+  }
+
+  private async saveSharedSpacing(template: PaperTemplate, rawIndex: number): Promise<void> {
+    const store: OriginalPaperSettingsStore | null = this.paperStore;
+    if (store === null || this.busy || this.sharedBusy || this.spacingSaveBusy ||
+      template === PaperTemplate.PLAIN) {
+      return;
+    }
+    const index: number = Math.max(0, Math.min(
+      ORIGINAL_PAPER_SPACING_INCHES.length - 1, Math.round(rawIndex)));
+    if (index === this.storedSpacingIndex(template)) {
+      return;
+    }
+    const storedInfo: OriginalBackgroundInfo = this.storedBackgroundInfoForTemplate(template);
+    const optimistic: OriginalBackgroundInfo = {
+      paperLineType: originalPaperLineTypeFromTemplate(template),
+      spacingInches: ORIGINAL_PAPER_SPACING_INCHES[index],
+      hasOptions: storedInfo.hasOptions,
+    };
+    this.spacingSaveBusy = true;
+    try {
+      const saved: OriginalBackgroundInfo = await store.saveSpacing(
+        optimistic.paperLineType, optimistic.spacingInches as number);
+      this.replaceBackgroundInfo(saved);
+      if (this.spacingTemplate === template) {
+        const savedIndex: number = saved.spacingInches === null ? -1 :
+          ORIGINAL_PAPER_SPACING_INCHES.indexOf(saved.spacingInches);
+        this.spacingPreviewIndex = savedIndex < 0 ? this.storedSpacingIndex(template) : savedIndex;
+      }
+    } catch (error) {
+      if (this.spacingTemplate === template) {
+        this.spacingPreviewIndex = this.storedSpacingIndex(template);
+      }
+      console.error(`PageSettingsPanel spacing update failed: ${JSON.stringify(error)}`);
+      this.showSharedPaperFailure();
+    } finally {
+      this.spacingSaveBusy = false;
+    }
+  }
+
+  private replaceBackgroundInfo(value: OriginalBackgroundInfo): void {
+    const next: OriginalBackgroundInfo[] = [];
+    let replaced: boolean = false;
+    for (const info of this.backgroundInfos) {
+      if (info.paperLineType === value.paperLineType) {
+        next.push(value);
+        replaced = true;
+      } else {
+        next.push(info);
+      }
+    }
+    if (!replaced) {
+      next.push(value);
+    }
+    this.backgroundInfos = next;
+  }
+
+  private showSharedPaperFailure(): void {
+    try {
+      promptAction.showToast({ message: $r('app.string.paper_settings_save_failed') });
+    } catch (_toastError) {
+    }
   }
 
   build() {
@@ -80,7 +328,7 @@ export struct PageSettingsPanel {
             .border({ width: 1, color: opt.size === this.draft.size ? this.resolveTokens().accent :
               this.resolveTokens().border })
             .onClick(() => {
-              if (!this.busy) {
+              if (!this.busy && !this.sharedBusy && !this.spacingSaveBusy) {
                 this.draft = stageOriginalTemplateSize(this.draft, opt.size);
               }
             })
@@ -101,19 +349,89 @@ export struct PageSettingsPanel {
         .fontColor(this.resolveTokens().textSecondary)
         .margin({ bottom: 8 })
       Row() {
-        ForEach([PaperTemplate.PLAIN, PaperTemplate.LINES, PaperTemplate.GRID, PaperTemplate.DOTS],
-          (tpl: PaperTemplate) => {
+        ForEach(TEMPLATE_OPTIONS, (tpl: PaperTemplate) => {
             Column() {
-              this.TemplatePreview(tpl)
-              Text(this.templateLabel(tpl)).fontSize(10).margin({ top: 4 })
-            }
-            .margin({ right: 12 })
-            .onClick(() => {
-              if (!this.busy) {
-                this.onApply(applyOriginalTemplatePickerSelection(this.settings, this.draft, tpl));
+              Stack() {
+                Column() {
+                  this.TemplatePreview(tpl)
+                }
+                .onClick(() => {
+                  this.applyTemplate(tpl);
+                })
+                Button(this.isTemplateFavorite(tpl) ? '★' : '☆')
+                  .width(28)
+                  .height(28)
+                  .fontSize(18)
+                  .padding(0)
+                  .align(Alignment.TopEnd)
+                  .backgroundColor(this.resolveTokens().control)
+                  .fontColor(this.isTemplateFavorite(tpl) ? this.resolveTokens().accent :
+                    this.resolveTokens().textSecondary)
+                  .enabled(!this.busy && !this.sharedBusy && !this.spacingSaveBusy &&
+                    this.paperStore !== null)
+                  .accessibilityText(this.isTemplateFavorite(tpl) ?
+                    $r('app.string.template_unfavorite') : $r('app.string.template_favorite'))
+                  .onClick(() => {
+                    this.toggleFavorite(tpl);
+                  })
               }
-            })
+              .width(68)
+              .height(78)
+              Text(this.templateLabel(tpl)).fontSize(10).margin({ top: 4 })
+              if (tpl !== PaperTemplate.PLAIN &&
+                this.backgroundInfoForTemplate(tpl).hasOptions) {
+                Button('⋯')
+                  .width(36)
+                  .height(24)
+                  .fontSize(16)
+                  .padding(0)
+                  .margin({ top: 2 })
+                  .backgroundColor(this.spacingTemplate === tpl ? this.resolveTokens().accent :
+                    this.resolveTokens().control)
+                  .fontColor(this.spacingTemplate === tpl ? this.resolveTokens().onAccent :
+                    this.resolveTokens().textPrimary)
+                  .enabled(!this.busy && !this.sharedBusy && !this.spacingSaveBusy &&
+                    this.paperStore !== null)
+                  .accessibilityText($r('app.string.template_settings'))
+                  .onClick(() => {
+                    this.toggleSpacingSettings(tpl);
+                  })
+              }
+            }
+            .width(76)
           }, (tpl: PaperTemplate) => tpl.toString())
+      }
+      .width(340)
+      .justifyContent(FlexAlign.SpaceBetween)
+
+      if (this.sharedBusy && this.paperStore === null) {
+        Row() {
+          LoadingProgress().width(18).height(18)
+          Text($r('app.string.paper_settings_loading'))
+            .fontSize(11)
+            .fontColor(this.resolveTokens().textSecondary)
+            .margin({ left: 6 })
+        }
+        .margin({ top: 8 })
+      } else if (this.sharedLoadFailed) {
+        Row() {
+          Text($r('app.string.paper_settings_load_failed'))
+            .fontSize(11)
+            .fontColor(this.resolveTokens().danger)
+          Blank()
+          Button($r('app.string.retry'))
+            .height(30)
+            .fontSize(11)
+            .onClick(() => {
+              this.reloadSharedPaperSettings();
+            })
+        }
+        .width(340)
+        .margin({ top: 8 })
+      }
+
+      if (this.spacingTemplate !== null) {
+        this.SpacingSettings(this.spacingTemplate as PaperTemplate)
       }
 
       // === 方向 ===
@@ -129,7 +447,8 @@ export struct PageSettingsPanel {
           .fontColor(this.draft.orientation === PageOrientation.PORTRAIT ? this.resolveTokens().onAccent :
             this.resolveTokens().textPrimary)
           .onClick(() => {
-            if (!this.busy && this.draft.orientation !== PageOrientation.PORTRAIT) {
+            if (!this.busy && !this.sharedBusy && !this.spacingSaveBusy &&
+              this.draft.orientation !== PageOrientation.PORTRAIT) {
               this.draft = stageOriginalTemplateOrientation(
                 this.draft, PageOrientation.PORTRAIT);
             }
@@ -142,7 +461,8 @@ export struct PageSettingsPanel {
           .fontColor(this.draft.orientation === PageOrientation.LANDSCAPE ? this.resolveTokens().onAccent :
             this.resolveTokens().textPrimary)
           .onClick(() => {
-            if (!this.busy && this.draft.orientation !== PageOrientation.LANDSCAPE) {
+            if (!this.busy && !this.sharedBusy && !this.spacingSaveBusy &&
+              this.draft.orientation !== PageOrientation.LANDSCAPE) {
               this.draft = stageOriginalTemplateOrientation(
                 this.draft, PageOrientation.LANDSCAPE);
             }
@@ -158,6 +478,58 @@ export struct PageSettingsPanel {
     .opacity(this.busy ? 0.6 : 1)
   }
 
+  @Builder
+  SpacingSettings(template: PaperTemplate) {
+    Column() {
+      Row() {
+        Text($r('app.string.template_settings'))
+          .fontSize(13)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.resolveTokens().textPrimary)
+        Blank()
+        Button('×')
+          .width(30)
+          .height(28)
+          .fontSize(16)
+          .padding(0)
+          .backgroundColor(this.resolveTokens().control)
+          .enabled(!this.spacingSaveBusy)
+          .accessibilityText($r('app.string.close_template_settings'))
+          .onClick(() => {
+            if (!this.spacingSaveBusy) {
+              this.spacingTemplate = null;
+              this.spacingPreviewIndex = -1;
+            }
+          })
+      }
+      .width('100%')
+      Text($r('app.string.template_spacing_level', this.spacingIndex(template) + 1))
+        .width('100%')
+        .fontSize(11)
+        .fontColor(this.resolveTokens().textSecondary)
+        .margin({ top: 4, bottom: 4 })
+      Slider({
+        value: this.spacingIndex(template),
+        min: 0,
+        max: ORIGINAL_PAPER_SPACING_INCHES.length - 1,
+        step: 1,
+      })
+        .width('100%')
+        .enabled(!this.busy && !this.sharedBusy && !this.spacingSaveBusy &&
+          this.paperStore !== null)
+        .selectedColor(this.resolveTokens().accent)
+        .onChange((value: number, mode: SliderChangeMode) => {
+          this.previewSharedSpacing(template, value, mode);
+        })
+    }
+    .width(340)
+    .padding(10)
+    .margin({ top: 10 })
+    .backgroundColor(this.resolveTokens().control)
+    .border({ width: 1, color: this.resolveTokens().border })
+    .borderRadius(8)
+  }
+
   // 模板迷你预览（自绘：白色底 + 线/点模拟）
   @Builder
   TemplatePreview(tpl: PaperTemplate) {
@@ -166,8 +538,8 @@ export struct PageSettingsPanel {
         .width(60)
         .height(78)
         .backgroundColor(this.resolveTokens().paperBackground)
-        .border({ width: isOriginalTemplatePickerSelection(this.settings, this.draft, tpl) ? 2 : 1,
-          color: isOriginalTemplatePickerSelection(this.settings, this.draft, tpl) ?
+        .border({ width: this.isTemplateSelected(tpl) ? 2 : 1,
+          color: this.isTemplateSelected(tpl) ?
             this.resolveTokens().accent : this.resolveTokens().border })
         .borderRadius(4)
       if (tpl === PaperTemplate.LINES) {

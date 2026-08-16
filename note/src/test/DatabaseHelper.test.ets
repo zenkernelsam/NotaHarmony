@@ -21,6 +21,7 @@ import {
   DDL_ORIGINAL_DELETED_ENTITY,
   DDL_ORIGINAL_DELETED_PAGE,
   DDL_ORIGINAL_DELETED_PAGE_ELEMENT, DDL_ORIGINAL_DELETED_PAGE_SEARCH,
+  DDL_ORIGINAL_PAPER_BACKGROUND, DDL_ORIGINAL_BACKGROUND_INFO,
   DDL_INDEXES, MIGRATIONS,
 } from
   '../main/ets/data/DatabaseHelper';
@@ -30,7 +31,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(61);
+      expect(DB_VERSION).assertEqual(63);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -124,6 +125,17 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[60].join('\n')).assertContain('original_local_z_order_history');
       expect(DDL_ORIGINAL_LOCAL_Z_ORDER_HISTORY).assertContain('before_values TEXT NOT NULL');
       expect(MIGRATIONS[61].join('\n')).assertContain('original_group_state ADD COLUMN z_index');
+      expect(MIGRATIONS[62].length).assertEqual(0);
+      expect(MIGRATIONS[63].join('\n')).assertContain('PaperBackground');
+      expect(MIGRATIONS[63].join('\n')).assertContain('BackgroundInfo');
+      expect(DDL_ORIGINAL_PAPER_BACKGROUND).assertContain(
+        'id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL');
+      expect(DDL_ORIGINAL_PAPER_BACKGROUND).assertContain('paperSize INTEGER NOT NULL');
+      expect(DDL_ORIGINAL_PAPER_BACKGROUND).assertContain('paperOrientation TEXT NOT NULL');
+      expect(DDL_ORIGINAL_PAPER_BACKGROUND).assertContain('legacyPaperIndex INTEGER');
+      expect(DDL_ORIGINAL_BACKGROUND_INFO).assertContain(
+        'paperLineType TEXT NOT NULL');
+      expect(DDL_ORIGINAL_BACKGROUND_INFO).assertContain('PRIMARY KEY(paperLineType)');
       expect(DDL_ORIGINAL_GROUP_STATE).assertContain('z_index TEXT');
       expect(DDL_ORIGINAL_APPLIED_OPERATION_TIME).assertContain('audio_time TEXT');
       expect(DDL_ORIGINAL_APPLIED_OPERATION_TIME).assertContain(

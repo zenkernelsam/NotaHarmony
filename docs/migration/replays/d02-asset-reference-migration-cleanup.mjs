@@ -5,7 +5,8 @@ const root = process.env.NOTA_HARMONY_ROOT ?? path.resolve(import.meta.dirname, 
 const helper = fs.readFileSync(path.join(root, 'note/src/main/ets/data/DatabaseHelper.ets'), 'utf8');
 const manager = fs.readFileSync(path.join(root, 'note/src/main/ets/data/DatabaseManager.ets'), 'utf8');
 const checks = [
-  ['database version advances to 62', helper.includes('DB_VERSION: number = 62')],
+  ['database version remains at or beyond the v62 repair',
+    /DB_VERSION: number = (?:6[3-9]|[7-9][0-9]|[1-9][0-9]{2,})/.test(helper)],
   ['version 62 migration is registered', helper.includes('62: []')],
   ['startup invokes asset repair in transaction', manager.indexOf('repairAssetNoteReferences(store)') >= 0],
   ['repair parses JSON structurally', manager.indexOf('JSON.parse(raw)') >= 0],

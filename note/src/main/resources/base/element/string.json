@@ -161,6 +161,38 @@
       "value": "Choose a size and orientation, then select a template."
     },
     {
+      "name": "template_favorite",
+      "value": "Add paper to favorites"
+    },
+    {
+      "name": "template_unfavorite",
+      "value": "Remove paper from favorites"
+    },
+    {
+      "name": "template_settings",
+      "value": "Template Settings"
+    },
+    {
+      "name": "close_template_settings",
+      "value": "Close template settings"
+    },
+    {
+      "name": "template_spacing_level",
+      "value": "Spacing %d"
+    },
+    {
+      "name": "paper_settings_loading",
+      "value": "Loading shared paper settings..."
+    },
+    {
+      "name": "paper_settings_load_failed",
+      "value": "Shared paper settings could not be loaded."
+    },
+    {
+      "name": "paper_settings_save_failed",
+      "value": "Could not update the shared paper setting. Try again."
+    },
+    {
       "name": "type_here",
       "value": "Type here..."
     },

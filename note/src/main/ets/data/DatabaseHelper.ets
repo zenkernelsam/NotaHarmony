@@ -3,13 +3,14 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
+// v63: restore the original shared paper settings database (PaperBackground + BackgroundInfo).
 // v62: remove orphan note_asset references during startup migration.
 // v61: retain CREATE_GROUP clientTime for original group-layered element ordering.
 // v60: retain original z-index values for durable selection reorder Undo/Redo.
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 62;
+export const DB_VERSION: number = 63;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -1564,6 +1565,30 @@ CREATE TABLE IF NOT EXISTS search_page_state (
   FOREIGN KEY(note_id, page_id) REFERENCES page_info(note_id, page_id) ON DELETE CASCADE
 )`;
 
+// Original 1.0.3 settings Room schema. These tables intentionally remain separate from
+// noteEditorSettings/selectedDefaultTemplate: BackgroundInfo is the shared per-line-style
+// spacing state, while PaperBackground is the complete favourite-template collection.
+// Keep the original camelCase column names so imported databases and diagnostics match the APK.
+export const DDL_ORIGINAL_PAPER_BACKGROUND: string = `
+CREATE TABLE IF NOT EXISTS PaperBackground (
+  id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  paperSize INTEGER NOT NULL,
+  paperOrientation TEXT NOT NULL,
+  backgroundColor INTEGER,
+  legacyPaperIndex INTEGER,
+  paperLineType TEXT NOT NULL,
+  spacing REAL,
+  hasOptions INTEGER NOT NULL
+)`;
+
+export const DDL_ORIGINAL_BACKGROUND_INFO: string = `
+CREATE TABLE IF NOT EXISTS BackgroundInfo (
+  paperLineType TEXT NOT NULL,
+  spacing REAL,
+  hasOptions INTEGER NOT NULL,
+  PRIMARY KEY(paperLineType)
+)`;
+
 // 索引
 export const DDL_INDEXES: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_page_snapshot_note
@@ -2452,4 +2477,8 @@ export const MIGRATIONS: Record<number, string[]> = {
      ) WHERE z_index IS NULL`,
   ],
   62: [],
+  63: [
+    DDL_ORIGINAL_PAPER_BACKGROUND,
+    DDL_ORIGINAL_BACKGROUND_INFO,
+  ],
 };
