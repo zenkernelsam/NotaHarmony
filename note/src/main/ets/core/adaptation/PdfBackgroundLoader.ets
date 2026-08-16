@@ -22,6 +22,34 @@ export interface LoadedPdfBackground {
   error: string | null;
 }
 
+export interface PdfNativeReleaseResult {
+  pageError: string | null;
+  documentError: string | null;
+}
+
+// The original closes every PdfRenderer.Page before releasing its renderer.
+// PDFKit exposes the same two-level ownership contract. Cleanup errors are
+// reported independently so one native release never suppresses the other or
+// replaces an otherwise valid rendered result.
+export function releasePdfNativeResources(releasePage: (() => void) | null,
+  releaseDocument: () => void): PdfNativeReleaseResult {
+  let pageError: string | null = null;
+  let documentError: string | null = null;
+  if (releasePage !== null) {
+    try {
+      releasePage();
+    } catch (error) {
+      pageError = JSON.stringify(error);
+    }
+  }
+  try {
+    releaseDocument();
+  } catch (error) {
+    documentError = JSON.stringify(error);
+  }
+  return { pageError: pageError, documentError: documentError };
+}
+
 export class PdfBackgroundLoader {
   private repository: AssetRepositoryImpl;
 
@@ -74,6 +102,7 @@ export class PdfBackgroundLoader {
   private renderLocalPage(path: string, pdf: PagePdfBackground,
     storageHash: string): LoadedPdfBackground {
     const document: pdfService.PdfDocument = new pdfService.PdfDocument();
+    let page: pdfService.PdfPage | null = null;
     let pixelMap: image.PixelMap | null = null;
     try {
       const stat = fileIo.statSync(path);
@@ -92,7 +121,8 @@ export class PdfBackgroundLoader {
         return this.empty(PdfBackgroundLoadState.FAILED, storageHash,
           'PDF document page count conflicts with metadata');
       }
-      pixelMap = document.getPage(pdf.pageInAsset).getPagePixelMap();
+      page = document.getPage(pdf.pageInAsset);
+      pixelMap = page.getPagePixelMap();
       return {
         state: PdfBackgroundLoadState.READY,
         storageHash: storageHash,
@@ -107,7 +137,19 @@ export class PdfBackgroundLoader {
       }
       return this.empty(PdfBackgroundLoadState.FAILED, storageHash, JSON.stringify(error));
     } finally {
-      document.releaseDocument();
+      let releasePage: (() => void) | null = null;
+      if (page !== null) {
+        const pageToRelease: pdfService.PdfPage = page;
+        releasePage = (): void => pageToRelease.release();
+      }
+      const releaseResult: PdfNativeReleaseResult = releasePdfNativeResources(
+        releasePage, (): void => document.releaseDocument());
+      if (releaseResult.pageError !== null) {
+        console.warn(`PDF page release failed: ${releaseResult.pageError}`);
+      }
+      if (releaseResult.documentError !== null) {
+        console.warn(`PDF document release failed: ${releaseResult.documentError}`);
+      }
     }
   }
 

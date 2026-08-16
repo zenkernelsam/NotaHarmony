@@ -15,3 +15,9 @@
 ## 验收
 
 静态 replay 检查输入边界、文件 stat、单次页数读取及调用顺序。真实损坏 PDF、超大 PDF 与 PDFKit 资源释放仍需设备运行态验收。
+
+## Phase 256 生命周期补正
+
+ADR-0234 发现本 ADR 当时只验证 document 释放，遗漏 SDK 明确要求的 `PdfPage.release()`。loader 现显式保存
+page 句柄，并在所有路径先释放 page、再释放 document；两次清理分别捕获错误。静态所有权缺口已关闭，
+真实连续切页/缩略图的 native 内存曲线仍保留为设备验收项。

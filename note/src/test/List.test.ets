@@ -94,6 +94,7 @@ import originalLocalCheckboxMutationTest from './OriginalLocalCheckboxMutation.t
 import mathEditorOverlayTest from './MathEditorOverlay.test';
 import originalMathInsertPlanTest from './OriginalMathInsertPlan.test';
 import mathCanvasRendererTest from './MathCanvasRenderer.test';
+import pdfResourceLifecycleTest from './PdfResourceLifecycle.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -192,4 +193,5 @@ export default function testsuite() {
   mathEditorOverlayTest();
   originalMathInsertPlanTest();
   mathCanvasRendererTest();
+  pdfResourceLifecycleTest();
 }

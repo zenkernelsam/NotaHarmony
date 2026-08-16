@@ -44,7 +44,9 @@ Accepted, 2026-08-11.
   paths defer the enclosing synced transaction without partial page writes.
 - Harmony PDF rendering uses `@kit.PDFKit`, verifies metadata and document page
   count, renders the resolved page to PixelMap/ImageBitmap, and releases the
-  document and pixel resources. Editor and thumbnail paths share the loader;
+  page, document and pixel resources. ADR-0234 corrected the earlier chained
+  `getPage().getPagePixelMap()` path so `PdfPage.release()` is no longer lost.
+  Editor and thumbnail paths share the loader;
   generation guards discard late page results and asset arrival refreshes a
   pending PDF. A failed PDF keeps the normal paper fallback and does not block
   opening the note.
