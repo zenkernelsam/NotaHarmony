@@ -67,6 +67,8 @@ partial eraser 合成和内存预算整体设计；本阶段没有用“每次 z
 
 - 在 1×/2×/3× Density 设备上，缓慢跨越 1.25、1.75、2.25 等 zoom 阈值，核对图案边缘、重复接缝和
   阈值切换是否与原版一致。
+- 在 Phase 259 恢复的 1000% viewport 上确认仍使用原版 8× bucket、不会生成 10× cell，并比较当前笔迹与
+  完成层的最终清晰度。
 - 监测快速 pinch 时的 LRU 命中、ImageBitmap 创建/close、峰值内存和帧时间，确认不会在相邻 bucket 抖动。
 - 比较当前笔迹、完成层、AudioLinked、partial eraser ordered redraw 与缩略图，确认同倍率下图案相位与清晰度一致。
 - 整页完成层的高倍统一模糊与大页面内存上限继续属于 M2-R-03/04，不在本阶段关闭。

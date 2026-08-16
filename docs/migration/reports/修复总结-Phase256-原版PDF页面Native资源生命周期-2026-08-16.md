@@ -78,6 +78,7 @@ Canvas 独占。单张 raster 设 4096/8,388,608 像素 hard cap，区域 API �
 - 含真实 PDF 的连续切页、快速往返和批量缩略图 native 内存曲线；
 - page/document release 异常的实际 SDK 行为；
 - 四种 rotation、非零 margins 与 pending/corrupt PDF；
-- 25%/100%/400% zoom 下的 PDF 像素清晰度与 visible-region cache 峰值。
+- 25%/100%/400%/1000% zoom 下的 PDF 像素清晰度与 visible-region cache 峰值；Phase 257 的动态区域
+  raster 和 hard cap 已接线，1000% 不预设能分配完整 10× bitmap。
 
 T-042 APK 版本追踪仍严格保留为整个 Goal 最后一项。届时必须另写中文 Report，并把追踪文档／工具的功能、入口、阅读顺序和新版 APK decompile/diff 流程归纳进 Wiki、技术/API 文档与新手入门。

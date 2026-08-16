@@ -138,7 +138,8 @@ import { cloneMathElement, eraserPathHitsMathBlock, mathBlockWorldBounds,
 import { createOriginalMathInsertDraft, ORIGINAL_MATH_INSERT_MAX_HEIGHT,
   ORIGINAL_MATH_INSERT_MAX_WIDTH } from '../../core/model/OriginalMathInsertPlan';
 import {
-  CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, PageBackground, PageInfo,
+  CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, ORIGINAL_VIEWPORT_MAX_ZOOM,
+  ORIGINAL_VIEWPORT_MIN_ZOOM, PageBackground, PageInfo,
 } from '../../core/model/NoteTypes';
 import { effectivePageBackground } from '../../core/model/PageBackgroundModel';
 import {
@@ -1495,7 +1496,7 @@ export struct NoteCanvasView {
   private zoomStep(delta: number): void {
     const w: number = this.canvasCtx.width;
     const h: number = this.canvasCtx.height;
-    this.viewport.zoomAt(w / 2, h / 2, 1 + delta);
+    this.viewport.stepZoomAt(w / 2, h / 2, delta);
     this.onViewportChanged();
   }
 
@@ -1506,7 +1507,8 @@ export struct NoteCanvasView {
     const paperW: number = this.getPaperWidth();
     const paperH: number = this.getPaperHeight();
     const fit: number = (w * 0.85) / paperW;
-    const clamped: number = fit < 0.25 ? 0.25 : (fit > 4.0 ? 4.0 : fit);
+    const clamped: number = fit < ORIGINAL_VIEWPORT_MIN_ZOOM ? ORIGINAL_VIEWPORT_MIN_ZOOM :
+      (fit > ORIGINAL_VIEWPORT_MAX_ZOOM ? ORIGINAL_VIEWPORT_MAX_ZOOM : fit);
     this.viewport.setZoomRaw(clamped);
     const scrollX: number = (w - paperW * clamped) / 2;
     const scrollY: number = Math.max(16, (h - paperH * clamped) / 2);

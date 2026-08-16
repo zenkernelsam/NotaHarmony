@@ -15,7 +15,7 @@
 
 ```typescript
 export class CanvasViewport {
-  zoom: number = 1.0;          // [0.25, 4.0]
+  zoom: number = 1.0;          // 原版 1.0.3：[0.25, 10.0]
   scrollX: number = 0;
   scrollY: number = 0;
 
@@ -51,7 +51,7 @@ export class CanvasViewport {
 
 ## 验收标准
 
-- [ ] 双指捏合可缩放（0.25~4.0），以两指中心为锚点
+- [ ] 双指捏合可缩放（0.25~10.0），以两指中心为锚点
 - [ ] 双指拖动可平移画布
 - [ ] 缩放后书写位置准确（笔尖与笔迹对齐，无偏移）
 - [ ] 缩放按钮可用，百分比显示正确
@@ -61,3 +61,10 @@ export class CanvasViewport {
 ## 完成报告
 
 `docs/migration/reports/T-034-完成.md`
+
+## 2026-08-17 Phase 259 更正
+
+- 早期任务把 viewport 上限自定为 4×；原版 1.0.3 `t0g/h3a/v0g` 的真实交互与持久化范围均为
+  0.25×～10×，现以原版为准。
+- 控制条“按钮步进 0.25”仍是本任务的 Harmony 产品契约。它不是原版键盘命令的 1.2/0.8333333 倍率；
+  实现必须使用加法目标值，再复用原版式屏幕锚点算法。

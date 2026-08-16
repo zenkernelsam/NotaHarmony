@@ -52,10 +52,10 @@ export default function pageCoordinateSpaceTest() {
       expect(rejected).assertTrue();
     });
 
-    it('round-trips one page control point at 25, 100 and 400 percent', 0, () => {
+    it('round-trips one page control point at 25, 100, 400 and original 1000 percent', 0, () => {
       const viewport: CanvasViewport = new CanvasViewport();
       const pagePoint: Point2D = { x: 321.25, y: 654.75 };
-      const zooms: number[] = [0.25, 1, 4];
+      const zooms: number[] = [0.25, 1, 4, 10];
       for (const zoom of zooms) {
         viewport.setZoomRaw(zoom);
         viewport.setScroll(-173.5, 82.25);
@@ -72,9 +72,9 @@ export default function pageCoordinateSpaceTest() {
       viewport.setScroll(-1200, 730);
       const anchor: Point2D = { x: 413, y: 277 };
       const before: Point2D = viewport.screenToCanvas(anchor.x, anchor.y);
-      viewport.zoomAt(anchor.x, anchor.y, 16);
+      viewport.zoomAt(anchor.x, anchor.y, 40);
       const after: Point2D = viewport.screenToCanvas(anchor.x, anchor.y);
-      expect(viewport.zoom).assertEqual(4);
+      expect(viewport.zoom).assertEqual(10);
       expect(Math.abs(after.x - before.x) < 1e-10).assertTrue();
       expect(Math.abs(after.y - before.y) < 1e-10).assertTrue();
     });

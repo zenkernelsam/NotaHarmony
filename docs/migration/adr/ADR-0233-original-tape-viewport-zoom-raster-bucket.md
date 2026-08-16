@@ -32,4 +32,6 @@ viewport/page-to-output scale 来源，可以结束该 deferred 状态。
 - 主画布、临时笔迹、AudioLinked 重放、partial eraser ordered redraw 与缩略图使用一致的分桶规则。
 - 完成层本身仍是页面尺寸 bitmap；高倍 zoom 下所有完成内容的最终清晰度仍受现有整页缓存架构约束。
   这一限制属于 M2-R-03/M2-R-04 的 tile renderer/设备验收边界，不在本阶段伪装为已解决。
+- Phase 259 已恢复原版 10× viewport 上限；Tape source bucket 仍按原版在 8×封顶。1000% viewport 应稳定
+  复用 8× bucket，而不是创建 10× cell；最终经过完成层后的像素清晰度仍需设备对照。
 - Phase 155 的 deferred 决策由本 ADR 收口；历史取证纠正仍保留。

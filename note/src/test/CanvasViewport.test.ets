@@ -1,5 +1,8 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { Point2D } from '../main/ets/core/model/GeometryTypes';
+import {
+  ORIGINAL_VIEWPORT_MAX_ZOOM, ORIGINAL_VIEWPORT_MIN_ZOOM,
+} from '../main/ets/core/model/NoteTypes';
 import { CanvasViewport, CumulativeGestureTracker } from '../main/ets/rendering/CanvasViewport';
 
 export default function canvasViewportTest() {
@@ -12,7 +15,8 @@ export default function canvasViewportTest() {
         return seed / 4294967296;
       };
       for (let i: number = 0; i < 1000; i++) {
-        viewport.setZoomRaw(0.25 + random() * 3.75);
+        viewport.setZoomRaw(ORIGINAL_VIEWPORT_MIN_ZOOM +
+          random() * (ORIGINAL_VIEWPORT_MAX_ZOOM - ORIGINAL_VIEWPORT_MIN_ZOOM));
         viewport.setScroll(-5000 + random() * 10000, -5000 + random() * 10000);
         const page: Point2D = { x: -1000 + random() * 4000, y: -1000 + random() * 4000 };
         const screen: Point2D = viewport.canvasToScreen(page.x, page.y);
@@ -25,7 +29,7 @@ export default function canvasViewportTest() {
     it('keeps random screen anchors within 0.5 pixels while zooming', 0, () => {
       const viewport: CanvasViewport = new CanvasViewport();
       for (let i: number = 0; i < 1000; i++) {
-        viewport.setZoomRaw(0.25 + (i % 16) * 0.25);
+        viewport.setZoomRaw(ORIGINAL_VIEWPORT_MIN_ZOOM + (i % 40) * 0.25);
         viewport.setScroll(-1500 + i * 1.7, 900 - i * 0.8);
         const anchor: Point2D = { x: (i * 97) % 2048, y: (i * 53) % 1536 };
         const pageBefore: Point2D = viewport.screenToCanvas(anchor.x, anchor.y);
@@ -42,14 +46,42 @@ export default function canvasViewportTest() {
       viewport.setScroll(30, 40);
       expect(viewport.setZoomRaw(Number.NaN)).assertFalse();
       expect(viewport.setZoomRaw(Number.POSITIVE_INFINITY)).assertFalse();
-      expect(viewport.setZoomRaw(0.24)).assertFalse();
-      expect(viewport.setZoomRaw(4.01)).assertFalse();
+      expect(viewport.setZoomRaw(Number.NEGATIVE_INFINITY)).assertFalse();
+      expect(viewport.setZoomRaw(ORIGINAL_VIEWPORT_MIN_ZOOM)).assertTrue();
+      expect(viewport.setZoomRaw(ORIGINAL_VIEWPORT_MIN_ZOOM - 0.01)).assertFalse();
+      expect(viewport.setZoomRaw(ORIGINAL_VIEWPORT_MAX_ZOOM)).assertTrue();
+      expect(viewport.setZoomRaw(ORIGINAL_VIEWPORT_MAX_ZOOM + 0.01)).assertFalse();
       expect(viewport.setScroll(Number.NaN, 10)).assertFalse();
       viewport.zoomAt(20, 20, Number.POSITIVE_INFINITY);
       viewport.panBy(Number.NaN, 5);
-      expect(viewport.zoom).assertEqual(2);
+      expect(viewport.zoom).assertEqual(ORIGINAL_VIEWPORT_MAX_ZOOM);
       expect(viewport.scrollX).assertEqual(30);
       expect(viewport.scrollY).assertEqual(40);
+    });
+
+    it('uses additive toolbar steps while preserving the viewport-center anchor', 0, () => {
+      const viewport: CanvasViewport = new CanvasViewport();
+      viewport.setScroll(-80, 45);
+      const anchor: Point2D = { x: 600, y: 400 };
+      const pageBefore: Point2D = viewport.screenToCanvas(anchor.x, anchor.y);
+      viewport.stepZoomAt(anchor.x, anchor.y, 0.25);
+      expect(viewport.zoom).assertEqual(1.25);
+      viewport.stepZoomAt(anchor.x, anchor.y, 0.25);
+      expect(viewport.zoom).assertEqual(1.5);
+      viewport.stepZoomAt(anchor.x, anchor.y, 0.25);
+      expect(viewport.zoom).assertEqual(1.75);
+      const screenAfter: Point2D = viewport.canvasToScreen(pageBefore.x, pageBefore.y);
+      expect(Math.abs(screenAfter.x - anchor.x) < 0.000001).assertTrue();
+      expect(Math.abs(screenAfter.y - anchor.y) < 0.000001).assertTrue();
+      viewport.stepZoomAt(anchor.x, anchor.y, -0.25);
+      expect(viewport.zoom).assertEqual(1.5);
+
+      viewport.setZoomRaw(ORIGINAL_VIEWPORT_MAX_ZOOM);
+      viewport.stepZoomAt(anchor.x, anchor.y, 0.25);
+      expect(viewport.zoom).assertEqual(ORIGINAL_VIEWPORT_MAX_ZOOM);
+      viewport.setZoomRaw(ORIGINAL_VIEWPORT_MIN_ZOOM);
+      viewport.stepZoomAt(anchor.x, anchor.y, -0.25);
+      expect(viewport.zoom).assertEqual(ORIGINAL_VIEWPORT_MIN_ZOOM);
     });
 
     it('converts cumulative pinch and pan values to frame deltas and resets after cancel', 0, () => {
@@ -83,6 +115,8 @@ export default function canvasViewportTest() {
         expect(visible.bottom).assertEqual(275);
       }
       expect(viewport.visibleCanvasRect(0, 600) === null).assertTrue();
+      viewport.zoom = ORIGINAL_VIEWPORT_MAX_ZOOM + 0.01;
+      expect(viewport.visibleCanvasRect(800, 600) === null).assertTrue();
     });
   });
 }

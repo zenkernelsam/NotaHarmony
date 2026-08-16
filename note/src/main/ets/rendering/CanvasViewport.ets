@@ -1,13 +1,14 @@
 // T-034 画布视口状态管理（缩放/平移 + 坐标映射）
 // 纯逻辑模块：不 import 平台 API
 import { Point2D, Rect2D } from '../core/model/GeometryTypes';
+import {
+  isOriginalViewportZoom, ORIGINAL_VIEWPORT_MAX_ZOOM, ORIGINAL_VIEWPORT_MIN_ZOOM,
+} from '../core/model/NoteTypes';
 
 export class CanvasViewport {
-  zoom: number = 1.0;          // [0.25, 4.0]
+  zoom: number = 1.0;          // 原版 [0.25, 10.0]
   scrollX: number = 0;
   scrollY: number = 0;
-  private static readonly MIN_ZOOM: number = 0.25;
-  private static readonly MAX_ZOOM: number = 4.0;
 
   // 屏幕坐标 → 画布坐标（输入点必须经此映射）
   screenToCanvas(sx: number, sy: number): Point2D {
@@ -21,7 +22,7 @@ export class CanvasViewport {
 
   visibleCanvasRect(screenWidth: number, screenHeight: number): Rect2D | null {
     if (!Number.isFinite(screenWidth) || !Number.isFinite(screenHeight) ||
-      screenWidth <= 0 || screenHeight <= 0 || !Number.isFinite(this.zoom) || this.zoom <= 0 ||
+      screenWidth <= 0 || screenHeight <= 0 || !isOriginalViewportZoom(this.zoom) ||
       !Number.isFinite(this.scrollX) || !Number.isFinite(this.scrollY)) {
       return null;
     }
@@ -38,7 +39,8 @@ export class CanvasViewport {
   // 以某屏幕点为中心缩放（保持该点下的画布内容不动）
   zoomAt(sx: number, sy: number, factor: number): void {
     if (!Number.isFinite(sx) || !Number.isFinite(sy) || !Number.isFinite(factor) || factor <= 0 ||
-      !Number.isFinite(this.zoom) || !Number.isFinite(this.scrollX) || !Number.isFinite(this.scrollY)) {
+      !isOriginalViewportZoom(this.zoom) ||
+      !Number.isFinite(this.scrollX) || !Number.isFinite(this.scrollY)) {
       return;
     }
     const newZoom: number = this.clampZoom(this.zoom * factor);
@@ -52,6 +54,15 @@ export class CanvasViewport {
     this.zoom = newZoom;
   }
 
+  // 工具栏按固定百分点步进；与 pinch 的倍率输入分开，避免 125%→156% 的乘法漂移。
+  stepZoomAt(sx: number, sy: number, delta: number): void {
+    if (!Number.isFinite(delta) || !isOriginalViewportZoom(this.zoom)) {
+      return;
+    }
+    const targetZoom: number = this.clampZoom(this.zoom + delta);
+    this.zoomAt(sx, sy, targetZoom / this.zoom);
+  }
+
   // 平移（屏幕像素增量）
   panBy(dx: number, dy: number): void {
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
@@ -63,7 +74,7 @@ export class CanvasViewport {
 
   // 直接设置缩放值，不改变 scroll；用于随后显式恢复/重算 scroll 的调用路径。
   setZoomRaw(z: number): boolean {
-    if (!Number.isFinite(z) || z < CanvasViewport.MIN_ZOOM || z > CanvasViewport.MAX_ZOOM) {
+    if (!isOriginalViewportZoom(z)) {
       return false;
     }
     this.zoom = z;
@@ -98,11 +109,11 @@ export class CanvasViewport {
   }
 
   private clampZoom(z: number): number {
-    if (z < CanvasViewport.MIN_ZOOM) {
-      return CanvasViewport.MIN_ZOOM;
+    if (z < ORIGINAL_VIEWPORT_MIN_ZOOM) {
+      return ORIGINAL_VIEWPORT_MIN_ZOOM;
     }
-    if (z > CanvasViewport.MAX_ZOOM) {
-      return CanvasViewport.MAX_ZOOM;
+    if (z > ORIGINAL_VIEWPORT_MAX_ZOOM) {
+      return ORIGINAL_VIEWPORT_MAX_ZOOM;
     }
     return z;
   }

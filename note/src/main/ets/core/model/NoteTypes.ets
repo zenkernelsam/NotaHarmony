@@ -145,9 +145,20 @@ export interface NoteMeta {
 
 // 笔记视图状态（对应 NoteStateEntity）
 export const CURRENT_VIEW_COORDINATE_MODEL_VERSION: number = 1;
+export const ORIGINAL_VIEWPORT_MIN_ZOOM: number = 0.25;
+export const ORIGINAL_VIEWPORT_MAX_ZOOM: number = 10.0;
 
 export function isCurrentViewCoordinateModel(version: number): boolean {
   return version === CURRENT_VIEW_COORDINATE_MODEL_VERSION;
+}
+
+export function isOriginalViewportZoom(zoom: number): boolean {
+  return Number.isFinite(zoom) && zoom >= ORIGINAL_VIEWPORT_MIN_ZOOM &&
+    zoom <= ORIGINAL_VIEWPORT_MAX_ZOOM;
+}
+
+export function isFiniteViewportScrollOffset(x: number, y: number): boolean {
+  return Number.isFinite(x) && Number.isFinite(y);
 }
 
 export interface NoteViewState {

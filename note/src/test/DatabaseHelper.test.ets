@@ -25,7 +25,9 @@ import {
   DDL_INDEXES, MIGRATIONS,
 } from
   '../main/ets/data/DatabaseHelper';
-import { isCurrentViewCoordinateModel } from '../main/ets/core/model/NoteTypes';
+import {
+  isCurrentViewCoordinateModel, isFiniteViewportScrollOffset, isOriginalViewportZoom,
+} from '../main/ets/core/model/NoteTypes';
 import { SearchItemType } from '../main/ets/data/SearchItemType';
 
 export default function databaseHelperTest() {
@@ -299,6 +301,15 @@ export default function databaseHelperTest() {
       expect(migration).assertContain('DEFAULT 0');
       expect(isCurrentViewCoordinateModel(0)).assertFalse();
       expect(isCurrentViewCoordinateModel(1)).assertTrue();
+      expect(isOriginalViewportZoom(0.25)).assertTrue();
+      expect(isOriginalViewportZoom(10)).assertTrue();
+      expect(isOriginalViewportZoom(0.24)).assertFalse();
+      expect(isOriginalViewportZoom(10.01)).assertFalse();
+      expect(isOriginalViewportZoom(Number.NaN)).assertFalse();
+      expect(isOriginalViewportZoom(Number.POSITIVE_INFINITY)).assertFalse();
+      expect(isFiniteViewportScrollOffset(-415.5, 137.25)).assertTrue();
+      expect(isFiniteViewportScrollOffset(Number.NaN, 137.25)).assertFalse();
+      expect(isFiniteViewportScrollOffset(-415.5, Number.NEGATIVE_INFINITY)).assertFalse();
     });
 
     it('repairs orphans before rebuilding tables with foreign keys', 0, () => {

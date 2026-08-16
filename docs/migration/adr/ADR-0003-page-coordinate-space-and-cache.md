@@ -35,4 +35,6 @@ Page size or orientation changes rebuild only the page cache. They do not call `
 - Corrupt page dimensions now fail page loading explicitly instead of attempting an unbounded OffscreenCanvas allocation.
 - The current paper-size product surface does not support arbitrary custom dimensions above the cache budget.
 - No tile cache is introduced in M2-R-03. A tile decision requires device evidence that standard pages exceed memory or canvas limits.
-- Device validation is still required at 25%, 100%, and 400% zoom, under large pan offsets, after rotation, and across ten-minute writing/memory runs.
+- Device validation is still required at 25%, 100%, 400%, and the original 1000% maximum zoom, under large pan offsets,
+  after rotation, and across ten-minute writing/memory runs. The 1000% point validates viewport math and also exposes
+  consumer-specific raster/cache caps; it does not imply that every completed bitmap is already native-resolution.

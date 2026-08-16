@@ -1,8 +1,8 @@
 // T-017 NoteRepository 实现（relationalStore，全部方法异常安全）
 import { relationalStore } from '@kit.ArkData';
 import {
-  CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, NoteBackgroundSettings,
-  NoteMeta, NoteViewState,
+  CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, isFiniteViewportScrollOffset,
+  isOriginalViewportZoom, NoteBackgroundSettings, NoteMeta, NoteViewState,
 } from '../core/model/NoteTypes';
 import {
   OriginalDefaultTemplateSelection, originalDefaultTemplateSettings,
@@ -340,6 +340,12 @@ export class NoteRepositoryImpl implements NoteRepository {
   async saveViewState(state: NoteViewState): Promise<void> {
     if (!isCurrentViewCoordinateModel(state.coordinateModelVersion)) {
       throw new Error(`saveViewState coordinate model mismatch: ${state.coordinateModelVersion}`);
+    }
+    if (!isOriginalViewportZoom(state.zoom)) {
+      throw new Error(`saveViewState invalid zoom: ${state.zoom}`);
+    }
+    if (!isFiniteViewportScrollOffset(state.scrollOffsetX, state.scrollOffsetY)) {
+      throw new Error(`saveViewState invalid scroll offset: ${state.scrollOffsetX},${state.scrollOffsetY}`);
     }
     await databaseWriteMutex.runExclusive(async (): Promise<void> => {
       const store: relationalStore.RdbStore = this.db.getStore();

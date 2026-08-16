@@ -35,7 +35,7 @@ M2-R-04 的 retained completed bitmap、最多 8 个独立 dirty region、按 zo
 
 - 单次绘制失败不再污染后续主画布或缩略图的 transform、clip、alpha、filter、line dash 与 composite mode。
 - 嵌套 renderer 各自恢复自己的状态层级，外层 `renderFrame` 的恢复不再承担清理未知深度泄漏的职责。
-- 非有限 zoom 不会悄悄取消抗锯齿 padding；正常 `[0.25, 4]` viewport 路径完全不变。
+- 非有限 zoom 不会悄悄取消抗锯齿 padding；Phase 259 已把正常 viewport 范围按原版更正为 `[0.25, 10]`。
 - M2-R-04 的静态代码项至此应记录为闭环：retained bitmap、multi-dirty、资源释放、transfer 统计与异常状态恢复
   均已有实现。500 笔帧时、10 分钟内存曲线、真实设备裁剪边缘和 native 峰值仍是运行态验收门，不能由 HAP
   编译或桌面 replay 代替。

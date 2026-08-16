@@ -42,6 +42,9 @@ DPI 与 clip 后 raster。Harmony PDFKit 的 `PdfMatrix + getAreaPixelMap()` 可
 - PDF 文件自身 page rotation、区域 API 像素边缘、快速 pinch/pan 抖动及 native 内存曲线仍需设备验收。
   Phase 258 后更正：M2-R-04 的 retained transfer/dirty-region 静态实现已闭环，仍开放的只是设备帧时、长时
   内存、裁剪边缘和 native 峰值验收。
+- Phase 259 已把 viewport 上限按原版恢复为 10×。PDF plan 会继续按真实输出倍率请求并受 4096 单边/
+  8,388,608 像素 hard cap 约束；1000% 下的实际 bounded scale、边缘与内存必须设备验证，不能把 viewport
+  可达 10×解释为 PDF 一定生成 10× raster。
 
 ## 验证契约
 

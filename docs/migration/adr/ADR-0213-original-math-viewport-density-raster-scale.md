@@ -51,7 +51,8 @@ Harmony 的 `MathCanvasRenderer` 对主编辑器和缩略图统一固定使用 `
 
 ## 边界
 
-- 真机仍需在 1×/2×/3× Density 和 25%–400% zoom 下核对 bitmap 尺寸、清晰度、裁切与缓存切换。
+- 真机仍需在 1×/2×/3× Density 和 25%–1000% viewport zoom 下核对 bitmap 尺寸、清晰度、裁切与缓存切换；
+  400% 以上应继续稳定使用原版 4× Math source raster cap，而不是随 viewport 创建 10×公式 bitmap。
 - 当前含原版 partial eraser 时会先把完整内容画入全页 `OffscreenCanvas`；该公共离屏层自身的分辨率与缩放可能
   继续限制包括 Math 在内的最终质量。本 ADR 修正 Math source bitmap 契约，不在同一批次重写全元素 tile/layer
   架构；该问题保留为后续边修边审项。
