@@ -4,7 +4,7 @@ import { ElementType, ImageElement, MathElement, PolygonElement,
   TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import { PageElementKind, PageElementRef } from '../main/ets/core/model/PageElementOrder';
 import {
-  ClipboardOriginalGroupPastePreview, ClipboardPasteResult, StrokeClipboard,
+  ClipboardCopyPreparation, ClipboardOriginalGroupPastePreview, ClipboardPasteResult, StrokeClipboard,
 } from '../main/ets/rendering/StrokeClipboard';
 
 function stroke(id: string, left: number = 10, top: number = 20): StrokeElementData {
@@ -110,7 +110,7 @@ export default function strokeClipboardTest() {
       source.renderSpec.inkEffectPhase = -1;
       source.transform[2] = 999;
       source.maskPath[0].x = 999;
-      const pasted: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+      const pasted: ClipboardPasteResult | null = clipboard.paste(800, 1100, { x: 35, y: 45 },
         (_sourceId: string, sequence: number, index: number): string => `paste-${sequence}-${index}`);
       expect(pasted !== null).assertTrue();
       expect(pasted?.strokes[0].pathPoints[0].position.x).assertEqual(10);
@@ -126,19 +126,19 @@ export default function strokeClipboardTest() {
       expect(source.id).assertEqual('source');
     });
 
-    it('creates fresh ids and increasing offsets for consecutive pastes', 0, () => {
+    it('creates fresh ids while preserving the requested target for consecutive pastes', 0, () => {
       const clipboard: StrokeClipboard = new StrokeClipboard();
       expect(clipboard.copy([stroke('a'), stroke('b', 30, 40)], 'page-1')).assertTrue();
-      const first: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+      const first: ClipboardPasteResult | null = clipboard.paste(800, 1100, { x: 45, y: 55 },
         (sourceId: string, sequence: number): string => `${sourceId}-${sequence}`);
-      const second: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+      const second: ClipboardPasteResult | null = clipboard.paste(800, 1100, { x: 45, y: 55 },
         (sourceId: string, sequence: number): string => `${sourceId}-${sequence}`);
       expect(first?.pasteSequence).assertEqual(1);
       expect(first?.offset.x).assertEqual(20);
       expect(first?.strokes[0].id).assertEqual('a-1');
       expect(first?.strokes[1].id).assertEqual('b-1');
       expect(second?.pasteSequence).assertEqual(2);
-      expect(second?.offset.x).assertEqual(40);
+      expect(second?.offset.x).assertEqual(20);
       expect(second?.strokes[0].id).assertEqual('a-2');
       expect(first?.sourcePageId).assertEqual('page-1');
     });
@@ -147,7 +147,7 @@ export default function strokeClipboardTest() {
       const clipboard: StrokeClipboard = new StrokeClipboard();
       expect(clipboard.copy([withOriginalCreate(stroke('op:100:7'))], 'page-1')).assertTrue();
       expect(clipboard.singleOriginalCreateSource()?.kind).assertEqual(PageElementKind.STROKE);
-      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100, { x: 35, y: 45 },
         (): string => 'op:200:7');
       expect(result?.strokes[0].originalCreate === undefined).assertTrue();
 
@@ -178,7 +178,7 @@ export default function strokeClipboardTest() {
       groups[0].members[0] = 'mutated';
 
       const preview: ClipboardOriginalGroupPastePreview | null =
-        clipboard.prepareOriginalGroupPaste(800, 1100);
+        clipboard.prepareOriginalGroupPaste(800, 1100, { x: 45, y: 55 });
       expect(preview !== null).assertTrue();
       expect(preview?.paste.pasteSequence).assertEqual(1);
       expect(preview?.paste.offset.x).assertEqual(20);
@@ -190,11 +190,13 @@ export default function strokeClipboardTest() {
       expect(preview?.groups[1].id).assertEqual('op:103:7');
       expect(preview?.topGroupIds[0]).assertEqual('op:103:7');
 
-      expect(clipboard.commitPreparedPaste(2)).assertFalse();
-      expect(clipboard.prepareOriginalGroupPaste(800, 1100)?.paste.pasteSequence).assertEqual(1);
-      expect(clipboard.commitPreparedPaste(1)).assertTrue();
-      expect(clipboard.prepareOriginalGroupPaste(800, 1100)?.paste.pasteSequence).assertEqual(2);
-      expect(clipboard.prepareOriginalGroupPaste(800, 1100)?.paste.offset.x).assertEqual(40);
+      expect(clipboard.commitPreparedPaste(
+        2, preview?.paste.clipboardRevision ?? -1)).assertFalse();
+      expect(clipboard.prepareOriginalGroupPaste(800, 1100, { x: 45, y: 55 })?.paste.pasteSequence).assertEqual(1);
+      expect(clipboard.commitPreparedPaste(
+        1, preview?.paste.clipboardRevision ?? -1)).assertTrue();
+      expect(clipboard.prepareOriginalGroupPaste(800, 1100, { x: 45, y: 55 })?.paste.pasteSequence).assertEqual(2);
+      expect(clipboard.prepareOriginalGroupPaste(800, 1100, { x: 45, y: 55 })?.paste.offset.x).assertEqual(20);
     });
 
     it('rejects incomplete or multi-parent original Group snapshots without replacing content', 0, () => {
@@ -214,6 +216,90 @@ export default function strokeClipboardTest() {
       expect(clipboard.size()).assertEqual(1);
     });
 
+    it('does not publish a prepared Copy until the caller commits it', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      expect(clipboard.copy([stroke('old')], 'page-1')).assertTrue();
+      const preparation: ClipboardCopyPreparation | null = clipboard.prepareCopy(
+        [stroke('new')], 'page-1');
+      expect(preparation !== null).assertTrue();
+      const oldPaste: ClipboardPasteResult | null = clipboard.paste(
+        800, 1100, { x: 35, y: 45 }, (): string => 'old-paste');
+      expect(oldPaste?.strokes[0].id).assertEqual('old-paste');
+      expect(preparation !== null && clipboard.commitPreparedCopy(preparation)).assertTrue();
+      const newPaste: ClipboardPasteResult | null = clipboard.paste(
+        800, 1100, { x: 35, y: 45 }, (): string => 'new-paste');
+      expect(newPaste?.strokes[0].id).assertEqual('new-paste');
+    });
+
+    it('keeps the previous clipboard when a Cut preparation is cancelled', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      expect(clipboard.copy([stroke('old')], 'page-1')).assertTrue();
+      const preparation: ClipboardCopyPreparation | null = clipboard.prepareCopy(
+        [stroke('candidate')], 'page-1');
+      expect(preparation !== null).assertTrue();
+      if (preparation !== null) {
+        clipboard.cancelPreparedCopy(preparation);
+      }
+      const pasted: ClipboardPasteResult | null = clipboard.paste(
+        800, 1100, { x: 35, y: 45 }, (): string => 'still-old');
+      expect(pasted?.strokes[0].id).assertEqual('still-old');
+    });
+
+    it('uses the requested target center instead of sequence-based geometry', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      expect(clipboard.copy([stroke('source')], 'page-1')).assertTrue();
+      const first: ClipboardPasteResult | null = clipboard.paste(
+        800, 1100, { x: 100, y: 120 }, (): string => 'first');
+      const second: ClipboardPasteResult | null = clipboard.paste(
+        800, 1100, { x: 100, y: 120 }, (): string => 'second');
+      expect(first?.offset.x).assertEqual(85);
+      expect(first?.offset.y).assertEqual(95);
+      expect(second?.offset.x).assertEqual(85);
+      expect(second?.offset.y).assertEqual(95);
+    });
+
+    it('does not consume an ordinary Paste sequence until persistence accepts it', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      expect(clipboard.copy([stroke('source')], 'page-1')).assertTrue();
+      const rejected: ClipboardPasteResult | null = clipboard.preparePaste(
+        800, 1100, { x: 100, y: 120 }, (): string => 'rejected');
+      expect(rejected?.pasteSequence).assertEqual(1);
+      const retry: ClipboardPasteResult | null = clipboard.preparePaste(
+        800, 1100, { x: 100, y: 120 }, (): string => 'retry');
+      expect(retry?.pasteSequence).assertEqual(1);
+      expect(retry !== null && clipboard.commitPreparedPaste(
+        retry.pasteSequence, retry.clipboardRevision)).assertTrue();
+      expect(clipboard.preparePaste(800, 1100, { x: 100, y: 120 },
+        (): string => 'next')?.pasteSequence).assertEqual(2);
+    });
+
+    it('rejects a prepared Paste after a newer Copy replaces the clipboard', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      expect(clipboard.copy([stroke('old')], 'page-1')).assertTrue();
+      const stale: ClipboardPasteResult | null = clipboard.preparePaste(
+        800, 1100, { x: 100, y: 120 }, (): string => 'stale');
+      expect(stale !== null).assertTrue();
+      expect(clipboard.copy([stroke('new')], 'page-1')).assertTrue();
+      expect(stale !== null && clipboard.commitPreparedPaste(
+        stale.pasteSequence, stale.clipboardRevision)).assertFalse();
+      expect(clipboard.preparePaste(800, 1100, { x: 100, y: 120 },
+        (): string => 'fresh')?.pasteSequence).assertEqual(1);
+    });
+
+    it('ignores an unrelated malformed Group while copying an independent selection', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      expect(clipboard.copy([stroke('independent')], 'page-1', [], [], [], [], [], [{
+        id: 'broken', timestamp: 1, siteId: 1, members: [],
+      }], [])).assertTrue();
+      expect(clipboard.size()).assertEqual(1);
+      expect(clipboard.copy([stroke('leaf')], 'page-1', [], [], [], [], [], [{
+        id: 'reachable', timestamp: 2, siteId: 1, members: ['leaf'],
+      }, {
+        id: 'unrelated-broken', timestamp: 3, siteId: 1, members: [],
+      }], ['reachable'])).assertTrue();
+      expect(clipboard.hasOriginalGroupGraph()).assertTrue();
+    });
+
     it('materializes original Ink and Shape paste offsets without transform registers', 0, () => {
       const clipboard: StrokeClipboard = new StrokeClipboard();
       const sourceStroke: StrokeElementData = stroke('op:100:7');
@@ -228,7 +314,7 @@ export default function strokeClipboardTest() {
       if (candidate?.stroke !== undefined) {
         candidate.stroke.pathPoints[0].position.x = 999;
       }
-      const inkPaste: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+      const inkPaste: ClipboardPasteResult | null = clipboard.paste(800, 1100, { x: 35, y: 45 },
         (): string => 'op:200:7', PageElementKind.STROKE);
       expect(inkPaste?.strokes[0].transform[2]).assertEqual(0);
       expect(inkPaste?.strokes[0].transform[5]).assertEqual(0);
@@ -242,7 +328,7 @@ export default function strokeClipboardTest() {
       sourceShape.originalTool = 0;
       sourceShape.originalStyle = 1;
       expect(clipboard.copy([], 'page-1', [sourceShape])).assertTrue();
-      const shapePaste: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+      const shapePaste: ClipboardPasteResult | null = clipboard.paste(800, 1100, { x: 70, y: 80 },
         (): string => 'op:400:7', PageElementKind.SHAPE);
       expect(shapePaste?.shapes[0].transform[2]).assertEqual(0);
       expect((shapePaste?.shapes[0] as PolygonElement).vertices[0].x).assertEqual(60);
@@ -254,7 +340,7 @@ export default function strokeClipboardTest() {
       transformed.transform = [0, -2, 100, 2, 0, 50, 0, 0, 1];
       transformed.bounds = { left: 40, top: 70, right: 80, bottom: 110 };
       expect(clipboard.copy([transformed], 'page-1')).assertTrue();
-      const transformedPaste: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+      const transformedPaste: ClipboardPasteResult | null = clipboard.paste(800, 1100, { x: 80, y: 110 },
         (): string => 'op:600:7', PageElementKind.STROKE);
       expect(transformedPaste?.strokes[0].transform[0]).assertEqual(1);
       expect(transformedPaste?.strokes[0].pathPoints[0].position.x).assertEqual(80);
@@ -268,7 +354,7 @@ export default function strokeClipboardTest() {
     it('keeps pasted content inside a smaller destination page', 0, () => {
       const clipboard: StrokeClipboard = new StrokeClipboard();
       expect(clipboard.copy([stroke('edge', 180, 180)], 'wide-page')).assertTrue();
-      const result: ClipboardPasteResult | null = clipboard.paste(200, 200,
+      const result: ClipboardPasteResult | null = clipboard.paste(200, 200, { x: 190, y: 190 },
         (): string => 'new-edge');
       expect(result?.offset.x).assertEqual(2);
       expect(result?.offset.y).assertEqual(2);
@@ -279,8 +365,8 @@ export default function strokeClipboardTest() {
     it('rejects duplicate generated ids without consuming the paste sequence', 0, () => {
       const clipboard: StrokeClipboard = new StrokeClipboard();
       expect(clipboard.copy([stroke('a'), stroke('b')], 'page-1')).assertTrue();
-      expect(clipboard.paste(800, 1100, (): string => 'duplicate') === null).assertTrue();
-      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+      expect(clipboard.paste(800, 1100, { x: 35, y: 45 }, (): string => 'duplicate') === null).assertTrue();
+      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100, { x: 35, y: 45 },
         (_sourceId: string, sequence: number, index: number): string => `${sequence}-${index}`);
       expect(result?.pasteSequence).assertEqual(1);
     });
@@ -292,7 +378,7 @@ export default function strokeClipboardTest() {
       source.vertices[0].x = 999;
       source.transform[2] = 999;
       source.bounds.left = 999;
-      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100, { x: 70, y: 80 },
         (): string => 'shape-paste');
       expect(result?.strokes.length).assertEqual(0);
       expect(result?.shapes.length).assertEqual(1);
@@ -310,7 +396,7 @@ export default function strokeClipboardTest() {
         { kind: PageElementKind.STROKE, elementId: 'stroke-1', zIndex: 1 },
       ];
       expect(clipboard.copy([stroke('stroke-1')], 'page-1', [shape('shape-1')], order)).assertTrue();
-      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100, { x: 55, y: 65 },
         (_sourceId: string, _sequence: number, index: number): string => `mixed-${index}`);
       expect(result?.elementOrder.length).assertEqual(2);
       expect(result?.elementOrder[0].kind).assertEqual(PageElementKind.SHAPE);
@@ -328,7 +414,7 @@ export default function strokeClipboardTest() {
       source.textOrigin.x = 999;
       source.transform[2] = 999;
       source.bounds.left = 999;
-      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100, { x: 140, y: 120 },
         (): string => 'text-paste');
       expect(result?.strokes.length).assertEqual(0);
       expect(result?.shapes.length).assertEqual(0);
@@ -348,7 +434,7 @@ export default function strokeClipboardTest() {
       ];
       expect(clipboard.copy([stroke('stroke-1')], 'page-1', [shape('shape-1')], order,
         [textBlock('text-1')])).assertTrue();
-      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100, { x: 185, y: 150 },
         (_sourceId: string, _sequence: number, index: number): string => `all-${index}`);
       expect(result?.elementOrder.length).assertEqual(3);
       expect(result?.elementOrder[0].kind).assertEqual(PageElementKind.TEXT);
@@ -372,7 +458,7 @@ export default function strokeClipboardTest() {
         source.cropRect.left = 999;
       }
       source.transform[2] = 999;
-      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100,
+      const result: ClipboardPasteResult | null = clipboard.paste(800, 1100, { x: 185, y: 150 },
         (_sourceId: string, _sequence: number, index: number): string => `media-${index}`);
       expect(result?.images.length).assertEqual(1);
       expect(result?.images[0].assetHashBits[0]).assertEqual('1');
@@ -395,7 +481,7 @@ export default function strokeClipboardTest() {
       source.transform[2] = 999;
       source.bounds.left = 999;
       source.latex = 'mutated';
-      const result: ClipboardPasteResult | null = clipboard.paste(900, 1100,
+      const result: ClipboardPasteResult | null = clipboard.paste(900, 1100, { x: 275, y: 190 },
         (_sourceId: string, _sequence: number, index: number): string => `math-${index}`);
       expect(result?.mathBlocks.length).assertEqual(1);
       expect(result?.mathBlocks[0].latex).assertEqual('x^2+y^2');

@@ -59,7 +59,9 @@ assert.match(canvas, /eraserPathHitsImageBlock\(this\.eraserPath, image/);
 assert.match(canvas, /transformImageElements\(/);
 assert.match(canvas, /restoreRemovedImages/);
 assert.match(canvas, /replaceImagesById/);
-assert.match(canvas, /this\.imageBlocks\.splice\(this\.imageBlocks\.length - result\.images\.length/);
+assert.match(canvas, /const nextImages: ImageElement\[\] = this\.imageBlocks\.filter\(/);
+assert.match(canvas, /this\.persistence\.queueSaveElements\(this\.noteId, this\.loadedPageId,[\s\S]*?nextImages/);
+assert.match(canvas, /this\.imageBlocks = nextImages/);
 assert.match(canvas, /this\.refreshImageAssets\(this\.pageLoadGeneration, this\.loadedPageId\)/);
 
 const assetRefresh = section(canvas,

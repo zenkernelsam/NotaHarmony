@@ -30,3 +30,12 @@
 本协议为后续一个数据库事务内写入叶 CREATE、bottom-up CREATE_GROUP、单 revision 和一个
 history companion 提供确定边界。Phase 130 不把 codec 存在冒充为 UI 已可用；生产事务、
 持久历史物化、复合 type-25 Undo/Redo 和剪贴板 Group 图接线继续在后续阶段完成。
+
+## Phase 262 补充
+
+Group 图的 Copy admission 现进一步按原版 `lg2.g()/c()` 收窄到本次 selected top roots 的**可达子图**。可达图仍
+严格要求 child-before-parent、single-parent、完整成员、唯一 ID、无环且 top roots 恰为无父 Group；但数据库中
+与本次选择无关的空/损坏 Group 不再阻断独立叶或另一棵合法 Group 的 Copy。
+
+Group Paste preview 也绑定当前 clipboard revision，并使用用户目标中心而不是 20×sequence 偏移。Cut/Delete 只
+隐藏选中叶实体，保留 Group records 供 Undo 恢复原身份和嵌套关系。详见 ADR-0240、Phase 262 evidence/replay。

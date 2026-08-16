@@ -7,13 +7,19 @@ const originalRoot = 'C:/Users/Cisco He/Desktop/Notability/decompiled_1.0.3/';
 const original = value => fs.readFileSync(originalRoot + value, 'utf8');
 
 const lg2 = original('sources/defpackage/lg2.java');
+const clipboard = read('note/src/main/ets/rendering/StrokeClipboard.ets');
 const codec = read('note/src/main/ets/data/OriginalClipboardPasteMutationCodec.ets');
 const singleGroupCodec = read('note/src/main/ets/data/OriginalGroupMutationOpCodec.ets');
 const fixtures = read('note/src/test/OriginalClipboardPasteMutationCodec.test.ets');
+const clipboardFixtures = read('note/src/test/StrokeClipboard.test.ets');
 
 assert.match(lg2, /c\(set, linkedHashSet2, linkedHashSet3, x09Var, arrayList3/);
 assert.match(lg2, /u5j\.c\(x09Var, au1\.A1\(au1\.T1\(set\), arrayList3\)/);
 assert.match(lg2, /\(\(uq9\) next\)\.m\(\) == haa\.CREATE_GROUP/);
+assert.match(clipboard, /const candidates: OriginalSelectionGroup\[\] \| undefined = byId\.get\(groupId\)/);
+assert.match(clipboard, /candidates === undefined \|\| candidates\.length !== 1/);
+assert.match(clipboard, /if \(copiedLeafIds\.has\(groupId\)\)/);
+assert.match(clipboard, /if \(parentByMember\.has\(root\)\)/);
 assert.match(codec, /MAGIC: number\[\] = \[0x4E, 0x43, 0x50, 0x31\]/);
 assert.match(codec, /classifyPageMutation\(mutation\.pageMutation\) !== OpType\.INSERT_ELEMENTS/);
 assert.match(codec, /decodeOperationId\(element\.elementId\) === null/);
@@ -27,6 +33,7 @@ assert.match(singleGroupCodec, /samePageElementMembers/);
 assert.match(fixtures, /bottom-up nested Groups and exact top selection roots/);
 assert.match(fixtures, /element\('op:17:2'/);
 assert.match(fixtures, /rejects forward Group references duplicate parents and incorrect roots/);
+assert.match(clipboardFixtures, /ignores an unrelated malformed Group while copying an independent selection/);
 
 function validate(inserted, groups, roots) {
   const available = new Set(inserted);
@@ -65,4 +72,4 @@ assert.throws(() => validate(inserted, [
 assert.throws(() => validate(inserted, valid, ['op:1e:3']));
 
 console.log('originalGroupClipboardPasteProtocol=' +
-  'insert-only-canonical-bottom-up-tree-exact-roots-independent-leaves-budgeted');
+  'reachable-copy-subgraph-insert-only-canonical-bottom-up-tree-exact-roots-independent-leaves-budgeted');

@@ -18,6 +18,15 @@ import { OriginalSelectionGroup } from '../core/model/OriginalGroupSelection';
 
 export type StrokeIdFactory = (sourceId: string, pasteSequence: number, index: number) => string;
 
+/**
+ * Opaque handle returned while preparing a new clipboard snapshot.  Preparing
+ * never replaces the currently published clipboard; the caller must commit it
+ * after the document operation that motivated the copy/cut has succeeded.
+ */
+export interface ClipboardCopyPreparation {
+  preparationId: number;
+}
+
 export interface ClipboardSingleOriginalSource {
   kind: PageElementKind;
   elementId: string;
@@ -35,7 +44,25 @@ export interface ClipboardPasteResult {
   elementOrder: PageElementRef[];
   sourcePageId: string;
   pasteSequence: number;
+  clipboardRevision: number;
   offset: Point2D;
+}
+
+interface PreparedClipboardState {
+  strokes: StrokeElementData[];
+  shapes: ShapeElement[];
+  textBlocks: TextBlockElement[];
+  images: ImageElement[];
+  mathBlocks: MathElement[];
+  elementOrder: PageElementRef[];
+  sourcePageId: string;
+  groups: OriginalSelectionGroup[];
+  topGroupIds: string[];
+}
+
+interface PendingClipboardCopy {
+  id: number;
+  state: PreparedClipboardState;
 }
 
 export interface ClipboardOriginalGroupPastePreview {
@@ -97,7 +124,6 @@ export function cloneClipboardMath(math: MathElement, id: string = math.id,
   return result;
 }
 
-const PASTE_STEP: number = 20;
 const PAGE_MARGIN: number = 8;
 
 export function cloneStrokeElement(stroke: StrokeElementData, id: string = stroke.id,
@@ -195,21 +221,42 @@ export class StrokeClipboard {
   private pasteCount: number = 0;
   private groupSnapshots: OriginalSelectionGroup[] = [];
   private topGroupIds: string[] = [];
+  private nextCopyPreparationId: number = 0;
+  private clipboardRevision: number = 0;
+  private pendingCopy: PendingClipboardCopy | null = null;
 
   copy(strokes: StrokeElementData[], sourcePageId: string, shapes: ShapeElement[] = [],
     elementOrder: PageElementRef[] = [], textBlocks: TextBlockElement[] = [],
     images: ImageElement[] = [], mathBlocks: MathElement[] = [],
     sourceGroups: OriginalSelectionGroup[] = [], topGroupIds: string[] = []): boolean {
+    const preparation: ClipboardCopyPreparation | null = this.prepareCopy(
+      strokes, sourcePageId, shapes, elementOrder, textBlocks, images, mathBlocks,
+      sourceGroups, topGroupIds);
+    return preparation !== null && this.commitPreparedCopy(preparation);
+  }
+
+  prepareCopy(strokes: StrokeElementData[], sourcePageId: string, shapes: ShapeElement[] = [],
+    elementOrder: PageElementRef[] = [], textBlocks: TextBlockElement[] = [],
+    images: ImageElement[] = [], mathBlocks: MathElement[] = [],
+    sourceGroups: OriginalSelectionGroup[] = [], topGroupIds: string[] = []): ClipboardCopyPreparation | null {
+    // A failed or superseded preparation must never leave an old token able to
+    // publish a later snapshot.  The already-published clipboard is untouched.
+    this.pendingCopy = null;
+    if (this.nextCopyPreparationId >= Number.MAX_SAFE_INTEGER) {
+      return null;
+    }
+    this.nextCopyPreparationId++;
+    const preparationId: number = this.nextCopyPreparationId;
     if ((strokes.length === 0 && shapes.length === 0 && textBlocks.length === 0 &&
       images.length === 0 && mathBlocks.length === 0) ||
       sourcePageId.length === 0) {
-      return false;
+      return null;
     }
     const ids: Set<string> = new Set<string>();
     const copied: StrokeElementData[] = [];
     for (const stroke of strokes) {
       if (stroke.id.length === 0 || ids.has(stroke.id)) {
-        return false;
+        return null;
       }
       ids.add(stroke.id);
       copied.push(cloneStrokeElement(stroke));
@@ -217,7 +264,7 @@ export class StrokeClipboard {
     const copiedShapes: ShapeElement[] = [];
     for (const shape of shapes) {
       if (shape.id.length === 0 || ids.has(shape.id)) {
-        return false;
+        return null;
       }
       ids.add(shape.id);
       copiedShapes.push(cloneClipboardShape(shape));
@@ -225,7 +272,7 @@ export class StrokeClipboard {
     const copiedTexts: TextBlockElement[] = [];
     for (const textBlock of textBlocks) {
       if (textBlock.id.length === 0 || ids.has(textBlock.id)) {
-        return false;
+        return null;
       }
       ids.add(textBlock.id);
       copiedTexts.push(cloneClipboardTextBlock(textBlock));
@@ -233,7 +280,7 @@ export class StrokeClipboard {
     const copiedImages: ImageElement[] = [];
     for (const image of images) {
       if (image.id.length === 0 || ids.has(image.id)) {
-        return false;
+        return null;
       }
       ids.add(image.id);
       copiedImages.push(cloneClipboardImage(image));
@@ -241,7 +288,7 @@ export class StrokeClipboard {
     const copiedMath: MathElement[] = [];
     for (const math of mathBlocks) {
       if (math.id.length === 0 || ids.has(math.id)) {
-        return false;
+        return null;
       }
       ids.add(math.id);
       copiedMath.push(cloneClipboardMath(math));
@@ -249,20 +296,55 @@ export class StrokeClipboard {
     const groupGraph: ClipboardOriginalGroupGraph | null = copyOriginalGroupGraph(
       sourceGroups, topGroupIds, ids);
     if (groupGraph === null) {
+      return null;
+    }
+    const normalizedOrder: PageElementRef[] = normalizePageElementOrder(
+      elementOrder, copied, copiedTexts, copiedShapes, copiedImages, copiedMath);
+    const preparedState: PreparedClipboardState = {
+      strokes: copied,
+      shapes: copiedShapes,
+      textBlocks: copiedTexts,
+      images: copiedImages,
+      mathBlocks: copiedMath,
+      elementOrder: normalizedOrder,
+      sourcePageId: sourcePageId,
+      groups: groupGraph.groups,
+      topGroupIds: groupGraph.topGroupIds,
+    };
+    const pendingCopy: PendingClipboardCopy = {
+      id: preparationId,
+      state: preparedState,
+    };
+    this.pendingCopy = pendingCopy;
+    return { preparationId: preparationId };
+  }
+
+  commitPreparedCopy(preparation: ClipboardCopyPreparation): boolean {
+    if (this.pendingCopy === null || !Number.isSafeInteger(preparation.preparationId) ||
+      preparation.preparationId !== this.pendingCopy.id ||
+      this.clipboardRevision >= Number.MAX_SAFE_INTEGER) {
       return false;
     }
-    this.snapshots = copied;
-    this.shapeSnapshots = copiedShapes;
-    this.textSnapshots = copiedTexts;
-    this.imageSnapshots = copiedImages;
-    this.mathSnapshots = copiedMath;
-    this.elementOrder = normalizePageElementOrder(
-      elementOrder, copied, copiedTexts, copiedShapes, copiedImages, copiedMath);
-    this.sourcePageId = sourcePageId;
+    const state: PreparedClipboardState = this.pendingCopy.state;
+    this.snapshots = state.strokes;
+    this.shapeSnapshots = state.shapes;
+    this.textSnapshots = state.textBlocks;
+    this.imageSnapshots = state.images;
+    this.mathSnapshots = state.mathBlocks;
+    this.elementOrder = state.elementOrder;
+    this.sourcePageId = state.sourcePageId;
     this.pasteCount = 0;
-    this.groupSnapshots = groupGraph.groups;
-    this.topGroupIds = groupGraph.topGroupIds;
+    this.clipboardRevision++;
+    this.groupSnapshots = state.groups;
+    this.topGroupIds = state.topGroupIds;
+    this.pendingCopy = null;
     return true;
+  }
+
+  cancelPreparedCopy(preparation: ClipboardCopyPreparation): void {
+    if (this.pendingCopy !== null && this.pendingCopy.id === preparation.preparationId) {
+      this.pendingCopy = null;
+    }
   }
 
   hasContent(): boolean {
@@ -322,29 +404,39 @@ export class StrokeClipboard {
     this.pasteCount = 0;
     this.groupSnapshots = [];
     this.topGroupIds = [];
+    this.pendingCopy = null;
+    if (this.clipboardRevision < Number.MAX_SAFE_INTEGER) {
+      this.clipboardRevision++;
+    }
   }
 
-  paste(pageWidth: number, pageHeight: number, idFactory: StrokeIdFactory,
+  paste(pageWidth: number, pageHeight: number, targetCenter: Point2D, idFactory: StrokeIdFactory,
     originalCreateKind: PageElementKind | null = null): ClipboardPasteResult | null {
-    const result: ClipboardPasteResult | null = this.buildPaste(
-      pageWidth, pageHeight, idFactory, originalCreateKind, false);
-    if (result === null || !this.commitPreparedPaste(result.pasteSequence)) {
+    const result: ClipboardPasteResult | null = this.preparePaste(
+      pageWidth, pageHeight, targetCenter, idFactory, originalCreateKind);
+    if (result === null || !this.commitPreparedPaste(
+      result.pasteSequence, result.clipboardRevision)) {
       return null;
     }
     return result;
+  }
+
+  preparePaste(pageWidth: number, pageHeight: number, targetCenter: Point2D,
+    idFactory: StrokeIdFactory, originalCreateKind: PageElementKind | null = null): ClipboardPasteResult | null {
+    return this.buildPaste(pageWidth, pageHeight, targetCenter, idFactory, originalCreateKind, false);
   }
 
   hasOriginalGroupGraph(): boolean {
     return this.groupSnapshots.length > 0 && this.topGroupIds.length > 0;
   }
 
-  prepareOriginalGroupPaste(pageWidth: number,
-    pageHeight: number): ClipboardOriginalGroupPastePreview | null {
+  prepareOriginalGroupPaste(pageWidth: number, pageHeight: number,
+    targetCenter: Point2D): ClipboardOriginalGroupPastePreview | null {
     if (!this.hasOriginalGroupGraph()) {
       return null;
     }
     const paste: ClipboardPasteResult | null = this.buildPaste(
-      pageWidth, pageHeight,
+      pageWidth, pageHeight, targetCenter,
       (sourceId: string, _pasteSequence: number, _index: number): string => sourceId,
       null, true);
     if (paste === null) {
@@ -357,26 +449,32 @@ export class StrokeClipboard {
     };
   }
 
-  commitPreparedPaste(pasteSequence: number): boolean {
-    if (!Number.isSafeInteger(pasteSequence) || pasteSequence !== this.pasteCount + 1) {
+  commitPreparedPaste(pasteSequence: number, clipboardRevision: number): boolean {
+    if (!Number.isSafeInteger(pasteSequence) || !Number.isSafeInteger(clipboardRevision) ||
+      clipboardRevision !== this.clipboardRevision || pasteSequence !== this.pasteCount + 1) {
       return false;
     }
     this.pasteCount = pasteSequence;
     return true;
   }
 
-  private buildPaste(pageWidth: number, pageHeight: number, idFactory: StrokeIdFactory,
+  private buildPaste(pageWidth: number, pageHeight: number, targetCenter: Point2D,
+    idFactory: StrokeIdFactory,
     originalCreateKind: PageElementKind | null,
     materializeAllOriginal: boolean): ClipboardPasteResult | null {
     if (!this.hasContent() || !Number.isFinite(pageWidth) || !Number.isFinite(pageHeight) ||
-      pageWidth <= PAGE_MARGIN * 2 || pageHeight <= PAGE_MARGIN * 2) {
+      pageWidth <= PAGE_MARGIN * 2 || pageHeight <= PAGE_MARGIN * 2 ||
+      !Number.isFinite(targetCenter.x) || !Number.isFinite(targetCenter.y)) {
       return null;
     }
     const sequence: number = this.pasteCount + 1;
     const bounds: Rect2D = this.unionBounds();
-    const desired: number = PASTE_STEP * sequence;
-    const dx: number = this.visibleDelta(bounds.left, bounds.right, pageWidth, desired);
-    const dy: number = this.visibleDelta(bounds.top, bounds.bottom, pageHeight, desired);
+    const sourceCenterX: number = (bounds.left + bounds.right) / 2;
+    const sourceCenterY: number = (bounds.top + bounds.bottom) / 2;
+    const dx: number = this.visibleDelta(bounds.left, bounds.right, pageWidth,
+      targetCenter.x - sourceCenterX);
+    const dy: number = this.visibleDelta(bounds.top, bounds.bottom, pageHeight,
+      targetCenter.y - sourceCenterY);
     const ids: Set<string> = new Set<string>();
     const pasted: StrokeElementData[] = [];
     const pastedShapes: ShapeElement[] = [];
@@ -424,6 +522,7 @@ export class StrokeClipboard {
       elementOrder: pastedOrder,
       sourcePageId: this.sourcePageId,
       pasteSequence: sequence,
+      clipboardRevision: this.clipboardRevision,
       offset: { x: dx, y: dy },
     };
   }
@@ -460,10 +559,11 @@ export class StrokeClipboard {
     return bounds;
   }
 
-  private visibleDelta(start: number, end: number, pageExtent: number, desired: number): number {
+  private visibleDelta(start: number, end: number, pageExtent: number, desiredDelta: number): number {
     const available: number = pageExtent - PAGE_MARGIN * 2;
     if (end - start <= available) {
-      return Math.max(PAGE_MARGIN - start, Math.min(desired, pageExtent - PAGE_MARGIN - end));
+      return Math.max(PAGE_MARGIN - start,
+        Math.min(desiredDelta, pageExtent - PAGE_MARGIN - end));
     }
     return PAGE_MARGIN - start;
   }
@@ -474,12 +574,18 @@ function copyOriginalGroupGraph(sourceGroups: OriginalSelectionGroup[], topGroup
   if (topGroupIds.length === 0) {
     return { groups: [], topGroupIds: [] };
   }
-  const byId: Map<string, OriginalSelectionGroup> = new Map<string, OriginalSelectionGroup>();
+  const byId: Map<string, OriginalSelectionGroup[]> = new Map<string, OriginalSelectionGroup[]>();
   for (const group of sourceGroups) {
-    if (group.id.length === 0 || group.members.length === 0 || byId.has(group.id)) {
-      return null;
+    // Only the subgraph reachable from a selected top Group is part of the
+    // copy contract.  Corrupt, unrelated rows must not block copying a leaf or
+    // an otherwise independent Group, while duplicate IDs remain fatal when
+    // they are encountered by the reachable traversal below.
+    if (group.id.length === 0) {
+      continue;
     }
-    byId.set(group.id, group);
+    const candidates: OriginalSelectionGroup[] = byId.get(group.id) ?? [];
+    candidates.push(group);
+    byId.set(group.id, candidates);
   }
   const ordered: OriginalSelectionGroup[] = [];
   const visiting: Set<string> = new Set<string>();
@@ -492,8 +598,15 @@ function copyOriginalGroupGraph(sourceGroups: OriginalSelectionGroup[], topGroup
     if (visited.has(groupId)) {
       return true;
     }
-    const group: OriginalSelectionGroup | undefined = byId.get(groupId);
-    if (group === undefined) {
+    if (copiedLeafIds.has(groupId)) {
+      return false;
+    }
+    const candidates: OriginalSelectionGroup[] | undefined = byId.get(groupId);
+    if (candidates === undefined || candidates.length !== 1) {
+      return false;
+    }
+    const group: OriginalSelectionGroup = candidates[0];
+    if (group.members.length === 0) {
       return false;
     }
     visiting.add(groupId);
@@ -527,6 +640,11 @@ function copyOriginalGroupGraph(sourceGroups: OriginalSelectionGroup[], topGroup
       return null;
     }
     roots.add(groupId);
+  }
+  for (const root of roots) {
+    if (parentByMember.has(root)) {
+      return null;
+    }
   }
   return { groups: ordered, topGroupIds: topGroupIds.slice() };
 }

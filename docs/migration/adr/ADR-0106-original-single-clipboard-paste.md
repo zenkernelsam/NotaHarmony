@@ -53,3 +53,14 @@ Accepted, 2026-08-12.
 - `d02-original-single-clipboard-paste.mjs` locks the original `lg2/u5j` evidence, strict encoder
   wiring, fresh identity flow, type 17/18/22 CREATE, type-25 Undo/Redo and transaction rollback.
 - Full replay and clean HAP build results are recorded in the Phase 129 report.
+
+## Phase 262 correction
+
+ADR-0106 originally inherited the compatibility clipboard's `20 * pasteSequence` placement. Direct evidence from
+`w43/v49/t39/lg2.f()` now proves ordinary Paste uses the requested document position relative to the copied bounds center;
+`cg2.a()`'s ten-percent/capped offset belongs to Duplicate. `StrokeClipboard` therefore uses target-center translation plus
+page-edge clamp, and sequence only contributes to fresh identity.
+
+Paste is now prepare/commit: a failed save enqueue does not consume sequence, and commit also checks the published clipboard
+revision so a newer Copy invalidates an older asynchronous preparation. The explicit prepared-history enqueue replaces the old
+follow-up `persist()` call. See ADR-0240 and the Phase 262 evidence/report.

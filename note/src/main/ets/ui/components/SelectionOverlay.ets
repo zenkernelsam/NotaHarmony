@@ -5,7 +5,6 @@ import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import {
   SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH, selectionOverlayPosition,
-  standalonePastePosition,
 } from './SelectionOverlayLayout';
 
 export enum SelectionMenuAction {
@@ -65,28 +64,11 @@ export struct SelectionOverlay {
           .hitTestBehavior(HitTestMode.Block)
           .position({
             x: selectionOverlayPosition(this.selectionRect, this.containerWidth,
-              this.containerHeight, this.canPaste).x,
+              this.containerHeight, false).x,
             y: selectionOverlayPosition(this.selectionRect, this.containerWidth,
-              this.containerHeight, this.canPaste).actionY,
+              this.containerHeight, false).actionY,
           })
           .bindMenu(this.buildSelectionMenu())
-      }
-      if (this.canPaste) {
-        Button($r('app.string.paste'))
-          .width(SELECTION_MENU_BUTTON_WIDTH)
-          .height(SELECTION_MENU_BUTTON_HEIGHT)
-          .fontSize(14)
-          .hitTestBehavior(HitTestMode.Block)
-          .position({
-            x: this.visible ? selectionOverlayPosition(this.selectionRect, this.containerWidth,
-              this.containerHeight, true).x : standalonePastePosition(this.containerWidth),
-            y: this.visible ? selectionOverlayPosition(this.selectionRect, this.containerWidth,
-              this.containerHeight, true).pasteY : 16,
-          })
-          .onClick(() => {
-            hilog.info(0x0001, 'SelOverlay', 'Paste clicked');
-            this.onMenuAction(SelectionMenuAction.PASTE);
-          })
       }
     }
     // 全屏 Transparent：自身不拦截触摸（Canvas 正常收事件），子组件按钮参与 hit
@@ -103,6 +85,10 @@ export struct SelectionOverlay {
       { value: $r('app.string.bring_forward'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Fwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_FORWARD); } },
       { value: $r('app.string.send_backward'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Bwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_BACKWARD); } },
     ];
+    if (this.canPaste) {
+      items.push({ value: $r('app.string.paste'),
+        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Paste clicked'); this.onMenuAction(SelectionMenuAction.PASTE); } });
+    }
     if (this.canFlip) {
       items.push({ value: $r('app.string.flip_horizontal'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipH clicked'); this.onMenuAction(SelectionMenuAction.FLIP_H); } });
       items.push({ value: $r('app.string.flip_vertical'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipV clicked'); this.onMenuAction(SelectionMenuAction.FLIP_V); } });

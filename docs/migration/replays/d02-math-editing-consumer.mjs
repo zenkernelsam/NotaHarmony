@@ -60,7 +60,7 @@ assert.match(order, /mathIds: string\[\] = \[\]/);
 assert.match(order, /selectedMath\.has\(ref\.elementId\)/);
 assert.match(canvas, /this\.selectionGroups, this\.mathBlocks/);
 assert.match(canvas, /transformMathElements\(/);
-assert.match(canvas, /removePageElementRefs\(this\.elementOrder, PageElementKind\.MATH/);
+assert.match(canvas, /removePageElementRefs\(\s*elementOrderAfter, PageElementKind\.MATH, removedMathIds\)/);
 assert.match(canvas, /this\.restoreRemovedMathBlocks/);
 assert.match(canvas, /this\.replaceMathBlocksById/);
 assert.match(canvas, /selectedImages, selectedMathBlocks/);

@@ -54,8 +54,8 @@ import {
 import { HistoryMetadata, Op, OpType } from '../../core/model/OpTypes';
 import { SelectionTool, SelectionMode } from '../../rendering/SelectionTool';
 import {
-  ClipboardOriginalGroupPastePreview, ClipboardPasteResult, ClipboardSingleOriginalSource,
-  StrokeClipboard,
+  ClipboardCopyPreparation, ClipboardOriginalGroupPastePreview, ClipboardPasteResult,
+  ClipboardSingleOriginalSource, StrokeClipboard,
 } from '../../rendering/StrokeClipboard';
 import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
@@ -177,6 +177,7 @@ const ORIGINAL_MATH_EDITOR_PREVIEW_WIDTH_VP: number = 280;
 const ORIGINAL_MATH_EDITOR_PREVIEW_HEIGHT_VP: number = 96;
 const ORIGINAL_MATH_EDITOR_PREVIEW_PIXEL_SCALE: number = 1;
 const PDF_RASTER_REFRESH_DELAY_MS: number = 120;
+const CLIPBOARD_PASTE_SUPPRESSION_MS: number = 200;
 
 interface ShapeDetectionAttempt {
   shapes: ShapeElement[];
@@ -304,8 +305,8 @@ export struct NoteCanvasView {
   private lastDragPoint: Point2D = { x: 0, y: 0 };
   private lastTapTime: number = 0;
   private lastTapPos: Point2D = { x: 0, y: 0 };
-  private loaded: boolean = false;
-  private loadedPageId: string = '';
+  @State loaded: boolean = false;
+  @State loadedPageId: string = '';
   @State dataLoading: boolean = true;
   @State dataLoadFailed: boolean = false;
   private pageLoadPromise: Promise<void> = Promise.resolve();
@@ -314,7 +315,7 @@ export struct NoteCanvasView {
   private heldShapes: ShapeElement[] = [];
   // -1: undo, 1: redo, 0: none. Cross-page history resumes after page data finishes loading.
   private pendingHistoryDirection: number = 0;
-  private historyBusy: boolean = false;
+  @State historyBusy: boolean = false;
   private skipSavePageId: string = '';
   private pageLoadGeneration: number = 0;
   private originalInkAudioStarts: Map<string, string> = new Map<string, string>();
@@ -356,6 +357,8 @@ export struct NoteCanvasView {
   @State clipboardAvailable: boolean = false;
   @State overlayWidth: number = 0;
   @State overlayHeight: number = 0;
+  private clipboardPasteTarget: Point2D | null = null;
+  private lastPasteRequestTime: number = 0;
 
   aboutToAppear(): void {
     this.lifecycleActive = true;
@@ -1544,6 +1547,12 @@ export struct NoteCanvasView {
     }
     const touch: TouchObject = event.touches[0];
     const canvasP: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
+    if (Number.isFinite(canvasP.x) && Number.isFinite(canvasP.y)) {
+      // The original Paste command uses the user long-press position as the
+      // center of the copied bounds.  Keep the last canvas anchor even when a
+      // later context-menu callback runs outside the touch handler.
+      this.clipboardPasteTarget = { x: canvasP.x, y: canvasP.y };
+    }
     // 原版工具枚举没有 TEXT；移植侧用 DEFAULT 表示临时文本输入模式。
     // 只有该模式响应标准双击，避免橡皮、选区和书写快速点按误建文本框。
     if (this.viewModel.currentTool === ToolType.DEFAULT) {
@@ -4594,7 +4603,8 @@ export struct NoteCanvasView {
   }
 
   onSelectionMenuAction(action: SelectionMenuAction): void {
-    if (this.historyBusy) {
+    if (this.historyBusy || !this.loaded || this.dataLoading || this.dataLoadFailed ||
+      this.loadedPageId.length === 0 || this.loadedPageId !== this.currentPage.pageId) {
       return;
     }
     hilog.info(0x0001, 'NoteCanvasView', 'selection menu action=%{public}d', action);
@@ -4605,11 +4615,14 @@ export struct NoteCanvasView {
       const textIds: string[] = state.selectedTextBlockIds.slice();
       const imageIds: string[] = state.selectedImageIds.slice();
       const mathIds: string[] = state.selectedMathIds.slice();
-      if (action === SelectionMenuAction.CUT && !this.copySelectedToClipboard(
-        ids, shapeIds, textIds, imageIds, mathIds, state.selectedGroupIds)) {
+      let cutPreparation: ClipboardCopyPreparation | null = null;
+      if (action === SelectionMenuAction.CUT) {
+        cutPreparation = this.prepareSelectedClipboard(
+          ids, shapeIds, textIds, imageIds, mathIds, state.selectedGroupIds);
+      }
+      if (action === SelectionMenuAction.CUT && cutPreparation === null) {
         return;
       }
-      this.selectionTool.deleteSelected();
       const removed: StrokeElementData[] = [];
       const removedIndices: number[] = [];
       const removedShapes: ShapeElement[] = [];
@@ -4628,17 +4641,11 @@ export struct NoteCanvasView {
           removedIndices.push(strokeIndex);
         }
       }
-      for (const s of removed) {
-        this.removeStrokeById(s.id);
-      }
       for (let shapeIndex: number = 0; shapeIndex < this.shapes.length; shapeIndex++) {
         if (shapeIds.indexOf(this.shapes[shapeIndex].id) >= 0) {
           removedShapes.push(this.shapes[shapeIndex]);
           removedShapeIndices.push(shapeIndex);
         }
-      }
-      for (const shape of removedShapes) {
-        this.removeShapeById(shape.id);
       }
       for (let textIndex: number = 0; textIndex < this.textBlocks.length; textIndex++) {
         if (textIds.indexOf(this.textBlocks[textIndex].id) >= 0) {
@@ -4646,17 +4653,11 @@ export struct NoteCanvasView {
           removedTextBlockIndices.push(textIndex);
         }
       }
-      for (const textBlock of removedTextBlocks) {
-        this.removeTextBlockById(textBlock.id);
-      }
       for (let imageIndex: number = 0; imageIndex < this.imageBlocks.length; imageIndex++) {
         if (imageIds.indexOf(this.imageBlocks[imageIndex].id) >= 0) {
           removedImages.push(this.imageBlocks[imageIndex]);
           removedImageIndices.push(imageIndex);
         }
-      }
-      for (const image of removedImages) {
-        this.removeImageById(image.id);
       }
       for (let mathIndex: number = 0; mathIndex < this.mathBlocks.length; mathIndex++) {
         if (mathIds.indexOf(this.mathBlocks[mathIndex].id) >= 0) {
@@ -4664,20 +4665,40 @@ export struct NoteCanvasView {
           removedMathBlockIndices.push(mathIndex);
         }
       }
-      for (const math of removedMathBlocks) {
-        this.removeMathBlockById(math.id);
+      if (removed.length === 0 && removedShapes.length === 0 && removedTextBlocks.length === 0 &&
+        removedImages.length === 0 && removedMathBlocks.length === 0) {
+        if (cutPreparation !== null) {
+          this.strokeClipboard.cancelPreparedCopy(cutPreparation);
+        }
+        return;
       }
-      this.elementOrder = removePageElementRefs(this.elementOrder, PageElementKind.STROKE, ids);
-      this.elementOrder = removePageElementRefs(this.elementOrder, PageElementKind.SHAPE, shapeIds);
-      this.elementOrder = removePageElementRefs(this.elementOrder, PageElementKind.TEXT, textIds);
-      this.elementOrder = removePageElementRefs(this.elementOrder, PageElementKind.IMAGE, imageIds);
-      this.elementOrder = removePageElementRefs(this.elementOrder, PageElementKind.MATH, mathIds);
+      const removedStrokeIds: string[] = removed.map(
+        (stroke: StrokeElementData): string => stroke.id);
+      const removedShapeIds: string[] = removedShapes.map(
+        (shape: ShapeElement): string => shape.id);
+      const removedTextIds: string[] = removedTextBlocks.map(
+        (textBlock: TextBlockElement): string => textBlock.id);
+      const removedImageIds: string[] = removedImages.map(
+        (image: ImageElement): string => image.id);
+      const removedMathIds: string[] = removedMathBlocks.map(
+        (math: MathElement): string => math.id);
+      let elementOrderAfter: PageElementRef[] = removePageElementRefs(
+        this.elementOrder, PageElementKind.STROKE, removedStrokeIds);
+      elementOrderAfter = removePageElementRefs(
+        elementOrderAfter, PageElementKind.SHAPE, removedShapeIds);
+      elementOrderAfter = removePageElementRefs(
+        elementOrderAfter, PageElementKind.TEXT, removedTextIds);
+      elementOrderAfter = removePageElementRefs(
+        elementOrderAfter, PageElementKind.IMAGE, removedImageIds);
+      elementOrderAfter = removePageElementRefs(
+        elementOrderAfter, PageElementKind.MATH, removedMathIds);
+      let deleteAction: UndoableAction;
       if (removedShapes.length > 0 || removedTextBlocks.length > 0 || removedImages.length > 0 ||
         removedMathBlocks.length > 0) {
-        this.undoRedo.push({
+        deleteAction = {
           type: UndoableActionType.DELETE_ELEMENTS,
           noteId: this.noteId,
-          pageId: this.currentPage.pageId,
+          pageId: this.loadedPageId,
           removedStrokes: removed,
           removedStrokeIndices: removedIndices,
           removedShapes: removedShapes,
@@ -4689,34 +4710,94 @@ export struct NoteCanvasView {
           removedMathBlocks: removedMathBlocks,
           removedMathBlockIndices: removedMathBlockIndices,
           elementOrderBefore: elementOrderBefore,
-          elementOrderAfter: clonePageElementOrder(this.elementOrder),
-        });
+          elementOrderAfter: clonePageElementOrder(elementOrderAfter),
+        };
       } else if (removed.length > 0) {
-        this.undoRedo.push({
+        deleteAction = {
           type: UndoableActionType.DELETE_STROKE,
           noteId: this.noteId,
-          pageId: this.currentPage.pageId,
+          pageId: this.loadedPageId,
           removedStrokes: removed,
           removedStrokeIndices: removedIndices,
           beforeModifiedStrokes: [],
           afterModifiedStrokes: [],
           elementOrderBefore: elementOrderBefore,
-          elementOrderAfter: clonePageElementOrder(this.elementOrder),
-        });
+          elementOrderAfter: clonePageElementOrder(elementOrderAfter),
+        };
+      } else {
+        if (cutPreparation !== null) {
+          this.strokeClipboard.cancelPreparedCopy(cutPreparation);
+        }
+        return;
       }
+      const removedStrokeSet: Set<string> = new Set<string>(removedStrokeIds);
+      const removedShapeSet: Set<string> = new Set<string>(removedShapeIds);
+      const removedTextSet: Set<string> = new Set<string>(removedTextIds);
+      const removedImageSet: Set<string> = new Set<string>(removedImageIds);
+      const removedMathSet: Set<string> = new Set<string>(removedMathIds);
+      const nextStrokes: StrokeElementData[] = this.completedStrokes.filter(
+        (stroke: StrokeElementData): boolean => !removedStrokeSet.has(stroke.id));
+      const nextShapes: ShapeElement[] = this.shapes.filter(
+        (shape: ShapeElement): boolean => !removedShapeSet.has(shape.id));
+      const nextTextBlocks: TextBlockElement[] = this.textBlocks.filter(
+        (textBlock: TextBlockElement): boolean => !removedTextSet.has(textBlock.id));
+      const nextImages: ImageElement[] = this.imageBlocks.filter(
+        (image: ImageElement): boolean => !removedImageSet.has(image.id));
+      const nextMathBlocks: MathElement[] = this.mathBlocks.filter(
+        (math: MathElement): boolean => !removedMathSet.has(math.id));
+      const originalEntityOnly: boolean = this.areCanonicalOriginalPositionSelection(
+        removedStrokeIds, removedShapeIds, removedTextIds, removedImageIds, removedMathIds);
+      let preparedHistory: HistoryMetadata;
+      try {
+        preparedHistory = this.undoRedo.prepareHistoryMetadata(deleteAction);
+        this.persistence.queueSaveElements(this.noteId, this.loadedPageId,
+          nextStrokes, nextTextBlocks, elementOrderAfter, nextShapes, true, preparedHistory,
+          nextImages, nextMathBlocks);
+      } catch (e) {
+        if (cutPreparation !== null) {
+          this.strokeClipboard.cancelPreparedCopy(cutPreparation);
+        }
+        this.reportSaveFailure(e as Object);
+        return;
+      }
+      const persistedPageId: string = this.loadedPageId;
+      this.invalidateOriginalInkReservation();
+      if (originalEntityOnly) {
+        this.originalInkIneligiblePages.delete(persistedPageId);
+      } else {
+        this.originalInkIneligiblePages.add(persistedPageId);
+      }
+      this.persistence.flush(this.noteId, persistedPageId).then((): void => {
+        if (!this.persistence.hasDirtySave(this.noteId, persistedPageId)) {
+          this.saveFailed = false;
+        }
+        if (originalEntityOnly) {
+          this.refreshOriginalInkReservation(this.pageLoadGeneration, persistedPageId);
+        }
+      }).catch((e: Object): void => this.reportSaveFailure(e));
+      if (cutPreparation !== null) {
+        if (this.strokeClipboard.commitPreparedCopy(cutPreparation)) {
+          this.clipboardAvailable = true;
+        } else {
+          // The document deletion has already been accepted, but a second
+          // concurrent copy must never silently publish the wrong snapshot.
+          // Keep the previous clipboard and surface the invariant violation.
+          hilog.error(0x0001, 'NoteCanvasView',
+            'Cut completed but its prepared clipboard token was superseded');
+        }
+      }
+      this.completedStrokes = nextStrokes;
+      this.shapes = nextShapes;
+      this.textBlocks = nextTextBlocks;
+      this.imageBlocks = nextImages;
+      this.mathBlocks = nextMathBlocks;
+      this.elementOrder = elementOrderAfter;
+      this.selectionTool.deleteSelected();
+      this.undoRedo.push(deleteAction, preparedHistory);
+      this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
       this.selectionVisible = false;
       this.layerManager.rebuildFromStrokes(
         this.completedStrokes, this.renderCtx, this.viewport.zoom);
-      const originalEntityOnly: boolean = this.areCanonicalOriginalPositionSelection(
-          removed.map((stroke: StrokeElementData): string => stroke.id),
-          removedShapes.map((shape: ShapeElement): string => shape.id),
-          removedTextBlocks.map((text: TextBlockElement): string => text.id),
-          removedImages.map((image: ImageElement): string => image.id),
-          removedMathBlocks.map((math: MathElement): string => math.id));
-      if (removed.length > 0 || removedShapes.length > 0 || removedTextBlocks.length > 0 ||
-        removedImages.length > 0 || removedMathBlocks.length > 0) {
-        this.persist(originalEntityOnly);
-      }
       this.notifyUndoRedo();
       this.renderFrame();
       if (removedImages.length > 0) {
@@ -4749,7 +4830,10 @@ export struct NoteCanvasView {
         state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
         state.selectedImageIds, state.selectedMathIds, state.selectedGroupIds);
     } else if (action === SelectionMenuAction.PASTE) {
-      this.pasteClipboard();
+      const target: Point2D | null = this.selectionPasteTarget();
+      if (target !== null) {
+        this.pasteClipboard(target);
+      }
     }
   }
 
@@ -5390,6 +5474,23 @@ export struct NoteCanvasView {
   private copySelectedToClipboard(ids: string[], shapeIds: string[] = [],
     textIds: string[] = [], imageIds: string[] = [], mathIds: string[] = [],
     groupIds: string[] = []): boolean {
+    const preparation: ClipboardCopyPreparation | null = this.prepareSelectedClipboard(
+      ids, shapeIds, textIds, imageIds, mathIds, groupIds);
+    if (preparation === null || !this.strokeClipboard.commitPreparedCopy(preparation)) {
+      return false;
+    }
+    this.clipboardAvailable = true;
+    return true;
+  }
+
+  private prepareSelectedClipboard(ids: string[], shapeIds: string[] = [],
+    textIds: string[] = [], imageIds: string[] = [], mathIds: string[] = [],
+    groupIds: string[] = []): ClipboardCopyPreparation | null {
+    if (!this.validRequestedIds(ids) || !this.validRequestedIds(shapeIds) ||
+      !this.validRequestedIds(textIds) || !this.validRequestedIds(imageIds) ||
+      !this.validRequestedIds(mathIds) || !this.validRequestedIds(groupIds)) {
+      return null;
+    }
     const selected: StrokeElementData[] = [];
     for (const s of this.completedStrokes) {
       if (ids.indexOf(s.id) >= 0) {
@@ -5420,23 +5521,67 @@ export struct NoteCanvasView {
         selectedMathBlocks.push(math);
       }
     }
+    if (selected.length !== ids.length || selectedShapes.length !== shapeIds.length ||
+      selectedTextBlocks.length !== textIds.length || selectedImages.length !== imageIds.length ||
+      selectedMathBlocks.length !== mathIds.length) {
+      return null;
+    }
     const selectedOrder: PageElementRef[] = [];
+    const selectedOrderIds: Set<string> = new Set<string>();
     for (const ref of this.elementOrder) {
       if ((ref.kind === PageElementKind.STROKE && ids.indexOf(ref.elementId) >= 0) ||
         (ref.kind === PageElementKind.SHAPE && shapeIds.indexOf(ref.elementId) >= 0) ||
         (ref.kind === PageElementKind.TEXT && textIds.indexOf(ref.elementId) >= 0) ||
         (ref.kind === PageElementKind.IMAGE && imageIds.indexOf(ref.elementId) >= 0) ||
         (ref.kind === PageElementKind.MATH && mathIds.indexOf(ref.elementId) >= 0)) {
+        if (selectedOrderIds.has(ref.elementId)) {
+          return null;
+        }
+        selectedOrderIds.add(ref.elementId);
         selectedOrder.push({ kind: ref.kind, elementId: ref.elementId, zIndex: selectedOrder.length });
       }
     }
-    if (!this.strokeClipboard.copy(
-      selected, this.loadedPageId, selectedShapes, selectedOrder, selectedTextBlocks,
-      selectedImages, selectedMathBlocks, this.selectionGroups, groupIds)) {
-      return false;
+    const selectedCount: number = ids.length + shapeIds.length + textIds.length +
+      imageIds.length + mathIds.length;
+    if (selectedCount === 0 || selectedOrder.length !== selectedCount) {
+      return null;
     }
-    this.clipboardAvailable = true;
+    return this.strokeClipboard.prepareCopy(
+      selected, this.loadedPageId, selectedShapes, selectedOrder, selectedTextBlocks,
+      selectedImages, selectedMathBlocks, this.selectionGroups, groupIds);
+  }
+
+  private validRequestedIds(ids: string[]): boolean {
+    const unique: Set<string> = new Set<string>();
+    for (const id of ids) {
+      if (id.length === 0 || unique.has(id)) {
+        return false;
+      }
+      unique.add(id);
+    }
     return true;
+  }
+
+  private canPasteClipboardNow(): boolean {
+    return this.clipboardAvailable && this.strokeClipboard.hasContent() && this.loaded &&
+      !this.dataLoading && !this.dataLoadFailed && !this.historyBusy &&
+      this.loadedPageId.length > 0 && this.loadedPageId === this.currentPage.pageId;
+  }
+
+  private selectionPasteTarget(): Point2D | null {
+    if (!this.selectionVisible || !Number.isFinite(this.selectionRect.left) ||
+      !Number.isFinite(this.selectionRect.right) || !Number.isFinite(this.selectionRect.top) ||
+      !Number.isFinite(this.selectionRect.bottom)) {
+      return this.clipboardPasteTarget === null ? null : {
+        x: this.clipboardPasteTarget.x, y: this.clipboardPasteTarget.y,
+      };
+    }
+    const centerScreen: Point2D = {
+      x: (this.selectionRect.left + this.selectionRect.right) / 2,
+      y: (this.selectionRect.top + this.selectionRect.bottom) / 2,
+    };
+    const centerCanvas: Point2D = this.viewport.screenToCanvas(centerScreen.x, centerScreen.y);
+    return Number.isFinite(centerCanvas.x) && Number.isFinite(centerCanvas.y) ? centerCanvas : null;
   }
 
   private canCropImageSelection(ids: string[], shapeIds: string[], textIds: string[],
@@ -5787,16 +5932,21 @@ export struct NoteCanvasView {
     this.mathBlocks = remaining;
   }
 
-  private pasteClipboard(): void {
-    if (!this.loaded || this.dataLoading || this.dataLoadFailed || this.historyBusy ||
-      this.loadedPageId !== this.currentPage.pageId) {
+  private pasteClipboard(targetCenter: Point2D): void {
+    if (!this.canPasteClipboardNow() || !Number.isFinite(targetCenter.x) ||
+      !Number.isFinite(targetCenter.y)) {
       return;
     }
+    const now: number = Date.now();
+    if (now - this.lastPasteRequestTime < CLIPBOARD_PASTE_SUPPRESSION_MS) {
+      return;
+    }
+    this.lastPasteRequestTime = now;
     if (this.strokeClipboard.hasOriginalGroupGraph()) {
       let preview: ClipboardOriginalGroupPastePreview | null = null;
       try {
         preview = this.strokeClipboard.prepareOriginalGroupPaste(
-          this.getPaperWidth(), this.getPaperHeight());
+          this.getPaperWidth(), this.getPaperHeight(), targetCenter);
       } catch (e) {
         this.reportSaveFailure(e as Object);
         hilog.error(0x0001, 'NoteCanvasView',
@@ -5823,7 +5973,7 @@ export struct NoteCanvasView {
             this.dataLoadFailed) {
             return;
           }
-          this.applyClipboardPaste(metadata, source.kind);
+          this.applyClipboardPaste(metadata, source.kind, targetCenter);
         }).catch((e: Object): void => {
           this.reportSaveFailure(e);
           hilog.error(0x0001, 'NoteCanvasView',
@@ -5833,7 +5983,7 @@ export struct NoteCanvasView {
         });
       return;
     }
-    this.applyClipboardPaste(null, null);
+    this.applyClipboardPaste(null, null, targetCenter);
   }
 
   private applyOriginalGroupClipboardPaste(preview: ClipboardOriginalGroupPastePreview): void {
@@ -5867,7 +6017,8 @@ export struct NoteCanvasView {
     this.persistence.commitOriginalClipboardPaste(
       this.noteId, pageId, plan, prepared).then(
       (result: OriginalClipboardPastePersistenceResult): void => {
-        if (!this.strokeClipboard.commitPreparedPaste(paste.pasteSequence)) {
+        if (!this.strokeClipboard.commitPreparedPaste(
+          paste.pasteSequence, paste.clipboardRevision)) {
           hilog.error(0x0001, 'NoteCanvasView',
             'original Group Paste sequence changed after durable apply');
         }
@@ -5936,9 +6087,9 @@ export struct NoteCanvasView {
   }
 
   private applyClipboardPaste(originalCreate: OriginalInkCreateMetadata | null,
-    originalCreateKind: PageElementKind | null): void {
-    const result: ClipboardPasteResult | null = this.strokeClipboard.paste(
-      this.getPaperWidth(), this.getPaperHeight(),
+    originalCreateKind: PageElementKind | null, targetCenter: Point2D): void {
+    const result: ClipboardPasteResult | null = this.strokeClipboard.preparePaste(
+      this.getPaperWidth(), this.getPaperHeight(), targetCenter,
       (sourceId: string, sequence: number, index: number): string =>
         originalCreate === null ? this.createClipboardElementId(sourceId, sequence, index) :
           encodeOperationId({ timestamp: originalCreate.timestamp, siteId: originalCreate.siteId }),
@@ -5965,11 +6116,6 @@ export struct NoteCanvasView {
       }
     }
     const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
-    this.completedStrokes = this.completedStrokes.concat(result.strokes);
-    this.shapes = this.shapes.concat(result.shapes);
-    this.textBlocks = this.textBlocks.concat(result.textBlocks);
-    this.imageBlocks = this.imageBlocks.concat(result.images);
-    this.mathBlocks = this.mathBlocks.concat(result.mathBlocks);
     const pastedIds: string[] = result.strokes.map((stroke: StrokeElementData): string => stroke.id);
     const pastedShapeIds: string[] = result.shapes.map((shape: ShapeElement): string => shape.id);
     const pastedTextIds: string[] = result.textBlocks.map(
@@ -5979,15 +6125,9 @@ export struct NoteCanvasView {
     const elementOrderAfter: PageElementRef[] | null = this.appendMixedElementRefs(
       this.elementOrder, result.elementOrder);
     if (elementOrderAfter === null) {
-      this.completedStrokes.splice(this.completedStrokes.length - result.strokes.length, result.strokes.length);
-      this.shapes.splice(this.shapes.length - result.shapes.length, result.shapes.length);
-      this.textBlocks.splice(this.textBlocks.length - result.textBlocks.length, result.textBlocks.length);
-      this.imageBlocks.splice(this.imageBlocks.length - result.images.length, result.images.length);
-      this.mathBlocks.splice(this.mathBlocks.length - result.mathBlocks.length, result.mathBlocks.length);
       return;
     }
-    this.elementOrder = elementOrderAfter;
-    this.undoRedo.push({
+    const action: UndoableAction = {
       type: UndoableActionType.ADD_ELEMENTS,
       noteId: this.noteId,
       pageId: this.loadedPageId,
@@ -5998,14 +6138,60 @@ export struct NoteCanvasView {
       addedMathBlocks: result.mathBlocks,
       addedElementOrder: clonePageElementOrder(result.elementOrder),
       elementOrderBefore: elementOrderBefore,
-      elementOrderAfter: clonePageElementOrder(this.elementOrder),
-    });
+      elementOrderAfter: clonePageElementOrder(elementOrderAfter),
+    };
+    const preparedHistory: HistoryMetadata = this.undoRedo.prepareHistoryMetadata(action);
+    const nextStrokes: StrokeElementData[] = this.completedStrokes.concat(result.strokes);
+    const nextShapes: ShapeElement[] = this.shapes.concat(result.shapes);
+    const nextTextBlocks: TextBlockElement[] = this.textBlocks.concat(result.textBlocks);
+    const nextImages: ImageElement[] = this.imageBlocks.concat(result.images);
+    const nextMathBlocks: MathElement[] = this.mathBlocks.concat(result.mathBlocks);
+    const rearmOriginalInk: boolean = originalCreate !== null;
+    try {
+      this.persistence.queueSaveElements(this.noteId, this.loadedPageId,
+        nextStrokes, nextTextBlocks, elementOrderAfter, nextShapes, true, preparedHistory,
+        nextImages, nextMathBlocks);
+    } catch (e) {
+      this.reportSaveFailure(e as Object);
+      return;
+    }
+    if (!this.strokeClipboard.commitPreparedPaste(
+      result.pasteSequence, result.clipboardRevision)) {
+      // preparePaste() and queueSaveElements() are synchronous on the ArkUI
+      // thread, so no published clipboard can replace this revision between
+      // them. Continue applying the already-enqueued document if that
+      // invariant is ever violated, rather than diverging UI from storage.
+      hilog.error(0x0001, 'NoteCanvasView',
+        'ordinary Paste preparation changed after save enqueue');
+    }
+    const persistedPageId: string = this.loadedPageId;
+    this.invalidateOriginalInkReservation();
+    if (rearmOriginalInk) {
+      this.originalInkIneligiblePages.delete(persistedPageId);
+    } else {
+      this.originalInkIneligiblePages.add(persistedPageId);
+    }
+    this.persistence.flush(this.noteId, persistedPageId).then((): void => {
+      if (!this.persistence.hasDirtySave(this.noteId, persistedPageId)) {
+        this.saveFailed = false;
+      }
+      if (rearmOriginalInk) {
+        this.refreshOriginalInkReservation(this.pageLoadGeneration, persistedPageId);
+      }
+    }).catch((e: Object): void => this.reportSaveFailure(e));
+    this.completedStrokes = nextStrokes;
+    this.shapes = nextShapes;
+    this.textBlocks = nextTextBlocks;
+    this.imageBlocks = nextImages;
+    this.mathBlocks = nextMathBlocks;
+    this.elementOrder = elementOrderAfter;
+    this.undoRedo.push(action, preparedHistory);
+    this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
     this.selectionTool.selectElementIds(
       pastedIds, pastedShapeIds, pastedTextIds, pastedImageIds, [], pastedMathIds);
     this.layerManager.rebuildFromStrokes(
       this.completedStrokes, this.renderCtx, this.viewport.zoom);
     this.updateSelectionOverlay();
-    this.persist(originalCreate !== null);
     this.notifyUndoRedo();
     this.renderFrame();
     if (result.images.length > 0) {
@@ -6167,9 +6353,25 @@ export struct NoteCanvasView {
   // selectionRect 与触点均为屏幕坐标；命中区域必须复用覆盖层的钳制布局。
   private isInSelectionMenu(x: number, y: number): boolean {
     const position: SelectionOverlayPosition = selectionOverlayPosition(
-      this.selectionRect, this.overlayWidth, this.overlayHeight, this.clipboardAvailable);
+      this.selectionRect, this.overlayWidth, this.overlayHeight, false);
     return x >= position.x && x <= position.x + SELECTION_MENU_BUTTON_WIDTH &&
       y >= position.actionY && y <= position.actionY + SELECTION_MENU_BUTTON_HEIGHT;
+  }
+
+  @Builder
+  private ClipboardPasteContextMenu() {
+    Menu() {
+      if (this.canPasteClipboardNow()) {
+        MenuItem({ content: $r('app.string.paste') })
+          .onClick(() => {
+            const target: Point2D | null = this.clipboardPasteTarget;
+            if (target !== null) {
+              hilog.info(0x0001, 'NoteCanvasView', 'canvas context Paste clicked');
+              this.pasteClipboard(target);
+            }
+          });
+      }
+    }
   }
 
   // === 文本框 ===
@@ -6554,6 +6756,12 @@ export struct NoteCanvasView {
         .onTouch((event: TouchEvent) => {
           this.onCanvasTouch(event);
         })
+        // Original w43/v49 expose Paste from the long-press position, not from
+        // a fixed viewport button.  ArkUI's context menu keeps that native
+        // anchor and performs the same edge adjustment as the platform menu.
+        .bindContextMenu(() => {
+          this.ClipboardPasteContextMenu();
+        }, ResponseType.LongPress)
         // T-034：双指捏合缩放 + 双指平移（与单指书写互斥：onTouch 中 touches>1 时忽略）
         .gesture(
           GestureGroup(GestureMode.Exclusive,
@@ -6603,7 +6811,7 @@ export struct NoteCanvasView {
       SelectionOverlay({
         selectionRect: this.selectionRect,
         visible: this.selectionVisible,
-        canPaste: this.clipboardAvailable,
+        canPaste: this.canPasteClipboardNow(),
         canFlip: this.selectionCanFlip,
         canCrop: this.selectionCanCrop,
         canLock: this.selectionCanLock,

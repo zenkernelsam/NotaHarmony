@@ -50,7 +50,8 @@ assert.match(canvas, /encodeOriginalLocalCreateTextBlock\(\{ timestamp: 1, siteI
 assert.match(canvas, /encodeOriginalInitialInsertString\(\{ timestamp: 1, siteId: 1 \}, source\.textBlock\.richText\)/);
 assert.match(canvas, /this\.persistence\.reserveOriginalInkCreate\(this\.noteId, pageId\)/);
 assert.match(canvas, /encodeOperationId\(\{ timestamp: originalCreate\.timestamp, siteId: originalCreate\.siteId \}\)/);
-assert.match(canvas, /this\.persist\(originalCreate !== null\)/);
+assert.match(canvas, /this\.persistence\.queueSaveElements\(this\.noteId, this\.loadedPageId,[\s\S]*?true, preparedHistory/);
+assert.match(canvas, /commitPreparedPaste\(\s*result\.pasteSequence, result\.clipboardRevision\)/);
 assert.match(canvas, /UndoableActionType\.ADD_ELEMENTS/);
 
 // Persistence recognizes exactly one appended reserved entity and retains type-25 Undo/Redo.
@@ -62,6 +63,8 @@ assert.match(persistence, /await this\.writeOriginalCreateText/);
 assert.match(persistence, /ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE/);
 assert.match(fixtures, /drops the source create reservation and exposes only safe single-create candidates/);
 assert.match(fixtures, /materializes original Ink and Shape paste offsets without transform registers/);
+assert.match(fixtures, /does not consume an ordinary Paste sequence until persistence accepts it/);
+assert.match(fixtures, /rejects a prepared Paste after a newer Copy replaces the clipboard/);
 
 const db = new DatabaseSync(':memory:');
 db.exec(`CREATE TABLE entity(id TEXT PRIMARY KEY,kind TEXT NOT NULL,deleted INTEGER NOT NULL);
@@ -108,4 +111,4 @@ assert.equal(db.prepare('SELECT COUNT(*) count FROM operation_log').get().count,
 db.close();
 
 console.log('originalSingleClipboardPaste=fresh-identity-strict-preflight-page-space-' +
-  'ink-shape-text-create-type25-undo-redo-rollback-group-graph-guard');
+  'ink-shape-text-create-type25-undo-redo-rollback-group-graph-guard-revision-bound-prepare-commit');

@@ -22,13 +22,13 @@ assert.match(clipboard, /ordered\.push\(cloneSelectionGroup\(group\)\)/);
 assert.match(clipboard, /prepareOriginalGroupPaste\(/);
 assert.match(clipboard, /materializeAllOriginal \|\| originalCreateKind === PageElementKind\.STROKE/);
 assert.match(clipboard, /materializeAllOriginal \|\| originalCreateKind === PageElementKind\.SHAPE/);
-assert.match(clipboard, /pasteSequence !== this\.pasteCount \+ 1/);
+assert.match(clipboard, /clipboardRevision !== this\.clipboardRevision \|\| pasteSequence !== this\.pasteCount \+ 1/);
 assert.match(clipboard, /this\.pasteCount = pasteSequence/);
 
 assert.match(canvas, /this\.strokeClipboard\.hasOriginalGroupGraph\(\)/);
 assert.match(canvas, /validateOriginalClipboardPastePlan\(plan\)/);
 assert.match(canvas, /this\.persistence\.commitOriginalClipboardPaste\(\s*this\.noteId, pageId, plan, prepared\)/);
-assert.match(canvas, /commitPreparedPaste\(paste\.pasteSequence\)/);
+assert.match(canvas, /commitPreparedPaste\(\s*paste\.pasteSequence, paste\.clipboardRevision\)/);
 assert.match(canvas, /type: UndoableActionType\.ORIGINAL_CLIPBOARD_PASTE/);
 assert.match(canvas, /operation: result\.operation/);
 assert.match(canvas, /this\.elementOrder = clonePageElementOrder\(result\.elementOrder\)/);
@@ -41,13 +41,20 @@ assert.match(fixtures, /commits Paste offsets only after durability/);
 assert.match(fixtures, /rejects incomplete or multi-parent original Group snapshots/);
 
 function paste(state, failAt = '') {
-  const preview = { sequence: state.pasteCount + 1, offset: 20 * (state.pasteCount + 1) };
+  const sourceCenter = { x: 25, y: 35 };
+  const targetCenter = { x: 145, y: 175 };
+  const preview = {
+    sequence: state.pasteCount + 1,
+    revision: state.clipboardRevision,
+    offset: { x: targetCenter.x - sourceCenter.x, y: targetCenter.y - sourceCenter.y },
+  };
   const initial = structuredClone(state);
   try {
     if (failAt === 'TRANSACTION') throw new Error('TRANSACTION');
     state.database = ['leaf-a', 'leaf-b', 'nested', 'top'];
     state.history = ['NCP1'];
     if (failAt === 'AFTER_COMMIT') throw new Error('AFTER_COMMIT');
+    assert.equal(preview.revision, state.clipboardRevision);
     state.pasteCount = preview.sequence;
     state.canvas = ['leaf-a', 'leaf-b'];
     state.groups = ['nested', 'top'];
@@ -58,14 +65,19 @@ function paste(state, failAt = '') {
   }
 }
 
-const empty = { pasteCount: 0, database: [], history: [], canvas: [], groups: [], selection: [] };
+const empty = {
+  pasteCount: 0, clipboardRevision: 7,
+  database: [], history: [], canvas: [], groups: [], selection: [],
+};
 assert.deepEqual(paste(structuredClone(empty), 'TRANSACTION'), empty);
 const committed = paste(structuredClone(empty));
 assert.equal(committed.pasteCount, 1);
+assert.equal(committed.clipboardRevision, 7);
 assert.deepEqual(committed.database, ['leaf-a', 'leaf-b', 'nested', 'top']);
 assert.deepEqual(committed.canvas, ['leaf-a', 'leaf-b']);
 assert.deepEqual(committed.groups, ['nested', 'top']);
 assert.deepEqual(committed.selection, ['top']);
 
 console.log('originalGroupPasteUi=' +
-  'deep-group-graph-preview-no-consume-durable-transaction-complete-state-top-selection-history');
+  'deep-group-graph-target-center-preview-no-consume-revision-bound-durable-transaction-' +
+  'complete-state-top-selection-history');
