@@ -49,6 +49,19 @@ export default function folderRepositoryTest() {
       expect(throws(() => validateFolderMove(folders, 'c', null))).assertFalse();
     });
 
+    it('does not absorb an unrelated corrupt cycle into a deleted subtree', 0, () => {
+      const folders: NoteFolder[] = [
+        folder('root', 'Root', null, 0),
+        folder('child', 'Child', 'root', 0),
+        folder('cycle-a', 'Cycle A', 'cycle-b', 1),
+        folder('cycle-b', 'Cycle B', 'cycle-a', 2),
+      ];
+      expect(isFolderInSubtree(folders, 'root', 'child')).assertTrue();
+      expect(isFolderInSubtree(folders, 'root', 'cycle-a')).assertFalse();
+      expect(isFolderInSubtree(folders, 'root', 'cycle-b')).assertFalse();
+      expect(throws(() => validateFolderMove(folders, 'root', 'cycle-a'))).assertTrue();
+    });
+
     it('enforces the original maximum depth of six for the whole subtree', 0, () => {
       const folders: NoteFolder[] = [
         folder('a', 'A', null, 0),

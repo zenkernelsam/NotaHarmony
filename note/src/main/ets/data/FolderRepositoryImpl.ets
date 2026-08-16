@@ -90,7 +90,10 @@ export function isFolderInSubtree(folders: NoteFolder[], rootId: string, candida
   const visited: Set<string> = new Set<string>();
   while (current !== null && current.parentId !== null) {
     if (visited.has(current.id)) {
-      return true;
+      // A corrupt cycle unrelated to rootId is not part of rootId's subtree. Callers that
+      // require a valid ancestry (for example move validation) reject it separately via
+      // folderDepth(); subtree deletion must never absorb unrelated corrupt components.
+      return false;
     }
     visited.add(current.id);
     if (current.parentId === rootId) {

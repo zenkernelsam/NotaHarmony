@@ -445,6 +445,26 @@
       "value": "Folder Actions"
     },
     {
+      "name": "folders",
+      "value": "Folders"
+    },
+    {
+      "name": "open_folder_drawer",
+      "value": "Open folders"
+    },
+    {
+      "name": "close",
+      "value": "Close"
+    },
+    {
+      "name": "expand_folder",
+      "value": "Expand folder"
+    },
+    {
+      "name": "collapse_folder",
+      "value": "Collapse folder"
+    },
+    {
       "name": "search_notes",
       "value": "Search notes"
     },

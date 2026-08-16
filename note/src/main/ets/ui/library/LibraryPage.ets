@@ -30,6 +30,8 @@ import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 interface FolderListItem {
   folder: NoteFolder;
   depth: number;
+  hasChildren: boolean;
+  expanded: boolean;
 }
 
 @Entry
@@ -39,6 +41,10 @@ struct LibraryPage {
   @State columns: number = 3;
   @State sidebarWidth: number = 0;
   @State showSidebar: boolean = false;
+  // 原版 <840dp 使用 ModalNavigationDrawer；Harmony 侧用显式 overlay 保持同一可达性。
+  @State compactFolderDrawerVisible: boolean = false;
+  @State expandedFolderIds: string[] = [];
+  private expandedFoldersInitialized: boolean = false;
   // === 数据状态 ===
   private viewModel: LibraryViewModel | null = null;
   @State notes: NoteMeta[] = [];
@@ -60,6 +66,7 @@ struct LibraryPage {
   private thumbnailPriorityIds: string[] = [];
   private pageActive: boolean = false;
   private lifecycleGeneration: number = 0;
+  private notesRequestGeneration: number = 0;
   private readonly THUMBNAIL_CONCURRENCY: number = 3;
   private readonly MAX_THUMBNAILS: number = 64;
   private thumbnailRefreshMutex: AsyncMutex = new AsyncMutex();
@@ -104,7 +111,9 @@ struct LibraryPage {
 
   aboutToDisappear(): void {
     this.pageActive = false;
+    this.compactFolderDrawerVisible = false;
     this.lifecycleGeneration++;
+    this.notesRequestGeneration++;
     if (this.assetAvailabilitySubscription >= 0) {
       assetAvailabilityHub.unsubscribe(this.assetAvailabilitySubscription);
       this.assetAvailabilitySubscription = -1;
@@ -139,22 +148,29 @@ struct LibraryPage {
     if (this.viewModel !== null) {
       const vm: LibraryViewModel = this.viewModel;
       const renderer: ThumbnailRenderer = this.thumbRenderer;
+      const query: string = this.searchText;
+      const folderId: string | null = vm.currentFolderId;
+      this.currentFolderId = folderId;
+      const notesRequestGeneration: number = this.beginNotesRequest();
       if (this.notes.length === 0) {
         this.libraryLoading = true;
       }
       const context = getContext(this) as common.UIAbilityContext;
-      renderer.initialize(context).then(() => vm.loadNotes(this.searchText)).then(() => {
-        if (!this.isCurrentLifecycle(lifecycleGeneration, vm, renderer)) {
+      renderer.initialize(context).then(() => vm.loadNotes(query)).then(() => {
+        if (!this.isCurrentLifecycle(lifecycleGeneration, vm, renderer) ||
+          !this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)) {
           return;
         }
         this.initError = '';
         this.hasInitError = false;
         this.viewModel = vm;
+        this.currentFolderId = vm.currentFolderId;
         this.notes = vm.getFilteredNotes().slice();
         this.libraryLoading = false;
         return this.refreshThumbnails();
       }).catch((e: Error) => {
-        if (!this.isCurrentLifecycle(lifecycleGeneration, vm, renderer)) {
+        if (!this.isCurrentLifecycle(lifecycleGeneration, vm, renderer) ||
+          !this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)) {
           return;
         }
         this.libraryLoading = false;
@@ -204,6 +220,17 @@ struct LibraryPage {
     renderer: ThumbnailRenderer): boolean {
     return this.pageActive && generation === this.lifecycleGeneration &&
       this.viewModel === viewModel && this.thumbRenderer === renderer;
+  }
+
+  private beginNotesRequest(): number {
+    return ++this.notesRequestGeneration;
+  }
+
+  private isCurrentNotesRequest(generation: number, viewModel: LibraryViewModel,
+    query: string, folderId: string | null): boolean {
+    return this.pageActive && generation === this.notesRequestGeneration &&
+      this.viewModel === viewModel && this.searchText === query &&
+      this.currentFolderId === folderId && viewModel.currentFolderId === folderId;
   }
 
   private async retireThumbnailRenderer(renderer: ThumbnailRenderer): Promise<void> {
@@ -506,7 +533,100 @@ struct LibraryPage {
   private publishCommittedFolders(folders: NoteFolder[]): void {
     this.folderMutationGeneration++;
     this.folderReadGeneration++;
+    this.publishFolderSnapshot(folders);
+  }
+
+  private publishFolderSnapshot(folders: NoteFolder[]): void {
     this.folders = folders.slice();
+    this.reconcileExpandedFolders(this.folders);
+    if (this.currentFolderId !== null) {
+      this.expandFolderAncestors(this.currentFolderId, this.folders);
+    }
+  }
+
+  private reconcileExpandedFolders(folders: NoteFolder[]): void {
+    const validIds: Set<string> = new Set<string>();
+    for (const folder of folders) {
+      validIds.add(folder.id);
+    }
+    const next: string[] = [];
+    for (const id of this.expandedFolderIds) {
+      if (validIds.has(id) && next.indexOf(id) < 0) {
+        next.push(id);
+      }
+    }
+    // Expand only top-level folders by default; descendants follow the user's toggle.
+    if (!this.expandedFoldersInitialized && folders.length > 0) {
+      for (const folder of folders) {
+        if (folder.parentId === null) {
+          next.push(folder.id);
+        }
+      }
+      this.expandedFoldersInitialized = true;
+    }
+    this.expandedFolderIds = next;
+  }
+
+  private isFolderExpanded(folderId: string): boolean {
+    return this.expandedFolderIds.indexOf(folderId) >= 0;
+  }
+
+  private folderHasChildren(folderId: string): boolean {
+    for (const folder of this.folders) {
+      if (folder.parentId === folderId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private expandFolderAncestors(folderId: string, folders: NoteFolder[] = this.folders): void {
+    const next: string[] = this.expandedFolderIds.slice();
+    const visited: Set<string> = new Set<string>();
+    let currentId: string | null = folderId;
+    while (currentId !== null && !visited.has(currentId)) {
+      visited.add(currentId);
+      let current: NoteFolder | null = null;
+      for (const folder of folders) {
+        if (folder.id === currentId) {
+          current = folder;
+          break;
+        }
+      }
+      if (current === null || current.parentId === null) {
+        break;
+      }
+      if (next.indexOf(current.parentId) < 0) {
+        next.push(current.parentId);
+      }
+      currentId = current.parentId;
+    }
+    this.expandedFolderIds = next;
+  }
+
+  private toggleFolderExpanded(folderId: string): void {
+    const next: string[] = this.expandedFolderIds.slice();
+    const index: number = next.indexOf(folderId);
+    if (index >= 0) {
+      next.splice(index, 1);
+    } else {
+      next.push(folderId);
+    }
+    this.expandedFolderIds = next;
+  }
+
+  private openCompactFolderDrawer(): void {
+    if (this.folderBusy) {
+      return;
+    }
+    if (this.currentFolderId !== null) {
+      this.expandFolderAncestors(this.currentFolderId);
+    }
+    this.compactFolderDrawerVisible = true;
+  }
+
+  private closeCompactFolderDrawer(): void {
+    this.compactFolderDrawerVisible = false;
   }
 
   private reloadFoldersBestEffort(repo: FolderRepositoryImpl, operation: string): void {
@@ -518,7 +638,7 @@ struct LibraryPage {
         lifecycleGeneration === this.lifecycleGeneration &&
         readGeneration === this.folderReadGeneration &&
         mutationGeneration === this.folderMutationGeneration) {
-        this.folders = folders;
+        this.publishFolderSnapshot(folders);
       }
     }).catch((e: Error) => {
       console.error(`${operation} authoritative folder refresh failed: ${JSON.stringify(e)}`);
@@ -526,14 +646,22 @@ struct LibraryPage {
   }
 
   private reloadVisibleNotesAfterMutation(vm: LibraryViewModel, operation: string): void {
-    vm.loadNotes(this.searchText).then(() => {
-      if (this.pageActive && this.viewModel === vm) {
+    if (!this.pageActive || this.viewModel !== vm) {
+      return;
+    }
+    const query: string = this.searchText;
+    const folderId: string | null = vm.currentFolderId;
+    const notesRequestGeneration: number = this.beginNotesRequest();
+    vm.loadNotes(query).then(() => {
+      if (this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)) {
         this.notes = vm.getFilteredNotes().slice();
         return this.refreshThumbnails();
       }
       return Promise.resolve();
     }).catch((e: Error) => {
-      console.error(`${operation} authoritative note refresh failed: ${JSON.stringify(e)}`);
+      if (this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)) {
+        console.error(`${operation} authoritative note refresh failed: ${JSON.stringify(e)}`);
+      }
     });
   }
 
@@ -542,20 +670,31 @@ struct LibraryPage {
     if (this.viewModel === null || this.folderBusy) {
       return;
     }
+    const query: string = this.searchText;
+    const notesRequestGeneration: number = this.beginNotesRequest();
+    const vm: LibraryViewModel = this.viewModel;
     this.folderBusy = true;
     this.currentFolderId = folderId;
     try {
-      const vm: LibraryViewModel = this.viewModel;
-      await vm.setFolder(folderId, this.searchText);
+      await vm.setFolder(folderId, query);
+      if (!this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)) {
+        return;
+      }
       this.initError = '';
       this.hasInitError = false;
       this.viewModel = vm;
       this.notes = vm.getFilteredNotes().slice();
       await this.refreshThumbnails();
+      if (this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)) {
+        this.closeCompactFolderDrawer();
+      }
     } catch (e) {
-      this.currentFolderId = this.viewModel.currentFolderId;
-      promptAction.showToast({ message: $r('app.string.load_notes_failed') });
-      console.error(`select folder failed: ${JSON.stringify(e)}`);
+      if (this.pageActive && notesRequestGeneration === this.notesRequestGeneration &&
+        this.viewModel === vm && this.searchText === query) {
+        this.currentFolderId = vm.currentFolderId;
+        promptAction.showToast({ message: $r('app.string.load_notes_failed') });
+        console.error(`select folder failed: ${JSON.stringify(e)}`);
+      }
     } finally {
       this.folderBusy = false;
     }
@@ -614,6 +753,7 @@ struct LibraryPage {
       this.noteRepo = noteRepo;
       this.folderRepo = folderRepo;
       this.viewModel = vm;
+      this.currentFolderId = vm.currentFolderId;
       const folderReadGeneration: number = ++this.folderReadGeneration;
       const folderMutationGeneration: number = this.folderMutationGeneration;
       try {
@@ -621,7 +761,7 @@ struct LibraryPage {
         if (this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer) &&
           folderReadGeneration === this.folderReadGeneration &&
           folderMutationGeneration === this.folderMutationGeneration) {
-          this.folders = loadedFolders;
+          this.publishFolderSnapshot(loadedFolders);
         }
       } catch (folderError) {
         if (!this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer) ||
@@ -635,30 +775,44 @@ struct LibraryPage {
       // 恢复排序偏好
       const saved: number = pref.getSync(this.PREF_SORT_KEY, 0) as number;
       vm.sortMode = saved as NoteSortMode;
-      await vm.loadNotes(this.searchText);
-      if (!this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer)) {
+      const initialQuery: string = this.searchText;
+      const initialFolderId: string | null = vm.currentFolderId;
+      const initialNotesRequestGeneration: number = this.beginNotesRequest();
+      await vm.loadNotes(initialQuery);
+      if (!this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer) ||
+        !this.isCurrentNotesRequest(initialNotesRequestGeneration, vm, initialQuery, initialFolderId)) {
         return;
       }
       this.viewModel = vm;
+      this.currentFolderId = vm.currentFolderId;
       this.notes = vm.getFilteredNotes().slice();
       this.libraryLoading = false;
       await this.refreshThumbnails();
-      if (!this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer)) {
+      if (!this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer) ||
+        !this.isCurrentNotesRequest(initialNotesRequestGeneration, vm, initialQuery, initialFolderId)) {
         return;
       }
       this.persistence.backfillSearchIndex().then(() => {
         const activeViewModel: LibraryViewModel | null = this.viewModel;
         const activeQuery: string = this.searchText;
-        if (activeViewModel !== null && this.pageActive && activeQuery.trim().length > 0) {
+        const activeFolderId: string | null = activeViewModel === null ? null :
+          activeViewModel.currentFolderId;
+        if (activeViewModel !== null && this.pageActive && activeQuery.trim().length > 0 &&
+          this.currentFolderId === activeFolderId) {
+          const backfillRequestGeneration: number = this.beginNotesRequest();
           activeViewModel.loadNotes(activeQuery).then(() => {
-            if (this.pageActive && this.viewModel === activeViewModel && this.searchText === activeQuery) {
+            if (this.isCurrentNotesRequest(backfillRequestGeneration, activeViewModel,
+              activeQuery, activeFolderId)) {
               this.viewModel = activeViewModel;
               this.notes = activeViewModel.getFilteredNotes().slice();
               return this.refreshThumbnails();
             }
             return Promise.resolve();
           }).catch((e: Error) => {
-            console.error(`refresh search after backfill failed: ${JSON.stringify(e)}`);
+            if (this.isCurrentNotesRequest(backfillRequestGeneration, activeViewModel,
+              activeQuery, activeFolderId)) {
+              console.error(`refresh search after backfill failed: ${JSON.stringify(e)}`);
+            }
           });
         }
       }).catch((e: Error) => {
@@ -705,6 +859,164 @@ struct LibraryPage {
     }
   }
 
+  // 原版 folder row 约 48dp：左侧 chevron 负责展开/折叠，中间整行选择，右侧保留操作菜单。
+  @Builder
+  FolderNavigationRow(item: FolderListItem) {
+    Row() {
+      if (item.hasChildren) {
+        Button(item.expanded ? '⌄' : '›')
+          .width(40)
+          .height(44)
+          .padding(0)
+          .fontSize(20)
+          .enabled(!this.folderBusy)
+          .fontColor(this.resolveTokens().textSecondary)
+          .accessibilityText(item.expanded ? $r('app.string.collapse_folder') :
+            $r('app.string.expand_folder'))
+          .onClick(() => {
+            this.toggleFolderExpanded(item.folder.id);
+          })
+      } else {
+        Blank().width(40).height(44)
+      }
+      Button() {
+        Row() {
+          Text(item.folder.name)
+            .layoutWeight(1)
+            .maxLines(1)
+            .fontSize(15)
+            .fontColor(this.currentFolderId === item.folder.id ? this.resolveTokens().accent :
+              this.resolveTokens().textPrimary)
+            .fontWeight(this.currentFolderId === item.folder.id ? FontWeight.Medium :
+              FontWeight.Normal)
+          if (this.currentFolderId === item.folder.id) {
+            Text('✓')
+              .fontSize(16)
+              .fontColor(this.resolveTokens().accent)
+              .margin({ left: 8 })
+          }
+        }
+        .width('100%')
+        .height('100%')
+      }
+      .layoutWeight(1)
+      .height(44)
+      .padding({ left: 8, right: 8 })
+      .enabled(!this.folderBusy)
+      .backgroundColor(this.currentFolderId === item.folder.id ? this.resolveTokens().control :
+        this.resolveTokens().surface)
+      .borderRadius(8)
+      .accessibilityText(item.folder.name)
+      .onClick(() => {
+        this.selectFolder(item.folder.id);
+      })
+      Button('...')
+        .width(40)
+        .height(44)
+        .padding(0)
+        .fontSize(14)
+        .enabled(!this.folderBusy)
+        .accessibilityText($r('app.string.folder_actions'))
+        .bindMenu(this.buildSingleFolderMenu(item.folder))
+    }
+    .width('100%')
+    .height(48)
+    .padding({ left: item.depth * 12, right: 4 })
+  }
+
+  @Builder
+  CompactFolderDrawer() {
+    if (this.compactFolderDrawerVisible && !this.showSidebar) {
+      Stack() {
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor('#66000000')
+          .hitTestBehavior(HitTestMode.Block)
+          .onClick(() => {
+            this.closeCompactFolderDrawer();
+          })
+        Column() {
+          Row() {
+            Text($r('app.string.folders'))
+              .layoutWeight(1)
+              .fontSize(20)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(this.resolveTokens().textPrimary)
+            Button('×')
+              .width(44)
+              .height(44)
+              .fontSize(22)
+              .accessibilityText($r('app.string.close'))
+              .onClick(() => {
+                this.closeCompactFolderDrawer();
+              })
+          }
+          .width('100%')
+          .height(56)
+          .padding({ left: 16, right: 8 })
+
+          Button() {
+            Row() {
+              Text($r('app.string.all_notes'))
+                .layoutWeight(1)
+                .fontSize(15)
+                .fontColor(this.currentFolderId === null ? this.resolveTokens().accent :
+                  this.resolveTokens().textPrimary)
+                .fontWeight(this.currentFolderId === null ? FontWeight.Medium : FontWeight.Normal)
+              if (this.currentFolderId === null) {
+                Text('✓')
+                  .fontSize(16)
+                  .fontColor(this.resolveTokens().accent)
+              }
+            }
+            .width('100%')
+            .height('100%')
+          }
+          .width('100%')
+          .height(48)
+          .padding({ left: 16, right: 16 })
+          .enabled(!this.folderBusy)
+          .backgroundColor(this.currentFolderId === null ? this.resolveTokens().control :
+            this.resolveTokens().surface)
+          .onClick(() => {
+            this.selectFolder(null);
+          })
+
+          Scroll() {
+            Column() {
+              ForEach(this.folderListItems(false), (item: FolderListItem) => {
+                this.FolderNavigationRow(item)
+              }, (item: FolderListItem) => item.folder.id)
+            }
+            .width('100%')
+            .padding({ top: 8, bottom: 8 })
+          }
+          .layoutWeight(1)
+          .scrollable(ScrollDirection.Vertical)
+
+          Button($r('app.string.new_folder'))
+            .width('100%')
+            .height(48)
+            .margin({ left: 16, right: 16, bottom: 16 })
+            .enabled(!this.folderBusy)
+            .onClick(() => {
+              this.showCreateFolderDialog();
+            })
+        }
+        .width('86%')
+        .constraintSize({ minWidth: 280, maxWidth: 320 })
+        .height('100%')
+        .backgroundColor(this.resolveTokens().surface)
+        .hitTestBehavior(HitTestMode.Block)
+      }
+      .width('100%')
+      .height('100%')
+      .alignContent(Alignment.TopStart)
+      .hitTestBehavior(HitTestMode.Block)
+    }
+  }
+
   build() {
     Row() {
       // 侧栏（≥840vp 显示；T-039 文件夹列表）
@@ -715,35 +1027,47 @@ struct LibraryPage {
             .fontWeight(FontWeight.Bold)
             .fontColor(this.resolveTokens().textPrimary)
             .margin({ top: 16, bottom: 12 })
-          // 全部笔记
-          Text($r('app.string.all_notes'))
-            .fontSize(15)
-            .fontColor(this.currentFolderId === null ? this.resolveTokens().accent : this.resolveTokens().textPrimary)
-            .fontWeight(this.currentFolderId === null ? FontWeight.Medium : FontWeight.Normal)
-            .margin({ top: 4, bottom: 4 })
-            .onClick(() => {
-              this.selectFolder(null);
-            })
-          // 文件夹列表
-          ForEach(this.folderListItems(), (item: FolderListItem) => {
-            Text(item.folder.name)
-              .fontSize(15)
-              .fontColor(this.currentFolderId === item.folder.id ? this.resolveTokens().accent :
-                this.resolveTokens().textPrimary)
-              .fontWeight(this.currentFolderId === item.folder.id ? FontWeight.Medium : FontWeight.Normal)
-              .padding({ left: item.depth * 16 })
-              .margin({ top: 4, bottom: 4 })
-              .onClick(() => {
-                this.selectFolder(item.folder.id);
-              })
-              .bindMenu(this.buildSingleFolderMenu(item.folder))
-          }, (item: FolderListItem) => item.folder.id)
-          Blank()
-          // 新建文件夹
+          Button() {
+            Row() {
+              Text($r('app.string.all_notes'))
+                .layoutWeight(1)
+                .fontSize(15)
+                .fontColor(this.currentFolderId === null ? this.resolveTokens().accent :
+                  this.resolveTokens().textPrimary)
+                .fontWeight(this.currentFolderId === null ? FontWeight.Medium : FontWeight.Normal)
+              if (this.currentFolderId === null) {
+                Text('✓').fontSize(16).fontColor(this.resolveTokens().accent)
+              }
+            }
+            .width('100%')
+            .height('100%')
+          }
+          .width('100%')
+          .height(48)
+          .padding({ left: 8, right: 8 })
+          .backgroundColor(this.currentFolderId === null ? this.resolveTokens().control :
+            this.resolveTokens().surface)
+          .enabled(!this.folderBusy)
+          .onClick(() => {
+            this.selectFolder(null);
+          })
+          Scroll() {
+            Column() {
+              ForEach(this.folderListItems(false), (item: FolderListItem) => {
+                this.FolderNavigationRow(item)
+              }, (item: FolderListItem) => item.folder.id)
+            }
+            .width('100%')
+            .padding({ top: 8, bottom: 8 })
+          }
+          .layoutWeight(1)
+          .scrollable(ScrollDirection.Vertical)
           Button($r('app.string.new_folder'))
-            .height(36)
+            .width('100%')
+            .height(48)
             .fontSize(13)
             .margin({ bottom: 16 })
+            .enabled(!this.folderBusy)
             .onClick(() => {
               this.showCreateFolderDialog();
             })
@@ -757,19 +1081,31 @@ struct LibraryPage {
 
       // 主内容
       Column() {
-        // 原版在窄屏使用可开合侧栏；Harmony compact 用原生菜单提供同等可达性。
+        // 原版在窄屏使用可开合侧栏；Harmony compact 以显式 overlay drawer 保持同等语义。
         if (!this.showSidebar) {
           Row() {
+            Button('☰')
+              .width(44)
+              .height(44)
+              .fontSize(20)
+              .enabled(!this.folderBusy)
+              .accessibilityText($r('app.string.open_folder_drawer'))
+              .onClick(() => {
+                this.openCompactFolderDrawer();
+              })
             Button(this.currentFolderName())
               .layoutWeight(1)
-              .height(40)
+              .height(44)
               .fontSize(14)
               .fontColor(this.resolveTokens().accent)
               .enabled(!this.folderBusy)
-              .bindMenu(this.buildFolderSelectionMenu())
+              .accessibilityText($r('app.string.open_folder_drawer'))
+              .onClick(() => {
+                this.openCompactFolderDrawer();
+              })
             Button('...')
               .width(48)
-              .height(40)
+              .height(44)
               .fontSize(14)
               .margin({ left: 8 })
               .enabled(!this.folderBusy)
@@ -790,25 +1126,34 @@ struct LibraryPage {
             .backgroundColor(this.resolveTokens().surface)
             .onChange((value: string) => {
               this.searchText = value;
+              const notesRequestGeneration: number = this.beginNotesRequest();
               if (this.searchTimer >= 0) {
                 clearTimeout(this.searchTimer);
               }
               this.searchTimer = setTimeout(() => {
                 this.searchTimer = -1;
                 const vm: LibraryViewModel | null = this.viewModel;
-                if (vm === null || !this.pageActive) {
+                if (vm === null || !this.pageActive ||
+                  notesRequestGeneration !== this.notesRequestGeneration ||
+                  this.searchText !== value) {
                   return;
                 }
+                const folderId: string | null = vm.currentFolderId;
                 vm.setSearchQuery(value).then(() => {
-                  if (this.pageActive && this.viewModel === vm) {
+                  if (this.isCurrentNotesRequest(notesRequestGeneration, vm, value, folderId)) {
                     this.viewModel = vm;
+                    this.currentFolderId = vm.currentFolderId;
                     this.notes = vm.getFilteredNotes().slice();
+                    this.libraryLoading = false;
                     return this.refreshThumbnails();
                   }
                   return Promise.resolve();
                 }).catch((e: Error) => {
-                  console.error(`search notes failed: ${JSON.stringify(e)}`);
-                  promptAction.showToast({ message: $r('app.string.search_failed') });
+                  if (this.isCurrentNotesRequest(notesRequestGeneration, vm, value, folderId)) {
+                    console.error(`search notes failed: ${JSON.stringify(e)}`);
+                    this.libraryLoading = false;
+                    promptAction.showToast({ message: $r('app.string.search_failed') });
+                  }
                 });
               }, 180);
             })
@@ -917,6 +1262,7 @@ struct LibraryPage {
       this.applyBreakpoints(widthVp);
     })
     .overlay(this.FabButton(), { align: Alignment.BottomEnd })
+    .overlay(this.CompactFolderDrawer(), { align: Alignment.TopStart })
   }
 
   // FAB 新建按钮（64vp 右下角）
@@ -1105,28 +1451,78 @@ struct LibraryPage {
     }
   }
 
-  private folderListItems(): FolderListItem[] {
+  // Menus need every destination; visual navigation uses the collapsed-aware variant.
+  private folderListItems(includeCollapsed: boolean = true): FolderListItem[] {
     const items: FolderListItem[] = [];
     const visited: Set<string> = new Set<string>();
-    this.appendFolderChildren(items, null, 0, visited);
+    this.appendFolderChildren(items, null, 0, visited, includeCollapsed);
     // Corrupt/orphaned hierarchy remains reachable instead of disappearing from the library.
     for (const folder of this.folders) {
-      if (!visited.has(folder.id)) {
+      // A child hidden by a collapsed valid parent is intentionally not an orphan.
+      if (!visited.has(folder.id) && (folder.parentId === null || !this.folderExists(folder.parentId) ||
+        this.folderHasCyclicAncestry(folder.id))) {
         visited.add(folder.id);
-        items.push({ folder: folder, depth: 0 });
-        this.appendFolderChildren(items, folder.id, 1, visited);
+        items.push({
+          folder: folder,
+          depth: 0,
+          hasChildren: this.folderHasChildren(folder.id),
+          expanded: this.isFolderExpanded(folder.id),
+        });
+        if (includeCollapsed || this.isFolderExpanded(folder.id)) {
+          this.appendFolderChildren(items, folder.id, 1, visited, includeCollapsed);
+        }
       }
     }
     return items;
   }
 
+  private folderExists(folderId: string): boolean {
+    for (const folder of this.folders) {
+      if (folder.id === folderId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private folderHasCyclicAncestry(folderId: string): boolean {
+    const visited: Set<string> = new Set<string>();
+    let currentId: string | null = folderId;
+    while (currentId !== null) {
+      if (visited.has(currentId)) {
+        return true;
+      }
+      visited.add(currentId);
+      let current: NoteFolder | null = null;
+      for (const folder of this.folders) {
+        if (folder.id === currentId) {
+          current = folder;
+          break;
+        }
+      }
+      if (current === null || current.parentId === null) {
+        return false;
+      }
+      currentId = current.parentId;
+    }
+    return false;
+  }
+
   private appendFolderChildren(items: FolderListItem[], parentId: string | null, depth: number,
-    visited: Set<string>): void {
+    visited: Set<string>, includeCollapsed: boolean): void {
     for (const folder of this.folders) {
       if (folder.parentId === parentId && !visited.has(folder.id)) {
         visited.add(folder.id);
-        items.push({ folder: folder, depth: depth });
-        this.appendFolderChildren(items, folder.id, depth + 1, visited);
+        const expanded: boolean = this.isFolderExpanded(folder.id);
+        items.push({
+          folder: folder,
+          depth: depth,
+          hasChildren: this.folderHasChildren(folder.id),
+          expanded: expanded,
+        });
+        if (includeCollapsed || expanded) {
+          this.appendFolderChildren(items, folder.id, depth + 1, visited, includeCollapsed);
+        }
       }
     }
   }
@@ -1258,6 +1654,9 @@ struct LibraryPage {
       this.columns = widthVp >= 600 ? 3 : 2;
       this.sidebarWidth = 0;
       this.showSidebar = false;
+    }
+    if (this.showSidebar && this.compactFolderDrawerVisible) {
+      this.compactFolderDrawerVisible = false;
     }
   }
 
