@@ -12,8 +12,9 @@ import {
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import {
-  FolderCreateResult, FolderDeleteResult, FolderMutationResult, FolderRepositoryImpl,
-  NoteFolder, NoteFolderMoveResult, isFolderInSubtree,
+  FolderCreateResult, FolderDeleteResult, FolderDropIntent, FolderMutationResult,
+  FolderRepositoryImpl, NoteFolder, NoteFolderMoveResult, ORIGINAL_FOLDER_DRAG_INDENT,
+  isFolderInSubtree, resolveFolderDrop,
 } from '../../data/FolderRepositoryImpl';
 import { FirstPageThumbnailState, StrokePersistence } from '../../data/StrokePersistence';
 import { AsyncMutex, MutexRelease } from '../../data/AsyncMutex';
@@ -77,6 +78,11 @@ struct LibraryPage {
   @State currentFolderId: string | null = null;
   private folderReadGeneration: number = 0;
   private folderMutationGeneration: number = 0;
+  private folderDragVisibleIds: string[] = [];
+  private folderDragVisibleDepths: number[] = [];
+  private folderDragSourceIndex: number = -1;
+  private folderDragDepthAnchorX: number = 0;
+  private folderDragPreviewName: string = '';
   @State folderDialogTitle: ResourceStr = $r('app.string.new_folder');
   @State folderDialogInitialText: string = '';
   @State folderDialogMode: number = 0;  // 0=新建 1=重命名
@@ -112,6 +118,7 @@ struct LibraryPage {
   aboutToDisappear(): void {
     this.pageActive = false;
     this.compactFolderDrawerVisible = false;
+    this.clearFolderDrag();
     this.lifecycleGeneration++;
     this.notesRequestGeneration++;
     if (this.assetAvailabilitySubscription >= 0) {
@@ -479,7 +486,8 @@ struct LibraryPage {
     this.reloadVisibleNotesAfterMutation(vm, 'delete folder');
   }
 
-  private async moveFolder(folderId: string, parentId: string | null): Promise<void> {
+  private async moveFolder(folderId: string, parentId: string | null,
+    insertIndex?: number): Promise<void> {
     if (this.folderRepo === null || this.folderBusy) {
       return;
     }
@@ -487,7 +495,7 @@ struct LibraryPage {
     this.folderBusy = true;
     let result: FolderMutationResult | null = null;
     try {
-      result = await repo.moveFolder(folderId, parentId);
+      result = await repo.moveFolder(folderId, parentId, insertIndex);
     } catch (e) {
       promptAction.showToast({ message: $r('app.string.move_folder_failed') });
       console.error(`move folder failed: ${JSON.stringify(e)}`);
@@ -499,6 +507,96 @@ struct LibraryPage {
     }
     this.publishCommittedFolders(result.folders);
     this.reloadFoldersBestEffort(repo, 'move folder');
+  }
+
+  private orderedFolderSiblings(folder: NoteFolder): NoteFolder[] {
+    const siblings: NoteFolder[] = this.folders.filter((candidate: NoteFolder): boolean =>
+      candidate.parentId === folder.parentId);
+    siblings.sort((left: NoteFolder, right: NoteFolder): number => {
+      if (left.siblingOrder !== right.siblingOrder) {
+        return left.siblingOrder - right.siblingOrder;
+      }
+      if (left.createdAt !== right.createdAt) {
+        return left.createdAt - right.createdAt;
+      }
+      return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+    });
+    return siblings;
+  }
+
+  private canMoveFolderBy(folder: NoteFolder, offset: number): boolean {
+    const siblings: NoteFolder[] = this.orderedFolderSiblings(folder);
+    const index: number = siblings.findIndex(
+      (candidate: NoteFolder): boolean => candidate.id === folder.id);
+    const target: number = index + offset;
+    return index >= 0 && target >= 0 && target < siblings.length;
+  }
+
+  private moveFolderBy(folder: NoteFolder, offset: number): void {
+    const siblings: NoteFolder[] = this.orderedFolderSiblings(folder);
+    const index: number = siblings.findIndex(
+      (candidate: NoteFolder): boolean => candidate.id === folder.id);
+    const target: number = index + offset;
+    if (index < 0 || target < 0 || target >= siblings.length) {
+      return;
+    }
+    this.moveFolder(folder.id, folder.parentId, target).catch((e: Error) => {
+      console.error(`move folder by index failed: ${JSON.stringify(e)}`);
+    });
+  }
+
+  private clearFolderDrag(): void {
+    this.folderDragVisibleIds = [];
+    this.folderDragVisibleDepths = [];
+    this.folderDragSourceIndex = -1;
+    this.folderDragDepthAnchorX = 0;
+    this.folderDragPreviewName = '';
+  }
+
+  private captureFolderDrag(event: ItemDragInfo, itemIndex: number): void {
+    if (this.folderBusy) {
+      this.clearFolderDrag();
+      return;
+    }
+    const items: FolderListItem[] = this.folderListItems(false);
+    this.folderDragVisibleIds = items.map((item: FolderListItem): string => item.folder.id);
+    this.folderDragVisibleDepths = items.map((item: FolderListItem): number => item.depth);
+    if (itemIndex < 0 || itemIndex >= this.folderDragVisibleIds.length) {
+      this.clearFolderDrag();
+      return;
+    }
+    this.folderDragSourceIndex = itemIndex;
+    this.folderDragPreviewName = items[itemIndex].folder.name;
+    const sourceDepth: number = this.folderDragVisibleDepths[itemIndex];
+    this.folderDragDepthAnchorX = Number.isFinite(event.x) ?
+      event.x - sourceDepth * ORIGINAL_FOLDER_DRAG_INDENT : -sourceDepth * ORIGINAL_FOLDER_DRAG_INDENT;
+  }
+
+  private finishFolderDrag(event: ItemDragInfo, insertIndex: number, isSuccess: boolean): void {
+    const visibleIds: string[] = this.folderDragVisibleIds.slice();
+    const visibleDepths: number[] = this.folderDragVisibleDepths.slice();
+    const sourceIndex: number = this.folderDragSourceIndex;
+    const sourceDepth: number = sourceIndex >= 0 && sourceIndex < visibleDepths.length ?
+      visibleDepths[sourceIndex] : 0;
+    const requestedDepth: number = Number.isFinite(event.x) ?
+      Math.floor((event.x - this.folderDragDepthAnchorX) / ORIGINAL_FOLDER_DRAG_INDENT) : sourceDepth;
+    this.clearFolderDrag();
+    if (!isSuccess || this.folderBusy || visibleIds.length === 0 || sourceIndex < 0) {
+      return;
+    }
+    try {
+      const intent: FolderDropIntent | null = resolveFolderDrop(
+        this.folders, visibleIds, visibleDepths, sourceIndex, insertIndex, requestedDepth);
+      if (intent === null) {
+        return;
+      }
+      this.moveFolder(intent.folderId, intent.parentId, intent.insertIndex).catch((e: Error) => {
+        console.error(`folder drag move failed: ${JSON.stringify(e)}`);
+      });
+    } catch (e) {
+      promptAction.showToast({ message: $r('app.string.move_folder_failed') });
+      console.error(`resolve folder drag failed: ${JSON.stringify(e)}`);
+    }
   }
 
   // 移动笔记到文件夹（null=根目录）
@@ -921,7 +1019,53 @@ struct LibraryPage {
     }
     .width('100%')
     .height(48)
-    .padding({ left: item.depth * 12, right: 4 })
+    .padding({ left: item.depth * ORIGINAL_FOLDER_DRAG_INDENT, right: 4 })
+  }
+
+  @Builder
+  FolderDragPreview() {
+    Row() {
+      Text(this.folderDragPreviewName)
+        .layoutWeight(1)
+        .maxLines(1)
+        .fontSize(15)
+        .fontColor(this.resolveTokens().textPrimary)
+        .fontWeight(FontWeight.Medium)
+    }
+    .width(240)
+    .height(48)
+    .padding({ left: 16, right: 16 })
+    .backgroundColor(this.resolveTokens().surface)
+    .borderRadius(8)
+    .shadow({ radius: 8, color: this.resolveTokens().shadow, offsetY: 4 })
+  }
+
+  @Builder
+  FolderNavigationList() {
+    List({ space: 0 }) {
+      ForEach(this.folderListItems(false), (item: FolderListItem) => {
+        ListItem() {
+          this.FolderNavigationRow(item)
+        }
+        .width('100%')
+        .height(48)
+      }, (item: FolderListItem) => item.folder.id)
+    }
+    .width('100%')
+    .layoutWeight(1)
+    .padding({ top: 8, bottom: 8 })
+    .scrollBar(BarState.Auto)
+    .onItemDragStart((event: ItemDragInfo, itemIndex: number) => {
+      this.captureFolderDrag(event, itemIndex);
+      if (this.folderDragSourceIndex < 0) {
+        return;
+      }
+      return this.FolderDragPreview;
+    })
+    .onItemDrop((event: ItemDragInfo, _itemIndex: number, insertIndex: number,
+      isSuccess: boolean) => {
+      this.finishFolderDrag(event, insertIndex, isSuccess);
+    })
   }
 
   @Builder
@@ -983,17 +1127,7 @@ struct LibraryPage {
             this.selectFolder(null);
           })
 
-          Scroll() {
-            Column() {
-              ForEach(this.folderListItems(false), (item: FolderListItem) => {
-                this.FolderNavigationRow(item)
-              }, (item: FolderListItem) => item.folder.id)
-            }
-            .width('100%')
-            .padding({ top: 8, bottom: 8 })
-          }
-          .layoutWeight(1)
-          .scrollable(ScrollDirection.Vertical)
+          this.FolderNavigationList()
 
           Button($r('app.string.new_folder'))
             .width('100%')
@@ -1051,17 +1185,7 @@ struct LibraryPage {
           .onClick(() => {
             this.selectFolder(null);
           })
-          Scroll() {
-            Column() {
-              ForEach(this.folderListItems(false), (item: FolderListItem) => {
-                this.FolderNavigationRow(item)
-              }, (item: FolderListItem) => item.folder.id)
-            }
-            .width('100%')
-            .padding({ top: 8, bottom: 8 })
-          }
-          .layoutWeight(1)
-          .scrollable(ScrollDirection.Vertical)
+          this.FolderNavigationList()
           Button($r('app.string.new_folder'))
             .width('100%')
             .height(48)
@@ -1419,6 +1543,12 @@ struct LibraryPage {
     if (folder !== null) {
       items.push({ value: $r('app.string.create_subfolder'), action: () => { this.showCreateFolderDialog(folder.id); } });
       items.push({ value: $r('app.string.rename'), action: () => { this.showRenameFolderDialog(folder); } });
+      if (this.canMoveFolderBy(folder, -1)) {
+        items.push({ value: $r('app.string.move_folder_up'), action: () => { this.moveFolderBy(folder, -1); } });
+      }
+      if (this.canMoveFolderBy(folder, 1)) {
+        items.push({ value: $r('app.string.move_folder_down'), action: () => { this.moveFolderBy(folder, 1); } });
+      }
       this.appendMoveFolderItems(items, folder);
       items.push({ value: $r('app.string.delete_folder'), action: () => { this.confirmDeleteFolder(folder); } });
     }
@@ -1430,6 +1560,12 @@ struct LibraryPage {
       { value: $r('app.string.create_subfolder'), action: () => { this.showCreateFolderDialog(folder.id); } },
       { value: $r('app.string.rename'), action: () => { this.showRenameFolderDialog(folder); } },
     ];
+    if (this.canMoveFolderBy(folder, -1)) {
+      items.push({ value: $r('app.string.move_folder_up'), action: () => { this.moveFolderBy(folder, -1); } });
+    }
+    if (this.canMoveFolderBy(folder, 1)) {
+      items.push({ value: $r('app.string.move_folder_down'), action: () => { this.moveFolderBy(folder, 1); } });
+    }
     this.appendMoveFolderItems(items, folder);
     items.push({ value: $r('app.string.delete'), action: () => { this.confirmDeleteFolder(folder); } });
     return items;

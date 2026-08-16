@@ -5,7 +5,7 @@
 本证据对应 M2-U-03。基准是
 `C:\Users\Cisco He\Desktop\Notability\decompiled_1.0.3`，移植侧是
 `note/src/main/ets/ui/library/LibraryPage.ets`。结论是：原版在窄于 840dp 时仍保留文件夹入口，
-只是把常驻 sidebar 改为可开合的 drawer；Harmony 侧现以 ArkUI `overlay + Stack + Scroll` 实现等价的
+只是把常驻 sidebar 改为可开合的 drawer；Harmony 侧现以 ArkUI `overlay + Stack + List` 实现等价的
 可达性，并明确把这是 Harmony API 适配写法，不冒充原版 Compose 常量。
 
 ## 原版硬证据
@@ -26,11 +26,13 @@
 1. `@State compactFolderDrawerVisible` 和 `open/closeCompactFolderDrawer()`；页面根节点以
    `overlay(this.CompactFolderDrawer())` 承载抽屉，遮罩点击或关闭按钮可收起。
 2. 44vp 汉堡入口与当前位置按钮；当前位置始终来自 `currentFolderName()`，不会因抽屉关闭而丢失。
-3. 抽屉标题、全部笔记、垂直 `Scroll`、新建文件夹和 280--320vp 的 bounded drawer 宽度。
+3. 抽屉标题、全部笔记、垂直原生 `List`、新建文件夹和 280--320vp 的 bounded drawer 宽度；同一
+   `FolderNavigationList` 也由 regular sidebar 复用。
 4. `expandedFolderIds`、`hasChildren`、`expanded` 和 `folderListItems(false)`：folder row 由 chevron
    展开/折叠，选中项显示勾选，行高为 48vp；每行的原生 `bindMenu` 仍可执行新建子文件夹、重命名、
    移动和删除。
-5. 常规 sidebar 复用同一行组件并增加滚动，不再因 folder 数量变多而把新建按钮推出屏幕。
+5. 常规 sidebar 复用同一行与同一个 `List` builder，不再因 folder 数量变多而把新建按钮推出屏幕；
+   Phase 254 在该容器上增加原生拖拽事件，不改变本证据的 compact 可达性结论。
 6. 重新加载或删除后会裁剪失效的展开 ID，并自动展开当前 folder 的祖先；折叠合法父节点时不会把其
    子节点错误当作孤儿重新显示。
 

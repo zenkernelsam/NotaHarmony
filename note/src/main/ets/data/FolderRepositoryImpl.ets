@@ -2,8 +2,10 @@ import { relationalStore } from '@kit.ArkData';
 import { NoteMeta } from '../core/model/NoteTypes';
 import { DatabaseManager } from './DatabaseManager';
 import { libraryMetadataMutationMutex } from './LibraryMetadataMutationMutex';
+import { ORIGINAL_MAX_FOLDER_DEPTH } from './FolderHierarchyRepair';
 
-export const MAX_FOLDER_DEPTH: number = 6;
+export const MAX_FOLDER_DEPTH: number = ORIGINAL_MAX_FOLDER_DEPTH;
+export const ORIGINAL_FOLDER_DRAG_INDENT: number = 24;
 
 export interface NoteFolder {
   id: string;
@@ -32,6 +34,21 @@ export interface NoteFolderMoveResult {
   folderId: string | null;
 }
 
+export interface FolderMovePlan {
+  folderId: string;
+  oldParentId: string | null;
+  newParentId: string | null;
+  insertIndex: number;
+  oldSiblingIds: string[];
+  newSiblingIds: string[];
+}
+
+export interface FolderDropIntent {
+  folderId: string;
+  parentId: string | null;
+  insertIndex: number;
+}
+
 function sameParent(left: string | null, right: string | null): boolean {
   return left === right;
 }
@@ -43,6 +60,24 @@ function findFolder(folders: NoteFolder[], folderId: string): NoteFolder | null 
     }
   }
   return null;
+}
+
+function compareFolderOrder(left: NoteFolder, right: NoteFolder): number {
+  if (left.siblingOrder !== right.siblingOrder) {
+    return left.siblingOrder - right.siblingOrder;
+  }
+  if (left.createdAt !== right.createdAt) {
+    return left.createdAt - right.createdAt;
+  }
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+}
+
+function orderedSiblings(folders: NoteFolder[], parentId: string | null,
+  excludedFolderId?: string): NoteFolder[] {
+  const siblings: NoteFolder[] = folders.filter((folder: NoteFolder): boolean =>
+    sameParent(folder.parentId, parentId) && folder.id !== excludedFolderId);
+  siblings.sort(compareFolderOrder);
+  return siblings;
 }
 
 function folderDepth(folders: NoteFolder[], folderId: string): number {
@@ -145,6 +180,110 @@ export function validateFolderMove(folders: NoteFolder[], folderId: string,
   validateFolderName(folders, folder.name, newParentId, folderId);
 }
 
+// Mirrors 1.0.3 xdb: a move carries both the destination parent and the child insertion index.
+// The original persists a fractional position between neighbours; this local store writes the
+// equivalent stable child order as contiguous indexes in one transaction.
+export function planFolderMove(folders: NoteFolder[], folderId: string,
+  newParentId: string | null, requestedInsertIndex?: number): FolderMovePlan {
+  validateFolderMove(folders, folderId, newParentId);
+  const folder: NoteFolder | null = findFolder(folders, folderId);
+  if (folder === null) {
+    throw new Error('folder does not exist');
+  }
+  const targetSiblings: NoteFolder[] = orderedSiblings(folders, newParentId, folderId);
+  let insertIndex: number = requestedInsertIndex === undefined ? targetSiblings.length :
+    Math.floor(requestedInsertIndex);
+  if (!Number.isFinite(insertIndex)) {
+    throw new Error('folder insertion index must be finite');
+  }
+  insertIndex = Math.max(0, Math.min(insertIndex, targetSiblings.length));
+  const newSiblingIds: string[] = targetSiblings.map((sibling: NoteFolder): string => sibling.id);
+  newSiblingIds.splice(insertIndex, 0, folderId);
+  const oldSiblingIds: string[] = sameParent(folder.parentId, newParentId) ? [] :
+    orderedSiblings(folders, folder.parentId, folderId).map((sibling: NoteFolder): string => sibling.id);
+  return {
+    folderId: folderId,
+    oldParentId: folder.parentId,
+    newParentId: newParentId,
+    insertIndex: insertIndex,
+    oldSiblingIds: oldSiblingIds,
+    newSiblingIds: newSiblingIds,
+  };
+}
+
+// Convert ArkUI's flat visible-list insertion boundary and the original 24dp horizontal depth
+// gesture into the original parentId + childIndex contract. A dragged folder's whole subtree is
+// removed from the boundary calculation, so descendants can never become accidental drop anchors.
+export function resolveFolderDrop(folders: NoteFolder[], visibleFolderIds: string[],
+  visibleFolderDepths: number[], sourceIndex: number, rawInsertIndex: number,
+  requestedDepth: number): FolderDropIntent | null {
+  if (visibleFolderIds.length !== visibleFolderDepths.length || !Number.isFinite(rawInsertIndex) ||
+    !Number.isFinite(requestedDepth) || sourceIndex < 0 || sourceIndex >= visibleFolderIds.length) {
+    return null;
+  }
+  const sourceId: string = visibleFolderIds[sourceIndex];
+  const source: NoteFolder | null = findFolder(folders, sourceId);
+  if (source === null) {
+    return null;
+  }
+  const clampedBoundary: number = Math.max(0, Math.min(Math.floor(rawInsertIndex),
+    visibleFolderIds.length));
+  const remainingIds: string[] = [];
+  const remainingDepths: number[] = [];
+  let removedBeforeBoundary: number = 0;
+  for (let index: number = 0; index < visibleFolderIds.length; index++) {
+    const id: string = visibleFolderIds[index];
+    if (isFolderInSubtree(folders, sourceId, id)) {
+      if (index < clampedBoundary) {
+        removedBeforeBoundary++;
+      }
+      continue;
+    }
+    if (findFolder(folders, id) !== null) {
+      remainingIds.push(id);
+      remainingDepths.push(Math.max(0, Math.floor(visibleFolderDepths[index])));
+    }
+  }
+  const boundary: number = Math.max(0, Math.min(clampedBoundary - removedBeforeBoundary,
+    remainingIds.length));
+  let depth: number = Math.max(0, Math.floor(requestedDepth));
+  const maximumDepthAtBoundary: number = boundary === 0 ? 0 : remainingDepths[boundary - 1] + 1;
+  depth = Math.min(depth, maximumDepthAtBoundary);
+  let parentId: string | null = null;
+  while (depth > 0) {
+    let parent: NoteFolder | null = null;
+    for (let index: number = boundary - 1; index >= 0; index--) {
+      if (remainingDepths[index] === depth - 1) {
+        parent = findFolder(folders, remainingIds[index]);
+        break;
+      }
+    }
+    if (parent !== null) {
+      parentId = parent.id;
+      break;
+    }
+    depth--;
+  }
+  let insertIndex: number = 0;
+  for (let index: number = 0; index < boundary; index++) {
+    if (remainingDepths[index] !== depth) {
+      continue;
+    }
+    const candidate: NoteFolder | null = findFolder(folders, remainingIds[index]);
+    if (candidate !== null && sameParent(candidate.parentId, parentId)) {
+      insertIndex++;
+    }
+  }
+  const plan: FolderMovePlan = planFolderMove(folders, sourceId, parentId, insertIndex);
+  const currentSiblings: NoteFolder[] = orderedSiblings(folders, source.parentId);
+  const currentIndex: number = currentSiblings.findIndex(
+    (folder: NoteFolder): boolean => folder.id === sourceId);
+  if (sameParent(source.parentId, parentId) && currentIndex === plan.insertIndex) {
+    return null;
+  }
+  return { folderId: sourceId, parentId: parentId, insertIndex: plan.insertIndex };
+}
+
 export class FolderRepositoryImpl {
   private db: DatabaseManager;
 
@@ -217,21 +356,17 @@ export class FolderRepositoryImpl {
     });
   }
 
-  async moveFolder(folderId: string, newParentId: string | null): Promise<FolderMutationResult> {
+  async moveFolder(folderId: string, newParentId: string | null,
+    insertIndex?: number): Promise<FolderMutationResult> {
     return libraryMetadataMutationMutex.runExclusive(async (): Promise<FolderMutationResult> => {
       const store: relationalStore.RdbStore = this.db.getStore();
       await store.beginTransaction();
       try {
         const folders: NoteFolder[] = await this.queryFolders(store);
-        validateFolderMove(folders, folderId, newParentId);
-        const current: NoteFolder | null = findFolder(folders, folderId);
-        if (current === null) {
-          throw new Error('folder does not exist');
-        }
-        const oldParentId: string | null = current.parentId;
+        const plan: FolderMovePlan = planFolderMove(folders, folderId, newParentId, insertIndex);
         const bucket: relationalStore.ValuesBucket = {
           'parent_id': newParentId,
-          'sibling_order': this.nextSiblingOrder(folders, newParentId),
+          'sibling_order': plan.insertIndex,
         };
         const predicates = new relationalStore.RdbPredicates('folder');
         predicates.equalTo('id', folderId);
@@ -239,11 +374,10 @@ export class FolderRepositoryImpl {
         if (changed === 0) {
           throw new Error('folder does not exist');
         }
-        const afterMove: NoteFolder[] = await this.queryFolders(store);
-        await this.normalizeSiblingOrders(store, afterMove, oldParentId);
-        if (!sameParent(oldParentId, newParentId)) {
-          await this.normalizeSiblingOrders(store, afterMove, newParentId);
+        if (!sameParent(plan.oldParentId, plan.newParentId)) {
+          await this.writeSiblingSequence(store, plan.oldSiblingIds);
         }
+        await this.writeSiblingSequence(store, plan.newSiblingIds);
         const committedFolders: NoteFolder[] = await this.queryFolders(store);
         await store.commit();
         return { folders: committedFolders };
@@ -431,23 +565,24 @@ export class FolderRepositoryImpl {
 
   private async normalizeSiblingOrders(store: relationalStore.RdbStore,
     folders: NoteFolder[], parentId: string | null): Promise<void> {
-    const siblings: NoteFolder[] = folders.filter((folder: NoteFolder): boolean =>
-      sameParent(folder.parentId, parentId));
-    siblings.sort((left: NoteFolder, right: NoteFolder): number => {
-      if (left.siblingOrder !== right.siblingOrder) {
-        return left.siblingOrder - right.siblingOrder;
-      }
-      if (left.createdAt !== right.createdAt) {
-        return left.createdAt - right.createdAt;
-      }
-      return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
-    });
+    const siblings: NoteFolder[] = orderedSiblings(folders, parentId);
     for (let index: number = 0; index < siblings.length; index++) {
       if (siblings[index].siblingOrder === index) {
         continue;
       }
       const predicates = new relationalStore.RdbPredicates('folder');
       predicates.equalTo('id', siblings[index].id);
+      if (await store.update({ 'sibling_order': index }, predicates) !== 1) {
+        throw new Error('folder sibling order update affected an unexpected number of rows');
+      }
+    }
+  }
+
+  private async writeSiblingSequence(store: relationalStore.RdbStore,
+    siblingIds: string[]): Promise<void> {
+    for (let index: number = 0; index < siblingIds.length; index++) {
+      const predicates = new relationalStore.RdbPredicates('folder');
+      predicates.equalTo('id', siblingIds[index]);
       if (await store.update({ 'sibling_order': index }, predicates) !== 1) {
         throw new Error('folder sibling order update affected an unexpected number of rows');
       }

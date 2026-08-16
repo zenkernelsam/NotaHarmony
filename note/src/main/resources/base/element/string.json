@@ -545,6 +545,14 @@
       "value": "Move to Top Level"
     },
     {
+      "name": "move_folder_up",
+      "value": "Move Up"
+    },
+    {
+      "name": "move_folder_down",
+      "value": "Move Down"
+    },
+    {
       "name": "delete_folder",
       "value": "Delete Folder"
     },

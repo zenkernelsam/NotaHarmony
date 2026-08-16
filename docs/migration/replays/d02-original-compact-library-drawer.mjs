@@ -45,8 +45,11 @@ assert.match(library, /\.overlay\(this\.CompactFolderDrawer\(\)/);
 assert.match(library, /Button\('☰'\)/);
 assert.match(library, /open_folder_drawer/);
 
-// A long folder list is bounded by a vertical Scroll in both regular sidebar and drawer.
-assert.ok((library.match(/\.scrollable\(ScrollDirection\.Vertical\)/g) ?? []).length >= 2);
+// A long folder tree is a bounded native List shared by the regular sidebar and compact drawer.
+assert.match(library, /@Builder\s+FolderNavigationList\(\)/);
+assert.match(library, /List\(\{ space: 0 \}\)/);
+assert.ok((library.match(/this\.FolderNavigationList\(\)/g) ?? []).length >= 2);
+assert.match(library, /\.scrollBar\(BarState\.Auto\)/);
 assert.match(library, /folderListItems\(false\)/);
 assert.match(library, /includeCollapsed: boolean/);
 assert.match(library, /toggleFolderExpanded\(folderId: string\)/);

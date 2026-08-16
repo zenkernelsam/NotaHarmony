@@ -134,6 +134,8 @@
     { "name": "create_subfolder", "value": "新建子文件夹" },
     { "name": "rename", "value": "重命名" },
     { "name": "move_to_top_level", "value": "移动到顶层" },
+    { "name": "move_folder_up", "value": "上移" },
+    { "name": "move_folder_down", "value": "下移" },
     { "name": "delete_folder", "value": "删除文件夹" },
     { "name": "delete_folder_message", "value": "删除“%s”？其中的笔记将移到全部笔记。" },
     { "name": "name", "value": "名称" },

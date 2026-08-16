@@ -12,7 +12,7 @@
 
 ## 决策
 
-- compact 使用 ArkUI 原生组件组合的显式 overlay drawer：遮罩 + 左侧 bounded panel + `Scroll`，不再
+- compact 使用 ArkUI 原生组件组合的显式 overlay drawer：遮罩 + 左侧 bounded panel + 原生 `List`，不再
   把 folder 功能塞进无限长度的 `MenuElement[]`。
 - folder 导航行统一使用 48vp 行预算；chevron 只改变 UI 展开状态，标题按钮执行选择，右侧原生
   `bindMenu` 承载低频 folder 操作。
@@ -20,6 +20,8 @@
   便于重试。异步 folder mutation 期间行操作禁用。
 - `expandedFolderIds` 仅是 UI 状态，不写入数据库；刷新时裁剪已删除 ID，并自动展开当前 folder 的
   祖先。合法折叠子树不作为 orphan 回收。
+- Phase 254 将 regular/compact 的 folder 容器统一为同一个 `List` builder，以承载原生长按拖拽；bounded
+  滚动、48vp 行预算和既有导航语义保持不变。
 
 ## 原版依据
 

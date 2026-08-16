@@ -9,7 +9,8 @@
 ## 已完成
 
 - `LibraryPage.ets` 新增 compact drawer 状态、遮罩/关闭、当前位置入口和 44vp 汉堡 hit target。
-- drawer 与 regular sidebar 均使用 bounded vertical `Scroll`；folder 行统一 48vp，支持全部笔记、
+- drawer 与 regular sidebar 均使用 bounded vertical 容器；本阶段最初为 `Scroll`，后续 Phase 254 为承载
+  原生拖拽统一替换成共享 `List`。folder 行仍统一 48vp，支持全部笔记、
   选中勾选、chevron 展开/折叠、递归层级和原生操作菜单。
 - 新建、重命名、删除、移动仍复用已有 repository 与确认对话框；folderBusy 时禁用重复入口，选择
   成功后收起 compact drawer，失败保留当前上下文。

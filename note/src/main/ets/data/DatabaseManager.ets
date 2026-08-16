@@ -46,6 +46,9 @@ import {
   cleanupInterruptedNoteExports,
   NoteExportTemporaryArtifactCleanupReport,
 } from './NoteExportTemporaryArtifactCleanup';
+import {
+  FolderHierarchyRecord, FolderHierarchyRepairUpdate, planFolderHierarchyRepairs,
+} from './FolderHierarchyRepair';
 
 interface AssetReferenceRepairRow {
   hash: string;
@@ -186,11 +189,12 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
       try {
         await repairLegacyOriginalOutboundEnvelopes(store);
         await backfillOriginalAppliedOperationTimes(store);
+        await this.repairFolderHierarchy(store);
         await this.repairAssetNoteReferences(store);
         await store.commit();
       } catch (e) {
         await store.rollBack();
-        throw new Error(`Operation audio-time backfill failed: ${JSON.stringify(e)}`);
+        throw new Error(`Database startup repair failed: ${JSON.stringify(e)}`);
       }
       await store.executeSql(`INSERT OR IGNORE INTO local_editor_identity(singleton, editor_id)
         VALUES (1, lower(hex(randomblob(16))))`);
@@ -204,6 +208,38 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
     } catch (e) {
       this.rdbStore = null;
       throw new Error(`Database migration failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  private async repairFolderHierarchy(store: relationalStore.RdbStore): Promise<void> {
+    const predicates = new relationalStore.RdbPredicates('folder');
+    const resultSet = await store.query(predicates,
+      ['id', 'created_at', 'parent_id', 'sibling_order']);
+    const folders: FolderHierarchyRecord[] = [];
+    try {
+      while (resultSet.goToNextRow()) {
+        const parentColumn: number = resultSet.getColumnIndex('parent_id');
+        folders.push({
+          id: resultSet.getString(resultSet.getColumnIndex('id')),
+          createdAt: resultSet.getLong(resultSet.getColumnIndex('created_at')),
+          parentId: resultSet.isColumnNull(parentColumn) ? null : resultSet.getString(parentColumn),
+          siblingOrder: resultSet.getDouble(resultSet.getColumnIndex('sibling_order')),
+        });
+      }
+    } finally {
+      resultSet.close();
+    }
+    const repairs: FolderHierarchyRepairUpdate[] = planFolderHierarchyRepairs(folders);
+    for (const repair of repairs) {
+      const updatePredicates = new relationalStore.RdbPredicates('folder');
+      updatePredicates.equalTo('id', repair.id);
+      const changed: number = await store.update({
+        'parent_id': repair.parentId,
+        'sibling_order': repair.siblingOrder,
+      }, updatePredicates);
+      if (changed !== 1) {
+        throw new Error(`folder repair affected ${changed} rows for ${repair.id}`);
+      }
     }
   }
 
