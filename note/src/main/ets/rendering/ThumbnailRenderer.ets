@@ -136,7 +136,8 @@ export class ThumbnailRenderer {
       const mathRasterScale: number = originalMathRasterScale(pageTransform.scale, 1);
       for (const element of loaded.elements) {
         if (element.kind === PageElementKind.STROKE) {
-          this.strokePainter.renderStroke(element.data, renderContext, pageSize.width, pageSize.height);
+          this.strokePainter.renderStroke(element.data, renderContext, pageSize.width, pageSize.height,
+            pageTransform.scale);
         } else if (element.kind === PageElementKind.TEXT) {
           this.textRenderer.renderText(element.data, renderContext);
         } else if (element.kind === PageElementKind.SHAPE) {

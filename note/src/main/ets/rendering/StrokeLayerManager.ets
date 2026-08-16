@@ -47,7 +47,8 @@ export class StrokeLayerManager {
       return;
     }
     this.restoreWorkingLayer();
-    this.strokePainter.renderStroke(stroke, this.completedRenderCtx, this.pageWidth, this.pageHeight);
+    this.strokePainter.renderStroke(stroke, this.completedRenderCtx, this.pageWidth, this.pageHeight,
+      zoom);
     this.publishWorkingLayer();
     this.dirtyTracker.markDirty(stroke.bounds, zoom);
   }
@@ -84,7 +85,8 @@ export class StrokeLayerManager {
       mainCtx.drawImage(completed, 0, 0, this.pageWidth, this.pageHeight);
     }
     if (currentStroke !== null && currentRenderCtx !== null) {
-      this.strokePainter.renderStroke(currentStroke, currentRenderCtx, this.pageWidth, this.pageHeight);
+      this.strokePainter.renderStroke(currentStroke, currentRenderCtx, this.pageWidth, this.pageHeight,
+        zoom);
     }
     renderForeground();
     mainCtx.restore();
@@ -94,7 +96,7 @@ export class StrokeLayerManager {
   // 全屏合成（无脏区优化）：纸张背景每帧重绘场景使用，避免脏区清屏破坏背景
   // 调用方需先绘制背景，本方法仅叠加已完成层与当前笔画
   compositeFull(mainCtx: CanvasRenderingContext2D, currentStroke: StrokeElementData | null,
-    currentRenderCtx: RenderContext): void {
+    currentRenderCtx: RenderContext, zoom: number = 1): void {
     // This path redraws the full frame, so earlier dirty bounds have been satisfied.
     this.dirtyTracker.consume();
     this.previousCurrentBounds = currentStroke !== null ? this.cloneRect(currentStroke.bounds) : null;
@@ -103,7 +105,8 @@ export class StrokeLayerManager {
       mainCtx.drawImage(completed, 0, 0, this.pageWidth, this.pageHeight);
     }
     if (currentStroke !== null && currentRenderCtx !== null) {
-      this.strokePainter.renderStroke(currentStroke, currentRenderCtx, this.pageWidth, this.pageHeight);
+      this.strokePainter.renderStroke(currentStroke, currentRenderCtx, this.pageWidth, this.pageHeight,
+        zoom);
     }
     this.transferTracker.finishFrame(true, 1);
   }
@@ -186,13 +189,15 @@ export class StrokeLayerManager {
   }
 
   // 撤销/擦除后重建：清空已完成层 → 逐笔重新渲染
-  rebuildFromStrokes(strokes: StrokeElementData[], _renderCtx: RenderContext): void {
+  rebuildFromStrokes(strokes: StrokeElementData[], _renderCtx: RenderContext,
+    zoom: number = 1): void {
     if (this.completedCtx === null || this.completedRenderCtx === null) {
       return;
     }
     this.completedCtx.clearRect(0, 0, this.pageWidth, this.pageHeight);
     for (const s of strokes) {
-      this.strokePainter.renderStroke(s, this.completedRenderCtx, this.pageWidth, this.pageHeight);
+      this.strokePainter.renderStroke(s, this.completedRenderCtx, this.pageWidth, this.pageHeight,
+        zoom);
     }
     if (strokes.length > 0) {
       this.publishWorkingLayer();

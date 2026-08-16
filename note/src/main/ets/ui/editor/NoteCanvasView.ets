@@ -459,7 +459,8 @@ export struct NoteCanvasView {
         if (!this.viewportInitialized) {
           this.centerPaperInViewport();
         }
-        this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+        this.layerManager.rebuildFromStrokes(
+          this.completedStrokes, this.renderCtx, this.viewport.zoom);
         this.renderFrame(true);
       }
       this.refreshImageAssets(generation, targetPageId);
@@ -838,7 +839,8 @@ export struct NoteCanvasView {
     }
     if (this.currentPage.pageId === this.loadedPageId) {
       this.initializeLayerForPage();
-      this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+      this.layerManager.rebuildFromStrokes(
+        this.completedStrokes, this.renderCtx, this.viewport.zoom);
       this.renderFrame(true);
       this.refreshPdfBackground(this.pageLoadGeneration, this.loadedPageId);
       this.refreshPaperTexture(this.pageLoadGeneration, this.loadedPageId);
@@ -889,7 +891,8 @@ export struct NoteCanvasView {
       this.selectionVisible = false;
       this.initializeLayerForPage();
       this.centerPaperInViewport();
-      this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+      this.layerManager.rebuildFromStrokes(
+        this.completedStrokes, this.renderCtx, this.viewport.zoom);
       this.notifyUndoRedo();
       this.renderFrame(true);
       this.refreshImageAssets(generation, targetPageId);
@@ -947,7 +950,7 @@ export struct NoteCanvasView {
     this.selectionVisible = false;
     if (this.layerManager.isInitialized()) {
       this.initializeLayerForPage();
-      this.layerManager.rebuildFromStrokes([], this.renderCtx);
+      this.layerManager.rebuildFromStrokes([], this.renderCtx, this.viewport.zoom);
       this.renderFrame(true);
     }
   }
@@ -977,7 +980,8 @@ export struct NoteCanvasView {
       if (!this.viewportInitialized) {
         this.centerPaperInViewport();
       }
-      this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+      this.layerManager.rebuildFromStrokes(
+        this.completedStrokes, this.renderCtx, this.viewport.zoom);
     }
     this.renderFrame(true);
   }
@@ -1020,7 +1024,8 @@ export struct NoteCanvasView {
       pixelMap = null;
       this.renderer.setSplatTexture(texture);
       if (this.layerManager.isInitialized()) {
-        this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+        this.layerManager.rebuildFromStrokes(
+          this.completedStrokes, this.renderCtx, this.viewport.zoom);
         this.renderFrame(true);
       }
     } catch (e) {
@@ -1028,7 +1033,8 @@ export struct NoteCanvasView {
       if (this.lifecycleActive) {
         this.renderer.setSplatTexture(Canvas2DStrokeRenderer.generatePencilTexture(this.bitmapTransferTracker));
         if (this.layerManager.isInitialized()) {
-          this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+          this.layerManager.rebuildFromStrokes(
+            this.completedStrokes, this.renderCtx, this.viewport.zoom);
           this.renderFrame(true);
         }
       }
@@ -1089,11 +1095,12 @@ export struct NoteCanvasView {
         this.shapeRenderer.renderShape(heldShape, this.renderCtx);
       }
       if (current !== null) {
-        this.strokePainter.renderStroke(current, this.renderCtx, this.getPaperWidth(), this.getPaperHeight());
+        this.strokePainter.renderStroke(current, this.renderCtx, this.getPaperWidth(),
+          this.getPaperHeight(), this.viewport.zoom);
       }
     } else if (forceFull) {
       this.renderPaper(theme);
-      this.layerManager.compositeFull(this.canvasCtx, current, this.renderCtx);
+      this.layerManager.compositeFull(this.canvasCtx, current, this.renderCtx, this.viewport.zoom);
       this.renderTextBlocks();
     } else {
       this.layerManager.composite(this.canvasCtx, current, this.renderCtx, () => {
@@ -1162,14 +1169,15 @@ export struct NoteCanvasView {
       if (element.kind === PageElementKind.STROKE) {
         if (transientTopStroke !== null && element.data === transientTopStroke) {
           this.strokePainter.renderStroke(
-            element.data, renderContext, this.getPaperWidth(), this.getPaperHeight());
+            element.data, renderContext, this.getPaperWidth(), this.getPaperHeight(),
+            this.viewport.zoom);
           continue;
         }
         this.hydrateOriginalStrokeAudioStart(element.data);
         const playback: OriginalAudioLinkedPlayback = resolveOriginalAudioLinkedPlayback(
           element.data, this.playbackAudioTime, this.playbackAudioSegments);
         this.strokePainter.renderAudioLinkedStroke(element.data, playback,
-          renderContext, this.getPaperWidth(), this.getPaperHeight());
+          renderContext, this.getPaperWidth(), this.getPaperHeight(), this.viewport.zoom);
       } else if (element.kind === PageElementKind.TEXT) {
         this.textRenderer.renderText(element.data, renderContext);
       } else if (element.kind === PageElementKind.SHAPE) {
@@ -1743,7 +1751,8 @@ export struct NoteCanvasView {
       this.imageBlocks = this.dragBeforeImages.slice();
       this.mathBlocks = this.dragBeforeMathBlocks.slice();
       if (this.layerManager.isInitialized()) {
-        this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+        this.layerManager.rebuildFromStrokes(
+          this.completedStrokes, this.renderCtx, this.viewport.zoom);
       }
     }
     if (this.selectionDrawing || this.selectionDrag) {
@@ -1998,7 +2007,8 @@ export struct NoteCanvasView {
         elementOrderAfter: clonePageElementOrder(this.elementOrder),
       });
     }
-    this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+    this.layerManager.rebuildFromStrokes(
+      this.completedStrokes, this.renderCtx, this.viewport.zoom);
     const originalEntityOnly: boolean =
       (removed.length > 0 || removedShapes.length > 0 || removedTextBlocks.length > 0 ||
         removedImages.length > 0 || removedMathBlocks.length > 0) &&
@@ -2080,7 +2090,8 @@ export struct NoteCanvasView {
             this.selectionTool.deselect();
             this.selectionVisible = false;
             this.originalInkIneligiblePages.delete(pageId);
-            this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+            this.layerManager.rebuildFromStrokes(
+              this.completedStrokes, this.renderCtx, this.viewport.zoom);
             this.renderFrame();
           }
           this.notifyUndoRedo();
@@ -2312,7 +2323,8 @@ export struct NoteCanvasView {
     }, history);
     this.selectionGroups = groupPlan.groups;
     this.originalInkIneligiblePages.add(this.loadedPageId);
-    this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+    this.layerManager.rebuildFromStrokes(
+      this.completedStrokes, this.renderCtx, this.viewport.zoom);
     this.persist(false);
     this.notifyUndoRedo();
     this.renderFrame();
@@ -2533,7 +2545,8 @@ export struct NoteCanvasView {
       this.selectionTool.deselect();
       this.selectionVisible = false;
       this.originalInkIneligiblePages.delete(action.pageId);
-      this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+      this.layerManager.rebuildFromStrokes(
+        this.completedStrokes, this.renderCtx, this.viewport.zoom);
       this.renderFrame();
       this.notifyUndoRedo();
     } catch (e) {
@@ -2563,7 +2576,8 @@ export struct NoteCanvasView {
       this.selectionTool.deselect();
       this.selectionVisible = false;
       this.originalInkIneligiblePages.delete(action.pageId);
-      this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+      this.layerManager.rebuildFromStrokes(
+        this.completedStrokes, this.renderCtx, this.viewport.zoom);
       this.renderFrame();
       this.notifyUndoRedo();
     } catch (e) {
@@ -2594,7 +2608,8 @@ export struct NoteCanvasView {
       this.selectionVisible = false;
       this.originalInkIneligiblePages.delete(action.pageId);
       this.invalidateOriginalInkReservation();
-      this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+      this.layerManager.rebuildFromStrokes(
+        this.completedStrokes, this.renderCtx, this.viewport.zoom);
       this.renderFrame();
       this.notifyUndoRedo();
       this.refreshOriginalInkReservation(this.pageLoadGeneration, action.pageId);
@@ -2688,7 +2703,8 @@ export struct NoteCanvasView {
 
   private restoreHistoryPage(elements: SearchSourceElement[]): void {
     this.installMutationElements(elements);
-    this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+    this.layerManager.rebuildFromStrokes(
+      this.completedStrokes, this.renderCtx, this.viewport.zoom);
     this.renderFrame();
   }
 
@@ -3029,7 +3045,8 @@ export struct NoteCanvasView {
       this.elementOrder = clonePageElementOrder(targetOrder);
       this.synchronizeElementArraysByOrder();
     }
-    this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+    this.layerManager.rebuildFromStrokes(
+      this.completedStrokes, this.renderCtx, this.viewport.zoom);
     this.renderFrame();
     if (refreshImages && this.actionTouchesImages(action)) {
       this.refreshImageAssets(this.pageLoadGeneration, this.loadedPageId);
@@ -4476,7 +4493,8 @@ export struct NoteCanvasView {
         afterMathBlocks: this.filterMathBlocksByIds(this.mathBlocks, selectedMathIds),
       });
     }
-    this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+    this.layerManager.rebuildFromStrokes(
+      this.completedStrokes, this.renderCtx, this.viewport.zoom);
     this.updateSelectionOverlay();
     if (notifyPersist) {
       this.persist(this.areCanonicalOriginalPositionSelection(
@@ -4599,7 +4617,8 @@ export struct NoteCanvasView {
         });
       }
       this.selectionVisible = false;
-      this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+      this.layerManager.rebuildFromStrokes(
+        this.completedStrokes, this.renderCtx, this.viewport.zoom);
       const originalEntityOnly: boolean = this.areCanonicalOriginalPositionSelection(
           removed.map((stroke: StrokeElementData): string => stroke.id),
           removedShapes.map((shape: ShapeElement): string => shape.id),
@@ -5005,7 +5024,8 @@ export struct NoteCanvasView {
         this.selectionTool.selectElementIds(
           strokeIds, shapeIds, textIds, imageIds, [created.id], mathIds);
         this.originalInkIneligiblePages.delete(pageId);
-        this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+        this.layerManager.rebuildFromStrokes(
+          this.completedStrokes, this.renderCtx, this.viewport.zoom);
         this.updateSelectionOverlay();
         this.renderFrame();
         this.notifyUndoRedo();
@@ -5052,7 +5072,8 @@ export struct NoteCanvasView {
         this.selectionTool.selectElementIds(
           strokeIds, shapeIds, textIds, imageIds, [], mathIds);
         this.originalInkIneligiblePages.delete(pageId);
-        this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+        this.layerManager.rebuildFromStrokes(
+          this.completedStrokes, this.renderCtx, this.viewport.zoom);
         this.updateSelectionOverlay();
         this.renderFrame();
         this.notifyUndoRedo();
@@ -5129,7 +5150,8 @@ export struct NoteCanvasView {
       elementOrderBefore: before,
       elementOrderAfter: clonePageElementOrder(after),
     });
-    this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+    this.layerManager.rebuildFromStrokes(
+      this.completedStrokes, this.renderCtx, this.viewport.zoom);
     const originalEligible: boolean = this.areCanonicalOriginalPositionSelection(
       directStrokeIds, directShapeIds, directTextIds, directImageIds, directMathIds);
     const hint: OriginalZOrderHint | undefined = originalEligible ? {
@@ -5613,7 +5635,8 @@ export struct NoteCanvasView {
         beforeMathBlocks: [], afterMathBlocks: [],
       });
     }
-    this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+    this.layerManager.rebuildFromStrokes(
+      this.completedStrokes, this.renderCtx, this.viewport.zoom);
     this.persist(this.areCanonicalOriginalPositionSelection(
       before.map((stroke: StrokeElementData): string => stroke.id),
       beforeShapes.map((shape: ShapeElement): string => shape.id), [], [], []));
@@ -5788,7 +5811,8 @@ export struct NoteCanvasView {
             result.topGroupIds,
             result.mathBlocks.map((math: MathElement): string => math.id));
           this.originalInkIneligiblePages.delete(pageId);
-          this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+          this.layerManager.rebuildFromStrokes(
+            this.completedStrokes, this.renderCtx, this.viewport.zoom);
           this.updateSelectionOverlay();
           this.renderFrame();
         }
@@ -5890,7 +5914,8 @@ export struct NoteCanvasView {
     });
     this.selectionTool.selectElementIds(
       pastedIds, pastedShapeIds, pastedTextIds, pastedImageIds, [], pastedMathIds);
-    this.layerManager.rebuildFromStrokes(this.completedStrokes, this.renderCtx);
+    this.layerManager.rebuildFromStrokes(
+      this.completedStrokes, this.renderCtx, this.viewport.zoom);
     this.updateSelectionOverlay();
     this.persist(originalCreate !== null);
     this.notifyUndoRedo();

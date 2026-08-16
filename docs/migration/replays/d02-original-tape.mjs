@@ -87,15 +87,18 @@ for (const name of ['STRIPES', 'GRID', 'DOTS', 'STARS', 'FLOWERS', 'HEARTS',
 }
 assert.match(renderer, /pattern === TapePattern\.PLAIN/);
 assert.match(renderer, /createPattern\(image, 'repeat'\)/);
-assert.match(renderer, /TAPE_TILE_DENSITY: number = 8/);
+assert.match(renderer, /originalTapePatternScaleBucket/);
+assert.match(renderer, /`\$\{pattern\}:\$\{overlayColor\}:\$\{colorKey\}:\$\{scaleBucket\}`/);
+assert.doesNotMatch(renderer, /TAPE_TILE_DENSITY/);
 assert.match(renderer, /MAX_TAPE_TILES: number = 32/);
 assert.match(renderer, /releaseTapeTiles/);
 assert.match(renderer, /radius \* 0\.45/);
 assert.match(renderer, /x \+ 1\.5, y - 3, x \+ 4\.5, y \+ 3/);
 assert.match(painter, /stroke\.renderSpec\.tapePattern !== undefined/);
+assert.match(painter, /renderTapePattern\(stroke, rc, viewportZoom\)/);
 assert.match(clipboard, /tapePattern: stroke\.renderSpec\.tapePattern/);
 assert.match(canvasView, /tapePattern: s\.renderSpec\.tapePattern/);
 
 console.log('D02_ORIGINAL_TAPE_REPLAY_OK ' +
   'v48-v49-defaults=3|create-default=stripes|lww-stale-tie=4|rollback=1|' +
-  'patterns=9|bounded-repeat-cache=32|model-persistence-renderer-copy=closed');
+  'patterns=9|zoom-bucketed-repeat-cache=32|model-persistence-renderer-copy=closed');

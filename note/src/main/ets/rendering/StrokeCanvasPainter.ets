@@ -22,7 +22,8 @@ export class StrokeCanvasPainter {
     this.transferTracker = transferTracker;
   }
 
-  renderStroke(stroke: StrokeElementData, rc: RenderContext, pageWidth: number, pageHeight: number): void {
+  renderStroke(stroke: StrokeElementData, rc: RenderContext, pageWidth: number, pageHeight: number,
+    viewportZoom: number = 1): void {
     const canvasContext: Canvas2DDrawingContext = rc as Canvas2DDrawingContext;
     if (stroke.renderSpec.isPartialEraser === true) {
       canvasContext.save();
@@ -45,7 +46,7 @@ export class StrokeCanvasPainter {
         new Canvas2DOffscreenRenderContext(isolatedContext);
       isolatedRenderContext.save();
       isolatedRenderContext.transform(translateTransformToCrop(stroke.transform, crop));
-      this.renderInk(stroke, isolatedRenderContext);
+      this.renderInk(stroke, isolatedRenderContext, viewportZoom);
       this.renderer.renderEraserMask(stroke, isolatedRenderContext);
       isolatedRenderContext.restore();
       const bitmap: ImageBitmap = isolatedLayer.transferToImageBitmap();
@@ -59,28 +60,28 @@ export class StrokeCanvasPainter {
     }
     canvasContext.save();
     canvasContext.transform(stroke.transform);
-    this.renderInk(stroke, rc);
+    this.renderInk(stroke, rc, viewportZoom);
     canvasContext.restore();
   }
 
   renderAudioLinkedStroke(stroke: StrokeElementData, playback: OriginalAudioLinkedPlayback,
-    rc: RenderContext, pageWidth: number, pageHeight: number): void {
+    rc: RenderContext, pageWidth: number, pageHeight: number, viewportZoom: number = 1): void {
     if (playback.alpha === null) {
-      this.renderStroke(stroke, rc, pageWidth, pageHeight);
+      this.renderStroke(stroke, rc, pageWidth, pageHeight, viewportZoom);
       return;
     }
     const canvasContext: Canvas2DDrawingContext = rc as Canvas2DDrawingContext;
     canvasContext.save();
     canvasContext.setGlobalAlpha(playback.alpha);
-    this.renderStroke(stroke, rc, pageWidth, pageHeight);
+    this.renderStroke(stroke, rc, pageWidth, pageHeight, viewportZoom);
     canvasContext.restore();
     if (playback.progress !== null && playback.progress > 0) {
       this.renderStroke(sliceStrokeForAudioProgress(stroke, playback.progress),
-        rc, pageWidth, pageHeight);
+        rc, pageWidth, pageHeight, viewportZoom);
     }
   }
 
-  private renderInk(stroke: StrokeElementData, rc: RenderContext): void {
+  private renderInk(stroke: StrokeElementData, rc: RenderContext, viewportZoom: number): void {
     this.renderer.renderInkFill(stroke, rc);
     if (stroke.renderSpec.isPencil) {
       const customPath: InkPathCommand[] | null =
@@ -106,7 +107,7 @@ export class StrokeCanvasPainter {
         }
       }
       if (stroke.renderSpec.tapePattern !== undefined) {
-        this.renderer.renderTapePattern(stroke, rc);
+        this.renderer.renderTapePattern(stroke, rc, viewportZoom);
       }
     }
   }

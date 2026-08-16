@@ -20,6 +20,28 @@ interface TapePatternTile {
   logicalHeight: number;
 }
 
+// Original qfe.a(): round(clamp(viewportZoom, 1, 8) * 2). The integer bucket is
+// part of PatternCellKey and represents half-step raster scales from 1x through 8x.
+export function originalTapePatternScaleBucket(viewportZoom: number): number {
+  const zoom: number = Math.fround(viewportZoom);
+  if (!Number.isFinite(zoom) || zoom <= 0) {
+    return 2;
+  }
+  const clamped: number = Math.fround(Math.max(1, Math.min(8, zoom)));
+  return Math.round(Math.fround(clamped * 2));
+}
+
+export function originalTapePatternPixelSize(logicalSize: number, scaleBucket: number): number {
+  const logical: number = Math.fround(logicalSize);
+  if (!Number.isFinite(logical) || logical <= 0) {
+    return 1;
+  }
+  const bucket: number = Number.isInteger(scaleBucket) ?
+    Math.max(2, Math.min(16, scaleBucket)) : 2;
+  const rasterScale: number = Math.fround(bucket / 2);
+  return Math.max(1, Math.round(Math.fround(logical * rasterScale)));
+}
+
 export interface Canvas2DDrawingContext extends RenderContext {
   beginPath(): void;
   moveTo(x: number, y: number): void;
@@ -386,7 +408,6 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
   private tintedSplatTextures: Map<number, ImageBitmap> = new Map<number, ImageBitmap>();
   private transferTracker: BitmapTransferTracker;
   private static readonly MAX_TINTED_SPLAT_TEXTURES: number = 4;
-  private static readonly TAPE_TILE_DENSITY: number = 8;
   private static readonly MAX_TAPE_TILES: number = 32;
   private tapeTiles: Map<string, TapePatternTile> = new Map<string, TapePatternTile>();
   // 擦除遮罩渲染宽度（可由页面设置）
@@ -709,7 +730,8 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
 
   // Original qfe uses a bounded tile bitmap and a repeated BitmapShader. Keep that architecture:
   // direct page-bounds tiling would make malformed extreme coordinates unbounded work.
-  renderTapePattern(stroke: StrokeElementData, ctx: RenderContext): void {
+  renderTapePattern(stroke: StrokeElementData, ctx: RenderContext,
+    viewportZoom: number = 1): void {
     const pattern: TapePattern | undefined = stroke.renderSpec.tapePattern;
     if (pattern === undefined || pattern === TapePattern.PLAIN || stroke.pathPoints.length === 0) {
       return;
@@ -727,7 +749,7 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       outlinePoints = outline.outlinePoints;
     }
     const tile: TapePatternTile = this.getTapePatternTile(pattern, stroke.renderSpec.color,
-      0xFFFFFFFF);
+      0xFFFFFFFF, viewportZoom);
     const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
     c.save();
     c.beginPath();
@@ -749,9 +771,10 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
   }
 
   private getTapePatternTile(pattern: TapePattern, tapeColor: number,
-    overlayColor: number): TapePatternTile {
+    overlayColor: number, viewportZoom: number): TapePatternTile {
     const colorKey: number = pattern === TapePattern.FLOWERS ? tapeColor : 0;
-    const key: string = `${pattern}:${overlayColor}:${colorKey}`;
+    const scaleBucket: number = originalTapePatternScaleBucket(viewportZoom);
+    const key: string = `${pattern}:${overlayColor}:${colorKey}:${scaleBucket}`;
     const cached: TapePatternTile | undefined = this.tapeTiles.get(key);
     if (cached !== undefined) {
       this.tapeTiles.delete(key);
@@ -759,9 +782,8 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       return cached;
     }
     const size: TapePatternTileSize = this.tapePatternTileSize(pattern);
-    const density: number = Canvas2DStrokeRenderer.TAPE_TILE_DENSITY;
-    const pixelWidth: number = Math.max(1, Math.round(size.width * density));
-    const pixelHeight: number = Math.max(1, Math.round(size.height * density));
+    const pixelWidth: number = originalTapePatternPixelSize(size.width, scaleBucket);
+    const pixelHeight: number = originalTapePatternPixelSize(size.height, scaleBucket);
     const canvas: OffscreenCanvas = new OffscreenCanvas(pixelWidth, pixelHeight);
     const raw: OffscreenCanvasRenderingContext2D =
       canvas.getContext('2d', new RenderingContextSettings(true));

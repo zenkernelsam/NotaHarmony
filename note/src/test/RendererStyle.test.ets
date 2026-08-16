@@ -1,6 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
   Canvas2DOffscreenRenderContext, Canvas2DStrokeRenderer,
+  originalTapePatternPixelSize, originalTapePatternScaleBucket,
 } from '../main/ets/core/adaptation/Canvas2DStrokeRenderer';
 import {
   Canvas2DTextRenderer, TextCheckboxMarker,
@@ -166,6 +167,22 @@ export default function rendererStyleTest() {
       expect(alphaAt(dotsContext, 16, 20) > 0).assertTrue();
       expect(alphaAt(dotsContext, 30, 20)).assertEqual(0);
       expect(alphaAt(dotsContext, 40, 20) > 0).assertTrue();
+    });
+
+    it('quantizes Tape pattern cells by the original viewport zoom bucket', 0, () => {
+      expect(originalTapePatternScaleBucket(0.25)).assertEqual(2);
+      expect(originalTapePatternScaleBucket(1)).assertEqual(2);
+      expect(originalTapePatternScaleBucket(1.249)).assertEqual(2);
+      expect(originalTapePatternScaleBucket(1.25)).assertEqual(3);
+      expect(originalTapePatternScaleBucket(1.749)).assertEqual(3);
+      expect(originalTapePatternScaleBucket(1.75)).assertEqual(4);
+      expect(originalTapePatternScaleBucket(8)).assertEqual(16);
+      expect(originalTapePatternScaleBucket(20)).assertEqual(16);
+      expect(originalTapePatternScaleBucket(Number.NaN)).assertEqual(2);
+      expect(originalTapePatternScaleBucket(Number.POSITIVE_INFINITY)).assertEqual(2);
+      expect(originalTapePatternPixelSize(8, 2)).assertEqual(8);
+      expect(originalTapePatternPixelSize(8, 3)).assertEqual(12);
+      expect(originalTapePatternPixelSize(11.313708, 16)).assertEqual(91);
     });
 
     it('clips all original Tape overlays to the stroke and leaves PLAIN unpatterned', 0, () => {
