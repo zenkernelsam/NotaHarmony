@@ -2,7 +2,8 @@ import { describe, it, expect } from '@ohos/hypium';
 import { ElementType, TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import {
   cloneTextBlockElement, eraserPathHitsTextBlock, pointHitsTextBlock,
-  isTextBlockPositionLocked, textBlockTransformComponents, textBlockWorldBounds,
+  isTextBlockPositionLocked, selectionPathHitsTextBlock, textBlockTransformComponents,
+  textBlockWorldBounds,
   transformTextBlockElements,
 } from '../main/ets/core/model/TextBlockGeometry';
 import { TextBlockTool } from '../main/ets/rendering/TextBlockTool';
@@ -74,6 +75,59 @@ export default function textBlockGeometryTest() {
         { x: source.bounds.left - 4, y: source.bounds.top },
         { x: source.bounds.right + 4, y: source.bounds.bottom },
       ], source, 8)).assertTrue();
+    });
+
+    it('maps selection paths into local Text Block geometry', 0, () => {
+      const source: TextBlockElement = textBlock();
+      source.textOrigin = { x: 0, y: 0 };
+      source.blockWidth = 100;
+      source.blockHeight = 20;
+      const angle: number = Math.PI / 4;
+      source.transform = [Math.cos(angle), -Math.sin(angle), 100,
+        Math.sin(angle), Math.cos(angle), 100, 0, 0, 1];
+      source.bounds = textBlockWorldBounds(source);
+      expect(selectionPathHitsTextBlock([
+        { x: 166, y: 102 }, { x: 170, y: 102 },
+        { x: 170, y: 106 }, { x: 166, y: 106 },
+      ], source)).assertFalse();
+      expect(selectionPathHitsTextBlock([
+        { x: 98, y: 98 }, { x: 104, y: 98 },
+        { x: 104, y: 104 }, { x: 98, y: 104 },
+      ], source)).assertTrue();
+      expect(selectionPathHitsTextBlock([
+        { x: 80, y: 80 }, { x: 190, y: 80 },
+        { x: 190, y: 200 }, { x: 80, y: 200 },
+      ], source)).assertTrue();
+    });
+
+    it('uses the original maximum-scale radius for non-uniform Block erasing', 0, () => {
+      const source: TextBlockElement = textBlock();
+      source.transform = [4, 0, 0, 0, 1, 0, 0, 0, 1];
+      source.bounds = textBlockWorldBounds(source);
+      // World-space edge distance is 3, but fu1 divides radius 4 by max scale 4.
+      expect(eraserPathHitsTextBlock([{ x: 200, y: 63 }], source, 8)).assertFalse();
+      expect(eraserPathHitsTextBlock([{ x: 200, y: 60.5 }], source, 8)).assertTrue();
+      expect(eraserPathHitsTextBlock([
+        { x: 0, y: 40 }, { x: 500, y: 40 },
+      ], source, 0)).assertTrue();
+    });
+
+    it('fails closed for singular or non-finite Text Block transforms', 0, () => {
+      const singular: TextBlockElement = textBlock('singular');
+      singular.transform = [1, 2, 0, 2, 4, 0, 0, 0, 1];
+      expect(pointHitsTextBlock({ x: 20, y: 30 }, singular)).assertFalse();
+      expect(eraserPathHitsTextBlock([{ x: 20, y: 30 }], singular, 8)).assertFalse();
+      expect(selectionPathHitsTextBlock([
+        { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 },
+      ], singular)).assertFalse();
+
+      const nonFinite: TextBlockElement = textBlock('non-finite');
+      nonFinite.transform[0] = Number.NaN;
+      expect(pointHitsTextBlock({ x: 20, y: 30 }, nonFinite)).assertFalse();
+      expect(eraserPathHitsTextBlock([{ x: 20, y: 30 }], nonFinite, 8)).assertFalse();
+      expect(selectionPathHitsTextBlock([
+        { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 },
+      ], nonFinite)).assertFalse();
     });
 
     it('keeps original position-locked blocks immutable and unhittable', 0, () => {

@@ -309,9 +309,9 @@ assertDatabaseVersionAtLeast(schema, 61);
 assert.match(dispatcher, /ORIGINAL_MODIFY_BLOCK_PAYLOAD_TYPE/);
 assert.match(geometry, /isTextBlockPositionLocked/);
 assert.match(geometry, /eraserPath\.length === 0 \|\| isTextBlockPositionLocked/);
-assert.match(selection, /if \(this\.elementBoundsSelected\(textBlock\.bounds\)\)/);
+assert.match(selection, /if \(selectionPathHitsTextBlock\(selectionPath, textBlock\)\)/);
 assert.doesNotMatch(selection,
-  /!isTextBlockPositionLocked\(textBlock\) && this\.elementBoundsSelected/);
+  /!isTextBlockPositionLocked\(textBlock\) && selectionPathHitsTextBlock/);
 assert.match(packageSpec, /text\.positionLocked === undefined/);
 
 console.log('success|flatbuffer-td8=1|materialized-registers=6|reserved-registers=3|nullable-clear=1|state-finite=1|v34-v36=1|' +

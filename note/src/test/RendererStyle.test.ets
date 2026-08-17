@@ -255,6 +255,28 @@ export default function rendererStyleTest() {
       expect(alphaAt(context, 4, 12)).assertEqual(0);
     });
 
+    it('clips transformed Text content to the original local Block size', 0, () => {
+      const canvas: OffscreenCanvas = new OffscreenCanvas(80, 60);
+      const context: OffscreenCanvasRenderingContext2D =
+        canvas.getContext('2d', new RenderingContextSettings(true));
+      const element: TextBlockElement = {
+        id: 'clipped-text', type: ElementType.TEXT, richText: 'W',
+        characterStyleRuns: [{ start: 0, end: 1, style: {
+          highlightColor: 0xFF00FF00 | 0,
+        } }],
+        textOrigin: { x: 0, y: 0 }, blockWidth: 40, blockHeight: 20,
+        rotationRadians: 0, contentLeftInset: 4, contentTopInset: 4,
+        contentRightInset: 4, contentBottomInset: 4,
+        fontSize: 30, fontColor: 0xFF000000 | 0,
+        transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: 0, top: 0, right: 40, bottom: 20 },
+      };
+      new Canvas2DTextRenderer().renderText(element,
+        new Canvas2DOffscreenRenderContext(context));
+      expect(alphaAt(context, 5, 10) > 0).assertTrue();
+      expect(alphaAt(context, 5, 25)).assertEqual(0);
+    });
+
     it('measures resize-to-fit width with the same Canvas font metrics as rendering', 0, () => {
       const canvas: OffscreenCanvas = new OffscreenCanvas(200, 80);
       const context: OffscreenCanvasRenderingContext2D =

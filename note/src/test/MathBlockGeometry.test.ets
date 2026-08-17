@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@ohos/hypium';
 import { ElementType, MathElement } from '../main/ets/core/model/ElementTypes';
 import { cloneMathElement, eraserPathHitsMathBlock, isMathBlockPositionLocked,
-  mathBlockWorldBounds, transformMathElements } from '../main/ets/core/model/MathBlockGeometry';
+  mathBlockWorldBounds, selectionPathHitsMathBlock,
+  transformMathElements } from '../main/ets/core/model/MathBlockGeometry';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 
 function mathBlock(): MathElement {
@@ -69,6 +70,17 @@ export default function mathBlockGeometryTest() {
       expect(eraserPathHitsMathBlock([{ x: 100, y: 100 }], editable, 10)).assertFalse();
       editable.positionLocked = true;
       expect(eraserPathHitsMathBlock([{ x: 20, y: 60 }], editable, 10)).assertFalse();
+    });
+
+    it('uses inverse local geometry for scaled Math selection and erasing', 0, () => {
+      const editable: MathElement = mathBlock();
+      editable.transform = [4, 0, 0, 0, 1, 0, 0, 0, 1];
+      expect(eraserPathHitsMathBlock([{ x: 80, y: 23 }], editable, 8)).assertFalse();
+      expect(eraserPathHitsMathBlock([{ x: 80, y: 20.5 }], editable, 8)).assertTrue();
+      expect(selectionPathHitsMathBlock([
+        { x: 20, y: 5 }, { x: 140, y: 5 },
+        { x: 140, y: 15 }, { x: 20, y: 15 },
+      ], editable)).assertTrue();
     });
   });
 }

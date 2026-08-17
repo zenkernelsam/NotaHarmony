@@ -1,5 +1,6 @@
 import { ImageElement } from './ElementTypes';
 import { Point2D, Rect2D, TransformMatrix } from './GeometryTypes';
+import { eraserPathHitsAffineBlock, selectionPathHitsAffineBlock } from './BlockHitGeometry';
 
 const HEX_DIGITS: string = '0123456789abcdef';
 const MAX_UINT64_DECIMAL: string = '18446744073709551615';
@@ -142,6 +143,10 @@ export function isImageBlockPositionLocked(element: ImageElement): boolean {
   return element.positionLocked === true;
 }
 
+export function imageBlockLocalBounds(element: ImageElement): Rect2D {
+  return { left: 0, top: 0, right: element.blockWidth, bottom: element.blockHeight };
+}
+
 export function transformImageElements(elements: ImageElement[], selectedIds: string[],
   transform: TransformMatrix): ImageElement[] {
   const selected: Set<string> = new Set<string>(selectedIds);
@@ -165,34 +170,14 @@ export function eraserPathHitsImageBlock(eraserPath: Point2D[], element: ImageEl
   if (eraserPath.length === 0 || isImageBlockPositionLocked(element)) {
     return false;
   }
-  const corners: Point2D[] = imageBlockWorldCorners(element);
-  for (const point of eraserPath) {
-    if (pointInPolygon(point, corners)) {
-      return true;
-    }
-  }
-  const closed: Point2D[] = corners.concat([corners[0]]);
-  const radius: number = Math.max(0, eraserWidth) / 2;
-  const segmentCount: number = Math.max(1, eraserPath.length - 1);
-  for (let i: number = 0; i < segmentCount; i++) {
-    const start: Point2D = eraserPath[i];
-    const end: Point2D = eraserPath.length === 1 ? start : eraserPath[i + 1];
-    for (let edge: number = 0; edge < corners.length; edge++) {
-      if (segmentDistance(start, end, closed[edge], closed[edge + 1]) <= radius) {
-        return true;
-      }
-    }
-  }
-  return false;
+  return eraserPathHitsAffineBlock(
+    eraserPath, imageBlockLocalBounds(element), element.transform, eraserWidth);
 }
 
-function imageBlockWorldCorners(element: ImageElement): Point2D[] {
-  return [
-    transformPoint({ x: 0, y: 0 }, element.transform),
-    transformPoint({ x: element.blockWidth, y: 0 }, element.transform),
-    transformPoint({ x: element.blockWidth, y: element.blockHeight }, element.transform),
-    transformPoint({ x: 0, y: element.blockHeight }, element.transform),
-  ];
+export function selectionPathHitsImageBlock(selectionPath: Point2D[],
+  element: ImageElement): boolean {
+  return selectionPathHitsAffineBlock(
+    selectionPath, imageBlockLocalBounds(element), element.transform);
 }
 
 function multiplyTransform(a: TransformMatrix, b: TransformMatrix): TransformMatrix {
@@ -203,66 +188,6 @@ function multiplyTransform(a: TransformMatrix, b: TransformMatrix): TransformMat
     a[3] * b[2] + a[4] * b[5] + a[5],
     0, 0, 1,
   ];
-}
-
-function pointInPolygon(point: Point2D, polygon: Point2D[]): boolean {
-  let inside: boolean = false;
-  for (let i: number = 0, j: number = polygon.length - 1; i < polygon.length; j = i++) {
-    const left: Point2D = polygon[i];
-    const right: Point2D = polygon[j];
-    if ((left.y > point.y) !== (right.y > point.y) &&
-      point.x < (right.x - left.x) * (point.y - left.y) / (right.y - left.y) + left.x) {
-      inside = !inside;
-    }
-  }
-  return inside;
-}
-
-function segmentDistance(a0: Point2D, a1: Point2D, b0: Point2D, b1: Point2D): number {
-  if (segmentsIntersect(a0, a1, b0, b1)) {
-    return 0;
-  }
-  return Math.min(pointSegmentDistance(a0, b0, b1), pointSegmentDistance(a1, b0, b1),
-    pointSegmentDistance(b0, a0, a1), pointSegmentDistance(b1, a0, a1));
-}
-
-function segmentsIntersect(a0: Point2D, a1: Point2D, b0: Point2D, b1: Point2D): boolean {
-  const o1: number = orientation(a0, a1, b0);
-  const o2: number = orientation(a0, a1, b1);
-  const o3: number = orientation(b0, b1, a0);
-  const o4: number = orientation(b0, b1, a1);
-  const epsilon: number = 0.0000001;
-  if (((o1 > epsilon && o2 < -epsilon) || (o1 < -epsilon && o2 > epsilon)) &&
-    ((o3 > epsilon && o4 < -epsilon) || (o3 < -epsilon && o4 > epsilon))) {
-    return true;
-  }
-  return (Math.abs(o1) <= epsilon && pointOnSegment(b0, a0, a1, epsilon)) ||
-    (Math.abs(o2) <= epsilon && pointOnSegment(b1, a0, a1, epsilon)) ||
-    (Math.abs(o3) <= epsilon && pointOnSegment(a0, b0, b1, epsilon)) ||
-    (Math.abs(o4) <= epsilon && pointOnSegment(a1, b0, b1, epsilon));
-}
-
-function pointOnSegment(point: Point2D, start: Point2D, end: Point2D, epsilon: number): boolean {
-  return point.x >= Math.min(start.x, end.x) - epsilon &&
-    point.x <= Math.max(start.x, end.x) + epsilon &&
-    point.y >= Math.min(start.y, end.y) - epsilon &&
-    point.y <= Math.max(start.y, end.y) + epsilon;
-}
-
-function orientation(a: Point2D, b: Point2D, c: Point2D): number {
-  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-}
-
-function pointSegmentDistance(point: Point2D, start: Point2D, end: Point2D): number {
-  const dx: number = end.x - start.x;
-  const dy: number = end.y - start.y;
-  const lengthSquared: number = dx * dx + dy * dy;
-  if (lengthSquared <= 0.0000001) {
-    return Math.hypot(point.x - start.x, point.y - start.y);
-  }
-  const t: number = Math.max(0, Math.min(1,
-    ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
-  return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
 }
 
 function transformPoint(point: Point2D, matrix: TransformMatrix): Point2D {

@@ -19,6 +19,7 @@ function section(source, start, end) {
 }
 
 const imageGeometry = read('note/src/main/ets/core/model/ImageBlockGeometry.ets');
+const blockGeometry = read('note/src/main/ets/core/model/BlockHitGeometry.ets');
 const selection = read('note/src/main/ets/rendering/SelectionTool.ets');
 const clipboard = read('note/src/main/ets/rendering/StrokeClipboard.ets');
 const order = read('note/src/main/ets/core/model/PageElementOrder.ets');
@@ -29,12 +30,14 @@ assert.match(imageGeometry, /isImageBlockPositionLocked/);
 assert.match(imageGeometry, /updated\.transform = multiplyTransform\(transform, element\.transform\)/);
 assert.match(imageGeometry, /updated\.bounds = imageBlockWorldBounds\(updated\)/);
 assert.match(imageGeometry, /eraserPathHitsImageBlock/);
-assert.match(imageGeometry, /pointOnSegment/);
+assert.match(imageGeometry, /eraserPathHitsAffineBlock/);
+assert.match(blockGeometry, /pointOnSegment/);
+assert.match(blockGeometry, /Math\.max\(0, eraserWidth\) \/ 2 \/ scale/);
 
 assert.match(selection, /selectedImageIds: string\[\]/);
-assert.match(selection, /this\.elementBoundsSelected\(image\.bounds\)/);
+assert.match(selection, /selectionPathHitsImageBlock\(selectionPath, image\)/);
 assert.doesNotMatch(selection,
-  /!isImageBlockPositionLocked\(image\) && this\.elementBoundsSelected\(image\.bounds\)/);
+  /!isImageBlockPositionLocked\(image\) && selectionPathHitsImageBlock/);
 assert.match(selection, /concat\(this\.state\.selectedImageIds\)/);
 
 assert.match(clipboard, /cloneClipboardImage/);

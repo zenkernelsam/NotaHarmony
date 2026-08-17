@@ -45,9 +45,9 @@ assert.match(geometry, /updated\.bounds = mathBlockWorldBounds\(updated\)/);
 assert.match(geometry, /eraserPathHitsMathBlock/);
 assert.match(geometry, /if \(eraserPath\.length === 0 \|\| isMathBlockPositionLocked\(element\)\)/);
 assert.match(selection, /selectedMathIds: string\[\]/);
-assert.match(selection, /if \(this\.elementBoundsSelected\(math\.bounds\)\)/);
+assert.match(selection, /if \(selectionPathHitsMathBlock\(selectionPath, math\)\)/);
 assert.doesNotMatch(selection,
-  /!isMathBlockPositionLocked\(math\) && this\.elementBoundsSelected/);
+  /!isMathBlockPositionLocked\(math\) && selectionPathHitsMathBlock/);
 assert.match(selection, /availableIds\.push\(math\.id\)/);
 assert.match(selection, /\.concat\(this\.state\.selectedMathIds\)/);
 assert.match(clipboard, /cloneClipboardMath/);

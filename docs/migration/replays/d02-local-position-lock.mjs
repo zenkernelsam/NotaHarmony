@@ -48,7 +48,9 @@ assert.match(payloadFixtures, /positionLocked: false[\s\S]*expect\(unlocked\.pos
 assert.match(blockFixtures, /position lock presence for true and false/);
 
 assert.match(selection, /if \(this\.elementBoundsSelected\(shape\.bounds\)\)/);
-assert.match(selection, /if \(this\.elementBoundsSelected\(textBlock\.bounds\)\)/);
+assert.match(selection, /if \(selectionPathHitsTextBlock\(selectionPath, textBlock\)\)/);
+assert.doesNotMatch(selection,
+  /!isTextBlockPositionLocked\(textBlock\) && selectionPathHitsTextBlock/);
 assert.match(selectionFixtures, /position-locked text blocks so they can be unlocked/);
 assert.match(selectionFixtures, /position-locked images/);
 assert.match(shapeGeometry, /!selected\.has\(shape\.id\) \|\| shape\.positionLocked === true/);

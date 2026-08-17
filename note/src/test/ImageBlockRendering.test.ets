@@ -2,7 +2,7 @@ import { describe, expect, it } from '@ohos/hypium';
 import { ElementType, ImageElement } from '../main/ets/core/model/ElementTypes';
 import {
   eraserPathHitsImageBlock, imageAssetPackageMetadataMatches, originalAssetLookupKeys,
-  originalAssetStorageHash, transformImageElements,
+  originalAssetStorageHash, selectionPathHitsImageBlock, transformImageElements,
 } from '../main/ets/core/model/ImageBlockGeometry';
 import { ImageRenderGeometry, imageRenderGeometry } from '../main/ets/rendering/ImageCanvasRenderer';
 import { imageAssetPackageEntry } from '../main/ets/data/ImageAssetPackageStore';
@@ -99,6 +99,17 @@ export default function imageBlockRenderingTest() {
       expect(eraserPathHitsImageBlock([{ x: -50, y: -50 }], block, 2)).assertFalse();
       block.positionLocked = true;
       expect(eraserPathHitsImageBlock([{ x: 50, y: 70 }], block, 4)).assertFalse();
+    });
+
+    it('uses inverse local geometry for scaled image selection and erasing', 0, () => {
+      const block: ImageElement = imageBlock();
+      block.transform = [4, 0, 0, 0, 1, 0, 0, 0, 1];
+      expect(eraserPathHitsImageBlock([{ x: 200, y: 78 }], block, 8)).assertFalse();
+      expect(eraserPathHitsImageBlock([{ x: 200, y: 75.5 }], block, 8)).assertTrue();
+      expect(selectionPathHitsImageBlock([
+        { x: 100, y: 10 }, { x: 300, y: 10 },
+        { x: 300, y: 60 }, { x: 100, y: 60 },
+      ], block)).assertTrue();
     });
 
     it('applies a rotated and scaled intrinsic crop with the original origin shift', 0, () => {

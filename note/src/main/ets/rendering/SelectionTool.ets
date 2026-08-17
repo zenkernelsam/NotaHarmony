@@ -5,6 +5,9 @@ import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { OriginalSelectionGroup, resolveOriginalGroupSelection,
   OriginalGroupSelectionResult } from '../core/model/OriginalGroupSelection';
+import { selectionPathHitsTextBlock } from '../core/model/TextBlockGeometry';
+import { selectionPathHitsImageBlock } from '../core/model/ImageBlockGeometry';
+import { selectionPathHitsMathBlock } from '../core/model/MathBlockGeometry';
 
 export enum SelectionMode {
   RECTANGLE = 0,
@@ -102,6 +105,7 @@ export class SelectionTool {
       }
     }
     this.state.selectedStrokeIds = ids;
+    const selectionPath: Point2D[] = this.selectionPath();
     const shapeIds: string[] = [];
     for (const shape of shapes) {
       if (this.elementBoundsSelected(shape.bounds)) {
@@ -111,21 +115,21 @@ export class SelectionTool {
     this.state.selectedShapeIds = shapeIds;
     const textIds: string[] = [];
     for (const textBlock of textBlocks) {
-      if (this.elementBoundsSelected(textBlock.bounds)) {
+      if (selectionPathHitsTextBlock(selectionPath, textBlock)) {
         textIds.push(textBlock.id);
       }
     }
     this.state.selectedTextBlockIds = textIds;
     const imageIds: string[] = [];
     for (const image of images) {
-      if (this.elementBoundsSelected(image.bounds)) {
+      if (selectionPathHitsImageBlock(selectionPath, image)) {
         imageIds.push(image.id);
       }
     }
     this.state.selectedImageIds = imageIds;
     const mathIds: string[] = [];
     for (const math of mathBlocks) {
-      if (this.elementBoundsSelected(math.bounds)) {
+      if (selectionPathHitsMathBlock(selectionPath, math)) {
         mathIds.push(math.id);
       }
     }
@@ -306,6 +310,21 @@ export class SelectionTool {
       y: (bounds.top + bounds.bottom) / 2,
     };
     return this.pointInPolygon(center, this.state.lassoPoints);
+  }
+
+  private selectionPath(): Point2D[] {
+    if (this.state.mode === SelectionMode.LASSO) {
+      return this.state.lassoPoints.slice();
+    }
+    if (this.state.rect === null) {
+      return [];
+    }
+    return [
+      { x: this.state.rect.left, y: this.state.rect.top },
+      { x: this.state.rect.right, y: this.state.rect.top },
+      { x: this.state.rect.right, y: this.state.rect.bottom },
+      { x: this.state.rect.left, y: this.state.rect.bottom },
+    ];
   }
 
   // 射线法判断点在多边形内

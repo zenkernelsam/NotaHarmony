@@ -5,7 +5,8 @@ import {
 import { RenderContext } from './StrokeRenderer';
 import { Canvas2DDrawingContext } from './Canvas2DStrokeRenderer';
 import { OriginalPaperFlair, PagePaperBackground } from '../model/NoteTypes';
-import { Point2D } from '../model/GeometryTypes';
+import { Point2D, Rect2D } from '../model/GeometryTypes';
+import { textBlockLocalBounds } from '../model/TextBlockGeometry';
 
 const TEXT_PAPER_POINTS_TO_UNITS: number = 96 / 72;
 
@@ -67,6 +68,11 @@ export class Canvas2DTextRenderer {
     ctx.save();
     try {
       ctx.transform(element.transform);
+      const localBounds: Rect2D = textBlockLocalBounds(element);
+      ctx.beginPath();
+      ctx.rect(localBounds.left, localBounds.top,
+        localBounds.right - localBounds.left, localBounds.bottom - localBounds.top);
+      ctx.clip();
       this.renderPaper(ctx, element);
       if (element.richText.length === 0) {
         return;

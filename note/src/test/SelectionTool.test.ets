@@ -35,6 +35,19 @@ function textBlock(id: string): TextBlockElement {
   };
 }
 
+function rotatedTextBlock(id: string): TextBlockElement {
+  const angle: number = Math.PI / 4;
+  return {
+    id: id, type: ElementType.TEXT,
+    transform: [Math.cos(angle), -Math.sin(angle), 100,
+      Math.sin(angle), Math.cos(angle), 100, 0, 0, 1],
+    bounds: { left: 85.857864, top: 100, right: 170.710679, bottom: 184.852814 },
+    richText: id, textOrigin: { x: 0, y: 0 }, blockWidth: 100, blockHeight: 20,
+    rotationRadians: angle, contentLeftInset: 4, contentTopInset: 4,
+    fontSize: 12, fontColor: 0xFF000000,
+  };
+}
+
 function imageBlock(id: string): ImageElement {
   const bits: string[] = ['1', '2', '3', '4', '5', '6', '7', '8'];
   return {
@@ -105,6 +118,26 @@ export default function selectionToolTest() {
       expect(tool.getState().selectedTextBlockIds[0]).assertEqual('text-2');
       tool.deselect();
       expect(tool.getState().selectedTextBlockIds.length).assertEqual(0);
+    });
+
+    it('rejects a rectangle that only touches a rotated Text AABB', 0, () => {
+      const tool: SelectionTool = new SelectionTool();
+      tool.beginSelection(SelectionMode.RECTANGLE, { x: 166, y: 102 });
+      tool.updateSelection({ x: 170, y: 106 });
+      const ids: string[] = tool.finalizeSelection([], [], [rotatedTextBlock('rotated')]);
+      expect(ids.length).assertEqual(0);
+      expect(tool.getState().selectedTextBlockIds.length).assertEqual(0);
+    });
+
+    it('selects a Text Block when a lasso edge crosses it without containing its AABB center', 0, () => {
+      const tool: SelectionTool = new SelectionTool();
+      tool.beginSelection(SelectionMode.LASSO, { x: 48, y: 55 });
+      tool.updateSelection({ x: 52, y: 55 });
+      tool.updateSelection({ x: 52, y: 60 });
+      tool.updateSelection({ x: 48, y: 60 });
+      const ids: string[] = tool.finalizeSelection([], [], [textBlock('lasso-edge')]);
+      expect(ids.length).assertEqual(1);
+      expect(ids[0]).assertEqual('lasso-edge');
     });
 
     it('selects original position-locked text blocks so they can be unlocked', 0, () => {
