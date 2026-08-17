@@ -17,8 +17,17 @@ function writeU64BE(data: Uint8Array, offset: number, value: number): void {
   writeU32BE(data, offset + 4, low);
 }
 
+function writeUIntBE(data: Uint8Array, offset: number, size: number, value: number): void {
+  let remaining: number = value;
+  for (let i: number = size - 1; i >= 0; i--) {
+    data[offset + i] = remaining % 256;
+    remaining = Math.floor(remaining / 256);
+  }
+}
+
 function buildPlist(objects: number[][], topIndex: number = 0,
-  offsetOverrides: number[] | null = null): Uint8Array {
+  offsetOverrides: number[] | null = null, offsetIntSize: number = 1,
+  objectRefSize: number = 1): Uint8Array {
   const offsets: number[] = [];
   let objectEnd: number = MAGIC_BYTES.length;
   for (const object of objects) {
@@ -26,7 +35,7 @@ function buildPlist(objects: number[][], topIndex: number = 0,
     objectEnd += object.length;
   }
   const offsetTableOffset: number = objectEnd;
-  const result: Uint8Array = new Uint8Array(offsetTableOffset + objects.length + 32);
+  const result: Uint8Array = new Uint8Array(offsetTableOffset + objects.length * offsetIntSize + 32);
   for (let i: number = 0; i < MAGIC_BYTES.length; i++) {
     result[i] = MAGIC_BYTES[i];
   }
@@ -35,14 +44,24 @@ function buildPlist(objects: number[][], topIndex: number = 0,
     for (let j: number = 0; j < object.length; j++) {
       result[offsets[i] + j] = object[j];
     }
-    result[offsetTableOffset + i] = offsetOverrides === null ? offsets[i] : offsetOverrides[i];
+    writeUIntBE(result, offsetTableOffset + i * offsetIntSize, offsetIntSize,
+      offsetOverrides === null ? offsets[i] : offsetOverrides[i]);
   }
   const trailer: number = result.length - 32;
-  result[trailer + 6] = 1;
-  result[trailer + 7] = 1;
+  result[trailer + 6] = offsetIntSize;
+  result[trailer + 7] = objectRefSize;
   writeU64BE(result, trailer + 8, objects.length);
   writeU64BE(result, trailer + 16, topIndex);
   writeU64BE(result, trailer + 24, offsetTableOffset);
+  return result;
+}
+
+function insertGapBeforeTrailer(data: Uint8Array): Uint8Array {
+  const trailer: number = data.length - 32;
+  const result: Uint8Array = new Uint8Array(data.length + 1);
+  result.set(data.slice(0, trailer), 0);
+  result[trailer] = 0xEE;
+  result.set(data.slice(trailer), trailer + 1);
   return result;
 }
 
@@ -58,7 +77,7 @@ export default function binaryPlistParserTest() {
         [0x22, 0x3F, 0x80, 0x00, 0x00],
         [0x33, 0, 0, 0, 0, 0, 0, 0, 0], [0x41, 0x7F], [0x51, 0x41],
         [0x73, 0xE4, 0xB8, 0xAD], [0x61, 0x00, 0x41], [0x80, 0x00],
-        [0xA0], [0xB0], [0xC0], [0xD0],
+        [0xA0], [0xC0], [0xD0],
       ];
       for (const object of objects) {
         const result: PlistParseResult = parseObject(object);
@@ -90,17 +109,50 @@ export default function binaryPlistParserTest() {
       expect(result.error.indexOf('对象偏移越界') >= 0).assertTrue();
     });
 
+    it('requires a canonical trailer-adjacent offset table and sufficient integer widths', 0, () => {
+      const gap: PlistParseResult = BinaryPlistParser.parse(insertGapBeforeTrailer(buildPlist([[0x00]])));
+      expect(gap.value === null).assertTrue();
+      expect(gap.error.indexOf('精确衔接') >= 0).assertTrue();
+
+      const tooManyObjects: number[][] = [];
+      for (let i: number = 0; i < 256; i++) {
+        tooManyObjects.push([0x00]);
+      }
+      const badRefWidth: PlistParseResult = BinaryPlistParser.parse(
+        buildPlist(tooManyObjects, 0, null, 2, 1));
+      expect(badRefWidth.value === null).assertTrue();
+      expect(badRefWidth.error.indexOf('objectRefSize') >= 0).assertTrue();
+
+      const wideObjectArea: number[][] = [];
+      for (let i: number = 0; i < 249; i++) {
+        wideObjectArea.push([0x00]);
+      }
+      const badOffsetWidth: PlistParseResult = BinaryPlistParser.parse(
+        buildPlist(wideObjectArea, 0, null, 1, 1));
+      expect(badOffsetWidth.value === null).assertTrue();
+      expect(badOffsetWidth.error.indexOf('offsetIntSize') >= 0).assertTrue();
+    });
+
+    it('rejects referenced fill bytes and ordered sets instead of changing their meaning', 0, () => {
+      const fill: PlistParseResult = parseObject([0x0F]);
+      const orderedSet: PlistParseResult = parseObject([0xB0]);
+      expect(fill.value === null).assertTrue();
+      expect(fill.error.indexOf('fill marker') >= 0).assertTrue();
+      expect(orderedSet.value === null).assertTrue();
+      expect(orderedSet.error.indexOf('ordered-set') >= 0).assertTrue();
+    });
+
     it('propagates a bad child reference instead of inserting null and succeeding', 0, () => {
       const result: PlistParseResult = BinaryPlistParser.parse(buildPlist([[0xA1, 0x01]]));
       expect(result.value === null).assertTrue();
       expect(result.error.indexOf('对象下标越界') >= 0).assertTrue();
     });
 
-    it('keeps a true cycle as an explicit warning and null placeholder', 0, () => {
+    it('rejects a true container cycle as structural corruption', 0, () => {
       const result: PlistParseResult = BinaryPlistParser.parse(buildPlist([[0xA1, 0x00]]));
-      expect(result.error).assertEqual('');
-      expect(result.warnings.length).assertEqual(1);
-      expect(result.value?.arrayItems()[0].isNull()).assertTrue();
+      expect(result.value === null).assertTrue();
+      expect(result.error.indexOf('循环对象引用') >= 0).assertTrue();
+      expect(result.warnings.length).assertEqual(0);
     });
 
     it('rejects pseudo-date markers outside the standard 0x33 marker', 0, () => {
@@ -155,6 +207,17 @@ export default function binaryPlistParserTest() {
         buildPlist([[0xD1, 0x01, 0x02], [0x10, 0x01], [0x00]]));
       expect(result.value === null).assertTrue();
       expect(result.error.indexOf('dict key') >= 0).assertTrue();
+    });
+
+    it('rejects duplicate dictionary keys instead of using parser-dependent winner order', 0, () => {
+      const result: PlistParseResult = BinaryPlistParser.parse(buildPlist([
+        [0xD2, 0x01, 0x01, 0x02, 0x03],
+        [0x53, 0x6B, 0x65, 0x79],
+        [0x00],
+        [0x09],
+      ]));
+      expect(result.value === null).assertTrue();
+      expect(result.error.indexOf('重复键') >= 0).assertTrue();
     });
   });
 }

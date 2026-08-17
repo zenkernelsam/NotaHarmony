@@ -70,13 +70,13 @@ export default function nsKeyedArchiverDecoderTest() {
       expect(badNested.error.indexOf('UID 越界') >= 0).assertTrue();
     });
 
-    it('validates every stored dictionary value even when keys repeat', 0, () => {
+    it('rejects duplicate plist dictionary keys before archive fields can shadow each other', 0, () => {
       const objects: PlistValue[] = [
-        PlistValue.ofString('$null'), PlistValue.ofDict(['child', 'child'], [uid(0), uid(3)]),
+        PlistValue.ofString('$null'), PlistValue.ofDict(['child', 'child'], [uid(0), uid(0)]),
       ];
       const result: ArchiveDecodeResult = NSKeyedArchiverDecoder.decode(archive(objects));
       expect(result.decoder === null).assertTrue();
-      expect(result.error.indexOf('UID 越界') >= 0).assertTrue();
+      expect(result.error.indexOf('重复字典键') >= 0).assertTrue();
     });
 
     it('decodes valid four-byte UTF-8 from NS.bytes', 0, () => {

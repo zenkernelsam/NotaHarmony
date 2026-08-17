@@ -498,8 +498,13 @@ export class NSKeyedArchiverDecoder {
       return '';
     }
     const keys: string[] = value.dictKeys();
+    const seenKeys: Set<string> = new Set<string>();
     for (let i: number = 0; i < keys.length; i++) {
       const key: string = keys[i];
+      if (seenKeys.has(key)) {
+        return `${path} 含重复字典键 ${JSON.stringify(key)}`;
+      }
+      seenKeys.add(key);
       const child: PlistValue | null = value.dictValueAt(i);
       if (child === null) {
         return `${path}.${key} 缺少字典值`;

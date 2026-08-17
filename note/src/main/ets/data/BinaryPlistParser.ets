@@ -319,9 +319,22 @@ export class BinaryPlistParser {
         out.error = `对象数超出安全预算 ${numObjects} > ${MAX_OBJECT_COUNT}`;
         return out;
       }
-      if (offsetTableOffset < MAGIC.length || offsetTableOffset > t ||
+      if (!byteWidthCanRepresentExclusiveLimit(objectRefSize, numObjects)) {
+        out.error = `objectRefSize=${objectRefSize} 无法表示 ${numObjects} 个对象`;
+        return out;
+      }
+      if (!byteWidthCanRepresentExclusiveLimit(offsetIntSize, offsetTableOffset)) {
+        out.error = `offsetIntSize=${offsetIntSize} 无法表示偏移表位置 ${offsetTableOffset}`;
+        return out;
+      }
+      if (offsetTableOffset <= MAGIC.length || offsetTableOffset > t ||
         !rangeWithin(offsetTableOffset, numObjects, offsetIntSize, t)) {
-        out.error = '偏移表越界';
+        out.error = '偏移表越界或对象区为空';
+        return out;
+      }
+      const offsetTableSize: number = numObjects * offsetIntSize;
+      if (offsetTableOffset + offsetTableSize !== t) {
+        out.error = '偏移表未精确衔接 trailer';
         return out;
       }
 
@@ -363,6 +376,18 @@ function rangeWithin(start: number, count: number, unitSize: number, limit: numb
     return count === 0;
   }
   return count <= Math.floor((limit - start) / unitSize);
+}
+
+// CFBinaryPlist v00 要求引用宽度能表示对象数量、offset 宽度能表示偏移表起点。
+// 7/8 字节的容量已经大于 JavaScript 安全整数范围；前置 trailer 校验保证 value 为安全整数。
+function byteWidthCanRepresentExclusiveLimit(size: number, value: number): boolean {
+  if (!Number.isSafeInteger(size) || !Number.isSafeInteger(value) || size < 1 || value < 0) {
+    return false;
+  }
+  if (size >= 7) {
+    return true;
+  }
+  return value < Math.pow(256, size);
 }
 
 // 解析上下文：负责按下标解码对象，带记忆化与递归深度保护
@@ -434,7 +459,9 @@ class ParseContext {
           return PlistValue.ofBool(true);
         }
         if (low === 0xF) {
-          return PlistValue.ofNull();   // fill byte
+          // fill 只是对象区间的填充字节，不是可被 offset table/reference 指向的 plist 值。
+          this.fail('fill marker 0x0F 不能作为对象被引用');
+          return null;
         }
         if (low === 0xC || low === 0xD) {
           const refCount: number = low === 0xC ? 1 : 2;
@@ -659,8 +686,13 @@ class ParseContext {
         return PlistValue.ofNumber(PlistType.UID, uid);
       }
 
-      case 0xA:
       case 0xB:
+        // CFBinaryPlist 的格式注释保留 ordered-set marker，但 v00 参考解析器不发布该类型。
+        // 当前值模型也没有 ordered-set 联合，不能静默降级成 ARRAY。
+        this.fail('ordered-set marker 0xB 在 bplist00 中不受支持');
+        return null;
+
+      case 0xA:
       case 0xC: {
         const len: LengthRead | null = this.readLength(pos, low);
         if (len === null) {
@@ -703,6 +735,7 @@ class ParseContext {
         }
         const keys: string[] = [];
         const values: PlistValue[] = [];
+        const seenKeys: Set<string> = new Set<string>();
         for (let i = 0; i < len.count; i++) {
           const kRef: number = uintBE(this.data, keyBase + i * this.refSize, this.refSize);
           const vRef: number = uintBE(this.data, valBase + i * this.refSize, this.refSize);
@@ -715,7 +748,15 @@ class ParseContext {
             this.fail(`dict key 不是字符串 ref=${kRef}`);
             return null;
           }
-          keys.push(kv.asString(''));
+          const key: string = kv.asString('');
+          if (seenKeys.has(key)) {
+            // Apple 参考实现把 hash-equal 重复键称为 malformed，并会发生后值覆盖前值。
+            // 导入侧必须 fail closed，避免同一归档在不同解析器中产生 first/last-wins 分歧。
+            this.fail(`dict 含重复键 ${JSON.stringify(key)}`);
+            return null;
+          }
+          seenKeys.add(key);
+          keys.push(key);
           values.push(vv);
         }
         return PlistValue.ofDict(keys, values);
