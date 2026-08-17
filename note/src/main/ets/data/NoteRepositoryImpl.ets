@@ -185,12 +185,14 @@ export class NoteRepositoryImpl implements NoteRepository {
   }
 
   async updateNote(note: NoteMeta): Promise<void> {
-    await this.updateNoteTitle(note.id, note.title);
+    // The library model exposes the non-null materialized projection; an empty
+    // title therefore means the original nullable register is explicitly null.
+    await this.updateNoteTitle(note.id, note.title.length === 0 ? null : note.title);
   }
 
-  async updateNoteTitle(noteId: string, title: string, selectedPageId?: string,
-    history?: HistoryMetadata): Promise<string> {
-    return libraryMetadataMutationMutex.runExclusive(async (): Promise<string> => {
+  async updateNoteTitle(noteId: string, title: string | null, selectedPageId?: string,
+    history?: HistoryMetadata): Promise<PersistedOriginalNoteTitle> {
+    return libraryMetadataMutationMutex.runExclusive(async (): Promise<PersistedOriginalNoteTitle> => {
       const store: relationalStore.RdbStore = this.db.getStore();
       await store.beginTransaction();
       try {
@@ -199,7 +201,7 @@ export class NoteRepositoryImpl implements NoteRepository {
         const persisted: PersistedOriginalNoteTitle = await persistOriginalNoteTitle(
           store, noteId, title, selectedPageId, history);
         await store.commit();
-        return persisted.after;
+        return persisted;
       } catch (e) {
         await store.rollBack();
         throw new Error(`updateNoteTitle failed: ${JSON.stringify(e)}`);

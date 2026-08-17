@@ -374,7 +374,7 @@ check('Harmony reads and writes one independent SQL winner per metadata register
     .every(table => production.includes(table)));
 const assetDecision = production.indexOf('const assetReason: string | null = applyBackground');
 const lastIdentityConflict = production.lastIndexOf('_IDENTITY_CONFLICT');
-const firstWinnerWrite = production.indexOf('if (applyTitle && payload.title !== null)');
+const firstWinnerWrite = production.indexOf('if (applyTitle)');
 check('all identity conflicts precede PDF asset mutation and every winner write',
   lastIdentityConflict >= 0 && assetDecision > lastIdentityConflict &&
     firstWinnerWrite > assetDecision &&
@@ -402,11 +402,12 @@ check('ArkTS FlatBuffer fixture covers all six fields explicit null and invalid 
     fixture.includes('SET_METADATA_LAYOUT_MODE_UNSUPPORTED') &&
     fixture.includes('SET_METADATA_BLOCK_WRAP_SUPPORT_UNSUPPORTED') &&
     fixture.includes('SET_METADATA_TEMPLATE_PDF_PAGE_COUNT_UNSUPPORTED'));
-check('policy and database fixtures remain registered and lock v65 domains',
+check('policy and database fixtures retain v65 domains under the v66 title schema',
   policyFixture.includes("isOriginalHandwritingLanguage('iw_IL')") &&
     policyFixture.includes("isOriginalHandwritingLanguage('en-US')") &&
-    databaseFixture.includes('expect(DB_VERSION).assertEqual(65)') &&
+    databaseFixture.includes('expect(DB_VERSION).assertEqual(66)') &&
     databaseFixture.includes('MIGRATIONS[65]') &&
+    databaseFixture.includes('MIGRATIONS[66]') &&
     fixtureList.includes("import originalNoteMetadataPolicyTest from './OriginalNoteMetadataPolicy.test';") &&
     fixtureList.includes('originalNoteMetadataPolicyTest();'));
 

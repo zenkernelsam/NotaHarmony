@@ -1,5 +1,6 @@
 // Original 1.0.3 keeps the editor draft at 200 UTF-16 code units, while the
-// SetMetadata validator accepts non-empty titles up to 256 code units.
+// SetMetadata validator accepts a null inner value or concrete titles up to 256
+// UTF-16 code units.
 export const ORIGINAL_NOTE_TITLE_EDIT_MAX_LENGTH: number = 200;
 export const ORIGINAL_NOTE_TITLE_WIRE_MAX_LENGTH: number = 256;
 export const ORIGINAL_NOTE_DEFAULT_TITLE: string = 'New Note';
@@ -28,12 +29,19 @@ export function commitOriginalNoteTitleDraft(value: string): string {
 }
 
 export function isOriginalNoteTitleWireValue(value: string | null): boolean {
-  return value !== null && value.length >= 1 &&
+  return value === null || value.length >= 1 &&
     value.length <= ORIGINAL_NOTE_TITLE_WIRE_MAX_LENGTH;
 }
 
-export function validateOriginalNoteTitleWireValue(value: string): void {
+export function validateOriginalNoteTitleWireValue(value: string | null): void {
   if (!isOriginalNoteTitleWireValue(value)) {
-    throw new Error('original note title must contain 1 to 256 UTF-16 code units');
+    throw new Error('original note title must be null or contain 1 to 256 UTF-16 code units');
   }
+}
+
+// Original SetString distinguishes a missing wrapper (no patch) from a present
+// wrapper whose inner string is null. Harmony keeps note_meta.title non-null for
+// existing UI/query contracts, so only the materialized projection becomes empty.
+export function materializeOriginalNoteTitle(value: string | null): string {
+  return value === null ? '' : value;
 }

@@ -80,19 +80,30 @@ export function encodeOriginalSetMetadataPageBackground(
 // Original 1.0.3 wire chain:
 // l2d SetMetadata.field0 -> z2d SetString.field0 -> UTF-8 title.
 // A title-only operation leaves l2d.field1 absent; that is not a background reset.
-export function encodeOriginalSetMetadataTitle(title: string): Uint8Array {
+// A present z2d whose field0 is absent is an explicit-null register write.
+export function encodeOriginalSetMetadataTitle(title: string | null): Uint8Array {
   validateOriginalNoteTitleWireValue(title);
+  const rootVtable: number = 4;
+  const rootTable: number = 24;
+  const setterVtable: number = 32;
+  const setterTable: number = 40;
+  const titleVector: number = 48;
+  if (title === null) {
+    const bytes: Uint8Array = new Uint8Array(titleVector);
+    writeU32(bytes, 0, rootTable);
+    writeVtable(bytes, rootVtable, 8, [4, 0, 0, 0, 0, 0, 0, 0]);
+    writeU32(bytes, rootTable, rootTable - rootVtable);
+    writeU32(bytes, rootTable + 4, setterTable - (rootTable + 4));
+    writeVtable(bytes, setterVtable, 4, [0]);
+    writeU32(bytes, setterTable, setterTable - setterVtable);
+    return bytes;
+  }
   const encoder: util.TextEncoder = new util.TextEncoder();
   const encoded: Uint8Array = encoder.encodeInto(title);
   if (encoded.length === 0 || encoded.length > MAX_TITLE_BYTES ||
     !validUtf8RoundTrip(encoded, title)) {
     throw new Error('local SET_METADATA title UTF-8 is invalid');
   }
-  const rootVtable: number = 4;
-  const rootTable: number = 24;
-  const setterVtable: number = 32;
-  const setterTable: number = 40;
-  const titleVector: number = 48;
   const bytes: Uint8Array = new Uint8Array(
     align4(titleVector + 4 + encoded.length + 1));
 

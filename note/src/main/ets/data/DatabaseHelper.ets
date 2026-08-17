@@ -3,6 +3,7 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
+// v66: preserve explicit-null original SET_METADATA title winners.
 // v65: persist the six additional original SET_METADATA registers independently.
 // v64: enforce note-wide page element identity for all SQL insertion/update paths.
 // v63: restore the original shared paper settings database (PaperBackground + BackgroundInfo).
@@ -12,7 +13,7 @@
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 65;
+export const DB_VERSION: number = 66;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -430,7 +431,7 @@ CREATE TABLE IF NOT EXISTS original_note_title_winner (
   note_id TEXT PRIMARY KEY,
   winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
   winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
-  title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 256),
+  title TEXT CHECK (title IS NULL OR length(title) BETWEEN 1 AND 256),
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
@@ -2580,5 +2581,21 @@ export const MIGRATIONS: Record<number, string[]> = {
     DDL_ORIGINAL_NOTE_DEFAULT_FONT_SIZE_WINNER,
     DDL_ORIGINAL_NOTE_LAYOUT_MODE_WINNER,
     DDL_ORIGINAL_NOTE_BLOCK_WRAP_SUPPORT_WINNER,
+  ],
+  66: [
+    `CREATE TABLE original_note_title_winner_v66 (
+      note_id TEXT PRIMARY KEY,
+      winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+      winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+      title TEXT CHECK (title IS NULL OR length(title) BETWEEN 1 AND 256),
+      FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+    )`,
+    `INSERT INTO original_note_title_winner_v66
+      (note_id, winner_timestamp, winner_site_id, title)
+     SELECT note_id, winner_timestamp, winner_site_id, title
+       FROM original_note_title_winner`,
+    'DROP TABLE original_note_title_winner',
+    `ALTER TABLE original_note_title_winner_v66
+      RENAME TO original_note_title_winner`,
   ],
 };

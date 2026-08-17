@@ -485,8 +485,8 @@ export interface NoteBackgroundAction extends ActionBase {
 
 export interface NoteTitleAction extends ActionBase {
   type: UndoableActionType.NOTE_TITLE;
-  titleBefore: string;
-  titleAfter: string;
+  titleBefore: string | null;
+  titleAfter: string | null;
 }
 
 export interface PersistedPageMutationsAction extends ActionBase {
@@ -652,7 +652,8 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
       JSON.stringify(action.backgroundAfter).length * 2;
   }
   if (action.type === UndoableActionType.NOTE_TITLE) {
-    return bytes + (action.titleBefore.length + action.titleAfter.length) * 2;
+    return bytes + ((action.titleBefore === null ? 0 : action.titleBefore.length) +
+      (action.titleAfter === null ? 0 : action.titleAfter.length)) * 2;
   }
   if (action.type === UndoableActionType.PERSISTED_PAGE_MUTATIONS) {
     let operationBytes: number = 0;

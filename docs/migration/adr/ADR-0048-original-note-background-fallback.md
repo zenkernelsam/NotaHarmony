@@ -70,9 +70,10 @@ transaction decision are recorded in ADR-0221 and
 
 ## Remaining boundary
 
-An explicit null title is still deferred because Harmony currently stores a
-non-null materialized title and the original display fallback has not yet been
-proved. ADR-0248/Phase 270 has closed inbound decode, validation, independent
+At the time this ADR was first accepted, an explicit null title was still deferred because Harmony stored a
+non-null materialized title and the original display fallback had not yet been
+proved. That historical boundary is superseded by ADR-0249/Phase 271, which closes the title register/wire/history
+chain while retaining the non-null materialized projection. ADR-0248/Phase 270 has closed inbound decode, validation, independent
 LWW persistence and validated readback for handwriting language, text alignment,
 default font family/size, layout mode and block wrapping; these fields no longer
 remain generically deferred. Their Harmony UI/renderer/recognition consumers,
@@ -88,9 +89,10 @@ independent field patches and no longer defers a normal title-only operation or 
 explicit-null reset. The same transaction updates the title winner, `note_meta`, title search row, monotonic `updated_at`,
 upload row and NTL1 durable-history companion.
 
-An explicit-null title wrapper remains deferred: the proven editor path converts exact empty input to `New Note` and never
-emits null. The separate new-note bootstrap path can combine title and background, but its full creation ordering remains a
-follow-up boundary rather than part of ADR-0222.
+At the time of Phase 245, an explicit-null title wrapper remained deferred: the proven editor path converted exact empty
+input to `New Note` and never emitted null. Phase 271 supersedes that boundary for inbound, persistence, outbound Undo/Redo
+and durable history; the editor's concrete empty-submit policy remains unchanged. The separate new-note bootstrap path can
+still combine title and background, but its full creation ordering remains a follow-up boundary rather than part of ADR-0222.
 
 ## Phase 270 additional metadata inbound closure
 
@@ -103,3 +105,10 @@ Phase 270 also moves note-level PDF asset merging after all identity decisions a
 register wins. This prevents a stale PDF patch or a later metadata conflict from attaching an asset before the inbox commits
 its deferred state. The six values now have validated SQL readback, but PAGELESS layout, line alignment, handwriting provider,
 default-font inheritance, wrap behavior and local outbound editing remain follow-up consumer work.
+
+## Phase 271 explicit-null title closure
+
+ADR-0249 now preserves the original title register's wrapper-present/inner-null state. The v66 title winner table is
+nullable, the reducer writes null winners and projects them to an empty non-null `note_meta`/search value, and NTL2
+history preserves nullable before/after values while continuing to decode NTL1. This closes the title register/wire/history
+gap without changing the six Phase 270 consumer boundaries or the combined new-note bootstrap ordering boundary.

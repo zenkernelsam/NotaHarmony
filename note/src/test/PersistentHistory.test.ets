@@ -131,7 +131,7 @@ function noteBackgroundOp(opId: string, actionId: string, fromRevision: number,
 }
 
 function noteTitleOp(opId: string, actionId: string, fromRevision: number,
-  selectedPageId: string, before: string, after: string): Op {
+  selectedPageId: string, before: string | null, after: string | null): Op {
   return {
     opId: opId, noteId: 'note-1', opType: OpType.UPDATE_TITLE,
     payload: encodeNoteTitleMutation({
@@ -624,14 +624,14 @@ export default function persistentHistoryTest() {
       const restored: RestoredHistoryState = materializePersistentHistory(
         reducePersistentHistory([
           original,
-          noteTitleOp('title-history', 'title-action', 12, 'page-2', 'Before', 'After'),
+          noteTitleOp('title-history', 'title-action', 12, 'page-2', null, 'After'),
         ]), 'page-1');
       expect(restored.legacyOperationCount).assertEqual(0);
       expect(restored.undo.length).assertEqual(1);
       expect(restored.undo[0].action.type).assertEqual(UndoableActionType.NOTE_TITLE);
       if (restored.undo[0].action.type === UndoableActionType.NOTE_TITLE) {
         expect(restored.undo[0].action.pageId).assertEqual('page-2');
-        expect(restored.undo[0].action.titleBefore).assertEqual('Before');
+        expect(restored.undo[0].action.titleBefore === null).assertTrue();
         expect(restored.undo[0].action.titleAfter).assertEqual('After');
       } else {
         expect(false).assertTrue();

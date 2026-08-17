@@ -17,6 +17,9 @@ import {
 import {
   decodeNoteTitleMutation, encodeNoteTitleMutation,
 } from '../main/ets/data/NoteTitleMutationCodec';
+import {
+  BinaryOpWriter, encodeOperationString,
+} from '../main/ets/data/BinaryOpCodec';
 import { persistOriginalNoteBackground } from
   '../main/ets/data/OriginalNoteBackgroundPersistence';
 import { encodeOriginalOperationEnvelope } from
@@ -95,6 +98,12 @@ export default function originalSetMetadataPayloadEncoderTest() {
       expect(decoded.hasPageBackground).assertFalse();
       expect(decoded.pageBackground === null).assertTrue();
       expect(new OriginalSetMetadataOperationApplier().preflightTable(table) === null).assertTrue();
+      const clearTable = readOriginalPayloadTable(
+        wrap(encodeOriginalSetMetadataTitle(null)), ORIGINAL_SET_METADATA_PAYLOAD_TYPE);
+      const clear = decodeOriginalSetMetadataTable(clearTable);
+      expect(clear.hasTitle).assertTrue();
+      expect(clear.title === null).assertTrue();
+      expect(new OriginalSetMetadataOperationApplier().preflightTable(clearTable) === null).assertTrue();
       expect(() => encodeOriginalSetMetadataTitle('')).assertThrow();
       expect(() => encodeOriginalSetMetadataTitle('x'.repeat(257))).assertThrow();
       expect(decodeOriginalSetMetadataTable(readOriginalPayloadTable(
@@ -133,16 +142,26 @@ export default function originalSetMetadataPayloadEncoderTest() {
       expect(commitOriginalNoteTitleDraft('x'.repeat(201)).length).assertEqual(200);
     });
 
-    it('round-trips NTL1 durable title history state', 0, () => {
+    it('round-trips NTL2 nullable title history and decodes legacy NTL1', 0, () => {
       const decoded = decodeNoteTitleMutation(encodeNoteTitleMutation({
         fromRevision: 4, toRevision: 5, selectedPageId: 'page-2',
-        before: 'Before', after: 'After',
+        before: null, after: 'After',
       }));
       expect(decoded.fromRevision).assertEqual(4);
       expect(decoded.toRevision).assertEqual(5);
       expect(decoded.selectedPageId).assertEqual('page-2');
-      expect(decoded.before).assertEqual('Before');
+      expect(decoded.before === null).assertTrue();
       expect(decoded.after).assertEqual('After');
+      const cleared = decodeNoteTitleMutation(encodeNoteTitleMutation({
+        fromRevision: 5, toRevision: 6, selectedPageId: 'page-2',
+        before: 'After', after: null,
+      }));
+      expect(cleared.before).assertEqual('After');
+      expect(cleared.after === null).assertTrue();
+      const legacy = decodeNoteTitleMutation(encodeLegacyNoteTitleMutation(
+        8, 9, 'page-3', 'Before', 'After'));
+      expect(legacy.before).assertEqual('Before');
+      expect(legacy.after).assertEqual('After');
     });
 
     it('mirrors original paper conversion and preserves PDF plus rotation', 0, () => {
@@ -240,4 +259,21 @@ function wrap(payload: Uint8Array): Uint8Array {
     identity: { timestamp: 100, siteId: 7 }, clientTime: '1234', serverTime: null,
     audioTime: null, payloadType: ORIGINAL_SET_METADATA_PAYLOAD_TYPE,
   }, payload);
+}
+
+function encodeLegacyNoteTitleMutation(fromRevision: number, toRevision: number,
+  selectedPageId: string, beforeValue: string, afterValue: string): Uint8Array {
+  const magic: Uint8Array = new Uint8Array([0x4E, 0x54, 0x4C, 0x31]);
+  const page: Uint8Array = encodeOperationString(selectedPageId, 'legacy title page ID');
+  const before: Uint8Array = encodeOperationString(beforeValue, 'legacy title before');
+  const after: Uint8Array = encodeOperationString(afterValue, 'legacy title after');
+  const writer: BinaryOpWriter = new BinaryOpWriter(new Uint8Array(
+    magic.length + 16 + 4 + page.length + 4 + before.length + 4 + after.length));
+  writer.writeBytes(magic);
+  writer.writeSafeInteger(fromRevision);
+  writer.writeSafeInteger(toRevision);
+  writer.writeSizedBytes(page);
+  writer.writeSizedBytes(before);
+  writer.writeSizedBytes(after);
+  return writer.finish();
 }

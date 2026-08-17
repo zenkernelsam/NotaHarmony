@@ -59,7 +59,7 @@ assert.match(encoder, /writeVtable\(bytes, setterVtable, 8, \[4\]\)/);
 assert.match(reducer, /if \(!hasMetadataField\(payload\)\)/);
 assert.match(reducer, /payload\.hasPageBackground[\s\S]*readBackgroundWinner/);
 assert.match(reducer, /payload\.hasTitle[\s\S]*readTitleWinner/);
-assert.match(reducer, /foldSearchText\(title\)/);
+assert.match(reducer, /foldSearchText\(materialized\)/);
 assert.match(persistence, /OriginalSetMetadataOperationApplier\(\)\.apply/);
 assert.match(persistence, /opType: OpType\.ORIGINAL_SET_METADATA/);
 assert.match(persistence, /uploadImmediately: true/);
@@ -81,7 +81,7 @@ assert.match(opTypes, /UPDATE_TITLE = 30/);
 assert.match(opTypes, /ORIGINAL_SET_METADATA = 78/);
 assert.match(fixtures, /writes a title-only SetMetadata without resetting note background/);
 assert.match(fixtures, /mirrors original title draft and empty-submit policy/);
-assert.match(fixtures, /round-trips NTL1 durable title history state/);
+assert.match(fixtures, /round-trips NTL2 nullable title history and decodes legacy NTL1/);
 assert.match(persistentFixtures, /restores note title history after its original SET_METADATA row/);
 assert.match(fixtureList, /originalSetMetadataPayloadEncoderTest\(\)/);
 

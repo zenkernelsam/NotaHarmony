@@ -1178,6 +1178,12 @@ export default function syncedOperationInboxTest() {
       expect(combined.title).assertEqual('Imported title');
       expect(combined.hasPageBackground).assertTrue();
       expect(applier.preflightTable(combinedTable) === null).assertTrue();
+      const nullTitleTable = readOriginalPayloadTable(flatBufferSetMetadataNullTitle(), 1);
+      const nullTitle = decodeOriginalSetMetadataTable(nullTitleTable);
+      expect(nullTitle.hasTitle).assertTrue();
+      expect(nullTitle.title === null).assertTrue();
+      expect(nullTitle.hasPageBackground).assertFalse();
+      expect(applier.preflightTable(nullTitleTable) === null).assertTrue();
       const pdfTable = readOriginalPayloadTable(flatBufferSetMetadataPdfBackground(), 1);
       const pdf = decodeOriginalSetMetadataTable(pdfTable);
       expect(pdf.hasPageBackground).assertTrue();
@@ -2709,6 +2715,19 @@ function flatBufferSetMetadataBackground(includeValue: boolean, title: string | 
     builder.color(paper + 16, [244, 245, 246, 255]);
     builder.uint8(paper + 20, 7);
   }
+  return builder.finish(root);
+}
+
+function flatBufferSetMetadataNullTitle(): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 93);
+  builder.uint8(root + 28, 1);
+  const metadata: number = builder.table([4, 0, 0, 0, 0, 0, 0, 0], 8);
+  builder.pointer(root + 32, metadata);
+  const titleSetter: number = builder.table([0], 4);
+  builder.pointer(metadata + 4, titleSetter);
   return builder.finish(root);
 }
 

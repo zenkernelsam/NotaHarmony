@@ -41,7 +41,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(65);
+      expect(DB_VERSION).assertEqual(66);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -223,7 +223,8 @@ export default function databaseHelperTest() {
       expect(DDL_ORIGINAL_PAGE_BACKGROUND_WINNER).assertContain('background_json IS NULL');
       expect(DDL_ORIGINAL_NOTE_BACKGROUND_WINNER).assertContain('winner_timestamp');
       expect(DDL_ORIGINAL_NOTE_BACKGROUND_WINNER).assertContain('background_json IS NULL');
-      expect(DDL_ORIGINAL_NOTE_TITLE_WINNER).assertContain('length(title) BETWEEN 1 AND 256');
+      expect(DDL_ORIGINAL_NOTE_TITLE_WINNER)
+        .assertContain('title IS NULL OR length(title) BETWEEN 1 AND 256');
       expect(DDL_ORIGINAL_DELETED_PAGE).assertContain('indexed_revision');
       expect(DDL_ORIGINAL_DELETED_PAGE.includes('REFERENCES page_info')).assertFalse();
       expect(DDL_ORIGINAL_DELETED_PAGE_ELEMENT).assertContain('payload BLOB NOT NULL');
@@ -360,6 +361,10 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[65].join('\n')).assertContain('original_note_layout_mode_winner');
       expect(MIGRATIONS[65].join('\n')).assertContain(
         'original_note_block_wrap_support_winner');
+      expect(MIGRATIONS[66].join('\n')).assertContain('original_note_title_winner_v66');
+      expect(MIGRATIONS[66].join('\n'))
+        .assertContain('title IS NULL OR length(title) BETWEEN 1 AND 256');
+      expect(MIGRATIONS[66].join('\n')).assertContain('DROP TABLE original_note_title_winner');
       expect(DDL_ORIGINAL_NOTE_HANDWRITING_LANGUAGE_WINNER)
         .assertContain('handwriting_language TEXT');
       expect(DDL_ORIGINAL_NOTE_ALIGN_TEXT_TO_LINES_WINNER)

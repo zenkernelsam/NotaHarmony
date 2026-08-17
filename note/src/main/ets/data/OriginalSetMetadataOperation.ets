@@ -4,7 +4,9 @@ import {
   isOriginalNoteBlockWrapSupport, isOriginalNoteLayoutMode,
   OriginalNoteBlockWrapSupport, OriginalNoteLayoutMode,
 } from '../core/model/OriginalNoteMetadataPolicy';
-import { isOriginalNoteTitleWireValue } from '../core/model/OriginalNoteTitlePolicy';
+import {
+  isOriginalNoteTitleWireValue, materializeOriginalNoteTitle,
+} from '../core/model/OriginalNoteTitlePolicy';
 import { PageBackground, PageOrientation, PaperSize, PaperTemplate } from '../core/model/NoteTypes';
 import {
   originalDefaultNoteBackground, parsePageBackground, serializePageBackground,
@@ -77,7 +79,7 @@ interface StoredNoteBackgroundWinner extends OperationIdentity {
 }
 
 interface StoredNoteTitleWinner extends OperationIdentity {
-  title: string;
+  title: string | null;
 }
 
 interface StoredNoteHandwritingLanguageWinner extends OperationIdentity {
@@ -310,7 +312,7 @@ export class OriginalSetMetadataOperationApplier implements SyncedOperationAppli
     if (assetReason !== null) {
       return { deferredReason: assetReason };
     }
-    if (applyTitle && payload.title !== null) {
+    if (applyTitle) {
       await this.writeTitleWinner(store, operation, payload.title, titleWinner);
       await this.materializeTitle(store, operation.noteId, payload.title);
     }
@@ -426,10 +428,11 @@ export class OriginalSetMetadataOperationApplier implements SyncedOperationAppli
       if (!rows.goToFirstRow()) {
         return null;
       }
+      const titleColumn: number = rows.getColumnIndex('title');
       return {
         timestamp: rows.getLong(rows.getColumnIndex('winner_timestamp')),
         siteId: rows.getLong(rows.getColumnIndex('winner_site_id')),
-        title: rows.getString(rows.getColumnIndex('title')),
+        title: rows.isColumnNull(titleColumn) ? null : rows.getString(titleColumn),
       };
     } finally {
       rows.close();
@@ -437,7 +440,7 @@ export class OriginalSetMetadataOperationApplier implements SyncedOperationAppli
   }
 
   private async writeTitleWinner(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
-    title: string, previous: StoredNoteTitleWinner | null): Promise<void> {
+    title: string | null, previous: StoredNoteTitleWinner | null): Promise<void> {
     const values: relationalStore.ValuesBucket = {
       'note_id': operation.noteId,
       'winner_timestamp': operation.timestamp,
@@ -538,10 +541,11 @@ export class OriginalSetMetadataOperationApplier implements SyncedOperationAppli
   }
 
   private async materializeTitle(store: relationalStore.RdbStore, noteId: string,
-    title: string): Promise<void> {
+    title: string | null): Promise<void> {
+    const materialized: string = materializeOriginalNoteTitle(title);
     const note = new relationalStore.RdbPredicates('note_meta');
     note.equalTo('id', noteId);
-    if (await store.update({ 'title': title }, note) !== 1) {
+    if (await store.update({ 'title': materialized }, note) !== 1) {
       throw new Error('original metadata note does not exist');
     }
     await store.insert('search_item', {
@@ -549,7 +553,7 @@ export class OriginalSetMetadataOperationApplier implements SyncedOperationAppli
       'type': SearchItemType.TITLE,
       'sub_id': noteId,
       'page_id': null,
-      'folded_text': foldSearchText(title),
+      'folded_text': foldSearchText(materialized),
       'rects': null,
     }, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
   }

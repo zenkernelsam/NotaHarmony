@@ -75,3 +75,10 @@ winner 或持久 Undo。原版 1.0.3 的 `dp → dhh → xj2 → l2d` 路径明�
 它先读取 `selectedDefaultTemplate`，在同一 `SET_METADATA` 同时写 title 与 concrete pageBackground，再按 List
 顺序追加 `CREATE_PAGE(pageCount=2)`。既有笔记标题编辑仍必须保持本 ADR 的 title-only 语义；只有普通新笔记
 bootstrap 使用 combined writer。
+
+## Phase 271 nullable-register amendment
+
+本 ADR 的 Phase 245 concrete title path 保持不变。Phase 271（ADR-0249）补上原版允许的 wrapper-present/inner-null
+title register：`encodeOriginalSetMetadataTitle(null)` 保留 title wrapper，v66 winner 保存真实 SQL NULL，
+`note_meta.title` 只投影为空字符串；runtime/PersistentHistory 的 before/after 改为 `string | null`，NTL2
+decoder 兼容既有 NTL1。UI exact-empty 仍提交 `New Note`，所以该 amendment 不把空文本编辑输入误当成 null。

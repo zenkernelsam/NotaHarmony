@@ -1,5 +1,7 @@
 import { relationalStore } from '@kit.ArkData';
-import { validateOriginalNoteTitleWireValue } from '../core/model/OriginalNoteTitlePolicy';
+import {
+  materializeOriginalNoteTitle, validateOriginalNoteTitleWireValue,
+} from '../core/model/OriginalNoteTitlePolicy';
 import { HistoryMetadata, OpType } from '../core/model/OpTypes';
 import { encodeNoteTitleMutation } from './NoteTitleMutationCodec';
 import { encodeOriginalOperationEnvelope } from './OriginalOperationEnvelopeEncoder';
@@ -13,19 +15,21 @@ import {
 } from './SyncedOperationInbox';
 
 interface StoredNoteTitleState {
-  title: string;
+  registerValue: string | null;
+  materializedTitle: string;
   structureRevision: number;
 }
 
 export interface PersistedOriginalNoteTitle {
-  before: string;
-  after: string;
+  before: string | null;
+  after: string | null;
+  materializedTitle: string;
   originalPayload: Uint8Array;
 }
 
 // Caller owns the database transaction and shared database writer mutex.
 export async function persistOriginalNoteTitle(store: relationalStore.RdbStore,
-  noteId: string, requested: string, selectedPageId?: string,
+  noteId: string, requested: string | null, selectedPageId?: string,
   history?: HistoryMetadata): Promise<PersistedOriginalNoteTitle> {
   if (noteId.length === 0) {
     throw new Error('local note title requires a note identity');
@@ -38,8 +42,7 @@ export async function persistOriginalNoteTitle(store: relationalStore.RdbStore,
     await requireLiveSelectedPage(store, noteId, selectedPageId);
   }
   const before: StoredNoteTitleState = await readTitleState(store, noteId);
-  validateOriginalNoteTitleWireValue(before.title);
-  if (before.title === requested) {
+  if (before.registerValue === requested) {
     throw new Error('local SET_METADATA note title is unchanged');
   }
 
@@ -57,7 +60,8 @@ export async function persistOriginalNoteTitle(store: relationalStore.RdbStore,
     throw new Error(`local title SET_METADATA was deferred: ${applied.deferredReason}`);
   }
   const after: StoredNoteTitleState = await readTitleState(store, noteId);
-  if (after.title !== requested) {
+  if (after.registerValue !== requested ||
+    after.materializedTitle !== materializeOriginalNoteTitle(requested)) {
     throw new Error('local SET_METADATA reducer produced an unexpected note title');
   }
   if (after.structureRevision !== before.structureRevision + 1) {
@@ -75,19 +79,26 @@ export async function persistOriginalNoteTitle(store: relationalStore.RdbStore,
       noteId: noteId, opId: companion.opId, opType: OpType.UPDATE_TITLE,
       payload: encodeNoteTitleMutation({
         fromRevision: before.structureRevision, toRevision: after.structureRevision,
-        selectedPageId: selectedPageId, before: before.title, after: after.title,
+        selectedPageId: selectedPageId, before: before.registerValue, after: after.registerValue,
       }),
       clientTime: companion.clientTime, opTimestamp: companion.timestamp,
       editorSiteId: companion.siteId, history: history,
     });
   }
-  return { before: before.title, after: after.title, originalPayload: rawOperation };
+  return {
+    before: before.registerValue, after: after.registerValue,
+    materializedTitle: after.materializedTitle, originalPayload: rawOperation,
+  };
 }
 
 async function readTitleState(store: relationalStore.RdbStore,
   noteId: string): Promise<StoredNoteTitleState> {
   const rows = await store.querySql(
-    'SELECT title, structure_revision FROM note_meta WHERE id = ?', [noteId]);
+    `SELECT note.title AS materialized_title, note.structure_revision,
+       winner.note_id AS winner_note_id, winner.title AS winner_title
+     FROM note_meta note
+     LEFT JOIN original_note_title_winner winner ON winner.note_id = note.id
+     WHERE note.id = ?`, [noteId]);
   try {
     if (!rows.goToFirstRow()) {
       throw new Error('local SET_METADATA note does not exist');
@@ -97,8 +108,20 @@ async function readTitleState(store: relationalStore.RdbStore,
       structureRevision >= Number.MAX_SAFE_INTEGER) {
       throw new Error('local SET_METADATA structure revision is invalid or exhausted');
     }
+    const materializedTitle: string = rows.getString(rows.getColumnIndex('materialized_title'));
+    const winnerNoteColumn: number = rows.getColumnIndex('winner_note_id');
+    const winnerTitleColumn: number = rows.getColumnIndex('winner_title');
+    const hasWinner: boolean = !rows.isColumnNull(winnerNoteColumn);
+    const registerValue: string | null = hasWinner
+      ? (rows.isColumnNull(winnerTitleColumn) ? null : rows.getString(winnerTitleColumn))
+      : (materializedTitle.length === 0 ? null : materializedTitle);
+    validateOriginalNoteTitleWireValue(registerValue);
+    if (hasWinner && materializeOriginalNoteTitle(registerValue) !== materializedTitle) {
+      throw new Error('local SET_METADATA title winner and materialized projection diverged');
+    }
     return {
-      title: rows.getString(rows.getColumnIndex('title')),
+      registerValue: registerValue,
+      materializedTitle: materializedTitle,
       structureRevision: structureRevision,
     };
   } finally {

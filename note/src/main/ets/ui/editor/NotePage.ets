@@ -7,7 +7,7 @@ import { audio } from '@kit.AudioKit';
 import { NoteBackgroundSettings, NoteMeta, PageInfo } from '../../core/model/NoteTypes';
 import {
   commitOriginalNoteTitleDraft, isOriginalNoteTitleWireValue,
-  truncateOriginalNoteTitleDraft,
+  materializeOriginalNoteTitle, truncateOriginalNoteTitleDraft,
 } from '../../core/model/OriginalNoteTitlePolicy';
 import { BrushStyle, brushStyleToInkStyle } from '../../core/model/BrushTypes';
 import { InkStyle } from '../../core/model/StrokeTypes';
@@ -18,6 +18,7 @@ import {
 import { HistoryMetadata } from '../../core/model/OpTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
+import { PersistedOriginalNoteTitle } from '../../data/OriginalNoteTitlePersistence';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import { StrokePersistence } from '../../data/StrokePersistence';
 import { ToolRepositoryImpl } from '../../data/ToolRepositoryImpl';
@@ -360,11 +361,12 @@ struct NotePage {
         ? undefined : bridge.preparePageAction(action);
       this.noteTitle = requested;
       this.publishTitleDraft(requested, generation);
-      const materialized: string = await this.noteRepo.updateNoteTitle(
+      const persisted: PersistedOriginalNoteTitle = await this.noteRepo.updateNoteTitle(
         this.noteId, requested, selectedPageId, history);
-      action.titleAfter = materialized;
-      this.noteTitle = materialized;
-      this.publishTitleDraft(materialized, generation);
+      action.titleBefore = persisted.before;
+      action.titleAfter = persisted.after;
+      this.noteTitle = persisted.materializedTitle;
+      this.publishTitleDraft(persisted.materializedTitle, generation);
       if (bridge !== null) {
         try {
           bridge.pushPageAction(action, history);
@@ -1206,11 +1208,11 @@ struct NotePage {
         if (repository === null) {
           return false;
         }
-        const title: string = isUndo ? action.titleBefore : action.titleAfter;
-        const materialized: string = await repository.updateNoteTitle(
+        const title: string | null = isUndo ? action.titleBefore : action.titleAfter;
+        const persisted: PersistedOriginalNoteTitle = await repository.updateNoteTitle(
           this.noteId, title, action.pageId, history);
-        this.noteTitle = materialized;
-        this.titleDraft = materialized;
+        this.noteTitle = persisted.materializedTitle;
+        this.titleDraft = persisted.materializedTitle;
         return true;
       }
       if (pageRepository === null) {
@@ -1306,11 +1308,12 @@ struct NotePage {
         sameNoteBackgroundSettings(this.noteBackground, source);
     }
     if (action.type === UndoableActionType.NOTE_TITLE) {
-      const source: string = isUndo ? action.titleAfter : action.titleBefore;
+      const source: string | null = isUndo ? action.titleAfter : action.titleBefore;
       return action.titleBefore !== action.titleAfter &&
         isOriginalNoteTitleWireValue(action.titleBefore) &&
         isOriginalNoteTitleWireValue(action.titleAfter) &&
-        this.countString(currentOrder, action.pageId) === 1 && this.noteTitle === source;
+        this.countString(currentOrder, action.pageId) === 1 &&
+        this.noteTitle === materializeOriginalNoteTitle(source);
     }
     return false;
   }
