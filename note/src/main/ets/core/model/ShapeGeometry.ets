@@ -11,6 +11,14 @@ const CURVE_HIT_SEGMENTS: number = 64;
 export interface LineRenderGeometry {
   mainPath: Point2D[];
   arrowHeadPath: Point2D[];
+  // Parameter on the original line/quad/cubic where PathMeasure-style arrow trimming ends.
+  // Consumers that can preserve native verbs use this instead of redrawing the sampled polyline.
+  mainPathEndParameter: number;
+}
+
+interface TrimmedPolyline {
+  points: Point2D[];
+  endParameter: number;
 }
 
 export function cloneShapeElement(shape: ShapeElement): ShapeElement {
@@ -23,6 +31,11 @@ export function cloneShapeElement(shape: ShapeElement): ShapeElement {
       richText: shape.richText, characterStyleRuns: cloneShapeCharacterRuns(shape),
       paragraphStyleRuns: cloneShapeParagraphRuns(shape), positionLocked: shape.positionLocked,
       originalTool: shape.originalTool, originalStyle: shape.originalStyle,
+      originalTapePattern: shape.originalTapePattern,
+      originalSmartHighlight: shape.originalSmartHighlight,
+      originalForce: shape.originalForce,
+      originalInkEffects: shape.originalInkEffects,
+      originalInkEffectsTinted: shape.originalInkEffectsTinted,
       originalCreate: cloneOriginalShapeCreate(shape),
     };
   }
@@ -37,6 +50,11 @@ export function cloneShapeElement(shape: ShapeElement): ShapeElement {
       characterStyleRuns: cloneShapeCharacterRuns(shape),
       paragraphStyleRuns: cloneShapeParagraphRuns(shape), positionLocked: shape.positionLocked,
       originalTool: shape.originalTool, originalStyle: shape.originalStyle,
+      originalTapePattern: shape.originalTapePattern,
+      originalSmartHighlight: shape.originalSmartHighlight,
+      originalForce: shape.originalForce,
+      originalInkEffects: shape.originalInkEffects,
+      originalInkEffectsTinted: shape.originalInkEffectsTinted,
       originalCreate: cloneOriginalShapeCreate(shape),
     };
   }
@@ -49,6 +67,11 @@ export function cloneShapeElement(shape: ShapeElement): ShapeElement {
     characterStyleRuns: cloneShapeCharacterRuns(shape),
     paragraphStyleRuns: cloneShapeParagraphRuns(shape), positionLocked: shape.positionLocked,
     originalTool: shape.originalTool, originalStyle: shape.originalStyle,
+    originalTapePattern: shape.originalTapePattern,
+    originalSmartHighlight: shape.originalSmartHighlight,
+    originalForce: shape.originalForce,
+    originalInkEffects: shape.originalInkEffects,
+    originalInkEffectsTinted: shape.originalInkEffectsTinted,
     originalCreate: cloneOriginalShapeCreate(shape),
   };
 }
@@ -111,7 +134,57 @@ export function transformShapeElements(shapes: ShapeElement[], selectedIds: stri
 }
 
 export function recomputeShapeBounds(shape: ShapeElement): Rect2D {
-  return pointsBounds(shapePathPoints(shape));
+  return transformBounds(localDefinitionBounds(shape), shape.transform);
+}
+
+// Android 1.0.3 n5d.G()/s4d/t4d/u4d computes a conservative definition-space
+// box first, expands every edge by 2*borderWidth, then the entity transform is
+// applied by the consumer.  Do not derive persisted bounds from sampled render
+// points: that loses control-point extrema and the original arrow safety box.
+function localDefinitionBounds(shape: ShapeElement): Rect2D {
+  let bounds: Rect2D;
+  if (shape.type === ElementType.LINE) {
+    const points: Point2D[] = [shape.start, shape.end];
+    if (shape.controlPoint1 !== null) {
+      points.push(shape.controlPoint1);
+    }
+    if (shape.controlPoint2 !== null) {
+      points.push(shape.controlPoint2);
+    }
+    bounds = pointsBounds(points);
+    if (shape.arrowHead === ShapeArrowHead.SINGLE) {
+      const arrowRadius: number = originalShapeArrowScale(shape.strokeWidth) * 46;
+      bounds.left = Math.min(bounds.left, shape.end.x - arrowRadius);
+      bounds.top = Math.min(bounds.top, shape.end.y - arrowRadius);
+      bounds.right = Math.max(bounds.right, shape.end.x + arrowRadius);
+      bounds.bottom = Math.max(bounds.bottom, shape.end.y + arrowRadius);
+    }
+  } else if (shape.type === ElementType.ELLIPSE) {
+    const cosine: number = Math.cos(shape.rotationRadians);
+    const sine: number = Math.sin(shape.rotationRadians);
+    const halfWidth: number = Math.sqrt(
+      shape.radiusX * shape.radiusX * cosine * cosine +
+      shape.radiusY * shape.radiusY * sine * sine);
+    const halfHeight: number = Math.sqrt(
+      shape.radiusX * shape.radiusX * sine * sine +
+      shape.radiusY * shape.radiusY * cosine * cosine);
+    bounds = {
+      left: shape.center.x - halfWidth,
+      top: shape.center.y - halfHeight,
+      right: shape.center.x + halfWidth,
+      bottom: shape.center.y + halfHeight,
+    };
+  } else {
+    bounds = pointsBounds(shape.vertices);
+  }
+  const padding: number = Math.max(0,
+    Number.isFinite(shape.strokeWidth) ? shape.strokeWidth * 2 : 0);
+  return {
+    left: bounds.left - padding,
+    top: bounds.top - padding,
+    right: bounds.right + padding,
+    bottom: bounds.bottom + padding,
+  };
 }
 
 export function shapePathPoints(shape: ShapeElement): Point2D[] {
@@ -191,23 +264,27 @@ function shapeLocalSubpaths(shape: ShapeElement): Point2D[][] {
 export function lineRenderGeometry(shape: LineElement): LineRenderGeometry {
   const sampled: Point2D[] = sampleLine(shape);
   if (shape.arrowHead !== ShapeArrowHead.SINGLE || sampled.length < 2) {
-    return { mainPath: sampled, arrowHeadPath: [] };
+    return { mainPath: sampled, arrowHeadPath: [], mainPathEndParameter: 1 };
   }
   const totalLength: number = polylineLength(sampled);
   if (totalLength <= 0) {
-    return { mainPath: sampled, arrowHeadPath: [] };
+    return { mainPath: sampled, arrowHeadPath: [], mainPathEndParameter: 1 };
   }
-  const scale: number = arrowScale(shape.strokeWidth);
+  const scale: number = originalShapeArrowScale(shape.strokeWidth);
   const arrowLength: number = Math.min(scale * 46, totalLength);
   const bodyLength: number = totalLength - arrowLength;
-  const mainPath: Point2D[] = trimPolyline(sampled, bodyLength);
-  const base: Point2D = mainPath[mainPath.length - 1];
-  const tip: Point2D = sampled[sampled.length - 1];
+  const trimmed: TrimmedPolyline = trimPolyline(sampled, bodyLength);
+  const mainPath: Point2D[] = trimmed.points;
+  // Android PathMeasure returns a point on the original curve. The sampled polyline is only used
+  // to locate its parameter; replace the interpolated endpoint with the exact Bezier position.
+  const base: Point2D = linePointAt(shape, trimmed.endParameter);
+  mainPath[mainPath.length - 1] = clonePoint(base);
+  const tip: Point2D = linePointAt(shape, 1);
   const dx: number = tip.x - base.x;
   const dy: number = tip.y - base.y;
   const directionLength: number = Math.sqrt(dx * dx + dy * dy);
   if (directionLength <= 0) {
-    return { mainPath: sampled, arrowHeadPath: [] };
+    return { mainPath: sampled, arrowHeadPath: [], mainPathEndParameter: 1 };
   }
   const halfWidth: number = scale * 20;
   const perpendicularX: number = -(dy / directionLength) * halfWidth;
@@ -219,6 +296,7 @@ export function lineRenderGeometry(shape: LineElement): LineRenderGeometry {
       clonePoint(tip),
       { x: base.x - perpendicularX, y: base.y - perpendicularY },
     ],
+    mainPathEndParameter: trimmed.endParameter,
   };
 }
 
@@ -228,25 +306,35 @@ function sampleLine(shape: LineElement): Point2D[] {
   }
   const result: Point2D[] = [];
   for (let i: number = 0; i <= CURVE_HIT_SEGMENTS; i++) {
-    const t: number = i / CURVE_HIT_SEGMENTS;
-    const inverse: number = 1 - t;
-    if (shape.controlPoint2 !== null) {
-      result.push({
-        x: inverse * inverse * inverse * shape.start.x +
-          3 * inverse * inverse * t * shape.controlPoint1.x +
-          3 * inverse * t * t * shape.controlPoint2.x + t * t * t * shape.end.x,
-        y: inverse * inverse * inverse * shape.start.y +
-          3 * inverse * inverse * t * shape.controlPoint1.y +
-          3 * inverse * t * t * shape.controlPoint2.y + t * t * t * shape.end.y,
-      });
-    } else {
-      result.push({
-        x: inverse * inverse * shape.start.x + 2 * inverse * t * shape.controlPoint1.x + t * t * shape.end.x,
-        y: inverse * inverse * shape.start.y + 2 * inverse * t * shape.controlPoint1.y + t * t * shape.end.y,
-      });
-    }
+    result.push(linePointAt(shape, i / CURVE_HIT_SEGMENTS));
   }
   return result;
+}
+
+function linePointAt(shape: LineElement, t: number): Point2D {
+  const inverse: number = 1 - t;
+  if (shape.controlPoint1 !== null && shape.controlPoint2 !== null) {
+    return {
+      x: inverse * inverse * inverse * shape.start.x +
+        3 * inverse * inverse * t * shape.controlPoint1.x +
+        3 * inverse * t * t * shape.controlPoint2.x + t * t * t * shape.end.x,
+      y: inverse * inverse * inverse * shape.start.y +
+        3 * inverse * inverse * t * shape.controlPoint1.y +
+        3 * inverse * t * t * shape.controlPoint2.y + t * t * t * shape.end.y,
+    };
+  }
+  if (shape.controlPoint1 !== null) {
+    return {
+      x: inverse * inverse * shape.start.x +
+        2 * inverse * t * shape.controlPoint1.x + t * t * shape.end.x,
+      y: inverse * inverse * shape.start.y +
+        2 * inverse * t * shape.controlPoint1.y + t * t * shape.end.y,
+    };
+  }
+  return {
+    x: shape.start.x + (shape.end.x - shape.start.x) * t,
+    y: shape.start.y + (shape.end.y - shape.start.y) * t,
+  };
 }
 
 function polylineLength(points: Point2D[]): number {
@@ -259,9 +347,13 @@ function polylineLength(points: Point2D[]): number {
   return length;
 }
 
-function trimPolyline(points: Point2D[], targetLength: number): Point2D[] {
+function trimPolyline(points: Point2D[], targetLength: number): TrimmedPolyline {
   const result: Point2D[] = [clonePoint(points[0])];
+  if (targetLength <= 0) {
+    return { points: result, endParameter: 0 };
+  }
   let traversed: number = 0;
+  const segmentCount: number = points.length - 1;
   for (let i: number = 1; i < points.length; i++) {
     const previous: Point2D = points[i - 1];
     const current: Point2D = points[i];
@@ -272,15 +364,15 @@ function trimPolyline(points: Point2D[], targetLength: number): Point2D[] {
       const remaining: number = targetLength - traversed;
       const t: number = segmentLength <= 0 ? 0 : remaining / segmentLength;
       result.push({ x: previous.x + dx * t, y: previous.y + dy * t });
-      return result;
+      return { points: result, endParameter: ((i - 1) + t) / segmentCount };
     }
     result.push(clonePoint(current));
     traversed += segmentLength;
   }
-  return result;
+  return { points: result, endParameter: 1 };
 }
 
-function arrowScale(strokeWidth: number): number {
+export function originalShapeArrowScale(strokeWidth: number): number {
   let adjusted: number = strokeWidth;
   if (adjusted < 2) {
     adjusted = ((adjusted - 2) / 2) + 2;

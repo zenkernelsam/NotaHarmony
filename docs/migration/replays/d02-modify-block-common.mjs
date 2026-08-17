@@ -4,18 +4,19 @@ import { DatabaseSync } from 'node:sqlite';
 import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const rootPath = new URL('../../../', import.meta.url);
-const source = fs.readFileSync(new URL(
-  'note/src/main/ets/data/OriginalModifyBlockOperation.ets', rootPath), 'utf8');
-const schema = fs.readFileSync(new URL(
-  'note/src/main/ets/data/DatabaseHelper.ets', rootPath), 'utf8');
-const dispatcher = fs.readFileSync(new URL(
-  'note/src/main/ets/data/OriginalPageOperationApplier.ets', rootPath), 'utf8');
-const geometry = fs.readFileSync(new URL(
-  'note/src/main/ets/core/model/TextBlockGeometry.ets', rootPath), 'utf8');
-const selection = fs.readFileSync(new URL(
-  'note/src/main/ets/rendering/SelectionTool.ets', rootPath), 'utf8');
-const packageSpec = fs.readFileSync(new URL(
-  'note/src/main/ets/data/NotePackageSpec.ets', rootPath), 'utf8');
+const normalize = value => value.replace(/\r\n?/g, '\n');
+const source = normalize(fs.readFileSync(new URL(
+  'note/src/main/ets/data/OriginalModifyBlockOperation.ets', rootPath), 'utf8'));
+const schema = normalize(fs.readFileSync(new URL(
+  'note/src/main/ets/data/DatabaseHelper.ets', rootPath), 'utf8'));
+const dispatcher = normalize(fs.readFileSync(new URL(
+  'note/src/main/ets/data/OriginalPageOperationApplier.ets', rootPath), 'utf8'));
+const geometry = normalize(fs.readFileSync(new URL(
+  'note/src/main/ets/core/model/TextBlockGeometry.ets', rootPath), 'utf8'));
+const selection = normalize(fs.readFileSync(new URL(
+  'note/src/main/ets/rendering/SelectionTool.ets', rootPath), 'utf8'));
+const packageSpec = normalize(fs.readFileSync(new URL(
+  'note/src/main/ets/data/NotePackageSpec.ets', rootPath), 'utf8'));
 
 class Builder {
   constructor() { this.bytes = new Uint8Array(768); this.cursor = 4; }

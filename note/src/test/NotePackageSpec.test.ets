@@ -2,7 +2,10 @@ import { describe, expect, it } from '@ohos/hypium';
 import {
   isSupportedPageElementKind, isValidPageElement, NOTE_MAX_PAGE_COUNT, parseManifest, parsePage, parsePageElement,
 } from '../main/ets/data/NotePackageSpec';
-import { ElementType } from '../main/ets/core/model/ElementTypes';
+import {
+  ElementType, EllipseElement, PolygonElement,
+} from '../main/ets/core/model/ElementTypes';
+import { TapePattern } from '../main/ets/core/model/StrokeTypes';
 
 export default function notePackageSpecTest() {
   describe('NotePackageSpec', () => {
@@ -42,6 +45,58 @@ export default function notePackageSpecTest() {
       expect(isValidPageElement(shape)).assertTrue();
       shape.data.transform = [1, 0, 0];
       expect(isValidPageElement(shape)).assertFalse();
+    });
+
+    it('strictly validates original Shape render registers and Polygon geometry', 0, () => {
+      const rich: EllipseElement = {
+        id: 'rich-shape', type: ElementType.ELLIPSE,
+        transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: 0, top: 0, right: 20, bottom: 10 },
+        center: { x: 10, y: 5 }, radiusX: 10, radiusY: 5, rotationRadians: 0,
+        color: -16777216, strokeWidth: 2, fillColor: 0x7F445566,
+        originalTool: 0, originalStyle: 1, originalTapePattern: null,
+        originalSmartHighlight: true, originalForce: 0.5,
+        originalInkEffects: '18446744073709551615', originalInkEffectsTinted: false,
+      };
+      const envelope = { kind: 'shape', data: rich };
+      expect(isValidPageElement(envelope)).assertTrue();
+
+      rich.color = 1.5;
+      expect(isValidPageElement(envelope)).assertFalse();
+      rich.color = -16777216;
+      rich.fillColor = 0x00112233;
+      expect(isValidPageElement(envelope)).assertFalse();
+      rich.fillColor = 0x7F445566;
+      rich.originalStyle = 0;
+      expect(isValidPageElement(envelope)).assertFalse();
+      rich.originalStyle = 1;
+      rich.originalForce = Number.POSITIVE_INFINITY;
+      expect(isValidPageElement(envelope)).assertFalse();
+      rich.originalForce = 0.5;
+      rich.originalInkEffects = '18446744073709551616';
+      expect(isValidPageElement(envelope)).assertFalse();
+      rich.originalInkEffects = '0';
+      expect(isValidPageElement(envelope)).assertFalse();
+
+      rich.originalInkEffectsTinted = true;
+      rich.originalTapePattern = TapePattern.HEARTS;
+      expect(isValidPageElement(envelope)).assertTrue();
+      rich.originalTool = 3;
+      expect(isValidPageElement(envelope)).assertTrue();
+      rich.originalInkEffects = '1';
+      expect(isValidPageElement(envelope)).assertFalse();
+      rich.originalInkEffects = '0';
+      rich.originalTapePattern = 9;
+      expect(isValidPageElement(envelope)).assertFalse();
+
+      const polygon: PolygonElement = {
+        id: 'short-polygon', type: ElementType.POLYGON,
+        transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: 0, top: 0, right: 10, bottom: 10 },
+        vertices: [{ x: 0, y: 0 }, { x: 10, y: 0 }], isClosed: true,
+        color: -16777216, strokeWidth: 2, fillColor: null,
+      };
+      expect(isValidPageElement({ kind: 'shape', data: polygon })).assertFalse();
     });
 
     it('validates complete image metadata without truncating uint64 hash words', 0, () => {

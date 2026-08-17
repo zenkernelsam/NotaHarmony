@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const root = process.env.NOTA_HARMONY_ROOT ?? path.resolve(import.meta.dirname, '../../..');
 const source = fs.readFileSync(
-  path.join(root, 'note/src/main/ets/ui/library/LibraryViewModel.ets'), 'utf8');
+  path.join(root, 'note/src/main/ets/ui/library/LibraryViewModel.ets'), 'utf8').replace(/\r\n?/g, '\n');
 const chain = source.indexOf('private mutationChain: Promise<void>');
 const helper = source.indexOf('private enqueueMutation<T>');
 const create = source.indexOf('return this.enqueueMutation', source.indexOf('async createNote'));

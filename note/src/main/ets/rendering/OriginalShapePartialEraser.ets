@@ -559,7 +559,7 @@ export class OriginalShapePartialEraser {
   private centerPathPoint(shape: ShapeElement, position: Point2D): StrokePathPoint {
     return {
       position: this.clonePoint(position), widthFactor: 1,
-      pressure: shape.originalCreate?.averageForce ?? 1,
+      pressure: shape.originalForce ?? shape.originalCreate?.averageForce ?? 1,
       altitudeAngleRadians: Math.PI / 2, azimuthUnitX: 1, azimuthUnitY: 0,
     };
   }
@@ -601,7 +601,7 @@ export class OriginalShapePartialEraser {
       this.clonePoint(center.pathPoints[0].position);
     const pathPoints: StrokePathPoint[] = center === null ? [{
       position: fallback, widthFactor: 1,
-      pressure: shape.originalCreate?.averageForce ?? 1,
+      pressure: shape.originalForce ?? shape.originalCreate?.averageForce ?? 1,
       altitudeAngleRadians: Math.PI / 2, azimuthUnitX: 1, azimuthUnitY: 0,
     }] : center.pathPoints.map((point: StrokePathPoint): StrokePathPoint =>
       this.clonePathPoint(point));
@@ -628,7 +628,9 @@ export class OriginalShapePartialEraser {
       renderSpec: {
         color: shape.color, brushWidth: shape.strokeWidth, inkStyle: style,
         isHighlighter: tool === 2, isPencil: tool === 1,
-        tapePattern: tool === 3 ? TapePattern.STRIPES : undefined,
+        tapePattern: tool === 3 ? shape.originalTapePattern ?? TapePattern.STRIPES : undefined,
+        inkEffects: shape.originalInkEffects,
+        inkEffectsTinted: shape.originalInkEffectsTinted,
       },
       transform: shape.transform.slice(),
       bounds: this.remnantBounds(pathPoints, cubicSegments, customPath,

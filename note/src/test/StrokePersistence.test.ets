@@ -1,12 +1,13 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
-  InkPathCommandType, InkStyle, StrokeElementData,
+  InkPathCommandType, InkStyle, StrokeElementData, TapePattern,
 } from '../main/ets/core/model/StrokeTypes';
 import {
   classifyOriginalImageCropMutation, classifyOriginalImageFlipMutation,
   classifyOriginalMathLatexMutation, classifyOriginalPositionLockMutation,
   classifyOriginalRenderMutation,
-  decodeOriginalShapeStateTool, decodePersistedElement, decodeStoredPageElement,
+  decodeOriginalShapeStateRenderMetadata, decodeOriginalShapeStateTool,
+  decodePersistedElement, decodeStoredPageElement,
   encodePersistedElement,
   originalClipboardShapeForPaste,
   OriginalClipboardPastePlan, OriginalMathLatexMutation,
@@ -375,6 +376,43 @@ export default function strokePersistenceTest() {
       expect(decodeOriginalShapeStateTool('{broken') === null).assertTrue();
     });
 
+    it('strictly decodes every retained original Shape render register', 0, () => {
+      const tape = decodeOriginalShapeStateRenderMetadata(
+        `{"tool":3,"style":2,"tapePattern":${TapePattern.HEARTS},` +
+        '"smartHighlight":true,"force":0.25,"positionLocked":true,' +
+        '"inkEffects":"0","inkEffectsTinted":true}');
+      expect(tape === null).assertFalse();
+      expect(tape?.tool).assertEqual(3);
+      expect(tape?.style).assertEqual(2);
+      expect(tape?.tapePattern).assertEqual(TapePattern.HEARTS);
+      expect(tape?.smartHighlight).assertTrue();
+      expect(tape?.force).assertEqual(0.25);
+      expect(tape?.positionLocked).assertTrue();
+
+      const effect = decodeOriginalShapeStateRenderMetadata(
+        '{"tool":0,"style":1,"inkEffects":"18446744073709551615",' +
+        '"inkEffectsTinted":false}');
+      expect(effect?.inkEffects).assertEqual('18446744073709551615');
+      expect(effect?.inkEffectsTinted).assertFalse();
+      expect(effect?.smartHighlight).assertFalse();
+      expect(effect?.force === null).assertTrue();
+
+      expect(decodeOriginalShapeStateRenderMetadata(
+        `{"tool":0,"style":1,"tapePattern":${TapePattern.HEARTS}}`)?.tapePattern)
+        .assertEqual(TapePattern.HEARTS);
+      expect(decodeOriginalShapeStateRenderMetadata(
+        '{"tool":0,"style":1,"tapePattern":9}') === null).assertTrue();
+      expect(decodeOriginalShapeStateRenderMetadata(
+        '{"tool":0,"style":1,"force":1e999}') === null).assertTrue();
+      expect(decodeOriginalShapeStateRenderMetadata(
+        '{"tool":0,"style":1,"inkEffects":"18446744073709551616"}') === null).assertTrue();
+      expect(decodeOriginalShapeStateRenderMetadata(
+        '{"tool":1,"style":1,"inkEffects":"1"}') === null).assertTrue();
+      expect(decodeOriginalShapeStateRenderMetadata(
+        '{"tool":0,"style":1,"inkEffects":"0","inkEffectsTinted":false}') === null)
+        .assertTrue();
+    });
+
     it('rejects unrelated Shape geometry from the render register writer', 0, () => {
       const before: ShapeElement = originalShape('op:24:6', 0, -16777216, 4, null);
       const after: ShapeElement = cloneShapeElement(before);
@@ -542,6 +580,14 @@ export default function strokePersistenceTest() {
 
     it('resets Shape RichText during original clipboard Paste without mutating source', 0, () => {
       const source: ShapeElement = originalShape('op:80:2', 0, -16777216, 4, null);
+      source.originalSmartHighlight = true;
+      source.originalInkEffects = '18446744073709551615';
+      source.originalInkEffectsTinted = false;
+      source.originalCreate = {
+        timestamp: 80, siteId: 2, clientTime: 1000,
+        pageTimestamp: 16, pageSiteId: 2, pageIndex: 0,
+        pencilSeed: 0, averageForce: 0.625,
+      };
       source.richText = 'AB';
       source.characterStyleRuns = [{ start: 0, end: 2, style: { bold: true } }];
       source.paragraphStyleRuns = [{
@@ -551,7 +597,12 @@ export default function strokePersistenceTest() {
       expect(copy.richText).assertEqual('');
       expect(copy.characterStyleRuns?.length).assertEqual(0);
       expect(copy.paragraphStyleRuns?.length).assertEqual(0);
+      expect(copy.originalForce).assertEqual(0.625);
+      expect(copy.originalSmartHighlight).assertFalse();
+      expect(copy.originalInkEffects).assertEqual('18446744073709551615');
+      expect(copy.originalInkEffectsTinted).assertFalse();
       expect(source.richText).assertEqual('AB');
+      expect(source.originalSmartHighlight).assertTrue();
       expect(source.characterStyleRuns?.length).assertEqual(1);
       expect(source.paragraphStyleRuns?.length).assertEqual(1);
       validateOriginalClipboardPastePlan({

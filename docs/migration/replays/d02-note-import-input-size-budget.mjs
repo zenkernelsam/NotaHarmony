@@ -2,8 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = process.env.NOTA_HARMONY_ROOT ?? path.resolve(import.meta.dirname, '../../..');
-const importer = fs.readFileSync(path.join(root, 'note/src/main/ets/data/NoteImporter.ets'), 'utf8');
-const zip = fs.readFileSync(path.join(root, 'note/src/main/ets/data/ZipArchive.ets'), 'utf8');
+const importer = fs.readFileSync(
+  path.join(root, 'note/src/main/ets/data/NoteImporter.ets'), 'utf8').replace(/\r\n?/g, '\n');
+const zip = fs.readFileSync(
+  path.join(root, 'note/src/main/ets/data/ZipArchive.ets'), 'utf8').replace(/\r\n?/g, '\n');
 const checks = [
   ['shared archive byte budget is defined', zip.includes('ZIP_MAX_ARCHIVE_BYTES')],
   ['importer imports shared budget', importer.includes('ZIP_MAX_ARCHIVE_BYTES }')],

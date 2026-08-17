@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const root = new URL('../../../', import.meta.url);
-const read = value => fs.readFileSync(new URL(value, root), 'utf8');
+const normalize = value => value.replace(/\r\n?/g, '\n');
+const read = value => normalize(fs.readFileSync(new URL(value, root), 'utf8'));
 const originalRoot = 'C:/Users/Cisco He/Desktop/Notability/decompiled_1.0.3/';
-const original = value => fs.readFileSync(originalRoot + value, 'utf8');
+const original = value => normalize(fs.readFileSync(originalRoot + value, 'utf8'));
 
 const kt1 = original('sources/defpackage/kt1.java');
 const bt1 = original('sources/defpackage/bt1.java');

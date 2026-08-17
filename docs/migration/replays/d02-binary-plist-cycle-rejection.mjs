@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root = process.env.NOTA_HARMONY_ROOT ?? path.resolve(import.meta.dirname, '../../..');
-const source = fs.readFileSync(path.join(root, 'note/src/main/ets/data/BinaryPlistParser.ets'), 'utf8');
+const source = fs.readFileSync(
+  path.join(root, 'note/src/main/ets/data/BinaryPlistParser.ets'), 'utf8').replace(/\r\n?/g, '\n');
 const checks = [
   ['cycle branch exists', source.includes('if (this.visiting.has(index))')],
   ['cycle sets parser error', source.includes('this.fail(`检测到循环对象引用 index=${index}`)')],

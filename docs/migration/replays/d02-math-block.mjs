@@ -4,12 +4,13 @@ import { DatabaseSync } from 'node:sqlite';
 import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const rootPath = new URL('../../../', import.meta.url);
-const createSource = fs.readFileSync(new URL(
-  'note/src/main/ets/data/OriginalCreateBlockOperation.ets', rootPath), 'utf8');
-const modifySource = fs.readFileSync(new URL(
-  'note/src/main/ets/data/OriginalModifyBlockOperation.ets', rootPath), 'utf8');
-const schema = fs.readFileSync(new URL(
-  'note/src/main/ets/data/DatabaseHelper.ets', rootPath), 'utf8');
+const normalize = value => value.replace(/\r\n?/g, '\n');
+const createSource = normalize(fs.readFileSync(new URL(
+  'note/src/main/ets/data/OriginalCreateBlockOperation.ets', rootPath), 'utf8'));
+const modifySource = normalize(fs.readFileSync(new URL(
+  'note/src/main/ets/data/OriginalModifyBlockOperation.ets', rootPath), 'utf8'));
+const schema = normalize(fs.readFileSync(new URL(
+  'note/src/main/ets/data/DatabaseHelper.ets', rootPath), 'utf8'));
 
 const migrationBody = schema.match(/45:\s*\[([\s\S]*?)\n\s*\],\n\s*46:/);
 assert(migrationBody);

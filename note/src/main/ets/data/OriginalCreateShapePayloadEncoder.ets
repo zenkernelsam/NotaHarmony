@@ -3,6 +3,7 @@ import {
 } from '../core/model/ElementTypes';
 import { Point2D } from '../core/model/GeometryTypes';
 import { OriginalSequenceIdentity, validateOriginalSequenceIdentity } from './OperationIdentity';
+import { validateUnsignedLongDecimal } from './UnsignedDecimal';
 
 const ORIGINAL_LINE_DEFINITION: number = 1;
 const ORIGINAL_POLYGON_DEFINITION: number = 2;
@@ -25,6 +26,10 @@ export function encodeOriginalLocalCreateShape(page: OriginalSequenceIdentity,
   validateOriginalSequenceIdentity(page);
   validateLocalShape(shape, averageForce);
   const placement: OriginalShapePlacement = originalPlacement(shape);
+  const force: number | null = shape.originalForce === undefined ? averageForce : shape.originalForce;
+  const effects: string = shape.originalInkEffects === undefined ? '0' : shape.originalInkEffects;
+  const effectsTinted: boolean = shape.originalInkEffectsTinted !== false;
+  const tapePattern: number | null | undefined = shape.originalTapePattern;
   const builder: ForwardFlatBufferBuilder = new ForwardFlatBufferBuilder(
     256 + (shape.type === ElementType.POLYGON ? shape.vertices.length * 8 : 0));
   const definitionType: number = originalDefinitionType(shape);
@@ -32,10 +37,13 @@ export function encodeOriginalLocalCreateShape(page: OriginalSequenceIdentity,
     4, 16, placement.rotation === null ? 0 : 24, 0, 36, 40,
     shape.originalTool === 0 ? 0 : 44,
     shape.originalStyle === 1 ? 0 : 45,
-    0, 48, 52, shape.fillColor === null ? 0 : 56, 0, 0,
-    averageForce === null ? 0 : 76, shape.positionLocked === true ? 80 : 0, 0, 0,
+    tapePattern === undefined || tapePattern === null ? 0 : 46,
+    48, 52, shape.fillColor === null ? 0 : 56, 0,
+    shape.originalSmartHighlight === true ? 47 : 0,
+    force === null ? 0 : 76, shape.positionLocked === true ? 80 : 0,
+    effects === '0' ? 0 : 64, effectsTinted ? 0 : 72,
   ];
-  const root: number = builder.table(fields, 84);
+  const root: number = builder.table(fields, 84, 8);
   builder.inlineSequence(root + 4, page);
   builder.float32(root + 16, placement.originX);
   builder.float32(root + 20, placement.originY);
@@ -45,13 +53,25 @@ export function encodeOriginalLocalCreateShape(page: OriginalSequenceIdentity,
   builder.uint8(root + 36, definitionType);
   builder.uint8(root + 44, shape.originalTool as number);
   builder.uint8(root + 45, shape.originalStyle as number);
+  if (tapePattern !== undefined && tapePattern !== null) {
+    builder.uint8(root + 46, tapePattern);
+  }
+  if (shape.originalSmartHighlight === true) {
+    builder.uint8(root + 47, 1);
+  }
   builder.color(root + 48, shape.color);
   builder.float32(root + 52, shape.strokeWidth);
   if (shape.fillColor !== null) {
     builder.color(root + 56, shape.fillColor);
   }
-  if (averageForce !== null) {
-    builder.float32(root + 76, averageForce);
+  if (effects !== '0') {
+    builder.uint64Decimal(root + 64, effects);
+  }
+  if (!effectsTinted) {
+    builder.uint8(root + 72, 0);
+  }
+  if (force !== null) {
+    builder.float32(root + 76, force);
   }
   if (shape.positionLocked === true) {
     builder.uint8(root + 80, 1);
@@ -128,15 +148,34 @@ function encodeDefinition(builder: ForwardFlatBufferBuilder,
 }
 
 function validateLocalShape(shape: ShapeElement, averageForce: number | null): void {
+  const force: number | null = shape.originalForce === undefined ? averageForce : shape.originalForce;
+  const effects: string = shape.originalInkEffects === undefined ? '0' : shape.originalInkEffects;
+  validateUnsignedLongDecimal(effects);
   if (shape.originalTool === undefined || shape.originalTool < 0 || shape.originalTool > 7 ||
     !Number.isInteger(shape.originalTool) || shape.originalStyle === undefined ||
     !Number.isInteger(shape.originalStyle) || shape.originalStyle < 1 || shape.originalStyle > 3 ||
     !validColor(shape.color) || !Number.isFinite(shape.strokeWidth) || shape.strokeWidth < 0 ||
     shape.fillColor !== null && (!validColor(shape.fillColor) || colorAlpha(shape.fillColor) === 0) ||
     shape.positionLocked !== undefined && typeof shape.positionLocked !== 'boolean' ||
+    shape.originalTapePattern !== undefined && shape.originalTapePattern !== null &&
+      (!Number.isInteger(shape.originalTapePattern) || shape.originalTapePattern < 0 ||
+        shape.originalTapePattern > 8) ||
+    shape.originalSmartHighlight !== undefined &&
+      typeof shape.originalSmartHighlight !== 'boolean' ||
+    shape.originalForce !== undefined && shape.originalForce !== null &&
+      !Number.isFinite(shape.originalForce) ||
+    shape.originalInkEffects !== undefined && typeof shape.originalInkEffects !== 'string' ||
+    shape.originalInkEffectsTinted !== undefined &&
+      typeof shape.originalInkEffectsTinted !== 'boolean' ||
     shape.richText !== undefined && shape.richText.length > 0 ||
-    !identityTransform(shape.transform) || averageForce !== null && !Number.isFinite(averageForce)) {
+    !identityTransform(shape.transform) || force !== null && !Number.isFinite(force)) {
     throw new Error('local Shape cannot be represented by original CREATE_SHAPE');
+  }
+  if (shape.originalInkEffectsTinted === false && effects === '0') {
+    throw new Error('local CREATE_SHAPE tint flag has no ink effect');
+  }
+  if (effects !== '0' && shape.originalTool !== 0 && shape.originalTool !== 2) {
+    throw new Error('local CREATE_SHAPE ink effects require pen or highlighter');
   }
   if (shape.type === ElementType.LINE) {
     const line: LineElement = shape as LineElement;
@@ -150,7 +189,7 @@ function validateLocalShape(shape: ShapeElement, averageForce: number | null): v
   }
   if (shape.type === ElementType.POLYGON) {
     const polygon: PolygonElement = shape as PolygonElement;
-    if (!polygon.isClosed || polygon.vertices.length < 2 ||
+    if (!polygon.isClosed || polygon.vertices.length < 3 ||
       polygon.vertices.length > MAX_LOCAL_SHAPE_POINTS) {
       throw new Error('local CREATE_SHAPE polygon is invalid');
     }
@@ -198,12 +237,12 @@ class ForwardFlatBufferBuilder {
     this.bytes = new Uint8Array(capacity);
   }
 
-  table(offsets: number[], objectSize: number): number {
+  table(offsets: number[], objectSize: number, alignment: number = 4): number {
     const vtable: number = this.cursor;
     const vtableSize: number = 4 + offsets.length * 2;
     this.ensure(vtableSize);
     this.cursor += vtableSize;
-    this.align(4);
+    this.align(alignment);
     const table: number = this.cursor;
     this.ensure(objectSize);
     this.cursor += objectSize;
@@ -249,6 +288,27 @@ class ForwardFlatBufferBuilder {
 
   float32(offset: number, value: number): void {
     new DataView(this.bytes.buffer).setFloat32(offset, value, true);
+  }
+
+  uint64Decimal(offset: number, value: string): void {
+    let remaining: string = value;
+    for (let index: number = 0; index < 8; index++) {
+      let quotient: string = '';
+      let remainder: number = 0;
+      for (let digitIndex: number = 0; digitIndex < remaining.length; digitIndex++) {
+        const current: number = remainder * 10 + remaining.charCodeAt(digitIndex) - 0x30;
+        const digit: number = Math.floor(current / 256);
+        remainder = current % 256;
+        if (quotient.length > 0 || digit !== 0) {
+          quotient += digit.toString();
+        }
+      }
+      this.bytes[offset + index] = remainder;
+      remaining = quotient.length === 0 ? '0' : quotient;
+    }
+    if (remaining !== '0') {
+      throw new Error('local CREATE_SHAPE uint64 exceeds its field');
+    }
   }
 
   color(offset: number, argb: number): void {

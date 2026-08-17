@@ -35,7 +35,9 @@ assert.match(model, /interface OriginalShapeCreateMetadata extends OriginalInkCr
 assert.match(model, /originalStyle\?: number/);
 assert.match(model, /originalCreate\?: OriginalShapeCreateMetadata/);
 assert.match(recognition,
-  /elements\.length === 1 && originalStyle !== undefined[\s\S]*originalStyle <= 3 \? originalCreate : undefined/);
+  /const originalStyle: number \| undefined = original\?\.style === 0 \? 1 : original\?\.style/);
+assert.match(recognition,
+  /elements\.length === 1 && originalStyle !== undefined[\s\S]*originalStyle <= 3 \? original\?\.originalCreate : undefined/);
 assert.match(canvas, /averageForce: this\.averageStrokeForce\(stroke\)/);
 assert.match(canvas, /finalShapes\.length === 1 && finalShapes\[0\]\.originalCreate !== undefined/);
 assert.match(canvas,
@@ -63,6 +65,7 @@ assert.match(opTypes, /ORIGINAL_CREATE_SHAPE = 68/);
 assert.match(fixtures, /round-trips local LINE POLYGON and rotated ELLIPSE CREATE_SHAPE payloads/);
 assert.match(detectorFixtures, /originalCreate === undefined/);
 assert.match(detectorFixtures, /originalCreate\?\.averageForce/);
+assert.match(detectorFixtures, /variableWidth\[0\]\.originalStyle/);
 
 const db = new DatabaseSync(':memory:');
 db.exec(`CREATE TABLE page(id INTEGER PRIMARY KEY, revision INTEGER NOT NULL);

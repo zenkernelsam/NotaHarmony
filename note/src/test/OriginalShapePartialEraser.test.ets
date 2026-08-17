@@ -2,7 +2,7 @@ import { describe, expect, it } from '@ohos/hypium';
 import {
   ElementType, EllipseElement, LineElement, PolygonElement, ShapeArrowHead,
 } from '../main/ets/core/model/ElementTypes';
-import { InkPathCommand, InkPathCommandType, StrokeElementData } from
+import { InkPathCommand, InkPathCommandType, StrokeElementData, TapePattern } from
   '../main/ets/core/model/StrokeTypes';
 import {
   OriginalShapePartialEraser, ShapePartialEraseReplacement,
@@ -73,6 +73,38 @@ export default function originalShapePartialEraserTest() {
         expect(remnant.fillPath !== null && remnant.fillPath !== undefined).assertTrue();
         expect(remnant.fillColor).assertEqual(0x6B405060);
         expect(remnant.renderSpec.isPencil).assertFalse();
+      }
+    });
+
+    it('preserves Shape force, Tape pattern, and ink effects on generated remnants', 0, () => {
+      const tape: PolygonElement = filledRectangle('op:27:2');
+      tape.originalTool = 3;
+      tape.originalTapePattern = TapePattern.HEARTS;
+      tape.originalForce = 0.375;
+      const tapeReplacement: ShapePartialEraseReplacement[] =
+        new OriginalShapePartialEraser(4).erase(
+          [{ x: 10, y: -5 }, { x: 10, y: 25 }], [tape]);
+      expect(tapeReplacement.length).assertEqual(1);
+      expect(tapeReplacement[0].remnants.length > 0).assertTrue();
+      for (const remnant of tapeReplacement[0].remnants) {
+        expect(remnant.pathPoints[0].pressure).assertEqual(0.375);
+        expect(remnant.renderSpec.tapePattern).assertEqual(TapePattern.HEARTS);
+      }
+
+      const effected: PolygonElement = filledRectangle('op:28:2');
+      effected.originalTool = 0;
+      effected.originalForce = 0.625;
+      effected.originalInkEffects = '18446744073709551615';
+      effected.originalInkEffectsTinted = false;
+      const effectReplacement: ShapePartialEraseReplacement[] =
+        new OriginalShapePartialEraser(4).erase(
+          [{ x: 10, y: -5 }, { x: 10, y: 25 }], [effected]);
+      expect(effectReplacement.length).assertEqual(1);
+      expect(effectReplacement[0].remnants.length > 0).assertTrue();
+      for (const remnant of effectReplacement[0].remnants) {
+        expect(remnant.pathPoints[0].pressure).assertEqual(0.625);
+        expect(remnant.renderSpec.inkEffects).assertEqual('18446744073709551615');
+        expect(remnant.renderSpec.inkEffectsTinted).assertFalse();
       }
     });
 

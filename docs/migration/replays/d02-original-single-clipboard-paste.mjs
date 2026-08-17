@@ -45,7 +45,10 @@ assert.match(clipboard, /splat\.rotation = Math\.atan2/);
 // UI reserves only after strict production encoders accept the copied snapshot.
 assert.match(canvas, /this\.canEncodeOriginalClipboardSource\(source\)/);
 assert.match(canvas, /encodeOriginalLocalCreateInk\(\{ timestamp: 1, siteId: 1, index: 0 \}, source\.stroke\)/);
-assert.match(canvas, /encodeOriginalLocalCreateShape\(\{ timestamp: 1, siteId: 1, index: 0 \}, source\.shape, null\)/);
+assert.match(canvas,
+  /const force: number \| null = source\.shape\.originalForce === undefined \?/);
+assert.match(canvas,
+  /encodeOriginalLocalCreateShape\([\s\S]{0,100}\{ timestamp: 1, siteId: 1, index: 0 \}, source\.shape, force\)/);
 assert.match(canvas, /encodeOriginalLocalCreateTextBlock\(\{ timestamp: 1, siteId: 1, index: 0 \}, source\.textBlock\)/);
 assert.match(canvas, /encodeOriginalInitialInsertString\(\{ timestamp: 1, siteId: 1 \}, source\.textBlock\.richText\)/);
 assert.match(canvas, /this\.persistence\.reserveOriginalInkCreate\(this\.noteId, pageId\)/);

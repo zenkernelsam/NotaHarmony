@@ -233,7 +233,7 @@ export struct NoteCanvasView {
   private bitmapTransferTracker: BitmapTransferTracker = new BitmapTransferTracker();
   private renderer: Canvas2DStrokeRenderer = new Canvas2DStrokeRenderer(this.bitmapTransferTracker);
   private strokePainter: StrokeCanvasPainter = new StrokeCanvasPainter(this.renderer, this.bitmapTransferTracker);
-  private shapeRenderer: ShapeCanvasRenderer = new ShapeCanvasRenderer();
+  private shapeRenderer: ShapeCanvasRenderer = new ShapeCanvasRenderer(this.renderer);
   private imageRenderer: ImageCanvasRenderer = new ImageCanvasRenderer();
   private mathRenderer: MathCanvasRenderer = new MathCanvasRenderer();
   private textRenderer: Canvas2DTextRenderer = new Canvas2DTextRenderer();
@@ -833,6 +833,7 @@ export struct NoteCanvasView {
       renderMetrics.pencilTintTransfers, renderMetrics.pencilTextureTransfers,
       renderMetrics.maxFrameTransfers, renderMetrics.maxDirtyRegionCount);
     this.mathRenderer.clear();
+    this.shapeRenderer.clearPencilCache();
     this.layerManager.dispose();
     this.renderer.dispose();
     if (this.pencilPixelMap !== null) {
@@ -1915,14 +1916,22 @@ export struct NoteCanvasView {
     hilog.info(0x0001, 'NoteCanvasView', 'shape detect: match confidence=%{public}f', result.confidence);
     const shapes: ShapeElement[] = prepareRecognizedShapes(
       result.elements, stroke.id, stroke.renderSpec.color, stroke.renderSpec.brushWidth,
-      this.originalToolForStroke(stroke), this.originalStyleForStroke(stroke),
-      stroke.originalCreate === undefined ? undefined : {
-        timestamp: stroke.originalCreate.timestamp, siteId: stroke.originalCreate.siteId,
-        clientTime: stroke.originalCreate.clientTime,
-        pageTimestamp: stroke.originalCreate.pageTimestamp,
-        pageSiteId: stroke.originalCreate.pageSiteId, pageIndex: stroke.originalCreate.pageIndex,
-        pencilSeed: stroke.originalCreate.pencilSeed,
-        averageForce: this.averageStrokeForce(stroke),
+      {
+        tool: this.originalToolForStroke(stroke),
+        style: this.originalStyleForStroke(stroke),
+        tapePattern: stroke.renderSpec.tapePattern,
+        smartHighlight: true,
+        force: this.averageStrokeForce(stroke),
+        inkEffects: stroke.renderSpec.inkEffects ?? '0',
+        inkEffectsTinted: stroke.renderSpec.inkEffectsTinted !== false,
+        originalCreate: stroke.originalCreate === undefined ? undefined : {
+          timestamp: stroke.originalCreate.timestamp, siteId: stroke.originalCreate.siteId,
+          clientTime: stroke.originalCreate.clientTime,
+          pageTimestamp: stroke.originalCreate.pageTimestamp,
+          pageSiteId: stroke.originalCreate.pageSiteId, pageIndex: stroke.originalCreate.pageIndex,
+          pencilSeed: stroke.originalCreate.pencilSeed,
+          averageForce: this.averageStrokeForce(stroke),
+        },
       });
     return { shapes: shapes, replaced: shapes.length > 0 };
   }
@@ -5935,7 +5944,9 @@ export struct NoteCanvasView {
   }
 
   private originalStyleForStroke(stroke: StrokeElementData): number {
-    return stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH ? 0 :
+    // ao2 rejects VARIABLE_WIDTH CREATE_SHAPE. Recognition therefore follows the original
+    // fixed-width Shape fallback instead of materializing a local style value the wire rejects.
+    return stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH ? 1 :
       stroke.renderSpec.inkStyle === InkStyle.FIXED_WIDTH ? 1 :
         stroke.renderSpec.inkStyle === InkStyle.DASH ? 2 : 3;
   }
@@ -6122,7 +6133,10 @@ export struct NoteCanvasView {
         return true;
       }
       if (source.kind === PageElementKind.SHAPE && source.shape !== undefined) {
-        encodeOriginalLocalCreateShape({ timestamp: 1, siteId: 1, index: 0 }, source.shape, null);
+        const force: number | null = source.shape.originalForce === undefined ?
+          source.shape.originalCreate?.averageForce ?? null : source.shape.originalForce;
+        encodeOriginalLocalCreateShape(
+          { timestamp: 1, siteId: 1, index: 0 }, source.shape, force);
         return true;
       }
       if (source.kind === PageElementKind.TEXT && source.textBlock !== undefined) {

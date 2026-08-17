@@ -133,7 +133,7 @@ export default function shapeDetectorTest() {
         averageForce: 0.5 };
       const shapes: ShapeElement[] = prepareRecognizedShapes(
         [lineResult.elements[0], ellipseResult.elements[0]], 'stroke', 0xFF123456, 7,
-        2, 1, reserved);
+        { tool: 2, style: 1, originalCreate: reserved });
       expect(shapes.length).assertEqual(2);
       expect(shapes[0].id).assertEqual('stroke:shape:0');
       expect(shapes[1].id).assertEqual('stroke:shape:1');
@@ -142,14 +142,17 @@ export default function shapeDetectorTest() {
       expect(shapes[0].originalCreate === undefined).assertTrue();
 
       const single: ShapeElement[] = prepareRecognizedShapes(
-        [lineResult.elements[0]], 'op:14:2', 0xFF123456, 7, 2, 1, reserved);
+        [lineResult.elements[0]], 'op:14:2', 0xFF123456, 7,
+        { tool: 2, style: 1, originalCreate: reserved });
       expect(single[0].id).assertEqual('op:14:2');
       expect(single[0].originalTool).assertEqual(2);
       expect(single[0].originalStyle).assertEqual(1);
       expect(single[0].originalCreate?.averageForce).assertEqual(0.5);
       const variableWidth: ShapeElement[] = prepareRecognizedShapes(
-        [lineResult.elements[0]], 'op:14:2', 0xFF123456, 7, 0, 0, reserved);
-      expect(variableWidth[0].originalCreate === undefined).assertTrue();
+        [lineResult.elements[0]], 'op:14:2', 0xFF123456, 7,
+        { tool: 0, style: 0, originalCreate: reserved });
+      expect(variableWidth[0].originalStyle).assertEqual(1);
+      expect(variableWidth[0].originalCreate?.timestamp).assertEqual(20);
     });
 
     it('rejects the entire recognition result when one element is unsupported', 0, () => {

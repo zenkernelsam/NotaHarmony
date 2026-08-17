@@ -24,11 +24,16 @@ assert.match(rbb, /m4c m4cVar = new m4c\(null\)/);
 assert.match(persistence,
   /export function originalClipboardShapeForPaste\([\s\S]*?shape\.richText = '';[\s\S]*?shape\.characterStyleRuns = \[\];[\s\S]*?shape\.paragraphStyleRuns = \[\];/);
 assert.match(persistence,
-  /encodeOriginalLocalCreateShape\(page, originalClipboardShapeForPaste\(shape\), null\)/);
+  /const pastedShape: ShapeElement = originalClipboardShapeForPaste\(shape\);[\s\S]*?encodeOriginalLocalCreateShape\(page, pastedShape, originalShapeForce\(pastedShape\)\)/);
 assert.match(persistence, /const shape: ShapeElement = originalClipboardShapeForPaste\(source\)/);
+assert.match(persistence,
+  /if \(shape\.originalForce === undefined && source\.originalCreate !== undefined\) \{[\s\S]*?shape\.originalForce = source\.originalCreate\.averageForce;/);
+assert.match(persistence, /shape\.originalSmartHighlight = false;/);
 assert.doesNotMatch(persistence, /Shape RichText is unsupported/);
 assert.match(fixtures,
   /resets Shape RichText during original clipboard Paste without mutating source/);
+assert.match(fixtures, /expect\(copy\.originalForce\)\.assertEqual\(0\.625\)/);
+assert.match(fixtures, /expect\(copy\.originalSmartHighlight\)\.assertFalse\(\)/);
 
 const source = {
   richText: 'AB',

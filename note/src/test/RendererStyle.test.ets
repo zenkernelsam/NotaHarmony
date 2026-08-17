@@ -150,7 +150,7 @@ export default function rendererStyleTest() {
         end: { x: 100, y: 20 }, arrowHead: ShapeArrowHead.NONE, color: 0xFFFF0000,
         strokeWidth: 10, fillColor: null, originalStyle: 2,
       };
-      const renderer: ShapeCanvasRenderer = new ShapeCanvasRenderer();
+      const renderer: ShapeCanvasRenderer = new ShapeCanvasRenderer(new Canvas2DStrokeRenderer());
       const dashCanvas: OffscreenCanvas = new OffscreenCanvas(120, 40);
       const dashContext: OffscreenCanvasRenderingContext2D =
         dashCanvas.getContext('2d', new RenderingContextSettings(true));

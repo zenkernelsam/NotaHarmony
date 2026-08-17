@@ -3,9 +3,9 @@ import path from 'node:path';
 
 const root = process.env.NOTA_HARMONY_ROOT ?? path.resolve(import.meta.dirname, '../../..');
 const loader = fs.readFileSync(
-  path.join(root, 'note/src/main/ets/core/adaptation/PdfBackgroundLoader.ets'), 'utf8');
+  path.join(root, 'note/src/main/ets/core/adaptation/PdfBackgroundLoader.ets'), 'utf8').replace(/\r\n?/g, '\n');
 const fixture = fs.readFileSync(
-  path.join(root, 'note/src/test/PdfResourceLifecycle.test.ets'), 'utf8');
+  path.join(root, 'note/src/test/PdfResourceLifecycle.test.ets'), 'utf8').replace(/\r\n?/g, '\n');
 
 const pageAcquire = loader.indexOf('page = document.getPage(pdf.pageInAsset)');
 const pageRaster = loader.indexOf('pixelMap = page.getAreaPixelMap(matrix');

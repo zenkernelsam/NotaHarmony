@@ -2,7 +2,7 @@
 // 纯类型文件：禁止 import 任何 @ohos.* / @kit.* 平台模块
 import { Point2D, Rect2D, TransformMatrix } from './GeometryTypes';
 import { PagePaperBackground } from './NoteTypes';
-import { OriginalInkCreateMetadata, StrokeElementData } from './StrokeTypes';
+import { OriginalInkCreateMetadata, StrokeElementData, TapePattern } from './StrokeTypes';
 
 // 元素类型（对应 c9e 子类枚举）
 export enum ElementType {
@@ -46,6 +46,16 @@ export interface ShapeRichTextContent {
   originalTool?: number;
   // Original InkStyle register. CREATE_SHAPE rejects variable-width style 0.
   originalStyle?: number;
+  // Original nullable TapePattern CREATE register. Missing/null means no explicit pattern;
+  // Tape consumers use the original STRIPES default only at the rendering/materialization edge.
+  originalTapePattern?: TapePattern | null;
+  // Hold-recognized Shapes set this CREATE-only bit. Original Copy/Paste resets it to false.
+  originalSmartHighlight?: boolean;
+  // Original nullable force used by Pencil Shape rendering and Shape-to-Ink partial erasure.
+  originalForce?: number | null;
+  // Precision-safe uint64 effect mask and its generated-reader default-true tint flag.
+  originalInkEffects?: string;
+  originalInkEffectsTinted?: boolean;
   // Reserved type-18 identity carried by one newly recognized local Shape until commit.
   originalCreate?: OriginalShapeCreateMetadata;
 }

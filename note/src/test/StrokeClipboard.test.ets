@@ -1,10 +1,11 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
+import { InkStyle, StrokeElementData, TapePattern } from '../main/ets/core/model/StrokeTypes';
 import { ElementType, ImageElement, MathElement, PolygonElement,
   TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import { PageElementKind, PageElementRef } from '../main/ets/core/model/PageElementOrder';
 import {
-  ClipboardCopyPreparation, ClipboardOriginalGroupPastePreview, ClipboardPasteResult, StrokeClipboard,
+  cloneClipboardShape, ClipboardCopyPreparation, ClipboardOriginalGroupPastePreview,
+  ClipboardPasteResult, StrokeClipboard,
 } from '../main/ets/rendering/StrokeClipboard';
 
 function stroke(id: string, left: number = 10, top: number = 20): StrokeElementData {
@@ -159,6 +160,44 @@ export default function strokeClipboardTest() {
       styled.characterStyleRuns = [{ start: 0, end: 1, style: { bold: true } }];
       expect(clipboard.copy([], 'page-1', [], [], [styled])).assertTrue();
       expect(clipboard.singleOriginalCreateSource() === null).assertTrue();
+    });
+
+    it('promotes Shape force, clears smart highlight, and preserves rich render registers', 0, () => {
+      const tape: PolygonElement = shape('op:110:7');
+      tape.originalTool = 3;
+      tape.originalStyle = 1;
+      tape.originalTapePattern = TapePattern.HEARTS;
+      tape.originalSmartHighlight = true;
+      tape.originalCreate = {
+        timestamp: 110, siteId: 7, clientTime: 111,
+        pageTimestamp: 10, pageSiteId: 2, pageIndex: 0,
+        pencilSeed: 0, averageForce: 0.625,
+      };
+      const tapeCopy: PolygonElement = cloneClipboardShape(tape, 'tape-copy') as PolygonElement;
+      expect(tapeCopy.originalCreate === undefined).assertTrue();
+      expect(tapeCopy.originalForce).assertEqual(0.625);
+      expect(tapeCopy.originalSmartHighlight).assertFalse();
+      expect(tapeCopy.originalTapePattern).assertEqual(TapePattern.HEARTS);
+      expect(tape.originalSmartHighlight).assertTrue();
+      expect(tape.originalCreate === undefined).assertFalse();
+
+      const effected: PolygonElement = shape('op:112:7');
+      effected.originalTool = 0;
+      effected.originalStyle = 1;
+      effected.originalSmartHighlight = true;
+      effected.originalInkEffects = '18446744073709551615';
+      effected.originalInkEffectsTinted = false;
+      effected.originalCreate = {
+        timestamp: 112, siteId: 7, clientTime: 113,
+        pageTimestamp: 10, pageSiteId: 2, pageIndex: 0,
+        pencilSeed: 0, averageForce: 0.375,
+      };
+      const effectCopy: PolygonElement = cloneClipboardShape(
+        effected, 'effect-copy') as PolygonElement;
+      expect(effectCopy.originalForce).assertEqual(0.375);
+      expect(effectCopy.originalSmartHighlight).assertFalse();
+      expect(effectCopy.originalInkEffects).assertEqual('18446744073709551615');
+      expect(effectCopy.originalInkEffectsTinted).assertFalse();
     });
 
     it('deep-copies nested original Groups and commits Paste offsets only after durability', 0, () => {

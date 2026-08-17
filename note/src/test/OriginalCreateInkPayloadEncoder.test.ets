@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@ohos/hypium';
 import {
-  InkPathCommandType, InkStyle, StrokeElementData,
+  InkPathCommandType, InkStyle, StrokeElementData, TapePattern,
 } from '../main/ets/core/model/StrokeTypes';
 import {
   ElementType, ShapeArrowHead, ShapeElement,
@@ -350,6 +350,8 @@ export default function originalCreateInkPayloadEncoderTest() {
         controlPoint2: { x: 6, y: 7 }, end: { x: 9, y: 8 },
         arrowHead: ShapeArrowHead.SINGLE, color: 0x6B112233, strokeWidth: 7.5,
         fillColor: null, originalTool: 2, originalStyle: 1,
+        originalSmartHighlight: true, originalForce: 0.25,
+        originalInkEffects: '18446744073709551615', originalInkEffectsTinted: false,
       };
       const decodedLine = decodeOriginalCreateShape(wrap(18,
         encodeOriginalLocalCreateShape({ timestamp: 80, siteId: 7, index: 2 }, line, 0.6)), '1234');
@@ -357,7 +359,10 @@ export default function originalCreateInkPayloadEncoderTest() {
       expect(decodedLine.page.timestamp).assertEqual(80);
       expect(decodedLine.tool).assertEqual(2);
       expect(decodedLine.style).assertEqual(1);
-      expect(decodedLine.force).assertEqual(0.6000000238418579);
+      expect(decodedLine.smartHighlight).assertTrue();
+      expect(decodedLine.force).assertEqual(0.25);
+      expect(decodedLine.inkEffects).assertEqual('18446744073709551615');
+      expect(decodedLine.inkEffectsTinted).assertFalse();
       expect(decodedLine.zIndex).assertEqual('1234');
       expect(decodedLine.fillColor === null).assertTrue();
       expect(decodedLine.positionLocked).assertFalse();
@@ -376,13 +381,15 @@ export default function originalCreateInkPayloadEncoderTest() {
         transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
         bounds: { left: 0, top: 0, right: 20, bottom: 10 },
         vertices: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 10, y: 10 }], isClosed: true,
-        color: -16777216, strokeWidth: 4, fillColor: null, originalTool: 0, originalStyle: 2,
+        color: -16777216, strokeWidth: 4, fillColor: null, originalTool: 3, originalStyle: 2,
+        originalTapePattern: TapePattern.HEARTS,
       };
       const decodedPolygon = decodeOriginalCreateShape(wrap(18,
         encodeOriginalLocalCreateShape({ timestamp: 80, siteId: 7, index: 2 }, polygon, null)), '1234');
       const polygonDefinition: OriginalPolygonDefinition =
         decodedPolygon.definition as OriginalPolygonDefinition;
       expect(decodedPolygon.style).assertEqual(2);
+      expect(decodedPolygon.tapePattern).assertEqual(TapePattern.HEARTS);
       expect(polygonDefinition.points.length).assertEqual(3);
       expect(polygonDefinition.points[2].y).assertEqual(10);
 
@@ -410,6 +417,25 @@ export default function originalCreateInkPayloadEncoderTest() {
       line.fillColor = null;
       line.positionLocked = false;
       line.originalStyle = 0;
+      expect(() => encodeOriginalLocalCreateShape(
+        { timestamp: 80, siteId: 7, index: 2 }, line, null)).assertThrow();
+
+      line.originalStyle = 1;
+      line.originalTapePattern = TapePattern.HEARTS;
+      const independentTapeRegister = decodeOriginalCreateShape(wrap(18,
+        encodeOriginalLocalCreateShape(
+          { timestamp: 80, siteId: 7, index: 2 }, line, null)), '1234');
+      expect(independentTapeRegister.tapePattern).assertEqual(TapePattern.HEARTS);
+      line.originalTapePattern = null;
+      line.originalTool = 1;
+      expect(() => encodeOriginalLocalCreateShape(
+        { timestamp: 80, siteId: 7, index: 2 }, line, null)).assertThrow();
+      line.originalTool = 0;
+      line.originalInkEffects = '0';
+      expect(() => encodeOriginalLocalCreateShape(
+        { timestamp: 80, siteId: 7, index: 2 }, line, null)).assertThrow();
+      line.originalInkEffectsTinted = true;
+      line.originalInkEffects = '18446744073709551616';
       expect(() => encodeOriginalLocalCreateShape(
         { timestamp: 80, siteId: 7, index: 2 }, line, null)).assertThrow();
     });

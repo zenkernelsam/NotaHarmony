@@ -4,12 +4,13 @@ import { DatabaseSync } from 'node:sqlite';
 import { assertDatabaseVersionAtLeast } from './support/database-version.mjs';
 
 const rootPath = new URL('../../../', import.meta.url);
-const source = fs.readFileSync(new URL(
-  'note/src/main/ets/data/OriginalInsertTextOperation.ets', rootPath), 'utf8');
-const schema = fs.readFileSync(new URL(
-  'note/src/main/ets/data/DatabaseHelper.ets', rootPath), 'utf8');
-const dispatcher = fs.readFileSync(new URL(
-  'note/src/main/ets/data/OriginalPageOperationApplier.ets', rootPath), 'utf8');
+const normalize = value => value.replace(/\r\n?/g, '\n');
+const source = normalize(fs.readFileSync(new URL(
+  'note/src/main/ets/data/OriginalInsertTextOperation.ets', rootPath), 'utf8'));
+const schema = normalize(fs.readFileSync(new URL(
+  'note/src/main/ets/data/DatabaseHelper.ets', rootPath), 'utf8'));
+const dispatcher = normalize(fs.readFileSync(new URL(
+  'note/src/main/ets/data/OriginalPageOperationApplier.ets', rootPath), 'utf8'));
 
 class Builder {
   constructor() { this.bytes = new Uint8Array(512); this.cursor = 4; }

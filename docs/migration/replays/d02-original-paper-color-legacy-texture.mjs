@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const root = new URL('../../../', import.meta.url);
-const read = value => fs.readFileSync(new URL(value, root), 'utf8');
-const localPath = value => path.normalize(new URL(value, root).pathname.replace(/^\/(?:[A-Za-z]:)/,
-  match => match.slice(1)));
+const normalize = value => value.replace(/\r\n?/g, '\n');
+const read = value => normalize(fs.readFileSync(new URL(value, root), 'utf8'));
+const localPath = value => fileURLToPath(new URL(value, root));
 const originalRoot = 'C:/Users/Cisco He/Desktop/Notability/decompiled_1.0.3';
-const original = name => fs.readFileSync(`${originalRoot}/sources/defpackage/${name}.java`, 'utf8');
+const original = name => normalize(
+  fs.readFileSync(`${originalRoot}/sources/defpackage/${name}.java`, 'utf8'));
 const sha256 = value => crypto.createHash('sha256').update(fs.readFileSync(value)).digest('hex');
 
 const iq0 = original('iq0');

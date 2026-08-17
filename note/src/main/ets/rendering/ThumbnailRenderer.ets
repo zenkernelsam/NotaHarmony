@@ -40,7 +40,7 @@ export class ThumbnailRenderer {
   private strokeRenderer: Canvas2DStrokeRenderer = new Canvas2DStrokeRenderer(this.transferTracker);
   private strokePainter: StrokeCanvasPainter = new StrokeCanvasPainter(this.strokeRenderer, this.transferTracker);
   private textRenderer: Canvas2DTextRenderer = new Canvas2DTextRenderer();
-  private shapeRenderer: ShapeCanvasRenderer = new ShapeCanvasRenderer();
+  private shapeRenderer: ShapeCanvasRenderer = new ShapeCanvasRenderer(this.strokeRenderer);
   private imageRenderer: ImageCanvasRenderer = new ImageCanvasRenderer();
   private mathRenderer: MathCanvasRenderer = new MathCanvasRenderer();
   private paperRenderer: PaperRenderer = new PaperRenderer();
@@ -200,6 +200,7 @@ export class ThumbnailRenderer {
     this.disposed = true;
     this.abilityContext = null;
     this.mathRenderer.clear();
+    this.shapeRenderer.clearPencilCache();
     this.strokeRenderer.dispose();
     if (this.pencilPixelMap !== null) {
       await this.pencilPixelMap.release();

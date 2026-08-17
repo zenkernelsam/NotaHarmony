@@ -495,14 +495,28 @@ function isOriginalLineSpacing(value: number): boolean {
 }
 
 function isValidShape(shape: ShapeElement): boolean {
-  if (!isElementBase(shape.id, shape.transform, shape.bounds) || !isFiniteNumber(shape.color) ||
+  const inkEffects: string = shape.originalInkEffects === undefined ? '0' :
+    shape.originalInkEffects;
+  if (!isElementBase(shape.id, shape.transform, shape.bounds) || !isColorInteger(shape.color) ||
     !isNonNegativeFinite(shape.strokeWidth) ||
-    (shape.fillColor !== null && !isFiniteNumber(shape.fillColor)) ||
+    (shape.fillColor !== null && (!isColorInteger(shape.fillColor) ||
+      (shape.fillColor >>> 24 & 0xFF) === 0)) ||
     (shape.positionLocked !== undefined && typeof shape.positionLocked !== 'boolean') ||
     (shape.originalTool !== undefined &&
       !isIntegerInRange(shape.originalTool, 0, 7)) ||
     (shape.originalStyle !== undefined &&
-      !isIntegerInRange(shape.originalStyle, 0, 3)) ||
+      !isIntegerInRange(shape.originalStyle, 1, 3)) ||
+    (shape.originalTapePattern !== undefined && shape.originalTapePattern !== null &&
+      !isIntegerInRange(shape.originalTapePattern, TapePattern.STRIPES, TapePattern.CHECKERS)) ||
+    (shape.originalSmartHighlight !== undefined &&
+      typeof shape.originalSmartHighlight !== 'boolean') ||
+    (shape.originalForce !== undefined && shape.originalForce !== null &&
+      !isFiniteNumber(shape.originalForce)) ||
+    (shape.originalInkEffects !== undefined && !isUnsignedLongDecimal(shape.originalInkEffects)) ||
+    (shape.originalInkEffectsTinted !== undefined &&
+      typeof shape.originalInkEffectsTinted !== 'boolean') ||
+    (shape.originalInkEffectsTinted === false && inkEffects === '0') ||
+    (inkEffects !== '0' && shape.originalTool !== 0 && shape.originalTool !== 2) ||
     (shape.originalCreate !== undefined &&
       (!isNonNegativeSafeInteger(shape.originalCreate.timestamp) ||
         !isIntegerInRange(shape.originalCreate.siteId, 0, 65535) ||
@@ -531,7 +545,7 @@ function isValidShape(shape: ShapeElement): boolean {
         return false;
       }
     }
-    return shape.vertices.length >= 2;
+    return shape.vertices.length >= 3;
   }
   if (shape.type === ElementType.LINE) {
     return isPoint(shape.start) && isNullablePoint(shape.controlPoint1) &&

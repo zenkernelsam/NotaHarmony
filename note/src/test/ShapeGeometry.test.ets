@@ -92,6 +92,7 @@ export default function shapeGeometryTest() {
       const baseX: number = 120 - 46 * scale;
       const mainEnd: Point2D = geometry.mainPath[geometry.mainPath.length - 1];
       expect(Math.abs(mainEnd.x - baseX) < 0.001).assertTrue();
+      expect(Math.abs(geometry.mainPathEndParameter - baseX / 120) < 0.001).assertTrue();
       expect(Math.abs(geometry.arrowHeadPath[0].x - baseX) < 0.001).assertTrue();
       expect(Math.abs(geometry.arrowHeadPath[0].y - 20 * scale) < 0.001).assertTrue();
       expect(geometry.arrowHeadPath[1].x).assertEqual(120);

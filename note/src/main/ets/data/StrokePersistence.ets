@@ -4,7 +4,9 @@ import { parsePageBackground } from '../core/model/PageBackgroundModel';
 import { readEffectiveNoteBackground } from './OriginalSetMetadataOperation';
 import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op, OpType } from '../core/model/OpTypes';
 import { taskpool, util } from '@kit.ArkTS';
-import { InkStyle, OriginalInkCreateMetadata, StrokeElementData } from '../core/model/StrokeTypes';
+import {
+  InkStyle, OriginalInkCreateMetadata, StrokeElementData, TapePattern,
+} from '../core/model/StrokeTypes';
 import {
   ElementType, ImageElement, MathElement, OriginalShapeCreateMetadata, RichTextCharacterStyleRun,
   RichTextParagraphStyleRun, ShapeElement, TextBlockElement,
@@ -324,7 +326,8 @@ export function validateOriginalClipboardPastePlan(plan: OriginalClipboardPasteP
   }
   for (const shape of plan.shapes) {
     addLeaf(shape.id, PageElementKind.SHAPE);
-    encodeOriginalLocalCreateShape(page, originalClipboardShapeForPaste(shape), null);
+    const pastedShape: ShapeElement = originalClipboardShapeForPaste(shape);
+    encodeOriginalLocalCreateShape(page, pastedShape, originalShapeForce(pastedShape));
   }
   for (const text of plan.textBlocks) {
     addLeaf(text.id, PageElementKind.TEXT);
@@ -559,7 +562,12 @@ export interface OriginalRenderMutation {
 export interface OriginalShapeStateRenderMetadata {
   tool: number;
   style: number;
+  tapePattern: TapePattern | null;
+  smartHighlight: boolean;
+  force: number | null;
   positionLocked: boolean;
+  inkEffects: string;
+  inkEffectsTinted: boolean;
 }
 
 interface OriginalTextMarginMetadata {
@@ -574,15 +582,33 @@ export function decodeOriginalShapeStateRenderMetadata(
   try {
     const payload: OriginalCreateShapePayload =
       JSON.parse(resolvedPayload) as OriginalCreateShapePayload;
+    const tapePattern: number | null = payload.tapePattern === undefined ? null :
+      payload.tapePattern;
+    const smartHighlight: boolean = payload.smartHighlight === undefined ? false :
+      payload.smartHighlight;
+    const force: number | null = payload.force === undefined ? null : payload.force;
     const positionLocked: boolean = payload.positionLocked === undefined ? false :
       payload.positionLocked;
+    const inkEffects: string = payload.inkEffects === undefined ? '0' : payload.inkEffects;
+    const inkEffectsTinted: boolean = payload.inkEffectsTinted === undefined ? true :
+      payload.inkEffectsTinted;
     if (!Number.isInteger(payload.tool) || payload.tool < 0 || payload.tool > 7 ||
       !Number.isInteger(payload.style) || payload.style < 1 || payload.style > 3 ||
-      typeof positionLocked !== 'boolean') {
+      (tapePattern !== null && (!Number.isInteger(tapePattern) || tapePattern < 0 ||
+        tapePattern > 8)) || typeof smartHighlight !== 'boolean' ||
+      (force !== null && !Number.isFinite(force)) || typeof positionLocked !== 'boolean' ||
+      typeof inkEffects !== 'string' || typeof inkEffectsTinted !== 'boolean') {
+      return null;
+    }
+    validateUnsignedLongDecimal(inkEffects);
+    if ((!inkEffectsTinted && inkEffects === '0') ||
+      (inkEffects !== '0' && payload.tool !== 0 && payload.tool !== 2)) {
       return null;
     }
     return { tool: payload.tool, style: payload.style,
-      positionLocked: positionLocked };
+      tapePattern: tapePattern as TapePattern | null, smartHighlight: smartHighlight,
+      force: force, positionLocked: positionLocked, inkEffects: inkEffects,
+      inkEffectsTinted: inkEffectsTinted };
   } catch (_error) {
     return null;
   }
@@ -1918,10 +1944,12 @@ export class StrokePersistence {
               const shapeMetadata: OriginalShapeCreateMetadata = {
                 timestamp: identity.timestamp, siteId: identity.siteId,
                 clientTime: identity.clientTime, pageTimestamp: page.timestamp,
-                pageSiteId: page.siteId, pageIndex: page.index, pencilSeed: 0, averageForce: null,
+                pageSiteId: page.siteId, pageIndex: page.index, pencilSeed: 0,
+                averageForce: originalShapeForce(shape),
               };
               shape.originalCreate = shapeMetadata;
-              const payload: Uint8Array = encodeOriginalLocalCreateShape(page, shape, null);
+              const payload: Uint8Array = encodeOriginalLocalCreateShape(
+                page, shape, shapeMetadata.averageForce);
               const operation: StoredSyncedOperation = localStoredOperation(
                 noteId, shapeMetadata, ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE, payload, null);
               const applied: SyncedOperationApplyResult =
@@ -2869,7 +2897,8 @@ export class StrokePersistence {
           return null;
         }
         encodeOriginalLocalCreateShape({ timestamp: original.pageTimestamp,
-          siteId: original.pageSiteId, index: original.pageIndex }, shape, original.averageForce);
+          siteId: original.pageSiteId, index: original.pageIndex }, shape,
+          originalShapeForce(shape));
         return added;
       }
       if (added.kind === PageElementKind.TEXT && persisted.kind === 'text') {
@@ -2966,7 +2995,7 @@ export class StrokePersistence {
       throw new Error('reserved local CREATE_SHAPE page is no longer original-aligned');
     }
     const payload: Uint8Array = encodeOriginalLocalCreateShape(
-      page, shape, metadata.averageForce);
+      page, shape, originalShapeForce(shape));
     const operation: StoredSyncedOperation = localStoredOperation(
       snapshot.noteId, metadata, ORIGINAL_CREATE_SHAPE_PAYLOAD_TYPE, payload, null);
     const result: SyncedOperationApplyResult =
@@ -4869,6 +4898,24 @@ export class StrokePersistence {
               if (shape.originalStyle === undefined) {
                 shape.originalStyle = originalMetadata.style;
               }
+              if (shape.originalTapePattern === undefined) {
+                shape.originalTapePattern = originalMetadata.tapePattern;
+              }
+              if (shape.originalSmartHighlight === undefined) {
+                shape.originalSmartHighlight = originalMetadata.smartHighlight;
+              }
+              if (shape.originalForce === undefined) {
+                shape.originalForce = originalMetadata.force;
+              }
+              if (shape.positionLocked === undefined) {
+                shape.positionLocked = originalMetadata.positionLocked;
+              }
+              if (shape.originalInkEffects === undefined) {
+                shape.originalInkEffects = originalMetadata.inkEffects;
+              }
+              if (shape.originalInkEffectsTinted === undefined) {
+                shape.originalInkEffectsTinted = originalMetadata.inkEffectsTinted;
+              }
             }
             shape.bounds = recomputeShapeBounds(shape);
             result.shapes.push(shape);
@@ -6014,10 +6061,21 @@ function cloneStrokeThroughPersistence(stroke: StrokeElementData): StrokeElement
 
 export function originalClipboardShapeForPaste(source: ShapeElement): ShapeElement {
   const shape: ShapeElement = cloneShapeElement(source);
+  if (shape.originalForce === undefined && source.originalCreate !== undefined) {
+    shape.originalForce = source.originalCreate.averageForce;
+  }
+  shape.originalSmartHighlight = false;
   shape.richText = '';
   shape.characterStyleRuns = [];
   shape.paragraphStyleRuns = [];
   return shape;
+}
+
+function originalShapeForce(shape: ShapeElement): number | null {
+  if (shape.originalForce !== undefined) {
+    return shape.originalForce;
+  }
+  return shape.originalCreate === undefined ? null : shape.originalCreate.averageForce;
 }
 
 function cloneOriginalClipboardPastePlan(

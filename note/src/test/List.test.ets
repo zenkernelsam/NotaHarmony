@@ -39,6 +39,7 @@ import strokeClipboardTest from './StrokeClipboard.test';
 import pageElementOrderTest from './PageElementOrder.test';
 import pageElementIdentityTest from './PageElementIdentity.test';
 import shapeGeometryTest from './ShapeGeometry.test';
+import shapeStrokeRendererTest from './ShapeStrokeRenderer.test';
 import selectionToolTest from './SelectionTool.test';
 import textBlockGeometryTest from './TextBlockGeometry.test';
 import shapeDetectorTest from './ShapeDetector.test';
@@ -140,6 +141,7 @@ export default function testsuite() {
   pageElementOrderTest();
   pageElementIdentityTest();
   shapeGeometryTest();
+  shapeStrokeRendererTest();
   selectionToolTest();
   textBlockGeometryTest();
   shapeDetectorTest();

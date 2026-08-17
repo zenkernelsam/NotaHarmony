@@ -80,6 +80,10 @@ export function cloneClipboardShape(shape: ShapeElement, id: string = shape.id,
   dx: number = 0, dy: number = 0): ShapeElement {
   const result: ShapeElement = cloneShapeElement(shape);
   result.id = id;
+  if (result.originalForce === undefined && shape.originalCreate !== undefined) {
+    result.originalForce = shape.originalCreate.averageForce;
+  }
+  result.originalSmartHighlight = false;
   result.originalCreate = undefined;
   result.transform[2] += dx;
   result.transform[5] += dy;

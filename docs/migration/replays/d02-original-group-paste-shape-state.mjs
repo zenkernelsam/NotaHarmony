@@ -19,17 +19,21 @@ assert.match(ao2, /Create shape with `fillColor: nil` for unfilled\. Do not use 
 
 assert.match(encoder, /shape\.fillColor === null \? 0 : 56/);
 assert.match(encoder, /shape\.positionLocked === true \? 80 : 0/);
-assert.match(encoder, /builder\.table\(fields, 84\)/);
+assert.match(encoder, /builder\.table\(fields, 84, 8\)/);
 assert.match(encoder, /builder\.color\(root \+ 56, shape\.fillColor\)/);
 assert.match(encoder, /builder\.uint8\(root \+ 80, 1\)/);
 assert.match(encoder, /colorAlpha\(shape\.fillColor\) === 0/);
 assert.match(encoder, /shape\.richText !== undefined && shape\.richText\.length > 0/);
 
 assert.match(reducer, /const fillBytes: Uint8Array \| null = table\.readInlineBytes\(11, 4\)/);
-assert.match(reducer, /positionLocked: table\.readUint8\(15, 0\) !== 0/);
+assert.match(reducer,
+  /const positionLocked: boolean = readBooleanField\(table, 15, false,[\s\S]*?'CreateShape position-lock'\);/);
+assert.match(reducer, /positionLocked: positionLocked/);
 assert.match(reducer, /CreateShape uses a transparent fill color/);
-assert.match(persistence, /encodeOriginalLocalCreateShape\(page, shape, null\)/);
-assert.match(persistence, /encodeOriginalLocalCreateShape\(page, originalClipboardShapeForPaste\(shape\), null\)/);
+assert.match(persistence,
+  /encodeOriginalLocalCreateShape\(\s*page, shape, originalShapeForce\(shape\)\)/);
+assert.match(persistence,
+  /const pastedShape: ShapeElement = originalClipboardShapeForPaste\(shape\);[\s\S]*?encodeOriginalLocalCreateShape\(page, pastedShape, originalShapeForce\(pastedShape\)\)/);
 assert.match(persistence, /const shape: ShapeElement = originalClipboardShapeForPaste\(source\)/);
 
 assert.match(fixtures, /line\.fillColor = 0x7F445566/);

@@ -168,6 +168,12 @@ export function decodeOriginalCreateShapeTable(table: OriginalFlatBufferTableRea
   const inkEffects: string = table.readUint64Decimal(16, '0') as string;
   validateUnsignedLongDecimal(zIndex);
   validateUnsignedLongDecimal(inkEffects);
+  const smartHighlight: boolean = readBooleanField(table, 13, false,
+    'CreateShape smart-highlight');
+  const positionLocked: boolean = readBooleanField(table, 15, false,
+    'CreateShape position-lock');
+  const inkEffectsTinted: boolean = readBooleanField(table, 17, true,
+    'CreateShape ink-effects tint');
   const payload: OriginalCreateShapePayload = {
     page: pageIdentity,
     originX: readOriginalInlineFloat32(origin, 0),
@@ -182,11 +188,11 @@ export function decodeOriginalCreateShapeTable(table: OriginalFlatBufferTableRea
     borderWidth: table.readFloat32(10, 4),
     fillColor: fillBytes === null ? null : originalColorToArgb(fillBytes),
     zIndex: zIndex,
-    smartHighlight: table.readUint8(13, 0) !== 0,
+    smartHighlight: smartHighlight,
     force: table.hasField(14) ? table.readFloat32(14, 0) : null,
-    positionLocked: table.readUint8(15, 0) !== 0,
+    positionLocked: positionLocked,
     inkEffects: inkEffects,
-    inkEffectsTinted: table.readUint8(17, 1) !== 0,
+    inkEffectsTinted: inkEffectsTinted,
   };
   validateCreateShape(payload, fillBytes);
   return payload;
@@ -231,6 +237,10 @@ export function decodeOriginalModifyShapeTable(
   }
   const scaleBytes: Uint8Array | null = scaleTable === null ? null :
     scaleTable.readInlineBytes(0, 8);
+  const positionLocked: boolean | null = readNullableBooleanField(
+    table, 14, 'ModifyShape position-lock');
+  const inkEffectsTinted: boolean | null = readNullableBooleanField(
+    table, 16, 'ModifyShape ink-effects tint');
   const payload: OriginalModifyShapePayload = {
     shapes: shapes,
     pageOrigin: rawPage === null || rawOrigin === null ? null : {
@@ -253,9 +263,9 @@ export function decodeOriginalModifyShapeTable(
     fillColor: { present: fillSetter !== null,
       value: fillBytes === null ? null : originalColorToArgb(fillBytes) },
     zIndex: zIndex,
-    positionLocked: table.hasField(14) ? table.readUint8(14, 0) !== 0 : null,
+    positionLocked: positionLocked,
     inkEffects: inkEffects,
-    inkEffectsTinted: table.hasField(16) ? table.readUint8(16, 0) !== 0 : null,
+    inkEffectsTinted: inkEffectsTinted,
   };
   validateModifyShape(payload, fillBytes);
   return payload;
@@ -525,6 +535,17 @@ export class OriginalShapeGroupOperationApplier implements SyncedOperationApplie
         return { deferredReason: 'MODIFY_SHAPE_ELEMENT_ORDER_DIVERGED' };
       }
     }
+    const changedStates: boolean[] = [];
+    for (const state of states) {
+      const changed: boolean = applyShapeRegisters(state, payload, operation);
+      if (changed) {
+        // A ModifyShape payload carries independent LWW registers.  Legality is a
+        // property of the fully resolved CreateShape state, not of one isolated
+        // register update.  Validate before journalling or writing any state.
+        validateCreateShape(state.resolved, null);
+      }
+      changedStates.push(changed);
+    }
     if (journal) {
       await store.insert('original_shape_modification', {
         'note_id': operation.noteId, 'operation_timestamp': operation.timestamp,
@@ -537,7 +558,7 @@ export class OriginalShapeGroupOperationApplier implements SyncedOperationApplie
       const shape: OperationIdentity = payload.shapes[index];
       const state: StoredShapeState = states[index];
       const target: StoredShapeTarget = targets[index];
-      const changed: boolean = applyShapeRegisters(state, payload, operation);
+      const changed: boolean = changedStates[index];
       if (!changed) {
         continue;
       }
@@ -779,8 +800,8 @@ async function readShapeState(store: relationalStore.RdbStore, noteId: string,
     validateCreateShape(resolved, null);
     for (const winner of winners) {
       validateOperationIdentity(winner);
-      if (winner.field.length === 0) {
-        throw new Error('stored Shape winner has no field');
+      if (!isShapeWinnerField(winner.field)) {
+        throw new Error('stored Shape winner field is invalid');
       }
     }
     return { create: create, resolved: resolved, winners: winners };
@@ -1085,7 +1106,10 @@ function materializeShape(identity: OperationIdentity,
       color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor,
       richText: '', characterStyleRuns: [], paragraphStyleRuns: [],
       positionLocked: payload.positionLocked, originalTool: payload.tool,
-      originalStyle: payload.style };
+      originalStyle: payload.style, originalTapePattern: payload.tapePattern,
+      originalSmartHighlight: payload.smartHighlight, originalForce: payload.force,
+      originalInkEffects: payload.inkEffects,
+      originalInkEffectsTinted: payload.inkEffectsTinted };
     shape = line;
   } else if (payload.definition.type === OriginalShapeDefinitionType.POLYGON) {
     const definition: OriginalPolygonDefinition = payload.definition as OriginalPolygonDefinition;
@@ -1094,7 +1118,10 @@ function materializeShape(identity: OperationIdentity,
       color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor,
       richText: '', characterStyleRuns: [], paragraphStyleRuns: [],
       positionLocked: payload.positionLocked, originalTool: payload.tool,
-      originalStyle: payload.style };
+      originalStyle: payload.style, originalTapePattern: payload.tapePattern,
+      originalSmartHighlight: payload.smartHighlight, originalForce: payload.force,
+      originalInkEffects: payload.inkEffects,
+      originalInkEffectsTinted: payload.inkEffectsTinted };
     shape = polygon;
   } else {
     const definition: OriginalEllipseDefinition = payload.definition as OriginalEllipseDefinition;
@@ -1104,7 +1131,10 @@ function materializeShape(identity: OperationIdentity,
       color: payload.color, strokeWidth: payload.borderWidth, fillColor: payload.fillColor,
       richText: '', characterStyleRuns: [], paragraphStyleRuns: [],
       positionLocked: payload.positionLocked, originalTool: payload.tool,
-      originalStyle: payload.style };
+      originalStyle: payload.style, originalTapePattern: payload.tapePattern,
+      originalSmartHighlight: payload.smartHighlight, originalForce: payload.force,
+      originalInkEffects: payload.inkEffects,
+      originalInkEffectsTinted: payload.inkEffectsTinted };
     shape = ellipse;
   }
   shape.bounds = recomputeShapeBounds(shape);
@@ -1214,15 +1244,26 @@ function validateCreateShape(payload: OriginalCreateShapePayload,
   if (payload.rotation !== null) finite(payload.rotation);
   if (payload.scale !== null) { finite(payload.scale.x); finite(payload.scale.y); }
   validateDefinition(payload.definition);
-  if (payload.tool < 0 || payload.tool > 7 || payload.style < 1 || payload.style > 3 ||
-    (payload.tapePattern !== null && (payload.tapePattern < 0 || payload.tapePattern > 8))) {
+  if (!Number.isInteger(payload.tool) || payload.tool < 0 || payload.tool > 7 ||
+    !Number.isInteger(payload.style) || payload.style < 1 || payload.style > 3 ||
+    (payload.tapePattern !== null && (!Number.isInteger(payload.tapePattern) ||
+      payload.tapePattern < 0 || payload.tapePattern > 8))) {
     throw new Error('CreateShape tool configuration is invalid');
+  }
+  if (!validColor(payload.color) ||
+    (payload.fillColor !== null && !validColor(payload.fillColor)) ||
+    typeof payload.smartHighlight !== 'boolean' ||
+    typeof payload.positionLocked !== 'boolean' ||
+    typeof payload.inkEffects !== 'string' ||
+    typeof payload.inkEffectsTinted !== 'boolean') {
+    throw new Error('CreateShape scalar state is invalid');
   }
   finiteNonNegative(payload.borderWidth);
   if (payload.force !== null) finite(payload.force);
   validateUnsignedLongDecimal(payload.zIndex);
   validateUnsignedLongDecimal(payload.inkEffects);
-  if (fillBytes !== null && fillBytes[3] === 0) {
+  if ((fillBytes !== null && fillBytes[3] === 0) ||
+    (payload.fillColor !== null && (payload.fillColor >>> 24 & 0xFF) === 0)) {
     throw new Error('CreateShape uses a transparent fill color');
   }
   if (!payload.inkEffectsTinted && payload.inkEffects === '0') {
@@ -1242,18 +1283,27 @@ function validateModifyShape(payload: OriginalModifyShapePayload,
   if (payload.rotation.value !== null) finite(payload.rotation.value);
   if (payload.scale.value !== null) { finite(payload.scale.value.x); finite(payload.scale.value.y); }
   if (payload.definition.value !== null) validateDefinition(payload.definition.value);
-  if ((payload.tool !== null && (payload.tool < 0 || payload.tool > 7)) ||
-    payload.style === 0 || (payload.style !== null && payload.style > 3) ||
-    (payload.tapePattern !== null && payload.tapePattern > 8)) {
+  if ((payload.tool !== null && (!Number.isInteger(payload.tool) ||
+      payload.tool < 0 || payload.tool > 7)) ||
+    (payload.style !== null && (!Number.isInteger(payload.style) ||
+      payload.style < 1 || payload.style > 3)) ||
+    (payload.tapePattern !== null && (!Number.isInteger(payload.tapePattern) ||
+      payload.tapePattern < 0 || payload.tapePattern > 8))) {
     throw new Error('ModifyShape tool configuration is invalid');
+  }
+  if ((payload.color !== null && !validColor(payload.color)) ||
+    (payload.fillColor.value !== null && !validColor(payload.fillColor.value)) ||
+    (payload.positionLocked !== null && typeof payload.positionLocked !== 'boolean') ||
+    (payload.inkEffects !== null && typeof payload.inkEffects !== 'string') ||
+    (payload.inkEffectsTinted !== null && typeof payload.inkEffectsTinted !== 'boolean')) {
+    throw new Error('ModifyShape scalar state is invalid');
   }
   if (payload.borderWidth !== null) finiteNonNegative(payload.borderWidth);
   if (fillBytes !== null && fillBytes[3] === 0) {
     throw new Error('ModifyShape uses a transparent fill color');
   }
-  if (payload.inkEffectsTinted === false &&
-    (payload.inkEffects === null || payload.inkEffects === '0')) {
-    throw new Error('ModifyShape tint flag has no ink effect');
+  if (payload.inkEffects !== null) {
+    validateUnsignedLongDecimal(payload.inkEffects);
   }
 }
 
@@ -1266,7 +1316,9 @@ function validateDefinition(definition: OriginalShapeDefinition): void {
     if (line.arrowHead < 0 || line.arrowHead > 1) throw new Error('Line arrow is invalid');
   } else if (definition.type === OriginalShapeDefinitionType.POLYGON) {
     const polygon: OriginalPolygonDefinition = definition as OriginalPolygonDefinition;
-    if (polygon.points.length > MAX_SHAPE_POINTS) throw new Error('Polygon is too large');
+    if (polygon.points.length < 3 || polygon.points.length > MAX_SHAPE_POINTS) {
+      throw new Error('Polygon point count is invalid');
+    }
     polygon.points.forEach(validPoint);
   } else if (definition.type === OriginalShapeDefinitionType.ELLIPSE) {
     const ellipse: OriginalEllipseDefinition = definition as OriginalEllipseDefinition;
@@ -1274,6 +1326,32 @@ function validateDefinition(definition: OriginalShapeDefinition): void {
   } else {
     throw new Error('Shape definition is invalid');
   }
+}
+
+function readBooleanField(table: OriginalFlatBufferTableReader, index: number,
+  defaultValue: boolean, name: string): boolean {
+  const value: number = table.readUint8(index, defaultValue ? 1 : 0);
+  if (value !== 0 && value !== 1) {
+    throw new Error(`${name} is not boolean`);
+  }
+  return value !== 0;
+}
+
+function readNullableBooleanField(table: OriginalFlatBufferTableReader,
+  index: number, name: string): boolean | null {
+  return table.hasField(index) ? readBooleanField(table, index, false, name) : null;
+}
+
+function validColor(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= -2147483648 && value <= 4294967295;
+}
+
+function isShapeWinnerField(field: string): boolean {
+  return field === 'pageOrigin' || field === 'rotation' || field === 'scale' ||
+    field === 'definition' || field === 'tool' || field === 'style' ||
+    field === 'tapePattern' || field === 'color' || field === 'borderWidth' ||
+    field === 'fillColor' || field === 'zIndex' || field === 'positionLocked' ||
+    field === 'inkEffects' || field === 'inkEffectsTinted';
 }
 
 function identities(raw: number[][], name: string,
