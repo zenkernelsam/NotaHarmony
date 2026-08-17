@@ -13,6 +13,12 @@ import {
   DDL_ORIGINAL_LOCAL_Z_ORDER_HISTORY,
   DDL_ORIGINAL_PAGE_VISIBILITY_WINNER, DDL_ORIGINAL_PAGE_BACKGROUND_WINNER,
   DDL_ORIGINAL_NOTE_BACKGROUND_WINNER, DDL_ORIGINAL_NOTE_TITLE_WINNER,
+  DDL_ORIGINAL_NOTE_HANDWRITING_LANGUAGE_WINNER,
+  DDL_ORIGINAL_NOTE_ALIGN_TEXT_TO_LINES_WINNER,
+  DDL_ORIGINAL_NOTE_DEFAULT_FONT_FAMILY_WINNER,
+  DDL_ORIGINAL_NOTE_DEFAULT_FONT_SIZE_WINNER,
+  DDL_ORIGINAL_NOTE_LAYOUT_MODE_WINNER,
+  DDL_ORIGINAL_NOTE_BLOCK_WRAP_SUPPORT_WINNER,
   DDL_ORIGINAL_ELEMENT_Z_INDEX, DDL_ORIGINAL_INK_STATE, DDL_ORIGINAL_INK_PATH_APPEND,
   DDL_ORIGINAL_BLOCK_STATE, DDL_ORIGINAL_ENTITY_VISIBILITY_WINNER,
   DDL_ORIGINAL_TEXT_CHARACTER, DDL_ORIGINAL_TEXT_STYLE_OPERATION,
@@ -35,7 +41,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(64);
+      expect(DB_VERSION).assertEqual(65);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -343,6 +349,30 @@ export default function databaseHelperTest() {
       expect(DDL_INDEXES.join('\n')).assertContain('idx_page_snapshot_identity');
       expect(MIGRATIONS[64].join('\n')).assertContain('trg_page_element_identity_insert');
       expect(MIGRATIONS[64][0]).assertContain('idx_page_snapshot_identity');
+      expect(MIGRATIONS[65].join('\n')).assertContain(
+        'original_note_handwriting_language_winner');
+      expect(MIGRATIONS[65].join('\n')).assertContain(
+        'original_note_align_text_to_lines_winner');
+      expect(MIGRATIONS[65].join('\n')).assertContain(
+        'original_note_default_font_family_winner');
+      expect(MIGRATIONS[65].join('\n')).assertContain(
+        'original_note_default_font_size_winner');
+      expect(MIGRATIONS[65].join('\n')).assertContain('original_note_layout_mode_winner');
+      expect(MIGRATIONS[65].join('\n')).assertContain(
+        'original_note_block_wrap_support_winner');
+      expect(DDL_ORIGINAL_NOTE_HANDWRITING_LANGUAGE_WINNER)
+        .assertContain('handwriting_language TEXT');
+      expect(DDL_ORIGINAL_NOTE_ALIGN_TEXT_TO_LINES_WINNER)
+        .assertContain('align_text_to_lines IN (0, 1)');
+      expect(DDL_ORIGINAL_NOTE_DEFAULT_FONT_FAMILY_WINNER)
+        .assertContain('length(default_font_family) <= 30');
+      expect(DDL_ORIGINAL_NOTE_DEFAULT_FONT_SIZE_WINNER)
+        .assertContain('default_font_size > 0');
+      expect(DDL_ORIGINAL_NOTE_LAYOUT_MODE_WINNER).assertContain('layout_mode IN (0, 1)');
+      expect(DDL_ORIGINAL_NOTE_BLOCK_WRAP_SUPPORT_WINNER)
+        .assertContain('block_wrap_support IN (0, 1, 2)');
+      expect(DDL_ORIGINAL_NOTE_HANDWRITING_LANGUAGE_WINNER)
+        .assertContain('REFERENCES note_meta(id) ON DELETE CASCADE');
       expect(DDL_PAGE_ELEMENT_SNAPSHOT).assertContain('element_order');
       expect(DDL_PAGE_ELEMENT_SNAPSHOT).assertContain('revision');
       expect(DDL_PAGE_INFO).assertContain('content_revision');

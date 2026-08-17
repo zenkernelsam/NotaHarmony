@@ -94,6 +94,18 @@ async function requireFreshNote(store: relationalStore.RdbStore,
       (SELECT COUNT(*) FROM page_info WHERE note_id = note.id) AS page_count,
       (SELECT COUNT(*) FROM original_note_title_winner WHERE note_id = note.id) AS title_winners,
       (SELECT COUNT(*) FROM original_note_background_winner WHERE note_id = note.id) AS background_winners,
+      (SELECT COUNT(*) FROM original_note_handwriting_language_winner
+        WHERE note_id = note.id) AS handwriting_winners,
+      (SELECT COUNT(*) FROM original_note_align_text_to_lines_winner
+        WHERE note_id = note.id) AS align_winners,
+      (SELECT COUNT(*) FROM original_note_default_font_family_winner
+        WHERE note_id = note.id) AS family_winners,
+      (SELECT COUNT(*) FROM original_note_default_font_size_winner
+        WHERE note_id = note.id) AS size_winners,
+      (SELECT COUNT(*) FROM original_note_layout_mode_winner
+        WHERE note_id = note.id) AS layout_winners,
+      (SELECT COUNT(*) FROM original_note_block_wrap_support_winner
+        WHERE note_id = note.id) AS wrap_winners,
       (SELECT COUNT(*) FROM operation_log WHERE note_id = note.id) AS operation_count,
       (SELECT COUNT(*) FROM note_sync_metadata WHERE note_id = note.id) AS sync_count
      FROM note_meta note WHERE note.id = ?`, [noteId]);
@@ -103,6 +115,12 @@ async function requireFreshNote(store: relationalStore.RdbStore,
       rows.getLong(rows.getColumnIndex('page_count')) !== 0 ||
       rows.getLong(rows.getColumnIndex('title_winners')) !== 0 ||
       rows.getLong(rows.getColumnIndex('background_winners')) !== 0 ||
+      rows.getLong(rows.getColumnIndex('handwriting_winners')) !== 0 ||
+      rows.getLong(rows.getColumnIndex('align_winners')) !== 0 ||
+      rows.getLong(rows.getColumnIndex('family_winners')) !== 0 ||
+      rows.getLong(rows.getColumnIndex('size_winners')) !== 0 ||
+      rows.getLong(rows.getColumnIndex('layout_winners')) !== 0 ||
+      rows.getLong(rows.getColumnIndex('wrap_winners')) !== 0 ||
       rows.getLong(rows.getColumnIndex('operation_count')) !== 0 ||
       rows.getLong(rows.getColumnIndex('sync_count')) !== 0) {
       throw new Error('blank-note bootstrap target is not a fresh inserted note');

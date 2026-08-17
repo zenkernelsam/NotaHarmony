@@ -3,6 +3,7 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
+// v65: persist the six additional original SET_METADATA registers independently.
 // v64: enforce note-wide page element identity for all SQL insertion/update paths.
 // v63: restore the original shared paper settings database (PaperBackground + BackgroundInfo).
 // v62: remove orphan note_asset references during startup migration.
@@ -11,7 +12,7 @@
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 64;
+export const DB_VERSION: number = 65;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -430,6 +431,60 @@ CREATE TABLE IF NOT EXISTS original_note_title_winner (
   winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
   winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
   title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 256),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_NOTE_HANDWRITING_LANGUAGE_WINNER: string = `
+CREATE TABLE IF NOT EXISTS original_note_handwriting_language_winner (
+  note_id TEXT PRIMARY KEY,
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  handwriting_language TEXT CHECK (handwriting_language IS NULL OR length(handwriting_language) > 0),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_NOTE_ALIGN_TEXT_TO_LINES_WINNER: string = `
+CREATE TABLE IF NOT EXISTS original_note_align_text_to_lines_winner (
+  note_id TEXT PRIMARY KEY,
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  align_text_to_lines INTEGER NOT NULL CHECK (align_text_to_lines IN (0, 1)),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_NOTE_DEFAULT_FONT_FAMILY_WINNER: string = `
+CREATE TABLE IF NOT EXISTS original_note_default_font_family_winner (
+  note_id TEXT PRIMARY KEY,
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  default_font_family TEXT NOT NULL CHECK (length(default_font_family) <= 30),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_NOTE_DEFAULT_FONT_SIZE_WINNER: string = `
+CREATE TABLE IF NOT EXISTS original_note_default_font_size_winner (
+  note_id TEXT PRIMARY KEY,
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  default_font_size REAL NOT NULL CHECK (default_font_size > 0),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_NOTE_LAYOUT_MODE_WINNER: string = `
+CREATE TABLE IF NOT EXISTS original_note_layout_mode_winner (
+  note_id TEXT PRIMARY KEY,
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  layout_mode INTEGER NOT NULL CHECK (layout_mode IN (0, 1)),
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
+export const DDL_ORIGINAL_NOTE_BLOCK_WRAP_SUPPORT_WINNER: string = `
+CREATE TABLE IF NOT EXISTS original_note_block_wrap_support_winner (
+  note_id TEXT PRIMARY KEY,
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  block_wrap_support INTEGER NOT NULL CHECK (block_wrap_support IN (0, 1, 2)),
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
@@ -2517,5 +2572,13 @@ export const MIGRATIONS: Record<number, string[]> = {
     DDL_PAGE_ELEMENT_IDENTITY_INDEX,
     DDL_PAGE_ELEMENT_IDENTITY_INSERT_GUARD,
     DDL_PAGE_ELEMENT_IDENTITY_UPDATE_GUARD,
+  ],
+  65: [
+    DDL_ORIGINAL_NOTE_HANDWRITING_LANGUAGE_WINNER,
+    DDL_ORIGINAL_NOTE_ALIGN_TEXT_TO_LINES_WINNER,
+    DDL_ORIGINAL_NOTE_DEFAULT_FONT_FAMILY_WINNER,
+    DDL_ORIGINAL_NOTE_DEFAULT_FONT_SIZE_WINNER,
+    DDL_ORIGINAL_NOTE_LAYOUT_MODE_WINNER,
+    DDL_ORIGINAL_NOTE_BLOCK_WRAP_SUPPORT_WINNER,
   ],
 };

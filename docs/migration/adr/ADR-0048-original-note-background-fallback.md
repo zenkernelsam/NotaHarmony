@@ -25,7 +25,8 @@ Accepted, 2026-08-11.
   background tuple may be null, and adds independent note background and note
   title winner tables. Existing v49 non-null page winners are copied intact.
 - SET_METADATA accepts the original title/background combination while other
-  metadata fields remain deferred atomically. Title and background each use
+  metadata fields remain deferred atomically (the field 2～7 part of this Phase 70
+  boundary is superseded by ADR-0248/Phase 270). Title and background each use
   their own LWW comparison; stale values are no-ops and equal identities with
   different complete values are conflicts. Non-empty titles update both
   `note_meta` and the title search row.
@@ -71,9 +72,12 @@ transaction decision are recorded in ADR-0221 and
 
 An explicit null title is still deferred because Harmony currently stores a
 non-null materialized title and the original display fallback has not yet been
-proved. SET_METADATA fields for handwriting language, text alignment, default
-font, layout mode and block wrapping also remain deferred. Note/page PDF decode,
-fallback, asset loading and local paper-setting preservation are implemented;
+proved. ADR-0248/Phase 270 has closed inbound decode, validation, independent
+LWW persistence and validated readback for handwriting language, text alignment,
+default font family/size, layout mode and block wrapping; these fields no longer
+remain generically deferred. Their Harmony UI/renderer/recognition consumers,
+local outbound writers, round-trip and device behavior remain open. Note/page PDF
+decode, fallback, asset loading and local paper-setting preservation are implemented;
 their remaining boundary is device pixel comparison and multi-device sync.
 
 ## Phase 245 local-title outbound closure
@@ -87,3 +91,15 @@ upload row and NTL1 durable-history companion.
 An explicit-null title wrapper remains deferred: the proven editor path converts exact empty input to `New Note` and never
 emits null. The separate new-note bootstrap path can combine title and background, but its full creation ordering remains a
 follow-up boundary rather than part of ADR-0222.
+
+## Phase 270 additional metadata inbound closure
+
+ADR-0248 now decodes SET_METADATA fields 2～7 with their original presence rules and persists each field in an independent
+v65 winner table. Handwriting preserves wrapper-present/null-value, scalar false/zero values preserve vtable presence, stale
+fields are no-ops and a mixed operation advances `structure_revision` only once. Same-identity/different-value remains a
+Harmony integrity conflict.
+
+Phase 270 also moves note-level PDF asset merging after all identity decisions and executes it only when the background
+register wins. This prevents a stale PDF patch or a later metadata conflict from attaching an asset before the inbox commits
+its deferred state. The six values now have validated SQL readback, but PAGELESS layout, line alignment, handwriting provider,
+default-font inheritance, wrap behavior and local outbound editing remain follow-up consumer work.

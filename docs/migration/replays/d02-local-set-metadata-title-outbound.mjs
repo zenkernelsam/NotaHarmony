@@ -56,7 +56,7 @@ assert.doesNotMatch(policy, /\.trim\(/);
 assert.match(encoder, /l2d SetMetadata\.field0 -> z2d SetString\.field0 -> UTF-8 title/);
 assert.match(encoder, /writeVtable\(bytes, rootVtable, 8, \[4, 0, 0, 0, 0, 0, 0, 0\]\)/);
 assert.match(encoder, /writeVtable\(bytes, setterVtable, 8, \[4\]\)/);
-assert.match(reducer, /if \(!payload\.hasTitle && !payload\.hasPageBackground\)/);
+assert.match(reducer, /if \(!hasMetadataField\(payload\)\)/);
 assert.match(reducer, /payload\.hasPageBackground[\s\S]*readBackgroundWinner/);
 assert.match(reducer, /payload\.hasTitle[\s\S]*readTitleWinner/);
 assert.match(reducer, /foldSearchText\(title\)/);

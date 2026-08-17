@@ -119,7 +119,7 @@ assert.match(schema, /DDL_ORIGINAL_NOTE_BACKGROUND_WINNER/);
 assert.match(schema, /DDL_ORIGINAL_NOTE_TITLE_WINNER/);
 assert.match(schema, /original_page_background_winner_v50/);
 assert.match(metadata, /ORIGINAL_SET_METADATA_PAYLOAD_TYPE: number = 1/);
-assert.match(metadata, /compareOperationIdentity\(operation, winner\)/);
+assert.match(metadata, /compareOperationIdentity\(operation, backgroundWinner\)/);
 assert.match(metadata, /SET_METADATA_BACKGROUND_IDENTITY_CONFLICT/);
 assert.match(metadata, /SET_METADATA_TITLE_IDENTITY_CONFLICT/);
 assert.match(metadata, /original_note_title_winner/);

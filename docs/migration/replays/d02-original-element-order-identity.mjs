@@ -126,7 +126,7 @@ const checks = [
       importer.includes('页面元素身份跨页冲突') &&
       importer.includes('Notability 页面元素身份跨页冲突')],
   ['v64 installs insert and update guards without a legacy-breaking unique index',
-    database.includes('export const DB_VERSION: number = 64') &&
+    Number(database.match(/export const DB_VERSION: number = (\d+);/)?.[1] ?? 0) >= 64 &&
       database.includes('64: [') && !snapshotDdl.includes('UNIQUE(note_id, element_id)')],
   ['v64 builds the non-unique identity lookup index before both guards',
     database.indexOf('DDL_PAGE_ELEMENT_IDENTITY_INDEX,', database.indexOf('64: [')) <

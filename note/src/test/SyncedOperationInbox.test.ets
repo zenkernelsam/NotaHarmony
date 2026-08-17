@@ -1183,6 +1183,49 @@ export default function syncedOperationInboxTest() {
       expect(pdf.hasPageBackground).assertTrue();
       expect(pdf.pageBackground?.background.pdf?.metadata.fileName).assertEqual('source.pdf');
       expect(applier.preflightTable(pdfTable) === null).assertTrue();
+      expect(applier.preflightTable(readOriginalPayloadTable(
+        flatBufferSetMetadataPdfBackground(2), 1)))
+        .assertEqual('SET_METADATA_TEMPLATE_PDF_PAGE_COUNT_UNSUPPORTED');
+    });
+
+    it('decodes and validates every additional SET_METADATA register', 0, () => {
+      const applier = new OriginalSetMetadataOperationApplier();
+      const table = readOriginalPayloadTable(flatBufferSetMetadataRegisters(
+        'en_US', true, 'Noto Sans', 24, 1, 2), 1);
+      const value = decodeOriginalSetMetadataTable(table);
+      expect(value.hasHandwritingLanguage).assertTrue();
+      expect(value.handwritingLanguage).assertEqual('en_US');
+      expect(value.hasAlignTextToLines).assertTrue();
+      expect(value.alignTextToLines).assertTrue();
+      expect(value.hasDefaultFontFamily).assertTrue();
+      expect(value.defaultFontFamily).assertEqual('Noto Sans');
+      expect(value.hasDefaultFontSize).assertTrue();
+      expect(value.defaultFontSize).assertEqual(24);
+      expect(value.hasLayoutMode).assertTrue();
+      expect(value.layoutMode).assertEqual(1);
+      expect(value.hasBlockWrapSupport).assertTrue();
+      expect(value.blockWrapSupport).assertEqual(2);
+      expect(applier.preflightTable(table) === null).assertTrue();
+
+      const clearLanguage = readOriginalPayloadTable(flatBufferSetMetadataRegisters(
+        null, false, '', 17, 0, 0), 1);
+      expect(decodeOriginalSetMetadataTable(clearLanguage).handwritingLanguage === null).assertTrue();
+      expect(applier.preflightTable(clearLanguage) === null).assertTrue();
+      expect(applier.preflightTable(readOriginalPayloadTable(flatBufferSetMetadataRegisters(
+        'zz_US', false, '', 17, 0, 0), 1)))
+        .assertEqual('SET_METADATA_HANDWRITING_LANGUAGE_UNSUPPORTED');
+      expect(applier.preflightTable(readOriginalPayloadTable(flatBufferSetMetadataRegisters(
+        'en_US', false, 'x'.repeat(31), 17, 0, 0), 1)))
+        .assertEqual('SET_METADATA_DEFAULT_FONT_FAMILY_UNSUPPORTED');
+      expect(applier.preflightTable(readOriginalPayloadTable(flatBufferSetMetadataRegisters(
+        'en_US', false, '', Number.POSITIVE_INFINITY, 0, 0), 1)))
+        .assertEqual('SET_METADATA_DEFAULT_FONT_SIZE_UNSUPPORTED');
+      expect(applier.preflightTable(readOriginalPayloadTable(flatBufferSetMetadataRegisters(
+        'en_US', false, '', 17, 2, 0), 1)))
+        .assertEqual('SET_METADATA_LAYOUT_MODE_UNSUPPORTED');
+      expect(applier.preflightTable(readOriginalPayloadTable(flatBufferSetMetadataRegisters(
+        'en_US', false, '', 17, 0, 3), 1)))
+        .assertEqual('SET_METADATA_BLOCK_WRAP_SUPPORT_UNSUPPORTED');
     });
 
     it('decodes original DELETE_ENTITIES page tombstones independently from entities', 0, () => {
@@ -2669,6 +2712,30 @@ function flatBufferSetMetadataBackground(includeValue: boolean, title: string | 
   return builder.finish(root);
 }
 
+function flatBufferSetMetadataRegisters(handwritingLanguage: string | null,
+  alignTextToLines: boolean, defaultFontFamily: string, defaultFontSize: number,
+  layoutMode: number, blockWrapSupport: number): Uint8Array {
+  const builder = new FixtureFlatBufferBuilder();
+  const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
+  builder.uint16(root + 4, 7);
+  builder.uint32(root + 8, 94);
+  builder.uint8(root + 28, 1);
+  const metadata: number = builder.table([0, 0, 4, 8, 12, 16, 20, 21], 24);
+  builder.pointer(root + 32, metadata);
+  const handwritingSetter: number = builder.table(
+    [handwritingLanguage === null ? 0 : 4], handwritingLanguage === null ? 4 : 8);
+  builder.pointer(metadata + 4, handwritingSetter);
+  if (handwritingLanguage !== null) {
+    builder.pointer(handwritingSetter + 4, builder.string(handwritingLanguage));
+  }
+  builder.uint8(metadata + 8, alignTextToLines ? 1 : 0);
+  builder.pointer(metadata + 12, builder.string(defaultFontFamily));
+  builder.float32(metadata + 16, defaultFontSize);
+  builder.uint8(metadata + 20, layoutMode);
+  builder.uint8(metadata + 21, blockWrapSupport);
+  return builder.finish(root);
+}
+
 function flatBufferCreatePageBackground(): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
@@ -2727,7 +2794,7 @@ function flatBufferModifyPagePdfBackground(): Uint8Array {
   return builder.finish(root);
 }
 
-function flatBufferSetMetadataPdfBackground(): Uint8Array {
+function flatBufferSetMetadataPdfBackground(pagesConsumed: number = 1): Uint8Array {
   const builder = new FixtureFlatBufferBuilder();
   const root: number = builder.table([4, 12, 20, 0, 28, 32], 36);
   builder.uint16(root + 4, 7);
@@ -2737,7 +2804,7 @@ function flatBufferSetMetadataPdfBackground(): Uint8Array {
   builder.pointer(root + 32, metadata);
   const setter: number = builder.table([4], 8);
   builder.pointer(metadata + 4, setter);
-  builder.pointer(setter + 4, pdfPageBackground(builder, 1, 3));
+  builder.pointer(setter + 4, pdfPageBackground(builder, pagesConsumed, 3));
   return builder.finish(root);
 }
 
