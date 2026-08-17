@@ -1,6 +1,8 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
-  DB_VERSION, DDL_EDITOR_TOOLBOX_STATE, DDL_FOLDER, DDL_PAGE_ELEMENT_SNAPSHOT, DDL_PAGE_INFO,
+  DB_VERSION, DDL_EDITOR_TOOLBOX_STATE, DDL_FOLDER, DDL_PAGE_ELEMENT_SNAPSHOT,
+  DDL_PAGE_ELEMENT_IDENTITY_INDEX, DDL_PAGE_ELEMENT_IDENTITY_INSERT_GUARD,
+  DDL_PAGE_ELEMENT_IDENTITY_UPDATE_GUARD, DDL_PAGE_INFO,
   DDL_NOTE_META, DDL_NOTE_STATE, DDL_OPERATION_LOG, DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE,
   DDL_PAGE_DELETE_CHECKPOINT, DDL_PAGE_DELETE_CHECKPOINT_ELEMENT, DDL_PAGE_DELETE_CHECKPOINT_SEARCH,
   DDL_HISTORY_CHECKPOINT, DDL_HISTORY_CHECKPOINT_ACTION, DDL_HISTORY_CHECKPOINT_OPERATION,
@@ -33,7 +35,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(63);
+      expect(DB_VERSION).assertEqual(64);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -333,6 +335,14 @@ export default function databaseHelperTest() {
 
     it('names the current storage as an ordered page snapshot', 0, () => {
       expect(DDL_PAGE_ELEMENT_SNAPSHOT).assertContain('page_element_snapshot');
+      expect(DDL_PAGE_ELEMENT_IDENTITY_INSERT_GUARD)
+        .assertContain('existing.note_id = NEW.note_id AND existing.element_id = NEW.element_id');
+      expect(DDL_PAGE_ELEMENT_IDENTITY_UPDATE_GUARD).assertContain('existing.rowid <> OLD.rowid');
+      expect(DDL_PAGE_ELEMENT_IDENTITY_INDEX)
+        .assertContain('page_element_snapshot(note_id, element_id)');
+      expect(DDL_INDEXES.join('\n')).assertContain('idx_page_snapshot_identity');
+      expect(MIGRATIONS[64].join('\n')).assertContain('trg_page_element_identity_insert');
+      expect(MIGRATIONS[64][0]).assertContain('idx_page_snapshot_identity');
       expect(DDL_PAGE_ELEMENT_SNAPSHOT).assertContain('element_order');
       expect(DDL_PAGE_ELEMENT_SNAPSHOT).assertContain('revision');
       expect(DDL_PAGE_INFO).assertContain('content_revision');

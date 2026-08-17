@@ -30,7 +30,7 @@ import {
   OriginalMutationPageTarget, OriginalPageMutationBatch,
 } from './OriginalPageMutationBatch';
 import {
-  decodePersistedElement, encodePersistedElement, PersistedElement,
+  decodeStoredPageElement, encodePersistedElement, PersistedElement,
 } from './StrokePersistence';
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
@@ -864,7 +864,7 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
        AND page_site_id = ? AND page_index = ? AND visible = 1`,
       [noteId, page.timestamp, page.siteId, page.index]);
     const result: StoredZIndexRow[] = [];
-    const keys: Set<string> = new Set<string>();
+    const kinds: Map<string, number> = new Map<string, number>();
     try {
       while (tracked.goToNextRow()) {
         const timestamp: number = tracked.getLong(tracked.getColumnIndex('element_timestamp'));
@@ -873,7 +873,10 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         const elementId: string = encodeOperationId({ timestamp: timestamp, siteId: siteId });
         result.push({ elementId: elementId, kind: kind, timestamp: timestamp, siteId: siteId,
           zIndex: tracked.getString(tracked.getColumnIndex('z_index')) });
-        keys.add(`${kind}:${elementId}`);
+        if (kinds.has(elementId)) {
+          return null;
+        }
+        kinds.set(elementId, kind);
       }
     } finally {
       tracked.close();
@@ -885,13 +888,15 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       'SELECT element_id, kind FROM page_element_snapshot WHERE note_id = ? AND page_id = ?',
       [noteId, target.pageId]);
     let count: number = 0;
+    const seen: Set<string> = new Set<string>();
     try {
       while (stored.goToNextRow()) {
-        const key: string = `${stored.getLong(stored.getColumnIndex('kind'))}:` +
-          stored.getString(stored.getColumnIndex('element_id'));
-        if (!keys.has(key)) {
+        const elementId: string = stored.getString(stored.getColumnIndex('element_id'));
+        const kind: number = stored.getLong(stored.getColumnIndex('kind'));
+        if (seen.has(elementId) || kinds.get(elementId) !== kind) {
           return null;
         }
+        seen.add(elementId);
         count++;
       }
     } finally {
@@ -1149,8 +1154,8 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
       if (!rows.goToFirstRow()) {
         return null;
       }
-      const persisted: PersistedElement = decodePersistedElement(
-        rows.getBlob(rows.getColumnIndex('payload')));
+      const persisted: PersistedElement = decodeStoredPageElement(
+        elementId, PageElementKind.STROKE, rows.getBlob(rows.getColumnIndex('payload')));
       return persisted.kind === 'stroke' ? persisted.data as StrokeElementData : null;
     } catch (_error) {
       return null;

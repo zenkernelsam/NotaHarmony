@@ -726,6 +726,15 @@ export default function persistentHistoryTest() {
         payload: duplicate.elements[0].payload, revision: 7, elementOrder: 1,
       });
       expect(materializeRejects(state, [duplicate])).assertTrue();
+
+      const duplicateAcrossKinds: PageDeleteCheckpoint = deleteCheckpoint(second);
+      duplicateAcrossKinds.elements.push({
+        elementId: duplicateAcrossKinds.elements[0].elementId, kind: PageElementKind.IMAGE,
+        payload: encodePersistedElement({ kind: 'image', data: image(
+          duplicateAcrossKinds.elements[0].elementId) }),
+        revision: 7, elementOrder: 2,
+      });
+      expect(materializeRejects(state, [duplicateAcrossKinds])).assertTrue();
     });
 
     it('rejects missing delete checkpoints, mixed pages, discontinuous revisions, and false op types', 0, () => {

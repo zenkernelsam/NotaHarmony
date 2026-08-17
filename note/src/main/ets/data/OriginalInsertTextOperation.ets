@@ -19,7 +19,9 @@ import {
   StoredOriginalTextStyleOperation,
 } from './OriginalRichTextStyleState';
 import { SearchItemType } from './SearchItemType';
-import { decodePersistedElement, encodePersistedElement, PersistedElement } from './StrokePersistence';
+import {
+  decodeStoredPageElement, encodePersistedElement, PersistedElement,
+} from './StrokePersistence';
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
@@ -456,6 +458,7 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
 
   async readText(store: relationalStore.RdbStore, noteId: string,
     target: StoredTextTarget): Promise<StoredRichTextElement | null> {
+    const elementId: string = encodeOperationId(target.block);
     const rows = await store.querySql(target.hidden ?
       `SELECT payload FROM original_deleted_entity WHERE note_id = ?
        AND entity_timestamp = ? AND entity_site_id = ?
@@ -469,22 +472,22 @@ export class OriginalInsertTextOperationApplier implements SyncedOperationApplie
        AND element_id = ? AND kind = ?`, target.hidden ?
       [noteId, target.block.timestamp, target.block.siteId,
         target.page.timestamp, target.page.siteId, target.page.index,
-        encodeOperationId(target.block), target.kind] : target.archived ?
+        elementId, target.kind] : target.archived ?
       [noteId, target.page.timestamp, target.page.siteId, target.page.index,
-        encodeOperationId(target.block), target.kind] :
-      [noteId, target.pageId, encodeOperationId(target.block), target.kind]);
+        elementId, target.kind] :
+      [noteId, target.pageId, elementId, target.kind]);
     try {
       if (!rows.goToFirstRow()) {
         return null;
       }
-      const persisted: PersistedElement = decodePersistedElement(
-        rows.getBlob(rows.getColumnIndex('payload')));
+      const persisted: PersistedElement = decodeStoredPageElement(
+        elementId, target.kind, rows.getBlob(rows.getColumnIndex('payload')));
       if ((target.kind === PageElementKind.TEXT && persisted.kind !== 'text') ||
         (target.kind === PageElementKind.SHAPE && persisted.kind !== 'shape')) {
         return null;
       }
       const text = persisted.data as Object as StoredRichTextElement;
-      if (text.id !== encodeOperationId(target.block)) {
+      if (text.id !== elementId) {
         return null;
       }
       if (target.kind === PageElementKind.SHAPE && text.richText === undefined) {

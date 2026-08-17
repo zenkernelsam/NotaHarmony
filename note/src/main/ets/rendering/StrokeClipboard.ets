@@ -11,8 +11,8 @@ import { cloneTextBlockElement } from '../core/model/TextBlockGeometry';
 import { cloneImageElement, imageBlockWorldBounds } from '../core/model/ImageBlockGeometry';
 import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockGeometry';
 import {
-  materializePageElements, normalizePageElementOrder, OrderedPageElement,
-  PageElementKind, PageElementRef,
+  materializePageElements, OrderedPageElement, PageElementKind, PageElementRef,
+  strictPageElementOrder,
 } from '../core/model/PageElementOrder';
 import { OriginalSelectionGroup } from '../core/model/OriginalGroupSelection';
 
@@ -298,8 +298,11 @@ export class StrokeClipboard {
     if (groupGraph === null) {
       return null;
     }
-    const normalizedOrder: PageElementRef[] = normalizePageElementOrder(
+    const normalizedOrder: PageElementRef[] | null = strictPageElementOrder(
       elementOrder, copied, copiedTexts, copiedShapes, copiedImages, copiedMath);
+    if (normalizedOrder === null) {
+      return null;
+    }
     const preparedState: PreparedClipboardState = {
       strokes: copied,
       shapes: copiedShapes,

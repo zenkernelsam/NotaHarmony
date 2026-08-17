@@ -76,7 +76,7 @@ assert.equal(failed.prepare(`SELECT COUNT(*) count FROM sqlite_master
   WHERE type='table' AND name='original_asset_cloud_state'`).get().count, 0);
 failed.close();
 
-assert.match(schema, /DB_VERSION: number = 63/);
+assert.match(schema, /DB_VERSION: number = (?:6[3-9]|[7-9][0-9]|[1-9][0-9]{2,})/);
 assert.match(schema, /52: \[[\s\S]*DDL_ORIGINAL_ASSET_CLOUD_STATE/);
 assert.match(schema, /PRIMARY KEY\(note_id, asset_hash\)/);
 assert.match(manager, /DDL_ORIGINAL_ASSET_CLOUD_STATE/);

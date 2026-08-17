@@ -49,6 +49,20 @@ export default function pageSnapshotOpCodecTest() {
       }
       expect(rejected).assertTrue();
     });
+
+    it('rejects duplicate cross-kind IDs and unsupported kinds', 0, () => {
+      expectEncodeReject({
+        pageId: 'page', revision: 1,
+        elements: [
+          { elementId: 'shared', kind: 1, payload: new Uint8Array([1]) },
+          { elementId: 'shared', kind: 2, payload: new Uint8Array([2]) },
+        ],
+      });
+      expectEncodeReject({ pageId: 'page', revision: 1,
+        elements: [{ elementId: 'zero', kind: 0, payload: new Uint8Array([1]) }] });
+      expectEncodeReject({ pageId: 'page', revision: 1,
+        elements: [{ elementId: 'future', kind: 6, payload: new Uint8Array([1]) }] });
+    });
   });
 }
 
@@ -56,6 +70,16 @@ function expectReject(bytes: Uint8Array): void {
   let rejected: boolean = false;
   try {
     decodePageSnapshotOp(bytes);
+  } catch (_error) {
+    rejected = true;
+  }
+  expect(rejected).assertTrue();
+}
+
+function expectEncodeReject(value: PageSnapshotOpPayload): void {
+  let rejected: boolean = false;
+  try {
+    encodePageSnapshotOp(value);
   } catch (_error) {
     rejected = true;
   }

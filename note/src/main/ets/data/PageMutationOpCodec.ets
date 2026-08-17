@@ -1,4 +1,5 @@
 import { OpType } from '../core/model/OpTypes';
+import { PageElementKind } from '../core/model/PageElementOrder';
 import {
   BinaryOpReader, BinaryOpWriter, encodeOperationString, MAX_OPERATION_BYTES,
   MAX_OPERATION_ELEMENTS, sameBytes,
@@ -45,13 +46,15 @@ export function createPageMutation(pageId: string, fromRevision: number, toRevis
   const afterElements: SearchSourceElement[] = [];
   currentMap.forEach((element: SearchSourceElement, key: string): void => {
     const target: SearchSourceElement | undefined = nextMap.get(key);
-    if (target === undefined || !sameBytes(element.payload, target.payload)) {
+    if (target === undefined || element.kind !== target.kind ||
+      !sameBytes(element.payload, target.payload)) {
       beforeElements.push(element);
     }
   });
   nextMap.forEach((element: SearchSourceElement, key: string): void => {
     const source: SearchSourceElement | undefined = currentMap.get(key);
-    if (source === undefined || !sameBytes(source.payload, element.payload)) {
+    if (source === undefined || source.kind !== element.kind ||
+      !sameBytes(source.payload, element.payload)) {
       afterElements.push(element);
     }
   });
@@ -115,7 +118,8 @@ export function replayPageMutation(current: SearchSourceElement[], mutation: Pag
       if (actual !== undefined) {
         throw new Error('page mutation expected an absent source element');
       }
-    } else if (actual === undefined || !sameBytes(actual.payload, expected.payload)) {
+    } else if (actual === undefined || actual.kind !== expected.kind ||
+      !sameBytes(actual.payload, expected.payload)) {
       throw new Error('page mutation source element mismatch');
     }
     currentMap.delete(key);
@@ -132,6 +136,9 @@ export function replayPageMutation(current: SearchSourceElement[], mutation: Pag
     const element: SearchSourceElement | undefined = currentMap.get(key);
     if (element === undefined) {
       throw new Error('page mutation target order references a missing element');
+    }
+    if (element.kind !== ref.kind) {
+      throw new Error('page mutation target order kind does not match its element');
     }
     result.push(element);
     currentMap.delete(key);
@@ -210,14 +217,22 @@ function validateMutation(mutation: PageMutationOpPayload): void {
   const afterMap: Map<string, SearchSourceElement> = elementMap(mutation.afterElements, 'after elements');
   const beforeOrderKeys: Set<string> = orderKeys(mutation.beforeOrder);
   const afterOrderKeys: Set<string> = orderKeys(mutation.afterOrder);
+  const beforeOrderKinds: Map<string, number> = orderKinds(mutation.beforeOrder);
+  const afterOrderKinds: Map<string, number> = orderKinds(mutation.afterOrder);
   beforeMap.forEach((_value: SearchSourceElement, key: string): void => {
     if (!beforeOrderKeys.has(key)) {
       throw new Error('before mutation element is absent from before order');
+    }
+    if (beforeOrderKinds.get(key) !== _value.kind) {
+      throw new Error('before mutation element kind contradicts before order');
     }
   });
   afterMap.forEach((_value: SearchSourceElement, key: string): void => {
     if (!afterOrderKeys.has(key)) {
       throw new Error('after mutation element is absent from after order');
+    }
+    if (afterOrderKinds.get(key) !== _value.kind) {
+      throw new Error('after mutation element kind contradicts after order');
     }
   });
   const affectedKeys: Set<string> = new Set<string>();
@@ -232,7 +247,8 @@ function validateMutation(mutation: PageMutationOpPayload): void {
       (before !== undefined && !existedBefore) || (after !== undefined && !existsAfter)) {
       throw new Error('mutation affected elements contradict page order membership');
     }
-    if (before !== undefined && after !== undefined && sameBytes(before.payload, after.payload)) {
+    if (before !== undefined && after !== undefined && before.kind === after.kind &&
+      sameBytes(before.payload, after.payload)) {
       throw new Error('mutation redundantly stores an unchanged element');
     }
   });
@@ -254,7 +270,8 @@ function validateOrder(order: PageMutationOrderRef[], label: string): void {
   }
   const keys: Set<string> = new Set<string>();
   for (const ref of order) {
-    if (ref.elementId.length === 0 || !Number.isSafeInteger(ref.kind) || ref.kind < 0) {
+    if (ref.elementId.length === 0 || !Number.isSafeInteger(ref.kind) ||
+      ref.kind < PageElementKind.STROKE || ref.kind > PageElementKind.MATH) {
       throw new Error(`${label} contains an invalid identity`);
     }
     const key: string = identity(ref);
@@ -271,8 +288,9 @@ function elementMap(elements: SearchSourceElement[], label: string): Map<string,
   }
   const result: Map<string, SearchSourceElement> = new Map<string, SearchSourceElement>();
   for (const element of elements) {
-    if (element.elementId.length === 0 || !Number.isSafeInteger(element.kind) || element.kind < 0 ||
-      element.payload.length > MAX_OPERATION_BYTES) {
+    if (element.elementId.length === 0 || !Number.isSafeInteger(element.kind) ||
+      element.kind < PageElementKind.STROKE || element.kind > PageElementKind.MATH ||
+      element.payload.length === 0 || element.payload.length > MAX_OPERATION_BYTES) {
       throw new Error(`${label} contains an invalid element`);
     }
     const key: string = identity(element);
@@ -285,7 +303,7 @@ function elementMap(elements: SearchSourceElement[], label: string): Map<string,
 }
 
 function identity(value: PageMutationOrderRef | SearchSourceElement): string {
-  return `${value.kind}:${value.elementId.length}:${value.elementId}`;
+  return value.elementId;
 }
 
 function sameOrder(left: PageMutationOrderRef[], right: PageMutationOrderRef[]): boolean {
@@ -304,6 +322,14 @@ function orderKeys(order: PageMutationOrderRef[]): Set<string> {
   const result: Set<string> = new Set<string>();
   for (const ref of order) {
     result.add(identity(ref));
+  }
+  return result;
+}
+
+function orderKinds(order: PageMutationOrderRef[]): Map<string, number> {
+  const result: Map<string, number> = new Map<string, number>();
+  for (const ref of order) {
+    result.set(ref.elementId, ref.kind);
   }
   return result;
 }

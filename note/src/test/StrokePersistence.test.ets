@@ -6,7 +6,7 @@ import {
   classifyOriginalImageCropMutation, classifyOriginalImageFlipMutation,
   classifyOriginalMathLatexMutation, classifyOriginalPositionLockMutation,
   classifyOriginalRenderMutation,
-  decodeOriginalShapeStateTool, decodePersistedElement,
+  decodeOriginalShapeStateTool, decodePersistedElement, decodeStoredPageElement,
   encodePersistedElement,
   originalClipboardShapeForPaste,
   OriginalClipboardPastePlan, OriginalMathLatexMutation,
@@ -62,6 +62,17 @@ export default function strokePersistenceTest() {
       expect(restoredStroke.renderSpec.inkEffectsTinted).assertFalse();
       expect(restoredStroke.renderSpec.inkEffectPhase).assertEqual(-3.25);
       expect(restoredStroke.bounds.width).assertEqual(3);
+    });
+
+    it('binds a stored row kind and ID to its persisted payload', 0, () => {
+      const source: PersistedElement = { kind: 'stroke', data: partialEraseStroke('stroke-row') };
+      const bytes: Uint8Array = encodePersistedElement(source);
+      expect((decodeStoredPageElement('stroke-row', PageElementKind.STROKE, bytes)
+        .data as StrokeElementData).id).assertEqual('stroke-row');
+      expect(() => decodeStoredPageElement('other', PageElementKind.STROKE, bytes)).assertThrow();
+      expect(() => decodeStoredPageElement('stroke-row', PageElementKind.TEXT, bytes)).assertThrow();
+      expect(() => decodeStoredPageElement('stroke-row', 0, bytes)).assertThrow();
+      expect(() => decodeStoredPageElement('stroke-row', 6, bytes)).assertThrow();
     });
 
     it('classifies one canonical Math latex-only edit and reverse Undo', 0, () => {

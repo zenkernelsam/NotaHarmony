@@ -60,7 +60,8 @@ import {
 import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
 import {
-  decodePersistedElement, encodePersistedElement, HistoryPageSnapshot, OriginalZOrderCommand,
+  decodePersistedElement, decodeStoredPageElement, encodePersistedElement, HistoryPageSnapshot,
+  OriginalZOrderCommand,
   OriginalClipboardPasteHistoryResult, OriginalClipboardPastePersistenceResult,
   OriginalClipboardPastePlan, OriginalGroupMutationResult, OriginalMathInsertResult,
   OriginalPartialEraseHistoryResult, OriginalPartialErasePersistenceResult,
@@ -144,8 +145,9 @@ import {
 import { effectivePageBackground } from '../../core/model/PageBackgroundModel';
 import {
   appendPageElementRefs, clonePageElementOrder, materializePageElements, movePageElementRefsOneStep,
-  normalizePageElementOrder, OrderedPageElement, PageElementKind, PageElementRef,
+  OrderedPageElement, PageElementKind, PageElementRef,
   removePageElementRefs, requiresUnifiedElementRender, samePageElementMembers, samePageElementOrder,
+  strictPageElementOrder,
 } from '../../core/model/PageElementOrder';
 import { EditorViewModel } from './EditorViewModel';
 import { SelectionOverlay, SelectionMenuAction } from '../components/SelectionOverlay';
@@ -1965,12 +1967,12 @@ export struct NoteCanvasView {
       const orderRanks: Map<string, number> = new Map<string, number>();
       for (let index: number = 0; index < this.elementOrder.length; index++) {
         const ref: PageElementRef = this.elementOrder[index];
-        orderRanks.set(`${ref.kind}:${ref.elementId}`, index);
+        orderRanks.set(ref.elementId, index);
       }
       replacements.sort((left: OriginalPartialEraseReplacementPlan,
         right: OriginalPartialEraseReplacementPlan): number =>
-        (orderRanks.get(`${left.sourceKind}:${left.source.id}`) ?? Number.MAX_SAFE_INTEGER) -
-        (orderRanks.get(`${right.sourceKind}:${right.source.id}`) ?? Number.MAX_SAFE_INTEGER));
+        (orderRanks.get(left.source.id) ?? Number.MAX_SAFE_INTEGER) -
+        (orderRanks.get(right.source.id) ?? Number.MAX_SAFE_INTEGER));
       const plan: OriginalPartialErasePlan = {
         replacements: replacements,
       };
@@ -2247,7 +2249,7 @@ export struct NoteCanvasView {
         return;
       }
       sourceIds.add(replacement.source.id);
-      planByKey.set(`${replacement.sourceKind}:${replacement.source.id}`, replacement);
+      planByKey.set(replacement.source.id, replacement);
     }
     const existingElementIds: Set<string> = new Set<string>();
     for (const ref of this.elementOrder) {
@@ -2265,7 +2267,7 @@ export struct NoteCanvasView {
     }
     const sourceRefs: PageElementRef[] = [];
     for (const ref of this.elementOrder) {
-      if (planByKey.has(`${ref.kind}:${ref.elementId}`)) {
+      if (planByKey.has(ref.elementId)) {
         sourceRefs.push({ kind: ref.kind, elementId: ref.elementId, zIndex: ref.zIndex });
       }
     }
@@ -2277,8 +2279,8 @@ export struct NoteCanvasView {
     const groupReplacements: OriginalPartialEraseGroupReplacement[] = [];
     for (const ref of sourceRefs) {
       const replacement: OriginalPartialEraseReplacementPlan | undefined =
-        planByKey.get(`${ref.kind}:${ref.elementId}`);
-      if (replacement === undefined) {
+        planByKey.get(ref.elementId);
+      if (replacement === undefined || replacement.sourceKind !== ref.kind) {
         return;
       }
       addedCounts.push(replacement.remnants.length);
@@ -3454,9 +3456,18 @@ export struct NoteCanvasView {
   }
 
   private currentMutationElements(): SearchSourceElement[] {
-    const ordered: OrderedPageElement[] = materializePageElements(
+    const strictOrder: PageElementRef[] | null = strictPageElementOrder(
       this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks,
       this.mathBlocks);
+    if (strictOrder === null) {
+      throw new Error('current page does not have one complete stable element order');
+    }
+    const ordered: OrderedPageElement[] = materializePageElements(
+      strictOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks,
+      this.mathBlocks);
+    if (ordered.length !== strictOrder.length) {
+      throw new Error('current page order could not be materialized exactly');
+    }
     const result: SearchSourceElement[] = [];
     for (const element of ordered) {
       const kind: string = element.kind === PageElementKind.STROKE ? 'stroke' :
@@ -3477,8 +3488,14 @@ export struct NoteCanvasView {
     const images: ImageElement[] = [];
     const mathBlocks: MathElement[] = [];
     const order: PageElementRef[] = [];
+    const seen: Set<string> = new Set<string>();
     for (const element of elements) {
-      const persisted: PersistedElement = decodePersistedElement(element.payload);
+      if (seen.has(element.elementId)) {
+        throw new Error('persisted mutation contains a duplicate element identity');
+      }
+      seen.add(element.elementId);
+      const persisted: PersistedElement = decodeStoredPageElement(
+        element.elementId, element.kind, element.payload);
       if (element.kind === PageElementKind.STROKE && persisted.kind === 'stroke') {
         const stroke: StrokeElementData = persisted.data as StrokeElementData;
         strokes.push(stroke);
@@ -3503,12 +3520,17 @@ export struct NoteCanvasView {
       }
       order.push({ kind: element.kind, elementId: element.elementId, zIndex: order.length });
     }
+    const strictOrder: PageElementRef[] | null = strictPageElementOrder(
+      order, strokes, texts, shapes, images, mathBlocks);
+    if (strictOrder === null) {
+      throw new Error('persisted mutation does not have one complete stable element order');
+    }
     this.completedStrokes = strokes;
     this.textBlocks = texts;
     this.shapes = shapes;
     this.imageBlocks = images;
     this.mathBlocks = mathBlocks;
-    this.elementOrder = order;
+    this.elementOrder = strictOrder;
   }
 
   private validateElementOrderAction(action: UndoableAction, isUndo: boolean): boolean {
@@ -3907,21 +3929,36 @@ export struct NoteCanvasView {
       mathBlocks.length) {
       return false;
     }
-    const expected: Set<string> = new Set<string>();
+    const expected: Map<string, PageElementKind> = new Map<string, PageElementKind>();
     for (const stroke of strokes) {
-      expected.add(`${PageElementKind.STROKE}:${stroke.id}`);
+      if (stroke.id.length === 0 || expected.has(stroke.id)) {
+        return false;
+      }
+      expected.set(stroke.id, PageElementKind.STROKE);
     }
     for (const shape of shapes) {
-      expected.add(`${PageElementKind.SHAPE}:${shape.id}`);
+      if (shape.id.length === 0 || expected.has(shape.id)) {
+        return false;
+      }
+      expected.set(shape.id, PageElementKind.SHAPE);
     }
     for (const textBlock of textBlocks) {
-      expected.add(`${PageElementKind.TEXT}:${textBlock.id}`);
+      if (textBlock.id.length === 0 || expected.has(textBlock.id)) {
+        return false;
+      }
+      expected.set(textBlock.id, PageElementKind.TEXT);
     }
     for (const image of images) {
-      expected.add(`${PageElementKind.IMAGE}:${image.id}`);
+      if (image.id.length === 0 || expected.has(image.id)) {
+        return false;
+      }
+      expected.set(image.id, PageElementKind.IMAGE);
     }
     for (const math of mathBlocks) {
-      expected.add(`${PageElementKind.MATH}:${math.id}`);
+      if (math.id.length === 0 || expected.has(math.id)) {
+        return false;
+      }
+      expected.set(math.id, PageElementKind.MATH);
     }
     if (expected.size !== refs.length) {
       return false;
@@ -3931,16 +3968,17 @@ export struct NoteCanvasView {
       if ((ref.kind !== PageElementKind.STROKE && ref.kind !== PageElementKind.SHAPE &&
         ref.kind !== PageElementKind.TEXT && ref.kind !== PageElementKind.IMAGE &&
         ref.kind !== PageElementKind.MATH) ||
-        ref.elementId.length === 0 || actual.has(`${ref.kind}:${ref.elementId}`)) {
+        ref.elementId.length === 0 || actual.has(ref.elementId) ||
+        expected.get(ref.elementId) !== ref.kind) {
         return false;
       }
-      actual.add(`${ref.kind}:${ref.elementId}`);
+      actual.add(ref.elementId);
     }
     if (actual.size !== expected.size) {
       return false;
     }
-    for (const key of expected) {
-      if (!actual.has(key)) {
+    for (const id of expected.keys()) {
+      if (!actual.has(id)) {
         return false;
       }
     }
@@ -4001,16 +4039,25 @@ export struct NoteCanvasView {
 
   private appendMixedElementRefs(order: PageElementRef[], refs: PageElementRef[]): PageElementRef[] | null {
     const result: PageElementRef[] = clonePageElementOrder(order);
-    const appended: Set<string> = new Set<string>();
+    const seen: Set<string> = new Set<string>();
+    for (let index: number = 0; index < result.length; index++) {
+      const current: PageElementRef = result[index];
+      if ((current.kind !== PageElementKind.STROKE && current.kind !== PageElementKind.SHAPE &&
+        current.kind !== PageElementKind.TEXT && current.kind !== PageElementKind.IMAGE &&
+        current.kind !== PageElementKind.MATH) || current.elementId.length === 0 ||
+        current.zIndex !== index || seen.has(current.elementId)) {
+        return null;
+      }
+      seen.add(current.elementId);
+    }
     for (const ref of refs) {
-      const key: string = `${ref.kind}:${ref.elementId}`;
       if ((ref.kind !== PageElementKind.STROKE && ref.kind !== PageElementKind.SHAPE &&
         ref.kind !== PageElementKind.TEXT && ref.kind !== PageElementKind.IMAGE &&
         ref.kind !== PageElementKind.MATH) ||
-        ref.elementId.length === 0 || appended.has(key)) {
+        ref.elementId.length === 0 || seen.has(ref.elementId)) {
         return null;
       }
-      appended.add(key);
+      seen.add(ref.elementId);
       result.push({ kind: ref.kind, elementId: ref.elementId, zIndex: result.length });
     }
     return result;
@@ -4306,9 +4353,12 @@ export struct NoteCanvasView {
   }
 
   private synchronizeElementArraysByOrder(): void {
-    const normalized: PageElementRef[] = normalizePageElementOrder(
+    const normalized: PageElementRef[] | null = strictPageElementOrder(
       this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks,
       this.mathBlocks);
+    if (normalized === null) {
+      throw new Error('page arrays and explicit element order disagree');
+    }
     const ordered: OrderedPageElement[] = materializePageElements(
       normalized, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks,
       this.mathBlocks);

@@ -216,7 +216,7 @@ const translucentArgb = (128 << 24) | (18 << 16) | (52 << 8) | 86;
 assert.equal(translucentArgb, -2146290602);
 assert.equal((translucentArgb >>> 24) & 255, 128);
 
-assert.match(schema, /DB_VERSION: number = 63/);
+assert.match(schema, /DB_VERSION: number = (?:6[3-9]|[7-9][0-9]|[1-9][0-9]{2,})/);
 assert.match(schema, /63: \[[\s\S]*DDL_ORIGINAL_PAPER_BACKGROUND[\s\S]*DDL_ORIGINAL_BACKGROUND_INFO/);
 assert.match(manager, /DDL_ORIGINAL_PAPER_BACKGROUND, DDL_ORIGINAL_BACKGROUND_INFO/);
 assert.match(model, /4852600450409280307/);

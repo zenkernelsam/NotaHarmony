@@ -16,7 +16,9 @@ import { OriginalPageMutationBatch, OriginalMutationPageTarget } from './Origina
 import {
   OriginalFlatBufferTableReader, readOriginalInlineFloat32, readOriginalPayloadTable,
 } from './OriginalSyncedOperationFlatBuffer';
-import { decodePersistedElement, encodePersistedElement, PersistedElement } from './StrokePersistence';
+import {
+  decodeStoredPageElement, encodePersistedElement, PersistedElement,
+} from './StrokePersistence';
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
@@ -831,6 +833,7 @@ async function readShapeTarget(store: relationalStore.RdbStore, noteId: string,
 
 async function readMaterializedShape(store: relationalStore.RdbStore, noteId: string,
   target: StoredShapeTarget): Promise<ShapeElement | null> {
+  const elementId: string = encodeOperationId(target.shape);
   const rows = await store.querySql(target.visible ? target.target.archived ?
     `SELECT payload FROM original_deleted_page_element WHERE note_id = ?
      AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
@@ -842,22 +845,22 @@ async function readMaterializedShape(store: relationalStore.RdbStore, noteId: st
      AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
      AND element_id = ? AND kind = ?`, target.visible ? target.target.archived ?
     [noteId, target.page.timestamp, target.page.siteId, target.page.index,
-      encodeOperationId(target.shape), PageElementKind.SHAPE] :
-    [noteId, target.pageId, encodeOperationId(target.shape), PageElementKind.SHAPE] :
+      elementId, PageElementKind.SHAPE] :
+    [noteId, target.pageId, elementId, PageElementKind.SHAPE] :
     [noteId, target.shape.timestamp, target.shape.siteId,
       target.page.timestamp, target.page.siteId, target.page.index,
-      encodeOperationId(target.shape), PageElementKind.SHAPE]);
+      elementId, PageElementKind.SHAPE]);
   try {
     if (!rows.goToFirstRow()) {
       return null;
     }
-    const persisted: PersistedElement = decodePersistedElement(
-      rows.getBlob(rows.getColumnIndex('payload')));
+    const persisted: PersistedElement = decodeStoredPageElement(
+      elementId, PageElementKind.SHAPE, rows.getBlob(rows.getColumnIndex('payload')));
     if (persisted.kind !== 'shape') {
       return null;
     }
     const shape: ShapeElement = persisted.data as ShapeElement;
-    return shape.id === encodeOperationId(target.shape) ? shape : null;
+    return shape.id === elementId ? shape : null;
   } catch (_error) {
     return null;
   } finally {
@@ -954,17 +957,23 @@ async function pageCoverageIsComplete(store: relationalStore.RdbStore, noteId: s
   target: OriginalMutationPageTarget): Promise<boolean> {
   const order: StoredOrderRow[] = await readOriginalOrder(store, noteId, target.page);
   const rows = await store.query(pagePredicates(noteId, target), ['element_id', 'kind']);
-  const keys: Set<string> = new Set<string>();
+  const kinds: Map<string, number> = new Map<string, number>();
   for (const row of order) {
-    keys.add(`${row.kind}:${row.elementId}`);
+    if (kinds.has(row.elementId)) {
+      return false;
+    }
+    kinds.set(row.elementId, row.kind);
   }
   let count: number = 0;
+  const seen: Set<string> = new Set<string>();
   try {
     while (rows.goToNextRow()) {
-      if (!keys.has(`${rows.getLong(rows.getColumnIndex('kind'))}:` +
-        rows.getString(rows.getColumnIndex('element_id')))) {
+      const elementId: string = rows.getString(rows.getColumnIndex('element_id'));
+      const kind: number = rows.getLong(rows.getColumnIndex('kind'));
+      if (seen.has(elementId) || kinds.get(elementId) !== kind) {
         return false;
       }
+      seen.add(elementId);
       count++;
     }
   } finally {
@@ -978,21 +987,24 @@ async function assignPageOrder(store: relationalStore.RdbStore, noteId: string,
   const rows: StoredOrderRow[] = await readOriginalOrder(store, noteId, target.page);
   const predicates: relationalStore.RdbPredicates = pagePredicates(noteId, target);
   const existing = await store.query(predicates, ['element_id', 'kind']);
-  const keys: Set<string> = new Set<string>();
+  const kinds: Map<string, number> = new Map<string, number>();
   try {
     while (existing.goToNextRow()) {
-      keys.add(`${existing.getLong(existing.getColumnIndex('kind'))}:` +
-        existing.getString(existing.getColumnIndex('element_id')));
+      const elementId: string = existing.getString(existing.getColumnIndex('element_id'));
+      if (kinds.has(elementId)) {
+        throw new Error('original Shape page has a duplicate element identity');
+      }
+      kinds.set(elementId, existing.getLong(existing.getColumnIndex('kind')));
     }
   } finally {
     existing.close();
   }
-  if (keys.size !== rows.length) {
+  if (kinds.size !== rows.length) {
     throw new Error('original Shape page coverage changed during apply');
   }
   const table: string = target.archived ? 'original_deleted_page_element' : 'page_element_snapshot';
   for (let index: number = 0; index < rows.length; index++) {
-    if (!keys.has(`${rows[index].kind}:${rows[index].elementId}`)) {
+    if (kinds.get(rows[index].elementId) !== rows[index].kind) {
       throw new Error('original Shape ordering lost an element');
     }
     const update: relationalStore.RdbPredicates = pagePredicates(noteId, target);

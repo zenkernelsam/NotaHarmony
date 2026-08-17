@@ -105,7 +105,7 @@ export function buildPartialEraseElementReplacementMap(sources: PageElementRef[]
       source.elementId.length === 0 || sourceIds.has(source.elementId)) {
       return null;
     }
-    const key: string = partialEraseSourceKey(source.kind, source.elementId);
+    const key: string = partialEraseSourceKey(source.elementId);
     if (sourceKeys.has(key)) {
       return null;
     }
@@ -128,7 +128,7 @@ export function buildPartialEraseElementReplacementMap(sources: PageElementRef[]
       return null;
     }
     const source: PageElementRef = sources[index];
-    result.set(partialEraseSourceKey(source.kind, source.elementId), {
+    result.set(partialEraseSourceKey(source.elementId), {
       sourceKind: source.kind as PageElementKind.STROKE | PageElementKind.SHAPE,
       sourceId: source.elementId,
       remnants: remnants.slice(offset, offset + count),
@@ -143,7 +143,7 @@ export function partialEraseMixedElementOrder(order: PageElementRef[],
   const result: PageElementRef[] = [];
   const consumed: Set<string> = new Set<string>();
   for (const ref of order) {
-    const key: string = partialEraseSourceKey(ref.kind, ref.elementId);
+    const key: string = partialEraseSourceKey(ref.elementId);
     const replacement: PartialEraseElementReplacement | undefined = replacementByKey.get(key);
     if (replacement === undefined) {
       result.push({ kind: ref.kind, elementId: ref.elementId, zIndex: result.length });
@@ -343,8 +343,8 @@ function shapeIdsAbsent(current: ShapeElement[], shapes: ShapeElement[]): boolea
   return true;
 }
 
-function partialEraseSourceKey(kind: PageElementKind, elementId: string): string {
-  return `${kind}:${elementId}`;
+function partialEraseSourceKey(elementId: string): string {
+  return elementId;
 }
 
 function validInsertionIndices(indices: number[], itemCount: number, baseLength: number): boolean {

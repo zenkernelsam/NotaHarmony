@@ -10,7 +10,7 @@ import { SearchSourceElement } from './SearchIndexPolicy';
 import { PageInfo } from '../core/model/NoteTypes';
 import { samePageBackground } from '../core/model/PageBackgroundModel';
 import { PageDeleteCheckpoint, PageDeleteCheckpointElement } from './PageDeleteCheckpoint';
-import { decodePersistedElement, PersistedElement } from './StrokePersistence';
+import { decodeStoredPageElement, PersistedElement } from './StrokePersistence';
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { cloneImageElement, imageBlockWorldBounds } from '../core/model/ImageBlockGeometry';
@@ -447,18 +447,16 @@ function materializeCheckpointContent(checkpoint: PageDeleteCheckpoint): Materia
   const images: ImageElement[] = [];
   const mathBlocks: MathElement[] = [];
   const elementOrder: PageElementRef[] = [];
+  const seen: Set<string> = new Set<string>();
   for (let index: number = 0; index < checkpoint.elements.length; index++) {
     const element: PageDeleteCheckpointElement = checkpoint.elements[index];
-    if (element.elementOrder !== index || element.revision !== checkpoint.contentRevision) {
+    if (element.elementOrder !== index || element.revision !== checkpoint.contentRevision ||
+      seen.has(element.elementId)) {
       throw new Error('persistent DELETE_PAGE checkpoint element revision or order is invalid');
     }
-    for (let previous: number = 0; previous < index; previous++) {
-      if (checkpoint.elements[previous].kind === element.kind &&
-        checkpoint.elements[previous].elementId === element.elementId) {
-        throw new Error('persistent DELETE_PAGE checkpoint contains a duplicate element identity');
-      }
-    }
-    const persisted: PersistedElement = decodePersistedElement(element.payload);
+    seen.add(element.elementId);
+    const persisted: PersistedElement = decodeStoredPageElement(
+      element.elementId, element.kind, element.payload);
     if (element.kind === PageElementKind.STROKE && persisted.kind === 'stroke') {
       const stroke: StrokeElementData = persisted.data as StrokeElementData;
       if (stroke.id !== element.elementId) {

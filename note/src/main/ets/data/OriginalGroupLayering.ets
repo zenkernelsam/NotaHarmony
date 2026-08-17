@@ -80,6 +80,13 @@ export async function originalGroupLayerUnits(store: relationalStore.RdbStore, n
   if (groups === null) {
     return null;
   }
+  const groupIds: Set<string> = new Set<string>();
+  for (const group of groups) {
+    if (entityIds.has(group.id) || groupIds.has(group.id)) {
+      return null;
+    }
+    groupIds.add(group.id);
+  }
   const parentByMember: Map<string, OriginalLayeringGroup> =
     new Map<string, OriginalLayeringGroup>();
   for (const group of groups) {
@@ -178,14 +185,15 @@ async function refreshPageOrder(store: relationalStore.RdbStore, noteId: string,
     `SELECT element_id, kind, element_order FROM page_element_snapshot
      WHERE note_id = ? AND page_id = ?`, [noteId, target.pageId]);
   const storedOrder: Map<string, number> = new Map<string, number>();
+  const storedKinds: Map<string, number> = new Map<string, number>();
   try {
     while (stored.goToNextRow()) {
-      const key: string = `${stored.getLong(stored.getColumnIndex('kind'))}:` +
-        stored.getString(stored.getColumnIndex('element_id'));
-      if (storedOrder.has(key)) {
+      const elementId: string = stored.getString(stored.getColumnIndex('element_id'));
+      if (storedOrder.has(elementId)) {
         return false;
       }
-      storedOrder.set(key, stored.getLong(stored.getColumnIndex('element_order')));
+      storedOrder.set(elementId, stored.getLong(stored.getColumnIndex('element_order')));
+      storedKinds.set(elementId, stored.getLong(stored.getColumnIndex('kind')));
     }
   } finally {
     stored.close();
@@ -194,8 +202,8 @@ async function refreshPageOrder(store: relationalStore.RdbStore, noteId: string,
     return false;
   }
   for (const entity of entities) {
-    const value: number | undefined = storedOrder.get(`${entity.kind}:${entity.id}`);
-    if (value === undefined) {
+    const value: number | undefined = storedOrder.get(entity.id);
+    if (value === undefined || storedKinds.get(entity.id) !== entity.kind) {
       return false;
     }
     entity.order = value;

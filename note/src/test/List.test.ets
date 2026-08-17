@@ -37,6 +37,7 @@ import pdfRasterPlanTest from './PdfRasterPlan.test';
 import thumbnailRenderPolicyTest from './ThumbnailRenderPolicy.test';
 import strokeClipboardTest from './StrokeClipboard.test';
 import pageElementOrderTest from './PageElementOrder.test';
+import pageElementIdentityTest from './PageElementIdentity.test';
 import shapeGeometryTest from './ShapeGeometry.test';
 import selectionToolTest from './SelectionTool.test';
 import textBlockGeometryTest from './TextBlockGeometry.test';
@@ -137,6 +138,7 @@ export default function testsuite() {
   thumbnailRenderPolicyTest();
   strokeClipboardTest();
   pageElementOrderTest();
+  pageElementIdentityTest();
   shapeGeometryTest();
   selectionToolTest();
   textBlockGeometryTest();

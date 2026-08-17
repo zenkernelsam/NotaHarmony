@@ -21,7 +21,7 @@ import {
 } from './OriginalSyncedOperationFlatBuffer';
 import { SearchItemType } from './SearchItemType';
 import {
-  decodePersistedElement, encodePersistedElement, PersistedElement,
+  decodeStoredPageElement, encodePersistedElement, PersistedElement,
 } from './StrokePersistence';
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
@@ -477,8 +477,8 @@ export class OriginalAddPathElementsOperationApplier implements SyncedOperationA
       if (!rows.goToFirstRow()) {
         return null;
       }
-      const persisted: PersistedElement = decodePersistedElement(
-        rows.getBlob(rows.getColumnIndex('payload')));
+      const persisted: PersistedElement = decodeStoredPageElement(
+        elementId, PageElementKind.STROKE, rows.getBlob(rows.getColumnIndex('payload')));
       return persisted.kind === 'stroke' ? persisted.data as StrokeElementData : null;
     } catch (_error) {
       return null;

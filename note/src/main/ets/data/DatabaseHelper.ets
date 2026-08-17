@@ -3,6 +3,7 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
+// v64: enforce note-wide page element identity for all SQL insertion/update paths.
 // v63: restore the original shared paper settings database (PaperBackground + BackgroundInfo).
 // v62: remove orphan note_asset references during startup migration.
 // v61: retain CREATE_GROUP clientTime for original group-layered element ordering.
@@ -10,7 +11,7 @@
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 63;
+export const DB_VERSION: number = 64;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -54,6 +55,36 @@ CREATE TABLE IF NOT EXISTS page_element_snapshot (
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE,
   FOREIGN KEY(note_id, page_id) REFERENCES page_info(note_id, page_id) ON DELETE CASCADE
 )`;
+
+// A UNIQUE(note_id, element_id) index would make an already-damaged legacy database fail during
+// initialization. These guards leave existing rows readable for diagnosis, but reject every new
+// cross-page or cross-kind reuse regardless of which repository/reducer performs the write.
+export const DDL_PAGE_ELEMENT_IDENTITY_INDEX: string = `
+CREATE INDEX IF NOT EXISTS idx_page_snapshot_identity
+ON page_element_snapshot(note_id, element_id)`;
+
+export const DDL_PAGE_ELEMENT_IDENTITY_INSERT_GUARD: string = `
+CREATE TRIGGER IF NOT EXISTS trg_page_element_identity_insert
+BEFORE INSERT ON page_element_snapshot
+WHEN EXISTS (
+  SELECT 1 FROM page_element_snapshot existing
+  WHERE existing.note_id = NEW.note_id AND existing.element_id = NEW.element_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'duplicate note page element identity');
+END`;
+
+export const DDL_PAGE_ELEMENT_IDENTITY_UPDATE_GUARD: string = `
+CREATE TRIGGER IF NOT EXISTS trg_page_element_identity_update
+BEFORE UPDATE OF note_id, page_id, element_id, kind ON page_element_snapshot
+WHEN EXISTS (
+  SELECT 1 FROM page_element_snapshot existing
+  WHERE existing.note_id = NEW.note_id AND existing.element_id = NEW.element_id
+    AND existing.rowid <> OLD.rowid
+)
+BEGIN
+  SELECT RAISE(ABORT, 'duplicate note page element identity');
+END`;
 
 export const DDL_ORIGINAL_LOCAL_INK_AUTHORING_GUARD: string = `
 CREATE TABLE IF NOT EXISTS original_local_ink_authoring_guard (
@@ -1595,6 +1626,7 @@ export const DDL_INDEXES: string[] = [
     ON page_element_snapshot(note_id, revision)`,
   `CREATE INDEX IF NOT EXISTS idx_page_snapshot_page
     ON page_element_snapshot(note_id, page_id, element_order)`,
+  DDL_PAGE_ELEMENT_IDENTITY_INDEX,
   `CREATE INDEX IF NOT EXISTS idx_operation_log_note_time
     ON operation_log(note_id, client_time, sequence)`,
   `CREATE INDEX IF NOT EXISTS idx_operation_log_note_action
@@ -2480,5 +2512,10 @@ export const MIGRATIONS: Record<number, string[]> = {
   63: [
     DDL_ORIGINAL_PAPER_BACKGROUND,
     DDL_ORIGINAL_BACKGROUND_INFO,
+  ],
+  64: [
+    DDL_PAGE_ELEMENT_IDENTITY_INDEX,
+    DDL_PAGE_ELEMENT_IDENTITY_INSERT_GUARD,
+    DDL_PAGE_ELEMENT_IDENTITY_UPDATE_GUARD,
   ],
 };

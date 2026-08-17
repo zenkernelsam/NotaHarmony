@@ -29,6 +29,7 @@ import {
   DEFAULT_TARGET_PAGE_WIDTH_VP,
   summarizeNotabilityContentLoss,
 } from './NotabilitySessionParser';
+import { reserveNotePageElementIds } from './PageElementIdentity';
 
 const FILE_READ_CHUNK_SIZE: number = 64 * 1024;
 
@@ -171,6 +172,7 @@ export class NoteImporter {
     let failedPages: number = 0;
     let failedElements: number = 0;
     const pageIds: Set<string> = new Set<string>();
+    const noteElementIds: Set<string> = new Set<string>();
     for (let i = 0; i < manifest.pageCount; i++) {
       const entry: ZipEntry | null = ZipReader.findEntry(entries, `pages/page_${i}.json`);
       if (entry === null) {
@@ -190,6 +192,7 @@ export class NoteImporter {
       // 解析元素（跳过损坏条目，不致命）
       const elements: PersistedElement[] = [];
       const elementIds: Set<string> = new Set<string>();
+      const pageElementIds: string[] = [];
       for (const el of page.elements) {
         const parsedElement: object | null = parsePageElement(el);
         if (parsedElement !== null) {
@@ -198,11 +201,17 @@ export class NoteImporter {
             failedElements++;
           } else {
             elementIds.add(typed.data.id);
+            pageElementIds.push(typed.data.id);
             elements.push(typed);
           }
         } else {
           failedElements++;
         }
+      }
+      if (!reserveNotePageElementIds(noteElementIds, pageElementIds)) {
+        return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+          missingAssets: ['同一元素 ID 被多个页面复用'], warnings: [],
+          message: '页面元素身份跨页冲突，导入未完成' };
       }
       parsedPages.push({ pageId: page.pageId, pageIndex: page.pageIndex,
         paperSize: page.paperSize, paperTemplate: page.paperTemplate,
@@ -514,6 +523,19 @@ export class NoteImporter {
     // 4. 转内部模型
     const pages: NotabilityPageElements[] =
       NotabilitySessionParser.toPageElements(session, DEFAULT_TARGET_PAGE_WIDTH_VP);
+    const noteElementIds: Set<string> = new Set<string>();
+    for (const page of pages) {
+      const pageElementIds: string[] = [];
+      for (const ref of page.elementOrder) {
+        pageElementIds.push(ref.elementId);
+      }
+      if (!reserveNotePageElementIds(noteElementIds, pageElementIds)) {
+        return { result: ImportResult.CORRUPTED, noteId: null,
+          title: meta.noteName.length > 0 ? meta.noteName : null, pageCount: 0,
+          missingAssets: ['同一元素 ID 被多个页面复用'], warnings: session.warnings.slice(),
+          message: 'Notability 页面元素身份跨页冲突，导入未完成' };
+      }
+    }
 
     // 5. 写库
     const release: MutexRelease = await NoteImporter.importMutex.lock();

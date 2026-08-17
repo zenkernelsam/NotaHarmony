@@ -72,6 +72,9 @@ export default function originalGroupSelectionTest() {
       expect(resolveOriginalSelectionLayerUnits(['a'], [
         group('one', 10, 1, ['a', 'two']), group('two', 11, 1, ['one']),
       ]) === null).assertTrue();
+      expect(resolveOriginalSelectionLayerUnits(['same', 'a'], [
+        group('same', 12, 1, ['a']),
+      ]) === null).assertTrue();
     });
 
     it('authors direct entities and selected Groups as distinct member units', 0, () => {

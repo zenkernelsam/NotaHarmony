@@ -118,21 +118,19 @@ export function validateOriginalPartialEraseMutation(
   }
   const beforeOrder: Set<string> = new Set<string>();
   for (const ref of pageMutation.beforeOrder) {
-    beforeOrder.add(`${ref.kind}:${ref.elementId}`);
+    beforeOrder.add(ref.elementId);
   }
   const afterOrder: Set<string> = new Set<string>();
   for (const ref of pageMutation.afterOrder) {
-    afterOrder.add(`${ref.kind}:${ref.elementId}`);
+    afterOrder.add(ref.elementId);
   }
   for (const element of pageMutation.beforeElements) {
-    const key: string = `${element.kind}:${element.elementId}`;
-    if (!beforeOrder.has(key) || afterOrder.has(key)) {
+    if (!beforeOrder.has(element.elementId) || afterOrder.has(element.elementId)) {
       throw new Error('original partial erase did not remove a source entity');
     }
   }
   afterIds.forEach((id: string): void => {
-    const key: string = `${PageElementKind.STROKE}:${id}`;
-    if (beforeOrder.has(key) || !afterOrder.has(key)) {
+    if (beforeOrder.has(id) || !afterOrder.has(id)) {
       throw new Error('original partial erase did not insert a remnant Ink');
     }
   });
@@ -150,8 +148,8 @@ export function validateOriginalPartialEraseMutation(
   }
   let deletedGroupCount: number = 0;
   beforeGroups.forEach((before: OriginalSelectionGroup, id: string): void => {
-    if (beforeIds.has(id) || afterIds.has(id)) {
-      throw new Error('original partial erase Group collides with an Ink identity');
+    if (beforeOrder.has(id) || afterOrder.has(id)) {
+      throw new Error('original partial erase Group collides with a page entity identity');
     }
     const after: OriginalSelectionGroup | undefined = afterGroups.get(id);
     if (after === undefined) {
@@ -164,7 +162,7 @@ export function validateOriginalPartialEraseMutation(
     }
   });
   afterGroups.forEach((_after: OriginalSelectionGroup, id: string): void => {
-    if (!beforeGroups.has(id) || beforeIds.has(id) || afterIds.has(id)) {
+    if (!beforeGroups.has(id) || beforeOrder.has(id) || afterOrder.has(id)) {
       throw new Error('original partial erase has an invalid target Group');
     }
   });

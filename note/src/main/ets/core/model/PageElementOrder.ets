@@ -91,6 +91,8 @@ export function normalizePageElementOrder(order: PageElementRef[], strokes: Stro
   for (const math of mathBlocks) {
     mathIds.add(math.id);
   }
+  // Original page entities share one stable getId() namespace.  Kind is a
+  // payload discriminator, not a second identity component.
   const seen: Set<string> = new Set<string>();
   const result: PageElementRef[] = [];
   for (const ref of order) {
@@ -99,21 +101,74 @@ export function normalizePageElementOrder(order: PageElementRef[], strokes: Stro
         ? textIds.has(ref.elementId) : ref.kind === PageElementKind.SHAPE
           ? shapeIds.has(ref.elementId) : ref.kind === PageElementKind.IMAGE
             ? imageIds.has(ref.elementId) : ref.kind === PageElementKind.MATH && mathIds.has(ref.elementId);
-    const key: string = pageElementKey(ref.kind, ref.elementId);
-    if (valid && ref.elementId.length > 0 && !seen.has(key)) {
-      seen.add(key);
+    if (valid && ref.elementId.length > 0 && !seen.has(ref.elementId)) {
+      seen.add(ref.elementId);
       result.push({ kind: ref.kind, elementId: ref.elementId, zIndex: result.length });
     }
   }
   const legacy: PageElementRef[] = legacyPageElementOrder(strokes, textBlocks, shapes, images, mathBlocks);
   for (const ref of legacy) {
-    const key: string = pageElementKey(ref.kind, ref.elementId);
-    if (!seen.has(key)) {
-      seen.add(key);
+    if (!seen.has(ref.elementId)) {
+      seen.add(ref.elementId);
       result.push({ kind: ref.kind, elementId: ref.elementId, zIndex: result.length });
     }
   }
   return result;
+}
+
+/**
+ * Validates a complete page snapshot without repairing it.  An empty order is
+ * accepted only as the legacy migration form and is expanded deterministically;
+ * every explicit order must contain each globally unique entity ID exactly once.
+ */
+export function strictPageElementOrder(order: PageElementRef[], strokes: StrokeElementData[],
+  textBlocks: TextBlockElement[], shapes: ShapeElement[] = [], images: ImageElement[] = [],
+  mathBlocks: MathElement[] = []): PageElementRef[] | null {
+  const expected: Map<string, PageElementKind> = new Map<string, PageElementKind>();
+  for (const stroke of strokes) {
+    if (!registerPageElementIdentity(expected, stroke.id, PageElementKind.STROKE)) {
+      return null;
+    }
+  }
+  for (const text of textBlocks) {
+    if (!registerPageElementIdentity(expected, text.id, PageElementKind.TEXT)) {
+      return null;
+    }
+  }
+  for (const shape of shapes) {
+    if (!registerPageElementIdentity(expected, shape.id, PageElementKind.SHAPE)) {
+      return null;
+    }
+  }
+  for (const image of images) {
+    if (!registerPageElementIdentity(expected, image.id, PageElementKind.IMAGE)) {
+      return null;
+    }
+  }
+  for (const math of mathBlocks) {
+    if (!registerPageElementIdentity(expected, math.id, PageElementKind.MATH)) {
+      return null;
+    }
+  }
+  if (order.length === 0) {
+    return legacyPageElementOrder(strokes, textBlocks, shapes, images, mathBlocks);
+  }
+  if (order.length !== expected.size) {
+    return null;
+  }
+  const seen: Set<string> = new Set<string>();
+  const result: PageElementRef[] = [];
+  for (let index: number = 0; index < order.length; index++) {
+    const ref: PageElementRef = order[index];
+    const expectedKind: PageElementKind | undefined = expected.get(ref.elementId);
+    if (!validPageElementKind(ref.kind) || ref.elementId.length === 0 ||
+      ref.zIndex !== index || expectedKind !== ref.kind || seen.has(ref.elementId)) {
+      return null;
+    }
+    seen.add(ref.elementId);
+    result.push({ kind: ref.kind, elementId: ref.elementId, zIndex: index });
+  }
+  return seen.size === expected.size ? result : null;
 }
 
 export function materializePageElements(order: PageElementRef[], strokes: StrokeElementData[],
@@ -187,12 +242,11 @@ export function appendPageElementRefs(order: PageElementRef[], kind: PageElement
   const result: PageElementRef[] = clonePageElementOrder(order);
   const seen: Set<string> = new Set<string>();
   for (const ref of result) {
-    seen.add(pageElementKey(ref.kind, ref.elementId));
+    seen.add(ref.elementId);
   }
   for (const id of elementIds) {
-    const key: string = pageElementKey(kind, id);
-    if (id.length > 0 && !seen.has(key)) {
-      seen.add(key);
+    if (id.length > 0 && !seen.has(id)) {
+      seen.add(id);
       result.push({ kind: kind, elementId: id, zIndex: result.length });
     }
   }
@@ -356,21 +410,19 @@ export function samePageElementMembers(a: PageElementRef[], b: PageElementRef[])
   if (a.length !== b.length) {
     return false;
   }
-  const keys: Set<string> = new Set<string>();
+  const kinds: Map<string, PageElementKind> = new Map<string, PageElementKind>();
   for (const ref of a) {
-    const key: string = pageElementKey(ref.kind, ref.elementId);
-    if (keys.has(key)) {
+    if (!validPageElementKind(ref.kind) || ref.elementId.length === 0 || kinds.has(ref.elementId)) {
       return false;
     }
-    keys.add(key);
+    kinds.set(ref.elementId, ref.kind);
   }
   const compared: Set<string> = new Set<string>();
   for (const ref of b) {
-    const key: string = pageElementKey(ref.kind, ref.elementId);
-    if (!keys.has(key) || compared.has(key)) {
+    if (kinds.get(ref.elementId) !== ref.kind || compared.has(ref.elementId)) {
       return false;
     }
-    compared.add(key);
+    compared.add(ref.elementId);
   }
   return true;
 }
@@ -403,14 +455,23 @@ export function requiresUnifiedElementRender(order: PageElementRef[]): boolean {
   return false;
 }
 
-export function pageElementKey(kind: PageElementKind, elementId: string): string {
-  return `${kind}:${elementId}`;
-}
-
 function reindexPageElementOrder(order: PageElementRef[]): PageElementRef[] {
   const result: PageElementRef[] = [];
   for (const ref of order) {
     result.push({ kind: ref.kind, elementId: ref.elementId, zIndex: result.length });
   }
   return result;
+}
+
+function registerPageElementIdentity(expected: Map<string, PageElementKind>,
+  elementId: string, kind: PageElementKind): boolean {
+  if (elementId.length === 0 || expected.has(elementId)) {
+    return false;
+  }
+  expected.set(elementId, kind);
+  return true;
+}
+
+function validPageElementKind(kind: PageElementKind): boolean {
+  return Number.isSafeInteger(kind) && kind >= PageElementKind.STROKE && kind <= PageElementKind.MATH;
 }

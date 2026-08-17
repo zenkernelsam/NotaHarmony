@@ -1,4 +1,6 @@
-import { PageElementRef, samePageElementMembers } from '../core/model/PageElementOrder';
+import {
+  PageElementKind, PageElementRef, samePageElementMembers,
+} from '../core/model/PageElementOrder';
 import { OriginalSelectionGroup } from '../core/model/OriginalGroupSelection';
 import {
   BinaryOpReader, BinaryOpWriter, encodeOperationString, MAX_OPERATION_BYTES,
@@ -75,6 +77,8 @@ export function validateOriginalGroupMutation(mutation: OriginalGroupMutationOpP
   validateGroups(mutation.afterGroups);
   validateOrder(mutation.elementOrderBefore);
   validateOrder(mutation.elementOrderAfter);
+  validateGroupElementIdentity(mutation.beforeGroups, mutation.elementOrderBefore);
+  validateGroupElementIdentity(mutation.afterGroups, mutation.elementOrderAfter);
   if (!samePageElementMembers(mutation.elementOrderBefore, mutation.elementOrderAfter)) {
     throw new Error('Group mutation changes page membership');
   }
@@ -114,12 +118,24 @@ function validateOrder(order: PageElementRef[]): void {
   const seen: Set<string> = new Set<string>();
   for (let index: number = 0; index < order.length; index++) {
     const ref: PageElementRef = order[index];
-    const key: string = `${ref.kind}:${ref.elementId}`;
-    if (!Number.isSafeInteger(ref.kind) || ref.kind < 0 || ref.elementId.length === 0 ||
-      ref.zIndex !== index || decodeOperationId(ref.elementId) === null || seen.has(key)) {
+    if (!Number.isSafeInteger(ref.kind) || ref.kind < PageElementKind.STROKE ||
+      ref.kind > PageElementKind.MATH || ref.elementId.length === 0 ||
+      ref.zIndex !== index || decodeOperationId(ref.elementId) === null || seen.has(ref.elementId)) {
       throw new Error('Group mutation order is invalid');
     }
-    seen.add(key);
+    seen.add(ref.elementId);
+  }
+}
+
+function validateGroupElementIdentity(groups: OriginalSelectionGroup[], order: PageElementRef[]): void {
+  const elementIds: Set<string> = new Set<string>();
+  for (const ref of order) {
+    elementIds.add(ref.elementId);
+  }
+  for (const group of groups) {
+    if (elementIds.has(group.id)) {
+      throw new Error('Group mutation Group collides with a page element identity');
+    }
   }
 }
 

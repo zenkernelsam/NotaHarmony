@@ -658,7 +658,7 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
        AND page_site_id = ? AND page_index = ? AND visible = 1`,
       [noteId, target.page.timestamp, target.page.siteId, target.page.index]);
     const rows: StoredEntityOrderRow[] = [];
-    const trackedKeys: Set<string> = new Set<string>();
+    const trackedKinds: Map<string, number> = new Map<string, number>();
     try {
       while (tracked.goToNextRow()) {
         const timestamp: number = tracked.getLong(tracked.getColumnIndex('element_timestamp'));
@@ -669,7 +669,10 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
           elementId: elementId, kind: kind, timestamp: timestamp, siteId: siteId,
           zIndex: tracked.getString(tracked.getColumnIndex('z_index')),
         });
-        trackedKeys.add(`${kind}:${elementId}`);
+        if (trackedKinds.has(elementId)) {
+          return false;
+        }
+        trackedKinds.set(elementId, kind);
       }
     } finally {
       tracked.close();
@@ -682,13 +685,15 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
         'SELECT element_id, kind FROM page_element_snapshot WHERE note_id = ? AND page_id = ?',
         [noteId, target.pageId]);
     let count: number = 0;
+    const seen: Set<string> = new Set<string>();
     try {
       while (existing.goToNextRow()) {
-        const key: string = `${existing.getLong(existing.getColumnIndex('kind'))}:` +
-          existing.getString(existing.getColumnIndex('element_id'));
-        if (!trackedKeys.has(key)) {
+        const elementId: string = existing.getString(existing.getColumnIndex('element_id'));
+        const kind: number = existing.getLong(existing.getColumnIndex('kind'));
+        if (seen.has(elementId) || trackedKinds.get(elementId) !== kind) {
           return false;
         }
+        seen.add(elementId);
         count++;
       }
     } finally {

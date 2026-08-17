@@ -216,6 +216,20 @@ export default function strokeClipboardTest() {
       expect(clipboard.size()).assertEqual(1);
     });
 
+    it('rejects a non-empty Copy order instead of repairing missing or non-contiguous members', 0, () => {
+      const clipboard: StrokeClipboard = new StrokeClipboard();
+      expect(clipboard.copy([stroke('published')], 'page-1')).assertTrue();
+      expect(clipboard.copy([stroke('a'), stroke('b')], 'page-1', [], [
+        { kind: PageElementKind.STROKE, elementId: 'a', zIndex: 0 },
+      ])).assertFalse();
+      expect(clipboard.copy([stroke('a')], 'page-1', [], [
+        { kind: PageElementKind.STROKE, elementId: 'a', zIndex: 1 },
+      ])).assertFalse();
+      const pasted: ClipboardPasteResult | null = clipboard.paste(
+        800, 1100, { x: 35, y: 45 }, (): string => 'still-published');
+      expect(pasted?.strokes[0].id).assertEqual('still-published');
+    });
+
     it('does not publish a prepared Copy until the caller commits it', 0, () => {
       const clipboard: StrokeClipboard = new StrokeClipboard();
       expect(clipboard.copy([stroke('old')], 'page-1')).assertTrue();

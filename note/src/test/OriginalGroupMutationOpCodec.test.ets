@@ -53,5 +53,49 @@ export default function originalGroupMutationOpCodecTest() {
       base.elementOrderBefore[0].zIndex = 9;
       expect(() => encodeOriginalGroupMutation(base)).assertThrow();
     });
+
+    it('rejects cross-kind identity reuse and unsupported order kinds', 0, () => {
+      const base: OriginalGroupMutationOpPayload = {
+        pageId: 'page-1', beforeGroups: [],
+        afterGroups: [{ id: 'op:28:4', timestamp: 40, siteId: 4,
+          members: ['op:14:2'] }],
+        elementOrderBefore: [
+          { kind: PageElementKind.STROKE, elementId: 'op:14:2', zIndex: 0 },
+          { kind: PageElementKind.TEXT, elementId: 'op:14:2', zIndex: 1 },
+        ],
+        elementOrderAfter: [
+          { kind: PageElementKind.TEXT, elementId: 'op:14:2', zIndex: 0 },
+          { kind: PageElementKind.STROKE, elementId: 'op:14:2', zIndex: 1 },
+        ],
+      };
+      expect(() => encodeOriginalGroupMutation(base)).assertThrow();
+      base.elementOrderBefore = [
+        { kind: 0 as PageElementKind, elementId: 'op:14:2', zIndex: 0 },
+      ];
+      base.elementOrderAfter = base.elementOrderBefore;
+      expect(() => encodeOriginalGroupMutation(base)).assertThrow();
+      base.elementOrderBefore = [
+        { kind: 6 as PageElementKind, elementId: 'op:14:2', zIndex: 0 },
+      ];
+      base.elementOrderAfter = base.elementOrderBefore;
+      expect(() => encodeOriginalGroupMutation(base)).assertThrow();
+    });
+
+    it('rejects a Group identity colliding with an unaffected page entity', 0, () => {
+      const mutation: OriginalGroupMutationOpPayload = {
+        pageId: 'page-1', beforeGroups: [],
+        afterGroups: [{ id: 'op:28:4', timestamp: 40, siteId: 4,
+          members: ['op:14:2'] }],
+        elementOrderBefore: [
+          { kind: PageElementKind.STROKE, elementId: 'op:14:2', zIndex: 0 },
+          { kind: PageElementKind.TEXT, elementId: 'op:28:4', zIndex: 1 },
+        ],
+        elementOrderAfter: [
+          { kind: PageElementKind.STROKE, elementId: 'op:14:2', zIndex: 0 },
+          { kind: PageElementKind.TEXT, elementId: 'op:28:4', zIndex: 1 },
+        ],
+      };
+      expect(() => encodeOriginalGroupMutation(mutation)).assertThrow();
+    });
   });
 }

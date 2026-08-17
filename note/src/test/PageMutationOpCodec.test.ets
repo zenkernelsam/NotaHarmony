@@ -74,6 +74,27 @@ export default function pageMutationOpCodecTest() {
       trailing.set(encoded);
       expectThrow((): void => { decodePageMutationOp(trailing); });
     });
+
+    it('uses one ID namespace across kinds and rejects invalid kind sentinels', 0, () => {
+      const before: SearchSourceElement[] = [element('shared', 1, [1])];
+      const after: SearchSourceElement[] = [element('shared', 2, [1])];
+      const replacement: PageMutationOpPayload = createPageMutation(
+        'page-kind', 2, 3, before, after);
+      expect(classifyPageMutation(replacement)).assertEqual(OpType.REPLACE_ELEMENTS);
+      assertElements(replayPageMutation(before, replacement, true), after);
+      assertElements(replayPageMutation(after, replacement, false), before);
+
+      expectThrow((): void => {
+        createPageMutation('page-kind', 3, 4,
+          [element('shared', 1, [1]), element('shared', 2, [2])], after);
+      });
+      expectThrow((): void => {
+        createPageMutation('page-kind', 3, 4, [element('zero', 0, [1])], after);
+      });
+      expectThrow((): void => {
+        createPageMutation('page-kind', 3, 4, [element('future', 6, [1])], after);
+      });
+    });
   });
 }
 

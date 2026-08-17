@@ -2,6 +2,7 @@ import {
   BinaryOpReader, BinaryOpWriter, encodeOperationString, MAX_OPERATION_BYTES,
   MAX_OPERATION_ELEMENTS,
 } from './BinaryOpCodec';
+import { PageElementKind } from '../core/model/PageElementOrder';
 
 const MAGIC: number[] = [0x4E, 0x50, 0x53, 0x31]; // NPS1
 
@@ -78,11 +79,15 @@ function validateSnapshot(value: PageSnapshotOpPayload): void {
   if (value.elements.length > MAX_OPERATION_ELEMENTS) {
     throw new Error('page snapshot element count exceeds budget');
   }
+  const seen: Set<string> = new Set<string>();
   for (const element of value.elements) {
-    if (element.elementId.length === 0 || !Number.isSafeInteger(element.kind) || element.kind < 0) {
+    if (element.elementId.length === 0 || !Number.isSafeInteger(element.kind) ||
+      element.kind < PageElementKind.STROKE || element.kind > PageElementKind.MATH ||
+      seen.has(element.elementId)) {
       throw new Error('page snapshot element identity is invalid');
     }
-    if (element.payload.length > MAX_OPERATION_BYTES) {
+    seen.add(element.elementId);
+    if (element.payload.length === 0 || element.payload.length > MAX_OPERATION_BYTES) {
       throw new Error('page snapshot element payload is too large');
     }
   }

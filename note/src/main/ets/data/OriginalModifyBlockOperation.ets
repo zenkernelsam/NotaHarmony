@@ -24,7 +24,9 @@ import {
 import { originalGroupLayerRanks, OriginalLayeringEntity } from './OriginalGroupLayering';
 import { SearchItemType } from './SearchItemType';
 import { OriginalMutationPageTarget, OriginalPageMutationBatch } from './OriginalPageMutationBatch';
-import { decodePersistedElement, encodePersistedElement, PersistedElement } from './StrokePersistence';
+import {
+  decodeStoredPageElement, encodePersistedElement, PersistedElement,
+} from './StrokePersistence';
 import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
@@ -877,8 +879,8 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       if (!rows.goToFirstRow()) {
         return null;
       }
-      const persisted: PersistedElement = decodePersistedElement(
-        rows.getBlob(rows.getColumnIndex('payload')));
+      const persisted: PersistedElement = decodeStoredPageElement(
+        id, target.kind, rows.getBlob(rows.getColumnIndex('payload')));
       if (target.kind === PageElementKind.TEXT && persisted.kind === 'text') {
         return persisted.data as TextBlockElement;
       }
@@ -1052,7 +1054,7 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
        AND page_site_id = ? AND page_index = ? AND visible = 1`,
       [noteId, target.page.timestamp, target.page.siteId, target.page.index]);
     const result: StoredZIndexRow[] = [];
-    const keys: Set<string> = new Set<string>();
+    const kinds: Map<string, number> = new Map<string, number>();
     try {
       while (tracked.goToNextRow()) {
         const timestamp: number = tracked.getLong(tracked.getColumnIndex('element_timestamp'));
@@ -1061,7 +1063,10 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
         const id: string = encodeOperationId({ timestamp: timestamp, siteId: siteId });
         result.push({ elementId: id, kind: kind, timestamp: timestamp, siteId: siteId,
           zIndex: tracked.getString(tracked.getColumnIndex('z_index')) });
-        keys.add(`${kind}:${id}`);
+        if (kinds.has(id)) {
+          return null;
+        }
+        kinds.set(id, kind);
       }
     } finally {
       tracked.close();
@@ -1073,13 +1078,15 @@ export class OriginalModifyBlockOperationApplier implements SyncedOperationAppli
       'SELECT element_id, kind FROM page_element_snapshot WHERE note_id = ? AND page_id = ?',
       [noteId, target.pageId]);
     let count: number = 0;
+    const seen: Set<string> = new Set<string>();
     try {
       while (stored.goToNextRow()) {
-        const key: string = `${stored.getLong(stored.getColumnIndex('kind'))}:` +
-          stored.getString(stored.getColumnIndex('element_id'));
-        if (!keys.has(key)) {
+        const elementId: string = stored.getString(stored.getColumnIndex('element_id'));
+        const kind: number = stored.getLong(stored.getColumnIndex('kind'));
+        if (seen.has(elementId) || kinds.get(elementId) !== kind) {
           return null;
         }
+        seen.add(elementId);
         count++;
       }
     } finally {

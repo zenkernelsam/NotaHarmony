@@ -17,8 +17,8 @@ import { cloneShapeElement, recomputeShapeBounds } from '../core/model/ShapeGeom
 import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextBlockGeometry';
 import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockGeometry';
 import {
-  legacyPageElementOrder, materializePageElements, normalizePageElementOrder, OrderedPageElement,
-  PageElementKind, PageElementRef, samePageElementOrder,
+  materializePageElements, OrderedPageElement, PageElementKind, PageElementRef,
+  samePageElementOrder, strictPageElementOrder,
 } from '../core/model/PageElementOrder';
 import { DatabaseManager } from './DatabaseManager';
 import { LatestWriteQueue } from './LatestWriteQueue';
@@ -152,11 +152,14 @@ import {
 import {
   StoredSyncedOperation, SyncedOperationApplyResult, SyncedOperationInboxState,
 } from './SyncedOperationInbox';
-import { decodePersistedElement, encodePersistedElement, PersistedElement } from './PersistedElementCodec';
+import {
+  decodePersistedElement, decodeStoredPageElement, encodePersistedElement, PersistedElement,
+} from './PersistedElementCodec';
 import { BackupSnapshotEntry } from './BackupSnapshotGuard';
 import { sha256Hex } from './BackupHash';
+import { assertLivePageElementIdsAvailable } from './PageElementIdentity';
 
-export { decodePersistedElement, encodePersistedElement, PersistedElement };
+export { decodePersistedElement, decodeStoredPageElement, encodePersistedElement, PersistedElement };
 
 export interface LoadedElements {
   strokes: StrokeElementData[];
@@ -486,6 +489,7 @@ interface ParsedSearchText {
 
 interface OriginalOrderEntry {
   key: string;
+  kind: number;
   timestamp: number;
   siteId: number;
   zIndex: string;
@@ -1506,14 +1510,15 @@ export class StrokePersistence {
           const before: SearchSourceElement[] = await this.loadCurrentSnapshot(store, noteId, pageId);
           const beforeById: Map<string, SearchSourceElement> = new Map<string, SearchSourceElement>();
           for (const element of before) {
-            beforeById.set(`${element.kind}:${element.elementId}`, element);
+            beforeById.set(element.elementId, element);
           }
           for (const replacement of stablePlan.replacements) {
             const stored: SearchSourceElement | undefined =
-              beforeById.get(`${replacement.sourceKind}:${replacement.source.id}`);
+              beforeById.get(replacement.source.id);
             const expected: Uint8Array = encodePersistedElement(
               partialEraseSourcePersistedElement(replacement));
-            if (stored === undefined || !sameByteArrays(stored.payload, expected)) {
+            if (stored === undefined || stored.kind !== replacement.sourceKind ||
+              !sameByteArrays(stored.payload, expected)) {
               throw new Error('original partial erase source entity is stale');
             }
           }
@@ -1629,15 +1634,15 @@ export class StrokePersistence {
           }
           const materializedIds: Set<string> = new Set<string>();
           for (const element of materialized) {
-            materializedIds.add(`${element.kind}:${element.elementId}`);
+            materializedIds.add(element.elementId);
           }
           for (const replacement of stablePlan.replacements) {
-            if (materializedIds.has(`${replacement.sourceKind}:${replacement.source.id}`)) {
+            if (materializedIds.has(replacement.source.id)) {
               throw new Error('original partial erase retained a source entity');
             }
           }
           for (const id of createdIds) {
-            if (!materializedIds.has(`${PageElementKind.STROKE}:${id}`)) {
+            if (!materializedIds.has(id)) {
               throw new Error('original partial erase lost a remnant Ink');
             }
           }
@@ -2636,6 +2641,8 @@ export class StrokePersistence {
       } finally {
         revisionSet.close();
       }
+      await assertLivePageElementIdsAvailable(
+        store, snapshot.noteId, snapshot.pageId, preparedElementIds(snapshot.elements));
       const current: SearchSourceElement[] = await this.loadCurrentSnapshot(store, snapshot.noteId, snapshot.pageId);
       if (!pageSnapshotChanged(current, snapshot.elements)) {
         await store.commit();
@@ -3115,6 +3122,12 @@ export class StrokePersistence {
         currentRevision = revisionSet.getLong(revisionSet.getColumnIndex('current_revision'));
       } finally {
         revisionSet.close();
+      }
+      await assertLivePageElementIdsAvailable(
+        store, initial.noteId, initial.pageId, preparedElementIds(initial.elements));
+      for (const step of steps) {
+        await assertLivePageElementIdsAvailable(
+          store, step.noteId, step.pageId, preparedElementIds(step.elements));
       }
       let current: SearchSourceElement[] = await this.loadCurrentSnapshot(store, initial.noteId, initial.pageId);
       if (pageSnapshotChanged(current, initial.elements)) {
@@ -3690,9 +3703,9 @@ export class StrokePersistence {
       while (rows.goToNextRow()) {
         const timestamp: number = rows.getLong(rows.getColumnIndex('element_timestamp'));
         const siteId: number = rows.getLong(rows.getColumnIndex('element_site_id'));
+        const elementId: string = encodeOperationId({ timestamp: timestamp, siteId: siteId });
         result.push({
-          key: `${rows.getLong(rows.getColumnIndex('kind'))}:` +
-            encodeOperationId({ timestamp: timestamp, siteId: siteId }),
+          key: elementId, kind: rows.getLong(rows.getColumnIndex('kind')),
           timestamp: timestamp, siteId: siteId,
           zIndex: rows.getString(rows.getColumnIndex('z_index')),
           unitId: encodeOperationId({ timestamp: timestamp, siteId: siteId }),
@@ -3709,7 +3722,8 @@ export class StrokePersistence {
       return null;
     }
     for (let index: number = 0; index < layered.length; index++) {
-      if (layered[index].key !== `${current[index].kind}:${current[index].elementId}`) {
+      if (layered[index].key !== current[index].elementId ||
+        layered[index].kind !== current[index].kind) {
         return null;
       }
     }
@@ -4419,10 +4433,16 @@ export class StrokePersistence {
     images: ImageElement[], mathBlocks: MathElement[],
     history?: HistoryMetadata, originalZOrderHint?: OriginalZOrderHint): PreparedPageSave {
     const elements: PreparedElement[] = [];
-    const preferredOrder: PageElementRef[] = elementOrder.length > 0
-      ? elementOrder : legacyPageElementOrder(strokes, textBlocks, shapes, images, mathBlocks);
+    const preferredOrder: PageElementRef[] | null = strictPageElementOrder(
+      elementOrder, strokes, textBlocks, shapes, images, mathBlocks);
+    if (preferredOrder === null) {
+      throw new Error('page snapshot has a duplicate identity or incomplete element order');
+    }
     const ordered: OrderedPageElement[] = materializePageElements(
       preferredOrder, strokes, textBlocks, shapes, images, mathBlocks);
+    if (ordered.length !== preferredOrder.length) {
+      throw new Error('page snapshot order could not be materialized exactly');
+    }
     for (const element of ordered) {
       if (element.kind === PageElementKind.STROKE) {
         const payload: PersistedElement = { kind: 'stroke', data: element.data };
@@ -4597,14 +4617,25 @@ export class StrokePersistence {
     predicates.equalTo('note_id', noteId);
     predicates.equalTo('page_id', pageId);
     predicates.orderByAsc('element_order');
-    const resultSet = await store.query(predicates, ['element_id', 'kind', 'payload']);
+    const resultSet = await store.query(
+      predicates, ['element_id', 'kind', 'payload', 'element_order']);
     const current: SearchSourceElement[] = [];
+    const seen: Set<string> = new Set<string>();
     try {
       while (resultSet.goToNextRow()) {
+        const elementId: string = resultSet.getString(resultSet.getColumnIndex('element_id'));
+        const kind: number = resultSet.getLong(resultSet.getColumnIndex('kind'));
+        const payload: Uint8Array = resultSet.getBlob(resultSet.getColumnIndex('payload'));
+        const order: number = resultSet.getLong(resultSet.getColumnIndex('element_order'));
+        if (order !== current.length || seen.has(elementId)) {
+          throw new Error('stored page snapshot identity/order is not canonical');
+        }
+        decodeStoredPageElement(elementId, kind, payload);
+        seen.add(elementId);
         current.push({
-          elementId: resultSet.getString(resultSet.getColumnIndex('element_id')),
-          kind: resultSet.getLong(resultSet.getColumnIndex('kind')),
-          payload: resultSet.getBlob(resultSet.getColumnIndex('payload')),
+          elementId: elementId,
+          kind: kind,
+          payload: payload,
         });
       }
     } finally {
@@ -4643,8 +4674,8 @@ export class StrokePersistence {
       if (!rows.goToFirstRow()) {
         throw new Error('original clipboard Text snapshot disappeared');
       }
-      const persisted: PersistedElement = decodePersistedElement(
-        rows.getBlob(rows.getColumnIndex('payload')));
+      const persisted: PersistedElement = decodeStoredPageElement(
+        elementId, PageElementKind.TEXT, rows.getBlob(rows.getColumnIndex('payload')));
       if (persisted.kind !== 'text' || persisted.data.id !== elementId || rows.goToNextRow()) {
         throw new Error('original clipboard Text snapshot diverged');
       }
@@ -4687,11 +4718,12 @@ export class StrokePersistence {
     const snapshot = await store.querySql(
       `SELECT element_id, kind FROM page_element_snapshot WHERE note_id = ? AND page_id = ?
        ORDER BY element_order`, [noteId, pageId]);
-    const actual: string[] = [];
+    const actualIds: string[] = [];
+    const actualKinds: number[] = [];
     try {
       while (snapshot.goToNextRow()) {
-        actual.push(`${snapshot.getLong(snapshot.getColumnIndex('kind'))}:` +
-          snapshot.getString(snapshot.getColumnIndex('element_id')));
+        actualIds.push(snapshot.getString(snapshot.getColumnIndex('element_id')));
+        actualKinds.push(snapshot.getLong(snapshot.getColumnIndex('kind')));
       }
     } finally {
       snapshot.close();
@@ -4705,9 +4737,9 @@ export class StrokePersistence {
       while (tracked.goToNextRow()) {
         const timestamp: number = tracked.getLong(tracked.getColumnIndex('element_timestamp'));
         const siteId: number = tracked.getLong(tracked.getColumnIndex('element_site_id'));
+        const elementId: string = encodeOperationId({ timestamp: timestamp, siteId: siteId });
         original.push({
-          key: `${tracked.getLong(tracked.getColumnIndex('kind'))}:` +
-            encodeOperationId({ timestamp: timestamp, siteId: siteId }),
+          key: elementId, kind: tracked.getLong(tracked.getColumnIndex('kind')),
           timestamp: timestamp, siteId: siteId,
           zIndex: tracked.getString(tracked.getColumnIndex('z_index')),
           unitId: encodeOperationId({ timestamp: timestamp, siteId: siteId }),
@@ -4720,11 +4752,11 @@ export class StrokePersistence {
     }
     const layered: OriginalOrderEntry[] | null =
       await layerOriginalOrderEntries(store, noteId, original);
-    if (layered === null || actual.length !== layered.length) {
+    if (layered === null || actualIds.length !== layered.length) {
       return null;
     }
-    for (let index: number = 0; index < actual.length; index++) {
-      if (actual[index] !== layered[index].key) {
+    for (let index: number = 0; index < actualIds.length; index++) {
+      if (actualIds[index] !== layered[index].key || actualKinds[index] !== layered[index].kind) {
         return null;
       }
     }
@@ -4787,64 +4819,70 @@ export class StrokePersistence {
       predicates.equalTo('note_id', noteId);
       if (pageId !== null) {
         predicates.equalTo('page_id', pageId);
+      } else {
+        predicates.orderByAsc('page_id');
       }
       predicates.orderByAsc('element_order');
       const resultSet = await store.query(predicates);
+      const seen: Set<string> = new Set<string>();
+      let orderedPageId: string = '';
+      let expectedOrder: number = 0;
       try {
         while (resultSet.goToNextRow()) {
-          const bytes: Uint8Array = resultSet.getBlob(resultSet.getColumnIndex('payload'));
-          try {
-            const parsed: PersistedElement = decodePersistedElement(bytes);
-            if (parsed.kind === 'stroke') {
-              const stroke: StrokeElementData = parsed.data as StrokeElementData;
-              result.strokes.push(stroke);
-              result.elementOrder.push({ kind: PageElementKind.STROKE,
-                elementId: stroke.id, zIndex: result.elementOrder.length });
-            } else if (parsed.kind === 'text') {
-              const text: TextBlockElement = cloneTextBlockElement(parsed.data as TextBlockElement);
-              const margins: OriginalTextMarginMetadata | undefined = originalTextMargins.get(text.id);
-              if (margins !== undefined) {
-                text.contentTopInset = margins.top;
-                text.contentBottomInset = margins.bottom;
-                text.contentLeftInset = margins.left;
-                text.contentRightInset = margins.right;
-              }
-              text.bounds = textBlockWorldBounds(text);
-              result.textBlocks.push(text);
-              result.elementOrder.push({ kind: PageElementKind.TEXT,
-                elementId: text.id, zIndex: result.elementOrder.length });
-            } else if (parsed.kind === 'shape') {
-              const shape: ShapeElement = cloneShapeElement(parsed.data as ShapeElement);
-              const originalMetadata: OriginalShapeStateRenderMetadata | undefined =
-                originalShapeMetadata.get(shape.id);
-              if (originalMetadata !== undefined) {
-                if (shape.originalTool === undefined) {
-                  shape.originalTool = originalMetadata.tool;
-                }
-                if (shape.originalStyle === undefined) {
-                  shape.originalStyle = originalMetadata.style;
-                }
-              }
-              shape.bounds = recomputeShapeBounds(shape);
-              result.shapes.push(shape);
-              result.elementOrder.push({ kind: PageElementKind.SHAPE,
-                elementId: shape.id, zIndex: result.elementOrder.length });
-            } else if (parsed.kind === 'image') {
-              const image: ImageElement = cloneImageElement(parsed.data as ImageElement);
-              image.bounds = imageBlockWorldBounds(image);
-              result.images.push(image);
-              result.elementOrder.push({ kind: PageElementKind.IMAGE,
-                elementId: image.id, zIndex: result.elementOrder.length });
-            } else if (parsed.kind === 'math') {
-              const math: MathElement = cloneMathElement(parsed.data as MathElement);
-              math.bounds = mathBlockWorldBounds(math);
-              result.mathBlocks.push(math);
-              result.elementOrder.push({ kind: PageElementKind.MATH,
-                elementId: math.id, zIndex: result.elementOrder.length });
-            }
-          } catch (e) {
-            // Ignore an individual corrupt element without discarding the rest of the page.
+          const rowPageId: string = resultSet.getString(resultSet.getColumnIndex('page_id'));
+          if (rowPageId !== orderedPageId) {
+            orderedPageId = rowPageId;
+            expectedOrder = 0;
           }
+          const storedOrder: number = resultSet.getLong(resultSet.getColumnIndex('element_order'));
+          const elementId: string = resultSet.getString(resultSet.getColumnIndex('element_id'));
+          const kind: number = resultSet.getLong(resultSet.getColumnIndex('kind'));
+          const bytes: Uint8Array = resultSet.getBlob(resultSet.getColumnIndex('payload'));
+          if (storedOrder !== expectedOrder || seen.has(elementId)) {
+            throw new Error('stored page snapshot has duplicate identity or non-contiguous order');
+          }
+          expectedOrder++;
+          seen.add(elementId);
+          const parsed: PersistedElement = decodeStoredPageElement(elementId, kind, bytes);
+          if (parsed.kind === 'stroke') {
+            const stroke: StrokeElementData = parsed.data as StrokeElementData;
+            result.strokes.push(stroke);
+          } else if (parsed.kind === 'text') {
+            const text: TextBlockElement = cloneTextBlockElement(parsed.data as TextBlockElement);
+            const margins: OriginalTextMarginMetadata | undefined = originalTextMargins.get(text.id);
+            if (margins !== undefined) {
+              text.contentTopInset = margins.top;
+              text.contentBottomInset = margins.bottom;
+              text.contentLeftInset = margins.left;
+              text.contentRightInset = margins.right;
+            }
+            text.bounds = textBlockWorldBounds(text);
+            result.textBlocks.push(text);
+          } else if (parsed.kind === 'shape') {
+            const shape: ShapeElement = cloneShapeElement(parsed.data as ShapeElement);
+            const originalMetadata: OriginalShapeStateRenderMetadata | undefined =
+              originalShapeMetadata.get(shape.id);
+            if (originalMetadata !== undefined) {
+              if (shape.originalTool === undefined) {
+                shape.originalTool = originalMetadata.tool;
+              }
+              if (shape.originalStyle === undefined) {
+                shape.originalStyle = originalMetadata.style;
+              }
+            }
+            shape.bounds = recomputeShapeBounds(shape);
+            result.shapes.push(shape);
+          } else if (parsed.kind === 'image') {
+            const image: ImageElement = cloneImageElement(parsed.data as ImageElement);
+            image.bounds = imageBlockWorldBounds(image);
+            result.images.push(image);
+          } else if (parsed.kind === 'math') {
+            const math: MathElement = cloneMathElement(parsed.data as MathElement);
+            math.bounds = mathBlockWorldBounds(math);
+            result.mathBlocks.push(math);
+          }
+          result.elementOrder.push({ kind: kind as PageElementKind,
+            elementId: elementId, zIndex: result.elementOrder.length });
         }
       } finally {
         resultSet.close();
@@ -4853,9 +4891,13 @@ export class StrokePersistence {
     } catch (e) {
       throw new Error(`loadElements failed: ${JSON.stringify(e)}`);
     }
-    result.elementOrder = normalizePageElementOrder(
+    const strictOrder: PageElementRef[] | null = strictPageElementOrder(
       result.elementOrder, result.strokes, result.textBlocks, result.shapes, result.images,
       result.mathBlocks);
+    if (strictOrder === null) {
+      throw new Error('loaded page snapshot does not have one complete stable element order');
+    }
+    result.elementOrder = strictOrder;
     result.elements = materializePageElements(
       result.elementOrder, result.strokes, result.textBlocks, result.shapes, result.images,
       result.mathBlocks);
@@ -5284,16 +5326,25 @@ export class StrokePersistence {
     const beforeByKey: Map<string, SearchSourceElement> = new Map<string, SearchSourceElement>();
     const createdByKey: Map<string, PreparedElement> = new Map<string, PreparedElement>();
     for (const element of before) {
-      beforeByKey.set(`${element.kind}:${element.elementId}`, element);
+      if (beforeByKey.has(element.elementId)) {
+        throw new Error('original element creation source has a duplicate identity');
+      }
+      beforeByKey.set(element.elementId, element);
     }
     for (const element of created) {
-      createdByKey.set(`${element.kind}:${element.elementId}`, element);
+      if (createdByKey.has(element.elementId) || beforeByKey.has(element.elementId)) {
+        throw new Error('original element creation collides with an existing identity');
+      }
+      createdByKey.set(element.elementId, element);
     }
     const elements: PreparedElement[] = [];
     for (const actual of materialized) {
-      const key: string = `${actual.kind}:${actual.elementId}`;
+      const key: string = actual.elementId;
       const pasted: PreparedElement | undefined = createdByKey.get(key);
       if (pasted !== undefined) {
+        if (pasted.kind !== actual.kind) {
+          throw new Error('original element creation materialized a different kind');
+        }
         elements.push({
           elementId: pasted.elementId, kind: pasted.kind,
           payload: pasted.payload, searchText: pasted.searchText,
@@ -5302,7 +5353,8 @@ export class StrokePersistence {
         continue;
       }
       const previous: SearchSourceElement | undefined = beforeByKey.get(key);
-      if (previous === undefined || !sameByteArrays(previous.payload, actual.payload)) {
+      if (previous === undefined || previous.kind !== actual.kind ||
+        !sameByteArrays(previous.payload, actual.payload)) {
         throw new Error('original element creation changed a pre-existing element');
       }
       elements.push({
@@ -5409,7 +5461,8 @@ async function layerOriginalOrderEntries(store: relationalStore.RdbStore, noteId
         return null;
       }
       layered.push({
-        key: entry.key, timestamp: entry.timestamp, siteId: entry.siteId, zIndex: entry.zIndex,
+        key: entry.key, kind: entry.kind, timestamp: entry.timestamp,
+        siteId: entry.siteId, zIndex: entry.zIndex,
         unitId: unit.id, unitTimestamp: unit.timestamp, unitSiteId: unit.siteId,
         unitZIndex: unit.zIndex, unitGroup: unit.group,
       });
@@ -5617,7 +5670,7 @@ function zOrderValuesProduce(order: OriginalOrderEntry[], values: OriginalZOrder
     (entry: OriginalOrderEntry): OriginalOrderEntry => {
       const id: string = encodeOperationId({ timestamp: entry.timestamp, siteId: entry.siteId });
       const zIndex: string | undefined = replacements.get(id);
-      return { key: entry.key, timestamp: entry.timestamp, siteId: entry.siteId,
+      return { key: entry.key, kind: entry.kind, timestamp: entry.timestamp, siteId: entry.siteId,
         zIndex: zIndex === undefined ? entry.zIndex : zIndex,
         unitId: entry.unitId, unitTimestamp: entry.unitTimestamp,
         unitSiteId: entry.unitSiteId,
@@ -5633,7 +5686,7 @@ function orderEntriesMatchPrepared(order: OriginalOrderEntry[], next: PreparedEl
     return false;
   }
   for (let index: number = 0; index < order.length; index++) {
-    if (order[index].key !== `${next[index].kind}:${next[index].elementId}`) {
+    if (order[index].key !== next[index].elementId || order[index].kind !== next[index].kind) {
       return false;
     }
   }
@@ -5726,6 +5779,14 @@ function subtractUnsignedSmall(value: string, amount: number): string | null {
   return result;
 }
 
+function preparedElementIds(elements: PreparedElement[]): string[] {
+  const result: string[] = [];
+  for (const element of elements) {
+    result.push(element.elementId);
+  }
+  return result;
+}
+
 function sameByteArrays(left: Uint8Array, right: Uint8Array): boolean {
   if (left.length !== right.length) {
     return false;
@@ -5791,17 +5852,18 @@ function samePreparedMembersAndPayloads(current: SearchSourceElement[],
   }
   const byKey: Map<string, SearchSourceElement> = new Map<string, SearchSourceElement>();
   for (const element of current) {
-    byKey.set(`${element.kind}:${element.elementId}`, element);
+    byKey.set(element.elementId, element);
   }
   if (byKey.size !== current.length) {
     return false;
   }
   for (const element of expected) {
-    const source: SearchSourceElement | undefined = byKey.get(`${element.kind}:${element.elementId}`);
-    if (source === undefined || !sameByteArrays(source.payload, element.payload)) {
+    const source: SearchSourceElement | undefined = byKey.get(element.elementId);
+    if (source === undefined || source.kind !== element.kind ||
+      !sameByteArrays(source.payload, element.payload)) {
       return false;
     }
-    byKey.delete(`${element.kind}:${element.elementId}`);
+    byKey.delete(element.elementId);
   }
   return byKey.size === 0;
 }

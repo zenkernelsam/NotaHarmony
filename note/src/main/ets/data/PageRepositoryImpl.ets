@@ -25,7 +25,7 @@ import {
   PageDeleteCheckpoint, PageDeleteCheckpointElement,
 } from './PageDeleteCheckpoint';
 import { SearchItemType } from './SearchItemType';
-import { decodePersistedElement, PersistedElement } from './StrokePersistence';
+import { decodeStoredPageElement } from './StrokePersistence';
 import {
   hasAlignedOriginalPageState, originalPageIdentityExists, persistOriginalCreatePage,
   persistOriginalPageReorder, persistOriginalPageVisibility,
@@ -33,6 +33,7 @@ import {
 import {
   persistOriginalNoteBackground, PersistedOriginalNoteBackground,
 } from './OriginalNoteBackgroundPersistence';
+import { assertLivePageElementIdsAvailable } from './PageElementIdentity';
 
 interface CheckpointSearchRow {
   type: number;
@@ -266,6 +267,12 @@ export class PageRepositoryImpl implements PageRepository {
         const checkpoint: PageDeleteCheckpoint = await this.loadDeleteCheckpoint(store, noteId, actionId);
         const searches: CheckpointSearchRow[] = await this.loadCheckpointSearch(store, noteId, actionId);
         this.validateCheckpointSearch(searches);
+        const checkpointElementIds: string[] = [];
+        for (const element of checkpoint.elements) {
+          checkpointElementIds.push(element.elementId);
+        }
+        await assertLivePageElementIdsAvailable(
+          store, noteId, checkpoint.page.pageId, checkpointElementIds);
         const revision: number = await this.queryStructureRevision(store, noteId);
         const before: PageInfo[] = await this.queryPages(store, noteId);
         if (checkpoint.page.pageIndex < 0 || checkpoint.page.pageIndex > before.length ||
@@ -736,29 +743,19 @@ export class PageRepositoryImpl implements PageRepository {
   }
 
   private validateCheckpointElements(elements: PageDeleteCheckpointElement[], contentRevision: number): void {
+    const seen: Set<string> = new Set<string>();
     for (let index: number = 0; index < elements.length; index++) {
       const element: PageDeleteCheckpointElement = elements[index];
-      if (element.elementId.length === 0 || !Number.isSafeInteger(element.kind) || element.kind < 0 ||
+      if (element.elementId.length === 0 || !Number.isSafeInteger(element.kind) ||
+        element.kind < PageElementKind.STROKE ||
         element.kind > PageElementKind.MATH || element.revision !== contentRevision ||
-        element.elementOrder !== index ||
+        element.elementOrder !== index || seen.has(element.elementId) ||
         element.payload.length === 0) {
         throw new Error('deleted-page checkpoint contains an invalid element');
       }
-      let expectedKind: string = 'stroke';
-      if (element.kind === PageElementKind.TEXT) {
-        expectedKind = 'text';
-      } else if (element.kind === PageElementKind.SHAPE) {
-        expectedKind = 'shape';
-      } else if (element.kind === PageElementKind.IMAGE) {
-        expectedKind = 'image';
-      } else if (element.kind === PageElementKind.MATH) {
-        expectedKind = 'math';
-      }
+      seen.add(element.elementId);
       try {
-        const persisted: PersistedElement = decodePersistedElement(element.payload);
-        if (persisted.kind !== expectedKind || persisted.data.id !== element.elementId) {
-          throw new Error('identity mismatch');
-        }
+        decodeStoredPageElement(element.elementId, element.kind, element.payload);
       } catch (_error) {
         throw new Error('deleted-page checkpoint element payload is invalid');
       }

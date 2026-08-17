@@ -7,6 +7,7 @@ import {
   movePageElementRefs, movePageElementRefsOneStep, normalizePageElementOrder,
   OrderedPageElement, PageElementKind, PageElementRef,
   removePageElementRefs, requiresUnifiedElementRender, samePageElementMembers, samePageElementOrder,
+  strictPageElementOrder,
 } from '../main/ets/core/model/PageElementOrder';
 import { OriginalSelectionGroup } from '../main/ets/core/model/OriginalGroupSelection';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
@@ -81,6 +82,37 @@ export default function pageElementOrderTest() {
       expect(repaired[2].elementId).assertEqual('s2');
       expect(repaired[2].zIndex).assertEqual(2);
       expect(legacyPageElementOrder(strokes, texts)[2].elementId).assertEqual('t1');
+    });
+
+    it('accepts only the empty legacy order or one complete contiguous explicit order', 0, () => {
+      const strokes: StrokeElementData[] = [stroke('s1')];
+      const texts: TextBlockElement[] = [text('t1')];
+      const migrated: PageElementRef[] | null = strictPageElementOrder([], strokes, texts);
+      expect(migrated !== null).assertTrue();
+      expect(migrated?.map((ref: PageElementRef): string => ref.elementId).join(','))
+        .assertEqual('s1,t1');
+      expect(strictPageElementOrder([
+        { kind: PageElementKind.STROKE, elementId: 's1', zIndex: 0 },
+      ], strokes, texts) === null).assertTrue();
+      expect(strictPageElementOrder([
+        { kind: PageElementKind.STROKE, elementId: 's1', zIndex: 1 },
+        { kind: PageElementKind.TEXT, elementId: 't1', zIndex: 0 },
+      ], strokes, texts) === null).assertTrue();
+    });
+
+    it('rejects one ID reused by different element kinds', 0, () => {
+      expect(strictPageElementOrder([], [stroke('shared')], [text('shared')]) === null).assertTrue();
+      const strokeRef: PageElementRef[] = [
+        { kind: PageElementKind.STROKE, elementId: 'shared', zIndex: 0 },
+      ];
+      const textRef: PageElementRef[] = [
+        { kind: PageElementKind.TEXT, elementId: 'shared', zIndex: 0 },
+      ];
+      expect(samePageElementMembers(strokeRef, textRef)).assertFalse();
+      const appended: PageElementRef[] = appendPageElementRefs(
+        strokeRef, PageElementKind.TEXT, ['shared']);
+      expect(appended.length).assertEqual(1);
+      expect(appended[0].kind).assertEqual(PageElementKind.STROKE);
     });
 
     it('materializes interleaved stroke and text payloads in z order', 0, () => {

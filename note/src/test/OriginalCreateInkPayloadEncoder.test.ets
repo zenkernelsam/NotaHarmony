@@ -237,6 +237,24 @@ export default function originalCreateInkPayloadEncoderTest() {
       expect(() => validateOriginalPartialEraseMutation(mutation)).assertThrow();
     });
 
+    it('rejects a partial-erase Group ID colliding with an unaffected page entity', 0, () => {
+      const before: SearchSourceElement[] = [{
+        elementId: 'op:a:1', kind: PageElementKind.STROKE,
+        payload: new Uint8Array([1]),
+      }, {
+        elementId: 'op:14:1', kind: PageElementKind.TEXT,
+        payload: new Uint8Array([2]),
+      }];
+      const mutation = {
+        pageMutation: createPageMutation('page-1', 11, 12, before, [before[1]]),
+        replacements: [{ sourceId: 'op:a:1', remnantIds: [] }],
+        beforeGroups: [{ id: 'op:14:1', timestamp: 20, siteId: 1,
+          members: ['op:a:1'] }],
+        afterGroups: [],
+      };
+      expect(() => validateOriginalPartialEraseMutation(mutation)).assertThrow();
+    });
+
     it('round-trips original partial eraser as CREATE_INK tool 5', 0, () => {
       const stroke: StrokeElementData = sampleStroke();
       stroke.renderSpec.inkStyle = InkStyle.FIXED_WIDTH;

@@ -131,12 +131,24 @@ export function resolveOriginalGroupAuthoringMembers(selectedEntityIds: string[]
 
 export function resolveOriginalSelectionLayerUnits(orderedEntityIds: string[],
   groups: OriginalSelectionGroup[]): OriginalSelectionLayerUnit[] | null {
+  const orderedIdentities: Set<string> = new Set<string>();
+  for (const entityId of orderedEntityIds) {
+    if (entityId.length === 0 || orderedIdentities.has(entityId)) {
+      return null;
+    }
+    orderedIdentities.add(entityId);
+  }
   const parentByMember: Map<string, OriginalSelectionGroup> =
     new Map<string, OriginalSelectionGroup>();
+  const groupIds: Set<string> = new Set<string>();
   for (const group of groups) {
     if (group.id.length === 0 || group.members.length === 0) {
       continue;
     }
+    if (orderedIdentities.has(group.id) || groupIds.has(group.id)) {
+      return null;
+    }
+    groupIds.add(group.id);
     for (const member of group.members) {
       const current: OriginalSelectionGroup | undefined = parentByMember.get(member);
       if (current === undefined || compareGroupIdentity(group, current) > 0) {
@@ -149,7 +161,7 @@ export function resolveOriginalSelectionLayerUnits(orderedEntityIds: string[],
   const closedUnits: Set<string> = new Set<string>();
   let current: OriginalSelectionLayerUnit | null = null;
   for (const entityId of orderedEntityIds) {
-    if (entityId.length === 0 || seenEntities.has(entityId)) {
+    if (seenEntities.has(entityId)) {
       return null;
     }
     seenEntities.add(entityId);
