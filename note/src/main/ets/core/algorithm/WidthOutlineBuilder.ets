@@ -1,4 +1,6 @@
-// Variable-width outline approximation for the original bezierkit attributed path.
+// Variable-width outline geometry for the original bezierkit attributed path.
+// Width interpolation follows the original attributed-component algorithm; the final
+// offset/join polygon remains the documented Harmony approximation.
 // This pure geometry module intentionally has no HarmonyOS platform dependencies.
 import { CubicSegment, Point2D } from '../model/GeometryTypes';
 import { StrokePathPoint } from '../model/StrokeTypes';
@@ -18,6 +20,18 @@ interface CubicPair {
   right: CubicSegment;
 }
 
+interface CubicWidthAnchor {
+  startWidth: number;
+  endWidth: number;
+}
+
+interface OriginalWidthProfile {
+  componentLengths: number[];
+  widths: number[];
+  derivatives: number[];
+  subdivisions: number[];
+}
+
 export class WidthOutlineBuilder {
   // Port tolerances for the documented adaptive approximation; bezierkit does not expose equivalents.
   private static readonly MIN_SEGMENT_LENGTH: number = 0.0001;
@@ -26,6 +40,13 @@ export class WidthOutlineBuilder {
   private static readonly MAX_SUBDIVISION_DEPTH: number = 10;
   private static readonly MITER_LIMIT: number = 4;
   private static readonly CIRCLE_SEGMENTS: number = 16;
+  private static readonly ORIGINAL_WIDTH_MIN_COMPONENT_LENGTH: number = 0.000001;
+  private static readonly ORIGINAL_WIDTH_DEVIATION_SCALE: number = 1.2;
+  private static readonly ORIGINAL_WIDTH_RELATIVE_TOLERANCE: number = 0.005;
+  private static readonly ORIGINAL_WIDTH_MIN_REFERENCE: number = 0.05;
+  private static readonly ORIGINAL_WIDTH_MIN_SUBDIVISIONS: number = 2;
+  private static readonly ORIGINAL_WIDTH_MAX_SUBDIVISIONS: number = 6;
+  private static readonly ORIGINAL_WIDTH_PROBES: number[] = [0.25, 0.5, 0.75];
 
   build(centerline: StrokePathPoint[], baseWidth: number,
     cubicSegments?: CubicSegment[]): OutlineResult {
@@ -74,12 +95,49 @@ export class WidthOutlineBuilder {
 
   private flattenCubics(centerline: StrokePathPoint[], segments: CubicSegment[],
     baseWidth: number): OutlineSample[] {
+    const anchors: CubicWidthAnchor[] | null = this.resolveCubicWidthAnchors(centerline, segments);
+    if (anchors === null) {
+      return this.samplesFromPolyline(centerline);
+    }
+    const widthProfile: OriginalWidthProfile | null = this.buildOriginalWidthProfile(segments, anchors);
     const samples: OutlineSample[] = [];
+    for (let i: number = 0; i < segments.length; i++) {
+      const segment: CubicSegment = segments[i];
+      const anchor: CubicWidthAnchor = anchors[i];
+      if (samples.length === 0) {
+        samples.push({ position: segment.p0, widthFactor: anchor.startWidth });
+      } else if (this.distanceSquared(samples[samples.length - 1].position, segment.p0) > 1e-12) {
+        samples.push({ position: segment.p0, widthFactor: anchor.startWidth });
+      }
+      if (widthProfile === null) {
+        this.flattenCubic(segment, anchor.startWidth, anchor.endWidth, baseWidth, 0, samples);
+        continue;
+      }
+      const subdivisions: number = widthProfile.subdivisions[i];
+      if (subdivisions === 1) {
+        this.flattenCubic(segment, anchor.startWidth, anchor.endWidth, baseWidth, 0, samples);
+        continue;
+      }
+      for (let partIndex: number = 0; partIndex < subdivisions; partIndex++) {
+        const startT: number = partIndex / subdivisions;
+        const endT: number = (partIndex + 1) / subdivisions;
+        const sliced: CubicSegment = this.sliceCubic(segment, startT, endT);
+        const startWidth: number = this.originalHermiteWidth(widthProfile, i, startT);
+        const endWidth: number = this.originalHermiteWidth(widthProfile, i, endT);
+        this.flattenCubic(sliced, startWidth, endWidth, baseWidth, 0, samples);
+      }
+    }
+    return samples;
+  }
+
+  private resolveCubicWidthAnchors(centerline: StrokePathPoint[],
+    segments: CubicSegment[]): CubicWidthAnchor[] | null {
+    const anchors: CubicWidthAnchor[] = [];
     let sourceCursor: number = 0;
     for (let i: number = 0; i < segments.length; i++) {
       const segment: CubicSegment = segments[i];
       if (!this.isFiniteCubic(segment)) {
-        return this.samplesFromPolyline(centerline);
+        return null;
       }
       let startIndex: number = sourceCursor;
       if (i === 0 || this.distanceSquared(centerline[startIndex].position, segment.p0) > 1e-12) {
@@ -88,16 +146,106 @@ export class WidthOutlineBuilder {
       const minimumEnd: number = Math.min(startIndex + 1, centerline.length - 1);
       const endIndex: number = this.findClosestSourceIndex(centerline, segment.p3, minimumEnd);
       sourceCursor = Math.max(startIndex, endIndex);
-      const startWidth: number = this.validWidthFactor(centerline[startIndex].widthFactor);
-      const endWidth: number = this.validWidthFactor(centerline[endIndex].widthFactor);
-      if (samples.length === 0) {
-        samples.push({ position: segment.p0, widthFactor: startWidth });
-      } else if (this.distanceSquared(samples[samples.length - 1].position, segment.p0) > 1e-12) {
-        samples.push({ position: segment.p0, widthFactor: startWidth });
-      }
-      this.flattenCubic(segment, startWidth, endWidth, baseWidth, 0, samples);
+      anchors.push({
+        startWidth: this.validWidthFactor(centerline[startIndex].widthFactor),
+        endWidth: this.validWidthFactor(centerline[endIndex].widthFactor),
+      });
     }
-    return samples;
+    return anchors;
+  }
+
+  private buildOriginalWidthProfile(segments: CubicSegment[],
+    anchors: CubicWidthAnchor[]): OriginalWidthProfile | null {
+    if (segments.length < 2 || anchors.length !== segments.length) {
+      return null;
+    }
+    const widths: number[] = [anchors[0].startWidth];
+    const componentLengths: number[] = [];
+    let widthChanges: boolean = false;
+    for (let i: number = 0; i < segments.length; i++) {
+      const width: number = anchors[i].endWidth;
+      widths.push(width);
+      if (width !== widths[0]) {
+        widthChanges = true;
+      }
+      componentLengths.push(Math.max(
+        this.distance(segments[i].p0, segments[i].p3),
+        WidthOutlineBuilder.ORIGINAL_WIDTH_MIN_COMPONENT_LENGTH));
+    }
+    if (!widthChanges) {
+      return null;
+    }
+    const slopes: number[] = [];
+    for (let i: number = 0; i < componentLengths.length; i++) {
+      slopes.push((widths[i + 1] - widths[i]) / componentLengths[i]);
+    }
+    const derivatives: number[] = new Array<number>(widths.length);
+    derivatives[0] = slopes[0];
+    derivatives[derivatives.length - 1] = slopes[slopes.length - 1];
+    for (let i: number = 1; i < widths.length - 1; i++) {
+      const previousSlope: number = slopes[i - 1];
+      const nextSlope: number = slopes[i];
+      if (previousSlope * nextSlope <= 0) {
+        derivatives[i] = 0;
+        continue;
+      }
+      const previousLength: number = componentLengths[i - 1];
+      const nextLength: number = componentLengths[i];
+      derivatives[i] = 3 * (previousLength + nextLength) /
+        (((2 * previousLength + nextLength) / nextSlope) +
+          ((2 * nextLength + previousLength) / previousSlope));
+    }
+    const subdivisions: number[] = [];
+    const profile: OriginalWidthProfile = {
+      componentLengths: componentLengths,
+      widths: widths,
+      derivatives: derivatives,
+      subdivisions: subdivisions,
+    };
+    for (let i: number = 0; i < segments.length; i++) {
+      subdivisions.push(this.originalWidthSubdivisionCount(profile, i));
+    }
+    return profile;
+  }
+
+  private originalWidthSubdivisionCount(profile: OriginalWidthProfile,
+    componentIndex: number): number {
+    const startWidth: number = profile.widths[componentIndex];
+    const endWidth: number = profile.widths[componentIndex + 1];
+    let maximumDeviation: number = 0;
+    for (const probe of WidthOutlineBuilder.ORIGINAL_WIDTH_PROBES) {
+      const curved: number = this.originalHermiteWidth(profile, componentIndex, probe);
+      const linear: number = startWidth + (endWidth - startWidth) * probe;
+      maximumDeviation = Math.max(maximumDeviation, Math.abs(curved - linear));
+    }
+    const scaledDeviation: number = maximumDeviation *
+      WidthOutlineBuilder.ORIGINAL_WIDTH_DEVIATION_SCALE;
+    const tolerance: number = Math.max(
+      Math.max(startWidth, endWidth), WidthOutlineBuilder.ORIGINAL_WIDTH_MIN_REFERENCE) *
+      WidthOutlineBuilder.ORIGINAL_WIDTH_RELATIVE_TOLERANCE;
+    // The original skips overflow; valid persisted inputs stay finite. Harmony also treats
+    // any derived non-finite value as "no extra width split" instead of emitting NaN geometry.
+    if (!Number.isFinite(scaledDeviation) || scaledDeviation <= tolerance) {
+      return 1;
+    }
+    const requested: number = Math.ceil(Math.sqrt(scaledDeviation / tolerance));
+    return Math.max(WidthOutlineBuilder.ORIGINAL_WIDTH_MIN_SUBDIVISIONS,
+      Math.min(WidthOutlineBuilder.ORIGINAL_WIDTH_MAX_SUBDIVISIONS, requested));
+  }
+
+  private originalHermiteWidth(profile: OriginalWidthProfile,
+    componentIndex: number, t: number): number {
+    const startWidth: number = profile.widths[componentIndex];
+    const endWidth: number = profile.widths[componentIndex + 1];
+    const startDerivative: number = profile.derivatives[componentIndex];
+    const endDerivative: number = profile.derivatives[componentIndex + 1];
+    const length: number = profile.componentLengths[componentIndex];
+    const t2: number = t * t;
+    const t3: number = t2 * t;
+    return (t3 - t2) * endDerivative * length +
+      ((-2 * t3) + 3 * t2) * endWidth +
+      (t3 - 2 * t2 + t) * startDerivative * length +
+      (2 * t3 - 3 * t2 + 1) * startWidth;
   }
 
   private flattenCubic(segment: CubicSegment, startWidth: number, endWidth: number,
@@ -135,16 +283,31 @@ export class WidthOutlineBuilder {
   }
 
   private splitCubicHalf(segment: CubicSegment): CubicPair {
-    const p01: Point2D = this.midpoint(segment.p0, segment.p1);
-    const p12: Point2D = this.midpoint(segment.p1, segment.p2);
-    const p23: Point2D = this.midpoint(segment.p2, segment.p3);
-    const p012: Point2D = this.midpoint(p01, p12);
-    const p123: Point2D = this.midpoint(p12, p23);
-    const middle: Point2D = this.midpoint(p012, p123);
+    return this.splitCubic(segment, 0.5);
+  }
+
+  private splitCubic(segment: CubicSegment, t: number): CubicPair {
+    const p01: Point2D = this.interpolatePoint(segment.p0, segment.p1, t);
+    const p12: Point2D = this.interpolatePoint(segment.p1, segment.p2, t);
+    const p23: Point2D = this.interpolatePoint(segment.p2, segment.p3, t);
+    const p012: Point2D = this.interpolatePoint(p01, p12, t);
+    const p123: Point2D = this.interpolatePoint(p12, p23, t);
+    const middle: Point2D = this.interpolatePoint(p012, p123, t);
     return {
       left: { p0: segment.p0, p1: p01, p2: p012, p3: middle },
       right: { p0: middle, p1: p123, p2: p23, p3: segment.p3 },
     };
+  }
+
+  private sliceCubic(segment: CubicSegment, startT: number, endT: number): CubicSegment {
+    if (startT <= 0 && endT >= 1) {
+      return segment;
+    }
+    const throughEnd: CubicSegment = this.splitCubic(segment, endT).left;
+    if (startT <= 0) {
+      return throughEnd;
+    }
+    return this.splitCubic(throughEnd, startT / endT).right;
   }
 
   private samplesFromPolyline(centerline: StrokePathPoint[]): OutlineSample[] {
@@ -378,6 +541,13 @@ export class WidthOutlineBuilder {
 
   private midpoint(first: Point2D, second: Point2D): Point2D {
     return { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+  }
+
+  private interpolatePoint(first: Point2D, second: Point2D, t: number): Point2D {
+    return {
+      x: first.x + (second.x - first.x) * t,
+      y: first.y + (second.y - first.y) * t,
+    };
   }
 
   private add(first: Point2D, second: Point2D): Point2D {

@@ -45,6 +45,16 @@ function archCubic(): CubicSegment {
   };
 }
 
+function straightCubic(startX: number, endX: number): CubicSegment {
+  const distance: number = endX - startX;
+  return {
+    p0: { x: startX, y: 0 },
+    p1: { x: startX + distance / 3, y: 0 },
+    p2: { x: startX + distance * 2 / 3, y: 0 },
+    p3: { x: endX, y: 0 },
+  };
+}
+
 export default function widthOutlineBuilderTest() {
   describe('WidthOutlineBuilder', () => {
     it('connects both round caps to the upper and lower outlines', 0, () => {
@@ -131,6 +141,45 @@ export default function widthOutlineBuilderTest() {
       expect(result.isValid).assertTrue();
       expect(contains(result.outlinePoints, 5, 4)).assertTrue();
       expect(contains(result.outlinePoints, 5, -4)).assertTrue();
+    });
+
+    it('uses the original monotone Hermite width profile between fitted components', 0, () => {
+      const result = new WidthOutlineBuilder().build([
+        point(0, 0, 1), point(10, 0, 3), point(20, 0, 2),
+      ], 2, [straightCubic(0, 10), straightCubic(10, 20)]);
+      expect(result.isValid).assertTrue();
+      // Original z8a samples the first component in five pieces. At t=0.4 the
+      // monotone Hermite width is 1.992, not the old linear value 1.8.
+      expect(contains(result.outlinePoints, 4, 1.992, 1e-9)).assertTrue();
+      expect(contains(result.outlinePoints, 4, -1.992, 1e-9)).assertTrue();
+      // The second component receives four pieces and therefore exposes t=0.5.
+      expect(contains(result.outlinePoints, 15, 2.625, 1e-9)).assertTrue();
+      expect(contains(result.outlinePoints, 15, -2.625, 1e-9)).assertTrue();
+    });
+
+    it('keeps the original monotone Hermite profile inside adjacent width extrema', 0, () => {
+      const result = new WidthOutlineBuilder().build([
+        point(0, 0, 1), point(10, 0, 3), point(20, 0, 2),
+      ], 2, [straightCubic(0, 10), straightCubic(10, 20)]);
+      expect(result.isValid).assertTrue();
+      for (const outlinePoint of result.outlinePoints) {
+        expect(Math.abs(outlinePoint.y) <= 3 + 1e-9).assertTrue();
+      }
+    });
+
+    it('does not subdivide constant width components only because a cubic list exists', 0, () => {
+      const builder: WidthOutlineBuilder = new WidthOutlineBuilder();
+      const centerline: StrokePathPoint[] = [
+        point(0, 0, 2), point(10, 0, 2), point(20, 0, 2),
+      ];
+      const polyline = builder.build(centerline, 2);
+      const cubics = builder.build(centerline, 2,
+        [straightCubic(0, 10), straightCubic(10, 20)]);
+      expect(cubics.outlinePoints.length).assertEqual(polyline.outlinePoints.length);
+      for (let i: number = 0; i < polyline.outlinePoints.length; i++) {
+        expect(close(cubics.outlinePoints[i], polyline.outlinePoints[i].x,
+          polyline.outlinePoints[i].y)).assertTrue();
+      }
     });
 
     it('uses denser angular sampling for a wide curved stroke', 0, () => {
