@@ -1,18 +1,25 @@
-// T-023 形状识别（直线/椭圆/多边形；由编辑器的 hold-to-detect 计时器触发）
-// 原版使用商业 MyScript iink SDK。本实现是移植方自研几何启发式，识别行为不可比；
-// 下列阈值均为移植方经验值，不是从原版反编译得到的参数。
+// T-023 形状识别（由编辑器的 hold-to-detect 计时器触发）
+// 原版使用商业 MyScript iink SDK。本实现仍是移植方自研几何启发式，
+// 分类器的几何阈值不能冒充 MyScript 等价；但最终接受门槛和近圆归一化
+// 现已按 Android 1.0.3 e5d/y90 的硬证据对齐。
+// 原版内部 LINE/ARROW/SQUARE/RECTANGLE/TRIANGLE/POLYGON/ELLIPSE/BEZIERGON
+// 最终只映射为 LINE（ARROW 使用 SINGLE）、ELLIPSE、POLYGON。当前模型可承载
+// 该联合，但主动启发式仍只分类普通 LINE、ELLIPSE 与开放/闭合 POLYGON；
+// 箭头/曲线分类继续作为显式 provider 差距，不能用无证据阈值伪装完成。
 // 纯数学模块：禁止 import 平台 API
 import { Point2D, Rect2D } from '../model/GeometryTypes';
 import { NoteElement, EllipseElement, LineElement, PolygonElement,
   ElementType, ShapeArrowHead } from '../model/ElementTypes';
 import { RecognitionResult, RecognitionProvider } from '../adaptation/RecognitionProvider';
 
+export const ORIGINAL_SHAPE_RECOGNITION_CONFIDENCE_THRESHOLD: number = 0.2;
+
 export interface ShapeDetectorConfig {
   lineThreshold: number;       // 直线判据：距离/跨度 > 0.6
   lineMinLength: number;       // 直线最小长度 60px
   ellipseMaxGap: number;       // 椭圆首尾最大距离 120px
   refitThreshold: number;      // 重拟合偏差 5px
-  confidenceThreshold: number; // 最低置信度 0.5
+  confidenceThreshold: number; // e5d 严格接受 confidence > 0.2
 }
 
 // 检测结果（ArkTS 不允许对象字面量类型）
@@ -30,7 +37,7 @@ export class ShapeDetector implements RecognitionProvider {
       lineMinLength: 60,
       ellipseMaxGap: 120,
       refitThreshold: 5.0,
-      confidenceThreshold: 0.5,
+      confidenceThreshold: ORIGINAL_SHAPE_RECOGNITION_CONFIDENCE_THRESHOLD,
     };
     if (config !== undefined) {
       if (config.lineThreshold !== undefined) {
@@ -60,7 +67,7 @@ export class ShapeDetector implements RecognitionProvider {
         merged.refitThreshold : 5.0,
       confidenceThreshold: Number.isFinite(merged.confidenceThreshold) &&
         merged.confidenceThreshold >= 0 && merged.confidenceThreshold <= 1 ?
-        merged.confidenceThreshold : 0.5,
+        merged.confidenceThreshold : ORIGINAL_SHAPE_RECOGNITION_CONFIDENCE_THRESHOLD,
     };
   }
 
@@ -86,7 +93,8 @@ export class ShapeDetector implements RecognitionProvider {
     if (polygon !== null) {
       best = this.pickBetter(best, polygon);
     }
-    if (best === null || best.confidence < this.config.confidenceThreshold) {
+    // Android 1.0.3 e5d accepts only confidence strictly greater than 0.2.
+    if (best === null || best.confidence <= this.config.confidenceThreshold) {
       return null;
     }
     return { confidence: best.confidence, elements: best.elements };
@@ -205,31 +213,26 @@ export class ShapeDetector implements RecognitionProvider {
     if (rx < 5 || ry < 5) {
       return null;  // 太小不是椭圆
     }
-    // 圆的主轴没有几何意义；固定为 0，避免微小采样噪声导致吸附后随机旋转。
-    if ((rx - ry) / rx < 0.05) {
+    // y90 scores the fitted ellipse before optionally normalizing near-circles.
+    const fitRotation: number = this.normalizeEllipseRotation(rotation);
+    const fitConfidence: number = this.ellipseConfidence(
+      points, cx, cy, rx, ry, fitRotation);
+    const averageRadius: number = (rx + ry) / 2;
+    const minorMajorRatio: number = ry / rx;
+    // Android 1.0.3 y90: ratio > 0.7, or a small (<30 average radius)
+    // ellipse with ratio > 0.5, becomes a true circle at the average radius.
+    if (minorMajorRatio > 0.7 ||
+      (averageRadius < 30 && minorMajorRatio > 0.5)) {
       rotation = 0;
-      const sourceBounds: Rect2D = this.computeBounds(points);
-      rx = (sourceBounds.right - sourceBounds.left) / 2;
-      ry = (sourceBounds.bottom - sourceBounds.top) / 2;
-      cx = (sourceBounds.left + sourceBounds.right) / 2;
-      cy = (sourceBounds.top + sourceBounds.bottom) / 2;
+      rx = averageRadius;
+      ry = averageRadius;
     } else {
-      rotation = this.normalizeEllipseRotation(rotation);
+      rotation = fitRotation;
     }
-    // 径向误差评分
+    // Bounds describe the normalized geometry, while acceptance keeps the
+    // pre-normalization fit score just like y90.
     const cosRotation: number = Math.cos(rotation);
     const sinRotation: number = Math.sin(rotation);
-    let errSum: number = 0;
-    for (const p of points) {
-      const dx: number = p.x - cx;
-      const dy: number = p.y - cy;
-      const localX: number = (dx * cosRotation + dy * sinRotation) / Math.max(rx, 0.001);
-      const localY: number = (-dx * sinRotation + dy * cosRotation) / Math.max(ry, 0.001);
-      const r: number = Math.sqrt(localX * localX + localY * localY);
-      errSum += Math.abs(r - 1);
-    }
-    const meanErr: number = errSum / points.length;
-    const confidence: number = Math.max(0, 1 - meanErr / 0.8);
     const halfWidth: number = Math.sqrt(
       rx * rx * cosRotation * cosRotation + ry * ry * sinRotation * sinRotation);
     const halfHeight: number = Math.sqrt(
@@ -251,7 +254,24 @@ export class ShapeDetector implements RecognitionProvider {
       strokeWidth: 4,
       fillColor: null,
     };
-    return { confidence: confidence, elements: [element] };
+    return { confidence: fitConfidence, elements: [element] };
+  }
+
+  private ellipseConfidence(points: Point2D[], cx: number, cy: number,
+    rx: number, ry: number, rotation: number): number {
+    const cosRotation: number = Math.cos(rotation);
+    const sinRotation: number = Math.sin(rotation);
+    let errSum: number = 0;
+    for (const p of points) {
+      const dx: number = p.x - cx;
+      const dy: number = p.y - cy;
+      const localX: number = (dx * cosRotation + dy * sinRotation) / Math.max(rx, 0.001);
+      const localY: number = (-dx * sinRotation + dy * cosRotation) / Math.max(ry, 0.001);
+      const radius: number = Math.sqrt(localX * localX + localY * localY);
+      errSum += Math.abs(radius - 1);
+    }
+    const meanError: number = errSum / points.length;
+    return Math.max(0, 1 - meanError / 0.8);
   }
 
   private normalizeEllipseRotation(rotation: number): number {

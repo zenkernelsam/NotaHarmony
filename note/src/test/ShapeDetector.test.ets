@@ -1,5 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { ShapeDetector } from '../main/ets/core/algorithm/ShapeDetector';
+import {
+  ORIGINAL_SHAPE_RECOGNITION_CONFIDENCE_THRESHOLD, ShapeDetector,
+} from '../main/ets/core/algorithm/ShapeDetector';
 import { ElementType, EllipseElement, LineElement, OriginalShapeCreateMetadata, ShapeElement,
   PolygonElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import { Point2D } from '../main/ets/core/model/GeometryTypes';
@@ -70,6 +72,57 @@ export default function shapeDetectorTest() {
       expect(close(circle.radiusY, 50)).assertTrue();
       expect(close(circle.bounds.left, 50)).assertTrue();
       expect(close(circle.bounds.bottom, 170)).assertTrue();
+    });
+
+    it('uses the original broad near-circle normalization rule', 0, () => {
+      const detector: ShapeDetector = new ShapeDetector();
+      const result: RecognitionResult | null = detector.recognizeShape(
+        ellipsePoints(200, 220, 80, 60, Math.PI / 5));
+      expect(result?.elements[0].type).assertEqual(ElementType.ELLIPSE);
+      const circle: EllipseElement = result!.elements[0] as EllipseElement;
+      expect(circle.rotationRadians).assertEqual(0);
+      expect(close(circle.radiusX, 70)).assertTrue();
+      expect(close(circle.radiusY, 70)).assertTrue();
+      expect(close(circle.center.x, 200)).assertTrue();
+      expect(close(circle.center.y, 220)).assertTrue();
+    });
+
+    it('normalizes a small ellipse above the original 0.5 ratio exception', 0, () => {
+      const detector: ShapeDetector = new ShapeDetector();
+      const result: RecognitionResult | null = detector.recognizeShape(
+        ellipsePoints(80, 90, 28, 17, Math.PI / 7));
+      const circle: EllipseElement = result!.elements[0] as EllipseElement;
+      expect(circle.rotationRadians).assertEqual(0);
+      expect(close(circle.radiusX, 22.5)).assertTrue();
+      expect(close(circle.radiusY, 22.5)).assertTrue();
+    });
+
+    it('preserves rotation for a large ellipse below the near-circle ratio', 0, () => {
+      const expectedRotation: number = Math.PI / 5;
+      const result: RecognitionResult | null = new ShapeDetector().recognizeShape(
+        ellipsePoints(200, 220, 80, 48, expectedRotation));
+      const ellipse: EllipseElement = result!.elements[0] as EllipseElement;
+      expect(close(ellipse.radiusX, 80)).assertTrue();
+      expect(close(ellipse.radiusY, 48)).assertTrue();
+      expect(ellipseAngleDifference(ellipse.rotationRadians, expectedRotation) < 0.001).assertTrue();
+    });
+
+    it('accepts only confidence strictly greater than the configured original gate', 0, () => {
+      expect(ORIGINAL_SHAPE_RECOGNITION_CONFIDENCE_THRESHOLD).assertEqual(0.2);
+      const points: Point2D[] = [
+        { x: 0, y: 0 }, { x: 80, y: 0 }, { x: 160, y: 0 },
+      ];
+      const probe: RecognitionResult = new ShapeDetector({ confidenceThreshold: 0 })
+        .recognizeShape(points)!;
+      expect(probe.confidence > ORIGINAL_SHAPE_RECOGNITION_CONFIDENCE_THRESHOLD).assertTrue();
+      const equal: RecognitionResult | null = new ShapeDetector({
+        confidenceThreshold: probe.confidence,
+      }).recognizeShape(points);
+      expect(equal === null).assertTrue();
+      const lower: RecognitionResult | null = new ShapeDetector({
+        confidenceThreshold: probe.confidence - 0.000001,
+      }).recognizeShape(points);
+      expect(lower !== null).assertTrue();
     });
 
     it('keeps a recognized line as the original LINE definition', 0, () => {

@@ -126,6 +126,10 @@ import {
   cloneShapeElement, eraserPathHitsShape, recomputeShapeBounds, transformShapeElements,
 } from '../../core/model/ShapeGeometry';
 import { prepareRecognizedShapes } from '../../core/model/ShapeRecognition';
+import { ShapeHoldAdjustmentSession } from '../../core/model/ShapeHoldAdjustment';
+import {
+  ORIGINAL_SHAPE_HOLD_DELAY_MS, originalShapeHoldPauseThreshold, ShapeHoldPauseTracker,
+} from '../../core/model/ShapeHoldLifecycle';
 import {
   cloneTextBlockElement, eraserPathHitsTextBlock, pointHitsTextBlock, textBlockTransformComponents,
   textBlockWorldBounds, transformTextBlockElements,
@@ -207,8 +211,6 @@ export struct NoteCanvasView {
   @Prop @Watch('onAudioPlaybackChange') playbackAudioTime: string | null = null;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioSegments: OriginalAudioSegmentRange[] = [];
   readRecordingAudioTime: () => string | null = (): string | null => null;
-  // MyScript 的精确 hold 时长未出现在反编译配置中；保留注入点供设备对照后收敛。
-  @Prop shapeHoldDelayMs: number = 500;
   onUndoRedoChanged: (canUndo: boolean, canRedo: boolean) => void = () => {
   };
   onRequestPage: (pageId: string) => void = () => {
@@ -314,6 +316,8 @@ export struct NoteCanvasView {
   private pageLoadPromise: Promise<void> = Promise.resolve();
   private viewportInitialized: boolean = false;
   private shapeHoldTimer: number = -1;
+  private shapeHoldPauseTracker: ShapeHoldPauseTracker = new ShapeHoldPauseTracker();
+  private shapeHoldAdjustment: ShapeHoldAdjustmentSession = new ShapeHoldAdjustmentSession();
   private heldShapes: ShapeElement[] = [];
   // -1: undo, 1: redo, 0: none. Cross-page history resumes after page data finishes loading.
   private pendingHistoryDirection: number = 0;
@@ -803,7 +807,7 @@ export struct NoteCanvasView {
     this.releasePaperTexture();
     this.strokeClipboard.clear();
     this.clipboardAvailable = false;
-    this.cancelShapeDetectionTimer();
+    this.resetShapeHoldState();
     if (this.viewportSaveTimer >= 0) {
       clearTimeout(this.viewportSaveTimer);
       this.viewportSaveTimer = -1;
@@ -1585,6 +1589,7 @@ export struct NoteCanvasView {
       return;
     }
 
+    this.resetShapeHoldState();
     this.activePointerId = touch.id;
 
     if (this.viewModel.isEraserActive()) {
@@ -1646,8 +1651,8 @@ export struct NoteCanvasView {
     this.predictor.reset();
     this.addPointerBatches(batches);
     this.addPredictionPreview(event, touch);
-    this.scheduleShapeDetection();
     this.isDrawing = true;
+    this.beginShapeHold(event, touch);
     this.renderFrame();
   }
 
@@ -1688,7 +1693,7 @@ export struct NoteCanvasView {
     if (this.strokeSession !== null) {
       this.addPointerBatches(batches);
       this.addPredictionPreview(event, touch);
-      this.scheduleShapeDetection();
+      this.updateShapeHold(event, touch);
     }
     this.renderFrame();
   }
@@ -1720,6 +1725,7 @@ export struct NoteCanvasView {
         const batches: PointerInputBatches = this.pointerStream.append(
           this.collectPointerSamples(event, finalTouch));
         this.addPointerBatches(batches);
+        this.updateHeldShapeAdjustment(finalTouch);
       }
     }
     this.cancelShapeDetectionTimer();
@@ -1774,8 +1780,9 @@ export struct NoteCanvasView {
     } else if (this.strokeSession !== null && this.strokeSession.isActive()) {
       const stroke: StrokeElementData = this.strokeSession.finishStroke();
       hilog.info(0x0001, 'NoteCanvasView', 'stroke finished, pts=%{public}d', stroke.pathPoints.length);
-      // 只有落笔后静止按住达到阈值，计时器才会提供形状候选。
+      // Android 1.0.3 keeps the snapped Shape active through the final Up.
       const finalShapes: ShapeElement[] = this.heldShapes;
+      this.clearShapeHoldTracking();
       this.heldShapes = [];
       const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
       if (finalShapes.length > 0) {
@@ -1819,22 +1826,24 @@ export struct NoteCanvasView {
       hilog.info(0x0001, 'NoteCanvasView', 'after notify, canUndo=%{public}s',
         this.undoRedo.canUndo().toString());
     }
+    this.resetShapeHoldState();
     this.isDrawing = false;
     this.resetPointerTracking();
     this.renderFrame();
   }
 
   private cancelActiveInteraction(): void {
+    const heldShapeCleared: boolean = this.heldShapes.length > 0;
+    this.resetShapeHoldState();
     if (!this.isDrawing) {
       const previewCleared: boolean = this.partialEraserPreview.cancel();
       this.resetPointerTracking();
-      if (previewCleared && this.layerManager.isInitialized() && this.lifecycleActive) {
+      if ((previewCleared || heldShapeCleared) && this.layerManager.isInitialized() &&
+        this.lifecycleActive) {
         this.renderFrame(true);
       }
       return;
     }
-    this.cancelShapeDetectionTimer();
-    this.heldShapes = [];
     if (this.strokeSession !== null && this.strokeSession.isActive()) {
       this.strokeSession.cancelStroke();
       this.refreshOriginalInkReservation(this.pageLoadGeneration, this.loadedPageId);
@@ -1870,18 +1879,66 @@ export struct NoteCanvasView {
   }
 
   // === 形状识别 ===
-  private scheduleShapeDetection(): void {
-    this.cancelShapeDetectionTimer();
-    this.heldShapes = [];
-    const tool: ToolType = this.viewModel.currentTool;
-    const drawingTool: boolean = tool === ToolType.PEN || tool === ToolType.PENCIL || tool === ToolType.HIGHLIGHTER;
-    if (!drawingTool || !this.viewModel.shapeDetectionEnabled) {
+  private beginShapeHold(event: TouchEvent, touch: TouchObject): void {
+    if (!this.shapeDetectionAvailable()) {
       return;
     }
-    const holdDelay: number = Number.isFinite(this.shapeHoldDelayMs) && this.shapeHoldDelayMs >= 0
-      ? this.shapeHoldDelayMs : 500;
+    const threshold: number = this.shapeHoldPauseThreshold(event);
+    if (this.shapeHoldPauseTracker.update({ x: touch.x, y: touch.y }, threshold)) {
+      this.scheduleShapeDetection();
+    }
+  }
+
+  private updateShapeHold(event: TouchEvent, touch: TouchObject): void {
+    if (this.shapeHoldAdjustment.isActive()) {
+      this.updateHeldShapeAdjustment(touch);
+      return;
+    }
+    if (!this.shapeDetectionAvailable()) {
+      this.resetShapeHoldState();
+      return;
+    }
+    const threshold: number = this.shapeHoldPauseThreshold(event);
+    if (this.shapeHoldPauseTracker.update({ x: touch.x, y: touch.y }, threshold)) {
+      this.scheduleShapeDetection();
+    }
+  }
+
+  private updateHeldShapeAdjustment(touch: TouchObject): void {
+    if (!this.shapeHoldAdjustment.isActive()) {
+      return;
+    }
+    const point: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
+    const adjusted: ShapeElement[] | null = this.shapeHoldAdjustment.update(point);
+    if (adjusted !== null) {
+      this.heldShapes = adjusted;
+    }
+  }
+
+  private shapeDetectionAvailable(): boolean {
+    const tool: ToolType = this.viewModel.currentTool;
+    return this.viewModel.shapeDetectionEnabled &&
+      (tool === ToolType.PEN || tool === ToolType.PENCIL || tool === ToolType.HIGHLIGHTER);
+  }
+
+  private shapeHoldPauseThreshold(event: TouchEvent): number {
+    const handwritingInput: boolean = event.sourceTool === SourceTool.Pen ||
+      event.sourceTool === SourceTool.MOUSE;
+    // API 21 has no public ViewConfiguration-style slop query. The pure helper
+    // keeps an injectable baseSlop boundary; this call currently uses its
+    // documented Harmony fallback while preserving the original x4 rule.
+    return originalShapeHoldPauseThreshold(handwritingInput);
+  }
+
+  private scheduleShapeDetection(): void {
+    this.cancelShapeDetectionTimer();
+    if (!this.shapeDetectionAvailable() || this.shapeHoldAdjustment.isActive()) {
+      return;
+    }
     this.shapeHoldTimer = setTimeout(() => {
-      if (!this.isDrawing || this.strokeSession === null || !this.strokeSession.isActive()) {
+      this.shapeHoldTimer = -1;
+      if (!this.isDrawing || !this.shapeDetectionAvailable() || this.strokeSession === null ||
+        !this.strokeSession.isActive()) {
         return;
       }
       const current: StrokeElementData | null = this.strokeSession.getCurrentRealStroke();
@@ -1889,11 +1946,12 @@ export struct NoteCanvasView {
         return;
       }
       const attempt: ShapeDetectionAttempt = this.tryShapeDetect(current);
-      this.heldShapes = attempt.replaced ? attempt.shapes : [];
-      if (attempt.replaced) {
+      if (attempt.replaced && this.shapeHoldAdjustment.begin(attempt.shapes)) {
+        this.heldShapes = attempt.shapes;
+        this.shapeHoldPauseTracker.reset();
         this.renderFrame();
       }
-    }, holdDelay);
+    }, ORIGINAL_SHAPE_HOLD_DELAY_MS);
   }
 
   private cancelShapeDetectionTimer(): void {
@@ -5949,6 +6007,17 @@ export struct NoteCanvasView {
     return stroke.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH ? 1 :
       stroke.renderSpec.inkStyle === InkStyle.FIXED_WIDTH ? 1 :
         stroke.renderSpec.inkStyle === InkStyle.DASH ? 2 : 3;
+  }
+
+  private clearShapeHoldTracking(): void {
+    this.cancelShapeDetectionTimer();
+    this.shapeHoldPauseTracker.reset();
+    this.shapeHoldAdjustment.reset();
+  }
+
+  private resetShapeHoldState(): void {
+    this.clearShapeHoldTracking();
+    this.heldShapes = [];
   }
 
   private averageStrokeForce(stroke: StrokeElementData): number | null {

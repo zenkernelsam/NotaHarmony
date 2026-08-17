@@ -43,6 +43,8 @@ import shapeStrokeRendererTest from './ShapeStrokeRenderer.test';
 import selectionToolTest from './SelectionTool.test';
 import textBlockGeometryTest from './TextBlockGeometry.test';
 import shapeDetectorTest from './ShapeDetector.test';
+import shapeHoldLifecycleTest from './ShapeHoldLifecycle.test';
+import shapeHoldAdjustmentTest from './ShapeHoldAdjustment.test';
 import binaryPlistParserTest from './BinaryPlistParser.test';
 import nsKeyedArchiverDecoderTest from './NSKeyedArchiverDecoder.test';
 import notePackageSpecTest from './NotePackageSpec.test';
@@ -145,6 +147,8 @@ export default function testsuite() {
   selectionToolTest();
   textBlockGeometryTest();
   shapeDetectorTest();
+  shapeHoldLifecycleTest();
+  shapeHoldAdjustmentTest();
   binaryPlistParserTest();
   nsKeyedArchiverDecoderTest();
   notePackageSpecTest();
