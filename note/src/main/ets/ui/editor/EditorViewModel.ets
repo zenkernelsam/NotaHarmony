@@ -29,17 +29,29 @@ export class EditorViewModel {
   private states: ToolState[] = [];
   private activeToolId: string = 'pen';
   private previousToolId: string = 'pen';
+  private committedStates: Map<string, ToolState> = new Map<string, ToolState>();
+  private committedToolbox: EditorToolboxState | null = null;
   private stateVersions: Map<string, number> = new Map<string, number>();
   private selectionVersion: number = 0;
+  private committedShapeDetectionEnabled: boolean = true;
+  private shapeDetectionVersion: number = 0;
   private saveChain: Promise<void> = Promise.resolve();
 
   async initialize(repository: ToolRepository, ownerId: string = DEFAULT_TOOLBOX_OWNER,
     settingsRepository: EditorSettingsRepository | null = null): Promise<boolean> {
+    this.toolStateLoading = true;
+    await this.saveChain;
     this.repository = repository;
     this.settingsRepository = settingsRepository;
     this.ownerId = ownerId;
-    this.toolStateLoading = true;
     this.toolStateLoadFailed = false;
+    this.stateVersions.clear();
+    this.committedStates.clear();
+    this.committedToolbox = null;
+    this.selectionVersion = 0;
+    this.shapeDetectionEnabled = true;
+    this.committedShapeDetectionEnabled = true;
+    this.shapeDetectionVersion = 0;
     const defaults: ToolState[] = this.createDefaultStates(ownerId);
     try {
       const loaded: ToolState[] = await repository.getToolStates(ownerId);
@@ -62,6 +74,7 @@ export class EditorViewModel {
           await repository.saveToolState(this.cloneState(state));
         }
       }
+      this.replaceCommittedStates(this.states);
 
       const toolbox: EditorToolboxState | null = await repository.getToolboxState(ownerId);
       const fallbackPen: ToolState = this.requireState(ToolType.PEN);
@@ -74,10 +87,12 @@ export class EditorViewModel {
         this.previousToolId = fallbackPen.toolId;
         await repository.saveToolboxState(this.toolboxSnapshot());
       }
+      this.committedToolbox = this.cloneToolboxState(this.toolboxSnapshot());
       this.applyActiveState();
       if (settingsRepository !== null) {
         try {
           this.shapeDetectionEnabled = await settingsRepository.getShapeDetectionEnabled();
+          this.committedShapeDetectionEnabled = this.shapeDetectionEnabled;
         } catch (settingsError) {
           this.onPersistenceError(`Editor settings could not be loaded: ${JSON.stringify(settingsError)}`);
         }
@@ -86,8 +101,10 @@ export class EditorViewModel {
       return true;
     } catch (e) {
       this.states = defaults;
+      this.replaceCommittedStates(this.states);
       this.activeToolId = 'pen';
       this.previousToolId = 'pen';
+      this.committedToolbox = this.cloneToolboxState(this.toolboxSnapshot());
       this.applyActiveState();
       this.toolStateLoading = false;
       this.toolStateLoadFailed = true;
@@ -115,40 +132,38 @@ export class EditorViewModel {
     if (target === null) {
       return false;
     }
-    const oldActiveId: string = this.activeToolId;
-    const oldPreviousId: string = this.previousToolId;
-    const oldSelectionVersion: number = this.selectionVersion;
     this.selectionVersion++;
     const version: number = this.selectionVersion;
-    this.previousToolId = oldActiveId;
+    this.previousToolId = this.activeToolId;
     this.activeToolId = target.toolId;
     if (requestedType === ToolType.WHOLE_ERASER) {
       const modeSaved: boolean = await this.setEraserIsPartial(tool === ToolType.PARTIAL_ERASER);
       if (!modeSaved) {
-        this.activeToolId = oldActiveId;
-        this.previousToolId = oldPreviousId;
-        this.selectionVersion = oldSelectionVersion;
-        this.applyActiveState();
+        if (this.selectionVersion === version) {
+          this.restoreCommittedToolbox();
+        }
         return false;
+      }
+      if (this.selectionVersion !== version) {
+        return true;
       }
     }
     this.applyActiveState();
     this.showColorPicker = false;
     this.showWidthSlider = false;
     const repository: ToolRepository | null = this.repository;
+    const snapshot: EditorToolboxState = this.toolboxSnapshot();
     if (repository === null) {
+      this.committedToolbox = this.cloneToolboxState(snapshot);
       return true;
     }
-    const snapshot: EditorToolboxState = this.toolboxSnapshot();
     try {
       await this.enqueueSave(async (): Promise<void> => repository.saveToolboxState(snapshot));
+      this.committedToolbox = this.cloneToolboxState(snapshot);
       return true;
     } catch (e) {
       if (this.selectionVersion === version) {
-        this.activeToolId = oldActiveId;
-        this.previousToolId = oldPreviousId;
-        this.selectionVersion = oldSelectionVersion;
-        this.applyActiveState();
+        this.restoreCommittedToolbox();
       }
       this.onPersistenceError(`Tool selection was not saved: ${JSON.stringify(e)}`);
       return false;
@@ -191,18 +206,21 @@ export class EditorViewModel {
   }
 
   async setShapeDetectionEnabled(enabled: boolean): Promise<boolean> {
-    const previous: boolean = this.shapeDetectionEnabled;
+    this.shapeDetectionVersion++;
+    const version: number = this.shapeDetectionVersion;
     this.shapeDetectionEnabled = enabled;
     const repository: EditorSettingsRepository | null = this.settingsRepository;
     if (repository === null) {
+      this.committedShapeDetectionEnabled = enabled;
       return true;
     }
     try {
       await this.enqueueSave(async (): Promise<void> => repository.saveShapeDetectionEnabled(enabled));
+      this.committedShapeDetectionEnabled = enabled;
       return true;
     } catch (e) {
-      if (this.shapeDetectionEnabled === enabled) {
-        this.shapeDetectionEnabled = previous;
+      if (this.shapeDetectionVersion === version) {
+        this.shapeDetectionEnabled = this.committedShapeDetectionEnabled;
       }
       this.onPersistenceError(`Shape detection setting was not saved: ${JSON.stringify(e)}`);
       return false;
@@ -249,8 +267,7 @@ export class EditorViewModel {
     if (index < 0) {
       return false;
     }
-    const before: ToolState = this.cloneState(this.states[index]);
-    const updated: ToolState = this.cloneState(before);
+    const updated: ToolState = this.cloneState(this.states[index]);
     mutate(updated);
     this.states[index] = updated;
     const version: number = (this.stateVersions.get(toolId) ?? 0) + 1;
@@ -260,16 +277,21 @@ export class EditorViewModel {
     }
     const repository: ToolRepository | null = this.repository;
     if (repository === null) {
+      this.committedStates.set(toolId, this.cloneState(updated));
       return true;
     }
     try {
       await this.enqueueSave(async (): Promise<void> => repository.saveToolState(this.cloneState(updated)));
+      this.committedStates.set(toolId, this.cloneState(updated));
       return true;
     } catch (e) {
       if (this.stateVersions.get(toolId) === version) {
-        this.states[index] = before;
-        if (toolId === this.activeToolId) {
-          this.applyActiveState();
+        const committed: ToolState | undefined = this.committedStates.get(toolId);
+        if (committed !== undefined) {
+          this.states[index] = this.cloneState(committed);
+          if (toolId === this.activeToolId) {
+            this.applyActiveState();
+          }
         }
       }
       this.onPersistenceError(`Tool setting was not saved: ${JSON.stringify(e)}`);
@@ -303,6 +325,32 @@ export class EditorViewModel {
       ownerId: this.ownerId,
       mostRecentlySelectedToolId: this.activeToolId,
       previouslySelectedToolId: this.previousToolId,
+    };
+  }
+
+  private restoreCommittedToolbox(): void {
+    const committed: EditorToolboxState | null = this.committedToolbox;
+    if (committed === null || this.findById(committed.mostRecentlySelectedToolId) === null) {
+      return;
+    }
+    this.activeToolId = committed.mostRecentlySelectedToolId;
+    this.previousToolId = this.findById(committed.previouslySelectedToolId) === null ?
+      this.activeToolId : committed.previouslySelectedToolId;
+    this.applyActiveState();
+  }
+
+  private replaceCommittedStates(states: ToolState[]): void {
+    this.committedStates.clear();
+    for (const state of states) {
+      this.committedStates.set(state.toolId, this.cloneState(state));
+    }
+  }
+
+  private cloneToolboxState(state: EditorToolboxState): EditorToolboxState {
+    return {
+      ownerId: state.ownerId,
+      mostRecentlySelectedToolId: state.mostRecentlySelectedToolId,
+      previouslySelectedToolId: state.previouslySelectedToolId,
     };
   }
 
