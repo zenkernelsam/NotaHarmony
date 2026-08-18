@@ -81,6 +81,7 @@ import originalModifyPagePayloadEncoderTest from './OriginalModifyPagePayloadEnc
 import originalSetMetadataPayloadEncoderTest from './OriginalSetMetadataPayloadEncoder.test';
 import originalNoteMetadataPolicyTest from './OriginalNoteMetadataPolicy.test';
 import noteMetadataMutationCodecTest from './NoteMetadataMutationCodec.test';
+import originalHandwritingRecognitionTest from './OriginalHandwritingRecognition.test';
 import originalBlankNoteBootstrapTest from './OriginalBlankNoteBootstrap.test';
 import originalTemplatePickerTest from './OriginalTemplatePicker.test';
 import originalPaperSettingsTest from './OriginalPaperSettings.test';
@@ -187,6 +188,7 @@ export default function testsuite() {
   originalSetMetadataPayloadEncoderTest();
   originalNoteMetadataPolicyTest();
   noteMetadataMutationCodecTest();
+  originalHandwritingRecognitionTest();
   originalBlankNoteBootstrapTest();
   originalTemplatePickerTest();
   originalPaperSettingsTest();

@@ -16,6 +16,8 @@ export interface RecognitionProvider {
   isAvailable(): boolean;
   // 形状识别（笔画完成后调用）
   recognizeShape(points: Point2D[]): RecognitionResult | null;
-  // 手写转文字（选区菜单触发）
+  // 旧 phase-1 同步扁平点占位签名；它缺少原版要求的语言、笔迹分段与 force。
+  // 生产手写 OCR 不得复用 ShapeDetector 的可用性，必须走
+  // OriginalHandwritingRecognition 的独立异步 provider 边界。
   recognizeText(points: Point2D[]): string | null;
 }
