@@ -26,6 +26,12 @@ import {
 import {
   persistOriginalNoteTitle, PersistedOriginalNoteTitle,
 } from './OriginalNoteTitlePersistence';
+import {
+  OriginalNoteMetadataPatch,
+} from './OriginalSetMetadataPayloadEncoder';
+import {
+  persistOriginalNoteMetadata, PersistedOriginalNoteMetadata,
+} from './OriginalNoteMetadataPersistence';
 import { persistOriginalBlankNoteBootstrap } from './OriginalBlankNoteBootstrapPersistence';
 import { DefaultNoteTemplateRepository } from './EditorSettingsStore';
 
@@ -207,6 +213,28 @@ export class NoteRepositoryImpl implements NoteRepository {
         throw new Error(`updateNoteTitle failed: ${JSON.stringify(e)}`);
       }
     });
+  }
+
+  // Local original SET_METADATA preference registers are kept behind the same
+  // library mutex and transaction boundary as title/background mutations. The
+  // concrete API is intentionally not added to NoteRepository yet: no UI
+  // consumer or metadata Undo/Redo codec has been audited for these registers.
+  async updateOriginalNoteMetadata(noteId: string,
+    patch: OriginalNoteMetadataPatch): Promise<PersistedOriginalNoteMetadata> {
+    return libraryMetadataMutationMutex.runExclusive(
+      async (): Promise<PersistedOriginalNoteMetadata> => {
+        const store: relationalStore.RdbStore = this.db.getStore();
+        await store.beginTransaction();
+        try {
+          const persisted: PersistedOriginalNoteMetadata = await persistOriginalNoteMetadata(
+            store, noteId, patch);
+          await store.commit();
+          return persisted;
+        } catch (e) {
+          await store.rollBack();
+          throw new Error(`updateOriginalNoteMetadata failed: ${JSON.stringify(e)}`);
+        }
+      });
   }
 
   async deleteNote(noteId: string): Promise<void> {

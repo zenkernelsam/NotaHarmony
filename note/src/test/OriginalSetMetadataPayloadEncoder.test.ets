@@ -26,9 +26,13 @@ import { encodeOriginalOperationEnvelope } from
   '../main/ets/data/OriginalOperationEnvelopeEncoder';
 import {
   encodeOriginalSetMetadataPageBackground, encodeOriginalSetMetadataTitle,
-  encodeOriginalSetMetadataTitleAndPageBackground,
+  encodeOriginalSetMetadataTitleAndPageBackground, encodeOriginalSetMetadataFields,
+  OriginalNoteMetadataPatch,
 } from
   '../main/ets/data/OriginalSetMetadataPayloadEncoder';
+import {
+  OriginalNoteBlockWrapSupport, OriginalNoteLayoutMode,
+} from '../main/ets/core/model/OriginalNoteMetadataPolicy';
 import {
   decodeOriginalSetMetadataTable, ORIGINAL_SET_METADATA_PAYLOAD_TYPE,
   OriginalSetMetadataOperationApplier,
@@ -109,6 +113,107 @@ export default function originalSetMetadataPayloadEncoderTest() {
       expect(decodeOriginalSetMetadataTable(readOriginalPayloadTable(
         wrap(encodeOriginalSetMetadataTitle('x'.repeat(256))),
         ORIGINAL_SET_METADATA_PAYLOAD_TYPE)).title?.length).assertEqual(256);
+    });
+
+    it('writes the six local metadata registers with original presence semantics', 0, () => {
+      const patch: OriginalNoteMetadataPatch = {
+        hasHandwritingLanguage: true, handwritingLanguage: 'en_US',
+        hasAlignTextToLines: true, alignTextToLines: true,
+        hasDefaultFontFamily: true, defaultFontFamily: 'Noto Sans',
+        hasDefaultFontSize: true, defaultFontSize: 18.5,
+        hasLayoutMode: true, layoutMode: OriginalNoteLayoutMode.PAGELESS,
+        hasBlockWrapSupport: true,
+        blockWrapSupport: OriginalNoteBlockWrapSupport.LEGACY_WRAP_ENABLED,
+      };
+      const decoded = decodeOriginalSetMetadataTable(readOriginalPayloadTable(
+        wrap(encodeOriginalSetMetadataFields(patch)), ORIGINAL_SET_METADATA_PAYLOAD_TYPE));
+      expect(decoded.hasTitle).assertFalse();
+      expect(decoded.hasPageBackground).assertFalse();
+      expect(decoded.hasHandwritingLanguage).assertTrue();
+      expect(decoded.handwritingLanguage).assertEqual('en_US');
+      expect(decoded.hasAlignTextToLines && decoded.alignTextToLines).assertTrue();
+      expect(decoded.defaultFontFamily).assertEqual('Noto Sans');
+      expect(Math.abs(decoded.defaultFontSize - 18.5) < 0.0001).assertTrue();
+      expect(decoded.layoutMode).assertEqual(OriginalNoteLayoutMode.PAGELESS);
+      expect(decoded.blockWrapSupport).assertEqual(
+        OriginalNoteBlockWrapSupport.LEGACY_WRAP_ENABLED);
+    });
+
+    it('keeps explicit-null handwriting and forced false/zero scalar fields present', 0, () => {
+      const patch: OriginalNoteMetadataPatch = {
+        hasHandwritingLanguage: true, handwritingLanguage: null,
+        hasAlignTextToLines: true, alignTextToLines: false,
+        hasDefaultFontFamily: true, defaultFontFamily: '',
+        hasDefaultFontSize: true, defaultFontSize: 1,
+        hasLayoutMode: true, layoutMode: OriginalNoteLayoutMode.PAGED,
+        hasBlockWrapSupport: true,
+        blockWrapSupport: OriginalNoteBlockWrapSupport.WRAP_ENABLED,
+      };
+      const decoded = decodeOriginalSetMetadataTable(readOriginalPayloadTable(
+        wrap(encodeOriginalSetMetadataFields(patch)), ORIGINAL_SET_METADATA_PAYLOAD_TYPE));
+      expect(decoded.hasHandwritingLanguage).assertTrue();
+      expect(decoded.handwritingLanguage === null).assertTrue();
+      expect(decoded.hasAlignTextToLines).assertTrue();
+      expect(decoded.alignTextToLines).assertFalse();
+      expect(decoded.hasDefaultFontFamily).assertTrue();
+      expect(decoded.defaultFontFamily).assertEqual('');
+      expect(decoded.hasDefaultFontSize).assertTrue();
+      expect(decoded.hasLayoutMode).assertTrue();
+      expect(decoded.layoutMode).assertEqual(OriginalNoteLayoutMode.PAGED);
+      expect(decoded.hasBlockWrapSupport).assertTrue();
+      expect(decoded.blockWrapSupport).assertEqual(
+        OriginalNoteBlockWrapSupport.WRAP_ENABLED);
+    });
+
+    it('does not emit title/background or omitted preference fields', 0, () => {
+      const patch: OriginalNoteMetadataPatch = {
+        hasHandwritingLanguage: false, handwritingLanguage: null,
+        hasAlignTextToLines: false, alignTextToLines: false,
+        hasDefaultFontFamily: false, defaultFontFamily: '',
+        hasDefaultFontSize: true, defaultFontSize: 12,
+        hasLayoutMode: false, layoutMode: OriginalNoteLayoutMode.PAGED,
+        hasBlockWrapSupport: false,
+        blockWrapSupport: OriginalNoteBlockWrapSupport.WRAP_ENABLED,
+      };
+      const decoded = decodeOriginalSetMetadataTable(readOriginalPayloadTable(
+        wrap(encodeOriginalSetMetadataFields(patch)), ORIGINAL_SET_METADATA_PAYLOAD_TYPE));
+      expect(decoded.hasTitle).assertFalse();
+      expect(decoded.hasPageBackground).assertFalse();
+      expect(decoded.hasHandwritingLanguage).assertFalse();
+      expect(decoded.hasAlignTextToLines).assertFalse();
+      expect(decoded.hasDefaultFontFamily).assertFalse();
+      expect(decoded.hasDefaultFontSize).assertTrue();
+      expect(decoded.hasLayoutMode).assertFalse();
+      expect(decoded.hasBlockWrapSupport).assertFalse();
+    });
+
+    it('rejects empty, invalid and unsupported local metadata patches', 0, () => {
+      const empty: OriginalNoteMetadataPatch = {
+        hasHandwritingLanguage: false, handwritingLanguage: null,
+        hasAlignTextToLines: false, alignTextToLines: false,
+        hasDefaultFontFamily: false, defaultFontFamily: '',
+        hasDefaultFontSize: false, defaultFontSize: 1,
+        hasLayoutMode: false, layoutMode: OriginalNoteLayoutMode.PAGED,
+        hasBlockWrapSupport: false,
+        blockWrapSupport: OriginalNoteBlockWrapSupport.WRAP_ENABLED,
+      };
+      expect(() => encodeOriginalSetMetadataFields(empty)).assertThrow();
+      expect(() => encodeOriginalSetMetadataFields({
+        ...empty, hasHandwritingLanguage: true, handwritingLanguage: 'zz_US',
+      })).assertThrow();
+      expect(() => encodeOriginalSetMetadataFields({
+        ...empty, hasDefaultFontFamily: true, defaultFontFamily: 'x'.repeat(31),
+      })).assertThrow();
+      expect(() => encodeOriginalSetMetadataFields({
+        ...empty, hasDefaultFontSize: true, defaultFontSize: 0,
+      })).assertThrow();
+      expect(() => encodeOriginalSetMetadataFields({
+        ...empty, hasLayoutMode: true, layoutMode: 2 as OriginalNoteLayoutMode,
+      })).assertThrow();
+      expect(() => encodeOriginalSetMetadataFields({
+        ...empty, hasBlockWrapSupport: true,
+        blockWrapSupport: 3 as OriginalNoteBlockWrapSupport,
+      })).assertThrow();
     });
 
     it('writes the combined title and concrete default background used by blank notes', 0, () => {

@@ -1,5 +1,10 @@
 import { util } from '@kit.ArkTS';
 import { validateOriginalNoteTitleWireValue } from '../core/model/OriginalNoteTitlePolicy';
+import {
+  isOriginalDefaultFontFamily, isOriginalDefaultFontSize, isOriginalHandwritingLanguage,
+  isOriginalNoteBlockWrapSupport, isOriginalNoteLayoutMode,
+  OriginalNoteBlockWrapSupport, OriginalNoteLayoutMode,
+} from '../core/model/OriginalNoteMetadataPolicy';
 import { originalAssetStorageHash } from '../core/model/ImageBlockGeometry';
 import {
   PageBackground, PagePaperBackground, PagePdfBackground, PdfLayoutBehavior,
@@ -9,6 +14,26 @@ import { validatePageBackground } from '../core/model/PageBackgroundModel';
 const MAX_ASSET_FILE_NAME_BYTES: number = 65536;
 const MAX_ASSET_MIME_TYPE_BYTES: number = 4096;
 const MAX_TITLE_BYTES: number = 1024;
+const MAX_HANDWRITING_LANGUAGE_BYTES: number = 1024;
+const MAX_DEFAULT_FONT_FAMILY_BYTES: number = 120;
+
+// Local note-level metadata edits deliberately expose field presence instead of
+// using a partial object. This keeps explicit handwriting null and scalar false/0
+// distinct from an omitted patch, exactly as l2d/xj2 encode them.
+export interface OriginalNoteMetadataPatch {
+  hasHandwritingLanguage: boolean;
+  handwritingLanguage: string | null;
+  hasAlignTextToLines: boolean;
+  alignTextToLines: boolean;
+  hasDefaultFontFamily: boolean;
+  defaultFontFamily: string;
+  hasDefaultFontSize: boolean;
+  defaultFontSize: number;
+  hasLayoutMode: boolean;
+  layoutMode: OriginalNoteLayoutMode;
+  hasBlockWrapSupport: boolean;
+  blockWrapSupport: OriginalNoteBlockWrapSupport;
+}
 
 interface PdfEncoding {
   value: PagePdfBackground;
@@ -117,6 +142,117 @@ export function encodeOriginalSetMetadataTitle(title: string | null): Uint8Array
   writeU32(bytes, setterTable + 4, titleVector - (setterTable + 4));
   writeString(bytes, titleVector, encoded);
   return bytes;
+}
+
+// Original xj2.K() writes fields 2..7 in the same l2d table used by title and
+// pageBackground. This writer intentionally leaves fields 0/1 absent: callers
+// cannot accidentally reset a title or paper register while changing a local
+// metadata preference. Scalar fields are written whenever their has* flag is
+// true, including false and enum value 0.
+export function encodeOriginalSetMetadataFields(patch: OriginalNoteMetadataPatch): Uint8Array {
+  validateOriginalNoteMetadataPatch(patch);
+  const encoder: util.TextEncoder = new util.TextEncoder();
+  const handwritingBytes: Uint8Array | null = patch.hasHandwritingLanguage &&
+    patch.handwritingLanguage !== null ? encoder.encodeInto(patch.handwritingLanguage) : null;
+  const familyBytes: Uint8Array | null = patch.hasDefaultFontFamily
+    ? encoder.encodeInto(patch.defaultFontFamily) : null;
+  if (handwritingBytes !== null &&
+    (handwritingBytes.length > MAX_HANDWRITING_LANGUAGE_BYTES ||
+      !validUtf8RoundTrip(handwritingBytes, patch.handwritingLanguage as string))) {
+    throw new Error('local SET_METADATA handwriting language UTF-8 is invalid');
+  }
+  if (familyBytes !== null &&
+    (familyBytes.length > MAX_DEFAULT_FONT_FAMILY_BYTES ||
+      !validUtf8RoundTrip(familyBytes, patch.defaultFontFamily))) {
+    throw new Error('local SET_METADATA default font family UTF-8 is invalid');
+  }
+
+  const rootVtable: number = 4;
+  const rootTable: number = 24;
+  let cursor: number = rootTable + 24;
+  let handwritingVtable: number = 0;
+  let handwritingTable: number = 0;
+  let handwritingString: number = 0;
+  if (patch.hasHandwritingLanguage) {
+    handwritingVtable = cursor;
+    cursor += 6;
+    cursor = align4(cursor);
+    handwritingTable = cursor;
+    const objectSize: number = handwritingBytes === null ? 4 : 8;
+    cursor += objectSize;
+    cursor = align4(cursor);
+    if (handwritingBytes !== null) {
+      handwritingString = cursor;
+      cursor += 4 + handwritingBytes.length + 1;
+    }
+  }
+  let familyString: number = 0;
+  if (patch.hasDefaultFontFamily) {
+    cursor = align4(cursor);
+    familyString = cursor;
+    cursor += 4 + (familyBytes as Uint8Array).length + 1;
+  }
+  const bytes: Uint8Array = new Uint8Array(align4(cursor));
+  writeU32(bytes, 0, rootTable);
+  writeVtable(bytes, rootVtable, 24, [0, 0,
+    patch.hasHandwritingLanguage ? 4 : 0,
+    patch.hasAlignTextToLines ? 8 : 0,
+    patch.hasDefaultFontFamily ? 12 : 0,
+    patch.hasDefaultFontSize ? 16 : 0,
+    patch.hasLayoutMode ? 20 : 0,
+    patch.hasBlockWrapSupport ? 21 : 0]);
+  writeU32(bytes, rootTable, rootTable - rootVtable);
+  if (patch.hasHandwritingLanguage) {
+    writeU32(bytes, rootTable + 4, handwritingTable - (rootTable + 4));
+    writeVtable(bytes, handwritingVtable, handwritingBytes === null ? 4 : 8, [
+      handwritingBytes === null ? 0 : 4,
+    ]);
+    writeU32(bytes, handwritingTable, handwritingTable - handwritingVtable);
+    if (handwritingBytes !== null) {
+      writeU32(bytes, handwritingTable + 4, handwritingString - (handwritingTable + 4));
+      writeString(bytes, handwritingString, handwritingBytes);
+    }
+  }
+  if (patch.hasAlignTextToLines) {
+    writeU8(bytes, rootTable + 8, patch.alignTextToLines ? 1 : 0);
+  }
+  if (patch.hasDefaultFontFamily) {
+    writeU32(bytes, rootTable + 12, familyString - (rootTable + 12));
+    writeString(bytes, familyString, familyBytes as Uint8Array);
+  }
+  if (patch.hasDefaultFontSize) {
+    writeF32(bytes, rootTable + 16, patch.defaultFontSize);
+  }
+  if (patch.hasLayoutMode) {
+    writeU8(bytes, rootTable + 20, patch.layoutMode);
+  }
+  if (patch.hasBlockWrapSupport) {
+    writeU8(bytes, rootTable + 21, patch.blockWrapSupport);
+  }
+  return bytes;
+}
+
+export function validateOriginalNoteMetadataPatch(patch: OriginalNoteMetadataPatch): void {
+  if (!patch.hasHandwritingLanguage && !patch.hasAlignTextToLines &&
+    !patch.hasDefaultFontFamily && !patch.hasDefaultFontSize &&
+    !patch.hasLayoutMode && !patch.hasBlockWrapSupport) {
+    throw new Error('local SET_METADATA metadata patch has no present field');
+  }
+  if (patch.hasHandwritingLanguage && !isOriginalHandwritingLanguage(patch.handwritingLanguage)) {
+    throw new Error('local SET_METADATA handwriting language is invalid');
+  }
+  if (patch.hasDefaultFontFamily && !isOriginalDefaultFontFamily(patch.defaultFontFamily)) {
+    throw new Error('local SET_METADATA default font family is invalid');
+  }
+  if (patch.hasDefaultFontSize && !isOriginalDefaultFontSize(patch.defaultFontSize)) {
+    throw new Error('local SET_METADATA default font size is invalid');
+  }
+  if (patch.hasLayoutMode && !isOriginalNoteLayoutMode(patch.layoutMode)) {
+    throw new Error('local SET_METADATA layout mode is invalid');
+  }
+  if (patch.hasBlockWrapSupport && !isOriginalNoteBlockWrapSupport(patch.blockWrapSupport)) {
+    throw new Error('local SET_METADATA block wrap support is invalid');
+  }
 }
 
 // Original id7.h() emits both l2d.field0 title and l2d.field1 pageBackground for a
