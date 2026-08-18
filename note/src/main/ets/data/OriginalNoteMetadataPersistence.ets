@@ -1,5 +1,5 @@
 import { relationalStore } from '@kit.ArkData';
-import { OpType } from '../core/model/OpTypes';
+import { HistoryEffect, HistoryMetadata, NoteMetadataHistoryState, OpType } from '../core/model/OpTypes';
 import {
   OriginalNoteMetadataPatch, encodeOriginalSetMetadataFields,
   validateOriginalNoteMetadataPatch,
@@ -12,8 +12,16 @@ import {
 } from './OriginalSetMetadataOperation';
 import { OriginalFlatBufferTableReader } from './OriginalSyncedOperationFlatBuffer';
 import {
+  NOTE_METADATA_FIELD_ALIGN_TEXT_TO_LINES, NOTE_METADATA_FIELD_BLOCK_WRAP_SUPPORT,
+  NOTE_METADATA_FIELD_DEFAULT_FONT_FAMILY, NOTE_METADATA_FIELD_DEFAULT_FONT_SIZE,
+  NOTE_METADATA_FIELD_HANDWRITING_LANGUAGE, NOTE_METADATA_FIELD_LAYOUT_MODE,
+  NoteMetadataMutation, NoteMetadataMutationState, encodeNoteMetadataMutation,
+  sameNoteMetadataMutationState, validateNoteMetadataMutationState,
+} from './NoteMetadataMutationCodec';
+import {
   allocateOperationIdentity, AllocatedOperationIdentity, appendOperation,
 } from './OpStoreImpl';
+import { validateHistoryMetadata } from './PersistentHistoryMetadata';
 import {
   StoredSyncedOperation, SyncedOperationApplyResult, SyncedOperationInboxState,
 } from './SyncedOperationInbox';
@@ -22,18 +30,30 @@ export interface PersistedOriginalNoteMetadata {
   before: OriginalNoteMetadataState;
   after: OriginalNoteMetadataState;
   originalPayload: Uint8Array;
+  historyMutation: NoteMetadataMutation | null;
 }
 
 // The caller owns the database transaction and the shared metadata-writer mutex.
-// This deliberately has no Harmony history companion yet: the original six
-// preference registers are persisted and uploaded atomically, while their
-// editor Undo/Redo consumer remains a separately audited scope.
 export async function persistOriginalNoteMetadata(store: relationalStore.RdbStore,
-  noteId: string, requested: OriginalNoteMetadataPatch): Promise<PersistedOriginalNoteMetadata> {
+  noteId: string, requested: OriginalNoteMetadataPatch, selectedPageId?: string,
+  history?: HistoryMetadata, expectedSource?: NoteMetadataMutationState):
+  Promise<PersistedOriginalNoteMetadata> {
   if (noteId.length === 0) {
     throw new Error('local note metadata requires a note identity');
   }
   validateOriginalNoteMetadataPatch(requested);
+  if (history !== undefined) {
+    validateHistoryMetadata(history);
+    if (selectedPageId === undefined || selectedPageId.length === 0) {
+      throw new Error('local note metadata history requires a selected page identity');
+    }
+    await requireLiveSelectedPage(store, noteId, selectedPageId);
+    if (history.effect !== HistoryEffect.PUSH && expectedSource === undefined) {
+      throw new Error('local note metadata undo/redo requires an expected source state');
+    }
+  } else if (selectedPageId !== undefined || expectedSource !== undefined) {
+    throw new Error('local note metadata history arguments require history metadata');
+  }
 
   // Decode our own bytes before allocating an operation identity. Besides
   // validating the exact FlatBuffer shape, this gives Float32 fields the same
@@ -44,6 +64,17 @@ export async function persistOriginalNoteMetadata(store: relationalStore.RdbStor
   const before: OriginalNoteMetadataState = await readOriginalNoteMetadataState(store, noteId);
   if (!patchChangesState(before, payload)) {
     throw new Error('local SET_METADATA note metadata is unchanged');
+  }
+  const fieldMask: number = fieldMaskFromPayload(payload);
+  let beforeHistoryState: NoteMetadataMutationState | null = null;
+  if (history !== undefined) {
+    beforeHistoryState = historyStateFromOriginalState(before, fieldMask, 'before');
+    if (expectedSource !== undefined) {
+      validateNoteMetadataMutationState(expectedSource, fieldMask, 'expected source');
+      if (!sameNoteMetadataMutationState(beforeHistoryState, expectedSource, fieldMask)) {
+        throw new Error('local note metadata history source state changed concurrently');
+      }
+    }
   }
   const beforeRevision: number = await readStructureRevision(store, noteId);
 
@@ -72,7 +103,97 @@ export async function persistOriginalNoteMetadata(store: relationalStore.RdbStor
     payload: rawOperation, clientTime: identity.clientTime,
     opTimestamp: identity.timestamp, editorSiteId: identity.siteId, uploadImmediately: true,
   });
-  return { before: before, after: after, originalPayload: rawOperation };
+  let historyMutation: NoteMetadataMutation | null = null;
+  if (history !== undefined && selectedPageId !== undefined && beforeHistoryState !== null) {
+    const afterHistoryState: NoteMetadataMutationState = historyStateFromOriginalState(
+      after, fieldMask, 'after');
+    historyMutation = {
+      fromRevision: beforeRevision,
+      toRevision: afterRevision,
+      selectedPageId: selectedPageId,
+      fieldMask: fieldMask,
+      before: beforeHistoryState,
+      after: afterHistoryState,
+    };
+    const companion: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+    await appendOperation(store, {
+      noteId: noteId, opId: companion.opId, opType: OpType.UPDATE_NOTE_METADATA,
+      payload: encodeNoteMetadataMutation(historyMutation),
+      clientTime: companion.clientTime, opTimestamp: companion.timestamp,
+      editorSiteId: companion.siteId, history: history,
+    });
+  }
+  return {
+    before: before, after: after, originalPayload: rawOperation,
+    historyMutation: historyMutation,
+  };
+}
+
+function fieldMaskFromPayload(payload: OriginalSetMetadataPayload): number {
+  let mask: number = 0;
+  if (payload.hasHandwritingLanguage) {
+    mask |= NOTE_METADATA_FIELD_HANDWRITING_LANGUAGE;
+  }
+  if (payload.hasAlignTextToLines) {
+    mask |= NOTE_METADATA_FIELD_ALIGN_TEXT_TO_LINES;
+  }
+  if (payload.hasDefaultFontFamily) {
+    mask |= NOTE_METADATA_FIELD_DEFAULT_FONT_FAMILY;
+  }
+  if (payload.hasDefaultFontSize) {
+    mask |= NOTE_METADATA_FIELD_DEFAULT_FONT_SIZE;
+  }
+  if (payload.hasLayoutMode) {
+    mask |= NOTE_METADATA_FIELD_LAYOUT_MODE;
+  }
+  if (payload.hasBlockWrapSupport) {
+    mask |= NOTE_METADATA_FIELD_BLOCK_WRAP_SUPPORT;
+  }
+  return mask;
+}
+
+function historyStateFromOriginalState(state: OriginalNoteMetadataState, fieldMask: number,
+  label: string): NoteMetadataMutationState {
+  if ((fieldMask & NOTE_METADATA_FIELD_HANDWRITING_LANGUAGE) !== 0 &&
+    !state.hasHandwritingLanguage) {
+    throw new Error(`local note metadata ${label} handwriting winner is absent`);
+  }
+  if ((fieldMask & NOTE_METADATA_FIELD_ALIGN_TEXT_TO_LINES) !== 0 &&
+    state.alignTextToLines === null) {
+    throw new Error(`local note metadata ${label} align winner is absent`);
+  }
+  if ((fieldMask & NOTE_METADATA_FIELD_DEFAULT_FONT_FAMILY) !== 0 &&
+    state.defaultFontFamily === null) {
+    throw new Error(`local note metadata ${label} font-family winner is absent`);
+  }
+  if ((fieldMask & NOTE_METADATA_FIELD_DEFAULT_FONT_SIZE) !== 0 &&
+    state.defaultFontSize === null) {
+    throw new Error(`local note metadata ${label} font-size winner is absent`);
+  }
+  if ((fieldMask & NOTE_METADATA_FIELD_LAYOUT_MODE) !== 0 &&
+    state.layoutMode === null) {
+    throw new Error(`local note metadata ${label} layout winner is absent`);
+  }
+  if ((fieldMask & NOTE_METADATA_FIELD_BLOCK_WRAP_SUPPORT) !== 0 &&
+    state.blockWrapSupport === null) {
+    throw new Error(`local note metadata ${label} block-wrap winner is absent`);
+  }
+  const result: NoteMetadataHistoryState = {
+    handwritingLanguage: (fieldMask & NOTE_METADATA_FIELD_HANDWRITING_LANGUAGE) !== 0
+      ? state.handwritingLanguage : null,
+    alignTextToLines: (fieldMask & NOTE_METADATA_FIELD_ALIGN_TEXT_TO_LINES) !== 0
+      ? state.alignTextToLines : null,
+    defaultFontFamily: (fieldMask & NOTE_METADATA_FIELD_DEFAULT_FONT_FAMILY) !== 0
+      ? state.defaultFontFamily : null,
+    defaultFontSize: (fieldMask & NOTE_METADATA_FIELD_DEFAULT_FONT_SIZE) !== 0
+      ? state.defaultFontSize : null,
+    layoutMode: (fieldMask & NOTE_METADATA_FIELD_LAYOUT_MODE) !== 0
+      ? state.layoutMode : null,
+    blockWrapSupport: (fieldMask & NOTE_METADATA_FIELD_BLOCK_WRAP_SUPPORT) !== 0
+      ? state.blockWrapSupport : null,
+  };
+  validateNoteMetadataMutationState(result, fieldMask, label);
+  return result;
 }
 
 function patchChangesState(before: OriginalNoteMetadataState,
@@ -156,6 +277,19 @@ async function readStructureRevision(store: relationalStore.RdbStore,
       throw new Error('local SET_METADATA structure revision is invalid or exhausted');
     }
     return revision;
+  } finally {
+    rows.close();
+  }
+}
+
+async function requireLiveSelectedPage(store: relationalStore.RdbStore, noteId: string,
+  pageId: string): Promise<void> {
+  const rows = await store.querySql(
+    'SELECT 1 FROM page_info WHERE note_id = ? AND page_id = ? LIMIT 1', [noteId, pageId]);
+  try {
+    if (!rows.goToFirstRow()) {
+      throw new Error('local note metadata selected page is not live in the note');
+    }
   } finally {
     rows.close();
   }

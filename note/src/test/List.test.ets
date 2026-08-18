@@ -80,6 +80,7 @@ import originalCreatePagePayloadEncoderTest from './OriginalCreatePagePayloadEnc
 import originalModifyPagePayloadEncoderTest from './OriginalModifyPagePayloadEncoder.test';
 import originalSetMetadataPayloadEncoderTest from './OriginalSetMetadataPayloadEncoder.test';
 import originalNoteMetadataPolicyTest from './OriginalNoteMetadataPolicy.test';
+import noteMetadataMutationCodecTest from './NoteMetadataMutationCodec.test';
 import originalBlankNoteBootstrapTest from './OriginalBlankNoteBootstrap.test';
 import originalTemplatePickerTest from './OriginalTemplatePicker.test';
 import originalPaperSettingsTest from './OriginalPaperSettings.test';
@@ -185,6 +186,7 @@ export default function testsuite() {
   originalModifyPagePayloadEncoderTest();
   originalSetMetadataPayloadEncoderTest();
   originalNoteMetadataPolicyTest();
+  noteMetadataMutationCodecTest();
   originalBlankNoteBootstrapTest();
   originalTemplatePickerTest();
   originalPaperSettingsTest();

@@ -8,7 +8,7 @@ import {
   OriginalDefaultTemplateSelection, originalDefaultTemplateSettings,
   originalFallbackDefaultTemplate,
 } from '../core/model/OriginalDefaultTemplate';
-import { HistoryMetadata } from '../core/model/OpTypes';
+import { HistoryMetadata, NoteMetadataHistoryState } from '../core/model/OpTypes';
 import { NoteRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { databaseWriteMutex } from './DatabaseWriteMutex';
@@ -216,18 +216,18 @@ export class NoteRepositoryImpl implements NoteRepository {
   }
 
   // Local original SET_METADATA preference registers are kept behind the same
-  // library mutex and transaction boundary as title/background mutations. The
-  // concrete API is intentionally not added to NoteRepository yet: no UI
-  // consumer or metadata Undo/Redo codec has been audited for these registers.
+  // library mutex and transaction boundary as title/background mutations.
   async updateOriginalNoteMetadata(noteId: string,
-    patch: OriginalNoteMetadataPatch): Promise<PersistedOriginalNoteMetadata> {
+    patch: OriginalNoteMetadataPatch, selectedPageId?: string,
+    history?: HistoryMetadata, expectedSource?: NoteMetadataHistoryState):
+    Promise<PersistedOriginalNoteMetadata> {
     return libraryMetadataMutationMutex.runExclusive(
       async (): Promise<PersistedOriginalNoteMetadata> => {
         const store: relationalStore.RdbStore = this.db.getStore();
         await store.beginTransaction();
         try {
           const persisted: PersistedOriginalNoteMetadata = await persistOriginalNoteMetadata(
-            store, noteId, patch);
+            store, noteId, patch, selectedPageId, history, expectedSource);
           await store.commit();
           return persisted;
         } catch (e) {

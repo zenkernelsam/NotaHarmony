@@ -7,7 +7,9 @@ import { ElementType, RichTextCharacterStyleRun, RichTextParagraphStyleRun,
 import { NoteBackgroundSettings, PageInfo } from '../core/model/NoteTypes';
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import { OriginalSelectionGroup } from '../core/model/OriginalGroupSelection';
-import { HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op } from '../core/model/OpTypes';
+import {
+  HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, NoteMetadataHistoryState, Op,
+} from '../core/model/OpTypes';
 
 // 可撤销的操作类型
 export enum UndoableActionType {
@@ -34,6 +36,7 @@ export enum UndoableActionType {
   ORIGINAL_PARTIAL_ERASE = 20,
   NOTE_BACKGROUND = 21,
   NOTE_TITLE = 22,
+  NOTE_METADATA = 23,
 }
 
 interface ActionBase {
@@ -489,6 +492,14 @@ export interface NoteTitleAction extends ActionBase {
   titleAfter: string | null;
 }
 
+export interface NoteMetadataAction extends ActionBase {
+  type: UndoableActionType.NOTE_METADATA;
+  selectedPageId: string;
+  fieldMask: number;
+  metadataBefore: NoteMetadataHistoryState;
+  metadataAfter: NoteMetadataHistoryState;
+}
+
 export interface PersistedPageMutationsAction extends ActionBase {
   type: UndoableActionType.PERSISTED_PAGE_MUTATIONS;
   operations: Op[];
@@ -515,7 +526,7 @@ export type UndoableAction = AddStrokeAction | RemoveStrokeAction | TransformStr
   AddShapeAction | AddElementsAction | DeleteElementsAction | TransformElementsAction | EraseElementsAction |
   AddPageAction | DeletePageAction | ReorderPagesAction | PageSettingsAction | PersistedPageMutationsAction |
   GroupElementsAction | OriginalClipboardPasteAction | OriginalPartialEraseAction | NoteBackgroundAction |
-  NoteTitleAction;
+  NoteTitleAction | NoteMetadataAction;
 
 export interface RestoredHistoryAction {
   action: UndoableAction;
@@ -654,6 +665,11 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
   if (action.type === UndoableActionType.NOTE_TITLE) {
     return bytes + ((action.titleBefore === null ? 0 : action.titleBefore.length) +
       (action.titleAfter === null ? 0 : action.titleAfter.length)) * 2;
+  }
+  if (action.type === UndoableActionType.NOTE_METADATA) {
+    return bytes + action.selectedPageId.length * 2 +
+      JSON.stringify(action.metadataBefore).length * 2 +
+      JSON.stringify(action.metadataAfter).length * 2;
   }
   if (action.type === UndoableActionType.PERSISTED_PAGE_MUTATIONS) {
     let operationBytes: number = 0;

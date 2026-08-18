@@ -20,7 +20,7 @@ import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockG
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import {
   AddPageAction, DeletePageAction, GroupElementsAction, OriginalClipboardPasteAction,
-  NoteBackgroundAction, NoteTitleAction, OriginalPartialEraseAction, PageSettingsAction,
+  NoteBackgroundAction, NoteTitleAction, NoteMetadataAction, OriginalPartialEraseAction, PageSettingsAction,
   PersistedPageMutationsAction, ReorderPagesAction, RestoredHistoryAction, UndoableAction,
   UndoableActionType,
 } from '../rendering/UndoRedoManager';
@@ -36,6 +36,7 @@ import {
   decodeNoteBackgroundMutation, NoteBackgroundMutation,
 } from './NoteBackgroundMutationCodec';
 import { decodeNoteTitleMutation, NoteTitleMutation } from './NoteTitleMutationCodec';
+import { decodeNoteMetadataMutation, NoteMetadataMutation } from './NoteMetadataMutationCodec';
 
 export interface PersistentHistoryAction {
   actionId: string;
@@ -250,6 +251,23 @@ function materializeAction(action: PersistentHistoryAction, currentPageId: strin
       selectedPageId: mutation.selectedPageId,
       backgroundBefore: mutation.before,
       backgroundAfter: mutation.after,
+    };
+    return restored;
+  }
+  if (action.operations[0].opType === OpType.UPDATE_NOTE_METADATA) {
+    if (action.operations.length !== 1) {
+      throw new Error('persistent note metadata action must contain exactly one mutation');
+    }
+    const mutation: NoteMetadataMutation =
+      decodeNoteMetadataMutation(action.operations[0].payload);
+    const restored: NoteMetadataAction = {
+      type: UndoableActionType.NOTE_METADATA,
+      noteId: noteId,
+      pageId: mutation.selectedPageId,
+      selectedPageId: mutation.selectedPageId,
+      fieldMask: mutation.fieldMask,
+      metadataBefore: mutation.before,
+      metadataAfter: mutation.after,
     };
     return restored;
   }

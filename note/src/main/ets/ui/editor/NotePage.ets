@@ -15,10 +15,14 @@ import {
   cloneNoteBackgroundSettings, clonePageInfo, originalDefaultNoteBackgroundSettings,
   sameNoteBackgroundSettings, samePageBackground,
 } from '../../core/model/PageBackgroundModel';
-import { HistoryMetadata } from '../../core/model/OpTypes';
+import { HistoryMetadata, NoteMetadataHistoryState } from '../../core/model/OpTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PersistedOriginalNoteTitle } from '../../data/OriginalNoteTitlePersistence';
+import {
+  patchFromNoteMetadataState, sameNoteMetadataMutationState,
+  validateNoteMetadataMutationState,
+} from '../../data/NoteMetadataMutationCodec';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import { StrokePersistence } from '../../data/StrokePersistence';
 import { ToolRepositoryImpl } from '../../data/ToolRepositoryImpl';
@@ -61,7 +65,8 @@ import {
 } from '../../core/adaptation/OriginalRecordingHarmonyGateways';
 import { persistCapturedOriginalRecording } from '../../data/OriginalRecordingPersistence';
 import {
-  AddPageAction, DeletePageAction, EditorHistoryBridge, NoteBackgroundAction, NoteTitleAction,
+  AddPageAction, DeletePageAction, EditorHistoryBridge, NoteBackgroundAction, NoteMetadataAction,
+  NoteTitleAction,
   PageContentSnapshot, UndoableAction, UndoableActionType,
 } from '../../rendering/UndoRedoManager';
 import { EditorViewModel } from './EditorViewModel';
@@ -1191,10 +1196,12 @@ struct NotePage {
         'page history note mismatch, actionNote=%{public}s currentNote=%{public}s', action.noteId, this.noteId);
       return false;
     }
-    if (action.type === UndoableActionType.NOTE_TITLE && this.noteRepo === null) {
+    if ((action.type === UndoableActionType.NOTE_TITLE ||
+      action.type === UndoableActionType.NOTE_METADATA) && this.noteRepo === null) {
       return false;
     }
-    if (action.type !== UndoableActionType.NOTE_TITLE && pageRepository === null) {
+    if (action.type !== UndoableActionType.NOTE_TITLE &&
+      action.type !== UndoableActionType.NOTE_METADATA && pageRepository === null) {
       return false;
     }
     if (!this.validatePageActionState(action, isUndo)) {
@@ -1213,6 +1220,20 @@ struct NotePage {
           this.noteId, title, action.pageId, history);
         this.noteTitle = persisted.materializedTitle;
         this.titleDraft = persisted.materializedTitle;
+        return true;
+      }
+      if (action.type === UndoableActionType.NOTE_METADATA) {
+        const repository: NoteRepositoryImpl | null = this.noteRepo;
+        if (repository === null) {
+          return false;
+        }
+        const source: NoteMetadataHistoryState = isUndo
+          ? action.metadataAfter : action.metadataBefore;
+        const target: NoteMetadataHistoryState = isUndo
+          ? action.metadataBefore : action.metadataAfter;
+        const patch = patchFromNoteMetadataState(target, action.fieldMask);
+        await repository.updateOriginalNoteMetadata(
+          this.noteId, patch, action.selectedPageId, history, source);
         return true;
       }
       if (pageRepository === null) {
@@ -1314,6 +1335,20 @@ struct NotePage {
         isOriginalNoteTitleWireValue(action.titleAfter) &&
         this.countString(currentOrder, action.pageId) === 1 &&
         this.noteTitle === materializeOriginalNoteTitle(source);
+    }
+    if (action.type === UndoableActionType.NOTE_METADATA) {
+      if (action.pageId !== action.selectedPageId ||
+        this.countString(currentOrder, action.selectedPageId) !== 1) {
+        return false;
+      }
+      try {
+        validateNoteMetadataMutationState(action.metadataBefore, action.fieldMask, 'history before');
+        validateNoteMetadataMutationState(action.metadataAfter, action.fieldMask, 'history after');
+        return !sameNoteMetadataMutationState(
+          action.metadataBefore, action.metadataAfter, action.fieldMask);
+      } catch (_error) {
+        return false;
+      }
     }
     return false;
   }

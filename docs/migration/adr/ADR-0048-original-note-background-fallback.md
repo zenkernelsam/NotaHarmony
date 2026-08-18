@@ -103,8 +103,9 @@ Harmony integrity conflict.
 
 Phase 270 also moves note-level PDF asset merging after all identity decisions and executes it only when the background
 register wins. This prevents a stale PDF patch or a later metadata conflict from attaching an asset before the inbox commits
-its deferred state. The six values now have validated SQL readback, but PAGELESS layout, line alignment, handwriting provider,
-default-font inheritance, wrap behavior and local outbound editing remain follow-up consumer work.
+its deferred state. The six values now have validated SQL readback; Phase 272 adds original local outbound and atomic upload,
+and Phase 273 adds NMD1 durable history with source-checked Undo/Redo. PAGELESS layout, line alignment, handwriting provider,
+default-font inheritance and wrap behavior remain follow-up consumer work.
 
 ## Phase 271 explicit-null title closure
 

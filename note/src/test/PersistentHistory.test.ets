@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@ohos/hypium';
 import {
-  HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, Op, OpType,
+  HistoryCoalesceTrack, HistoryEffect, HistoryMetadata, NoteMetadataHistoryState, Op, OpType,
 } from '../main/ets/core/model/OpTypes';
 import {
   NoteBackgroundSettings, PageInfo, PageOrientation, PaperSize, PaperTemplate,
@@ -34,6 +34,10 @@ import { decodeOriginalPartialEraseMutation, encodeOriginalPartialEraseMutation 
 import { encodeNoteBackgroundMutation } from
   '../main/ets/data/NoteBackgroundMutationCodec';
 import { encodeNoteTitleMutation } from '../main/ets/data/NoteTitleMutationCodec';
+import {
+  encodeNoteMetadataMutation, NOTE_METADATA_FIELD_ALIGN_TEXT_TO_LINES,
+  NOTE_METADATA_FIELD_HANDWRITING_LANGUAGE, NOTE_METADATA_FIELD_LAYOUT_MODE,
+} from '../main/ets/data/NoteMetadataMutationCodec';
 
 function makeOp(opId: string, actionId?: string, effect: HistoryEffect = HistoryEffect.PUSH,
   actionTime: number = 100): Op {
@@ -140,6 +144,36 @@ function noteTitleOp(opId: string, actionId: string, fromRevision: number,
     }),
     clientTime: fromRevision + 1,
     history: history(actionId),
+  };
+}
+
+function noteMetadataOp(opId: string, actionId: string, fromRevision: number,
+  selectedPageId: string, fieldMask: number, before: NoteMetadataHistoryState,
+  after: NoteMetadataHistoryState, effect: HistoryEffect = HistoryEffect.PUSH): Op {
+  return {
+    opId: opId, noteId: 'note-1', opType: OpType.UPDATE_NOTE_METADATA,
+    payload: encodeNoteMetadataMutation({
+      fromRevision: fromRevision, toRevision: fromRevision + 1,
+      selectedPageId: selectedPageId, fieldMask: fieldMask,
+      before: before, after: after,
+    }),
+    clientTime: fromRevision + 1,
+    history: {
+      actionId: actionId, effect: effect,
+      coalesceTrack: HistoryCoalesceTrack.NONE, actionTime: 100,
+    },
+  };
+}
+
+function metadataState(handwritingLanguage: string | null, alignTextToLines: boolean | null,
+  layoutMode: number | null): NoteMetadataHistoryState {
+  return {
+    handwritingLanguage: handwritingLanguage,
+    alignTextToLines: alignTextToLines,
+    defaultFontFamily: null,
+    defaultFontSize: null,
+    layoutMode: layoutMode,
+    blockWrapSupport: null,
   };
 }
 
@@ -636,6 +670,84 @@ export default function persistentHistoryTest() {
       } else {
         expect(false).assertTrue();
       }
+    });
+
+    it('restores touched note metadata registers after their original SET_METADATA row', 0, () => {
+      const mask: number = NOTE_METADATA_FIELD_HANDWRITING_LANGUAGE |
+        NOTE_METADATA_FIELD_ALIGN_TEXT_TO_LINES | NOTE_METADATA_FIELD_LAYOUT_MODE;
+      const before: NoteMetadataHistoryState = metadataState(
+        null, false, 0);
+      const after: NoteMetadataHistoryState = metadataState(
+        'en_US', true, 1);
+      const original: Op = makeOp('original-metadata-set');
+      original.opType = OpType.ORIGINAL_SET_METADATA;
+      const restored: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([
+          original,
+          noteMetadataOp('metadata-history', 'metadata-action', 15,
+            'page-2', mask, before, after),
+        ]), 'page-1');
+      expect(restored.legacyOperationCount).assertEqual(0);
+      expect(restored.undo.length).assertEqual(1);
+      expect(restored.undo[0].action.type).assertEqual(UndoableActionType.NOTE_METADATA);
+      if (restored.undo[0].action.type === UndoableActionType.NOTE_METADATA) {
+        expect(restored.undo[0].action.pageId).assertEqual('page-2');
+        expect(restored.undo[0].action.selectedPageId).assertEqual('page-2');
+        expect(restored.undo[0].action.fieldMask).assertEqual(mask);
+        expect(restored.undo[0].action.metadataBefore.handwritingLanguage === null).assertTrue();
+        expect(restored.undo[0].action.metadataBefore.alignTextToLines).assertFalse();
+        expect(restored.undo[0].action.metadataBefore.layoutMode).assertEqual(0);
+        expect(restored.undo[0].action.metadataAfter.handwritingLanguage).assertEqual('en_US');
+        expect(restored.undo[0].action.metadataAfter.alignTextToLines).assertTrue();
+        expect(restored.undo[0].action.metadataAfter.layoutMode).assertEqual(1);
+        expect(restored.undo[0].action.metadataAfter.defaultFontFamily === null).assertTrue();
+        expect(restored.undo[0].action.metadataAfter.defaultFontSize === null).assertTrue();
+        expect(restored.undo[0].action.metadataAfter.blockWrapSupport === null).assertTrue();
+      } else {
+        expect(false).assertTrue();
+      }
+    });
+
+    it('keeps the original metadata action across durable undo and redo movements', 0, () => {
+      const mask: number = NOTE_METADATA_FIELD_ALIGN_TEXT_TO_LINES;
+      const before: NoteMetadataHistoryState = metadataState(null, false, null);
+      const after: NoteMetadataHistoryState = metadataState(null, true, null);
+      const push: Op = noteMetadataOp(
+        'metadata-push', 'metadata-action', 20, 'page-1', mask, before, after);
+      const undo: Op = noteMetadataOp(
+        'metadata-undo', 'metadata-action', 21, 'page-1', mask, after, before,
+        HistoryEffect.UNDO);
+      const redo: Op = noteMetadataOp(
+        'metadata-redo', 'metadata-action', 22, 'page-1', mask, before, after,
+        HistoryEffect.REDO);
+      const undone: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([push, undo]), 'page-1');
+      expect(undone.undo.length).assertEqual(0);
+      expect(undone.redo.length).assertEqual(1);
+      expect(undone.redo[0].action.type).assertEqual(UndoableActionType.NOTE_METADATA);
+      if (undone.redo[0].action.type === UndoableActionType.NOTE_METADATA) {
+        expect(undone.redo[0].action.metadataBefore.alignTextToLines).assertFalse();
+        expect(undone.redo[0].action.metadataAfter.alignTextToLines).assertTrue();
+      } else {
+        expect(false).assertTrue();
+      }
+      const redone: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([push, undo, redo]), 'page-1');
+      expect(redone.undo.length).assertEqual(1);
+      expect(redone.redo.length).assertEqual(0);
+      expect(redone.undo[0].action.type).assertEqual(UndoableActionType.NOTE_METADATA);
+    });
+
+    it('rejects a metadata action containing more than one companion mutation', 0, () => {
+      const before: NoteMetadataHistoryState = metadataState(null, false, null);
+      const after: NoteMetadataHistoryState = metadataState(null, true, null);
+      const state: PersistentHistoryState = reducePersistentHistory([
+        noteMetadataOp('metadata-a', 'metadata-action', 30, 'page-1',
+          NOTE_METADATA_FIELD_ALIGN_TEXT_TO_LINES, before, after),
+        noteMetadataOp('metadata-b', 'metadata-action', 31, 'page-1',
+          NOTE_METADATA_FIELD_ALIGN_TEXT_TO_LINES, after, before),
+      ]);
+      expect(materializeRejects(state)).assertTrue();
     });
 
     it('materializes DELETE_PAGE only with its exact durable checkpoint', 0, () => {

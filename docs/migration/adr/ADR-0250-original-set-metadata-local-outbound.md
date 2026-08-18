@@ -4,6 +4,9 @@
 
 Accepted - Phase 272（2026-08-18）
 
+> Phase 273 更新：本 ADR 当时保留的六项 durable history 缺口已由 ADR-0251 收口；consumer、round-trip 与设备
+> 边界仍保持开放。
+
 ## 背景
 
 Phase 270 已把原版 `SET_METADATA` field 2～7 解码为六个独立 winner，并完成 Harmony v65 数据表、值域和

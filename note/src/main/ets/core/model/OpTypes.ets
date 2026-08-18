@@ -30,6 +30,9 @@ export enum OpType {
   ORIGINAL_PARTIAL_ERASE = 33,
   // Harmony history companion for original SET_METADATA.pageBackground.
   UPDATE_NOTE_BACKGROUND = 34,
+  // Harmony history companion for the reversible original SET_METADATA
+  // preference-register fields (handwriting/align/font/layout/wrap).
+  UPDATE_NOTE_METADATA = 35,
   UNDO = 40,
   REDO = 41,
   // Harmony recovery checkpoint. This is deliberately distinct from the
@@ -77,6 +80,19 @@ export interface HistoryMetadata {
   effect: HistoryEffect;
   coalesceTrack: HistoryCoalesceTrack;
   actionTime: number;
+}
+
+// Pure-data snapshot used by the Harmony history companion for original
+// SET_METADATA preference registers.  Null on an ordinary field means that
+// the field is not included in the touched-field mask; handwriting null is a
+// valid explicit winner value when its mask bit is present.
+export interface NoteMetadataHistoryState {
+  handwritingLanguage: string | null;
+  alignTextToLines: boolean | null;
+  defaultFontFamily: string | null;
+  defaultFontSize: number | null;
+  layoutMode: number | null;
+  blockWrapSupport: number | null;
 }
 
 // 单条操作
