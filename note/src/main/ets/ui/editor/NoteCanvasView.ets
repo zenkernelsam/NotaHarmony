@@ -47,7 +47,8 @@ import {
 import { PaperRenderer } from '../../rendering/PaperRenderer';
 import {
   buildPartialEraseElementReplacementMap, EditorHistoryBridge, GroupElementsAction, HistoryMove,
-  OriginalClipboardPasteAction, OriginalPartialEraseAction, PageContentSnapshot,
+  OriginalClipboardPasteAction, OriginalHandwritingConversionAction, OriginalPartialEraseAction,
+  PageContentSnapshot,
   PartialEraseElementReplacement, partialEraseMixedElementOrder, UndoRedoManager,
   UndoableAction, UndoableActionType, validatePartialEraseElementHistoryState,
 } from '../../rendering/UndoRedoManager';
@@ -64,6 +65,7 @@ import {
   OriginalZOrderCommand,
   OriginalClipboardPasteHistoryResult, OriginalClipboardPastePersistenceResult,
   OriginalClipboardPastePlan, OriginalGroupMutationResult, OriginalMathInsertResult,
+  OriginalHandwritingConversionHistoryResult,
   OriginalPartialEraseHistoryResult, OriginalPartialErasePersistenceResult,
   OriginalPartialErasePlan, OriginalPartialEraseReplacementPlan, OriginalTextEditPreview,
   OriginalZOrderHint, PersistedElement, StrokePersistence, validateOriginalClipboardPastePlan,
@@ -76,6 +78,9 @@ import {
 import {
   decodeOriginalPartialEraseMutation, OriginalPartialEraseMutation,
 } from '../../data/OriginalPartialEraseMutationCodec';
+import {
+  decodeOriginalHandwritingConversionMutation, OriginalHandwritingConversionMutation,
+} from '../../data/OriginalHandwritingConversionMutationCodec';
 import {
   OriginalPartialEraseGroupPlan, OriginalPartialEraseGroupReplacement,
   planLocalPartialEraseGroups, replayOriginalPartialEraseGroups,
@@ -2669,6 +2674,34 @@ export struct NoteCanvasView {
       });
       return;
     }
+    if (action.type === UndoableActionType.ORIGINAL_HANDWRITING_CONVERSION) {
+      if (group.length !== 1) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original handwriting conversion history cannot be coalesced');
+        return;
+      }
+      if (action.pageId !== this.loadedPageId) {
+        this.pendingHistoryDirection = isUndo ? -1 : 1;
+        this.onRequestPage(action.pageId);
+        return;
+      }
+      if (!this.validateOriginalHandwritingConversionActionState(action, isUndo)) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original handwriting conversion history source state is stale');
+        return;
+      }
+      const history: HistoryMetadata | null =
+        this.undoRedo.getHistoryMetadataForMove(action, isUndo);
+      if (history === null) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original handwriting conversion history metadata is stale');
+        return;
+      }
+      this.historyBusy = true;
+      this.applyOriginalHandwritingConversionHistoryMove(action, isUndo, history)
+        .finally((): void => { this.historyBusy = false; });
+      return;
+    }
     if (action.pageId !== this.loadedPageId) {
       this.pendingHistoryDirection = isUndo ? -1 : 1;
       this.onRequestPage(action.pageId);
@@ -2786,11 +2819,44 @@ export struct NoteCanvasView {
     }
   }
 
+  private async applyOriginalHandwritingConversionHistoryMove(
+    action: OriginalHandwritingConversionAction, isUndo: boolean,
+    history: HistoryMetadata): Promise<void> {
+    try {
+      const mutation: OriginalHandwritingConversionMutation =
+        decodeOriginalHandwritingConversionMutation(action.operation.payload);
+      const result: OriginalHandwritingConversionHistoryResult =
+        await this.persistence.applyOriginalHandwritingConversionHistory(
+          this.noteId, mutation, !isUndo, history);
+      const committed: boolean = isUndo ?
+        this.undoRedo.commitUndo(action) : this.undoRedo.commitRedo(action);
+      if (!committed) {
+        throw new Error('original handwriting conversion history stack changed after durable apply');
+      }
+      this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+      this.installMutationElements(result.elements);
+      this.selectionTool.deselect();
+      this.selectionVisible = false;
+      this.originalInkIneligiblePages.delete(action.pageId);
+      this.invalidateOriginalInkReservation();
+      this.layerManager.rebuildFromStrokes(
+        this.completedStrokes, this.renderCtx, this.viewport.zoom);
+      this.renderFrame();
+      this.notifyUndoRedo();
+      this.refreshOriginalInkReservation(this.pageLoadGeneration, action.pageId);
+    } catch (e) {
+      this.reportSaveFailure(e as Object);
+      hilog.error(0x0001, 'NoteCanvasView',
+        'original handwriting conversion history apply failed: %{public}s', JSON.stringify(e));
+    }
+  }
+
   private isSinglePageElementGroup(group: HistoryMove[]): boolean {
     if (group.length === 0 || this.isPageAction(group[0].action.type) ||
       group[0].action.type === UndoableActionType.GROUP_ELEMENTS ||
       group[0].action.type === UndoableActionType.ORIGINAL_CLIPBOARD_PASTE ||
-      group[0].action.type === UndoableActionType.ORIGINAL_PARTIAL_ERASE) {
+      group[0].action.type === UndoableActionType.ORIGINAL_PARTIAL_ERASE ||
+      group[0].action.type === UndoableActionType.ORIGINAL_HANDWRITING_CONVERSION) {
       return false;
     }
     const pageId: string = group[0].action.pageId;
@@ -2798,7 +2864,8 @@ export struct NoteCanvasView {
       if (move.action.noteId !== this.noteId || move.action.pageId !== pageId ||
         this.isPageAction(move.action.type) || move.action.type === UndoableActionType.GROUP_ELEMENTS ||
         move.action.type === UndoableActionType.ORIGINAL_CLIPBOARD_PASTE ||
-        move.action.type === UndoableActionType.ORIGINAL_PARTIAL_ERASE) {
+        move.action.type === UndoableActionType.ORIGINAL_PARTIAL_ERASE ||
+        move.action.type === UndoableActionType.ORIGINAL_HANDWRITING_CONVERSION) {
         return false;
       }
     }
@@ -3491,6 +3558,25 @@ export struct NoteCanvasView {
       replayPageMutation(this.currentMutationElements(), mutation.pageMutation, !isUndo);
       return replayOriginalPartialEraseGroups(
         this.selectionGroups, mutation.beforeGroups, mutation.afterGroups, !isUndo) !== null;
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  private validateOriginalHandwritingConversionActionState(
+    action: OriginalHandwritingConversionAction, isUndo: boolean): boolean {
+    if (action.operation.noteId !== action.noteId ||
+      action.operation.opType !== OpType.ORIGINAL_HANDWRITING_CONVERSION) {
+      return false;
+    }
+    try {
+      const mutation: OriginalHandwritingConversionMutation =
+        decodeOriginalHandwritingConversionMutation(action.operation.payload);
+      if (mutation.pageMutation.pageId !== action.pageId) {
+        return false;
+      }
+      replayPageMutation(this.currentMutationElements(), mutation.pageMutation, !isUndo);
+      return true;
     } catch (_error) {
       return false;
     }

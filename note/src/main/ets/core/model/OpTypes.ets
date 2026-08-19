@@ -33,6 +33,8 @@ export enum OpType {
   // Harmony history companion for the reversible original SET_METADATA
   // preference-register fields (handwriting/align/font/layout/wrap).
   UPDATE_NOTE_METADATA = 35,
+  // Harmony history companion for one original xsc/bt1 Convert-to-Text transaction.
+  ORIGINAL_HANDWRITING_CONVERSION = 36,
   UNDO = 40,
   REDO = 41,
   // Harmony recovery checkpoint. This is deliberately distinct from the

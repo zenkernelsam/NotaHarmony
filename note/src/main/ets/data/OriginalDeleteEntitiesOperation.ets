@@ -18,6 +18,7 @@ import {
 import {
   originalGroupLayerRanks, OriginalLayeringEntity, refreshOriginalGroupLayeredOrder,
 } from './OriginalGroupLayering';
+import { OriginalPageMutationBatch } from './OriginalPageMutationBatch';
 
 export const ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE: number = 25;
 export const MAX_ORIGINAL_DELETE_ENTITY_COUNT: number = 10000;
@@ -155,6 +156,16 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
     return this.applyPayload(store, operation, payload, true);
   }
 
+  /** Apply entity visibility while deferring page revision/search updates. */
+  async applyBatchedPayload(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, payload: OriginalDeleteEntitiesPayload,
+    revisionBatch: OriginalPageMutationBatch): Promise<SyncedOperationApplyResult> {
+    if (payload.pageDeletes.length > 0 || payload.pageUndeletes.length > 0) {
+      return { deferredReason: 'BATCHED_DELETE_ENTITIES_DOES_NOT_SUPPORT_PAGE_VISIBILITY' };
+    }
+    return this.applyPayload(store, operation, payload, false, revisionBatch);
+  }
+
   preflightTable(table: OriginalFlatBufferTableReader): string | null {
     let payload: OriginalDeleteEntitiesPayload;
     try {
@@ -182,7 +193,8 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
   }
 
   private async applyPayload(store: relationalStore.RdbStore, operation: StoredSyncedOperation,
-    payload: OriginalDeleteEntitiesPayload, applyPages: boolean): Promise<SyncedOperationApplyResult> {
+    payload: OriginalDeleteEntitiesPayload, applyPages: boolean,
+    revisionBatch: OriginalPageMutationBatch | null = null): Promise<SyncedOperationApplyResult> {
     if (payload.entityDeletes.length === 0 && payload.entityUndeletes.length === 0 &&
       (!applyPages || (payload.pageDeletes.length === 0 && payload.pageUndeletes.length === 0))) {
       return { deferredReason: 'DELETE_ENTITIES_HAS_NO_PAGES' };
@@ -232,7 +244,8 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
     }
 
     // All page checks must precede entity writes: the inbox commits a deferred result.
-    const entityReason: string | null = await this.applyEntityVisibility(store, operation, payload);
+    const entityReason: string | null = await this.applyEntityVisibility(
+      store, operation, payload, revisionBatch);
     if (entityReason !== null) {
       return { deferredReason: entityReason };
     }
@@ -264,7 +277,8 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
   }
 
   private async applyEntityVisibility(store: relationalStore.RdbStore,
-    operation: StoredSyncedOperation, payload: OriginalDeleteEntitiesPayload): Promise<string | null> {
+    operation: StoredSyncedOperation, payload: OriginalDeleteEntitiesPayload,
+    revisionBatch: OriginalPageMutationBatch | null = null): Promise<string | null> {
     const desired: Map<string, DesiredEntityVisibility> =
       new Map<string, DesiredEntityVisibility>();
     for (const entity of payload.entityDeletes) {
@@ -279,7 +293,8 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
     }
 
     const planned: PlannedEntityVisibility[] = [];
-    const affectedPages: Map<string, StoredEntityTarget> = new Map<string, StoredEntityTarget>();
+    const affectedPages: Map<string, StoredEntityTarget[]> =
+      new Map<string, StoredEntityTarget[]>();
     let recordingVisibilityMayChange: boolean = false;
     let groupVisibilityMayChange: boolean = false;
     for (const desiredVisibility of desired.values()) {
@@ -339,7 +354,13 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
         changesVisibility: changesVisibility,
       });
       if (changesVisibility) {
-        affectedPages.set(encodeOriginalSequenceId(target.page), target);
+        const pageKey: string = encodeOriginalSequenceId(target.page);
+        const pageTargets: StoredEntityTarget[] = affectedPages.get(pageKey) ?? [];
+        if (!pageTargets.some((candidate: StoredEntityTarget): boolean =>
+          candidate.kind === target.kind)) {
+          pageTargets.push(target);
+        }
+        affectedPages.set(pageKey, pageTargets);
       }
     }
 
@@ -354,11 +375,21 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
       await this.writeEntityWinner(store, operation.noteId, mutation.entity,
         operation, mutation.deleted, mutation.winner);
     }
-    for (const target of affectedPages.values()) {
+    for (const pageTargets of affectedPages.values()) {
+      const target: StoredEntityTarget = pageTargets[0];
       if (!await this.materializeEntityOrder(store, operation.noteId, target)) {
         throw new Error('original entity order diverged after visibility mutation');
       }
-      await this.advanceEntityPageRevision(store, operation.noteId, target);
+      if (revisionBatch === null) {
+        await this.advanceEntityPageRevision(store, operation.noteId, target);
+      } else {
+        for (const changedTarget of pageTargets) {
+          revisionBatch.recordEntity({
+            page: target.page, pageId: target.pageId, revisionTable: target.revisionTable,
+            revision: target.revision, archived: target.archivedPage,
+          }, changedTarget.kind);
+        }
+      }
     }
     if (recordingVisibilityMayChange) {
       await refreshOriginalRecordingPresence(store, operation.noteId);

@@ -20,8 +20,9 @@ import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockG
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import {
   AddPageAction, DeletePageAction, GroupElementsAction, OriginalClipboardPasteAction,
-  NoteBackgroundAction, NoteTitleAction, NoteMetadataAction, OriginalPartialEraseAction, PageSettingsAction,
-  PersistedPageMutationsAction, ReorderPagesAction, RestoredHistoryAction, UndoableAction,
+  NoteBackgroundAction, NoteTitleAction, NoteMetadataAction, OriginalHandwritingConversionAction,
+  OriginalPartialEraseAction, PageSettingsAction, PersistedPageMutationsAction, ReorderPagesAction,
+  RestoredHistoryAction, UndoableAction,
   UndoableActionType,
 } from '../rendering/UndoRedoManager';
 import {
@@ -32,6 +33,7 @@ import { decodeOriginalClipboardPasteMutation,
 import {
   decodeOriginalPartialEraseMutation, OriginalPartialEraseMutation,
 } from './OriginalPartialEraseMutationCodec';
+import { decodeOriginalHandwritingConversionMutation } from './OriginalHandwritingConversionMutationCodec';
 import {
   decodeNoteBackgroundMutation, NoteBackgroundMutation,
 } from './NoteBackgroundMutationCodec';
@@ -310,6 +312,19 @@ function materializeAction(action: PersistentHistoryAction, currentPageId: strin
       decodeOriginalPartialEraseMutation(action.operations[0].payload);
     const restored: OriginalPartialEraseAction = {
       type: UndoableActionType.ORIGINAL_PARTIAL_ERASE,
+      noteId: noteId,
+      pageId: mutation.pageMutation.pageId,
+      operation: action.operations[0],
+    };
+    return restored;
+  }
+  if (action.operations[0].opType === OpType.ORIGINAL_HANDWRITING_CONVERSION) {
+    if (action.operations.length !== 1) {
+      throw new Error('persistent original handwriting conversion action must contain exactly one mutation');
+    }
+    const mutation = decodeOriginalHandwritingConversionMutation(action.operations[0].payload);
+    const restored: OriginalHandwritingConversionAction = {
+      type: UndoableActionType.ORIGINAL_HANDWRITING_CONVERSION,
       noteId: noteId,
       pageId: mutation.pageMutation.pageId,
       operation: action.operations[0],

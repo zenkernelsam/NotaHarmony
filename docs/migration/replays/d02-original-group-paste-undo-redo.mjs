@@ -22,7 +22,7 @@ assert.match(persistence, /targets\.length > MAX_ORIGINAL_DELETE_ENTITY_COUNT/);
 assert.match(persistence, /leafCount \+ plan\.groups\.length > MAX_ORIGINAL_DELETE_ENTITY_COUNT/);
 assert.match(persistence, /revisionAfter !== revisionBefore \+ 1/);
 assert.match(persistence, /appendOriginalClipboardPasteHistory\(/);
-assert.match(reducer, /const affectedPages: Map<string, StoredEntityTarget>/);
+assert.match(reducer, /const affectedPages: Map<string, StoredEntityTarget\[\]>/);
 assert.match(reducer, /groupVisibilityMayChange/);
 assert.match(history, /type: UndoableActionType\.ORIGINAL_CLIPBOARD_PASTE/);
 assert.match(editor, /action\.type === UndoableActionType\.ORIGINAL_CLIPBOARD_PASTE/);

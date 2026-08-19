@@ -2,6 +2,7 @@ import { describe, expect, it } from '@ohos/hypium';
 import { relationalStore } from '@kit.ArkData';
 import { ElementType, ImageElement, MathElement, TextBlockElement } from
   '../main/ets/core/model/ElementTypes';
+import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import { decodeOriginalCreateBlock, OriginalBlockType } from
   '../main/ets/data/OriginalCreateBlockOperation';
 import {
@@ -200,7 +201,7 @@ export default function originalCreateTextPayloadEncoderTest() {
         { timestamp: 80, siteId: 7, index: 2 }, invalidImage)).assertThrow();
     });
 
-    it('flushes CREATE_BLOCK and initial INSERT_STRING as one page revision', 0, async () => {
+    it('flushes Ink visibility CREATE_BLOCK and INSERT_STRING as one page revision', 0, async () => {
       let revisionUpdates: number = 0;
       const statements: string[] = [];
       const fakeStore = {
@@ -217,14 +218,16 @@ export default function originalCreateTextPayloadEncoderTest() {
         revisionTable: 'page_info', revision: 9, archived: false,
       };
       const batch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+      batch.recordEntity(target, PageElementKind.STROKE);
       batch.recordBlock(target, true);
       batch.recordBlock(target, true);
       await batch.flush(fakeStore, 'note');
 
       expect(revisionUpdates).assertEqual(1);
-      expect(statements.length).assertEqual(2);
+      expect(statements.length).assertEqual(3);
       expect(statements[0]).assertContain('search_page_state');
       expect(statements[1]).assertContain('search_item');
+      expect(statements[2]).assertContain('search_item');
     });
   });
 }

@@ -3,9 +3,10 @@
 // The original action is a single transaction with three ordered mutations:
 // DELETE_ENTITIES (selected Ink), CREATE_BLOCK (a Text Block at the selection
 // bounds relative to the page origin), and INSERT_STRING (the recognizer text).
-// Harmony does not yet have a production OCR provider or a persistence path
-// that can express that mixed operation atomically.  This module therefore
-// plans and validates the action without mutating UI, storage, or selection.
+// Harmony now has a dedicated atomic persistence/history path for the mixed
+// operation, but still has no production OCR provider, Locale adapter, or UI
+// entry.  This module remains the pure request/result gate and never mutates
+// UI, storage, or selection by itself.
 import { Point2D, Rect2D, TransformMatrix } from '../model/GeometryTypes';
 import { OriginalHandwritingRecognitionResult } from './OriginalHandwritingRecognition';
 

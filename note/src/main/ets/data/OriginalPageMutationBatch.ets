@@ -1,6 +1,7 @@
 import { relationalStore } from '@kit.ArkData';
 import { OriginalSequenceIdentity } from './OperationIdentity';
 import { SearchItemType } from './SearchItemType';
+import { PageElementKind } from '../core/model/PageElementOrder';
 
 export interface OriginalMutationPageTarget {
   page: OriginalSequenceIdentity;
@@ -22,6 +23,18 @@ export class OriginalPageMutationBatch {
 
   recordInk(target: OriginalMutationPageTarget): void {
     this.record(target, true, false);
+  }
+
+  /** Record visibility of an existing original entity without advancing yet. */
+  recordEntity(target: OriginalMutationPageTarget, kind: number): void {
+    // Search keeps Ink and Text Block indexes separately.  Shapes/groups do
+    // not have a dedicated page text index, so they conservatively invalidate
+    // the Ink side used by the original page search rebuild.
+    if (!Number.isSafeInteger(kind) || kind < PageElementKind.STROKE ||
+      kind > PageElementKind.MATH) {
+      throw new Error('original batched entity kind is invalid');
+    }
+    this.record(target, kind !== PageElementKind.TEXT, kind === PageElementKind.TEXT);
   }
 
   recordBlock(target: OriginalMutationPageTarget, textChanged: boolean): void {

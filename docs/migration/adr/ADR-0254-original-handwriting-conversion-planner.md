@@ -4,6 +4,10 @@
 
 Accepted - Phase 276（2026-08-19）
 
+> 后续更正：Phase 277 已通过 ADR-0255 增加专用原子 persistence/HWC1 history path。本文以下关于
+> “当前持久层尚不能承载混合 mutation”的描述保留为 Phase 276 当时的决策现场；真实 OCR、Locale adapter、
+> SelectionOverlay 入口和生产 page/frame/fingerprint 采集仍未接入。
+
 ## 背景
 
 Phase 274 固定了原版识别语言/provider contract，Phase 275 固定了选区 Ink 到 pointer stroke 的

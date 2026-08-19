@@ -24,13 +24,16 @@ import { encodePersistedElement } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import { InkStyle, StrokeElementData } from '../main/ets/core/model/StrokeTypes';
 import { UndoableActionType } from '../main/ets/rendering/UndoRedoManager';
-import { ElementType, ImageElement } from '../main/ets/core/model/ElementTypes';
+import { ElementType, ImageElement, TextBlockElement } from '../main/ets/core/model/ElementTypes';
 import { encodeOriginalClipboardPasteMutation,
   OriginalClipboardPasteMutation } from '../main/ets/data/OriginalClipboardPasteMutationCodec';
 import { encodeOriginalGroupMutation, OriginalGroupMutationOpPayload } from
   '../main/ets/data/OriginalGroupMutationOpCodec';
 import { decodeOriginalPartialEraseMutation, encodeOriginalPartialEraseMutation } from
   '../main/ets/data/OriginalPartialEraseMutationCodec';
+import { encodeOriginalHandwritingConversionMutation,
+  OriginalHandwritingConversionMutation } from
+  '../main/ets/data/OriginalHandwritingConversionMutationCodec';
 import { encodeNoteBackgroundMutation } from
   '../main/ets/data/NoteBackgroundMutationCodec';
 import { encodeNoteTitleMutation } from '../main/ets/data/NoteTitleMutationCodec';
@@ -251,6 +254,35 @@ function partialEraseHistoryOp(opId: string, effect: HistoryEffect,
   };
 }
 
+function handwritingConversionHistoryOp(opId: string, effect: HistoryEffect): Op {
+  const sourceA: StrokeElementData = stroke('op:a:1');
+  const sourceB: StrokeElementData = stroke('op:b:1');
+  const created: TextBlockElement = text('op:c:2');
+  const before: SearchSourceElement[] = [
+    { elementId: sourceA.id, kind: PageElementKind.STROKE,
+      payload: encodePersistedElement({ kind: 'stroke', data: sourceA }) },
+    { elementId: sourceB.id, kind: PageElementKind.STROKE,
+      payload: encodePersistedElement({ kind: 'stroke', data: sourceB }) },
+  ];
+  const after: SearchSourceElement[] = [{
+    elementId: created.id, kind: PageElementKind.TEXT,
+    payload: encodePersistedElement({ kind: 'text', data: created }),
+  }];
+  const mutation: OriginalHandwritingConversionMutation = {
+    pageMutation: createPageMutation('page-1', 9, 10, before, after),
+    sourceStrokeIds: [sourceA.id, sourceB.id], textId: created.id,
+  };
+  return {
+    opId: opId, noteId: 'note-1',
+    opType: OpType.ORIGINAL_HANDWRITING_CONVERSION,
+    payload: encodeOriginalHandwritingConversionMutation(mutation), clientTime: 100,
+    history: {
+      actionId: 'handwriting-conversion-action', effect: effect,
+      coalesceTrack: HistoryCoalesceTrack.NONE, actionTime: 100,
+    },
+  };
+}
+
 function element(elementId: string, kind: number, value: number): SearchSourceElement {
   return { elementId: elementId, kind: kind, payload: new Uint8Array([value]) };
 }
@@ -281,6 +313,19 @@ function stroke(id: string): StrokeElementData {
     },
     transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
     bounds: { x: 0, y: 0, width: 1, height: 1 }, maskPath: [], isFinished: true,
+  };
+}
+
+function text(id: string): TextBlockElement {
+  return {
+    id: id, type: ElementType.TEXT, transform: [1, 0, 10, 0, 1, 20, 0, 0, 1],
+    bounds: { left: 10, top: 20, right: 110, bottom: 60 }, richText: 'hello',
+    textOrigin: { x: 0, y: 0 }, blockWidth: 100, blockHeight: 40,
+    rotationRadians: 0, contentLeftInset: 5, contentTopInset: 3,
+    contentRightInset: 5, contentBottomInset: 10,
+    fontSize: 17, fontColor: -16777216, corner: 0, textWrap: 0,
+    enableCaption: false, paper: null, resizesWidthToFitText: false,
+    characterStyleRuns: [], paragraphStyleRuns: [], positionLocked: false,
   };
 }
 
@@ -350,6 +395,54 @@ export default function persistentHistoryTest() {
         expect(restored.redo[0].action.operation.opType)
           .assertEqual(OpType.ORIGINAL_PARTIAL_ERASE);
       }
+    });
+
+    it('restores HWC1 as one dedicated action across PUSH UNDO and REDO', 0, () => {
+      const pushed: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([
+          handwritingConversionHistoryOp('conversion-push', HistoryEffect.PUSH),
+        ]), 'page-1');
+      expect(pushed.undo.length).assertEqual(1);
+      expect(pushed.redo.length).assertEqual(0);
+      expect(pushed.undo[0].action.type)
+        .assertEqual(UndoableActionType.ORIGINAL_HANDWRITING_CONVERSION);
+
+      const undone: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([
+          handwritingConversionHistoryOp('conversion-push', HistoryEffect.PUSH),
+          handwritingConversionHistoryOp('conversion-undo', HistoryEffect.UNDO),
+        ]), 'page-1');
+      expect(undone.undo.length).assertEqual(0);
+      expect(undone.redo.length).assertEqual(1);
+      if (undone.redo[0].action.type ===
+        UndoableActionType.ORIGINAL_HANDWRITING_CONVERSION) {
+        expect(undone.redo[0].action.pageId).assertEqual('page-1');
+        expect(undone.redo[0].action.operation.opType)
+          .assertEqual(OpType.ORIGINAL_HANDWRITING_CONVERSION);
+      }
+
+      const redone: RestoredHistoryState = materializePersistentHistory(
+        reducePersistentHistory([
+          handwritingConversionHistoryOp('conversion-push', HistoryEffect.PUSH),
+          handwritingConversionHistoryOp('conversion-undo', HistoryEffect.UNDO),
+          handwritingConversionHistoryOp('conversion-redo', HistoryEffect.REDO),
+        ]), 'page-1');
+      expect(redone.undo.length).assertEqual(1);
+      expect(redone.redo.length).assertEqual(0);
+    });
+
+    it('rejects multi-operation and corrupt HWC1 persistent actions', 0, () => {
+      const first: Op = handwritingConversionHistoryOp(
+        'conversion-a', HistoryEffect.PUSH);
+      const second: Op = handwritingConversionHistoryOp(
+        'conversion-b', HistoryEffect.PUSH);
+      second.history = first.history;
+      expect(materializeRejects(reducePersistentHistory([first, second]))).assertTrue();
+
+      const corrupt: Op = handwritingConversionHistoryOp(
+        'conversion-corrupt', HistoryEffect.PUSH);
+      corrupt.payload = corrupt.payload.slice(0, corrupt.payload.length - 1);
+      expect(materializeRejects(reducePersistentHistory([corrupt]))).assertTrue();
     });
 
     it('restores NPE2 partial erase Group history as one dedicated action', 0, () => {

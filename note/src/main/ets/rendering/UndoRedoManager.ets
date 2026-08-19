@@ -37,6 +37,7 @@ export enum UndoableActionType {
   NOTE_BACKGROUND = 21,
   NOTE_TITLE = 22,
   NOTE_METADATA = 23,
+  ORIGINAL_HANDWRITING_CONVERSION = 24,
 }
 
 interface ActionBase {
@@ -521,11 +522,17 @@ export interface OriginalPartialEraseAction extends ActionBase {
   operation: Op;
 }
 
+export interface OriginalHandwritingConversionAction extends ActionBase {
+  type: UndoableActionType.ORIGINAL_HANDWRITING_CONVERSION;
+  operation: Op;
+}
+
 export type UndoableAction = AddStrokeAction | RemoveStrokeAction | TransformStrokesAction |
   AddElementAction | DeleteElementAction | ReplaceElementAction | ReorderElementsAction |
   AddShapeAction | AddElementsAction | DeleteElementsAction | TransformElementsAction | EraseElementsAction |
   AddPageAction | DeletePageAction | ReorderPagesAction | PageSettingsAction | PersistedPageMutationsAction |
-  GroupElementsAction | OriginalClipboardPasteAction | OriginalPartialEraseAction | NoteBackgroundAction |
+  GroupElementsAction | OriginalClipboardPasteAction | OriginalPartialEraseAction |
+  OriginalHandwritingConversionAction | NoteBackgroundAction |
   NoteTitleAction | NoteMetadataAction;
 
 export interface RestoredHistoryAction {
@@ -686,6 +693,9 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
     return bytes + action.operation.payload.length + action.operation.opId.length * 2 + 128;
   }
   if (action.type === UndoableActionType.ORIGINAL_PARTIAL_ERASE) {
+    return bytes + action.operation.payload.length + action.operation.opId.length * 2 + 128;
+  }
+  if (action.type === UndoableActionType.ORIGINAL_HANDWRITING_CONVERSION) {
     return bytes + action.operation.payload.length + action.operation.opId.length * 2 + 128;
   }
   return bytes + 512;

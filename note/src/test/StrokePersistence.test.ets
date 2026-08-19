@@ -11,10 +11,11 @@ import {
   encodePersistedElement,
   originalClipboardShapeForPaste,
   OriginalClipboardPastePlan, OriginalMathLatexMutation,
+  OriginalHandwritingConversionPersistencePlan,
   OriginalImageCropMutation, OriginalImageFlipMutation, OriginalPositionLockMutation,
   OriginalPartialErasePlan, OriginalRenderMutation, PersistedElement,
   validateOriginalClipboardPastePlan, validateOriginalPartialErasePlan,
-  validatePartialEraseMaterializationPlan,
+  validateOriginalHandwritingConversionPersistencePlan, validatePartialEraseMaterializationPlan,
 } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import {
@@ -612,7 +613,53 @@ export default function strokePersistenceTest() {
         topGroupIds: ['op:82:2'],
       });
     });
+
+    it('preflights Convert-to-Text source identity Float32 geometry and UTF-8 budget', 0, () => {
+      const first: StrokeElementData = partialEraseStroke('op:50:2');
+      const second: StrokeElementData = partialEraseStroke('op:52:2');
+      const valid: OriginalHandwritingConversionPersistencePlan = {
+        sourceStrokes: [first, second], origin: { x: 10, y: 20 },
+        width: 100, height: 40, richText: 'hello',
+      };
+      validateOriginalHandwritingConversionPersistencePlan(valid);
+
+      const duplicate: OriginalHandwritingConversionPersistencePlan = {
+        sourceStrokes: [first, first], origin: valid.origin,
+        width: valid.width, height: valid.height, richText: valid.richText,
+      };
+      const nonInk: OriginalHandwritingConversionPersistencePlan = {
+        sourceStrokes: [second], origin: valid.origin,
+        width: valid.width, height: valid.height, richText: valid.richText,
+      };
+      nonInk.sourceStrokes[0].renderSpec.isHighlighter = true;
+      const f32Overflow: OriginalHandwritingConversionPersistencePlan = {
+        sourceStrokes: [first], origin: { x: 3.3e38, y: 0 },
+        width: 1e38, height: 8, richText: 'x',
+      };
+      const infiniteF32: OriginalHandwritingConversionPersistencePlan = {
+        sourceStrokes: [first], origin: { x: Number.MAX_VALUE, y: 0 },
+        width: 8, height: 8, richText: 'x',
+      };
+      const utf8TooLarge: OriginalHandwritingConversionPersistencePlan = {
+        sourceStrokes: [first], origin: valid.origin,
+        width: valid.width, height: valid.height, richText: '中'.repeat(400000),
+      };
+      expect(rejectsHandwritingPlan(duplicate)).assertTrue();
+      expect(rejectsHandwritingPlan(nonInk)).assertTrue();
+      expect(rejectsHandwritingPlan(f32Overflow)).assertTrue();
+      expect(rejectsHandwritingPlan(infiniteF32)).assertTrue();
+      expect(rejectsHandwritingPlan(utf8TooLarge)).assertTrue();
+    });
   });
+}
+
+function rejectsHandwritingPlan(plan: OriginalHandwritingConversionPersistencePlan): boolean {
+  try {
+    validateOriginalHandwritingConversionPersistencePlan(plan);
+  } catch (_error) {
+    return true;
+  }
+  return false;
 }
 
 function partialEraseStroke(id: string): StrokeElementData {

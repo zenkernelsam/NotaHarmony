@@ -1,5 +1,10 @@
 # 原版 Convert-to-Text 计划器证据（2026-08-19）
 
+> 后续更正（Phase 277）：本证据第 3/5 节记录的是 Phase 276 当时的持久化缺口。专用原子
+> persistence/HWC1 history path 已在 ADR-0255 与
+> `original-handwriting-conversion-persistence-jadx-2026-08-19.md` 补齐；真实 OCR、Locale adapter、
+> SelectionOverlay 入口和生产采集仍未接入。
+
 ## 1. 范围与只读基准
 
 本阶段只补齐原版手写选区“转文字”动作的纯逻辑计划边界：单页门禁、选区包围盒、最小尺寸、
@@ -81,6 +86,6 @@ stroke 序列；已有 `OriginalDeleteEntitiesOperationApplier`、`OriginalCreat
 
 - 真实 OCR provider、Locale/global preference adapter 与错误提示；
 - SelectionOverlay 的“转文字”入口与页面 generation/source fingerprint 采集；
-- 能在一个 transaction/history 单元中表达三类 original operation 的持久层 mutation；
-- Text Block 的 original identity、Undo/Redo、搜索索引和重启恢复；
+- 产品入口对 Phase 277 专用三类 original operation 原子路径的调用；
+- 生产 page/frame/source fingerprint 采集、真实旧库重启恢复和设备 Undo/Redo 验收；
 - 真机正确率、延迟、内存与多语言体验。

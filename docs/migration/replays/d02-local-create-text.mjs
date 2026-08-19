@@ -53,7 +53,8 @@ assert.match(history, /OpType\.ORIGINAL_CREATE_BLOCK/);
 assert.match(history, /OpType\.ORIGINAL_INSERT_TEXT/);
 assert.match(opTypes, /ORIGINAL_CREATE_BLOCK = 71/);
 assert.match(opTypes, /ORIGINAL_INSERT_TEXT = 72/);
-assert.match(fixtures, /flushes CREATE_BLOCK and initial INSERT_STRING as one page revision/);
+assert.match(fixtures,
+  /flushes Ink visibility CREATE_BLOCK and INSERT_STRING as one page revision/);
 
 const db = new DatabaseSync(':memory:');
 db.exec(`CREATE TABLE page(id INTEGER PRIMARY KEY, revision INTEGER NOT NULL);

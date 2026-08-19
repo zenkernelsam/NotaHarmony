@@ -11,7 +11,7 @@ import {
   ElementType, ImageElement, MathElement, OriginalShapeCreateMetadata, RichTextCharacterStyleRun,
   RichTextParagraphStyleRun, ShapeElement, TextBlockElement,
 } from '../core/model/ElementTypes';
-import { Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
+import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import {
   cloneImageElement, imageBlockWorldBounds, originalAssetHashKey, reflectImageCropRect,
 } from '../core/model/ImageBlockGeometry';
@@ -108,7 +108,7 @@ import {
   encodeOriginalEntityVisibility,
 } from './OriginalDeleteEntitiesPayloadEncoder';
 import {
-  MAX_ORIGINAL_DELETE_ENTITY_COUNT, ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE,
+  decodeOriginalDeleteEntities, MAX_ORIGINAL_DELETE_ENTITY_COUNT, ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE,
   OriginalDeleteEntitiesOperationApplier,
 } from './OriginalDeleteEntitiesOperation';
 import {
@@ -160,6 +160,10 @@ import {
 import { BackupSnapshotEntry } from './BackupSnapshotGuard';
 import { sha256Hex } from './BackupHash';
 import { assertLivePageElementIdsAvailable } from './PageElementIdentity';
+import {
+  decodeOriginalHandwritingConversionMutation, encodeOriginalHandwritingConversionMutation,
+  OriginalHandwritingConversionMutation, validateOriginalHandwritingConversionMutation,
+} from './OriginalHandwritingConversionMutationCodec';
 
 export { decodePersistedElement, decodeStoredPageElement, encodePersistedElement, PersistedElement };
 
@@ -232,6 +236,28 @@ export interface OriginalPartialEraseHistoryResult {
   groups: OriginalSelectionGroup[];
 }
 
+export interface OriginalHandwritingConversionPersistencePlan {
+  // Exact immutable source snapshots captured for the recognizer request.
+  sourceStrokes: StrokeElementData[];
+  origin: Point2D;
+  width: number;
+  height: number;
+  richText: string;
+}
+
+export interface OriginalHandwritingConversionPersistenceResult {
+  elements: SearchSourceElement[];
+  elementOrder: PageElementRef[];
+  text: TextBlockElement;
+  mutation: OriginalHandwritingConversionMutation;
+  operation: Op;
+}
+
+export interface OriginalHandwritingConversionHistoryResult {
+  elements: SearchSourceElement[];
+  elementOrder: PageElementRef[];
+}
+
 export interface OriginalClipboardPasteHistoryResult {
   elements: SearchSourceElement[];
   elementOrder: PageElementRef[];
@@ -239,6 +265,43 @@ export interface OriginalClipboardPasteHistoryResult {
 }
 
 const MAX_ORIGINAL_CLIPBOARD_PASTE_LEAVES: number = 10000;
+
+export function validateOriginalHandwritingConversionPersistencePlan(
+  plan: OriginalHandwritingConversionPersistencePlan): void {
+  if (plan === null || plan === undefined || !Array.isArray(plan.sourceStrokes) ||
+    plan.origin === null || plan.origin === undefined ||
+    typeof plan.richText !== 'string' || plan.sourceStrokes.length === 0 ||
+    plan.sourceStrokes.length + 1 > MAX_ORIGINAL_DELETE_ENTITY_COUNT ||
+    !Number.isFinite(plan.origin.x) || !Number.isFinite(plan.origin.y) ||
+    !Number.isFinite(plan.width) || !Number.isFinite(plan.height) ||
+    plan.width < 8 || plan.height < 8 || plan.richText.length === 0) {
+    throw new Error('original handwriting conversion persistence plan is invalid');
+  }
+  const originX: number = Math.fround(plan.origin.x);
+  const originY: number = Math.fround(plan.origin.y);
+  const width: number = Math.fround(plan.width);
+  const height: number = Math.fround(plan.height);
+  if (!Number.isFinite(originX) || !Number.isFinite(originY) ||
+    !Number.isFinite(width) || !Number.isFinite(height) || width < 8 || height < 8 ||
+    !Number.isFinite(Math.fround(originX + width)) ||
+    !Number.isFinite(Math.fround(originY + height))) {
+    throw new Error('original handwriting conversion persistence plan is not Float32-safe');
+  }
+  const seen: Set<string> = new Set<string>();
+  for (const stroke of plan.sourceStrokes) {
+    if (stroke === null || stroke === undefined || typeof stroke.id !== 'string' ||
+      decodeOperationId(stroke.id) === null || seen.has(stroke.id) || stroke.isFinished !== true ||
+      stroke.renderSpec === undefined || stroke.renderSpec === null ||
+      stroke.renderSpec.isHighlighter || stroke.renderSpec.isPartialEraser === true) {
+      throw new Error('original handwriting conversion source identity is invalid');
+    }
+    encodePersistedElement({ kind: 'stroke', data: stroke });
+    seen.add(stroke.id);
+  }
+  const draft: TextBlockElement = originalHandwritingConversionTextDraft(plan);
+  encodeOriginalLocalCreateTextBlock({ timestamp: 1, siteId: 1, index: 0 }, draft);
+  encodeOriginalInitialInsertString({ timestamp: 1, siteId: 1 }, draft.richText);
+}
 
 export function validatePartialEraseMaterializationPlan(plan: OriginalPartialErasePlan): void {
   validatePartialErasePlan(plan, false);
@@ -1828,6 +1891,290 @@ export class StrokePersistence {
         } catch (e) {
           await store.rollBack();
           throw new Error(`apply original partial erase history failed: ${JSON.stringify(e)}`);
+        }
+      });
+  }
+
+  async commitOriginalHandwritingConversion(noteId: string, pageId: string,
+    plan: OriginalHandwritingConversionPersistencePlan, history: HistoryMetadata):
+    Promise<OriginalHandwritingConversionPersistenceResult> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    validateOriginalHandwritingConversionPersistencePlan(plan);
+    validateHistoryMetadata(history);
+    if (history.effect !== HistoryEffect.PUSH ||
+      history.coalesceTrack !== HistoryCoalesceTrack.NONE) {
+      throw new Error('original handwriting conversion requires non-coalesced PUSH history');
+    }
+    const stablePlan: OriginalHandwritingConversionPersistencePlan = {
+      sourceStrokes: plan.sourceStrokes.map(cloneStrokeThroughPersistence),
+      origin: { x: plan.origin.x, y: plan.origin.y },
+      width: plan.width, height: plan.height, richText: plan.richText,
+    };
+    const stableHistory: HistoryMetadata = {
+      actionId: history.actionId, effect: history.effect,
+      coalesceTrack: history.coalesceTrack, actionTime: history.actionTime,
+    };
+    validateOriginalHandwritingConversionPersistencePlan(stablePlan);
+    await this.flush(noteId, pageId);
+    return editorPersistenceMutex.runExclusive(
+      async (): Promise<OriginalHandwritingConversionPersistenceResult> => {
+        if (this.store === null) {
+          throw new Error('StrokePersistence is not initialized');
+        }
+        const store: relationalStore.RdbStore = this.store;
+        await store.beginTransaction();
+        try {
+          const page: OriginalSequenceIdentity | null = await this.readEligibleOriginalInkPage(
+            store, noteId, pageId);
+          if (page === null) {
+            throw new Error('original handwriting conversion page is not original-aligned');
+          }
+          const before: SearchSourceElement[] = await this.loadCurrentSnapshot(store, noteId, pageId);
+          const beforeById: Map<string, SearchSourceElement> = new Map<string, SearchSourceElement>();
+          for (const element of before) {
+            beforeById.set(element.elementId, element);
+          }
+          const sourceIds: string[] = [];
+          const sourceIdentities: OperationIdentity[] = [];
+          for (const source of stablePlan.sourceStrokes) {
+            const stored: SearchSourceElement | undefined = beforeById.get(source.id);
+            const identity: OperationIdentity = decodeOperationId(source.id) as OperationIdentity;
+            if (stored === undefined || stored.kind !== PageElementKind.STROKE ||
+              !sameByteArrays(stored.payload,
+                encodePersistedElement({ kind: 'stroke', data: source })) ||
+              !await this.originalEntityStateExists(
+                store, noteId, PageElementKind.STROKE, identity)) {
+              throw new Error('original handwriting conversion source Ink is stale');
+            }
+            sourceIds.push(source.id);
+            sourceIdentities.push(identity);
+          }
+          const currentRevision: number = await this.readLivePageRevision(store, noteId, pageId);
+          if (currentRevision >= Number.MAX_SAFE_INTEGER) {
+            throw new Error('original handwriting conversion page revision is exhausted');
+          }
+          const nextRevision: number = currentRevision + 1;
+          const maximumZIndex: string | null = await this.readMaximumOriginalZIndex(
+            store, noteId, page);
+          const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+
+          // bt1 issues DELETE_ENTITIES first in the shared xq9 transaction.
+          const deleteIdentity: AllocatedOperationIdentity = await allocateOperationIdentity(
+            store, noteId);
+          const deletePayload: Uint8Array = encodeOriginalEntityVisibility(sourceIdentities, []);
+          const deleteOperation: StoredSyncedOperation = localStoredOperation(
+            noteId, allocatedOriginalMetadata(deleteIdentity),
+            ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE, deletePayload, null);
+          const deleteApplied: SyncedOperationApplyResult =
+            await new OriginalDeleteEntitiesOperationApplier().applyBatchedPayload(
+              store, deleteOperation, decodeOriginalDeleteEntities(deleteOperation.rawOperation),
+              revisionBatch);
+          if (deleteApplied.deferredReason !== null) {
+            throw new Error(
+              `original handwriting conversion DELETE_ENTITIES was deferred: ${deleteApplied.deferredReason}`);
+          }
+          await this.appendOriginalCreateOperation(store, noteId, deleteIdentity,
+            OpType.ORIGINAL_DELETE_ENTITIES, deleteOperation.rawOperation);
+
+          // CREATE_BLOCK owns the new Text identity and its default z-index.
+          const createIdentity: AllocatedOperationIdentity = await allocateOperationIdentity(
+            store, noteId);
+          if (maximumZIndex !== null &&
+            compareUnsignedLongDecimal(maximumZIndex, createIdentity.clientTime.toString()) > 0) {
+            throw new Error('original handwriting conversion cannot append below current z-index');
+          }
+          const createMetadata: OriginalInkCreateMetadata = {
+            timestamp: createIdentity.timestamp, siteId: createIdentity.siteId,
+            clientTime: createIdentity.clientTime, pageTimestamp: page.timestamp,
+            pageSiteId: page.siteId, pageIndex: page.index, pencilSeed: 0,
+          };
+          const requestedText: TextBlockElement = originalHandwritingConversionTextDraft(stablePlan);
+          requestedText.id = createIdentity.opId;
+          requestedText.originalCreate = createMetadata;
+          requestedText.bounds = textBlockWorldBounds(requestedText);
+          const createPayload: Uint8Array = encodeOriginalLocalCreateTextBlock(page, requestedText);
+          const createOperation: StoredSyncedOperation = localStoredOperation(
+            noteId, createMetadata, ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE, createPayload, null);
+          const createDecoded: OriginalCreateBlockPayload = decodeOriginalCreateBlock(
+            createOperation.rawOperation, createMetadata.clientTime.toString());
+          const createApplied: SyncedOperationApplyResult =
+            await new OriginalCreateBlockOperationApplier().applyBatchedPayload(
+              store, createOperation, createDecoded, revisionBatch);
+          if (createApplied.deferredReason !== null) {
+            throw new Error(
+              `original handwriting conversion CREATE_BLOCK was deferred: ${createApplied.deferredReason}`);
+          }
+          await this.appendOriginalCreateOperation(store, noteId, createIdentity,
+            OpType.ORIGINAL_CREATE_BLOCK, createOperation.rawOperation);
+
+          // s5j.i follows CREATE_BLOCK and references that exact Text field identity.
+          const insertIdentity: AllocatedOperationIdentity = await allocateOperationIdentity(
+            store, noteId);
+          const insertPayload: Uint8Array = encodeOriginalInitialInsertString(
+            { timestamp: createIdentity.timestamp, siteId: createIdentity.siteId },
+            stablePlan.richText);
+          const insertOperation: StoredSyncedOperation = localStoredOperation(
+            noteId, allocatedOriginalMetadata(insertIdentity),
+            ORIGINAL_INSERT_STRING_PAYLOAD_TYPE, insertPayload, null);
+          const insertApplied: SyncedOperationApplyResult =
+            await new OriginalInsertTextOperationApplier().applyBatchedPayload(
+              store, insertOperation,
+              decodeOriginalInsertText(insertOperation.rawOperation,
+                ORIGINAL_INSERT_STRING_PAYLOAD_TYPE), revisionBatch);
+          if (insertApplied.deferredReason !== null) {
+            throw new Error(
+              `original handwriting conversion INSERT_STRING was deferred: ${insertApplied.deferredReason}`);
+          }
+          await this.appendOriginalCreateOperation(store, noteId, insertIdentity,
+            OpType.ORIGINAL_INSERT_TEXT, insertOperation.rawOperation);
+          await revisionBatch.flush(store, noteId);
+
+          const revisionAfter: number = await this.readLivePageRevision(store, noteId, pageId);
+          if (revisionAfter !== nextRevision) {
+            throw new Error('original handwriting conversion did not advance one page revision');
+          }
+          const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+            store, noteId, pageId);
+          if (materialized.length !== before.length - sourceIds.length + 1 ||
+            materialized.some((element: SearchSourceElement): boolean =>
+              sourceIds.indexOf(element.elementId) >= 0)) {
+            throw new Error('original handwriting conversion produced an unexpected page membership');
+          }
+          const text: TextBlockElement = await this.readOriginalClipboardText(
+            store, noteId, pageId, createIdentity.opId);
+          const expectedTransform: TransformMatrix = [
+            1, 0, Math.fround(stablePlan.origin.x),
+            0, 1, Math.fround(stablePlan.origin.y), 0, 0, 1,
+          ];
+          const expectedText: TextBlockElement = cloneTextBlockElement(text);
+          expectedText.transform = expectedTransform;
+          expectedText.blockWidth = Math.fround(stablePlan.width);
+          expectedText.blockHeight = Math.fround(stablePlan.height);
+          const expectedBounds: Rect2D = textBlockWorldBounds(expectedText);
+          if (text.id !== createIdentity.opId || text.type !== ElementType.TEXT ||
+            text.richText !== stablePlan.richText || !matricesNear(text.transform, expectedTransform) ||
+            !numbersNear(text.blockWidth, Math.fround(stablePlan.width)) ||
+            !numbersNear(text.blockHeight, Math.fround(stablePlan.height)) ||
+            !numbersNear(text.bounds.left, expectedBounds.left) ||
+            !numbersNear(text.bounds.top, expectedBounds.top) ||
+            !numbersNear(text.bounds.right, expectedBounds.right) ||
+            !numbersNear(text.bounds.bottom, expectedBounds.bottom)) {
+            throw new Error('original handwriting conversion Text state diverged');
+          }
+          const pageMutation: PageMutationOpPayload = createPageMutation(
+            pageId, currentRevision, revisionAfter, before, materialized);
+          const mutation: OriginalHandwritingConversionMutation = {
+            pageMutation: pageMutation, sourceStrokeIds: sourceIds, textId: text.id,
+          };
+          validateOriginalHandwritingConversionMutation(mutation);
+          const finalSnapshot: PreparedPageSave = this.preparedSnapshotFromSearchElements(
+            noteId, pageId, materialized, stableHistory);
+          await this.reconcilePreparedRows(store, finalSnapshot, revisionAfter);
+          await this.rebuildPageSearchState(store, finalSnapshot, revisionAfter, true);
+          const historyOperation: Op = await this.appendOriginalHandwritingConversionHistory(
+            store, noteId, mutation, stableHistory);
+          await store.commit();
+          return {
+            elements: materialized,
+            elementOrder: materialized.map(
+              (element: SearchSourceElement, index: number): PageElementRef => ({
+                kind: element.kind, elementId: element.elementId, zIndex: index,
+              })),
+            text: text, mutation: mutation, operation: historyOperation,
+          };
+        } catch (e) {
+          await store.rollBack();
+          throw new Error(`commit original handwriting conversion failed: ${JSON.stringify(e)}`);
+        }
+      });
+  }
+
+  async applyOriginalHandwritingConversionHistory(noteId: string,
+    sourceMutation: OriginalHandwritingConversionMutation, forward: boolean,
+    history: HistoryMetadata): Promise<OriginalHandwritingConversionHistoryResult> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    validateOriginalHandwritingConversionMutation(sourceMutation);
+    validateHistoryMetadata(history);
+    if (history.effect === HistoryEffect.PUSH ||
+      history.coalesceTrack !== HistoryCoalesceTrack.NONE) {
+      throw new Error('original handwriting conversion history movement is invalid');
+    }
+    const mutation: OriginalHandwritingConversionMutation =
+      decodeOriginalHandwritingConversionMutation(
+        encodeOriginalHandwritingConversionMutation(sourceMutation));
+    const stableHistory: HistoryMetadata = {
+      actionId: history.actionId, effect: history.effect,
+      coalesceTrack: history.coalesceTrack, actionTime: history.actionTime,
+    };
+    const pageId: string = mutation.pageMutation.pageId;
+    await this.flush(noteId, pageId);
+    return editorPersistenceMutex.runExclusive(
+      async (): Promise<OriginalHandwritingConversionHistoryResult> => {
+        if (this.store === null) {
+          throw new Error('StrokePersistence is not initialized');
+        }
+        const store: relationalStore.RdbStore = this.store;
+        await store.beginTransaction();
+        try {
+          if (await this.readEligibleOriginalInkPage(store, noteId, pageId) === null) {
+            throw new Error('original handwriting conversion history page is not original-aligned');
+          }
+          const current: SearchSourceElement[] = await this.loadCurrentSnapshot(store, noteId, pageId);
+          const target: SearchSourceElement[] = replayPageMutation(
+            current, mutation.pageMutation, forward);
+          const sources: OperationIdentity[] = mutation.sourceStrokeIds.map(
+            (id: string): OperationIdentity => decodeOperationId(id) as OperationIdentity);
+          const text: OperationIdentity = decodeOperationId(mutation.textId) as OperationIdentity;
+          const revisionBefore: number = await this.readLivePageRevision(store, noteId, pageId);
+          const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+          const payload: Uint8Array = encodeOriginalEntityVisibility(
+            forward ? sources : [text], forward ? [text] : sources);
+          const operation: StoredSyncedOperation = localStoredOperation(
+            noteId, allocatedOriginalMetadata(identity),
+            ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE, payload, null);
+          const batch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+          const applied: SyncedOperationApplyResult =
+            await new OriginalDeleteEntitiesOperationApplier().applyBatchedPayload(
+              store, operation, decodeOriginalDeleteEntities(operation.rawOperation), batch);
+          if (applied.deferredReason !== null) {
+            throw new Error(
+              `original handwriting conversion history visibility was deferred: ${applied.deferredReason}`);
+          }
+          await this.appendOriginalCreateOperation(store, noteId, identity,
+            OpType.ORIGINAL_DELETE_ENTITIES, operation.rawOperation);
+          await batch.flush(store, noteId);
+          const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+            store, noteId, pageId);
+          if (!sameSearchSourceElements(materialized, target)) {
+            throw new Error('original handwriting conversion history produced an unexpected page');
+          }
+          const revisionAfter: number = await this.readLivePageRevision(store, noteId, pageId);
+          if (revisionAfter !== revisionBefore + 1) {
+            throw new Error(
+              'original handwriting conversion history did not advance one page revision');
+          }
+          const finalSnapshot: PreparedPageSave = this.preparedSnapshotFromSearchElements(
+            noteId, pageId, materialized, stableHistory);
+          await this.reconcilePreparedRows(store, finalSnapshot, revisionAfter);
+          await this.rebuildPageSearchState(store, finalSnapshot, revisionAfter, true);
+          await this.appendOriginalHandwritingConversionHistory(
+            store, noteId, mutation, stableHistory);
+          await store.commit();
+          return {
+            elements: materialized,
+            elementOrder: materialized.map(
+              (element: SearchSourceElement, index: number): PageElementRef => ({
+                kind: element.kind, elementId: element.elementId, zIndex: index,
+              })),
+          };
+        } catch (e) {
+          await store.rollBack();
+          throw new Error(
+            `apply original handwriting conversion history failed: ${JSON.stringify(e)}`);
         }
       });
   }
@@ -5354,6 +5701,22 @@ export class StrokePersistence {
     return operation;
   }
 
+  private async appendOriginalHandwritingConversionHistory(
+    store: relationalStore.RdbStore, noteId: string,
+    mutation: OriginalHandwritingConversionMutation,
+    history: HistoryMetadata): Promise<Op> {
+    const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+    const operation: Op = {
+      noteId: noteId, opId: identity.opId,
+      opType: OpType.ORIGINAL_HANDWRITING_CONVERSION,
+      payload: encodeOriginalHandwritingConversionMutation(mutation),
+      clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+      editorSiteId: identity.siteId, history: history,
+    };
+    await appendOperation(store, operation);
+    return operation;
+  }
+
   private async appendOriginalCreateOperation(store: relationalStore.RdbStore,
     noteId: string, identity: AllocatedOperationIdentity, opType: OpType,
     payload: Uint8Array): Promise<void> {
@@ -6054,9 +6417,32 @@ function cloneStrokeThroughPersistence(stroke: StrokeElementData): StrokeElement
   const persisted: PersistedElement = decodePersistedElement(
     encodePersistedElement({ kind: 'stroke', data: stroke }));
   if (persisted.kind !== 'stroke') {
-    throw new Error('original clipboard Paste Ink clone changed kind');
+    throw new Error('original Ink persistence clone changed kind');
   }
   return persisted.data as StrokeElementData;
+}
+
+function originalHandwritingConversionTextDraft(
+  plan: OriginalHandwritingConversionPersistencePlan): TextBlockElement {
+  const originX: number = Math.fround(plan.origin.x);
+  const originY: number = Math.fround(plan.origin.y);
+  const width: number = Math.fround(plan.width);
+  const height: number = Math.fround(plan.height);
+  const text: TextBlockElement = {
+    id: '', type: ElementType.TEXT,
+    transform: [1, 0, originX, 0, 1, originY, 0, 0, 1],
+    bounds: { left: originX, top: originY,
+      right: Math.fround(originX + width), bottom: Math.fround(originY + height) },
+    richText: plan.richText, characterStyleRuns: [], paragraphStyleRuns: [],
+    textOrigin: { x: 0, y: 0 }, blockWidth: width, blockHeight: height,
+    rotationRadians: 0, contentLeftInset: 5, contentTopInset: 3,
+    contentRightInset: 5, contentBottomInset: 10,
+    fontSize: 17, fontColor: -16777216, corner: 0, textWrap: 0,
+    enableCaption: false, paper: null, resizesWidthToFitText: false,
+    positionLocked: false,
+  };
+  text.bounds = textBlockWorldBounds(text);
+  return text;
 }
 
 export function originalClipboardShapeForPaste(source: ShapeElement): ShapeElement {
