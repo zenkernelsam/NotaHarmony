@@ -64,6 +64,15 @@ export function isOriginalHandwritingRecognitionLanguage(value: string): boolean
   return findOriginalHandwritingLanguage(value) !== null;
 }
 
+// The original global kc5/fr2 path persists dc5.I, never dc5.J. Keeping the
+// canonicalization here lets the preference boundary accept either exact
+// lookup form without ever writing a language tag such as zh-Hant.
+export function originalHandwritingRecognitionLocaleCode(value: string | null): string | null {
+  const language: OriginalHandwritingLanguageDefinition | null =
+    findOriginalHandwritingLanguage(value);
+  return language === null ? null : language.localeCode;
+}
+
 // Mirrors jc5.e + sh8.D. A non-null but unsupported note/global value is not
 // guessed into a nearby locale; the original simply continues to the next source.
 export function resolveOriginalHandwritingLanguage(noteLanguage: string | null,

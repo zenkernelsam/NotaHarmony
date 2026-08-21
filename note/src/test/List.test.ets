@@ -82,6 +82,7 @@ import originalSetMetadataPayloadEncoderTest from './OriginalSetMetadataPayloadE
 import originalNoteMetadataPolicyTest from './OriginalNoteMetadataPolicy.test';
 import noteMetadataMutationCodecTest from './NoteMetadataMutationCodec.test';
 import originalHandwritingRecognitionTest from './OriginalHandwritingRecognition.test';
+import originalHandwritingLocaleAdapterTest from './OriginalHandwritingLocaleAdapter.test';
 import originalHandwritingSelectionAdapterTest from './OriginalHandwritingSelectionAdapter.test';
 import originalHandwritingConversionPlannerTest from './OriginalHandwritingConversionPlanner.test';
 import originalHandwritingConversionMutationCodecTest from
@@ -193,6 +194,7 @@ export default function testsuite() {
   originalNoteMetadataPolicyTest();
   noteMetadataMutationCodecTest();
   originalHandwritingRecognitionTest();
+  originalHandwritingLocaleAdapterTest();
   originalHandwritingSelectionAdapterTest();
   originalHandwritingConversionPlannerTest();
   originalHandwritingConversionMutationCodecTest();
