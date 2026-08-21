@@ -644,11 +644,21 @@ export default function strokePersistenceTest() {
         sourceStrokes: [first], origin: valid.origin,
         width: valid.width, height: valid.height, richText: '中'.repeat(400000),
       };
+      const whitespaceOnly: OriginalHandwritingConversionPersistencePlan = {
+        sourceStrokes: [first], origin: valid.origin,
+        width: valid.width, height: valid.height, richText: ' \u3000\n',
+      };
+      const invalidUnicode: OriginalHandwritingConversionPersistencePlan = {
+        sourceStrokes: [first], origin: valid.origin,
+        width: valid.width, height: valid.height, richText: '\uD800',
+      };
       expect(rejectsHandwritingPlan(duplicate)).assertTrue();
       expect(rejectsHandwritingPlan(nonInk)).assertTrue();
       expect(rejectsHandwritingPlan(f32Overflow)).assertTrue();
       expect(rejectsHandwritingPlan(infiniteF32)).assertTrue();
       expect(rejectsHandwritingPlan(utf8TooLarge)).assertTrue();
+      expect(rejectsHandwritingPlan(whitespaceOnly)).assertTrue();
+      expect(rejectsHandwritingPlan(invalidUnicode)).assertTrue();
     });
   });
 }

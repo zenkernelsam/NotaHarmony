@@ -9,8 +9,20 @@ import {
   ORIGINAL_REVIVE_CHARS_PAYLOAD_TYPE,
 } from './OriginalInsertTextOperation';
 
-const MAX_INSERT_STRING_BYTES: number = 1048576;
+export const MAX_ORIGINAL_INSERT_STRING_BYTES: number = 1048576;
 const MAX_TEXT_VISIBILITY_LOCATIONS: number = 1048576;
+
+export enum OriginalInsertStringValueStatus {
+  VALID = 0,
+  EMPTY = 1,
+  INVALID_UNICODE = 2,
+  TOO_LARGE = 3,
+}
+
+export interface OriginalInsertStringValueInspection {
+  status: OriginalInsertStringValueStatus;
+  byteLength: number;
+}
 
 export interface EncodedOriginalTextOperation {
   payloadType: number;
@@ -21,8 +33,8 @@ export function encodeOriginalInitialInsertString(block: OperationIdentity,
   value: string): Uint8Array {
   validateOperationIdentity(block);
   const encoded: Uint8Array = new util.TextEncoder().encodeInto(value);
-  if (encoded.length === 0 || encoded.length > MAX_INSERT_STRING_BYTES ||
-    util.TextDecoder.create('utf-8').decodeToString(encoded) !== value) {
+  if (inspectEncodedOriginalInsertString(value, encoded).status !==
+    OriginalInsertStringValueStatus.VALID) {
     throw new Error('original INSERT_STRING value is invalid');
   }
   const table: number = 16;
@@ -105,8 +117,8 @@ function encodeInsertChar(location: OriginalSequenceIdentity | null, scalar: num
 function encodeInsertString(location: OriginalSequenceIdentity | null, value: string,
   block: OperationIdentity): Uint8Array {
   const encoded: Uint8Array = new util.TextEncoder().encodeInto(value);
-  if (encoded.length === 0 || encoded.length > MAX_INSERT_STRING_BYTES ||
-    util.TextDecoder.create('utf-8').decodeToString(encoded) !== value) {
+  if (inspectEncodedOriginalInsertString(value, encoded).status !==
+    OriginalInsertStringValueStatus.VALID) {
     throw new Error('original INSERT_STRING value is invalid');
   }
   const anchored: boolean = location !== null;
@@ -128,6 +140,36 @@ function encodeInsertString(location: OriginalSequenceIdentity | null, value: st
   writeU32(bytes, vector, encoded.length);
   bytes.set(encoded, vector + 4);
   return bytes;
+}
+
+/**
+ * Shared preflight for every caller that will eventually emit the original
+ * INSERT_STRING payload. JavaScript string length counts UTF-16 code units;
+ * the wire contract instead accepts at most 1 MiB of strict round-trippable
+ * UTF-8. Keeping this inspection beside the encoder prevents planner and
+ * persistence gates from drifting away from the actual payload boundary.
+ */
+export function inspectOriginalInsertStringValue(value: string):
+  OriginalInsertStringValueInspection {
+  const encoded: Uint8Array = new util.TextEncoder().encodeInto(value);
+  return inspectEncodedOriginalInsertString(value, encoded);
+}
+
+function inspectEncodedOriginalInsertString(value: string, encoded: Uint8Array):
+  OriginalInsertStringValueInspection {
+  if (encoded.length === 0) {
+    return { status: OriginalInsertStringValueStatus.EMPTY, byteLength: 0 };
+  }
+  if (util.TextDecoder.create('utf-8').decodeToString(encoded) !== value) {
+    return {
+      status: OriginalInsertStringValueStatus.INVALID_UNICODE,
+      byteLength: encoded.length,
+    };
+  }
+  if (encoded.length > MAX_ORIGINAL_INSERT_STRING_BYTES) {
+    return { status: OriginalInsertStringValueStatus.TOO_LARGE, byteLength: encoded.length };
+  }
+  return { status: OriginalInsertStringValueStatus.VALID, byteLength: encoded.length };
 }
 
 function encodeSingleVisibility(location: OriginalSequenceIdentity,

@@ -9,8 +9,13 @@
 // UI, storage, or selection by itself.
 import { Point2D, Rect2D, TransformMatrix } from '../model/GeometryTypes';
 import { OriginalHandwritingRecognitionResult } from './OriginalHandwritingRecognition';
+import {
+  inspectOriginalHandwritingConversionText, OriginalHandwritingConversionTextStatus,
+} from './OriginalHandwritingConversionTextPolicy';
 
 export const ORIGINAL_HANDWRITING_CONVERSION_MIN_SIZE: number = 8;
+// Kept as a compatibility alias for callers that imported the old name. The
+// actual gate is the encoder's UTF-8 byte budget, not UTF-16 code-unit length.
 export const ORIGINAL_HANDWRITING_CONVERSION_MAX_TEXT_LENGTH: number = 1048576;
 
 /** A visible, already-decoded Ink candidate on one resolved page. */
@@ -44,6 +49,8 @@ export enum OriginalHandwritingConversionRejectReason {
   STALE_SOURCE = 13,
   EMPTY_RESULT = 14,
   RESULT_TOO_LARGE = 15,
+  RESULT_INVALID_UNICODE = 16,
+  RESULT_WHITESPACE_ONLY = 17,
 }
 
 export interface OriginalHandwritingConversionRequest {
@@ -237,8 +244,22 @@ export function checkOriginalHandwritingConversionResult(
   if (result === null || result.text.length === 0) {
     return { accepted: false, reason: OriginalHandwritingConversionRejectReason.EMPTY_RESULT };
   }
-  if (result.text.length > ORIGINAL_HANDWRITING_CONVERSION_MAX_TEXT_LENGTH) {
+  const inspection = inspectOriginalHandwritingConversionText(result.text);
+  if (inspection.status === OriginalHandwritingConversionTextStatus.WHITESPACE_ONLY) {
+    return { accepted: false,
+      reason: OriginalHandwritingConversionRejectReason.RESULT_WHITESPACE_ONLY };
+  }
+  if (inspection.status === OriginalHandwritingConversionTextStatus.INVALID_UNICODE) {
+    return {
+      accepted: false,
+      reason: OriginalHandwritingConversionRejectReason.RESULT_INVALID_UNICODE,
+    };
+  }
+  if (inspection.status === OriginalHandwritingConversionTextStatus.TOO_LARGE) {
     return { accepted: false, reason: OriginalHandwritingConversionRejectReason.RESULT_TOO_LARGE };
+  }
+  if (inspection.status !== OriginalHandwritingConversionTextStatus.VALID) {
+    return { accepted: false, reason: OriginalHandwritingConversionRejectReason.EMPTY_RESULT };
   }
   return { accepted: true, reason: null };
 }

@@ -48,6 +48,19 @@ export async function recognizeOriginalHandwritingText(
   if (provider === null || !provider.isAvailable() || strokes.length === 0) {
     return null;
   }
+  return recognizeAvailableOriginalHandwritingText(provider, strokes, context);
+}
+
+// Coordinator callers that already performed an exception-aware availability
+// probe use this entry so the provider is not probed a second time after an
+// asynchronous context read.
+export async function recognizeAvailableOriginalHandwritingText(
+  provider: OriginalHandwritingRecognitionProvider,
+  strokes: OriginalHandwritingRecognitionStroke[], context: OriginalHandwritingRecognitionContext):
+  Promise<OriginalHandwritingRecognitionResult | null> {
+  if (strokes.length === 0) {
+    return null;
+  }
   const language: OriginalHandwritingLanguageResolution =
     resolveOriginalHandwritingLanguage(
       context.noteLanguage, context.globalLanguage, context.systemLocale);

@@ -105,6 +105,9 @@ import {
   rebuildOriginalPencilWidth, RebuiltOriginalPencilWidth,
 } from '../core/adaptation/OriginalPencilWidthGeometry';
 import {
+  inspectOriginalHandwritingConversionText, OriginalHandwritingConversionTextStatus,
+} from '../core/adaptation/OriginalHandwritingConversionTextPolicy';
+import {
   encodeOriginalEntityVisibility,
 } from './OriginalDeleteEntitiesPayloadEncoder';
 import {
@@ -274,8 +277,12 @@ export function validateOriginalHandwritingConversionPersistencePlan(
     plan.sourceStrokes.length + 1 > MAX_ORIGINAL_DELETE_ENTITY_COUNT ||
     !Number.isFinite(plan.origin.x) || !Number.isFinite(plan.origin.y) ||
     !Number.isFinite(plan.width) || !Number.isFinite(plan.height) ||
-    plan.width < 8 || plan.height < 8 || plan.richText.length === 0) {
+    plan.width < 8 || plan.height < 8) {
     throw new Error('original handwriting conversion persistence plan is invalid');
+  }
+  if (inspectOriginalHandwritingConversionText(plan.richText).status !==
+    OriginalHandwritingConversionTextStatus.VALID) {
+    throw new Error('original handwriting conversion text is invalid');
   }
   const originX: number = Math.fround(plan.origin.x);
   const originY: number = Math.fround(plan.origin.y);

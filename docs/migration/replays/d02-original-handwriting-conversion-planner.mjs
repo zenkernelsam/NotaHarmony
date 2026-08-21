@@ -85,7 +85,7 @@ check('mutation plan preserves text exactly and orders delete/create/insert',
   planner.includes('richText: result.text') && planner.includes('deleteStrokeIds: plan.sourceStrokeIds.slice()'));
 check('ArkTS fixture covers geometry, gates, stale results, and operation order',
   fixture.includes('bounds expansion') && fixture.includes('mixed pages') &&
-  fixture.includes('old page, generation, or source') &&
+  fixture.includes('stale blank invalid-Unicode') &&
   fixture.includes('delete/create/insert order'));
 check('planner fixture is registered in the executed suite',
   fixtureList.includes("import originalHandwritingConversionPlannerTest from './OriginalHandwritingConversionPlanner.test';") &&

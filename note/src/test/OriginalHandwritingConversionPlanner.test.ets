@@ -91,7 +91,7 @@ export default function originalHandwritingConversionPlannerTest() {
         OriginalHandwritingConversionRejectReason.INVALID_GENERATION);
     });
 
-    it('rejects OCR results that arrive for an old page, generation, or source', 0, () => {
+    it('rejects stale blank invalid-Unicode and UTF-8-oversized OCR results', 0, () => {
       const plan = plan();
       const result: OriginalHandwritingRecognitionResult = recognition('hello');
       const stalePage = checkOriginalHandwritingConversionResult(
@@ -111,11 +111,41 @@ export default function originalHandwritingConversionPlannerTest() {
         plan, null, 'page-1', 3, 'fingerprint');
       expect(empty.accepted).assertFalse();
       expect(empty.reason).assertEqual(OriginalHandwritingConversionRejectReason.EMPTY_RESULT);
+
+      const whitespace = checkOriginalHandwritingConversionResult(
+        plan, recognition(' \u00A0\u3000\n'), 'page-1', 3, 'fingerprint');
+      expect(whitespace.accepted).assertFalse();
+      expect(whitespace.reason).assertEqual(
+        OriginalHandwritingConversionRejectReason.RESULT_WHITESPACE_ONLY);
+
+      // Semantic all-whitespace rejection follows the original tsc/lvd state
+      // before the Harmony UTF-8 byte budget, even when the string is huge.
+      const oversizedWhitespace = checkOriginalHandwritingConversionResult(
+        plan, recognition(' '.repeat(1048577)), 'page-1', 3, 'fingerprint');
+      expect(oversizedWhitespace.accepted).assertFalse();
+      expect(oversizedWhitespace.reason).assertEqual(
+        OriginalHandwritingConversionRejectReason.RESULT_WHITESPACE_ONLY);
+
+      const exactAscii = checkOriginalHandwritingConversionResult(
+        plan, recognition('x'.repeat(1048576)), 'page-1', 3, 'fingerprint');
+      expect(exactAscii.accepted).assertTrue();
       const oversized = checkOriginalHandwritingConversionResult(
         plan, recognition('x'.repeat(1048577)), 'page-1', 3, 'fingerprint');
       expect(oversized.accepted).assertFalse();
       expect(oversized.reason).assertEqual(
         OriginalHandwritingConversionRejectReason.RESULT_TOO_LARGE);
+
+      const multibyteOversized = checkOriginalHandwritingConversionResult(
+        plan, recognition('中'.repeat(350000)), 'page-1', 3, 'fingerprint');
+      expect(multibyteOversized.accepted).assertFalse();
+      expect(multibyteOversized.reason).assertEqual(
+        OriginalHandwritingConversionRejectReason.RESULT_TOO_LARGE);
+
+      const loneSurrogate = checkOriginalHandwritingConversionResult(
+        plan, recognition('\uD800'), 'page-1', 3, 'fingerprint');
+      expect(loneSurrogate.accepted).assertFalse();
+      expect(loneSurrogate.reason).assertEqual(
+        OriginalHandwritingConversionRejectReason.RESULT_INVALID_UNICODE);
     });
 
     it('materializes the original delete/create/insert order without touching storage', 0, () => {

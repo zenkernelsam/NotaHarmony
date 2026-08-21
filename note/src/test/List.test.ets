@@ -87,6 +87,8 @@ import originalHandwritingSelectionAdapterTest from './OriginalHandwritingSelect
 import originalHandwritingConversionPlannerTest from './OriginalHandwritingConversionPlanner.test';
 import originalHandwritingConversionMutationCodecTest from
   './OriginalHandwritingConversionMutationCodec.test';
+import originalHandwritingConversionCoordinatorTest from
+  './OriginalHandwritingConversionCoordinator.test';
 import originalBlankNoteBootstrapTest from './OriginalBlankNoteBootstrap.test';
 import originalTemplatePickerTest from './OriginalTemplatePicker.test';
 import originalPaperSettingsTest from './OriginalPaperSettings.test';
@@ -198,6 +200,7 @@ export default function testsuite() {
   originalHandwritingSelectionAdapterTest();
   originalHandwritingConversionPlannerTest();
   originalHandwritingConversionMutationCodecTest();
+  originalHandwritingConversionCoordinatorTest();
   originalBlankNoteBootstrapTest();
   originalTemplatePickerTest();
   originalPaperSettingsTest();

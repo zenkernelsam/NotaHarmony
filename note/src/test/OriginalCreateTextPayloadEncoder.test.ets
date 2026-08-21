@@ -12,7 +12,10 @@ import {
   '../main/ets/data/OriginalCreateBlockPayloadEncoder';
 import { decodeOriginalInsertText, ORIGINAL_INSERT_STRING_PAYLOAD_TYPE } from
   '../main/ets/data/OriginalInsertTextOperation';
-import { encodeOriginalInitialInsertString } from
+import {
+  encodeOriginalInitialInsertString, inspectOriginalInsertStringValue,
+  MAX_ORIGINAL_INSERT_STRING_BYTES, OriginalInsertStringValueStatus,
+} from
   '../main/ets/data/OriginalInsertTextPayloadEncoder';
 import { encodeOriginalOperationEnvelope } from
   '../main/ets/data/OriginalOperationEnvelopeEncoder';
@@ -53,6 +56,20 @@ export default function originalCreateTextPayloadEncoderTest() {
       expect(decoded.scalars.length).assertEqual(3);
       expect(decoded.scalars[1]).assertEqual(0x1F600);
       expect(decoded.scalars[2]).assertEqual(0x4E2D);
+    });
+
+    it('inspects the exact strict UTF-8 INSERT_STRING budget', 0, () => {
+      const exact = inspectOriginalInsertStringValue(
+        'x'.repeat(MAX_ORIGINAL_INSERT_STRING_BYTES));
+      expect(exact.status).assertEqual(OriginalInsertStringValueStatus.VALID);
+      expect(exact.byteLength).assertEqual(MAX_ORIGINAL_INSERT_STRING_BYTES);
+      expect(inspectOriginalInsertStringValue(
+        'x'.repeat(MAX_ORIGINAL_INSERT_STRING_BYTES + 1)).status).assertEqual(
+        OriginalInsertStringValueStatus.TOO_LARGE);
+      expect(inspectOriginalInsertStringValue('中'.repeat(350000)).status).assertEqual(
+        OriginalInsertStringValueStatus.TOO_LARGE);
+      expect(inspectOriginalInsertStringValue('\uD800').status).assertEqual(
+        OriginalInsertStringValueStatus.INVALID_UNICODE);
     });
 
     it('round-trips every original Text common field through CREATE_BLOCK', 0, () => {
