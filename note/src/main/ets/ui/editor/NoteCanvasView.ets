@@ -5319,6 +5319,12 @@ export struct NoteCanvasView {
       this.persistence.isReady() && this.loadedPageId.length > 0;
   }
 
+  private canProbeOriginalClipboardImage(): boolean {
+    return this.loaded && !this.dataLoading && !this.dataLoadFailed &&
+      !this.historyBusy &&
+      this.persistence.isReady() && this.loadedPageId.length > 0;
+  }
+
   private async startOriginalPhotoInsert(): Promise<void> {
     if (!this.canStartOriginalPhotoInsert()) {
       return;
@@ -5437,13 +5443,13 @@ export struct NoteCanvasView {
 
   private refreshSystemClipboardImageAvailability(): void {
     const probeGeneration: number = ++this.systemClipboardImageProbeGeneration;
-    if (!this.canStartOriginalPhotoInsert()) {
+    if (!this.canProbeOriginalClipboardImage()) {
       this.systemClipboardImageAvailable = false;
       return;
     }
     isOriginalClipboardImageAvailable().then((available: boolean): void => {
       if (probeGeneration === this.systemClipboardImageProbeGeneration &&
-        this.canStartOriginalPhotoInsert()) {
+        this.canProbeOriginalClipboardImage()) {
         this.systemClipboardImageAvailable = available;
       }
     }).catch((e: Object): void => {

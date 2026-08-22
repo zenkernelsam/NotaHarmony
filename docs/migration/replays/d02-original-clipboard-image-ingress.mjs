@@ -66,6 +66,12 @@ const checks = [
     canvas.includes('this.persistence.isReady() && this.loadedPageId.length > 0 &&\n      this.systemClipboardImageAvailable;') &&
     canvas.includes('private refreshSystemClipboardImageAvailability(): void {') &&
     canvas.includes('isOriginalClipboardImageAvailable().then((available: boolean): void => {')],
+  ['clipboard probes ignore transient paste busy state',
+    canvas.includes('private canProbeOriginalClipboardImage(): boolean {') &&
+    canvas.includes('!this.historyBusy &&\n      this.persistence.isReady() && this.loadedPageId.length > 0;') &&
+    !canvas.includes('private canProbeOriginalClipboardImage(): boolean {\n    return this.loaded && !this.dataLoading && !this.dataLoadFailed &&\n      !this.historyBusy && !this.photoImportBusy &&') &&
+    canvas.includes('if (!this.canProbeOriginalClipboardImage()) {') &&
+    canvas.includes('this.canProbeOriginalClipboardImage()) {')],
   ['availability probes discard stale async results',
     canvas.includes('this.systemClipboardImageChangeListener = null;\n      this.systemClipboardImageProbeGeneration++;') &&
     canvas.includes('this.systemClipboardImageAvailable = false;\n    }\n  }\n\n  private refreshSystemClipboardImageAvailability'),
