@@ -17,14 +17,30 @@ class ClipboardImageInfo {
 
 class ClipboardImageProbe {
   released: boolean = false;
+  scaled: boolean = false;
+  requestedScaleX: number = 0;
+  requestedScaleY: number = 0;
+  width: number = 12001;
+  height: number = 1;
 
   async getImageInfo(): Promise<image.ImageInfo> {
-    const info: ClipboardImageInfo = { size: { width: 12001, height: 1 } };
+    const size: ClipboardImageSize = new ClipboardImageSize();
+    size.width = this.width;
+    size.height = this.height;
+    const info: ClipboardImageInfo = new ClipboardImageInfo();
+    info.size = size;
     return info as image.ImageInfo;
   }
 
   async release(): Promise<void> {
     this.released = true;
+  }
+
+  async createScaledPixelMap(x: number, y: number): Promise<image.PixelMap> {
+    this.scaled = true;
+    this.requestedScaleX = x;
+    this.requestedScaleY = y;
+    throw new Error('scaled clipboard probe stops before encoder');
   }
 }
 
@@ -53,7 +69,7 @@ export default function originalClipboardImageIngressTest() {
       resetOriginalClipboardImageReaderForTest();
     });
 
-    it('rejects oversized clipboard pixels and releases the source', 0, async () => {
+    it('scales oversized clipboard pixels to the original 3000px adapter', 0, async () => {
       const probe: ClipboardImageProbe = new ClipboardImageProbe();
       setOriginalClipboardImageReaderForTest(async (): Promise<OriginalClipboardImageSource> =>
         sourceFromProbe(probe));
@@ -63,7 +79,10 @@ export default function originalClipboardImageIngressTest() {
       } catch (e) {
         failure = (e as Error).message;
       }
-      expect(failure).assertEqual('original clipboard image dimensions are invalid');
+      expect(failure).assertEqual('scaled clipboard probe stops before encoder');
+      expect(probe.scaled).assertTrue();
+      expect(probe.requestedScaleX).assertEqual(3000 / 12001);
+      expect(probe.requestedScaleY).assertEqual(3000);
       expect(probe.released).assertTrue();
     });
 

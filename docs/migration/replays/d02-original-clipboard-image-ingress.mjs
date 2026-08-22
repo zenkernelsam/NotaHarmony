@@ -26,6 +26,15 @@ const checks = [
   ['normalizes to original WebP lossy 85',
     ingress.includes("format: 'image/webp', quality: WEBP_LOSSY_QUALITY") &&
     ingress.includes('WEBP_LOSSY_QUALITY: number = 85')],
+  ['reuses the exact original 3000px downscale plan',
+    ingress.includes('planOriginalImageDownscale(info.size.width, info.size.height)') &&
+    ingress.includes('isOriginalNormalizedImageDimensions(plan.width, plan.height)')],
+  ['scales oversized PixelMaps through the SDK adapter and releases it',
+    importSource.includes('createScaledPixelMap(') &&
+    importSource.includes('ownedNormalized = true;') &&
+    importSource.includes('await normalized.release();')],
+  ['verifies scaled dimensions before encoding',
+    importSource.includes("if (scaledInfo.size.width !== plan.width || scaledInfo.size.height !== plan.height) {")],
   ['always releases the clipboard source',
     importSource.includes('} finally {\n    await source.release();\n  }')],
   ['long press menu exposes the image fallback only without internal content',
@@ -37,9 +46,11 @@ const checks = [
     canvas.includes('pasteAnchor?: Point2D')],
   ['failures show the localized insert failure toast',
     pasteSource.includes("$r('app.string.original_photo_insert_failed')")],
-  ['ArkTS fixture proves empty oversized and reset paths',
+  ['ArkTS fixture proves empty scaling reset and resource paths',
     fixture.includes("'system pasteboard has no original clipboard image'") &&
-    fixture.includes("'original clipboard image dimensions are invalid'") &&
+    fixture.includes("'scaled clipboard probe stops before encoder'") &&
+    fixture.includes('requestedScaleX') &&
+    fixture.includes('3000 / 12001') &&
     fixtureList.includes('originalClipboardImageIngressTest();')],
   ['JADX evidence records the ClipboardImage dispatch boundary',
     evidence.includes('hasMimeType("image/*")') &&
