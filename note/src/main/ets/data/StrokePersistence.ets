@@ -15,6 +15,10 @@ import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import {
   cloneImageElement, imageBlockWorldBounds, originalAssetHashKey, reflectImageCropRect,
 } from '../core/model/ImageBlockGeometry';
+import {
+  createOriginalImageInsertDraft, isOriginalNormalizedImageDimensions,
+  planOriginalImageInsertGeometry,
+} from '../core/model/OriginalImageInsertPlan';
 import { cloneShapeElement, recomputeShapeBounds } from '../core/model/ShapeGeometry';
 import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextBlockGeometry';
 import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockGeometry';
@@ -25,6 +29,14 @@ import {
 import { DatabaseManager } from './DatabaseManager';
 import { LatestWriteQueue } from './LatestWriteQueue';
 import { editorPersistenceMutex } from './EditorPersistenceMutex';
+import { assetMutationMutex } from './AssetRepositoryImpl';
+import { assetAvailabilityHub } from './AssetAvailabilityHub';
+import {
+  LocalOriginalImageAssetMergeResult, MAX_ORIGINAL_LOCAL_IMAGE_ASSET_BYTES,
+  mergePreparedLocalOriginalImageAsset, PreparedLocalOriginalImageAsset,
+  prepareLocalOriginalImageAsset, reconcileExistingPreparedLocalOriginalImageAsset,
+  unlinkPreparedLocalOriginalImageAsset,
+} from './ImageAssetPackageStore';
 import { foldSearchText } from './SearchText';
 import { SearchItemType } from './SearchItemType';
 import { handwritingSourceChanged, pageSnapshotChanged, SearchSourceElement } from './SearchIndexPolicy';
@@ -215,6 +227,28 @@ export interface OriginalMathInsertResult {
   elementOrder: PageElementRef[];
 }
 
+export interface OriginalImageInsertPersistencePlan {
+  bytes: Uint8Array;
+  fileName: string;
+  mimeType: string;
+  intrinsicWidth: number;
+  intrinsicHeight: number;
+  pageWidth: number;
+  pageHeight: number;
+  zoom: number;
+  anchor: Point2D;
+}
+
+export interface OriginalImageInsertResult {
+  image: ImageElement;
+  elementOrder: PageElementRef[];
+}
+
+interface CommittedOriginalImageInsert {
+  result: OriginalImageInsertResult;
+  noteIds: string[];
+}
+
 export interface OriginalPartialEraseReplacementPlan {
   sourceKind: PageElementKind.STROKE | PageElementKind.SHAPE;
   source: StrokeElementData | ShapeElement;
@@ -308,6 +342,20 @@ export function validateOriginalHandwritingConversionPersistencePlan(
   const draft: TextBlockElement = originalHandwritingConversionTextDraft(plan);
   encodeOriginalLocalCreateTextBlock({ timestamp: 1, siteId: 1, index: 0 }, draft);
   encodeOriginalInitialInsertString({ timestamp: 1, siteId: 1 }, draft.richText);
+}
+
+export function validateOriginalImageInsertPersistencePlan(
+  plan: OriginalImageInsertPersistencePlan): void {
+  if (plan === null || plan === undefined || plan.bytes === null || plan.bytes === undefined ||
+    !Number.isSafeInteger(plan.bytes.length) || plan.bytes.length <= 0 ||
+    plan.bytes.length > MAX_ORIGINAL_LOCAL_IMAGE_ASSET_BYTES || plan.fileName.length === 0 ||
+    plan.mimeType.length <= 6 || !plan.mimeType.toLowerCase().startsWith('image/') ||
+    plan.anchor === null || plan.anchor === undefined ||
+    !isOriginalNormalizedImageDimensions(plan.intrinsicWidth, plan.intrinsicHeight) ||
+    planOriginalImageInsertGeometry(plan.intrinsicWidth, plan.intrinsicHeight,
+      plan.pageWidth, plan.pageHeight, plan.zoom, plan.anchor) === null) {
+    throw new Error('original image insert persistence plan is invalid');
+  }
 }
 
 export function validatePartialEraseMaterializationPlan(plan: OriginalPartialErasePlan): void {
@@ -1220,10 +1268,12 @@ export class StrokePersistence {
     new Set<LatestWriteQueue<PreparedPageSave>>();
   private static saveEnqueueGeneration: number = 0;
   private store: relationalStore.RdbStore | null = null;
+  private database: DatabaseManager | null = null;
   private saveQueues: Map<string, LatestWriteQueue<PreparedPageSave>> = new Map();
   private searchBackfillPromise: Promise<void> | null = null;
 
   initialize(db: DatabaseManager): void {
+    this.database = db;
     this.store = db.getStore();
   }
 
@@ -1551,6 +1601,157 @@ export class StrokePersistence {
       } catch (e) {
         await store.rollBack();
         throw new Error(`commit original Math insert failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  async commitOriginalImageInsert(noteId: string, pageId: string,
+    plan: OriginalImageInsertPersistencePlan,
+    history: HistoryMetadata): Promise<OriginalImageInsertResult> {
+    if (this.store === null || this.database === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    validateHistoryMetadata(history);
+    if (history.effect !== HistoryEffect.PUSH ||
+      history.coalesceTrack !== HistoryCoalesceTrack.NONE) {
+      throw new Error('Image insert requires non-coalesced PUSH history');
+    }
+    validateOriginalImageInsertPersistencePlan(plan);
+    const stableBytes: Uint8Array = plan.bytes.slice();
+    const stableFileName: string = plan.fileName;
+    const stableMimeType: string = plan.mimeType;
+    const stableIntrinsicWidth: number = plan.intrinsicWidth;
+    const stableIntrinsicHeight: number = plan.intrinsicHeight;
+    const stablePageWidth: number = plan.pageWidth;
+    const stablePageHeight: number = plan.pageHeight;
+    const stableZoom: number = plan.zoom;
+    const stableAnchor: Point2D = { x: plan.anchor.x, y: plan.anchor.y };
+    const stableHistory: HistoryMetadata = {
+      actionId: history.actionId, effect: history.effect,
+      coalesceTrack: history.coalesceTrack, actionTime: history.actionTime,
+    };
+    const database: DatabaseManager = this.database;
+    await this.flush(noteId, pageId);
+    return assetMutationMutex.runExclusive(async (): Promise<OriginalImageInsertResult> => {
+      let prepared: PreparedLocalOriginalImageAsset | null = null;
+      let committed: boolean = false;
+      try {
+        prepared = await prepareLocalOriginalImageAsset(
+          database, stableBytes, stableFileName, stableMimeType,
+          stableIntrinsicWidth, stableIntrinsicHeight);
+        const completed: PreparedLocalOriginalImageAsset = prepared;
+        const draft: ImageElement | null = createOriginalImageInsertDraft({
+          assetHashBits: completed.metadata.assetHashBits,
+          fileName: completed.metadata.fileName,
+          mimeType: completed.metadata.mimeType,
+          fileSize: completed.metadata.fileSize,
+          intrinsicWidth: completed.intrinsicWidth,
+          intrinsicHeight: completed.intrinsicHeight,
+        }, stableAnchor, stablePageWidth, stablePageHeight, stableZoom);
+        if (draft === null) {
+          throw new Error('Image insert geometry cannot be represented by original CREATE_BLOCK');
+        }
+        const committedInsert: CommittedOriginalImageInsert =
+          await editorPersistenceMutex.runExclusive(
+            async (): Promise<CommittedOriginalImageInsert> => {
+              if (this.store === null) {
+                throw new Error('StrokePersistence is not initialized');
+              }
+              const store: relationalStore.RdbStore = this.store;
+              await store.beginTransaction();
+              try {
+                const page: OriginalSequenceIdentity | null = await this.readEligibleOriginalInkPage(
+                  store, noteId, pageId);
+                if (page === null) {
+                  throw new Error('Image insert page is not original-aligned');
+                }
+                const before: SearchSourceElement[] = await this.loadCurrentSnapshot(
+                  store, noteId, pageId);
+                const currentRevision: number = await this.readLivePageRevision(
+                  store, noteId, pageId);
+                if (currentRevision >= Number.MAX_SAFE_INTEGER) {
+                  throw new Error('Image insert page revision is exhausted');
+                }
+                const nextRevision: number = currentRevision + 1;
+                const maximumZIndex: string | null = await this.readMaximumOriginalZIndex(
+                  store, noteId, page);
+                const identity: AllocatedOperationIdentity =
+                  await allocateOperationIdentity(store, noteId);
+                if (maximumZIndex !== null &&
+                  compareUnsignedLongDecimal(maximumZIndex, identity.clientTime.toString()) > 0) {
+                  throw new Error('Image insert cannot append below the current z-index clock');
+                }
+                const requested: ImageElement = cloneImageElement(draft);
+                requested.id = identity.opId;
+                const payload: Uint8Array = encodeOriginalLocalCreateImageBlock(page, requested);
+                const metadata: OriginalInkCreateMetadata = allocatedOriginalMetadata(identity);
+                const operation: StoredSyncedOperation = localStoredOperation(
+                  noteId, metadata, ORIGINAL_CREATE_BLOCK_PAYLOAD_TYPE, payload, null);
+                const decoded: OriginalCreateBlockPayload = decodeOriginalCreateBlock(
+                  operation.rawOperation, metadata.clientTime.toString());
+                const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
+                await reconcileExistingPreparedLocalOriginalImageAsset(
+                  store, noteId, completed);
+                const applied: SyncedOperationApplyResult =
+                  await new OriginalCreateBlockOperationApplier().applyBatchedPayload(
+                    store, operation, decoded, revisionBatch);
+                if (applied.deferredReason !== null) {
+                  throw new Error(`Image CREATE_BLOCK was deferred: ${applied.deferredReason}`);
+                }
+                await this.appendOriginalCreateOperation(store, noteId, identity,
+                  OpType.ORIGINAL_CREATE_BLOCK, operation.rawOperation);
+                const assetMerge: LocalOriginalImageAssetMergeResult =
+                  await mergePreparedLocalOriginalImageAsset(store, noteId, completed);
+                await revisionBatch.flush(store, noteId);
+
+                const materialized: SearchSourceElement[] = await this.loadCurrentSnapshot(
+                  store, noteId, pageId);
+                const created: ImageElement = readCreatedOriginalImageFromSnapshot(
+                  materialized, identity.opId);
+                const createdOrder: PageElementRef[] = [{
+                  kind: PageElementKind.IMAGE, elementId: created.id, zIndex: 0,
+                }];
+                const createdPrepared: PreparedPageSave = this.prepareSave(
+                  noteId, pageId, [], [], createdOrder, [], [created], []);
+                const finalSnapshot: PreparedPageSave =
+                  this.reconcileOriginalCreatedElementsSnapshot(
+                    noteId, pageId, before, materialized, createdPrepared.elements, stableHistory);
+                await this.reconcilePreparedRows(store, finalSnapshot, nextRevision);
+                await this.rebuildPageSearchState(store, finalSnapshot, nextRevision, false);
+                const after: SearchSourceElement[] = finalSnapshot.elements.map(
+                  (element: PreparedElement): SearchSourceElement => ({
+                    elementId: element.elementId, kind: element.kind, payload: element.payload,
+                  }));
+                const mutation: PageMutationOpPayload = createPageMutation(
+                  pageId, currentRevision, nextRevision, before, after);
+                await this.appendHistoryCompanion(store, finalSnapshot, mutation);
+                await store.commit();
+                return {
+                  result: {
+                    image: created,
+                    elementOrder: finalSnapshot.elements.map(
+                      (element: PreparedElement, index: number): PageElementRef => ({
+                        kind: element.kind, elementId: element.elementId, zIndex: index,
+                      })),
+                  },
+                  noteIds: assetMerge.noteIds,
+                };
+              } catch (e) {
+                try {
+                  await store.rollBack();
+                } catch (rollbackError) {
+                  console.error(`commit original Image insert rollback failed: ${JSON.stringify(rollbackError)}`);
+                }
+                throw new Error(`commit original Image insert failed: ${JSON.stringify(e)}`);
+              }
+            });
+        committed = true;
+        assetAvailabilityHub.publish(completed.storageHash, committedInsert.noteIds);
+        return committedInsert.result;
+      } finally {
+        if (!committed && prepared !== null) {
+          unlinkPreparedLocalOriginalImageAsset(prepared);
+        }
       }
     });
   }
@@ -6571,6 +6772,29 @@ function materializeOriginalImageCreate(id: string,
   };
   image.bounds = imageBlockWorldBounds(image);
   return image;
+}
+
+function readCreatedOriginalImageFromSnapshot(elements: SearchSourceElement[],
+  elementId: string): ImageElement {
+  let created: ImageElement | null = null;
+  for (const element of elements) {
+    if (element.elementId !== elementId) {
+      continue;
+    }
+    if (created !== null || element.kind !== PageElementKind.IMAGE) {
+      throw new Error('Image insert materialized an invalid created identity');
+    }
+    const persisted: PersistedElement = decodeStoredPageElement(
+      element.elementId, element.kind, element.payload);
+    if (persisted.kind !== 'image') {
+      throw new Error('Image insert materialized a different persisted kind');
+    }
+    created = persisted.data as ImageElement;
+  }
+  if (created === null) {
+    throw new Error('Image insert reducer lost the created Image');
+  }
+  return created;
 }
 
 function searchTextForElement(kind: number, payload: Uint8Array): string | null {

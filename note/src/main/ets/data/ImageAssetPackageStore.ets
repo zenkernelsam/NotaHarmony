@@ -1,5 +1,6 @@
 import { relationalStore } from '@kit.ArkData';
 import { fileIo } from '@kit.CoreFileKit';
+import { image } from '@kit.ImageKit';
 import { ImageElement } from '../core/model/ElementTypes';
 import {
   originalAssetHashKey, originalAssetLookupKeys, originalAssetStorageHash,
@@ -7,14 +8,21 @@ import {
 import { AssetStatus, NoteAsset } from '../core/model/AssetTypes';
 import { OriginalAssetMetadata } from '../core/model/NoteTypes';
 import {
+  isOriginalNormalizedImageDimensions, originalImageDecodedDimensionsAreConsistent,
+  originalImageOrientedDimensions, OriginalImagePixelDimensions,
+} from '../core/model/OriginalImageInsertPlan';
+import {
   assetMutationMutex, AssetRepositoryImpl, mergeNoteIds, parseAssetNoteIds, validateNoteReferences,
 } from './AssetRepositoryImpl';
 import { assetAvailabilityHub } from './AssetAvailabilityHub';
-import { sha512Hex } from './AssetDigest';
+import {
+  originalAssetHashBitsFromSha512, sha512BytesToHex, sha512Digest, sha512Hex,
+} from './AssetDigest';
 import { DatabaseManager } from './DatabaseManager';
 import { databaseWriteMutex } from './DatabaseWriteMutex';
 
 const FILE_IO_CHUNK_SIZE: number = 64 * 1024;
+export const MAX_ORIGINAL_LOCAL_IMAGE_ASSET_BYTES: number = 104857600;
 
 export interface OriginalImageAssetArrival {
   assetHashBits: string[];
@@ -69,6 +77,21 @@ interface AssetWriteResult {
   storageHash: string;
   noteIds: string[];
   becameAvailable: boolean;
+}
+
+export interface PreparedLocalOriginalImageAsset {
+  metadata: OriginalAssetMetadata;
+  intrinsicWidth: number;
+  intrinsicHeight: number;
+  storageHash: string;
+  legacyHash: string;
+  filesRoot: string;
+  finalPath: string;
+  createdFinalFile: boolean;
+}
+
+export interface LocalOriginalImageAssetMergeResult {
+  noteIds: string[];
 }
 
 export function imageAssetPackageEntry(element: ImageElement): string {
@@ -142,6 +165,169 @@ export async function storeImportedOriginalAsset(database: DatabaseManager,
   }, noteId, true);
   if (result.becameAvailable) {
     assetAvailabilityHub.publish(result.storageHash, result.noteIds);
+  }
+}
+
+/**
+ * Prepares one caller-owned, immutable byte snapshot while the caller holds
+ * assetMutationMutex.  This function performs no database write and acquires
+ * no writer mutex, so it can be followed by one editor transaction.
+ */
+export async function prepareLocalOriginalImageAsset(database: DatabaseManager,
+  bytes: Uint8Array, fileName: string, mimeType: string,
+  expectedIntrinsicWidth: number, expectedIntrinsicHeight: number):
+  Promise<PreparedLocalOriginalImageAsset> {
+  validateLocalOriginalImageAssetInput(bytes, fileName, mimeType);
+  await validateDecodedLocalOriginalImageAsset(bytes, expectedIntrinsicWidth,
+    expectedIntrinsicHeight);
+  const digestBytes: Uint8Array = await sha512Digest(bytes);
+  const assetHashBits: string[] = originalAssetHashBitsFromSha512(digestBytes);
+  const storageHash: string = sha512BytesToHex(digestBytes);
+  if (originalAssetStorageHash(assetHashBits) !== storageHash) {
+    throw new Error('local image AssetHash conversion is inconsistent');
+  }
+  const filesRoot: string = database.getFilesDir();
+  const pendingDirectory: string = filesRoot + '/assets/pending';
+  const finalDirectory: string = filesRoot + '/assets/final';
+  const finalPath: string = finalDirectory + '/' + storageHash;
+  let createdFinalFile: boolean = false;
+  try {
+    fileIo.mkdirSync(pendingDirectory, true);
+    fileIo.mkdirSync(finalDirectory, true);
+    createdFinalFile = writeFileAtomically(pendingDirectory, finalPath, bytes);
+    return {
+      metadata: {
+        assetHashBits: assetHashBits,
+        fileName: fileName,
+        mimeType: mimeType,
+        fileSize: bytes.length,
+      },
+      intrinsicWidth: expectedIntrinsicWidth,
+      intrinsicHeight: expectedIntrinsicHeight,
+      storageHash: storageHash,
+      legacyHash: originalAssetHashKey(assetHashBits),
+      filesRoot: filesRoot,
+      finalPath: finalPath,
+      createdFinalFile: createdFinalFile,
+    };
+  } catch (error) {
+    if (createdFinalFile) {
+      unlinkPreparedLocalOriginalImageAsset({
+        metadata: {
+          assetHashBits: assetHashBits, fileName: fileName,
+          mimeType: mimeType, fileSize: bytes.length,
+        },
+        intrinsicWidth: expectedIntrinsicWidth,
+        intrinsicHeight: expectedIntrinsicHeight,
+        storageHash: storageHash,
+        legacyHash: originalAssetHashKey(assetHashBits),
+        filesRoot: filesRoot,
+        finalPath: finalPath,
+        createdFinalFile: true,
+      });
+    }
+    throw new Error(`preparing local image asset failed: ${JSON.stringify(error)}`);
+  }
+}
+
+/**
+ * Canonicalizes already-present canonical/legacy rows before CREATE_BLOCK sees
+ * them. This is required only for a local insert because it owns verified bytes
+ * that can prove two historical private paths contain the same asset.
+ */
+export async function reconcileExistingPreparedLocalOriginalImageAsset(
+  store: relationalStore.RdbStore, noteId: string,
+  prepared: PreparedLocalOriginalImageAsset): Promise<void> {
+  validatePreparedLocalOriginalImageAsset(noteId, prepared);
+  const rows: StoredAssetRecord[] = await readStoredAssetRecords(
+    store, prepared.storageHash, prepared.legacyHash);
+  if (rows.length > 0) {
+    await mergePreparedLocalOriginalImageAssetRows(store, noteId, prepared, rows);
+  }
+}
+
+/**
+ * Upgrades/merges the PENDING reference created by IMAGE CREATE_BLOCK inside
+ * the caller's already-open SQLite transaction.  No mutex or transaction is
+ * opened here.
+ */
+export async function mergePreparedLocalOriginalImageAsset(store: relationalStore.RdbStore,
+  noteId: string, prepared: PreparedLocalOriginalImageAsset): Promise<LocalOriginalImageAssetMergeResult> {
+  validatePreparedLocalOriginalImageAsset(noteId, prepared);
+  const rows: StoredAssetRecord[] = await readStoredAssetRecords(
+    store, prepared.storageHash, prepared.legacyHash);
+  if (rows.length === 0) {
+    throw new Error('local image asset was not registered by CREATE_BLOCK');
+  }
+  return mergePreparedLocalOriginalImageAssetRows(store, noteId, prepared, rows);
+}
+
+async function mergePreparedLocalOriginalImageAssetRows(store: relationalStore.RdbStore,
+  noteId: string, prepared: PreparedLocalOriginalImageAsset,
+  rows: StoredAssetRecord[]): Promise<LocalOriginalImageAssetMergeResult> {
+  let noteIds: string[] = [noteId];
+  let targetStatus: AssetStatus = AssetStatus.LOCAL;
+  for (const row of rows) {
+    if (row.fileSize !== prepared.metadata.fileSize ||
+      row.mimeType.toLowerCase() !== prepared.metadata.mimeType.toLowerCase()) {
+      throw new Error('local image asset metadata conflicts with its CREATE_BLOCK reference');
+    }
+    validateStoredLocalOriginalImageAssetPath(row.localPath, prepared);
+    noteIds = mergeNoteIds(noteIds, row.noteIds);
+    if (row.status === AssetStatus.UPLOADED) {
+      targetStatus = AssetStatus.UPLOADED;
+    } else if (targetStatus !== AssetStatus.UPLOADED && row.status === AssetStatus.DOWNLOADED) {
+      targetStatus = AssetStatus.DOWNLOADED;
+    }
+  }
+  await validateNoteReferences(store, noteIds);
+  const canonical: StoredAssetRecord | undefined = rows.find(
+    (row: StoredAssetRecord): boolean => row.assetHash === prepared.storageHash);
+  const bucket: relationalStore.ValuesBucket = {
+    'status': targetStatus,
+    'note_ids': JSON.stringify(noteIds),
+    'file_size': prepared.metadata.fileSize,
+    'mime_type': prepared.metadata.mimeType,
+    'local_path': prepared.finalPath,
+  };
+  if (canonical === undefined) {
+    await store.insert('note_asset', {
+      'asset_hash': prepared.storageHash,
+      'status': targetStatus,
+      'note_ids': JSON.stringify(noteIds),
+      'file_size': prepared.metadata.fileSize,
+      'mime_type': prepared.metadata.mimeType,
+      'local_path': prepared.finalPath,
+    });
+  } else {
+    const predicates = new relationalStore.RdbPredicates('note_asset');
+    predicates.equalTo('asset_hash', prepared.storageHash);
+    if (await store.update(bucket, predicates) !== 1) {
+      throw new Error('local image asset changed concurrently');
+    }
+  }
+  if (prepared.legacyHash !== prepared.storageHash && rows.some(
+    (row: StoredAssetRecord): boolean => row.assetHash === prepared.legacyHash)) {
+    const predicates = new relationalStore.RdbPredicates('note_asset');
+    predicates.equalTo('asset_hash', prepared.legacyHash);
+    if (await store.delete(predicates) !== 1) {
+      throw new Error('legacy local image asset changed concurrently');
+    }
+  }
+  return { noteIds: noteIds };
+}
+
+export function unlinkPreparedLocalOriginalImageAsset(
+  prepared: PreparedLocalOriginalImageAsset): void {
+  if (!prepared.createdFinalFile) {
+    return;
+  }
+  try {
+    if (prepared.finalPath.length > 0 && fileIo.accessSync(prepared.finalPath)) {
+      fileIo.unlinkSync(prepared.finalPath);
+    }
+  } catch (error) {
+    console.error(`local image asset compensation failed: ${JSON.stringify(error)}`);
   }
 }
 
@@ -282,6 +468,122 @@ function validateArrivalMetadata(arrival: OriginalImageAssetArrival): void {
   }
   if (arrival.expectedMimeType.length === 0) {
     throw new Error('original image asset MIME type is empty');
+  }
+}
+
+function validateLocalOriginalImageAssetInput(bytes: Uint8Array,
+  fileName: string, mimeType: string): void {
+  if (bytes === null || bytes === undefined || !Number.isSafeInteger(bytes.length) ||
+    bytes.length <= 0 || bytes.length > MAX_ORIGINAL_LOCAL_IMAGE_ASSET_BYTES) {
+    throw new Error('local image asset exceeds the original byte boundary');
+  }
+  if (fileName.length === 0 || mimeType.length <= 6 ||
+    !mimeType.toLowerCase().startsWith('image/')) {
+    throw new Error('local image asset metadata is invalid');
+  }
+}
+
+async function validateDecodedLocalOriginalImageAsset(bytes: Uint8Array,
+  expectedIntrinsicWidth: number, expectedIntrinsicHeight: number): Promise<void> {
+  if (!isOriginalNormalizedImageDimensions(expectedIntrinsicWidth, expectedIntrinsicHeight)) {
+    throw new Error('local image asset dimensions were not normalized by the original 3000px boundary');
+  }
+  const buffer: ArrayBuffer = bytes.buffer.slice(bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  let source: image.ImageSource | null = null;
+  let pixelMap: image.PixelMap | null = null;
+  try {
+    source = image.createImageSource(buffer);
+    const encodedInfo: image.ImageInfo = await source.getImageInfo();
+    if (!isOriginalNormalizedImageDimensions(encodedInfo.size.width, encodedInfo.size.height) ||
+      encodedInfo.mimeType.length <= 6 ||
+      !encodedInfo.mimeType.toLowerCase().startsWith('image/')) {
+      throw new Error('decoded image header is invalid or exceeds the original 3000px boundary');
+    }
+    const orientation: string = await readOriginalImageOrientation(source);
+    const oriented: OriginalImagePixelDimensions | null = originalImageOrientedDimensions(
+      encodedInfo.size.width, encodedInfo.size.height, orientation);
+    if (oriented === null || oriented.width !== expectedIntrinsicWidth ||
+      oriented.height !== expectedIntrinsicHeight) {
+      throw new Error('decoded image dimensions do not match the insertion plan');
+    }
+    pixelMap = await source.createPixelMap({ editable: false });
+    const decodedInfo: image.ImageInfo = await pixelMap.getImageInfo();
+    if (!originalImageDecodedDimensionsAreConsistent(encodedInfo.size.width,
+      encodedInfo.size.height, orientation, decodedInfo.size.width, decodedInfo.size.height)) {
+      throw new Error('decoded PixelMap dimensions are inconsistent with the image header');
+    }
+  } catch (error) {
+    throw new Error(`local image asset cannot be decoded: ${JSON.stringify(error)}`);
+  } finally {
+    if (pixelMap !== null) {
+      try {
+        await pixelMap.release();
+      } catch (error) {
+        console.warn(`local image validation PixelMap cleanup failed: ${JSON.stringify(error)}`);
+      }
+    }
+    if (source !== null) {
+      try {
+        await source.release();
+      } catch (error) {
+        console.warn(`local image validation ImageSource cleanup failed: ${JSON.stringify(error)}`);
+      }
+    }
+  }
+}
+
+async function readOriginalImageOrientation(source: image.ImageSource): Promise<string> {
+  try {
+    return await source.getImageProperty(image.PropertyKey.ORIENTATION, {
+      index: 0, defaultValue: '1',
+    });
+  } catch (_error) {
+    return '1';
+  }
+}
+
+function validatePreparedLocalOriginalImageAsset(noteId: string,
+  prepared: PreparedLocalOriginalImageAsset): void {
+  if (noteId.length === 0 || prepared.metadata.fileSize <= 0 ||
+    prepared.metadata.fileSize > MAX_ORIGINAL_LOCAL_IMAGE_ASSET_BYTES ||
+    prepared.metadata.fileName.length === 0 || prepared.metadata.mimeType.length <= 6 ||
+    !prepared.metadata.mimeType.toLowerCase().startsWith('image/') ||
+    !isOriginalNormalizedImageDimensions(prepared.intrinsicWidth, prepared.intrinsicHeight) ||
+    prepared.filesRoot.length === 0 ||
+    prepared.finalPath.length === 0 || !fileIo.accessSync(prepared.finalPath)) {
+    throw new Error('prepared local image asset is invalid');
+  }
+  const stat = fileIo.statSync(prepared.finalPath);
+  const expectedFinalPath: string = normalizeAssetPath(prepared.filesRoot) +
+    '/assets/final/' + prepared.storageHash;
+  if (!stat.isFile() || stat.size !== prepared.metadata.fileSize ||
+    originalAssetStorageHash(prepared.metadata.assetHashBits) !== prepared.storageHash ||
+    originalAssetHashKey(prepared.metadata.assetHashBits) !== prepared.legacyHash ||
+    normalizeAssetPath(prepared.finalPath) !== expectedFinalPath) {
+    throw new Error('prepared local image asset does not match its file or hash');
+  }
+}
+
+function validateStoredLocalOriginalImageAssetPath(path: string | null,
+  prepared: PreparedLocalOriginalImageAsset): void {
+  if (path === null || path.length === 0 ||
+    normalizeAssetPath(path) === normalizeAssetPath(prepared.finalPath)) {
+    return;
+  }
+  if (!isAssetPathInside(prepared.filesRoot, path)) {
+    if (fileIo.accessSync(path)) {
+      throw new Error('local image asset has a readable stored path outside the app files directory');
+    }
+    return;
+  }
+  if (!fileIo.accessSync(path)) {
+    return;
+  }
+  const stat = fileIo.statSync(path);
+  if (!stat.isFile() || stat.size !== prepared.metadata.fileSize ||
+    !filesHaveEqualContents(path, prepared.finalPath, prepared.metadata.fileSize)) {
+    throw new Error('local image asset stored path conflicts with the prepared bytes');
   }
 }
 
@@ -426,4 +728,69 @@ function fileContentsEqual(path: string, expected: Uint8Array): boolean {
   } finally {
     fileIo.closeSync(file);
   }
+}
+
+function filesHaveEqualContents(leftPath: string, rightPath: string,
+  expectedSize: number): boolean {
+  if (normalizeAssetPath(leftPath) === normalizeAssetPath(rightPath)) {
+    return true;
+  }
+  const leftStat = fileIo.statSync(leftPath);
+  const rightStat = fileIo.statSync(rightPath);
+  if (!leftStat.isFile() || !rightStat.isFile() || leftStat.size !== expectedSize ||
+    rightStat.size !== expectedSize) {
+    return false;
+  }
+  const left: fileIo.File = fileIo.openSync(leftPath, fileIo.OpenMode.READ_ONLY);
+  let right: fileIo.File | null = null;
+  try {
+    right = fileIo.openSync(rightPath, fileIo.OpenMode.READ_ONLY);
+    let total: number = 0;
+    while (total < expectedSize) {
+      const requested: number = Math.min(FILE_IO_CHUNK_SIZE, expectedSize - total);
+      const leftBytes: Uint8Array | null = readChunkFully(left.fd, requested);
+      const rightBytes: Uint8Array | null = readChunkFully(right.fd, requested);
+      if (leftBytes === null || rightBytes === null) {
+        return false;
+      }
+      for (let index: number = 0; index < requested; index++) {
+        if (leftBytes[index] !== rightBytes[index]) {
+          return false;
+        }
+      }
+      total += requested;
+    }
+    return true;
+  } finally {
+    if (right !== null) {
+      fileIo.closeSync(right);
+    }
+    fileIo.closeSync(left);
+  }
+}
+
+function readChunkFully(fd: number, size: number): Uint8Array | null {
+  const output: Uint8Array = new Uint8Array(size);
+  let total: number = 0;
+  while (total < size) {
+    const buffer: ArrayBuffer = new ArrayBuffer(size - total);
+    const read: number = fileIo.readSync(fd, buffer);
+    if (read <= 0 || read > size - total) {
+      return null;
+    }
+    output.set(new Uint8Array(buffer, 0, read), total);
+    total += read;
+  }
+  return output;
+}
+
+function isAssetPathInside(root: string, candidate: string): boolean {
+  const normalizedRoot: string = normalizeAssetPath(root);
+  const normalizedCandidate: string = normalizeAssetPath(candidate);
+  return normalizedCandidate.startsWith(normalizedRoot + '/') &&
+    normalizedCandidate.indexOf('/../') < 0 && !normalizedCandidate.endsWith('/..');
+}
+
+function normalizeAssetPath(value: string): string {
+  return value.replace(/\\/g, '/').replace(/\/+$/, '');
 }

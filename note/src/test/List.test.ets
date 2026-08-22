@@ -108,6 +108,7 @@ import originalRichTextStylePayloadEncoderTest from './OriginalRichTextStylePayl
 import originalLocalCheckboxMutationTest from './OriginalLocalCheckboxMutation.test';
 import mathEditorOverlayTest from './MathEditorOverlay.test';
 import originalMathInsertPlanTest from './OriginalMathInsertPlan.test';
+import originalImageInsertPlanTest from './OriginalImageInsertPlan.test';
 import mathCanvasRendererTest from './MathCanvasRenderer.test';
 import pdfResourceLifecycleTest from './PdfResourceLifecycle.test';
 
@@ -220,6 +221,7 @@ export default function testsuite() {
   originalLocalCheckboxMutationTest();
   mathEditorOverlayTest();
   originalMathInsertPlanTest();
+  originalImageInsertPlanTest();
   mathCanvasRendererTest();
   pdfResourceLifecycleTest();
 }

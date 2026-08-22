@@ -12,10 +12,12 @@ import {
   originalClipboardShapeForPaste,
   OriginalClipboardPastePlan, OriginalMathLatexMutation,
   OriginalHandwritingConversionPersistencePlan,
+  OriginalImageInsertPersistencePlan,
   OriginalImageCropMutation, OriginalImageFlipMutation, OriginalPositionLockMutation,
   OriginalPartialErasePlan, OriginalRenderMutation, PersistedElement,
   validateOriginalClipboardPastePlan, validateOriginalPartialErasePlan,
-  validateOriginalHandwritingConversionPersistencePlan, validatePartialEraseMaterializationPlan,
+  validateOriginalHandwritingConversionPersistencePlan, validateOriginalImageInsertPersistencePlan,
+  validatePartialEraseMaterializationPlan,
 } from '../main/ets/data/StrokePersistence';
 import { PageElementKind } from '../main/ets/core/model/PageElementOrder';
 import {
@@ -660,12 +662,65 @@ export default function strokePersistenceTest() {
       expect(rejectsHandwritingPlan(whitespaceOnly)).assertTrue();
       expect(rejectsHandwritingPlan(invalidUnicode)).assertTrue();
     });
+
+    it('preflights original local Image bytes MIME normalized dimensions and geometry', 0, () => {
+      const valid: OriginalImageInsertPersistencePlan = {
+        bytes: new Uint8Array([1, 2, 3]), fileName: 'photo.png', mimeType: 'image/png',
+        intrinsicWidth: 400, intrinsicHeight: 200, pageWidth: 800, pageHeight: 1000,
+        zoom: 1, anchor: { x: 400, y: 500 },
+      };
+      validateOriginalImageInsertPersistencePlan(valid);
+      const empty: OriginalImageInsertPersistencePlan = {
+        bytes: new Uint8Array(0), fileName: valid.fileName, mimeType: valid.mimeType,
+        intrinsicWidth: valid.intrinsicWidth, intrinsicHeight: valid.intrinsicHeight,
+        pageWidth: valid.pageWidth, pageHeight: valid.pageHeight,
+        zoom: valid.zoom, anchor: valid.anchor,
+      };
+      const badMime: OriginalImageInsertPersistencePlan = {
+        bytes: valid.bytes, fileName: valid.fileName, mimeType: '',
+        intrinsicWidth: valid.intrinsicWidth, intrinsicHeight: valid.intrinsicHeight,
+        pageWidth: valid.pageWidth, pageHeight: valid.pageHeight,
+        zoom: valid.zoom, anchor: valid.anchor,
+      };
+      const badDimensions: OriginalImageInsertPersistencePlan = {
+        bytes: valid.bytes, fileName: valid.fileName, mimeType: valid.mimeType,
+        intrinsicWidth: 0, intrinsicHeight: valid.intrinsicHeight,
+        pageWidth: valid.pageWidth, pageHeight: valid.pageHeight,
+        zoom: valid.zoom, anchor: valid.anchor,
+      };
+      const oversized: OriginalImageInsertPersistencePlan = {
+        bytes: valid.bytes, fileName: valid.fileName, mimeType: valid.mimeType,
+        intrinsicWidth: 3001, intrinsicHeight: valid.intrinsicHeight,
+        pageWidth: valid.pageWidth, pageHeight: valid.pageHeight,
+        zoom: valid.zoom, anchor: valid.anchor,
+      };
+      const fractional: OriginalImageInsertPersistencePlan = {
+        bytes: valid.bytes, fileName: valid.fileName, mimeType: valid.mimeType,
+        intrinsicWidth: 400.5, intrinsicHeight: valid.intrinsicHeight,
+        pageWidth: valid.pageWidth, pageHeight: valid.pageHeight,
+        zoom: valid.zoom, anchor: valid.anchor,
+      };
+      expect(rejectsImageInsertPlan(empty)).assertTrue();
+      expect(rejectsImageInsertPlan(badMime)).assertTrue();
+      expect(rejectsImageInsertPlan(badDimensions)).assertTrue();
+      expect(rejectsImageInsertPlan(oversized)).assertTrue();
+      expect(rejectsImageInsertPlan(fractional)).assertTrue();
+    });
   });
 }
 
 function rejectsHandwritingPlan(plan: OriginalHandwritingConversionPersistencePlan): boolean {
   try {
     validateOriginalHandwritingConversionPersistencePlan(plan);
+  } catch (_error) {
+    return true;
+  }
+  return false;
+}
+
+function rejectsImageInsertPlan(plan: OriginalImageInsertPersistencePlan): boolean {
+  try {
+    validateOriginalImageInsertPersistencePlan(plan);
   } catch (_error) {
     return true;
   }

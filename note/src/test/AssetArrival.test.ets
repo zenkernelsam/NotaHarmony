@@ -3,7 +3,7 @@ import { originalAssetStorageHash } from '../main/ets/core/model/ImageBlockGeome
 import {
   AssetAvailabilityChange, AssetAvailabilityHub,
 } from '../main/ets/data/AssetAvailabilityHub';
-import { sha512Hex } from '../main/ets/data/AssetDigest';
+import { sha512Digest, sha512Hex } from '../main/ets/data/AssetDigest';
 
 const ABC_SHA512: string =
   'ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a' +
@@ -21,6 +21,15 @@ export default function assetArrivalTest() {
       const digest: string = await sha512Hex(new Uint8Array([0x61, 0x62, 0x63]));
       expect(digest).assertEqual(ABC_SHA512);
       expect(originalAssetStorageHash(ABC_HASH_WORDS)).assertEqual(ABC_SHA512);
+    });
+
+    it('returns an independent SHA-512 byte snapshot', 0, async () => {
+      const first: Uint8Array = await sha512Digest(new Uint8Array([0x61, 0x62, 0x63]));
+      const second: Uint8Array = await sha512Digest(new Uint8Array([0x61, 0x62, 0x63]));
+      expect(first.length).assertEqual(64);
+      first[0] = 0;
+      expect(second[0]).assertEqual(0xDD);
+      expect(first[0] === second[0]).assertFalse();
     });
 
     it('publishes note generations and stops notifying after unsubscribe', 0, () => {

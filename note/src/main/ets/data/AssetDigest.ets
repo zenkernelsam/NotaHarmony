@@ -1,12 +1,17 @@
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 
-export async function sha512Hex(data: Uint8Array): Promise<string> {
+export async function sha512Digest(data: Uint8Array): Promise<Uint8Array> {
   const digest = cryptoFramework.createMd('SHA512');
   await digest.update({ data: data });
   const result: cryptoFramework.DataBlob = await digest.digest();
+  return result.data.slice();
+}
+
+export async function sha512Hex(data: Uint8Array): Promise<string> {
+  const result: Uint8Array = await sha512Digest(data);
   let output: string = '';
-  for (let index: number = 0; index < result.data.length; index++) {
-    output += result.data[index].toString(16).padStart(2, '0');
+  for (let index: number = 0; index < result.length; index++) {
+    output += result[index].toString(16).padStart(2, '0');
   }
   return output;
 }
