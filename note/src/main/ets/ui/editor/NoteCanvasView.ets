@@ -5354,12 +5354,12 @@ export struct NoteCanvasView {
     if (!this.canUseOriginalClipboardImage()) {
       return;
     }
-    if (!await isOriginalClipboardImageAvailable()) {
-      this.systemClipboardImageAvailable = false;
-      return;
-    }
     this.photoImportBusy = true;
     try {
+      if (!await isOriginalClipboardImageAvailable()) {
+        this.systemClipboardImageAvailable = false;
+        return;
+      }
       if (!await ensureOriginalClipboardReadPermission()) {
         throw new Error('READ_PASTEBOARD permission was not granted');
       }

@@ -86,8 +86,13 @@ const checks = [
     canvas.includes('this.refreshSystemClipboardImageAvailability();\n      if (this.layerManager.isInitialized()) {') &&
     canvas.includes('this.systemClipboardImageAvailable = false;\n      this.refreshSystemClipboardImageAvailability();\n      this.selectionTool.deselect();') &&
     canvas.includes('this.systemClipboardImageAvailable = false;\n    this.pageLoadPromise = this.switchPageData();')],
-  ['paste execution rechecks current PixelMap availability before permission',
+  ['busy paste entry rechecks availability before permission and data',
     pasteSource.includes('if (!this.canUseOriginalClipboardImage()) {') &&
+    pasteSource.includes('this.photoImportBusy = true;\n    try {\n      if (!await isOriginalClipboardImageAvailable()) {') &&
+    pasteSource.indexOf('this.photoImportBusy = true;') <
+      pasteSource.indexOf('isOriginalClipboardImageAvailable()') &&
+    pasteSource.indexOf('isOriginalClipboardImageAvailable()') <
+      pasteSource.indexOf('ensureOriginalClipboardReadPermission()') &&
     pasteSource.includes('if (!await isOriginalClipboardImageAvailable()) {') &&
     pasteSource.includes('this.systemClipboardImageAvailable = false;') &&
     pasteSource.indexOf('isOriginalClipboardImageAvailable()') <
