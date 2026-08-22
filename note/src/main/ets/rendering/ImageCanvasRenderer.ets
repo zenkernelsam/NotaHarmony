@@ -74,6 +74,8 @@ export class ImageCanvasRenderer {
     try {
       ctx.transform(element.transform);
       ctx.scale(geometry.scaleX, geometry.scaleY);
+      ctx.rect(crop.left, crop.top, crop.right - crop.left, crop.bottom - crop.top);
+      ctx.clip();
       if (geometry.orientationDegrees !== 0 || geometry.mirroredHorizontally) {
         const centerX = geometry.orientedWidth / 2;
         const centerY = geometry.orientedHeight / 2;
@@ -84,8 +86,6 @@ export class ImageCanvasRenderer {
         }
         ctx.translate(-centerX, -centerY);
       }
-      ctx.rect(crop.left, crop.top, crop.right - crop.left, crop.bottom - crop.top);
-      ctx.clip();
       ctx.translate(geometry.flipTranslateX, geometry.flipTranslateY);
       ctx.scale(geometry.flipScaleX, geometry.flipScaleY);
       ctx.drawImage(bitmap, 0, 0, bitmap.width, bitmap.height);
