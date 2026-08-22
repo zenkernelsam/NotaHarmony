@@ -1223,7 +1223,8 @@ export struct NoteCanvasView {
         const loaded: LoadedImageAsset | undefined = this.imageAssets.get(
           originalAssetStorageHash(element.data.assetHashBits));
         if (loaded !== undefined && loaded.state === ImageAssetLoadState.READY && loaded.bitmap !== null) {
-          this.imageRenderer.renderImage(element.data, loaded.bitmap, renderContext);
+          this.imageRenderer.renderImage(element.data, loaded.bitmap, renderContext,
+            loaded.orientationDegrees, loaded.mirroredHorizontally);
         }
       } else if (element.kind === PageElementKind.MATH) {
         this.mathRenderer.renderMath(element.data, renderContext, mathRasterScale);

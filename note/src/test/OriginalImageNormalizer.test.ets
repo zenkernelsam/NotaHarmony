@@ -2,6 +2,7 @@ import { describe, expect, it } from '@ohos/hypium';
 import {
   originalImageOrientedDimensions, planOriginalImageDownscale,
 } from '../main/ets/core/model/OriginalImageInsertPlan';
+import { originalRotationDegrees } from '../main/ets/data/OriginalImageNormalizer';
 
 export default function originalImageNormalizerTest() {
   describe('OriginalImageNormalizer', () => {
@@ -30,6 +31,18 @@ export default function originalImageNormalizerTest() {
         expect(oriented?.height).assertEqual(4000);
       }
       expect(originalImageOrientedDimensions(4000, 100, '3')?.width).assertEqual(4000);
+    });
+
+    it('maps renderer orientation degrees and mirror flags', 0, () => {
+      expect(originalRotationDegrees('1')).assertEqual(0);
+      expect(originalRotationDegrees('2')).assertEqual(0);
+      expect(originalRotationDegrees('3')).assertEqual(180);
+      expect(originalRotationDegrees('4')).assertEqual(180);
+      expect(originalRotationDegrees('5')).assertEqual(270);
+      expect(originalRotationDegrees('6')).assertEqual(90);
+      expect(originalRotationDegrees('7')).assertEqual(90);
+      expect(originalRotationDegrees('8')).assertEqual(270);
+      expect(originalRotationDegrees('Right-top')).assertEqual(90);
     });
 
     it('rejects invalid normalization dimensions', 0, () => {

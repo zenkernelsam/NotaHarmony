@@ -120,7 +120,7 @@ async function readOrientation(source: image.ImageSource): Promise<string> {
   }
 }
 
-function originalRotationDegrees(orientation: string): number {
+export function originalRotationDegrees(orientation: string): number {
   const value: string = orientation.trim().toLowerCase();
   if (value === '3' || value === '4' || value === 'bottom-right' || value === 'bottom-left') {
     return 180;

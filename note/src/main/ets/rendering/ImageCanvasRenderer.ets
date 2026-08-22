@@ -6,6 +6,10 @@ export interface ImageRenderGeometry {
   cropPixels: Rect2D;
   scaleX: number;
   scaleY: number;
+  orientationDegrees: number;
+  mirroredHorizontally: boolean;
+  orientedWidth: number;
+  orientedHeight: number;
   flipTranslateX: number;
   flipTranslateY: number;
   flipScaleX: number;
@@ -13,7 +17,11 @@ export interface ImageRenderGeometry {
 }
 
 export function imageRenderGeometry(element: ImageElement,
-  bitmapWidth: number, bitmapHeight: number): ImageRenderGeometry | null {
+  bitmapWidth: number, bitmapHeight: number, orientationDegrees: number = 0,
+  mirroredHorizontally: boolean = false): ImageRenderGeometry | null {
+  if (!Number.isFinite(orientationDegrees) || ![0, 90, 180, 270].includes(orientationDegrees)) {
+    return null;
+  }
   if (!Number.isFinite(bitmapWidth) || !Number.isFinite(bitmapHeight) || bitmapWidth <= 0 || bitmapHeight <= 0 ||
     !Number.isFinite(element.blockWidth) || !Number.isFinite(element.blockHeight) ||
     element.blockWidth <= 0 || element.blockHeight <= 0) {
@@ -36,10 +44,15 @@ export function imageRenderGeometry(element: ImageElement,
   if (cropWidth <= 0 || cropHeight <= 0) {
     return null;
   }
+  const swapsAxes: boolean = orientationDegrees === 90 || orientationDegrees === 270;
   return {
     cropPixels: cropPixels,
     scaleX: element.blockWidth / cropWidth,
     scaleY: element.blockHeight / cropHeight,
+    orientationDegrees: orientationDegrees,
+    mirroredHorizontally: mirroredHorizontally,
+    orientedWidth: swapsAxes ? bitmapHeight : bitmapWidth,
+    orientedHeight: swapsAxes ? bitmapWidth : bitmapHeight,
     flipTranslateX: element.imageFlippedHorizontally ? bitmapWidth : 0,
     flipTranslateY: element.imageFlippedVertically ? bitmapHeight : 0,
     flipScaleX: element.imageFlippedHorizontally ? -1 : 1,
@@ -48,8 +61,11 @@ export function imageRenderGeometry(element: ImageElement,
 }
 
 export class ImageCanvasRenderer {
-  renderImage(element: ImageElement, bitmap: ImageBitmap, ctx: Canvas2DDrawingContext): void {
-    const geometry: ImageRenderGeometry | null = imageRenderGeometry(element, bitmap.width, bitmap.height);
+  renderImage(element: ImageElement, bitmap: ImageBitmap, ctx: Canvas2DDrawingContext,
+    orientationDegrees: number = 0,
+    mirroredHorizontally: boolean = false): void {
+    const geometry: ImageRenderGeometry | null = imageRenderGeometry(element, bitmap.width,
+      bitmap.height, orientationDegrees, mirroredHorizontally);
     if (geometry === null) {
       return;
     }
@@ -58,8 +74,16 @@ export class ImageCanvasRenderer {
     try {
       ctx.transform(element.transform);
       ctx.scale(geometry.scaleX, geometry.scaleY);
-      ctx.translate(-crop.left, -crop.top);
-      ctx.beginPath();
+      if (geometry.orientationDegrees !== 0 || geometry.mirroredHorizontally) {
+        const centerX = geometry.orientedWidth / 2;
+        const centerY = geometry.orientedHeight / 2;
+        ctx.translate(centerX, centerY);
+        ctx.rotate(geometry.orientationDegrees * Math.PI / 180);
+        if (geometry.mirroredHorizontally) {
+          ctx.scale(-1, 1);
+        }
+        ctx.translate(-centerX, -centerY);
+      }
       ctx.rect(crop.left, crop.top, crop.right - crop.left, crop.bottom - crop.top);
       ctx.clip();
       ctx.translate(geometry.flipTranslateX, geometry.flipTranslateY);

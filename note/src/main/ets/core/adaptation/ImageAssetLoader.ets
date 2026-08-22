@@ -2,6 +2,8 @@ import { image } from '@kit.ImageKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { ImageElement } from '../model/ElementTypes';
 import { originalAssetLookupKeys } from '../model/ImageBlockGeometry';
+import { originalImageOrientedDimensions } from '../model/OriginalImageInsertPlan';
+import { originalRotationDegrees } from '../../data/OriginalImageNormalizer';
 import { AssetStatus, NoteAsset } from '../model/AssetTypes';
 import { AssetRepositoryImpl } from '../../data/AssetRepositoryImpl';
 import { DatabaseManager } from '../../data/DatabaseManager';
@@ -22,6 +24,8 @@ export interface LoadedImageAsset {
   bitmap: ImageBitmap | null;
   pixelMap: image.PixelMap | null;
   error: string | null;
+  orientationDegrees: number;
+  mirroredHorizontally: boolean;
 }
 
 export class ImageAssetLoader {
@@ -87,6 +91,16 @@ export class ImageAssetLoader {
       openedFile = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
       source = image.createImageSource(openedFile.fd);
       const info: image.ImageInfo = await source.getImageInfo();
+      const orientation: string = await this.readOrientation(source);
+      const oriented = originalImageOrientedDimensions(
+        info.size.width, info.size.height, orientation);
+      if (oriented === null) {
+        return this.empty(ImageAssetLoadState.FAILED, lookupKey,
+          'asset image orientation is invalid');
+      }
+      const rotationDegrees: number = originalRotationDegrees(orientation);
+      const mirroredHorizontally: boolean = orientation.trim().toLowerCase() === '2';
+
       if (!Number.isSafeInteger(info.size.width) || !Number.isSafeInteger(info.size.height) ||
         info.size.width <= 0 || info.size.height <= 0) {
         return this.empty(ImageAssetLoadState.FAILED, lookupKey, 'asset image dimensions are invalid');
@@ -103,7 +117,8 @@ export class ImageAssetLoader {
       pixelMap = await source.createPixelMap(options);
       const bitmap: ImageBitmap = new ImageBitmap(pixelMap);
       return { state: ImageAssetLoadState.READY, lookupKey: lookupKey,
-        bitmap: bitmap, pixelMap: pixelMap, error: null };
+        bitmap: bitmap, pixelMap: pixelMap, error: null,
+        orientationDegrees: rotationDegrees, mirroredHorizontally: mirroredHorizontally };
     } catch (error) {
       if (pixelMap !== null) {
         try {
@@ -125,7 +140,18 @@ export class ImageAssetLoader {
     }
   }
 
+  private async readOrientation(source: image.ImageSource): Promise<string> {
+    try {
+      return await source.getImageProperty(image.PropertyKey.ORIENTATION, {
+        index: 0, defaultValue: '1',
+      });
+    } catch (_error) {
+      return '1';
+    }
+  }
+
   private empty(state: ImageAssetLoadState, lookupKey: string, error: string): LoadedImageAsset {
-    return { state: state, lookupKey: lookupKey, bitmap: null, pixelMap: null, error: error };
+    return { state: state, lookupKey: lookupKey, bitmap: null, pixelMap: null, error: error,
+      orientationDegrees: 0, mirroredHorizontally: false };
   }
 }
