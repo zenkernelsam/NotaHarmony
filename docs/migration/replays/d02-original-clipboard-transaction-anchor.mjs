@@ -82,7 +82,8 @@ const checks = [
       canvas.includes('this.loadedPageId === this.currentPage.pageId')],
   ['canvas long press stores a canvas-space anchor and opens native context Paste',
     canvas.includes('this.clipboardPasteTarget = { x: canvasP.x, y: canvasP.y }') &&
-      canvas.includes('.bindContextMenu(() => {') && canvas.includes('ResponseType.LongPress')],
+      canvas.includes('.bindContextMenu(this.ClipboardPasteContextMenu') &&
+      canvas.includes('ResponseType.LongPress')],
   ['selection Paste uses the current selection center rather than a fixed button',
     canvas.includes('private selectionPasteTarget(): Point2D | null') &&
       canvas.includes('(this.selectionRect.left + this.selectionRect.right) / 2') &&

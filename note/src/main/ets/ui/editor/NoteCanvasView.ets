@@ -182,6 +182,9 @@ import {
 } from '../../core/adaptation/OriginalAudioLinkedInkPlayback';
 import { OriginalPhotoIngressItem } from '../../data/OriginalPhotoIngress';
 import { pickAndImportOriginalPhotos } from '../../data/OriginalPhotoPickerCaller';
+import {
+  NormalizedOriginalClipboardImage, importOriginalClipboardImage,
+} from '../../data/OriginalClipboardImageIngress';
 import { OriginalImageInsertPersistencePlan, OriginalImageInsertResult } from '../../data/StrokePersistence';
 
 const HISTORY_CHECKPOINT_TAIL_OPERATIONS: number = 256;
@@ -5332,20 +5335,65 @@ export struct NoteCanvasView {
     }
   }
 
+  private async startOriginalClipboardImagePaste(): Promise<void> {
+    if (!this.loaded || this.dataLoading || this.dataLoadFailed || this.historyBusy ||
+      this.photoImportBusy) {
+      return;
+    }
+    this.photoImportBusy = true;
+    try {
+      const normalized: NormalizedOriginalClipboardImage =
+        await importOriginalClipboardImage();
+      if (normalized.bytes.byteLength <= 0) {
+        throw new Error('original clipboard image bytes are empty');
+      }
+      const target: Point2D = this.clipboardPasteTarget === null ?
+        this.viewport.screenToCanvas(this.canvasCtx.width / 2, this.canvasCtx.height / 2) :
+        { x: this.clipboardPasteTarget.x, y: this.clipboardPasteTarget.y };
+      if (!Number.isFinite(target.x) || !Number.isFinite(target.y)) {
+        throw new Error('original clipboard image paste anchor is invalid');
+      }
+      await this.insertOriginalPhotos([{
+        bytes: normalized.bytes,
+        fileName: `clipboard-${Date.now()}.webp`,
+        mimeType: 'image/webp',
+        encodedWidth: normalized.width,
+        encodedHeight: normalized.height,
+        orientedWidth: normalized.width,
+        orientedHeight: normalized.height,
+      }], target);
+    } catch (e) {
+      hilog.error(0x0001, 'NoteCanvasView',
+        'original clipboard image paste failed: %{public}s', JSON.stringify(e));
+      promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),
+        duration: 3000 });
+    } finally {
+      this.photoImportBusy = false;
+    }
+  }
+
+  private canUseOriginalClipboardImage(): boolean {
+    return this.loaded && !this.dataLoading && !this.dataLoadFailed &&
+      !this.historyBusy && !this.photoImportBusy &&
+      this.persistence.isReady() && this.loadedPageId.length > 0;
+  }
+
   private async commitOriginalPhotoInsert(
     imported: OriginalPhotoIngressItem[]): Promise<PhotoInsertOutcome> {
     return this.insertOriginalPhotos(imported);
   }
 
   private async insertOriginalPhotos(
-    imported: OriginalPhotoIngressItem[]): Promise<PhotoInsertOutcome> {
+    imported: OriginalPhotoIngressItem[],
+    pasteAnchor?: Point2D): Promise<PhotoInsertOutcome> {
     const pageId: string = this.loadedPageId;
     const generation: number = this.pageLoadGeneration;
     const pageWidth: number = this.getPaperWidth();
     const pageHeight: number = this.getPaperHeight();
     const zoom: number = this.viewport.zoom;
-    const center: Point2D = this.viewport.screenToCanvas(
-      this.canvasCtx.width / 2, this.canvasCtx.height / 2);
+    const center: Point2D = pasteAnchor === undefined ? this.viewport.screenToCanvas(
+      this.canvasCtx.width / 2, this.canvasCtx.height / 2) :
+      { x: pasteAnchor.x, y: pasteAnchor.y };
     const plans: OriginalImageInsertPersistencePlan[] = imported.map(
       (item: OriginalPhotoIngressItem, index: number): OriginalImageInsertPersistencePlan => ({
         bytes: item.bytes,
@@ -6767,14 +6815,11 @@ export struct NoteCanvasView {
   @Builder
   private ClipboardPasteContextMenu() {
     Menu() {
-      if (this.canPasteClipboardNow()) {
+      if (!this.canPasteClipboardNow() && this.canUseOriginalClipboardImage()) {
         MenuItem({ content: $r('app.string.paste') })
           .onClick(() => {
-            const target: Point2D | null = this.clipboardPasteTarget;
-            if (target !== null) {
-              hilog.info(0x0001, 'NoteCanvasView', 'canvas context Paste clicked');
-              this.pasteClipboard(target);
-            }
+            hilog.info(0x0001, 'NoteCanvasView', 'canvas context Paste Image clicked');
+            this.startOriginalClipboardImagePaste();
           });
       }
     }
@@ -7165,9 +7210,7 @@ export struct NoteCanvasView {
         // Original w43/v49 expose Paste from the long-press position, not from
         // a fixed viewport button.  ArkUI's context menu keeps that native
         // anchor and performs the same edge adjustment as the platform menu.
-        .bindContextMenu(() => {
-          this.ClipboardPasteContextMenu();
-        }, ResponseType.LongPress)
+        .bindContextMenu(this.ClipboardPasteContextMenu, ResponseType.LongPress)
         // T-034：双指捏合缩放 + 双指平移（与单指书写互斥：onTouch 中 touches>1 时忽略）
         .gesture(
           GestureGroup(GestureMode.Exclusive,
