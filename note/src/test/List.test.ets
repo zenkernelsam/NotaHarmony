@@ -110,6 +110,7 @@ import mathEditorOverlayTest from './MathEditorOverlay.test';
 import originalMathInsertPlanTest from './OriginalMathInsertPlan.test';
 import originalImageInsertPlanTest from './OriginalImageInsertPlan.test';
 import originalImageNormalizerTest from './OriginalImageNormalizer.test';
+import originalPhotoIngressTest from './OriginalPhotoIngress.test';
 import mathCanvasRendererTest from './MathCanvasRenderer.test';
 import pdfResourceLifecycleTest from './PdfResourceLifecycle.test';
 
@@ -224,6 +225,7 @@ export default function testsuite() {
   originalMathInsertPlanTest();
   originalImageInsertPlanTest();
   originalImageNormalizerTest();
+  originalPhotoIngressTest();
   mathCanvasRendererTest();
   pdfResourceLifecycleTest();
 }
