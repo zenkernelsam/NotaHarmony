@@ -5427,6 +5427,7 @@ export struct NoteCanvasView {
         'original clipboard image update unsubscribe failed: %{public}s', JSON.stringify(e));
     } finally {
       this.systemClipboardImageChangeListener = null;
+      this.systemClipboardImageProbeGeneration++;
       this.systemClipboardImageAvailable = false;
     }
   }

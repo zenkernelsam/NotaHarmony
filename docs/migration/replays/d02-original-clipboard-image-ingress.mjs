@@ -67,6 +67,9 @@ const checks = [
     canvas.includes('private refreshSystemClipboardImageAvailability(): void {') &&
     canvas.includes('isOriginalClipboardImageAvailable().then((available: boolean): void => {')],
   ['availability probes discard stale async results',
+    canvas.includes('this.systemClipboardImageChangeListener = null;\n      this.systemClipboardImageProbeGeneration++;') &&
+    canvas.includes('this.systemClipboardImageAvailable = false;\n    }\n  }\n\n  private refreshSystemClipboardImageAvailability'),
+
     canvas.includes('private systemClipboardImageProbeGeneration: number = 0;') &&
     canvas.includes('const probeGeneration: number = ++this.systemClipboardImageProbeGeneration;') &&
     canvas.includes('if (probeGeneration === this.systemClipboardImageProbeGeneration &&\n        this.canStartOriginalPhotoInsert()) {') &&
