@@ -86,6 +86,12 @@ const checks = [
     canvas.includes('this.refreshSystemClipboardImageAvailability();\n      if (this.layerManager.isInitialized()) {') &&
     canvas.includes('this.systemClipboardImageAvailable = false;\n      this.refreshSystemClipboardImageAvailability();\n      this.selectionTool.deselect();') &&
     canvas.includes('this.systemClipboardImageAvailable = false;\n    this.pageLoadPromise = this.switchPageData();')],
+  ['paste execution rechecks current PixelMap availability before permission',
+    pasteSource.includes('if (!this.canUseOriginalClipboardImage()) {') &&
+    pasteSource.includes('if (!await isOriginalClipboardImageAvailable()) {') &&
+    pasteSource.includes('this.systemClipboardImageAvailable = false;') &&
+    pasteSource.indexOf('isOriginalClipboardImageAvailable()') <
+      pasteSource.indexOf('ensureOriginalClipboardReadPermission()')],
   ['paste uses the long press anchor for durable insertion',
     pasteSource.includes('await this.insertOriginalPhotos([{') &&
     pasteSource.includes('}], target);') &&

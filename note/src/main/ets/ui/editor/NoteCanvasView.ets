@@ -5351,8 +5351,11 @@ export struct NoteCanvasView {
   }
 
   private async startOriginalClipboardImagePaste(): Promise<void> {
-    if (!this.loaded || this.dataLoading || this.dataLoadFailed || this.historyBusy ||
-      this.photoImportBusy) {
+    if (!this.canUseOriginalClipboardImage()) {
+      return;
+    }
+    if (!await isOriginalClipboardImageAvailable()) {
+      this.systemClipboardImageAvailable = false;
       return;
     }
     this.photoImportBusy = true;
