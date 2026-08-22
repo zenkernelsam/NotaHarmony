@@ -199,6 +199,11 @@ interface ShapeDetectionAttempt {
   replaced: boolean;
 }
 
+interface PhotoInsertOutcome {
+  insertedCount: number;
+  totalCount: number;
+}
+
 @Component
 export struct NoteCanvasView {
   // === 外部输入 ===
@@ -5310,7 +5315,13 @@ export struct NoteCanvasView {
       if (imported.length === 0) {
         return;
       }
-      await this.commitOriginalPhotoInsert(imported);
+      const outcome: PhotoInsertOutcome = await this.commitOriginalPhotoInsert(imported);
+      if (outcome.insertedCount < outcome.totalCount) {
+        promptAction.showToast({
+          message: $r('app.string.original_photo_insert_partial_failed'),
+          duration: 3000,
+        });
+      }
     } catch (e) {
       hilog.error(0x0001, 'NoteCanvasView', 'original photo insert failed: %{public}s',
         JSON.stringify(e));
@@ -5322,7 +5333,12 @@ export struct NoteCanvasView {
   }
 
   private async commitOriginalPhotoInsert(
-    imported: OriginalPhotoIngressItem[]): Promise<void> {
+    imported: OriginalPhotoIngressItem[]): Promise<PhotoInsertOutcome> {
+    return this.insertOriginalPhotos(imported);
+  }
+
+  private async insertOriginalPhotos(
+    imported: OriginalPhotoIngressItem[]): Promise<PhotoInsertOutcome> {
     const pageId: string = this.loadedPageId;
     const generation: number = this.pageLoadGeneration;
     const pageWidth: number = this.getPaperWidth();
@@ -5380,9 +5396,21 @@ export struct NoteCanvasView {
     this.historyBusy = true;
     try {
       const results: OriginalImageInsertResult[] = [];
+      let partialFailure = false;
       for (const plan of plans) {
-        results.push(await this.persistence.commitOriginalImageInsert(
-          this.noteId, pageId, plan, prepared));
+        try {
+          results.push(await this.persistence.commitOriginalImageInsert(
+            this.noteId, pageId, plan, prepared));
+        } catch (e) {
+          hilog.error(0x0001, 'NoteCanvasView',
+            'original photo % {public}d failed after %{public}d successes',
+            results.length + 1, results.length);
+          partialFailure = true;
+          break;
+        }
+      }
+      if (results.length === 0) {
+        throw new Error('original photo insert commit failed');
       }
       const finalImages: ImageElement[] = results.map(
         (result: OriginalImageInsertResult): ImageElement => result.image);
@@ -5422,7 +5450,10 @@ export struct NoteCanvasView {
         this.renderFrame();
       }
       this.notifyUndoRedo();
-      this.saveFailed = false;
+      if (!partialFailure) {
+        this.saveFailed = false;
+      }
+      return { insertedCount: results.length, totalCount: plans.length };
     } catch (e) {
       this.reportSaveFailure(e as Object);
       throw new Error(`original photo insert commit failed: ${JSON.stringify(e)}`);

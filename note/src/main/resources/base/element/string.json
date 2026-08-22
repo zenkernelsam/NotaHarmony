@@ -690,6 +690,7 @@
     { "name": "math_editor_failed", "value": "Couldn't add math" },
     { "name": "math_editor_cancel", "value": "Cancel" },
     { "name": "math_editor_done", "value": "Done" },
-    { "name": "original_photo_insert_failed", "value": "Couldn\u0027t add photos" }
+    { "name": "original_photo_insert_failed", "value": "Couldn\u0027t add photos" },
+    { "name": "original_photo_insert_partial_failed", "value": "Some photos couldn't be added" }
   ]
 }

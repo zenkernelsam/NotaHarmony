@@ -257,6 +257,7 @@
     { "name": "math_editor_failed", "value": "无法添加数学公式" },
     { "name": "math_editor_cancel", "value": "取消" },
     { "name": "math_editor_done", "value": "完成" },
-    { "name": "original_photo_insert_failed", "value": "无法添加图片" }
+    { "name": "original_photo_insert_failed", "value": "无法添加图片" },
+    { "name": "original_photo_insert_partial_failed", "value": "部分图片未能添加" }
   ]
 }
