@@ -4514,6 +4514,9 @@ export struct NoteCanvasView {
     if (action.type === UndoableActionType.ADD_ELEMENTS) {
       return action.addedImages.length > 0;
     }
+    if (action.type === UndoableActionType.TRANSFORM_ELEMENTS) {
+      return action.beforeImages.length > 0 || action.afterImages.length > 0;
+    }
     return false;
   }
 

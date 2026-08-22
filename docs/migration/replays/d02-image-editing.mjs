@@ -73,6 +73,7 @@ const assetRefresh = section(canvas,
 assert.match(assetRefresh, /ERASE_ELEMENTS/);
 assert.match(assetRefresh, /DELETE_ELEMENTS/);
 assert.match(assetRefresh, /ADD_ELEMENTS/);
-assert.doesNotMatch(assetRefresh, /TRANSFORM_ELEMENTS/);
+assert.match(assetRefresh, /TRANSFORM_ELEMENTS/);
+assert.match(assetRefresh, /beforeImages\.length > 0 \|\| action\.afterImages\.length > 0/);
 
 console.log('d02-image-editing: PASS');
