@@ -20,7 +20,13 @@ export interface OriginalClipboardImageSource {
 
 export type OriginalClipboardImageReader = () => Promise<OriginalClipboardImageSource | null>;
 
+export type OriginalClipboardImageAvailabilityProbe =
+  () => Promise<boolean>;
+
 let readOriginalClipboardImage: OriginalClipboardImageReader = readWithHarmonyPasteboard;
+
+let probeOriginalClipboardImageAvailability: OriginalClipboardImageAvailabilityProbe =
+  probeWithHarmonyPasteboardMimeTypes;
 
 export function setOriginalClipboardImageReaderForTest(
   reader: OriginalClipboardImageReader): void {
@@ -29,6 +35,30 @@ export function setOriginalClipboardImageReaderForTest(
 
 export function resetOriginalClipboardImageReaderForTest(): void {
   readOriginalClipboardImage = readWithHarmonyPasteboard;
+}
+
+export function setOriginalClipboardImageAvailabilityProbeForTest(
+  probe: OriginalClipboardImageAvailabilityProbe): void {
+  probeOriginalClipboardImageAvailability = probe;
+}
+
+export function resetOriginalClipboardImageAvailabilityProbeForTest(): void {
+  probeOriginalClipboardImageAvailability = probeWithHarmonyPasteboardMimeTypes;
+}
+
+async function probeWithHarmonyPasteboardMimeTypes(): Promise<boolean> {
+  const systemPasteboard: pasteboard.SystemPasteboard =
+    pasteboard.getSystemPasteboard();
+  const mimeTypes: string[] = await systemPasteboard.getMimeTypes();
+  return mimeTypes.includes(pasteboard.MIMETYPE_PIXELMAP);
+}
+
+export async function isOriginalClipboardImageAvailable(): Promise<boolean> {
+  try {
+    return await probeOriginalClipboardImageAvailability();
+  } catch (_probeError) {
+    return false;
+  }
 }
 
 async function readWithHarmonyPasteboard(): Promise<OriginalClipboardImageSource | null> {

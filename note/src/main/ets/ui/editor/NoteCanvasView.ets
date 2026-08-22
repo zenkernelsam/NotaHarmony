@@ -184,6 +184,7 @@ import { OriginalPhotoIngressItem } from '../../data/OriginalPhotoIngress';
 import { pickAndImportOriginalPhotos } from '../../data/OriginalPhotoPickerCaller';
 import {
   NormalizedOriginalClipboardImage, importOriginalClipboardImage,
+  isOriginalClipboardImageAvailable,
 } from '../../data/OriginalClipboardImageIngress';
 import { ensureOriginalClipboardReadPermission } from '../../data/OriginalClipboardPermissionGateway';
 import { OriginalImageInsertPersistencePlan, OriginalImageInsertResult } from '../../data/StrokePersistence';
@@ -381,6 +382,7 @@ export struct NoteCanvasView {
   private mathEditorValidationGeneration: number = 0;
   private mathEngineInitializationComplete: boolean = false;
   @State clipboardAvailable: boolean = false;
+  @State systemClipboardImageAvailable: boolean = false;
   @State overlayWidth: number = 0;
   @State overlayHeight: number = 0;
   private clipboardPasteTarget: Point2D | null = null;
@@ -490,6 +492,8 @@ export struct NoteCanvasView {
       }
       this.loaded = true;
       this.dataLoadFailed = false;
+      this.systemClipboardImageAvailable = false;
+      this.refreshSystemClipboardImageAvailability();
       if (this.layerManager.isInitialized()) {
         if (!this.viewportInitialized) {
           this.centerPaperInViewport();
@@ -800,6 +804,7 @@ export struct NoteCanvasView {
   onPageChange(_propName: string): void {
     this.cancelImageCrop();
     this.cancelMathEditing();
+    this.systemClipboardImageAvailable = false;
     this.pageLoadPromise = this.switchPageData();
   }
 
@@ -924,6 +929,8 @@ export struct NoteCanvasView {
       this.loadedPageId = targetPageId;
       this.loaded = true;
       this.dataLoadFailed = false;
+      this.systemClipboardImageAvailable = false;
+      this.refreshSystemClipboardImageAvailability();
       this.selectionTool.deselect();
       this.selectionVisible = false;
       this.initializeLayerForPage();
@@ -5379,7 +5386,23 @@ export struct NoteCanvasView {
   private canUseOriginalClipboardImage(): boolean {
     return this.loaded && !this.dataLoading && !this.dataLoadFailed &&
       !this.historyBusy && !this.photoImportBusy &&
-      this.persistence.isReady() && this.loadedPageId.length > 0;
+      this.persistence.isReady() && this.loadedPageId.length > 0 &&
+      this.systemClipboardImageAvailable;
+  }
+
+  private refreshSystemClipboardImageAvailability(): void {
+    if (!this.canStartOriginalPhotoInsert()) {
+      this.systemClipboardImageAvailable = false;
+      return;
+    }
+    isOriginalClipboardImageAvailable().then((available: boolean): void => {
+      if (this.canStartOriginalPhotoInsert()) {
+        this.systemClipboardImageAvailable = available;
+      }
+    }).catch((e: Object): void => {
+      hilog.error(0x0001, 'NoteCanvasView',
+        'original clipboard image availability probe failed: %{public}s', JSON.stringify(e));
+    });
   }
 
   private async commitOriginalPhotoInsert(

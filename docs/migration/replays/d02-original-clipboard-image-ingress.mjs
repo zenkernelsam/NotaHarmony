@@ -16,6 +16,10 @@ function between(source, startMarker, endMarker) {
 }
 
 const importSource = between(ingress, 'export async function importOriginalClipboardImage', '\nasync function packWebpLossy');
+const probeSource = between(ingress, 'async function probeWithHarmonyPasteboardMimeTypes',
+  '\nexport async function isOriginalClipboardImageAvailable');
+const availabilitySource = between(ingress,
+  'export async function isOriginalClipboardImageAvailable', '\nasync function readWithHarmonyPasteboard');
 const menuSource = between(canvas, '@Builder\n  private ClipboardPasteContextMenu', '\n  // === 文本框 ===');
 const pasteSource = between(canvas, 'private async startOriginalClipboardImagePaste', '\n  private canUseOriginalClipboardImage');
 const base = JSON.parse(fs.readFileSync('note/src/main/resources/base/element/string.json', 'utf8'));
@@ -48,6 +52,22 @@ const checks = [
   ['long press menu exposes the image fallback only without internal content',
     menuSource.includes('if (!this.canPasteClipboardNow() && this.canUseOriginalClipboardImage())') &&
     menuSource.includes('this.startOriginalClipboardImagePaste();')],
+  ['availability uses the SDK MIME metadata probe and exact PixelMap type',
+    probeSource.includes('await systemPasteboard.getMimeTypes();') &&
+    ingress.includes('mimeTypes.includes(pasteboard.MIMETYPE_PIXELMAP)')],
+  ['availability probing fails closed and can be restored after tests',
+    availabilitySource.includes('return await probeOriginalClipboardImageAvailability();') &&
+    ingress.includes('setOriginalClipboardImageAvailabilityProbeForTest(') &&
+    ingress.includes('resetOriginalClipboardImageAvailabilityProbeForTest(): void')],
+  ['menu visibility waits for an available PixelMap clipboard',
+    canvas.includes('@State systemClipboardImageAvailable: boolean = false;') &&
+    canvas.includes('this.persistence.isReady() && this.loadedPageId.length > 0 &&\n      this.systemClipboardImageAvailable;') &&
+    canvas.includes('private refreshSystemClipboardImageAvailability(): void {') &&
+    canvas.includes('isOriginalClipboardImageAvailable().then((available: boolean): void => {')],
+  ['page loads refresh and page switches reset image paste availability',
+    canvas.includes('this.refreshSystemClipboardImageAvailability();\n      if (this.layerManager.isInitialized()) {') &&
+    canvas.includes('this.systemClipboardImageAvailable = false;\n      this.refreshSystemClipboardImageAvailability();\n      this.selectionTool.deselect();') &&
+    canvas.includes('this.systemClipboardImageAvailable = false;\n    this.pageLoadPromise = this.switchPageData();')],
   ['paste uses the long press anchor for durable insertion',
     pasteSource.includes('await this.insertOriginalPhotos([{') &&
     pasteSource.includes('}], target);') &&
@@ -66,6 +86,8 @@ const checks = [
     hasValue(zh, 'read_pasteboard_permission_reason', '允许应用粘贴剪贴板中的图片')],
   ['ArkTS fixture proves empty scaling reset and resource paths',
     fixture.includes("'system pasteboard has no original clipboard image'") &&
+    fixture.includes("'availability probe failed'") &&
+    fixture.includes('resetOriginalClipboardImageAvailabilityProbeForTest();') &&
     fixture.includes("'scaled clipboard probe stops before encoder'") &&
     fixture.includes('requestedScaleX') &&
     fixture.includes('3000 / 12001') &&

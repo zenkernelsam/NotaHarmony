@@ -1,9 +1,12 @@
 import { describe, expect, it } from '@ohos/hypium';
 import { image } from '@kit.ImageKit';
 import {
+  isOriginalClipboardImageAvailable,
   importOriginalClipboardImage,
-  OriginalClipboardImageSource, resetOriginalClipboardImageReaderForTest,
-  setOriginalClipboardImageReaderForTest,
+  resetOriginalClipboardImageAvailabilityProbeForTest,
+  resetOriginalClipboardImageReaderForTest,
+  setOriginalClipboardImageAvailabilityProbeForTest,
+  OriginalClipboardImageSource, setOriginalClipboardImageReaderForTest,
 } from '../main/ets/data/OriginalClipboardImageIngress';
 
 class ClipboardImageSize {
@@ -56,6 +59,33 @@ function sourceFromProbe(probe: ClipboardImageProbe): OriginalClipboardImageSour
 
 export default function originalClipboardImageIngressTest() {
   describe('OriginalClipboardImageIngress', () => {
+    it('reports only an available PixelMap MIME probe', 0, async () => {
+      setOriginalClipboardImageAvailabilityProbeForTest(
+        async (): Promise<boolean> => true);
+      expect(await isOriginalClipboardImageAvailable()).assertTrue();
+
+      setOriginalClipboardImageAvailabilityProbeForTest(
+        async (): Promise<boolean> => false);
+      expect(await isOriginalClipboardImageAvailable()).assertFalse();
+      resetOriginalClipboardImageAvailabilityProbeForTest();
+    });
+
+    it('fails closed when the availability probe rejects', 0, async () => {
+      setOriginalClipboardImageAvailabilityProbeForTest(
+        async (): Promise<boolean> => {
+          throw new Error('availability probe failed');
+        });
+      expect(await isOriginalClipboardImageAvailable()).assertFalse();
+      resetOriginalClipboardImageAvailabilityProbeForTest();
+    });
+
+    it('restores the production availability probe', 0, async () => {
+      setOriginalClipboardImageAvailabilityProbeForTest(
+        async (): Promise<boolean> => true);
+      resetOriginalClipboardImageAvailabilityProbeForTest();
+      expect(await isOriginalClipboardImageAvailable()).assertFalse();
+    });
+
     it('rejects an empty clipboard without touching pixel maps', 0, async () => {
       setOriginalClipboardImageReaderForTest(
         async (): Promise<OriginalClipboardImageSource | null> => null);
