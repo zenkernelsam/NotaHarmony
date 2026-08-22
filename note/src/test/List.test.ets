@@ -112,6 +112,7 @@ import originalImageInsertPlanTest from './OriginalImageInsertPlan.test';
 import originalImageNormalizerTest from './OriginalImageNormalizer.test';
 import originalPhotoIngressTest from './OriginalPhotoIngress.test';
 import originalPhotoPickerCallerTest from './OriginalPhotoPickerCaller.test';
+import originalPhotoHistoryMetadataTest from './OriginalPhotoHistoryMetadata.test';
 import mathCanvasRendererTest from './MathCanvasRenderer.test';
 import pdfResourceLifecycleTest from './PdfResourceLifecycle.test';
 
@@ -228,6 +229,7 @@ export default function testsuite() {
   originalImageNormalizerTest();
   originalPhotoIngressTest();
   originalPhotoPickerCallerTest();
+  originalPhotoHistoryMetadataTest();
   mathCanvasRendererTest();
   pdfResourceLifecycleTest();
 }

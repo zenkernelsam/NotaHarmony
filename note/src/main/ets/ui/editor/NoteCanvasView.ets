@@ -1816,7 +1816,7 @@ export struct NoteCanvasView {
           addedShapes: finalShapes,
           addedTextBlocks: [],
           addedImages: [],
-          addedElementOrder: addedElementOrder,
+      addedElementOrder: [],
           elementOrderBefore: elementOrderBefore,
           elementOrderAfter: clonePageElementOrder(this.elementOrder),
         });
@@ -5372,7 +5372,7 @@ export struct NoteCanvasView {
       addedTextBlocks: [],
       addedImages: pendingImages,
       addedMathBlocks: [],
-      addedElementOrder: [],
+        addedElementOrder: [],
       elementOrderBefore: elementOrderBefore,
       elementOrderAfter: elementOrderBefore,
     };
@@ -5388,6 +5388,14 @@ export struct NoteCanvasView {
         (result: OriginalImageInsertResult): ImageElement => result.image);
       const finalOrder: PageElementRef[] =
         results[results.length - 1].elementOrder;
+      const addedElementOrder: PageElementRef[] = finalImages.map(
+        (image: ImageElement, index: number): PageElementRef => {
+          return {
+            kind: PageElementKind.IMAGE,
+            elementId: image.id,
+            zIndex: elementOrderBefore.length + index,
+          };
+        });
       const action: UndoableAction = {
         type: UndoableActionType.ADD_ELEMENTS,
         noteId: this.noteId,
@@ -5397,7 +5405,7 @@ export struct NoteCanvasView {
         addedTextBlocks: [],
         addedImages: finalImages,
         addedMathBlocks: [],
-        addedElementOrder: [],
+        addedElementOrder: addedElementOrder,
         elementOrderBefore: elementOrderBefore,
         elementOrderAfter: clonePageElementOrder(finalOrder),
       };
