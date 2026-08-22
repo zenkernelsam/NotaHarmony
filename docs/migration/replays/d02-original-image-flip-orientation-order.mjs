@@ -9,7 +9,7 @@ const fixture = fs.readFileSync('note/src/test/ImageBlockRendering.test.ets', 'u
 
 const orientationBlock = [
   'if (geometry.orientationDegrees !== 0 || geometry.mirroredHorizontally) {',
-  '        const centerX = geometry.orientedWidth / 2;',
+  '        const centerX = bitmap.width / 2;',
 ].join('\n');
 const renderTail = renderer.slice(renderer.indexOf('ctx.rect(crop.left'));
 const clipIndex = renderTail.indexOf('ctx.clip();');

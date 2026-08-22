@@ -77,8 +77,8 @@ export class ImageCanvasRenderer {
       ctx.rect(crop.left, crop.top, crop.right - crop.left, crop.bottom - crop.top);
       ctx.clip();
       if (geometry.orientationDegrees !== 0 || geometry.mirroredHorizontally) {
-        const centerX = geometry.orientedWidth / 2;
-        const centerY = geometry.orientedHeight / 2;
+        const centerX = bitmap.width / 2;
+        const centerY = bitmap.height / 2;
         ctx.translate(centerX, centerY);
         ctx.rotate(geometry.orientationDegrees * Math.PI / 180);
         if (geometry.mirroredHorizontally) {
