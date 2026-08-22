@@ -15,6 +15,7 @@ import { Point2D, Rect2D, TransformMatrix } from '../core/model/GeometryTypes';
 import {
   cloneImageElement, imageBlockWorldBounds, originalAssetHashKey, reflectImageCropRect,
 } from '../core/model/ImageBlockGeometry';
+import { NormalizedOriginalImageBytes, normalizeOriginalImageBytes } from './OriginalImageNormalizer';
 import {
   createOriginalImageInsertDraft, isOriginalNormalizedImageDimensions,
   planOriginalImageInsertGeometry,
@@ -242,6 +243,26 @@ export interface OriginalImageInsertPersistencePlan {
 export interface OriginalImageInsertResult {
   image: ImageElement;
   elementOrder: PageElementRef[];
+}
+
+export interface NormalizedOriginalImageInsertPlan {
+  bytes: Uint8Array;
+  mimeType: string;
+  intrinsicWidth: number;
+  intrinsicHeight: number;
+}
+
+export async function normalizedOriginalImagePersistencePlan(
+  bytes: Uint8Array): Promise<NormalizedOriginalImageInsertPlan> {
+  const stableBytes: Uint8Array = bytes.slice();
+  const normalized: NormalizedOriginalImageBytes =
+    await normalizeOriginalImageBytes(stableBytes);
+  return {
+    bytes: normalized.bytes,
+    mimeType: normalized.mimeType,
+    intrinsicWidth: normalized.encodedWidth,
+    intrinsicHeight: normalized.encodedHeight,
+  };
 }
 
 interface CommittedOriginalImageInsert {

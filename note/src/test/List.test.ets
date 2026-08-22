@@ -109,6 +109,7 @@ import originalLocalCheckboxMutationTest from './OriginalLocalCheckboxMutation.t
 import mathEditorOverlayTest from './MathEditorOverlay.test';
 import originalMathInsertPlanTest from './OriginalMathInsertPlan.test';
 import originalImageInsertPlanTest from './OriginalImageInsertPlan.test';
+import originalImageNormalizerTest from './OriginalImageNormalizer.test';
 import mathCanvasRendererTest from './MathCanvasRenderer.test';
 import pdfResourceLifecycleTest from './PdfResourceLifecycle.test';
 
@@ -222,6 +223,7 @@ export default function testsuite() {
   mathEditorOverlayTest();
   originalMathInsertPlanTest();
   originalImageInsertPlanTest();
+  originalImageNormalizerTest();
   mathCanvasRendererTest();
   pdfResourceLifecycleTest();
 }

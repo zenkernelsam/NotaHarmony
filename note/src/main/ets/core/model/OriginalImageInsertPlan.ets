@@ -38,6 +38,44 @@ export interface OriginalImageInsertGeometry {
   scaleY: number;
 }
 
+export interface OriginalImageNormalizationPlan {
+  sampleSize: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Replays vuh.b() after the oriented dimensions have already crossed the
+ * original 3000px boundary.  Java float arithmetic and the power-of-two
+ * sampling loop use encoded axes exactly as the original does.
+ */
+export function planOriginalImageDownscale(encodedWidth: number,
+  encodedHeight: number): OriginalImageNormalizationPlan | null {
+  if (!Number.isSafeInteger(encodedWidth) || !Number.isSafeInteger(encodedHeight) ||
+    encodedWidth <= 0 || encodedHeight <= 0) {
+    return null;
+  }
+  if (encodedWidth <= ORIGINAL_IMAGE_INSERT_MAX_INTRINSIC_SIDE &&
+    encodedHeight <= ORIGINAL_IMAGE_INSERT_MAX_INTRINSIC_SIDE) {
+    return { sampleSize: 1, width: encodedWidth, height: encodedHeight };
+  }
+  const floatRatio: number = Math.fround(
+    Math.fround(ORIGINAL_IMAGE_INSERT_MAX_INTRINSIC_SIDE) /
+    Math.fround(Math.max(encodedWidth, encodedHeight)));
+  const scaledWidth: number = Math.max(1, roundHalfUp(encodedWidth * floatRatio));
+  const scaledHeight: number = Math.max(1, roundHalfUp(encodedHeight * floatRatio));
+  let sampleSize: number = 1;
+  while (Math.floor(encodedWidth / (sampleSize * 2)) >= scaledWidth &&
+    Math.floor(encodedHeight / (sampleSize * 2)) >= scaledHeight) {
+    sampleSize *= 2;
+  }
+  return {
+    sampleSize: sampleSize,
+    width: scaledWidth,
+    height: scaledHeight,
+  };
+}
+
 export function isOriginalNormalizedImageDimensions(width: number, height: number): boolean {
   return Number.isSafeInteger(width) && Number.isSafeInteger(height) &&
     width > 0 && height > 0 && width <= ORIGINAL_IMAGE_INSERT_MAX_INTRINSIC_SIDE &&
@@ -212,6 +250,10 @@ function isImageMimeType(value: string): boolean {
 
 function validPositive(value: number): boolean {
   return Number.isFinite(value) && value > 0;
+}
+
+function roundHalfUp(value: number): number {
+  return Math.floor(value + 0.5);
 }
 
 function originalFloat(value: number): number {
