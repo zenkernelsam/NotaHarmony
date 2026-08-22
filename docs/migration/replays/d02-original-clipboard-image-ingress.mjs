@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 
 const ingress = fs.readFileSync('note/src/main/ets/data/OriginalClipboardImageIngress.ets', 'utf8').replaceAll('\r\n', '\n');
+const permission = fs.readFileSync('note/src/main/ets/data/OriginalClipboardPermissionGateway.ets', 'utf8').replaceAll('\r\n', '\n');
+const moduleManifest = fs.readFileSync('note/src/main/module.json5', 'utf8');
 const canvas = fs.readFileSync('note/src/main/ets/ui/editor/NoteCanvasView.ets', 'utf8').replaceAll('\r\n', '\n');
 const fixture = fs.readFileSync('note/src/test/OriginalClipboardImageIngress.test.ets', 'utf8');
 const fixtureList = fs.readFileSync('note/src/test/List.test.ets', 'utf8');
@@ -16,6 +18,12 @@ function between(source, startMarker, endMarker) {
 const importSource = between(ingress, 'export async function importOriginalClipboardImage', '\nasync function packWebpLossy');
 const menuSource = between(canvas, '@Builder\n  private ClipboardPasteContextMenu', '\n  // === 文本框 ===');
 const pasteSource = between(canvas, 'private async startOriginalClipboardImagePaste', '\n  private canUseOriginalClipboardImage');
+const base = JSON.parse(fs.readFileSync('note/src/main/resources/base/element/string.json', 'utf8'));
+const zh = JSON.parse(fs.readFileSync('note/src/main/resources/zh_CN/element/string.json', 'utf8'));
+
+function hasValue(json, name, value) {
+  return json.string.some((entry) => entry.name === name && entry.value === value);
+}
 
 const checks = [
   ['only accepts the system PixelMap clipboard type',
@@ -46,12 +54,25 @@ const checks = [
     canvas.includes('pasteAnchor?: Point2D')],
   ['failures show the localized insert failure toast',
     pasteSource.includes("$r('app.string.original_photo_insert_failed')")],
+  ['paste requests the SDK READ_PASTEBOARD permission before reading data',
+    pasteSource.includes("if (!await ensureOriginalClipboardReadPermission()) {") &&
+    canvas.includes("import { ensureOriginalClipboardReadPermission } from '../../data/OriginalClipboardPermissionGateway';")],
+  ['production gateway validates one exact granted result',
+    permission.includes("result.permissions[0] === permission") &&
+    permission.includes("result.authResults[0] === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED")],
+  ['manifest declares a localized user-grant reason',
+    moduleManifest.includes('"name": "ohos.permission.READ_PASTEBOARD"') &&
+    hasValue(base, 'read_pasteboard_permission_reason', 'Allows the app to paste images from the clipboard') &&
+    hasValue(zh, 'read_pasteboard_permission_reason', '允许应用粘贴剪贴板中的图片')],
   ['ArkTS fixture proves empty scaling reset and resource paths',
     fixture.includes("'system pasteboard has no original clipboard image'") &&
     fixture.includes("'scaled clipboard probe stops before encoder'") &&
     fixture.includes('requestedScaleX') &&
     fixture.includes('3000 / 12001') &&
     fixtureList.includes('originalClipboardImageIngressTest();')],
+  ['permission fixture proves exact request and fail-closed denial',
+    fs.readFileSync('note/src/test/OriginalClipboardPermissionGateway.test.ets', 'utf8').includes("'ohos.permission.READ_PASTEBOARD'") &&
+    fixtureList.includes('originalClipboardPermissionGatewayTest();')],
   ['JADX evidence records the ClipboardImage dispatch boundary',
     evidence.includes('hasMimeType("image/*")') &&
     evidence.includes('handleAddImageFromClipboard') &&

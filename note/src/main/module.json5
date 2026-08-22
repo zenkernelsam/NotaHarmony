@@ -21,6 +21,14 @@
           "abilities": ["NoteAbility"],
           "when": "inuse"
         }
+      },
+      {
+        "name": "ohos.permission.READ_PASTEBOARD",
+        "reason": "$string:read_pasteboard_permission_reason",
+        "usedScene": {
+          "abilities": ["NoteAbility"],
+          "when": "inuse"
+        }
       }
     ],
     "abilities": [

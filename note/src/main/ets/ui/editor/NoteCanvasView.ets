@@ -185,6 +185,7 @@ import { pickAndImportOriginalPhotos } from '../../data/OriginalPhotoPickerCalle
 import {
   NormalizedOriginalClipboardImage, importOriginalClipboardImage,
 } from '../../data/OriginalClipboardImageIngress';
+import { ensureOriginalClipboardReadPermission } from '../../data/OriginalClipboardPermissionGateway';
 import { OriginalImageInsertPersistencePlan, OriginalImageInsertResult } from '../../data/StrokePersistence';
 
 const HISTORY_CHECKPOINT_TAIL_OPERATIONS: number = 256;
@@ -5342,6 +5343,9 @@ export struct NoteCanvasView {
     }
     this.photoImportBusy = true;
     try {
+      if (!await ensureOriginalClipboardReadPermission()) {
+        throw new Error('READ_PASTEBOARD permission was not granted');
+      }
       const normalized: NormalizedOriginalClipboardImage =
         await importOriginalClipboardImage();
       if (normalized.bytes.byteLength <= 0) {
