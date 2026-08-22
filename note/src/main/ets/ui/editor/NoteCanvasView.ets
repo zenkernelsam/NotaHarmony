@@ -5380,7 +5380,7 @@ export struct NoteCanvasView {
       if (!Number.isFinite(target.x) || !Number.isFinite(target.y)) {
         throw new Error('original clipboard image paste anchor is invalid');
       }
-      await this.insertOriginalPhotos([{
+      const outcome: PhotoInsertOutcome = await this.insertOriginalPhotos([{
         bytes: normalized.bytes,
         fileName: `clipboard-${Date.now()}.webp`,
         mimeType: 'image/webp',
@@ -5389,6 +5389,8 @@ export struct NoteCanvasView {
         orientedWidth: normalized.width,
         orientedHeight: normalized.height,
       }], target);
+      this.systemClipboardImageAvailable =
+        await isOriginalClipboardImageAvailable() && outcome.insertedCount > 0;
     } catch (e) {
       hilog.error(0x0001, 'NoteCanvasView',
         'original clipboard image paste failed: %{public}s', JSON.stringify(e));
