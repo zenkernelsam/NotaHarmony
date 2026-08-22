@@ -20,6 +20,8 @@ const probeSource = between(ingress, 'async function probeWithHarmonyPasteboardM
   '\nexport async function isOriginalClipboardImageAvailable');
 const availabilitySource = between(ingress,
   'export async function isOriginalClipboardImageAvailable', '\nasync function readWithHarmonyPasteboard');
+const listenerSource = between(ingress,
+  'export function addOriginalClipboardImageChangeListenerForTest', '\nasync function readWithHarmonyPasteboard');
 const menuSource = between(canvas, '@Builder\n  private ClipboardPasteContextMenu', '\n  // === 文本框 ===');
 const pasteSource = between(canvas, 'private async startOriginalClipboardImagePaste', '\n  private canUseOriginalClipboardImage');
 const base = JSON.parse(fs.readFileSync('note/src/main/resources/base/element/string.json', 'utf8'));
@@ -64,6 +66,14 @@ const checks = [
     canvas.includes('this.persistence.isReady() && this.loadedPageId.length > 0 &&\n      this.systemClipboardImageAvailable;') &&
     canvas.includes('private refreshSystemClipboardImageAvailability(): void {') &&
     canvas.includes('isOriginalClipboardImageAvailable().then((available: boolean): void => {')],
+  ['pasteboard update events refresh current clipboard image availability',
+    listenerSource.includes("on('update', listener);") &&
+    listenerSource.includes("off('update', listener);") &&
+    canvas.includes('private startSystemClipboardImageAvailabilityUpdates(): void {') &&
+    canvas.includes('addOriginalClipboardImageChangeListenerForTest(listener);') &&
+    canvas.includes('removeOriginalClipboardImageChangeListenerForTest(listener);') &&
+    canvas.includes('this.stopSystemClipboardImageAvailabilityUpdates();') &&
+    fixture.includes('subscribes and removes the same pasteboard update listener')],
   ['page loads refresh and page switches reset image paste availability',
     canvas.includes('this.refreshSystemClipboardImageAvailability();\n      if (this.layerManager.isInitialized()) {') &&
     canvas.includes('this.systemClipboardImageAvailable = false;\n      this.refreshSystemClipboardImageAvailability();\n      this.selectionTool.deselect();') &&
@@ -88,6 +98,8 @@ const checks = [
     fixture.includes("'system pasteboard has no original clipboard image'") &&
     fixture.includes("'availability probe failed'") &&
     fixture.includes('resetOriginalClipboardImageAvailabilityProbeForTest();') &&
+    fixture.includes('addOriginalClipboardImageChangeListenerForTest(listener)') &&
+    fixture.includes('removeOriginalClipboardImageChangeListenerForTest(listener)') &&
     fixture.includes("'scaled clipboard probe stops before encoder'") &&
     fixture.includes('requestedScaleX') &&
     fixture.includes('3000 / 12001') &&

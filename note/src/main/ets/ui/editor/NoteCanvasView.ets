@@ -183,8 +183,11 @@ import {
 import { OriginalPhotoIngressItem } from '../../data/OriginalPhotoIngress';
 import { pickAndImportOriginalPhotos } from '../../data/OriginalPhotoPickerCaller';
 import {
+  addOriginalClipboardImageChangeListenerForTest,
   NormalizedOriginalClipboardImage, importOriginalClipboardImage,
   isOriginalClipboardImageAvailable,
+  OriginalClipboardImageChangeListener,
+  removeOriginalClipboardImageChangeListenerForTest,
 } from '../../data/OriginalClipboardImageIngress';
 import { ensureOriginalClipboardReadPermission } from '../../data/OriginalClipboardPermissionGateway';
 import { OriginalImageInsertPersistencePlan, OriginalImageInsertResult } from '../../data/StrokePersistence';
@@ -387,9 +390,11 @@ export struct NoteCanvasView {
   @State overlayHeight: number = 0;
   private clipboardPasteTarget: Point2D | null = null;
   private lastPasteRequestTime: number = 0;
+  private systemClipboardImageChangeListener: OriginalClipboardImageChangeListener | null = null;
 
   aboutToAppear(): void {
     this.lifecycleActive = true;
+    this.startSystemClipboardImageAvailabilityUpdates();
     this.mathEngineInitializationComplete = originalMathEngine.isReady();
     originalMathEngine.initialize(getContext(this) as common.UIAbilityContext).then((ready: boolean): void => {
       this.mathEngineInitializationComplete = true;
@@ -817,6 +822,7 @@ export struct NoteCanvasView {
   aboutToDisappear(): void {
     this.lifecycleActive = false;
     this.partialEraserPreview.cancel();
+    this.stopSystemClipboardImageAvailabilityUpdates();
     this.cancelImageCrop();
     this.cancelMathEditorDraftValidation();
     this.releaseMathEditorPreview();
@@ -5388,6 +5394,40 @@ export struct NoteCanvasView {
       !this.historyBusy && !this.photoImportBusy &&
       this.persistence.isReady() && this.loadedPageId.length > 0 &&
       this.systemClipboardImageAvailable;
+  }
+
+  private startSystemClipboardImageAvailabilityUpdates(): void {
+    if (this.systemClipboardImageChangeListener !== null) {
+      return;
+    }
+    const listener: OriginalClipboardImageChangeListener = (): void => {
+      if (this.lifecycleActive) {
+        this.refreshSystemClipboardImageAvailability();
+      }
+    };
+    try {
+      addOriginalClipboardImageChangeListenerForTest(listener);
+      this.systemClipboardImageChangeListener = listener;
+    } catch (e) {
+      hilog.error(0x0001, 'NoteCanvasView',
+        'original clipboard image update subscription failed: %{public}s', JSON.stringify(e));
+    }
+  }
+
+  private stopSystemClipboardImageAvailabilityUpdates(): void {
+    const listener = this.systemClipboardImageChangeListener;
+    if (listener === null) {
+      return;
+    }
+    try {
+      removeOriginalClipboardImageChangeListenerForTest(listener);
+    } catch (e) {
+      hilog.error(0x0001, 'NoteCanvasView',
+        'original clipboard image update unsubscribe failed: %{public}s', JSON.stringify(e));
+    } finally {
+      this.systemClipboardImageChangeListener = null;
+      this.systemClipboardImageAvailable = false;
+    }
   }
 
   private refreshSystemClipboardImageAvailability(): void {

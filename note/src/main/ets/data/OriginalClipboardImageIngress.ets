@@ -1,4 +1,5 @@
 import { pasteboard } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { image } from '@kit.ImageKit';
 import {
   isOriginalNormalizedImageDimensions, planOriginalImageDownscale,
@@ -22,6 +23,8 @@ export type OriginalClipboardImageReader = () => Promise<OriginalClipboardImageS
 
 export type OriginalClipboardImageAvailabilityProbe =
   () => Promise<boolean>;
+
+export type OriginalClipboardImageChangeListener = () => void;
 
 let readOriginalClipboardImage: OriginalClipboardImageReader = readWithHarmonyPasteboard;
 
@@ -58,6 +61,28 @@ export async function isOriginalClipboardImageAvailable(): Promise<boolean> {
     return await probeOriginalClipboardImageAvailability();
   } catch (_probeError) {
     return false;
+  }
+}
+
+export function addOriginalClipboardImageChangeListenerForTest(
+  listener: OriginalClipboardImageChangeListener): void {
+  try {
+    pasteboard.getSystemPasteboard().on('update', listener);
+  } catch (e) {
+    hilog.error(0x0001, 'OriginalClipboardImageIngress',
+      'pasteboard update subscribe failed: %{public}s', JSON.stringify(e));
+    throw e as Error;
+  }
+}
+
+export function removeOriginalClipboardImageChangeListenerForTest(
+  listener: OriginalClipboardImageChangeListener): void {
+  try {
+    pasteboard.getSystemPasteboard().off('update', listener);
+  } catch (e) {
+    hilog.error(0x0001, 'OriginalClipboardImageIngress',
+      'pasteboard update unsubscribe failed: %{public}s', JSON.stringify(e));
+    throw e as Error;
   }
 }
 

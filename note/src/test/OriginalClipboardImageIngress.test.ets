@@ -1,8 +1,11 @@
 import { describe, expect, it } from '@ohos/hypium';
 import { image } from '@kit.ImageKit';
 import {
+  addOriginalClipboardImageChangeListenerForTest,
   isOriginalClipboardImageAvailable,
   importOriginalClipboardImage,
+  OriginalClipboardImageChangeListener,
+  removeOriginalClipboardImageChangeListenerForTest,
   resetOriginalClipboardImageAvailabilityProbeForTest,
   resetOriginalClipboardImageReaderForTest,
   setOriginalClipboardImageAvailabilityProbeForTest,
@@ -59,6 +62,22 @@ function sourceFromProbe(probe: ClipboardImageProbe): OriginalClipboardImageSour
 
 export default function originalClipboardImageIngressTest() {
   describe('OriginalClipboardImageIngress', () => {
+    it('subscribes and removes the same pasteboard update listener', 0, () => {
+      const added: OriginalClipboardImageChangeListener[] = [];
+      const removed: OriginalClipboardImageChangeListener[] = [];
+      let notified = false;
+      const listener: OriginalClipboardImageChangeListener = (): void => {
+        if (notified) {
+          throw new Error('availability update stops after unsubscribe');
+        }
+        notified = true;
+      };
+      addOriginalClipboardImageChangeListenerForTest(listener);
+      removeOriginalClipboardImageChangeListenerForTest(listener);
+      expect(added.length).assertEqual(1);
+      expect(removed.length).assertEqual(1);
+      expect(removed[0]).assertEqual(added[0]);
+    });
     it('reports only an available PixelMap MIME probe', 0, async () => {
       setOriginalClipboardImageAvailabilityProbeForTest(
         async (): Promise<boolean> => true);
