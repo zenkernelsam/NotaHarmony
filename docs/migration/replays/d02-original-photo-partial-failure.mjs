@@ -36,6 +36,7 @@ const checks = [
     insertSource.includes('break;')],
   ['success prefix is installed and undoable before partial feedback',
     insertSource.includes('this.undoRedo.push(action, prepared);') &&
+    insertSource.includes('this.refreshImageAssets(generation, pageId);') &&
     insertSource.includes('return { insertedCount: results.length, totalCount: plans.length };')],
   ['partial failure is localized in both resource tables',
     hasValue(base, 'original_photo_insert_partial_failed', "Some photos couldn't be added") &&

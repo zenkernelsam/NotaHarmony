@@ -5490,6 +5490,7 @@ export struct NoteCanvasView {
       if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
         pageId === this.currentPage.pageId) {
         this.imageBlocks = this.imageBlocks.concat(finalImages);
+        this.refreshImageAssets(generation, pageId);
         this.elementOrder = clonePageElementOrder(finalOrder);
         this.synchronizeElementArraysByOrder();
         this.selectionTool.selectElementIds([], [], [], finalImages.map(
