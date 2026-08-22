@@ -159,7 +159,8 @@ export class ThumbnailRenderer {
             const asset: LoadedImageAsset | undefined = imageAssets.get(
               originalAssetStorageHash(element.data.assetHashBits));
             if (asset !== undefined && asset.state === ImageAssetLoadState.READY && asset.bitmap !== null) {
-              this.imageRenderer.renderImage(element.data, asset.bitmap, renderContext);
+              this.imageRenderer.renderImage(element.data, asset.bitmap, renderContext,
+                asset.orientationDegrees, asset.mirroredHorizontally);
             }
           } else if (element.kind === PageElementKind.MATH) {
             this.mathRenderer.renderMath(element.data, renderContext, mathRasterScale);

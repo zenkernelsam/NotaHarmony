@@ -14,7 +14,9 @@ assert.match(thumbnail, /originalAssetStorageHash\(block\.assetHashBits\)/);
 assert.match(thumbnail, /if \(!imageAssets\.has\(storageHash\)\)/);
 assert.match(thumbnail, /element\.kind === PageElementKind\.IMAGE/);
 assert.match(thumbnail, /asset\.state === ImageAssetLoadState\.READY/);
-assert.match(thumbnail, /this\.imageRenderer\.renderImage\(element\.data, asset\.bitmap, renderContext\)/);
+assert.match(thumbnail,
+  /this\.imageRenderer\.renderImage\(element\.data, asset\.bitmap, renderContext,/);
+assert.match(thumbnail, /asset\.orientationDegrees, asset\.mirroredHorizontally\);/);
 assert.match(thumbnail, /finally \{/);
 assert.match(thumbnail, /imageLoader\.release\(asset\)/);
 assert.match(library,

@@ -77,6 +77,19 @@ export default function imageBlockRenderingTest() {
       expect(imageRenderGeometry(block, 200, 100) === null).assertTrue();
     });
 
+     it('preserves EXIF orientation metadata for shared page and thumbnail rendering', 0, () => {
+       const block: ImageElement = imageBlock();
+       const geometry: ImageRenderGeometry | null = imageRenderGeometry(
+         block, 200, 100, 90, true);
+       expect(geometry === null).assertFalse();
+       const resolved: ImageRenderGeometry = geometry as ImageRenderGeometry;
+       expect(resolved.orientationDegrees).assertEqual(90);
+       expect(resolved.mirroredHorizontally).assertTrue();
+       expect(resolved.orientedWidth).assertEqual(100);
+       expect(resolved.orientedHeight).assertEqual(200);
+       expect(imageRenderGeometry(block, 200, 100, 45, true) === null).assertTrue();
+     });
+
     it('transforms editable images while preserving asset and crop metadata', 0, () => {
       const block: ImageElement = imageBlock();
       const transformed: ImageElement = transformImageElements(
