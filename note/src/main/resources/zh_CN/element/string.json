@@ -82,6 +82,7 @@
     { "name": "partial_eraser", "value": "局部擦除" },
     { "name": "selection", "value": "选择" },
     { "name": "text", "value": "文本" },
+    { "name": "insert_photo", "value": "图片" },
     { "name": "insert_math", "value": "公式" },
     { "name": "more_tools", "value": "更多工具" },
     { "name": "style_mono", "value": "均匀" },
@@ -255,6 +256,7 @@
     { "name": "math_editor_invalid", "value": "这不是有效的 LaTeX" },
     { "name": "math_editor_failed", "value": "无法添加数学公式" },
     { "name": "math_editor_cancel", "value": "取消" },
-    { "name": "math_editor_done", "value": "完成" }
+    { "name": "math_editor_done", "value": "完成" },
+    { "name": "original_photo_insert_failed", "value": "无法添加图片" }
   ]
 }

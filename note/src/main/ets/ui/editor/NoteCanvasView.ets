@@ -60,6 +60,7 @@ import {
 } from '../../rendering/StrokeClipboard';
 import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
+import { createOriginalImageInsertDraft } from '../../core/model/OriginalImageInsertPlan';
 import {
   decodePersistedElement, decodeStoredPageElement, encodePersistedElement, HistoryPageSnapshot,
   OriginalZOrderCommand,
@@ -179,6 +180,9 @@ import {
 import {
   OriginalAudioLinkedPlayback, OriginalAudioSegmentRange, resolveOriginalAudioLinkedPlayback,
 } from '../../core/adaptation/OriginalAudioLinkedInkPlayback';
+import { OriginalPhotoIngressItem } from '../../data/OriginalPhotoIngress';
+import { pickAndImportOriginalPhotos } from '../../data/OriginalPhotoPickerCaller';
+import { OriginalImageInsertPersistencePlan, OriginalImageInsertResult } from '../../data/StrokePersistence';
 
 const HISTORY_CHECKPOINT_TAIL_OPERATIONS: number = 256;
 const HISTORY_CHECKPOINT_MAX_ACTIONS: number = 128;
@@ -207,6 +211,7 @@ export struct NoteCanvasView {
   @Prop @Watch('onUndoSignalChange') undoSignal: number = 0;
   @Prop @Watch('onRedoSignalChange') redoSignal: number = 0;
   @Prop @Watch('onMathInsertSignalChange') mathInsertSignal: number = 0;
+  @Prop @Watch('onPhotoInsertSignalChange') photoInsertSignal: number = 0;
   @Prop @Watch('onSelectionStyleSignalChange') selectionStyleSignal: number = 0;
   @Prop selectionInkStyle: InkStyle = InkStyle.FIXED_WIDTH;
   @Prop @Watch('onSelectionColorSignalChange') selectionColorSignal: number = 0;
@@ -354,6 +359,7 @@ export struct NoteCanvasView {
   private imageCropSession: OriginalImageCropSession | null = null;
   @State imageCropVisible: boolean = false;
   @State imageCropDraft: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
+  @State photoImportBusy: boolean = false;
   @State mathEditorVisible: boolean = false;
   @State mathEditorDraft: string = '';
   @State mathEditorDraftState: OriginalMathEditorDraftState = OriginalMathEditorDraftState.EMPTY;
@@ -985,6 +991,10 @@ export struct NoteCanvasView {
 
   onMathInsertSignalChange(_propName: string): void {
     this.startMathInsert();
+  }
+
+  onPhotoInsertSignalChange(_propName: string): void {
+    void this.startOriginalPhotoInsert();
   }
 
   // === 画布初始化 ===
@@ -5272,6 +5282,139 @@ export struct NoteCanvasView {
         'original Math latex commit failed: %{public}s', JSON.stringify(e));
     } finally {
       this.mathEditorBusy = false;
+      this.historyBusy = false;
+    }
+  }
+
+  private canStartOriginalPhotoInsert(): boolean {
+    return this.loaded && !this.dataLoading && !this.dataLoadFailed &&
+      !this.historyBusy && !this.photoImportBusy &&
+      this.persistence.isReady() && this.loadedPageId.length > 0;
+  }
+
+  private async startOriginalPhotoInsert(): Promise<void> {
+    if (!this.canStartOriginalPhotoInsert()) {
+      return;
+    }
+    const context = getContext(this) as common.UIAbilityContext;
+    this.photoImportBusy = true;
+    try {
+      const imported: OriginalPhotoIngressItem[] = await pickAndImportOriginalPhotos({
+        context: context,
+        cacheDirectory: context.cacheDir,
+      });
+      if (imported.length === 0) {
+        return;
+      }
+      await this.commitOriginalPhotoInsert(imported);
+    } catch (e) {
+      hilog.error(0x0001, 'NoteCanvasView', 'original photo insert failed: %{public}s',
+        JSON.stringify(e));
+      promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),
+        duration: 3000 });
+    } finally {
+      this.photoImportBusy = false;
+    }
+  }
+
+  private async commitOriginalPhotoInsert(
+    imported: OriginalPhotoIngressItem[]): Promise<void> {
+    const pageId: string = this.loadedPageId;
+    const generation: number = this.pageLoadGeneration;
+    const pageWidth: number = this.getPaperWidth();
+    const pageHeight: number = this.getPaperHeight();
+    const zoom: number = this.viewport.zoom;
+    const center: Point2D = this.viewport.screenToCanvas(
+      this.canvasCtx.width / 2, this.canvasCtx.height / 2);
+    const plans: OriginalImageInsertPersistencePlan[] = imported.map(
+      (item: OriginalPhotoIngressItem, index: number): OriginalImageInsertPersistencePlan => ({
+        bytes: item.bytes,
+        fileName: item.fileName,
+        mimeType: item.mimeType,
+        intrinsicWidth: item.encodedWidth,
+        intrinsicHeight: item.encodedHeight,
+        pageWidth: pageWidth,
+        pageHeight: pageHeight,
+        zoom: zoom,
+        anchor: {
+          x: center.x + index * 24,
+          y: center.y + index * 24,
+        },
+      }));
+    const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
+    const pendingImages: ImageElement[] = [];
+    for (let index = 0; index < plans.length; index++) {
+      const plan: OriginalImageInsertPersistencePlan = plans[index];
+      const pending: ImageElement | null = createOriginalImageInsertDraft({
+        assetHashBits: ['0', '0', '0', '0', '0', '0', '0', '0'],
+        fileName: plan.fileName,
+        mimeType: plan.mimeType,
+        fileSize: plan.bytes.byteLength,
+        intrinsicWidth: plan.intrinsicWidth,
+        intrinsicHeight: plan.intrinsicHeight,
+      }, plan.anchor, plan.pageWidth, plan.pageHeight, plan.zoom);
+      if (pending === null) {
+        throw new Error('pending original image insert draft is invalid');
+      }
+      pending.id = 'pending-original-image-' + index;
+      pendingImages.push(pending);
+    }
+    const draftAction: UndoableAction = {
+      type: UndoableActionType.ADD_ELEMENTS,
+      noteId: this.noteId,
+      pageId: pageId,
+      addedStrokes: [],
+      addedShapes: [],
+      addedTextBlocks: [],
+      addedImages: pendingImages,
+      addedMathBlocks: [],
+      addedElementOrder: [],
+      elementOrderBefore: elementOrderBefore,
+      elementOrderAfter: elementOrderBefore,
+    };
+    const prepared: HistoryMetadata = this.undoRedo.prepareHistoryMetadata(draftAction);
+    this.historyBusy = true;
+    try {
+      const results: OriginalImageInsertResult[] = [];
+      for (const plan of plans) {
+        results.push(await this.persistence.commitOriginalImageInsert(
+          this.noteId, pageId, plan, prepared));
+      }
+      const finalImages: ImageElement[] = results.map(
+        (result: OriginalImageInsertResult): ImageElement => result.image);
+      const finalOrder: PageElementRef[] =
+        results[results.length - 1].elementOrder;
+      const action: UndoableAction = {
+        type: UndoableActionType.ADD_ELEMENTS,
+        noteId: this.noteId,
+        pageId: pageId,
+        addedStrokes: [],
+        addedShapes: [],
+        addedTextBlocks: [],
+        addedImages: finalImages,
+        addedMathBlocks: [],
+        addedElementOrder: [],
+        elementOrderBefore: elementOrderBefore,
+        elementOrderAfter: clonePageElementOrder(finalOrder),
+      };
+      this.undoRedo.push(action, prepared);
+      this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+        pageId === this.currentPage.pageId) {
+        this.imageBlocks = this.imageBlocks.concat(finalImages);
+        this.elementOrder = clonePageElementOrder(finalOrder);
+        this.synchronizeElementArraysByOrder();
+        this.selectionTool.selectElementIds([], [], [], finalImages.map(
+          (image: ImageElement): string => image.id), [], []);
+        this.updateSelectionOverlay();
+        this.renderFrame();
+      }
+      this.notifyUndoRedo();
+      this.saveFailed = false;
+    } catch (e) {
+      this.reportSaveFailure(e as Object);
+      throw new Error(`original photo insert commit failed: ${JSON.stringify(e)}`);
+    } finally {
       this.historyBusy = false;
     }
   }
