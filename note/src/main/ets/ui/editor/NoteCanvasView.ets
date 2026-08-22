@@ -391,6 +391,7 @@ export struct NoteCanvasView {
   private clipboardPasteTarget: Point2D | null = null;
   private lastPasteRequestTime: number = 0;
   private systemClipboardImageChangeListener: OriginalClipboardImageChangeListener | null = null;
+  private systemClipboardImageProbeGeneration: number = 0;
 
   aboutToAppear(): void {
     this.lifecycleActive = true;
@@ -5431,12 +5432,14 @@ export struct NoteCanvasView {
   }
 
   private refreshSystemClipboardImageAvailability(): void {
+    const probeGeneration: number = ++this.systemClipboardImageProbeGeneration;
     if (!this.canStartOriginalPhotoInsert()) {
       this.systemClipboardImageAvailable = false;
       return;
     }
     isOriginalClipboardImageAvailable().then((available: boolean): void => {
-      if (this.canStartOriginalPhotoInsert()) {
+      if (probeGeneration === this.systemClipboardImageProbeGeneration &&
+        this.canStartOriginalPhotoInsert()) {
         this.systemClipboardImageAvailable = available;
       }
     }).catch((e: Object): void => {

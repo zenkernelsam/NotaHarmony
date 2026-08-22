@@ -66,6 +66,11 @@ const checks = [
     canvas.includes('this.persistence.isReady() && this.loadedPageId.length > 0 &&\n      this.systemClipboardImageAvailable;') &&
     canvas.includes('private refreshSystemClipboardImageAvailability(): void {') &&
     canvas.includes('isOriginalClipboardImageAvailable().then((available: boolean): void => {')],
+  ['availability probes discard stale async results',
+    canvas.includes('private systemClipboardImageProbeGeneration: number = 0;') &&
+    canvas.includes('const probeGeneration: number = ++this.systemClipboardImageProbeGeneration;') &&
+    canvas.includes('if (probeGeneration === this.systemClipboardImageProbeGeneration &&\n        this.canStartOriginalPhotoInsert()) {') &&
+    canvas.includes('this.stopSystemClipboardImageAvailabilityUpdates();')],
   ['pasteboard update events refresh current clipboard image availability',
     listenerSource.includes("on('update', listener);") &&
     listenerSource.includes("off('update', listener);") &&
