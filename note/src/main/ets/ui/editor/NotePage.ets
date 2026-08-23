@@ -657,6 +657,9 @@ struct NotePage {
   }
 
   private onRecordingPlaybackSnapshot(snapshot: OriginalRecordingPlaybackSnapshot): void {
+    if (this.editorDisposed) {
+      return;
+    }
     this.playbackSnapshot = snapshot;
     this.updateCumulativePlaybackPosition(snapshot);
     this.updateAudioPlaybackTime(snapshot);
