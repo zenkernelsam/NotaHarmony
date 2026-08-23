@@ -2777,6 +2777,7 @@ export struct NoteCanvasView {
 
   private async applyOriginalGroupHistoryMove(action: GroupElementsAction, isUndo: boolean,
     history: HistoryMetadata): Promise<void> {
+    const generation: number = this.pageLoadGeneration;
     const mutation: OriginalGroupMutationOpPayload = {
       pageId: action.pageId,
       beforeGroups: action.beforeGroups,
@@ -2793,6 +2794,12 @@ export struct NoteCanvasView {
         throw new Error('Group history stack changed after durable apply');
       }
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+      if (!this.isHistoryPageContextCurrent(generation, action.pageId)) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'Group history committed after page changed; durable history remains available');
+        this.notifyUndoRedo();
+        return;
+      }
       this.selectionGroups = result.groups;
       this.elementOrder = clonePageElementOrder(
         isUndo ? action.elementOrderBefore : action.elementOrderAfter);
@@ -2805,15 +2812,19 @@ export struct NoteCanvasView {
       this.renderFrame();
       this.notifyUndoRedo();
     } catch (e) {
-      this.reportSaveFailure(e as Object);
       hilog.error(0x0001, 'NoteCanvasView',
-        'Group history apply failed: %{public}s', JSON.stringify(e));
+        'Group history apply failed for page %{public}s: %{public}s', action.pageId,
+        JSON.stringify(e));
+      if (this.isHistoryPageContextCurrent(generation, action.pageId)) {
+        this.reportSaveFailure(e as Object);
+      }
     }
   }
 
   private async applyOriginalClipboardPasteHistoryMove(
     action: OriginalClipboardPasteAction, isUndo: boolean,
     history: HistoryMetadata): Promise<void> {
+    const generation: number = this.pageLoadGeneration;
     try {
       const mutation: OriginalClipboardPasteMutation =
         decodeOriginalClipboardPasteMutation(action.operation.payload);
@@ -2826,6 +2837,13 @@ export struct NoteCanvasView {
         throw new Error('original clipboard Paste history stack changed after durable apply');
       }
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+      if (!this.isHistoryPageContextCurrent(generation, action.pageId)) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original clipboard Paste history committed after page changed; ' +
+          'durable history remains available');
+        this.notifyUndoRedo();
+        return;
+      }
       this.installMutationElements(result.elements);
       this.selectionGroups = result.groups;
       this.selectionTool.deselect();
@@ -2836,15 +2854,19 @@ export struct NoteCanvasView {
       this.renderFrame();
       this.notifyUndoRedo();
     } catch (e) {
-      this.reportSaveFailure(e as Object);
       hilog.error(0x0001, 'NoteCanvasView',
-        'original clipboard Paste history apply failed: %{public}s', JSON.stringify(e));
+        'original clipboard Paste history apply failed for page %{public}s: %{public}s',
+        action.pageId, JSON.stringify(e));
+      if (this.isHistoryPageContextCurrent(generation, action.pageId)) {
+        this.reportSaveFailure(e as Object);
+      }
     }
   }
 
   private async applyOriginalPartialEraseHistoryMove(
     action: OriginalPartialEraseAction, isUndo: boolean,
     history: HistoryMetadata): Promise<void> {
+    const generation: number = this.pageLoadGeneration;
     try {
       const mutation: OriginalPartialEraseMutation =
         decodeOriginalPartialEraseMutation(action.operation.payload);
@@ -2857,6 +2879,13 @@ export struct NoteCanvasView {
         throw new Error('original partial erase history stack changed after durable apply');
       }
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+      if (!this.isHistoryPageContextCurrent(generation, action.pageId)) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original partial erase history committed after page changed; ' +
+          'durable history remains available');
+        this.notifyUndoRedo();
+        return;
+      }
       this.installMutationElements(result.elements);
       this.selectionGroups = result.groups;
       this.selectionTool.deselect();
@@ -2869,15 +2898,19 @@ export struct NoteCanvasView {
       this.notifyUndoRedo();
       this.refreshOriginalInkReservation(this.pageLoadGeneration, action.pageId);
     } catch (e) {
-      this.reportSaveFailure(e as Object);
       hilog.error(0x0001, 'NoteCanvasView',
-        'original partial erase history apply failed: %{public}s', JSON.stringify(e));
+        'original partial erase history apply failed for page %{public}s: %{public}s',
+        action.pageId, JSON.stringify(e));
+      if (this.isHistoryPageContextCurrent(generation, action.pageId)) {
+        this.reportSaveFailure(e as Object);
+      }
     }
   }
 
   private async applyOriginalHandwritingConversionHistoryMove(
     action: OriginalHandwritingConversionAction, isUndo: boolean,
     history: HistoryMetadata): Promise<void> {
+    const generation: number = this.pageLoadGeneration;
     try {
       const mutation: OriginalHandwritingConversionMutation =
         decodeOriginalHandwritingConversionMutation(action.operation.payload);
@@ -2890,6 +2923,13 @@ export struct NoteCanvasView {
         throw new Error('original handwriting conversion history stack changed after durable apply');
       }
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+      if (!this.isHistoryPageContextCurrent(generation, action.pageId)) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original handwriting conversion history committed after page changed; ' +
+          'durable history remains available');
+        this.notifyUndoRedo();
+        return;
+      }
       this.installMutationElements(result.elements);
       this.selectionTool.deselect();
       this.selectionVisible = false;
@@ -2901,9 +2941,12 @@ export struct NoteCanvasView {
       this.notifyUndoRedo();
       this.refreshOriginalInkReservation(this.pageLoadGeneration, action.pageId);
     } catch (e) {
-      this.reportSaveFailure(e as Object);
       hilog.error(0x0001, 'NoteCanvasView',
-        'original handwriting conversion history apply failed: %{public}s', JSON.stringify(e));
+        'original handwriting conversion history apply failed for page %{public}s: %{public}s',
+        action.pageId, JSON.stringify(e));
+      if (this.isHistoryPageContextCurrent(generation, action.pageId)) {
+        this.reportSaveFailure(e as Object);
+      }
     }
   }
 
@@ -2929,27 +2972,42 @@ export struct NoteCanvasView {
   }
 
   private async applyElementHistoryGroup(group: HistoryMove[], isUndo: boolean): Promise<void> {
+    const pageId: string = this.loadedPageId;
+    const generation: number = this.pageLoadGeneration;
     const rollbackElements: SearchSourceElement[] = this.currentMutationElements();
     const touchesImages: boolean = group.some(
       (move: HistoryMove): boolean => this.actionTouchesImages(move.action));
     try {
       this.invalidateOriginalInkReservation();
-      await this.persistence.flush(this.noteId, this.loadedPageId);
+      await this.persistence.flush(this.noteId, pageId);
+      if (!this.isHistoryPageContextCurrent(generation, pageId)) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'history group source changed after page navigation; refusing local apply');
+        return;
+      }
       const initial: HistoryPageSnapshot = this.captureHistoryPageSnapshot();
       const steps: HistoryPageSnapshot[] = [];
       for (const move of group) {
         if (!this.applyAction(move.action, isUndo, false)) {
-          this.restoreHistoryPage(rollbackElements);
-          if (touchesImages) {
-            this.refreshImageAssets(this.pageLoadGeneration, this.loadedPageId);
-          }
           hilog.error(0x0001, 'NoteCanvasView',
             'history group source state mismatch, type=%{public}d', move.action.type);
+          if (this.isHistoryPageContextCurrent(generation, pageId)) {
+            this.restoreHistoryPage(rollbackElements);
+            if (touchesImages) {
+              this.refreshImageAssets(this.pageLoadGeneration, pageId);
+            }
+          }
           return;
         }
         steps.push(this.captureHistoryPageSnapshot(move.history));
       }
-      await this.persistence.saveHistoryGroup(this.noteId, this.loadedPageId, initial, steps);
+      await this.persistence.saveHistoryGroup(this.noteId, pageId, initial, steps);
+      if (!this.isHistoryPageContextCurrent(generation, pageId)) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'history group committed after page changed; durable history remains available');
+        this.notifyUndoRedo();
+        return;
+      }
       const committed: boolean = isUndo
         ? this.undoRedo.commitUndoGroup(group) : this.undoRedo.commitRedoGroup(group);
       if (!committed) {
@@ -2959,22 +3017,24 @@ export struct NoteCanvasView {
       const originalInkOnly: boolean = group.every((move: HistoryMove): boolean =>
         this.isOriginalInkAction(move.action));
       if (originalInkOnly) {
-        this.originalInkIneligiblePages.delete(this.loadedPageId);
-        this.refreshOriginalInkReservation(this.pageLoadGeneration, this.loadedPageId);
+        this.originalInkIneligiblePages.delete(pageId);
+        this.refreshOriginalInkReservation(this.pageLoadGeneration, pageId);
       } else {
-        this.originalInkIneligiblePages.add(this.loadedPageId);
+        this.originalInkIneligiblePages.add(pageId);
       }
       this.notifyUndoRedo();
       if (touchesImages) {
-        this.refreshImageAssets(this.pageLoadGeneration, this.loadedPageId);
+        this.refreshImageAssets(this.pageLoadGeneration, pageId);
       }
     } catch (e) {
-      this.restoreHistoryPage(rollbackElements);
-      if (touchesImages) {
-        this.refreshImageAssets(this.pageLoadGeneration, this.loadedPageId);
-      }
-      this.reportSaveFailure(e as Object);
       hilog.error(0x0001, 'NoteCanvasView', 'history group apply failed: %{public}s', JSON.stringify(e));
+      if (this.isHistoryPageContextCurrent(generation, pageId)) {
+        this.restoreHistoryPage(rollbackElements);
+        if (touchesImages) {
+          this.refreshImageAssets(this.pageLoadGeneration, pageId);
+        }
+        this.reportSaveFailure(e as Object);
+      }
     }
   }
 
@@ -3125,6 +3185,12 @@ export struct NoteCanvasView {
       type === UndoableActionType.REORDER_PAGES || type === UndoableActionType.PAGE_SETTINGS ||
       type === UndoableActionType.NOTE_BACKGROUND || type === UndoableActionType.NOTE_TITLE ||
       type === UndoableActionType.NOTE_METADATA;
+  }
+
+  private isHistoryPageContextCurrent(generation: number, pageId: string): boolean {
+    return this.lifecycleActive && generation === this.pageLoadGeneration &&
+      pageId === this.loadedPageId && pageId === this.currentPage.pageId &&
+      this.loaded && !this.dataLoading && !this.dataLoadFailed;
   }
 
   // isUndo=true 执行反向；false 执行正向
