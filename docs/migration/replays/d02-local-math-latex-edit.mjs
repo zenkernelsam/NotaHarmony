@@ -46,8 +46,7 @@ assert.match(canvas, /selectedMathIds\.length === 1/);
 assert.match(canvas, /this\.persistence\.commitOriginalMathLatex/);
 assert.match(canvas, /this\.undoRedo\.push\(action, prepared\)/);
 assert.match(canvas, /this\.mathEditorFailed = true/);
-assert.match(canvas,
-  /if \(generation === this\.pageLoadGeneration && pageId === this\.loadedPageId &&\s+pageId === this\.currentPage\.pageId\) \{\s+this\.saveFailed = false;\s+\}/);
+assert.match(canvas, /this\.persistence\.commitOriginalMathLatex[\s\S]{0,900}isHistoryPageContextCurrent\(generation, pageId\)[\s\S]{0,120}this\.saveFailed = false;/);
 assert.match(overlay, /isOriginalMathLatexDraftValid/);
 assert.match(overlay, /OriginalMathEditorDraftState/);
 assert.match(overlay, /enabled\(isOriginalMathEditorDoneEnabled\(this\.draftState, this\.busy\)\)/);

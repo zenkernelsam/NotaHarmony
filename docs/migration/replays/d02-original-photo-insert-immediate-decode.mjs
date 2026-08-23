@@ -14,7 +14,7 @@ const render = source.indexOf('this.renderFrame();');
 
 const checks = [
   ['new blocks are installed on the live page',
-    install >= 0 && source.includes('if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&')],
+    install >= 0 && source.includes('if (this.isHistoryPageContextCurrent(generation, pageId)) {')],
   ['decode cache is refreshed immediately after installation',
     install >= 0 && refresh > install],
   ['refresh precedes order synchronization and first render',
