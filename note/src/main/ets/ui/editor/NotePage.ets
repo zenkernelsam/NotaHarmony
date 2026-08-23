@@ -195,6 +195,9 @@ struct NotePage {
     });
     this.recordingDeleteController.setFailureListener((error: Object): void => {
       console.error(`Recording delete failed: ${JSON.stringify(error)}`);
+      if (this.editorDisposed) {
+        return;
+      }
       try {
         promptAction.showToast({ message: $r('app.string.recording_delete_failed'), duration: 2500 });
       } catch (_toastError) {
