@@ -27,6 +27,13 @@ const checks = [
     insertSource.includes('partialFailure = true;') &&
     insertSource.includes('!partialFailure) {') &&
     insertSource.includes('this.saveFailed = false;')],
+  ['photo feedback toasts stay bound to the originating page',
+    startSource.includes('const photoGeneration: number = this.pageLoadGeneration;') &&
+    startSource.includes('const photoPageId: string = this.loadedPageId;') &&
+    startSource.indexOf('photoGeneration === this.pageLoadGeneration &&\n        photoPageId === this.loadedPageId &&\n        outcome.insertedCount < outcome.totalCount') <
+      startSource.indexOf("$r('app.string.original_photo_insert_partial_failed')") &&
+    startSource.lastIndexOf('if (photoGeneration === this.pageLoadGeneration &&\n        photoPageId === this.loadedPageId) {') <
+      startSource.indexOf("$r('app.string.original_photo_insert_failed')")],
   ['successful prefix cannot clear a foreign page save state',
     insertSource.includes('if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&\n' +
       '        pageId === this.currentPage.pageId && !partialFailure) {') &&

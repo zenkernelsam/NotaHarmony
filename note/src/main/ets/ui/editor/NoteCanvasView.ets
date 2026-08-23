@@ -5331,6 +5331,8 @@ export struct NoteCanvasView {
       return;
     }
     const context = getContext(this) as common.UIAbilityContext;
+    const photoGeneration: number = this.pageLoadGeneration;
+    const photoPageId: string = this.loadedPageId;
     this.photoImportBusy = true;
     try {
       const imported: OriginalPhotoIngressItem[] = await pickAndImportOriginalPhotos({
@@ -5341,7 +5343,9 @@ export struct NoteCanvasView {
         return;
       }
       const outcome: PhotoInsertOutcome = await this.commitOriginalPhotoInsert(imported);
-      if (outcome.insertedCount < outcome.totalCount) {
+      if (photoGeneration === this.pageLoadGeneration &&
+        photoPageId === this.loadedPageId &&
+        outcome.insertedCount < outcome.totalCount) {
         promptAction.showToast({
           message: $r('app.string.original_photo_insert_partial_failed'),
           duration: 3000,
@@ -5350,8 +5354,11 @@ export struct NoteCanvasView {
     } catch (e) {
       hilog.error(0x0001, 'NoteCanvasView', 'original photo insert failed: %{public}s',
         JSON.stringify(e));
-      promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),
-        duration: 3000 });
+      if (photoGeneration === this.pageLoadGeneration &&
+        photoPageId === this.loadedPageId) {
+        promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),
+          duration: 3000 });
+      }
     } finally {
       this.photoImportBusy = false;
     }
