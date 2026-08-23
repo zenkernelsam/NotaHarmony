@@ -2338,7 +2338,8 @@ export struct NoteCanvasView {
           this.renderFrame(true);
         }
         if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-          !this.originalInkIneligiblePages.has(pageId)) {
+          !this.originalInkIneligiblePages.has(pageId) &&
+          this.isHistoryPageContextCurrent(generation, pageId)) {
           this.refreshOriginalInkReservation(generation, pageId);
         }
       });
@@ -5094,8 +5095,9 @@ export struct NoteCanvasView {
           !this.persistence.hasDirtySave(this.noteId, persistedPageId)) {
           this.saveFailed = false;
         }
-        if (originalEntityOnly) {
-          this.refreshOriginalInkReservation(this.pageLoadGeneration, persistedPageId);
+        if (originalEntityOnly &&
+          this.isHistoryPageContextCurrent(persistedGeneration, persistedPageId)) {
+          this.refreshOriginalInkReservation(persistedGeneration, persistedPageId);
         }
       }).catch((e: Object): void => {
         hilog.error(0x0001, 'NoteCanvasView',
@@ -6872,8 +6874,9 @@ export struct NoteCanvasView {
         !this.persistence.hasDirtySave(this.noteId, persistedPageId)) {
         this.saveFailed = false;
       }
-      if (rearmOriginalInk) {
-        this.refreshOriginalInkReservation(this.pageLoadGeneration, persistedPageId);
+      if (rearmOriginalInk &&
+        this.isHistoryPageContextCurrent(persistedGeneration, persistedPageId)) {
+        this.refreshOriginalInkReservation(persistedGeneration, persistedPageId);
       }
     }).catch((e: Object): void => {
       hilog.error(0x0001, 'NoteCanvasView',
