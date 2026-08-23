@@ -732,6 +732,9 @@ struct NotePage {
   }
 
   private async seekRecordingTimeline(positionMs: number): Promise<void> {
+    if (this.editorDisposed) {
+      return;
+    }
     const location: OriginalRecordingTimelineLocation | null =
       locateOriginalRecordingTimeline(this.recordingTimeline, positionMs);
     if (location === null) {
