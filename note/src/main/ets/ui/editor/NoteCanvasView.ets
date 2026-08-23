@@ -762,6 +762,11 @@ export struct NoteCanvasView {
     this.historyBusy = true;
     try {
       await new OpStoreImpl(this.database).resetPersistentHistory(this.noteId);
+      if (!this.lifecycleActive) {
+        hilog.info(0x0001, 'NoteCanvasView',
+          'persistent history reset completed after editor disposed; durable reset retained');
+        return;
+      }
       this.undoRedo.clear();
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
       this.historyRecoveryRequired = false;

@@ -28,28 +28,26 @@ assert.match(de2, /asd asdVarA = bsd\.a\(new qd2\(\)\)/);
 assert.match(ud2, /Integer num = \(Integer\) obj/);
 assert.match(qd2, /UiState\(currentPageIndex=/);
 
-const staleContextGuard = String.raw`generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-\s+pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
-\s+!this.dataLoadFailed`;
-const persistedStaleContextGuard = String.raw`persistedGeneration === this.pageLoadGeneration &&
-\s+persistedPageId === this.loadedPageId &&
-\s+persistedPageId === this.currentPage.pageId && this.loaded &&
-\s+!this.dataLoading && !this.dataLoadFailed`;
+const staleContextGuard = String.raw`(?:this\.isHistoryPageContextCurrent\(generation, pageId\)|generation === this\.pageLoadGeneration && pageId === this\.loadedPageId &&
+\s+pageId === this\.currentPage\.pageId && this\.loaded && !this\.dataLoading &&
+\s+!this\.dataLoadFailed)`;
+const persistedStaleContextGuard = '(?:' + String.raw`this\.isHistoryPageContextCurrent\(persistedGeneration, persistedPageId\)` + '|' + String.raw`persistedGeneration === this\.pageLoadGeneration &&\s+persistedPageId === this\.loadedPageId &&\s+persistedPageId === this\.currentPage\.pageId && this\.loaded &&\s+!this\.dataLoading && !this\.dataLoadFailed` + ')';
 
 assert.match(canvas,
   /const generation: number = this\.pageLoadGeneration;\s+this\.invalidateOriginalInkReservation\(\)/);
 assert.match(canvas, /deferred save failed for stale page/);
 assert.match(canvas, /current-page flush failed after navigation/);
 assert.match(canvas,
-  new RegExp(String.raw`if \(${staleContextGuard}\) \{\s+this\.reportSaveFailure\(e\);\s+\}`));
-assert.match(canvas,
-  new RegExp(String.raw`if \(${persistedStaleContextGuard}\) \{\s+this\.reportSaveFailure\(e\);\s+\}`, 'g'));
+  new RegExp(String.raw`if \(${staleContextGuard}\)\s*\{\s*this\.reportSaveFailure\(e\);\s*\}`));
+assert.ok((canvas.match(new RegExp('if \\(' + persistedStaleContextGuard + '\\)', 'g')) || []).length === 2);
+assert.match(canvas, /selection deferred save failed for stale page[\s\S]{0,300}reportSaveFailure\(e\)/);
+assert.match(canvas, /ordinary Paste deferred save failed for stale page[\s\S]{0,300}reportSaveFailure\(e\)/);
 assert.equal((canvas.match(/Group committed after page changed/g) || []).length, 1);
 assert.equal((canvas.match(/Ungroup committed after page changed/g) || []).length, 1);
 assert.match(canvas,
-  /if \(generation !== this\.pageLoadGeneration \|\| pageId !== this\.loadedPageId \|\|\s+pageId !== this\.currentPage\.pageId\) \{\s+hilog\.error\([\s\S]{0,220}'Group committed after page changed/);
+  /if \(!this\.isHistoryPageContextCurrent\(generation, pageId\)\) \{\s+hilog\.error\([\s\S]{0,180}'Group committed after page changed/);
 assert.match(canvas,
-  /if \(generation !== this\.pageLoadGeneration \|\| pageId !== this\.loadedPageId \|\|\s+pageId !== this\.currentPage\.pageId\) \{\s+hilog\.error\([\s\S]{0,240}'Ungroup committed after page changed/);
+  /if \(!this\.isHistoryPageContextCurrent\(generation, pageId\)\) \{\s+hilog\.error\([\s\S]{0,200}'Ungroup committed after page changed/);
 assert.match(canvas, /original Group Paste failed for stale page/);
 assert.match(canvas, /ordinary Paste deferred save failed for stale page/);
 assert.match(canvas, /selection deferred save failed for stale page/);
