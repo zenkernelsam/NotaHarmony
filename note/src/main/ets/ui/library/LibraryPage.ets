@@ -477,14 +477,16 @@ struct LibraryPage {
 
   private async onFolderDialogConfirm(name: string): Promise<boolean> {
     const trimmed: string = name.trim();
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    const repoCapture: FolderRepositoryImpl | null = this.folderRepo;
     if (this.folderRepo === null) {
       promptAction.showToast({ message: $r('app.string.folder_operation_failed') });
       return false;
     }
-    if (this.folderBusy) {
+    if (repoCapture === null || this.folderBusy) {
       return false;
     }
-    const repo: FolderRepositoryImpl = this.folderRepo;
+    const repo: FolderRepositoryImpl = repoCapture;
     this.folderBusy = true;
     let result: FolderMutationResult | null = null;
     try {
@@ -506,6 +508,10 @@ struct LibraryPage {
     if (result === null) {
       return false;
     }
+    if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+      this.folderRepo !== repo) {
+      return true;
+    }
     this.publishCommittedFolders(result.folders);
     this.reloadFoldersBestEffort(repo, 'folder create/rename');
     return true;
@@ -513,6 +519,7 @@ struct LibraryPage {
 
   // 删除文件夹：内部笔记回根目录（不删笔记）
   private async deleteFolder(folderId: string): Promise<void> {
+    const lifecycleGeneration: number = this.lifecycleGeneration;
     if (this.folderRepo === null || this.viewModel === null || this.folderBusy) {
       return;
     }
@@ -531,6 +538,10 @@ struct LibraryPage {
     if (result === null) {
       return;
     }
+    if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+      this.folderRepo !== repo) {
+      return;
+    }
     this.publishCommittedFolders(result.folders);
     vm.publishCommittedFolderDelete(
       result.deletedFolderIds, result.movedNoteIds, result.notes, this.searchText);
@@ -546,6 +557,7 @@ struct LibraryPage {
 
   private async moveFolder(folderId: string, parentId: string | null,
     insertIndex?: number): Promise<void> {
+    const lifecycleGeneration: number = this.lifecycleGeneration;
     if (this.folderRepo === null || this.folderBusy) {
       return;
     }
@@ -561,6 +573,10 @@ struct LibraryPage {
       this.folderBusy = false;
     }
     if (result === null) {
+      return;
+    }
+    if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+      this.folderRepo !== repo) {
       return;
     }
     this.publishCommittedFolders(result.folders);
@@ -659,6 +675,7 @@ struct LibraryPage {
 
   // 移动笔记到文件夹（null=根目录）
   private async moveNote(noteId: string, folderId: string | null): Promise<void> {
+    const lifecycleGeneration: number = this.lifecycleGeneration;
     if (this.folderRepo === null || this.viewModel === null || this.folderBusy) {
       return;
     }
@@ -675,6 +692,9 @@ struct LibraryPage {
       this.folderBusy = false;
     }
     if (result === null) {
+      return;
+    }
+    if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive) {
       return;
     }
     vm.publishCommittedNoteMove(result.noteId, result.folderId);
