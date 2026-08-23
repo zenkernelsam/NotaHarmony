@@ -565,6 +565,7 @@ export struct NoteCanvasView {
       this.noteId.length > 0 && this.loadedPageId.length > 0 &&
       this.loadedPageId !== this.skipSavePageId) {
       const pageId: string = this.loadedPageId;
+      const generation: number = this.pageLoadGeneration;
       this.invalidateOriginalInkReservation();
       if (rearmOriginalInk) {
         this.originalInkIneligiblePages.delete(pageId);
@@ -580,13 +581,22 @@ export struct NoteCanvasView {
           this.imageBlocks, this.mathBlocks, originalZOrderHint);
         this.lastQueuedHistoryRevision = historyRevision;
         this.persistence.flush(this.noteId, pageId).then(() => {
-          if (!this.persistence.hasDirtySave(this.noteId, pageId)) {
+          if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+            !this.persistence.hasDirtySave(this.noteId, pageId)) {
             this.saveFailed = false;
           }
           if (rearmOriginalInk) {
             this.refreshOriginalInkReservation(this.pageLoadGeneration, pageId);
           }
-        }).catch((e: Object) => this.reportSaveFailure(e));
+        }).catch((e: Object) => {
+          hilog.error(0x0001, 'NoteCanvasView',
+            'deferred save failed for stale page: %{public}s', JSON.stringify(e));
+          if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+            pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
+            !this.dataLoadFailed) {
+            this.reportSaveFailure(e);
+          }
+        });
       } catch (e) {
         this.reportSaveFailure(e as Object);
       }
@@ -678,13 +688,24 @@ export struct NoteCanvasView {
         this.completedStrokes, this.textBlocks, this.elementOrder, this.shapes,
         false, undefined, this.imageBlocks, this.mathBlocks);
     }
+    const generation: number = this.pageLoadGeneration;
+    const pageId: string = this.loadedPageId;
     try {
       await this.persistence.flush(this.noteId, this.loadedPageId);
-      this.saveFailed = false;
+      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+        pageId === this.currentPage.pageId) {
+        this.saveFailed = false;
+      }
       await this.maintainPersistentHistoryCheckpoint();
       return true;
     } catch (e) {
-      this.reportSaveFailure(e as Object);
+      hilog.error(0x0001, 'NoteCanvasView',
+        'current-page flush failed after navigation: %{public}s', JSON.stringify(e));
+      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+        pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
+        !this.dataLoadFailed) {
+        this.reportSaveFailure(e as Object);
+      }
       return false;
     }
   }
@@ -5003,6 +5024,7 @@ export struct NoteCanvasView {
         return;
       }
       const persistedPageId: string = this.loadedPageId;
+      const persistedGeneration: number = this.pageLoadGeneration;
       this.invalidateOriginalInkReservation();
       if (originalEntityOnly) {
         this.originalInkIneligiblePages.delete(persistedPageId);
@@ -5010,13 +5032,24 @@ export struct NoteCanvasView {
         this.originalInkIneligiblePages.add(persistedPageId);
       }
       this.persistence.flush(this.noteId, persistedPageId).then((): void => {
-        if (!this.persistence.hasDirtySave(this.noteId, persistedPageId)) {
+        if (persistedGeneration === this.pageLoadGeneration &&
+          persistedPageId === this.loadedPageId &&
+          !this.persistence.hasDirtySave(this.noteId, persistedPageId)) {
           this.saveFailed = false;
         }
         if (originalEntityOnly) {
           this.refreshOriginalInkReservation(this.pageLoadGeneration, persistedPageId);
         }
-      }).catch((e: Object): void => this.reportSaveFailure(e));
+      }).catch((e: Object): void => {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'selection deferred save failed for stale page: %{public}s', JSON.stringify(e));
+        if (persistedGeneration === this.pageLoadGeneration &&
+          persistedPageId === this.loadedPageId &&
+          persistedPageId === this.currentPage.pageId && this.loaded &&
+          !this.dataLoading && !this.dataLoadFailed) {
+          this.reportSaveFailure(e);
+        }
+      });
       if (cutPreparation !== null) {
         if (this.strokeClipboard.commitPreparedCopy(cutPreparation)) {
           this.clipboardAvailable = true;
@@ -5733,6 +5766,7 @@ export struct NoteCanvasView {
       return;
     }
     const pageId: string = this.loadedPageId;
+    const generation: number = this.pageLoadGeneration;
     const beforeOrder: PageElementRef[] = clonePageElementOrder(this.elementOrder);
     const draft: GroupElementsAction = {
       type: UndoableActionType.GROUP_ELEMENTS, noteId: this.noteId, pageId: pageId,
@@ -5745,22 +5779,34 @@ export struct NoteCanvasView {
       this.noteId, pageId, members, beforeOrder, prepared).then(
       (result: OriginalGroupMutationResult): void => {
         const action: GroupElementsAction = this.groupActionFromMutation(result.mutation);
-        this.undoRedo.push(action, prepared);
-        this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
-        this.selectionGroups = result.groups;
-        this.elementOrder = clonePageElementOrder(result.mutation.elementOrderAfter);
-        this.synchronizeElementArraysByOrder();
-        const created: OriginalSelectionGroup = result.mutation.afterGroups[0];
-        this.selectionTool.selectElementIds(
-          strokeIds, shapeIds, textIds, imageIds, [created.id], mathIds);
-        this.originalInkIneligiblePages.delete(pageId);
-        this.layerManager.rebuildFromStrokes(
-          this.completedStrokes, this.renderCtx, this.viewport.zoom);
-        this.updateSelectionOverlay();
-        this.renderFrame();
-        this.notifyUndoRedo();
+        if (generation !== this.pageLoadGeneration || pageId !== this.loadedPageId ||
+          pageId !== this.currentPage.pageId) {
+          hilog.error(0x0001, 'NoteCanvasView',
+            'Group committed after page changed; durable history remains available');
+        } else {
+          this.undoRedo.push(action, prepared);
+          this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+          this.selectionGroups = result.groups;
+          this.elementOrder = clonePageElementOrder(result.mutation.elementOrderAfter);
+          this.synchronizeElementArraysByOrder();
+          const created: OriginalSelectionGroup = result.mutation.afterGroups[0];
+          this.selectionTool.selectElementIds(
+            strokeIds, shapeIds, textIds, imageIds, [created.id], mathIds);
+          this.originalInkIneligiblePages.delete(pageId);
+          this.layerManager.rebuildFromStrokes(
+            this.completedStrokes, this.renderCtx, this.viewport.zoom);
+          this.updateSelectionOverlay();
+          this.renderFrame();
+          this.notifyUndoRedo();
+        }
       }).catch((e: Object): void => {
-        this.reportSaveFailure(e);
+        hilog.error(0x0001, 'NoteCanvasView',
+          'Group failed for stale page: %{public}s', JSON.stringify(e));
+        if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+          pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
+          !this.dataLoadFailed) {
+          this.reportSaveFailure(e);
+        }
         hilog.error(0x0001, 'NoteCanvasView', 'Group failed: %{public}s', JSON.stringify(e));
       }).finally((): void => {
         this.historyBusy = false;
@@ -5782,6 +5828,7 @@ export struct NoteCanvasView {
     const imageIds: string[] = state.selectedImageIds.slice();
     const mathIds: string[] = state.selectedMathIds.slice();
     const pageId: string = this.loadedPageId;
+    const generation: number = this.pageLoadGeneration;
     const beforeOrder: PageElementRef[] = clonePageElementOrder(this.elementOrder);
     const draft: GroupElementsAction = {
       type: UndoableActionType.GROUP_ELEMENTS, noteId: this.noteId, pageId: pageId,
@@ -5794,21 +5841,33 @@ export struct NoteCanvasView {
       this.noteId, pageId, group, beforeOrder, prepared).then(
       (result: OriginalGroupMutationResult): void => {
         const action: GroupElementsAction = this.groupActionFromMutation(result.mutation);
-        this.undoRedo.push(action, prepared);
-        this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
-        this.selectionGroups = result.groups;
-        this.elementOrder = clonePageElementOrder(result.mutation.elementOrderAfter);
-        this.synchronizeElementArraysByOrder();
-        this.selectionTool.selectElementIds(
-          strokeIds, shapeIds, textIds, imageIds, [], mathIds);
-        this.originalInkIneligiblePages.delete(pageId);
-        this.layerManager.rebuildFromStrokes(
-          this.completedStrokes, this.renderCtx, this.viewport.zoom);
-        this.updateSelectionOverlay();
-        this.renderFrame();
-        this.notifyUndoRedo();
+        if (generation !== this.pageLoadGeneration || pageId !== this.loadedPageId ||
+          pageId !== this.currentPage.pageId) {
+          hilog.error(0x0001, 'NoteCanvasView',
+            'Ungroup committed after page changed; durable history remains available');
+        } else {
+          this.undoRedo.push(action, prepared);
+          this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
+          this.selectionGroups = result.groups;
+          this.elementOrder = clonePageElementOrder(result.mutation.elementOrderAfter);
+          this.synchronizeElementArraysByOrder();
+          this.selectionTool.selectElementIds(
+            strokeIds, shapeIds, textIds, imageIds, [], mathIds);
+          this.originalInkIneligiblePages.delete(pageId);
+          this.layerManager.rebuildFromStrokes(
+            this.completedStrokes, this.renderCtx, this.viewport.zoom);
+          this.updateSelectionOverlay();
+          this.renderFrame();
+          this.notifyUndoRedo();
+        }
       }).catch((e: Object): void => {
-        this.reportSaveFailure(e);
+        hilog.error(0x0001, 'NoteCanvasView',
+          'Ungroup failed for stale page: %{public}s', JSON.stringify(e));
+        if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+          pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
+          !this.dataLoadFailed) {
+          this.reportSaveFailure(e);
+        }
         hilog.error(0x0001, 'NoteCanvasView', 'Ungroup failed: %{public}s', JSON.stringify(e));
       }).finally((): void => {
         this.historyBusy = false;
@@ -6628,7 +6687,13 @@ export struct NoteCanvasView {
         }
         this.notifyUndoRedo();
       }).catch((e: Object): void => {
-        this.reportSaveFailure(e);
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original Group Paste failed for stale page: %{public}s', JSON.stringify(e));
+        if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+          pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
+          !this.dataLoadFailed) {
+          this.reportSaveFailure(e);
+        }
         hilog.error(0x0001, 'NoteCanvasView',
           'original Group Paste transaction failed: %{public}s', JSON.stringify(e));
       }).finally((): void => {
@@ -6739,6 +6804,7 @@ export struct NoteCanvasView {
         'ordinary Paste preparation changed after save enqueue');
     }
     const persistedPageId: string = this.loadedPageId;
+    const persistedGeneration: number = this.pageLoadGeneration;
     this.invalidateOriginalInkReservation();
     if (rearmOriginalInk) {
       this.originalInkIneligiblePages.delete(persistedPageId);
@@ -6746,13 +6812,24 @@ export struct NoteCanvasView {
       this.originalInkIneligiblePages.add(persistedPageId);
     }
     this.persistence.flush(this.noteId, persistedPageId).then((): void => {
-      if (!this.persistence.hasDirtySave(this.noteId, persistedPageId)) {
+      if (persistedGeneration === this.pageLoadGeneration &&
+        persistedPageId === this.loadedPageId &&
+        !this.persistence.hasDirtySave(this.noteId, persistedPageId)) {
         this.saveFailed = false;
       }
       if (rearmOriginalInk) {
         this.refreshOriginalInkReservation(this.pageLoadGeneration, persistedPageId);
       }
-    }).catch((e: Object): void => this.reportSaveFailure(e));
+    }).catch((e: Object): void => {
+      hilog.error(0x0001, 'NoteCanvasView',
+        'ordinary Paste deferred save failed for stale page: %{public}s', JSON.stringify(e));
+      if (persistedGeneration === this.pageLoadGeneration &&
+        persistedPageId === this.loadedPageId &&
+        persistedPageId === this.currentPage.pageId && this.loaded &&
+        !this.dataLoading && !this.dataLoadFailed) {
+        this.reportSaveFailure(e);
+      }
+    });
     this.completedStrokes = nextStrokes;
     this.shapes = nextShapes;
     this.textBlocks = nextTextBlocks;
