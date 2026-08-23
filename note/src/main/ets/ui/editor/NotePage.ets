@@ -471,6 +471,9 @@ struct NotePage {
 
   private async persistCapturedRecording(capture: OriginalRecordingCaptureResult): Promise<void> {
     await persistCapturedOriginalRecording(DatabaseManager.getInstance(), this.noteId, capture);
+    if (this.editorDisposed) {
+      return;
+    }
     await this.loadRecordings();
   }
 
