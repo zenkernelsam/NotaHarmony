@@ -478,6 +478,9 @@ struct NotePage {
   }
 
   private onRecordingSessionSnapshot(snapshot: OriginalRecordingSessionSnapshot): void {
+    if (this.editorDisposed) {
+      return;
+    }
     this.recordingSessionSnapshot = snapshot;
     const session: OriginalRecordingSessionController | null = this.recordingSessionController;
     this.recordingPauseSupported = session === null ? true : session.canPause();
@@ -499,6 +502,9 @@ struct NotePage {
     }
     this.recordingSessionTimer = setTimeout((): void => {
       this.recordingSessionTimer = -1;
+      if (this.editorDisposed) {
+        return;
+      }
       const session: OriginalRecordingSessionController | null = this.recordingSessionController;
       if (session !== null) {
         this.onRecordingSessionSnapshot(session.getSnapshot());
