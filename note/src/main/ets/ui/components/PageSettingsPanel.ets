@@ -87,6 +87,7 @@ export struct PageSettingsPanel {
 
   private paperStore: OriginalPaperSettingsStore | null = null;
   private sharedLoadGeneration: number = 0;
+  private panelDisposed: boolean = false;
 
   aboutToAppear(): void {
     this.resetDraft();
@@ -94,6 +95,7 @@ export struct PageSettingsPanel {
   }
 
   aboutToDisappear(): void {
+    this.panelDisposed = true;
     this.sharedLoadGeneration++;
   }
 
@@ -289,8 +291,14 @@ export struct PageSettingsPanel {
       } else {
         await store.addFavorite(candidate);
       }
+      if (this.panelDisposed) {
+        return;
+      }
       this.favorites = await store.listFavorites();
     } catch (error) {
+      if (this.panelDisposed) {
+        return;
+      }
       console.error(`PageSettingsPanel favorite update failed: ${JSON.stringify(error)}`);
       this.showSharedPaperFailure();
     } finally {
@@ -365,6 +373,9 @@ export struct PageSettingsPanel {
     try {
       const saved: OriginalBackgroundInfo = await store.saveSpacing(
         optimistic.paperLineType, optimistic.spacingInches as number);
+      if (this.panelDisposed) {
+        return;
+      }
       this.replaceBackgroundInfo(saved);
       if (this.spacingTemplate === template) {
         const savedIndex: number = saved.spacingInches === null ? -1 :
@@ -372,6 +383,9 @@ export struct PageSettingsPanel {
         this.spacingPreviewIndex = savedIndex < 0 ? this.storedSpacingIndex(template) : savedIndex;
       }
     } catch (error) {
+      if (this.panelDisposed) {
+        return;
+      }
       if (this.spacingTemplate === template) {
         this.spacingPreviewIndex = this.storedSpacingIndex(template);
       }
