@@ -801,6 +801,9 @@ struct NotePage {
       (recording: MaterializedOriginalRecording): OperationIdentity => ({
         timestamp: recording.timestamp, siteId: recording.siteId,
       })));
+    if (this.editorDisposed) {
+      return;
+    }
     await this.loadRecordings();
   }
 
