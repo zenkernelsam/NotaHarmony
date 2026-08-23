@@ -25,8 +25,14 @@ const checks = [
   ['partial failure shows explicit feedback without save-failure state',
     startSource.includes("message: $r('app.string.original_photo_insert_partial_failed')") &&
     insertSource.includes('partialFailure = true;') &&
-    insertSource.includes('if (!partialFailure) {') &&
+    insertSource.includes('!partialFailure) {') &&
     insertSource.includes('this.saveFailed = false;')],
+  ['successful prefix cannot clear a foreign page save state',
+    insertSource.includes('if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&\n' +
+      '        pageId === this.currentPage.pageId && !partialFailure) {') &&
+    insertSource.indexOf('if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&\n' +
+      '        pageId === this.currentPage.pageId && !partialFailure) {') <
+      insertSource.indexOf('this.saveFailed = false;')],
   ['first-image failure remains whole-batch failed',
     insertSource.includes('if (results.length === 0) {') &&
     insertSource.includes("throw new Error('original photo insert commit failed');") &&

@@ -5601,7 +5601,8 @@ export struct NoteCanvasView {
         this.renderFrame();
       }
       this.notifyUndoRedo();
-      if (!partialFailure) {
+      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+        pageId === this.currentPage.pageId && !partialFailure) {
         this.saveFailed = false;
       }
       return { insertedCount: results.length, totalCount: plans.length };
