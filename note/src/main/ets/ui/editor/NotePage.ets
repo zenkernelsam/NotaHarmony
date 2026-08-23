@@ -129,6 +129,7 @@ struct NotePage {
   private noteRepo: NoteRepositoryImpl | null = null;
   private titleSaveQueue: Promise<void> = Promise.resolve();
   private titleSaveGeneration: number = 0;
+  private editorLeavePromise: Promise<void> | null = null;
   private pageRepo: PageRepositoryImpl | null = null;
   private persistence: StrokePersistence = new StrokePersistence();
   private historyBridge: EditorHistoryBridge | null = null;
@@ -229,7 +230,15 @@ struct NotePage {
     return true;
   }
 
-  private async leaveEditor(): Promise<void> {
+  private leaveEditor(): Promise<void> {
+    if (this.editorLeavePromise !== null) {
+      return this.editorLeavePromise;
+    }
+    this.editorLeavePromise = this.performLeaveEditor();
+    return this.editorLeavePromise;
+  }
+
+  private async performLeaveEditor(): Promise<void> {
     if (this.editingTitle) {
       await this.saveTitle();
     } else {
