@@ -133,6 +133,7 @@ struct NotePage {
   private pageRepo: PageRepositoryImpl | null = null;
   private persistence: StrokePersistence = new StrokePersistence();
   private historyBridge: EditorHistoryBridge | null = null;
+  private pageLoadGeneration: number = 0;
   private pageLoadInFlight: boolean = false;
   private recordingStore: OriginalRecordingStore | null = null;
   private recordingController: OriginalRecordingPlaybackController =
@@ -207,6 +208,7 @@ struct NotePage {
 
   // T-040 修复：路由返回时 TextInput 的 onBlur 不保证触发，必须在页面销毁时兜底保存标题
   aboutToDisappear(): void {
+    this.pageLoadGeneration++;
     this.recordingLoadGeneration++;
     this.cancelRecordingSessionRefresh();
     if (this.editingTitle) {
@@ -257,6 +259,7 @@ struct NotePage {
   }
 
   private async loadPages(): Promise<void> {
+    const loadGeneration: number = ++this.pageLoadGeneration;
     if (this.pageLoadInFlight) {
       return;
     }
@@ -284,6 +287,9 @@ struct NotePage {
       // T-036：加载标题
       this.noteRepo = new NoteRepositoryImpl(db);
       const note: NoteMeta | null = await this.noteRepo.getNote(this.noteId);
+      if (loadGeneration !== this.pageLoadGeneration) {
+        return;
+      }
       if (note === null) {
         throw new Error('note does not exist');
       }
@@ -307,11 +313,17 @@ struct NotePage {
       } else {
         this.pages = loaded;
       }
+      if (loadGeneration !== this.pageLoadGeneration) {
+        return;
+      }
       this.noteBackground = await this.pageRepo.getNoteBackground(this.noteId);
       this.currentPageIndex = 0;
       this.pageLoadFailed = false;
       await this.loadRecordings();
     } catch (e) {
+      if (loadGeneration !== this.pageLoadGeneration) {
+        return;
+      }
       this.pages = [];
       this.noteBackground = originalDefaultNoteBackgroundSettings();
       this.currentPageIndex = 0;
@@ -329,8 +341,10 @@ struct NotePage {
         console.error(`Note page load toast failed: ${JSON.stringify(toastError)}`);
       }
     } finally {
-      this.pageLoading = false;
-      this.pageLoadInFlight = false;
+      if (loadGeneration === this.pageLoadGeneration) {
+        this.pageLoading = false;
+        this.pageLoadInFlight = false;
+      }
     }
   }
 
