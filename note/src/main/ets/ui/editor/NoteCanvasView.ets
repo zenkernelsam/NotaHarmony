@@ -5845,8 +5845,7 @@ export struct NoteCanvasView {
       this.noteId, pageId, members, beforeOrder, prepared).then(
       (result: OriginalGroupMutationResult): void => {
         const action: GroupElementsAction = this.groupActionFromMutation(result.mutation);
-        if (generation !== this.pageLoadGeneration || pageId !== this.loadedPageId ||
-          pageId !== this.currentPage.pageId) {
+        if (!this.isHistoryPageContextCurrent(generation, pageId)) {
           hilog.error(0x0001, 'NoteCanvasView',
             'Group committed after page changed; durable history remains available');
         } else {
@@ -5868,9 +5867,7 @@ export struct NoteCanvasView {
       }).catch((e: Object): void => {
         hilog.error(0x0001, 'NoteCanvasView',
           'Group failed for stale page: %{public}s', JSON.stringify(e));
-        if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-          pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
-          !this.dataLoadFailed) {
+        if (this.isHistoryPageContextCurrent(generation, pageId)) {
           this.reportSaveFailure(e);
         }
         hilog.error(0x0001, 'NoteCanvasView', 'Group failed: %{public}s', JSON.stringify(e));
@@ -5907,8 +5904,7 @@ export struct NoteCanvasView {
       this.noteId, pageId, group, beforeOrder, prepared).then(
       (result: OriginalGroupMutationResult): void => {
         const action: GroupElementsAction = this.groupActionFromMutation(result.mutation);
-        if (generation !== this.pageLoadGeneration || pageId !== this.loadedPageId ||
-          pageId !== this.currentPage.pageId) {
+        if (!this.isHistoryPageContextCurrent(generation, pageId)) {
           hilog.error(0x0001, 'NoteCanvasView',
             'Ungroup committed after page changed; durable history remains available');
         } else {
@@ -5929,9 +5925,7 @@ export struct NoteCanvasView {
       }).catch((e: Object): void => {
         hilog.error(0x0001, 'NoteCanvasView',
           'Ungroup failed for stale page: %{public}s', JSON.stringify(e));
-        if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-          pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
-          !this.dataLoadFailed) {
+        if (this.isHistoryPageContextCurrent(generation, pageId)) {
           this.reportSaveFailure(e);
         }
         hilog.error(0x0001, 'NoteCanvasView', 'Ungroup failed: %{public}s', JSON.stringify(e));
