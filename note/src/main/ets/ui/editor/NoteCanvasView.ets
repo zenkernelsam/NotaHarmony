@@ -7241,6 +7241,7 @@ export struct NoteCanvasView {
         const original: TextBlockElement = this.editingOriginalTextBlock;
         const pageId: string = this.currentPage.pageId;
         const loadedPageId: string = this.loadedPageId;
+        const generation: number = this.pageLoadGeneration;
         this.historyBusy = true;
         let preview: OriginalTextEditPreview | null = null;
         try {
@@ -7258,7 +7259,9 @@ export struct NoteCanvasView {
           return false;
         }
         if (this.editingTextBlock !== editing || this.editingOriginalTextBlock !== original ||
-          this.currentPage.pageId !== pageId || this.loadedPageId !== loadedPageId) {
+          !this.isHistoryPageContextCurrent(generation, pageId)) {
+          hilog.error(0x0001, 'NoteCanvasView',
+            'original Text edit rejected after page changed');
           return false;
         }
         let updated: TextBlockElement = this.textBlockTool.updateText(
