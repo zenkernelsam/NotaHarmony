@@ -6664,16 +6664,19 @@ export struct NoteCanvasView {
       this.historyBusy = true;
       this.persistence.reserveOriginalInkCreate(this.noteId, pageId).then(
         (metadata: OriginalInkCreateMetadata | null): void => {
-          if (generation !== this.pageLoadGeneration || pageId !== this.loadedPageId ||
-            pageId !== this.currentPage.pageId || !this.loaded || this.dataLoading ||
-            this.dataLoadFailed) {
+          if (!this.isHistoryPageContextCurrent(generation, pageId)) {
             return;
           }
           this.applyClipboardPaste(metadata, source.kind, targetCenter);
         }).catch((e: Object): void => {
-          this.reportSaveFailure(e);
-          hilog.error(0x0001, 'NoteCanvasView',
-            'Paste identity reservation failed: %{public}s', JSON.stringify(e));
+          if (this.isHistoryPageContextCurrent(generation, pageId)) {
+            this.reportSaveFailure(e);
+            hilog.error(0x0001, 'NoteCanvasView',
+              'Paste identity reservation failed: %{public}s', JSON.stringify(e));
+          } else {
+            hilog.error(0x0001, 'NoteCanvasView',
+              'stale paste identity reservation failed: %{public}s', JSON.stringify(e));
+          }
         }).finally((): void => {
           this.historyBusy = false;
         });
