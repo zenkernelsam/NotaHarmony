@@ -936,6 +936,7 @@ export struct NoteCanvasView {
       this.loadedPageId = targetPageId;
       this.loaded = true;
       this.dataLoadFailed = false;
+      this.clipboardPasteTarget = null;
       this.systemClipboardImageAvailable = false;
       this.refreshSystemClipboardImageAvailability();
       this.selectionTool.deselect();

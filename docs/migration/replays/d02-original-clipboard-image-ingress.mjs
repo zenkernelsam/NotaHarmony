@@ -125,6 +125,9 @@ const checks = [
     pasteSource.includes('await this.insertOriginalPhotos([{') &&
     pasteSource.includes('}], target);') &&
     canvas.includes('pasteAnchor?: Point2D')],
+  ['page switches discard the previous long press anchor',
+    canvas.includes('this.loadedPageId = targetPageId;') &&
+    canvas.includes('this.clipboardPasteTarget = null;\n      this.systemClipboardImageAvailable = false;')],
   ['failures show the localized insert failure toast',
     pasteSource.includes("$r('app.string.original_photo_insert_failed')")],
   ['paste failure feedback stays on the originating page',
