@@ -1896,6 +1896,7 @@ export struct NoteCanvasView {
   private cancelActiveInteraction(): void {
     const heldShapeCleared: boolean = this.heldShapes.length > 0;
     this.resetShapeHoldState();
+    this.detachMathEditorForNavigation();
     if (!this.isDrawing) {
       const previewCleared: boolean = this.partialEraserPreview.cancel();
       this.resetPointerTracking();
@@ -5324,6 +5325,21 @@ export struct NoteCanvasView {
     this.requestMathEditorDraftValidation();
   }
 
+  private detachMathEditorForNavigation(): void {
+    if (!this.mathEditorVisible && !this.mathEditorBusy) {
+      return;
+    }
+    this.mathEditorVisible = false;
+    this.cancelMathEditorDraftValidation();
+    this.releaseMathEditorPreview();
+    this.mathEditorDraftState = OriginalMathEditorDraftState.EMPTY;
+    this.mathEditorDraft = '';
+    this.mathEditorFailed = false;
+    this.mathEditorOriginal = null;
+    this.mathEditorInsert = false;
+    this.updateSelectionOverlay();
+  }
+
   private cancelMathEditing(): void {
     if (this.mathEditorBusy) {
       return;
@@ -5394,20 +5410,18 @@ export struct NoteCanvasView {
       this.mathEditorOriginal = null;
       this.mathEditorInsert = false;
       this.originalInkIneligiblePages.delete(pageId);
-      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-        pageId === this.currentPage.pageId) {
+      if (this.isHistoryPageContextCurrent(generation, pageId)) {
         this.saveFailed = false;
-      }
-      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-        pageId === this.currentPage.pageId) {
         this.mathBlocks = proposedMath;
         this.updateSelectionOverlay();
         this.renderFrame();
       }
       this.notifyUndoRedo();
     } catch (e) {
-      this.mathEditorFailed = true;
-      this.reportSaveFailure(e as Object);
+      if (this.isHistoryPageContextCurrent(generation, pageId)) {
+        this.mathEditorFailed = true;
+        this.reportSaveFailure(e as Object);
+      }
       hilog.error(0x0001, 'NoteCanvasView',
         'original Math latex commit failed: %{public}s', JSON.stringify(e));
     } finally {
@@ -5788,12 +5802,8 @@ export struct NoteCanvasView {
       this.mathEditorOriginal = null;
       this.mathEditorInsert = false;
       this.originalInkIneligiblePages.delete(pageId);
-      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-        pageId === this.currentPage.pageId) {
+      if (this.isHistoryPageContextCurrent(generation, pageId)) {
         this.saveFailed = false;
-      }
-      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-        pageId === this.currentPage.pageId) {
         this.mathBlocks = this.mathBlocks.concat([result.math]);
         this.elementOrder = clonePageElementOrder(result.elementOrder);
         this.synchronizeElementArraysByOrder();
@@ -5803,8 +5813,10 @@ export struct NoteCanvasView {
       }
       this.notifyUndoRedo();
     } catch (e) {
-      this.mathEditorFailed = true;
-      this.reportSaveFailure(e as Object);
+      if (this.isHistoryPageContextCurrent(generation, pageId)) {
+        this.mathEditorFailed = true;
+        this.reportSaveFailure(e as Object);
+      }
       hilog.error(0x0001, 'NoteCanvasView',
         'original Math insert failed: %{public}s', JSON.stringify(e));
     } finally {
