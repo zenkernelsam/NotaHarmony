@@ -103,10 +103,17 @@ const checks = [
     pasteSource.includes('this.systemClipboardImageAvailable = false;') &&
     pasteSource.indexOf('isOriginalClipboardImageAvailable()') <
       pasteSource.indexOf('ensureOriginalClipboardReadPermission()')],
+  ['paste completion respects the captured page generation',
+    pasteSource.includes('const pasteGeneration: number = this.pageLoadGeneration;') &&
+    pasteSource.includes('const pastePageId: string = this.loadedPageId;') &&
+    pasteSource.includes('if (pasteGeneration === this.pageLoadGeneration &&\n          pastePageId === this.loadedPageId) {') &&
+    pasteSource.includes('if (pasteGeneration !== this.pageLoadGeneration ||\n        pastePageId !== this.loadedPageId) {') &&
+    pasteSource.includes('if (pasteGeneration === this.pageLoadGeneration &&\n        pastePageId === this.loadedPageId) {') &&
+    !pasteSource.includes('this.systemClipboardImageAvailable =\n        await isOriginalClipboardImageAvailable()')],
   ['paste completion resynchronizes cached clipboard availability',
     pasteSource.includes('const outcome: PhotoInsertOutcome = await this.insertOriginalPhotos([{') &&
     pasteSource.includes('}], target);') &&
-    pasteSource.includes('this.systemClipboardImageAvailable =\n        await isOriginalClipboardImageAvailable() && outcome.insertedCount > 0;')],
+    pasteSource.includes('this.systemClipboardImageAvailable = available && outcome.insertedCount > 0;')],
   ['paste uses the long press anchor for durable insertion',
     pasteSource.includes('await this.insertOriginalPhotos([{') &&
     pasteSource.includes('}], target);') &&

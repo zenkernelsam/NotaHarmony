@@ -5360,10 +5360,19 @@ export struct NoteCanvasView {
     if (!this.canUseOriginalClipboardImage()) {
       return;
     }
+    const pasteGeneration: number = this.pageLoadGeneration;
+    const pastePageId: string = this.loadedPageId;
     this.photoImportBusy = true;
     try {
       if (!await isOriginalClipboardImageAvailable()) {
-        this.systemClipboardImageAvailable = false;
+        if (pasteGeneration === this.pageLoadGeneration &&
+          pastePageId === this.loadedPageId) {
+          this.systemClipboardImageAvailable = false;
+        }
+        return;
+      }
+      if (pasteGeneration !== this.pageLoadGeneration ||
+        pastePageId !== this.loadedPageId) {
         return;
       }
       if (!await ensureOriginalClipboardReadPermission()) {
@@ -5389,8 +5398,11 @@ export struct NoteCanvasView {
         orientedWidth: normalized.width,
         orientedHeight: normalized.height,
       }], target);
-      this.systemClipboardImageAvailable =
-        await isOriginalClipboardImageAvailable() && outcome.insertedCount > 0;
+      const available: boolean = await isOriginalClipboardImageAvailable();
+      if (pasteGeneration === this.pageLoadGeneration &&
+        pastePageId === this.loadedPageId) {
+        this.systemClipboardImageAvailable = available && outcome.insertedCount > 0;
+      }
     } catch (e) {
       hilog.error(0x0001, 'NoteCanvasView',
         'original clipboard image paste failed: %{public}s', JSON.stringify(e));
