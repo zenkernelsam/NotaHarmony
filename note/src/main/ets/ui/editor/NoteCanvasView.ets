@@ -581,7 +581,7 @@ export struct NoteCanvasView {
           this.imageBlocks, this.mathBlocks, originalZOrderHint);
         this.lastQueuedHistoryRevision = historyRevision;
         this.persistence.flush(this.noteId, pageId).then(() => {
-          if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+          if (this.isHistoryPageContextCurrent(generation, pageId) &&
             !this.persistence.hasDirtySave(this.noteId, pageId)) {
             this.saveFailed = false;
           }
@@ -591,9 +591,7 @@ export struct NoteCanvasView {
         }).catch((e: Object) => {
           hilog.error(0x0001, 'NoteCanvasView',
             'deferred save failed for stale page: %{public}s', JSON.stringify(e));
-          if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-            pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
-            !this.dataLoadFailed) {
+          if (this.isHistoryPageContextCurrent(generation, pageId)) {
             this.reportSaveFailure(e);
           }
         });
@@ -692,8 +690,7 @@ export struct NoteCanvasView {
     const pageId: string = this.loadedPageId;
     try {
       await this.persistence.flush(this.noteId, this.loadedPageId);
-      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-        pageId === this.currentPage.pageId) {
+      if (this.isHistoryPageContextCurrent(generation, pageId)) {
         this.saveFailed = false;
       }
       await this.maintainPersistentHistoryCheckpoint();
@@ -701,9 +698,7 @@ export struct NoteCanvasView {
     } catch (e) {
       hilog.error(0x0001, 'NoteCanvasView',
         'current-page flush failed after navigation: %{public}s', JSON.stringify(e));
-      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-        pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
-        !this.dataLoadFailed) {
+      if (this.isHistoryPageContextCurrent(generation, pageId)) {
         this.reportSaveFailure(e as Object);
       }
       return false;
