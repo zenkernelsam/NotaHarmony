@@ -581,6 +581,9 @@ struct NotePage {
   }
 
   private async pauseRecording(): Promise<void> {
+    if (this.editorDisposed) {
+      return;
+    }
     const session: OriginalRecordingSessionController | null = this.recordingSessionController;
     if (session !== null) {
       await session.pause();
@@ -588,6 +591,9 @@ struct NotePage {
   }
 
   private async resumeRecording(): Promise<void> {
+    if (this.editorDisposed) {
+      return;
+    }
     const session: OriginalRecordingSessionController | null = this.recordingSessionController;
     if (session !== null) {
       await session.resume();
@@ -595,6 +601,9 @@ struct NotePage {
   }
 
   private async stopRecording(): Promise<void> {
+    if (this.editorDisposed) {
+      return;
+    }
     const session: OriginalRecordingSessionController | null = this.recordingSessionController;
     if (session !== null) {
       await session.stop();
