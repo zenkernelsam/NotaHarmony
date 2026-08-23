@@ -46,6 +46,8 @@ assert.match(canvas, /selectedMathIds\.length === 1/);
 assert.match(canvas, /this\.persistence\.commitOriginalMathLatex/);
 assert.match(canvas, /this\.undoRedo\.push\(action, prepared\)/);
 assert.match(canvas, /this\.mathEditorFailed = true/);
+assert.match(canvas,
+  /if \(generation === this\.pageLoadGeneration && pageId === this\.loadedPageId &&\s+pageId === this\.currentPage\.pageId\) \{\s+this\.saveFailed = false;\s+\}/);
 assert.match(overlay, /isOriginalMathLatexDraftValid/);
 assert.match(overlay, /OriginalMathEditorDraftState/);
 assert.match(overlay, /enabled\(isOriginalMathEditorDoneEnabled\(this\.draftState, this\.busy\)\)/);
@@ -56,4 +58,4 @@ assert.match(overlayFixture, /enables Done only for an idle native-rendered Ok s
 
 console.log('localMathLatexEdit=' +
   'original-edit-menu-prefill-native-four-state-preview-done|type23-field10|single-transaction|' +
-  'upload-immediate|canonical-reducer|persistent-history|failure-keeps-draft');
+  'upload-immediate|canonical-reducer|persistent-history|failure-keeps-draft|save-clear-page-bound');

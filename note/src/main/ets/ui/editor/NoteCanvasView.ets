@@ -5295,7 +5295,10 @@ export struct NoteCanvasView {
       this.mathEditorOriginal = null;
       this.mathEditorInsert = false;
       this.originalInkIneligiblePages.delete(pageId);
-      this.saveFailed = false;
+      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+        pageId === this.currentPage.pageId) {
+        this.saveFailed = false;
+      }
       if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
         pageId === this.currentPage.pageId) {
         this.mathBlocks = proposedMath;
@@ -5686,7 +5689,10 @@ export struct NoteCanvasView {
       this.mathEditorOriginal = null;
       this.mathEditorInsert = false;
       this.originalInkIneligiblePages.delete(pageId);
-      this.saveFailed = false;
+      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+        pageId === this.currentPage.pageId) {
+        this.saveFailed = false;
+      }
       if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
         pageId === this.currentPage.pageId) {
         this.mathBlocks = this.mathBlocks.concat([result.math]);
