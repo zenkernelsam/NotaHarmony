@@ -520,6 +520,9 @@ struct NotePage {
   }
 
   private showRecordingFailure(failure: OriginalRecordingSessionFailure): void {
+    if (this.editorDisposed) {
+      return;
+    }
     if (failure === OriginalRecordingSessionFailure.NONE) {
       return;
     }
