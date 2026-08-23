@@ -790,6 +790,9 @@ struct NotePage {
   }
 
   private async requestRecordingDelete(recordingId: string): Promise<void> {
+    if (this.editorDisposed) {
+      return;
+    }
     const recording: MaterializedOriginalRecording | null = this.findRecording(recordingId);
     if (recording === null || !this.recordingDeleteController.request(recordingId)) {
       return;
@@ -800,6 +803,9 @@ struct NotePage {
   }
 
   private undoRecordingDelete(recordingId: string): void {
+    if (this.editorDisposed) {
+      return;
+    }
     this.recordingDeleteController.undo(recordingId);
   }
 
