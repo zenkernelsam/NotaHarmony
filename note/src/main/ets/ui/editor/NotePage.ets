@@ -716,6 +716,10 @@ struct NotePage {
   }
 
   private async advanceAfterRecordingCompletion(recordingId: string): Promise<void> {
+    if (this.editorDisposed) {
+      this.completionAdvanceInFlight = false;
+      return;
+    }
     const nextId: string | null = nextTimelineRecordingId(this.recordingTimeline, recordingId);
     if (nextId === null) {
       return;
@@ -724,6 +728,7 @@ struct NotePage {
     if (next !== null) {
       await this.recordingController.load(next, true);
     }
+    this.completionAdvanceInFlight = false;
   }
 
   private async seekRecordingTimeline(positionMs: number): Promise<void> {
