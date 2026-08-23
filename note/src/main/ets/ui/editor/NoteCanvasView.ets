@@ -5712,8 +5712,7 @@ export struct NoteCanvasView {
       };
       this.undoRedo.push(action, prepared);
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
-      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-        pageId === this.currentPage.pageId) {
+      if (this.isHistoryPageContextCurrent(generation, pageId)) {
         this.imageBlocks = this.imageBlocks.concat(finalImages);
         this.refreshImageAssets(generation, pageId);
         this.elementOrder = clonePageElementOrder(finalOrder);
@@ -5724,14 +5723,12 @@ export struct NoteCanvasView {
         this.renderFrame();
       }
       this.notifyUndoRedo();
-      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-        pageId === this.currentPage.pageId && !partialFailure) {
+      if (this.isHistoryPageContextCurrent(generation, pageId) && !partialFailure) {
         this.saveFailed = false;
       }
       return { insertedCount: results.length, totalCount: plans.length };
     } catch (e) {
-      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-        pageId === this.currentPage.pageId) {
+      if (this.isHistoryPageContextCurrent(generation, pageId)) {
         this.reportSaveFailure(e as Object);
       }
       throw new Error(`original photo insert commit failed: ${JSON.stringify(e)}`);
@@ -6730,9 +6727,7 @@ export struct NoteCanvasView {
         };
         this.undoRedo.push(action, prepared);
         this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
-        if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-          pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
-          !this.dataLoadFailed) {
+        if (this.isHistoryPageContextCurrent(generation, pageId)) {
           this.completedStrokes = this.completedStrokes.concat(result.strokes);
           this.shapes = this.shapes.concat(result.shapes);
           this.textBlocks = this.textBlocks.concat(result.textBlocks);
@@ -6761,9 +6756,7 @@ export struct NoteCanvasView {
       }).catch((e: Object): void => {
         hilog.error(0x0001, 'NoteCanvasView',
           'original Group Paste failed for stale page: %{public}s', JSON.stringify(e));
-        if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-          pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
-          !this.dataLoadFailed) {
+        if (this.isHistoryPageContextCurrent(generation, pageId)) {
           this.reportSaveFailure(e);
         }
         hilog.error(0x0001, 'NoteCanvasView',
