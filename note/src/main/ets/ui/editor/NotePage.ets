@@ -808,6 +808,9 @@ struct NotePage {
   }
 
   private onRecordingAssetAvailabilityChanged(change: AssetAvailabilityChange): void {
+    if (this.editorDisposed) {
+      return;
+    }
     if (change.noteIds.indexOf(this.noteId) >= 0) {
       this.loadRecordings();
     }
