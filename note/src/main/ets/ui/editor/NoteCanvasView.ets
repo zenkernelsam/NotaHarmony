@@ -2300,9 +2300,7 @@ export struct NoteCanvasView {
           };
           this.undoRedo.push(action, prepared);
           this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
-          if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-            pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
-            !this.dataLoadFailed) {
+          if (this.isHistoryPageContextCurrent(generation, pageId)) {
             this.installMutationElements(result.elements);
             this.selectionGroups = result.groups;
             this.selectionTool.deselect();
@@ -2319,8 +2317,7 @@ export struct NoteCanvasView {
           // replacement a second time through the snapshot fallback.
           hilog.error(0x0001, 'NoteCanvasView',
             'original partial erase committed but UI install failed: %{public}s', JSON.stringify(e));
-          if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-            pageId === this.currentPage.pageId && this.lifecycleActive) {
+          if (this.isHistoryPageContextCurrent(generation, pageId)) {
             this.pageLoadPromise = this.loadNoteData();
           }
         }
@@ -2329,9 +2326,7 @@ export struct NoteCanvasView {
         this.reportSaveFailure(e);
         hilog.error(0x0001, 'NoteCanvasView',
           'original partial erase transaction failed: %{public}s', JSON.stringify(e));
-        if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
-          pageId === this.currentPage.pageId && this.loaded && !this.dataLoading &&
-          !this.dataLoadFailed) {
+        if (this.isHistoryPageContextCurrent(generation, pageId)) {
           this.applyPartialEraseLocally(plan, prepared);
           this.renderFrame(true);
         }

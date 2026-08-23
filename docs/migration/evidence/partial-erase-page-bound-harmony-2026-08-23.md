@@ -1,0 +1,1 @@
+# Harmony Evidence: Partial Erase Page Health Binding\n\nDate: 2026-08-23\n\n3 guards in commitOriginalPartialErase replaced with isHistoryPageContextCurrent().\n\nReplay: d02-partial-erase-page-health-bound.mjs TOTAL=6 FAILED=0\n
