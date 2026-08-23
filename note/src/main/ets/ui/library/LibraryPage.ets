@@ -1804,13 +1804,22 @@ struct LibraryPage {
     if (this.viewModel === null || this.deleteBusy) {
       return;
     }
+    const lifecycleGeneration: number = this.lifecycleGeneration;
     this.deleteBusy = true;
     const vm: LibraryViewModel = this.viewModel;
     try {
       await vm.deleteNote(noteId);
+      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+        this.viewModel !== vm) {
+        return;
+      }
       this.viewModel = vm;
       this.notes = vm.getFilteredNotes().slice();
     } catch (e) {
+      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+        this.viewModel !== vm) {
+        return;
+      }
       promptAction.showToast({ message: $r('app.string.delete_note_failed') });
       console.error(`delete note failed: ${JSON.stringify(e)}`);
       return;
@@ -1827,13 +1836,24 @@ struct LibraryPage {
     if (this.viewModel === null || this.createBusy) {
       return;
     }
+    const lifecycleGeneration: number = this.lifecycleGeneration;
     this.createBusy = true;
     const vm: LibraryViewModel = this.viewModel;
     let noteId: string;
     try {
       noteId = await vm.createNote(this.searchText);
+      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+        this.viewModel !== vm) {
+        this.createBusy = false;
+        return;
+      }
       this.notes = vm.getFilteredNotes().slice();
     } catch (e) {
+      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+        this.viewModel !== vm) {
+        this.createBusy = false;
+        return;
+      }
       promptAction.showToast({ message: $r('app.string.create_note_failed') });
       console.error(`create note failed: ${JSON.stringify(e)}`);
       this.createBusy = false;
