@@ -110,6 +110,13 @@ const checks = [
     pasteSource.includes('if (pasteGeneration !== this.pageLoadGeneration ||\n        pastePageId !== this.loadedPageId) {') &&
     pasteSource.includes('if (pasteGeneration === this.pageLoadGeneration &&\n        pastePageId === this.loadedPageId) {') &&
     !pasteSource.includes('this.systemClipboardImageAvailable =\n        await isOriginalClipboardImageAvailable()')],
+  ['paste aborts after permission when the page changed',
+    pasteSource.includes("if (!await ensureOriginalClipboardReadPermission()) {") &&
+    pasteSource.includes("if (pasteGeneration !== this.pageLoadGeneration ||\n        pastePageId !== this.loadedPageId) {") &&
+    pasteSource.indexOf('ensureOriginalClipboardReadPermission()') <
+      pasteSource.lastIndexOf('if (pasteGeneration !== this.pageLoadGeneration ||') &&
+    pasteSource.indexOf("importOriginalClipboardImage()") >
+      pasteSource.lastIndexOf('if (pasteGeneration !== this.pageLoadGeneration ||')],
   ['paste completion resynchronizes cached clipboard availability',
     pasteSource.includes('const outcome: PhotoInsertOutcome = await this.insertOriginalPhotos([{') &&
     pasteSource.includes('}], target);') &&

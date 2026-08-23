@@ -5378,6 +5378,10 @@ export struct NoteCanvasView {
       if (!await ensureOriginalClipboardReadPermission()) {
         throw new Error('READ_PASTEBOARD permission was not granted');
       }
+      if (pasteGeneration !== this.pageLoadGeneration ||
+        pastePageId !== this.loadedPageId) {
+        return;
+      }
       const normalized: NormalizedOriginalClipboardImage =
         await importOriginalClipboardImage();
       if (normalized.bytes.byteLength <= 0) {
