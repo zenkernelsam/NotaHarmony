@@ -129,6 +129,7 @@ struct NotePage {
   private noteRepo: NoteRepositoryImpl | null = null;
   private titleSaveQueue: Promise<void> = Promise.resolve();
   private titleSaveGeneration: number = 0;
+  private editorDisposed: boolean = false;
   private editorLeavePromise: Promise<void> | null = null;
   private pageRepo: PageRepositoryImpl | null = null;
   private persistence: StrokePersistence = new StrokePersistence();
@@ -208,6 +209,7 @@ struct NotePage {
 
   // T-040 修复：路由返回时 TextInput 的 onBlur 不保证触发，必须在页面销毁时兜底保存标题
   aboutToDisappear(): void {
+    this.editorDisposed = true;
     this.pageLoadGeneration++;
     this.recordingLoadGeneration++;
     this.cancelRecordingSessionRefresh();
@@ -393,6 +395,9 @@ struct NotePage {
       this.publishTitleDraft(requested, generation);
       const persisted: PersistedOriginalNoteTitle = await this.noteRepo.updateNoteTitle(
         this.noteId, requested, selectedPageId, history);
+      if (this.editorDisposed) {
+        return;
+      }
       action.titleBefore = persisted.before;
       action.titleAfter = persisted.after;
       this.noteTitle = persisted.materializedTitle;
@@ -408,6 +413,9 @@ struct NotePage {
         }
       }
     } catch (e) {
+      if (this.editorDisposed) {
+        return;
+      }
       this.noteTitle = previousTitle;
       this.publishTitleDraft(previousTitle, generation);
       console.error(`saveTitle failed: ${JSON.stringify(e)}`);
