@@ -566,8 +566,14 @@ struct NotePage {
         ],
       });
       if (response.index === 0) {
+        if (this.editorDisposed) {
+          return;
+        }
         await session.start(OriginalRecordingAudioSource.MICROPHONE);
       } else if (response.index === 1) {
+        if (this.editorDisposed) {
+          return;
+        }
         await session.start(OriginalRecordingAudioSource.DEVICE_ONLY);
       }
     } catch (_error) {
