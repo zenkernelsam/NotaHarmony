@@ -207,6 +207,7 @@ struct NotePage {
   // T-040 修复：路由返回时 TextInput 的 onBlur 不保证触发，必须在页面销毁时兜底保存标题
   aboutToDisappear(): void {
     this.recordingLoadGeneration++;
+    this.cancelRecordingSessionRefresh();
     if (this.editingTitle) {
       this.saveTitle();
     }
