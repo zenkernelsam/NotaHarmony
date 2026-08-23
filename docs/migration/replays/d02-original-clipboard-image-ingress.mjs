@@ -127,6 +127,10 @@ const checks = [
     canvas.includes('pasteAnchor?: Point2D')],
   ['failures show the localized insert failure toast',
     pasteSource.includes("$r('app.string.original_photo_insert_failed')")],
+  ['paste failure feedback stays on the originating page',
+    pasteSource.includes("promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),") &&
+    pasteSource.indexOf('if (pasteGeneration === this.pageLoadGeneration &&\n        pastePageId === this.loadedPageId) {') <
+      pasteSource.indexOf("$r('app.string.original_photo_insert_failed')")],
   ['paste requests the SDK READ_PASTEBOARD permission before reading data',
     pasteSource.includes("if (!await ensureOriginalClipboardReadPermission()) {") &&
     canvas.includes("import { ensureOriginalClipboardReadPermission } from '../../data/OriginalClipboardPermissionGateway';")],

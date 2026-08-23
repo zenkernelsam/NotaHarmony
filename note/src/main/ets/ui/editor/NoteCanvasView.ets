@@ -5410,8 +5410,11 @@ export struct NoteCanvasView {
     } catch (e) {
       hilog.error(0x0001, 'NoteCanvasView',
         'original clipboard image paste failed: %{public}s', JSON.stringify(e));
-      promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),
-        duration: 3000 });
+      if (pasteGeneration === this.pageLoadGeneration &&
+        pastePageId === this.loadedPageId) {
+        promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),
+          duration: 3000 });
+      }
     } finally {
       this.photoImportBusy = false;
     }
@@ -5602,7 +5605,10 @@ export struct NoteCanvasView {
       }
       return { insertedCount: results.length, totalCount: plans.length };
     } catch (e) {
-      this.reportSaveFailure(e as Object);
+      if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&
+        pageId === this.currentPage.pageId) {
+        this.reportSaveFailure(e as Object);
+      }
       throw new Error(`original photo insert commit failed: ${JSON.stringify(e)}`);
     } finally {
       this.historyBusy = false;

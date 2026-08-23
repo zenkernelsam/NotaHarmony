@@ -31,6 +31,12 @@ const checks = [
     insertSource.includes('if (results.length === 0) {') &&
     insertSource.includes("throw new Error('original photo insert commit failed');") &&
     startSource.includes("message: $r('app.string.original_photo_insert_failed')")],
+  ['save-failure feedback stays bound to the inserting page',
+    insertSource.includes('if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&\n' +
+      '        pageId === this.currentPage.pageId) {') &&
+    insertSource.indexOf('if (generation === this.pageLoadGeneration && pageId === this.loadedPageId &&\n' +
+      '        pageId === this.currentPage.pageId) {') <
+      insertSource.lastIndexOf('this.reportSaveFailure(e as Object);')],
   ['each image keeps its own durable transaction boundary',
     (insertSource.match(/commitOriginalImageInsert\(/g) || []).length === 1 &&
     insertSource.includes('break;')],
