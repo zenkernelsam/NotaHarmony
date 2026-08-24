@@ -1901,8 +1901,12 @@ struct LibraryPage {
     try {
       await router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: noteId } });
     } catch (e) {
-      promptAction.showToast({ message: $r('app.string.created_note_open_failed') });
       console.error(`open created note failed: ${JSON.stringify(e)}`);
+      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+        this.viewModel !== vm) {
+        return;
+      }
+      promptAction.showToast({ message: $r('app.string.created_note_open_failed') });
     } finally {
       this.createBusy = false;
     }

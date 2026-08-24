@@ -19,8 +19,15 @@ const createFn = page.slice(createStart, endMarker);
 assert.match(createFn, /const lifecycleGeneration: number = this\.lifecycleGeneration;/);
 const createGuards = (createFn.match(
   /lifecycleGeneration !== this\.lifecycleGeneration \|\| !this\.pageActive \|\|\s+this\.viewModel !== vm/g) ?? []).length;
-assert.equal(createGuards, 2);
+assert.equal(createGuards, 3);
 assert.match(createFn,
   /if \(lifecycleGeneration !== this\.lifecycleGeneration[\s\S]*?this\.createBusy = false;\s+return;\s+\}/);
 
-console.log('D02_LIBRARY_NOTE_CREATE_DELETE_LIFECYCLE_BOUND_REPLAY_OK TOTAL=4 FAILED=0');
+const navCatch = createFn.indexOf("catch (e) {", createFn.indexOf("await router.pushUrl({ url: 'ui/editor/NotePage'"));
+assert.ok(navCatch >= 0);
+const navGuardIndex = createFn.indexOf('if (lifecycleGeneration !== this.lifecycleGeneration', navCatch);
+const navToastIndex = createFn.indexOf("$r('app.string.created_note_open_failed')", navGuardIndex);
+assert.ok(navGuardIndex > navCatch && navToastIndex > navGuardIndex,
+  'navigation failure must check context before toast');
+
+console.log('D02_LIBRARY_NOTE_CREATE_DELETE_LIFECYCLE_BOUND_REPLAY_OK TOTAL=5 FAILED=0');
