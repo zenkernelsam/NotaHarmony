@@ -20,4 +20,11 @@ assertGuarded('import',body('  private async importLocal(): Promise<void> {','  
 assertGuarded('backup',body('  private async backupAll(): Promise<void> {','  // === WebDAV：从云端恢复最近一次已发布的完整批次 ==='),'backupAll failed');
 assertGuarded('restore',body('  private async restoreFromCloud(): Promise<void> {','  private async loadLatestBackupBatch('),'restoreFromCloud failed');
 
+const preparationBody=body('try {' + String.fromCharCode(10) + '        backups = await exporter.exportAllNotes();','  // === WebDAV：从云端恢复最近一次已发布的完整批次 ===');
+const preparationCatchIndex=preparationBody.indexOf('} catch (e) {',preparationBody.indexOf('backups = await exporter.exportAllNotes();'));
+const preparationLogIndex=preparationBody.indexOf('console.error(',preparationCatchIndex);
+const preparationGuardIndex=preparationBody.indexOf('if (this.isStale(lifecycleGeneration)) {',preparationCatchIndex);
+const preparationMessageIndex=preparationBody.indexOf('const message: ResourceStr',preparationCatchIndex);
+assert.ok(preparationCatchIndex>=0&&preparationLogIndex>preparationCatchIndex&&preparationGuardIndex>preparationLogIndex&&preparationMessageIndex>preparationGuardIndex,'backup preparation: stale guard precedes feedback');
+
 console.log('D02_BACKUP_FAILURES_DISPOSAL_BOUND_REPLAY_OK TOTAL=5 FAILED=0');

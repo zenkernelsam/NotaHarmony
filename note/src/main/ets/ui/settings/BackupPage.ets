@@ -118,7 +118,11 @@ struct BackupPage {
       this.lastBackupText = this.hasLastBackup ? this.formatTime(lastBackup) : '';
       this.loadState = BackupLoadState.READY;
     } catch (e) {
+      console.error(`BackupPage reload failed: ${JSON.stringify(e)}`);
       if (generation === this.loadGeneration) {
+        if (this.pageDisposed) {
+          return;
+        }
         this.config = {
           serverUrl: '', username: '', password: '', backupPath: DEFAULT_WEBDAV_BACKUP_PATH,
         };
@@ -126,7 +130,6 @@ struct BackupPage {
         this.lastBackupText = '';
         this.loadState = BackupLoadState.ERROR;
       }
-      console.error(`BackupPage reload failed: ${JSON.stringify(e)}`);
     } finally {
       if (generation === this.loadGeneration) {
         this.initialized = true;
@@ -258,6 +261,9 @@ struct BackupPage {
       }
     } catch (e) {
         console.error(`backupAll preparation failed: ${JSON.stringify(e)}`);
+        if (this.isStale(lifecycleGeneration)) {
+          return;
+        }
         const message: ResourceStr = e instanceof BackupSnapshotChangedError
           ? $r('app.string.backup_snapshot_changed') : $r('app.string.backup_prepare_failed');
         this.showAlert($r('app.string.backup_failed'), message);
