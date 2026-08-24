@@ -1261,6 +1261,9 @@ struct NotePage {
     if (!await this.historyBridge.flushCurrentPage()) {
       throw new Error('deleteCurrentPage could not flush the current page');
     }
+    if (this.pages[this.currentPageIndex]?.pageId !== pageId) {
+      return;
+    }
     const snapshot: PageContentSnapshot = this.historyBridge.captureCurrentPage();
     const action: DeletePageAction = {
       type: UndoableActionType.DELETE_PAGE,
@@ -1296,9 +1299,7 @@ struct NotePage {
       }
     }
     this.pages = updated;
-    if (this.currentPageIndex >= this.pages.length) {
-      this.currentPageIndex = this.pages.length - 1;
-    }
+    this.selectPageById(selectedAfter);
     this.historyBridge.pushPageAction(action, history);
   }
 
