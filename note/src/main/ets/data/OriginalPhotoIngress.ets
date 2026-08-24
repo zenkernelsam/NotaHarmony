@@ -11,6 +11,7 @@ export interface OriginalPhotoIngressItem {
   bytes: Uint8Array;
   fileName: string;
   mimeType: string;
+  rewroteBytes: boolean;
   encodedWidth: number;
   encodedHeight: number;
   orientedWidth: number;
@@ -73,10 +74,14 @@ export async function importOriginalPhotos(uris: string[], cacheDirectory: strin
         throw new Error(`original photo exceeds ${ORIGINAL_PHOTO_MAX_BYTES} bytes`);
       }
       const normalized: NormalizedOriginalImageBytes = await normalizeOriginalImageBytes(bytes);
+      const photoName: string = normalized.rewroteBytes ?
+        `photo-${temporaryPaths.length}` :
+        `photo-${temporaryPaths.length}.${fileExtension(uri)}`;
       items.push({
         bytes: normalized.bytes,
-        fileName: `photo-${temporaryPaths.length}.${fileExtension(uri)}`,
+        fileName: photoName,
         mimeType: normalized.mimeType,
+        rewroteBytes: normalized.rewroteBytes,
         encodedWidth: normalized.encodedWidth,
         encodedHeight: normalized.encodedHeight,
         orientedWidth: normalized.orientedWidth,

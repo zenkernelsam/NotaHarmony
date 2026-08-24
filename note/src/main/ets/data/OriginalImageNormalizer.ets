@@ -10,6 +10,7 @@ const WEBP_LOSSY_QUALITY: number = 85;
 export interface NormalizedOriginalImageBytes {
   bytes: Uint8Array;
   mimeType: string;
+  rewroteBytes: boolean;
   encodedWidth: number;
   encodedHeight: number;
   orientedWidth: number;
@@ -51,6 +52,7 @@ export async function normalizeOriginalImageBytes(bytes: Uint8Array):
       return {
         bytes: stable,
         mimeType: sourceMime(info.mimeType),
+        rewroteBytes: false,
         encodedWidth: info.size.width,
         encodedHeight: info.size.height,
         orientedWidth: oriented.width,
@@ -82,6 +84,7 @@ export async function normalizeOriginalImageBytes(bytes: Uint8Array):
     return {
       bytes: new Uint8Array(packed),
       mimeType: 'image/webp',
+      rewroteBytes: true,
       encodedWidth: downscale.width,
       encodedHeight: downscale.height,
       orientedWidth: downscale.width,

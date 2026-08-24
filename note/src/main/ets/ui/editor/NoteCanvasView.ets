@@ -5589,6 +5589,7 @@ export struct NoteCanvasView {
         bytes: normalized.bytes,
         fileName: `clipboard-${Date.now()}.webp`,
         mimeType: 'image/webp',
+        rewroteBytes: true,
         encodedWidth: normalized.width,
         encodedHeight: normalized.height,
         orientedWidth: normalized.width,

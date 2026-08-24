@@ -17,7 +17,10 @@ const checks = [
     fixture.includes("expect(isValidOriginalPhotoUri('file:///media/image.bmp')).assertFalse()")],
   ['ingress preserves URI order and returns normalized metadata',
     ingress.includes('for (const uri of uris)') &&
-    ingress.includes('fileName: `photo-${temporaryPaths.length}.${fileExtension(uri)}`') &&
+    ingress.includes('normalized.rewroteBytes ?') &&
+    ingress.includes('rewroteBytes: normalized.rewroteBytes') &&
+    ingress.includes('`photo-${temporaryPaths.length}` :') &&
+    ingress.includes('`photo-${temporaryPaths.length}.${fileExtension(uri)}`') &&
     ingress.includes('orientedWidth: normalized.orientedWidth')],
   ['oversized or empty photos are rejected after bounded read',
     ingress.includes('export function isOversizedOriginalPhoto') &&

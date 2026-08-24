@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@ohos/hypium';
 import {
-  isOversizedOriginalPhoto, isValidOriginalPhotoUri,
-  ORIGINAL_PHOTO_MAX_BYTES, validateOriginalPhotoSelection,
+  importOriginalPhotos, isOversizedOriginalPhoto, isValidOriginalPhotoUri,
+  ORIGINAL_PHOTO_MAX_BYTES, resetOriginalPhotoUriReaderForTest,
+  setOriginalPhotoUriReaderForTest, validateOriginalPhotoSelection,
 } from '../main/ets/data/OriginalPhotoIngress';
 
 export default function originalPhotoIngressTest() {
@@ -34,6 +35,22 @@ export default function originalPhotoIngressTest() {
       expect(isOversizedOriginalPhoto(104857601)).assertTrue();
       expect(isOversizedOriginalPhoto(0)).assertTrue();
       expect(isOversizedOriginalPhoto(Number.MAX_SAFE_INTEGER + 1)).assertTrue();
+    });
+
+    it('drops stale source extensions after WebP normalization', 0, async () => {
+      setOriginalPhotoUriReaderForTest(async (): Promise<Uint8Array> =>
+        new Uint8Array([1, 2, 3]));
+      try {
+        const items = await importOriginalPhotos(
+          ['file:///a/source.jpg', 'file:///b/source.heic'], '/cache');
+        expect(items.length).assertEqual(2);
+        expect(items[0].fileName).assertEqual('photo-1');
+        expect(items[0].mimeType).assertEqual('image/webp');
+        expect(items[0].rewroteBytes).assertTrue();
+        expect(items[1].fileName).assertEqual('photo-2');
+      } finally {
+        resetOriginalPhotoUriReaderForTest();
+      }
     });
   });
 }
