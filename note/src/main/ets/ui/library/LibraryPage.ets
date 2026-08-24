@@ -445,8 +445,12 @@ struct LibraryPage {
     if (this.thumbnailRequestTimer >= 0) {
       return;
     }
+    const expectedLifecycleGeneration: number = this.lifecycleGeneration;
     this.thumbnailRequestTimer = setTimeout(() => {
       this.thumbnailRequestTimer = -1;
+      if (!this.pageActive || this.lifecycleGeneration !== expectedLifecycleGeneration) {
+        return;
+      }
       this.refreshThumbnails().catch((e: Error) => {
         console.error(`visible thumbnail refresh failed: ${JSON.stringify(e)}`);
       });
@@ -884,7 +888,7 @@ struct LibraryPage {
 
   // T-035：排序切换 + Preferences 持久化
   private setSortMode(mode: NoteSortMode): void {
-    if (this.viewModel === null) {
+    if (!this.pageActive || this.viewModel === null) {
       return;
     }
     this.viewModel.setSortMode(mode);
