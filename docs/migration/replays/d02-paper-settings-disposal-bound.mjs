@@ -30,6 +30,21 @@ assert.ok(refreshEndIndex < secondFavoriteGuardIndex && secondFavoriteGuardIndex
 
 assert.match(favorite, /\} catch \(error\) \{\s+if \(this\.panelDisposed\) \{\s+return;\s+\}/);
 
+const reloadStart = panel.indexOf('private async reloadSharedPaperSettings(): Promise<void> {');
+const storedStart = panel.indexOf('private storedBackgroundInfoForTemplate(', reloadStart);
+assert.ok(reloadStart !== -1 && storedStart > reloadStart);
+const reload = panel.slice(reloadStart, storedStart);
+const reloadInitIndex = reload.indexOf('++this.sharedLoadGeneration;');
+const dbAwaitIndex = reload.indexOf('await database.initialize(getContext(this) as common.UIAbilityContext);');
+const postDbGateIndex = reload.indexOf(
+  'if (this.panelDisposed || generation !== this.sharedLoadGeneration) {',
+  dbAwaitIndex,
+);
+const storeCreateIndex = reload.indexOf('new OriginalPaperSettingsStore(database);', postDbGateIndex);
+assert.ok(dbAwaitIndex > reloadInitIndex && postDbGateIndex > dbAwaitIndex &&
+  storeCreateIndex > postDbGateIndex,
+  'disposed or superseded shared settings load stops before repository work and publication');
+
 const saveStart = panel.indexOf('private async saveSharedSpacing(template: PaperTemplate, rawIndex: number): Promise<void> {');
 const replaceStart = panel.indexOf('private replaceBackgroundInfo(value: OriginalBackgroundInfo): void {', saveStart);
 assert.ok(saveStart !== -1 && replaceStart > saveStart);
@@ -40,4 +55,4 @@ assert.match(save,
   /await store\.saveSpacing\([\s\S]*?\);\s+if \(this\.panelDisposed\) \{\s+return;\s+\}/);
 assert.match(save, /\} catch \(error\) \{\s+if \(this\.panelDisposed\) \{\s+return;\s+\}/);
 
-console.log('D02_PAPER_SETTINGS_DISPOSAL_BOUND_REPLAY_OK TOTAL=3 FAILED=0');
+console.log('D02_PAPER_SETTINGS_DISPOSAL_BOUND_REPLAY_OK TOTAL=4 FAILED=0');

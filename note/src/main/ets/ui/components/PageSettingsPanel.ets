@@ -200,6 +200,9 @@ export struct PageSettingsPanel {
     try {
       const database: DatabaseManager = DatabaseManager.getInstance();
       await database.initialize(getContext(this) as common.UIAbilityContext);
+      if (this.panelDisposed || generation !== this.sharedLoadGeneration) {
+        return;
+      }
       const store: OriginalPaperSettingsStore = new OriginalPaperSettingsStore(database);
       const infos: OriginalBackgroundInfo[] = await store.listBackgroundInfos();
       const favorites: OriginalPaperBackground[] = await store.listFavorites();
