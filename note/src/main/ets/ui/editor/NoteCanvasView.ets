@@ -441,6 +441,9 @@ export struct NoteCanvasView {
 
   // === 数据加载与持久化 ===
   private async loadNoteData(): Promise<void> {
+    if (!this.lifecycleActive) {
+      return;
+    }
     this.partialEraserPreview.cancel();
     const generation: number = ++this.pageLoadGeneration;
     const targetPageId: string = this.currentPage.pageId;
@@ -457,7 +460,8 @@ export struct NoteCanvasView {
       const loaded = await this.persistence.loadElements(this.noteId, targetPageId);
       await this.loadOriginalInkAudioStarts(db);
       await this.refreshOriginalInkReservation(generation, targetPageId);
-      if (generation !== this.pageLoadGeneration || this.currentPage.pageId !== targetPageId) {
+      if (!this.lifecycleActive || generation !== this.pageLoadGeneration ||
+        this.currentPage.pageId !== targetPageId) {
         return;
       }
       this.hydrateOriginalStrokeAudioStarts(loaded.strokes);
@@ -471,7 +475,8 @@ export struct NoteCanvasView {
       this.loadedPageId = targetPageId;
       if (!this.historyLoaded) {
         const restored: RestoredHistoryState | null = await this.readPersistentHistory(db, targetPageId);
-        if (generation !== this.pageLoadGeneration || this.currentPage.pageId !== targetPageId) {
+        if (!this.lifecycleActive || generation !== this.pageLoadGeneration ||
+          this.currentPage.pageId !== targetPageId) {
           return;
         }
         if (restored === null) {
@@ -906,6 +911,9 @@ export struct NoteCanvasView {
   }
 
   private async switchPageData(): Promise<void> {
+    if (!this.lifecycleActive) {
+      return;
+    }
     this.cancelActiveInteraction();
     if (!this.loaded) {
       await this.loadNoteData();
@@ -947,7 +955,8 @@ export struct NoteCanvasView {
         await this.loadOriginalInkAudioStarts(db);
       }
       await this.refreshOriginalInkReservation(generation, targetPageId);
-      if (generation !== this.pageLoadGeneration || this.currentPage.pageId !== targetPageId) {
+      if (!this.lifecycleActive || generation !== this.pageLoadGeneration ||
+        this.currentPage.pageId !== targetPageId) {
         return;
       }
       this.hydrateOriginalStrokeAudioStarts(loaded.strokes);
@@ -977,6 +986,9 @@ export struct NoteCanvasView {
       this.refreshPaperTexture(generation, targetPageId);
       this.resumePendingHistory();
     } catch (e) {
+      if (generation === this.pageLoadGeneration && !this.lifecycleActive) {
+        return;
+      }
       if (generation === this.pageLoadGeneration) {
         if (previousPageSaved) {
           this.reportLoadFailure(e as Object, !fromPageWasRemoved && fromPageId.length > 0);
