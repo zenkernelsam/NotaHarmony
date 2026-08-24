@@ -129,6 +129,39 @@ export class LibraryViewModel {
     await this.enqueueMutation(async (): Promise<void> => {
       await this.repo.deleteNote(noteId);
       this.removeVisibleNote(noteId);
+      if (this.isLoading) {
+        const generation: number = ++this.loadGeneration;
+        try {
+          while (generation === this.loadGeneration) {
+            const mutationGeneration: number = this.mutationGeneration;
+            let loaded: NoteMeta[];
+            try {
+              loaded = this.currentFolderId === null ?
+                await this.repo.getAllNotes() :
+                await this.repo.getNotesByFolder(this.currentFolderId);
+            } catch (error) {
+              if (generation !== this.loadGeneration ||
+                mutationGeneration !== this.mutationGeneration) {
+                return;
+              }
+              this.loadError = `loadNotes failed: ${JSON.stringify(error)}`;
+              throw new Error(this.loadError);
+            }
+            if (generation !== this.loadGeneration) {
+              return;
+            }
+            if (mutationGeneration !== this.mutationGeneration) {
+              continue;
+            }
+            this.notes = loaded;
+            this.applySort();
+          }
+        } finally {
+          if (generation === this.loadGeneration) {
+            this.isLoading = false;
+          }
+        }
+      }
     });
   }
 

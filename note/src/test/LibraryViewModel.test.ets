@@ -193,6 +193,33 @@ export default function libraryViewModelTest() {
       expect(viewModel.notes.length).assertEqual(0);
     });
 
+    it('clears stale loading after a delete commits during an in-flight read', 0, async () => {
+      const repository = new FakeNoteRepository();
+      repository.snapshotBeforeGate = true;
+      let releaseRead: () => void = (): void => {};
+      let notifyReadStarted: () => void = (): void => {};
+      repository.readGate = new Promise<void>((resolve: () => void) => {
+        releaseRead = resolve;
+      });
+      const readStarted: Promise<void> = new Promise<void>((resolve: () => void) => {
+        notifyReadStarted = resolve;
+      });
+      repository.readStarted = notifyReadStarted;
+      const viewModel = new LibraryViewModel(repository);
+      viewModel.notes = [makeNote('existing', null)];
+      const read: Promise<void> = viewModel.loadNotes('');
+      await readStarted;
+      await viewModel.deleteNote('existing');
+      expect(viewModel.isLoading).assertFalse();
+      releaseRead();
+      try {
+        await read;
+      } catch (_error) {
+      }
+      expect(viewModel.isLoading).assertFalse();
+      expect(viewModel.notes.length).assertEqual(0);
+    });
+
     it('retries an in-flight read made stale by a committed create', 0, async () => {
       const repository = new FakeNoteRepository();
       repository.snapshotBeforeGate = true;
