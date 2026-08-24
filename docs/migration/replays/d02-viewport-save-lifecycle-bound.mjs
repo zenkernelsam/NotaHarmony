@@ -20,7 +20,7 @@ assert.match(schedule,
 
 const save = canvas.slice(saveStart, saveEnd);
 assert.match(save,
-  /private async saveViewportState\(requestedGeneration\?: number\): Promise<void> \{\s+if \(!this\.lifecycleActive \|\| requestedGeneration !== undefined &&\s+requestedGeneration !== this\.pageLoadGeneration\) \{\s+return;\s+\}\s+try \{/,
+  /private async saveViewportState\(requestedGeneration: number,\s+allowDisposedFinalSave: boolean = false\): Promise<void> \{\s+if \(!this\.lifecycleActive && !allowDisposedFinalSave \|\|\s+requestedGeneration !== this\.pageLoadGeneration\) \{\s+return;\s+\}\s+try \{/,
   'write requires active lifecycle and same generation');
 
 const dbInit = save.indexOf('await db.initialize(context);');
@@ -33,6 +33,8 @@ const disposeEnd = canvas.indexOf('private async loadOriginalInkAudioStarts', di
 assert.ok(disposeStart !== -1 && disposeEnd > disposeStart);
 const dispose = canvas.slice(disposeStart, disposeEnd);
 assert.match(dispose, /this\.lifecycleActive = false;/);
+assert.match(dispose, /this\.saveViewportState\(this\.pageLoadGeneration, true\);/,
+  'teardown final save remains allowed despite disposal');
 assert.match(dispose, /if \(this\.viewportSaveTimer >= 0\) \{[\s\S]*?clearTimeout/,
   'dispose still cancels pending timer as first defense');
 

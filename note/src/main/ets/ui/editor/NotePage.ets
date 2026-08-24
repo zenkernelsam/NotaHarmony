@@ -265,7 +265,7 @@ struct NotePage {
 
   private async loadPages(): Promise<void> {
     const loadGeneration: number = ++this.pageLoadGeneration;
-    if (this.pageLoadInFlight) {
+    if (this.editorDisposed || this.pageLoadInFlight) {
       return;
     }
     this.pageLoadInFlight = true;
@@ -318,7 +318,7 @@ struct NotePage {
       } else {
         this.pages = loaded;
       }
-      if (loadGeneration !== this.pageLoadGeneration) {
+      if (this.editorDisposed || loadGeneration !== this.pageLoadGeneration) {
         return;
       }
       this.noteBackground = await this.pageRepo.getNoteBackground(this.noteId);

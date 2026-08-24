@@ -869,7 +869,7 @@ export struct NoteCanvasView {
       clearTimeout(this.viewportSaveTimer);
       this.viewportSaveTimer = -1;
     }
-    this.saveViewportState();
+    this.saveViewportState(this.pageLoadGeneration, true);
     if (this.textEditing && this.editingTextBlock !== null) {
       this.onTextCommit(this.editingDraftText).catch((e: Object): void => {
         hilog.error(0x0001, 'NoteCanvasView',
@@ -1550,8 +1550,9 @@ export struct NoteCanvasView {
     }, 500);
   }
 
-  private async saveViewportState(requestedGeneration?: number): Promise<void> {
-    if (!this.lifecycleActive || requestedGeneration !== undefined &&
+  private async saveViewportState(requestedGeneration: number,
+    allowDisposedFinalSave: boolean = false): Promise<void> {
+    if (!this.lifecycleActive && !allowDisposedFinalSave ||
       requestedGeneration !== this.pageLoadGeneration) {
       return;
     }
