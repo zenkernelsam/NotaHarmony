@@ -72,5 +72,12 @@ const moveAwait = move.indexOf('await this.pageRepo.reorderPages(');
 const moveGuard = move.indexOf(guard, moveAwait);
 assert.ok(moveAwait !== -1 && moveGuard > moveAwait &&
   moveGuard < move.indexOf('this.pages = this.orderPages(this.pages, orderAfter);', moveAwait));
+const moveGate = move.indexOf(
+  "if (this.pages[this.currentPageIndex]?.pageId !== selectedPageId) {",
+  moveGuard,
+);
+const movePublish = move.indexOf('this.pages = this.orderPages(this.pages, orderAfter);', moveGate);
+assert.ok(moveGate > moveGuard && movePublish > moveGate,
+  'move continuation is rejected after user page switch before stale order publication');
 
-console.log('D02_PAGE_OPERATION_DISPOSAL_BOUND_REPLAY_OK TOTAL=14 FAILED=0');
+console.log('D02_PAGE_OPERATION_DISPOSAL_BOUND_REPLAY_OK TOTAL=15 FAILED=0');

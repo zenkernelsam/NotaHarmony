@@ -1332,6 +1332,9 @@ struct NotePage {
     if (this.editorDisposed) {
       return;
     }
+    if (this.pages[this.currentPageIndex]?.pageId !== selectedPageId) {
+      return;
+    }
     this.pages = this.orderPages(this.pages, orderAfter);
     this.currentPageIndex = targetIndex;
     this.historyBridge.pushPageAction(action, history);
