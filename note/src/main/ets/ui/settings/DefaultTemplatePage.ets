@@ -31,6 +31,8 @@ struct DefaultTemplatePage {
   private store: EditorSettingsStore | null = null;
   private initialized: boolean = false;
   private loadGeneration: number = 0;
+  private lifecycleGeneration: number = 0;
+  private pageDisposed: boolean = false;
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
@@ -38,6 +40,10 @@ struct DefaultTemplatePage {
 
   aboutToAppear(): void {
     this.reloadDefaultTemplate();
+  }
+
+  aboutToDisappear(): void {
+    this.pageDisposed = true;
   }
 
   onPageShow(): void {
@@ -55,7 +61,7 @@ struct DefaultTemplatePage {
       const store: EditorSettingsStore = new EditorSettingsStore(context);
       const settings: NoteBackgroundSettings = originalDefaultTemplateSettings(
         await store.getSelectedDefaultTemplate());
-      if (generation !== this.loadGeneration) {
+      if (this.pageDisposed || generation !== this.loadGeneration) {
         return;
       }
       this.store = store;
@@ -63,7 +69,7 @@ struct DefaultTemplatePage {
       this.loadState = DefaultTemplateLoadState.READY;
       this.initialized = true;
     } catch (e) {
-      if (generation !== this.loadGeneration) {
+      if (this.pageDisposed || generation !== this.loadGeneration) {
         return;
       }
       this.store = null;
@@ -79,16 +85,23 @@ struct DefaultTemplatePage {
       sameNoteBackgroundSettings(this.settings, next)) {
       return;
     }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
     const previous: NoteBackgroundSettings = cloneNoteBackgroundSettings(this.settings);
     this.settings = cloneNoteBackgroundSettings(next);
     this.saveBusy = true;
     try {
       await store.saveSelectedDefaultTemplate(originalDefaultTemplateFromSettings(next));
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
       try {
         promptAction.showToast({ message: $r('app.string.default_template_saved'), duration: 1800 });
       } catch (_toastError) {
       }
     } catch (e) {
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
       this.settings = previous;
       console.error(`DefaultTemplatePage save failed: ${JSON.stringify(e)}`);
       try {

@@ -24,6 +24,8 @@ struct SettingsPage {
   private store: EditorSettingsStore | null = null;
   private initialized: boolean = false;
   private loadGeneration: number = 0;
+  private lifecycleGeneration: number = 0;
+  private pageDisposed: boolean = false;
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
@@ -31,6 +33,10 @@ struct SettingsPage {
 
   aboutToAppear(): void {
     this.reloadSettings();
+  }
+
+  aboutToDisappear(): void {
+    this.pageDisposed = true;
   }
 
   onPageShow(): void {
@@ -47,7 +53,7 @@ struct SettingsPage {
       const context = getContext(this) as common.UIAbilityContext;
       const store: EditorSettingsStore = new EditorSettingsStore(context);
       const enabled: boolean = await store.getShapeDetectionEnabled();
-      if (generation !== this.loadGeneration) {
+      if (this.pageDisposed || generation !== this.loadGeneration) {
         return;
       }
       this.store = store;
@@ -55,7 +61,7 @@ struct SettingsPage {
       this.loadState = SettingsLoadState.READY;
       this.initialized = true;
     } catch (e) {
-      if (generation !== this.loadGeneration) {
+      if (this.pageDisposed || generation !== this.loadGeneration) {
         return;
       }
       this.store = null;
@@ -71,12 +77,19 @@ struct SettingsPage {
       enabled === this.shapeDetectionEnabled) {
       return;
     }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
     const previous: boolean = this.shapeDetectionEnabled;
     this.shapeDetectionEnabled = enabled;
     this.saveBusy = true;
     try {
       await store.saveShapeDetectionEnabled(enabled);
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
     } catch (e) {
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
       this.shapeDetectionEnabled = previous;
       console.error(`SettingsPage save failed: ${JSON.stringify(e)}`);
       try {
