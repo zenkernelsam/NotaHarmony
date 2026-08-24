@@ -19,4 +19,7 @@ assert.ok(body.indexOf('showHistoryRecoveryToast') > successIndex);
 assert.ok(body.includes('finally') && body.includes('this.historyBusy = false;') &&
   body.includes('this.historyRecoveryBusy = false;'));
 
-console.log('D02_HISTORY_RESET_LIFECYCLE_BOUND_REPLAY_OK TOTAL=6 FAILED=0');
+const callbackIndex = canvas.indexOf('this.requestPersistentHistoryReset()');
+assert.notEqual(callbackIndex, -1, 'dialog action uses the current-state entry gate');
+
+console.log('D02_HISTORY_RESET_LIFECYCLE_BOUND_REPLAY_OK TOTAL=7 FAILED=0');

@@ -750,7 +750,7 @@ export struct NoteCanvasView {
           value: $r('app.string.reset_undo_history'),
           fontColor: this.resolveTokens().danger,
           action: () => {
-            this.resetPersistentHistory().catch((e: Object) => {
+            this.requestPersistentHistoryReset().catch((e: Object) => {
               hilog.error(0x0001, 'NoteCanvasView',
                 'persistent history reset action failed: %{public}s', JSON.stringify(e));
             });
@@ -762,6 +762,14 @@ export struct NoteCanvasView {
         'persistent history recovery dialog failed: %{public}s', JSON.stringify(e));
       this.showHistoryRecoveryToast($r('app.string.history_recovery_needed'));
     }
+  }
+
+  private requestPersistentHistoryReset(): Promise<void> {
+    if (!this.lifecycleActive || !this.historyRecoveryRequired ||
+      this.historyRecoveryBusy || this.historyBusy || this.database === null) {
+      return Promise.resolve();
+    }
+    return this.resetPersistentHistory();
   }
 
   private async resetPersistentHistory(): Promise<void> {
