@@ -298,7 +298,7 @@ struct NotePage {
       // T-036：加载标题
       this.noteRepo = new NoteRepositoryImpl(db);
       const note: NoteMeta | null = await this.noteRepo.getNote(this.noteId);
-      if (loadGeneration !== this.pageLoadGeneration) {
+      if (this.editorDisposed || loadGeneration !== this.pageLoadGeneration) {
         return;
       }
       if (note === null) {

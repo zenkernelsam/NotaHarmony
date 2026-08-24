@@ -24,6 +24,7 @@ for (const effect of [
   assert.ok(effectIndex !== -1 && effectIndex > guardIndex, effect);
 }
 
-assert.match(body, /if \(loadGeneration !== this\.pageLoadGeneration\) \{\s+return;\s+\}/);
+assert.match(body,
+  /if \(this\.editorDisposed \|\| loadGeneration !== this\.pageLoadGeneration\) \{\s+return;\s+\}/);
 
 console.log('D02_EDITOR_INITIALIZATION_DISPOSAL_BOUND_REPLAY_OK TOTAL=5 FAILED=0');
