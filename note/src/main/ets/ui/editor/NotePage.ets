@@ -1125,8 +1125,14 @@ struct NotePage {
       ? undefined : this.historyBridge.preparePageAction(action);
     const materialized: NoteBackgroundSettings = await this.pageRepo.updateNoteBackground(
       this.noteId, settings, selectedPageId, history);
+    if (this.editorDisposed) {
+      return;
+    }
     action.backgroundAfter = cloneNoteBackgroundSettings(materialized);
     this.pages = await this.pageRepo.getPages(this.noteId);
+    if (this.editorDisposed) {
+      return;
+    }
     this.noteBackground = materialized;
     this.selectPageById(selectedPageId);
     if (this.historyBridge !== null) {
@@ -1189,6 +1195,9 @@ struct NotePage {
     const history: HistoryMetadata | undefined = this.historyBridge === null
       ? undefined : this.historyBridge.preparePageAction(action);
     const assignedPage: PageInfo = await this.pageRepo.addPage(this.noteId, page, history);
+    if (this.editorDisposed) {
+      return;
+    }
     action.pageId = assignedPage.pageId;
     action.pageAfter = this.clonePage(assignedPage);
     action.pageOrderAfter = orderBefore.concat([assignedPage.pageId]);
@@ -1240,6 +1249,9 @@ struct NotePage {
       this.historyBridge.cancelPageRemoval(pageId);
       throw new Error(`deleteCurrentPage failed: ${JSON.stringify(e)}`);
     }
+    if (this.editorDisposed) {
+      return;
+    }
     const updated: PageInfo[] = [];
     for (const p of this.pages) {
       if (p.pageId !== pageId) {
@@ -1276,6 +1288,9 @@ struct NotePage {
     };
     const history: HistoryMetadata = this.historyBridge.preparePageAction(action);
     await this.pageRepo.reorderPages(this.noteId, orderAfter, selectedPageId, history);
+    if (this.editorDisposed) {
+      return;
+    }
     this.pages = this.orderPages(this.pages, orderAfter);
     this.currentPageIndex = targetIndex;
     this.historyBridge.pushPageAction(action, history);
