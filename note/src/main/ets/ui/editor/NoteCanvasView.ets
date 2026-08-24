@@ -5440,7 +5440,15 @@ export struct NoteCanvasView {
           'original Math latex committed after stale page; durable history remains available');
         return;
       }
-      this.undoRedo.push(action, prepared);
+      const mathAction: UndoableAction = {
+        type: UndoableActionType.TRANSFORM_ELEMENTS,
+        noteId: this.noteId,
+        pageId: pageId,
+        beforeStrokes: [], afterStrokes: [], beforeShapes: [], afterShapes: [],
+        beforeTextBlocks: [], afterTextBlocks: [], beforeImages: [], afterImages: [],
+        beforeMathBlocks: [before], afterMathBlocks: [after],
+      };
+      this.undoRedo.push(mathAction, prepared);
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
       this.mathEditorVisible = false;
       this.cancelMathEditorDraftValidation();
@@ -5455,8 +5463,8 @@ export struct NoteCanvasView {
         this.mathBlocks = proposedMath;
         this.updateSelectionOverlay();
         this.renderFrame();
+        this.notifyUndoRedo();
       }
-      this.notifyUndoRedo();
     } catch (e) {
       if (this.isHistoryPageContextCurrent(generation, pageId)) {
         this.mathEditorFailed = true;
@@ -5830,7 +5838,7 @@ export struct NoteCanvasView {
           'original Math insert committed after stale page; durable history remains available');
         return;
       }
-      const action: UndoableAction = {
+      const mathAction: UndoableAction = {
         type: UndoableActionType.ADD_ELEMENTS,
         noteId: this.noteId, pageId: pageId,
         addedStrokes: [], addedShapes: [], addedTextBlocks: [], addedImages: [],
@@ -5838,7 +5846,7 @@ export struct NoteCanvasView {
         elementOrderBefore: elementOrderBefore,
         elementOrderAfter: clonePageElementOrder(result.elementOrder),
       };
-      this.undoRedo.push(action, prepared);
+      this.undoRedo.push(mathAction, prepared);
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
       this.mathEditorVisible = false;
       this.cancelMathEditorDraftValidation();
@@ -5856,8 +5864,8 @@ export struct NoteCanvasView {
         this.selectionTool.selectElementIds([], [], [], [], [], [result.math.id]);
         this.updateSelectionOverlay();
         this.renderFrame();
+        this.notifyUndoRedo();
       }
-      this.notifyUndoRedo();
     } catch (e) {
       if (this.isHistoryPageContextCurrent(generation, pageId)) {
         this.mathEditorFailed = true;

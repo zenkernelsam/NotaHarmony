@@ -23,16 +23,16 @@ for (const [name, section] of [['edit', edit], ['insert', insert]]) {
 }
 
 const editGuardIndex = edit.indexOf("original Math latex committed after stale page");
-const editPushIndex = edit.indexOf('this.undoRedo.push(action, prepared);');
+const editPushIndex = edit.indexOf('this.undoRedo.push(mathAction, prepared);');
 const editVisibleIndex = edit.indexOf('this.mathEditorVisible = false;');
 const editNotifyIndex = edit.lastIndexOf('this.notifyUndoRedo();');
 assert.ok(editGuardIndex !== -1 && editGuardIndex < editPushIndex);
 assert.ok(editPushIndex < editVisibleIndex && editVisibleIndex < editNotifyIndex);
 
 const insertGuardIndex = insert.indexOf('original Math insert committed after stale page');
-const insertPushIndex = insert.indexOf('const action: UndoableAction = {');
+const insertPushIndex = insert.indexOf('this.undoRedo.push(mathAction, prepared);');
 assert.ok(insertGuardIndex !== -1 && insertGuardIndex < insertPushIndex);
-assert.ok(insert.includes('this.undoRedo.push(action, prepared);'));
+assert.ok(insert.includes('this.undoRedo.push(mathAction, prepared);'));
 assert.ok(insert.lastIndexOf('this.notifyUndoRedo();') > insertPushIndex);
 
 for (const section of [edit, insert]) {
