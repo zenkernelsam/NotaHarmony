@@ -3218,6 +3218,15 @@ export struct NoteCanvasView {
     if (this.pendingHistoryDirection === 0) {
       return;
     }
+    if (!this.lifecycleActive || !this.loaded || this.dataLoading || this.dataLoadFailed ||
+      this.historyBusy) {
+      this.pendingHistoryDirection = 0;
+      return;
+    }
+    if (this.loadedPageId.length === 0 ||
+      this.loadedPageId !== this.currentPage.pageId) {
+      return;
+    }
     const isUndo: boolean = this.pendingHistoryDirection < 0;
     this.pendingHistoryDirection = 0;
     this.performHistory(isUndo);
