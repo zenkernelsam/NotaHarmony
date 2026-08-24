@@ -264,6 +264,9 @@ struct NotePage {
     }
     await this.viewModel.flushToolState();
     await this.recordingDeleteController.flush();
+    if (this.editorDisposed) {
+      return;
+    }
     await this.finishRecordingSession();
     await this.recordingController.release();
     router.back();
