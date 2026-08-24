@@ -34,6 +34,15 @@ const addSelectionIndex = add.indexOf('this.currentPageIndex = this.pages.findIn
 const addMutationIndex = add.indexOf('action.pageId = assignedPage.pageId;', addGuard);
 assert.ok(addSelectionIndex > addGuard && addSelectionIndex < addMutationIndex,
   'accepted add selects the assigned page before publishing history action');
+const originGateIndex = add.indexOf(
+  "if (this.pages[this.currentPageIndex]?.pageId !== selectedBefore) {",
+  addGuard,
+);
+assert.ok(originGateIndex > addGuard && originGateIndex < addSelectionIndex,
+  'add continuation is rejected if the user switched pages during persistence');
+const addPublishIndex = add.indexOf('this.pages = updated;', addMutationIndex);
+assert.ok(addPublishIndex > 0 && add.indexOf('this.currentPageIndex = updated.length - 1;', addPublishIndex) > 0,
+  'new-page selection uses the published list length');
 
 const remove = section('  private async deleteCurrentPage(', '  private async moveCurrentPage(');
 const flushAwait = remove.indexOf('await this.historyBridge.flushCurrentPage()');
@@ -64,4 +73,4 @@ const moveGuard = move.indexOf(guard, moveAwait);
 assert.ok(moveAwait !== -1 && moveGuard > moveAwait &&
   moveGuard < move.indexOf('this.pages = this.orderPages(this.pages, orderAfter);', moveAwait));
 
-console.log('D02_PAGE_OPERATION_DISPOSAL_BOUND_REPLAY_OK TOTAL=12 FAILED=0');
+console.log('D02_PAGE_OPERATION_DISPOSAL_BOUND_REPLAY_OK TOTAL=14 FAILED=0');

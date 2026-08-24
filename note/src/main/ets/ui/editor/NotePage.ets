@@ -1233,6 +1233,9 @@ struct NotePage {
     if (this.editorDisposed) {
       return;
     }
+    if (this.pages[this.currentPageIndex]?.pageId !== selectedBefore) {
+      return;
+    }
     this.currentPageIndex = this.pages.findIndex((page: PageInfo): boolean =>
       page.pageId === assignedPage.pageId);
     action.pageId = assignedPage.pageId;
@@ -1242,7 +1245,7 @@ struct NotePage {
     const updated: PageInfo[] = this.pages.slice();
     updated.push(assignedPage);
     this.pages = updated;
-    this.currentPageIndex = this.pages.length - 1;
+    this.currentPageIndex = updated.length - 1;
     if (this.historyBridge !== null) {
       this.historyBridge.pushPageAction(action, history);
     }
