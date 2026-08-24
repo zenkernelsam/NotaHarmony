@@ -24,6 +24,8 @@ struct WebDAVSettingsPage {
   @State testResult: ResourceStr = '';
   @State hasTestResult: boolean = false;
   @State testSucceeded: boolean = false;
+  private pageDisposed: boolean = false;
+  private lifecycleGeneration: number = 0;
   // T-038：主题状态
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -37,10 +39,18 @@ struct WebDAVSettingsPage {
     this.loadConfig();
   }
 
-  private async loadConfig(): Promise<void> {
+  aboutToDisappear(): void {
+    this.pageDisposed = true;
+    this.lifecycleGeneration++;
+  }
+
+  private async loadConfig(expectedLifecycleGeneration: number = this.lifecycleGeneration): Promise<void> {
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const config: WebDAVConfig = await WebDAVConfigStore.load(context);
+      if (this.isDisposed(expectedLifecycleGeneration)) {
+        return;
+      }
       this.serverUrl = config.serverUrl;
       this.username = config.username;
       this.password = config.password;
@@ -64,6 +74,7 @@ struct WebDAVSettingsPage {
   }
 
   private async testConnectionOnce(): Promise<void> {
+    const lifecycleGeneration: number = this.lifecycleGeneration;
     if (this.serverUrl.trim().length === 0) {
       this.testSucceeded = false;
       this.testResult = $r('app.string.enter_server_url');
@@ -73,6 +84,9 @@ struct WebDAVSettingsPage {
     let allowInsecureHttp: boolean;
     try {
       allowInsecureHttp = await this.confirmInsecureHttp();
+      if (this.isDisposed(lifecycleGeneration)) {
+        return;
+      }
     } catch (e) {
       console.error(`insecure HTTP confirmation failed: ${JSON.stringify(e)}`);
       this.testSucceeded = false;
@@ -103,6 +117,9 @@ struct WebDAVSettingsPage {
     try {
       const client = new WebDAVClient(config);
       const result: ConnectionResult = await client.testConnection();
+      if (this.isDisposed(lifecycleGeneration)) {
+        return;
+      }
       this.testSucceeded = result.success;
       this.testResult = result.message;
       this.hasTestResult = true;
@@ -127,9 +144,13 @@ struct WebDAVSettingsPage {
   }
 
   private async saveConfigOnce(): Promise<void> {
+    const lifecycleGeneration: number = this.lifecycleGeneration;
     let allowInsecureHttp: boolean;
     try {
       allowInsecureHttp = await this.confirmInsecureHttp();
+      if (this.isDisposed(lifecycleGeneration)) {
+        return;
+      }
     } catch (e) {
       console.error(`insecure HTTP confirmation failed: ${JSON.stringify(e)}`);
       this.safeToast($r('app.string.save_failed'));
@@ -155,6 +176,9 @@ struct WebDAVSettingsPage {
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const result: WebDAVConfigSaveResult = await WebDAVConfigStore.save(context, config);
+      if (this.isDisposed(lifecycleGeneration)) {
+        return;
+      }
       if (result.committed) {
         this.applyNormalizedDraft(config);
         this.safeToast(result.cleanupPending ? $r('app.string.settings_saved_cleanup_pending') :
@@ -190,6 +214,9 @@ struct WebDAVSettingsPage {
   }
 
   private safeToast(message: ResourceStr): void {
+    if (this.pageDisposed) {
+      return;
+    }
     try {
       promptAction.showToast({ message: message, duration: 2000 });
     } catch (e) {
@@ -199,6 +226,10 @@ struct WebDAVSettingsPage {
 
   private isInsecureHttp(): boolean {
     return this.serverUrl.trim().toLowerCase().startsWith('http://');
+  }
+
+  private isDisposed(expectedLifecycleGeneration: number): boolean {
+    return this.pageDisposed || expectedLifecycleGeneration !== this.lifecycleGeneration;
   }
 
   private async confirmInsecureHttp(): Promise<boolean> {
