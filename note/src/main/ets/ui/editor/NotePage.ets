@@ -455,7 +455,7 @@ struct NotePage {
         this.rebuildRecordingTimeline();
       }
     } catch (error) {
-      if (generation !== this.recordingLoadGeneration) {
+      if (this.editorDisposed || generation !== this.recordingLoadGeneration) {
         return;
       }
       this.recordings = [];
