@@ -935,14 +935,15 @@ struct LibraryPage {
     }
     try {
       const context = getContext(this) as common.UIAbilityContext;
+      const renderer: ThumbnailRenderer = this.thumbRenderer;
       const pref: preferences.Preferences =
         await preferences.getPreferences(context, THEME_PREFERENCES_NAME);
-      if (!this.pageActive || expectedLifecycleGeneration !== this.lifecycleGeneration) {
+      if (!this.pageActive || expectedLifecycleGeneration !== this.lifecycleGeneration ||
+        renderer !== this.thumbRenderer) {
         return;
       }
       await this.db.initialize(context);
       this.persistence.initialize(this.db);
-      const renderer: ThumbnailRenderer = this.thumbRenderer;
       await renderer.initialize(context);
       if (!this.pageActive || expectedLifecycleGeneration !== this.lifecycleGeneration ||
         renderer !== this.thumbRenderer) {
