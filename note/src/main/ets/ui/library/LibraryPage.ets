@@ -235,8 +235,10 @@ struct LibraryPage {
   }
 
   private isCurrentNotesRequest(generation: number, viewModel: LibraryViewModel,
-    query: string, folderId: string | null): boolean {
-    return this.pageActive && generation === this.notesRequestGeneration &&
+    query: string, folderId: string | null,
+    lifecycleGeneration: number = this.lifecycleGeneration): boolean {
+    return this.pageActive && lifecycleGeneration === this.lifecycleGeneration &&
+      generation === this.notesRequestGeneration &&
       this.viewModel === viewModel && this.searchText === query &&
       this.currentFolderId === folderId && viewModel.currentFolderId === folderId;
   }
@@ -1338,15 +1340,17 @@ struct LibraryPage {
               }
               this.searchTimer = setTimeout(() => {
                 this.searchTimer = -1;
+                const lifecycleGeneration: number = this.lifecycleGeneration;
                 const vm: LibraryViewModel | null = this.viewModel;
                 if (vm === null || !this.pageActive ||
+                  lifecycleGeneration !== this.lifecycleGeneration ||
                   notesRequestGeneration !== this.notesRequestGeneration ||
                   this.searchText !== value) {
                   return;
                 }
                 const folderId: string | null = vm.currentFolderId;
                 vm.setSearchQuery(value).then(() => {
-                  if (this.isCurrentNotesRequest(notesRequestGeneration, vm, value, folderId)) {
+                  if (this.isCurrentNotesRequest(notesRequestGeneration, vm, value, folderId, lifecycleGeneration)) {
                     this.viewModel = vm;
                     this.currentFolderId = vm.currentFolderId;
                     this.notes = vm.getFilteredNotes().slice();
@@ -1355,7 +1359,7 @@ struct LibraryPage {
                   }
                   return Promise.resolve();
                 }).catch((e: Error) => {
-                  if (this.isCurrentNotesRequest(notesRequestGeneration, vm, value, folderId)) {
+                  if (this.isCurrentNotesRequest(notesRequestGeneration, vm, value, folderId, lifecycleGeneration)) {
                     console.error(`search notes failed: ${JSON.stringify(e)}`);
                     this.libraryLoading = false;
                     promptAction.showToast({ message: $r('app.string.search_failed') });

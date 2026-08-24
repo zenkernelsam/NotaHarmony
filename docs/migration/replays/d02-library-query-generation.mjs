@@ -69,8 +69,9 @@ const checks = [
     search.includes('notesRequestGeneration !== this.notesRequestGeneration') &&
     search.includes('this.searchText !== value')],
   ['search publishes and reports errors only for the latest tuple',
-    (search.match(/this\.isCurrentNotesRequest\(notesRequestGeneration, vm, value, folderId\)/g) ?? [])
-      .length >= 2],
+    (search.match(/this\.isCurrentNotesRequest\(notesRequestGeneration, vm, value, folderId, lifecycleGeneration\)/g) ?? [])
+      .length >= 2 &&
+    search.includes('lifecycleGeneration !== this.lifecycleGeneration')],
   ['mutation reload captures query folder and generation together',
     reload.includes('if (!this.pageActive || this.viewModel !== vm)') &&
     reload.includes('const query: string = this.searchText') &&
