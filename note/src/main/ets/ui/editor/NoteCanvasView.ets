@@ -515,6 +515,9 @@ export struct NoteCanvasView {
       this.promptPersistentHistoryRecovery();
     } catch (e) {
       if (generation === this.pageLoadGeneration) {
+        if (!this.lifecycleActive) {
+          return;
+        }
         this.enterLoadFailureState();
         this.reportLoadFailure(e as Object);
       }
