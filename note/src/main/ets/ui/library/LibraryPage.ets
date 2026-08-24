@@ -969,6 +969,9 @@ struct LibraryPage {
         return;
       }
       this.persistence.backfillSearchIndex().then(() => {
+        if (!this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer)) {
+          return;
+        }
         const activeViewModel: LibraryViewModel | null = this.viewModel;
         const activeQuery: string = this.searchText;
         const activeFolderId: string | null = activeViewModel === null ? null :
