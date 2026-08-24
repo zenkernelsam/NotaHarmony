@@ -18,6 +18,16 @@ const postPagesGuard = body.indexOf('if (this.editorDisposed || loadGeneration !
 assert.ok(pagesPublish >= 0 && postPagesGuard > pagesPublish,
   'pages publication is followed by combined disposal/generation guard');
 
+const recoveryAwait = body.indexOf('await this.pageRepo.addPage(this.noteId, defaultPage);');
+const recoveryPublish = body.indexOf('this.pages = [assignedPage];');
+const recoveryGuard = body.indexOf(
+  'if (this.editorDisposed || loadGeneration !== this.pageLoadGeneration) {',
+  recoveryAwait,
+);
+assert.ok(recoveryAwait >= 0 && recoveryPublish > recoveryAwait);
+assert.ok(recoveryGuard > recoveryAwait && recoveryGuard < recoveryPublish,
+  'zero-page recovery publication is gated immediately after addPage await');
+
 const backgroundAwait = body.indexOf('await this.pageRepo.getNoteBackground(this.noteId);');
 const guardEnd = body.indexOf('}', postPagesGuard);
 assert.ok(backgroundAwait > guardEnd, 'guard precedes note background await');

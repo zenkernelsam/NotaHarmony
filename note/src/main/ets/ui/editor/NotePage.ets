@@ -321,6 +321,9 @@ struct NotePage {
           heightMm: fallback.heightMm,
         };
         const assignedPage: PageInfo = await this.pageRepo.addPage(this.noteId, defaultPage);
+        if (this.editorDisposed || loadGeneration !== this.pageLoadGeneration) {
+          return;
+        }
         this.pages = [assignedPage];
       } else {
         this.pages = loaded;

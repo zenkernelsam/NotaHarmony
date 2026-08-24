@@ -23,6 +23,14 @@ const guardCount = (load.match(/loadGeneration !== this\.pageLoadGeneration/g) ?
 assert.equal(guardCount >= 3, true);
 assert.match(load,
   /const note: NoteMeta \| null = await this\.noteRepo\.getNote\(this\.noteId\);\s+if \(this\.editorDisposed \|\| loadGeneration !== this\.pageLoadGeneration\) \{\s+return;\s+\}/);
+const recoveryAwait = load.indexOf('await this.pageRepo.addPage(this.noteId, defaultPage);');
+const pagesPublish = load.indexOf('this.pages = [assignedPage];');
+const guardAfterRecovery = load.indexOf(
+  'if (this.editorDisposed || loadGeneration !== this.pageLoadGeneration) {',
+  recoveryAwait,
+);
+assert.ok(recoveryAwait >= 0 && pagesPublish > recoveryAwait);
+assert.ok(guardAfterRecovery > recoveryAwait && guardAfterRecovery < pagesPublish);
 assert.match(load, /\} else \{\s+this\.pages = loaded;\s+\}\s+if \(this\.editorDisposed \|\| loadGeneration !== this\.pageLoadGeneration\)/);
 assert.match(load, /\} catch \(e\) \{\s+if \(loadGeneration !== this\.pageLoadGeneration \|\| this\.editorDisposed\) \{\s+return;\s+\}/);
 assert.match(load, /\} finally \{\s+if \(loadGeneration === this\.pageLoadGeneration\) \{\s+this\.pageLoading = false;\s+this\.pageLoadInFlight = false;\s+\}/);
