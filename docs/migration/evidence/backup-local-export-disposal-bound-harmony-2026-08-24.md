@@ -15,7 +15,7 @@ Date: 2026-08-24 (Asia/Shanghai)
 - Stale continuations now return before counting success, starting another picker/export, or publishing the final result.
 - Busy/status cleanup and operation-lease release remain in the existing `finally`; active-page behavior and user cancellation are unchanged.
 
-## Verification
+## Actual verification
 
 - Focused replay: docs/migration/replays/d02-backup-local-export-disposal-bound.mjs (5/5).
 - Adjacent replay: docs/migration/replays/d02-backup-failures-disposal-bound.mjs (5/5).
