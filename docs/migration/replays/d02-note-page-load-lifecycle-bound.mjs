@@ -15,8 +15,14 @@ const loadStart = page.indexOf('private async loadPages(): Promise<void> {');
 const saveStart = page.indexOf('// Original title commits are serialized', loadStart);
 assert.ok(loadStart !== -1 && saveStart > loadStart);
 const load = page.slice(loadStart, saveStart);
+const entryGateIndex = load.indexOf('if (this.editorDisposed || this.pageLoadInFlight) {');
+const generationIncrementIndex = load.indexOf('const loadGeneration: number = ++this.pageLoadGeneration;');
+const inFlightSetIndex = load.indexOf('this.pageLoadInFlight = true;');
 assert.match(load,
   /const loadGeneration: number = \+\+this\.pageLoadGeneration;/);
+assert.ok(entryGateIndex >= 0 && entryGateIndex < generationIncrementIndex &&
+  generationIncrementIndex < inFlightSetIndex,
+  'rejected or duplicate loads cannot invalidate an active load generation');
 assert.match(load, /loadGeneration !== this\.pageLoadGeneration/);
 
 const guardCount = (load.match(/loadGeneration !== this\.pageLoadGeneration/g) ?? []).length;
@@ -35,4 +41,4 @@ assert.match(load, /\} else \{\s+this\.pages = loaded;\s+\}\s+if \(this\.editorD
 assert.match(load, /\} catch \(e\) \{\s+if \(loadGeneration !== this\.pageLoadGeneration \|\| this\.editorDisposed\) \{\s+return;\s+\}/);
 assert.match(load, /\} finally \{\s+if \(loadGeneration === this\.pageLoadGeneration\) \{\s+this\.pageLoading = false;\s+this\.pageLoadInFlight = false;\s+\}/);
 
-console.log('D02_NOTE_PAGE_LOAD_LIFECYCLE_BOUND_REPLAY_OK TOTAL=4 FAILED=0');
+console.log('D02_NOTE_PAGE_LOAD_LIFECYCLE_BOUND_REPLAY_OK TOTAL=5 FAILED=0');

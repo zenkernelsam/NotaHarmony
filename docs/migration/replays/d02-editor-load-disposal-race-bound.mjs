@@ -9,9 +9,12 @@ const end = page.indexOf('  // Original title commits are serialized', start);
 assert.ok(start !== -1 && end > start, 'loadPages section exists');
 const body = page.slice(start, end);
 
-assert.match(body,
-  /const loadGeneration: number = \+\+this\.pageLoadGeneration;\s+if \(this\.editorDisposed \|\| this\.pageLoadInFlight\) \{\s+return;\s+\}/,
-  'dispose-before-entry race is rejected before in-flight state');
+const entryGateIndex = body.indexOf('if (this.editorDisposed || this.pageLoadInFlight) {');
+const generationIncrementIndex = body.indexOf('const loadGeneration: number = ++this.pageLoadGeneration;');
+const inFlightSetIndex = body.indexOf('this.pageLoadInFlight = true;');
+assert.ok(entryGateIndex >= 0 && entryGateIndex < generationIncrementIndex &&
+  generationIncrementIndex < inFlightSetIndex,
+  'dispose-before-entry race is rejected before generation invalidation and in-flight state');
 
 const pagesPublish = body.indexOf('      } else {\n        this.pages = loaded;\n      }');
 const postPagesGuard = body.indexOf('if (this.editorDisposed || loadGeneration !== this.pageLoadGeneration) {', pagesPublish);
@@ -37,4 +40,4 @@ assert.match(body.slice(catchIndex),
   /if \(loadGeneration !== this\.pageLoadGeneration \|\| this\.editorDisposed\) \{\s+return;\s+\}/,
   'failure continuation retains disposal guard');
 
-console.log('D02_EDITOR_LOAD_DISPOSAL_RACE_BOUND_REPLAY_OK TOTAL=4 FAILED=0');
+console.log('D02_EDITOR_LOAD_DISPOSAL_RACE_BOUND_REPLAY_OK TOTAL=5 FAILED=0');

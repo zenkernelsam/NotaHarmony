@@ -267,10 +267,10 @@ struct NotePage {
   }
 
   private async loadPages(): Promise<void> {
-    const loadGeneration: number = ++this.pageLoadGeneration;
     if (this.editorDisposed || this.pageLoadInFlight) {
       return;
     }
+    const loadGeneration: number = ++this.pageLoadGeneration;
     this.pageLoadInFlight = true;
     this.pageLoading = true;
     this.pageLoadFailed = false;
