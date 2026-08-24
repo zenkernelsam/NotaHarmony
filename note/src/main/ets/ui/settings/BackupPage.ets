@@ -89,6 +89,7 @@ struct BackupPage {
 
   aboutToDisappear(): void {
     this.pageDisposed = true;
+    this.lifecycleGeneration++;
   }
 
   onPageShow(): void {
@@ -98,6 +99,7 @@ struct BackupPage {
   }
 
   private async reloadPage(): Promise<void> {
+    const expectedLifecycleGeneration: number = this.lifecycleGeneration;
     const generation: number = ++this.loadGeneration;
     this.loadState = BackupLoadState.LOADING;
     this.hasConfig = false;
@@ -108,7 +110,7 @@ struct BackupPage {
       this.persistence.initialize(this.db);
       const config: WebDAVConfig = await WebDAVConfigStore.load(context);
       const lastBackup: number = await WebDAVConfigStore.getLastBackup(context, config);
-      if (this.pageDisposed || generation !== this.loadGeneration) {
+      if (this.isStaleReload(expectedLifecycleGeneration, generation)) {
         return;
       }
       this.config = config;
@@ -119,10 +121,7 @@ struct BackupPage {
       this.loadState = BackupLoadState.READY;
     } catch (e) {
       console.error(`BackupPage reload failed: ${JSON.stringify(e)}`);
-      if (generation === this.loadGeneration) {
-        if (this.pageDisposed) {
-          return;
-        }
+      if (!this.isStaleReload(expectedLifecycleGeneration, generation)) {
         this.config = {
           serverUrl: '', username: '', password: '', backupPath: DEFAULT_WEBDAV_BACKUP_PATH,
         };
@@ -131,7 +130,7 @@ struct BackupPage {
         this.loadState = BackupLoadState.ERROR;
       }
     } finally {
-      if (generation === this.loadGeneration) {
+      if (!this.isStaleReload(expectedLifecycleGeneration, generation)) {
         this.initialized = true;
       }
     }
@@ -455,6 +454,10 @@ struct BackupPage {
   // === UI ===
   private isStale(lifecycleGeneration: number): boolean {
     return this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration;
+  }
+
+  private isStaleReload(expectedLifecycleGeneration: number, generation: number): boolean {
+    return this.isStale(expectedLifecycleGeneration) || generation !== this.loadGeneration;
   }
 
   private showToast(message: ResourceStr): void {

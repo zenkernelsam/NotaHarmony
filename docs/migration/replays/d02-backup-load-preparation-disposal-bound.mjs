@@ -17,13 +17,12 @@ const reloadBody = body(
 const reloadCatchIndex = reloadBody.indexOf('} catch (e) {');
 const reloadLogIndex = reloadBody.indexOf('console.error(`BackupPage reload failed:', reloadCatchIndex);
 assert.ok(reloadLogIndex > reloadCatchIndex, 'reload logs before lifecycle guard');
-const reloadGuardIndex = reloadBody.indexOf('if (generation === this.loadGeneration) {', reloadCatchIndex);
-const disposedGuardIndex = reloadBody.indexOf('if (this.pageDisposed) {', reloadGuardIndex);
-const resetIndex = reloadBody.indexOf('this.config = {', disposedGuardIndex);
-const errorPublishIndex = reloadBody.indexOf('this.loadState = BackupLoadState.ERROR;', disposedGuardIndex);
-assert.ok(reloadGuardIndex > reloadLogIndex, 'reload generation guard precedes state mutation');
-assert.ok(disposedGuardIndex > reloadGuardIndex, 'disposed guard precedes state reset');
-assert.ok(resetIndex > disposedGuardIndex && errorPublishIndex > disposedGuardIndex, 'stale reload cannot reset or publish');
+const reloadGuardIndex = reloadBody.indexOf(
+  'if (!this.isStaleReload(expectedLifecycleGeneration, generation)) {', reloadCatchIndex);
+const resetIndex = reloadBody.indexOf('this.config = {', reloadGuardIndex);
+const errorPublishIndex = reloadBody.indexOf('this.loadState = BackupLoadState.ERROR;', resetIndex);
+assert.ok(reloadGuardIndex > reloadLogIndex, 'joint reload guard precedes state mutation');
+assert.ok(resetIndex > reloadGuardIndex && errorPublishIndex > resetIndex, 'fresh failed reload can reset and publish');
 
 const backupBody = body(
   '  private async backupAll(): Promise<void> {',

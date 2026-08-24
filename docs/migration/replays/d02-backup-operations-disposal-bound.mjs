@@ -6,8 +6,10 @@ const page = fs.readFileSync('note/src/main/ets/ui/settings/BackupPage.ets', 'ut
 
 assert.match(page, /private lifecycleGeneration: number = 0;/);
 assert.match(page, /private pageDisposed: boolean = false;/);
-assert.match(page, /aboutToDisappear\(\): void \{\s+this\.pageDisposed = true;\s+\}/);
-assert.match(page, /if \(this\.pageDisposed \|\| generation !== this\.loadGeneration\) \{\s+return;\s+\}/);
+assert.match(page,
+  /aboutToDisappear\(\): void \{\s+this\.pageDisposed = true;\s+this\.lifecycleGeneration\+\+;\s+\}/);
+assert.match(page,
+  /if \(this\.isStaleReload\(expectedLifecycleGeneration, generation\)\) \{\s+return;\s+\}/);
 
 const operations = ['exportAllLocal', 'importLocal', 'backupAll', 'restoreFromCloud'];
 let guardCount = 0;
