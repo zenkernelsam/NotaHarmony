@@ -72,6 +72,8 @@ struct BackupPage {
   };
   private initialized: boolean = false;
   private loadGeneration: number = 0;
+  private lifecycleGeneration: number = 0;
+  private pageDisposed: boolean = false;
   // T-038：主题状态
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -83,6 +85,10 @@ struct BackupPage {
 
   aboutToAppear(): void {
     this.reloadPage();
+  }
+
+  aboutToDisappear(): void {
+    this.pageDisposed = true;
   }
 
   onPageShow(): void {
@@ -102,7 +108,7 @@ struct BackupPage {
       this.persistence.initialize(this.db);
       const config: WebDAVConfig = await WebDAVConfigStore.load(context);
       const lastBackup: number = await WebDAVConfigStore.getLastBackup(context, config);
-      if (generation !== this.loadGeneration) {
+      if (this.pageDisposed || generation !== this.loadGeneration) {
         return;
       }
       this.config = config;
@@ -133,6 +139,7 @@ struct BackupPage {
     if (this.isBusy) {
       return;
     }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
     const releaseOperation: BackupOperationRelease | null = backupOperationLease.tryAcquire();
     if (releaseOperation === null) {
       this.showToast($r('app.string.backup_operation_in_progress'));
@@ -145,6 +152,10 @@ struct BackupPage {
       const exporter = new NoteExporter(this.db, this.persistence);
       const noteRepo = new NoteRepositoryImpl(this.db);
       const notes: NoteMeta[] = await noteRepo.getAllNotes();
+
+      if (this.isStale(lifecycleGeneration)) {
+        return;
+      }
       if (notes.length === 0) {
         this.statusText = '';
         this.showToast($r('app.string.no_notes_to_export'));
@@ -173,6 +184,7 @@ struct BackupPage {
     if (this.isBusy) {
       return;
     }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
     const releaseOperation: BackupOperationRelease | null = backupOperationLease.tryAcquire();
     if (releaseOperation === null) {
       this.showToast($r('app.string.backup_operation_in_progress'));
@@ -184,6 +196,10 @@ struct BackupPage {
       const context = getContext(this) as common.UIAbilityContext;
       const importer = new NoteImporter(this.db, this.persistence);
       const report: ImportReport = await importer.importFromFile(context);
+
+      if (this.isStale(lifecycleGeneration)) {
+        return;
+      }
       if (report.result === ImportResult.SUCCESS) {
         this.showToast(report.message);
       } else if (report.result === ImportResult.PARTIAL) {
@@ -208,6 +224,7 @@ struct BackupPage {
     if (this.isBusy || !this.hasConfig) {
       return;
     }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
     const releaseOperation: BackupOperationRelease | null = backupOperationLease.tryAcquire();
     if (releaseOperation === null) {
       this.showToast($r('app.string.backup_operation_in_progress'));
@@ -223,7 +240,11 @@ struct BackupPage {
       let backups: BackupSourcePackage[];
       try {
         backups = await exporter.exportAllNotes();
-      } catch (e) {
+
+      if (this.isStale(lifecycleGeneration)) {
+        return;
+      }
+    } catch (e) {
         console.error(`backupAll preparation failed: ${JSON.stringify(e)}`);
         const message: ResourceStr = e instanceof BackupSnapshotChangedError
           ? $r('app.string.backup_snapshot_changed') : $r('app.string.backup_prepare_failed');
@@ -238,6 +259,10 @@ struct BackupPage {
       const completedAt: number = Date.now();
       const publisher = new BackupBatchPublisher(client, new CryptoBackupBatchHasher());
       const result: BackupPublishResult = await publisher.publish(backups, batchId, completedAt);
+
+      if (this.isStale(lifecycleGeneration)) {
+        return;
+      }
       if (!result.success) {
         if (result.stage === BackupPublishStage.DIRECTORY) {
           this.showAlert($r('app.string.backup_failed'), $r('app.string.backup_directory_failed'));
@@ -252,6 +277,10 @@ struct BackupPage {
         return;
       }
       await WebDAVConfigStore.setLastBackup(context, operationConfig, completedAt);
+
+      if (this.isStale(lifecycleGeneration)) {
+        return;
+      }
       this.hasLastBackup = true;
       this.lastBackupText = this.formatTime(completedAt);
       this.showToast($r('app.string.cloud_backup_count', result.verified, result.total));
@@ -270,6 +299,7 @@ struct BackupPage {
     if (this.isBusy || !this.hasConfig) {
       return;
     }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
     const releaseOperation: BackupOperationRelease | null = backupOperationLease.tryAcquire();
     if (releaseOperation === null) {
       this.showToast($r('app.string.backup_operation_in_progress'));
@@ -281,6 +311,10 @@ struct BackupPage {
       const operationConfig: WebDAVConfig = this.snapshotConfig();
       const client = new WebDAVClient(operationConfig);
       const listResult: WebDAVListResult = await client.listDir(client.backupDirectoryUrl());
+
+      if (this.isStale(lifecycleGeneration)) {
+        return;
+      }
       if (!listResult.success) {
         console.error(`WebDAV list failed: HTTP ${listResult.responseCode}: ${listResult.message}`);
         this.showAlert($r('app.string.restore_failed'), $r('app.string.cloud_backup_list_failed'));
@@ -288,6 +322,10 @@ struct BackupPage {
       }
       const manifest: BackupBatchManifest | null = await this.loadLatestBackupBatch(
         client, listResult.files);
+
+      if (this.isStale(lifecycleGeneration)) {
+        return;
+      }
       if (manifest === null) {
         this.showToast($r('app.string.no_cloud_backup'));
         return;
@@ -295,6 +333,10 @@ struct BackupPage {
       const importer = new NoteImporter(this.db, this.persistence);
       const restorer = new BackupBatchRestorer(client, new CryptoBackupBatchHasher());
       const fetched: BackupFetchResult = await restorer.fetch(manifest);
+
+      if (this.isStale(lifecycleGeneration)) {
+        return;
+      }
       const verificationFailures: number = fetched.failedNoteIds.length;
       if (fetched.verified.length === 0) {
         this.showAlert($r('app.string.restore_result'),
@@ -304,6 +346,10 @@ struct BackupPage {
       const adapter: NoteImporterBackupAdapter = new NoteImporterBackupAdapter(importer);
       const applier = new BackupBatchApplier(adapter, adapter);
       const applied: BackupBatchApplyResult = await applier.apply(fetched.verified);
+
+      if (this.isStale(lifecycleGeneration)) {
+        return;
+      }
       if (applied.status === BackupBatchApplyStatus.ROLLED_BACK) {
         console.error(`cloud restore import failed for ${applied.failedSourceNoteId}; ` +
           `rolled back ${applied.rolledBack} note(s)`);
@@ -383,6 +429,10 @@ struct BackupPage {
   }
 
   // === UI ===
+  private isStale(lifecycleGeneration: number): boolean {
+    return this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration;
+  }
+
   private showToast(message: ResourceStr): void {
     try {
       promptAction.showToast({ message: message, duration: 2500 });
