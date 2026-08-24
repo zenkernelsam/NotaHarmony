@@ -5450,6 +5450,11 @@ export struct NoteCanvasView {
       this.persistence.isReady() && this.loadedPageId.length > 0;
   }
 
+  private isPhotoContextCurrent(generation: number, pageId: string): boolean {
+    return this.lifecycleActive && generation === this.pageLoadGeneration &&
+      pageId === this.loadedPageId;
+  }
+
   private async startOriginalPhotoInsert(): Promise<void> {
     if (!this.canStartOriginalPhotoInsert()) {
       return;
@@ -5467,8 +5472,7 @@ export struct NoteCanvasView {
         return;
       }
       const outcome: PhotoInsertOutcome = await this.commitOriginalPhotoInsert(imported);
-      if (photoGeneration === this.pageLoadGeneration &&
-        photoPageId === this.loadedPageId &&
+      if (this.isPhotoContextCurrent(photoGeneration, photoPageId) &&
         outcome.insertedCount < outcome.totalCount) {
         promptAction.showToast({
           message: $r('app.string.original_photo_insert_partial_failed'),
@@ -5478,8 +5482,7 @@ export struct NoteCanvasView {
     } catch (e) {
       hilog.error(0x0001, 'NoteCanvasView', 'original photo insert failed: %{public}s',
         JSON.stringify(e));
-      if (photoGeneration === this.pageLoadGeneration &&
-        photoPageId === this.loadedPageId) {
+      if (this.isPhotoContextCurrent(photoGeneration, photoPageId)) {
         promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),
           duration: 3000 });
       }
@@ -5497,21 +5500,18 @@ export struct NoteCanvasView {
     this.photoImportBusy = true;
     try {
       if (!await isOriginalClipboardImageAvailable()) {
-        if (pasteGeneration === this.pageLoadGeneration &&
-          pastePageId === this.loadedPageId) {
+        if (this.isPhotoContextCurrent(pasteGeneration, pastePageId)) {
           this.systemClipboardImageAvailable = false;
         }
         return;
       }
-      if (pasteGeneration !== this.pageLoadGeneration ||
-        pastePageId !== this.loadedPageId) {
+      if (!this.isPhotoContextCurrent(pasteGeneration, pastePageId)) {
         return;
       }
       if (!await ensureOriginalClipboardReadPermission()) {
         throw new Error('READ_PASTEBOARD permission was not granted');
       }
-      if (pasteGeneration !== this.pageLoadGeneration ||
-        pastePageId !== this.loadedPageId) {
+      if (!this.isPhotoContextCurrent(pasteGeneration, pastePageId)) {
         return;
       }
       const normalized: NormalizedOriginalClipboardImage =
@@ -5535,15 +5535,13 @@ export struct NoteCanvasView {
         orientedHeight: normalized.height,
       }], target);
       const available: boolean = await isOriginalClipboardImageAvailable();
-      if (pasteGeneration === this.pageLoadGeneration &&
-        pastePageId === this.loadedPageId) {
+      if (this.isPhotoContextCurrent(pasteGeneration, pastePageId)) {
         this.systemClipboardImageAvailable = available && outcome.insertedCount > 0;
       }
     } catch (e) {
       hilog.error(0x0001, 'NoteCanvasView',
         'original clipboard image paste failed: %{public}s', JSON.stringify(e));
-      if (pasteGeneration === this.pageLoadGeneration &&
-        pastePageId === this.loadedPageId) {
+      if (this.isPhotoContextCurrent(pasteGeneration, pastePageId)) {
         promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),
           duration: 3000 });
       }

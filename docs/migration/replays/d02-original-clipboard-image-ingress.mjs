@@ -106,17 +106,16 @@ const checks = [
   ['paste completion respects the captured page generation',
     pasteSource.includes('const pasteGeneration: number = this.pageLoadGeneration;') &&
     pasteSource.includes('const pastePageId: string = this.loadedPageId;') &&
-    pasteSource.includes('if (pasteGeneration === this.pageLoadGeneration &&\n          pastePageId === this.loadedPageId) {') &&
-    pasteSource.includes('if (pasteGeneration !== this.pageLoadGeneration ||\n        pastePageId !== this.loadedPageId) {') &&
-    pasteSource.includes('if (pasteGeneration === this.pageLoadGeneration &&\n        pastePageId === this.loadedPageId) {') &&
+    pasteSource.includes('this.isPhotoContextCurrent(pasteGeneration, pastePageId)') &&
+    pasteSource.includes('if (!this.isPhotoContextCurrent(pasteGeneration, pastePageId)) {') &&
     !pasteSource.includes('this.systemClipboardImageAvailable =\n        await isOriginalClipboardImageAvailable()')],
   ['paste aborts after permission when the page changed',
     pasteSource.includes("if (!await ensureOriginalClipboardReadPermission()) {") &&
-    pasteSource.includes("if (pasteGeneration !== this.pageLoadGeneration ||\n        pastePageId !== this.loadedPageId) {") &&
+    pasteSource.includes("if (!this.isPhotoContextCurrent(pasteGeneration, pastePageId)) {") &&
     pasteSource.indexOf('ensureOriginalClipboardReadPermission()') <
-      pasteSource.lastIndexOf('if (pasteGeneration !== this.pageLoadGeneration ||') &&
+      pasteSource.lastIndexOf('if (!this.isPhotoContextCurrent(pasteGeneration, pastePageId)) {') &&
     pasteSource.indexOf("importOriginalClipboardImage()") >
-      pasteSource.lastIndexOf('if (pasteGeneration !== this.pageLoadGeneration ||')],
+      pasteSource.lastIndexOf('if (!this.isPhotoContextCurrent(pasteGeneration, pastePageId)) {')],
   ['paste completion resynchronizes cached clipboard availability',
     pasteSource.includes('const outcome: PhotoInsertOutcome = await this.insertOriginalPhotos([{') &&
     pasteSource.includes('}], target);') &&
@@ -132,7 +131,7 @@ const checks = [
     pasteSource.includes("$r('app.string.original_photo_insert_failed')")],
   ['paste failure feedback stays on the originating page',
     pasteSource.includes("promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),") &&
-    pasteSource.indexOf('if (pasteGeneration === this.pageLoadGeneration &&\n        pastePageId === this.loadedPageId) {') <
+    pasteSource.indexOf('this.isPhotoContextCurrent(pasteGeneration, pastePageId)') <
       pasteSource.indexOf("$r('app.string.original_photo_insert_failed')")],
   ['paste requests the SDK READ_PASTEBOARD permission before reading data',
     pasteSource.includes("if (!await ensureOriginalClipboardReadPermission()) {") &&
