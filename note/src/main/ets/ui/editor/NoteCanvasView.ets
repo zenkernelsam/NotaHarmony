@@ -6937,8 +6937,7 @@ export struct NoteCanvasView {
       this.originalInkIneligiblePages.add(persistedPageId);
     }
     this.persistence.flush(this.noteId, persistedPageId).then((): void => {
-      if (persistedGeneration === this.pageLoadGeneration &&
-        persistedPageId === this.loadedPageId &&
+      if (this.isHistoryPageContextCurrent(persistedGeneration, persistedPageId) &&
         !this.persistence.hasDirtySave(this.noteId, persistedPageId)) {
         this.saveFailed = false;
       }
@@ -6949,10 +6948,7 @@ export struct NoteCanvasView {
     }).catch((e: Object): void => {
       hilog.error(0x0001, 'NoteCanvasView',
         'ordinary Paste deferred save failed for stale page: %{public}s', JSON.stringify(e));
-      if (persistedGeneration === this.pageLoadGeneration &&
-        persistedPageId === this.loadedPageId &&
-        persistedPageId === this.currentPage.pageId && this.loaded &&
-        !this.dataLoading && !this.dataLoadFailed) {
+      if (this.isHistoryPageContextCurrent(persistedGeneration, persistedPageId)) {
         this.reportSaveFailure(e);
       }
     });

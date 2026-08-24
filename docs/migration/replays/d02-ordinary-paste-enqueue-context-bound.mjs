@@ -15,7 +15,7 @@ const guardIndex=body.indexOf('if (!this.isHistoryPageContextCurrent(',catchInde
 const toastIndex=body.indexOf('this.reportSaveFailure(e as Object);',guardIndex);
 assert.ok(catchIndex>=0&&guardIndex>catchIndex&&toastIndex>guardIndex,'failure guard precedes toast');
 
-const deferredGuardIndex=body.indexOf("persistedPageId === this.currentPage.pageId && this.loaded &&",toastIndex);
-assert.ok(deferredGuardIndex>toastIndex,'deferred flush retains healthy-page gate');
+const deferredGuardIndex=body.indexOf('this.isHistoryPageContextCurrent(persistedGeneration, persistedPageId)',toastIndex);
+assert.ok(deferredGuardIndex>toastIndex,'deferred flush retains lifecycle context gate');
 
 console.log('D02_ORDINARY_PASTE_ENQUEUE_CONTEXT_BOUND_REPLAY_OK TOTAL=4 FAILED=0');
