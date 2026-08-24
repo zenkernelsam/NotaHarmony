@@ -1543,13 +1543,18 @@ export struct NoteCanvasView {
     if (this.viewportSaveTimer >= 0) {
       clearTimeout(this.viewportSaveTimer);
     }
+    const generation: number = this.pageLoadGeneration;
     this.viewportSaveTimer = setTimeout(() => {
       this.viewportSaveTimer = -1;
-      this.saveViewportState();
+      this.saveViewportState(generation);
     }, 500);
   }
 
-  private async saveViewportState(): Promise<void> {
+  private async saveViewportState(requestedGeneration?: number): Promise<void> {
+    if (!this.lifecycleActive || requestedGeneration !== undefined &&
+      requestedGeneration !== this.pageLoadGeneration) {
+      return;
+    }
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const db: DatabaseManager = DatabaseManager.getInstance();
