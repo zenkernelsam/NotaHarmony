@@ -59,10 +59,21 @@ export async function normalizeOriginalImageBytes(bytes: Uint8Array):
     }
     pixelMap = await source.createPixelMap({
       sampleSize: downscale.sampleSize > 1 ? downscale.sampleSize : undefined,
-      rotate: rotationDegrees > 0 ? rotationDegrees : undefined,
       editable: true,
-      desiredSize: { width: downscale.width, height: downscale.height },
     });
+    if (rotationDegrees > 0) {
+      await pixelMap.rotate(rotationDegrees);
+    }
+    const orientedInfo: image.ImageInfo = await pixelMap.getImageInfo();
+    const scaleX: number = originalFloat(
+      originalFloat(downscale.width) / originalFloat(orientedInfo.size.width));
+    const scaleY: number = originalFloat(
+      originalFloat(downscale.height) / originalFloat(orientedInfo.size.height));
+    if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) ||
+      scaleX <= 0 || scaleY <= 0) {
+      throw new Error('original image normalization scale is invalid');
+    }
+    await pixelMap.scale(scaleX, scaleY);
     const decoded: image.ImageInfo = await pixelMap.getImageInfo();
     if (decoded.size.width !== downscale.width || decoded.size.height !== downscale.height) {
       throw new Error('original image normalization produced unexpected dimensions');
@@ -144,4 +155,8 @@ function sourceMime(value: string): string {
   const normalized: string = value.trim().toLowerCase();
   return normalized.length > 6 && normalized.startsWith('image/')
     ? normalized : 'image/*';
+}
+
+function originalFloat(value: number): number {
+  return Math.fround(value);
 }

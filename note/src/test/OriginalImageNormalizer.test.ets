@@ -17,7 +17,6 @@ export default function originalImageNormalizerTest() {
 
     it('uses Float32 ratios and power-of-two sampling like Android vuh', 0, () => {
       const wide = planOriginalImageDownscale(6000, 2000);
-      const ratio = Math.fround(3000 / Math.max(6000, 2000));
       expect(wide?.sampleSize).assertEqual(2);
       expect(wide?.width).assertEqual(3000);
       expect(wide?.height).assertEqual(1000);
@@ -49,6 +48,14 @@ export default function originalImageNormalizerTest() {
       expect(planOriginalImageDownscale(0, 10) === null).assertTrue();
       expect(planOriginalImageDownscale(10.5, 10) === null).assertTrue();
       expect(originalImageOrientedDimensions(0, 10, '1') === null).assertTrue();
+    });
+
+    it('keeps quarter-turn normalization on the original encoded-axis plan', 0, () => {
+      expect(planOriginalImageDownscale(6000, 1000)).assertEqual({
+        sampleSize: 2, width: 3000, height: 500,
+      });
+      expect(originalRotationDegrees('6')).assertEqual(90);
+      expect(originalRotationDegrees('8')).assertEqual(270);
     });
   });
 }

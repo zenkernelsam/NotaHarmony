@@ -66,9 +66,11 @@ const checks = [
     normalizerSource.includes('await source.getImageInfo()') &&
     normalizerSource.includes('originalImageOrientedDimensions(') &&
     normalizerSource.includes("image.PropertyKey.ORIENTATION")],
-  ['Harmony adapter uses desired size rotation editable PixelMap and WebP lossy 85',
-    normalizerSource.includes('desiredSize: { width: downscale.width, height: downscale.height }') &&
-    normalizerSource.includes('rotate: rotationDegrees > 0 ? rotationDegrees : undefined') &&
+  ['Harmony adapter uses deterministic post-decode rotation editable PixelMap and WebP lossy 85',
+    normalizerSource.includes('await pixelMap.rotate(rotationDegrees);') &&
+    normalizerSource.includes('await pixelMap.scale(scaleX, scaleY);') &&
+    normalizerSource.indexOf('await pixelMap.rotate(rotationDegrees);') <
+      normalizerSource.indexOf('await pixelMap.scale(scaleX, scaleY);') &&
     normalizerSource.includes('editable: true') &&
     normalizerSource.includes("format: 'image/webp'") &&
     normalizerSource.includes('quality: WEBP_LOSSY_QUALITY')],
