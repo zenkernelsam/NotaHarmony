@@ -1029,6 +1029,9 @@ struct LibraryPage {
 
   // T-038：主题切换 + 持久化
   private setThemeMode(mode: ThemeMode): void {
+    if (!this.pageActive) {
+      return;
+    }
     ThemeStore.setMode(mode);
     this.refreshThumbnails().catch((e: Error) => {
       console.error(`theme thumbnail refresh failed: ${JSON.stringify(e)}`);
