@@ -331,7 +331,12 @@ struct NotePage {
       if (this.editorDisposed || loadGeneration !== this.pageLoadGeneration) {
         return;
       }
-      this.noteBackground = await this.pageRepo.getNoteBackground(this.noteId);
+      const loadedBackground: NoteBackgroundSettings =
+        await this.pageRepo.getNoteBackground(this.noteId);
+      if (this.editorDisposed || loadGeneration !== this.pageLoadGeneration) {
+        return;
+      }
+      this.noteBackground = loadedBackground;
       this.currentPageIndex = 0;
       this.pageLoadFailed = false;
       await this.loadRecordings();

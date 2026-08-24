@@ -16,9 +16,15 @@ assert.ok(noteAwaitIndex !== -1 && guardIndex > noteAwaitIndex && titlePublishIn
 
 const pagesAwaitIndex = body.indexOf('await this.pageRepo.getPages(this.noteId);', guardIndex);
 const pagesGuardIndex = body.indexOf('if (this.editorDisposed || loadGeneration !== this.pageLoadGeneration) {', pagesAwaitIndex);
-const backgroundAssignIndex = body.indexOf('this.noteBackground = await this.pageRepo.getNoteBackground', pagesGuardIndex);
+const backgroundAwaitIndex = body.indexOf('await this.pageRepo.getNoteBackground(this.noteId);', pagesGuardIndex);
+const backgroundGuardIndex = body.indexOf('if (this.editorDisposed || loadGeneration !== this.pageLoadGeneration) {', backgroundAwaitIndex);
+const backgroundAssignIndex = body.indexOf('this.noteBackground = loadedBackground;', backgroundGuardIndex);
 assert.ok(pagesAwaitIndex > guardIndex && pagesGuardIndex > pagesAwaitIndex && backgroundAssignIndex > pagesGuardIndex,
   'pages publication remains guarded before background refresh');
+assert.ok(backgroundAwaitIndex > pagesGuardIndex &&
+  backgroundGuardIndex > backgroundAwaitIndex &&
+  backgroundAssignIndex > backgroundGuardIndex,
+  'stale background continuation cannot publish after disposal or reload');
 
 const catchIndex = body.indexOf('} catch (e) {');
 const catchGuardIndex = body.indexOf('if (loadGeneration !== this.pageLoadGeneration || this.editorDisposed) {', catchIndex);
@@ -31,4 +37,4 @@ assert.ok(initializeCall, 'view model initialization call');
 assert.match(initializeCall[0], /editorDisposed/);
 assert.match(initializeCall[0], /loadGeneration === this\.pageLoadGeneration/);
 
-console.log('D02_NOTE_PAGE_LOAD_NOTE_DISPOSAL_BOUND_REPLAY_OK TOTAL=4 FAILED=0');
+console.log('D02_NOTE_PAGE_LOAD_NOTE_DISPOSAL_BOUND_REPLAY_OK TOTAL=5 FAILED=0');
