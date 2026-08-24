@@ -259,6 +259,9 @@ struct NotePage {
     if (this.historyBridge !== null && !await this.historyBridge.flushCurrentPage()) {
       return;
     }
+    if (this.editorDisposed) {
+      return;
+    }
     await this.viewModel.flushToolState();
     await this.recordingDeleteController.flush();
     await this.finishRecordingSession();
@@ -414,6 +417,10 @@ struct NotePage {
       const persisted: PersistedOriginalNoteTitle = await this.noteRepo.updateNoteTitle(
         this.noteId, requested, selectedPageId, history);
       if (this.editorDisposed) {
+        return;
+      }
+      if (this.pages[this.currentPageIndex]?.pageId !== selectedPageId) {
+        this.noteTitle = persisted.materializedTitle;
         return;
       }
       action.titleBefore = persisted.before;

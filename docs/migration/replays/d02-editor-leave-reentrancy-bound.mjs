@@ -21,6 +21,11 @@ const perform = page.slice(performStart, performEnd);
 assert.match(perform,
   /if \(this\.editingTitle\) \{\s+await this\.saveTitle\(\);\s+\} else \{[\s\S]*?await this\.titleSaveQueue;/);
 assert.match(perform, /await this\.historyBridge\.flushCurrentPage\(\)/);
+const flushIndex = perform.indexOf('await this.historyBridge.flushCurrentPage()');
+const postFlushGate = perform.indexOf('if (this.editorDisposed) {', flushIndex);
+const toolFlush = perform.indexOf('await this.viewModel.flushToolState();', postFlushGate);
+assert.ok(postFlushGate > flushIndex && toolFlush > postFlushGate,
+  'late leave continuation stops after canvas flush if the editor was disposed');
 assert.match(perform, /await this\.viewModel\.flushToolState\(\);/);
 assert.match(perform, /await this\.recordingDeleteController\.flush\(\);/);
 assert.match(perform, /await this\.finishRecordingSession\(\);/);
