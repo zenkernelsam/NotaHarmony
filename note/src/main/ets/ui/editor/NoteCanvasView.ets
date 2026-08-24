@@ -605,7 +605,9 @@ export struct NoteCanvasView {
           }
         });
       } catch (e) {
-        this.reportSaveFailure(e as Object);
+        if (this.isHistoryPageContextCurrent(generation, pageId)) {
+          this.reportSaveFailure(e as Object);
+        }
       }
     }
   }
