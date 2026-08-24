@@ -1024,6 +1024,7 @@ struct LibraryPage {
         console.error(`search index backfill failed: ${JSON.stringify(e)}`);
       });
     } catch (e) {
+      console.error(`LibraryPage init failed: ${JSON.stringify(e)}`);
       if (!this.pageActive || expectedLifecycleGeneration !== this.lifecycleGeneration) {
         return;
       }
@@ -1031,7 +1032,6 @@ struct LibraryPage {
       this.initError = $r('app.string.library_load_failed');
       this.hasInitError = true;
       promptAction.showToast({ message: $r('app.string.library_load_retry') });
-      console.error(`LibraryPage init failed: ${JSON.stringify(e)}`);
     }
   }
 
