@@ -1166,6 +1166,9 @@ struct NotePage {
       await operation();
     } catch (e) {
       hilog.error(0x0001, 'NotePage', 'page operation failed: %{public}s', JSON.stringify(e));
+      if (this.editorDisposed) {
+        return;
+      }
       try {
         promptAction.showToast({ message: $r('app.string.page_operation_failed'), duration: 2500 });
       } catch (toastError) {
