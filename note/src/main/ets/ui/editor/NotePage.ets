@@ -1311,6 +1311,9 @@ struct NotePage {
         const title: string | null = isUndo ? action.titleBefore : action.titleAfter;
         const persisted: PersistedOriginalNoteTitle = await repository.updateNoteTitle(
           this.noteId, title, action.pageId, history);
+        if (this.editorDisposed) {
+          return false;
+        }
         this.noteTitle = persisted.materializedTitle;
         this.titleDraft = persisted.materializedTitle;
         return true;
@@ -1327,6 +1330,9 @@ struct NotePage {
         const patch = patchFromNoteMetadataState(target, action.fieldMask);
         await repository.updateOriginalNoteMetadata(
           this.noteId, patch, action.selectedPageId, history, source);
+        if (this.editorDisposed) {
+          return false;
+        }
         return true;
       }
       if (pageRepository === null) {
@@ -1341,6 +1347,9 @@ struct NotePage {
       if (action.type === UndoableActionType.PAGE_SETTINGS) {
         const page: PageInfo = isUndo ? action.pageBefore : action.pageAfter;
         await pageRepository.updatePage(page, history);
+        if (this.editorDisposed) {
+          return false;
+        }
         this.replacePage(page);
         this.selectPageById(page.pageId);
         return true;
@@ -1350,7 +1359,13 @@ struct NotePage {
           ? action.backgroundBefore : action.backgroundAfter;
         const materialized: NoteBackgroundSettings = await pageRepository.updateNoteBackground(
           this.noteId, settings, action.selectedPageId, history);
+        if (this.editorDisposed) {
+          return false;
+        }
         this.pages = await pageRepository.getPages(this.noteId);
+        if (this.editorDisposed) {
+          return false;
+        }
         this.noteBackground = materialized;
         this.selectPageById(action.selectedPageId);
         return true;
@@ -1358,6 +1373,9 @@ struct NotePage {
       if (action.type === UndoableActionType.REORDER_PAGES) {
         const order: string[] = isUndo ? action.pageOrderBefore : action.pageOrderAfter;
         await pageRepository.reorderPages(this.noteId, order, action.pageId, history);
+        if (this.editorDisposed) {
+          return false;
+        }
         this.pages = this.orderPages(this.pages, order);
         this.selectPageById(action.pageId);
         return true;
@@ -1544,6 +1562,9 @@ struct NotePage {
       return true;
     }
     const assignedPage: PageInfo = await this.pageRepo.addPage(this.noteId, action.pageAfter, history);
+    if (this.editorDisposed) {
+      return false;
+    }
     if (assignedPage.pageId !== action.pageId) {
       throw new Error('ADD_PAGE redo changed the original page identity');
     }
@@ -1560,6 +1581,9 @@ struct NotePage {
     }
     if (isUndo) {
       await this.pageRepo.restoreDeletedPage(this.noteId, history.actionId, history);
+      if (this.editorDisposed) {
+        return false;
+      }
       const restored: PageInfo[] = this.pages.concat([this.clonePage(action.pageBefore)]);
       this.pages = this.orderPages(restored, action.pageOrderBefore);
       this.selectPageById(action.selectedPageIdBefore);
@@ -1572,6 +1596,9 @@ struct NotePage {
       this.historyBridge.preparePageRemoval(action.pageId);
     }
     await this.pageRepo.deletePageWithCheckpoint(this.noteId, action.pageId, history);
+    if (this.editorDisposed) {
+      return false;
+    }
     this.pages = this.orderPages(this.pages.filter((page: PageInfo) => page.pageId !== action.pageId),
       action.pageOrderAfter);
     this.selectPageById(action.selectedPageIdAfter);

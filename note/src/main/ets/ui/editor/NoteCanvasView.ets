@@ -2637,10 +2637,14 @@ export struct NoteCanvasView {
         hilog.error(0x0001, 'NoteCanvasView', 'page history metadata is stale');
         return;
       }
+      const pageHistoryGeneration: number = this.pageLoadGeneration;
       this.historyBusy = true;
       this.onApplyPageHistory(action, isUndo, history).then((applied: boolean) => {
-        if (applied) {
+        if (applied && this.lifecycleActive && pageHistoryGeneration === this.pageLoadGeneration) {
           this.commitHistory(action, isUndo);
+        } else if (applied) {
+          hilog.info(0x0001, 'NoteCanvasView',
+            'page history committed after editor changed; durable history remains available');
         } else {
           hilog.error(0x0001, 'NoteCanvasView', 'page history apply rejected, type=%{public}d', action.type);
         }
