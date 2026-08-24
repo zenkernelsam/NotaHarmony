@@ -896,9 +896,13 @@ struct LibraryPage {
     this.refreshThumbnails().catch((e: Error) => {
       console.error(`sort thumbnail refresh failed: ${JSON.stringify(e)}`);
     });
+    const lifecycleGeneration: number = this.lifecycleGeneration;
     try {
       const context = getContext(this) as common.UIAbilityContext;
       preferences.getPreferences(context, THEME_PREFERENCES_NAME).then((pref: preferences.Preferences) => {
+        if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration) {
+          return;
+        }
         pref.putSync(this.PREF_SORT_KEY, mode);
         pref.flush().catch((e: BusinessError) => {
           console.error(`save sort pref flush failed: ${e.code}`);
@@ -1036,9 +1040,13 @@ struct LibraryPage {
     this.refreshThumbnails().catch((e: Error) => {
       console.error(`theme thumbnail refresh failed: ${JSON.stringify(e)}`);
     });
+    const lifecycleGeneration: number = this.lifecycleGeneration;
     try {
       const context = getContext(this) as common.UIAbilityContext;
       preferences.getPreferences(context, THEME_PREFERENCES_NAME).then((pref: preferences.Preferences) => {
+        if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration) {
+          return;
+        }
         pref.putSync(THEME_PREFERENCE_KEY, mode);
         pref.flush().catch((e: BusinessError) => {
           console.error(`save theme pref failed: ${e.code}`);
