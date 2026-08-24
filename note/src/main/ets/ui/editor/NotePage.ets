@@ -1233,6 +1233,8 @@ struct NotePage {
     if (this.editorDisposed) {
       return;
     }
+    this.currentPageIndex = this.pages.findIndex((page: PageInfo): boolean =>
+      page.pageId === assignedPage.pageId);
     action.pageId = assignedPage.pageId;
     action.pageAfter = this.clonePage(assignedPage);
     action.pageOrderAfter = orderBefore.concat([assignedPage.pageId]);

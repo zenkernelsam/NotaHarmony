@@ -27,6 +27,10 @@ const addAwait = add.indexOf('await this.pageRepo.addPage(');
 const addGuard = add.indexOf(guard, addAwait);
 assert.ok(addAwait !== -1 && addGuard > addAwait &&
   addGuard < add.indexOf('action.pageId = assignedPage.pageId;', addAwait));
+const addSelectionIndex = add.indexOf('this.currentPageIndex = this.pages.findIndex(', addGuard);
+const addMutationIndex = add.indexOf('action.pageId = assignedPage.pageId;', addGuard);
+assert.ok(addSelectionIndex > addGuard && addSelectionIndex < addMutationIndex,
+  'accepted add selects the assigned page before publishing history action');
 
 const remove = section('  private async deleteCurrentPage(', '  private async moveCurrentPage(');
 const removeAwait = remove.indexOf('await this.pageRepo.deletePageWithCheckpoint(');
@@ -41,4 +45,4 @@ const moveGuard = move.indexOf(guard, moveAwait);
 assert.ok(moveAwait !== -1 && moveGuard > moveAwait &&
   moveGuard < move.indexOf('this.pages = this.orderPages(this.pages, orderAfter);', moveAwait));
 
-console.log('D02_PAGE_OPERATION_DISPOSAL_BOUND_REPLAY_OK TOTAL=8 FAILED=0');
+console.log('D02_PAGE_OPERATION_DISPOSAL_BOUND_REPLAY_OK TOTAL=9 FAILED=0');
