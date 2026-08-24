@@ -694,7 +694,8 @@ struct LibraryPage {
     if (result === null) {
       return;
     }
-    if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive) {
+    if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+      this.viewModel !== vm || this.thumbRenderer === null) {
       return;
     }
     vm.publishCommittedNoteMove(result.noteId, result.folderId);
