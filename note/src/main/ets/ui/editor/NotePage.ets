@@ -280,6 +280,9 @@ struct NotePage {
       this.recordingStore = new OriginalRecordingStore(db);
       this.viewModel.onPersistenceError = (message: string): void => {
         hilog.error(0x0001, 'NotePage', '%{public}s', message);
+        if (this.editorDisposed) {
+          return;
+        }
         try {
           promptAction.showToast({ message: 'Tool settings could not be saved', duration: 2500 });
         } catch (toastError) {
