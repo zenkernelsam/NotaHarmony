@@ -36,11 +36,17 @@ export class EditorViewModel {
   private committedShapeDetectionEnabled: boolean = true;
   private shapeDetectionVersion: number = 0;
   private saveChain: Promise<void> = Promise.resolve();
+  private initializationGate: (() => boolean) | null = null;
 
   async initialize(repository: ToolRepository, ownerId: string = DEFAULT_TOOLBOX_OWNER,
-    settingsRepository: EditorSettingsRepository | null = null): Promise<boolean> {
+    settingsRepository: EditorSettingsRepository | null = null,
+    isCurrent: (() => boolean) | null = null): Promise<boolean> {
     this.toolStateLoading = true;
+    this.initializationGate = isCurrent;
     await this.saveChain;
+    if (!this.isInitializationCurrent()) {
+      return false;
+    }
     this.repository = repository;
     this.settingsRepository = settingsRepository;
     this.ownerId = ownerId;
@@ -55,6 +61,9 @@ export class EditorViewModel {
     const defaults: ToolState[] = this.createDefaultStates(ownerId);
     try {
       const loaded: ToolState[] = await repository.getToolStates(ownerId);
+      if (!this.isInitializationCurrent()) {
+        return false;
+      }
       const merged: ToolState[] = [];
       const missing: ToolState[] = [];
       for (const fallback of defaults) {
@@ -67,16 +76,24 @@ export class EditorViewModel {
         }
       }
       this.states = merged;
+      if (!this.isInitializationCurrent()) {
+        return false;
+      }
       if (loaded.length === 0) {
         await repository.saveToolStates(this.cloneStates(this.states));
       } else {
         for (const state of missing) {
+          if (!this.isInitializationCurrent()) {
+            return false;
+          }
           await repository.saveToolState(this.cloneState(state));
         }
       }
       this.replaceCommittedStates(this.states);
-
       const toolbox: EditorToolboxState | null = await repository.getToolboxState(ownerId);
+      if (!this.isInitializationCurrent()) {
+        return false;
+      }
       const fallbackPen: ToolState = this.requireState(ToolType.PEN);
       if (toolbox !== null && this.findById(toolbox.mostRecentlySelectedToolId) !== null) {
         this.activeToolId = toolbox.mostRecentlySelectedToolId;
@@ -92,6 +109,9 @@ export class EditorViewModel {
       if (settingsRepository !== null) {
         try {
           this.shapeDetectionEnabled = await settingsRepository.getShapeDetectionEnabled();
+          if (!this.isInitializationCurrent()) {
+            return false;
+          }
           this.committedShapeDetectionEnabled = this.shapeDetectionEnabled;
         } catch (settingsError) {
           this.onPersistenceError(`Editor settings could not be loaded: ${JSON.stringify(settingsError)}`);
@@ -304,6 +324,10 @@ export class EditorViewModel {
     this.saveChain = job.catch((_error: Object): void => {
     });
     return job;
+  }
+
+  private isInitializationCurrent(): boolean {
+    return this.initializationGate === null || this.initializationGate();
   }
 
   private applyActiveState(): void {

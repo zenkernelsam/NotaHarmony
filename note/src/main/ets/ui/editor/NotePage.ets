@@ -294,7 +294,8 @@ struct NotePage {
       };
       const editorSettingsStore: EditorSettingsStore = new EditorSettingsStore(context);
       await this.viewModel.initialize(
-        new ToolRepositoryImpl(db), 'primary-editor', editorSettingsStore);
+        new ToolRepositoryImpl(db), 'primary-editor', editorSettingsStore,
+        (): boolean => !this.editorDisposed && loadGeneration === this.pageLoadGeneration);
       // T-036：加载标题
       this.noteRepo = new NoteRepositoryImpl(db);
       const note: NoteMeta | null = await this.noteRepo.getNote(this.noteId);

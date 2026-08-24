@@ -27,4 +27,10 @@ for (const effect of [
 assert.match(body,
   /if \(this\.editorDisposed \|\| loadGeneration !== this\.pageLoadGeneration\) \{\s+return;\s+\}/);
 
-console.log('D02_EDITOR_INITIALIZATION_DISPOSAL_BOUND_REPLAY_OK TOTAL=5 FAILED=0');
+const initializeCall = body.match(/await this\.viewModel\.initialize\([\s\S]*?\);/);
+assert.ok(initializeCall, 'view model initialization call');
+assert.match(initializeCall[0], /'primary-editor'/);
+assert.match(initializeCall[0], /editorDisposed/);
+assert.match(initializeCall[0], /loadGeneration === this\.pageLoadGeneration/);
+
+console.log('D02_EDITOR_INITIALIZATION_DISPOSAL_BOUND_REPLAY_OK TOTAL=6 FAILED=0');

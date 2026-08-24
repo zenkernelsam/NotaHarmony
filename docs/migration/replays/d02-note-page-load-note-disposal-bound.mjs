@@ -26,4 +26,9 @@ const errorPublishIndex = body.indexOf('this.pages = [];', catchGuardIndex);
 assert.ok(catchGuardIndex > catchIndex && errorPublishIndex > catchGuardIndex,
   'late load failure cannot publish error state');
 
+const initializeCall = body.match(/await this\.viewModel\.initialize\([\s\S]*?\);/);
+assert.ok(initializeCall, 'view model initialization call');
+assert.match(initializeCall[0], /editorDisposed/);
+assert.match(initializeCall[0], /loadGeneration === this\.pageLoadGeneration/);
+
 console.log('D02_NOTE_PAGE_LOAD_NOTE_DISPOSAL_BOUND_REPLAY_OK TOTAL=4 FAILED=0');
