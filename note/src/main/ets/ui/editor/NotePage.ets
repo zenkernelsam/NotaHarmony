@@ -630,6 +630,9 @@ struct NotePage {
   }
 
   private async toggleRecording(recordingId: string): Promise<void> {
+    if (this.editorDisposed) {
+      return;
+    }
     const selected: MaterializedOriginalRecording | null = this.findRecording(recordingId);
     if (selected === null) {
       return;
