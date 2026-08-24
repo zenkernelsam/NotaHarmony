@@ -11,9 +11,12 @@ const branchEnd2 = canvas.indexOf('\n      }\n    }\n    this.textEditing = fals
 const bodyEnd = Math.min(...[branchEnd, branchEnd2].filter(value => value >= 0));
 const body = canvas.slice(branchIndex, bodyEnd);
 
+assert.match(body, /commitGeneration !== this\.textCommitGeneration/);
 assert.match(body, /const generation: number = this\.pageLoadGeneration;/);
 assert.match(body, /preview = await this\.persistence\.previewOriginalTextEdit\(/);
-assert.match(body, /if \(this\.editingTextBlock !== editing \|\| this\.editingOriginalTextBlock !== original \|\|\s+!this\.isHistoryPageContextCurrent\(generation, pageId\)\) \{\s+hilog\.error\(0x0001, 'NoteCanvasView',\s+'original Text edit rejected after page changed'\);\s+return false;\s+\}/);
+
+assert.match(body, /commitGeneration !== this\.textCommitGeneration/);
+assert.match(body, /if \(commitGeneration !== this\.textCommitGeneration \|\|\s+this\.editingTextBlock !== editing \|\| this\.editingOriginalTextBlock !== original \|\|\s+!this\.isHistoryPageContextCurrent\(generation, pageId\)\) \{\s+hilog\.error\(0x0001, 'NoteCanvasView',\s+'original Text edit rejected after page changed'\);\s+return false;\s+\}/);
 assert.match(body, /original Text edit rejected after page changed/);
 assert.match(body, /replaceTextBlock\(updated\)/);
 assert.match(body, /undoRedo\.push\(\{[\s\S]+?REPLACE_ELEMENT[\s\S]+?\}\);/);

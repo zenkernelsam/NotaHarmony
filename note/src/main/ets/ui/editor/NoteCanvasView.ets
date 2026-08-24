@@ -347,6 +347,7 @@ export struct NoteCanvasView {
   @State historyBusy: boolean = false;
   private skipSavePageId: string = '';
   private pageLoadGeneration: number = 0;
+  private textCommitGeneration: number = 0;
   private originalInkAudioStarts: Map<string, string> = new Map<string, string>();
   private originalInkAudioStartsLoaded: boolean = false;
   private saveFailed: boolean = false;
@@ -7224,6 +7225,8 @@ export struct NoteCanvasView {
     if (this.historyBusy) {
       return false;
     }
+    const commitGeneration: number = ++this.textCommitGeneration;
+
     let changed: boolean = false;
     let rearmOriginalCreate: boolean = false;
     if (this.editingTextBlock !== null) {
@@ -7284,7 +7287,8 @@ export struct NoteCanvasView {
             'original Text edit rejected because CRDT style preview diverged');
           return false;
         }
-        if (this.editingTextBlock !== editing || this.editingOriginalTextBlock !== original ||
+        if (commitGeneration !== this.textCommitGeneration ||
+          this.editingTextBlock !== editing || this.editingOriginalTextBlock !== original ||
           !this.isHistoryPageContextCurrent(generation, pageId)) {
           hilog.error(0x0001, 'NoteCanvasView',
             'original Text edit rejected after page changed');
