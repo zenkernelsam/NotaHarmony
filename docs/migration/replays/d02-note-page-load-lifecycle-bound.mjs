@@ -24,7 +24,7 @@ assert.equal(guardCount >= 3, true);
 assert.match(load,
   /const note: NoteMeta \| null = await this\.noteRepo\.getNote\(this\.noteId\);\s+if \(loadGeneration !== this\.pageLoadGeneration\) \{\s+return;\s+\}/);
 assert.match(load, /\} else \{\s+this\.pages = loaded;\s+\}\s+if \(loadGeneration !== this\.pageLoadGeneration\)/);
-assert.match(load, /\} catch \(e\) \{\s+if \(loadGeneration !== this\.pageLoadGeneration\) \{\s+return;\s+\}/);
+assert.match(load, /\} catch \(e\) \{\s+if \(loadGeneration !== this\.pageLoadGeneration \|\| this\.editorDisposed\) \{\s+return;\s+\}/);
 assert.match(load, /\} finally \{\s+if \(loadGeneration === this\.pageLoadGeneration\) \{\s+this\.pageLoading = false;\s+this\.pageLoadInFlight = false;\s+\}/);
 
 console.log('D02_NOTE_PAGE_LOAD_LIFECYCLE_BOUND_REPLAY_OK TOTAL=4 FAILED=0');

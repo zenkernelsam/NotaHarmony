@@ -326,7 +326,7 @@ struct NotePage {
       this.pageLoadFailed = false;
       await this.loadRecordings();
     } catch (e) {
-      if (loadGeneration !== this.pageLoadGeneration) {
+      if (loadGeneration !== this.pageLoadGeneration || this.editorDisposed) {
         return;
       }
       this.pages = [];
