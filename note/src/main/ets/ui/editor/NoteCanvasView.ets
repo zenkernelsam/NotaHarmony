@@ -2297,6 +2297,11 @@ export struct NoteCanvasView {
     this.invalidateOriginalInkReservation();
     this.persistence.commitOriginalPartialErase(this.noteId, pageId, plan, prepared).then(
       (result: OriginalPartialErasePersistenceResult): void => {
+        if (!this.isHistoryPageContextCurrent(generation, pageId)) {
+          hilog.error(0x0001, 'NoteCanvasView',
+            'original partial erase committed after stale page; durable history remains available');
+          return;
+        }
         this.partialEraserPreview.complete(previewToken);
         try {
           const action: OriginalPartialEraseAction = {
@@ -5712,6 +5717,11 @@ export struct NoteCanvasView {
         elementOrderBefore: elementOrderBefore,
         elementOrderAfter: clonePageElementOrder(finalOrder),
       };
+      if (!this.isHistoryPageContextCurrent(generation, pageId)) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original photo insert committed after stale page; durable history remains available');
+        return { insertedCount: results.length, totalCount: plans.length };
+      }
       this.undoRedo.push(action, prepared);
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
       if (this.isHistoryPageContextCurrent(generation, pageId)) {
