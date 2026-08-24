@@ -5449,7 +5449,7 @@ export struct NoteCanvasView {
   }
 
   private canProbeOriginalClipboardImage(): boolean {
-    return this.loaded && !this.dataLoading && !this.dataLoadFailed &&
+    return this.lifecycleActive && this.loaded && !this.dataLoading && !this.dataLoadFailed &&
       !this.historyBusy &&
       this.persistence.isReady() && this.loadedPageId.length > 0;
   }
