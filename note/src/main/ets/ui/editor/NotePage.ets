@@ -1160,13 +1160,13 @@ struct NotePage {
     if (this.editorDisposed) {
       return;
     }
+    this.selectPageById(selectedPageId);
     action.backgroundAfter = cloneNoteBackgroundSettings(materialized);
     this.pages = await this.pageRepo.getPages(this.noteId);
     if (this.editorDisposed) {
       return;
     }
     this.noteBackground = materialized;
-    this.selectPageById(selectedPageId);
     if (this.historyBridge !== null) {
       this.historyBridge.pushPageAction(action, history);
     }

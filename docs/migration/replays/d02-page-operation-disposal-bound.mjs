@@ -13,14 +13,17 @@ function section(startMarker, endMarker) {
 }
 
 const background = section('  private async applyNoteBackgroundSettings(', '  private async runPageOperation(');
-for (const effect of [
-  'action.backgroundAfter = cloneNoteBackgroundSettings(materialized);',
-  'this.noteBackground = materialized;',
-]) {
-  const effectIndex = background.indexOf(effect);
-  assert.notEqual(effectIndex, -1, effect);
-  assert.ok(background.lastIndexOf(guard, effectIndex) !== -1, `background guard before ${effect}`);
-}
+const backgroundAwait = background.indexOf('await this.pageRepo.updateNoteBackground(');
+const earlySelection = background.indexOf('this.selectPageById(selectedPageId);', backgroundAwait);
+const pagesRefresh = background.indexOf('await this.pageRepo.getPages(this.noteId);', earlySelection);
+assert.ok(backgroundAwait >= 0 && earlySelection > backgroundAwait && pagesRefresh > earlySelection,
+  'background continuation reselects its target before the async page refresh');
+const actionEffect = background.indexOf('action.backgroundAfter = cloneNoteBackgroundSettings(materialized);');
+const settingsEffect = background.indexOf('this.noteBackground = materialized;', pagesRefresh);
+assert.notEqual(actionEffect, -1);
+assert.notEqual(settingsEffect, -1);
+assert.ok(background.lastIndexOf(guard, actionEffect) !== -1, 'background guard before action effect');
+assert.ok(background.lastIndexOf(guard, settingsEffect) !== -1, 'background guard before settings publication');
 
 const add = section('  private async addPage(): Promise<void> {', '  private async deleteCurrentPage(');
 const addAwait = add.indexOf('await this.pageRepo.addPage(');
@@ -61,4 +64,4 @@ const moveGuard = move.indexOf(guard, moveAwait);
 assert.ok(moveAwait !== -1 && moveGuard > moveAwait &&
   moveGuard < move.indexOf('this.pages = this.orderPages(this.pages, orderAfter);', moveAwait));
 
-console.log('D02_PAGE_OPERATION_DISPOSAL_BOUND_REPLAY_OK TOTAL=11 FAILED=0');
+console.log('D02_PAGE_OPERATION_DISPOSAL_BOUND_REPLAY_OK TOTAL=12 FAILED=0');
