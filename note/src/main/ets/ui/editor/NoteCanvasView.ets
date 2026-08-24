@@ -5397,6 +5397,11 @@ export struct NoteCanvasView {
       await this.persistence.commitOriginalMathLatex(
         this.noteId, pageId, this.completedStrokes, this.textBlocks, this.elementOrder,
         this.shapes, this.imageBlocks, proposedMath, prepared);
+      if (!this.isHistoryPageContextCurrent(generation, pageId)) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original Math latex committed after stale page; durable history remains available');
+        return;
+      }
       this.undoRedo.push(action, prepared);
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
       this.mathEditorVisible = false;
@@ -5777,6 +5782,12 @@ export struct NoteCanvasView {
       };
       if (addedRef.zIndex < 0) {
         throw new Error('durable Math insert omitted its element order');
+      }
+
+      if (!this.isHistoryPageContextCurrent(generation, pageId)) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original Math insert committed after stale page; durable history remains available');
+        return;
       }
       const action: UndoableAction = {
         type: UndoableActionType.ADD_ELEMENTS,
