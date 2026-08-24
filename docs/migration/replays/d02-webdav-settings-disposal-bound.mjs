@@ -48,12 +48,16 @@ assert.equal([...save.matchAll(/if \(this\.isDisposed\(lifecycleGeneration\)\) \
 const persistIndex = save.indexOf('await WebDAVConfigStore.save(context, config);');
 const lastGuard = save.lastIndexOf('if (this.isDisposed(lifecycleGeneration))');
 assert.ok(lastGuard > persistIndex);
-for (const effect of ['this.applyNormalizedDraft(config);', "this.safeToast(result.cleanupPending ? $r('app.string.settings_saved_cleanup_pending') :", "          $r('app.string.settings_saved'));"]) {
+for (const effect of ['this.applyNormalizedDraft(config);', "this.safeToast(result.cleanupPending ? $r('app.string.settings_saved_cleanup_pending') :", "          $r('app.string.settings_saved'), lifecycleGeneration);"]) {
   assert.ok(save.indexOf(effect) > lastGuard, effect);
 }
 assert.match(save, /\} finally \{\s+releaseOperation\(\);\s+\}/);
+assert.equal(save.split("this.safeToast($r('app.string.save_failed'), lifecycleGeneration);").length - 1, 2,
+  'commit/request failures pass captured generation');
+
 
 const safeToast = functionBody('private safeToast', 'private isInsecureHttp(): boolean {');
-assert.match(safeToast, /if \(this\.pageDisposed\) \{\s+return;\s+\}/);
+assert.match(safeToast, /private safeToast\(message: ResourceStr, expectedLifecycleGeneration\?: number\): void \{/);
+assert.match(safeToast, /if \(this\.isDisposed\(expectedLifecycleGeneration \?\? this\.lifecycleGeneration\)\) \{\s+return;\s+\}/);
 
 console.log('D02_WEBDAV_SETTINGS_DISPOSAL_BOUND_REPLAY_OK TOTAL=9 FAILED=0');

@@ -188,14 +188,14 @@ struct WebDAVSettingsPage {
       if (result.committed) {
         this.applyNormalizedDraft(config);
         this.safeToast(result.cleanupPending ? $r('app.string.settings_saved_cleanup_pending') :
-          $r('app.string.settings_saved'));
+          $r('app.string.settings_saved'), lifecycleGeneration);
       } else {
         console.error(`WebDAV config commit failed: ${result.message}`);
-        this.safeToast($r('app.string.save_failed'));
+        this.safeToast($r('app.string.save_failed'), lifecycleGeneration);
       }
     } catch (e) {
       console.error(`saveConfig failed: ${JSON.stringify(e)}`);
-      this.safeToast($r('app.string.save_failed'));
+      this.safeToast($r('app.string.save_failed'), lifecycleGeneration);
     } finally {
       releaseOperation();
     }
@@ -219,8 +219,8 @@ struct WebDAVSettingsPage {
     this.allowInsecureHttp = config.allowInsecureHttp === true;
   }
 
-  private safeToast(message: ResourceStr): void {
-    if (this.pageDisposed) {
+  private safeToast(message: ResourceStr, expectedLifecycleGeneration?: number): void {
+    if (this.isDisposed(expectedLifecycleGeneration ?? this.lifecycleGeneration)) {
       return;
     }
     try {
