@@ -177,6 +177,7 @@ struct LibraryPage {
         this.libraryLoading = false;
         return this.refreshThumbnails();
       }).catch((e: Error) => {
+        console.error(`LibraryPage onPageShow reload failed: ${JSON.stringify(e)}`);
         if (!this.isCurrentLifecycle(lifecycleGeneration, vm, renderer) ||
           !this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)) {
           return;
@@ -185,7 +186,6 @@ struct LibraryPage {
         this.initError = $r('app.string.load_notes_failed');
         this.hasInitError = true;
         promptAction.showToast({ message: $r('app.string.load_notes_failed') });
-        console.error(`LibraryPage onPageShow reload failed: ${JSON.stringify(e)}`);
       });
     }
   }
