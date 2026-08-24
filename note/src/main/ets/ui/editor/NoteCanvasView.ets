@@ -784,6 +784,9 @@ export struct NoteCanvasView {
     } catch (e) {
       hilog.error(0x0001, 'NoteCanvasView',
         'persistent history reset failed: %{public}s', JSON.stringify(e));
+      if (!this.lifecycleActive) {
+        return;
+      }
       this.showHistoryRecoveryToast($r('app.string.history_recovery_failed'));
     } finally {
       this.historyBusy = false;
