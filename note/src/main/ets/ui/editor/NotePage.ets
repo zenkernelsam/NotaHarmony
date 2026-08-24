@@ -1588,6 +1588,9 @@ struct NotePage {
         this.historyBridge.preparePageRemoval(action.pageId);
       }
       await this.pageRepo.deletePage(this.noteId, action.pageId, history);
+      if (this.editorDisposed) {
+        return false;
+      }
       this.pages = this.orderPages(this.pages.filter((page: PageInfo) => page.pageId !== action.pageId),
         action.pageOrderBefore);
       this.selectPageById(action.selectedPageIdBefore);
