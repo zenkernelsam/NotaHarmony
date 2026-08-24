@@ -6716,6 +6716,11 @@ export struct NoteCanvasView {
     this.persistence.commitOriginalClipboardPaste(
       this.noteId, pageId, plan, prepared).then(
       (result: OriginalClipboardPastePersistenceResult): void => {
+        if (!this.isHistoryPageContextCurrent(generation, pageId)) {
+          hilog.error(0x0001, 'NoteCanvasView',
+            'original Group Paste committed after stale page; durable history remains available');
+          return;
+        }
         if (!this.strokeClipboard.commitPreparedPaste(
           paste.pasteSequence, paste.clipboardRevision)) {
           hilog.error(0x0001, 'NoteCanvasView',
