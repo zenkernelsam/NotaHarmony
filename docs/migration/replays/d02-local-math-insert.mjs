@@ -37,6 +37,8 @@ assert.match(toolbar, /app\.string\.insert_math/);
 assert.match(toolbar, /this\.onInsertMath\(\)/);
 assert.match(page, /this\.mathInsertSignal\+\+/);
 assert.match(canvas, /@Watch\('onMathInsertSignalChange'\)/);
+assert.match(canvas,
+  /private startMathInsert\(\): void \{\s+if \(!this\.lifecycleActive \|\| this\.mathEditorVisible \|\| this\.historyBusy \|\|[\s\S]{0,180}this\.loadedPageId !== this\.currentPage\.pageId\) \{\s+return;\s+\}/);
 assert.match(canvas, /createOriginalMathInsertDraft/);
 assert.match(canvas, /this\.persistence\.commitOriginalMathInsert/);
 assert.match(canvas, /onPageChange[\s\S]*?this\.cancelMathEditing\(\)[\s\S]*?this\.switchPageData\(\)/);
