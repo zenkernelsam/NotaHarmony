@@ -1376,27 +1376,19 @@ export class StrokePersistence {
   }
 
   async flushAll(): Promise<void> {
-    while (true) {
-      const dirtyQueues: LatestWriteQueue<PreparedPageSave>[] = [];
-      StrokePersistence.saveQueueRegistry.forEach(
-        (queue: LatestWriteQueue<PreparedPageSave>): void => {
-          if (queue.isDirty()) {
-            dirtyQueues.push(queue);
-          } else {
-            StrokePersistence.saveQueueRegistry.delete(queue);
-          }
-        });
-      if (dirtyQueues.length === 0) {
-        return;
-      }
-      for (const queue of dirtyQueues) {
-        try {
-          await queue.flush();
-        } finally {
-          if (!queue.isDirty()) {
-            StrokePersistence.saveQueueRegistry.delete(queue);
-          }
+    const dirtyQueues: LatestWriteQueue<PreparedPageSave>[] = [];
+    StrokePersistence.saveQueueRegistry.forEach(
+      (queue: LatestWriteQueue<PreparedPageSave>): void => {
+        if (queue.isDirty()) {
+          dirtyQueues.push(queue);
+        } else {
+          StrokePersistence.saveQueueRegistry.delete(queue);
         }
+      });
+    for (const queue of dirtyQueues) {
+      await queue.flush();
+      if (!queue.isDirty()) {
+        StrokePersistence.saveQueueRegistry.delete(queue);
       }
     }
   }

@@ -35,6 +35,14 @@ const checks = [
     persistence.includes('contentRevision: resultSet.getLong') &&
     persistence.includes('elementCount: resultSet.getLong') &&
     persistence.includes("revision: `v2:${await sha256Hex(revisionBytes)}`")],
+  ['flush-all is terminal when a failed save queue remains dirty',
+    (() => {
+      const start = persistence.indexOf('async flushAll(): Promise<void> {');
+      const end = persistence.indexOf('\n  hasPendingSaves()', start);
+      const body = persistence.slice(start, end);
+      return !body.includes('while (true)') &&
+        /const dirtyQueues[\s\S]*for \(const queue of dirtyQueues\) \{\s+await queue\.flush\(\);/.test(body);
+    })()],
   ['clean queues leave the process registry after their flush completes',
     persistence.includes('createdQueue.setIdleHandler') &&
     persistence.includes('StrokePersistence.saveQueueRegistry.delete(createdQueue)') &&
