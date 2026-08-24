@@ -15,9 +15,19 @@ const spacingStart = panel.indexOf('private spacingIndex(template: PaperTemplate
 assert.ok(favoriteStart !== -1 && spacingStart > favoriteStart);
 const favorite = panel.slice(favoriteStart, spacingStart);
 const favGuards = (favorite.match(/if \(this\.panelDisposed\) \{\s+return;\s+\}/g) ?? []).length;
-assert.equal(favGuards, 2);
-assert.match(favorite,
-  /await store\.addFavorite\(candidate\);\s+\}\s+if \(this\.panelDisposed\) \{\s+return;\s+\}/);
+assert.equal(favGuards, 3);
+const writeEndIndex = favorite.indexOf('await store.removeFavorite(candidate);');
+assert.notEqual(writeEndIndex, -1);
+const firstFavoriteGuardIndex = favorite.indexOf('if (this.panelDisposed) {', writeEndIndex);
+const listRefreshIndex = favorite.indexOf('await store.listFavorites();', writeEndIndex);
+assert.ok(firstFavoriteGuardIndex > writeEndIndex && firstFavoriteGuardIndex < listRefreshIndex,
+  'guard precedes refresh await');
+const refreshEndIndex = listRefreshIndex + 'await store.listFavorites();'.length;
+const secondFavoriteGuardIndex = favorite.indexOf('if (this.panelDisposed) {', refreshEndIndex);
+const favoritesPublishIndex = favorite.indexOf('this.favorites = favorites;', secondFavoriteGuardIndex);
+assert.ok(refreshEndIndex < secondFavoriteGuardIndex && secondFavoriteGuardIndex < favoritesPublishIndex,
+  'guard precedes favorites publication');
+
 assert.match(favorite, /\} catch \(error\) \{\s+if \(this\.panelDisposed\) \{\s+return;\s+\}/);
 
 const saveStart = panel.indexOf('private async saveSharedSpacing(template: PaperTemplate, rawIndex: number): Promise<void> {');

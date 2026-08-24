@@ -294,7 +294,11 @@ export struct PageSettingsPanel {
       if (this.panelDisposed) {
         return;
       }
-      this.favorites = await store.listFavorites();
+      const favorites: OriginalPaperBackground[] = await store.listFavorites();
+      if (this.panelDisposed) {
+        return;
+      }
+      this.favorites = favorites;
     } catch (error) {
       if (this.panelDisposed) {
         return;
