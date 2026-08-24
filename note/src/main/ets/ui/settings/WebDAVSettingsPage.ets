@@ -89,6 +89,9 @@ struct WebDAVSettingsPage {
       }
     } catch (e) {
       console.error(`insecure HTTP confirmation failed: ${JSON.stringify(e)}`);
+      if (this.isDisposed(lifecycleGeneration)) {
+        return;
+      }
       this.testSucceeded = false;
       this.testResult = $r('app.string.connection_request_failed');
       this.hasTestResult = true;
@@ -125,6 +128,9 @@ struct WebDAVSettingsPage {
       this.hasTestResult = true;
     } catch (e) {
       console.error(`testConnection failed: ${JSON.stringify(e)}`);
+      if (this.isDisposed(lifecycleGeneration)) {
+        return;
+      }
       this.testSucceeded = false;
       this.testResult = $r('app.string.connection_request_failed');
       this.hasTestResult = true;

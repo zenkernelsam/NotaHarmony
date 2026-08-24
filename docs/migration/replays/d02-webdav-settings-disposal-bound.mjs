@@ -23,12 +23,23 @@ for (const effect of ['this.serverUrl = config.serverUrl;', 'this.password = con
 
 const test = functionBody('private async testConnectionOnce()', 'private async saveConfig(): Promise<void> {');
 assert.match(test, /const lifecycleGeneration: number = this\.lifecycleGeneration;/);
-assert.equal([...test.matchAll(/if \(this\.isDisposed\(lifecycleGeneration\)\) \{\s+return;\s+\}/g)].length, 2);
+assert.equal([...test.matchAll(/if \(this\.isDisposed\(lifecycleGeneration\)\) \{\s+return;\s+\}/g)].length, 4);
 const httpTestIndex = test.indexOf('await client.testConnection();');
 const firstGuard = test.indexOf('if (this.isDisposed(lifecycleGeneration))');
 assert.ok(firstGuard < test.indexOf('if (this.isInsecureHttp()') && httpTestIndex > firstGuard);
+const successGuard = test.indexOf('if (this.isDisposed(lifecycleGeneration))', test.indexOf('await client.testConnection();'));
+assert.notEqual(successGuard, -1);
 for (const effect of ['this.testSucceeded = result.success;', 'this.testResult = result.message;']) {
-  assert.ok(test.indexOf(effect) > test.lastIndexOf('if (this.isDisposed(lifecycleGeneration))'));
+  assert.ok(test.indexOf(effect) > successGuard);
+}
+const httpCatch = functionBody('console.error(`insecure HTTP confirmation failed:', 'if (this.isInsecureHttp()');
+const requestCatch = functionBody('console.error(`testConnection failed:', 'private async saveConfig(): Promise<void> {');
+for (const catchBody of [httpCatch, requestCatch]) {
+  const guardIndex = catchBody.indexOf('if (this.isDisposed(lifecycleGeneration))');
+  assert.ok(guardIndex > catchBody.indexOf('console.error('));
+  assert.ok(guardIndex < catchBody.indexOf('this.testSucceeded = false;'));
+  assert.ok(guardIndex < catchBody.indexOf('this.testResult ='));
+  assert.ok(guardIndex < catchBody.indexOf('this.hasTestResult = true;'));
 }
 
 const save = functionBody('private async saveConfigOnce()', 'private normalizedDraft(');
