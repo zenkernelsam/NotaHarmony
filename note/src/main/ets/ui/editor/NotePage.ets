@@ -190,6 +190,9 @@ struct NotePage {
       this.onRecordingPlaybackSnapshot(snapshot);
     });
     this.recordingDeleteController.setListener((pendingIds: string[]): void => {
+      if (this.editorDisposed) {
+        return;
+      }
       this.pendingRecordingDeleteIds = pendingIds;
       this.rebuildRecordingTimeline();
     });
