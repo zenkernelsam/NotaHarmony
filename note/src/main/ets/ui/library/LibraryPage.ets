@@ -505,6 +505,9 @@ struct LibraryPage {
         throw new Error(`unsupported folder dialog mode: ${this.folderDialogMode}`);
       }
     } catch (e) {
+      if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration) {
+        return false;
+      }
       promptAction.showToast({ message: $r('app.string.folder_operation_failed') });
       console.error(`folder operation failed: ${JSON.stringify(e)}`);
       return false;
@@ -536,6 +539,9 @@ struct LibraryPage {
     try {
       result = await repo.deleteFolder(folderId);
     } catch (e) {
+      if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
       promptAction.showToast({ message: $r('app.string.delete_folder_failed') });
       console.error(`delete folder failed: ${JSON.stringify(e)}`);
     } finally {
@@ -573,6 +579,9 @@ struct LibraryPage {
     try {
       result = await repo.moveFolder(folderId, parentId, insertIndex);
     } catch (e) {
+      if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
       promptAction.showToast({ message: $r('app.string.move_folder_failed') });
       console.error(`move folder failed: ${JSON.stringify(e)}`);
     } finally {
@@ -692,6 +701,9 @@ struct LibraryPage {
     try {
       result = await repo.moveNoteToFolder(noteId, folderId);
     } catch (e) {
+      if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
       promptAction.showToast({ message: $r('app.string.move_note_failed') });
       console.error(`move note failed: ${JSON.stringify(e)}`);
     } finally {
