@@ -10,7 +10,7 @@ assert.ok(start !== -1 && end > start);
 
 const seek = page.slice(start, end);
 const guards = (seek.match(/if \(this\.editorDisposed\) \{\s+return;\s+\}/g) ?? []).length;
-assert.equal(guards, 1);
+assert.ok(guards >= 1);
 assert.match(seek,
   /private async seekRecordingTimeline\(positionMs: number\): Promise<void> \{\s+if \(this\.editorDisposed\) \{\s+return;\s+\}\s+const location/);
 assert.match(seek, /await this\.recordingController\.load\(recording, resumePlayback, location\.localPositionMs\);/);

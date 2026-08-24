@@ -447,6 +447,9 @@ struct NotePage {
     try {
       const recordings: MaterializedOriginalRecording[] =
         await this.recordingStore.listVisible(this.noteId);
+      if (this.editorDisposed || generation !== this.recordingLoadGeneration) {
+        return;
+      }
       if (generation === this.recordingLoadGeneration) {
         this.recordings = recordings;
         this.rebuildRecordingTimeline();
@@ -475,6 +478,10 @@ struct NotePage {
       return;
     }
     await this.loadRecordings();
+    if (this.editorDisposed) {
+      return;
+    }
+    this.rebuildRecordingTimeline();
   }
 
   private onRecordingSessionSnapshot(snapshot: OriginalRecordingSessionSnapshot): void {
@@ -761,7 +768,9 @@ struct NotePage {
     if (next !== null) {
       await this.recordingController.load(next, true);
     }
-    this.completionAdvanceInFlight = false;
+    if (!this.editorDisposed) {
+      this.completionAdvanceInFlight = false;
+    }
   }
 
   private async seekRecordingTimeline(positionMs: number): Promise<void> {
@@ -784,6 +793,10 @@ struct NotePage {
     const resumePlayback: boolean =
       this.playbackSnapshot.state === OriginalRecordingPlaybackState.PLAYING;
     await this.recordingController.load(recording, resumePlayback, location.localPositionMs);
+    if (this.editorDisposed) {
+      return;
+    }
+    this.completionAdvanceInFlight = false;
   }
 
   private changeRecordingPlaybackSpeed(speed: OriginalRecordingPlaybackSpeed): void {
@@ -832,6 +845,10 @@ struct NotePage {
       return;
     }
     await this.loadRecordings();
+    if (this.editorDisposed) {
+      return;
+    }
+    this.pendingRecordingDeleteIds = [];
   }
 
   private onRecordingAssetAvailabilityChanged(change: AssetAvailabilityChange): void {
