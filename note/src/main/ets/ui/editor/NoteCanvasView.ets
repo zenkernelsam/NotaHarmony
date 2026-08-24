@@ -2358,9 +2358,11 @@ export struct NoteCanvasView {
         }
       }, (e: Object): void => {
         this.partialEraserPreview.complete(previewToken);
-        this.reportSaveFailure(e);
         hilog.error(0x0001, 'NoteCanvasView',
           'original partial erase transaction failed: %{public}s', JSON.stringify(e));
+        if (this.isHistoryPageContextCurrent(generation, pageId)) {
+          this.reportSaveFailure(e);
+        }
         if (this.isHistoryPageContextCurrent(generation, pageId)) {
           this.applyPartialEraseLocally(plan, prepared);
           this.renderFrame(true);
