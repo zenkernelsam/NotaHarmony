@@ -850,13 +850,15 @@ struct LibraryPage {
       return;
     }
     const query: string = this.searchText;
+    const lifecycleGeneration: number = this.lifecycleGeneration;
     const notesRequestGeneration: number = this.beginNotesRequest();
     const vm: LibraryViewModel = this.viewModel;
     this.folderBusy = true;
     this.currentFolderId = folderId;
     try {
       await vm.setFolder(folderId, query);
-      if (!this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)) {
+      if (!this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId,
+        lifecycleGeneration)) {
         return;
       }
       this.initError = '';
@@ -864,12 +866,13 @@ struct LibraryPage {
       this.viewModel = vm;
       this.notes = vm.getFilteredNotes().slice();
       await this.refreshThumbnails();
-      if (this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)) {
+      if (this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId,
+        lifecycleGeneration)) {
         this.closeCompactFolderDrawer();
       }
     } catch (e) {
-      if (this.pageActive && notesRequestGeneration === this.notesRequestGeneration &&
-        this.viewModel === vm && this.searchText === query) {
+      if (this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId,
+        lifecycleGeneration)) {
         this.currentFolderId = vm.currentFolderId;
         promptAction.showToast({ message: $r('app.string.load_notes_failed') });
         console.error(`select folder failed: ${JSON.stringify(e)}`);

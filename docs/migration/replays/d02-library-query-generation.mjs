@@ -79,9 +79,10 @@ const checks = [
     reload.includes('const notesRequestGeneration: number = this.beginNotesRequest()') &&
     reload.includes('this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)')],
   ['folder selection cannot close the drawer after a superseding request',
-    selectFolder.indexOf('this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)') >= 0 &&
-    selectFolder.lastIndexOf('this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)') <
-      selectFolder.indexOf('this.closeCompactFolderDrawer()')],
+    selectFolder.includes('const lifecycleGeneration: number = this.lifecycleGeneration;') &&
+    (selectFolder.match(/isCurrentNotesRequest\(notesRequestGeneration, vm, query, folderId,\s+lifecycleGeneration\)/g) ?? []).length === 3 &&
+    selectFolder.indexOf('await this.refreshThumbnails();') <
+      selectFolder.lastIndexOf('lifecycleGeneration)) {')],
 ];
 
 for (const [name, ok] of checks) {
