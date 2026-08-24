@@ -253,6 +253,33 @@ export default function libraryViewModelTest() {
       expect(viewModel.notes[0].folderId).assertEqual('folder-b');
     });
 
+    it('keeps the active query after delete takes over an in-flight read', 0, async () => {
+      const repository = new FakeNoteRepository();
+      repository.notes = [makeNote('Alpha', null), makeNote('Beta', null)];
+      repository.snapshotBeforeGate = true;
+      let releaseRead: () => void = (): void => {};
+      let notifyReadStarted: () => void = (): void => {};
+      repository.readGate = new Promise<void>((resolve: () => void) => {
+        releaseRead = resolve;
+      });
+      const readStarted: Promise<void> = new Promise<void>((resolve: () => void) => {
+        notifyReadStarted = resolve;
+      });
+      repository.readStarted = notifyReadStarted;
+      const viewModel = new LibraryViewModel(repository);
+      const read: Promise<void> = viewModel.loadNotes('alp');
+      await readStarted;
+      await viewModel.deleteNote('Alpha');
+      releaseRead();
+      try {
+        await read;
+      } catch (_error) {
+      }
+      expect(repository.deleteCount).assertEqual(1);
+      expect(viewModel.isLoading).assertFalse();
+      expect(viewModel.notes.length).assertEqual(0);
+    });
+
     it('removes a moved note from the selected source folder', 0, () => {
       const repository = new FakeNoteRepository();
       const viewModel = new LibraryViewModel(repository);

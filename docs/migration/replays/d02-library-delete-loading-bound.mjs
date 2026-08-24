@@ -23,6 +23,9 @@ const checks = [
   ['stale or mutated reads retry instead of publishing old rows',
     method.includes('mutationGeneration !== this.mutationGeneration') &&
     method.includes('continue;')],
+  ['the replacement read preserves search and folder context',
+    method.includes('const query: string = this.activeQuery;') &&
+    method.includes('await this.repo.searchNotes(query, folderId)')],
   ['the replaced read clears loading in a guarded finally',
     method.includes('finally {') &&
     method.includes('this.isLoading = false;')],

@@ -21,6 +21,7 @@ export class LibraryViewModel {
   private repo: NoteRepository;
   private loadGeneration: number = 0;
   private mutationGeneration: number = 0;
+  private activeQuery: string = '';
   private mutationChain: Promise<void> = Promise.resolve();
 
   constructor(repo: NoteRepository) {
@@ -29,6 +30,7 @@ export class LibraryViewModel {
 
   async loadNotes(query: string): Promise<void> {
     const generation: number = ++this.loadGeneration;
+    this.activeQuery = query;
     this.isLoading = true;
     this.loadError = '';
     try {
@@ -131,14 +133,20 @@ export class LibraryViewModel {
       this.removeVisibleNote(noteId);
       if (this.isLoading) {
         const generation: number = ++this.loadGeneration;
+        const query: string = this.activeQuery;
         try {
           while (generation === this.loadGeneration) {
             const mutationGeneration: number = this.mutationGeneration;
+            const folderId: string | null = this.currentFolderId;
             let loaded: NoteMeta[];
             try {
-              loaded = this.currentFolderId === null ?
-                await this.repo.getAllNotes() :
-                await this.repo.getNotesByFolder(this.currentFolderId);
+              if (query.trim().length > 0) {
+                loaded = await this.repo.searchNotes(query, folderId);
+              } else if (folderId === null) {
+                loaded = await this.repo.getAllNotes();
+              } else {
+                loaded = await this.repo.getNotesByFolder(folderId);
+              }
             } catch (error) {
               if (generation !== this.loadGeneration ||
                 mutationGeneration !== this.mutationGeneration) {
