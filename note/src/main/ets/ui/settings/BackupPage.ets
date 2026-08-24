@@ -171,6 +171,9 @@ struct BackupPage {
       this.showToast($r('app.string.exported_notes_count', exported, notes.length));
     } catch (e) {
       console.error(`exportAllLocal failed: ${JSON.stringify(e)}`);
+      if (this.isStale(lifecycleGeneration)) {
+        return;
+      }
       this.showAlert($r('app.string.export_failed'), $r('app.string.export_failed_message'));
     } finally {
       this.isBusy = false;
@@ -211,6 +214,9 @@ struct BackupPage {
       }
     } catch (e) {
       console.error(`importLocal failed: ${JSON.stringify(e)}`);
+      if (this.isStale(lifecycleGeneration)) {
+        return;
+      }
       this.showAlert($r('app.string.import_failed'), $r('app.string.import_read_failed'));
     } finally {
       this.isBusy = false;
@@ -286,6 +292,9 @@ struct BackupPage {
       this.showToast($r('app.string.cloud_backup_count', result.verified, result.total));
     } catch (e) {
       console.error(`backupAll failed: ${JSON.stringify(e)}`);
+      if (this.isStale(lifecycleGeneration)) {
+        return;
+      }
       this.showAlert($r('app.string.backup_failed'), $r('app.string.network_server_unreachable'));
     } finally {
       this.isBusy = false;
@@ -373,6 +382,9 @@ struct BackupPage {
       }
     } catch (e) {
       console.error(`restoreFromCloud failed: ${JSON.stringify(e)}`);
+      if (this.isStale(lifecycleGeneration)) {
+        return;
+      }
       this.showAlert($r('app.string.restore_failed'), $r('app.string.network_server_unreachable'));
     } finally {
       this.isBusy = false;
