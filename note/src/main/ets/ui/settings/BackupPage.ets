@@ -163,7 +163,13 @@ struct BackupPage {
       }
       let exported: number = 0;
       for (const note of notes) {
+        if (this.isStale(lifecycleGeneration)) {
+          return;
+        }
         const ok: boolean = await exporter.exportToFile(context, note.id, note.title);
+        if (this.isStale(lifecycleGeneration)) {
+          return;
+        }
         if (ok) {
           exported++;
         }

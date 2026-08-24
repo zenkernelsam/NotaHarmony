@@ -20,4 +20,4 @@ assertGuarded('import',body('  private async importLocal(): Promise<void> {','  
 assertGuarded('backup',body('  private async backupAll(): Promise<void> {','  // === WebDAV：从云端恢复最近一次已发布的完整批次 ==='),'backupAll failed');
 assertGuarded('restore',body('  private async restoreFromCloud(): Promise<void> {','  private async loadLatestBackupBatch('),'restoreFromCloud failed');
 
-console.log('D02_BACKUP_FAILURES_DISPOSAL_BOUND_REPLAY_OK TOTAL=4 FAILED=0');
+console.log('D02_BACKUP_FAILURES_DISPOSAL_BOUND_REPLAY_OK TOTAL=5 FAILED=0');
