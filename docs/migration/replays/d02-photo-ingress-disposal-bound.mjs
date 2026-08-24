@@ -4,6 +4,17 @@ import fs from 'node:fs';
 const page = fs.readFileSync('note/src/main/ets/ui/editor/NoteCanvasView.ets', 'utf8')
   .replaceAll('\r\n', '\n');
 
+for (const gate of ['canStartOriginalPhotoInsert', 'canUseOriginalClipboardImage']) {
+  const marker = `private ${gate}(): boolean {`;
+  const start = page.indexOf(marker);
+  assert.notEqual(start, -1, marker);
+  const end = page.indexOf('}', page.indexOf('this.systemClipboardImageAvailable', start));
+  const section = page.slice(start, Math.max(end, start + 500));
+  assert.ok(section.includes('this.lifecycleActive &&'), `${gate} requires active lifecycle`);
+  assert.ok(section.includes('this.loadedPageId === this.currentPage.pageId'),
+    `${gate} requires current page identity`);
+}
+
 assert.match(page, /private isPhotoContextCurrent\(generation: number, pageId: string\): boolean \{\s+return this\.lifecycleActive && generation === this\.pageLoadGeneration &&\s+pageId === this\.loadedPageId;\s+\}/);
 assert.ok(!page.includes('photoGeneration === this.pageLoadGeneration'));
 assert.ok(!page.includes('pasteGeneration === this.pageLoadGeneration'));

@@ -5489,9 +5489,10 @@ export struct NoteCanvasView {
   }
 
   private canStartOriginalPhotoInsert(): boolean {
-    return this.loaded && !this.dataLoading && !this.dataLoadFailed &&
+    return this.lifecycleActive && this.loaded && !this.dataLoading && !this.dataLoadFailed &&
       !this.historyBusy && !this.photoImportBusy &&
-      this.persistence.isReady() && this.loadedPageId.length > 0;
+      this.persistence.isReady() && this.loadedPageId.length > 0 &&
+      this.loadedPageId === this.currentPage.pageId;
   }
 
   private canProbeOriginalClipboardImage(): boolean {
@@ -5601,9 +5602,10 @@ export struct NoteCanvasView {
   }
 
   private canUseOriginalClipboardImage(): boolean {
-    return this.loaded && !this.dataLoading && !this.dataLoadFailed &&
+    return this.lifecycleActive && this.loaded && !this.dataLoading && !this.dataLoadFailed &&
       !this.historyBusy && !this.photoImportBusy &&
       this.persistence.isReady() && this.loadedPageId.length > 0 &&
+      this.loadedPageId === this.currentPage.pageId &&
       this.systemClipboardImageAvailable;
   }
 

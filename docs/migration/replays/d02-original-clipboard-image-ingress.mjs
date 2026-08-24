@@ -63,7 +63,8 @@ const checks = [
     ingress.includes('resetOriginalClipboardImageAvailabilityProbeForTest(): void')],
   ['menu visibility waits for an available PixelMap clipboard',
     canvas.includes('@State systemClipboardImageAvailable: boolean = false;') &&
-    canvas.includes('this.persistence.isReady() && this.loadedPageId.length > 0 &&\n      this.systemClipboardImageAvailable;') &&
+    canvas.includes('private canUseOriginalClipboardImage(): boolean {') &&
+    canvas.includes('return this.lifecycleActive && this.loaded && !this.dataLoading && !this.dataLoadFailed &&\n      !this.historyBusy && !this.photoImportBusy &&\n      this.persistence.isReady() && this.loadedPageId.length > 0 &&\n      this.loadedPageId === this.currentPage.pageId &&\n      this.systemClipboardImageAvailable;') &&
     canvas.includes('private refreshSystemClipboardImageAvailability(): void {') &&
     canvas.includes('isOriginalClipboardImageAvailable().then((available: boolean): void => {')],
   ['clipboard probes ignore transient paste busy state',
