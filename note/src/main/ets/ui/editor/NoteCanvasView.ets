@@ -6911,6 +6911,9 @@ export struct NoteCanvasView {
         nextStrokes, nextTextBlocks, elementOrderAfter, nextShapes, true, preparedHistory,
         nextImages, nextMathBlocks);
     } catch (e) {
+      if (!this.isHistoryPageContextCurrent(this.pageLoadGeneration, this.loadedPageId)) {
+        return;
+      }
       this.reportSaveFailure(e as Object);
       return;
     }
