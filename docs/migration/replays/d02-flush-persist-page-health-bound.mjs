@@ -13,6 +13,21 @@ const flushEnd = canvas.indexOf('private async maintainPersistentHistoryCheckpoi
 assert.notEqual(flushEnd, -1);
 const flushBody = canvas.slice(flushStart, flushEnd);
 
+const temporaryEditorGate = flushBody.indexOf(
+  'if (this.mathEditorVisible || this.imageCropVisible) {',
+);
+assert.notEqual(temporaryEditorGate, -1);
+const temporaryEditorReturn = flushBody.indexOf('return false;', temporaryEditorGate);
+const textCommitGate = flushBody.indexOf(
+  'if (this.textEditing && this.editingTextBlock !== null) {',
+  temporaryEditorGate,
+);
+assert.ok(
+  temporaryEditorGate < temporaryEditorReturn &&
+    temporaryEditorReturn < textCommitGate,
+  'temporary editors fail closed before any flush side effects',
+);
+
 // No old 2-line weak guards in flushCurrentPage
 const weakInFlush = (flushBody.match(/if \(generation === this\.pageLoadGeneration && pageId === this\.loadedPageId/g) || []).length;
 assert.equal(weakInFlush, 0);

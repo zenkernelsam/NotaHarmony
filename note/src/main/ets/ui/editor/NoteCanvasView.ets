@@ -698,7 +698,7 @@ export struct NoteCanvasView {
     if (!this.persistence.isReady() || this.noteId.length === 0 || this.loadedPageId.length === 0) {
       return true;
     }
-    if (this.mathEditorVisible) {
+    if (this.mathEditorVisible || this.imageCropVisible) {
       return false;
     }
     if (this.textEditing && this.editingTextBlock !== null) {
