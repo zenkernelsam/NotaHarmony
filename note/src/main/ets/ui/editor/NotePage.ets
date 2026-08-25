@@ -978,6 +978,10 @@ struct NotePage {
             }
           },
           onInsertMath: () => {
+            if (this.photoImportLeaseActive || this.pageOperationBusy ||
+              this.historyPending || this.pageStructureLeaseActive) {
+              return;
+            }
             this.mathInsertSignal++;
           },
           onInsertPhotos: () => {

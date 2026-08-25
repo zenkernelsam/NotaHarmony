@@ -11,6 +11,7 @@ const body = source.slice(start, end);
 for (const condition of [
   '!this.lifecycleActive',
   'this.mathEditorVisible',
+  'this.photoImportBusy',
   'this.historyBusy',
   '!this.loaded',
   'this.dataLoading',
@@ -25,6 +26,6 @@ for (const condition of [
 }
 
 assert.match(body,
-  /if \(!this\.lifecycleActive \|\| this\.mathEditorVisible \|\| this\.historyBusy \|\|\s+!this\.loaded \|\| this\.dataLoading \|\| this\.dataLoadFailed \|\|\s+!this\.persistence\.isReady\(\) \|\| this\.loadedPageId\.length === 0 \|\|\s+this\.loadedPageId !== this\.currentPage\.pageId\) \{\s+return;\s+\}/);
+  /if \(!this\.lifecycleActive \|\| this\.mathEditorVisible \|\| this\.photoImportBusy \|\|\s+this\.historyBusy \|\|\s+!this\.loaded \|\| this\.dataLoading \|\| this\.dataLoadFailed \|\|\s+!this\.persistence\.isReady\(\) \|\| this\.loadedPageId\.length === 0 \|\|\s+this\.loadedPageId !== this\.currentPage\.pageId\) \{\s+return;\s+\}/);
 
 console.log('D02_MATH_INSERT_ENTRY_BOUND_REPLAY_OK TOTAL=10 FAILED=0');

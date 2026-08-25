@@ -5428,7 +5428,8 @@ export struct NoteCanvasView {
   }
 
   private startMathInsert(): void {
-    if (!this.lifecycleActive || this.mathEditorVisible || this.historyBusy ||
+    if (!this.lifecycleActive || this.mathEditorVisible || this.photoImportBusy ||
+      this.historyBusy ||
       !this.loaded || this.dataLoading || this.dataLoadFailed ||
       !this.persistence.isReady() || this.loadedPageId.length === 0 ||
       this.loadedPageId !== this.currentPage.pageId) {
