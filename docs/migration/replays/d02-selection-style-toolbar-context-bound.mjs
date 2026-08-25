@@ -33,6 +33,9 @@ assert.match(canvas,
 assert.match(canvas, /selectedMathIds\.length === 0 && state\.selectedGroupIds\.length === 0\) \{[\s\S]{0,100}selectionVisible = false/);
 assert.match(canvas, /private startMathEditing\(\): void \{[\s\S]{0,900}selectionVisible = false;/);
 assert.match(canvas, /private startImageCrop\(\): void \{[\s\S]{0,1000}selectionVisible = false;/);
+const mathEditGate = canvas.match(
+  /private startMathEditing\(\): void \{[\s\S]{0,180}!this\.selectionCanEditMath\)/);
+assert.ok(mathEditGate !== null, 'Math edit must use the overlay capability gate');
 for (const restoreContext of [
   'detachMathEditorForNavigation',
   'cancelMathEditing',
@@ -120,6 +123,19 @@ for (const cropRestoreContext of [
   assert.equal((body.match(/this\.selectionVisible = true;/g) || []).length >= 2, true,
     `crop ${cropRestoreContext} lacks visibility rebinds`);
 }
+
+function selectionCommandGuard(toolActive, selectedIds) {
+  return toolActive && selectedIds.length > 0;
+}
+assert.equal(selectionCommandGuard(true, ['stroke-1']), true);
+assert.equal(selectionCommandGuard(true, []), false);
+assert.equal(selectionCommandGuard(false, ['stroke-1']), false);
+assert.match(canvas,
+  /private modifySelectedInkRegisters\(style: InkStyle \| null, color: number \| null,\s+controlWidth: number \| null\): void \{\s+if \(this\.historyBusy \|\| !this\.loaded \|\| !this\.viewModel\.isSelectionActive\(\)\)/);
+assert.match(canvas,
+  /const selected: Set<string> = new Set<string>\(\s+this\.selectionTool\.getState\(\)\.selectedStrokeIds\)/);
+assert.match(canvas,
+  /const selectedShapes: Set<string> = new Set<string>\(\s+this\.selectionTool\.getState\(\)\.selectedShapeIds\)/);
 assert.match(canvas, /let selectedStyle: InkStyle \| null = null;/);
 assert.match(canvas, /selectedStrokeIds\.has\(stroke\.id\) \|\|[\s\S]{0,80}isPartialEraser === true/);
 assert.match(canvas, /selectedStyle = stroke\.renderSpec\.inkStyle;[\s\S]{0,30}break;/);
