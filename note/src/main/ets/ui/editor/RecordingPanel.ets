@@ -28,6 +28,7 @@ export struct RecordingPanel {
   @Prop cumulativeDurationMs: number = 0;
   @Prop playbackSpeed: OriginalRecordingPlaybackSpeed = OriginalRecordingPlaybackSpeed.SPEED_1_0;
   @Prop pendingDeleteIds: string[] = [];
+  @Prop photoImportLeaseActive: boolean = false;
   @Prop captureSnapshot: OriginalRecordingSessionSnapshot = {
     captureState: OriginalRecordingCaptureState.IDLE, elapsedMs: 0,
     preparing: false, saving: false,
@@ -111,8 +112,8 @@ export struct RecordingPanel {
           Slider({ value: this.cumulativePositionMs, min: 0,
             max: Math.max(1, this.cumulativeDurationMs), step: 1 })
             .width('100%')
-            .enabled(this.canSeek())
-            .opacity(this.canSeek() ? 1 : 0.45)
+            .enabled(this.controlsEnabled && this.canSeek())
+            .opacity(this.controlsEnabled && this.canSeek() ? 1 : 0.45)
             .selectedColor(this.resolveTokens().accent)
             .onChange((value: number) => this.onSeek(value))
           Row() {
@@ -161,6 +162,7 @@ export struct RecordingPanel {
           if (this.capturePauseSupported) {
             Button($r('app.string.pause_recording'))
               .height(34).fontSize(12).borderRadius(4)
+              .enabled(this.controlsEnabled)
               .backgroundColor(this.resolveTokens().control)
               .fontColor(this.resolveTokens().textPrimary)
               .onClick(() => this.onPauseCapture())
@@ -168,6 +170,7 @@ export struct RecordingPanel {
         } else if (this.captureSnapshot.captureState === OriginalRecordingCaptureState.PAUSED) {
           Button($r('app.string.resume_recording'))
             .height(34).fontSize(12).borderRadius(4)
+            .enabled(this.controlsEnabled)
             .backgroundColor(this.resolveTokens().control)
             .fontColor(this.resolveTokens().textPrimary)
             .onClick(() => this.onResumeCapture())
@@ -175,14 +178,16 @@ export struct RecordingPanel {
         Blank()
         Button($r('app.string.stop_recording'))
           .height(34).fontSize(12).borderRadius(4)
-          .enabled(this.captureSnapshot.captureState === OriginalRecordingCaptureState.RECORDING ||
-            this.captureSnapshot.captureState === OriginalRecordingCaptureState.PAUSED)
+          .enabled(this.controlsEnabled &&
+            (this.captureSnapshot.captureState === OriginalRecordingCaptureState.RECORDING ||
+              this.captureSnapshot.captureState === OriginalRecordingCaptureState.PAUSED))
           .backgroundColor(this.resolveTokens().danger)
           .fontColor(this.resolveTokens().onAccent)
           .onClick(() => this.onStopCapture())
       } else {
         Button($r('app.string.start_recording'))
           .height(34).fontSize(13).borderRadius(4)
+          .enabled(this.controlsEnabled)
           .backgroundColor(this.resolveTokens().accent)
           .fontColor(this.resolveTokens().onAccent)
           .onClick(() => this.onRecord())
@@ -207,6 +212,7 @@ export struct RecordingPanel {
     Button(label)
       .width(42).height(26).fontSize(11).borderRadius(4)
       .margin({ left: 2, right: 2 })
+      .enabled(this.controlsEnabled)
       .backgroundColor(this.playbackSpeed === speed ? this.resolveTokens().accent :
         this.resolveTokens().control)
       .fontColor(this.playbackSpeed === speed ? this.resolveTokens().onAccent :
@@ -223,8 +229,10 @@ export struct RecordingPanel {
           this.resolveTokens().control)
         .fontColor(this.isSelected(recording.id) ? this.resolveTokens().onAccent :
           this.resolveTokens().textPrimary)
-        .enabled(recording.assetState === OriginalRecordingAssetState.READY)
-        .opacity(recording.assetState === OriginalRecordingAssetState.READY ? 1 : 0.4)
+        .enabled(this.controlsEnabled &&
+          recording.assetState === OriginalRecordingAssetState.READY)
+        .opacity(this.controlsEnabled &&
+          recording.assetState === OriginalRecordingAssetState.READY ? 1 : 0.4)
         .accessibilityText(this.isPlaying(recording.id) ? $r('app.string.pause_recording') :
           $r('app.string.play_recording'))
         .onClick(() => this.onToggle(recording.id))
@@ -246,6 +254,7 @@ export struct RecordingPanel {
         .backgroundColor(Color.Transparent)
         .fontColor(this.resolveTokens().danger)
         .accessibilityText($r('app.string.delete_recording'))
+        .enabled(this.controlsEnabled)
         .onClick(() => this.onDelete(recording.id))
     }
     .width('100%').height(58).padding({ left: 8, right: 12 })
@@ -263,6 +272,7 @@ export struct RecordingPanel {
         .height(32).fontSize(12).borderRadius(4)
         .backgroundColor(Color.Transparent)
         .fontColor(this.resolveTokens().accent)
+        .enabled(this.controlsEnabled)
         .onClick(() => this.onUndoDelete(recording.id))
     }
     .width('100%').height(58).padding({ left: 12, right: 12 })
@@ -270,6 +280,10 @@ export struct RecordingPanel {
 
   private isPendingDelete(recordingId: string): boolean {
     return this.pendingDeleteIds.indexOf(recordingId) >= 0;
+  }
+
+  private get controlsEnabled(): boolean {
+    return !this.photoImportLeaseActive;
   }
 
   private isSelected(recordingId: string): boolean {

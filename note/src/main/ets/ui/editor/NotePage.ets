@@ -1038,31 +1038,59 @@ struct NotePage {
           pendingDeleteIds: this.pendingRecordingDeleteIds,
           captureSnapshot: this.recordingSessionSnapshot,
           capturePauseSupported: this.recordingPauseSupported,
+          photoImportLeaseActive: this.photoImportLeaseActive,
           onRecord: () => {
+            if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+              return;
+            }
             this.startRecording();
           },
           onPauseCapture: () => {
+            if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+              return;
+            }
             this.pauseRecording();
           },
           onResumeCapture: () => {
+            if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+              return;
+            }
             this.resumeRecording();
           },
           onStopCapture: () => {
+            if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+              return;
+            }
             this.stopRecording();
           },
           onToggle: (recordingId: string) => {
+            if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+              return;
+            }
             this.toggleRecording(recordingId);
           },
           onSeek: (positionMs: number) => {
+            if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+              return;
+            }
             this.seekRecordingTimeline(positionMs);
           },
           onSpeedChange: (speed: OriginalRecordingPlaybackSpeed) => {
+            if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+              return;
+            }
             this.changeRecordingPlaybackSpeed(speed);
           },
           onDelete: (recordingId: string) => {
+            if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+              return;
+            }
             this.requestRecordingDelete(recordingId);
           },
           onUndoDelete: (recordingId: string) => {
+            if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+              return;
+            }
             this.undoRecordingDelete(recordingId);
           },
           onClose: () => {
