@@ -968,12 +968,12 @@ struct NotePage {
           canUndo: this.canUndo,
           canRedo: this.canRedo,
           onUndo: () => {
-            if (!this.pageOperationBusy) {
+            if (!this.historyPending && !this.pageOperationBusy) {
               this.undoSignal++;
             }
           },
           onRedo: () => {
-            if (!this.pageOperationBusy) {
+            if (!this.historyPending && !this.pageOperationBusy) {
               this.redoSignal++;
             }
           },

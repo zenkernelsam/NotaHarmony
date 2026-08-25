@@ -45,7 +45,7 @@ for (const [name, startMarker, endMarker] of [
 for (const [name, signal] of [['undo', 'this.undoSignal++'], ['redo', 'this.redoSignal++']]) {
   const trigger = page.indexOf(signal);
   assert.ok(trigger >= 0, `${name} trigger`);
-  const guarded = page.lastIndexOf('if (!this.pageOperationBusy) {', trigger);
+  const guarded = page.lastIndexOf('if (!this.historyPending && !this.pageOperationBusy) {', trigger);
   assert.ok(guarded >= 0,
     `${name} is serialized with page operations but remains available during deletion`);
 }

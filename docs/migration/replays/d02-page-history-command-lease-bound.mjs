@@ -35,10 +35,19 @@ assert.match(page, /onRequestPage: \(pageId: string\) => \{[\s\S]{0,320}?this\.c
 for (const [name, section] of [
   ['prev navigation lease gate', page.slice(page.indexOf('onPrev: () =>'), page.indexOf('onNext: () =>'))],
   ['next navigation lease gate', page.slice(page.indexOf('onNext: () =>'), page.indexOf('onAdd: () =>'))],
+  ['undo trigger gate', page.slice(page.indexOf('onUndo: () =>'), page.indexOf('onRedo: () =>'))],
+  ['redo trigger gate', page.slice(page.indexOf('onRedo: () =>'), page.indexOf('onInsertMath:'))],
 ]) {
-  assert.match(section, /!this\.pageLoading/);
-  assert.match(section, /!this\.pageOperationBusy/);
-  assert.match(section, /!this\.historyPending/);
+  assert.match(section, /!this\.historyPending/,
+    `${name} rejects a pending cross-page history command`);
+}
+
+for (const [name, signal] of [['undo', 'this.undoSignal++'], ['redo', 'this.redoSignal++']]) {
+  const trigger = page.indexOf(signal);
+  const guarded = page.lastIndexOf('if (!this.historyPending && !this.pageOperationBusy) {', trigger);
+  const close = page.indexOf('}', trigger);
+  assert.ok(trigger >= 0 && guarded >= 0 && close > trigger,
+    `${name} cannot dispatch while a cross-page history command is pending`);
 }
 
 const pageActionStart = canvas.indexOf('if (this.isPageAction(action.type)) {');

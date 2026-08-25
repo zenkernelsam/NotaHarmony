@@ -41,7 +41,7 @@ for (const [name, startMarker, endMarker] of [
 for (const [name, signal] of [['undo', 'this.undoSignal++'], ['redo', 'this.redoSignal++']]) {
   const trigger = page.indexOf(signal);
   assert.ok(trigger >= 0, `${name} trigger`);
-  const guarded = page.lastIndexOf('if (!this.pageOperationBusy) {', trigger);
+  const guarded = page.lastIndexOf('if (!this.historyPending && !this.pageOperationBusy) {', trigger);
   const close = page.indexOf('}', trigger);
   assert.ok(guarded >= 0 && close > trigger,
     `${name} cannot dispatch during a serialized page operation`);
