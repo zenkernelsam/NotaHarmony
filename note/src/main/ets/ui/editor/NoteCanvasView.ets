@@ -1666,7 +1666,8 @@ export struct NoteCanvasView {
 
   // === 触摸事件 ===
   private onCanvasTouch(event: TouchEvent): void {
-    if (!this.loaded || this.dataLoading || this.dataLoadFailed || this.historyBusy ||
+    if (!this.loaded || this.dataLoading || this.dataLoadFailed ||
+      this.photoImportBusy || this.historyBusy ||
       this.imageCropVisible || this.mathEditorVisible) {
       return;
     }
