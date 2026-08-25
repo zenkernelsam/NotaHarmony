@@ -357,6 +357,7 @@ struct NotePage {
         return;
       }
       this.recordingLoadGeneration++;
+      this.recordingsLoading = false;
       this.pages = [];
       this.noteBackground = originalDefaultNoteBackgroundSettings();
       this.currentPageIndex = 0;
