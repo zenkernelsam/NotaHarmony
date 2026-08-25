@@ -7507,7 +7507,7 @@ export struct NoteCanvasView {
   }
 
   onTextCancel(): void {
-    if (this.historyBusy) {
+    if (this.photoImportBusy || this.historyBusy) {
       return;
     }
     let cancelledOriginalCreate: boolean = false;
