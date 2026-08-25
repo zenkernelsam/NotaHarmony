@@ -356,6 +356,7 @@ struct NotePage {
       if (loadGeneration !== this.pageLoadGeneration || this.editorDisposed) {
         return;
       }
+      this.recordingLoadGeneration++;
       this.pages = [];
       this.noteBackground = originalDefaultNoteBackgroundSettings();
       this.currentPageIndex = 0;
