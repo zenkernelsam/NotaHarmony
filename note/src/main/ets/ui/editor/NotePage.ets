@@ -1065,6 +1065,9 @@ struct NotePage {
             this.canRedo = r;
           },
           onRequestPage: (pageId: string) => {
+            if (this.pageRemovalLeaseActive) {
+              return;
+            }
             for (let i: number = 0; i < this.pages.length; i++) {
               if (this.pages[i].pageId === pageId) {
                 this.currentPageIndex = i;

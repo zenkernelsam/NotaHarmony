@@ -47,4 +47,18 @@ for (const [name, signal] of [['undo', 'this.undoSignal++'], ['redo', 'this.redo
     `${name} cannot dispatch while a current-page deletion is in flight`);
 }
 
-console.log('D02_PAGE_DELETE_REMOVAL_LEASE_BOUND_REPLAY_OK TOTAL=8 FAILED=0');
+const requestStart = page.indexOf('onRequestPage: (pageId: string) => {');
+const requestSettled = page.indexOf('onPageHistorySettled:', requestStart);
+assert.ok(requestStart >= 0 && requestSettled > requestStart);
+const requestSection = page.slice(requestStart, requestSettled);
+const requestGate = requestSection.indexOf(
+  'if (this.pageRemovalLeaseActive) {',
+);
+const requestReturn = requestSection.indexOf('return;', requestGate);
+const pageIndexMutation = requestSection.indexOf('this.currentPageIndex = i;');
+assert.ok(
+  requestGate >= 0 && requestReturn > requestGate && pageIndexMutation > requestReturn,
+  'history page requests cannot retarget selection during a deletion lease',
+);
+
+console.log('D02_PAGE_DELETE_REMOVAL_LEASE_BOUND_REPLAY_OK TOTAL=9 FAILED=0');
