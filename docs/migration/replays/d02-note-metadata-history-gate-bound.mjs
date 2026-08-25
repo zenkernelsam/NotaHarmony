@@ -13,7 +13,7 @@ assert.ok(callbackIndex >= 0 && selectionIndex > callbackIndex);
 const callbackBody = page.slice(callbackIndex, selectionIndex);
 const gate = callbackBody.indexOf('if (this.pageOperationBusy || this.titleSaveInFlightCount > 0) {');
 const staleReturn = callbackBody.indexOf('return Promise.resolve(false);', gate);
-const applyCall = callbackBody.indexOf('return this.applyPageHistory(action, isUndo, history);', staleReturn);
+const applyCall = callbackBody.indexOf('return this.runPageHistoryOperation(action, isUndo, history);', staleReturn);
 assert.ok(gate >= 0 && staleReturn > gate && applyCall > staleReturn,
   'note metadata history fails closed while serialized note state is changing');
 

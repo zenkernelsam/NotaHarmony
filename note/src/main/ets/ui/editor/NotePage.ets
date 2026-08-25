@@ -1097,7 +1097,7 @@ struct NotePage {
             if (this.pageOperationBusy || this.titleSaveInFlightCount > 0) {
               return Promise.resolve(false);
             }
-            return this.applyPageHistory(action, isUndo, history);
+            return this.runPageHistoryOperation(action, isUndo, history);
           },
           onHistoryBridgeReady: (bridge: EditorHistoryBridge) => {
             this.historyBridge = bridge;
@@ -1107,7 +1107,7 @@ struct NotePage {
             if (this.pageOperationBusy || this.titleSaveInFlightCount > 0) {
               return Promise.resolve(false);
             }
-            return this.applyPageHistory(action, isUndo, history);
+            return this.runPageHistoryOperation(action, isUndo, history);
           },
           onSelectionInkControlsChanged: (color: number | null, width: number | null,
             minimum: number, maximum: number, variableStyleEnabled: boolean,
@@ -1126,7 +1126,8 @@ struct NotePage {
             }
           },
           onApplyPageHistory: async (action: UndoableAction, isUndo: boolean,
-            history: HistoryMetadata): Promise<boolean> => this.applyPageHistory(action, isUndo, history),
+            history: HistoryMetadata): Promise<boolean> =>
+            this.runPageHistoryOperation(action, isUndo, history),
         })
           .layoutWeight(1)
       } else if (this.pageLoadFailed) {
@@ -1234,7 +1235,7 @@ struct NotePage {
   }
 
   private async runPageOperation(operation: () => Promise<void>): Promise<void> {
-    if (this.pageOperationBusy) {
+    if (this.pageOperationBusy || this.historyPending || this.pageStructureLeaseActive) {
       return;
     }
     this.pageOperationBusy = true;
@@ -1250,6 +1251,19 @@ struct NotePage {
       } catch (toastError) {
         console.error(`Page operation toast failed: ${JSON.stringify(toastError)}`);
       }
+    } finally {
+      this.pageOperationBusy = false;
+    }
+  }
+
+  private async runPageHistoryOperation(action: UndoableAction, isUndo: boolean,
+    history: HistoryMetadata): Promise<boolean> {
+    if (this.pageOperationBusy) {
+      return false;
+    }
+    this.pageOperationBusy = true;
+    try {
+      return await this.applyPageHistory(action, isUndo, history);
     } finally {
       this.pageOperationBusy = false;
     }

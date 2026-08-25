@@ -24,7 +24,7 @@ assert.ok(callbackIndex >= 0 && bridgeIndex > callbackIndex);
 const callbackBody = page.slice(callbackIndex, bridgeIndex);
 const gate = callbackBody.indexOf('if (this.pageOperationBusy || this.titleSaveInFlightCount > 0) {');
 const staleReturn = callbackBody.indexOf('return Promise.resolve(false);', gate);
-const applyCall = callbackBody.indexOf('return this.applyPageHistory(action, isUndo, history);', staleReturn);
+const applyCall = callbackBody.indexOf('return this.runPageHistoryOperation(action, isUndo, history);', staleReturn);
 assert.ok(gate >= 0 && staleReturn > gate && applyCall > staleReturn,
   'title history applies only for the current queued save generation and outside page operations');
 
