@@ -9,6 +9,7 @@ export struct ColorPickerView {
   @ObjectLink viewModel: EditorViewModel;
   @Prop selectionMode: boolean = false;
   @Prop selectionColor: number = -16777216;
+  @Prop photoImportLeaseActive: boolean = false;
   onSelectionColor: (color: number) => void = (_color: number): void => {
   };
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -49,6 +50,7 @@ export struct ColorPickerView {
                   this.viewModel.brushColor) ? this.resolveTokens().accent :
                   this.resolveTokens().border,
               })
+              .enabled(!this.photoImportLeaseActive)
               .onClick(() => {
                 if (this.selectionMode) {
                   this.onSelectionColor(color);

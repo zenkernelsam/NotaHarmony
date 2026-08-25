@@ -1008,6 +1008,7 @@ struct NotePage {
           selectionWidthMaximum: this.selectionWidthMaximum,
           selectionVariableStyleEnabled: this.selectionVariableStyleEnabled,
           selectionStyle: inkStyleToBrushStyle(this.selectionInkStyle),
+          photoImportLeaseActive: this.photoImportLeaseActive,
           onSelectionColor: (color: number) => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
               this.historyPending || this.pageStructureLeaseActive) {

@@ -10,6 +10,7 @@ export struct WidthSlider {
   @Prop selectionWidth: number = 5;
   @Prop selectionMinimum: number = 0.5;
   @Prop selectionMaximum: number = 30;
+  @Prop photoImportLeaseActive: boolean = false;
   onSelectionWidth: (width: number) => void = (_width: number): void => {
   };
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -33,6 +34,7 @@ export struct WidthSlider {
         step: this.selectionMode ? 0.5 : 2,
       })
         .width(220)
+        .enabled(!this.photoImportLeaseActive)
         .onChange((value: number) => {
           if (this.selectionMode) {
             this.onSelectionWidth(value);

@@ -31,6 +31,7 @@ export struct EditorToolbar {
   @Prop selectionWidth: number = 5;
   @Prop selectionWidthMinimum: number = 0.5;
   @Prop selectionWidthMaximum: number = 30;
+  @Prop photoImportLeaseActive: boolean = false;
   @Prop selectionVariableStyleEnabled: boolean = true;
   @Prop selectionStyle: BrushStyle = BrushStyle.MONO;
   @Prop canUndo: boolean = false;
@@ -160,6 +161,7 @@ export struct EditorToolbar {
             viewModel: this.viewModel,
             selectionMode: this.viewModel.isSelectionActive(),
             selectionColor: this.selectionColor,
+            photoImportLeaseActive: this.photoImportLeaseActive,
             onSelectionColor: (color: number): void => this.onSelectionColor(color),
           })
         }
@@ -175,6 +177,7 @@ export struct EditorToolbar {
             selectionWidth: this.selectionWidth,
             selectionMinimum: this.selectionWidthMinimum,
             selectionMaximum: this.selectionWidthMaximum,
+            photoImportLeaseActive: this.photoImportLeaseActive,
             onSelectionWidth: (width: number): void => this.onSelectionWidth(width),
           })
         }
