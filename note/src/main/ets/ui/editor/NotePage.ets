@@ -9,7 +9,7 @@ import {
   commitOriginalNoteTitleDraft, isOriginalNoteTitleWireValue,
   materializeOriginalNoteTitle, truncateOriginalNoteTitleDraft,
 } from '../../core/model/OriginalNoteTitlePolicy';
-import { BrushStyle, brushStyleToInkStyle } from '../../core/model/BrushTypes';
+import { BrushStyle, brushStyleToInkStyle, inkStyleToBrushStyle } from '../../core/model/BrushTypes';
 import { InkStyle } from '../../core/model/StrokeTypes';
 import {
   cloneNoteBackgroundSettings, clonePageInfo, originalDefaultNoteBackgroundSettings,
@@ -973,6 +973,7 @@ struct NotePage {
           selectionWidthMinimum: this.selectionWidthMinimum,
           selectionWidthMaximum: this.selectionWidthMaximum,
           selectionVariableStyleEnabled: this.selectionVariableStyleEnabled,
+          selectionStyle: inkStyleToBrushStyle(this.selectionInkStyle),
           onSelectionColor: (color: number) => {
             this.selectionInkColor = color;
             this.selectionColorSignal++;
@@ -1070,12 +1071,14 @@ struct NotePage {
             this.historyBridge = bridge;
           },
           onSelectionInkControlsChanged: (color: number, width: number,
-            minimum: number, maximum: number, variableStyleEnabled: boolean) => {
+            minimum: number, maximum: number, variableStyleEnabled: boolean,
+            style: InkStyle) => {
             this.selectionInkColor = color;
             this.selectionInkWidth = width;
             this.selectionWidthMinimum = minimum;
             this.selectionWidthMaximum = maximum;
             this.selectionVariableStyleEnabled = variableStyleEnabled;
+            this.selectionInkStyle = style;
           },
           onApplyPageHistory: async (action: UndoableAction, isUndo: boolean,
             history: HistoryMetadata): Promise<boolean> => this.applyPageHistory(action, isUndo, history),

@@ -250,10 +250,11 @@ export struct NoteCanvasView {
   onHistoryBridgeReady: (bridge: EditorHistoryBridge) => void = () => {
   };
   onSelectionInkControlsChanged: (color: number, width: number,
-    minimum: number, maximum: number, variableStyleEnabled: boolean) => void =
+    minimum: number, maximum: number, variableStyleEnabled: boolean,
+    style: InkStyle) => void =
     (_color: number, _width: number, _minimum: number, _maximum: number,
-      _variableStyleEnabled: boolean): void => {
-    };
+      _variableStyleEnabled: boolean, _style: InkStyle): void => {
+  };
   onApplyPageHistory: (action: UndoableAction, isUndo: boolean,
     history: HistoryMetadata) => Promise<boolean> =
     async (_action: UndoableAction, _isUndo: boolean, _history: HistoryMetadata): Promise<boolean> => false;
@@ -4794,9 +4795,18 @@ export struct NoteCanvasView {
       const variableStyleEnabled: boolean = state.selectedShapeIds.length === 0 &&
         !this.completedStrokes.some((stroke: StrokeElementData): boolean =>
           selectedStrokeIds.has(stroke.id) && stroke.renderSpec.isPencil);
+      let selectedStyle: InkStyle | null = null;
+      for (const stroke of this.completedStrokes) {
+        if (!selectedStrokeIds.has(stroke.id) ||
+          stroke.renderSpec.isPartialEraser === true) {
+          continue;
+        }
+        selectedStyle = stroke.renderSpec.inkStyle;
+        break;
+      }
       this.onSelectionInkControlsChanged(selectedColor ?? this.selectionInkColor,
         selectedWidth ?? this.selectionInkWidth, selectedMinimum, selectedMaximum,
-        variableStyleEnabled);
+        variableStyleEnabled, selectedStyle ?? this.selectionInkStyle);
     }
     this.selectionCanFlip = this.canFlipImageSelection(
       state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,

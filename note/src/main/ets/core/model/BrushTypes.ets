@@ -59,3 +59,12 @@ export function brushStyleToInkStyle(style: BrushStyle): InkStyle {
     default: return InkStyle.FIXED_WIDTH;
   }
 }
+
+export function inkStyleToBrushStyle(style: InkStyle): BrushStyle {
+  switch (style) {
+    case InkStyle.VARIABLE_WIDTH: return BrushStyle.TAPER;
+    case InkStyle.DASH: return BrushStyle.DASH;
+    case InkStyle.DOTS: return BrushStyle.DOT;
+    default: return BrushStyle.MONO;
+  }
+}
