@@ -6470,7 +6470,7 @@ export struct NoteCanvasView {
   }
 
   private startImageCrop(): void {
-    if (this.historyBusy || this.imageCropVisible) {
+    if (this.photoImportBusy || this.historyBusy || this.imageCropVisible) {
       return;
     }
     const state = this.selectionTool.getState();
@@ -6568,7 +6568,8 @@ export struct NoteCanvasView {
 
   private confirmImageCrop(): void {
     const session: OriginalImageCropSession | null = this.imageCropSession;
-    if (!this.imageCropVisible || session === null || this.historyBusy) {
+    if (!this.imageCropVisible || session === null ||
+      this.photoImportBusy || this.historyBusy) {
       return;
     }
     const after: ImageElement | null = applyOriginalImageCropDraft(session, this.imageCropDraft);
