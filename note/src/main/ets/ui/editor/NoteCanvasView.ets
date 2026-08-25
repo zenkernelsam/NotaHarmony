@@ -6445,7 +6445,8 @@ export struct NoteCanvasView {
 
   private canPasteClipboardNow(): boolean {
     return this.clipboardAvailable && this.strokeClipboard.hasContent() && this.loaded &&
-      !this.dataLoading && !this.dataLoadFailed && !this.historyBusy &&
+      !this.dataLoading && !this.dataLoadFailed &&
+      !this.photoImportBusy && !this.historyBusy &&
       this.loadedPageId.length > 0 && this.loadedPageId === this.currentPage.pageId;
   }
 
@@ -6833,7 +6834,8 @@ export struct NoteCanvasView {
   }
 
   private pasteClipboard(targetCenter: Point2D): void {
-    if (!this.canPasteClipboardNow() || !Number.isFinite(targetCenter.x) ||
+    if (this.photoImportBusy || this.historyBusy ||
+      !this.canPasteClipboardNow() || !Number.isFinite(targetCenter.x) ||
       !Number.isFinite(targetCenter.y)) {
       return;
     }
@@ -7828,6 +7830,7 @@ export struct NoteCanvasView {
           .width(40)
           .height(36)
           .fontSize(18)
+          .enabled(!this.photoImportBusy)
           .onClick(() => {
             this.zoomStep(-0.25);
           })
@@ -7839,15 +7842,17 @@ export struct NoteCanvasView {
           .width(40)
           .height(36)
           .fontSize(18)
+          .enabled(!this.photoImportBusy)
           .onClick(() => {
             this.zoomStep(0.25);
           })
         Button($r('app.string.fit_width'))
           .height(36)
-          .fontSize(12)
-          .margin({ left: 8 })
-          .onClick(() => {
-            this.zoomFitWidth();
+            .fontSize(12)
+            .margin({ left: 8 })
+            .enabled(!this.photoImportBusy)
+            .onClick(() => {
+              this.zoomFitWidth();
           })
       }
       .margin({ left: 16, bottom: 68 })  // 避开底部 PageManagerBar（56vp）
