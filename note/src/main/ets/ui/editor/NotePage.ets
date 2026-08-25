@@ -154,7 +154,7 @@ struct NotePage {
   private recordingTimeline: OriginalRecordingTimeline = {
     entries: [], boundaryTimesMs: [], totalDurationMs: 0,
   };
-  private completionAdvanceInFlight: boolean = false;
+  private completionAdvanceCount: number = 0;
   // T-038：主题状态
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -730,12 +730,14 @@ struct NotePage {
     this.updateCumulativePlaybackPosition(snapshot);
     this.updateAudioPlaybackTime(snapshot);
     if (snapshot.state !== OriginalRecordingPlaybackState.COMPLETED) {
-      this.completionAdvanceInFlight = false;
       return;
     }
-    if (!this.completionAdvanceInFlight && snapshot.recordingId !== null) {
-      this.completionAdvanceInFlight = true;
-      this.advanceAfterRecordingCompletion(snapshot.recordingId);
+    if (snapshot.recordingId !== null) {
+      this.completionAdvanceCount++;
+      this.advanceAfterRecordingCompletion(snapshot.recordingId)
+        .finally((): void => {
+          this.completionAdvanceCount--;
+        });
     }
   }
 
@@ -795,7 +797,6 @@ struct NotePage {
 
   private async advanceAfterRecordingCompletion(recordingId: string): Promise<void> {
     if (this.editorDisposed) {
-      this.completionAdvanceInFlight = false;
       return;
     }
     const nextId: string | null = nextTimelineRecordingId(this.recordingTimeline, recordingId);
@@ -805,9 +806,6 @@ struct NotePage {
     const next: MaterializedOriginalRecording | null = this.findRecording(nextId);
     if (next !== null) {
       await this.recordingController.load(next, true);
-    }
-    if (!this.editorDisposed) {
-      this.completionAdvanceInFlight = false;
     }
   }
 
@@ -834,7 +832,6 @@ struct NotePage {
     if (this.editorDisposed) {
       return;
     }
-    this.completionAdvanceInFlight = false;
   }
 
   private changeRecordingPlaybackSpeed(speed: OriginalRecordingPlaybackSpeed): void {

@@ -9,11 +9,11 @@ const end = page.indexOf('\n  private async seekRecordingTimeline', start);
 assert.ok(start !== -1 && end > start);
 
 const advance = page.slice(start, end);
-const guardCount = (advance.match(/if \((?:!) ?this\.editorDisposed\)/g) ?? []).length;
+const guardCount = (advance.match(/if \(this\.editorDisposed\)/g) ?? []).length;
 assert.ok(guardCount >= 1);
 assert.match(advance,
-  /private async advanceAfterRecordingCompletion\(recordingId: string\): Promise<void> \{\s+if \(this\.editorDisposed\) \{\s+this\.completionAdvanceInFlight = false;\s+return;\s+\}/);
+  /private async advanceAfterRecordingCompletion\(recordingId: string\): Promise<void> \{\s+if \(this\.editorDisposed\) \{\s+return;\s+\}/);
 assert.match(advance,
-  /await this\.recordingController\.load\(next, true\);\s+\}\s+if \(!this\.editorDisposed\) \{\s+this\.completionAdvanceInFlight = false;\s+\}/);
+  /await this\.recordingController\.load\(next, true\);\s+\}/);
 
 console.log('D02_RECORDING_ADVANCE_DISPOSAL_BOUND_REPLAY_OK TOTAL=3 FAILED=0');

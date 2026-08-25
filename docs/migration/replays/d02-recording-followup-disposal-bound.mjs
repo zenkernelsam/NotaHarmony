@@ -3,7 +3,7 @@ import fs from 'node:fs';
 
 const page = fs.readFileSync('note/src/main/ets/ui/editor/NotePage.ets', 'utf8')
   .replaceAll('\r\n', '\n');
-const guard = /if \(this\.editorDisposed(?: \|\| generation !== this\.recordingLoadGeneration)?\) \{\s+(?:return;|this\.completionAdvanceInFlight = false;)\s+\}/;
+const guard = /if \(this\.editorDisposed(?: \|\| generation !== this\.recordingLoadGeneration)?\) \{\s+(?:return;)\s+\}/;
 
 function body(startMarker, endMarker) {
   const start = page.indexOf(startMarker);
@@ -28,10 +28,10 @@ assert.match(body('  private async persistCapturedRecording(', '  private onReco
   /await this\.loadRecordings\(\);\s+if \(this\.editorDisposed\) \{\s+return;\s+\}\s+this\.rebuildRecordingTimeline\(\);/);
 
 assert.match(body('  private async advanceAfterRecordingCompletion(', '  private async seekRecordingTimeline('),
-  /await this\.recordingController\.load\(next, true\);\s+\}\s+if \(!this\.editorDisposed\) \{\s+this\.completionAdvanceInFlight = false;\s+\}/);
+  /await this\.recordingController\.load\(next, true\);\s+\}/);
 
 assert.match(body('  private async seekRecordingTimeline(', '  private changeRecordingPlaybackSpeed('),
-  /await this\.recordingController\.load\(recording, resumePlayback, location\.localPositionMs\);\s+if \(this\.editorDisposed\) \{\s+return;\s+\}\s+this\.completionAdvanceInFlight = false;/);
+  /await this\.recordingController\.load\(recording, resumePlayback, location\.localPositionMs\);\s+if \(this\.editorDisposed\) \{\s+return;\s+\}/);
 
 assert.match(body('  private async commitRecordingDeletes(', '  private onRecordingAssetAvailabilityChanged('),
   /await this\.loadRecordings\(\);\s+if \(this\.editorDisposed\) \{\s+return;\s+\}\s+this\.pendingRecordingDeleteIds = \[\];/);
