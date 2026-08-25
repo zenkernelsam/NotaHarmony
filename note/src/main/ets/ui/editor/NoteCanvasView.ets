@@ -2699,9 +2699,11 @@ export struct NoteCanvasView {
           hilog.error(0x0001, 'NoteCanvasView', 'page history apply rejected, type=%{public}d', action.type);
         }
         this.historyBusy = false;
+        this.onPageHistorySettled(false);
       }).catch((e: Object) => {
         hilog.error(0x0001, 'NoteCanvasView', 'page history apply failed: %{public}s', JSON.stringify(e));
         this.historyBusy = false;
+        this.onPageHistorySettled(false);
       });
       return;
     }

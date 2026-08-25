@@ -41,4 +41,20 @@ for (const [name, section] of [
   assert.match(section, /!this\.historyPending/);
 }
 
+const pageActionStart = canvas.indexOf('if (this.isPageAction(action.type)) {');
+const groupActionStart = canvas.indexOf('if (action.type === UndoableActionType.GROUP_ELEMENTS) {', pageActionStart);
+assert.ok(pageActionStart >= 0 && groupActionStart > pageActionStart);
+const pageActionBody = canvas.slice(pageActionStart, groupActionStart);
+
+const applyAwait = pageActionBody.indexOf('this.onApplyPageHistory(action, isUndo, history)');
+const successRelease = pageActionBody.indexOf(
+  'this.historyBusy = false;\n        this.onPageHistorySettled(false);',
+  applyAwait,
+);
+const failureRelease = pageActionBody.lastIndexOf(
+  'this.historyBusy = false;\n        this.onPageHistorySettled(false);',
+);
+assert.ok(applyAwait >= 0 && successRelease > applyAwait && failureRelease > successRelease,
+  'page history commands release the navigation lease after both accepted and rejected moves');
+
 console.log('D02_PAGE_HISTORY_COMMAND_LEASE_BOUND_REPLAY_OK TOTAL=9 FAILED=0');
