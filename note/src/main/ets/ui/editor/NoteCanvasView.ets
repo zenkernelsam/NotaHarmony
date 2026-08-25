@@ -249,11 +249,12 @@ export struct NoteCanvasView {
   };
   onHistoryBridgeReady: (bridge: EditorHistoryBridge) => void = () => {
   };
-  onSelectionInkControlsChanged: (color: number, width: number,
+  onSelectionInkControlsChanged: (color: number | null, width: number | null,
     minimum: number, maximum: number, variableStyleEnabled: boolean,
-    style: InkStyle) => void =
-    (_color: number, _width: number, _minimum: number, _maximum: number,
-      _variableStyleEnabled: boolean, _style: InkStyle): void => {
+    style: InkStyle | null) => void =
+    (_color: number | null, _width: number | null, _minimum: number,
+      _maximum: number, _variableStyleEnabled: boolean,
+      _style: InkStyle | null): void => {
   };
   onApplyPageHistory: (action: UndoableAction, isUndo: boolean,
     history: HistoryMetadata) => Promise<boolean> =
@@ -998,6 +999,7 @@ export struct NoteCanvasView {
       this.refreshSystemClipboardImageAvailability();
       this.selectionTool.deselect();
       this.selectionVisible = false;
+      this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
       this.initializeLayerForPage();
       this.centerPaperInViewport();
       this.layerManager.rebuildFromStrokes(
@@ -4804,9 +4806,8 @@ export struct NoteCanvasView {
         selectedStyle = stroke.renderSpec.inkStyle;
         break;
       }
-      this.onSelectionInkControlsChanged(selectedColor ?? this.selectionInkColor,
-        selectedWidth ?? this.selectionInkWidth, selectedMinimum, selectedMaximum,
-        variableStyleEnabled, selectedStyle ?? this.selectionInkStyle);
+      this.onSelectionInkControlsChanged(selectedColor, selectedWidth,
+        selectedMinimum, selectedMaximum, variableStyleEnabled, selectedStyle);
     }
     this.selectionCanFlip = this.canFlipImageSelection(
       state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,

@@ -26,15 +26,16 @@ assert.match(brush, /case InkStyle\.VARIABLE_WIDTH: return BrushStyle\.TAPER;/);
 assert.match(brush, /case InkStyle\.DASH: return BrushStyle\.DASH;/);
 assert.match(brush, /case InkStyle\.DOTS: return BrushStyle\.DOT;/);
 
-assert.match(canvas, /onSelectionInkControlsChanged[\s\S]{0,220}style: InkStyle\)/);
+assert.match(canvas, /onSelectionInkControlsChanged[\s\S]{0,260}style: InkStyle \| null\)/);
+assert.match(canvas, /this\.selectionTool\.deselect\(\);[\s\S]{0,80}onSelectionInkControlsChanged\(null, null, 0\.5, 30, true, null\);/);
 assert.match(canvas, /let selectedStyle: InkStyle \| null = null;/);
 assert.match(canvas, /selectedStrokeIds\.has\(stroke\.id\) \|\|[\s\S]{0,80}isPartialEraser === true/);
 assert.match(canvas, /selectedStyle = stroke\.renderSpec\.inkStyle;[\s\S]{0,30}break;/);
-assert.match(canvas, /variableStyleEnabled, selectedStyle \?\? this\.selectionInkStyle\);/);
+assert.match(canvas, /variableStyleEnabled, selectedStyle\);/);
 
 assert.match(page, /selectionStyle: inkStyleToBrushStyle\(this\.selectionInkStyle\)/);
-assert.match(page, /onSelectionInkControlsChanged:[\s\S]{0,180}style: InkStyle\)/);
-assert.match(page, /this\.selectionVariableStyleEnabled = variableStyleEnabled;[\s\S]{0,50}this\.selectionInkStyle = style;/);
+assert.match(page, /onSelectionInkControlsChanged:[\s\S]{0,220}style: InkStyle \| null\)/);
+assert.match(page, /if \(color !== null\) {[\s\S]{0,60}this\.selectionInkColor = color;[\s\S]{0,180}if \(style !== null\) {[\s\S]{0,50}this\.selectionInkStyle = style;/);
 
 assert.match(toolbar, /@Prop selectionStyle: BrushStyle = BrushStyle\.MONO;/);
 assert.match(toolbar, /\.backgroundColor\(this\.selectionStyle === style \? this\.resolveTokens\(\)\.accent :/);

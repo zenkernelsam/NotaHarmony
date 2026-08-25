@@ -1070,15 +1070,21 @@ struct NotePage {
           onHistoryBridgeReady: (bridge: EditorHistoryBridge) => {
             this.historyBridge = bridge;
           },
-          onSelectionInkControlsChanged: (color: number, width: number,
+          onSelectionInkControlsChanged: (color: number | null, width: number | null,
             minimum: number, maximum: number, variableStyleEnabled: boolean,
-            style: InkStyle) => {
-            this.selectionInkColor = color;
-            this.selectionInkWidth = width;
+            style: InkStyle | null) => {
             this.selectionWidthMinimum = minimum;
             this.selectionWidthMaximum = maximum;
             this.selectionVariableStyleEnabled = variableStyleEnabled;
-            this.selectionInkStyle = style;
+            if (color !== null) {
+              this.selectionInkColor = color;
+            }
+            if (width !== null) {
+              this.selectionInkWidth = width;
+            }
+            if (style !== null) {
+              this.selectionInkStyle = style;
+            }
           },
           onApplyPageHistory: async (action: UndoableAction, isUndo: boolean,
             history: HistoryMetadata): Promise<boolean> => this.applyPageHistory(action, isUndo, history),
