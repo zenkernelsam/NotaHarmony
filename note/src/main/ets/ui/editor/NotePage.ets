@@ -102,6 +102,7 @@ struct NotePage {
   @State canRedo: boolean = false;
   @State pageOperationBusy: boolean = false;
   @State pageLoading: boolean = false;
+  @State historyPending: boolean = false;
   @State pageLoadFailed: boolean = false;
   @State noteTitle: string = '';          // T-036：标题
   @State editingTitle: boolean = false;   // T-036：标题编辑态
@@ -1062,10 +1063,14 @@ struct NotePage {
             for (let i: number = 0; i < this.pages.length; i++) {
               if (this.pages[i].pageId === pageId) {
                 this.currentPageIndex = i;
+                this.historyPending = true;
                 return;
               }
             }
             hilog.error(0x0001, 'NotePage', 'history requested missing page %{public}s', pageId);
+          },
+          onPageHistorySettled: (pending: boolean) => {
+            this.historyPending = pending;
           },
           onHistoryBridgeReady: (bridge: EditorHistoryBridge) => {
             this.historyBridge = bridge;
@@ -1120,13 +1125,14 @@ struct NotePage {
           noteBackground: this.noteBackground,
           busy: this.pageOperationBusy,
           onPrev: () => {
-            if (!this.pageLoading && !this.pageOperationBusy && this.currentPageIndex > 0) {
+            if (!this.pageLoading && !this.pageOperationBusy && !this.historyPending &&
+              this.currentPageIndex > 0) {
               this.currentPageIndex--;
             }
           },
           onNext: () => {
             if (!this.pageLoading && !this.pageOperationBusy &&
-              this.currentPageIndex < this.pages.length - 1) {
+              !this.historyPending && this.currentPageIndex < this.pages.length - 1) {
               this.currentPageIndex++;
             }
           },

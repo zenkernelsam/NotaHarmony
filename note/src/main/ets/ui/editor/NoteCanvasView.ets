@@ -255,6 +255,8 @@ export struct NoteCanvasView {
     (_color: number | null, _width: number | null, _minimum: number,
       _maximum: number, _variableStyleEnabled: boolean,
       _style: InkStyle | null): void => {
+    };
+  onPageHistorySettled: (pending: boolean) => void = () => {
   };
   onApplyPageHistory: (action: UndoableAction, isUndo: boolean,
     history: HistoryMetadata) => Promise<boolean> =
@@ -2670,6 +2672,7 @@ export struct NoteCanvasView {
       }
       if (action.pageId !== this.loadedPageId) {
         this.pendingHistoryDirection = isUndo ? -1 : 1;
+        this.onPageHistorySettled(true);
         this.onRequestPage(action.pageId);
         return;
       }
@@ -2710,6 +2713,7 @@ export struct NoteCanvasView {
       }
       if (action.pageId !== this.loadedPageId) {
         this.pendingHistoryDirection = isUndo ? -1 : 1;
+        this.onPageHistorySettled(true);
         this.onRequestPage(action.pageId);
         return;
       }
@@ -2735,6 +2739,7 @@ export struct NoteCanvasView {
       }
       if (action.pageId !== this.loadedPageId) {
         this.pendingHistoryDirection = isUndo ? -1 : 1;
+        this.onPageHistorySettled(true);
         this.onRequestPage(action.pageId);
         return;
       }
@@ -2764,6 +2769,7 @@ export struct NoteCanvasView {
       }
       if (action.pageId !== this.loadedPageId) {
         this.pendingHistoryDirection = isUndo ? -1 : 1;
+        this.onPageHistorySettled(true);
         this.onRequestPage(action.pageId);
         return;
       }
@@ -2793,6 +2799,7 @@ export struct NoteCanvasView {
       }
       if (action.pageId !== this.loadedPageId) {
         this.pendingHistoryDirection = isUndo ? -1 : 1;
+        this.onPageHistorySettled(true);
         this.onRequestPage(action.pageId);
         return;
       }
@@ -2815,6 +2822,7 @@ export struct NoteCanvasView {
     }
     if (action.pageId !== this.loadedPageId) {
       this.pendingHistoryDirection = isUndo ? -1 : 1;
+      this.onPageHistorySettled(true);
       this.onRequestPage(action.pageId);
       return;
     }
@@ -3241,6 +3249,7 @@ export struct NoteCanvasView {
     }
     const isUndo: boolean = this.pendingHistoryDirection < 0;
     this.pendingHistoryDirection = 0;
+    this.onPageHistorySettled(false);
     this.performHistory(isUndo);
   }
 
