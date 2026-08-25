@@ -212,6 +212,15 @@ interface PhotoInsertOutcome {
   totalCount: number;
 }
 
+interface OriginalPhotoInsertOrigin {
+  generation: number;
+  pageId: string;
+  pageWidth: number;
+  pageHeight: number;
+  zoom: number;
+  center: Point2D;
+}
+
 @Component
 export struct NoteCanvasView {
   // === 外部输入 ===
@@ -5515,15 +5524,32 @@ export struct NoteCanvasView {
       pageId === this.loadedPageId;
   }
 
+  private getOriginalPhotoInsertOrigin(pasteAnchor?: Point2D): OriginalPhotoInsertOrigin {
+    const center: Point2D = pasteAnchor === undefined ?
+      this.viewport.screenToCanvas(this.canvasCtx.width / 2, this.canvasCtx.height / 2) :
+      { x: pasteAnchor.x, y: pasteAnchor.y };
+    if (!Number.isFinite(center.x) || !Number.isFinite(center.y)) {
+      throw new Error('original photo insert origin anchor is invalid');
+    }
+    return {
+      generation: this.pageLoadGeneration,
+      pageId: this.loadedPageId,
+      pageWidth: this.getPaperWidth(),
+      pageHeight: this.getPaperHeight(),
+      zoom: this.viewport.zoom,
+      center,
+    };
+  }
+
   private async startOriginalPhotoInsert(): Promise<void> {
     if (!this.canStartOriginalPhotoInsert()) {
       return;
     }
     const context = getContext(this) as common.UIAbilityContext;
-    const photoGeneration: number = this.pageLoadGeneration;
-    const photoPageId: string = this.loadedPageId;
+    let origin: OriginalPhotoInsertOrigin | null = null;
     this.photoImportBusy = true;
     try {
+      origin = this.getOriginalPhotoInsertOrigin();
       const imported: OriginalPhotoIngressItem[] = await pickAndImportOriginalPhotos({
         context: context,
         cacheDirectory: context.cacheDir,
@@ -5531,8 +5557,12 @@ export struct NoteCanvasView {
       if (imported.length === 0) {
         return;
       }
-      const outcome: PhotoInsertOutcome = await this.commitOriginalPhotoInsert(imported);
-      if (this.isPhotoContextCurrent(photoGeneration, photoPageId) &&
+      if (!this.isPhotoContextCurrent(origin.generation, origin.pageId)) {
+        return;
+      }
+      const outcome: PhotoInsertOutcome =
+        await this.commitOriginalPhotoInsert(imported, origin);
+      if (this.isPhotoContextCurrent(origin.generation, origin.pageId) &&
         outcome.insertedCount < outcome.totalCount) {
         promptAction.showToast({
           message: $r('app.string.original_photo_insert_partial_failed'),
@@ -5542,7 +5572,7 @@ export struct NoteCanvasView {
     } catch (e) {
       hilog.error(0x0001, 'NoteCanvasView', 'original photo insert failed: %{public}s',
         JSON.stringify(e));
-      if (this.isPhotoContextCurrent(photoGeneration, photoPageId)) {
+      if (origin !== null && this.isPhotoContextCurrent(origin.generation, origin.pageId)) {
         promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),
           duration: 3000 });
       }
@@ -5557,6 +5587,11 @@ export struct NoteCanvasView {
     }
     const pasteGeneration: number = this.pageLoadGeneration;
     const pastePageId: string = this.loadedPageId;
+    const pasteOrigin: OriginalPhotoInsertOrigin = this.getOriginalPhotoInsertOrigin(
+      this.clipboardPasteTarget === null ? undefined : {
+        x: this.clipboardPasteTarget.x,
+        y: this.clipboardPasteTarget.y,
+      });
     this.photoImportBusy = true;
     try {
       if (!await isOriginalClipboardImageAvailable()) {
@@ -5579,12 +5614,6 @@ export struct NoteCanvasView {
       if (normalized.bytes.byteLength <= 0) {
         throw new Error('original clipboard image bytes are empty');
       }
-      const target: Point2D = this.clipboardPasteTarget === null ?
-        this.viewport.screenToCanvas(this.canvasCtx.width / 2, this.canvasCtx.height / 2) :
-        { x: this.clipboardPasteTarget.x, y: this.clipboardPasteTarget.y };
-      if (!Number.isFinite(target.x) || !Number.isFinite(target.y)) {
-        throw new Error('original clipboard image paste anchor is invalid');
-      }
       const outcome: PhotoInsertOutcome = await this.insertOriginalPhotos([{
         bytes: normalized.bytes,
         fileName: `clipboard-${Date.now()}.webp`,
@@ -5594,7 +5623,7 @@ export struct NoteCanvasView {
         encodedHeight: normalized.height,
         orientedWidth: normalized.width,
         orientedHeight: normalized.height,
-      }], target);
+      }], pasteOrigin);
       const available: boolean = await isOriginalClipboardImageAvailable();
       if (this.isPhotoContextCurrent(pasteGeneration, pastePageId)) {
         this.systemClipboardImageAvailable = available && outcome.insertedCount > 0;
@@ -5672,21 +5701,20 @@ export struct NoteCanvasView {
   }
 
   private async commitOriginalPhotoInsert(
-    imported: OriginalPhotoIngressItem[]): Promise<PhotoInsertOutcome> {
-    return this.insertOriginalPhotos(imported);
+    imported: OriginalPhotoIngressItem[],
+    origin: OriginalPhotoInsertOrigin): Promise<PhotoInsertOutcome> {
+    return this.insertOriginalPhotos(imported, origin);
   }
 
   private async insertOriginalPhotos(
     imported: OriginalPhotoIngressItem[],
-    pasteAnchor?: Point2D): Promise<PhotoInsertOutcome> {
-    const pageId: string = this.loadedPageId;
-    const generation: number = this.pageLoadGeneration;
-    const pageWidth: number = this.getPaperWidth();
-    const pageHeight: number = this.getPaperHeight();
-    const zoom: number = this.viewport.zoom;
-    const center: Point2D = pasteAnchor === undefined ? this.viewport.screenToCanvas(
-      this.canvasCtx.width / 2, this.canvasCtx.height / 2) :
-      { x: pasteAnchor.x, y: pasteAnchor.y };
+    origin: OriginalPhotoInsertOrigin): Promise<PhotoInsertOutcome> {
+    const pageId: string = origin.pageId;
+    const generation: number = origin.generation;
+    const pageWidth: number = origin.pageWidth;
+    const pageHeight: number = origin.pageHeight;
+    const zoom: number = origin.zoom;
+    const center: Point2D = origin.center;
     const plans: OriginalImageInsertPersistencePlan[] = imported.map(
       (item: OriginalPhotoIngressItem, index: number): OriginalImageInsertPersistencePlan => ({
         bytes: item.bytes,
@@ -5782,6 +5810,11 @@ export struct NoteCanvasView {
         hilog.error(0x0001, 'NoteCanvasView',
           'original photo insert committed after stale page; durable history remains available');
         return { insertedCount: results.length, totalCount: plans.length };
+      }
+      if (!this.isPhotoContextCurrent(generation, pageId)) {
+        hilog.error(0x0001, 'NoteCanvasView',
+          'original photo insert skipped after stale source page');
+        return { insertedCount: 0, totalCount: plans.length };
       }
       this.undoRedo.push(action, prepared);
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();

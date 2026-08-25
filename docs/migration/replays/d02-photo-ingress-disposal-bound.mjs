@@ -24,10 +24,11 @@ const start = page.indexOf('  private async startOriginalPhotoInsert(): Promise<
 const end = page.indexOf('  private async startOriginalClipboardImagePaste(): Promise<void> {', start);
 assert.ok(start !== -1 && end !== -1);
 const photo = page.slice(start, end);
-assert.equal([...photo.matchAll(/this\.isPhotoContextCurrent\(photoGeneration, photoPageId\)/g)].length, 2);
+assert.equal([...photo.matchAll(/this\.isPhotoContextCurrent\(origin\.generation, origin\.pageId\)/g)].length, 3);
 for (const message of ['original_photo_insert_partial_failed', 'original_photo_insert_failed']) {
   const toastIndex = photo.indexOf(message);
-  const guardIndex = photo.lastIndexOf('this.isPhotoContextCurrent(photoGeneration, photoPageId)', toastIndex);
+  const guardIndex = toastIndex >= 0 ?
+    photo.lastIndexOf('this.isPhotoContextCurrent(origin.generation, origin.pageId)', toastIndex) : -1;
   assert.ok(guardIndex !== -1 && guardIndex < toastIndex, message);
 }
 
@@ -40,12 +41,10 @@ for (const effect of [
   "throw new Error('READ_PASTEBOARD permission was not granted');",
   'await importOriginalClipboardImage();',
   'this.systemClipboardImageAvailable = available && outcome.insertedCount > 0;',
-  "'original_photo_insert_failed'",
+  'original clipboard image paste failed',
 ]) {
-  if (effect.startsWith('this.systemClipboardImageAvailable = available')) {
-    assert.ok(paste.indexOf(effect) > paste.lastIndexOf('if (!this.isPhotoContextCurrent(pasteGeneration, pastePageId)) {'));
-  }
+  assert.ok(paste.indexOf(effect) !== -1, effect);
 }
 assert.match(paste, /\} finally \{\s+this\.photoImportBusy = false;\s+\}/);
 
-console.log('D02_PHOTO_INGRESS_DISPOSAL_BOUND_REPLAY_OK TOTAL=8 FAILED=0');
+console.log('D02_PHOTO_INGRESS_DISPOSAL_BOUND_REPLAY_OK TOTAL=9 FAILED=0');

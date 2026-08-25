@@ -17,22 +17,26 @@ const nextMethod = canvas.indexOf('private async confirmMathInsert', insert);
 const startSource = canvas.slice(start, commit);
 const commitSource = canvas.slice(commit, insert);
 const insertSource = canvas.slice(insert, nextMethod);
+const originStart = canvas.indexOf('private getOriginalPhotoInsertOrigin');
+const originSource = canvas.slice(originStart, start);
 
 const checks = [
   ['start path receives an explicit success-prefix count',
-    commitSource.includes('return this.insertOriginalPhotos(imported);') &&
-    startSource.includes('const outcome: PhotoInsertOutcome = await this.commitOriginalPhotoInsert(imported);')],
+    commitSource.includes('origin: OriginalPhotoInsertOrigin): Promise<PhotoInsertOutcome> {') &&
+    commitSource.includes('return this.insertOriginalPhotos(imported, origin);') &&
+    startSource.includes('await this.commitOriginalPhotoInsert(imported, origin);')],
   ['partial failure shows explicit feedback without save-failure state',
     startSource.includes("message: $r('app.string.original_photo_insert_partial_failed')") &&
     insertSource.includes('partialFailure = true;') &&
     insertSource.includes('!partialFailure) {') &&
     insertSource.includes('this.saveFailed = false;')],
   ['photo feedback toasts stay bound to the originating page',
-    startSource.includes('const photoGeneration: number = this.pageLoadGeneration;') &&
-    startSource.includes('const photoPageId: string = this.loadedPageId;') &&
-    startSource.indexOf('photoGeneration === this.pageLoadGeneration &&\n        photoPageId === this.loadedPageId &&\n        outcome.insertedCount < outcome.totalCount') <
+    originSource.includes('generation: this.pageLoadGeneration,') &&
+    originSource.includes('pageId: this.loadedPageId,') &&
+    startSource.includes('origin = this.getOriginalPhotoInsertOrigin();') &&
+    startSource.indexOf('this.isPhotoContextCurrent(origin.generation, origin.pageId) &&\n        outcome.insertedCount < outcome.totalCount') <
       startSource.indexOf("$r('app.string.original_photo_insert_partial_failed')") &&
-    startSource.lastIndexOf('if (photoGeneration === this.pageLoadGeneration &&\n        photoPageId === this.loadedPageId) {') <
+    startSource.lastIndexOf('if (origin !== null && this.isPhotoContextCurrent(origin.generation, origin.pageId)) {') <
       startSource.indexOf("$r('app.string.original_photo_insert_failed')")],
   ['successful prefix cannot clear a foreign page save state',
     insertSource.includes('if (this.isHistoryPageContextCurrent(generation, pageId) && !partialFailure) {') &&

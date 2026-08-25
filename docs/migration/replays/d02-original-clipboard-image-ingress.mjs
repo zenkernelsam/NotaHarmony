@@ -119,12 +119,13 @@ const checks = [
       pasteSource.lastIndexOf('if (!this.isPhotoContextCurrent(pasteGeneration, pastePageId)) {')],
   ['paste completion resynchronizes cached clipboard availability',
     pasteSource.includes('const outcome: PhotoInsertOutcome = await this.insertOriginalPhotos([{') &&
-    pasteSource.includes('}], target);') &&
+    pasteSource.includes('}], pasteOrigin);') &&
     pasteSource.includes('this.systemClipboardImageAvailable = available && outcome.insertedCount > 0;')],
   ['paste uses the long press anchor for durable insertion',
     pasteSource.includes('await this.insertOriginalPhotos([{') &&
-    pasteSource.includes('}], target);') &&
-    canvas.includes('pasteAnchor?: Point2D')],
+    pasteSource.includes('}], pasteOrigin);') &&
+    canvas.includes('private getOriginalPhotoInsertOrigin(pasteAnchor?: Point2D)') &&
+    pasteSource.includes('const pasteOrigin: OriginalPhotoInsertOrigin = this.getOriginalPhotoInsertOrigin(')],
   ['page switches discard the previous long press anchor',
     canvas.includes('this.loadedPageId = targetPageId;') &&
     canvas.includes('this.clipboardPasteTarget = null;\n      this.systemClipboardImageAvailable = false;')],
