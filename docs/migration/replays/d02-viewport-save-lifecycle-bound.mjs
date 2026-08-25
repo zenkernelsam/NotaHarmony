@@ -20,8 +20,8 @@ assert.match(schedule,
 
 const save = canvas.slice(saveStart, saveEnd);
 assert.match(save,
-  /private async saveViewportState\(requestedGeneration: number,\s+allowDisposedFinalSave: boolean = false\): Promise<void> \{\s+if \(!this\.lifecycleActive && !allowDisposedFinalSave \|\|\s+requestedGeneration !== this\.pageLoadGeneration\) \{\s+return;\s+\}\s+try \{/,
-  'write requires active lifecycle and same generation');
+  /private async saveViewportState\(requestedGeneration: number,\s+allowDisposedFinalSave: boolean = false\): Promise<void> \{\s+if \(!this\.lifecycleActive && !allowDisposedFinalSave \|\|\s+!allowDisposedFinalSave && \(this\.photoImportBusy \|\| this\.historyBusy\) \|\|\s+requestedGeneration !== this\.pageLoadGeneration\) \{\s+return;\s+\}\s+try \{/,
+  'ordinary write requires active lifecycle, no mutation lease, and same generation; disposed final save remains exempt');
 
 const dbInit = save.indexOf('await db.initialize(context);');
 const write = save.indexOf('await noteRepo.saveViewState(');

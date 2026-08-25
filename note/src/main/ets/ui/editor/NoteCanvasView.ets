@@ -1517,7 +1517,8 @@ export struct NoteCanvasView {
 
   private schedulePdfRasterRefresh(delayMs: number = PDF_RASTER_REFRESH_DELAY_MS): void {
     this.cancelPdfRasterRefresh();
-    if (!this.lifecycleActive || !this.loaded || this.loadedPageId.length === 0) {
+    if (!this.lifecycleActive || this.photoImportBusy || this.historyBusy ||
+      !this.loaded || this.loadedPageId.length === 0) {
       return;
     }
     this.pdfRasterRefreshTimer = setTimeout((): void => {
@@ -1621,6 +1622,7 @@ export struct NoteCanvasView {
   private async saveViewportState(requestedGeneration: number,
     allowDisposedFinalSave: boolean = false): Promise<void> {
     if (!this.lifecycleActive && !allowDisposedFinalSave ||
+      !allowDisposedFinalSave && (this.photoImportBusy || this.historyBusy) ||
       requestedGeneration !== this.pageLoadGeneration) {
       return;
     }
@@ -7712,10 +7714,16 @@ export struct NoteCanvasView {
                 })
                 .onActionEnd(() => {
                   this.gestureTracker.resetScale();
+                  if (this.photoImportBusy) {
+                    return;
+                  }
                   this.schedulePdfRasterRefresh(0);
                 })
                 .onActionCancel(() => {
                   this.gestureTracker.resetScale();
+                  if (this.photoImportBusy) {
+                    return;
+                  }
                   this.schedulePdfRasterRefresh(0);
                 }),
               PanGesture({ fingers: 2 })
@@ -7728,10 +7736,16 @@ export struct NoteCanvasView {
                 })
                 .onActionEnd(() => {
                   this.gestureTracker.resetPan();
+                  if (this.photoImportBusy) {
+                    return;
+                  }
                   this.schedulePdfRasterRefresh(0);
                 })
                 .onActionCancel(() => {
                   this.gestureTracker.resetPan();
+                  if (this.photoImportBusy) {
+                    return;
+                  }
                   this.schedulePdfRasterRefresh(0);
                 }),
             ),
