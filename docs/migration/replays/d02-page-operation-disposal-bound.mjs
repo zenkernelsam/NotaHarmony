@@ -45,22 +45,36 @@ assert.ok(addPublishIndex > 0 && add.indexOf('this.currentPageIndex = updated.le
   'new-page selection uses the published list length');
 
 const remove = section('  private async deleteCurrentPage(', '  private async moveCurrentPage(');
-const flushAwait = remove.indexOf('await this.historyBridge.flushCurrentPage()');
+const flushAwait = remove.indexOf('await historyBridge.flushCurrentPage()');
+const bridgeCapture = remove.indexOf(
+  'const historyBridge: EditorHistoryBridge = this.historyBridge;',
+  0,
+);
 const identityGate = remove.indexOf(
   "if (this.pages[this.currentPageIndex]?.pageId !== pageId) {",
   flushAwait,
 );
 const snapshotIndex = remove.indexOf(
-  'const snapshot: PageContentSnapshot = this.historyBridge.captureCurrentPage();',
+  'const snapshot: PageContentSnapshot = historyBridge.captureCurrentPage();',
   identityGate,
 );
-assert.ok(flushAwait >= 0 && identityGate > flushAwait && snapshotIndex > identityGate,
+assert.ok(bridgeCapture >= 0 && flushAwait >= 0 && identityGate > flushAwait &&
+  snapshotIndex > identityGate,
   'delete snapshots only if flush did not switch to another page');
-const removeAwait = remove.indexOf('await this.pageRepo.deletePageWithCheckpoint(');
-const removeGuard = remove.indexOf(guard, removeAwait);
+const removeAwait = remove.indexOf(
+  'const pageRepository: PageRepositoryImpl | null = this.pageRepo;',
+);
+const durableRepositoryGuard = remove.indexOf(
+  'if (pageRepository === null) {',
+  removeAwait,
+);
+const durableCall = remove.indexOf('deletePageWithCheckpoint(this.noteId, pageId, history)', removeAwait);
+const removeGuard = remove.indexOf(guard, durableCall);
 assert.ok(removeAwait !== -1 && removeGuard > removeAwait &&
+  durableCall > durableRepositoryGuard &&
   removeGuard < remove.indexOf('const updated: PageInfo[] = [];', removeAwait));
-assert.match(remove, /catch \(e\) \{\s+this\.historyBridge\.cancelPageRemoval\(pageId\);/);
+assert.ok(durableRepositoryGuard > removeAwait, 'durable delete rechecks the captured repository');
+assert.match(remove, /catch \(e\) \{\s+historyBridge\.cancelPageRemoval\(pageId\);/);
 const publishIndex = remove.indexOf('this.pages = updated;');
 assert.ok(remove.indexOf("selectedAfter: string = orderAfter[") >= 0 && publishIndex > 0);
 assert.match(remove.slice(publishIndex),

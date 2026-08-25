@@ -101,6 +101,7 @@ struct NotePage {
   @State canUndo: boolean = false;
   @State canRedo: boolean = false;
   @State pageOperationBusy: boolean = false;
+  private pageRemovalLeaseActive: boolean = false;
   @State pageLoading: boolean = false;
   @State historyPending: boolean = false;
   @State pageLoadFailed: boolean = false;
@@ -954,10 +955,14 @@ struct NotePage {
           canUndo: this.canUndo,
           canRedo: this.canRedo,
           onUndo: () => {
-            this.undoSignal++;
+            if (!this.pageRemovalLeaseActive) {
+              this.undoSignal++;
+            }
           },
           onRedo: () => {
-            this.redoSignal++;
+            if (!this.pageRemovalLeaseActive) {
+              this.redoSignal++;
+            }
           },
           onInsertMath: () => {
             this.mathInsertSignal++;
@@ -1126,13 +1131,15 @@ struct NotePage {
           busy: this.pageOperationBusy,
           onPrev: () => {
             if (!this.pageLoading && !this.pageOperationBusy && !this.historyPending &&
+              !this.pageRemovalLeaseActive &&
               this.currentPageIndex > 0) {
               this.currentPageIndex--;
             }
           },
           onNext: () => {
             if (!this.pageLoading && !this.pageOperationBusy &&
-              !this.historyPending && this.currentPageIndex < this.pages.length - 1) {
+              !this.historyPending && !this.pageRemovalLeaseActive &&
+              this.currentPageIndex < this.pages.length - 1) {
               this.currentPageIndex++;
             }
           },
@@ -1280,19 +1287,28 @@ struct NotePage {
     if (this.pageRepo === null || this.pages.length <= 1 || this.historyBridge === null) {
       return;
     }
+    const historyBridge: EditorHistoryBridge = this.historyBridge;
+    try {
+      await this.deleteCurrentPageLocked(historyBridge);
+    } finally {
+      this.pageRemovalLeaseActive = false;
+    }
+  }
+
+  private async deleteCurrentPageLocked(historyBridge: EditorHistoryBridge): Promise<void> {
     const deletedPage: PageInfo = this.clonePage(this.pages[this.currentPageIndex]);
     const pageId: string = deletedPage.pageId;
     const orderBefore: string[] = this.pageIds(this.pages);
     const orderAfter: string[] = orderBefore.filter((id: string): boolean => id !== pageId);
     const selectedBefore: string = pageId;
     const selectedAfter: string = orderAfter[Math.min(this.currentPageIndex, orderAfter.length - 1)];
-    if (!await this.historyBridge.flushCurrentPage()) {
+    if (!await historyBridge.flushCurrentPage()) {
       throw new Error('deleteCurrentPage could not flush the current page');
     }
     if (this.pages[this.currentPageIndex]?.pageId !== pageId) {
       return;
     }
-    const snapshot: PageContentSnapshot = this.historyBridge.captureCurrentPage();
+    const snapshot: PageContentSnapshot = historyBridge.captureCurrentPage();
     const action: DeletePageAction = {
       type: UndoableActionType.DELETE_PAGE,
       noteId: this.noteId,
@@ -1309,12 +1325,16 @@ struct NotePage {
       selectedPageIdBefore: selectedBefore,
       selectedPageIdAfter: selectedAfter,
     };
-    const history: HistoryMetadata = this.historyBridge.preparePageAction(action);
-    this.historyBridge.preparePageRemoval(pageId);
+    const history: HistoryMetadata = historyBridge.preparePageAction(action);
+    historyBridge.preparePageRemoval(pageId);
     try {
-      await this.pageRepo.deletePageWithCheckpoint(this.noteId, pageId, history);
+      const pageRepository: PageRepositoryImpl | null = this.pageRepo;
+      if (pageRepository === null) {
+        return;
+      }
+      await pageRepository.deletePageWithCheckpoint(this.noteId, pageId, history);
     } catch (e) {
-      this.historyBridge.cancelPageRemoval(pageId);
+      historyBridge.cancelPageRemoval(pageId);
       throw new Error(`deleteCurrentPage failed: ${JSON.stringify(e)}`);
     }
     if (this.editorDisposed) {
@@ -1328,7 +1348,7 @@ struct NotePage {
     }
     this.pages = updated;
     this.selectPageById(selectedAfter);
-    this.historyBridge.pushPageAction(action, history);
+    historyBridge.pushPageAction(action, history);
   }
 
   private async moveCurrentPage(delta: number): Promise<void> {
