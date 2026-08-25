@@ -1124,15 +1124,27 @@ export struct NoteCanvasView {
   }
 
   onSelectionStyleSignalChange(_propName: string): void {
-    this.modifySelectedInkStyle(this.selectionInkStyle);
+    if (!this.photoImportBusy && !this.historyBusy && !this.dataLoading &&
+      !this.dataLoadFailed && this.loaded &&
+      this.loadedPageId === this.currentPage.pageId) {
+      this.modifySelectedInkStyle(this.selectionInkStyle);
+    }
   }
 
   onSelectionColorSignalChange(_propName: string): void {
-    this.modifySelectedInkColor(this.selectionInkColor);
+    if (!this.photoImportBusy && !this.historyBusy && !this.dataLoading &&
+      !this.dataLoadFailed && this.loaded &&
+      this.loadedPageId === this.currentPage.pageId) {
+      this.modifySelectedInkColor(this.selectionInkColor);
+    }
   }
 
   onSelectionWidthSignalChange(_propName: string): void {
-    this.modifySelectedInkWidth(this.selectionInkWidth);
+    if (!this.photoImportBusy && !this.historyBusy && !this.dataLoading &&
+      !this.dataLoadFailed && this.loaded &&
+      this.loadedPageId === this.currentPage.pageId) {
+      this.modifySelectedInkWidth(this.selectionInkWidth);
+    }
   }
 
   private async ensurePencilTexture(): Promise<void> {

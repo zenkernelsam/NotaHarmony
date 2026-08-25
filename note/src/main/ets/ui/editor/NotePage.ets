@@ -993,6 +993,10 @@ struct NotePage {
             this.photoInsertSignal++;
           },
           onSelectionStyle: (style: BrushStyle) => {
+            if (this.photoImportLeaseActive || this.pageOperationBusy ||
+              this.historyPending || this.pageStructureLeaseActive) {
+              return;
+            }
             this.selectionInkStyle = brushStyleToInkStyle(style);
             this.selectionStyleSignal++;
           },
@@ -1003,10 +1007,18 @@ struct NotePage {
           selectionVariableStyleEnabled: this.selectionVariableStyleEnabled,
           selectionStyle: inkStyleToBrushStyle(this.selectionInkStyle),
           onSelectionColor: (color: number) => {
+            if (this.photoImportLeaseActive || this.pageOperationBusy ||
+              this.historyPending || this.pageStructureLeaseActive) {
+              return;
+            }
             this.selectionInkColor = color;
             this.selectionColorSignal++;
           },
           onSelectionWidth: (width: number) => {
+            if (this.photoImportLeaseActive || this.pageOperationBusy ||
+              this.historyPending || this.pageStructureLeaseActive) {
+              return;
+            }
             this.selectionInkWidth = width;
             this.selectionWidthSignal++;
           },
