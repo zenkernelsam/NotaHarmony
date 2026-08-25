@@ -34,6 +34,9 @@ assert.match(body('  private async seekRecordingTimeline(', '  private changeRec
   /await this\.recordingController\.load\(recording, resumePlayback, location\.localPositionMs\);\s+if \(this\.editorDisposed\) \{\s+return;\s+\}/);
 
 assert.match(body('  private async commitRecordingDeletes(', '  private onRecordingAssetAvailabilityChanged('),
-  /await this\.loadRecordings\(\);\s+if \(this\.editorDisposed\) \{\s+return;\s+\}\s+this\.pendingRecordingDeleteIds = \[\];/);
+  /await this\.loadRecordings\(\);\s+if \(this\.editorDisposed\) \{\s+return;\s+\}/);
+
+const commitBody = body('  private async commitRecordingDeletes(', '  private onRecordingAssetAvailabilityChanged(');
+assert.ok(!commitBody.includes('this.pendingRecordingDeleteIds'));
 
 console.log('D02_RECORDING_FOLLOWUP_DISPOSAL_BOUND_REPLAY_OK TOTAL=9 FAILED=0');

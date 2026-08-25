@@ -883,7 +883,6 @@ struct NotePage {
     if (this.editorDisposed) {
       return;
     }
-    this.pendingRecordingDeleteIds = [];
   }
 
   private onRecordingAssetAvailabilityChanged(change: AssetAvailabilityChange): void {
