@@ -401,6 +401,9 @@ struct NotePage {
       this.publishTitleDraft(requested, generation);
       return;
     }
+    if (this.pageRemovalLeaseActive) {
+      return;
+    }
     try {
       if (this.noteRepo === null) {
         throw new Error('note repository is unavailable');

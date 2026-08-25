@@ -11,6 +11,16 @@ const end = page.indexOf('\n  private publishTitleDraft', start);
 assert.ok(start !== -1 && end > start);
 const body = page.slice(start, end);
 
+const unchangedPublish = body.indexOf('this.publishTitleDraft(requested, generation);');
+const removalGate = body.indexOf('if (this.pageRemovalLeaseActive) {');
+const removalReturn = body.indexOf('return;', removalGate);
+const titleRepository = body.indexOf('if (this.noteRepo === null) {', removalGate);
+assert.ok(unchangedPublish >= 0);
+assert.ok(
+  removalGate > unchangedPublish && removalReturn > removalGate && titleRepository > removalReturn,
+  'a queued title commit cannot mutate the selected page while a deletion lease is active',
+);
+
 const titleAwait = body.indexOf('await this.noteRepo.updateNoteTitle(');
 const disposedGate = body.indexOf('if (this.editorDisposed) {', titleAwait);
 const identityGate = body.indexOf(
@@ -28,4 +38,4 @@ assert.ok(stalePublish > identityGate && staleAction > stalePublish,
 assert.ok(normalPublish < historyPush,
   'accepted title continuation publishes before undo history');
 
-console.log('D02_TITLE_COMMIT_CONTEXT_BOUND_REPLAY_OK TOTAL=4 FAILED=0');
+console.log('D02_TITLE_COMMIT_CONTEXT_BOUND_REPLAY_OK TOTAL=5 FAILED=0');
