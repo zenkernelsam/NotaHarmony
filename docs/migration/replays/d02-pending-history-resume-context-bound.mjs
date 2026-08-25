@@ -11,12 +11,29 @@ const switchBody = canvas.slice(switchStart, resumeStart);
 
 const failureBranch = switchBody.indexOf('if (previousPageSaved) {');
 const recoveryRequest = switchBody.indexOf('this.onRequestPage(fromPageId);', failureBranch);
-const recoveryGate = switchBody.lastIndexOf(
-  'if (fromPageId !== this.currentPage.pageId) {',
+const recoveryLeaseRelease = switchBody.lastIndexOf(
+  'this.onPageHistorySettled(false);',
   recoveryRequest,
 );
-assert.ok(failureBranch >= 0 && recoveryGate > failureBranch && recoveryRequest > recoveryGate,
-  'page-switch recovery requests the source page only when selection actually changed');
+const recoveryDirectionDrop = switchBody.lastIndexOf(
+  'this.pendingHistoryDirection = 0;',
+  recoveryLeaseRelease,
+);
+const recoveryGate = switchBody.lastIndexOf(
+  'if (fromPageId !== this.currentPage.pageId) {',
+  recoveryDirectionDrop,
+);
+assert.ok(failureBranch >= 0 && recoveryGate > failureBranch &&
+    recoveryDirectionDrop > recoveryGate && recoveryLeaseRelease > recoveryDirectionDrop &&
+    recoveryRequest > recoveryLeaseRelease,
+  'page-switch recovery drops pending history and releases the parent lease before requesting source selection');
+
+const terminalFailureSettle = switchBody.indexOf(
+  'this.onPageHistorySettled(false);',
+  recoveryRequest,
+);
+assert.ok(terminalFailureSettle > recoveryRequest,
+  'the residual-direction guard remains after source-page recovery for non-history failures');
 
 const start = canvas.indexOf('  private resumePendingHistory(): void {');
 const end = canvas.indexOf('  private isPageAction(', start);

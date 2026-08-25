@@ -1043,6 +1043,10 @@ export struct NoteCanvasView {
           this.refreshPdfBackground(generation, fromPageId);
           this.refreshPaperTexture(generation, fromPageId);
           if (fromPageId !== this.currentPage.pageId) {
+            if (this.pendingHistoryDirection !== 0) {
+              this.pendingHistoryDirection = 0;
+              this.onPageHistorySettled(false);
+            }
             this.onRequestPage(fromPageId);
           }
         } else {
