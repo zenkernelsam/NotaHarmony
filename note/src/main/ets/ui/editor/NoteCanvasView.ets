@@ -4761,6 +4761,12 @@ export struct NoteCanvasView {
 
   private updateSelectionOverlay(): void {
     const state = this.selectionTool.getState();
+    if (state.selectedStrokeIds.length === 0 && state.selectedShapeIds.length === 0 &&
+      state.selectedTextBlockIds.length === 0 && state.selectedImageIds.length === 0 &&
+      state.selectedMathIds.length === 0 && state.selectedGroupIds.length === 0) {
+      this.selectionVisible = false;
+      return;
+    }
     let selectedColor: number | null = null;
     let selectedWidth: number | null = null;
     let selectedMinimum: number = 0.5;
@@ -5841,6 +5847,7 @@ export struct NoteCanvasView {
         this.synchronizeElementArraysByOrder();
         this.selectionTool.selectElementIds([], [], [], finalImages.map(
           (image: ImageElement): string => image.id), [], []);
+        this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
         this.updateSelectionOverlay();
         this.renderFrame();
       }
@@ -5933,6 +5940,7 @@ export struct NoteCanvasView {
         this.elementOrder = clonePageElementOrder(result.elementOrder);
         this.synchronizeElementArraysByOrder();
         this.selectionTool.selectElementIds([], [], [], [], [], [result.math.id]);
+        this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
         this.updateSelectionOverlay();
         this.renderFrame();
         this.notifyUndoRedo();
@@ -5994,6 +6002,7 @@ export struct NoteCanvasView {
           const created: OriginalSelectionGroup = result.mutation.afterGroups[0];
           this.selectionTool.selectElementIds(
             strokeIds, shapeIds, textIds, imageIds, [created.id], mathIds);
+          this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
           this.originalInkIneligiblePages.delete(pageId);
           this.layerManager.rebuildFromStrokes(
             this.completedStrokes, this.renderCtx, this.viewport.zoom);
@@ -6052,6 +6061,7 @@ export struct NoteCanvasView {
           this.synchronizeElementArraysByOrder();
           this.selectionTool.selectElementIds(
             strokeIds, shapeIds, textIds, imageIds, [], mathIds);
+          this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
           this.originalInkIneligiblePages.delete(pageId);
           this.layerManager.rebuildFromStrokes(
             this.completedStrokes, this.renderCtx, this.viewport.zoom);
@@ -6501,6 +6511,7 @@ export struct NoteCanvasView {
       this.imageBlocks.some((image: ImageElement): boolean => image.id === imageId)) {
       this.selectionTool.selectElementIds([], [], [], [imageId]);
       this.updateSelectionOverlay();
+      this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
     }
   }
 
@@ -6522,6 +6533,7 @@ export struct NoteCanvasView {
     this.selectionTool.selectElementIds([], [], [], [after.id]);
     if (this.sameBytes(beforeBytes, afterBytes)) {
       this.updateSelectionOverlay();
+      this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
       return;
     }
     this.replaceImagesById([after]);
@@ -6534,6 +6546,7 @@ export struct NoteCanvasView {
       beforeMathBlocks: [], afterMathBlocks: [],
     });
     this.updateSelectionOverlay();
+    this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
     this.persist(true);
     this.notifyUndoRedo();
     this.renderFrame();
@@ -6882,6 +6895,7 @@ export struct NoteCanvasView {
             result.images.map((image: ImageElement): string => image.id),
             result.topGroupIds,
             result.mathBlocks.map((math: MathElement): string => math.id));
+          this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
           this.originalInkIneligiblePages.delete(pageId);
           this.layerManager.rebuildFromStrokes(
             this.completedStrokes, this.renderCtx, this.viewport.zoom);
@@ -7041,6 +7055,7 @@ export struct NoteCanvasView {
     this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
     this.selectionTool.selectElementIds(
       pastedIds, pastedShapeIds, pastedTextIds, pastedImageIds, [], pastedMathIds);
+    this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
     this.layerManager.rebuildFromStrokes(
       this.completedStrokes, this.renderCtx, this.viewport.zoom);
     this.updateSelectionOverlay();

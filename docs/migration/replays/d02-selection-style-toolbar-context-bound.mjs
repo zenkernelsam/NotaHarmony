@@ -30,6 +30,21 @@ assert.match(canvas, /onSelectionInkControlsChanged[\s\S]{0,260}style: InkStyle 
 assert.match(canvas, /this\.selectionTool\.deselect\(\);[\s\S]{0,80}onSelectionInkControlsChanged\(null, null, 0\.5, 30, true, null\);/);
 assert.match(canvas,
   /private clearSelectionWithRegisterReset\(\): void \{[\s\S]{0,220}onSelectionInkControlsChanged\(null, null, 0\.5, 30, true, null\);/);
+assert.match(canvas, /selectedMathIds\.length === 0 && state\.selectedGroupIds\.length === 0\) \{[\s\S]{0,100}selectionVisible = false/);
+assert.equal([...canvas.matchAll(/this\.onSelectionInkControlsChanged\(null, null, 0\.5, 30, true, null\);/g)].length >= 11, true);
+for (const context of [
+  'finalImages.map',
+  'result.math.id',
+  'created.id',
+  'cancelImageCrop',
+  'confirmImageCrop',
+  'pasteClipboard',
+]) {
+  const index = canvas.indexOf(context);
+  assert.ok(index >= 0, `missing selection-replacement context ${context}`);
+  assert.ok(canvas.slice(index).includes('onSelectionInkControlsChanged(null, null, 0.5, 30, true, null)'),
+    `missing reset after ${context}`);
+}
 for (const context of [
   'enterLoadFailureState',
   'cancelActiveInteraction',
