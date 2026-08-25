@@ -1062,8 +1062,7 @@ export struct NoteCanvasView {
     this.elementOrder = [];
     this.dataLoadFailed = true;
     this.cancelActiveInteraction();
-    this.selectionTool.deselect();
-    this.selectionVisible = false;
+    this.clearSelectionWithRegisterReset();
     if (this.layerManager.isInitialized()) {
       this.initializeLayerForPage();
       this.layerManager.rebuildFromStrokes([], this.renderCtx, this.viewport.zoom);
@@ -1971,8 +1970,7 @@ export struct NoteCanvasView {
       }
     }
     if (this.selectionDrawing || this.selectionDrag) {
-      this.selectionTool.deselect();
-      this.selectionVisible = false;
+      this.clearSelectionWithRegisterReset();
     }
     this.eraserActive = false;
     this.eraserPath = [];
@@ -2362,8 +2360,7 @@ export struct NoteCanvasView {
           if (this.isHistoryPageContextCurrent(generation, pageId)) {
             this.installMutationElements(result.elements);
             this.selectionGroups = result.groups;
-            this.selectionTool.deselect();
-            this.selectionVisible = false;
+            this.clearSelectionWithRegisterReset();
             this.originalInkIneligiblePages.delete(pageId);
             this.layerManager.rebuildFromStrokes(
               this.completedStrokes, this.renderCtx, this.viewport.zoom);
@@ -2867,8 +2864,7 @@ export struct NoteCanvasView {
       this.elementOrder = clonePageElementOrder(
         isUndo ? action.elementOrderBefore : action.elementOrderAfter);
       this.synchronizeElementArraysByOrder();
-      this.selectionTool.deselect();
-      this.selectionVisible = false;
+      this.clearSelectionWithRegisterReset();
       this.originalInkIneligiblePages.delete(action.pageId);
       this.layerManager.rebuildFromStrokes(
         this.completedStrokes, this.renderCtx, this.viewport.zoom);
@@ -2909,8 +2905,7 @@ export struct NoteCanvasView {
       }
       this.installMutationElements(result.elements);
       this.selectionGroups = result.groups;
-      this.selectionTool.deselect();
-      this.selectionVisible = false;
+      this.clearSelectionWithRegisterReset();
       this.originalInkIneligiblePages.delete(action.pageId);
       this.layerManager.rebuildFromStrokes(
         this.completedStrokes, this.renderCtx, this.viewport.zoom);
@@ -2951,8 +2946,7 @@ export struct NoteCanvasView {
       }
       this.installMutationElements(result.elements);
       this.selectionGroups = result.groups;
-      this.selectionTool.deselect();
-      this.selectionVisible = false;
+      this.clearSelectionWithRegisterReset();
       this.originalInkIneligiblePages.delete(action.pageId);
       this.invalidateOriginalInkReservation();
       this.layerManager.rebuildFromStrokes(
@@ -2994,8 +2988,7 @@ export struct NoteCanvasView {
         return;
       }
       this.installMutationElements(result.elements);
-      this.selectionTool.deselect();
-      this.selectionVisible = false;
+      this.clearSelectionWithRegisterReset();
       this.originalInkIneligiblePages.delete(action.pageId);
       this.invalidateOriginalInkReservation();
       this.layerManager.rebuildFromStrokes(
@@ -3273,8 +3266,7 @@ export struct NoteCanvasView {
         'history source state mismatch, type=%{public}d undo=%{public}s', action.type, isUndo.toString());
       return false;
     }
-    this.selectionTool.deselect();
-    this.selectionVisible = false;
+    this.clearSelectionWithRegisterReset();
     if (action.type === UndoableActionType.ADD_STROKE) {
       const added: StrokeElementData[] = action.addedStrokes;
       if (added.length === 0) {
@@ -4761,6 +4753,12 @@ export struct NoteCanvasView {
   }
 
   // === 选区 ===
+  private clearSelectionWithRegisterReset(): void {
+    this.selectionTool.deselect();
+    this.selectionVisible = false;
+    this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
+  }
+
   private updateSelectionOverlay(): void {
     const state = this.selectionTool.getState();
     let selectedColor: number | null = null;
@@ -5218,7 +5216,7 @@ export struct NoteCanvasView {
       this.selectionTool.deleteSelected();
       this.undoRedo.push(deleteAction, preparedHistory);
       this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
-      this.selectionVisible = false;
+      this.clearSelectionWithRegisterReset();
       this.layerManager.rebuildFromStrokes(
         this.completedStrokes, this.renderCtx, this.viewport.zoom);
       this.notifyUndoRedo();
@@ -5227,8 +5225,7 @@ export struct NoteCanvasView {
         this.refreshImageAssets(this.pageLoadGeneration, this.loadedPageId);
       }
     } else if (action === SelectionMenuAction.DESELECT) {
-      this.selectionTool.deselect();
-      this.selectionVisible = false;
+      this.clearSelectionWithRegisterReset();
     } else if (action === SelectionMenuAction.SEND_FORWARD || action === SelectionMenuAction.SEND_BACKWARD) {
       this.reorderSelected(state.selectedStrokeIds, state.selectedShapeIds,
         state.selectedTextBlockIds, state.selectedImageIds, state.selectedMathIds,
@@ -5397,8 +5394,7 @@ export struct NoteCanvasView {
       this.loadedPageId !== this.currentPage.pageId) {
       return;
     }
-    this.selectionTool.deselect();
-    this.selectionVisible = false;
+    this.clearSelectionWithRegisterReset();
     this.mathEditorOriginal = null;
     this.mathEditorInsert = true;
     this.mathEditorDraft = '';

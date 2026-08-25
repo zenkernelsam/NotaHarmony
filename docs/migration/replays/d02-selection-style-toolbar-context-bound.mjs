@@ -28,6 +28,25 @@ assert.match(brush, /case InkStyle\.DOTS: return BrushStyle\.DOT;/);
 
 assert.match(canvas, /onSelectionInkControlsChanged[\s\S]{0,260}style: InkStyle \| null\)/);
 assert.match(canvas, /this\.selectionTool\.deselect\(\);[\s\S]{0,80}onSelectionInkControlsChanged\(null, null, 0\.5, 30, true, null\);/);
+assert.match(canvas,
+  /private clearSelectionWithRegisterReset\(\): void \{[\s\S]{0,220}onSelectionInkControlsChanged\(null, null, 0\.5, 30, true, null\);/);
+for (const context of [
+  'enterLoadFailureState',
+  'cancelActiveInteraction',
+  'commitOriginalPartialErase',
+  'applyOriginalGroupHistoryMove',
+  'applyOriginalClipboardPasteHistoryMove',
+  'applyOriginalPartialEraseHistoryMove',
+  'applyOriginalHandwritingConversionHistoryMove',
+  'applyAction',
+  'SelectionMenuAction.DESELECT',
+  'startMathInsert',
+]) {
+  const index = canvas.indexOf(context);
+  assert.ok(index >= 0, `missing exit context ${context}`);
+  assert.ok(canvas.slice(index).includes('clearSelectionWithRegisterReset()'),
+    `missing reset after ${context}`);
+}
 assert.match(canvas, /let selectedStyle: InkStyle \| null = null;/);
 assert.match(canvas, /selectedStrokeIds\.has\(stroke\.id\) \|\|[\s\S]{0,80}isPartialEraser === true/);
 assert.match(canvas, /selectedStyle = stroke\.renderSpec\.inkStyle;[\s\S]{0,30}break;/);
@@ -78,15 +97,31 @@ const partialOnly = selectionContext([
 assert.deepEqual(partialOnly, { color: null, width: null, variableStyleEnabled: true, style: null });
 
 let published = null;
-const pageState = { selectionInkStyle: 'FIXED' };
+const pageState = {
+  selectionInkStyle: 'FIXED', selectionInkColor: 9, selectionInkWidth: 11,
+};
 function onSelectionInkControlsChanged(_color, _width, _minimum, _maximum,
-  variableStyleEnabled, style) {
+  variableStyleEnabled, style, reset = false) {
   pageState.selectionInkStyle = style;
+  if (reset) {
+    pageState.selectionInkColor = -16777216;
+    pageState.selectionInkWidth = 5;
+    pageState.selectionVariableStyleEnabled = true;
+  }
 }
 published = selectionContext([{ id: 'dash', selected: true, isPartialEraser: false,
   isPencil: false, style: 'DASH', color: 4, width: 2 }]);
 onSelectionInkControlsChanged(published.color ?? -16777216, published.width ?? 5,
   0.5, 30, published.variableStyleEnabled, published.style ?? pageState.selectionInkStyle);
 assert.equal(pageState.selectionInkStyle, 'DASH');
+
+function clearSelectionWithRegisterReset() {
+  onSelectionInkControlsChanged(null, null, 0.5, 30, true, null, true);
+}
+clearSelectionWithRegisterReset();
+assert.equal(pageState.selectionInkColor, -16777216);
+assert.equal(pageState.selectionInkWidth, 5);
+assert.equal(pageState.selectionInkStyle, null);
+assert.equal(pageState.selectionVariableStyleEnabled, true);
 
 console.log('selectionStyleToolbarContext=original-inverse-map-pencil-gate-first-eligible-sync');
