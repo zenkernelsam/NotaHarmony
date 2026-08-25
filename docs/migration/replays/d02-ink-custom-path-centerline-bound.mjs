@@ -13,13 +13,17 @@ const section = page.slice(start, end);
 
 assert.match(section, /if \(customPath === null \|\| customPath\.length === 0\) \{\s+return false;\s+\}/);
 const appendIndex = section.indexOf('this.appendInkPath(c, customPath);');
-const clipIndex = section.indexOf('c.clip();');
-const centerIndex = section.indexOf('this.renderCenterPath(stroke, ctx);');
-assert.ok(appendIndex !== -1 && clipIndex !== -1 && centerIndex !== -1);
-assert.ok(appendIndex < clipIndex && clipIndex < centerIndex);
+const dashedIndex = section.indexOf(
+  'if (stroke.renderSpec.inkStyle === InkStyle.DASH ||');
+const clipIndex = section.indexOf('c.clip();', dashedIndex);
+const centerIndex = section.indexOf('this.renderCenterPath(stroke, ctx);', clipIndex);
+const fillIndex = section.indexOf('c.fill();');
+assert.ok(appendIndex !== -1 && dashedIndex !== -1 && clipIndex !== -1 &&
+  centerIndex !== -1 && fillIndex !== -1);
+assert.ok(appendIndex < dashedIndex && dashedIndex < clipIndex &&
+  clipIndex < centerIndex && fillIndex > centerIndex);
 assert.equal(section.split('c.clip();').length - 1, 1);
-assert.ok(!section.includes('c.setFillStyle('));
-assert.ok(!section.includes('c.fill();'));
+assert.match(section, /c\.setFillStyle\(this\.colorToRgba\(stroke\.renderSpec\.color,\s+stroke\.renderSpec\.isHighlighter \? 107 : undefined\)\);/);
 assert.match(section, /\} finally \{\s+c\.restore\(\);\s+\}\s+return true;/);
 
 assert.match(page, /renderCenterPath\(stroke: StrokeElementData, ctx: RenderContext\): void \{/);
@@ -37,4 +41,4 @@ const customPencil = painter.indexOf('if (customPath !== null && customPath.leng
 const nonPencil = painter.indexOf('const customRendered: boolean = this.renderer.renderCustomPath(stroke, rc);');
 assert.ok(customPencil !== -1 && nonPencil !== -1 && customPencil < nonPencil);
 
-console.log('D02_INK_CUSTOM_PATH_CENTERLINE_BOUND_REPLAY_OK TOTAL=11 FAILED=0');
+console.log('D02_INK_CUSTOM_PATH_STYLE_BRANCH_BOUND_REPLAY_OK TOTAL=12 FAILED=0');
