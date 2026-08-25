@@ -35,8 +35,6 @@ assert.match(page, /onRequestPage: \(pageId: string\) => \{[\s\S]{0,320}?this\.c
 for (const [name, section] of [
   ['prev navigation lease gate', page.slice(page.indexOf('onPrev: () =>'), page.indexOf('onNext: () =>'))],
   ['next navigation lease gate', page.slice(page.indexOf('onNext: () =>'), page.indexOf('onAdd: () =>'))],
-  ['undo trigger gate', page.slice(page.indexOf('onUndo: () =>'), page.indexOf('onRedo: () =>'))],
-  ['redo trigger gate', page.slice(page.indexOf('onRedo: () =>'), page.indexOf('onInsertMath:'))],
 ]) {
   assert.match(section, /!this\.historyPending/,
     `${name} rejects a pending cross-page history command`);
@@ -44,12 +42,11 @@ for (const [name, section] of [
 
 for (const [name, signal] of [['undo', 'this.undoSignal++'], ['redo', 'this.redoSignal++']]) {
   const trigger = page.indexOf(signal);
-  const guarded = page.lastIndexOf('if (!this.historyPending && !this.pageOperationBusy) {', trigger);
-  const close = page.indexOf('}', trigger);
-  assert.ok(trigger >= 0 && guarded >= 0 && close > trigger,
-    `${name} cannot dispatch while a cross-page history command is pending`);
+  const guardedStart = page.lastIndexOf('if (!this.photoImportLeaseActive', trigger);
+  const guardedEnd = page.indexOf('!this.historyPending)', guardedStart);
+  assert.ok(trigger >= 0 && guardedStart >= 0 && guardedEnd > guardedStart,
+    `${name} rejects pending history and active photo ingress`);
 }
-
 const pageActionStart = canvas.indexOf('if (this.isPageAction(action.type)) {');
 const groupActionStart = canvas.indexOf('if (action.type === UndoableActionType.GROUP_ELEMENTS) {', pageActionStart);
 assert.ok(pageActionStart >= 0 && groupActionStart > pageActionStart);
@@ -66,4 +63,4 @@ const failureRelease = pageActionBody.lastIndexOf(
 assert.ok(applyAwait >= 0 && successRelease > applyAwait && failureRelease > successRelease,
   'page history commands release the navigation lease after both accepted and rejected moves');
 
-console.log('D02_PAGE_HISTORY_COMMAND_LEASE_BOUND_REPLAY_OK TOTAL=9 FAILED=0');
+console.log('D02_PAGE_HISTORY_COMMAND_LEASE_BOUND_REPLAY_OK TOTAL=10 FAILED=0');

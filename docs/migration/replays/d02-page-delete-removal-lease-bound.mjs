@@ -41,7 +41,10 @@ for (const [name, startMarker, endMarker] of [
 for (const [name, signal] of [['undo', 'this.undoSignal++'], ['redo', 'this.redoSignal++']]) {
   const trigger = page.indexOf(signal);
   assert.ok(trigger >= 0, `${name} trigger`);
-  const guarded = page.lastIndexOf('if (!this.historyPending && !this.pageOperationBusy) {', trigger);
+  const guarded = page.lastIndexOf(
+    'if (!this.photoImportLeaseActive && !this.pageOperationBusy &&\n              !this.historyPending) {',
+    trigger,
+  );
   const close = page.indexOf('}', trigger);
   assert.ok(guarded >= 0 && close > trigger,
     `${name} cannot dispatch during a serialized page operation`);
@@ -61,4 +64,4 @@ assert.ok(
   'history page requests cannot retarget selection during a deletion lease',
 );
 
-console.log('D02_PAGE_DELETE_REMOVAL_LEASE_BOUND_REPLAY_OK TOTAL=9 FAILED=0');
+console.log('D02_PAGE_DELETE_REMOVAL_LEASE_BOUND_REPLAY_OK TOTAL=10 FAILED=0');

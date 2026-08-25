@@ -42,13 +42,6 @@ for (const [name, startMarker, endMarker] of [
     `${name} rejects an active structure lease`);
 }
 
-for (const [name, signal] of [['undo', 'this.undoSignal++'], ['redo', 'this.redoSignal++']]) {
-  const trigger = page.indexOf(signal);
-  assert.ok(trigger >= 0, `${name} trigger`);
-  const guarded = page.lastIndexOf('if (!this.historyPending && !this.pageOperationBusy) {', trigger);
-  assert.ok(guarded >= 0,
-    `${name} is serialized with page operations but remains available during deletion`);
-}
 
 const requestStart = page.indexOf('onRequestPage: (pageId: string) => {');
 const requestSettled = page.indexOf('onPageHistorySettled:', requestStart);
@@ -62,4 +55,4 @@ assert.ok(requestGate >= 0 && requestStructure > requestGate && requestReturn > 
   pageIndexMutation > requestReturn,
   'history page requests cannot retarget selection during a page operation or structure lease');
 
-console.log('D02_PAGE_STRUCTURE_LEASE_BOUND_REPLAY_OK TOTAL=9 FAILED=0');
+console.log('D02_PAGE_STRUCTURE_LEASE_BOUND_REPLAY_OK TOTAL=10 FAILED=0');

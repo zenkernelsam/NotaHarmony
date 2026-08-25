@@ -2677,7 +2677,8 @@ export struct NoteCanvasView {
     if (this.imageCropVisible) {
       this.cancelImageCrop();
     }
-    if (this.historyBusy || this.pendingHistoryDirection !== 0) {
+    if (this.photoImportBusy || this.historyBusy ||
+      this.pendingHistoryDirection !== 0) {
       return;
     }
     const group: HistoryMove[] = isUndo ? this.undoRedo.peekUndoGroup() : this.undoRedo.peekRedoGroup();
