@@ -33,8 +33,12 @@ const operationStart = page.indexOf('private async runPageOperation(');
 const historyStart = page.indexOf('private async runPageHistoryOperation(',
   operationStart);
 assert.ok(operationStart >= 0 && historyStart > operationStart);
-assert.match(page.slice(operationStart, historyStart),
-  /if \(this\.pageOperationBusy \|\| this\.historyPending \|\| this\.pageStructureLeaseActive\) \{\s+return;\s+\}/);
+const operationBody = page.slice(operationStart, historyStart);
+const gateIndex = operationBody.indexOf('if (this.photoImportLeaseActive ||');
+const structureIndex = operationBody.indexOf('this.pageStructureLeaseActive', gateIndex);
+const returnIndex = operationBody.indexOf('return;', structureIndex);
+assert.ok(gateIndex >= 0 && structureIndex > gateIndex && returnIndex > structureIndex,
+  'structure operations also reject an active photo import lease');
 
 console.log(
   'D02_CROSS_PAGE_HISTORY_FAILURE_RELEASE_REPLAY_OK TOTAL=10 FAILED=0');

@@ -247,6 +247,7 @@ export struct NoteCanvasView {
   };
   onRequestPage: (pageId: string) => void = () => {
   };
+  onPhotoIngressFinished: () => void = (): void => {};
   onHistoryBridgeReady: (bridge: EditorHistoryBridge) => void = () => {
   };
   onSelectionInkControlsChanged: (color: number | null, width: number | null,
@@ -5629,6 +5630,7 @@ export struct NoteCanvasView {
       }
     } finally {
       this.photoImportBusy = false;
+      this.onPhotoIngressFinished();
     }
   }
 
@@ -5688,6 +5690,7 @@ export struct NoteCanvasView {
       }
     } finally {
       this.photoImportBusy = false;
+      this.onPhotoIngressFinished();
     }
   }
 

@@ -101,6 +101,7 @@ struct NotePage {
   @State canUndo: boolean = false;
   @State canRedo: boolean = false;
   @State pageOperationBusy: boolean = false;
+  @State photoImportLeaseActive: boolean = false;
   private pageStructureLeaseActive: boolean = false;
   @State pageLoading: boolean = false;
   @State historyPending: boolean = false;
@@ -980,6 +981,11 @@ struct NotePage {
             this.mathInsertSignal++;
           },
           onInsertPhotos: () => {
+            if (this.photoImportLeaseActive || this.pageOperationBusy ||
+              this.historyPending || this.pageStructureLeaseActive) {
+              return;
+            }
+            this.photoImportLeaseActive = true;
             this.photoInsertSignal++;
           },
           onSelectionStyle: (style: BrushStyle) => {
@@ -1057,6 +1063,9 @@ struct NotePage {
           redoSignal: this.redoSignal,
           mathInsertSignal: this.mathInsertSignal,
           photoInsertSignal: this.photoInsertSignal,
+          onPhotoIngressFinished: () => {
+            this.photoImportLeaseActive = false;
+          },
           selectionStyleSignal: this.selectionStyleSignal,
           selectionInkStyle: this.selectionInkStyle,
           selectionColorSignal: this.selectionColorSignal,
@@ -1077,7 +1086,8 @@ struct NotePage {
             this.canRedo = r;
           },
           onRequestPage: (pageId: string) => {
-            if (this.pageOperationBusy || this.pageStructureLeaseActive) {
+            if (this.photoImportLeaseActive || this.pageOperationBusy ||
+              this.historyPending || this.pageStructureLeaseActive) {
               return;
             }
             for (let i: number = 0; i < this.pages.length; i++) {
@@ -1235,7 +1245,8 @@ struct NotePage {
   }
 
   private async runPageOperation(operation: () => Promise<void>): Promise<void> {
-    if (this.pageOperationBusy || this.historyPending || this.pageStructureLeaseActive) {
+    if (this.photoImportLeaseActive || this.pageOperationBusy || this.historyPending ||
+      this.pageStructureLeaseActive) {
       return;
     }
     this.pageOperationBusy = true;

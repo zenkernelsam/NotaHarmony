@@ -11,7 +11,7 @@ assert.ok(operationStart >= 0 && historyStart > operationStart && addStart > his
 const operationBody = page.slice(operationStart, historyStart);
 
 const busyGate = operationBody.indexOf(
-  'if (this.pageOperationBusy || this.historyPending || this.pageStructureLeaseActive) {');
+  'if (this.photoImportLeaseActive || this.pageOperationBusy || this.historyPending ||\n      this.pageStructureLeaseActive) {');
 const gateReturn = operationBody.indexOf('return;', busyGate);
 const setBusy = operationBody.indexOf('this.pageOperationBusy = true;', gateReturn);
 const tryOpen = operationBody.indexOf('try {', setBusy);

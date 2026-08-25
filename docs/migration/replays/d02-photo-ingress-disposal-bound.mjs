@@ -45,6 +45,6 @@ for (const effect of [
 ]) {
   assert.ok(paste.indexOf(effect) !== -1, effect);
 }
-assert.match(paste, /\} finally \{\s+this\.photoImportBusy = false;\s+\}/);
+assert.match(paste, /\} finally \{\s+this\.photoImportBusy = false;\s+this\.onPhotoIngressFinished\(\);\s+\}/);
 
 console.log('D02_PHOTO_INGRESS_DISPOSAL_BOUND_REPLAY_OK TOTAL=9 FAILED=0');

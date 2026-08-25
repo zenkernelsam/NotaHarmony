@@ -118,6 +118,7 @@ import originalPhotoHistoryMetadataTest from './OriginalPhotoHistoryMetadata.tes
 import mathCanvasRendererTest from './MathCanvasRenderer.test';
 import pdfResourceLifecycleTest from './PdfResourceLifecycle.test';
 import crossPageHistoryReleaseTest from './CrossPageHistoryRelease.test';
+import photoImportPageOperationLeaseTest from './PhotoImportPageOperationLease.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -238,4 +239,5 @@ export default function testsuite() {
   mathCanvasRendererTest();
   pdfResourceLifecycleTest();
   crossPageHistoryReleaseTest();
+  photoImportPageOperationLeaseTest();
 }

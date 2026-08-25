@@ -4,7 +4,7 @@ import fs from 'node:fs';
 const page = fs.readFileSync('note/src/main/ets/ui/editor/NotePage.ets', 'utf8')
   .replaceAll('\r\n', '\n');
 
-assert.match(page, /@State pageOperationBusy: boolean = false;\s+private pageStructureLeaseActive: boolean = false;/);
+assert.match(page, /@State pageOperationBusy: boolean = false;\n  @State photoImportLeaseActive: boolean = false;\n  private pageStructureLeaseActive: boolean = false;/);
 assert.doesNotMatch(page, /pageRemovalLeaseActive/);
 
 const deleteStart = page.indexOf('  private async deleteCurrentPage(): Promise<void> {');
@@ -54,11 +54,12 @@ const requestStart = page.indexOf('onRequestPage: (pageId: string) => {');
 const requestSettled = page.indexOf('onPageHistorySettled:', requestStart);
 assert.ok(requestStart >= 0 && requestSettled > requestStart);
 const requestSection = page.slice(requestStart, requestSettled);
-const requestGate = requestSection.indexOf(
-  'if (this.pageOperationBusy || this.pageStructureLeaseActive) {');
+const requestGate = requestSection.indexOf('if (this.photoImportLeaseActive ||');
+const requestStructure = requestSection.indexOf('this.pageStructureLeaseActive', requestGate);
 const requestReturn = requestSection.indexOf('return;', requestGate);
 const pageIndexMutation = requestSection.indexOf('this.currentPageIndex = i;');
-assert.ok(requestGate >= 0 && requestReturn > requestGate && pageIndexMutation > requestReturn,
+assert.ok(requestGate >= 0 && requestStructure > requestGate && requestReturn > requestStructure &&
+  pageIndexMutation > requestReturn,
   'history page requests cannot retarget selection during a page operation or structure lease');
 
 console.log('D02_PAGE_STRUCTURE_LEASE_BOUND_REPLAY_OK TOTAL=9 FAILED=0');
