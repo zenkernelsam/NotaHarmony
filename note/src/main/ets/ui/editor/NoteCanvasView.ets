@@ -5423,7 +5423,6 @@ export struct NoteCanvasView {
     this.mathEditorOriginal = null;
     this.mathEditorInsert = false;
     this.updateSelectionOverlay();
-    this.selectionVisible = true;
   }
 
   private cancelMathEditing(): void {
@@ -5439,7 +5438,6 @@ export struct NoteCanvasView {
     this.mathEditorOriginal = null;
     this.mathEditorInsert = false;
     this.updateSelectionOverlay();
-    this.selectionVisible = true;
   }
 
   private async confirmMathEditing(): Promise<void> {
@@ -6514,7 +6512,6 @@ export struct NoteCanvasView {
       this.imageBlocks.some((image: ImageElement): boolean => image.id === imageId)) {
       this.selectionTool.selectElementIds([], [], [], [imageId]);
       this.updateSelectionOverlay();
-      this.selectionVisible = true;
       this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
     }
   }

@@ -45,8 +45,10 @@ for (const restoreContext of [
   const body = canvas.slice(index);
   const refreshIndex = body.indexOf('this.updateSelectionOverlay();');
   assert.ok(refreshIndex >= 0, `missing overlay refresh after ${restoreContext}`);
-  assert.ok(body.slice(refreshIndex).includes('this.selectionVisible = true;'),
-    `missing visibility rebind after ${restoreContext}`);
+  const nextTrue = body.indexOf('this.selectionVisible = true;', refreshIndex);
+  const nextFalse = body.indexOf('this.selectionVisible = false;', refreshIndex);
+  assert.ok(nextFalse >= 0 && (nextTrue < 0 || nextFalse < nextTrue),
+    `${restoreContext} must rely on updateSelectionOverlay to hide stale selections`);
 }
 const confirmMathIndex = canvas.indexOf('this.mathBlocks = proposedMath;');
 assert.ok(confirmMathIndex >= 0, 'missing Math edit projection');
@@ -79,6 +81,13 @@ function restoreOverlayAfterTemporaryEditor(state) {
   restoreOverlayAfterTemporaryEditor(authoritativeExit);
   assert.equal(authoritativeExit.overlayRefreshes, 0);
   assert.equal(authoritativeExit.selectionVisible, false);
+}
+{
+  const staleAfterPageSwitch = { selectedIds: [], selectionVisible: false,
+    selectionRect: { left: 1, top: 1, right: 2, bottom: 2 }, overlayRefreshes: 1 };
+  restoreOverlayAfterTemporaryEditor(staleAfterPageSwitch);
+  assert.equal(staleAfterPageSwitch.overlayRefreshes, 1);
+  assert.equal(staleAfterPageSwitch.selectionVisible, false);
 }
 assert.equal([...canvas.matchAll(/this\.onSelectionInkControlsChanged\(null, null, 0\.5, 30, true, null\);/g)].length >= 11, true);
 for (const context of [
@@ -118,11 +127,26 @@ for (const cropRestoreContext of [
   const index = canvas.indexOf(cropRestoreContext);
   assert.ok(index >= 0, `missing crop restore context ${cropRestoreContext}`);
   const body = canvas.slice(index);
+  const methodBodyEnd = canvas.indexOf('\n  private ', index + 1);
+  const methodBody = canvas.slice(index, methodBodyEnd);
   assert.equal((body.match(/this\.updateSelectionOverlay\(\);/g) || []).length >= 2, true,
     `crop ${cropRestoreContext} lacks empty and non-empty paths`);
-  assert.equal((body.match(/this\.selectionVisible = true;/g) || []).length >= 2, true,
-    `crop ${cropRestoreContext} lacks visibility rebinds`);
+  if (cropRestoreContext === 'cancelImageCrop') {
+    const firstFalse = methodBody.indexOf('this.selectionVisible = false;');
+    assert.equal(firstFalse < 0, true,
+      'crop cancel must not force visibility after page-switch deselection');
+  } else {
+    assert.equal((methodBody.match(/this\.selectionVisible = true;/g) || []).length >= 2, true,
+      `crop ${cropRestoreContext} lacks visibility rebinds`);
+  }
 }
+const pageChangeIndex = canvas.indexOf('onPageChange(_propName: string): void {');
+assert.ok(pageChangeIndex >= 0, 'missing page-change hook');
+const pageChangeBody = canvas.slice(pageChangeIndex,
+  canvas.indexOf('onAudioPlaybackChange', pageChangeIndex));
+assert.ok(pageChangeBody.includes('this.cancelImageCrop();') &&
+  pageChangeBody.includes('this.cancelMathEditing();'),
+  'page change must close temporary editors before switching data');
 
 function selectionCommandGuard(toolActive, selectedIds) {
   return toolActive && selectedIds.length > 0;
