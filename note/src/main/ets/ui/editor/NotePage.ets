@@ -1101,6 +1101,13 @@ struct NotePage {
           onHistoryBridgeReady: (bridge: EditorHistoryBridge) => {
             this.historyBridge = bridge;
           },
+          onApplyNoteMetadataHistory: (action: UndoableAction, isUndo: boolean,
+            history: HistoryMetadata): Promise<boolean> => {
+            if (this.pageOperationBusy || this.titleSaveInFlight) {
+              return Promise.resolve(false);
+            }
+            return this.applyPageHistory(action, isUndo, history);
+          },
           onSelectionInkControlsChanged: (color: number | null, width: number | null,
             minimum: number, maximum: number, variableStyleEnabled: boolean,
             style: InkStyle | null) => {
