@@ -7815,7 +7815,11 @@ export struct NoteCanvasView {
         screenBounds: this.textBlockScreenBounds(this.editingTextBlock),
         viewportZoom: this.viewport.zoom,
         layoutWidth: this.editingTextLayoutWidth,
+        photoImportLeaseActive: this.photoImportBusy,
         onDraftChange: (text: string) => {
+          if (this.photoImportBusy || this.historyBusy) {
+            return;
+          }
           this.editingDraftText = text;
           if (this.editingTextBlock !== null &&
             this.editingTextBlock.resizesWidthToFitText === true) {
@@ -7835,6 +7839,9 @@ export struct NoteCanvasView {
           }
         },
         onCancel: () => {
+          if (this.photoImportBusy || this.historyBusy) {
+            return;
+          }
           this.onTextCancel();
         },
       })

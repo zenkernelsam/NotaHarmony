@@ -13,6 +13,7 @@ export struct TextBlockOverlay {
   @Prop screenBounds: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @Prop viewportZoom: number = 1;
   @Prop layoutWidth: number = 0;
+  @Prop photoImportLeaseActive: boolean = false;
   @State draftText: string = '';
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -72,6 +73,7 @@ export struct TextBlockOverlay {
               bottom: (this.element.contentBottomInset ?? this.element.contentTopInset) *
                 this.viewportZoom,
             })
+            .enabled(!this.photoImportLeaseActive)
             .onChange((value: string) => {
               this.draftText = value;
               this.onDraftChange(value);
@@ -98,6 +100,7 @@ export struct TextBlockOverlay {
           Button($r('app.string.done'))
             .height(32)
             .fontSize(12)
+            .enabled(!this.photoImportLeaseActive)
             .onClick(async () => {
               if (await this.onCommit(this.draftText)) {
                 this.draftText = '';
@@ -106,6 +109,7 @@ export struct TextBlockOverlay {
           Button($r('app.string.cancel'))
             .height(32)
             .fontSize(12)
+            .enabled(!this.photoImportLeaseActive)
             .onClick(() => {
               this.draftText = '';
               this.onCancel();
