@@ -536,15 +536,8 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     try {
       c.beginPath();
       this.appendInkPath(c, customPath);
-      if (stroke.renderSpec.inkStyle === InkStyle.DASH ||
-        stroke.renderSpec.inkStyle === InkStyle.DOTS) {
-        c.clip();
-        this.renderCenterPath(stroke, ctx);
-      } else {
-        c.setFillStyle(this.colorToRgba(stroke.renderSpec.color,
-          stroke.renderSpec.isHighlighter ? 107 : undefined));
-        c.fill();
-      }
+      c.clip();
+      this.renderCenterPath(stroke, ctx);
     } finally {
       c.restore();
     }
