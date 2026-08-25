@@ -28,6 +28,6 @@ for (const condition of [
   assert.ok(conditionIndex !== -1 && conditionIndex < resetIndex, condition);
 }
 assert.match(request,
-  /if \(!this\.lifecycleActive \|\| !this\.historyRecoveryRequired \|\|\s+this\.historyRecoveryBusy \|\| this\.historyBusy \|\| this\.database === null\) \{\s+return Promise\.resolve\(\);\s+\}\s+return this\.resetPersistentHistory\(\);/);
+  /if \(!this\.lifecycleActive \|\| !this\.historyRecoveryRequired \|\|\s+this\.historyRecoveryBusy \|\| this\.photoImportBusy \|\| this\.historyBusy \|\|\s+this\.database === null\) \{\s+return Promise\.resolve\(\);\s+\}\s+return this\.resetPersistentHistory\(\);/);
 
 console.log('D02_HISTORY_RESET_ENTRY_BOUND_REPLAY_OK TOTAL=7 FAILED=0');

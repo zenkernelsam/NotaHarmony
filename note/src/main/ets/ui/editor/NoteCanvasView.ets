@@ -786,14 +786,15 @@ export struct NoteCanvasView {
 
   private requestPersistentHistoryReset(): Promise<void> {
     if (!this.lifecycleActive || !this.historyRecoveryRequired ||
-      this.historyRecoveryBusy || this.historyBusy || this.database === null) {
+      this.historyRecoveryBusy || this.photoImportBusy || this.historyBusy ||
+      this.database === null) {
       return Promise.resolve();
     }
     return this.resetPersistentHistory();
   }
 
   private async resetPersistentHistory(): Promise<void> {
-    if (this.historyRecoveryBusy || this.historyBusy ||
+    if (this.historyRecoveryBusy || this.photoImportBusy || this.historyBusy ||
       !this.historyRecoveryRequired || this.database === null) {
       return;
     }
