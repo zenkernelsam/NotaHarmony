@@ -7758,15 +7758,34 @@ export struct NoteCanvasView {
       })
       ImageCropOverlay({
         visible: this.imageCropVisible,
+        photoImportLeaseActive: this.photoImportBusy,
         corners: this.imageCropScreenCorners(),
         containerWidth: this.overlayWidth,
         containerHeight: this.overlayHeight,
         onMove: (handle: ImageCropHandle, deltaX: number, deltaY: number) => {
+          if (this.photoImportBusy || this.historyBusy) {
+            return;
+          }
           this.moveImageCropHandle(handle, deltaX, deltaY);
         },
-        onClose: () => this.cancelImageCrop(),
-        onReset: () => this.resetImageCrop(),
-        onConfirm: () => this.confirmImageCrop(),
+        onClose: () => {
+          if (this.photoImportBusy || this.historyBusy) {
+            return;
+          }
+          this.cancelImageCrop();
+        },
+        onReset: () => {
+          if (this.photoImportBusy || this.historyBusy) {
+            return;
+          }
+          this.resetImageCrop();
+        },
+        onConfirm: () => {
+          if (this.photoImportBusy || this.historyBusy) {
+            return;
+          }
+          this.confirmImageCrop();
+        },
       })
       // 文本框编辑覆盖层
       TextBlockOverlay({

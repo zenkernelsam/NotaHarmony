@@ -24,6 +24,7 @@ export struct ImageCropOverlay {
   @Prop corners: Point2D[] = [];
   @Prop containerWidth: number = 0;
   @Prop containerHeight: number = 0;
+  @Prop photoImportLeaseActive: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   private dragOffsetX: number = 0;
@@ -36,6 +37,10 @@ export struct ImageCropOverlay {
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  private get controlsEnabled(): boolean {
+    return !this.photoImportLeaseActive;
   }
 
   private corner(index: number): Point2D {
@@ -134,6 +139,7 @@ export struct ImageCropOverlay {
             .backgroundColor(this.resolveTokens().control)
             .fontColor(this.resolveTokens().textPrimary)
             .accessibilityText($r('app.string.crop_close'))
+            .enabled(this.controlsEnabled)
             .onClick(() => this.onClose())
           Button() {
             Image($r('app.media.crop_reset'))
@@ -146,6 +152,7 @@ export struct ImageCropOverlay {
             .backgroundColor(this.resolveTokens().control)
             .fontColor(this.resolveTokens().textPrimary)
             .accessibilityText($r('app.string.crop_reset'))
+            .enabled(this.controlsEnabled)
             .onClick(() => this.onReset())
           Button() {
             Image($r('app.media.crop_confirm'))
@@ -158,6 +165,7 @@ export struct ImageCropOverlay {
             .backgroundColor(this.resolveTokens().accent)
             .fontColor(this.resolveTokens().onAccent)
             .accessibilityText($r('app.string.crop_confirm'))
+            .enabled(this.controlsEnabled)
             .onClick(() => this.onConfirm())
         }
         .width(CROP_TOOLBAR_WIDTH)
