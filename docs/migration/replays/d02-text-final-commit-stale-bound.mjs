@@ -11,8 +11,11 @@ assert.ok(start !== -1 && end !== -1 && end > start);
 const body = page.slice(start, end);
 
 const generationIndex = body.indexOf('const commitGeneration: number = ++this.textCommitGeneration;');
-const busyIndex = body.indexOf('if (this.historyBusy) {');
-assert.ok(busyIndex !== -1 && generationIndex > busyIndex);
+const busyIndex = body.indexOf('this.historyBusy');
+const photoIndex = body.indexOf('this.photoImportBusy');
+assert.ok(busyIndex >= 0 && generationIndex > busyIndex);
+assert.ok(photoIndex >= 0 && photoIndex < busyIndex,
+  'shared ingress lease is rejected before the history guard');
 
 const previewIndex = body.indexOf('await this.persistence.previewOriginalTextEdit(');
 const staleGuard = body.indexOf('if (commitGeneration !== this.textCommitGeneration ||', previewIndex);

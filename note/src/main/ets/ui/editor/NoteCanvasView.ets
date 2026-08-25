@@ -7399,7 +7399,7 @@ export struct NoteCanvasView {
   }
 
   async onTextCommit(text: string): Promise<boolean> {
-    if (this.historyBusy) {
+    if (this.photoImportBusy || this.historyBusy) {
       return false;
     }
     const commitGeneration: number = ++this.textCommitGeneration;
