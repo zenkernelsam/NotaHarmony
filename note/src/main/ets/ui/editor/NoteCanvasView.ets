@@ -1017,7 +1017,7 @@ export struct NoteCanvasView {
         return;
       }
       if (generation === this.pageLoadGeneration) {
-        if (previousPageSaved) {
+      if (previousPageSaved) {
           this.reportLoadFailure(e as Object, !fromPageWasRemoved && fromPageId.length > 0);
         } else {
           this.reportSaveFailure(e as Object);
@@ -1035,7 +1035,9 @@ export struct NoteCanvasView {
           this.refreshImageAssets(generation, fromPageId);
           this.refreshPdfBackground(generation, fromPageId);
           this.refreshPaperTexture(generation, fromPageId);
-          this.onRequestPage(fromPageId);
+          if (fromPageId !== this.currentPage.pageId) {
+            this.onRequestPage(fromPageId);
+          }
         } else {
           this.enterLoadFailureState();
         }

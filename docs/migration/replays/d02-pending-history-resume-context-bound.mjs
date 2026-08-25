@@ -4,6 +4,20 @@ import fs from 'node:fs';
 const canvas = fs.readFileSync('note/src/main/ets/ui/editor/NoteCanvasView.ets', 'utf8')
   .replaceAll('\r\n', '\n');
 
+const switchStart = canvas.indexOf('  private async switchPageData(): Promise<void> {');
+const resumeStart = canvas.indexOf('  private resumePendingHistory(): void {');
+assert.ok(switchStart >= 0 && resumeStart > switchStart);
+const switchBody = canvas.slice(switchStart, resumeStart);
+
+const failureBranch = switchBody.indexOf('if (previousPageSaved) {');
+const recoveryRequest = switchBody.indexOf('this.onRequestPage(fromPageId);', failureBranch);
+const recoveryGate = switchBody.lastIndexOf(
+  'if (fromPageId !== this.currentPage.pageId) {',
+  recoveryRequest,
+);
+assert.ok(failureBranch >= 0 && recoveryGate > failureBranch && recoveryRequest > recoveryGate,
+  'page-switch recovery requests the source page only when selection actually changed');
+
 const start = canvas.indexOf('  private resumePendingHistory(): void {');
 const end = canvas.indexOf('  private isPageAction(', start);
 assert.ok(start !== -1 && end > start);
@@ -27,4 +41,4 @@ assert.match(body.slice(identityGate, directionRead),
   /this\.loadedPageId !== this\.currentPage\.pageId\) \{\s+return;\s+\}/,
   'page mismatch retains the pending move for a matching reload');
 
-console.log('D02_PENDING_HISTORY_RESUME_CONTEXT_BOUND_REPLAY_OK TOTAL=5 FAILED=0');
+console.log('D02_PENDING_HISTORY_RESUME_CONTEXT_BOUND_REPLAY_OK TOTAL=6 FAILED=0');
