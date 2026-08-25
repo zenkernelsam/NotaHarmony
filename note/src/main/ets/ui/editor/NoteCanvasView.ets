@@ -5421,7 +5421,8 @@ export struct NoteCanvasView {
   }
 
   private startMathEditing(): void {
-    if (this.mathEditorVisible || this.historyBusy || !this.selectionCanEditMath) {
+    if (this.mathEditorVisible || this.photoImportBusy || this.historyBusy ||
+      !this.selectionCanEditMath) {
       return;
     }
     const selected: string[] = this.selectionTool.getState().selectedMathIds;
@@ -5490,7 +5491,7 @@ export struct NoteCanvasView {
 
   private async confirmMathEditing(): Promise<void> {
     const before: MathElement | null = this.mathEditorOriginal;
-    if (this.mathEditorBusy || this.historyBusy ||
+    if (this.mathEditorBusy || this.photoImportBusy || this.historyBusy ||
       this.mathEditorDraftState !== OriginalMathEditorDraftState.OK ||
       this.mathEditorPreview === null || !isOriginalMathLatexDraftValid(this.mathEditorDraft)) {
       return;
@@ -5918,6 +5919,9 @@ export struct NoteCanvasView {
   }
 
   private async confirmMathInsert(): Promise<void> {
+    if (this.photoImportBusy || this.historyBusy) {
+      return;
+    }
     const pageId: string = this.loadedPageId;
     const generation: number = this.pageLoadGeneration;
     const center: Point2D = this.viewport.screenToCanvas(
