@@ -293,8 +293,10 @@ struct BackupPage {
         }
         return;
       }
+      if (this.isStale(lifecycleGeneration)) {
+        return;
+      }
       await WebDAVConfigStore.setLastBackup(context, operationConfig, completedAt);
-
       if (this.isStale(lifecycleGeneration)) {
         return;
       }
