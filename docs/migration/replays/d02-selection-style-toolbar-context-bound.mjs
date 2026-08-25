@@ -31,6 +31,52 @@ assert.match(canvas, /this\.selectionTool\.deselect\(\);[\s\S]{0,80}onSelectionI
 assert.match(canvas,
   /private clearSelectionWithRegisterReset\(\): void \{[\s\S]{0,220}onSelectionInkControlsChanged\(null, null, 0\.5, 30, true, null\);/);
 assert.match(canvas, /selectedMathIds\.length === 0 && state\.selectedGroupIds\.length === 0\) \{[\s\S]{0,100}selectionVisible = false/);
+assert.match(canvas, /private startMathEditing\(\): void \{[\s\S]{0,900}selectionVisible = false;/);
+assert.match(canvas, /private startImageCrop\(\): void \{[\s\S]{0,1000}selectionVisible = false;/);
+for (const restoreContext of [
+  'detachMathEditorForNavigation',
+  'cancelMathEditing',
+]) {
+  const index = canvas.indexOf(restoreContext);
+  assert.ok(index >= 0, `missing temporary editor context ${restoreContext}`);
+  const body = canvas.slice(index);
+  const refreshIndex = body.indexOf('this.updateSelectionOverlay();');
+  assert.ok(refreshIndex >= 0, `missing overlay refresh after ${restoreContext}`);
+  assert.ok(body.slice(refreshIndex).includes('this.selectionVisible = true;'),
+    `missing visibility rebind after ${restoreContext}`);
+}
+const confirmMathIndex = canvas.indexOf('this.mathBlocks = proposedMath;');
+assert.ok(confirmMathIndex >= 0, 'missing Math edit projection');
+const confirmMathBody = canvas.slice(confirmMathIndex);
+assert.ok(confirmMathBody.includes('this.updateSelectionOverlay();'),
+  'missing overlay refresh after Math edit');
+assert.ok(confirmMathBody.indexOf('this.selectionVisible = true;') <
+  confirmMathBody.indexOf('this.renderFrame();'),
+  'Math edit must rebind visibility before render');
+
+function restoreOverlayAfterTemporaryEditor(state) {
+  state.selectionVisible = false;
+  state.selectionRect = { left: 1, top: 1, right: 2, bottom: 2 };
+  if (state.selectedIds.length > 0) {
+    state.overlayRefreshes += 1;
+    state.selectionVisible = true;
+  }
+}
+{
+  const restored = { selectedIds: ['math-1'], selectionVisible: false,
+    selectionRect: { left: 0, top: 0, right: 0, bottom: 0 }, overlayRefreshes: 0 };
+  restoreOverlayAfterTemporaryEditor(restored);
+  assert.equal(restored.overlayRefreshes, 1);
+  assert.equal(restored.selectionVisible, true);
+  assert.deepEqual(restored.selectionRect, { left: 1, top: 1, right: 2, bottom: 2 });
+}
+{
+  const authoritativeExit = { selectedIds: [], selectionVisible: true,
+    selectionRect: { left: 3, top: 3, right: 4, bottom: 4 }, overlayRefreshes: 0 };
+  restoreOverlayAfterTemporaryEditor(authoritativeExit);
+  assert.equal(authoritativeExit.overlayRefreshes, 0);
+  assert.equal(authoritativeExit.selectionVisible, false);
+}
 assert.equal([...canvas.matchAll(/this\.onSelectionInkControlsChanged\(null, null, 0\.5, 30, true, null\);/g)].length >= 11, true);
 for (const context of [
   'finalImages.map',
@@ -61,6 +107,18 @@ for (const context of [
   assert.ok(index >= 0, `missing exit context ${context}`);
   assert.ok(canvas.slice(index).includes('clearSelectionWithRegisterReset()'),
     `missing reset after ${context}`);
+}
+for (const cropRestoreContext of [
+  'cancelImageCrop',
+  'confirmImageCrop',
+]) {
+  const index = canvas.indexOf(cropRestoreContext);
+  assert.ok(index >= 0, `missing crop restore context ${cropRestoreContext}`);
+  const body = canvas.slice(index);
+  assert.equal((body.match(/this\.updateSelectionOverlay\(\);/g) || []).length >= 2, true,
+    `crop ${cropRestoreContext} lacks empty and non-empty paths`);
+  assert.equal((body.match(/this\.selectionVisible = true;/g) || []).length >= 2, true,
+    `crop ${cropRestoreContext} lacks visibility rebinds`);
 }
 assert.match(canvas, /let selectedStyle: InkStyle \| null = null;/);
 assert.match(canvas, /selectedStrokeIds\.has\(stroke\.id\) \|\|[\s\S]{0,80}isPartialEraser === true/);
