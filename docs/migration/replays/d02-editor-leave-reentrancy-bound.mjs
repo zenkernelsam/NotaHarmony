@@ -18,6 +18,13 @@ assert.match(guard, /return this\.editorLeavePromise;/);
 const performEnd = page.indexOf('\n  private async loadPages', performStart);
 assert.notEqual(performEnd, -1);
 const perform = page.slice(performStart, performEnd);
+const removalGate = perform.indexOf('if (this.pageRemovalLeaseActive) {');
+const removalReturn = perform.indexOf('return;', removalGate);
+const titleSave = perform.indexOf('if (this.editingTitle) {');
+assert.ok(
+  removalGate >= 0 && removalReturn > removalGate && titleSave > removalReturn,
+  'leaving the editor cannot flush or navigate while a deletion lease owns the current page',
+);
 assert.match(perform,
   /if \(this\.editingTitle\) \{\s+await this\.saveTitle\(\);\s+\} else \{[\s\S]*?await this\.titleSaveQueue;/);
 assert.match(perform, /await this\.historyBridge\.flushCurrentPage\(\)/);
@@ -37,4 +44,4 @@ assert.match(perform, /await this\.finishRecordingSession\(\);/);
 assert.match(perform, /await this\.recordingController\.release\(\);/);
 assert.match(perform, /router\.back\(\);/);
 
-console.log('D02_EDITOR_LEAVE_REENTRANCY_BOUND_REPLAY_OK TOTAL=4 FAILED=0');
+console.log('D02_EDITOR_LEAVE_REENTRANCY_BOUND_REPLAY_OK TOTAL=5 FAILED=0');

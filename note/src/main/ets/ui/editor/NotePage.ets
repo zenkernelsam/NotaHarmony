@@ -251,6 +251,9 @@ struct NotePage {
   }
 
   private async performLeaveEditor(): Promise<void> {
+    if (this.pageRemovalLeaseActive) {
+      return;
+    }
     if (this.editingTitle) {
       await this.saveTitle();
     } else {
