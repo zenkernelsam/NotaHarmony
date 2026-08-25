@@ -5050,7 +5050,8 @@ export struct NoteCanvasView {
   }
 
   onSelectionMenuAction(action: SelectionMenuAction): void {
-    if (this.historyBusy || !this.loaded || this.dataLoading || this.dataLoadFailed ||
+    if (this.photoImportBusy || this.historyBusy ||
+      !this.loaded || this.dataLoading || this.dataLoadFailed ||
       this.loadedPageId.length === 0 || this.loadedPageId !== this.currentPage.pageId) {
       return;
     }
