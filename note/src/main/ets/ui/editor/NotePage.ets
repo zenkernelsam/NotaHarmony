@@ -801,6 +801,9 @@ struct NotePage {
     if (this.editorDisposed) {
       return;
     }
+    if (this.pendingRecordingDeleteIds.indexOf(recordingId) >= 0) {
+      return;
+    }
     const nextId: string | null = nextTimelineRecordingId(this.recordingTimeline, recordingId);
     if (nextId === null) {
       return;
