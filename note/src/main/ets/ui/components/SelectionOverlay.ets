@@ -36,6 +36,7 @@ export struct SelectionOverlay {
   @Prop canUngroup: boolean = false;
   @Prop canEditMath: boolean = false;
   @Prop positionLocked: boolean = false;
+  @Prop menuEnabled: boolean = true;
   @Prop containerWidth: number = 0;
   @Prop containerHeight: number = 0;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -61,6 +62,7 @@ export struct SelectionOverlay {
           .width(SELECTION_MENU_BUTTON_WIDTH)
           .height(SELECTION_MENU_BUTTON_HEIGHT)
           .fontSize(14)
+          .enabled(this.menuEnabled)
           .hitTestBehavior(HitTestMode.Block)
           .position({
             x: selectionOverlayPosition(this.selectionRect, this.containerWidth,

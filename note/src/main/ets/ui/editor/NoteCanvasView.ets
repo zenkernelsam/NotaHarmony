@@ -7745,6 +7745,9 @@ export struct NoteCanvasView {
         canUngroup: this.selectionCanUngroup,
         canEditMath: this.selectionCanEditMath,
         positionLocked: this.selectionPositionLocked,
+        menuEnabled: !this.photoImportBusy && !this.historyBusy &&
+          this.loaded && !this.dataLoading && !this.dataLoadFailed &&
+          this.loadedPageId === this.currentPage.pageId,
         containerWidth: this.overlayWidth,
         containerHeight: this.overlayHeight,
         onMenuAction: (action: SelectionMenuAction) => {
