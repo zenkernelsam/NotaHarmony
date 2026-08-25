@@ -30,8 +30,9 @@ export function initialOriginalMathEditorDraftState(value: string): OriginalMath
 }
 
 export function isOriginalMathEditorDoneEnabled(state: OriginalMathEditorDraftState,
-  busy: boolean): boolean {
-  return !busy && state === OriginalMathEditorDraftState.OK;
+  busy: boolean, photoImportLeaseActive: boolean): boolean {
+  return !busy && !photoImportLeaseActive &&
+    state === OriginalMathEditorDraftState.OK;
 }
 
 @Component
@@ -41,6 +42,7 @@ export struct MathEditorOverlay {
   @Prop draftState: OriginalMathEditorDraftState = OriginalMathEditorDraftState.EMPTY;
   @Prop preview: image.PixelMap | null = null;
   @Prop busy: boolean = false;
+  @Prop photoImportLeaseActive: boolean = false;
   @Prop failed: boolean = false;
   @Prop containerWidth: number = 0;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -98,7 +100,7 @@ export struct MathEditorOverlay {
             .backgroundColor(this.resolveTokens().control)
             .border({ width: 1, color: this.resolveTokens().border })
             .borderRadius(6)
-            .enabled(!this.busy)
+            .enabled(!this.busy && !this.photoImportLeaseActive)
             .onChange((value: string): void => this.onDraftChange(value))
           if (this.failed) {
             Text($r('app.string.math_editor_failed'))
@@ -114,7 +116,7 @@ export struct MathEditorOverlay {
               .fontSize(14)
               .fontColor(this.resolveTokens().textPrimary)
               .backgroundColor(this.resolveTokens().control)
-              .enabled(!this.busy)
+              .enabled(!this.busy && !this.photoImportLeaseActive)
               .onClick((): void => this.onCancel())
             Button($r('app.string.math_editor_done'))
               .height(40)
@@ -122,7 +124,8 @@ export struct MathEditorOverlay {
               .fontSize(14)
               .fontColor(this.resolveTokens().onAccent)
               .backgroundColor(this.resolveTokens().accent)
-              .enabled(isOriginalMathEditorDoneEnabled(this.draftState, this.busy))
+              .enabled(isOriginalMathEditorDoneEnabled(
+                this.draftState, this.busy, this.photoImportLeaseActive))
               .onClick((): void => this.onConfirm())
           }
           .width('100%')

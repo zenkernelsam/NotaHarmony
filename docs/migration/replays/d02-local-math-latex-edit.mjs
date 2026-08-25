@@ -49,7 +49,7 @@ assert.match(canvas, /this\.mathEditorFailed = true/);
 assert.match(canvas, /this\.persistence\.commitOriginalMathLatex[\s\S]{0,1500}isHistoryPageContextCurrent\(generation, pageId\)[\s\S]{0,300}this\.saveFailed = false;/);
 assert.match(overlay, /isOriginalMathLatexDraftValid/);
 assert.match(overlay, /OriginalMathEditorDraftState/);
-assert.match(overlay, /enabled\(isOriginalMathEditorDoneEnabled\(this\.draftState, this\.busy\)\)/);
+assert.match(overlay, /enabled\(isOriginalMathEditorDoneEnabled\(\s+this\.draftState, this\.busy, this\.photoImportLeaseActive\)\)/);
 assert.match(canvas, /originalMathEngine\.render\(draft/);
 assert.match(encoderFixture, /round-trips the Math latex nullable setter string/);
 assert.match(persistenceFixture, /classifies one canonical Math latex-only edit and reverse Undo/);

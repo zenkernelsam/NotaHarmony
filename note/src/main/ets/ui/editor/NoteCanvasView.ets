@@ -7872,15 +7872,27 @@ export struct NoteCanvasView {
         draftState: this.mathEditorDraftState,
         preview: this.mathEditorPreview === null ? null : this.mathEditorPreview.pixelMap,
         busy: this.mathEditorBusy,
+        photoImportLeaseActive: this.photoImportBusy,
         failed: this.mathEditorFailed,
         containerWidth: this.overlayWidth,
         onDraftChange: (value: string): void => {
+          if (this.photoImportBusy || this.historyBusy) {
+            return;
+          }
           this.mathEditorDraft = value;
           this.mathEditorFailed = false;
           this.requestMathEditorDraftValidation();
         },
-        onCancel: (): void => this.cancelMathEditing(),
+        onCancel: (): void => {
+          if (this.photoImportBusy || this.historyBusy) {
+            return;
+          }
+          this.cancelMathEditing();
+        },
         onConfirm: (): void => {
+          if (this.photoImportBusy || this.historyBusy) {
+            return;
+          }
           this.confirmMathEditing().catch((e: Object): void => {
             this.mathEditorFailed = true;
             hilog.error(0x0001, 'NoteCanvasView',

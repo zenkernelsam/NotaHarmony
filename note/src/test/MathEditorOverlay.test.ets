@@ -25,11 +25,18 @@ export default function mathEditorOverlayTest() {
     });
 
     it('enables Done only for an idle native-rendered Ok state', 0, () => {
-      expect(isOriginalMathEditorDoneEnabled(OriginalMathEditorDraftState.OK, false)).assertTrue();
-      expect(isOriginalMathEditorDoneEnabled(OriginalMathEditorDraftState.OK, true)).assertFalse();
-      expect(isOriginalMathEditorDoneEnabled(OriginalMathEditorDraftState.LOADING, false)).assertFalse();
-      expect(isOriginalMathEditorDoneEnabled(OriginalMathEditorDraftState.INVALID, false)).assertFalse();
-      expect(isOriginalMathEditorDoneEnabled(OriginalMathEditorDraftState.EMPTY, false)).assertFalse();
+      expect(isOriginalMathEditorDoneEnabled(
+        OriginalMathEditorDraftState.OK, false, false)).assertTrue();
+      expect(isOriginalMathEditorDoneEnabled(
+        OriginalMathEditorDraftState.OK, true, false)).assertFalse();
+      expect(isOriginalMathEditorDoneEnabled(
+        OriginalMathEditorDraftState.OK, false, true)).assertFalse();
+      expect(isOriginalMathEditorDoneEnabled(
+        OriginalMathEditorDraftState.LOADING, false, false)).assertFalse();
+      expect(isOriginalMathEditorDoneEnabled(
+        OriginalMathEditorDraftState.INVALID, false, false)).assertFalse();
+      expect(isOriginalMathEditorDoneEnabled(
+        OriginalMathEditorDraftState.EMPTY, false, false)).assertFalse();
     });
   });
 }
