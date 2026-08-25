@@ -117,6 +117,7 @@ import originalClipboardPermissionGatewayTest from './OriginalClipboardPermissio
 import originalPhotoHistoryMetadataTest from './OriginalPhotoHistoryMetadata.test';
 import mathCanvasRendererTest from './MathCanvasRenderer.test';
 import pdfResourceLifecycleTest from './PdfResourceLifecycle.test';
+import crossPageHistoryReleaseTest from './CrossPageHistoryRelease.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -236,4 +237,5 @@ export default function testsuite() {
   originalPhotoHistoryMetadataTest();
   mathCanvasRendererTest();
   pdfResourceLifecycleTest();
+  crossPageHistoryReleaseTest();
 }

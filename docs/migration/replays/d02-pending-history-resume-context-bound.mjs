@@ -35,7 +35,7 @@ assert.ok(pendingCheck >= 0 && lifecycleGate > pendingCheck && identityGate > li
   'pending history resumes only after lifecycle, health, busy, and page identity authorization');
 
 assert.match(body.slice(lifecycleGate, identityGate),
-  /this\.pendingHistoryDirection = 0;\s+return;/,
+  /this\.pendingHistoryDirection = 0;\s+this\.onPageHistorySettled\(false\);\s+return;/,
   'invalid lifecycle consumes the stale pending direction');
 assert.match(body.slice(identityGate, directionRead),
   /this\.loadedPageId !== this\.currentPage\.pageId\) \{\s+return;\s+\}/,

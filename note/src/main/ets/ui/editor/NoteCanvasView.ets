@@ -1048,6 +1048,10 @@ export struct NoteCanvasView {
           this.enterLoadFailureState();
         }
       }
+      if (this.pendingHistoryDirection !== 0) {
+        this.pendingHistoryDirection = 0;
+        this.onPageHistorySettled(false);
+      }
       console.error(`NoteCanvasView page switch failed: ${JSON.stringify(e)}`);
     } finally {
       if (generation === this.pageLoadGeneration) {
@@ -3249,6 +3253,7 @@ export struct NoteCanvasView {
     if (!this.lifecycleActive || !this.loaded || this.dataLoading || this.dataLoadFailed ||
       this.historyBusy) {
       this.pendingHistoryDirection = 0;
+      this.onPageHistorySettled(false);
       return;
     }
     if (this.loadedPageId.length === 0 ||
