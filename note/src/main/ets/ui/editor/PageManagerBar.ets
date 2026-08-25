@@ -12,6 +12,7 @@ interface PopupStateChangeEvent {
 export struct PageManagerBar {
   @Prop currentPageIndex: number = 0;
   @Prop pageCount: number = 1;
+  @Prop photoImportLeaseActive: boolean = false;
   @Prop busy: boolean = false;
   @Prop noteBackground: NoteBackgroundSettings = originalDefaultNoteBackgroundSettings();
   @State showSettings: boolean = false;
@@ -54,7 +55,7 @@ export struct PageManagerBar {
           .width(44)
           .height(40)
           .fontSize(20)
-          .enabled(!this.busy)
+          .enabled(!this.busy && !this.photoImportLeaseActive)
           .opacity(this.busy ? 0.4 : 1)
           .accessibilityText($r('app.string.add_page'))
           .onClick(() => {
@@ -65,7 +66,7 @@ export struct PageManagerBar {
           .height(40)
           .fontSize(12)
           .margin({ left: 4, right: 8 })
-          .enabled(!this.busy)
+          .enabled(!this.busy && !this.photoImportLeaseActive)
           .accessibilityText($r('app.string.more_page_actions'))
           .bindMenu(this.buildPageMenu())
       } else {
@@ -90,7 +91,7 @@ export struct PageManagerBar {
         Button($r('app.string.add_page'))
           .height(40)
           .margin({ left: 8, right: 8 })
-          .enabled(!this.busy)
+          .enabled(!this.busy && !this.photoImportLeaseActive)
           .opacity(this.busy ? 0.4 : 1)
           .onClick(() => {
             this.onAdd();
@@ -123,9 +124,11 @@ export struct PageManagerBar {
       .width(44)
       .height(40)
       .margin({ left: 4, right: 4 })
-      .enabled(!this.busy && (previous ? this.currentPageIndex > 0 :
+      .enabled(!this.busy && !this.photoImportLeaseActive &&
+        (previous ? this.currentPageIndex > 0 :
         this.currentPageIndex < this.pageCount - 1))
-      .opacity(!this.busy && (previous ? this.currentPageIndex > 0 :
+      .opacity(!this.busy && !this.photoImportLeaseActive &&
+        (previous ? this.currentPageIndex > 0 :
         this.currentPageIndex < this.pageCount - 1) ? 1 : 0.4)
       .accessibilityText(previous ? $r('app.string.previous_page') : $r('app.string.next_page'))
       .onClick(() => {
@@ -144,7 +147,7 @@ export struct PageManagerBar {
       .height(40)
       .fontSize(compact ? 20 : 13)
       .margin({ left: compact ? 2 : 8 })
-      .enabled(!this.busy)
+      .enabled(!this.busy && !this.photoImportLeaseActive)
       .opacity(this.busy ? 0.4 : 1)
       .accessibilityText($r('app.string.page_settings'))
       .onClick(() => {

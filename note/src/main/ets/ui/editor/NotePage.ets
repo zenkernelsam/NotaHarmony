@@ -1186,7 +1186,8 @@ struct NotePage {
           currentPageIndex: this.currentPageIndex,
           pageCount: this.pages.length,
           noteBackground: this.noteBackground,
-          busy: this.pageOperationBusy,
+          photoImportLeaseActive: this.photoImportLeaseActive,
+          busy: this.photoImportLeaseActive || this.pageOperationBusy,
           onPrev: () => {
             if (!this.pageLoading && !this.pageOperationBusy && !this.historyPending &&
               !this.pageStructureLeaseActive &&
@@ -1227,7 +1228,8 @@ struct NotePage {
 
   // Original 1.0.3 applies size/template/orientation through note-level SET_METADATA.
   private async applyNoteBackgroundSettings(settings: NoteBackgroundSettings): Promise<void> {
-    if (this.pageRepo === null) {
+    if (this.photoImportLeaseActive || this.pageStructureLeaseActive ||
+      this.pageRepo === null) {
       return;
     }
     const before: NoteBackgroundSettings = cloneNoteBackgroundSettings(this.noteBackground);
