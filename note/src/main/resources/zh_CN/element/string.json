@@ -257,6 +257,13 @@
     { "name": "math_editor_failed", "value": "无法添加数学公式" },
     { "name": "math_editor_cancel", "value": "取消" },
     { "name": "math_editor_done", "value": "完成" },
+    { "name": "history_recovery_title", "value": "撤销历史需要处理" },
+    { "name": "history_recovery_message", "value": "笔记内容可以继续编辑，但已保存的撤销历史无法验证。可以不使用已保存历史继续编辑，也可以仅重置本地撤销历史后重新开始。笔记内容和操作日志都会保留。" },
+    { "name": "continue_editing", "value": "继续编辑" },
+    { "name": "reset_undo_history", "value": "重置撤销历史" },
+    { "name": "history_recovery_needed", "value": "已保存的撤销历史无法验证，仍可继续编辑。" },
+    { "name": "history_recovery_complete", "value": "撤销历史已重置，新修改可撤销。" },
+    { "name": "history_recovery_failed", "value": "无法重置撤销历史；仍可在没有已保存撤销的情况下继续编辑。" },
     { "name": "original_photo_insert_failed", "value": "无法添加图片" },
     { "name": "original_photo_insert_partial_failed", "value": "部分图片未能添加" },
     { "name": "read_pasteboard_permission_reason", "value": "允许应用粘贴剪贴板中的图片" }
