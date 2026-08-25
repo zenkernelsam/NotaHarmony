@@ -23,7 +23,7 @@ const checks = [
     loader.includes('orientationDegrees: number;') &&
     loader.includes('mirroredHorizontally: boolean;') &&
     loader.includes("originalImageOrientedDimensions(") &&
-    loader.includes('orientation.trim().toLowerCase() === \'2\'')],
+    loader.includes("originalExifMirrorsHorizontally(")],
   ['Harmony renderer maps only valid quarter-turn orientations',
     renderer.includes('[0, 90, 180, 270].includes(orientationDegrees)')],
   ['renderer swaps oriented dimensions for 90 and 270 degree bitmaps',
@@ -33,6 +33,7 @@ const checks = [
     canvas.includes('loaded.orientationDegrees, loaded.mirroredHorizontally')],
   ['rotation helper is exported and covered by ArkTS fixtures',
     normalizer.includes('export function originalRotationDegrees') &&
+    normalizer.includes('export function originalExifMirrorsHorizontally') &&
     fixture.includes("expect(originalRotationDegrees('6')).assertEqual(90)")],
 ];
 

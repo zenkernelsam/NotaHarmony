@@ -134,6 +134,11 @@ async function readOrientation(source: image.ImageSource): Promise<string> {
   }
 }
 
+export function originalExifMirrorsHorizontally(orientation: string): boolean {
+  const value: string = orientation.trim().toLowerCase();
+  return value === '2' || value === '4' || value === '5' || value === '7';
+}
+
 export function originalRotationDegrees(orientation: string): number {
   const value: string = orientation.trim().toLowerCase();
   if (value === '3' || value === '4' || value === 'bottom-right' || value === 'bottom-left') {

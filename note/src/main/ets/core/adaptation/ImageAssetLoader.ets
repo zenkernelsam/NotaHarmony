@@ -3,7 +3,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { ImageElement } from '../model/ElementTypes';
 import { originalAssetLookupKeys } from '../model/ImageBlockGeometry';
 import { originalImageOrientedDimensions } from '../model/OriginalImageInsertPlan';
-import { originalRotationDegrees } from '../../data/OriginalImageNormalizer';
+import { originalExifMirrorsHorizontally, originalRotationDegrees } from '../../data/OriginalImageNormalizer';
 import { AssetStatus, NoteAsset } from '../model/AssetTypes';
 import { AssetRepositoryImpl } from '../../data/AssetRepositoryImpl';
 import { DatabaseManager } from '../../data/DatabaseManager';
@@ -99,7 +99,7 @@ export class ImageAssetLoader {
           'asset image orientation is invalid');
       }
       const rotationDegrees: number = originalRotationDegrees(orientation);
-      const mirroredHorizontally: boolean = orientation.trim().toLowerCase() === '2';
+      const mirroredHorizontally: boolean = originalExifMirrorsHorizontally(orientation);
 
       if (!Number.isSafeInteger(info.size.width) || !Number.isSafeInteger(info.size.height) ||
         info.size.width <= 0 || info.size.height <= 0) {

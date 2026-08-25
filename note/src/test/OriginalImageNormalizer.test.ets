@@ -2,7 +2,9 @@ import { describe, expect, it } from '@ohos/hypium';
 import {
   originalImageOrientedDimensions, planOriginalImageDownscale,
 } from '../main/ets/core/model/OriginalImageInsertPlan';
-import { originalRotationDegrees } from '../main/ets/data/OriginalImageNormalizer';
+import {
+  originalExifMirrorsHorizontally, originalRotationDegrees,
+} from '../main/ets/data/OriginalImageNormalizer';
 
 export default function originalImageNormalizerTest() {
   describe('OriginalImageNormalizer', () => {
@@ -42,6 +44,19 @@ export default function originalImageNormalizerTest() {
       expect(originalRotationDegrees('7')).assertEqual(90);
       expect(originalRotationDegrees('8')).assertEqual(270);
       expect(originalRotationDegrees('Right-top')).assertEqual(90);
+    });
+
+    it('matches the original horizontal mirror orientation set', 0, () => {
+      expect(originalExifMirrorsHorizontally('2')).assertTrue();
+      expect(originalExifMirrorsHorizontally('4')).assertTrue();
+      expect(originalExifMirrorsHorizontally('5')).assertTrue();
+      expect(originalExifMirrorsHorizontally('7')).assertTrue();
+      expect(originalExifMirrorsHorizontally(' Top-right ')).assertTrue();
+      expect(originalExifMirrorsHorizontally('1')).assertFalse();
+      expect(originalExifMirrorsHorizontally('3')).assertFalse();
+      expect(originalExifMirrorsHorizontally('6')).assertFalse();
+      expect(originalExifMirrorsHorizontally('8')).assertFalse();
+      expect(originalExifMirrorsHorizontally('')).assertFalse();
     });
 
     it('rejects invalid normalization dimensions', 0, () => {
