@@ -101,7 +101,7 @@ struct NotePage {
   @State canUndo: boolean = false;
   @State canRedo: boolean = false;
   @State pageOperationBusy: boolean = false;
-  private pageRemovalLeaseActive: boolean = false;
+  private pageStructureLeaseActive: boolean = false;
   @State pageLoading: boolean = false;
   @State historyPending: boolean = false;
   @State pageLoadFailed: boolean = false;
@@ -251,7 +251,7 @@ struct NotePage {
   }
 
   private async performLeaveEditor(): Promise<void> {
-    if (this.pageRemovalLeaseActive) {
+    if (this.pageStructureLeaseActive) {
       return;
     }
     if (this.editingTitle) {
@@ -401,7 +401,7 @@ struct NotePage {
       this.publishTitleDraft(requested, generation);
       return;
     }
-    if (this.pageRemovalLeaseActive) {
+    if (this.pageStructureLeaseActive) {
       return;
     }
     try {
@@ -961,12 +961,12 @@ struct NotePage {
           canUndo: this.canUndo,
           canRedo: this.canRedo,
           onUndo: () => {
-            if (!this.pageRemovalLeaseActive) {
+            if (!this.pageOperationBusy) {
               this.undoSignal++;
             }
           },
           onRedo: () => {
-            if (!this.pageRemovalLeaseActive) {
+            if (!this.pageOperationBusy) {
               this.redoSignal++;
             }
           },
@@ -1071,7 +1071,7 @@ struct NotePage {
             this.canRedo = r;
           },
           onRequestPage: (pageId: string) => {
-            if (this.pageRemovalLeaseActive) {
+            if (this.pageOperationBusy || this.pageStructureLeaseActive) {
               return;
             }
             for (let i: number = 0; i < this.pages.length; i++) {
@@ -1140,14 +1140,14 @@ struct NotePage {
           busy: this.pageOperationBusy,
           onPrev: () => {
             if (!this.pageLoading && !this.pageOperationBusy && !this.historyPending &&
-              !this.pageRemovalLeaseActive &&
+              !this.pageStructureLeaseActive &&
               this.currentPageIndex > 0) {
               this.currentPageIndex--;
             }
           },
           onNext: () => {
             if (!this.pageLoading && !this.pageOperationBusy &&
-              !this.historyPending && !this.pageRemovalLeaseActive &&
+              !this.historyPending && !this.pageStructureLeaseActive &&
               this.currentPageIndex < this.pages.length - 1) {
               this.currentPageIndex++;
             }
@@ -1296,11 +1296,12 @@ struct NotePage {
     if (this.pageRepo === null || this.pages.length <= 1 || this.historyBridge === null) {
       return;
     }
+    this.pageStructureLeaseActive = true;
     const historyBridge: EditorHistoryBridge = this.historyBridge;
     try {
       await this.deleteCurrentPageLocked(historyBridge);
     } finally {
-      this.pageRemovalLeaseActive = false;
+      this.pageStructureLeaseActive = false;
     }
   }
 

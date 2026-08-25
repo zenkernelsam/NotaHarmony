@@ -18,7 +18,7 @@ assert.match(guard, /return this\.editorLeavePromise;/);
 const performEnd = page.indexOf('\n  private async loadPages', performStart);
 assert.notEqual(performEnd, -1);
 const perform = page.slice(performStart, performEnd);
-const removalGate = perform.indexOf('if (this.pageRemovalLeaseActive) {');
+const removalGate = perform.indexOf('if (this.pageStructureLeaseActive) {');
 const removalReturn = perform.indexOf('return;', removalGate);
 const titleSave = perform.indexOf('if (this.editingTitle) {');
 assert.ok(

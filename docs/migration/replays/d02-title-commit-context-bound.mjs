@@ -12,7 +12,7 @@ assert.ok(start !== -1 && end > start);
 const body = page.slice(start, end);
 
 const unchangedPublish = body.indexOf('this.publishTitleDraft(requested, generation);');
-const removalGate = body.indexOf('if (this.pageRemovalLeaseActive) {');
+const removalGate = body.indexOf('if (this.pageStructureLeaseActive) {');
 const removalReturn = body.indexOf('return;', removalGate);
 const titleRepository = body.indexOf('if (this.noteRepo === null) {', removalGate);
 assert.ok(unchangedPublish >= 0);

@@ -5,6 +5,7 @@ const page = fs.readFileSync('note/src/main/ets/ui/editor/NotePage.ets', 'utf8')
   .replaceAll('\r\n', '\n');
 
 assert.match(page, /@State pageOperationBusy: boolean = false;\s+private pageStructureLeaseActive: boolean = false;/);
+assert.doesNotMatch(page, /pageRemovalLeaseActive/);
 
 const deleteStart = page.indexOf('  private async deleteCurrentPage(): Promise<void> {');
 const moveStart = page.indexOf('  private async moveCurrentPage(', deleteStart);
@@ -13,14 +14,15 @@ const deleteBody = page.slice(deleteStart, moveStart);
 
 const preflight = deleteBody.indexOf(
   'if (this.pageRepo === null || this.pages.length <= 1 || this.historyBridge === null) {');
-const leaseSet = deleteBody.indexOf('try {', preflight);
+const leaseSet = deleteBody.indexOf('this.pageStructureLeaseActive = true;', preflight);
 const lockedCall = deleteBody.indexOf('await this.deleteCurrentPageLocked(historyBridge);', leaseSet);
 const finallyRelease = deleteBody.indexOf('} finally {', lockedCall);
-const releaseStatement = deleteBody.indexOf('this.pageStructureLeaseActive = false;', finallyRelease);
-assert.ok(preflight >= 0 && leaseSet > preflight && lockedCall > leaseSet && finallyRelease > lockedCall);
-assert.ok(finallyRelease > lockedCall && releaseStatement > finallyRelease);
-assert.equal(deleteBody.indexOf('this.pageStructureLeaseActive = false;', releaseStatement + 1) === -1, true,
-  'the deletion lease is released exactly once by its owning wrapper');
+const releaseStatement = deleteBody.indexOf(
+  'this.pageStructureLeaseActive = false;', finallyRelease);
+assert.ok(preflight >= 0 && leaseSet > preflight && lockedCall > leaseSet &&
+  finallyRelease > lockedCall && releaseStatement > finallyRelease);
+assert.equal(deleteBody.indexOf('this.pageStructureLeaseActive = false;', releaseStatement + 1), -1,
+  'the structure lease is released exactly once by its owning wrapper');
 
 const removalPrepare = deleteBody.indexOf('historyBridge.preparePageRemoval(pageId);');
 const durableDelete = deleteBody.indexOf('deletePageWithCheckpoint(this.noteId, pageId, history)');
@@ -34,17 +36,18 @@ for (const [name, startMarker, endMarker] of [
   const start = page.indexOf(startMarker);
   const end = page.indexOf(endMarker, start);
   assert.ok(start >= 0 && end > start, name);
-  const section = page.slice(start, end);
-  assert.ok(section.includes('!this.pageStructureLeaseActive'), `${name} rejects an active deletion lease`);
+  assert.ok(page.slice(start, end).includes('!this.pageOperationBusy') &&
+    page.slice(start, end).includes('!this.historyPending') &&
+    page.slice(start, end).includes('!this.pageStructureLeaseActive'),
+    `${name} rejects an active structure lease`);
 }
 
 for (const [name, signal] of [['undo', 'this.undoSignal++'], ['redo', 'this.redoSignal++']]) {
   const trigger = page.indexOf(signal);
   assert.ok(trigger >= 0, `${name} trigger`);
   const guarded = page.lastIndexOf('if (!this.pageOperationBusy) {', trigger);
-  const close = page.indexOf('}', trigger);
-  assert.ok(guarded >= 0 && close > trigger,
-    `${name} cannot dispatch during a serialized page operation`);
+  assert.ok(guarded >= 0,
+    `${name} is serialized with page operations but remains available during deletion`);
 }
 
 const requestStart = page.indexOf('onRequestPage: (pageId: string) => {');
@@ -52,13 +55,10 @@ const requestSettled = page.indexOf('onPageHistorySettled:', requestStart);
 assert.ok(requestStart >= 0 && requestSettled > requestStart);
 const requestSection = page.slice(requestStart, requestSettled);
 const requestGate = requestSection.indexOf(
-  'if (this.pageOperationBusy || this.pageStructureLeaseActive) {',
-);
+  'if (this.pageOperationBusy || this.pageStructureLeaseActive) {');
 const requestReturn = requestSection.indexOf('return;', requestGate);
 const pageIndexMutation = requestSection.indexOf('this.currentPageIndex = i;');
-assert.ok(
-  requestGate >= 0 && requestReturn > requestGate && pageIndexMutation > requestReturn,
-  'history page requests cannot retarget selection during a deletion lease',
-);
+assert.ok(requestGate >= 0 && requestReturn > requestGate && pageIndexMutation > requestReturn,
+  'history page requests cannot retarget selection during a page operation or structure lease');
 
-console.log('D02_PAGE_DELETE_REMOVAL_LEASE_BOUND_REPLAY_OK TOTAL=9 FAILED=0');
+console.log('D02_PAGE_STRUCTURE_LEASE_BOUND_REPLAY_OK TOTAL=9 FAILED=0');
