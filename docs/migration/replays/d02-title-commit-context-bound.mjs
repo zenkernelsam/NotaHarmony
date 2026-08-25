@@ -12,7 +12,8 @@ assert.ok(start !== -1 && end > start);
 const body = page.slice(start, end);
 
 const unchangedPublish = body.indexOf('this.publishTitleDraft(requested, generation);');
-const removalGate = body.indexOf('if (this.pageStructureLeaseActive) {');
+const removalGate = body.indexOf(
+  'if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {');
 const removalReturn = body.indexOf('return;', removalGate);
 const titleRepository = body.indexOf('if (this.noteRepo === null) {', removalGate);
 assert.ok(unchangedPublish >= 0);
@@ -38,4 +39,4 @@ assert.ok(stalePublish > identityGate && staleAction > stalePublish,
 assert.ok(normalPublish < historyPush,
   'accepted title continuation publishes before undo history');
 
-console.log('D02_TITLE_COMMIT_CONTEXT_BOUND_REPLAY_OK TOTAL=5 FAILED=0');
+console.log('D02_TITLE_COMMIT_CONTEXT_BOUND_REPLAY_OK TOTAL=6 FAILED=0');

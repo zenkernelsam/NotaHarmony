@@ -253,7 +253,7 @@ struct NotePage {
   }
 
   private async performLeaveEditor(): Promise<void> {
-    if (this.pageStructureLeaseActive) {
+    if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
       return;
     }
     if (this.editingTitle) {
@@ -409,7 +409,7 @@ struct NotePage {
       this.publishTitleDraft(requested, generation);
       return;
     }
-    if (this.pageStructureLeaseActive) {
+    if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
       return;
     }
     try {
