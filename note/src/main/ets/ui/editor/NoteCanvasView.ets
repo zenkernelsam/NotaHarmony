@@ -261,6 +261,9 @@ export struct NoteCanvasView {
   onApplyPageHistory: (action: UndoableAction, isUndo: boolean,
     history: HistoryMetadata) => Promise<boolean> =
     async (_action: UndoableAction, _isUndo: boolean, _history: HistoryMetadata): Promise<boolean> => false;
+  onApplyNoteTitleHistory: (action: UndoableAction, isUndo: boolean,
+    history: HistoryMetadata) => Promise<boolean> =
+    async (_action: UndoableAction, _isUndo: boolean, _history: HistoryMetadata): Promise<boolean> => false;
 
   // === 内部模块 ===
   private settings: RenderingContextSettings = new RenderingContextSettings(true);
@@ -2689,7 +2692,10 @@ export struct NoteCanvasView {
       }
       const pageHistoryGeneration: number = this.pageLoadGeneration;
       this.historyBusy = true;
-      this.onApplyPageHistory(action, isUndo, history).then((applied: boolean) => {
+      const applyPromise = this.isNoteTitleAction(action.type)
+        ? this.onApplyNoteTitleHistory(action, isUndo, history)
+        : this.onApplyPageHistory(action, isUndo, history);
+      applyPromise.then((applied: boolean) => {
         if (applied && this.lifecycleActive && pageHistoryGeneration === this.pageLoadGeneration) {
           this.commitHistory(action, isUndo);
         } else if (applied) {
@@ -3255,6 +3261,10 @@ export struct NoteCanvasView {
       type === UndoableActionType.REORDER_PAGES || type === UndoableActionType.PAGE_SETTINGS ||
       type === UndoableActionType.NOTE_BACKGROUND || type === UndoableActionType.NOTE_TITLE ||
       type === UndoableActionType.NOTE_METADATA;
+  }
+
+  private isNoteTitleAction(type: UndoableActionType): boolean {
+    return type === UndoableActionType.NOTE_TITLE;
   }
 
   private isHistoryPageContextCurrent(generation: number, pageId: string): boolean {

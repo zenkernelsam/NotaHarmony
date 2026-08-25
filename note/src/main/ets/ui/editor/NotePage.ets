@@ -133,6 +133,7 @@ struct NotePage {
   private titleSaveGeneration: number = 0;
   private editorDisposed: boolean = false;
   private editorLeavePromise: Promise<void> | null = null;
+  private titleSaveInFlight: boolean = false;
   private pageRepo: PageRepositoryImpl | null = null;
   private persistence: StrokePersistence = new StrokePersistence();
   private historyBridge: EditorHistoryBridge | null = null;
@@ -390,7 +391,11 @@ struct NotePage {
     // Keep the tail usable even if an unexpected exception escapes commitTitle.
     // Callers can await `queued`, while the internal chain remains available to a
     // later edit instead of being permanently poisoned by one transient failure.
+    this.titleSaveInFlight = true;
     this.titleSaveQueue = queued.catch((_error: Object): void => {
+    });
+    void queued.finally((): void => {
+      this.titleSaveInFlight = false;
     });
     return queued;
   }
@@ -1085,6 +1090,13 @@ struct NotePage {
           },
           onPageHistorySettled: (pending: boolean) => {
             this.historyPending = pending;
+          },
+          onApplyNoteTitleHistory: (action: UndoableAction, isUndo: boolean,
+            history: HistoryMetadata): Promise<boolean> => {
+            if (this.pageOperationBusy || this.titleSaveInFlight) {
+              return Promise.resolve(false);
+            }
+            return this.applyPageHistory(action, isUndo, history);
           },
           onHistoryBridgeReady: (bridge: EditorHistoryBridge) => {
             this.historyBridge = bridge;
