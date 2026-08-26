@@ -121,13 +121,15 @@ export struct EditorToolbar {
             .height(32)
             .fontSize(13)
             .margin({ left: 2, right: 2 })
-            .enabled(!this.viewModel.toolStateLoading)
+            .enabled(!this.viewModel.toolStateLoading &&
+              !this.photoImportLeaseActive)
             .onClick(() => this.onInsertPhotos())
           Button($r('app.string.insert_math'))
             .height(32)
             .fontSize(13)
             .margin({ left: 2, right: 2 })
-            .enabled(!this.viewModel.toolStateLoading)
+            .enabled(!this.viewModel.toolStateLoading &&
+              !this.photoImportLeaseActive)
             .onClick(() => {
               this.onInsertMath();
             })
@@ -139,7 +141,8 @@ export struct EditorToolbar {
           .width(48)
           .height(32)
           .fontSize(18)
-          .enabled(this.canUndo)
+          .enabled(this.canUndo &&
+            !this.photoImportLeaseActive)
           .opacity(this.canUndo ? 1 : 0.4)
           .onClick(() => {
             this.onUndo();
@@ -148,7 +151,8 @@ export struct EditorToolbar {
           .width(48)
           .height(32)
           .fontSize(18)
-          .enabled(this.canRedo)
+          .enabled(this.canRedo &&
+            !this.photoImportLeaseActive)
           .opacity(this.canRedo ? 1 : 0.4)
           .onClick(() => {
             this.onRedo();
