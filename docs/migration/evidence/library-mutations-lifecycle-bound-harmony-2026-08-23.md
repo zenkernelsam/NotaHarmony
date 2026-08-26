@@ -10,6 +10,14 @@ Date: 2026-08-23
   拖放和生命周期守卫不变。
 - 扩展既有库页文件夹变更专项 Replay 至 `TOTAL=7 FAILED=0`。
 
+## Phase 512 增量（2026-08-26）
+
+- 补审发现：文件夹弹窗确认入口未先拒绝失活页面；晚到确认可启动仓库持久化事务，即使成功结果随后
+  被生命周期丢弃。
+- `onFolderDialogConfirm()` 现在第一条语句拒绝非 `pageActive`。生命周期捕获、忙态拒绝、创建/重命名、
+  失败提示、成功发布和关闭语义不变。
+- 扩展既有库页文件夹变更专项 Replay 至 `TOTAL=8 FAILED=0`。
+
 - Four mutation entry points capture `lifecycleGeneration` before their first await.
 - After successful durable operations, folder create/rename/delete/reorder and note move publish only when generation, `pageActive`, and repository/viewModel references remain current.
 - Stale success paths return without folder snapshots, note snapshots, selection resets, thumbnail scheduling, or best-effort reloads.

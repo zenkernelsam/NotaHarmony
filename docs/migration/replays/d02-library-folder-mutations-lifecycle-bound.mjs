@@ -14,6 +14,9 @@ function section(startMarker, endMarker) {
 const confirm = section(
   'private async onFolderDialogConfirm(name: string): Promise<boolean> {',
   '\n  // 删除文件夹：内部笔记回根目录（不删笔记）');
+assert.match(confirm,
+  /private async onFolderDialogConfirm\(name: string\): Promise<boolean> \{\s+if \(!this\.pageActive\) \{\s+return false;\s+\}\s+const trimmed:/,
+  'stale folder dialog cannot start a mutation');
 assert.match(confirm, /const lifecycleGeneration: number = this\.lifecycleGeneration;/);
 assert.match(confirm,
   /lifecycleGeneration !== this\.lifecycleGeneration \|\| !this\.pageActive \|\|\s+this\.folderRepo !== repo/);
@@ -50,4 +53,4 @@ const toggle = section(
   '\n  private openCompactFolderDrawer');
 assert.match(toggle, /if \(this\.folderBusy\) \{\s+return;\s+\}\s+const next:/);
 
-console.log('D02_LIBRARY_FOLDER_MUTATIONS_LIFECYCLE_BOUND_REPLAY_OK TOTAL=7 FAILED=0');
+console.log('D02_LIBRARY_FOLDER_MUTATIONS_LIFECYCLE_BOUND_REPLAY_OK TOTAL=8 FAILED=0');

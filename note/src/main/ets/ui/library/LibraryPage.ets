@@ -485,6 +485,9 @@ struct LibraryPage {
   }
 
   private async onFolderDialogConfirm(name: string): Promise<boolean> {
+    if (!this.pageActive) {
+      return false;
+    }
     const trimmed: string = name.trim();
     const lifecycleGeneration: number = this.lifecycleGeneration;
     const repoCapture: FolderRepositoryImpl | null = this.folderRepo;
