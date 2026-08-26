@@ -2,6 +2,12 @@
 
 Date: 2026-08-25 (Asia/Shanghai)
 
+## Phase 508 increment (2026-08-26)
+
+- Audit found that the backup error-state retry button relied only on reactive disabling before calling `reloadPage()`. A late click racing an export, import, cloud backup, or restore could increment load generation and republish LOADING.
+- The retry callback now rejects `isBusy` first. Initialization, return refreshes, shared backup-operation leasing, lifecycle guards, and normal error recovery are unchanged.
+- Extended the existing backup page load disposal-bound replay to `TOTAL=8 FAILED=0`.
+
 ## Source review
 
 - `BackupPage.reloadPage()` awaited database initialization and WebDAV configuration reads before publishing config and `READY`.

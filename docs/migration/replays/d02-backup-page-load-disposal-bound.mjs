@@ -6,6 +6,9 @@ const page = fs.readFileSync('note/src/main/ets/ui/settings/BackupPage.ets', 'ut
 
 assert.match(page,
   /aboutToDisappear\(\): void \{\s+this\.pageDisposed = true;\s+this\.lifecycleGeneration\+\+;\s+\}/);
+assert.match(page,
+  /Button\(\$r\('app\.string\.retry'\)\)\s+\.width\('90%'\)\s+\.margin\(\{ bottom: 12 \}\)\s+\.enabled\(!this\.isBusy\)\s+\.onClick\(\(\) => \{\s+if \(this\.isBusy\) \{\s+return;\s+\}\s+this\.reloadPage\(\);/,
+  'backup retry rejects busy state');
 
 const start = page.indexOf('private async reloadPage(): Promise<void> {');
 const end = page.indexOf('\n  // === 本地：导出全部笔记 ===', start);
@@ -37,4 +40,4 @@ const finallyGuardIndex = body.indexOf('if (!this.isStaleReload(expectedLifecycl
 const initializedIndex = body.indexOf('this.initialized = true;', finallyIndex);
 assert.ok(finallyGuardIndex > finallyIndex && initializedIndex > finallyGuardIndex);
 
-console.log('D02_BACKUP_PAGE_LOAD_DISPOSAL_BOUND_REPLAY_OK TOTAL=7 FAILED=0');
+console.log('D02_BACKUP_PAGE_LOAD_DISPOSAL_BOUND_REPLAY_OK TOTAL=8 FAILED=0');

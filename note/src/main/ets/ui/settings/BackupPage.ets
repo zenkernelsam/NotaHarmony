@@ -549,6 +549,9 @@ struct BackupPage {
               .margin({ bottom: 12 })
               .enabled(!this.isBusy)
               .onClick(() => {
+                if (this.isBusy) {
+                  return;
+                }
                 this.reloadPage();
               })
           } else {
