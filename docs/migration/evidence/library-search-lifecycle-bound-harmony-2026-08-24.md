@@ -2,6 +2,12 @@
 
 Date: 2026-08-24 (Asia/Shanghai)
 
+## Phase 511 increment (2026-08-26)
+
+- Audit found that the search `onChange` entry published `searchText` and incremented the notes-request generation before any activation check. A late input event after disposal could pollute shared state even though the debounce callback was guarded.
+- The input callback now rejects inactive pages before query publication, request-generation capture, and debounce scheduling. Debounce identity, lifecycle rejection, result publishing, thumbnails, and failure feedback are unchanged.
+- Extended the existing library search lifecycle-bound replay to `TOTAL=8 FAILED=0`.
+
 ## Source review
 
 - File: note/src/main/ets/ui/library/LibraryPage.ets

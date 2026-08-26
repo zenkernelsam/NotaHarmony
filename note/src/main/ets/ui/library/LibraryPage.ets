@@ -1373,6 +1373,9 @@ struct LibraryPage {
             .placeholderColor(this.resolveTokens().textSecondary)
             .backgroundColor(this.resolveTokens().surface)
             .onChange((value: string) => {
+              if (!this.pageActive) {
+                return;
+              }
               this.searchText = value;
               const notesRequestGeneration: number = this.beginNotesRequest();
               if (this.searchTimer >= 0) {
