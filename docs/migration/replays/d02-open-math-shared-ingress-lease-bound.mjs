@@ -9,14 +9,21 @@ const overlay = fs.readFileSync(
 assert.match(overlay, /@Prop photoImportLeaseActive: boolean = false;/);
 assert.match(overlay,
   /export function isOriginalMathEditorDoneEnabled\(state: OriginalMathEditorDraftState,\s+busy: boolean, photoImportLeaseActive: boolean\): boolean \{\s+return !busy && !photoImportLeaseActive &&\s+state === OriginalMathEditorDraftState\.OK;\s+\}/);
-assert.equal(overlay.match(/!this\.photoImportLeaseActive/g)?.length >= 2, true);
+assert.equal(
+  overlay.match(/if \(this\.busy \|\| this\.photoImportLeaseActive\) \{/g)?.length,
+  2,
+  'math cancel and confirm callbacks reject busy and shared lease');
+assert.equal(
+  overlay.match(/onClick\(\(\): void => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.on(Cancel|Confirm)\(\);\s+\}\)/g)?.length ?? 0,
+  0,
+  'math click callbacks no longer rely only on shared lease');
 
 assert.match(overlay,
   /\.onChange\(\(value: string\): void => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onDraftChange\(value\);\s+\}\)/);
 assert.match(overlay,
-  /\.onClick\(\(\): void => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onCancel\(\);\s+\}\)/);
+  /\.onClick\(\(\): void => \{\s+if \(this\.busy \|\| this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onCancel\(\);\s+\}\)/);
 assert.match(overlay,
-  /\.onClick\(\(\): void => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onConfirm\(\);\s+\}\)/);
+  /\.onClick\(\(\): void => \{\s+if \(this\.busy \|\| this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onConfirm\(\);\s+\}\)/);
 
 const callStart = canvas.indexOf('      MathEditorOverlay({');
 const callEnd = canvas.indexOf('\n      })', callStart);
@@ -34,4 +41,4 @@ for (const name of ['onDraftChange', 'onCancel', 'onConfirm']) {
   assert.match(guard, /this\.historyBusy/, `${name} rejects history lease second`);
 }
 
-console.log('D02_OPEN_MATH_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=13 FAILED=0');
+console.log('D02_OPEN_MATH_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=15 FAILED=0');

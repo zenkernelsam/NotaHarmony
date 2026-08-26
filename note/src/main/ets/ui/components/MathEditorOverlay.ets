@@ -123,7 +123,7 @@ export struct MathEditorOverlay {
               .backgroundColor(this.resolveTokens().control)
               .enabled(!this.busy && !this.photoImportLeaseActive)
               .onClick((): void => {
-                if (this.photoImportLeaseActive) {
+                if (this.busy || this.photoImportLeaseActive) {
                   return;
                 }
                 this.onCancel();
@@ -137,7 +137,7 @@ export struct MathEditorOverlay {
               .enabled(isOriginalMathEditorDoneEnabled(
                 this.draftState, this.busy, this.photoImportLeaseActive))
               .onClick((): void => {
-                if (this.photoImportLeaseActive) {
+                if (this.busy || this.photoImportLeaseActive) {
                   return;
                 }
                 this.onConfirm();
