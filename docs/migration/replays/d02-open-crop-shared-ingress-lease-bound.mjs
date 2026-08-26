@@ -12,6 +12,17 @@ assert.equal(overlay.match(/\.enabled\(this\.controlsEnabled\)/g)?.length, 3);
 assert.match(overlay,
   /\.onActionUpdate\(\(event: GestureEvent\) => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+const offsetX: number = event\.offsetX === undefined \? this\.dragOffsetX : event\.offsetX;/);
 
+for (const action of ['onClose()', 'onReset()', 'onConfirm()']) {
+  const forwardStart = overlay.indexOf(`this.${action}`);
+  assert.ok(forwardStart >= 0, action);
+  const clickStart = overlay.lastIndexOf('.onClick(() => {', forwardStart);
+  assert.ok(clickStart >= 0, `${action} click bounds`);
+  const body = overlay.slice(clickStart, forwardStart + action.length + 1);
+  assert.match(body,
+    /if \(!this\.controlsEnabled\) \{\s+return;\s+\}\s+/,
+    `${action} rejects disabled controls`);
+}
+
 const callStart = canvas.indexOf('      ImageCropOverlay({');
 const callEnd = canvas.indexOf('\n      })', callStart);
 assert.ok(callStart >= 0 && callEnd > callStart);
@@ -28,4 +39,4 @@ for (const name of ['onMove', 'onClose', 'onReset', 'onConfirm']) {
   assert.match(guard, /this\.historyBusy/, `${name} rejects history lease second`);
 }
 
-console.log('D02_OPEN_CROP_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=11 FAILED=0');
+console.log('D02_OPEN_CROP_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=14 FAILED=0');

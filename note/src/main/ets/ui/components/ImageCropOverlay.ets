@@ -140,7 +140,12 @@ export struct ImageCropOverlay {
             .fontColor(this.resolveTokens().textPrimary)
             .accessibilityText($r('app.string.crop_close'))
             .enabled(this.controlsEnabled)
-            .onClick(() => this.onClose())
+            .onClick(() => {
+              if (!this.controlsEnabled) {
+                return;
+              }
+              this.onClose();
+            })
           Button() {
             Image($r('app.media.crop_reset'))
               .width(20)
@@ -153,7 +158,12 @@ export struct ImageCropOverlay {
             .fontColor(this.resolveTokens().textPrimary)
             .accessibilityText($r('app.string.crop_reset'))
             .enabled(this.controlsEnabled)
-            .onClick(() => this.onReset())
+            .onClick(() => {
+              if (!this.controlsEnabled) {
+                return;
+              }
+              this.onReset();
+            })
           Button() {
             Image($r('app.media.crop_confirm'))
               .width(20)
@@ -166,7 +176,12 @@ export struct ImageCropOverlay {
             .fontColor(this.resolveTokens().onAccent)
             .accessibilityText($r('app.string.crop_confirm'))
             .enabled(this.controlsEnabled)
-            .onClick(() => this.onConfirm())
+            .onClick(() => {
+              if (!this.controlsEnabled) {
+                return;
+              }
+              this.onConfirm();
+            })
         }
         .width(CROP_TOOLBAR_WIDTH)
         .height(CROP_TOOLBAR_HEIGHT)
