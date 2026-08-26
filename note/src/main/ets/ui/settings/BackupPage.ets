@@ -514,13 +514,21 @@ struct BackupPage {
           Button($r('app.string.export_all_notes'))
             .width('90%')
             .margin({ bottom: 8 })
+            .enabled(!this.isBusy)
             .onClick(() => {
+              if (this.isBusy) {
+                return;
+              }
               this.exportAllLocal();
             })
           Button($r('app.string.import_note_file'))
             .width('90%')
             .margin({ bottom: 16 })
+            .enabled(!this.isBusy)
             .onClick(() => {
+              if (this.isBusy) {
+                return;
+              }
               this.importLocal();
             })
 

@@ -27,3 +27,8 @@ Date: 2026-08-25 (Asia/Shanghai)
 * Full Desktop Replay: REPLAY_FILES=363 PASSED=363 FAILED_FILES=0.
 * Dual HAP static build succeeded: ohosTest in 11.163 seconds; default in 52.950 seconds.
 * No simulator, virtual machine, physical device, or Hypium execution.
+## Phase 520 increment (2026-08-26)
+
+- Continued audit found that the local Export All Notes and Import Note File buttons lacked reactive `!isBusy` disabling and their callbacks forwarded directly during long operations.
+- Both buttons now disable while busy, and each callback rejects `isBusy` before invoking its existing method. Shared backup-operation leasing, file selection, cloud actions, retry behavior, lifecycle guards, and normal semantics are unchanged.
+- Extended the existing backup page operation lease replay to `TOTAL=11 FAILED=0`.

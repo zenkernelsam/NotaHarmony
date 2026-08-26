@@ -50,6 +50,12 @@ const checks = [
   ['lease tests are registered',
     testList.includes("import backupOperationLeaseTest from './BackupOperationLease.test'") &&
     testList.includes('backupOperationLeaseTest();')],
+  ['local export and import buttons are visually disabled while busy',
+    (page.match(/Button\(\$r\('app\.string\.export_all_notes'\)\)[\s\S]*?\.enabled\(!this\.isBusy\)/g) ?? []).length === 1 &&
+    (page.match(/Button\(\$r\('app\.string\.import_note_file'\)\)[\s\S]*?\.enabled\(!this\.isBusy\)/g) ?? []).length === 1],
+  ['local export and import callbacks reject busy state before invocation',
+    /Button\(\$r\('app\.string\.export_all_notes'\)\)[\s\S]*?onClick\(\(\) => \{\s*if \(this\.isBusy\) \{\s*return;\s*\}\s*this\.exportAllLocal\(\);/.test(page) &&
+    /Button\(\$r\('app\.string\.import_note_file'\)\)[\s\S]*?onClick\(\(\) => \{\s*if \(this\.isBusy\) \{\s*return;\s*\}\s*this\.importLocal\(\);/.test(page)],
 ];
 
 for (const [name, ok] of checks) {
