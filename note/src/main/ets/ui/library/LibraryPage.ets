@@ -671,6 +671,10 @@ struct LibraryPage {
   }
 
   private finishFolderDrag(event: ItemDragInfo, insertIndex: number, isSuccess: boolean): void {
+    if (!this.pageActive) {
+      this.clearFolderDrag();
+      return;
+    }
     const visibleIds: string[] = this.folderDragVisibleIds.slice();
     const visibleDepths: number[] = this.folderDragVisibleDepths.slice();
     const sourceIndex: number = this.folderDragSourceIndex;

@@ -137,6 +137,9 @@ assert.match(page, /return this\.FolderDragPreview/);
 assert.match(page, /aboutToDisappear\(\): void \{[\s\S]*?this\.clearFolderDrag\(\)/);
 assert.match(page, /\.onItemDragStart\(/);
 assert.match(page, /\.onItemDrop\(/);
+assert.match(page,
+  /private finishFolderDrag\(event: ItemDragInfo, insertIndex: number, isSuccess: boolean\): void \{\s+if \(!this\.pageActive\) \{\s+this\.clearFolderDrag\(\);\s+return;\s+\}/,
+  'stale drop clears drag state without starting a move');
 assert.match(page, /move_folder_up/);
 assert.match(page, /move_folder_down/);
 assert.match(fixture, /maps a flat drag boundary to the original destination parent and child index/);

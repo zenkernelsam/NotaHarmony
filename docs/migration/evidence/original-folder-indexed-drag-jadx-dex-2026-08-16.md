@@ -68,6 +68,14 @@ folder 行缩进只有 12vp。即便 parent/siblingOrder 模型已经存在，�
 
 ## 回放
 
+## Phase 513 增量（2026-08-26）
+
+- 补审发现：`finishFolderDrag()` 可在页面失活后的晚到 drop 中继续解析目标并启动 `moveFolder()`；
+  过期拖拽快照也会残留到下一次交互。
+- 收尾入口现在第一条语句拒绝非 `pageActive` 并清理快照。忙态拒绝、ArkUI pre-removal boundary、
+  可见子树 depth 换算、失败提示和成功发布不变。
+- 扩展原版文件夹索引拖拽 Replay，新增失活收尾清理断言并通过。
+
 `node docs/migration/replays/d02-original-folder-indexed-drag.mjs` 输出：
 
 ```text
