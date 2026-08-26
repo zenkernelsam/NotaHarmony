@@ -40,4 +40,25 @@ for (const [name, token] of [
   assert.equal(guarded, 2, `${name} guards both end and cancel`);
 }
 
-console.log('D02_VIEWPORT_CONTINUATION_SHARED_INGRESS_BOUND_REPLAY_OK TOTAL=10 FAILED=0');
+const controlsStart = canvas.indexOf('      Row() {\n        Button(\'-\')');
+assert.ok(controlsStart >= 0);
+const controlsEnd = canvas.indexOf('      .margin({ left: 16, bottom: 68 })', controlsStart);
+assert.ok(controlsEnd > controlsStart);
+const controls = canvas.slice(controlsStart, controlsEnd);
+for (const [name, forward] of [
+  ['zoom out', 'this.zoomStep(-0.25);'],
+  ['zoom in', 'this.zoomStep(0.25);'],
+  ['fit width', 'this.zoomFitWidth();'],
+]) {
+  const clickStart = controls.indexOf('.onClick(() => {', Math.max(0,
+    controls.indexOf(forward) - 220));
+  const clickEnd = controls.indexOf('})', clickStart);
+  const body = controls.slice(clickStart, clickEnd);
+  const guard = body.indexOf('if (this.photoImportBusy) {');
+  const guardReturn = body.indexOf('return;', guard);
+  const forwardIndex = body.indexOf(forward, guardReturn);
+  assert.ok(clickStart >= 0 && guard >= 0 && guardReturn > guard &&
+    forwardIndex > guardReturn, `${name} rejects shared ingress`);
+}
+
+console.log('D02_VIEWPORT_CONTINUATION_SHARED_INGRESS_BOUND_REPLAY_OK TOTAL=13 FAILED=0');

@@ -7866,6 +7866,9 @@ export struct NoteCanvasView {
           .fontSize(18)
           .enabled(!this.photoImportBusy)
           .onClick(() => {
+            if (this.photoImportBusy) {
+              return;
+            }
             this.zoomStep(-0.25);
           })
         Text(this.zoomPercent.toString() + '%')
@@ -7878,6 +7881,9 @@ export struct NoteCanvasView {
           .fontSize(18)
           .enabled(!this.photoImportBusy)
           .onClick(() => {
+            if (this.photoImportBusy) {
+              return;
+            }
             this.zoomStep(0.25);
           })
         Button($r('app.string.fit_width'))
@@ -7886,6 +7892,9 @@ export struct NoteCanvasView {
             .margin({ left: 8 })
             .enabled(!this.photoImportBusy)
             .onClick(() => {
+              if (this.photoImportBusy) {
+                return;
+              }
               this.zoomFitWidth();
           })
       }
