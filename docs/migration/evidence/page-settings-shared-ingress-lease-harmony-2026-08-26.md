@@ -52,6 +52,14 @@
   输出 `TOTAL=13 FAILED=0`。
 - 相邻 Replay：原版纸张设置与紧凑页面设置通过。
 - ArkTS：`PageManagerBar.ets` 无错误，仅既有警告与信息级提示。
+
+## Phase 498 增量（2026-08-26）
+
+- 继续补审发现：普通页面的“页面前移”和“页面后移”按钮虽有响应式禁用，但点击回调缺少组件级
+  共享导入租约拒绝；溢出菜单已有防线，直接按钮仍可能在租约切换竞态中转发。
+- 两个按钮回调现在先拒绝 `photoImportLeaseActive`，再执行原有父页转发。响应式禁用、索引边界、
+  溢出菜单、设置弹窗抑制和父页页面操作防线全部不变。
+- 扩展既有页面条共享租约 Replay 至 15 项，扩展页面管理一致性 Replay 至 6 项，均通过。
 - 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
   （32.294 秒）。
 - clean：3.439 秒；ohosTest HAP：10.355 秒；default HAP：31.368 秒。

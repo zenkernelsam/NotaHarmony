@@ -35,5 +35,21 @@ for (const [name, guard] of [
     name);
 }
 
+for (const [label, forward] of [
+  ['earlier', 'this.onMovePrevious();'],
+  ['later', 'this.onMoveNext();'],
+]) {
+  const buttonStart = bar.indexOf(`Button($r('app.string.move_page_${label}'))`);
+  assert.ok(buttonStart >= 0, `${label} button`);
+  const buttonEnd = bar.indexOf('\n        Button(', buttonStart);
+  assert.ok(buttonEnd > buttonStart, `${label} bounds`);
+  const buttonBody = bar.slice(buttonStart, buttonEnd);
+  const guardStart = buttonBody.indexOf('if (this.photoImportLeaseActive) {');
+  const guardReturn = buttonBody.indexOf('return;', guardStart);
+  const forwardIndex = buttonBody.indexOf(forward, guardReturn);
+  assert.ok(guardStart >= 0 && guardReturn > guardStart && forwardIndex > guardReturn,
+    `${label} click rejects shared ingress`);
+}
+
 console.log(
-  'D02_PAGE_MANAGER_CONSISTENCY_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=4 FAILED=0');
+  'D02_PAGE_MANAGER_CONSISTENCY_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=6 FAILED=0');

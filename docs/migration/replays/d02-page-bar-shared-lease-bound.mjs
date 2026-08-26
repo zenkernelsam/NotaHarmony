@@ -36,6 +36,8 @@ function guardedClick(marker, forwardToken) {
 guardedClick('.accessibilityText($r(\'app.string.add_page\'))\n          .onClick(() => {', 'add');
 guardedClick('NavigationButton', 'navigation');
 guardedClick("Button($r('app.string.delete'))", 'delete');
+guardedClick("Button($r('app.string.move_page_earlier'))", 'move previous');
+guardedClick("Button($r('app.string.move_page_later'))", 'move next');
 
 const backgroundStart = page.indexOf(
   '  private async applyNoteBackgroundSettings(');
@@ -55,4 +57,4 @@ for (const [name, token] of [
   assert.ok(guard.includes(token), `background applies ${name}`);
 }
 
-console.log('D02_PAGE_BAR_SHARED_LEASE_BOUND_REPLAY_OK TOTAL=13 FAILED=0');
+console.log('D02_PAGE_BAR_SHARED_LEASE_BOUND_REPLAY_OK TOTAL=15 FAILED=0');

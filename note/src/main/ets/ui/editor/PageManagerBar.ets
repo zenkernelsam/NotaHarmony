@@ -80,6 +80,9 @@ export struct PageManagerBar {
           .enabled(!this.busy && this.currentPageIndex > 0)
           .opacity(!this.busy && this.currentPageIndex > 0 ? 1 : 0.4)
           .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
             this.onMovePrevious();
           })
         Button($r('app.string.move_page_later'))
@@ -88,6 +91,9 @@ export struct PageManagerBar {
           .enabled(!this.busy && this.currentPageIndex < this.pageCount - 1)
           .opacity(!this.busy && this.currentPageIndex < this.pageCount - 1 ? 1 : 0.4)
           .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
             this.onMoveNext();
           })
         Blank()
