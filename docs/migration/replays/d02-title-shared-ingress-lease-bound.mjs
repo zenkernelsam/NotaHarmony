@@ -42,17 +42,20 @@ const inputEnd = page.indexOf('\n        } else {', inputStart);
 assert.ok(inputEnd > inputStart);
 const inputBody = page.slice(inputStart, inputEnd);
 
-for (const callback of ['onSubmit', 'onBlur']) {
-  const callbackStart = inputBody.indexOf(`.${callback}(() => {`);
+for (const callback of ['onChange', 'onSubmit', 'onBlur']) {
+  const callbackPattern = callback === 'onChange' ? '.onChange((value: string) => {' : `.${callback}(() => {`;
+  const callbackStart = inputBody.indexOf(callbackPattern);
   assert.ok(callbackStart >= 0, `${callback} must remain a direct save boundary`);
   const callbackEnd = inputBody.indexOf('\n            })', callbackStart);
   assert.ok(callbackEnd > callbackStart);
   const callbackBody = inputBody.slice(callbackStart, callbackEnd);
-  const leaseGuard = callbackBody.indexOf('if (this.photoImportLeaseActive) {');
+  const leaseGuard = callbackBody.indexOf('if (this.photoImportLeaseActive || this.pageLoadFailed || this.pageLoading) {');
   const leaseReturn = callbackBody.indexOf('return;', leaseGuard);
-  const titleSave = callbackBody.indexOf('this.saveTitle();', leaseReturn);
-  assert.ok(leaseGuard >= 0 && leaseReturn > leaseGuard && titleSave > leaseReturn,
-    `${callback} must reject shared ingress before saving the title`);
+  const effect = callback === 'onChange' ?
+    'this.titleDraft = truncateOriginalNoteTitleDraft(value);' : 'this.saveTitle();';
+  const effectIndex = callbackBody.indexOf(effect, leaseReturn);
+  assert.ok(leaseGuard >= 0 && leaseReturn > leaseGuard && effectIndex > leaseReturn,
+    `${callback} must reject shared ingress or a failed load before title mutation`);
 }
 
-console.log('D02_TITLE_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=12 FAILED=0');
+console.log('D02_TITLE_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=15 FAILED=0');

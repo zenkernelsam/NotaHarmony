@@ -12,7 +12,7 @@ const topBar = page.slice(topBarStart, toolbarEnd);
 const changeIndex = topBar.indexOf('.onChange((value: string) => {');
 const inputChange = topBar.slice(changeIndex, topBar.indexOf('.onSubmit', changeIndex));
 assert.match(inputChange,
-  /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.titleDraft = truncateOriginalNoteTitleDraft\(value\);/);
+  /if \(this\.photoImportLeaseActive \|\| this\.pageLoadFailed \|\| this\.pageLoading\) \{\s+return;\s+\}\s+this\.titleDraft = truncateOriginalNoteTitleDraft\(value\);/);
 
 const textIndex = topBar.indexOf("Text(this.noteTitle.length > 0 ? this.noteTitle : $r('app.string.untitled_note'))");
 const clickIndex = topBar.indexOf('.onClick(() => {', textIndex);

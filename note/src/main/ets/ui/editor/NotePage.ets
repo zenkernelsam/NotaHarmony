@@ -919,19 +919,19 @@ struct NotePage {
             .fontSize(16)
             .margin({ left: 12 })
             .onChange((value: string) => {
-              if (this.photoImportLeaseActive) {
+              if (this.photoImportLeaseActive || this.pageLoadFailed || this.pageLoading) {
                 return;
               }
               this.titleDraft = truncateOriginalNoteTitleDraft(value);
             })
             .onSubmit(() => {
-              if (this.photoImportLeaseActive) {
+              if (this.photoImportLeaseActive || this.pageLoadFailed || this.pageLoading) {
                 return;
               }
               this.saveTitle();
             })
             .onBlur(() => {
-              if (this.photoImportLeaseActive) {
+              if (this.photoImportLeaseActive || this.pageLoadFailed || this.pageLoading) {
                 return;
               }
               this.saveTitle();
