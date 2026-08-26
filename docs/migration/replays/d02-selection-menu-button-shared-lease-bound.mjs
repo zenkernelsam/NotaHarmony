@@ -7,6 +7,7 @@ const canvas = fs.readFileSync('note/src/main/ets/ui/editor/NoteCanvasView.ets',
   .replaceAll('\r\n', '\n');
 
 assert.match(overlay, /@Prop menuEnabled: boolean = true;/);
+assert.match(overlay, /@Prop photoImportLeaseActive: boolean = false;/);
 assert.match(overlay,
   /\.fontSize\(14\)\s+\.enabled\(this\.menuEnabled\)\s+\.hitTestBehavior\(HitTestMode\.Block\)/);
 
@@ -28,8 +29,14 @@ for (const [name, token] of [
 
 const entryStart = canvas.indexOf('  onSelectionMenuAction(action: SelectionMenuAction): void {');
 const entryBody = canvas.slice(entryStart, canvas.indexOf('\n  }\n', entryStart));
+const selectionCall = canvas.slice(
+  canvas.indexOf('      SelectionOverlay({'),
+  canvas.indexOf('      ImageCropOverlay({'));
+assert.match(selectionCall,
+  /photoImportLeaseActive: this\.photoImportBusy/);
+assert.match(overlay, /if \(this\.photoImportLeaseActive\) \{\s+return items;\s+\}/);
 assert.match(entryBody, /this\.photoImportBusy \|\| this\.historyBusy/);
 assert.match(entryBody, /SelectionMenuAction\.COPY/);
 assert.match(entryBody, /prepareSelectedClipboard\(/);
 
-console.log('D02_SELECTION_MENU_BUTTON_SHARED_LEASE_BOUND_REPLAY_OK TOTAL=10 FAILED=0');
+console.log('D02_SELECTION_MENU_BUTTON_SHARED_LEASE_BOUND_REPLAY_OK TOTAL=13 FAILED=0');

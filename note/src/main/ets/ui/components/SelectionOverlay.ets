@@ -37,6 +37,7 @@ export struct SelectionOverlay {
   @Prop canEditMath: boolean = false;
   @Prop positionLocked: boolean = false;
   @Prop menuEnabled: boolean = true;
+  @Prop photoImportLeaseActive: boolean = false;
   @Prop containerWidth: number = 0;
   @Prop containerHeight: number = 0;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -80,13 +81,19 @@ export struct SelectionOverlay {
   }
 
   private buildSelectionMenu(): MenuElement[] {
-    const items: MenuElement[] = [
-      { value: $r('app.string.copy'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Copy clicked'); this.onMenuAction(SelectionMenuAction.COPY); } },
+    const items: MenuElement[] = [];
+    if (!this.photoImportLeaseActive) {
+      items.push(
+        { value: $r('app.string.copy'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Copy clicked'); this.onMenuAction(SelectionMenuAction.COPY); } });
+    }
+    if (this.photoImportLeaseActive) {
+      return items;
+    }
+    items.push(
       { value: $r('app.string.cut'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Cut clicked'); this.onMenuAction(SelectionMenuAction.CUT); } },
       { value: $r('app.string.delete'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Del clicked'); this.onMenuAction(SelectionMenuAction.DELETE); } },
       { value: $r('app.string.bring_forward'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Fwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_FORWARD); } },
-      { value: $r('app.string.send_backward'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Bwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_BACKWARD); } },
-    ];
+      { value: $r('app.string.send_backward'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Bwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_BACKWARD); } });
     if (this.canPaste) {
       items.push({ value: $r('app.string.paste'),
         action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Paste clicked'); this.onMenuAction(SelectionMenuAction.PASTE); } });

@@ -7778,6 +7778,7 @@ export struct NoteCanvasView {
         menuEnabled: !this.photoImportBusy && !this.historyBusy &&
           this.loaded && !this.dataLoading && !this.dataLoadFailed &&
           this.loadedPageId === this.currentPage.pageId,
+        photoImportLeaseActive: this.photoImportBusy,
         containerWidth: this.overlayWidth,
         containerHeight: this.overlayHeight,
         onMenuAction: (action: SelectionMenuAction) => {
