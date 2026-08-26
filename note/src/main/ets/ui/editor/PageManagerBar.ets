@@ -59,6 +59,9 @@ export struct PageManagerBar {
           .opacity(this.busy ? 0.4 : 1)
           .accessibilityText($r('app.string.add_page'))
           .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
             this.onAdd();
           })
         Button('...')
@@ -94,6 +97,9 @@ export struct PageManagerBar {
           .enabled(!this.busy && !this.photoImportLeaseActive)
           .opacity(this.busy ? 0.4 : 1)
           .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
             this.onAdd();
           })
         Button($r('app.string.delete'))
@@ -104,6 +110,9 @@ export struct PageManagerBar {
           .opacity(!this.busy && !this.photoImportLeaseActive &&
             this.pageCount > 1 ? 1 : 0.4)
           .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
             this.onDelete();
           })
       }
@@ -134,6 +143,9 @@ export struct PageManagerBar {
         this.currentPageIndex < this.pageCount - 1) ? 1 : 0.4)
       .accessibilityText(previous ? $r('app.string.previous_page') : $r('app.string.next_page'))
       .onClick(() => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
         if (previous) {
           this.onPrev();
         } else {

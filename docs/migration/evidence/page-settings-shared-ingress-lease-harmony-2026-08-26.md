@@ -34,6 +34,35 @@
 ---
 
 日期：2026-08-26
+阶段：Phase 492
+结论：通过（静态验证）
+
+## 增量代码证据
+
+- `PageManagerBar.ets`
+  - 紧凑“+”按钮、导航按钮、普通“添加页面”和删除按钮的组件内点击先拒绝
+    `photoImportLeaseActive`，再转发原有父页回调。
+  - 响应式 `.enabled()` / `.opacity()` 条件、溢出菜单防线、设置按钮回调和 popup builder 抑制
+    不变。
+  - 父页继续通过 `runPageOperation()` 与背景应用内部防线兜底。
+
+## 增量静态验证
+
+- 聚焦 Replay：`docs/migration/replays/d02-page-bar-shared-lease-bound.mjs`
+  输出 `TOTAL=13 FAILED=0`。
+- 相邻 Replay：原版纸张设置与紧凑页面设置通过。
+- ArkTS：`PageManagerBar.ets` 无错误，仅既有警告与信息级提示。
+- 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
+  （32.294 秒）。
+- clean：3.439 秒；ohosTest HAP：10.355 秒；default HAP：31.368 秒。
+
+## 运行边界
+
+未启动模拟器、虚拟机、真机或 Hypium；未清理既有临时产物；T-042 保持 Goal 最后任务。
+
+---
+
+日期：2026-08-26
 阶段：Phase 490
 结论：通过（静态验证）
 
