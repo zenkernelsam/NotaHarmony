@@ -76,6 +76,14 @@
 - 按钮回调现在先拒绝 `photoImportLeaseActive`，再执行原有弹窗置位。响应式禁用、弹窗状态回流、
   内容抑制、纸色草稿与父页操作防线不变。
 - 扩展既有页面条共享租约 Replay 至 `TOTAL=16 FAILED=0`。
+
+## Phase 502 增量（2026-08-26）
+
+- 继续补审发现：收藏星标、模板间距“⋯”和自定义色关闭按钮虽有响应式禁用且目标方法已有共享
+  租约防线，但组件点击仍可晚到转发；租约切换竞态中可先改写收藏、打开间距编辑或收起自定义色。
+- 三个回调现在先拒绝 `photoImportLeaseActive`，再执行原有流程。模板预览、尺寸/方向草稿、
+  HSV 输入、间距预览保存和父页弹窗抑制不变。
+- 扩展既有页面设置专项 Replay 至 `TOTAL=22 FAILED=0`。
 - 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
   （32.294 秒）。
 - clean：3.439 秒；ohosTest HAP：10.355 秒；default HAP：31.368 秒。

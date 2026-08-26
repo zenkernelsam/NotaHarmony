@@ -547,15 +547,18 @@ export struct PageSettingsPanel {
           })
         Blank()
         if (this.customColorExpanded) {
-          Button('×')
+            Button('×')
             .width(30)
             .height(28)
             .fontSize(16)
             .padding(0)
             .backgroundColor(this.resolveTokens().control)
-            .accessibilityText($r('app.string.paper_custom_color_close'))
-            .onClick(() => {
-              this.customColorExpanded = false;
+          .accessibilityText($r('app.string.paper_custom_color_close'))
+          .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
+            this.customColorExpanded = false;
             })
         }
       }
@@ -632,6 +635,9 @@ export struct PageSettingsPanel {
                   .accessibilityText(this.isTemplateFavorite(tpl) ?
                     $r('app.string.template_unfavorite') : $r('app.string.template_favorite'))
                   .onClick(() => {
+                    if (this.photoImportLeaseActive) {
+                      return;
+                    }
                     this.toggleFavorite(tpl);
                   })
               }
@@ -655,6 +661,9 @@ export struct PageSettingsPanel {
                     this.paperStore !== null)
                   .accessibilityText($r('app.string.template_settings'))
                   .onClick(() => {
+                    if (this.photoImportLeaseActive) {
+                      return;
+                    }
                     this.toggleSpacingSettings(tpl);
                   })
               }

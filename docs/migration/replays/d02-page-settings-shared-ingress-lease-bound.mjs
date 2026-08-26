@@ -74,6 +74,27 @@ for (const name of ['updateCustomHue', 'updateCustomSaturation', 'updateCustomVa
     `${name} rejects shared lease`);
 }
 
+const closeCustomColor = body.slice(
+  body.indexOf(".accessibilityText($r('app.string.paper_custom_color_close'))"),
+  body.indexOf('\n          })',
+    body.indexOf(".accessibilityText($r('app.string.paper_custom_color_close'))")));
+assert.match(closeCustomColor,
+  /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.customColorExpanded = false;/);
+
+for (const [name, forward] of [
+  ['favorite', 'this.toggleFavorite(tpl);'],
+  ['spacing settings', 'this.toggleSpacingSettings(tpl);'],
+]) {
+  const clickStart = body.indexOf('.onClick(() => {', body.indexOf(forward) - 260);
+  const clickEnd = body.indexOf('})', clickStart);
+  const callback = body.slice(clickStart, clickEnd);
+  const guard = callback.indexOf('if (this.photoImportLeaseActive) {');
+  const guardReturn = callback.indexOf('return;', guard);
+  const forwardIndex = callback.indexOf(forward, guardReturn);
+  assert.ok(guard >= 0 && guardReturn > guard && forwardIndex > guardReturn,
+    `${name} button rejects shared lease`);
+}
+
 const popupCall = bar.slice(bar.indexOf('    PageSettingsPanel({'), bar.indexOf('    })', bar.indexOf('    PageSettingsPanel({')));
 assert.match(popupCall, /busy: this\.busy,/);
 assert.match(popupCall, /photoImportLeaseActive: this\.photoImportLeaseActive,/);
@@ -81,4 +102,4 @@ const settingsButton = bar.slice(bar.indexOf('  SettingsButton(compact: boolean)
 assert.match(settingsButton, /if \(!this\.photoImportLeaseActive\) \{\s+this\.PageSettingsBuilder\(\)\s+\}/);
 
 console.log(
-  'D02_PAGE_SETTINGS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=19 FAILED=0');
+  'D02_PAGE_SETTINGS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=22 FAILED=0');
