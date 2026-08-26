@@ -26,6 +26,9 @@ for (const effect of [
 
 assert.match(body,
   /if \(this\.editorDisposed \|\| loadGeneration !== this\.pageLoadGeneration\) \{\s+return;\s+\}/);
+assert.match(page,
+  /Button\(\$r\('app\.string\.retry'\)\)\s+\.height\(36\)\s+\.margin\(\{ top: 12 \}\)\s+\.onClick\(\(\) => \{\s+if \(this\.editorDisposed\) \{\s+return;\s+\}\s+this\.loadPages\(\);/,
+  'disposed editor retry rejects before reload');
 
 const initializeCall = body.match(/await this\.viewModel\.initialize\([\s\S]*?\);/);
 assert.ok(initializeCall, 'view model initialization call');
@@ -33,4 +36,4 @@ assert.match(initializeCall[0], /'primary-editor'/);
 assert.match(initializeCall[0], /editorDisposed/);
 assert.match(initializeCall[0], /loadGeneration === this\.pageLoadGeneration/);
 
-console.log('D02_EDITOR_INITIALIZATION_DISPOSAL_BOUND_REPLAY_OK TOTAL=6 FAILED=0');
+console.log('D02_EDITOR_INITIALIZATION_DISPOSAL_BOUND_REPLAY_OK TOTAL=7 FAILED=0');

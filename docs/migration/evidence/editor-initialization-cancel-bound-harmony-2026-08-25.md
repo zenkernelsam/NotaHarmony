@@ -2,6 +2,12 @@
 
 Date: 2026-08-25 (Asia/Shanghai)
 
+## Phase 515 increment (2026-08-26)
+
+- Audit found that the editor error-state retry button called `loadPages()` without first rejecting a disposed page. A late click could reset loading state and enter the initialization flow before internal guards discarded it.
+- The retry callback now rejects `editorDisposed` first. Load generation, ViewModel cancellation gates, zero-page recovery, reads, and failure publication are unchanged.
+- Extended the existing editor initialization disposal-bound replay to `TOTAL=7 FAILED=0`.
+
 ## Source review
 
 - `NotePage.loadPages()` initialized the shared `'primary-editor'` toolbox after several awaits.
