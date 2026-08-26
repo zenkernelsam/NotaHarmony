@@ -7,6 +7,9 @@ const panel = fs.readFileSync(
   'note/src/main/ets/ui/editor/RecordingPanel.ets', 'utf8').replaceAll('\r\n', '\n');
 
 assert.match(panel, /@Prop photoImportLeaseActive: boolean = false;/);
+assert.match(panel,
+  /private get controlsEnabled\(\): boolean \{\s+return !this\.photoImportLeaseActive && !this\.loading;\s+\}/,
+  'recording controls reject an in-flight recording list load');
 assert.equal(panel.match(/this\.controlsEnabled/g)?.length >= 10, true);
 for (const token of [
   '.enabled(this.controlsEnabled)',
@@ -60,4 +63,4 @@ for (const name of callbackNames) {
 }
 
 console.log(
-  'D02_RECORDING_PANEL_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=24 FAILED=0');
+  'D02_RECORDING_PANEL_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=25 FAILED=0');

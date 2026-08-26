@@ -333,7 +333,7 @@ export struct RecordingPanel {
   }
 
   private get controlsEnabled(): boolean {
-    return !this.photoImportLeaseActive;
+    return !this.photoImportLeaseActive && !this.loading;
   }
 
   private isSelected(recordingId: string): boolean {
