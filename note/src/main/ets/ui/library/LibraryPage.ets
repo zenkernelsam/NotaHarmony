@@ -622,6 +622,9 @@ struct LibraryPage {
   }
 
   private moveFolderBy(folder: NoteFolder, offset: number): void {
+    if (this.folderBusy) {
+      return;
+    }
     const siblings: NoteFolder[] = this.orderedFolderSiblings(folder);
     const index: number = siblings.findIndex(
       (candidate: NoteFolder): boolean => candidate.id === folder.id);

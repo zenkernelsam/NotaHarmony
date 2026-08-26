@@ -92,6 +92,14 @@
 - 按钮回调现在先拒绝 `photoImportLeaseActive`，再执行原流程。HSV 输入、纸色/方向草稿、间距
   动作、模板预览和父页防线不变。
 - 扩展既有页面设置专项 Replay 至 `TOTAL=23 FAILED=0`。
+
+## Phase 505 增量（2026-08-26）
+
+- 补审库页发现：文件夹“上移/下移”菜单动作依赖 `canMoveFolderBy()` 控制出现，最终移动方法有
+  忙态与生命周期防线；但 `moveFolderBy()` 本身可在 `folderBusy` 切换竞态中先读取过期兄弟顺序。
+- `moveFolderBy()` 现在先拒绝 `folderBusy`，再计算目标索引并调用原移动事务。菜单可见性、
+  排序校验、生命周期守卫、失败提示和原子持久化不变。
+- 扩展既有库页文件夹变更专项 Replay 至 `TOTAL=6 FAILED=0`。
 - 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
   （32.294 秒）。
 - clean：3.439 秒；ohosTest HAP：10.355 秒；default HAP：31.368 秒。

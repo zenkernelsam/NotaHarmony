@@ -40,4 +40,9 @@ assert.match(moveNote, /const lifecycleGeneration: number = this\.lifecycleGener
 assert.match(moveNote,
   /lifecycleGeneration !== this\.lifecycleGeneration \|\| !this\.pageActive/);
 
-console.log('D02_LIBRARY_FOLDER_MUTATIONS_LIFECYCLE_BOUND_REPLAY_OK TOTAL=5 FAILED=0');
+const moveBy = section(
+  'private moveFolderBy(folder: NoteFolder, offset: number): void {',
+  '\n  private clearFolderDrag');
+assert.match(moveBy, /if \(this\.folderBusy\) \{\s+return;\s+\}\s+const siblings:/);
+
+console.log('D02_LIBRARY_FOLDER_MUTATIONS_LIFECYCLE_BOUND_REPLAY_OK TOTAL=6 FAILED=0');
