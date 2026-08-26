@@ -7295,6 +7295,9 @@ export struct NoteCanvasView {
       if (!this.canPasteClipboardNow() && this.canUseOriginalClipboardImage()) {
         MenuItem({ content: $r('app.string.paste') })
           .onClick(() => {
+            if (this.photoImportBusy) {
+              return;
+            }
             hilog.info(0x0001, 'NoteCanvasView', 'canvas context Paste Image clicked');
             this.startOriginalClipboardImagePaste();
           });
