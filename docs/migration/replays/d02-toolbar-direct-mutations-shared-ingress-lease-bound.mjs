@@ -16,11 +16,13 @@ function builderSection(name) {
 }
 
 const toolButton = builderSection('ToolButton');
-assert.match(toolButton, /\.enabled\(!this\.viewModel\.toolStateLoading\)/);
+assert.match(toolButton,
+  /\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)/);
 assert.match(toolButton, /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.viewModel\.selectTool\(tool\);/);
 
 const styleButton = builderSection('StyleButton');
-assert.match(styleButton, /\.enabled\(!this\.viewModel\.toolStateLoading\)/);
+assert.match(styleButton,
+  /\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)/);
 assert.match(styleButton, /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.viewModel\.setBrushStyle\(style\);/);
 
 const selectionStyleButton = builderSection('SelectionStyleButton');

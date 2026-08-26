@@ -281,7 +281,8 @@ export struct EditorToolbar {
       .fontColor(this.viewModel.currentTool === tool ? this.resolveTokens().onAccent :
         this.resolveTokens().textPrimary)
       .margin({ left: 2, right: 2 })
-      .enabled(!this.viewModel.toolStateLoading)
+      .enabled(!this.viewModel.toolStateLoading &&
+        !this.photoImportLeaseActive)
       .onClick(() => {
         if (this.photoImportLeaseActive) {
           return;
@@ -301,7 +302,8 @@ export struct EditorToolbar {
         this.resolveTokens().control)
       .fontColor(this.viewModel.brushStyle === style ? this.resolveTokens().onAccent :
         this.resolveTokens().textPrimary)
-      .enabled(!this.viewModel.toolStateLoading)
+      .enabled(!this.viewModel.toolStateLoading &&
+        !this.photoImportLeaseActive)
       .onClick(() => {
         if (this.photoImportLeaseActive) {
           return;
