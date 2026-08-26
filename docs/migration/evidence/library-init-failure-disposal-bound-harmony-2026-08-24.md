@@ -2,6 +2,12 @@
 
 Date: 2026-08-24 (Asia/Shanghai)
 
+## Phase 516 increment (2026-08-26)
+
+- Audit found that the initialization retry button called `activatePage()` without checking page activation. A late click after disposal could reactivate lifecycle state and restart database, repository, and thumbnail initialization.
+- The retry callback now rejects inactive pages before activation and `initData()`. Lifecycle capture, load guards, failure logging, publication, and feedback are unchanged.
+- Extended the existing library initialization failure disposal-bound replay to `TOTAL=5 FAILED=0`.
+
 ## Source review
 
 - Successful initData continuations checked both `pageActive` and the expected lifecycle generation.

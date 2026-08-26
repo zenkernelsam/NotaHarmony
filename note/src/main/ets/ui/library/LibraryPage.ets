@@ -1466,6 +1466,9 @@ struct LibraryPage {
               .height(36)
               .margin({ top: 12 })
               .onClick(() => {
+                if (!this.pageActive) {
+                  return;
+                }
                 const lifecycleGeneration: number = this.activatePage();
                 this.initData(lifecycleGeneration);
               })

@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const page=fs.readFileSync('note/src/main/ets/ui/library/LibraryPage.ets','utf8').replaceAll('\r\n','\n');
+
+assert.match(page,
+  /Button\(\$r\('app\.string\.retry'\)\)\s+\.height\(36\)\s+\.margin\(\{ top: 12 \}\)\s+\.onClick\(\(\) => \{\s+if \(!this\.pageActive\) \{\s+return;\s+\}\s+const lifecycleGeneration: number = this\.activatePage\(\);/,
+  'disposed library retry cannot reactivate initialization');
+
 const start=page.indexOf('  private async initData(expectedLifecycleGeneration: number = this.lifecycleGeneration): Promise<void> {');
 const end=page.indexOf('  private onSystemDarkChange(): void {',start);
 assert.ok(start!==-1&&end>start,'initData section exists');
@@ -20,4 +25,4 @@ assert.ok(logIndex>=0&&guardIndex>logIndex&&stateIndex>guardIndex&&toastIndex>st
 assert.doesNotMatch(body.slice(logIndex,guardIndex),/libraryLoading|hasInitError|showToast/,
 'no UI publication precedes lifecycle gate');
 
-console.log('D02_LIBRARY_INIT_FAILURE_DISPOSAL_BOUND_REPLAY_OK TOTAL=4 FAILED=0');
+console.log('D02_LIBRARY_INIT_FAILURE_DISPOSAL_BOUND_REPLAY_OK TOTAL=5 FAILED=0');
