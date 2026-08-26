@@ -44,7 +44,7 @@ for (const [label, forward] of [
   const buttonEnd = bar.indexOf('\n        Button(', buttonStart);
   assert.ok(buttonEnd > buttonStart, `${label} bounds`);
   const buttonBody = bar.slice(buttonStart, buttonEnd);
-  const guardStart = buttonBody.indexOf('if (!this.busy && !this.photoImportLeaseActive) {');
+  const guardStart = buttonBody.indexOf('if (this.busy || this.photoImportLeaseActive) {');
   const guardReturn = buttonBody.indexOf('return;', guardStart);
   const forwardIndex = buttonBody.indexOf(forward, guardReturn);
   assert.ok(guardStart >= 0 && guardReturn > guardStart && forwardIndex > guardReturn,

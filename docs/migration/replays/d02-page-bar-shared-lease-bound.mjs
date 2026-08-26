@@ -31,7 +31,7 @@ function guardedClick(marker, forwardToken) {
   assert.ok(bodyEnd > clickStart, `${marker} bounds`);
   const body = bar.slice(clickStart, bodyEnd);
   assert.match(body,
-    /if \(!this\.busy && !this\.photoImportLeaseActive\) \{/,
+    /if \(this\.busy \|\| this\.photoImportLeaseActive\) \{/,
     `${forwardToken} callback guard`);
 }
 
@@ -54,7 +54,7 @@ for (const [name, marker] of [
     rowEnd : buttonEnd;
   assert.ok(bound > buttonStart, `${name} bounds`);
   const body = bar.slice(buttonStart, bound);
-  assert.match(body, /if \(!this\.busy && !this\.photoImportLeaseActive\) \{/,
+  assert.match(body, /if \(this\.busy \|\| this\.photoImportLeaseActive\) \{/,
     `${name} busy callback`);
 }
 
@@ -62,16 +62,25 @@ const navigationStart = bar.indexOf('NavigationButton(label: string, previous: b
 const navigationEnd = bar.indexOf('\n  }\n\n  @Builder', navigationStart);
 assert.ok(navigationStart >= 0 && navigationEnd > navigationStart);
 assert.match(bar.slice(navigationStart, navigationEnd),
-  /if \(!this\.busy && !this\.photoImportLeaseActive\) \{/);
+  /if \(this\.busy \|\| this\.photoImportLeaseActive\) \{/);
 
 const settingsStart = bar.indexOf("Button(compact ? '⚙' : $r('app.string.page_settings'))");
 const settingsEnd = bar.indexOf('\n  }\n\n  private buildPageMenu', settingsStart);
 assert.ok(settingsStart >= 0 && settingsEnd > settingsStart);
 assert.match(bar.slice(settingsStart, settingsEnd),
-  /if \(!this\.busy && !this\.photoImportLeaseActive\) \{/);
+  /if \(this\.busy \|\| this\.photoImportLeaseActive\) \{/);
 guardedClick("Button($r('app.string.move_page_earlier'))", 'move previous');
 guardedClick("Button($r('app.string.move_page_later'))", 'move next');
 guardedClick("Button(compact ? '⚙' : $r('app.string.page_settings'))", 'settings');
+
+assert.equal(
+  bar.match(/if \(!this\.busy && !this\.photoImportLeaseActive\) \{/g)?.length ?? 0,
+  0,
+  'inverted page manager guards removed');
+assert.equal(
+  bar.match(/if \(this\.busy \|\| this\.photoImportLeaseActive\) \{/g)?.length,
+  7,
+  'all direct page manager callbacks fail closed');
 
 const backgroundStart = page.indexOf(
   '  private async applyNoteBackgroundSettings(');
@@ -91,4 +100,4 @@ for (const [name, token] of [
   assert.ok(guard.includes(token), `background applies ${name}`);
 }
 
-console.log('D02_PAGE_BAR_SHARED_LEASE_BOUND_REPLAY_OK TOTAL=22 FAILED=0');
+console.log('D02_PAGE_BAR_SHARED_LEASE_BOUND_REPLAY_OK TOTAL=24 FAILED=0');

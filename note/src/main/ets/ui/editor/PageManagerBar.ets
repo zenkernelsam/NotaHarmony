@@ -59,7 +59,7 @@ export struct PageManagerBar {
           .opacity(this.busy ? 0.4 : 1)
           .accessibilityText($r('app.string.add_page'))
           .onClick(() => {
-            if (!this.busy && !this.photoImportLeaseActive) {
+            if (this.busy || this.photoImportLeaseActive) {
               return;
             }
             this.onAdd();
@@ -80,7 +80,7 @@ export struct PageManagerBar {
           .enabled(!this.busy && this.currentPageIndex > 0)
           .opacity(!this.busy && this.currentPageIndex > 0 ? 1 : 0.4)
           .onClick(() => {
-            if (!this.busy && !this.photoImportLeaseActive) {
+            if (this.busy || this.photoImportLeaseActive) {
               return;
             }
             this.onMovePrevious();
@@ -91,7 +91,7 @@ export struct PageManagerBar {
           .enabled(!this.busy && this.currentPageIndex < this.pageCount - 1)
           .opacity(!this.busy && this.currentPageIndex < this.pageCount - 1 ? 1 : 0.4)
           .onClick(() => {
-            if (!this.busy && !this.photoImportLeaseActive) {
+            if (this.busy || this.photoImportLeaseActive) {
               return;
             }
             this.onMoveNext();
@@ -103,7 +103,7 @@ export struct PageManagerBar {
           .enabled(!this.busy && !this.photoImportLeaseActive)
           .opacity(this.busy ? 0.4 : 1)
           .onClick(() => {
-            if (!this.busy && !this.photoImportLeaseActive) {
+            if (this.busy || this.photoImportLeaseActive) {
               return;
             }
             this.onAdd();
@@ -116,7 +116,7 @@ export struct PageManagerBar {
           .opacity(!this.busy && !this.photoImportLeaseActive &&
             this.pageCount > 1 ? 1 : 0.4)
           .onClick(() => {
-            if (!this.busy && !this.photoImportLeaseActive) {
+            if (this.busy || this.photoImportLeaseActive) {
               return;
             }
             this.onDelete();
@@ -149,7 +149,7 @@ export struct PageManagerBar {
         this.currentPageIndex < this.pageCount - 1) ? 1 : 0.4)
       .accessibilityText(previous ? $r('app.string.previous_page') : $r('app.string.next_page'))
       .onClick(() => {
-        if (!this.busy && !this.photoImportLeaseActive) {
+        if (this.busy || this.photoImportLeaseActive) {
           return;
         }
         if (previous) {
@@ -171,7 +171,7 @@ export struct PageManagerBar {
       .opacity(this.busy ? 0.4 : 1)
       .accessibilityText($r('app.string.page_settings'))
       .onClick(() => {
-        if (!this.busy && !this.photoImportLeaseActive) {
+        if (this.busy || this.photoImportLeaseActive) {
           return;
         }
         this.showSettings = true;
