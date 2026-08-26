@@ -919,6 +919,9 @@ struct NotePage {
             .fontSize(16)
             .margin({ left: 12 })
             .onChange((value: string) => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
               this.titleDraft = truncateOriginalNoteTitleDraft(value);
             })
             .onSubmit(() => {
@@ -936,6 +939,9 @@ struct NotePage {
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .onClick(() => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
               if (this.pageLoadFailed || this.pageLoading) {
                 return;
               }
@@ -947,8 +953,12 @@ struct NotePage {
           .height(36)
           .fontSize(13)
           .margin({ left: 8 })
-          .enabled(!this.pageLoading && !this.pageLoadFailed)
+          .enabled(!this.pageLoading && !this.pageLoadFailed &&
+            !this.photoImportLeaseActive)
           .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
             if (this.showRecordings) {
               this.closeRecordings();
             } else {
