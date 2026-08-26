@@ -12,6 +12,15 @@ function builderSection(name) {
 
 const toolButton = builderSection('ToolButton');
 const styleButton = builderSection('StyleButton');
+const compactMenu = toolbar.slice(
+  toolbar.indexOf('  private buildCompactToolMenu()'),
+  toolbar.indexOf('\n  }\n', toolbar.indexOf('  private buildCompactToolMenu()')));
+
+for (const action of ['insert_photo', 'insert_math']) {
+  assert.match(compactMenu,
+    new RegExp(`\\{ value: \\$r\\('app\\.string\\.${action}'\\), action: \\(\\) => \\{\\s+if \\(this\\.photoImportLeaseActive\\) \\{\\s+return;\\s+\\}\\s+this\\.on`),
+    action);
+}
 
 for (const [name, section] of [['tool', toolButton], ['style', styleButton]]) {
   assert.match(section,

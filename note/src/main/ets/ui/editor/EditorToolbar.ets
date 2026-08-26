@@ -265,8 +265,18 @@ export struct EditorToolbar {
         }
         this.viewModel.selectTool(ToolType.DEFAULT);
       } },
-      { value: $r('app.string.insert_photo'), action: () => { this.onInsertPhotos(); } },
-      { value: $r('app.string.insert_math'), action: () => { this.onInsertMath(); } },
+      { value: $r('app.string.insert_photo'), action: () => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
+        this.onInsertPhotos();
+      } },
+      { value: $r('app.string.insert_math'), action: () => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
+        this.onInsertMath();
+      } },
     ];
   }
 
