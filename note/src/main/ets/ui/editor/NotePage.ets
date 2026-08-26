@@ -1105,6 +1105,9 @@ struct NotePage {
             this.undoRecordingDelete(recordingId);
           },
           onClose: () => {
+            if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+              return;
+            }
             this.closeRecordings();
           },
         })

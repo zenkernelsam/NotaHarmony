@@ -24,7 +24,7 @@ assert.match(call, /photoImportLeaseActive: this\.photoImportLeaseActive/);
 
 const callbackNames = [
   'onRecord', 'onPauseCapture', 'onResumeCapture', 'onStopCapture',
-  'onToggle', 'onSeek', 'onSpeedChange', 'onDelete', 'onUndoDelete',
+  'onToggle', 'onSeek', 'onSpeedChange', 'onDelete', 'onUndoDelete', 'onClose',
 ];
 let cursor = call.indexOf('onRecord:');
 for (const name of callbackNames) {
@@ -39,4 +39,4 @@ for (const name of callbackNames) {
 }
 
 console.log(
-  'D02_RECORDING_PANEL_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=12 FAILED=0');
+  'D02_RECORDING_PANEL_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=13 FAILED=0');
