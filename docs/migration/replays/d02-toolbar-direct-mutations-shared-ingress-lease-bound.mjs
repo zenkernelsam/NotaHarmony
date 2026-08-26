@@ -28,6 +28,8 @@ assert.match(styleButton, /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}
 const selectionStyleButton = builderSection('SelectionStyleButton');
 assert.match(selectionStyleButton,
   /\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive &&/);
+assert.match(selectionStyleButton,
+  /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onSelectionStyle\(style\);/);
 
 const freehandStart = toolbar.indexOf('            Button(this.viewModel.selectionIsFreehand');
 const freehandEnd = toolbar.indexOf('\n          }', freehandStart);
@@ -43,4 +45,4 @@ for (const tool of ['WHOLE_ERASER', 'PARTIAL_ERASER', 'SELECTION', 'DEFAULT']) {
   assert.match(action, /action: \(\) => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}/, tool);
 }
 
-console.log('D02_TOOLBAR_DIRECT_MUTATIONS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=11 FAILED=0');
+console.log('D02_TOOLBAR_DIRECT_MUTATIONS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=12 FAILED=0');

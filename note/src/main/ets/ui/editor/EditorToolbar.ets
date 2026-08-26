@@ -337,6 +337,9 @@ export struct EditorToolbar {
         !this.photoImportLeaseActive &&
         (style !== BrushStyle.TAPER || this.selectionVariableStyleEnabled))
       .onClick(() => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
         this.onSelectionStyle(style);
       })
   }
