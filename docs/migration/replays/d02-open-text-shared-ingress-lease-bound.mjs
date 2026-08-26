@@ -9,6 +9,13 @@ const overlay = fs.readFileSync(
 assert.match(overlay, /@Prop photoImportLeaseActive: boolean = false;/);
 assert.equal(overlay.match(/\.enabled\(!this\.photoImportLeaseActive\)/g)?.length, 3);
 
+assert.match(overlay,
+  /\.onChange\(\(value: string\) => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.draftText = value;/);
+assert.match(overlay,
+  /\.onClick\(async \(\) => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+if \(await this\.onCommit\(this\.draftText\)\) \{/);
+assert.match(overlay,
+  /\.onClick\(\(\) => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.draftText = '';/);
+
 const callStart = canvas.indexOf('      TextBlockOverlay({');
 const callEnd = canvas.indexOf('\n      })', callStart);
 assert.ok(callStart >= 0 && callEnd > callStart);
@@ -31,4 +38,4 @@ for (const name of ['onDraftChange', 'onCancel']) {
   assert.match(guard, /this\.historyBusy/, `${name} rejects history lease second`);
 }
 
-console.log('D02_OPEN_TEXT_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=10 FAILED=0');
+console.log('D02_OPEN_TEXT_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=13 FAILED=0');

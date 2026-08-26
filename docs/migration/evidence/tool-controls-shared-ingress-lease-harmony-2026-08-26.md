@@ -30,3 +30,32 @@
 ## 运行边界
 
 未启动模拟器、虚拟机、真机或 Hypium；未清理既有临时产物；T-042 保持 Goal 最后任务。
+
+---
+
+日期：2026-08-26
+阶段：Phase 487
+结论：通过（静态验证）
+
+## 增量代码证据
+
+- `TextBlockOverlay.ets`
+  - 文本框 `onChange()` 在更新草稿和发布父页预览前拒绝共享导入租约。
+  - 完成 `onClick()` 在读取并提交当前草稿前拒绝该租约。
+  - 取消 `onClick()` 在清空草稿并退出编辑前拒绝该租约。
+  - 响应式禁用、父页共享/历史双层防线、宽度自适应预览、确认事务、撤销语义和失败恢复不变。
+
+## 增量静态验证
+
+- 聚焦 Replay：
+  `docs/migration/replays/d02-open-text-shared-ingress-lease-bound.mjs`
+  输出 `TOTAL=13 FAILED=0`。
+- 相邻 Replay：文本提交与文本取消通过。
+- ArkTS：`TextBlockOverlay.ets` 无错误，仅既有弃用 API 信息级提示。
+- 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
+  （30.769 秒）。
+- clean：3.251 秒；ohosTest HAP：9.892 秒；default HAP：30.076 秒。
+
+## 运行边界
+
+未启动模拟器、虚拟机、真机或 Hypium；未清理既有临时产物；T-042 保持 Goal 最后任务。

@@ -75,6 +75,9 @@ export struct TextBlockOverlay {
             })
             .enabled(!this.photoImportLeaseActive)
             .onChange((value: string) => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
               this.draftText = value;
               this.onDraftChange(value);
             })
@@ -102,6 +105,9 @@ export struct TextBlockOverlay {
             .fontSize(12)
             .enabled(!this.photoImportLeaseActive)
             .onClick(async () => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
               if (await this.onCommit(this.draftText)) {
                 this.draftText = '';
               }
@@ -111,6 +117,9 @@ export struct TextBlockOverlay {
             .fontSize(12)
             .enabled(!this.photoImportLeaseActive)
             .onClick(() => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
               this.draftText = '';
               this.onCancel();
             })
