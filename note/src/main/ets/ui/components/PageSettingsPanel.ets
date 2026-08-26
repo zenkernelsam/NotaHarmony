@@ -54,6 +54,7 @@ export struct PageSettingsPanel {
   @Prop @Watch('onSettingsChange') settings: NoteBackgroundSettings =
     originalDefaultNoteBackgroundSettings();
   @Prop busy: boolean = false;
+  @Prop photoImportLeaseActive: boolean = false;
   // The editor opens this component from a popup.  The settings page itself
   // already owns the outer Scroll, so only the popup instance gets an inner
   // bounded scroller (otherwise the two pages would compete for gestures).
@@ -462,7 +463,8 @@ export struct PageSettingsPanel {
             .border({ width: 1, color: opt.size === this.draft.size ? this.resolveTokens().accent :
               this.resolveTokens().border })
             .onClick(() => {
-              if (!this.busy && !this.sharedBusy && !this.spacingSaveBusy) {
+              if (!this.busy && !this.photoImportLeaseActive &&
+                !this.sharedBusy && !this.spacingSaveBusy) {
                 this.draft = stageOriginalTemplateSize(this.draft, opt.size);
               }
             })
@@ -523,7 +525,8 @@ export struct PageSettingsPanel {
             this.resolveTokens().accent : this.resolveTokens().control)
           .fontColor(this.draft.backgroundColor !== null ?
             this.resolveTokens().onAccent : this.resolveTokens().textPrimary)
-          .enabled(!this.busy && !this.sharedBusy && !this.spacingSaveBusy)
+          .enabled(!this.busy && !this.photoImportLeaseActive &&
+            !this.sharedBusy && !this.spacingSaveBusy)
           .onClick(() => {
             this.activateCustomColor();
           })
@@ -688,7 +691,8 @@ export struct PageSettingsPanel {
           .fontColor(this.draft.orientation === PageOrientation.PORTRAIT ? this.resolveTokens().onAccent :
             this.resolveTokens().textPrimary)
           .onClick(() => {
-            if (!this.busy && !this.sharedBusy && !this.spacingSaveBusy &&
+            if (!this.busy && !this.photoImportLeaseActive &&
+              !this.sharedBusy && !this.spacingSaveBusy &&
               this.draft.orientation !== PageOrientation.PORTRAIT) {
               this.draft = stageOriginalTemplateOrientation(
                 this.draft, PageOrientation.PORTRAIT);
@@ -702,7 +706,8 @@ export struct PageSettingsPanel {
           .fontColor(this.draft.orientation === PageOrientation.LANDSCAPE ? this.resolveTokens().onAccent :
             this.resolveTokens().textPrimary)
           .onClick(() => {
-            if (!this.busy && !this.sharedBusy && !this.spacingSaveBusy &&
+            if (!this.busy && !this.photoImportLeaseActive &&
+              !this.sharedBusy && !this.spacingSaveBusy &&
               this.draft.orientation !== PageOrientation.LANDSCAPE) {
               this.draft = stageOriginalTemplateOrientation(
                 this.draft, PageOrientation.LANDSCAPE);
@@ -715,7 +720,7 @@ export struct PageSettingsPanel {
     .constraintSize({ minWidth: 280, maxWidth: 420 })
     .backgroundColor(this.resolveTokens().surface)
     .borderRadius(12)
-    .enabled(!this.busy)
+    .enabled(!this.busy && !this.photoImportLeaseActive)
     .opacity(this.busy ? 0.6 : 1)
   }
 

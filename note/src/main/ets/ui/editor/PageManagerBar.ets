@@ -157,7 +157,9 @@ export struct PageManagerBar {
       })
       .bindPopup(this.showSettings, {
         builder: (): void => {
-          this.PageSettingsBuilder()
+          if (!this.photoImportLeaseActive) {
+            this.PageSettingsBuilder()
+          }
         },
         placement: Placement.Top,
         onStateChange: (event: PopupStateChangeEvent) => {
@@ -194,6 +196,7 @@ export struct PageManagerBar {
     PageSettingsPanel({
       settings: this.noteBackground,
       busy: this.busy,
+      photoImportLeaseActive: this.photoImportLeaseActive,
       popupMode: true,
       onApply: (settings: NoteBackgroundSettings) => {
         this.onApplyNoteBackground(settings);
