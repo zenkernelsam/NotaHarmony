@@ -13,3 +13,12 @@
   失败恢复、销毁守卫和页面身份校验不变。
 - 验证：新增 `d02-title-shared-ingress-lease-bound.mjs`，当前 `TOTAL=10 FAILED=0`；
   相邻离开 Replay 与标题上下文 Replay 同步纳入共享租约断言。
+
+## Phase 497 增量（2026-08-26）
+
+- 继续补审发现：标题输入与点击编辑已拒绝共享租约，提交内部也有 fail-closed 防线；但
+  `TextInput.onSubmit()` 与 `onBlur()` 直接调用 `saveTitle()`，晚到事件可先关闭编辑态并排队。
+- 回车和失焦回调现在先拒绝 `photoImportLeaseActive`，再执行原有标题保存。序列化队列、幂等
+  发布、失败恢复、离开兜底、销毁守卫和历史语义全部不变。
+- 扩展既有标题共享租约 Replay 锁定两项新防线，当前 `TOTAL=12 FAILED=0`；相邻离开、上下文、
+  历史、销毁和队列 Replay 全部通过。

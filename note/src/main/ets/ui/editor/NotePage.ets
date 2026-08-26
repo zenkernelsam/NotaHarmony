@@ -925,9 +925,15 @@ struct NotePage {
               this.titleDraft = truncateOriginalNoteTitleDraft(value);
             })
             .onSubmit(() => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
               this.saveTitle();
             })
             .onBlur(() => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
               this.saveTitle();
             })
         } else {

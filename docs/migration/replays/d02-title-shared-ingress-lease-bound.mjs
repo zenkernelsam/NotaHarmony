@@ -36,4 +36,23 @@ assert.ok(unchangedPublish >= 0 && leaseGate > unchangedPublish &&
   leaseReturn > leaseGate && repositoryGate > leaseReturn,
   'queued title commits reject shared ingress before repository access');
 
-console.log('D02_TITLE_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=10 FAILED=0');
+const inputStart = page.indexOf('TextInput({ text: this.titleDraft })');
+assert.ok(inputStart >= 0);
+const inputEnd = page.indexOf('\n        } else {', inputStart);
+assert.ok(inputEnd > inputStart);
+const inputBody = page.slice(inputStart, inputEnd);
+
+for (const callback of ['onSubmit', 'onBlur']) {
+  const callbackStart = inputBody.indexOf(`.${callback}(() => {`);
+  assert.ok(callbackStart >= 0, `${callback} must remain a direct save boundary`);
+  const callbackEnd = inputBody.indexOf('\n            })', callbackStart);
+  assert.ok(callbackEnd > callbackStart);
+  const callbackBody = inputBody.slice(callbackStart, callbackEnd);
+  const leaseGuard = callbackBody.indexOf('if (this.photoImportLeaseActive) {');
+  const leaseReturn = callbackBody.indexOf('return;', leaseGuard);
+  const titleSave = callbackBody.indexOf('this.saveTitle();', leaseReturn);
+  assert.ok(leaseGuard >= 0 && leaseReturn > leaseGuard && titleSave > leaseReturn,
+    `${callback} must reject shared ingress before saving the title`);
+}
+
+console.log('D02_TITLE_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=12 FAILED=0');
