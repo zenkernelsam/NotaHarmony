@@ -152,6 +152,9 @@ struct SettingsPage {
             .margin({ bottom: 12 })
           Button($r('app.string.retry'))
             .onClick(() => {
+              if (this.saveBusy) {
+                return;
+              }
               this.reloadSettings();
             })
         }

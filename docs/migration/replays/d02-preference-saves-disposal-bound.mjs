@@ -14,9 +14,13 @@ for (const [name, page] of [['SettingsPage', settings], ['DefaultTemplatePage', 
   assert.match(page, /aboutToDisappear\(\): void \{\s+this\.pageDisposed = true;\s+\}/, name);
   const loadGuards = [...page.matchAll(/if \(this\.pageDisposed \|\| generation !== this\.loadGeneration\) \{\s+return;\s+\}/g)];
   assert.equal(loadGuards.length, 2, `${name}: success and failure load paths`);
-  assert.match(page, /const lifecycleGeneration: number = \+\+this\.lifecycleGeneration;/,
-    `${name}: captures save generation`);
+assert.match(page, /const lifecycleGeneration: number = \+\+this\.lifecycleGeneration;/,
+  `${name}: captures save generation`);
 }
+
+assert.match(settings,
+  /Button\(\$r\('app\.string\.retry'\)\)\s+\.onClick\(\(\) => \{\s+if \(this\.saveBusy\) \{\s+return;\s+\}\s+this\.reloadSettings\(\);/,
+  'settings retry rejects save-busy state');
 
 assert.match(settings,
   /await store\.saveShapeDetectionEnabled\(enabled\);\s+if \(this\.pageDisposed \|\| lifecycleGeneration !== this\.lifecycleGeneration\) \{\s+return;\s+\}\s+\} catch \(e\) \{\s+if \(this\.pageDisposed \|\| lifecycleGeneration !== this\.lifecycleGeneration\) \{\s+return;\s+\}/);
@@ -35,4 +39,4 @@ const saveToast = template.indexOf("promptAction.showToast({ message: $r('app.st
 const saveGuard = template.indexOf('lifecycleGeneration !== this.lifecycleGeneration', template.indexOf('await store.saveSelectedDefaultTemplate'));
 assert.ok(saveToast > saveGuard);
 
-console.log('D02_PREFERENCE_SAVES_DISPOSAL_BOUND_REPLAY_OK TOTAL=10 FAILED=0');
+console.log('D02_PREFERENCE_SAVES_DISPOSAL_BOUND_REPLAY_OK TOTAL=11 FAILED=0');
