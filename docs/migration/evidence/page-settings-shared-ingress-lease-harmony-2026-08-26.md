@@ -30,3 +30,32 @@
 ## 运行边界
 
 未启动模拟器、虚拟机、真机或 Hypium；未清理既有临时产物；T-042 保持 Goal 最后任务。
+
+---
+
+日期：2026-08-26
+阶段：Phase 484
+结论：通过（静态验证）
+
+## 增量代码证据
+
+- `PageSettingsPanel.ets`
+  - `toggleFavorite()` 在共享纸存储变更前拒绝共享导入租约；收藏星标按钮同步禁用。
+  - `toggleSpacingSettings()` 在打开或关闭间距编辑前拒绝该租约；间距“⋯”按钮同步禁用。
+  - `previewSharedSpacing()` 与 `saveSharedSpacing()` 在状态预览或持久化写入前拒绝该租约。
+  - 共享纸加载、乐观更新、失败提示、销毁防护、尺寸/颜色/方向草稿和默认模板行为不变。
+
+## 增量静态验证
+
+- 聚焦 Replay：
+  `docs/migration/replays/d02-page-settings-shared-ingress-lease-bound.mjs`
+  输出 `TOTAL=14 FAILED=0`。
+- 相邻 Replay：原版纸张设置、默认模板路由、紧凑页面设置、页面条共享租约通过。
+- ArkTS：`PageSettingsPanel.ets` 无错误，仅既有未使用符号警告与弃用 API 信息级提示。
+- 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
+  （35.273 秒）。
+- clean：7.602 秒；ohosTest HAP：13.184 秒；default HAP：34.080 秒。
+
+## 运行边界
+
+未启动模拟器、虚拟机、真机或 Hypium；未清理既有临时产物；T-042 保持 Goal 最后任务。

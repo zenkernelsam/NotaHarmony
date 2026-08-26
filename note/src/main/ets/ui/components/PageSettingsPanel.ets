@@ -284,7 +284,8 @@ export struct PageSettingsPanel {
 
   private async toggleFavorite(template: PaperTemplate): Promise<void> {
     const store: OriginalPaperSettingsStore | null = this.paperStore;
-    if (store === null || this.busy || this.sharedBusy || this.spacingSaveBusy) {
+    if (store === null || this.busy || this.photoImportLeaseActive ||
+      this.sharedBusy || this.spacingSaveBusy) {
       return;
     }
     const candidate: OriginalPaperBackground = this.favoriteCandidate(template);
@@ -333,7 +334,8 @@ export struct PageSettingsPanel {
   }
 
   private toggleSpacingSettings(template: PaperTemplate): void {
-    if (this.busy || this.sharedBusy || this.spacingSaveBusy || this.paperStore === null) {
+    if (this.busy || this.photoImportLeaseActive ||
+      this.sharedBusy || this.spacingSaveBusy || this.paperStore === null) {
       return;
     }
     if (this.spacingTemplate === template) {
@@ -348,7 +350,8 @@ export struct PageSettingsPanel {
   private previewSharedSpacing(template: PaperTemplate, rawIndex: number,
     mode: SliderChangeMode): void {
     if (this.paperStore === null || this.busy || this.sharedBusy || this.spacingSaveBusy ||
-      this.spacingTemplate !== template || template === PaperTemplate.PLAIN) {
+      this.photoImportLeaseActive || this.spacingTemplate !== template ||
+      template === PaperTemplate.PLAIN) {
       return;
     }
     const index: number = Math.max(0, Math.min(
@@ -364,7 +367,7 @@ export struct PageSettingsPanel {
   private async saveSharedSpacing(template: PaperTemplate, rawIndex: number): Promise<void> {
     const store: OriginalPaperSettingsStore | null = this.paperStore;
     if (store === null || this.busy || this.sharedBusy || this.spacingSaveBusy ||
-      template === PaperTemplate.PLAIN) {
+      this.photoImportLeaseActive || template === PaperTemplate.PLAIN) {
       return;
     }
     const index: number = Math.max(0, Math.min(
@@ -612,7 +615,8 @@ export struct PageSettingsPanel {
                   .backgroundColor(this.resolveTokens().control)
                   .fontColor(this.isTemplateFavorite(tpl) ? this.resolveTokens().accent :
                     this.resolveTokens().textSecondary)
-                  .enabled(!this.busy && !this.sharedBusy && !this.spacingSaveBusy &&
+                  .enabled(!this.busy && !this.photoImportLeaseActive &&
+                    !this.sharedBusy && !this.spacingSaveBusy &&
                     this.paperStore !== null)
                   .accessibilityText(this.isTemplateFavorite(tpl) ?
                     $r('app.string.template_unfavorite') : $r('app.string.template_favorite'))
@@ -635,7 +639,8 @@ export struct PageSettingsPanel {
                     this.resolveTokens().control)
                   .fontColor(this.spacingTemplate === tpl ? this.resolveTokens().onAccent :
                     this.resolveTokens().textPrimary)
-                  .enabled(!this.busy && !this.sharedBusy && !this.spacingSaveBusy &&
+                  .enabled(!this.busy && !this.photoImportLeaseActive &&
+                    !this.sharedBusy && !this.spacingSaveBusy &&
                     this.paperStore !== null)
                   .accessibilityText($r('app.string.template_settings'))
                   .onClick(() => {
