@@ -60,7 +60,8 @@ export struct EditorToolbar {
               .height(40)
               .fontSize(13)
               .margin({ left: 2, right: 2 })
-              .enabled(!this.viewModel.toolStateLoading)
+              .enabled(!this.viewModel.toolStateLoading &&
+                !this.photoImportLeaseActive)
               .accessibilityText($r('app.string.more_tools'))
               .bindMenu(this.buildCompactToolMenu())
           } else {
@@ -202,6 +203,8 @@ export struct EditorToolbar {
             Button(this.viewModel.selectionIsFreehand ? $r('app.string.freehand') : $r('app.string.rectangle'))
               .height(30)
               .margin({ left: 12 })
+              .enabled(!this.viewModel.toolStateLoading &&
+                !this.photoImportLeaseActive)
               .onClick(() => {
                 this.viewModel.setSelectionIsFreehand(!this.viewModel.selectionIsFreehand);
               })
@@ -226,10 +229,30 @@ export struct EditorToolbar {
 
   private buildCompactToolMenu(): MenuElement[] {
     return [
-      { value: $r('app.string.whole_eraser'), action: () => { this.viewModel.selectTool(ToolType.WHOLE_ERASER); } },
-      { value: $r('app.string.partial_eraser'), action: () => { this.viewModel.selectTool(ToolType.PARTIAL_ERASER); } },
-      { value: $r('app.string.selection'), action: () => { this.viewModel.selectTool(ToolType.SELECTION); } },
-      { value: $r('app.string.text'), action: () => { this.viewModel.selectTool(ToolType.DEFAULT); } },
+      { value: $r('app.string.whole_eraser'), action: () => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
+        this.viewModel.selectTool(ToolType.WHOLE_ERASER);
+      } },
+      { value: $r('app.string.partial_eraser'), action: () => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
+        this.viewModel.selectTool(ToolType.PARTIAL_ERASER);
+      } },
+      { value: $r('app.string.selection'), action: () => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
+        this.viewModel.selectTool(ToolType.SELECTION);
+      } },
+      { value: $r('app.string.text'), action: () => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
+        this.viewModel.selectTool(ToolType.DEFAULT);
+      } },
       { value: $r('app.string.insert_photo'), action: () => { this.onInsertPhotos(); } },
       { value: $r('app.string.insert_math'), action: () => { this.onInsertMath(); } },
     ];
@@ -248,6 +271,9 @@ export struct EditorToolbar {
       .margin({ left: 2, right: 2 })
       .enabled(!this.viewModel.toolStateLoading)
       .onClick(() => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
         this.viewModel.selectTool(tool);
       })
   }
@@ -265,6 +291,9 @@ export struct EditorToolbar {
         this.resolveTokens().textPrimary)
       .enabled(!this.viewModel.toolStateLoading)
       .onClick(() => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
         this.viewModel.setBrushStyle(style);
       })
   }
@@ -281,6 +310,7 @@ export struct EditorToolbar {
       .fontColor(this.selectionStyle === style ? this.resolveTokens().onAccent :
         this.resolveTokens().textPrimary)
       .enabled(!this.viewModel.toolStateLoading &&
+        !this.photoImportLeaseActive &&
         (style !== BrushStyle.TAPER || this.selectionVariableStyleEnabled))
       .onClick(() => {
         this.onSelectionStyle(style);
