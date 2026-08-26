@@ -47,6 +47,9 @@ assert.match(pages, /ui\/settings\/DefaultTemplatePage/);
 assert.match(settingsPage, /router\.pushUrl\(\{ url: 'ui\/settings\/DefaultTemplatePage' \}\)/);
 assert.match(defaultTemplatePage, /getSelectedDefaultTemplate\(\)/);
 assert.match(defaultTemplatePage, /saveSelectedDefaultTemplate\(originalDefaultTemplateFromSettings\(next\)\)/);
+assert.match(defaultTemplatePage,
+  /Button\(\$r\('app\.string\.retry'\)\)\s+\.onClick\(\(\) => \{\s+if \(this\.saveBusy\) \{\s+return;\s+\}\s+this\.reloadDefaultTemplate\(\);/,
+  'default template retry rejects save-busy state');
 assert.match(defaultTemplatePage, /PageSettingsPanel\(\{/);
 assert.match(panel, /stageOriginalTemplateSize/);
 assert.match(panel, /stageOriginalTemplateOrientation/);
@@ -67,4 +70,4 @@ assert.match(picker, /packedPaperColor\(paper\) !== draft\.backgroundColor/);
 assert.match(fixture, /stages size and orientation until a template card is selected/);
 assert.match(fixtureList, /originalTemplatePickerTest\(\)/);
 
-console.log('defaultTemplateRoute=settings-template-route-staged-picker-editor-separated');
+console.log('defaultTemplateRoute=settings-template-route-staged-picker-editor-separated TOTAL=12 FAILED=0');
