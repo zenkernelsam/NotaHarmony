@@ -95,6 +95,20 @@ for (const [name, forward] of [
     `${name} button rejects shared lease`);
 }
 
+(function assertCustomColorButton() {
+  const marker = "Button($r('app.string.paper_custom_color'))";
+  const buttonStart = body.indexOf(marker);
+  assert.ok(buttonStart >= 0, 'custom color button');
+  const buttonEnd = body.indexOf('\n        Blank()', buttonStart);
+  assert.ok(buttonEnd > buttonStart, 'custom color button bounds');
+  const section = body.slice(buttonStart, buttonEnd);
+  const guard = section.indexOf('if (this.photoImportLeaseActive) {');
+  const guardReturn = section.indexOf('return;', guard);
+  const forwardIndex = section.indexOf('this.activateCustomColor();', guardReturn);
+  assert.ok(guard >= 0 && guardReturn > guard && forwardIndex > guardReturn,
+    'custom color button rejects shared lease');
+})();
+
 const popupCall = bar.slice(bar.indexOf('    PageSettingsPanel({'), bar.indexOf('    })', bar.indexOf('    PageSettingsPanel({')));
 assert.match(popupCall, /busy: this\.busy,/);
 assert.match(popupCall, /photoImportLeaseActive: this\.photoImportLeaseActive,/);
@@ -102,4 +116,4 @@ const settingsButton = bar.slice(bar.indexOf('  SettingsButton(compact: boolean)
 assert.match(settingsButton, /if \(!this\.photoImportLeaseActive\) \{\s+this\.PageSettingsBuilder\(\)\s+\}/);
 
 console.log(
-  'D02_PAGE_SETTINGS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=22 FAILED=0');
+  'D02_PAGE_SETTINGS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=23 FAILED=0');

@@ -543,6 +543,9 @@ export struct PageSettingsPanel {
           .enabled(!this.busy && !this.photoImportLeaseActive &&
             !this.sharedBusy && !this.spacingSaveBusy)
           .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
             this.activateCustomColor();
           })
         Blank()
