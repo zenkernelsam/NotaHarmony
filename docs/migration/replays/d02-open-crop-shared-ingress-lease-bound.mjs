@@ -9,6 +9,8 @@ const overlay = fs.readFileSync(
 assert.match(overlay, /@Prop photoImportLeaseActive: boolean = false;/);
 assert.match(overlay, /private get controlsEnabled\(\): boolean \{\n    return !this\.photoImportLeaseActive;\n  \}/);
 assert.equal(overlay.match(/\.enabled\(this\.controlsEnabled\)/g)?.length, 3);
+assert.match(overlay,
+  /\.onActionUpdate\(\(event: GestureEvent\) => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+const offsetX: number = event\.offsetX === undefined \? this\.dragOffsetX : event\.offsetX;/);
 
 const callStart = canvas.indexOf('      ImageCropOverlay({');
 const callEnd = canvas.indexOf('\n      })', callStart);
@@ -26,4 +28,4 @@ for (const name of ['onMove', 'onClose', 'onReset', 'onConfirm']) {
   assert.match(guard, /this\.historyBusy/, `${name} rejects history lease second`);
 }
 
-console.log('D02_OPEN_CROP_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=10 FAILED=0');
+console.log('D02_OPEN_CROP_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=11 FAILED=0');

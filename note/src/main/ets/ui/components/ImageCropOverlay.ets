@@ -218,6 +218,9 @@ export struct ImageCropOverlay {
           this.dragOffsetY = 0;
         })
         .onActionUpdate((event: GestureEvent) => {
+          if (this.photoImportLeaseActive) {
+            return;
+          }
           const offsetX: number = event.offsetX === undefined ? this.dragOffsetX : event.offsetX;
           const offsetY: number = event.offsetY === undefined ? this.dragOffsetY : event.offsetY;
           this.onMove(handle, offsetX - this.dragOffsetX, offsetY - this.dragOffsetY);
