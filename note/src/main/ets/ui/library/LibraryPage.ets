@@ -191,6 +191,9 @@ struct LibraryPage {
   }
 
   private navigateToSettings(): void {
+    if (!this.pageActive) {
+      return;
+    }
     router.pushUrl({ url: 'ui/settings/SettingsPage' }).catch((e: Error) => {
       console.error(`pushUrl failed: ${JSON.stringify(e)}`);
     });

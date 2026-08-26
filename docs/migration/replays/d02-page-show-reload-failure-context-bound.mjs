@@ -3,9 +3,15 @@ import fs from 'node:fs';
 
 const page=fs.readFileSync('note/src/main/ets/ui/library/LibraryPage.ets','utf8').replaceAll('\r\n','\n');
 const start=page.indexOf('  onPageShow(): void {');
-const end=page.indexOf('  private navigateToSettings(): void {',start);
-assert.ok(start!==-1&&end>start,'onPageShow section exists');
-const body=page.slice(start,end);
+const navigationStart=page.indexOf('  private navigateToSettings(): void {',start);
+assert.ok(start!==-1&&navigationStart>start,'onPageShow section exists');
+const body=page.slice(start,navigationStart);
+const navigationEnd=page.indexOf('  // 缩略图只由页面持有；generation 丢弃迟到结果，worker 数限制峰值内存。',navigationStart);
+assert.ok(navigationEnd>navigationStart,'navigation method body exists');
+const navigation=page.slice(navigationStart,navigationEnd);
+assert.match(navigation,
+  /private navigateToSettings\(\): void \{\s+if \(!this\.pageActive\) \{\s+return;\s+\}\s+router\.pushUrl\(\{ url: 'ui\/settings\/SettingsPage' \}\)/,
+  'stale library page cannot navigate to settings');
 
 const successGuardIndex=body.indexOf('if (!this.isCurrentLifecycle(lifecycleGeneration, vm, renderer) ||');
 const catchIndex=body.indexOf('.catch((e: Error) => {',successGuardIndex);
@@ -20,4 +26,4 @@ assert.ok(successGuardIndex>=0&&catchIndex>successGuardIndex&&logIndex>catchInde
 assert.doesNotMatch(body.slice(logIndex,guardIndex),/libraryLoading|hasInitError|showToast/,
   'no UI publication precedes context gate');
 
-console.log('D02_PAGE_SHOW_RELOAD_FAILURE_CONTEXT_BOUND_REPLAY_OK TOTAL=4 FAILED=0');
+console.log('D02_PAGE_SHOW_RELOAD_FAILURE_CONTEXT_BOUND_REPLAY_OK TOTAL=5 FAILED=0');

@@ -2,6 +2,12 @@
 
 Date: 2026-08-24 (Asia/Shanghai)
 
+## Phase 510 increment (2026-08-26)
+
+- Audit found that the library settings navigation called the router without checking page activation; a stale menu action could start a route after disposal.
+- `navigateToSettings()` now rejects inactive pages before routing. Menu structure, settings entry, return refreshes, and failure logging are unchanged.
+- Extended the existing page-show reload failure context-bound replay to `TOTAL=5 FAILED=0`.
+
 ## Source review
 
 - Successful onPageShow reload continuations checked lifecycle, ViewModel/renderer identity, and the current notes request.
