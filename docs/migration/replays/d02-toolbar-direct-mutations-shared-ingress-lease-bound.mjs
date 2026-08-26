@@ -36,6 +36,8 @@ const freehandEnd = toolbar.indexOf('\n          }', freehandStart);
 const freehandButton = toolbar.slice(freehandStart, freehandEnd);
 assert.match(freehandButton,
   /\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)/);
+assert.match(freehandButton,
+  /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.viewModel\.setSelectionIsFreehand\(/);
 
 for (const tool of ['WHOLE_ERASER', 'PARTIAL_ERASER', 'SELECTION', 'DEFAULT']) {
   const actionStart = toolbar.indexOf(`this.viewModel.selectTool(ToolType.${tool});`, 0);
@@ -45,4 +47,4 @@ for (const tool of ['WHOLE_ERASER', 'PARTIAL_ERASER', 'SELECTION', 'DEFAULT']) {
   assert.match(action, /action: \(\) => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}/, tool);
 }
 
-console.log('D02_TOOLBAR_DIRECT_MUTATIONS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=12 FAILED=0');
+console.log('D02_TOOLBAR_DIRECT_MUTATIONS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=13 FAILED=0');

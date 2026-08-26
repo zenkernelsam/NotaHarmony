@@ -226,6 +226,9 @@ export struct EditorToolbar {
               .enabled(!this.viewModel.toolStateLoading &&
                 !this.photoImportLeaseActive)
               .onClick(() => {
+                if (this.photoImportLeaseActive) {
+                  return;
+                }
                 this.viewModel.setSelectionIsFreehand(!this.viewModel.selectionIsFreehand);
               })
           }

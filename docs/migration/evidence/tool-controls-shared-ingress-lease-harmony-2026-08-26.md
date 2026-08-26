@@ -34,6 +34,35 @@
 ---
 
 日期：2026-08-26
+阶段：Phase 494
+结论：通过（静态验证）
+
+## 增量代码证据
+
+- `EditorToolbar.ets`
+  - 自由手/矩形切换按钮回调在调用 `viewModel.setSelectionIsFreehand()` 前拒绝
+    `photoImportLeaseActive`。
+  - `.enabled()` 继续检查工具加载状态与共享导入租约；按钮标签与 Taper 可用性逻辑不变。
+  - 工具状态的乐观更新、持久化事务、版本检查和失败恢复不变。
+
+## 增量静态验证
+
+- 聚焦 Replay：
+  `docs/migration/replays/d02-toolbar-direct-mutations-shared-ingress-lease-bound.mjs`
+  输出 `TOTAL=13 FAILED=0`。
+- 相邻 Replay：选中样式共享租约与本地选中样式通过。
+- ArkTS：`EditorToolbar.ets` 无错误，仅既有警告与信息级提示。
+- 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
+  （32.290 秒）。
+- clean：3.498 秒；ohosTest HAP：10.298 秒；default HAP：30.731 秒。
+
+## 运行边界
+
+未启动模拟器、虚拟机、真机或 Hypium；未清理既有临时产物；T-042 保持 Goal 最后任务。
+
+---
+
+日期：2026-08-26
 阶段：Phase 493
 结论：通过（静态验证）
 
