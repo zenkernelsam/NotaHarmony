@@ -1,26 +1,32 @@
-# Harmony 证据 — Phase 470 工具控制共享租约修复
+# Harmony Evidence — 工具颜色粗细共享照片导入租约
 
-## 变更位置
+日期：2026-08-26
+阶段：Phase 485
+结论：通过（静态验证）
 
-- `note/src/main/ets/ui/components/ColorPicker.ets`
-  - 新增 `photoImportLeaseActive`；十二个色块统一禁用。
-- `note/src/main/ets/ui/components/WidthSlider.ets`
-  - 新增 `photoImportLeaseActive`；滑杆禁用。
-- `note/src/main/ets/ui/editor/EditorToolbar.ets`
-  - 新增共享租约属性并传给两个已打开面板。
-- `note/src/main/ets/ui/editor/NotePage.ets`
-  - 把父页共享导入租约传给工具栏；既有选区颜色/宽度回调保留双层防御。
+## 代码证据
+
+- `ColorPicker.ets`
+  - 色格保留 `.enabled(!photoImportLeaseActive)`；点击回调再次拒绝该租约后才进入选中或
+    普通笔刷分支。
+  - 颜色预设数组、选中高亮、主题解析和父页回调绑定不变。
+- `WidthSlider.ets`
+  - 滑杆保留 `.enabled(!photoImportLeaseActive)`；`onChange` 再次拒绝该租约后才计算宽度档位。
+  - 选中范围、步进、普通笔刷范围和父页回调绑定不变。
+- `EditorToolbar` 显式传入共享导入租约；`NotePage` 对 `onSelectionColor` /
+  `onSelectionWidth` 保留页面操作、历史挂起和结构租约第二层防线。
 
 ## 静态验证
 
-- 新增焦点 Replay：
+- 聚焦 Replay：
   `docs/migration/replays/d02-tool-controls-shared-ingress-lease-bound.mjs`
-  输出 `TOTAL=9 FAILED=0`。
-- 相邻历史工具栏、选区样式共享租约、编辑器工具状态回滚并发、失败销毁、本地墨迹/
-  形状颜色宽度以及变宽 Hermite Replay 通过。
-- ArkTS 检查四个目标文件无错误；仅 `NotePage.ets` 既有 unused 与 deprecated 信息。
+  输出 `TOTAL=11 FAILED=0`。
+- 相邻 Replay：工具直改、面板开关、按钮一致化、选中样式上下文通过。
+- ArkTS：`ColorPicker.ets` 与 `WidthSlider.ets` 无错误；仅既有弃用 API 信息级提示。
+- 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
+  （35.912 秒）。
+- clean：3.544 秒；ohosTest HAP：11.218 秒；default HAP：34.746 秒。
 
 ## 运行边界
 
-未启动模拟器、虚拟机、真机或 Hypium。验证均为静态源绑定、本地 Replay 和构建检查；
-`T-042` 继续保持 Goal 最后任务。
+未启动模拟器、虚拟机、真机或 Hypium；未清理既有临时产物；T-042 保持 Goal 最后任务。

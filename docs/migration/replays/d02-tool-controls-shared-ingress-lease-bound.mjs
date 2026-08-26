@@ -29,6 +29,11 @@ for (const name of ['ColorPickerView', 'WidthSlider']) {
     `${name} receives the shared lease`);
 }
 
+assert.match(colorPicker,
+  /\.enabled\(!this\.photoImportLeaseActive\)\s+\.onClick\(\(\) => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+if \(this\.selectionMode\) \{/);
+assert.match(widthSlider,
+  /\.enabled\(!this\.photoImportLeaseActive\)\s+\.onChange\(\(value: number\) => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+if \(this\.selectionMode\) \{/);
+
 const toolbarCallStart = notePage.indexOf('        EditorToolbar({');
 assert.ok(toolbarCallStart >= 0);
 const toolbarCallEnd = notePage.indexOf('\n        })', toolbarCallStart);
@@ -48,4 +53,4 @@ for (const name of ['onSelectionColor', 'onSelectionWidth']) {
   assert.match(guard, /this\.pageOperationBusy/, `${name} keeps page lease`);
 }
 
-console.log('D02_TOOL_CONTROLS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=9 FAILED=0');
+console.log('D02_TOOL_CONTROLS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=11 FAILED=0');

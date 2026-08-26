@@ -52,6 +52,9 @@ export struct ColorPickerView {
               })
               .enabled(!this.photoImportLeaseActive)
               .onClick(() => {
+                if (this.photoImportLeaseActive) {
+                  return;
+                }
                 if (this.selectionMode) {
                   this.onSelectionColor(color);
                 } else {

@@ -36,6 +36,9 @@ export struct WidthSlider {
         .width(220)
         .enabled(!this.photoImportLeaseActive)
         .onChange((value: number) => {
+          if (this.photoImportLeaseActive) {
+            return;
+          }
           if (this.selectionMode) {
             this.onSelectionWidth(value);
           } else {
