@@ -7353,6 +7353,9 @@ export struct NoteCanvasView {
   }
 
   private beginTextEditingAt(position: Point2D): void {
+    if (this.photoImportBusy || this.historyBusy) {
+      return;
+    }
     for (let i: number = this.textBlocks.length - 1; i >= 0; i--) {
       if (pointHitsTextBlock(position, this.textBlocks[i])) {
         this.editingTextBlock = this.textBlocks[i];

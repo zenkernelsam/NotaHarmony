@@ -21,3 +21,16 @@
 
 未启动模拟器、虚拟机、真机或 Hypium。验证均为静态源绑定、本地 Replay 和构建检查；
 `T-042` 继续保持 Goal 最后任务。
+
+---
+
+## Phase 483 增量验证（2026-08-26）
+
+- `NoteCanvasView.beginTextEditingAt()` 新增首行门禁，先拒绝共享照片导入租约和历史租约，
+  再执行原有文本块命中与编辑状态切换。
+- 既有专项 Replay 扩展断言，当前输出 `TOTAL=10 FAILED=0`。
+- ArkTS 目标无错误，仅既有警告与信息级提示；相邻文本提交与文本取消 Replay 通过。
+- 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
+  （35.273 秒）。clean：7.602 秒；ohosTest HAP：13.184 秒；default HAP：34.080 秒。
+
+未启动模拟器、虚拟机、真机或 Hypium；未清理既有临时产物；T-042 保持 Goal 最后任务。

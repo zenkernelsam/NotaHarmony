@@ -15,6 +15,12 @@ assert.ok(callStart >= 0 && callEnd > callStart);
 const call = canvas.slice(callStart, callEnd);
 assert.match(call, /photoImportLeaseActive: this\.photoImportBusy/);
 
+const beginTextEdit = canvas.slice(
+  canvas.indexOf('  private beginTextEditingAt('),
+  canvas.indexOf('\n  }\n', canvas.indexOf('  private beginTextEditingAt(')));
+assert.match(beginTextEdit,
+  /if \(this\.photoImportBusy \|\| this\.historyBusy\) \{\s+return;\s+\}/);
+
 for (const name of ['onDraftChange', 'onCancel']) {
   const callbackStart = call.indexOf(`${name}:`);
   assert.ok(callbackStart >= 0, `${name} exists`);
@@ -25,4 +31,4 @@ for (const name of ['onDraftChange', 'onCancel']) {
   assert.match(guard, /this\.historyBusy/, `${name} rejects history lease second`);
 }
 
-console.log('D02_OPEN_TEXT_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=9 FAILED=0');
+console.log('D02_OPEN_TEXT_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=10 FAILED=0');
