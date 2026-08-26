@@ -16,6 +16,22 @@ for (const token of [
   assert.ok(panel.includes(token), `panel binds ${token}`);
 }
 
+const guardedCallbacks = [
+  'onClose', 'onSeek', 'onPauseCapture', 'onResumeCapture', 'onStopCapture',
+  'onRecord', 'onSpeedChange', 'onToggle', 'onDelete', 'onUndoDelete',
+];
+for (const name of guardedCallbacks) {
+  const callbackStart = panel.indexOf(`this.${name}(`);
+  assert.ok(callbackStart >= 0, `${name} invocation exists`);
+  const guardStart = panel.lastIndexOf('.onClick(() => {', callbackStart);
+  const guardEnd = panel.indexOf('this.on' + name.slice(2), callbackStart);
+  assert.ok(guardStart >= 0 && guardEnd > guardStart, `${name} guard bounds`);
+  const guard = panel.slice(guardStart, guardEnd);
+  assert.match(guard,
+    /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}/,
+    `${name} rejects shared lease before forwarding`);
+}
+
 const callStart = page.indexOf('        RecordingPanel({');
 const callEnd = page.indexOf('\n      }\n\n      // 画布', callStart);
 assert.ok(callStart >= 0 && callEnd > callStart);
@@ -39,4 +55,4 @@ for (const name of callbackNames) {
 }
 
 console.log(
-  'D02_RECORDING_PANEL_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=13 FAILED=0');
+  'D02_RECORDING_PANEL_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=23 FAILED=0');

@@ -68,7 +68,12 @@ export struct RecordingPanel {
           .backgroundColor(Color.Transparent)
           .fontColor(this.resolveTokens().textPrimary)
           .accessibilityText($r('app.string.close_recordings'))
-          .onClick(() => this.onClose())
+          .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
+            this.onClose();
+          })
       }
       .width('100%').height(40).padding({ left: 12, right: 8 })
 
@@ -115,7 +120,12 @@ export struct RecordingPanel {
             .enabled(this.controlsEnabled && this.canSeek())
             .opacity(this.controlsEnabled && this.canSeek() ? 1 : 0.45)
             .selectedColor(this.resolveTokens().accent)
-            .onChange((value: number) => this.onSeek(value))
+            .onChange((value: number) => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
+              this.onSeek(value);
+            })
           Row() {
             Text(formatRecordingTime(this.cumulativePositionMs))
               .fontSize(11).fontColor(this.resolveTokens().textSecondary)
@@ -165,7 +175,12 @@ export struct RecordingPanel {
               .enabled(this.controlsEnabled)
               .backgroundColor(this.resolveTokens().control)
               .fontColor(this.resolveTokens().textPrimary)
-              .onClick(() => this.onPauseCapture())
+              .onClick(() => {
+                if (this.photoImportLeaseActive) {
+                  return;
+                }
+                this.onPauseCapture();
+              })
           }
         } else if (this.captureSnapshot.captureState === OriginalRecordingCaptureState.PAUSED) {
           Button($r('app.string.resume_recording'))
@@ -173,7 +188,12 @@ export struct RecordingPanel {
             .enabled(this.controlsEnabled)
             .backgroundColor(this.resolveTokens().control)
             .fontColor(this.resolveTokens().textPrimary)
-            .onClick(() => this.onResumeCapture())
+            .onClick(() => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
+              this.onResumeCapture();
+            })
         }
         Blank()
         Button($r('app.string.stop_recording'))
@@ -183,14 +203,24 @@ export struct RecordingPanel {
               this.captureSnapshot.captureState === OriginalRecordingCaptureState.PAUSED))
           .backgroundColor(this.resolveTokens().danger)
           .fontColor(this.resolveTokens().onAccent)
-          .onClick(() => this.onStopCapture())
+          .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
+            this.onStopCapture();
+          })
       } else {
         Button($r('app.string.start_recording'))
           .height(34).fontSize(13).borderRadius(4)
           .enabled(this.controlsEnabled)
           .backgroundColor(this.resolveTokens().accent)
           .fontColor(this.resolveTokens().onAccent)
-          .onClick(() => this.onRecord())
+          .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
+            this.onRecord();
+          })
       }
     }
     .width('100%').height(56).padding({ left: 12, right: 12 })
@@ -217,7 +247,12 @@ export struct RecordingPanel {
         this.resolveTokens().control)
       .fontColor(this.playbackSpeed === speed ? this.resolveTokens().onAccent :
         this.resolveTokens().textPrimary)
-      .onClick(() => this.onSpeedChange(speed))
+      .onClick(() => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
+        this.onSpeedChange(speed);
+      })
   }
 
   @Builder
@@ -235,7 +270,12 @@ export struct RecordingPanel {
           recording.assetState === OriginalRecordingAssetState.READY ? 1 : 0.4)
         .accessibilityText(this.isPlaying(recording.id) ? $r('app.string.pause_recording') :
           $r('app.string.play_recording'))
-        .onClick(() => this.onToggle(recording.id))
+        .onClick(() => {
+          if (this.photoImportLeaseActive) {
+            return;
+          }
+          this.onToggle(recording.id);
+        })
       Column() {
         Text($r('app.string.recording_user_facing_name', index + 1))
           .fontSize(14)
@@ -255,7 +295,12 @@ export struct RecordingPanel {
         .fontColor(this.resolveTokens().danger)
         .accessibilityText($r('app.string.delete_recording'))
         .enabled(this.controlsEnabled)
-        .onClick(() => this.onDelete(recording.id))
+        .onClick(() => {
+          if (this.photoImportLeaseActive) {
+            return;
+          }
+          this.onDelete(recording.id);
+        })
     }
     .width('100%').height(58).padding({ left: 8, right: 12 })
     .backgroundColor(this.isSelected(recording.id) ? this.resolveTokens().control : Color.Transparent)
@@ -273,7 +318,12 @@ export struct RecordingPanel {
         .backgroundColor(Color.Transparent)
         .fontColor(this.resolveTokens().accent)
         .enabled(this.controlsEnabled)
-        .onClick(() => this.onUndoDelete(recording.id))
+        .onClick(() => {
+          if (this.photoImportLeaseActive) {
+            return;
+          }
+          this.onUndoDelete(recording.id);
+        })
     }
     .width('100%').height(58).padding({ left: 12, right: 12 })
   }
