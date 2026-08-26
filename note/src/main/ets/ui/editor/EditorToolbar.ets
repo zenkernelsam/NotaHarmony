@@ -82,10 +82,14 @@ export struct EditorToolbar {
             this.selectionColor : this.viewModel.brushColor))
           .margin({ left: 4, right: 4 })
           .enabled((this.viewModel.supportsBrushControls() || this.viewModel.isSelectionActive()) &&
-            !this.viewModel.toolStateLoading)
+            !this.viewModel.toolStateLoading &&
+            !this.photoImportLeaseActive)
           .opacity((this.viewModel.supportsBrushControls() || this.viewModel.isSelectionActive()) &&
             !this.viewModel.toolStateLoading ? 1 : 0.4)
           .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
             this.viewModel.showColorPicker = !this.viewModel.showColorPicker;
             this.viewModel.showWidthSlider = false;
           })
@@ -98,10 +102,14 @@ export struct EditorToolbar {
           .fontSize(13)
           .margin({ left: 4, right: 4 })
           .enabled((this.viewModel.supportsBrushControls() || this.viewModel.isSelectionActive()) &&
-            !this.viewModel.toolStateLoading)
+            !this.viewModel.toolStateLoading &&
+            !this.photoImportLeaseActive)
           .opacity((this.viewModel.supportsBrushControls() || this.viewModel.isSelectionActive()) &&
             !this.viewModel.toolStateLoading ? 1 : 0.4)
           .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
             this.viewModel.showWidthSlider = !this.viewModel.showWidthSlider;
             this.viewModel.showColorPicker = false;
           })
