@@ -32,5 +32,19 @@ assert.match(toolButton,
 assert.match(styleButton,
   /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.viewModel\.setBrushStyle\(style\);/);
 
+for (const [action, forward] of [
+  ['insert_photo', 'onInsertPhotos()'],
+  ['insert_math', 'onInsertMath()'],
+]) {
+  const buttonStart = toolbar.indexOf(`Button($r('app.string.${action}'))`);
+  assert.ok(buttonStart >= 0, action);
+  const bodyEnd = toolbar.indexOf('\n          Divider()', buttonStart);
+  assert.ok(bodyEnd > buttonStart, `${action} bounds`);
+  const body = toolbar.slice(buttonStart, bodyEnd);
+  assert.match(body,
+    new RegExp(`\\.onClick\\(\\(\\) => \\{\\s+if \\(this\\.photoImportLeaseActive\\) \\{\\s+return;\\s+\\}\\s+this\\.${forward.replace('(', '\\(').replace(')', '\\)')}`),
+    `${action} callback guard`);
+}
+
 console.log(
-  'D02_TOOLBAR_BUILDERS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=4 FAILED=0');
+  'D02_TOOLBAR_BUILDERS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=6 FAILED=0');

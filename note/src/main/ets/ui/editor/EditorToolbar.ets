@@ -123,7 +123,12 @@ export struct EditorToolbar {
             .margin({ left: 2, right: 2 })
             .enabled(!this.viewModel.toolStateLoading &&
               !this.photoImportLeaseActive)
-            .onClick(() => this.onInsertPhotos())
+            .onClick(() => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
+              this.onInsertPhotos();
+            })
           Button($r('app.string.insert_math'))
             .height(32)
             .fontSize(13)
@@ -131,6 +136,9 @@ export struct EditorToolbar {
             .enabled(!this.viewModel.toolStateLoading &&
               !this.photoImportLeaseActive)
             .onClick(() => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
               this.onInsertMath();
             })
           Divider().vertical(true).height(24).margin({ left: 8, right: 8 })

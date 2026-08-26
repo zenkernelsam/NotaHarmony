@@ -34,6 +34,35 @@
 ---
 
 日期：2026-08-26
+阶段：Phase 493
+结论：通过（静态验证）
+
+## 增量代码证据
+
+- `EditorToolbar.ets`
+  - 非紧凑 Photo 与 Math 插入按钮回调先拒绝 `photoImportLeaseActive`，再分别转发
+    `onInsertPhotos()` / `onInsertMath()`。
+  - `.enabled()` 继续检查工具加载状态与共享导入租约；紧凑菜单已有回调防线不变。
+  - 父页共享导入、页面操作、历史挂起和结构租约防线不变。
+
+## 增量静态验证
+
+- 聚焦 Replay：
+  `docs/migration/replays/d02-toolbar-builders-shared-ingress-lease-bound.mjs`
+  输出 `TOTAL=6 FAILED=0`。
+- 相邻 Replay：工具直改、面板开关、按钮一致化通过。
+- ArkTS：`EditorToolbar.ets` 无错误，仅既有警告与信息级提示。
+- 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
+  （33.131 秒）。
+- clean：3.338 秒；ohosTest HAP：11.084 秒；default HAP：31.320 秒。
+
+## 运行边界
+
+未启动模拟器、虚拟机、真机或 Hypium；未清理既有临时产物；T-042 保持 Goal 最后任务。
+
+---
+
+日期：2026-08-26
 阶段：Phase 491
 结论：通过（静态验证）
 
