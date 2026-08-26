@@ -1095,10 +1095,16 @@ export struct NoteCanvasView {
   }
 
   onMathInsertSignalChange(_propName: string): void {
+    if (this.photoImportBusy) {
+      return;
+    }
     this.startMathInsert();
   }
 
   onPhotoInsertSignalChange(_propName: string): void {
+    if (this.photoImportBusy) {
+      return;
+    }
     void this.startOriginalPhotoInsert();
   }
 
