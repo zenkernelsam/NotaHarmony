@@ -99,8 +99,10 @@ export struct PageManagerBar {
         Button($r('app.string.delete'))
           .height(40)
           .margin({ left: 4, right: 16 })
-          .enabled(!this.busy && this.pageCount > 1)
-          .opacity(!this.busy && this.pageCount > 1 ? 1 : 0.4)
+          .enabled(!this.busy && !this.photoImportLeaseActive &&
+            this.pageCount > 1)
+          .opacity(!this.busy && !this.photoImportLeaseActive &&
+            this.pageCount > 1 ? 1 : 0.4)
           .onClick(() => {
             this.onDelete();
           })
@@ -167,17 +169,20 @@ export struct PageManagerBar {
   private buildPageMenu(): MenuElement[] {
     return [
       { value: $r('app.string.move_page_earlier'), action: () => {
-        if (!this.busy && this.currentPageIndex > 0) {
+        if (!this.busy && !this.photoImportLeaseActive &&
+          this.currentPageIndex > 0) {
           this.onMovePrevious();
         }
       } },
       { value: $r('app.string.move_page_later'), action: () => {
-        if (!this.busy && this.currentPageIndex < this.pageCount - 1) {
+        if (!this.busy && !this.photoImportLeaseActive &&
+          this.currentPageIndex < this.pageCount - 1) {
           this.onMoveNext();
         }
       } },
       { value: $r('app.string.delete_page'), action: () => {
-        if (!this.busy && this.pageCount > 1) {
+        if (!this.busy && !this.photoImportLeaseActive &&
+          this.pageCount > 1) {
           this.onDelete();
         }
       } },
