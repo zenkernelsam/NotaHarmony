@@ -153,6 +153,9 @@ export struct EditorToolbar {
             !this.photoImportLeaseActive)
           .opacity(this.canUndo ? 1 : 0.4)
           .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
             this.onUndo();
           })
         Button('↷')
@@ -163,6 +166,9 @@ export struct EditorToolbar {
             !this.photoImportLeaseActive)
           .opacity(this.canRedo ? 1 : 0.4)
           .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
             this.onRedo();
           })
         }

@@ -34,6 +34,34 @@
 ---
 
 日期：2026-08-26
+阶段：Phase 495
+结论：通过（静态验证）
+
+## 增量代码证据
+
+- `EditorToolbar.ets`
+  - Undo 与 Redo 按钮回调在转发 `onUndo()` / `onRedo()` 前拒绝 `photoImportLeaseActive`。
+  - `.enabled()` 继续检查 `canUndo` / `canRedo` 与共享导入租约。
+  - 父页页面操作、历史挂起防线以及画布共享导入优先于内部历史守卫的顺序不变。
+
+## 增量静态验证
+
+- 聚焦 Replay：
+  `docs/migration/replays/d02-history-toolbar-shared-lease-bound.mjs`
+  输出 `TOTAL=12 FAILED=0`。
+- 相邻 Replay：选中样式共享租约与本地墨迹样式通过。
+- ArkTS：`EditorToolbar.ets` 无错误，仅既有警告与信息级提示。
+- 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
+  （32.864 秒）。
+- clean：3.379 秒；ohosTest HAP：10.370 秒；default HAP：30.714 秒。
+
+## 运行边界
+
+未启动模拟器、虚拟机、真机或 Hypium；未清理既有临时产物；T-042 保持 Goal 最后任务。
+
+---
+
+日期：2026-08-26
 阶段：Phase 494
 结论：通过（静态验证）
 

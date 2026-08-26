@@ -5,6 +5,8 @@ const page = fs.readFileSync('note/src/main/ets/ui/editor/NotePage.ets', 'utf8')
   .replaceAll('\r\n', '\n');
 const canvas = fs.readFileSync('note/src/main/ets/ui/editor/NoteCanvasView.ets', 'utf8')
   .replaceAll('\r\n', '\n');
+const toolbar = fs.readFileSync('note/src/main/ets/ui/editor/EditorToolbar.ets', 'utf8')
+  .replaceAll('\r\n', '\n');
 
 for (const [label, propertyName] of [
   ['undo', 'onUndo'],
@@ -24,6 +26,17 @@ for (const [label, propertyName] of [
       guard.includes('!this.historyPending'),
     `${label} checks shared photo ingress lease`,
   );
+}
+
+for (const [label, forward] of [['undo', 'onUndo()'], ['redo', 'onRedo()']]) {
+  const buttonStart = toolbar.indexOf(`this.${forward};`);
+  assert.ok(buttonStart >= 0, `${label} forward`);
+  const clickStart = toolbar.lastIndexOf('.onClick(() => {', buttonStart);
+  assert.ok(clickStart >= 0, `${label} click bounds`);
+  const body = toolbar.slice(clickStart, buttonStart + forward.length + 1);
+  assert.match(body,
+    /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+/,
+    `${label} toolbar callback rejects shared lease`);
 }
 
 const historyStart = canvas.indexOf('  private performHistory(isUndo: boolean): void {');
@@ -49,4 +62,4 @@ for (const effect of [
   assert.ok(historyBody.includes(effect), `history path reaches ${effect}`);
 }
 
-console.log('D02_HISTORY_TOOLBAR_SHARED_LEASE_BOUND_REPLAY_OK TOTAL=10 FAILED=0');
+console.log('D02_HISTORY_TOOLBAR_SHARED_LEASE_BOUND_REPLAY_OK TOTAL=12 FAILED=0');
