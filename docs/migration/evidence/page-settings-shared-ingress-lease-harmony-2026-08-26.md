@@ -68,6 +68,14 @@
 - `SelectionOverlay` 新增共享租约属性，并在 `buildSelectionMenu()` 激活时返回空菜单。动作顺序、
   能力条件、日志、按钮禁用和画布入口防线不变。
 - 扩展选区菜单按钮共享租约 Replay 至 13 项，并通过既有选区菜单入口专项 Replay。
+
+## Phase 501 增量（2026-08-26）
+
+- 继续补审发现：页面设置按钮虽有响应式禁用且弹窗内容会因共享租约被抑制，但点击回调仍直接
+  置位 `showSettings`；租约切换竞态中晚到事件可打开空设置弹窗。
+- 按钮回调现在先拒绝 `photoImportLeaseActive`，再执行原有弹窗置位。响应式禁用、弹窗状态回流、
+  内容抑制、纸色草稿与父页操作防线不变。
+- 扩展既有页面条共享租约 Replay 至 `TOTAL=16 FAILED=0`。
 - 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
   （32.294 秒）。
 - clean：3.439 秒；ohosTest HAP：10.355 秒；default HAP：31.368 秒。

@@ -171,6 +171,9 @@ export struct PageManagerBar {
       .opacity(this.busy ? 0.4 : 1)
       .accessibilityText($r('app.string.page_settings'))
       .onClick(() => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
         this.showSettings = true;
       })
       .bindPopup(this.showSettings, {

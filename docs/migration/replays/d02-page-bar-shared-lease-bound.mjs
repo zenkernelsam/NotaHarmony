@@ -25,7 +25,9 @@ assert.equal(bar.match(/!this\.photoImportLeaseActive/g)?.length >= 6, true);
 function guardedClick(marker, forwardToken) {
   const clickStart = bar.indexOf(marker);
   assert.ok(clickStart >= 0, marker);
-  const bodyEnd = bar.indexOf('\n          })', clickStart);
+  const bodyEnd = bar.indexOf('\n      })', clickStart) === -1 ?
+    bar.indexOf('\n          })', clickStart) :
+    bar.indexOf('\n      })', clickStart);
   assert.ok(bodyEnd > clickStart, `${marker} bounds`);
   const body = bar.slice(clickStart, bodyEnd);
   assert.match(body,
@@ -38,6 +40,7 @@ guardedClick('NavigationButton', 'navigation');
 guardedClick("Button($r('app.string.delete'))", 'delete');
 guardedClick("Button($r('app.string.move_page_earlier'))", 'move previous');
 guardedClick("Button($r('app.string.move_page_later'))", 'move next');
+guardedClick("Button(compact ? '⚙' : $r('app.string.page_settings'))", 'settings');
 
 const backgroundStart = page.indexOf(
   '  private async applyNoteBackgroundSettings(');
@@ -57,4 +60,4 @@ for (const [name, token] of [
   assert.ok(guard.includes(token), `background applies ${name}`);
 }
 
-console.log('D02_PAGE_BAR_SHARED_LEASE_BOUND_REPLAY_OK TOTAL=15 FAILED=0');
+console.log('D02_PAGE_BAR_SHARED_LEASE_BOUND_REPLAY_OK TOTAL=16 FAILED=0');
