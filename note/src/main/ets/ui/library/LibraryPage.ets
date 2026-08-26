@@ -803,6 +803,9 @@ struct LibraryPage {
   }
 
   private toggleFolderExpanded(folderId: string): void {
+    if (this.folderBusy) {
+      return;
+    }
     const next: string[] = this.expandedFolderIds.slice();
     const index: number = next.indexOf(folderId);
     if (index >= 0) {

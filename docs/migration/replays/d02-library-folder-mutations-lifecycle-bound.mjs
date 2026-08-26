@@ -45,4 +45,9 @@ const moveBy = section(
   '\n  private clearFolderDrag');
 assert.match(moveBy, /if \(this\.folderBusy\) \{\s+return;\s+\}\s+const siblings:/);
 
-console.log('D02_LIBRARY_FOLDER_MUTATIONS_LIFECYCLE_BOUND_REPLAY_OK TOTAL=6 FAILED=0');
+const toggle = section(
+  'private toggleFolderExpanded(folderId: string): void {',
+  '\n  private openCompactFolderDrawer');
+assert.match(toggle, /if \(this\.folderBusy\) \{\s+return;\s+\}\s+const next:/);
+
+console.log('D02_LIBRARY_FOLDER_MUTATIONS_LIFECYCLE_BOUND_REPLAY_OK TOTAL=7 FAILED=0');
