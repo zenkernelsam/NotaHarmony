@@ -274,7 +274,8 @@ export struct PageSettingsPanel {
   }
 
   private applyTemplate(template: PaperTemplate): void {
-    if (this.busy || this.sharedBusy || this.spacingSaveBusy) {
+    if (this.busy || this.photoImportLeaseActive ||
+      this.sharedBusy || this.spacingSaveBusy) {
       return;
     }
     this.onApply(applyOriginalTemplatePickerSelection(

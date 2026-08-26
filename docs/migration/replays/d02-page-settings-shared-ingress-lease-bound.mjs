@@ -18,6 +18,11 @@ assert.match(body,
 assert.equal(body.match(/\.enabled\(!this\.busy && !this\.photoImportLeaseActive &&\s+!this\.sharedBusy && !this\.spacingSaveBusy\)/g)?.length, 1);
 assert.equal(body.match(/if \(!this\.busy && !this\.photoImportLeaseActive &&\s+!this\.sharedBusy && !this\.spacingSaveBusy &&\s+this\.draft\.orientation !== PageOrientation\.(PORTRAIT|LANDSCAPE)\)/g)?.length, 2);
 assert.match(body, /\.enabled\(!this\.busy && !this\.photoImportLeaseActive\)/);
+const applyTemplate = panel.slice(
+  panel.indexOf('  private applyTemplate('),
+  panel.indexOf('\n  }\n', panel.indexOf('  private applyTemplate(')));
+assert.match(applyTemplate,
+  /if \(this\.busy \|\| this\.photoImportLeaseActive \|\|\s+this\.sharedBusy \|\| this\.spacingSaveBusy\) \{\s+return;\s+\}/);
 
 const popupCall = bar.slice(bar.indexOf('    PageSettingsPanel({'), bar.indexOf('    })', bar.indexOf('    PageSettingsPanel({')));
 assert.match(popupCall, /busy: this\.busy,/);
@@ -26,4 +31,4 @@ const settingsButton = bar.slice(bar.indexOf('  SettingsButton(compact: boolean)
 assert.match(settingsButton, /if \(!this\.photoImportLeaseActive\) \{\s+this\.PageSettingsBuilder\(\)\s+\}/);
 
 console.log(
-  'D02_PAGE_SETTINGS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=7 FAILED=0');
+  'D02_PAGE_SETTINGS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=8 FAILED=0');
