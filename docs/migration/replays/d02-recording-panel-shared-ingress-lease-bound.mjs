@@ -37,6 +37,11 @@ const callEnd = page.indexOf('\n      }\n\n      // 画布', callStart);
 assert.ok(callStart >= 0 && callEnd > callStart);
 const call = page.slice(callStart, callEnd);
 assert.match(call, /photoImportLeaseActive: this\.photoImportLeaseActive/);
+const topBarEnd = page.indexOf('      // 工具栏');
+assert.ok(topBarEnd > 0);
+assert.match(page.slice(0, topBarEnd),
+  /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+if \(this\.showRecordings\) \{\s+this\.closeRecordings\(\);\s+\} else \{\s+this\.showRecordings = true;/,
+  'recordings toggle rejects shared lease before changing visibility');
 
 const callbackNames = [
   'onRecord', 'onPauseCapture', 'onResumeCapture', 'onStopCapture',
@@ -55,4 +60,4 @@ for (const name of callbackNames) {
 }
 
 console.log(
-  'D02_RECORDING_PANEL_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=23 FAILED=0');
+  'D02_RECORDING_PANEL_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=24 FAILED=0');
