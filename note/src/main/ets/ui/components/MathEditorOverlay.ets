@@ -101,7 +101,12 @@ export struct MathEditorOverlay {
             .border({ width: 1, color: this.resolveTokens().border })
             .borderRadius(6)
             .enabled(!this.busy && !this.photoImportLeaseActive)
-            .onChange((value: string): void => this.onDraftChange(value))
+            .onChange((value: string): void => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
+              this.onDraftChange(value);
+            })
           if (this.failed) {
             Text($r('app.string.math_editor_failed'))
               .width('100%')
@@ -117,7 +122,12 @@ export struct MathEditorOverlay {
               .fontColor(this.resolveTokens().textPrimary)
               .backgroundColor(this.resolveTokens().control)
               .enabled(!this.busy && !this.photoImportLeaseActive)
-              .onClick((): void => this.onCancel())
+              .onClick((): void => {
+                if (this.photoImportLeaseActive) {
+                  return;
+                }
+                this.onCancel();
+              })
             Button($r('app.string.math_editor_done'))
               .height(40)
               .layoutWeight(1)
@@ -126,7 +136,12 @@ export struct MathEditorOverlay {
               .backgroundColor(this.resolveTokens().accent)
               .enabled(isOriginalMathEditorDoneEnabled(
                 this.draftState, this.busy, this.photoImportLeaseActive))
-              .onClick((): void => this.onConfirm())
+              .onClick((): void => {
+                if (this.photoImportLeaseActive) {
+                  return;
+                }
+                this.onConfirm();
+              })
           }
           .width('100%')
           .margin({ top: 16 })

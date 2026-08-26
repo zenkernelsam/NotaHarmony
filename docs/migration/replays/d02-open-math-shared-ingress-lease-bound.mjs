@@ -11,6 +11,13 @@ assert.match(overlay,
   /export function isOriginalMathEditorDoneEnabled\(state: OriginalMathEditorDraftState,\s+busy: boolean, photoImportLeaseActive: boolean\): boolean \{\s+return !busy && !photoImportLeaseActive &&\s+state === OriginalMathEditorDraftState\.OK;\s+\}/);
 assert.equal(overlay.match(/!this\.photoImportLeaseActive/g)?.length >= 2, true);
 
+assert.match(overlay,
+  /\.onChange\(\(value: string\): void => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onDraftChange\(value\);\s+\}\)/);
+assert.match(overlay,
+  /\.onClick\(\(\): void => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onCancel\(\);\s+\}\)/);
+assert.match(overlay,
+  /\.onClick\(\(\): void => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onConfirm\(\);\s+\}\)/);
+
 const callStart = canvas.indexOf('      MathEditorOverlay({');
 const callEnd = canvas.indexOf('\n      })', callStart);
 assert.ok(callStart >= 0 && callEnd > callStart);
@@ -27,4 +34,4 @@ for (const name of ['onDraftChange', 'onCancel', 'onConfirm']) {
   assert.match(guard, /this\.historyBusy/, `${name} rejects history lease second`);
 }
 
-console.log('D02_OPEN_MATH_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=10 FAILED=0');
+console.log('D02_OPEN_MATH_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=13 FAILED=0');

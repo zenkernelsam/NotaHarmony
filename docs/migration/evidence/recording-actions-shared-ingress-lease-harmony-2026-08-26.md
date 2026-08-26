@@ -26,3 +26,31 @@
 ## 运行边界
 
 未启动模拟器、虚拟机、真机或 Hypium；未清理既有临时产物；T-042 保持 Goal 最后任务。
+
+---
+
+日期：2026-08-26
+阶段：Phase 489
+结论：通过（静态验证）
+
+## 增量代码证据
+
+- `MathEditorOverlay.ets`
+  - 公式输入 `onChange()` 在转发父页草稿前拒绝 `photoImportLeaseActive`。
+  - 取消与完成按钮回调在转发前拒绝该租约。
+  - 响应式禁用函数、父页共享/历史双层防线、校验、预览、插入事务和失败提示不变。
+
+## 增量静态验证
+
+- 聚焦 Replay：
+  `docs/migration/replays/d02-open-math-shared-ingress-lease-bound.mjs`
+  输出 `TOTAL=13 FAILED=0`。
+- 相邻 Replay：公式提交与公式插入共享租约通过。
+- ArkTS：`MathEditorOverlay.ets` 无错误，仅既有警告与信息级提示。
+- 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
+  （29.975 秒）。
+- clean：3.211 秒；ohosTest HAP：9.951 秒；default HAP：29.523 秒。
+
+## 运行边界
+
+未启动模拟器、虚拟机、真机或 Hypium；未清理既有临时产物；T-042 保持 Goal 最后任务。
