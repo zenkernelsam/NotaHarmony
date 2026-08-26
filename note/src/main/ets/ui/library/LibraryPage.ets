@@ -1599,7 +1599,7 @@ struct LibraryPage {
   }
 
   private confirmDelete(note: NoteMeta): void {
-    if (this.deleteBusy) {
+    if (!this.pageActive || this.deleteBusy) {
       return;
     }
     // T-033：原生 AlertDialog（getUIContext 新 API，替代弃用的 AlertDialog.show）
@@ -1859,7 +1859,7 @@ struct LibraryPage {
   }
 
   private async deleteNoteAndRefresh(noteId: string): Promise<void> {
-    if (this.viewModel === null || this.deleteBusy) {
+    if (!this.pageActive || this.viewModel === null || this.deleteBusy) {
       return;
     }
     const lifecycleGeneration: number = this.lifecycleGeneration;
@@ -1891,7 +1891,7 @@ struct LibraryPage {
   }
 
   private async createAndOpen(): Promise<void> {
-    if (this.viewModel === null || this.createBusy) {
+    if (!this.pageActive || this.viewModel === null || this.createBusy) {
       return;
     }
     const lifecycleGeneration: number = this.lifecycleGeneration;

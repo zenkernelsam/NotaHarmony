@@ -4,18 +4,28 @@ import fs from 'node:fs';
 const page = fs.readFileSync('note/src/main/ets/ui/library/LibraryPage.ets', 'utf8')
   .replaceAll('\r\n', '\n');
 
+assert.match(page,
+  /private confirmDelete\(note: NoteMeta\): void \{\s+if \(!this\.pageActive \|\| this\.deleteBusy\) \{\s+return;\s+\}/,
+  'stale note context cannot open the delete dialog');
+
 const deleteStart = page.indexOf('private async deleteNoteAndRefresh(noteId: string): Promise<void> {');
 const createStart = page.indexOf('private async createAndOpen(): Promise<void> {', deleteStart);
 const endMarker = page.indexOf('\n  // 响应式断点', createStart);
 assert.ok(deleteStart !== -1 && createStart > deleteStart && endMarker > createStart);
 
 const deleteFn = page.slice(deleteStart, createStart);
+assert.match(deleteFn,
+  /if \(!this\.pageActive \|\| this\.viewModel === null \|\| this\.deleteBusy\) \{\s+return;\s+\}/,
+  'stale deletion cannot start a durable mutation');
 assert.match(deleteFn, /const lifecycleGeneration: number = this\.lifecycleGeneration;/);
 const deleteGuards = (deleteFn.match(
   /lifecycleGeneration !== this\.lifecycleGeneration \|\| !this\.pageActive \|\|\s+this\.viewModel !== vm/g) ?? []).length;
 assert.equal(deleteGuards, 2);
 
 const createFn = page.slice(createStart, endMarker);
+assert.match(createFn,
+  /if \(!this\.pageActive \|\| this\.viewModel === null \|\| this\.createBusy\) \{\s+return;\s+\}/,
+  'stale create cannot start a durable mutation');
 assert.match(createFn, /const lifecycleGeneration: number = this\.lifecycleGeneration;/);
 const createGuards = (createFn.match(
   /lifecycleGeneration !== this\.lifecycleGeneration \|\| !this\.pageActive \|\|\s+this\.viewModel !== vm/g) ?? []).length;
@@ -30,4 +40,4 @@ const navToastIndex = createFn.indexOf("$r('app.string.created_note_open_failed'
 assert.ok(navGuardIndex > navCatch && navToastIndex > navGuardIndex,
   'navigation failure must check context before toast');
 
-console.log('D02_LIBRARY_NOTE_CREATE_DELETE_LIFECYCLE_BOUND_REPLAY_OK TOTAL=5 FAILED=0');
+console.log('D02_LIBRARY_NOTE_CREATE_DELETE_LIFECYCLE_BOUND_REPLAY_OK TOTAL=8 FAILED=0');
