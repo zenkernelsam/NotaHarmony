@@ -130,7 +130,8 @@ export struct PageSettingsPanel {
   }
 
   private selectLegacyPaper(legacyPaperIndex: number): void {
-    if (this.busy || this.sharedBusy || this.spacingSaveBusy) {
+    if (this.busy || this.photoImportLeaseActive ||
+      this.sharedBusy || this.spacingSaveBusy) {
       return;
     }
     this.draft = stageOriginalTemplateLegacyPaper(this.draft, legacyPaperIndex);
@@ -144,7 +145,8 @@ export struct PageSettingsPanel {
   }
 
   private activateCustomColor(): void {
-    if (this.busy || this.sharedBusy || this.spacingSaveBusy) {
+    if (this.busy || this.photoImportLeaseActive ||
+      this.sharedBusy || this.spacingSaveBusy) {
       return;
     }
     this.customColorExpanded = true;
@@ -162,16 +164,25 @@ export struct PageSettingsPanel {
   }
 
   private updateCustomHue(value: number): void {
+    if (this.photoImportLeaseActive) {
+      return;
+    }
     this.customHue = Math.max(0, Math.min(360, value));
     this.stageCustomColor();
   }
 
   private updateCustomSaturation(value: number): void {
+    if (this.photoImportLeaseActive) {
+      return;
+    }
     this.customSaturation = Math.max(0, Math.min(100, value));
     this.stageCustomColor();
   }
 
   private updateCustomValue(value: number): void {
+    if (this.photoImportLeaseActive) {
+      return;
+    }
     this.customValue = Math.max(0, Math.min(100, value));
     this.stageCustomColor();
   }

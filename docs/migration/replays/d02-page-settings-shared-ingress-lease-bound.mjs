@@ -57,6 +57,23 @@ const saveSharedSpacing = panel.slice(
 assert.match(saveSharedSpacing,
   /if \(store === null \|\| this\.busy \|\| this\.sharedBusy \|\| this\.spacingSaveBusy \|\|\s+this\.photoImportLeaseActive \|\| template === PaperTemplate.PLAIN\) \{\s+return;\s+\}/);
 
+function methodBody(name) {
+  const start = panel.indexOf(`  private ${name}(`);
+  assert.ok(start >= 0, `${name} exists`);
+  return panel.slice(start, panel.indexOf('\n  }\n', start));
+}
+
+assert.match(methodBody('selectLegacyPaper'),
+  /if \(this\.busy \|\| this\.photoImportLeaseActive \|\|\s+this\.sharedBusy \|\| this\.spacingSaveBusy\) \{\s+return;\s+\}/);
+assert.match(methodBody('activateCustomColor'),
+  /if \(this\.busy \|\| this\.photoImportLeaseActive \|\|\s+this\.sharedBusy \|\| this\.spacingSaveBusy\) \{\s+return;\s+\}/);
+for (const name of ['updateCustomHue', 'updateCustomSaturation', 'updateCustomValue']) {
+  const body = methodBody(name);
+  assert.match(body,
+    /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+/,
+    `${name} rejects shared lease`);
+}
+
 const popupCall = bar.slice(bar.indexOf('    PageSettingsPanel({'), bar.indexOf('    })', bar.indexOf('    PageSettingsPanel({')));
 assert.match(popupCall, /busy: this\.busy,/);
 assert.match(popupCall, /photoImportLeaseActive: this\.photoImportLeaseActive,/);
@@ -64,4 +81,4 @@ const settingsButton = bar.slice(bar.indexOf('  SettingsButton(compact: boolean)
 assert.match(settingsButton, /if \(!this\.photoImportLeaseActive\) \{\s+this\.PageSettingsBuilder\(\)\s+\}/);
 
 console.log(
-  'D02_PAGE_SETTINGS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=14 FAILED=0');
+  'D02_PAGE_SETTINGS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=19 FAILED=0');

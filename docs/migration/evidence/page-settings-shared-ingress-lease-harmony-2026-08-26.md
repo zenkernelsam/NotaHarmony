@@ -34,6 +34,64 @@
 ---
 
 日期：2026-08-26
+阶段：Phase 490
+结论：通过（静态验证）
+
+## 增量代码证据
+
+- `PageSettingsPanel.ets`
+  - `selectLegacyPaper()` 与 `activateCustomColor()` 在变更纸张颜色草稿或展开 HSV 面板前拒绝
+    `photoImportLeaseActive`。
+  - 色相、饱和度和明度更新函数先拒绝该租约，再夹取数值并调用 `stageCustomColor()`。
+  - 自定义色按钮响应式禁用、无 alpha 转换、模板预览、共享纸设置和默认模板页语义不变。
+
+## 增量静态验证
+
+- 聚焦 Replay：
+  `docs/migration/replays/d02-page-settings-shared-ingress-lease-bound.mjs`
+  输出 `TOTAL=19 FAILED=0`。
+- 相邻 Replay：原版纸张设置、默认模板路由、紧凑页面设置、页面条共享租约通过。
+- ArkTS：`PageSettingsPanel.ets` 无错误，仅既有警告与信息级提示。
+- 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
+  （30.895 秒）。
+- clean：3.248 秒；ohosTest HAP：9.792 秒；default HAP：29.478 秒。
+
+## 运行边界
+
+未启动模拟器、虚拟机、真机或 Hypium；未清理既有临时产物；T-042 保持 Goal 最后任务。
+
+---
+
+日期：2026-08-26
+阶段：Phase 490
+结论：通过（静态验证）
+
+## 增量代码证据
+
+- `PageSettingsPanel.ets`
+  - `selectLegacyPaper()` 与 `activateCustomColor()` 在变更纸张颜色草稿或展开 HSV 面板前拒绝
+    `photoImportLeaseActive`。
+  - 色相、饱和度和明度更新函数先拒绝该租约，再夹取数值并调用 `stageCustomColor()`。
+  - 自定义色按钮响应式禁用、无 alpha 转换、模板预览、共享纸设置和默认模板页语义不变。
+
+## 增量静态验证
+
+- 聚焦 Replay：
+  `docs/migration/replays/d02-page-settings-shared-ingress-lease-bound.mjs`
+  输出 `TOTAL=19 FAILED=0`。
+- 相邻 Replay：原版纸张设置、默认模板路由、紧凑页面设置、页面条共享租约通过。
+- ArkTS：`PageSettingsPanel.ets` 无错误，仅既有警告与信息级提示。
+- 全量 Desktop Replay：`REPLAY_FILES=421 PASSED=421 FAILED_FILES=0`
+  （29.975 秒）。
+- clean：3.211 秒；ohosTest HAP：9.951 秒；default HAP：29.523 秒。
+
+## 运行边界
+
+未启动模拟器、虚拟机、真机或 Hypium；未清理既有临时产物；T-042 保持 Goal 最后任务。
+
+---
+
+日期：2026-08-26
 阶段：Phase 484
 结论：通过（静态验证）
 
