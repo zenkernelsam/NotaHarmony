@@ -121,7 +121,7 @@ export struct RecordingPanel {
             .opacity(this.controlsEnabled && this.canSeek() ? 1 : 0.45)
             .selectedColor(this.resolveTokens().accent)
             .onChange((value: number) => {
-              if (this.photoImportLeaseActive) {
+              if (this.photoImportLeaseActive || this.loading) {
                 return;
               }
               this.onSeek(value);
@@ -176,7 +176,7 @@ export struct RecordingPanel {
               .backgroundColor(this.resolveTokens().control)
               .fontColor(this.resolveTokens().textPrimary)
               .onClick(() => {
-                if (this.photoImportLeaseActive) {
+                if (this.photoImportLeaseActive || this.loading) {
                   return;
                 }
                 this.onPauseCapture();
@@ -189,7 +189,7 @@ export struct RecordingPanel {
             .backgroundColor(this.resolveTokens().control)
             .fontColor(this.resolveTokens().textPrimary)
             .onClick(() => {
-              if (this.photoImportLeaseActive) {
+              if (this.photoImportLeaseActive || this.loading) {
                 return;
               }
               this.onResumeCapture();
@@ -204,7 +204,7 @@ export struct RecordingPanel {
           .backgroundColor(this.resolveTokens().danger)
           .fontColor(this.resolveTokens().onAccent)
           .onClick(() => {
-            if (this.photoImportLeaseActive) {
+            if (this.photoImportLeaseActive || this.loading) {
               return;
             }
             this.onStopCapture();
@@ -216,7 +216,7 @@ export struct RecordingPanel {
           .backgroundColor(this.resolveTokens().accent)
           .fontColor(this.resolveTokens().onAccent)
           .onClick(() => {
-            if (this.photoImportLeaseActive) {
+            if (this.photoImportLeaseActive || this.loading) {
               return;
             }
             this.onRecord();
@@ -248,7 +248,7 @@ export struct RecordingPanel {
       .fontColor(this.playbackSpeed === speed ? this.resolveTokens().onAccent :
         this.resolveTokens().textPrimary)
       .onClick(() => {
-        if (this.photoImportLeaseActive) {
+        if (this.photoImportLeaseActive || this.loading) {
           return;
         }
         this.onSpeedChange(speed);
@@ -271,7 +271,7 @@ export struct RecordingPanel {
         .accessibilityText(this.isPlaying(recording.id) ? $r('app.string.pause_recording') :
           $r('app.string.play_recording'))
         .onClick(() => {
-          if (this.photoImportLeaseActive) {
+          if (this.photoImportLeaseActive || this.loading) {
             return;
           }
           this.onToggle(recording.id);
@@ -296,7 +296,7 @@ export struct RecordingPanel {
         .accessibilityText($r('app.string.delete_recording'))
         .enabled(this.controlsEnabled)
         .onClick(() => {
-          if (this.photoImportLeaseActive) {
+          if (this.photoImportLeaseActive || this.loading) {
             return;
           }
           this.onDelete(recording.id);
@@ -319,7 +319,7 @@ export struct RecordingPanel {
         .fontColor(this.resolveTokens().accent)
         .enabled(this.controlsEnabled)
         .onClick(() => {
-          if (this.photoImportLeaseActive) {
+          if (this.photoImportLeaseActive || this.loading) {
             return;
           }
           this.onUndoDelete(recording.id);

@@ -31,9 +31,27 @@ for (const name of guardedCallbacks) {
   assert.ok(guardStart >= 0 && guardEnd > guardStart, `${name} guard bounds`);
   const guard = panel.slice(guardStart, guardEnd);
   assert.match(guard,
-    /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}/,
-    `${name} rejects shared lease before forwarding`);
+    name === 'onClose' ?
+      /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}/ :
+      /if \(this\.photoImportLeaseActive \|\| this\.loading\) \{\s+return;\s+\}/,
+    `${name} rejects the active panel boundary before forwarding`);
 }
+
+assert.equal(
+  panel.match(/if \(this\.photoImportLeaseActive \|\| this\.loading\) \{\s+return;\s+\}/g)?.length,
+  9,
+  'nine recording actions reject list loading');
+assert.equal(
+  panel.match(/if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}/g)?.length,
+  1,
+  'close remains available while list loading');
+
+const controlsEnabled = (photoImportLeaseActive, loading) =>
+  !photoImportLeaseActive && !loading;
+assert.equal(controlsEnabled(false, true), false,
+  'loading blocks recording actions');
+assert.equal(controlsEnabled(false, false), true,
+  'idle panel keeps recording actions enabled');
 
 const callStart = page.indexOf('        RecordingPanel({');
 const callEnd = page.indexOf('\n      }\n\n      // 画布', callStart);
@@ -63,4 +81,4 @@ for (const name of callbackNames) {
 }
 
 console.log(
-  'D02_RECORDING_PANEL_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=25 FAILED=0');
+  'D02_RECORDING_PANEL_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=29 FAILED=0');
