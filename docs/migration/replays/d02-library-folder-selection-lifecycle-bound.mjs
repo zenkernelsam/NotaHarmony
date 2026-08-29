@@ -8,6 +8,14 @@ const end = page.indexOf('  // T-035：排序切换 + Preferences 持久化', st
 assert.ok(start !== -1 && end !== -1 && end > start);
 const body = page.slice(start, end);
 
+assert.match(body,
+  /private async selectFolder\(folderId: string \| null\): Promise<void> \{\s+if \(!this\.pageActive \|\| this\.viewModel === null \|\| this\.folderBusy\) \{\s+return;\s+\}/,
+  'inactive folder selection is rejected before any state mutation');
+const entryGuard = body.indexOf('if (!this.pageActive || this.viewModel === null || this.folderBusy) {');
+const currentFolderMutation = body.indexOf('this.currentFolderId = folderId;');
+assert.ok(entryGuard >= 0 && currentFolderMutation > entryGuard,
+  'inactive selection cannot publish currentFolderId');
+
 assert.match(body, /const lifecycleGeneration: number = this\.lifecycleGeneration;/);
 assert.equal([...body.matchAll(/this\.isCurrentNotesRequest\(notesRequestGeneration, vm, query, folderId,\s+lifecycleGeneration\)/g)].length, 3);
 assert.ok(!body.includes('notesRequestGeneration === this.notesRequestGeneration &&'));
@@ -31,4 +39,15 @@ for (const effect of ['this.currentFolderId = vm.currentFolderId;', "'app.string
 }
 assert.match(body, /\} finally \{\s+this\.folderBusy = false;\s+\}/);
 
-console.log('D02_LIBRARY_FOLDER_SELECTION_LIFECYCLE_BOUND_REPLAY_OK TOTAL=7 FAILED=0');
+function selectionEntry(pageActive, hasViewModel, folderBusy) {
+  if (!pageActive || !hasViewModel || folderBusy) {
+    return { started: false, currentFolderId: 'old-folder' };
+  }
+  return { started: true, currentFolderId: 'new-folder' };
+}
+assert.deepEqual(selectionEntry(false, true, false),
+  { started: false, currentFolderId: 'old-folder' });
+assert.deepEqual(selectionEntry(true, true, false),
+  { started: true, currentFolderId: 'new-folder' });
+
+console.log('D02_LIBRARY_FOLDER_SELECTION_LIFECYCLE_BOUND_REPLAY_OK TOTAL=11 FAILED=0');

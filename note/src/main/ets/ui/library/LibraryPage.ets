@@ -878,7 +878,7 @@ struct LibraryPage {
 
   // 切换浏览文件夹
   private async selectFolder(folderId: string | null): Promise<void> {
-    if (this.viewModel === null || this.folderBusy) {
+    if (!this.pageActive || this.viewModel === null || this.folderBusy) {
       return;
     }
     const query: string = this.searchText;

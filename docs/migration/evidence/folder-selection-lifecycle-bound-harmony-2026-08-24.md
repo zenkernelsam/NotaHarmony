@@ -14,6 +14,14 @@ Date: 2026-08-24 (Asia/Shanghai)
 - Passed it to all three continuation guards: post-query publication, post-thumbnail drawer close, and failure toast.
 - Replaced the weaker inline catch tuple with the shared complete identity check.
 
+## Phase 525 增量（2026-08-29）
+
+- 继续补审发现：Phase 354 只保护 `selectFolder()` 的异步续体，入口未先检查 `pageActive`；失活页面的晚到
+  菜单/抽屉点击仍会改写 `currentFolderId`、递增请求代数并启动查询。
+- `selectFolder()` 第一行现在拒绝 `!pageActive || this.viewModel === null || this.folderBusy`，之后才捕获
+  查询上下文并发布当前文件夹。原生命周期/request tuple、缩略图和抽屉关闭 guard 不变。
+- 专项 Replay 扩展至 `TOTAL=11 FAILED=0`，锁定入口顺序以及失活/活动选择模型。
+
 ## Verification
 
 - Focused replay: docs/migration/replays/d02-library-folder-selection-lifecycle-bound.mjs (7/7).
