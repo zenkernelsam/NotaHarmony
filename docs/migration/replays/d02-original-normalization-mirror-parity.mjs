@@ -27,6 +27,9 @@ assert.match(harmonyNormalizer,
   /export function originalRotationDegrees\(orientation: string\): number \{/);
 assert.match(harmonyNormalizer,
   /export function originalExifMirrorsHorizontally\(orientation: string\): boolean \{/);
+assert.match(harmonyNormalizer,
+  /const needsNormalization: boolean = !isOriginalNormalizedImageDimensions\(\s*oriented\.width, oriented\.height\);/);
+assert.doesNotMatch(harmonyNormalizer, /needsNormalization[\s\S]{0,120}rotationDegrees !== 0/);
 
 for (const source of [evidence, adr]) {
   assert.ok(source.includes('vuh.b()'));
@@ -35,4 +38,4 @@ for (const source of [evidence, adr]) {
   assert.ok(source.includes('原版同源限制'));
 }
 
-console.log('D02_ORIGINAL_NORMALIZATION_MIRROR_PARITY_REPLAY_OK TOTAL=11 FAILED=0');
+console.log('D02_ORIGINAL_NORMALIZATION_MIRROR_PARITY_REPLAY_OK TOTAL=13 FAILED=0');

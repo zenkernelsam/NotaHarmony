@@ -66,6 +66,12 @@ const checks = [
     normalizerSource.includes('await source.getImageInfo()') &&
     normalizerSource.includes('originalImageOrientedDimensions(') &&
     normalizerSource.includes("image.PropertyKey.ORIENTATION")],
+  ['Harmony preserves threshold-sized nonzero EXIF bytes for the display path',
+    normalizerSource.includes(
+      'const needsNormalization: boolean = !isOriginalNormalizedImageDimensions(') &&
+    !normalizerSource.includes('rotationDegrees !== 0') &&
+    normalizerSource.indexOf('if (!needsNormalization) {') <
+      normalizerSource.indexOf('pixelMap = await source.createPixelMap({')],
   ['Harmony adapter uses deterministic post-decode rotation editable PixelMap and WebP lossy 85',
     normalizerSource.includes('await pixelMap.rotate(rotationDegrees);') &&
     normalizerSource.includes('await pixelMap.scale(scaleX, scaleY);') &&
@@ -87,6 +93,8 @@ const checks = [
     persistenceSource.includes('intrinsicHeight: normalized.encodedHeight')],
   ['normalization fixtures cover unchanged rotated oversized and invalid inputs',
     fixtureSource.includes('planOriginalImageDownscale(3000, 1)') &&
+    fixtureSource.includes('keeps threshold-sized nonzero EXIF rotations') &&
+    fixtureSource.includes('isOriginalNormalizedImageDimensions(') &&
     fixtureSource.includes("originalImageOrientedDimensions(4000, 100, orientation)") &&
     fixtureSource.includes("['5', '6', '7', '8', 'Right-top']") &&
     fixtureSource.includes('planOriginalImageDownscale(0, 10) === null')],

@@ -1,6 +1,7 @@
 import { image } from '@kit.ImageKit';
 import {
-  ORIGINAL_IMAGE_INSERT_MAX_INTRINSIC_SIDE, originalImageOrientedDimensions,
+  isOriginalNormalizedImageDimensions, ORIGINAL_IMAGE_INSERT_MAX_INTRINSIC_SIDE,
+  originalImageOrientedDimensions,
   planOriginalImageDownscale,
   OriginalImageNormalizationPlan,
 } from '../core/model/OriginalImageInsertPlan';
@@ -41,9 +42,8 @@ export async function normalizeOriginalImageBytes(bytes: Uint8Array):
     }
     const rotationDegrees: number = originalRotationDegrees(orientation);
     const plan = planOriginalImageDownscale(oriented.width, oriented.height);
-    const needsNormalization: boolean = plan === null ? false :
-      plan.width !== oriented.width || plan.height !== oriented.height ||
-      rotationDegrees !== 0;
+    const needsNormalization: boolean = !isOriginalNormalizedImageDimensions(
+      oriented.width, oriented.height);
     if (plan === null) {
       throw new Error('original image normalization plan is invalid');
     }

@@ -14,9 +14,9 @@ Android 原版 `vuh.b()` 只在超过 3000px 时解码、降采样并重编码�
 共享显示解码器 `g3.java` 虽然识别 Orientation 2/4/5/7，但重编码 WebP 不保留
 EXIF，后续显示无法再恢复该镜像。
 
-Harmony `OriginalImageNormalizer` 当前同样只在需要降采样或四分之一旋转时重写
-字节，使用同一旋转集合，不做水平镜像；未超过阈值时保留原始字节和 EXIF，由
-显示 loader 应用完整方向集。
+Harmony `OriginalImageNormalizer` 当前同样只在 oriented 尺寸越过 3000px 门限时
+重写字节，使用同一旋转集合，不做水平镜像；未超过阈值时即使存在非零 EXIF 旋转
+也保留原始字节和 EXIF，由显示 loader 应用完整方向集。
 
 ## 决策
 
@@ -30,6 +30,6 @@ Harmony `OriginalImageNormalizer` 当前同样只在需要降采样或四分之�
 
 ## 结果
 
-鸿蒙与原版在两条路径上保持一致：小图保留 EXIF 并完整显示方向；超大图重编码
-后都只固化旋转、丢失镜像。生产代码无需变更；新增静态 Replay 锁定该边界，
+鸿蒙与原版在两条路径上保持一致：小图（包括非零 EXIF 旋转）保留原始字节和 EXIF
+并完整显示方向；超大图重编码后都只固化旋转、丢失镜像。新增静态 Replay 锁定该边界，
 防止后续把显示修复误推广到持久化 normalization。

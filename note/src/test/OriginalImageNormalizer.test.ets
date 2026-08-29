@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@ohos/hypium';
 import {
-  originalImageOrientedDimensions, planOriginalImageDownscale,
+  isOriginalNormalizedImageDimensions, originalImageOrientedDimensions,
+  planOriginalImageDownscale,
 } from '../main/ets/core/model/OriginalImageInsertPlan';
 import {
   originalExifMirrorsHorizontally, originalRotationDegrees,
@@ -15,6 +16,27 @@ export default function originalImageNormalizerTest() {
       expect(planOriginalImageDownscale(1, 3000)).assertEqual({
         sampleSize: 1, width: 1, height: 3000,
       });
+    });
+
+    it('keeps threshold-sized nonzero EXIF rotations on the original-byte path', 0, () => {
+      const quarterTurn = originalImageOrientedDimensions(3000, 2000, '6');
+      expect(quarterTurn === null).assertFalse();
+      if (quarterTurn === null) {
+        return;
+      }
+      expect(originalRotationDegrees('6')).assertEqual(90);
+      expect(quarterTurn.width).assertEqual(2000);
+      expect(quarterTurn.height).assertEqual(3000);
+      expect(isOriginalNormalizedImageDimensions(
+        quarterTurn.width, quarterTurn.height)).assertTrue();
+
+      const oversizedQuarterTurn = originalImageOrientedDimensions(3001, 2000, '6');
+      expect(oversizedQuarterTurn === null).assertFalse();
+      if (oversizedQuarterTurn === null) {
+        return;
+      }
+      expect(isOriginalNormalizedImageDimensions(
+        oversizedQuarterTurn.width, oversizedQuarterTurn.height)).assertFalse();
     });
 
     it('uses Float32 ratios and power-of-two sampling like Android vuh', 0, () => {
