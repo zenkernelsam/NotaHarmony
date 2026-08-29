@@ -1591,6 +1591,9 @@ struct LibraryPage {
       }
     })
     .onClick(() => {
+      if (!this.pageActive) {
+        return;
+      }
       router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: note.id } })
         .catch((err: BusinessError) => {
           console.error(`pushUrl failed: ${err.code}`);
