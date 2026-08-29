@@ -18,6 +18,25 @@ Date: 2026-08-23
   失败提示、成功发布和关闭语义不变。
 - 扩展既有库页文件夹变更专项 Replay 至 `TOTAL=8 FAILED=0`。
 
+## Phase 526 增量（2026-08-29）
+
+- 继续补审发现：新建/重命名对话框、删除确认、删除/移动文件夹、移动笔记、按索引重排、拖拽捕获、
+  展开树和打开 compact drawer 仍只检查忙态或仓库存在；失活页晚到事件可先改写 UI、进入 busy 或启动
+  仓库操作，再由后续生命周期 guard 丢弃结果。
+- 上述入口现在统一先拒绝 `!pageActive`；关闭 drawer 保持无条件可用，用于失活/忙态清理。
+- 文件夹 mutation lifecycle Replay 扩展至 `TOTAL=18 FAILED=0`，锁定入口顺序与失活模型。
+
+- 验证补录：全量 Desktop Replay `421/421`（33.836 秒）；clean 2.951 秒、ohosTest HAP 9.097 秒、
+  default HAP 27.608 秒均静态构建成功。ArkTS 保留既有诊断集合，未见本阶段新增编译错误。
+
+## Phase 526 增量（2026-08-29）
+
+- 继续补审发现：新建/重命名对话框、删除确认、删除/移动文件夹、移动笔记、按索引重排、拖拽捕获、
+  展开树和打开 compact drawer 仍只检查忙态或仓库存在；失活页晚到事件可先改写 UI、进入 busy 或启动
+  仓库操作，再由后续生命周期 guard 丢弃结果。
+- 上述入口现在统一先拒绝 `!pageActive`；关闭 drawer 保持无条件可用，用于失活/忙态清理。
+- 文件夹 mutation lifecycle Replay 扩展至 `TOTAL=18 FAILED=0`，锁定入口顺序与失活模型。
+
 - Four mutation entry points capture `lifecycleGeneration` before their first await.
 - After successful durable operations, folder create/rename/delete/reorder and note move publish only when generation, `pageActive`, and repository/viewModel references remain current.
 - Stale success paths return without folder snapshots, note snapshots, selection resets, thumbnail scheduling, or best-effort reloads.

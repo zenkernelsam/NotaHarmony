@@ -462,7 +462,7 @@ struct LibraryPage {
 
   // T-039：文件夹操作
   private showCreateFolderDialog(parentId: string | null = null): void {
-    if (this.folderBusy) {
+    if (!this.pageActive || this.folderBusy) {
       return;
     }
     this.folderDialogMode = 0;
@@ -474,7 +474,7 @@ struct LibraryPage {
   }
 
   private showRenameFolderDialog(folder: NoteFolder): void {
-    if (this.folderBusy) {
+    if (!this.pageActive || this.folderBusy) {
       return;
     }
     this.folderDialogMode = 1;
@@ -534,10 +534,10 @@ struct LibraryPage {
 
   // 删除文件夹：内部笔记回根目录（不删笔记）
   private async deleteFolder(folderId: string): Promise<void> {
-    const lifecycleGeneration: number = this.lifecycleGeneration;
-    if (this.folderRepo === null || this.viewModel === null || this.folderBusy) {
+    if (!this.pageActive || this.folderRepo === null || this.viewModel === null || this.folderBusy) {
       return;
     }
+    const lifecycleGeneration: number = this.lifecycleGeneration;
     const repo: FolderRepositoryImpl = this.folderRepo;
     const vm: LibraryViewModel = this.viewModel;
     this.folderBusy = true;
@@ -575,10 +575,10 @@ struct LibraryPage {
 
   private async moveFolder(folderId: string, parentId: string | null,
     insertIndex?: number): Promise<void> {
-    const lifecycleGeneration: number = this.lifecycleGeneration;
-    if (this.folderRepo === null || this.folderBusy) {
+    if (!this.pageActive || this.folderRepo === null || this.folderBusy) {
       return;
     }
+    const lifecycleGeneration: number = this.lifecycleGeneration;
     const repo: FolderRepositoryImpl = this.folderRepo;
     this.folderBusy = true;
     let result: FolderMutationResult | null = null;
@@ -628,7 +628,7 @@ struct LibraryPage {
   }
 
   private moveFolderBy(folder: NoteFolder, offset: number): void {
-    if (this.folderBusy) {
+    if (!this.pageActive || this.folderBusy) {
       return;
     }
     const siblings: NoteFolder[] = this.orderedFolderSiblings(folder);
@@ -652,7 +652,7 @@ struct LibraryPage {
   }
 
   private captureFolderDrag(event: ItemDragInfo, itemIndex: number): void {
-    if (this.folderBusy) {
+    if (!this.pageActive || this.folderBusy) {
       this.clearFolderDrag();
       return;
     }
@@ -703,10 +703,10 @@ struct LibraryPage {
 
   // 移动笔记到文件夹（null=根目录）
   private async moveNote(noteId: string, folderId: string | null): Promise<void> {
-    const lifecycleGeneration: number = this.lifecycleGeneration;
-    if (this.folderRepo === null || this.viewModel === null || this.folderBusy) {
+    if (!this.pageActive || this.folderRepo === null || this.viewModel === null || this.folderBusy) {
       return;
     }
+    const lifecycleGeneration: number = this.lifecycleGeneration;
     const repo: FolderRepositoryImpl = this.folderRepo;
     const vm: LibraryViewModel = this.viewModel;
     this.folderBusy = true;
@@ -813,7 +813,7 @@ struct LibraryPage {
   }
 
   private toggleFolderExpanded(folderId: string): void {
-    if (this.folderBusy) {
+    if (!this.pageActive || this.folderBusy) {
       return;
     }
     const next: string[] = this.expandedFolderIds.slice();
@@ -827,7 +827,7 @@ struct LibraryPage {
   }
 
   private openCompactFolderDrawer(): void {
-    if (this.folderBusy) {
+    if (!this.pageActive || this.folderBusy) {
       return;
     }
     if (this.currentFolderId !== null) {
@@ -1832,7 +1832,7 @@ struct LibraryPage {
   }
 
   private confirmDeleteFolder(folder: NoteFolder): void {
-    if (this.folderBusy) {
+    if (!this.pageActive || this.folderBusy) {
       return;
     }
     this.getUIContext().showAlertDialog({
