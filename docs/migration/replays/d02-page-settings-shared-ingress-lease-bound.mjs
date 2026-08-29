@@ -70,10 +70,18 @@ assert.match(methodBody('activateCustomColor'),
 for (const name of ['updateCustomHue', 'updateCustomSaturation', 'updateCustomValue']) {
   const body = methodBody(name);
   assert.match(body,
-    /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+/,
-    `${name} rejects shared lease`);
+    /if \(this\.busy \|\| this\.photoImportLeaseActive \|\|\s+this\.sharedBusy \|\| this\.spacingSaveBusy\) \{\s+return;\s+\}\s+/,
+    `${name} rejects busy, shared lease, and save states`);
 }
 
+assert.equal(
+  panel.match(/private updateCustom(?:Hue|Saturation|Value)\(value: number\): void \{\s+if \(this\.photoImportLeaseActive\) \{/g)?.length ?? 0,
+  0,
+  'custom color events no longer reject only the shared lease');
+assert.equal(
+  panel.match(/private updateCustom(?:Hue|Saturation|Value)\(value: number\): void \{\s+if \(this\.busy \|\| this\.photoImportLeaseActive \|\|\s+this\.sharedBusy \|\| this\.spacingSaveBusy\) \{/g)?.length,
+  3,
+  'all custom color channels fail closed');
 const closeCustomColor = body.slice(
   body.indexOf(".accessibilityText($r('app.string.paper_custom_color_close'))"),
   body.indexOf('\n          })',
@@ -116,4 +124,4 @@ const settingsButton = bar.slice(bar.indexOf('  SettingsButton(compact: boolean)
 assert.match(settingsButton, /if \(!this\.photoImportLeaseActive\) \{\s+this\.PageSettingsBuilder\(\)\s+\}/);
 
 console.log(
-  'D02_PAGE_SETTINGS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=23 FAILED=0');
+  'D02_PAGE_SETTINGS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=25 FAILED=0');

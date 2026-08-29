@@ -164,7 +164,8 @@ export struct PageSettingsPanel {
   }
 
   private updateCustomHue(value: number): void {
-    if (this.photoImportLeaseActive) {
+    if (this.busy || this.photoImportLeaseActive ||
+      this.sharedBusy || this.spacingSaveBusy) {
       return;
     }
     this.customHue = Math.max(0, Math.min(360, value));
@@ -172,7 +173,8 @@ export struct PageSettingsPanel {
   }
 
   private updateCustomSaturation(value: number): void {
-    if (this.photoImportLeaseActive) {
+    if (this.busy || this.photoImportLeaseActive ||
+      this.sharedBusy || this.spacingSaveBusy) {
       return;
     }
     this.customSaturation = Math.max(0, Math.min(100, value));
@@ -180,7 +182,8 @@ export struct PageSettingsPanel {
   }
 
   private updateCustomValue(value: number): void {
-    if (this.photoImportLeaseActive) {
+    if (this.busy || this.photoImportLeaseActive ||
+      this.sharedBusy || this.spacingSaveBusy) {
       return;
     }
     this.customValue = Math.max(0, Math.min(100, value));
