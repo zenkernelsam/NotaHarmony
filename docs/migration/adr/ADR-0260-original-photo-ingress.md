@@ -18,7 +18,8 @@ ordered photo URIs
   -> always remove temporary copies
 ```
 
-返回项包含 `bytes`、稳定生成文件名、最终 MIME、encoded/oriented dimensions。该结果可直接转换为
+返回项包含 `bytes`、稳定生成文件名、最终 MIME、encoded/oriented dimensions；转换为 IMAGE persistence plan
+时必须使用 oriented dimensions 作为 intrinsic size。该结果可直接转换为
 `normalizedOriginalImagePersistencePlan()` 与 `commitOriginalImageInsert()` 所需的输入，但本阶段不接线
 picker 或 toolbar。
 

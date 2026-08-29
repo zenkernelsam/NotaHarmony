@@ -35,7 +35,8 @@ const checks = [
   ['original scales encoded axes before EXIF rotation',
     vuh.includes('int i3 = z ? i : i2;') && vuh.includes('3000.0f / Math.max(i2, i)')],
   ['Harmony keeps the oriented gate and encoded-axis downscale plan',
-    normalizerSource.includes('planOriginalImageDownscale(oriented.width, oriented.height)') &&
+    normalizerSource.includes('planOriginalImageDownscale(info.size.width, info.size.height)') &&
+    normalizerSource.includes('const targetOriented = originalImageOrientedDimensions(') &&
     plannerSource.includes('Math.fround(Math.max(encodedWidth, encodedHeight))')],
   ['Harmony no longer combines ambiguous decode rotate and desired size',
     !normalizerSource.includes('rotate: rotationDegrees > 0 ? rotationDegrees : undefined') &&
@@ -45,7 +46,7 @@ const checks = [
     normalizerSource.indexOf('await pixelMap.rotate(rotationDegrees);') <
       normalizerSource.indexOf('await pixelMap.scale(scaleX, scaleY);')],
   ['Harmony validates rotated and scaled output axes',
-    normalizerSource.includes("decoded.size.width !== downscale.width || decoded.size.height !== downscale.height") &&
+    normalizerSource.includes("decoded.size.width !== targetOriented.width || decoded.size.height !== targetOriented.height") &&
     normalizerSource.includes('original image normalization scale is invalid')],
   ['fixture covers quarter-turn axis swap and renderer degrees',
     fixtureSource.includes("originalRotationDegrees('6')") &&

@@ -29,6 +29,11 @@ const checks = [
   ['renderer swaps oriented dimensions for 90 and 270 degree bitmaps',
     renderer.includes('swapsAxes ? bitmapHeight : bitmapWidth') &&
     renderer.includes('swapsAxes ? bitmapWidth : bitmapHeight')],
+  ['renderer maps raw encoded pixels into the oriented crop domain',
+    renderer.includes('orientationTransform: TransformMatrix;') &&
+    renderer.includes('originalImageOrientationTransform(') &&
+    renderer.includes('ctx.transform(geometry.orientationTransform);') &&
+    renderer.includes('ctx.rect(0, 0, element.blockWidth, element.blockHeight);')],
   ['canvas passes loaded orientation and mirror state to image rendering',
     canvas.includes('loaded.orientationDegrees, loaded.mirroredHorizontally')],
   ['rotation helper is exported and covered by ArkTS fixtures',

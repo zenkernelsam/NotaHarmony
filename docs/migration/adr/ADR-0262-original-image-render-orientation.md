@@ -13,9 +13,9 @@ orientationDegrees: 0 | 90 | 180 | 270
 mirroredHorizontally: boolean
 ```
 
-`ImageCanvasRenderer.renderImage()` 接收这两项数据。几何层只接受四个 quarter-turn 值；90/270 时以 bitmap
-物理宽高交换后的 oriented 尺寸为中心，先平移到中心、旋转、必要时水平镜像，再回移并绘制。这样不修改已持久化
-的 CREATE_BLOCK intrinsic dimensions，也不重复写入资产文件。
+`ImageCanvasRenderer.renderImage()` 接收这两项数据。几何层只接受四个 quarter-turn 值；方向矩阵以 raw bitmap
+物理宽高为输入并平移到 oriented 正边界，再在 oriented intrinsic 域完成 crop/fit。这样不修改已持久化的
+CREATE_BLOCK intrinsic dimensions，也不重复写入资产文件。
 
 ## 原版对齐与平台差距
 
@@ -38,3 +38,14 @@ mirroredHorizontally: boolean
 - 色彩空间、premultiplied alpha、RGB565 降级和设备像素验收不在本阶段关闭。
 - 真实 JPEG/WebP/HEIC/HEIF 样本、缩略图、裁剪、Undo 后重绘需要设备验证。
 - `T-042` 继续保留为整个 Goal 最后一项。
+
+## Phase 529 坐标契约澄清（2026-08-29）
+
+原版 `g3` 已将 raw encoded bitmap 烘焙为 oriented bitmap 后交给 `b40`；`dp5.size` 与
+`hp5.cropRect` 因而共享 oriented 图像域。上面的“encoded crop”描述仅适用于 Phase 284
+当时仍采用 encoded intrinsic 的临时 Harmony 适配，现由 Phase 529 supersede。
+
+当前契约为：`ImageElement.intrinsicWidth/Height` 与 `cropRect` 使用 oriented intrinsic
+坐标；Harmony loader 仍可返回 raw encoded `ImageBitmap`，但 `ImageCanvasRenderer` 先用
+encoded 物理宽高构造带正边界平移的 EXIF 仿射矩阵，再在 oriented 域执行用户翻转、crop
+与 block fit。这样不依赖 ImageKit 是否自动应用 EXIF，也与原版 `g3 → b40` 的尺寸关系一致。

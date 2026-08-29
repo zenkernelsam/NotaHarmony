@@ -157,8 +157,10 @@ export interface ImageElement extends NoteElementBase {
   fileName: string;
   mimeType: string;
   fileSize: number;
+  // Original dp5.size is the post-EXIF (oriented) image domain exposed to blocks.
   intrinsicWidth: number;
   intrinsicHeight: number;
+  // Crop coordinates use the same oriented intrinsic domain, not encoded file axes.
   cropRect: Rect2D | null;
   blockWidth: number;
   blockHeight: number;

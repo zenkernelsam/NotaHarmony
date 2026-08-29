@@ -7,6 +7,8 @@ import { DatabaseSync } from 'node:sqlite';
 const root = process.env.NOTA_HARMONY_ROOT ?? path.resolve(import.meta.dirname, '../../..');
 const desktopRoot = process.env.NOTABILITY_DESKTOP_ROOT ??
   'C:/Users/Cisco He/Desktop/Notability';
+const retainedEvidenceRoot = process.env.NOTAHARMONY_RETAINED_EVIDENCE_ROOT ??
+  path.join(root, 'NotaHarmony-quarantine-2026-08-29', 'desktop-retained-evidence');
 const originalRoot = path.join(desktopRoot, 'decompiled_1.0.3/sources/defpackage');
 const normalize = value => value.replaceAll('\r\n', '\n');
 const readRepo = relative => normalize(fs.readFileSync(path.join(root, relative), 'utf8'));
@@ -35,7 +37,9 @@ function ordered(source, needles) {
   return true;
 }
 
-const vnfPath = path.join(desktopRoot, '.codex-tmp-phase273-vnf-simple.java');
+const retainedVnfPath = path.join(retainedEvidenceRoot, '.codex-tmp-phase273-vnf-simple.java');
+const legacyVnfPath = path.join(desktopRoot, '.codex-tmp-phase273-vnf-simple.java');
+const vnfPath = fs.existsSync(retainedVnfPath) ? retainedVnfPath : legacyVnfPath;
 const vnf = normalize(fs.readFileSync(vnfPath, 'utf8'));
 const u5j = readOriginal('u5j.java');
 const xj2 = readOriginal('xj2.java');

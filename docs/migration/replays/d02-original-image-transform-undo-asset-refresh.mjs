@@ -36,7 +36,7 @@ const checks = [
     !editingReplay.includes('assert.doesNotMatch(assetRefresh, /TRANSFORM_ELEMENTS/);')],
   ['crop and rendering fixtures remain registered in the suite',
     fixture.includes('applies a rotated and scaled intrinsic crop with the original origin shift') &&
-    fixture.includes('applies user flips in encoded bitmap coordinates after EXIF orientation')],
+    fixture.includes('applies user flips in the oriented intrinsic domain after EXIF orientation')],
 ];
 
 let failed = 0;

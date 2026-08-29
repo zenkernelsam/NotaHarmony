@@ -17,6 +17,8 @@ export function beginOriginalImageCrop(element: ImageElement): OriginalImageCrop
     !validPositive(element.blockHeight) || !canonicalBlockTransform(element.transform)) {
     return null;
   }
+  // dp5.size and hp5.cropRect share the original oriented image domain. The
+  // renderer alone maps that domain back to raw encoded bitmap pixels.
   const source: Rect2D = element.cropRect === null ? {
     left: 0, top: 0, right: element.intrinsicWidth, bottom: element.intrinsicHeight,
   } : cloneCropRect(element.cropRect);

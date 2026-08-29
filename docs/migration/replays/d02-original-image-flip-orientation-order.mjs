@@ -7,29 +7,28 @@ const canvas = fs.readFileSync('note/src/main/ets/ui/editor/NoteCanvasView.ets',
 const thumbnail = fs.readFileSync('note/src/main/ets/rendering/ThumbnailRenderer.ets', 'utf8');
 const fixture = fs.readFileSync('note/src/test/ImageBlockRendering.test.ets', 'utf8');
 
-const orientationBlock = [
-  'if (geometry.orientationDegrees !== 0 || geometry.mirroredHorizontally) {',
-  '        const centerX = bitmap.width / 2;',
-].join('\n');
-const renderTail = renderer.slice(renderer.indexOf('ctx.rect(crop.left'));
-const clipIndex = renderTail.indexOf('ctx.clip();');
-const orientationIndex = renderTail.indexOf(orientationBlock);
+const renderTail = renderer.slice(renderer.indexOf('ctx.transform(element.transform);'));
+const clipIndex = renderTail.indexOf('ctx.rect(0, 0, element.blockWidth, element.blockHeight);');
+const cropIndex = renderTail.indexOf('ctx.translate(-crop.left, -crop.top);');
 const flipIndex = renderTail.indexOf('ctx.translate(geometry.flipTranslateX');
+const orientationIndex = renderTail.indexOf('ctx.transform(geometry.orientationTransform);');
 
 const checks = [
   ['original shared decode bakes mirror before EXIF rotation into oriented pixels',
     g3.includes('matrix.postScale(-1.0f, 1.0f, width, height);') &&
     g3.includes('matrix.postRotate(i7, width, height);')],
-  ['Harmony clips encoded crop pixels before applying baked display orientation',
-    clipIndex >= 0 && orientationIndex > clipIndex && flipIndex > orientationIndex],
-  ['Harmony applies user flip after baked display orientation',
-    flipIndex < renderTail.indexOf('ctx.scale(geometry.flipScaleX') && flipIndex > orientationIndex],
+  ['Harmony fits and clips an oriented crop before drawing the raw source',
+    clipIndex >= 0 && cropIndex > clipIndex && orientationIndex > cropIndex],
+  ['Harmony composes raw EXIF orientation before the user flip in matrix order',
+    flipIndex >= 0 && orientationIndex > flipIndex &&
+    flipIndex < renderTail.indexOf('ctx.scale(geometry.flipScaleX')],
   ['editor and thumbnail share the same renderer contract',
     canvas.includes('loaded.orientationDegrees, loaded.mirroredHorizontally') &&
     thumbnail.includes('asset.orientationDegrees, asset.mirroredHorizontally);')],
-  ['fixture covers user flips in encoded bitmap coordinates',
-    fixture.includes("applies user flips in encoded bitmap coordinates after EXIF orientation") &&
-    fixture.includes('resolved.flipTranslateX).assertEqual(200)')],
+  ['fixture covers user flips in the oriented intrinsic domain',
+    fixture.includes("applies user flips in the oriented intrinsic domain after EXIF orientation") &&
+    fixture.includes('resolved.flipTranslateX).assertEqual(100)') &&
+    fixture.includes('resolved.flipTranslateY).assertEqual(200)')],
 ];
 
 let failed = 0;

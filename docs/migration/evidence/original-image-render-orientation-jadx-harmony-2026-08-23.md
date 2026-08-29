@@ -49,3 +49,14 @@ Phase 284：
 - 因此 Harmony 采用显式元数据传递，而不是声明 ImageKit 自动等价 Android；
 - 未运行设备样本，JPEG/WebP/HEIC/HEIF 的实际解码行为仍开放；
 - cropRect 与 oriented-crop 全矩阵未在本阶段声称闭环。
+
+## Phase 529 增量：oriented intrinsic 与 raw bitmap 的桥接
+
+`g3` 的输出是已经完成 EXIF mirror/rotation 且物理宽高交换的 oriented bitmap；`b40` 随后
+以 `dp5.size`（同一 oriented 域）换算 `hp5.cropRect`。因此 Phase 529 将 `ImageElement`
+的 intrinsic/crop 契约统一为 oriented 坐标。
+
+Harmony 不假设 ImageKit 自动方向化：`ImageCanvasRenderer` 使用 raw bitmap 的 encoded
+宽高构造 `orientationTransform`（含旋转后的正边界平移），先把 source 映射到 oriented
+像素域，再执行用户 H/V flip、oriented crop 平移/fit 和 block transform。纯 fixture 覆盖
+0/90/180/270 及 EXIF mirror 组合；真实设备像素与 ImageKit 是否预应用 EXIF 仍需设备验收。

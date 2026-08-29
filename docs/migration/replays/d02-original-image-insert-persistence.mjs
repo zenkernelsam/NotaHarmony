@@ -8,9 +8,17 @@ import { DatabaseSync } from 'node:sqlite';
 const root = process.env.NOTA_HARMONY_ROOT ?? path.resolve(import.meta.dirname, '../../..');
 const originalRoot = process.env.NOTABILITY_ORIGINAL_ROOT ??
   'C:/Users/Cisco He/Desktop/Notability';
+const retainedEvidenceRoot = process.env.NOTAHARMONY_RETAINED_EVIDENCE_ROOT ??
+  path.join(root, 'NotaHarmony-quarantine-2026-08-29', 'desktop-retained-evidence');
 const readRepo = relative => fs.readFileSync(path.join(root, relative), 'utf8').replaceAll('\r\n', '\n');
 const readOriginal = relative => fs.readFileSync(path.join(originalRoot, relative), 'utf8')
   .replaceAll('\r\n', '\n');
+const readRetainedEvidence = relative => {
+  const retainedPath = path.join(retainedEvidenceRoot, relative);
+  const legacyPath = path.join(originalRoot, relative);
+  const selectedPath = fs.existsSync(retainedPath) ? retainedPath : legacyPath;
+  return fs.readFileSync(selectedPath, 'utf8').replaceAll('\r\n', '\n');
+};
 
 const planSource = readRepo('note/src/main/ets/core/model/OriginalImageInsertPlan.ets');
 const assetSource = readRepo('note/src/main/ets/data/ImageAssetPackageStore.ets');
@@ -23,7 +31,7 @@ const bvh = readOriginal('decompiled_1.0.3/sources/defpackage/bvh.java');
 const bgj = readOriginal('decompiled_1.0.3/sources/defpackage/bgj.java');
 const vuh = readOriginal('decompiled_1.0.3/sources/defpackage/vuh.java');
 const w34 = readOriginal('decompiled_1.0.3/sources/defpackage/w34.java');
-const yr = readOriginal('.codex-tmp-phase280-yr-debug.java');
+const yr = readRetainedEvidence('.codex-tmp-phase280-yr-debug.java');
 
 const commitStart = persistenceSource.indexOf('async commitOriginalImageInsert');
 const commitEnd = persistenceSource.indexOf('\n  hasDirtySave(', commitStart);

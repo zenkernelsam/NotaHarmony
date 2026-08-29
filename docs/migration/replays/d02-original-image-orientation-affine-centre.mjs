@@ -6,17 +6,8 @@ const renderer = fs.readFileSync('note/src/main/ets/rendering/ImageCanvasRendere
 const canvas = fs.readFileSync('note/src/main/ets/ui/editor/NoteCanvasView.ets', 'utf8');
 const thumbnail = fs.readFileSync('note/src/main/ets/rendering/ThumbnailRenderer.ets', 'utf8');
 
-function tail(source, anchor) {
-  const index = source.indexOf(anchor);
-  return index < 0 ? '' : source.slice(index);
-}
-
-const renderTail = tail(renderer, 'ctx.rect(crop.left');
-const encodedCenter = [
-  'const centerX = bitmap.width / 2;',
-  '        const centerY = bitmap.height / 2;',
-].join('\n');
-const flipIndex = renderTail.indexOf('ctx.translate(geometry.flipTranslateX');
+const renderTail = renderer.slice(renderer.indexOf('export function originalImageOrientationTransform'));
+const renderBody = renderer.slice(renderer.indexOf('ctx.transform(element.transform);'));
 
 const checks = [
   ['original bakes EXIF mirror then rotation around encoded bitmap centre',
@@ -24,12 +15,19 @@ const checks = [
     g3.includes('float height = bitmapDecodeStream.getHeight() / 2.0f;') &&
     g3.includes('matrix.postScale(-1.0f, 1.0f, width, height);') &&
     g3.includes('matrix.postRotate(i7, width, height);')],
-  ['Harmony uses encoded dimensions as the orientation transform centre',
-    renderTail.includes(encodedCenter) &&
-    !renderTail.includes('const centerX = geometry.orientedWidth / 2;')],
-  ['orientation remains applied after encoded crop clipping and before user flip',
-    renderTail.indexOf(encodedCenter) > renderTail.indexOf('ctx.clip();') &&
-    renderTail.indexOf(encodedCenter) < flipIndex],
+  ['Harmony orientation matrix uses encoded bitmap dimensions and positive bounds',
+    renderTail.includes('bitmapWidth') && renderTail.includes('bitmapHeight') &&
+    renderTail.includes('rotation = [0, -1, bitmapHeight') &&
+    renderTail.includes('rotation = [0, 1, 0, -1, 0, bitmapWidth') &&
+    renderTail.includes('multiplyTransform(rotation, mirror)')],
+  ['renderer clips the block, translates the oriented crop, then composes flip and EXIF source mapping',
+    renderBody.indexOf('ctx.rect(0, 0, element.blockWidth, element.blockHeight);') >= 0 &&
+    renderBody.indexOf('ctx.translate(-crop.left, -crop.top);') >
+      renderBody.indexOf('ctx.clip();') &&
+    renderBody.indexOf('ctx.translate(geometry.flipTranslateX') >
+      renderBody.indexOf('ctx.translate(-crop.left, -crop.top);') &&
+    renderBody.indexOf('ctx.transform(geometry.orientationTransform);') >
+      renderBody.indexOf('ctx.scale(geometry.flipScaleX')],
   ['editor and thumbnail continue sharing the corrected renderer contract',
     canvas.includes('loaded.orientationDegrees, loaded.mirroredHorizontally') &&
     thumbnail.includes('asset.orientationDegrees, asset.mirroredHorizontally);')],

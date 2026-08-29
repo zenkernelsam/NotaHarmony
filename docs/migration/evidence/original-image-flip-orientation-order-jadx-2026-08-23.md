@@ -21,3 +21,10 @@ Desktop 只读；未写入或运行任何原版/鸿蒙运行态。
 
 渲染顺序必须为：encoded crop → baked display orientation → user H/V flip → draw。此前 renderer 在 clip 前
 旋转，导致 encoded 坐标 cropRect 落到错误像素区域；Phase 286 将方向变换移动到 clip 后、用户翻转前。
+
+## Phase 529 更正
+
+Phase 286 的 Harmony 过渡实现把 cropRect 暂按 encoded 域处理；结合 `vuh/bgj/g3` 的完整尺寸链复核后，
+Phase 529 确认原版 `g3` 先产出 oriented bitmap，`b40` 再以 oriented `dp5.size` 解释 crop。因此当前
+持久化 intrinsic/crop 使用 oriented 域，renderer 以 encoded 轴矩阵桥接 raw bitmap，再执行用户翻转和
+oriented crop/fit。上面的顺序记录保留为历史阶段快照，不再作为当前坐标契约。

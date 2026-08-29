@@ -41,13 +41,21 @@ export async function normalizeOriginalImageBytes(bytes: Uint8Array):
       throw new Error('original image EXIF orientation is invalid');
     }
     const rotationDegrees: number = originalRotationDegrees(orientation);
-    const plan = planOriginalImageDownscale(oriented.width, oriented.height);
+    // Android computes the sampling target from encoded axes, then rotates the
+    // scaled bitmap. Keep that distinction explicit instead of feeding the
+    // already-oriented axes into the encoded-axis planner.
+    const plan = planOriginalImageDownscale(info.size.width, info.size.height);
     const needsNormalization: boolean = !isOriginalNormalizedImageDimensions(
       oriented.width, oriented.height);
     if (plan === null) {
       throw new Error('original image normalization plan is invalid');
     }
     const downscale: OriginalImageNormalizationPlan = plan;
+    const targetOriented = originalImageOrientedDimensions(
+      downscale.width, downscale.height, orientation);
+    if (targetOriented === null) {
+      throw new Error('original image normalization target dimensions are invalid');
+    }
     if (!needsNormalization) {
       return {
         bytes: stable,
@@ -68,16 +76,16 @@ export async function normalizeOriginalImageBytes(bytes: Uint8Array):
     }
     const orientedInfo: image.ImageInfo = await pixelMap.getImageInfo();
     const scaleX: number = originalFloat(
-      originalFloat(downscale.width) / originalFloat(orientedInfo.size.width));
+      originalFloat(targetOriented.width) / originalFloat(orientedInfo.size.width));
     const scaleY: number = originalFloat(
-      originalFloat(downscale.height) / originalFloat(orientedInfo.size.height));
+      originalFloat(targetOriented.height) / originalFloat(orientedInfo.size.height));
     if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) ||
       scaleX <= 0 || scaleY <= 0) {
       throw new Error('original image normalization scale is invalid');
     }
     await pixelMap.scale(scaleX, scaleY);
     const decoded: image.ImageInfo = await pixelMap.getImageInfo();
-    if (decoded.size.width !== downscale.width || decoded.size.height !== downscale.height) {
+    if (decoded.size.width !== targetOriented.width || decoded.size.height !== targetOriented.height) {
       throw new Error('original image normalization produced unexpected dimensions');
     }
     const packed: ArrayBuffer = await packWebpLossy(pixelMap);
@@ -85,10 +93,12 @@ export async function normalizeOriginalImageBytes(bytes: Uint8Array):
       bytes: new Uint8Array(packed),
       mimeType: 'image/webp',
       rewroteBytes: true,
-      encodedWidth: downscale.width,
-      encodedHeight: downscale.height,
-      orientedWidth: downscale.width,
-      orientedHeight: downscale.height,
+      // WebP packing stores the post-rotation physical axes and no longer
+      // carries the source EXIF orientation.
+      encodedWidth: targetOriented.width,
+      encodedHeight: targetOriented.height,
+      orientedWidth: targetOriented.width,
+      orientedHeight: targetOriented.height,
     };
   } catch (error) {
     throw new Error(`normalizing original image failed: ${JSON.stringify(error)}`);

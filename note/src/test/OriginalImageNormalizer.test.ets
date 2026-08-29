@@ -88,9 +88,14 @@ export default function originalImageNormalizerTest() {
     });
 
     it('keeps quarter-turn normalization on the original encoded-axis plan', 0, () => {
-      expect(planOriginalImageDownscale(6000, 1000)).assertEqual({
+      const encodedPlan = planOriginalImageDownscale(6000, 1000);
+      expect(encodedPlan).assertEqual({
         sampleSize: 2, width: 3000, height: 500,
       });
+      const orientedTarget = originalImageOrientedDimensions(
+        encodedPlan?.width ?? 0, encodedPlan?.height ?? 0, '6');
+      expect(orientedTarget?.width).assertEqual(500);
+      expect(orientedTarget?.height).assertEqual(3000);
       expect(originalRotationDegrees('6')).assertEqual(90);
       expect(originalRotationDegrees('8')).assertEqual(270);
     });

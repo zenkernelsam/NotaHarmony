@@ -66,6 +66,11 @@ const checks = [
     normalizerSource.includes('await source.getImageInfo()') &&
     normalizerSource.includes('originalImageOrientedDimensions(') &&
     normalizerSource.includes("image.PropertyKey.ORIENTATION")],
+  ['Harmony planner receives encoded axes and derives the post-rotation target axes',
+    normalizerSource.includes('planOriginalImageDownscale(info.size.width, info.size.height)') &&
+    normalizerSource.includes('const targetOriented = originalImageOrientedDimensions(') &&
+    normalizerSource.includes('targetOriented.width') &&
+    normalizerSource.includes('targetOriented.height')],
   ['Harmony preserves threshold-sized nonzero EXIF bytes for the display path',
     normalizerSource.includes(
       'const needsNormalization: boolean = !isOriginalNormalizedImageDimensions(') &&
@@ -89,8 +94,8 @@ const checks = [
     persistenceSource.includes('export async function normalizedOriginalImagePersistencePlan(') &&
     persistenceSource.includes('bytes: normalized.bytes') &&
     persistenceSource.includes('mimeType: normalized.mimeType') &&
-    persistenceSource.includes('intrinsicWidth: normalized.encodedWidth') &&
-    persistenceSource.includes('intrinsicHeight: normalized.encodedHeight')],
+    persistenceSource.includes('intrinsicWidth: normalized.orientedWidth') &&
+    persistenceSource.includes('intrinsicHeight: normalized.orientedHeight')],
   ['normalization fixtures cover unchanged rotated oversized and invalid inputs',
     fixtureSource.includes('planOriginalImageDownscale(3000, 1)') &&
     fixtureSource.includes('keeps threshold-sized nonzero EXIF rotations') &&

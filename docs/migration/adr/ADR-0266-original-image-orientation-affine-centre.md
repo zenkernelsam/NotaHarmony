@@ -28,3 +28,10 @@ matrix.postRotate(i7, width, height);
 - 本阶段只修正 pivot 数值；encoded crop → baked orientation → user flip 的顺序不变；
 - 真实设备 EXIF 样本、色彩空间、像素精度与性能仍开放；
 - `T-042` 继续保留为整个 Goal 最后一项。
+
+## Phase 529 坐标契约澄清（2026-08-29）
+
+Phase 529 保留本 ADR 的中心结论：仿射矩阵的输入 pivot/边界来自 raw encoded bitmap
+物理宽高，而不是交换后的 oriented 尺寸。矩阵完成正边界映射后，crop 与用户翻转在
+oriented intrinsic 域执行；这解决了 oriented intrinsic 与 raw `ImageBitmap` 并存时的
+坐标转换，而不改变 encoded-center 结论。

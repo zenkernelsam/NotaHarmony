@@ -4,7 +4,9 @@ import {
   eraserPathHitsImageBlock, imageAssetPackageMetadataMatches, originalAssetLookupKeys,
   originalAssetStorageHash, selectionPathHitsImageBlock, transformImageElements,
 } from '../main/ets/core/model/ImageBlockGeometry';
-import { ImageRenderGeometry, imageRenderGeometry } from '../main/ets/rendering/ImageCanvasRenderer';
+import {
+  ImageRenderGeometry, imageRenderGeometry, originalImageOrientationTransform,
+} from '../main/ets/rendering/ImageCanvasRenderer';
 import { imageAssetPackageEntry } from '../main/ets/data/ImageAssetPackageStore';
 import {
   applyOriginalImageCropDraft, beginOriginalImageCrop, OriginalImageCropSession,
@@ -77,32 +79,52 @@ export default function imageBlockRenderingTest() {
       expect(imageRenderGeometry(block, 200, 100) === null).assertTrue();
     });
 
-    it('preserves EXIF orientation metadata for shared page and thumbnail rendering', 0, () => {
-      const block: ImageElement = imageBlock();
+    it('maps oriented intrinsic crop coordinates onto a raw quarter-turn bitmap', 0, () => {
+      const block: ImageElement = orientedImageBlock();
       const geometry: ImageRenderGeometry | null = imageRenderGeometry(
-        block, 200, 100, 90, true);
+        block, 200, 100, 90, false);
       expect(geometry === null).assertFalse();
       const resolved: ImageRenderGeometry = geometry as ImageRenderGeometry;
       expect(resolved.orientationDegrees).assertEqual(90);
-      expect(resolved.mirroredHorizontally).assertTrue();
+      expect(resolved.mirroredHorizontally).assertFalse();
       expect(resolved.orientedWidth).assertEqual(100);
       expect(resolved.orientedHeight).assertEqual(200);
+      expect(resolved.cropPixels.left).assertEqual(25);
+      expect(resolved.cropPixels.top).assertEqual(40);
+      expect(resolved.cropPixels.right).assertEqual(75);
+      expect(resolved.cropPixels.bottom).assertEqual(160);
+      expect(resolved.scaleX).assertEqual(2);
+      expect(resolved.scaleY).assertEqual(2);
       expect(imageRenderGeometry(block, 200, 100, 45, true) === null).assertTrue();
     });
 
-     it('applies user flips in encoded bitmap coordinates after EXIF orientation', 0, () => {
-       const block: ImageElement = imageBlock();
+     it('applies user flips in the oriented intrinsic domain after EXIF orientation', 0, () => {
+       const block: ImageElement = orientedImageBlock();
        block.imageFlippedHorizontally = true;
        block.imageFlippedVertically = true;
        const geometry: ImageRenderGeometry | null = imageRenderGeometry(
-         block, 200, 100, 90, false);
+         block, 200, 100, 90, true);
        expect(geometry === null).assertFalse();
        const resolved: ImageRenderGeometry = geometry as ImageRenderGeometry;
-       expect(resolved.flipTranslateX).assertEqual(200);
-       expect(resolved.flipTranslateY).assertEqual(100);
+       expect(resolved.flipTranslateX).assertEqual(100);
+       expect(resolved.flipTranslateY).assertEqual(200);
        expect(resolved.flipScaleX).assertEqual(-1);
        expect(resolved.flipScaleY).assertEqual(-1);
+       expect(resolved.orientationTransform).assertEqual([0, -1, 100, -1, 0, 200, 0, 0, 1]);
      });
+
+    it('constructs encoded-to-oriented affine matrices for all quarter turns', 0, () => {
+      expect(originalImageOrientationTransform(200, 100, 0, false)).assertEqual(
+        [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+      expect(originalImageOrientationTransform(200, 100, 90, false)).assertEqual(
+        [0, -1, 100, 1, 0, 0, 0, 0, 1]);
+      expect(originalImageOrientationTransform(200, 100, 180, false)).assertEqual(
+        [-1, 0, 200, 0, -1, 100, 0, 0, 1]);
+      expect(originalImageOrientationTransform(200, 100, 270, false)).assertEqual(
+        [0, 1, 0, -1, 0, 200, 0, 0, 1]);
+      expect(originalImageOrientationTransform(200, 100, 90, true)).assertEqual(
+        [0, -1, 100, -1, 0, 200, 0, 0, 1]);
+    });
 
     it('transforms editable images while preserving asset and crop metadata', 0, () => {
       const block: ImageElement = imageBlock();
@@ -199,5 +221,17 @@ function canonicalCropBlock(): ImageElement {
   block.blockWidth = 200;
   block.blockHeight = 150;
   block.bounds = { left: -440, top: 20, right: 10, bottom: 420 };
+  return block;
+}
+
+function orientedImageBlock(): ImageElement {
+  const block: ImageElement = imageBlock();
+  block.intrinsicWidth = 200;
+  block.intrinsicHeight = 400;
+  block.cropRect = { left: 50, top: 80, right: 150, bottom: 320 };
+  block.blockWidth = 100;
+  block.blockHeight = 240;
+  block.transform = [1, 0, 10, 0, 1, 20, 0, 0, 1];
+  block.bounds = { left: 10, top: 20, right: 110, bottom: 260 };
   return block;
 }

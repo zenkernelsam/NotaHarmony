@@ -24,7 +24,8 @@ const checks = [
     thumbnail.includes('asset.orientationDegrees, asset.mirroredHorizontally);')],
   ['fixture covers oriented dimensions and rejects non-quarter-turn input',
     fixture.includes('resolved.orientationDegrees).assertEqual(90)') &&
-    fixture.includes('resolved.mirroredHorizontally).assertTrue()') &&
+    fixture.includes('resolved.mirroredHorizontally).assertFalse()') &&
+    fixture.includes('resolved.cropPixels.top).assertEqual(40)') &&
     fixture.includes('imageRenderGeometry(block, 200, 100, 45, true) === null')],
 ];
 

@@ -14,7 +14,7 @@ const checks=[
  ['picker selection is validated before ingress import', caller.includes('validateOriginalPhotoSelection(uris)') && caller.includes('importOriginalPhotos(uris, request.cacheDirectory)')],
  ['selection and URI readers remain injectable for static tests', caller.includes('setOriginalPhotoUriListSelectorForTest') && ingress.includes('setOriginalPhotoUriReaderForTest')],
  ['canvas guards concurrent persistence and picker work', canvas.includes('@State photoImportBusy: boolean = false;') && canvas.includes('!this.historyBusy && !this.photoImportBusy')],
- ['canvas builds ordered plans with normalized dimensions', canvas.includes('intrinsicWidth: item.encodedWidth') && canvas.includes('x: center.x + index * 24,')],
+ ['canvas builds ordered plans with oriented intrinsic dimensions', canvas.includes('intrinsicWidth: item.orientedWidth') && canvas.includes('intrinsicHeight: item.orientedHeight') && canvas.includes('x: center.x + index * 24,')],
  ['multi-image commit reuses durable image insertion', canvas.includes('commitOriginalImageInsert') && canvas.includes('results[results.length - 1].elementOrder')],
  ['UI state updates only on the original loaded page generation', canvas.includes('generation === this.pageLoadGeneration && pageId === this.loadedPageId')],
  ['toolbar exposes Photo in expanded and compact menus', toolbar.includes("$r('app.string.insert_photo')") && toolbar.split("$r('app.string.insert_photo')").length >= 3],

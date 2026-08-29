@@ -55,3 +55,20 @@ ahead 2，Phase 266 代码和文档尚未提交。该目录是当前唯一可写
 3. 16 MB 调用图不直接复制进 Git；其不可替代的节点数、边数、resolved 路径和原文件哈希已写入本清单与
    Phase 266 evidence，原始 JSON 继续保留在 Desktop。
 4. 活动工作树必须在正式主仓包含 Phase 264～266 提交且经 `git log/status` 复核后才可退役；本阶段不执行退役。
+
+## 2026-08-29 归档迁移记录
+
+上述 Desktop 临时逆向成果已在核对 SHA-256 后从 Desktop 根目录移动到正式工程下的
+`C:\HarmonyProject\NotaHarmony\NotaHarmony-quarantine-2026-08-29\desktop-retained-evidence\`，
+原始字节、文件名和哈希不变。归档目录之外的 canonical APK、`decompiled_1.0.1/1.0.3`、JADX 和
+其他原版资源未移动。
+
+- `.codex-tmp-phase249-jadx/`
+- `.codex-tmp-phase266-callgraph/`、`.codex-tmp-phase266-*.java`
+- `.codex-tmp-phase273-vnf-simple.java`
+- `.codex-tmp-phase274-dex/`
+- `.codex-tmp-phase280-yr-debug.java`
+
+直接读取临时成果的 Desktop Replay 现在默认从该归档位置读取，并支持
+`NOTAHARMONY_RETAINED_EVIDENCE_ROOT` 覆盖；因此归档不改变既有证据契约，必要时可按
+`moved-manifest.json` 逆向恢复到原路径。

@@ -260,8 +260,8 @@ export async function normalizedOriginalImagePersistencePlan(
   return {
     bytes: normalized.bytes,
     mimeType: normalized.mimeType,
-    intrinsicWidth: normalized.encodedWidth,
-    intrinsicHeight: normalized.encodedHeight,
+    intrinsicWidth: normalized.orientedWidth,
+    intrinsicHeight: normalized.orientedHeight,
   };
 }
 

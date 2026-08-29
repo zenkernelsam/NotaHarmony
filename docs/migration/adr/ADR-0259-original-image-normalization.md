@@ -19,8 +19,10 @@ encodedWidth/encodedHeight
 orientedWidth/orientedHeight
 ```
 
-`normalizedOriginalImagePersistencePlan()` 只把 bytes、MIME 和 intrinsic dimensions 传给 persistence plan。
-因此 fileSize、AssetHash、CREATE_BLOCK metadata 与 final asset file 都描述同一次重编码后的内容。
+`normalizedOriginalImagePersistencePlan()` 只把 bytes、MIME 和最终 oriented intrinsic dimensions 传给
+persistence plan。未重写的输入保留 encoded bytes 但把 EXIF 后的 oriented axes 作为 IMAGE intrinsic；重写后
+WebP 已经把旋转固化到物理像素，两个轴相同。因此 fileSize、AssetHash、CREATE_BLOCK metadata 与 final asset
+file 都描述同一次重编码后的内容。
 
 ## 原版对齐
 
@@ -35,7 +37,8 @@ orientedWidth/orientedHeight
 
 - Android `BitmapFactory + ExifInterface + Matrix + Bitmap.compress` 映射为 ImageKit 的
   `ImageSource.getImageInfo/getImageProperty(ORIENTATION)/createPixelMap` 和 `ImagePacker.packing`。
-- `createPixelMap` 使用 `sampleSize`、`rotate`、`desiredSize` 与 `editable:true`；实际 decode 尺寸必须等于计划。
+- `createPixelMap` 使用 encoded-axis `sampleSize` 与 `editable:true`；解码后先旋转，再按显式 oriented target
+  缩放，最终 PixelMap 尺寸必须等于计划。
 - 不预读或伪造 `supportedFormats`。WebP packing 失败时异常外抛，由 caller fail closed。
 - 输入先复制 stable snapshot；成功且未规范化时返回独立输入副本，需要规范化时返回 packing 新副本。
 - `PixelMap`、`ImageSource` 与 `ImagePacker` 在异步路径中释放；主异常不被清理异常覆盖。
@@ -49,6 +52,7 @@ caller 提供的稳定文件名继续进入 metadata。禁止在 normalization �
 
 - URI/FD/Pasteboard/系统相册 caller、权限、100 MiB ingress 与产品 UI 未接线；
 - 真实设备 decode/EXIF/WebP encoder 兼容性、色彩、透明度、内存和性能未验收；
-- 小尺寸带 EXIF 图片的 renderer 显示方向仍开放；
+- 小尺寸带 EXIF 图片的真实设备像素验收仍开放；Phase 529 已固定 oriented intrinsic/crop
+  与 raw bitmap renderer 的静态坐标桥接；
 - Undo/Redo、重启、导入导出/同步与端到端体验仍需设备验证；
 - `T-042` 继续严格留到整个 Goal 最后一项。

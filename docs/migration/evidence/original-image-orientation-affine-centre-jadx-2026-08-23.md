@@ -20,3 +20,9 @@ Desktop 只读；未写入或启动运行态。
 Phase 284～287 的顺序正确，但 renderer 曾把 pivot 写成 `orientedWidth/orientedHeight / 2`。对 90/270
 这会使用交换后的中心，造成半像素级以上偏移。Phase 288 改为 `bitmap.width/height / 2`，与原版 Matrix 完全
 一致。
+
+## Phase 529 坐标桥接补充
+
+Phase 529 保留 encoded bitmap 中心结论，并新增正边界映射矩阵：旋转/镜像后的 source 先进入 oriented
+像素域，cropRect 与用户翻转再按 oriented intrinsic 轴解释。中心仍来自 raw encoded 宽高，不能替换为
+oriented 中心。
