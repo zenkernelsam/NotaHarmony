@@ -3,6 +3,8 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
+// v68: persist original folder color/emoji customization and edit timestamps.
+// v67: local soft-delete (Recently Deleted) parity columns.
 // v66: preserve explicit-null original SET_METADATA title winners.
 // v65: persist the six additional original SET_METADATA registers independently.
 // v64: enforce note-wide page element identity for all SQL insertion/update paths.
@@ -13,7 +15,7 @@
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 67;
+export const DB_VERSION: number = 68;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -1655,6 +1657,11 @@ CREATE TABLE IF NOT EXISTS page_info (
 )`;
 
 // T-039：文件夹表
+// Mirrors the original app's SyncedFolderMetadata.color (e47.java:353): every folder
+// resolves to a concrete color, so the local column is NOT NULL with a default. The
+// exact palette constant lives in un-decompiled Compose resources; this slate is the
+// documented local default.
+export const FOLDER_DEFAULT_COLOR: number = -7431250; // 0xFF8E9BAE slate
 export const DDL_FOLDER: string = `
 CREATE TABLE IF NOT EXISTS folder (
   id TEXT PRIMARY KEY,
@@ -1662,6 +1669,9 @@ CREATE TABLE IF NOT EXISTS folder (
   created_at INTEGER NOT NULL,
   parent_id TEXT,
   sibling_order REAL NOT NULL DEFAULT 0,
+  color INTEGER NOT NULL DEFAULT ${FOLDER_DEFAULT_COLOR},
+  emoji TEXT,
+  updated_at INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY(parent_id) REFERENCES folder(id) ON DELETE CASCADE
 )`;
 
@@ -2647,5 +2657,14 @@ export const MIGRATIONS: Record<number, string[]> = {
     // local-only equivalent is a column on note_meta.
     'ALTER TABLE note_meta ADD COLUMN deleted_at INTEGER',
     DDL_PERMANENTLY_DELETED_NOTE,
+  ],
+  68: [
+    // Original SyncedFolderMetadata carries color INTEGER NOT NULL + emoji TEXT +
+    // updatedAt; ClientFolderEdit rows are the partial-edit queue (e47.java:353-354).
+    // Existing folders backfill updated_at with created_at (creation was the last edit).
+    `ALTER TABLE folder ADD COLUMN color INTEGER NOT NULL DEFAULT ${FOLDER_DEFAULT_COLOR}`,
+    'ALTER TABLE folder ADD COLUMN emoji TEXT',
+    'ALTER TABLE folder ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0',
+    'UPDATE folder SET updated_at = created_at',
   ],
 };

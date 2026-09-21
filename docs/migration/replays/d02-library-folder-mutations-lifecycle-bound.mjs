@@ -12,10 +12,10 @@ function section(startMarker, endMarker) {
 }
 
 const confirm = section(
-  'private async onFolderDialogConfirm(name: string): Promise<boolean> {',
+  'private async onFolderDialogConfirm(name: string, color: number,',
   '\n  // 删除文件夹：内部笔记回根目录（不删笔记）');
 assert.match(confirm,
-  /private async onFolderDialogConfirm\(name: string\): Promise<boolean> \{\s+if \(!this\.pageActive\) \{\s+return false;\s+\}\s+const trimmed:/,
+  /private async onFolderDialogConfirm\(name: string, color: number,\s+emoji: string\): Promise<boolean> \{\s+if \(!this\.pageActive\) \{\s+return false;\s+\}\s+const trimmed:/,
   'stale folder dialog cannot start a mutation');
 assert.match(confirm, /const lifecycleGeneration: number = this\.lifecycleGeneration;/);
 assert.match(confirm,

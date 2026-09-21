@@ -11,6 +11,7 @@ import {
 } from '../../data/AssetAvailabilityHub';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
+import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
 import {
   FolderCreateResult, FolderDeleteResult, FolderDropIntent, FolderMutationResult,
   FolderRepositoryImpl, NoteFolder, NoteFolderMoveResult, ORIGINAL_FOLDER_DRAG_INDENT,
@@ -34,6 +35,26 @@ interface FolderListItem {
   hasChildren: boolean;
   expanded: boolean;
 }
+
+// 原版文件夹自定义（e47 SyncedFolderMetadata.color/emoji + 1.0.3 文件夹对话框）。
+// 原版调色板常量位于未反编译的 Compose 资源中；这里采用文档化的近似配色，
+// 第一项始终等于 FOLDER_DEFAULT_COLOR（未自定义时的默认色）。
+const FOLDER_COLOR_PALETTE: number[] = [
+  FOLDER_DEFAULT_COLOR,
+  0xFFE2574C,
+  0xFFF0932B,
+  0xFFF5C445,
+  0xFF5FB760,
+  0xFF4FA8DE,
+  0xFF8B6CC1,
+  0xFFE0719E,
+];
+
+// 原版 emoji 选择器是分类网格（LIBRARY_FOLDER_EMOJI_PICKER flag）；Harmony 侧
+// 提供常用预设子集，空字符串 = 无 emoji（pdb.d() 等价语义）。
+const FOLDER_EMOJI_PRESETS: string[] = [
+  '⭐', '📚', '🎵', '🖼️', '✈️', '🏠', '💼', '🔬', '🎮', '❤️',
+];
 
 @Entry
 @Component
@@ -89,11 +110,16 @@ struct LibraryPage {
   @State folderDialogMode: number = 0;  // 0=新建 1=重命名
   @State folderDialogTargetId: string = '';
   @State folderDialogParentId: string | null = null;
+  @State folderDialogColor: number = FOLDER_DEFAULT_COLOR;
+  @State folderDialogEmoji: string = '';
   private folderDialog: CustomDialogController = new CustomDialogController({
     builder: NameDialog({
       title: this.folderDialogTitle,
       initialText: this.folderDialogInitialText,
-      onConfirm: (name: string): Promise<boolean> => this.onFolderDialogConfirm(name),
+      initialColor: this.folderDialogColor,
+      initialEmoji: this.folderDialogEmoji,
+      onConfirm: (name: string, color: number, emoji: string): Promise<boolean> =>
+        this.onFolderDialogConfirm(name, color, emoji),
     }),
     autoCancel: true,
   });
@@ -470,6 +496,8 @@ struct LibraryPage {
     this.folderDialogInitialText = '';
     this.folderDialogTargetId = '';
     this.folderDialogParentId = parentId;
+    this.folderDialogColor = FOLDER_DEFAULT_COLOR;
+    this.folderDialogEmoji = '';
     this.folderDialog.open();
   }
 
@@ -481,10 +509,13 @@ struct LibraryPage {
     this.folderDialogTitle = $r('app.string.rename');
     this.folderDialogInitialText = folder.name;
     this.folderDialogTargetId = folder.id;
+    this.folderDialogColor = folder.color;
+    this.folderDialogEmoji = folder.emoji === null ? '' : folder.emoji;
     this.folderDialog.open();
   }
 
-  private async onFolderDialogConfirm(name: string): Promise<boolean> {
+  private async onFolderDialogConfirm(name: string, color: number,
+    emoji: string): Promise<boolean> {
     if (!this.pageActive) {
       return false;
     }
@@ -503,10 +534,14 @@ struct LibraryPage {
     let result: FolderMutationResult | null = null;
     try {
       if (this.folderDialogMode === 0) {
-        const created: FolderCreateResult = await repo.createFolder(trimmed, this.folderDialogParentId);
+        // 原版 id7.b：创建即提交所选颜色与可选 emoji。
+        const created: FolderCreateResult = await repo.createFolder(trimmed,
+          this.folderDialogParentId, color, emoji);
         result = created;
       } else if (this.folderDialogMode === 1) {
-        result = await repo.renameFolder(this.folderDialogTargetId, trimmed);
+        // 原版 id7.l→beb.e：名称/颜色/emoji 单次提交，updated_at 必盖章。
+        result = await repo.editFolder(this.folderDialogTargetId,
+          { name: trimmed, color: color, emoji: emoji });
       } else {
         throw new Error(`unsupported folder dialog mode: ${this.folderDialogMode}`);
       }
@@ -1110,6 +1145,17 @@ struct LibraryPage {
       }
       Button() {
         Row() {
+          // 原版 w09.folderColor / pdb.f()：文件夹行始终渲染一个具体颜色。
+          Circle()
+            .width(10)
+            .height(10)
+            .fill(item.folder.color)
+            .margin({ right: 8 })
+          if (item.folder.emoji !== null) {
+            Text(item.folder.emoji)
+              .fontSize(15)
+              .margin({ right: 6 })
+          }
           Text(item.folder.name)
             .layoutWeight(1)
             .maxLines(1)
@@ -1975,13 +2021,20 @@ struct NameDialog {
   controller?: CustomDialogController;
   title: ResourceStr = '';
   initialText: string = '';
+  initialColor: number = FOLDER_DEFAULT_COLOR;
+  initialEmoji: string = '';
   @State inputText: string = '';
+  @State selectedColor: number = FOLDER_DEFAULT_COLOR;
+  @State selectedEmoji: string = '';
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
-  onConfirm: (name: string) => Promise<boolean> = async (_name: string): Promise<boolean> => false;
+  onConfirm: (name: string, color: number, emoji: string) => Promise<boolean> =
+    async (_name: string, _color: number, _emoji: string): Promise<boolean> => false;
 
   aboutToAppear(): void {
     this.inputText = this.initialText;
+    this.selectedColor = this.initialColor;
+    this.selectedEmoji = this.initialEmoji;
   }
 
   private resolveTokens(): ThemeTokens {
@@ -2003,6 +2056,57 @@ struct NameDialog {
         .onChange((value: string) => {
           this.inputText = value;
         })
+      // 原版文件夹对话框：名称 + 颜色行 + emoji 行（emoji picker 为 flag 门控的
+      // 分类网格；Harmony 侧采用预设子集，∅ 表示无 emoji）。
+      Row() {
+        ForEach(FOLDER_COLOR_PALETTE, (color: number) => {
+          Circle()
+            .width(22)
+            .height(22)
+            .fill(color)
+            .border({
+              width: this.selectedColor === color ? 2 : 0,
+              color: this.resolveTokens().textPrimary,
+            })
+            .margin({ right: 8 })
+            .onClick(() => {
+              this.selectedColor = color;
+            })
+        }, (color: number): string => color.toString())
+      }
+      .width('100%')
+      .margin({ top: 14 })
+      Row() {
+        Text('∅')
+          .fontSize(16)
+          .fontColor(this.resolveTokens().textSecondary)
+          .padding(4)
+          .border({
+            width: this.selectedEmoji.length === 0 ? 1 : 0,
+            color: this.resolveTokens().accent,
+            radius: 6,
+          })
+          .margin({ right: 6 })
+          .onClick(() => {
+            this.selectedEmoji = '';
+          })
+        ForEach(FOLDER_EMOJI_PRESETS, (emoji: string) => {
+          Text(emoji)
+            .fontSize(18)
+            .padding(4)
+            .border({
+              width: this.selectedEmoji === emoji ? 1 : 0,
+              color: this.resolveTokens().accent,
+              radius: 6,
+            })
+            .margin({ right: 4 })
+            .onClick(() => {
+              this.selectedEmoji = emoji;
+            })
+        }, (emoji: string): string => emoji)
+      }
+      .width('100%')
+      .margin({ top: 12 })
       Row() {
         Button($r('app.string.cancel'))
           .height(36)
@@ -2019,7 +2123,7 @@ struct NameDialog {
           .layoutWeight(1)
           .margin({ left: 12 })
           .onClick(() => {
-            this.onConfirm(this.inputText).then((success: boolean) => {
+            this.onConfirm(this.inputText, this.selectedColor, this.selectedEmoji).then((success: boolean) => {
               if (success && this.controller !== undefined) {
                 this.controller.close();
               }

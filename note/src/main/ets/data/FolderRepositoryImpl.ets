@@ -1,18 +1,32 @@
 import { relationalStore } from '@kit.ArkData';
 import { NoteMeta } from '../core/model/NoteTypes';
 import { DatabaseManager } from './DatabaseManager';
+import { FOLDER_DEFAULT_COLOR } from './DatabaseHelper';
 import { libraryMetadataMutationMutex } from './LibraryMetadataMutationMutex';
 import { ORIGINAL_MAX_FOLDER_DEPTH } from './FolderHierarchyRepair';
 
 export const MAX_FOLDER_DEPTH: number = ORIGINAL_MAX_FOLDER_DEPTH;
 export const ORIGINAL_FOLDER_DRAG_INDENT: number = 24;
 
+// Mirrors 1.0.3 pdb.f()/pdb.d(): color always resolves to a concrete int (the original
+// SyncedFolderMetadata column is NOT NULL); emoji resolves to null when unset or blank.
 export interface NoteFolder {
   id: string;
   name: string;
   createdAt: number;
   parentId: string | null;
   siblingOrder: number;
+  color: number;
+  emoji: string | null;
+  updatedAt: number;
+}
+
+// Mirrors 1.0.3 beb.e()/id7.l(): a folder edit carries any subset of name/color/emoji;
+// unspecified fields keep their current values and updated_at is always stamped.
+export interface FolderEdits {
+  name?: string;
+  color?: number;
+  emoji?: string | null;
 }
 
 export interface FolderMutationResult {
@@ -78,6 +92,14 @@ function orderedSiblings(folders: NoteFolder[], parentId: string | null,
     sameParent(folder.parentId, parentId) && folder.id !== excludedFolderId);
   siblings.sort(compareFolderOrder);
   return siblings;
+}
+
+// Mirrors 1.0.3 pdb.d(): an unset or blank emoji resolves to no emoji.
+function normalizeFolderEmoji(emoji: string | null | undefined): string | null {
+  if (emoji === null || emoji === undefined || emoji.length === 0) {
+    return null;
+  }
+  return emoji;
 }
 
 function folderDepth(folders: NoteFolder[], folderId: string): number {
@@ -291,7 +313,9 @@ export class FolderRepositoryImpl {
     this.db = db;
   }
 
-  async createFolder(name: string, parentId: string | null = null): Promise<FolderCreateResult> {
+  async createFolder(name: string, parentId: string | null = null,
+    color: number = FOLDER_DEFAULT_COLOR,
+    emoji: string | null = null): Promise<FolderCreateResult> {
     return libraryMetadataMutationMutex.runExclusive(async (): Promise<FolderCreateResult> => {
       const store: relationalStore.RdbStore = this.db.getStore();
       await store.beginTransaction();
@@ -302,12 +326,17 @@ export class FolderRepositoryImpl {
           throw new Error(`folder depth cannot exceed ${MAX_FOLDER_DEPTH}`);
         }
         const now: number = Date.now();
+        // Mirrors 1.0.3 rdb/id7.b(): creation writes the chosen color and stamps
+        // createdAt/updatedAt with the same timestamp.
         const folder: NoteFolder = {
           id: this.generateId(),
           name: validatedName,
           createdAt: now,
           parentId: parentId,
           siblingOrder: this.nextSiblingOrder(folders, parentId),
+          color: color,
+          emoji: normalizeFolderEmoji(emoji),
+          updatedAt: now,
         };
         const rowId: number = await store.insert('folder', this.folderBucket(folder));
         if (rowId < 0) {
@@ -329,7 +358,10 @@ export class FolderRepositoryImpl {
     });
   }
 
-  async renameFolder(folderId: string, name: string): Promise<FolderMutationResult> {
+  // Mirrors 1.0.3 id7.l()/beb.e(): title/color/emoji edits land in one ClientFolderEdit
+  // row; fields left undefined keep their current values, emoji null/'' clears it, and
+  // updated_at is stamped unconditionally (vdb.java: this.T is always written).
+  async editFolder(folderId: string, edits: FolderEdits): Promise<FolderMutationResult> {
     return libraryMetadataMutationMutex.runExclusive(async (): Promise<FolderMutationResult> => {
       const store: relationalStore.RdbStore = this.db.getStore();
       await store.beginTransaction();
@@ -339,10 +371,19 @@ export class FolderRepositoryImpl {
         if (folder === null) {
           throw new Error('folder does not exist');
         }
-        const validatedName: string = validateFolderName(folders, name, folder.parentId, folderId);
+        const bucket: relationalStore.ValuesBucket = { 'updated_at': Date.now() };
+        if (edits.name !== undefined) {
+          bucket['name'] = validateFolderName(folders, edits.name, folder.parentId, folderId);
+        }
+        if (edits.color !== undefined) {
+          bucket['color'] = edits.color;
+        }
+        if (edits.emoji !== undefined) {
+          bucket['emoji'] = normalizeFolderEmoji(edits.emoji);
+        }
         const predicates = new relationalStore.RdbPredicates('folder');
         predicates.equalTo('id', folderId);
-        const changed: number = await store.update({ 'name': validatedName }, predicates);
+        const changed: number = await store.update(bucket, predicates);
         if (changed === 0) {
           throw new Error('folder does not exist');
         }
@@ -351,9 +392,13 @@ export class FolderRepositoryImpl {
         return { folders: committedFolders };
       } catch (e) {
         await store.rollBack();
-        throw new Error(`renameFolder failed: ${JSON.stringify(e)}`);
+        throw new Error(`editFolder failed: ${JSON.stringify(e)}`);
       }
     });
+  }
+
+  async renameFolder(folderId: string, name: string): Promise<FolderMutationResult> {
+    return this.editFolder(folderId, { name: name });
   }
 
   async moveFolder(folderId: string, newParentId: string | null,
@@ -364,9 +409,12 @@ export class FolderRepositoryImpl {
       try {
         const folders: NoteFolder[] = await this.queryFolders(store);
         const plan: FolderMovePlan = planFolderMove(folders, folderId, newParentId, insertIndex);
+        // Mirrors 1.0.3 xdb→beb.e(): a move writes parent+siblingOrder and stamps
+        // updatedAt on the moved folder only; sibling renormalization is not an edit.
         const bucket: relationalStore.ValuesBucket = {
           'parent_id': newParentId,
           'sibling_order': plan.insertIndex,
+          'updated_at': Date.now(),
         };
         const predicates = new relationalStore.RdbPredicates('folder');
         predicates.equalTo('id', folderId);
@@ -495,12 +543,16 @@ export class FolderRepositoryImpl {
     try {
       while (resultSet.goToNextRow()) {
         const parentColumn: number = resultSet.getColumnIndex('parent_id');
+        const emojiColumn: number = resultSet.getColumnIndex('emoji');
         folders.push({
           id: resultSet.getString(resultSet.getColumnIndex('id')),
           name: resultSet.getString(resultSet.getColumnIndex('name')),
           createdAt: resultSet.getLong(resultSet.getColumnIndex('created_at')),
           parentId: resultSet.isColumnNull(parentColumn) ? null : resultSet.getString(parentColumn),
           siblingOrder: resultSet.getDouble(resultSet.getColumnIndex('sibling_order')),
+          color: resultSet.getLong(resultSet.getColumnIndex('color')),
+          emoji: resultSet.isColumnNull(emojiColumn) ? null : resultSet.getString(emojiColumn),
+          updatedAt: resultSet.getLong(resultSet.getColumnIndex('updated_at')),
         });
       }
     } finally {
@@ -598,6 +650,9 @@ export class FolderRepositoryImpl {
       'created_at': folder.createdAt,
       'parent_id': folder.parentId,
       'sibling_order': folder.siblingOrder,
+      'color': folder.color,
+      'emoji': folder.emoji,
+      'updated_at': folder.updatedAt,
     };
   }
 

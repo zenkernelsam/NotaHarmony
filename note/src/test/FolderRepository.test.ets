@@ -14,6 +14,9 @@ function folder(id: string, name: string, parentId: string | null, order: number
     createdAt: order,
     parentId: parentId,
     siblingOrder: order,
+    color: -7431250,
+    emoji: null,
+    updatedAt: order,
   };
 }
 

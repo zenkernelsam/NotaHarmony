@@ -12,7 +12,7 @@ function body(startMarker, endMarker) {
 }
 
 const cases = [
-  ['folder create/rename', body('  private async onFolderDialogConfirm(name: string): Promise<boolean> {',
+  ['folder create/rename', body('  private async onFolderDialogConfirm(name: string, color: number,',
     '  // 删除文件夹'), "promptAction.showToast({ message: $r('app.string.folder_operation_failed') });", 'return false;'],
   ['delete folder', body('  private async deleteFolder(folderId: string): Promise<void> {',
     '  private async moveFolder(',), "promptAction.showToast({ message: $r('app.string.delete_folder_failed') });", 'return;'],
