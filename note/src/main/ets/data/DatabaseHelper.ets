@@ -1723,6 +1723,8 @@ export const DDL_INDEXES: string[] = [
   'CREATE INDEX IF NOT EXISTS idx_folder_parent_order ON folder(parent_id, sibling_order)',
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_search_item_identity ON search_item(note_id, type, sub_id)',
   'CREATE INDEX IF NOT EXISTS idx_search_item_note_text ON search_item(note_id, folded_text)',
+  // Mirrors the original ToolboxDatabase index_ToolStateEntity_tray_owner_id (e47.java:380).
+  'CREATE INDEX IF NOT EXISTS idx_tool_state_tray_owner ON tool_state(tray_owner_id)',
 ];
 
 // Key is the target version. Each version is applied atomically by DatabaseManager.
