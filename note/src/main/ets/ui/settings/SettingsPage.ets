@@ -114,6 +114,12 @@ struct SettingsPage {
     });
   }
 
+  private openRecentlyDeleted(): void {
+    router.pushUrl({ url: 'ui/settings/RecentlyDeletedPage' }).catch((e: Error) => {
+      console.error(`SettingsPage push RecentlyDeletedPage failed: ${JSON.stringify(e)}`);
+    });
+  }
+
   build() {
     Column() {
       Row() {
@@ -192,6 +198,14 @@ struct SettingsPage {
               .margin({ top: 12 })
               .onClick(() => {
                 this.openDefaultTemplate();
+              })
+
+            Button($r('app.string.recently_deleted'))
+              .width('100%')
+              .height(48)
+              .margin({ top: 12 })
+              .onClick(() => {
+                this.openRecentlyDeleted();
               })
 
             Divider()

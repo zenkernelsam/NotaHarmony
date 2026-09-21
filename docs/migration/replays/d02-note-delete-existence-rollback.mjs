@@ -4,7 +4,7 @@ import path from 'node:path';
 const root = process.env.NOTA_HARMONY_ROOT ?? path.resolve(import.meta.dirname, '../../..');
 const source = fs.readFileSync(
   path.join(root, 'note/src/main/ets/data/NoteRepositoryImpl.ets'), 'utf8');
-const method = source.indexOf('async deleteNote(noteId: string)');
+const method = source.indexOf('async deleteNote(noteId: string');
 const check = source.indexOf('const noteCheck', method);
 const transaction = source.indexOf('await store.beginTransaction()', method);
 const asset = source.indexOf('const assetReferences', check);

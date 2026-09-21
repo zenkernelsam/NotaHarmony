@@ -35,6 +35,10 @@ import {
 import { persistOriginalBlankNoteBootstrap } from './OriginalBlankNoteBootstrapPersistence';
 import { DefaultNoteTemplateRepository } from './EditorSettingsStore';
 
+// Original Recently Deleted rule: trashed notes stay recoverable for 30 days
+// (feature_settings__recently_deleted_empty_state_header), then are purged.
+export const TRASH_RETENTION_MS: number = 30 * 24 * 60 * 60 * 1000;
+
 interface NoteAssetReference {
   assetHash: string;
   noteIds: string[];
@@ -118,6 +122,8 @@ export class NoteRepositoryImpl implements NoteRepository {
   async getAllNotes(): Promise<NoteMeta[]> {
     const store: relationalStore.RdbStore = this.db.getStore();
     const predicates = new relationalStore.RdbPredicates('note_meta');
+    // Original library projection excludes deletedAt != null (ClientPivot merge).
+    predicates.isNull('deleted_at');
     predicates.orderByDesc('updated_at');
     try {
       const resultSet = await store.query(predicates);
@@ -139,6 +145,7 @@ export class NoteRepositoryImpl implements NoteRepository {
     const store: relationalStore.RdbStore = this.db.getStore();
     const predicates = new relationalStore.RdbPredicates('note_meta');
     predicates.equalTo('folder_id', folderId);
+    predicates.isNull('deleted_at');
     predicates.orderByDesc('updated_at');
     try {
       const resultSet = await store.query(predicates);
@@ -167,12 +174,13 @@ export class NoteRepositoryImpl implements NoteRepository {
       let resultSet: relationalStore.ResultSet;
       if (folderId === null) {
         resultSet = await store.querySql(`SELECT note.* FROM note_meta note
-          WHERE EXISTS (SELECT 1 FROM search_item item
+          WHERE note.deleted_at IS NULL AND EXISTS (SELECT 1 FROM search_item item
             WHERE item.note_id = note.id AND item.folded_text LIKE ? ESCAPE '\\')
           ORDER BY note.updated_at DESC`, [escapedPattern]);
       } else {
         resultSet = await store.querySql(`SELECT note.* FROM note_meta note
-          WHERE note.folder_id = ? AND EXISTS (SELECT 1 FROM search_item item
+          WHERE note.folder_id = ? AND note.deleted_at IS NULL
+            AND EXISTS (SELECT 1 FROM search_item item
             WHERE item.note_id = note.id AND item.folded_text LIKE ? ESCAPE '\\')
           ORDER BY note.updated_at DESC`, [folderId, escapedPattern]);
       }
@@ -188,6 +196,94 @@ export class NoteRepositoryImpl implements NoteRepository {
     } catch (e) {
       throw new Error(`searchNotes failed: ${JSON.stringify(e)}`);
     }
+  }
+
+  // Recently Deleted projection: original lists ClientPivot rows whose
+  // deleteDeletedAt is set, newest first.
+  async getTrashedNotes(): Promise<NoteMeta[]> {
+    const store: relationalStore.RdbStore = this.db.getStore();
+    const predicates = new relationalStore.RdbPredicates('note_meta');
+    predicates.isNotNull('deleted_at');
+    predicates.orderByDesc('deleted_at');
+    try {
+      const resultSet = await store.query(predicates);
+      const notes: NoteMeta[] = [];
+      try {
+        while (resultSet.goToNextRow()) {
+          notes.push(this.rowToNote(resultSet));
+        }
+      } finally {
+        resultSet.close();
+      }
+      return notes;
+    } catch (e) {
+      throw new Error(`getTrashedNotes failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // Original leb.java: clears any UNDELETE row then upserts DELETE with
+  // deletedAt=now. The local-only equivalent keeps all note rows and only
+  // stamps deleted_at, so restore is a single UPDATE.
+  async trashNote(noteId: string, deletedAt: number): Promise<void> {
+    await libraryMetadataMutationMutex.runExclusive(async (): Promise<void> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      const predicates = new relationalStore.RdbPredicates('note_meta');
+      predicates.equalTo('id', noteId);
+      const bucket: relationalStore.ValuesBucket = { 'deleted_at': deletedAt };
+      try {
+        const updated: number = await store.update(bucket, predicates);
+        if (updated !== 1) {
+          throw new Error(`expected to trash one note, updated ${updated}`);
+        }
+      } catch (e) {
+        throw new Error(`trashNote failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  // Original restore removes the queued DELETE row (tp1: DELETE ... WHERE
+  // id=? AND type != 'PERMANENTLY_DELETE'), which is exactly deleted_at=NULL.
+  async restoreNote(noteId: string): Promise<void> {
+    await libraryMetadataMutationMutex.runExclusive(async (): Promise<void> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      const predicates = new relationalStore.RdbPredicates('note_meta');
+      predicates.equalTo('id', noteId);
+      const bucket: relationalStore.ValuesBucket = { 'deleted_at': null };
+      try {
+        const updated: number = await store.update(bucket, predicates);
+        if (updated !== 1) {
+          throw new Error(`expected to restore one note, updated ${updated}`);
+        }
+      } catch (e) {
+        throw new Error(`restoreNote failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  // Original Recently Deleted rule: notes stay recoverable for 30 days, then
+  // are permanently deleted. Runs on library load so expiry is guaranteed
+  // even without a background worker.
+  async purgeExpiredTrash(now: number): Promise<number> {
+    const cutoff: number = now - TRASH_RETENTION_MS;
+    const store: relationalStore.RdbStore = this.db.getStore();
+    const expiredIds: string[] = [];
+    try {
+      const rows = await store.querySql(`SELECT id FROM note_meta
+        WHERE deleted_at IS NOT NULL AND deleted_at <= ?`, [cutoff]);
+      try {
+        while (rows.goToNextRow()) {
+          expiredIds.push(rows.getString(rows.getColumnIndex('id')));
+        }
+      } finally {
+        rows.close();
+      }
+    } catch (e) {
+      throw new Error(`purgeExpiredTrash scan failed: ${JSON.stringify(e)}`);
+    }
+    for (let i: number = 0; i < expiredIds.length; i++) {
+      await this.deleteNote(expiredIds[i]);
+    }
+    return expiredIds.length;
   }
 
   async updateNote(note: NoteMeta): Promise<void> {
@@ -237,7 +333,9 @@ export class NoteRepositoryImpl implements NoteRepository {
       });
   }
 
-  async deleteNote(noteId: string): Promise<void> {
+  // recordTombstone=false is only for import rollback: a note that never became
+  // user-visible must not poison its id in permanently_deleted_note.
+  async deleteNote(noteId: string, recordTombstone: boolean = true): Promise<void> {
     await assetMutationMutex.runExclusive(async (): Promise<void> => {
       const candidateFilesToDelete: string[] = [];
       const filesToDetach: string[] = [];
@@ -314,6 +412,18 @@ export class NoteRepositoryImpl implements NoteRepository {
           const p4 = new relationalStore.RdbPredicates('note_state');
           p4.equalTo('note_id', noteId);
           await store.delete(p4);
+          // A permanently deleted note must not leave index orphans; original
+          // removes its index ops inside the same mutation.
+          const p5 = new relationalStore.RdbPredicates('search_item');
+          p5.equalTo('note_id', noteId);
+          await store.delete(p5);
+          if (recordTombstone) {
+            // Original PermanentlyDeletedNote tombstone: stale rows re-imported
+            // later can never resurrect this id.
+            const tombstone: relationalStore.ValuesBucket = { 'note_id': noteId };
+            await store.insert('permanently_deleted_note', tombstone,
+              relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+          }
           const p1 = new relationalStore.RdbPredicates('note_meta');
           p1.equalTo('id', noteId);
           const deleted: number = await store.delete(p1);
@@ -398,6 +508,7 @@ export class NoteRepositoryImpl implements NoteRepository {
   private rowToNote(resultSet: relationalStore.ResultSet): NoteMeta {
     try {
       const folderColumn: number = resultSet.getColumnIndex('folder_id');
+      const deletedColumn: number = resultSet.getColumnIndex('deleted_at');
       return {
         id: resultSet.getString(resultSet.getColumnIndex('id')),
         title: resultSet.getString(resultSet.getColumnIndex('title')),
@@ -407,6 +518,7 @@ export class NoteRepositoryImpl implements NoteRepository {
         lastOpened: resultSet.getLong(resultSet.getColumnIndex('last_opened')),
         folderId: resultSet.isColumnNull(folderColumn) ? null : resultSet.getString(folderColumn),
         hasRecordings: resultSet.getLong(resultSet.getColumnIndex('has_recordings')) !== 0,
+        deletedAt: resultSet.isColumnNull(deletedColumn) ? null : resultSet.getLong(deletedColumn),
       };
     } catch (e) {
       throw new Error('rowToNote failed: ' + JSON.stringify(e));
@@ -424,6 +536,7 @@ export class NoteRepositoryImpl implements NoteRepository {
       lastOpened: updatedAt,
       folderId: folderId,
       hasRecordings: hasRecordings,
+      deletedAt: null,
     };
   }
 
@@ -437,6 +550,7 @@ export class NoteRepositoryImpl implements NoteRepository {
       'last_opened': note.lastOpened,
       'folder_id': note.folderId,
       'has_recordings': note.hasRecordings ? 1 : 0,
+      'deleted_at': note.deletedAt,
     };
   }
 

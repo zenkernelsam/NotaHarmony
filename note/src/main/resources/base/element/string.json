@@ -505,6 +505,46 @@
       "value": "Settings"
     },
     {
+      "name": "recently_deleted",
+      "value": "Recently Deleted"
+    },
+    {
+      "name": "recently_deleted_empty_state_header",
+      "value": "Select notes to add them back into your library. Unless recovered, notes in this list will be permanently deleted after 30 days."
+    },
+    {
+      "name": "recently_deleted_empty_state_message",
+      "value": "No recently deleted notes"
+    },
+    {
+      "name": "recently_deleted_meta",
+      "value": "Deleted %s · %d days left"
+    },
+    {
+      "name": "recently_deleted_load_failed",
+      "value": "Could not load recently deleted notes. Try again."
+    },
+    {
+      "name": "recover_note",
+      "value": "Recover"
+    },
+    {
+      "name": "recover_note_failed",
+      "value": "Could not recover the note. Try again."
+    },
+    {
+      "name": "delete_permanently",
+      "value": "Delete Permanently"
+    },
+    {
+      "name": "delete_permanently_message",
+      "value": "Permanently delete \"%s\"? This cannot be undone."
+    },
+    {
+      "name": "delete_permanently_failed",
+      "value": "Could not permanently delete the note. Try again."
+    },
+    {
       "name": "library_actions",
       "value": "Library Actions"
     },
@@ -518,7 +558,7 @@
     },
     {
       "name": "delete_note_message",
-      "value": "Delete \"%s\"? This cannot be undone."
+      "value": "Move \"%s\" to Recently Deleted? You can recover it within 30 days."
     },
     {
       "name": "move_to_all_notes",

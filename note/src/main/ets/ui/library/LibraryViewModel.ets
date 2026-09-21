@@ -33,6 +33,13 @@ export class LibraryViewModel {
     this.activeQuery = query;
     this.isLoading = true;
     this.loadError = '';
+    // Original Recently Deleted rule: notes older than 30 days are permanently
+    // deleted. Purging on library load needs no background worker.
+    try {
+      await this.repo.purgeExpiredTrash(Date.now());
+    } catch (e) {
+      console.error(`purgeExpiredTrash failed: ${JSON.stringify(e)}`);
+    }
     try {
       while (generation === this.loadGeneration) {
         const mutationGeneration: number = this.mutationGeneration;
@@ -127,9 +134,12 @@ export class LibraryViewModel {
     });
   }
 
+  // Original behavior: library Delete moves the note to Recently Deleted
+  // (ClientNoteUpdate DELETE row); permanent delete only happens from the
+  // Recently Deleted section or after the 30-day retention expires.
   async deleteNote(noteId: string): Promise<void> {
     await this.enqueueMutation(async (): Promise<void> => {
-      await this.repo.deleteNote(noteId);
+      await this.repo.trashNote(noteId, Date.now());
       this.removeVisibleNote(noteId);
       if (this.isLoading) {
         const generation: number = ++this.loadGeneration;
@@ -240,6 +250,7 @@ export class LibraryViewModel {
       lastOpened: note.lastOpened,
       folderId: folderId,
       hasRecordings: note.hasRecordings,
+      deletedAt: note.deletedAt,
     };
   }
 

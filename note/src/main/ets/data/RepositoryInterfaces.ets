@@ -12,6 +12,10 @@ export interface NoteRepository {
   searchNotes(query: string, folderId: string | null): Promise<NoteMeta[]>;
   updateNote(note: NoteMeta): Promise<void>;
   deleteNote(noteId: string): Promise<void>;
+  getTrashedNotes(): Promise<NoteMeta[]>;
+  trashNote(noteId: string, deletedAt: number): Promise<void>;
+  restoreNote(noteId: string): Promise<void>;
+  purgeExpiredTrash(now: number): Promise<number>;
   getViewState(noteId: string): Promise<NoteViewState | null>;
   saveViewState(state: NoteViewState): Promise<void>;
 }

@@ -141,6 +141,9 @@ export interface NoteMeta {
   lastOpened: number;
   folderId: string | null;
   hasRecordings: boolean;
+  // Original ClientNoteUpdate.deletedAt equivalent: NULL while active, set to
+  // the trash timestamp when moved to Recently Deleted.
+  deletedAt: number | null;
 }
 
 // 笔记视图状态（对应 NoteStateEntity）

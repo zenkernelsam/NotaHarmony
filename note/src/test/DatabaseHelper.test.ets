@@ -30,6 +30,7 @@ import {
   DDL_ORIGINAL_DELETED_PAGE,
   DDL_ORIGINAL_DELETED_PAGE_ELEMENT, DDL_ORIGINAL_DELETED_PAGE_SEARCH,
   DDL_ORIGINAL_PAPER_BACKGROUND, DDL_ORIGINAL_BACKGROUND_INFO,
+  DDL_PERMANENTLY_DELETED_NOTE,
   DDL_INDEXES, MIGRATIONS,
 } from
   '../main/ets/data/DatabaseHelper';
@@ -41,8 +42,15 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(66);
+      expect(DB_VERSION).assertEqual(67);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
+    });
+
+    it('persists the original soft-delete and tombstone model', 0, () => {
+      expect(MIGRATIONS[67].join('\n')).assertContain('deleted_at');
+      expect(MIGRATIONS[67].join('\n')).assertContain('permanently_deleted_note');
+      expect(DDL_NOTE_META).assertContain('deleted_at INTEGER');
+      expect(DDL_PERMANENTLY_DELETED_NOTE).assertContain('note_id TEXT PRIMARY KEY');
     });
 
     it('persists original editor-site clocks and ordered sync acknowledgement', 0, () => {

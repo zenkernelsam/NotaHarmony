@@ -13,7 +13,7 @@ const method = source.slice(remove, classEnd);
 const checks = [
   ['delete remains on the shared durable mutation chain',
     method.includes('await this.enqueueMutation') &&
-    method.includes('await this.repo.deleteNote(noteId)')],
+    method.includes('await this.repo.trashNote(noteId, Date.now())')],
   ['committed deletion still projects the visible list first',
     method.indexOf('this.removeVisibleNote(noteId)') <
     method.indexOf('if (this.isLoading)')],

@@ -13,7 +13,7 @@
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 66;
+export const DB_VERSION: number = 67;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -1594,7 +1594,17 @@ CREATE TABLE IF NOT EXISTS note_meta (
   folder_id TEXT,
   has_recordings INTEGER NOT NULL DEFAULT 0,
   structure_revision INTEGER NOT NULL DEFAULT 0,
+  deleted_at INTEGER,
   FOREIGN KEY(folder_id) REFERENCES folder(id) ON DELETE SET NULL
+)`;
+
+// Mirrors the original PermanentlyDeletedNote(noteId) tombstone: permanently
+// deleting a note records its id so a stale import/backup row can never
+// resurrect it. Standalone by design — the original schema has zero
+// inter-table foreign keys, and the row must outlive the note_meta delete.
+export const DDL_PERMANENTLY_DELETED_NOTE: string = `
+CREATE TABLE IF NOT EXISTS permanently_deleted_note (
+  note_id TEXT PRIMARY KEY
 )`;
 
 export const DDL_PAGE_INFO: string = `
@@ -1725,6 +1735,9 @@ export const DDL_INDEXES: string[] = [
   'CREATE INDEX IF NOT EXISTS idx_search_item_note_text ON search_item(note_id, folded_text)',
   // Mirrors the original ToolboxDatabase index_ToolStateEntity_tray_owner_id (e47.java:380).
   'CREATE INDEX IF NOT EXISTS idx_tool_state_tray_owner ON tool_state(tray_owner_id)',
+  // Library queries filter deleted_at IS NULL on every open; the trashed list
+  // reads the complementary set ordered by deleted_at.
+  'CREATE INDEX IF NOT EXISTS idx_note_meta_deleted_at ON note_meta(deleted_at)',
 ];
 
 // Key is the target version. Each version is applied atomically by DatabaseManager.
@@ -2599,5 +2612,12 @@ export const MIGRATIONS: Record<number, string[]> = {
     'DROP TABLE original_note_title_winner',
     `ALTER TABLE original_note_title_winner_v66
       RENAME TO original_note_title_winner`,
+  ],
+  67: [
+    // Soft-delete (Recently Deleted) parity: NULL = active, non-NULL = trashed
+    // timestamp. Original keeps this in the ClientNoteUpdate DELETE row; the
+    // local-only equivalent is a column on note_meta.
+    'ALTER TABLE note_meta ADD COLUMN deleted_at INTEGER',
+    DDL_PERMANENTLY_DELETED_NOTE,
   ],
 };

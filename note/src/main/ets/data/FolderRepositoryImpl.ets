@@ -536,6 +536,7 @@ export class FolderRepositoryImpl {
     try {
       while (resultSet.goToNextRow()) {
         const folderColumn: number = resultSet.getColumnIndex('folder_id');
+        const deletedColumn: number = resultSet.getColumnIndex('deleted_at');
         notes.push({
           id: resultSet.getString(resultSet.getColumnIndex('id')),
           title: resultSet.getString(resultSet.getColumnIndex('title')),
@@ -545,6 +546,7 @@ export class FolderRepositoryImpl {
           lastOpened: resultSet.getLong(resultSet.getColumnIndex('last_opened')),
           folderId: resultSet.isColumnNull(folderColumn) ? null : resultSet.getString(folderColumn),
           hasRecordings: resultSet.getLong(resultSet.getColumnIndex('has_recordings')) !== 0,
+          deletedAt: resultSet.isColumnNull(deletedColumn) ? null : resultSet.getLong(deletedColumn),
         });
       }
     } finally {

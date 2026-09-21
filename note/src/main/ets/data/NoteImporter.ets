@@ -707,8 +707,13 @@ export class NoteImporter {
   }
 
   private async noteIdExists(noteId: string): Promise<boolean> {
+    // A permanently deleted id stays occupied forever (PermanentlyDeletedNote
+    // tombstone): re-importing its package allocates a fresh id instead of
+    // resurrecting the deleted note.
     const rows = await this.db.getStore().querySql(
-      'SELECT 1 FROM note_meta WHERE id = ? LIMIT 1', [noteId]);
+      `SELECT 1 FROM note_meta WHERE id = ? LIMIT 1
+       UNION ALL SELECT 1 FROM permanently_deleted_note WHERE note_id = ? LIMIT 1`,
+      [noteId, noteId]);
     try {
       return rows.goToFirstRow();
     } finally {
@@ -727,7 +732,8 @@ export class NoteImporter {
 
   private async removeImportedNoteLocked(noteId: string): Promise<boolean> {
     try {
-      await new NoteRepositoryImpl(this.db).deleteNote(noteId);
+      // Rollback of a note that never became user-visible: no tombstone.
+      await new NoteRepositoryImpl(this.db).deleteNote(noteId, false);
       return true;
     } catch (cleanupError) {
       console.error(`imported note cleanup failed: ${JSON.stringify(cleanupError)}`);
