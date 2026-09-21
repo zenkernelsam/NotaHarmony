@@ -90,7 +90,7 @@ const checks = [
       persistRecording.indexOf('beginTransaction(')],
   ['tool writes no longer own a private database writer',
     !tool.includes('private static writeMutex') &&
-    (tool.match(/databaseWriteMutex\.runExclusive/g) ?? []).length === 4],
+    (tool.match(/databaseWriteMutex\.runExclusive/g) ?? []).length >= 4],
   ['view-state replacement shares the database writer',
     saveViewState.includes('databaseWriteMutex.runExclusive')],
   ['initialization transactions finish before the store is published',

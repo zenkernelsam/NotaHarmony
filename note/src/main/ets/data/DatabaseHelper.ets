@@ -42,6 +42,34 @@ CREATE TABLE IF NOT EXISTS tool_state (
   eraser_is_partial INTEGER NOT NULL DEFAULT 0
 )`;
 
+// Mirrors the original ToolboxDatabase FavoriteColorWellEntity (e47.java:377).
+// Per-toolType favorite color slots ordered by tray_index.
+export const DDL_FAVORITE_COLOR_WELL: string = `
+CREATE TABLE IF NOT EXISTS favorite_color_well (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tool_type INTEGER NOT NULL,
+  color INTEGER NOT NULL,
+  tray_index INTEGER NOT NULL
+)`;
+
+// Mirrors the original ToolboxDatabase WidthSizeWellEntity (e47.java:378).
+export const DDL_WIDTH_SIZE_WELL: string = `
+CREATE TABLE IF NOT EXISTS width_size_well (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tool_type INTEGER NOT NULL,
+  width REAL NOT NULL,
+  tray_index INTEGER NOT NULL
+)`;
+
+// Mirrors the original ToolboxDatabase RecentColorWellEntity (e47.java:382).
+// Global recents list: dedupe by color, ordered by timestamp, capped at 7 (ehb.java).
+export const DDL_RECENT_COLOR_WELL: string = `
+CREATE TABLE IF NOT EXISTS recent_color_well (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  color INTEGER NOT NULL,
+  timestamp INTEGER NOT NULL
+)`;
+
 // payload is intentionally BLOB: StrokePersistence stores UTF-8 encoded JSON bytes,
 // and legacy client_op payload bytes migrate without SQLite TEXT coercion.
 export const DDL_PAGE_ELEMENT_SNAPSHOT: string = `

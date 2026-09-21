@@ -35,6 +35,16 @@ export interface ToolRepository {
   deleteToolState(toolId: string): Promise<void>;
   getToolboxState(ownerId: string): Promise<EditorToolboxState | null>;
   saveToolboxState(state: EditorToolboxState): Promise<void>;
+  // Original FavoriteColorWellEntity / WidthSizeWellEntity / RecentColorWellEntity parity.
+  getFavoriteColors(toolType: number): Promise<number[]>;
+  setFavoriteColor(toolType: number, trayIndex: number, color: number): Promise<void>;
+  removeFavoriteColor(toolType: number, trayIndex: number): Promise<void>;
+  getWidthWells(toolType: number): Promise<number[]>;
+  setWidthWell(toolType: number, trayIndex: number, width: number): Promise<void>;
+  removeWidthWell(toolType: number, trayIndex: number): Promise<void>;
+  getRecentColors(): Promise<number[]>;
+  recordRecentColor(color: number): Promise<void>;
+  seedDefaultToolWells(): Promise<void>;
 }
 
 export interface AssetRepository {

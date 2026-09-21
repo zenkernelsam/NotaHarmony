@@ -31,6 +31,7 @@ import {
   DDL_ORIGINAL_DELETED_PAGE_ELEMENT, DDL_ORIGINAL_DELETED_PAGE_SEARCH,
   DDL_ORIGINAL_PAPER_BACKGROUND, DDL_ORIGINAL_BACKGROUND_INFO,
   DDL_PERMANENTLY_DELETED_NOTE,
+  DDL_FAVORITE_COLOR_WELL, DDL_WIDTH_SIZE_WELL, DDL_RECENT_COLOR_WELL,
   DDL_INDEXES, MIGRATIONS,
 } from
   '../main/ets/data/DatabaseHelper';
@@ -51,6 +52,20 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[67].join('\n')).assertContain('permanently_deleted_note');
       expect(DDL_NOTE_META).assertContain('deleted_at INTEGER');
       expect(DDL_PERMANENTLY_DELETED_NOTE).assertContain('note_id TEXT PRIMARY KEY');
+    });
+
+    it('persists the original per-tool color/width wells and global recents', 0, () => {
+      expect(DDL_FAVORITE_COLOR_WELL).assertContain('CREATE TABLE IF NOT EXISTS favorite_color_well');
+      expect(DDL_FAVORITE_COLOR_WELL).assertContain('tool_type INTEGER NOT NULL');
+      expect(DDL_FAVORITE_COLOR_WELL).assertContain('color INTEGER NOT NULL');
+      expect(DDL_FAVORITE_COLOR_WELL).assertContain('tray_index INTEGER NOT NULL');
+      expect(DDL_WIDTH_SIZE_WELL).assertContain('CREATE TABLE IF NOT EXISTS width_size_well');
+      expect(DDL_WIDTH_SIZE_WELL).assertContain('width REAL NOT NULL');
+      expect(DDL_RECENT_COLOR_WELL).assertContain('CREATE TABLE IF NOT EXISTS recent_color_well');
+      expect(DDL_RECENT_COLOR_WELL).assertContain('timestamp INTEGER NOT NULL');
+      // Original entities declare no secondary indexes on the well tables.
+      expect(DDL_INDEXES.join('\n').includes('favorite_color_well')).assertFalse();
+      expect(DDL_INDEXES.join('\n').includes('recent_color_well')).assertFalse();
     });
 
     it('persists original editor-site clocks and ordered sync acknowledgement', 0, () => {

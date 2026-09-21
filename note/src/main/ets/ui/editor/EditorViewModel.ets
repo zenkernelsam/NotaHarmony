@@ -15,6 +15,9 @@ export class EditorViewModel {
   brushWidth: number = 36.0;
   eraserIsPartial: boolean = false;
   selectionIsFreehand: boolean = false;
+  favoriteColors: number[] = [];
+  recentColors: number[] = [];
+  widthWells: number[] = [];
   showColorPicker: boolean = false;
   showWidthSlider: boolean = false;
   shapeDetectionEnabled: boolean = true;
@@ -106,6 +109,14 @@ export class EditorViewModel {
       }
       this.committedToolbox = this.cloneToolboxState(this.toolboxSnapshot());
       this.applyActiveState();
+      // gr7 parity: seed original default wells once (idempotent), then load the
+      // active tool's wells. Well failures are non-fatal for tool-state init.
+      try {
+        await repository.seedDefaultToolWells();
+        await this.refreshWells(repository);
+      } catch (wellError) {
+        this.onPersistenceError(`Tool wells could not be loaded: ${JSON.stringify(wellError)}`);
+      }
       if (settingsRepository !== null) {
         try {
           this.shapeDetectionEnabled = await settingsRepository.getShapeDetectionEnabled();
@@ -171,6 +182,9 @@ export class EditorViewModel {
     this.applyActiveState();
     this.showColorPicker = false;
     this.showWidthSlider = false;
+    this.refreshWells(this.repository).catch((wellError: Object): void => {
+      this.onPersistenceError(`Tool wells could not be loaded: ${JSON.stringify(wellError)}`);
+    });
     const repository: ToolRepository | null = this.repository;
     const snapshot: EditorToolboxState = this.toolboxSnapshot();
     if (repository === null) {
@@ -190,19 +204,100 @@ export class EditorViewModel {
     }
   }
 
-  async setBrushColor(color: number, selectedWellIndex: number = 0): Promise<boolean> {
-    return this.updateActiveState((state: ToolState): void => {
+  // selectedWellIndex is -1 when the pick did not come from a favorite well
+  // (palette or recents tap), matching the original "no well selected" meaning.
+  async setBrushColor(color: number, selectedWellIndex: number = -1): Promise<boolean> {
+    const saved: boolean = await this.updateActiveState((state: ToolState): void => {
       state.brush.color = color;
       state.brush.selectedColorWellIndex = selectedWellIndex;
     });
+    if (saved) {
+      // ehb parity: every applied brush color lands in the global recents list.
+      await this.recordRecentColor(color);
+    }
+    return saved;
   }
 
-  async setBrushWidth(width: number, selectedWellIndex: number = 0): Promise<boolean> {
+  async setBrushWidth(width: number, selectedWellIndex: number = -1): Promise<boolean> {
     const bounded: number = Math.max(2, Math.min(100, width));
     return this.updateActiveState((state: ToolState): void => {
       state.brush.widthSize = bounded;
       state.brush.selectedWidthWellIndex = selectedWellIndex;
     });
+  }
+
+  async selectFavoriteColor(index: number): Promise<boolean> {
+    if (index < 0 || index >= this.favoriteColors.length) {
+      return false;
+    }
+    return this.setBrushColor(this.favoriteColors[index], index);
+  }
+
+  async selectWidthWell(index: number): Promise<boolean> {
+    if (index < 0 || index >= this.widthWells.length) {
+      return false;
+    }
+    return this.setBrushWidth(this.widthWells[index], index);
+  }
+
+  async setFavoriteColorWell(index: number, color: number): Promise<boolean> {
+    const repository: ToolRepository | null = this.repository;
+    if (repository === null || index < 0 || !this.supportsBrushControls()) {
+      return false;
+    }
+    try {
+      await repository.setFavoriteColor(this.activeToolType(), index, color);
+      this.favoriteColors = await repository.getFavoriteColors(this.activeToolType());
+      return true;
+    } catch (e) {
+      this.onPersistenceError(`Favorite color well was not saved: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
+  async removeFavoriteColorWell(index: number): Promise<boolean> {
+    const repository: ToolRepository | null = this.repository;
+    if (repository === null || index < 0 || !this.supportsBrushControls()) {
+      return false;
+    }
+    try {
+      await repository.removeFavoriteColor(this.activeToolType(), index);
+      this.favoriteColors = await repository.getFavoriteColors(this.activeToolType());
+      return true;
+    } catch (e) {
+      this.onPersistenceError(`Favorite color well was not removed: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
+  async setWidthWellAt(index: number, width: number): Promise<boolean> {
+    const repository: ToolRepository | null = this.repository;
+    if (repository === null || index < 0 || !this.supportsBrushControls()) {
+      return false;
+    }
+    try {
+      await repository.setWidthWell(this.activeToolType(), index, width);
+      this.widthWells = await repository.getWidthWells(this.activeToolType());
+      return true;
+    } catch (e) {
+      this.onPersistenceError(`Width well was not saved: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
+  async removeWidthWell(index: number): Promise<boolean> {
+    const repository: ToolRepository | null = this.repository;
+    if (repository === null || index < 0 || !this.supportsBrushControls()) {
+      return false;
+    }
+    try {
+      await repository.removeWidthWell(this.activeToolType(), index);
+      this.widthWells = await repository.getWidthWells(this.activeToolType());
+      return true;
+    } catch (e) {
+      this.onPersistenceError(`Width well was not removed: ${JSON.stringify(e)}`);
+      return false;
+    }
   }
 
   async setBrushStyle(style: BrushStyle): Promise<boolean> {
@@ -324,6 +419,42 @@ export class EditorViewModel {
     this.saveChain = job.catch((_error: Object): void => {
     });
     return job;
+  }
+
+  private async refreshWells(repository: ToolRepository | null): Promise<void> {
+    if (repository === null) {
+      this.favoriteColors = [];
+      this.widthWells = [];
+      this.recentColors = [];
+      return;
+    }
+    this.recentColors = await repository.getRecentColors();
+    if (!this.supportsBrushControls()) {
+      this.favoriteColors = [];
+      this.widthWells = [];
+      return;
+    }
+    const toolType: number = this.activeToolType();
+    this.favoriteColors = await repository.getFavoriteColors(toolType);
+    this.widthWells = await repository.getWidthWells(toolType);
+  }
+
+  private async recordRecentColor(color: number): Promise<void> {
+    const repository: ToolRepository | null = this.repository;
+    if (repository === null) {
+      return;
+    }
+    try {
+      await repository.recordRecentColor(color);
+      this.recentColors = await repository.getRecentColors();
+    } catch (e) {
+      this.onPersistenceError(`Recent color was not saved: ${JSON.stringify(e)}`);
+    }
+  }
+
+  private activeToolType(): number {
+    const state: ToolState | null = this.findById(this.activeToolId);
+    return state === null ? ToolType.PEN : state.toolType;
   }
 
   private isInitializationCurrent(): boolean {

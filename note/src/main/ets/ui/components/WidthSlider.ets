@@ -1,4 +1,4 @@
-// T-019 粗细滑块（Slider 范围 [2, 100]，步进 2）
+// T-019 粗细滑块（原版 WidthSizeWell 槽位 + Slider 范围 [2, 100]，步进 2）
 import { EditorViewModel } from '../editor/EditorViewModel';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
@@ -22,6 +22,33 @@ export struct WidthSlider {
 
   build() {
     Column() {
+      if (!this.selectionMode && this.viewModel.widthWells.length > 0) {
+        Row() {
+          ForEach(this.viewModel.widthWells, (width: number, index: number) => {
+            Text(width.toString())
+              .fontSize(12)
+              .fontColor(this.viewModel.brushWidth === width ?
+                this.resolveTokens().accent : this.resolveTokens().textPrimary)
+              .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+              .borderRadius(8)
+              .border({
+                width: 1,
+                color: this.viewModel.brushWidth === width ?
+                  this.resolveTokens().accent : this.resolveTokens().border,
+              })
+              .margin({ right: 8 })
+              .enabled(!this.photoImportLeaseActive)
+              .onClick(() => {
+                if (this.photoImportLeaseActive) {
+                  return;
+                }
+                this.viewModel.setBrushWidth(width, index);
+              })
+          }, (width: number, index: number) => index.toString() + ':' + width.toString())
+        }
+        .width(220)
+        .margin({ bottom: 10 })
+      }
       Text('Width: ' + (this.selectionMode ? this.selectionWidth.toString() :
         Math.round(this.viewModel.brushWidth).toString()))
         .fontSize(14)
@@ -42,7 +69,7 @@ export struct WidthSlider {
           if (this.selectionMode) {
             this.onSelectionWidth(value);
           } else {
-            this.viewModel.setBrushWidth(value, Math.round((value - 2) / 2));
+            this.viewModel.setBrushWidth(value);
           }
         })
     }

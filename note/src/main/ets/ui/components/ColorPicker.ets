@@ -1,4 +1,4 @@
-// T-019 颜色选择器（12 色预设网格）
+// T-019 颜色选择器（原版 FavoriteColorWell + RecentColorWell + 预设色板）
 // 注意：struct 名不能使用保留标签名 ColorPicker，用 ColorPickerView
 import { EditorViewModel } from '../editor/EditorViewModel';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
@@ -33,36 +33,74 @@ export struct ColorPickerView {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
   }
 
+  private isActiveColor(color: number): boolean {
+    return color === (this.selectionMode ? this.selectionColor : this.viewModel.brushColor);
+  }
+
+  private onWellColor(color: number, index: number): void {
+    if (this.photoImportLeaseActive) {
+      return;
+    }
+    this.viewModel.setBrushColor(color, index);
+  }
+
+  private onFreeColor(color: number): void {
+    if (this.photoImportLeaseActive) {
+      return;
+    }
+    if (this.selectionMode) {
+      this.onSelectionColor(color);
+    } else {
+      this.viewModel.setBrushColor(color);
+    }
+  }
+
+  @Builder
+  private colorDot(color: number, onTap: () => void): void {
+    Column()
+      .width(32)
+      .height(32)
+      .borderRadius(16)
+      .backgroundColor(this.viewModel.colorToHex(color))
+      .border({
+        width: this.isActiveColor(color) ? 3 : 1,
+        color: this.isActiveColor(color) ? this.resolveTokens().accent : this.resolveTokens().border,
+      })
+      .enabled(!this.photoImportLeaseActive)
+      .onClick(onTap)
+  }
+
   build() {
     Column() {
-      Grid() {
-        ForEach(this.presetColors, (color: number, index: number) => {
-          GridItem() {
-            Column()
-              .width(32)
-              .height(32)
-              .borderRadius(16)
-              .backgroundColor(this.viewModel.colorToHex(color))
-              .border({
-                width: color === (this.selectionMode ? this.selectionColor :
-                  this.viewModel.brushColor) ? 3 : 1,
-                color: color === (this.selectionMode ? this.selectionColor :
-                  this.viewModel.brushColor) ? this.resolveTokens().accent :
-                  this.resolveTokens().border,
-              })
-              .enabled(!this.photoImportLeaseActive)
-              .onClick(() => {
-                if (this.photoImportLeaseActive) {
-                  return;
-                }
-                if (this.selectionMode) {
-                  this.onSelectionColor(color);
-                } else {
-                  this.viewModel.setBrushColor(color, index);
-                }
-              })
+      if (!this.selectionMode) {
+        Grid() {
+          ForEach(this.viewModel.favoriteColors, (color: number, index: number) => {
+            GridItem() {
+              this.colorDot(color, (): void => this.onWellColor(color, index))
+            }
+          }, (color: number, index: number) => index.toString() + ':' + color.toString())
+        }
+        .columnsTemplate('1fr 1fr 1fr 1fr')
+        .columnsGap(12)
+        .rowsGap(12)
+        .width(200)
+        .margin({ bottom: 12 })
+        if (this.viewModel.recentColors.length > 0) {
+          Row() {
+            ForEach(this.viewModel.recentColors, (color: number) => {
+              this.colorDot(color, (): void => this.onFreeColor(color))
+            }, (color: number) => 'recent:' + color.toString())
           }
-        }, (color: number) => color.toString())
+          .width(200)
+          .margin({ bottom: 12 })
+        }
+      }
+      Grid() {
+        ForEach(this.presetColors, (color: number) => {
+          GridItem() {
+            this.colorDot(color, (): void => this.onFreeColor(color))
+          }
+        }, (color: number) => 'preset:' + color.toString())
       }
       .columnsTemplate('1fr 1fr 1fr 1fr')
       .columnsGap(12)

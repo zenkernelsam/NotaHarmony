@@ -111,6 +111,84 @@ class FakeToolRepository implements ToolRepository {
     };
   }
 
+  favoriteWells: Map<number, number[]> = new Map<number, number[]>();
+  widthWellMap: Map<number, number[]> = new Map<number, number[]>();
+  recentColorList: number[] = [];
+
+  async getFavoriteColors(toolType: number): Promise<number[]> {
+    const wells: number[] | undefined = this.favoriteWells.get(toolType);
+    return wells === undefined ? [] : wells.slice();
+  }
+
+  async setFavoriteColor(toolType: number, trayIndex: number, color: number): Promise<void> {
+    const wells: number[] = this.favoriteWells.get(toolType) ?? [];
+    while (wells.length <= trayIndex) {
+      wells.push(color);
+    }
+    wells[trayIndex] = color;
+    this.favoriteWells.set(toolType, wells);
+  }
+
+  async removeFavoriteColor(toolType: number, trayIndex: number): Promise<void> {
+    const wells: number[] | undefined = this.favoriteWells.get(toolType);
+    if (wells === undefined || trayIndex < 0 || trayIndex >= wells.length) {
+      return;
+    }
+    wells.splice(trayIndex, 1);
+  }
+
+  async getWidthWells(toolType: number): Promise<number[]> {
+    const wells: number[] | undefined = this.widthWellMap.get(toolType);
+    return wells === undefined ? [] : wells.slice();
+  }
+
+  async setWidthWell(toolType: number, trayIndex: number, width: number): Promise<void> {
+    const wells: number[] = this.widthWellMap.get(toolType) ?? [];
+    while (wells.length <= trayIndex) {
+      wells.push(width);
+    }
+    wells[trayIndex] = width;
+    this.widthWellMap.set(toolType, wells);
+  }
+
+  async removeWidthWell(toolType: number, trayIndex: number): Promise<void> {
+    const wells: number[] | undefined = this.widthWellMap.get(toolType);
+    if (wells === undefined || trayIndex < 0 || trayIndex >= wells.length) {
+      return;
+    }
+    wells.splice(trayIndex, 1);
+  }
+
+  async getRecentColors(): Promise<number[]> {
+    return this.recentColorList.slice();
+  }
+
+  async recordRecentColor(color: number): Promise<void> {
+    const existing: number = this.recentColorList.indexOf(color);
+    if (existing >= 0) {
+      this.recentColorList.splice(existing, 1);
+    } else if (this.recentColorList.length >= 7) {
+      this.recentColorList.splice(6, this.recentColorList.length - 6);
+    }
+    this.recentColorList.unshift(color);
+  }
+
+  async seedDefaultToolWells(): Promise<void> {
+    if (this.favoriteWells.size === 0) {
+      this.favoriteWells.set(ToolType.PEN, [-16777216, -15260469, -2011583]);
+      this.favoriteWells.set(ToolType.PENCIL, [-16777216, -15260469, -2011583]);
+      this.favoriteWells.set(ToolType.HIGHLIGHTER, [-172, -4391597, -1428530]);
+      this.favoriteWells.set(ToolType.REVIEW, [-1706497, -672330, -6303021, -11872, -2238485]);
+    }
+    if (this.widthWellMap.size === 0) {
+      this.widthWellMap.set(ToolType.PEN, [1.0, 2.0, 4.0]);
+      this.widthWellMap.set(ToolType.PENCIL, [1.5, 3.0, 5.0]);
+      this.widthWellMap.set(ToolType.HIGHLIGHTER, [20.0, 15.0, 10.0]);
+      this.widthWellMap.set(ToolType.WHOLE_ERASER, [4.0, 7.5, 15.0]);
+      this.widthWellMap.set(ToolType.REVIEW, [12.0, 36.0, 64.0]);
+    }
+  }
+
   colorFor(toolId: string): number {
     const index: number = this.indexOf(toolId);
     return index < 0 ? 0 : this.states[index].brush.color;
