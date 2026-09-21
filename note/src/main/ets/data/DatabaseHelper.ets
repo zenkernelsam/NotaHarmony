@@ -3,6 +3,7 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
+// v69: original tray model — tool_state.tray_type (cgf ordinals) + editor_tray.
 // v68: persist original folder color/emoji customization and edit timestamps.
 // v67: local soft-delete (Recently Deleted) parity columns.
 // v66: preserve explicit-null original SET_METADATA title winners.
@@ -15,7 +16,7 @@
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 68;
+export const DB_VERSION: number = 69;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS tool_state (
   tool_id TEXT PRIMARY KEY,
   tray_owner_id TEXT NOT NULL,
   tool_type INTEGER NOT NULL,
+  tray_type INTEGER NOT NULL DEFAULT 0,
   tray_index INTEGER NOT NULL,
   color INTEGER NOT NULL DEFAULT -16777216,
   width_size REAL NOT NULL DEFAULT 36.0,
@@ -1443,6 +1445,19 @@ CREATE TABLE IF NOT EXISTS editor_toolbox_state (
   previous_tool_id TEXT NOT NULL
 )`;
 
+// Mirrors the original TrayEntity (e47.java:380): tray_id + tray_type
+// ("Primary"/"Secondary"/"Hidden" via cgf ordinals 0/1/2) + toolbox owner +
+// lastUsedToolId, which the original rewrites on every tool selection (i8f.g).
+// Composite key scopes trays per owner; the original's ids are global ints.
+export const DDL_EDITOR_TRAY: string = `
+CREATE TABLE IF NOT EXISTS editor_tray (
+  tray_id INTEGER NOT NULL,
+  tray_type INTEGER NOT NULL,
+  toolbox_owner_id TEXT NOT NULL,
+  last_used_tool_id TEXT,
+  PRIMARY KEY (tray_id, toolbox_owner_id)
+)`;
+
 export const DDL_NOTE_ASSET: string = `
 CREATE TABLE IF NOT EXISTS note_asset (
   asset_hash TEXT PRIMARY KEY,
@@ -2666,5 +2681,18 @@ export const MIGRATIONS: Record<number, string[]> = {
     'ALTER TABLE folder ADD COLUMN emoji TEXT',
     'ALTER TABLE folder ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0',
     'UPDATE folder SET updated_at = created_at',
+  ],
+  69: [
+    // Original ToolStateEntity.tray_owner_id is a TrayEntity FK; Harmony keeps
+    // tray_owner_id as the toolbox owner and adds tray_type (cgf ordinals
+    // 0=Primary, 1=Secondary, 2=Hidden) for membership/visibility (zff.java).
+    'ALTER TABLE tool_state ADD COLUMN tray_type INTEGER NOT NULL DEFAULT 0',
+    DDL_EDITOR_TRAY,
+    // gr7.java/ba8.java seed Primary(0), Secondary(1), Hidden(2) per toolbox.
+    `INSERT OR IGNORE INTO editor_tray (tray_id, tray_type, toolbox_owner_id, last_used_tool_id)
+      SELECT tray_id, tray_type, owner_id, NULL FROM (
+        SELECT 0 AS tray_id, 0 AS tray_type, owner_id FROM editor_toolbox_state
+        UNION ALL SELECT 1, 1, owner_id FROM editor_toolbox_state
+        UNION ALL SELECT 2, 2, owner_id FROM editor_toolbox_state)`,
   ],
 };

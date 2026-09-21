@@ -1,5 +1,8 @@
 import { relationalStore } from '@kit.ArkData';
-import { EditorToolboxState, ToolState, ToolType } from '../core/model/BrushTypes';
+import {
+  EditorToolboxState, EditorTray, ToolState, ToolType,
+  TRAY_TYPE_PRIMARY, TRAY_TYPE_SECONDARY, TRAY_TYPE_HIDDEN,
+} from '../core/model/BrushTypes';
 import { ToolRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { databaseWriteMutex } from './DatabaseWriteMutex';
@@ -48,30 +51,14 @@ export class ToolRepositoryImpl implements ToolRepository {
     const store: relationalStore.RdbStore = this.db.getStore();
     const predicates = new relationalStore.RdbPredicates('tool_state');
     predicates.equalTo('tray_owner_id', ownerId);
+    predicates.orderByAsc('tray_type');
     predicates.orderByAsc('tray_index');
     try {
       const resultSet = await store.query(predicates);
       const states: ToolState[] = [];
       try {
         while (resultSet.goToNextRow()) {
-          states.push({
-            toolId: resultSet.getString(resultSet.getColumnIndex('tool_id')),
-            trayOwnerId: resultSet.getString(resultSet.getColumnIndex('tray_owner_id')),
-            toolType: resultSet.getLong(resultSet.getColumnIndex('tool_type')),
-            trayIndex: resultSet.getLong(resultSet.getColumnIndex('tray_index')),
-            brush: {
-              brushStyle: resultSet.getLong(resultSet.getColumnIndex('style')),
-              widthSize: resultSet.getDouble(resultSet.getColumnIndex('width_size')),
-              color: resultSet.getLong(resultSet.getColumnIndex('color')),
-              selectedWidthWellIndex: resultSet.getLong(
-                resultSet.getColumnIndex('selected_width_well_index')),
-              selectedColorWellIndex: resultSet.getLong(
-                resultSet.getColumnIndex('selected_color_well_index')),
-            },
-            selectionIsFreehand: resultSet.getLong(
-              resultSet.getColumnIndex('selection_is_freehand')) !== 0,
-            eraserIsPartial: resultSet.getLong(resultSet.getColumnIndex('eraser_is_partial')) !== 0,
-          });
+          states.push(this.rowToState(resultSet));
         }
       } finally {
         resultSet.close();
@@ -110,9 +97,14 @@ export class ToolRepositoryImpl implements ToolRepository {
         const stale = new relationalStore.RdbPredicates('tool_state');
         stale.equalTo('tray_owner_id', ownerId);
         await store.delete(stale);
+        // Per-tray dense indices (i8f.a parity): tray_index resets at 0 for each
+        // tray_type, it is not the flat array position.
+        const trayIndices = new Map<number, number>();
         for (let index: number = 0; index < states.length; index++) {
           const state: ToolState = this.cloneState(states[index]);
-          state.trayIndex = index;
+          const trayIndex: number = trayIndices.get(state.trayType) ?? 0;
+          state.trayIndex = trayIndex;
+          trayIndices.set(state.trayType, trayIndex + 1);
           await store.insert('tool_state', this.toBucket(state),
             relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
         }
@@ -124,13 +116,36 @@ export class ToolRepositoryImpl implements ToolRepository {
     });
   }
 
+  // Mirrors x7f case-0: deleting a tool row reindexes the remaining rows of its
+  // tray densely (0..n-1) inside the same transaction.
   async deleteToolState(toolId: string): Promise<void> {
     await databaseWriteMutex.runExclusive(async (): Promise<void> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      await store.beginTransaction();
       try {
+        const ownerTools: ToolState[] = await this.queryOwnerStates(store, toolId);
+        const removed: ToolState | null = ownerTools.length === 0 ? null : ownerTools[0];
         const predicates = new relationalStore.RdbPredicates('tool_state');
         predicates.equalTo('tool_id', toolId);
-        await this.db.getStore().delete(predicates);
+        await store.delete(predicates);
+        if (removed !== null) {
+          let index: number = 0;
+          for (const state of ownerTools) {
+            if (state.trayType !== removed.trayType || state.toolId === removed.toolId) {
+              continue;
+            }
+            if (state.trayIndex !== index) {
+              const reindexed: ToolState = this.cloneState(state);
+              reindexed.trayIndex = index;
+              await store.insert('tool_state', this.toBucket(reindexed),
+                relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+            }
+            index++;
+          }
+        }
+        await store.commit();
       } catch (e) {
+        await store.rollBack();
         throw new Error(`deleteToolState failed: ${JSON.stringify(e)}`);
       }
     });
@@ -173,6 +188,212 @@ export class ToolRepositoryImpl implements ToolRepository {
         throw new Error(`saveToolboxState failed: ${JSON.stringify(e)}`);
       }
     });
+  }
+
+  async getTrays(ownerId: string): Promise<EditorTray[]> {
+    const predicates = new relationalStore.RdbPredicates('editor_tray');
+    predicates.equalTo('toolbox_owner_id', ownerId);
+    predicates.orderByAsc('tray_id');
+    try {
+      const resultSet = await this.db.getStore().query(predicates);
+      const trays: EditorTray[] = [];
+      try {
+        while (resultSet.goToNextRow()) {
+          trays.push({
+            trayId: resultSet.getLong(resultSet.getColumnIndex('tray_id')),
+            trayType: resultSet.getLong(resultSet.getColumnIndex('tray_type')),
+            toolboxOwnerId: resultSet.getString(resultSet.getColumnIndex('toolbox_owner_id')),
+            lastUsedToolId: resultSet.isColumnNull(resultSet.getColumnIndex('last_used_tool_id')) ?
+              null : resultSet.getString(resultSet.getColumnIndex('last_used_tool_id')),
+          });
+        }
+      } finally {
+        resultSet.close();
+      }
+      return trays;
+    } catch (e) {
+      throw new Error(`getTrays failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // Mirrors gr7.java + ba8.java: Primary(0)/Secondary(1)/Hidden(2) are seeded once
+  // per toolbox owner; INSERT OR IGNORE keeps the call idempotent like the
+  // original's WHERE NOT EXISTS seed.
+  async ensureTrays(ownerId: string): Promise<void> {
+    await databaseWriteMutex.runExclusive(async (): Promise<void> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      try {
+        const seeds: number[][] = [
+          [0, TRAY_TYPE_PRIMARY], [1, TRAY_TYPE_SECONDARY], [2, TRAY_TYPE_HIDDEN]];
+        for (const seed of seeds) {
+          const bucket: relationalStore.ValuesBucket = {
+            'tray_id': seed[0],
+            'tray_type': seed[1],
+            'toolbox_owner_id': ownerId,
+            'last_used_tool_id': null,
+          };
+          await store.insert('editor_tray', bucket,
+            relationalStore.ConflictResolution.ON_CONFLICT_IGNORE);
+        }
+      } catch (e) {
+        throw new Error(`ensureTrays failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  // Mirrors i8f.g: selecting a tool rewrites the owning tray's lastUsedToolId.
+  async setTrayLastUsedTool(trayType: number, ownerId: string, toolId: string): Promise<void> {
+    await databaseWriteMutex.runExclusive(async (): Promise<void> => {
+      try {
+        await this.db.getStore().executeSql(
+          'UPDATE editor_tray SET last_used_tool_id = ? WHERE tray_type = ? AND toolbox_owner_id = ?',
+          [toolId, trayType, ownerId]);
+      } catch (e) {
+        throw new Error(`setTrayLastUsedTool failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  // Mirrors i8f.a: the moved tool leaves its source tray (which reindexes densely),
+  // enters the destination tray at a clamped index, and the destination reindexes.
+  // All rows are rewritten inside one transaction via the batch upsert.
+  async moveToolToTray(toolId: string, destTrayType: number,
+    insertIndex: number): Promise<void> {
+    await databaseWriteMutex.runExclusive(async (): Promise<void> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      await store.beginTransaction();
+      try {
+        const ownerTools: ToolState[] = await this.queryOwnerStates(store, toolId);
+        const moved: ToolState | null = ownerTools.length === 0 ? null : ownerTools[0];
+        if (moved === null) {
+          await store.rollBack();
+          return;
+        }
+        const ownerId: string = moved.trayOwnerId;
+        const updates: ToolState[] = [];
+        if (moved.trayType !== destTrayType) {
+          let index: number = 0;
+          for (const state of ownerTools) {
+            if (state.trayType !== moved.trayType || state.toolId === moved.toolId) {
+              continue;
+            }
+            const reindexed: ToolState = this.cloneState(state);
+            reindexed.trayIndex = index;
+            index++;
+            updates.push(reindexed);
+          }
+        }
+        const destTools: ToolState[] = [];
+        for (const state of ownerTools) {
+          if (state.trayType === destTrayType && state.toolId !== moved.toolId) {
+            destTools.push(state);
+          }
+        }
+        const clamped: number = Math.max(0, Math.min(insertIndex, destTools.length));
+        const movedCopy: ToolState = this.cloneState(moved);
+        destTools.splice(clamped, 0, movedCopy);
+        for (let index: number = 0; index < destTools.length; index++) {
+          const reindexed: ToolState = this.cloneState(destTools[index]);
+          reindexed.trayType = destTrayType;
+          reindexed.trayIndex = index;
+          updates.push(reindexed);
+        }
+        for (const state of updates) {
+          await store.insert('tool_state', this.toBucket(state),
+            relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+        }
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`moveToolToTray failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  // Insert-at-index parity for duplicated tools: later rows in the tray shift up
+  // and the new row lands at state.trayIndex inside one transaction.
+  async insertToolStateAt(state: ToolState): Promise<void> {
+    await databaseWriteMutex.runExclusive(async (): Promise<void> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      await store.beginTransaction();
+      try {
+        await store.executeSql(
+          'UPDATE tool_state SET tray_index = tray_index + 1 WHERE tray_owner_id = ? AND tray_type = ? AND tray_index >= ?',
+          [state.trayOwnerId, state.trayType, state.trayIndex]);
+        await store.insert('tool_state', this.toBucket(state));
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`insertToolStateAt failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  // d8f/yne(18) parity: reset-to-default wipes the owner's tool rows so the
+  // default set can be re-seeded, and clears the tray rows for reseeding.
+  async deleteAllToolStates(ownerId: string): Promise<void> {
+    await databaseWriteMutex.runExclusive(async (): Promise<void> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      await store.beginTransaction();
+      try {
+        await store.executeSql('DELETE FROM tool_state WHERE tray_owner_id = ?', [ownerId]);
+        await store.executeSql('DELETE FROM editor_tray WHERE toolbox_owner_id = ?', [ownerId]);
+        await store.executeSql('DELETE FROM editor_toolbox_state WHERE owner_id = ?', [ownerId]);
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`deleteAllToolStates failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  private async queryOwnerStates(store: relationalStore.RdbStore,
+    toolId: string): Promise<ToolState[]> {
+    const ownerResult: relationalStore.ResultSet = await store.querySql(
+      'SELECT tray_owner_id FROM tool_state WHERE tool_id = ?', [toolId]);
+    let ownerId: string = '';
+    try {
+      if (!ownerResult.goToNextRow()) {
+        return [];
+      }
+      ownerId = ownerResult.getString(0);
+    } finally {
+      ownerResult.close();
+    }
+    const resultSet: relationalStore.ResultSet = await store.querySql(
+      'SELECT * FROM tool_state WHERE tray_owner_id = ? ORDER BY tray_type, tray_index',
+      [ownerId]);
+    try {
+      const states: ToolState[] = [];
+      while (resultSet.goToNextRow()) {
+        states.push(this.rowToState(resultSet));
+      }
+      return states;
+    } finally {
+      resultSet.close();
+    }
+  }
+
+  private rowToState(resultSet: relationalStore.ResultSet): ToolState {
+    return {
+      toolId: resultSet.getString(resultSet.getColumnIndex('tool_id')),
+      trayOwnerId: resultSet.getString(resultSet.getColumnIndex('tray_owner_id')),
+      toolType: resultSet.getLong(resultSet.getColumnIndex('tool_type')),
+      trayType: resultSet.getLong(resultSet.getColumnIndex('tray_type')),
+      trayIndex: resultSet.getLong(resultSet.getColumnIndex('tray_index')),
+      brush: {
+        brushStyle: resultSet.getLong(resultSet.getColumnIndex('style')),
+        widthSize: resultSet.getDouble(resultSet.getColumnIndex('width_size')),
+        color: resultSet.getLong(resultSet.getColumnIndex('color')),
+        selectedWidthWellIndex: resultSet.getLong(
+          resultSet.getColumnIndex('selected_width_well_index')),
+        selectedColorWellIndex: resultSet.getLong(
+          resultSet.getColumnIndex('selected_color_well_index')),
+      },
+      selectionIsFreehand: resultSet.getLong(
+        resultSet.getColumnIndex('selection_is_freehand')) !== 0,
+      eraserIsPartial: resultSet.getLong(resultSet.getColumnIndex('eraser_is_partial')) !== 0,
+    };
   }
 
   // Mirrors the original i8f read: rows ordered by tray_index, with the self-heal that
@@ -434,6 +655,7 @@ export class ToolRepositoryImpl implements ToolRepository {
       'tool_id': state.toolId,
       'tray_owner_id': state.trayOwnerId,
       'tool_type': state.toolType,
+      'tray_type': state.trayType,
       'tray_index': state.trayIndex,
       'color': state.brush.color,
       'width_size': state.brush.widthSize,
@@ -450,6 +672,7 @@ export class ToolRepositoryImpl implements ToolRepository {
       toolId: state.toolId,
       trayOwnerId: state.trayOwnerId,
       toolType: state.toolType,
+      trayType: state.trayType,
       trayIndex: state.trayIndex,
       brush: {
         brushStyle: state.brush.brushStyle,

@@ -10,7 +10,8 @@ function builderSection(name) {
   return toolbar.slice(start, toolbar.indexOf('\n  }\n', start));
 }
 
-const toolButton = builderSection('ToolButton');
+const toolButton = builderSection('StateToolButton');
+const eraserButtons = builderSection('EraserToolButtons');
 const styleButton = builderSection('StyleButton');
 const compactMenu = toolbar.slice(
   toolbar.indexOf('  private buildCompactToolMenu()'),
@@ -22,13 +23,16 @@ for (const action of ['insert_photo', 'insert_math']) {
     action);
 }
 
-for (const [name, section] of [['tool', toolButton], ['style', styleButton]]) {
+for (const [name, section] of [['tool', toolButton], ['eraser', eraserButtons],
+                               ['style', styleButton]]) {
   assert.match(section,
     /\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)/,
     name);
 }
 assert.match(toolButton,
-  /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.viewModel\.selectTool\(tool\);/);
+  /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.viewModel\.selectToolById\(tool\.toolId\);/);
+assert.match(eraserButtons,
+  /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.viewModel\.selectToolById\(tool\.toolId\)/);
 assert.match(styleButton,
   /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.viewModel\.setBrushStyle\(style\);/);
 
@@ -47,4 +51,4 @@ for (const [action, forward] of [
 }
 
 console.log(
-  'D02_TOOLBAR_BUILDERS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=6 FAILED=0');
+  'D02_TOOLBAR_BUILDERS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=8 FAILED=0');

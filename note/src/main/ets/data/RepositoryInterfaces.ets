@@ -1,7 +1,7 @@
 // T-007 Repository 抽象接口（契约 phase-1-data-model.md §3.11，照搬，禁止修改签名）
 // 接口定义不 import 任何 @ohos.* / @kit.* 平台模块
 import { NoteMeta, NoteViewState, PageInfo } from '../core/model/NoteTypes';
-import { EditorToolboxState, ToolState } from '../core/model/BrushTypes';
+import { EditorToolboxState, EditorTray, ToolState } from '../core/model/BrushTypes';
 import { NoteAsset } from '../core/model/AssetTypes';
 
 export interface NoteRepository {
@@ -35,6 +35,20 @@ export interface ToolRepository {
   deleteToolState(toolId: string): Promise<void>;
   getToolboxState(ownerId: string): Promise<EditorToolboxState | null>;
   saveToolboxState(state: EditorToolboxState): Promise<void>;
+  // Original tray model parity (e47 TrayEntity / cgf ordinals / zff.a mapping).
+  getTrays(ownerId: string): Promise<EditorTray[]>;
+  // gr7/ba8 parity: seed Primary/Secondary/Hidden trays once per owner.
+  ensureTrays(ownerId: string): Promise<void>;
+  // i8f.g parity: tool selection rewrites the owning tray's lastUsedToolId.
+  setTrayLastUsedTool(trayType: number, ownerId: string, toolId: string): Promise<void>;
+  // i8f.a parity: move a tool into a destination tray at a clamped index,
+  // reindexing the source and destination trays in one transaction.
+  moveToolToTray(toolId: string, destTrayType: number, insertIndex: number): Promise<void>;
+  // Duplicate parity: insert a new row at state.trayIndex in its tray,
+  // shifting later rows up in one transaction.
+  insertToolStateAt(state: ToolState): Promise<void>;
+  // d8f + yne(18) parity: wipe the owner's tool rows for reset-to-default.
+  deleteAllToolStates(ownerId: string): Promise<void>;
   // Original FavoriteColorWellEntity / WidthSizeWellEntity / RecentColorWellEntity parity.
   getFavoriteColors(toolType: number): Promise<number[]>;
   setFavoriteColor(toolType: number, trayIndex: number, color: number): Promise<void>;

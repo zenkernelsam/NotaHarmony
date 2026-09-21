@@ -345,6 +345,54 @@
       "value": "More Tools"
     },
     {
+      "name": "toolbox_settings",
+      "value": "Customize Toolbar"
+    },
+    {
+      "name": "hidden_tools",
+      "value": "Hidden Tools"
+    },
+    {
+      "name": "reset_to_default",
+      "value": "Reset to Default"
+    },
+    {
+      "name": "show_tool",
+      "value": "Show"
+    },
+    {
+      "name": "hide_tool",
+      "value": "Hide"
+    },
+    {
+      "name": "delete_tool",
+      "value": "Delete"
+    },
+    {
+      "name": "duplicate_tool",
+      "value": "Duplicate"
+    },
+    {
+      "name": "move_tool_up",
+      "value": "Move up"
+    },
+    {
+      "name": "move_tool_down",
+      "value": "Move down"
+    },
+    {
+      "name": "tool_max_reached",
+      "value": "Toolbar is full (12 tools)"
+    },
+    {
+      "name": "move_to_secondary",
+      "value": "Move to secondary"
+    },
+    {
+      "name": "move_to_primary",
+      "value": "Move to primary"
+    },
+    {
       "name": "style_mono",
       "value": "Mono"
     },

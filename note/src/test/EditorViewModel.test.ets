@@ -1,5 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { BrushStyle, EditorToolboxState, ToolState, ToolType } from '../main/ets/core/model/BrushTypes';
+import {
+  BrushStyle, EditorToolboxState, EditorTray, ToolState, ToolType,
+} from '../main/ets/core/model/BrushTypes';
 import { ToolRepository } from '../main/ets/data/RepositoryInterfaces';
 import { EditorSettingsRepository } from '../main/ets/data/EditorSettingsStore';
 import { EditorViewModel } from '../main/ets/ui/editor/EditorViewModel';
@@ -78,6 +80,7 @@ class FakeToolRepository implements ToolRepository {
   }
 
   async deleteToolState(toolId: string): Promise<void> {
+    const removed: ToolState | null = this.indexOf(toolId) < 0 ? null : this.states[this.indexOf(toolId)];
     const remaining: ToolState[] = [];
     for (const state of this.states) {
       if (state.toolId !== toolId) {
@@ -85,6 +88,127 @@ class FakeToolRepository implements ToolRepository {
       }
     }
     this.states = remaining;
+    if (removed !== null) {
+      let index: number = 0;
+      for (const state of this.states) {
+        if (state.trayType === removed.trayType) {
+          state.trayIndex = index;
+          index++;
+        }
+      }
+    }
+  }
+
+  trays: EditorTray[] = [];
+
+  async getTrays(ownerId: string): Promise<EditorTray[]> {
+    const result: EditorTray[] = [];
+    for (const tray of this.trays) {
+      if (tray.toolboxOwnerId === ownerId) {
+        result.push({
+          trayId: tray.trayId,
+          trayType: tray.trayType,
+          toolboxOwnerId: tray.toolboxOwnerId,
+          lastUsedToolId: tray.lastUsedToolId,
+        });
+      }
+    }
+    return result;
+  }
+
+  async ensureTrays(ownerId: string): Promise<void> {
+    for (let trayId: number = 0; trayId <= 2; trayId++) {
+      if (!this.hasTray(ownerId, trayId)) {
+        this.trays.push({
+          trayId: trayId,
+          trayType: trayId,
+          toolboxOwnerId: ownerId,
+          lastUsedToolId: null,
+        });
+      }
+    }
+  }
+
+  async setTrayLastUsedTool(trayType: number, ownerId: string, toolId: string): Promise<void> {
+    for (const tray of this.trays) {
+      if (tray.toolboxOwnerId === ownerId && tray.trayType === trayType) {
+        tray.lastUsedToolId = toolId;
+      }
+    }
+  }
+
+  // In-memory mirror of i8f.a: reindex the source tray, insert into the
+  // destination tray at a clamped index, reindex the destination.
+  async moveToolToTray(toolId: string, destTrayType: number, insertIndex: number): Promise<void> {
+    const movedIndex: number = this.indexOf(toolId);
+    if (movedIndex < 0) {
+      return;
+    }
+    const moved: ToolState = this.states[movedIndex];
+    const sourceTray: number = moved.trayType;
+    if (sourceTray !== destTrayType) {
+      let index: number = 0;
+      for (const state of this.states) {
+        if (state.trayType === sourceTray && state.toolId !== toolId) {
+          state.trayIndex = index;
+          index++;
+        }
+      }
+    }
+    const destTools: ToolState[] = [];
+    for (const state of this.states) {
+      if (state.trayType === destTrayType && state.toolId !== toolId) {
+        destTools.push(state);
+      }
+    }
+    const clamped: number = Math.max(0, Math.min(insertIndex, destTools.length));
+    destTools.splice(clamped, 0, moved);
+    for (let index: number = 0; index < destTools.length; index++) {
+      destTools[index].trayType = destTrayType;
+      destTools[index].trayIndex = index;
+    }
+    this.states.sort((a: ToolState, b: ToolState): number =>
+      a.trayType - b.trayType || a.trayIndex - b.trayIndex);
+  }
+
+  async insertToolStateAt(state: ToolState): Promise<void> {
+    for (const existing of this.states) {
+      if (existing.trayType === state.trayType && existing.trayIndex >= state.trayIndex) {
+        existing.trayIndex += 1;
+      }
+    }
+    this.states.push(this.cloneState(state));
+    this.states.sort((a: ToolState, b: ToolState): number =>
+      a.trayType - b.trayType || a.trayIndex - b.trayIndex);
+  }
+
+  async deleteAllToolStates(ownerId: string): Promise<void> {
+    const remaining: ToolState[] = [];
+    for (const state of this.states) {
+      if (state.trayOwnerId !== ownerId) {
+        remaining.push(state);
+      }
+    }
+    this.states = remaining;
+    const remainingTrays: EditorTray[] = [];
+    for (const tray of this.trays) {
+      if (tray.toolboxOwnerId !== ownerId) {
+        remainingTrays.push(tray);
+      }
+    }
+    this.trays = remainingTrays;
+    if (this.toolbox !== null && this.toolbox.ownerId === ownerId) {
+      this.toolbox = null;
+    }
+  }
+
+  private hasTray(ownerId: string, trayId: number): boolean {
+    for (const tray of this.trays) {
+      if (tray.toolboxOwnerId === ownerId && tray.trayId === trayId) {
+        return true;
+      }
+    }
+    return false;
   }
 
   async getToolboxState(_ownerId: string): Promise<EditorToolboxState | null> {
@@ -220,6 +344,7 @@ class FakeToolRepository implements ToolRepository {
       toolId: state.toolId,
       trayOwnerId: state.trayOwnerId,
       toolType: state.toolType,
+      trayType: state.trayType,
       trayIndex: state.trayIndex,
       brush: {
         brushStyle: state.brush.brushStyle,

@@ -31,11 +31,21 @@ export interface BrushSpec {
   selectedColorWellIndex: number;
 }
 
-// 工具状态（对应 j0f/jze）
+// Original cgf tray ordinals (zff.a: Primary/Secondary/Hidden). Tray membership is
+// the original's tool-visibility mechanism; there is no separate "hidden" flag.
+export const TRAY_TYPE_PRIMARY: number = 0;
+export const TRAY_TYPE_SECONDARY: number = 1;
+export const TRAY_TYPE_HIDDEN: number = 2;
+// o6f.java:142 / wb4.java:127 — the original caps the Primary tray at 12 tools.
+export const MAX_PRIMARY_TOOLS: number = 12;
+
+// 工具状态（对应 j0f/jze / u5f ToolStateEntity）
 export interface ToolState {
   toolId: string;
   trayOwnerId: string;
   toolType: ToolType;
+  // Original tray_owner_id → TrayEntity membership, stored as the cgf ordinal.
+  trayType: number;
   trayIndex: number;
   brush: BrushSpec;
   selectionIsFreehand: boolean;
@@ -47,6 +57,15 @@ export interface EditorToolboxState {
   ownerId: string;
   mostRecentlySelectedToolId: string;
   previouslySelectedToolId: string;
+}
+
+// Harmony adaptation of the original TrayEntity (e47.java:380). The original
+// writes lastUsedToolId on every tool selection (i8f.g).
+export interface EditorTray {
+  trayId: number;
+  trayType: number;
+  toolboxOwnerId: string;
+  lastUsedToolId: string | null;
 }
 
 // BrushStyle → InkStyle 映射（对应 dxe.a()）

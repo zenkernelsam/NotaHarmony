@@ -1,5 +1,6 @@
 import {
   BrushStyle, EditorToolboxState, ToolState, ToolType, brushStyleToInkStyle,
+  TRAY_TYPE_PRIMARY, TRAY_TYPE_SECONDARY, TRAY_TYPE_HIDDEN, MAX_PRIMARY_TOOLS,
 } from '../../core/model/BrushTypes';
 import { RenderSpec } from '../../core/model/StrokeTypes';
 import { ToolRepository } from '../../data/RepositoryInterfaces';
@@ -23,6 +24,9 @@ export class EditorViewModel {
   shapeDetectionEnabled: boolean = true;
   toolStateLoading: boolean = true;
   toolStateLoadFailed: boolean = false;
+  // Structural mirror of `states` reassigned on every tray mutation so @ObjectLink
+  // observers re-render the tool list (the toolbar binds to this, not `states`).
+  toolStates: ToolState[] = [];
   onPersistenceError: (message: string) => void = (_message: string): void => {
   };
 
@@ -63,22 +67,35 @@ export class EditorViewModel {
     this.shapeDetectionVersion = 0;
     const defaults: ToolState[] = this.createDefaultStates(ownerId);
     try {
+      // gr7/ba8 parity: the three trays (Primary/Secondary/Hidden) exist per owner.
+      await repository.ensureTrays(ownerId);
       const loaded: ToolState[] = await repository.getToolStates(ownerId);
       if (!this.isInitializationCurrent()) {
         return false;
       }
       const merged: ToolState[] = [];
+      for (const stored of loaded) {
+        const fallback: ToolState | null = this.findFirstType(defaults, stored.toolType);
+        merged.push(this.sanitizeState(stored, fallback === null ? stored : fallback));
+      }
+      // Original invariant: every default tool type is always present somewhere
+      // (x7f refuses to delete the sole visible instance), so missing types are
+      // backfilled at the Primary tray tail. Hidden/duplicated rows pass through.
       const missing: ToolState[] = [];
+      let primaryCount: number = this.countTrayType(merged, TRAY_TYPE_PRIMARY);
       for (const fallback of defaults) {
-        const stored: ToolState | null = this.findFirstType(loaded, fallback.toolType);
-        if (stored === null) {
-          merged.push(this.cloneState(fallback));
-          missing.push(this.cloneState(fallback));
-        } else {
-          merged.push(this.sanitizeState(stored, fallback));
+        if (this.findFirstType(merged, fallback.toolType) === null) {
+          const backfill: ToolState = this.cloneState(fallback);
+          backfill.trayIndex = primaryCount;
+          primaryCount++;
+          merged.push(backfill);
+          missing.push(this.cloneState(backfill));
         }
       }
+      merged.sort((a: ToolState, b: ToolState): number =>
+        a.trayType - b.trayType || a.trayIndex - b.trayIndex);
       this.states = merged;
+      this.syncToolStates();
       if (!this.isInitializationCurrent()) {
         return false;
       }
@@ -97,11 +114,20 @@ export class EditorViewModel {
       if (!this.isInitializationCurrent()) {
         return false;
       }
-      const fallbackPen: ToolState = this.requireState(ToolType.PEN);
-      if (toolbox !== null && this.findById(toolbox.mostRecentlySelectedToolId) !== null) {
-        this.activeToolId = toolbox.mostRecentlySelectedToolId;
-        this.previousToolId = this.findById(toolbox.previouslySelectedToolId) !== null ?
-          toolbox.previouslySelectedToolId : this.activeToolId;
+      const visibleFallback: ToolState | null = this.findFirstVisibleType(ToolType.PEN) ??
+        (this.visibleToolStates().length > 0 ? this.visibleToolStates()[0] :
+          this.requireState(ToolType.PEN));
+      const fallbackPen: ToolState = visibleFallback;
+      const mostRecent: ToolState | null = toolbox === null ? null :
+        this.findById(toolbox.mostRecentlySelectedToolId);
+      const previous: ToolState | null = toolbox === null ? null :
+        this.findById(toolbox.previouslySelectedToolId);
+      // Hidden rows cannot be selected (x6f only exposes visible trays to the
+      // toolbar), so a stale most-recent pointing at the Hidden tray falls back.
+      if (mostRecent !== null && mostRecent.trayType !== TRAY_TYPE_HIDDEN) {
+        this.activeToolId = mostRecent.toolId;
+        this.previousToolId = previous !== null && previous.trayType !== TRAY_TYPE_HIDDEN ?
+          previous.toolId : this.activeToolId;
       } else {
         this.activeToolId = fallbackPen.toolId;
         this.previousToolId = fallbackPen.toolId;
@@ -132,6 +158,7 @@ export class EditorViewModel {
       return true;
     } catch (e) {
       this.states = defaults;
+      this.syncToolStates();
       this.replaceCommittedStates(this.states);
       this.activeToolId = 'pen';
       this.previousToolId = 'pen';
@@ -155,11 +182,32 @@ export class EditorViewModel {
   }
 
   async selectTool(tool: ToolType): Promise<boolean> {
+    const requestedType: ToolType = this.canonicalType(tool);
+    const target: ToolState | null = this.findFirstVisibleType(requestedType);
+    if (target === null) {
+      return false;
+    }
+    return this.selectToolInternal(target.toolId, tool);
+  }
+
+  // Duplicate-aware selection: each tool row carries its own tool_id, so the
+  // toolbar selects the exact instance (the original's tool_id ≠ toolType model).
+  // The row's own eraserIsPartial applies via applyActiveState — no mode write.
+  async selectToolById(toolId: string): Promise<boolean> {
+    const target: ToolState | null = this.findById(toolId);
+    if (target === null || target.trayType === TRAY_TYPE_HIDDEN) {
+      return false;
+    }
+    return this.selectToolInternal(toolId, target.toolType, false);
+  }
+
+  private async selectToolInternal(toolId: string, tool: ToolType,
+    updateEraserMode: boolean = true): Promise<boolean> {
     if (this.toolStateLoading) {
       return false;
     }
     const requestedType: ToolType = this.canonicalType(tool);
-    const target: ToolState | null = this.findFirstType(this.states, requestedType);
+    const target: ToolState | null = this.findById(toolId);
     if (target === null) {
       return false;
     }
@@ -167,7 +215,7 @@ export class EditorViewModel {
     const version: number = this.selectionVersion;
     this.previousToolId = this.activeToolId;
     this.activeToolId = target.toolId;
-    if (requestedType === ToolType.WHOLE_ERASER) {
+    if (updateEraserMode && requestedType === ToolType.WHOLE_ERASER) {
       const modeSaved: boolean = await this.setEraserIsPartial(tool === ToolType.PARTIAL_ERASER);
       if (!modeSaved) {
         if (this.selectionVersion === version) {
@@ -194,6 +242,11 @@ export class EditorViewModel {
     try {
       await this.enqueueSave(async (): Promise<void> => repository.saveToolboxState(snapshot));
       this.committedToolbox = this.cloneToolboxState(snapshot);
+      // i8f.g parity: selection also rewrites the owning tray's lastUsedToolId.
+      repository.setTrayLastUsedTool(target.trayType, this.ownerId, toolId)
+        .catch((trayError: Object): void => {
+          this.onPersistenceError(`Tray selection was not saved: ${JSON.stringify(trayError)}`);
+        });
       return true;
     } catch (e) {
       if (this.selectionVersion === version) {
@@ -300,6 +353,309 @@ export class EditorViewModel {
     }
   }
 
+  // === Original toolbox customization (e47/cgf/x7f/wb4/i8f.a/d8f parity) ===
+
+  visibleToolStates(): ToolState[] {
+    const visible: ToolState[] = [];
+    for (const state of this.toolStates) {
+      if (state.trayType !== TRAY_TYPE_HIDDEN) {
+        visible.push(state);
+      }
+    }
+    visible.sort((a: ToolState, b: ToolState): number =>
+      a.trayType - b.trayType || a.trayIndex - b.trayIndex);
+    return visible;
+  }
+
+  hiddenToolStates(): ToolState[] {
+    const hidden: ToolState[] = [];
+    for (const state of this.toolStates) {
+      if (state.trayType === TRAY_TYPE_HIDDEN) {
+        hidden.push(state);
+      }
+    }
+    hidden.sort((a: ToolState, b: ToolState): number => a.trayIndex - b.trayIndex);
+    return hidden;
+  }
+
+  // o6f.java:142 — the settings surface flags "max-reached" at 12 visible tools.
+  isPrimaryTrayFull(): boolean {
+    return this.countTrayType(this.states, TRAY_TYPE_PRIMARY) >= MAX_PRIMARY_TOOLS;
+  }
+
+  // x7f case-0: the original refuses to delete the sole visible instance of a
+  // tool type; only duplicates may be deleted.
+  canDeleteTool(toolId: string): boolean {
+    const tool: ToolState | null = this.findById(toolId);
+    if (tool === null) {
+      return false;
+    }
+    let count: number = 0;
+    for (const state of this.states) {
+      if (state.toolType === tool.toolType && state.trayType !== TRAY_TYPE_HIDDEN) {
+        count++;
+      }
+    }
+    return count > 1;
+  }
+
+  // x7f case-1: hide moves the tool to the END of the Hidden tray.
+  async hideTool(toolId: string): Promise<boolean> {
+    const tool: ToolState | null = this.findById(toolId);
+    if (tool === null || tool.trayType === TRAY_TYPE_HIDDEN) {
+      return false;
+    }
+    const insertIndex: number = this.countTrayType(this.states, TRAY_TYPE_HIDDEN);
+    const sourceTray: number = tool.trayType;
+    return this.runStructuralOp(async (): Promise<void> => {
+      const repository: ToolRepository | null = this.repository;
+      if (repository !== null) {
+        await repository.moveToolToTray(toolId, TRAY_TYPE_HIDDEN, insertIndex);
+      }
+      this.moveStateLocally(toolId, TRAY_TYPE_HIDDEN, insertIndex);
+      this.reindexTrayLocally(sourceTray);
+      await this.fixActiveToolAfterStructuralOp();
+    }, 'Tool could not be hidden');
+  }
+
+  // wb4: unhide appends to the Primary tray while it has < 12 tools, otherwise
+  // to the Secondary tray tail.
+  async showTool(toolId: string): Promise<boolean> {
+    const tool: ToolState | null = this.findById(toolId);
+    if (tool === null || tool.trayType !== TRAY_TYPE_HIDDEN) {
+      return false;
+    }
+    const destTray: number = this.isPrimaryTrayFull() ? TRAY_TYPE_SECONDARY : TRAY_TYPE_PRIMARY;
+    const insertIndex: number = this.countTrayType(this.states, destTray);
+    return this.runStructuralOp(async (): Promise<void> => {
+      const repository: ToolRepository | null = this.repository;
+      if (repository !== null) {
+        await repository.moveToolToTray(toolId, destTray, insertIndex);
+      }
+      this.moveStateLocally(toolId, destTray, insertIndex);
+      this.reindexTrayLocally(TRAY_TYPE_HIDDEN);
+    }, 'Tool could not be shown');
+  }
+
+  // i8f.a: move/reorder a tool into a tray at an index (clamped server-side).
+  async moveToolToIndex(toolId: string, trayType: number, index: number): Promise<boolean> {
+    const tool: ToolState | null = this.findById(toolId);
+    if (tool === null) {
+      return false;
+    }
+    const sourceTray: number = tool.trayType;
+    return this.runStructuralOp(async (): Promise<void> => {
+      const repository: ToolRepository | null = this.repository;
+      if (repository !== null) {
+        await repository.moveToolToTray(toolId, trayType, index);
+      }
+      this.moveStateLocally(toolId, trayType, index);
+      if (sourceTray !== trayType) {
+        this.reindexTrayLocally(sourceTray);
+      }
+      await this.fixActiveToolAfterStructuralOp();
+    }, 'Tool could not be moved');
+  }
+
+  // settings_duplicate_tool parity (o94 case-13 → ti9/ng9): the copy keeps every
+  // field, gets a fresh tool_id, and lands right after the source in its tray.
+  async duplicateTool(toolId: string): Promise<boolean> {
+    const source: ToolState | null = this.findById(toolId);
+    if (source === null) {
+      return false;
+    }
+    const copy: ToolState = this.cloneState(source);
+    copy.toolId = this.uniqueToolId(source.toolId);
+    copy.trayIndex = source.trayIndex + 1;
+    return this.runStructuralOp(async (): Promise<void> => {
+      const repository: ToolRepository | null = this.repository;
+      if (repository !== null) {
+        await repository.insertToolStateAt(copy);
+      }
+      for (const state of this.states) {
+        if (state.trayType === copy.trayType && state.toolId !== copy.toolId &&
+          state.trayIndex >= copy.trayIndex) {
+          state.trayIndex += 1;
+        }
+      }
+      this.states.splice(this.indexById(source.toolId) + 1, 0, copy);
+      this.syncToolStates();
+    }, 'Tool could not be duplicated');
+  }
+
+  // x7f case-0: refuse to delete the sole visible instance of a tool type.
+  async deleteTool(toolId: string): Promise<boolean> {
+    if (!this.canDeleteTool(toolId)) {
+      return false;
+    }
+    const tool: ToolState | null = this.findById(toolId);
+    if (tool === null) {
+      return false;
+    }
+    const sourceTray: number = tool.trayType;
+    return this.runStructuralOp(async (): Promise<void> => {
+      const repository: ToolRepository | null = this.repository;
+      if (repository !== null) {
+        await repository.deleteToolState(toolId);
+      }
+      this.states.splice(this.indexById(toolId), 1);
+      this.reindexTrayLocally(sourceTray);
+      this.syncToolStates();
+      await this.fixActiveToolAfterStructuralOp();
+    }, 'Tool could not be deleted');
+  }
+
+  // d8f + yne(18) + gr7 parity: wipe tool/tray/selection rows, reseed the three
+  // trays and the default tool set, and reselect the pen.
+  async resetToolsToDefaults(): Promise<boolean> {
+    if (this.toolStateLoading) {
+      return false;
+    }
+    return this.runStructuralOp(async (): Promise<void> => {
+      const repository: ToolRepository | null = this.repository;
+      if (repository !== null) {
+        await repository.deleteAllToolStates(this.ownerId);
+        await repository.ensureTrays(this.ownerId);
+        await repository.saveToolStates(this.cloneStates(this.createDefaultStates(this.ownerId)));
+        const toolbox: EditorToolboxState = {
+          ownerId: this.ownerId,
+          mostRecentlySelectedToolId: 'pen',
+          previouslySelectedToolId: 'pen',
+        };
+        await repository.saveToolboxState(toolbox);
+        await repository.setTrayLastUsedTool(TRAY_TYPE_PRIMARY, this.ownerId, 'pen');
+        this.committedToolbox = this.cloneToolboxState(toolbox);
+      }
+      this.states = this.createDefaultStates(this.ownerId);
+      this.syncToolStates();
+      this.activeToolId = 'pen';
+      this.previousToolId = 'pen';
+      this.applyActiveState();
+      this.refreshWells(this.repository).catch((wellError: Object): void => {
+        this.onPersistenceError(`Tool wells could not be loaded: ${JSON.stringify(wellError)}`);
+      });
+    }, 'Toolbox could not be reset');
+  }
+
+  private async runStructuralOp(operation: () => Promise<void>,
+    message: string): Promise<boolean> {
+    const snapshot: ToolState[] = this.cloneStates(this.states);
+    try {
+      await operation();
+      this.syncToolStates();
+      this.replaceCommittedStates(this.states);
+      return true;
+    } catch (e) {
+      this.states = this.cloneStates(snapshot);
+      this.syncToolStates();
+      this.onPersistenceError(`${message}: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
+  private moveStateLocally(toolId: string, trayType: number, index: number): void {
+    const from: number = this.indexById(toolId);
+    if (from < 0) {
+      return;
+    }
+    const state: ToolState = this.states[from];
+    this.states.splice(from, 1);
+    let clamped: number = index;
+    const traySize: number = this.countTrayType(this.states, trayType);
+    if (trayType === state.trayType && state.trayIndex < index) {
+      clamped = index - 1;
+    }
+    clamped = Math.max(0, Math.min(clamped, traySize));
+    state.trayType = trayType;
+    state.trayIndex = clamped;
+    this.states.splice(clamped + this.trayStartOffset(trayType), 0, state);
+    this.reindexTrayLocally(trayType);
+  }
+
+  private reindexTrayLocally(trayType: number): void {
+    let index: number = 0;
+    for (const state of this.states) {
+      if (state.trayType === trayType) {
+        state.trayIndex = index;
+        index++;
+      }
+    }
+  }
+
+  private trayStartOffset(trayType: number): number {
+    let offset: number = 0;
+    for (const state of this.states) {
+      if (state.trayType === trayType) {
+        return offset;
+      }
+      offset++;
+    }
+    return offset;
+  }
+
+  private countTrayType(states: ToolState[], trayType: number): number {
+    let count: number = 0;
+    for (const state of states) {
+      if (state.trayType === trayType) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  private async fixActiveToolAfterStructuralOp(): Promise<void> {
+    const active: ToolState | null = this.findById(this.activeToolId);
+    if (active !== null && active.trayType !== TRAY_TYPE_HIDDEN) {
+      return;
+    }
+    const visible: ToolState[] = this.visibleToolStates();
+    if (visible.length === 0) {
+      return;
+    }
+    this.previousToolId = this.activeToolId;
+    this.activeToolId = visible[0].toolId;
+    this.applyActiveState();
+    const repository: ToolRepository | null = this.repository;
+    if (repository !== null) {
+      const snapshot: EditorToolboxState = this.toolboxSnapshot();
+      await repository.saveToolboxState(snapshot);
+      this.committedToolbox = this.cloneToolboxState(snapshot);
+    }
+  }
+
+  private uniqueToolId(baseId: string): string {
+    let candidate: string = `${baseId}-copy`;
+    let counter: number = 2;
+    while (this.findById(candidate) !== null) {
+      candidate = `${baseId}-copy-${counter}`;
+      counter++;
+    }
+    return candidate;
+  }
+
+  private findFirstVisibleType(type: ToolType): ToolState | null {
+    for (const state of this.states) {
+      if (state.toolType === type && state.trayType !== TRAY_TYPE_HIDDEN) {
+        return state;
+      }
+    }
+    return null;
+  }
+
+  // Mode-flag writes target the active instance when it has the type, else the
+  // first row of the type (single-instance behavior for non-duplicated tools).
+  private activeOrFirstType(type: ToolType): ToolState {
+    const active: ToolState | null = this.findById(this.activeToolId);
+    if (active !== null && active.toolType === type) {
+      return active;
+    }
+    return this.requireState(type);
+  }
+
+  private syncToolStates(): void {
+    this.toolStates = this.states.slice();
+  }
+
   async setBrushStyle(style: BrushStyle): Promise<boolean> {
     return this.updateActiveState((state: ToolState): void => {
       state.brush.brushStyle = style;
@@ -307,14 +663,14 @@ export class EditorViewModel {
   }
 
   async setSelectionIsFreehand(isFreehand: boolean): Promise<boolean> {
-    const state: ToolState = this.requireState(ToolType.SELECTION);
+    const state: ToolState = this.activeOrFirstType(ToolType.SELECTION);
     return this.updateState(state.toolId, (updated: ToolState): void => {
       updated.selectionIsFreehand = isFreehand;
     });
   }
 
   async setEraserIsPartial(isPartial: boolean): Promise<boolean> {
-    const state: ToolState = this.requireState(ToolType.WHOLE_ERASER);
+    const state: ToolState = this.activeOrFirstType(ToolType.WHOLE_ERASER);
     return this.updateState(state.toolId, (updated: ToolState): void => {
       updated.eraserIsPartial = isPartial;
     });
@@ -352,6 +708,12 @@ export class EditorViewModel {
 
   isSelectionActive(): boolean {
     return this.currentTool === ToolType.SELECTION;
+  }
+
+  // Row-level selection check: with duplicated tools the toolbar highlights the
+  // exact tool_id, not every row sharing the type.
+  isActiveTool(toolId: string): boolean {
+    return this.activeToolId === toolId;
   }
 
   supportsBrushControls(): boolean {
@@ -469,8 +831,12 @@ export class EditorViewModel {
     this.brushColor = state.brush.color;
     this.brushWidth = state.brush.widthSize;
     this.brushStyle = state.brush.brushStyle;
-    this.selectionIsFreehand = this.requireState(ToolType.SELECTION).selectionIsFreehand;
-    this.eraserIsPartial = this.requireState(ToolType.WHOLE_ERASER).eraserIsPartial;
+    // Mode flags live per tool row: read them from the active instance so
+    // duplicated selection/eraser tools keep their own modes.
+    this.selectionIsFreehand = state.toolType === ToolType.SELECTION ?
+      state.selectionIsFreehand : this.requireState(ToolType.SELECTION).selectionIsFreehand;
+    this.eraserIsPartial = state.toolType === ToolType.WHOLE_ERASER ?
+      state.eraserIsPartial : this.requireState(ToolType.WHOLE_ERASER).eraserIsPartial;
     this.currentTool = state.toolType === ToolType.WHOLE_ERASER && this.eraserIsPartial ?
       ToolType.PARTIAL_ERASER : state.toolType;
   }
@@ -547,6 +913,9 @@ export class EditorViewModel {
   private sanitizeState(stored: ToolState, fallback: ToolState): ToolState {
     const state: ToolState = this.cloneState(stored);
     state.trayOwnerId = this.ownerId;
+    if (state.trayType < TRAY_TYPE_PRIMARY || state.trayType > TRAY_TYPE_HIDDEN) {
+      state.trayType = TRAY_TYPE_PRIMARY;
+    }
     if (state.brush.widthSize < 2 || state.brush.widthSize > 100) {
       state.brush.widthSize = fallback.brush.widthSize;
     }
@@ -573,6 +942,7 @@ export class EditorViewModel {
       toolId: toolId,
       trayOwnerId: ownerId,
       toolType: toolType,
+      trayType: TRAY_TYPE_PRIMARY,
       trayIndex: trayIndex,
       brush: {
         brushStyle: style,
@@ -599,6 +969,7 @@ export class EditorViewModel {
       toolId: state.toolId,
       trayOwnerId: state.trayOwnerId,
       toolType: state.toolType,
+      trayType: state.trayType,
       trayIndex: state.trayIndex,
       brush: {
         brushStyle: state.brush.brushStyle,

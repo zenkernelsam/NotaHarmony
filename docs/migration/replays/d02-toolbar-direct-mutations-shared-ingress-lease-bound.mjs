@@ -15,10 +15,16 @@ function builderSection(name) {
   return toolbar.slice(start, toolbar.indexOf('\n  }\n', start));
 }
 
-const toolButton = builderSection('ToolButton');
+const toolButton = builderSection('StateToolButton');
 assert.match(toolButton,
   /\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)/);
-assert.match(toolButton, /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.viewModel\.selectTool\(tool\);/);
+assert.match(toolButton,
+  /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.viewModel\.selectToolById\(tool\.toolId\);/);
+const eraserButtons = builderSection('EraserToolButtons');
+assert.match(eraserButtons,
+  /\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)/);
+assert.match(eraserButtons,
+  /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.viewModel\.selectToolById\(tool\.toolId\)/);
 
 const styleButton = builderSection('StyleButton');
 assert.match(styleButton,
@@ -47,4 +53,4 @@ for (const tool of ['WHOLE_ERASER', 'PARTIAL_ERASER', 'SELECTION', 'DEFAULT']) {
   assert.match(action, /action: \(\) => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}/, tool);
 }
 
-console.log('D02_TOOLBAR_DIRECT_MUTATIONS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=13 FAILED=0');
+console.log('D02_TOOLBAR_DIRECT_MUTATIONS_SHARED_INGRESS_LEASE_BOUND_REPLAY_OK TOTAL=15 FAILED=0');

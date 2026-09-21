@@ -1,7 +1,8 @@
 // T-019 编辑器工具栏（工具切换 + 颜色/粗细面板 + Undo/Redo 占位）
 // T-038：工具栏 surface 随主题
-import { BrushStyle, ToolType } from '../../core/model/BrushTypes';
+import { BrushStyle, ToolState, ToolType } from '../../core/model/BrushTypes';
 import { EditorViewModel } from './EditorViewModel';
+import { ToolboxSettingsDialog, toolTypeLabel } from './ToolboxSettingsDialog';
 import { ColorPickerView } from '../components/ColorPicker';
 import { WidthSlider } from '../components/WidthSlider';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
@@ -11,6 +12,7 @@ import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 export struct EditorToolbar {
   @ObjectLink viewModel: EditorViewModel;
   @State compact: boolean = false;
+  @State showToolSettings: boolean = false;
   private toolbarScroller: Scroller = new Scroller();
   // Undo/Redo 回调（T-021 实现功能）
   onUndo: () => void = () => {
@@ -49,13 +51,19 @@ export struct EditorToolbar {
     Column() {
       Scroll(this.toolbarScroller) {
         Row() {
-        // === 工具按钮（48vp 点击区）===
-        this.ToolButton($r('app.string.pen'), ToolType.PEN)
-        this.ToolButton($r('app.string.pencil'), ToolType.PENCIL)
-        this.ToolButton($r('app.string.highlighter'), ToolType.HIGHLIGHTER)
+        // === 工具按钮（48vp 点击区）：按原版托盘顺序渲染可见工具 ===
+        ForEach(this.viewModel.visibleToolStates(), (state: ToolState) => {
+          if (state.toolType === ToolType.WHOLE_ERASER) {
+            if (this.compact) {
+              this.StateToolButton($r('app.string.eraser'), state)
+            } else {
+              this.EraserToolButtons(state)
+            }
+          } else {
+            this.StateToolButton(toolTypeLabel(state.toolType), state)
+          }
+        }, (state: ToolState): string => state.toolId)
           if (this.compact) {
-            this.ToolButton($r('app.string.eraser'), this.viewModel.eraserIsPartial ?
-              ToolType.PARTIAL_ERASER : ToolType.WHOLE_ERASER)
             Button('...')
               .height(40)
               .fontSize(13)
@@ -64,12 +72,21 @@ export struct EditorToolbar {
                 !this.photoImportLeaseActive)
               .accessibilityText($r('app.string.more_tools'))
               .bindMenu(this.buildCompactToolMenu())
-          } else {
-            this.ToolButton($r('app.string.whole_eraser'), ToolType.WHOLE_ERASER)
-            this.ToolButton($r('app.string.partial_eraser'), ToolType.PARTIAL_ERASER)
-            this.ToolButton($r('app.string.selection'), ToolType.SELECTION)
-            this.ToolButton($r('app.string.text'), ToolType.DEFAULT)
           }
+          // 原版 toolbox settings 入口（o6f 工具设置页）
+          Button('⚙')
+            .height(40)
+            .fontSize(15)
+            .margin({ left: 2, right: 2 })
+            .enabled(!this.viewModel.toolStateLoading &&
+              !this.photoImportLeaseActive)
+            .accessibilityText($r('app.string.toolbox_settings'))
+            .onClick(() => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
+              this.showToolSettings = true;
+            })
 
         Divider().vertical(true).height(24).margin({ left: 8, right: 8 })
 
@@ -251,6 +268,10 @@ export struct EditorToolbar {
       }
     }
     .width('100%')
+    .bindSheet(this.showToolSettings, this.buildToolSettings(), {
+      height: SheetSize.MEDIUM,
+      showClose: false,
+    })
     .onAreaChange((_oldArea: Area, newArea: Area) => {
       this.compact = (newArea.width as number) < 600;
     })
@@ -297,15 +318,16 @@ export struct EditorToolbar {
     ];
   }
 
+  // 每个可见工具行一个按钮；tool_id 级选中高亮支持同类型重复工具。
   @Builder
-  ToolButton(label: ResourceStr, tool: ToolType) {
+  StateToolButton(label: ResourceStr, tool: ToolState) {
     Button(label)
       .width(this.compact ? 72 : 88)
       .height(40)
       .fontSize(13)
-      .backgroundColor(this.viewModel.currentTool === tool ? this.resolveTokens().accent :
+      .backgroundColor(this.viewModel.isActiveTool(tool.toolId) ? this.resolveTokens().accent :
         this.resolveTokens().control)
-      .fontColor(this.viewModel.currentTool === tool ? this.resolveTokens().onAccent :
+      .fontColor(this.viewModel.isActiveTool(tool.toolId) ? this.resolveTokens().onAccent :
         this.resolveTokens().textPrimary)
       .margin({ left: 2, right: 2 })
       .enabled(!this.viewModel.toolStateLoading &&
@@ -314,8 +336,65 @@ export struct EditorToolbar {
         if (this.photoImportLeaseActive) {
           return;
         }
-        this.viewModel.selectTool(tool);
+        this.viewModel.selectToolById(tool.toolId);
       })
+  }
+
+  // WHOLE_ERASER 行渲染为 整笔/局部 两个模式按钮（与原版 eraserIsPartial 模式位对应）。
+  @Builder
+  EraserToolButtons(tool: ToolState) {
+    Button($r('app.string.whole_eraser'))
+      .width(this.compact ? 72 : 88)
+      .height(40)
+      .fontSize(13)
+      .backgroundColor(this.viewModel.isActiveTool(tool.toolId) && !this.viewModel.eraserIsPartial ?
+        this.resolveTokens().accent : this.resolveTokens().control)
+      .fontColor(this.viewModel.isActiveTool(tool.toolId) && !this.viewModel.eraserIsPartial ?
+        this.resolveTokens().onAccent : this.resolveTokens().textPrimary)
+      .margin({ left: 2, right: 2 })
+      .enabled(!this.viewModel.toolStateLoading &&
+        !this.photoImportLeaseActive)
+      .onClick(() => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
+        this.viewModel.selectToolById(tool.toolId).then((selected: boolean): void => {
+          if (selected) {
+            this.viewModel.setEraserIsPartial(false);
+          }
+        });
+      })
+    Button($r('app.string.partial_eraser'))
+      .width(this.compact ? 72 : 88)
+      .height(40)
+      .fontSize(13)
+      .backgroundColor(this.viewModel.isActiveTool(tool.toolId) && this.viewModel.eraserIsPartial ?
+        this.resolveTokens().accent : this.resolveTokens().control)
+      .fontColor(this.viewModel.isActiveTool(tool.toolId) && this.viewModel.eraserIsPartial ?
+        this.resolveTokens().onAccent : this.resolveTokens().textPrimary)
+      .margin({ left: 2, right: 2 })
+      .enabled(!this.viewModel.toolStateLoading &&
+        !this.photoImportLeaseActive)
+      .onClick(() => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
+        this.viewModel.selectToolById(tool.toolId).then((selected: boolean): void => {
+          if (selected) {
+            this.viewModel.setEraserIsPartial(true);
+          }
+        });
+      })
+  }
+
+  @Builder
+  buildToolSettings() {
+    ToolboxSettingsDialog({
+      viewModel: this.viewModel,
+      onClose: (): void => {
+        this.showToolSettings = false;
+      },
+    })
   }
 
   @Builder

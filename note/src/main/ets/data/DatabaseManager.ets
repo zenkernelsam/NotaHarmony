@@ -3,6 +3,7 @@ import { relationalStore } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import {
   DB_NAME, DB_VERSION, DDL_NOTE_STATE, DDL_TOOL_STATE, DDL_EDITOR_TOOLBOX_STATE,
+  DDL_EDITOR_TRAY,
   DDL_PAGE_ELEMENT_SNAPSHOT, DDL_PAGE_ELEMENT_IDENTITY_INDEX, DDL_PAGE_ELEMENT_IDENTITY_INSERT_GUARD,
   DDL_PAGE_ELEMENT_IDENTITY_UPDATE_GUARD, DDL_ORIGINAL_LOCAL_INK_AUTHORING_GUARD,
   DDL_ORIGINAL_LOCAL_Z_ORDER_HISTORY,
@@ -166,7 +167,8 @@ export class DatabaseManager implements OriginalOperationTimeDatabase {
         DDL_SEARCH_ITEM, DDL_SEARCH_PAGE_STATE, DDL_PAGE_DELETE_CHECKPOINT,
         DDL_PAGE_DELETE_CHECKPOINT_ELEMENT, DDL_PAGE_DELETE_CHECKPOINT_SEARCH,
         DDL_PERMANENTLY_DELETED_NOTE,
-        DDL_FAVORITE_COLOR_WELL, DDL_WIDTH_SIZE_WELL, DDL_RECENT_COLOR_WELL];
+        DDL_FAVORITE_COLOR_WELL, DDL_WIDTH_SIZE_WELL, DDL_RECENT_COLOR_WELL,
+        DDL_EDITOR_TRAY];
       let oldVersion: number = store.version;
       // Releases before v3 never persisted store.version. Infer their schema safely.
       if (oldVersion === 0 && hadClientOp) {
