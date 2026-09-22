@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { promptAction, router } from '@kit.ArkUI';
 import {
   DEFAULT_AUTO_DESELECT_ERASER, DEFAULT_HIDE_NAVIGATION_BAR, DEFAULT_HIDE_STATUS_BAR,
-  DEFAULT_KEEP_DEVICE_AWAKE, DEFAULT_NOTE_VIEW_NIGHT_MODE,
+  DEFAULT_KEEP_DEVICE_AWAKE, DEFAULT_NOTE_VIEW_NIGHT_MODE, DEFAULT_PALM_DETECTION,
   DEFAULT_SHAPE_DETECTION_ENABLED, EditorSettingsStore,
 } from '../../data/EditorSettingsStore';
 import { ThemeMode, ThemeTokens } from '../theme/EditorTheme';
@@ -24,6 +24,7 @@ struct SettingsPage {
   @State hideNavigationBarEnabled: boolean = DEFAULT_HIDE_NAVIGATION_BAR;
   @State noteViewNightModeEnabled: boolean = DEFAULT_NOTE_VIEW_NIGHT_MODE;
   @State autoDeselectEraserEnabled: boolean = DEFAULT_AUTO_DESELECT_ERASER;
+  @State palmDetectionEnabled: boolean = DEFAULT_PALM_DETECTION;
   @State saveBusy: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -65,6 +66,7 @@ struct SettingsPage {
       const hideNav: boolean = await store.getHideNavigationBar();
       const nightMode: boolean = await store.getNoteViewNightMode();
       const autoDeselect: boolean = await store.getAutoDeselectEraser();
+      const palmDetection: boolean = await store.getPalmDetectionEnabled();
       if (this.pageDisposed || generation !== this.loadGeneration) {
         return;
       }
@@ -75,6 +77,7 @@ struct SettingsPage {
       this.hideNavigationBarEnabled = hideNav;
       this.noteViewNightModeEnabled = nightMode;
       this.autoDeselectEraserEnabled = autoDeselect;
+      this.palmDetectionEnabled = palmDetection;
       this.loadState = SettingsLoadState.READY;
       this.initialized = true;
     } catch (e) {
@@ -175,6 +178,38 @@ struct SettingsPage {
       }
       this.autoDeselectEraserEnabled = previous;
       console.error(`SettingsPage auto-deselect-eraser save failed: ${JSON.stringify(e)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
+      } catch (toastError) {
+        console.error(`SettingsPage toast failed: ${JSON.stringify(toastError)}`);
+      }
+    } finally {
+      this.saveBusy = false;
+    }
+  }
+
+  // 原版 x22 case 2：palm_detection 开关，同一守护模式。
+  private async setPalmDetectionEnabled(enabled: boolean): Promise<void> {
+    const store: EditorSettingsStore | null = this.store;
+    if (store === null || this.loadState !== SettingsLoadState.READY || this.saveBusy ||
+      enabled === this.palmDetectionEnabled) {
+      return;
+    }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
+    const previous: boolean = this.palmDetectionEnabled;
+    this.palmDetectionEnabled = enabled;
+    this.saveBusy = true;
+    try {
+      await store.savePalmDetectionEnabled(enabled);
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+    } catch (e) {
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+      this.palmDetectionEnabled = previous;
+      console.error(`SettingsPage palm-detection save failed: ${JSON.stringify(e)}`);
       try {
         promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
       } catch (toastError) {
@@ -368,6 +403,30 @@ struct SettingsPage {
             .width('100%')
             .height(56)
             .padding({ left: 12, right: 12 })
+            .backgroundColor(this.resolveTokens().surface)
+
+            // 原版 x22 case 2：palm_detection + description（书写时可放手掌）。
+            Row() {
+              Column() {
+                Text($r('app.string.palm_detection'))
+                  .fontSize(16)
+                  .fontColor(this.resolveTokens().textPrimary)
+                Text($r('app.string.palm_detection_description'))
+                  .fontSize(12)
+                  .fontColor(this.resolveTokens().textSecondary)
+                  .margin({ top: 2 })
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+              Toggle({ type: ToggleType.Switch, isOn: this.palmDetectionEnabled })
+                .enabled(!this.saveBusy)
+                .onChange((enabled: boolean) => {
+                  this.setPalmDetectionEnabled(enabled);
+                })
+            }
+            .width('100%')
+            .margin({ top: 8 })
+            .padding({ left: 12, right: 12, top: 10, bottom: 10 })
             .backgroundColor(this.resolveTokens().surface)
 
             // 原版 x22 case 3：auto_deselect_eraser + description（擦除后切回上个工具）。

@@ -16,6 +16,7 @@ const HIDE_STATUS_BAR_KEY: string = 'hideStatusBar';
 const HIDE_NAVIGATION_BAR_KEY: string = 'hideNavigationBar';
 const NOTE_VIEW_NIGHT_MODE_KEY: string = 'noteViewNightMode';
 const AUTO_DESELECT_ERASER_KEY: string = 'autoDeselectEraser';
+const PALM_DETECTION_KEY: string = 'palmDetectionEnabled';
 export const DEFAULT_SHAPE_DETECTION_ENABLED: boolean = true;
 // 原版 o59.c 真值表：keepAwake/noteNightView/autoDeselectEraser 缺省 false；
 // hideStatusBar/hideNavigationBar 缺省 true（opt-out，证据修正 Phase 561）。
@@ -24,6 +25,8 @@ export const DEFAULT_HIDE_STATUS_BAR: boolean = true;
 export const DEFAULT_HIDE_NAVIGATION_BAR: boolean = true;
 export const DEFAULT_NOTE_VIEW_NIGHT_MODE: boolean = false;
 export const DEFAULT_AUTO_DESELECT_ERASER: boolean = false;
+// 原版 o59.c：palmDetectionEnabled 缺省 true（书写时忽略手掌触摸）。
+export const DEFAULT_PALM_DETECTION: boolean = true;
 
 export interface EditorSettingsRepository {
   getShapeDetectionEnabled(): Promise<boolean>;
@@ -38,6 +41,8 @@ export interface EditorSettingsRepository {
   saveNoteViewNightMode(enabled: boolean): Promise<void>;
   getAutoDeselectEraser(): Promise<boolean>;
   saveAutoDeselectEraser(enabled: boolean): Promise<void>;
+  getPalmDetectionEnabled(): Promise<boolean>;
+  savePalmDetectionEnabled(enabled: boolean): Promise<void>;
 }
 
 export interface DefaultNoteTemplateRepository {
@@ -204,6 +209,16 @@ export class EditorSettingsStore implements EditorSettingsRepository, DefaultNot
   async saveAutoDeselectEraser(enabled: boolean): Promise<void> {
     await this.saveBooleanPref(AUTO_DESELECT_ERASER_KEY, enabled,
       DEFAULT_AUTO_DESELECT_ERASER, 'saveAutoDeselectEraser');
+  }
+
+  // 原版 x22 case 2 / o59.l：palmDetectionEnabled —— 书写时可放置手掌。
+  async getPalmDetectionEnabled(): Promise<boolean> {
+    return this.getBooleanPref(PALM_DETECTION_KEY, DEFAULT_PALM_DETECTION);
+  }
+
+  async savePalmDetectionEnabled(enabled: boolean): Promise<void> {
+    await this.saveBooleanPref(PALM_DETECTION_KEY, enabled,
+      DEFAULT_PALM_DETECTION, 'savePalmDetectionEnabled');
   }
 
   async getSelectedDefaultTemplate(): Promise<OriginalDefaultTemplateSelection> {

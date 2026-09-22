@@ -293,6 +293,8 @@ export struct NoteCanvasView {
   private layerManager: StrokeLayerManager = new StrokeLayerManager(this.renderer, this.bitmapTransferTracker);
   private strokeSession: StrokeSession | null = null;
   private activePointerId: number = -1;
+  // 原版 palm_detection：当前活动笔画是否由触控笔驱动（SourceTool.Pen）。
+  private activeStrokeStylus: boolean = false;
   private pointerStream: PointerSampleStream = new PointerSampleStream();
   private eraserEngine: EraserEngine = new EraserEngine(EraserMode.WHOLE, 20);
   private paperRenderer: PaperRenderer = new PaperRenderer();
@@ -1748,6 +1750,11 @@ export struct NoteCanvasView {
     }
     // T-034：双指手势接管（捏合缩放/双指平移），单指书写
     if (event.touches.length > 1) {
+      // 原版 palm_detection（默认开）：笔迹进行中到来的非笔触摸为手掌，
+      // 忽略之——不打断当前笔画、也不进入双指手势。
+      if (this.palmRejectionActive() && event.sourceTool !== SourceTool.Pen) {
+        return;
+      }
       this.cancelActiveInteraction();
       return;
     }
@@ -1790,6 +1797,7 @@ export struct NoteCanvasView {
 
     this.resetShapeHoldState();
     this.activePointerId = touch.id;
+    this.activeStrokeStylus = event.sourceTool === SourceTool.Pen;
 
     if (this.viewModel.isEraserActive()) {
       this.eraserEngine.setMode(this.viewModel.eraserIsPartial ? EraserMode.PARTIAL : EraserMode.WHOLE);
@@ -1860,7 +1868,7 @@ export struct NoteCanvasView {
       return;
     }
     // T-034：双指手势接管
-    if (event.touches.length > 1) {
+    if (event.touches.length > 1 && !this.palmRejectionActive()) {
       this.cancelActiveInteraction();
       return;
     }
@@ -1901,7 +1909,12 @@ export struct NoteCanvasView {
     if (!this.isDrawing) {
       return;
     }
-    if (event.touches.length > 0) {
+    if (this.palmRejectionActive() &&
+      this.findTouchById(event.changedTouches, this.activePointerId) === null) {
+      // 原版 palm_detection：手掌抬手而笔仍在写——忽略，继续笔画。
+      return;
+    }
+    if (event.touches.length > 0 && !this.palmRejectionActive()) {
       this.cancelActiveInteraction();
       return;
     }
@@ -7851,8 +7864,15 @@ export struct NoteCanvasView {
     this.strokeSession.addBatch(batch);
   }
 
+  // 原版 palm_detection：仅当"触控笔笔画进行中"才屏蔽额外手指触摸。
+  private palmRejectionActive(): boolean {
+    return this.viewModel.palmDetectionEnabled && this.activeStrokeStylus &&
+      this.strokeSession !== null && this.strokeSession.isActive();
+  }
+
   private resetPointerTracking(): void {
     this.activePointerId = -1;
+    this.activeStrokeStylus = false;
     this.pointerStream.reset();
   }
 

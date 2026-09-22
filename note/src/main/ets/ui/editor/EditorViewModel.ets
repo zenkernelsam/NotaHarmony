@@ -25,6 +25,8 @@ export class EditorViewModel {
   // 原版 x22 case 3 / i8f.d：autoDeselectEraser——擦除后工具栏自动切回
   // 上一个工具（epi.c 取 previouslySelected）。
   autoDeselectEraser: boolean = false;
+  // 原版 x22 case 2 / o59.l：palmDetectionEnabled——笔迹进行中忽略手掌触摸。
+  palmDetectionEnabled: boolean = true;
   toolStateLoading: boolean = true;
   toolStateLoadFailed: boolean = false;
   // Structural mirror of `states` reassigned on every tray mutation so @ObjectLink
@@ -150,6 +152,7 @@ export class EditorViewModel {
         try {
           this.shapeDetectionEnabled = await settingsRepository.getShapeDetectionEnabled();
           this.autoDeselectEraser = await settingsRepository.getAutoDeselectEraser();
+          this.palmDetectionEnabled = await settingsRepository.getPalmDetectionEnabled();
           if (!this.isInitializationCurrent()) {
             return false;
           }

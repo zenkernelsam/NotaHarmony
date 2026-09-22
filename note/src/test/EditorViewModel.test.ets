@@ -418,6 +418,13 @@ class FakeEditorSettingsRepository implements EditorSettingsRepository {
   async saveAutoDeselectEraser(_enabled: boolean): Promise<void> {
   }
 
+  async getPalmDetectionEnabled(): Promise<boolean> {
+    return true;
+  }
+
+  async savePalmDetectionEnabled(_enabled: boolean): Promise<void> {
+  }
+
   async saveShapeDetectionEnabled(enabled: boolean): Promise<void> {
     this.saveAttempts.push(enabled);
     const gate: DeferredSave | undefined = this.saveGates.shift();

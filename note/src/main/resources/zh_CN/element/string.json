@@ -317,7 +317,9 @@
     { "name": "shape_detection", "value": "形状识别" },    { "name": "keep_device_awake", "value": "保持设备常亮" },    { "name": "hide_status_bar", "value": "在笔记页面隐藏状态栏" },
     { "name": "hide_navigation_bar", "value": "在笔记页面隐藏导航条" },    { "name": "note_view_night_mode", "value": "笔记页面夜间模式" },
     { "name": "note_view_night_mode_caption", "value": "以深色外观查看笔记（纸张与墨迹）" },    { "name": "auto_deselect_eraser", "value": "自动取消选择橡皮擦" },
-    { "name": "auto_deselect_eraser_description", "value": "擦除后，工具栏自动切换回上次使用的工具。" },
+    { "name": "auto_deselect_eraser_description", "value": "擦除后，工具栏自动切换回上次使用的工具。" },    { "name": "palm_detection", "value": "手掌检测" },
+    { "name": "palm_detection_description", "value": "手掌检测可让您在书写时将手掌放在屏幕任意位置。" },
+
 
 
 
