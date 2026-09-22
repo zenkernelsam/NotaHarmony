@@ -2431,6 +2431,26 @@ export struct NoteCanvasView {
         }
       }
       // !z3 压制（裸笔）或落空（utc → return null）：交还文本手势面。
+      // 原版 zl2 case25：裸笔在 TEXT 面点按先走 xtc.c（xhe 过滤命中）
+      // ——命中文本块 → qke 单笔点按直接编辑；tl7.w 链接行命中 → 吞掉；
+      // 落空 → oke.a（双击创建是移植等价路径）。手指点按走上方
+      // 选区分发（vtc），不经此支。
+      if (stylusSuppress) {
+        let penTextHit: boolean = false;
+        for (let i: number = this.textBlocks.length - 1; i >= 0; i--) {
+          if (pointHitsTextBlock(canvasP, this.textBlocks[i])) {
+            penTextHit = true;
+            if (this.linkHitOnTextBlock(this.textBlocks[i].id, canvasP) === null) {
+              this.lastTapTime = 0;
+              this.beginTextEditingAt(canvasP);
+            }
+            break;
+          }
+        }
+        if (penTextHit) {
+          return;
+        }
+      }
       const now: number = Date.now();
       const dx: number = touch.x - this.lastTapPos.x;
       const dy: number = touch.y - this.lastTapPos.y;
