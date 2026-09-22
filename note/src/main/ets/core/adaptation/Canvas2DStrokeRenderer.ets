@@ -581,13 +581,9 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
       } else if (spec.inkStyle === InkStyle.DOTS) {
         c.setLineDash([0.001 * spec.brushWidth, 2 * spec.brushWidth]);
       }
-      if ((spec.inkStyle === InkStyle.DASH || spec.inkStyle === InkStyle.DOTS) &&
-        stroke.styleMap !== undefined && stroke.styleMap.length > 0) {
-        const period: number = spec.inkStyle === InkStyle.DASH ?
-          3 * spec.brushWidth : 2.001 * spec.brushWidth;
-        const phase: number = stroke.styleMap[0].backingDashPhase;
-        c.setLineDashOffset(period > 0 ? ((phase % period) + period) % period : 0);
-      }
+      // 原版 c5g.g / e16（p16.centralPathPaint）均用 DashPathEffect(intervals, 0.0f)：
+      // 虚线相位恒为 0。styleMap 的 backingDashPhase 只进入 InkEffectSpec
+      // phaseOffsetPx（ADR-0046）与切片相位推进（ft1/uyd），不参与中心线渲染。
       c.stroke();
     } finally {
       c.restore();

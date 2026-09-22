@@ -240,7 +240,17 @@ const modifySource = fs.readFileSync(new URL(
   '../../../note/src/main/ets/data/OriginalModifyInkOperation.ets', import.meta.url), 'utf8');
 const schema = fs.readFileSync(new URL(
   '../../../note/src/main/ets/data/DatabaseHelper.ets', import.meta.url), 'utf8');
-assert.match(renderer, /setLineDashOffset/); assert.match(renderer, /backingDashPhase/);
+// Phase 574: original c5g.g/e16 render DASH/DOTS with DashPathEffect phase 0.0f;
+// backingDashPhase only feeds InkEffectSpec.phaseOffsetPx and the slice advance.
+const centerPathBody = renderer.slice(
+  renderer.indexOf('renderCenterPath(stroke: StrokeElementData'),
+  renderer.indexOf('renderVariableWidthOutline(stroke: StrokeElementData'));
+assert.match(centerPathBody, /setLineDash\(\[2 \* spec\.brushWidth, 1 \* spec\.brushWidth\]\)/);
+assert.match(centerPathBody, /setLineDash\(\[0\.001 \* spec\.brushWidth, 2 \* spec\.brushWidth\]\)/);
+assert.ok(!/setLineDashOffset\(/.test(centerPathBody));
+const eraserSource = fs.readFileSync(new URL(
+  '../../../note/src/main/ets/rendering/OriginalInkPartialEraser.ets', import.meta.url), 'utf8');
+assert.match(eraserSource, /backingDashPhase/);
 assert.match(createSource, /create_style_map/); assert.match(createSource, /styleMap: payload\.styleMap/);
 assert.match(modifySource, /normalizeOriginalEnum\(table\.readUint8\(16, 0\), TapePattern\.CHECKERS\)/);
 assert.match(modifySource, /inkEffectsTinted: table\.hasField\(18\)/);
@@ -250,4 +260,4 @@ assertDatabaseVersionAtLeast(schema, 61); assert.match(schema, /style_map_winner
 
 console.log('success|flatbuffer-field-12=1|signed-seed-floats=5|nullable-clear=1|' +
   'v33-v34=1|legacy-create-fallback=1|lww-stale=1|multi-ink-atomic=2|' +
-  'rollback=2|dash-render-consumer=1|no-local-log=1');
+  'rollback=2|dash-render-phase-zero=1|no-local-log=1');
