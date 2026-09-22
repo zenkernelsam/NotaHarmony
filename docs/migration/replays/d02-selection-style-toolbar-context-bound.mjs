@@ -89,11 +89,11 @@ function restoreOverlayAfterTemporaryEditor(state) {
   assert.equal(staleAfterPageSwitch.overlayRefreshes, 1);
   assert.equal(staleAfterPageSwitch.selectionVisible, false);
 }
-assert.equal([...canvas.matchAll(/this\.onSelectionInkControlsChanged\(null, null, 0\.5, 30, true, null\);/g)].length >= 11, true);
+assert.equal([...canvas.matchAll(/this\.onSelectionInkControlsChanged\(null, null, 0\.5, 30, true, null\);/g)].length >= 9, true);
 for (const context of [
   'finalImages.map',
   'result.math.id',
-  'created.id',
+  'result.topGroupIds',
   'cancelImageCrop',
   'confirmImageCrop',
   'pasteClipboard',

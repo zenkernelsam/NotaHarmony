@@ -6213,9 +6213,12 @@ export struct NoteCanvasView {
     } else if (action === SelectionMenuAction.EDIT_MATH) {
       this.startMathEditing();
     } else if (action === SelectionMenuAction.COPY) {
-      this.copySelectedToClipboard(
+      // 原版 dhb case1：cg2 写入剪贴板成功后 fvbVar2.a() 清空选区。
+      if (this.copySelectedToClipboard(
         state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
-        state.selectedImageIds, state.selectedMathIds, state.selectedGroupIds);
+        state.selectedImageIds, state.selectedMathIds, state.selectedGroupIds)) {
+        this.clearSelectionWithRegisterReset();
+      }
     } else if (action === SelectionMenuAction.PASTE) {
       const target: Point2D | null = this.selectionPasteTarget();
       if (target !== null) {
@@ -7025,14 +7028,11 @@ export struct NoteCanvasView {
           this.selectionGroups = result.groups;
           this.elementOrder = clonePageElementOrder(result.mutation.elementOrderAfter);
           this.synchronizeElementArraysByOrder();
-          const created: OriginalSelectionGroup = result.mutation.afterGroups[0];
-          this.selectionTool.selectElementIds(
-            strokeIds, shapeIds, textIds, imageIds, [created.id], mathIds);
-          this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
+          // 原版 dhb case4：kk9 组提交后 fvbVar.a() 清空选区（不重选新组）。
+          this.clearSelectionWithRegisterReset();
           this.originalInkIneligiblePages.delete(pageId);
           this.layerManager.rebuildFromStrokes(
             this.completedStrokes, this.renderCtx, this.viewport.zoom);
-          this.updateSelectionOverlay();
           this.renderFrame();
           this.notifyUndoRedo();
         }
@@ -7057,11 +7057,6 @@ export struct NoteCanvasView {
     if (group === null) {
       return;
     }
-    const strokeIds: string[] = state.selectedStrokeIds.slice();
-    const shapeIds: string[] = state.selectedShapeIds.slice();
-    const textIds: string[] = state.selectedTextBlockIds.slice();
-    const imageIds: string[] = state.selectedImageIds.slice();
-    const mathIds: string[] = state.selectedMathIds.slice();
     const pageId: string = this.loadedPageId;
     const generation: number = this.pageLoadGeneration;
     const beforeOrder: PageElementRef[] = clonePageElementOrder(this.elementOrder);
@@ -7085,13 +7080,11 @@ export struct NoteCanvasView {
           this.selectionGroups = result.groups;
           this.elementOrder = clonePageElementOrder(result.mutation.elementOrderAfter);
           this.synchronizeElementArraysByOrder();
-          this.selectionTool.selectElementIds(
-            strokeIds, shapeIds, textIds, imageIds, [], mathIds);
-          this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
+          // 原版 dhb case5：wsc 解组提交后 fvbVar.a() 清空选区（不重选成员）。
+          this.clearSelectionWithRegisterReset();
           this.originalInkIneligiblePages.delete(pageId);
           this.layerManager.rebuildFromStrokes(
             this.completedStrokes, this.renderCtx, this.viewport.zoom);
-          this.updateSelectionOverlay();
           this.renderFrame();
           this.notifyUndoRedo();
         }
@@ -7284,7 +7277,8 @@ export struct NoteCanvasView {
       beforeTextBlocks: [], afterTextBlocks: [], beforeImages: beforeImages,
       afterImages: afterImages, beforeMathBlocks: [], afterMathBlocks: [],
     });
-    this.updateSelectionOverlay();
+    // 原版 dhb case16/17：mub 翻转协程后 fvbVar.a() 清空选区。
+    this.clearSelectionWithRegisterReset();
     this.persist(this.areCanonicalOriginalPositionSelection([], [], [], imageIds, []));
     this.notifyUndoRedo();
     this.renderFrame();
@@ -7356,7 +7350,8 @@ export struct NoteCanvasView {
       beforeImages: beforeImages, afterImages: afterImages,
       beforeMathBlocks: beforeMathBlocks, afterMathBlocks: afterMathBlocks,
     });
-    this.updateSelectionOverlay();
+    // 原版 dhb case18/19：u5j 锁定切换协程后 fvbVar.a() 清空选区。
+    this.clearSelectionWithRegisterReset();
     this.persist(this.areCanonicalOriginalPositionSelection([],
       beforeShapes.map((shape: ShapeElement): string => shape.id),
       beforeTextBlocks.map((text: TextBlockElement): string => text.id),
