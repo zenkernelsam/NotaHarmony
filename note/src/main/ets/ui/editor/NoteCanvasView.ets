@@ -1932,6 +1932,11 @@ export struct NoteCanvasView {
       this.applyEraser();
       this.eraserActive = false;
       this.eraserPath = [];
+      // 原版 i8f.d / auto_deselect_eraser：擦除手势结束后按设置切回上个工具。
+      this.viewModel.autoDeselectEraserAfterUse().catch((e: Object): void => {
+        this.viewModel.onPersistenceError(
+          `auto-deselect eraser failed: ${JSON.stringify(e)}`);
+      });
     } else if (this.selectionDrawing) {
       const ids: string[] = this.selectionTool.finalizeSelection(
         this.completedStrokes, this.shapes, this.textBlocks, this.imageBlocks,

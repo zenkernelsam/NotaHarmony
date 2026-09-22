@@ -15,14 +15,15 @@ const KEEP_DEVICE_AWAKE_KEY: string = 'keepDeviceAwake';
 const HIDE_STATUS_BAR_KEY: string = 'hideStatusBar';
 const HIDE_NAVIGATION_BAR_KEY: string = 'hideNavigationBar';
 const NOTE_VIEW_NIGHT_MODE_KEY: string = 'noteViewNightMode';
+const AUTO_DESELECT_ERASER_KEY: string = 'autoDeselectEraser';
 export const DEFAULT_SHAPE_DETECTION_ENABLED: boolean = true;
-// 原版 keep_device_awake / hide_status_bar / hide_navigation_bar 开关默认
-// 关（原版无真值表硬证据，登记差异）。
+// 原版 o59.c 真值表：keepAwake/noteNightView/autoDeselectEraser 缺省 false；
+// hideStatusBar/hideNavigationBar 缺省 true（opt-out，证据修正 Phase 561）。
 export const DEFAULT_KEEP_DEVICE_AWAKE: boolean = false;
-export const DEFAULT_HIDE_STATUS_BAR: boolean = false;
-export const DEFAULT_HIDE_NAVIGATION_BAR: boolean = false;
-// 原版 note_view_night_mode 默认关（无真值表证据，登记差异）。
+export const DEFAULT_HIDE_STATUS_BAR: boolean = true;
+export const DEFAULT_HIDE_NAVIGATION_BAR: boolean = true;
 export const DEFAULT_NOTE_VIEW_NIGHT_MODE: boolean = false;
+export const DEFAULT_AUTO_DESELECT_ERASER: boolean = false;
 
 export interface EditorSettingsRepository {
   getShapeDetectionEnabled(): Promise<boolean>;
@@ -35,6 +36,8 @@ export interface EditorSettingsRepository {
   saveHideNavigationBar(enabled: boolean): Promise<void>;
   getNoteViewNightMode(): Promise<boolean>;
   saveNoteViewNightMode(enabled: boolean): Promise<void>;
+  getAutoDeselectEraser(): Promise<boolean>;
+  saveAutoDeselectEraser(enabled: boolean): Promise<void>;
 }
 
 export interface DefaultNoteTemplateRepository {
@@ -191,6 +194,16 @@ export class EditorSettingsStore implements EditorSettingsRepository, DefaultNot
   async saveNoteViewNightMode(enabled: boolean): Promise<void> {
     await this.saveBooleanPref(NOTE_VIEW_NIGHT_MODE_KEY, enabled,
       DEFAULT_NOTE_VIEW_NIGHT_MODE, 'saveNoteViewNightMode');
+  }
+
+  // 原版 x22 case 3 / o59.m：autoDeselectEraser —— 擦除后工具栏切回上个工具。
+  async getAutoDeselectEraser(): Promise<boolean> {
+    return this.getBooleanPref(AUTO_DESELECT_ERASER_KEY, DEFAULT_AUTO_DESELECT_ERASER);
+  }
+
+  async saveAutoDeselectEraser(enabled: boolean): Promise<void> {
+    await this.saveBooleanPref(AUTO_DESELECT_ERASER_KEY, enabled,
+      DEFAULT_AUTO_DESELECT_ERASER, 'saveAutoDeselectEraser');
   }
 
   async getSelectedDefaultTemplate(): Promise<OriginalDefaultTemplateSelection> {

@@ -22,6 +22,9 @@ export class EditorViewModel {
   showColorPicker: boolean = false;
   showWidthSlider: boolean = false;
   shapeDetectionEnabled: boolean = true;
+  // 原版 x22 case 3 / i8f.d：autoDeselectEraser——擦除后工具栏自动切回
+  // 上一个工具（epi.c 取 previouslySelected）。
+  autoDeselectEraser: boolean = false;
   toolStateLoading: boolean = true;
   toolStateLoadFailed: boolean = false;
   // Structural mirror of `states` reassigned on every tray mutation so @ObjectLink
@@ -146,6 +149,7 @@ export class EditorViewModel {
       if (settingsRepository !== null) {
         try {
           this.shapeDetectionEnabled = await settingsRepository.getShapeDetectionEnabled();
+          this.autoDeselectEraser = await settingsRepository.getAutoDeselectEraser();
           if (!this.isInitializationCurrent()) {
             return false;
           }
@@ -723,6 +727,21 @@ export class EditorViewModel {
 
   isEraserActive(): boolean {
     return this.currentTool === ToolType.PARTIAL_ERASER || this.currentTool === ToolType.WHOLE_ERASER;
+  }
+
+  // 原版 i8f.d parity：autoDeselectEraser 开启时，擦除手势结束后工具栏
+  // 切回 previouslySelected 工具（对应 selectToolById(previousToolId)）。
+  // 隐藏/失效/同工具时保持不动。
+  async autoDeselectEraserAfterUse(): Promise<void> {
+    if (!this.autoDeselectEraser || !this.isEraserActive()) {
+      return;
+    }
+    const previous: ToolState | null = this.findById(this.previousToolId);
+    if (previous === null || previous.trayType === TRAY_TYPE_HIDDEN ||
+      previous.toolId === this.activeToolId) {
+      return;
+    }
+    await this.selectToolById(previous.toolId);
   }
 
   isSelectionActive(): boolean {

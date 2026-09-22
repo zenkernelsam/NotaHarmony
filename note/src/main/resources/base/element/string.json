@@ -1006,7 +1006,9 @@
     { "name": "note_editor", "value": "Note Editor" },
     { "name": "shape_detection", "value": "Shapes detection" },    { "name": "keep_device_awake", "value": "Keep device awake" },    { "name": "hide_status_bar", "value": "Hide status bar in note view" },
     { "name": "hide_navigation_bar", "value": "Hide navigation bar in note view" },    { "name": "note_view_night_mode", "value": "Note view night mode" },
-    { "name": "note_view_night_mode_caption", "value": "View your notes (paper and ink) with a dark appearance" },
+    { "name": "note_view_night_mode_caption", "value": "View your notes (paper and ink) with a dark appearance" },    { "name": "auto_deselect_eraser", "value": "Auto-deselect eraser" },
+    { "name": "auto_deselect_eraser_description", "value": "After erasing, the toolbox auto-switches back to your last used tool." },
+
 
 
 

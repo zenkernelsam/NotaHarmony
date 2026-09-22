@@ -411,6 +411,13 @@ class FakeEditorSettingsRepository implements EditorSettingsRepository {
   async saveNoteViewNightMode(_enabled: boolean): Promise<void> {
   }
 
+  async getAutoDeselectEraser(): Promise<boolean> {
+    return false;
+  }
+
+  async saveAutoDeselectEraser(_enabled: boolean): Promise<void> {
+  }
+
   async saveShapeDetectionEnabled(enabled: boolean): Promise<void> {
     this.saveAttempts.push(enabled);
     const gate: DeferredSave | undefined = this.saveGates.shift();
