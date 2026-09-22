@@ -40,6 +40,11 @@ export struct EditorToolbar {
   @Prop selectionStyle: BrushStyle = BrushStyle.MONO;
   @Prop canUndo: boolean = false;
   @Prop canRedo: boolean = false;
+  // 原版 o94 case14：胶带工具设置行内 Hide/Reveal Tapes（NotePage 会话态）。
+  @Prop tapeCount: number = 0;
+  @Prop anyTapeRevealed: boolean = false;
+  onTapeToggle: () => void = () => {
+  };
   // T-038：主题状态
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -464,6 +469,11 @@ export struct EditorToolbar {
       viewModel: this.viewModel,
       onClose: (): void => {
         this.showToolSettings = false;
+      },
+      tapeCount: this.tapeCount,
+      anyTapeRevealed: this.anyTapeRevealed,
+      onTapeToggle: (): void => {
+        this.onTapeToggle();
       },
     })
   }

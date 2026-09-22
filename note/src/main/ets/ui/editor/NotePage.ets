@@ -1220,6 +1220,11 @@ struct NotePage {
           viewModel: this.viewModel,
           canUndo: this.canUndo,
           canRedo: this.canRedo,
+          tapeCount: this.pageTapeCount,
+          anyTapeRevealed: this.anyTapeRevealed,
+          onTapeToggle: (): void => {
+            this.tapeToggleSignal++;
+          },
           onUndo: () => {
             if (!this.photoImportLeaseActive && !this.pageOperationBusy &&
               !this.historyPending) {

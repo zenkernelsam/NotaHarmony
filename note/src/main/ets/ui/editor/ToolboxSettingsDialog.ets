@@ -26,6 +26,12 @@ export struct ToolboxSettingsDialog {
   @ObjectLink viewModel: EditorViewModel;
   onClose: () => void = () => {
   };
+  // 原版 o94 case14/ipi.b：胶带工具设置页内的 Hide/Reveal Tapes 行——
+  // 作用于全部可见 tape（空集 no-op），标签随已揭示态翻转。
+  @Prop tapeCount: number = 0;
+  @Prop anyTapeRevealed: boolean = false;
+  onTapeToggle: () => void = () => {
+  };
   @State visibleTools: ToolState[] = [];
   @State hiddenTools: ToolState[] = [];
   @State primaryFull: boolean = false;
@@ -102,6 +108,17 @@ export struct ToolboxSettingsDialog {
           this.tapePatternToolId = tool.toolId;
         },
       });
+      // 原版 o94 case14/ipi.b：同一设置面内的 Hide/Reveal Tapes 行
+      // （oh9 → np0 case5 全量 toggle）；与编辑页 ⋮ 菜单共用同一信号。
+      if (this.tapeCount > 0) {
+        items.push({
+          value: this.anyTapeRevealed ?
+            $r('app.string.hide_tapes') : $r('app.string.reveal_tapes'),
+          action: (): void => {
+            this.onTapeToggle();
+          },
+        });
+      }
     }
     if (this.viewModel.canDeleteTool(tool.toolId)) {
       items.push({
