@@ -181,7 +181,8 @@ import {
 import {
   OriginalAudioLinkedPlayback, OriginalAudioSegmentRange, resolveOriginalAudioLinkedPlayback,
 } from '../../core/adaptation/OriginalAudioLinkedInkPlayback';
-import { OriginalPhotoIngressItem } from '../../data/OriginalPhotoIngress';
+import { OriginalPhotoIngressItem,
+  OriginalPhotoTooLargeError } from '../../data/OriginalPhotoIngress';
 import { pickAndImportOriginalPhotos } from '../../data/OriginalPhotoPickerCaller';
 import { captureAndImportOriginalPhoto } from '../../data/OriginalCameraPickerCaller';
 import {
@@ -5677,6 +5678,14 @@ export struct NoteCanvasView {
     };
   }
 
+  // 原版 u49/rd9：超限图片弹 image_too_large_to_add，其余走通用失败文案。
+  private photoErrorToastRes(e: Error): Resource {
+    if (e instanceof OriginalPhotoTooLargeError) {
+      return $r('app.string.image_too_large_to_add');
+    }
+    return $r('app.string.original_photo_insert_failed');
+  }
+
   private async startOriginalPhotoInsert(): Promise<void> {
     if (!this.canStartOriginalPhotoInsert()) {
       return;
@@ -5709,7 +5718,7 @@ export struct NoteCanvasView {
       hilog.error(0x0001, 'NoteCanvasView', 'original photo insert failed: %{public}s',
         JSON.stringify(e));
       if (origin !== null && this.isPhotoContextCurrent(origin.generation, origin.pageId)) {
-        promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),
+        promptAction.showToast({ message: this.photoErrorToastRes(e as Error),
           duration: 3000 });
       }
     } finally {
@@ -5769,7 +5778,7 @@ export struct NoteCanvasView {
       hilog.error(0x0001, 'NoteCanvasView',
         'original clipboard image paste failed: %{public}s', JSON.stringify(e));
       if (this.isPhotoContextCurrent(pasteGeneration, pastePageId)) {
-        promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),
+        promptAction.showToast({ message: this.photoErrorToastRes(e as Error),
           duration: 3000 });
       }
     } finally {
@@ -6016,7 +6025,7 @@ export struct NoteCanvasView {
       hilog.error(0x0001, 'NoteCanvasView', 'original camera capture failed: %{public}s',
         JSON.stringify(e));
       if (origin !== null && this.isPhotoContextCurrent(origin.generation, origin.pageId)) {
-        promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),
+        promptAction.showToast({ message: this.photoErrorToastRes(e as Error),
           duration: 3000 });
       }
     } finally {

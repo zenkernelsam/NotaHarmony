@@ -361,6 +361,7 @@
     { "name": "history_recovery_complete", "value": "撤销历史已重置，新修改可撤销。" },
     { "name": "history_recovery_failed", "value": "无法重置撤销历史；仍可在没有已保存撤销的情况下继续编辑。" },
     { "name": "original_photo_insert_failed", "value": "无法添加图片" },
+    { "name": "image_too_large_to_add", "value": "图片过大，无法添加" },
     { "name": "original_photo_insert_partial_failed", "value": "部分图片未能添加" },
     { "name": "read_pasteboard_permission_reason", "value": "允许应用粘贴剪贴板中的图片" }
   ]

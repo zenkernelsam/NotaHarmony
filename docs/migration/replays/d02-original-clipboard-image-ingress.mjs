@@ -130,11 +130,11 @@ const checks = [
     canvas.includes('this.loadedPageId = targetPageId;') &&
     canvas.includes('this.clipboardPasteTarget = null;\n      this.systemClipboardImageAvailable = false;')],
   ['failures show the localized insert failure toast',
-    pasteSource.includes("$r('app.string.original_photo_insert_failed')")],
+    pasteSource.includes('this.photoErrorToastRes(e as Error)')],
   ['paste failure feedback stays on the originating page',
-    pasteSource.includes("promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),") &&
+    pasteSource.includes('promptAction.showToast({ message: this.photoErrorToastRes(e as Error),') &&
     pasteSource.indexOf('this.isPhotoContextCurrent(pasteGeneration, pastePageId)') <
-      pasteSource.indexOf("$r('app.string.original_photo_insert_failed')")],
+      pasteSource.indexOf('this.photoErrorToastRes(e as Error)')],
   ['paste requests the SDK READ_PASTEBOARD permission before reading data',
     pasteSource.includes("if (!await ensureOriginalClipboardReadPermission()) {") &&
     canvas.includes("import { ensureOriginalClipboardReadPermission } from '../../data/OriginalClipboardPermissionGateway';")],

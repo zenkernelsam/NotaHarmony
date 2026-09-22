@@ -25,7 +25,7 @@ const end = page.indexOf('  private async startOriginalClipboardImagePaste(): Pr
 assert.ok(start !== -1 && end !== -1);
 const photo = page.slice(start, end);
 assert.equal([...photo.matchAll(/this\.isPhotoContextCurrent\(origin\.generation, origin\.pageId\)/g)].length, 3);
-for (const message of ['original_photo_insert_partial_failed', 'original_photo_insert_failed']) {
+for (const message of ['original_photo_insert_partial_failed', 'photoErrorToastRes']) {
   const toastIndex = photo.indexOf(message);
   const guardIndex = toastIndex >= 0 ?
     photo.lastIndexOf('this.isPhotoContextCurrent(origin.generation, origin.pageId)', toastIndex) : -1;

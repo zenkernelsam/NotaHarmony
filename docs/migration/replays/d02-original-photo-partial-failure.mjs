@@ -37,7 +37,7 @@ const checks = [
     startSource.indexOf('this.isPhotoContextCurrent(origin.generation, origin.pageId) &&\n        outcome.insertedCount < outcome.totalCount') <
       startSource.indexOf("$r('app.string.original_photo_insert_partial_failed')") &&
     startSource.lastIndexOf('if (origin !== null && this.isPhotoContextCurrent(origin.generation, origin.pageId)) {') <
-      startSource.indexOf("$r('app.string.original_photo_insert_failed')")],
+      startSource.indexOf('this.photoErrorToastRes(e as Error)')],
   ['successful prefix cannot clear a foreign page save state',
     insertSource.includes('if (this.isHistoryPageContextCurrent(generation, pageId) && !partialFailure) {') &&
     insertSource.indexOf('if (this.isHistoryPageContextCurrent(generation, pageId) && !partialFailure) {') <
@@ -45,7 +45,7 @@ const checks = [
   ['first-image failure remains whole-batch failed',
     insertSource.includes('if (results.length === 0) {') &&
     insertSource.includes("throw new Error('original photo insert commit failed');") &&
-    startSource.includes("message: $r('app.string.original_photo_insert_failed')")],
+    startSource.includes('message: this.photoErrorToastRes(e as Error)')],
   ['save-failure feedback stays bound to the inserting page',
     insertSource.includes('if (this.isHistoryPageContextCurrent(generation, pageId)) {') &&
     insertSource.lastIndexOf('if (this.isHistoryPageContextCurrent(generation, pageId)) {') <

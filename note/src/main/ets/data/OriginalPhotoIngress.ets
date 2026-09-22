@@ -3,6 +3,10 @@ import { NormalizedOriginalImageBytes, normalizeOriginalImageBytes } from './Ori
 
 export const ORIGINAL_PHOTO_MAX_BYTES: number = 104857600;
 
+// 原版 rd9→u49：超限图片对应 feature_note__image_too_large_to_add 专属提示。
+export class OriginalPhotoTooLargeError extends Error {
+}
+
 const SUPPORTED_EXTENSIONS: string[] = [
   'png', 'jpg', 'jpeg', 'webp', 'tif', 'tiff', 'gif', 'heif', 'heic',
 ];
@@ -71,7 +75,8 @@ export async function importOriginalPhotos(uris: string[], cacheDirectory: strin
         ORIGINAL_PHOTO_MAX_BYTES + 1);
       await writeTemporaryPhotoCopy(copyPath, bytes);
       if (isOversizedOriginalPhoto(bytes.byteLength)) {
-        throw new Error(`original photo exceeds ${ORIGINAL_PHOTO_MAX_BYTES} bytes`);
+        throw new OriginalPhotoTooLargeError(
+          `original photo exceeds ${ORIGINAL_PHOTO_MAX_BYTES} bytes`);
       }
       const normalized: NormalizedOriginalImageBytes = await normalizeOriginalImageBytes(bytes);
       const photoName: string = normalized.rewroteBytes ?
@@ -143,7 +148,7 @@ async function readPhotoUriWithLimit(uri: string, maxBytes: number): Promise<Uin
       throw new Error('original photo size is invalid');
     }
     if (stat.size > maxBytes) {
-      throw new Error('original photo exceeds the ingress limit');
+      throw new OriginalPhotoTooLargeError('original photo exceeds the ingress limit');
     }
     const output: Uint8Array = new Uint8Array(stat.size);
     let total = 0;

@@ -1042,6 +1042,10 @@
     { "name": "math_editor_cancel", "value": "Cancel" },
     { "name": "math_editor_done", "value": "Done" },
     { "name": "original_photo_insert_failed", "value": "Couldn\u0027t add photos" },
+    {
+      "name": "image_too_large_to_add",
+      "value": "Image is too large to add."
+    },
     { "name": "original_photo_insert_partial_failed", "value": "Some photos couldn't be added" },
     { "name": "read_pasteboard_permission_reason", "value": "Allows the app to paste images from the clipboard" }
   ]
