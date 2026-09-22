@@ -2114,6 +2114,18 @@ export struct NoteCanvasView {
       // later context-menu callback runs outside the touch handler.
       this.clipboardPasteTarget = { x: canvasP.x, y: canvasP.y };
     }
+    // 原版 zl2 case25（TEXT 工具点按面）：编辑中点按当前块外 → oke.a 提交并停用
+    // 编辑器；块内点按由编辑表面（TextArea）自行处理，画布不消费。
+    if (this.textEditing && this.editingTextBlock !== null) {
+      if (pointHitsTextBlock(canvasP, this.editingTextBlock)) {
+        return;
+      }
+      this.onTextCommit(this.editingDraftText).catch((e: Object): void => {
+        hilog.error(0x0001, 'NoteCanvasView', 'outside-tap Text commit failed: %{public}s',
+          JSON.stringify(e));
+      });
+      return;
+    }
     // 原版工具枚举没有 TEXT；移植侧用 DEFAULT 表示临时文本输入模式。
     // 只有该模式响应标准双击，避免橡皮、选区和书写快速点按误建文本框。
     if (this.viewModel.currentTool === ToolType.DEFAULT) {
