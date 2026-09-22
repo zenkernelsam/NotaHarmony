@@ -59,7 +59,9 @@ assert.match(library, /collapsed valid parent is intentionally not an orphan/);
 
 // Selection, current-folder display, and all folder mutations remain available from compact.
 assert.match(library, /Button\(this\.currentFolderName\(\)\)/);
-assert.match(library, /Text\(\$r\('app\.string\.all_notes'\)\)/);
+// The All Notes label now rides the dk9 section row (Phase 537); it must still
+// render inside the compact drawer.
+assert.match(library, /SectionNavRow\(\$r\('app\.string\.all_notes'\), LibrarySection\.ALL_NOTES/);
 assert.match(library, /showCreateFolderDialog\(\)/);
 assert.match(library, /showRenameFolderDialog\(folder\)/);
 assert.match(library, /confirmDeleteFolder\(folder\)/);

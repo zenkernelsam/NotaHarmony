@@ -4,12 +4,32 @@ import { NoteMeta, NoteViewState, PageInfo } from '../core/model/NoteTypes';
 import { EditorToolboxState, EditorTray, ToolState } from '../core/model/BrushTypes';
 import { NoteAsset } from '../core/model/AssetTypes';
 
+// Original dk9 library section ordinals (ALL_NOTES/RECENT/FAVORITES/UNFILED).
+export enum LibrarySection {
+  ALL_NOTES = 0,
+  RECENT = 1,
+  FAVORITES = 2,
+  UNFILED = 3,
+}
+
 export interface NoteRepository {
   createNote(title: string, folderId: string | null): Promise<NoteMeta>;
   getNote(noteId: string): Promise<NoteMeta | null>;
   getAllNotes(): Promise<NoteMeta[]>;
   getNotesByFolder(folderId: string): Promise<NoteMeta[]>;
   searchNotes(query: string, folderId: string | null): Promise<NoteMeta[]>;
+  // Original dk9 section queries (mk9/pk9): FAVORITES filters isFavorited,
+  // UNFILED filters subjectId IS NULL, RECENT sorts lastOpened desc top 10.
+  getFavoriteNotes(): Promise<NoteMeta[]>;
+  getRecentNotes(): Promise<NoteMeta[]>;
+  getUnfiledNotes(): Promise<NoteMeta[]>;
+  // searchNotes scoped to a dk9 section (applies when no folder is selected).
+  searchNotesInSection(query: string, section: LibrarySection): Promise<NoteMeta[]>;
+  // Original modifyNote{isFavorited} partial update: flips favorite without
+  // touching createdAt/updatedAt (x17 ClientPivot keeps snm.updatedAt).
+  setNoteFavorite(noteId: string, favorite: boolean): Promise<NoteMeta>;
+  // Original setLastOpened partial update powering the RECENT section.
+  touchNoteLastOpened(noteId: string, lastOpened: number): Promise<void>;
   updateNote(note: NoteMeta): Promise<void>;
   deleteNote(noteId: string): Promise<void>;
   getTrashedNotes(): Promise<NoteMeta[]>;

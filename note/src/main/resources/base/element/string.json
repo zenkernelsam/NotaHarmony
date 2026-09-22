@@ -489,6 +489,34 @@
       "value": "All Notes"
     },
     {
+      "name": "recent_notes",
+      "value": "Recent"
+    },
+    {
+      "name": "favorite_notes",
+      "value": "Favorites"
+    },
+    {
+      "name": "unfiled",
+      "value": "Unfiled"
+    },
+    {
+      "name": "favorite_note",
+      "value": "Favorite"
+    },
+    {
+      "name": "unfavorite_note",
+      "value": "Unfavorite"
+    },
+    {
+      "name": "empty_favorite_notes_title",
+      "value": "No favorite notes"
+    },
+    {
+      "name": "empty_favorite_notes_body",
+      "value": "Favorite a note in its context menu for easy access from any folder in this tab."
+    },
+    {
       "name": "new_folder",
       "value": "New Folder"
     },

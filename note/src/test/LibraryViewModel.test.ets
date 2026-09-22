@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { NoteMeta, NoteViewState } from '../main/ets/core/model/NoteTypes';
-import { NoteRepository } from '../main/ets/data/RepositoryInterfaces';
+import { LibrarySection, NoteRepository } from '../main/ets/data/RepositoryInterfaces';
 import { LibraryViewModel, NoteSortMode } from '../main/ets/ui/library/LibraryViewModel';
 
 class FakeNoteRepository implements NoteRepository {
@@ -75,6 +75,78 @@ class FakeNoteRepository implements NoteRepository {
       }
     }
     return result;
+  }
+
+  async getFavoriteNotes(): Promise<NoteMeta[]> {
+    const result: NoteMeta[] = [];
+    for (const note of this.notes) {
+      if (note.favorite) {
+        result.push(note);
+      }
+    }
+    return result;
+  }
+
+  async getRecentNotes(): Promise<NoteMeta[]> {
+    return this.notes.slice()
+      .sort((a: NoteMeta, b: NoteMeta) => b.lastOpened - a.lastOpened)
+      .slice(0, 10);
+  }
+
+  async getUnfiledNotes(): Promise<NoteMeta[]> {
+    const result: NoteMeta[] = [];
+    for (const note of this.notes) {
+      if (note.folderId === null) {
+        result.push(note);
+      }
+    }
+    return result;
+  }
+
+  async searchNotesInSection(query: string, section: LibrarySection): Promise<NoteMeta[]> {
+    let scoped: NoteMeta[];
+    if (section === LibrarySection.FAVORITES) {
+      scoped = await this.getFavoriteNotes();
+    } else if (section === LibrarySection.RECENT) {
+      scoped = await this.getRecentNotes();
+    } else if (section === LibrarySection.UNFILED) {
+      scoped = await this.getUnfiledNotes();
+    } else {
+      scoped = this.notes.slice();
+    }
+    const result: NoteMeta[] = [];
+    for (const note of scoped) {
+      if (note.title.toLowerCase().includes(query.toLowerCase())) {
+        result.push(note);
+      }
+    }
+    return result;
+  }
+
+  async setNoteFavorite(noteId: string, favorite: boolean): Promise<NoteMeta> {
+    for (let i = 0; i < this.notes.length; i++) {
+      if (this.notes[i].id === noteId) {
+        const note: NoteMeta = this.notes[i];
+        const updated: NoteMeta = {
+          id: note.id, title: note.title, createdAt: note.createdAt,
+          updatedAt: note.updatedAt, favorite: favorite, lastOpened: note.lastOpened,
+          folderId: note.folderId, hasRecordings: note.hasRecordings,
+          deletedAt: note.deletedAt,
+        };
+        this.notes[i] = updated;
+        return updated;
+      }
+    }
+    throw new Error('note not found');
+  }
+
+  async touchNoteLastOpened(noteId: string, lastOpened: number): Promise<void> {
+    for (const note of this.notes) {
+      if (note.id === noteId) {
+        note.lastOpened = lastOpened;
+        return;
+      }
+    }
   }
 
   async updateNote(_note: NoteMeta): Promise<void> {
@@ -387,6 +459,90 @@ export default function libraryViewModelTest() {
       expect(viewModel.notes[0].id).assertEqual('alpha');
       expect(viewModel.notes[1].id).assertEqual('gamma');
       expect(viewModel.notes[2].id).assertEqual('beta');
+    });
+
+    // Original dk9.FAVORITES (mk9 section query on isFavorited).
+    it('lists only favorited notes inside the Favorites section', 0, async () => {
+      const repository = new FakeNoteRepository();
+      const kept: NoteMeta = makeNote('kept', null);
+      kept.favorite = true;
+      repository.notes = [kept, makeNote('plain', null), makeNote('filed', 'folder-1')];
+
+      const viewModel = new LibraryViewModel(repository);
+      await viewModel.setSection(LibrarySection.FAVORITES, '');
+      expect(viewModel.currentSection).assertEqual(LibrarySection.FAVORITES);
+      expect(viewModel.currentFolderId === null).assertTrue();
+      expect(viewModel.notes.length).assertEqual(1);
+      expect(viewModel.notes[0].id).assertEqual('kept');
+    });
+
+    // Original dk9.RECENT (mk9: lastOpened desc, au1.N1 top 10).
+    it('orders Recent by lastOpened desc and caps at ten', 0, async () => {
+      const repository = new FakeNoteRepository();
+      const notes: NoteMeta[] = [];
+      for (let i = 0; i < 12; i++) {
+        const note: NoteMeta = makeNote(`note-${i}`, null);
+        note.lastOpened = i + 1;
+        notes.push(note);
+      }
+      repository.notes = notes;
+
+      const viewModel = new LibraryViewModel(repository);
+      await viewModel.setSection(LibrarySection.RECENT, '');
+      expect(viewModel.notes.length).assertEqual(10);
+      expect(viewModel.notes[0].id).assertEqual('note-11');
+      expect(viewModel.notes[9].id).assertEqual('note-2');
+      // RECENT bypasses the section sort modes (mk9 skips pk9.s).
+      viewModel.setSortMode(NoteSortMode.TITLE);
+      expect(viewModel.notes[0].id).assertEqual('note-11');
+    });
+
+    // Original dk9.UNFILED (subjectId IS NULL).
+    it('lists only folderless notes inside Unfiled', 0, async () => {
+      const repository = new FakeNoteRepository();
+      repository.notes = [makeNote('loose', null), makeNote('filed', 'folder-1')];
+
+      const viewModel = new LibraryViewModel(repository);
+      await viewModel.setSection(LibrarySection.UNFILED, '');
+      expect(viewModel.notes.length).assertEqual(1);
+      expect(viewModel.notes[0].id).assertEqual('loose');
+    });
+
+    // Original setFavorite partial update: the flag flips in place and drops
+    // out of the FAVORITES projection, without touching updatedAt.
+    it('toggles favorite and keeps the section projection consistent', 0, async () => {
+      const repository = new FakeNoteRepository();
+      const alpha: NoteMeta = makeNote('alpha', null);
+      alpha.updatedAt = 42;
+      const beta: NoteMeta = makeNote('beta', null);
+      beta.favorite = true;
+      repository.notes = [alpha, beta];
+
+      const viewModel = new LibraryViewModel(repository);
+      await viewModel.loadNotes('');
+      await viewModel.toggleFavorite('alpha');
+      expect(repository.notes[0].favorite).assertTrue();
+      expect(viewModel.notes.find((n: NoteMeta) => n.id === 'alpha')?.favorite)
+        .assertTrue();
+      expect(repository.notes[0].updatedAt).assertEqual(42);
+
+      await viewModel.setSection(LibrarySection.FAVORITES, '');
+      expect(viewModel.notes.length).assertEqual(2);
+      await viewModel.toggleFavorite('alpha');
+      expect(viewModel.notes.length).assertEqual(1);
+      expect(viewModel.notes[0].id).assertEqual('beta');
+    });
+
+    // Folder selection resets the dk9 section back to ALL_NOTES (pk9 default).
+    it('resets the section when a folder is selected', 0, async () => {
+      const repository = new FakeNoteRepository();
+      repository.notes = [makeNote('filed', 'folder-1')];
+
+      const viewModel = new LibraryViewModel(repository);
+      await viewModel.setSection(LibrarySection.FAVORITES, '');
+      await viewModel.setFolder('folder-1', '');
+      expect(viewModel.currentSection).assertEqual(LibrarySection.ALL_NOTES);
+      expect(viewModel.currentFolderId).assertEqual('folder-1');
     });
   });
 }

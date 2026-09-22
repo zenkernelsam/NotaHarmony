@@ -320,6 +320,11 @@ struct NotePage {
         throw new Error('note does not exist');
       }
       this.noteTitle = note.title;
+      // Original setLastOpened partial update (dk9.RECENT feed): opening the
+      // editor stamps last_opened without touching createdAt/updatedAt.
+      this.noteRepo.touchNoteLastOpened(this.noteId, Date.now()).catch((e: Error) => {
+        console.error(`lastOpened touch failed: ${JSON.stringify(e)}`);
+      });
       const loaded: PageInfo[] = await this.pageRepo.getPages(this.noteId);
       if (loaded.length === 0) {
         // Legacy/corrupt zero-page recovery only. Normal original blank-note creation has

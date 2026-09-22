@@ -1,7 +1,9 @@
 // T-018 资料库状态管理（@Observed；T-035 增加排序）
 import { NoteMeta } from '../../core/model/NoteTypes';
 import { ORIGINAL_NOTE_DEFAULT_TITLE } from '../../core/model/OriginalNoteTitlePolicy';
-import { NoteRepository } from '../../data/RepositoryInterfaces';
+import { LibrarySection, NoteRepository } from '../../data/RepositoryInterfaces';
+
+export { LibrarySection }
 
 // 排序模式（T-035）
 export enum NoteSortMode {
@@ -18,6 +20,10 @@ export class LibraryViewModel {
   sortMode: NoteSortMode = NoteSortMode.UPDATED;
   // T-039：当前浏览文件夹（null=全部笔记）
   currentFolderId: string | null = null;
+  // Original dk9 section (ALL_NOTES/RECENT/FAVORITES/UNFILED chips; ua5.java).
+  // Sections apply when no folder is selected; selecting a folder resets to
+  // ALL_NOTES and selecting a section clears the folder selection.
+  currentSection: LibrarySection = LibrarySection.ALL_NOTES;
   private repo: NoteRepository;
   private loadGeneration: number = 0;
   private mutationGeneration: number = 0;
@@ -44,15 +50,10 @@ export class LibraryViewModel {
       while (generation === this.loadGeneration) {
         const mutationGeneration: number = this.mutationGeneration;
         const folderId: string | null = this.currentFolderId;
+        const section: LibrarySection = this.currentSection;
         let loaded: NoteMeta[];
         try {
-          if (query.trim().length > 0) {
-            loaded = await this.repo.searchNotes(query, folderId);
-          } else if (folderId === null) {
-            loaded = await this.repo.getAllNotes();
-          } else {
-            loaded = await this.repo.getNotesByFolder(folderId);
-          }
+          loaded = await this.queryNotes(query, folderId, section);
         } catch (e) {
           if (generation !== this.loadGeneration) {
             return;
@@ -84,13 +85,83 @@ export class LibraryViewModel {
   // T-039：切换浏览文件夹并刷新
   async setFolder(folderId: string | null, query: string): Promise<void> {
     const previousFolderId: string | null = this.currentFolderId;
+    const previousSection: LibrarySection = this.currentSection;
     this.currentFolderId = folderId;
+    // Folder selection is a separate dimension in the original; picking a
+    // subject leaves the dk9 chips on ALL_NOTES (pk9 default).
+    this.currentSection = LibrarySection.ALL_NOTES;
     try {
       await this.loadNotes(query);
     } catch (e) {
       this.currentFolderId = previousFolderId;
+      this.currentSection = previousSection;
       throw new Error(`setFolder failed: ${JSON.stringify(e)}`);
     }
+  }
+
+  // Original dk9 chip selection (ua5): a section replaces the folder view.
+  async setSection(section: LibrarySection, query: string): Promise<void> {
+    const previousFolderId: string | null = this.currentFolderId;
+    const previousSection: LibrarySection = this.currentSection;
+    this.currentFolderId = null;
+    this.currentSection = section;
+    try {
+      await this.loadNotes(query);
+    } catch (e) {
+      this.currentFolderId = previousFolderId;
+      this.currentSection = previousSection;
+      throw new Error(`setSection failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // Original setFavorite (modifyNote{isFavorited}): toggles the flag and
+  // updates the visible projection; unfavoriting inside FAVORITES drops the
+  // row exactly like the original section filter would on reload.
+  async toggleFavorite(noteId: string): Promise<void> {
+    await this.enqueueMutation(async (): Promise<void> => {
+      const note: NoteMeta | null = await this.repo.getNote(noteId);
+      if (note === null) {
+        return;
+      }
+      const persisted: NoteMeta = await this.repo.setNoteFavorite(noteId, !note.favorite);
+      this.mutationGeneration++;
+      const next: NoteMeta[] = [];
+      for (const item of this.notes) {
+        if (item.id !== noteId) {
+          next.push(item);
+          continue;
+        }
+        if (this.currentSection === LibrarySection.FAVORITES &&
+          this.currentFolderId === null && !persisted.favorite) {
+          continue;
+        }
+        next.push(this.noteWithFavorite(item, persisted.favorite));
+      }
+      this.notes = next;
+      this.applySort();
+    });
+  }
+
+  private queryNotes(query: string, folderId: string | null,
+    section: LibrarySection): Promise<NoteMeta[]> {
+    if (query.trim().length > 0) {
+      return folderId === null && section !== LibrarySection.ALL_NOTES ?
+        this.repo.searchNotesInSection(query, section) :
+        this.repo.searchNotes(query, folderId);
+    }
+    if (folderId !== null) {
+      return this.repo.getNotesByFolder(folderId);
+    }
+    if (section === LibrarySection.FAVORITES) {
+      return this.repo.getFavoriteNotes();
+    }
+    if (section === LibrarySection.RECENT) {
+      return this.repo.getRecentNotes();
+    }
+    if (section === LibrarySection.UNFILED) {
+      return this.repo.getUnfiledNotes();
+    }
+    return this.repo.getAllNotes();
   }
 
   // 设置排序模式并刷新
@@ -105,6 +176,11 @@ export class LibraryViewModel {
 
   // 按当前模式排序。
   private applySort(): void {
+    // Original dk9.RECENT has a fixed ordering (mk9: lastOpened desc, top 10)
+    // that bypasses the he7/je7 section sort entirely.
+    if (this.currentFolderId === null && this.currentSection === LibrarySection.RECENT) {
+      return;
+    }
     const sorted: NoteMeta[] = this.notes.slice();
     if (this.sortMode === NoteSortMode.UPDATED) {
       sorted.sort((a: NoteMeta, b: NoteMeta) => b.updatedAt - a.updatedAt);
@@ -148,15 +224,10 @@ export class LibraryViewModel {
           while (generation === this.loadGeneration) {
             const mutationGeneration: number = this.mutationGeneration;
             const folderId: string | null = this.currentFolderId;
+            const section: LibrarySection = this.currentSection;
             let loaded: NoteMeta[];
             try {
-              if (query.trim().length > 0) {
-                loaded = await this.repo.searchNotes(query, folderId);
-              } else if (folderId === null) {
-                loaded = await this.repo.getAllNotes();
-              } else {
-                loaded = await this.repo.getNotesByFolder(folderId);
-              }
+              loaded = await this.queryNotes(query, folderId, section);
             } catch (error) {
               if (generation !== this.loadGeneration ||
                 mutationGeneration !== this.mutationGeneration) {
@@ -249,6 +320,20 @@ export class LibraryViewModel {
       favorite: note.favorite,
       lastOpened: note.lastOpened,
       folderId: folderId,
+      hasRecordings: note.hasRecordings,
+      deletedAt: note.deletedAt,
+    };
+  }
+
+  private noteWithFavorite(note: NoteMeta, favorite: boolean): NoteMeta {
+    return {
+      id: note.id,
+      title: note.title,
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt,
+      favorite: favorite,
+      lastOpened: note.lastOpened,
+      folderId: note.folderId,
       hasRecordings: note.hasRecordings,
       deletedAt: note.deletedAt,
     };

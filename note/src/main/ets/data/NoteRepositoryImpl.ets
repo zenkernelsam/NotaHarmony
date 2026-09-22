@@ -9,7 +9,7 @@ import {
   originalFallbackDefaultTemplate,
 } from '../core/model/OriginalDefaultTemplate';
 import { HistoryMetadata, NoteMetadataHistoryState } from '../core/model/OpTypes';
-import { NoteRepository } from './RepositoryInterfaces';
+import { LibrarySection, NoteRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { databaseWriteMutex } from './DatabaseWriteMutex';
 import {
@@ -196,6 +196,165 @@ export class NoteRepositoryImpl implements NoteRepository {
     } catch (e) {
       throw new Error(`searchNotes failed: ${JSON.stringify(e)}`);
     }
+  }
+
+  // Original dk9.FAVORITES (x17 merged favorite=1), newest edit first like
+  // the ALL_NOTES projection (gb6.c0 date field = updatedAt).
+  async getFavoriteNotes(): Promise<NoteMeta[]> {
+    const store: relationalStore.RdbStore = this.db.getStore();
+    const predicates = new relationalStore.RdbPredicates('note_meta');
+    predicates.equalTo('favorite', 1);
+    predicates.isNull('deleted_at');
+    predicates.orderByDesc('updated_at');
+    try {
+      const resultSet = await store.query(predicates);
+      const notes: NoteMeta[] = [];
+      try {
+        while (resultSet.goToNextRow()) {
+          notes.push(this.rowToNote(resultSet));
+        }
+      } finally {
+        resultSet.close();
+      }
+      return notes;
+    } catch (e) {
+      throw new Error(`getFavoriteNotes failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // Original dk9.RECENT: mk9 sorts by apb.F (lastOpened, falling back to the
+  // note timestamp) descending and takes the top 10 (au1.N1(..., 10)).
+  async getRecentNotes(): Promise<NoteMeta[]> {
+    const store: relationalStore.RdbStore = this.db.getStore();
+    try {
+      const resultSet = await store.querySql(
+        `SELECT * FROM note_meta WHERE deleted_at IS NULL
+         ORDER BY last_opened DESC, updated_at DESC LIMIT 10`, []);
+      const notes: NoteMeta[] = [];
+      try {
+        while (resultSet.goToNextRow()) {
+          notes.push(this.rowToNote(resultSet));
+        }
+      } finally {
+        resultSet.close();
+      }
+      return notes;
+    } catch (e) {
+      throw new Error(`getRecentNotes failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // Original dk9.UNFILED: notes whose subjectId/folder is unset.
+  async getUnfiledNotes(): Promise<NoteMeta[]> {
+    const store: relationalStore.RdbStore = this.db.getStore();
+    const predicates = new relationalStore.RdbPredicates('note_meta');
+    predicates.isNull('folder_id');
+    predicates.isNull('deleted_at');
+    predicates.orderByDesc('updated_at');
+    try {
+      const resultSet = await store.query(predicates);
+      const notes: NoteMeta[] = [];
+      try {
+        while (resultSet.goToNextRow()) {
+          notes.push(this.rowToNote(resultSet));
+        }
+      } finally {
+        resultSet.close();
+      }
+      return notes;
+    } catch (e) {
+      throw new Error(`getUnfiledNotes failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  async searchNotesInSection(query: string, section: LibrarySection): Promise<NoteMeta[]> {
+    if (section === LibrarySection.ALL_NOTES) {
+      return this.searchNotes(query, null);
+    }
+    const foldedQuery: string = foldSearchText(query).trim();
+    if (foldedQuery.length === 0) {
+      if (section === LibrarySection.FAVORITES) {
+        return this.getFavoriteNotes();
+      }
+      return section === LibrarySection.RECENT ? this.getRecentNotes() :
+        this.getUnfiledNotes();
+    }
+    const escapedPattern: string = `%${escapeSearchLike(foldedQuery)}%`;
+    const store: relationalStore.RdbStore = this.db.getStore();
+    try {
+      let resultSet: relationalStore.ResultSet;
+      if (section === LibrarySection.FAVORITES) {
+        resultSet = await store.querySql(`SELECT note.* FROM note_meta note
+          WHERE note.deleted_at IS NULL AND note.favorite = 1
+            AND EXISTS (SELECT 1 FROM search_item item
+              WHERE item.note_id = note.id AND item.folded_text LIKE ? ESCAPE '\\')
+          ORDER BY note.updated_at DESC`, [escapedPattern]);
+      } else if (section === LibrarySection.UNFILED) {
+        resultSet = await store.querySql(`SELECT note.* FROM note_meta note
+          WHERE note.deleted_at IS NULL AND note.folder_id IS NULL
+            AND EXISTS (SELECT 1 FROM search_item item
+              WHERE item.note_id = note.id AND item.folded_text LIKE ? ESCAPE '\\')
+          ORDER BY note.updated_at DESC`, [escapedPattern]);
+      } else {
+        resultSet = await store.querySql(`SELECT note.* FROM note_meta note
+          WHERE note.deleted_at IS NULL
+            AND EXISTS (SELECT 1 FROM search_item item
+              WHERE item.note_id = note.id AND item.folded_text LIKE ? ESCAPE '\\')
+          ORDER BY note.last_opened DESC, note.updated_at DESC LIMIT 10`, [escapedPattern]);
+      }
+      const notes: NoteMeta[] = [];
+      try {
+        while (resultSet.goToNextRow()) {
+          notes.push(this.rowToNote(resultSet));
+        }
+      } finally {
+        resultSet.close();
+      }
+      return notes;
+    } catch (e) {
+      throw new Error(`searchNotesInSection failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // Original setFavorite → modifyNote{isFavorited}: a partial metadata update
+  // that must not touch createdAt/updatedAt (x17 ClientPivot keeps them).
+  async setNoteFavorite(noteId: string, favorite: boolean): Promise<NoteMeta> {
+    return libraryMetadataMutationMutex.runExclusive(async (): Promise<NoteMeta> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      await store.beginTransaction();
+      try {
+        const bucket: relationalStore.ValuesBucket = { 'favorite': favorite ? 1 : 0 };
+        const predicates = new relationalStore.RdbPredicates('note_meta');
+        predicates.equalTo('id', noteId);
+        const updated: number = await store.update(bucket, predicates);
+        if (updated !== 1) {
+          throw new Error(`expected to update one note, updated ${updated}`);
+        }
+        const note: NoteMeta | null = await this.getNote(noteId);
+        if (note === null) {
+          throw new Error('favorited note does not exist');
+        }
+        await store.commit();
+        return note;
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`setNoteFavorite failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  // Original setLastOpened partial update: powers the dk9.RECENT section
+  // without touching createdAt/updatedAt.
+  async touchNoteLastOpened(noteId: string, lastOpened: number): Promise<void> {
+    await libraryMetadataMutationMutex.runExclusive(async (): Promise<void> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      const bucket: relationalStore.ValuesBucket = { 'last_opened': lastOpened };
+      const predicates = new relationalStore.RdbPredicates('note_meta');
+      predicates.equalTo('id', noteId);
+      await store.update(bucket, predicates);
+    }).catch((e: Error) => {
+      throw new Error(`touchNoteLastOpened failed: ${JSON.stringify(e)}`);
+    });
   }
 
   // Recently Deleted projection: original lists ClientPivot rows whose

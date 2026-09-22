@@ -23,7 +23,7 @@ import { ThumbnailRenderer } from '../../rendering/ThumbnailRenderer';
 import {
   isThumbnailSourceUnchanged, prioritizeThumbnailNoteIds, thumbnailCacheKey,
 } from '../../rendering/ThumbnailRenderPolicy';
-import { LibraryViewModel, NoteSortMode } from './LibraryViewModel';
+import { LibrarySection, LibraryViewModel, NoteSortMode } from './LibraryViewModel';
 import {
   ThemeStore, THEME_MODE_KEY, THEME_PREFERENCE_KEY, THEME_PREFERENCES_NAME, THEME_SYSTEM_DARK_KEY,
 } from '../theme/ThemeStore';
@@ -98,6 +98,8 @@ struct LibraryPage {
   private folderRepo: FolderRepositoryImpl | null = null;
   @State folders: NoteFolder[] = [];
   @State currentFolderId: string | null = null;
+  // Original dk9 library section (ua5 chip row): applies when no folder is selected.
+  @State currentSection: LibrarySection = LibrarySection.ALL_NOTES;
   private folderReadGeneration: number = 0;
   private folderMutationGeneration: number = 0;
   private folderDragVisibleIds: string[] = [];
@@ -185,6 +187,7 @@ struct LibraryPage {
       const query: string = this.searchText;
       const folderId: string | null = vm.currentFolderId;
       this.currentFolderId = folderId;
+      this.currentSection = vm.currentSection;
       const notesRequestGeneration: number = this.beginNotesRequest();
       if (this.notes.length === 0) {
         this.libraryLoading = true;
@@ -199,6 +202,7 @@ struct LibraryPage {
         this.hasInitError = false;
         this.viewModel = vm;
         this.currentFolderId = vm.currentFolderId;
+        this.currentSection = vm.currentSection;
         this.notes = vm.getFilteredNotes().slice();
         this.libraryLoading = false;
         return this.refreshThumbnails();
@@ -599,6 +603,7 @@ struct LibraryPage {
     vm.publishCommittedFolderDelete(
       result.deletedFolderIds, result.movedNoteIds, result.notes, this.searchText);
     this.currentFolderId = vm.currentFolderId;
+    this.currentSection = vm.currentSection;
     this.viewModel = vm;
     this.notes = vm.getFilteredNotes().slice();
     this.reloadFoldersBestEffort(repo, 'delete folder');
@@ -773,6 +778,27 @@ struct LibraryPage {
     this.reloadVisibleNotesAfterMutation(vm, 'move note');
   }
 
+  // Original setFavorite (modifyNote{isFavorited} / d5j menu): the VM mutation
+  // owns the partial write; the card list updates in place on success.
+  private toggleNoteFavorite(note: NoteMeta): void {
+    if (!this.pageActive || this.viewModel === null) {
+      return;
+    }
+    const vm: LibraryViewModel = this.viewModel;
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    vm.toggleFavorite(note.id).then(() => {
+      if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration ||
+        this.viewModel !== vm) {
+        return;
+      }
+      this.notes = vm.getFilteredNotes().slice();
+    }).catch((e: Error) => {
+      if (this.pageActive && lifecycleGeneration === this.lifecycleGeneration) {
+        console.error(`toggle favorite failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
   private publishCommittedFolders(folders: NoteFolder[]): void {
     this.folderMutationGeneration++;
     this.folderReadGeneration++;
@@ -924,6 +950,7 @@ struct LibraryPage {
     this.currentFolderId = folderId;
     try {
       await vm.setFolder(folderId, query);
+      this.currentSection = vm.currentSection;
       if (!this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId,
         lifecycleGeneration)) {
         return;
@@ -941,8 +968,51 @@ struct LibraryPage {
       if (this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId,
         lifecycleGeneration)) {
         this.currentFolderId = vm.currentFolderId;
+        this.currentSection = vm.currentSection;
         promptAction.showToast({ message: $r('app.string.load_notes_failed') });
         console.error(`select folder failed: ${JSON.stringify(e)}`);
+      }
+    } finally {
+      this.folderBusy = false;
+    }
+  }
+
+  // Original dk9 chip selection (ua5.java:227): a section replaces the folder
+  // view — selecting one clears the folder selection and vice versa.
+  private async selectSection(section: LibrarySection): Promise<void> {
+    if (!this.pageActive || this.viewModel === null || this.folderBusy) {
+      return;
+    }
+    const query: string = this.searchText;
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    const notesRequestGeneration: number = this.beginNotesRequest();
+    const vm: LibraryViewModel = this.viewModel;
+    this.folderBusy = true;
+    this.currentFolderId = null;
+    this.currentSection = section;
+    try {
+      await vm.setSection(section, query);
+      this.currentSection = vm.currentSection;
+      if (!this.isCurrentNotesRequest(notesRequestGeneration, vm, query, null,
+        lifecycleGeneration)) {
+        return;
+      }
+      this.initError = '';
+      this.hasInitError = false;
+      this.viewModel = vm;
+      this.notes = vm.getFilteredNotes().slice();
+      await this.refreshThumbnails();
+      if (this.isCurrentNotesRequest(notesRequestGeneration, vm, query, null,
+        lifecycleGeneration)) {
+        this.closeCompactFolderDrawer();
+      }
+    } catch (e) {
+      if (this.isCurrentNotesRequest(notesRequestGeneration, vm, query, null,
+        lifecycleGeneration)) {
+        this.currentFolderId = vm.currentFolderId;
+        this.currentSection = vm.currentSection;
+        promptAction.showToast({ message: $r('app.string.load_notes_failed') });
+        console.error(`select section failed: ${JSON.stringify(e)}`);
       }
     } finally {
       this.folderBusy = false;
@@ -1008,6 +1078,7 @@ struct LibraryPage {
       this.folderRepo = folderRepo;
       this.viewModel = vm;
       this.currentFolderId = vm.currentFolderId;
+      this.currentSection = vm.currentSection;
       const folderReadGeneration: number = ++this.folderReadGeneration;
       const folderMutationGeneration: number = this.folderMutationGeneration;
       try {
@@ -1039,6 +1110,7 @@ struct LibraryPage {
       }
       this.viewModel = vm;
       this.currentFolderId = vm.currentFolderId;
+      this.currentSection = vm.currentSection;
       this.notes = vm.getFilteredNotes().slice();
       this.libraryLoading = false;
       await this.refreshThumbnails();
@@ -1217,6 +1289,39 @@ struct LibraryPage {
     .shadow({ radius: 8, color: this.resolveTokens().shadow, offsetY: 4 })
   }
 
+  // Original dk9 section row (ua5 chip selection): selected when no folder is
+  // active and the section matches; tap swaps the folder view for the section.
+  @Builder
+  SectionNavRow(label: Resource, section: LibrarySection, edgePadding: number) {
+    Button() {
+      Row() {
+        Text(label)
+          .layoutWeight(1)
+          .fontSize(15)
+          .fontColor(this.currentFolderId === null && this.currentSection === section ?
+            this.resolveTokens().accent : this.resolveTokens().textPrimary)
+          .fontWeight(this.currentFolderId === null && this.currentSection === section ?
+            FontWeight.Medium : FontWeight.Normal)
+        if (this.currentFolderId === null && this.currentSection === section) {
+          Text('✓')
+            .fontSize(16)
+            .fontColor(this.resolveTokens().accent)
+        }
+      }
+      .width('100%')
+      .height('100%')
+    }
+    .width('100%')
+    .height(48)
+    .padding({ left: edgePadding, right: edgePadding })
+    .enabled(!this.folderBusy)
+    .backgroundColor(this.currentFolderId === null && this.currentSection === section ?
+      this.resolveTokens().control : this.resolveTokens().surface)
+    .onClick(() => {
+      this.selectSection(section);
+    })
+  }
+
   @Builder
   FolderNavigationList() {
     List({ space: 0 }) {
@@ -1277,32 +1382,10 @@ struct LibraryPage {
           .height(56)
           .padding({ left: 16, right: 8 })
 
-          Button() {
-            Row() {
-              Text($r('app.string.all_notes'))
-                .layoutWeight(1)
-                .fontSize(15)
-                .fontColor(this.currentFolderId === null ? this.resolveTokens().accent :
-                  this.resolveTokens().textPrimary)
-                .fontWeight(this.currentFolderId === null ? FontWeight.Medium : FontWeight.Normal)
-              if (this.currentFolderId === null) {
-                Text('✓')
-                  .fontSize(16)
-                  .fontColor(this.resolveTokens().accent)
-              }
-            }
-            .width('100%')
-            .height('100%')
-          }
-          .width('100%')
-          .height(48)
-          .padding({ left: 16, right: 16 })
-          .enabled(!this.folderBusy)
-          .backgroundColor(this.currentFolderId === null ? this.resolveTokens().control :
-            this.resolveTokens().surface)
-          .onClick(() => {
-            this.selectFolder(null);
-          })
+          this.SectionNavRow($r('app.string.all_notes'), LibrarySection.ALL_NOTES, 16)
+          this.SectionNavRow($r('app.string.recent_notes'), LibrarySection.RECENT, 16)
+          this.SectionNavRow($r('app.string.favorite_notes'), LibrarySection.FAVORITES, 16)
+          this.SectionNavRow($r('app.string.unfiled'), LibrarySection.UNFILED, 16)
 
           this.FolderNavigationList()
 
@@ -1338,30 +1421,10 @@ struct LibraryPage {
             .fontWeight(FontWeight.Bold)
             .fontColor(this.resolveTokens().textPrimary)
             .margin({ top: 16, bottom: 12 })
-          Button() {
-            Row() {
-              Text($r('app.string.all_notes'))
-                .layoutWeight(1)
-                .fontSize(15)
-                .fontColor(this.currentFolderId === null ? this.resolveTokens().accent :
-                  this.resolveTokens().textPrimary)
-                .fontWeight(this.currentFolderId === null ? FontWeight.Medium : FontWeight.Normal)
-              if (this.currentFolderId === null) {
-                Text('✓').fontSize(16).fontColor(this.resolveTokens().accent)
-              }
-            }
-            .width('100%')
-            .height('100%')
-          }
-          .width('100%')
-          .height(48)
-          .padding({ left: 8, right: 8 })
-          .backgroundColor(this.currentFolderId === null ? this.resolveTokens().control :
-            this.resolveTokens().surface)
-          .enabled(!this.folderBusy)
-          .onClick(() => {
-            this.selectFolder(null);
-          })
+          this.SectionNavRow($r('app.string.all_notes'), LibrarySection.ALL_NOTES, 8)
+          this.SectionNavRow($r('app.string.recent_notes'), LibrarySection.RECENT, 8)
+          this.SectionNavRow($r('app.string.favorite_notes'), LibrarySection.FAVORITES, 8)
+          this.SectionNavRow($r('app.string.unfiled'), LibrarySection.UNFILED, 8)
           this.FolderNavigationList()
           Button($r('app.string.new_folder'))
             .width('100%')
@@ -1449,6 +1512,7 @@ struct LibraryPage {
                   if (this.isCurrentNotesRequest(notesRequestGeneration, vm, value, folderId, lifecycleGeneration)) {
                     this.viewModel = vm;
                     this.currentFolderId = vm.currentFolderId;
+                    this.currentSection = vm.currentSection;
                     this.notes = vm.getFilteredNotes().slice();
                     this.libraryLoading = false;
                     return this.refreshThumbnails();
@@ -1530,11 +1594,24 @@ struct LibraryPage {
               .fontColor(this.resolveTokens().textSecondary)
               .layoutWeight(1)
           } else if (this.notes.length === 0) {
-            // 空结果提示（T-035）
+            // 空结果提示（T-035）；原版 FAVORITES 有专属空态
+            // （empty_favorite_notes_title/body）。
             Column() {
-              Text($r('app.string.no_matching_notes'))
-                .fontSize(16)
-                .fontColor(this.resolveTokens().textSecondary)
+              if (this.currentFolderId === null &&
+                this.currentSection === LibrarySection.FAVORITES) {
+                Text($r('app.string.empty_favorite_notes_title'))
+                  .fontSize(16)
+                  .fontColor(this.resolveTokens().textSecondary)
+                Text($r('app.string.empty_favorite_notes_body'))
+                  .fontSize(13)
+                  .fontColor(this.resolveTokens().textSecondary)
+                  .textAlign(TextAlign.Center)
+                  .margin({ top: 8, left: 24, right: 24 })
+              } else {
+                Text($r('app.string.no_matching_notes'))
+                  .fontSize(16)
+                  .fontColor(this.resolveTokens().textSecondary)
+              }
             }
             .width('100%')
             .layoutWeight(1)
@@ -1601,26 +1678,40 @@ struct LibraryPage {
   NoteCard(note: NoteMeta) {
     Column() {
       // 缩略图（T-035：@State thumbIds 驱动；无缩略图时灰色占位）
-      if (this.thumbIds.indexOf(note.id) >= 0) {
-        Image(this.thumbMap.get(note.id))
-          .width('100%')
-          .layoutWeight(1)
-          .objectFit(ImageFit.Contain)
-          .backgroundColor(this.resolveTokens().control)
-          .borderRadius(8)
-      } else {
-        Column()
-          .width('100%')
-          .layoutWeight(1)
-          .backgroundColor(this.resolveTokens().control)
-          .borderRadius(8)
+      Stack({ alignContent: Alignment.TopEnd }) {
+        if (this.thumbIds.indexOf(note.id) >= 0) {
+          Image(this.thumbMap.get(note.id))
+            .width('100%')
+            .height('100%')
+            .objectFit(ImageFit.Contain)
+            .backgroundColor(this.resolveTokens().control)
+            .borderRadius(8)
+        } else {
+          Column()
+            .width('100%')
+            .height('100%')
+            .backgroundColor(this.resolveTokens().control)
+            .borderRadius(8)
+        }
+        // pf9.java: w09.favorited renders the favorite_fill badge overlay.
+        if (note.favorite) {
+          Text('♥')
+            .fontSize(16)
+            .fontColor(this.resolveTokens().accent)
+            .margin({ top: 6, right: 6 })
+            .accessibilityText($r('app.string.favorite_notes'))
+        }
       }
+      .width('100%')
+      .layoutWeight(1)
       Text(note.title)
         .fontSize(14)
         .maxLines(1)
         .fontColor(this.resolveTokens().textPrimary)
         .margin({ top: 8 })
-      Text(this.formatTime(note.updatedAt))
+      // Original gb6.b0/c0: RECENT cards show lastOpened, others updatedAt.
+      Text(this.formatTime(this.currentFolderId === null &&
+        this.currentSection === LibrarySection.RECENT ? note.lastOpened : note.updatedAt))
         .fontSize(12)
         .fontColor(this.resolveTokens().textSecondary)
         .margin({ top: 2 })
@@ -1679,9 +1770,14 @@ struct LibraryPage {
   @Builder
   NoteContextMenu(note: NoteMeta) {
     Menu() {
-      MenuItem({ content: $r('app.string.delete') })
+      // Original d5j menu order keeps Favorite/Unfavorite near the top and
+      // Delete last; gj9 flips label/icon by the current favorited state.
+      MenuItem({
+        content: note.favorite ? $r('app.string.unfavorite_note') :
+          $r('app.string.favorite_note')
+      })
         .onClick(() => {
-          this.confirmDelete(note);
+          this.toggleNoteFavorite(note);
         })
       MenuItem({
         content: $r('app.string.move_to_folder'),
@@ -1689,6 +1785,10 @@ struct LibraryPage {
           this.MoveNoteSubMenu(note)
         },
       })
+      MenuItem({ content: $r('app.string.delete') })
+        .onClick(() => {
+          this.confirmDelete(note);
+        })
     }
   }
 
@@ -1902,6 +2002,18 @@ struct LibraryPage {
 
   // 当前文件夹名（顶部显示）
   private currentFolderName(): ResourceStr {
+    if (this.currentFolderId === null) {
+      if (this.currentSection === LibrarySection.RECENT) {
+        return $r('app.string.recent_notes');
+      }
+      if (this.currentSection === LibrarySection.FAVORITES) {
+        return $r('app.string.favorite_notes');
+      }
+      if (this.currentSection === LibrarySection.UNFILED) {
+        return $r('app.string.unfiled');
+      }
+      return $r('app.string.all_notes');
+    }
     for (const f of this.folders) {
       if (f.id === this.currentFolderId) {
         return f.name;
