@@ -129,7 +129,8 @@ import {
   OriginalImageCropSession, originalImageCropLocalDelta, resetOriginalImageCropDraft,
 } from '../../core/model/OriginalImageCropGeometry';
 import {
-  cloneShapeElement, eraserPathHitsShape, recomputeShapeBounds, transformShapeElements,
+  cloneShapeElement, eraserPathHitsShape, recomputeShapeBounds, tapeHitTestShape,
+  transformShapeElements,
 } from '../../core/model/ShapeGeometry';
 import { prepareRecognizedShapes } from '../../core/model/ShapeRecognition';
 import { ShapeHoldAdjustmentSession } from '../../core/model/ShapeHoldAdjustment';
@@ -953,7 +954,55 @@ export struct NoteCanvasView {
         ids.push(stroke.id);
       }
     }
+    for (const shape of this.shapes) {
+      if (shape.originalTool === 3) {
+        ids.push(shape.id);
+      }
+    }
     return ids;
+  }
+
+  // 原版 xtc.b(dl1 case2)：pointer-down 命中 tape 时收集该点覆盖的【全部】tape
+  // 元素 ID（fu1.f 区域查询 + I.k() 过滤），交由 ej9 case20 → xo5 set toggle。
+  private tapeIdsAtPoint(point: Point2D): string[] {
+    const ids: string[] = [];
+    for (const stroke of this.completedStrokes) {
+      if (stroke.renderSpec.tapePattern === undefined || stroke.renderSpec.tapePattern === null) {
+        continue;
+      }
+      if (this.eraserEngine.hitStrokeAtPoint(point, stroke)) {
+        ids.push(stroke.id);
+      }
+    }
+    for (const shape of this.shapes) {
+      if (shape.originalTool === 3 && tapeHitTestShape(point, shape)) {
+        ids.push(shape.id);
+      }
+    }
+    return ids;
+  }
+
+  // 原版 xo5 case2 toggle 语义（与全局 Hide/Reveal 相同，作用于点按覆盖的集合）：
+  // 全部已揭示 → 整组移除（隐藏），否则整组并入（揭示）。命中即消费此次手势。
+  private tapRevealTapeAt(point: Point2D): boolean {
+    const tapeIds: string[] = this.tapeIdsAtPoint(point);
+    if (tapeIds.length === 0) {
+      return false;
+    }
+    const allRevealed: boolean = tapeIds.every((id: string): boolean =>
+      this.revealedTapeIds.has(id));
+    if (allRevealed) {
+      for (const id of tapeIds) {
+        this.revealedTapeIds.delete(id);
+      }
+    } else {
+      for (const id of tapeIds) {
+        this.revealedTapeIds.add(id);
+      }
+    }
+    this.emitTapeRevealState();
+    this.renderFrame(true);
+    return true;
   }
 
   private toggleTapesReveal(): void {
@@ -1934,6 +1983,11 @@ export struct NoteCanvasView {
     // 原版工具枚举没有 TEXT；移植侧用 DEFAULT 表示临时文本输入模式。
     // 只有该模式响应标准双击，避免橡皮、选区和书写快速点按误建文本框。
     if (this.viewModel.currentTool === ToolType.DEFAULT) {
+      // 原版 dl1 case2 → xtc.b：tape 命中先于文本手势分发（点按揭示消费手势）。
+      if (this.tapRevealTapeAt(canvasP)) {
+        this.lastTapTime = 0;
+        return;
+      }
       if (this.toggleCheckboxMarkerAt(canvasP)) {
         this.lastTapTime = 0;
         return;
@@ -1957,6 +2011,13 @@ export struct NoteCanvasView {
     // 选区菜单区域：交给 SelectionOverlay 按钮处理，不进入画布逻辑
     // （避免 Canvas onTouch 触发 rebuild 导致按钮 click 识别失效；菜单按钮为屏幕坐标）
     if (this.selectionVisible && this.isInSelectionMenu(touch.x, touch.y)) {
+      return;
+    }
+
+    // 原版 dl1 case2 → xtc.b：pointer-down 先探测 tape 命中——命中即对该点覆盖的
+    // 全部 tape 元素执行揭示 toggle（ej9 case20 → xo5），并消费此次手势，
+    // 不再进入橡皮/选区/激光/书写工具分发。
+    if (this.tapRevealTapeAt(canvasP)) {
       return;
     }
 

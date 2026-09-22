@@ -203,6 +203,18 @@ export function eraserPathHitsShape(eraserPath: Point2D[], shape: ShapeElement,
   if (eraserPath.length === 0 || shape.positionLocked === true) {
     return false;
   }
+  return shapeCoveredByPath(eraserPath, shape, eraserWidth);
+}
+
+// 原版 xtc.b → fu1 元素查询：点是否落在形状元素覆盖范围内（中心线带宽 ±
+// strokeWidth·scale/2，闭合填充形状另含内部）。与橡皮覆盖同一套几何，但不受
+// positionLocked 约束——tape 揭示不是编辑操作，锁定元素仍可揭示。
+export function tapeHitTestShape(point: Point2D, shape: ShapeElement): boolean {
+  return shapeCoveredByPath([point], shape, 0);
+}
+
+function shapeCoveredByPath(eraserPath: Point2D[], shape: ShapeElement,
+  eraserWidth: number): boolean {
   const localSubpaths: Point2D[][] = shapeLocalSubpaths(shape);
   const shapeSubpaths: Point2D[][] = [];
   for (const local of localSubpaths) {
