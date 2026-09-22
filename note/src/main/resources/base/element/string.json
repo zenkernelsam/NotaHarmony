@@ -1088,6 +1088,7 @@
     { "name": "cd_quick_tool_color", "value": "Color" },
     { "name": "cd_page_indicator", "value": "%1$d of %2$d" },
     { "name": "toolbar_more_menu", "value": "More options" },
+    { "name": "options_menu_app_settings", "value": "App settings" },
     { "name": "zoom_in", "value": "Zoom in" },
     { "name": "zoom_out", "value": "Zoom out" },
 

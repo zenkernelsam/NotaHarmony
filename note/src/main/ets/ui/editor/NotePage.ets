@@ -838,6 +838,27 @@ struct NotePage {
     this.showRecordings = false;
   }
 
+  // 原版 rh8.f/ke1 ⋮ 选项菜单（options_menu）：生产构建中
+  // "App settings" 无条件渲染；Template settings(ac4.P) 与
+  // Version history(ac4.d0) 为远端旗标项，Inky(sc9.j) 与
+  // Disconnect stylus(t9f.e) 依赖 Harmony 不存在的状态面，故均不移植。
+  private buildEditorOptionsMenu(): MenuElement[] {
+    return [
+      { value: $r('app.string.options_menu_app_settings'),
+        action: () => { this.navigateToSettings(); } },
+    ];
+  }
+
+  private navigateToSettings(): void {
+    if (this.photoImportLeaseActive || this.pageLoadFailed || this.pageLoading ||
+      this.editorDisposed) {
+      return;
+    }
+    router.pushUrl({ url: 'ui/settings/SettingsPage' }).catch((e: Error) => {
+      console.error(`pushUrl failed: ${JSON.stringify(e)}`);
+    });
+  }
+
   private async finishRecordingSession(): Promise<boolean> {
     const session: OriginalRecordingSessionController | null = this.recordingSessionController;
     if (session === null) {
@@ -1164,6 +1185,16 @@ struct NotePage {
               this.showRecordings = true;
             }
           })
+        // 原版 rh8.f：编辑器 ⋮ 选项菜单无条件渲染在工具行尾端；
+        // 菜单中仅 "App settings" 无条件可见（rh8.java apb.f 无旗标包裹）。
+        Button('...')
+          .height(36)
+          .fontSize(13)
+          .margin({ left: 8 })
+          .enabled(!this.pageLoading && !this.pageLoadFailed &&
+            !this.photoImportLeaseActive)
+          .accessibilityText($r('app.string.toolbar_more_menu'))
+          .bindMenu(this.buildEditorOptionsMenu())
       }
       .width('100%')
       .height(48)
