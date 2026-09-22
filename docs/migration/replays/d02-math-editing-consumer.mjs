@@ -69,7 +69,7 @@ assert.match(canvas,
   /captureHistoryPageSnapshot[\s\S]*?mathBlocks: this\.mathBlocks\.map\([\s\S]*?cloneMathElement\(math\)/);
 assert.match(persistence,
   /saveHistoryGroup[\s\S]*?initial\.mathBlocks \?\? \[\][\s\S]*?step\.mathBlocks \?\? \[\]/);
-assert.match(selectionTest, /selects locked Math when its bounds are hit/);
+assert.match(selectionTest, /excludes position-locked Math \(fu1\.b\)/);
 assert.match(geometryTest, /leaves position-locked Math untouched/);
 assert.match(clipboardTest, /deep-copies Math and preserves five-kind z order/);
 assert.match(canvas, /this\.persistence\.commitOriginalMathLatex/);

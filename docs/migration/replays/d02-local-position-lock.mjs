@@ -51,8 +51,8 @@ assert.match(selection, /selectionPathHitsShape\(selectionPath, shape\)/);
 assert.match(selection, /if \(selectionPathHitsTextBlock\(selectionPath, textBlock\)\)/);
 assert.doesNotMatch(selection,
   /!isTextBlockPositionLocked\(textBlock\) && selectionPathHitsTextBlock/);
-assert.match(selectionFixtures, /position-locked text blocks so they can be unlocked/);
-assert.match(selectionFixtures, /position-locked images/);
+assert.match(selectionFixtures, /excludes position-locked text blocks from rectangle selection \(fu1\.b\)/);
+assert.match(selectionFixtures, /excluding position-locked images/);
 assert.match(shapeGeometry, /!selected\.has\(shape\.id\) \|\| shape\.positionLocked === true/);
 assert.match(shapeGeometry, /eraserPath\.length === 0 \|\| shape\.positionLocked === true/);
 assert.match(geometryFixtures, /position-locked Shapes immovable and whole-eraser safe/);

@@ -159,8 +159,15 @@ export class SelectionTool {
       }
     }
     this.state.selectedStrokeIds = ids;
+    // 原版 fu1.b（POSITION_LOCKED 默认开）：区域命中的 positionLocked
+    // 元素在组扩展（fu1.c）之前剔除——块 oy0.t()、可锁形状
+    // cih.a && n5d.t()；笔迹 jrh.a=false 永不剔除。点按路径
+    // （xtc.a/e）无此过滤——锁定元素仍可点选以便解锁。
     const shapeIds: string[] = [];
     for (const shape of shapes) {
+      if (shape.positionLocked === true) {
+        continue;
+      }
       if (selectionPathHitsShape(selectionPath, shape)) {
         shapeIds.push(shape.id);
       }
@@ -168,6 +175,9 @@ export class SelectionTool {
     this.state.selectedShapeIds = shapeIds;
     const textIds: string[] = [];
     for (const textBlock of textBlocks) {
+      if (textBlock.positionLocked === true) {
+        continue;
+      }
       if (selectionPathHitsTextBlock(selectionPath, textBlock)) {
         textIds.push(textBlock.id);
       }
@@ -175,6 +185,9 @@ export class SelectionTool {
     this.state.selectedTextBlockIds = textIds;
     const imageIds: string[] = [];
     for (const image of images) {
+      if (image.positionLocked === true) {
+        continue;
+      }
       if (selectionPathHitsImageBlock(selectionPath, image)) {
         imageIds.push(image.id);
       }
@@ -182,6 +195,9 @@ export class SelectionTool {
     this.state.selectedImageIds = imageIds;
     const mathIds: string[] = [];
     for (const math of mathBlocks) {
+      if (math.positionLocked === true) {
+        continue;
+      }
       if (selectionPathHitsMathBlock(selectionPath, math)) {
         mathIds.push(math.id);
       }

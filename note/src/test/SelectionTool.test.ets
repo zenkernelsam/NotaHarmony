@@ -140,18 +140,18 @@ export default function selectionToolTest() {
       expect(ids[0]).assertEqual('lasso-edge');
     });
 
-    it('selects original position-locked text blocks so they can be unlocked', 0, () => {
+    it('excludes position-locked text blocks from rectangle selection (fu1.b)', 0, () => {
       const tool: SelectionTool = new SelectionTool();
       const locked: TextBlockElement = textBlock('locked');
       locked.positionLocked = true;
       tool.beginSelection(SelectionMode.RECTANGLE, { x: 45, y: 45 });
       tool.updateSelection({ x: 95, y: 85 });
       const ids: string[] = tool.finalizeSelection([], [], [locked]);
-      expect(ids[0]).assertEqual('locked');
-      expect(tool.getState().selectedTextBlockIds[0]).assertEqual('locked');
+      expect(ids.length).assertEqual(0);
+      expect(tool.getState().selectedTextBlockIds.length).assertEqual(0);
     });
 
-    it('selects image blocks by bounds including position-locked images', 0, () => {
+    it('selects image blocks by bounds while excluding position-locked images', 0, () => {
       const tool: SelectionTool = new SelectionTool();
       const editable: ImageElement = imageBlock('image-1');
       const locked: ImageElement = imageBlock('image-locked');
@@ -159,10 +159,10 @@ export default function selectionToolTest() {
       tool.beginSelection(SelectionMode.RECTANGLE, { x: 90, y: 90 });
       tool.updateSelection({ x: 190, y: 170 });
       const ids: string[] = tool.finalizeSelection([], [], [], [editable, locked]);
-      expect(ids.length).assertEqual(2);
+      expect(ids.length).assertEqual(1);
       expect(ids[0]).assertEqual('image-1');
       expect(tool.getState().selectedImageIds[0]).assertEqual('image-1');
-      expect(tool.getState().selectedImageIds[1]).assertEqual('image-locked');
+      expect(tool.getState().selectedImageIds.indexOf('image-locked') < 0).assertTrue();
       const callerIds: string[] = ['image-2'];
       tool.selectElementIds([], [], [], callerIds);
       callerIds[0] = 'mutated';
@@ -171,7 +171,7 @@ export default function selectionToolTest() {
       expect(tool.getState().selectedImageIds.length).assertEqual(0);
     });
 
-    it('expands an original Group hit and keeps position-locked Shapes selectable', 0, () => {
+    it('expands an original Group hit and excludes position-locked Shapes (fu1.b)', 0, () => {
       const tool: SelectionTool = new SelectionTool();
       const editableShape: PolygonElement = shape('shape-1');
       const lockedShape: PolygonElement = shape('shape-locked');
@@ -186,10 +186,10 @@ export default function selectionToolTest() {
       expect(tool.getState().selectedStrokeIds[0]).assertEqual('stroke-1');
       expect(tool.getState().selectedShapeIds[0]).assertEqual('shape-1');
       expect(tool.getState().selectedGroupIds[0]).assertEqual('group-1');
-      expect(tool.getState().selectedShapeIds.indexOf('shape-locked') >= 0).assertTrue();
+      expect(tool.getState().selectedShapeIds.indexOf('shape-locked') < 0).assertTrue();
     });
 
-    it('selects locked Math when its bounds are hit', 0, () => {
+    it('selects editable Math and excludes position-locked Math (fu1.b)', 0, () => {
       const tool: SelectionTool = new SelectionTool();
       const editableMath: MathElement = mathBlock('math-1');
       const lockedMath: MathElement = mathBlock('math-locked');
@@ -203,7 +203,7 @@ export default function selectionToolTest() {
       expect(ids.length).assertEqual(3);
       expect(tool.getState().selectedShapeIds[0]).assertEqual('shape-1');
       expect(tool.getState().selectedMathIds[0]).assertEqual('math-1');
-      expect(tool.getState().selectedMathIds.indexOf('math-locked') >= 0).assertTrue();
+      expect(tool.getState().selectedMathIds.indexOf('math-locked') < 0).assertTrue();
       expect(tool.getState().selectedGroupIds[0]).assertEqual('group-math');
     });
   });
