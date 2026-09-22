@@ -17,7 +17,7 @@ assert.match(catchBody,
 for (const effect of [
   'this.pages = [];',
   'this.pageLoadFailed = true;',
-  "$r('app.string.note_open_failed')",
+  'this.failureDialog.open();',
 ]) {
   const effectIndex = catchBody.indexOf(effect);
   const guardIndex = catchBody.indexOf('this.editorDisposed');
@@ -26,9 +26,11 @@ for (const effect of [
 
 assert.match(body,
   /if \(this\.editorDisposed \|\| loadGeneration !== this\.pageLoadGeneration\) \{\s+return;\s+\}/);
+// Original u49.a parity (Phase 543): the retry button was removed — the
+// failure surface is a terminal dialog whose dismissal routes back once.
 assert.match(page,
-  /Button\(\$r\('app\.string\.retry'\)\)\s+\.height\(36\)\s+\.margin\(\{ top: 12 \}\)\s+\.onClick\(\(\) => \{\s+if \(this\.editorDisposed\) \{\s+return;\s+\}\s+this\.loadPages\(\);/,
-  'disposed editor retry rejects before reload');
+  /private dismissLoadFailure\(\): void \{\s+if \(this\.failureDismissHandled \|\| this\.editorDisposed\) \{\s+return;\s+\}\s+this\.failureDismissHandled = true;\s+router\.back\(\);/,
+  'disposed editor failure dismiss rejects before navigation');
 
 const initializeCall = body.match(/await this\.viewModel\.initialize\([\s\S]*?\);/);
 assert.ok(initializeCall, 'view model initialization call');

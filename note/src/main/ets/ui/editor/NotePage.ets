@@ -107,6 +107,22 @@ struct NotePage {
   @State pageLoading: boolean = false;
   @State historyPending: boolean = false;
   @State pageLoadFailed: boolean = false;
+  // Original u49.a / vc9 states: open-time failures surface as a terminal
+  // dialog — 'deleted' (uc9, note unavailable) vs 'failed' (rc9, load failed).
+  @State pageLoadFailureKind: string = '';
+  private failureDismissHandled: boolean = false;
+  private failureDialog: CustomDialogController = new CustomDialogController({
+    builder: NoteFailureDialog({
+      deleted: this.pageLoadFailureKind === 'deleted',
+      onDismiss: (): void => {
+        this.dismissLoadFailure();
+      },
+    }),
+    autoCancel: true,
+    cancel: (): void => {
+      this.dismissLoadFailure();
+    },
+  });
   @State noteTitle: string = '';          // T-036：标题
   @State editingTitle: boolean = false;   // T-036：标题编辑态
   @State titleDraft: string = '';
@@ -245,6 +261,16 @@ struct NotePage {
     return true;
   }
 
+  // Original u8(function0, ...): both the dialog button and outside dismissal
+  // invoke the same dismiss callback — route back exactly once.
+  private dismissLoadFailure(): void {
+    if (this.failureDismissHandled || this.editorDisposed) {
+      return;
+    }
+    this.failureDismissHandled = true;
+    router.back();
+  }
+
   private leaveEditor(): Promise<void> {
     if (this.editorLeavePromise !== null) {
       return this.editorLeavePromise;
@@ -288,6 +314,8 @@ struct NotePage {
     this.pageLoadInFlight = true;
     this.pageLoading = true;
     this.pageLoadFailed = false;
+    this.pageLoadFailureKind = '';
+    this.failureDismissHandled = false;
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const db: DatabaseManager = DatabaseManager.getInstance();
@@ -316,8 +344,11 @@ struct NotePage {
       if (this.editorDisposed || loadGeneration !== this.pageLoadGeneration) {
         return;
       }
-      if (note === null) {
-        throw new Error('note does not exist');
+      if (note === null || note.deletedAt !== null) {
+        // Original uc9: a missing or deleted note is the "Note unavailable"
+        // terminal dialog, not a retryable load failure.
+        this.pageLoadFailureKind = 'deleted';
+        throw new Error('note unavailable');
       }
       this.noteTitle = note.title;
       // Original setLastOpened partial update (dk9.RECENT feed): opening the
@@ -375,11 +406,16 @@ struct NotePage {
       this.recordings = [];
       this.rebuildRecordingTimeline();
       this.pageLoadFailed = true;
+      if (this.pageLoadFailureKind === '') {
+        this.pageLoadFailureKind = 'failed';
+      }
       console.error(`NotePage loadPages failed: ${JSON.stringify(e)}`);
+      // Original u49.a: the failure surfaces as a terminal AlertDialog whose
+      // dismiss/button both route back — no inline retry affordance.
       try {
-        promptAction.showToast({ message: $r('app.string.note_open_failed'), duration: 2500 });
-      } catch (toastError) {
-        console.error(`Note page load toast failed: ${JSON.stringify(toastError)}`);
+        this.failureDialog.open();
+      } catch (dialogError) {
+        console.error(`Note page failure dialog failed: ${JSON.stringify(dialogError)}`);
       }
     } finally {
       if (loadGeneration === this.pageLoadGeneration) {
@@ -1223,20 +1259,15 @@ struct NotePage {
         })
           .layoutWeight(1)
       } else if (this.pageLoadFailed) {
+        // Original u49: the scaffold stays behind the terminal dialog; the
+        // original offers no retry affordance on this surface.
         Column() {
-          Text($r('app.string.note_open_failed'))
+          Text(this.pageLoadFailureKind === 'deleted'
+            ? $r('app.string.note_unavailable_title')
+            : $r('app.string.note_load_failed_title'))
             .fontSize(16)
             .fontColor(this.resolveTokens().textSecondary)
             .textAlign(TextAlign.Center)
-          Button($r('app.string.retry'))
-            .height(36)
-            .margin({ top: 12 })
-            .onClick(() => {
-              if (this.editorDisposed) {
-                return;
-              }
-              this.loadPages();
-            })
         }
         .width('100%')
         .layoutWeight(1)
@@ -1952,5 +1983,55 @@ struct NotePage {
     const timePart: string = Date.now().toString(36);
     const randPart: string = Math.random().toString(36).slice(2, 8);
     return timePart + randPart;
+  }
+}
+
+// Original u49.a + vc9 states: terminal open-failure dialog. deleted=true maps
+// uc9 (note_deleted → "Note unavailable"/Done); deleted=false maps rc9
+// (load_failed → "Unable to open note"/OK). qc9 download_failed and pc9
+// access_denied have no portable trigger (no cloud-stub or shared notes).
+@CustomDialog
+struct NoteFailureDialog {
+  controller?: CustomDialogController;
+  deleted: boolean = false;
+  onDismiss: () => void = (): void => {
+  };
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+
+  private resolveTokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  build() {
+    Column() {
+      Text(this.deleted
+        ? $r('app.string.note_unavailable_title')
+        : $r('app.string.note_load_failed_title'))
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.resolveTokens().textPrimary)
+      Text(this.deleted
+        ? $r('app.string.note_unavailable_message')
+        : $r('app.string.note_load_failed_message'))
+        .fontSize(14)
+        .fontColor(this.resolveTokens().textSecondary)
+        .margin({ top: 12 })
+      Button(this.deleted
+        ? $r('app.string.done')
+        : $r('app.string.note_load_failed_button'))
+        .height(36)
+        .fontSize(14)
+        .margin({ top: 16 })
+        .onClick(() => {
+          this.onDismiss();
+          if (this.controller !== undefined) {
+            this.controller.close();
+          }
+        })
+    }
+    .padding(16)
+    .width(320)
+    .backgroundColor(this.resolveTokens().surface)
   }
 }
