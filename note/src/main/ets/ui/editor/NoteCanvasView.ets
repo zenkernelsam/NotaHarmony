@@ -154,6 +154,11 @@ import {
 } from '../../core/model/NoteTypes';
 import { effectivePageBackground } from '../../core/model/PageBackgroundModel';
 import {
+  OriginalSnapCandidate, OriginalSnapGuideSegment, OriginalSnapMovePlan,
+  originalSnapCandidatesForElementBounds, originalSnapGridCandidates,
+  originalSnapMoveAnchors, planOriginalSnapMove,
+} from '../../core/model/OriginalSnapGuides';
+import {
   appendPageElementRefs, clonePageElementOrder, materializePageElements, movePageElementRefsOneStep,
   movePageElementRefsToExtreme,
   OrderedPageElement, PageElementKind, PageElementRef,
@@ -355,6 +360,8 @@ export struct NoteCanvasView {
   private eraserActive: boolean = false;
   private selectionDrawing: boolean = false;
   private selectionDrag: boolean = false;
+  // 原版 SNAP_TO_GRID（ac4.S，默认开）：拖拽期间命中的对齐参考线段。
+  private snapGuides: OriginalSnapGuideSegment[] = [];
   private dragBeforeStrokes: StrokeElementData[] = [];
   private dragBeforeShapes: ShapeElement[] = [];
   private dragBeforeTextBlocks: TextBlockElement[] = [];
@@ -1323,6 +1330,16 @@ export struct NoteCanvasView {
           this.renderTextBlocks();
         }, this.viewport.zoom);
       }
+      if (this.snapGuides.length > 0) {
+        this.canvasCtx.strokeStyle = theme.accent;
+        this.canvasCtx.lineWidth = 1.5 / this.viewport.zoom;
+        this.canvasCtx.beginPath();
+        for (const guide of this.snapGuides) {
+          this.canvasCtx.moveTo(guide.x1, guide.y1);
+          this.canvasCtx.lineTo(guide.x2, guide.y2);
+        }
+        this.canvasCtx.stroke();
+      }
     } finally {
       this.canvasCtx.restore();
     }
@@ -1891,7 +1908,8 @@ export struct NoteCanvasView {
       const dx: number = p.x - this.lastDragPoint.x;
       const dy: number = p.y - this.lastDragPoint.y;
       this.lastDragPoint = { x: p.x, y: p.y };
-      this.selectionTool.moveSelected(dx, dy);
+      const snap: OriginalSnapMovePlan = this.planSelectionSnap(dx, dy);
+      this.selectionTool.moveSelected(dx + snap.dx, dy + snap.dy);
       this.applySelectionTransform(false, false);  // 移动中不 push undo（结束时统一 push）
       return;
     }
@@ -1931,7 +1949,8 @@ export struct NoteCanvasView {
         const dx: number = p.x - this.lastDragPoint.x;
         const dy: number = p.y - this.lastDragPoint.y;
         this.lastDragPoint = { x: p.x, y: p.y };
-        this.selectionTool.moveSelected(dx, dy);
+        const snap: OriginalSnapMovePlan = this.planSelectionSnap(dx, dy);
+        this.selectionTool.moveSelected(dx + snap.dx, dy + snap.dy);
         this.applySelectionTransform(false, false);
       } else if (this.strokeSession !== null && this.strokeSession.isActive()) {
         const batches: PointerInputBatches = this.pointerStream.append(
@@ -1964,6 +1983,7 @@ export struct NoteCanvasView {
       }
     } else if (this.selectionDrag) {
       this.selectionDrag = false;
+      this.snapGuides = [];
       const selectedStrokeIds: string[] = this.selectionTool.getState().selectedStrokeIds.slice();
       const selectedShapeIds: string[] = this.selectionTool.getState().selectedShapeIds.slice();
       const selectedTextBlockIds: string[] = this.selectionTool.getState().selectedTextBlockIds.slice();
@@ -2085,6 +2105,7 @@ export struct NoteCanvasView {
     this.partialEraserPreview.cancel();
     this.selectionDrawing = false;
     this.selectionDrag = false;
+    this.snapGuides = [];
     this.dragBeforeStrokes = [];
     this.dragBeforeShapes = [];
     this.dragBeforeTextBlocks = [];
@@ -4891,6 +4912,135 @@ export struct NoteCanvasView {
     this.selectionTool.deselect();
     this.selectionVisible = false;
     this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
+  }
+
+  // === 原版 SNAP_TO_GRID（ac4.S，androidSnapToGrid 默认 true）===
+  // 选区拖拽时对齐参考：候选 = 纸张网格线/点阵交点 + 其他元素边角/边/中心；
+  // 锚点 = 选区 bounds 四角 + 中心；阈值按原版 6/8/12pt ÷ zoom。
+  private visibleCanvasRect(): Rect2D {
+    const w: number = this.canvasCtx.width;
+    const h: number = this.canvasCtx.height;
+    return {
+      left: -this.viewport.scrollX / this.viewport.zoom,
+      top: -this.viewport.scrollY / this.viewport.zoom,
+      right: (-this.viewport.scrollX + w) / this.viewport.zoom,
+      bottom: (-this.viewport.scrollY + h) / this.viewport.zoom,
+    };
+  }
+
+  private selectionBoundsCanvas(): Rect2D | null {
+    const state = this.selectionTool.getState();
+    let rect: Rect2D | null = null;
+    const merge = (bounds: Rect2D): void => {
+      rect = rect === null ? { left: bounds.left, top: bounds.top,
+        right: bounds.right, bottom: bounds.bottom } : {
+        left: Math.min(rect.left, bounds.left),
+        top: Math.min(rect.top, bounds.top),
+        right: Math.max(rect.right, bounds.right),
+        bottom: Math.max(rect.bottom, bounds.bottom),
+      };
+    };
+    for (const s of this.completedStrokes) {
+      if (state.selectedStrokeIds.indexOf(s.id) >= 0) {
+        merge(s.bounds);
+      }
+    }
+    for (const shape of this.shapes) {
+      if (state.selectedShapeIds.indexOf(shape.id) >= 0) {
+        merge(shape.bounds);
+      }
+    }
+    for (const textBlock of this.textBlocks) {
+      if (state.selectedTextBlockIds.indexOf(textBlock.id) >= 0) {
+        merge(textBlock.bounds);
+      }
+    }
+    for (const image of this.imageBlocks) {
+      if (state.selectedImageIds.indexOf(image.id) >= 0) {
+        merge(image.bounds);
+      }
+    }
+    for (const math of this.mathBlocks) {
+      if (state.selectedMathIds.indexOf(math.id) >= 0) {
+        merge(math.bounds);
+      }
+    }
+    return rect;
+  }
+
+  private collectSnapCandidates(visible: Rect2D): OriginalSnapCandidate[] {
+    const candidates: OriginalSnapCandidate[] = [];
+    const effective: PageBackground | null = effectivePageBackground(this.currentPage);
+    const paper = effective === null || effective === undefined ? null : effective.paper;
+    const gridCandidates: OriginalSnapCandidate[] = originalSnapGridCandidates(
+      this.currentPage.template,
+      paper === null || paper === undefined ? null : paper.flairSpacingPt,
+      this.getPaperWidth(), this.getPaperHeight(),
+      paper !== null && paper !== undefined && paper.flairCentered === true,
+      paper !== null && paper !== undefined && paper.flairBleeds === true,
+      visible);
+    for (const c of gridCandidates) {
+      candidates.push(c);
+    }
+    const state = this.selectionTool.getState();
+    const selectedStrokeIds: Set<string> = new Set<string>(state.selectedStrokeIds);
+    const selectedShapeIds: Set<string> = new Set<string>(state.selectedShapeIds);
+    const selectedTextBlockIds: Set<string> = new Set<string>(state.selectedTextBlockIds);
+    const selectedImageIds: Set<string> = new Set<string>(state.selectedImageIds);
+    const selectedMathIds: Set<string> = new Set<string>(state.selectedMathIds);
+    const inView = (bounds: Rect2D): boolean =>
+      bounds.right >= visible.left && bounds.left <= visible.right &&
+      bounds.bottom >= visible.top && bounds.top <= visible.bottom;
+    for (const s of this.completedStrokes) {
+      if (!selectedStrokeIds.has(s.id) && s.renderSpec.isPartialEraser !== true &&
+        inView(s.bounds)) {
+        for (const c of originalSnapCandidatesForElementBounds(s.bounds)) {
+          candidates.push(c);
+        }
+      }
+    }
+    for (const shape of this.shapes) {
+      if (!selectedShapeIds.has(shape.id) && inView(shape.bounds)) {
+        for (const c of originalSnapCandidatesForElementBounds(shape.bounds)) {
+          candidates.push(c);
+        }
+      }
+    }
+    for (const textBlock of this.textBlocks) {
+      if (!selectedTextBlockIds.has(textBlock.id) && inView(textBlock.bounds)) {
+        for (const c of originalSnapCandidatesForElementBounds(textBlock.bounds)) {
+          candidates.push(c);
+        }
+      }
+    }
+    for (const image of this.imageBlocks) {
+      if (!selectedImageIds.has(image.id) && inView(image.bounds)) {
+        for (const c of originalSnapCandidatesForElementBounds(image.bounds)) {
+          candidates.push(c);
+        }
+      }
+    }
+    for (const math of this.mathBlocks) {
+      if (!selectedMathIds.has(math.id) && inView(math.bounds)) {
+        for (const c of originalSnapCandidatesForElementBounds(math.bounds)) {
+          candidates.push(c);
+        }
+      }
+    }
+    return candidates;
+  }
+
+  private planSelectionSnap(dx: number, dy: number): OriginalSnapMovePlan {
+    const bounds: Rect2D | null = this.selectionBoundsCanvas();
+    if (bounds === null) {
+      this.snapGuides = [];
+      return { dx: 0, dy: 0, guides: [] };
+    }
+    const plan: OriginalSnapMovePlan = planOriginalSnapMove(
+      originalSnapMoveAnchors(bounds), dx, dy,
+      this.collectSnapCandidates(this.visibleCanvasRect()), this.viewport.zoom);
+    this.snapGuides = plan.guides;
+    return plan;
   }
 
   private updateSelectionOverlay(): void {
