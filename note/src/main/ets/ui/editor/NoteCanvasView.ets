@@ -432,6 +432,7 @@ export struct NoteCanvasView {
   @State selectionCanGroup: boolean = false;
   @State selectionCanUngroup: boolean = false;
   @State selectionCanEditMath: boolean = false;
+  @State selectionCanStyle: boolean = false;
   @State selectionPositionLocked: boolean = false;
   private imageCropSession: OriginalImageCropSession | null = null;
   @State imageCropVisible: boolean = false;
@@ -5608,6 +5609,10 @@ export struct NoteCanvasView {
       state.selectedGroupIds.length === 0 &&
       this.mathBlocks.some((math: MathElement): boolean =>
         math.id === state.selectedMathIds[0] && decodeOperationId(math.id) !== null);
+    // 原版 dsc.STYLE：选区含可样式化的 ink（笔画/形状）时出现——
+    // modifySelectedInkRegisters 的作用域一致。
+    this.selectionCanStyle = state.selectedStrokeIds.length > 0 ||
+      state.selectedShapeIds.length > 0;
     let lockableCount: number = 0;
     let lockedCount: number = 0;
     for (const shape of this.shapes) {
@@ -5995,6 +6000,13 @@ export struct NoteCanvasView {
       if (removedImages.length > 0) {
         this.refreshImageAssets(this.pageLoadGeneration, this.loadedPageId);
       }
+    } else if (action === SelectionMenuAction.STYLE) {
+      // 原版 dsc.STYLE（ordinal 0，菜单首项）→ ux9：以选区 ink 的 HSV 为种子
+      // 弹出样式选择表面（颜色 + 宽度）。Harmony 复用工具栏 selectionMode
+      // 的 ColorPickerView + WidthSlider——modifySelectedInkRegisters 同一
+      // 应用路径（笔画 + 形状 + 撤销快照），不另起修改逻辑。
+      this.viewModel.showColorPicker = true;
+      this.viewModel.showWidthSlider = true;
     } else if (action === SelectionMenuAction.DESELECT) {
       // 原版 dsc.DESELECT → dhb case20：进入 deselectMode（ftc.h=true，
       // fvbVar.n 保存进入前快照），不是退出选区。
@@ -8640,6 +8652,7 @@ export struct NoteCanvasView {
         canGroup: this.selectionCanGroup,
         canUngroup: this.selectionCanUngroup,
         canEditMath: this.selectionCanEditMath,
+        canStyle: this.selectionCanStyle,
         positionLocked: this.selectionPositionLocked,
         menuEnabled: !this.photoImportBusy && !this.historyBusy &&
           this.loaded && !this.dataLoading && !this.dataLoadFailed &&

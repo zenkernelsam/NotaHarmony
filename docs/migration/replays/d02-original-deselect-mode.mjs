@@ -71,7 +71,7 @@ check(strings.includes('"name": "deselect"'), 'deselect string resource');
 
 // --- Canvas: DESELECT enters mode; confirm/cancel wired ---
 const actions = canvas.slice(canvas.indexOf('onSelectionMenuAction(action: SelectionMenuAction):'),
-  canvas.indexOf('onSelectionMenuAction(action: SelectionMenuAction):') + 12000);
+  canvas.indexOf('onSelectionMenuAction(action: SelectionMenuAction):') + 16000);
 check(actions.includes('this.selectionTool.enterDeselectMode()'),
   'DESELECT enters deselectMode (dhb case20)');
 check(actions.includes('this.selectionTool.confirmDeselectMode()') &&

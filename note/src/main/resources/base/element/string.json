@@ -265,6 +265,10 @@
       "value": "Deselect"
     },
     {
+      "name": "selection_style",
+      "value": "Style"
+    },
+    {
       "name": "link_open",
       "value": "Open"
     },

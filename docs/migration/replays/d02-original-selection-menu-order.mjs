@@ -70,7 +70,7 @@ const menuStart = overlay.indexOf('private buildSelectionMenu()');
 ok(menuStart >= 0, 'Harmony buildSelectionMenu missing');
 const menuBody = overlay.slice(menuStart);
 const harmonyOrder = [
-  'SelectionMenuAction.COPY', 'SelectionMenuAction.CUT',
+  'SelectionMenuAction.STYLE', 'SelectionMenuAction.COPY', 'SelectionMenuAction.CUT',
   'SelectionMenuAction.DUPLICATE', 'SelectionMenuAction.PASTE',
   'SelectionMenuAction.GROUP', 'SelectionMenuAction.UNGROUP',
   'SelectionMenuAction.SEND_FORWARD', 'SelectionMenuAction.SEND_BACKWARD',
@@ -94,7 +94,7 @@ total += harmonyOrder.length;
 // floating-chip adaptation and has no dsc ordinal).
 const dscIndex = new Map(dscNames.map((n, i) => [n, i]));
 const mapped = [
-  ['COPY', 'COPY'], ['CUT', 'CUT'], ['DUPLICATE', 'DUPLICATE'],
+  ['STYLE', 'STYLE'], ['COPY', 'COPY'], ['CUT', 'CUT'], ['DUPLICATE', 'DUPLICATE'],
   ['GROUP', 'GROUP'], ['UNGROUP', 'UNGROUP'],
   ['SEND_FORWARD', 'SEND_FORWARD'], ['SEND_BACKWARD', 'SEND_BACKWARD'],
   ['SEND_TO_FRONT', 'SEND_TO_FRONT'], ['SEND_TO_BACK', 'SEND_TO_BACK'],
@@ -125,6 +125,23 @@ ok(canvas.includes('OriginalZOrderCommand.BRING_FRONT') &&
   'Harmony BRING_FRONT/SEND_BACK hint wiring missing');
 ok(canvas.includes('this.lastPasteRequestTime = 0;'),
   'Harmony duplicate paste-debounce reset missing');
+// Phase 595 — dsc.STYLE (ordinal 0): gated on ink selection, opens the
+// selection style surface (selectionMode ColorPickerView + WidthSlider).
+ok(overlay.includes('@Prop canStyle: boolean = false;') &&
+   menuBody.indexOf('if (this.canStyle)') >= 0 &&
+   menuBody.indexOf('if (this.canStyle)') <
+   menuBody.indexOf('SelectionMenuAction.STYLE'),
+  'Harmony STYLE item must be gated by canStyle before the push');
+ok(canvas.includes('this.selectionCanStyle = state.selectedStrokeIds.length > 0 ||') &&
+   canvas.includes('state.selectedShapeIds.length > 0;'),
+  'Harmony selectionCanStyle must cover strokes and shapes');
+ok(canvas.includes('action === SelectionMenuAction.STYLE') &&
+   canvas.includes('this.viewModel.showColorPicker = true;') &&
+   canvas.includes('this.viewModel.showWidthSlider = true;'),
+  'Harmony STYLE must open the selection color+width surface');
+ok(baseStrings.includes('"name": "selection_style"') &&
+   zhStrings.includes('"name": "selection_style"'),
+  'Harmony selection_style string missing');
 ok(/copySelectedToClipboard\(ids, shapeIds, textIds, imageIds, mathIds, groupIds\)/.test(canvas) &&
    canvas.includes('this.pasteClipboard(target);'),
   'Harmony duplicate copy+paste composite missing');

@@ -28,6 +28,8 @@ export enum SelectionMenuAction {
   // 原版 deselectMode 的确认/取消（k2f onConfirm/onCancelDeselectMode）。
   DESELECT_CONFIRM = 17,
   DESELECT_CANCEL = 18,
+  // 原版 dsc.STYLE（ordinal 0，菜单首项）：打开选区样式表面。
+  STYLE = 19,
 }
 
 @Component
@@ -41,6 +43,7 @@ export struct SelectionOverlay {
   @Prop canGroup: boolean = false;
   @Prop canUngroup: boolean = false;
   @Prop canEditMath: boolean = false;
+  @Prop canStyle: boolean = false;
   @Prop positionLocked: boolean = false;
   @Prop menuEnabled: boolean = true;
   @Prop deselectMode: boolean = false;
@@ -97,15 +100,21 @@ export struct SelectionOverlay {
       return items;
     }
     if (!this.photoImportLeaseActive) {
+      // 原版 dsc.STYLE（ordinal 0，菜单首项）：选区含可样式化 ink 时出现。
+      if (this.canStyle) {
+        items.push({ value: $r('app.string.selection_style'),
+          action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Style clicked'); this.onMenuAction(SelectionMenuAction.STYLE); } });
+      }
       items.push(
         { value: $r('app.string.copy'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Copy clicked'); this.onMenuAction(SelectionMenuAction.COPY); } });
     }
     if (this.photoImportLeaseActive) {
       return items;
     }
-    // Original dsc order: COPY, CUT, DUPLICATE, GROUP, UNGROUP, SEND_FORWARD,
-    // SEND_BACKWARD, SEND_TO_FRONT, SEND_TO_BACK, DELETE, [CONVERT_*],
-    // EDIT_MATH, CROP, [FIT_TO_PAGE], FLIP_H, FLIP_V, LOCK/UNLOCK, DESELECT.
+    // Original dsc order: STYLE, COPY, CUT, DUPLICATE, GROUP, UNGROUP,
+    // SEND_FORWARD, SEND_BACKWARD, SEND_TO_FRONT, SEND_TO_BACK, DELETE,
+    // [CONVERT_*], EDIT_MATH, CROP, [FIT_TO_PAGE], FLIP_H, FLIP_V,
+    // LOCK/UNLOCK, DESELECT.
     // PASTE rides the menu as a registered adaptation (original renders a
     // floating paste chip); it sits with the clipboard cluster.
     items.push(
