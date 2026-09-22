@@ -10,8 +10,11 @@ const disappearEnd = page.indexOf('\n  onBackPress()', disappearStart);
 assert.notEqual(disappearEnd, -1);
 const disappear = page.slice(disappearStart, disappearEnd);
 
+// Phase 560 inserted the keep-awake generation bump + keepScreenOn release
+// between the recording-generation bump and the refresh cancel — the ordering
+// contract (bump before cancel) is preserved, so allow intervening lines.
 assert.match(disappear,
-  /this\.recordingLoadGeneration\+\+;\s+this\.cancelRecordingSessionRefresh\(\);/);
+  /this\.recordingLoadGeneration\+\+;[\s\S]{0,600}this\.cancelRecordingSessionRefresh\(\);/);
 assert.ok(disappear.indexOf('cancelRecordingSessionRefresh()') <
   disappear.indexOf('finishRecordingSession()'));
 

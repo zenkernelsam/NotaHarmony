@@ -24,9 +24,13 @@ assert.match(settings,
 
 assert.match(settings,
   /await store\.saveShapeDetectionEnabled\(enabled\);\s+if \(this\.pageDisposed \|\| lifecycleGeneration !== this\.lifecycleGeneration\) \{\s+return;\s+\}\s+\} catch \(e\) \{\s+if \(this\.pageDisposed \|\| lifecycleGeneration !== this\.lifecycleGeneration\) \{\s+return;\s+\}/);
+// Scope to the shape-detection save path: the keep-awake setter (Phase 560)
+// reuses the same guard+rollback vocabulary, so lastIndexOf alone would land
+// in the wrong method.
+const shapeSave = settings.slice(settings.indexOf('setShapeDetectionEnabled'));
 for (const effect of ['this.shapeDetectionEnabled = previous;', 'editor_setting_save_failed']) {
-  const guardIndex = settings.lastIndexOf('lifecycleGeneration !== this.lifecycleGeneration');
-  assert.ok(settings.indexOf(effect) > guardIndex, effect);
+  const guardIndex = shapeSave.lastIndexOf('lifecycleGeneration !== this.lifecycleGeneration');
+  assert.ok(shapeSave.indexOf(effect) > guardIndex, effect);
 }
 
 assert.match(template,

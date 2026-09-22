@@ -1,7 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { promptAction, router } from '@kit.ArkUI';
 import {
-  DEFAULT_SHAPE_DETECTION_ENABLED, EditorSettingsStore,
+  DEFAULT_KEEP_DEVICE_AWAKE, DEFAULT_SHAPE_DETECTION_ENABLED, EditorSettingsStore,
 } from '../../data/EditorSettingsStore';
 import { ThemeMode, ThemeTokens } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
@@ -17,6 +17,7 @@ enum SettingsLoadState {
 struct SettingsPage {
   @State loadState: SettingsLoadState = SettingsLoadState.LOADING;
   @State shapeDetectionEnabled: boolean = DEFAULT_SHAPE_DETECTION_ENABLED;
+  @State keepDeviceAwakeEnabled: boolean = DEFAULT_KEEP_DEVICE_AWAKE;
   @State saveBusy: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -53,11 +54,13 @@ struct SettingsPage {
       const context = getContext(this) as common.UIAbilityContext;
       const store: EditorSettingsStore = new EditorSettingsStore(context);
       const enabled: boolean = await store.getShapeDetectionEnabled();
+      const keepAwake: boolean = await store.getKeepDeviceAwake();
       if (this.pageDisposed || generation !== this.loadGeneration) {
         return;
       }
       this.store = store;
       this.shapeDetectionEnabled = enabled;
+      this.keepDeviceAwakeEnabled = keepAwake;
       this.loadState = SettingsLoadState.READY;
       this.initialized = true;
     } catch (e) {
@@ -68,6 +71,39 @@ struct SettingsPage {
       this.loadState = SettingsLoadState.ERROR;
       this.initialized = true;
       console.error(`SettingsPage load failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // 原版 r22 case 2：note-editor 设置区 "Keep device awake" 开关，
+  // 与 shape detection 同一乐观更新+回滚+生命周期守护模式。
+  private async setKeepDeviceAwakeEnabled(enabled: boolean): Promise<void> {
+    const store: EditorSettingsStore | null = this.store;
+    if (store === null || this.loadState !== SettingsLoadState.READY || this.saveBusy ||
+      enabled === this.keepDeviceAwakeEnabled) {
+      return;
+    }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
+    const previous: boolean = this.keepDeviceAwakeEnabled;
+    this.keepDeviceAwakeEnabled = enabled;
+    this.saveBusy = true;
+    try {
+      await store.saveKeepDeviceAwake(enabled);
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+    } catch (e) {
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+      this.keepDeviceAwakeEnabled = previous;
+      console.error(`SettingsPage keep-awake save failed: ${JSON.stringify(e)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
+      } catch (toastError) {
+        console.error(`SettingsPage toast failed: ${JSON.stringify(toastError)}`);
+      }
+    } finally {
+      this.saveBusy = false;
     }
   }
 
@@ -189,6 +225,24 @@ struct SettingsPage {
             }
             .width('100%')
             .height(56)
+            .padding({ left: 12, right: 12 })
+            .backgroundColor(this.resolveTokens().surface)
+
+            // 原版 r22 case 2：note-editor 设置区第二项 "Keep device awake"。
+            Row() {
+              Text($r('app.string.keep_device_awake'))
+                .layoutWeight(1)
+                .fontSize(16)
+                .fontColor(this.resolveTokens().textPrimary)
+              Toggle({ type: ToggleType.Switch, isOn: this.keepDeviceAwakeEnabled })
+                .enabled(!this.saveBusy)
+                .onChange((enabled: boolean) => {
+                  this.setKeepDeviceAwakeEnabled(enabled);
+                })
+            }
+            .width('100%')
+            .height(56)
+            .margin({ top: 8 })
             .padding({ left: 12, right: 12 })
             .backgroundColor(this.resolveTokens().surface)
 

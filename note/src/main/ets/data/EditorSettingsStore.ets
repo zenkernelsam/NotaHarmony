@@ -11,11 +11,16 @@ import {
 const STORE_NAME: string = 'noteEditorSettings';
 const SHAPE_DETECTION_KEY: string = 'shapeDetectionEnabled';
 const SELECTED_DEFAULT_TEMPLATE_KEY: string = 'selectedDefaultTemplate';
+const KEEP_DEVICE_AWAKE_KEY: string = 'keepDeviceAwake';
 export const DEFAULT_SHAPE_DETECTION_ENABLED: boolean = true;
+// 原版 keep_device_awake 开关默认关（原版无真值表硬证据，登记差异）。
+export const DEFAULT_KEEP_DEVICE_AWAKE: boolean = false;
 
 export interface EditorSettingsRepository {
   getShapeDetectionEnabled(): Promise<boolean>;
   saveShapeDetectionEnabled(enabled: boolean): Promise<void>;
+  getKeepDeviceAwake(): Promise<boolean>;
+  saveKeepDeviceAwake(enabled: boolean): Promise<void>;
 }
 
 export interface DefaultNoteTemplateRepository {
@@ -64,6 +69,45 @@ export class EditorSettingsStore implements EditorSettingsRepository, DefaultNot
             `${JSON.stringify(rollbackError)}`);
         }
         throw new Error(`saveShapeDetectionEnabled failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  // 原版 r22 case 2：note-editor 设置区的 "Keep device awake" 开关；
+  // 与 shape detection 同一条 prefs 存取/回滚路径。
+  async getKeepDeviceAwake(): Promise<boolean> {
+    return EditorSettingsStore.mutex.runExclusive(async (): Promise<boolean> => {
+      try {
+        const store = await preferences.getPreferences(this.context, STORE_NAME);
+        const value = store.getSync(KEEP_DEVICE_AWAKE_KEY, DEFAULT_KEEP_DEVICE_AWAKE);
+        return typeof value === 'boolean' ? value : DEFAULT_KEEP_DEVICE_AWAKE;
+      } catch (e) {
+        throw new Error(`getKeepDeviceAwake failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  async saveKeepDeviceAwake(enabled: boolean): Promise<void> {
+    return EditorSettingsStore.mutex.runExclusive(async (): Promise<void> => {
+      const store = await preferences.getPreferences(this.context, STORE_NAME);
+      const hadPrevious: boolean = store.hasSync(KEEP_DEVICE_AWAKE_KEY);
+      const previous = store.getSync(KEEP_DEVICE_AWAKE_KEY, DEFAULT_KEEP_DEVICE_AWAKE);
+      store.putSync(KEEP_DEVICE_AWAKE_KEY, enabled);
+      try {
+        await store.flush();
+      } catch (e) {
+        if (hadPrevious) {
+          store.putSync(KEEP_DEVICE_AWAKE_KEY, previous);
+        } else {
+          store.deleteSync(KEEP_DEVICE_AWAKE_KEY);
+        }
+        try {
+          await store.flush();
+        } catch (rollbackError) {
+          throw new Error(`saveKeepDeviceAwake commit and rollback failed: ${JSON.stringify(e)}; ` +
+            `${JSON.stringify(rollbackError)}`);
+        }
+        throw new Error(`saveKeepDeviceAwake failed: ${JSON.stringify(e)}`);
       }
     });
   }

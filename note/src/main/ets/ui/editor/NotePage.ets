@@ -1,6 +1,6 @@
 // T-025 笔记编辑器页面（EditorToolbar + NoteCanvasView + PageManagerBar 集成）
 // T-036：标题行内编辑 + 持久化
-import { router, promptAction } from '@kit.ArkUI';
+import { router, promptAction, window } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { audio } from '@kit.AudioKit';
@@ -26,7 +26,7 @@ import {
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import { StrokePersistence } from '../../data/StrokePersistence';
 import { ToolRepositoryImpl } from '../../data/ToolRepositoryImpl';
-import { EditorSettingsStore } from '../../data/EditorSettingsStore';
+import { EditorSettingsStore, DEFAULT_KEEP_DEVICE_AWAKE } from '../../data/EditorSettingsStore';
 import { AssetAvailabilityChange, assetAvailabilityHub } from '../../data/AssetAvailabilityHub';
 import { MaterializedOriginalRecording, OriginalRecordingStore } from '../../data/OriginalRecordingStore';
 import { OperationIdentity } from '../../data/OperationIdentity';
@@ -158,6 +158,9 @@ struct NotePage {
   private persistence: StrokePersistence = new StrokePersistence();
   private historyBridge: EditorHistoryBridge | null = null;
   private pageLoadGeneration: number = 0;
+  // 原版 keep_device_awake：编辑器前台时按设置保持屏幕常亮。
+  private keepAwakeGeneration: number = 0;
+  private keepScreenOnApplied: boolean = false;
   private pageLoadInFlight: boolean = false;
   private recordingStore: OriginalRecordingStore | null = null;
   private recordingController: OriginalRecordingPlaybackController =
@@ -236,6 +239,7 @@ struct NotePage {
       this.assetAvailabilitySubscription = assetAvailabilityHub.subscribe(
         (change: AssetAvailabilityChange): void => this.onRecordingAssetAvailabilityChanged(change));
     }
+    this.applyKeepDeviceAwakeSetting();
     this.loadPages();
   }
 
@@ -244,6 +248,11 @@ struct NotePage {
     this.editorDisposed = true;
     this.pageLoadGeneration++;
     this.recordingLoadGeneration++;
+    this.keepAwakeGeneration++;
+    if (this.keepScreenOnApplied) {
+      this.keepScreenOnApplied = false;
+      this.setKeepScreenOn(false);
+    }
     this.cancelRecordingSessionRefresh();
     if (this.editingTitle) {
       this.saveTitle();
@@ -309,6 +318,39 @@ struct NotePage {
     await this.finishRecordingSession();
     await this.recordingController.release();
     router.back();
+  }
+
+  // 原版 feature_settings__keep_device_awake：设置开启时编辑器前台
+  // 保持屏幕常亮；页面销毁时释放。失败静默降级（不影响编辑）。
+  private async applyKeepDeviceAwakeSetting(): Promise<void> {
+    const generation: number = ++this.keepAwakeGeneration;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const enabled: boolean =
+        await new EditorSettingsStore(context).getKeepDeviceAwake();
+      if (this.editorDisposed || generation !== this.keepAwakeGeneration) {
+        return;
+      }
+      if (enabled === this.keepScreenOnApplied) {
+        return;
+      }
+      this.keepScreenOnApplied = enabled;
+      this.setKeepScreenOn(enabled);
+    } catch (e) {
+      console.error(`keep-device-awake load failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  private setKeepScreenOn(enabled: boolean): void {
+    try {
+      window.getLastWindow(getContext(this)).then((win: window.Window) => {
+        win.setWindowKeepScreenOn(enabled);
+      }).catch((e: Object) => {
+        console.error(`setWindowKeepScreenOn failed: ${JSON.stringify(e)}`);
+      });
+    } catch (e) {
+      console.error(`getLastWindow failed: ${JSON.stringify(e)}`);
+    }
   }
 
   private async loadPages(): Promise<void> {
