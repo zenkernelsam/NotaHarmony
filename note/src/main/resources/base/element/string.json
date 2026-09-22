@@ -385,6 +385,10 @@
       "value": "Reveal Tapes"
     },
     {
+      "name": "tape_patterns",
+      "value": "Tape Pattern"
+    },
+    {
       "name": "text",
       "value": "Text"
     },

@@ -298,6 +298,19 @@ export class EditorViewModel {
     });
   }
 
+  // 原版 nh9 → yh9(i3=1)：g5f.h 以点击图案序数复制工具态，ti9.q 应用并
+  // 持久化（tool_state.tape_pattern）。激活行经 applyActiveState 即时生效。
+  async setToolTapePattern(toolId: string, pattern: TapePattern): Promise<boolean> {
+    const target: ToolState | null = this.findById(toolId);
+    if (target === null || target.toolType !== ToolType.REVIEW ||
+      pattern < TapePattern.STRIPES || pattern > TapePattern.CHECKERS) {
+      return false;
+    }
+    return this.updateState(toolId, (state: ToolState): void => {
+      state.tapePattern = pattern;
+    });
+  }
+
   async selectFavoriteColor(index: number): Promise<boolean> {
     if (index < 0 || index >= this.favoriteColors.length) {
       return false;

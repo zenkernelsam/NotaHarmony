@@ -93,6 +93,7 @@
     { "name": "tape_tool", "value": "胶带" },
     { "name": "hide_tapes", "value": "隐藏胶带" },
     { "name": "reveal_tapes", "value": "显示胶带" },
+    { "name": "tape_patterns", "value": "胶带图案" },
     { "name": "text", "value": "文本" },
     { "name": "insert_photo", "value": "图片" },
     { "name": "take_photo", "value": "拍摄照片" },

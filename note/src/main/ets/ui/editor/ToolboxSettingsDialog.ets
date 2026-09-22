@@ -3,6 +3,7 @@
 // section with show, the 12-tool "max-reached" hint, and reset-to-default.
 import { ToolState, ToolType, TRAY_TYPE_PRIMARY, TRAY_TYPE_SECONDARY } from '../../core/model/BrushTypes';
 import { EditorViewModel } from './EditorViewModel';
+import { TapePatternPicker } from './TapePatternPicker';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
@@ -28,6 +29,8 @@ export struct ToolboxSettingsDialog {
   @State visibleTools: ToolState[] = [];
   @State hiddenTools: ToolState[] = [];
   @State primaryFull: boolean = false;
+  // 原版 mh9 → t7f：REVIEW 工具 ⋯ 菜单的"Tape Pattern"项打开 9 图案选择页。
+  @State tapePatternToolId: string = '';
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
 
@@ -51,6 +54,20 @@ export struct ToolboxSettingsDialog {
 
   private trayToggleTarget(tool: ToolState): number {
     return tool.trayType === TRAY_TYPE_PRIMARY ? TRAY_TYPE_SECONDARY : TRAY_TYPE_PRIMARY;
+  }
+
+  private findToolById(toolId: string): ToolState | null {
+    for (const tool of this.visibleTools) {
+      if (tool.toolId === toolId) {
+        return tool;
+      }
+    }
+    for (const tool of this.hiddenTools) {
+      if (tool.toolId === toolId) {
+        return tool;
+      }
+    }
+    return null;
   }
 
   // Per-row action menu (o94 parity): tray switch, hide, duplicate, delete.
@@ -77,6 +94,15 @@ export struct ToolboxSettingsDialog {
         },
       },
     ];
+    // 原版胶带工具设置行的图案项（o94/lfe.b 预览 → mh9 打开选择页）。
+    if (tool.toolType === ToolType.REVIEW) {
+      items.push({
+        value: $r('app.string.tape_patterns'),
+        action: (): void => {
+          this.tapePatternToolId = tool.toolId;
+        },
+      });
+    }
     if (this.viewModel.canDeleteTool(tool.toolId)) {
       items.push({
         value: $r('app.string.delete_tool'),
@@ -113,6 +139,16 @@ export struct ToolboxSettingsDialog {
           .padding({ bottom: 6 })
       }
 
+      if (this.tapePatternToolId.length > 0) {
+        TapePatternPicker({
+          tool: this.findToolById(this.tapePatternToolId),
+          viewModel: this.viewModel,
+          onClose: (): void => {
+            this.tapePatternToolId = '';
+            this.refresh();
+          },
+        })
+      } else {
       Scroll() {
         Column() {
           ForEach(this.visibleTools, (tool: ToolState) => {
@@ -193,6 +229,7 @@ export struct ToolboxSettingsDialog {
         .onClick(() => {
           this.runOp(this.viewModel.resetToolsToDefaults());
         })
+      }
     }
     .width('100%')
     .padding(16)
