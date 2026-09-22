@@ -4,6 +4,8 @@
     { "name": "cancel", "value": "取消" },
     { "name": "confirm", "value": "确定" },
     { "name": "delete", "value": "删除" },
+    { "name": "add_a_color", "value": "添加颜色" },
+    { "name": "well_set_current_color", "value": "设为当前颜色" },
     { "name": "loading", "value": "加载中..." },
     { "name": "backup_and_sync", "value": "备份与同步" },
     { "name": "local_files", "value": "本地文件" },

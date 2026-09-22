@@ -55,6 +55,35 @@ export struct ColorPickerView {
     }
   }
 
+  // Original well-edit affordance (ys2/dhb event fan-out): long-press surfaces
+  // the color-options menu — writing the current color into the well mirrors
+  // ah9 OnColorWellValueChange(wellIndex, newColor); delete mirrors bh9
+  // OnDeleteColorClick(pb4 well) with tb4 trayIndex shift-down.
+  @Builder
+  private buildWellMenu(index: number): void {
+    Menu() {
+      MenuItem({ content: $r('app.string.well_set_current_color') })
+        .onClick(() => {
+          if (this.photoImportLeaseActive) {
+            return;
+          }
+          this.viewModel.setFavoriteColorWell(index, this.viewModel.brushColor)
+            .catch((e: Error) => {
+              console.error(`set favorite color well failed: ${JSON.stringify(e)}`);
+            });
+        })
+      MenuItem({ content: $r('app.string.delete') })
+        .onClick(() => {
+          if (this.photoImportLeaseActive) {
+            return;
+          }
+          this.viewModel.removeFavoriteColorWell(index).catch((e: Error) => {
+            console.error(`remove favorite color well failed: ${JSON.stringify(e)}`);
+          });
+        })
+    }
+  }
+
   @Builder
   private colorDot(color: number, onTap: () => void): void {
     Column()
@@ -76,9 +105,37 @@ export struct ColorPickerView {
         Grid() {
           ForEach(this.viewModel.favoriteColors, (color: number, index: number) => {
             GridItem() {
-              this.colorDot(color, (): void => this.onWellColor(color, index))
+              // Original xg9/bh9/ah9 parity: tap selects (yg9), long-press opens
+              // the well context menu (write current color / delete), and the
+              // trailing '+' tile appends a well seeded with the brush color.
+              Column() {
+                this.colorDot(color, (): void => this.onWellColor(color, index))
+              }
+              .bindContextMenu(this.buildWellMenu(index), ResponseType.LongPress)
             }
           }, (color: number, index: number) => index.toString() + ':' + color.toString())
+          GridItem() {
+            Column() {
+              Text('+')
+                .fontSize(18)
+                .fontColor(this.resolveTokens().textSecondary)
+            }
+            .width(32)
+            .height(32)
+            .borderRadius(16)
+            .border({ width: 1, color: this.resolveTokens().border, style: BorderStyle.Dashed })
+            .justifyContent(FlexAlign.Center)
+            .enabled(!this.photoImportLeaseActive)
+            .accessibilityText($r('app.string.add_a_color'))
+            .onClick(() => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
+              this.viewModel.addFavoriteColorWell().catch((e: Error) => {
+                console.error(`add favorite color well failed: ${JSON.stringify(e)}`);
+              });
+            })
+          }
         }
         .columnsTemplate('1fr 1fr 1fr 1fr')
         .columnsGap(12)

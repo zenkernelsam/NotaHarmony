@@ -29,6 +29,14 @@
       "value": "Delete"
     },
     {
+      "name": "add_a_color",
+      "value": "Add a color"
+    },
+    {
+      "name": "well_set_current_color",
+      "value": "Set to current color"
+    },
+    {
       "name": "loading",
       "value": "Loading..."
     },

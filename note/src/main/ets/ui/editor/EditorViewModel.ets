@@ -323,6 +323,25 @@ export class EditorViewModel {
     }
   }
 
+  // Original xg9 OnAddColorClick: appends a new favorite well seeded with the
+  // current brush color (the original dispatch carries (toolType, index, mv6);
+  // the write is an upsert at the next tray slot).
+  async addFavoriteColorWell(): Promise<boolean> {
+    const repository: ToolRepository | null = this.repository;
+    if (repository === null || !this.supportsBrushControls()) {
+      return false;
+    }
+    try {
+      await repository.setFavoriteColor(this.activeToolType(), this.favoriteColors.length,
+        this.brushColor);
+      this.favoriteColors = await repository.getFavoriteColors(this.activeToolType());
+      return true;
+    } catch (e) {
+      this.onPersistenceError(`Favorite color well was not added: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
   async setWidthWellAt(index: number, width: number): Promise<boolean> {
     const repository: ToolRepository | null = this.repository;
     if (repository === null || index < 0 || !this.supportsBrushControls()) {
