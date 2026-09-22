@@ -22,11 +22,14 @@ public final vnd e(long j, x09 x09Var, Set set) {
 ## 2. 容差语义（fu1.java:454-505 `g`）
 
 - **块（oy0 = hp5 图片 / xhe 文本 / r08 数学）**：本地半长 `gi3.c(jA)+fB`、
-  `gi3.b(jA)+fB` ——容差 5 加在**元素本地坐标系**。
+  `gi3.b(jA)+fB` ——`fB` 为查询半径经元素缩放归一后的**本地**值。
 - **形状（m4d/n5d）**：`z8a.b(path, n5dVar.Q())` 描边带与查询圆相交；
   填充形另有内部命中。
 - **tape（s06）/笔迹**：查询圆与笔带宽相交。
-- 容差单位均为元素本地单位（经 `j(wh5,x09,be5)` 变换后判定）。
+- 容差单位 = **世界/page 单位**：`fu1.j`（fu1.java:244）将查询圆半径
+  按元素缩放归一——`vh5Var.b() / Math.max(qedVarB.d(), qedVarB.c())`，
+  即元素本地容差 = `5 / maxScale`。块本地半长 +`5/scale` 与此等价；
+  笔/形世界半径 = `localWidth·scale/2 + 5` 亦同价。
 
 ## 3. tape 收集与回退（xtc.java:39-74 `b`）
 
@@ -40,9 +43,11 @@ public final vnd e(long j, x09 x09Var, Set set) {
 ## 4. Harmony 缺口与修复
 
 - `topmostPageElementIdAt` 只测精确点 → 补两程：exact→tol5
-  （`hitOrderedElementIdAt(ordered, point, tol)`）。
-- 容差单位 = 元素本地：块扩 `localBounds`；笔/形半径加
-  `localTolerance` 后再乘 transform scale。
+  （`hitOrderedElementIdAt(ordered, point, worldTol)`）。
+- 容差单位 = 世界单位：块 `expandLocalBounds(bounds, worldTol, transform)`
+  内以 `worldTol/maximumLinearScale(transform)` 转本地后四边扩张
+  （`gi3+fB` 等价）；笔/形世界半径 = `localWidth·scale/2 + worldTol`
+  （`hitStrokeAtPoint`/`pointHitsShape` 收 `worldTolerance` 参数）。
 - `tapeIdsAtPoint` 精确收集为空 → 回退两程顶层 tape 单例
   （`isTapeElementId` 过滤）。
 - 消费方（`applyTapSelect`、`textBlockLinkAt`、
@@ -51,5 +56,6 @@ public final vnd e(long j, x09 x09Var, Set set) {
 
 ## 5. 偏差
 
-- `vh5(j,5)` 的 5 为页面/元素本地单位；Harmony 画布坐标同单位制，
-  视为等价（`ei3` 页单位）。
+- `vh5(j,5)` 的 5 为世界/page 单位；Harmony 画布坐标同单位制，
+  视为等价（`ei3` 页单位）。初版实现误将 5 作元素本地单位
+  （已按 `fu1.j` 缩放归一证据修正为世界单位）。

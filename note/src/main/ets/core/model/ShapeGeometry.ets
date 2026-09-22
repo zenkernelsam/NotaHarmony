@@ -216,12 +216,12 @@ export function tapeHitTestShape(point: Point2D, shape: ShapeElement): boolean {
 // 原版 xtc.a → fu1 元素查询的通用形状命中：与 tapeHitTestShape 同一几何核，
 // 供选区抓取（dl1 case2 → stc）等不区分 tape 的点命中使用。
 export function pointHitsShape(point: Point2D, shape: ShapeElement,
-  localTolerance: number = 0): boolean {
-  return shapeCoveredByPath([point], shape, 0, localTolerance);
+  worldTolerance: number = 0): boolean {
+  return shapeCoveredByPath([point], shape, 0, worldTolerance);
 }
 
 function shapeCoveredByPath(eraserPath: Point2D[], shape: ShapeElement,
-  eraserWidth: number, localTolerance: number = 0): boolean {
+  eraserWidth: number, worldTolerance: number = 0): boolean {
   const localSubpaths: Point2D[][] = shapeLocalSubpaths(shape);
   const shapeSubpaths: Point2D[][] = [];
   for (const local of localSubpaths) {
@@ -245,8 +245,8 @@ function shapeCoveredByPath(eraserPath: Point2D[], shape: ShapeElement,
     }
   }
   const scale: number = maximumLinearScale(shape.transform);
-  const radius: number = eraserWidth / 2 +
-    (shape.strokeWidth / 2 + localTolerance) * scale;
+  const radius: number = eraserWidth / 2 + shape.strokeWidth * scale / 2 +
+    worldTolerance;
   const eraserSegments: number = Math.max(1, eraserPath.length - 1);
   for (let i: number = 0; i < eraserSegments; i++) {
     const a: Point2D = eraserPath[i];
@@ -402,7 +402,7 @@ export function originalShapeArrowScale(strokeWidth: number): number {
   return Math.max(0, adjusted) / 7;
 }
 
-function maximumLinearScale(matrix: TransformMatrix): number {
+export function maximumLinearScale(matrix: TransformMatrix): number {
   const a: number = matrix[0];
   const b: number = matrix[1];
   const c: number = matrix[3];

@@ -74,9 +74,9 @@ const hitTest = canvas.slice(canvas.indexOf('private hitOrderedElementIdAt('),
   canvas.indexOf('private hitOrderedElementIdAt(') + 2200);
 check(hitTest.includes('i >= 0; i--'),
   'topmost-first iteration over the unified z-order');
-check(hitTest.includes('hitStrokeAtPoint(point, element.data, localTolerance)'),
+check(hitTest.includes('hitStrokeAtPoint(point, element.data, worldTolerance)'),
   'strokes use exact coverage (tolerance only on the fu1.e second pass)');
-check(hitTest.includes('pointHitsShape(point, element.data, localTolerance)'),
+check(hitTest.includes('pointHitsShape(point, element.data, worldTolerance)'),
   'shapes use exact coverage (tolerance only on the fu1.e second pass)');
 check(hitTest.includes('textBlockLocalBounds(element.data)') &&
   hitTest.includes('imageBlockLocalBounds(element.data)') &&

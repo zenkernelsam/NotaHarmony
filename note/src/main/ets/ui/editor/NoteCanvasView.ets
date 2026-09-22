@@ -130,7 +130,7 @@ import {
   OriginalImageCropSession, originalImageCropLocalDelta, resetOriginalImageCropDraft,
 } from '../../core/model/OriginalImageCropGeometry';
 import {
-  cloneShapeElement, eraserPathHitsShape, pointHitsShape, recomputeShapeBounds, tapeHitTestShape,
+  cloneShapeElement, eraserPathHitsShape, maximumLinearScale, pointHitsShape, recomputeShapeBounds, tapeHitTestShape,
   transformShapeElements,
 } from '../../core/model/ShapeGeometry';
 import { prepareRecognizedShapes } from '../../core/model/ShapeRecognition';
@@ -1195,25 +1195,28 @@ export struct NoteCanvasView {
   }
 
   private hitOrderedElementIdAt(ordered: OrderedPageElement[], point: Point2D,
-    localTolerance: number): string | null {
+    worldTolerance: number): string | null {
     for (let i: number = ordered.length - 1; i >= 0; i--) {
       const element: OrderedPageElement = ordered[i];
       let hit: boolean = false;
       if (element.kind === PageElementKind.STROKE) {
-        hit = this.eraserEngine.hitStrokeAtPoint(point, element.data, localTolerance);
+        hit = this.eraserEngine.hitStrokeAtPoint(point, element.data, worldTolerance);
       } else if (element.kind === PageElementKind.SHAPE) {
-        hit = pointHitsShape(point, element.data, localTolerance);
+        hit = pointHitsShape(point, element.data, worldTolerance);
       } else if (element.kind === PageElementKind.TEXT) {
         hit = pointHitsAffineBlock(point,
-          this.expandLocalBounds(textBlockLocalBounds(element.data), localTolerance),
+          this.expandLocalBounds(textBlockLocalBounds(element.data),
+            worldTolerance, element.data.transform),
           element.data.transform);
       } else if (element.kind === PageElementKind.IMAGE) {
         hit = pointHitsAffineBlock(point,
-          this.expandLocalBounds(imageBlockLocalBounds(element.data), localTolerance),
+          this.expandLocalBounds(imageBlockLocalBounds(element.data),
+            worldTolerance, element.data.transform),
           element.data.transform);
       } else if (element.kind === PageElementKind.MATH) {
         hit = pointHitsAffineBlock(point,
-          this.expandLocalBounds(mathBlockLocalBounds(element.data), localTolerance),
+          this.expandLocalBounds(mathBlockLocalBounds(element.data),
+            worldTolerance, element.data.transform),
           element.data.transform);
       }
       if (hit) {
@@ -1223,13 +1226,18 @@ export struct NoteCanvasView {
     return null;
   }
 
-  private expandLocalBounds(bounds: Rect2D, localTolerance: number): Rect2D {
-    if (localTolerance <= 0) {
+  // 原版 fu1.g 块分支：查询圆半径在元素本地为 5/scale（j() 按元素
+  // 缩放归一），等价于本地半长 +worldTolerance/scale。
+  private expandLocalBounds(bounds: Rect2D, worldTolerance: number,
+    transform: TransformMatrix): Rect2D {
+    if (worldTolerance <= 0) {
       return bounds;
     }
+    const scale: number = maximumLinearScale(transform);
+    const local: number = scale > 0.0001 ? worldTolerance / scale : 0;
     return {
-      left: bounds.left - localTolerance, top: bounds.top - localTolerance,
-      right: bounds.right + localTolerance, bottom: bounds.bottom + localTolerance,
+      left: bounds.left - local, top: bounds.top - local,
+      right: bounds.right + local, bottom: bounds.bottom + local,
     };
   }
 
