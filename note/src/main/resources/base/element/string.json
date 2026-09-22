@@ -689,6 +689,14 @@
       "value": "Newest to Oldest"
     },
     {
+      "name": "grid_view",
+      "value": "Grid View"
+    },
+    {
+      "name": "list_view",
+      "value": "List View"
+    },
+    {
       "name": "recently_modified",
       "value": "Recently Modified"
     },

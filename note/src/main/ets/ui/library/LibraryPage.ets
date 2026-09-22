@@ -86,6 +86,9 @@ struct LibraryPage {
   @State columns: number = 3;
   @State sidebarWidth: number = 0;
   @State showSidebar: boolean = false;
+  // Original ie7 view mode (z97 pref, default GRID): grid cards vs
+  // compact list rows (yj9 picks b5j.b vs m5j.b per ie7.ordinal()).
+  @State listView: boolean = false;
   // 原版 <840dp 使用 ModalNavigationDrawer；Harmony 侧用显式 overlay 保持同一可达性。
   @State compactFolderDrawerVisible: boolean = false;
   @State expandedFolderIds: string[] = [];
@@ -171,6 +174,8 @@ struct LibraryPage {
   // Original z97 persists sortField/sortDirection separately
   // ("sortDirection" defaults to DESCENDING).
   private readonly PREF_SORT_DIR_KEY: string = 'library_sort_dir';
+  // Original z97 view-mode pref (ie7, default GRID).
+  private readonly PREF_VIEW_MODE_KEY: string = 'library_view_mode';
   // T-038：主题状态
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) @Watch('onSystemDarkChange') systemDark: boolean = false;
@@ -1255,6 +1260,33 @@ struct LibraryPage {
     }
   }
 
+  // Original inh.d: icon button dispatches the opposite ie7 mode; the
+  // icon depicts the target mode (zy7 case 20: grid_view / list_bullet).
+  private toggleViewMode(): void {
+    if (!this.pageActive) {
+      return;
+    }
+    this.listView = !this.listView;
+    const listView: boolean = this.listView;
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      preferences.getPreferences(context, THEME_PREFERENCES_NAME).then((pref: preferences.Preferences) => {
+        if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration) {
+          return;
+        }
+        pref.putSync(this.PREF_VIEW_MODE_KEY, listView ? 1 : 0);
+        pref.flush().catch((e: BusinessError) => {
+          console.error(`save view mode pref flush failed: ${e.code}`);
+        });
+      }).catch((e: BusinessError) => {
+        console.error(`save view mode pref failed: ${e.code}`);
+      });
+    } catch (e) {
+      console.error(`toggleViewMode failed: ${JSON.stringify(e)}`);
+    }
+  }
+
   // Original inh.b chip label: the current he7 field name.
   private sortFieldLabel(): Resource {
     if (this.viewModel === null) {
@@ -1356,6 +1388,7 @@ struct LibraryPage {
       vm.sortMode = saved as NoteSortMode;
       const savedDir: number = pref.getSync(this.PREF_SORT_DIR_KEY, 1) as number;
       vm.sortDescending = savedDir !== 0;
+      this.listView = (pref.getSync(this.PREF_VIEW_MODE_KEY, 0) as number) === 1;
       const initialQuery: string = this.searchText;
       const initialFolderId: string | null = vm.currentFolderId;
       const initialNotesRequestGeneration: number = this.beginNotesRequest();
@@ -1801,6 +1834,17 @@ struct LibraryPage {
               .onClick(() => {
                 this.toggleSortDirection();
               })
+            // Original inh.d: the icon depicts the target mode
+            // (grid mode shows list_bullet, list mode shows grid_view).
+            Button(this.listView ? '⊞' : '☰')
+              .width(40)
+              .height(40)
+              .fontSize(15)
+              .accessibilityText(this.listView ?
+                $r('app.string.grid_view') : $r('app.string.list_view'))
+              .onClick(() => {
+                this.toggleViewMode();
+              })
             Button($r('app.string.theme'))
               .height(40)
               .fontSize(13)
@@ -1881,18 +1925,32 @@ struct LibraryPage {
             .layoutWeight(1)
             .justifyContent(FlexAlign.Center)
           } else {
-            Grid() {
-              ForEach(this.notes, (note: NoteMeta) => {
-                GridItem() {
-                  this.NoteCard(note)
-                }
-              }, (note: NoteMeta) => note.id)
+            // Original yj9: ie7.GRID renders b5j.b cards in a grid;
+            // ie7.LIST renders m5j.b compact rows in a column list.
+            if (this.listView) {
+              List() {
+                ForEach(this.notes, (note: NoteMeta) => {
+                  ListItem() {
+                    this.NoteListRow(note)
+                  }
+                }, (note: NoteMeta) => note.id)
+              }
+              .padding({ left: 16, right: 16 })
+              .layoutWeight(1)
+            } else {
+              Grid() {
+                ForEach(this.notes, (note: NoteMeta) => {
+                  GridItem() {
+                    this.NoteCard(note)
+                  }
+                }, (note: NoteMeta) => note.id)
+              }
+              .columnsTemplate('1fr '.repeat(this.columns))
+              .columnsGap(16)
+              .rowsGap(16)
+              .padding(16)
+              .layoutWeight(1)
             }
-            .columnsTemplate('1fr '.repeat(this.columns))
-            .columnsGap(16)
-            .rowsGap(16)
-            .padding(16)
-            .layoutWeight(1)
           }
         } else {
           Text($r('app.string.loading'))
@@ -2049,6 +2107,94 @@ struct LibraryPage {
     .borderRadius(12)
     .backgroundColor(this.resolveTokens().surface)
     .shadow({ radius: 4, color: this.resolveTokens().shadow, offsetY: 2 })
+    .onVisibleAreaChange([0.0, 0.01], (isVisible: boolean) => {
+      if (isVisible) {
+        this.requestVisibleThumbnail(note.id);
+      }
+    })
+    .onClick(() => {
+      if (!this.pageActive) {
+        return;
+      }
+      router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: note.id } })
+        .catch((err: BusinessError) => {
+          console.error(`pushUrl failed: ${err.code}`);
+        });
+    })
+    .bindContextMenu(() => {
+      this.NoteContextMenu(note)
+    }, ResponseType.LongPress)
+  }
+
+  // Original m5j.b: ie7.LIST renders a compact horizontal row — small
+  // thumbnail, then title/date/chip column; same open + long-press
+  // context-menu behavior as the grid card.
+  @Builder
+  NoteListRow(note: NoteMeta) {
+    Row() {
+      Stack({ alignContent: Alignment.TopEnd }) {
+        if (this.thumbIds.indexOf(note.id) >= 0) {
+          Image(this.thumbMap.get(note.id))
+            .width('100%')
+            .height('100%')
+            .objectFit(ImageFit.Contain)
+            .backgroundColor(this.resolveTokens().control)
+            .borderRadius(6)
+        } else {
+          Column()
+            .width('100%')
+            .height('100%')
+            .backgroundColor(this.resolveTokens().control)
+            .borderRadius(6)
+        }
+        if (note.favorite) {
+          Text('♥')
+            .fontSize(12)
+            .fontColor(this.resolveTokens().accent)
+            .margin({ top: 2, right: 2 })
+            .accessibilityText($r('app.string.favorite_notes'))
+        }
+      }
+      .width(48)
+      .height(64)
+      Column() {
+        Text(note.title)
+          .fontSize(14)
+          .maxLines(1)
+          .fontColor(this.resolveTokens().textPrimary)
+        Text(this.formatTime(this.currentFolderId === null &&
+          this.currentSection === LibrarySection.RECENT ? note.lastOpened : note.updatedAt))
+          .fontSize(12)
+          .fontColor(this.resolveTokens().textSecondary)
+          .margin({ top: 2 })
+        Row() {
+          if (note.folderName !== null && note.folderColor !== null) {
+            Text(note.folderName)
+              .fontSize(10)
+              .maxLines(1)
+              .fontColor(this.folderChipTextColor(note.folderColor))
+              .backgroundColor(this.folderChipColor(note.folderColor))
+              .borderRadius(4)
+              .padding({ left: 6, right: 6, top: 1, bottom: 1 })
+          }
+          if (note.hasRecordings) {
+            Text('🎙')
+              .fontSize(10)
+              .margin({ left: 4 })
+              .accessibilityText($r('app.string.recordings'))
+          }
+        }
+        .margin({ top: 4 })
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      .margin({ left: 12 })
+    }
+    .width('100%')
+    .padding(8)
+    .borderRadius(12)
+    .backgroundColor(this.resolveTokens().surface)
+    .margin({ top: 8 })
     .onVisibleAreaChange([0.0, 0.01], (isVisible: boolean) => {
       if (isVisible) {
         this.requestVisibleThumbnail(note.id);
@@ -2312,6 +2458,8 @@ struct LibraryPage {
   private buildLibraryActionsMenu(): MenuElement[] {
     const items: MenuElement[] = this.buildSortMenuItems();
     items.push(
+      { value: this.listView ? $r('app.string.grid_view') : $r('app.string.list_view'),
+        action: () => { this.toggleViewMode(); } },
       { value: $r('app.string.follow_system'), action: () => { this.setThemeMode('system'); } },
       { value: $r('app.string.light_theme'), action: () => { this.setThemeMode('light'); } },
       { value: $r('app.string.dark_theme'), action: () => { this.setThemeMode('dark'); } },

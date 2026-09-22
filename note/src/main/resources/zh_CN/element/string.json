@@ -172,6 +172,8 @@
     { "name": "sort_z_to_a", "value": "Z 到 A" },
     { "name": "sort_oldest_to_newest", "value": "从旧到新" },
     { "name": "sort_newest_to_oldest", "value": "从新到旧" },
+    { "name": "grid_view", "value": "网格视图" },
+    { "name": "list_view", "value": "列表视图" },
     { "name": "recently_modified", "value": "最近修改" },
     { "name": "recently_created", "value": "最近创建" },
     { "name": "title", "value": "标题" },
