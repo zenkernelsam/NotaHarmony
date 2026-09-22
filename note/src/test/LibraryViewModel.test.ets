@@ -174,7 +174,10 @@ function makeNote(id: string, folderId: string | null): NoteMeta {
     favorite: false,
     lastOpened: 1,
     folderId: folderId,
+    folderName: null,
+    folderColor: null,
     hasRecordings: false,
+    deletedAt: null,
   };
 }
 
@@ -543,6 +546,28 @@ export default function libraryViewModelTest() {
       await viewModel.setFolder('folder-1', '');
       expect(viewModel.currentSection).assertEqual(LibrarySection.ALL_NOTES);
       expect(viewModel.currentFolderId).assertEqual('folder-1');
+    });
+
+    // w09.g/h: a committed move carries the destination folder's name/color
+    // onto the card so the folder chip (cti.c) renders immediately.
+    it('carries the destination folder projection on a committed move', 0, async () => {
+      const repository = new FakeNoteRepository();
+      repository.notes = [makeNote('alpha', null), makeNote('beta', null)];
+
+      const viewModel = new LibraryViewModel(repository);
+      await viewModel.loadNotes('');
+      viewModel.publishCommittedNoteMove('alpha', 'folder-9', 'Work', 0xFF4FA8DE);
+      const moved: NoteMeta | undefined =
+        viewModel.notes.find((n: NoteMeta) => n.id === 'alpha');
+      expect(moved?.folderId).assertEqual('folder-9');
+      expect(moved?.folderName).assertEqual('Work');
+      expect(moved?.folderColor).assertEqual(0xFF4FA8DE);
+      // Unfiled move clears the projection (cti.c renders no chip).
+      viewModel.publishCommittedNoteMove('alpha', null, null, null);
+      const unfiled: NoteMeta | undefined =
+        viewModel.notes.find((n: NoteMeta) => n.id === 'alpha');
+      expect(unfiled?.folderName === null).assertTrue();
+      expect(unfiled?.folderColor === null).assertTrue();
     });
   });
 }

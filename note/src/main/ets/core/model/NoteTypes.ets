@@ -143,6 +143,12 @@ export interface NoteMeta {
   favorite: boolean;
   lastOpened: number;
   folderId: string | null;
+  // Original w09.g/h: the merged library projection carries the folder's name
+  // and color so the card can render the folder chip (cti.c -> e5j.b -> i2j.b).
+  // Null whenever the note is unfiled; color is non-null on Harmony because
+  // folder.color is NOT NULL (documented Phase 533 adaptation).
+  folderName: string | null;
+  folderColor: number | null;
   hasRecordings: boolean;
   // Original ClientNoteUpdate.deletedAt equivalent: NULL while active, set to
   // the trash timestamp when moved to Recently Deleted.

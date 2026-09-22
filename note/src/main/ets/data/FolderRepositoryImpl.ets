@@ -597,12 +597,46 @@ export class FolderRepositoryImpl {
           favorite: resultSet.getLong(resultSet.getColumnIndex('favorite')) !== 0,
           lastOpened: resultSet.getLong(resultSet.getColumnIndex('last_opened')),
           folderId: resultSet.isColumnNull(folderColumn) ? null : resultSet.getString(folderColumn),
+          folderName: null,
+          folderColor: null,
           hasRecordings: resultSet.getLong(resultSet.getColumnIndex('has_recordings')) !== 0,
           deletedAt: resultSet.isColumnNull(deletedColumn) ? null : resultSet.getLong(deletedColumn),
         });
       }
     } finally {
       resultSet.close();
+    }
+    // Original w09.g/h: resolve the folder name/color projection for the card
+    // chip — notes in surviving folders keep their tag after this mutation.
+    const folderIds: Set<string> = new Set<string>();
+    for (const note of notes) {
+      if (note.folderId !== null) {
+        folderIds.add(note.folderId);
+      }
+    }
+    if (folderIds.size === 0) {
+      return notes;
+    }
+    const ids: string[] = Array.from(folderIds);
+    const placeholders: string = ids.map((): string => '?').join(', ');
+    const folderRows = await store.querySql(
+      `SELECT id, name, color FROM folder WHERE id IN (${placeholders})`, ids);
+    const projections: Map<string, [string, number]> = new Map<string, [string, number]>();
+    try {
+      while (folderRows.goToNextRow()) {
+        projections.set(folderRows.getString(folderRows.getColumnIndex('id')), [
+          folderRows.getString(folderRows.getColumnIndex('name')),
+          folderRows.getLong(folderRows.getColumnIndex('color')),
+        ]);
+      }
+    } finally {
+      folderRows.close();
+    }
+    for (const note of notes) {
+      const projection: [string, number] | undefined =
+        note.folderId === null ? undefined : projections.get(note.folderId);
+      note.folderName = projection === undefined ? null : projection[0];
+      note.folderColor = projection === undefined ? null : projection[1];
     }
     return notes;
   }

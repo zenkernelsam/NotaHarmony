@@ -254,7 +254,8 @@ export class LibraryViewModel {
     });
   }
 
-  publishCommittedNoteMove(noteId: string, folderId: string | null): void {
+  publishCommittedNoteMove(noteId: string, folderId: string | null,
+    folderName: string | null, folderColor: number | null): void {
     this.mutationGeneration++;
     const next: NoteMeta[] = [];
     for (const note of this.notes) {
@@ -263,7 +264,7 @@ export class LibraryViewModel {
         continue;
       }
       if (this.currentFolderId === null || this.currentFolderId === folderId) {
-        next.push(this.noteWithFolder(note, folderId));
+        next.push(this.noteWithFolder(note, folderId, folderName, folderColor));
       }
     }
     this.notes = next;
@@ -287,7 +288,7 @@ export class LibraryViewModel {
     for (const note of this.notes) {
       let candidate: NoteMeta = note;
       if (moved.has(note.id)) {
-        candidate = this.noteWithFolder(note, null);
+        candidate = this.noteWithFolder(note, null, null, null);
       } else if (note.folderId !== null && deleted.has(note.folderId)) {
         // The committed transaction did not move this stale card, so it was changed or deleted
         // by an earlier serialized mutation and must not survive this local projection.
@@ -311,7 +312,8 @@ export class LibraryViewModel {
     return foldedQuery.length === 0 || note.title.toLowerCase().includes(foldedQuery);
   }
 
-  private noteWithFolder(note: NoteMeta, folderId: string | null): NoteMeta {
+  private noteWithFolder(note: NoteMeta, folderId: string | null,
+    folderName: string | null, folderColor: number | null): NoteMeta {
     return {
       id: note.id,
       title: note.title,
@@ -320,6 +322,8 @@ export class LibraryViewModel {
       favorite: note.favorite,
       lastOpened: note.lastOpened,
       folderId: folderId,
+      folderName: folderName,
+      folderColor: folderColor,
       hasRecordings: note.hasRecordings,
       deletedAt: note.deletedAt,
     };
@@ -334,6 +338,8 @@ export class LibraryViewModel {
       favorite: favorite,
       lastOpened: note.lastOpened,
       folderId: note.folderId,
+      folderName: note.folderName,
+      folderColor: note.folderColor,
       hasRecordings: note.hasRecordings,
       deletedAt: note.deletedAt,
     };

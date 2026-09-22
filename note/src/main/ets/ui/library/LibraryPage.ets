@@ -769,7 +769,14 @@ struct LibraryPage {
       this.viewModel !== vm || this.thumbRenderer === null) {
       return;
     }
-    vm.publishCommittedNoteMove(result.noteId, result.folderId);
+    // w09.g/h: the moved card keeps a live folder projection so the chip shows
+    // the destination's name/color immediately (committed reload re-attaches).
+    const movedFolderId: string | null = result.folderId;
+    const targetFolder: NoteFolder | undefined = movedFolderId === null ? undefined :
+      this.folders.find((folder: NoteFolder): boolean => folder.id === movedFolderId);
+    vm.publishCommittedNoteMove(result.noteId, movedFolderId,
+      targetFolder === undefined ? null : targetFolder.name,
+      targetFolder === undefined ? null : targetFolder.color);
     this.viewModel = vm;
     this.notes = vm.getFilteredNotes().slice();
     this.refreshThumbnails().catch((e: Error) => {
@@ -1715,6 +1722,27 @@ struct LibraryPage {
         .fontSize(12)
         .fontColor(this.resolveTokens().textSecondary)
         .margin({ top: 2 })
+      // Original cti.c trailing row: folder chip (e5j.b -> i2j.b solid color
+      // pill) when w09.g/h are non-null, plus the recordings mic (w09.l ->
+      // record_mic_outline).
+      Row() {
+        if (note.folderName !== null && note.folderColor !== null) {
+          Text(note.folderName)
+            .fontSize(10)
+            .maxLines(1)
+            .fontColor(this.folderChipTextColor(note.folderColor))
+            .backgroundColor(this.folderChipColor(note.folderColor))
+            .borderRadius(4)
+            .padding({ left: 6, right: 6, top: 1, bottom: 1 })
+        }
+        if (note.hasRecordings) {
+          Text('🎙')
+            .fontSize(10)
+            .margin({ left: 4 })
+            .accessibilityText($r('app.string.recordings'))
+        }
+      }
+      .margin({ top: 4 })
     }
     .width('100%')
     .height(180)
@@ -2124,6 +2152,23 @@ struct LibraryPage {
     const d: Date = new Date(timestamp);
     return d.getMonth() + 1 + '/' + d.getDate() + ' ' + d.getHours() + ':' +
       (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+  }
+
+  // Original i2j.b: the folder chip fills with the folder color — stored as a
+  // (possibly signed) ARGB int, normalized to a #AARRGGBB resource string.
+  private folderChipColor(color: number): string {
+    return `#${(color >>> 0).toString(16).padStart(8, '0').toUpperCase()}`;
+  }
+
+  // The original chip text inherits the default style color (are.Q has none);
+  // a luminance split keeps the label readable across the whole palette.
+  private folderChipTextColor(color: number): string {
+    const argb: number = color >>> 0;
+    const r: number = (argb >> 16) & 0xFF;
+    const g: number = (argb >> 8) & 0xFF;
+    const b: number = argb & 0xFF;
+    const luminance: number = 0.299 * r + 0.587 * g + 0.114 * b;
+    return luminance >= 150 ? '#DE000000' : '#FFFFFFFF';
   }
 }
 

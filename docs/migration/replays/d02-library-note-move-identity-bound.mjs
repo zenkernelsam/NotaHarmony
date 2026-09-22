@@ -22,7 +22,7 @@ if (identityGuardIndex !== -1) {
 
 const guardIndex = body.indexOf('isCurrentLifecycle(lifecycleGeneration, vm, this.thumbRenderer)');
 const effects = [
-  'vm.publishCommittedNoteMove(result.noteId, result.folderId);',
+  'vm.publishCommittedNoteMove(result.noteId, movedFolderId,',
   'this.viewModel = vm;',
   'this.notes = vm.getFilteredNotes().slice();',
   "this.reloadVisibleNotesAfterMutation(vm, 'move note');",

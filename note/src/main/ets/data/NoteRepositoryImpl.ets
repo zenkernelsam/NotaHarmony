@@ -73,6 +73,7 @@ export class NoteRepositoryImpl implements NoteRepository {
         await store.rollBack();
         throw new Error(`createNote failed: ${JSON.stringify(e)}`);
       }
+      await this.attachFolderProjection(store, [note]);
       return note;
     });
   }
@@ -95,6 +96,7 @@ export class NoteRepositoryImpl implements NoteRepository {
         await store.rollBack();
         throw new Error(`createNoteWithMeta failed: ${JSON.stringify(e)}`);
       }
+      await this.attachFolderProjection(store, [note]);
       return note;
     });
   }
@@ -112,6 +114,9 @@ export class NoteRepositoryImpl implements NoteRepository {
         }
       } finally {
         resultSet.close();
+      }
+      if (note !== null) {
+        await this.attachFolderProjection(store, [note]);
       }
       return note;
     } catch (e) {
@@ -135,6 +140,7 @@ export class NoteRepositoryImpl implements NoteRepository {
       } finally {
         resultSet.close();
       }
+      await this.attachFolderProjection(store, notes);
       return notes;
     } catch (e) {
       throw new Error(`getAllNotes failed: ${JSON.stringify(e)}`);
@@ -157,6 +163,7 @@ export class NoteRepositoryImpl implements NoteRepository {
       } finally {
         resultSet.close();
       }
+      await this.attachFolderProjection(store, notes);
       return notes;
     } catch (e) {
       throw new Error(`getNotesByFolder failed: ${JSON.stringify(e)}`);
@@ -192,6 +199,7 @@ export class NoteRepositoryImpl implements NoteRepository {
       } finally {
         resultSet.close();
       }
+      await this.attachFolderProjection(store, notes);
       return notes;
     } catch (e) {
       throw new Error(`searchNotes failed: ${JSON.stringify(e)}`);
@@ -216,6 +224,7 @@ export class NoteRepositoryImpl implements NoteRepository {
       } finally {
         resultSet.close();
       }
+      await this.attachFolderProjection(store, notes);
       return notes;
     } catch (e) {
       throw new Error(`getFavoriteNotes failed: ${JSON.stringify(e)}`);
@@ -238,6 +247,7 @@ export class NoteRepositoryImpl implements NoteRepository {
       } finally {
         resultSet.close();
       }
+      await this.attachFolderProjection(store, notes);
       return notes;
     } catch (e) {
       throw new Error(`getRecentNotes failed: ${JSON.stringify(e)}`);
@@ -261,6 +271,7 @@ export class NoteRepositoryImpl implements NoteRepository {
       } finally {
         resultSet.close();
       }
+      await this.attachFolderProjection(store, notes);
       return notes;
     } catch (e) {
       throw new Error(`getUnfiledNotes failed: ${JSON.stringify(e)}`);
@@ -310,6 +321,7 @@ export class NoteRepositoryImpl implements NoteRepository {
       } finally {
         resultSet.close();
       }
+      await this.attachFolderProjection(store, notes);
       return notes;
     } catch (e) {
       throw new Error(`searchNotesInSection failed: ${JSON.stringify(e)}`);
@@ -374,6 +386,7 @@ export class NoteRepositoryImpl implements NoteRepository {
       } finally {
         resultSet.close();
       }
+      await this.attachFolderProjection(store, notes);
       return notes;
     } catch (e) {
       throw new Error(`getTrashedNotes failed: ${JSON.stringify(e)}`);
@@ -676,11 +689,56 @@ export class NoteRepositoryImpl implements NoteRepository {
         favorite: resultSet.getLong(resultSet.getColumnIndex('favorite')) !== 0,
         lastOpened: resultSet.getLong(resultSet.getColumnIndex('last_opened')),
         folderId: resultSet.isColumnNull(folderColumn) ? null : resultSet.getString(folderColumn),
+        // Resolved afterwards by attachFolderProjection (w09.g/h parity).
+        folderName: null,
+        folderColor: null,
         hasRecordings: resultSet.getLong(resultSet.getColumnIndex('has_recordings')) !== 0,
         deletedAt: resultSet.isColumnNull(deletedColumn) ? null : resultSet.getLong(deletedColumn),
       };
     } catch (e) {
       throw new Error('rowToNote failed: ' + JSON.stringify(e));
+    }
+  }
+
+  // Original w09 merged projection: the library note model carries the folder's
+  // name (g) and color (h) so cards can render the folder chip. One batched
+  // lookup covers every list path; a deleted folder can never surface because
+  // note_meta.folder_id is ON DELETE SET NULL.
+  private async attachFolderProjection(store: relationalStore.RdbStore,
+    notes: NoteMeta[]): Promise<void> {
+    const folderIds: Set<string> = new Set<string>();
+    for (const note of notes) {
+      if (note.folderId !== null) {
+        folderIds.add(note.folderId);
+      }
+    }
+    if (folderIds.size === 0) {
+      return;
+    }
+    const ids: string[] = Array.from(folderIds);
+    const placeholders: string = ids.map((): string => '?').join(', ');
+    try {
+      const resultSet = await store.querySql(
+        `SELECT id, name, color FROM folder WHERE id IN (${placeholders})`, ids);
+      const projections: Map<string, [string, number]> = new Map<string, [string, number]>();
+      try {
+        while (resultSet.goToNextRow()) {
+          projections.set(resultSet.getString(resultSet.getColumnIndex('id')), [
+            resultSet.getString(resultSet.getColumnIndex('name')),
+            resultSet.getLong(resultSet.getColumnIndex('color')),
+          ]);
+        }
+      } finally {
+        resultSet.close();
+      }
+      for (const note of notes) {
+        const projection: [string, number] | undefined =
+          note.folderId === null ? undefined : projections.get(note.folderId);
+        note.folderName = projection === undefined ? null : projection[0];
+        note.folderColor = projection === undefined ? null : projection[1];
+      }
+    } catch (e) {
+      throw new Error(`attachFolderProjection failed: ${JSON.stringify(e)}`);
     }
   }
 
@@ -694,6 +752,8 @@ export class NoteRepositoryImpl implements NoteRepository {
       favorite: false,
       lastOpened: updatedAt,
       folderId: folderId,
+      folderName: null,
+      folderColor: null,
       hasRecordings: hasRecordings,
       deletedAt: null,
     };
