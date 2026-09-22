@@ -1260,6 +1260,42 @@ struct LibraryPage {
     }
   }
 
+  // Original yj9:852 — "Search in {folderName}" placeholder while a
+  // folder is selected.
+  private searchPlaceholder(): Resource {
+    const folder: NoteFolder | null = this.currentFolder();
+    if (this.currentFolderId !== null && folder !== null) {
+      return $r('app.string.search_in_folder', folder.name);
+    }
+    return $r('app.string.search_notes');
+  }
+
+  // Original bk9 toggle: widen a folder-scoped search to all notes.
+  private setSearchAllNotes(on: boolean): void {
+    const vm: LibraryViewModel | null = this.viewModel;
+    if (!this.pageActive || vm === null) {
+      return;
+    }
+    const query: string = this.searchText;
+    const folderId: string | null = vm.currentFolderId;
+    const notesRequestGeneration: number = this.beginNotesRequest();
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    vm.setSearchAllNotes(on, query).then(() => {
+      if (this.isCurrentNotesRequest(notesRequestGeneration, vm, query,
+        folderId, lifecycleGeneration)) {
+        this.notes = vm.getFilteredNotes().slice();
+        return this.refreshThumbnails();
+      }
+      return Promise.resolve();
+    }).catch((e: Error) => {
+      if (this.isCurrentNotesRequest(notesRequestGeneration, vm, query,
+        folderId, lifecycleGeneration)) {
+        console.error(`search-all toggle failed: ${JSON.stringify(e)}`);
+        promptAction.showToast({ message: $r('app.string.search_failed') });
+      }
+    });
+  }
+
   // Original inh.d: icon button dispatches the opposite ie7 mode; the
   // icon depicts the target mode (zy7 case 20: grid_view / list_bullet).
   private toggleViewMode(): void {
@@ -1773,7 +1809,9 @@ struct LibraryPage {
         }
         // 搜索栏（48vp）+ 设置入口 + 排序
         Row() {
-          TextInput({ placeholder: $r('app.string.search_notes') })
+          // Original yj9:852 — placeholder is "Search in {folder}" while a
+          // folder is selected, plain "Search" otherwise.
+          TextInput({ placeholder: this.searchPlaceholder() })
             .layoutWeight(1)
             .height(40)
             .fontColor(this.resolveTokens().textPrimary)
@@ -1873,6 +1911,25 @@ struct LibraryPage {
         .width('100%')
         .height(48)
         .padding({ left: 16, right: 16 })
+
+        // Original bk9/mhh + yj9 folder-filter-toggle: while a folder
+        // search is active, a "Search all notes" switch widens the scope.
+        if (this.currentFolderId !== null && this.searchText.trim().length > 0) {
+          Row() {
+            Text($r('app.string.search_show_all_notes'))
+              .fontSize(13)
+              .fontColor(this.resolveTokens().textPrimary)
+              .layoutWeight(1)
+            Toggle({ type: ToggleType.Switch,
+              isOn: this.viewModel !== null && this.viewModel.searchAllNotes })
+              .onChange((on: boolean) => {
+                this.setSearchAllNotes(on);
+              })
+          }
+          .width('100%')
+          .height(36)
+          .padding({ left: 16, right: 16 })
+        }
 
         // 笔记网格
         if (this.hasInitError && this.notes.length === 0) {

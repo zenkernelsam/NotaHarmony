@@ -27,6 +27,10 @@ export class LibraryViewModel {
   // Sections apply when no folder is selected; selecting a folder resets to
   // ALL_NOTES and selecting a section clears the folder selection.
   currentSection: LibrarySection = LibrarySection.ALL_NOTES;
+  // Original bk9 FolderFilter.isShowingAllNotes — while searching inside
+  // a folder, widening the toggle searches all notes without leaving the
+  // folder. Resets on folder/section changes.
+  searchAllNotes: boolean = false;
   private repo: NoteRepository;
   private loadGeneration: number = 0;
   private mutationGeneration: number = 0;
@@ -89,15 +93,18 @@ export class LibraryViewModel {
   async setFolder(folderId: string | null, query: string): Promise<void> {
     const previousFolderId: string | null = this.currentFolderId;
     const previousSection: LibrarySection = this.currentSection;
+    const previousSearchAll: boolean = this.searchAllNotes;
     this.currentFolderId = folderId;
     // Folder selection is a separate dimension in the original; picking a
     // subject leaves the dk9 chips on ALL_NOTES (pk9 default).
     this.currentSection = LibrarySection.ALL_NOTES;
+    this.searchAllNotes = false;
     try {
       await this.loadNotes(query);
     } catch (e) {
       this.currentFolderId = previousFolderId;
       this.currentSection = previousSection;
+      this.searchAllNotes = previousSearchAll;
       throw new Error(`setFolder failed: ${JSON.stringify(e)}`);
     }
   }
@@ -133,15 +140,25 @@ export class LibraryViewModel {
   async setSection(section: LibrarySection, query: string): Promise<void> {
     const previousFolderId: string | null = this.currentFolderId;
     const previousSection: LibrarySection = this.currentSection;
+    const previousSearchAll: boolean = this.searchAllNotes;
     this.currentFolderId = null;
     this.currentSection = section;
+    this.searchAllNotes = false;
     try {
       await this.loadNotes(query);
     } catch (e) {
       this.currentFolderId = previousFolderId;
       this.currentSection = previousSection;
+      this.searchAllNotes = previousSearchAll;
       throw new Error(`setSection failed: ${JSON.stringify(e)}`);
     }
+  }
+
+  // Original bk9.isShowingAllNotes toggle (yj9 folder-filter-toggle chip):
+  // widens a folder-scoped search to all notes, then reloads.
+  async setSearchAllNotes(searchAll: boolean, query: string): Promise<void> {
+    this.searchAllNotes = searchAll;
+    await this.loadNotes(query);
   }
 
   // Original setFavorite (modifyNote{isFavorited}): toggles the flag and
@@ -175,6 +192,11 @@ export class LibraryViewModel {
   private queryNotes(query: string, folderId: string | null,
     section: LibrarySection): Promise<NoteMeta[]> {
     if (query.trim().length > 0) {
+      // bk9.isShowingAllNotes: an active folder search can be widened to
+      // all notes while staying inside the folder view.
+      if (this.searchAllNotes && folderId !== null) {
+        return this.repo.searchNotes(query, null);
+      }
       return folderId === null && section !== LibrarySection.ALL_NOTES ?
         this.repo.searchNotesInSection(query, section) :
         this.repo.searchNotes(query, folderId);

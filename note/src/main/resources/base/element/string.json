@@ -657,6 +657,14 @@
       "value": "Search notes"
     },
     {
+      "name": "search_in_folder",
+      "value": "Search in \"%s\""
+    },
+    {
+      "name": "search_show_all_notes",
+      "value": "Show results for all notes"
+    },
+    {
       "name": "sort",
       "value": "Sort"
     },

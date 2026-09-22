@@ -164,6 +164,8 @@
     { "name": "expand_folder", "value": "展开文件夹" },
     { "name": "collapse_folder", "value": "折叠文件夹" },
     { "name": "search_notes", "value": "搜索笔记" },
+    { "name": "search_in_folder", "value": "在“%s”中搜索" },
+    { "name": "search_show_all_notes", "value": "显示所有笔记的结果" },
     { "name": "sort", "value": "排序" },
     { "name": "sort_name", "value": "名称" },
     { "name": "sort_created_date", "value": "创建日期" },
