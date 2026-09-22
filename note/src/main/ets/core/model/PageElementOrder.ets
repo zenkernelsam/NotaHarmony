@@ -386,6 +386,85 @@ export function movePageElementRefsOneStep(order: PageElementRef[], selectedEnti
   return reindexPageElementOrder(result);
 }
 
+// Original dsc SEND_TO_FRONT(8)/SEND_TO_BACK(9): move the selected units to the
+// extreme of the z-order in one step. Same selection-unit validation as
+// movePageElementRefsOneStep; only non-group units move, preserving the
+// relative order of both partitions.
+export function movePageElementRefsToExtreme(order: PageElementRef[], selectedEntityIds: string[],
+  selectedGroupIds: string[], groups: OriginalSelectionGroup[], front: boolean): PageElementRef[] {
+  const selectedUnits: Set<string> = new Set<string>();
+  const selectedEntities: Set<string> = new Set<string>();
+  for (const id of selectedEntityIds) {
+    if (id.length === 0 || selectedEntities.has(id)) {
+      return clonePageElementOrder(order);
+    }
+    selectedEntities.add(id);
+  }
+  for (const id of selectedGroupIds) {
+    if (id.length === 0 || selectedUnits.has(id)) {
+      return clonePageElementOrder(order);
+    }
+    selectedUnits.add(id);
+  }
+  const units: OriginalSelectionLayerUnit[] | null = resolveOriginalSelectionLayerUnits(
+    order.map((ref: PageElementRef): string => ref.elementId), groups);
+  if (units === null) {
+    return clonePageElementOrder(order);
+  }
+  const entityUnit: Map<string, OriginalSelectionLayerUnit> =
+    new Map<string, OriginalSelectionLayerUnit>();
+  const availableGroups: Set<string> = new Set<string>();
+  for (const unit of units) {
+    if (unit.group) {
+      availableGroups.add(unit.id);
+    }
+    for (const id of unit.entityIds) {
+      entityUnit.set(id, unit);
+    }
+  }
+  for (const id of selectedEntities) {
+    const unit: OriginalSelectionLayerUnit | undefined = entityUnit.get(id);
+    if (unit === undefined || unit.group || selectedUnits.has(unit.id)) {
+      return clonePageElementOrder(order);
+    }
+    selectedUnits.add(unit.id);
+  }
+  for (const id of selectedGroupIds) {
+    if (!availableGroups.has(id)) {
+      return clonePageElementOrder(order);
+    }
+  }
+  const moving: OriginalSelectionLayerUnit[] = [];
+  const staying: OriginalSelectionLayerUnit[] = [];
+  for (const unit of units) {
+    if (selectedUnits.has(unit.id) && !unit.group) {
+      moving.push(unit);
+    } else {
+      staying.push(unit);
+    }
+  }
+  const moved: OriginalSelectionLayerUnit[] =
+    front ? staying.concat(moving) : moving.concat(staying);
+  const byId: Map<string, PageElementRef> = new Map<string, PageElementRef>();
+  for (const ref of order) {
+    if (byId.has(ref.elementId)) {
+      return clonePageElementOrder(order);
+    }
+    byId.set(ref.elementId, ref);
+  }
+  const result: PageElementRef[] = [];
+  for (const unit of moved) {
+    for (const id of unit.entityIds) {
+      const ref: PageElementRef | undefined = byId.get(id);
+      if (ref === undefined) {
+        return clonePageElementOrder(order);
+      }
+      result.push(ref);
+    }
+  }
+  return reindexPageElementOrder(result);
+}
+
 export function clonePageElementOrder(order: PageElementRef[]): PageElementRef[] {
   const result: PageElementRef[] = [];
   for (const ref of order) {

@@ -155,6 +155,7 @@ import {
 import { effectivePageBackground } from '../../core/model/PageBackgroundModel';
 import {
   appendPageElementRefs, clonePageElementOrder, materializePageElements, movePageElementRefsOneStep,
+  movePageElementRefsToExtreme,
   OrderedPageElement, PageElementKind, PageElementRef,
   removePageElementRefs, requiresUnifiedElementRender, samePageElementMembers, samePageElementOrder,
   strictPageElementOrder,
@@ -5304,6 +5305,14 @@ export struct NoteCanvasView {
       this.reorderSelected(state.selectedStrokeIds, state.selectedShapeIds,
         state.selectedTextBlockIds, state.selectedImageIds, state.selectedMathIds,
         state.selectedGroupIds, action === SelectionMenuAction.SEND_FORWARD);
+    } else if (action === SelectionMenuAction.SEND_TO_FRONT || action === SelectionMenuAction.SEND_TO_BACK) {
+      this.reorderSelectedToExtreme(state.selectedStrokeIds, state.selectedShapeIds,
+        state.selectedTextBlockIds, state.selectedImageIds, state.selectedMathIds,
+        state.selectedGroupIds, action === SelectionMenuAction.SEND_TO_FRONT);
+    } else if (action === SelectionMenuAction.DUPLICATE) {
+      this.duplicateSelected(state.selectedStrokeIds, state.selectedShapeIds,
+        state.selectedTextBlockIds, state.selectedImageIds, state.selectedMathIds,
+        state.selectedGroupIds);
     } else if (action === SelectionMenuAction.FLIP_H || action === SelectionMenuAction.FLIP_V) {
       this.flipSelected(state.selectedStrokeIds, state.selectedShapeIds,
         state.selectedTextBlockIds, state.selectedImageIds, state.selectedGroupIds,
@@ -6277,6 +6286,75 @@ export struct NoteCanvasView {
     this.persist(originalEligible, hint);
     this.notifyUndoRedo();
     this.renderFrame();
+  }
+
+  // Original dsc SEND_TO_FRONT(8)/SEND_TO_BACK(9): single-shot extreme move —
+  // same guards/persist shape as the one-step variant.
+  private reorderSelectedToExtreme(ids: string[], shapeIds: string[], textIds: string[],
+    imageIds: string[], mathIds: string[], groupIds: string[], front: boolean): void {
+    const allSelectedIds: string[] = ids.concat(shapeIds).concat(textIds).concat(imageIds)
+      .concat(mathIds);
+    const groupedLeaves: string[] | null = resolveOriginalSelectedGroupLeaves(
+      groupIds, allSelectedIds, this.selectionGroups);
+    if (groupedLeaves === null) {
+      return;
+    }
+    const grouped: Set<string> = new Set<string>(groupedLeaves);
+    const directStrokeIds: string[] = ids.filter((id: string): boolean => !grouped.has(id));
+    const directShapeIds: string[] = shapeIds.filter((id: string): boolean => !grouped.has(id));
+    const directTextIds: string[] = textIds.filter((id: string): boolean => !grouped.has(id));
+    const directImageIds: string[] = imageIds.filter((id: string): boolean => !grouped.has(id));
+    const directMathIds: string[] = mathIds.filter((id: string): boolean => !grouped.has(id));
+    const selectedIds: string[] = directStrokeIds.concat(directShapeIds).concat(directTextIds)
+      .concat(directImageIds).concat(directMathIds);
+    if (selectedIds.length === 0) {
+      return;
+    }
+    const before: PageElementRef[] = clonePageElementOrder(this.elementOrder);
+    const after: PageElementRef[] = movePageElementRefsToExtreme(
+      before, selectedIds, groupIds, this.selectionGroups, front);
+    if (samePageElementOrder(before, after)) {
+      return;
+    }
+    this.elementOrder = after;
+    this.synchronizeElementArraysByOrder();
+    this.undoRedo.push({
+      type: UndoableActionType.REORDER_ELEMENTS,
+      noteId: this.noteId,
+      pageId: this.currentPage.pageId,
+      elementOrderBefore: before,
+      elementOrderAfter: clonePageElementOrder(after),
+    });
+    this.layerManager.rebuildFromStrokes(
+      this.completedStrokes, this.renderCtx, this.viewport.zoom);
+    const originalEligible: boolean = this.areCanonicalOriginalPositionSelection(
+      directStrokeIds, directShapeIds, directTextIds, directImageIds, directMathIds);
+    const hint: OriginalZOrderHint | undefined = originalEligible ? {
+      command: front ? OriginalZOrderCommand.BRING_FRONT : OriginalZOrderCommand.SEND_BACK,
+      selectedElementIds: selectedIds,
+      selectedGroupIds: groupIds.slice(),
+    } : undefined;
+    this.persist(originalEligible, hint);
+    this.notifyUndoRedo();
+    this.renderFrame();
+  }
+
+  // Original dsc DUPLICATE(3): internal copy+paste composite at the selection
+  // paste target. The internal strokeClipboard is overwritten (registered
+  // adaptation — the original's dedicated duplicate op is not decompiled).
+  private duplicateSelected(ids: string[], shapeIds: string[], textIds: string[],
+    imageIds: string[], mathIds: string[], groupIds: string[]): void {
+    if (!this.copySelectedToClipboard(ids, shapeIds, textIds, imageIds, mathIds, groupIds)) {
+      return;
+    }
+    const target: Point2D | null = this.selectionPasteTarget();
+    if (target === null) {
+      return;
+    }
+    // The paste debounce guards rapid-repeat UI paste; duplicate is a single
+    // deliberate action, so reset it before riding the same path.
+    this.lastPasteRequestTime = 0;
+    this.pasteClipboard(target);
   }
 
   private flipSelected(ids: string[], shapeIds: string[], textIds: string[], imageIds: string[],

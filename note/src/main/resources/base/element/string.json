@@ -278,11 +278,19 @@
     },
     {
       "name": "bring_forward",
-      "value": "Bring Forward"
+      "value": "Send forward"
+    },
+    {
+      "name": "send_to_front",
+      "value": "Send to front"
+    },
+    {
+      "name": "send_to_back",
+      "value": "Send to back"
     },
     {
       "name": "send_backward",
-      "value": "Send Backward"
+      "value": "Send backward"
     },
     {
       "name": "flip_horizontal",

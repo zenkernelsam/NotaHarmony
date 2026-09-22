@@ -22,6 +22,9 @@ export enum SelectionMenuAction {
   GROUP = 11,
   UNGROUP = 12,
   EDIT_MATH = 13,
+  DUPLICATE = 14,
+  SEND_TO_FRONT = 15,
+  SEND_TO_BACK = 16,
 }
 
 @Component
@@ -89,29 +92,17 @@ export struct SelectionOverlay {
     if (this.photoImportLeaseActive) {
       return items;
     }
+    // Original dsc order: COPY, CUT, DUPLICATE, GROUP, UNGROUP, SEND_FORWARD,
+    // SEND_BACKWARD, SEND_TO_FRONT, SEND_TO_BACK, DELETE, [CONVERT_*],
+    // EDIT_MATH, CROP, [FIT_TO_PAGE], FLIP_H, FLIP_V, LOCK/UNLOCK, DESELECT.
+    // PASTE rides the menu as a registered adaptation (original renders a
+    // floating paste chip); it sits with the clipboard cluster.
     items.push(
       { value: $r('app.string.cut'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Cut clicked'); this.onMenuAction(SelectionMenuAction.CUT); } },
-      { value: $r('app.string.delete'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Del clicked'); this.onMenuAction(SelectionMenuAction.DELETE); } },
-      { value: $r('app.string.bring_forward'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Fwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_FORWARD); } },
-      { value: $r('app.string.send_backward'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Bwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_BACKWARD); } });
+      { value: $r('app.string.duplicate_note'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Duplicate clicked'); this.onMenuAction(SelectionMenuAction.DUPLICATE); } });
     if (this.canPaste) {
       items.push({ value: $r('app.string.paste'),
         action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Paste clicked'); this.onMenuAction(SelectionMenuAction.PASTE); } });
-    }
-    if (this.canFlip) {
-      items.push({ value: $r('app.string.flip_horizontal'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipH clicked'); this.onMenuAction(SelectionMenuAction.FLIP_H); } });
-      items.push({ value: $r('app.string.flip_vertical'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipV clicked'); this.onMenuAction(SelectionMenuAction.FLIP_V); } });
-    }
-    if (this.canCrop) {
-      items.push({ value: $r('app.string.crop'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Crop clicked'); this.onMenuAction(SelectionMenuAction.CROP); } });
-    }
-    if (this.canEditMath) {
-      items.push({ value: $r('app.string.edit_math'),
-        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Edit Math clicked'); this.onMenuAction(SelectionMenuAction.EDIT_MATH); } });
-    }
-    if (this.canLock) {
-      items.push({ value: this.positionLocked ? $r('app.string.unlock') : $r('app.string.lock'),
-        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Lock clicked'); this.onMenuAction(SelectionMenuAction.LOCK); } });
     }
     if (this.canGroup) {
       items.push({ value: $r('app.string.group'),
@@ -120,6 +111,27 @@ export struct SelectionOverlay {
     if (this.canUngroup) {
       items.push({ value: $r('app.string.ungroup'),
         action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Ungroup clicked'); this.onMenuAction(SelectionMenuAction.UNGROUP); } });
+    }
+    items.push(
+      { value: $r('app.string.bring_forward'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Fwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_FORWARD); } },
+      { value: $r('app.string.send_backward'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Bwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_BACKWARD); } },
+      { value: $r('app.string.send_to_front'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu ToFront clicked'); this.onMenuAction(SelectionMenuAction.SEND_TO_FRONT); } },
+      { value: $r('app.string.send_to_back'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu ToBack clicked'); this.onMenuAction(SelectionMenuAction.SEND_TO_BACK); } },
+      { value: $r('app.string.delete'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Del clicked'); this.onMenuAction(SelectionMenuAction.DELETE); } });
+    if (this.canEditMath) {
+      items.push({ value: $r('app.string.edit_math'),
+        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Edit Math clicked'); this.onMenuAction(SelectionMenuAction.EDIT_MATH); } });
+    }
+    if (this.canCrop) {
+      items.push({ value: $r('app.string.crop'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Crop clicked'); this.onMenuAction(SelectionMenuAction.CROP); } });
+    }
+    if (this.canFlip) {
+      items.push({ value: $r('app.string.flip_horizontal'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipH clicked'); this.onMenuAction(SelectionMenuAction.FLIP_H); } });
+      items.push({ value: $r('app.string.flip_vertical'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipV clicked'); this.onMenuAction(SelectionMenuAction.FLIP_V); } });
+    }
+    if (this.canLock) {
+      items.push({ value: this.positionLocked ? $r('app.string.unlock') : $r('app.string.lock'),
+        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Lock clicked'); this.onMenuAction(SelectionMenuAction.LOCK); } });
     }
     items.push({ value: $r('app.string.done'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu OK clicked'); this.onMenuAction(SelectionMenuAction.DESELECT); } });
     return items;
