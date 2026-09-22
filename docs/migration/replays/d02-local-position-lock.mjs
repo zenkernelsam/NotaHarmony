@@ -57,8 +57,8 @@ assert.match(shapeGeometry, /!selected\.has\(shape\.id\) \|\| shape\.positionLoc
 assert.match(shapeGeometry, /eraserPath\.length === 0 \|\| shape\.positionLocked === true/);
 assert.match(geometryFixtures, /position-locked Shapes immovable and whole-eraser safe/);
 assert.match(overlay, /positionLocked \? \$r\('app\.string\.unlock'\) : \$r\('app\.string\.lock'\)/);
-assert.match(canvas, /const onlyShapesSelected: boolean/);
-assert.match(canvas, /selectedCount === 1 && state\.selectedGroupIds\.length === 0/);
+assert.match(canvas, /const allMembersAreShapes: boolean/);
+assert.match(canvas, /selectedCount === 1 && lockableCount === 1/);
 assert.match(canvas, /private setSelectedPositionLocked\(locked: boolean\)/);
 assert.match(canvas, /type: UndoableActionType\.TRANSFORM_ELEMENTS/);
 assert.match(canvas, /this\.setSelectedPositionLocked\(!this\.selectionPositionLocked\)/);

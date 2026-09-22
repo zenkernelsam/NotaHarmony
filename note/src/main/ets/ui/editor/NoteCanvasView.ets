@@ -6009,14 +6009,31 @@ export struct NoteCanvasView {
       }
     }
     const selectedCount: number = state.selectedStrokeIds.length + lockableCount;
-    const onlyShapesSelected: boolean = state.selectedShapeIds.length > 0 &&
-      state.selectedShapeIds.length === selectedCount;
-    // Original 1.0.3 dhb handles a tapped Block directly; drawn/group selections use xsc.k,
-    // which accepts only Shapes. Harmony has no separate tap-selection state, so one selected
-    // entity is the equivalent direct-selection path.
-    this.selectionCanLock = onlyShapesSelected ||
-      (selectedCount === 1 && state.selectedGroupIds.length === 0);
-    this.selectionPositionLocked = lockableCount > 0 && lockedCount === lockableCount;
+    // 原版 dhb case18/19：itc 单元素走 u5j.n/x——oy0 块与 m4d 形状可锁，
+    // s06 笔画产出空 op（死操作）；非 itc 走 xsc.k——解析 ktc.h() 全部
+    // 成员，任一成员非 m4d（笔画/oy0 块）→ null 死路径，且须存在
+    // cih.a(n5d 形状) 成员；方向=全部 n5d 已锁→UNLOCK。
+    // 等效门槛：展开组叶子后所有成员都是形状（多选/单组），或单个
+    // 非笔画元素（lockableCount===1 且 selectedCount===1）。
+    const groupLeafIds: string[] | null = resolveOriginalSelectedGroupLeaves(
+      state.selectedGroupIds, selectedEntityIds, this.selectionGroups);
+    const lockLeafIds: string[] | null = groupLeafIds === null ? null :
+      selectedEntityIds.concat(groupLeafIds);
+    const shapeIdSet: Set<string> = new Set<string>(
+      this.shapes.map((shape: ShapeElement): string => shape.id));
+    const allMembersAreShapes: boolean = lockLeafIds !== null &&
+      lockLeafIds.length > 0 &&
+      lockLeafIds.every((id: string): boolean => shapeIdSet.has(id));
+    this.selectionCanLock = allMembersAreShapes ||
+      (state.selectedGroupIds.length === 0 && selectedCount === 1 && lockableCount === 1);
+    const allMemberShapesLocked: boolean = allMembersAreShapes &&
+      (lockLeafIds as string[]).every((id: string): boolean => {
+        const shape: ShapeElement | undefined = this.shapes.find(
+          (candidate: ShapeElement): boolean => candidate.id === id);
+        return shape !== undefined && shape.positionLocked === true;
+      });
+    this.selectionPositionLocked = allMemberShapesLocked ||
+      (lockableCount > 0 && lockedCount === lockableCount);
     let rect: Rect2D | null = null;
     for (const s of this.completedStrokes) {
       if (state.selectedStrokeIds.indexOf(s.id) >= 0) {
@@ -7519,6 +7536,18 @@ export struct NoteCanvasView {
 
   private setSelectedPositionLocked(locked: boolean): void {
     const state = this.selectionTool.getState();
+    // 原版非 itc 路径 xsc.k→vz6 对 ktc.h() 成员逐一判定——选中组的
+    // 成员（n5d 形状）同样切换。把组叶子并入生效形状集合。
+    const entityIds: string[] = state.selectedStrokeIds.concat(state.selectedShapeIds)
+      .concat(state.selectedTextBlockIds).concat(state.selectedImageIds).concat(state.selectedMathIds);
+    const groupLeafIds: string[] | null = resolveOriginalSelectedGroupLeaves(
+      state.selectedGroupIds, entityIds, this.selectionGroups);
+    const effectiveShapeIds: Set<string> = new Set<string>(state.selectedShapeIds);
+    if (groupLeafIds !== null) {
+      for (const leafId of groupLeafIds) {
+        effectiveShapeIds.add(leafId);
+      }
+    }
     const beforeShapes: ShapeElement[] = [];
     const afterShapes: ShapeElement[] = [];
     const beforeTextBlocks: TextBlockElement[] = [];
@@ -7528,7 +7557,7 @@ export struct NoteCanvasView {
     const beforeMathBlocks: MathElement[] = [];
     const afterMathBlocks: MathElement[] = [];
     for (const shape of this.shapes) {
-      if (state.selectedShapeIds.indexOf(shape.id) < 0 || (shape.positionLocked === true) === locked) {
+      if (!effectiveShapeIds.has(shape.id) || (shape.positionLocked === true) === locked) {
         continue;
       }
       const before: ShapeElement = cloneShapeElement(shape);
