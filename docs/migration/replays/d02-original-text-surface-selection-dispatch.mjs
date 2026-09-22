@@ -26,7 +26,7 @@ const def = canvas.slice(defIdx, defIdx + 5200);
 check(def.includes('event.sourceTool === SourceTool.Pen'),
   'bare-stylus suppression gate present on the TEXT surface');
 check(def.indexOf('stylusSuppress') <
-  def.indexOf('this.pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)'),
+  def.indexOf('this.pointInSelectionRect({ x: touch.x, y: touch.y })'),
   'suppression flag computed before inside/outside split');
 check(def.includes('this.selectionTool.getState().deselectMode') &&
   def.includes('this.deselectTargetIdsAt(canvasP)') &&

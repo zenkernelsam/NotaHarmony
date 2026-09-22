@@ -42,10 +42,10 @@ check(applyT.includes('this.state.selectedStrokeIds.indexOf(s.id)'),
 // --- 常态选区内按下 → 整体拖拽（wtc/e39 等价） ---
 const branch = canvas.slice(canvas.indexOf('isSelectionActive()'),
   canvas.indexOf('isSelectionActive()') + 10000);
-check(branch.includes('pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)') &&
+check(branch.includes('pointInSelectionRect({ x: touch.x, y: touch.y })') &&
   branch.includes('this.beginSelectionDragSession(canvasP,'),
   'inside-rect press drags the whole selection');
-check(branch.indexOf('pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)') <
+check(branch.indexOf('pointInSelectionRect({ x: touch.x, y: touch.y })') <
   branch.indexOf('topmostPageElementIdAt'),
   'inside-rect drag precedes the outside-press probe');
 

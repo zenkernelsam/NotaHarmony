@@ -234,6 +234,12 @@ interface DeselectHit {
   groupIds: string[];
 }
 
+// 原版 yxi.e 命中参数：htc.a() 的未旋转矩形 + g() 旋转角。
+interface UnrotatedSelectionRect {
+  rect: Rect2D;
+  radians: number;
+}
+
 interface OriginalPhotoInsertOrigin {
   generation: number;
   pageId: string;
@@ -2384,7 +2390,7 @@ export struct NoteCanvasView {
         const target: DeselectHit | null = this.deselectTargetIdsAt(canvasP);
         if (target !== null) {
           this.selectionTool.deselectElements(target.entityIds, target.groupIds);
-        } else if (!this.pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)) {
+        } else if (!this.pointInSelectionRect({ x: touch.x, y: touch.y })) {
           this.selectionTool.cancelDeselectMode();
         }
         this.selectionDeselectMode = this.selectionTool.getState().deselectMode;
@@ -2394,7 +2400,7 @@ export struct NoteCanvasView {
         return;
       }
       if (this.selectionVisible &&
-        this.pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)) {
+        this.pointInSelectionRect({ x: touch.x, y: touch.y })) {
         if (this.tryStartSelectionResize({ x: touch.x, y: touch.y })) {
           return;
         }
@@ -2473,7 +2479,7 @@ export struct NoteCanvasView {
         const target: DeselectHit | null = this.deselectTargetIdsAt(canvasP);
         if (target !== null) {
           this.selectionTool.deselectElements(target.entityIds, target.groupIds);
-        } else if (!this.pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)) {
+        } else if (!this.pointInSelectionRect({ x: touch.x, y: touch.y })) {
           this.selectionTool.cancelDeselectMode();
         }
         this.selectionDeselectMode = this.selectionTool.getState().deselectMode;
@@ -2491,7 +2497,7 @@ export struct NoteCanvasView {
       hilog.info(0x0001, 'NoteCanvasView', 'selDown visible=%{public}s x=%{public}f y=%{public}f rect=(%{public}f,%{public}f,%{public}f,%{public}f)',
         this.selectionVisible.toString(), touch.x, touch.y, this.selectionRect.left,
         this.selectionRect.top, this.selectionRect.right, this.selectionRect.bottom);
-      if (this.selectionVisible && this.pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)) {
+      if (this.selectionVisible && this.pointInSelectionRect({ x: touch.x, y: touch.y })) {
         // 原版 dl1 itc/gtc 分支：覆盖层内按下的元素级 ttc 产出——
         //   itc（单元素选区）命中同一文本块 → ttc → qke 激活编辑 + 链接探测；
         //   gtc（组选区）命中非文本成员 → ttc → qke 非文本 no-op（消费不拖拽）；
@@ -8683,6 +8689,91 @@ export struct NoteCanvasView {
 
   private pointInRect(p: Point2D, r: Rect2D): boolean {
     return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
+  }
+
+  // 原版 yxi.e：htc.a()=未旋转选区矩形、g()=旋转角——命中测试把点绕
+  // 矩形中心反旋转 -g() 再做轴对齐包含。Harmony selectionRect 是已
+  // 旋转元素的屏幕 AABB（四角区会误命中）；单个带 rotationRadians
+  // 的选区按同法还原：克隆去旋转取未旋转 bounds→屏幕矩形，触点绕
+  // 其中心反旋转后包含测试。
+  private singleSelectedUnrotatedScreenRect(): UnrotatedSelectionRect | null {
+    const state = this.selectionTool.getState();
+    if (state.selectedGroupIds.length !== 0 ||
+      state.selectedStrokeIds.length + state.selectedShapeIds.length +
+      state.selectedTextBlockIds.length + state.selectedImageIds.length +
+      state.selectedMathIds.length !== 1) {
+      return null;
+    }
+    let canvasRect: Rect2D | null = null;
+    let radians: number = 0;
+    if (state.selectedShapeIds.length === 1) {
+      const e: ShapeElement | undefined = this.shapes.find(
+        (s: ShapeElement): boolean => s.id === state.selectedShapeIds[0]);
+      if (e !== undefined && e.type === ElementType.ELLIPSE && e.rotationRadians !== 0) {
+        const c: ShapeElement = cloneShapeElement(e);
+        if (c.type === ElementType.ELLIPSE) {
+          c.rotationRadians = 0;
+        }
+        canvasRect = recomputeShapeBounds(c);
+        radians = e.rotationRadians;
+      }
+    } else if (state.selectedTextBlockIds.length === 1) {
+      const e: TextBlockElement | undefined = this.textBlocks.find(
+        (t: TextBlockElement): boolean => t.id === state.selectedTextBlockIds[0]);
+      if (e !== undefined && e.rotationRadians !== 0) {
+        const c: TextBlockElement = cloneTextBlockElement(e);
+        c.rotationRadians = 0;
+        canvasRect = textBlockWorldBounds(c);
+        radians = e.rotationRadians;
+      }
+    } else if (state.selectedImageIds.length === 1) {
+      const e: ImageElement | undefined = this.imageBlocks.find(
+        (i: ImageElement): boolean => i.id === state.selectedImageIds[0]);
+      if (e !== undefined && e.rotationRadians !== 0) {
+        const c: ImageElement = cloneImageElement(e);
+        c.rotationRadians = 0;
+        canvasRect = imageBlockWorldBounds(c);
+        radians = e.rotationRadians;
+      }
+    } else if (state.selectedMathIds.length === 1) {
+      const e: MathElement | undefined = this.mathBlocks.find(
+        (m: MathElement): boolean => m.id === state.selectedMathIds[0]);
+      if (e !== undefined && e.rotationRadians !== 0) {
+        const c: MathElement = cloneMathElement(e);
+        c.rotationRadians = 0;
+        canvasRect = mathBlockWorldBounds(c);
+        radians = e.rotationRadians;
+      }
+    }
+    if (canvasRect === null) {
+      return null;
+    }
+    const tl: Point2D = this.viewport.canvasToScreen(canvasRect.left, canvasRect.top);
+    const br: Point2D = this.viewport.canvasToScreen(canvasRect.right, canvasRect.bottom);
+    return {
+      rect: {
+        left: Math.min(tl.x, br.x), top: Math.min(tl.y, br.y),
+        right: Math.max(tl.x, br.x), bottom: Math.max(tl.y, br.y),
+      },
+      radians: radians,
+    };
+  }
+
+  // yxi.e 等价：单旋转元素时把触点绕未旋转矩形中心反旋转后包含测试；
+  // 其余情况退回 selectionRect AABB。
+  private pointInSelectionRect(touch: Point2D): boolean {
+    const u: UnrotatedSelectionRect | null = this.singleSelectedUnrotatedScreenRect();
+    if (u === null) {
+      return this.pointInRect(touch, this.selectionRect);
+    }
+    const cx: number = (u.rect.left + u.rect.right) / 2;
+    const cy: number = (u.rect.top + u.rect.bottom) / 2;
+    const cos: number = Math.cos(-u.radians);
+    const sin: number = Math.sin(-u.radians);
+    const dx: number = touch.x - cx;
+    const dy: number = touch.y - cy;
+    return this.pointInRect(
+      { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos }, u.rect);
   }
 
   // selectionRect 与触点均为屏幕坐标；命中区域必须复用覆盖层的钳制布局。
