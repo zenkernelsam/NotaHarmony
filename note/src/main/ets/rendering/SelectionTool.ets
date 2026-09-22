@@ -228,6 +228,28 @@ export class SelectionTool {
     return this.state.transform;
   }
 
+  // 原版 qpi.b + fvb.f(z)：角柄自由变换——绕 anchor 等比缩放 +
+  // 绕缩放后选区中心旋转。base 为拖拽起始矩阵，每帧整体重建
+  // （非增量复合），与原版 e(z=false 预览 / z=true 提交) 的
+  // rect/rotation 重建语义一致。
+  resizeSelected(scale: number, radians: number, anchor: Point2D,
+    scaledCenter: Point2D, base: TransformMatrix): TransformMatrix {
+    const s: TransformMatrix = [
+      scale, 0, anchor.x * (1 - scale),
+      0, scale, anchor.y * (1 - scale),
+      0, 0, 1,
+    ];
+    const cos: number = Math.cos(radians);
+    const sin: number = Math.sin(radians);
+    const r: TransformMatrix = [
+      cos, -sin, scaledCenter.x * (1 - cos) + scaledCenter.y * sin,
+      sin, cos, scaledCenter.y * (1 - cos) - scaledCenter.x * sin,
+      0, 0, 1,
+    ];
+    this.state.transform = this.multiply(r, this.multiply(s, base));
+    return this.state.transform;
+  }
+
   // 应用变换到笔画（修改 stroke.transform，返回新数组；不修改原始点数据）
   applyTransform(strokes: StrokeElementData[]): StrokeElementData[] {
     const result: StrokeElementData[] = [];

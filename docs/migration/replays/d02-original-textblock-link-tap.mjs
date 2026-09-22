@@ -67,7 +67,7 @@ check(buildFn.includes('overlapStart') && buildFn.includes('overlapEnd'),
 
 // --- 画布：ttc 路径前置链接探测 ---
 const selBranch = canvas.slice(canvas.indexOf('isSelectionActive()'),
-  canvas.indexOf('isSelectionActive()') + 6000);
+  canvas.indexOf('isSelectionActive()') + 9000);
 check(selBranch.includes('this.linkHitOnTextBlock(hitId, canvasP)') &&
   selBranch.includes('this.showTextBlockLinkMenu(linkHit)'),
   'outside-press on text block probes links before TapToSelect');

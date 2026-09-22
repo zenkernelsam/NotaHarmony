@@ -3,6 +3,9 @@ import { Rect2D } from '../../core/model/GeometryTypes';
 export const SELECTION_MENU_BUTTON_WIDTH: number = 130;
 export const SELECTION_MENU_BUTTON_HEIGHT: number = 40;
 export const SELECTION_MENU_BUTTON_GAP: number = 4;
+// 原版选区覆盖层角柄：视觉直径 12vp，命中半径 22vp（触达容差）。
+export const SELECTION_HANDLE_SIZE: number = 12;
+export const SELECTION_HANDLE_HIT_RADIUS: number = 22;
 const SELECTION_MENU_EDGE_MARGIN: number = 8;
 const SELECTION_MENU_SELECTION_GAP: number = 8;
 

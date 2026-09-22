@@ -143,7 +143,7 @@ import {
   textBlockTransformComponents, textBlockWorldBounds, transformTextBlockElements,
 } from '../../core/model/TextBlockGeometry';
 import { pointHitsAffineBlock } from '../../core/model/BlockHitGeometry';
-import { Point2D, Rect2D, CubicSegment } from '../../core/model/GeometryTypes';
+import { Point2D, Rect2D, CubicSegment, TransformMatrix } from '../../core/model/GeometryTypes';
 import {
   OriginalGroupSelectionResult, OriginalSelectionGroup, resolveOriginalGroupAuthoringMembers,
   resolveOriginalGroupSelection, resolveOriginalSelectedGroupLeaves,
@@ -181,8 +181,8 @@ import {
   OriginalMathEditorDraftState,
 } from '../components/MathEditorOverlay';
 import {
-  SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH, SelectionOverlayPosition,
-  selectionOverlayPosition,
+  SELECTION_HANDLE_HIT_RADIUS, SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH,
+  SelectionOverlayPosition, selectionOverlayPosition,
 } from '../components/SelectionOverlayLayout';
 import { TextBlockOverlay } from '../components/TextBlockOverlay';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
@@ -380,6 +380,13 @@ export struct NoteCanvasView {
   private eraserActive: boolean = false;
   private selectionDrawing: boolean = false;
   private selectionDrag: boolean = false;
+  // 原版 htc.e/fvb.f(z)：角柄自由变换会话——anchor=对角锚点（画布坐标），
+  // start=按下角柄点，base=起始矩阵，baseCenter=起始选区中心。
+  private selectionResize: boolean = false;
+  private resizeAnchor: Point2D = { x: 0, y: 0 };
+  private resizeStart: Point2D = { x: 0, y: 0 };
+  private resizeBaseTransform: TransformMatrix = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  private resizeBaseCenter: Point2D = { x: 0, y: 0 };
   // 原版 SNAP_TO_GRID（ac4.S，默认开）：拖拽期间命中的对齐参考线段。
   private snapGuides: OriginalSnapGuideSegment[] = [];
   // 原版 zt6/yt6：激光笔瞬态会话（不持久化、不入历史）；fadeTimer 驱动
@@ -2198,6 +2205,33 @@ export struct NoteCanvasView {
         this.isDrawing = true;
         return;
       }
+      // 原版 htc.e/fvb.f(z)：角柄命中优先于内部拖拽——命中角柄进入
+      // 自由变换会话（缩放 + 旋转）；deselectMode/租约/锁定时不产出。
+      if (this.selectionVisible && !this.photoImportBusy &&
+        !this.selectionPositionLocked) {
+        const corner: number = this.selectionResizeCornerAt({ x: touch.x, y: touch.y });
+        if (corner >= 0) {
+          const corners: Point2D[] = this.selectionScreenCorners();
+          const opposite: Point2D = corners[(corner + 2) % 4];
+          this.resizeAnchor = this.viewport.screenToCanvas(opposite.x, opposite.y);
+          this.resizeStart = this.viewport.screenToCanvas(
+            corners[corner].x, corners[corner].y);
+          this.resizeBaseTransform = this.selectionTool.getState().transform.slice();
+          const bounds: Rect2D | null = this.selectionBoundsCanvas();
+          this.resizeBaseCenter = bounds === null ? this.resizeStart : {
+            x: (bounds.left + bounds.right) / 2,
+            y: (bounds.top + bounds.bottom) / 2,
+          };
+          this.selectionResize = true;
+          this.dragBeforeStrokes = this.completedStrokes.slice();
+          this.dragBeforeShapes = this.shapes.slice();
+          this.dragBeforeTextBlocks = this.textBlocks.slice();
+          this.dragBeforeImages = this.imageBlocks.slice();
+          this.dragBeforeMathBlocks = this.mathBlocks.slice();
+          this.isDrawing = true;
+          return;
+        }
+      }
       // 已选中且按下点在选区内 → 拖拽移动（画布坐标）
       hilog.info(0x0001, 'NoteCanvasView', 'selDown visible=%{public}s x=%{public}f y=%{public}f rect=(%{public}f,%{public}f,%{public}f,%{public}f)',
         this.selectionVisible.toString(), touch.x, touch.y, this.selectionRect.left,
@@ -2364,6 +2398,11 @@ export struct NoteCanvasView {
       this.selectionTool.updateSelection(p);
       return;
     }
+    if (this.selectionResize) {
+      const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
+      this.applySelectionResize(p);
+      return;
+    }
     if (this.selectionDrag) {
       const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
       const dx: number = p.x - this.lastDragPoint.x;
@@ -2408,6 +2447,9 @@ export struct NoteCanvasView {
       } else if (this.selectionDrawing) {
         const p: Point2D = this.viewport.screenToCanvas(finalTouch.x, finalTouch.y);
         this.selectionTool.updateSelection(p);
+      } else if (this.selectionResize) {
+        const p: Point2D = this.viewport.screenToCanvas(finalTouch.x, finalTouch.y);
+        this.applySelectionResize(p);
       } else if (this.selectionDrag) {
         const p: Point2D = this.viewport.screenToCanvas(finalTouch.x, finalTouch.y);
         const dx: number = p.x - this.lastDragPoint.x;
@@ -2455,8 +2497,9 @@ export struct NoteCanvasView {
       } else {
         this.selectionVisible = false;
       }
-    } else if (this.selectionDrag) {
+    } else if (this.selectionDrag || this.selectionResize) {
       this.selectionDrag = false;
+      this.selectionResize = false;
       this.snapGuides = [];
       const selectedStrokeIds: string[] = this.selectionTool.getState().selectedStrokeIds.slice();
       const selectedShapeIds: string[] = this.selectionTool.getState().selectedShapeIds.slice();
@@ -2560,7 +2603,7 @@ export struct NoteCanvasView {
       this.strokeSession.cancelStroke();
       this.refreshOriginalInkReservation(this.pageLoadGeneration, this.loadedPageId);
     }
-    if (this.selectionDrag) {
+    if (this.selectionDrag || this.selectionResize) {
       this.completedStrokes = this.dragBeforeStrokes.slice();
       this.shapes = this.dragBeforeShapes.slice();
       this.textBlocks = this.dragBeforeTextBlocks.slice();
@@ -2571,7 +2614,7 @@ export struct NoteCanvasView {
           this.completedStrokes, this.renderCtx, this.viewport.zoom);
       }
     }
-    if (this.selectionDrawing || this.selectionDrag) {
+    if (this.selectionDrawing || this.selectionDrag || this.selectionResize) {
       this.clearSelectionWithRegisterReset();
     }
     this.eraserActive = false;
@@ -2584,6 +2627,7 @@ export struct NoteCanvasView {
     }
     this.selectionDrawing = false;
     this.selectionDrag = false;
+    this.selectionResize = false;
     this.snapGuides = [];
     this.dragBeforeStrokes = [];
     this.dragBeforeShapes = [];
@@ -5406,6 +5450,53 @@ export struct NoteCanvasView {
       right: (-this.viewport.scrollX + w) / this.viewport.zoom,
       bottom: (-this.viewport.scrollY + h) / this.viewport.zoom,
     };
+  }
+
+  // 原版 htc.e/fvb.f(z) 角柄：四角屏幕坐标（顺序 lt,rt,rb,lb）。
+  private selectionScreenCorners(): Point2D[] {
+    const r: Rect2D = this.selectionRect;
+    return [
+      { x: r.left, y: r.top },
+      { x: r.right, y: r.top },
+      { x: r.right, y: r.bottom },
+      { x: r.left, y: r.bottom },
+    ];
+  }
+
+  // 角柄命中：返回角索引 0-3，未命中 -1（屏幕坐标，命中半径 22vp）。
+  private selectionResizeCornerAt(p: Point2D): number {
+    const corners: Point2D[] = this.selectionScreenCorners();
+    for (let i: number = 0; i < corners.length; i++) {
+      const dx: number = p.x - corners[i].x;
+      const dy: number = p.y - corners[i].y;
+      if (dx * dx + dy * dy <= SELECTION_HANDLE_HIT_RADIUS * SELECTION_HANDLE_HIT_RADIUS) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  // 原版 qpi.b：角柄拖动 = 绕 anchor 等比缩放（距离比）+
+  // 绕缩放后选区中心旋转（绕 anchor 的角位移，0 时不产出）。
+  private applySelectionResize(p: Point2D): void {
+    const startDx: number = this.resizeStart.x - this.resizeAnchor.x;
+    const startDy: number = this.resizeStart.y - this.resizeAnchor.y;
+    const startDist: number = Math.sqrt(startDx * startDx + startDy * startDy);
+    if (startDist <= 0.0001) {
+      return;
+    }
+    const dx: number = p.x - this.resizeAnchor.x;
+    const dy: number = p.y - this.resizeAnchor.y;
+    const dist: number = Math.sqrt(dx * dx + dy * dy);
+    const scale: number = dist / startDist;
+    const radians: number = Math.atan2(dy, dx) - Math.atan2(startDy, startDx);
+    const scaledCenter: Point2D = {
+      x: this.resizeAnchor.x + scale * (this.resizeBaseCenter.x - this.resizeAnchor.x),
+      y: this.resizeAnchor.y + scale * (this.resizeBaseCenter.y - this.resizeAnchor.y),
+    };
+    this.selectionTool.resizeSelected(scale, radians, this.resizeAnchor,
+      scaledCenter, this.resizeBaseTransform);
+    this.applySelectionTransform(false, false);  // 变换中不 push undo（结束时统一 push）
   }
 
   private selectionBoundsCanvas(): Rect2D | null {

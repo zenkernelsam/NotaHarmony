@@ -1,10 +1,11 @@
 // T-022 选区覆盖层（虚线边框 + 菜单；T-033 菜单替换为 ArkUI 原生 bindMenu）
-import { Rect2D } from '../../core/model/GeometryTypes';
+import { Rect2D, Point2D } from '../../core/model/GeometryTypes';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import {
-  SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH, selectionOverlayPosition,
+  SELECTION_HANDLE_SIZE, SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH,
+  selectionOverlayPosition,
 } from './SelectionOverlayLayout';
 
 export enum SelectionMenuAction {
@@ -68,6 +69,25 @@ export struct SelectionOverlay {
           .height(this.selectionRect.bottom - this.selectionRect.top)
           .position({ x: this.selectionRect.left, y: this.selectionRect.top })
           .border({ width: 1.5, color: this.resolveTokens().accent, style: BorderStyle.Dashed })
+        // 原版选区覆盖层角柄（htc.e/qpi.b 自由变换入口）：四角圆点，
+        // 命中由 NoteCanvasView.onTouchDown 判定（装饰性，不拦截）。
+        if (!this.deselectMode && !this.photoImportLeaseActive) {
+          ForEach([
+            { x: this.selectionRect.left, y: this.selectionRect.top },
+            { x: this.selectionRect.right, y: this.selectionRect.top },
+            { x: this.selectionRect.right, y: this.selectionRect.bottom },
+            { x: this.selectionRect.left, y: this.selectionRect.bottom },
+          ], (corner: Point2D) => {
+            Circle()
+              .width(SELECTION_HANDLE_SIZE)
+              .height(SELECTION_HANDLE_SIZE)
+              .fill(this.resolveTokens().control)
+              .stroke(this.resolveTokens().accent)
+              .strokeWidth(1.5)
+              .position({ x: corner.x - SELECTION_HANDLE_SIZE / 2,
+                y: corner.y - SELECTION_HANDLE_SIZE / 2 })
+          }, (corner: Point2D): string => `${corner.x},${corner.y}`)
+        }
         // 菜单：ArkUI 原生 bindMenu（T-033 替换自绘 Row+Button）；按钮 Block 阻止事件穿透
         Button($r('app.string.selection_actions'))
           .width(SELECTION_MENU_BUTTON_WIDTH)
