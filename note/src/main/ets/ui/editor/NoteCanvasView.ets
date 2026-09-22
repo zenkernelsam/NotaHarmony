@@ -54,7 +54,7 @@ import {
   UndoableAction, UndoableActionType, validatePartialEraseElementHistoryState,
 } from '../../rendering/UndoRedoManager';
 import { HistoryMetadata, Op, OpType } from '../../core/model/OpTypes';
-import { SelectionTool, SelectionMode } from '../../rendering/SelectionTool';
+import { SelectionTool, SelectionMode, SelectionState } from '../../rendering/SelectionTool';
 import {
   ClipboardCopyPreparation, ClipboardOriginalGroupPastePreview, ClipboardPasteResult,
   ClipboardSingleOriginalSource, StrokeClipboard,
@@ -1118,6 +1118,17 @@ export struct NoteCanvasView {
     });
   }
 
+  // 组选区成员集（原版 gtc.b）：全部选中实体 id 的并集。
+  private selectedEntityIdSet(state: SelectionState): Set<string> {
+    const ids: Set<string> = new Set<string>();
+    for (const id of state.selectedStrokeIds) { ids.add(id); }
+    for (const id of state.selectedShapeIds) { ids.add(id); }
+    for (const id of state.selectedTextBlockIds) { ids.add(id); }
+    for (const id of state.selectedImageIds) { ids.add(id); }
+    for (const id of state.selectedMathIds) { ids.add(id); }
+    return ids;
+  }
+
   // TapToSelect 的 availableIds：页面全部实体 id（resolveOriginalGroupSelection
   // 需要可用集合做组展开）。
   private allPageEntityIds(): string[] {
@@ -2179,6 +2190,38 @@ export struct NoteCanvasView {
         this.selectionVisible.toString(), touch.x, touch.y, this.selectionRect.left,
         this.selectionRect.top, this.selectionRect.right, this.selectionRect.bottom);
       if (this.selectionVisible && this.pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)) {
+        // 原版 dl1 itc/gtc 分支：覆盖层内按下的元素级 ttc 产出——
+        //   itc（单元素选区）命中同一文本块 → ttc → qke 激活编辑 + 链接探测；
+        //   gtc（组选区）命中非文本成员 → ttc → qke 非文本 no-op（消费不拖拽）；
+        //   其余 → wtc 整体拖拽。
+        const selState: SelectionState = this.selectionTool.getState();
+        const insideHitId: string | null = this.topmostPageElementIdAt(canvasP);
+        const singleText: boolean = selState.selectedTextBlockIds.length === 1 &&
+          selState.selectedStrokeIds.length === 0 && selState.selectedShapeIds.length === 0 &&
+          selState.selectedImageIds.length === 0 && selState.selectedMathIds.length === 0 &&
+          selState.selectedGroupIds.length === 0;
+        if (singleText && insideHitId === selState.selectedTextBlockIds[0]) {
+          const linkHit: TextBlockLinkHit | null = this.linkHitOnTextBlock(insideHitId, canvasP);
+          if (linkHit !== null) {
+            this.showTextBlockLinkMenu(linkHit);
+          } else {
+            this.beginTextEditingAt(canvasP);
+          }
+          this.isDrawing = true;
+          return;
+        }
+        if (selState.selectedGroupIds.length > 0 && insideHitId !== null &&
+          selState.selectedTextBlockIds.indexOf(insideHitId) < 0) {
+          // 纯组选区（选中实体 = 组成员叶子集）命中非文本成员 → ttc。
+          const selected: Set<string> = this.selectedEntityIdSet(selState);
+          const leaves: string[] | null = resolveOriginalSelectedGroupLeaves(
+            selState.selectedGroupIds, Array.from(selected), this.selectionGroups);
+          if (leaves !== null && leaves.length === selected.size &&
+            leaves.indexOf(insideHitId) >= 0) {
+            this.isDrawing = true;
+            return;
+          }
+        }
         hilog.info(0x0001, 'NoteCanvasView', 'selection drag start at (%{public}f,%{public}f) rect=(%{public}f,%{public}f)-(%{public}f,%{public}f)',
           canvasP.x, canvasP.y, this.selectionRect.left, this.selectionRect.top,
           this.selectionRect.right, this.selectionRect.bottom);

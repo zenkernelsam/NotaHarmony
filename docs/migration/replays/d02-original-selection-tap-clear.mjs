@@ -41,7 +41,7 @@ check(applyT.includes('this.state.selectedStrokeIds.indexOf(s.id)'),
 
 // --- 常态选区内按下 → 整体拖拽（wtc/e39 等价） ---
 const branch = canvas.slice(canvas.indexOf('isSelectionActive()'),
-  canvas.indexOf('isSelectionActive()') + 5200);
+  canvas.indexOf('isSelectionActive()') + 7800);
 check(branch.includes('pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)') &&
   branch.includes('this.selectionDrag = true'),
   'inside-rect press drags the whole selection');
