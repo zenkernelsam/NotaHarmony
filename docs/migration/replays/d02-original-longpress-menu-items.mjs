@@ -4,8 +4,9 @@
 //     (rbb.m())；否则 a2gVar3==a2gVar → m18.m0(tqe.PASTE,
 //     tqe.SELECT_ALL)；再否则 tqe.a()。过滤循环：ordinal2（PASTE）
 //     需 zHasPrimaryClip（tr1.a.a().hasPrimaryClip()——剪贴板有内容
-//     即产出，元素负载或系统图片任一）；ordinal6（SELECT_ALL）需
-//     z4 = eh5.b（页面内容标志，br2 默认态 eh5(gh5.a,false)）。
+//     即产出，元素负载或系统图片任一）；ordinal6（REMOVE_HIGHLIGHT，
+//     文本菜单项）需 z4 = eh5.b——SELECT_ALL 不在门控集内，本项集
+//     中无条件产出（空页点击=空选，等价 no-op）。
 //   tqe.java — 菜单项枚举含 PASTE/SELECT_ALL。
 //   fvb 选择体系 — SELECT_ALL 产出覆盖全页的 ftc 多选（未分组
 //     实体平铺 + 顶层组整体入选）。
@@ -13,8 +14,8 @@
 //   PASTE：canPasteClipboardNow() || canUseOriginalClipboardImage()
 //     门（元素剪贴板/系统图片任一→hasPrimaryClip 等价）；点击时
 //     元素剪贴板优先 pasteClipboard(长按锚点)，否则系统图片粘贴。
-//   SELECT_ALL：hasSelectablePageContent() 门（页面存在可选元素
-//     →eh5.b 等价）；selectAllPageElements() 经
+//   SELECT_ALL：本项集中无门（原过滤只门控 PASTE 与
+//     REMOVE_HIGHLIGHT）；selectAllPageElements() 经
 //     resolveOriginalGroupSelection(全 id) 归并出顶层组+平铺实体
 //     →selectElementIds → ftc 多选。
 //   recentInteractionGateActive() 200ms 抑制保持包在最外层
@@ -41,8 +42,9 @@ check(m.includes('this.canPasteClipboardNow() || this.canUseOriginalClipboardIma
   'PASTE gated on element-clipboard OR system-image (hasPrimaryClip parity)');
 check(m.indexOf("app.string.paste") < m.indexOf('app.string.select_all'),
   'PASTE precedes SELECT_ALL (m18.m0(PASTE, SELECT_ALL) order)');
-check(m.includes('this.hasSelectablePageContent()'),
-  'SELECT_ALL gated on page content (eh5.b parity)');
+check(m.includes("MenuItem({ content: $r('app.string.select_all') })"),
+  'SELECT_ALL produced unconditionally in this item set — the ordinal6 ' +
+  'filter gates REMOVE_HIGHLIGHT (text menu only), not SELECT_ALL');
 
 // --- PASTE 点击：元素剪贴板优先于系统图片 ---
 check(m.includes('this.canPasteClipboardNow() && target !== null'),
@@ -69,13 +71,12 @@ check(sa.includes('this.completedStrokes.filter') && sa.includes('this.shapes.fi
 check(sa.includes('this.updateSelectionOverlay()') && sa.includes('this.renderFrame()'),
   'overlay + frame refreshed after select-all');
 
-// --- eh5.b 门等价 helper ---
-const hcIdx = view.indexOf('private hasSelectablePageContent()');
-check(hcIdx > 0, 'hasSelectablePageContent present');
-const hc = view.slice(hcIdx, hcIdx + 400);
-check(hc.includes('this.completedStrokes.length + this.shapes.length') &&
-  hc.includes('this.mathBlocks.length > 0'),
-  'gate = any selectable element on page');
+// --- SELECT_ALL 动作在无元素页为 no-op（等价原版的空选） ---
+check(!view.includes('hasSelectablePageContent'),
+  'no content gate remains — SELECT_ALL ungated like the original');
+const sa2 = view.slice(saIdx, saIdx + 400);
+check(sa2.includes('allIds.length === 0'),
+  'empty-page select-all early-returns (original produces empty selection)');
 
 // --- 字符串资源：select_all 双语 ---
 const baseStr = read(BASE_STR);

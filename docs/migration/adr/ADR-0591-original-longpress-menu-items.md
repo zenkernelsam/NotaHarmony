@@ -7,9 +7,10 @@
 ## 背景
 
 原版空白处长按菜单为固定两项 `{PASTE, SELECT_ALL}`：
-PASTE 受 `hasPrimaryClip` 门（剪贴板有内容即产出），SELECT_ALL
-受 `eh5.b` 门（页面有效/有内容）；两项均可被 `g39.b()` 200ms
-交互窗抑制。
+PASTE 受 `hasPrimaryClip` 门（剪贴板有内容即产出）；SELECT_ALL
+在 {PASTE,SELECT_ALL} 项集中**无门**——`eh5.b` 过滤门的是
+ordinal6=REMOVE_HIGHLIGHT（文本菜单项，不在本项集）。两项均可
+被 `g39.b()` 200ms 交互窗抑制。
 
 Harmony 旧实现只有「系统剪贴板图片粘贴」一项，且仅在元素
 剪贴板为空时产出——元素剪贴板粘贴经长按不可达，SELECT_ALL
@@ -25,9 +26,8 @@ Harmony 旧实现只有「系统剪贴板图片粘贴」一项，且仅在元素
      剪贴板优先（`pasteClipboard(clipboardPasteTarget)`，长按
      锚点），否则系统图片粘贴——原版 PASTE 读系统剪贴板自有
      载荷优先的等价。
-   - **SELECT_ALL**：`hasSelectablePageContent()`——`eh5.b`
-     等价（页面存在可选元素才产出；空页 SELECT_ALL 无意义且
-     原版在无效页面下隐藏）。
+   - **SELECT_ALL**：无门固定产出（过滤循环对 ordinal3 放行；
+     空页点击产生空选=no-op，与原版一致）。
 2. `selectAllPageElements()`：全部实体 id 经
    `resolveOriginalGroupSelection(allIds, allIds, groups)` 归并
    ——未分组实体平铺 + 顶层组整体入选 → `selectElementIds` →

@@ -5,9 +5,9 @@
 - `yqa.java:184-215`：常态菜单 = `m18.m0(tqe.PASTE, tqe.SELECT_ALL)`；
   过滤循环按 `ordinal()` 门控——ordinal2（PASTE）需
   `tr1.a.a().hasPrimaryClip()`（剪贴板有内容），ordinal6
-  （SELECT_ALL）需 `z4 = eh5.b`（页面内容标志）。
-- `eh5(long j, boolean z)`：`br2` 默认态 `eh5(gh5.a,false)`，
-  有效页面构造 `eh5(pageId,true)` → z4 ≈ 页面有效/有内容。
+  （REMOVE_HIGHLIGHT，文本菜单项）需 `z4 = eh5.b`——
+  **复查修正**：SELECT_ALL（ordinal3）不在门控集，空白处菜单
+  中无门固定产出。
 - `tqe.java`：菜单项枚举含 PASTE/SELECT_ALL。
 - `g39.b()` 200ms 交互窗抑制（Phase 620 已对齐外层门）。
 
@@ -24,8 +24,8 @@ SELECT_ALL 完全缺失。与原版两项集差距大。
     canUseOriginalClipboardImage()`（hasPrimaryClip 等价）；点击
     时元素剪贴板优先 `pasteClipboard(clipboardPasteTarget)`，
     否则 `startOriginalClipboardImagePaste()`。
-  - SELECT_ALL：`hasSelectablePageContent()`（页面存在可选元素
-    →eh5.b 等价）→ `selectAllPageElements()`。
+  - SELECT_ALL：无门固定产出（原过滤对 ordinal3 放行；空页
+    早退=原版空选等价）→ `selectAllPageElements()`。
 - `selectAllPageElements()`：全部实体 id 经
   `resolveOriginalGroupSelection` 归并出顶层组+平铺实体 →
   `selectElementIds` → ftc 多选 → overlay+渲染刷新。

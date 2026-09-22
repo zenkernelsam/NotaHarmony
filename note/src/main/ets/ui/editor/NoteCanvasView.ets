@@ -8872,9 +8872,11 @@ export struct NoteCanvasView {
   }
 
   // 原版 yqa.f 空白处长按菜单：{PASTE, SELECT_ALL}（m18.m0 顺序）；
-  // PASTE 仅在剪贴板有内容时产出（hasPrimaryClip 门，元素负载与系统
-  // 图片任一），SELECT_ALL 仅在页面有内容时产出（eh5.b 门）。Harmony
-  // 两种粘贴源分列：元素剪贴板优先（pasteClipboard），否则系统图片。
+  // 过滤循环只门控 ordinal2=PASTE（hasPrimaryClip——元素负载与系统
+  // 图片任一）与 ordinal6=REMOVE_HIGHLIGHT（eh5.b，文本菜单专用，
+  // 不在本项集）——SELECT_ALL 在此项集中无门，固定产出（空页点击
+  // 为空选，等价 no-op）。Harmony 两种粘贴源分列：元素剪贴板优先
+  // （pasteClipboard），否则系统图片。
   @Builder
   private ClipboardPasteContextMenu() {
     Menu() {
@@ -8895,22 +8897,13 @@ export struct NoteCanvasView {
               }
             });
         }
-        if (this.hasSelectablePageContent()) {
-          MenuItem({ content: $r('app.string.select_all') })
-            .onClick(() => {
-              hilog.info(0x0001, 'NoteCanvasView', 'canvas context Select All clicked');
-              this.selectAllPageElements();
-            });
-        }
+        MenuItem({ content: $r('app.string.select_all') })
+          .onClick(() => {
+            hilog.info(0x0001, 'NoteCanvasView', 'canvas context Select All clicked');
+            this.selectAllPageElements();
+          });
       }
     }
-  }
-
-  // yqa SELECT_ALL 的 eh5.b 门等价：页面存在可选元素时才产出。
-  private hasSelectablePageContent(): boolean {
-    return this.completedStrokes.length + this.shapes.length +
-      this.textBlocks.length + this.imageBlocks.length +
-      this.mathBlocks.length > 0;
   }
 
   // SELECT_ALL → ftc 等价：全部实体 id 经 resolveOriginalGroupSelection
