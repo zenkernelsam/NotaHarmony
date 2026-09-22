@@ -2,7 +2,7 @@ import {
   BrushStyle, EditorToolboxState, ToolState, ToolType, brushStyleToInkStyle,
   TRAY_TYPE_PRIMARY, TRAY_TYPE_SECONDARY, TRAY_TYPE_HIDDEN, MAX_PRIMARY_TOOLS,
 } from '../../core/model/BrushTypes';
-import { RenderSpec } from '../../core/model/StrokeTypes';
+import { RenderSpec, TapePattern } from '../../core/model/StrokeTypes';
 import { ToolRepository } from '../../data/RepositoryInterfaces';
 import { EditorSettingsRepository } from '../../data/EditorSettingsStore';
 
@@ -31,6 +31,9 @@ export class EditorViewModel {
   straightLinesEnabled: boolean = true;
   // 原版 cu6/bu6：laser_preferences.show_tail 缺省 true——激光笔拖尾开关。
   laserShowTail: boolean = true;
+  // 原版 w31.f (BrushState.tapePattern)：REVIEW 工具的当前胶带图案，
+  // rz1:1075 缺省 0 = STRIPES；仅 REVIEW 激活时有意义。
+  activeTapePattern: TapePattern = TapePattern.STRIPES;
   toolStateLoading: boolean = true;
   toolStateLoadFailed: boolean = false;
   // Structural mirror of `states` reassigned on every tray mutation so @ObjectLink
@@ -191,6 +194,9 @@ export class EditorViewModel {
       inkStyle: brushStyleToInkStyle(this.brushStyle),
       isHighlighter: this.currentTool === ToolType.HIGHLIGHTER,
       isPencil: this.currentTool === ToolType.PENCIL,
+      // 原版 dm2：tapePattern 仅随 TAPE(a6f.S=REVIEW) 工具的 CreateInkOp 下发。
+      tapePattern: this.currentTool === ToolType.REVIEW ?
+        this.activeTapePattern : undefined,
     };
   }
 
@@ -785,9 +791,11 @@ export class EditorViewModel {
     return this.activeToolId === toolId;
   }
 
+  // 原版 rz1:1075 REVIEW 有 5 色井 + [12,36,64] 三档宽度井——与书写工具
+  // 同样暴露颜色/宽度控件。
   supportsBrushControls(): boolean {
     return this.currentTool === ToolType.PEN || this.currentTool === ToolType.PENCIL ||
-      this.currentTool === ToolType.HIGHLIGHTER;
+      this.currentTool === ToolType.HIGHLIGHTER || this.currentTool === ToolType.REVIEW;
   }
 
   // 原版 rz1.p()：LASER 有 4 档颜色井但无宽度/样式井（15pt 固定单色宽）。
@@ -915,6 +923,9 @@ export class EditorViewModel {
       state.eraserIsPartial : this.requireState(ToolType.WHOLE_ERASER).eraserIsPartial;
     this.currentTool = state.toolType === ToolType.WHOLE_ERASER && this.eraserIsPartial ?
       ToolType.PARTIAL_ERASER : state.toolType;
+    if (state.toolType === ToolType.REVIEW) {
+      this.activeTapePattern = state.tapePattern ?? TapePattern.STRIPES;
+    }
   }
 
   private toolboxSnapshot(): EditorToolboxState {
@@ -1013,11 +1024,18 @@ export class EditorViewModel {
       // 未移植），颜色井 -1754827、单档 15pt。
       this.createState('laser', ownerId, ToolType.LASER, 1, -1754827, 15, BrushStyle.MONO,
         TRAY_TYPE_SECONDARY),
+      // 原版 rz1:1075：REVIEW(a6f.S) 在 Secondary 托盘 index 3（POINTER=0 /
+      // ZOOM=2 / RULER=4 未移植、留空位），w31(-1706497, 36f, null, 0, 1, 0)：
+      // 首色井、中档宽度井(1)、tapePattern=0(STRIPES)。
+      this.createState('tape', ownerId, ToolType.REVIEW, 3, -1706497, 36, BrushStyle.MONO,
+        TRAY_TYPE_SECONDARY, TapePattern.STRIPES, 0, 1),
     ];
   }
 
   private createState(toolId: string, ownerId: string, toolType: ToolType, trayIndex: number,
-    color: number, width: number, style: BrushStyle, trayType: number = TRAY_TYPE_PRIMARY): ToolState {
+    color: number, width: number, style: BrushStyle, trayType: number = TRAY_TYPE_PRIMARY,
+    tapePattern?: TapePattern, colorWellIndex: number = 0,
+    widthWellIndex: number = 0): ToolState {
     return {
       toolId: toolId,
       trayOwnerId: ownerId,
@@ -1028,9 +1046,10 @@ export class EditorViewModel {
         brushStyle: style,
         widthSize: width,
         color: color,
-        selectedWidthWellIndex: 0,
-        selectedColorWellIndex: 0,
+        selectedWidthWellIndex: widthWellIndex,
+        selectedColorWellIndex: colorWellIndex,
       },
+      tapePattern: tapePattern ?? null,
       selectionIsFreehand: false,
       eraserIsPartial: false,
     };

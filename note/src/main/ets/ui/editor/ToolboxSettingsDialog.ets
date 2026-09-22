@@ -15,6 +15,7 @@ export function toolTypeLabel(toolType: ToolType): ResourceStr {
     case ToolType.PARTIAL_ERASER: return $r('app.string.partial_eraser');
     case ToolType.SELECTION: return $r('app.string.selection');
     case ToolType.LASER: return $r('app.string.laser');
+    case ToolType.REVIEW: return $r('app.string.tape_tool');
     default: return $r('app.string.text');
   }
 }
