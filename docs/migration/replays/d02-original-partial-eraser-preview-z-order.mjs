@@ -43,7 +43,7 @@ assert.match(evidence, /BlendMode\.SRC_OVER/);
 assert.match(evidence, /1B1741F399CE8298FCA6A39E9094C86CC4A6F6D89E88E85F5469FD629AE6A578/);
 
 assert.match(pageOrder,
-  /transientTopStroke: StrokeElementData \| null = null[\s\S]{0,3000}zIndex: result\.length,[\s\S]{0,80}data: transientTopStroke/);
+  /transientTopStroke: StrokeElementData \| null = null[\s\S]{0,4200}zIndex: result\.length,[\s\S]{0,80}data: transientTopStroke/);
 assert.match(canvas,
   /if \(partialEraserPreviewStroke !== null\) \{[\s\S]{0,900}compositeWithOrderedPartialEraser/);
 assert.match(canvas,

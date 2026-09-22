@@ -68,7 +68,7 @@ assert.match(canvas,
   /this\.renderOrderedElements\(renderContext, partialEraserPreviewStroke\);[\s\S]{0,100}this\.viewport\.zoom, forceFull/);
 assert.doesNotMatch(canvas, /isolatedPartialEraserPreview/);
 assert.match(pageOrder,
-  /transientTopStroke: StrokeElementData \| null = null[\s\S]{0,2600}elementId: transientTopStroke\.id/);
+  /transientTopStroke: StrokeElementData \| null = null[\s\S]{0,4200}elementId: transientTopStroke\.id/);
 assert.match(orderFixture, /places transient partial-eraser Ink above every durable element without persisting it/);
 
 // A fulfilled durable promise has its own guarded handler; UI failure cannot fall into local fallback.

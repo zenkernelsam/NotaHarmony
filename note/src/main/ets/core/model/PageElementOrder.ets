@@ -226,6 +226,23 @@ export function materializePageElements(order: PageElementRef[], strokes: Stroke
       }
     }
   }
+  // 原版 vnd.compareTo：Tape 元素（InkTool==TAPE）永远排在最后渲染（置顶于
+  // 所有非 tape 元素，与 zIndex 无关）；tape 之间仍按原顺序。Harmony 标记：
+  // 笔画 renderSpec.tapePattern 非空；形状 originalTool === 3 (TAPE)。
+  let insertIndex: number = result.length;
+  for (let i: number = result.length - 1; i >= 0; i--) {
+    const element: OrderedPageElement = result[i];
+    const tape: boolean =
+      (element.kind === PageElementKind.STROKE &&
+        element.data.renderSpec.tapePattern !== undefined &&
+        element.data.renderSpec.tapePattern !== null) ||
+      (element.kind === PageElementKind.SHAPE && element.data.originalTool === 3);
+    if (tape) {
+      result.splice(i, 1);
+      result.splice(insertIndex - 1, 0, element);
+      insertIndex--;
+    }
+  }
   if (transientTopStroke !== null) {
     result.push({
       kind: PageElementKind.STROKE,
