@@ -991,6 +991,8 @@ export struct NoteCanvasView {
 
   // 原版 xtc.b(dl1 case2)：pointer-down 命中 tape 时收集该点覆盖的【全部】tape
   // 元素 ID（fu1.f 区域查询 + I.k() 过滤），交由 ej9 case20 → xo5 set toggle。
+  // 收集为 vh5(j) 精确命中；setX1 为空时回退为门控命中的顶层 tape
+  // （fu1.e 两程 ±5 容差命中的那条）。
   private tapeIdsAtPoint(point: Point2D): string[] {
     const ids: string[] = [];
     for (const stroke of this.completedStrokes) {
@@ -1006,7 +1008,23 @@ export struct NoteCanvasView {
         ids.push(shape.id);
       }
     }
-    return ids;
+    if (ids.length > 0) {
+      return ids;
+    }
+    const topId: string | null = this.topmostPageElementIdAt(point);
+    return topId !== null && this.isTapeElementId(topId) ? [topId] : [];
+  }
+
+  private isTapeElementId(id: string): boolean {
+    const stroke: StrokeElementData | undefined =
+      this.completedStrokes.find((s: StrokeElementData): boolean => s.id === id);
+    if (stroke !== undefined) {
+      return stroke.renderSpec.tapePattern !== undefined &&
+        stroke.renderSpec.tapePattern !== null;
+    }
+    const shape: ShapeElement | undefined =
+      this.shapes.find((s: ShapeElement): boolean => s.id === id);
+    return shape !== undefined && shape.originalTool === 3;
   }
 
   // 原版 xo5 case2 toggle 语义（与全局 Hide/Reveal 相同，作用于点按覆盖的集合）：
@@ -1170,28 +1188,49 @@ export struct NoteCanvasView {
     const ordered: OrderedPageElement[] = materializePageElements(
       this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes,
       this.imageBlocks, this.mathBlocks);
+    // 原版 fu1.e 两程命中：先点精确命中，再在 ±5 矩形内以 vh5(j,5)
+    // 半径容差复测（容差为元素本地单位）。
+    const exact: string | null = this.hitOrderedElementIdAt(ordered, point, 0);
+    return exact !== null ? exact : this.hitOrderedElementIdAt(ordered, point, 5);
+  }
+
+  private hitOrderedElementIdAt(ordered: OrderedPageElement[], point: Point2D,
+    localTolerance: number): string | null {
     for (let i: number = ordered.length - 1; i >= 0; i--) {
       const element: OrderedPageElement = ordered[i];
       let hit: boolean = false;
       if (element.kind === PageElementKind.STROKE) {
-        hit = this.eraserEngine.hitStrokeAtPoint(point, element.data);
+        hit = this.eraserEngine.hitStrokeAtPoint(point, element.data, localTolerance);
       } else if (element.kind === PageElementKind.SHAPE) {
-        hit = pointHitsShape(point, element.data);
+        hit = pointHitsShape(point, element.data, localTolerance);
       } else if (element.kind === PageElementKind.TEXT) {
-        hit = pointHitsAffineBlock(
-          point, textBlockLocalBounds(element.data), element.data.transform);
+        hit = pointHitsAffineBlock(point,
+          this.expandLocalBounds(textBlockLocalBounds(element.data), localTolerance),
+          element.data.transform);
       } else if (element.kind === PageElementKind.IMAGE) {
-        hit = pointHitsAffineBlock(
-          point, imageBlockLocalBounds(element.data), element.data.transform);
+        hit = pointHitsAffineBlock(point,
+          this.expandLocalBounds(imageBlockLocalBounds(element.data), localTolerance),
+          element.data.transform);
       } else if (element.kind === PageElementKind.MATH) {
-        hit = pointHitsAffineBlock(
-          point, mathBlockLocalBounds(element.data), element.data.transform);
+        hit = pointHitsAffineBlock(point,
+          this.expandLocalBounds(mathBlockLocalBounds(element.data), localTolerance),
+          element.data.transform);
       }
       if (hit) {
         return element.data.id;
       }
     }
     return null;
+  }
+
+  private expandLocalBounds(bounds: Rect2D, localTolerance: number): Rect2D {
+    if (localTolerance <= 0) {
+      return bounds;
+    }
+    return {
+      left: bounds.left - localTolerance, top: bounds.top - localTolerance,
+      right: bounds.right + localTolerance, bottom: bounds.bottom + localTolerance,
+    };
   }
 
   // 原版 xtc.a(jE,null) 命中文本块 → ttc → uw2 case4 → rej.i 链接 span 命中。

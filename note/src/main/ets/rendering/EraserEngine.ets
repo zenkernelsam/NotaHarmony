@@ -59,7 +59,9 @@ export class EraserEngine {
   // 原版 xtc.b → fu1 元素查询：点是否落在笔迹渲染带宽内
   // （中心线 ± brushWidth·widthFactor·scale/2）。复用橡皮采样管线的
   // transform/三次曲线/widthFactor 语义，供 tape 点按揭示命中测试使用。
-  hitStrokeAtPoint(point: Point2D, stroke: StrokeElementData): boolean {
+  // localTolerance：原版 fu1.e 第二程 vh5(j,5) 半径容差（元素本地单位）。
+  hitStrokeAtPoint(point: Point2D, stroke: StrokeElementData,
+    localTolerance: number = 0): boolean {
     const samples: SampledStrokePoint[] | null = this.sampleStroke(stroke);
     if (samples === null || samples.length === 0) {
       return false;
@@ -68,7 +70,8 @@ export class EraserEngine {
     for (const sample of samples) {
       const widthFactor: number = Number.isFinite(sample.attributes.widthFactor) ?
         Math.max(0, sample.attributes.widthFactor) : 1;
-      const radius: number = stroke.renderSpec.brushWidth * widthFactor * scale / 2;
+      const radius: number = (stroke.renderSpec.brushWidth * widthFactor / 2 +
+        localTolerance) * scale;
       if (this.pointDistance(sample.world, point) <= radius) {
         return true;
       }

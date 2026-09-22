@@ -38,8 +38,8 @@ check(eraser.includes('hitStrokeAtPoint'), 'EraserEngine exposes the point hit t
 const hit = eraser.slice(eraser.indexOf('hitStrokeAtPoint'));
 check(hit.includes('this.sampleStroke(stroke)'),
   'stroke sampling reuses transform/cubic-aware pipeline');
-check(hit.includes('stroke.renderSpec.brushWidth * widthFactor * scale / 2'),
-  'hit radius = rendered half-band (widthFactor × transform scale)');
+check(hit.includes('stroke.renderSpec.brushWidth * widthFactor / 2 +\n        localTolerance) * scale'),
+  'hit radius = rendered half-band + local tolerance (widthFactor × transform scale)');
 check(hit.includes('this.maximumLinearScale(stroke.transform)'),
   'stroke transform scales the hit band');
 

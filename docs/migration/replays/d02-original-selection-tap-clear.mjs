@@ -69,15 +69,15 @@ check(tapSel.includes('this.selectionTool.selectElementIds('),
 check(tapSel.includes('this.updateSelectionOverlay()'),
   'tap selection refreshes the overlay');
 
-// --- topmostPageElementIdAt：统一 z 序最上层逐类命中 ---
-const hitTest = canvas.slice(canvas.indexOf('topmostPageElementIdAt(point: Point2D)'),
-  canvas.indexOf('topmostPageElementIdAt(point: Point2D)') + 2200);
-check(hitTest.includes('materializePageElements(') && hitTest.includes('i >= 0; i--'),
+// --- topmostPageElementIdAt：统一 z 序最上层逐类命中（Phase 606 起两程） ---
+const hitTest = canvas.slice(canvas.indexOf('private hitOrderedElementIdAt('),
+  canvas.indexOf('private hitOrderedElementIdAt(') + 2200);
+check(hitTest.includes('i >= 0; i--'),
   'topmost-first iteration over the unified z-order');
-check(hitTest.includes('hitStrokeAtPoint(point, element.data)'),
-  'strokes use exact coverage');
-check(hitTest.includes('pointHitsShape(point, element.data)'),
-  'shapes use exact coverage');
+check(hitTest.includes('hitStrokeAtPoint(point, element.data, localTolerance)'),
+  'strokes use exact coverage (tolerance only on the fu1.e second pass)');
+check(hitTest.includes('pointHitsShape(point, element.data, localTolerance)'),
+  'shapes use exact coverage (tolerance only on the fu1.e second pass)');
 check(hitTest.includes('textBlockLocalBounds(element.data)') &&
   hitTest.includes('imageBlockLocalBounds(element.data)') &&
   hitTest.includes('mathBlockLocalBounds(element.data)') &&
@@ -90,7 +90,7 @@ check(branch.includes('this.selectionTool.beginSelection(') &&
   'no selection → lasso/rectangle gesture unchanged');
 
 // --- 通用形状点命中导出保留 ---
-check(geo.includes('export function pointHitsShape(point: Point2D, shape: ShapeElement)'),
+check(geo.includes('export function pointHitsShape(point: Point2D, shape: ShapeElement'),
   'pointHitsShape exported');
 
 console.log(`D02_ORIGINAL_SELECTION_TAP_CLEAR_OK TOTAL=${n} FAILED=0`);
