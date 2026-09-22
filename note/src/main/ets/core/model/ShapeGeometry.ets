@@ -213,6 +213,12 @@ export function tapeHitTestShape(point: Point2D, shape: ShapeElement): boolean {
   return shapeCoveredByPath([point], shape, 0);
 }
 
+// 原版 xtc.a → fu1 元素查询的通用形状命中：与 tapeHitTestShape 同一几何核，
+// 供选区抓取（dl1 case2 → stc）等不区分 tape 的点命中使用。
+export function pointHitsShape(point: Point2D, shape: ShapeElement): boolean {
+  return shapeCoveredByPath([point], shape, 0);
+}
+
 function shapeCoveredByPath(eraserPath: Point2D[], shape: ShapeElement,
   eraserWidth: number): boolean {
   const localSubpaths: Point2D[][] = shapeLocalSubpaths(shape);

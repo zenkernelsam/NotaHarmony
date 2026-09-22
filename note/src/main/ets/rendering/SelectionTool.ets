@@ -25,6 +25,9 @@ export interface SelectionState {
   selectedImageIds: string[];
   selectedMathIds: string[];
   selectedGroupIds: string[];
+  // 原版 ftc.i：被抓取移动的子集（stc/ej9 case18 把命中元素从 g 移入 i）。
+  // 非空时变换只作用于该子集；松手后并回 selected。
+  movingIds: string[];
   transform: TransformMatrix;    // 当前变换矩阵（单位矩阵起始）
 }
 
@@ -43,6 +46,7 @@ export class SelectionTool {
       selectedImageIds: [],
       selectedMathIds: [],
       selectedGroupIds: [],
+      movingIds: [],
       transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
     };
   }
@@ -59,6 +63,7 @@ export class SelectionTool {
     this.state.selectedImageIds = [];
     this.state.selectedMathIds = [];
     this.state.selectedGroupIds = [];
+    this.state.movingIds = [];
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
@@ -207,10 +212,12 @@ export class SelectionTool {
   }
 
   // 应用变换到笔画（修改 stroke.transform，返回新数组；不修改原始点数据）
+  // 原版 ej9 case18：movingIds 非空（元素抓取拖拽）时只作用于被抓取子集。
   applyTransform(strokes: StrokeElementData[]): StrokeElementData[] {
+    const targets: string[] = this.movingSubsetOf(this.state.selectedStrokeIds);
     const result: StrokeElementData[] = [];
     for (const s of strokes) {
-      const isSelected: boolean = this.state.selectedStrokeIds.indexOf(s.id) >= 0;
+      const isSelected: boolean = targets.indexOf(s.id) >= 0;
       if (isSelected) {
         result.push({
           id: s.id,
@@ -248,6 +255,7 @@ export class SelectionTool {
     this.state.selectedImageIds = [];
     this.state.selectedMathIds = [];
     this.state.selectedGroupIds = [];
+    this.state.movingIds = [];
     this.deselect();
     return ids;
   }
@@ -260,6 +268,7 @@ export class SelectionTool {
     this.state.selectedImageIds = [];
     this.state.selectedMathIds = [];
     this.state.selectedGroupIds = [];
+    this.state.movingIds = [];
     this.state.lassoPoints = [];
     this.state.rect = null;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -275,6 +284,7 @@ export class SelectionTool {
     this.state.selectedImageIds = imageIds.slice();
     this.state.selectedMathIds = mathIds.slice();
     this.state.selectedGroupIds = groupIds.slice();
+    this.state.movingIds = [];
     this.state.lassoPoints = [];
     this.state.rect = null;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -289,7 +299,27 @@ export class SelectionTool {
     this.state.selectedImageIds = [];
     this.state.selectedMathIds = [];
     this.state.selectedGroupIds = [];
+    this.state.movingIds = [];
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  }
+
+  // 原版 stc/ej9 case18：按下命中选中元素 → 该元素（或其所属选中组）进入 movingIds，
+  // 拖拽只移动被抓取子集；其余选中元素保持不动。未命中 → null → 新选区手势。
+  grabElements(ids: string[]): void {
+    this.state.movingIds = ids.slice();
+  }
+
+  clearMoving(): void {
+    this.state.movingIds = [];
+  }
+
+  // 变换目标：抓取拖拽时只覆盖 movingIds ∩ selected，否则整个选中集。
+  movingSubsetOf(ids: string[]): string[] {
+    if (this.state.movingIds.length === 0) {
+      return ids;
+    }
+    const moving: Set<string> = new Set<string>(this.state.movingIds);
+    return ids.filter((id: string): boolean => moving.has(id));
   }
 
   getState(): SelectionState {
