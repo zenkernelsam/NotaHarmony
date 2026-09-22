@@ -1,6 +1,6 @@
 // T-002 笔刷与工具类型（契约 phase-1-data-model.md §3.3，照搬，禁止修改签名）
 // 纯类型文件：禁止 import 任何 @ohos.* / @kit.* 平台模块
-import { InkStyle } from './StrokeTypes';
+import { InkStyle, TapePattern } from './StrokeTypes';
 
 // 笔刷样式（对应 z21）
 export enum BrushStyle {
@@ -50,6 +50,9 @@ export interface ToolState {
   trayType: number;
   trayIndex: number;
   brush: BrushSpec;
+  // Original ToolStateEntity.tapePattern (e47.java): nullable — only the REVIEW/tape
+  // tool sets it; NULL for every other tool. STRIPES..CHECKERS (0..8).
+  tapePattern?: TapePattern | null;
   selectionIsFreehand: boolean;
   eraserIsPartial: boolean;
 }

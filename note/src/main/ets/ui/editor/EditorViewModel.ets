@@ -1058,6 +1058,7 @@ export class EditorViewModel {
         selectedWidthWellIndex: state.brush.selectedWidthWellIndex,
         selectedColorWellIndex: state.brush.selectedColorWellIndex,
       },
+      tapePattern: state.tapePattern ?? null,
       selectionIsFreehand: state.selectionIsFreehand,
       eraserIsPartial: state.eraserIsPartial,
     };

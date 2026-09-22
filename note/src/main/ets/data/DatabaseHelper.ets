@@ -3,6 +3,7 @@
 // 不 import 任何 @ohos.* / @kit.* 平台模块
 
 // 数据库版本
+// v71: original ToolStateEntity.tapePattern (e47.java) — nullable per-tool tape pattern.
 // v69: original tray model — tool_state.tray_type (cgf ordinals) + editor_tray.
 // v68: persist original folder color/emoji customization and edit timestamps.
 // v67: local soft-delete (Recently Deleted) parity columns.
@@ -16,7 +17,7 @@
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 70;
+export const DB_VERSION: number = 71;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -42,6 +43,9 @@ CREATE TABLE IF NOT EXISTS tool_state (
   style INTEGER NOT NULL DEFAULT 0,
   selected_color_well_index INTEGER NOT NULL DEFAULT 0,
   selected_width_well_index INTEGER NOT NULL DEFAULT 0,
+  // Original ToolStateEntity.tapePattern INTEGER DEFAULT NULL (e47.java): nullable —
+  // only the REVIEW/tape tool carries a pattern; NULL for every other tool.
+  tape_pattern INTEGER,
   selection_is_freehand INTEGER NOT NULL DEFAULT 0,
   eraser_is_partial INTEGER NOT NULL DEFAULT 0
 )`;
@@ -2730,5 +2734,11 @@ export const MIGRATIONS: Record<number, string[]> = {
        winner_timestamp, winner_site_id, bookmarked)
      SELECT note_id, seq_timestamp, seq_site_id, seq_index,
        seq_timestamp, seq_site_id, 0 FROM original_page_identity`,
+  ],
+  71: [
+    // Original ToolStateEntity (e47.java) persists tapePattern INTEGER DEFAULT NULL —
+    // the tape tool's selected pattern survives restarts. Plain nullable INTEGER,
+    // no CHECK constraint, matching the original DDL exactly.
+    'ALTER TABLE tool_state ADD COLUMN tape_pattern INTEGER',
   ],
 };

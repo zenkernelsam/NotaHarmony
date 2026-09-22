@@ -59,7 +59,7 @@ ok(originalStrings.includes('permanently deleted after 30 days'),
 ok(originalStrings.includes('recently_deleted'), 'original Recently Deleted strings missing');
 
 // --- Schema parity (v67) ----------------------------------------------------------
-ok(ddl.includes('DB_VERSION: number = 70'), 'DB_VERSION must be 70');
+ok(ddl.includes('DB_VERSION: number = 71'), 'DB_VERSION must be 71');
 ok(/deleted_at INTEGER/.test(ddl), 'note_meta.deleted_at column missing');
 ok(ddl.includes('CREATE TABLE IF NOT EXISTS permanently_deleted_note'),
   'permanently_deleted_note DDL missing');

@@ -3,6 +3,7 @@ import {
   EditorToolboxState, EditorTray, ToolState, ToolType,
   TRAY_TYPE_PRIMARY, TRAY_TYPE_SECONDARY, TRAY_TYPE_HIDDEN,
 } from '../core/model/BrushTypes';
+import { TapePattern } from '../core/model/StrokeTypes';
 import { ToolRepository } from './RepositoryInterfaces';
 import { DatabaseManager } from './DatabaseManager';
 import { databaseWriteMutex } from './DatabaseWriteMutex';
@@ -391,6 +392,8 @@ export class ToolRepositoryImpl implements ToolRepository {
         selectedColorWellIndex: resultSet.getLong(
           resultSet.getColumnIndex('selected_color_well_index')),
       },
+      tapePattern: resultSet.isColumnNull(resultSet.getColumnIndex('tape_pattern')) ?
+        null : resultSet.getLong(resultSet.getColumnIndex('tape_pattern')) as TapePattern,
       selectionIsFreehand: resultSet.getLong(
         resultSet.getColumnIndex('selection_is_freehand')) !== 0,
       eraserIsPartial: resultSet.getLong(resultSet.getColumnIndex('eraser_is_partial')) !== 0,
@@ -663,6 +666,7 @@ export class ToolRepositoryImpl implements ToolRepository {
       'style': state.brush.brushStyle,
       'selected_color_well_index': state.brush.selectedColorWellIndex,
       'selected_width_well_index': state.brush.selectedWidthWellIndex,
+      'tape_pattern': state.tapePattern ?? null,
       'selection_is_freehand': state.selectionIsFreehand ? 1 : 0,
       'eraser_is_partial': state.eraserIsPartial ? 1 : 0,
     };
@@ -682,6 +686,7 @@ export class ToolRepositoryImpl implements ToolRepository {
         selectedWidthWellIndex: state.brush.selectedWidthWellIndex,
         selectedColorWellIndex: state.brush.selectedColorWellIndex,
       },
+      tapePattern: state.tapePattern ?? null,
       selectionIsFreehand: state.selectionIsFreehand,
       eraserIsPartial: state.eraserIsPartial,
     };
