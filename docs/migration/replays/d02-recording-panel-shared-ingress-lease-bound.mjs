@@ -39,8 +39,8 @@ for (const name of guardedCallbacks) {
 
 assert.equal(
   panel.match(/if \(this\.photoImportLeaseActive \|\| this\.loading\) \{\s+return;\s+\}/g)?.length,
-  9,
-  'nine recording actions reject list loading');
+  10,
+  'ten recording actions reject list loading');
 assert.equal(
   panel.match(/if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}/g)?.length,
   1,

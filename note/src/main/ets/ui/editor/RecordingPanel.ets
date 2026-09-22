@@ -16,6 +16,8 @@ import {
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeMode, ThemeTokens } from '../theme/EditorTheme';
 
+const ORIGINAL_RECORDING_SKIP_MS: number = 10000;  // 原版 uw7.r/s ±10000ms
+
 @Component
 export struct RecordingPanel {
   @Prop recordings: MaterializedOriginalRecording[] = [];
@@ -130,6 +132,12 @@ export struct RecordingPanel {
             Text(formatRecordingTime(this.cumulativePositionMs))
               .fontSize(11).fontColor(this.resolveTokens().textSecondary)
             Blank()
+            // 原版 d32 case 6/7：快退/快进 10 秒（uw7.s/r 语义）
+            this.SkipButton(-ORIGINAL_RECORDING_SKIP_MS,
+              $r('app.string.recording_rewind_10_seconds'), '↺ 10s')
+            this.SkipButton(ORIGINAL_RECORDING_SKIP_MS,
+              $r('app.string.recording_forward_10_seconds'), '10s ↻')
+            Blank()
             Text(formatRecordingTime(this.cumulativeDurationMs))
               .fontSize(11).fontColor(this.resolveTokens().textSecondary)
           }
@@ -235,6 +243,29 @@ export struct RecordingPanel {
       state === OriginalRecordingCaptureState.PAUSED ||
       state === OriginalRecordingCaptureState.RESUMING ||
       state === OriginalRecordingCaptureState.STOPPING;
+  }
+
+  @Builder
+  private SkipButton(deltaMs: number, a11y: Resource, label: string) {
+    Button(label)
+      .height(22).fontSize(11).borderRadius(4)
+      .padding({ left: 6, right: 6 })
+      .margin({ left: 2, right: 2 })
+      .enabled(this.controlsEnabled && this.canSeek())
+      .opacity(this.controlsEnabled && this.canSeek() ? 1 : 0.45)
+      .backgroundColor(this.resolveTokens().control)
+      .fontColor(this.resolveTokens().textPrimary)
+      .accessibilityText(a11y)
+      .onClick(() => {
+        if (this.photoImportLeaseActive || this.loading) {
+          return;
+        }
+        // 原版 uw7.s：rewind = max(pos - 10000, 0)；uw7.r：
+        // forward = min(pos + 10000, duration)；合并为 clamp。
+        const target: number = Math.max(0, Math.min(this.cumulativeDurationMs,
+          this.cumulativePositionMs + deltaMs));
+        this.onSeek(target);
+      })
   }
 
   @Builder
