@@ -123,7 +123,7 @@ ok(/function normalizeFolderEmoji[\s\S]*?emoji\.length === 0[\s\S]*?return null/
 // --- Harmony UI anchors ------------------------------------------------------------
 ok(page.includes('const FOLDER_COLOR_PALETTE: number[]') &&
    page.includes('FOLDER_DEFAULT_COLOR,'), 'folder color palette missing');
-ok(page.includes('const FOLDER_EMOJI_PRESETS: string[]'), 'folder emoji presets missing');
+ok(page.includes('const FOLDER_EMOJI_CATEGORIES: string[][]'), 'folder emoji categories missing');
 ok(page.includes('folderDialogColor') && page.includes('folderDialogEmoji'),
   'folder dialog customization state missing');
 ok(page.includes('.fill(item.folder.color)'), 'folder row color dot missing');
@@ -139,7 +139,8 @@ ok(/createFolder\(trimmed,[\s\S]*?color, emoji\)/.test(page),
 ok(page.includes('initialColor: this.folderDialogColor') &&
    page.includes('initialEmoji: this.folderDialogEmoji'),
   'NameDialog must receive customization props');
-ok(/ForEach\(FOLDER_COLOR_PALETTE/.test(page) && /ForEach\(FOLDER_EMOJI_PRESETS/.test(page),
+ok(/ForEach\(FOLDER_COLOR_PALETTE/.test(page) &&
+   /ForEach\(FOLDER_EMOJI_CATEGORIES\[this\.emojiCategory\]/.test(page),
   'dialog color/emoji picker rows missing');
 ok(page.includes('this.onConfirm(this.inputText, this.selectedColor, this.selectedEmoji)'),
   'dialog confirm must return color/emoji');

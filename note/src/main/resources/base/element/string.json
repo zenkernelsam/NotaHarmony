@@ -541,6 +541,50 @@
       "value": "Open folders"
     },
     {
+      "name": "decoration_color",
+      "value": "Color"
+    },
+    {
+      "name": "decoration_emoji",
+      "value": "Emoji"
+    },
+    {
+      "name": "emoji_category_0",
+      "value": "Smileys"
+    },
+    {
+      "name": "emoji_category_1",
+      "value": "People & Body"
+    },
+    {
+      "name": "emoji_category_2",
+      "value": "Animals & Nature"
+    },
+    {
+      "name": "emoji_category_3",
+      "value": "Food & Drink"
+    },
+    {
+      "name": "emoji_category_4",
+      "value": "Activities"
+    },
+    {
+      "name": "emoji_category_5",
+      "value": "Objects"
+    },
+    {
+      "name": "emoji_category_6",
+      "value": "Travel & Places"
+    },
+    {
+      "name": "emoji_category_7",
+      "value": "Symbols"
+    },
+    {
+      "name": "emoji_category_8",
+      "value": "Flags"
+    },
+    {
       "name": "close",
       "value": "Close"
     },

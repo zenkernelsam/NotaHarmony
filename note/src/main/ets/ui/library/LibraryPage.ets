@@ -50,10 +50,31 @@ const FOLDER_COLOR_PALETTE: number[] = [
   0xFFE0719E,
 ];
 
-// 原版 emoji 选择器是分类网格（LIBRARY_FOLDER_EMOJI_PICKER flag）；Harmony 侧
-// 提供常用预设子集，空字符串 = 无 emoji（pdb.d() 等价语义）。
-const FOLDER_EMOJI_PRESETS: string[] = [
-  '⭐', '📚', '🎵', '🖼️', '✈️', '🏠', '💼', '🔬', '🎮', '❤️',
+// 原版 emoji 选择器是分类网格（LIBRARY_FOLDER_EMOJI_PICKER flag + du3 九类 +
+// md 分类图标）；emoji 本体来自打包的 Realm EmojiInfo 库，反编译产物中不可见，
+// Harmony 侧提供按原版分类序的策划子集，空字符串 = 无 emoji（pdb.d() 等价语义）。
+const FOLDER_EMOJI_CATEGORY_ICONS: string[] = [
+  '😀', '🧑', '🐻', '🍎', '⚽', '💡', '🚗', '🔢', '🏁',
+];
+const FOLDER_EMOJI_CATEGORIES: string[][] = [
+  // du3.Smileys
+  ['😀', '😄', '😁', '😆', '🙂', '😉', '😊', '😍', '🤩', '😎', '🤔', '😴', '😢', '😭', '😡', '🤯', '🥳', '😇', '🤠', '😅'],
+  // du3.PeopleBody
+  ['👋', '👍', '👎', '👏', '🙏', '💪', '🤝', '✍️', '🧠', '👀', '👶', '🧒', '🧑', '👩', '👨', '🧑‍🎓', '👩‍💻', '🧑‍🏫', '🏃', '🚶'],
+  // du3.AnimalsNature
+  ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🦁', '🐮', '🐷', '🐸', '🐵', '🦄', '🐢', '🐙', '🦋', '🌸', '🌵', '🌲', '🌈', '🔥'],
+  // du3.FoodDrink
+  ['🍎', '🍊', '🍋', '🍉', '🍇', '🍓', '🫐', '🍑', '🥑', '🥦', '🍕', '🍔', '🌮', '🍣', '🍜', '🍰', '☕', '🧋', '🍺', '🍩'],
+  // du3.Activities
+  ['⚽', '🏀', '🏈', '⚾', '🎾', '🏐', '🎱', '🏓', '🏸', '🥊', '🎯', '🎮', '🎲', '🧩', '🎨', '🎬', '🎤', '🎧', '🎸', '🏆'],
+  // du3.Objects
+  ['📚', '📖', '✏️', '🖊️', '📐', '📏', '�️', '📁', '📌', '📎', '🔍', '🔬', '💡', '💻', '📱', '⌚', '📷', '🔒', '🔑', '💰'],
+  // du3.TravelPlaces
+  ['🚗', '🚕', '🚌', '🚲', '✈️', '🚀', '🚂', '⛵', '🏠', '🏢', '🏫', '🏥', '🏛️', '⛪', '�', '�', '�', '🏔️', '🏖️', '🏕️'],
+  // du3.Symbols
+  ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '✨', '⭐', '🌟', '⚠️', '✅', '❌', '➕', '➖', '♻️', '🔴', '🟢', '🔵'],
+  // du3.Flags
+  ['🏁', '🚩', '🏳️', '🏴', '🏳️‍🌈', '🇨🇳', '🇺🇸', '🇬🇧', '🇯🇵', '🇰🇷', '🇫🇷', '🇩🇪', '🇨🇦', '🇦🇺', '🇧🇷', '🇮🇳'],
 ];
 
 @Entry
@@ -1224,16 +1245,18 @@ struct LibraryPage {
       }
       Button() {
         Row() {
-          // 原版 w09.folderColor / pdb.f()：文件夹行始终渲染一个具体颜色。
-          Circle()
-            .width(10)
-            .height(10)
-            .fill(item.folder.color)
-            .margin({ right: 8 })
+          // 原版文件夹装饰互斥（wm2：选 Color 清 emoji）——行内 emoji 优先，
+          // 否则渲染具体颜色点（w09.folderColor / pdb.f()）。
           if (item.folder.emoji !== null) {
             Text(item.folder.emoji)
               .fontSize(15)
-              .margin({ right: 6 })
+              .margin({ right: 8 })
+          } else {
+            Circle()
+              .width(10)
+              .height(10)
+              .fill(item.folder.color)
+              .margin({ right: 8 })
           }
           Text(item.folder.name)
             .layoutWeight(1)
@@ -2183,6 +2206,10 @@ struct NameDialog {
   @State inputText: string = '';
   @State selectedColor: number = FOLDER_DEFAULT_COLOR;
   @State selectedEmoji: string = '';
+  // 原版 hq4 装饰页签：0 = Color，1 = Emoji；gaj.fsi.T：已有 emoji 时落在
+  // Emoji 页，否则 Color 页。
+  @State decorationTab: number = 0;
+  @State emojiCategory: number = 0;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onConfirm: (name: string, color: number, emoji: string) => Promise<boolean> =
@@ -2192,10 +2219,32 @@ struct NameDialog {
     this.inputText = this.initialText;
     this.selectedColor = this.initialColor;
     this.selectedEmoji = this.initialEmoji;
+    this.decorationTab = this.initialEmoji.length > 0 ? 1 : 0;
   }
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  // 原版 q31 页签行 + wm2：切到 Color 页会清空已选 emoji（装饰互斥）。
+  @Builder
+  private decorationTabButton(tab: number, label: ResourceStr): void {
+    Text(label)
+      .fontSize(13)
+      .fontColor(this.decorationTab === tab ? this.resolveTokens().textPrimary :
+        this.resolveTokens().textSecondary)
+      .fontWeight(this.decorationTab === tab ? FontWeight.Medium : FontWeight.Normal)
+      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+      .backgroundColor(this.decorationTab === tab ? this.resolveTokens().control :
+        this.resolveTokens().surface)
+      .borderRadius(14)
+      .margin({ right: 8 })
+      .onClick(() => {
+        if (tab === 0) {
+          this.selectedEmoji = '';
+        }
+        this.decorationTab = tab;
+      })
   }
 
   build() {
@@ -2213,57 +2262,87 @@ struct NameDialog {
         .onChange((value: string) => {
           this.inputText = value;
         })
-      // 原版文件夹对话框：名称 + 颜色行 + emoji 行（emoji picker 为 flag 门控的
-      // 分类网格；Harmony 侧采用预设子集，∅ 表示无 emoji）。
+      // 原版文件夹对话框（gaj）：名称 + hq4 装饰页签（Color|Emoji，flag 门控）
+      // + 分页内容——Color 页为调色板，Emoji 页为 du3 九类分类网格。
       Row() {
-        ForEach(FOLDER_COLOR_PALETTE, (color: number) => {
-          Circle()
-            .width(22)
-            .height(22)
-            .fill(color)
-            .border({
-              width: this.selectedColor === color ? 2 : 0,
-              color: this.resolveTokens().textPrimary,
-            })
-            .margin({ right: 8 })
-            .onClick(() => {
-              this.selectedColor = color;
-            })
-        }, (color: number): string => color.toString())
+        this.decorationTabButton(0, $r('app.string.decoration_color'))
+        this.decorationTabButton(1, $r('app.string.decoration_emoji'))
       }
       .width('100%')
       .margin({ top: 14 })
-      Row() {
-        Text('∅')
-          .fontSize(16)
-          .fontColor(this.resolveTokens().textSecondary)
-          .padding(4)
-          .border({
-            width: this.selectedEmoji.length === 0 ? 1 : 0,
-            color: this.resolveTokens().accent,
-            radius: 6,
-          })
-          .margin({ right: 6 })
-          .onClick(() => {
-            this.selectedEmoji = '';
-          })
-        ForEach(FOLDER_EMOJI_PRESETS, (emoji: string) => {
-          Text(emoji)
-            .fontSize(18)
-            .padding(4)
-            .border({
-              width: this.selectedEmoji === emoji ? 1 : 0,
-              color: this.resolveTokens().accent,
-              radius: 6,
-            })
-            .margin({ right: 4 })
-            .onClick(() => {
-              this.selectedEmoji = emoji;
-            })
-        }, (emoji: string): string => emoji)
+      if (this.decorationTab === 0) {
+        Row() {
+          ForEach(FOLDER_COLOR_PALETTE, (color: number) => {
+            Circle()
+              .width(22)
+              .height(22)
+              .fill(color)
+              .border({
+                width: this.selectedColor === color ? 2 : 0,
+                color: this.resolveTokens().textPrimary,
+              })
+              .margin({ right: 8 })
+              .onClick(() => {
+                this.selectedColor = color;
+              })
+          }, (color: number): string => color.toString())
+        }
+        .width('100%')
+      } else {
+        Row() {
+          ForEach(FOLDER_EMOJI_CATEGORY_ICONS, (icon: string, index: number) => {
+            Text(icon)
+              .fontSize(15)
+              .padding(3)
+              .borderRadius(6)
+              .backgroundColor(this.emojiCategory === index ? this.resolveTokens().control :
+                this.resolveTokens().surface)
+              .accessibilityText($r('app.string.emoji_category_' + index.toString()))
+              .onClick(() => {
+                this.emojiCategory = index;
+              })
+          }, (icon: string, index: number): string => index.toString())
+        }
+        .width('100%')
+        .margin({ top: 4 })
+        Grid() {
+          GridItem() {
+            Text('∅')
+              .fontSize(16)
+              .fontColor(this.resolveTokens().textSecondary)
+              .padding(4)
+              .border({
+                width: this.selectedEmoji.length === 0 ? 1 : 0,
+                color: this.resolveTokens().accent,
+                radius: 6,
+              })
+              .onClick(() => {
+                this.selectedEmoji = '';
+              })
+          }
+          ForEach(FOLDER_EMOJI_CATEGORIES[this.emojiCategory], (emoji: string) => {
+            GridItem() {
+              Text(emoji)
+                .fontSize(18)
+                .padding(4)
+                .border({
+                  width: this.selectedEmoji === emoji ? 1 : 0,
+                  color: this.resolveTokens().accent,
+                  radius: 6,
+                })
+                .onClick(() => {
+                  this.selectedEmoji = emoji;
+                })
+            }
+          }, (emoji: string): string => emoji)
+        }
+        .columnsTemplate('1fr 1fr 1fr 1fr 1fr 1fr 1fr')
+        .columnsGap(4)
+        .rowsGap(4)
+        .width('100%')
+        .height(132)
+        .margin({ top: 8 })
       }
-      .width('100%')
-      .margin({ top: 12 })
       Row() {
         Button($r('app.string.cancel'))
           .height(36)
