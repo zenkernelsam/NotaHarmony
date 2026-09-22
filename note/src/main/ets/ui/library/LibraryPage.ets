@@ -1921,6 +1921,9 @@ struct LibraryPage {
             .fontColor(this.resolveTokens().textPrimary)
             .placeholderColor(this.resolveTokens().textSecondary)
             .backgroundColor(this.resolveTokens().surface)
+            // 原版 mb7/nb7：查询非空时显示 clear_search X，点击清空并触发
+            // onChange('') 重新加载。cancelButton 无独立无障碍标签，登记差异。
+            .cancelButton({ style: CancelButtonStyle.INPUT })
             .onChange((value: string) => {
               if (!this.pageActive) {
                 return;
