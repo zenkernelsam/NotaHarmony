@@ -1129,10 +1129,49 @@ export class UndoRedoManager {
     return {
       actionId: `history-${now.toString(36)}-${this.actionCounter.toString(36)}-${random}`,
       effect: HistoryEffect.PUSH,
-      coalesceTrack: action.type === UndoableActionType.ADD_STROKE
-        ? HistoryCoalesceTrack.CREATE_INK : HistoryCoalesceTrack.NONE,
+      coalesceTrack: this.coalesceTrackFor(action),
       actionTime: now,
     };
+  }
+
+  // Mirrors Notability 1.0.3 vnf.d: an entry's coalesce track comes from its op
+  // type — INSERT_CHAR/INSERT_STRING/MODIFY_STYLE/MODIFY_PARAGRAPH_STYLE/
+  // CLEAR_STYLE → INSERT_TEXT, REMOVE_CHAR/REMOVE_CHARS → REMOVE_TEXT,
+  // CREATE_INK → CREATE_INK, every other op (incl. REVIVE_CHARS) untracked.
+  // Harmony commits a whole editing session as one REPLACE_ELEMENT, so the
+  // session's net prefix/suffix diff plays the op type's role: added-only
+  // edits are INSERT_TEXT, removed-only edits are REMOVE_TEXT, and mixed or
+  // stroke-bearing replaces stay untracked (fail-closed).
+  private coalesceTrackFor(action: UndoableAction): HistoryCoalesceTrack {
+    if (action.type === UndoableActionType.ADD_STROKE) {
+      return HistoryCoalesceTrack.CREATE_INK;
+    }
+    if (action.type !== UndoableActionType.REPLACE_ELEMENT ||
+      action.beforeStrokes.length !== 0 || action.afterStrokes.length !== 0 ||
+      action.beforeElements.length !== 1 || action.afterElements.length !== 1) {
+      return HistoryCoalesceTrack.NONE;
+    }
+    const before: string = action.beforeElements[0].richText;
+    const after: string = action.afterElements[0].richText;
+    let prefix: number = 0;
+    const shared: number = Math.min(before.length, after.length);
+    while (prefix < shared && before.charCodeAt(prefix) === after.charCodeAt(prefix)) {
+      prefix++;
+    }
+    let suffix: number = 0;
+    while (suffix < shared - prefix &&
+      before.charCodeAt(before.length - 1 - suffix) === after.charCodeAt(after.length - 1 - suffix)) {
+      suffix++;
+    }
+    const removed: number = before.length - prefix - suffix;
+    const added: number = after.length - prefix - suffix;
+    if (removed === 0 && added > 0) {
+      return HistoryCoalesceTrack.INSERT_TEXT;
+    }
+    if (added === 0 && removed > 0) {
+      return HistoryCoalesceTrack.REMOVE_TEXT;
+    }
+    return HistoryCoalesceTrack.NONE;
   }
 
   private withEffect(history: HistoryMetadata, effect: HistoryEffect): HistoryMetadata {
