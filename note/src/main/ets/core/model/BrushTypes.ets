@@ -20,6 +20,8 @@ export enum ToolType {
   PENCIL = 5,
   REVIEW = 6,
   WHOLE_ERASER = 7,
+  // 原版 a6f.R = LASER：瞬态指示笔，不产生持久笔画。
+  LASER = 8,
 }
 
 // 笔刷配置（对应 f21 Brush）

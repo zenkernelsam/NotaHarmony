@@ -29,6 +29,8 @@ export class EditorViewModel {
   palmDetectionEnabled: boolean = true;
   // 原版 x22 case 0 / o59.j：straightLinesEnabled——按住自动拉直线条。
   straightLinesEnabled: boolean = true;
+  // 原版 cu6/bu6：laser_preferences.show_tail 缺省 true——激光笔拖尾开关。
+  laserShowTail: boolean = true;
   toolStateLoading: boolean = true;
   toolStateLoadFailed: boolean = false;
   // Structural mirror of `states` reassigned on every tray mutation so @ObjectLink
@@ -156,6 +158,7 @@ export class EditorViewModel {
           this.autoDeselectEraser = await settingsRepository.getAutoDeselectEraser();
           this.palmDetectionEnabled = await settingsRepository.getPalmDetectionEnabled();
           this.straightLinesEnabled = await settingsRepository.getStraightLinesEnabled();
+          this.laserShowTail = await settingsRepository.getLaserShowTail();
           if (!this.isInitializationCurrent()) {
             return false;
           }
@@ -305,7 +308,7 @@ export class EditorViewModel {
 
   async setFavoriteColorWell(index: number, color: number): Promise<boolean> {
     const repository: ToolRepository | null = this.repository;
-    if (repository === null || index < 0 || !this.supportsBrushControls()) {
+    if (repository === null || index < 0 || !this.supportsColorControls()) {
       return false;
     }
     try {
@@ -320,7 +323,7 @@ export class EditorViewModel {
 
   async removeFavoriteColorWell(index: number): Promise<boolean> {
     const repository: ToolRepository | null = this.repository;
-    if (repository === null || index < 0 || !this.supportsBrushControls()) {
+    if (repository === null || index < 0 || !this.supportsColorControls()) {
       return false;
     }
     try {
@@ -338,7 +341,7 @@ export class EditorViewModel {
   // the write is an upsert at the next tray slot).
   async addFavoriteColorWell(): Promise<boolean> {
     const repository: ToolRepository | null = this.repository;
-    if (repository === null || !this.supportsBrushControls()) {
+    if (repository === null || !this.supportsColorControls()) {
       return false;
     }
     try {
@@ -727,6 +730,23 @@ export class EditorViewModel {
     }
   }
 
+  // 原版 gh9 OnLaserTailToggle → laser_preferences/show_tail 持久化。
+  async setLaserShowTail(enabled: boolean): Promise<boolean> {
+    this.laserShowTail = enabled;
+    const repository: EditorSettingsRepository | null = this.settingsRepository;
+    if (repository === null) {
+      return true;
+    }
+    try {
+      await this.enqueueSave(async (): Promise<void> => repository.saveLaserShowTail(enabled));
+      return true;
+    } catch (e) {
+      this.laserShowTail = !enabled;
+      this.onPersistenceError(`Laser tail setting was not saved: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
   async flushToolState(): Promise<void> {
     await this.saveChain;
   }
@@ -754,6 +774,11 @@ export class EditorViewModel {
     return this.currentTool === ToolType.SELECTION;
   }
 
+  // 原版 a6f.R：激光笔为瞬态指示工具，不产生持久笔画。
+  isLaserActive(): boolean {
+    return this.currentTool === ToolType.LASER;
+  }
+
   // Row-level selection check: with duplicated tools the toolbar highlights the
   // exact tool_id, not every row sharing the type.
   isActiveTool(toolId: string): boolean {
@@ -763,6 +788,11 @@ export class EditorViewModel {
   supportsBrushControls(): boolean {
     return this.currentTool === ToolType.PEN || this.currentTool === ToolType.PENCIL ||
       this.currentTool === ToolType.HIGHLIGHTER;
+  }
+
+  // 原版 rz1.p()：LASER 有 4 档颜色井但无宽度/样式井（15pt 固定单色宽）。
+  supportsColorControls(): boolean {
+    return this.supportsBrushControls() || this.currentTool === ToolType.LASER;
   }
 
   colorToHex(argb: number): string {
@@ -777,7 +807,7 @@ export class EditorViewModel {
   }
 
   private async updateActiveState(mutate: (state: ToolState) => void): Promise<boolean> {
-    if (!this.supportsBrushControls()) {
+    if (!this.supportsBrushControls() && !this.isLaserActive()) {
       return false;
     }
     return this.updateState(this.activeToolId, mutate);
@@ -835,14 +865,16 @@ export class EditorViewModel {
       return;
     }
     this.recentColors = await repository.getRecentColors();
-    if (!this.supportsBrushControls()) {
+    if (!this.supportsColorControls()) {
       this.favoriteColors = [];
       this.widthWells = [];
       return;
     }
     const toolType: number = this.activeToolType();
     this.favoriteColors = await repository.getFavoriteColors(toolType);
-    this.widthWells = await repository.getWidthWells(toolType);
+    // 原版 j6g：LASER 宽度井仅 15pt 一档且无宽度 UI，不加载。
+    this.widthWells = this.supportsBrushControls() ?
+      await repository.getWidthWells(toolType) : [];
   }
 
   private async recordRecentColor(color: number): Promise<void> {
@@ -977,16 +1009,20 @@ export class EditorViewModel {
       this.createState('eraser', ownerId, ToolType.WHOLE_ERASER, 3, -16777216, 20, BrushStyle.MONO),
       this.createState('selection', ownerId, ToolType.SELECTION, 4, -16777216, 36, BrushStyle.MONO),
       this.createState('text', ownerId, ToolType.DEFAULT, 5, -16777216, 36, BrushStyle.MONO),
+      // 原版 rz1.r()：LASER 默认在 Secondary 托盘 index 1（POINTER/Zoom/Ruler
+      // 未移植），颜色井 -1754827、单档 15pt。
+      this.createState('laser', ownerId, ToolType.LASER, 1, -1754827, 15, BrushStyle.MONO,
+        TRAY_TYPE_SECONDARY),
     ];
   }
 
   private createState(toolId: string, ownerId: string, toolType: ToolType, trayIndex: number,
-    color: number, width: number, style: BrushStyle): ToolState {
+    color: number, width: number, style: BrushStyle, trayType: number = TRAY_TYPE_PRIMARY): ToolState {
     return {
       toolId: toolId,
       trayOwnerId: ownerId,
       toolType: toolType,
-      trayType: TRAY_TYPE_PRIMARY,
+      trayType: trayType,
       trayIndex: trayIndex,
       brush: {
         brushStyle: style,

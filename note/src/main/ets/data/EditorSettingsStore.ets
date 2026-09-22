@@ -30,6 +30,9 @@ export const DEFAULT_AUTO_DESELECT_ERASER: boolean = false;
 export const DEFAULT_PALM_DETECTION: boolean = true;
 // 原版 o59.c：straightLinesEnabled 缺省 true（按住自动拉直线条）。
 export const DEFAULT_STRAIGHT_LINES: boolean = true;
+const LASER_SHOW_TAIL_KEY: string = 'laserShowTail';
+// 原版 cu6.i / bu6(true)：laser_preferences.show_tail 缺省 true。
+export const DEFAULT_LASER_SHOW_TAIL: boolean = true;
 
 export interface EditorSettingsRepository {
   getShapeDetectionEnabled(): Promise<boolean>;
@@ -48,6 +51,8 @@ export interface EditorSettingsRepository {
   savePalmDetectionEnabled(enabled: boolean): Promise<void>;
   getStraightLinesEnabled(): Promise<boolean>;
   saveStraightLinesEnabled(enabled: boolean): Promise<void>;
+  getLaserShowTail(): Promise<boolean>;
+  saveLaserShowTail(enabled: boolean): Promise<void>;
 }
 
 export interface DefaultNoteTemplateRepository {
@@ -234,6 +239,16 @@ export class EditorSettingsStore implements EditorSettingsRepository, DefaultNot
   async saveStraightLinesEnabled(enabled: boolean): Promise<void> {
     await this.saveBooleanPref(STRAIGHT_LINES_KEY, enabled,
       DEFAULT_STRAIGHT_LINES, 'saveStraightLinesEnabled');
+  }
+
+  // 原版 cu6（laser_preferences/show_tail）：激光笔 tail 开关。
+  async getLaserShowTail(): Promise<boolean> {
+    return this.getBooleanPref(LASER_SHOW_TAIL_KEY, DEFAULT_LASER_SHOW_TAIL);
+  }
+
+  async saveLaserShowTail(enabled: boolean): Promise<void> {
+    await this.saveBooleanPref(LASER_SHOW_TAIL_KEY, enabled,
+      DEFAULT_LASER_SHOW_TAIL, 'saveLaserShowTail');
   }
 
   async getSelectedDefaultTemplate(): Promise<OriginalDefaultTemplateSelection> {

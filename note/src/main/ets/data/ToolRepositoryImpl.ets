@@ -19,21 +19,22 @@ interface WellRow {
 }
 
 // Original default FavoriteColorWellEntity rows, rz1.p() mapped onto Harmony ToolType.
-// LASER is intentionally absent: Harmony has no laser tool.
 const DEFAULT_FAVORITE_WELLS: WellSeed[] = [
   { toolType: ToolType.PEN, values: [-16777216, -15260469, -2011583] },
   { toolType: ToolType.PENCIL, values: [-16777216, -15260469, -2011583] },
   { toolType: ToolType.HIGHLIGHTER, values: [-172, -4391597, -1428530] },
+  { toolType: ToolType.LASER, values: [-1754827, -14776091, -12345273, -141259] },
   { toolType: ToolType.REVIEW, values: [-1706497, -672330, -6303021, -11872, -2238485] },
 ];
 
 // Original default WidthSizeWellEntity rows, rz1.s() mapped onto Harmony ToolType.
-// ERASER maps to WHOLE_ERASER; LASER is intentionally absent.
+// ERASER maps to WHOLE_ERASER.
 const DEFAULT_WIDTH_WELLS: WellSeed[] = [
   { toolType: ToolType.PEN, values: [1.0, 2.0, 4.0] },
   { toolType: ToolType.PENCIL, values: [1.5, 3.0, 5.0] },
   { toolType: ToolType.HIGHLIGHTER, values: [20.0, 15.0, 10.0] },
   { toolType: ToolType.WHOLE_ERASER, values: [4.0, 7.5, 15.0] },
+  { toolType: ToolType.LASER, values: [15.0] },
   { toolType: ToolType.REVIEW, values: [12.0, 36.0, 64.0] },
 ];
 

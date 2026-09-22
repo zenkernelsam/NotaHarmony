@@ -353,6 +353,26 @@
       "value": "Selection"
     },
     {
+      "name": "laser",
+      "value": "Laser"
+    },
+    {
+      "name": "laser_tail_label",
+      "value": "Tail"
+    },
+    {
+      "name": "laser_no_tail_label",
+      "value": "No Tail"
+    },
+    {
+      "name": "laser_tail_mode",
+      "value": "Tail mode"
+    },
+    {
+      "name": "laser_no_tail_mode",
+      "value": "No tail mode"
+    },
+    {
       "name": "text",
       "value": "Text"
     },

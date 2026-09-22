@@ -152,12 +152,16 @@ import {
   CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, ORIGINAL_VIEWPORT_MAX_ZOOM,
   ORIGINAL_VIEWPORT_MIN_ZOOM, PageBackground, PageInfo,
 } from '../../core/model/NoteTypes';
-import { effectivePageBackground } from '../../core/model/PageBackgroundModel';
+import { effectivePageBackground, POINTS_TO_PAGE_UNITS } from '../../core/model/PageBackgroundModel';
 import {
   OriginalSnapCandidate, OriginalSnapGuideSegment, OriginalSnapMovePlan,
   originalSnapCandidatesForElementBounds, originalSnapGridCandidates,
   originalSnapMoveAnchors, planOriginalSnapMove,
 } from '../../core/model/OriginalSnapGuides';
+import {
+  ORIGINAL_LASER_FADE_DELAY_MS, ORIGINAL_LASER_FADE_FRAMES, ORIGINAL_LASER_FRAME_MS,
+  OriginalLaserRenderState, OriginalLaserSession,
+} from '../../core/adaptation/OriginalLaserPointer';
 import {
   appendPageElementRefs, clonePageElementOrder, materializePageElements, movePageElementRefsOneStep,
   movePageElementRefsToExtreme,
@@ -362,6 +366,10 @@ export struct NoteCanvasView {
   private selectionDrag: boolean = false;
   // 原版 SNAP_TO_GRID（ac4.S，默认开）：拖拽期间命中的对齐参考线段。
   private snapGuides: OriginalSnapGuideSegment[] = [];
+  // 原版 zt6/yt6：激光笔瞬态会话（不持久化、不入历史）；fadeTimer 驱动
+  // 抬手后 500ms 驻留 + 31×16ms 衰减。
+  private laserSession: OriginalLaserSession = new OriginalLaserSession();
+  private laserFadeTimer: number = -1;
   private dragBeforeStrokes: StrokeElementData[] = [];
   private dragBeforeShapes: ShapeElement[] = [];
   private dragBeforeTextBlocks: TextBlockElement[] = [];
@@ -949,6 +957,8 @@ export struct NoteCanvasView {
       this.assetAvailabilitySubscription = -1;
     }
     this.cancelPdfRasterRefresh();
+    this.cancelLaserFade();
+    this.laserSession.clear();
     this.releaseImageAssets();
     this.releasePdfBackground();
     this.releasePaperTexture();
@@ -1340,8 +1350,85 @@ export struct NoteCanvasView {
         }
         this.canvasCtx.stroke();
       }
+      this.renderLaserOverlay();
     } finally {
       this.canvasCtx.restore();
+    }
+  }
+
+  // 原版 ft0 case 22：tail 段为圆头圆角描边折线（tailAlpha），指针为
+  // radius=width/2 实心圆（pointerAlpha）；两者独立控制。
+  private renderLaserOverlay(): void {
+    const laser: OriginalLaserRenderState = this.laserSession.renderState();
+    const width: number = laser.widthPt * POINTS_TO_PAGE_UNITS;
+    const color: string = this.viewModel.colorToHex(laser.color);
+    if (laser.tailAlpha > 0) {
+      this.canvasCtx.save();
+      try {
+        this.canvasCtx.globalAlpha = laser.tailAlpha;
+        this.canvasCtx.strokeStyle = color;
+        this.canvasCtx.lineWidth = width;
+        this.canvasCtx.lineCap = 'round';
+        this.canvasCtx.lineJoin = 'round';
+        for (const segment of laser.tailSegments) {
+          if (segment.length === 0) {
+            continue;
+          }
+          this.canvasCtx.beginPath();
+          this.canvasCtx.moveTo(segment[0].x, segment[0].y);
+          for (let i = 1; i < segment.length; i++) {
+            this.canvasCtx.lineTo(segment[i].x, segment[i].y);
+          }
+          this.canvasCtx.stroke();
+        }
+      } finally {
+        this.canvasCtx.restore();
+      }
+    }
+    if (laser.pointerAlpha > 0 && laser.pointerPoint !== null) {
+      this.canvasCtx.save();
+      try {
+        this.canvasCtx.globalAlpha = laser.pointerAlpha;
+        this.canvasCtx.fillStyle = color;
+        this.canvasCtx.beginPath();
+        this.canvasCtx.arc(laser.pointerPoint.x, laser.pointerPoint.y, width / 2, 0, Math.PI * 2);
+        this.canvasCtx.fill();
+      } finally {
+        this.canvasCtx.restore();
+      }
+    }
+  }
+
+  // 原版 yt6：抬手后 500ms 延迟，然后 31 帧×16ms 逐帧衰减，结束 zt6.i() 清空。
+  private scheduleLaserFade(): void {
+    this.cancelLaserFade();
+    this.laserFadeTimer = setTimeout((): void => {
+      this.stepLaserFade(1);
+    }, ORIGINAL_LASER_FADE_DELAY_MS);
+  }
+
+  private stepLaserFade(frame: number): void {
+    this.laserFadeTimer = -1;
+    if (!this.lifecycleActive) {
+      this.laserSession.clear();
+      return;
+    }
+    this.laserSession.applyFadeFrame(frame);
+    if (frame >= ORIGINAL_LASER_FADE_FRAMES) {
+      this.laserSession.clear();
+      this.renderFrame();
+      return;
+    }
+    this.renderFrame();
+    this.laserFadeTimer = setTimeout((): void => {
+      this.stepLaserFade(frame + 1);
+    }, ORIGINAL_LASER_FRAME_MS);
+  }
+
+  private cancelLaserFade(): void {
+    if (this.laserFadeTimer >= 0) {
+      clearTimeout(this.laserFadeTimer);
+      this.laserFadeTimer = -1;
     }
   }
 
@@ -1853,6 +1940,16 @@ export struct NoteCanvasView {
       this.isDrawing = true;
       return;
     }
+    // 原版 a6f.R LASER：瞬态指示——xt6 qt6/rt6 事件只更新渲染状态。
+    if (this.viewModel.isLaserActive()) {
+      this.cancelLaserFade();
+      this.laserSession.setAppearance(this.viewModel.brushColor,
+        this.viewModel.brushWidth, this.viewModel.laserShowTail);
+      this.laserSession.appendPoint(canvasP);
+      this.isDrawing = true;
+      this.renderFrame();
+      return;
+    }
     // 笔画工具
     const spec: RenderSpec = this.makeRenderSpec();
     if (this.strokeSession === null) {
@@ -1898,6 +1995,12 @@ export struct NoteCanvasView {
       this.collectEraserPoint(touch);
       return;
     }
+    if (this.laserSession.isActive()) {
+      const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
+      this.laserSession.appendPoint(p);
+      this.renderFrame();
+      return;
+    }
     if (this.selectionDrawing) {
       const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
       this.selectionTool.updateSelection(p);
@@ -1941,6 +2044,9 @@ export struct NoteCanvasView {
     if (finalTouch !== null) {
       if (this.eraserActive) {
         this.collectEraserPoint(finalTouch);
+      } else if (this.laserSession.isActive()) {
+        const p: Point2D = this.viewport.screenToCanvas(finalTouch.x, finalTouch.y);
+        this.laserSession.appendPoint(p);
       } else if (this.selectionDrawing) {
         const p: Point2D = this.viewport.screenToCanvas(finalTouch.x, finalTouch.y);
         this.selectionTool.updateSelection(p);
@@ -1960,6 +2066,16 @@ export struct NoteCanvasView {
       }
     }
     this.cancelShapeDetectionTimer();
+    if (this.laserSession.isActive()) {
+      // 原版 xt6 up：收笔 → zt6.k 调度 yt6 衰减协程（500ms + 31×16ms）。
+      if (this.laserSession.endStroke()) {
+        this.scheduleLaserFade();
+      }
+      this.isDrawing = false;
+      this.resetPointerTracking();
+      this.renderFrame();
+      return;
+    }
     if (this.eraserActive) {
       this.applyEraser();
       this.eraserActive = false;
@@ -2103,6 +2219,11 @@ export struct NoteCanvasView {
     this.eraserActive = false;
     this.eraserPath = [];
     this.partialEraserPreview.cancel();
+    if (this.laserSession.isActive()) {
+      // 原版 pt6：取消激光笔画直接清空（zt6.i()）。
+      this.cancelLaserFade();
+      this.laserSession.clear();
+    }
     this.selectionDrawing = false;
     this.selectionDrag = false;
     this.snapGuides = [];

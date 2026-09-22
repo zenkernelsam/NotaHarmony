@@ -15,10 +15,16 @@ function buttonSection(startMarker, endMarker) {
 const colorToggle = buttonSection('        // 颜色按钮', '\n\n        // 粗细按钮');
 const widthToggle = buttonSection('        // 粗细按钮', '\n\n        Divider().vertical(true).height(24).margin({ left: 8, right: 8 })\n\n        if (!this.compact)');
 
+// Phase 572 widened the color toggle to supportsColorControls() so the laser
+// tool (4 color wells, no width wells) can open the color picker; the width
+// toggle still requires brush controls.
+assert.match(colorToggle,
+  /\.enabled\(\(this\.viewModel\.supportsColorControls\(\) \|\| this\.viewModel\.isSelectionActive\(\)\) &&\s+!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)/,
+  'color toggle');
+assert.match(widthToggle,
+  /\.enabled\(\(this\.viewModel\.supportsBrushControls\(\) \|\| this\.viewModel\.isSelectionActive\(\)\) &&\s+!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)/,
+  'width toggle');
 for (const [name, section] of [['color toggle', colorToggle], ['width toggle', widthToggle]]) {
-  assert.match(section,
-    /\.enabled\(\(this\.viewModel\.supportsBrushControls\(\) \|\| this\.viewModel\.isSelectionActive\(\)\) &&\s+!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)/,
-    name);
   assert.match(section,
     /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}/,
     name);

@@ -104,10 +104,10 @@ export struct EditorToolbar {
           .backgroundColor(this.viewModel.colorToHex(this.viewModel.isSelectionActive() ?
             this.selectionColor : this.viewModel.brushColor))
           .margin({ left: 4, right: 4 })
-          .enabled((this.viewModel.supportsBrushControls() || this.viewModel.isSelectionActive()) &&
+          .enabled((this.viewModel.supportsColorControls() || this.viewModel.isSelectionActive()) &&
             !this.viewModel.toolStateLoading &&
             !this.photoImportLeaseActive)
-          .opacity((this.viewModel.supportsBrushControls() || this.viewModel.isSelectionActive()) &&
+          .opacity((this.viewModel.supportsColorControls() || this.viewModel.isSelectionActive()) &&
             !this.viewModel.toolStateLoading ? 1 : 0.4)
           .onClick(() => {
             if (this.photoImportLeaseActive) {
@@ -258,6 +258,48 @@ export struct EditorToolbar {
           this.StyleButton($r('app.string.style_taper'), BrushStyle.TAPER)
           this.StyleButton($r('app.string.style_dash'), BrushStyle.DASH)
           this.StyleButton($r('app.string.style_dots'), BrushStyle.DOT)
+        }
+        .width('100%')
+        .height(40)
+        .justifyContent(FlexAlign.Center)
+      } else if (this.viewModel.isLaserActive()) {
+        // 原版 pni/uni.a：激光设置 = Tail / No Tail 分段开关。
+        Row() {
+          Button($r('app.string.laser_tail_label'))
+            .height(30)
+            .fontSize(13)
+            .backgroundColor(this.viewModel.laserShowTail ?
+              this.resolveTokens().accent : this.resolveTokens().control)
+            .fontColor(this.viewModel.laserShowTail ?
+              this.resolveTokens().onAccent : this.resolveTokens().textPrimary)
+            .enabled(!this.viewModel.toolStateLoading && !this.photoImportLeaseActive)
+            .accessibilityText($r('app.string.laser_tail_mode'))
+            .onClick(() => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
+              this.viewModel.setLaserShowTail(true).catch((e: Object): void => {
+                console.error(`laser tail toggle failed: ${JSON.stringify(e)}`);
+              });
+            })
+          Button($r('app.string.laser_no_tail_label'))
+            .height(30)
+            .fontSize(13)
+            .margin({ left: 8 })
+            .backgroundColor(!this.viewModel.laserShowTail ?
+              this.resolveTokens().accent : this.resolveTokens().control)
+            .fontColor(!this.viewModel.laserShowTail ?
+              this.resolveTokens().onAccent : this.resolveTokens().textPrimary)
+            .enabled(!this.viewModel.toolStateLoading && !this.photoImportLeaseActive)
+            .accessibilityText($r('app.string.laser_no_tail_mode'))
+            .onClick(() => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
+              this.viewModel.setLaserShowTail(false).catch((e: Object): void => {
+                console.error(`laser tail toggle failed: ${JSON.stringify(e)}`);
+              });
+            })
         }
         .width('100%')
         .height(40)
