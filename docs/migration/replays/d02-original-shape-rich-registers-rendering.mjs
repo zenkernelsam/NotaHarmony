@@ -143,16 +143,17 @@ const checks = [
       renderer.includes('MAX_PENCIL_CACHE_ENTRIES: number = 32') &&
       renderer.includes('MAX_PENCIL_CACHE_SPLATS: number = 262144') &&
       renderer.includes('generator.reset(ORIGINAL_PENCIL_FALLBACK_SEED)')],
-  ['Shape renderer restores Highlighter alpha without adding a Tape overlay',
+  ['Shape renderer restores Highlighter alpha; Tape overlay only on tape Shapes',
     renderer.includes('highlighter ? 107 : undefined') &&
-      !renderer.includes('renderTapePattern(')],
+      renderer.includes('renderTapePatternOverlay') &&
+      renderer.includes('shape.originalTool === 3')],
   ['main canvas held Shape and thumbnail use the Shape center path and clear Pencil caches',
     canvas.includes('new ShapeCanvasRenderer(this.renderer)') &&
-      canvas.includes('renderShape(heldShape, this.renderCtx)') &&
-      canvas.includes('renderShape(element.data, renderContext)') &&
+      canvas.includes('renderShape(heldShape, this.renderCtx, this.viewport.zoom)') &&
+      canvas.includes('renderShape(element.data, renderContext, this.viewport.zoom)') &&
       canvas.includes('this.shapeRenderer.clearPencilCache()') &&
       thumbnail.includes('new ShapeCanvasRenderer(this.strokeRenderer)') &&
-      thumbnail.includes('renderShape(element.data, renderContext)') &&
+      thumbnail.includes('renderShape(element.data, renderContext, pageTransform.scale)') &&
       thumbnail.includes('this.shapeRenderer.clearPencilCache()')],
   ['ArkTS fixtures cover rich payload package clipboard eraser persistence and pixels',
     payloadFixture.includes('18446744073709551615') &&

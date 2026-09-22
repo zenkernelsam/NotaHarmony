@@ -452,6 +452,7 @@ export struct NoteCanvasView {
     // 原版 NoteSessionState.revealedTape：会话级已揭示 tape 集合，随画布存活、
     // 笔记关闭即丢弃；与 painter 共享同一引用使 gate 立即生效。
     this.strokePainter.revealedTapeIds = this.revealedTapeIds;
+    this.shapeRenderer.revealedTapeIds = this.revealedTapeIds;
     this.startSystemClipboardImageAvailabilityUpdates();
     this.mathEngineInitializationComplete = originalMathEngine.isReady();
     originalMathEngine.initialize(getContext(this) as common.UIAbilityContext).then((ready: boolean): void => {
@@ -1429,7 +1430,7 @@ export struct NoteCanvasView {
           this.renderOrderedElements(this.renderCtx);
         }
         for (const heldShape of this.heldShapes) {
-          this.shapeRenderer.renderShape(heldShape, this.renderCtx);
+          this.shapeRenderer.renderShape(heldShape, this.renderCtx, this.viewport.zoom);
         }
         if (current !== null) {
           this.strokePainter.renderStroke(current, this.renderCtx, this.getPaperWidth(),
@@ -1608,7 +1609,7 @@ export struct NoteCanvasView {
       } else if (element.kind === PageElementKind.TEXT) {
         this.textRenderer.renderText(element.data, renderContext);
       } else if (element.kind === PageElementKind.SHAPE) {
-        this.shapeRenderer.renderShape(element.data, renderContext);
+        this.shapeRenderer.renderShape(element.data, renderContext, this.viewport.zoom);
       } else if (element.kind === PageElementKind.IMAGE) {
         const loaded: LoadedImageAsset | undefined = this.imageAssets.get(
           originalAssetStorageHash(element.data.assetHashBits));

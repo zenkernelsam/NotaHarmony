@@ -154,7 +154,7 @@ export class ThumbnailRenderer {
           } else if (element.kind === PageElementKind.TEXT) {
             this.textRenderer.renderText(element.data, renderContext);
           } else if (element.kind === PageElementKind.SHAPE) {
-            this.shapeRenderer.renderShape(element.data, renderContext);
+            this.shapeRenderer.renderShape(element.data, renderContext, pageTransform.scale);
           } else if (element.kind === PageElementKind.IMAGE) {
             const asset: LoadedImageAsset | undefined = imageAssets.get(
               originalAssetStorageHash(element.data.assetHashBits));

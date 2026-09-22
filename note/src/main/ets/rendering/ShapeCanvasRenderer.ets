@@ -9,6 +9,7 @@ import {
 } from '../core/model/ShapeStrokeGeometry';
 import {
   InkPathCommand, InkPathCommandType, InkStyle, PencilSplatPoint, RenderSpec,
+  StrokeElementData, TapePattern,
 } from '../core/model/StrokeTypes';
 
 interface CachedShapePencilSplats {
@@ -26,12 +27,16 @@ export class ShapeCanvasRenderer {
   private pencilCache: Map<string, CachedShapePencilSplats> =
     new Map<string, CachedShapePencilSplats>();
   private cachedSplatCount: number = 0;
+  // Original NoteSessionState.revealedTape (yd9.j): session-scoped revealed-tape
+  // id set shared with StrokeCanvasPainter; a revealed tape shape keeps its band
+  // body but suppresses the pattern overlay.
+  revealedTapeIds: Set<string> = new Set();
 
   constructor(renderer: StrokeRenderer) {
     this.renderer = renderer;
   }
 
-  renderShape(shape: ShapeElement, context: RenderContext): void {
+  renderShape(shape: ShapeElement, context: RenderContext, viewportZoom: number = 1): void {
     const ctx: Canvas2DDrawingContext = context as Canvas2DDrawingContext;
     const geometry: ShapeStrokeGeometry = shapeStrokeGeometry(shape);
     ctx.save();
@@ -49,6 +54,9 @@ export class ShapeCanvasRenderer {
         return;
       }
       this.strokeShape(shape, geometry, ctx, shape.originalTool === 2);
+      if (shape.originalTool === 3) {
+        this.renderTapePatternOverlay(shape, geometry, context, viewportZoom);
+      }
     } finally {
       ctx.restore();
     }
@@ -91,6 +99,40 @@ export class ShapeCanvasRenderer {
     }
     ctx.setStrokeStyle(this.colorToRgba(shape.color, highlighter ? 107 : undefined));
     ctx.stroke();
+  }
+
+  // 原版胶带元素即 ShapeImpl + tapePatternRegister（dm2 校验 tapePattern 仅在
+  // tool=TAPE 时存在）：图案层覆盖在笔带外轮廓上。逐 component 合成等价
+  // StrokeElementData 走既有 renderTapePattern 管线；已揭示或 PLAIN 不叠加。
+  private renderTapePatternOverlay(shape: ShapeElement, geometry: ShapeStrokeGeometry,
+    context: RenderContext, viewportZoom: number): void {
+    if (this.revealedTapeIds.has(shape.id)) {
+      return;
+    }
+    const pattern: TapePattern = shape.originalTapePattern ?? TapePattern.STRIPES;
+    if (pattern === TapePattern.PLAIN) {
+      return;
+    }
+    for (const component of geometry.components) {
+      if (component.pathPoints.length === 0) {
+        continue;
+      }
+      const stroke: StrokeElementData = {
+        id: shape.id,
+        pathPoints: component.pathPoints,
+        cubicSegments: component.cubicSegments,
+        splatPoints: [],
+        renderSpec: {
+          color: shape.color, brushWidth: shape.strokeWidth, inkStyle: InkStyle.FIXED_WIDTH,
+          isHighlighter: false, isPencil: false, tapePattern: pattern,
+        },
+        transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bounds: { left: 0, top: 0, right: 0, bottom: 0 },
+        maskPath: [], customPath: null, fillPath: null, fillColor: null,
+        isFinished: true,
+      };
+      this.renderer.renderTapePattern(stroke, context, viewportZoom);
+    }
   }
 
   private renderPencil(shape: ShapeElement, geometry: ShapeStrokeGeometry,
