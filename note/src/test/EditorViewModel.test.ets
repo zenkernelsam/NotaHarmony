@@ -390,6 +390,20 @@ class FakeEditorSettingsRepository implements EditorSettingsRepository {
   async saveKeepDeviceAwake(_enabled: boolean): Promise<void> {
   }
 
+  async getHideStatusBar(): Promise<boolean> {
+    return false;
+  }
+
+  async saveHideStatusBar(_enabled: boolean): Promise<void> {
+  }
+
+  async getHideNavigationBar(): Promise<boolean> {
+    return false;
+  }
+
+  async saveHideNavigationBar(_enabled: boolean): Promise<void> {
+  }
+
   async saveShapeDetectionEnabled(enabled: boolean): Promise<void> {
     this.saveAttempts.push(enabled);
     const gate: DeferredSave | undefined = this.saveGates.shift();

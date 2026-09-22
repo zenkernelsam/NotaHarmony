@@ -1004,7 +1004,9 @@
     { "name": "insecure_webdav_message", "value": "HTTP sends the username and password without encryption. Continue only on a fully trusted local network." },
     { "name": "continue_anyway", "value": "Continue Anyway" },
     { "name": "note_editor", "value": "Note Editor" },
-    { "name": "shape_detection", "value": "Shapes detection" },    { "name": "keep_device_awake", "value": "Keep device awake" },
+    { "name": "shape_detection", "value": "Shapes detection" },    { "name": "keep_device_awake", "value": "Keep device awake" },    { "name": "hide_status_bar", "value": "Hide status bar in note view" },
+    { "name": "hide_navigation_bar", "value": "Hide navigation bar in note view" },
+
 
     { "name": "settings_loading", "value": "Loading settings..." },
     { "name": "settings_load_failed", "value": "Could not load settings. Try again." },

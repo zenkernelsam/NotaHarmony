@@ -1,7 +1,8 @@
 import { common } from '@kit.AbilityKit';
 import { promptAction, router } from '@kit.ArkUI';
 import {
-  DEFAULT_KEEP_DEVICE_AWAKE, DEFAULT_SHAPE_DETECTION_ENABLED, EditorSettingsStore,
+  DEFAULT_HIDE_NAVIGATION_BAR, DEFAULT_HIDE_STATUS_BAR, DEFAULT_KEEP_DEVICE_AWAKE,
+  DEFAULT_SHAPE_DETECTION_ENABLED, EditorSettingsStore,
 } from '../../data/EditorSettingsStore';
 import { ThemeMode, ThemeTokens } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
@@ -18,6 +19,8 @@ struct SettingsPage {
   @State loadState: SettingsLoadState = SettingsLoadState.LOADING;
   @State shapeDetectionEnabled: boolean = DEFAULT_SHAPE_DETECTION_ENABLED;
   @State keepDeviceAwakeEnabled: boolean = DEFAULT_KEEP_DEVICE_AWAKE;
+  @State hideStatusBarEnabled: boolean = DEFAULT_HIDE_STATUS_BAR;
+  @State hideNavigationBarEnabled: boolean = DEFAULT_HIDE_NAVIGATION_BAR;
   @State saveBusy: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -55,12 +58,16 @@ struct SettingsPage {
       const store: EditorSettingsStore = new EditorSettingsStore(context);
       const enabled: boolean = await store.getShapeDetectionEnabled();
       const keepAwake: boolean = await store.getKeepDeviceAwake();
+      const hideStatus: boolean = await store.getHideStatusBar();
+      const hideNav: boolean = await store.getHideNavigationBar();
       if (this.pageDisposed || generation !== this.loadGeneration) {
         return;
       }
       this.store = store;
       this.shapeDetectionEnabled = enabled;
       this.keepDeviceAwakeEnabled = keepAwake;
+      this.hideStatusBarEnabled = hideStatus;
+      this.hideNavigationBarEnabled = hideNav;
       this.loadState = SettingsLoadState.READY;
       this.initialized = true;
     } catch (e) {
@@ -97,6 +104,70 @@ struct SettingsPage {
       }
       this.keepDeviceAwakeEnabled = previous;
       console.error(`SettingsPage keep-awake save failed: ${JSON.stringify(e)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
+      } catch (toastError) {
+        console.error(`SettingsPage toast failed: ${JSON.stringify(toastError)}`);
+      }
+    } finally {
+      this.saveBusy = false;
+    }
+  }
+
+  // 原版 r22 case 3：note view 隐藏状态栏开关，同一守护模式。
+  private async setHideStatusBarEnabled(enabled: boolean): Promise<void> {
+    const store: EditorSettingsStore | null = this.store;
+    if (store === null || this.loadState !== SettingsLoadState.READY || this.saveBusy ||
+      enabled === this.hideStatusBarEnabled) {
+      return;
+    }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
+    const previous: boolean = this.hideStatusBarEnabled;
+    this.hideStatusBarEnabled = enabled;
+    this.saveBusy = true;
+    try {
+      await store.saveHideStatusBar(enabled);
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+    } catch (e) {
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+      this.hideStatusBarEnabled = previous;
+      console.error(`SettingsPage hide-status-bar save failed: ${JSON.stringify(e)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
+      } catch (toastError) {
+        console.error(`SettingsPage toast failed: ${JSON.stringify(toastError)}`);
+      }
+    } finally {
+      this.saveBusy = false;
+    }
+  }
+
+  // 原版 r22 case 4：note view 隐藏导航条开关，同一守护模式。
+  private async setHideNavigationBarEnabled(enabled: boolean): Promise<void> {
+    const store: EditorSettingsStore | null = this.store;
+    if (store === null || this.loadState !== SettingsLoadState.READY || this.saveBusy ||
+      enabled === this.hideNavigationBarEnabled) {
+      return;
+    }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
+    const previous: boolean = this.hideNavigationBarEnabled;
+    this.hideNavigationBarEnabled = enabled;
+    this.saveBusy = true;
+    try {
+      await store.saveHideNavigationBar(enabled);
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+    } catch (e) {
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+      this.hideNavigationBarEnabled = previous;
+      console.error(`SettingsPage hide-navigation-bar save failed: ${JSON.stringify(e)}`);
       try {
         promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
       } catch (toastError) {
@@ -238,6 +309,40 @@ struct SettingsPage {
                 .enabled(!this.saveBusy)
                 .onChange((enabled: boolean) => {
                   this.setKeepDeviceAwakeEnabled(enabled);
+                })
+            }
+            .width('100%')
+            .height(56)
+            .margin({ top: 8 })
+            .padding({ left: 12, right: 12 })
+            .backgroundColor(this.resolveTokens().surface)
+
+            // 原版 r22 case 3/4：note view 隐藏状态栏/导航条开关。
+            Row() {
+              Text($r('app.string.hide_status_bar'))
+                .layoutWeight(1)
+                .fontSize(16)
+                .fontColor(this.resolveTokens().textPrimary)
+              Toggle({ type: ToggleType.Switch, isOn: this.hideStatusBarEnabled })
+                .enabled(!this.saveBusy)
+                .onChange((enabled: boolean) => {
+                  this.setHideStatusBarEnabled(enabled);
+                })
+            }
+            .width('100%')
+            .height(56)
+            .margin({ top: 8 })
+            .padding({ left: 12, right: 12 })
+            .backgroundColor(this.resolveTokens().surface)
+            Row() {
+              Text($r('app.string.hide_navigation_bar'))
+                .layoutWeight(1)
+                .fontSize(16)
+                .fontColor(this.resolveTokens().textPrimary)
+              Toggle({ type: ToggleType.Switch, isOn: this.hideNavigationBarEnabled })
+                .enabled(!this.saveBusy)
+                .onChange((enabled: boolean) => {
+                  this.setHideNavigationBarEnabled(enabled);
                 })
             }
             .width('100%')

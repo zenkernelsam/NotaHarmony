@@ -314,7 +314,9 @@
     { "name": "insecure_webdav_message", "value": "HTTP 会以可被截获的形式发送用户名和密码。仅应在完全可信的本地网络中继续。" },
     { "name": "continue_anyway", "value": "仍要继续" },
     { "name": "note_editor", "value": "笔记编辑器" },
-    { "name": "shape_detection", "value": "形状识别" },    { "name": "keep_device_awake", "value": "保持设备常亮" },
+    { "name": "shape_detection", "value": "形状识别" },    { "name": "keep_device_awake", "value": "保持设备常亮" },    { "name": "hide_status_bar", "value": "在笔记页面隐藏状态栏" },
+    { "name": "hide_navigation_bar", "value": "在笔记页面隐藏导航条" },
+
 
     { "name": "settings_loading", "value": "正在加载设置..." },
     { "name": "settings_load_failed", "value": "无法加载设置，请重试" },

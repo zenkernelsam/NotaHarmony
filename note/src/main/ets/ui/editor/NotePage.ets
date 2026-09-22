@@ -161,6 +161,10 @@ struct NotePage {
   // 原版 keep_device_awake：编辑器前台时按设置保持屏幕常亮。
   private keepAwakeGeneration: number = 0;
   private keepScreenOnApplied: boolean = false;
+  // 原版 hide_status_bar / hide_navigation_bar：note view 沉浸模式开关。
+  private systemBarsGeneration: number = 0;
+  private statusBarHiddenApplied: boolean = false;
+  private navigationBarHiddenApplied: boolean = false;
   private pageLoadInFlight: boolean = false;
   private recordingStore: OriginalRecordingStore | null = null;
   private recordingController: OriginalRecordingPlaybackController =
@@ -240,6 +244,7 @@ struct NotePage {
         (change: AssetAvailabilityChange): void => this.onRecordingAssetAvailabilityChanged(change));
     }
     this.applyKeepDeviceAwakeSetting();
+    this.applyHideSystemBarsSetting();
     this.loadPages();
   }
 
@@ -252,6 +257,14 @@ struct NotePage {
     if (this.keepScreenOnApplied) {
       this.keepScreenOnApplied = false;
       this.setKeepScreenOn(false);
+    }
+    this.systemBarsGeneration++;
+    if (this.statusBarHiddenApplied || this.navigationBarHiddenApplied) {
+      this.statusBarHiddenApplied = false;
+      this.navigationBarHiddenApplied = false;
+      this.setSystemBarHidden('status', false);
+      this.setSystemBarHidden('navigation', false);
+      this.setSystemBarHidden('navigationIndicator', false);
     }
     this.cancelRecordingSessionRefresh();
     if (this.editingTitle) {
@@ -338,6 +351,48 @@ struct NotePage {
       this.setKeepScreenOn(enabled);
     } catch (e) {
       console.error(`keep-device-awake load failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // 原版 feature_settings__hide_status_bar / hide_navigation_bar：开启时
+  // 编辑器前台隐藏对应系统栏（沉浸模式）；页面销毁时恢复。
+  private async applyHideSystemBarsSetting(): Promise<void> {
+    const generation: number = ++this.systemBarsGeneration;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const store: EditorSettingsStore = new EditorSettingsStore(context);
+      const hideStatus: boolean = await store.getHideStatusBar();
+      const hideNav: boolean = await store.getHideNavigationBar();
+      if (this.editorDisposed || generation !== this.systemBarsGeneration) {
+        return;
+      }
+      if (hideStatus !== this.statusBarHiddenApplied) {
+        this.statusBarHiddenApplied = hideStatus;
+        this.setSystemBarHidden('status', hideStatus);
+      }
+      if (hideNav !== this.navigationBarHiddenApplied) {
+        this.navigationBarHiddenApplied = hideNav;
+        // 三键导航与手势条是两种导航栏实现；逐个独立降级。
+        this.setSystemBarHidden('navigation', hideNav);
+        this.setSystemBarHidden('navigationIndicator', hideNav);
+      }
+    } catch (e) {
+      console.error(`hide-system-bars load failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  private setSystemBarHidden(name: string, hidden: boolean): void {
+    try {
+      window.getLastWindow(getContext(this)).then((win: window.Window) => {
+        win.setSpecificSystemBarEnabled(name as window.SpecificSystemBar,
+          !hidden).catch((e: Object) => {
+          console.error(`setSpecificSystemBarEnabled(${name}) failed: ${JSON.stringify(e)}`);
+        });
+      }).catch((e: Object) => {
+        console.error(`getLastWindow failed: ${JSON.stringify(e)}`);
+      });
+    } catch (e) {
+      console.error(`getLastWindow failed: ${JSON.stringify(e)}`);
     }
   }
 

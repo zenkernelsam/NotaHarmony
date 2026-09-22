@@ -12,15 +12,24 @@ const STORE_NAME: string = 'noteEditorSettings';
 const SHAPE_DETECTION_KEY: string = 'shapeDetectionEnabled';
 const SELECTED_DEFAULT_TEMPLATE_KEY: string = 'selectedDefaultTemplate';
 const KEEP_DEVICE_AWAKE_KEY: string = 'keepDeviceAwake';
+const HIDE_STATUS_BAR_KEY: string = 'hideStatusBar';
+const HIDE_NAVIGATION_BAR_KEY: string = 'hideNavigationBar';
 export const DEFAULT_SHAPE_DETECTION_ENABLED: boolean = true;
-// 原版 keep_device_awake 开关默认关（原版无真值表硬证据，登记差异）。
+// 原版 keep_device_awake / hide_status_bar / hide_navigation_bar 开关默认
+// 关（原版无真值表硬证据，登记差异）。
 export const DEFAULT_KEEP_DEVICE_AWAKE: boolean = false;
+export const DEFAULT_HIDE_STATUS_BAR: boolean = false;
+export const DEFAULT_HIDE_NAVIGATION_BAR: boolean = false;
 
 export interface EditorSettingsRepository {
   getShapeDetectionEnabled(): Promise<boolean>;
   saveShapeDetectionEnabled(enabled: boolean): Promise<void>;
   getKeepDeviceAwake(): Promise<boolean>;
   saveKeepDeviceAwake(enabled: boolean): Promise<void>;
+  getHideStatusBar(): Promise<boolean>;
+  saveHideStatusBar(enabled: boolean): Promise<void>;
+  getHideNavigationBar(): Promise<boolean>;
+  saveHideNavigationBar(enabled: boolean): Promise<void>;
 }
 
 export interface DefaultNoteTemplateRepository {
@@ -73,6 +82,44 @@ export class EditorSettingsStore implements EditorSettingsRepository, DefaultNot
     });
   }
 
+  private async getBooleanPref(key: string, fallback: boolean): Promise<boolean> {
+    return EditorSettingsStore.mutex.runExclusive(async (): Promise<boolean> => {
+      try {
+        const store = await preferences.getPreferences(this.context, STORE_NAME);
+        const value = store.getSync(key, fallback);
+        return typeof value === 'boolean' ? value : fallback;
+      } catch (e) {
+        throw new Error(`getBooleanPref(${key}) failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  private async saveBooleanPref(key: string, enabled: boolean,
+    fallback: boolean, tag: string): Promise<void> {
+    return EditorSettingsStore.mutex.runExclusive(async (): Promise<void> => {
+      const store = await preferences.getPreferences(this.context, STORE_NAME);
+      const hadPrevious: boolean = store.hasSync(key);
+      const previous = store.getSync(key, fallback);
+      store.putSync(key, enabled);
+      try {
+        await store.flush();
+      } catch (e) {
+        if (hadPrevious) {
+          store.putSync(key, previous);
+        } else {
+          store.deleteSync(key);
+        }
+        try {
+          await store.flush();
+        } catch (rollbackError) {
+          throw new Error(`${tag} commit and rollback failed: ${JSON.stringify(e)}; ` +
+            `${JSON.stringify(rollbackError)}`);
+        }
+        throw new Error(`${tag} failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
   // 原版 r22 case 2：note-editor 设置区的 "Keep device awake" 开关；
   // 与 shape detection 同一条 prefs 存取/回滚路径。
   async getKeepDeviceAwake(): Promise<boolean> {
@@ -110,6 +157,25 @@ export class EditorSettingsStore implements EditorSettingsRepository, DefaultNot
         throw new Error(`saveKeepDeviceAwake failed: ${JSON.stringify(e)}`);
       }
     });
+  }
+
+  // 原版 r22 case 3/4：note view 隐藏状态栏/导航条开关。
+  async getHideStatusBar(): Promise<boolean> {
+    return this.getBooleanPref(HIDE_STATUS_BAR_KEY, DEFAULT_HIDE_STATUS_BAR);
+  }
+
+  async saveHideStatusBar(enabled: boolean): Promise<void> {
+    await this.saveBooleanPref(HIDE_STATUS_BAR_KEY, enabled,
+      DEFAULT_HIDE_STATUS_BAR, 'saveHideStatusBar');
+  }
+
+  async getHideNavigationBar(): Promise<boolean> {
+    return this.getBooleanPref(HIDE_NAVIGATION_BAR_KEY, DEFAULT_HIDE_NAVIGATION_BAR);
+  }
+
+  async saveHideNavigationBar(enabled: boolean): Promise<void> {
+    await this.saveBooleanPref(HIDE_NAVIGATION_BAR_KEY, enabled,
+      DEFAULT_HIDE_NAVIGATION_BAR, 'saveHideNavigationBar');
   }
 
   async getSelectedDefaultTemplate(): Promise<OriginalDefaultTemplateSelection> {
