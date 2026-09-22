@@ -15,7 +15,7 @@
 | 3 DUPLICATE | `vsc` → `lg2.b` → `fvbVar.a()` → `e()` | **清旧选区**，`e()` 重选粘贴副本 |
 | 4 GROUP | `kk9` 协程（`size>=2`） | **清** |
 | 5 UNGROUP | `wsc` 协程（非空） | **清** |
-| 6-9 SEND_* | `xscVar.q(ktc, lambda)` | 保留 |
+| 6-9 SEND_* | `xscVar.q(ktc, lambda)` | **清**（`q()` 内 `this.K.a()` 无条件——Phase 601 修正） |
 | 10 DELETE | `kk9` 协程 | **清** |
 | 11/12 CONVERT_* | 识别转换流 | 选区被转换取代 |
 | 13 EDIT_MATH | `x08` 事件 → 数学编辑器 | 保留 |

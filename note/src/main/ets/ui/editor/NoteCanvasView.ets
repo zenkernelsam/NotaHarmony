@@ -6189,10 +6189,14 @@ export struct NoteCanvasView {
       this.reorderSelected(state.selectedStrokeIds, state.selectedShapeIds,
         state.selectedTextBlockIds, state.selectedImageIds, state.selectedMathIds,
         state.selectedGroupIds, action === SelectionMenuAction.SEND_FORWARD);
+      // 原版 dhb case6/7 → xscVar.q：zh9 协程无条件后接 this.K.a() 清选区。
+      this.clearSelectionWithRegisterReset();
     } else if (action === SelectionMenuAction.SEND_TO_FRONT || action === SelectionMenuAction.SEND_TO_BACK) {
       this.reorderSelectedToExtreme(state.selectedStrokeIds, state.selectedShapeIds,
         state.selectedTextBlockIds, state.selectedImageIds, state.selectedMathIds,
         state.selectedGroupIds, action === SelectionMenuAction.SEND_TO_FRONT);
+      // 原版 dhb case8/9 → xscVar.q：同上无条件清选区。
+      this.clearSelectionWithRegisterReset();
     } else if (action === SelectionMenuAction.DUPLICATE) {
       this.duplicateSelected(state.selectedStrokeIds, state.selectedShapeIds,
         state.selectedTextBlockIds, state.selectedImageIds, state.selectedMathIds,

@@ -9,10 +9,12 @@
 //     case 10 DELETE   : kk9 协程后 fvbVar.a()          （Harmony 已对齐）
 //     case 16/17 FLIP  : mub 协程后 fvbVar.a()
 //     case 18/19 LOCK  : u5j 切换后 fvbVar.a()
-//   保留选区：case 0 STYLE(nsc)、6-9 SEND_*、13 EDIT_MATH、14 CROP(itc.c)、
+//   xsc.q（case 6-9 SEND_*）：zh9 协程后 this.K.a() 无条件清选区。
+//   保留选区：case 0 STYLE(nsc)、13 EDIT_MATH、14 CROP(itc.c)、
 //     20 DESELECT(deselectMode)。
-// Harmony：COPY/GROUP/UNGROUP/FLIP/LOCK 原保留（甚至重选成员）；
-//   本 Phase 全部改为成功后 clearSelectionWithRegisterReset()。
+// Harmony：COPY/GROUP/UNGROUP/FLIP/LOCK/SEND_* 原保留（甚至重选成员）；
+//   本 Phase 全部改为 clearSelectionWithRegisterReset()（SEND_* 按
+//   xsc.q 语义在分发层无条件清）。
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert';
 
@@ -69,22 +71,30 @@ const delBlock = canvas.slice(delIdx, delIdx + 13000);
 check(delBlock.includes('this.clearSelectionWithRegisterReset();'),
   'DELETE/CUT still clear the selection (regression pin)');
 
+// --- SEND_*：分发层无条件清（xsc.q → this.K.a()） ---
+const sendStepIdx = canvas.indexOf('SelectionMenuAction.SEND_FORWARD || action === SelectionMenuAction.SEND_BACKWARD');
+check(canvas.slice(sendStepIdx, sendStepIdx + 700).includes('clearSelectionWithRegisterReset();'),
+  'SEND_FORWARD/BACKWARD clear at dispatch (xsc.q unconditional K.a)');
+const sendExtIdx = canvas.indexOf('SelectionMenuAction.SEND_TO_FRONT || action === SelectionMenuAction.SEND_TO_BACK');
+check(canvas.slice(sendExtIdx, sendExtIdx + 700).includes('clearSelectionWithRegisterReset();'),
+  'SEND_TO_FRONT/BACK clear at dispatch (xsc.q unconditional K.a)');
+const reorderIdx = canvas.indexOf('private reorderSelected(');
+check(!canvas.slice(reorderIdx, reorderIdx + 4000).includes('clearSelectionWithRegisterReset'),
+  'reorder internals stay selection-agnostic (clear rides the dispatch)');
+
 // --- 保留选区的动作不受牵连 ---
 const styleIdx = canvas.indexOf('SelectionMenuAction.STYLE)');
 check(!canvas.slice(styleIdx, styleIdx + 400).includes('clearSelectionWithRegisterReset'),
   'STYLE keeps the selection (nsc popover parity)');
-const reorderIdx = canvas.indexOf('private reorderSelected(');
-check(!canvas.slice(reorderIdx, reorderIdx + 4000).includes('clearSelectionWithRegisterReset'),
-  'SEND_* keeps the selection (no fvbVar.a in cases 6-9)');
 
 // --- 可执行模型：清/留映射 ---
 const clearsAfter = new Set(['COPY', 'CUT', 'DUPLICATE', 'GROUP', 'UNGROUP',
-  'DELETE', 'FLIP_H', 'FLIP_V', 'LOCK', 'UNLOCK']);
-const keepsAfter = new Set(['STYLE', 'SEND_FORWARD', 'SEND_BACKWARD',
-  'SEND_TO_FRONT', 'SEND_TO_BACK', 'EDIT_MATH', 'CROP', 'DESELECT']);
-for (const a of ['COPY', 'GROUP', 'UNGROUP', 'FLIP_H', 'LOCK']) {
+  'DELETE', 'FLIP_H', 'FLIP_V', 'LOCK', 'UNLOCK',
+  'SEND_FORWARD', 'SEND_BACKWARD', 'SEND_TO_FRONT', 'SEND_TO_BACK']);
+const keepsAfter = new Set(['STYLE', 'EDIT_MATH', 'CROP', 'DESELECT']);
+for (const a of ['COPY', 'GROUP', 'UNGROUP', 'FLIP_H', 'LOCK', 'SEND_FORWARD', 'SEND_TO_BACK']) {
   assert(clearsAfter.has(a) && !keepsAfter.has(a), `${a} must clear`);
 }
-n += 5;
+n += 7;
 
 console.log(`D02_ORIGINAL_MENU_CLEAR_OK TOTAL=${n} FAILED=0`);

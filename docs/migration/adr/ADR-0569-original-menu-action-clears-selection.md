@@ -7,8 +7,10 @@
 
 原版选区菜单动作的成功终态统一为 `fvbVar.a()`（选区置空）：
 COPY/CUT/DUPLICATE/GROUP/UNGROUP/DELETE/FLIP_H/FLIP_V/LOCK/
-UNLOCK；DUPLICATE 随后由 `lg2.e` 重选粘贴副本。STYLE、SEND_*、
+UNLOCK；DUPLICATE 随后由 `lg2.e` 重选粘贴副本。STYLE、
 EDIT_MATH、CROP、DESELECT、MORE 保留选区。
+（SEND_* 经 `xsc.q` 内部 `this.K.a()` 亦清空——本 ADR 初稿
+误记为保留，Phase 601/ADR-0570 已修正并同步实现。）
 
 Harmony 原实现：COPY/GROUP/UNGROUP/FLIP/LOCK 后保留选区，
 GROUP/UNGROUP 还 `selectElementIds` 重选成员/新组——五处终态
