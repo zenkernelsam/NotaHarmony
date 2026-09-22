@@ -250,6 +250,7 @@ interface ClipboardSelectionIdSet {
   textIds: string[];
   imageIds: string[];
   mathIds: string[];
+  groupIds: string[];
 }
 
 @Component
@@ -6167,14 +6168,14 @@ export struct NoteCanvasView {
         // 原版 lg2.d 经 lg2.g 产出 gg2(cg2, set)：set 为 jrh.a/ac4.Q 过滤后的
         // id 集合，剪贴板负载与删除目标都只覆盖未锁定元素。
         const kept: ClipboardSelectionIdSet = this.clipboardSelectionWithoutLocked(
-          ids, shapeIds, textIds, imageIds, mathIds);
+          ids, shapeIds, textIds, imageIds, mathIds, state.selectedGroupIds);
         ids = kept.strokeIds;
         shapeIds = kept.shapeIds;
         textIds = kept.textIds;
         imageIds = kept.imageIds;
         mathIds = kept.mathIds;
         cutPreparation = this.prepareSelectedClipboard(
-          ids, shapeIds, textIds, imageIds, mathIds, state.selectedGroupIds);
+          ids, shapeIds, textIds, imageIds, mathIds, kept.groupIds);
       }
       if (action === SelectionMenuAction.CUT && cutPreparation === null) {
         return;
@@ -6434,9 +6435,9 @@ export struct NoteCanvasView {
       // 从 id 集合剔除再组装剪贴板；cg2 写入成功后 fvbVar2.a() 清空选区。
       const kept: ClipboardSelectionIdSet = this.clipboardSelectionWithoutLocked(
         state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
-        state.selectedImageIds, state.selectedMathIds);
+        state.selectedImageIds, state.selectedMathIds, state.selectedGroupIds);
       if (this.copySelectedToClipboard(kept.strokeIds, kept.shapeIds, kept.textIds,
-        kept.imageIds, kept.mathIds, state.selectedGroupIds)) {
+        kept.imageIds, kept.mathIds, kept.groupIds)) {
         this.clearSelectionWithRegisterReset();
       }
     } else if (action === SelectionMenuAction.PASTE) {
@@ -7630,7 +7631,8 @@ export struct NoteCanvasView {
   // 恒不满足 jrh.a，故笔迹列表不过滤。组结构(cqc)不属 oy0/n5d，组 id 与
   // 组内成员的解析仍由 prepareCopy 承担（lg2.c 递归可解析成员照常拷贝）。
   private clipboardSelectionWithoutLocked(ids: string[], shapeIds: string[],
-    textIds: string[], imageIds: string[], mathIds: string[]): ClipboardSelectionIdSet {
+    textIds: string[], imageIds: string[], mathIds: string[],
+    groupIds: string[] = []): ClipboardSelectionIdSet {
     const lockedIds: Set<string> = new Set<string>();
     for (const shape of this.shapes) {
       if (shape.positionLocked === true) {
@@ -7652,13 +7654,71 @@ export struct NoteCanvasView {
         lockedIds.add(math.id);
       }
     }
-    return {
+    const kept: ClipboardSelectionIdSet = {
       strokeIds: ids,
       shapeIds: shapeIds.filter((id: string): boolean => !lockedIds.has(id)),
       textIds: textIds.filter((id: string): boolean => !lockedIds.has(id)),
       imageIds: imageIds.filter((id: string): boolean => !lockedIds.has(id)),
       mathIds: mathIds.filter((id: string): boolean => !lockedIds.has(id)),
+      groupIds: [],
     };
+    kept.groupIds = this.copyResolvableGroupIds(groupIds, kept);
+    return kept;
+  }
+
+  // 原版 lg2.c：被复制的 Group 仅当其成员闭包全部落在过滤后集合时才计入
+  // arrayList5——任一成员被 jrh.a 剔除（positionLocked）即整组弃件，存活
+  // 成员仍以散件复制、粘贴后不再成组。嵌套子组递归解析（h85.M()）。
+  private copyResolvableGroupIds(selectedGroupIds: string[],
+    kept: ClipboardSelectionIdSet): string[] {
+    if (selectedGroupIds.length === 0) {
+      return [];
+    }
+    const keptIds: Set<string> = new Set<string>();
+    for (const id of kept.strokeIds) { keptIds.add(id); }
+    for (const id of kept.shapeIds) { keptIds.add(id); }
+    for (const id of kept.textIds) { keptIds.add(id); }
+    for (const id of kept.imageIds) { keptIds.add(id); }
+    for (const id of kept.mathIds) { keptIds.add(id); }
+    const groupById: Map<string, OriginalSelectionGroup> =
+      new Map<string, OriginalSelectionGroup>();
+    for (const group of this.selectionGroups) {
+      groupById.set(group.id, group);
+    }
+    const resolved: Set<string> = new Set<string>();
+    const failed: Set<string> = new Set<string>();
+    const visiting: Set<string> = new Set<string>();
+    const resolve = (id: string): boolean => {
+      if (keptIds.has(id) || resolved.has(id)) {
+        return true;
+      }
+      if (failed.has(id) || visiting.has(id)) {
+        return false;
+      }
+      const group: OriginalSelectionGroup | undefined = groupById.get(id);
+      if (group === undefined || group.members.length === 0) {
+        failed.add(id);
+        return false;
+      }
+      visiting.add(id);
+      for (const member of group.members) {
+        if (!resolve(member)) {
+          visiting.delete(id);
+          failed.add(id);
+          return false;
+        }
+      }
+      visiting.delete(id);
+      resolved.add(id);
+      return true;
+    };
+    const groupIds: string[] = [];
+    for (const groupId of selectedGroupIds) {
+      if (resolve(groupId)) {
+        groupIds.push(groupId);
+      }
+    }
+    return groupIds;
   }
 
   private prepareSelectedClipboard(ids: string[], shapeIds: string[] = [],
