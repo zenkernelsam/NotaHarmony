@@ -5963,7 +5963,12 @@ export struct NoteCanvasView {
       selectedEntityIds, state.selectedGroupIds, this.selectionGroups);
     this.selectionCanGroup = groupMembers !== null && groupMembers.length >= 2 &&
       this.allCanonicalOperationIds(groupMembers);
-    this.selectionCanUngroup = state.selectedGroupIds.length === 1 &&
+    // 原版 dhb case5：UNGROUP 仅 gtc（整个选区=单个组）可触发；
+    // ftc 多选壳解析出组后仍静默返回不派发 wsc——混选含单组时
+    // 该动作是死操作。故门槛=顶层项恰为 [组id]。
+    this.selectionCanUngroup = groupMembers !== null && groupMembers.length === 1 &&
+      state.selectedGroupIds.length === 1 &&
+      groupMembers[0] === state.selectedGroupIds[0] &&
       this.findSelectionGroup(state.selectedGroupIds[0]) !== null &&
       resolveOriginalSelectedGroupLeaves(
         state.selectedGroupIds, selectedEntityIds, this.selectionGroups) !== null;
@@ -7271,7 +7276,14 @@ export struct NoteCanvasView {
 
   private ungroupSelectedElements(): void {
     const state = this.selectionTool.getState();
-    if (state.selectedGroupIds.length !== 1) {
+    // 原版 dhb case5：ftc（多选，含仅一组+其他元素）静默不执行；
+    // 仅当整个选区恰为单个组（gtc）时才解组。
+    const entityIds: string[] = state.selectedStrokeIds.concat(state.selectedShapeIds)
+      .concat(state.selectedTextBlockIds).concat(state.selectedImageIds).concat(state.selectedMathIds);
+    const authoring: string[] | null = resolveOriginalGroupAuthoringMembers(
+      entityIds, state.selectedGroupIds, this.selectionGroups);
+    if (state.selectedGroupIds.length !== 1 || authoring === null ||
+      authoring.length !== 1 || authoring[0] !== state.selectedGroupIds[0]) {
       return;
     }
     const group: OriginalSelectionGroup | null = this.findSelectionGroup(state.selectedGroupIds[0]);
