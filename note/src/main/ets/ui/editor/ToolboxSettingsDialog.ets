@@ -96,6 +96,8 @@ export struct ToolboxSettingsDialog {
         Button('✕')
           .fontSize(14)
           .height(32)
+          // 原版 feature_note_toolbox__settings_close：关闭工具设置。
+          .accessibilityText($r('app.string.close'))
           .onClick(() => this.onClose())
       }
       .width('100%')
@@ -141,6 +143,8 @@ export struct ToolboxSettingsDialog {
                 .height(28)
                 .fontSize(14)
                 .margin({ left: 2, right: 2 })
+                // 原版 feature_note__toolbar_more_menu：单项工具溢出菜单。
+                .accessibilityText($r('app.string.toolbar_more_menu'))
                 .bindMenu(this.toolMenu(tool))
             }
             .width('100%')

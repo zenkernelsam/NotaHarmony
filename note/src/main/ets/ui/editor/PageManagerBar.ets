@@ -70,7 +70,9 @@ export struct PageManagerBar {
         .width(this.compact ? 56 : 64)
         .textAlign(TextAlign.Center)
         .enabled(!this.busy && !this.photoImportLeaseActive)
-        .accessibilityText($r('app.string.jump_to_title'))
+        // 原版 feature_note__page_indicator：页码指示器播报 "N of M"。
+        .accessibilityText($r('app.string.cd_page_indicator',
+          this.currentPageIndex + 1, this.pageCount))
         .onClick(() => {
           if (this.busy || this.photoImportLeaseActive) {
             return;

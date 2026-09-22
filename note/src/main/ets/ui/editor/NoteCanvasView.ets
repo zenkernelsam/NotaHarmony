@@ -8040,6 +8040,8 @@ export struct NoteCanvasView {
           .height(36)
           .fontSize(18)
           .enabled(!this.photoImportBusy)
+          // T-034 缩放条为 Harmony 适配层控件；原版无对应 cd 字符串。
+          .accessibilityText($r('app.string.zoom_out'))
           .onClick(() => {
             if (this.photoImportBusy) {
               return;
@@ -8055,6 +8057,7 @@ export struct NoteCanvasView {
           .height(36)
           .fontSize(18)
           .enabled(!this.photoImportBusy)
+          .accessibilityText($r('app.string.zoom_in'))
           .onClick(() => {
             if (this.photoImportBusy) {
               return;

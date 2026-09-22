@@ -72,7 +72,9 @@ export struct EditorToolbar {
               .margin({ left: 2, right: 2 })
               .enabled(!this.viewModel.toolStateLoading &&
                 !this.photoImportLeaseActive)
-              .accessibilityText($r('app.string.more_tools'))
+              // 原版 feature_note__toolbar_more_menu：溢出菜单描述为
+              // "More options"。
+              .accessibilityText($r('app.string.toolbar_more_menu'))
               .bindMenu(this.buildCompactToolMenu())
           }
           // 原版 toolbox settings 入口（o6f 工具设置页）
@@ -97,6 +99,8 @@ export struct EditorToolbar {
           .width(32)
           .height(32)
           .borderRadius(16)
+          // 原版 feature_note__cd_quick_tool_color：色板按钮描述为 "Color"。
+          .accessibilityText($r('app.string.cd_quick_tool_color'))
           .backgroundColor(this.viewModel.colorToHex(this.viewModel.isSelectionActive() ?
             this.selectionColor : this.viewModel.brushColor))
           .margin({ left: 4, right: 4 })
@@ -184,6 +188,8 @@ export struct EditorToolbar {
           .enabled(this.canUndo &&
             !this.photoImportLeaseActive)
           .opacity(this.canUndo ? 1 : 0.4)
+          // 原版 feature_note__toprighttoolbar_undo_action：撤销按钮描述。
+          .accessibilityText($r('app.string.cd_undo_action'))
           .onClick(() => {
             if (this.photoImportLeaseActive) {
               return;
@@ -197,6 +203,8 @@ export struct EditorToolbar {
           .enabled(this.canRedo &&
             !this.photoImportLeaseActive)
           .opacity(this.canRedo ? 1 : 0.4)
+          // 原版 feature_note__toprighttoolbar_redo_action：重做按钮描述。
+          .accessibilityText($r('app.string.cd_redo_action'))
           .onClick(() => {
             if (this.photoImportLeaseActive) {
               return;
