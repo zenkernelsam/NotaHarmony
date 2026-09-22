@@ -1872,8 +1872,12 @@ export struct NoteCanvasView {
         const loaded: LoadedImageAsset | undefined = this.imageAssets.get(
           originalAssetStorageHash(element.data.assetHashBits));
         if (loaded !== undefined && loaded.state === ImageAssetLoadState.READY && loaded.bitmap !== null) {
+          const cropSession: OriginalImageCropSession | null = this.imageCropSession;
+          const uncroppedSource: Rect2D | null =
+            this.imageCropVisible && cropSession !== null &&
+            cropSession.original.id === element.data.id ? cropSession.sourceCrop : null;
           this.imageRenderer.renderImage(element.data, loaded.bitmap, renderContext,
-            loaded.orientationDegrees, loaded.mirroredHorizontally);
+            loaded.orientationDegrees, loaded.mirroredHorizontally, uncroppedSource);
         }
       } else if (element.kind === PageElementKind.MATH) {
         this.mathRenderer.renderMath(element.data, renderContext, mathRasterScale);

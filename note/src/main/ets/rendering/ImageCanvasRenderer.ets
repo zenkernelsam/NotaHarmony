@@ -72,7 +72,8 @@ export function imageRenderGeometry(element: ImageElement,
 export class ImageCanvasRenderer {
   renderImage(element: ImageElement, bitmap: ImageBitmap, ctx: Canvas2DDrawingContext,
     orientationDegrees: number = 0,
-    mirroredHorizontally: boolean = false): void {
+    mirroredHorizontally: boolean = false,
+    uncroppedSourceCrop: Rect2D | null = null): void {
     const geometry: ImageRenderGeometry | null = imageRenderGeometry(element, bitmap.width,
       bitmap.height, orientationDegrees, mirroredHorizontally);
     if (geometry === null) {
@@ -82,11 +83,21 @@ export class ImageCanvasRenderer {
     ctx.save();
     try {
       ctx.transform(element.transform);
-      ctx.beginPath();
-      ctx.rect(0, 0, element.blockWidth, element.blockHeight);
-      ctx.clip();
-      ctx.scale(geometry.scaleX, geometry.scaleY);
-      ctx.translate(-crop.left, -crop.top);
+      if (uncroppedSourceCrop === null) {
+        ctx.beginPath();
+        ctx.rect(0, 0, element.blockWidth, element.blockHeight);
+        ctx.clip();
+        ctx.scale(geometry.scaleX, geometry.scaleY);
+        ctx.translate(-crop.left, -crop.top);
+      } else {
+        // itc.c showUncroppedImage / TileSubmission.showUncropped parity:
+        // while the crop session is open the block renders the whole oriented
+        // image (intrinsic units share the local block space) so the draft
+        // rect can reach into the cropped-away domain.
+        ctx.translate(-uncroppedSourceCrop.left, -uncroppedSourceCrop.top);
+        ctx.scale(element.intrinsicWidth / geometry.orientedWidth,
+          element.intrinsicHeight / geometry.orientedHeight);
+      }
       // Canvas transforms post-concatenate: this call order makes the raw
       // source see EXIF orientation first, then the block's user flip.
       ctx.translate(geometry.flipTranslateX, geometry.flipTranslateY);
