@@ -30,38 +30,66 @@ export interface OriginalHandwritingLanguageResolution {
 interface OriginalHandwritingLanguageDefinition {
   localeCode: string;
   languageTag: string;
+  // The original reads each row's label from the downloaded MyScript pack
+  // metadata (gg1.h via boh.c); these are the native display names those
+  // packs ship, kept in the exact dc5 enum order.
+  displayName: string;
 }
 
 // Exact dc5 enum order and values. sh8.B compares the input against either
 // localeCode or languageTag without case folding or region inference.
 const ORIGINAL_HANDWRITING_LANGUAGES: OriginalHandwritingLanguageDefinition[] = [
-  { localeCode: 'de_DE', languageTag: 'de' },
-  { localeCode: 'en_US', languageTag: 'en' },
-  { localeCode: 'es_ES', languageTag: 'es' },
-  { localeCode: 'fr_FR', languageTag: 'fr' },
-  { localeCode: 'it_IT', languageTag: 'it' },
-  { localeCode: 'ja_JP', languageTag: 'ja' },
-  { localeCode: 'ko_KR', languageTag: 'ko' },
-  { localeCode: 'nl_NL', languageTag: 'nl' },
-  { localeCode: 'no_NO', languageTag: 'nb' },
-  { localeCode: 'pt_BR', languageTag: 'pt' },
-  { localeCode: 'ru_RU', languageTag: 'ru' },
-  { localeCode: 'tr_TR', languageTag: 'tr' },
-  { localeCode: 'zh_CN', languageTag: 'zh-Hans' },
-  { localeCode: 'zh_TW', languageTag: 'zh-Hant' },
-  { localeCode: 'th_TH', languageTag: 'th' },
-  { localeCode: 'fil_PH', languageTag: 'fil' },
-  { localeCode: 'id_ID', languageTag: 'id' },
-  { localeCode: 'ms_MY', languageTag: 'ms' },
-  { localeCode: 'pl_PL', languageTag: 'pl' },
-  { localeCode: 'sv_SE', languageTag: 'sv' },
-  { localeCode: 'uk_UA', languageTag: 'uk' },
-  { localeCode: 'vi_VN', languageTag: 'vi' },
-  { localeCode: 'da_DK', languageTag: 'da' },
+  { localeCode: 'de_DE', languageTag: 'de', displayName: 'Deutsch' },
+  { localeCode: 'en_US', languageTag: 'en', displayName: 'English (US)' },
+  { localeCode: 'es_ES', languageTag: 'es', displayName: 'Español' },
+  { localeCode: 'fr_FR', languageTag: 'fr', displayName: 'Français' },
+  { localeCode: 'it_IT', languageTag: 'it', displayName: 'Italiano' },
+  { localeCode: 'ja_JP', languageTag: 'ja', displayName: '日本語' },
+  { localeCode: 'ko_KR', languageTag: 'ko', displayName: '한국어' },
+  { localeCode: 'nl_NL', languageTag: 'nl', displayName: 'Nederlands' },
+  { localeCode: 'no_NO', languageTag: 'nb', displayName: 'Norsk bokmål' },
+  { localeCode: 'pt_BR', languageTag: 'pt', displayName: 'Português (Brasil)' },
+  { localeCode: 'ru_RU', languageTag: 'ru', displayName: 'Русский' },
+  { localeCode: 'tr_TR', languageTag: 'tr', displayName: 'Türkçe' },
+  { localeCode: 'zh_CN', languageTag: 'zh-Hans', displayName: '简体中文' },
+  { localeCode: 'zh_TW', languageTag: 'zh-Hant', displayName: '繁體中文' },
+  { localeCode: 'th_TH', languageTag: 'th', displayName: 'ไทย' },
+  { localeCode: 'fil_PH', languageTag: 'fil', displayName: 'Filipino' },
+  { localeCode: 'id_ID', languageTag: 'id', displayName: 'Bahasa Indonesia' },
+  { localeCode: 'ms_MY', languageTag: 'ms', displayName: 'Bahasa Melayu' },
+  { localeCode: 'pl_PL', languageTag: 'pl', displayName: 'Polski' },
+  { localeCode: 'sv_SE', languageTag: 'sv', displayName: 'Svenska' },
+  { localeCode: 'uk_UA', languageTag: 'uk', displayName: 'Українська' },
+  { localeCode: 'vi_VN', languageTag: 'vi', displayName: 'Tiếng Việt' },
+  { localeCode: 'da_DK', languageTag: 'da', displayName: 'Dansk' },
 ];
 
 export function isOriginalHandwritingRecognitionLanguage(value: string): boolean {
   return findOriginalHandwritingLanguage(value) !== null;
+}
+
+// Original vmc language-picker rows: every dc5 language in enum order with
+// the pack-native display name shown as the row label (pb5 case 0).
+export interface OriginalHandwritingLanguageOption {
+  localeCode: string;
+  languageTag: string;
+  displayName: string;
+}
+
+export function originalHandwritingRecognitionLanguageOptions():
+  OriginalHandwritingLanguageOption[] {
+  return ORIGINAL_HANDWRITING_LANGUAGES.map(
+    (language: OriginalHandwritingLanguageDefinition): OriginalHandwritingLanguageOption => ({
+      localeCode: language.localeCode,
+      languageTag: language.languageTag,
+      displayName: language.displayName,
+    }));
+}
+
+export function originalHandwritingLanguageDisplayName(localeCode: string): string {
+  const language: OriginalHandwritingLanguageDefinition | null =
+    findOriginalHandwritingLanguage(localeCode);
+  return language === null ? localeCode : language.displayName;
 }
 
 // The original global kc5/fr2 path persists dc5.I, never dc5.J. Keeping the

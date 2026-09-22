@@ -6,6 +6,15 @@ import {
   DEFAULT_SHAPE_DETECTION_ENABLED, DEFAULT_STRAIGHT_LINES, EditorSettingsStore,
 } from '../../data/EditorSettingsStore';
 import { ThemeMode, ThemeTokens } from '../theme/EditorTheme';
+import {
+  OriginalHandwritingLanguageOption,
+  ORIGINAL_HANDWRITING_DEFAULT_LOCALE_CODE,
+  originalHandwritingLanguageDisplayName,
+  originalHandwritingRecognitionLanguageOptions,
+  resolveOriginalHandwritingLanguage,
+} from '../../core/model/OriginalHandwritingLanguagePolicy';
+import { readHarmonyOriginalHandwritingLocale } from '../../core/adaptation/OriginalHandwritingLocaleAdapter';
+import { OriginalHandwritingLanguagePreferenceStore } from '../../data/OriginalHandwritingLanguagePreferenceStore';
 import { preferences } from '@kit.ArkData';
 import {
   ThemeStore, THEME_MODE_KEY, THEME_PREFERENCES_NAME, THEME_PREFERENCE_KEY,
@@ -30,15 +39,29 @@ struct SettingsPage {
   @State autoDeselectEraserEnabled: boolean = DEFAULT_AUTO_DESELECT_ERASER;
   @State palmDetectionEnabled: boolean = DEFAULT_PALM_DETECTION;
   @State straightLinesEnabled: boolean = DEFAULT_STRAIGHT_LINES;
+  @State recognitionLanguageCode: string = ORIGINAL_HANDWRITING_DEFAULT_LOCALE_CODE;
   @State saveBusy: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
 
   private store: EditorSettingsStore | null = null;
+  private languageStore: OriginalHandwritingLanguagePreferenceStore | null = null;
   private initialized: boolean = false;
   private loadGeneration: number = 0;
   private lifecycleGeneration: number = 0;
   private pageDisposed: boolean = false;
+  // 原版 vmc 语言选择器：dc5 全部 23 项列表，点选写全局识别语言偏好。
+  private languageDialog: CustomDialogController = new CustomDialogController({
+    builder: HandwritingLanguageDialog({
+      selected: this.recognitionLanguageCode,
+      onPick: (localeCode: string): void => {
+        this.setRecognitionLanguage(localeCode).catch((e: Error) => {
+          console.error(`SettingsPage language pick failed: ${JSON.stringify(e)}`);
+        });
+      },
+    }),
+    autoCancel: true,
+  });
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
@@ -73,6 +96,9 @@ struct SettingsPage {
       const autoDeselect: boolean = await store.getAutoDeselectEraser();
       const palmDetection: boolean = await store.getPalmDetectionEnabled();
       const straightLines: boolean = await store.getStraightLinesEnabled();
+      const languageStore: OriginalHandwritingLanguagePreferenceStore =
+        new OriginalHandwritingLanguagePreferenceStore(context);
+      const storedLanguage: string | null = await languageStore.getRecognitionLanguageId();
       if (this.pageDisposed || generation !== this.loadGeneration) {
         return;
       }
@@ -85,6 +111,9 @@ struct SettingsPage {
       this.autoDeselectEraserEnabled = autoDeselect;
       this.palmDetectionEnabled = palmDetection;
       this.straightLinesEnabled = straightLines;
+      this.languageStore = languageStore;
+      this.recognitionLanguageCode = resolveOriginalHandwritingLanguage(
+        null, storedLanguage, readHarmonyOriginalHandwritingLocale()).localeCode;
       this.loadState = SettingsLoadState.READY;
       this.initialized = true;
     } catch (e) {
@@ -354,6 +383,40 @@ struct SettingsPage {
     }
   }
 
+  // 原版 x22 case 5：language 行——手写识别语言选择（dc5 枚举，vmc 选择器
+  // 写全局偏好）。持久化复用已移植的 OriginalHandwritingLanguagePreferenceStore
+  //（写 dc5.I localeCode，与识别管线同一来源）。
+  private async setRecognitionLanguage(localeCode: string): Promise<void> {
+    const store: OriginalHandwritingLanguagePreferenceStore | null = this.languageStore;
+    if (store === null || this.loadState !== SettingsLoadState.READY || this.saveBusy ||
+      localeCode === this.recognitionLanguageCode) {
+      return;
+    }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
+    const previous: string = this.recognitionLanguageCode;
+    this.recognitionLanguageCode = localeCode;
+    this.saveBusy = true;
+    try {
+      await store.saveRecognitionLanguageId(localeCode);
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+    } catch (e) {
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+      this.recognitionLanguageCode = previous;
+      console.error(`SettingsPage language save failed: ${JSON.stringify(e)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
+      } catch (toastError) {
+        console.error(`SettingsPage toast failed: ${JSON.stringify(toastError)}`);
+      }
+    } finally {
+      this.saveBusy = false;
+    }
+  }
+
   // 原版 Appearance 区（r22 case 0 + dark_theme 行）：match_system_appearance
   // 开关对应 nve.MATCH_SYSTEM；关闭后 Dark theme 行在 LIGHT/DARK 间切换。
   // 持久化沿用 library_prefs/theme_mode（与 LibraryPage.setThemeMode 同路径）。
@@ -611,6 +674,35 @@ struct SettingsPage {
             .padding({ left: 12, right: 12, top: 10, bottom: 10 })
             .backgroundColor(this.resolveTokens().surface)
 
+            // 原版 x22 case 5：language 行——尾部显示当前识别语言名
+            //（pb5 case 0 用 dc5→显示名映射），点击打开语言选择器。
+            // ruler_units（x22 case 4）因 Harmony 无尺具未移植。
+            Row() {
+              Column() {
+                Text($r('app.string.language'))
+                  .fontSize(16)
+                  .fontColor(this.resolveTokens().textPrimary)
+                Text($r('app.string.handwriting_language_caption'))
+                  .fontSize(12)
+                  .fontColor(this.resolveTokens().textSecondary)
+                  .margin({ top: 2 })
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+              Text(originalHandwritingLanguageDisplayName(this.recognitionLanguageCode))
+                .fontSize(14)
+                .fontColor(this.resolveTokens().textSecondary)
+            }
+            .width('100%')
+            .margin({ top: 8 })
+            .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+            .backgroundColor(this.resolveTokens().surface)
+            .onClick(() => {
+              if (!this.saveBusy) {
+                this.languageDialog.open();
+              }
+            })
+
             // 原版 r22 case 2：note-editor 设置区第二项 "Keep device awake"。
             Row() {
               Text($r('app.string.keep_device_awake'))
@@ -723,5 +815,66 @@ struct SettingsPage {
     .width('100%')
     .height('100%')
     .backgroundColor(this.resolveTokens().background)
+  }
+}
+
+// 原版 vmc 手写识别语言选择器：dc5 枚举顺序列出全部 23 种语言，
+// 当前语言显示选中标记，点选即写全局偏好并关闭。
+@CustomDialog
+struct HandwritingLanguageDialog {
+  controller?: CustomDialogController;
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+  selected: string = ORIGINAL_HANDWRITING_DEFAULT_LOCALE_CODE;
+  options: OriginalHandwritingLanguageOption[] =
+    originalHandwritingRecognitionLanguageOptions();
+  onPick: (localeCode: string) => void = (_localeCode: string): void => {
+  };
+
+  private resolveTokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  build() {
+    Column() {
+      Text($r('app.string.language'))
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.resolveTokens().textPrimary)
+        .margin({ bottom: 8 })
+      Scroll() {
+        Column() {
+          ForEach(this.options, (option: OriginalHandwritingLanguageOption) => {
+            Row() {
+              Text(option.displayName)
+                .layoutWeight(1)
+                .fontSize(15)
+                .fontColor(this.resolveTokens().textPrimary)
+              if (option.localeCode === this.selected) {
+                Text('✓')
+                  .fontSize(15)
+                  .fontColor(this.resolveTokens().accent)
+              }
+            }
+            .width('100%')
+            .height(44)
+            .padding({ left: 8, right: 8 })
+            .onClick(() => {
+              if (this.controller !== undefined) {
+                this.controller.close();
+              }
+              this.onPick(option.localeCode);
+            })
+          }, (option: OriginalHandwritingLanguageOption): string => option.localeCode)
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+      }
+      .width('100%')
+      .height(360)
+    }
+    .padding(16)
+    .width(320)
+    .backgroundColor(this.resolveTokens().surface)
   }
 }

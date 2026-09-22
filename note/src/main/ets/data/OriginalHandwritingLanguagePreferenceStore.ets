@@ -103,7 +103,7 @@ class HarmonyOriginalHandwritingLanguagePreferenceStorage implements
     } catch (error) {
       // A rejected lookup must not poison all later attempts forever.
       this.storePromise = null;
-      throw error;
+      throw error as Error;
     }
   }
 
