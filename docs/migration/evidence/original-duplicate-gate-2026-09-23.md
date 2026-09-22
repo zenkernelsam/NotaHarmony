@@ -39,15 +39,28 @@ case 4:
 - case20（dhb.java:18036 附近）：`fvb.n = ftcVar2` +
   `ftc.j(..., true, ..., 16255)` deselectMode 进入。
 
-## Harmony 差异与修复
+## 纠正（case 序即 dsc ordinal）
 
-旧实现：`SelectionOverlay` 无条件 push DUPLICATE 菜单项，
-`duplicateSelected` 无门槛——单元素/单组均可复制，原版不可。
+初版将 case4 判为 DUPLICATE 有误。复查 dsc.java:31-43：
+STYLE=0, COPY=1, CUT=2, **DUPLICATE=3**, **GROUP=4**, UNGROUP=5——
+dhb 的 switch 就是 dsc.ordinal()，故：
 
-Phase 615：`selectionCanDuplicate` =
-`resolveOriginalGroupAuthoringMembers(...) !== null && .length >= 2`
-——该函数即 `T1(ftc.q) + 组 id` 等价集（散件剔除组内成员后
-+ 组 id），与 GROUP 门槛共用同一计算（5961-5964 已有）。
-菜单项 `if (this.canDuplicate)` 条件 push；`duplicateSelected`
-同门槛 fail-closed 兜底（对应 `ftcVar == null` 静默路径）。
-CUT/COPY 无此门槛，不受影响。
+- case4（上文代码段）= **GROUP** 建组：ftc 限定 + A1>=2 +
+  kk9(29,...) 协程 + fvb.a() 清选区。
+- case3 = **DUPLICATE**：xj2.A(..., new vsc(xscVar, ktcVar, cg2Var,
+  z7 ? 1 : 0), 3)。vsc.java:45-80——I==1 → lg2.b。
+- lg2.java:171-191：b() = g() 构建负载 → fvb.a() 清选区 →
+  e() 就地应用负载（粘贴即重选），对任意 ktc 生效——
+  itc 单元素、gtc 单组均可 DUPLICATE，**无数量门槛**。
+
+A1>=2 门槛属 GROUP。Harmony 的 selectionCanGroup =
+resolveOriginalGroupAuthoringMembers(...) >= 2 本就已等价
+（authoringMembers = T1(ftc.q)+组id 等价集）。
+
+## Harmony 状态（纠正后）
+
+DUPLICATE 菜单无条件 push、duplicateSelected 无门槛——与
+lg2.b 对任意 ktc 生效一致；pasteClipboard 粘贴后
+selectElementIds 重选，对应 fvb.a() + e() 清选+重选。
+初版误加的 selectionCanDuplicate/canDuplicate/执行端门槛
+已全部撤销。

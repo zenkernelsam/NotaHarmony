@@ -43,7 +43,6 @@ export struct SelectionOverlay {
   @Prop canLock: boolean = false;
   @Prop canGroup: boolean = false;
   @Prop canUngroup: boolean = false;
-  @Prop canDuplicate: boolean = false;
   @Prop canEditMath: boolean = false;
   @Prop canStyle: boolean = false;
   @Prop positionLocked: boolean = false;
@@ -152,12 +151,8 @@ export struct SelectionOverlay {
     // PASTE rides the menu as a registered adaptation (original renders a
     // floating paste chip); it sits with the clipboard cluster.
     items.push(
-      { value: $r('app.string.cut'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Cut clicked'); this.onMenuAction(SelectionMenuAction.CUT); } });
-    // 原版 dhb case4：DUPLICATE 仅当顶层项（散件+组）>=2 时可触发。
-    if (this.canDuplicate) {
-      items.push(
-        { value: $r('app.string.duplicate_note'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Duplicate clicked'); this.onMenuAction(SelectionMenuAction.DUPLICATE); } });
-    }
+      { value: $r('app.string.cut'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Cut clicked'); this.onMenuAction(SelectionMenuAction.CUT); } },
+      { value: $r('app.string.duplicate_note'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Duplicate clicked'); this.onMenuAction(SelectionMenuAction.DUPLICATE); } });
     if (this.canPaste) {
       items.push({ value: $r('app.string.paste'),
         action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Paste clicked'); this.onMenuAction(SelectionMenuAction.PASTE); } });
