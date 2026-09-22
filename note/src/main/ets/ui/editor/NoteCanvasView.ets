@@ -463,6 +463,7 @@ export struct NoteCanvasView {
   @State selectionCanLock: boolean = false;
   @State selectionCanGroup: boolean = false;
   @State selectionCanUngroup: boolean = false;
+  @State selectionCanDuplicate: boolean = false;
   @State selectionCanEditMath: boolean = false;
   @State selectionCanStyle: boolean = false;
   @State selectionPositionLocked: boolean = false;
@@ -5963,6 +5964,10 @@ export struct NoteCanvasView {
       selectedEntityIds, state.selectedGroupIds, this.selectionGroups);
     this.selectionCanGroup = groupMembers !== null && groupMembers.length >= 2 &&
       this.allCanonicalOperationIds(groupMembers);
+    // 原版 dhb case4：DUPLICATE 仅 ftc 多选壳可触发且 A1=T1(ftc.q)+组id
+    // 集合 size>=2——顶层项（散件+组）不足两个时静默不执行；itc/gtc
+    // 单选根本不会进 case4。Harmony 以 authoringMembers 数同门槛。
+    this.selectionCanDuplicate = groupMembers !== null && groupMembers.length >= 2;
     this.selectionCanUngroup = state.selectedGroupIds.length === 1 &&
       this.findSelectionGroup(state.selectedGroupIds[0]) !== null &&
       resolveOriginalSelectedGroupLeaves(
@@ -7456,6 +7461,12 @@ export struct NoteCanvasView {
   // adaptation — the original's dedicated duplicate op is not decompiled).
   private duplicateSelected(ids: string[], shapeIds: string[], textIds: string[],
     imageIds: string[], mathIds: string[], groupIds: string[]): void {
+    const authoring: string[] | null = resolveOriginalGroupAuthoringMembers(
+      ids.concat(shapeIds).concat(textIds).concat(imageIds).concat(mathIds),
+      groupIds, this.selectionGroups);
+    if (authoring === null || authoring.length < 2) {
+      return;
+    }
     if (!this.copySelectedToClipboard(ids, shapeIds, textIds, imageIds, mathIds, groupIds)) {
       return;
     }
@@ -9169,6 +9180,7 @@ export struct NoteCanvasView {
         canLock: this.selectionCanLock,
         canGroup: this.selectionCanGroup,
         canUngroup: this.selectionCanUngroup,
+        canDuplicate: this.selectionCanDuplicate,
         canEditMath: this.selectionCanEditMath,
         canStyle: this.selectionCanStyle,
         positionLocked: this.selectionPositionLocked,
