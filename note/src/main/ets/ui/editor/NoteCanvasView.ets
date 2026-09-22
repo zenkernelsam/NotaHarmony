@@ -7492,10 +7492,18 @@ export struct NoteCanvasView {
     if (target === null) {
       return;
     }
+    // 原版 lg2.b→cg2.a()：DUPLICATE 粘贴位置 = 选区矩形中心 +
+    // min(选区宽*0.1, 30)（页面单位，x/y 同值）——副本向右下错开。
+    // selectionRect 为屏幕像素，除 zoom 还原页面单位。
+    const rectWidthCanvas: number =
+      (this.selectionRect.right - this.selectionRect.left) / this.viewport.zoom;
+    const nudge: number = Number.isFinite(rectWidthCanvas) && rectWidthCanvas > 0 ?
+      Math.min(rectWidthCanvas * 0.1, 30) : 30;
+    const duplicateTarget: Point2D = { x: target.x + nudge, y: target.y + nudge };
     // The paste debounce guards rapid-repeat UI paste; duplicate is a single
     // deliberate action, so reset it before riding the same path.
     this.lastPasteRequestTime = 0;
-    this.pasteClipboard(target);
+    this.pasteClipboard(duplicateTarget);
   }
 
   private flipSelected(ids: string[], shapeIds: string[], textIds: string[], imageIds: string[],

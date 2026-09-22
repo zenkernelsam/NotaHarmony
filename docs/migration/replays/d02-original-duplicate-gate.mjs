@@ -43,10 +43,10 @@ check(ovl.includes('{ value: $r(\'app.string.duplicate_note\')') &&
 // --- duplicateSelected 无门槛（lg2.b 对任意 ktc 生效） ---
 const dupIdx = view.indexOf('private duplicateSelected(');
 check(dupIdx > 0, 'duplicateSelected present');
-const dup = view.slice(dupIdx, dupIdx + 800);
+const dup = view.slice(dupIdx, dupIdx + 1800);
 check(!dup.includes('authoring.length < 2') && !dup.includes('selectionCanDuplicate'),
   'duplicateSelected has no top-level-count gate');
-check(dup.includes('copySelectedToClipboard') && dup.includes('pasteClipboard(target)'),
+check(dup.includes('copySelectedToClipboard') && dup.includes('pasteClipboard(duplicateTarget)'),
   'duplicate = copy + paste composite (lg2.b: g + e() paste-apply)');
 check(!view.includes('@State selectionCanDuplicate'),
   'selectionCanDuplicate state removed');
