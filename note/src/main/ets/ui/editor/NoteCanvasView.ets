@@ -8843,6 +8843,52 @@ export struct NoteCanvasView {
     };
   }
 
+  // 携带 rotationRadians 的选中成员之间的统一旋转角（椭圆形状/文本/图片/
+  // 数学块；其余形状旋转烘进 points 报 0）。无携带成员或角度不一致返回
+  // null。笔画不参与判定——旋转已烘进 path 与 bounds，壳层 θ 由可携带
+  // 成员反映；纯笔画旋转选区的 inside 判定按 θ=0 退化。
+  private uniformSelectionCarrierRadians(): number | null {
+    const state: SelectionState = this.selectionTool.getState();
+    const radians: Set<number> = new Set<number>();
+    for (const id of state.selectedShapeIds) {
+      const e: ShapeElement | undefined = this.shapes.find(
+        (s: ShapeElement): boolean => s.id === id);
+      if (e === undefined) {
+        return null;
+      }
+      radians.add(e.type === ElementType.ELLIPSE ? e.rotationRadians : 0);
+    }
+    for (const id of state.selectedTextBlockIds) {
+      const e: TextBlockElement | undefined = this.textBlocks.find(
+        (b: TextBlockElement): boolean => b.id === id);
+      if (e === undefined) {
+        return null;
+      }
+      radians.add(e.rotationRadians);
+    }
+    for (const id of state.selectedImageIds) {
+      const e: ImageElement | undefined = this.imageBlocks.find(
+        (i: ImageElement): boolean => i.id === id);
+      if (e === undefined) {
+        return null;
+      }
+      radians.add(e.rotationRadians);
+    }
+    for (const id of state.selectedMathIds) {
+      const e: MathElement | undefined = this.mathBlocks.find(
+        (m: MathElement): boolean => m.id === id);
+      if (e === undefined) {
+        return null;
+      }
+      radians.add(e.rotationRadians);
+    }
+    if (radians.size !== 1) {
+      return null;
+    }
+    const theta: number = radians.values().next().value as number;
+    return theta === 0 ? null : theta;
+  }
+
   // 原版 dl1 分派：itc（单元素、非 htc）按下不做矩形测试——xtc.a
   // 元素命中即"内部"（同 id → wtc/ttc，异 id → vtc，空 → rtc）；
   // ftc/gtc（htc）走 yxi.e：触点绕未旋转并集矩形中心反旋转 -d/-g()
@@ -8852,6 +8898,33 @@ export struct NoteCanvasView {
     const total: number = state.selectedStrokeIds.length + state.selectedShapeIds.length +
       state.selectedTextBlockIds.length + state.selectedImageIds.length +
       state.selectedMathIds.length;
+    // 原版 uw2 case1 + dl1:212：区域选择完成后 ftc.a 存的是绘制矩形
+    // （非成员 union），yxi.e 按它判定 inside——绘制区覆盖成员空隙时
+    // 空隙内按下仍判 inside（wtc 拖拽而非取消选区）。drawnRect 经
+    // state.transform 演化等价于 htc.e/qpi.b 的提交语义；命中一个元素
+    // 的区域选择也产 ftc，故本分支在单元素判定之前。
+    const drawnCanvas: Rect2D | null = this.selectionTool.drawnRectTransformed();
+    if (drawnCanvas !== null) {
+      const drawnTl: Point2D = this.viewport.canvasToScreen(drawnCanvas.left, drawnCanvas.top);
+      const drawnBr: Point2D = this.viewport.canvasToScreen(drawnCanvas.right, drawnCanvas.bottom);
+      const drawnScreen: Rect2D = {
+        left: Math.min(drawnTl.x, drawnBr.x), top: Math.min(drawnTl.y, drawnBr.y),
+        right: Math.max(drawnTl.x, drawnBr.x), bottom: Math.max(drawnTl.y, drawnBr.y),
+      };
+      const drawnTheta: number | null = this.uniformSelectionCarrierRadians();
+      if (drawnTheta !== null) {
+        const dcx: number = (drawnScreen.left + drawnScreen.right) / 2;
+        const dcy: number = (drawnScreen.top + drawnScreen.bottom) / 2;
+        const dcos: number = Math.cos(-drawnTheta);
+        const dsin: number = Math.sin(-drawnTheta);
+        const ddx: number = touch.x - dcx;
+        const ddy: number = touch.y - dcy;
+        return this.pointInRect(
+          { x: dcx + ddx * dcos - ddy * dsin, y: dcy + ddx * dsin + ddy * dcos },
+          drawnScreen);
+      }
+      return this.pointInRect(touch, drawnScreen);
+    }
     if (state.selectedGroupIds.length === 0 && total === 1) {
       const id: string = state.selectedStrokeIds.length === 1 ? state.selectedStrokeIds[0] :
         state.selectedShapeIds.length === 1 ? state.selectedShapeIds[0] :

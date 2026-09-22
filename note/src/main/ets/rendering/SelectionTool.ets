@@ -40,6 +40,12 @@ export interface SelectionState {
   // 已被点出选区的 id 集；确认保留缩减选区，取消恢复进入前快照。
   deselectMode: boolean;
   deselectedIds: string[];
+  // 原版 uw2 case1 new ftc(cmbVar,cmbVar,cmbVar,…)：套索/矩形完成时把
+  // 绘制区域 bounds 存入 ftc.a——inside 判定测的是绘制矩形而非成员
+  // union（绘制区覆盖成员空隙时，空隙内的按下也判 inside）。画布坐标；
+  // 提交后随 state.transform 演化（htc.e / qpi.b 语义）。非区域选择
+  // （点选/全选/粘贴）为 null → 回退 union 判定。
+  drawnRect: Rect2D | null;
   transform: TransformMatrix;    // 当前变换矩阵（单位矩阵起始）
 }
 
@@ -60,6 +66,7 @@ export class SelectionTool {
       selectedGroupIds: [],
       deselectMode: false,
       deselectedIds: [],
+      drawnRect: null,
       transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
     };
   }
@@ -82,6 +89,7 @@ export class SelectionTool {
     this.state.deselectMode = false;
     this.state.deselectedIds = [];
     this.preDeselectSelection = null;
+    this.state.drawnRect = null;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
@@ -239,9 +247,24 @@ export class SelectionTool {
       selected.has(math.id))
       .map((math: MathElement): string => math.id);
     this.state.selectedGroupIds = grouped.groupIds;
+    const total: number = this.state.selectedStrokeIds.length +
+      this.state.selectedShapeIds.length + this.state.selectedTextBlockIds.length +
+      this.state.selectedImageIds.length + this.state.selectedMathIds.length;
+    const drawn: Rect2D | null = total > 0 ? this.drawnBounds() : null;
+    this.state.drawnRect = drawn !== null ?
+      { left: drawn.left, top: drawn.top, right: drawn.right, bottom: drawn.bottom } : null;
     return this.state.selectedStrokeIds.concat(this.state.selectedShapeIds)
       .concat(this.state.selectedTextBlockIds).concat(this.state.selectedImageIds)
       .concat(this.state.selectedMathIds);
+  }
+
+  // 原版 ftc.a（qpi.b 演化版）：创建时的绘制矩形按当前累积变换矩阵变换
+  // 后的外接矩形——inside 判定用它（成员 union 只是覆盖层显示 bounds）。
+  drawnRectTransformed(): Rect2D | null {
+    if (this.state.drawnRect === null) {
+      return null;
+    }
+    return this.transformBounds(this.state.drawnRect, this.state.transform);
   }
 
   // 移动选中内容（平移矩阵）
@@ -374,6 +397,7 @@ export class SelectionTool {
     this.preDeselectSelection = null;
     this.state.lassoPoints = [];
     this.state.rect = null;
+    this.state.drawnRect = null;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
@@ -391,6 +415,7 @@ export class SelectionTool {
     this.state.deselectMode = false;
     this.state.deselectedIds = [];
     this.preDeselectSelection = null;
+    this.state.drawnRect = null;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 

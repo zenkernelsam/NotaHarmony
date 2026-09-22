@@ -32,7 +32,7 @@ const check = (cond, msg) => { assert(cond, msg); n++; };
 // --- itc 分支：单元素选区 = 元素命中测试（xtc.a + ba6.o 等价） ---
 const pIdx = view.indexOf('private pointInSelectionRect(');
 check(pIdx > 0, 'pointInSelectionRect present');
-const p = view.slice(pIdx, pIdx + 2000);
+const p = view.slice(pIdx, pIdx + 3400);
 check(p.includes('canvasP: Point2D'),
   'pointInSelectionRect takes the canvas-space point for element hit testing');
 check(p.includes('state.selectedGroupIds.length === 0 && total === 1'),

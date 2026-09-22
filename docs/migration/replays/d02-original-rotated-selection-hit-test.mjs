@@ -53,7 +53,7 @@ check(u.includes('this.viewport.canvasToScreen(canvasRect.left, canvasRect.top)'
 // --- 触点反旋转：y18.c(p, -g(), center) 等价 ---
 const pIdx = view.indexOf('private pointInSelectionRect(');
 check(pIdx > 0, 'pointInSelectionRect present');
-const p = view.slice(pIdx, pIdx + 2300);
+const p = view.slice(pIdx, pIdx + 3400);
 check(p.includes('Math.cos(-u.radians)') && p.includes('Math.sin(-u.radians)'),
   'point rotated by -rotation (y18.c parity)');
 check(p.includes('(u.rect.left + u.rect.right) / 2') &&
