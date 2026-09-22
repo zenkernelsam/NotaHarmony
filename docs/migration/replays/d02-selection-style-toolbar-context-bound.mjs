@@ -29,7 +29,7 @@ assert.match(brush, /case InkStyle\.DOTS: return BrushStyle\.DOT;/);
 assert.match(canvas, /onSelectionInkControlsChanged[\s\S]{0,260}style: InkStyle \| null\)/);
 assert.match(canvas, /this\.selectionTool\.deselect\(\);[\s\S]{0,80}onSelectionInkControlsChanged\(null, null, 0\.5, 30, true, null\);/);
 assert.match(canvas,
-  /private clearSelectionWithRegisterReset\(\): void \{[\s\S]{0,220}onSelectionInkControlsChanged\(null, null, 0\.5, 30, true, null\);/);
+  /private clearSelectionWithRegisterReset\(\): void \{[\s\S]{0,360}onSelectionInkControlsChanged\(null, null, 0\.5, 30, true, null\);/);
 assert.match(canvas, /selectedMathIds\.length === 0 && state\.selectedGroupIds\.length === 0\) \{[\s\S]{0,100}selectionVisible = false/);
 assert.match(canvas, /private startMathEditing\(\): void \{[\s\S]{0,900}selectionVisible = false;/);
 assert.match(canvas, /private startImageCrop\(\): void \{[\s\S]{0,1000}selectionVisible = false;/);
@@ -166,7 +166,7 @@ assert.match(canvas, /selectedStyle = stroke\.renderSpec\.inkStyle;[\s\S]{0,30}b
 assert.match(canvas, /variableStyleEnabled, selectedStyle\);/);
 
 assert.match(page, /selectionStyle: inkStyleToBrushStyle\(this\.selectionInkStyle\)/);
-assert.match(page, /onSelectionInkControlsChanged:[\s\S]{0,220}style: InkStyle \| null\)/);
+assert.match(page, /onSelectionInkControlsChanged:[\s\S]{0,360}style: InkStyle \| null\)/);
 assert.match(page, /if \(color !== null\) {[\s\S]{0,60}this\.selectionInkColor = color;[\s\S]{0,180}if \(style !== null\) {[\s\S]{0,50}this\.selectionInkStyle = style;/);
 
 assert.match(toolbar, /@Prop selectionStyle: BrushStyle = BrushStyle\.MONO;/);

@@ -424,6 +424,7 @@ export struct NoteCanvasView {
   private dragBeforeImages: ImageElement[] = [];
   private dragBeforeMathBlocks: MathElement[] = [];
   private lastDragPoint: Point2D = { x: 0, y: 0 };
+  private lastSelectionClearTime: number = 0;
   private lastTapTime: number = 0;
   private lastTapPos: Point2D = { x: 0, y: 0 };
   @State loaded: boolean = false;
@@ -1533,6 +1534,7 @@ export struct NoteCanvasView {
       this.clipboardPasteTarget = null;
       this.systemClipboardImageAvailable = false;
       this.refreshSystemClipboardImageAvailability();
+      this.lastSelectionClearTime = Date.now();
       this.selectionTool.deselect();
       this.selectionVisible = false;
       this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
@@ -2743,6 +2745,7 @@ export struct NoteCanvasView {
         (drawnBounds.right - drawnBounds.left <= minSelectionSize ||
           drawnBounds.bottom - drawnBounds.top <= minSelectionSize)) {
         this.selectionDrawing = false;
+        this.lastSelectionClearTime = Date.now();
         this.selectionTool.deselect();
         this.selectionVisible = false;
       } else {
@@ -5701,6 +5704,9 @@ export struct NoteCanvasView {
 
   // === 选区 ===
   private clearSelectionWithRegisterReset(): void {
+    // 原版 g39.a()：选区变空事件打点（g1f case4 ktc==null/!i()）——
+    // 200ms 内 yqa 长按菜单被 g39.b() 抑制。
+    this.lastSelectionClearTime = Date.now();
     this.selectionTool.deselect();
     this.selectionDeselectMode = false;
     this.selectionVisible = false;
@@ -8784,10 +8790,20 @@ export struct NoteCanvasView {
       y >= position.actionY && y <= position.actionY + SELECTION_MENU_BUTTON_HEIGHT;
   }
 
+  // 原版 yqa+g39.b()：标记（选区变空/手势面切换）后 200ms 内的长按
+  // 菜单分发被静默吞掉。bindContextMenu 无 veto，等价实现为门内不产
+  // 出 MenuItem——空 Menu 不弹层。
+  private recentInteractionGateActive(): boolean {
+    const marked: number = Math.max(this.lastSelectionClearTime,
+      this.viewModel.toolChangedAt);
+    return marked !== 0 && Date.now() - marked < 200;
+  }
+
   @Builder
   private ClipboardPasteContextMenu() {
     Menu() {
-      if (!this.canPasteClipboardNow() && this.canUseOriginalClipboardImage()) {
+      if (!this.recentInteractionGateActive() &&
+        !this.canPasteClipboardNow() && this.canUseOriginalClipboardImage()) {
         MenuItem({ content: $r('app.string.paste') })
           .onClick(() => {
             if (this.photoImportBusy) {

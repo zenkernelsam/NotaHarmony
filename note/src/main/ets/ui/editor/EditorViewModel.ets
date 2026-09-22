@@ -11,6 +11,9 @@ const DEFAULT_TOOLBOX_OWNER: string = 'primary-editor';
 @Observed
 export class EditorViewModel {
   currentTool: ToolType = ToolType.PEN;
+  // 原版 g39.a() 标记的等价物之一：r5f 手势面切换 → Q.a() 打点；
+  // 200ms 内长按粘贴菜单（yqa/g39.b()）被抑制。
+  toolChangedAt: number = 0;
   brushStyle: BrushStyle = BrushStyle.MONO;
   brushColor: number = -16777216;
   brushWidth: number = 36.0;
@@ -934,8 +937,12 @@ export class EditorViewModel {
       state.selectionIsFreehand : this.requireState(ToolType.SELECTION).selectionIsFreehand;
     this.eraserIsPartial = state.toolType === ToolType.WHOLE_ERASER ?
       state.eraserIsPartial : this.requireState(ToolType.WHOLE_ERASER).eraserIsPartial;
-    this.currentTool = state.toolType === ToolType.WHOLE_ERASER && this.eraserIsPartial ?
+    const nextTool: ToolType = state.toolType === ToolType.WHOLE_ERASER && this.eraserIsPartial ?
       ToolType.PARTIAL_ERASER : state.toolType;
+    if (nextTool !== this.currentTool) {
+      this.toolChangedAt = Date.now();
+    }
+    this.currentTool = nextTool;
     if (state.toolType === ToolType.REVIEW) {
       this.activeTapePattern = state.tapePattern ?? TapePattern.STRIPES;
     }

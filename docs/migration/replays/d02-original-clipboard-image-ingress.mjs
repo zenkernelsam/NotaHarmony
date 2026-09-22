@@ -52,7 +52,8 @@ const checks = [
   ['always releases the clipboard source',
     importSource.includes('} finally {\n    await source.release();\n  }')],
   ['long press menu exposes the image fallback only without internal content',
-    menuSource.includes('if (!this.canPasteClipboardNow() && this.canUseOriginalClipboardImage())') &&
+    menuSource.includes('if (!this.recentInteractionGateActive() &&') &&
+    menuSource.includes('this.canPasteClipboardNow() && this.canUseOriginalClipboardImage()') &&
     menuSource.includes('this.startOriginalClipboardImagePaste();')],
   ['availability uses the SDK MIME metadata probe and exact PixelMap type',
     probeSource.includes('await systemPasteboard.getMimeTypes();') &&
@@ -91,7 +92,7 @@ const checks = [
     fixture.includes('subscribes and removes the same pasteboard update listener')],
   ['page loads refresh and page switches reset image paste availability',
     canvas.includes('this.refreshSystemClipboardImageAvailability();\n      if (this.layerManager.isInitialized()) {') &&
-    canvas.includes('this.systemClipboardImageAvailable = false;\n      this.refreshSystemClipboardImageAvailability();\n      this.selectionTool.deselect();') &&
+    canvas.includes('this.systemClipboardImageAvailable = false;\n      this.refreshSystemClipboardImageAvailability();\n      this.lastSelectionClearTime = Date.now();\n      this.selectionTool.deselect();') &&
     canvas.includes('this.systemClipboardImageAvailable = false;\n    this.pageLoadPromise = this.switchPageData();')],
   ['busy paste entry rechecks availability before permission and data',
     pasteSource.includes('if (!this.canUseOriginalClipboardImage()) {') &&
