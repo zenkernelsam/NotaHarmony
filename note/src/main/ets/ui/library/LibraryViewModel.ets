@@ -1,5 +1,5 @@
 // T-018 资料库状态管理（@Observed；T-035 增加排序）
-import { NoteMeta } from '../../core/model/NoteTypes';
+import { NoteMeta, PaperTemplate } from '../../core/model/NoteTypes';
 import { ORIGINAL_NOTE_DEFAULT_TITLE } from '../../core/model/OriginalNoteTitlePolicy';
 import { LibrarySection, NoteRepository } from '../../data/RepositoryInterfaces';
 
@@ -270,11 +270,12 @@ export class LibraryViewModel {
   }
 
   // 创建并返回 noteId
-  async createNote(query: string): Promise<string> {
+  async createNote(query: string, templateOverride?: PaperTemplate): Promise<string> {
     const folderId: string | null = this.currentFolderId;
     const viewGeneration: number = this.loadGeneration;
     return this.enqueueMutation(async (): Promise<string> => {
-      const note: NoteMeta = await this.repo.createNote(ORIGINAL_NOTE_DEFAULT_TITLE, folderId);
+      const note: NoteMeta = await this.repo.createNote(ORIGINAL_NOTE_DEFAULT_TITLE,
+        folderId, templateOverride);
       this.mutationGeneration++;
       if (viewGeneration === this.loadGeneration && this.currentFolderId === folderId &&
         this.createdNoteMatchesQuery(note, query)) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@ohos/hypium';
-import { NoteMeta, NoteViewState } from '../main/ets/core/model/NoteTypes';
+import { NoteMeta, NoteViewState, PaperTemplate } from '../main/ets/core/model/NoteTypes';
 import { LibrarySection, NoteRepository } from '../main/ets/data/RepositoryInterfaces';
 import { LibraryViewModel, NoteSortMode } from '../main/ets/ui/library/LibraryViewModel';
 
@@ -7,6 +7,7 @@ class FakeNoteRepository implements NoteRepository {
   notes: NoteMeta[] = [];
   failReads: boolean = false;
   createdFolderId: string | null = null;
+  createdTemplate: PaperTemplate | null = null;
   createCount: number = 0;
   deleteCount: number = 0;
   readGate: Promise<void> | null = null;
@@ -14,9 +15,11 @@ class FakeNoteRepository implements NoteRepository {
   snapshotBeforeGate: boolean = false;
   private nextCreatedId: number = 1;
 
-  async createNote(_title: string, folderId: string | null): Promise<NoteMeta> {
+  async createNote(_title: string, folderId: string | null,
+    _templateOverride?: PaperTemplate): Promise<NoteMeta> {
     this.createCount++;
     this.createdFolderId = folderId;
+    this.createdTemplate = _templateOverride === undefined ? null : _templateOverride;
     const note: NoteMeta = makeNote(`created-${this.nextCreatedId++}`, folderId);
     this.notes.push(note);
     return note;

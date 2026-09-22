@@ -4,7 +4,7 @@ import { router, promptAction } from '@kit.ArkUI';
 import { BusinessError, pasteboard } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
-import { NoteMeta } from '../../core/model/NoteTypes';
+import { NoteMeta, PaperTemplate } from '../../core/model/NoteTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import {
   AssetAvailabilityChange, assetAvailabilityHub,
@@ -171,6 +171,18 @@ struct LibraryPage {
   // Close）。
   private unindexedDialog: CustomDialogController = new CustomDialogController({
     builder: UnindexedNotesDialog(),
+    autoCancel: true,
+  });
+  // 原版 cd case 0 templatenewnote：从模板新建笔记——四款 PaperTemplate
+  // 选择后走同一 create+open 管线，模板覆盖默认纸张。
+  private templateDialog: CustomDialogController = new CustomDialogController({
+    builder: TemplatePickerDialog({
+      onPick: (template: PaperTemplate): void => {
+        this.createFromTemplate(template).catch((e: Error) => {
+          console.error(`create from template failed: ${JSON.stringify(e)}`);
+        });
+      },
+    }),
     autoCancel: true,
   });
   private persistence: StrokePersistence = new StrokePersistence();
@@ -2155,6 +2167,10 @@ struct LibraryPage {
             console.error(`import note action failed: ${JSON.stringify(e)}`);
           });
         })
+        // 原版 cd case 0：新建表单 Templates 行——选模板建笔记（docscan 不移植）。
+        this.CreateActionChip($r('app.string.templates'), () => {
+          this.templateDialog.open();
+        })
       }
       Button() {
         Text(this.createMenuOpen ? '×' : '+')
@@ -2719,7 +2735,12 @@ struct LibraryPage {
     await this.createAndLaunch(true);
   }
 
-  private async createAndLaunch(autoRecord: boolean): Promise<void> {
+  private async createFromTemplate(template: PaperTemplate): Promise<void> {
+    await this.createAndLaunch(false, template);
+  }
+
+  private async createAndLaunch(autoRecord: boolean,
+    templateOverride?: PaperTemplate): Promise<void> {
     if (!this.pageActive || this.viewModel === null || this.createBusy) {
       return;
     }
@@ -2728,7 +2749,7 @@ struct LibraryPage {
     const vm: LibraryViewModel = this.viewModel;
     let noteId: string;
     try {
-      noteId = await vm.createNote(this.searchText);
+      noteId = await vm.createNote(this.searchText, templateOverride);
       if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
         this.viewModel !== vm) {
         this.createBusy = false;
@@ -3074,6 +3095,77 @@ struct UnindexedNotesDialog {
             this.controller.close();
           }
         })
+    }
+    .padding(16)
+    .width(320)
+    .backgroundColor(this.resolveTokens().surface)
+  }
+}
+
+// 原版 cd case 0 templatenewnote：新建表单的模板选择——四款 PaperTemplate
+// （PLAIN/LINES/GRID/DOTS）2x2 网格；选中即建笔记并套用该纸张模板。
+@CustomDialog
+struct TemplatePickerDialog {
+  controller?: CustomDialogController;
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+  onPick: (template: PaperTemplate) => void = (_template: PaperTemplate): void => {
+  };
+
+  private resolveTokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  @Builder
+  private templateTile(template: PaperTemplate, label: ResourceStr): void {
+    Column() {
+      Column()
+        .width('100%')
+        .height(56)
+        .backgroundColor(this.resolveTokens().control)
+        .borderRadius(6)
+        .borderWidth(template === PaperTemplate.PLAIN ? 0 : 1)
+        .borderColor(this.resolveTokens().textSecondary)
+      Text(label)
+        .fontSize(13)
+        .fontColor(this.resolveTokens().textPrimary)
+        .margin({ top: 6 })
+    }
+    .layoutWeight(1)
+    .padding(4)
+    .onClick(() => {
+      if (this.controller !== undefined) {
+        this.controller.close();
+      }
+      this.onPick(template);
+    })
+  }
+
+  build() {
+    Column() {
+      Text($r('app.string.templates'))
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.resolveTokens().textPrimary)
+      Grid() {
+        GridItem() {
+          this.templateTile(PaperTemplate.PLAIN, $r('app.string.template_plain'))
+        }
+        GridItem() {
+          this.templateTile(PaperTemplate.LINES, $r('app.string.template_lines'))
+        }
+        GridItem() {
+          this.templateTile(PaperTemplate.GRID, $r('app.string.template_grid'))
+        }
+        GridItem() {
+          this.templateTile(PaperTemplate.DOTS, $r('app.string.template_dots'))
+        }
+      }
+      .columnsTemplate('1fr 1fr')
+      .columnsGap(8)
+      .rowsGap(8)
+      .width('100%')
+      .margin({ top: 12 })
     }
     .padding(16)
     .width(320)

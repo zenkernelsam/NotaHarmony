@@ -1,6 +1,6 @@
 // T-007 Repository 抽象接口（契约 phase-1-data-model.md §3.11，照搬，禁止修改签名）
 // 接口定义不 import 任何 @ohos.* / @kit.* 平台模块
-import { NoteMeta, NoteViewState, PageInfo } from '../core/model/NoteTypes';
+import { NoteMeta, NoteViewState, PageInfo, PaperTemplate } from '../core/model/NoteTypes';
 import { EditorToolboxState, EditorTray, ToolState } from '../core/model/BrushTypes';
 import { NoteAsset } from '../core/model/AssetTypes';
 
@@ -13,7 +13,10 @@ export enum LibrarySection {
 }
 
 export interface NoteRepository {
-  createNote(title: string, folderId: string | null): Promise<NoteMeta>;
+  // Original cd case 0 "Templates" creation row: an explicit PaperTemplate
+  // override replaces the resolved default template for the new note.
+  createNote(title: string, folderId: string | null,
+    templateOverride?: PaperTemplate): Promise<NoteMeta>;
   getNote(noteId: string): Promise<NoteMeta | null>;
   getAllNotes(): Promise<NoteMeta[]>;
   getNotesByFolder(folderId: string): Promise<NoteMeta[]>;

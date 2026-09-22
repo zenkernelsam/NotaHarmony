@@ -493,6 +493,10 @@
       "value": "Learn More"
     },
     {
+      "name": "templates",
+      "value": "Templates"
+    },
+    {
       "name": "delete_page",
       "value": "Delete Page"
     },

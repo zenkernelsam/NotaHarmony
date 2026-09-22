@@ -76,7 +76,8 @@ assert.match(editor, /await this\.titleSaveQueue/);
 assert.match(editor, /generation === this\.titleSaveGeneration && !this\.editingTitle/);
 assert.match(editor, /repository\.updateNoteTitle/);
 assert.match(editor, /runtime history sync failed after durable commit/);
-assert.match(library, /createNote\(ORIGINAL_NOTE_DEFAULT_TITLE, folderId\)/);
+assert.match(library,
+  /createNote\(ORIGINAL_NOTE_DEFAULT_TITLE,\s*folderId, templateOverride\)/);
 assert.match(opTypes, /UPDATE_TITLE = 30/);
 assert.match(opTypes, /ORIGINAL_SET_METADATA = 78/);
 assert.match(fixtures, /writes a title-only SetMetadata without resetting note background/);

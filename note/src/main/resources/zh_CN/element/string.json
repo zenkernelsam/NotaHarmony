@@ -123,6 +123,7 @@
     { "name": "unindexed_notes", "value": "未索引笔记" },
     { "name": "unindexed_explainer", "value": "如果某条笔记导致应用崩溃，该笔记将不会被索引。未索引的笔记不会出现在搜索结果中。" },
     { "name": "learn_more", "value": "了解更多" },
+    { "name": "templates", "value": "模板" },
     { "name": "delete_page", "value": "删除页面" },
     { "name": "back", "value": "返回" },
     { "name": "untitled_note", "value": "新笔记" },

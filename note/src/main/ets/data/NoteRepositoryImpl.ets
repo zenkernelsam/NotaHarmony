@@ -3,6 +3,7 @@ import { relationalStore } from '@kit.ArkData';
 import {
   CURRENT_VIEW_COORDINATE_MODEL_VERSION, isCurrentViewCoordinateModel, isFiniteViewportScrollOffset,
   isOriginalViewportZoom, NoteBackgroundSettings, NoteMeta, NoteViewState,
+  PaperTemplate,
 } from '../core/model/NoteTypes';
 import {
   OriginalDefaultTemplateSelection, originalDefaultTemplateSettings,
@@ -33,6 +34,7 @@ import {
   persistOriginalNoteMetadata, PersistedOriginalNoteMetadata,
 } from './OriginalNoteMetadataPersistence';
 import { persistOriginalBlankNoteBootstrap } from './OriginalBlankNoteBootstrapPersistence';
+import { applyOriginalPaperSettings } from '../core/model/PageBackgroundModel';
 import { DefaultNoteTemplateRepository } from './EditorSettingsStore';
 
 // Original Recently Deleted rule: trashed notes stay recoverable for 30 days
@@ -55,13 +57,20 @@ export class NoteRepositoryImpl implements NoteRepository {
     this.defaultTemplateRepository = defaultTemplateRepository;
   }
 
-  async createNote(title: string, folderId: string | null): Promise<NoteMeta> {
+  async createNote(title: string, folderId: string | null,
+    templateOverride?: PaperTemplate): Promise<NoteMeta> {
     return libraryMetadataMutationMutex.runExclusive(async (): Promise<NoteMeta> => {
       const store: relationalStore.RdbStore = this.db.getStore();
       const now: number = Date.now();
       const id: string = this.generateId();
       const note: NoteMeta = this.buildNote(id, title, now, now, folderId, false);
-      const defaultTemplate = await this.resolveDefaultTemplate();
+      let defaultTemplate = await this.resolveDefaultTemplate();
+      if (templateOverride !== undefined) {
+        // Original cd "Templates" row: the chosen paper template replaces the
+        // note background while size/orientation stay on the resolved default.
+        defaultTemplate = applyOriginalPaperSettings(defaultTemplate,
+          defaultTemplate.size, templateOverride, defaultTemplate.orientation);
+      }
       await store.beginTransaction();
       try {
         await store.insert('note_meta', this.noteBucket(note));

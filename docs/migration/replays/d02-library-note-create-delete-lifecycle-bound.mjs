@@ -9,7 +9,7 @@ assert.match(page,
   'stale note context cannot open the delete dialog');
 
 const deleteStart = page.indexOf('private async deleteNoteAndRefresh(noteId: string): Promise<void> {');
-const createStart = page.indexOf('private async createAndLaunch(autoRecord: boolean): Promise<void> {', deleteStart);
+const createStart = page.indexOf('private async createAndLaunch(autoRecord: boolean,', deleteStart);
 const endMarker = page.indexOf('private async importAndOpen(): Promise<void> {', createStart);
 assert.ok(deleteStart !== -1 && createStart > deleteStart && endMarker > createStart);
 
