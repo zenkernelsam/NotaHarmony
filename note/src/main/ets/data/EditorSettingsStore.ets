@@ -17,6 +17,7 @@ const HIDE_NAVIGATION_BAR_KEY: string = 'hideNavigationBar';
 const NOTE_VIEW_NIGHT_MODE_KEY: string = 'noteViewNightMode';
 const AUTO_DESELECT_ERASER_KEY: string = 'autoDeselectEraser';
 const PALM_DETECTION_KEY: string = 'palmDetectionEnabled';
+const STRAIGHT_LINES_KEY: string = 'straightLinesEnabled';
 export const DEFAULT_SHAPE_DETECTION_ENABLED: boolean = true;
 // 原版 o59.c 真值表：keepAwake/noteNightView/autoDeselectEraser 缺省 false；
 // hideStatusBar/hideNavigationBar 缺省 true（opt-out，证据修正 Phase 561）。
@@ -27,6 +28,8 @@ export const DEFAULT_NOTE_VIEW_NIGHT_MODE: boolean = false;
 export const DEFAULT_AUTO_DESELECT_ERASER: boolean = false;
 // 原版 o59.c：palmDetectionEnabled 缺省 true（书写时忽略手掌触摸）。
 export const DEFAULT_PALM_DETECTION: boolean = true;
+// 原版 o59.c：straightLinesEnabled 缺省 true（按住自动拉直线条）。
+export const DEFAULT_STRAIGHT_LINES: boolean = true;
 
 export interface EditorSettingsRepository {
   getShapeDetectionEnabled(): Promise<boolean>;
@@ -43,6 +46,8 @@ export interface EditorSettingsRepository {
   saveAutoDeselectEraser(enabled: boolean): Promise<void>;
   getPalmDetectionEnabled(): Promise<boolean>;
   savePalmDetectionEnabled(enabled: boolean): Promise<void>;
+  getStraightLinesEnabled(): Promise<boolean>;
+  saveStraightLinesEnabled(enabled: boolean): Promise<void>;
 }
 
 export interface DefaultNoteTemplateRepository {
@@ -219,6 +224,16 @@ export class EditorSettingsStore implements EditorSettingsRepository, DefaultNot
   async savePalmDetectionEnabled(enabled: boolean): Promise<void> {
     await this.saveBooleanPref(PALM_DETECTION_KEY, enabled,
       DEFAULT_PALM_DETECTION, 'savePalmDetectionEnabled');
+  }
+
+  // 原版 x22 case 0 / o59.j：straightLinesEnabled —— 画线后按住自动拉直。
+  async getStraightLinesEnabled(): Promise<boolean> {
+    return this.getBooleanPref(STRAIGHT_LINES_KEY, DEFAULT_STRAIGHT_LINES);
+  }
+
+  async saveStraightLinesEnabled(enabled: boolean): Promise<void> {
+    await this.saveBooleanPref(STRAIGHT_LINES_KEY, enabled,
+      DEFAULT_STRAIGHT_LINES, 'saveStraightLinesEnabled');
   }
 
   async getSelectedDefaultTemplate(): Promise<OriginalDefaultTemplateSelection> {

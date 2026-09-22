@@ -1008,7 +1008,10 @@
     { "name": "hide_navigation_bar", "value": "Hide navigation bar in note view" },    { "name": "note_view_night_mode", "value": "Note view night mode" },
     { "name": "note_view_night_mode_caption", "value": "View your notes (paper and ink) with a dark appearance" },    { "name": "auto_deselect_eraser", "value": "Auto-deselect eraser" },
     { "name": "auto_deselect_eraser_description", "value": "After erasing, the toolbox auto-switches back to your last used tool." },    { "name": "palm_detection", "value": "Palm detection" },
-    { "name": "palm_detection_description", "value": "Palm Detection lets you rest your palm anywhere while writing." },
+    { "name": "palm_detection_description", "value": "Palm Detection lets you rest your palm anywhere while writing." },    { "name": "straight_lines", "value": "Straight lines" },
+    { "name": "straight_lines_description", "value": "Use the pen, pencil, or highlighter to draw a line, then continue to hold down to automatically straighten it." },
+    { "name": "shape_detection_description", "value": "Use the pen, pencil, or highlighter to draw a shape, then continue to hold down to automatically detect it." },
+
 
 
 

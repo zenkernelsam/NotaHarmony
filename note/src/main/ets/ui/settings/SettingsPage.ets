@@ -3,7 +3,7 @@ import { promptAction, router } from '@kit.ArkUI';
 import {
   DEFAULT_AUTO_DESELECT_ERASER, DEFAULT_HIDE_NAVIGATION_BAR, DEFAULT_HIDE_STATUS_BAR,
   DEFAULT_KEEP_DEVICE_AWAKE, DEFAULT_NOTE_VIEW_NIGHT_MODE, DEFAULT_PALM_DETECTION,
-  DEFAULT_SHAPE_DETECTION_ENABLED, EditorSettingsStore,
+  DEFAULT_SHAPE_DETECTION_ENABLED, DEFAULT_STRAIGHT_LINES, EditorSettingsStore,
 } from '../../data/EditorSettingsStore';
 import { ThemeMode, ThemeTokens } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
@@ -25,6 +25,7 @@ struct SettingsPage {
   @State noteViewNightModeEnabled: boolean = DEFAULT_NOTE_VIEW_NIGHT_MODE;
   @State autoDeselectEraserEnabled: boolean = DEFAULT_AUTO_DESELECT_ERASER;
   @State palmDetectionEnabled: boolean = DEFAULT_PALM_DETECTION;
+  @State straightLinesEnabled: boolean = DEFAULT_STRAIGHT_LINES;
   @State saveBusy: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -67,6 +68,7 @@ struct SettingsPage {
       const nightMode: boolean = await store.getNoteViewNightMode();
       const autoDeselect: boolean = await store.getAutoDeselectEraser();
       const palmDetection: boolean = await store.getPalmDetectionEnabled();
+      const straightLines: boolean = await store.getStraightLinesEnabled();
       if (this.pageDisposed || generation !== this.loadGeneration) {
         return;
       }
@@ -78,6 +80,7 @@ struct SettingsPage {
       this.noteViewNightModeEnabled = nightMode;
       this.autoDeselectEraserEnabled = autoDeselect;
       this.palmDetectionEnabled = palmDetection;
+      this.straightLinesEnabled = straightLines;
       this.loadState = SettingsLoadState.READY;
       this.initialized = true;
     } catch (e) {
@@ -178,6 +181,38 @@ struct SettingsPage {
       }
       this.autoDeselectEraserEnabled = previous;
       console.error(`SettingsPage auto-deselect-eraser save failed: ${JSON.stringify(e)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
+      } catch (toastError) {
+        console.error(`SettingsPage toast failed: ${JSON.stringify(toastError)}`);
+      }
+    } finally {
+      this.saveBusy = false;
+    }
+  }
+
+  // 原版 x22 case 0：straight_lines 开关，同一守护模式。
+  private async setStraightLinesEnabled(enabled: boolean): Promise<void> {
+    const store: EditorSettingsStore | null = this.store;
+    if (store === null || this.loadState !== SettingsLoadState.READY || this.saveBusy ||
+      enabled === this.straightLinesEnabled) {
+      return;
+    }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
+    const previous: boolean = this.straightLinesEnabled;
+    this.straightLinesEnabled = enabled;
+    this.saveBusy = true;
+    try {
+      await store.saveStraightLinesEnabled(enabled);
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+    } catch (e) {
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+      this.straightLinesEnabled = previous;
+      console.error(`SettingsPage straight-lines save failed: ${JSON.stringify(e)}`);
       try {
         promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
       } catch (toastError) {
@@ -389,11 +424,43 @@ struct SettingsPage {
               .fontColor(this.resolveTokens().textSecondary)
               .margin({ bottom: 8 })
 
+            // 原版 x22 case 0：straight_lines + description（画线后按住自动拉直）。
             Row() {
-              Text($r('app.string.shape_detection'))
-                .layoutWeight(1)
-                .fontSize(16)
-                .fontColor(this.resolveTokens().textPrimary)
+              Column() {
+                Text($r('app.string.straight_lines'))
+                  .fontSize(16)
+                  .fontColor(this.resolveTokens().textPrimary)
+                Text($r('app.string.straight_lines_description'))
+                  .fontSize(12)
+                  .fontColor(this.resolveTokens().textSecondary)
+                  .margin({ top: 2 })
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+              Toggle({ type: ToggleType.Switch, isOn: this.straightLinesEnabled })
+                .enabled(!this.saveBusy)
+                .onChange((enabled: boolean) => {
+                  this.setStraightLinesEnabled(enabled);
+                })
+            }
+            .width('100%')
+            .margin({ top: 8 })
+            .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+            .backgroundColor(this.resolveTokens().surface)
+
+            // 原版 x22 case 1：shapes_detection + description（画形状按住自动识别）。
+            Row() {
+              Column() {
+                Text($r('app.string.shape_detection'))
+                  .fontSize(16)
+                  .fontColor(this.resolveTokens().textPrimary)
+                Text($r('app.string.shape_detection_description'))
+                  .fontSize(12)
+                  .fontColor(this.resolveTokens().textSecondary)
+                  .margin({ top: 2 })
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
               Toggle({ type: ToggleType.Switch, isOn: this.shapeDetectionEnabled })
                 .enabled(!this.saveBusy)
                 .onChange((enabled: boolean) => {
@@ -401,8 +468,8 @@ struct SettingsPage {
                 })
             }
             .width('100%')
-            .height(56)
-            .padding({ left: 12, right: 12 })
+            .margin({ top: 8 })
+            .padding({ left: 12, right: 12, top: 10, bottom: 10 })
             .backgroundColor(this.resolveTokens().surface)
 
             // 原版 x22 case 2：palm_detection + description（书写时可放手掌）。

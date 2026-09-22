@@ -118,7 +118,7 @@ import {
 } from '../../core/model/StrokeTypes';
 import { ToolType } from '../../core/model/BrushTypes';
 import {
-  ImageElement, MathElement, ShapeElement, TextBlockElement,
+  ElementType, ImageElement, MathElement, NoteElement, ShapeElement, TextBlockElement,
 } from '../../core/model/ElementTypes';
 import {
   cloneImageElement, eraserPathHitsImageBlock, imageBlockWorldBounds, originalAssetStorageHash,
@@ -2134,7 +2134,9 @@ export struct NoteCanvasView {
 
   private shapeDetectionAvailable(): boolean {
     const tool: ToolType = this.viewModel.currentTool;
-    return this.viewModel.shapeDetectionEnabled &&
+    // 原版：straight_lines 与 shapes_detection 是两个独立开关（x22 case 0/1），
+    // 任一开启即允许按住检测；结果按类别再各自过滤（见 tryShapeDetect）。
+    return (this.viewModel.straightLinesEnabled || this.viewModel.shapeDetectionEnabled) &&
       (tool === ToolType.PEN || tool === ToolType.PENCIL || tool === ToolType.HIGHLIGHTER);
   }
 
@@ -2184,6 +2186,13 @@ export struct NoteCanvasView {
       pts.push(p.position);
     }
     const result = this.shapeDetector.recognizeShape(pts);
+    if (result !== null && result.elements.length > 0) {
+      // 原版开关分工：LINE 结果由 straightLinesEnabled 决定，其余形状
+      // 由 shapeDetectionEnabled 决定（两开关独立）。
+      result.elements = result.elements.filter((element: NoteElement): boolean =>
+        element.type === ElementType.LINE ? this.viewModel.straightLinesEnabled :
+          this.viewModel.shapeDetectionEnabled);
+    }
     if (result === null || result.elements.length === 0) {
       hilog.info(0x0001, 'NoteCanvasView', 'shape detect: no match, pts=%{public}d', pts.length);
       return { shapes: [], replaced: false };

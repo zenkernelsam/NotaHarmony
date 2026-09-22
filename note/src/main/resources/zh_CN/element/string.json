@@ -318,7 +318,10 @@
     { "name": "hide_navigation_bar", "value": "在笔记页面隐藏导航条" },    { "name": "note_view_night_mode", "value": "笔记页面夜间模式" },
     { "name": "note_view_night_mode_caption", "value": "以深色外观查看笔记（纸张与墨迹）" },    { "name": "auto_deselect_eraser", "value": "自动取消选择橡皮擦" },
     { "name": "auto_deselect_eraser_description", "value": "擦除后，工具栏自动切换回上次使用的工具。" },    { "name": "palm_detection", "value": "手掌检测" },
-    { "name": "palm_detection_description", "value": "手掌检测可让您在书写时将手掌放在屏幕任意位置。" },
+    { "name": "palm_detection_description", "value": "手掌检测可让您在书写时将手掌放在屏幕任意位置。" },    { "name": "straight_lines", "value": "直线" },
+    { "name": "straight_lines_description", "value": "使用钢笔、铅笔或荧光笔画一条线，然后继续按住即可自动拉直。" },
+    { "name": "shape_detection_description", "value": "使用钢笔、铅笔或荧光笔画一个形状，然后继续按住即可自动识别。" },
+
 
 
 

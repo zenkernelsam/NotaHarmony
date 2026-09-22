@@ -27,6 +27,8 @@ export class EditorViewModel {
   autoDeselectEraser: boolean = false;
   // 原版 x22 case 2 / o59.l：palmDetectionEnabled——笔迹进行中忽略手掌触摸。
   palmDetectionEnabled: boolean = true;
+  // 原版 x22 case 0 / o59.j：straightLinesEnabled——按住自动拉直线条。
+  straightLinesEnabled: boolean = true;
   toolStateLoading: boolean = true;
   toolStateLoadFailed: boolean = false;
   // Structural mirror of `states` reassigned on every tray mutation so @ObjectLink
@@ -153,6 +155,7 @@ export class EditorViewModel {
           this.shapeDetectionEnabled = await settingsRepository.getShapeDetectionEnabled();
           this.autoDeselectEraser = await settingsRepository.getAutoDeselectEraser();
           this.palmDetectionEnabled = await settingsRepository.getPalmDetectionEnabled();
+          this.straightLinesEnabled = await settingsRepository.getStraightLinesEnabled();
           if (!this.isInitializationCurrent()) {
             return false;
           }
