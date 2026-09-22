@@ -18,6 +18,9 @@ export class LibraryViewModel {
   isLoading: boolean = true;
   loadError: string = '';
   sortMode: NoteSortMode = NoteSortMode.UPDATED;
+  // Original je7 (z97 default "DESCENDING"); pk9.s sorts the field
+  // ascending first, then reverses when the direction is descending.
+  sortDescending: boolean = true;
   // T-039：当前浏览文件夹（null=全部笔记）
   currentFolderId: string | null = null;
   // Original dk9 section (ALL_NOTES/RECENT/FAVORITES/UNFILED chips; ua5.java).
@@ -197,6 +200,13 @@ export class LibraryViewModel {
     this.applySort();
   }
 
+  // Original je7 direction toggle (inh.b arrow button dispatches the
+  // opposite direction). Field and direction are independent settings.
+  setSortDescending(descending: boolean): void {
+    this.sortDescending = descending;
+    this.applySort();
+  }
+
   async setSearchQuery(query: string): Promise<void> {
     await this.loadNotes(query);
   }
@@ -209,12 +219,18 @@ export class LibraryViewModel {
       return;
     }
     const sorted: NoteMeta[] = this.notes.slice();
+    // Original pk9.s: he7 field comparators produce the ascending list
+    // (fh7(10) created, fh7(11) modified, bg1 collator name); a descending
+    // je7 then reverses it via au1.E1.
     if (this.sortMode === NoteSortMode.UPDATED) {
-      sorted.sort((a: NoteMeta, b: NoteMeta) => b.updatedAt - a.updatedAt);
+      sorted.sort((a: NoteMeta, b: NoteMeta) => a.updatedAt - b.updatedAt);
     } else if (this.sortMode === NoteSortMode.CREATED) {
-      sorted.sort((a: NoteMeta, b: NoteMeta) => b.createdAt - a.createdAt);
+      sorted.sort((a: NoteMeta, b: NoteMeta) => a.createdAt - b.createdAt);
     } else if (this.sortMode === NoteSortMode.TITLE) {
       sorted.sort((a: NoteMeta, b: NoteMeta) => a.title.localeCompare(b.title));
+    }
+    if (this.sortDescending) {
+      sorted.reverse();
     }
     this.notes = sorted;
   }

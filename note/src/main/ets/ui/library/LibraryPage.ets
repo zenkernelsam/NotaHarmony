@@ -168,6 +168,9 @@ struct LibraryPage {
   private thumbRenderer: ThumbnailRenderer = new ThumbnailRenderer();
   private db: DatabaseManager = DatabaseManager.getInstance();
   private readonly PREF_SORT_KEY: string = 'library_sort_mode';
+  // Original z97 persists sortField/sortDirection separately
+  // ("sortDirection" defaults to DESCENDING).
+  private readonly PREF_SORT_DIR_KEY: string = 'library_sort_dir';
   // T-038：主题状态
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) @Watch('onSystemDarkChange') systemDark: boolean = false;
@@ -1215,6 +1218,23 @@ struct LibraryPage {
     this.refreshThumbnails().catch((e: Error) => {
       console.error(`sort thumbnail refresh failed: ${JSON.stringify(e)}`);
     });
+    this.persistSortPreferences();
+  }
+
+  // Original inh.b: the arrow button beside the field chip toggles je7
+  // between ASCENDING and DESCENDING without opening the dropdown.
+  private toggleSortDirection(): void {
+    if (this.viewModel !== null) {
+      this.setSortDescending(!this.viewModel.sortDescending);
+    }
+  }
+
+  private persistSortPreferences(): void {
+    if (this.viewModel === null) {
+      return;
+    }
+    const mode: NoteSortMode = this.viewModel.sortMode;
+    const descending: boolean = this.viewModel.sortDescending;
     const lifecycleGeneration: number = this.lifecycleGeneration;
     try {
       const context = getContext(this) as common.UIAbilityContext;
@@ -1223,6 +1243,7 @@ struct LibraryPage {
           return;
         }
         pref.putSync(this.PREF_SORT_KEY, mode);
+        pref.putSync(this.PREF_SORT_DIR_KEY, descending ? 1 : 0);
         pref.flush().catch((e: BusinessError) => {
           console.error(`save sort pref flush failed: ${e.code}`);
         });
@@ -1230,8 +1251,54 @@ struct LibraryPage {
         console.error(`save sort pref failed: ${e.code}`);
       });
     } catch (e) {
-      console.error(`setSortMode failed: ${JSON.stringify(e)}`);
+      console.error(`persistSortPreferences failed: ${JSON.stringify(e)}`);
     }
+  }
+
+  // Original inh.b chip label: the current he7 field name.
+  private sortFieldLabel(): Resource {
+    if (this.viewModel === null) {
+      return $r('app.string.sort');
+    }
+    if (this.viewModel.sortMode === NoteSortMode.TITLE) {
+      return $r('app.string.sort_name');
+    }
+    if (this.viewModel.sortMode === NoteSortMode.CREATED) {
+      return $r('app.string.sort_created_date');
+    }
+    return $r('app.string.sort_modified_date');
+  }
+
+  // Original vc2 direction rows: labels depend on the field —
+  // NAME → "A to Z"/"Z to A"; date fields → "Oldest to Newest"/"Newest to Oldest".
+  private sortDirectionLabels(): Resource[] {
+    if (this.viewModel !== null && this.viewModel.sortMode === NoteSortMode.TITLE) {
+      return [$r('app.string.sort_a_to_z'), $r('app.string.sort_z_to_a')];
+    }
+    return [$r('app.string.sort_oldest_to_newest'), $r('app.string.sort_newest_to_oldest')];
+  }
+
+  private buildSortMenuItems(): MenuElement[] {
+    const directions: Resource[] = this.sortDirectionLabels();
+    return [
+      { value: $r('app.string.sort_name'), action: () => { this.setSortMode(NoteSortMode.TITLE); } },
+      { value: $r('app.string.sort_created_date'), action: () => { this.setSortMode(NoteSortMode.CREATED); } },
+      { value: $r('app.string.sort_modified_date'), action: () => { this.setSortMode(NoteSortMode.UPDATED); } },
+      { value: directions[0], action: () => { this.setSortDescending(false); } },
+      { value: directions[1], action: () => { this.setSortDescending(true); } },
+    ];
+  }
+
+  private setSortDescending(descending: boolean): void {
+    if (!this.pageActive || this.viewModel === null) {
+      return;
+    }
+    this.viewModel.setSortDescending(descending);
+    this.notes = this.viewModel.getFilteredNotes().slice();
+    this.refreshThumbnails().catch((e: Error) => {
+      console.error(`sort thumbnail refresh failed: ${JSON.stringify(e)}`);
+    });
+    this.persistSortPreferences();
   }
 
   private async initData(expectedLifecycleGeneration: number = this.lifecycleGeneration): Promise<void> {
@@ -1283,9 +1350,12 @@ struct LibraryPage {
         console.error(`LibraryPage folder load failed: ${JSON.stringify(folderError)}`);
         promptAction.showToast({ message: $r('app.string.load_folders_failed') });
       }
-      // 恢复排序偏好
+      // 恢复排序偏好（original z97: field + direction, both defaulting to
+      // MODIFIED_DATE/DESCENDING）
       const saved: number = pref.getSync(this.PREF_SORT_KEY, 0) as number;
       vm.sortMode = saved as NoteSortMode;
+      const savedDir: number = pref.getSync(this.PREF_SORT_DIR_KEY, 1) as number;
+      vm.sortDescending = savedDir !== 0;
       const initialQuery: string = this.searchText;
       const initialFolderId: string | null = vm.currentFolderId;
       const initialNotesRequestGeneration: number = this.beginNotesRequest();
@@ -1716,15 +1786,21 @@ struct LibraryPage {
               }, 180);
             })
           if (this.showSidebar) {
-            Button($r('app.string.sort'))
+            // Original inh.b: field chip (opens the he7 dropdown) + a
+            // direction arrow button toggling je7 directly.
+            Button(this.sortFieldLabel())
               .height(40)
               .fontSize(13)
               .margin({ left: 8 })
-              .bindMenu([
-                { value: $r('app.string.recently_modified'), action: () => { this.setSortMode(NoteSortMode.UPDATED); } },
-                { value: $r('app.string.recently_created'), action: () => { this.setSortMode(NoteSortMode.CREATED); } },
-                { value: $r('app.string.title'), action: () => { this.setSortMode(NoteSortMode.TITLE); } },
-              ])
+              .accessibilityText($r('app.string.sort'))
+              .bindMenu(this.buildSortMenuItems())
+            Button(this.viewModel !== null && this.viewModel.sortDescending ? '↓' : '↑')
+              .height(40)
+              .fontSize(13)
+              .accessibilityText($r('app.string.sort'))
+              .onClick(() => {
+                this.toggleSortDirection();
+              })
             Button($r('app.string.theme'))
               .height(40)
               .fontSize(13)
@@ -2234,15 +2310,14 @@ struct LibraryPage {
   }
 
   private buildLibraryActionsMenu(): MenuElement[] {
-    return [
-      { value: $r('app.string.recently_modified'), action: () => { this.setSortMode(NoteSortMode.UPDATED); } },
-      { value: $r('app.string.recently_created'), action: () => { this.setSortMode(NoteSortMode.CREATED); } },
-      { value: $r('app.string.title'), action: () => { this.setSortMode(NoteSortMode.TITLE); } },
+    const items: MenuElement[] = this.buildSortMenuItems();
+    items.push(
       { value: $r('app.string.follow_system'), action: () => { this.setThemeMode('system'); } },
       { value: $r('app.string.light_theme'), action: () => { this.setThemeMode('light'); } },
       { value: $r('app.string.dark_theme'), action: () => { this.setThemeMode('dark'); } },
       { value: $r('app.string.settings'), action: () => { this.navigateToSettings(); } },
-    ];
+    );
+    return items;
   }
 
   private currentFolder(): NoteFolder | null {

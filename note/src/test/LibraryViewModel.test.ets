@@ -435,6 +435,8 @@ export default function libraryViewModelTest() {
       expect(viewModel.getFilteredNotes()[0].id).assertEqual('Alphabet');
     });
 
+    // Original pk9.s: he7 field sorts produce the ascending list, je7
+    // DESCENDING (the z97 default) reverses it via au1.E1.
     it('reapplies recently modified order after switching sort modes', 0, async () => {
       const repository = new FakeNoteRepository();
       const alpha: NoteMeta = makeNote('alpha', null);
@@ -457,16 +459,24 @@ export default function libraryViewModelTest() {
       expect(viewModel.notes[1].id).assertEqual('gamma');
       expect(viewModel.notes[2].id).assertEqual('alpha');
 
+      // NAME + DESCENDING = Z to A.
       viewModel.setSortMode(NoteSortMode.TITLE);
+      expect(viewModel.notes[0].id).assertEqual('gamma');
+      expect(viewModel.notes[1].id).assertEqual('beta');
+      expect(viewModel.notes[2].id).assertEqual('alpha');
+
+      // Field and direction are independent (inh.b keeps je7 across he7 picks).
+      viewModel.setSortDescending(false);
       expect(viewModel.notes[0].id).assertEqual('alpha');
       expect(viewModel.notes[1].id).assertEqual('beta');
       expect(viewModel.notes[2].id).assertEqual('gamma');
 
       viewModel.setSortMode(NoteSortMode.UPDATED);
-      expect(viewModel.notes[0].id).assertEqual('beta');
+      expect(viewModel.notes[0].id).assertEqual('alpha');
       expect(viewModel.notes[1].id).assertEqual('gamma');
-      expect(viewModel.notes[2].id).assertEqual('alpha');
+      expect(viewModel.notes[2].id).assertEqual('beta');
 
+      viewModel.setSortDescending(true);
       viewModel.setSortMode(NoteSortMode.CREATED);
       expect(viewModel.notes[0].id).assertEqual('alpha');
       expect(viewModel.notes[1].id).assertEqual('gamma');

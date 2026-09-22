@@ -661,6 +661,34 @@
       "value": "Sort"
     },
     {
+      "name": "sort_name",
+      "value": "Name"
+    },
+    {
+      "name": "sort_created_date",
+      "value": "Created Date"
+    },
+    {
+      "name": "sort_modified_date",
+      "value": "Modified Date"
+    },
+    {
+      "name": "sort_a_to_z",
+      "value": "A to Z"
+    },
+    {
+      "name": "sort_z_to_a",
+      "value": "Z to A"
+    },
+    {
+      "name": "sort_oldest_to_newest",
+      "value": "Oldest to Newest"
+    },
+    {
+      "name": "sort_newest_to_oldest",
+      "value": "Newest to Oldest"
+    },
+    {
       "name": "recently_modified",
       "value": "Recently Modified"
     },
