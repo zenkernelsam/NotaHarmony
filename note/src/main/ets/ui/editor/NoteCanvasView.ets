@@ -2392,7 +2392,7 @@ export struct NoteCanvasView {
         const target: DeselectHit | null = this.deselectTargetIdsAt(canvasP);
         if (target !== null) {
           this.selectionTool.deselectElements(target.entityIds, target.groupIds);
-        } else if (!this.pointInSelectionRect({ x: touch.x, y: touch.y })) {
+        } else if (!this.pointInSelectionRect({ x: touch.x, y: touch.y }, canvasP)) {
           this.selectionTool.cancelDeselectMode();
         }
         this.selectionDeselectMode = this.selectionTool.getState().deselectMode;
@@ -2402,7 +2402,7 @@ export struct NoteCanvasView {
         return;
       }
       if (this.selectionVisible &&
-        this.pointInSelectionRect({ x: touch.x, y: touch.y })) {
+        this.pointInSelectionRect({ x: touch.x, y: touch.y }, canvasP)) {
         if (this.tryStartSelectionResize({ x: touch.x, y: touch.y })) {
           return;
         }
@@ -2481,7 +2481,7 @@ export struct NoteCanvasView {
         const target: DeselectHit | null = this.deselectTargetIdsAt(canvasP);
         if (target !== null) {
           this.selectionTool.deselectElements(target.entityIds, target.groupIds);
-        } else if (!this.pointInSelectionRect({ x: touch.x, y: touch.y })) {
+        } else if (!this.pointInSelectionRect({ x: touch.x, y: touch.y }, canvasP)) {
           this.selectionTool.cancelDeselectMode();
         }
         this.selectionDeselectMode = this.selectionTool.getState().deselectMode;
@@ -2499,7 +2499,7 @@ export struct NoteCanvasView {
       hilog.info(0x0001, 'NoteCanvasView', 'selDown visible=%{public}s x=%{public}f y=%{public}f rect=(%{public}f,%{public}f,%{public}f,%{public}f)',
         this.selectionVisible.toString(), touch.x, touch.y, this.selectionRect.left,
         this.selectionRect.top, this.selectionRect.right, this.selectionRect.bottom);
-      if (this.selectionVisible && this.pointInSelectionRect({ x: touch.x, y: touch.y })) {
+      if (this.selectionVisible && this.pointInSelectionRect({ x: touch.x, y: touch.y }, canvasP)) {
         // 原版 dl1 itc/gtc 分支：覆盖层内按下的元素级 ttc 产出——
         //   itc（单元素选区）命中同一文本块 → ttc → qke 激活编辑 + 链接探测；
         //   gtc（组选区）命中非文本成员 → ttc → qke 非文本 no-op（消费不拖拽）；
@@ -8697,62 +8697,120 @@ export struct NoteCanvasView {
     return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
   }
 
-  // 原版 yxi.e：htc.a()=未旋转选区矩形、g()=旋转角——命中测试把点绕
-  // 矩形中心反旋转 -g() 再做轴对齐包含。Harmony selectionRect 是已
-  // 旋转元素的屏幕 AABB（四角区会误命中）；单个带 rotationRadians
-  // 的选区按同法还原：克隆去旋转取未旋转 bounds→屏幕矩形，触点绕
-  // 其中心反旋转后包含测试。
-  private singleSelectedUnrotatedScreenRect(): UnrotatedSelectionRect | null {
+  // 原版 yxi.e（ftc/gtc 分支）：htc.a()=未旋转选区矩形、g()=选区
+  // 壳旋转角——命中测试把触点绕矩形中心反旋转 -g() 再做轴对齐包含。
+  // Harmony 无选区级旋转寄存器：旋转拖拽把角度烘进各元素
+  // rotationRadians，故"壳旋转"等价于全部非笔迹元素共享同一非零
+  // 角度；逐元素克隆去旋转取未旋转 bounds 求并集（≈ftc.a），转屏
+  // 幕矩形。笔迹无旋转寄存器（角度烘进点坐标，不可还原）→ null；
+  // 成员旋转不一致（ftc.d 为 null 的语义）→ null 退回 AABB。
+  private uniformRotationUnrotatedScreenRect(): UnrotatedSelectionRect | null {
     const state = this.selectionTool.getState();
-    if (state.selectedGroupIds.length !== 0 ||
-      state.selectedStrokeIds.length + state.selectedShapeIds.length +
-      state.selectedTextBlockIds.length + state.selectedImageIds.length +
-      state.selectedMathIds.length !== 1) {
+    if (state.selectedStrokeIds.length !== 0) {
       return null;
     }
-    let canvasRect: Rect2D | null = null;
-    let radians: number = 0;
-    if (state.selectedShapeIds.length === 1) {
+    const radians = new Set<number>();
+    const unrotated: Rect2D[] = [];
+    const pushShape = (id: string): boolean => {
       const e: ShapeElement | undefined = this.shapes.find(
-        (s: ShapeElement): boolean => s.id === state.selectedShapeIds[0]);
-      if (e !== undefined && e.type === ElementType.ELLIPSE && e.rotationRadians !== 0) {
+        (s: ShapeElement): boolean => s.id === id);
+      if (e === undefined) {
+        return false;
+      }
+      radians.add(e.type === ElementType.ELLIPSE ? e.rotationRadians : 0);
+      if (e.type === ElementType.ELLIPSE && e.rotationRadians !== 0) {
         const c: ShapeElement = cloneShapeElement(e);
         if (c.type === ElementType.ELLIPSE) {
           c.rotationRadians = 0;
         }
-        canvasRect = recomputeShapeBounds(c);
-        radians = e.rotationRadians;
+        unrotated.push(recomputeShapeBounds(c));
+      } else {
+        unrotated.push(e.bounds);
       }
-    } else if (state.selectedTextBlockIds.length === 1) {
+      return true;
+    };
+    const pushText = (id: string): boolean => {
       const e: TextBlockElement | undefined = this.textBlocks.find(
-        (t: TextBlockElement): boolean => t.id === state.selectedTextBlockIds[0]);
-      if (e !== undefined && e.rotationRadians !== 0) {
+        (t: TextBlockElement): boolean => t.id === id);
+      if (e === undefined) {
+        return false;
+      }
+      radians.add(e.rotationRadians);
+      if (e.rotationRadians !== 0) {
         const c: TextBlockElement = cloneTextBlockElement(e);
         c.rotationRadians = 0;
-        canvasRect = textBlockWorldBounds(c);
-        radians = e.rotationRadians;
+        unrotated.push(textBlockWorldBounds(c));
+      } else {
+        unrotated.push(e.bounds);
       }
-    } else if (state.selectedImageIds.length === 1) {
+      return true;
+    };
+    const pushImage = (id: string): boolean => {
       const e: ImageElement | undefined = this.imageBlocks.find(
-        (i: ImageElement): boolean => i.id === state.selectedImageIds[0]);
-      if (e !== undefined && e.rotationRadians !== 0) {
+        (i: ImageElement): boolean => i.id === id);
+      if (e === undefined) {
+        return false;
+      }
+      radians.add(e.rotationRadians);
+      if (e.rotationRadians !== 0) {
         const c: ImageElement = cloneImageElement(e);
         c.rotationRadians = 0;
-        canvasRect = imageBlockWorldBounds(c);
-        radians = e.rotationRadians;
+        unrotated.push(imageBlockWorldBounds(c));
+      } else {
+        unrotated.push(e.bounds);
       }
-    } else if (state.selectedMathIds.length === 1) {
+      return true;
+    };
+    const pushMath = (id: string): boolean => {
       const e: MathElement | undefined = this.mathBlocks.find(
-        (m: MathElement): boolean => m.id === state.selectedMathIds[0]);
-      if (e !== undefined && e.rotationRadians !== 0) {
+        (m: MathElement): boolean => m.id === id);
+      if (e === undefined) {
+        return false;
+      }
+      radians.add(e.rotationRadians);
+      if (e.rotationRadians !== 0) {
         const c: MathElement = cloneMathElement(e);
         c.rotationRadians = 0;
-        canvasRect = mathBlockWorldBounds(c);
-        radians = e.rotationRadians;
+        unrotated.push(mathBlockWorldBounds(c));
+      } else {
+        unrotated.push(e.bounds);
+      }
+      return true;
+    };
+    for (const id of state.selectedShapeIds) {
+      if (!pushShape(id)) {
+        return null;
       }
     }
-    if (canvasRect === null) {
+    for (const id of state.selectedTextBlockIds) {
+      if (!pushText(id)) {
+        return null;
+      }
+    }
+    for (const id of state.selectedImageIds) {
+      if (!pushImage(id)) {
+        return null;
+      }
+    }
+    for (const id of state.selectedMathIds) {
+      if (!pushMath(id)) {
+        return null;
+      }
+    }
+    if (radians.size !== 1) {
       return null;
+    }
+    const theta: number = radians.values().next().value as number;
+    if (theta === 0 || unrotated.length === 0) {
+      return null;
+    }
+    let canvasRect: Rect2D = unrotated[0];
+    for (let i: number = 1; i < unrotated.length; i++) {
+      const r: Rect2D = unrotated[i];
+      canvasRect = { left: Math.min(canvasRect.left, r.left),
+        top: Math.min(canvasRect.top, r.top),
+        right: Math.max(canvasRect.right, r.right),
+        bottom: Math.max(canvasRect.bottom, r.bottom) };
     }
     const tl: Point2D = this.viewport.canvasToScreen(canvasRect.left, canvasRect.top);
     const br: Point2D = this.viewport.canvasToScreen(canvasRect.right, canvasRect.bottom);
@@ -8761,14 +8819,28 @@ export struct NoteCanvasView {
         left: Math.min(tl.x, br.x), top: Math.min(tl.y, br.y),
         right: Math.max(tl.x, br.x), bottom: Math.max(tl.y, br.y),
       },
-      radians: radians,
+      radians: theta,
     };
   }
 
-  // yxi.e 等价：单旋转元素时把触点绕未旋转矩形中心反旋转后包含测试；
-  // 其余情况退回 selectionRect AABB。
-  private pointInSelectionRect(touch: Point2D): boolean {
-    const u: UnrotatedSelectionRect | null = this.singleSelectedUnrotatedScreenRect();
+  // 原版 dl1 分派：itc（单元素、非 htc）按下不做矩形测试——xtc.a
+  // 元素命中即"内部"（同 id → wtc/ttc，异 id → vtc，空 → rtc）；
+  // ftc/gtc（htc）走 yxi.e：触点绕未旋转并集矩形中心反旋转 -d/-g()
+  // 后包含测试；g() 为 null（无壳旋转）时等价 AABB。
+  private pointInSelectionRect(touch: Point2D, canvasP: Point2D): boolean {
+    const state = this.selectionTool.getState();
+    const total: number = state.selectedStrokeIds.length + state.selectedShapeIds.length +
+      state.selectedTextBlockIds.length + state.selectedImageIds.length +
+      state.selectedMathIds.length;
+    if (state.selectedGroupIds.length === 0 && total === 1) {
+      const id: string = state.selectedStrokeIds.length === 1 ? state.selectedStrokeIds[0] :
+        state.selectedShapeIds.length === 1 ? state.selectedShapeIds[0] :
+        state.selectedTextBlockIds.length === 1 ? state.selectedTextBlockIds[0] :
+        state.selectedImageIds.length === 1 ? state.selectedImageIds[0] :
+        state.selectedMathIds[0];
+      return this.topmostPageElementIdAt(canvasP) === id;
+    }
+    const u: UnrotatedSelectionRect | null = this.uniformRotationUnrotatedScreenRect();
     if (u === null) {
       return this.pointInRect(touch, this.selectionRect);
     }

@@ -92,7 +92,7 @@ check(branch.includes('this.deselectTargetIdsAt(canvasP)'),
 check(branch.includes('this.selectionTool.deselectElements(target.entityIds, target.groupIds)'),
   'selected hit → deselectElements (stc/ej9 case18)');
 check(branch.includes('this.selectionTool.cancelDeselectMode()') &&
-  branch.includes('pointInSelectionRect({ x: touch.x, y: touch.y })'),
+  branch.includes('pointInSelectionRect({ x: touch.x, y: touch.y }, canvasP)'),
   'outside-overlay miss → cancelDeselectMode (qtc/z39 case17)');
 
 // --- deselectTargetIdsAt: selected-element + group-leaf expansion ---
