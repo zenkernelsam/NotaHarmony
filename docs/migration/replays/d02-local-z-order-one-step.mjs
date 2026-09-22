@@ -23,11 +23,19 @@ assert.match(py, /au1\.g1\(i2 \+ i3, list2\)/);
 assert.match(py, /if \(sscVar\.c\)[\s\S]*new xgb\(z \? j \+ 1 : j == 0 \? 0L : j - 1\)/);
 assert.match(py, /new xgb\(j\), 94[\s\S]*new xgb\(sscVar2\.b\), 94/);
 assert.match(zh9, /new rsc\(listK1, arrayList3, linkedHashSetJ\)/);
+// zh9 z 列表构建：组成员条目以组 id 为键（undVar.a）+ c=true 标记；
+// rscVar.b 只收未组化已选元素（!sscVar.c && ktcVar.f().contains）。
+assert.match(zh9, /undVar == null \|\| \(id = undVar\.a\) == null/);
+assert.match(zh9, /new ssc\(qo5Var, undVar2 != null \? undVar2\.b : vndVar2\.I\.g\(\), undVar2 != null\)/);
+assert.match(zh9, /!sscVar\.c && ktcVar\.f\(\)\.contains\(sscVar\.a\)/);
 
 assert.match(canvas, /movePageElementRefsOneStep\([\s\S]*selectedIds, groupIds, this\.selectionGroups, forward/);
 assert.match(canvas, /OriginalZOrderCommand\.BRING_FORWARD : OriginalZOrderCommand\.SEND_BACKWARD/);
 assert.match(order, /export function movePageElementRefsOneStep/);
 assert.match(order, /selectedUnits\.has\(units\[index\]\.id\) && !units\[index\]\.group/);
+// 阻挡集 = 已选的非组单元——选中组不阻挡交换（py case26
+// contains(组id) 永不命中 + !c 移动者门的组合语义）。
+assert.match(order, /selectedUnits\.has\(unit\.id\) && !unit\.group/);
 assert.match(groups, /export function resolveOriginalSelectionLayerUnits/);
 assert.match(groups, /closedUnits\.has\(unitId\)/);
 assert.match(persistence, /hint\.command === OriginalZOrderCommand\.BRING_FORWARD/);
@@ -51,7 +59,9 @@ function oneStep(units, selected, forward) {
     const unit = units[index];
     if (!selectedSet.has(unit.id) || unit.group) continue;
     const neighbor = units[index + offset];
-    if (neighbor === undefined || selectedSet.has(neighbor.id)) continue;
+    // 原版 rscVar.c=ktc.h() 成员元素 id：组条目 id 永不命中——
+    // 组（不论是否被选中）总是未选邻居，只有已选非组单元才阻挡。
+    if (neighbor === undefined || (selectedSet.has(neighbor.id) && !neighbor.group)) continue;
     before.set(unit.id, unit.z);
     if (neighbor.group) {
       after.set(unit.id, forward ? neighbor.z + 1n : neighbor.z === 0n ? 0n : neighbor.z - 1n);
@@ -88,6 +98,14 @@ const withGroup = [
 const overGroup = oneStep(withGroup, ['A'], true);
 assert.deepEqual([...overGroup.after.entries()], [['A', 11n]]);
 assert.deepEqual(sortedIds(overGroup.projected), ['G1', 'G2', 'A', 'B']);
+// 选中组仍是未选邻居：{A,G} 同选时 A 依然越过 G（zh9+py case26
+// contains(组id) 永不命中语义）。
+const overSelectedGroup = oneStep(withGroup, ['A', 'G'], true);
+assert.deepEqual([...overSelectedGroup.after.entries()], [['A', 11n]]);
+assert.deepEqual(sortedIds(overSelectedGroup.projected), ['G1', 'G2', 'A', 'B']);
+const overSelectedGroupBack = oneStep(withGroup, ['B', 'G'], false);
+assert.deepEqual([...overSelectedGroupBack.after.entries()], [['B', 9n]]);
+assert.deepEqual(sortedIds(overSelectedGroupBack.projected), ['A', 'B', 'G1', 'G2']);
 assert.equal(oneStep(withGroup, ['G'], true).after.size, 0, 'selected Groups are immovable');
 const behindGroup = oneStep(withGroup, ['B'], false);
 assert.deepEqual([...behindGroup.after.entries()], [['B', 9n]]);

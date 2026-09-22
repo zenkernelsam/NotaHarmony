@@ -366,10 +366,19 @@ export function movePageElementRefsOneStep(order: PageElementRef[], selectedEnti
     }
   }
   const moved: OriginalSelectionLayerUnit[] = units.slice();
+  // 原版 zh9（rsc 构建）+ py case26：z 列表条目按组 id 聚合
+  // （vnd.O=und 组成员记 undVar.a，非组成员记元素 id），已选集
+  // rscVar.c=ys2.J(ktc.f(), members) 为元素 id——contains(组id)
+  // 永不命中：
+  // 组条目（不论是否被选中）一律算作未选邻居，元素可越过组交换
+  // 槽位；但移动者须 !c（组自身不作为移动者）。→ 阻挡集 =
+  // 已选的非组单元。
+  const blocksNeighbor = (unit: OriginalSelectionLayerUnit): boolean =>
+    selectedUnits.has(unit.id) && !unit.group;
   if (forward) {
     for (let index: number = 0; index + 1 < units.length; index++) {
       if (selectedUnits.has(units[index].id) && !units[index].group &&
-        !selectedUnits.has(units[index + 1].id)) {
+        !blocksNeighbor(units[index + 1])) {
         moved[index] = units[index + 1];
         moved[index + 1] = units[index];
       }
@@ -377,7 +386,7 @@ export function movePageElementRefsOneStep(order: PageElementRef[], selectedEnti
   } else {
     for (let index: number = 1; index < units.length; index++) {
       if (selectedUnits.has(units[index].id) && !units[index].group &&
-        !selectedUnits.has(units[index - 1].id)) {
+        !blocksNeighbor(units[index - 1])) {
         moved[index - 1] = units[index];
         moved[index] = units[index - 1];
       }
