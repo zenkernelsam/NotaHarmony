@@ -184,7 +184,11 @@
     { "name": "search_notes", "value": "搜索笔记" },
     { "name": "search_in_folder", "value": "在“%s”中搜索" },
     { "name": "search_show_all_notes", "value": "显示所有笔记的结果" },
-    { "name": "sort", "value": "排序" },
+    { "name": "sort", "value": "排序" },    { "name": "cd_add_note", "value": "添加笔记" },
+    { "name": "cd_open_note", "value": "打开笔记" },
+    { "name": "cd_open_note_titled", "value": "打开笔记 %1$s" },
+    { "name": "cd_sort", "value": "排序笔记" },
+
     { "name": "sort_name", "value": "名称" },
     { "name": "sort_created_date", "value": "创建日期" },
     { "name": "sort_modified_date", "value": "修改日期" },

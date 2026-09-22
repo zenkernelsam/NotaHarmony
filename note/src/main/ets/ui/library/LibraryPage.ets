@@ -1970,7 +1970,8 @@ struct LibraryPage {
               .height(40)
               .fontSize(13)
               .margin({ left: 8 })
-              .accessibilityText($r('app.string.sort'))
+              // 原版 feature_library__cd_sort：排序控件标签为 "Sort notes"。
+              .accessibilityText($r('app.string.cd_sort'))
               .bindMenu(this.buildSortMenuItems())
             Button(this.viewModel !== null && this.viewModel.sortDescending ? '↓' : '↑')
               .height(40)
@@ -2205,6 +2206,8 @@ struct LibraryPage {
       .borderRadius(32)
       .margin({ top: 8 })
       .enabled(!this.createBusy)
+      // 原版 feature_library__cd_add_note：创建 FAB 的无障碍标签。
+      .accessibilityText($r('app.string.cd_add_note'))
       .onClick(() => {
         this.createMenuOpen = !this.createMenuOpen;
       })
@@ -2307,6 +2310,11 @@ struct LibraryPage {
         this.requestVisibleThumbnail(note.id);
       }
     })
+    // 原版 feature_library__cd_open_note_titled / cd_open_note：卡片即
+    // "Open note %1$s"；无标题时用无参变体。
+    .accessibilityText(note.title.length > 0 ?
+      $r('app.string.cd_open_note_titled', note.title) :
+      $r('app.string.cd_open_note'))
     .onClick(() => {
       if (!this.pageActive) {
         return;
@@ -2395,6 +2403,11 @@ struct LibraryPage {
         this.requestVisibleThumbnail(note.id);
       }
     })
+    // 原版 feature_library__cd_open_note_titled / cd_open_note：卡片即
+    // "Open note %1$s"；无标题时用无参变体。
+    .accessibilityText(note.title.length > 0 ?
+      $r('app.string.cd_open_note_titled', note.title) :
+      $r('app.string.cd_open_note'))
     .onClick(() => {
       if (!this.pageActive) {
         return;

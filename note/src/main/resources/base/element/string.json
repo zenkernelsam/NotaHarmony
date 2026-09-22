@@ -736,7 +736,23 @@
     {
       "name": "sort",
       "value": "Sort"
+    },    {
+      "name": "cd_add_note",
+      "value": "Add note"
     },
+    {
+      "name": "cd_open_note",
+      "value": "Open note"
+    },
+    {
+      "name": "cd_open_note_titled",
+      "value": "Open note %1$s"
+    },
+    {
+      "name": "cd_sort",
+      "value": "Sort notes"
+    },
+
     {
       "name": "sort_name",
       "value": "Name"
