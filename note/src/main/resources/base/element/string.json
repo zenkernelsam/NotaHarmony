@@ -525,6 +525,42 @@
       "value": "Unfavorite"
     },
     {
+      "name": "lets_get_started",
+      "value": "Let's get started!"
+    },
+    {
+      "name": "tap_to_create_notes",
+      "value": "Tap on the Create button to create new notes or start from an imported file."
+    },
+    {
+      "name": "empty_folder_body",
+      "value": "This folder is empty. Create a note by tapping the “New” button."
+    },
+    {
+      "name": "empty_folder_with_children_body",
+      "value": "This folder contains %d folders with %d notes.\n\nTap on the New button to create new notes.\nTap and hold on the New button to import or start from a template."
+    },
+    {
+      "name": "empty_folder_with_child_body",
+      "value": "This folder contains 1 folder with %d notes.\n\nTap on the New button to create new notes.\nTap and hold on the New button to import or start from a template."
+    },
+    {
+      "name": "empty_recent_notes_title",
+      "value": "No recent notes"
+    },
+    {
+      "name": "empty_recent_notes_body",
+      "value": "Access your most recently opened notes."
+    },
+    {
+      "name": "empty_unfiled_notes_title",
+      "value": "No unfiled notes"
+    },
+    {
+      "name": "empty_unfiled_notes_body",
+      "value": "You've filed all your notes. Time to make some new ones."
+    },
+    {
       "name": "empty_favorite_notes_title",
       "value": "No favorite notes"
     },

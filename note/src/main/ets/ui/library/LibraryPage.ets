@@ -1323,6 +1323,74 @@ struct LibraryPage {
     }
   }
 
+  // Original hf0/yw3 empty states — icon per section (xxlrg drawables
+  // adapted as glyphs): favorite/recents/folder.
+  private emptyStateIcon(): string {
+    if (this.currentFolderId !== null) {
+      return '📁';
+    }
+    if (this.currentSection === LibrarySection.FAVORITES) {
+      return '♥';
+    }
+    if (this.currentSection === LibrarySection.RECENT) {
+      return '🕘';
+    }
+    if (this.currentSection === LibrarySection.UNFILED) {
+      return '📂';
+    }
+    return '📝';
+  }
+
+  // Sections carry a title (rw3/vw3/tw3/xw3); folders show body only
+  // (sw3/uw3 call b(null, ...) — no title row).
+  private emptyStateHasTitle(): boolean {
+    return this.currentFolderId === null;
+  }
+
+  private emptyStateTitle(): Resource {
+    if (this.currentSection === LibrarySection.FAVORITES) {
+      return $r('app.string.empty_favorite_notes_title');
+    }
+    if (this.currentSection === LibrarySection.RECENT) {
+      return $r('app.string.empty_recent_notes_title');
+    }
+    if (this.currentSection === LibrarySection.UNFILED) {
+      return $r('app.string.empty_unfiled_notes_title');
+    }
+    return $r('app.string.lets_get_started');
+  }
+
+  // sw3: empty folder body; uw3: with-children variant carrying the
+  // subfolder + note counts (notes are 0 here — the state only renders
+  // when the folder projection is empty).
+  private emptyStateBody(): Resource {
+    if (this.currentFolderId !== null) {
+      const childFolders: number = this.folders.filter((f: NoteFolder) =>
+        f.parentId === this.currentFolderId).length;
+      if (childFolders > 0) {
+        // uw3 body carries pluralized counts; the folder projection is
+        // empty here so the note count is always 0. This SDK only exposes
+        // async getPluralString, so plurality is selected between two body
+        // variants instead.
+        return childFolders === 1 ?
+          $r('app.string.empty_folder_with_child_body', this.notes.length) :
+          $r('app.string.empty_folder_with_children_body', childFolders,
+            this.notes.length);
+      }
+      return $r('app.string.empty_folder_body');
+    }
+    if (this.currentSection === LibrarySection.FAVORITES) {
+      return $r('app.string.empty_favorite_notes_body');
+    }
+    if (this.currentSection === LibrarySection.RECENT) {
+      return $r('app.string.empty_recent_notes_body');
+    }
+    if (this.currentSection === LibrarySection.UNFILED) {
+      return $r('app.string.empty_unfiled_notes_body');
+    }
+    return $r('app.string.tap_to_create_notes');
+  }
+
   // Original inh.b chip label: the current he7 field name.
   private sortFieldLabel(): Resource {
     if (this.viewModel === null) {
@@ -1959,23 +2027,29 @@ struct LibraryPage {
               .fontColor(this.resolveTokens().textSecondary)
               .layoutWeight(1)
           } else if (this.notes.length === 0) {
-            // 空结果提示（T-035）；原版 FAVORITES 有专属空态
-            // （empty_favorite_notes_title/body）。
+            // Original hf0 + yw3: each section/folder has its own empty
+            // state (icon + optional title + body). An active search keeps
+            // the generic no-results text instead.
             Column() {
-              if (this.currentFolderId === null &&
-                this.currentSection === LibrarySection.FAVORITES) {
-                Text($r('app.string.empty_favorite_notes_title'))
+              if (this.searchText.trim().length > 0) {
+                Text($r('app.string.no_matching_notes'))
                   .fontSize(16)
                   .fontColor(this.resolveTokens().textSecondary)
-                Text($r('app.string.empty_favorite_notes_body'))
+              } else {
+                Text(this.emptyStateIcon())
+                  .fontSize(40)
+                  .fontColor(this.resolveTokens().textSecondary)
+                if (this.emptyStateHasTitle()) {
+                  Text(this.emptyStateTitle())
+                    .fontSize(16)
+                    .fontColor(this.resolveTokens().textSecondary)
+                    .margin({ top: 12 })
+                }
+                Text(this.emptyStateBody())
                   .fontSize(13)
                   .fontColor(this.resolveTokens().textSecondary)
                   .textAlign(TextAlign.Center)
                   .margin({ top: 8, left: 24, right: 24 })
-              } else {
-                Text($r('app.string.no_matching_notes'))
-                  .fontSize(16)
-                  .fontColor(this.resolveTokens().textSecondary)
               }
             }
             .width('100%')
