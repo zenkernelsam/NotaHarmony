@@ -36,9 +36,16 @@ check(down.includes('this.onTextCommit(this.editingDraftText)'),
 check(down.indexOf('this.textEditing && this.editingTextBlock !== null') <
   down.indexOf('this.viewModel.currentTool === ToolType.DEFAULT'),
   'editing check precedes the DEFAULT/double-tap branch');
-check(down.indexOf('this.onTextCommit(this.editingDraftText)') <
-  down.indexOf('this.viewModel.currentTool === ToolType.DEFAULT'),
-  'outside-tap commit precedes tool dispatch (consumed tap)');
+// Phase 602 (pke 挂起修正)：块外点按按工具分流——DEFAULT(TEXT 面) →
+// onTextCommit 销毁（oke.a）；其余工具 → suspendTextEditing 挂起保留会话。
+check(down.indexOf('this.viewModel.currentTool === ToolType.DEFAULT') <
+  down.indexOf('this.onTextCommit(this.editingDraftText)'),
+  'oke destroy is gated to the DEFAULT(TEXT) surface');
+check(down.includes('this.suspendTextEditing()'),
+  'non-TEXT tool outside tap suspends the editor (pke.a)');
+check(down.indexOf('this.suspendTextEditing()') <
+  down.indexOf('// 原版工具枚举没有 TEXT'),
+  'suspend/commit precedes tool dispatch (consumed tap)');
 
 // --- onTextCommit 尾部即停用（oke.a 停用语义） ---
 const commit = canvas.slice(canvas.indexOf('async onTextCommit('),

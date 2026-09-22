@@ -14,15 +14,21 @@ export struct TextBlockOverlay {
   @Prop viewportZoom: number = 1;
   @Prop layoutWidth: number = 0;
   @Prop photoImportLeaseActive: boolean = false;
+  // 原版 pke（NoneActive）挂起保留 ake 会话：再激活同块恢复光标。
+  // restoreCaret < 0 表示无挂起会话（新块/显式销毁后）。
+  @Prop restoreCaret: number = -1;
   @State draftText: string = '';
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+  private controller: TextAreaController = new TextAreaController();
   onCommit: (text: string) => Promise<boolean> = async (_text: string): Promise<boolean> => {
     return false;
   };
   onCancel: () => void = () => {
   };
   onDraftChange: (text: string) => void = () => {
+  };
+  onCaretChange: (offset: number) => void = (_offset: number) => {
   };
 
   aboutToAppear(): void {
@@ -58,7 +64,8 @@ export struct TextBlockOverlay {
             .width(this.editorWidth() * this.viewportZoom)
             .height(this.element.blockHeight * this.viewportZoom)
             .border({ width: 1.5, color: this.resolveTokens().accent, style: BorderStyle.Dashed })
-          TextArea({ text: this.draftText, placeholder: $r('app.string.type_here') })
+          TextArea({ text: this.draftText, placeholder: $r('app.string.type_here'),
+            controller: this.controller })
             .width(this.editorWidth() * this.viewportZoom)
             .height(this.element.blockHeight * this.viewportZoom)
             .fontSize(this.element.fontSize * this.viewportZoom)
@@ -74,6 +81,14 @@ export struct TextBlockOverlay {
                 this.viewportZoom,
             })
             .enabled(!this.photoImportLeaseActive)
+            .onAppear(() => {
+              if (this.restoreCaret >= 0) {
+                this.controller.caretPosition(Math.min(this.restoreCaret, this.draftText.length));
+              }
+            })
+            .onTextSelectionChange((_start: number, end: number) => {
+              this.onCaretChange(end);
+            })
             .onChange((value: string) => {
               if (this.photoImportLeaseActive) {
                 return;

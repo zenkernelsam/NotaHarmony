@@ -432,6 +432,12 @@ export struct NoteCanvasView {
   private editingOriginalTextBlock: TextBlockElement | null = null;
   private editingDraftText: string = '';
   @State editingTextLayoutWidth: number = 0;
+  // 原版 pke（NoneActive）：选区手势挂起编辑器——内容提交（mub）但 ake 会话
+  // 保留在 uke.p，再激活同块恢复光标。Harmony 用 suspendedCaretByBlock 记录
+  // 每块挂起光标；editingCaretOffset 由覆盖层 onTextSelectionChange 回写。
+  private editingCaretOffset: number = -1;
+  private suspendedCaretByBlock: Map<string, number> = new Map();
+  @State textEditingRestoreCaret: number = -1;
   @State selectionRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @State selectionVisible: boolean = false;
   @State selectionDeselectMode: boolean = false;
@@ -1324,6 +1330,10 @@ export struct NoteCanvasView {
       this.selectionTool.deselect();
       this.selectionVisible = false;
       this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
+      // 挂起的文本编辑会话随页面切换失效（uke.p 按文档作用域）。
+      this.suspendedCaretByBlock.clear();
+      this.editingCaretOffset = -1;
+      this.textEditingRestoreCaret = -1;
       this.initializeLayerForPage();
       this.centerPaperInViewport();
       this.layerManager.rebuildFromStrokes(
@@ -2124,16 +2134,22 @@ export struct NoteCanvasView {
       // later context-menu callback runs outside the touch handler.
       this.clipboardPasteTarget = { x: canvasP.x, y: canvasP.y };
     }
-    // 原版 zl2 case25（TEXT 工具点按面）：编辑中点按当前块外 → oke.a 提交并停用
-    // 编辑器；块内点按由编辑表面（TextArea）自行处理，画布不消费。
+    // 原版编辑器停用分两类：zl2 case25（TEXT 工具面，Harmony 对应 DEFAULT）
+    // 点按块外 → oke.a 提交并销毁会话；选区手势面（ct0/uw2 → xtc.d）分发
+    // ClearSelection/TapToSelect 时 → pke.a 提交内容但挂起保留 ake 会话，
+    // 再激活同块恢复光标。块内点按由编辑表面（TextArea）自行处理，画布不消费。
     if (this.textEditing && this.editingTextBlock !== null) {
       if (pointHitsTextBlock(canvasP, this.editingTextBlock)) {
         return;
       }
-      this.onTextCommit(this.editingDraftText).catch((e: Object): void => {
-        hilog.error(0x0001, 'NoteCanvasView', 'outside-tap Text commit failed: %{public}s',
-          JSON.stringify(e));
-      });
+      if (this.viewModel.currentTool === ToolType.DEFAULT) {
+        this.onTextCommit(this.editingDraftText).catch((e: Object): void => {
+          hilog.error(0x0001, 'NoteCanvasView', 'outside-tap Text commit failed: %{public}s',
+            JSON.stringify(e));
+        });
+      } else {
+        this.suspendTextEditing();
+      }
       return;
     }
     // 原版工具枚举没有 TEXT；移植侧用 DEFAULT 表示临时文本输入模式。
@@ -8377,6 +8393,8 @@ export struct NoteCanvasView {
     this.editingOriginalTextBlock = null;
     this.editingDraftText = '';
     this.editingTextLayoutWidth = element.blockWidth;
+    this.textEditingRestoreCaret = -1;
+    this.editingCaretOffset = -1;
     this.textEditing = true;
     this.renderFrame(true);
   }
@@ -8391,6 +8409,9 @@ export struct NoteCanvasView {
         this.editingOriginalTextBlock = this.textBlocks[i];
         this.editingDraftText = this.textBlocks[i].richText;
         this.editingTextLayoutWidth = this.textBlocks[i].blockWidth;
+        // 原版 qke 激活：uke.p 命中挂起会话则恢复其光标状态。
+        this.textEditingRestoreCaret = this.suspendedCaretByBlock.get(this.textBlocks[i].id) ?? -1;
+        this.editingCaretOffset = this.textEditingRestoreCaret;
         this.textEditing = true;
         this.renderFrame(true);
         return;
@@ -8447,6 +8468,22 @@ export struct NoteCanvasView {
     }
     const measuredWidth: number = this.textRenderer.measureNaturalWidth(element, this.renderCtx);
     return this.textBlockTool.updateWidthToFit(element, measuredWidth);
+  }
+
+  // 原版 pke（NoneActive）挂起：内容照常提交（uke.d 尾部 mub 写回），
+  // 但 ake 会话保留——再激活同块时恢复光标。记录在 commit 完成后写入：
+  // onTextCommit 的显式销毁分支会先清掉该块旧条目，随后这里写入本次挂起值。
+  private suspendTextEditing(): void {
+    const block: TextBlockElement | null = this.editingTextBlock;
+    const caret: number = this.editingCaretOffset;
+    this.onTextCommit(this.editingDraftText).then((ok: boolean) => {
+      if (ok && block !== null && caret >= 0) {
+        this.suspendedCaretByBlock.set(block.id, caret);
+      }
+    }).catch((e: Object): void => {
+      hilog.error(0x0001, 'NoteCanvasView', 'suspend Text commit failed: %{public}s',
+        JSON.stringify(e));
+    });
   }
 
   async onTextCommit(text: string): Promise<boolean> {
@@ -8538,11 +8575,17 @@ export struct NoteCanvasView {
         changed = true;
       }
     }
+    // 显式提交（Done/oke 等价路径）销毁会话：清除该块挂起光标记录。
+    if (this.editingTextBlock !== null) {
+      this.suspendedCaretByBlock.delete(this.editingTextBlock.id);
+    }
     this.textEditing = false;
     this.editingTextBlock = null;
     this.editingOriginalTextBlock = null;
     this.editingDraftText = '';
     this.editingTextLayoutWidth = 0;
+    this.editingCaretOffset = -1;
+    this.textEditingRestoreCaret = -1;
     this.notifyUndoRedo();
     if (changed) {
       this.persist(rearmOriginalCreate);
@@ -8572,11 +8615,16 @@ export struct NoteCanvasView {
       // T-040 审核修复：取消编辑 = 放弃创建，不应入栈
       // （原实现 push DELETE_ELEMENT，undo 后会恢复一个空文本框）
     }
+    if (this.editingTextBlock !== null) {
+      this.suspendedCaretByBlock.delete(this.editingTextBlock.id);
+    }
     this.textEditing = false;
     this.editingTextBlock = null;
     this.editingOriginalTextBlock = null;
     this.editingDraftText = '';
     this.editingTextLayoutWidth = 0;
+    this.editingCaretOffset = -1;
+    this.textEditingRestoreCaret = -1;
     if (cancelledOriginalCreate) {
       this.refreshOriginalInkReservation(this.pageLoadGeneration, this.loadedPageId);
     } else {
@@ -8867,6 +8915,10 @@ export struct NoteCanvasView {
         viewportZoom: this.viewport.zoom,
         layoutWidth: this.editingTextLayoutWidth,
         photoImportLeaseActive: this.photoImportBusy,
+        restoreCaret: this.textEditingRestoreCaret,
+        onCaretChange: (offset: number) => {
+          this.editingCaretOffset = offset;
+        },
         onDraftChange: (text: string) => {
           if (this.photoImportBusy || this.historyBusy) {
             return;
