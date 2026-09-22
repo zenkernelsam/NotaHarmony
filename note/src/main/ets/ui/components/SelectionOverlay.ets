@@ -5,7 +5,7 @@ import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import {
   SELECTION_HANDLE_SIZE, SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH,
-  selectionOverlayPosition,
+  SELECTION_ROTATE_HANDLE_OFFSET, selectionOverlayPosition,
 } from './SelectionOverlayLayout';
 
 export enum SelectionMenuAction {
@@ -69,7 +69,8 @@ export struct SelectionOverlay {
           .height(this.selectionRect.bottom - this.selectionRect.top)
           .position({ x: this.selectionRect.left, y: this.selectionRect.top })
           .border({ width: 1.5, color: this.resolveTokens().accent, style: BorderStyle.Dashed })
-        // 原版选区覆盖层角柄（htc.e/qpi.b 自由变换入口）：四角圆点，
+        // 原版选区覆盖层角柄（htc.e/qpi.b 自由变换入口）：四角圆点 +
+        // 顶边上方旋转柄（msc.c selectionHasRotationHandle）。
         // 命中由 NoteCanvasView.onTouchDown 判定（装饰性，不拦截）。
         if (!this.deselectMode && !this.photoImportLeaseActive) {
           ForEach([
@@ -87,6 +88,18 @@ export struct SelectionOverlay {
               .position({ x: corner.x - SELECTION_HANDLE_SIZE / 2,
                 y: corner.y - SELECTION_HANDLE_SIZE / 2 })
           }, (corner: Point2D): string => `${corner.x},${corner.y}`)
+          Circle()
+            .width(SELECTION_HANDLE_SIZE)
+            .height(SELECTION_HANDLE_SIZE)
+            .fill(this.resolveTokens().control)
+            .stroke(this.resolveTokens().accent)
+            .strokeWidth(1.5)
+            .position({
+              x: (this.selectionRect.left + this.selectionRect.right) / 2 -
+                SELECTION_HANDLE_SIZE / 2,
+              y: this.selectionRect.top - SELECTION_ROTATE_HANDLE_OFFSET -
+                SELECTION_HANDLE_SIZE / 2,
+            })
         }
         // 菜单：ArkUI 原生 bindMenu（T-033 替换自绘 Row+Button）；按钮 Block 阻止事件穿透
         Button($r('app.string.selection_actions'))

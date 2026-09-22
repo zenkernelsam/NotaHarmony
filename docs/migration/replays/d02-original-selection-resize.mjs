@@ -34,6 +34,17 @@ check(layout.includes('SELECTION_HANDLE_SIZE') &&
 check(overlay.includes('Circle()') &&
   overlay.includes('SELECTION_HANDLE_SIZE'),
   'overlay renders corner handle dots');
+// Phase 597 — msc.c selectionHasRotationHandle：顶边上方旋转柄，
+// 纯旋转（scale 锁 1，anchor=选区中心；qpi.b f2=null 路径）。
+check(layout.includes('SELECTION_ROTATE_HANDLE_OFFSET'),
+  'rotate-handle offset constant exists');
+const rotateBlock = overlay.slice(
+  overlay.indexOf('y: this.selectionRect.top - SELECTION_ROTATE_HANDLE_OFFSET') - 500,
+  overlay.indexOf('y: this.selectionRect.top - SELECTION_ROTATE_HANDLE_OFFSET') + 300);
+check(rotateBlock.includes('Circle()') &&
+  rotateBlock.includes('(this.selectionRect.left + this.selectionRect.right) / 2') &&
+  rotateBlock.includes('this.selectionRect.top - SELECTION_ROTATE_HANDLE_OFFSET'),
+  'rotate handle hovers above the top-edge midpoint');
 const handleBlock = overlay.slice(overlay.indexOf('if (!this.deselectMode && !this.photoImportLeaseActive)'),
   overlay.indexOf('Circle()') + 200);
 check(handleBlock.includes('!this.deselectMode') &&
@@ -56,11 +67,18 @@ check(cornerBlock.includes('this.resizeBaseTransform = this.selectionTool.getSta
   'drag-start matrix snapshot for per-frame rebuild');
 check(cornerBlock.includes('this.dragBeforeStrokes = this.completedStrokes.slice()'),
   'resize shares the dragBefore undo snapshots');
+check(cornerBlock.includes('this.selectionRotateHandleAt(') &&
+  cornerBlock.includes('this.resizeIsRotate = true;') &&
+  cornerBlock.includes('this.resizeAnchor = this.resizeBaseCenter;'),
+  'rotate-handle hit anchors at the selection center');
 
 // --- 移动：距离比=缩放，绕 anchor 角位移=旋转 ---
 const resize = canvas.slice(canvas.indexOf('private applySelectionResize('),
   canvas.indexOf('private applySelectionResize(') + 2400);
-check(resize.includes('const scale: number = dist / startDist;'),
+check(resize.includes('this.resizeIsRotate ? 1 :'),
+  'rotate session locks scale=1 (qpi.b f2=null → default 1.0f)');
+check(resize.includes('const scale: number = dist / startDist;') ||
+  resize.includes('Math.sqrt(dx * dx + dy * dy) / startDist'),
   'uniform scale = pointer/anchor distance ratio (qpi.b f2)');
 check(resize.includes('Math.atan2(dy, dx) - Math.atan2(startDy, startDx)'),
   'rotation = angular displacement about the anchor (qpi.b f3)');

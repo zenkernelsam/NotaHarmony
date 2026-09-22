@@ -182,7 +182,7 @@ import {
 } from '../components/MathEditorOverlay';
 import {
   SELECTION_HANDLE_HIT_RADIUS, SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH,
-  SelectionOverlayPosition, selectionOverlayPosition,
+  SELECTION_ROTATE_HANDLE_OFFSET, SelectionOverlayPosition, selectionOverlayPosition,
 } from '../components/SelectionOverlayLayout';
 import { TextBlockOverlay } from '../components/TextBlockOverlay';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
@@ -387,6 +387,8 @@ export struct NoteCanvasView {
   private resizeStart: Point2D = { x: 0, y: 0 };
   private resizeBaseTransform: TransformMatrix = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   private resizeBaseCenter: Point2D = { x: 0, y: 0 };
+  // 原版 msc.c 旋转柄：纯旋转会话（scale 锁 1，anchor=选区中心）。
+  private resizeIsRotate: boolean = false;
   // 原版 SNAP_TO_GRID（ac4.S，默认开）：拖拽期间命中的对齐参考线段。
   private snapGuides: OriginalSnapGuideSegment[] = [];
   // 原版 zt6/yt6：激光笔瞬态会话（不持久化、不入历史）；fadeTimer 驱动
@@ -2210,18 +2212,29 @@ export struct NoteCanvasView {
       if (this.selectionVisible && !this.photoImportBusy &&
         !this.selectionPositionLocked) {
         const corner: number = this.selectionResizeCornerAt({ x: touch.x, y: touch.y });
-        if (corner >= 0) {
-          const corners: Point2D[] = this.selectionScreenCorners();
-          const opposite: Point2D = corners[(corner + 2) % 4];
-          this.resizeAnchor = this.viewport.screenToCanvas(opposite.x, opposite.y);
-          this.resizeStart = this.viewport.screenToCanvas(
-            corners[corner].x, corners[corner].y);
-          this.resizeBaseTransform = this.selectionTool.getState().transform.slice();
+        const rotateHit: boolean = corner < 0 &&
+          this.selectionRotateHandleAt({ x: touch.x, y: touch.y });
+        if (corner >= 0 || rotateHit) {
           const bounds: Rect2D | null = this.selectionBoundsCanvas();
-          this.resizeBaseCenter = bounds === null ? this.resizeStart : {
+          this.resizeBaseCenter = bounds === null ?
+            this.viewport.screenToCanvas(touch.x, touch.y) : {
             x: (bounds.left + bounds.right) / 2,
             y: (bounds.top + bounds.bottom) / 2,
           };
+          if (rotateHit) {
+            // 原版 msc.c 旋转柄：anchor=选区中心，scale 锁 1（qpi.b f2=null 路径）。
+            this.resizeIsRotate = true;
+            this.resizeAnchor = this.resizeBaseCenter;
+            this.resizeStart = this.viewport.screenToCanvas(touch.x, touch.y);
+          } else {
+            const corners: Point2D[] = this.selectionScreenCorners();
+            const opposite: Point2D = corners[(corner + 2) % 4];
+            this.resizeIsRotate = false;
+            this.resizeAnchor = this.viewport.screenToCanvas(opposite.x, opposite.y);
+            this.resizeStart = this.viewport.screenToCanvas(
+              corners[corner].x, corners[corner].y);
+          }
+          this.resizeBaseTransform = this.selectionTool.getState().transform.slice();
           this.selectionResize = true;
           this.dragBeforeStrokes = this.completedStrokes.slice();
           this.dragBeforeShapes = this.shapes.slice();
@@ -2500,6 +2513,7 @@ export struct NoteCanvasView {
     } else if (this.selectionDrag || this.selectionResize) {
       this.selectionDrag = false;
       this.selectionResize = false;
+      this.resizeIsRotate = false;
       this.snapGuides = [];
       const selectedStrokeIds: string[] = this.selectionTool.getState().selectedStrokeIds.slice();
       const selectedShapeIds: string[] = this.selectionTool.getState().selectedShapeIds.slice();
@@ -2628,6 +2642,7 @@ export struct NoteCanvasView {
     this.selectionDrawing = false;
     this.selectionDrag = false;
     this.selectionResize = false;
+    this.resizeIsRotate = false;
     this.snapGuides = [];
     this.dragBeforeStrokes = [];
     this.dragBeforeShapes = [];
@@ -5463,6 +5478,15 @@ export struct NoteCanvasView {
     ];
   }
 
+  // 原版 msc.c 旋转柄：顶边中点上方 28vp（屏幕坐标命中判定）。
+  private selectionRotateHandleAt(p: Point2D): boolean {
+    const cx: number = (this.selectionRect.left + this.selectionRect.right) / 2;
+    const cy: number = this.selectionRect.top - SELECTION_ROTATE_HANDLE_OFFSET;
+    const dx: number = p.x - cx;
+    const dy: number = p.y - cy;
+    return dx * dx + dy * dy <= SELECTION_HANDLE_HIT_RADIUS * SELECTION_HANDLE_HIT_RADIUS;
+  }
+
   // 角柄命中：返回角索引 0-3，未命中 -1（屏幕坐标，命中半径 22vp）。
   private selectionResizeCornerAt(p: Point2D): number {
     const corners: Point2D[] = this.selectionScreenCorners();
@@ -5477,7 +5501,8 @@ export struct NoteCanvasView {
   }
 
   // 原版 qpi.b：角柄拖动 = 绕 anchor 等比缩放（距离比）+
-  // 绕缩放后选区中心旋转（绕 anchor 的角位移，0 时不产出）。
+  // 绕缩放后选区中心旋转（绕 anchor 的角位移，0 时不产出）；
+  // 旋转柄 = f2=null → scale 锁 1，anchor=选区中心。
   private applySelectionResize(p: Point2D): void {
     const startDx: number = this.resizeStart.x - this.resizeAnchor.x;
     const startDy: number = this.resizeStart.y - this.resizeAnchor.y;
@@ -5487,8 +5512,8 @@ export struct NoteCanvasView {
     }
     const dx: number = p.x - this.resizeAnchor.x;
     const dy: number = p.y - this.resizeAnchor.y;
-    const dist: number = Math.sqrt(dx * dx + dy * dy);
-    const scale: number = dist / startDist;
+    const scale: number = this.resizeIsRotate ? 1 :
+      Math.sqrt(dx * dx + dy * dy) / startDist;
     const radians: number = Math.atan2(dy, dx) - Math.atan2(startDy, startDx);
     const scaledCenter: Point2D = {
       x: this.resizeAnchor.x + scale * (this.resizeBaseCenter.x - this.resizeAnchor.x),

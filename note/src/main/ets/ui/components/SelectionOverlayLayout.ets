@@ -6,6 +6,8 @@ export const SELECTION_MENU_BUTTON_GAP: number = 4;
 // 原版选区覆盖层角柄：视觉直径 12vp，命中半径 22vp（触达容差）。
 export const SELECTION_HANDLE_SIZE: number = 12;
 export const SELECTION_HANDLE_HIT_RADIUS: number = 22;
+// 原版 msc.c selectionHasRotationHandle：旋转柄悬于顶边中点上方。
+export const SELECTION_ROTATE_HANDLE_OFFSET: number = 28;
 const SELECTION_MENU_EDGE_MARGIN: number = 8;
 const SELECTION_MENU_SELECTION_GAP: number = 8;
 
