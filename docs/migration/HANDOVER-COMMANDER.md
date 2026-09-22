@@ -55,7 +55,10 @@ T-034~T-040 最终打磨批次   📋 已出卡待派工（缩放平移/缩略�
 
 ## 关键技术红线（审核时重点盯）
 
-- 算法模块（`core/algorithm/`）改动必须对照 `reference/defpackage/` 反编译源码。
+- 算法模块（`core/algorithm/`）改动必须对照 `reference/defpackage/` 反编译源码
+  ——注意：该树是 **1.0.1** 版本产物（桌面证据树
+  `decompiled_1.0.1/sources/defpackage/`），与 1.0.3 混淆映射完全独立，
+  引用类名时须先核对版本（详见修复总纲"基准版本标注问题"）。
 - Phase 1 契约文件（`core/model/` + `core/adaptation/` 接口）不得改签名。
 - UI 交互类控件必须用 ArkUI 原生组件（bindMenu/AlertDialog/bindPopup）。
 - 渲染路线锁定：Canvas 2D → ShaderEffect(API20+) → XComponent/OpenGL ES。
@@ -87,7 +90,8 @@ note/src/main/ets/
 ├── ui/               library/editor/settings/components/theme
 └── pages/            Index 入口
 
-reference/defpackage/ 17 个反编译算法源文件（审计基准）
+reference/defpackage/ 17 个反编译算法源文件（审计基准，**1.0.1 版本**，
+即桌面证据树 decompiled_1.0.1/sources/defpackage/；1.0.3 混淆名不同）
 test_notes/OP-AMP.note 原版 iPad Notability 导出样本
 ```
 
