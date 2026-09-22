@@ -243,6 +243,15 @@ interface OriginalPhotoInsertOrigin {
   center: Point2D;
 }
 
+// 原版 lg2.g 的 jrh.a/ac4.Q 过滤结果：进入剪贴板/剪切负载的元素 id 集合。
+interface ClipboardSelectionIdSet {
+  strokeIds: string[];
+  shapeIds: string[];
+  textIds: string[];
+  imageIds: string[];
+  mathIds: string[];
+}
+
 @Component
 export struct NoteCanvasView {
   // === 外部输入 ===
@@ -6083,13 +6092,22 @@ export struct NoteCanvasView {
     hilog.info(0x0001, 'NoteCanvasView', 'selection menu action=%{public}d', action);
     const state = this.selectionTool.getState();
     if (action === SelectionMenuAction.DELETE || action === SelectionMenuAction.CUT) {
-      const ids: string[] = state.selectedStrokeIds.slice();
-      const shapeIds: string[] = state.selectedShapeIds.slice();
-      const textIds: string[] = state.selectedTextBlockIds.slice();
-      const imageIds: string[] = state.selectedImageIds.slice();
-      const mathIds: string[] = state.selectedMathIds.slice();
+      let ids: string[] = state.selectedStrokeIds.slice();
+      let shapeIds: string[] = state.selectedShapeIds.slice();
+      let textIds: string[] = state.selectedTextBlockIds.slice();
+      let imageIds: string[] = state.selectedImageIds.slice();
+      let mathIds: string[] = state.selectedMathIds.slice();
       let cutPreparation: ClipboardCopyPreparation | null = null;
       if (action === SelectionMenuAction.CUT) {
+        // 原版 lg2.d 经 lg2.g 产出 gg2(cg2, set)：set 为 jrh.a/ac4.Q 过滤后的
+        // id 集合，剪贴板负载与删除目标都只覆盖未锁定元素。
+        const kept: ClipboardSelectionIdSet = this.clipboardSelectionWithoutLocked(
+          ids, shapeIds, textIds, imageIds, mathIds);
+        ids = kept.strokeIds;
+        shapeIds = kept.shapeIds;
+        textIds = kept.textIds;
+        imageIds = kept.imageIds;
+        mathIds = kept.mathIds;
         cutPreparation = this.prepareSelectedClipboard(
           ids, shapeIds, textIds, imageIds, mathIds, state.selectedGroupIds);
       }
@@ -6347,10 +6365,13 @@ export struct NoteCanvasView {
     } else if (action === SelectionMenuAction.EDIT_MATH) {
       this.startMathEditing();
     } else if (action === SelectionMenuAction.COPY) {
-      // 原版 dhb case1：cg2 写入剪贴板成功后 fvbVar2.a() 清空选区。
-      if (this.copySelectedToClipboard(
+      // 原版 dhb case1→lg2.g：ac4.Q 开启时 jrh.a 先把 positionLocked 元素
+      // 从 id 集合剔除再组装剪贴板；cg2 写入成功后 fvbVar2.a() 清空选区。
+      const kept: ClipboardSelectionIdSet = this.clipboardSelectionWithoutLocked(
         state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
-        state.selectedImageIds, state.selectedMathIds, state.selectedGroupIds)) {
+        state.selectedImageIds, state.selectedMathIds);
+      if (this.copySelectedToClipboard(kept.strokeIds, kept.shapeIds, kept.textIds,
+        kept.imageIds, kept.mathIds, state.selectedGroupIds)) {
         this.clearSelectionWithRegisterReset();
       }
     } else if (action === SelectionMenuAction.PASTE) {
@@ -7537,6 +7558,42 @@ export struct NoteCanvasView {
     }
     this.clipboardAvailable = true;
     return true;
+  }
+
+  // 原版 lg2.g：ac4.Q(POSITION_LOCKED，生产常量开启) 时先以 jrh.a 过滤
+  // ktc.h()——positionLocked 的 oy0 块与 n5d 形状不进剪贴板负载；s06 笔迹
+  // 恒不满足 jrh.a，故笔迹列表不过滤。组结构(cqc)不属 oy0/n5d，组 id 与
+  // 组内成员的解析仍由 prepareCopy 承担（lg2.c 递归可解析成员照常拷贝）。
+  private clipboardSelectionWithoutLocked(ids: string[], shapeIds: string[],
+    textIds: string[], imageIds: string[], mathIds: string[]): ClipboardSelectionIdSet {
+    const lockedIds: Set<string> = new Set<string>();
+    for (const shape of this.shapes) {
+      if (shape.positionLocked === true) {
+        lockedIds.add(shape.id);
+      }
+    }
+    for (const textBlock of this.textBlocks) {
+      if (textBlock.positionLocked === true) {
+        lockedIds.add(textBlock.id);
+      }
+    }
+    for (const image of this.imageBlocks) {
+      if (image.positionLocked === true) {
+        lockedIds.add(image.id);
+      }
+    }
+    for (const math of this.mathBlocks) {
+      if (math.positionLocked === true) {
+        lockedIds.add(math.id);
+      }
+    }
+    return {
+      strokeIds: ids,
+      shapeIds: shapeIds.filter((id: string): boolean => !lockedIds.has(id)),
+      textIds: textIds.filter((id: string): boolean => !lockedIds.has(id)),
+      imageIds: imageIds.filter((id: string): boolean => !lockedIds.has(id)),
+      mathIds: mathIds.filter((id: string): boolean => !lockedIds.has(id)),
+    };
   }
 
   private prepareSelectedClipboard(ids: string[], shapeIds: string[] = [],
