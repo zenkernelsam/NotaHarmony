@@ -8534,6 +8534,14 @@ export struct NoteCanvasView {
         // 原版 qke 激活：uke.p 命中挂起会话则恢复其光标状态。
         this.textEditingRestoreCaret = this.suspendedCaretByBlock.get(this.textBlocks[i].id) ?? -1;
         this.editingCaretOffset = this.textEditingRestoreCaret;
+        // 原版 sqa：激活后无条件把光标定位到按下点在布局内的偏移
+        // （zn9.f 世界→局部 + rej.i 偏移命中），覆盖挂起会话的光标。
+        const tapCaret: number | null = this.textRenderer.caretIndexAtPoint(
+          this.textBlocks[i], this.renderCtx, position);
+        if (tapCaret !== null) {
+          this.textEditingRestoreCaret = tapCaret;
+          this.editingCaretOffset = tapCaret;
+        }
         this.textEditing = true;
         this.renderFrame(true);
         return;

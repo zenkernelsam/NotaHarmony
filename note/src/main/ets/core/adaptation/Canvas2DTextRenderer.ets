@@ -301,6 +301,85 @@ export class Canvas2DTextRenderer {
     return null;
   }
 
+  // 原版 rej.i(zn9.f(j, transform), layout) → sqa(offset) 等价：世界坐标点 →
+  // 布局内最近文本偏移（光标定位）。y 轴钳到最近行（行带上方 → 首行，下方 →
+  // 末行），x 轴在命中行内按半字宽拆分；越过行尾 → line.end。空文本 → 0。
+  caretIndexAtPoint(element: TextBlockElement, context: RenderContext,
+    worldPoint: Point2D): number | null {
+    if (element.richText.length === 0) {
+      return 0;
+    }
+    const local: Point2D | null = this.inverseTransformPoint(worldPoint, element);
+    if (local === null) {
+      return null;
+    }
+    const ctx: Canvas2DDrawingContext = context as Canvas2DDrawingContext;
+    const characters: string[] = [];
+    for (const character of element.richText) {
+      characters.push(character);
+    }
+    const characterStyles: RichTextCharacterStyle[] = this.characterStyles(
+      characters.length, element.characterStyleRuns);
+    const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
+      characters.length, element.paragraphStyleRuns);
+    let baseline: number = element.textOrigin.y + element.contentTopInset + element.fontSize;
+    let numberedParagraph: number = 1;
+    ctx.save();
+    try {
+      const lines: TextLayoutLine[] = this.layoutLines(ctx, characters, characterStyles, element);
+      let bestLine: TextLayoutLine | null = null;
+      let bestX: number = 0;
+      let bestDistance: number = Number.POSITIVE_INFINITY;
+      for (const line of lines) {
+        const paragraph: RichTextParagraphStyle = paragraphStyles[Math.min(
+          line.start, Math.max(0, characters.length - 1))] ?? {};
+        const spacing: number = paragraph.lineSpacing === undefined || paragraph.lineSpacing <= 0 ?
+          1 : paragraph.lineSpacing;
+        const lineHeight: number = (element.fontSize + 8) * spacing;
+        const bandTop: number = baseline - element.fontSize;
+        const prefix: string = line.paragraphStart ? this.decoratorPrefix(
+          paragraph.decoratorStyle, numberedParagraph, paragraph.isChecked) : '';
+        const checkbox: boolean = line.paragraphStart && paragraph.decoratorStyle === 3;
+        const lineWidth: number = this.measureRange(ctx, characters, characterStyles,
+          line.start, line.end, element, prefix, checkbox);
+        let x: number = element.textOrigin.x + element.contentLeftInset +
+          this.paragraphIndent(element, paragraph);
+        const available: number = Math.max(0, element.blockWidth - element.contentLeftInset -
+          (element.contentRightInset ?? element.contentLeftInset));
+        if (paragraph.alignment === 2) {
+          x += Math.max(0, (available - lineWidth) / 2);
+        } else if (paragraph.alignment === 3) {
+          x += Math.max(0, available - lineWidth);
+        }
+        if (checkbox) {
+          x += this.checkboxColumnWidth(element);
+        } else if (prefix.length > 0) {
+          this.applyFont(ctx, element, characterStyles[line.start] ?? {});
+          x += ctx.measureText(prefix);
+        }
+        const distance: number = local.y < bandTop ? bandTop - local.y :
+          (local.y >= bandTop + lineHeight ? local.y - (bandTop + lineHeight) : 0);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestLine = line;
+          bestX = x;
+        }
+        if (line.paragraphStart && paragraph.decoratorStyle === 2) {
+          numberedParagraph++;
+        }
+        baseline += lineHeight;
+      }
+      if (bestLine === null) {
+        return null;
+      }
+      const index: number | null = this.characterIndexAt(ctx, characters,
+        characterStyles, bestLine, bestX, local.x, element);
+      return index === null ? bestLine.end : index;
+    } finally {
+      ctx.restore();
+    }
+  }
+
   private characterIndexAt(ctx: Canvas2DDrawingContext, characters: string[],
     styles: RichTextCharacterStyle[], line: TextLayoutLine, lineX: number,
     localX: number, element: TextBlockElement): number | null {
