@@ -2499,16 +2499,28 @@ export struct NoteCanvasView {
           `auto-deselect eraser failed: ${JSON.stringify(e)}`);
       });
     } else if (this.selectionDrawing) {
-      const ids: string[] = this.selectionTool.finalizeSelection(
-        this.completedStrokes, this.shapes, this.textBlocks, this.imageBlocks,
-        this.selectionGroups, this.mathBlocks);
-      this.selectionDrawing = false;
-      hilog.info(0x0001, 'NoteCanvasView', 'selection finalized, ids=%{public}d strokes=%{public}d',
-        ids.length, this.completedStrokes.length);
-      if (ids.length > 0) {
-        this.updateSelectionOverlay();
-      } else {
+      // 原版 uw2 case1：套索/矩形完成时绘制区域任一边 ≤ 20dp/zoom
+      // → fvbVar.a() 取消（微拖动视作点按，不产生选区）。
+      const drawnBounds: Rect2D | null = this.selectionTool.drawnBounds();
+      const minSelectionSize: number = 20.0 / this.viewport.zoom;
+      if (drawnBounds !== null &&
+        (drawnBounds.right - drawnBounds.left <= minSelectionSize ||
+          drawnBounds.bottom - drawnBounds.top <= minSelectionSize)) {
+        this.selectionDrawing = false;
+        this.selectionTool.deselect();
         this.selectionVisible = false;
+      } else {
+        const ids: string[] = this.selectionTool.finalizeSelection(
+          this.completedStrokes, this.shapes, this.textBlocks, this.imageBlocks,
+          this.selectionGroups, this.mathBlocks);
+        this.selectionDrawing = false;
+        hilog.info(0x0001, 'NoteCanvasView', 'selection finalized, ids=%{public}d strokes=%{public}d',
+          ids.length, this.completedStrokes.length);
+        if (ids.length > 0) {
+          this.updateSelectionOverlay();
+        } else {
+          this.selectionVisible = false;
+        }
       }
     } else if (this.selectionDrag || this.selectionResize) {
       this.selectionDrag = false;

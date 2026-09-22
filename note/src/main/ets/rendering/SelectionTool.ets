@@ -84,6 +84,28 @@ export class SelectionTool {
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
+  // 原版 oo3Var.a()：进行中的套索/矩形绘制区域 bounds（画布坐标）——
+  // 完成判定用它做 20dp/zoom 最小尺寸检查（uw2 case1）。
+  drawnBounds(): Rect2D | null {
+    if (this.state.mode === SelectionMode.RECTANGLE) {
+      return this.state.rect;
+    }
+    if (this.state.lassoPoints.length === 0) {
+      return null;
+    }
+    let minX: number = Number.MAX_VALUE;
+    let minY: number = Number.MAX_VALUE;
+    let maxX: number = -Number.MAX_VALUE;
+    let maxY: number = -Number.MAX_VALUE;
+    for (const p of this.state.lassoPoints) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+    return { left: minX, top: minY, right: maxX, bottom: maxY };
+  }
+
   // 更新选区（touchMove）
   updateSelection(currentPoint: Point2D): void {
     if (!this.state.isActive) {
@@ -333,6 +355,8 @@ export class SelectionTool {
   // 取消选择
   deselect(): void {
     this.state.isActive = false;
+    this.state.lassoPoints = [];
+    this.state.rect = null;
     this.state.selectedStrokeIds = [];
     this.state.selectedShapeIds = [];
     this.state.selectedTextBlockIds = [];
