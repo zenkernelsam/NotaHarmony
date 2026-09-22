@@ -13,6 +13,19 @@ import { NoteElement, EllipseElement, LineElement, PolygonElement,
 import { RecognitionResult, RecognitionProvider } from '../adaptation/RecognitionProvider';
 
 export const ORIGINAL_SHAPE_RECOGNITION_CONFIDENCE_THRESHOLD: number = 0.2;
+// Android 1.0.3 e5d.b: a winning candidate is displaced by the first
+// alternative (evaluation order) whose confidence exceeds 0.3.
+export const ORIGINAL_SHAPE_OVERRIDE_CONFIDENCE: number = 0.3;
+// Android 1.0.3 b16.h(): a polygon whose shortest edge is under a quarter of
+// its longest edge counts as "uneven" — the override gate (open polylines are
+// checked too; only the closing wrap edge is conditional on b16.b).
+export const ORIGINAL_POLYGON_UNEVEN_EDGE_RATIO: number = 0.25;
+
+// Internal candidate tags mirroring the original s16 kinds Harmony models:
+// 0=LINE (also the open-polyline output), 1=ELLIPSE, 2=POLYGON(closed).
+const SHAPE_KIND_LINE: number = 0;
+const SHAPE_KIND_ELLIPSE: number = 1;
+const SHAPE_KIND_POLYGON: number = 2;
 
 export interface ShapeDetectorConfig {
   lineThreshold: number;       // 直线判据：距离/跨度 > 0.6
@@ -26,6 +39,11 @@ export interface ShapeDetectorConfig {
 export interface DetectionResult {
   confidence: number;
   elements: NoteElement[];
+  // e5d arbitration metadata: candidate kind + polygon/ellipse qualifiers.
+  kind: number;
+  closed: boolean;
+  circle: boolean;
+  unevenEdges: boolean;
 }
 
 export class ShapeDetector implements RecognitionProvider {
@@ -80,18 +98,25 @@ export class ShapeDetector implements RecognitionProvider {
       return null;
     }
     // 尝试三种检测，取最高分
-    let best: DetectionResult | null = null;
+    const candidates: DetectionResult[] = [];
     const line = this.detectLine(points);
     if (line !== null) {
-      best = this.pickBetter(best, line);
+      candidates.push(line);
     }
     const ellipse = this.detectEllipse(points);
     if (ellipse !== null) {
-      best = this.pickBetter(best, ellipse);
+      candidates.push(ellipse);
     }
     const polygon = this.detectPolygon(points);
     if (polygon !== null) {
-      best = this.pickBetter(best, polygon);
+      candidates.push(polygon);
+    }
+    let best: DetectionResult | null = null;
+    for (const candidate of candidates) {
+      best = this.pickBetter(best, candidate);
+    }
+    if (best !== null) {
+      best = this.applyOriginalOverride(candidates, best);
     }
     // Android 1.0.3 e5d accepts only confidence strictly greater than 0.2.
     if (best === null || best.confidence <= this.config.confidenceThreshold) {
@@ -102,6 +127,49 @@ export class ShapeDetector implements RecognitionProvider {
 
   recognizeText(_points: Point2D[]): string | null {
     return null;  // MVP 不实现
+  }
+
+  // Android 1.0.3 e5d.b() arbitration after argmax:
+  //   best LINE → first ELLIPSE candidate > 0.3 wins instead;
+  //   best closed POLYGON with uneven edges (b16.h: min/max edge < 0.25) →
+  //   first candidate > 0.3 wins, then specifically first circle-ELLIPSE > 0.3.
+  // "First" follows the same evaluation order as candidate collection.
+  private applyOriginalOverride(candidates: DetectionResult[],
+    best: DetectionResult): DetectionResult {
+    if (best.kind === SHAPE_KIND_LINE) {
+      const ellipse = this.firstStrongCandidate(candidates, SHAPE_KIND_ELLIPSE, false);
+      if (ellipse !== null) {
+        return ellipse;
+      }
+      return best;
+    }
+    if (best.kind === SHAPE_KIND_POLYGON && best.unevenEdges) {
+      const any = this.firstStrongCandidate(candidates, -1, false);
+      let winner: DetectionResult = any !== null ? any : best;
+      const circle = this.firstStrongCandidate(candidates, SHAPE_KIND_ELLIPSE, true);
+      if (circle !== null) {
+        winner = circle;
+      }
+      return winner;
+    }
+    return best;
+  }
+
+  private firstStrongCandidate(candidates: DetectionResult[], kind: number,
+    requireCircle: boolean): DetectionResult | null {
+    for (const candidate of candidates) {
+      if (candidate.confidence <= ORIGINAL_SHAPE_OVERRIDE_CONFIDENCE) {
+        continue;
+      }
+      if (kind >= 0 && candidate.kind !== kind) {
+        continue;
+      }
+      if (requireCircle && !candidate.circle) {
+        continue;
+      }
+      return candidate;
+    }
+    return null;
   }
 
   // 取置信度更高的检测结果（显式判空避免控制流收窄限制）
@@ -150,7 +218,8 @@ export class ShapeDetector implements RecognitionProvider {
       strokeWidth: 4,
       fillColor: null,
     };
-    return { confidence: score, elements: [element] };
+    return { confidence: score, elements: [element],
+      kind: SHAPE_KIND_LINE, closed: false, circle: false, unevenEdges: false };
   }
 
   // 椭圆检测：首尾距 < ellipseMaxGap + 协方差主轴/轴向极值拟合
@@ -241,6 +310,9 @@ export class ShapeDetector implements RecognitionProvider {
       left: cx - halfWidth, top: cy - halfHeight,
       right: cx + halfWidth, bottom: cy + halfHeight,
     };
+    // e5d/m06 parity: a normalized ellipse with equal axes is the original's
+    // circle result (m06.h == m06.i), eligible for the polygon override.
+    const circle: boolean = rx === ry;
     const element: EllipseElement = {
       id: this.generateId(),
       type: ElementType.ELLIPSE,
@@ -254,7 +326,8 @@ export class ShapeDetector implements RecognitionProvider {
       strokeWidth: 4,
       fillColor: null,
     };
-    return { confidence: fitConfidence, elements: [element] };
+    return { confidence: fitConfidence, elements: [element],
+      kind: SHAPE_KIND_ELLIPSE, closed: true, circle: circle, unevenEdges: false };
   }
 
   private ellipseConfidence(points: Point2D[], cx: number, cy: number,
@@ -310,7 +383,11 @@ export class ShapeDetector implements RecognitionProvider {
         };
         lines.push(line);
       }
-      return { confidence: confidence, elements: lines };
+      // Open result is still the polygon recognizer's output (original b16 with
+      // b=false): h() measures consecutive edges only, no closing edge.
+      return { confidence: confidence, elements: lines, kind: SHAPE_KIND_POLYGON,
+        closed: false, circle: false,
+        unevenEdges: this.hasUnevenEdges(simplified, false) };
     }
     const vertices: Point2D[] = simplified.slice();
     if (vertices.length > 3 && this.distance(vertices[0], vertices[vertices.length - 1]) <=
@@ -331,7 +408,33 @@ export class ShapeDetector implements RecognitionProvider {
       strokeWidth: 4,
       fillColor: null,
     };
-    return { confidence: confidence, elements: [element] };
+    return { confidence: confidence, elements: [element], kind: SHAPE_KIND_POLYGON,
+      closed: true, circle: false, unevenEdges: this.hasUnevenEdges(vertices, true) };
+  }
+
+  // Android 1.0.3 b16.h(): the polygon's shortest edge divided by its longest is
+  // under 0.25 — closed shapes include the last→first edge (b16.g() wraps).
+  private hasUnevenEdges(vertices: Point2D[], closed: boolean): boolean {
+    if (vertices.length < 2) {
+      return false;
+    }
+    let minEdge: number = Number.MAX_VALUE;
+    let maxEdge: number = 0;
+    const count: number = closed ? vertices.length : vertices.length - 1;
+    for (let i: number = 0; i < count; i++) {
+      const next: number = (i + 1) % vertices.length;
+      const edge: number = this.distance(vertices[i], vertices[next]);
+      if (edge < minEdge) {
+        minEdge = edge;
+      }
+      if (edge > maxEdge) {
+        maxEdge = edge;
+      }
+    }
+    if (maxEdge <= 0) {
+      return false;
+    }
+    return Math.abs(minEdge) / Math.abs(maxEdge) < ORIGINAL_POLYGON_UNEVEN_EDGE_RATIO;
   }
 
   // Douglas-Peucker 简化
