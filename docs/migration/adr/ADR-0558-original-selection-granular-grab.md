@@ -1,6 +1,7 @@
 # ADR-0558：选区拖拽改为元素粒度抓取（stc / ej9 case18）
 
-- 状态：accepted
+- 状态：**superseded by ADR-0559**（`ftc.i` 实为 deselectedIds——
+  stc/case18 是 deselectMode 点按移除语义，非抓取移动；Phase 590 已纠正）
 - Phase：589
 - 证据：`docs/migration/evidence/original-selection-granular-grab-2026-09-28.md`
 

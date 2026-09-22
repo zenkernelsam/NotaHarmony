@@ -144,7 +144,8 @@ import {
 import { pointHitsAffineBlock } from '../../core/model/BlockHitGeometry';
 import { Point2D, Rect2D, CubicSegment } from '../../core/model/GeometryTypes';
 import {
-  OriginalSelectionGroup, resolveOriginalGroupAuthoringMembers, resolveOriginalSelectedGroupLeaves,
+  OriginalGroupSelectionResult, OriginalSelectionGroup, resolveOriginalGroupAuthoringMembers,
+  resolveOriginalGroupSelection, resolveOriginalSelectedGroupLeaves,
 } from '../../core/model/OriginalGroupSelection';
 import { cloneMathElement, eraserPathHitsMathBlock, mathBlockLocalBounds, mathBlockWorldBounds,
   transformMathElements } from '../../core/model/MathBlockGeometry';
@@ -1007,19 +1008,10 @@ export struct NoteCanvasView {
     return true;
   }
 
-  // 原版 dl1 case2(ftc 选中态) → xtc.a(jE, set)：pointer-down 先取该点最上层
-  // 命中元素——命中元素 ∈ 选中集 → stc/ej9 case18 抓取该元素（或经 cqc 组归属
-  // 抓取整组）；命中元素不在选中集或与含选中成员的组同组 → 组粒度抓取；
-  // 否则 → null（qtc → z39，落回新选区手势）。返回抓取 id 集或 null。
-  private hitTestSelectedElementIds(point: Point2D): string[] | null {
-    const state = this.selectionTool.getState();
-    if (!state.isActive) {
-      return null;
-    }
-    const selected: Set<string> = new Set<string>(
-      state.selectedStrokeIds.concat(state.selectedShapeIds)
-        .concat(state.selectedTextBlockIds).concat(state.selectedImageIds)
-        .concat(state.selectedMathIds));
+  // 原版 dl1 case2(ftc 选中态·非 deselectMode) → xtc.a(jE, null)：选区外按下时
+  // 取该点最上层命中元素——命中 → vtc TapToSelect（选中该元素或其 cqc 组）；
+  // 未命中 → rtc ClearSelection。返回最上层命中元素 id，未命中返回 null。
+  private topmostPageElementIdAt(point: Point2D): string | null {
     const ordered: OrderedPageElement[] = materializePageElements(
       this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes,
       this.imageBlocks, this.mathBlocks);
@@ -1040,42 +1032,21 @@ export struct NoteCanvasView {
         hit = pointHitsAffineBlock(
           point, mathBlockLocalBounds(element.data), element.data.transform);
       }
-      if (!hit) {
-        continue;
+      if (hit) {
+        return element.data.id;
       }
-      const hitId: string = element.data.id;
-      if (selected.has(hitId)) {
-        return this.expandGrabToSelectedGroup(hitId, selected);
-      }
-      // ntc/cqc：命中元素未选中，但所在组含有选中成员 → 组粒度抓取。
-      const groupLeaves: string[] | null = this.selectedGroupLeavesContaining(hitId, selected);
-      return groupLeaves;
     }
     return null;
   }
 
-  // 命中元素 ∈ 选中集时：若它属于某个被选中的 Original 组，抓取整组（stc(cqc.b, cqc.a)），
-  // 否则只抓取该元素（stc({id})）。
-  private expandGrabToSelectedGroup(hitId: string, selected: Set<string>): string[] {
-    const leaves: string[] | null = this.selectedGroupLeavesContaining(hitId, selected);
-    if (leaves !== null && leaves.length > 0) {
-      return leaves;
-    }
-    return [hitId];
-  }
-
-  // 返回包含 elementId 的【被选中】组的叶子 id 集；无匹配返回 null。
-  private selectedGroupLeavesContaining(elementId: string,
-    selected: Set<string>): string[] | null {
-    const state = this.selectionTool.getState();
-    for (const groupId of state.selectedGroupIds) {
-      const leaves: string[] | null = resolveOriginalSelectedGroupLeaves(
-        [groupId], Array.from(selected), this.selectionGroups);
-      if (leaves !== null && leaves.indexOf(elementId) >= 0) {
-        return leaves;
-      }
-    }
-    return null;
+  // TapToSelect 的 availableIds：页面全部实体 id（resolveOriginalGroupSelection
+  // 需要可用集合做组展开）。
+  private allPageEntityIds(): string[] {
+    return this.completedStrokes.map((s: StrokeElementData): string => s.id)
+      .concat(this.textBlocks.map((t: TextBlockElement): string => t.id))
+      .concat(this.shapes.map((s: ShapeElement): string => s.id))
+      .concat(this.imageBlocks.map((i: ImageElement): string => i.id))
+      .concat(this.mathBlocks.map((m: MathElement): string => m.id));
   }
 
   private toggleTapesReveal(): void {
@@ -2112,12 +2083,10 @@ export struct NoteCanvasView {
       hilog.info(0x0001, 'NoteCanvasView', 'selDown visible=%{public}s x=%{public}f y=%{public}f rect=(%{public}f,%{public}f,%{public}f,%{public}f)',
         this.selectionVisible.toString(), touch.x, touch.y, this.selectionRect.left,
         this.selectionRect.top, this.selectionRect.right, this.selectionRect.bottom);
-      const grabIds: string[] | null = this.selectionVisible ?
-        this.hitTestSelectedElementIds(canvasP) : null;
-      if (grabIds !== null && grabIds.length > 0) {
-        hilog.info(0x0001, 'NoteCanvasView', 'selection grab start at (%{public}f,%{public}f) ids=%{public}s',
-          canvasP.x, canvasP.y, JSON.stringify(grabIds));
-        this.selectionTool.grabElements(grabIds);
+      if (this.selectionVisible && this.pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)) {
+        hilog.info(0x0001, 'NoteCanvasView', 'selection drag start at (%{public}f,%{public}f) rect=(%{public}f,%{public}f)-(%{public}f,%{public}f)',
+          canvasP.x, canvasP.y, this.selectionRect.left, this.selectionRect.top,
+          this.selectionRect.right, this.selectionRect.bottom);
         this.selectionDrag = true;
         this.dragBeforeStrokes = this.completedStrokes.slice();
         this.dragBeforeShapes = this.shapes.slice();
@@ -2125,6 +2094,31 @@ export struct NoteCanvasView {
         this.dragBeforeImages = this.imageBlocks.slice();
         this.dragBeforeMathBlocks = this.mathBlocks.slice();
         this.lastDragPoint = { x: canvasP.x, y: canvasP.y };
+      } else if (this.selectionVisible) {
+        // 原版 dl1 case2（ftc.h=false 常态）：覆盖层外按下 → xtc.a(jE,null) 命中
+        // 元素 → vtc TapToSelect（该元素或其 cqc 组）；未命中 → rtc ClearSelection。
+        const hitId: string | null = this.topmostPageElementIdAt(canvasP);
+        if (hitId !== null) {
+          const resolved: OriginalGroupSelectionResult = resolveOriginalGroupSelection(
+            [hitId], this.allPageEntityIds(), this.selectionGroups);
+          const idSet: Set<string> = new Set<string>(resolved.entityIds);
+          this.selectionTool.selectElementIds(
+            this.completedStrokes.filter((s: StrokeElementData): boolean => idSet.has(s.id))
+              .map((s: StrokeElementData): string => s.id),
+            this.shapes.filter((s: ShapeElement): boolean => idSet.has(s.id))
+              .map((s: ShapeElement): string => s.id),
+            this.textBlocks.filter((t: TextBlockElement): boolean => idSet.has(t.id))
+              .map((t: TextBlockElement): string => t.id),
+            this.imageBlocks.filter((i: ImageElement): boolean => idSet.has(i.id))
+              .map((i: ImageElement): string => i.id),
+            resolved.groupIds,
+            this.mathBlocks.filter((m: MathElement): boolean => idSet.has(m.id))
+              .map((m: MathElement): string => m.id));
+          this.updateSelectionOverlay();
+          this.renderFrame();
+        } else {
+          this.clearSelectionWithRegisterReset();
+        }
       } else {
         hilog.info(0x0001, 'NoteCanvasView', 'selection begin at (%{public}f,%{public}f) visible=%{public}s',
           canvasP.x, canvasP.y, this.selectionVisible.toString());
@@ -2303,32 +2297,25 @@ export struct NoteCanvasView {
       const selectedImageIds: string[] = this.selectionTool.getState().selectedImageIds.slice();
       const selectedMathIds: string[] = this.selectionTool.getState().selectedMathIds.slice();
       const selectedGroupIds: string[] = this.selectionTool.getState().selectedGroupIds.slice();
-      // 原版 ej9 case18：抓取拖拽的变换只落到被抓取子集（movingIds ∩ selected）；
-      // 未抓取元素保持原位与选中态，撤销记录也只覆盖实际移动的元素。
-      const movedStrokeIds: string[] = this.selectionTool.movingSubsetOf(selectedStrokeIds);
-      const movedShapeIds: string[] = this.selectionTool.movingSubsetOf(selectedShapeIds);
-      const movedTextBlockIds: string[] = this.selectionTool.movingSubsetOf(selectedTextBlockIds);
-      const movedImageIds: string[] = this.selectionTool.movingSubsetOf(selectedImageIds);
-      const movedMathIds: string[] = this.selectionTool.movingSubsetOf(selectedMathIds);
       if (!this.isIdentityTransform(this.selectionTool.getState().transform)) {
         this.undoRedo.push({
           type: UndoableActionType.TRANSFORM_ELEMENTS,
           noteId: this.noteId,
           pageId: this.currentPage.pageId,
-          beforeStrokes: this.filterStrokesByIds(this.dragBeforeStrokes, movedStrokeIds),
-          afterStrokes: this.filterStrokesByIds(this.completedStrokes, movedStrokeIds),
-          beforeShapes: this.filterShapesByIds(this.dragBeforeShapes, movedShapeIds),
-          afterShapes: this.filterShapesByIds(this.shapes, movedShapeIds),
-          beforeTextBlocks: this.filterTextBlocksByIds(this.dragBeforeTextBlocks, movedTextBlockIds),
-          afterTextBlocks: this.filterTextBlocksByIds(this.textBlocks, movedTextBlockIds),
-          beforeImages: this.filterImagesByIds(this.dragBeforeImages, movedImageIds),
-          afterImages: this.filterImagesByIds(this.imageBlocks, movedImageIds),
-          beforeMathBlocks: this.filterMathBlocksByIds(this.dragBeforeMathBlocks, movedMathIds),
-          afterMathBlocks: this.filterMathBlocksByIds(this.mathBlocks, movedMathIds),
+          beforeStrokes: this.filterStrokesByIds(this.dragBeforeStrokes, selectedStrokeIds),
+          afterStrokes: this.filterStrokesByIds(this.completedStrokes, selectedStrokeIds),
+          beforeShapes: this.filterShapesByIds(this.dragBeforeShapes, selectedShapeIds),
+          afterShapes: this.filterShapesByIds(this.shapes, selectedShapeIds),
+          beforeTextBlocks: this.filterTextBlocksByIds(this.dragBeforeTextBlocks, selectedTextBlockIds),
+          afterTextBlocks: this.filterTextBlocksByIds(this.textBlocks, selectedTextBlockIds),
+          beforeImages: this.filterImagesByIds(this.dragBeforeImages, selectedImageIds),
+          afterImages: this.filterImagesByIds(this.imageBlocks, selectedImageIds),
+          beforeMathBlocks: this.filterMathBlocksByIds(this.dragBeforeMathBlocks, selectedMathIds),
+          afterMathBlocks: this.filterMathBlocksByIds(this.mathBlocks, selectedMathIds),
         });
         this.persist(this.areCanonicalOriginalPositionSelection(
-          movedStrokeIds, movedShapeIds, movedTextBlockIds,
-          movedImageIds, movedMathIds));
+          selectedStrokeIds, selectedShapeIds, selectedTextBlockIds,
+          selectedImageIds, selectedMathIds));
         this.notifyUndoRedo();
       }
       this.selectionTool.selectElementIds(
@@ -5571,18 +5558,11 @@ export struct NoteCanvasView {
 
   // 应用选区变换到笔画；pushUndo 控制是否记录撤销（移动结束时统一记录）
   private applySelectionTransform(notifyPersist: boolean, pushUndo: boolean): void {
-    // 原版 ej9 case18：抓取拖拽时变换只作用于 movingIds（ftc.i）子集；
-    // movingIds 为空（菜单缩放/旋转等）时作用于整个选中集。
-    const selectedStrokeIds: string[] = this.selectionTool.movingSubsetOf(
-      this.selectionTool.getState().selectedStrokeIds);
-    const selectedShapeIds: string[] = this.selectionTool.movingSubsetOf(
-      this.selectionTool.getState().selectedShapeIds);
-    const selectedTextBlockIds: string[] = this.selectionTool.movingSubsetOf(
-      this.selectionTool.getState().selectedTextBlockIds);
-    const selectedImageIds: string[] = this.selectionTool.movingSubsetOf(
-      this.selectionTool.getState().selectedImageIds);
-    const selectedMathIds: string[] = this.selectionTool.movingSubsetOf(
-      this.selectionTool.getState().selectedMathIds);
+    const selectedStrokeIds: string[] = this.selectionTool.getState().selectedStrokeIds;
+    const selectedShapeIds: string[] = this.selectionTool.getState().selectedShapeIds;
+    const selectedTextBlockIds: string[] = this.selectionTool.getState().selectedTextBlockIds;
+    const selectedImageIds: string[] = this.selectionTool.getState().selectedImageIds;
+    const selectedMathIds: string[] = this.selectionTool.getState().selectedMathIds;
     const before: StrokeElementData[] = this.filterStrokesByIds(this.completedStrokes, selectedStrokeIds);
     const beforeShapes: ShapeElement[] = this.filterShapesByIds(this.shapes, selectedShapeIds);
     const beforeTextBlocks: TextBlockElement[] = this.filterTextBlocksByIds(
