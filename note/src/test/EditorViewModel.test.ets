@@ -404,6 +404,13 @@ class FakeEditorSettingsRepository implements EditorSettingsRepository {
   async saveHideNavigationBar(_enabled: boolean): Promise<void> {
   }
 
+  async getNoteViewNightMode(): Promise<boolean> {
+    return false;
+  }
+
+  async saveNoteViewNightMode(_enabled: boolean): Promise<void> {
+  }
+
   async saveShapeDetectionEnabled(enabled: boolean): Promise<void> {
     this.saveAttempts.push(enabled);
     const gate: DeferredSave | undefined = this.saveGates.shift();

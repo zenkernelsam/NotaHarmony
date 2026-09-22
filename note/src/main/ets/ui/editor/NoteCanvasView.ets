@@ -327,11 +327,15 @@ export struct NoteCanvasView {
   private gestureTracker: CumulativeGestureTracker = new CumulativeGestureTracker();
   @State zoomPercent: number = 100;         // 控制条显示（100 = 100%）
   // T-038：主题状态
+  // 原版 note_view_night_mode：纸墨深色外观——开启时画布按 DarkTheme
+  // 解析（paperBackground/paperLineColor 走既有 PaperRenderer 暗色路径）。
+  @Prop @Watch('onNightModeChange') nightMode: boolean = false;
   @StorageLink(THEME_MODE_KEY) @Watch('onMathEditorThemeChange') themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) @Watch('onMathEditorThemeChange') systemDark: boolean = false;
 
   private resolveTokens(): ThemeTokens {
-    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+    return ThemeStore.resolve(this.nightMode ? 'dark' :
+      this.themeMode as ThemeMode, this.systemDark);
   }
 
   // === 画布状态 ===
@@ -1261,7 +1265,7 @@ export struct NoteCanvasView {
     }
     const w: number = this.canvasCtx.width;
     const h: number = this.canvasCtx.height;
-    const theme: ThemeTokens = ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+    const theme: ThemeTokens = this.resolveTokens();
     const sessionStroke: StrokeElementData | null = this.strokeSession !== null && this.strokeSession.isActive()
       ? this.strokeSession.getCurrentStroke() : null;
     const current: StrokeElementData | null = this.heldShapes.length === 0 ? sessionStroke : null;
@@ -5372,6 +5376,12 @@ export struct NoteCanvasView {
       if (target !== null) {
         this.pasteClipboard(target);
       }
+    }
+  }
+
+  private onNightModeChange(): void {
+    if (this.lifecycleActive) {
+      this.renderFrame(true);
     }
   }
 

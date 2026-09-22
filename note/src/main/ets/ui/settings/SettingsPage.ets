@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { promptAction, router } from '@kit.ArkUI';
 import {
   DEFAULT_HIDE_NAVIGATION_BAR, DEFAULT_HIDE_STATUS_BAR, DEFAULT_KEEP_DEVICE_AWAKE,
+  DEFAULT_NOTE_VIEW_NIGHT_MODE,
   DEFAULT_SHAPE_DETECTION_ENABLED, EditorSettingsStore,
 } from '../../data/EditorSettingsStore';
 import { ThemeMode, ThemeTokens } from '../theme/EditorTheme';
@@ -21,6 +22,7 @@ struct SettingsPage {
   @State keepDeviceAwakeEnabled: boolean = DEFAULT_KEEP_DEVICE_AWAKE;
   @State hideStatusBarEnabled: boolean = DEFAULT_HIDE_STATUS_BAR;
   @State hideNavigationBarEnabled: boolean = DEFAULT_HIDE_NAVIGATION_BAR;
+  @State noteViewNightModeEnabled: boolean = DEFAULT_NOTE_VIEW_NIGHT_MODE;
   @State saveBusy: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -60,6 +62,7 @@ struct SettingsPage {
       const keepAwake: boolean = await store.getKeepDeviceAwake();
       const hideStatus: boolean = await store.getHideStatusBar();
       const hideNav: boolean = await store.getHideNavigationBar();
+      const nightMode: boolean = await store.getNoteViewNightMode();
       if (this.pageDisposed || generation !== this.loadGeneration) {
         return;
       }
@@ -68,6 +71,7 @@ struct SettingsPage {
       this.keepDeviceAwakeEnabled = keepAwake;
       this.hideStatusBarEnabled = hideStatus;
       this.hideNavigationBarEnabled = hideNav;
+      this.noteViewNightModeEnabled = nightMode;
       this.loadState = SettingsLoadState.READY;
       this.initialized = true;
     } catch (e) {
@@ -104,6 +108,38 @@ struct SettingsPage {
       }
       this.keepDeviceAwakeEnabled = previous;
       console.error(`SettingsPage keep-awake save failed: ${JSON.stringify(e)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
+      } catch (toastError) {
+        console.error(`SettingsPage toast failed: ${JSON.stringify(toastError)}`);
+      }
+    } finally {
+      this.saveBusy = false;
+    }
+  }
+
+  // 原版 r22 case 1：note view night mode（纸墨深色外观）开关。
+  private async setNoteViewNightModeEnabled(enabled: boolean): Promise<void> {
+    const store: EditorSettingsStore | null = this.store;
+    if (store === null || this.loadState !== SettingsLoadState.READY || this.saveBusy ||
+      enabled === this.noteViewNightModeEnabled) {
+      return;
+    }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
+    const previous: boolean = this.noteViewNightModeEnabled;
+    this.noteViewNightModeEnabled = enabled;
+    this.saveBusy = true;
+    try {
+      await store.saveNoteViewNightMode(enabled);
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+    } catch (e) {
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+      this.noteViewNightModeEnabled = previous;
+      console.error(`SettingsPage night-mode save failed: ${JSON.stringify(e)}`);
       try {
         promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
       } catch (toastError) {
@@ -349,6 +385,30 @@ struct SettingsPage {
             .height(56)
             .margin({ top: 8 })
             .padding({ left: 12, right: 12 })
+            .backgroundColor(this.resolveTokens().surface)
+
+            // 原版 r22 case 1：note_view_night_mode + caption（纸墨深色外观）。
+            Row() {
+              Column() {
+                Text($r('app.string.note_view_night_mode'))
+                  .fontSize(16)
+                  .fontColor(this.resolveTokens().textPrimary)
+                Text($r('app.string.note_view_night_mode_caption'))
+                  .fontSize(12)
+                  .fontColor(this.resolveTokens().textSecondary)
+                  .margin({ top: 2 })
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+              Toggle({ type: ToggleType.Switch, isOn: this.noteViewNightModeEnabled })
+                .enabled(!this.saveBusy)
+                .onChange((enabled: boolean) => {
+                  this.setNoteViewNightModeEnabled(enabled);
+                })
+            }
+            .width('100%')
+            .margin({ top: 8 })
+            .padding({ left: 12, right: 12, top: 10, bottom: 10 })
             .backgroundColor(this.resolveTokens().surface)
 
             Button($r('app.string.default_template'))

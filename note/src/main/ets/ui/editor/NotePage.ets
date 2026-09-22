@@ -26,7 +26,7 @@ import {
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import { StrokePersistence } from '../../data/StrokePersistence';
 import { ToolRepositoryImpl } from '../../data/ToolRepositoryImpl';
-import { EditorSettingsStore, DEFAULT_KEEP_DEVICE_AWAKE } from '../../data/EditorSettingsStore';
+import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { AssetAvailabilityChange, assetAvailabilityHub } from '../../data/AssetAvailabilityHub';
 import { MaterializedOriginalRecording, OriginalRecordingStore } from '../../data/OriginalRecordingStore';
 import { OperationIdentity } from '../../data/OperationIdentity';
@@ -165,6 +165,9 @@ struct NotePage {
   private systemBarsGeneration: number = 0;
   private statusBarHiddenApplied: boolean = false;
   private navigationBarHiddenApplied: boolean = false;
+  // 原版 note_view_night_mode：编辑器内纸墨以深色外观渲染。
+  @State noteViewNightMode: boolean = false;
+  private nightModeGeneration: number = 0;
   private pageLoadInFlight: boolean = false;
   private recordingStore: OriginalRecordingStore | null = null;
   private recordingController: OriginalRecordingPlaybackController =
@@ -188,7 +191,9 @@ struct NotePage {
 
   // 注意：ArkTS 编译器会丢弃 @Component struct 中的自定义 getter，必须用普通方法
   private resolveTokens(): ThemeTokens {
-    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+    // 原版 note_view_night_mode：开启时编辑器（含纸墨）按深色渲染。
+    return ThemeStore.resolve(this.noteViewNightMode ? 'dark' :
+      this.themeMode as ThemeMode, this.systemDark);
   }
 
   aboutToAppear(): void {
@@ -245,6 +250,7 @@ struct NotePage {
     }
     this.applyKeepDeviceAwakeSetting();
     this.applyHideSystemBarsSetting();
+    this.applyNoteViewNightModeSetting();
     this.loadPages();
   }
 
@@ -259,6 +265,7 @@ struct NotePage {
       this.setKeepScreenOn(false);
     }
     this.systemBarsGeneration++;
+    this.nightModeGeneration++;
     if (this.statusBarHiddenApplied || this.navigationBarHiddenApplied) {
       this.statusBarHiddenApplied = false;
       this.navigationBarHiddenApplied = false;
@@ -378,6 +385,23 @@ struct NotePage {
       }
     } catch (e) {
       console.error(`hide-system-bars load failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // 原版 note_view_night_mode：设置开启时编辑器内纸墨深色渲染；
+  // 经 noteViewNightMode 状态驱动 chrome + canvas 双重 token 解析。
+  private async applyNoteViewNightModeSetting(): Promise<void> {
+    const generation: number = ++this.nightModeGeneration;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const enabled: boolean =
+        await new EditorSettingsStore(context).getNoteViewNightMode();
+      if (this.editorDisposed || generation !== this.nightModeGeneration) {
+        return;
+      }
+      this.noteViewNightMode = enabled;
+    } catch (e) {
+      console.error(`note-view-night-mode load failed: ${JSON.stringify(e)}`);
     }
   }
 
@@ -1318,6 +1342,8 @@ struct NotePage {
           selectionWidthSignal: this.selectionWidthSignal,
           selectionInkWidth: this.selectionInkWidth,
           clearPageSignal: this.clearPageSignal,
+          // 原版 note_view_night_mode：纸墨深色渲染直通画布 token 解析。
+          nightMode: this.noteViewNightMode,
           playbackAudioTime: this.audioPlaybackTime,
           playbackAudioSegments: this.audioPlaybackSegments,
           readRecordingAudioTime: (): string | null => {

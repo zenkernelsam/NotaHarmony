@@ -14,12 +14,15 @@ const SELECTED_DEFAULT_TEMPLATE_KEY: string = 'selectedDefaultTemplate';
 const KEEP_DEVICE_AWAKE_KEY: string = 'keepDeviceAwake';
 const HIDE_STATUS_BAR_KEY: string = 'hideStatusBar';
 const HIDE_NAVIGATION_BAR_KEY: string = 'hideNavigationBar';
+const NOTE_VIEW_NIGHT_MODE_KEY: string = 'noteViewNightMode';
 export const DEFAULT_SHAPE_DETECTION_ENABLED: boolean = true;
 // 原版 keep_device_awake / hide_status_bar / hide_navigation_bar 开关默认
 // 关（原版无真值表硬证据，登记差异）。
 export const DEFAULT_KEEP_DEVICE_AWAKE: boolean = false;
 export const DEFAULT_HIDE_STATUS_BAR: boolean = false;
 export const DEFAULT_HIDE_NAVIGATION_BAR: boolean = false;
+// 原版 note_view_night_mode 默认关（无真值表证据，登记差异）。
+export const DEFAULT_NOTE_VIEW_NIGHT_MODE: boolean = false;
 
 export interface EditorSettingsRepository {
   getShapeDetectionEnabled(): Promise<boolean>;
@@ -30,6 +33,8 @@ export interface EditorSettingsRepository {
   saveHideStatusBar(enabled: boolean): Promise<void>;
   getHideNavigationBar(): Promise<boolean>;
   saveHideNavigationBar(enabled: boolean): Promise<void>;
+  getNoteViewNightMode(): Promise<boolean>;
+  saveNoteViewNightMode(enabled: boolean): Promise<void>;
 }
 
 export interface DefaultNoteTemplateRepository {
@@ -176,6 +181,16 @@ export class EditorSettingsStore implements EditorSettingsRepository, DefaultNot
   async saveHideNavigationBar(enabled: boolean): Promise<void> {
     await this.saveBooleanPref(HIDE_NAVIGATION_BAR_KEY, enabled,
       DEFAULT_HIDE_NAVIGATION_BAR, 'saveHideNavigationBar');
+  }
+
+  // 原版 r22 case 1：note view night mode ——纸墨以深色外观渲染。
+  async getNoteViewNightMode(): Promise<boolean> {
+    return this.getBooleanPref(NOTE_VIEW_NIGHT_MODE_KEY, DEFAULT_NOTE_VIEW_NIGHT_MODE);
+  }
+
+  async saveNoteViewNightMode(enabled: boolean): Promise<void> {
+    await this.saveBooleanPref(NOTE_VIEW_NIGHT_MODE_KEY, enabled,
+      DEFAULT_NOTE_VIEW_NIGHT_MODE, 'saveNoteViewNightMode');
   }
 
   async getSelectedDefaultTemplate(): Promise<OriginalDefaultTemplateSelection> {
