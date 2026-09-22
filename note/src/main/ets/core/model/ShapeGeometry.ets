@@ -220,6 +220,25 @@ export function pointHitsShape(point: Point2D, shape: ShapeElement,
   return shapeCoveredByPath([point], shape, 0, worldTolerance);
 }
 
+// 原版 fu1.f → g() uh5 分支（套索/矩形选区）：选区多边形 ∩（填充区域 ∪
+// 描边带宽）。填充形先测多边形 ∩ 填充路径（n5dVar.T() 分支），否则测
+// 多边形 ∩ 描边带（z8a.b(path,Q())）；形状顶点整体套入多边形亦命中。
+export function selectionPathHitsShape(selectionPath: Point2D[],
+  shape: ShapeElement): boolean {
+  if (selectionPath.length < 3) {
+    return false;
+  }
+  const worldPoints: Point2D[] = shapePathPoints(shape);
+  for (const point of worldPoints) {
+    if (pointInPolygon(point, selectionPath)) {
+      return true;
+    }
+  }
+  const closed: Point2D[] = selectionPath.slice();
+  closed.push(selectionPath[0]);
+  return shapeCoveredByPath(closed, shape, 0);
+}
+
 function shapeCoveredByPath(eraserPath: Point2D[], shape: ShapeElement,
   eraserWidth: number, worldTolerance: number = 0): boolean {
   const localSubpaths: Point2D[][] = shapeLocalSubpaths(shape);

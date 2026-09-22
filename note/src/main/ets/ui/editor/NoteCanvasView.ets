@@ -2671,7 +2671,9 @@ export struct NoteCanvasView {
       } else {
         const ids: string[] = this.selectionTool.finalizeSelection(
           this.completedStrokes, this.shapes, this.textBlocks, this.imageBlocks,
-          this.selectionGroups, this.mathBlocks);
+          this.selectionGroups, this.mathBlocks,
+          (stroke: StrokeElementData, selectionPath: Point2D[]): boolean =>
+            this.eraserEngine.strokeIntersectsSelectionPath(stroke, selectionPath));
         this.selectionDrawing = false;
         hilog.info(0x0001, 'NoteCanvasView', 'selection finalized, ids=%{public}d strokes=%{public}d',
           ids.length, this.completedStrokes.length);

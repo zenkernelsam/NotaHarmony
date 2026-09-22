@@ -128,7 +128,7 @@ assert.match(resolverSource, /return \{ valid: false, leaves: \[\] \}/);
 assert.match(persistenceSource, /state\.members_value/);
 assert.match(persistenceSource, /visibility\.deleted IS NULL OR visibility\.deleted = 0/);
 assert.match(persistenceSource, /result\.groups = await this\.loadOriginalSelectionGroups/);
-assert.match(selectionSource, /if \(this\.elementBoundsSelected\(shape\.bounds\)\)/);
+assert.match(selectionSource, /selectionPathHitsShape\(selectionPath, shape\)/);
 assert.match(shapeGeometrySource,
   /!selected\.has\(shape\.id\) \|\| shape\.positionLocked === true/);
 assert.match(selectionSource, /resolveOriginalGroupSelection\(/);

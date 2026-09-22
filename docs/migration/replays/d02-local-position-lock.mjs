@@ -47,7 +47,7 @@ assert.match(blockEncoder, /bytes\[table \+ 8\] = locked \? 1 : 0/);
 assert.match(payloadFixtures, /positionLocked: false[\s\S]*expect\(unlocked\.positionLocked\)\.assertFalse/);
 assert.match(blockFixtures, /position lock presence for true and false/);
 
-assert.match(selection, /if \(this\.elementBoundsSelected\(shape\.bounds\)\)/);
+assert.match(selection, /selectionPathHitsShape\(selectionPath, shape\)/);
 assert.match(selection, /if \(selectionPathHitsTextBlock\(selectionPath, textBlock\)\)/);
 assert.doesNotMatch(selection,
   /!isTextBlockPositionLocked\(textBlock\) && selectionPathHitsTextBlock/);

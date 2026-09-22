@@ -8,6 +8,7 @@ import { OriginalSelectionGroup, resolveOriginalGroupSelection,
 import { selectionPathHitsTextBlock } from '../core/model/TextBlockGeometry';
 import { selectionPathHitsImageBlock } from '../core/model/ImageBlockGeometry';
 import { selectionPathHitsMathBlock } from '../core/model/MathBlockGeometry';
+import { selectionPathHitsShape } from '../core/model/ShapeGeometry';
 
 export enum SelectionMode {
   RECTANGLE = 0,
@@ -124,18 +125,27 @@ export class SelectionTool {
   }
 
   // 完成选区 → 计算命中笔画 ID
+  // strokeHit：原版 fu1.f/g uh5 分支——选区多边形 ∩ 笔迹描边带宽。
+  // 由持 EraserEngine 的调用方注入（采样需 cubic/widthFactor 语义）；
+  // 缺省时退回 bounds 近似（矩形相交 / 套索中心点入多边形）。
   finalizeSelection(strokes: StrokeElementData[], shapes: ShapeElement[] = [],
     textBlocks: TextBlockElement[] = [], images: ImageElement[] = [],
-    groups: OriginalSelectionGroup[] = [], mathBlocks: MathElement[] = []): string[] {
+    groups: OriginalSelectionGroup[] = [], mathBlocks: MathElement[] = [],
+    strokeHit?: (stroke: StrokeElementData, selectionPath: Point2D[]) => boolean): string[] {
     if (!this.state.isActive) {
       return [];
     }
+    const selectionPath: Point2D[] = this.selectionPath();
     const ids: string[] = [];
     for (const s of strokes) {
       if (s.renderSpec.isPartialEraser === true) {
         continue;
       }
-      if (this.state.mode === SelectionMode.RECTANGLE) {
+      if (strokeHit !== undefined) {
+        if (strokeHit(s, selectionPath)) {
+          ids.push(s.id);
+        }
+      } else if (this.state.mode === SelectionMode.RECTANGLE) {
         if (this.state.rect !== null && this.rectIntersects(this.state.rect, s.bounds)) {
           ids.push(s.id);
         }
@@ -149,10 +159,9 @@ export class SelectionTool {
       }
     }
     this.state.selectedStrokeIds = ids;
-    const selectionPath: Point2D[] = this.selectionPath();
     const shapeIds: string[] = [];
     for (const shape of shapes) {
-      if (this.elementBoundsSelected(shape.bounds)) {
+      if (selectionPathHitsShape(selectionPath, shape)) {
         shapeIds.push(shape.id);
       }
     }
@@ -448,17 +457,6 @@ export class SelectionTool {
   // === 工具方法 ===
   private rectIntersects(a: Rect2D, b: Rect2D): boolean {
     return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
-  }
-
-  private elementBoundsSelected(bounds: Rect2D): boolean {
-    if (this.state.mode === SelectionMode.RECTANGLE) {
-      return this.state.rect !== null && this.rectIntersects(this.state.rect, bounds);
-    }
-    const center: Point2D = {
-      x: (bounds.left + bounds.right) / 2,
-      y: (bounds.top + bounds.bottom) / 2,
-    };
-    return this.pointInPolygon(center, this.state.lassoPoints);
   }
 
   private selectionPath(): Point2D[] {

@@ -80,6 +80,44 @@ export class EraserEngine {
     return false;
   }
 
+  // 原版 fu1.f → g() uh5 分支：套索/矩形选区多边形与笔迹描边带宽相交
+  // ⇒ 命中（jy0.e(多边形, 笔迹路径)）。等价判定：任一采样点落入多边形
+  // （中心线入区），或采样段与多边形边距离 ≤ 该处笔带半宽
+  // （brushWidth·widthFactor·scale/2，带宽覆盖多边形顶点亦命中）。
+  strokeIntersectsSelectionPath(stroke: StrokeElementData,
+    selectionPath: Point2D[]): boolean {
+    const samples: SampledStrokePoint[] | null = this.sampleStroke(stroke);
+    if (samples === null || samples.length === 0 || selectionPath.length < 3) {
+      return false;
+    }
+    const scale: number = this.maximumLinearScale(stroke.transform);
+    const halfWidths: number[] = [];
+    for (const sample of samples) {
+      const widthFactor: number = Number.isFinite(sample.attributes.widthFactor) ?
+        Math.max(0, sample.attributes.widthFactor) : 1;
+      halfWidths.push(stroke.renderSpec.brushWidth * widthFactor * scale / 2);
+    }
+    for (const sample of samples) {
+      if (this.pointInPolygon(sample.world, selectionPath)) {
+        return true;
+      }
+    }
+    const segmentCount: number = Math.max(1, samples.length - 1);
+    for (let i: number = 0; i < segmentCount; i++) {
+      const a: Point2D = samples[i].world;
+      const b: Point2D = samples.length === 1 ? a : samples[i + 1].world;
+      const radius: number = halfWidths[i];
+      for (let j: number = 0; j < selectionPath.length; j++) {
+        const c: Point2D = selectionPath[j];
+        const d: Point2D = selectionPath[(j + 1) % selectionPath.length];
+        if (this.segmentDistance(a, b, c, d) <= radius) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   private eraseWhole(eraserPath: Point2D[], strokes: StrokeElementData[]): EraseResult {
     const deleted: string[] = [];
     if (eraserPath.length === 0) {
@@ -586,6 +624,38 @@ export class EraserEngine {
       x: matrix[0] * point.x + matrix[1] * point.y + matrix[2],
       y: matrix[3] * point.x + matrix[4] * point.y + matrix[5],
     };
+  }
+
+  private segmentDistance(a: Point2D, b: Point2D, c: Point2D, d: Point2D): number {
+    const abC: number = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    const abD: number = (b.x - a.x) * (d.y - a.y) - (b.y - a.y) * (d.x - a.x);
+    const cdA: number = (d.x - c.x) * (a.y - c.y) - (d.y - c.y) * (a.x - c.x);
+    const cdB: number = (d.x - c.x) * (b.y - c.y) - (d.y - c.y) * (b.x - c.x);
+    if (abC * abD <= 0 && cdA * cdB <= 0 &&
+      Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x)) <=
+      Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x)) &&
+      Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y)) <=
+      Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y))) {
+      return 0;
+    }
+    return Math.min(
+      Math.min(this.pointSegmentDistance(a, c, d), this.pointSegmentDistance(b, c, d)),
+      Math.min(this.pointSegmentDistance(c, a, b), this.pointSegmentDistance(d, a, b)));
+  }
+
+  private pointInPolygon(point: Point2D, polygon: Point2D[]): boolean {
+    let inside: boolean = false;
+    let previous: number = polygon.length - 1;
+    for (let current: number = 0; current < polygon.length; current++) {
+      const a: Point2D = polygon[current];
+      const b: Point2D = polygon[previous];
+      if ((a.y > point.y) !== (b.y > point.y) &&
+        point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x) {
+        inside = !inside;
+      }
+      previous = current;
+    }
+    return inside;
   }
 
   setMode(mode: EraserMode): void {
