@@ -95,6 +95,7 @@ struct NotePage {
   @State selectionColorSignal: number = 0;
   @State selectionInkColor: number = -16777216;
   @State selectionWidthSignal: number = 0;
+  @State clearPageSignal: number = 0;
   @State selectionInkWidth: number = 5;
   @State selectionWidthMinimum: number = 0.5;
   @State selectionWidthMaximum: number = 30;
@@ -1202,6 +1203,7 @@ struct NotePage {
           selectionInkColor: this.selectionInkColor,
           selectionWidthSignal: this.selectionWidthSignal,
           selectionInkWidth: this.selectionInkWidth,
+          clearPageSignal: this.clearPageSignal,
           playbackAudioTime: this.audioPlaybackTime,
           playbackAudioSegments: this.audioPlaybackSegments,
           readRecordingAudioTime: (): string | null => {
@@ -1327,6 +1329,9 @@ struct NotePage {
           },
           onToggleBookmark: () => {
             this.runPageOperation(async (): Promise<void> => this.toggleCurrentPageBookmark());
+          },
+          onClearPage: () => {
+            this.clearPageSignal++;
           },
           // Original ke1/n8 jump-to-page: the indicator tap opens a dialog;
           // Go lands on the validated 0-based index under the same page-guard

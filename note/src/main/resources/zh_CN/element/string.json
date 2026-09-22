@@ -117,6 +117,7 @@
     { "name": "move_page_earlier", "value": "页面前移" },
     { "name": "move_page_later", "value": "页面后移" },
     { "name": "bookmark_page", "value": "书签" },
+    { "name": "clear_page", "value": "清空页面" },
     { "name": "delete_page", "value": "删除页面" },
     { "name": "back", "value": "返回" },
     { "name": "untitled_note", "value": "新笔记" },

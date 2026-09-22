@@ -469,6 +469,10 @@
       "value": "Bookmark"
     },
     {
+      "name": "clear_page",
+      "value": "Clear Page"
+    },
+    {
       "name": "delete_page",
       "value": "Delete Page"
     },

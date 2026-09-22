@@ -47,6 +47,8 @@ export struct PageManagerBar {
   // selection flips its wz9.bookmarkedRegister value.
   onToggleBookmark: () => void = () => {
   };
+  onClearPage: () => void = () => {
+  };
   // Original ke1 case 20: the page indicator is clickable and opens the
   // jump-to-page dialog; Go applies the 1-based target page index.
   onJumpToPage: (pageIndex: number) => void = (_pageIndex: number): void => {
@@ -262,6 +264,12 @@ export struct PageManagerBar {
           return;
         }
         this.onToggleBookmark();
+      } },
+      { value: $r('app.string.clear_page'), action: () => {
+        if (this.busy || this.photoImportLeaseActive) {
+          return;
+        }
+        this.onClearPage();
       } },
       { value: $r('app.string.delete_page'), action: () => {
         if (!this.busy && !this.photoImportLeaseActive &&

@@ -242,6 +242,7 @@ export struct NoteCanvasView {
   @Prop @Watch('onSelectionColorSignalChange') selectionColorSignal: number = 0;
   @Prop selectionInkColor: number = -16777216;
   @Prop @Watch('onSelectionWidthSignalChange') selectionWidthSignal: number = 0;
+  @Prop @Watch('onClearPageSignalChange') clearPageSignal: number = 0;
   @Prop selectionInkWidth: number = 5;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioTime: string | null = null;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioSegments: OriginalAudioSegmentRange[] = [];
@@ -871,6 +872,39 @@ export struct NoteCanvasView {
     hilog.info(0x0001, 'NoteCanvasView', 'undo signal received, canUndo=%{public}s',
       this.undoRedo.canUndo().toString());
     this.undoStroke();
+  }
+
+  // 原版 content_manager_clear_page：清空当前页全部元素。
+  // 等价于全选后走 SelectionMenuAction.DELETE 管线——删除、撤销、
+  // 持久化与图层重建全部由现有删除路径处理；空页无操作。
+  onClearPageSignalChange(_propName: string): void {
+    this.clearCurrentPageContent();
+  }
+
+  private clearCurrentPageContent(): void {
+    if (this.elementOrder.length === 0) {
+      return;
+    }
+    const strokeIds: string[] = [];
+    const shapeIds: string[] = [];
+    const textIds: string[] = [];
+    const imageIds: string[] = [];
+    const mathIds: string[] = [];
+    for (const ref of this.elementOrder) {
+      if (ref.kind === PageElementKind.STROKE) {
+        strokeIds.push(ref.elementId);
+      } else if (ref.kind === PageElementKind.SHAPE) {
+        shapeIds.push(ref.elementId);
+      } else if (ref.kind === PageElementKind.TEXT) {
+        textIds.push(ref.elementId);
+      } else if (ref.kind === PageElementKind.IMAGE) {
+        imageIds.push(ref.elementId);
+      } else if (ref.kind === PageElementKind.MATH) {
+        mathIds.push(ref.elementId);
+      }
+    }
+    this.selectionTool.selectElementIds(strokeIds, shapeIds, textIds, imageIds, [], mathIds);
+    this.onSelectionMenuAction(SelectionMenuAction.DELETE);
   }
 
   // T-040 修复：页面设置变化 → 重绘（@Prop 更新不会自动触发 renderFrame）
