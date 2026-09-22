@@ -27,18 +27,25 @@ const branch = canvas.slice(canvas.indexOf('isSelectionActive()'),
 check(branch.includes('topmostPageElementIdAt(canvasP)'),
   'inside-press probes the topmost element (xtc.c.e)');
 check(branch.indexOf('topmostPageElementIdAt(canvasP)') <
-  branch.indexOf('this.selectionDrag = true'),
+  branch.indexOf('this.beginSelectionDragSession(canvasP)'),
   'element-level dispatch precedes the whole-selection drag');
 
+// Phase 603：itc/gtc 元素级分流抽取为 insideOverlayElementTap 助手
+//（SELECTION 面与 TEXT 面共用）。
+const helper = canvas.slice(canvas.indexOf('private insideOverlayElementTap('),
+  canvas.indexOf('private insideOverlayElementTap(') + 2400);
+check(branch.includes('this.insideOverlayElementTap(selState, insideHitId, canvasP)'),
+  'inside-press routes through the shared element-tap dispatch');
+
 // --- itc：单文本块选区命中同块 → ttc（链接探测 → qke 激活编辑） ---
-check(branch.includes('selectedTextBlockIds.length === 1') &&
-  branch.includes('selectedStrokeIds.length === 0') &&
-  branch.includes('selectedGroupIds.length === 0'),
+check(helper.includes('selectedTextBlockIds.length === 1') &&
+  helper.includes('selectedStrokeIds.length === 0') &&
+  helper.includes('selectedGroupIds.length === 0'),
   'itc guard: exactly one selected text block, nothing else');
-check(branch.includes('insideHitId === selState.selectedTextBlockIds[0]'),
+check(helper.includes('insideHitId === selState.selectedTextBlockIds[0]'),
   'itc requires the tap on the same selected element (itcVar.a)');
-const itcPath = branch.slice(branch.indexOf('insideHitId === selState.selectedTextBlockIds[0]'),
-  branch.indexOf('insideHitId === selState.selectedTextBlockIds[0]') + 700);
+const itcPath = helper.slice(helper.indexOf('insideHitId === selState.selectedTextBlockIds[0]'),
+  helper.indexOf('insideHitId === selState.selectedTextBlockIds[0]') + 700);
 check(itcPath.includes('this.linkHitOnTextBlock(insideHitId, canvasP)') &&
   itcPath.includes('this.showTextBlockLinkMenu(linkHit)'),
   'itc text tap probes links first (uw2 case4 link check)');
@@ -46,20 +53,24 @@ check(itcPath.includes('this.beginTextEditingAt(canvasP)'),
   'itc text tap activates text editing (qke → uke ake parity)');
 
 // --- gtc：纯组选区命中非文本成员 → ttc（qke 非文本 no-op，消费不拖拽） ---
-const gtc = branch.slice(branch.indexOf('selState.selectedGroupIds.length > 0'),
-  branch.indexOf('selState.selectedGroupIds.length > 0') + 900);
+const gtc = helper.slice(helper.indexOf('selState.selectedGroupIds.length > 0'),
+  helper.indexOf('selState.selectedGroupIds.length > 0') + 900);
 check(gtc.includes('selectedTextBlockIds.indexOf(insideHitId) < 0'),
   'gtc member tap excludes text blocks (xhe → wtc)');
 check(gtc.includes('resolveOriginalSelectedGroupLeaves(') &&
   gtc.includes('leaves.length === selected.size') &&
   gtc.includes('leaves.indexOf(insideHitId) >= 0'),
   'gtc requires a pure group selection and a member hit (gtc.b)');
-check(gtc.includes('this.isDrawing = true;') && gtc.includes('return;'),
+check(gtc.includes('return true;'),
   'gtc member tap consumes the gesture without dragging (qke non-text no-op)');
 
 // --- 其余路径不变：ftc/多元素/未命中成员 → 整体拖拽 ---
-check(branch.includes('this.selectionDrag = true') &&
-  branch.includes('this.dragBeforeStrokes'),
+check(branch.includes('this.beginSelectionDragSession(canvasP)'),
   'wtc whole-selection drag remains the fallback');
+const dragSess = canvas.slice(canvas.indexOf('private beginSelectionDragSession('),
+  canvas.indexOf('private beginSelectionDragSession(') + 900);
+check(dragSess.includes('this.selectionDrag = true') &&
+  dragSess.includes('this.dragBeforeStrokes'),
+  'drag session arms selectionDrag with full snapshots');
 
 console.log(`D02_ORIGINAL_SELECTED_ELEMENT_TAP_OK TOTAL=${n} FAILED=0`);

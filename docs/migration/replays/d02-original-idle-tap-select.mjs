@@ -40,29 +40,37 @@ check(idleBranch.includes('const idleHitId: string | null = this.topmostPageElem
 check(idleBranch.indexOf('topmostPageElementIdAt(canvasP)') <
   idleBranch.indexOf('beginSelection('),
   'element hit-test precedes lasso begin (vtc before fallthrough)');
-check(idleBranch.includes('resolveOriginalGroupSelection('),
-  'tap-select resolves the cqc group (uw2 case3 ntc → gtc)');
-check(idleBranch.includes('this.selectionTool.selectElementIds('),
-  'tap-select commits via selectElementIds (otc → fvbVar2.d / ntc → gtc)');
-check(idleBranch.includes('this.selectionDrag = true;'),
+check(idleBranch.includes('this.applyTapSelect(idleHitId)'),
+  'tap-select resolves+commits via applyTapSelect (uw2 case3 ntc → gtc)');
+check(idleBranch.includes('this.beginSelectionDragSession(canvasP)'),
   'same gesture continues as a selection drag (uw2 case3 → wtc/e39)');
-check(idleBranch.includes('this.lastDragPoint = { x: canvasP.x, y: canvasP.y };'),
+// Phase 603 共享助手：tap-select/拖拽会话的实现体。
+const tapSel = canvas.slice(canvas.indexOf('private applyTapSelect('),
+  canvas.indexOf('private applyTapSelect(') + 1800);
+check(tapSel.includes('resolveOriginalGroupSelection('),
+  'applyTapSelect resolves the cqc group');
+check(tapSel.includes('this.selectionTool.selectElementIds('),
+  'applyTapSelect commits via selectElementIds (otc → fvbVar2.d / ntc → gtc)');
+check(tapSel.includes('resolved.groupIds'), 'group ids committed with the entity set');
+check(tapSel.includes('this.updateSelectionOverlay();'),
+  'overlay appears immediately on tap-select (uw2 case3 → new itc/gtc state)');
+check(tapSel.includes('this.renderFrame();'),
+  'canvas repaints to show the new selection');
+const dragSess = canvas.slice(canvas.indexOf('private beginSelectionDragSession('),
+  canvas.indexOf('private beginSelectionDragSession(') + 900);
+check(dragSess.includes('this.selectionDrag = true;'),
+  'drag session arms the whole-selection drag');
+check(dragSess.includes('this.lastDragPoint = { x: canvasP.x, y: canvasP.y };'),
   'drag anchors at the down point');
-check(idleBranch.includes('this.dragBeforeStrokes = this.completedStrokes.slice();') &&
-  idleBranch.includes('this.dragBeforeMathBlocks = this.mathBlocks.slice();'),
+check(dragSess.includes('this.dragBeforeStrokes = this.completedStrokes.slice();') &&
+  dragSess.includes('this.dragBeforeMathBlocks = this.mathBlocks.slice();'),
   'drag snapshots cover every selected kind');
 
 // --- 链接命中仍优先于 TapToSelect ---
 check(canvas.indexOf('idleLinkHit') < canvas.indexOf('idleHitId'),
   'text-block link probe still wins over tap-select (ttc → qke first)');
 
-// --- 组/实体集合 ---
-const groupResolve = canvas.slice(canvas.indexOf('idleHitId'), canvas.indexOf('idleHitId') + 2200);
-check(groupResolve.includes('resolved.groupIds'), 'group ids committed with the entity set');
-check(groupResolve.includes('this.updateSelectionOverlay();'),
-  'overlay appears immediately on tap-select (uw2 case3 → new itc/gtc state)');
-check(groupResolve.includes('this.renderFrame();'),
-  'canvas repaints to show the new selection');
+// --- 组/实体集合（已由上方 applyTapSelect 切片断言覆盖） ---
 
 // --- 可执行模型：末支三态 ---
 const dispatch = (hit, z3) => {

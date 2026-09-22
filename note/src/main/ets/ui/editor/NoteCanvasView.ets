@@ -1058,6 +1058,111 @@ export struct NoteCanvasView {
     return { entityIds: [hitId], groupIds: [] };
   }
 
+  // 原版 vtc TapToSelect（uw2 case3）：ntc → gtc 组选区、otc → fvb.d 单元素；
+  // Harmony 统一 resolveOriginalGroupSelection 后 selectElementIds。
+  private applyTapSelect(hitId: string): void {
+    const resolved: OriginalGroupSelectionResult = resolveOriginalGroupSelection(
+      [hitId], this.allPageEntityIds(), this.selectionGroups);
+    const idSet: Set<string> = new Set<string>(resolved.entityIds);
+    this.selectionTool.selectElementIds(
+      this.completedStrokes.filter((s: StrokeElementData): boolean => idSet.has(s.id))
+        .map((s: StrokeElementData): string => s.id),
+      this.shapes.filter((s: ShapeElement): boolean => idSet.has(s.id))
+        .map((s: ShapeElement): string => s.id),
+      this.textBlocks.filter((t: TextBlockElement): boolean => idSet.has(t.id))
+        .map((t: TextBlockElement): string => t.id),
+      this.imageBlocks.filter((i: ImageElement): boolean => idSet.has(i.id))
+        .map((i: ImageElement): string => i.id),
+      resolved.groupIds,
+      this.mathBlocks.filter((m: MathElement): boolean => idSet.has(m.id))
+        .map((m: MathElement): string => m.id));
+    this.updateSelectionOverlay();
+    this.renderFrame();
+  }
+
+  // 原版 htc.e 角柄/旋转柄命中 → 自由变换会话启动（共用 SELECTION 面与
+  // TEXT 面；deselectMode/租约/锁定时不产出，由调用方先判）。
+  private tryStartSelectionResize(screenP: Point2D): boolean {
+    if (!this.selectionVisible || this.photoImportBusy || this.selectionPositionLocked) {
+      return false;
+    }
+    const corner: number = this.selectionResizeCornerAt(screenP);
+    const rotateHit: boolean = corner < 0 && this.selectionRotateHandleAt(screenP);
+    if (corner < 0 && !rotateHit) {
+      return false;
+    }
+    const bounds: Rect2D | null = this.selectionBoundsCanvas();
+    this.resizeBaseCenter = bounds === null ?
+      this.viewport.screenToCanvas(screenP.x, screenP.y) : {
+      x: (bounds.left + bounds.right) / 2,
+      y: (bounds.top + bounds.bottom) / 2,
+    };
+    if (rotateHit) {
+      // 原版 msc.c 旋转柄：anchor=选区中心，scale 锁 1（qpi.b f2=null 路径）。
+      this.resizeIsRotate = true;
+      this.resizeAnchor = this.resizeBaseCenter;
+      this.resizeStart = this.viewport.screenToCanvas(screenP.x, screenP.y);
+    } else {
+      const corners: Point2D[] = this.selectionScreenCorners();
+      const opposite: Point2D = corners[(corner + 2) % 4];
+      this.resizeIsRotate = false;
+      this.resizeAnchor = this.viewport.screenToCanvas(opposite.x, opposite.y);
+      this.resizeStart = this.viewport.screenToCanvas(
+        corners[corner].x, corners[corner].y);
+    }
+    this.resizeBaseTransform = this.selectionTool.getState().transform.slice();
+    this.selectionResize = true;
+    this.dragBeforeStrokes = this.completedStrokes.slice();
+    this.dragBeforeShapes = this.shapes.slice();
+    this.dragBeforeTextBlocks = this.textBlocks.slice();
+    this.dragBeforeImages = this.imageBlocks.slice();
+    this.dragBeforeMathBlocks = this.mathBlocks.slice();
+    this.isDrawing = true;
+    return true;
+  }
+
+  // 原版 dl1 覆盖层内按下的元素级 ttc 产出（itc/gtc 分支，SELECTION 面与
+  // TEXT 面共用）：itc 单文本块命中自身 → ttc → qke 激活编辑 + 链接探测；
+  // gtc 纯组选区命中非文本成员 → ttc 消费不拖拽；其余返回 false → wtc 拖拽。
+  private insideOverlayElementTap(selState: SelectionState, insideHitId: string | null,
+    canvasP: Point2D): boolean {
+    const singleText: boolean = selState.selectedTextBlockIds.length === 1 &&
+      selState.selectedStrokeIds.length === 0 && selState.selectedShapeIds.length === 0 &&
+      selState.selectedImageIds.length === 0 && selState.selectedMathIds.length === 0 &&
+      selState.selectedGroupIds.length === 0;
+    if (singleText && insideHitId === selState.selectedTextBlockIds[0]) {
+      const linkHit: TextBlockLinkHit | null = this.linkHitOnTextBlock(insideHitId, canvasP);
+      if (linkHit !== null) {
+        this.showTextBlockLinkMenu(linkHit);
+      } else {
+        this.beginTextEditingAt(canvasP);
+      }
+      return true;
+    }
+    if (selState.selectedGroupIds.length > 0 && insideHitId !== null &&
+      selState.selectedTextBlockIds.indexOf(insideHitId) < 0) {
+      const selected: Set<string> = this.selectedEntityIdSet(selState);
+      const leaves: string[] | null = resolveOriginalSelectedGroupLeaves(
+        selState.selectedGroupIds, Array.from(selected), this.selectionGroups);
+      if (leaves !== null && leaves.length === selected.size &&
+        leaves.indexOf(insideHitId) >= 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // 原版 wtc/e39 整选拖拽会话启动（共用 SELECTION 面与 TEXT 面）。
+  private beginSelectionDragSession(canvasP: Point2D): void {
+    this.selectionDrag = true;
+    this.dragBeforeStrokes = this.completedStrokes.slice();
+    this.dragBeforeShapes = this.shapes.slice();
+    this.dragBeforeTextBlocks = this.textBlocks.slice();
+    this.dragBeforeImages = this.imageBlocks.slice();
+    this.dragBeforeMathBlocks = this.mathBlocks.slice();
+    this.lastDragPoint = { x: canvasP.x, y: canvasP.y };
+  }
+
   // 原版 dl1 case2(ftc 选中态·非 deselectMode) → xtc.a(jE, null)：选区外按下时
   // 取该点最上层命中元素——命中 → vtc TapToSelect（选中该元素或其 cqc 组）；
   // 未命中 → rtc ClearSelection。返回最上层命中元素 id，未命中返回 null。
@@ -2164,6 +2269,61 @@ export struct NoteCanvasView {
         this.lastTapTime = 0;
         return;
       }
+      // 选区菜单按钮区域：交给 SelectionOverlay，不进入画布分发
+      // （与下方 SELECTION 面前的全局菜单检查一致）。
+      if (this.selectionVisible && this.isInSelectionMenu(touch.x, touch.y)) {
+        return;
+      }
+      // 原版 dl1 TEXT 面（m5f/a6f.L，rz1.C z=true）：选区手势分发在文本面上
+      // 同样生效——覆盖层内按下 → 角柄/ttc/wtc（不受压制）；覆盖层外按下或
+      // 无选区元素命中 → rtc ClearSelection / vtc TapToSelect；但
+      // z && !elh.h（裸笔、无桶键按下）时 rtc/vtc 压制为 utc → 落空由文本
+      // 手势面接管。Harmony SourceTool.Pen ≈ 裸笔（无桶键信息，fail-closed）。
+      const stylusSuppress: boolean = event.sourceTool === SourceTool.Pen;
+      if (this.selectionTool.getState().deselectMode) {
+        // deselectMode 分发（stc/qtc）不经 z3 压制门。
+        const target: DeselectHit | null = this.deselectTargetIdsAt(canvasP);
+        if (target !== null) {
+          this.selectionTool.deselectElements(target.entityIds, target.groupIds);
+        } else if (!this.pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)) {
+          this.selectionTool.cancelDeselectMode();
+        }
+        this.selectionDeselectMode = this.selectionTool.getState().deselectMode;
+        this.updateSelectionOverlay();
+        this.renderFrame();
+        this.isDrawing = true;
+        return;
+      }
+      if (this.selectionVisible &&
+        this.pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)) {
+        if (this.tryStartSelectionResize({ x: touch.x, y: touch.y })) {
+          return;
+        }
+        const selState: SelectionState = this.selectionTool.getState();
+        const insideHitId: string | null = this.topmostPageElementIdAt(canvasP);
+        if (!this.insideOverlayElementTap(selState, insideHitId, canvasP)) {
+          this.beginSelectionDragSession(canvasP);
+        }
+        this.isDrawing = true;
+        return;
+      }
+      if (!stylusSuppress) {
+        const hitId: string | null = this.topmostPageElementIdAt(canvasP);
+        if (hitId !== null) {
+          // vtc TapToSelect——选区外命中换选、无选区命中新选（uw2 case3）。
+          this.applyTapSelect(hitId);
+          this.isDrawing = true;
+          return;
+        }
+        if (this.selectionVisible) {
+          // rtc ClearSelection——覆盖层外未命中清选（ct0 case3：pke 挂起
+          // + fvb.a() + rda.a()，编辑态已于上方先行处理）。
+          this.clearSelectionWithRegisterReset();
+          this.isDrawing = true;
+          return;
+        }
+      }
+      // !z3 压制（裸笔）或落空（utc → return null）：交还文本手势面。
       const now: number = Date.now();
       const dx: number = touch.x - this.lastTapPos.x;
       const dy: number = touch.y - this.lastTapPos.y;
@@ -2225,41 +2385,8 @@ export struct NoteCanvasView {
       }
       // 原版 htc.e/fvb.f(z)：角柄命中优先于内部拖拽——命中角柄进入
       // 自由变换会话（缩放 + 旋转）；deselectMode/租约/锁定时不产出。
-      if (this.selectionVisible && !this.photoImportBusy &&
-        !this.selectionPositionLocked) {
-        const corner: number = this.selectionResizeCornerAt({ x: touch.x, y: touch.y });
-        const rotateHit: boolean = corner < 0 &&
-          this.selectionRotateHandleAt({ x: touch.x, y: touch.y });
-        if (corner >= 0 || rotateHit) {
-          const bounds: Rect2D | null = this.selectionBoundsCanvas();
-          this.resizeBaseCenter = bounds === null ?
-            this.viewport.screenToCanvas(touch.x, touch.y) : {
-            x: (bounds.left + bounds.right) / 2,
-            y: (bounds.top + bounds.bottom) / 2,
-          };
-          if (rotateHit) {
-            // 原版 msc.c 旋转柄：anchor=选区中心，scale 锁 1（qpi.b f2=null 路径）。
-            this.resizeIsRotate = true;
-            this.resizeAnchor = this.resizeBaseCenter;
-            this.resizeStart = this.viewport.screenToCanvas(touch.x, touch.y);
-          } else {
-            const corners: Point2D[] = this.selectionScreenCorners();
-            const opposite: Point2D = corners[(corner + 2) % 4];
-            this.resizeIsRotate = false;
-            this.resizeAnchor = this.viewport.screenToCanvas(opposite.x, opposite.y);
-            this.resizeStart = this.viewport.screenToCanvas(
-              corners[corner].x, corners[corner].y);
-          }
-          this.resizeBaseTransform = this.selectionTool.getState().transform.slice();
-          this.selectionResize = true;
-          this.dragBeforeStrokes = this.completedStrokes.slice();
-          this.dragBeforeShapes = this.shapes.slice();
-          this.dragBeforeTextBlocks = this.textBlocks.slice();
-          this.dragBeforeImages = this.imageBlocks.slice();
-          this.dragBeforeMathBlocks = this.mathBlocks.slice();
-          this.isDrawing = true;
-          return;
-        }
+      if (this.tryStartSelectionResize({ x: touch.x, y: touch.y })) {
+        return;
       }
       // 已选中且按下点在选区内 → 拖拽移动（画布坐标）
       hilog.info(0x0001, 'NoteCanvasView', 'selDown visible=%{public}s x=%{public}f y=%{public}f rect=(%{public}f,%{public}f,%{public}f,%{public}f)',
@@ -2272,42 +2399,14 @@ export struct NoteCanvasView {
         //   其余 → wtc 整体拖拽。
         const selState: SelectionState = this.selectionTool.getState();
         const insideHitId: string | null = this.topmostPageElementIdAt(canvasP);
-        const singleText: boolean = selState.selectedTextBlockIds.length === 1 &&
-          selState.selectedStrokeIds.length === 0 && selState.selectedShapeIds.length === 0 &&
-          selState.selectedImageIds.length === 0 && selState.selectedMathIds.length === 0 &&
-          selState.selectedGroupIds.length === 0;
-        if (singleText && insideHitId === selState.selectedTextBlockIds[0]) {
-          const linkHit: TextBlockLinkHit | null = this.linkHitOnTextBlock(insideHitId, canvasP);
-          if (linkHit !== null) {
-            this.showTextBlockLinkMenu(linkHit);
-          } else {
-            this.beginTextEditingAt(canvasP);
-          }
+        if (this.insideOverlayElementTap(selState, insideHitId, canvasP)) {
           this.isDrawing = true;
           return;
-        }
-        if (selState.selectedGroupIds.length > 0 && insideHitId !== null &&
-          selState.selectedTextBlockIds.indexOf(insideHitId) < 0) {
-          // 纯组选区（选中实体 = 组成员叶子集）命中非文本成员 → ttc。
-          const selected: Set<string> = this.selectedEntityIdSet(selState);
-          const leaves: string[] | null = resolveOriginalSelectedGroupLeaves(
-            selState.selectedGroupIds, Array.from(selected), this.selectionGroups);
-          if (leaves !== null && leaves.length === selected.size &&
-            leaves.indexOf(insideHitId) >= 0) {
-            this.isDrawing = true;
-            return;
-          }
         }
         hilog.info(0x0001, 'NoteCanvasView', 'selection drag start at (%{public}f,%{public}f) rect=(%{public}f,%{public}f)-(%{public}f,%{public}f)',
           canvasP.x, canvasP.y, this.selectionRect.left, this.selectionRect.top,
           this.selectionRect.right, this.selectionRect.bottom);
-        this.selectionDrag = true;
-        this.dragBeforeStrokes = this.completedStrokes.slice();
-        this.dragBeforeShapes = this.shapes.slice();
-        this.dragBeforeTextBlocks = this.textBlocks.slice();
-        this.dragBeforeImages = this.imageBlocks.slice();
-        this.dragBeforeMathBlocks = this.mathBlocks.slice();
-        this.lastDragPoint = { x: canvasP.x, y: canvasP.y };
+        this.beginSelectionDragSession(canvasP);
       } else if (this.selectionVisible) {
         // 原版 dl1 case2（ftc.h=false 常态）：覆盖层外按下 → xtc.a(jE,null) 命中
         // 元素 → vtc TapToSelect（该元素或其 cqc 组）；未命中 → rtc ClearSelection。
@@ -2321,23 +2420,7 @@ export struct NoteCanvasView {
             this.isDrawing = true;
             return;
           }
-          const resolved: OriginalGroupSelectionResult = resolveOriginalGroupSelection(
-            [hitId], this.allPageEntityIds(), this.selectionGroups);
-          const idSet: Set<string> = new Set<string>(resolved.entityIds);
-          this.selectionTool.selectElementIds(
-            this.completedStrokes.filter((s: StrokeElementData): boolean => idSet.has(s.id))
-              .map((s: StrokeElementData): string => s.id),
-            this.shapes.filter((s: ShapeElement): boolean => idSet.has(s.id))
-              .map((s: ShapeElement): string => s.id),
-            this.textBlocks.filter((t: TextBlockElement): boolean => idSet.has(t.id))
-              .map((t: TextBlockElement): string => t.id),
-            this.imageBlocks.filter((i: ImageElement): boolean => idSet.has(i.id))
-              .map((i: ImageElement): string => i.id),
-            resolved.groupIds,
-            this.mathBlocks.filter((m: MathElement): boolean => idSet.has(m.id))
-              .map((m: MathElement): string => m.id));
-          this.updateSelectionOverlay();
-          this.renderFrame();
+          this.applyTapSelect(hitId);
         } else {
           this.clearSelectionWithRegisterReset();
         }
@@ -2355,30 +2438,8 @@ export struct NoteCanvasView {
         // 拖动新选区；未命中 → utc 落空，由套索/矩形手势接管。
         const idleHitId: string | null = this.topmostPageElementIdAt(canvasP);
         if (idleHitId !== null) {
-          const resolved: OriginalGroupSelectionResult = resolveOriginalGroupSelection(
-            [idleHitId], this.allPageEntityIds(), this.selectionGroups);
-          const idSet: Set<string> = new Set<string>(resolved.entityIds);
-          this.selectionTool.selectElementIds(
-            this.completedStrokes.filter((s: StrokeElementData): boolean => idSet.has(s.id))
-              .map((s: StrokeElementData): string => s.id),
-            this.shapes.filter((s: ShapeElement): boolean => idSet.has(s.id))
-              .map((s: ShapeElement): string => s.id),
-            this.textBlocks.filter((t: TextBlockElement): boolean => idSet.has(t.id))
-              .map((t: TextBlockElement): string => t.id),
-            this.imageBlocks.filter((i: ImageElement): boolean => idSet.has(i.id))
-              .map((i: ImageElement): string => i.id),
-            resolved.groupIds,
-            this.mathBlocks.filter((m: MathElement): boolean => idSet.has(m.id))
-              .map((m: MathElement): string => m.id));
-          this.updateSelectionOverlay();
-          this.selectionDrag = true;
-          this.dragBeforeStrokes = this.completedStrokes.slice();
-          this.dragBeforeShapes = this.shapes.slice();
-          this.dragBeforeTextBlocks = this.textBlocks.slice();
-          this.dragBeforeImages = this.imageBlocks.slice();
-          this.dragBeforeMathBlocks = this.mathBlocks.slice();
-          this.lastDragPoint = { x: canvasP.x, y: canvasP.y };
-          this.renderFrame();
+          this.applyTapSelect(idleHitId);
+          this.beginSelectionDragSession(canvasP);
         } else {
           hilog.info(0x0001, 'NoteCanvasView', 'selection begin at (%{public}f,%{public}f) visible=%{public}s',
             canvasP.x, canvasP.y, this.selectionVisible.toString());

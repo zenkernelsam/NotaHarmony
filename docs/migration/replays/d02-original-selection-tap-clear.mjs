@@ -43,7 +43,7 @@ check(applyT.includes('this.state.selectedStrokeIds.indexOf(s.id)'),
 const branch = canvas.slice(canvas.indexOf('isSelectionActive()'),
   canvas.indexOf('isSelectionActive()') + 10000);
 check(branch.includes('pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)') &&
-  branch.includes('this.selectionDrag = true'),
+  branch.includes('this.beginSelectionDragSession(canvasP)'),
   'inside-rect press drags the whole selection');
 check(branch.indexOf('pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)') <
   branch.indexOf('topmostPageElementIdAt'),
@@ -52,16 +52,21 @@ check(branch.indexOf('pointInRect({ x: touch.x, y: touch.y }, this.selectionRect
 // --- 选区外按下 → vtc TapToSelect / rtc ClearSelection ---
 check(branch.includes('topmostPageElementIdAt(canvasP)'),
   'outside-press probes the topmost element');
-check(branch.includes('resolveOriginalGroupSelection(') &&
-  branch.includes('this.allPageEntityIds()'),
-  'hit element expanded through Original groups (cqc → gtc parity)');
-check(branch.includes('this.selectionTool.selectElementIds('),
-  'TapToSelect selects the hit element/group');
+check(branch.includes('this.applyTapSelect(hitId)'),
+  'hit element expanded+selected via applyTapSelect (cqc → gtc parity)');
 check(branch.includes('this.clearSelectionWithRegisterReset()'),
   'miss → ClearSelection');
 check(branch.indexOf('topmostPageElementIdAt') < branch.indexOf('beginSelection('),
   'TapToSelect/ClearSelection precede lasso begin (only with selection visible)');
-check(branch.includes('this.updateSelectionOverlay()'),
+// Phase 603：tap-select 实现体抽取为 applyTapSelect 助手。
+const tapSel = canvas.slice(canvas.indexOf('private applyTapSelect('),
+  canvas.indexOf('private applyTapSelect(') + 1800);
+check(tapSel.includes('resolveOriginalGroupSelection(') &&
+  tapSel.includes('this.allPageEntityIds()'),
+  'applyTapSelect resolves the cqc group');
+check(tapSel.includes('this.selectionTool.selectElementIds('),
+  'TapToSelect selects the hit element/group');
+check(tapSel.includes('this.updateSelectionOverlay()'),
   'tap selection refreshes the overlay');
 
 // --- topmostPageElementIdAt：统一 z 序最上层逐类命中 ---

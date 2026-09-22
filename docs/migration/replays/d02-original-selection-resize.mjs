@@ -54,12 +54,14 @@ check(handleBlock.includes('!this.deselectMode') &&
 // --- 按下：角柄命中优先于内部拖拽 ---
 const down = canvas.slice(canvas.indexOf('private onTouchDown('),
   canvas.indexOf('private onTouchDown(') + 9000);
-const cornerIdx = down.indexOf('this.selectionResizeCornerAt(');
+const cornerIdx = down.indexOf('this.tryStartSelectionResize(');
 const dragIdx = down.indexOf('已选中且按下点在选区内');
 check(cornerIdx > 0 && dragIdx > cornerIdx,
   'corner-handle hit precedes the inside-rect drag branch');
-const cornerBlock = down.slice(cornerIdx - 300, cornerIdx + 2400);
-check(cornerBlock.includes('!this.selectionPositionLocked'),
+// Phase 603：会话初始化抽取为 tryStartSelectionResize（SELECTION/TEXT 面共用）。
+const cornerBlock = canvas.slice(canvas.indexOf('private tryStartSelectionResize('),
+  canvas.indexOf('private tryStartSelectionResize(') + 2600);
+check(cornerBlock.includes('this.selectionPositionLocked'),
   'handles gated off when the selection is position-locked');
 check(cornerBlock.includes('corners[(corner + 2) % 4]'),
   'resize anchor = the opposite corner (htc.e pivot parity)');

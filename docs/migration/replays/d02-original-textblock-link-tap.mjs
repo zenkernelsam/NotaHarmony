@@ -72,7 +72,7 @@ check(selBranch.includes('this.linkHitOnTextBlock(hitId, canvasP)') &&
   selBranch.includes('this.showTextBlockLinkMenu(linkHit)'),
   'outside-press on text block probes links before TapToSelect');
 check(selBranch.indexOf('this.linkHitOnTextBlock(hitId, canvasP)') <
-  selBranch.indexOf('resolveOriginalGroupSelection('),
+  selBranch.indexOf('this.applyTapSelect(hitId)'),
   'link probe precedes the TapToSelect dispatch');
 check(selBranch.includes('this.textBlockLinkAt(canvasP)'),
   'no-selection press probes text-block links before the lasso');
