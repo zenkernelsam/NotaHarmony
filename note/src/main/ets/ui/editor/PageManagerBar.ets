@@ -12,6 +12,7 @@ interface PopupStateChangeEvent {
 export struct PageManagerBar {
   @Prop currentPageIndex: number = 0;
   @Prop pageCount: number = 1;
+  @Prop currentPageBookmarked: boolean = false;
   @Prop photoImportLeaseActive: boolean = false;
   @Prop busy: boolean = false;
   @Prop noteBackground: NoteBackgroundSettings = originalDefaultNoteBackgroundSettings();
@@ -32,6 +33,10 @@ export struct PageManagerBar {
   };
   onMoveNext: () => void = () => {
   };
+  // Original content-manager bookmark toggle (de2.m / ae2): a single-page
+  // selection flips its wz9.bookmarkedRegister value.
+  onToggleBookmark: () => void = () => {
+  };
   onApplyNoteBackground: (settings: NoteBackgroundSettings) => void = () => {
   };
 
@@ -47,6 +52,14 @@ export struct PageManagerBar {
         .width(this.compact ? 56 : 64)
         .textAlign(TextAlign.Center)
       this.NavigationButton('>', false)
+      if (this.currentPageBookmarked) {
+        // md.java bookmark_tall_fill overlay parity: the page indicator marks
+        // the current page when its wz9.bookmarkedRegister is BOOKMARKED.
+        Text('🔖')
+          .fontSize(14)
+          .width(20)
+          .accessibilityText($r('app.string.bookmark_page'))
+      }
 
       if (this.compact) {
         Blank()
@@ -74,6 +87,23 @@ export struct PageManagerBar {
           .bindMenu(this.buildPageMenu())
       } else {
         this.SettingsButton(false)
+        Button('🔖')
+          .width(44)
+          .height(40)
+          .fontSize(16)
+          .margin({ left: 8 })
+          .enabled(!this.busy && !this.photoImportLeaseActive)
+          .opacity(this.busy || this.photoImportLeaseActive ? 0.4 :
+            (this.currentPageBookmarked ? 1 : 0.55))
+          .fontColor(this.currentPageBookmarked ? this.resolveTokens().accent :
+            this.resolveTokens().textPrimary)
+          .accessibilityText($r('app.string.bookmark_page'))
+          .onClick(() => {
+            if (this.busy || this.photoImportLeaseActive) {
+              return;
+            }
+            this.onToggleBookmark();
+          })
         Button($r('app.string.move_page_earlier'))
           .height(40)
           .margin({ left: 8 })
@@ -202,6 +232,12 @@ export struct PageManagerBar {
           this.currentPageIndex < this.pageCount - 1) {
           this.onMoveNext();
         }
+      } },
+      { value: $r('app.string.bookmark_page'), action: () => {
+        if (this.busy || this.photoImportLeaseActive) {
+          return;
+        }
+        this.onToggleBookmark();
       } },
       { value: $r('app.string.delete_page'), action: () => {
         if (!this.busy && !this.photoImportLeaseActive &&

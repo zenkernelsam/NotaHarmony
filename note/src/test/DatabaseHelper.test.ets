@@ -12,6 +12,7 @@ import {
   DDL_ORIGINAL_LOCAL_INK_AUTHORING_GUARD,
   DDL_ORIGINAL_LOCAL_Z_ORDER_HISTORY,
   DDL_ORIGINAL_PAGE_VISIBILITY_WINNER, DDL_ORIGINAL_PAGE_BACKGROUND_WINNER,
+  DDL_ORIGINAL_PAGE_BOOKMARK_WINNER,
   DDL_ORIGINAL_NOTE_BACKGROUND_WINNER, DDL_ORIGINAL_NOTE_TITLE_WINNER,
   DDL_ORIGINAL_NOTE_HANDWRITING_LANGUAGE_WINNER,
   DDL_ORIGINAL_NOTE_ALIGN_TEXT_TO_LINES_WINNER,
@@ -43,7 +44,7 @@ import { SearchItemType } from '../main/ets/data/SearchItemType';
 export default function databaseHelperTest() {
   describe('DatabaseHelper', () => {
     it('uses the original note-scoped ClientOp identity', 0, () => {
-      expect(DB_VERSION).assertEqual(69);
+      expect(DB_VERSION).assertEqual(70);
       expect(MIGRATIONS[4].join('\n')).assertContain('PRIMARY KEY(note_id, op_id)');
     });
 
@@ -388,6 +389,23 @@ export default function databaseHelperTest() {
       expect(MIGRATIONS[66].join('\n'))
         .assertContain('title IS NULL OR length(title) BETWEEN 1 AND 256');
       expect(MIGRATIONS[66].join('\n')).assertContain('DROP TABLE original_note_title_winner');
+      expect(MIGRATIONS[70].join('\n')).assertContain('page_info ADD COLUMN bookmarked');
+      expect(MIGRATIONS[70].join('\n'))
+        .assertContain('original_deleted_page ADD COLUMN bookmarked');
+      expect(MIGRATIONS[70].join('\n'))
+        .assertContain('page_delete_checkpoint ADD COLUMN bookmarked');
+      expect(MIGRATIONS[70].join('\n')).assertContain('original_page_bookmark_winner');
+      expect(MIGRATIONS[70].join('\n')).assertContain('FROM original_page_identity');
+      expect(DDL_ORIGINAL_PAGE_BOOKMARK_WINNER).assertContain('bookmarked IN (0, 1)');
+      expect(DDL_ORIGINAL_PAGE_BOOKMARK_WINNER).assertContain(
+        'REFERENCES note_meta(id) ON DELETE CASCADE');
+      expect(DDL_ORIGINAL_PAGE_BOOKMARK_WINNER).assertContain(
+        'PRIMARY KEY(note_id, page_timestamp, page_site_id, page_index)');
+      expect(DDL_PAGE_INFO).assertContain('bookmarked INTEGER NOT NULL DEFAULT 0');
+      expect(DDL_ORIGINAL_DELETED_PAGE).assertContain(
+        'bookmarked INTEGER NOT NULL DEFAULT 0');
+      expect(DDL_PAGE_DELETE_CHECKPOINT).assertContain(
+        'bookmarked INTEGER NOT NULL DEFAULT 0');
       expect(DDL_ORIGINAL_NOTE_HANDWRITING_LANGUAGE_WINNER)
         .assertContain('handwriting_language TEXT');
       expect(DDL_ORIGINAL_NOTE_ALIGN_TEXT_TO_LINES_WINNER)

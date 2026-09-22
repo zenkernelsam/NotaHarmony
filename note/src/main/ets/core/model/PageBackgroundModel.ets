@@ -39,6 +39,7 @@ export function clonePageInfo(page: PageInfo): PageInfo {
     background: clonePageBackground(page.background),
     noteBackgroundFallback: clonePageBackground(page.noteBackgroundFallback),
     originalPageInAsset: page.originalPageInAsset,
+    bookmarked: page.bookmarked,
   };
 }
 

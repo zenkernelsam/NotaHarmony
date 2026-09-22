@@ -1247,6 +1247,7 @@ struct NotePage {
         PageManagerBar({
           currentPageIndex: this.currentPageIndex,
           pageCount: this.pages.length,
+          currentPageBookmarked: this.pages[this.currentPageIndex].bookmarked === true,
           noteBackground: this.noteBackground,
           photoImportLeaseActive: this.photoImportLeaseActive,
           busy: this.photoImportLeaseActive || this.pageOperationBusy,
@@ -1275,6 +1276,9 @@ struct NotePage {
           },
           onMoveNext: () => {
             this.runPageOperation(async (): Promise<void> => this.moveCurrentPage(1));
+          },
+          onToggleBookmark: () => {
+            this.runPageOperation(async (): Promise<void> => this.toggleCurrentPageBookmark());
           },
           onApplyNoteBackground: (settings: NoteBackgroundSettings) => {
             this.runPageOperation(
@@ -1520,6 +1524,31 @@ struct NotePage {
     this.pages = this.orderPages(this.pages, orderAfter);
     this.currentPageIndex = targetIndex;
     this.historyBridge.pushPageAction(action, history);
+  }
+
+  // ae2 parity: the content-manager bookmark action toggles the selected page —
+  // BOOKMARKED when it is currently UNBOOKMARKED, otherwise UNBOOKMARKED. It is a
+  // wz9 register write, not an undoable structure op.
+  private async toggleCurrentPageBookmark(): Promise<void> {
+    if (this.pageRepo === null || this.pages.length === 0) {
+      return;
+    }
+    const selectedPageId: string = this.pages[this.currentPageIndex].pageId;
+    const current: PageInfo = this.pages[this.currentPageIndex];
+    const next: boolean = current.bookmarked !== true;
+    const persisted: PageInfo = await this.pageRepo.setPageBookmarked(
+      this.noteId, selectedPageId, next);
+    if (this.editorDisposed) {
+      return;
+    }
+    const updated: PageInfo[] = this.pages.slice();
+    const index: number = updated.findIndex((page: PageInfo): boolean =>
+      page.pageId === selectedPageId);
+    if (index < 0) {
+      return;
+    }
+    updated[index] = this.clonePage(persisted);
+    this.pages = updated;
   }
 
   private async applyPageHistory(action: UndoableAction, isUndo: boolean,

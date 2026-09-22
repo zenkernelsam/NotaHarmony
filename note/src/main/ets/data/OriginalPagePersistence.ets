@@ -7,7 +7,7 @@ import {
   MAX_ORIGINAL_CREATE_PAGE_COUNT, ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE,
   OriginalCreatePageOperationApplier,
 } from './OriginalCreatePageOperation';
-import { encodeOriginalModifyPageMove } from './OriginalModifyPagePayloadEncoder';
+import { encodeOriginalModifyPageMove, encodeOriginalModifyPageBookmark } from './OriginalModifyPagePayloadEncoder';
 import {
   ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE, OriginalModifyPageOperationApplier,
 } from './OriginalModifyPageOperation';
@@ -187,6 +187,31 @@ export async function persistOriginalPageReorder(store: relationalStore.RdbStore
   };
 }
 
+// Original wz9.bookmarkedRegister write path: a local bookmark toggle emits a
+// ModifyPage op whose field 3 (oz9) wins the LWW register by op identity.
+export async function persistOriginalPageBookmark(store: relationalStore.RdbStore,
+  noteId: string, pageId: string, bookmarked: boolean): Promise<PersistedOriginalPageMutation> {
+  if (!await hasAlignedOriginalPageState(store, noteId)) {
+    throw new Error('local page bookmark requires complete aligned original page identity coverage');
+  }
+  const page: OriginalSequenceIdentity = await readPageIdentity(store, noteId, pageId);
+  const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+  const payload: Uint8Array = encodeOriginalModifyPageBookmark([page], bookmarked);
+  const operation: StoredSyncedOperation = storedOperation(
+    noteId, identity, ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE, payload);
+  const result: SyncedOperationApplyResult = await new OriginalModifyPageOperationApplier().apply(
+    store, operation);
+  if (result.deferredReason !== null) {
+    throw new Error(`local ModifyPage bookmark was deferred: ${result.deferredReason}`);
+  }
+  await appendOperation(store, {
+    noteId: noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_PAGE,
+    payload: operation.rawOperation, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+    editorSiteId: identity.siteId, uploadImmediately: true,
+  });
+  return { page: await readPage(store, noteId, pageId), payload: operation.rawOperation };
+}
+
 export async function originalPageIdentityExists(store: relationalStore.RdbStore,
   noteId: string, pageId: string): Promise<boolean> {
   const rows = await store.querySql(
@@ -271,7 +296,7 @@ async function readPage(store: relationalStore.RdbStore, noteId: string,
   pageId: string): Promise<PageInfo> {
   const rows = await store.querySql(
     `SELECT page_id, page_index, size, template, orientation, width_mm, height_mm,
-      background_json, original_page_in_asset
+      background_json, original_page_in_asset, bookmarked
        FROM page_info WHERE note_id = ? AND page_id = ?`, [noteId, pageId]);
   try {
     if (!rows.goToFirstRow()) {
@@ -291,6 +316,7 @@ async function readPage(store: relationalStore.RdbStore, noteId: string,
         rows.getString(backgroundColumn)),
       originalPageInAsset: rows.isColumnNull(pageInAssetColumn) ? 0 :
         rows.getLong(pageInAssetColumn),
+      bookmarked: rows.getLong(rows.getColumnIndex('bookmarked')) === 1,
     });
   } finally {
     rows.close();

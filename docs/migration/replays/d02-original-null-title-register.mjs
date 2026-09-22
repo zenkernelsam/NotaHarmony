@@ -88,7 +88,7 @@ check('Harmony materializes a null register as an empty title projection',
   /materializeOriginalNoteTitle\(value: string \| null\)/.test(policy) &&
     /return value === null \? '' : value/.test(policy));
 check('v66 rebuilds the title winner with a nullable constrained title column',
-  /DB_VERSION: number = 69/.test(database) &&
+  /DB_VERSION: number = 70/.test(database) &&
     /original_note_title_winner_v66/.test(database) &&
     /title TEXT CHECK \(title IS NULL OR length\(title\) BETWEEN 1 AND 256\)/.test(database));
 check('the reducer no longer drops a winning explicit-null title',
@@ -118,7 +118,7 @@ check('editor Undo validates the display projection but writes the exact nullabl
     /materializeOriginalNoteTitle\(source\)/.test(editor) &&
     /action\.titleBefore = persisted\.before/.test(editor));
 check('ArkTS fixtures cover v66, explicit-null FlatBuffer, NTL2 and legacy NTL1',
-  /expect\(DB_VERSION\)\.assertEqual\(69\)/.test(databaseFixture) &&
+  /expect\(DB_VERSION\)\.assertEqual\(70\)/.test(databaseFixture) &&
     /flatBufferSetMetadataNullTitle\(\)/.test(inboxFixture) &&
     /encodeOriginalSetMetadataTitle\(null\)/.test(payloadFixture) &&
     /decodes legacy NTL1/.test(payloadFixture) &&

@@ -31,6 +31,7 @@ export interface OriginalModifyPagePayload {
   hasBackground: boolean;
   background: OriginalDecodedPageBackground | null;
   hasBookmarked: boolean;
+  bookmarked: boolean;
 }
 
 interface PositionRow {
@@ -86,7 +87,10 @@ export function decodeOriginalModifyPageTable(
     moveTo: moveTo,
     hasBackground: backgroundSetter !== null,
     background: backgroundTable === null ? null : decodeOriginalPageBackgroundTable(backgroundTable),
+    // ge8.k(): field 3 is the oz9 enum byte; absent means no write, a present
+    // byte maps 1 to BOOKMARKED and every other value back to UNBOOKMARKED.
     hasBookmarked: table.hasField(3),
+    bookmarked: table.readUint8(3, 0) === 1,
   };
 }
 
@@ -115,9 +119,6 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
       payload.background.background.pdf !== null &&
       payload.background.background.pdf.pagesConsumed !== payload.pages.length) {
       return { deferredReason: 'MODIFY_PAGE_PDF_PAGE_COUNT_MISMATCH' };
-    }
-    if (payload.hasBookmarked) {
-      return { deferredReason: 'MODIFY_PAGE_BOOKMARK_UNSUPPORTED' };
     }
     if (this.hasRepeatedPage(payload.pages)) {
       return { deferredReason: 'MODIFY_PAGE_REPEATS_PAGE' };
@@ -169,6 +170,10 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
         }
       }
     }
+    if (payload.hasBookmarked &&
+      await this.applyBookmark(store, operation, payload.pages, payload.bookmarked)) {
+      changed = true;
+    }
     if (changed) {
       await this.orderStore.advanceStructureRevision(store, operation.noteId, 'modify-page');
     }
@@ -208,6 +213,105 @@ export class OriginalModifyPageOperationApplier implements SyncedOperationApplie
       changed = true;
     }
     return changed;
+  }
+
+  private async applyBookmark(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, pages: OriginalSequenceIdentity[],
+    bookmarked: boolean): Promise<boolean> {
+    let changed: boolean = false;
+    for (const page of pages) {
+      const winner: OperationIdentity | null =
+        await this.readBookmarkWinner(store, operation.noteId, page);
+      // Same LWW rule as fqb.c: a strictly newer op replaces the register.
+      if (winner !== null && compareOperationIdentity(operation, winner) <= 0) {
+        continue;
+      }
+      await this.writeBookmarkWinner(store, operation, page, bookmarked, winner);
+      await this.updateMaterializedBookmark(store, operation.noteId, page, bookmarked);
+      changed = true;
+    }
+    return changed;
+  }
+
+  private async readBookmarkWinner(store: relationalStore.RdbStore, noteId: string,
+    page: OriginalSequenceIdentity): Promise<OperationIdentity | null> {
+    const rows = await store.querySql(
+      `SELECT winner_timestamp, winner_site_id FROM original_page_bookmark_winner
+       WHERE note_id = ? AND page_timestamp = ? AND page_site_id = ? AND page_index = ?`,
+      [noteId, page.timestamp, page.siteId, page.index]);
+    try {
+      if (!rows.goToFirstRow()) {
+        return null;
+      }
+      return {
+        timestamp: rows.getLong(rows.getColumnIndex('winner_timestamp')),
+        siteId: rows.getLong(rows.getColumnIndex('winner_site_id')),
+      };
+    } finally {
+      rows.close();
+    }
+  }
+
+  private async writeBookmarkWinner(store: relationalStore.RdbStore,
+    operation: StoredSyncedOperation, page: OriginalSequenceIdentity,
+    bookmarked: boolean, previous: OperationIdentity | null): Promise<void> {
+    const values: relationalStore.ValuesBucket = {
+      'note_id': operation.noteId,
+      'page_timestamp': page.timestamp,
+      'page_site_id': page.siteId,
+      'page_index': page.index,
+      'winner_timestamp': operation.timestamp,
+      'winner_site_id': operation.siteId,
+      'bookmarked': bookmarked ? 1 : 0,
+    };
+    if (previous === null) {
+      await store.insert('original_page_bookmark_winner', values);
+      return;
+    }
+    const predicates = new relationalStore.RdbPredicates('original_page_bookmark_winner');
+    predicates.equalTo('note_id', operation.noteId);
+    predicates.equalTo('page_timestamp', page.timestamp);
+    predicates.equalTo('page_site_id', page.siteId);
+    predicates.equalTo('page_index', page.index);
+    predicates.equalTo('winner_timestamp', previous.timestamp);
+    predicates.equalTo('winner_site_id', previous.siteId);
+    const updated: number = await store.update(values, predicates);
+    if (updated !== 1) {
+      throw new Error('original page bookmark winner changed concurrently');
+    }
+  }
+
+  private async updateMaterializedBookmark(store: relationalStore.RdbStore, noteId: string,
+    page: OriginalSequenceIdentity, bookmarked: boolean): Promise<void> {
+    const rows = await store.querySql(
+      `SELECT page_id FROM original_page_identity
+       WHERE note_id = ? AND seq_timestamp = ? AND seq_site_id = ? AND seq_index = ?`,
+      [noteId, page.timestamp, page.siteId, page.index]);
+    let pageId: string | null;
+    try {
+      if (!rows.goToFirstRow()) {
+        throw new Error('original bookmark page identity is missing');
+      }
+      const column: number = rows.getColumnIndex('page_id');
+      pageId = rows.isColumnNull(column) ? null : rows.getString(column);
+    } finally {
+      rows.close();
+    }
+    const values: relationalStore.ValuesBucket = { 'bookmarked': bookmarked ? 1 : 0 };
+    if (pageId !== null) {
+      const live = new relationalStore.RdbPredicates('page_info');
+      live.equalTo('note_id', noteId);
+      live.equalTo('page_id', pageId);
+      if (await store.update(values, live) === 1) {
+        return;
+      }
+    }
+    const archived = new relationalStore.RdbPredicates('original_deleted_page');
+    archived.equalTo('note_id', noteId);
+    archived.equalTo('page_timestamp', page.timestamp);
+    archived.equalTo('page_site_id', page.siteId);
+    archived.equalTo('page_index', page.index);
+    await store.update(values, archived);
   }
 
   private async readBackgroundWinner(store: relationalStore.RdbStore, noteId: string,

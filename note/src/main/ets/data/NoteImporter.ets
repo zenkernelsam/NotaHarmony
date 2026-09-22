@@ -217,7 +217,8 @@ export class NoteImporter {
         paperSize: page.paperSize, paperTemplate: page.paperTemplate,
         orientation: page.orientation, widthMm: page.widthMm, heightMm: page.heightMm,
         background: clonePageBackground(page.background),
-        originalPageInAsset: packagePageInAsset(page), elements: elements });
+        originalPageInAsset: packagePageInAsset(page), bookmarked: page.bookmarked,
+        elements: elements });
     }
     if (parsedPages.length === 0 && manifest.pageCount > 0) {
       return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
@@ -321,6 +322,7 @@ export class NoteImporter {
           heightMm: page.heightMm === undefined ? (landscape ? mm[0] : mm[1]) : page.heightMm,
           background: clonePageBackground(page.background),
           originalPageInAsset: page.originalPageInAsset,
+          bookmarked: page.bookmarked,
         };
         await pageRepo.addImportedPage(note.id, pageInfo);
         const pageStrokes: StrokeElementData[] = [];

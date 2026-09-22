@@ -51,6 +51,41 @@ export function encodeOriginalModifyPageMove(pages: OriginalSequenceIdentity[],
   return bytes;
 }
 
+export function encodeOriginalModifyPageBookmark(pages: OriginalSequenceIdentity[],
+  bookmarked: boolean): Uint8Array {
+  if (pages.length < 1 || pages.length > MAX_ORIGINAL_MODIFY_PAGE_COUNT) {
+    throw new Error('local ModifyPage bookmark page count is invalid');
+  }
+  const seen: Set<string> = new Set<string>();
+  for (const page of pages) {
+    validateOriginalSequenceIdentity(page);
+    const key: string = encodeOriginalSequenceId(page);
+    if (seen.has(key)) {
+      throw new Error('local ModifyPage bookmark repeats a page identity');
+    }
+    seen.add(key);
+  }
+
+  // ge8 fields are pages(vector<SeqId>), moveTo(SeqMove), background and bookmark
+  // (oz9 ubyte). A bookmark write keeps field 3 present with the enum byte and
+  // omits fields 1-2 entirely; the 4-aligned page vector follows the 13-byte table.
+  const rootVtable: number = 4;
+  const rootTable: number = 16;
+  const pageVector: number = 32;
+  const bytes: Uint8Array = new Uint8Array(pageVector + 4 + pages.length * 12);
+
+  writeU32(bytes, 0, rootTable);
+  writeVtable(bytes, rootVtable, 13, [4, 0, 0, 12]);
+  writeU32(bytes, rootTable, rootTable - rootVtable);
+  writeU32(bytes, rootTable + 4, pageVector - (rootTable + 4));
+  bytes[rootTable + 12] = bookmarked ? 1 : 0;
+  writeU32(bytes, pageVector, pages.length);
+  for (let index: number = 0; index < pages.length; index++) {
+    writeSequence(bytes, pageVector + 4 + index * 12, pages[index]);
+  }
+  return bytes;
+}
+
 function align4(value: number): number {
   return (value + 3) & ~3;
 }

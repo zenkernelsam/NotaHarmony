@@ -990,7 +990,7 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
     }
     const rows = await store.querySql(
       `SELECT size, template, orientation, width_mm, height_mm, background_json,
-        original_page_in_asset, content_revision,
+        original_page_in_asset, bookmarked, content_revision,
         (SELECT indexed_revision FROM search_page_state state
           WHERE state.note_id = page.note_id AND state.page_id = page.page_id) AS indexed_revision
        FROM page_info page WHERE note_id = ? AND page_id = ?`, [noteId, identity.pageId]);
@@ -1016,6 +1016,7 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
         'background_json': rows.isColumnNull(backgroundColumn) ? null : rows.getString(backgroundColumn),
         'original_page_in_asset': rows.isColumnNull(pageInAssetColumn)
           ? null : rows.getLong(pageInAssetColumn),
+        'bookmarked': rows.getLong(rows.getColumnIndex('bookmarked')),
         'content_revision': rows.getLong(rows.getColumnIndex('content_revision')),
         'indexed_revision': rows.isColumnNull(indexedColumn) ? null : rows.getLong(indexedColumn),
       };
@@ -1049,7 +1050,7 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
     page: OriginalSequenceIdentity, temporaryIndex: number): Promise<void> {
     const rows = await store.querySql(
       `SELECT page_id, size, template, orientation, width_mm, height_mm, background_json,
-        original_page_in_asset,
+        original_page_in_asset, bookmarked,
         content_revision, indexed_revision
        FROM original_deleted_page
        WHERE note_id = ? AND page_timestamp = ? AND page_site_id = ? AND page_index = ?`,
@@ -1078,6 +1079,7 @@ export class OriginalDeleteEntitiesOperationApplier implements SyncedOperationAp
         'background_json': rows.isColumnNull(backgroundColumn) ? null : rows.getString(backgroundColumn),
         'original_page_in_asset': rows.isColumnNull(pageInAssetColumn)
           ? null : rows.getLong(pageInAssetColumn),
+        'bookmarked': rows.getLong(rows.getColumnIndex('bookmarked')),
         'content_revision': rows.getLong(rows.getColumnIndex('content_revision')),
       };
     } finally {

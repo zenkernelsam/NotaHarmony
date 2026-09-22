@@ -129,6 +129,9 @@ export interface PageInfo {
   // Original wz9 pageInAsset register. Undefined denotes a local/non-original
   // page; original pages always materialize an unsigned uint32 value.
   originalPageInAsset?: number;
+  // Original wz9 bookmarkedRegister (oz9: UNBOOKMARKED/BOOKMARKED). Undefined
+  // denotes a local/non-original page; original pages materialize a boolean.
+  bookmarked?: boolean;
 }
 
 // 笔记元数据（对应 SyncedNoteMetadata 简化版）

@@ -129,6 +129,7 @@ export class NoteExporter {
           // appearance so a nullable original page does not lose its note fallback.
           background: background,
           originalPageInAsset: p.originalPageInAsset,
+          bookmarked: p.bookmarked,
           elements: elementObjects,
         };
         writer.addEntry(`pages/page_${i}.json`, stringToBytes(serializePage(pageData)), true, note.updatedAt);

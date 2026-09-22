@@ -28,7 +28,7 @@ import { SearchItemType } from './SearchItemType';
 import { decodeStoredPageElement } from './StrokePersistence';
 import {
   hasAlignedOriginalPageState, originalPageIdentityExists, persistOriginalCreatePage,
-  persistOriginalPageReorder, persistOriginalPageVisibility,
+  persistOriginalPageBookmark, persistOriginalPageReorder, persistOriginalPageVisibility,
 } from './OriginalPagePersistence';
 import {
   persistOriginalNoteBackground, PersistedOriginalNoteBackground,
@@ -157,6 +157,7 @@ export class PageRepositoryImpl implements PageRepository {
           'background_json': serializePageBackground(assignedPage.background),
           'original_page_in_asset': assignedPage.originalPageInAsset === undefined
             ? null : assignedPage.originalPageInAsset,
+          'bookmarked': assignedPage.bookmarked === true ? 1 : 0,
         };
         await store.insert('page_info', bucket);
         const after: PageInfo[] = await this.queryPages(store, noteId);
@@ -437,6 +438,46 @@ export class PageRepositoryImpl implements PageRepository {
     }
   }
 
+  async setPageBookmarked(noteId: string, pageId: string, bookmarked: boolean): Promise<PageInfo> {
+    if (noteId.length === 0 || pageId.length === 0) {
+      throw new Error('setPageBookmarked failed: note ID and page ID are required');
+    }
+    const release: MutexRelease = await editorPersistenceMutex.lock();
+    const store: relationalStore.RdbStore = this.db.getStore();
+    try {
+      await store.beginTransaction();
+      try {
+        if (await originalPageIdentityExists(store, noteId, pageId)) {
+          // Original wz9.bookmarkedRegister: the ModifyPage op wins by LWW and
+          // materializes page_info.bookmarked inside the reducer.
+          const persisted = await persistOriginalPageBookmark(store, noteId, pageId, bookmarked);
+          await store.commit();
+          return persisted.page;
+        }
+        const bucket: relationalStore.ValuesBucket = { 'bookmarked': bookmarked ? 1 : 0 };
+        const predicates = new relationalStore.RdbPredicates('page_info');
+        predicates.equalTo('note_id', noteId);
+        predicates.equalTo('page_id', pageId);
+        const updated: number = await store.update(bucket, predicates);
+        if (updated !== 1) {
+          throw new Error(`expected to update one page, updated ${updated}`);
+        }
+        const pages: PageInfo[] = await this.queryPages(store, noteId);
+        const index: number = this.findPageIndex(pages, pageId);
+        if (index < 0) {
+          throw new Error('bookmarked page does not belong to note');
+        }
+        await store.commit();
+        return this.clonePage(pages[index]);
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`setPageBookmarked failed: ${JSON.stringify(e)}`);
+      }
+    } finally {
+      release();
+    }
+  }
+
   private rowToPage(resultSet: relationalStore.ResultSet): PageInfo {
     const page: PageInfo = {
       pageId: resultSet.getString(resultSet.getColumnIndex('page_id')),
@@ -448,6 +489,7 @@ export class PageRepositoryImpl implements PageRepository {
       heightMm: resultSet.getDouble(resultSet.getColumnIndex('height_mm')),
       background: this.readBackground(resultSet),
       originalPageInAsset: this.readPageInAsset(resultSet),
+      bookmarked: resultSet.getLong(resultSet.getColumnIndex('bookmarked')) === 1,
     };
     validatePageDimensions(page);
     return page;
@@ -596,6 +638,7 @@ export class PageRepositoryImpl implements PageRepository {
       'height_mm': page.heightMm,
       'background_json': serializePageBackground(page.background),
       'original_page_in_asset': page.originalPageInAsset === undefined ? null : page.originalPageInAsset,
+      'bookmarked': page.bookmarked === true ? 1 : 0,
       'content_revision': contentRevision,
       'indexed_revision': indexedRevision,
       'created_time': history.actionTime,
@@ -667,7 +710,7 @@ export class PageRepositoryImpl implements PageRepository {
     actionId: string): Promise<PageDeleteCheckpoint> {
     const resultSet = await store.querySql(
       `SELECT page_id, page_index, size, template, orientation, width_mm, height_mm, background_json,
-        original_page_in_asset,
+        original_page_in_asset, bookmarked,
         content_revision, indexed_revision, created_time
        FROM page_delete_checkpoint WHERE note_id = ? AND action_id = ?`, [noteId, actionId]);
     let checkpoint: PageDeleteCheckpoint | undefined = undefined;
@@ -685,6 +728,7 @@ export class PageRepositoryImpl implements PageRepository {
         heightMm: resultSet.getDouble(resultSet.getColumnIndex('height_mm')),
         background: this.readBackground(resultSet),
         originalPageInAsset: this.readPageInAsset(resultSet),
+        bookmarked: resultSet.getLong(resultSet.getColumnIndex('bookmarked')) === 1,
       };
       validatePageDimensions(page);
       const indexedColumn: number = resultSet.getColumnIndex('indexed_revision');
@@ -892,6 +936,7 @@ export class PageRepositoryImpl implements PageRepository {
       'height_mm': page.heightMm,
       'background_json': serializePageBackground(page.background),
       'original_page_in_asset': page.originalPageInAsset === undefined ? null : page.originalPageInAsset,
+      'bookmarked': page.bookmarked === true ? 1 : 0,
       'content_revision': checkpoint.contentRevision,
     });
   }

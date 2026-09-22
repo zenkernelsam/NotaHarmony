@@ -45,6 +45,7 @@ export interface PageData {
   heightMm?: number;
   background?: PageBackground | null;
   originalPageInAsset?: number;
+  bookmarked?: boolean;
   elements: object[];    // NoteElement JSON 数组
 }
 
@@ -204,6 +205,9 @@ export function parsePage(json: string): PageData | null {
     if (parsed.originalPageInAsset !== undefined &&
       (!Number.isSafeInteger(parsed.originalPageInAsset) || parsed.originalPageInAsset < 0 ||
         parsed.originalPageInAsset > 0xFFFFFFFF)) {
+      return null;
+    }
+    if (parsed.bookmarked !== undefined && typeof parsed.bookmarked !== 'boolean') {
       return null;
     }
     try {

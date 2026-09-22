@@ -147,6 +147,8 @@ interface BootstrapPageState {
   visibility: BootstrapVisibilityWinner | null;
   background: OriginalDecodedPageBackground | null;
   backgroundWinner: OperationIdentity | null;
+  bookmarked: boolean;
+  bookmarkWinner: OperationIdentity | null;
   pageInAsset: number;
   pageInAssetWinner: OperationIdentity;
 }
@@ -287,7 +289,12 @@ export class OriginalNoteBundlePageIdentityBootstrapper {
     }
     const backgroundChanged: boolean = await applyBootstrapBackgrounds(
       store, expectedNoteId, history, pageIdBySequence);
-    return { applied: applied || contentResult.applied || backgroundChanged, deferredReason: null };
+    const bookmarkChanged: boolean = await applyBootstrapBookmarks(
+      store, expectedNoteId, history, pageIdBySequence);
+    return {
+      applied: applied || contentResult.applied || backgroundChanged || bookmarkChanged,
+      deferredReason: null,
+    };
   }
 }
 
@@ -836,6 +843,8 @@ function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): Boot
       pages.set(key, {
         identity: identity, visibility: null, background: payload.background,
         backgroundWinner: { timestamp: operation.timestamp, siteId: operation.siteId },
+        bookmarked: payload.bookmarked,
+        bookmarkWinner: { timestamp: operation.timestamp, siteId: operation.siteId },
         pageInAsset: initialPageInAsset,
         pageInAssetWinner: { timestamp: operation.timestamp, siteId: operation.siteId },
       });
@@ -874,9 +883,6 @@ function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): Boot
       payload.background.background.pdf.pagesConsumed !== payload.pages.length) {
       return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_PDF_PAGE_COUNT_MISMATCH');
     }
-    if (payload.hasBookmarked) {
-      return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_BOOKMARK_UNSUPPORTED');
-    }
     if (hasRepeatedPages(payload.pages)) {
       return replayDeferred('NOTE_BUNDLE_MODIFY_PAGE_REPEATS_PAGE');
     }
@@ -902,6 +908,21 @@ function replayBootstrapHistory(operations: OriginalNoteBundleOperation[]): Boot
           compareOperationIdentity(operation, state.pageInAssetWinner) > 0) {
           state.pageInAsset = payload.background.background.pdf.pageOffset + pageIndex;
           state.pageInAssetWinner = { timestamp: operation.timestamp, siteId: operation.siteId };
+        }
+      }
+    }
+    if (payload.hasBookmarked) {
+      // ge8.k() field 3: the oz9 register is LWW per page — only a strictly
+      // newer op replaces the bookmarked state (wz9.bookmarkedRegister).
+      for (const page of payload.pages) {
+        const state: BootstrapPageState | undefined = pages.get(encodeOriginalSequenceId(page));
+        if (state === undefined) {
+          throw new Error('validated note bundle bookmark page disappeared');
+        }
+        if (state.bookmarkWinner === null ||
+          compareOperationIdentity(operation, state.bookmarkWinner) > 0) {
+          state.bookmarked = payload.bookmarked;
+          state.bookmarkWinner = { timestamp: operation.timestamp, siteId: operation.siteId };
         }
       }
     }
@@ -1221,6 +1242,17 @@ async function insertBootstrapHistory(store: relationalStore.RdbStore, noteId: s
         'background_json': background === null ? null : serializePageBackground(background.background),
       });
     }
+    if (page.bookmarkWinner !== null) {
+      await store.insert('original_page_bookmark_winner', {
+        'note_id': noteId,
+        'page_timestamp': page.identity.timestamp,
+        'page_site_id': page.identity.siteId,
+        'page_index': page.identity.index,
+        'winner_timestamp': page.bookmarkWinner.timestamp,
+        'winner_site_id': page.bookmarkWinner.siteId,
+        'bookmarked': page.bookmarked ? 1 : 0,
+      });
+    }
     await store.insert('original_page_in_asset_winner', {
       'note_id': noteId,
       'page_timestamp': page.identity.timestamp,
@@ -1258,6 +1290,7 @@ async function insertBootstrapHistory(store: relationalStore.RdbStore, noteId: s
       'background_json': page.background === null ? null :
         serializePageBackground(page.background.background),
       'original_page_in_asset': page.pageInAsset,
+      'bookmarked': page.bookmarked ? 1 : 0,
       'content_revision': 0,
       'indexed_revision': null,
     });
@@ -1347,6 +1380,58 @@ async function storedPageBackgroundMatches(store: relationalStore.RdbStore, note
   }
 }
 
+async function applyBootstrapBookmarks(store: relationalStore.RdbStore, noteId: string,
+  history: BootstrapHistory, pageIdBySequence: Map<string, string>): Promise<boolean> {
+  let changed: boolean = false;
+  const states: BootstrapPageState[] = [];
+  history.pages.forEach((page: BootstrapPageState): void => {
+    states.push(page);
+  });
+  for (const state of states) {
+    const pageId: string | undefined = pageIdBySequence.get(encodeOriginalSequenceId(state.identity));
+    if (pageId === undefined || state.bookmarkWinner === null) {
+      continue;
+    }
+    const archived: boolean = state.visibility !== null && state.visibility.deleted;
+    const table: string = archived ? 'original_deleted_page' : 'page_info';
+    const rows = archived ? await store.querySql(
+      `SELECT bookmarked FROM original_deleted_page
+       WHERE note_id = ? AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+         AND page_id = ?`,
+      [noteId, state.identity.timestamp, state.identity.siteId, state.identity.index, pageId]) :
+      await store.querySql(
+        `SELECT bookmarked FROM page_info WHERE note_id = ? AND page_id = ?`,
+        [noteId, pageId]);
+    let storedBookmarked: number;
+    try {
+      if (!rows.goToFirstRow()) {
+        throw new Error('note bundle bookmark page is missing');
+      }
+      storedBookmarked = rows.getLong(rows.getColumnIndex('bookmarked'));
+    } finally {
+      rows.close();
+    }
+    if (storedBookmarked === (state.bookmarked ? 1 : 0)) {
+      continue;
+    }
+    const predicates = new relationalStore.RdbPredicates(table);
+    predicates.equalTo('note_id', noteId);
+    if (archived) {
+      predicates.equalTo('page_timestamp', state.identity.timestamp);
+      predicates.equalTo('page_site_id', state.identity.siteId);
+      predicates.equalTo('page_index', state.identity.index);
+    }
+    predicates.equalTo('page_id', pageId);
+    const updated: number = await store.update(
+      { 'bookmarked': state.bookmarked ? 1 : 0 }, predicates);
+    if (updated !== 1) {
+      throw new Error(`note bundle bookmark update affected ${updated} rows`);
+    }
+    changed = true;
+  }
+  return changed;
+}
+
 function groupValues(noteId: string, operation: OriginalNoteBundleOperation,
   location: OriginalSequenceIdentity | null, countColumn: string,
   count: number, modifiedTime: string): relationalStore.ValuesBucket {
@@ -1377,6 +1462,7 @@ async function existingMappingMatches(store: relationalStore.RdbStore, noteId: s
     !await exactCount(store, 'original_page_background_winner', noteId,
       countBackgroundWinners(history.pages)) ||
     !await exactCount(store, 'original_page_in_asset_winner', noteId, history.pages.size) ||
+    !await exactCount(store, 'original_page_bookmark_winner', noteId, history.pages.size) ||
     !await exactCount(store, 'original_deleted_page', noteId,
       countBoundArchivedPages(history, pageIdBySequence))) {
     return false;
@@ -1469,6 +1555,15 @@ async function existingMappingMatches(store: relationalStore.RdbStore, noteId: s
         page.pageInAssetWinner.timestamp, page.pageInAssetWinner.siteId, page.pageInAsset])) {
       return false;
     }
+    if (page.bookmarkWinner !== null && !await rowExists(store,
+      `SELECT 1 FROM original_page_bookmark_winner WHERE note_id = ?
+       AND page_timestamp = ? AND page_site_id = ? AND page_index = ?
+       AND winner_timestamp = ? AND winner_site_id = ? AND bookmarked = ? LIMIT 1`,
+      [noteId, page.identity.timestamp, page.identity.siteId, page.identity.index,
+        page.bookmarkWinner.timestamp, page.bookmarkWinner.siteId,
+        page.bookmarked ? 1 : 0])) {
+      return false;
+    }
   }
   return true;
 }
@@ -1512,7 +1607,7 @@ async function hasExistingMapping(store: relationalStore.RdbStore, noteId: strin
     'original_page_insert_group', 'original_page_identity', 'original_page_position_group',
     'original_page_position', 'original_page_position_winner',
     'original_page_visibility_winner', 'original_page_background_winner',
-    'original_page_in_asset_winner',
+    'original_page_in_asset_winner', 'original_page_bookmark_winner',
     'original_deleted_page',
   ];
   for (const table of tables) {

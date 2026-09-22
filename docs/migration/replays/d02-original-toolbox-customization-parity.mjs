@@ -122,7 +122,7 @@ ok(ddl.includes('tray_type INTEGER NOT NULL DEFAULT 0,'), 'tool_state.tray_type 
 ok(ddl.includes('export const DDL_EDITOR_TRAY') && ddl.includes('CREATE TABLE IF NOT EXISTS editor_tray') &&
    ddl.includes('last_used_tool_id TEXT') && ddl.includes('PRIMARY KEY (tray_id, toolbox_owner_id)'),
   'editor_tray DDL missing');
-ok(ddl.includes('DB_VERSION: number = 69'), 'DB_VERSION must be 69');
+ok(ddl.includes('DB_VERSION: number = 70'), 'DB_VERSION must be 70');
 ok(ddl.includes('ALTER TABLE tool_state ADD COLUMN tray_type INTEGER NOT NULL DEFAULT 0') &&
    ddl.includes('INSERT OR IGNORE INTO editor_tray'),
   'v69 tray migration statements missing');

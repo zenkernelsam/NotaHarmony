@@ -16,7 +16,7 @@
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 69;
+export const DB_VERSION: number = 70;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -440,6 +440,23 @@ CREATE TABLE IF NOT EXISTS original_page_in_asset_winner (
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
+// Original wz9 page bookmarkedRegister (oz9: UNBOOKMARKED=0 / BOOKMARKED=1) — the
+// LWW register written by CREATE_PAGE's field 3 and MODIFY_PAGE's field 3.
+export const DDL_ORIGINAL_PAGE_BOOKMARK_WINNER: string = `
+CREATE TABLE IF NOT EXISTS original_page_bookmark_winner (
+  note_id TEXT NOT NULL,
+  page_timestamp INTEGER NOT NULL CHECK (page_timestamp BETWEEN 0 AND 4294967295),
+  page_site_id INTEGER NOT NULL CHECK (page_site_id BETWEEN 0 AND 65535),
+  page_index INTEGER NOT NULL CHECK (page_index BETWEEN 0 AND 4294967295),
+  winner_timestamp INTEGER NOT NULL CHECK (winner_timestamp BETWEEN 0 AND 4294967295),
+  winner_site_id INTEGER NOT NULL CHECK (winner_site_id BETWEEN 0 AND 65535),
+  bookmarked INTEGER NOT NULL CHECK (bookmarked IN (0, 1)),
+  PRIMARY KEY(note_id, page_timestamp, page_site_id, page_index),
+  FOREIGN KEY(note_id, page_timestamp, page_site_id, page_index)
+    REFERENCES original_page_identity(note_id, seq_timestamp, seq_site_id, seq_index) ON DELETE CASCADE,
+  FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
+)`;
+
 export const DDL_ORIGINAL_NOTE_BACKGROUND_WINNER: string = `
 CREATE TABLE IF NOT EXISTS original_note_background_winner (
   note_id TEXT PRIMARY KEY,
@@ -536,6 +553,7 @@ CREATE TABLE IF NOT EXISTS original_deleted_page (
   background_json TEXT,
   original_page_in_asset INTEGER CHECK (original_page_in_asset IS NULL OR
     original_page_in_asset BETWEEN 0 AND 4294967295),
+  bookmarked INTEGER NOT NULL DEFAULT 0,
   content_revision INTEGER NOT NULL CHECK (content_revision >= 0),
   indexed_revision INTEGER CHECK (indexed_revision IS NULL OR
     (indexed_revision >= 0 AND indexed_revision <= content_revision)),
@@ -1332,6 +1350,7 @@ CREATE TABLE IF NOT EXISTS page_delete_checkpoint (
   background_json TEXT,
   original_page_in_asset INTEGER CHECK (original_page_in_asset IS NULL OR
     original_page_in_asset BETWEEN 0 AND 4294967295),
+  bookmarked INTEGER NOT NULL DEFAULT 0,
   content_revision INTEGER NOT NULL,
   indexed_revision INTEGER,
   created_time INTEGER NOT NULL,
@@ -1665,6 +1684,7 @@ CREATE TABLE IF NOT EXISTS page_info (
   background_json TEXT,
   original_page_in_asset INTEGER CHECK (original_page_in_asset IS NULL OR
     original_page_in_asset BETWEEN 0 AND 4294967295),
+  bookmarked INTEGER NOT NULL DEFAULT 0,
   content_revision INTEGER NOT NULL DEFAULT 0,
   UNIQUE(note_id, page_index),
   UNIQUE(note_id, page_id),
@@ -2694,5 +2714,21 @@ export const MIGRATIONS: Record<number, string[]> = {
         SELECT 0 AS tray_id, 0 AS tray_type, owner_id FROM editor_toolbox_state
         UNION ALL SELECT 1, 1, owner_id FROM editor_toolbox_state
         UNION ALL SELECT 2, 2, owner_id FROM editor_toolbox_state)`,
+  ],
+  70: [
+    // Original wz9.bookmarkedRegister (oz9 0=UNBOOKMARKED/1=BOOKMARKED) rides on
+    // the page; Harmony materializes it on page_info/original_deleted_page and
+    // mirrors the LWW register with original_page_bookmark_winner.
+    'ALTER TABLE page_info ADD COLUMN bookmarked INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE original_deleted_page ADD COLUMN bookmarked INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE page_delete_checkpoint ADD COLUMN bookmarked INTEGER NOT NULL DEFAULT 0',
+    DDL_ORIGINAL_PAGE_BOOKMARK_WINNER,
+    // A page's seq identity is its CreatePage op identity; seed the register
+    // from it (unbookmarked) exactly like the create applier does.
+    `INSERT OR IGNORE INTO original_page_bookmark_winner
+      (note_id, page_timestamp, page_site_id, page_index,
+       winner_timestamp, winner_site_id, bookmarked)
+     SELECT note_id, seq_timestamp, seq_site_id, seq_index,
+       seq_timestamp, seq_site_id, 0 FROM original_page_identity`,
   ],
 };

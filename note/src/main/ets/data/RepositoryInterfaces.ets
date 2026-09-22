@@ -26,6 +26,8 @@ export interface PageRepository {
   deletePage(noteId: string, pageId: string): Promise<void>;
   updatePage(page: PageInfo): Promise<void>;
   reorderPages(noteId: string, pageIds: string[], movedPageId?: string): Promise<void>;
+  // Original wz9.bookmarkedRegister parity (oz9 UNBOOKMARKED/BOOKMARKED).
+  setPageBookmarked(noteId: string, pageId: string, bookmarked: boolean): Promise<PageInfo>;
 }
 
 export interface ToolRepository {

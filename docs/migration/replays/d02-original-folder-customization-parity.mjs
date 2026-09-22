@@ -89,7 +89,7 @@ ok(ddl.includes('ALTER TABLE folder ADD COLUMN color INTEGER NOT NULL DEFAULT') 
    ddl.includes('ALTER TABLE folder ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0') &&
    ddl.includes('UPDATE folder SET updated_at = created_at'),
   'v68 folder migration statements missing');
-ok(ddl.includes('DB_VERSION: number = 69'), 'DB_VERSION must be 69');
+ok(ddl.includes('DB_VERSION: number = 70'), 'DB_VERSION must be 70');
 
 // --- Harmony repository anchors ----------------------------------------------------
 ok(/export interface NoteFolder \{[\s\S]*?color: number;[\s\S]*?emoji: string \| null;[\s\S]*?updatedAt: number;[\s\S]*?\}/.test(repo),
@@ -145,8 +145,8 @@ ok(page.includes('this.onConfirm(this.inputText, this.selectedColor, this.select
   'dialog confirm must return color/emoji');
 
 // --- Fixture anchors ---------------------------------------------------------------
-ok(dbFixture.includes('expect(DB_VERSION).assertEqual(69)'),
-  'database fixture must pin DB_VERSION 69');
+ok(dbFixture.includes('expect(DB_VERSION).assertEqual(70)'),
+  'database fixture must pin DB_VERSION 70');
 ok(/emoji: null/.test(folderFixture) && /updatedAt: order/.test(folderFixture),
   'folder test factory must carry color/emoji/updatedAt');
 

@@ -449,6 +449,10 @@
       "value": "Move Page Later"
     },
     {
+      "name": "bookmark_page",
+      "value": "Bookmark"
+    },
+    {
       "name": "delete_page",
       "value": "Delete Page"
     },

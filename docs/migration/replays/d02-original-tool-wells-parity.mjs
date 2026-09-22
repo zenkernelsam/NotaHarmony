@@ -112,9 +112,9 @@ ok(manager.includes('DDL_FAVORITE_COLOR_WELL') &&
   'DatabaseManager must create all three well tables');
 
 // Well tables ship via the canonical DDL idempotent path — no version bump needed for
-// them (same as Phase 530's tool_state index). DB_VERSION moved to 69 in Phase 534 for
-// the folder color/emoji/updated_at column migration.
-ok(ddl.includes('DB_VERSION: number = 69'), 'DB_VERSION must be 69');
+// them (same as Phase 530's tool_state index). DB_VERSION is 70 after the Phase 536
+// page bookmarked/winner migration.
+ok(ddl.includes('DB_VERSION: number = 70'), 'DB_VERSION must be 70');
 
 // --- Harmony interface + repository anchors ----------------------------------------
 for (const name of ['getFavoriteColors', 'setFavoriteColor', 'removeFavoriteColor',

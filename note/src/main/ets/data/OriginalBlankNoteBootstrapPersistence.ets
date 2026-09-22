@@ -199,7 +199,7 @@ async function requireCreatedPages(store: relationalStore.RdbStore, noteId: stri
       Math.abs(page.widthMm - requested.widthMm) > 0.001 ||
       Math.abs(page.heightMm - requested.heightMm) > 0.001 ||
       (page.background !== undefined && page.background !== null) ||
-      page.originalPageInAsset !== index) {
+      page.originalPageInAsset !== index || page.bookmarked === true) {
       throw new Error('blank-note CREATE_PAGE materialized an unexpected inherited page');
     }
   }

@@ -405,7 +405,7 @@ check('ArkTS FlatBuffer fixture covers all six fields explicit null and invalid 
 check('policy and database fixtures retain v65 domains under the v66 title schema',
   policyFixture.includes("isOriginalHandwritingLanguage('iw_IL')") &&
     policyFixture.includes("isOriginalHandwritingLanguage('en-US')") &&
-    databaseFixture.includes('expect(DB_VERSION).assertEqual(69)') &&
+    databaseFixture.includes('expect(DB_VERSION).assertEqual(70)') &&
     databaseFixture.includes('MIGRATIONS[65]') &&
     databaseFixture.includes('MIGRATIONS[66]') &&
     fixtureList.includes("import originalNoteMetadataPolicyTest from './OriginalNoteMetadataPolicy.test';") &&

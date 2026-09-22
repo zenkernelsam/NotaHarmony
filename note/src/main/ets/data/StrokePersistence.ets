@@ -574,6 +574,7 @@ interface BackupPageRevision {
   heightMm: number;
   backgroundJson: string | null;
   originalPageInAsset: number | null;
+  bookmarked: number;
   contentRevision: number;
   elementCount: number;
 }
@@ -3126,7 +3127,7 @@ export class StrokePersistence {
       `SELECT page.page_id AS page_id, page.page_index AS page_index, page.size AS size, page.template AS template,
         page.orientation AS orientation, page.width_mm AS width_mm, page.height_mm AS height_mm,
         page.background_json AS background_json, page.original_page_in_asset AS original_page_in_asset,
-        page.content_revision AS content_revision,
+        page.bookmarked AS bookmarked, page.content_revision AS content_revision,
         EXISTS(SELECT 1 FROM original_page_identity identity
           WHERE identity.note_id = page.note_id AND identity.page_id = page.page_id) AS original_page,
         (SELECT COUNT(*) FROM page_element_snapshot snapshot
@@ -3148,6 +3149,7 @@ export class StrokePersistence {
           ? null : resultSet.getString(resultSet.getColumnIndex('background_json'))),
         originalPageInAsset: resultSet.isColumnNull(resultSet.getColumnIndex('original_page_in_asset'))
           ? undefined : resultSet.getLong(resultSet.getColumnIndex('original_page_in_asset')),
+        bookmarked: resultSet.getLong(resultSet.getColumnIndex('bookmarked')) === 1,
       };
       let fallbackSignature: string = '';
       if (page.background === null &&
@@ -3163,6 +3165,7 @@ export class StrokePersistence {
           `${page.widthMm}:${page.heightMm}:${resultSet.isColumnNull(resultSet.getColumnIndex('background_json'))
             ? '' : resultSet.getString(resultSet.getColumnIndex('background_json'))}:` +
           `${page.originalPageInAsset === undefined ? '' : page.originalPageInAsset}:` +
+          `${page.bookmarked === true ? 1 : 0}:` +
           `${fallbackSignature}:${maxRevision}:${elementCount}`,
       };
     } finally {
@@ -5101,6 +5104,7 @@ export class StrokePersistence {
         page.template AS template, page.orientation AS orientation, page.width_mm AS width_mm,
         page.height_mm AS height_mm, page.background_json AS background_json,
         page.original_page_in_asset AS original_page_in_asset,
+        page.bookmarked AS bookmarked,
         page.content_revision AS content_revision,
         (SELECT COUNT(*) FROM page_element_snapshot element
           WHERE element.note_id = page.note_id AND element.page_id = page.page_id) AS element_count
@@ -5144,6 +5148,7 @@ export class StrokePersistence {
               resultSet.getString(backgroundColumn),
             originalPageInAsset: resultSet.isColumnNull(pageInAssetColumn) ? null :
               resultSet.getLong(pageInAssetColumn),
+            bookmarked: resultSet.getLong(resultSet.getColumnIndex('bookmarked')),
             contentRevision: resultSet.getLong(resultSet.getColumnIndex('content_revision')),
             elementCount: resultSet.getLong(resultSet.getColumnIndex('element_count')),
           });

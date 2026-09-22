@@ -103,9 +103,6 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
       payload.background.background.pdf.pagesConsumed !== payload.pageCount) {
       return { deferredReason: 'CREATE_PAGE_PDF_PAGE_COUNT_MISMATCH' };
     }
-    if (payload.bookmarked) {
-      return { deferredReason: 'CREATE_PAGE_BOOKMARK_UNSUPPORTED' };
-    }
     if (await this.groupExists(store, operation.noteId, {
       timestamp: operation.timestamp, siteId: operation.siteId, index: 0,
     })) {
@@ -133,7 +130,7 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
 
     await this.orderStore.assignTemporaryIndexes(store, operation.noteId, existingPageIds);
     await this.insertBlankPages(store, operation.noteId, newPageIds, existingPageIds.length,
-      payload.background);
+      payload.background, payload.bookmarked);
     await this.orderStore.assignFinalIndexes(store, operation.noteId, orderedPageIds);
     await this.orderStore.advanceStructureRevision(store, operation.noteId, 'create-page');
     return { deferredReason: null };
@@ -266,6 +263,17 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
       await initializeOriginalPageInAsset(store, operation.noteId, identity,
         operation, initialPageInAsset);
       await this.insertInitialBackgroundWinner(store, operation, identity, payload.background);
+      // ln2 bookmark field: CreatePage seeds the page's bookmarked register
+      // with this op as its initial writer (wz9.bookmarkedRegister).
+      await store.insert('original_page_bookmark_winner', {
+        'note_id': operation.noteId,
+        'page_timestamp': identity.timestamp,
+        'page_site_id': identity.siteId,
+        'page_index': identity.index,
+        'winner_timestamp': operation.timestamp,
+        'winner_site_id': operation.siteId,
+        'bookmarked': payload.bookmarked ? 1 : 0,
+      });
       pageIds.push(pageId);
     }
     return pageIds;
@@ -485,7 +493,7 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
 
   private async insertBlankPages(store: relationalStore.RdbStore, noteId: string,
     pageIds: string[], existingPageCount: number,
-    decoded: OriginalDecodedPageBackground | null): Promise<void> {
+    decoded: OriginalDecodedPageBackground | null, bookmarked: boolean): Promise<void> {
     // A normal original CREATE_PAGE omits nz9 and inherits SET_METADATA. Letter is
     // only the fallback when the note has no materialized background winner.
     const effective: OriginalDecodedPageBackground = decoded === null
@@ -504,6 +512,7 @@ export class OriginalCreatePageOperationApplier implements SyncedOperationApplie
         'background_json': serializePageBackground(background),
         'original_page_in_asset': decoded === null || decoded.background.pdf === undefined ||
           decoded.background.pdf === null ? index : decoded.background.pdf.pageOffset + index,
+        'bookmarked': bookmarked ? 1 : 0,
         'content_revision': 0,
       });
     }
