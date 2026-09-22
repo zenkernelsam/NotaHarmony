@@ -771,6 +771,7 @@
     { "name": "ungroup", "value": "Ungroup" },
     { "name": "edit_math", "value": "Edit Math" },
     { "name": "insert_photo", "value": "Photo" },
+    { "name": "take_photo", "value": "Take Photo" },
     { "name": "insert_math", "value": "Math" },
     { "name": "math_editor_title", "value": "Math" },
     { "name": "math_editor_placeholder", "value": "x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}" },

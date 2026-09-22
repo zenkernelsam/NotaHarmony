@@ -23,6 +23,8 @@ export struct EditorToolbar {
   };
   onInsertPhotos: () => void = () => {
   };
+  onTakePhoto: () => void = () => {
+  };
   onSelectionStyle: (style: BrushStyle) => void = (_style: BrushStyle): void => {
   };
   onSelectionColor: (color: number) => void = (_color: number): void => {
@@ -145,6 +147,19 @@ export struct EditorToolbar {
                 return;
               }
               this.onInsertPhotos();
+            })
+          // 原版插入菜单序位：Add Photo → Take Photo → Math（qc.java）
+          Button($r('app.string.take_photo'))
+            .height(32)
+            .fontSize(13)
+            .margin({ left: 2, right: 2 })
+            .enabled(!this.viewModel.toolStateLoading &&
+              !this.photoImportLeaseActive)
+            .onClick(() => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
+              this.onTakePhoto();
             })
           Button($r('app.string.insert_math'))
             .height(32)
@@ -308,6 +323,12 @@ export struct EditorToolbar {
           return;
         }
         this.onInsertPhotos();
+      } },
+      { value: $r('app.string.take_photo'), action: () => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
+        this.onTakePhoto();
       } },
       { value: $r('app.string.insert_math'), action: () => {
         if (this.photoImportLeaseActive) {

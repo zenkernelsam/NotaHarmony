@@ -182,6 +182,7 @@ import {
 } from '../../core/adaptation/OriginalAudioLinkedInkPlayback';
 import { OriginalPhotoIngressItem } from '../../data/OriginalPhotoIngress';
 import { pickAndImportOriginalPhotos } from '../../data/OriginalPhotoPickerCaller';
+import { captureAndImportOriginalPhoto } from '../../data/OriginalCameraPickerCaller';
 import {
   addOriginalClipboardImageChangeListenerForTest,
   NormalizedOriginalClipboardImage, importOriginalClipboardImage,
@@ -234,6 +235,7 @@ export struct NoteCanvasView {
   @Prop @Watch('onRedoSignalChange') redoSignal: number = 0;
   @Prop @Watch('onMathInsertSignalChange') mathInsertSignal: number = 0;
   @Prop @Watch('onPhotoInsertSignalChange') photoInsertSignal: number = 0;
+  @Prop @Watch('onCameraCaptureSignalChange') cameraCaptureSignal: number = 0;
   @Prop @Watch('onSelectionStyleSignalChange') selectionStyleSignal: number = 0;
   @Prop selectionInkStyle: InkStyle = InkStyle.FIXED_WIDTH;
   @Prop @Watch('onSelectionColorSignalChange') selectionColorSignal: number = 0;
@@ -1106,6 +1108,15 @@ export struct NoteCanvasView {
       return;
     }
     void this.startOriginalPhotoInsert();
+  }
+
+  // Take Photo (original qc.java camera menu slot): same ingress lease as the
+  // photo picker — one captured image feeds the shared insert pipeline.
+  onCameraCaptureSignalChange(_propName: string): void {
+    if (this.photoImportBusy) {
+      return;
+    }
+    void this.startOriginalCameraCapture();
   }
 
   // === 画布初始化 ===
@@ -5925,6 +5936,49 @@ export struct NoteCanvasView {
       throw new Error(`original photo insert commit failed: ${JSON.stringify(e)}`);
     } finally {
       this.historyBusy = false;
+    }
+  }
+
+  // f35.java IMAGE_CAPTURE parity: the camera writes one photo to an app URI
+  // which is then ingested — cameraPicker.pick returns that URI directly.
+  private async startOriginalCameraCapture(): Promise<void> {
+    if (!this.canStartOriginalPhotoInsert()) {
+      return;
+    }
+    const context = getContext(this) as common.UIAbilityContext;
+    let origin: OriginalPhotoInsertOrigin | null = null;
+    this.photoImportBusy = true;
+    try {
+      origin = this.getOriginalPhotoInsertOrigin();
+      const imported: OriginalPhotoIngressItem[] = await captureAndImportOriginalPhoto({
+        context: context,
+        cacheDirectory: context.cacheDir,
+      });
+      if (imported.length === 0) {
+        return;
+      }
+      if (!this.isPhotoContextCurrent(origin.generation, origin.pageId)) {
+        return;
+      }
+      const outcome: PhotoInsertOutcome =
+        await this.commitOriginalPhotoInsert(imported, origin);
+      if (this.isPhotoContextCurrent(origin.generation, origin.pageId) &&
+        outcome.insertedCount < outcome.totalCount) {
+        promptAction.showToast({
+          message: $r('app.string.original_photo_insert_partial_failed'),
+          duration: 3000,
+        });
+      }
+    } catch (e) {
+      hilog.error(0x0001, 'NoteCanvasView', 'original camera capture failed: %{public}s',
+        JSON.stringify(e));
+      if (origin !== null && this.isPhotoContextCurrent(origin.generation, origin.pageId)) {
+        promptAction.showToast({ message: $r('app.string.original_photo_insert_failed'),
+          duration: 3000 });
+      }
+    } finally {
+      this.photoImportBusy = false;
+      this.onPhotoIngressFinished();
     }
   }
 

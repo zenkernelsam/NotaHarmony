@@ -83,6 +83,7 @@
     { "name": "selection", "value": "选择" },
     { "name": "text", "value": "文本" },
     { "name": "insert_photo", "value": "图片" },
+    { "name": "take_photo", "value": "拍摄照片" },
     { "name": "insert_math", "value": "公式" },
     { "name": "more_tools", "value": "更多工具" },
     { "name": "toolbox_settings", "value": "自定义工具栏" },

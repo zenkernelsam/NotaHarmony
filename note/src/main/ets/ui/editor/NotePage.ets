@@ -89,6 +89,7 @@ struct NotePage {
   @State redoSignal: number = 0;
   @State mathInsertSignal: number = 0;
   @State photoInsertSignal: number = 0;
+  @State cameraCaptureSignal: number = 0;
   @State selectionStyleSignal: number = 0;
   @State selectionInkStyle: InkStyle = InkStyle.FIXED_WIDTH;
   @State selectionColorSignal: number = 0;
@@ -1010,6 +1011,15 @@ struct NotePage {
             this.photoImportLeaseActive = true;
             this.photoInsertSignal++;
           },
+          // Take Photo (qc.java menu slot): same ingress lease as photo insert.
+          onTakePhoto: () => {
+            if (this.photoImportLeaseActive || this.pageOperationBusy ||
+              this.historyPending || this.pageStructureLeaseActive) {
+              return;
+            }
+            this.photoImportLeaseActive = true;
+            this.cameraCaptureSignal++;
+          },
           onSelectionStyle: (style: BrushStyle) => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
               this.historyPending || this.pageStructureLeaseActive) {
@@ -1129,6 +1139,7 @@ struct NotePage {
           redoSignal: this.redoSignal,
           mathInsertSignal: this.mathInsertSignal,
           photoInsertSignal: this.photoInsertSignal,
+          cameraCaptureSignal: this.cameraCaptureSignal,
           onPhotoIngressFinished: () => {
             this.photoImportLeaseActive = false;
           },
