@@ -16,7 +16,9 @@ case 9:                       // SEND_TO_BACK
     xscVar.q(dsc.I, ...);
 ```
 
-- case6/7 产 `new py(..., 26)`；case8/9 产 `new cfc(..., 8/9)`。
+- case6/7 产 `new py(..., 26)`；case8→`new cfc(9)`=TO_FRONT、
+  case9→`new cfc(8)`=TO_BACK（cfc 变体序 9=置顶、8=置底，
+  与 dhb case 序交叉一序，见下）。
 - 分发入口 `xsc.q` 对每个操作先建 z-order 准备协程 `zh9`。
 
 ## zh9.java p()（z-order 操作准备，zh9.java:276-354）
@@ -83,16 +85,22 @@ for (int i = 0; ...; i++) {
 - 语义推论：已选元素与已选组相邻时，元素交换 z（越过组时
   取 `组z±1`），组保持原位——组不被 z-order 操作整体搬动。
 
-## cfc.java case8/9（置于最前/最后）
+## cfc.java case8/9（置底/置顶的极端重排）
 
 ```java
-case 8:  // TO_BACK：可动条目顺序排最底段索引
-case 9:  // TO_FRONT：可动条目顺序排最顶段索引
+case 8:  // TO_BACK（dhb case9 SEND_TO_BACK → new cfc(8)）
+    rscVar.b（可动集）顺序取 z=j3+i4——j3=首个 z 条目的 z；
+    非可动条目在上方按 j4=j3+size+i3 递增重排。
+    若首个条目是组（c=true）：j=max(j3-size,0)，可动项
+    排到该组**之下**的槽位，组保持原位。
+case 9:  // TO_FRONT（dhb case8 SEND_TO_FRONT → new cfc(9)）
+    对称的顶端分配。
 ```
 
 - 只对 `rsc.b`（未组化已选）分配极端段索引；组条目与未选
   元素留在原相对位次——Harmony `movePageElementRefsToExtreme`
-  moving/staying 分离实现已等价（含选中组不移动）。
+  moving/staying 分离实现已等价（moving 全置 staying 之外，
+  选中组不移动且可动项在其外侧，层序一致）。
 
 ## rsc/ssc/cqc.java（记录载体）
 

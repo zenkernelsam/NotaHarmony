@@ -3,8 +3,9 @@
 ## 原版证据
 
 - `dhb.java` case6/7（SEND_FORWARD/SEND_BACKWARD）→
-  `xsc.q` → `new py(…, 26)`；case8/9（SEND_TO_FRONT/
-  SEND_TO_BACK）→ `new cfc(…, 8/9)`。
+  `xsc.q` → `new py(…, 26)`；case8（SEND_TO_FRONT）→
+  `new cfc(9)`、case9（SEND_TO_BACK）→ `new cfc(8)`——
+  cfc 变体序 9=置顶、8=置底，与 dhb case 序交叉。
 - `zh9.java` p()（:276-354）：z 列表逐元素建 `ssc` 条目——
   组成员以**组 id**（`undVar.a`）为键、`c=true`，z 取组内
   最大值（`undVar.b`）；`rsc.b` 只收 `!c && f().contains(id)`
