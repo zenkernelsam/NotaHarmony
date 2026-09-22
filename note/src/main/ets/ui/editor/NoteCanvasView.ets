@@ -2334,13 +2334,44 @@ export struct NoteCanvasView {
           this.isDrawing = true;
           return;
         }
-        hilog.info(0x0001, 'NoteCanvasView', 'selection begin at (%{public}f,%{public}f) visible=%{public}s',
-          canvasP.x, canvasP.y, this.selectionVisible.toString());
-        this.selectionDrawing = true;
-        this.selectionTool.beginSelection(
-          this.viewModel.selectionIsFreehand ? SelectionMode.LASSO : SelectionMode.RECTANGLE,
-          canvasP);
-        this.selectionVisible = false;
+        // 原版 dl1 case2 末支（ktcVar==null）：xtc.a(jE,null) 命中元素 →
+        // vtc TapToSelect（该元素或其 cqc 组），随后同一手势按 wtc/e39
+        // 拖动新选区；未命中 → utc 落空，由套索/矩形手势接管。
+        const idleHitId: string | null = this.topmostPageElementIdAt(canvasP);
+        if (idleHitId !== null) {
+          const resolved: OriginalGroupSelectionResult = resolveOriginalGroupSelection(
+            [idleHitId], this.allPageEntityIds(), this.selectionGroups);
+          const idSet: Set<string> = new Set<string>(resolved.entityIds);
+          this.selectionTool.selectElementIds(
+            this.completedStrokes.filter((s: StrokeElementData): boolean => idSet.has(s.id))
+              .map((s: StrokeElementData): string => s.id),
+            this.shapes.filter((s: ShapeElement): boolean => idSet.has(s.id))
+              .map((s: ShapeElement): string => s.id),
+            this.textBlocks.filter((t: TextBlockElement): boolean => idSet.has(t.id))
+              .map((t: TextBlockElement): string => t.id),
+            this.imageBlocks.filter((i: ImageElement): boolean => idSet.has(i.id))
+              .map((i: ImageElement): string => i.id),
+            resolved.groupIds,
+            this.mathBlocks.filter((m: MathElement): boolean => idSet.has(m.id))
+              .map((m: MathElement): string => m.id));
+          this.updateSelectionOverlay();
+          this.selectionDrag = true;
+          this.dragBeforeStrokes = this.completedStrokes.slice();
+          this.dragBeforeShapes = this.shapes.slice();
+          this.dragBeforeTextBlocks = this.textBlocks.slice();
+          this.dragBeforeImages = this.imageBlocks.slice();
+          this.dragBeforeMathBlocks = this.mathBlocks.slice();
+          this.lastDragPoint = { x: canvasP.x, y: canvasP.y };
+          this.renderFrame();
+        } else {
+          hilog.info(0x0001, 'NoteCanvasView', 'selection begin at (%{public}f,%{public}f) visible=%{public}s',
+            canvasP.x, canvasP.y, this.selectionVisible.toString());
+          this.selectionDrawing = true;
+          this.selectionTool.beginSelection(
+            this.viewModel.selectionIsFreehand ? SelectionMode.LASSO : SelectionMode.RECTANGLE,
+            canvasP);
+          this.selectionVisible = false;
+        }
       }
       this.isDrawing = true;
       return;
