@@ -1015,7 +1015,8 @@
     { "name": "history_recovery_needed", "value": "Saved undo history could not be verified. Editing remains available." },
     { "name": "history_recovery_complete", "value": "Undo history reset. New edits can be undone." },
     { "name": "history_recovery_failed", "value": "Could not reset undo history. Editing remains available without saved Undo." },
-    { "name": "recordings", "value": "Recordings" },
+    { "name": "recordings", "value": "Recordings" },    { "name": "presence_recording", "value": "Recording in progress" },
+
     { "name": "close_recordings", "value": "Close recordings" },
     { "name": "no_recordings", "value": "No recordings" },
     { "name": "play_recording", "value": "Play recording" },

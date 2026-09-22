@@ -1010,6 +1010,23 @@ struct NotePage {
               this.editingTitle = true;
             })
         }
+        // 原版 rej.a：录制会话活跃（含暂停）时，编辑器顶部居中
+        // 显示 "Recording in progress" 徽标；Harmony 落在导航行。
+        if (isOriginalRecordingCaptureActive(this.recordingSessionSnapshot.captureState)) {
+          Row() {
+            Circle({ width: 8, height: 8 })
+              .fill('#D64545')
+            Text($r('app.string.presence_recording'))
+              .fontSize(12)
+              .fontColor(this.resolveTokens().textSecondary)
+              .margin({ left: 4 })
+          }
+          .margin({ left: 8 })
+          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+          .borderRadius(12)
+          .backgroundColor(this.resolveTokens().control)
+          .accessibilityText($r('app.string.presence_recording'))
+        }
         Button($r('app.string.recordings'))
           .height(36)
           .fontSize(13)
