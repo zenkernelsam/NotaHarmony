@@ -815,8 +815,10 @@
     },
     {
       "name": "dark_theme",
-      "value": "Dark"
-    },
+      "value": "Dark theme"
+    },    { "name": "appearance", "value": "Appearance" },
+    { "name": "match_system_appearance", "value": "Match system appearance" },
+
     {
       "name": "settings",
       "value": "Settings"

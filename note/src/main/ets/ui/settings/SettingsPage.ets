@@ -6,7 +6,11 @@ import {
   DEFAULT_SHAPE_DETECTION_ENABLED, DEFAULT_STRAIGHT_LINES, EditorSettingsStore,
 } from '../../data/EditorSettingsStore';
 import { ThemeMode, ThemeTokens } from '../theme/EditorTheme';
-import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
+import { preferences } from '@kit.ArkData';
+import {
+  ThemeStore, THEME_MODE_KEY, THEME_PREFERENCES_NAME, THEME_PREFERENCE_KEY,
+  THEME_SYSTEM_DARK_KEY,
+} from '../theme/ThemeStore';
 
 enum SettingsLoadState {
   LOADING = 'loading',
@@ -350,6 +354,48 @@ struct SettingsPage {
     }
   }
 
+  // 原版 Appearance 区（r22 case 0 + dark_theme 行）：match_system_appearance
+  // 开关对应 nve.MATCH_SYSTEM；关闭后 Dark theme 行在 LIGHT/DARK 间切换。
+  // 持久化沿用 library_prefs/theme_mode（与 LibraryPage.setThemeMode 同路径）。
+  private applyThemeMode(mode: ThemeMode): void {
+    if (this.pageDisposed) {
+      return;
+    }
+    ThemeStore.setMode(mode);
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      preferences.getPreferences(context, THEME_PREFERENCES_NAME).then((pref: preferences.Preferences) => {
+        if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+          return;
+        }
+        pref.putSync(THEME_PREFERENCE_KEY, mode);
+        pref.flush().catch((e: Object): void => {
+          console.error(`SettingsPage theme pref flush failed: ${JSON.stringify(e)}`);
+        });
+      }).catch((e: Object): void => {
+        console.error(`SettingsPage theme pref failed: ${JSON.stringify(e)}`);
+      });
+    } catch (e) {
+      console.error(`SettingsPage applyThemeMode failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // match_system_appearance 开关：开 → system；关 → 保持当前视觉（跟随
+  // 系统深浅色落为显式 light/dark，避免闪烁回跳）。
+  private setMatchSystemAppearance(enabled: boolean): void {
+    if (enabled) {
+      this.applyThemeMode('system');
+    } else {
+      this.applyThemeMode(this.systemDark ? 'dark' : 'light');
+    }
+  }
+
+  // dark_theme 开关：仅在非跟随系统时可用（match 覆盖显式选择）。
+  private setDarkThemeEnabled(enabled: boolean): void {
+    this.applyThemeMode(enabled ? 'dark' : 'light');
+  }
+
   private openBackup(): void {
     router.pushUrl({ url: 'ui/settings/BackupPage' }).catch((e: Error) => {
       console.error(`SettingsPage push BackupPage failed: ${JSON.stringify(e)}`);
@@ -417,12 +463,57 @@ struct SettingsPage {
       } else {
         Scroll() {
           Column() {
-            Text($r('app.string.note_editor'))
+            // 原版 s3d 设置目录顺序：appearance 先于 note_editor。
+            Text($r('app.string.appearance'))
               .width('100%')
               .fontSize(16)
               .fontWeight(FontWeight.Medium)
               .fontColor(this.resolveTokens().textSecondary)
               .margin({ bottom: 8 })
+
+            // 原版 r22 case 0：match_system_appearance（nve.MATCH_SYSTEM）。
+            Row() {
+              Text($r('app.string.match_system_appearance'))
+                .layoutWeight(1)
+                .fontSize(16)
+                .fontColor(this.resolveTokens().textPrimary)
+              Toggle({ type: ToggleType.Switch, isOn: this.themeMode === 'system' })
+                .enabled(!this.saveBusy)
+                .onChange((enabled: boolean) => {
+                  this.setMatchSystemAppearance(enabled);
+                })
+            }
+            .width('100%')
+            .height(56)
+            .padding({ left: 12, right: 12 })
+            .backgroundColor(this.resolveTokens().surface)
+
+            // 原版 g8 dark_theme 行：match 开启时被覆盖，禁用。
+            Row() {
+              Text($r('app.string.dark_theme'))
+                .layoutWeight(1)
+                .fontSize(16)
+                .fontColor(this.resolveTokens().textPrimary)
+                .opacity(this.themeMode === 'system' ? 0.4 : 1)
+              Toggle({ type: ToggleType.Switch, isOn: this.themeMode === 'dark' })
+                .enabled(!this.saveBusy && this.themeMode !== 'system')
+                .opacity(this.themeMode === 'system' ? 0.4 : 1)
+                .onChange((enabled: boolean) => {
+                  this.setDarkThemeEnabled(enabled);
+                })
+            }
+            .width('100%')
+            .height(56)
+            .margin({ top: 8 })
+            .padding({ left: 12, right: 12 })
+            .backgroundColor(this.resolveTokens().surface)
+
+            Text($r('app.string.note_editor'))
+              .width('100%')
+              .fontSize(16)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.resolveTokens().textSecondary)
+              .margin({ top: 24, bottom: 8 })
 
             // 原版 x22 case 0：straight_lines + description（画线后按住自动拉直）。
             Row() {
