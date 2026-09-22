@@ -301,6 +301,10 @@
       "value": "Paste"
     },
     {
+      "name": "select_all",
+      "value": "Select All"
+    },
+    {
       "name": "bring_forward",
       "value": "Send forward"
     },

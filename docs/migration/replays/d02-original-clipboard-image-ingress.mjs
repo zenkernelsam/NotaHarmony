@@ -52,8 +52,9 @@ const checks = [
   ['always releases the clipboard source',
     importSource.includes('} finally {\n    await source.release();\n  }')],
   ['long press menu exposes the image fallback only without internal content',
-    menuSource.includes('if (!this.recentInteractionGateActive() &&') &&
-    menuSource.includes('this.canPasteClipboardNow() && this.canUseOriginalClipboardImage()') &&
+    menuSource.includes('if (!this.recentInteractionGateActive())') &&
+    menuSource.includes('this.canPasteClipboardNow() || this.canUseOriginalClipboardImage()') &&
+    menuSource.includes('this.canPasteClipboardNow() && target !== null') &&
     menuSource.includes('this.startOriginalClipboardImagePaste();')],
   ['availability uses the SDK MIME metadata probe and exact PixelMap type',
     probeSource.includes('await systemPasteboard.getMimeTypes();') &&

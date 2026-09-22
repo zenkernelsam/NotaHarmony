@@ -63,8 +63,11 @@ check(gate.includes('marked !== 0'), 'unset markers do not gate');
 const menuIdx = view.indexOf('private ClipboardPasteContextMenu()');
 check(menuIdx > 0, 'ClipboardPasteContextMenu present');
 const menu = view.slice(menuIdx, menuIdx + 700);
-check(menu.includes('if (!this.recentInteractionGateActive() &&'),
+check(menu.includes('if (!this.recentInteractionGateActive())'),
   'menu items suppressed inside the 200ms gate (empty Menu = no popup)');
+check(menu.indexOf('recentInteractionGateActive()') <
+  menu.indexOf('MenuItem'),
+  'gate wraps all MenuItem production');
 check(menu.includes('this.canPasteClipboardNow()') &&
   menu.includes('this.canUseOriginalClipboardImage()'),
   'existing paste conditions preserved inside the gate');

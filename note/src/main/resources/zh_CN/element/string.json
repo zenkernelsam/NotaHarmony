@@ -72,6 +72,7 @@
     { "name": "copy", "value": "复制" },
     { "name": "cut", "value": "剪切" },
     { "name": "paste", "value": "粘贴" },
+    { "name": "select_all", "value": "全选" },
     { "name": "bring_forward", "value": "上移一层" },
     { "name": "send_backward", "value": "下移一层" },
     { "name": "send_to_front", "value": "置于顶层" },

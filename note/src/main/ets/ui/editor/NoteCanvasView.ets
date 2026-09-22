@@ -8871,21 +8871,72 @@ export struct NoteCanvasView {
     return marked !== 0 && Date.now() - marked < 200;
   }
 
+  // 原版 yqa.f 空白处长按菜单：{PASTE, SELECT_ALL}（m18.m0 顺序）；
+  // PASTE 仅在剪贴板有内容时产出（hasPrimaryClip 门，元素负载与系统
+  // 图片任一），SELECT_ALL 仅在页面有内容时产出（eh5.b 门）。Harmony
+  // 两种粘贴源分列：元素剪贴板优先（pasteClipboard），否则系统图片。
   @Builder
   private ClipboardPasteContextMenu() {
     Menu() {
-      if (!this.recentInteractionGateActive() &&
-        !this.canPasteClipboardNow() && this.canUseOriginalClipboardImage()) {
-        MenuItem({ content: $r('app.string.paste') })
-          .onClick(() => {
-            if (this.photoImportBusy) {
-              return;
-            }
-            hilog.info(0x0001, 'NoteCanvasView', 'canvas context Paste Image clicked');
-            this.startOriginalClipboardImagePaste();
-          });
+      if (!this.recentInteractionGateActive()) {
+        if (this.canPasteClipboardNow() || this.canUseOriginalClipboardImage()) {
+          MenuItem({ content: $r('app.string.paste') })
+            .onClick(() => {
+              if (this.photoImportBusy) {
+                return;
+              }
+              hilog.info(0x0001, 'NoteCanvasView', 'canvas context Paste clicked');
+              const target: Point2D | null = this.clipboardPasteTarget !== null ?
+                this.clipboardPasteTarget : this.selectionPasteTarget();
+              if (this.canPasteClipboardNow() && target !== null) {
+                this.pasteClipboard(target);
+              } else {
+                this.startOriginalClipboardImagePaste();
+              }
+            });
+        }
+        if (this.hasSelectablePageContent()) {
+          MenuItem({ content: $r('app.string.select_all') })
+            .onClick(() => {
+              hilog.info(0x0001, 'NoteCanvasView', 'canvas context Select All clicked');
+              this.selectAllPageElements();
+            });
+        }
       }
     }
+  }
+
+  // yqa SELECT_ALL 的 eh5.b 门等价：页面存在可选元素时才产出。
+  private hasSelectablePageContent(): boolean {
+    return this.completedStrokes.length + this.shapes.length +
+      this.textBlocks.length + this.imageBlocks.length +
+      this.mathBlocks.length > 0;
+  }
+
+  // SELECT_ALL → ftc 等价：全部实体 id 经 resolveOriginalGroupSelection
+  // 归并——未分组实体平铺 + 顶层组整体入选（groupIds 只含顶层组）。
+  private selectAllPageElements(): void {
+    const allIds: string[] = this.allPageEntityIds();
+    if (allIds.length === 0) {
+      return;
+    }
+    const resolved: OriginalGroupSelectionResult = resolveOriginalGroupSelection(
+      allIds, allIds, this.selectionGroups);
+    const idSet: Set<string> = new Set<string>(resolved.entityIds);
+    this.selectionTool.selectElementIds(
+      this.completedStrokes.filter((s: StrokeElementData): boolean => idSet.has(s.id))
+        .map((s: StrokeElementData): string => s.id),
+      this.shapes.filter((s: ShapeElement): boolean => idSet.has(s.id))
+        .map((s: ShapeElement): string => s.id),
+      this.textBlocks.filter((t: TextBlockElement): boolean => idSet.has(t.id))
+        .map((t: TextBlockElement): string => t.id),
+      this.imageBlocks.filter((i: ImageElement): boolean => idSet.has(i.id))
+        .map((i: ImageElement): string => i.id),
+      resolved.groupIds,
+      this.mathBlocks.filter((m: MathElement): boolean => idSet.has(m.id))
+        .map((m: MathElement): string => m.id));
+    this.updateSelectionOverlay();
+    this.renderFrame();
   }
 
   // === 文本框 ===
