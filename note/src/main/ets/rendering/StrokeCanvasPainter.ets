@@ -16,6 +16,11 @@ import {
 export class StrokeCanvasPainter {
   private renderer: StrokeRenderer;
   private transferTracker: BitmapTransferTracker;
+  // Original NoteSessionState.revealedTape (yd9.j): session-scoped set of tape
+  // element ids whose pattern overlay is lifted. A revealed tape still renders
+  // its plain stroke body — the tile-bake gate (i16.g z3 → ifeVar=null) only
+  // suppresses the tape pattern.
+  revealedTapeIds: Set<string> = new Set();
 
   constructor(renderer: StrokeRenderer, transferTracker: BitmapTransferTracker) {
     this.renderer = renderer;
@@ -121,7 +126,7 @@ export class StrokeCanvasPainter {
           this.renderer.renderCenterPath(stroke, rc);
         }
       }
-      if (stroke.renderSpec.tapePattern !== undefined) {
+      if (stroke.renderSpec.tapePattern !== undefined && !this.revealedTapeIds.has(stroke.id)) {
         this.renderer.renderTapePattern(stroke, rc, viewportZoom);
       }
     }

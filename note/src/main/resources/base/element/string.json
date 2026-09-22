@@ -373,6 +373,18 @@
       "value": "No tail mode"
     },
     {
+      "name": "tape_tool",
+      "value": "Tape"
+    },
+    {
+      "name": "hide_tapes",
+      "value": "Hide Tapes"
+    },
+    {
+      "name": "reveal_tapes",
+      "value": "Reveal Tapes"
+    },
+    {
       "name": "text",
       "value": "Text"
     },

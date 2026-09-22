@@ -96,6 +96,10 @@ struct NotePage {
   @State selectionInkColor: number = -16777216;
   @State selectionWidthSignal: number = 0;
   @State clearPageSignal: number = 0;
+  @State tapeToggleSignal: number = 0;
+  // 原版 jg9.n / uf0 case4：当前页 tape 数 + 是否存在已揭示 tape，驱动菜单标签。
+  @State pageTapeCount: number = 0;
+  @State anyTapeRevealed: boolean = false;
   @State selectionInkWidth: number = 5;
   @State selectionWidthMinimum: number = 0.5;
   @State selectionWidthMaximum: number = 30;
@@ -843,10 +847,19 @@ struct NotePage {
   // Version history(ac4.d0) 为远端旗标项，Inky(sc9.j) 与
   // Disconnect stylus(t9f.e) 依赖 Harmony 不存在的状态面，故均不移植。
   private buildEditorOptionsMenu(): MenuElement[] {
-    return [
-      { value: $r('app.string.options_menu_app_settings'),
-        action: () => { this.navigateToSettings(); } },
-    ];
+    const items: MenuElement[] = [];
+    // 原版 o94 case14：Hide/Reveal Tapes 作用于全部可见 tape 元素
+    // （oh9 → ti9:360 → np0 case5 并/差集）；无 tape 时该行不出现。
+    if (this.pageTapeCount > 0) {
+      items.push({
+        value: this.anyTapeRevealed ?
+          $r('app.string.hide_tapes') : $r('app.string.reveal_tapes'),
+        action: () => { this.tapeToggleSignal++; },
+      });
+    }
+    items.push({ value: $r('app.string.options_menu_app_settings'),
+      action: () => { this.navigateToSettings(); } });
+    return items;
   }
 
   private navigateToSettings(): void {
@@ -1373,6 +1386,11 @@ struct NotePage {
           selectionWidthSignal: this.selectionWidthSignal,
           selectionInkWidth: this.selectionInkWidth,
           clearPageSignal: this.clearPageSignal,
+          tapeToggleSignal: this.tapeToggleSignal,
+          onTapeRevealStateChanged: (tapeCount: number, anyRevealed: boolean): void => {
+            this.pageTapeCount = tapeCount;
+            this.anyTapeRevealed = anyRevealed;
+          },
           // 原版 note_view_night_mode：纸墨深色渲染直通画布 token 解析。
           nightMode: this.noteViewNightMode,
           playbackAudioTime: this.audioPlaybackTime,

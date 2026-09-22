@@ -253,6 +253,7 @@ export struct NoteCanvasView {
   @Prop selectionInkColor: number = -16777216;
   @Prop @Watch('onSelectionWidthSignalChange') selectionWidthSignal: number = 0;
   @Prop @Watch('onClearPageSignalChange') clearPageSignal: number = 0;
+  @Prop @Watch('onTapeToggleSignalChange') tapeToggleSignal: number = 0;
   @Prop selectionInkWidth: number = 5;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioTime: string | null = null;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioSegments: OriginalAudioSegmentRange[] = [];
@@ -263,6 +264,9 @@ export struct NoteCanvasView {
   };
   onPhotoIngressFinished: () => void = (): void => {};
   onHistoryBridgeReady: (bridge: EditorHistoryBridge) => void = () => {
+  };
+  // 原版 jg9.n / uf0 case4 标签语义：(当前页 tape 数, 是否存在已揭示 tape)。
+  onTapeRevealStateChanged: (tapeCount: number, anyRevealed: boolean) => void = () => {
   };
   onSelectionInkControlsChanged: (color: number | null, width: number | null,
     minimum: number, maximum: number, variableStyleEnabled: boolean,
@@ -292,6 +296,8 @@ export struct NoteCanvasView {
   private bitmapTransferTracker: BitmapTransferTracker = new BitmapTransferTracker();
   private renderer: Canvas2DStrokeRenderer = new Canvas2DStrokeRenderer(this.bitmapTransferTracker);
   private strokePainter: StrokeCanvasPainter = new StrokeCanvasPainter(this.renderer, this.bitmapTransferTracker);
+  // 原版 yd9.j (NoteSessionState.revealedTape)：会话级 Set<elementId>，不持久化。
+  private revealedTapeIds: Set<string> = new Set();
   private shapeRenderer: ShapeCanvasRenderer = new ShapeCanvasRenderer(this.renderer);
   private imageRenderer: ImageCanvasRenderer = new ImageCanvasRenderer();
   private mathRenderer: MathCanvasRenderer = new MathCanvasRenderer();
@@ -442,6 +448,9 @@ export struct NoteCanvasView {
 
   aboutToAppear(): void {
     this.lifecycleActive = true;
+    // 原版 NoteSessionState.revealedTape：会话级已揭示 tape 集合，随画布存活、
+    // 笔记关闭即丢弃；与 painter 共享同一引用使 gate 立即生效。
+    this.strokePainter.revealedTapeIds = this.revealedTapeIds;
     this.startSystemClipboardImageAvailabilityUpdates();
     this.mathEngineInitializationComplete = originalMathEngine.isReady();
     originalMathEngine.initialize(getContext(this) as common.UIAbilityContext).then((ready: boolean): void => {
@@ -564,6 +573,7 @@ export struct NoteCanvasView {
       this.refreshPdfBackground(generation, targetPageId);
       this.refreshPaperTexture(generation, targetPageId);
       this.promptPersistentHistoryRecovery();
+      this.emitTapeRevealState();
     } catch (e) {
       if (generation === this.pageLoadGeneration) {
         if (!this.lifecycleActive) {
@@ -929,6 +939,55 @@ export struct NoteCanvasView {
     this.onSelectionMenuAction(SelectionMenuAction.DELETE);
   }
 
+  // 原版 oh9 → ti9:360 → np0 case5：Hide/Reveal Tapes 全量开关。
+  // 当前页无 tape 时 no-op（ti9:362 set.isEmpty → return）；
+  // 全部已揭示 → 整组隐藏（ys2.H 差集），否则整组揭示（ys2.J 并集）。
+  onTapeToggleSignalChange(_propName: string): void {
+    this.toggleTapesReveal();
+  }
+
+  private pageTapeIds(): string[] {
+    const ids: string[] = [];
+    for (const stroke of this.completedStrokes) {
+      if (stroke.renderSpec.tapePattern !== undefined && stroke.renderSpec.tapePattern !== null) {
+        ids.push(stroke.id);
+      }
+    }
+    return ids;
+  }
+
+  private toggleTapesReveal(): void {
+    const tapeIds: string[] = this.pageTapeIds();
+    if (tapeIds.length === 0) {
+      return;
+    }
+    const allRevealed: boolean = tapeIds.every((id: string): boolean =>
+      this.revealedTapeIds.has(id));
+    if (allRevealed) {
+      for (const id of tapeIds) {
+        this.revealedTapeIds.delete(id);
+      }
+    } else {
+      for (const id of tapeIds) {
+        this.revealedTapeIds.add(id);
+      }
+    }
+    this.emitTapeRevealState();
+    this.renderFrame(true);
+  }
+
+  private emitTapeRevealState(): void {
+    const tapeIds: string[] = this.pageTapeIds();
+    let anyRevealed: boolean = false;
+    for (const id of tapeIds) {
+      if (this.revealedTapeIds.has(id)) {
+        anyRevealed = true;
+        break;
+      }
+    }
+    this.onTapeRevealStateChanged(tapeIds.length, anyRevealed);
+  }
+
   // T-040 修复：页面设置变化 → 重绘（@Prop 更新不会自动触发 renderFrame）
   onPageChange(_propName: string): void {
     this.cancelImageCrop();
@@ -1021,6 +1080,7 @@ export struct NoteCanvasView {
       this.renderFrame(true);
       this.refreshPdfBackground(this.pageLoadGeneration, this.loadedPageId);
       this.refreshPaperTexture(this.pageLoadGeneration, this.loadedPageId);
+      this.emitTapeRevealState();
       return;
     }
     const generation: number = ++this.pageLoadGeneration;
@@ -1081,6 +1141,7 @@ export struct NoteCanvasView {
       this.refreshPdfBackground(generation, targetPageId);
       this.refreshPaperTexture(generation, targetPageId);
       this.resumePendingHistory();
+      this.emitTapeRevealState();
     } catch (e) {
       if (generation === this.pageLoadGeneration && !this.lifecycleActive) {
         return;
