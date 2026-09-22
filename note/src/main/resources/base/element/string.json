@@ -1058,6 +1058,7 @@
     { "name": "audio_source_microphone", "value": "Microphone" },
     { "name": "audio_source_internal", "value": "Internal Audio" },
     { "name": "recording_playback_speed", "value": "Playback speed" },
+    { "name": "no_playback_data_available", "value": "No playback data available" },
     { "name": "recording_rewind_10_seconds", "value": "Rewind 10 seconds" },
     { "name": "recording_forward_10_seconds", "value": "Forward 10 seconds" },
     { "name": "recording_user_facing_name", "value": "Recording %d" },

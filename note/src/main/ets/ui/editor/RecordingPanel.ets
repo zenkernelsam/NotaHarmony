@@ -116,32 +116,41 @@ export struct RecordingPanel {
     Column() {
       if (shouldShowRecordingTimeline(this.snapshot.recordingId)) {
         Column() {
-          Slider({ value: this.cumulativePositionMs, min: 0,
-            max: Math.max(1, this.cumulativeDurationMs), step: 1 })
+          if (this.cumulativeDurationMs <= 0) {
+            // 原版 faj：播放数据为空（jpa.a）时显示占位文案而非控件。
+            Text($r('app.string.no_playback_data_available'))
+              .fontSize(12)
+              .fontColor(this.resolveTokens().textSecondary)
+              .width('100%')
+              .textAlign(TextAlign.Center)
+          } else {
+            Slider({ value: this.cumulativePositionMs, min: 0,
+              max: Math.max(1, this.cumulativeDurationMs), step: 1 })
+              .width('100%')
+              .enabled(this.controlsEnabled && this.canSeek())
+              .opacity(this.controlsEnabled && this.canSeek() ? 1 : 0.45)
+              .selectedColor(this.resolveTokens().accent)
+              .onChange((value: number) => {
+                if (this.photoImportLeaseActive || this.loading) {
+                  return;
+                }
+                this.onSeek(value);
+              })
+            Row() {
+              Text(formatRecordingTime(this.cumulativePositionMs))
+                .fontSize(11).fontColor(this.resolveTokens().textSecondary)
+              Blank()
+              // 原版 d32 case 6/7：快退/快进 10 秒（uw7.s/r 语义）
+              this.SkipButton(-ORIGINAL_RECORDING_SKIP_MS,
+                $r('app.string.recording_rewind_10_seconds'), '↺ 10s')
+              this.SkipButton(ORIGINAL_RECORDING_SKIP_MS,
+                $r('app.string.recording_forward_10_seconds'), '10s ↻')
+              Blank()
+              Text(formatRecordingTime(this.cumulativeDurationMs))
+                .fontSize(11).fontColor(this.resolveTokens().textSecondary)
+            }
             .width('100%')
-            .enabled(this.controlsEnabled && this.canSeek())
-            .opacity(this.controlsEnabled && this.canSeek() ? 1 : 0.45)
-            .selectedColor(this.resolveTokens().accent)
-            .onChange((value: number) => {
-              if (this.photoImportLeaseActive || this.loading) {
-                return;
-              }
-              this.onSeek(value);
-            })
-          Row() {
-            Text(formatRecordingTime(this.cumulativePositionMs))
-              .fontSize(11).fontColor(this.resolveTokens().textSecondary)
-            Blank()
-            // 原版 d32 case 6/7：快退/快进 10 秒（uw7.s/r 语义）
-            this.SkipButton(-ORIGINAL_RECORDING_SKIP_MS,
-              $r('app.string.recording_rewind_10_seconds'), '↺ 10s')
-            this.SkipButton(ORIGINAL_RECORDING_SKIP_MS,
-              $r('app.string.recording_forward_10_seconds'), '10s ↻')
-            Blank()
-            Text(formatRecordingTime(this.cumulativeDurationMs))
-              .fontSize(11).fontColor(this.resolveTokens().textSecondary)
           }
-          .width('100%')
         }
         .height(48)
       }

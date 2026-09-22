@@ -361,6 +361,7 @@
     { "name": "audio_source_microphone", "value": "麦克风" },
     { "name": "audio_source_internal", "value": "内部音频" },
     { "name": "recording_playback_speed", "value": "播放速度" },
+    { "name": "no_playback_data_available", "value": "无可用的回放数据" },
     { "name": "recording_rewind_10_seconds", "value": "快退 10 秒" },
     { "name": "recording_forward_10_seconds", "value": "快进 10 秒" },
     { "name": "recording_user_facing_name", "value": "录音 %d" },
