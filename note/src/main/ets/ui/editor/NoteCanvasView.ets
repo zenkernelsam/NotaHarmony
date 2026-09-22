@@ -3,6 +3,7 @@
 import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { promptAction } from '@kit.ArkUI';
+import { pasteboard } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { RawPointerEvent } from '../../core/adaptation/InkInputProvider';
 import { InkInputProviderImpl } from '../../core/adaptation/InkInputProviderImpl';
@@ -11,7 +12,7 @@ import { PredictionCoordinates } from '../../core/adaptation/Predictor';
 import {
   Canvas2DOffscreenRenderContext, Canvas2DStrokeRenderer, Canvas2DRenderContext,
 } from '../../core/adaptation/Canvas2DStrokeRenderer';
-import { Canvas2DTextRenderer } from '../../core/adaptation/Canvas2DTextRenderer';
+import { Canvas2DTextRenderer, TextBlockLinkHit } from '../../core/adaptation/Canvas2DTextRenderer';
 import { LoadedPencilTexture, loadOriginalPencilTexture } from '../../core/adaptation/PencilTextureLoader';
 import { ImageAssetLoader, ImageAssetLoadState, LoadedImageAsset } from
   '../../core/adaptation/ImageAssetLoader';
@@ -1070,6 +1071,51 @@ export struct NoteCanvasView {
       }
     }
     return null;
+  }
+
+  // 原版 xtc.a(jE,null) 命中文本块 → ttc → uw2 case4 → rej.i 链接 span 命中。
+  private textBlockLinkAt(point: Point2D): TextBlockLinkHit | null {
+    const hitId: string | null = this.topmostPageElementIdAt(point);
+    return hitId === null ? null : this.linkHitOnTextBlock(hitId, point);
+  }
+
+  private linkHitOnTextBlock(elementId: string, point: Point2D): TextBlockLinkHit | null {
+    const block: TextBlockElement | undefined =
+      this.textBlocks.find((t: TextBlockElement): boolean => t.id === elementId);
+    if (block === undefined || block.characterStyleRuns === undefined) {
+      return null;
+    }
+    return this.textRenderer.linkAtPoint(block, this.renderCtx, point);
+  }
+
+  // 原版 g1f pca 路径：链接锚点菜单 [Open, Copy Link]（wg7.OPEN/COPY_LINK）。
+  private showTextBlockLinkMenu(hit: TextBlockLinkHit): void {
+    promptAction.showActionMenu({
+      title: hit.url,
+      buttons: [
+        { text: $r('app.string.link_open'), color: '#007DFF' },
+        { text: $r('app.string.copy_link'), color: '#007DFF' },
+      ],
+    }).then((result: promptAction.ActionMenuSuccessResponse): void => {
+      if (result.index === 0) {
+        const context = getContext(this) as common.UIAbilityContext;
+        context.openLink(hit.url).then((): void => {
+          hilog.info(0x0001, 'NoteCanvasView', 'link opened %{public}s', hit.url);
+        }).catch((e: Error): void => {
+          hilog.error(0x0001, 'NoteCanvasView', 'openLink failed: %{public}s', e.message);
+          promptAction.showToast({ message: $r('app.string.link_open_failed'), duration: 2500 });
+        });
+      } else if (result.index === 1) {
+        const data: pasteboard.PasteData = pasteboard.createPlainTextData(hit.url);
+        pasteboard.getSystemPasteboard().setData(data).then((): void => {
+          promptAction.showToast({ message: $r('app.string.link_copied'), duration: 2000 });
+        }).catch((e: Error): void => {
+          hilog.error(0x0001, 'NoteCanvasView', 'copy link failed: %{public}s', e.message);
+        });
+      }
+    }).catch((e: Error): void => {
+      hilog.error(0x0001, 'NoteCanvasView', 'link menu failed: %{public}s', e.message);
+    });
   }
 
   // TapToSelect 的 availableIds：页面全部实体 id（resolveOriginalGroupSelection
@@ -2148,6 +2194,14 @@ export struct NoteCanvasView {
         // 元素 → vtc TapToSelect（该元素或其 cqc 组）；未命中 → rtc ClearSelection。
         const hitId: string | null = this.topmostPageElementIdAt(canvasP);
         if (hitId !== null) {
+          // 原版 dl1 → ttc → uw2 case4：点按文本块先走 qke + 链接命中
+          // （rej.i 偏移→span）；命中链接 → g1f pca 弹出 [Open, Copy Link]。
+          const linkHit: TextBlockLinkHit | null = this.linkHitOnTextBlock(hitId, canvasP);
+          if (linkHit !== null) {
+            this.showTextBlockLinkMenu(linkHit);
+            this.isDrawing = true;
+            return;
+          }
           const resolved: OriginalGroupSelectionResult = resolveOriginalGroupSelection(
             [hitId], this.allPageEntityIds(), this.selectionGroups);
           const idSet: Set<string> = new Set<string>(resolved.entityIds);
@@ -2169,6 +2223,14 @@ export struct NoteCanvasView {
           this.clearSelectionWithRegisterReset();
         }
       } else {
+        // 无选区时点按文本块链接同样走 ttc → qke → 链接菜单（原版各
+        // 分支 ttc 产出一致）。
+        const idleLinkHit: TextBlockLinkHit | null = this.textBlockLinkAt(canvasP);
+        if (idleLinkHit !== null) {
+          this.showTextBlockLinkMenu(idleLinkHit);
+          this.isDrawing = true;
+          return;
+        }
         hilog.info(0x0001, 'NoteCanvasView', 'selection begin at (%{public}f,%{public}f) visible=%{public}s',
           canvasP.x, canvasP.y, this.selectionVisible.toString());
         this.selectionDrawing = true;

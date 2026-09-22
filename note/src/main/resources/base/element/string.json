@@ -265,6 +265,22 @@
       "value": "Deselect"
     },
     {
+      "name": "link_open",
+      "value": "Open"
+    },
+    {
+      "name": "copy_link",
+      "value": "Copy Link"
+    },
+    {
+      "name": "link_open_failed",
+      "value": "Unable to open link"
+    },
+    {
+      "name": "link_copied",
+      "value": "Link copied"
+    },
+    {
       "name": "selection_actions",
       "value": "Actions"
     },

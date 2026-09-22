@@ -22,6 +22,13 @@ export interface TextCheckboxMarker {
   radius: number;
 }
 
+export interface TextBlockLinkHit {
+  url: string;
+  start: number;
+  end: number;
+  worldRect: Rect2D;
+}
+
 export class Canvas2DTextRenderer {
   measureNaturalWidth(element: TextBlockElement, context: RenderContext): number {
     const ctx: Canvas2DDrawingContext = context as Canvas2DDrawingContext;
@@ -219,6 +226,179 @@ export class Canvas2DTextRenderer {
       }
     }
     return null;
+  }
+
+  // 原版 rej.i/zn9.f 等价：世界坐标点 → 文本布局偏移 → 命中链接 span。
+  // 命中时返回 url、code-point 范围与链接段世界包围盒（锚定弹出菜单用）。
+  linkAtPoint(element: TextBlockElement, context: RenderContext,
+    worldPoint: Point2D): TextBlockLinkHit | null {
+    if (element.richText.length === 0) {
+      return null;
+    }
+    const local: Point2D | null = this.inverseTransformPoint(worldPoint, element);
+    if (local === null) {
+      return null;
+    }
+    const ctx: Canvas2DDrawingContext = context as Canvas2DDrawingContext;
+    const characters: string[] = [];
+    for (const character of element.richText) {
+      characters.push(character);
+    }
+    const characterStyles: RichTextCharacterStyle[] = this.characterStyles(
+      characters.length, element.characterStyleRuns);
+    const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
+      characters.length, element.paragraphStyleRuns);
+    let baseline: number = element.textOrigin.y + element.contentTopInset + element.fontSize;
+    let numberedParagraph: number = 1;
+    ctx.save();
+    try {
+      const lines: TextLayoutLine[] = this.layoutLines(ctx, characters, characterStyles, element);
+      for (const line of lines) {
+        const paragraph: RichTextParagraphStyle = paragraphStyles[Math.min(
+          line.start, Math.max(0, characters.length - 1))] ?? {};
+        const spacing: number = paragraph.lineSpacing === undefined || paragraph.lineSpacing <= 0 ?
+          1 : paragraph.lineSpacing;
+        const lineHeight: number = (element.fontSize + 8) * spacing;
+        const bandTop: number = baseline - element.fontSize;
+        const hitLine: boolean = local.y >= bandTop && local.y < bandTop + lineHeight;
+        if (hitLine) {
+          const prefix: string = line.paragraphStart ? this.decoratorPrefix(
+            paragraph.decoratorStyle, numberedParagraph, paragraph.isChecked) : '';
+          const checkbox: boolean = line.paragraphStart && paragraph.decoratorStyle === 3;
+          const lineWidth: number = this.measureRange(ctx, characters, characterStyles,
+            line.start, line.end, element, prefix, checkbox);
+          let x: number = element.textOrigin.x + element.contentLeftInset +
+            this.paragraphIndent(element, paragraph);
+          const available: number = Math.max(0, element.blockWidth - element.contentLeftInset -
+            (element.contentRightInset ?? element.contentLeftInset));
+          if (paragraph.alignment === 2) {
+            x += Math.max(0, (available - lineWidth) / 2);
+          } else if (paragraph.alignment === 3) {
+            x += Math.max(0, available - lineWidth);
+          }
+          if (checkbox) {
+            x += this.checkboxColumnWidth(element);
+          } else if (prefix.length > 0) {
+            this.applyFont(ctx, element, characterStyles[line.start] ?? {});
+            x += ctx.measureText(prefix);
+          }
+          const linkIndex: number | null = this.characterIndexAt(ctx, characters,
+            characterStyles, line, x, local.x, element);
+          if (linkIndex !== null && characterStyles[linkIndex]?.link !== undefined) {
+            return this.buildLinkHit(ctx, characters, characterStyles, paragraphStyles,
+              lines, linkIndex, element);
+          }
+          return null;
+        }
+        if (line.paragraphStart && paragraph.decoratorStyle === 2) {
+          numberedParagraph++;
+        }
+        baseline += lineHeight;
+      }
+    } finally {
+      ctx.restore();
+    }
+    return null;
+  }
+
+  private characterIndexAt(ctx: Canvas2DDrawingContext, characters: string[],
+    styles: RichTextCharacterStyle[], line: TextLayoutLine, lineX: number,
+    localX: number, element: TextBlockElement): number | null {
+    let x: number = lineX;
+    for (let index: number = line.start; index < line.end; index++) {
+      const width: number = this.measureRange(ctx, characters, styles,
+        index, index + 1, element, '');
+      if (localX < x + width / 2) {
+        return index;
+      }
+      x += width;
+      if (localX < x) {
+        return index + 1;
+      }
+    }
+    return localX >= x || line.end === line.start ? null : line.end;
+  }
+
+  private buildLinkHit(ctx: Canvas2DDrawingContext, characters: string[],
+    characterStyles: RichTextCharacterStyle[], paragraphStyles: RichTextParagraphStyle[],
+    lines: TextLayoutLine[], linkIndex: number,
+    element: TextBlockElement): TextBlockLinkHit | null {
+    const url: string = characterStyles[linkIndex].link as string;
+    let start: number = linkIndex;
+    while (start > 0 && characterStyles[start - 1]?.link === url) {
+      start--;
+    }
+    let end: number = linkIndex + 1;
+    while (end < characters.length && characterStyles[end]?.link === url) {
+      end++;
+    }
+    // 链接段的世界包围盒：跨行段逐行测宽取极值。
+    const matrix: number[] = element.transform;
+    const world = (px: number, py: number): Point2D => ({
+      x: matrix[0] * px + matrix[1] * py + matrix[2],
+      y: matrix[3] * px + matrix[4] * py + matrix[5],
+    });
+    let bandTop: number = element.textOrigin.y + element.contentTopInset;
+    let numberedParagraph: number = 1;
+    let minX: number = Number.POSITIVE_INFINITY;
+    let minY: number = Number.POSITIVE_INFINITY;
+    let maxX: number = Number.NEGATIVE_INFINITY;
+    let maxY: number = Number.NEGATIVE_INFINITY;
+    let covered: boolean = false;
+    for (const line of lines) {
+      const paragraph: RichTextParagraphStyle = paragraphStyles[Math.min(
+        line.start, Math.max(0, characters.length - 1))] ?? {};
+      const spacing: number = paragraph.lineSpacing === undefined || paragraph.lineSpacing <= 0 ?
+        1 : paragraph.lineSpacing;
+      const height: number = (element.fontSize + 8) * spacing;
+      const overlapStart: number = Math.max(line.start, start);
+      const overlapEnd: number = Math.min(line.end, end);
+      if (overlapStart < overlapEnd) {
+        covered = true;
+        const prefix: string = line.paragraphStart ? this.decoratorPrefix(
+          paragraph.decoratorStyle, numberedParagraph, paragraph.isChecked) : '';
+        const checkbox: boolean = line.paragraphStart && paragraph.decoratorStyle === 3;
+        const lineWidth: number = this.measureRange(ctx, characters, characterStyles,
+          line.start, line.end, element, prefix, checkbox);
+        let x: number = element.textOrigin.x + element.contentLeftInset +
+          this.paragraphIndent(element, paragraph);
+        const available: number = Math.max(0, element.blockWidth - element.contentLeftInset -
+          (element.contentRightInset ?? element.contentLeftInset));
+        if (paragraph.alignment === 2) {
+          x += Math.max(0, (available - lineWidth) / 2);
+        } else if (paragraph.alignment === 3) {
+          x += Math.max(0, available - lineWidth);
+        }
+        if (checkbox) {
+          x += this.checkboxColumnWidth(element);
+        } else if (prefix.length > 0) {
+          this.applyFont(ctx, element, characterStyles[line.start] ?? {});
+          x += ctx.measureText(prefix);
+        }
+        const left: number = x + this.measureRange(ctx, characters, characterStyles,
+          line.start, overlapStart, element, '');
+        const right: number = left + this.measureRange(ctx, characters, characterStyles,
+          overlapStart, overlapEnd, element, '');
+        for (const corner of [world(left, bandTop), world(right, bandTop),
+          world(left, bandTop + height), world(right, bandTop + height)]) {
+          minX = Math.min(minX, corner.x); minY = Math.min(minY, corner.y);
+          maxX = Math.max(maxX, corner.x); maxY = Math.max(maxY, corner.y);
+        }
+      }
+      if (line.paragraphStart && paragraph.decoratorStyle === 2) {
+        numberedParagraph++;
+      }
+      bandTop += height;
+    }
+    if (!covered) {
+      return null;
+    }
+    return {
+      url: url,
+      start: start,
+      end: end,
+      worldRect: { left: minX, top: minY, right: maxX, bottom: maxY },
+    };
   }
 
   private renderPaper(ctx: Canvas2DDrawingContext, element: TextBlockElement): void {
