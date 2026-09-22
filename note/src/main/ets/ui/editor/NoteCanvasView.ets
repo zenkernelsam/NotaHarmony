@@ -7421,6 +7421,14 @@ export struct NoteCanvasView {
     }
     if (afterShapes.length === 0 && afterTextBlocks.length === 0 &&
       afterImages.length === 0 && afterMathBlocks.length === 0) {
+      // 原版 dhb case18/19 itc 分支：单元素（含不可锁定的笔画）即使无可锁
+      // 切换也执行 fvb.a() 清选；多选 arrayList9.isEmpty() 则保留选区。
+      if (state.selectedGroupIds.length === 0 &&
+        state.selectedStrokeIds.length + state.selectedShapeIds.length +
+        state.selectedTextBlockIds.length + state.selectedImageIds.length +
+        state.selectedMathIds.length === 1) {
+        this.clearSelectionWithRegisterReset();
+      }
       return;
     }
     this.replaceShapesById(afterShapes);
