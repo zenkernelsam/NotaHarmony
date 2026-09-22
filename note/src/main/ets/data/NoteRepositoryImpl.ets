@@ -147,6 +147,24 @@ export class NoteRepositoryImpl implements NoteRepository {
     }
   }
 
+  async countUnindexedNotes(): Promise<number> {
+    const store: relationalStore.RdbStore = this.db.getStore();
+    const rows = await store.querySql(
+      `SELECT COUNT(*) AS total FROM note_meta note
+         WHERE note.deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM search_item item
+             WHERE item.note_id = note.id)`);
+    try {
+      if (!rows.goToFirstRow()) {
+        return 0;
+      }
+      const total: number = rows.getLong(rows.getColumnIndex('total'));
+      return total;
+    } finally {
+      rows.close();
+    }
+  }
+
   async getNotesByFolder(folderId: string): Promise<NoteMeta[]> {
     const store: relationalStore.RdbStore = this.db.getStore();
     const predicates = new relationalStore.RdbPredicates('note_meta');

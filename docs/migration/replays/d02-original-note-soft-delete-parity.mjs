@@ -76,9 +76,9 @@ ok(types.includes('deletedAt: number | null'), 'NoteMeta.deletedAt missing');
 ok(repo.includes("predicates.isNull('deleted_at')"),
   'library projection must exclude trashed notes');
 // Two original search queries + the three Phase 537 section queries (favorite/
-// unfiled/recent) all exclude trashed notes.
-eq((repo.match(/note\.deleted_at IS NULL/g) || []).length, 5,
-  'all search and section queries must exclude trashed notes');
+// unfiled/recent) + the Phase 551 unindexed-count query all exclude trashed notes.
+eq((repo.match(/note\.deleted_at IS NULL/g) || []).length, 6,
+  'all search, section, and unindexed queries must exclude trashed notes');
 ok(repo.includes("predicates.isNotNull('deleted_at')"),
   'trash list must select deleted_at IS NOT NULL');
 ok(repo.includes("predicates.orderByDesc('deleted_at')"),

@@ -473,6 +473,26 @@
       "value": "Clear Page"
     },
     {
+      "name": "unindexed_note",
+      "value": "%d Unindexed Note"
+    },
+    {
+      "name": "unindexed_notes_count",
+      "value": "%d Unindexed Notes"
+    },
+    {
+      "name": "unindexed_notes",
+      "value": "Unindexed Notes"
+    },
+    {
+      "name": "unindexed_explainer",
+      "value": "If the note causes the app to crash, it will be unindexed. Unindexed notes will not appear in search."
+    },
+    {
+      "name": "learn_more",
+      "value": "Learn More"
+    },
+    {
       "name": "delete_page",
       "value": "Delete Page"
     },

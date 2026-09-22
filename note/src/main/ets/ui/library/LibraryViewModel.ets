@@ -31,6 +31,10 @@ export class LibraryViewModel {
   // a folder, widening the toggle searches all notes without leaving the
   // folder. Resets on folder/section changes.
   searchAllNotes: boolean = false;
+  // Original flc SearchIndexingState terminal state: notes with no
+  // search_item coverage never match library search (the original's
+  // "unindexed notes will not appear in search" contract).
+  unindexedNoteCount: number = 0;
   private repo: NoteRepository;
   private loadGeneration: number = 0;
   private mutationGeneration: number = 0;
@@ -80,6 +84,14 @@ export class LibraryViewModel {
         }
         this.notes = loaded;
         this.applySort();
+        try {
+          const unindexedCount: number = await this.repo.countUnindexedNotes();
+          if (generation === this.loadGeneration) {
+            this.unindexedNoteCount = unindexedCount;
+          }
+        } catch (e) {
+          console.error(`countUnindexedNotes failed: ${JSON.stringify(e)}`);
+        }
         return;
       }
     } finally {

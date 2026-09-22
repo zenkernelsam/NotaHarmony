@@ -161,6 +161,12 @@ class FakeNoteRepository implements NoteRepository {
     }
   }
 
+  unindexedIds: Set<string> = new Set<string>();
+
+  async countUnindexedNotes(): Promise<number> {
+    return this.unindexedIds.size;
+  }
+
   async deleteNote(_noteId: string): Promise<void> {
     this.deleteCount++;
     this.notes = this.notes.filter((note: NoteMeta) => note.id !== _noteId);

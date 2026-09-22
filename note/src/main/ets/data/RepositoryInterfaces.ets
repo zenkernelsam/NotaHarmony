@@ -33,6 +33,10 @@ export interface NoteRepository {
   // Original d5j Rename: title-only partial edit routed through the original
   // SET_TITLE op path (updateNoteTitle).
   renameNote(noteId: string, title: string): Promise<void>;
+  // Original flc SearchIndexingState.neverIndexedNotes parity: notes whose
+  // save path never produced a search_item row are invisible to search and
+  // surface in the original's unindexed-notes UI (elc.a/n32 learn-more).
+  countUnindexedNotes(): Promise<number>;
   updateNote(note: NoteMeta): Promise<void>;
   deleteNote(noteId: string): Promise<void>;
   getTrashedNotes(): Promise<NoteMeta[]>;

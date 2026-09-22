@@ -167,6 +167,12 @@ struct LibraryPage {
     }),
     autoCancel: true,
   });
+  // 原版 n32：unindexed 说明对话框（unindexed_notes 标题 + 崩溃说明 +
+  // Close）。
+  private unindexedDialog: CustomDialogController = new CustomDialogController({
+    builder: UnindexedNotesDialog(),
+    autoCancel: true,
+  });
   private persistence: StrokePersistence = new StrokePersistence();
   private thumbRenderer: ThumbnailRenderer = new ThumbnailRenderer();
   private db: DatabaseManager = DatabaseManager.getInstance();
@@ -1999,6 +2005,27 @@ struct LibraryPage {
           .padding({ left: 16, right: 16 })
         }
 
+        // 原版 elc.a/flc：无 search_item 覆盖的笔记不参与搜索——以横幅
+        // 呈现 unindexed 计数 + Learn More 入口（n32 说明对话框）。
+        if (this.viewModel !== null && this.viewModel.unindexedNoteCount > 0) {
+          Row() {
+            Text($r(this.viewModel.unindexedNoteCount === 1 ?
+              'app.string.unindexed_note' : 'app.string.unindexed_notes_count',
+              this.viewModel.unindexedNoteCount))
+              .fontSize(13)
+              .fontColor(this.resolveTokens().textSecondary)
+              .layoutWeight(1)
+            Text($r('app.string.learn_more'))
+              .fontSize(13)
+              .fontColor(this.resolveTokens().accent)
+              .onClick(() => {
+                this.unindexedDialog.open();
+              })
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+        }
+
         // 笔记网格
         if (this.hasInitError && this.notes.length === 0) {
           Column() {
@@ -3008,6 +3035,45 @@ struct NameDialog {
       }
       .width('100%')
       .margin({ top: 16 })
+    }
+    .padding(16)
+    .width(320)
+    .backgroundColor(this.resolveTokens().surface)
+  }
+}
+
+// 原版 n32/elc.a：unindexed-notes 说明对话框——unindexed_notes 标题 +
+// "If the note causes the app to crash..." 正文 + 单个 Close。
+@CustomDialog
+struct UnindexedNotesDialog {
+  controller?: CustomDialogController;
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+
+  private resolveTokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  build() {
+    Column() {
+      Text($r('app.string.unindexed_notes'))
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.resolveTokens().textPrimary)
+      Text($r('app.string.unindexed_explainer'))
+        .fontSize(13)
+        .fontColor(this.resolveTokens().textSecondary)
+        .margin({ top: 12 })
+      Button($r('app.string.close'))
+        .height(36)
+        .fontSize(14)
+        .width('100%')
+        .margin({ top: 16 })
+        .onClick(() => {
+          if (this.controller !== undefined) {
+            this.controller.close();
+          }
+        })
     }
     .padding(16)
     .width(320)
