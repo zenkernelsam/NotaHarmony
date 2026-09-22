@@ -13,11 +13,11 @@ function body(startMarker, endMarker) {
 
 const cases = [
   ['folder create/rename', body('  private async onFolderDialogConfirm(name: string, color: number,',
-    '  // 删除文件夹'), "promptAction.showToast({ message: $r('app.string.folder_operation_failed') });", 'return false;'],
+    '  // 删除文件夹'), "this.folderErrorToastRes(e as Error, $r('app.string.folder_operation_failed'))", 'return false;'],
   ['delete folder', body('  private async deleteFolder(folderId: string): Promise<void> {',
     '  private async moveFolder(',), "promptAction.showToast({ message: $r('app.string.delete_folder_failed') });", 'return;'],
   ['move folder', body('  private async moveFolder(folderId: string, parentId: string | null,',
-    '  private orderedFolderSiblings'), "promptAction.showToast({ message: $r('app.string.move_folder_failed') });", 'return;'],
+    '  private orderedFolderSiblings'), "this.folderErrorToastRes(e as Error, $r('app.string.move_folder_failed'))", 'return;'],
   ['move note', body('  private async moveNote(noteId: string, folderId: string | null): Promise<void> {',
     '  private publishCommittedFolders'), "promptAction.showToast({ message: $r('app.string.move_note_failed') });", 'return;'],
 ];

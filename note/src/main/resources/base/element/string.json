@@ -914,6 +914,8 @@
     { "name": "delete_folder_failed", "value": "Could not delete the folder. Try again." },
     { "name": "folder_operation_failed", "value": "Folder operation failed. Try again." },
     { "name": "move_folder_failed", "value": "Could not move the folder. Try again." },
+    { "name": "error_max_folder_depth", "value": "Notability is limited to 6 levels of folders." },
+    { "name": "folder_name_error", "value": "A folder already exists with this name, or this name contains invalid characters." },
     { "name": "move_note_failed", "value": "Could not move the note. Try again." },
     { "name": "load_notes_failed", "value": "Could not load notes. Try again." },
     { "name": "load_folders_failed", "value": "Could not load folders. Try again." },

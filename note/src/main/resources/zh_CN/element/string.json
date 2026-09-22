@@ -239,6 +239,8 @@
     { "name": "delete_folder_failed", "value": "删除文件夹失败，请重试" },
     { "name": "folder_operation_failed", "value": "文件夹操作失败，请重试" },
     { "name": "move_folder_failed", "value": "移动文件夹失败，请重试" },
+    { "name": "error_max_folder_depth", "value": "Notability 文件夹最多支持 6 层嵌套" },
+    { "name": "folder_name_error", "value": "已存在同名文件夹，或名称包含无效字符" },
     { "name": "move_note_failed", "value": "移动笔记失败，请重试" },
     { "name": "load_notes_failed", "value": "加载笔记失败，请重试" },
     { "name": "load_folders_failed", "value": "文件夹加载失败，请重试" },

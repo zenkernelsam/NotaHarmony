@@ -16,7 +16,8 @@ import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
 import {
   FolderCreateResult, FolderDeleteResult, FolderDropIntent, FolderMutationResult,
-  FolderRepositoryImpl, NoteFolder, NoteFolderMoveResult, ORIGINAL_FOLDER_DRAG_INDENT,
+  FolderRepositoryImpl, InvalidFolderNameError, MaxFolderDepthExceededError,
+  NoteFolder, NoteFolderMoveResult, ORIGINAL_FOLDER_DRAG_INDENT,
   isFolderInSubtree, resolveFolderDrop,
 } from '../../data/FolderRepositoryImpl';
 import { FirstPageThumbnailState, StrokePersistence } from '../../data/StrokePersistence';
@@ -618,7 +619,9 @@ struct LibraryPage {
       if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration) {
         return false;
       }
-      promptAction.showToast({ message: $r('app.string.folder_operation_failed') });
+      promptAction.showToast({
+        message: this.folderErrorToastRes(e as Error, $r('app.string.folder_operation_failed')),
+      });
       console.error(`folder operation failed: ${JSON.stringify(e)}`);
       return false;
     } finally {
@@ -634,6 +637,17 @@ struct LibraryPage {
     this.publishCommittedFolders(result.folders);
     this.reloadFoldersBestEffort(repo, 'folder create/rename');
     return true;
+  }
+
+  // 原版 sad/qad：深度超限与非法名称各有专属提示，其余走通用失败文案。
+  private folderErrorToastRes(e: Error, fallback: ResourceStr): ResourceStr {
+    if (e instanceof MaxFolderDepthExceededError) {
+      return $r('app.string.error_max_folder_depth');
+    }
+    if (e instanceof InvalidFolderNameError) {
+      return $r('app.string.folder_name_error');
+    }
+    return fallback;
   }
 
   // 删除文件夹：内部笔记回根目录（不删笔记）
@@ -693,7 +707,9 @@ struct LibraryPage {
       if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration) {
         return;
       }
-      promptAction.showToast({ message: $r('app.string.move_folder_failed') });
+      promptAction.showToast({
+        message: this.folderErrorToastRes(e as Error, $r('app.string.move_folder_failed')),
+      });
       console.error(`move folder failed: ${JSON.stringify(e)}`);
     } finally {
       this.folderBusy = false;
@@ -801,7 +817,9 @@ struct LibraryPage {
         console.error(`folder drag move failed: ${JSON.stringify(e)}`);
       });
     } catch (e) {
-      promptAction.showToast({ message: $r('app.string.move_folder_failed') });
+      promptAction.showToast({
+        message: this.folderErrorToastRes(e as Error, $r('app.string.move_folder_failed')),
+      });
       console.error(`resolve folder drag failed: ${JSON.stringify(e)}`);
     }
   }

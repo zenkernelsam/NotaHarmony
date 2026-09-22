@@ -8,6 +8,16 @@ import { ORIGINAL_MAX_FOLDER_DEPTH } from './FolderHierarchyRepair';
 export const MAX_FOLDER_DEPTH: number = ORIGINAL_MAX_FOLDER_DEPTH;
 export const ORIGINAL_FOLDER_DRAG_INDENT: number = 24;
 
+// Mirrors 1.0.3 MaxFolderDepthExceededException (xdb/sad): surfaced as the
+// feature_library__error_max_folder_depth toast instead of a generic failure.
+export class MaxFolderDepthExceededError extends Error {
+}
+
+// Mirrors 1.0.3 InvalidFolderNameException: empty/slash names and case-insensitive
+// sibling duplicates all surface as ui_folder__name_error_message.
+export class InvalidFolderNameError extends Error {
+}
+
 // Mirrors 1.0.3 pdb.f()/pdb.d(): color always resolves to a concrete int (the original
 // SyncedFolderMetadata column is NOT NULL); emoji resolves to null when unset or blank.
 export interface NoteFolder {
@@ -166,7 +176,7 @@ export function validateFolderName(folders: NoteFolder[], rawName: string, paren
   excludedFolderId?: string): string {
   const name: string = rawName.trim();
   if (name.length === 0 || name.includes('/') || name.includes('\\')) {
-    throw new Error('invalid folder name');
+    throw new InvalidFolderNameError('invalid folder name');
   }
   if (parentId !== null && findFolder(folders, parentId) === null) {
     throw new Error('folder parent does not exist');
@@ -175,7 +185,7 @@ export function validateFolderName(folders: NoteFolder[], rawName: string, paren
   for (const folder of folders) {
     if (folder.id !== excludedFolderId && sameParent(folder.parentId, parentId) &&
       folder.name.toLowerCase() === normalized) {
-      throw new Error('a sibling folder already has this name');
+      throw new InvalidFolderNameError('a sibling folder already has this name');
     }
   }
   return name;
@@ -197,7 +207,7 @@ export function validateFolderMove(folders: NoteFolder[], folderId: string,
   }
   const parentDepth: number = newParentId === null ? 0 : folderDepth(folders, newParentId);
   if (parentDepth + subtreeHeight(folders, folderId) > MAX_FOLDER_DEPTH) {
-    throw new Error(`folder depth cannot exceed ${MAX_FOLDER_DEPTH}`);
+    throw new MaxFolderDepthExceededError(`folder depth cannot exceed ${MAX_FOLDER_DEPTH}`);
   }
   validateFolderName(folders, folder.name, newParentId, folderId);
 }
@@ -323,7 +333,7 @@ export class FolderRepositoryImpl {
         const folders: NoteFolder[] = await this.queryFolders(store);
         const validatedName: string = validateFolderName(folders, name, parentId);
         if (parentId !== null && folderDepth(folders, parentId) >= MAX_FOLDER_DEPTH) {
-          throw new Error(`folder depth cannot exceed ${MAX_FOLDER_DEPTH}`);
+          throw new MaxFolderDepthExceededError(`folder depth cannot exceed ${MAX_FOLDER_DEPTH}`);
         }
         const now: number = Date.now();
         // Mirrors 1.0.3 rdb/id7.b(): creation writes the chosen color and stamps
