@@ -14,6 +14,16 @@ export enum SelectionMode {
   LASSO = 1,
 }
 
+// deselectMode 进入前的选区快照（原版 fvbVar.n 保存的 ftc）。
+interface DeselectSnapshot {
+  selectedStrokeIds: string[];
+  selectedShapeIds: string[];
+  selectedTextBlockIds: string[];
+  selectedImageIds: string[];
+  selectedMathIds: string[];
+  selectedGroupIds: string[];
+}
+
 export interface SelectionState {
   isActive: boolean;
   mode: SelectionMode;
@@ -25,6 +35,10 @@ export interface SelectionState {
   selectedImageIds: string[];
   selectedMathIds: string[];
   selectedGroupIds: string[];
+  // 原版 ftc.h/ftc.i（dsc.DESELECT → dhb case20 进入）：点按移除模式 +
+  // 已被点出选区的 id 集；确认保留缩减选区，取消恢复进入前快照。
+  deselectMode: boolean;
+  deselectedIds: string[];
   transform: TransformMatrix;    // 当前变换矩阵（单位矩阵起始）
 }
 
@@ -43,9 +57,14 @@ export class SelectionTool {
       selectedImageIds: [],
       selectedMathIds: [],
       selectedGroupIds: [],
+      deselectMode: false,
+      deselectedIds: [],
       transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
     };
   }
+
+  // 原版 fvbVar.n：进入 deselectMode 前的选区快照（取消时整体恢复）。
+  private preDeselectSelection: DeselectSnapshot | null = null;
 
   // 开始选区（touchDown）
   beginSelection(mode: SelectionMode, startPoint: Point2D): void {
@@ -59,6 +78,9 @@ export class SelectionTool {
     this.state.selectedImageIds = [];
     this.state.selectedMathIds = [];
     this.state.selectedGroupIds = [];
+    this.state.deselectMode = false;
+    this.state.deselectedIds = [];
+    this.preDeselectSelection = null;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
@@ -260,6 +282,9 @@ export class SelectionTool {
     this.state.selectedImageIds = [];
     this.state.selectedMathIds = [];
     this.state.selectedGroupIds = [];
+    this.state.deselectMode = false;
+    this.state.deselectedIds = [];
+    this.preDeselectSelection = null;
     this.state.lassoPoints = [];
     this.state.rect = null;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -275,6 +300,9 @@ export class SelectionTool {
     this.state.selectedImageIds = imageIds.slice();
     this.state.selectedMathIds = mathIds.slice();
     this.state.selectedGroupIds = groupIds.slice();
+    this.state.deselectMode = false;
+    this.state.deselectedIds = [];
+    this.preDeselectSelection = null;
     this.state.lassoPoints = [];
     this.state.rect = null;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -289,7 +317,82 @@ export class SelectionTool {
     this.state.selectedImageIds = [];
     this.state.selectedMathIds = [];
     this.state.selectedGroupIds = [];
+    this.state.deselectMode = false;
+    this.state.deselectedIds = [];
+    this.preDeselectSelection = null;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  }
+
+  // === 原版 deselectMode（dsc.DESELECT → dhb case20；stc/ej9 case18；qtc/z39 case17）===
+
+  // 进入点按移除模式：保存 fvbVar.n 快照（取消时恢复）。
+  enterDeselectMode(): void {
+    if (this.state.deselectMode) {
+      return;
+    }
+    this.preDeselectSelection = {
+      selectedStrokeIds: this.state.selectedStrokeIds.slice(),
+      selectedShapeIds: this.state.selectedShapeIds.slice(),
+      selectedTextBlockIds: this.state.selectedTextBlockIds.slice(),
+      selectedImageIds: this.state.selectedImageIds.slice(),
+      selectedMathIds: this.state.selectedMathIds.slice(),
+      selectedGroupIds: this.state.selectedGroupIds.slice(),
+    };
+    this.state.deselectMode = true;
+    this.state.deselectedIds = [];
+  }
+
+  // stc/ej9 case18：把命中的实体（或整组叶子）从选中集移入 deselectedIds；
+  // 被选中的组 id 一并剔除（ftcVar.m 过滤）。选中集清空 → 退出选区。
+  deselectElements(entityIds: string[], groupIds: string[] = []): void {
+    const remove: Set<string> = new Set<string>(entityIds);
+    const keep = (id: string): boolean => !remove.has(id);
+    this.state.selectedStrokeIds = this.state.selectedStrokeIds.filter(keep);
+    this.state.selectedShapeIds = this.state.selectedShapeIds.filter(keep);
+    this.state.selectedTextBlockIds = this.state.selectedTextBlockIds.filter(keep);
+    this.state.selectedImageIds = this.state.selectedImageIds.filter(keep);
+    this.state.selectedMathIds = this.state.selectedMathIds.filter(keep);
+    if (groupIds.length > 0) {
+      const drop: Set<string> = new Set<string>(groupIds);
+      this.state.selectedGroupIds = this.state.selectedGroupIds.filter(
+        (id: string): boolean => !drop.has(id));
+    }
+    const deselected: Set<string> = new Set<string>(this.state.deselectedIds);
+    for (const id of entityIds) {
+      deselected.add(id);
+    }
+    this.state.deselectedIds = Array.from(deselected);
+    if (this.state.selectedStrokeIds.length === 0 && this.state.selectedShapeIds.length === 0 &&
+      this.state.selectedTextBlockIds.length === 0 && this.state.selectedImageIds.length === 0 &&
+      this.state.selectedMathIds.length === 0 && this.state.selectedGroupIds.length === 0) {
+      this.deselect();
+    }
+  }
+
+  // onConfirmDeselectMode：保留缩减后的选区，丢弃快照。
+  confirmDeselectMode(): void {
+    this.state.deselectMode = false;
+    this.state.deselectedIds = [];
+    this.preDeselectSelection = null;
+  }
+
+  // qtc/z39 case17 / onCancelDeselectMode：恢复 fvbVar.n 快照并退出模式。
+  cancelDeselectMode(): void {
+    const snapshot: DeselectSnapshot | null = this.preDeselectSelection;
+    if (snapshot !== null) {
+      this.state.selectedStrokeIds = snapshot.selectedStrokeIds.slice();
+      this.state.selectedShapeIds = snapshot.selectedShapeIds.slice();
+      this.state.selectedTextBlockIds = snapshot.selectedTextBlockIds.slice();
+      this.state.selectedImageIds = snapshot.selectedImageIds.slice();
+      this.state.selectedMathIds = snapshot.selectedMathIds.slice();
+      this.state.selectedGroupIds = snapshot.selectedGroupIds.slice();
+      this.state.isActive = this.state.selectedStrokeIds.length > 0 ||
+        this.state.selectedShapeIds.length > 0 || this.state.selectedTextBlockIds.length > 0 ||
+        this.state.selectedImageIds.length > 0 || this.state.selectedMathIds.length > 0;
+    }
+    this.state.deselectMode = false;
+    this.state.deselectedIds = [];
+    this.preDeselectSelection = null;
   }
 
   getState(): SelectionState {

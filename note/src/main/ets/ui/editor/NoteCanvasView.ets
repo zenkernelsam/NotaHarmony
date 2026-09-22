@@ -227,6 +227,12 @@ interface PhotoInsertOutcome {
   totalCount: number;
 }
 
+// deselectMode 点按目标：实体 id 集 + 需剔除的组 id。
+interface DeselectHit {
+  entityIds: string[];
+  groupIds: string[];
+}
+
 interface OriginalPhotoInsertOrigin {
   generation: number;
   pageId: string;
@@ -418,6 +424,7 @@ export struct NoteCanvasView {
   @State editingTextLayoutWidth: number = 0;
   @State selectionRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
   @State selectionVisible: boolean = false;
+  @State selectionDeselectMode: boolean = false;
   @State selectionCanFlip: boolean = false;
   @State selectionCanCrop: boolean = false;
   @State selectionCanLock: boolean = false;
@@ -1006,6 +1013,32 @@ export struct NoteCanvasView {
     this.emitTapeRevealState();
     this.renderFrame(true);
     return true;
+  }
+
+  // 原版 dl1 case2 deselectMode（ftc.h=true）：命中选中元素 → stc/ej9 case18
+  // 把它（或其所属被选中组的全部叶子）移出选区；命中未选中元素或未命中 →
+  // null，由调用方按覆盖层内外决定 utc no-op 或 qtc 取消模式。
+  private deselectTargetIdsAt(point: Point2D): DeselectHit | null {
+    const state = this.selectionTool.getState();
+    const hitId: string | null = this.topmostPageElementIdAt(point);
+    if (hitId === null) {
+      return null;
+    }
+    const selected: Set<string> = new Set<string>(
+      state.selectedStrokeIds.concat(state.selectedShapeIds)
+        .concat(state.selectedTextBlockIds).concat(state.selectedImageIds)
+        .concat(state.selectedMathIds));
+    if (!selected.has(hitId)) {
+      return null;
+    }
+    for (const groupId of state.selectedGroupIds) {
+      const leaves: string[] | null = resolveOriginalSelectedGroupLeaves(
+        [groupId], Array.from(selected), this.selectionGroups);
+      if (leaves !== null && leaves.indexOf(hitId) >= 0) {
+        return { entityIds: leaves, groupIds: [groupId] };
+      }
+    }
+    return { entityIds: [hitId], groupIds: [] };
   }
 
   // 原版 dl1 case2(ftc 选中态·非 deselectMode) → xtc.a(jE, null)：选区外按下时
@@ -2079,6 +2112,22 @@ export struct NoteCanvasView {
       return;
     }
     if (this.viewModel.isSelectionActive()) {
+      if (this.selectionTool.getState().deselectMode) {
+        // 原版 dl1 case2（ftc.h=true deselectMode）：命中选中元素 → stc/ej9 case18
+        // 移出选区（元素或整组叶子）；覆盖层内其余按下 → utc no-op；覆盖层外 →
+        // qtc → z39 case17 取消模式并恢复进入前快照。
+        const target: DeselectHit | null = this.deselectTargetIdsAt(canvasP);
+        if (target !== null) {
+          this.selectionTool.deselectElements(target.entityIds, target.groupIds);
+        } else if (!this.pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)) {
+          this.selectionTool.cancelDeselectMode();
+        }
+        this.selectionDeselectMode = this.selectionTool.getState().deselectMode;
+        this.updateSelectionOverlay();
+        this.renderFrame();
+        this.isDrawing = true;
+        return;
+      }
       // 已选中且按下点在选区内 → 拖拽移动（画布坐标）
       hilog.info(0x0001, 'NoteCanvasView', 'selDown visible=%{public}s x=%{public}f y=%{public}f rect=(%{public}f,%{public}f,%{public}f,%{public}f)',
         this.selectionVisible.toString(), touch.x, touch.y, this.selectionRect.left,
@@ -5222,6 +5271,7 @@ export struct NoteCanvasView {
   // === 选区 ===
   private clearSelectionWithRegisterReset(): void {
     this.selectionTool.deselect();
+    this.selectionDeselectMode = false;
     this.selectionVisible = false;
     this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
   }
@@ -5357,6 +5407,7 @@ export struct NoteCanvasView {
 
   private updateSelectionOverlay(): void {
     const state = this.selectionTool.getState();
+    this.selectionDeselectMode = state.deselectMode;
     if (state.selectedStrokeIds.length === 0 && state.selectedShapeIds.length === 0 &&
       state.selectedTextBlockIds.length === 0 && state.selectedImageIds.length === 0 &&
       state.selectedMathIds.length === 0 && state.selectedGroupIds.length === 0) {
@@ -5828,7 +5879,24 @@ export struct NoteCanvasView {
         this.refreshImageAssets(this.pageLoadGeneration, this.loadedPageId);
       }
     } else if (action === SelectionMenuAction.DESELECT) {
-      this.clearSelectionWithRegisterReset();
+      // 原版 dsc.DESELECT → dhb case20：进入 deselectMode（ftc.h=true，
+      // fvbVar.n 保存进入前快照），不是退出选区。
+      this.selectionTool.enterDeselectMode();
+      this.selectionDeselectMode = this.selectionTool.getState().deselectMode;
+      this.updateSelectionOverlay();
+      this.renderFrame();
+    } else if (action === SelectionMenuAction.DESELECT_CONFIRM) {
+      // 原版 k2f.onConfirmDeselectMode：保留缩减后的选区。
+      this.selectionTool.confirmDeselectMode();
+      this.selectionDeselectMode = this.selectionTool.getState().deselectMode;
+      this.updateSelectionOverlay();
+      this.renderFrame();
+    } else if (action === SelectionMenuAction.DESELECT_CANCEL) {
+      // 原版 k2f.onCancelDeselectMode / qtc → z39 case17：恢复 fvbVar.n 快照。
+      this.selectionTool.cancelDeselectMode();
+      this.selectionDeselectMode = this.selectionTool.getState().deselectMode;
+      this.updateSelectionOverlay();
+      this.renderFrame();
     } else if (action === SelectionMenuAction.SEND_FORWARD || action === SelectionMenuAction.SEND_BACKWARD) {
       this.reorderSelected(state.selectedStrokeIds, state.selectedShapeIds,
         state.selectedTextBlockIds, state.selectedImageIds, state.selectedMathIds,
@@ -8459,6 +8527,7 @@ export struct NoteCanvasView {
         menuEnabled: !this.photoImportBusy && !this.historyBusy &&
           this.loaded && !this.dataLoading && !this.dataLoadFailed &&
           this.loadedPageId === this.currentPage.pageId,
+        deselectMode: this.selectionDeselectMode,
         photoImportLeaseActive: this.photoImportBusy,
         containerWidth: this.overlayWidth,
         containerHeight: this.overlayHeight,

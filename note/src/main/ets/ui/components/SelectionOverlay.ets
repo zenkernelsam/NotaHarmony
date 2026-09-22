@@ -25,6 +25,9 @@ export enum SelectionMenuAction {
   DUPLICATE = 14,
   SEND_TO_FRONT = 15,
   SEND_TO_BACK = 16,
+  // 原版 deselectMode 的确认/取消（k2f onConfirm/onCancelDeselectMode）。
+  DESELECT_CONFIRM = 17,
+  DESELECT_CANCEL = 18,
 }
 
 @Component
@@ -40,6 +43,7 @@ export struct SelectionOverlay {
   @Prop canEditMath: boolean = false;
   @Prop positionLocked: boolean = false;
   @Prop menuEnabled: boolean = true;
+  @Prop deselectMode: boolean = false;
   @Prop photoImportLeaseActive: boolean = false;
   @Prop containerWidth: number = 0;
   @Prop containerHeight: number = 0;
@@ -85,6 +89,13 @@ export struct SelectionOverlay {
 
   private buildSelectionMenu(): MenuElement[] {
     const items: MenuElement[] = [];
+    // 原版 deselectMode（k2f 确认/取消条）：模式下菜单只留确认/取消。
+    if (this.deselectMode) {
+      items.push(
+        { value: $r('app.string.done'), action: () => { this.onMenuAction(SelectionMenuAction.DESELECT_CONFIRM); } },
+        { value: $r('app.string.cancel'), action: () => { this.onMenuAction(SelectionMenuAction.DESELECT_CANCEL); } });
+      return items;
+    }
     if (!this.photoImportLeaseActive) {
       items.push(
         { value: $r('app.string.copy'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Copy clicked'); this.onMenuAction(SelectionMenuAction.COPY); } });
@@ -133,7 +144,7 @@ export struct SelectionOverlay {
       items.push({ value: this.positionLocked ? $r('app.string.unlock') : $r('app.string.lock'),
         action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Lock clicked'); this.onMenuAction(SelectionMenuAction.LOCK); } });
     }
-    items.push({ value: $r('app.string.done'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu OK clicked'); this.onMenuAction(SelectionMenuAction.DESELECT); } });
+    items.push({ value: $r('app.string.deselect'), action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Deselect clicked'); this.onMenuAction(SelectionMenuAction.DESELECT); } });
     return items;
   }
 }

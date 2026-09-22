@@ -78,10 +78,12 @@ const harmonyOrder = [
   'SelectionMenuAction.DELETE', 'SelectionMenuAction.EDIT_MATH',
   'SelectionMenuAction.CROP', 'SelectionMenuAction.FLIP_H',
   'SelectionMenuAction.FLIP_V', 'SelectionMenuAction.LOCK',
-  'SelectionMenuAction.DESELECT',
+  'SelectionMenuAction.DESELECT)',
 ];
 let cursor = -1;
 for (const item of harmonyOrder) {
+  // ')' suffix keeps DESELECT from prefix-matching DESELECT_CONFIRM/CANCEL
+  // (Phase 591 deselectMode branch sits earlier in buildSelectionMenu).
   const at = menuBody.indexOf(item);
   assert.ok(at > cursor, `${item} out of order or missing`);
   cursor = at;

@@ -261,6 +261,10 @@
       "value": "Done"
     },
     {
+      "name": "deselect",
+      "value": "Deselect"
+    },
+    {
       "name": "selection_actions",
       "value": "Actions"
     },

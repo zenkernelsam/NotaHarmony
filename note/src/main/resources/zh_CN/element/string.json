@@ -62,6 +62,7 @@
     { "name": "paper_settings_save_failed", "value": "无法更新共享纸张设置，请重试" },
     { "name": "type_here", "value": "在此输入..." },
     { "name": "done", "value": "完成" },
+    { "name": "deselect", "value": "取消选择" },
     { "name": "selection_actions", "value": "操作" },
     { "name": "copy", "value": "复制" },
     { "name": "cut", "value": "剪切" },
