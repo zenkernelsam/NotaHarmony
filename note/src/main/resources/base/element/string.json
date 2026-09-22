@@ -577,6 +577,18 @@
       "value": "Rename failed. Try again."
     },
     {
+      "name": "jump_to_title",
+      "value": "Jump to page"
+    },
+    {
+      "name": "jump_to_page_label",
+      "value": "Page number"
+    },
+    {
+      "name": "jump_to_go",
+      "value": "Go"
+    },
+    {
       "name": "decoration_color",
       "value": "Color"
     },

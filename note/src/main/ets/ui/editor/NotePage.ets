@@ -1285,6 +1285,16 @@ struct NotePage {
           onToggleBookmark: () => {
             this.runPageOperation(async (): Promise<void> => this.toggleCurrentPageBookmark());
           },
+          // Original ke1/n8 jump-to-page: the indicator tap opens a dialog;
+          // Go lands on the validated 0-based index under the same page-guard
+          // set as prev/next navigation.
+          onJumpToPage: (pageIndex: number) => {
+            if (!this.pageLoading && !this.pageOperationBusy &&
+              !this.historyPending && !this.pageStructureLeaseActive &&
+              pageIndex >= 0 && pageIndex < this.pages.length) {
+              this.currentPageIndex = pageIndex;
+            }
+          },
           onApplyNoteBackground: (settings: NoteBackgroundSettings) => {
             this.runPageOperation(
               async (): Promise<void> => this.applyNoteBackgroundSettings(settings));

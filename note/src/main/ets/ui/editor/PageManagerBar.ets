@@ -18,6 +18,16 @@ export struct PageManagerBar {
   @Prop noteBackground: NoteBackgroundSettings = originalDefaultNoteBackgroundSettings();
   @State showSettings: boolean = false;
   @State compact: boolean = false;
+  private jumpDialog: CustomDialogController = new CustomDialogController({
+    builder: JumpToPageDialog({
+      pageCount: this.pageCount,
+      initialValue: (this.currentPageIndex + 1).toString(),
+      onGo: (pageIndex: number): void => {
+        this.onJumpToPage(pageIndex);
+      },
+    }),
+    autoCancel: true,
+  });
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
 
@@ -37,6 +47,10 @@ export struct PageManagerBar {
   // selection flips its wz9.bookmarkedRegister value.
   onToggleBookmark: () => void = () => {
   };
+  // Original ke1 case 20: the page indicator is clickable and opens the
+  // jump-to-page dialog; Go applies the 1-based target page index.
+  onJumpToPage: (pageIndex: number) => void = (_pageIndex: number): void => {
+  };
   onApplyNoteBackground: (settings: NoteBackgroundSettings) => void = () => {
   };
 
@@ -47,10 +61,20 @@ export struct PageManagerBar {
   build() {
     Row() {
       this.NavigationButton('<', true)
+      // Original ke1 case 20: tapping the page indicator opens the
+      // jump-to-page dialog (fail-closed under busy/lease like siblings).
       Text((this.currentPageIndex + 1) + ' / ' + this.pageCount)
         .fontSize(14)
         .width(this.compact ? 56 : 64)
         .textAlign(TextAlign.Center)
+        .enabled(!this.busy && !this.photoImportLeaseActive)
+        .accessibilityText($r('app.string.jump_to_title'))
+        .onClick(() => {
+          if (this.busy || this.photoImportLeaseActive) {
+            return;
+          }
+          this.jumpDialog.open();
+        })
       this.NavigationButton('>', false)
       if (this.currentPageBookmarked) {
         // md.java bookmark_tall_fill overlay parity: the page indicator marks
@@ -259,5 +283,93 @@ export struct PageManagerBar {
         this.onApplyNoteBackground(settings);
       },
     })
+  }
+}
+
+// 原版 ke1/n8：Jump to page 对话框——标题 + 页码输入 + Cancel/Go；
+// Go 仅在输入解析为整数且 1<=n<=pageCount 时可用（svd.p0 校验对齐）。
+@CustomDialog
+struct JumpToPageDialog {
+  controller?: CustomDialogController;
+  pageCount: number = 1;
+  initialValue: string = '';
+  @State inputText: string = '';
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+  onGo: (pageIndex: number) => void = (_pageIndex: number): void => {
+  };
+
+  aboutToAppear(): void {
+    this.inputText = this.initialValue;
+  }
+
+  private resolveTokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  // n8 case 21: svd.p0(input) parses; Go enabled iff 1 <= n <= pageCount.
+  private targetPage(): number {
+    const parsed: number = parseInt(this.inputText.trim(), 10);
+    if (isNaN(parsed) || parsed.toString() !== this.inputText.trim()) {
+      return -1;
+    }
+    return parsed;
+  }
+
+  private goEnabled(): boolean {
+    const target: number = this.targetPage();
+    return target >= 1 && target <= this.pageCount;
+  }
+
+  build() {
+    Column() {
+      Text($r('app.string.jump_to_title'))
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.resolveTokens().textPrimary)
+      TextInput({ text: this.inputText, placeholder: $r('app.string.jump_to_page_label') })
+        .width('100%')
+        .type(InputType.Number)
+        .fontColor(this.resolveTokens().textPrimary)
+        .placeholderColor(this.resolveTokens().textSecondary)
+        .backgroundColor(this.resolveTokens().control)
+        .margin({ top: 12 })
+        .onChange((value: string) => {
+          this.inputText = value;
+        })
+      Row() {
+        Button($r('app.string.cancel'))
+          .height(36)
+          .fontSize(14)
+          .layoutWeight(1)
+          .onClick(() => {
+            if (this.controller !== undefined) {
+              this.controller.close();
+            }
+          })
+        Button($r('app.string.jump_to_go'))
+          .height(36)
+          .fontSize(14)
+          .layoutWeight(1)
+          .margin({ left: 12 })
+          .enabled(this.goEnabled())
+          .opacity(this.goEnabled() ? 1 : 0.4)
+          .onClick(() => {
+            const target: number = this.targetPage();
+            if (target < 1 || target > this.pageCount) {
+              return;
+            }
+            this.onGo(target - 1);
+            if (this.controller !== undefined) {
+              this.controller.close();
+            }
+          })
+      }
+      .width('100%')
+      .margin({ top: 16 })
+    }
+    .padding(16)
+    .width(320)
+    .backgroundColor(this.resolveTokens().surface)
   }
 }
