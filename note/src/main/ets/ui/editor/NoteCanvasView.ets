@@ -389,6 +389,13 @@ export struct NoteCanvasView {
   private eraserActive: boolean = false;
   private selectionDrawing: boolean = false;
   private selectionDrag: boolean = false;
+  // 原版 ycj.e 选择面拖拽检测器（is7.onStartDrag/onTouchSlopReached/
+  // onDragMove/onResetDrag + vo2 收尾）：awaitTouchSlopOrCancellation 语义，
+  // 位移未达 touch slop 前 onDragMove 不分发。Harmony 注册适配阈值取 8
+  // 屏幕 px（与点按判定半径同量级；原版为密度缩放 dp 值）。
+  private selectionGestureSlopAccum: Point2D = { x: 0, y: 0 };
+  private selectionGestureSlopCrossed: boolean = false;
+  private selectionGestureLastScreen: Point2D = { x: 0, y: 0 };
   // 原版 htc.e/fvb.f(z)：角柄自由变换会话——anchor=对角锚点（画布坐标），
   // start=按下角柄点，base=起始矩阵，baseCenter=起始选区中心。
   private selectionResize: boolean = false;
@@ -1139,6 +1146,9 @@ export struct NoteCanvasView {
     }
     this.resizeBaseTransform = this.selectionTool.getState().transform.slice();
     this.selectionResize = true;
+    this.selectionGestureSlopAccum = { x: 0, y: 0 };
+    this.selectionGestureSlopCrossed = false;
+    this.selectionGestureLastScreen = { x: screenP.x, y: screenP.y };
     this.dragBeforeStrokes = this.completedStrokes.slice();
     this.dragBeforeShapes = this.shapes.slice();
     this.dragBeforeTextBlocks = this.textBlocks.slice();
@@ -1180,7 +1190,7 @@ export struct NoteCanvasView {
   }
 
   // 原版 wtc/e39 整选拖拽会话启动（共用 SELECTION 面与 TEXT 面）。
-  private beginSelectionDragSession(canvasP: Point2D): void {
+  private beginSelectionDragSession(canvasP: Point2D, screenP: Point2D): void {
     this.selectionDrag = true;
     this.dragBeforeStrokes = this.completedStrokes.slice();
     this.dragBeforeShapes = this.shapes.slice();
@@ -1188,6 +1198,28 @@ export struct NoteCanvasView {
     this.dragBeforeImages = this.imageBlocks.slice();
     this.dragBeforeMathBlocks = this.mathBlocks.slice();
     this.lastDragPoint = { x: canvasP.x, y: canvasP.y };
+    this.selectionGestureSlopAccum = { x: 0, y: 0 };
+    this.selectionGestureSlopCrossed = false;
+    this.selectionGestureLastScreen = { x: screenP.x, y: screenP.y };
+  }
+
+  // 原版 ycj.e(awaitPointerSlopOrCancellation 族)：slop 之内的位移被检测器
+  // 消费，onDragMove 自越过阈值后才开始分发。累计屏幕位移 |Δ|，达 8px 即
+  // 越过（is7.onTouchSlopReached 等价）；此前返回 false 表示本事件应吞掉。
+  private selectionGestureSlopAdvance(screenP: Point2D): boolean {
+    if (this.selectionGestureSlopCrossed) {
+      this.selectionGestureLastScreen = { x: screenP.x, y: screenP.y };
+      return true;
+    }
+    this.selectionGestureSlopAccum.x += screenP.x - this.selectionGestureLastScreen.x;
+    this.selectionGestureSlopAccum.y += screenP.y - this.selectionGestureLastScreen.y;
+    this.selectionGestureLastScreen = { x: screenP.x, y: screenP.y };
+    if (Math.hypot(this.selectionGestureSlopAccum.x,
+      this.selectionGestureSlopAccum.y) < 8) {
+      return false;
+    }
+    this.selectionGestureSlopCrossed = true;
+    return true;
   }
 
   // 原版 dl1 case2(ftc 选中态·非 deselectMode) → xtc.a(jE, null)：选区外按下时
@@ -2362,7 +2394,7 @@ export struct NoteCanvasView {
         const selState: SelectionState = this.selectionTool.getState();
         const insideHitId: string | null = this.topmostPageElementIdAt(canvasP);
         if (!this.insideOverlayElementTap(selState, insideHitId, canvasP)) {
-          this.beginSelectionDragSession(canvasP);
+          this.beginSelectionDragSession(canvasP, { x: touch.x, y: touch.y });
         }
         this.isDrawing = true;
         return;
@@ -2466,7 +2498,7 @@ export struct NoteCanvasView {
         hilog.info(0x0001, 'NoteCanvasView', 'selection drag start at (%{public}f,%{public}f) rect=(%{public}f,%{public}f)-(%{public}f,%{public}f)',
           canvasP.x, canvasP.y, this.selectionRect.left, this.selectionRect.top,
           this.selectionRect.right, this.selectionRect.bottom);
-        this.beginSelectionDragSession(canvasP);
+        this.beginSelectionDragSession(canvasP, { x: touch.x, y: touch.y });
       } else if (this.selectionVisible) {
         // 原版 dl1 case2（ftc.h=false 常态）：覆盖层外按下 → xtc.a(jE,null) 命中
         // 元素 → vtc TapToSelect（该元素或其 cqc 组）；未命中 → rtc ClearSelection。
@@ -2499,7 +2531,7 @@ export struct NoteCanvasView {
         const idleHitId: string | null = this.topmostPageElementIdAt(canvasP);
         if (idleHitId !== null) {
           this.applyTapSelect(idleHitId);
-          this.beginSelectionDragSession(canvasP);
+          this.beginSelectionDragSession(canvasP, { x: touch.x, y: touch.y });
         } else {
           hilog.info(0x0001, 'NoteCanvasView', 'selection begin at (%{public}f,%{public}f) visible=%{public}s',
             canvasP.x, canvasP.y, this.selectionVisible.toString());
@@ -2581,14 +2613,33 @@ export struct NoteCanvasView {
     }
     if (this.selectionResize) {
       const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
+      if (!this.selectionGestureSlopAdvance({ x: touch.x, y: touch.y })) {
+        return;
+      }
       this.applySelectionResize(p);
       return;
     }
     if (this.selectionDrag) {
       const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
-      const dx: number = p.x - this.lastDragPoint.x;
-      const dy: number = p.y - this.lastDragPoint.y;
+      const wasCrossed: boolean = this.selectionGestureSlopCrossed;
+      if (!this.selectionGestureSlopAdvance({ x: touch.x, y: touch.y })) {
+        // ycj.e：touch slop 未达——onDragMove 未分发，选区不动。
+        this.lastDragPoint = { x: p.x, y: p.y };
+        return;
+      }
+      let dx: number = p.x - this.lastDragPoint.x;
+      let dy: number = p.y - this.lastDragPoint.y;
       this.lastDragPoint = { x: p.x, y: p.y };
+      if (!wasCrossed) {
+        // 越过 slop 的首事件：阈值内位移被检测器消费，仅超出部分进入
+        // onDragMove——按累计方向取 (|accum|-8px)/zoom 画布增量。
+        const dist: number = Math.hypot(this.selectionGestureSlopAccum.x,
+          this.selectionGestureSlopAccum.y);
+        const residual: number = Math.max(0, dist - 8);
+        const zoom: number = this.viewport.zoom > 0.0001 ? this.viewport.zoom : 1;
+        dx = dist > 0.0001 ? (this.selectionGestureSlopAccum.x / dist) * (residual / zoom) : 0;
+        dy = dist > 0.0001 ? (this.selectionGestureSlopAccum.y / dist) * (residual / zoom) : 0;
+      }
       const snap: OriginalSnapMovePlan = this.planSelectionSnap(dx, dy);
       this.selectionTool.moveSelected(dx + snap.dx, dy + snap.dy);
       this.applySelectionTransform(false, false);  // 移动中不 push undo（结束时统一 push）
@@ -2630,15 +2681,19 @@ export struct NoteCanvasView {
         this.selectionTool.updateSelection(p);
       } else if (this.selectionResize) {
         const p: Point2D = this.viewport.screenToCanvas(finalTouch.x, finalTouch.y);
-        this.applySelectionResize(p);
+        if (this.selectionGestureSlopCrossed) {
+          this.applySelectionResize(p);
+        }
       } else if (this.selectionDrag) {
         const p: Point2D = this.viewport.screenToCanvas(finalTouch.x, finalTouch.y);
-        const dx: number = p.x - this.lastDragPoint.x;
-        const dy: number = p.y - this.lastDragPoint.y;
-        this.lastDragPoint = { x: p.x, y: p.y };
-        const snap: OriginalSnapMovePlan = this.planSelectionSnap(dx, dy);
-        this.selectionTool.moveSelected(dx + snap.dx, dy + snap.dy);
-        this.applySelectionTransform(false, false);
+        if (this.selectionGestureSlopCrossed) {
+          const dx: number = p.x - this.lastDragPoint.x;
+          const dy: number = p.y - this.lastDragPoint.y;
+          this.lastDragPoint = { x: p.x, y: p.y };
+          const snap: OriginalSnapMovePlan = this.planSelectionSnap(dx, dy);
+          this.selectionTool.moveSelected(dx + snap.dx, dy + snap.dy);
+          this.applySelectionTransform(false, false);
+        }
       } else if (this.strokeSession !== null && this.strokeSession.isActive()) {
         const batches: PointerInputBatches = this.pointerStream.append(
           this.collectPointerSamples(event, finalTouch));
@@ -2695,6 +2750,8 @@ export struct NoteCanvasView {
     } else if (this.selectionDrag || this.selectionResize) {
       this.selectionDrag = false;
       this.selectionResize = false;
+      this.selectionGestureSlopCrossed = false;
+      this.selectionGestureSlopAccum = { x: 0, y: 0 };
       this.resizeIsRotate = false;
       this.snapGuides = [];
       const selectedStrokeIds: string[] = this.selectionTool.getState().selectedStrokeIds.slice();
@@ -2824,6 +2881,8 @@ export struct NoteCanvasView {
     this.selectionDrawing = false;
     this.selectionDrag = false;
     this.selectionResize = false;
+    this.selectionGestureSlopCrossed = false;
+    this.selectionGestureSlopAccum = { x: 0, y: 0 };
     this.resizeIsRotate = false;
     this.snapGuides = [];
     this.dragBeforeStrokes = [];

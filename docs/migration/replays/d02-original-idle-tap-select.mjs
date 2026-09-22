@@ -42,7 +42,7 @@ check(idleBranch.indexOf('topmostPageElementIdAt(canvasP)') <
   'element hit-test precedes lasso begin (vtc before fallthrough)');
 check(idleBranch.includes('this.applyTapSelect(idleHitId)'),
   'tap-select resolves+commits via applyTapSelect (uw2 case3 ntc → gtc)');
-check(idleBranch.includes('this.beginSelectionDragSession(canvasP)'),
+check(idleBranch.includes('this.beginSelectionDragSession(canvasP,'),
   'same gesture continues as a selection drag (uw2 case3 → wtc/e39)');
 // Phase 603 共享助手：tap-select/拖拽会话的实现体。
 const tapSel = canvas.slice(canvas.indexOf('private applyTapSelect('),

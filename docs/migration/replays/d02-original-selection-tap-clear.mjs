@@ -43,7 +43,7 @@ check(applyT.includes('this.state.selectedStrokeIds.indexOf(s.id)'),
 const branch = canvas.slice(canvas.indexOf('isSelectionActive()'),
   canvas.indexOf('isSelectionActive()') + 10000);
 check(branch.includes('pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)') &&
-  branch.includes('this.beginSelectionDragSession(canvasP)'),
+  branch.includes('this.beginSelectionDragSession(canvasP,'),
   'inside-rect press drags the whole selection');
 check(branch.indexOf('pointInRect({ x: touch.x, y: touch.y }, this.selectionRect)') <
   branch.indexOf('topmostPageElementIdAt'),

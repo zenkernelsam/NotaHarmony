@@ -40,7 +40,7 @@ check(def.includes('this.tryStartSelectionResize({ x: touch.x, y: touch.y })'),
   'corner/rotate handles active on TEXT surface inside-overlay');
 check(def.includes('this.insideOverlayElementTap(selState, insideHitId, canvasP)'),
   'inside-overlay ttc dispatch on TEXT surface');
-check(def.includes('this.beginSelectionDragSession(canvasP)'),
+check(def.includes('this.beginSelectionDragSession(canvasP,'),
   'inside-overlay wtc whole-selection drag on TEXT surface');
 check(def.indexOf('if (!stylusSuppress)') <
   def.indexOf('this.applyTapSelect(hitId)'),

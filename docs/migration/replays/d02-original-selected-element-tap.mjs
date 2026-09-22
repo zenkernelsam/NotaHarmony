@@ -27,7 +27,7 @@ const branch = canvas.slice(canvas.indexOf('isSelectionActive()'),
 check(branch.includes('topmostPageElementIdAt(canvasP)'),
   'inside-press probes the topmost element (xtc.c.e)');
 check(branch.indexOf('topmostPageElementIdAt(canvasP)') <
-  branch.indexOf('this.beginSelectionDragSession(canvasP)'),
+  branch.indexOf('this.beginSelectionDragSession(canvasP,'),
   'element-level dispatch precedes the whole-selection drag');
 
 // Phase 603：itc/gtc 元素级分流抽取为 insideOverlayElementTap 助手
@@ -65,7 +65,7 @@ check(gtc.includes('return true;'),
   'gtc member tap consumes the gesture without dragging (qke non-text no-op)');
 
 // --- 其余路径不变：ftc/多元素/未命中成员 → 整体拖拽 ---
-check(branch.includes('this.beginSelectionDragSession(canvasP)'),
+check(branch.includes('this.beginSelectionDragSession(canvasP,'),
   'wtc whole-selection drag remains the fallback');
 const dragSess = canvas.slice(canvas.indexOf('private beginSelectionDragSession('),
   canvas.indexOf('private beginSelectionDragSession(') + 900);
