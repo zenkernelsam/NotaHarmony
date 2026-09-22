@@ -98,9 +98,8 @@ check(branch.includes('this.selectionTool.cancelDeselectMode()') &&
 // --- deselectTargetIdsAt: selected-element + group-leaf expansion ---
 const target = canvas.slice(canvas.indexOf('deselectTargetIdsAt(point: Point2D)'),
   canvas.indexOf('deselectTargetIdsAt(point: Point2D)') + 1600);
-check(target.includes('topmostPageElementIdAt(point)') &&
-  target.includes('selected.has(hitId)'),
-  'topmost hit must be a selected element');
+check(target.includes('topmostPageElementIdAt(point, selected)'),
+  'hit test whitelisted to selected ids (xtc.a(jE, ftc.g) parity)');
 check(target.includes('resolveOriginalSelectedGroupLeaves(') &&
   target.includes('groupIds: [groupId]'),
   'hit inside a selected group deselects the whole group (cqc parity)');

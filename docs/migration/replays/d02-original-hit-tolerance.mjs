@@ -28,11 +28,11 @@ const check = (cond, msg) => { assert(cond, msg); n++; };
 // --- topmostPageElementIdAt：exact → ±5 两程 ---
 const topmost = canvas.slice(canvas.indexOf('private topmostPageElementIdAt('),
   canvas.indexOf('private topmostPageElementIdAt(') + 2600);
-check(topmost.includes('hitOrderedElementIdAt(ordered, point, 0)') &&
-  topmost.includes('hitOrderedElementIdAt(ordered, point, 5)'),
+check(topmost.includes('hitOrderedElementIdAt(ordered, point, 0, whitelist)') &&
+  topmost.includes('hitOrderedElementIdAt(ordered, point, 5, whitelist)'),
   'two-phase exact-then-5 tolerance dispatch (fu1.e parity)');
-check(topmost.indexOf('hitOrderedElementIdAt(ordered, point, 0)') <
-  topmost.indexOf('hitOrderedElementIdAt(ordered, point, 5)'),
+check(topmost.indexOf('hitOrderedElementIdAt(ordered, point, 0, whitelist)') <
+  topmost.indexOf('hitOrderedElementIdAt(ordered, point, 5, whitelist)'),
   'exact pass precedes the tolerance pass');
 check(topmost.includes('hitStrokeAtPoint(point, element.data, worldTolerance)'),
   'stroke hit carries the tolerance through');

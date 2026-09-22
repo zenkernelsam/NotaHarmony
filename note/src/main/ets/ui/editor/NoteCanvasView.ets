@@ -1071,15 +1071,15 @@ export struct NoteCanvasView {
   // null，由调用方按覆盖层内外决定 utc no-op 或 qtc 取消模式。
   private deselectTargetIdsAt(point: Point2D): DeselectHit | null {
     const state = this.selectionTool.getState();
-    const hitId: string | null = this.topmostPageElementIdAt(point);
-    if (hitId === null) {
-      return null;
-    }
+    // 原版 dl1 case2（ftc.h）：xtc.a(jE, ftc.g) 把命中测试白名单限定在
+    // 选中 id 集——未选中元素即使压在选中元素之上也不挡命中（fu1.e
+    // set 参，两程命中同适用）。
     const selected: Set<string> = new Set<string>(
       state.selectedStrokeIds.concat(state.selectedShapeIds)
         .concat(state.selectedTextBlockIds).concat(state.selectedImageIds)
         .concat(state.selectedMathIds));
-    if (!selected.has(hitId)) {
+    const hitId: string | null = this.topmostPageElementIdAt(point, selected);
+    if (hitId === null) {
       return null;
     }
     for (const groupId of state.selectedGroupIds) {
@@ -1225,20 +1225,26 @@ export struct NoteCanvasView {
   // 原版 dl1 case2(ftc 选中态·非 deselectMode) → xtc.a(jE, null)：选区外按下时
   // 取该点最上层命中元素——命中 → vtc TapToSelect（选中该元素或其 cqc 组）；
   // 未命中 → rtc ClearSelection。返回最上层命中元素 id，未命中返回 null。
-  private topmostPageElementIdAt(point: Point2D): string | null {
+  private topmostPageElementIdAt(point: Point2D,
+    whitelist: Set<string> | null = null): string | null {
     const ordered: OrderedPageElement[] = materializePageElements(
       this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes,
       this.imageBlocks, this.mathBlocks);
     // 原版 fu1.e 两程命中：先点精确命中，再在 ±5 矩形内以 vh5(j,5)
-    // 半径容差复测（容差为元素本地单位）。
-    const exact: string | null = this.hitOrderedElementIdAt(ordered, point, 0);
-    return exact !== null ? exact : this.hitOrderedElementIdAt(ordered, point, 5);
+    // 半径容差复测（容差 5 为页单位；j() 换入元素系时除以元素缩放）。
+    // whitelist 对应 fu1.e 的
+    // set 参（set==null||set.contains(id) 白名单过滤）。
+    const exact: string | null = this.hitOrderedElementIdAt(ordered, point, 0, whitelist);
+    return exact !== null ? exact : this.hitOrderedElementIdAt(ordered, point, 5, whitelist);
   }
 
   private hitOrderedElementIdAt(ordered: OrderedPageElement[], point: Point2D,
-    worldTolerance: number): string | null {
+    worldTolerance: number, whitelist: Set<string> | null = null): string | null {
     for (let i: number = ordered.length - 1; i >= 0; i--) {
       const element: OrderedPageElement = ordered[i];
+      if (whitelist !== null && !whitelist.has(element.data.id)) {
+        continue;
+      }
       let hit: boolean = false;
       if (element.kind === PageElementKind.STROKE) {
         hit = this.eraserEngine.hitStrokeAtPoint(point, element.data, worldTolerance);
