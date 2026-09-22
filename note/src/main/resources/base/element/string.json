@@ -501,6 +501,11 @@
       "value": "Delete Page"
     },
     {
+      "name": "page_deleted",
+      "value": "Page deleted"
+    },
+
+    {
       "name": "back",
       "value": "Back"
     },

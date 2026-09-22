@@ -1553,6 +1553,10 @@ struct NotePage {
     this.pages = updated;
     this.selectPageById(selectedAfter);
     historyBridge.pushPageAction(action, history);
+    // 原版 n9j：页删除成功经 snackbar 提示 content_manager_page_deleted（Harmony 用 toast）。
+    if (!this.editorDisposed) {
+      promptAction.showToast({ message: $r('app.string.page_deleted') });
+    }
   }
 
   private async moveCurrentPage(delta: number): Promise<void> {

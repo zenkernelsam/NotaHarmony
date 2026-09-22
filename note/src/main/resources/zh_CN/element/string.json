@@ -125,6 +125,8 @@
     { "name": "learn_more", "value": "了解更多" },
     { "name": "templates", "value": "模板" },
     { "name": "delete_page", "value": "删除页面" },
+    { "name": "page_deleted", "value": "页面已删除" },
+
     { "name": "back", "value": "返回" },
     { "name": "untitled_note", "value": "新笔记" },
     { "name": "loading_note", "value": "正在加载笔记..." },
