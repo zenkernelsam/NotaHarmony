@@ -213,6 +213,8 @@ struct BackupPage {
       }
       if (report.result === ImportResult.SUCCESS) {
         this.showToast(report.message);
+      } else if (report.result === ImportResult.CANCELLED) {
+        // Picker dismissed without a selection — no user-facing surface.
       } else if (report.result === ImportResult.PARTIAL) {
         this.showAlert($r('app.string.partial_import'), report.message);
       } else if (report.result === ImportResult.CORRUPTED) {

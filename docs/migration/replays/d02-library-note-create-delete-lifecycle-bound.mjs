@@ -9,8 +9,8 @@ assert.match(page,
   'stale note context cannot open the delete dialog');
 
 const deleteStart = page.indexOf('private async deleteNoteAndRefresh(noteId: string): Promise<void> {');
-const createStart = page.indexOf('private async createAndOpen(): Promise<void> {', deleteStart);
-const endMarker = page.indexOf('\n  // 响应式断点', createStart);
+const createStart = page.indexOf('private async createAndLaunch(autoRecord: boolean): Promise<void> {', deleteStart);
+const endMarker = page.indexOf('private async importAndOpen(): Promise<void> {', createStart);
 assert.ok(deleteStart !== -1 && createStart > deleteStart && endMarker > createStart);
 
 const deleteFn = page.slice(deleteStart, createStart);
@@ -40,4 +40,15 @@ const navToastIndex = createFn.indexOf("$r('app.string.created_note_open_failed'
 assert.ok(navGuardIndex > navCatch && navToastIndex > navGuardIndex,
   'navigation failure must check context before toast');
 
-console.log('D02_LIBRARY_NOTE_CREATE_DELETE_LIFECYCLE_BOUND_REPLAY_OK TOTAL=8 FAILED=0');
+// Phase 545: the file-import creation path carries the same lifecycle guards.
+const importFn = page.slice(endMarker,
+  page.indexOf('\n  // 响应式断点', endMarker));
+assert.match(importFn,
+  /if \(!this\.pageActive \|\| this\.viewModel === null \|\| this\.createBusy\) \{\s+return;\s+\}/,
+  'stale import cannot start a durable mutation');
+assert.match(importFn, /const lifecycleGeneration: number = this\.lifecycleGeneration;/);
+const importGuards = (importFn.match(
+  /lifecycleGeneration !== this\.lifecycleGeneration \|\| !this\.pageActive \|\|\s+this\.viewModel !== vm/g) ?? []).length;
+assert.equal(importGuards, 2);
+
+console.log('D02_LIBRARY_NOTE_CREATE_DELETE_LIFECYCLE_BOUND_REPLAY_OK TOTAL=11 FAILED=0');

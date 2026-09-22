@@ -150,6 +150,7 @@ struct NotePage {
   private titleSaveQueue: Promise<void> = Promise.resolve();
   private titleSaveGeneration: number = 0;
   private editorDisposed: boolean = false;
+  private autoRecordRequested: boolean = false;
   private editorLeavePromise: Promise<void> | null = null;
   private titleSaveInFlightCount: number = 0;
   private pageRepo: PageRepositoryImpl | null = null;
@@ -186,6 +187,9 @@ struct NotePage {
     const params = router.getParams() as Record<string, string>;
     if (params !== undefined && params !== null && params['noteId'] !== undefined) {
       this.noteId = params['noteId'];
+      // Original empty_note__record_audio: library record-audio entry opens
+      // the editor straight into capture after the note loads.
+      this.autoRecordRequested = params['autoRecord'] === '1';
     }
     if (this.recordingSessionController === null) {
       const context = getContext(this) as common.UIAbilityContext;
@@ -390,6 +394,14 @@ struct NotePage {
       this.currentPageIndex = 0;
       this.pageLoadFailed = false;
       await this.loadRecordings();
+      if (this.autoRecordRequested && !this.editorDisposed &&
+        loadGeneration === this.pageLoadGeneration) {
+        this.autoRecordRequested = false;
+        this.showRecordings = true;
+        this.startRecording().catch((e: Error) => {
+          console.error(`auto-record start failed: ${JSON.stringify(e)}`);
+        });
+      }
     } catch (e) {
       if (loadGeneration !== this.pageLoadGeneration || this.editorDisposed) {
         return;

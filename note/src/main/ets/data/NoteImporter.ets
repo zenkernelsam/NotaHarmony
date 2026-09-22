@@ -38,6 +38,7 @@ export enum ImportResult {
   UNSUPPORTED_FORMAT = 1,
   CORRUPTED = 2,
   PARTIAL = 3,       // 部分恢复
+  CANCELLED = 4,     // picker 取消（无文件被选中）
 }
 
 export interface ImportReport {
@@ -125,7 +126,7 @@ export class NoteImporter {
       selectOptions.fileSuffixFilters = ['.note'];
       const uris: string[] = await documentPicker.select(selectOptions);
       if (uris.length === 0) {
-        return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+        return { result: ImportResult.CANCELLED, noteId: null, title: null, pageCount: 0,
           missingAssets: [], warnings: [],
           message: '未选择文件' };
       }

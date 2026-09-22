@@ -11,7 +11,7 @@ import {
 } from '../../data/AssetAvailabilityHub';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { NoteExporter } from '../../data/NoteExporter';
-import { ImportReport, NoteImporter } from '../../data/NoteImporter';
+import { ImportReport, ImportResult, NoteImporter } from '../../data/NoteImporter';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
 import {
@@ -98,6 +98,9 @@ struct LibraryPage {
   @State hasInitError: boolean = false;
   @State searchText: string = '';
   @State createBusy: boolean = false;
+  // Original mw3/ksh.g: the new-note FAB expands into quick actions
+  // (record audio / import file / [scan] / [capture]).
+  @State createMenuOpen: boolean = false;
   @State deleteBusy: boolean = false;
   @State folderBusy: boolean = false;
   // T-035：缩略图——@State 数组驱动 UI 刷新（Builder 中 Map 方法依赖收集不可靠）
@@ -1840,22 +1843,64 @@ struct LibraryPage {
   // T-040 修复：Button builder 形式 + Text 全铺满居中（原 Button('+') 文本基线导致“+”视觉偏移）
   @Builder
   FabButton() {
-    Button() {
-      Text('+')
-        .fontSize(28)
-        .width('100%')
-        .height('100%')
-        .textAlign(TextAlign.Center)
+    Column() {
+      // Original mw3 case 0: expanded speed-dial lists the creation actions
+      // in original order — record audio, import file (scan/capture not
+      // portable); "New note" leads as the card-body blank-create equivalent.
+      if (this.createMenuOpen) {
+        this.CreateActionChip($r('app.string.new_note'), () => {
+          this.createAndOpen().catch((e: Error) => {
+            console.error(`create note action failed: ${JSON.stringify(e)}`);
+          });
+        })
+        this.CreateActionChip($r('app.string.record_audio'), () => {
+          this.createAndRecord().catch((e: Error) => {
+            console.error(`create recording note failed: ${JSON.stringify(e)}`);
+          });
+        })
+        this.CreateActionChip($r('app.string.import_note_file'), () => {
+          this.importAndOpen().catch((e: Error) => {
+            console.error(`import note action failed: ${JSON.stringify(e)}`);
+          });
+        })
+      }
+      Button() {
+        Text(this.createMenuOpen ? '×' : '+')
+          .fontSize(28)
+          .width('100%')
+          .height('100%')
+          .textAlign(TextAlign.Center)
+      }
+      .width(64)
+      .height(64)
+      .borderRadius(32)
+      .margin({ top: 8 })
+      .enabled(!this.createBusy)
+      .onClick(() => {
+        this.createMenuOpen = !this.createMenuOpen;
+      })
     }
-    .width(64)
-    .height(64)
-    .borderRadius(32)
     .margin({ right: 24, bottom: 24 })
+  }
+
+  @Builder
+  CreateActionChip(label: ResourceStr, action: () => void) {
+    Button() {
+      Text(label)
+        .fontSize(14)
+        .width('100%')
+        .textAlign(TextAlign.Center)
+        .fontColor(this.resolveTokens().textPrimary)
+    }
+    .height(36)
+    .padding({ left: 16, right: 16 })
+    .backgroundColor(this.resolveTokens().surface)
+    .borderRadius(18)
+    .margin({ bottom: 8 })
     .enabled(!this.createBusy)
     .onClick(() => {
-      this.createAndOpen().catch((e: Error) => {
-        console.error(`create note action failed: ${JSON.stringify(e)}`);
-      });
+      this.createMenuOpen = false;
+      action();
     })
   }
 
@@ -2284,6 +2329,16 @@ struct LibraryPage {
   }
 
   private async createAndOpen(): Promise<void> {
+    await this.createAndLaunch(false);
+  }
+
+  // Original empty_note__record_audio: creates a note and opens the editor
+  // straight into an active recording capture.
+  private async createAndRecord(): Promise<void> {
+    await this.createAndLaunch(true);
+  }
+
+  private async createAndLaunch(autoRecord: boolean): Promise<void> {
     if (!this.pageActive || this.viewModel === null || this.createBusy) {
       return;
     }
@@ -2312,7 +2367,12 @@ struct LibraryPage {
     }
     this.reloadVisibleNotesAfterMutation(vm, 'create note');
     try {
-      await router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: noteId } });
+      if (autoRecord) {
+        await router.pushUrl({ url: 'ui/editor/NotePage',
+          params: { noteId: noteId, autoRecord: '1' } });
+      } else {
+        await router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: noteId } });
+      }
     } catch (e) {
       console.error(`open created note failed: ${JSON.stringify(e)}`);
       if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
@@ -2320,6 +2380,47 @@ struct LibraryPage {
         return;
       }
       promptAction.showToast({ message: $r('app.string.created_note_open_failed') });
+    } finally {
+      this.createBusy = false;
+    }
+  }
+
+  // Original empty_note__import_file: system document picker → .note import
+  // → open the imported note (scan/capture actions have no portable backend).
+  private async importAndOpen(): Promise<void> {
+    if (!this.pageActive || this.viewModel === null || this.createBusy) {
+      return;
+    }
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    this.createBusy = true;
+    const vm: LibraryViewModel = this.viewModel;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const importer: NoteImporter = new NoteImporter(this.db, this.persistence);
+      const report: ImportReport = await importer.importFromFile(context);
+      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+        this.viewModel !== vm) {
+        return;
+      }
+      if (report.noteId === null) {
+        if (report.result !== ImportResult.CANCELLED) {
+          promptAction.showToast({ message: $r('app.string.import_failed') });
+        }
+        return;
+      }
+      await vm.loadNotes(this.searchText);
+      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+        this.viewModel !== vm) {
+        return;
+      }
+      this.notes = vm.getFilteredNotes().slice();
+      const openedId: string = report.noteId;
+      await router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: openedId } });
+    } catch (e) {
+      if (lifecycleGeneration === this.lifecycleGeneration && this.pageActive) {
+        promptAction.showToast({ message: $r('app.string.import_failed') });
+        console.error(`import note failed: ${JSON.stringify(e)}`);
+      }
     } finally {
       this.createBusy = false;
     }
