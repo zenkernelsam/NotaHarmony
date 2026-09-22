@@ -1,7 +1,7 @@
 // T-018 资料库页面（侧栏 + 笔记网格 + 响应式断点 600/840/952/1400 + 新建/删除/搜索）
 // T-035：缩略图 + 排序（bindMenu + Preferences 持久化）
 import { router, promptAction } from '@kit.ArkUI';
-import { BusinessError } from '@kit.BasicServicesKit';
+import { BusinessError, pasteboard } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { NoteMeta } from '../../core/model/NoteTypes';
@@ -10,6 +10,8 @@ import {
   AssetAvailabilityChange, assetAvailabilityHub,
 } from '../../data/AssetAvailabilityHub';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
+import { NoteExporter } from '../../data/NoteExporter';
+import { ImportReport, NoteImporter } from '../../data/NoteImporter';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
 import {
@@ -141,8 +143,21 @@ struct LibraryPage {
       initialText: this.folderDialogInitialText,
       initialColor: this.folderDialogColor,
       initialEmoji: this.folderDialogEmoji,
+      showDecoration: true,
       onConfirm: (name: string, color: number, emoji: string): Promise<boolean> =>
         this.onFolderDialogConfirm(name, color, emoji),
+    }),
+    autoCancel: true,
+  });
+  // 原版 d5j Rename：笔记上下文菜单首项，复用 NameDialog（无装饰区）。
+  @State noteDialogNoteId: string = '';
+  @State noteDialogInitialText: string = '';
+  private noteDialog: CustomDialogController = new CustomDialogController({
+    builder: NameDialog({
+      title: $r('app.string.rename'),
+      initialText: this.noteDialogInitialText,
+      onConfirm: (name: string, _color: number, _emoji: string): Promise<boolean> =>
+        this.onRenameNoteConfirm(name),
     }),
     autoCancel: true,
   });
@@ -825,6 +840,146 @@ struct LibraryPage {
         console.error(`toggle favorite failed: ${JSON.stringify(e)}`);
       }
     });
+  }
+
+  // Original d5j Rename → opens the shared name dialog (no decoration area).
+  private showRenameNoteDialog(note: NoteMeta): void {
+    if (!this.pageActive) {
+      return;
+    }
+    this.noteDialogNoteId = note.id;
+    this.noteDialogInitialText = note.title;
+    this.noteDialog.open();
+  }
+
+  private onRenameNoteConfirm(name: string): Promise<boolean> {
+    if (!this.pageActive || this.viewModel === null || this.noteDialogNoteId.length === 0) {
+      return Promise.resolve(false);
+    }
+    const vm: LibraryViewModel = this.viewModel;
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    return vm.renameNote(this.noteDialogNoteId, name.trim()).then(() => {
+      if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration ||
+        this.viewModel !== vm) {
+        return true;
+      }
+      this.notes = vm.getFilteredNotes().slice();
+      return true;
+    }).catch((e: Error) => {
+      if (this.pageActive && lifecycleGeneration === this.lifecycleGeneration) {
+        promptAction.showToast({ message: $r('app.string.rename_failed') });
+        console.error(`rename note failed: ${JSON.stringify(e)}`);
+      }
+      return false;
+    });
+  }
+
+  // Original d5j Duplicate: a full-fidelity copy via the lossless package
+  // round-trip (exportNote bytes → importFromData allocates a fresh note id).
+  private duplicateNote(note: NoteMeta): void {
+    if (!this.pageActive || this.viewModel === null) {
+      return;
+    }
+    const vm: LibraryViewModel = this.viewModel;
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    const exporter: NoteExporter = new NoteExporter(this.db, this.persistence);
+    const importer: NoteImporter = new NoteImporter(this.db, this.persistence);
+    exporter.exportNote(note.id).then(async (data: Uint8Array | null) => {
+      if (data === null) {
+        throw new Error('exportNote returned null');
+      }
+      const report: ImportReport = await importer.importFromData(data);
+      if (report.noteId === null) {
+        throw new Error(`duplicate import failed: ${report.message}`);
+      }
+    }).then(() => {
+      if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration ||
+        this.viewModel !== vm) {
+        return;
+      }
+      vm.loadNotes(this.searchText).then(() => {
+        if (this.pageActive && lifecycleGeneration === this.lifecycleGeneration &&
+          this.viewModel === vm) {
+          this.notes = vm.getFilteredNotes().slice();
+        }
+      }).catch((e: Error) => {
+        console.error(`post-duplicate reload failed: ${JSON.stringify(e)}`);
+      });
+      promptAction.showToast({ message: $r('app.string.note_duplicated') });
+    }).catch((e: Error) => {
+      if (this.pageActive && lifecycleGeneration === this.lifecycleGeneration) {
+        promptAction.showToast({ message: $r('app.string.duplicate_failed') });
+        console.error(`duplicate note failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  // Original d5j Export: single-note .note package via the existing exporter.
+  private exportNote(note: NoteMeta): void {
+    if (!this.pageActive) {
+      return;
+    }
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    const context = getContext(this) as common.UIAbilityContext;
+    const exporter: NoteExporter = new NoteExporter(this.db, this.persistence);
+    exporter.exportToFile(context, note.id, note.title).then((success: boolean) => {
+      if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+      promptAction.showToast({
+        message: success ? $r('app.string.export_done') : $r('app.string.export_failed'),
+      });
+    }).catch((e: Error) => {
+      if (this.pageActive && lifecycleGeneration === this.lifecycleGeneration) {
+        promptAction.showToast({ message: $r('app.string.export_failed') });
+        console.error(`export note failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  // Original d5j Show in folder: navigate into the containing folder.
+  private showNoteInFolder(note: NoteMeta): void {
+    if (!this.pageActive || this.viewModel === null || note.folderId === null) {
+      return;
+    }
+    const vm: LibraryViewModel = this.viewModel;
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    vm.showNoteInFolder(note, this.searchText).then(() => {
+      if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration ||
+        this.viewModel !== vm) {
+        return;
+      }
+      this.currentFolderId = vm.currentFolderId;
+      this.currentSection = vm.currentSection;
+      this.notes = vm.getFilteredNotes().slice();
+    }).catch((e: Error) => {
+      if (this.pageActive && lifecycleGeneration === this.lifecycleGeneration) {
+        console.error(`show in folder failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  // Original d5j Copy note ID: copies the stable note identity to the
+  // system pasteboard.
+  private copyNoteId(note: NoteMeta): void {
+    if (!this.pageActive) {
+      return;
+    }
+    try {
+      const data: pasteboard.PasteData =
+        pasteboard.createPlainTextData(note.id);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        if (this.pageActive) {
+          promptAction.showToast({ message: $r('app.string.note_id_copied') });
+        }
+      }).catch((e: BusinessError) => {
+        if (this.pageActive) {
+          console.error(`copy note id failed: ${JSON.stringify(e)}`);
+        }
+      });
+    } catch (e) {
+      console.error(`copy note id failed: ${JSON.stringify(e)}`);
+    }
   }
 
   private publishCommittedFolders(folders: NoteFolder[]): void {
@@ -1818,11 +1973,17 @@ struct LibraryPage {
   }
 
   // 笔记卡片只由长按打开上下文菜单；单击始终只进入编辑器。
+  // Original d5j menu order: Rename → Favorite/Unfavorite → Duplicate →
+  // Export → Show in folder → Sort to folder → Copy note ID → Delete.
+  // (export_options / open_in_new_window / report_note are not portable —
+  // registered in ADR-0513.)
   @Builder
   NoteContextMenu(note: NoteMeta) {
     Menu() {
-      // Original d5j menu order keeps Favorite/Unfavorite near the top and
-      // Delete last; gj9 flips label/icon by the current favorited state.
+      MenuItem({ content: $r('app.string.rename') })
+        .onClick(() => {
+          this.showRenameNoteDialog(note);
+        })
       MenuItem({
         content: note.favorite ? $r('app.string.unfavorite_note') :
           $r('app.string.favorite_note')
@@ -1830,12 +1991,29 @@ struct LibraryPage {
         .onClick(() => {
           this.toggleNoteFavorite(note);
         })
+      MenuItem({ content: $r('app.string.duplicate_note') })
+        .onClick(() => {
+          this.duplicateNote(note);
+        })
+      MenuItem({ content: $r('app.string.export_note') })
+        .onClick(() => {
+          this.exportNote(note);
+        })
+      MenuItem({ content: $r('app.string.show_in_folder') })
+        .enabled(note.folderId !== null)
+        .onClick(() => {
+          this.showNoteInFolder(note);
+        })
       MenuItem({
         content: $r('app.string.move_to_folder'),
         builder: () => {
           this.MoveNoteSubMenu(note)
         },
       })
+      MenuItem({ content: $r('app.string.copy_note_id') })
+        .onClick(() => {
+          this.copyNoteId(note);
+        })
       MenuItem({ content: $r('app.string.delete') })
         .onClick(() => {
           this.confirmDelete(note);
@@ -2203,6 +2381,9 @@ struct NameDialog {
   initialText: string = '';
   initialColor: number = FOLDER_DEFAULT_COLOR;
   initialEmoji: string = '';
+  // 原版 gaj：装饰页签仅在 flag 开启（文件夹场景）出现；笔记重命名复用同一
+  // 对话框但不含装饰区。
+  showDecoration: boolean = false;
   @State inputText: string = '';
   @State selectedColor: number = FOLDER_DEFAULT_COLOR;
   @State selectedEmoji: string = '';
@@ -2264,13 +2445,15 @@ struct NameDialog {
         })
       // 原版文件夹对话框（gaj）：名称 + hq4 装饰页签（Color|Emoji，flag 门控）
       // + 分页内容——Color 页为调色板，Emoji 页为 du3 九类分类网格。
-      Row() {
-        this.decorationTabButton(0, $r('app.string.decoration_color'))
-        this.decorationTabButton(1, $r('app.string.decoration_emoji'))
+      if (this.showDecoration) {
+        Row() {
+          this.decorationTabButton(0, $r('app.string.decoration_color'))
+          this.decorationTabButton(1, $r('app.string.decoration_emoji'))
+        }
+        .width('100%')
+        .margin({ top: 14 })
       }
-      .width('100%')
-      .margin({ top: 14 })
-      if (this.decorationTab === 0) {
+      if (this.showDecoration && this.decorationTab === 0) {
         Row() {
           ForEach(FOLDER_COLOR_PALETTE, (color: number) => {
             Circle()
@@ -2288,7 +2471,7 @@ struct NameDialog {
           }, (color: number): string => color.toString())
         }
         .width('100%')
-      } else {
+      } else if (this.showDecoration) {
         Row() {
           ForEach(FOLDER_EMOJI_CATEGORY_ICONS, (icon: string, index: number) => {
             Text(icon)

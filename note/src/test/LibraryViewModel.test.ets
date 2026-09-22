@@ -152,6 +152,15 @@ class FakeNoteRepository implements NoteRepository {
   async updateNote(_note: NoteMeta): Promise<void> {
   }
 
+  async renameNote(noteId: string, title: string): Promise<void> {
+    for (const note of this.notes) {
+      if (note.id === noteId) {
+        note.title = title;
+        return;
+      }
+    }
+  }
+
   async deleteNote(_noteId: string): Promise<void> {
     this.deleteCount++;
     this.notes = this.notes.filter((note: NoteMeta) => note.id !== _noteId);

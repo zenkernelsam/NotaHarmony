@@ -99,6 +99,33 @@ export class LibraryViewModel {
     }
   }
 
+  // Original d5j Rename: a title-only partial edit — the repository routes it
+  // through updateNoteTitle (original SET_TITLE op) and we update the visible
+  // projection in place; TITLE sort may reorder the row.
+  async renameNote(noteId: string, title: string): Promise<void> {
+    await this.enqueueMutation(async (): Promise<void> => {
+      const note: NoteMeta | null = await this.repo.getNote(noteId);
+      if (note === null) {
+        return;
+      }
+      await this.repo.renameNote(noteId, title);
+      const persisted: NoteMeta | null = await this.repo.getNote(noteId);
+      if (persisted === null) {
+        return;
+      }
+      this.mutationGeneration++;
+      this.notes = this.notes.map((item: NoteMeta): NoteMeta =>
+        item.id === noteId ? persisted : item);
+      this.applySort();
+    });
+  }
+
+  // Original d5j Show in folder: navigates to the containing folder; an
+  // unfiled note lands on ALL_NOTES (folder selection resets the dk9 section).
+  async showNoteInFolder(note: NoteMeta, query: string): Promise<void> {
+    await this.setFolder(note.folderId, query);
+  }
+
   // Original dk9 chip selection (ua5): a section replaces the folder view.
   async setSection(section: LibrarySection, query: string): Promise<void> {
     const previousFolderId: string | null = this.currentFolderId;

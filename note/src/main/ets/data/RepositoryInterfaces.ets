@@ -30,6 +30,9 @@ export interface NoteRepository {
   setNoteFavorite(noteId: string, favorite: boolean): Promise<NoteMeta>;
   // Original setLastOpened partial update powering the RECENT section.
   touchNoteLastOpened(noteId: string, lastOpened: number): Promise<void>;
+  // Original d5j Rename: title-only partial edit routed through the original
+  // SET_TITLE op path (updateNoteTitle).
+  renameNote(noteId: string, title: string): Promise<void>;
   updateNote(note: NoteMeta): Promise<void>;
   deleteNote(noteId: string): Promise<void>;
   getTrashedNotes(): Promise<NoteMeta[]>;

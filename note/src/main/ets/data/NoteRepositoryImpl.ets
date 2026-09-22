@@ -464,6 +464,12 @@ export class NoteRepositoryImpl implements NoteRepository {
     await this.updateNoteTitle(note.id, note.title.length === 0 ? null : note.title);
   }
 
+  // Original d5j Rename (library context menu): title-only edit through the
+  // SET_TITLE op path; an empty title is the original nullable-register null.
+  async renameNote(noteId: string, title: string): Promise<void> {
+    await this.updateNoteTitle(noteId, title.length === 0 ? null : title);
+  }
+
   async updateNoteTitle(noteId: string, title: string | null, selectedPageId?: string,
     history?: HistoryMetadata): Promise<PersistedOriginalNoteTitle> {
     return libraryMetadataMutationMutex.runExclusive(async (): Promise<PersistedOriginalNoteTitle> => {

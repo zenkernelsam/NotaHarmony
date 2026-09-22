@@ -541,6 +541,42 @@
       "value": "Open folders"
     },
     {
+      "name": "duplicate_note",
+      "value": "Duplicate"
+    },
+    {
+      "name": "export_note",
+      "value": "Export"
+    },
+    {
+      "name": "export_done",
+      "value": "Export complete"
+    },
+    {
+      "name": "show_in_folder",
+      "value": "Show in folder"
+    },
+    {
+      "name": "copy_note_id",
+      "value": "Copy note ID"
+    },
+    {
+      "name": "note_id_copied",
+      "value": "Note ID copied"
+    },
+    {
+      "name": "note_duplicated",
+      "value": "Note duplicated"
+    },
+    {
+      "name": "duplicate_failed",
+      "value": "Duplicate failed. Try again."
+    },
+    {
+      "name": "rename_failed",
+      "value": "Rename failed. Try again."
+    },
+    {
       "name": "decoration_color",
       "value": "Color"
     },
