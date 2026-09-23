@@ -13,6 +13,7 @@ export struct EditorToolbar {
   @ObjectLink viewModel: EditorViewModel;
   @State compact: boolean = false;
   @State showToolSettings: boolean = false;
+  @State showShareSheet: boolean = false;
   private toolbarScroller: Scroller = new Scroller();
   // Undo/Redo 回调（T-021 实现功能）
   onUndo: () => void = () => {
@@ -30,6 +31,10 @@ export struct EditorToolbar {
   onSelectionColor: (color: number) => void = (_color: number): void => {
   };
   onSelectionWidth: (width: number) => void = (_width: number): void => {
+  };
+  // 原版 feature_note__toprighttoolbar_share_action → ui_share__chip_note：
+  // 分享面板中唯一可由本端管线产出的格式为 .note 包。
+  onShareNote: () => void = () => {
   };
   @Prop selectionColor: number = -16777216;
   @Prop selectionWidth: number = 5;
@@ -216,6 +221,20 @@ export struct EditorToolbar {
             }
             this.onRedo();
           })
+        // 原版 x90.g：share 图标紧随 undo/redo（ac4.L=NOTE_SHARE
+        // PRODUCTION 级默认开启），点击打开分享格式面板。
+        Button('↗')
+          .width(48)
+          .height(32)
+          .fontSize(18)
+          .enabled(!this.photoImportLeaseActive)
+          .accessibilityText($r('app.string.cd_share_action'))
+          .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
+            this.showShareSheet = true;
+          })
         }
         .height(48)
         .padding({ left: 8, right: 8 })
@@ -342,6 +361,10 @@ export struct EditorToolbar {
       height: SheetSize.MEDIUM,
       showClose: false,
     })
+    .bindSheet(this.showShareSheet, this.buildShareSheet(), {
+      height: SheetSize.MEDIUM,
+      showClose: false,
+    })
     .onAreaChange((_oldArea: Area, newArea: Area) => {
       this.compact = (newArea.width as number) < 600;
     })
@@ -461,6 +484,53 @@ export struct EditorToolbar {
           }
         });
       })
+  }
+
+  // 原版 s6d 分享格式序：LINK、PDF、NOTE、JPG、PNG（atc case3~7）。
+  // 仅 NOTE 可由既有 NoteExporter 管线产出；其余格式 fail-closed
+  // 置灰（PDF/JPG/PNG 需页级栅格化器、LINK 需账号/链接后端，见 ADR-0608）。
+  @Builder
+  buildShareSheet() {
+    Column() {
+      Text($r('app.string.share_sheet_title'))
+        .fontSize(16)
+        .fontColor(this.resolveTokens().textPrimary)
+        .margin({ top: 16, bottom: 12 })
+      this.ShareFormatRow($r('app.string.share_link'), false)
+      this.ShareFormatRow($r('app.string.share_pdf'), false)
+      this.ShareFormatRow($r('app.string.share_note'), true)
+      this.ShareFormatRow($r('app.string.share_jpg'), false)
+      this.ShareFormatRow($r('app.string.share_png'), false)
+    }
+    .width('100%')
+    .padding({ bottom: 24 })
+    .backgroundColor(this.resolveTokens().surface)
+  }
+
+  @Builder
+  ShareFormatRow(label: ResourceStr, supported: boolean) {
+    Row() {
+      Text(label)
+        .fontSize(15)
+        .fontColor(this.resolveTokens().textPrimary)
+      Blank()
+      if (!supported) {
+        Text($r('app.string.share_format_unsupported'))
+          .fontSize(12)
+          .fontColor(this.resolveTokens().textSecondary)
+      }
+    }
+    .width('100%')
+    .height(44)
+    .padding({ left: 24, right: 24 })
+    .opacity(supported ? 1 : 0.4)
+    .onClick(() => {
+      if (!supported) {
+        return;
+      }
+      this.showShareSheet = false;
+      this.onShareNote();
+    })
   }
 
   @Builder

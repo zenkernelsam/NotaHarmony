@@ -21,6 +21,7 @@ import {
   CopiedPagePayload, copiedPagePayload, storeCopiedPage,
 } from '../../rendering/OriginalPageClipboard';
 import { DatabaseManager } from '../../data/DatabaseManager';
+import { NoteExporter } from '../../data/NoteExporter';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PersistedOriginalNoteTitle } from '../../data/OriginalNoteTitlePersistence';
 import {
@@ -205,6 +206,21 @@ struct NotePage {
     // 原版 note_view_night_mode：开启时编辑器（含纸墨）按深色渲染。
     return ThemeStore.resolve(this.noteViewNightMode ? 'dark' :
       this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  // 原版编辑器分享面板 NOTE 行（s6d.NOTE / atc case5）：导出当前笔记为
+  // .note 包并交系统保存对话框，与库级 exportNote 同一管线。
+  private shareNoteAsFile(): void {
+    const context = getContext(this) as common.UIAbilityContext;
+    const exporter: NoteExporter = new NoteExporter(DatabaseManager.getInstance(), this.persistence);
+    exporter.exportToFile(context, this.noteId, this.noteTitle).then((success: boolean) => {
+      promptAction.showToast({
+        message: success ? $r('app.string.export_done') : $r('app.string.export_failed'),
+      });
+    }).catch((e: Error) => {
+      promptAction.showToast({ message: $r('app.string.export_failed') });
+      console.error(`share note export failed: ${JSON.stringify(e)}`);
+    });
   }
 
   aboutToAppear(): void {
@@ -1243,6 +1259,15 @@ struct NotePage {
               !this.historyPending) {
               this.redoSignal++;
             }
+          },
+          // 原版编辑器右上角 Share（x90.g，ac4.L=NOTE_SHARE）：
+          // 分享面板 NOTE 行复用库级 exportToFile 管线导出 .note 包。
+          onShareNote: () => {
+            if (this.photoImportLeaseActive || this.pageOperationBusy ||
+              this.historyPending) {
+              return;
+            }
+            this.shareNoteAsFile();
           },
           onInsertMath: () => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
