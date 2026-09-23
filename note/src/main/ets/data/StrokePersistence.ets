@@ -2466,14 +2466,14 @@ export class StrokePersistence {
           const createdMathBlocks: MathElement[] = [];
           const createdOrder: PageElementRef[] = [];
           const revisionBatch: OriginalPageMutationBatch = new OriginalPageMutationBatch();
-          let firstCreate: boolean = true;
           for (const ref of stablePlan.elementOrder) {
             const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
-            if (firstCreate && maximumZIndex !== null &&
+            const sourceZIndex: string | undefined = ref.kind === PageElementKind.STROKE ?
+              await this.readOriginalClipboardSourceZIndex(store, ref) : undefined;
+            if (sourceZIndex === undefined && maximumZIndex !== null &&
               compareUnsignedLongDecimal(maximumZIndex, identity.clientTime.toString()) > 0) {
               throw new Error('original clipboard Paste cannot append below the current z-index clock');
             }
-            firstCreate = false;
             const metadata: OriginalInkCreateMetadata = {
               timestamp: identity.timestamp, siteId: identity.siteId,
               clientTime: identity.clientTime, pageTimestamp: page.timestamp,
@@ -2488,7 +2488,7 @@ export class StrokePersistence {
               const stroke: StrokeElementData = cloneStrokeThroughPersistence(source);
               stroke.id = identity.opId;
               stroke.originalCreate = metadata;
-              const payload: Uint8Array = encodeOriginalLocalCreateInk(page, stroke);
+              const payload: Uint8Array = encodeOriginalLocalCreateInk(page, stroke, sourceZIndex);
               const operation: StoredSyncedOperation = localStoredOperation(
                 noteId, metadata, ORIGINAL_CREATE_INK_PAYLOAD_TYPE, payload,
                 stroke.audioStartTime === undefined ? null : stroke.audioStartTime);
@@ -5792,6 +5792,27 @@ export class StrokePersistence {
       }
       const zIndex: string = rows.getString(rows.getColumnIndex('z_index'));
       return rows.goToNextRow() ? null : zIndex;
+    } finally {
+      rows.close();
+    }
+  }
+
+  private async readOriginalClipboardSourceZIndex(store: relationalStore.RdbStore,
+    ref: PageElementRef): Promise<string | undefined> {
+    const identity: OperationIdentity | null = decodeOperationId(ref.elementId);
+    if (identity === null) {
+      return undefined;
+    }
+    const rows = await store.querySql(
+      'SELECT z_index FROM original_element_z_index WHERE element_timestamp = ?' +
+      ' AND element_site_id = ? AND kind = ?',
+      [identity.timestamp, identity.siteId, ref.kind]);
+    try {
+      if (!rows.goToFirstRow()) {
+        return undefined;
+      }
+      const zIndex: string = rows.getString(rows.getColumnIndex('z_index'));
+      return rows.goToNextRow() ? undefined : zIndex;
     } finally {
       rows.close();
     }

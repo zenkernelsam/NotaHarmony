@@ -8,6 +8,7 @@ import { textBlockTransformComponents, TextBlockTransformComponents } from
 import { OriginalSequenceIdentity, validateOriginalSequenceIdentity } from './OperationIdentity';
 import { PagePaperBackground } from '../core/model/NoteTypes';
 import { validateOriginalPaper } from '../core/model/PageBackgroundModel';
+import { validateUnsignedLongDecimal } from './UnsignedDecimal';
 
 const DEFAULT_TEXT_COLOR: number = -16777216;
 const DEFAULT_TEXT_SIZE: number = 17;
@@ -27,8 +28,11 @@ interface OriginalBlockPlacement {
 }
 
 export function encodeOriginalLocalCreateImageBlock(page: OriginalSequenceIdentity,
-  image: ImageElement): Uint8Array {
+  image: ImageElement, zIndex?: string): Uint8Array {
   validateOriginalSequenceIdentity(page);
+  if (zIndex !== undefined) {
+    validateUnsignedLongDecimal(zIndex);
+  }
   const placement: OriginalBlockPlacement = blockPlacement(image.transform, image.rotationRadians);
   validateLocalImageBlock(image, placement);
   const encoder: util.TextEncoder = new util.TextEncoder();
@@ -47,7 +51,7 @@ export function encodeOriginalLocalCreateImageBlock(page: OriginalSequenceIdenti
   const hasScale: boolean = Math.abs(placement.scaleX - 1) > EPSILON ||
     Math.abs(placement.scaleY - 1) > EPSILON;
   const rootTable: number = 52;
-  const rootObjectSize: number = 80;
+  const rootObjectSize: number = zIndex === undefined ? 80 : 88;
   const imageVtable: number = rootTable + rootObjectSize;
   const imageTable: number = imageVtable + 8;
   const metadataVtable: number = imageTable + 16;
@@ -68,6 +72,7 @@ export function encodeOriginalLocalCreateImageBlock(page: OriginalSequenceIdenti
   fields[6] = 40;
   fields[7] = image.textWrap === 0 ? 0 : 48;
   fields[8] = image.enableCaption ? 49 : 0;
+  fields[9] = zIndex === undefined ? 0 : 80;
   fields[10] = 52;
   fields[11] = image.cropRect === null ? 0 : 56;
   fields[12] = webUrl === null ? 0 : 72;
@@ -99,6 +104,9 @@ export function encodeOriginalLocalCreateImageBlock(page: OriginalSequenceIdenti
   }
   if (image.enableCaption) {
     writeU8(bytes, rootTable + 49, 1);
+  }
+  if (zIndex !== undefined) {
+    writeUint64Decimal(bytes, rootTable + 80, zIndex);
   }
   writeU32(bytes, rootTable + 52, imageTable - (rootTable + 52));
   if (image.cropRect !== null) {
@@ -141,8 +149,11 @@ export function encodeOriginalLocalCreateImageBlock(page: OriginalSequenceIdenti
 }
 
 export function encodeOriginalLocalCreateTextBlock(page: OriginalSequenceIdentity,
-  text: TextBlockElement): Uint8Array {
+  text: TextBlockElement, zIndex?: string): Uint8Array {
   validateOriginalSequenceIdentity(page);
+  if (zIndex !== undefined) {
+    validateUnsignedLongDecimal(zIndex);
+  }
   const placement: TextBlockTransformComponents = textBlockTransformComponents(text);
   validateLocalTextBlock(text, placement);
   const hasRotation: boolean = Math.abs(placement.rotationRadians) > EPSILON;
@@ -150,7 +161,7 @@ export function encodeOriginalLocalCreateTextBlock(page: OriginalSequenceIdentit
     Math.abs(placement.scaleY - 1) > EPSILON;
   const paper: PagePaperBackground | null = text.paper === undefined ? null : text.paper;
   const table: number = 52;
-  const objectSize: number = 72;
+  const objectSize: number = zIndex === undefined ? 72 : 80;
   const paperVtable: number = table + objectSize;
   const paperTable: number = paperVtable + 16;
   const bytes: Uint8Array = new Uint8Array(paper === null ? paperVtable : paperTable + 16);
@@ -163,6 +174,7 @@ export function encodeOriginalLocalCreateTextBlock(page: OriginalSequenceIdentit
   fields[6] = 40;
   fields[7] = (text.textWrap ?? 0) === 0 ? 0 : 48;
   fields[8] = text.enableCaption === true ? 49 : 0;
+  fields[9] = zIndex === undefined ? 0 : 72;
   fields[15] = paper === null ? 0 : 52;
   fields[18] = text.resizesWidthToFitText === true ? 50 : 0;
   fields[19] = 56;
@@ -192,6 +204,9 @@ export function encodeOriginalLocalCreateTextBlock(page: OriginalSequenceIdentit
   if (text.enableCaption === true) {
     writeU8(bytes, table + 49, 1);
   }
+  if (zIndex !== undefined) {
+    writeUint64Decimal(bytes, table + 72, zIndex);
+  }
   if (text.resizesWidthToFitText === true) {
     writeU8(bytes, table + 50, 1);
   }
@@ -212,8 +227,11 @@ export function encodeOriginalLocalCreateTextBlock(page: OriginalSequenceIdentit
 }
 
 export function encodeOriginalLocalCreateMathBlock(page: OriginalSequenceIdentity,
-  math: MathElement): Uint8Array {
+  math: MathElement, zIndex?: string): Uint8Array {
   validateOriginalSequenceIdentity(page);
+  if (zIndex !== undefined) {
+    validateUnsignedLongDecimal(zIndex);
+  }
   const placement: OriginalBlockPlacement = blockPlacement(math.transform, math.rotationRadians);
   validateLocalMathBlock(math, placement);
   const latex: Uint8Array = new util.TextEncoder().encodeInto(math.latex);
@@ -225,7 +243,7 @@ export function encodeOriginalLocalCreateMathBlock(page: OriginalSequenceIdentit
   const hasScale: boolean = Math.abs(placement.scaleX - 1) > EPSILON ||
     Math.abs(placement.scaleY - 1) > EPSILON;
   const table: number = 52;
-  const objectSize: number = 64;
+  const objectSize: number = zIndex === undefined ? 64 : 72;
   const latexVector: number = table + objectSize;
   const bytes: Uint8Array = new Uint8Array(
     align4(latexVector + 4 + latex.length + 1));
@@ -239,6 +257,7 @@ export function encodeOriginalLocalCreateMathBlock(page: OriginalSequenceIdentit
   fields[6] = 40;
   fields[7] = math.textWrap === 0 ? 0 : 48;
   fields[8] = math.enableCaption ? 49 : 0;
+  fields[9] = zIndex === undefined ? 0 : 64;
   fields[13] = 52;
   fields[14] = 56;
   fields[20] = math.positionLocked ? 60 : 0;
@@ -267,6 +286,9 @@ export function encodeOriginalLocalCreateMathBlock(page: OriginalSequenceIdentit
   }
   if (math.enableCaption) {
     writeU8(bytes, table + 49, 1);
+  }
+  if (zIndex !== undefined) {
+    writeUint64Decimal(bytes, table + 64, zIndex);
   }
   writeU32(bytes, table + 52, latexVector - (table + 52));
   writeColor(bytes, table + 56, math.color);
@@ -498,6 +520,27 @@ function align4(value: number): number {
 function writeU16(bytes: Uint8Array, offset: number, value: number): void {
   bytes[offset] = value & 0xFF;
   bytes[offset + 1] = value >>> 8 & 0xFF;
+}
+
+function writeUint64Decimal(bytes: Uint8Array, offset: number, value: string): void {
+  let remaining: string = value;
+  for (let index: number = 0; index < 8; index++) {
+    let quotient: string = '';
+    let remainder: number = 0;
+    for (let digitIndex: number = 0; digitIndex < remaining.length; digitIndex++) {
+      const current: number = remainder * 10 + remaining.charCodeAt(digitIndex) - 0x30;
+      const digit: number = Math.floor(current / 256);
+      remainder = current % 256;
+      if (quotient.length > 0 || digit !== 0) {
+        quotient += digit.toString();
+      }
+    }
+    bytes[offset + index] = remainder;
+    remaining = quotient.length === 0 ? '0' : quotient;
+  }
+  if (remaining !== '0') {
+    throw new Error('local CREATE_BLOCK uint64 exceeds its field');
+  }
 }
 
 function writeU32(bytes: Uint8Array, offset: number, value: number): void {

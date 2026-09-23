@@ -22,9 +22,12 @@ interface EncodedDefinition {
 }
 
 export function encodeOriginalLocalCreateShape(page: OriginalSequenceIdentity,
-  shape: ShapeElement, averageForce: number | null): Uint8Array {
+  shape: ShapeElement, averageForce: number | null, zIndex?: string): Uint8Array {
   validateOriginalSequenceIdentity(page);
   validateLocalShape(shape, averageForce);
+  if (zIndex !== undefined) {
+    validateUnsignedLongDecimal(zIndex);
+  }
   const placement: OriginalShapePlacement = originalPlacement(shape);
   const force: number | null = shape.originalForce === undefined ? averageForce : shape.originalForce;
   const effects: string = shape.originalInkEffects === undefined ? '0' : shape.originalInkEffects;
@@ -38,7 +41,7 @@ export function encodeOriginalLocalCreateShape(page: OriginalSequenceIdentity,
     shape.originalTool === 0 ? 0 : 44,
     shape.originalStyle === 1 ? 0 : 45,
     tapePattern === undefined || tapePattern === null ? 0 : 46,
-    48, 52, shape.fillColor === null ? 0 : 56, 0,
+    48, 52, shape.fillColor === null ? 0 : 56, zIndex === undefined ? 0 : 28,
     shape.originalSmartHighlight === true ? 47 : 0,
     force === null ? 0 : 76, shape.positionLocked === true ? 80 : 0,
     effects === '0' ? 0 : 64, effectsTinted ? 0 : 72,
@@ -66,6 +69,9 @@ export function encodeOriginalLocalCreateShape(page: OriginalSequenceIdentity,
   }
   if (effects !== '0') {
     builder.uint64Decimal(root + 64, effects);
+  }
+  if (zIndex !== undefined) {
+    builder.uint64Decimal(root + 28, zIndex);
   }
   if (!effectsTinted) {
     builder.uint8(root + 72, 0);
