@@ -551,11 +551,11 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     return true;
   }
 
-  // === 中心线路径（Mono/Dash/Dot，pzf.g 规格）===
+  // === 中心线路径（Mono/Dash/Dot，c5g.g 规格）===
   renderCenterPath(stroke: StrokeElementData, ctx: RenderContext): void {
     const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
     const spec: RenderSpec = stroke.renderSpec;
-    // 空路径检查（pzf.g 对齐）：无点直接返回
+    // 空路径检查（c5g.g 对齐）：无点直接返回
     if (stroke.pathPoints.length === 0) {
       return;
     }
