@@ -241,6 +241,44 @@ export async function persistOriginalPageBackground(store: relationalStore.RdbSt
   return { page: await readPage(store, noteId, pageId), payload: operation.rawOperation };
 }
 
+// Original ae2 default (content-manager Duplicate Pages): u5j.e serializes the
+// page's wz9.u self-op — effective nz9 via B() with the l7j.c PDF single-page
+// collapse — and de2.j anchors the copy after the last selected page. The
+// Harmony equivalent for the single-page menu action is a CreatePage whose
+// location is the source page identity and whose nz9 is the duplicated
+// background; element content rides the compound clipboard-paste op (the same
+// registered structural divergence as element paste). A null background emits
+// a CreatePage with no nz9 so the copy keeps inheriting note metadata.
+export async function persistOriginalDuplicatePage(store: relationalStore.RdbStore,
+  noteId: string, sourcePageId: string, background: PageBackground | null,
+  bookmarked: boolean = false): Promise<PersistedOriginalPageMutation> {
+  if (!await hasAlignedOriginalPageState(store, noteId)) {
+    throw new Error('local page duplicate requires complete aligned original page identity coverage');
+  }
+  const source: OriginalSequenceIdentity = await readPageIdentity(store, noteId, sourcePageId);
+  const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+  // wz9.u parity: the ln2 descriptor carries the source page's oz9 bookmark
+  // register verbatim (haj.a field 3), so the copy inherits the bookmark.
+  const payload: Uint8Array = encodeOriginalLocalCreatePage(
+    source, null, null, 1, background, bookmarked);
+  const operation: StoredSyncedOperation = storedOperation(
+    noteId, identity, ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE, payload);
+  const result: SyncedOperationApplyResult = await new OriginalCreatePageOperationApplier().apply(
+    store, operation);
+  if (result.deferredReason !== null) {
+    throw new Error(`local duplicate CreatePage was deferred: ${result.deferredReason}`);
+  }
+  await appendOperation(store, {
+    noteId: noteId, opId: identity.opId, opType: OpType.ORIGINAL_CREATE_PAGE,
+    payload: operation.rawOperation, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+    editorSiteId: identity.siteId, uploadImmediately: true,
+  });
+  const pageId: string = encodeOriginalPageStorageId(noteId, {
+    timestamp: identity.timestamp, siteId: identity.siteId, index: 0,
+  });
+  return { page: await readPage(store, noteId, pageId), payload: operation.rawOperation };
+}
+
 export async function originalPageIdentityExists(store: relationalStore.RdbStore,
   noteId: string, pageId: string): Promise<boolean> {
   const rows = await store.querySql(

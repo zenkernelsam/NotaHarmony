@@ -78,9 +78,11 @@ assert.match(model, /near\(rotationRadians, Math\.PI\)[\s\S]*?return Math\.PI \*
 assert.match(model, /export function rotatedOriginalPageInfo\(page: PageInfo\): PageInfo \| null/);
 // 有效背景（register ?? note fallback），与 wz9.B() 一致；null 返回 null。
 assert.match(model, /const register: PageBackground \| null = effectivePageBackground\(page\)/);
-// l7j.c parity：pagesConsumed=1、pageOffset=pageInAsset、cropBoxes 单项保留。
-assert.match(model, /const cropIndex: number = pageInAsset - rotated\.pdf\.pageOffset/);
-assert.match(model, /pagesConsumed: 1,\s*pageOffset: pageInAsset,\s*cropBoxes: \[rotated\.pdf\.cropBoxes\[cropIndex\]\]/);
+// l7j.c parity（Phase 635 起由 collapsedOriginalPagePdf 共享给 Duplicate）：
+// pagesConsumed=1、pageOffset=pageInAsset、cropBoxes 单项保留。
+assert.match(model, /const cropIndex: number = pageInAsset - pdf\.pageOffset/);
+assert.match(model, /pagesConsumed: 1,\s*pageOffset: pageInAsset,\s*cropBoxes: \[pdf\.cropBoxes\[cropIndex\]\]/);
+assert.match(model, /rotated\.pdf = collapsedOriginalPagePdf\(page, rotated\.pdf\)/);
 // 物化维度按解码器公式随旋转交换宽高（Letter 612x792pt 兜底）。
 assert.match(model, /result\.widthMm = quarterTurn \? sourceHeightMm : sourceWidthMm/);
 assert.match(model, /result\.heightMm = quarterTurn \? sourceWidthMm : sourceHeightMm/);

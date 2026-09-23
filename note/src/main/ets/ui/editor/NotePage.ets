@@ -65,7 +65,8 @@ import {
 } from '../../core/adaptation/OriginalRecordingHarmonyGateways';
 import { persistCapturedOriginalRecording } from '../../data/OriginalRecordingPersistence';
 import {
-  AddPageAction, DeletePageAction, EditorHistoryBridge, NoteBackgroundAction, NoteMetadataAction,
+  AddPageAction, DeletePageAction, DuplicatePageAction, EditorHistoryBridge,
+  NoteBackgroundAction, NoteMetadataAction,
   NoteTitleAction,
   PageContentSnapshot, PageSettingsAction, UndoableAction, UndoableActionType,
 } from '../../rendering/UndoRedoManager';
@@ -1524,6 +1525,9 @@ struct NotePage {
           onToggleBookmark: () => {
             this.runPageOperation(async (): Promise<void> => this.toggleCurrentPageBookmark());
           },
+          onDuplicatePage: () => {
+            this.runPageOperation(async (): Promise<void> => this.duplicateCurrentPage());
+          },
           onRotatePage: () => {
             this.runPageOperation(async (): Promise<void> => this.rotateCurrentPage());
           },
@@ -1855,6 +1859,64 @@ struct NotePage {
     }
   }
 
+  // Original n9j Duplicate (fd2 case5 → de2.r → ae2 default → de2.j anchor):
+  // copies the current page immediately after itself. The page metadata op
+  // stream is persistOriginalDuplicatePage (effective nz9 + l7j.c PDF
+  // collapse); the entity stream is the shared clipboard transcode with fresh
+  // element identities. A DUPLICATE_PAGE companion op owns durable history;
+  // undo hides the copy via the original page-visibility write, redo unhides.
+  private async duplicateCurrentPage(): Promise<void> {
+    if (this.pageRepo === null || this.pages.length === 0 || this.historyBridge === null) {
+      return;
+    }
+    const historyBridge: EditorHistoryBridge = this.historyBridge;
+    if (!await historyBridge.flushCurrentPage()) {
+      throw new Error('duplicateCurrentPage could not flush the current page');
+    }
+    const sourceIndex: number = this.currentPageIndex;
+    const sourcePageId: string = this.pages[sourceIndex].pageId;
+    const orderBefore: string[] = this.pageIds(this.pages);
+    const snapshot: PageContentSnapshot = historyBridge.captureCurrentPage();
+    const action: DuplicatePageAction = {
+      type: UndoableActionType.DUPLICATE_PAGE,
+      noteId: this.noteId,
+      pageId: sourcePageId,
+      sourcePageId: sourcePageId,
+      pageOrderBefore: orderBefore,
+      pageOrderAfter: orderBefore.slice(),
+    };
+    const history: HistoryMetadata = historyBridge.preparePageAction(action);
+    const duplicated: PageInfo = await this.pageRepo.duplicatePage(
+      this.noteId, sourcePageId, history);
+    action.pageId = duplicated.pageId;
+    action.pageOrderAfter = orderBefore.slice(0, sourceIndex + 1)
+      .concat([duplicated.pageId]).concat(orderBefore.slice(sourceIndex + 1));
+    let contentError: Object | null = null;
+    if (snapshot.elementOrder.length > 0) {
+      try {
+        await historyBridge.commitDuplicatePageContent(duplicated.pageId, snapshot, history);
+      } catch (e) {
+        contentError = e;
+      }
+    }
+    if (this.editorDisposed) {
+      return;
+    }
+    this.pages = await this.pageRepo.getPages(this.noteId);
+    if (this.editorDisposed) {
+      return;
+    }
+    if (this.pages.length !== action.pageOrderAfter.length ||
+      !this.sameStringArray(this.pageIds(this.pages), action.pageOrderAfter)) {
+      throw new Error('duplicate page materialized an unexpected page order');
+    }
+    this.selectPageById(duplicated.pageId);
+    this.historyBridge.pushPageAction(action, history);
+    if (contentError !== null) {
+      throw new Error(`duplicate page content write failed: ${JSON.stringify(contentError)}`);
+    }
+  }
+
   private async applyPageHistory(action: UndoableAction, isUndo: boolean,
     history: HistoryMetadata): Promise<boolean> {
     const pageRepository: PageRepositoryImpl | null = this.pageRepo;
@@ -1917,6 +1979,9 @@ struct NotePage {
       }
       if (action.type === UndoableActionType.DELETE_PAGE) {
         return await this.applyDeletePageHistory(action, isUndo, history);
+      }
+      if (action.type === UndoableActionType.DUPLICATE_PAGE) {
+        return await this.applyDuplicatePageHistory(action, isUndo, history);
       }
       if (action.type === UndoableActionType.PAGE_SETTINGS) {
         const page: PageInfo = isUndo ? action.pageBefore : action.pageAfter;
@@ -1991,6 +2056,18 @@ struct NotePage {
       const targetOrder: string[] = isUndo ? action.pageOrderBefore : action.pageOrderAfter;
       return this.sameStringArray(currentOrder, sourceOrder) && this.sameStringMembers(sourceOrder, targetOrder) &&
         this.countString(targetOrder, action.pageId) === 1;
+    }
+    if (action.type === UndoableActionType.DUPLICATE_PAGE) {
+      const sourceOrder: string[] = isUndo ? action.pageOrderAfter : action.pageOrderBefore;
+      const targetOrder: string[] = isUndo ? action.pageOrderBefore : action.pageOrderAfter;
+      if (action.sourcePageId === action.pageId ||
+        !this.sameStringArray(currentOrder, sourceOrder) ||
+        !this.isSinglePageTransition(sourceOrder, targetOrder, action.pageId, isUndo) ||
+        this.countString(targetOrder, action.sourcePageId) !== 1) {
+        return false;
+      }
+      const sourceIndex: number = targetOrder.indexOf(action.sourcePageId);
+      return sourceIndex >= 0 && targetOrder[sourceIndex + 1] === action.pageId;
     }
     if (action.type === UndoableActionType.PAGE_SETTINGS) {
       const sourcePage: PageInfo = isUndo ? action.pageAfter : action.pageBefore;
@@ -2179,6 +2256,44 @@ struct NotePage {
     this.pages = this.orderPages(this.pages.filter((page: PageInfo) => page.pageId !== action.pageId),
       action.pageOrderAfter);
     this.selectPageById(action.selectedPageIdAfter);
+    return true;
+  }
+
+  // Duplicate undo rides the original page-visibility write (the copy's
+  // elements are never removed); redo restores visibility at its recorded slot.
+  private async applyDuplicatePageHistory(action: DuplicatePageAction, isUndo: boolean,
+    history: HistoryMetadata): Promise<boolean> {
+    if (this.pageRepo === null) {
+      return false;
+    }
+    if (isUndo) {
+      if (this.pages.length <= 1) {
+        return false;
+      }
+      if (this.historyBridge !== null &&
+        this.pages[this.currentPageIndex]?.pageId === action.pageId) {
+        this.historyBridge.preparePageRemoval(action.pageId);
+      }
+      await this.pageRepo.deletePage(this.noteId, action.pageId, history);
+      if (this.editorDisposed) {
+        return false;
+      }
+      this.pages = this.orderPages(
+        this.pages.filter((page: PageInfo) => page.pageId !== action.pageId),
+        action.pageOrderBefore);
+      this.selectPageById(action.sourcePageId);
+      return true;
+    }
+    await this.pageRepo.restoreDuplicatedPage(this.noteId, action.pageId, history);
+    if (this.editorDisposed) {
+      return false;
+    }
+    this.pages = await this.pageRepo.getPages(this.noteId);
+    if (this.editorDisposed) {
+      return false;
+    }
+    this.pages = this.orderPages(this.pages, action.pageOrderAfter);
+    this.selectPageById(action.pageId);
     return true;
   }
 

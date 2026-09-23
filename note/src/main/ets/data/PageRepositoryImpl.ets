@@ -4,7 +4,8 @@ import { NoteBackgroundSettings, PageBackground, PageInfo } from '../core/model/
 import { PageElementKind } from '../core/model/PageElementOrder';
 import { validatePageDimensions } from '../core/model/PageCoordinateSpace';
 import {
-  cloneNoteBackgroundSettings, clonePageBackground, clonePageInfo, noteBackgroundSettingsFromPage,
+  cloneNoteBackgroundSettings, clonePageBackground, clonePageInfo, duplicatedOriginalPageBackground,
+  noteBackgroundSettingsFromPage,
   originalDefaultNoteBackgroundSettings, originalPaperOrientation, parsePageBackground,
   samePageBackground, serializePageBackground,
 } from '../core/model/PageBackgroundModel';
@@ -27,10 +28,13 @@ import {
 import { SearchItemType } from './SearchItemType';
 import { decodeStoredPageElement } from './StrokePersistence';
 import {
-  hasAlignedOriginalPageState, originalPageIdentityExists, persistOriginalCreatePage,
-  persistOriginalPageBackground, persistOriginalPageBookmark, persistOriginalPageReorder,
-  persistOriginalPageVisibility,
+  hasAlignedOriginalPageState, originalPageIdentityExists, PersistedOriginalPageMutation,
+  persistOriginalCreatePage, persistOriginalDuplicatePage, persistOriginalPageBackground,
+  persistOriginalPageBookmark, persistOriginalPageReorder, persistOriginalPageVisibility,
 } from './OriginalPagePersistence';
+import {
+  DuplicatePageMutation, encodeDuplicatePageMutation,
+} from './DuplicatePageOpCodec';
 import {
   persistOriginalNoteBackground, PersistedOriginalNoteBackground,
 } from './OriginalNoteBackgroundPersistence';
@@ -310,6 +314,113 @@ export class PageRepositoryImpl implements PageRepository {
       } catch (e) {
         await store.rollBack();
         throw new Error(`restoreDeletedPage failed: ${JSON.stringify(e)}`);
+      }
+    } finally {
+      release();
+    }
+  }
+
+  // Original n9j Duplicate action (fd2 case 5 → de2.r → ae2 default): u5j.e
+  // serializes the page's effective background (wz9.u → B() + l7j.c PDF
+  // single-page collapse), de2.j anchors the copy after the last selected
+  // page, and the transcode path re-issues element identities. Harmony emits
+  // an original CreatePage anchored at the source page identity plus the
+  // compound clipboard-paste op for the elements; the DUPLICATE_PAGE
+  // companion keeps durable history because a mid-note insert is not an
+  // ordinary tail CREATE_PAGE.
+  async duplicatePage(noteId: string, sourcePageId: string,
+    history?: HistoryMetadata): Promise<PageInfo> {
+    if (noteId.length === 0 || sourcePageId.length === 0) {
+      throw new Error('duplicatePage failed: note ID and source page ID are required');
+    }
+    const release: MutexRelease = await editorPersistenceMutex.lock();
+    const store: relationalStore.RdbStore = this.db.getStore();
+    try {
+      await store.beginTransaction();
+      try {
+        const revision: number = await this.queryStructureRevision(store, noteId);
+        const before: PageInfo[] = await this.queryPages(store, noteId);
+        const sourceIndex: number = this.findPageIndex(before, sourcePageId);
+        if (sourceIndex < 0) {
+          throw new Error('duplicate page source does not belong to note');
+        }
+        if (!await hasAlignedOriginalPageState(store, noteId) ||
+          !await originalPageIdentityExists(store, noteId, sourcePageId)) {
+          throw new Error('duplicatePage requires aligned original page identity coverage');
+        }
+        const background: PageBackground | null =
+          duplicatedOriginalPageBackground(before[sourceIndex]);
+        const mutation: PersistedOriginalPageMutation =
+          await persistOriginalDuplicatePage(store, noteId, sourcePageId, background,
+            before[sourceIndex].bookmarked === true);
+        const after: PageInfo[] = await this.queryPages(store, noteId);
+        if (after.length !== before.length + 1 ||
+          after[sourceIndex + 1].pageId !== mutation.page.pageId) {
+          throw new Error('duplicated page was not inserted after its source');
+        }
+        if (history !== undefined) {
+          const currentRevision: number = await this.queryStructureRevision(store, noteId);
+          if (currentRevision !== revision + 1) {
+            throw new Error('duplicate page reducer did not advance the structure revision');
+          }
+          const duplicate: DuplicatePageMutation = {
+            fromRevision: revision,
+            toRevision: revision + 1,
+            sourcePageId: sourcePageId,
+            pageId: mutation.page.pageId,
+            pageOrderBefore: this.pageOrderIds(before),
+            pageOrderAfter: this.pageOrderIds(after),
+          };
+          const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+          await appendOperation(store, {
+            noteId: noteId, opId: identity.opId, opType: OpType.DUPLICATE_PAGE,
+            payload: encodeDuplicatePageMutation(duplicate),
+            clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+            editorSiteId: identity.siteId, history: history,
+          });
+        }
+        await store.commit();
+        return clonePageInfo(mutation.page);
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`duplicatePage failed: ${JSON.stringify(e)}`);
+      }
+    } finally {
+      release();
+    }
+  }
+
+  // Redo of a DUPLICATE_PAGE action restores the hidden duplicate through the
+  // original page-visibility write (the page content was never removed).
+  async restoreDuplicatedPage(noteId: string, pageId: string,
+    history: HistoryMetadata): Promise<void> {
+    validateHistoryMetadata(history);
+    if (noteId.length === 0 || pageId.length === 0 ||
+      history.effect !== HistoryEffect.REDO) {
+      throw new Error('restoreDuplicatedPage requires matching REDO history');
+    }
+    const release: MutexRelease = await editorPersistenceMutex.lock();
+    const store: relationalStore.RdbStore = this.db.getStore();
+    try {
+      await store.beginTransaction();
+      try {
+        const revision: number = await this.queryStructureRevision(store, noteId);
+        const before: PageInfo[] = await this.queryPages(store, noteId);
+        if (this.findPageIndex(before, pageId) >= 0) {
+          throw new Error('duplicated page is already live');
+        }
+        if (!await hasAlignedOriginalPageState(store, noteId) ||
+          !await originalPageIdentityExists(store, noteId, pageId)) {
+          throw new Error('duplicated page has no restorable original identity');
+        }
+        await persistOriginalPageVisibility(store, noteId, pageId, false);
+        const after: PageInfo[] = await this.queryPages(store, noteId);
+        await this.appendStructureHistoryMutation(
+          store, noteId, revision, before, after, OpType.CREATE_PAGE, history);
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`restoreDuplicatedPage failed: ${JSON.stringify(e)}`);
       }
     } finally {
       release();
@@ -1078,6 +1189,14 @@ export class PageRepositoryImpl implements PageRepository {
       }
     }
     return -1;
+  }
+
+  private pageOrderIds(pages: PageInfo[]): string[] {
+    const ids: string[] = [];
+    for (const page of pages) {
+      ids.push(page.pageId);
+    }
+    return ids;
   }
 
   private samePage(left: PageInfo, right: PageInfo): boolean {

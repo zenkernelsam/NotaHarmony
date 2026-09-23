@@ -253,6 +253,30 @@ export function nextOriginalPageRotation(rotationRadians: number): number {
 // pagesConsumed != pages.length mismatch. The write materializes the page's
 // effective background (wz9.B() resolves the register ?? note fallback) into
 // the page-level register; returns null when no effective background exists.
+// Original l7j.c single-page rebuild shared by rotate (zd2) and duplicate
+// (wz9.u): sw9' = sw9 with pagesConsumed=1, pageOffset=pageInAsset, and
+// cropBoxes reduced to this page's own entry (wz9.p() = pageInAsset -
+// pageOffset is the cropBoxes index). Returns the collapsed pdf; the caller
+// assigns it back onto a cloned nz9.
+function collapsedOriginalPagePdf(page: PageInfo, pdf: PagePdfBackground): PagePdfBackground {
+  const pageInAsset: number = page.originalPageInAsset === undefined ?
+    pdf.pageOffset : page.originalPageInAsset;
+  const cropIndex: number = pageInAsset - pdf.pageOffset;
+  if (!Number.isSafeInteger(pageInAsset) || pageInAsset < 0 || cropIndex < 0 ||
+    cropIndex >= pdf.cropBoxes.length) {
+    throw new Error('original page cannot resolve its PDF crop box');
+  }
+  return {
+    metadata: pdf.metadata,
+    layoutBehavior: pdf.layoutBehavior,
+    totalPageCount: pdf.totalPageCount,
+    pagesConsumed: 1,
+    pageOffset: pageInAsset,
+    cropBoxes: [pdf.cropBoxes[cropIndex]],
+    pageInAsset: pageInAsset,
+  };
+}
+
 export function rotatedOriginalPageInfo(page: PageInfo): PageInfo | null {
   const register: PageBackground | null = effectivePageBackground(page);
   if (register === null) {
@@ -261,22 +285,7 @@ export function rotatedOriginalPageInfo(page: PageInfo): PageInfo | null {
   const rotated: PageBackground = clonePageBackground(register) as PageBackground;
   rotated.rotationRadians = nextOriginalPageRotation(rotated.rotationRadians);
   if (rotated.pdf !== undefined && rotated.pdf !== null) {
-    const pageInAsset: number = page.originalPageInAsset === undefined ?
-      rotated.pdf.pageOffset : page.originalPageInAsset;
-    const cropIndex: number = pageInAsset - rotated.pdf.pageOffset;
-    if (!Number.isSafeInteger(pageInAsset) || pageInAsset < 0 || cropIndex < 0 ||
-      cropIndex >= rotated.pdf.cropBoxes.length) {
-      throw new Error('rotate page cannot resolve its PDF crop box');
-    }
-    rotated.pdf = {
-      metadata: rotated.pdf.metadata,
-      layoutBehavior: rotated.pdf.layoutBehavior,
-      totalPageCount: rotated.pdf.totalPageCount,
-      pagesConsumed: 1,
-      pageOffset: pageInAsset,
-      cropBoxes: [rotated.pdf.cropBoxes[cropIndex]],
-      pageInAsset: pageInAsset,
-    };
+    rotated.pdf = collapsedOriginalPagePdf(page, rotated.pdf);
   }
   validatePageBackground(rotated);
   const result: PageInfo = clonePageInfo(page);
@@ -296,6 +305,25 @@ export function rotatedOriginalPageInfo(page: PageInfo): PageInfo | null {
   result.orientation = result.widthMm > result.heightMm ?
     PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT;
   return result;
+}
+
+// Original wz9.u (u5j.e page-duplicate stream): the op carries the page's
+// effective nz9 verbatim — register ?? note fallback via B() — except PDF
+// pages, whose sw9 is rebuilt through l7j.c to single-page consumption. The
+// duplicate keeps the source rotation and paper unchanged. Returns null when
+// no effective background exists (the duplicate then inherits note metadata,
+// exactly like a null register in the original stream).
+export function duplicatedOriginalPageBackground(page: PageInfo): PageBackground | null {
+  const register: PageBackground | null = effectivePageBackground(page);
+  if (register === null) {
+    return null;
+  }
+  const duplicated: PageBackground = clonePageBackground(register) as PageBackground;
+  if (duplicated.pdf !== undefined && duplicated.pdf !== null) {
+    duplicated.pdf = collapsedOriginalPagePdf(page, duplicated.pdf);
+  }
+  validatePageBackground(duplicated);
+  return duplicated;
 }
 
 export function originalDefaultNoteBackground(): PageBackground {

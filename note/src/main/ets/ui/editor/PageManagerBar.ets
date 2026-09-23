@@ -47,6 +47,10 @@ export struct PageManagerBar {
   // selection flips its wz9.bookmarkedRegister value.
   onToggleBookmark: () => void = () => {
   };
+  // Original fd2 case 5 (de2.r → ae2 default): the content-manager Duplicate
+  // action copies the selected page and inserts the copy after it.
+  onDuplicatePage: () => void = () => {
+  };
   // Original zd2 case 1: the content-manager Rotate Page action steps the
   // page's nz9 rotation register through the cardinal cycle.
   onRotatePage: () => void = () => {
@@ -270,6 +274,13 @@ export struct PageManagerBar {
           return;
         }
         this.onToggleBookmark();
+      } },
+      // 原版 n9j 菜单顺序：Duplicate 排在 Rotate Page 之前。
+      { value: $r('app.string.duplicate_page'), action: () => {
+        if (this.busy || this.photoImportLeaseActive) {
+          return;
+        }
+        this.onDuplicatePage();
       } },
       { value: $r('app.string.rotate_page'), action: () => {
         if (this.busy || this.photoImportLeaseActive) {

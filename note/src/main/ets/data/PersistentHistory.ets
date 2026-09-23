@@ -19,7 +19,7 @@ import { cloneTextBlockElement, textBlockWorldBounds } from '../core/model/TextB
 import { cloneMathElement, mathBlockWorldBounds } from '../core/model/MathBlockGeometry';
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import {
-  AddPageAction, DeletePageAction, GroupElementsAction, OriginalClipboardPasteAction,
+  AddPageAction, DeletePageAction, DuplicatePageAction, GroupElementsAction, OriginalClipboardPasteAction,
   NoteBackgroundAction, NoteTitleAction, NoteMetadataAction, OriginalHandwritingConversionAction,
   OriginalPartialEraseAction, PageSettingsAction, PersistedPageMutationsAction, ReorderPagesAction,
   RestoredHistoryAction, UndoableAction,
@@ -39,6 +39,9 @@ import {
 } from './NoteBackgroundMutationCodec';
 import { decodeNoteTitleMutation, NoteTitleMutation } from './NoteTitleMutationCodec';
 import { decodeNoteMetadataMutation, NoteMetadataMutation } from './NoteMetadataMutationCodec';
+import {
+  decodeDuplicatePageMutation, DuplicatePageMutation,
+} from './DuplicatePageOpCodec';
 
 export interface PersistentHistoryAction {
   actionId: string;
@@ -328,6 +331,26 @@ function materializeAction(action: PersistentHistoryAction, currentPageId: strin
       noteId: noteId,
       pageId: mutation.pageMutation.pageId,
       operation: action.operations[0],
+    };
+    return restored;
+  }
+  if (action.operations[0].opType === OpType.DUPLICATE_PAGE) {
+    // The original duplicate stream is a CreatePage plus the transcoded
+    // per-entity ops; Harmony writes exactly one DUPLICATE_PAGE companion —
+    // the content ops are plain original creates carrying no history, so the
+    // action is always a single operation.
+    if (action.operations.length !== 1) {
+      throw new Error('persistent duplicate page action must contain exactly one mutation');
+    }
+    const mutation: DuplicatePageMutation =
+      decodeDuplicatePageMutation(action.operations[0].payload);
+    const restored: DuplicatePageAction = {
+      type: UndoableActionType.DUPLICATE_PAGE,
+      noteId: noteId,
+      pageId: mutation.pageId,
+      sourcePageId: mutation.sourcePageId,
+      pageOrderBefore: mutation.pageOrderBefore,
+      pageOrderAfter: mutation.pageOrderAfter,
     };
     return restored;
   }

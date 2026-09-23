@@ -56,8 +56,9 @@ import {
 import { HistoryMetadata, Op, OpType } from '../../core/model/OpTypes';
 import { SelectionTool, SelectionMode, SelectionState } from '../../rendering/SelectionTool';
 import {
-  ClipboardCopyPreparation, ClipboardOriginalGroupPastePreview, ClipboardPasteResult,
-  ClipboardSingleOriginalSource, StrokeClipboard,
+  ClipboardCopyPreparation, ClipboardOriginalGroupGraph, ClipboardOriginalGroupPastePreview,
+  ClipboardPasteResult, ClipboardSingleOriginalSource, originalGroupGraphForPageCopy,
+  StrokeClipboard,
 } from '../../rendering/StrokeClipboard';
 import { TextBlockTool } from '../../rendering/TextBlockTool';
 import { ShapeDetector } from '../../core/algorithm/ShapeDetector';
@@ -548,6 +549,9 @@ export struct NoteCanvasView {
         }
       },
       flushCurrentPage: async (): Promise<boolean> => this.flushCurrentPage(),
+      commitDuplicatePageContent: async (pageId: string, snapshot: PageContentSnapshot,
+        history: HistoryMetadata): Promise<boolean> =>
+        this.commitDuplicatePageContent(pageId, snapshot, history),
     });
     this.pageLoadPromise = this.loadNoteData();
   }
@@ -969,6 +973,36 @@ export struct NoteCanvasView {
   // 持久化与图层重建全部由现有删除路径处理；空页无操作。
   onClearPageSignalChange(_propName: string): void {
     this.clearCurrentPageContent();
+  }
+
+  // 原版 n9j Duplicate（fd2 case5 → de2.r → ae2 默认分支 → m1d.c0 转码应用）：
+  // 整页实体的 u5j.e 序列化等价物——把当前页快照按原版转码语义写入新建
+  // 副本页（全新元素身份、组结构经 copyOriginalGroupGraph 自根向下重排）。
+  // 目标页必须为空页（由 PageRepositoryImpl.duplicatePage 刚创建）。
+  private async commitDuplicatePageContent(pageId: string, snapshot: PageContentSnapshot,
+    history: HistoryMetadata): Promise<boolean> {
+    if (this.elementOrder.length !== snapshot.elementOrder.length ||
+      this.loadedPageId.length === 0) {
+      throw new Error('duplicate page content source is stale');
+    }
+    const leafIds: Set<string> = new Set<string>();
+    for (const ref of snapshot.elementOrder) {
+      leafIds.add(ref.elementId);
+    }
+    const graph: ClipboardOriginalGroupGraph | null =
+      originalGroupGraphForPageCopy(this.selectionGroups, leafIds);
+    if (graph === null) {
+      throw new Error('duplicate page group graph is not copyable');
+    }
+    const plan: OriginalClipboardPastePlan = {
+      strokes: snapshot.strokes, shapes: snapshot.shapes, textBlocks: snapshot.textBlocks,
+      images: snapshot.images, mathBlocks: snapshot.mathBlocks,
+      elementOrder: snapshot.elementOrder, groups: graph.groups,
+      topGroupIds: graph.topGroupIds,
+    };
+    await this.persistence.commitOriginalDuplicatePageContent(
+      this.noteId, pageId, plan, history);
+    return true;
   }
 
   private clearCurrentPageContent(): void {
@@ -4217,6 +4251,7 @@ export struct NoteCanvasView {
   private isPageAction(type: UndoableActionType): boolean {
     return type === UndoableActionType.ADD_PAGE || type === UndoableActionType.DELETE_PAGE ||
       type === UndoableActionType.REORDER_PAGES || type === UndoableActionType.PAGE_SETTINGS ||
+      type === UndoableActionType.DUPLICATE_PAGE ||
       type === UndoableActionType.NOTE_BACKGROUND || type === UndoableActionType.NOTE_TITLE ||
       type === UndoableActionType.NOTE_METADATA;
   }

@@ -3,6 +3,7 @@
 import { NoteMeta, NoteViewState, PageInfo, PaperTemplate } from '../core/model/NoteTypes';
 import { EditorToolboxState, EditorTray, ToolState } from '../core/model/BrushTypes';
 import { NoteAsset } from '../core/model/AssetTypes';
+import { HistoryMetadata } from '../core/model/OpTypes';
 
 // Original dk9 library section ordinals (ALL_NOTES/RECENT/FAVORITES/UNFILED).
 export enum LibrarySection {
@@ -58,6 +59,14 @@ export interface PageRepository {
   reorderPages(noteId: string, pageIds: string[], movedPageId?: string): Promise<void>;
   // Original wz9.bookmarkedRegister parity (oz9 UNBOOKMARKED/BOOKMARKED).
   setPageBookmarked(noteId: string, pageId: string, bookmarked: boolean): Promise<PageInfo>;
+  // Original n9j Duplicate (ae2 default → u5j.e stream → de2.j anchor):
+  // creates a copy of sourcePageId immediately after it. Content ops are
+  // written separately via the duplicate-content transcode path.
+  duplicatePage(noteId: string, sourcePageId: string,
+    history?: HistoryMetadata): Promise<PageInfo>;
+  // DUPLICATE_PAGE redo: restores the hidden duplicate's visibility.
+  restoreDuplicatedPage(noteId: string, pageId: string,
+    history: HistoryMetadata): Promise<void>;
 }
 
 export interface ToolRepository {

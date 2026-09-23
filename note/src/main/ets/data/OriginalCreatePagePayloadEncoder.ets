@@ -1,10 +1,14 @@
+import { PageBackground } from '../core/model/NoteTypes';
+import { validatePageBackground } from '../core/model/PageBackgroundModel';
 import { OriginalSequenceIdentity, validateOriginalSequenceIdentity } from './OperationIdentity';
+import { encodeOriginalPageBackgroundTableBlob } from './OriginalSetMetadataPayloadEncoder';
 
 const MM_TO_POINTS: number = 72.0 / 25.4;
 
 export function encodeOriginalLocalCreatePage(location: OriginalSequenceIdentity | null,
   widthMm: number | null = null, heightMm: number | null = null,
-  pageCount: number = 1): Uint8Array {
+  pageCount: number = 1, background: PageBackground | null = null,
+  bookmarked: boolean = false): Uint8Array {
   if (location !== null) {
     validateOriginalSequenceIdentity(location);
   }
@@ -16,25 +20,45 @@ export function encodeOriginalLocalCreatePage(location: OriginalSequenceIdentity
     !Number.isFinite(heightMm) || widthMm <= 0 || heightMm <= 0)) {
     throw new Error('local CreatePage dimensions are invalid');
   }
+  if (background !== null && hasSize) {
+    throw new Error('local CreatePage cannot mix size fields with a full nz9 background');
+  }
+  if (background !== null) {
+    if (pageCount !== 1) {
+      throw new Error('local CreatePage full background requires a single page');
+    }
+    validatePageBackground(background);
+  }
 
   // ln2 fields are location(cxc), background(nz9), pageCount and bookmark. The local writer
   // creates an unbookmarked page group. A missing background inherits note SET_METADATA;
   // an explicit nz9.sourceSize preserves custom/A-series page dimensions without inventing paper.
+  // Original zm7 case 4 (page-duplicate stream) instead embeds a full nz9 carrying
+  // paper/pdf/rotation verbatim; the relocatable SetMetadata blob is appended at the tail.
+  // wz9.u also serializes the source page's oz9 bookmark register into ln2 field 3
+  // (haj.a → aVarA.c(3, oz9.I, 0)) — duplicate passes the source bookmark through.
+  const blob: Uint8Array | null = background === null ? null :
+    encodeOriginalPageBackgroundTableBlob(background);
   const rootVtable: number = 4;
   const rootTable: number = 16;
   const backgroundVtable: number = 44;
   const backgroundTable: number = 60;
-  const total: number = hasSize ? 72 : 44;
+  const nz9Offset: number = 44;
+  const total: number = blob !== null ? nz9Offset + blob.length : (hasSize ? 72 : 44);
   const bytes: Uint8Array = new Uint8Array(total);
   writeU32(bytes, 0, rootTable);
   writeVtable(bytes, rootVtable, 28, [
-    location === null ? 0 : 4, hasSize ? 16 : 0, pageCount === 1 ? 0 : 20, 0,
+    location === null ? 0 : 4, (hasSize || blob !== null) ? 16 : 0, pageCount === 1 ? 0 : 20,
+    bookmarked ? 24 : 0,
   ]);
   writeU32(bytes, rootTable, rootTable - rootVtable);
   if (location !== null) {
     writeSequence(bytes, rootTable + 4, location);
   }
-  if (hasSize) {
+  if (blob !== null) {
+    writeU32(bytes, rootTable + 16, nz9Offset - (rootTable + 16));
+    bytes.set(blob, nz9Offset);
+  } else if (hasSize) {
     writeU32(bytes, rootTable + 16, backgroundTable - (rootTable + 16));
     writeVtable(bytes, backgroundVtable, 12, [0, 0, 0, 4, 0]);
     writeU32(bytes, backgroundTable, backgroundTable - backgroundVtable);
@@ -43,6 +67,9 @@ export function encodeOriginalLocalCreatePage(location: OriginalSequenceIdentity
   }
   if (pageCount !== 1) {
     writeU32(bytes, rootTable + 20, pageCount);
+  }
+  if (bookmarked) {
+    bytes[rootTable + 24] = 1;
   }
   return bytes;
 }

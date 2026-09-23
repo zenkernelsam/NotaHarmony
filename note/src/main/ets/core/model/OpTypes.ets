@@ -8,6 +8,11 @@ export enum OpType {
   DELETE_PAGE = 1,
   UPDATE_PAGE = 2,      // 尺寸/模板变更
   REORDER_PAGES = 3,
+  // Harmony history companion for original ae2/u5j.e Duplicate Page:
+  // mid-note membership insert whose payload carries the duplicate context
+  // (classifyPageStructureMutation cannot express it — its CREATE_PAGE
+  // materialization requires a tail insert).
+  DUPLICATE_PAGE = 4,
   // 元素操作
   INSERT_ELEMENTS = 10,
   DELETE_ELEMENTS = 11,

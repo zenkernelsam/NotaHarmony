@@ -71,7 +71,7 @@ export interface ClipboardOriginalGroupPastePreview {
   topGroupIds: string[];
 }
 
-interface ClipboardOriginalGroupGraph {
+export interface ClipboardOriginalGroupGraph {
   groups: OriginalSelectionGroup[];
   topGroupIds: string[];
 }
@@ -574,6 +574,83 @@ export class StrokeClipboard {
     }
     return PAGE_MARGIN - start;
   }
+}
+
+// Original ae2/u5j.e Duplicate Page serializes the whole page entity tree —
+// every Group reachable from the root set (groups that are not themselves
+// members of another group). Returns the bottom-up ordered subgraph, or null
+// when the persisted graph is too corrupt to copy (mirrors the copy path's
+// fail-closed contract). Selection groups are note-scoped, so a group only
+// counts when its entire reachable leaf set lives inside copiedLeafIds —
+// foreign-page groups are skipped, while a group that references this page
+// but is not fully page-local is corrupt and fails closed.
+export function originalGroupGraphForPageCopy(sourceGroups: OriginalSelectionGroup[],
+  copiedLeafIds: Set<string>): ClipboardOriginalGroupGraph | null {
+  const byId: Map<string, number> = new Map<string, number>();
+  for (const group of sourceGroups) {
+    byId.set(group.id, (byId.get(group.id) ?? 0) + 1);
+  }
+  const pageLocal: Set<string> = new Set<string>();
+  let changed: boolean = true;
+  while (changed) {
+    changed = false;
+    for (const group of sourceGroups) {
+      if (group.id.length === 0 || pageLocal.has(group.id) || byId.get(group.id) !== 1) {
+        continue;
+      }
+      let local: boolean = true;
+      for (const member of group.members) {
+        if (!copiedLeafIds.has(member) && !pageLocal.has(member)) {
+          local = false;
+          break;
+        }
+      }
+      if (local) {
+        pageLocal.add(group.id);
+        changed = true;
+      }
+    }
+  }
+  const referencesPage: Set<string> = new Set<string>();
+  changed = true;
+  while (changed) {
+    changed = false;
+    for (const group of sourceGroups) {
+      if (group.id.length === 0 || referencesPage.has(group.id)) {
+        continue;
+      }
+      for (const member of group.members) {
+        if (copiedLeafIds.has(member) || referencesPage.has(member)) {
+          referencesPage.add(group.id);
+          changed = true;
+          break;
+        }
+      }
+    }
+  }
+  for (const groupId of referencesPage) {
+    if (!pageLocal.has(groupId)) {
+      return null;
+    }
+  }
+  const containedInLocal: Set<string> = new Set<string>();
+  for (const group of sourceGroups) {
+    if (!pageLocal.has(group.id)) {
+      continue;
+    }
+    for (const member of group.members) {
+      if (pageLocal.has(member)) {
+        containedInLocal.add(member);
+      }
+    }
+  }
+  const roots: string[] = [];
+  for (const group of sourceGroups) {
+    if (pageLocal.has(group.id) && !containedInLocal.has(group.id)) {
+      roots.push(group.id);
+    }
+  }
+  return copyOriginalGroupGraph(sourceGroups, roots, copiedLeafIds);
 }
 
 function copyOriginalGroupGraph(sourceGroups: OriginalSelectionGroup[], topGroupIds: string[],

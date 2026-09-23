@@ -533,6 +533,10 @@
       "value": "Bookmark"
     },
     {
+      "name": "duplicate_page",
+      "value": "Duplicate"
+    },
+    {
       "name": "rotate_page",
       "value": "Rotate Page"
     },

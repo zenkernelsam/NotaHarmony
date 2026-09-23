@@ -38,6 +38,7 @@ export enum UndoableActionType {
   NOTE_TITLE = 22,
   NOTE_METADATA = 23,
   ORIGINAL_HANDWRITING_CONVERSION = 24,
+  DUPLICATE_PAGE = 25,
 }
 
 interface ActionBase {
@@ -474,6 +475,16 @@ export interface ReorderPagesAction extends ActionBase {
   pageOrderAfter: string[];
 }
 
+// Original n9j Duplicate (ae2/u5j.e): pageId is the duplicated page identity,
+// sourcePageId is the page it was copied from. Undo hides the duplicate via
+// the original page-visibility op; redo restores it.
+export interface DuplicatePageAction extends ActionBase {
+  type: UndoableActionType.DUPLICATE_PAGE;
+  sourcePageId: string;
+  pageOrderBefore: string[];
+  pageOrderAfter: string[];
+}
+
 export interface PageSettingsAction extends ActionBase {
   type: UndoableActionType.PAGE_SETTINGS;
   pageBefore: PageInfo;
@@ -530,7 +541,7 @@ export interface OriginalHandwritingConversionAction extends ActionBase {
 export type UndoableAction = AddStrokeAction | RemoveStrokeAction | TransformStrokesAction |
   AddElementAction | DeleteElementAction | ReplaceElementAction | ReorderElementsAction |
   AddShapeAction | AddElementsAction | DeleteElementsAction | TransformElementsAction | EraseElementsAction |
-  AddPageAction | DeletePageAction | ReorderPagesAction | PageSettingsAction | PersistedPageMutationsAction |
+  AddPageAction | DeletePageAction | ReorderPagesAction | DuplicatePageAction | PageSettingsAction | PersistedPageMutationsAction |
   GroupElementsAction | OriginalClipboardPasteAction | OriginalPartialEraseAction |
   OriginalHandwritingConversionAction | NoteBackgroundAction |
   NoteTitleAction | NoteMetadataAction;
@@ -561,6 +572,11 @@ export interface EditorHistoryBridge {
   preparePageRemoval: (pageId: string) => void;
   cancelPageRemoval: (pageId: string) => void;
   flushCurrentPage: () => Promise<boolean>;
+  // Original ae2/u5j.e Duplicate Page: transcodes the captured page content onto
+  // the freshly created duplicate (fresh identities, preserved group graph).
+  // The DUPLICATE_PAGE companion op owns the action; these are plain original ops.
+  commitDuplicatePageContent: (pageId: string, snapshot: PageContentSnapshot,
+    history: HistoryMetadata) => Promise<boolean>;
 }
 
 export interface HistoryBudget {
@@ -663,6 +679,10 @@ export function estimateHistoryActionBytes(action: UndoableAction): number {
   }
   if (action.type === UndoableActionType.REORDER_PAGES) {
     return bytes + estimateStringList(action.pageOrderBefore) + estimateStringList(action.pageOrderAfter);
+  }
+  if (action.type === UndoableActionType.DUPLICATE_PAGE) {
+    return bytes + action.sourcePageId.length * 2 +
+      estimateStringList(action.pageOrderBefore) + estimateStringList(action.pageOrderAfter);
   }
   if (action.type === UndoableActionType.NOTE_BACKGROUND) {
     return bytes + action.selectedPageId.length * 2 +
