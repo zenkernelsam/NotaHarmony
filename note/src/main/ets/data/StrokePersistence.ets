@@ -3506,7 +3506,8 @@ export class StrokePersistence {
       eligible.index !== page.index) {
       throw new Error('reserved local CREATE_INK page is no longer original-aligned');
     }
-    const payload: Uint8Array = encodeOriginalLocalCreateInk(page, stroke);
+    const payload: Uint8Array = encodeOriginalLocalCreateInk(
+      page, stroke, originalHighlighterUnderlayZIndex(stroke, current));
     const operation: StoredSyncedOperation = localStoredOperation(
       snapshot.noteId, metadata, ORIGINAL_CREATE_INK_PAYLOAD_TYPE, payload,
       stroke.audioStartTime === undefined ? null : stroke.audioStartTime);
@@ -6688,6 +6689,27 @@ function originalShapeForce(shape: ShapeElement): number | null {
     return shape.originalForce;
   }
   return shape.originalCreate === undefined ? null : shape.originalCreate.averageForce;
+}
+
+// u5j.g parity: a locally drawn HIGHLIGHTER Ink with no explicit zIndex pins to the
+// original 999999 underlay band when its start point lands outside every live element
+// bounds; a start point inside existing content keeps the clientTime default.
+function originalHighlighterUnderlayZIndex(stroke: StrokeElementData,
+  current: SearchSourceElement[]): string | undefined {
+  if (!stroke.renderSpec.isHighlighter || stroke.pathPoints.length === 0) {
+    return undefined;
+  }
+  const transform: TransformMatrix = stroke.transform;
+  const start: Point2D = stroke.pathPoints[0].position;
+  const x: number = transform[0] * start.x + transform[1] * start.y + transform[2];
+  const y: number = transform[3] * start.x + transform[4] * start.y + transform[5];
+  for (const element of current) {
+    const bounds: Rect2D = decodePersistedElement(element.payload).data.bounds;
+    if (x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom) {
+      return undefined;
+    }
+  }
+  return '999999';
 }
 
 function cloneOriginalClipboardPastePlan(
