@@ -2172,8 +2172,9 @@ export class StrokePersistence {
     }
     validateHistoryMetadata(history);
     if (history.effect !== HistoryEffect.PUSH ||
-      history.coalesceTrack !== HistoryCoalesceTrack.NONE) {
-      throw new Error('clear page requires non-coalesced PUSH history');
+      (history.coalesceTrack !== HistoryCoalesceTrack.NONE &&
+        history.coalesceTrack !== HistoryCoalesceTrack.PAGE_BATCH)) {
+      throw new Error('clear page requires non-coalesced or page-batch PUSH history');
     }
     if (noteId.length === 0 || pageId.length === 0) {
       throw new Error('clear page requires note and page identity');
@@ -2939,8 +2940,9 @@ export class StrokePersistence {
     }
     validateHistoryMetadata(history);
     if (history.effect !== HistoryEffect.PUSH ||
-      history.coalesceTrack !== HistoryCoalesceTrack.NONE) {
-      throw new Error('original duplicate page content requires non-coalesced PUSH history');
+      (history.coalesceTrack !== HistoryCoalesceTrack.NONE &&
+        history.coalesceTrack !== HistoryCoalesceTrack.PAGE_BATCH)) {
+      throw new Error('original duplicate page content requires non-coalesced or page-batch PUSH history');
     }
     validateOriginalDuplicatePageContentPlan(plan);
     const stablePlan: OriginalClipboardPastePlan = cloneOriginalClipboardPastePlan(plan);

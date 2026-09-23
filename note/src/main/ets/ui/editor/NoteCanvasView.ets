@@ -53,7 +53,7 @@ import {
   PartialEraseElementReplacement, partialEraseMixedElementOrder, UndoRedoManager,
   UndoableAction, UndoableActionType, validatePartialEraseElementHistoryState,
 } from '../../rendering/UndoRedoManager';
-import { HistoryMetadata, Op, OpType } from '../../core/model/OpTypes';
+import { HistoryCoalesceTrack, HistoryMetadata, Op, OpType } from '../../core/model/OpTypes';
 import { SelectionTool, SelectionMode, SelectionState } from '../../rendering/SelectionTool';
 import {
   ClipboardCopyPreparation, ClipboardOriginalGroupGraph, ClipboardOriginalGroupPastePreview,
@@ -573,6 +573,10 @@ export struct NoteCanvasView {
       commitCopiedPageContent: async (pageId: string, plan: PageCopyPlan,
         history: HistoryMetadata): Promise<boolean> =>
         this.commitCopiedPageContent(pageId, plan, history),
+      // 原版 ae2 批操作 = 一次 x82.I 应用 = 一步撤销：窗口内 push 的
+      // 页操作共享 PAGE_BATCH 轨 + actionTime，peekGroup 跨页归并。
+      beginPageBatch: (): void => this.undoRedo.beginPageBatch(),
+      endPageBatch: (): void => this.undoRedo.endPageBatch(),
     });
     this.pageLoadPromise = this.loadNoteData();
   }
@@ -3694,7 +3698,8 @@ export struct NoteCanvasView {
         'history note mismatch, actionNote=%{public}s currentNote=%{public}s', action.noteId, this.noteId);
       return;
     }
-    if (group.length > 1) {
+    const pageBatchTime: number = this.isPageActionBatchGroup(group) ? group[0].history.actionTime : -1;
+    if (group.length > 1 && pageBatchTime < 0) {
       if (!this.isSinglePageElementGroup(group)) {
         hilog.error(0x0001, 'NoteCanvasView',
           'history group crossed its note/page/type domain; refusing a partial move');
@@ -3726,7 +3731,9 @@ export struct NoteCanvasView {
           ? this.onApplyNoteMetadataHistory(action, isUndo, history)
           : this.onApplyPageHistory(action, isUndo, history);
       applyPromise.then((applied: boolean) => {
-        if (applied && this.lifecycleActive && pageHistoryGeneration === this.pageLoadGeneration) {
+        const committed: boolean = applied && this.lifecycleActive &&
+          pageHistoryGeneration === this.pageLoadGeneration;
+        if (committed) {
           this.commitHistory(action, isUndo);
         } else if (applied) {
           hilog.info(0x0001, 'NoteCanvasView',
@@ -3736,6 +3743,9 @@ export struct NoteCanvasView {
         }
         this.historyBusy = false;
         this.onPageHistorySettled(false);
+        if (committed) {
+          this.continuePageBatch(pageBatchTime, isUndo);
+        }
       }).catch((e: Object) => {
         hilog.error(0x0001, 'NoteCanvasView', 'page history apply failed: %{public}s', JSON.stringify(e));
         this.historyBusy = false;
@@ -3865,6 +3875,7 @@ export struct NoteCanvasView {
     }
     if (this.applyAction(action, isUndo)) {
       this.commitHistory(action, isUndo);
+      this.continuePageBatch(pageBatchTime, isUndo);
     }
   }
 
@@ -4044,6 +4055,39 @@ export struct NoteCanvasView {
         this.reportSaveFailure(e as Object);
       }
     }
+  }
+
+  // 原版 ae2 批操作 = 一次 x82.I 应用 = 一步撤销：PAGE_BATCH 组内条目
+  // 共享 actionTime（beginPageBatch 一次取时）并允许跨 pageId。消费方式
+  // 为每条 performHistory 应用+提交一个子条目，continuePageBatch 驱动
+  // 剩余子条目（需要换页时由 pendingHistoryDirection/resumePendingHistory
+  // 衔接），直至同一 actionTime 的批条目耗尽 —— 对用户仍是"一次撤销"。
+  private isPageActionBatchGroup(group: HistoryMove[]): boolean {
+    if (group.length === 0 ||
+      group[0].history.coalesceTrack !== HistoryCoalesceTrack.PAGE_BATCH) {
+      return false;
+    }
+    const actionTime: number = group[0].history.actionTime;
+    for (const move of group) {
+      if (move.action.noteId !== this.noteId ||
+        move.history.coalesceTrack !== HistoryCoalesceTrack.PAGE_BATCH ||
+        move.history.actionTime !== actionTime) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private continuePageBatch(batchTime: number, isUndo: boolean): void {
+    if (batchTime < 0) {
+      return;
+    }
+    const next: HistoryMove[] = isUndo ? this.undoRedo.peekUndoGroup() : this.undoRedo.peekRedoGroup();
+    if (next.length === 0 || !this.isPageActionBatchGroup(next) ||
+      next[0].history.actionTime !== batchTime) {
+      return;
+    }
+    this.performHistory(isUndo);
   }
 
   private isSinglePageElementGroup(group: HistoryMove[]): boolean {

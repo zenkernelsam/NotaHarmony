@@ -14,7 +14,7 @@ function readOriginal(fileName) {
   return fs.readFileSync(path.join(originalRoot, fileName), 'utf8');
 }
 
-const TRACK = Object.freeze({ NONE: 0, INSERT_TEXT: 1, REMOVE_TEXT: 2, CREATE_INK: 3 });
+const TRACK = Object.freeze({ NONE: 0, INSERT_TEXT: 1, REMOVE_TEXT: 2, CREATE_INK: 3, PAGE_BATCH: 4 });
 
 function coalesceWindow(track) {
   if (track === TRACK.INSERT_TEXT || track === TRACK.REMOVE_TEXT) return 2000;
@@ -28,6 +28,17 @@ function peekGroup(stack) {
   let anchor = stack.at(-1);
   for (let index = stack.length - 2; index >= 0; index--) {
     const candidate = stack[index];
+    if (anchor.track === TRACK.PAGE_BATCH) {
+      // Phase 651: PAGE_BATCH entries group by noteId+track+shared
+      // actionTime across pages — the original ae2 batch applies once.
+      if (candidate.noteId !== anchor.noteId || candidate.track !== TRACK.PAGE_BATCH ||
+        candidate.time !== anchor.time) {
+        break;
+      }
+      result.push(candidate);
+      anchor = candidate;
+      continue;
+    }
     const window = coalesceWindow(candidate.track);
     if (candidate.noteId !== anchor.noteId || candidate.pageId !== anchor.pageId ||
       window < 0 || candidate.track !== anchor.track ||
@@ -81,9 +92,13 @@ const checks = [
     manager.includes('anchor = candidate') && manager.includes('INSERT_TEXT_COALESCE_MS') &&
       manager.includes('REMOVE_TEXT_COALESCE_MS') && manager.includes('CREATE_INK_COALESCE_MS')],
   ['editor refuses a multi-action group that violates page or type domain',
-    canvas.includes('if (group.length > 1)') &&
+    canvas.includes('if (group.length > 1 && pageBatchTime < 0)') &&
       canvas.includes('if (!this.isSinglePageElementGroup(group))') &&
       canvas.includes('refusing a partial move')],
+  ['batch groups bypass the single-page guard and drain one child per pass',
+    canvas.includes('const pageBatchTime: number = this.isPageActionBatchGroup(group)') &&
+      canvas.includes('private continuePageBatch(') &&
+      canvas.includes('this.performHistory(isUndo)')],
   ['same-page group durable apply remains one database transaction',
     persistence.includes('private async writeHistoryGroupLocked') &&
       persistence.includes('await store.beginTransaction()') &&
@@ -122,8 +137,37 @@ const adjacentGap = peekGroup([
 ]);
 assert.deepEqual(adjacentGap.map(entry => entry.id), ['c', 'b']);
 
+// Phase 651: PAGE_BATCH groups across pages by shared actionTime (one
+// original x82.I apply = one undo step), and never absorbs neighbors.
+const batchCrossPage = peekGroup([
+  { id: 'a', noteId: 'note', pageId: 'page-1', track: TRACK.PAGE_BATCH, time: 500 },
+  { id: 'b', noteId: 'note', pageId: 'page-3', track: TRACK.PAGE_BATCH, time: 500 },
+  { id: 'c', noteId: 'note', pageId: 'page-7', track: TRACK.PAGE_BATCH, time: 500 },
+]);
+assert.deepEqual(batchCrossPage.map(entry => entry.id), ['c', 'b', 'a']);
+
+const batchIdentityBound = peekGroup([
+  { id: 'a', noteId: 'note', pageId: 'page-1', track: TRACK.PAGE_BATCH, time: 400 },
+  { id: 'b', noteId: 'note', pageId: 'page-1', track: TRACK.PAGE_BATCH, time: 500 },
+  { id: 'c', noteId: 'note', pageId: 'page-2', track: TRACK.PAGE_BATCH, time: 500 },
+]);
+assert.deepEqual(batchIdentityBound.map(entry => entry.id), ['c', 'b']);
+
+const batchNotAbsorbed = peekGroup([
+  { id: 'a', noteId: 'note', pageId: 'page-1', track: TRACK.PAGE_BATCH, time: 500 },
+  { id: 'b', noteId: 'note', pageId: 'page-1', track: TRACK.CREATE_INK, time: 505 },
+]);
+assert.deepEqual(batchNotAbsorbed.map(entry => entry.id), ['b']);
+
+const batchNoteBound = peekGroup([
+  { id: 'a', noteId: 'note-1', pageId: 'page-1', track: TRACK.PAGE_BATCH, time: 500 },
+  { id: 'b', noteId: 'note-2', pageId: 'page-2', track: TRACK.PAGE_BATCH, time: 500 },
+  { id: 'c', noteId: 'note-2', pageId: 'page-3', track: TRACK.PAGE_BATCH, time: 500 },
+]);
+assert.deepEqual(batchNoteBound.map(entry => entry.id), ['c', 'b']);
+
 for (const [name, ok] of checks) {
   if (!ok) throw new Error(`FAILED: ${name}`);
   console.log(`PASS: ${name}`);
 }
-console.log(`D02_ORIGINAL_HISTORY_COALESCE_PAGE_DOMAIN_REPLAY_OK TOTAL=${checks.length + 4} FAILED=0`);
+console.log(`D02_ORIGINAL_HISTORY_COALESCE_PAGE_DOMAIN_REPLAY_OK TOTAL=${checks.length + 8} FAILED=0`);

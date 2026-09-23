@@ -607,6 +607,10 @@ export interface EditorHistoryBridge {
   // comes from the page clipboard, not the live canvas snapshot.
   commitCopiedPageContent: (pageId: string, plan: PageCopyPlan,
     history: HistoryMetadata) => Promise<boolean>;
+  // 原版 ae2 批操作 = 一次 x82.I 应用 = 一步撤销：begin/end 之间 push 的
+  // 条目打 PAGE_BATCH 轨 + 共享 actionTime，peekGroup 跨页归并为一组。
+  beginPageBatch: () => void;
+  endPageBatch: () => void;
 }
 
 export interface HistoryBudget {
@@ -906,6 +910,8 @@ export class UndoRedoManager {
   private historyRevision: number = 0;
   private actionCounter: number = 0;
   private latestHistory: HistoryMetadata | null = null;
+  private pageBatchDepth: number = 0;
+  private pageBatchActionTime: number = 0;
 
   constructor(budget: number | HistoryBudget = {
     maxActions: DEFAULT_HISTORY_MAX_ACTIONS,
@@ -940,6 +946,25 @@ export class UndoRedoManager {
     }
     this.latestHistory = this.withEffect(entry.history, HistoryEffect.PUSH);
     this.advanceHistoryRevision();
+  }
+
+  // 原版 ae2 批操作 = 一次 x82.I 应用 = 一步撤销：beginPageBatch/
+  // endPageBatch 之间 push 的条目一律打 PAGE_BATCH 轨 + 同一个
+  // actionTime，使 peekGroup 跨页归并为一个撤销组。深度计数容忍
+  // 嵌套调用（面板派发内部自身不嵌套，仅作防御）。
+  beginPageBatch(): void {
+    if (this.pageBatchDepth === 0) {
+      // actionTime 兼作批次标识：强制单调递增，保证相邻两次派发永远
+      // 不会共享同一时间戳而错误归并（同毫秒连发或时钟回拨）。
+      this.pageBatchActionTime = Math.max(Date.now(), this.pageBatchActionTime + 1);
+    }
+    this.pageBatchDepth++;
+  }
+
+  endPageBatch(): void {
+    if (this.pageBatchDepth > 0) {
+      this.pageBatchDepth--;
+    }
   }
 
   peekUndo(): UndoableAction | null {
@@ -1102,6 +1127,19 @@ export class UndoRedoManager {
     result.push({ action: anchor.action, history: this.withEffect(anchor.history, effect) });
     for (let index: number = stack.length - 2; index >= 0; index--) {
       const candidate: HistoryEntry = stack[index];
+      if (anchor.history.coalesceTrack === HistoryCoalesceTrack.PAGE_BATCH) {
+        // 原版 ae2 批操作 = 一次 x82.I 应用 = 一步撤销：PAGE_BATCH 条目
+        // 跨页共享同一 actionTime（beginPageBatch 内一次取时），按
+        // noteId+track+actionTime 归并相邻条目，不受 pageId 限制。
+        if (candidate.action.noteId !== anchor.action.noteId ||
+          candidate.history.coalesceTrack !== HistoryCoalesceTrack.PAGE_BATCH ||
+          candidate.history.actionTime !== anchor.history.actionTime) {
+          break;
+        }
+        result.push({ action: candidate.action, history: this.withEffect(candidate.history, effect) });
+        anchor = candidate;
+        continue;
+      }
       const window: number = this.coalesceWindow(candidate.history.coalesceTrack);
       // Original vnf owns one editor history and groups adjacent entries by track/time.
       // Harmony persists a note-wide history across asynchronously loaded pages, so the
@@ -1179,8 +1217,8 @@ export class UndoRedoManager {
     return {
       actionId: `history-${now.toString(36)}-${this.actionCounter.toString(36)}-${random}`,
       effect: HistoryEffect.PUSH,
-      coalesceTrack: this.coalesceTrackFor(action),
-      actionTime: now,
+      coalesceTrack: this.pageBatchDepth > 0 ? HistoryCoalesceTrack.PAGE_BATCH : this.coalesceTrackFor(action),
+      actionTime: this.pageBatchDepth > 0 ? this.pageBatchActionTime : now,
     };
   }
 
@@ -1237,8 +1275,13 @@ export class UndoRedoManager {
     if (history.effect !== HistoryEffect.PUSH || history.actionId.length === 0 ||
       !Number.isSafeInteger(history.actionTime) || history.actionTime < 0 ||
       !Number.isSafeInteger(history.coalesceTrack) || history.coalesceTrack < HistoryCoalesceTrack.NONE ||
-      history.coalesceTrack > HistoryCoalesceTrack.CREATE_INK) {
+      history.coalesceTrack > HistoryCoalesceTrack.PAGE_BATCH) {
       throw new Error('prepared history metadata is invalid');
+    }
+    if (history.coalesceTrack === HistoryCoalesceTrack.PAGE_BATCH) {
+      // 重启恢复出的批条目同样占用 actionTime 标识空间：抬高批次时钟，
+      // 使新批次的标识恒异于任何已持久化批次。
+      this.pageBatchActionTime = Math.max(this.pageBatchActionTime, history.actionTime);
     }
     return this.withEffect(history, HistoryEffect.PUSH);
   }

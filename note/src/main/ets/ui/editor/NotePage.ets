@@ -1875,77 +1875,85 @@ struct NotePage {
         }
         return indices;
       };
-      switch (action) {
-        case 'copy': {
-          // de2.o 批量：dg2 剪贴板按选中序（升序页序）装载全部页。
-          const payloads: CopiedPagePayload[] = [];
-          for (const index of indicesOf()) {
-            payloads.push(await this.capturePageCopyPayload(index));
-          }
-          if (payloads.length > 0) {
-            storeCopiedPages(payloads);
-            if (!this.editorDisposed) {
-              this.pageClipboardVersion++;
+      // 原版 ae2 批操作经一次 x82.I 应用 → 一步撤销：派发期间进入
+      // PAGE_BATCH 窗口，窗口内所有子操作共享 actionTime + 批次轨，
+      // 历史栈把它们归并为一个撤销组逐条应用。
+      this.historyBridge?.beginPageBatch();
+      try {
+        switch (action) {
+          case 'copy': {
+            // de2.o 批量：dg2 剪贴板按选中序（升序页序）装载全部页。
+            const payloads: CopiedPagePayload[] = [];
+            for (const index of indicesOf()) {
+              payloads.push(await this.capturePageCopyPayload(index));
             }
-          }
-          break;
-        }
-        case 'cut': {
-          const payloads: CopiedPagePayload[] = [];
-          for (const index of indicesOf()) {
-            payloads.push(await this.capturePageCopyPayload(index));
-          }
-          if (payloads.length > 0) {
-            storeCopiedPages(payloads);
-            if (!this.editorDisposed) {
-              this.pageClipboardVersion++;
+            if (payloads.length > 0) {
+              storeCopiedPages(payloads);
+              if (!this.editorDisposed) {
+                this.pageClipboardVersion++;
+              }
             }
+            break;
           }
-          for (const index of indicesOf().reverse()) {
-            await this.deletePageAt(index);
-          }
-          break;
-        }
-        case 'delete':
-          for (const index of indicesOf().reverse()) {
-            await this.deletePageAt(index);
-          }
-          break;
-        case 'duplicate': {
-          // ae2 v5 + de2.j：副本统一插在「页序上最后一张选中页」之后，
-          // 升序遍历保持源页序（u5j.e 按选中序产出拷贝 op）。锚点 ≥
-          // 所有源索引 → 插入不位移尚未捕获的源页。
-          const indices: number[] = indicesOf();
-          if (indices.length > 0) {
-            let anchorIndex: number = indices[indices.length - 1];
-            for (const index of indices) {
-              const payload: CopiedPagePayload =
-                await this.capturePageCopyPayload(index);
-              anchorIndex = await this.pasteOneCopiedPage(anchorIndex, payload);
+          case 'cut': {
+            const payloads: CopiedPagePayload[] = [];
+            for (const index of indicesOf()) {
+              payloads.push(await this.capturePageCopyPayload(index));
             }
+            if (payloads.length > 0) {
+              storeCopiedPages(payloads);
+              if (!this.editorDisposed) {
+                this.pageClipboardVersion++;
+              }
+            }
+            for (const index of indicesOf().reverse()) {
+              await this.deletePageAt(index);
+            }
+            break;
           }
-          break;
+          case 'delete':
+            for (const index of indicesOf().reverse()) {
+              await this.deletePageAt(index);
+            }
+            break;
+          case 'duplicate': {
+            // ae2 v5 + de2.j：副本统一插在「页序上最后一张选中页」之后，
+            // 升序遍历保持源页序（u5j.e 按选中序产出拷贝 op）。锚点 ≥
+            // 所有源索引 → 插入不位移尚未捕获的源页。
+            const indices: number[] = indicesOf();
+            if (indices.length > 0) {
+              let anchorIndex: number = indices[indices.length - 1];
+              for (const index of indices) {
+                const payload: CopiedPagePayload =
+                  await this.capturePageCopyPayload(index);
+                anchorIndex = await this.pasteOneCopiedPage(anchorIndex, payload);
+              }
+            }
+            break;
+          }
+          case 'bookmark':
+            for (const index of indicesOf()) {
+              await this.togglePageBookmarkAt(index);
+            }
+            break;
+          case 'clear':
+            // ae2 v1 批量 Clear：逐页清空；当前页走画布信号管线，非当前页
+            // 经 persistedPageSnapshot 对齐的持久层删除通道。
+            for (const index of indicesOf()) {
+              await this.clearPageAt(index);
+            }
+            break;
+          case 'paste': {
+            // e2 v16 批粘贴锚点：选中集末页之后。
+            const indices: number[] = indicesOf();
+            await this.pasteCopiedPageAt(indices[indices.length - 1]);
+            break;
+          }
+          default:
+            break;
         }
-        case 'bookmark':
-          for (const index of indicesOf()) {
-            await this.togglePageBookmarkAt(index);
-          }
-          break;
-        case 'clear':
-          // ae2 v1 批量 Clear：逐页清空；当前页走画布信号管线，非当前页
-          // 经 persistedPageSnapshot 对齐的持久层删除通道。
-          for (const index of indicesOf()) {
-            await this.clearPageAt(index);
-          }
-          break;
-        case 'paste': {
-          // e2 v16 批粘贴锚点：选中集末页之后。
-          const indices: number[] = indicesOf();
-          await this.pasteCopiedPageAt(indices[indices.length - 1]);
-          break;
-        }
-        default:
-          break;
+      } finally {
+        this.historyBridge?.endPageBatch();
       }
     });
   }

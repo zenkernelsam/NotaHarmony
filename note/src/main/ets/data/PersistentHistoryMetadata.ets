@@ -8,7 +8,8 @@ export function validateHistoryMetadata(history: HistoryMetadata): void {
     (history.coalesceTrack !== HistoryCoalesceTrack.NONE &&
       history.coalesceTrack !== HistoryCoalesceTrack.INSERT_TEXT &&
       history.coalesceTrack !== HistoryCoalesceTrack.REMOVE_TEXT &&
-      history.coalesceTrack !== HistoryCoalesceTrack.CREATE_INK)) {
+      history.coalesceTrack !== HistoryCoalesceTrack.CREATE_INK &&
+      history.coalesceTrack !== HistoryCoalesceTrack.PAGE_BATCH)) {
     throw new Error('operation history metadata is invalid');
   }
 }

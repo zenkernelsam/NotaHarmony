@@ -90,6 +90,11 @@ export enum HistoryCoalesceTrack {
   INSERT_TEXT = 1,
   REMOVE_TEXT = 2,
   CREATE_INK = 3,
+  // 原版 ae2 批操作经一次 x82.I 应用 → 一步撤销。PAGE_BATCH 标记一次
+  // 面板批量派发（多选/剪切批）内的全部历史条目：栈内按共享
+  // actionTime 合并为一个撤销组；与时间窗合并不同，它不依赖相邻
+  // pageId（批操作天然跨页）。
+  PAGE_BATCH = 4,
 }
 
 export interface HistoryMetadata {

@@ -38,8 +38,8 @@ check(mgr.includes('CREATE_INK_COALESCE_MS: number = 10'), 'CREATE_INK window = 
 // --- 轨道指派存在且按 vnf.d 语义分类 ---
 check(mgr.includes('private coalesceTrackFor(action: UndoableAction)'),
   'coalesceTrackFor exists (vnf.d equivalent)');
-check(mgr.includes('coalesceTrack: this.coalesceTrackFor(action)'),
-  'createHistoryMetadata delegates track assignment');
+check(mgr.includes('coalesceTrack: this.pageBatchDepth > 0 ? HistoryCoalesceTrack.PAGE_BATCH : this.coalesceTrackFor(action)'),
+  'createHistoryMetadata stamps PAGE_BATCH inside a batch window, else delegates');
 const trackIdx = mgr.indexOf('private coalesceTrackFor(');
 const track = mgr.slice(trackIdx, trackIdx + 2400);
 check(track.includes("action.type === UndoableActionType.ADD_STROKE") &&
@@ -63,7 +63,7 @@ check(track.indexOf('HistoryCoalesceTrack.NONE') < track.indexOf('HistoryCoalesc
 // --- 分组语义与 vnf.f/g 一致：锚点先入组、候选轨道窗、轨道相等、相邻时间差 ---
 const peekIdx = mgr.indexOf('private peekGroup(');
 check(peekIdx > 0, 'peekGroup exists (vnf.f/g equivalent)');
-const peek = mgr.slice(peekIdx, peekIdx + 1500);
+const peek = mgr.slice(peekIdx, peekIdx + 2400);
 check(peek.includes('result.push({ action: anchor.action'),
   'stack-top anchor always enters the group (vnf D1 pop)');
 check(peek.includes('coalesceWindow(candidate.history.coalesceTrack)'),

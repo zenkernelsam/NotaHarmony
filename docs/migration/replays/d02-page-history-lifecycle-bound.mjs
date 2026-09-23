@@ -12,7 +12,8 @@ assert.ok(start !== -1 && end > start);
 const branch = canvas.slice(start, end);
 
 assert.match(branch, /const pageHistoryGeneration: number = this\.pageLoadGeneration;/);
-assert.match(branch, /if \(applied && this\.lifecycleActive && pageHistoryGeneration === this\.pageLoadGeneration\) \{\s+this\.commitHistory\(action, isUndo\);/);
+assert.match(branch, /const committed: boolean = applied && this\.lifecycleActive &&\s+pageHistoryGeneration === this\.pageLoadGeneration;/);
+assert.match(branch, /if \(committed\) \{\s+this\.commitHistory\(action, isUndo\);\s+\}/);
 assert.match(branch, /page history committed after editor changed; durable history remains available/);
 assert.ok((branch.match(/this\.historyBusy = false;/g) || []).length === 2);
 
