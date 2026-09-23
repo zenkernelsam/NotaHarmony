@@ -40,6 +40,9 @@ export struct EditorToolbar {
   // format 取值 'jpg' | 'png'。
   onShareImage: (format: string) => void = (_format: string): void => {
   };
+  // 原版 s6d.PDF（atc case4）：整册逐页栅格化导出单个 PDF。
+  onSharePdf: () => void = () => {
+  };
   @Prop selectionColor: number = -16777216;
   @Prop selectionWidth: number = 5;
   @Prop selectionWidthMinimum: number = 0.5;
@@ -492,8 +495,8 @@ export struct EditorToolbar {
 
   // 原版 s6d 分享格式序：LINK、PDF、NOTE、JPG、PNG（atc case3~7）。
   // NOTE 走既有 NoteExporter 管线；JPG/PNG 走页级栅格化导出
-  // （Phase 642）；LINK/PDF 置灰 fail-closed（账号后端/PDF 编码器未备，
-  // 见 ADR-0608/0609）。
+  // （Phase 642）；PDF 走整册逐页栅格化导出（Phase 643）；
+  // LINK 置灰 fail-closed（账号后端未备，见 ADR-0608/0609/0610）。
   @Builder
   buildShareSheet() {
     Column() {
@@ -502,7 +505,7 @@ export struct EditorToolbar {
         .fontColor(this.resolveTokens().textPrimary)
         .margin({ top: 16, bottom: 12 })
       this.ShareFormatRow($r('app.string.share_link'), 'link', false)
-      this.ShareFormatRow($r('app.string.share_pdf'), 'pdf', false)
+      this.ShareFormatRow($r('app.string.share_pdf'), 'pdf', true)
       this.ShareFormatRow($r('app.string.share_note'), 'note', true)
       this.ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)
       this.ShareFormatRow($r('app.string.share_png'), 'png', true)
@@ -536,6 +539,8 @@ export struct EditorToolbar {
       this.showShareSheet = false;
       if (format === 'note') {
         this.onShareNote();
+      } else if (format === 'pdf') {
+        this.onSharePdf();
       } else {
         this.onShareImage(format);
       }

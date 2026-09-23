@@ -1,6 +1,7 @@
 // T-025 笔记编辑器页面（EditorToolbar + NoteCanvasView + PageManagerBar 集成）
 // T-036：标题行内编辑 + 持久化
 import { router, promptAction, window } from '@kit.ArkUI';
+import { image } from '@kit.ImageKit';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { audio } from '@kit.AudioKit';
@@ -23,6 +24,7 @@ import {
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteExporter } from '../../data/NoteExporter';
 import { PageImageExporter, ShareImageFormat } from '../../data/PageImageExporter';
+import { PagePdfExporter, PdfPageImage } from '../../data/PagePdfExporter';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PersistedOriginalNoteTitle } from '../../data/OriginalNoteTitlePersistence';
 import {
@@ -88,6 +90,8 @@ import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
 // 分享图像导出倍率：pagePixelSize（≈96dpi）×2 ≈ 192dpi 栅格。
 const PAGE_EXPORT_SCALE: number = 2.0;
+const PDF_JPEG_QUALITY: number = 92;
+const PACK_BUFFER_MAX_BYTES: number = 64 * 1024 * 1024;
 
 @Entry
 @Component
@@ -262,6 +266,60 @@ struct NotePage {
         if (pixelMap !== null) {
           await pixelMap.release();
         }
+        await renderer.dispose();
+      });
+  }
+
+  // 原版 s6d.PDF（atc case4）：整册逐页按 pagePixelSize×2 栅格化，
+  // 每页压为 JPEG 后嵌入单 PDF（DCTDecode 直通），交系统保存对话框。
+  // 页序取 this.pages 快照序（= 原版页序）；导出色恒取亮主题。
+  private shareNoteAsPdf(): void {
+    if (this.pages.length === 0) {
+      return;
+    }
+    const pages: PageInfo[] = this.pages.slice();
+    const context = getContext(this) as common.UIAbilityContext;
+    const theme: ThemeTokens = ThemeStore.resolve('light', false);
+    const db: DatabaseManager = DatabaseManager.getInstance();
+    const renderer: ThumbnailRenderer = new ThumbnailRenderer();
+    const packer: image.ImagePacker = image.createImagePacker();
+    const imagePages: PdfPageImage[] = [];
+    renderer.initialize(context)
+      .then(async (): Promise<void> => {
+        for (const page of pages) {
+          const pixelMap: PixelMap = await renderer.renderPageExport(this.noteId,
+            this.persistence, page, theme, db, PAGE_EXPORT_SCALE);
+          try {
+            const info: image.ImageInfo = pixelMap.getImageInfoSync();
+            const data: ArrayBuffer = await packer.packToData(pixelMap, {
+              format: 'image/jpeg',
+              quality: PDF_JPEG_QUALITY,
+              bufferSize: PACK_BUFFER_MAX_BYTES,
+            });
+            imagePages.push({
+              jpegData: new Uint8Array(data),
+              widthPx: info.size.width,
+              heightPx: info.size.height,
+              widthMm: page.widthMm,
+              heightMm: page.heightMm,
+            });
+          } finally {
+            await pixelMap.release();
+          }
+        }
+        const exporter: PagePdfExporter = new PagePdfExporter();
+        const success: boolean = await exporter.exportPdf(context, imagePages,
+          this.noteTitle);
+        promptAction.showToast({
+          message: success ? $r('app.string.export_done') : $r('app.string.export_failed'),
+        });
+      })
+      .catch((e: Error) => {
+        promptAction.showToast({ message: $r('app.string.export_failed') });
+        console.error(`share note pdf export failed: ${JSON.stringify(e)}`);
+      })
+      .finally(async (): Promise<void> => {
+        await packer.release();
         await renderer.dispose();
       });
   }
@@ -1319,6 +1377,14 @@ struct NotePage {
               return;
             }
             this.shareCurrentPageAsImage(format);
+          },
+          // 原版 s6d.PDF（atc case4）：整册逐页栅格化导出单个 PDF。
+          onSharePdf: () => {
+            if (this.photoImportLeaseActive || this.pageOperationBusy ||
+              this.historyPending) {
+              return;
+            }
+            this.shareNoteAsPdf();
           },
           onInsertMath: () => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||

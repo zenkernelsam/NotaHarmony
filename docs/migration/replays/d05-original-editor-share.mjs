@@ -16,8 +16,8 @@
 //   * 面板按 s6d 原序列出 LINK/PDF/NOTE/JPG/PNG 五行；NOTE 行复用库级
 //     NoteExporter.exportToFile 管线（.note 包 + 系统保存对话框 +
 //     export_done/export_failed toast）；JPG/PNG 行自 Phase 642 起走
-//     当前页整页栅格化导出；LINK/PDF 置灰并标注暂不支持
-//     （PDF 需 PDF 编码器，LINK 需账号后端）；
+//     当前页整页栅格化导出；PDF 行自 Phase 643 起走整册逐页栅格化
+//     PDF 导出；LINK 置灰并标注暂不支持（需账号后端）；
 //   * NotePage.onShareNote 走 photoImportLeaseActive/pageOperationBusy/
 //     historyPending 门禁后调 shareNoteAsFile()。
 import assert from 'node:assert/strict';
@@ -94,22 +94,24 @@ check(toolbar.includes('onShareNote: () => void'),
 check(toolbar.includes('.bindSheet(this.showShareSheet, this.buildShareSheet()'),
   'share panel binds as a sheet on the toolbar');
 check(toolbar.indexOf("ShareFormatRow($r('app.string.share_link'), 'link', false)") <
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_pdf'), 'pdf', false)") &&
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_pdf'), 'pdf', false)") <
+  toolbar.indexOf("ShareFormatRow($r('app.string.share_pdf'), 'pdf', true)") &&
+  toolbar.indexOf("ShareFormatRow($r('app.string.share_pdf'), 'pdf', true)") <
   toolbar.indexOf("ShareFormatRow($r('app.string.share_note'), 'note', true)") &&
   toolbar.indexOf("ShareFormatRow($r('app.string.share_note'), 'note', true)") <
   toolbar.indexOf("ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)") &&
   toolbar.indexOf("ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)") <
   toolbar.indexOf("ShareFormatRow($r('app.string.share_png'), 'png', true)"),
   'share sheet lists all five formats in the original s6d order');
-check(toolbar.includes("ShareFormatRow($r('app.string.share_note'), 'note', true)") &&
+check(toolbar.includes("ShareFormatRow($r('app.string.share_pdf'), 'pdf', true)") &&
+  toolbar.includes("ShareFormatRow($r('app.string.share_note'), 'note', true)") &&
   toolbar.includes("ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)") &&
   toolbar.includes("ShareFormatRow($r('app.string.share_png'), 'png', true)"),
-  'NOTE, JPG and PNG format rows are enabled (Phase 642 lit the raster pair)');
+  'PDF, NOTE, JPG and PNG rows are enabled (642 raster, 643 pdf)');
 check(toolbar.includes('.opacity(supported ? 1 : 0.4)') &&
   toolbar.includes('share_format_unsupported'),
   'unsupported formats render dimmed with an unsupported caption');
 check(toolbar.includes('this.showShareSheet = false;\n      if (format === \'note\') {') &&
+  toolbar.includes('this.onSharePdf();') &&
   toolbar.includes('this.onShareImage(format);'),
   'enabled rows close the sheet and dispatch to the format export');
 
