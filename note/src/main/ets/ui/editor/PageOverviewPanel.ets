@@ -380,10 +380,11 @@ export struct PageOverviewPanel {
             }
             this.SelectionActionChip($r('app.string.bookmark_page'),
               (): void => this.dispatchSelection('bookmark'), this.selectedPageIds.length > 0)
+            // ae2 v1 批量 Clear：任意选中集可清空（非当前页走持久层
+            // 通道，当前页走画布信号）。
             this.SelectionActionChip($r('app.string.clear_page'),
               (): void => this.dispatchSelection('clear'),
-              this.selectedPageIds.length === 1 &&
-                this.selectedPageIds[0] === this.pages[this.currentPageIndex]?.pageId)
+              this.selectedPageIds.length > 0)
             this.SelectionActionChip($r('app.string.pages_done'),
               (): void => this.exitSelection(), true)
           }
@@ -664,11 +665,10 @@ struct PageOverviewCell {
         MenuItem({ content: $r('app.string.rotate_page') })
           .onClick(() => this.onMenuAction(this.pageIndex, 'rotate'))
       }
-      if (this.selected) {
-        // fd2 case1 → de2.n → ae2 v1：Clear Page 仅经当前页画布信号实现。
-        MenuItem({ content: $r('app.string.clear_page') })
-          .onClick(() => this.onMenuAction(this.pageIndex, 'clear'))
-      }
+      // fd2 case1 → de2.n → ae2 v1：Clear Page——当前页走画布信号，
+      // 非当前页经持久层清空（clearOriginalPageContent）。
+      MenuItem({ content: $r('app.string.clear_page') })
+        .onClick(() => this.onMenuAction(this.pageIndex, 'clear'))
       // fd2 case2 → de2.q → ae2 v4：Delete Pages。
       MenuItem({ content: $r('app.string.delete_page') })
         .onClick(() => this.onMenuAction(this.pageIndex, 'delete'))

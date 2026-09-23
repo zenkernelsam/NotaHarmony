@@ -85,8 +85,9 @@ check(panel.indexOf("'add'") < panel.indexOf("'cut'") &&
   'menu order mirrors the original n9j sequence');
 check(panel.includes('if (this.canPaste)') &&
   panel.includes('rotatedOriginalPageInfo(this.page) !== null') &&
-  panel.includes('if (this.selected)'),
-  'paste/rotate/clear items keep the original conditional visibility');
+  panel.includes('rotatedOriginalPageInfo(this.page) !== null'),
+  'paste/rotate items keep the original conditional visibility ' +
+  '(clear unlocked for all pages in Phase 649 via the persisted clear path)');
 check(!panel.includes('create_template'),
   'create-template stays absent (flag-disabled upstream)');
 check(panel.includes('onPageAction: (pageIndex: number, action: string)') &&
@@ -105,8 +106,10 @@ check(notePage.includes("case 'add':\n          await this.addPageAt(pageIndex)"
   notePage.includes("case 'delete':\n          await this.deletePageAt(pageIndex)"),
   'every fd2 action maps to a parameterized page op');
 check(notePage.includes("if (pageIndex === this.currentPageIndex") &&
-  notePage.includes("this.clearPageSignal++;"),
-  'clear only fires the canvas signal for the current page');
+  notePage.includes("this.clearPageSignal++;") &&
+  notePage.includes('await this.clearPageAt(pageIndex)'),
+  'clear fires the canvas signal for the current page and the persisted ' +
+  'path for non-current pages (Phase 649)');
 check(notePage.includes('await this.addPageAt(this.currentPageIndex)') &&
   notePage.includes('await this.deletePageAt(this.currentPageIndex)') &&
   notePage.includes('await this.copyPageAt(this.currentPageIndex)') &&

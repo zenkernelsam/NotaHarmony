@@ -17,7 +17,7 @@ import {
   originalDefaultNoteBackgroundSettings, rotatedOriginalPageInfo,
   sameNoteBackgroundSettings, samePageBackground,
 } from '../../core/model/PageBackgroundModel';
-import { HistoryMetadata, NoteMetadataHistoryState } from '../../core/model/OpTypes';
+import { HistoryMetadata, NoteMetadataHistoryState, Op } from '../../core/model/OpTypes';
 import {
   CopiedPagePayload, copiedPagePayload, copiedPagePayloads, storeCopiedPage,
   storeCopiedPages,
@@ -81,7 +81,8 @@ import {
   AddPageAction, DeletePageAction, DuplicatePageAction, EditorHistoryBridge,
   NoteBackgroundAction, NoteMetadataAction,
   NoteTitleAction,
-  PageBookmarkAction, PageContentSnapshot, PageCopyPlan, PageSettingsAction, UndoableAction,
+  PageBookmarkAction, PageContentSnapshot, PageCopyPlan, PageSettingsAction,
+  PersistedPageMutationsAction, UndoableAction,
   UndoableActionType,
 } from '../../rendering/UndoRedoManager';
 import { EditorViewModel } from './EditorViewModel';
@@ -1820,15 +1821,6 @@ struct NotePage {
     if (pageIndex < 0 || pageIndex >= this.pages.length) {
       return;
     }
-    if (action === 'clear') {
-      // fd2 case1 → ae2 v1 Clear Page：Harmony 清空管线绑定当前页画布
-      // （选择→删除→撤销一体化），非当前页 fail-closed 不展示该菜单项。
-      if (pageIndex === this.currentPageIndex && !this.pageOperationBusy &&
-        !this.historyPending && !this.pageStructureLeaseActive) {
-        this.clearPageSignal++;
-      }
-      return;
-    }
     this.runPageOperation(async (): Promise<void> => {
       switch (action) {
         case 'add':
@@ -1849,6 +1841,9 @@ struct NotePage {
         case 'rotate':
           await this.rotatePageAt(pageIndex);
           break;
+        case 'clear':
+          await this.clearPageAt(pageIndex);
+          break;
         case 'delete':
           await this.deletePageAt(pageIndex);
           break;
@@ -1865,17 +1860,6 @@ struct NotePage {
   // 击穿尚未处理的选中项。退出语义由面板按原版决定。
   private dispatchPageSelectionAction(action: string, pageIds: string[]): void {
     if (pageIds.length === 0) {
-      return;
-    }
-    if (action === 'clear') {
-      // ae2 v1 Clear：画布清空管线仅绑定当前页——仅当选中集恰为
-      // 当前页时可执行，其余 fail-closed（多页清空登记 ADR-0615）。
-      if (pageIds.length === 1 && this.pages.length > 0 &&
-        this.pages[this.currentPageIndex].pageId === pageIds[0] &&
-        !this.pageOperationBusy && !this.historyPending &&
-        !this.pageStructureLeaseActive) {
-        this.clearPageSignal++;
-      }
       return;
     }
     this.runPageOperation(async (): Promise<void> => {
@@ -1935,6 +1919,13 @@ struct NotePage {
         case 'bookmark':
           for (const index of indicesOf()) {
             await this.togglePageBookmarkAt(index);
+          }
+          break;
+        case 'clear':
+          // ae2 v1 批量 Clear：逐页清空；当前页走画布信号管线，非当前页
+          // 经 persistedPageSnapshot 对齐的持久层删除通道。
+          for (const index of indicesOf()) {
+            await this.clearPageAt(index);
           }
           break;
         case 'paste': {
@@ -2364,6 +2355,47 @@ struct NotePage {
     if (this.historyBridge !== null) {
       this.historyBridge.pushPageAction(action, history);
     }
+  }
+
+  // 原版 fd2 case1 → de2.n → ae2 v1（Clear Page）按页键作用于任意页。
+  // 当前页沿用画布信号管线（选择→删除→撤销一体化）；非当前页经
+  // StrokePersistence.clearOriginalPageContent 走 ORIGINAL_DELETE_ENTITIES
+  // 可见性删除 + DELETE_ELEMENTS companion，撤销动作是
+  // PERSISTED_PAGE_MUTATIONS（画布先导航到该页再回放还原）。
+  private async clearPageAt(pageIndex: number): Promise<void> {
+    if (pageIndex < 0 || pageIndex >= this.pages.length) {
+      return;
+    }
+    if (pageIndex === this.currentPageIndex) {
+      this.clearPageSignal++;
+      return;
+    }
+    const historyBridge: EditorHistoryBridge | null = this.historyBridge;
+    if (historyBridge === null || this.editorDisposed) {
+      return;
+    }
+    const pageId: string = this.pages[pageIndex].pageId;
+    if (!await historyBridge.flushCurrentPage()) {
+      throw new Error('clearPage could not flush the current page');
+    }
+    const draft: PersistedPageMutationsAction = {
+      type: UndoableActionType.PERSISTED_PAGE_MUTATIONS,
+      noteId: this.noteId,
+      pageId: pageId,
+      operations: [],
+    };
+    const history: HistoryMetadata = historyBridge.preparePageAction(draft);
+    const operation: Op | null = await this.persistence.clearOriginalPageContent(
+      this.noteId, pageId, history);
+    if (operation === null || this.editorDisposed) {
+      return;
+    }
+    historyBridge.pushPageAction({
+      type: UndoableActionType.PERSISTED_PAGE_MUTATIONS,
+      noteId: this.noteId,
+      pageId: pageId,
+      operations: [operation],
+    }, history);
   }
 
   // Original n9j Duplicate (fd2 case5 → de2.r → ae2 default → de2.j anchor):

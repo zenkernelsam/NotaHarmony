@@ -2158,6 +2158,119 @@ export class StrokePersistence {
       });
   }
 
+  // 原版 ae2 variant 1（Clear Page）的持久层落地——供页面管理面板对
+  // 非当前页执行清空：页内全部元素实体与完全包含于本页的组经
+  // ORIGINAL_DELETE_ENTITIES 可见性删除（与部分擦除同一写通道），
+  // 页变更加签一条 DELETE_ELEMENTS companion（history 携带 actionId），
+  // 重启后物化为 PERSISTED_PAGE_MUTATIONS，撤销时画布导航到该页并
+  // 回放 mutation 还原全部元素。返回 companion op（调用方 push
+  // 历史动作用）；空页返回 null（对齐画布 clear 的空页 no-op）。
+  async clearOriginalPageContent(noteId: string, pageId: string,
+    history: HistoryMetadata): Promise<Op | null> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    validateHistoryMetadata(history);
+    if (history.effect !== HistoryEffect.PUSH ||
+      history.coalesceTrack !== HistoryCoalesceTrack.NONE) {
+      throw new Error('clear page requires non-coalesced PUSH history');
+    }
+    if (noteId.length === 0 || pageId.length === 0) {
+      throw new Error('clear page requires note and page identity');
+    }
+    const stableHistory: HistoryMetadata = {
+      actionId: history.actionId, effect: history.effect,
+      coalesceTrack: history.coalesceTrack, actionTime: history.actionTime,
+    };
+    await this.flush(noteId, pageId);
+    return editorPersistenceMutex.runExclusive(async (): Promise<Op | null> => {
+      if (this.store === null) {
+        throw new Error('StrokePersistence is not initialized');
+      }
+      const store: relationalStore.RdbStore = this.store;
+      await store.beginTransaction();
+      try {
+        if (await this.readEligibleOriginalInkPage(store, noteId, pageId) === null) {
+          throw new Error('clear page is not original-aligned');
+        }
+        const current: SearchSourceElement[] =
+          await this.loadCurrentSnapshot(store, noteId, pageId);
+        if (current.length === 0) {
+          await store.rollBack();
+          return null;
+        }
+        const currentRevision: number =
+          await this.readLivePageRevision(store, noteId, pageId);
+        const mutation: PageMutationOpPayload = createPageMutation(
+          pageId, currentRevision, currentRevision + 1, current, []);
+        if (classifyPageMutation(mutation) !== OpType.DELETE_ELEMENTS) {
+          throw new Error('clear page mutation did not classify as DELETE_ELEMENTS');
+        }
+        // 组清理：成员全集被本页删除覆盖的组一并删除（页内组的常态）；
+        // 跨页残留组保留并登记——原版组的页域约束见 ae2 批语义。
+        const deletedIds: Set<string> = new Set<string>(
+          current.map((element: SearchSourceElement): string => element.elementId));
+        const deletes: OperationIdentity[] = current.map(
+          (element: SearchSourceElement): OperationIdentity =>
+            decodeOperationId(element.elementId) as OperationIdentity);
+        const activeGroups: OriginalSelectionGroup[] =
+          await this.loadOriginalSelectionGroups(store, noteId);
+        for (const group of activeGroups) {
+          if (group.members.length > 0 &&
+            group.members.every((member: string): boolean => deletedIds.has(member))) {
+            deletes.push({ timestamp: group.timestamp, siteId: group.siteId });
+          }
+        }
+        if (deletes.length > MAX_ORIGINAL_DELETE_ENTITY_COUNT) {
+          throw new Error('clear page exceeds one type-25 payload');
+        }
+        const deleteIdentity: AllocatedOperationIdentity =
+          await allocateOperationIdentity(store, noteId);
+        const deletePayload: Uint8Array =
+          encodeOriginalEntityVisibility(deletes, []);
+        const deleteOperation: StoredSyncedOperation = localStoredOperation(
+          noteId, allocatedOriginalMetadata(deleteIdentity),
+          ORIGINAL_DELETE_ENTITIES_PAYLOAD_TYPE, deletePayload, null);
+        const applied: SyncedOperationApplyResult =
+          await new OriginalDeleteEntitiesOperationApplier().apply(store, deleteOperation);
+        if (applied.deferredReason !== null) {
+          throw new Error(`clear page DELETE_ENTITIES was deferred: ${applied.deferredReason}`);
+        }
+        await this.appendOriginalCreateOperation(store, noteId, deleteIdentity,
+          OpType.ORIGINAL_DELETE_ENTITIES, deleteOperation.rawOperation);
+        const revisionAfter: number =
+          await this.readLivePageRevision(store, noteId, pageId);
+        if (revisionAfter !== currentRevision + 1) {
+          throw new Error('clear page did not advance one page revision');
+        }
+        const materialized: SearchSourceElement[] =
+          await this.loadCurrentSnapshot(store, noteId, pageId);
+        if (materialized.length !== 0) {
+          throw new Error('clear page materialized a non-empty page');
+        }
+        const finalSnapshot: PreparedPageSave = this.preparedSnapshotFromSearchElements(
+          noteId, pageId, materialized, stableHistory);
+        await this.rebuildPageSearchState(store, finalSnapshot, revisionAfter, true);
+        // 历史 companion：DELETE_ELEMENTS 页变更 op（重启物化为
+        // PERSISTED_PAGE_MUTATIONS；撤销经回放恢复全部元素）。
+        const companion: AllocatedOperationIdentity =
+          await allocateOperationIdentity(store, noteId);
+        const companionOp: Op = {
+          noteId: noteId, opId: companion.opId, opType: OpType.DELETE_ELEMENTS,
+          payload: encodePageMutationOp(mutation), clientTime: companion.clientTime,
+          opTimestamp: companion.timestamp, editorSiteId: companion.siteId,
+          history: stableHistory,
+        };
+        await appendOperation(store, companionOp);
+        await store.commit();
+        return companionOp;
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`clear original page content failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
   async commitOriginalHandwritingConversion(noteId: string, pageId: string,
     plan: OriginalHandwritingConversionPersistencePlan, history: HistoryMetadata):
     Promise<OriginalHandwritingConversionPersistenceResult> {

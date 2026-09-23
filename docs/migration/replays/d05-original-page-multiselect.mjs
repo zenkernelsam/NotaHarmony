@@ -144,8 +144,9 @@ check(notePage.includes('private async pasteOneCopiedPage(') &&
   'multi-page paste inserts each payload after the running anchor');
 check(notePage.includes('await this.pasteCopiedPageAt(indices[indices.length - 1])'),
   'batch paste anchors after the last selected page');
-check(notePage.includes("if (pageIds.length === 1 && this.pages.length > 0"),
-  'batch clear stays fail-closed unless the selection is exactly the current page');
+check(notePage.includes("case 'clear':") &&
+  notePage.includes('await this.clearPageAt(index)'),
+  'batch clear iterates the selection through the persisted/canvas clear path (Phase 649)');
 
 // --- 字符串 ---
 check(baseStrings.includes('"pages_menu_select"') &&
