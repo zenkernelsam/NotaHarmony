@@ -38,7 +38,7 @@ import {
   prepareLocalOriginalImageAsset, reconcileExistingPreparedLocalOriginalImageAsset,
   unlinkPreparedLocalOriginalImageAsset,
 } from './ImageAssetPackageStore';
-import { foldSearchText } from './SearchText';
+import { escapeSearchLike, foldSearchText } from './SearchText';
 import { SearchItemType } from './SearchItemType';
 import { handwritingSourceChanged, pageSnapshotChanged, SearchSourceElement } from './SearchIndexPolicy';
 import { allocateOperationIdentity, AllocatedOperationIdentity, appendOperation } from './OpStoreImpl';
@@ -3328,6 +3328,33 @@ export class StrokePersistence {
           `${page.bookmarked === true ? 1 : 0}:` +
           `${fallbackSignature}:${maxRevision}:${elementCount}`,
       };
+    } finally {
+      resultSet.close();
+    }
+  }
+
+  // Phase 646：原版 qd2.c() 页内搜索——`search_item` 按 note_id +
+  // folded_text LIKE 取 DISTINCT page_id，页面管理面板据此把过滤结果
+  // 与命中页集合求交（isSearchActive && 非空白 query 时）。
+  async searchPageIdsWithText(noteId: string, query: string): Promise<Set<string>> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    const folded: string = foldSearchText(query).trim();
+    const matches: Set<string> = new Set<string>();
+    if (folded.length === 0) {
+      return matches;
+    }
+    const resultSet = await this.store.querySql(
+      `SELECT DISTINCT page_id FROM search_item
+       WHERE note_id = ? AND page_id IS NOT NULL
+         AND folded_text LIKE ? ESCAPE '\\'`,
+      [noteId, `%${escapeSearchLike(folded)}%`]);
+    try {
+      while (resultSet.goToNextRow()) {
+        matches.add(resultSet.getString(resultSet.getColumnIndex('page_id')));
+      }
+      return matches;
     } finally {
       resultSet.close();
     }

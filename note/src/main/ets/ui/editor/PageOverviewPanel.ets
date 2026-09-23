@@ -49,6 +49,12 @@ export struct PageOverviewPanel {
   @State private filter: number = FILTER_ALL;
   @State private nonEmptyPageIds: Set<string> = new Set<string>();
   @State private renderReady: boolean = false;
+  // 原版 qd2.isSearchActive/searchQuery/searchMatchingPageKeys：
+  // 搜索激活且 query 非空白时，把 nd2 过滤结果与命中页集合求交。
+  @State private searchActive: boolean = false;
+  @State private searchQuery: string = '';
+  @State private matchingPageIds: Set<string> = new Set<string>();
+  private searchGeneration: number = 0;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   private renderer: ThumbnailRenderer | null = null;
@@ -73,6 +79,30 @@ export struct PageOverviewPanel {
 
   private onRevisionChange(): void {
     this.loadElementCounts();
+  }
+
+  // 原版 de2.s(query) → xd9.d 流产出命中页集合（sl case9 写回
+  // qd2.searchMatchingPageKeys）。Harmony：generation 防乱序，
+  // 空白 query 立即清空命中集（qd2.c() 空白即返回未过滤列表）。
+  private runSearch(): void {
+    const persistence = this.persistence;
+    const query: string = this.searchQuery;
+    const generation: number = ++this.searchGeneration;
+    if (persistence === undefined || this.noteId.length === 0 ||
+      query.trim().length === 0) {
+      this.matchingPageIds = new Set<string>();
+      return;
+    }
+    persistence.searchPageIdsWithText(this.noteId, query)
+      .then((matches: Set<string>): void => {
+        if (this.disposed || generation !== this.searchGeneration) {
+          return;
+        }
+        this.matchingPageIds = matches;
+      })
+      .catch((e: Error) => {
+        console.error(`PageOverviewPanel search failed: ${JSON.stringify(e)}`);
+      });
   }
 
   private loadElementCounts(): void {
@@ -146,6 +176,13 @@ export struct PageOverviewPanel {
       if (this.filter === FILTER_NOTES && !this.nonEmptyPageIds.has(page.pageId)) {
         continue;
       }
+      // 原版 qd2.c() 尾段：isSearchActive && !query.isBlank → 与
+      // searchMatchingPageKeys 求交（结果未到齐前为空集 → fail-closed
+      // 空列表，与原版初始空集一致）。
+      if (this.searchActive && this.searchQuery.trim().length > 0 &&
+        !this.matchingPageIds.has(page.pageId)) {
+        continue;
+      }
       items.push({
         page: page,
         index: i,
@@ -172,6 +209,26 @@ export struct PageOverviewPanel {
         this.FilterChip($r('app.string.pages_filter_all'), FILTER_ALL)
         this.FilterChip($r('app.string.pages_filter_bookmarks'), FILTER_BOOKMARKS)
         this.FilterChip($r('app.string.pages_filter_notes'), FILTER_NOTES)
+        // 原版 r22 case24：content_manager_search 行（ue4.A 搜索图标）
+        // 激活 de2.l() → qd2.isSearchActive。
+        Button('🔍')
+          .width(36)
+          .height(32)
+          .fontSize(14)
+          .margin({ left: 4 })
+          .fontColor(this.searchActive ?
+            this.resolveTokens().accent : this.resolveTokens().textSecondary)
+          .backgroundColor(Color.Transparent)
+          .accessibilityText($r('app.string.cd_pages_panel_search'))
+          .onClick(() => {
+            // de2.l() 对齐：开启搜索；关闭时清空 query 与命中集。
+            this.searchActive = !this.searchActive;
+            if (!this.searchActive) {
+              this.searchQuery = '';
+              this.searchGeneration++;
+              this.matchingPageIds = new Set<string>();
+            }
+          })
         Button('✕')
           .width(36)
           .height(32)
@@ -186,6 +243,25 @@ export struct PageOverviewPanel {
       }
       .width('100%')
       .padding({ left: 16, right: 12, top: 12, bottom: 8 })
+
+      if (this.searchActive) {
+        // 原版 de2.s(query)：输入即写入 qd2.searchQuery 并触发命中
+        // 集合重算（generation 防乱序）。
+        TextInput({ placeholder: $r('app.string.pages_panel_search_placeholder'),
+          text: this.searchQuery })
+          .height(36)
+          .fontSize(14)
+          .margin({ left: 16, right: 16, bottom: 8 })
+          .fontColor(this.resolveTokens().textPrimary)
+          .placeholderColor(this.resolveTokens().textSecondary)
+          .backgroundColor(this.resolveTokens().control)
+          .borderRadius(10)
+          .accessibilityText($r('app.string.pages_panel_search'))
+          .onChange((value: string) => {
+            this.searchQuery = value;
+            this.runSearch();
+          })
+      }
 
       if (this.visibleItems().length === 0) {
         // ui_pageselection__no_pages：过滤后为空时渲染空态文案。
