@@ -76,14 +76,21 @@ export async function hasAlignedOriginalPageState(store: relationalStore.RdbStor
 }
 
 export async function persistOriginalCreatePage(store: relationalStore.RdbStore, noteId: string,
-  requestedPage: PageInfo | null): Promise<PersistedOriginalPageMutation> {
+  requestedPage: PageInfo | null,
+  afterPageId: string | null = null): Promise<PersistedOriginalPageMutation> {
   const group: PersistedOriginalPageGroup = await persistOriginalCreatePages(
-    store, noteId, requestedPage, 1);
+    store, noteId, requestedPage, 1, afterPageId);
   return { page: group.pages[0], payload: group.payload };
 }
 
+// Original n9j Add Page (fd2 case 3 -> zd2 variant 0 -> u5j.i(x09, index, 0, 14)
+// -> haj.a(anchor, null, 1, oz9.UNBOOKMARKED, 16)): the new page lands at the
+// requested sequence anchor and carries a null nz9 so it inherits the note
+// default background. afterPageId resolves to that page's identity (the
+// predecessor); null keeps the historic tail anchor.
 export async function persistOriginalCreatePages(store: relationalStore.RdbStore, noteId: string,
-  requestedPage: PageInfo | null, pageCount: number): Promise<PersistedOriginalPageGroup> {
+  requestedPage: PageInfo | null, pageCount: number,
+  afterPageId: string | null = null): Promise<PersistedOriginalPageGroup> {
   if (noteId.length === 0 || !await hasAlignedOriginalPageState(store, noteId)) {
     throw new Error('local CreatePage requires complete original page identity coverage');
   }
@@ -95,7 +102,9 @@ export async function persistOriginalCreatePages(store: relationalStore.RdbStore
     (requestedPage.background !== undefined && requestedPage.background !== null))) {
     throw new Error('local CreatePage cannot encode a styled or asset-backed page yet');
   }
-  const location: OriginalSequenceIdentity | null = await readTailPosition(store, noteId);
+  const location: OriginalSequenceIdentity | null = afterPageId === null
+    ? await readTailPosition(store, noteId)
+    : await readPageIdentity(store, noteId, afterPageId);
   const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
   const payload: Uint8Array = requestedPage === null
     ? encodeOriginalLocalCreatePage(location, null, null, pageCount)

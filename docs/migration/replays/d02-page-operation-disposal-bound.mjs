@@ -41,8 +41,8 @@ const originGateIndex = add.indexOf(
 assert.ok(originGateIndex > addGuard && originGateIndex < addSelectionIndex,
   'add continuation is rejected if the user switched pages during persistence');
 const addPublishIndex = add.indexOf('this.pages = updated;', addMutationIndex);
-assert.ok(addPublishIndex > 0 && add.indexOf('this.currentPageIndex = updated.length - 1;', addPublishIndex) > 0,
-  'new-page selection uses the published list length');
+assert.ok(addPublishIndex > 0 && add.indexOf('this.currentPageIndex = insertIndex;', addPublishIndex) > 0,
+  'new-page selection lands on the anchor position in the published list');
 
 const remove = section('  private async deleteCurrentPage(', '  private async moveCurrentPage(');
 const flushAwait = remove.indexOf('await historyBridge.flushCurrentPage()');

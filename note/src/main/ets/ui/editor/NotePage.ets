@@ -1654,9 +1654,13 @@ struct NotePage {
     }
     const selectedBefore: string = this.pages[this.currentPageIndex].pageId;
     const orderBefore: string[] = this.pageIds(this.pages);
+    // Original n9j Add Page (zd2 variant 0 -> u5j.i at selectedIndex + 1):
+    // the new page lands immediately after the current one and inherits the
+    // note default background (haj.a emits a null nz9).
+    const insertIndex: number = this.currentPageIndex + 1;
     const page: PageInfo = {
       pageId: this.generateId(),
-      pageIndex: this.pages.length,
+      pageIndex: insertIndex,
       size: this.noteBackground.size,
       template: this.noteBackground.template,
       orientation: this.noteBackground.orientation,
@@ -1664,7 +1668,8 @@ struct NotePage {
       heightMm: this.noteBackground.heightMm,
       background: null,
     };
-    const orderAfter: string[] = orderBefore.concat([page.pageId]);
+    const orderAfter: string[] = orderBefore.slice(0, insertIndex).concat(
+      [page.pageId], orderBefore.slice(insertIndex));
     const action: AddPageAction = {
       type: UndoableActionType.ADD_PAGE,
       noteId: this.noteId,
@@ -1683,7 +1688,8 @@ struct NotePage {
     };
     const history: HistoryMetadata | undefined = this.historyBridge === null
       ? undefined : this.historyBridge.preparePageAction(action);
-    const assignedPage: PageInfo = await this.pageRepo.addPage(this.noteId, page, history);
+    const assignedPage: PageInfo = await this.pageRepo.addPage(
+      this.noteId, page, history, selectedBefore);
     if (this.editorDisposed) {
       return;
     }
@@ -1694,12 +1700,17 @@ struct NotePage {
       page.pageId === assignedPage.pageId);
     action.pageId = assignedPage.pageId;
     action.pageAfter = this.clonePage(assignedPage);
-    action.pageOrderAfter = orderBefore.concat([assignedPage.pageId]);
+    action.pageOrderAfter = orderBefore.slice(0, insertIndex).concat(
+      [assignedPage.pageId], orderBefore.slice(insertIndex));
     action.selectedPageIdAfter = assignedPage.pageId;
     const updated: PageInfo[] = this.pages.slice();
-    updated.push(assignedPage);
+    updated.splice(insertIndex, 0, assignedPage);
+    for (let index: number = insertIndex + 1; index < updated.length; index++) {
+      updated[index] = this.clonePage(updated[index]);
+      updated[index].pageIndex = index;
+    }
     this.pages = updated;
-    this.currentPageIndex = updated.length - 1;
+    this.currentPageIndex = insertIndex;
     if (this.historyBridge !== null) {
       this.historyBridge.pushPageAction(action, history);
     }
@@ -2322,14 +2333,17 @@ struct NotePage {
     if (this.pageRepo === null) {
       return false;
     }
-    // A user-created page is appended empty. Keeping this invariant makes ADD_PAGE history a
-    // single page-mutation transaction; populated page restoration belongs to DELETE_PAGE checkpoints.
+    // A user-created page is appended empty at the recorded position (original
+    // u5j.i inserts after the selected page, not always at the tail). Keeping
+    // the empty-content invariant makes ADD_PAGE history a single
+    // page-mutation transaction; populated page restoration belongs to
+    // DELETE_PAGE checkpoints.
     if (action.pageStrokes.length !== 0 || action.pageTextBlocks.length !== 0 ||
       action.pageShapes.length !== 0 || action.pageImages.length !== 0 ||
       (action.pageMathBlocks ?? []).length !== 0 ||
       action.pageElementOrder.length !== 0 ||
       action.pageOrderAfter.length === 0 ||
-      action.pageOrderAfter[action.pageOrderAfter.length - 1] !== action.pageId) {
+      this.countString(action.pageOrderAfter, action.pageId) !== 1) {
       return false;
     }
     if (isUndo) {

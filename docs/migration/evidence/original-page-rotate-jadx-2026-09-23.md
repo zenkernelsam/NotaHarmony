@@ -14,7 +14,10 @@
 - `n9j.g` → `n9j.c` 参数映射：`c.function5 = g.function8`。
 - `id2.java` → `g.function8 = fd2(de2, pd2, 8)` → `fd2` default 分支
   `xj2.A(de2.M, …, new zd2(de2, cxc, null, 1), 3)`。
-- 即 Rotate Page = `zd2` 协程变体 1（变体 0 为同一分发器上的 duplicate）。
+- 即 Rotate Page = `zd2` 协程变体 1（变体 0 为同一分发器上的 Add Page，
+  经 `fd2` case 3 派发并在选中页后 `u5j.i` 插入，见
+  `original-add-page-anchor-jadx-2026-09-23.md`；本行旧注误记为
+  duplicate——duplicate 实为 `fd2` case 7 → `de2.r`）。
 
 ## zd2.invokeSuspend 变体 1（指令转储）
 

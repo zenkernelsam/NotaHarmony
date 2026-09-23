@@ -53,7 +53,10 @@ export interface NoteRepository {
 
 export interface PageRepository {
   getPages(noteId: string): Promise<PageInfo[]>;
-  addPage(noteId: string, page: PageInfo): Promise<PageInfo>;
+  // Original n9j Add Page (zd2 variant 0 -> u5j.i at selectedIndex + 1):
+  // afterPageId anchors the insert; omit it for the historic tail append.
+  addPage(noteId: string, page: PageInfo, history?: HistoryMetadata,
+    afterPageId?: string): Promise<PageInfo>;
   deletePage(noteId: string, pageId: string): Promise<void>;
   updatePage(page: PageInfo): Promise<void>;
   reorderPages(noteId: string, pageIds: string[], movedPageId?: string): Promise<void>;

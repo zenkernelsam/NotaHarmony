@@ -109,16 +109,17 @@ export class PageRepositoryImpl implements PageRepository {
     }
   }
 
-  async addPage(noteId: string, page: PageInfo, history?: HistoryMetadata): Promise<PageInfo> {
-    return this.addPageInternal(noteId, page, history, true);
+  async addPage(noteId: string, page: PageInfo, history?: HistoryMetadata,
+    afterPageId?: string): Promise<PageInfo> {
+    return this.addPageInternal(noteId, page, history, true, afterPageId);
   }
 
   async addImportedPage(noteId: string, page: PageInfo): Promise<PageInfo> {
-    return this.addPageInternal(noteId, page, undefined, false);
+    return this.addPageInternal(noteId, page, undefined, false, undefined);
   }
 
   private async addPageInternal(noteId: string, page: PageInfo, history: HistoryMetadata | undefined,
-    useOriginalOperation: boolean): Promise<PageInfo> {
+    useOriginalOperation: boolean, afterPageId: string | undefined): Promise<PageInfo> {
     if (noteId.length === 0 || page.pageId.length === 0) {
       throw new Error('addPage failed: note ID and page ID are required');
     }
@@ -131,11 +132,17 @@ export class PageRepositoryImpl implements PageRepository {
         const revision: number = await this.queryStructureRevision(store, noteId);
         const before: PageInfo[] = await this.queryPages(store, noteId);
         if (useOriginalOperation && await hasAlignedOriginalPageState(store, noteId)) {
+          const anchorIndex: number = afterPageId === undefined
+            ? before.length - 1 : this.findPageIndex(before, afterPageId);
+          if (afterPageId !== undefined && anchorIndex < 0) {
+            throw new Error('addPage anchor does not belong to note');
+          }
           const restored: boolean = history !== undefined && history.effect === HistoryEffect.REDO &&
             await originalPageIdentityExists(store, noteId, page.pageId);
           const assignedPage: PageInfo = restored
             ? (await persistOriginalPageVisibility(store, noteId, page.pageId, false)).page
-            : (await persistOriginalCreatePage(store, noteId, null)).page;
+            : (await persistOriginalCreatePage(store, noteId, null,
+              afterPageId === undefined ? null : afterPageId)).page;
           const after: PageInfo[] = await this.queryPages(store, noteId);
           if (history !== undefined) {
             await this.appendStructureHistoryMutation(
@@ -145,11 +152,28 @@ export class PageRepositoryImpl implements PageRepository {
           if (materializedIndex < 0) {
             throw new Error('original CreatePage did not materialize its assigned page');
           }
+          if (!restored && materializedIndex !== anchorIndex + 1) {
+            throw new Error('original CreatePage did not land after its anchor');
+          }
           await store.commit();
           return this.clonePage(after[materializedIndex]);
         }
         const assignedPage: PageInfo = this.clonePage(page);
-        assignedPage.pageIndex = before.length;
+        if (afterPageId !== undefined) {
+          const anchorIndex: number = this.findPageIndex(before, afterPageId);
+          if (anchorIndex < 0) {
+            throw new Error('addPage anchor does not belong to note');
+          }
+          assignedPage.pageIndex = anchorIndex + 1;
+        } else {
+          assignedPage.pageIndex = Math.min(Math.max(assignedPage.pageIndex, 0), before.length);
+        }
+        for (let index: number = before.length - 1; index >= 0; index--) {
+          const existing: PageInfo = before[index];
+          if (existing.pageIndex >= assignedPage.pageIndex) {
+            await this.updatePageIndex(store, noteId, existing.pageId, existing.pageIndex + 1);
+          }
+        }
         const bucket: relationalStore.ValuesBucket = {
           'page_id': assignedPage.pageId,
           'note_id': noteId,

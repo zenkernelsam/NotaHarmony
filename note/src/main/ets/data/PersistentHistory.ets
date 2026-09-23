@@ -400,8 +400,11 @@ function materializePageAction(noteId: string, operation: Op, currentPageId: str
   const afterIds: string[] = mutation.afterPages.map((page: PageInfo): string => page.pageId);
   if (operation.opType === OpType.CREATE_PAGE) {
     const added: PageInfo = findMembershipPage(mutation.afterPages, beforeIds);
-    if (beforeIds.length === 0 || afterIds.length === 0 || afterIds[afterIds.length - 1] !== added.pageId) {
-      throw new Error('persistent ADD_PAGE was not an empty tail-page action');
+    // Original n9j Add Page (u5j.i at selectedIndex + 1) inserts after the
+    // selected page, so the added membership may sit anywhere in the order —
+    // only the single-insert shape and empty content are invariant.
+    if (beforeIds.length === 0 || afterIds.length === 0) {
+      throw new Error('persistent ADD_PAGE was not an empty single-page action');
     }
     const selectedBefore: string = contains(beforeIds, currentPageId)
       ? currentPageId : beforeIds[beforeIds.length - 1];
