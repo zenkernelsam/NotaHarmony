@@ -15,6 +15,7 @@ const evidenceRoot =
 
 const dsc = readFileSync(join(evidenceRoot, 'dsc.java'), 'utf8');
 const ux9 = readFileSync(join(evidenceRoot, 'ux9.java'), 'utf8');
+const dhb = readFileSync(join(evidenceRoot, 'dhb.java'), 'utf8');
 const overlay = readFileSync(
   join(root, 'note/src/main/ets/ui/components/SelectionOverlay.ets'), 'utf8');
 const canvas = readFileSync(
@@ -182,6 +183,19 @@ assert.deepEqual(extreme(['a', 'b', 'c', 'd'], new Set(['b', 'd']), true),
 assert.deepEqual(extreme(['a', 'b', 'c', 'd'], new Set(['b', 'd']), false),
   ['b', 'd', 'a', 'c']);
 total += 2;
+
+// Phase 633 — FIT_TO_PAGE is an upstream stub: ux9 renders the item but
+// dhb's case 15 handler is a bare NotImplementedError. Harmony's omission is
+// parity (strictly better than a crash item), so the menu must NOT grow it.
+const dhbCase15 = dhb.slice(dhb.indexOf('case 15:'), dhb.indexOf('case 15:') + 200);
+ok(dhbCase15.includes('throw new NotImplementedError'),
+  'original dhb case15 (FIT_TO_PAGE) must remain a NotImplementedError stub');
+ok(!overlay.includes('SelectionMenuAction.FIT_TO_PAGE') &&
+   !overlay.includes('fit_to_page'),
+  'Harmony must not expose a FIT_TO_PAGE menu action');
+ok(overlay.includes('NotImplementedError'),
+  'SelectionOverlay comment must cite the upstream stub');
+total += 3;
 
 console.log(`D02_ORIGINAL_SELECTION_MENU_ORDER_OK TOTAL=${total} FAILED=${failed}`);
 if (failed > 0) {

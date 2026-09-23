@@ -146,7 +146,8 @@ export struct SelectionOverlay {
     }
     // Original dsc order: STYLE, COPY, CUT, DUPLICATE, GROUP, UNGROUP,
     // SEND_FORWARD, SEND_BACKWARD, SEND_TO_FRONT, SEND_TO_BACK, DELETE,
-    // [CONVERT_*], EDIT_MATH, CROP, [FIT_TO_PAGE], FLIP_H, FLIP_V,
+    // [CONVERT_*], EDIT_MATH, CROP, [FIT_TO_PAGE*], FLIP_H, FLIP_V,
+    // (*原版 dhb case15 即 throw NotImplementedError——FIT_TO_PAGE 上游即死项)
     // LOCK/UNLOCK, DESELECT.
     // PASTE rides the menu as a registered adaptation (original renders a
     // floating paste chip); it sits with the clipboard cluster.

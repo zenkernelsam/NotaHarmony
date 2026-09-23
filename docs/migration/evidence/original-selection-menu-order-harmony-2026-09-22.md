@@ -53,7 +53,10 @@ Lock/Unlock → Done(Deselect)。
 
 ## 差异登记
 
-- STYLE/CONVERT_TO_MATH/CONVERT_TO_TEXT/FIT_TO_PAGE/MORE：样式面板
-  经工具栏承载、手写识别与整页适配无对应实现——登记。
+- STYLE/CONVERT_TO_MATH/CONVERT_TO_TEXT/MORE：样式面板经工具栏
+  承载、手写识别无对应实现——登记。
+- FIT_TO_PAGE：升级结论——原版 dhb case15 即
+  `throw new NotImplementedError(0)`，上游为死项，省略即 parity
+  （Phase 633 证据 original-fit-to-page-stub-2026-09-28）。
 - Paste 浮动 chip → 菜单项（登记）。
 - DUPLICATE 复用内部剪贴板（原版为专用 op）。
