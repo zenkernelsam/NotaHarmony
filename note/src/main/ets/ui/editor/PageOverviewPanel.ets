@@ -37,7 +37,7 @@ export struct PageOverviewPanel {
   noteId: string = '';
   persistence?: StrokePersistence;
   database?: DatabaseManager;
-  @Prop pages: PageInfo[] = [];
+  @Prop @Watch('onPagesChange') pages: PageInfo[] = [];
   @Prop currentPageIndex: number = 0;
   // 内容修订种子：history push（undo/redo/插入/清空等）与结构变更时
   // 由宿主递增；cell key 携带它即可驱动缩略图重渲染，NOTES 过滤的
@@ -55,7 +55,18 @@ export struct PageOverviewPanel {
   onPageAction: (pageIndex: number, action: string) => void =
     (_pageIndex: number, _action: string): void => {
     };
+  // 原版 tfh 选择工具条 → tc2 dispatch：action 取值
+  // 'copy'|'duplicate'|'delete'|'cut'|'paste'|'bookmark'|'clear'，
+  // pageIds 为当前选中页键集合（au1.T1 排序集等价物，升序页序）。
+  onSelectionAction: (action: string, pageIds: string[]) => void =
+    (_action: string, _pageIds: string[]): void => {
+    };
   @State private filter: number = FILTER_ALL;
+  // 原版 qd2.isSelecting/selectedPageIds：cell 菜单 "Select"（s8 case1 →
+  // fd2 case0）把页键并入选中集；选中集非空即进入选择态并展示 tfh
+  // 工具条。
+  @State private selecting: boolean = false;
+  @State private selectedPageIds: string[] = [];
   @State private nonEmptyPageIds: Set<string> = new Set<string>();
   @State private renderReady: boolean = false;
   // 原版 qd2.isSearchActive/searchQuery/searchMatchingPageKeys：
@@ -88,6 +99,88 @@ export struct PageOverviewPanel {
 
   private onRevisionChange(): void {
     this.loadElementCounts();
+  }
+
+  // 原版 fd2 case0：toggle 页键进出 qd2.selectedPageIds。Harmony：
+  // 并入首个页键时同步进入选择态（原版 isSelecting 与选中集为独立
+  // 信号，选中集非空即渲染 tfh 工具条）。
+  private toggleSelectPage(pageId: string): void {
+    const index: number = this.selectedPageIds.indexOf(pageId);
+    const next: string[] = this.selectedPageIds.slice();
+    if (index >= 0) {
+      next.splice(index, 1);
+    } else {
+      next.push(pageId);
+    }
+    this.selectedPageIds = next;
+    if (next.length > 0) {
+      this.selecting = true;
+    }
+  }
+
+  // 原版 de2.u()：isSelecting=false + selectedPageIds=空 +
+  // isSearchActive=false（掩码 463 一次复位三字段）。
+  private exitSelection(): void {
+    this.selecting = false;
+    this.selectedPageIds = [];
+    this.searchActive = false;
+    this.searchGeneration++;
+    this.matchingPageIds = new Set<string>();
+  }
+
+  // 原版 n9j function9 case2：selectedPageIds = qd2.c() 过滤后全集。
+  private selectAllVisible(): void {
+    const ids: string[] = [];
+    for (const item of this.visibleItems()) {
+      ids.push(item.page.pageId);
+    }
+    this.selectedPageIds = ids;
+    if (ids.length > 0) {
+      this.selecting = true;
+    }
+  }
+
+  // 页列表变化（批删/批插）后裁剪选中集——原版 qd2.f 与 pages 同源
+  // 更新，Harmony 在 Prop 变更时同步剔除已消失页键。
+  private onPagesChange(): void {
+    const alive: Set<string> = new Set<string>();
+    for (const page of this.pages) {
+      alive.add(page.pageId);
+    }
+    const kept: string[] = this.selectedPageIds.filter(
+      (id: string): boolean => alive.has(id));
+    if (kept.length !== this.selectedPageIds.length) {
+      this.selectedPageIds = kept;
+    }
+  }
+
+  private allVisibleSelected(): boolean {
+    const items: PageCellItem[] = this.visibleItems();
+    if (items.length === 0) {
+      return false;
+    }
+    for (const item of items) {
+      if (this.selectedPageIds.indexOf(item.page.pageId) < 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private dispatchSelection(action: string): void {
+    // tc2 dispatch 参数：au1.T1(selectedPageIds) → 升序页序排列。
+    const ordered: string[] = this.pages
+      .filter((page: PageInfo): boolean => this.selectedPageIds.indexOf(page.pageId) >= 0)
+      .map((page: PageInfo): string => page.pageId);
+    if (ordered.length === 0) {
+      return;
+    }
+    this.onSelectionAction(action, ordered);
+    // 原版退出语义：Copy(case0)/Delete(case2)/Cut(case3) 之后 u()；
+    // Duplicate/Bookmark/Clear/Paste 保持选择态。
+    if (action === 'copy' || action === 'delete' || action === 'cut') {
+      this.exitSelection();
+    }
   }
 
   // 原版 de2.s(query) → xd9.d 流产出命中页集合（sl case9 写回
@@ -253,6 +346,54 @@ export struct PageOverviewPanel {
       .width('100%')
       .padding({ left: 16, right: 12, top: 12, bottom: 8 })
 
+      if (this.selecting) {
+        // 原版 tfh 选择工具条：select/deselect-all + 批量页操作
+        // （copy/duplicate/delete 图标位 + cut/paste/bookmark/clear
+        // 溢出项）。Clear 对多页选集 fail-closed（ADR-0615），仅当选中
+        // 集恰为当前页时可经画布信号执行。
+        Scroll() {
+          Row() {
+            this.SelectionActionChip(
+              this.allVisibleSelected() ?
+                $r('app.string.pages_deselect_all') :
+                $r('app.string.pages_select_all'),
+              (): void => {
+                // n9j case2/case3：Select all 装载过滤全集；Deselect all
+                // 清空选中集并经 de2.u() 退出选择态。
+                if (this.allVisibleSelected()) {
+                  this.exitSelection();
+                } else {
+                  this.selectAllVisible();
+                }
+              }, true)
+            this.SelectionActionChip($r('app.string.copy_page'),
+              (): void => this.dispatchSelection('copy'), this.selectedPageIds.length > 0)
+            this.SelectionActionChip($r('app.string.duplicate_page'),
+              (): void => this.dispatchSelection('duplicate'), this.selectedPageIds.length > 0)
+            this.SelectionActionChip($r('app.string.delete_page'),
+              (): void => this.dispatchSelection('delete'), this.selectedPageIds.length > 0)
+            this.SelectionActionChip($r('app.string.cut_page'),
+              (): void => this.dispatchSelection('cut'), this.selectedPageIds.length > 0)
+            if (this.canPastePages) {
+              this.SelectionActionChip($r('app.string.paste_page'),
+                (): void => this.dispatchSelection('paste'), this.selectedPageIds.length > 0)
+            }
+            this.SelectionActionChip($r('app.string.bookmark_page'),
+              (): void => this.dispatchSelection('bookmark'), this.selectedPageIds.length > 0)
+            this.SelectionActionChip($r('app.string.clear_page'),
+              (): void => this.dispatchSelection('clear'),
+              this.selectedPageIds.length === 1 &&
+                this.selectedPageIds[0] === this.pages[this.currentPageIndex]?.pageId)
+            this.SelectionActionChip($r('app.string.pages_done'),
+              (): void => this.exitSelection(), true)
+          }
+        }
+        .scrollable(ScrollDirection.Horizontal)
+        .scrollBar(BarState.Off)
+        .width('100%')
+        .padding({ left: 16, right: 12, bottom: 8 })
+      }
+
       if (this.searchActive) {
         // 原版 de2.s(query)：输入即写入 qd2.searchQuery 并触发命中
         // 集合重算（generation 防乱序）。
@@ -288,13 +429,26 @@ export struct PageOverviewPanel {
                 cellKey: item.cellKey,
                 selected: item.index === this.currentPageIndex,
                 canPaste: this.canPastePages,
+                selecting: this.selecting,
+                checked: this.selectedPageIds.indexOf(item.page.pageId) >= 0,
                 onRequest: (page: PageInfo): Promise<PixelMap | null> =>
                   this.requestThumbnail(page),
                 onTap: (pageIndex: number): void => {
-                  this.onJumpToPage(pageIndex);
+                  // 原版 id2 cell：选择态下 tap 走 fd2 case0 切换选中
+                  // 成员；非选择态才是跳页（gd2/hd2）。
+                  if (this.selecting) {
+                    this.toggleSelectPage(item.page.pageId);
+                  } else {
+                    this.onJumpToPage(pageIndex);
+                  }
                 },
                 onMenuAction: (pageIndex: number, action: string): void => {
                   this.onPageAction(pageIndex, action);
+                },
+                onToggleSelect: (pageIndex: number): void => {
+                  if (pageIndex >= 0 && pageIndex < this.pages.length) {
+                    this.toggleSelectPage(this.pages[pageIndex].pageId);
+                  }
                 },
               })
             }
@@ -310,6 +464,24 @@ export struct PageOverviewPanel {
     .width('100%')
     .height('100%')
     .backgroundColor(this.resolveTokens().surface)
+  }
+
+  @Builder
+  SelectionActionChip(label: ResourceStr, onTap: () => void, enabled: boolean) {
+    Text(label)
+      .fontSize(12)
+      .fontColor(enabled ?
+        this.resolveTokens().accent : this.resolveTokens().textSecondary)
+      .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+      .backgroundColor(this.resolveTokens().control)
+      .borderRadius(8)
+      .margin({ right: 8 })
+      .opacity(enabled ? 1 : 0.45)
+      .onClick(() => {
+        if (enabled) {
+          onTap();
+        }
+      })
   }
 
   @Builder
@@ -337,6 +509,10 @@ struct PageOverviewCell {
   @Prop @Watch('onCellKeyChange') cellKey: string = '';
   @Prop selected: boolean = false;
   @Prop canPaste: boolean = false;
+  // 原版 qd2.isSelecting/f.contains(key)：选择态下 cell 渲染勾选
+  // 指示，tap 语义切换为 fd2 case0（成员切换）。
+  @Prop selecting: boolean = false;
+  @Prop checked: boolean = false;
   onRequest: (page: PageInfo) => Promise<PixelMap | null> =
     (_page: PageInfo): Promise<PixelMap | null> => Promise.resolve(null);
   onTap: (pageIndex: number) => void = (_pageIndex: number): void => {
@@ -344,6 +520,9 @@ struct PageOverviewCell {
   onMenuAction: (pageIndex: number, action: string) => void =
     (_pageIndex: number, _action: string): void => {
     };
+  // s8 case1 → fd2 case0：cell 溢出菜单 "Select" 项。
+  onToggleSelect: (pageIndex: number) => void = (_pageIndex: number): void => {
+  };
   @State private pixelMap: PixelMap | null = null;
   @State private loadingFailed: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -421,6 +600,21 @@ struct PageOverviewCell {
             .position({ x: '82%', y: 4 })
             .accessibilityText($r('app.string.bookmark_page'))
         }
+        if (this.selecting) {
+          // 选择态勾选指示：选中=实心 ✓，未选中=空心圈。
+          Text(this.checked ? '✓' : '')
+            .fontSize(12)
+            .fontColor(Color.White)
+            .textAlign(TextAlign.Center)
+            .width(20)
+            .height(20)
+            .borderRadius(10)
+            .backgroundColor(this.checked ?
+              this.resolveTokens().accent : '#66000000')
+            .border({ width: 1, color: Color.White, radius: 10 })
+            .position({ x: 4, y: 4 })
+            .accessibilityText($r('app.string.pages_menu_select'))
+        }
       }
       .width('100%')
       .borderRadius(6)
@@ -478,6 +672,9 @@ struct PageOverviewCell {
       // fd2 case2 → de2.q → ae2 v4：Delete Pages。
       MenuItem({ content: $r('app.string.delete_page') })
         .onClick(() => this.onMenuAction(this.pageIndex, 'delete'))
+      // s8 case1 → fd2 case0：把该页键并入/移出选中集（进入选择态）。
+      MenuItem({ content: $r('app.string.pages_menu_select') })
+        .onClick(() => this.onToggleSelect(this.pageIndex))
     }
   }
 }

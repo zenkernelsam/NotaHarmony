@@ -117,7 +117,7 @@ check(pageClipboard.includes('export function storeCopiedPage') &&
   pageClipboard.includes('export function hasCopiedPage') &&
   pageClipboard.includes('export function clearCopiedPage'),
   'page clipboard exposes store/read/has/clear accessors');
-check(pageClipboard.includes('let copiedPage: CopiedPagePayload | null = null'),
+check(pageClipboard.includes('let copiedPages: CopiedPagePayload[] = []'),
   'page clipboard is an in-memory process-scoped record');
 
 // --- Harmony：桥接层 ---

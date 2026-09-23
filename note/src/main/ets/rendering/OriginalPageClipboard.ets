@@ -21,20 +21,31 @@ export interface CopiedPagePayload {
   plan: PageCopyPlan;
 }
 
-let copiedPage: CopiedPagePayload | null = null;
+// 原版 dg2 = CopiedPagesData(ops: ArrayList, pageCount)：页剪贴板本就是
+// 多页记录（批量 Copy/Cut 一次写入全部选中页）。Harmony 对齐为有序
+// payload 列表；单页路径等价于长度为 1 的列表。
+let copiedPages: CopiedPagePayload[] = [];
 
 export function storeCopiedPage(payload: CopiedPagePayload): void {
-  copiedPage = payload;
+  copiedPages = [payload];
+}
+
+export function storeCopiedPages(payloads: CopiedPagePayload[]): void {
+  copiedPages = payloads.slice();
 }
 
 export function copiedPagePayload(): CopiedPagePayload | null {
-  return copiedPage;
+  return copiedPages.length === 0 ? null : copiedPages[0];
+}
+
+export function copiedPagePayloads(): CopiedPagePayload[] {
+  return copiedPages;
 }
 
 export function hasCopiedPage(): boolean {
-  return copiedPage !== null;
+  return copiedPages.length > 0;
 }
 
 export function clearCopiedPage(): void {
-  copiedPage = null;
+  copiedPages = [];
 }

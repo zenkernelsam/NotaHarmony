@@ -19,7 +19,8 @@ import {
 } from '../../core/model/PageBackgroundModel';
 import { HistoryMetadata, NoteMetadataHistoryState } from '../../core/model/OpTypes';
 import {
-  CopiedPagePayload, copiedPagePayload, storeCopiedPage,
+  CopiedPagePayload, copiedPagePayload, copiedPagePayloads, storeCopiedPage,
+  storeCopiedPages,
 } from '../../rendering/OriginalPageClipboard';
 import {
   ClipboardOriginalGroupGraph, originalGroupGraphForPageCopy,
@@ -1801,6 +1802,11 @@ struct NotePage {
       onPageAction: (pageIndex: number, action: string): void => {
         this.dispatchPageContextAction(pageIndex, action);
       },
+      // 原版 tfh 选择工具条 → tc2 dispatch：批量页操作按选中页键集合
+      // 分发（de2.m~r 批参数变体）。
+      onSelectionAction: (action: string, pageIds: string[]): void => {
+        this.dispatchPageSelectionAction(action, pageIds);
+      },
       onRequestClose: (): void => {
         this.showPageOverview = false;
       },
@@ -1846,6 +1852,97 @@ struct NotePage {
         case 'delete':
           await this.deletePageAt(pageIndex);
           break;
+        default:
+          break;
+      }
+    });
+  }
+
+  // 原版 n9j tc2 选择工具条 dispatch（au1.T1(selectedPageIds)）：
+  // Copy(0,+exit)/Duplicate(1)/Delete(2,+exit)/Cut(3,+exit)/Paste(4)/
+  // Bookmark(5)/Clear(6)。Harmony 批操作逐页复用参数化页操作；变更
+  // 页序的批操作（cut/delete/duplicate）按降序索引执行，避免位移
+  // 击穿尚未处理的选中项。退出语义由面板按原版决定。
+  private dispatchPageSelectionAction(action: string, pageIds: string[]): void {
+    if (pageIds.length === 0) {
+      return;
+    }
+    if (action === 'clear') {
+      // ae2 v1 Clear：画布清空管线仅绑定当前页——仅当选中集恰为
+      // 当前页时可执行，其余 fail-closed（多页清空登记 ADR-0615）。
+      if (pageIds.length === 1 && this.pages.length > 0 &&
+        this.pages[this.currentPageIndex].pageId === pageIds[0] &&
+        !this.pageOperationBusy && !this.historyPending &&
+        !this.pageStructureLeaseActive) {
+        this.clearPageSignal++;
+      }
+      return;
+    }
+    this.runPageOperation(async (): Promise<void> => {
+      // 页序快照在操作前取定：索引按当前 this.pages 动态重解析。
+      const indicesOf = (): number[] => {
+        const indices: number[] = [];
+        for (const id of pageIds) {
+          const index: number = this.pages.findIndex(
+            (page: PageInfo): boolean => page.pageId === id);
+          if (index >= 0) {
+            indices.push(index);
+          }
+        }
+        return indices;
+      };
+      switch (action) {
+        case 'copy': {
+          // de2.o 批量：dg2 剪贴板按选中序（升序页序）装载全部页。
+          const payloads: CopiedPagePayload[] = [];
+          for (const index of indicesOf()) {
+            payloads.push(await this.capturePageCopyPayload(index));
+          }
+          if (payloads.length > 0) {
+            storeCopiedPages(payloads);
+            if (!this.editorDisposed) {
+              this.pageClipboardVersion++;
+            }
+          }
+          break;
+        }
+        case 'cut': {
+          const payloads: CopiedPagePayload[] = [];
+          for (const index of indicesOf()) {
+            payloads.push(await this.capturePageCopyPayload(index));
+          }
+          if (payloads.length > 0) {
+            storeCopiedPages(payloads);
+            if (!this.editorDisposed) {
+              this.pageClipboardVersion++;
+            }
+          }
+          for (const index of indicesOf().reverse()) {
+            await this.deletePageAt(index);
+          }
+          break;
+        }
+        case 'delete':
+          for (const index of indicesOf().reverse()) {
+            await this.deletePageAt(index);
+          }
+          break;
+        case 'duplicate':
+          for (const index of indicesOf().reverse()) {
+            await this.duplicatePageAt(index);
+          }
+          break;
+        case 'bookmark':
+          for (const index of indicesOf()) {
+            await this.togglePageBookmarkAt(index);
+          }
+          break;
+        case 'paste': {
+          // e2 v16 批粘贴锚点：选中集末页之后。
+          const indices: number[] = indicesOf();
+          await this.pasteCopiedPageAt(indices[indices.length - 1]);
+          break;
+        }
         default:
           break;
       }
@@ -2178,11 +2275,19 @@ struct NotePage {
   }
 
   private async toggleCurrentPageBookmark(): Promise<void> {
-    if (this.pageRepo === null || this.pages.length === 0) {
+    await this.togglePageBookmarkAt(this.currentPageIndex);
+  }
+
+  // 原版 de2.m（ae2 v0 Bookmark）按页键作用于任意页——多选批处理
+  // 与 cell 菜单共用同一写路径；非当前页不导航（qd2.currentPageIndex
+  // 不动）。
+  private async togglePageBookmarkAt(pageIndex: number): Promise<void> {
+    if (this.pageRepo === null || this.pages.length === 0 ||
+      pageIndex < 0 || pageIndex >= this.pages.length) {
       return;
     }
-    const selectedPageId: string = this.pages[this.currentPageIndex].pageId;
-    const current: PageInfo = this.pages[this.currentPageIndex];
+    const selectedPageId: string = this.pages[pageIndex].pageId;
+    const current: PageInfo = this.pages[pageIndex];
     const next: boolean = current.bookmarked !== true;
     const action: PageBookmarkAction = {
       type: UndoableActionType.PAGE_BOOKMARK,
@@ -2349,9 +2454,19 @@ struct NotePage {
   // fd2 case5 → de2.o（Copy）：源页按页键给出；非当前页经
   // persistedPageCopyPlan（持久层快照 + 组子图）构造拷贝计划。
   private async copyPageAt(pageIndex: number): Promise<void> {
+    const payload: CopiedPagePayload = await this.capturePageCopyPayload(pageIndex);
+    storeCopiedPage(payload);
+    if (!this.editorDisposed) {
+      this.pageClipboardVersion++;
+    }
+  }
+
+  // de2.o（ae2 v2）拷贝负载构造：当前页走画布 capture，非当前页经
+  // persistedPageCopyPlan 从持久层重建；批量 Copy 复用同一构造。
+  private async capturePageCopyPayload(pageIndex: number): Promise<CopiedPagePayload> {
     if (this.pages.length === 0 || this.historyBridge === null ||
       pageIndex < 0 || pageIndex >= this.pages.length) {
-      return;
+      throw new Error('copyPage target is out of range');
     }
     const historyBridge: EditorHistoryBridge = this.historyBridge;
     if (!await historyBridge.flushCurrentPage()) {
@@ -2361,17 +2476,13 @@ struct NotePage {
     const plan: PageCopyPlan = pageIndex === this.currentPageIndex ?
       historyBridge.captureCurrentPageCopyPlan() :
       await this.persistedPageCopyPlan(source.pageId);
-    const payload: CopiedPagePayload = {
+    return {
       noteId: this.noteId,
       sourcePageId: source.pageId,
       background: duplicatedOriginalPageBackground(source),
       bookmarked: source.bookmarked === true,
       plan: plan,
     };
-    storeCopiedPage(payload);
-    if (!this.editorDisposed) {
-      this.pageClipboardVersion++;
-    }
   }
 
   // Original n9j Cut (ae2 case 3): copy into the page clipboard, then apply the
@@ -2401,12 +2512,26 @@ struct NotePage {
     await this.pasteCopiedPageAt(this.currentPageIndex);
   }
 
-  // fd2 case6 → e2 v16（Paste）：锚定页由菜单目标给出。
+  // fd2 case6 → e2 v16（Paste）：锚定页由菜单目标给出。原版 dg2
+  // 剪贴板是有序多页记录——逐条 payload 顺次插在运行锚点之后，
+  // 保持剪贴板内页序（选中序）。
   private async pasteCopiedPageAt(pageIndex: number): Promise<void> {
-    const payload: CopiedPagePayload | null = copiedPagePayload();
+    const payloads: CopiedPagePayload[] = copiedPagePayloads();
     if (this.pageRepo === null || this.pages.length === 0 || this.historyBridge === null ||
-      payload === null || pageIndex < 0 || pageIndex >= this.pages.length) {
+      payloads.length === 0 || pageIndex < 0 || pageIndex >= this.pages.length) {
       return;
+    }
+    let anchorIndex: number = pageIndex;
+    for (const payload of payloads) {
+      anchorIndex = await this.pasteOneCopiedPage(anchorIndex, payload);
+    }
+  }
+
+  private async pasteOneCopiedPage(pageIndex: number,
+    payload: CopiedPagePayload): Promise<number> {
+    if (this.pageRepo === null || this.historyBridge === null ||
+      pageIndex < 0 || pageIndex >= this.pages.length) {
+      return pageIndex;
     }
     const historyBridge: EditorHistoryBridge = this.historyBridge;
     if (!await historyBridge.flushCurrentPage()) {
@@ -2438,11 +2563,11 @@ struct NotePage {
       }
     }
     if (this.editorDisposed) {
-      return;
+      return anchorIndex;
     }
     this.pages = await this.pageRepo.getPages(this.noteId);
     if (this.editorDisposed) {
-      return;
+      return anchorIndex;
     }
     if (this.pages.length !== action.pageOrderAfter.length ||
       !this.sameStringArray(this.pageIds(this.pages), action.pageOrderAfter)) {
@@ -2453,6 +2578,7 @@ struct NotePage {
     if (contentError !== null) {
       throw new Error(`paste page content write failed: ${JSON.stringify(contentError)}`);
     }
+    return anchorIndex + 1;
   }
 
   private async applyPageHistory(action: UndoableAction, isUndo: boolean,
