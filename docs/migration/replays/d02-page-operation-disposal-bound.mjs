@@ -30,19 +30,20 @@ const addAwait = add.indexOf('await this.pageRepo.addPage(');
 const addGuard = add.indexOf(guard, addAwait);
 assert.ok(addAwait !== -1 && addGuard > addAwait &&
   addGuard < add.indexOf('action.pageId = assignedPage.pageId;', addAwait));
-const addSelectionIndex = add.indexOf('this.currentPageIndex = this.pages.findIndex(', addGuard);
+const addSelectionIndex = add.indexOf('this.selectPageById(selectedBefore);', addGuard);
 const addMutationIndex = add.indexOf('action.pageId = assignedPage.pageId;', addGuard);
-assert.ok(addSelectionIndex > addGuard && addSelectionIndex < addMutationIndex,
-  'accepted add selects the assigned page before publishing history action');
 const originGateIndex = add.indexOf(
   "if (this.pages[this.currentPageIndex]?.pageId !== selectedBefore) {",
   addGuard,
 );
-assert.ok(originGateIndex > addGuard && originGateIndex < addSelectionIndex,
-  'add continuation is rejected if the user switched pages during persistence');
+assert.ok(originGateIndex > addGuard && originGateIndex < addMutationIndex &&
+  addMutationIndex < addSelectionIndex,
+  'add rejects a switched current page, then mutates the action and ' +
+  're-anchors the viewed page (no navigation — Phase 650)');
 const addPublishIndex = add.indexOf('this.pages = updated;', addMutationIndex);
-assert.ok(addPublishIndex > 0 && add.indexOf('this.currentPageIndex = insertIndex;', addPublishIndex) > 0,
-  'new-page selection lands on the anchor position in the published list');
+assert.ok(addPublishIndex > 0 && add.indexOf('this.selectPageById(selectedBefore);', addPublishIndex) > 0,
+  'add publishes the page list then re-anchors selection on the viewed page ' +
+  '(no qd2.currentPageIndex write upstream — Phase 650)');
 
 const remove = section('  private async deleteCurrentPage(', '  private async moveCurrentPage(');
 const flushAwait = remove.indexOf('await historyBridge.flushCurrentPage()');

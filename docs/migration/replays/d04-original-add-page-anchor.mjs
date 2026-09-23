@@ -102,8 +102,10 @@ check(notePage.includes('this.noteId, page, history, anchorPageId'),
   'live add passes the anchor page as the insertion anchor');
 check(notePage.includes('updated.splice(insertIndex, 0, assignedPage)'),
   'in-memory page list splices the added page at the anchor position');
-check(notePage.includes('this.currentPageIndex = insertIndex'),
-  'selection moves to the newly added page');
+check(notePage.includes('action.selectedPageIdAfter = selectedBefore') &&
+  notePage.match(/this\.pages = updated;\s*\n\s*this\.selectPageById\(selectedBefore\);/) !== null,
+  'panel add keeps the viewed page — original zd2/ae2 paths write no ' +
+  'qd2.currentPageIndex (Phase 650)');
 check(!notePage.includes('action.pageOrderAfter[action.pageOrderAfter.length - 1] !== action.pageId'),
   'applyAddPageHistory no longer requires the tail position');
 check(notePage.includes('this.countString(action.pageOrderAfter, action.pageId) !== 1'),

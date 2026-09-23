@@ -228,8 +228,10 @@ check(notePage.includes('await this.pageRepo.duplicatePage(\n      this.noteId, 
   'duplicate calls the repository with history metadata');
 check(notePage.includes('historyBridge.commitDuplicatePageContent(duplicated.pageId, snapshot, history)'),
   'duplicate commits the copied content onto the new page');
-check(notePage.includes('this.selectPageById(duplicated.pageId)'),
-  'duplicate selects the new copy');
+check(notePage.includes('this.selectPageById(selectedBefore);') &&
+  !notePage.includes('this.selectPageById(duplicated.pageId)'),
+  'duplicate keeps the viewed page — ae2 v5 writes no qd2.currentPageIndex ' +
+  '(Phase 650)');
 check(notePage.includes('private async applyDuplicatePageHistory'),
   'applyDuplicatePageHistory exists');
 check(notePage.includes('await this.pageRepo.deletePage(this.noteId, action.pageId, history)'),

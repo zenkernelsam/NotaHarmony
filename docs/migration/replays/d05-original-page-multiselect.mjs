@@ -135,7 +135,9 @@ check(notePage.includes('capturePageCopyPayload(pageIndex)') &&
   notePage.includes('storeCopiedPages(payloads)'),
   'batch copy fills the clipboard with one payload per selected page');
 check(notePage.includes('for (const index of indicesOf().reverse())'),
-  'order-mutating batch ops iterate descending indices');
+  'order-mutating batch ops (cut/delete) iterate descending indices');
+check(notePage.match(/case 'duplicate':[\s\S]*?indices\[indices\.length - 1\][\s\S]*?pasteOneCopiedPage\(anchorIndex, payload\)/) !== null,
+  'batch duplicate groups copies after the last selected page (de2.j anchor, Phase 650)');
 check(notePage.includes('await this.togglePageBookmarkAt(index)') &&
   notePage.includes('private async togglePageBookmarkAt(pageIndex: number)'),
   'batch bookmark rides the parameterized PAGE_BOOKMARK path');

@@ -1911,11 +1911,21 @@ struct NotePage {
             await this.deletePageAt(index);
           }
           break;
-        case 'duplicate':
-          for (const index of indicesOf().reverse()) {
-            await this.duplicatePageAt(index);
+        case 'duplicate': {
+          // ae2 v5 + de2.j：副本统一插在「页序上最后一张选中页」之后，
+          // 升序遍历保持源页序（u5j.e 按选中序产出拷贝 op）。锚点 ≥
+          // 所有源索引 → 插入不位移尚未捕获的源页。
+          const indices: number[] = indicesOf();
+          if (indices.length > 0) {
+            let anchorIndex: number = indices[indices.length - 1];
+            for (const index of indices) {
+              const payload: CopiedPagePayload =
+                await this.capturePageCopyPayload(index);
+              anchorIndex = await this.pasteOneCopiedPage(anchorIndex, payload);
+            }
           }
           break;
+        }
         case 'bookmark':
           for (const index of indicesOf()) {
             await this.togglePageBookmarkAt(index);
@@ -2066,13 +2076,14 @@ struct NotePage {
     if (this.pages[this.currentPageIndex]?.pageId !== selectedBefore) {
       return;
     }
-    this.currentPageIndex = this.pages.findIndex((page: PageInfo): boolean =>
-      page.pageId === assignedPage.pageId);
     action.pageId = assignedPage.pageId;
     action.pageAfter = this.clonePage(assignedPage);
     action.pageOrderAfter = orderBefore.slice(0, insertIndex).concat(
       [assignedPage.pageId], orderBefore.slice(insertIndex));
-    action.selectedPageIdAfter = assignedPage.pageId;
+    // 原版面板加页不写 qd2.currentPageIndex（zd2 仅 cell 菜单可达，
+    // ae2/e2 全部批路径均无 qd2 写）——插入后仍按页键锚定原查看页，
+    // 不跳转到新页；redo 也因此回到 selectedPageIdBefore。
+    action.selectedPageIdAfter = selectedBefore;
     const updated: PageInfo[] = this.pages.slice();
     updated.splice(insertIndex, 0, assignedPage);
     for (let index: number = insertIndex + 1; index < updated.length; index++) {
@@ -2080,7 +2091,7 @@ struct NotePage {
       updated[index].pageIndex = index;
     }
     this.pages = updated;
-    this.currentPageIndex = insertIndex;
+    this.selectPageById(selectedBefore);
     if (this.historyBridge !== null) {
       this.historyBridge.pushPageAction(action, history);
     }
@@ -2421,6 +2432,7 @@ struct NotePage {
     }
     const sourceIndex: number = pageIndex;
     const sourcePageId: string = this.pages[sourceIndex].pageId;
+    const selectedBefore: string = this.pages[this.currentPageIndex].pageId;
     const orderBefore: string[] = this.pageIds(this.pages);
     const snapshot: PageContentSnapshot = pageIndex === this.currentPageIndex ?
       historyBridge.captureCurrentPage() : await this.persistedPageSnapshot(sourcePageId);
@@ -2457,7 +2469,9 @@ struct NotePage {
       !this.sameStringArray(this.pageIds(this.pages), action.pageOrderAfter)) {
       throw new Error('duplicate page materialized an unexpected page order');
     }
-    this.selectPageById(duplicated.pageId);
+    // 原版 ae2 v5（duplicate）不写 qd2.currentPageIndex：查看页保持
+    // 不变，不跳转到副本。
+    this.selectPageById(selectedBefore);
     this.historyBridge.pushPageAction(action, history);
     if (contentError !== null) {
       throw new Error(`duplicate page content write failed: ${JSON.stringify(contentError)}`);
@@ -2553,10 +2567,14 @@ struct NotePage {
       payloads.length === 0 || pageIndex < 0 || pageIndex >= this.pages.length) {
       return;
     }
+    // 原版 e2 v16 不写 qd2.currentPageIndex：批粘贴后查看页保持
+    // 不变（按页键锚定），不跳转到最后一张副本。
+    const selectedBefore: string = this.pages[this.currentPageIndex].pageId;
     let anchorIndex: number = pageIndex;
     for (const payload of payloads) {
       anchorIndex = await this.pasteOneCopiedPage(anchorIndex, payload);
     }
+    this.selectPageById(selectedBefore);
   }
 
   private async pasteOneCopiedPage(pageIndex: number,
@@ -2605,7 +2623,6 @@ struct NotePage {
       !this.sameStringArray(this.pageIds(this.pages), action.pageOrderAfter)) {
       throw new Error('pasted page materialized an unexpected page order');
     }
-    this.selectPageById(pasted.pageId);
     this.historyBridge.pushPageAction(action, history);
     if (contentError !== null) {
       throw new Error(`paste page content write failed: ${JSON.stringify(contentError)}`);

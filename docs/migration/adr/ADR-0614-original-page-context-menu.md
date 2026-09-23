@@ -38,9 +38,9 @@ Clear Page、Delete；点击经 `fd2` 按页键分发到 `de2`/`zd2`/`e2`
 | 原版 | Harmony | 处置 |
 |---|---|---|
 | cell ⋯ 下拉菜单（`apb.d`） | 长按 `bindContextMenu` | ArkUI 形态差异，项序等价 |
-| Clear Page 对任意页可用 | 仅当前页（画布信号管线） | 非当前页清空需独立 op/撤销通道，登记后续 |
-| fd2 case0 缩略图多选 | 未实现 | 沿用 ADR-0612 多选登记 |
-| 面板内 Add/Duplicate/Paste 不动 currentPageIndex | Harmony 沿用既有语义导航到新建页 | 登记差异 |
+| Clear Page 对任意页可用 | ~~仅当前页~~ 任意页（持久层清空，Phase 649） | 已由 ADR-0616 关闭 |
+| fd2 case0 缩略图多选 | ~~未实现~~ 已实现（Phase 648） | 已由 ADR-0615 关闭 |
+| 面板内 Add/Duplicate/Paste 不动 currentPageIndex | ~~导航到新建页~~ 按页键锚定查看页（Phase 650） | 已由 ADR-0617 关闭 |
 | fd2 的 zd2 v0/v1 映射 | 由既有注释锚定（v0=Add/u5j.i，v1=Rotate） | `zd2.invokeSuspend` 未反编译，映射依据已有注释与菜单序交叉确认 |
 
 ## 验证
