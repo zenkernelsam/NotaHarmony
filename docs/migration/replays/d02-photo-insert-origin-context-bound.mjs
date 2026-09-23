@@ -8,7 +8,9 @@ assert.match(page, /interface OriginalPhotoInsertOrigin \{\s+generation: number;
 
 const originStart = page.indexOf('  private getOriginalPhotoInsertOrigin(');
 const insertStart = page.indexOf('  private async startOriginalPhotoInsert(): Promise<void> {');
+const dropStart = page.indexOf('  private onOriginalImageDrop(event: DragEvent): void {');
 const pasteStart = page.indexOf('  private async startOriginalClipboardImagePaste(): Promise<void> {');
+assert.ok(dropStart !== -1 && dropStart > insertStart && dropStart < pasteStart);
 assert.ok(originStart !== -1 && originStart < insertStart && insertStart < pasteStart);
 
 const origin = page.slice(originStart, insertStart);
@@ -24,7 +26,7 @@ for (const capture of [
   assert.ok(origin.includes(capture), capture);
 }
 
-const photo = page.slice(insertStart, pasteStart);
+const photo = page.slice(insertStart, dropStart);
 const busyIndex = photo.indexOf('this.photoImportBusy = true;');
 const pickerIndex = photo.indexOf('await pickAndImportOriginalPhotos(');
 const originIndex = photo.indexOf('origin = this.getOriginalPhotoInsertOrigin();');
@@ -35,7 +37,7 @@ assert.equal([...photo.matchAll(/this\.isPhotoContextCurrent\(origin\.generation
 assert.ok(!photo.includes('photoGeneration'));
 assert.ok(!photo.includes('photoPageId'));
 
-const pasteEnd = photo.indexOf('  private canUseOriginalClipboardImage(): boolean {', pasteStart);
+const pasteEnd = page.indexOf('  private canUseOriginalClipboardImage(): boolean {', pasteStart);
 const paste = page.slice(pasteStart, Math.max(pasteEnd, pasteStart + 4200));
 assert.match(paste, /const pasteOrigin: OriginalPhotoInsertOrigin = this\.getOriginalPhotoInsertOrigin\(\s+this\.clipboardPasteTarget === null \? undefined : \{\s+x: this\.clipboardPasteTarget\.x,\s+y: this\.clipboardPasteTarget\.y,\s+\}\);/);
 const pasteBusyIndex = paste.indexOf('this.photoImportBusy = true;');

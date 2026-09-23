@@ -117,43 +117,48 @@ export async function importOriginalClipboardImage():
     throw new Error('system pasteboard has no original clipboard image');
   }
   try {
-    const info: image.ImageInfo = await source.pixelMap.getImageInfo();
-    if (!validDimensions(info.size.width, info.size.height)) {
-      throw new Error('original clipboard image dimensions are invalid');
-    }
-    const plan = planOriginalImageDownscale(info.size.width, info.size.height);
-    if (plan === null || !isOriginalNormalizedImageDimensions(plan.width, plan.height)) {
-      throw new Error('original clipboard image normalization is invalid');
-    }
-    let normalized: image.PixelMap = source.pixelMap;
-    let ownedNormalized: boolean = false;
-    try {
-      if (plan.sampleSize > 1 || plan.width !== info.size.width ||
-        plan.height !== info.size.height) {
-        normalized = await source.pixelMap.createScaledPixelMap(
-          plan.width / info.size.width, plan.height / info.size.height);
-        ownedNormalized = true;
-      }
-      const scaledInfo: image.ImageInfo = await normalized.getImageInfo();
-      if (scaledInfo.size.width !== plan.width || scaledInfo.size.height !== plan.height) {
-        throw new Error('original clipboard normalization produced unexpected dimensions');
-      }
-      const packed: ArrayBuffer = await packWebpLossy(normalized);
-      const bytes: Uint8Array = new Uint8Array(packed);
-      if (bytes.byteLength <= 0 || bytes.byteLength > CLIPBOARD_IMAGE_MAX_BYTES) {
-        throw new Error(`original clipboard image exceeds ${CLIPBOARD_IMAGE_MAX_BYTES} bytes`);
-      }
-      return { bytes: bytes, width: plan.width, height: plan.height };
-    } finally {
-      if (ownedNormalized) {
-        try {
-          await normalized.release();
-        } catch (_releaseError) {
-        }
-      }
-    }
+    return await normalizeOriginalPixelMap(source.pixelMap);
   } finally {
     await source.release();
+  }
+}
+
+export async function normalizeOriginalPixelMap(pixelMap: image.PixelMap):
+  Promise<NormalizedOriginalClipboardImage> {
+  const info: image.ImageInfo = await pixelMap.getImageInfo();
+  if (!validDimensions(info.size.width, info.size.height)) {
+    throw new Error('original clipboard image dimensions are invalid');
+  }
+  const plan = planOriginalImageDownscale(info.size.width, info.size.height);
+  if (plan === null || !isOriginalNormalizedImageDimensions(plan.width, plan.height)) {
+    throw new Error('original clipboard image normalization is invalid');
+  }
+  let normalized: image.PixelMap = pixelMap;
+  let ownedNormalized: boolean = false;
+  try {
+    if (plan.sampleSize > 1 || plan.width !== info.size.width ||
+      plan.height !== info.size.height) {
+      normalized = await pixelMap.createScaledPixelMap(
+        plan.width / info.size.width, plan.height / info.size.height);
+      ownedNormalized = true;
+    }
+    const scaledInfo: image.ImageInfo = await normalized.getImageInfo();
+    if (scaledInfo.size.width !== plan.width || scaledInfo.size.height !== plan.height) {
+      throw new Error('original clipboard normalization produced unexpected dimensions');
+    }
+    const packed: ArrayBuffer = await packWebpLossy(normalized);
+    const bytes: Uint8Array = new Uint8Array(packed);
+    if (bytes.byteLength <= 0 || bytes.byteLength > CLIPBOARD_IMAGE_MAX_BYTES) {
+      throw new Error(`original clipboard image exceeds ${CLIPBOARD_IMAGE_MAX_BYTES} bytes`);
+    }
+    return { bytes: bytes, width: plan.width, height: plan.height };
+  } finally {
+    if (ownedNormalized) {
+      try {
+        await normalized.release();
+      } catch (_releaseError) {
+      }
+    }
   }
 }
 

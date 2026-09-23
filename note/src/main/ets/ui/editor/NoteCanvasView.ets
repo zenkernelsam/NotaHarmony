@@ -206,6 +206,11 @@ import {
   removeOriginalClipboardImageChangeListenerForTest,
 } from '../../data/OriginalClipboardImageIngress';
 import { ensureOriginalClipboardReadPermission } from '../../data/OriginalClipboardPermissionGateway';
+import { unifiedDataChannel } from '@kit.ArkData';
+import {
+  extractOriginalDroppedImagePayload, importOriginalDroppedImages,
+  isOriginalDroppedImagePayloadEmpty, OriginalDroppedImagePayload,
+} from '../../data/OriginalDragDropIngress';
 import { OriginalImageInsertPersistencePlan, OriginalImageInsertResult } from '../../data/StrokePersistence';
 
 const HISTORY_CHECKPOINT_TAIL_OPERATIONS: number = 256;
@@ -493,6 +498,7 @@ export struct NoteCanvasView {
   @State overlayWidth: number = 0;
   @State overlayHeight: number = 0;
   private clipboardPasteTarget: Point2D | null = null;
+  private canvasDropWindowOrigin: Point2D = { x: 0, y: 0 };
   private lastPasteRequestTime: number = 0;
   private systemClipboardImageChangeListener: OriginalClipboardImageChangeListener | null = null;
   private systemClipboardImageProbeGeneration: number = 0;
@@ -6860,6 +6866,79 @@ export struct NoteCanvasView {
     }
   }
 
+  // 原版 e0f.P0：画布拖放落地收集全部 ClipData URI，连同落点 (x,y) 交给
+  // 插入回调；Harmony UDMF 记录经 extractOriginalDroppedImagePayload 映射为
+  // file-uri/image/pixelmap，落点以窗口坐标减组件 globalPosition 换到组件
+  // 坐标，再走与剪贴板贴图同一条 insertOriginalPhotos 管线。
+  private onOriginalImageDrop(event: DragEvent): void {
+    if (!this.canStartOriginalPhotoInsert()) {
+      event.setResult(DragResult.DROP_DISABLED);
+      return;
+    }
+    let data: unifiedDataChannel.UnifiedData;
+    try {
+      data = event.getData();
+    } catch (_error) {
+      event.setResult(DragResult.DROP_DISABLED);
+      return;
+    }
+    const payload: OriginalDroppedImagePayload = extractOriginalDroppedImagePayload(data);
+    if (isOriginalDroppedImagePayloadEmpty(payload)) {
+      event.setResult(DragResult.DROP_DISABLED);
+      return;
+    }
+    const windowX: number = event.getWindowX();
+    const windowY: number = event.getWindowY();
+    if (!Number.isFinite(windowX) || !Number.isFinite(windowY)) {
+      event.setResult(DragResult.DROP_DISABLED);
+      return;
+    }
+    const componentPoint: Point2D = {
+      x: windowX - this.canvasDropWindowOrigin.x,
+      y: windowY - this.canvasDropWindowOrigin.y,
+    };
+    const canvasPoint: Point2D =
+      this.viewport.screenToCanvas(componentPoint.x, componentPoint.y);
+    event.setResult(DragResult.DROP_ENABLED);
+    this.startOriginalDroppedImageInsert(payload, canvasPoint);
+  }
+
+  private async startOriginalDroppedImageInsert(payload: OriginalDroppedImagePayload,
+    anchor: Point2D): Promise<void> {
+    const dropGeneration: number = this.pageLoadGeneration;
+    const dropPageId: string = this.loadedPageId;
+    const context = getContext(this) as common.UIAbilityContext;
+    let origin: OriginalPhotoInsertOrigin | null = null;
+    this.photoImportBusy = true;
+    try {
+      origin = this.getOriginalPhotoInsertOrigin(anchor);
+      const imported: OriginalPhotoIngressItem[] =
+        await importOriginalDroppedImages(payload, context.cacheDir);
+      if (imported.length === 0) {
+        return;
+      }
+      if (!this.isPhotoContextCurrent(origin.generation, origin.pageId)) {
+        return;
+      }
+      const outcome: PhotoInsertOutcome =
+        await this.insertOriginalPhotos(imported, origin);
+      if (outcome.insertedCount <= 0 &&
+        this.isPhotoContextCurrent(dropGeneration, dropPageId)) {
+        throw new Error('original dropped image insert produced no elements');
+      }
+    } catch (e) {
+      hilog.error(0x0001, 'NoteCanvasView',
+        'original dropped image insert failed: %{public}s', JSON.stringify(e));
+      if (this.isPhotoContextCurrent(dropGeneration, dropPageId)) {
+        promptAction.showToast({ message: this.photoErrorToastRes(e as Error),
+          duration: 3000 });
+      }
+    } finally {
+      this.photoImportBusy = false;
+      this.onPhotoIngressFinished();
+    }
+  }
+
   private async startOriginalClipboardImagePaste(): Promise<void> {
     if (!this.canUseOriginalClipboardImage()) {
       return;
@@ -9721,7 +9800,15 @@ export struct NoteCanvasView {
     }
     .width('100%')
     .height('100%')
+    .onDrop((event: DragEvent) => {
+      this.onOriginalImageDrop(event);
+    })
     .onAreaChange((_oldArea: Area, newArea: Area) => {
+      const globalX: number = newArea.globalPosition.x as number;
+      const globalY: number = newArea.globalPosition.y as number;
+      if (Number.isFinite(globalX) && Number.isFinite(globalY)) {
+        this.canvasDropWindowOrigin = { x: globalX, y: globalY };
+      }
       const width: number = newArea.width as number;
       const height: number = newArea.height as number;
       if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {

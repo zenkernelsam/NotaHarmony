@@ -34,8 +34,8 @@ ok(canvas.includes('OriginalPhotoTooLargeError') && canvas.includes('photoErrorT
   'canvas error mapping missing');
 ok(canvas.includes("$r('app.string.image_too_large_to_add')"),
   'oversize toast resource unused');
-ok((canvas.match(/this\.photoErrorToastRes\(e as Error\)/g) ?? []).length === 3,
-  'all three photo-ingress catch sites must map the typed error');
+ok((canvas.match(/this\.photoErrorToastRes\(e as Error\)/g) ?? []).length === 4,
+  'all four photo-ingress catch sites must map the typed error');
 ok(stringsBase.includes('"name": "image_too_large_to_add"') &&
    stringsBase.includes('"value": "Image is too large to add."'),
   'base oversize string missing');

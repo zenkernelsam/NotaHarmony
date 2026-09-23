@@ -30,11 +30,12 @@ assert.match(canvas, /@Prop @Watch\('onPhotoInsertSignalChange'\) photoInsertSig
 assert.match(canvas, /@Prop @Watch\('onCameraCaptureSignalChange'\) cameraCaptureSignal: number = 0;/);
 assert.match(canvas, /onRequestPage: \(pageId: string\) => void = \(\) => \{\n  \};\n  onPhotoIngressFinished: \(\) => void/);
 const finishCount = canvas.match(/this\.onPhotoIngressFinished\(\);/g)?.length ?? 0;
-assert.equal(finishCount, 3);
+assert.equal(finishCount, 4);
 const pickerBusy = canvas.indexOf('private async startOriginalPhotoInsert(): Promise<void> {');
 const clipboardBusy = canvas.indexOf('private async startOriginalClipboardImagePaste(): Promise<void> {');
 const cameraBusy = canvas.indexOf('private async startOriginalCameraCapture(): Promise<void> {');
-for (const start of [pickerBusy, clipboardBusy, cameraBusy]) {
+const dropBusy = canvas.indexOf('private async startOriginalDroppedImageInsert(payload: OriginalDroppedImagePayload,');
+for (const start of [pickerBusy, clipboardBusy, cameraBusy, dropBusy]) {
   const finallyIndex = canvas.indexOf('} finally {', start);
   assert.ok(canvas.slice(finallyIndex).includes('this.photoImportBusy = false;'));
   assert.ok(canvas.slice(finallyIndex).includes('this.onPhotoIngressFinished();'));
@@ -43,4 +44,4 @@ for (const start of [pickerBusy, clipboardBusy, cameraBusy]) {
 assert.match(fixture, /blocks page structure while photo ingress is active/);
 assert.match(fixture, /does not start a second photo ingress/);
 
-console.log('D02_PHOTO_IMPORT_PAGE_OPERATION_LEASE_REPLAY_OK TOTAL=12 FAILED=0');
+console.log('D02_PHOTO_IMPORT_PAGE_OPERATION_LEASE_REPLAY_OK TOTAL=13 FAILED=0');

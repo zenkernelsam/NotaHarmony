@@ -21,7 +21,7 @@ assert.ok(!page.includes('pasteGeneration === this.pageLoadGeneration'));
 assert.ok(!page.includes('pasteGeneration !== this.pageLoadGeneration'));
 
 const start = page.indexOf('  private async startOriginalPhotoInsert(): Promise<void> {');
-const end = page.indexOf('  private async startOriginalClipboardImagePaste(): Promise<void> {', start);
+const end = page.indexOf('  private onOriginalImageDrop(event: DragEvent): void {', start);
 assert.ok(start !== -1 && end !== -1);
 const photo = page.slice(start, end);
 assert.equal([...photo.matchAll(/this\.isPhotoContextCurrent\(origin\.generation, origin\.pageId\)/g)].length, 3);
@@ -32,7 +32,19 @@ for (const message of ['original_photo_insert_partial_failed', 'photoErrorToastR
   assert.ok(guardIndex !== -1 && guardIndex < toastIndex, message);
 }
 
-const pasteStart = end;
+const dropStart = page.indexOf('  private async startOriginalDroppedImageInsert(', end);
+const pasteStart = page.indexOf('  private async startOriginalClipboardImagePaste(): Promise<void> {', dropStart);
+const drop = page.slice(dropStart, pasteStart);
+assert.ok(dropStart !== -1 && pasteStart !== -1);
+assert.equal(drop.split('this.isPhotoContextCurrent(origin.generation, origin.pageId)').length - 1, 1);
+assert.equal(drop.split('this.isPhotoContextCurrent(dropGeneration, dropPageId)').length - 1, 2);
+assert.ok(drop.indexOf('this.photoImportBusy = true;') !== -1 &&
+  drop.indexOf('this.photoImportBusy = true;') < drop.indexOf('origin = this.getOriginalPhotoInsertOrigin(anchor)'));
+assert.ok(drop.includes('await importOriginalDroppedImages(payload, context.cacheDir);'));
+assert.ok(drop.includes('photoErrorToastRes(e as Error)'));
+assert.ok(drop.includes('} finally {'));
+assert.ok(drop.includes('this.photoImportBusy = false;'));
+assert.ok(drop.includes('this.onPhotoIngressFinished();'));
 const pasteEnd = page.indexOf('  private canUseOriginalClipboardImage(): boolean {', pasteStart);
 const paste = page.slice(pasteStart, pasteEnd);
 assert.equal([...paste.matchAll(/this\.isPhotoContextCurrent\(pasteGeneration, pastePageId\)/g)].length, 5);
@@ -47,4 +59,4 @@ for (const effect of [
 }
 assert.match(paste, /\} finally \{\s+this\.photoImportBusy = false;\s+this\.onPhotoIngressFinished\(\);\s+\}/);
 
-console.log('D02_PHOTO_INGRESS_DISPOSAL_BOUND_REPLAY_OK TOTAL=9 FAILED=0');
+console.log('D02_PHOTO_INGRESS_DISPOSAL_BOUND_REPLAY_OK TOTAL=15 FAILED=0');
