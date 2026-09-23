@@ -39,6 +39,7 @@ export enum UndoableActionType {
   NOTE_METADATA = 23,
   ORIGINAL_HANDWRITING_CONVERSION = 24,
   DUPLICATE_PAGE = 25,
+  PAGE_BOOKMARK = 26,
 }
 
 interface ActionBase {
@@ -495,6 +496,12 @@ export interface PageSettingsAction extends ActionBase {
   pageAfter: PageInfo;
 }
 
+export interface PageBookmarkAction extends ActionBase {
+  type: UndoableActionType.PAGE_BOOKMARK;
+  bookmarkedBefore: boolean;
+  bookmarkedAfter: boolean;
+}
+
 export interface NoteBackgroundAction extends ActionBase {
   type: UndoableActionType.NOTE_BACKGROUND;
   selectedPageId: string;
@@ -545,7 +552,8 @@ export interface OriginalHandwritingConversionAction extends ActionBase {
 export type UndoableAction = AddStrokeAction | RemoveStrokeAction | TransformStrokesAction |
   AddElementAction | DeleteElementAction | ReplaceElementAction | ReorderElementsAction |
   AddShapeAction | AddElementsAction | DeleteElementsAction | TransformElementsAction | EraseElementsAction |
-  AddPageAction | DeletePageAction | ReorderPagesAction | DuplicatePageAction | PageSettingsAction | PersistedPageMutationsAction |
+  AddPageAction | DeletePageAction | ReorderPagesAction | DuplicatePageAction | PageSettingsAction |
+  PageBookmarkAction | PersistedPageMutationsAction |
   GroupElementsAction | OriginalClipboardPasteAction | OriginalPartialEraseAction |
   OriginalHandwritingConversionAction | NoteBackgroundAction |
   NoteTitleAction | NoteMetadataAction;

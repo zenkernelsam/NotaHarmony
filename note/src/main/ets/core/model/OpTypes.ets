@@ -18,6 +18,11 @@ export enum OpType {
   // inserts a blank page at the victim's slot (u5j.i), a two-membership
   // change classifyPageStructureMutation cannot express.
   DELETE_PAGE_COMPENSATION = 5,
+  // Harmony history companion for the original ae2 variant-0 bookmark toggle
+  // (u5j.s field-3 oz9 ModifyPage through the journaled x82.I channel — the
+  // dof/eof marker is "undoable", cof is NotUndoable). A bookmark flip is not
+  // a structural mutation, so PageStructureOpCodec cannot carry it.
+  PAGE_BOOKMARK = 6,
   // 元素操作
   INSERT_ELEMENTS = 10,
   DELETE_ELEMENTS = 11,

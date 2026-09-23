@@ -4290,7 +4290,7 @@ export struct NoteCanvasView {
   private isPageAction(type: UndoableActionType): boolean {
     return type === UndoableActionType.ADD_PAGE || type === UndoableActionType.DELETE_PAGE ||
       type === UndoableActionType.REORDER_PAGES || type === UndoableActionType.PAGE_SETTINGS ||
-      type === UndoableActionType.DUPLICATE_PAGE ||
+      type === UndoableActionType.PAGE_BOOKMARK || type === UndoableActionType.DUPLICATE_PAGE ||
       type === UndoableActionType.NOTE_BACKGROUND || type === UndoableActionType.NOTE_TITLE ||
       type === UndoableActionType.NOTE_METADATA;
   }

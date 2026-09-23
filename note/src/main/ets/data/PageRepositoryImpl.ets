@@ -39,6 +39,9 @@ import {
   DeletePageCompensationMutation, encodeDeletePageCompensationMutation,
 } from './DeletePageCompensationOpCodec';
 import {
+  PageBookmarkMutation, encodePageBookmarkMutation,
+} from './PageBookmarkOpCodec';
+import {
   persistOriginalNoteBackground, PersistedOriginalNoteBackground,
 } from './OriginalNoteBackgroundPersistence';
 import { assertLivePageElementIdsAvailable } from './PageElementIdentity';
@@ -920,19 +923,37 @@ export class PageRepositoryImpl implements PageRepository {
     }
   }
 
-  async setPageBookmarked(noteId: string, pageId: string, bookmarked: boolean): Promise<PageInfo> {
+  async setPageBookmarked(noteId: string, pageId: string, bookmarked: boolean,
+    history?: HistoryMetadata): Promise<PageInfo> {
     if (noteId.length === 0 || pageId.length === 0) {
       throw new Error('setPageBookmarked failed: note ID and page ID are required');
+    }
+    if (history !== undefined) {
+      validateHistoryMetadata(history);
     }
     const release: MutexRelease = await editorPersistenceMutex.lock();
     const store: relationalStore.RdbStore = this.db.getStore();
     try {
       await store.beginTransaction();
       try {
+        const revision: number = await this.queryStructureRevision(store, noteId);
+        const before: PageInfo[] = await this.queryPages(store, noteId);
+        const beforeIndex: number = this.findPageIndex(before, pageId);
+        if (beforeIndex < 0) {
+          throw new Error('bookmarked page does not belong to note');
+        }
+        const bookmarkedBefore: boolean = before[beforeIndex].bookmarked === true;
+        if (bookmarkedBefore === bookmarked) {
+          throw new Error('page bookmark already holds the target register value');
+        }
         if (await originalPageIdentityExists(store, noteId, pageId)) {
           // Original wz9.bookmarkedRegister: the ModifyPage op wins by LWW and
           // materializes page_info.bookmarked inside the reducer.
           const persisted = await persistOriginalPageBookmark(store, noteId, pageId, bookmarked);
+          if (history !== undefined) {
+            await this.appendPageBookmarkMutation(store, noteId, revision, pageId,
+              bookmarkedBefore, bookmarked, history);
+          }
           await store.commit();
           return persisted.page;
         }
@@ -943,6 +964,20 @@ export class PageRepositoryImpl implements PageRepository {
         const updated: number = await store.update(bucket, predicates);
         if (updated !== 1) {
           throw new Error(`expected to update one page, updated ${updated}`);
+        }
+        if (history !== undefined) {
+          // Legacy pages have no ModifyPage reducer, so the companion bumps the
+          // structure revision with the same guarded write appendStructureMutation uses.
+          const revisionBucket: relationalStore.ValuesBucket = { 'structure_revision': revision + 1 };
+          const revisionPredicates = new relationalStore.RdbPredicates('note_meta');
+          revisionPredicates.equalTo('id', noteId);
+          revisionPredicates.equalTo('structure_revision', revision);
+          const revisionUpdated: number = await store.update(revisionBucket, revisionPredicates);
+          if (revisionUpdated !== 1) {
+            throw new Error('page structure revision changed concurrently');
+          }
+          await this.appendPageBookmarkMutation(store, noteId, revision, pageId,
+            bookmarkedBefore, bookmarked, history);
         }
         const pages: PageInfo[] = await this.queryPages(store, noteId);
         const index: number = this.findPageIndex(pages, pageId);
@@ -958,6 +993,38 @@ export class PageRepositoryImpl implements PageRepository {
     } finally {
       release();
     }
+  }
+
+  // Original ae2 variant 0 sends the bookmark toggle through the journaled
+  // x82.I channel (dof = undoable). The ModifyPage reducer already advanced
+  // the structure revision for original pages; the PAGE_BOOKMARK companion
+  // binds the register flip into durable history. A bookmark change is not a
+  // structural mutation, so PageStructureOpCodec cannot carry it.
+  private async appendPageBookmarkMutation(store: relationalStore.RdbStore, noteId: string,
+    revision: number, pageId: string, bookmarkedBefore: boolean, bookmarkedAfter: boolean,
+    history: HistoryMetadata): Promise<void> {
+    const currentRevision: number = await this.queryStructureRevision(store, noteId);
+    if (currentRevision !== revision + 1) {
+      throw new Error('page bookmark write did not advance the structure revision');
+    }
+    const mutation: PageBookmarkMutation = {
+      fromRevision: revision,
+      toRevision: revision + 1,
+      pageId: pageId,
+      bookmarkedBefore: bookmarkedBefore,
+      bookmarkedAfter: bookmarkedAfter,
+    };
+    const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+    await appendOperation(store, {
+      noteId: noteId,
+      opId: identity.opId,
+      opType: OpType.PAGE_BOOKMARK,
+      payload: encodePageBookmarkMutation(mutation),
+      clientTime: identity.clientTime,
+      opTimestamp: identity.timestamp,
+      editorSiteId: identity.siteId,
+      history: history,
+    });
   }
 
   private rowToPage(resultSet: relationalStore.ResultSet): PageInfo {

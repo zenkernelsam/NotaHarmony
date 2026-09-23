@@ -150,13 +150,14 @@ ok(bundle.includes("'bookmarked': page.bookmarked ? 1 : 0"),
 // --- Harmony runtime anchors ------------------------------------------------------------
 ok(noteTypes.includes('bookmarked?: boolean;'), 'PageInfo.bookmarked missing');
 ok(bgModel.includes('bookmarked: page.bookmarked'), 'clonePageInfo bookmarked missing');
-ok(iface.includes('setPageBookmarked(noteId: string, pageId: string, bookmarked: boolean)'),
+ok(iface.includes('setPageBookmarked(noteId: string, pageId: string, bookmarked: boolean,') &&
+   iface.includes('history?: HistoryMetadata): Promise<PageInfo>;'),
   'PageRepository.setPageBookmarked missing');
 ok(pagePersistence.includes('export async function persistOriginalPageBookmark') &&
    pagePersistence.includes('encodeOriginalModifyPageBookmark([page], bookmarked)') &&
    pagePersistence.includes('ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE'),
   'persistOriginalPageBookmark missing');
-ok(pageRepo.includes('async setPageBookmarked(noteId: string, pageId: string, bookmarked: boolean)') &&
+ok(pageRepo.includes('async setPageBookmarked(noteId: string, pageId: string, bookmarked: boolean,') &&
    pageRepo.includes('persistOriginalPageBookmark(store, noteId, pageId, bookmarked)') &&
    pageRepo.includes("'bookmarked': bookmarked ? 1 : 0"),
   'PageRepositoryImpl.setPageBookmarked missing');

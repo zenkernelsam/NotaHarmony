@@ -72,7 +72,8 @@ import {
   AddPageAction, DeletePageAction, DuplicatePageAction, EditorHistoryBridge,
   NoteBackgroundAction, NoteMetadataAction,
   NoteTitleAction,
-  PageContentSnapshot, PageCopyPlan, PageSettingsAction, UndoableAction, UndoableActionType,
+  PageBookmarkAction, PageContentSnapshot, PageCopyPlan, PageSettingsAction, UndoableAction,
+  UndoableActionType,
 } from '../../rendering/UndoRedoManager';
 import { EditorViewModel } from './EditorViewModel';
 import { EditorToolbar } from './EditorToolbar';
@@ -1846,8 +1847,11 @@ struct NotePage {
   }
 
   // ae2 parity: the content-manager bookmark action toggles the selected page —
-  // BOOKMARKED when it is currently UNBOOKMARKED, otherwise UNBOOKMARKED. It is a
-  // wz9 register write, not an undoable structure op.
+  // BOOKMARKED when it is currently UNBOOKMARKED, otherwise UNBOOKMARKED. The
+  // original sends u5j.s (ModifyPage field 3, oz9) through the journaled x82.I
+  // channel with the dof "undoable" marker (cof is the explicit NotUndoable
+  // alternative), so the toggle is one undoable action. The wz9 register write
+  // is not a structural mutation, so a PAGE_BOOKMARK companion carries history.
   private async toggleCurrentPageBookmark(): Promise<void> {
     if (this.pageRepo === null || this.pages.length === 0) {
       return;
@@ -1855,8 +1859,18 @@ struct NotePage {
     const selectedPageId: string = this.pages[this.currentPageIndex].pageId;
     const current: PageInfo = this.pages[this.currentPageIndex];
     const next: boolean = current.bookmarked !== true;
+    const action: PageBookmarkAction = {
+      type: UndoableActionType.PAGE_BOOKMARK,
+      noteId: this.noteId,
+      pageId: selectedPageId,
+      bookmarkedBefore: current.bookmarked === true,
+      bookmarkedAfter: next,
+    };
+    const historyBridge: EditorHistoryBridge | null = this.historyBridge;
+    const history: HistoryMetadata | undefined = historyBridge === null
+      ? undefined : historyBridge.preparePageAction(action);
     const persisted: PageInfo = await this.pageRepo.setPageBookmarked(
-      this.noteId, selectedPageId, next);
+      this.noteId, selectedPageId, next, history);
     if (this.editorDisposed) {
       return;
     }
@@ -1868,6 +1882,9 @@ struct NotePage {
     }
     updated[index] = this.clonePage(persisted);
     this.pages = updated;
+    if (historyBridge !== null && history !== undefined) {
+      historyBridge.pushPageAction(action, history);
+    }
   }
 
   // Original zd2 case 1 (content-manager Rotate Page): steps the page's nz9
@@ -2142,6 +2159,16 @@ struct NotePage {
       if (action.type === UndoableActionType.DUPLICATE_PAGE) {
         return await this.applyDuplicatePageHistory(action, isUndo, history);
       }
+      if (action.type === UndoableActionType.PAGE_BOOKMARK) {
+        const target: boolean = isUndo ? action.bookmarkedBefore : action.bookmarkedAfter;
+        const persisted: PageInfo = await pageRepository.setPageBookmarked(
+          this.noteId, action.pageId, target, history);
+        if (this.editorDisposed) {
+          return false;
+        }
+        this.replacePage(persisted);
+        return true;
+      }
       if (action.type === UndoableActionType.PAGE_SETTINGS) {
         const page: PageInfo = isUndo ? action.pageBefore : action.pageAfter;
         await pageRepository.updatePage(page, history);
@@ -2237,6 +2264,19 @@ struct NotePage {
       }
       const sourceIndex: number = targetOrder.indexOf(action.sourcePageId);
       return sourceIndex >= 0 && targetOrder[sourceIndex + 1] === action.pageId;
+    }
+    if (action.type === UndoableActionType.PAGE_BOOKMARK) {
+      if (action.bookmarkedBefore === action.bookmarkedAfter) {
+        return false;
+      }
+      const expected: boolean = isUndo ? action.bookmarkedAfter : action.bookmarkedBefore;
+      let matched: number = 0;
+      for (const page of this.pages) {
+        if (page.pageId === action.pageId && (page.bookmarked === true) === expected) {
+          matched++;
+        }
+      }
+      return matched === 1;
     }
     if (action.type === UndoableActionType.PAGE_SETTINGS) {
       const sourcePage: PageInfo = isUndo ? action.pageAfter : action.pageBefore;

@@ -61,7 +61,8 @@ export interface PageRepository {
   updatePage(page: PageInfo): Promise<void>;
   reorderPages(noteId: string, pageIds: string[], movedPageId?: string): Promise<void>;
   // Original wz9.bookmarkedRegister parity (oz9 UNBOOKMARKED/BOOKMARKED).
-  setPageBookmarked(noteId: string, pageId: string, bookmarked: boolean): Promise<PageInfo>;
+  setPageBookmarked(noteId: string, pageId: string, bookmarked: boolean,
+    history?: HistoryMetadata): Promise<PageInfo>;
   // Original n9j Duplicate (ae2 default → u5j.e stream → de2.j anchor):
   // creates a copy of sourcePageId immediately after it. Content ops are
   // written separately via the duplicate-content transcode path.

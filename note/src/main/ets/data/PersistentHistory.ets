@@ -21,8 +21,8 @@ import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder'
 import {
   AddPageAction, DeletePageAction, DuplicatePageAction, GroupElementsAction, OriginalClipboardPasteAction,
   NoteBackgroundAction, NoteTitleAction, NoteMetadataAction, OriginalHandwritingConversionAction,
-  OriginalPartialEraseAction, PageSettingsAction, PersistedPageMutationsAction, ReorderPagesAction,
-  RestoredHistoryAction, UndoableAction,
+  OriginalPartialEraseAction, PageBookmarkAction, PageSettingsAction, PersistedPageMutationsAction,
+  ReorderPagesAction, RestoredHistoryAction, UndoableAction,
   UndoableActionType,
 } from '../rendering/UndoRedoManager';
 import {
@@ -45,6 +45,9 @@ import {
 import {
   decodeDeletePageCompensationMutation, DeletePageCompensationMutation,
 } from './DeletePageCompensationOpCodec';
+import {
+  decodePageBookmarkMutation, PageBookmarkMutation,
+} from './PageBookmarkOpCodec';
 
 export interface PersistentHistoryAction {
   actionId: string;
@@ -391,6 +394,24 @@ function materializeAction(action: PersistentHistoryAction, currentPageId: strin
       pageElementOrder: content.elementOrder,
       selectedPageIdBefore: mutation.deletedPageId,
       selectedPageIdAfter: selectedAfter,
+    };
+    return restored;
+  }
+  if (action.operations[0].opType === OpType.PAGE_BOOKMARK) {
+    // Original ae2 variant 0 journals the bookmark toggle through x82.I with
+    // the undoable marker; the PAGE_BOOKMARK companion is that action's only
+    // history-bearing op (the synced ModifyPage op carries no history).
+    if (action.operations.length !== 1) {
+      throw new Error('persistent page bookmark action must contain exactly one mutation');
+    }
+    const bookmarkMutation: PageBookmarkMutation =
+      decodePageBookmarkMutation(action.operations[0].payload);
+    const restored: PageBookmarkAction = {
+      type: UndoableActionType.PAGE_BOOKMARK,
+      noteId: noteId,
+      pageId: bookmarkMutation.pageId,
+      bookmarkedBefore: bookmarkMutation.bookmarkedBefore,
+      bookmarkedAfter: bookmarkMutation.bookmarkedAfter,
     };
     return restored;
   }
