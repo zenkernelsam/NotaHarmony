@@ -350,37 +350,11 @@ export class PageRepositoryImpl implements PageRepository {
         }
         const background: PageBackground | null =
           duplicatedOriginalPageBackground(before[sourceIndex]);
-        const mutation: PersistedOriginalPageMutation =
-          await persistOriginalDuplicatePage(store, noteId, sourcePageId, background,
-            before[sourceIndex].bookmarked === true);
-        const after: PageInfo[] = await this.queryPages(store, noteId);
-        if (after.length !== before.length + 1 ||
-          after[sourceIndex + 1].pageId !== mutation.page.pageId) {
-          throw new Error('duplicated page was not inserted after its source');
-        }
-        if (history !== undefined) {
-          const currentRevision: number = await this.queryStructureRevision(store, noteId);
-          if (currentRevision !== revision + 1) {
-            throw new Error('duplicate page reducer did not advance the structure revision');
-          }
-          const duplicate: DuplicatePageMutation = {
-            fromRevision: revision,
-            toRevision: revision + 1,
-            sourcePageId: sourcePageId,
-            pageId: mutation.page.pageId,
-            pageOrderBefore: this.pageOrderIds(before),
-            pageOrderAfter: this.pageOrderIds(after),
-          };
-          const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
-          await appendOperation(store, {
-            noteId: noteId, opId: identity.opId, opType: OpType.DUPLICATE_PAGE,
-            payload: encodeDuplicatePageMutation(duplicate),
-            clientTime: identity.clientTime, opTimestamp: identity.timestamp,
-            editorSiteId: identity.siteId, history: history,
-          });
-        }
+        const page: PageInfo = await this.insertPageAfterAnchor(store, noteId,
+          before, revision, sourceIndex, background,
+          before[sourceIndex].bookmarked === true, history);
         await store.commit();
-        return clonePageInfo(mutation.page);
+        return clonePageInfo(page);
       } catch (e) {
         await store.rollBack();
         throw new Error(`duplicatePage failed: ${JSON.stringify(e)}`);
@@ -388,6 +362,82 @@ export class PageRepositoryImpl implements PageRepository {
     } finally {
       release();
     }
+  }
+
+  // Original n9j Paste (mg2.b CopiedPagesData -> lg2/m1d.c0 apply): identical
+  // journal shape to Duplicate — an anchored CreatePage plus the element
+  // transcode — except the page metadata comes from the clipboard record
+  // rather than a live source page. The DUPLICATE_PAGE companion carries the
+  // anchor identity in sourcePageId so undo/redo resolve the same way.
+  async insertCopiedPage(noteId: string, anchorPageId: string,
+    background: PageBackground | null, bookmarked: boolean,
+    history?: HistoryMetadata): Promise<PageInfo> {
+    if (noteId.length === 0 || anchorPageId.length === 0) {
+      throw new Error('insertCopiedPage failed: note ID and anchor page ID are required');
+    }
+    const release: MutexRelease = await editorPersistenceMutex.lock();
+    const store: relationalStore.RdbStore = this.db.getStore();
+    try {
+      await store.beginTransaction();
+      try {
+        const revision: number = await this.queryStructureRevision(store, noteId);
+        const before: PageInfo[] = await this.queryPages(store, noteId);
+        const anchorIndex: number = this.findPageIndex(before, anchorPageId);
+        if (anchorIndex < 0) {
+          throw new Error('copied page anchor does not belong to note');
+        }
+        if (!await hasAlignedOriginalPageState(store, noteId) ||
+          !await originalPageIdentityExists(store, noteId, anchorPageId)) {
+          throw new Error('insertCopiedPage requires aligned original page identity coverage');
+        }
+        const page: PageInfo = await this.insertPageAfterAnchor(store, noteId,
+          before, revision, anchorIndex, background, bookmarked, history);
+        await store.commit();
+        return clonePageInfo(page);
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`insertCopiedPage failed: ${JSON.stringify(e)}`);
+      }
+    } finally {
+      release();
+    }
+  }
+
+  private async insertPageAfterAnchor(store: relationalStore.RdbStore,
+    noteId: string, before: PageInfo[], revision: number, anchorIndex: number,
+    background: PageBackground | null, bookmarked: boolean,
+    history?: HistoryMetadata): Promise<PageInfo> {
+    const anchorPageId: string = before[anchorIndex].pageId;
+    const mutation: PersistedOriginalPageMutation =
+      await persistOriginalDuplicatePage(store, noteId, anchorPageId, background,
+        bookmarked);
+    const after: PageInfo[] = await this.queryPages(store, noteId);
+    if (after.length !== before.length + 1 ||
+      after[anchorIndex + 1].pageId !== mutation.page.pageId) {
+      throw new Error('inserted page was not placed after its anchor');
+    }
+    if (history !== undefined) {
+      const currentRevision: number = await this.queryStructureRevision(store, noteId);
+      if (currentRevision !== revision + 1) {
+        throw new Error('page insert reducer did not advance the structure revision');
+      }
+      const duplicate: DuplicatePageMutation = {
+        fromRevision: revision,
+        toRevision: revision + 1,
+        sourcePageId: anchorPageId,
+        pageId: mutation.page.pageId,
+        pageOrderBefore: this.pageOrderIds(before),
+        pageOrderAfter: this.pageOrderIds(after),
+      };
+      const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+      await appendOperation(store, {
+        noteId: noteId, opId: identity.opId, opType: OpType.DUPLICATE_PAGE,
+        payload: encodeDuplicatePageMutation(duplicate),
+        clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+        editorSiteId: identity.siteId, history: history,
+      });
+    }
+    return mutation.page;
   }
 
   // Redo of a DUPLICATE_PAGE action restores the hidden duplicate through the

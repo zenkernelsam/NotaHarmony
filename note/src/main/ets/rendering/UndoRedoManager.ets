@@ -565,10 +565,23 @@ export interface PageContentSnapshot {
   elementOrder: PageElementRef[];
 }
 
+// Original ae2 case 2/3 (Copy/Cut): the page clipboard stores the serialized
+// page payload (mg2.b = dg2 CopiedPagesData). This is the same element+group
+// shape the duplicate/paste transcode consumes; kept here (pure core/model)
+// so the bridge stays free of data-layer imports.
+export interface PageCopyPlan extends PageContentSnapshot {
+  groups: OriginalSelectionGroup[];
+  topGroupIds: string[];
+}
+
 export interface EditorHistoryBridge {
   preparePageAction: (action: UndoableAction) => HistoryMetadata;
   pushPageAction: (action: UndoableAction, history?: HistoryMetadata) => void;
   captureCurrentPage: () => PageContentSnapshot;
+  // Captures the current page as a copy plan — element content plus the
+  // page-local group subgraph (originalGroupGraphForPageCopy). Throws when the
+  // page's group graph is not copyable, matching the duplicate path.
+  captureCurrentPageCopyPlan: () => PageCopyPlan;
   preparePageRemoval: (pageId: string) => void;
   cancelPageRemoval: (pageId: string) => void;
   flushCurrentPage: () => Promise<boolean>;
@@ -576,6 +589,11 @@ export interface EditorHistoryBridge {
   // the freshly created duplicate (fresh identities, preserved group graph).
   // The DUPLICATE_PAGE companion op owns the action; these are plain original ops.
   commitDuplicatePageContent: (pageId: string, snapshot: PageContentSnapshot,
+    history: HistoryMetadata) => Promise<boolean>;
+  // Original n9j Paste: writes a stored clipboard plan onto the freshly
+  // inserted page. Same transcode as commitDuplicatePageContent but the plan
+  // comes from the page clipboard, not the live canvas snapshot.
+  commitCopiedPageContent: (pageId: string, plan: PageCopyPlan,
     history: HistoryMetadata) => Promise<boolean>;
 }
 

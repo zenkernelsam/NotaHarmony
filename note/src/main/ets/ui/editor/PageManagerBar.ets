@@ -47,6 +47,19 @@ export struct PageManagerBar {
   // selection flips its wz9.bookmarkedRegister value.
   onToggleBookmark: () => void = () => {
   };
+  // Original ae2 case 2/3 (n9j Copy/Cut): serializes the page into the
+  // process-scoped page clipboard (mg2.b = dg2 CopiedPagesData); Cut then
+  // applies the same delete ops as Delete Pages.
+  onCutPage: () => void = () => {
+  };
+  onCopyPage: () => void = () => {
+  };
+  // Original n9j Paste is only rendered while the page clipboard is non-empty
+  // (mg2.b != null). canPastePage mirrors that gate (plus the Harmony
+  // image-bearing cross-note restriction).
+  canPastePage: boolean = false;
+  onPastePage: () => void = () => {
+  };
   // Original fd2 case 5 (de2.r → ae2 default): the content-manager Duplicate
   // action copies the selected page and inserts the copy after it.
   onDuplicatePage: () => void = () => {
@@ -256,7 +269,9 @@ export struct PageManagerBar {
   }
 
   private buildPageMenu(): MenuElement[] {
-    return [
+    // 原版 n9j 单页菜单顺序：Add Page、Cut、Copy、Paste、Duplicate、
+    // Rotate Page、Create Template（INTERNAL 旗标）、Clear Page。
+    const items: MenuElement[] = [
       { value: $r('app.string.move_page_earlier'), action: () => {
         if (!this.busy && !this.photoImportLeaseActive &&
           this.currentPageIndex > 0) {
@@ -274,6 +289,18 @@ export struct PageManagerBar {
           return;
         }
         this.onToggleBookmark();
+      } },
+      { value: $r('app.string.cut_page'), action: () => {
+        if (this.busy || this.photoImportLeaseActive) {
+          return;
+        }
+        this.onCutPage();
+      } },
+      { value: $r('app.string.copy_page'), action: () => {
+        if (this.busy || this.photoImportLeaseActive) {
+          return;
+        }
+        this.onCopyPage();
       } },
       // 原版 n9j 菜单顺序：Duplicate 排在 Rotate Page 之前。
       { value: $r('app.string.duplicate_page'), action: () => {
@@ -301,6 +328,17 @@ export struct PageManagerBar {
         }
       } },
     ];
+    // 原版 n9j：Paste 菜单项仅在页剪贴板非空时出现（mg2.b != null），
+    // 位置在 Copy 与 Duplicate 之间。
+    if (this.canPastePage) {
+      items.splice(5, 0, { value: $r('app.string.paste_page'), action: () => {
+        if (this.busy || this.photoImportLeaseActive) {
+          return;
+        }
+        this.onPastePage();
+      } });
+    }
+    return items;
   }
 
   @Builder

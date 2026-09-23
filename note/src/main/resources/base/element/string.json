@@ -533,6 +533,22 @@
       "value": "Bookmark"
     },
     {
+      "name": "cut_page",
+      "value": "Cut"
+    },
+    {
+      "name": "copy_page",
+      "value": "Copy"
+    },
+    {
+      "name": "paste_page",
+      "value": "Paste"
+    },
+    {
+      "name": "paste_page_unsupported",
+      "value": "Pasting pages with images across notes is not supported yet"
+    },
+    {
       "name": "duplicate_page",
       "value": "Duplicate"
     },

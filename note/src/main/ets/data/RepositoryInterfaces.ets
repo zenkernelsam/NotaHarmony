@@ -1,6 +1,6 @@
 // T-007 Repository 抽象接口（契约 phase-1-data-model.md §3.11，照搬，禁止修改签名）
 // 接口定义不 import 任何 @ohos.* / @kit.* 平台模块
-import { NoteMeta, NoteViewState, PageInfo, PaperTemplate } from '../core/model/NoteTypes';
+import { NoteMeta, NoteViewState, PageBackground, PageInfo, PaperTemplate } from '../core/model/NoteTypes';
 import { EditorToolboxState, EditorTray, ToolState } from '../core/model/BrushTypes';
 import { NoteAsset } from '../core/model/AssetTypes';
 import { HistoryMetadata } from '../core/model/OpTypes';
@@ -63,6 +63,12 @@ export interface PageRepository {
   // creates a copy of sourcePageId immediately after it. Content ops are
   // written separately via the duplicate-content transcode path.
   duplicatePage(noteId: string, sourcePageId: string,
+    history?: HistoryMetadata): Promise<PageInfo>;
+  // Original n9j Paste (mg2.b CopiedPagesData): inserts a page carrying the
+  // clipboard's background/bookmark immediately after anchorPageId. The
+  // DUPLICATE_PAGE companion journals the anchor in sourcePageId.
+  insertCopiedPage(noteId: string, anchorPageId: string,
+    background: PageBackground | null, bookmarked: boolean,
     history?: HistoryMetadata): Promise<PageInfo>;
   // DUPLICATE_PAGE redo: restores the hidden duplicate's visibility.
   restoreDuplicatedPage(noteId: string, pageId: string,

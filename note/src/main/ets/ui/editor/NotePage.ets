@@ -12,10 +12,14 @@ import {
 import { BrushStyle, brushStyleToInkStyle, inkStyleToBrushStyle } from '../../core/model/BrushTypes';
 import { InkStyle } from '../../core/model/StrokeTypes';
 import {
-  cloneNoteBackgroundSettings, clonePageInfo, originalDefaultNoteBackgroundSettings,
-  rotatedOriginalPageInfo, sameNoteBackgroundSettings, samePageBackground,
+  cloneNoteBackgroundSettings, clonePageInfo, duplicatedOriginalPageBackground,
+  originalDefaultNoteBackgroundSettings, rotatedOriginalPageInfo,
+  sameNoteBackgroundSettings, samePageBackground,
 } from '../../core/model/PageBackgroundModel';
 import { HistoryMetadata, NoteMetadataHistoryState } from '../../core/model/OpTypes';
+import {
+  CopiedPagePayload, copiedPagePayload, storeCopiedPage,
+} from '../../rendering/OriginalPageClipboard';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PersistedOriginalNoteTitle } from '../../data/OriginalNoteTitlePersistence';
@@ -68,7 +72,7 @@ import {
   AddPageAction, DeletePageAction, DuplicatePageAction, EditorHistoryBridge,
   NoteBackgroundAction, NoteMetadataAction,
   NoteTitleAction,
-  PageContentSnapshot, PageSettingsAction, UndoableAction, UndoableActionType,
+  PageContentSnapshot, PageCopyPlan, PageSettingsAction, UndoableAction, UndoableActionType,
 } from '../../rendering/UndoRedoManager';
 import { EditorViewModel } from './EditorViewModel';
 import { EditorToolbar } from './EditorToolbar';
@@ -97,6 +101,7 @@ struct NotePage {
   @State selectionInkColor: number = -16777216;
   @State selectionWidthSignal: number = 0;
   @State clearPageSignal: number = 0;
+  @State pageClipboardVersion: number = 0;
   @State tapeToggleSignal: number = 0;
   // 原版 jg9.n / uf0 case4：当前页 tape 数 + 是否存在已揭示 tape，驱动菜单标签。
   @State pageTapeCount: number = 0;
@@ -1525,6 +1530,19 @@ struct NotePage {
           onToggleBookmark: () => {
             this.runPageOperation(async (): Promise<void> => this.toggleCurrentPageBookmark());
           },
+          // Original n9j Paste item is gated on mg2.b != null (clipboard
+          // non-empty); pageClipboardVersion forces a re-render after
+          // copy/cut. Image-bearing pages stay same-note only (asset linkage).
+          canPastePage: this.pageClipboardVersion >= 0 && this.canPasteCopiedPage(),
+          onCutPage: () => {
+            this.runPageOperation(async (): Promise<void> => this.cutCurrentPage());
+          },
+          onCopyPage: () => {
+            this.runPageOperation(async (): Promise<void> => this.copyCurrentPage());
+          },
+          onPastePage: () => {
+            this.runPageOperation(async (): Promise<void> => this.pasteCopiedPage());
+          },
           onDuplicatePage: () => {
             this.runPageOperation(async (): Promise<void> => this.duplicateCurrentPage());
           },
@@ -1914,6 +1932,121 @@ struct NotePage {
     this.historyBridge.pushPageAction(action, history);
     if (contentError !== null) {
       throw new Error(`duplicate page content write failed: ${JSON.stringify(contentError)}`);
+    }
+  }
+
+  // Paste is offered when the process-scoped page clipboard holds a payload
+  // (original: mg2.b != null gates the item); cross-note paste is allowed only
+  // for image-free pages since image assets carry per-note linkage rows.
+  private canPasteCopiedPage(): boolean {
+    const payload: CopiedPagePayload | null = copiedPagePayload();
+    if (payload === null || this.pages.length === 0) {
+      return false;
+    }
+    return payload.noteId === this.noteId || payload.plan.images.length === 0;
+  }
+
+  // Original n9j Copy (ae2 case 2): u5j.e serializes the page payload into the
+  // process-scoped page clipboard mg2.b = dg2 (CopiedPagesData). Harmony stores
+  // the materialized payload — effective background, bookmark, element plan —
+  // deep-cloned so later edits cannot mutate the clipboard record.
+  private async copyCurrentPage(): Promise<void> {
+    if (this.pages.length === 0 || this.historyBridge === null) {
+      return;
+    }
+    const historyBridge: EditorHistoryBridge = this.historyBridge;
+    if (!await historyBridge.flushCurrentPage()) {
+      throw new Error('copyCurrentPage could not flush the current page');
+    }
+    const source: PageInfo = this.pages[this.currentPageIndex];
+    const plan: PageCopyPlan = historyBridge.captureCurrentPageCopyPlan();
+    const payload: CopiedPagePayload = {
+      noteId: this.noteId,
+      sourcePageId: source.pageId,
+      background: duplicatedOriginalPageBackground(source),
+      bookmarked: source.bookmarked === true,
+      plan: plan,
+    };
+    storeCopiedPage(payload);
+    if (!this.editorDisposed) {
+      this.pageClipboardVersion++;
+    }
+  }
+
+  // Original n9j Cut (ae2 case 3): copy into the page clipboard, then apply the
+  // same de2.i delete ops as Delete Pages — so the journal entry is the
+  // existing DELETE_PAGE action and undo restores the page verbatim.
+  private async cutCurrentPage(): Promise<void> {
+    if (this.pages.length === 0 || this.historyBridge === null) {
+      return;
+    }
+    await this.copyCurrentPage();
+    await this.deleteCurrentPage();
+  }
+
+  // Original n9j Paste (mg2.b -> lg2/m1d.c0 apply): replays the clipboard
+  // payload through the same anchored CreatePage + transcode path as
+  // Duplicate. The durable journal is identical (insert one page after the
+  // anchor, hide on undo, restore on redo), so the action reuses
+  // DUPLICATE_PAGE exactly as the original's op stream cannot tell the two
+  // gestures apart.
+  private async pasteCopiedPage(): Promise<void> {
+    const payload: CopiedPagePayload | null = copiedPagePayload();
+    if (this.pageRepo === null || this.pages.length === 0 || this.historyBridge === null ||
+      payload === null) {
+      return;
+    }
+    if (payload.noteId !== this.noteId && payload.plan.images.length > 0) {
+      // Image elements reference content-addressed asset rows that carry a
+      // per-note linkage; copying them across notes needs the asset-link write
+      // (registered follow-up), so this path fails closed.
+      promptAction.showToast({ message: $r('app.string.paste_page_unsupported') });
+      return;
+    }
+    const historyBridge: EditorHistoryBridge = this.historyBridge;
+    if (!await historyBridge.flushCurrentPage()) {
+      throw new Error('pasteCopiedPage could not flush the current page');
+    }
+    const anchorIndex: number = this.currentPageIndex;
+    const anchorPageId: string = this.pages[anchorIndex].pageId;
+    const orderBefore: string[] = this.pageIds(this.pages);
+    const action: DuplicatePageAction = {
+      type: UndoableActionType.DUPLICATE_PAGE,
+      noteId: this.noteId,
+      pageId: anchorPageId,
+      sourcePageId: anchorPageId,
+      pageOrderBefore: orderBefore,
+      pageOrderAfter: orderBefore.slice(),
+    };
+    const history: HistoryMetadata = historyBridge.preparePageAction(action);
+    const pasted: PageInfo = await this.pageRepo.insertCopiedPage(
+      this.noteId, anchorPageId, payload.background, payload.bookmarked, history);
+    action.pageId = pasted.pageId;
+    action.pageOrderAfter = orderBefore.slice(0, anchorIndex + 1)
+      .concat([pasted.pageId]).concat(orderBefore.slice(anchorIndex + 1));
+    let contentError: Object | null = null;
+    if (payload.plan.elementOrder.length > 0) {
+      try {
+        await historyBridge.commitCopiedPageContent(pasted.pageId, payload.plan, history);
+      } catch (e) {
+        contentError = e;
+      }
+    }
+    if (this.editorDisposed) {
+      return;
+    }
+    this.pages = await this.pageRepo.getPages(this.noteId);
+    if (this.editorDisposed) {
+      return;
+    }
+    if (this.pages.length !== action.pageOrderAfter.length ||
+      !this.sameStringArray(this.pageIds(this.pages), action.pageOrderAfter)) {
+      throw new Error('pasted page materialized an unexpected page order');
+    }
+    this.selectPageById(pasted.pageId);
+    this.historyBridge.pushPageAction(action, history);
+    if (contentError !== null) {
+      throw new Error(`paste page content write failed: ${JSON.stringify(contentError)}`);
     }
   }
 

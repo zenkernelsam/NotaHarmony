@@ -161,9 +161,9 @@ check(repo.includes('async duplicatePage(noteId: string, sourcePageId: string'),
   'PageRepositoryImpl.duplicatePage exists');
 check(repo.includes('duplicatedOriginalPageBackground(before[sourceIndex])'),
   'duplicate resolves the source page effective background');
-check(repo.includes('persistOriginalDuplicatePage(store, noteId, sourcePageId, background,'),
+check(repo.includes('persistOriginalDuplicatePage(store, noteId, anchorPageId, background,'),
   'duplicate persists the anchored CreatePage');
-check(repo.includes('after[sourceIndex + 1].pageId !== mutation.page.pageId'),
+check(repo.includes('after[anchorIndex + 1].pageId !== mutation.page.pageId'),
   'duplicate asserts the copy lands immediately after its source');
 check(repo.includes('opType: OpType.DUPLICATE_PAGE'),
   'duplicate appends the DUPLICATE_PAGE companion op');

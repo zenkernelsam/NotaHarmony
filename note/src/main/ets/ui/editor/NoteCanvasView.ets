@@ -49,7 +49,7 @@ import { PaperRenderer } from '../../rendering/PaperRenderer';
 import {
   buildPartialEraseElementReplacementMap, EditorHistoryBridge, GroupElementsAction, HistoryMove,
   OriginalClipboardPasteAction, OriginalHandwritingConversionAction, OriginalPartialEraseAction,
-  PageContentSnapshot,
+  PageContentSnapshot, PageCopyPlan,
   PartialEraseElementReplacement, partialEraseMixedElementOrder, UndoRedoManager,
   UndoableAction, UndoableActionType, validatePartialEraseElementHistoryState,
 } from '../../rendering/UndoRedoManager';
@@ -263,6 +263,22 @@ interface ClipboardSelectionIdSet {
   imageIds: string[];
   mathIds: string[];
   groupIds: string[];
+}
+
+// Bridge-side PageCopyPlan and the persistence-layer OriginalClipboardPastePlan
+// carry the same fields; ArkTS rejects implicit interface assignment, so the
+// plan is re-wrapped explicitly at the persistence boundary.
+function pageCopyPlanToPastePlan(plan: PageCopyPlan): OriginalClipboardPastePlan {
+  return {
+    strokes: plan.strokes,
+    shapes: plan.shapes,
+    textBlocks: plan.textBlocks,
+    images: plan.images,
+    mathBlocks: plan.mathBlocks,
+    elementOrder: plan.elementOrder,
+    groups: plan.groups,
+    topGroupIds: plan.topGroupIds,
+  };
 }
 
 @Component
@@ -549,9 +565,14 @@ export struct NoteCanvasView {
         }
       },
       flushCurrentPage: async (): Promise<boolean> => this.flushCurrentPage(),
+      captureCurrentPageCopyPlan: (): PageCopyPlan => this.currentPageCopyPlan(
+        this.captureCurrentPage()),
       commitDuplicatePageContent: async (pageId: string, snapshot: PageContentSnapshot,
         history: HistoryMetadata): Promise<boolean> =>
         this.commitDuplicatePageContent(pageId, snapshot, history),
+      commitCopiedPageContent: async (pageId: string, plan: PageCopyPlan,
+        history: HistoryMetadata): Promise<boolean> =>
+        this.commitCopiedPageContent(pageId, plan, history),
     });
     this.pageLoadPromise = this.loadNoteData();
   }
@@ -977,6 +998,28 @@ export struct NoteCanvasView {
 
   // 原版 n9j Duplicate（fd2 case5 → de2.r → ae2 默认分支 → m1d.c0 转码应用）：
   // 整页实体的 u5j.e 序列化等价物——把当前页快照按原版转码语义写入新建
+  // Original ae2 case 2 Copy: the page copy plan is the element snapshot plus
+  // the page-local group subgraph (note-scoped selectionGroups filtered to
+  // groups reachable from this page's leaf ids). Used both by Duplicate
+  // (immediate commit) and by the process-scoped page clipboard (Copy).
+  private currentPageCopyPlan(snapshot: PageContentSnapshot): PageCopyPlan {
+    const leafIds: Set<string> = new Set<string>();
+    for (const ref of snapshot.elementOrder) {
+      leafIds.add(ref.elementId);
+    }
+    const graph: ClipboardOriginalGroupGraph | null =
+      originalGroupGraphForPageCopy(this.selectionGroups, leafIds);
+    if (graph === null) {
+      throw new Error('page group graph is not copyable');
+    }
+    return {
+      strokes: snapshot.strokes, shapes: snapshot.shapes, textBlocks: snapshot.textBlocks,
+      images: snapshot.images, mathBlocks: snapshot.mathBlocks,
+      elementOrder: snapshot.elementOrder, groups: graph.groups,
+      topGroupIds: graph.topGroupIds,
+    };
+  }
+
   // 副本页（全新元素身份、组结构经 copyOriginalGroupGraph 自根向下重排）。
   // 目标页必须为空页（由 PageRepositoryImpl.duplicatePage 刚创建）。
   private async commitDuplicatePageContent(pageId: string, snapshot: PageContentSnapshot,
@@ -985,23 +1028,19 @@ export struct NoteCanvasView {
       this.loadedPageId.length === 0) {
       throw new Error('duplicate page content source is stale');
     }
-    const leafIds: Set<string> = new Set<string>();
-    for (const ref of snapshot.elementOrder) {
-      leafIds.add(ref.elementId);
-    }
-    const graph: ClipboardOriginalGroupGraph | null =
-      originalGroupGraphForPageCopy(this.selectionGroups, leafIds);
-    if (graph === null) {
-      throw new Error('duplicate page group graph is not copyable');
-    }
-    const plan: OriginalClipboardPastePlan = {
-      strokes: snapshot.strokes, shapes: snapshot.shapes, textBlocks: snapshot.textBlocks,
-      images: snapshot.images, mathBlocks: snapshot.mathBlocks,
-      elementOrder: snapshot.elementOrder, groups: graph.groups,
-      topGroupIds: graph.topGroupIds,
-    };
+    const plan: PageCopyPlan = this.currentPageCopyPlan(snapshot);
     await this.persistence.commitOriginalDuplicatePageContent(
-      this.noteId, pageId, plan, history);
+      this.noteId, pageId, pageCopyPlanToPastePlan(plan), history);
+    return true;
+  }
+
+  // Original n9j Paste: the stored clipboard plan is written onto the fresh
+  // page through the same transcode; the source page is not the live canvas
+  // page, so no stale-snapshot guard applies.
+  private async commitCopiedPageContent(pageId: string, plan: PageCopyPlan,
+    history: HistoryMetadata): Promise<boolean> {
+    await this.persistence.commitOriginalDuplicatePageContent(
+      this.noteId, pageId, pageCopyPlanToPastePlan(plan), history);
     return true;
   }
 
