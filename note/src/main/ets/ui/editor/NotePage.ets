@@ -22,6 +22,7 @@ import {
 } from '../../rendering/OriginalPageClipboard';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteExporter } from '../../data/NoteExporter';
+import { PageImageExporter, ShareImageFormat } from '../../data/PageImageExporter';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PersistedOriginalNoteTitle } from '../../data/OriginalNoteTitlePersistence';
 import {
@@ -77,12 +78,16 @@ import {
   UndoableActionType,
 } from '../../rendering/UndoRedoManager';
 import { EditorViewModel } from './EditorViewModel';
+import { ThumbnailRenderer } from '../../rendering/ThumbnailRenderer';
 import { EditorToolbar } from './EditorToolbar';
 import { NoteCanvasView } from './NoteCanvasView';
 import { PageManagerBar } from './PageManagerBar';
 import { RecordingPanel } from './RecordingPanel';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+
+// 分享图像导出倍率：pagePixelSize（≈96dpi）×2 ≈ 192dpi 栅格。
+const PAGE_EXPORT_SCALE: number = 2.0;
 
 @Entry
 @Component
@@ -221,6 +226,44 @@ struct NotePage {
       promptAction.showToast({ message: $r('app.string.export_failed') });
       console.error(`share note export failed: ${JSON.stringify(e)}`);
     });
+  }
+
+  // 原版 s6d.JPG/PNG（atc case6/7）：当前页按 pagePixelSize×2 整页
+  // 栅格化（含纸面/PDF 背景/全部元素栈），编码后交系统保存对话框。
+  // 导出色恒取亮主题（原版导出的是笔记固有颜色，不受夜间模式影响）。
+  private shareCurrentPageAsImage(format: string): void {
+    if (this.pages.length === 0 || this.currentPageIndex < 0 ||
+      this.currentPageIndex >= this.pages.length) {
+      return;
+    }
+    const page: PageInfo = this.pages[this.currentPageIndex];
+    const shareFormat: ShareImageFormat = format === 'png' ? 'png' : 'jpeg';
+    const context = getContext(this) as common.UIAbilityContext;
+    const theme: ThemeTokens = ThemeStore.resolve('light', false);
+    const db: DatabaseManager = DatabaseManager.getInstance();
+    const renderer: ThumbnailRenderer = new ThumbnailRenderer();
+    let pixelMap: PixelMap | null = null;
+    renderer.initialize(context)
+      .then(async (): Promise<void> => {
+        pixelMap = await renderer.renderPageExport(this.noteId, this.persistence,
+          page, theme, db, PAGE_EXPORT_SCALE);
+        const exporter: PageImageExporter = new PageImageExporter();
+        const success: boolean = await exporter.exportPageImage(context, pixelMap,
+          this.noteTitle, shareFormat);
+        promptAction.showToast({
+          message: success ? $r('app.string.export_done') : $r('app.string.export_failed'),
+        });
+      })
+      .catch((e: Error) => {
+        promptAction.showToast({ message: $r('app.string.export_failed') });
+        console.error(`share page image export failed: ${JSON.stringify(e)}`);
+      })
+      .finally(async (): Promise<void> => {
+        if (pixelMap !== null) {
+          await pixelMap.release();
+        }
+        await renderer.dispose();
+      });
   }
 
   aboutToAppear(): void {
@@ -1268,6 +1311,14 @@ struct NotePage {
               return;
             }
             this.shareNoteAsFile();
+          },
+          // 原版 s6d.JPG/PNG：分享面板图像格式行，导出当前页栅格。
+          onShareImage: (format: string) => {
+            if (this.photoImportLeaseActive || this.pageOperationBusy ||
+              this.historyPending) {
+              return;
+            }
+            this.shareCurrentPageAsImage(format);
           },
           onInsertMath: () => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||

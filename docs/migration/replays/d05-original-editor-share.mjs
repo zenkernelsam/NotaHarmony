@@ -13,10 +13,11 @@
 // Harmony 对齐（fail-closed 子集，见 ADR-0608）：
 //   * EditorToolbar 在 Redo 之后渲染 48vp Share 按钮（↗ 图标 +
 //     cd_share_action 无障碍），点击打开 bindSheet 分享面板；
-//   * 面板按 s6d 原序列出 LINK/PDF/NOTE/JPG/PNG 五行；NOTE 行可点，
-//     复用库级 NoteExporter.exportToFile 管线（.note 包 + 系统保存对话框 +
-//     export_done/export_failed toast）；LINK/PDF/JPG/PNG 置灰并标注
-//     暂不支持（PDF/JPG/PNG 需页级栅格化器，LINK 需账号后端）；
+//   * 面板按 s6d 原序列出 LINK/PDF/NOTE/JPG/PNG 五行；NOTE 行复用库级
+//     NoteExporter.exportToFile 管线（.note 包 + 系统保存对话框 +
+//     export_done/export_failed toast）；JPG/PNG 行自 Phase 642 起走
+//     当前页整页栅格化导出；LINK/PDF 置灰并标注暂不支持
+//     （PDF 需 PDF 编码器，LINK 需账号后端）；
 //   * NotePage.onShareNote 走 photoImportLeaseActive/pageOperationBusy/
 //     historyPending 门禁后调 shareNoteAsFile()。
 import assert from 'node:assert/strict';
@@ -92,22 +93,25 @@ check(toolbar.includes('onShareNote: () => void'),
   'EditorToolbar exposes the NOTE-format export callback');
 check(toolbar.includes('.bindSheet(this.showShareSheet, this.buildShareSheet()'),
   'share panel binds as a sheet on the toolbar');
-check(toolbar.indexOf("ShareFormatRow($r('app.string.share_link'), false)") <
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_pdf'), false)") &&
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_pdf'), false)") <
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_note'), true)") &&
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_note'), true)") <
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_jpg'), false)") &&
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_jpg'), false)") <
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_png'), false)"),
+check(toolbar.indexOf("ShareFormatRow($r('app.string.share_link'), 'link', false)") <
+  toolbar.indexOf("ShareFormatRow($r('app.string.share_pdf'), 'pdf', false)") &&
+  toolbar.indexOf("ShareFormatRow($r('app.string.share_pdf'), 'pdf', false)") <
+  toolbar.indexOf("ShareFormatRow($r('app.string.share_note'), 'note', true)") &&
+  toolbar.indexOf("ShareFormatRow($r('app.string.share_note'), 'note', true)") <
+  toolbar.indexOf("ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)") &&
+  toolbar.indexOf("ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)") <
+  toolbar.indexOf("ShareFormatRow($r('app.string.share_png'), 'png', true)"),
   'share sheet lists all five formats in the original s6d order');
-check(toolbar.includes("ShareFormatRow($r('app.string.share_note'), true)"),
-  'only the NOTE format row is enabled');
+check(toolbar.includes("ShareFormatRow($r('app.string.share_note'), 'note', true)") &&
+  toolbar.includes("ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)") &&
+  toolbar.includes("ShareFormatRow($r('app.string.share_png'), 'png', true)"),
+  'NOTE, JPG and PNG format rows are enabled (Phase 642 lit the raster pair)');
 check(toolbar.includes('.opacity(supported ? 1 : 0.4)') &&
   toolbar.includes('share_format_unsupported'),
   'unsupported formats render dimmed with an unsupported caption');
-check(toolbar.includes('this.showShareSheet = false;\n      this.onShareNote();'),
-  'tapping NOTE closes the sheet and exports');
+check(toolbar.includes('this.showShareSheet = false;\n      if (format === \'note\') {') &&
+  toolbar.includes('this.onShareImage(format);'),
+  'enabled rows close the sheet and dispatch to the format export');
 
 // --- Harmony：NotePage 接线与导出管线 ---
 check(notePage.includes('onShareNote: () => {') &&

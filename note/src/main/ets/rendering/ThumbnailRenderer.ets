@@ -34,6 +34,9 @@ import { PdfRasterRequest } from './PdfRasterPlan';
 const THUMB_W: number = 300;
 const THUMB_H: number = 400;
 const MARGIN: number = 8;
+// 分享导出栅格上限（独立于页缓存 2048/2M 预算）：A4@2x ≈ 1588×2244。
+const EXPORT_MAX_SIDE: number = 4096;
+const EXPORT_MAX_PIXELS: number = 16000000;
 
 export class ThumbnailRenderer {
   private transferTracker: BitmapTransferTracker = new BitmapTransferTracker();
@@ -93,6 +96,44 @@ export class ThumbnailRenderer {
     if (this.disposed) {
       throw new Error('ThumbnailRenderer is disposed');
     }
+    const pageSize: PagePixelSize = pagePixelSize(page.widthMm, page.heightMm);
+    const pageTransform: ThumbnailPageTransform = fitPageInThumbnail(
+      pageSize.width, pageSize.height, THUMB_W, THUMB_H, MARGIN);
+    return this.renderPageCore(noteId, persistence, page, theme, database,
+      pageSize, THUMB_W, THUMB_H, pageTransform);
+  }
+
+  // 原版分享面板 JPG/PNG（s6d，atc case6/7）：整页按 pagePixelSize×scale
+  // 逐像素栅格化（无边距、无 letterbox），供分享导出。
+  // The caller owns the returned PixelMap and must release it.
+  async renderPageExport(noteId: string, persistence: StrokePersistence,
+    page: PageInfo, theme: ThemeTokens, database: DatabaseManager,
+    scale: number): Promise<PixelMap> {
+    if (this.disposed) {
+      throw new Error('ThumbnailRenderer is disposed');
+    }
+    if (!Number.isFinite(scale) || scale <= 0) {
+      throw new Error(`Invalid export scale: ${scale}`);
+    }
+    const pageSize: PagePixelSize = pagePixelSize(page.widthMm, page.heightMm);
+    const outW: number = Math.round(pageSize.width * scale);
+    const outH: number = Math.round(pageSize.height * scale);
+    if (outW <= 0 || outH <= 0 || outW > EXPORT_MAX_SIDE || outH > EXPORT_MAX_SIDE ||
+      outW * outH > EXPORT_MAX_PIXELS) {
+      throw new Error(`Export raster budget exceeded: ${outW}x${outH}`);
+    }
+    const pageTransform: ThumbnailPageTransform = {
+      scale: scale,
+      offset: { x: 0, y: 0 },
+    };
+    return this.renderPageCore(noteId, persistence, page, theme, database,
+      pageSize, outW, outH, pageTransform);
+  }
+
+  private async renderPageCore(noteId: string, persistence: StrokePersistence,
+    page: PageInfo, theme: ThemeTokens, database: DatabaseManager,
+    pageSize: PagePixelSize, outW: number, outH: number,
+    pageTransform: ThumbnailPageTransform): Promise<PixelMap> {
     const loaded = await persistence.loadElements(noteId, page.pageId);
     const imageLoader: ImageAssetLoader = new ImageAssetLoader(database);
     const pdfLoader: PdfBackgroundLoader = new PdfBackgroundLoader(database);
@@ -100,9 +141,6 @@ export class ThumbnailRenderer {
     let pdfBackground: LoadedPdfBackground | null = null;
     let paperTexture: LoadedOriginalPaperTexture | null = null;
     try {
-      const pageSize: PagePixelSize = pagePixelSize(page.widthMm, page.heightMm);
-      const pageTransform: ThumbnailPageTransform = fitPageInThumbnail(
-        pageSize.width, pageSize.height, THUMB_W, THUMB_H, MARGIN);
       for (const block of loaded.images) {
         const storageHash: string = originalAssetStorageHash(block.assetHashBits);
         if (!imageAssets.has(storageHash)) {
@@ -131,10 +169,10 @@ export class ThumbnailRenderer {
           console.warn(`Thumbnail legacy paper texture unavailable: ${JSON.stringify(error)}`);
         }
       }
-      const canvas: OffscreenCanvas = new OffscreenCanvas(THUMB_W, THUMB_H);
+      const canvas: OffscreenCanvas = new OffscreenCanvas(outW, outH);
       const ctx: OffscreenCanvasRenderingContext2D =
         canvas.getContext('2d', new RenderingContextSettings(true));
-      ctx.clearRect(0, 0, THUMB_W, THUMB_H);
+      ctx.clearRect(0, 0, outW, outH);
       ctx.save();
       try {
         ctx.translate(pageTransform.offset.x, pageTransform.offset.y);
@@ -170,15 +208,15 @@ export class ThumbnailRenderer {
         ctx.restore();
       }
 
-      const imageData: ImageData = ctx.getImageData(0, 0, THUMB_W, THUMB_H);
-      const copyBuffer: ArrayBuffer = new ArrayBuffer(THUMB_W * THUMB_H * 4);
+      const imageData: ImageData = ctx.getImageData(0, 0, outW, outH);
+      const copyBuffer: ArrayBuffer = new ArrayBuffer(outW * outH * 4);
       const copy: Uint8Array = new Uint8Array(copyBuffer);
       const rawData: Uint8ClampedArray = imageData.data;
       for (let i: number = 0; i < rawData.length; i++) {
         copy[i] = rawData[i];
       }
       return image.createPixelMap(copyBuffer, {
-        size: { width: THUMB_W, height: THUMB_H },
+        size: { width: outW, height: outH },
         srcPixelFormat: image.PixelMapFormat.RGBA_8888,
         pixelFormat: image.PixelMapFormat.RGBA_8888,
         editable: false,

@@ -36,6 +36,10 @@ export struct EditorToolbar {
   // 分享面板中唯一可由本端管线产出的格式为 .note 包。
   onShareNote: () => void = () => {
   };
+  // 原版 s6d.JPG/PNG（atc case6/7）：当前页整页栅格化导出图像。
+  // format 取值 'jpg' | 'png'。
+  onShareImage: (format: string) => void = (_format: string): void => {
+  };
   @Prop selectionColor: number = -16777216;
   @Prop selectionWidth: number = 5;
   @Prop selectionWidthMinimum: number = 0.5;
@@ -487,8 +491,9 @@ export struct EditorToolbar {
   }
 
   // 原版 s6d 分享格式序：LINK、PDF、NOTE、JPG、PNG（atc case3~7）。
-  // 仅 NOTE 可由既有 NoteExporter 管线产出；其余格式 fail-closed
-  // 置灰（PDF/JPG/PNG 需页级栅格化器、LINK 需账号/链接后端，见 ADR-0608）。
+  // NOTE 走既有 NoteExporter 管线；JPG/PNG 走页级栅格化导出
+  // （Phase 642）；LINK/PDF 置灰 fail-closed（账号后端/PDF 编码器未备，
+  // 见 ADR-0608/0609）。
   @Builder
   buildShareSheet() {
     Column() {
@@ -496,11 +501,11 @@ export struct EditorToolbar {
         .fontSize(16)
         .fontColor(this.resolveTokens().textPrimary)
         .margin({ top: 16, bottom: 12 })
-      this.ShareFormatRow($r('app.string.share_link'), false)
-      this.ShareFormatRow($r('app.string.share_pdf'), false)
-      this.ShareFormatRow($r('app.string.share_note'), true)
-      this.ShareFormatRow($r('app.string.share_jpg'), false)
-      this.ShareFormatRow($r('app.string.share_png'), false)
+      this.ShareFormatRow($r('app.string.share_link'), 'link', false)
+      this.ShareFormatRow($r('app.string.share_pdf'), 'pdf', false)
+      this.ShareFormatRow($r('app.string.share_note'), 'note', true)
+      this.ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)
+      this.ShareFormatRow($r('app.string.share_png'), 'png', true)
     }
     .width('100%')
     .padding({ bottom: 24 })
@@ -508,7 +513,7 @@ export struct EditorToolbar {
   }
 
   @Builder
-  ShareFormatRow(label: ResourceStr, supported: boolean) {
+  ShareFormatRow(label: ResourceStr, format: string, supported: boolean) {
     Row() {
       Text(label)
         .fontSize(15)
@@ -529,7 +534,11 @@ export struct EditorToolbar {
         return;
       }
       this.showShareSheet = false;
-      this.onShareNote();
+      if (format === 'note') {
+        this.onShareNote();
+      } else {
+        this.onShareImage(format);
+      }
     })
   }
 
