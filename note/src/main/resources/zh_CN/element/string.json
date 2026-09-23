@@ -136,7 +136,6 @@
     { "name": "cut_page", "value": "剪切" },
     { "name": "copy_page", "value": "拷贝" },
     { "name": "paste_page", "value": "粘贴" },
-    { "name": "paste_page_unsupported", "value": "暂不支持跨笔记粘贴含图片的页面" },
     { "name": "duplicate_page", "value": "复制页面" },
     { "name": "rotate_page", "value": "旋转页面" },
     { "name": "clear_page", "value": "清空页面" },

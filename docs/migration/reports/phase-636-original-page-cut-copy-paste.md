@@ -44,7 +44,9 @@ Duplicate、Rotate Page、Create Template（内部旗标）、Clear Page。
 ## 已知差异（fail-closed，见 ADR-0603）
 
 - 剪贴板存物化负载（背景+元素计划）而非 op 流；转码重放语义一致。
-- 含图片页暂不支持跨笔记粘贴（资产行按笔记链接）；无图片页可跨笔记。
+- ~~含图片页暂不支持跨笔记粘贴（资产行按笔记链接）；无图片页可跨笔记。~~
+  Phase 639 复核：链接写入本就在 CREATE_BLOCK/CREATE_PAGE 应用器内，
+  闸门已移除（ADR-0606）。
 
 ## 验证
 

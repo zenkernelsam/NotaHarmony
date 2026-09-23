@@ -545,10 +545,6 @@
       "value": "Paste"
     },
     {
-      "name": "paste_page_unsupported",
-      "value": "Pasting pages with images across notes is not supported yet"
-    },
-    {
       "name": "duplicate_page",
       "value": "Duplicate"
     },

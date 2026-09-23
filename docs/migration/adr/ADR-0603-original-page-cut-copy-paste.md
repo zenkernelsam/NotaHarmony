@@ -34,10 +34,12 @@ Phase 635 落地 Duplicate 后仍缺这组页剪贴板动作。原版实现（`a
 5. **菜单顺序与可见性**：PageManagerBar 菜单按原版顺序插入
    Cut、Copy，Paste 仅在 `canPastePage`（剪贴板非空且目标可行）时
    插入 Copy 与 Duplicate 之间。
-6. **跨笔记限制（fail-closed）**：`mg2` 是应用级剪贴板，原版支持
-   跨笔记粘贴。Harmony 图片元素引用按笔记链接的内容寻址资产行，
-   跨笔记写页需补资产链接；本阶段允许**无图片页**跨笔记粘贴，含图
-   页跨笔记 fail-closed 并 toast 提示。
+6. **跨笔记限制（fail-closed，已被 ADR-0606 取代）**：`mg2` 是应用级
+   剪贴板，原版支持跨笔记粘贴。Phase 636 曾按"图片资产行按笔记链接"
+   的推断把含图页跨笔记 fail-closed；Phase 639 复核发现链接写入本就
+   在 `OriginalCreateBlockOperationApplier.mergeImageAssetReference`
+   与 `OriginalCreatePageOperationApplier.mergePdfAsset` 内部，闸门系
+   过度保守，已移除（见 ADR-0606）。
 
 ## 后果
 
@@ -47,4 +49,5 @@ Phase 635 落地 Duplicate 后仍缺这组页剪贴板动作。原版实现（`a
 - `EditorHistoryBridge` 增 `captureCurrentPageCopyPlan` /
   `commitCopiedPageContent`；`PageCopyPlan` 为桥接侧计划类型，
   `pageCopyPlanToPastePlan` 在持久化边界显式重包（ArkTS 禁结构类型）。
-- 后续项：含图页跨笔记粘贴需补资产链接行写入。
+- ~~后续项：含图页跨笔记粘贴需补资产链接行写入~~ —— 已在 Phase 639
+  闭环：链接写入一直存在，闸门移除（ADR-0606）。

@@ -23,8 +23,12 @@
 //     DUPLICATE_PAGE 伴随 op ——与 Duplicate 同型日志，恰如原版两条手势
 //     产出同一 op 流）+ commitCopiedPageContent 转码写入；
 //   * PageManagerBar 菜单顺序对齐原版，Paste 仅剪贴板非空时出现；
-//   * 跨笔记粘贴仅允许无图片页（图片资产行为按笔记链接，fail-closed 差异
-//     见 ADR-0603）。
+//   * Phase 639：跨笔记粘贴完全放开——含图片/PDF 背景页同样可贴。剪贴板
+//     op 流不携带笔记绑定（dg2 = CopiedPagesData { ops, pageCount }），原版
+//     贴到哪个笔记就应用进哪个 x09；Harmony 侧 CREATE_BLOCK 应用器的
+//     mergeImageAssetReference 与 CREATE_PAGE 应用器的 mergePdfAsset 会把
+//     资产行 note_ids 合并进目标笔记，资产字节本来就存放在全局
+//     内容寻址 assets/final/<sha512>，故跨笔记引用按构造一致。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
@@ -51,6 +55,10 @@ const pageBar = fs.readFileSync('note/src/main/ets/ui/editor/PageManagerBar.ets'
   .replaceAll('\r\n', '\n');
 const stringsBase = fs.readFileSync('note/src/main/resources/base/element/string.json', 'utf8');
 const stringsZh = fs.readFileSync('note/src/main/resources/zh_CN/element/string.json', 'utf8');
+const createBlock = fs.readFileSync('note/src/main/ets/data/OriginalCreateBlockOperation.ets', 'utf8')
+  .replaceAll('\r\n', '\n');
+const createPage = fs.readFileSync('note/src/main/ets/data/OriginalCreatePageOperation.ets', 'utf8')
+  .replaceAll('\r\n', '\n');
 
 let total = 0;
 function check(condition, label) {
@@ -166,10 +174,17 @@ check(notePage.includes('await historyBridge.commitCopiedPageContent(pasted.page
 check(notePage.includes("type: UndoableActionType.DUPLICATE_PAGE") &&
   notePage.indexOf('private async pasteCopiedPage') > notePage.indexOf('private async copyCurrentPage'),
   'paste reuses the DUPLICATE_PAGE action (identical durable journal)');
-check(notePage.includes('payload.noteId !== this.noteId && payload.plan.images.length > 0'),
-  'image-bearing pages fail closed across notes (asset linkage)');
-check(notePage.includes('payload.noteId === this.noteId || payload.plan.images.length === 0'),
-  'canPasteCopiedPage allows image-free cross-note paste');
+check(!notePage.includes('payload.plan.images.length > 0') &&
+  !notePage.includes('paste_page_unsupported'),
+  'cross-note paste gate removed (Phase 639: linkage is written by the appliers)');
+check(notePage.includes('return payload !== null && this.pages.length > 0;'),
+  'canPasteCopiedPage allows every clipboard payload cross-note');
+check(createBlock.includes('mergeImageAssetReference(\n        store, operation.noteId, payload.image') &&
+  createBlock.includes("mergeNoteIds(row.noteIds, [noteId])"),
+  'CREATE_BLOCK applier merges the image asset note_ids into the target note');
+check(createPage.includes('mergePdfAsset') &&
+  createPage.includes('mergeOriginalAssetReference(\n      store, noteId, background.background.pdf.metadata)'),
+  'CREATE_PAGE applier merges the PDF background asset into the target note');
 check(notePage.includes('this.pageClipboardVersion++'),
   'copy bumps the clipboard version to refresh the menu gate');
 
@@ -196,7 +211,8 @@ check(stringsBase.includes('"cut_page"') && stringsBase.includes('"Copy"') &&
   'base resources carry cut/copy/paste labels');
 check(stringsZh.includes('剪切') && stringsZh.includes('拷贝') && stringsZh.includes('粘贴'),
   'zh_CN resources carry localized cut/copy/paste labels');
-check(stringsBase.includes('"paste_page_unsupported"'),
-  'base resources carry the cross-note image gate message');
+check(!stringsBase.includes('paste_page_unsupported') &&
+  !stringsZh.includes('paste_page_unsupported'),
+  'cross-note gate message removed with the gate');
 
 console.log(`D04_ORIGINAL_PAGE_CUT_COPY_PASTE_REPLAY_OK TOTAL=${total} FAILED=0`);

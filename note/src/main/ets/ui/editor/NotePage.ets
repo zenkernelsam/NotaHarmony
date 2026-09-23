@@ -1969,14 +1969,14 @@ struct NotePage {
   }
 
   // Paste is offered when the process-scoped page clipboard holds a payload
-  // (original: mg2.b != null gates the item); cross-note paste is allowed only
-  // for image-free pages since image assets carry per-note linkage rows.
+  // (original: mg2.b != null gates the item). Cross-note paste is allowed for
+  // every payload: the copied page's image and PDF-asset references are merged
+  // into the target note by mergeImageAssetReference/mergePdfAsset inside the
+  // CREATE_BLOCK/CREATE_PAGE appliers, and the bytes live in the shared
+  // content-addressed asset store.
   private canPasteCopiedPage(): boolean {
     const payload: CopiedPagePayload | null = copiedPagePayload();
-    if (payload === null || this.pages.length === 0) {
-      return false;
-    }
-    return payload.noteId === this.noteId || payload.plan.images.length === 0;
+    return payload !== null && this.pages.length > 0;
   }
 
   // Original n9j Copy (ae2 case 2): u5j.e serializes the page payload into the
@@ -2027,13 +2027,6 @@ struct NotePage {
     const payload: CopiedPagePayload | null = copiedPagePayload();
     if (this.pageRepo === null || this.pages.length === 0 || this.historyBridge === null ||
       payload === null) {
-      return;
-    }
-    if (payload.noteId !== this.noteId && payload.plan.images.length > 0) {
-      // Image elements reference content-addressed asset rows that carry a
-      // per-note linkage; copying them across notes needs the asset-link write
-      // (registered follow-up), so this path fails closed.
-      promptAction.showToast({ message: $r('app.string.paste_page_unsupported') });
       return;
     }
     const historyBridge: EditorHistoryBridge = this.historyBridge;
