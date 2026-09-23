@@ -76,6 +76,16 @@ export interface PageRepository {
   // DUPLICATE_PAGE redo: restores the hidden duplicate's visibility.
   restoreDuplicatedPage(noteId: string, pageId: string,
     history: HistoryMetadata): Promise<void>;
+  // Original de2.i delete-compensation: deleting a page while the note has at
+  // most two pages also inserts a blank page at the victim's slot
+  // (u5j.i(x09, size - 1, 0, 14)), so the note always retains a page. The
+  // compound journals a single DELETE_PAGE_COMPENSATION companion.
+  deletePageWithCompensation(noteId: string, pageId: string,
+    history: HistoryMetadata): Promise<PageInfo>;
+  undoDeletePageWithCompensation(noteId: string, actionId: string,
+    compensationPageId: string, history: HistoryMetadata): Promise<void>;
+  redoDeletePageWithCompensation(noteId: string, actionId: string,
+    compensationPage: PageInfo, history: HistoryMetadata): Promise<void>;
 }
 
 export interface ToolRepository {

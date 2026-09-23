@@ -1717,7 +1717,10 @@ struct NotePage {
   }
 
   private async deleteCurrentPage(): Promise<void> {
-    if (this.pageRepo === null || this.pages.length <= 1 || this.historyBridge === null) {
+    // Original de2.i: deleting is never blocked by page count — when the
+    // remainder would drop below two, the same op stream inserts a blank
+    // compensation page (u5j.i at size - 1), so the note always retains one.
+    if (this.pageRepo === null || this.pages.length === 0 || this.historyBridge === null) {
       return;
     }
     this.pageStructureLeaseActive = true;
@@ -1733,9 +1736,13 @@ struct NotePage {
     const deletedPage: PageInfo = this.clonePage(this.pages[this.currentPageIndex]);
     const pageId: string = deletedPage.pageId;
     const orderBefore: string[] = this.pageIds(this.pages);
+    // de2.i: `list2.size() - list.size() < 2` — for a single-page delete the
+    // compensation fires exactly when the note holds at most two pages.
+    const compensated: boolean = orderBefore.length <= 2;
     const orderAfter: string[] = orderBefore.filter((id: string): boolean => id !== pageId);
     const selectedBefore: string = pageId;
-    const selectedAfter: string = orderAfter[Math.min(this.currentPageIndex, orderAfter.length - 1)];
+    const selectedAfter: string = compensated ? pageId :
+      orderAfter[Math.min(this.currentPageIndex, orderAfter.length - 1)];
     if (!await historyBridge.flushCurrentPage()) {
       throw new Error('deleteCurrentPage could not flush the current page');
     }
@@ -1749,7 +1756,7 @@ struct NotePage {
       pageId: pageId,
       pageBefore: deletedPage,
       pageOrderBefore: orderBefore,
-      pageOrderAfter: orderAfter,
+      pageOrderAfter: compensated ? orderBefore.slice() : orderAfter,
       pageStrokes: snapshot.strokes,
       pageTextBlocks: snapshot.textBlocks,
       pageShapes: snapshot.shapes,
@@ -1761,12 +1768,17 @@ struct NotePage {
     };
     const history: HistoryMetadata = historyBridge.preparePageAction(action);
     historyBridge.preparePageRemoval(pageId);
+    let compensation: PageInfo | null = null;
     try {
       const pageRepository: PageRepositoryImpl | null = this.pageRepo;
       if (pageRepository === null) {
         return;
       }
-      await pageRepository.deletePageWithCheckpoint(this.noteId, pageId, history);
+      if (compensated) {
+        compensation = await pageRepository.deletePageWithCompensation(this.noteId, pageId, history);
+      } else {
+        await pageRepository.deletePageWithCheckpoint(this.noteId, pageId, history);
+      }
     } catch (e) {
       historyBridge.cancelPageRemoval(pageId);
       throw new Error(`deleteCurrentPage failed: ${JSON.stringify(e)}`);
@@ -1780,8 +1792,18 @@ struct NotePage {
         updated.push(p);
       }
     }
+    if (compensation !== null) {
+      updated.splice(Math.min(orderBefore.indexOf(pageId), updated.length), 0, compensation);
+      for (let index: number = 0; index < updated.length; index++) {
+        updated[index] = this.clonePage(updated[index]);
+        updated[index].pageIndex = index;
+      }
+      action.compensationPage = this.clonePage(compensation);
+      action.pageOrderAfter = this.pageIds(updated);
+      action.selectedPageIdAfter = compensation.pageId;
+    }
     this.pages = updated;
-    this.selectPageById(selectedAfter);
+    this.selectPageById(compensation !== null ? compensation.pageId : selectedAfter);
     historyBridge.pushPageAction(action, history);
     // 原版 n9j：页删除成功经 snackbar 提示 content_manager_page_deleted（Harmony 用 toast）。
     if (!this.editorDisposed) {
@@ -2191,6 +2213,16 @@ struct NotePage {
       const targetOrder: string[] = isUndo ? action.pageOrderBefore : action.pageOrderAfter;
       const sourceSelection: string = isUndo ? action.selectedPageIdAfter : action.selectedPageIdBefore;
       const targetSelection: string = isUndo ? action.selectedPageIdBefore : action.selectedPageIdAfter;
+      if (action.compensationPage !== undefined && action.compensationPage !== null) {
+        const compensationId: string = action.compensationPage.pageId;
+        return action.pageId === action.pageBefore.pageId &&
+          compensationId.length !== 0 && compensationId !== action.pageId &&
+          this.sameStringArray(currentOrder, sourceOrder) &&
+          this.isDeleteCompensationTransition(sourceOrder, targetOrder, action.pageId,
+            compensationId, !isUndo) &&
+          this.countString(sourceOrder, sourceSelection) === 1 &&
+          this.countString(targetOrder, targetSelection) === 1;
+      }
       return action.pageId === action.pageBefore.pageId && this.sameStringArray(currentOrder, sourceOrder) &&
         this.isSinglePageTransition(sourceOrder, targetOrder, action.pageId, !isUndo) &&
         this.countString(sourceOrder, sourceSelection) === 1 && this.countString(targetOrder, targetSelection) === 1;
@@ -2281,6 +2313,27 @@ struct NotePage {
       }
     }
     return this.sameStringArray(withoutPage, sourceContainsPage ? target : source);
+  }
+
+  // A compensated delete swaps exactly one member in-place: the victim's slot
+  // becomes the blank's slot and every other page keeps its index.
+  private isDeleteCompensationTransition(source: string[], target: string[],
+    deletedId: string, compensationId: string, sourceContainsDeleted: boolean): boolean {
+    if (!this.hasUniqueStrings(source) || !this.hasUniqueStrings(target) ||
+      source.length !== target.length || source.length === 0) {
+      return false;
+    }
+    const sourceId: string = sourceContainsDeleted ? deletedId : compensationId;
+    const targetId: string = sourceContainsDeleted ? compensationId : deletedId;
+    if (this.countString(source, sourceId) !== 1 || this.countString(source, targetId) !== 0 ||
+      this.countString(target, targetId) !== 1 || this.countString(target, sourceId) !== 0) {
+      return false;
+    }
+    const expected: string[] = [];
+    for (const id of source) {
+      expected.push(id === sourceId ? targetId : id);
+    }
+    return this.sameStringArray(expected, target);
   }
 
   private sameStringMembers(a: string[], b: string[]): boolean {
@@ -2380,6 +2433,10 @@ struct NotePage {
     if (this.pageRepo === null) {
       return false;
     }
+    if (action.compensationPage !== undefined && action.compensationPage !== null) {
+      return await this.applyDeletePageCompensationHistory(action, action.compensationPage,
+        isUndo, history);
+    }
     if (isUndo) {
       await this.pageRepo.restoreDeletedPage(this.noteId, history.actionId, history);
       if (this.editorDisposed) {
@@ -2402,6 +2459,56 @@ struct NotePage {
     }
     this.pages = this.orderPages(this.pages.filter((page: PageInfo) => page.pageId !== action.pageId),
       action.pageOrderAfter);
+    this.selectPageById(action.selectedPageIdAfter);
+    return true;
+  }
+
+  // Original de2.i: undo of a compensated delete removes the blank and
+  // restores the victim; redo deletes the victim and recreates the blank.
+  private async applyDeletePageCompensationHistory(action: DeletePageAction,
+    compensationPage: PageInfo, isUndo: boolean, history: HistoryMetadata): Promise<boolean> {
+    const pageRepository: PageRepositoryImpl | null = this.pageRepo;
+    if (pageRepository === null) {
+      return false;
+    }
+    if (isUndo) {
+      if (this.historyBridge !== null &&
+        this.pages[this.currentPageIndex]?.pageId === compensationPage.pageId) {
+        this.historyBridge.preparePageRemoval(compensationPage.pageId);
+      }
+      await pageRepository.undoDeletePageWithCompensation(this.noteId, history.actionId,
+        compensationPage.pageId, history);
+      if (this.editorDisposed) {
+        return false;
+      }
+      const restored: PageInfo[] = [];
+      for (const page of this.pages) {
+        if (page.pageId !== compensationPage.pageId) {
+          restored.push(page);
+        }
+      }
+      restored.push(this.clonePage(action.pageBefore));
+      this.pages = this.orderPages(restored, action.pageOrderBefore);
+      this.selectPageById(action.selectedPageIdBefore);
+      return true;
+    }
+    if (this.historyBridge !== null &&
+      this.pages[this.currentPageIndex]?.pageId === action.pageId) {
+      this.historyBridge.preparePageRemoval(action.pageId);
+    }
+    await pageRepository.redoDeletePageWithCompensation(this.noteId, history.actionId,
+      compensationPage, history);
+    if (this.editorDisposed) {
+      return false;
+    }
+    const updated: PageInfo[] = [];
+    for (const page of this.pages) {
+      if (page.pageId !== action.pageId) {
+        updated.push(page);
+      }
+    }
+    updated.push(this.clonePage(compensationPage));
+    this.pages = this.orderPages(updated, action.pageOrderAfter);
     this.selectPageById(action.selectedPageIdAfter);
     return true;
   }

@@ -7,8 +7,10 @@ const bar = fs.readFileSync('note/src/main/ets/ui/editor/PageManagerBar.ets', 'u
 const deleteStart = bar.indexOf("Button($r('app.string.delete'))");
 const deleteEnd = bar.indexOf('\n      }\n    }\n    .width', deleteStart);
 const deleteButton = bar.slice(deleteStart, deleteEnd);
+// Original de2.i compensation: Delete stays enabled at one page (the same op
+// stream inserts a blank), so only the shared ingress lease gates it.
 assert.match(deleteButton,
-  /\.enabled\(!this\.busy && !this\.photoImportLeaseActive &&\s+this\.pageCount > 1\)/);
+  /\.enabled\(!this\.busy && !this\.photoImportLeaseActive\)/);
 
 const menuStart = bar.indexOf('private buildPageMenu(): MenuElement[] {');
 const menuEnd = bar.indexOf('\n  }\n\n  @Builder\n  PageSettingsBuilder', menuStart);
@@ -28,12 +30,15 @@ const deleteMenuGuard = menu.slice(
 for (const [name, guard] of [
   ['move previous', movePreviousGuard],
   ['move next', moveNextGuard],
-  ['delete page', deleteMenuGuard],
 ]) {
   assert.match(guard,
     /if \(!this\.busy && !this\.photoImportLeaseActive &&/,
     name);
 }
+// de2.i compensation removed the pageCount gate on delete; the menu item
+// now uses the plain fail-closed shared-ingress check.
+assert.match(deleteMenuGuard,
+  /if \(this\.busy \|\| this\.photoImportLeaseActive\) \{/);
 
 for (const [label, forward] of [
   ['earlier', 'this.onMovePrevious();'],

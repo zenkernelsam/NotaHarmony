@@ -13,6 +13,11 @@ export enum OpType {
   // (classifyPageStructureMutation cannot express it — its CREATE_PAGE
   // materialization requires a tail insert).
   DUPLICATE_PAGE = 4,
+  // Harmony history companion for the original de2.i delete-compensation
+  // transaction: a page delete that would leave fewer than two pages also
+  // inserts a blank page at the victim's slot (u5j.i), a two-membership
+  // change classifyPageStructureMutation cannot express.
+  DELETE_PAGE_COMPENSATION = 5,
   // 元素操作
   INSERT_ELEMENTS = 10,
   DELETE_ELEMENTS = 11,

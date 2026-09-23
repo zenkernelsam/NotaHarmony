@@ -76,9 +76,12 @@ assert.ok(removeAwait !== -1 && removeGuard > removeAwait &&
 assert.ok(durableRepositoryGuard > removeAwait, 'durable delete rechecks the captured repository');
 assert.match(remove, /catch \(e\) \{\s+historyBridge\.cancelPageRemoval\(pageId\);/);
 const publishIndex = remove.indexOf('this.pages = updated;');
-assert.ok(remove.indexOf("selectedAfter: string = orderAfter[") >= 0 && publishIndex > 0);
+// de2.i compensation: the captured successor is used for plain deletes, the
+// returned blank page becomes the selection for compensated deletes.
+assert.ok(remove.indexOf("selectedAfter: string = compensated ? pageId :") >= 0 &&
+  publishIndex > 0);
 assert.match(remove.slice(publishIndex),
-  /this\.selectPageById\(selectedAfter\);/,
+  /this\.selectPageById\(compensation !== null \? compensation\.pageId : selectedAfter\);/,
   'post-deletion selection uses the captured successor ID');
 
 const move = section('  private async moveCurrentPage(', '  private async applyPageHistory(');

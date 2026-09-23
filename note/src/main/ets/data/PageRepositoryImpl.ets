@@ -36,6 +36,9 @@ import {
   DuplicatePageMutation, encodeDuplicatePageMutation,
 } from './DuplicatePageOpCodec';
 import {
+  DeletePageCompensationMutation, encodeDeletePageCompensationMutation,
+} from './DeletePageCompensationOpCodec';
+import {
   persistOriginalNoteBackground, PersistedOriginalNoteBackground,
 } from './OriginalNoteBackgroundPersistence';
 import { assertLivePageElementIdsAvailable } from './PageElementIdentity';
@@ -318,20 +321,7 @@ export class PageRepositoryImpl implements PageRepository {
           await store.commit();
           return;
         }
-        for (let index: number = 0; index < before.length; index++) {
-          await this.updatePageIndex(store, noteId, before[index].pageId, -(index + 1));
-        }
-        await this.insertCheckpointPage(store, checkpoint);
-        let existingIndex: number = 0;
-        for (let targetIndex: number = 0; targetIndex <= before.length; targetIndex++) {
-          if (targetIndex === checkpoint.page.pageIndex) {
-            continue;
-          }
-          await this.updatePageIndex(store, noteId, before[existingIndex].pageId, targetIndex);
-          existingIndex++;
-        }
-        await this.restoreCheckpointElements(store, checkpoint);
-        await this.restoreCheckpointSearch(store, checkpoint, searches);
+        await this.restoreCheckpointedPage(store, noteId, checkpoint, searches, before);
         const after: PageInfo[] = await this.queryPages(store, noteId);
         await this.appendStructureMutation(store, noteId, revision, before, after, OpType.CREATE_PAGE, history);
         await store.commit();
@@ -342,6 +332,293 @@ export class PageRepositoryImpl implements PageRepository {
     } finally {
       release();
     }
+  }
+
+  // Original de2.i delete-compensation: when deleting pages would leave the
+  // note with fewer than two, the same op stream appends
+  // u5j.i(x09, list2.size() - 1, 0, 14) — a blank page lands at the victim's
+  // slot so the note always retains a page. For the single-page delete flow
+  // this fires exactly when before.length <= 2; the anchor is the
+  // second-to-last page (index size - 1 insertion), which makes the inserted
+  // page occupy the victim's visible slot in every case.
+  async deletePageWithCompensation(noteId: string, pageId: string,
+    history: HistoryMetadata): Promise<PageInfo> {
+    validateHistoryMetadata(history);
+    if (noteId.length === 0 || pageId.length === 0 ||
+      history.effect !== HistoryEffect.PUSH) {
+      throw new Error('deletePageWithCompensation requires PUSH history');
+    }
+    const release: MutexRelease = await editorPersistenceMutex.lock();
+    const store: relationalStore.RdbStore = this.db.getStore();
+    try {
+      await store.beginTransaction();
+      try {
+        const revision: number = await this.queryStructureRevision(store, noteId);
+        const before: PageInfo[] = await this.queryPages(store, noteId);
+        if (before.length < 1 || before.length > 2) {
+          throw new Error('delete compensation only applies below three pages');
+        }
+        const victimIndex: number = this.findPageIndex(before, pageId);
+        if (victimIndex < 0) {
+          throw new Error('page does not belong to note');
+        }
+        await this.createDeleteCheckpoint(store, noteId, pageId, before, history);
+        let compensation: PageInfo;
+        if (await hasAlignedOriginalPageState(store, noteId) &&
+          await originalPageIdentityExists(store, noteId, pageId)) {
+          await persistOriginalPageVisibility(store, noteId, pageId, true);
+          const anchorPageId: string | null =
+            before.length >= 2 ? before[before.length - 2].pageId : null;
+          compensation = (await persistOriginalCreatePage(
+            store, noteId, null, anchorPageId)).page;
+        } else {
+          await this.physicalDeletePage(store, noteId, before, pageId);
+          compensation = this.newCompensationPage(before[victimIndex]);
+          await this.insertPageInfoAt(store, noteId, compensation,
+            Math.min(victimIndex, before.length - 1));
+        }
+        const after: PageInfo[] = await this.queryPages(store, noteId);
+        const expectedIndex: number = Math.min(victimIndex, after.length - 1);
+        if (after.length !== before.length || expectedIndex < 0 ||
+          after[expectedIndex].pageId !== compensation.pageId ||
+          this.findPageIndex(after, pageId) >= 0) {
+          throw new Error('delete compensation did not land at the victim slot');
+        }
+        await this.appendDeletePageCompensationCompanion(store, noteId, revision,
+          pageId, after[expectedIndex], before, after, history);
+        await store.commit();
+        return clonePageInfo(compensation);
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`deletePageWithCompensation failed: ${JSON.stringify(e)}`);
+      }
+    } finally {
+      release();
+    }
+  }
+
+  // UNDO of a compensated delete restores the victim (unhide or checkpoint
+  // restore) and removes the inserted page — the mirror of the original's
+  // single op stream, journaled by one companion.
+  async undoDeletePageWithCompensation(noteId: string, actionId: string,
+    compensationPageId: string, history: HistoryMetadata): Promise<void> {
+    validateHistoryMetadata(history);
+    if (noteId.length === 0 || actionId.length === 0 || compensationPageId.length === 0 ||
+      history.actionId !== actionId || history.effect !== HistoryEffect.UNDO) {
+      throw new Error('undoDeletePageWithCompensation requires matching UNDO history');
+    }
+    const release: MutexRelease = await editorPersistenceMutex.lock();
+    const store: relationalStore.RdbStore = this.db.getStore();
+    try {
+      await store.beginTransaction();
+      try {
+        const checkpoint: PageDeleteCheckpoint =
+          await this.loadDeleteCheckpoint(store, noteId, actionId);
+        const revision: number = await this.queryStructureRevision(store, noteId);
+        const before: PageInfo[] = await this.queryPages(store, noteId);
+        const victimId: string = checkpoint.page.pageId;
+        const compensationIndex: number = this.findPageIndex(before, compensationPageId);
+        if (compensationIndex < 0 || this.findPageIndex(before, victimId) >= 0) {
+          throw new Error('compensated delete state no longer matches page membership');
+        }
+        if (await hasAlignedOriginalPageState(store, noteId) &&
+          await originalPageIdentityExists(store, noteId, victimId)) {
+          await persistOriginalPageVisibility(store, noteId, victimId, false);
+          await persistOriginalPageVisibility(store, noteId, compensationPageId, true);
+        } else {
+          const searches: CheckpointSearchRow[] =
+            await this.loadCheckpointSearch(store, noteId, actionId);
+          this.validateCheckpointSearch(searches);
+          const checkpointElementIds: string[] = [];
+          for (const element of checkpoint.elements) {
+            checkpointElementIds.push(element.elementId);
+          }
+          await assertLivePageElementIdsAvailable(
+            store, noteId, checkpoint.page.pageId, checkpointElementIds);
+          await this.restoreCheckpointedPage(store, noteId, checkpoint, searches, before);
+          const restored: PageInfo[] = before.map((page: PageInfo): PageInfo => this.clonePage(page));
+          restored.splice(Math.min(checkpoint.page.pageIndex, restored.length), 0,
+            this.clonePage(checkpoint.page));
+          for (let index: number = 0; index < restored.length; index++) {
+            restored[index].pageIndex = index;
+          }
+          await this.physicalDeletePage(store, noteId, restored, compensationPageId);
+        }
+        const after: PageInfo[] = await this.queryPages(store, noteId);
+        await this.appendDeletePageCompensationCompanion(store, noteId, revision,
+          victimId, before[compensationIndex], before, after, history);
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`undoDeletePageWithCompensation failed: ${JSON.stringify(e)}`);
+      }
+    } finally {
+      release();
+    }
+  }
+
+  // REDO of a compensated delete re-hides the victim and restores the
+  // inserted page's visibility — symmetric with the push transaction.
+  async redoDeletePageWithCompensation(noteId: string, actionId: string,
+    compensationPage: PageInfo, history: HistoryMetadata): Promise<void> {
+    validateHistoryMetadata(history);
+    if (noteId.length === 0 || actionId.length === 0 || compensationPage.pageId.length === 0 ||
+      history.actionId !== actionId || history.effect !== HistoryEffect.REDO) {
+      throw new Error('redoDeletePageWithCompensation requires matching REDO history');
+    }
+    const release: MutexRelease = await editorPersistenceMutex.lock();
+    const store: relationalStore.RdbStore = this.db.getStore();
+    try {
+      await store.beginTransaction();
+      try {
+        const checkpoint: PageDeleteCheckpoint =
+          await this.loadDeleteCheckpoint(store, noteId, actionId);
+        const victimId: string = checkpoint.page.pageId;
+        await this.verifyDeleteCheckpointState(store, noteId, victimId, actionId);
+        const revision: number = await this.queryStructureRevision(store, noteId);
+        const before: PageInfo[] = await this.queryPages(store, noteId);
+        if (this.findPageIndex(before, victimId) < 0 ||
+          this.findPageIndex(before, compensationPage.pageId) >= 0) {
+          throw new Error('compensated delete state no longer matches page membership');
+        }
+        if (await hasAlignedOriginalPageState(store, noteId) &&
+          await originalPageIdentityExists(store, noteId, victimId)) {
+          await persistOriginalPageVisibility(store, noteId, victimId, true);
+          await persistOriginalPageVisibility(store, noteId, compensationPage.pageId, false);
+        } else {
+          await this.physicalDeletePage(store, noteId, before, victimId);
+          await this.insertPageInfoAt(store, noteId, compensationPage,
+            Math.min(compensationPage.pageIndex, before.length - 1));
+        }
+        const after: PageInfo[] = await this.queryPages(store, noteId);
+        await this.appendDeletePageCompensationCompanion(store, noteId, revision,
+          victimId, compensationPage, before, after, history);
+        await store.commit();
+      } catch (e) {
+        await store.rollBack();
+        throw new Error(`redoDeletePageWithCompensation failed: ${JSON.stringify(e)}`);
+      }
+    } finally {
+      release();
+    }
+  }
+
+  // Legacy (non-original) checkpoint restore: remap live indexes to negative
+  // placeholders, re-insert the checkpointed page at its recorded index, then
+  // restore its element and search rows.
+  private async restoreCheckpointedPage(store: relationalStore.RdbStore, noteId: string,
+    checkpoint: PageDeleteCheckpoint, searches: CheckpointSearchRow[],
+    before: PageInfo[]): Promise<void> {
+    for (let index: number = 0; index < before.length; index++) {
+      await this.updatePageIndex(store, noteId, before[index].pageId, -(index + 1));
+    }
+    await this.insertCheckpointPage(store, checkpoint);
+    let existingIndex: number = 0;
+    for (let targetIndex: number = 0; targetIndex <= before.length; targetIndex++) {
+      if (targetIndex === checkpoint.page.pageIndex) {
+        continue;
+      }
+      await this.updatePageIndex(store, noteId, before[existingIndex].pageId, targetIndex);
+      existingIndex++;
+    }
+    await this.restoreCheckpointElements(store, checkpoint);
+    await this.restoreCheckpointSearch(store, checkpoint, searches);
+  }
+
+  private async appendDeletePageCompensationCompanion(store: relationalStore.RdbStore,
+    noteId: string, fromRevision: number, deletedPageId: string, insertedPage: PageInfo,
+    before: PageInfo[], after: PageInfo[], history: HistoryMetadata): Promise<void> {
+    const toRevision: number = await this.queryStructureRevision(store, noteId);
+    if (toRevision <= fromRevision) {
+      throw new Error('compensated delete did not advance the structure revision');
+    }
+    const mutation: DeletePageCompensationMutation = {
+      fromRevision: fromRevision,
+      toRevision: toRevision,
+      deletedPageId: deletedPageId,
+      insertedPage: clonePageInfo(insertedPage),
+      pageOrderBefore: this.pageOrderIds(before),
+      pageOrderAfter: this.pageOrderIds(after),
+    };
+    const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+    await appendOperation(store, {
+      noteId: noteId, opId: identity.opId, opType: OpType.DELETE_PAGE_COMPENSATION,
+      payload: encodeDeletePageCompensationMutation(mutation),
+      clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+      editorSiteId: identity.siteId, history: history,
+    });
+  }
+
+  // Physical (non-original) page delete: remove the row and compact the
+  // following page_index values — mirrors deletePageInternal's legacy tail.
+  private async physicalDeletePage(store: relationalStore.RdbStore, noteId: string,
+    pages: PageInfo[], pageId: string): Promise<void> {
+    const predicates = new relationalStore.RdbPredicates('page_info');
+    predicates.equalTo('note_id', noteId);
+    predicates.equalTo('page_id', pageId);
+    const deleted: number = await store.delete(predicates);
+    if (deleted !== 1) {
+      throw new Error(`expected to delete one page, deleted ${deleted}`);
+    }
+    let targetIndex: number = 0;
+    for (const page of pages) {
+      if (page.pageId === pageId) {
+        continue;
+      }
+      if (page.pageIndex !== targetIndex) {
+        await this.updatePageIndex(store, noteId, page.pageId, targetIndex);
+      }
+      targetIndex++;
+    }
+  }
+
+  // Physical (non-original) page insert at an arbitrary index; the UNIQUE
+  // (note_id, page_index) index requires descending shifts.
+  private async insertPageInfoAt(store: relationalStore.RdbStore, noteId: string,
+    page: PageInfo, targetIndex: number): Promise<void> {
+    const pages: PageInfo[] = await this.queryPages(store, noteId);
+    const index: number = Math.min(Math.max(targetIndex, 0), pages.length);
+    for (let i: number = pages.length - 1; i >= 0; i--) {
+      const existing: PageInfo = pages[i];
+      if (existing.pageIndex >= index) {
+        await this.updatePageIndex(store, noteId, existing.pageId, existing.pageIndex + 1);
+      }
+    }
+    const inserted: PageInfo = this.clonePage(page);
+    inserted.pageIndex = index;
+    const bucket: relationalStore.ValuesBucket = {
+      'page_id': inserted.pageId,
+      'note_id': noteId,
+      'page_index': inserted.pageIndex,
+      'size': inserted.size,
+      'template': inserted.template,
+      'orientation': inserted.orientation,
+      'width_mm': inserted.widthMm,
+      'height_mm': inserted.heightMm,
+      'background_json': serializePageBackground(inserted.background),
+      'original_page_in_asset': inserted.originalPageInAsset === undefined
+        ? null : inserted.originalPageInAsset,
+      'bookmarked': inserted.bookmarked === true ? 1 : 0,
+    };
+    await store.insert('page_info', bucket);
+  }
+
+  // The original's compensation page is a blank page on the note default
+  // background (u5j.i -> haj.a(anchor, null, 1, UNBOOKMARKED, 16)); the legacy
+  // mirror borrows the victim's dimensions with a null background so the
+  // note-level default resolves at read time.
+  private newCompensationPage(victim: PageInfo): PageInfo {
+    return {
+      pageId: `comp-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+      pageIndex: 0,
+      size: victim.size,
+      template: victim.template,
+      orientation: victim.orientation,
+      widthMm: victim.widthMm,
+      heightMm: victim.heightMm,
+      background: null,
+      bookmarked: false,
+    };
   }
 
   // Original n9j Duplicate action (fd2 case 5 → de2.r → ae2 default): u5j.e

@@ -190,10 +190,8 @@ export struct PageManagerBar {
         Button($r('app.string.delete'))
           .height(40)
           .margin({ left: 4, right: 16 })
-          .enabled(!this.busy && !this.photoImportLeaseActive &&
-            this.pageCount > 1)
-          .opacity(!this.busy && !this.photoImportLeaseActive &&
-            this.pageCount > 1 ? 1 : 0.4)
+          .enabled(!this.busy && !this.photoImportLeaseActive)
+          .opacity(!this.busy && !this.photoImportLeaseActive ? 1 : 0.4)
           .onClick(() => {
             if (this.busy || this.photoImportLeaseActive) {
               return;
@@ -322,10 +320,10 @@ export struct PageManagerBar {
         this.onClearPage();
       } },
       { value: $r('app.string.delete_page'), action: () => {
-        if (!this.busy && !this.photoImportLeaseActive &&
-          this.pageCount > 1) {
-          this.onDelete();
+        if (this.busy || this.photoImportLeaseActive) {
+          return;
         }
+        this.onDelete();
       } },
     ];
     // 原版 n9j：Paste 菜单项仅在页剪贴板非空时出现（mg2.b != null），

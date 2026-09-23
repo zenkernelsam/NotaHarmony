@@ -457,6 +457,10 @@ export interface AddPageAction extends ActionBase {
 export interface DeletePageAction extends ActionBase {
   type: UndoableActionType.DELETE_PAGE;
   pageBefore: PageInfo;
+  // Original de2.i delete-compensation: present when the delete also inserted
+  // a blank page (u5j.i at size - 1) because the remainder would drop below
+  // two pages; undo then restores the victim and removes this page.
+  compensationPage?: PageInfo;
   pageOrderBefore: string[];
   pageOrderAfter: string[];
   pageStrokes: StrokeElementData[];

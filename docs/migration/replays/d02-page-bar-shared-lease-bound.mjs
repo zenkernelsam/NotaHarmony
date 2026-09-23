@@ -79,7 +79,7 @@ assert.equal(
   'inverted page manager guards removed');
 assert.equal(
   bar.match(/if \(this\.busy \|\| this\.photoImportLeaseActive\) \{/g)?.length,
-  16,
+  17,
   'all direct page manager callbacks fail closed');
 
 const backgroundStart = page.indexOf(

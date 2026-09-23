@@ -42,6 +42,9 @@ import { decodeNoteMetadataMutation, NoteMetadataMutation } from './NoteMetadata
 import {
   decodeDuplicatePageMutation, DuplicatePageMutation,
 } from './DuplicatePageOpCodec';
+import {
+  decodeDeletePageCompensationMutation, DeletePageCompensationMutation,
+} from './DeletePageCompensationOpCodec';
 
 export interface PersistentHistoryAction {
   actionId: string;
@@ -351,6 +354,43 @@ function materializeAction(action: PersistentHistoryAction, currentPageId: strin
       sourcePageId: mutation.sourcePageId,
       pageOrderBefore: mutation.pageOrderBefore,
       pageOrderAfter: mutation.pageOrderAfter,
+    };
+    return restored;
+  }
+  if (action.operations[0].opType === OpType.DELETE_PAGE_COMPENSATION) {
+    // The original de2.i stream deletes the victim and inserts a blank page
+    // in one transaction; Harmony journals one companion for the pair and the
+    // victim's checkpoint still carries its page + element content.
+    if (action.operations.length !== 1) {
+      throw new Error('persistent compensated delete action must contain exactly one mutation');
+    }
+    const mutation: DeletePageCompensationMutation =
+      decodeDeletePageCompensationMutation(action.operations[0].payload);
+    const checkpoint: PageDeleteCheckpoint = findDeleteCheckpoint(
+      deleteCheckpoints, noteId, action.actionId, mutation.deletedPageId);
+    if (checkpoint.createdTime !== action.actionTime) {
+      throw new Error('persistent compensated delete checkpoint contradicts its action');
+    }
+    const content = materializeCheckpointContent(checkpoint);
+    const afterIds: string[] = mutation.pageOrderAfter;
+    const selectedAfter: string = contains(afterIds, currentPageId) ? currentPageId :
+      afterIds[Math.min(mutation.insertedPage.pageIndex, afterIds.length - 1)];
+    const restored: DeletePageAction = {
+      type: UndoableActionType.DELETE_PAGE,
+      noteId: noteId,
+      pageId: mutation.deletedPageId,
+      pageBefore: checkpoint.page,
+      compensationPage: mutation.insertedPage,
+      pageOrderBefore: mutation.pageOrderBefore,
+      pageOrderAfter: mutation.pageOrderAfter,
+      pageStrokes: content.strokes,
+      pageTextBlocks: content.textBlocks,
+      pageShapes: content.shapes,
+      pageImages: content.images,
+      pageMathBlocks: content.mathBlocks,
+      pageElementOrder: content.elementOrder,
+      selectedPageIdBefore: mutation.deletedPageId,
+      selectedPageIdAfter: selectedAfter,
     };
     return restored;
   }
