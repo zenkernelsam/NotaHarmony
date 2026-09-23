@@ -186,7 +186,7 @@ check(notePage.includes('await pageRepository.deletePageWithCompensation(this.no
   'compensated delete routes to the compound repository call');
 check(notePage.includes('action.compensationPage = this.clonePage(compensation);') &&
   notePage.includes('action.pageOrderAfter = this.pageIds(updated);') &&
-  notePage.includes('action.selectedPageIdAfter = compensation.pageId;'),
+  notePage.includes('action.selectedPageIdAfter = isCurrent ? compensation.pageId : selectedAfter;'),
   'the pushed action records the real compensation identity, order, and selection');
 check(notePage.includes('private async applyDeletePageCompensationHistory(action: DeletePageAction,'),
   'undo/redo dispatch has a dedicated compensated-delete applier');

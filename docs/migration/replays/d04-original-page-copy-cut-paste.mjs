@@ -161,8 +161,9 @@ check(notePage.includes('private async copyCurrentPage(): Promise<void>') &&
   notePage.includes('storeCopiedPage(payload)'),
   'copyCurrentPage serializes the page into the clipboard');
 check(notePage.includes('private async cutCurrentPage(): Promise<void>') &&
-  notePage.includes('await this.copyCurrentPage()') &&
-  notePage.includes('await this.deleteCurrentPage()'),
+  notePage.includes('private async cutPageAt(pageIndex: number)') &&
+  notePage.includes('await this.copyPageAt(pageIndex)') &&
+  notePage.includes('await this.deletePageAt(pageIndex)'),
   'cutCurrentPage = copy + existing DELETE_PAGE flow (ae2 case 3 parity)');
 check(notePage.includes('private async pasteCopiedPage(): Promise<void>') &&
   notePage.includes('const payload: CopiedPagePayload | null = copiedPagePayload()'),

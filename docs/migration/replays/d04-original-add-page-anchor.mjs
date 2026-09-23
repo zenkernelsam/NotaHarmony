@@ -93,12 +93,13 @@ check(repoIf.includes('afterPageId?: string'),
 check(history.includes('persistent ADD_PAGE was not an empty single-page action') &&
   !history.includes('persistent ADD_PAGE was not an empty tail-page action'),
   'persistent CREATE_PAGE materialization accepts non-tail inserts');
-check(notePage.includes('const insertIndex: number = this.currentPageIndex + 1'),
+check(notePage.includes('const insertIndex: number = pageIndex + 1') &&
+  notePage.includes('await this.addPageAt(this.currentPageIndex)'),
   'NotePage.addPage computes the selectedIndex + 1 insertion point');
 check(notePage.includes('orderBefore.slice(0, insertIndex).concat('),
   'pageOrderAfter splices the new page id after the current page');
-check(notePage.includes('this.noteId, page, history, selectedBefore'),
-  'live add passes the current page as the anchor');
+check(notePage.includes('this.noteId, page, history, anchorPageId'),
+  'live add passes the anchor page as the insertion anchor');
 check(notePage.includes('updated.splice(insertIndex, 0, assignedPage)'),
   'in-memory page list splices the added page at the anchor position');
 check(notePage.includes('this.currentPageIndex = insertIndex'),

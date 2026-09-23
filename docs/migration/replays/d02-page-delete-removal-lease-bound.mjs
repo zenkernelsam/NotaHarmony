@@ -14,9 +14,9 @@ const deleteBody = page.slice(deleteStart, moveStart);
 // Original de2.i compensation: the last page is deletable (a blank replaces
 // it), so the preflight only rejects an empty note.
 const preflight = deleteBody.indexOf(
-  'if (this.pageRepo === null || this.pages.length === 0 || this.historyBridge === null) {');
+  'if (this.pageRepo === null || this.pages.length === 0 || this.historyBridge === null ||');
 const leaseSet = deleteBody.indexOf('try {', preflight);
-const lockedCall = deleteBody.indexOf('await this.deleteCurrentPageLocked(historyBridge);', leaseSet);
+const lockedCall = deleteBody.indexOf('await this.deletePageAtLocked(historyBridge, pageIndex);', leaseSet);
 const finallyRelease = deleteBody.indexOf('} finally {', lockedCall);
 const releaseStatement = deleteBody.indexOf('this.pageStructureLeaseActive = false;', finallyRelease);
 assert.ok(preflight >= 0 && leaseSet > preflight && lockedCall > leaseSet && finallyRelease > lockedCall);

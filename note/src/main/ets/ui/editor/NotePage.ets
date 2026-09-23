@@ -21,6 +21,9 @@ import { HistoryMetadata, NoteMetadataHistoryState } from '../../core/model/OpTy
 import {
   CopiedPagePayload, copiedPagePayload, storeCopiedPage,
 } from '../../rendering/OriginalPageClipboard';
+import {
+  ClipboardOriginalGroupGraph, originalGroupGraphForPageCopy,
+} from '../../rendering/StrokeClipboard';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteExporter } from '../../data/NoteExporter';
 import { PageImageExporter, ShareImageFormat } from '../../data/PageImageExporter';
@@ -33,7 +36,7 @@ import {
   validateNoteMetadataMutationState,
 } from '../../data/NoteMetadataMutationCodec';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
-import { StrokePersistence } from '../../data/StrokePersistence';
+import { LoadedElements, StrokePersistence } from '../../data/StrokePersistence';
 import { ToolRepositoryImpl } from '../../data/ToolRepositoryImpl';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { AssetAvailabilityChange, assetAvailabilityHub } from '../../data/AssetAvailabilityHub';
@@ -1727,7 +1730,7 @@ struct NotePage {
           },
           // Original n9j Paste item is gated on mg2.b != null (clipboard
           // non-empty); pageClipboardVersion forces a re-render after
-          // copy/cut. Image-bearing pages stay same-note only (asset linkage).
+          // copy/cut. Cross-note paste is allowed (Phase 639 asset merge).
           canPastePage: this.pageClipboardVersion >= 0 && this.canPasteCopiedPage(),
           onCutPage: () => {
             this.runPageOperation(async (): Promise<void> => this.cutCurrentPage());
@@ -1786,6 +1789,7 @@ struct NotePage {
       pages: this.pages,
       currentPageIndex: this.currentPageIndex,
       thumbRevision: this.pageContentVersion,
+      canPastePages: this.pageClipboardVersion >= 0 && this.canPasteCopiedPage(),
       onJumpToPage: (pageIndex: number): void => {
         if (!this.pageLoading && !this.pageOperationBusy &&
           !this.historyPending && !this.pageStructureLeaseActive &&
@@ -1793,10 +1797,59 @@ struct NotePage {
           this.currentPageIndex = pageIndex;
         }
       },
+      // 原版 fd2：cell 上下文菜单按页键分发页操作。
+      onPageAction: (pageIndex: number, action: string): void => {
+        this.dispatchPageContextAction(pageIndex, action);
+      },
       onRequestClose: (): void => {
         this.showPageOverview = false;
       },
     })
+  }
+
+  // 原版 n9j cell 菜单 → fd2 dispatch：面板内页操作按页键作用于目标
+  // 页（不先导航）。clear 仅当前页可经画布信号清空，其余操作全部走
+  // runPageOperation 门禁 + 参数化页操作实现。
+  private dispatchPageContextAction(pageIndex: number, action: string): void {
+    if (pageIndex < 0 || pageIndex >= this.pages.length) {
+      return;
+    }
+    if (action === 'clear') {
+      // fd2 case1 → ae2 v1 Clear Page：Harmony 清空管线绑定当前页画布
+      // （选择→删除→撤销一体化），非当前页 fail-closed 不展示该菜单项。
+      if (pageIndex === this.currentPageIndex && !this.pageOperationBusy &&
+        !this.historyPending && !this.pageStructureLeaseActive) {
+        this.clearPageSignal++;
+      }
+      return;
+    }
+    this.runPageOperation(async (): Promise<void> => {
+      switch (action) {
+        case 'add':
+          await this.addPageAt(pageIndex);
+          break;
+        case 'cut':
+          await this.cutPageAt(pageIndex);
+          break;
+        case 'copy':
+          await this.copyPageAt(pageIndex);
+          break;
+        case 'paste':
+          await this.pasteCopiedPageAt(pageIndex);
+          break;
+        case 'duplicate':
+          await this.duplicatePageAt(pageIndex);
+          break;
+        case 'rotate':
+          await this.rotatePageAt(pageIndex);
+          break;
+        case 'delete':
+          await this.deletePageAt(pageIndex);
+          break;
+        default:
+          break;
+      }
+    });
   }
 
   // Original 1.0.3 applies size/template/orientation through note-level SET_METADATA.
@@ -1874,15 +1927,19 @@ struct NotePage {
   }
 
   private async addPage(): Promise<void> {
-    if (this.pageRepo === null) {
+    await this.addPageAt(this.currentPageIndex);
+  }
+
+  // 原版 n9j Add Page（fd2 case3 → zd2 v0 → u5j.i at anchor+1）：
+  // 新页落在锚定页之后；页管理面板 cell 菜单以被点页为锚。
+  private async addPageAt(pageIndex: number): Promise<void> {
+    if (this.pageRepo === null || pageIndex < 0 || pageIndex >= this.pages.length) {
       return;
     }
+    const anchorPageId: string = this.pages[pageIndex].pageId;
     const selectedBefore: string = this.pages[this.currentPageIndex].pageId;
     const orderBefore: string[] = this.pageIds(this.pages);
-    // Original n9j Add Page (zd2 variant 0 -> u5j.i at selectedIndex + 1):
-    // the new page lands immediately after the current one and inherits the
-    // note default background (haj.a emits a null nz9).
-    const insertIndex: number = this.currentPageIndex + 1;
+    const insertIndex: number = pageIndex + 1;
     const page: PageInfo = {
       pageId: this.generateId(),
       pageIndex: insertIndex,
@@ -1914,7 +1971,7 @@ struct NotePage {
     const history: HistoryMetadata | undefined = this.historyBridge === null
       ? undefined : this.historyBridge.preparePageAction(action);
     const assignedPage: PageInfo = await this.pageRepo.addPage(
-      this.noteId, page, history, selectedBefore);
+      this.noteId, page, history, anchorPageId);
     if (this.editorDisposed) {
       return;
     }
@@ -1942,39 +1999,52 @@ struct NotePage {
   }
 
   private async deleteCurrentPage(): Promise<void> {
+    await this.deletePageAt(this.currentPageIndex);
+  }
+
+  // 原版 fd2 case2 → de2.q（Delete Pages）按页键作用于任意页：
+  // 非当前页跳过画布快照，改从持久层 page_element_snapshot 重建
+  // PageContentSnapshot 供撤销恢复；选中态仅在被删页为当前页时移动。
+  private async deletePageAt(pageIndex: number): Promise<void> {
     // Original de2.i: deleting is never blocked by page count — when the
     // remainder would drop below two, the same op stream inserts a blank
     // compensation page (u5j.i at size - 1), so the note always retains one.
-    if (this.pageRepo === null || this.pages.length === 0 || this.historyBridge === null) {
+    if (this.pageRepo === null || this.pages.length === 0 || this.historyBridge === null ||
+      pageIndex < 0 || pageIndex >= this.pages.length) {
       return;
     }
     this.pageStructureLeaseActive = true;
     const historyBridge: EditorHistoryBridge = this.historyBridge;
     try {
-      await this.deleteCurrentPageLocked(historyBridge);
+      await this.deletePageAtLocked(historyBridge, pageIndex);
     } finally {
       this.pageStructureLeaseActive = false;
     }
   }
 
-  private async deleteCurrentPageLocked(historyBridge: EditorHistoryBridge): Promise<void> {
-    const deletedPage: PageInfo = this.clonePage(this.pages[this.currentPageIndex]);
+  private async deletePageAtLocked(historyBridge: EditorHistoryBridge,
+    pageIndex: number): Promise<void> {
+    const isCurrent: boolean = pageIndex === this.currentPageIndex;
+    const deletedPage: PageInfo = this.clonePage(this.pages[pageIndex]);
     const pageId: string = deletedPage.pageId;
     const orderBefore: string[] = this.pageIds(this.pages);
     // de2.i: `list2.size() - list.size() < 2` — for a single-page delete the
     // compensation fires exactly when the note holds at most two pages.
     const compensated: boolean = orderBefore.length <= 2;
     const orderAfter: string[] = orderBefore.filter((id: string): boolean => id !== pageId);
-    const selectedBefore: string = pageId;
-    const selectedAfter: string = compensated ? pageId :
-      orderAfter[Math.min(this.currentPageIndex, orderAfter.length - 1)];
+    const selectedBefore: string = isCurrent ? pageId :
+      this.pages[this.currentPageIndex].pageId;
+    const selectedAfter: string = !isCurrent ? selectedBefore :
+      (compensated ? pageId :
+        orderAfter[Math.min(pageIndex, orderAfter.length - 1)]);
     if (!await historyBridge.flushCurrentPage()) {
-      throw new Error('deleteCurrentPage could not flush the current page');
+      throw new Error('deletePage could not flush the current page');
     }
-    if (this.pages[this.currentPageIndex]?.pageId !== pageId) {
+    if (this.pages[pageIndex]?.pageId !== pageId) {
       return;
     }
-    const snapshot: PageContentSnapshot = historyBridge.captureCurrentPage();
+    const snapshot: PageContentSnapshot = isCurrent ?
+      historyBridge.captureCurrentPage() : await this.persistedPageSnapshot(pageId);
     const action: DeletePageAction = {
       type: UndoableActionType.DELETE_PAGE,
       noteId: this.noteId,
@@ -2025,10 +2095,10 @@ struct NotePage {
       }
       action.compensationPage = this.clonePage(compensation);
       action.pageOrderAfter = this.pageIds(updated);
-      action.selectedPageIdAfter = compensation.pageId;
+      action.selectedPageIdAfter = isCurrent ? compensation.pageId : selectedAfter;
     }
     this.pages = updated;
-    this.selectPageById(compensation !== null ? compensation.pageId : selectedAfter);
+    this.selectPageById(isCurrent && compensation !== null ? compensation.pageId : selectedAfter);
     historyBridge.pushPageAction(action, history);
     // 原版 n9j：页删除成功经 snackbar 提示 content_manager_page_deleted（Harmony 用 toast）。
     if (!this.editorDisposed) {
@@ -2076,6 +2146,37 @@ struct NotePage {
   // channel with the dof "undoable" marker (cof is the explicit NotUndoable
   // alternative), so the toggle is one undoable action. The wz9 register write
   // is not a structural mutation, so a PAGE_BOOKMARK companion carries history.
+  // 非当前页内容快照：page_element_snapshot 行重建（LoadedElements 与
+  // captureCurrentPage 同形），供页管理面板 cell 菜单对非当前页执行
+  // 删除/复制/剪切/副本时取用（fd2 dispatch 按页键作用，不经画布）。
+  private async persistedPageSnapshot(pageId: string): Promise<PageContentSnapshot> {
+    const loaded: LoadedElements = await this.persistence.loadElements(this.noteId, pageId);
+    return {
+      strokes: loaded.strokes, textBlocks: loaded.textBlocks,
+      shapes: loaded.shapes, images: loaded.images,
+      mathBlocks: loaded.mathBlocks, elementOrder: loaded.elementOrder,
+    };
+  }
+
+  private async persistedPageCopyPlan(pageId: string): Promise<PageCopyPlan> {
+    const loaded: LoadedElements = await this.persistence.loadElements(this.noteId, pageId);
+    const leafIds: Set<string> = new Set<string>();
+    for (const ref of loaded.elementOrder) {
+      leafIds.add(ref.elementId);
+    }
+    const graph: ClipboardOriginalGroupGraph | null =
+      originalGroupGraphForPageCopy(loaded.groups, leafIds);
+    if (graph === null) {
+      throw new Error('page group graph is not copyable');
+    }
+    return {
+      strokes: loaded.strokes, shapes: loaded.shapes, textBlocks: loaded.textBlocks,
+      images: loaded.images, mathBlocks: loaded.mathBlocks,
+      elementOrder: loaded.elementOrder, groups: graph.groups,
+      topGroupIds: graph.topGroupIds,
+    };
+  }
+
   private async toggleCurrentPageBookmark(): Promise<void> {
     if (this.pageRepo === null || this.pages.length === 0) {
       return;
@@ -2115,10 +2216,17 @@ struct NotePage {
   // rotation register one cardinal turn via a per-page ModifyPage write, then
   // rides the existing PAGE_SETTINGS history channel for undo/redo.
   private async rotateCurrentPage(): Promise<void> {
-    if (this.pageRepo === null || this.pages.length === 0) {
+    await this.rotatePageAt(this.currentPageIndex);
+  }
+
+  // fd2 default → zd2 v1（Rotate Page）：旋转目标按页键给出；非当前页
+  // 不导航（原版面板操作不移动 qd2.currentPageIndex）。
+  private async rotatePageAt(pageIndex: number): Promise<void> {
+    if (this.pageRepo === null || pageIndex < 0 || pageIndex >= this.pages.length) {
       return;
     }
-    const before: PageInfo = this.clonePage(this.pages[this.currentPageIndex]);
+    const isCurrent: boolean = pageIndex === this.currentPageIndex;
+    const before: PageInfo = this.clonePage(this.pages[pageIndex]);
     const rotated: PageInfo | null = rotatedOriginalPageInfo(before);
     if (rotated === null) {
       return;
@@ -2145,7 +2253,9 @@ struct NotePage {
     if (materialized !== undefined) {
       action.pageAfter = this.clonePage(materialized);
     }
-    this.selectPageById(before.pageId);
+    if (isCurrent) {
+      this.selectPageById(before.pageId);
+    }
     if (this.historyBridge !== null) {
       this.historyBridge.pushPageAction(action, history);
     }
@@ -2158,17 +2268,25 @@ struct NotePage {
   // element identities. A DUPLICATE_PAGE companion op owns durable history;
   // undo hides the copy via the original page-visibility write, redo unhides.
   private async duplicateCurrentPage(): Promise<void> {
-    if (this.pageRepo === null || this.pages.length === 0 || this.historyBridge === null) {
+    await this.duplicatePageAt(this.currentPageIndex);
+  }
+
+  // fd2 case7 → de2.r（Duplicate）：源页按页键给出；非当前页的快照从
+  // 持久层重建（persistedPageSnapshot），当前页走画布 capture。
+  private async duplicatePageAt(pageIndex: number): Promise<void> {
+    if (this.pageRepo === null || this.pages.length === 0 || this.historyBridge === null ||
+      pageIndex < 0 || pageIndex >= this.pages.length) {
       return;
     }
     const historyBridge: EditorHistoryBridge = this.historyBridge;
     if (!await historyBridge.flushCurrentPage()) {
-      throw new Error('duplicateCurrentPage could not flush the current page');
+      throw new Error('duplicatePage could not flush the current page');
     }
-    const sourceIndex: number = this.currentPageIndex;
+    const sourceIndex: number = pageIndex;
     const sourcePageId: string = this.pages[sourceIndex].pageId;
     const orderBefore: string[] = this.pageIds(this.pages);
-    const snapshot: PageContentSnapshot = historyBridge.captureCurrentPage();
+    const snapshot: PageContentSnapshot = pageIndex === this.currentPageIndex ?
+      historyBridge.captureCurrentPage() : await this.persistedPageSnapshot(sourcePageId);
     const action: DuplicatePageAction = {
       type: UndoableActionType.DUPLICATE_PAGE,
       noteId: this.noteId,
@@ -2225,15 +2343,24 @@ struct NotePage {
   // the materialized payload — effective background, bookmark, element plan —
   // deep-cloned so later edits cannot mutate the clipboard record.
   private async copyCurrentPage(): Promise<void> {
-    if (this.pages.length === 0 || this.historyBridge === null) {
+    await this.copyPageAt(this.currentPageIndex);
+  }
+
+  // fd2 case5 → de2.o（Copy）：源页按页键给出；非当前页经
+  // persistedPageCopyPlan（持久层快照 + 组子图）构造拷贝计划。
+  private async copyPageAt(pageIndex: number): Promise<void> {
+    if (this.pages.length === 0 || this.historyBridge === null ||
+      pageIndex < 0 || pageIndex >= this.pages.length) {
       return;
     }
     const historyBridge: EditorHistoryBridge = this.historyBridge;
     if (!await historyBridge.flushCurrentPage()) {
-      throw new Error('copyCurrentPage could not flush the current page');
+      throw new Error('copyPage could not flush the current page');
     }
-    const source: PageInfo = this.pages[this.currentPageIndex];
-    const plan: PageCopyPlan = historyBridge.captureCurrentPageCopyPlan();
+    const source: PageInfo = this.pages[pageIndex];
+    const plan: PageCopyPlan = pageIndex === this.currentPageIndex ?
+      historyBridge.captureCurrentPageCopyPlan() :
+      await this.persistedPageCopyPlan(source.pageId);
     const payload: CopiedPagePayload = {
       noteId: this.noteId,
       sourcePageId: source.pageId,
@@ -2251,11 +2378,17 @@ struct NotePage {
   // same de2.i delete ops as Delete Pages — so the journal entry is the
   // existing DELETE_PAGE action and undo restores the page verbatim.
   private async cutCurrentPage(): Promise<void> {
-    if (this.pages.length === 0 || this.historyBridge === null) {
+    await this.cutPageAt(this.currentPageIndex);
+  }
+
+  // fd2 case4 → de2.p（Cut）：拷贝目标页后删除该页。
+  private async cutPageAt(pageIndex: number): Promise<void> {
+    if (this.pages.length === 0 || this.historyBridge === null ||
+      pageIndex < 0 || pageIndex >= this.pages.length) {
       return;
     }
-    await this.copyCurrentPage();
-    await this.deleteCurrentPage();
+    await this.copyPageAt(pageIndex);
+    await this.deletePageAt(pageIndex);
   }
 
   // Original n9j Paste (mg2.b -> lg2/m1d.c0 apply): replays the clipboard
@@ -2265,16 +2398,21 @@ struct NotePage {
   // DUPLICATE_PAGE exactly as the original's op stream cannot tell the two
   // gestures apart.
   private async pasteCopiedPage(): Promise<void> {
+    await this.pasteCopiedPageAt(this.currentPageIndex);
+  }
+
+  // fd2 case6 → e2 v16（Paste）：锚定页由菜单目标给出。
+  private async pasteCopiedPageAt(pageIndex: number): Promise<void> {
     const payload: CopiedPagePayload | null = copiedPagePayload();
     if (this.pageRepo === null || this.pages.length === 0 || this.historyBridge === null ||
-      payload === null) {
+      payload === null || pageIndex < 0 || pageIndex >= this.pages.length) {
       return;
     }
     const historyBridge: EditorHistoryBridge = this.historyBridge;
     if (!await historyBridge.flushCurrentPage()) {
       throw new Error('pasteCopiedPage could not flush the current page');
     }
-    const anchorIndex: number = this.currentPageIndex;
+    const anchorIndex: number = pageIndex;
     const anchorPageId: string = this.pages[anchorIndex].pageId;
     const orderBefore: string[] = this.pageIds(this.pages);
     const action: DuplicatePageAction = {

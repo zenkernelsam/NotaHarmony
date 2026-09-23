@@ -27,7 +27,7 @@ ok(origStrings.includes('content_manager_page_deleted">Page deleted'),
 // The toast fires after the delete commits: deletePageWithCheckpoint resolves,
 // pages list updates, next page selects, and history is pushed — all inside the
 // page-structure lease, before the toast. Disposal is fail-closed.
-const deleteStart = page.indexOf('private async deleteCurrentPageLocked(');
+const deleteStart = page.indexOf('private async deletePageAtLocked(');
 assert.ok(deleteStart !== -1);
 const deleteEnd = page.indexOf('private async moveCurrentPage(', deleteStart);
 assert.ok(deleteEnd > deleteStart);
@@ -35,7 +35,7 @@ const deleteBody = page.slice(deleteStart, deleteEnd);
 ok(deleteBody.includes('deletePageWithCheckpoint'), 'checkpointed delete missing');
 // de2.i compensation: the successor is the recorded selectedAfter for plain
 // deletes and the returned blank page for compensated deletes.
-ok(deleteBody.includes('selectPageById(compensation !== null ? compensation.pageId : selectedAfter)'),
+ok(deleteBody.includes('selectPageById(isCurrent && compensation !== null ? compensation.pageId : selectedAfter)'),
   'selection handoff missing');
 ok(deleteBody.includes('pushPageAction(action, history)'), 'history push missing');
 ok(deleteBody.includes('page_deleted') && deleteBody.includes('editorDisposed'),

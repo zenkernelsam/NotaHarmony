@@ -51,11 +51,11 @@ const bridgeCapture = remove.indexOf(
   0,
 );
 const identityGate = remove.indexOf(
-  "if (this.pages[this.currentPageIndex]?.pageId !== pageId) {",
+  "if (this.pages[pageIndex]?.pageId !== pageId) {",
   flushAwait,
 );
 const snapshotIndex = remove.indexOf(
-  'const snapshot: PageContentSnapshot = historyBridge.captureCurrentPage();',
+  'const snapshot: PageContentSnapshot = isCurrent ?',
   identityGate,
 );
 assert.ok(bridgeCapture >= 0 && flushAwait >= 0 && identityGate > flushAwait &&
@@ -78,10 +78,10 @@ assert.match(remove, /catch \(e\) \{\s+historyBridge\.cancelPageRemoval\(pageId\
 const publishIndex = remove.indexOf('this.pages = updated;');
 // de2.i compensation: the captured successor is used for plain deletes, the
 // returned blank page becomes the selection for compensated deletes.
-assert.ok(remove.indexOf("selectedAfter: string = compensated ? pageId :") >= 0 &&
+assert.ok(remove.indexOf("selectedAfter: string = !isCurrent ? selectedBefore :") >= 0 &&
   publishIndex > 0);
 assert.match(remove.slice(publishIndex),
-  /this\.selectPageById\(compensation !== null \? compensation\.pageId : selectedAfter\);/,
+  /this\.selectPageById\(isCurrent && compensation !== null \? compensation\.pageId : selectedAfter\);/,
   'post-deletion selection uses the captured successor ID');
 
 const move = section('  private async moveCurrentPage(', '  private async applyPageHistory(');

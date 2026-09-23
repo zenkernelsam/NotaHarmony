@@ -13,6 +13,7 @@
 // 与页内搜索（isSearchActive/searchMatchingPageKeys）登记后续 Phase。
 import { common } from '@kit.AbilityKit';
 import { PageInfo } from '../../core/model/NoteTypes';
+import { rotatedOriginalPageInfo } from '../../core/model/PageBackgroundModel';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { StrokePersistence } from '../../data/StrokePersistence';
 import { ThumbnailRenderer } from '../../rendering/ThumbnailRenderer';
@@ -46,6 +47,14 @@ export struct PageOverviewPanel {
   };
   onRequestClose: () => void = () => {
   };
+  // 原版 n9j cell 菜单 → fd2 dispatch：Add page/Cut/Copy/Paste?/
+  // Duplicate/Rotate?/Clear?/Delete（Create Template 生产 flag 关闭，
+  // 上游不可见）。action 取值 'add'|'cut'|'copy'|'paste'|'duplicate'|
+  // 'rotate'|'clear'|'delete'，宿主按 fd2 语义分发到页操作。
+  canPastePages: boolean = false;
+  onPageAction: (pageIndex: number, action: string) => void =
+    (_pageIndex: number, _action: string): void => {
+    };
   @State private filter: number = FILTER_ALL;
   @State private nonEmptyPageIds: Set<string> = new Set<string>();
   @State private renderReady: boolean = false;
@@ -278,10 +287,14 @@ export struct PageOverviewPanel {
                 pageIndex: item.index,
                 cellKey: item.cellKey,
                 selected: item.index === this.currentPageIndex,
+                canPaste: this.canPastePages,
                 onRequest: (page: PageInfo): Promise<PixelMap | null> =>
                   this.requestThumbnail(page),
                 onTap: (pageIndex: number): void => {
                   this.onJumpToPage(pageIndex);
+                },
+                onMenuAction: (pageIndex: number, action: string): void => {
+                  this.onPageAction(pageIndex, action);
                 },
               })
             }
@@ -323,10 +336,14 @@ struct PageOverviewCell {
   @Prop pageIndex: number = 0;
   @Prop @Watch('onCellKeyChange') cellKey: string = '';
   @Prop selected: boolean = false;
+  @Prop canPaste: boolean = false;
   onRequest: (page: PageInfo) => Promise<PixelMap | null> =
     (_page: PageInfo): Promise<PixelMap | null> => Promise.resolve(null);
   onTap: (pageIndex: number) => void = (_pageIndex: number): void => {
   };
+  onMenuAction: (pageIndex: number, action: string) => void =
+    (_pageIndex: number, _action: string): void => {
+    };
   @State private pixelMap: PixelMap | null = null;
   @State private loadingFailed: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -422,5 +439,45 @@ struct PageOverviewCell {
     .onClick(() => {
       this.onTap(this.pageIndex);
     })
+    // 原版 n9j cell 下拉菜单（fd2 dispatch）：Add page/Cut/Copy/Paste?/
+    // Duplicate/Rotate?/Clear?/Delete。Harmony 以长按上下文菜单承载；
+    // Clear 仅当前页可经画布信号清空（非当前页 fail-closed 隐藏）。
+    .bindContextMenu(this.buildCellMenu(), ResponseType.LongPress)
+  }
+
+  @Builder
+  private buildCellMenu() {
+    Menu() {
+      // fd2 case3 → zd2 v0 → u5j.i：在该页之后插入新页。
+      MenuItem({ content: $r('app.string.add_page') })
+        .onClick(() => this.onMenuAction(this.pageIndex, 'add'))
+      // fd2 case4 → de2.p → ae2 v3：Copy + Delete。
+      MenuItem({ content: $r('app.string.cut_page') })
+        .onClick(() => this.onMenuAction(this.pageIndex, 'cut'))
+      // fd2 case5 → de2.o → ae2 v2：页剪贴板拷贝。
+      MenuItem({ content: $r('app.string.copy_page') })
+        .onClick(() => this.onMenuAction(this.pageIndex, 'copy'))
+      if (this.canPaste) {
+        // fd2 case6 → e2 v16：页剪贴板粘贴到该页之后。
+        MenuItem({ content: $r('app.string.paste_page') })
+          .onClick(() => this.onMenuAction(this.pageIndex, 'paste'))
+      }
+      // fd2 case7 → de2.r → ae2 v5：整页复制到该页之后。
+      MenuItem({ content: $r('app.string.duplicate_page') })
+        .onClick(() => this.onMenuAction(this.pageIndex, 'duplicate'))
+      if (this.page !== undefined && rotatedOriginalPageInfo(this.page) !== null) {
+        // fd2 default → zd2 v1：Rotate Page。
+        MenuItem({ content: $r('app.string.rotate_page') })
+          .onClick(() => this.onMenuAction(this.pageIndex, 'rotate'))
+      }
+      if (this.selected) {
+        // fd2 case1 → de2.n → ae2 v1：Clear Page 仅经当前页画布信号实现。
+        MenuItem({ content: $r('app.string.clear_page') })
+          .onClick(() => this.onMenuAction(this.pageIndex, 'clear'))
+      }
+      // fd2 case2 → de2.q → ae2 v4：Delete Pages。
+      MenuItem({ content: $r('app.string.delete_page') })
+        .onClick(() => this.onMenuAction(this.pageIndex, 'delete'))
+    }
   }
 }
