@@ -51,7 +51,11 @@ assert.match(ingress, /catch \(_error\) \{\s*return null;/);
 // pixelmap 记录复用剪贴板归一化（webp lossy + 降采样护栏）。
 assert.match(ingress, /await normalizeOriginalPixelMap\(pixelMap\)/);
 assert.match(clipboardIngress, /export async function normalizeOriginalPixelMap\(pixelMap: image\.PixelMap\)/);
-assert.match(clipboardIngress, /return await normalizeOriginalPixelMap\(source\.pixelMap\)/);
+assert.ok(clipboardIngress.includes('source.pixelMap !== null'));
+assert.ok(clipboardIngress.includes('await normalizeOriginalPixelMap(source.pixelMap)'));
+assert.ok(clipboardIngress.includes('await normalizeClipboardImageUri(source.uri)'));
+assert.ok(clipboardIngress.includes('pasteboard.MIMETYPE_TEXT_URI'));
+assert.ok(clipboardIngress.includes('firstSupportedClipboardImageUri(data) !== null'));
 // 无扩展名读取侧有尺寸上限（与 ORIGINAL_PHOTO_MAX_BYTES 一致）。
 assert.match(ingress, /stat\.size > 104857600/);
 assert.match(photoIngress, /ORIGINAL_PHOTO_MAX_BYTES: number = 104857600/);
@@ -116,4 +120,4 @@ function split(uris, isValid) {
 assert.deepEqual(split(['file:///a/b.png', 'datashare:///x'], u => u.endsWith('.png')),
   [['file:///a/b.png'], ['datashare:///x']]);
 
-console.log('D05_ORIGINAL_IMAGE_DROP_INGRESS_REPLAY_OK TOTAL=45 FAILED=0');
+console.log('D05_ORIGINAL_IMAGE_DROP_INGRESS_REPLAY_OK TOTAL=46 FAILED=0');

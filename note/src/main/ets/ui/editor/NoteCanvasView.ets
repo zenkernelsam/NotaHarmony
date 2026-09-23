@@ -6974,11 +6974,11 @@ export struct NoteCanvasView {
       }
       const outcome: PhotoInsertOutcome = await this.insertOriginalPhotos([{
         bytes: normalized.bytes,
-        fileName: `clipboard-${Date.now()}.webp`,
-        mimeType: 'image/webp',
-        rewroteBytes: true,
-        encodedWidth: normalized.width,
-        encodedHeight: normalized.height,
+        fileName: `clipboard-${Date.now()}.${normalized.fileExtension}`,
+        mimeType: normalized.mimeType,
+        rewroteBytes: normalized.rewroteBytes,
+        encodedWidth: normalized.encodedWidth,
+        encodedHeight: normalized.encodedHeight,
         orientedWidth: normalized.width,
         orientedHeight: normalized.height,
       }], pasteOrigin);
