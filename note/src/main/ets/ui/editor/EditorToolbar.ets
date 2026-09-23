@@ -14,6 +14,9 @@ export struct EditorToolbar {
   @State compact: boolean = false;
   @State showToolSettings: boolean = false;
   @State showShareSheet: boolean = false;
+  // 原版 v6d.l 页选择集合的 Harmony 子集：全部页面 / 当前页二选一
+  // （任意子集选择需缩略图栅格面，登记差异见 ADR-0611）。
+  @State shareAllPages: boolean = true;
   private toolbarScroller: Scroller = new Scroller();
   // Undo/Redo 回调（T-021 实现功能）
   onUndo: () => void = () => {
@@ -36,12 +39,14 @@ export struct EditorToolbar {
   // 分享面板中唯一可由本端管线产出的格式为 .note 包。
   onShareNote: () => void = () => {
   };
-  // 原版 s6d.JPG/PNG（atc case6/7）：当前页整页栅格化导出图像。
-  // format 取值 'jpg' | 'png'。
-  onShareImage: (format: string) => void = (_format: string): void => {
+  // 原版 s6d.JPG/PNG（atc case6/7）：页栅格化导出图像。
+  // format 取值 'jpg' | 'png'；allPages=true 时整册打包为单个 zip。
+  onShareImage: (format: string, allPages: boolean) => void =
+    (_format: string, _allPages: boolean): void => {
   };
-  // 原版 s6d.PDF（atc case4）：整册逐页栅格化导出单个 PDF。
-  onSharePdf: () => void = () => {
+  // 原版 s6d.PDF（atc case4）：逐页栅格化导出单个 PDF；
+  // allPages=false 时仅导出当前页（单页 PDF）。
+  onSharePdf: (allPages: boolean) => void = (_allPages: boolean): void => {
   };
   @Prop selectionColor: number = -16777216;
   @Prop selectionWidth: number = 5;
@@ -504,6 +509,15 @@ export struct EditorToolbar {
         .fontSize(16)
         .fontColor(this.resolveTokens().textPrimary)
         .margin({ top: 16, bottom: 12 })
+      // 原版 v6d 面板页选择（v6d.l Set）的 Harmony 子集：
+      // 全部页面 / 当前页。作用于 PDF/JPG/PNG 行；NOTE 恒为整册、
+      // LINK 置灰不参与。
+      Row() {
+        this.ShareRangeOption($r('app.string.share_range_all'), true)
+        this.ShareRangeOption($r('app.string.share_range_current'), false)
+      }
+        .width('100%')
+        .padding({ left: 24, right: 24, bottom: 8 })
       this.ShareFormatRow($r('app.string.share_link'), 'link', false)
       this.ShareFormatRow($r('app.string.share_pdf'), 'pdf', true)
       this.ShareFormatRow($r('app.string.share_note'), 'note', true)
@@ -540,11 +554,27 @@ export struct EditorToolbar {
       if (format === 'note') {
         this.onShareNote();
       } else if (format === 'pdf') {
-        this.onSharePdf();
+        this.onSharePdf(this.shareAllPages);
       } else {
-        this.onShareImage(format);
+        this.onShareImage(format, this.shareAllPages);
       }
     })
+  }
+
+  @Builder
+  ShareRangeOption(label: ResourceStr, allPages: boolean) {
+    Text(label)
+      .fontSize(13)
+      .fontColor(this.shareAllPages === allPages ?
+        this.resolveTokens().accent : this.resolveTokens().textSecondary)
+      .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+      .backgroundColor(this.shareAllPages === allPages ?
+        this.resolveTokens().control : Color.Transparent)
+      .borderRadius(8)
+      .margin({ right: 8 })
+      .onClick(() => {
+        this.shareAllPages = allPages;
+      })
   }
 
   @Builder

@@ -111,8 +111,8 @@ check(toolbar.includes('.opacity(supported ? 1 : 0.4)') &&
   toolbar.includes('share_format_unsupported'),
   'unsupported formats render dimmed with an unsupported caption');
 check(toolbar.includes('this.showShareSheet = false;\n      if (format === \'note\') {') &&
-  toolbar.includes('this.onSharePdf();') &&
-  toolbar.includes('this.onShareImage(format);'),
+  toolbar.includes('this.onSharePdf(this.shareAllPages);') &&
+  toolbar.includes('this.onShareImage(format, this.shareAllPages);'),
   'enabled rows close the sheet and dispatch to the format export');
 
 // --- Harmony：NotePage 接线与导出管线 ---

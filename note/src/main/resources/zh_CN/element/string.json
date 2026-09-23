@@ -397,6 +397,8 @@
     { "name": "share_jpg", "value": "JPG" },
     { "name": "share_png", "value": "PNG" },
     { "name": "share_format_unsupported", "value": "暂不支持" },
+    { "name": "share_range_all", "value": "全部页面" },
+    { "name": "share_range_current", "value": "当前页" },
     { "name": "cd_quick_tool_color", "value": "颜色" },
     { "name": "cd_page_indicator", "value": "第 %1$d 页，共 %2$d 页" },
     { "name": "toolbar_more_menu", "value": "更多选项" },

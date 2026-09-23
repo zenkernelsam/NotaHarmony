@@ -89,16 +89,16 @@ check(exporter.includes('fileIo.unlinkSync(tmpPath)'),
 check(toolbar.includes("ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)") &&
   toolbar.includes("ShareFormatRow($r('app.string.share_png'), 'png', true)"),
   'jpg/png rows are enabled');
-check(toolbar.includes('onShareImage: (format: string) => void') &&
-  toolbar.includes('this.onShareImage(format);'),
-  'image rows dispatch the format to onShareImage');
-check(notePage.includes('onShareImage: (format: string) => {') &&
-  notePage.includes('this.shareCurrentPageAsImage(format);'),
+check(toolbar.includes('onShareImage: (format: string, allPages: boolean) => void') &&
+  toolbar.includes('this.onShareImage(format, this.shareAllPages);'),
+  'image rows dispatch format and range to onShareImage');
+check(notePage.includes('onShareImage: (format: string, allPages: boolean) => {') &&
+  notePage.includes('this.sharePagesAsImages(format, allPages);'),
   'NotePage wires the image-format callback');
-check(notePage.includes('const page: PageInfo = this.pages[this.currentPageIndex];'),
-  'export rasterizes the currently visible page');
+check(notePage.includes('[this.pages[this.currentPageIndex]]'),
+  'the current-page range rasterizes the visible page only');
 check(notePage.includes('PAGE_EXPORT_SCALE: number = 2.0') &&
-  notePage.includes('renderPageExport(this.noteId, this.persistence,\n          page, theme, db, PAGE_EXPORT_SCALE)'),
+  notePage.includes('this.persistence, page, theme, db, PAGE_EXPORT_SCALE'),
   'export renders at 2x page pixels (~192dpi)');
 check(notePage.includes("ThemeStore.resolve('light', false)"),
   'export uses authored (light) colors regardless of night mode');

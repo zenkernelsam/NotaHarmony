@@ -1157,6 +1157,8 @@
     { "name": "share_jpg", "value": "JPG" },
     { "name": "share_png", "value": "PNG" },
     { "name": "share_format_unsupported", "value": "Not supported" },
+    { "name": "share_range_all", "value": "All pages" },
+    { "name": "share_range_current", "value": "Current page" },
     { "name": "cd_quick_tool_color", "value": "Color" },
     { "name": "cd_page_indicator", "value": "%1$d of %2$d" },
     { "name": "toolbar_more_menu", "value": "More options" },

@@ -4,6 +4,7 @@
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
+import { ZipWriter } from './ZipArchive';
 
 const FILE_WRITE_CHUNK_SIZE: number = 64 * 1024;
 const FILE_READ_CHUNK_SIZE: number = 64 * 1024;
@@ -93,6 +94,92 @@ export class PageImageExporter {
       }
     }
   }
+
+  // Phase 644 整册图像导出：v6d.l 页集合=全部页面时，单文件 picker
+  // 无法逐页分发 → 各页栅格打进一个 zip（page_001.<ext> 序），
+  // 保存管线与单页路径同构。
+  async exportPageImagesZip(context: common.UIAbilityContext,
+    images: Uint8Array[], title: string, format: ShareImageFormat): Promise<boolean> {
+    if (images.length === 0) {
+      return false;
+    }
+    const suffix: string = format === 'png' ? 'png' : 'jpg';
+    const writer: ZipWriter = new ZipWriter();
+    for (let i = 0; i < images.length; i++) {
+      const name: string = `page_${pad3(i + 1)}.${suffix}`;
+      writer.addEntry(name, images[i], false);
+    }
+    let tmpPath: string = '';
+    let tmpFile: fileIo.File | null = null;
+    let srcFile: fileIo.File | null = null;
+    let dstFile: fileIo.File | null = null;
+    try {
+      const zipBytes: Uint8Array = await writer.build();
+      const expectedSize: number = zipBytes.byteLength;
+      tmpPath = `${context.tempDir}/pages_export_${Date.now()}.zip`;
+      tmpFile = fileIo.openSync(tmpPath,
+        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      writeFileFully(tmpFile.fd, zipBytes, 'temporary pages zip export');
+      fileIo.fsyncSync(tmpFile.fd);
+      fileIo.closeSync(tmpFile);
+      tmpFile = null;
+
+      const documentPicker = new picker.DocumentViewPicker(context);
+      const saveOptions = new picker.DocumentSaveOptions();
+      saveOptions.newFileNames = [`${safeFileName(title)}_pages_${Date.now()}.zip`];
+      saveOptions.fileSuffixChoices = ['ZIP 压缩包|.zip'];
+      const uris: string[] = await documentPicker.save(saveOptions);
+      if (uris.length === 0) {
+        console.info('exportPageImagesZip: user cancelled');
+        return false;
+      }
+      const targetUri: string = uris[0];
+      srcFile = fileIo.openSync(tmpPath, fileIo.OpenMode.READ_ONLY);
+      const stat = fileIo.statSync(tmpPath);
+      const size: number = stat.size;
+      if (!Number.isSafeInteger(size) || size !== expectedSize) {
+        throw new Error(`temporary zip export changed before copy: ${size}/${expectedSize} bytes`);
+      }
+      dstFile = fileIo.openSync(targetUri,
+        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      copyFileFully(srcFile.fd, dstFile.fd, size, 'destination pages zip export');
+      fileIo.fsyncSync(dstFile.fd);
+      fileIo.closeSync(dstFile);
+      dstFile = null;
+      fileIo.closeSync(srcFile);
+      srcFile = null;
+      console.info(`exportPageImagesZip success: pages=${images.length} bytes=${size}`);
+      return true;
+    } catch (e) {
+      console.error(`exportPageImagesZip failed: ${JSON.stringify(e)}`);
+      return false;
+    } finally {
+      if (tmpFile !== null) {
+        try { fileIo.closeSync(tmpFile); } catch (_) { }
+      }
+      if (srcFile !== null) {
+        try { fileIo.closeSync(srcFile); } catch (_) { }
+      }
+      if (dstFile !== null) {
+        try { fileIo.closeSync(dstFile); } catch (_) { }
+      }
+      if (tmpPath.length > 0) {
+        try {
+          fileIo.unlinkSync(tmpPath);
+        } catch (e) {
+          // 忽略清理失败
+        }
+      }
+    }
+  }
+}
+
+function pad3(value: number): string {
+  let s: string = value.toString(10);
+  while (s.length < 3) {
+    s = `0${s}`;
+  }
+  return s;
 }
 
 function safeFileName(title: string): string {

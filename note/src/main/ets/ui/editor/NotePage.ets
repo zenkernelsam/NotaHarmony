@@ -90,7 +90,7 @@ import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
 // 分享图像导出倍率：pagePixelSize（≈96dpi）×2 ≈ 192dpi 栅格。
 const PAGE_EXPORT_SCALE: number = 2.0;
-const PDF_JPEG_QUALITY: number = 92;
+const EXPORT_JPEG_QUALITY: number = 92;
 const PACK_BUFFER_MAX_BYTES: number = 64 * 1024 * 1024;
 
 @Entry
@@ -232,28 +232,57 @@ struct NotePage {
     });
   }
 
-  // 原版 s6d.JPG/PNG（atc case6/7）：当前页按 pagePixelSize×2 整页
+  // 原版 s6d.JPG/PNG（atc case6/7）：所选页按 pagePixelSize×2 整页
   // 栅格化（含纸面/PDF 背景/全部元素栈），编码后交系统保存对话框。
+  // 页选择集合（v6d.l）的 Harmony 子集：当前页单文件直存；全部页面
+  // 逐页打包 page_NNN.<ext> 进单个 zip 再保存。
   // 导出色恒取亮主题（原版导出的是笔记固有颜色，不受夜间模式影响）。
-  private shareCurrentPageAsImage(format: string): void {
+  private sharePagesAsImages(format: string, allPages: boolean): void {
     if (this.pages.length === 0 || this.currentPageIndex < 0 ||
       this.currentPageIndex >= this.pages.length) {
       return;
     }
-    const page: PageInfo = this.pages[this.currentPageIndex];
+    const pages: PageInfo[] = allPages ? this.pages.slice() :
+      [this.pages[this.currentPageIndex]];
     const shareFormat: ShareImageFormat = format === 'png' ? 'png' : 'jpeg';
     const context = getContext(this) as common.UIAbilityContext;
     const theme: ThemeTokens = ThemeStore.resolve('light', false);
     const db: DatabaseManager = DatabaseManager.getInstance();
     const renderer: ThumbnailRenderer = new ThumbnailRenderer();
-    let pixelMap: PixelMap | null = null;
+    const exporter: PageImageExporter = new PageImageExporter();
+    let packer: image.ImagePacker | null = null;
+    const encodedPages: Uint8Array[] = [];
+    let singlePixelMap: PixelMap | null = null;
     renderer.initialize(context)
       .then(async (): Promise<void> => {
-        pixelMap = await renderer.renderPageExport(this.noteId, this.persistence,
-          page, theme, db, PAGE_EXPORT_SCALE);
-        const exporter: PageImageExporter = new PageImageExporter();
-        const success: boolean = await exporter.exportPageImage(context, pixelMap,
-          this.noteTitle, shareFormat);
+        if (pages.length === 1) {
+          singlePixelMap = await renderer.renderPageExport(this.noteId,
+            this.persistence, pages[0], theme, db, PAGE_EXPORT_SCALE);
+          const success: boolean = await exporter.exportPageImage(context,
+            singlePixelMap, this.noteTitle, shareFormat);
+          promptAction.showToast({
+            message: success ? $r('app.string.export_done') : $r('app.string.export_failed'),
+          });
+          return;
+        }
+        packer = image.createImagePacker();
+        const pagePacker: image.ImagePacker = packer;
+        for (const page of pages) {
+          const pixelMap: PixelMap = await renderer.renderPageExport(this.noteId,
+            this.persistence, page, theme, db, PAGE_EXPORT_SCALE);
+          try {
+            const data: ArrayBuffer = await pagePacker.packToData(pixelMap, {
+              format: shareFormat === 'png' ? 'image/png' : 'image/jpeg',
+              quality: shareFormat === 'jpeg' ? EXPORT_JPEG_QUALITY : 0,
+              bufferSize: PACK_BUFFER_MAX_BYTES,
+            });
+            encodedPages.push(new Uint8Array(data));
+          } finally {
+            await pixelMap.release();
+          }
+        }
+        const success: boolean = await exporter.exportPageImagesZip(context,
+          encodedPages, this.noteTitle, shareFormat);
         promptAction.showToast({
           message: success ? $r('app.string.export_done') : $r('app.string.export_failed'),
         });
@@ -263,21 +292,27 @@ struct NotePage {
         console.error(`share page image export failed: ${JSON.stringify(e)}`);
       })
       .finally(async (): Promise<void> => {
-        if (pixelMap !== null) {
-          await pixelMap.release();
+        if (singlePixelMap !== null) {
+          await singlePixelMap.release();
+        }
+        if (packer !== null) {
+          await packer.release();
         }
         await renderer.dispose();
       });
   }
 
-  // 原版 s6d.PDF（atc case4）：整册逐页按 pagePixelSize×2 栅格化，
+  // 原版 s6d.PDF（atc case4）：所选页逐页按 pagePixelSize×2 栅格化，
   // 每页压为 JPEG 后嵌入单 PDF（DCTDecode 直通），交系统保存对话框。
-  // 页序取 this.pages 快照序（= 原版页序）；导出色恒取亮主题。
-  private shareNoteAsPdf(): void {
-    if (this.pages.length === 0) {
+  // 页序取 this.pages 快照序（= 原版页序）；allPages=false 时仅当前页。
+  // 导出色恒取亮主题。
+  private shareNoteAsPdf(allPages: boolean): void {
+    if (this.pages.length === 0 || this.currentPageIndex < 0 ||
+      this.currentPageIndex >= this.pages.length) {
       return;
     }
-    const pages: PageInfo[] = this.pages.slice();
+    const pages: PageInfo[] = allPages ? this.pages.slice() :
+      [this.pages[this.currentPageIndex]];
     const context = getContext(this) as common.UIAbilityContext;
     const theme: ThemeTokens = ThemeStore.resolve('light', false);
     const db: DatabaseManager = DatabaseManager.getInstance();
@@ -293,7 +328,7 @@ struct NotePage {
             const info: image.ImageInfo = pixelMap.getImageInfoSync();
             const data: ArrayBuffer = await packer.packToData(pixelMap, {
               format: 'image/jpeg',
-              quality: PDF_JPEG_QUALITY,
+              quality: EXPORT_JPEG_QUALITY,
               bufferSize: PACK_BUFFER_MAX_BYTES,
             });
             imagePages.push({
@@ -1370,21 +1405,21 @@ struct NotePage {
             }
             this.shareNoteAsFile();
           },
-          // 原版 s6d.JPG/PNG：分享面板图像格式行，导出当前页栅格。
-          onShareImage: (format: string) => {
+          // 原版 s6d.JPG/PNG：分享面板图像格式行，导出所选页栅格。
+          onShareImage: (format: string, allPages: boolean) => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
               this.historyPending) {
               return;
             }
-            this.shareCurrentPageAsImage(format);
+            this.sharePagesAsImages(format, allPages);
           },
-          // 原版 s6d.PDF（atc case4）：整册逐页栅格化导出单个 PDF。
-          onSharePdf: () => {
+          // 原版 s6d.PDF（atc case4）：所选页逐页栅格化导出单个 PDF。
+          onSharePdf: (allPages: boolean) => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
               this.historyPending) {
               return;
             }
-            this.shareNoteAsPdf();
+            this.shareNoteAsPdf(allPages);
           },
           onInsertMath: () => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
