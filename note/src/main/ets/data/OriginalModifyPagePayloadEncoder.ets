@@ -1,6 +1,8 @@
 import {
   encodeOriginalSequenceId, OriginalSequenceIdentity, validateOriginalSequenceIdentity,
 } from './OperationIdentity';
+import { PageBackground } from '../core/model/NoteTypes';
+import { encodeOriginalPageBackgroundTableBlob } from './OriginalSetMetadataPayloadEncoder';
 
 const MAX_ORIGINAL_MODIFY_PAGE_COUNT: number = 10000;
 
@@ -82,6 +84,56 @@ export function encodeOriginalModifyPageBookmark(pages: OriginalSequenceIdentity
   writeU32(bytes, pageVector, pages.length);
   for (let index: number = 0; index < pages.length; index++) {
     writeSequence(bytes, pageVector + 4 + index * 12, pages[index]);
+  }
+  return bytes;
+}
+
+// Original 1.0.3 zd2 case 1 (content-manager Rotate Page) emits a ModifyPage op
+// through u5j.s(x09, [page], null, m2d, null, 10): field 0 carries the page
+// identities, field 2 the m2d setter whose field 0 nests the new nz9. Fields 1
+// (SeqMove) and 3 (oz9 bookmark) stay absent. A null background keeps the m2d
+// table while omitting its field 0, which resets the page-level register to the
+// note-level fallback exactly like a null m2d.j() read.
+export function encodeOriginalModifyPageBackground(pages: OriginalSequenceIdentity[],
+  background: PageBackground | null): Uint8Array {
+  if (pages.length < 1 || pages.length > MAX_ORIGINAL_MODIFY_PAGE_COUNT) {
+    throw new Error('local ModifyPage background page count is invalid');
+  }
+  const seen: Set<string> = new Set<string>();
+  for (const page of pages) {
+    validateOriginalSequenceIdentity(page);
+    const key: string = encodeOriginalSequenceId(page);
+    if (seen.has(key)) {
+      throw new Error('local ModifyPage background repeats a page identity');
+    }
+    seen.add(key);
+  }
+  const blob: Uint8Array | null = background === null ? null :
+    encodeOriginalPageBackgroundTableBlob(background);
+
+  const rootVtable: number = 4;
+  const rootTable: number = 16;
+  const pageVector: number = 36;
+  const setterVtable: number = pageVector + 4 + pages.length * 12;
+  const setterTable: number = align4(setterVtable + 6);
+  const nz9Offset: number = setterTable + 8;
+  const bytes: Uint8Array = new Uint8Array(nz9Offset + (blob === null ? 0 : blob.length));
+
+  writeU32(bytes, 0, rootTable);
+  writeVtable(bytes, rootVtable, 20, [4, 0, 12, 0]);
+  writeU32(bytes, rootTable, rootTable - rootVtable);
+  writeU32(bytes, rootTable + 4, pageVector - (rootTable + 4));
+  writeU32(bytes, rootTable + 12, setterTable - (rootTable + 12));
+  writeU32(bytes, pageVector, pages.length);
+  for (let index: number = 0; index < pages.length; index++) {
+    writeSequence(bytes, pageVector + 4 + index * 12, pages[index]);
+  }
+
+  writeVtable(bytes, setterVtable, 8, [blob === null ? 0 : 4]);
+  writeU32(bytes, setterTable, setterTable - setterVtable);
+  if (blob !== null) {
+    writeU32(bytes, setterTable + 4, nz9Offset - (setterTable + 4));
+    bytes.set(blob, nz9Offset);
   }
   return bytes;
 }

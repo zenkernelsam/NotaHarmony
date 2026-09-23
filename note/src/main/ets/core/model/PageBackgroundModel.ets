@@ -228,6 +228,76 @@ export function effectivePageBackground(page: PageInfo): PageBackground | null {
   return result;
 }
 
+// Original zd2 case 1 (content-manager Rotate Page): the nz9 rotation register
+// steps through the cardinal cycle 0 -> pi/2 -> pi -> 3pi/2 -> 0. cl4.a holds
+// Math.PI and cl4.a(f,g) compares floats with a 1e-4 epsilon, so any
+// non-cardinal register value falls through to a 0 reset.
+export function nextOriginalPageRotation(rotationRadians: number): number {
+  if (near(rotationRadians, 0)) {
+    return Math.PI / 2;
+  }
+  if (near(rotationRadians, Math.PI / 2)) {
+    return Math.PI;
+  }
+  if (near(rotationRadians, Math.PI)) {
+    return Math.PI * 3 / 2;
+  }
+  return 0;
+}
+
+// Original zd2 rotate write: nz9' = nz9 with rotation stepped one cardinal turn
+// (m18.O mask 27 keeps paper/size/margins). When the page is PDF-backed, l7j.c
+// rebuilds sw9 to single-page consumption — pagesConsumed=1,
+// pageOffset=pageInAsset, and cropBoxes keeps only this page's own entry —
+// because ModifyPage targets exactly one page and the reducer rejects a
+// pagesConsumed != pages.length mismatch. The write materializes the page's
+// effective background (wz9.B() resolves the register ?? note fallback) into
+// the page-level register; returns null when no effective background exists.
+export function rotatedOriginalPageInfo(page: PageInfo): PageInfo | null {
+  const register: PageBackground | null = effectivePageBackground(page);
+  if (register === null) {
+    return null;
+  }
+  const rotated: PageBackground = clonePageBackground(register) as PageBackground;
+  rotated.rotationRadians = nextOriginalPageRotation(rotated.rotationRadians);
+  if (rotated.pdf !== undefined && rotated.pdf !== null) {
+    const pageInAsset: number = page.originalPageInAsset === undefined ?
+      rotated.pdf.pageOffset : page.originalPageInAsset;
+    const cropIndex: number = pageInAsset - rotated.pdf.pageOffset;
+    if (!Number.isSafeInteger(pageInAsset) || pageInAsset < 0 || cropIndex < 0 ||
+      cropIndex >= rotated.pdf.cropBoxes.length) {
+      throw new Error('rotate page cannot resolve its PDF crop box');
+    }
+    rotated.pdf = {
+      metadata: rotated.pdf.metadata,
+      layoutBehavior: rotated.pdf.layoutBehavior,
+      totalPageCount: rotated.pdf.totalPageCount,
+      pagesConsumed: 1,
+      pageOffset: pageInAsset,
+      cropBoxes: [rotated.pdf.cropBoxes[cropIndex]],
+      pageInAsset: pageInAsset,
+    };
+  }
+  validatePageBackground(rotated);
+  const result: PageInfo = clonePageInfo(page);
+  result.background = rotated;
+  // decodeOriginalPageBackgroundTable parity: the reducer materializes dims from
+  // the rotated nz9 sourceSize (Letter 612x792pt fallback when absent), then
+  // derives orientation from the rotated dims. These derived fields are ignored
+  // by the original write path but keep the local UPDATE_PAGE bucket correct.
+  const quarterTurn: boolean = near(rotated.rotationRadians, Math.PI / 2) ||
+    near(rotated.rotationRadians, Math.PI * 3 / 2);
+  const sourceWidthMm: number = rotated.sourceWidthPt === null ? 215.9 :
+    rotated.sourceWidthPt * POINTS_TO_MM;
+  const sourceHeightMm: number = rotated.sourceHeightPt === null ? 279.4 :
+    rotated.sourceHeightPt * POINTS_TO_MM;
+  result.widthMm = quarterTurn ? sourceHeightMm : sourceWidthMm;
+  result.heightMm = quarterTurn ? sourceWidthMm : sourceHeightMm;
+  result.orientation = result.widthMm > result.heightMm ?
+    PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT;
+  return result;
+}
+
 export function originalDefaultNoteBackground(): PageBackground {
   return {
     schemaVersion: PAGE_BACKGROUND_SCHEMA_VERSION,

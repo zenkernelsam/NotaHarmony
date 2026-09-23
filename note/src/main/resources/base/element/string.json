@@ -533,6 +533,10 @@
       "value": "Bookmark"
     },
     {
+      "name": "rotate_page",
+      "value": "Rotate Page"
+    },
+    {
       "name": "clear_page",
       "value": "Clear Page"
     },

@@ -47,6 +47,10 @@ export struct PageManagerBar {
   // selection flips its wz9.bookmarkedRegister value.
   onToggleBookmark: () => void = () => {
   };
+  // Original zd2 case 1: the content-manager Rotate Page action steps the
+  // page's nz9 rotation register through the cardinal cycle.
+  onRotatePage: () => void = () => {
+  };
   onClearPage: () => void = () => {
   };
   // Original ke1 case 20: the page indicator is clickable and opens the
@@ -266,6 +270,12 @@ export struct PageManagerBar {
           return;
         }
         this.onToggleBookmark();
+      } },
+      { value: $r('app.string.rotate_page'), action: () => {
+        if (this.busy || this.photoImportLeaseActive) {
+          return;
+        }
+        this.onRotatePage();
       } },
       { value: $r('app.string.clear_page'), action: () => {
         if (this.busy || this.photoImportLeaseActive) {

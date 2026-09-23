@@ -1,13 +1,16 @@
 import { relationalStore } from '@kit.ArkData';
 import { OpType } from '../core/model/OpTypes';
-import { PageInfo, PaperTemplate } from '../core/model/NoteTypes';
+import { PageBackground, PageInfo, PaperTemplate } from '../core/model/NoteTypes';
 import { clonePageInfo, parsePageBackground } from '../core/model/PageBackgroundModel';
 import { encodeOriginalLocalCreatePage } from './OriginalCreatePagePayloadEncoder';
 import {
   MAX_ORIGINAL_CREATE_PAGE_COUNT, ORIGINAL_CREATE_PAGE_PAYLOAD_TYPE,
   OriginalCreatePageOperationApplier,
 } from './OriginalCreatePageOperation';
-import { encodeOriginalModifyPageMove, encodeOriginalModifyPageBookmark } from './OriginalModifyPagePayloadEncoder';
+import {
+  encodeOriginalModifyPageBackground, encodeOriginalModifyPageBookmark,
+  encodeOriginalModifyPageMove,
+} from './OriginalModifyPagePayloadEncoder';
 import {
   ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE, OriginalModifyPageOperationApplier,
 } from './OriginalModifyPageOperation';
@@ -203,6 +206,32 @@ export async function persistOriginalPageBookmark(store: relationalStore.RdbStor
     store, operation);
   if (result.deferredReason !== null) {
     throw new Error(`local ModifyPage bookmark was deferred: ${result.deferredReason}`);
+  }
+  await appendOperation(store, {
+    noteId: noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_PAGE,
+    payload: operation.rawOperation, clientTime: identity.clientTime, opTimestamp: identity.timestamp,
+    editorSiteId: identity.siteId, uploadImmediately: true,
+  });
+  return { page: await readPage(store, noteId, pageId), payload: operation.rawOperation };
+}
+
+// Original zd2 case 1 (content-manager Rotate Page) writes a per-page ModifyPage
+// whose field 2 (m2d -> nz9) wins the page-background LWW register by op identity.
+// The reducer materializes size/template/orientation/dims from the decoded nz9.
+export async function persistOriginalPageBackground(store: relationalStore.RdbStore,
+  noteId: string, pageId: string, background: PageBackground | null): Promise<PersistedOriginalPageMutation> {
+  if (!await hasAlignedOriginalPageState(store, noteId)) {
+    throw new Error('local page background requires complete aligned original page identity coverage');
+  }
+  const page: OriginalSequenceIdentity = await readPageIdentity(store, noteId, pageId);
+  const identity: AllocatedOperationIdentity = await allocateOperationIdentity(store, noteId);
+  const payload: Uint8Array = encodeOriginalModifyPageBackground([page], background);
+  const operation: StoredSyncedOperation = storedOperation(
+    noteId, identity, ORIGINAL_MODIFY_PAGE_PAYLOAD_TYPE, payload);
+  const result: SyncedOperationApplyResult = await new OriginalModifyPageOperationApplier().apply(
+    store, operation);
+  if (result.deferredReason !== null) {
+    throw new Error(`local ModifyPage background was deferred: ${result.deferredReason}`);
   }
   await appendOperation(store, {
     noteId: noteId, opId: identity.opId, opType: OpType.ORIGINAL_MODIFY_PAGE,

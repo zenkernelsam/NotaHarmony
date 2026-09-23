@@ -28,7 +28,8 @@ import { SearchItemType } from './SearchItemType';
 import { decodeStoredPageElement } from './StrokePersistence';
 import {
   hasAlignedOriginalPageState, originalPageIdentityExists, persistOriginalCreatePage,
-  persistOriginalPageBookmark, persistOriginalPageReorder, persistOriginalPageVisibility,
+  persistOriginalPageBackground, persistOriginalPageBookmark, persistOriginalPageReorder,
+  persistOriginalPageVisibility,
 } from './OriginalPagePersistence';
 import {
   persistOriginalNoteBackground, PersistedOriginalNoteBackground,
@@ -349,11 +350,30 @@ export class PageRepositoryImpl implements PageRepository {
       await store.beginTransaction();
       try {
         const noteId: string = await this.queryPageNoteId(store, page.pageId);
-        if (await originalPageIdentityExists(store, noteId, page.pageId)) {
-          throw new Error('original page settings must use note-level SET_METADATA');
-        }
         const revision: number = await this.queryStructureRevision(store, noteId);
         const before: PageInfo[] = await this.queryPages(store, noteId);
+        if (await originalPageIdentityExists(store, noteId, page.pageId)) {
+          // Original zd2/u5j.s parity: page-scoped settings (rotate) write a
+          // ModifyPage field-2 m2d/nz9 register, not the local UPDATE_PAGE
+          // bucket. The reducer materializes size/template/orientation/dims.
+          const pageIndexOriginal: number = this.findPageIndex(before, page.pageId);
+          if (pageIndexOriginal < 0 || page.pageIndex !== before[pageIndexOriginal].pageIndex) {
+            throw new Error('page settings cannot change page order');
+          }
+          if (this.samePage(before[pageIndexOriginal], page)) {
+            await store.commit();
+            return;
+          }
+          await persistOriginalPageBackground(store, noteId, page.pageId,
+            page.background === undefined ? null : page.background);
+          const afterOriginal: PageInfo[] = await this.queryPages(store, noteId);
+          if (history !== undefined) {
+            await this.appendStructureHistoryMutation(store, noteId, revision, before,
+              afterOriginal, OpType.UPDATE_PAGE, history);
+          }
+          await store.commit();
+          return;
+        }
         const pageIndex: number = this.findPageIndex(before, page.pageId);
         if (pageIndex < 0 || page.pageIndex !== before[pageIndex].pageIndex) {
           throw new Error('page settings cannot change page order');

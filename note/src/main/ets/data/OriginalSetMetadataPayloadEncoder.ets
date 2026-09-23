@@ -74,6 +74,22 @@ export function encodeOriginalPageBackgroundRoot(background: PageBackground): Ui
   return bytes;
 }
 
+// Original 1.0.3 wire chain for per-page background writes:
+// ge8 ModifyPage.field2 -> m2d SetPageBackground.field0 -> nz9 PageBackground.
+// Every reference inside an nz9 table is relative to its own position, so the
+// table bytes are emitted as a relocatable blob that callers embed inside a
+// larger payload buffer (the ModifyPage encoder does exactly that).
+export function encodeOriginalPageBackgroundTableBlob(background: PageBackground): Uint8Array {
+  validatePageBackground(background);
+  const pdf: PdfEncoding | null = background.pdf === undefined || background.pdf === null
+    ? null : preparePdf(background.pdf);
+  const layout: BackgroundLayout = planConcreteBackgroundLayout(0, 0, 0, 0, 0,
+    align4(14), background, pdf);
+  const bytes: Uint8Array = new Uint8Array(layout.total);
+  writeBackground(bytes, layout, background, pdf);
+  return bytes;
+}
+
 // Original 1.0.3 wire chain:
 // l2d SetMetadata.field1 -> m2d SetPageBackground.field0 -> nz9 PageBackground.
 // The m2d table is deliberately retained when value is null: null resets the note-level

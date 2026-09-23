@@ -13,7 +13,7 @@ import { BrushStyle, brushStyleToInkStyle, inkStyleToBrushStyle } from '../../co
 import { InkStyle } from '../../core/model/StrokeTypes';
 import {
   cloneNoteBackgroundSettings, clonePageInfo, originalDefaultNoteBackgroundSettings,
-  sameNoteBackgroundSettings, samePageBackground,
+  rotatedOriginalPageInfo, sameNoteBackgroundSettings, samePageBackground,
 } from '../../core/model/PageBackgroundModel';
 import { HistoryMetadata, NoteMetadataHistoryState } from '../../core/model/OpTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
@@ -67,7 +67,7 @@ import { persistCapturedOriginalRecording } from '../../data/OriginalRecordingPe
 import {
   AddPageAction, DeletePageAction, EditorHistoryBridge, NoteBackgroundAction, NoteMetadataAction,
   NoteTitleAction,
-  PageContentSnapshot, UndoableAction, UndoableActionType,
+  PageContentSnapshot, PageSettingsAction, UndoableAction, UndoableActionType,
 } from '../../rendering/UndoRedoManager';
 import { EditorViewModel } from './EditorViewModel';
 import { EditorToolbar } from './EditorToolbar';
@@ -1524,6 +1524,9 @@ struct NotePage {
           onToggleBookmark: () => {
             this.runPageOperation(async (): Promise<void> => this.toggleCurrentPageBookmark());
           },
+          onRotatePage: () => {
+            this.runPageOperation(async (): Promise<void> => this.rotateCurrentPage());
+          },
           onClearPage: () => {
             this.clearPageSignal++;
           },
@@ -1810,6 +1813,46 @@ struct NotePage {
     }
     updated[index] = this.clonePage(persisted);
     this.pages = updated;
+  }
+
+  // Original zd2 case 1 (content-manager Rotate Page): steps the page's nz9
+  // rotation register one cardinal turn via a per-page ModifyPage write, then
+  // rides the existing PAGE_SETTINGS history channel for undo/redo.
+  private async rotateCurrentPage(): Promise<void> {
+    if (this.pageRepo === null || this.pages.length === 0) {
+      return;
+    }
+    const before: PageInfo = this.clonePage(this.pages[this.currentPageIndex]);
+    const rotated: PageInfo | null = rotatedOriginalPageInfo(before);
+    if (rotated === null) {
+      return;
+    }
+    const action: PageSettingsAction = {
+      type: UndoableActionType.PAGE_SETTINGS,
+      noteId: this.noteId,
+      pageId: before.pageId,
+      pageBefore: before,
+      pageAfter: rotated,
+    };
+    const history: HistoryMetadata | undefined = this.historyBridge === null
+      ? undefined : this.historyBridge.preparePageAction(action);
+    await this.pageRepo.updatePage(rotated, history);
+    if (this.editorDisposed) {
+      return;
+    }
+    this.pages = await this.pageRepo.getPages(this.noteId);
+    if (this.editorDisposed) {
+      return;
+    }
+    const materialized: PageInfo | undefined = this.pages.find(
+      (page: PageInfo): boolean => page.pageId === before.pageId);
+    if (materialized !== undefined) {
+      action.pageAfter = this.clonePage(materialized);
+    }
+    this.selectPageById(before.pageId);
+    if (this.historyBridge !== null) {
+      this.historyBridge.pushPageAction(action, history);
+    }
   }
 
   private async applyPageHistory(action: UndoableAction, isUndo: boolean,
