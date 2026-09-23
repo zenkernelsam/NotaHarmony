@@ -3333,6 +3333,27 @@ export class StrokePersistence {
     }
   }
 
+  // Phase 645：原版 nd2.NOTES 过滤（页面内容非空）——按页返回
+  // page_element_snapshot 行数，页面管理面板据此判定「笔记」页。
+  async getPageElementCounts(noteId: string): Promise<Map<string, number>> {
+    if (this.store === null) {
+      throw new Error('StrokePersistence is not initialized');
+    }
+    const resultSet = await this.store.querySql(
+      `SELECT page_id, COUNT(*) AS element_count FROM page_element_snapshot
+       WHERE note_id = ? GROUP BY page_id`, [noteId]);
+    const counts: Map<string, number> = new Map<string, number>();
+    try {
+      while (resultSet.goToNextRow()) {
+        counts.set(resultSet.getString(resultSet.getColumnIndex('page_id')),
+          resultSet.getLong(resultSet.getColumnIndex('element_count')));
+      }
+      return counts;
+    } finally {
+      resultSet.close();
+    }
+  }
+
   async getNoteRevisionSignature(noteId: string): Promise<string> {
     const snapshot: BackupSnapshotEntry[] = await this.readBackupRevisionSnapshot(noteId);
     return snapshot.length === 1 ? snapshot[0].revision : '';

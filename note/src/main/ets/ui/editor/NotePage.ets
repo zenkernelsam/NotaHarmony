@@ -25,6 +25,7 @@ import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteExporter } from '../../data/NoteExporter';
 import { PageImageExporter, ShareImageFormat } from '../../data/PageImageExporter';
 import { PagePdfExporter, PdfPageImage } from '../../data/PagePdfExporter';
+import { PageOverviewPanel } from './PageOverviewPanel';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PersistedOriginalNoteTitle } from '../../data/OriginalNoteTitlePersistence';
 import {
@@ -128,6 +129,10 @@ struct NotePage {
   private pageStructureLeaseActive: boolean = false;
   @State pageLoading: boolean = false;
   @State historyPending: boolean = false;
+  // Phase 645 页面管理面板（原版 qd2 页总览）：开关态 + 内容修订种子
+  // —— onUndoRedoChanged 与页结构变更驱动缩略图重渲染。
+  @State showPageOverview: boolean = false;
+  @State pageContentVersion: number = 0;
   @State pageLoadFailed: boolean = false;
   // Original u49.a / vc9 states: open-time failures surface as a terminal
   // dialog — 'deleted' (uc9, note unavailable) vs 'failed' (rc9, load failed).
@@ -1421,6 +1426,15 @@ struct NotePage {
             }
             this.shareNoteAsPdf(allPages);
           },
+          // 原版 gs8 case2（x90.g 顶栏首项）：content-manager 页面面板
+          // 开关；与兄弟入口共用 lease/busy/history 门禁。
+          onTogglePagesPanel: () => {
+            if (this.photoImportLeaseActive || this.pageOperationBusy ||
+              this.historyPending) {
+              return;
+            }
+            this.showPageOverview = !this.showPageOverview;
+          },
           onInsertMath: () => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
               this.historyPending || this.pageStructureLeaseActive) {
@@ -1594,6 +1608,9 @@ struct NotePage {
               u.toString(), r.toString());
             this.canUndo = u;
             this.canRedo = r;
+            // Phase 645：每次可撤销变更都可能改写页内容 → 页面面板
+            // 缩略图按 thumbRevision 种子重渲染。
+            this.pageContentVersion++;
           },
           onRequestPage: (pageId: string) => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
@@ -1750,6 +1767,36 @@ struct NotePage {
     .width('100%')
     .height('100%')
     .backgroundColor(this.resolveTokens().background)
+    // 原版 content-manager 面板（gs8 case2 顶栏开关 → qd2 页总览）：
+    // bindSheet 承载页面缩略图栅格。
+    .bindSheet(this.showPageOverview, this.buildPageOverview(), {
+      height: SheetSize.LARGE,
+      showClose: false,
+    })
+  }
+
+  // Phase 645：原版 content manager 页总览——标题 Pages + nd2 三过滤
+  // chip + 缩略图栅格 + 点击跳页；多选/页内搜索登记 ADR-0612。
+  @Builder
+  buildPageOverview() {
+    PageOverviewPanel({
+      noteId: this.noteId,
+      persistence: this.persistence,
+      database: DatabaseManager.getInstance(),
+      pages: this.pages,
+      currentPageIndex: this.currentPageIndex,
+      thumbRevision: this.pageContentVersion,
+      onJumpToPage: (pageIndex: number): void => {
+        if (!this.pageLoading && !this.pageOperationBusy &&
+          !this.historyPending && !this.pageStructureLeaseActive &&
+          pageIndex >= 0 && pageIndex < this.pages.length) {
+          this.currentPageIndex = pageIndex;
+        }
+      },
+      onRequestClose: (): void => {
+        this.showPageOverview = false;
+      },
+    })
   }
 
   // Original 1.0.3 applies size/template/orientation through note-level SET_METADATA.

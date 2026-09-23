@@ -48,6 +48,9 @@ export struct EditorToolbar {
   // allPages=false 时仅导出当前页（单页 PDF）。
   onSharePdf: (allPages: boolean) => void = (_allPages: boolean): void => {
   };
+  // 原版 gs8 case2（x90.g 首项）：content-manager 页面面板开关。
+  onTogglePagesPanel: () => void = () => {
+  };
   @Prop selectionColor: number = -16777216;
   @Prop selectionWidth: number = 5;
   @Prop selectionWidthMinimum: number = 0.5;
@@ -75,6 +78,21 @@ export struct EditorToolbar {
     Column() {
       Scroll(this.toolbarScroller) {
         Row() {
+        // 原版 x90.g 顶栏首项（pq9.N → fh2 → gs8 case2）：content-manager
+        // 页面面板开关，位于 undo/redo 与工具簇之前。
+        Button('▦')
+          .width(44)
+          .height(32)
+          .fontSize(15)
+          .margin({ left: 2, right: 4 })
+          .enabled(!this.photoImportLeaseActive)
+          .accessibilityText($r('app.string.cd_pages_panel_toggle'))
+          .onClick(() => {
+            if (this.photoImportLeaseActive) {
+              return;
+            }
+            this.onTogglePagesPanel();
+          })
         // === 工具按钮（48vp 点击区）：按原版托盘顺序渲染可见工具 ===
         ForEach(this.viewModel.visibleToolStates(), (state: ToolState) => {
           if (state.toolType === ToolType.WHOLE_ERASER) {
