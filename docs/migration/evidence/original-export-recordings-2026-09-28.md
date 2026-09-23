@@ -1,77 +1,66 @@
-# 证据：原版 .note 导出携带 Recordings/ 音频条目（x59/j0.m）
+# 证据：原版 .note 导出把录音音频并入 assets/（yk9）
 
-- 日期：2026-09-28；Phase 626
-- 原版来源：`decompiled_1.0.3/sources/defpackage/x59.java`、
-  `j0.java`、`oj3.java`
+- 日期：2026-09-28；Phase 626（含同 Phase 内 x59→yk9 纠正）
+- 原版来源：`decompiled_1.0.3/sources/defpackage/yk9.java`、
+  `zk9.java`、`y59.java`、`x59.java`、`haa.java`
 - Harmony 实现：`note/src/main/ets/data/NoteExporter.ets`
 
-## 原版行为（x59.java:490-526）
+## 原版 .note 包结构（yk9.java:253-296）
 
-`.note` 导出在写完 PDF 条目后，对每条可见录音写一个 zip
-条目：
+`yk9.invokeSuspend` 写出真正的 .note zip：
 
-1. **可见性过滤**：`listT1` 来自 `!aa6.V(qo5, x09)` 过滤
-   （x59.java:507-515）——被隐藏的录音不导出，等价 Harmony
-   `OriginalRecordingStore.listVisible`。
-2. **文件存在性**：`zq6.h(context, yjbVar.H())` 按录音资产
-   哈希解析本地文件；`fileH.exists()`（:496）为假则**静默
-   跳过**，不中止导出。
-3. **扩展名**：`MimeTypeMap.getSingleton()
-   .getExtensionFromMimeType(yjbVar.x().j().m())`（:497）；
-   返回 null 时兜底 `"mp4"`（:498-500）。
-4. **条目名净化**：`j0.m(yjbVar.getName())`（:501）。
-5. **条目路径**：`"Recordings/" + 净化名 + "." + ext`
-   （:503-509，str6="Recordings/"）。
-6. **重名去重**：`LinkedHashSet` 收集已用名；
-   `!linkedHashSet.add(string)` 时改写为
-   `Recordings/<名> (n).<ext>`，`r11` 自 1 起递增
-   （:510-513；r11 槽位承接 `z2=true`，JVM 中即 1）。
-7. **内容**：`FileInputStream` 原样流拷贝（:514-518）。
+1. `version` → 字节 `"1"`；
+2. `manifest.json` → `cx7` 序列化清单；
+3. `noteBundle` → flatbuffer 同步 op 流；
+4. `assets/<ug5.e(ba6.e0(ua0))>[.<ext>]` —— 逐项写出
+   `note.assets`（`mx7VarB`）中的**全部**资产；扩展名来自
+   `MimeTypeMap.getExtensionFromMimeType(wa0.m())`，为 null 时
+   **不带扩展名**（无 mp4 兜底——那是 x59 的语义）。
 
-## 净化规则（j0.java:42-64）
+## 录音如何进入 note.assets（yk9.java:160-215）
 
-`j0.m(String)`：
+op 迭代门：
+`uq9Var.r(sdfVar) == null && (z || uq9Var.m() != haa.CREATE_RECORDING)`
+——`z`（=`yk9.O`，由 `zk9.a(...)` 布尔入参透传，分享层的
+"包含录音"开关）为假时 CREATE_RECORDING op 被整体跳过（不进
+noteBundle、也不进资产收集）。`haa.CREATE_RECORDING` 序号为 5
+（haa.java:23），在资产收集 switch 的 `iOrdinal == 5` 分支经
+`kaj.a(yn2)` 产出 `cba`，其 `a().j()` 的 ua0 被 put 进
+`mx7`（:212-213）——**录音音频就是普通内容寻址资产**。
 
-- null → ""；
-- `Pattern.compile("[/\\\\:*?\"<>|\\\\x00]")` 命中的字符
-  全部替换为 `_`（即 `/ \ : * ? " < > | \x00`）；
-- 从头剥掉连续的 `.`（`char[]{'.'}` 前导扫描）；
-- 结果为空 → `"Note"`。
+## 缺失资产 fail-hard（yk9.java:242-252）
 
-注意它与 Harmony 既有的 `safeFileName`（导出 PDF 文件名用，
-trim + 非法字符剔除 + 兜底 `note`）是**两套不同规则**——
-j0.m 不 trim、保留内部空格、替换而非删除。
+收集完成后逐项检查 `zq6.h(context, ua0).exists()`；任一缺失 →
+`throw new MissingAssetsException(arrayList3)`，整个导出中止。
+`zq6.h`（zq6.java:157-160）= `assets/final/<ug5.e(ba6.e0(ua0))>`
+——内容寻址文件名。
 
-## 音频 mime 域（oj3.java:32）
+## x59 是 ZIP 分享格式而非 .note（x59.java:480-526）
 
-原版识别的录音 mime 集合为 `{mp3, mp4, aac, wav, aiff,
-m4a}`（`nj3` 枚举）。`MimeTypeMap` 是 Android 平台映射表，
-Harmony 侧无对应系统 API，故以等值映射表落地：覆盖
-audio/mp4、x-m4a、mp4a-latm、aac、aacp、adts、mpeg、mp3、
-wav、x-wav、wave、aiff、x-aiff、3gpp、amr、ogg、flac；
-其余一律回退 `mp4`，与原版 null 兜底一致。
+`x59` 输出 `<名>.zip`（`vh2.o(str2, ".zip")`，:480），内含
+`<名>.pdf` + `Recordings/<j0.m(name)>.<ext>`（j0.m 净化 +
+MimeTypeMap 扩展名 null→"mp4" + ` (n)` 去重 + exists() 静默跳过）。
+且 `listT1.isEmpty()` 时直接返回裸 PDF（:477-479）——**没有
+录音时连 zip 都不产生**。该格式属分享 epic，不进 .note 包。
 
 ## Harmony 落地（NoteExporter.ets）
 
-- 页面/图片/PDF 条目写完后，追加
-  `OriginalRecordingStore.listVisible(noteId)` 循环；
-- 每条录音先查 `assetState !== READY` → 跳过（等价
-  `fileH.exists()` 的 fail-soft），再
-  `resolveOriginalAsset` 解析资产、`asset === null` →
-  跳过；
-- `readVerifiedOriginalAsset` 校验后写入，保证坏资产不进
-  包（强于原版的裸流拷贝，属 fail-closed 加固）；
-- `sanitizeOriginalRecordingEntryName` 逐条对齐 j0.m；
-- `originalRecordingExportExtension` 为 mime→ext 等值表 +
-  `mp4` 兜底；
-- `usedRecordingEntries` Set 去重，`dedupeIndex` 自 1 起，
-  生成 `名 (n)` 后缀——与原版 `linkedHashSet` + `r11`
-  逐项同构。
+- `OriginalRecordingStore.listVisible(noteId)` 取可见录音，
+  每条把 `{assetHashBits, assetFileName, assetMimeType,
+  assetFileSize}` `addAsset` 进既有 `assets` 图；
+- 包内条目名 = `originalAssetPackageEntry` =
+  `assets/<originalAssetStorageHash(hashBits)>` —— 与图片/PDF
+  同一内容寻址约定，同构原版 `assets/<hash>`；
+- `addAsset` 对同路径冲突元数据抛错（`asset metadata
+  conflicts`），写循环 `resolveOriginalAsset === null` →
+  `throw` —— 即 MissingAssetsException 等价 fail-closed；
+- Harmony 导出单路径恒含录音（等价 `yk9.O=true`）。
 
 ## 静态差异（记录在案）
 
-- 原版循环内 `apb.w(hi2Var.U())` 是协程活性检查；Harmony
-  导出为同步实现，无等价物。
-- 原版对不存在的文件只查 `exists()`，不校验内容；Harmony
-  经 `readVerifiedOriginalAsset` 读校验字节——对损坏资产
-  更严格（fail-closed）。
+- 原版资产条目可带 `.<ext>` 后缀；Harmony 既有
+  `originalAssetPackageEntry` 为无扩展名 `assets/<hash>`，
+  导入按键名哈希解析，扩展名仅装饰性——保持一致未加。
+- Harmony .note 包不序列化录音实体本身（无 noteBundle/op 流），
+  本端再导入时录音行不恢复——属后续 Phase（实体序列化）范围；
+  本 Phase 只保证资产字节不丢。

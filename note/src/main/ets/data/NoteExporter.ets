@@ -26,7 +26,7 @@ import {
   assertStableBackupSnapshot, BackupPreparationError, BackupSnapshotChangedError, BackupSnapshotEntry,
 } from './BackupSnapshotGuard';
 import {
-  MaterializedOriginalRecording, OriginalRecordingAssetState, OriginalRecordingStore,
+  MaterializedOriginalRecording, OriginalRecordingStore,
 } from './OriginalRecordingStore';
 
 const FILE_WRITE_CHUNK_SIZE: number = 64 * 1024;
@@ -137,6 +137,24 @@ export class NoteExporter {
         };
         writer.addEntry(`pages/page_${i}.json`, stringToBytes(serializePage(pageData)), true, note.updatedAt);
       }
+      // original yk9 .note export: recording audio joins note.assets like
+      // every other asset — content-hash keyed assets/<sha512>[.<ext>]
+      // (CREATE_RECORDING contributes its ua0 when the share-sheet
+      // includeRecordings flag zk9.a->yk9.O is true; Harmony export always
+      // includes recordings). A declared asset whose file is missing aborts
+      // the whole export (MissingAssetsException parity) via the shared
+      // fail-closed write loop below. Recordings/<name>.<ext> naming only
+      // exists in the x59 ZIP share format (deferred epic), not in .note.
+      const recordings: MaterializedOriginalRecording[] =
+        await new OriginalRecordingStore(this.db).listVisible(noteId);
+      for (const recording of recordings) {
+        this.addAsset(assets, {
+          assetHashBits: recording.assetHashBits,
+          fileName: recording.assetFileName,
+          mimeType: recording.assetMimeType,
+          fileSize: recording.assetFileSize,
+        });
+      }
       if (assets.size > 0) {
         writer.addDirectory('assets/', note.updatedAt);
         const assetRepository: AssetRepositoryImpl = new AssetRepositoryImpl(this.db);
@@ -148,43 +166,6 @@ export class NoteExporter {
             throw new Error(`asset metadata is missing for ${packagePath}`);
           }
           writer.addEntry(packagePath, readVerifiedOriginalAsset(asset, metadata), false, note.updatedAt);
-        }
-      }
-      // 原版 x59 导出：每条录音写一个 Recordings/<name>.<ext> zip 条目——
-      // name 经 j0.m 净化（[/\\:*?"<>|\x00]→_、剥前导点、空→"Note"），
-      // ext=MimeTypeMap.getExtensionFromMimeType(mime)（null→"mp4"），
-      // 重名以 " (n)"（n 自 1 起）去重；文件不存在（fileH.exists()）静默
-      // 跳过、不中止导出。
-      const recordings: MaterializedOriginalRecording[] =
-        await new OriginalRecordingStore(this.db).listVisible(noteId);
-      if (recordings.length > 0) {
-        const recordingAssets: AssetRepositoryImpl = new AssetRepositoryImpl(this.db);
-        const usedRecordingEntries: Set<string> = new Set<string>();
-        for (const recording of recordings) {
-          if (recording.assetState !== OriginalRecordingAssetState.READY) {
-            continue;
-          }
-          const metadata: OriginalAssetMetadata = {
-            assetHashBits: recording.assetHashBits,
-            fileName: recording.assetFileName,
-            mimeType: recording.assetMimeType,
-            fileSize: recording.assetFileSize,
-          };
-          const asset: NoteAsset | null = await resolveOriginalAsset(recordingAssets, metadata);
-          if (asset === null) {
-            continue;
-          }
-          const extension: string = originalRecordingExportExtension(recording.assetMimeType);
-          const baseName: string = sanitizeOriginalRecordingEntryName(recording.name);
-          let entryName: string = `Recordings/${baseName}.${extension}`;
-          let dedupeIndex: number = 1;
-          while (usedRecordingEntries.has(entryName)) {
-            entryName = `Recordings/${baseName} (${dedupeIndex}).${extension}`;
-            dedupeIndex++;
-          }
-          usedRecordingEntries.add(entryName);
-          writer.addEntry(entryName, readVerifiedOriginalAsset(asset, metadata), false,
-            note.updatedAt);
         }
       }
       return await writer.build();
@@ -326,49 +307,6 @@ export class NoteExporter {
 function safeFileName(title: string): string {
   const cleaned: string = title.replace(/[\\/:*?"<>|]/g, '_').trim();
   return cleaned.length > 0 ? cleaned : 'note';
-}
-
-// 原版 j0.m：zip 条目名净化——[/\\:*?"<>|\x00]→_，剥前导点，空→"Note"。
-// 与 safeFileName（标题用，trim 兜底 'note'）是两套规则。
-function sanitizeOriginalRecordingEntryName(name: string): string {
-  const cleaned: string = name.replace(/[\\/:*?"<>|\x00]/g, '_')
-    .replace(/^\.+/, '');
-  return cleaned.length > 0 ? cleaned : 'Note';
-}
-
-// 原版 MimeTypeMap.getExtensionFromMimeType 对常见音频 mime 的返回值；
-// 未知一律回退 "mp4"（x59 的 null 兜底）。
-function originalRecordingExportExtension(mimeType: string): string {
-  switch (mimeType.toLowerCase()) {
-    case 'audio/mp4':
-    case 'audio/x-m4a':
-    case 'audio/mp4a-latm':
-      return 'm4a';
-    case 'audio/aac':
-    case 'audio/aacp':
-    case 'audio/adts':
-      return 'aac';
-    case 'audio/mpeg':
-    case 'audio/mp3':
-      return 'mp3';
-    case 'audio/wav':
-    case 'audio/x-wav':
-    case 'audio/wave':
-      return 'wav';
-    case 'audio/aiff':
-    case 'audio/x-aiff':
-      return 'aiff';
-    case 'audio/3gpp':
-      return '3gp';
-    case 'audio/amr':
-      return 'amr';
-    case 'audio/ogg':
-      return 'ogg';
-    case 'audio/flac':
-      return 'flac';
-    default:
-      return 'mp4';
-  }
 }
 
 function stringToBytes(text: string): Uint8Array {

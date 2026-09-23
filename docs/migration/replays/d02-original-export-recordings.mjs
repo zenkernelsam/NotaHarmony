@@ -1,82 +1,64 @@
-// Phase 626 — .note 导出携带 Recordings/ 音频条目（x59/j0.m 对齐）。
-// 原版 x59：每条录音写 Recordings/<j0.m(name)>.<ext>——ext 为
-// MimeTypeMap.getExtensionFromMimeType(mime)（null→"mp4"），重名以
-// " (n)"（n 自 1 起）去重，fileH.exists() 缺失文件静默跳过。
-// j0.m：[/\\:*?"<>|\x00]→_、剥前导点、空→"Note"。
+// Phase 626 — .note 导出把录音音频并入 assets/（yk9 对齐）。
+// 原版 yk9 写 {version, manifest.json, noteBundle, assets/<hash>[.<ext>]}；
+// CREATE_RECORDING 在 includeRecordings(yk9.O=分享层开关) 时把录音 ua0
+// 计入 note.assets；资产文件缺失 → MissingAssetsException 中止导出。
+// Recordings/<j0.m(name)>.<ext> 只出现在 x59 的 ZIP 分享格式（deferred）。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const originalRoot = 'C:/Users/Cisco He/Desktop/Notability/decompiled_1.0.3/sources/defpackage/';
+const yk9 = fs.readFileSync(`${originalRoot}yk9.java`, 'utf8');
 const x59 = fs.readFileSync(`${originalRoot}x59.java`, 'utf8');
-const j0 = fs.readFileSync(`${originalRoot}j0.java`, 'utf8');
 const exporter = fs.readFileSync('note/src/main/ets/data/NoteExporter.ets', 'utf8')
   .replaceAll('\r\n', '\n');
+const packageStore = fs.readFileSync('note/src/main/ets/data/ImageAssetPackageStore.ets', 'utf8')
+  .replaceAll('\r\n', '\n');
 
-// --- 原版证据锚点 ---
+// --- 原版 .note 包结构证据（yk9.java） ---
+assert.match(yk9, /new ZipEntry\("version"\)/);
+assert.match(yk9, /new ZipEntry\("manifest\.json"\)/);
+assert.match(yk9, /new ZipEntry\("noteBundle"\)/);
+assert.match(yk9, /"assets\/" \+ ug5\.e\(ba6\.e0\(ua0Var\)\)/);
+assert.match(yk9, /throw new MissingAssetsException/);
+assert.match(yk9, /z \|\| uq9Var\.m\(\) != haa\.CREATE_RECORDING/);
+assert.match(yk9, /extensionFromMimeType != null \? "\."\.concat\(extensionFromMimeType\) : ""/);
+assert.ok(!yk9.includes('"mp4"'), 'yk9 has no mp4 fallback (that is x59-only)');
+
+// --- x59 是 ZIP 分享格式而非 .note：Recordings/ 只属于它 ---
 assert.match(x59, /Recordings\//);
+assert.match(x59, /vh2\.o\(str2, "\.zip"\)/);
 assert.match(x59, /fileH\.exists\(\)/);
-assert.match(x59, /getExtensionFromMimeType[\s\S]*extensionFromMimeType == null[\s\S]*"mp4"/);
-assert.match(x59, /j0\.m\(yjbVar\.getName\(\)\)/);
-assert.match(x59, /!linkedHashSet\.add\(string\)/);
-assert.ok(j0.includes('x00]'), 'j0.m char class covers NUL');
-assert.match(j0, /string\.length\(\) == 0 \? "Note" : string/);
 
 // --- Harmony 实现锚点 ---
 assert.match(exporter, /OriginalRecordingStore/);
 assert.match(exporter, /listVisible\(noteId\)/);
-assert.match(exporter, /assetState !== OriginalRecordingAssetState\.READY/);
-assert.match(exporter, /resolveOriginalAsset\(recordingAssets, metadata\)/);
-assert.match(exporter, /readVerifiedOriginalAsset\(asset, metadata\)/);
-assert.match(exporter, /Recordings\/\$\{baseName\}\.\$\{extension\}/);
-assert.match(exporter, /Recordings\/\$\{baseName\} \(\$\{dedupeIndex\}\)\.\$\{extension\}/);
-assert.match(exporter, /dedupeIndex: number = 1/);
-assert.match(exporter, /asset === null[\s\S]{0,60}continue/);
+assert.match(exporter, /this\.addAsset\(assets, \{/);
+assert.match(exporter, /assetHashBits: recording\.assetHashBits/);
+assert.match(exporter, /mimeType: recording\.assetMimeType/);
+assert.match(exporter, /resolveOriginalAsset\(assetRepository, metadata\)/);
+assert.match(exporter, /asset === null[\s\S]{0,80}throw new Error/);
+assert.match(packageStore, /`assets\/\$\{originalAssetStorageHash/);
+assert.ok(!exporter.includes('Recordings/${'), 'no Recordings/ entry writer in .note export');
+assert.ok(!exporter.includes('sanitizeOriginalRecordingEntryName'), 'j0.m sanitizer removed');
 
-// --- j0.m 净化模拟（与 Harmony sanitizeOriginalRecordingEntryName 同规则） ---
-function sanitize(name) {
-  const cleaned = name.replace(/[\\/:*?"<>|\x00]/g, '_').replace(/^\.+/, '');
-  return cleaned.length > 0 ? cleaned : 'Note';
-}
-assert.equal(sanitize('My Recording'), 'My Recording');
-assert.equal(sanitize('a/b\\c:d*e?f"g<h>i|j'), 'a_b_c_d_e_f_g_h_i_j');
-assert.equal(sanitize('...hidden'), 'hidden');
-assert.equal(sanitize(''), 'Note');
-assert.equal(sanitize('///'), '___');
-
-// --- mime→ext 模拟（与 originalRecordingExportExtension 同表） ---
-function ext(mime) {
-  switch (mime.toLowerCase()) {
-    case 'audio/mp4': case 'audio/x-m4a': case 'audio/mp4a-latm': return 'm4a';
-    case 'audio/aac': case 'audio/aacp': case 'audio/adts': return 'aac';
-    case 'audio/mpeg': case 'audio/mp3': return 'mp3';
-    case 'audio/wav': case 'audio/x-wav': case 'audio/wave': return 'wav';
-    case 'audio/aiff': case 'audio/x-aiff': return 'aiff';
-    case 'audio/3gpp': return '3gp';
-    case 'audio/amr': return 'amr';
-    case 'audio/ogg': return 'ogg';
-    case 'audio/flac': return 'flac';
-    default: return 'mp4';
+// --- addAsset 冲突/去重语义模拟 ---
+const assets = new Map();
+function addAsset(metadata) {
+  const path = `assets/${metadata.hash}`;
+  const existing = assets.get(path);
+  if (existing !== undefined &&
+      (existing.fileSize !== metadata.fileSize || existing.mimeType !== metadata.mimeType)) {
+    throw new Error(`asset metadata conflicts for ${path}`);
   }
-}
-assert.equal(ext('audio/mp4'), 'm4a');
-assert.equal(ext('audio/mpeg'), 'mp3');
-assert.equal(ext('application/octet-stream'), 'mp4');
-
-// --- 去重命名模拟：重名自 " (1)" 起 ---
-const used = new Set();
-function entry(baseName, extension) {
-  let s = `Recordings/${baseName}.${extension}`;
-  let i = 1;
-  while (used.has(s)) {
-    s = `Recordings/${baseName} (${i}).${extension}`;
-    i++;
+  if (existing === undefined) {
+    assets.set(path, metadata);
   }
-  used.add(s);
-  return s;
+  return path;
 }
-assert.equal(entry('R1', 'm4a'), 'Recordings/R1.m4a');
-assert.equal(entry('R1', 'm4a'), 'Recordings/R1 (1).m4a');
-assert.equal(entry('R1', 'm4a'), 'Recordings/R1 (2).m4a');
-assert.equal(entry('R2', 'm4a'), 'Recordings/R2.m4a');
+const rec = { hash: 'ab12', fileSize: 100, mimeType: 'audio/mp4' };
+assert.equal(addAsset(rec), 'assets/ab12');
+assert.equal(addAsset(rec), 'assets/ab12');
+assert.equal(assets.size, 1);
+assert.throws(() => addAsset({ hash: 'ab12', fileSize: 999, mimeType: 'audio/mp4' }));
 
-console.log('D02_ORIGINAL_EXPORT_RECORDINGS_REPLAY_OK TOTAL=29 FAILED=0');
+console.log('D02_ORIGINAL_EXPORT_RECORDINGS_REPLAY_OK TOTAL=25 FAILED=0');
