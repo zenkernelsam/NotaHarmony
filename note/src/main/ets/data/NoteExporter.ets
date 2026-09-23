@@ -5,8 +5,8 @@ import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
 import { ZipWriter } from './ZipArchive';
 import {
-  NoteManifest, PageData, serializeManifest, serializePage,
-  NOTE_FORMAT, NOTE_FORMAT_VERSION, NOTE_SOURCE,
+  NOTE_FORMAT, NOTE_FORMAT_VERSION, NOTE_RECORDINGS_ENTRY, NOTE_SOURCE, NoteManifest,
+  PackagedRecording, PackagedRecordingSegment, PageData, serializeManifest, serializePackagedRecordings, serializePage,
 } from './NotePackageSpec';
 import { NoteMeta, OriginalAssetMetadata, PageBackground, PageInfo, PaperSize } from '../core/model/NoteTypes';
 import { effectivePageBackground } from '../core/model/PageBackgroundModel';
@@ -28,6 +28,7 @@ import {
 import {
   MaterializedOriginalRecording, OriginalRecordingStore,
 } from './OriginalRecordingStore';
+import { OriginalRecordingSegment } from './OriginalRecordingOperation';
 
 const FILE_WRITE_CHUNK_SIZE: number = 64 * 1024;
 const FILE_READ_CHUNK_SIZE: number = 64 * 1024;
@@ -154,6 +155,31 @@ export class NoteExporter {
           mimeType: recording.assetMimeType,
           fileSize: recording.assetFileSize,
         });
+      }
+      // The same CREATE_RECORDING entity the original serializes through its
+      // synced ops stream lands here as a recordings.json manifest (Harmony
+      // packages carry no ops); the audio blob already joined assets/ above.
+      if (recordings.length > 0) {
+        const packagedRecordings: PackagedRecording[] = [];
+        for (const recording of recordings) {
+          packagedRecordings.push({
+            timestamp: recording.timestamp,
+            siteId: recording.siteId,
+            name: recording.name,
+            startTime: recording.startTime,
+            endTime: recording.endTime,
+            segments: recording.segments.map(
+              (segment: OriginalRecordingSegment): PackagedRecordingSegment =>
+                ({ startTime: segment.startTime, endTime: segment.endTime })),
+            zIndex: recording.zIndex,
+            assetHashBits: recording.assetHashBits,
+            assetFileName: recording.assetFileName,
+            assetMimeType: recording.assetMimeType,
+            assetFileSize: recording.assetFileSize,
+          });
+        }
+        writer.addEntry(NOTE_RECORDINGS_ENTRY,
+          stringToBytes(serializePackagedRecordings(packagedRecordings)), true, note.updatedAt);
       }
       if (assets.size > 0) {
         writer.addDirectory('assets/', note.updatedAt);

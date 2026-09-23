@@ -14,6 +14,8 @@ import {
   StoredSyncedOperation, SyncedOperationApplier, SyncedOperationApplyResult,
 } from './SyncedOperationInbox';
 import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './UnsignedDecimal';
+import { DatabaseManager } from './DatabaseManager';
+import { databaseWriteMutex } from './DatabaseWriteMutex';
 
 export const ORIGINAL_CREATE_RECORDING_PAYLOAD_TYPE: number = 5;
 export const ORIGINAL_MODIFY_RECORDING_PAYLOAD_TYPE: number = 6;
@@ -503,4 +505,109 @@ class RecordingDeferredError extends Error {
     super(reason);
     this.reason = reason;
   }
+}
+
+// .note 导入批入口：全部录音行在共享写者锁内的单个事务中落库
+// （全成功或整体回滚，再交外层 removeFailedImport 清理）。
+export async function insertImportedOriginalRecordings(database: DatabaseManager,
+  noteId: string, recordings: ImportedOriginalRecording[]): Promise<void> {
+  if (recordings.length === 0) {
+    return;
+  }
+  await databaseWriteMutex.runExclusive(async (): Promise<void> => {
+    const store: relationalStore.RdbStore = database.getStore();
+    await store.beginTransaction();
+    try {
+      for (const recording of recordings) {
+        await insertImportedOriginalRecording(store, noteId, recording);
+      }
+      await store.commit();
+    } catch (error) {
+      try {
+        await store.rollBack();
+      } catch (rollbackError) {
+        console.error(
+          'imported recordings rollback failed: ' + JSON.stringify(rollbackError));
+      }
+      throw new Error('imported recordings write failed: ' + JSON.stringify(error));
+    }
+  });
+}
+
+export interface ImportedOriginalRecording {
+  timestamp: number;
+  siteId: number;
+  name: string;
+  startTime: string;
+  endTime: string;
+  segments: OriginalRecordingSegment[];
+  zIndex: string;
+  metadata: OriginalAssetMetadata;
+}
+
+// .note 导入：原版靠重放 CREATE_RECORDING ops 重建录音行；Harmony 包以
+// recordings.json 清单等价落盘，这里按 applyCreate 的列集直接插行。
+export async function insertImportedOriginalRecording(store: relationalStore.RdbStore,
+  noteId: string, recording: ImportedOriginalRecording): Promise<void> {
+  const payload: OriginalCreateRecordingPayload = {
+    metadata: recording.metadata, startTime: recording.startTime, endTime: recording.endTime,
+    name: recording.name, segments: recording.segments, zIndex: recording.zIndex,
+  };
+  const existing: string | null = await recordingCreateSignature(
+    store, noteId, recording.timestamp, recording.siteId);
+  const signature: string = importedCreateSignature(payload);
+  if (existing !== null) {
+    if (existing !== signature) {
+      throw new Error('imported CreateRecording identity conflicts with persisted state');
+    }
+    return;
+  }
+  const assetConflict: OriginalAssetReferenceConflict = await mergeOriginalAssetReference(
+    store, noteId, payload.metadata);
+  if (assetConflict !== OriginalAssetReferenceConflict.NONE) {
+    throw new Error('imported CreateRecording asset metadata conflicts with persisted state');
+  }
+  const segments: OriginalRecordingSegment[] = payload.segments === null ?
+    [{ startTime: payload.startTime, endTime: payload.endTime }] : payload.segments;
+  const name: string = payload.name === null ?
+    'Recording ID Id(site=' + recording.siteId + ', timestamp=' + recording.timestamp + ')' :
+    payload.name;
+  const zIndex: string = payload.zIndex === null ? '0' : payload.zIndex;
+  validateUnsignedLongDecimal(zIndex);
+  await store.insert('original_recording_state', {
+    'note_id': noteId,
+    'recording_timestamp': recording.timestamp,
+    'recording_site_id': recording.siteId,
+    'asset_hash_bits': JSON.stringify(payload.metadata.assetHashBits),
+    'asset_file_name': payload.metadata.fileName,
+    'asset_mime_type': payload.metadata.mimeType,
+    'asset_file_size': payload.metadata.fileSize,
+    'start_time': payload.startTime,
+    'end_time': payload.endTime,
+    'create_name': name,
+    'name_value': name,
+    'name_winner_timestamp': 0,
+    'name_winner_site_id': 0,
+    'name_winner_present': 0,
+    'create_segments': encodeSegments(segments),
+    'segments_value': encodeSegments(segments),
+    'segments_winner_timestamp': 0,
+    'segments_winner_site_id': 0,
+    'segments_winner_present': 0,
+    'create_z_index': zIndex,
+    'z_index_value': zIndex,
+    'z_index_winner_timestamp': 0,
+    'z_index_winner_site_id': 0,
+    'z_index_winner_present': 0,
+    'create_signature': signature,
+  });
+  await refreshOriginalRecordingPresence(store, noteId);
+}
+
+function importedCreateSignature(payload: OriginalCreateRecordingPayload): string {
+  return JSON.stringify({
+    metadata: payload.metadata, startTime: payload.startTime, endTime: payload.endTime,
+    name: payload.name, segments: payload.segments, zIndex: payload.zIndex,
+    defaultZIndex: payload.zIndex === null ? '0' : null,
+  });
 }

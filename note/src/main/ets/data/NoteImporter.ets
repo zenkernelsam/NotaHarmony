@@ -5,7 +5,8 @@ import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
 import { ZipReader, ZipEntry, ZipParseResult, ZIP_MAX_ARCHIVE_BYTES } from './ZipArchive';
 import {
-  NoteManifest, PageData, parseManifest, parsePage, parsePageElement,
+  NOTE_RECORDINGS_ENTRY, NoteManifest, PackagedRecording, PackagedRecordingSegment, PageData,
+  parseManifest, parsePackagedRecordings, parsePage, parsePageElement,
 } from './NotePackageSpec';
 import {
   NoteMeta, OriginalAssetMetadata, PageInfo, PaperSize, PaperTemplate, PageOrientation,
@@ -30,6 +31,9 @@ import {
   summarizeNotabilityContentLoss,
 } from './NotabilitySessionParser';
 import { reserveNotePageElementIds } from './PageElementIdentity';
+import {
+  ImportedOriginalRecording, insertImportedOriginalRecordings, OriginalRecordingSegment,
+} from './OriginalRecordingOperation';
 
 const FILE_READ_CHUNK_SIZE: number = 64 * 1024;
 
@@ -283,6 +287,50 @@ export class NoteImporter {
         }
       }
     }
+    // recordings.json（§2.4）：原版 .note 经同步 ops 携带 CREATE_RECORDING；
+    // Harmony 包以清单落盘，音频资产与页面资产共用 assets/ 内容寻址集合。
+    const recordingsEntry: ZipEntry | null = ZipReader.findEntry(entries, NOTE_RECORDINGS_ENTRY);
+    const packagedRecordings: PackagedRecording[] = [];
+    if (recordingsEntry !== null) {
+      const parsedRecordings: PackagedRecording[] | null =
+        parsePackagedRecordings(bytesToString(recordingsEntry.data));
+      if (parsedRecordings === null) {
+        return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+          missingAssets: ['录音清单 recordings.json 损坏或不受支持'], warnings: [],
+          message: '录音清单损坏，导入未完成' };
+      }
+      for (const recording of parsedRecordings) {
+        const recordingMetadata: OriginalAssetMetadata = {
+          assetHashBits: recording.assetHashBits,
+          fileName: recording.assetFileName,
+          mimeType: recording.assetMimeType,
+          fileSize: recording.assetFileSize,
+        };
+        const recordingPath: string = originalAssetPackageEntry(recordingMetadata);
+        const declaredRecording: OriginalAssetMetadata | undefined =
+          declaredAssets.get(recordingPath);
+        if (declaredRecording !== undefined &&
+          !sameAssetMetadata(declaredRecording, recordingMetadata)) {
+          return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+            missingAssets: [`录音资产 ${recordingPath} 的元数据互相冲突`], warnings: [],
+            message: '资产元数据冲突，导入未完成' };
+        }
+        if (declaredRecording === undefined) {
+          declaredAssets.set(recordingPath, recordingMetadata);
+        }
+        if (!packagedAssets.has(recordingPath) && !missingAssetPaths.has(recordingPath)) {
+          const recordingAssetEntry: ZipEntry | null = ZipReader.findEntry(entries, recordingPath);
+          if (recordingAssetEntry === null ||
+            recordingAssetEntry.data.length !== recordingMetadata.fileSize) {
+            missingAssetPaths.add(recordingPath);
+          } else {
+            packagedAssets.set(recordingPath,
+              { metadata: recordingMetadata, data: recordingAssetEntry.data });
+          }
+        }
+        packagedRecordings.push(recording);
+      }
+    }
     const missingPackageAssets: number = missingAssetPaths.size;
 
     // === 阶段 2：写库（创建新笔记，不覆盖已有）===
@@ -300,8 +348,33 @@ export class NoteImporter {
       const createdAt: number = validTimestamp(manifest.createdAt, now);
       const updatedAt: number = validTimestamp(manifest.updatedAt, now);
       const note: NoteMeta = await noteRepo.createNoteWithMeta(
-        noteId, title, createdAt, updatedAt, null, false, importedLegacyNoteId(preferredId, noteId));
+        noteId, title, createdAt, updatedAt, null, packagedRecordings.length > 0,
+        importedLegacyNoteId(preferredId, noteId));
       createdNoteId = note.id;
+
+      if (packagedRecordings.length > 0) {
+        const importedRecordings: ImportedOriginalRecording[] = [];
+        for (const recording of packagedRecordings) {
+          importedRecordings.push({
+            timestamp: recording.timestamp,
+            siteId: recording.siteId,
+            name: recording.name,
+            startTime: recording.startTime,
+            endTime: recording.endTime,
+            segments: recording.segments.map(
+              (segment: PackagedRecordingSegment): OriginalRecordingSegment =>
+                ({ startTime: segment.startTime, endTime: segment.endTime })),
+            zIndex: recording.zIndex,
+            metadata: {
+              assetHashBits: recording.assetHashBits,
+              fileName: recording.assetFileName,
+              mimeType: recording.assetMimeType,
+              fileSize: recording.assetFileSize,
+            },
+          });
+        }
+        await insertImportedOriginalRecordings(this.db, note.id, importedRecordings);
+      }
 
       for (const packaged of packagedAssets.values()) {
         await storeImportedOriginalAsset(this.db, packaged.metadata, packaged.data, note.id);
@@ -384,7 +457,7 @@ export class NoteImporter {
         missingAssets.push(`${failedElements} 个页面元素损坏或不受支持`);
       }
       if (missingPackageAssets > 0) {
-        missingAssets.push(`${missingPackageAssets} 个图片/PDF 资产缺失或长度不符`);
+        missingAssets.push(`${missingPackageAssets} 个图片/PDF/录音资产缺失或长度不符`);
       }
       for (const failed of failedEntries) {
         missingAssets.push(`损坏或不支持的包条目：${failed}`);

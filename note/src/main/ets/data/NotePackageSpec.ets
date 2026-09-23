@@ -12,7 +12,7 @@ import { InkPathCommand, InkPathCommandType, InkStyle, InkStyleMapEntry,
   '../core/model/StrokeTypes';
 import { PageBackground } from '../core/model/NoteTypes';
 import { clonePageBackground, validatePageBackground } from '../core/model/PageBackgroundModel';
-import { validateUnsignedLongDecimal } from './UnsignedDecimal';
+import { compareUnsignedLongDecimal, validateUnsignedLongDecimal } from './UnsignedDecimal';
 
 // .note 格式标识
 export const NOTE_FORMAT: string = 'nota.note';
@@ -659,4 +659,96 @@ function isUnsignedLongDecimal(value: string): boolean {
   } catch (_error) {
     return false;
   }
+}
+
+// recordings.json（§2.4）：原版 yk9 .note 经同步 ops 序列化 CREATE_RECORDING；
+// Harmony 包不携带 ops 流，录音实体以 JSON 清单落盘，导入端按 applyCreate 列集
+// 重建 original_recording_state，音频资产仍走同一 assets/ 内容寻址集合。
+export const NOTE_RECORDINGS_ENTRY: string = 'recordings.json';
+export const NOTE_RECORDINGS_VERSION: number = 1;
+const PACKAGED_RECORDING_NAME_MAX: number = 65536;
+const PACKAGED_RECORDING_MAX_SEGMENTS: number = 10000;
+const PACKAGED_RECORDING_HASH_WORDS: number = 8;
+
+export interface PackagedRecordingSegment {
+  startTime: string;
+  endTime: string;
+}
+
+export interface PackagedRecording {
+  timestamp: number;
+  siteId: number;
+  name: string;
+  startTime: string;
+  endTime: string;
+  segments: PackagedRecordingSegment[];
+  zIndex: string;
+  assetHashBits: string[];
+  assetFileName: string;
+  assetMimeType: string;
+  assetFileSize: number;
+}
+
+interface PackagedRecordingsFile {
+  version: number;
+  recordings: PackagedRecording[];
+}
+
+export function serializePackagedRecordings(recordings: PackagedRecording[]): string {
+  return JSON.stringify({ version: NOTE_RECORDINGS_VERSION, recordings: recordings });
+}
+
+// 反序列化 recordings.json（校验全部字段；任一录音损坏则整份清单无效）
+export function parsePackagedRecordings(json: string): PackagedRecording[] | null {
+  try {
+    const parsed = JSON.parse(json) as PackagedRecordingsFile;
+    if (parsed === null || typeof parsed !== 'object' ||
+      parsed.version !== NOTE_RECORDINGS_VERSION || !Array.isArray(parsed.recordings)) {
+      return null;
+    }
+    for (const recording of parsed.recordings) {
+      if (!isValidPackagedRecording(recording)) {
+        return null;
+      }
+    }
+    return parsed.recordings;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function isValidPackagedRecording(recording: PackagedRecording): boolean {
+  if (recording === null || typeof recording !== 'object' ||
+    !isIntegerInRange(recording.timestamp, 0, 0xFFFFFFFF) ||
+    !isIntegerInRange(recording.siteId, 0, 65535) ||
+    typeof recording.name !== 'string' ||
+    recording.name.length > PACKAGED_RECORDING_NAME_MAX ||
+    !isUnsignedLongDecimal(recording.startTime) ||
+    !isUnsignedLongDecimal(recording.endTime) ||
+    compareUnsignedLongDecimal(recording.startTime, recording.endTime) > 0 ||
+    !isUnsignedLongDecimal(recording.zIndex) ||
+    !Array.isArray(recording.segments) ||
+    recording.segments.length > PACKAGED_RECORDING_MAX_SEGMENTS ||
+    !Array.isArray(recording.assetHashBits) ||
+    recording.assetHashBits.length !== PACKAGED_RECORDING_HASH_WORDS ||
+    typeof recording.assetFileName !== 'string' || recording.assetFileName.length === 0 ||
+    recording.assetFileName.length > PACKAGED_RECORDING_NAME_MAX ||
+    typeof recording.assetMimeType !== 'string' || recording.assetMimeType.length === 0 ||
+    !isIntegerInRange(recording.assetFileSize, 1, 0xFFFFFFFF)) {
+    return false;
+  }
+  for (const hashWord of recording.assetHashBits) {
+    if (!isUnsignedLongDecimal(hashWord)) {
+      return false;
+    }
+  }
+  for (const segment of recording.segments) {
+    // 原版 yn2.a() 对 CREATE_RECORDING 只校验 endTime 一侧边界。
+    if (segment === null || typeof segment !== 'object' ||
+      !isUnsignedLongDecimal(segment.startTime) || !isUnsignedLongDecimal(segment.endTime) ||
+      compareUnsignedLongDecimal(segment.endTime, recording.endTime) > 0) {
+      return false;
+    }
+  }
+  return true;
 }
