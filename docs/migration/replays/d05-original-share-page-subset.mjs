@@ -100,8 +100,8 @@ check(toolbar.includes('onRequest: this.onShareThumb'),
   'cells request thumbnails through the injected provider');
 
 // ---------- Harmony：分发与消费 ----------
-check(toolbar.includes('onSharePdf: (pageIndexes: number[] | null) => void') &&
-  toolbar.includes('this.onSharePdf(this.sharePageIndexes);') &&
+check(toolbar.includes('onSharePdf: (pageIndexes: number[] | null, password: string | null) => void') &&
+  toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword);') &&
   toolbar.includes('this.onShareImage(format, this.sharePageIndexes);'),
   'format rows dispatch the nullable page set');
 check(toolbar.includes('this.onShareNote();') &&
@@ -111,7 +111,7 @@ check(notePage.includes('resolveSharePages(pageIndexes: number[] | null)') &&
   notePage.includes('wanted.has(index)'),
   'NotePage filters pages by the index set in page order');
 check(notePage.includes('sharePagesAsImages(format: string, pageIndexes: number[] | null)') &&
-  notePage.includes('shareNoteAsPdf(pageIndexes: number[] | null)'),
+  notePage.includes('shareNoteAsPdf(pageIndexes: number[] | null, password: string | null)'),
   'export methods consume the nullable set');
 check(notePage.includes('requestShareThumbnail') &&
   notePage.includes('shareThumbRenderer') &&

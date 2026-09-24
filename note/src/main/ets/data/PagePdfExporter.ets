@@ -5,6 +5,7 @@
 // 写入 MediaBox，阅读器按页尺寸等比缩放。
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
+import { pdfService } from '@kit.PDFKit';
 
 const FILE_WRITE_CHUNK_SIZE: number = 64 * 1024;
 const FILE_READ_CHUNK_SIZE: number = 64 * 1024;
@@ -24,16 +25,19 @@ export interface PdfPageImage {
 }
 
 export class PagePdfExporter {
-  // 组装 PDF → 临时文件 → 系统保存对话框；成功 true，取消/失败 false。
+  // 组装 PDF → 临时文件 →（可选）PdfDocument.setPdfPassword 加密 →
+  // 系统保存对话框；成功 true，取消/失败 false。
+  // 原版 ui_share__password_*（v6d.k + r6d.PASSWORD_ENTRY）：密码非空
+  // 时对产物二次加密再交保存对话框。
   async exportPdf(context: common.UIAbilityContext, pages: PdfPageImage[],
-    title: string): Promise<boolean> {
+    title: string, password?: string): Promise<boolean> {
     let tmpPath: string = '';
+    let encryptedPath: string = '';
     let tmpFile: fileIo.File | null = null;
     let srcFile: fileIo.File | null = null;
     let dstFile: fileIo.File | null = null;
     try {
       const pdfBytes: Uint8Array = buildPdf(pages);
-      const expectedSize: number = pdfBytes.byteLength;
       tmpPath = `${context.tempDir}/note_export_${Date.now()}.pdf`;
       tmpFile = fileIo.openSync(tmpPath,
         fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
@@ -41,6 +45,14 @@ export class PagePdfExporter {
       fileIo.fsyncSync(tmpFile.fd);
       fileIo.closeSync(tmpFile);
       tmpFile = null;
+
+      let srcPath: string = tmpPath;
+      const needsPassword: boolean = password !== undefined && password.length > 0;
+      if (needsPassword) {
+        encryptedPath = `${context.tempDir}/note_export_enc_${Date.now()}.pdf`;
+        encryptPdfFile(tmpPath, encryptedPath, password as string);
+        srcPath = encryptedPath;
+      }
 
       const documentPicker = new picker.DocumentViewPicker(context);
       const saveOptions = new picker.DocumentSaveOptions();
@@ -52,11 +64,11 @@ export class PagePdfExporter {
         return false;
       }
       const targetUri: string = uris[0];
-      srcFile = fileIo.openSync(tmpPath, fileIo.OpenMode.READ_ONLY);
-      const stat = fileIo.statSync(tmpPath);
+      srcFile = fileIo.openSync(srcPath, fileIo.OpenMode.READ_ONLY);
+      const stat = fileIo.statSync(srcPath);
       const size: number = stat.size;
-      if (!Number.isSafeInteger(size) || size !== expectedSize) {
-        throw new Error(`temporary pdf export changed before copy: ${size}/${expectedSize} bytes`);
+      if (!Number.isSafeInteger(size) || (!needsPassword && size !== pdfBytes.byteLength)) {
+        throw new Error(`temporary pdf export changed before copy: ${size}/${pdfBytes.byteLength} bytes`);
       }
       dstFile = fileIo.openSync(targetUri,
         fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
@@ -88,7 +100,36 @@ export class PagePdfExporter {
           // 忽略清理失败
         }
       }
+      if (encryptedPath.length > 0) {
+        try {
+          fileIo.unlinkSync(encryptedPath);
+        } catch (e) {
+          // 忽略清理失败
+        }
+      }
     }
+  }
+}
+
+// 对生成的 PDF 临时文件施加打开密码：PDFKit 载入 → setPdfPassword →
+// saveDocument 到第二临时文件。任一步失败抛错走上层 catch →
+// export_failed toast（密码不静默降级）。
+function encryptPdfFile(sourcePath: string, targetPath: string,
+  password: string): void {
+  const document: pdfService.PdfDocument = new pdfService.PdfDocument();
+  try {
+    const result: pdfService.ParseResult = document.loadDocument(sourcePath);
+    if (result !== pdfService.ParseResult.PARSE_SUCCESS) {
+      throw new Error(`encrypt pdf load failed: ${result}`);
+    }
+    if (!document.setPdfPassword(password)) {
+      throw new Error('setPdfPassword returned false');
+    }
+    if (!document.saveDocument(targetPath)) {
+      throw new Error('encrypted pdf save failed');
+    }
+  } finally {
+    document.releaseDocument();
   }
 }
 

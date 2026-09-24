@@ -111,7 +111,7 @@ check(toolbar.includes('.opacity(supported ? 1 : 0.4)') &&
   toolbar.includes('share_format_unsupported'),
   'unsupported formats render dimmed with an unsupported caption');
 check(toolbar.includes('this.showShareSheet = false;\n      if (format === \'note\') {') &&
-  toolbar.includes('this.onSharePdf(this.sharePageIndexes);') &&
+  toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword);') &&
   toolbar.includes('this.onShareImage(format, this.sharePageIndexes);'),
   'enabled rows close the sheet and dispatch to the format export');
 

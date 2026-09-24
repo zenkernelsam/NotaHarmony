@@ -426,9 +426,10 @@ struct NotePage {
 
   // 原版 s6d.PDF（atc case4）：所选页逐页按 pagePixelSize×2 栅格化，
   // 每页压为 JPEG 后嵌入单 PDF（DCTDecode 直通），交系统保存对话框。
-  // 页序取 this.pages 快照序（= 原版页序）；v6d.l 为 null 时整册。
+  // 页序取 this.pages 快照序（= 原版页序）；v6d.l 为 null 时整册；
+  // password 对应 v6d.k —— 非空时对产物 setPdfPassword 加密。
   // 导出色恒取亮主题。
-  private shareNoteAsPdf(pageIndexes: number[] | null): void {
+  private shareNoteAsPdf(pageIndexes: number[] | null, password: string | null): void {
     if (this.pages.length === 0) {
       return;
     }
@@ -467,7 +468,7 @@ struct NotePage {
         }
         const exporter: PagePdfExporter = new PagePdfExporter();
         const success: boolean = await exporter.exportPdf(context, imagePages,
-          this.noteTitle);
+          this.noteTitle, password !== null ? password : undefined);
         promptAction.showToast({
           message: success ? $r('app.string.export_done') : $r('app.string.export_failed'),
         });
@@ -1641,12 +1642,12 @@ struct NotePage {
             this.sharePagesAsImages(format, pageIndexes);
           },
           // 原版 s6d.PDF（atc case4）：所选页逐页栅格化导出单个 PDF。
-          onSharePdf: (pageIndexes: number[] | null) => {
+          onSharePdf: (pageIndexes: number[] | null, password: string | null) => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
               this.historyPending) {
               return;
             }
-            this.shareNoteAsPdf(pageIndexes);
+            this.shareNoteAsPdf(pageIndexes, password);
           },
           // 原版 r6d.PAGE_SELECTION 屏数据：页快照 + b7d.l 缩略图窗口。
           sharePages: this.pages,

@@ -52,7 +52,7 @@ check(toolbar.indexOf("share_page_range") > 0 &&
   'the range row renders above the format rows');
 check(toolbar.includes('this.toggleSharePage(pageIndex)'),
   'picker cells toggle indexes through b7d.q semantics');
-check(toolbar.includes('this.onSharePdf(this.sharePageIndexes);') &&
+check(toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword);') &&
   toolbar.includes('this.onShareImage(format, this.sharePageIndexes);'),
   'pdf and image rows dispatch the chosen page set');
 check(!toolbar.includes('onShareNote(this.sharePageIndexes)'),
@@ -81,7 +81,7 @@ check(notePage.includes('if (pages.length === 1)') &&
   'a single selected page still uses the direct image save path');
 
 // --- Harmony：PDF 页范围 ---
-check(notePage.includes('private shareNoteAsPdf(pageIndexes: number[] | null): void {'),
+check(notePage.includes('private shareNoteAsPdf(pageIndexes: number[] | null, password: string | null): void {'),
   'shareNoteAsPdf takes the nullable page set');
 check(notePage.indexOf('private shareNoteAsPdf') > 0 &&
   notePage.indexOf('resolveSharePages(pageIndexes)') > 0,

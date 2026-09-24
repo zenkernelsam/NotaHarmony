@@ -21,6 +21,12 @@ export struct EditorToolbar {
   // 原版 r6d 面板屏态机：MAIN（格式行 + 页范围行）/ PAGE_SELECTION
   // （缩略图栅格勾选屏，b7d.l 缩略图窗口由 NotePage 侧渲染链承载）。
   @State shareScreen: string = 'main';
+  // 原版 v6d.k：null=密码关；非空字符串=已设 PDF 打开密码（主屏
+  // zy7 case17 显 On）。PASSWORD_ENTRY 屏的草稿/确认/不一致态。
+  @State sharePassword: string | null = null;
+  @State sharePasswordDraft: string = '';
+  @State sharePasswordConfirm: string = '';
+  @State sharePasswordMismatch: boolean = false;
   private toolbarScroller: Scroller = new Scroller();
   // Undo/Redo 回调（T-021 实现功能）
   onUndo: () => void = () => {
@@ -51,9 +57,10 @@ export struct EditorToolbar {
     (_format: string, _pageIndexes: number[] | null): void => {
   };
   // 原版 s6d.PDF（atc case4）：所选页逐页栅格化导出单个 PDF；
-  // pageIndexes=null 表示全部页（v6d.l 空集语义）。
-  onSharePdf: (pageIndexes: number[] | null) => void =
-    (_pageIndexes: number[] | null): void => {
+  // pageIndexes=null 表示全部页（v6d.l 空集语义）；password 对应
+  // v6d.k——非空时对产物施加打开密码（r6d.PASSWORD_ENTRY 设入）。
+  onSharePdf: (pageIndexes: number[] | null, password: string | null) => void =
+    (_pageIndexes: number[] | null, _password: string | null): void => {
   };
   // 分享页选择栅格的页列表与缩略图请求（宿主 NotePage 注入：
   // b7d.l(i,i2) 缩略图窗口的等价物）。普通字段——面板开启时按当前
@@ -424,6 +431,10 @@ export struct EditorToolbar {
       onDisappear: (): void => {
         this.shareScreen = 'main';
         this.sharePageIndexes = null;
+        this.sharePassword = null;
+        this.sharePasswordDraft = '';
+        this.sharePasswordConfirm = '';
+        this.sharePasswordMismatch = false;
       },
     })
     .onAreaChange((_oldArea: Area, newArea: Area) => {
@@ -589,6 +600,8 @@ export struct EditorToolbar {
     Column() {
       if (this.shareScreen === 'pages') {
         this.buildSharePagePicker()
+      } else if (this.shareScreen === 'password') {
+        this.buildSharePassword()
       } else {
         this.buildShareMain()
       }
@@ -626,6 +639,34 @@ export struct EditorToolbar {
         .padding({ left: 24, right: 24 })
         .onClick(() => {
           this.shareScreen = 'pages';
+        })
+      // 原版 ui_share__password 行（zy7 case17）：v6d.k 非空显 On，
+      // 否则 Off；点击进 r6d.PASSWORD_ENTRY。仅 PDF 导出消费。
+      Row() {
+        Text($r('app.string.share_password'))
+          .fontSize(15)
+          .fontColor(this.resolveTokens().textPrimary)
+        Blank()
+        Text(this.sharePassword !== null ?
+          $r('app.string.share_password_on') : $r('app.string.share_password_off'))
+          .fontSize(13)
+          .fontColor(this.resolveTokens().textSecondary)
+        Text('›')
+          .fontSize(16)
+          .fontColor(this.resolveTokens().textSecondary)
+          .margin({ left: 4 })
+      }
+        .width('100%')
+        .height(44)
+        .padding({ left: 24, right: 24 })
+        .onClick(() => {
+          // 进 PASSWORD_ENTRY 时回填既有密码草稿。
+          this.sharePasswordDraft = this.sharePassword !== null ?
+            this.sharePassword : '';
+          this.sharePasswordConfirm = this.sharePassword !== null ?
+            this.sharePassword : '';
+          this.sharePasswordMismatch = false;
+          this.shareScreen = 'password';
         })
       this.ShareFormatRow($r('app.string.share_link'), 'link', false)
       this.ShareFormatRow($r('app.string.share_pdf'), 'pdf', true)
@@ -699,6 +740,102 @@ export struct EditorToolbar {
     .layoutWeight(1)
   }
 
+  // 原版 r6d.PASSWORD_ENTRY 屏（dih.g）：Password 标题 + "Protect
+  // your PDF with a password." 副题 + Enter/Confirm 两密码框 +
+  // mismatch 错误 + Save（b7d.o(str)：长度0→null；不一致→mismatch；
+  // 一致→写回 v6d.k 回 MAIN）/ Remove（已设时清空）。
+  @Builder
+  buildSharePassword() {
+    Column() {
+      Row() {
+        Text('‹')
+          .fontSize(20)
+          .fontColor(this.resolveTokens().accent)
+          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+          .onClick(() => {
+            this.shareScreen = 'main';
+          })
+        Text($r('app.string.share_password'))
+          .fontSize(16)
+          .fontColor(this.resolveTokens().textPrimary)
+        Blank()
+        if (this.sharePassword !== null) {
+          Text($r('app.string.share_password_remove'))
+            .fontSize(13)
+            .fontColor(this.resolveTokens().accent)
+            .padding({ left: 12, right: 8, top: 8, bottom: 8 })
+            .onClick(() => {
+              this.sharePassword = null;
+              this.sharePasswordDraft = '';
+              this.sharePasswordConfirm = '';
+              this.sharePasswordMismatch = false;
+              this.shareScreen = 'main';
+            })
+        }
+        Text($r('app.string.share_password_save'))
+          .fontSize(13)
+          .fontColor(this.sharePasswordDraft.length > 0 ?
+            this.resolveTokens().accent : this.resolveTokens().textSecondary)
+          .padding({ left: 12, right: 16, top: 8, bottom: 8 })
+          .onClick(() => {
+            // 原版 Save 按钮 draft 为空时禁用（kw1: z=draft.length>0）；
+            // kv1 校验：draft==confirm 且非空 → b7d.o(draft)，否则
+            // mismatch 标志置位。空 draft 点击为 no-op（禁用等价）。
+            if (this.sharePasswordDraft.length === 0) {
+              return;
+            }
+            if (this.sharePasswordDraft !== this.sharePasswordConfirm) {
+              this.sharePasswordMismatch = true;
+              return;
+            }
+            this.sharePassword = this.sharePasswordDraft;
+            this.sharePasswordMismatch = false;
+            this.shareScreen = 'main';
+          })
+      }
+        .width('100%')
+      Text($r('app.string.share_password_subtitle'))
+        .fontSize(13)
+        .fontColor(this.resolveTokens().textSecondary)
+        .margin({ left: 24, right: 24, top: 8, bottom: 12 })
+      TextInput({ placeholder: $r('app.string.share_password_enter'),
+        text: this.sharePasswordDraft })
+        .type(InputType.Password)
+        .height(40)
+        .fontSize(14)
+        .margin({ left: 24, right: 24, bottom: 8 })
+        .fontColor(this.resolveTokens().textPrimary)
+        .placeholderColor(this.resolveTokens().textSecondary)
+        .backgroundColor(this.resolveTokens().control)
+        .borderRadius(10)
+        .onChange((value: string) => {
+          this.sharePasswordDraft = value;
+          this.sharePasswordMismatch = false;
+        })
+      TextInput({ placeholder: $r('app.string.share_password_confirm'),
+        text: this.sharePasswordConfirm })
+        .type(InputType.Password)
+        .height(40)
+        .fontSize(14)
+        .margin({ left: 24, right: 24, bottom: 8 })
+        .fontColor(this.resolveTokens().textPrimary)
+        .placeholderColor(this.resolveTokens().textSecondary)
+        .backgroundColor(this.resolveTokens().control)
+        .borderRadius(10)
+        .onChange((value: string) => {
+          this.sharePasswordConfirm = value;
+          this.sharePasswordMismatch = false;
+        })
+      if (this.sharePasswordMismatch) {
+        Text($r('app.string.share_password_mismatch'))
+          .fontSize(12)
+          .fontColor('#D32F2F')
+          .margin({ left: 24, right: 24, bottom: 8 })
+      }
+    }
+    .width('100%')
+  }
+
   @Builder
   ShareFormatRow(label: ResourceStr, format: string, supported: boolean) {
     Row() {
@@ -725,7 +862,7 @@ export struct EditorToolbar {
         // NOTE 恒整册导出（v6d.l 不作用于 .note 归档）。
         this.onShareNote();
       } else if (format === 'pdf') {
-        this.onSharePdf(this.sharePageIndexes);
+        this.onSharePdf(this.sharePageIndexes, this.sharePassword);
       } else {
         this.onShareImage(format, this.sharePageIndexes);
       }
