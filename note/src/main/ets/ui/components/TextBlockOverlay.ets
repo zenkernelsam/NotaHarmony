@@ -5,6 +5,19 @@ import { textBlockTransformComponents, TextBlockTransformComponents } from '../.
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 
+// 原版 rs1.d 代码块语言表（27 项，含 plaintext 哨兵 rs1.c——原版派单把
+// plaintext 映射为 null=清除 programmingLanguage 字段）。
+const CODE_LANGUAGES: string[][] = [
+  ['bash', 'Bash'], ['c', 'C'], ['cpp', 'C++'], ['csharp', 'C#'],
+  ['css', 'CSS'], ['go', 'Go'], ['haskell', 'Haskell'], ['java', 'Java'],
+  ['javascript', 'JavaScript'], ['json', 'JSON'], ['kotlin', 'Kotlin'],
+  ['lua', 'Lua'], ['markdown', 'Markdown'], ['markup', 'Markup'],
+  ['matlab', 'Matlab'], ['objectivec', 'Objective-C'], ['ocaml', 'OCaml'],
+  ['php', 'PHP'], ['plaintext', 'Plain Text'], ['python', 'Python'],
+  ['r', 'R'], ['racket', 'Racket'], ['ruby', 'Ruby'], ['rust', 'Rust'],
+  ['sql', 'SQL'], ['swift', 'Swift'], ['typescript', 'TypeScript'],
+];
+
 @Component
 export struct TextBlockOverlay {
   @Prop editing: boolean = false;
@@ -32,6 +45,8 @@ export struct TextBlockOverlay {
   @State caretCharStrike: boolean = false;
   @State caretCharSub: boolean = false;
   @State caretCharSuper: boolean = false;
+  // 原版 bte/k5a：光标段落（decorator=5 时）代码语言选择态。
+  @State caretCodeLanguage: string = 'plaintext';
   private draftCharRuns: RichTextCharacterStyleRun[] = [];
   private pendingCharStyles: RichTextCharacterStyle = {};
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -72,6 +87,8 @@ export struct TextBlockOverlay {
       text.length;
     if (runs.length === 0) {
       this.caretDecoratorStyle = 0;
+      this.caretCodeLanguage = 'plaintext';
+      this.seedCharStyles();
       return;
     }
     let paragraphIndex: number = 0;
@@ -87,6 +104,7 @@ export struct TextBlockOverlay {
       }
     }
     this.caretDecoratorStyle = this.decoratorAt(this.caretOffset);
+    this.refreshCaretCodeLanguage();
     this.seedCharStyles();
   }
 
@@ -382,6 +400,68 @@ export struct TextBlockOverlay {
     }
   }
 
+  private refreshCaretCodeLanguage(): void {
+    const current: RichTextParagraphStyle =
+      this.draftStyles.get(this.paragraphIndexAt(this.caretOffset)) ?? {};
+    this.caretCodeLanguage = current.programmingLanguage ?? 'plaintext';
+  }
+
+  private caretCodeLanguageLabel(): string {
+    for (const pair of CODE_LANGUAGES) {
+      if (pair[0] === this.caretCodeLanguage) {
+        return pair[1];
+      }
+    }
+    return this.caretCodeLanguage;
+  }
+
+  private buildCodeLanguageMenu(): MenuElement[] {
+    const items: MenuElement[] = [];
+    for (const pair of CODE_LANGUAGES) {
+      const lang: string = pair[0];
+      items.push({ value: pair[1], action: (): void => {
+        this.setCodeLanguage(lang);
+      } });
+    }
+    return items;
+  }
+
+  // 原版 cve bte→m(new k5a(str))：设置光标段落 programmingLanguage；
+  // str===rs1.c.a('plaintext') 时原版映射 null——即清除字段。其余字段
+  // 拷贝与 toggleDecoratorStyle 同模式。
+  private setCodeLanguage(lang: string): void {
+    const paragraphIndex: number = this.paragraphIndexAt(this.caretOffset);
+    const current: RichTextParagraphStyle = this.draftStyles.get(paragraphIndex) ?? {};
+    const next: RichTextParagraphStyle = {};
+    if (current.indentLevel !== undefined) {
+      next.indentLevel = current.indentLevel;
+    }
+    if (current.alignment !== undefined) {
+      next.alignment = current.alignment;
+    }
+    if (current.lineSpacing !== undefined) {
+      next.lineSpacing = current.lineSpacing;
+    }
+    if (current.writingDirection !== undefined) {
+      next.writingDirection = current.writingDirection;
+    }
+    if (current.isChecked !== undefined) {
+      next.isChecked = current.isChecked;
+    }
+    if (current.decoratorStyle !== undefined) {
+      next.decoratorStyle = current.decoratorStyle;
+    }
+    if (lang !== 'plaintext') {
+      next.programmingLanguage = lang;
+    }
+    if (Object.keys(next).length === 0) {
+      this.draftStyles.delete(paragraphIndex);
+    } else {
+      this.draftStyles.set(paragraphIndex, next);
+    }
+    this.caretCodeLanguage = next.programmingLanguage ?? 'plaintext';
+  }
+
   // 原版 h32 工具条按钮语义：段落级 decorator 单选互斥切换（再次点击同项回到 NONE=0）。
   private toggleDecoratorStyle(decorator: number): void {
     const paragraphIndex: number = this.paragraphIndexAt(this.caretOffset);
@@ -414,6 +494,7 @@ export struct TextBlockOverlay {
       this.draftStyles.set(paragraphIndex, next);
     }
     this.caretDecoratorStyle = next.decoratorStyle ?? 0;
+    this.refreshCaretCodeLanguage();
   }
 
   // 提交时把段落序号样式折回字符区间 run（run.end 含段内换行符；末段无换行则止于文末）。
@@ -489,6 +570,7 @@ export struct TextBlockOverlay {
               this.caretOffset = end;
               this.caretSelectionStart = start;
               this.caretDecoratorStyle = this.decoratorAt(end);
+              this.refreshCaretCodeLanguage();
               this.refreshCaretCharStyles();
               this.onCaretChange(end);
             })
@@ -698,6 +780,16 @@ export struct TextBlockOverlay {
             .onClick(() => {
               this.toggleDecoratorStyle(5);
             })
+          // 原版 bte 语言选择项：仅光标段落为 CODE_BLOCK 时出现；
+          // 按钮显示当前语言，点击弹 rs1.d 27 项菜单。
+          if (this.caretDecoratorStyle === 5) {
+            Button(this.caretCodeLanguageLabel())
+              .height(32)
+              .fontSize(12)
+              .enabled(!this.photoImportLeaseActive)
+              .margin({ left: 4 })
+              .bindMenu(this.buildCodeLanguageMenu())
+          }
           Button($r('app.string.done'))
             .height(32)
             .fontSize(12)

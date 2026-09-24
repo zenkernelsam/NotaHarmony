@@ -7,7 +7,7 @@ const overlay = fs.readFileSync(
   'note/src/main/ets/ui/components/TextBlockOverlay.ets', 'utf8').replaceAll('\r\n', '\n');
 
 assert.match(overlay, /@Prop photoImportLeaseActive: boolean = false;/);
-assert.equal(overlay.match(/\.enabled\(!this\.photoImportLeaseActive\)/g)?.length, 16);
+assert.equal(overlay.match(/\.enabled\(!this\.photoImportLeaseActive\)/g)?.length, 17);
 
 assert.match(overlay,
   /\.onChange\(\(value: string\) => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+const previous: string = this\.draftText;\s+this\.draftText = value;/);
