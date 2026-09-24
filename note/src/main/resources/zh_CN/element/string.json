@@ -102,6 +102,7 @@
     { "name": "reveal_tapes", "value": "显示胶带" },
     { "name": "tape_patterns", "value": "胶带图案" },
     { "name": "text", "value": "文本" },
+    { "name": "add_files", "value": "文件" },
     { "name": "insert_photo", "value": "图片" },
     { "name": "take_photo", "value": "拍摄照片" },
     { "name": "insert_math", "value": "公式" },

@@ -23,6 +23,8 @@ export struct EditorToolbar {
   };
   onRedo: () => void = () => {
   };
+  onAddFiles: () => void = () => {
+  };
   onInsertMath: () => void = () => {
   };
   onInsertPhotos: () => void = () => {
@@ -180,6 +182,19 @@ export struct EditorToolbar {
         Divider().vertical(true).height(24).margin({ left: 8, right: 8 })
 
         if (!this.compact) {
+          // 原版插入菜单序位：Add Files → Add Photo → Take Photo → Math（qc.java）
+          Button($r('app.string.add_files'))
+            .height(32)
+            .fontSize(13)
+            .margin({ left: 2, right: 2 })
+            .enabled(!this.viewModel.toolStateLoading &&
+              !this.photoImportLeaseActive)
+            .onClick(() => {
+              if (this.photoImportLeaseActive) {
+                return;
+              }
+              this.onAddFiles();
+            })
           Button($r('app.string.insert_photo'))
             .height(32)
             .fontSize(13)
@@ -192,7 +207,6 @@ export struct EditorToolbar {
               }
               this.onInsertPhotos();
             })
-          // 原版插入菜单序位：Add Photo → Take Photo → Math（qc.java）
           Button($r('app.string.take_photo'))
             .height(32)
             .fontSize(13)
@@ -425,6 +439,12 @@ export struct EditorToolbar {
           return;
         }
         this.viewModel.selectTool(ToolType.DEFAULT);
+      } },
+      { value: $r('app.string.add_files'), action: () => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
+        this.onAddFiles();
       } },
       { value: $r('app.string.insert_photo'), action: () => {
         if (this.photoImportLeaseActive) {

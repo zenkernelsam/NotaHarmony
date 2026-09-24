@@ -30,6 +30,7 @@ import { NoteExporter } from '../../data/NoteExporter';
 import { PageImageExporter, ShareImageFormat } from '../../data/PageImageExporter';
 import { PagePdfExporter, PdfPageImage } from '../../data/PagePdfExporter';
 import { PageOverviewPanel } from './PageOverviewPanel';
+import { ImportReport, ImportResult, NoteImporter } from '../../data/NoteImporter';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PersistedOriginalNoteTitle } from '../../data/OriginalNoteTitlePersistence';
 import {
@@ -862,6 +863,51 @@ struct NotePage {
     }
   }
 
+  // 原版编辑器插入菜单「Add Files」（qc 序位第一 → qv5
+  // AddToExistingNote）：文件选择器 → 类型分发 → 物化进当前笔记末尾
+  // （PDF 追加页/图片页/文本页/录音）。成功后刷新页列表与录音时间线。
+  private async importFileIntoCurrentNote(): Promise<void> {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const importer: NoteImporter = new NoteImporter(DatabaseManager.getInstance(),
+        this.persistence);
+      const report: ImportReport =
+        await importer.importFileIntoNoteFromPicker(context, this.noteId);
+      if (this.editorDisposed || report.result === ImportResult.CANCELLED) {
+        return;
+      }
+      if (report.result !== ImportResult.SUCCESS) {
+        try {
+          promptAction.showToast({ message: report.message, duration: 2500 });
+        } catch (_toastError) { }
+        return;
+      }
+      if (this.pageRepo !== null) {
+        this.pages = await this.pageRepo.getPages(this.noteId);
+      }
+      if (this.editorDisposed) {
+        return;
+      }
+      this.pageContentVersion++;
+      await this.loadRecordings();
+      if (this.editorDisposed) {
+        return;
+      }
+      try {
+        promptAction.showToast({ message: report.message, duration: 2500 });
+      } catch (_toastError) { }
+    } catch (e) {
+      console.error(`importFileIntoCurrentNote failed: ${JSON.stringify(e)}`);
+      if (!this.editorDisposed) {
+        try {
+          promptAction.showToast({ message: $r('app.string.import_failed'), duration: 2500 });
+        } catch (_toastError) { }
+      }
+    } finally {
+      this.photoImportLeaseActive = false;
+    }
+  }
+
   private async persistCapturedRecording(capture: OriginalRecordingCaptureResult): Promise<void> {
     await persistCapturedOriginalRecording(DatabaseManager.getInstance(), this.noteId, capture);
     if (this.editorDisposed) {
@@ -1439,6 +1485,16 @@ struct NotePage {
               return;
             }
             this.showPageOverview = !this.showPageOverview;
+          },
+          // Add Files (qc.java 菜单序位第一)：file-insert 走同一 ingress
+          // lease；原版 qv5=AddToExistingNote 把导入物化进当前笔记。
+          onAddFiles: () => {
+            if (this.photoImportLeaseActive || this.pageOperationBusy ||
+              this.historyPending || this.pageStructureLeaseActive) {
+              return;
+            }
+            this.photoImportLeaseActive = true;
+            this.importFileIntoCurrentNote();
           },
           onInsertMath: () => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||

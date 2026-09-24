@@ -1183,6 +1183,7 @@
     { "name": "group", "value": "Group" },
     { "name": "ungroup", "value": "Ungroup" },
     { "name": "edit_math", "value": "Edit Math" },
+    { "name": "add_files", "value": "Files" },
     { "name": "insert_photo", "value": "Photo" },
     { "name": "take_photo", "value": "Take Photo" },
     { "name": "insert_math", "value": "Math" },

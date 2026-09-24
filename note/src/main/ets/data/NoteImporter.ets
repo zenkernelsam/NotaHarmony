@@ -231,6 +231,58 @@ export class NoteImporter {
     }
   }
 
+  // 原版编辑器插入菜单「Add Files」（qc 序位第一）→ qv5
+  // AddToExistingNote：同一类型表，目标为当前打开的笔记。`.note` 归档
+  // 并入既有笔记语义不透明（yq8.d/e 未反编译），故过滤不收 .note。
+  async importFileIntoNoteFromPicker(context: common.UIAbilityContext,
+    noteId: string): Promise<ImportReport> {
+    let file: fileIo.File | null = null;
+    try {
+      const documentPicker = new picker.DocumentViewPicker(context);
+      const selectOptions = new picker.DocumentSelectOptions();
+      selectOptions.fileSuffixFilters = ['.pdf', '.png', '.jpg', '.jpeg',
+        '.webp', '.gif', '.heif', '.heic', '.tif', '.tiff', '.txt',
+        '.mp3', '.mp4', '.aac', '.wav', '.aiff', '.m4a'];
+      const uris: string[] = await documentPicker.select(selectOptions);
+      if (uris.length === 0) {
+        return { result: ImportResult.CANCELLED, noteId: noteId, title: null, pageCount: 0,
+          missingAssets: [], warnings: [],
+          message: '未选择文件' };
+      }
+      const uri: string = uris[0];
+      file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+      const stat = fileIo.statSync(uri);
+      const size: number = stat.size;
+      if (!Number.isSafeInteger(size) || size > ZIP_MAX_ARCHIVE_BYTES) {
+        fileIo.closeSync(file);
+        file = null;
+        return { result: ImportResult.CORRUPTED, noteId: noteId, title: null, pageCount: 0,
+          missingAssets: [], warnings: [],
+          message: `文件超过导入大小上限 ${ZIP_MAX_ARCHIVE_BYTES} bytes` };
+      }
+      if (size <= 0) {
+        fileIo.closeSync(file);
+        file = null;
+        return { result: ImportResult.CORRUPTED, noteId: noteId, title: null, pageCount: 0,
+          missingAssets: [], warnings: [],
+          message: '所选文件为空' };
+      }
+      const bytes: Uint8Array = readFileFully(file.fd, size);
+      fileIo.closeSync(file);
+      file = null;
+      return await this.importFileIntoNote(noteId, bytes, pickedFileName(uri));
+    } catch (e) {
+      console.error(`importFileIntoNoteFromPicker failed: ${JSON.stringify(e)}`);
+      return { result: ImportResult.CORRUPTED, noteId: noteId, title: null, pageCount: 0,
+        missingAssets: [], warnings: [],
+        message: '读取文件失败' };
+    } finally {
+      if (file !== null) {
+        try { fileIo.closeSync(file); } catch (_closeError) { }
+      }
+    }
+  }
+
   // 原版 jv5 PDF 分支：o88(nj3.pdf) 描述符 → fca.f PDFTron 解析 → su5(doc+页列表) → nv5。
   // Harmony：PDFKit 解析（loadDocument 仅接受沙箱路径，先落到 assets/pending 暂存），
   // 全页尺寸校验通过后一次性写库：createNoteWithMeta（无默认空白页）+ 整文档共享的
@@ -492,6 +544,277 @@ export class NoteImporter {
       return { result: ImportResult.CORRUPTED, noteId: cleaned ? null : createdNoteId,
         title: null, pageCount: 0, missingAssets: [], warnings: [],
         message: `音频导入失败：${JSON.stringify(e)}` };
+    } finally {
+      release();
+      if (fileIo.accessSync(stagingPath)) {
+        try { fileIo.unlinkSync(stagingPath); } catch (_unlinkError) { }
+      }
+    }
+  }
+
+  // 原版 qv5=AddToExistingNote(noteId)：yq8.g 的 qv5 分支 → e(ttf,list) 把
+  // 与独立导入相同的 reducer ops 应用到既有笔记（yq8.e 未反编译，837
+  // 指令跳过；按同一 reducer 物化形态 + 末尾追加落地）。编辑器插入菜单
+  // 「Add Files」（qc 序位第一）即走此路径；.note/Office 等未映射类型仍
+  // fail-closed。失败时按已追加页回滚（不删既有笔记）。
+  async importFileIntoNote(noteId: string, data: Uint8Array, fileName: string): Promise<ImportReport> {
+    if (noteId.length === 0) {
+      return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+        missingAssets: [], warnings: [],
+        message: '目标笔记无效' };
+    }
+    const lowerName: string = fileName.toLowerCase();
+    if (startsWithPdfMagic(data) || lowerName.endsWith('.pdf')) {
+      return await this.importPdfIntoNote(noteId, data, fileName);
+    }
+    if (isImportedImageFileName(fileName)) {
+      return await this.importImageIntoNote(noteId, data, fileName);
+    }
+    if (isImportedTextFileName(fileName)) {
+      return await this.importTextIntoNote(noteId, data, fileName);
+    }
+    if (isImportedAudioFileName(fileName)) {
+      return await this.importAudioIntoNote(noteId, data, fileName);
+    }
+    return { result: ImportResult.UNSUPPORTED_FORMAT, noteId: noteId, title: null,
+      pageCount: 0, missingAssets: [], warnings: [],
+      message: '该文件类型暂不支持插入到笔记' };
+  }
+
+  private async rollbackAppendedPages(pageRepo: PageRepositoryImpl, noteId: string,
+    addedPageIds: string[]): Promise<void> {
+    for (let i = addedPageIds.length - 1; i >= 0; i--) {
+      try {
+        await pageRepo.deletePage(noteId, addedPageIds[i]);
+      } catch (e) {
+        console.error(`importFileIntoNote rollback delete failed: ${JSON.stringify(e)}`);
+      }
+    }
+  }
+
+  private async importPdfIntoNote(noteId: string, data: Uint8Array,
+    fileName: string): Promise<ImportReport> {
+    if (!startsWithPdfMagic(data)) {
+      return { result: ImportResult.UNSUPPORTED_FORMAT, noteId: noteId, title: null,
+        pageCount: 0, missingAssets: [], warnings: [],
+        message: '所选文件不是有效的 PDF 文档' };
+    }
+    const digestBytes: Uint8Array = await sha512Digest(data);
+    const metadata: OriginalAssetMetadata = {
+      assetHashBits: originalAssetHashBitsFromSha512(digestBytes),
+      fileName: fileName,
+      mimeType: 'application/pdf',
+      fileSize: data.length,
+    };
+    const pendingDirectory: string = this.db.getFilesDir() + '/assets/pending';
+    const stagingPath: string = pendingDirectory +
+      `/pdf_insert_${Date.now()}_${Math.floor(Math.random() * 0x1000000)}.tmp`;
+    let pageSizes: number[][];
+    try {
+      fileIo.mkdirSync(pendingDirectory, true);
+      writeFileFully(stagingPath, data);
+      pageSizes = parseImportedPdfPageSizes(stagingPath);
+    } catch (e) {
+      return { result: ImportResult.CORRUPTED, noteId: noteId, title: null,
+        pageCount: 0, missingAssets: [], warnings: [],
+        message: `PDF 文档解析失败：${JSON.stringify(e)}` };
+    } finally {
+      if (fileIo.accessSync(stagingPath)) {
+        try { fileIo.unlinkSync(stagingPath); } catch (_unlinkError) { }
+      }
+    }
+    const addedPageIds: string[] = [];
+    const release: MutexRelease = await NoteImporter.importMutex.lock();
+    try {
+      const pageRepo = new PageRepositoryImpl(this.db);
+      await storeImportedOriginalAsset(this.db, metadata, data, noteId);
+      const cropBoxes: PdfCropBoxSize[] = [];
+      for (const size of pageSizes) {
+        cropBoxes.push({ widthPt: size[0], heightPt: size[1] });
+      }
+      const existingPages: PageInfo[] = await pageRepo.getPages(noteId);
+      const baseIndex: number = existingPages.length;
+      for (let index = 0; index < pageSizes.length; index++) {
+        const widthPt: number = pageSizes[index][0];
+        const heightPt: number = pageSizes[index][1];
+        const widthMm: number = widthPt * POINTS_TO_MM;
+        const heightMm: number = heightPt * POINTS_TO_MM;
+        const background: PageBackground = {
+          schemaVersion: PAGE_BACKGROUND_SCHEMA_VERSION,
+          paper: null,
+          pdf: {
+            metadata: metadata,
+            layoutBehavior: PdfLayoutBehavior.FIT_AND_CROP_BOX,
+            totalPageCount: pageSizes.length,
+            pagesConsumed: pageSizes.length,
+            pageOffset: 0,
+            cropBoxes: cropBoxes,
+            pageInAsset: index,
+          },
+          rotationRadians: 0,
+          sourceWidthPt: widthPt,
+          sourceHeightPt: heightPt,
+          margins: null,
+        };
+        const pageInfo: PageInfo = {
+          pageId: generateId(),
+          pageIndex: baseIndex + index,
+          size: inferPaperSize(widthMm, heightMm),
+          template: PaperTemplate.PLAIN,
+          orientation: widthMm > heightMm ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT,
+          widthMm: widthMm,
+          heightMm: heightMm,
+          background: background,
+          originalPageInAsset: index,
+          bookmarked: false,
+        };
+        const added: PageInfo = await pageRepo.addImportedPage(noteId, pageInfo);
+        addedPageIds.push(added.pageId);
+      }
+      return { result: ImportResult.SUCCESS, noteId: noteId, title: null,
+        pageCount: pageSizes.length, missingAssets: [], warnings: [],
+        message: `已插入 PDF「${pdfImportTitle(fileName)}」（${pageSizes.length} 页）` };
+    } catch (e) {
+      await this.rollbackAppendedPages(new PageRepositoryImpl(this.db), noteId, addedPageIds);
+      return { result: ImportResult.CORRUPTED, noteId: noteId, title: null,
+        pageCount: 0, missingAssets: [], warnings: [],
+        message: `PDF 插入失败：${JSON.stringify(e)}` };
+    } finally {
+      release();
+    }
+  }
+
+  private async importImageIntoNote(noteId: string, data: Uint8Array,
+    fileName: string): Promise<ImportReport> {
+    let prepared: ImportedImagePreparation;
+    try {
+      prepared = await prepareImportedImageBytes(data);
+    } catch (e) {
+      return { result: ImportResult.CORRUPTED, noteId: noteId, title: null,
+        pageCount: 0, missingAssets: [], warnings: [],
+        message: `图片解码失败：${JSON.stringify(e)}` };
+    }
+    const digestBytes: Uint8Array = await sha512Digest(prepared.bytes);
+    const metadata: OriginalAssetMetadata = {
+      assetHashBits: originalAssetHashBitsFromSha512(digestBytes),
+      fileName: fileName,
+      mimeType: prepared.mimeType,
+      fileSize: prepared.bytes.length,
+    };
+    const imageElement: ImageElement = buildImportedImageElement(prepared, metadata);
+    const addedPageIds: string[] = [];
+    const release: MutexRelease = await NoteImporter.importMutex.lock();
+    try {
+      const pageRepo = new PageRepositoryImpl(this.db);
+      await storeImportedOriginalAsset(this.db, metadata, prepared.bytes, noteId);
+      const existingPages: PageInfo[] = await pageRepo.getPages(noteId);
+      const pageInfo: PageInfo = {
+        pageId: generateId(),
+        pageIndex: existingPages.length,
+        size: PaperSize.LETTER,
+        template: PaperTemplate.PLAIN,
+        orientation: PageOrientation.PORTRAIT,
+        widthMm: IMAGE_IMPORT_PAGE_WIDTH_PT * POINTS_TO_MM,
+        heightMm: IMAGE_IMPORT_PAGE_HEIGHT_PT * POINTS_TO_MM,
+        background: originalDefaultNoteBackground(),
+        bookmarked: false,
+      };
+      const added: PageInfo = await pageRepo.addImportedPage(noteId, pageInfo);
+      addedPageIds.push(added.pageId);
+      await this.persistence.saveElements(noteId, added.pageId, [], [],
+        [{ kind: PageElementKind.IMAGE, elementId: imageElement.id, zIndex: 0 }],
+        [], [imageElement], []);
+      return { result: ImportResult.SUCCESS, noteId: noteId, title: null,
+        pageCount: 1, missingAssets: [], warnings: [],
+        message: `已插入图片「${importedFileStemTitle(fileName)}」` };
+    } catch (e) {
+      await this.rollbackAppendedPages(new PageRepositoryImpl(this.db), noteId, addedPageIds);
+      return { result: ImportResult.CORRUPTED, noteId: noteId, title: null,
+        pageCount: 0, missingAssets: [], warnings: [],
+        message: `图片插入失败：${JSON.stringify(e)}` };
+    } finally {
+      release();
+    }
+  }
+
+  private async importTextIntoNote(noteId: string, data: Uint8Array,
+    fileName: string): Promise<ImportReport> {
+    const text: string = bytesToString(data);
+    if (text.length === 0) {
+      return { result: ImportResult.UNSUPPORTED_FORMAT, noteId: noteId, title: null,
+        pageCount: 0, missingAssets: [], warnings: [],
+        message: '文本文件为空' };
+    }
+    const textElement: TextBlockElement = buildImportedTextElement(text);
+    const addedPageIds: string[] = [];
+    const release: MutexRelease = await NoteImporter.importMutex.lock();
+    try {
+      const pageRepo = new PageRepositoryImpl(this.db);
+      const existingPages: PageInfo[] = await pageRepo.getPages(noteId);
+      const pageInfo: PageInfo = {
+        pageId: generateId(),
+        pageIndex: existingPages.length,
+        size: PaperSize.LETTER,
+        template: PaperTemplate.PLAIN,
+        orientation: PageOrientation.PORTRAIT,
+        widthMm: IMAGE_IMPORT_PAGE_WIDTH_PT * POINTS_TO_MM,
+        heightMm: IMAGE_IMPORT_PAGE_HEIGHT_PT * POINTS_TO_MM,
+        background: originalDefaultNoteBackground(),
+        bookmarked: false,
+      };
+      const added: PageInfo = await pageRepo.addImportedPage(noteId, pageInfo);
+      addedPageIds.push(added.pageId);
+      await this.persistence.saveElements(noteId, added.pageId, [], [textElement],
+        [{ kind: PageElementKind.TEXT, elementId: textElement.id, zIndex: 0 }],
+        [], [], []);
+      return { result: ImportResult.SUCCESS, noteId: noteId, title: null,
+        pageCount: 1, missingAssets: [], warnings: [],
+        message: `已插入文本「${importedFileStemTitle(fileName)}」` };
+    } catch (e) {
+      await this.rollbackAppendedPages(new PageRepositoryImpl(this.db), noteId, addedPageIds);
+      return { result: ImportResult.CORRUPTED, noteId: noteId, title: null,
+        pageCount: 0, missingAssets: [], warnings: [],
+        message: `文本插入失败：${JSON.stringify(e)}` };
+    } finally {
+      release();
+    }
+  }
+
+  private async importAudioIntoNote(noteId: string, data: Uint8Array,
+    fileName: string): Promise<ImportReport> {
+    const mimeType: string = audioMimeForFileName(fileName);
+    const pendingDirectory: string = this.db.getFilesDir() + '/assets/pending';
+    const stagingPath: string = pendingDirectory +
+      `/audio_insert_${Date.now()}_${Math.floor(Math.random() * 0x1000000)}.tmp`;
+    try {
+      fileIo.mkdirSync(pendingDirectory, true);
+      writeFileFully(stagingPath, data);
+    } catch (e) {
+      return { result: ImportResult.CORRUPTED, noteId: noteId, title: null,
+        pageCount: 0, missingAssets: [], warnings: [],
+        message: `音频暂存失败：${JSON.stringify(e)}` };
+    }
+    const durationMs: number = await extractImportedAudioDuration(stagingPath);
+    const release: MutexRelease = await NoteImporter.importMutex.lock();
+    try {
+      const now: number = Date.now();
+      const capture: OriginalRecordingCaptureResult = {
+        temporaryPath: stagingPath,
+        mimeType: mimeType,
+        fileSize: data.length,
+        mediaDurationMs: durationMs,
+        startTime: now,
+        endTime: now + durationMs,
+        durationMs: durationMs,
+      };
+      await persistCapturedOriginalRecording(this.db, noteId, capture);
+      return { result: ImportResult.SUCCESS, noteId: noteId, title: null,
+        pageCount: 0, missingAssets: [], warnings: [],
+        message: `已插入音频「${importedFileStemTitle(fileName)}」` };
+    } catch (e) {
+      return { result: ImportResult.CORRUPTED, noteId: noteId, title: null,
+        pageCount: 0, missingAssets: [], warnings: [],
+        message: `音频插入失败：${JSON.stringify(e)}` };
     } finally {
       release();
       if (fileIo.accessSync(stagingPath)) {

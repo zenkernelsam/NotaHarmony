@@ -138,7 +138,8 @@ check(notePage.includes('PageOverviewPanel({') &&
   notePage.includes('currentPageIndex: this.currentPageIndex'),
   'panel receives pages, selection and the revision seed');
 check(notePage.includes('this.pageContentVersion++;') &&
-  notePage.indexOf('this.pageContentVersion++') >
+  notePage.indexOf('this.pageContentVersion++',
+    notePage.indexOf('this.canRedo = r;')) >
   notePage.indexOf('this.canRedo = r;'),
   'content mutations bump the thumbnail revision seed');
 check(notePage.includes('import { PageOverviewPanel }'),
