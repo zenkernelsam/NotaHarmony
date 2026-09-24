@@ -47,8 +47,8 @@ assert.match(pageRepo, /editorPersistenceMutex\.lock\(\)/);
 assert.match(deleteEncoder, /encodeOriginalPageVisibility/);
 assert.match(noteRepo, /persistOriginalBlankNoteBootstrap\(store, note\.id, note\.title, defaultTemplate\)/);
 // .note package + original Notability session + standalone PDF (Phase 652)
-// + standalone image (Phase 653).
-assert.equal((importer.match(/addImportedPage\(note\.id, pageInfo\)/g) ?? []).length, 4);
+// + standalone image (Phase 653) + standalone text (Phase 654).
+assert.equal((importer.match(/addImportedPage\(note\.id, pageInfo\)/g) ?? []).length, 5);
 assert.match(editor, /action\.pageId = assignedPage\.pageId/);
 assert.match(editor, /ADD_PAGE redo changed the original page identity/);
 assert.match(tests, /round-trips a located A4 page through nz9 sourceSize/);

@@ -25,6 +25,7 @@ import {
   planOriginalImageDownscale,
 } from '../core/model/OriginalImageInsertPlan';
 import { imageBlockWorldBounds, originalAssetHashKey } from '../core/model/ImageBlockGeometry';
+import { textBlockWorldBounds } from '../core/model/TextBlockGeometry';
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import {
   ElementType, ImageElement, MathElement, ShapeElement, TextBlockElement,
@@ -63,6 +64,15 @@ const IMAGE_IMPORT_PAGE_FRACTION: number = 0.8;
 const IMAGE_IMPORT_WEBP_LOSSY_QUALITY: number = 85;
 const IMPORTED_IMAGE_SUFFIXES: string[] = ['.png', '.jpg', '.jpeg', '.webp',
   '.gif', '.heif', '.heic', '.tif', '.tiff'];
+// 原版 nj3.txt 是导入类型表中的唯一纯文本类型（dv5 默认分支 → tu5）。
+const IMPORTED_TEXT_SUFFIXES: string[] = ['.txt'];
+// 原版 te0/kci.b 文本导入的默认 BlockCommon 边距与字号（cde 默认寄存器）。
+const TEXT_IMPORT_LEFT_INSET: number = 5;
+const TEXT_IMPORT_TOP_INSET: number = 3;
+const TEXT_IMPORT_RIGHT_INSET: number = 5;
+const TEXT_IMPORT_BOTTOM_INSET: number = 10;
+const TEXT_IMPORT_FONT_SIZE: number = 17;
+const TEXT_IMPORT_FONT_COLOR: number = -16777216;
 
 export enum ImportResult {
   SUCCESS = 0,
@@ -148,16 +158,16 @@ export class NoteImporter {
     return await this.importExternalFormat(entries, archive.failed, archive.encrypted);
   }
 
-  // 从文件导入（系统 picker）。原版 i58 选择器为 */*、由 jv5 按 MIME 嗅探分发；
-  // Harmony DocumentViewPicker 只能按后缀过滤，收缩到可物化的 .note/.pdf，
-  // 进入后用 %PDF- magic 对齐原版的类型嗅探。
+  // 从文件导入（系统 picker）。原版 i58 选择器为 */*、由 jv5/dv5 按 MIME
+  // 与内容嗅探分发；Harmony DocumentViewPicker 只能按后缀过滤，收缩到可
+  // 物化的 .note/.pdf/图片/.txt，进入后用 %PDF- magic 对齐原版的类型嗅探。
   async importFromFile(context: common.UIAbilityContext): Promise<ImportReport> {
     let file: fileIo.File | null = null;
     try {
       const documentPicker = new picker.DocumentViewPicker(context);
       const selectOptions = new picker.DocumentSelectOptions();
       selectOptions.fileSuffixFilters = ['.note', '.pdf', '.png', '.jpg', '.jpeg',
-        '.webp', '.gif', '.heif', '.heic', '.tif', '.tiff'];
+        '.webp', '.gif', '.heif', '.heic', '.tif', '.tiff', '.txt'];
       const uris: string[] = await documentPicker.select(selectOptions);
       if (uris.length === 0) {
         return { result: ImportResult.CANCELLED, noteId: null, title: null, pageCount: 0,
@@ -192,6 +202,9 @@ export class NoteImporter {
       }
       if (isImportedImageFileName(fileName)) {
         return await this.importImageFromBytes(bytes, fileName);
+      }
+      if (isImportedTextFileName(fileName)) {
+        return await this.importTextFromBytes(bytes, fileName);
       }
       return await this.importFromData(bytes);
     } catch (e) {
@@ -360,6 +373,57 @@ export class NoteImporter {
       return { result: ImportResult.CORRUPTED, noteId: cleaned ? null : createdNoteId,
         title: null, pageCount: 0, missingAssets: [], warnings: [],
         message: `图片导入失败：${JSON.stringify(e)}` };
+    } finally {
+      release();
+    }
+  }
+
+  // 原版 dv5 默认分支 + dhj.p0：tf4.x0(file, UTF-8) 读纯文本为 tu5，
+  // 空文本记日志后跳过（dca.c 无 op）；非空 te0 = haj.a 建 Letter 页 +
+  // kci.b(null, text, null) 生成 INSERT_STRING 实体（haa.INSERT_STRING，
+  // nti.g(qo5,0) 落在 richtext 寄存器位 0）。Harmony 物化为
+  // Letter 页上的默认样式 TextBlockElement。
+  private async importTextFromBytes(data: Uint8Array, fileName: string): Promise<ImportReport> {
+    const text: string = bytesToString(data);
+    if (text.length === 0) {
+      // 原版：Empty text file, skipping import —— 不建笔记。
+      return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+        missingAssets: [], warnings: [], message: '空文本文件，未导入' };
+    }
+    const title: string = imageImportTitle(fileName);
+    const textElement: TextBlockElement = buildImportedTextElement(text);
+    let createdNoteId: string | null = null;
+    const release: MutexRelease = await NoteImporter.importMutex.lock();
+    try {
+      const noteRepo = new NoteRepositoryImpl(this.db);
+      const pageRepo = new PageRepositoryImpl(this.db);
+      const now: number = Date.now();
+      const note: NoteMeta = await noteRepo.createNoteWithMeta(
+        generateId(), title, now, now, null, false);
+      createdNoteId = note.id;
+      const pageInfo: PageInfo = {
+        pageId: generateId(),
+        pageIndex: 0,
+        size: PaperSize.LETTER,
+        template: PaperTemplate.PLAIN,
+        orientation: PageOrientation.PORTRAIT,
+        widthMm: IMAGE_IMPORT_PAGE_WIDTH_PT * POINTS_TO_MM,
+        heightMm: IMAGE_IMPORT_PAGE_HEIGHT_PT * POINTS_TO_MM,
+        background: originalDefaultNoteBackground(),
+        bookmarked: false,
+      };
+      const added: PageInfo = await pageRepo.addImportedPage(note.id, pageInfo);
+      await this.persistence.saveElements(note.id, added.pageId, [], [textElement],
+        [{ kind: PageElementKind.TEXT, elementId: textElement.id, zIndex: 0 }],
+        [], [], []);
+      return { result: ImportResult.SUCCESS, noteId: note.id, title: note.title,
+        pageCount: 1, missingAssets: [], warnings: [],
+        message: `已导入文本「${note.title}」` };
+    } catch (e) {
+      const cleaned: boolean = await this.removeFailedImport(createdNoteId);
+      return { result: ImportResult.CORRUPTED, noteId: cleaned ? null : createdNoteId,
+        title: null, pageCount: 0, missingAssets: [], warnings: [],
+        message: `文本导入失败：${JSON.stringify(e)}` };
     } finally {
       release();
     }
@@ -1389,5 +1453,54 @@ function buildImportedImageElement(prepared: ImportedImagePreparation,
     positionLocked: false,
   };
   element.bounds = imageBlockWorldBounds(element);
+  return element;
+}
+
+function isImportedTextFileName(fileName: string): boolean {
+  const lower: string = fileName.toLowerCase();
+  for (const suffix of IMPORTED_TEXT_SUFFIXES) {
+    if (lower.endsWith(suffix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// 原版 te0/kci.b 文本导入的落块近似：INSERT_STRING 进页 richtext 寄存器
+// 位 0 后由 cde 默认块承载 —— Harmony 以 Letter 页顶端、页宽的默认样式
+// TextBlockElement 物化；块高沿用 TextBlockTool.updateText 的行高规则
+// （lines*(fontSize+8)+上下内边距，最小 40），块宽 = 页宽。
+function buildImportedTextElement(text: string): TextBlockElement {
+  const lines: number = text.split('\n').length;
+  const height: number = Math.fround(Math.max(40,
+    lines * Math.fround(TEXT_IMPORT_FONT_SIZE + 8) +
+    TEXT_IMPORT_TOP_INSET + TEXT_IMPORT_BOTTOM_INSET));
+  const width: number = Math.fround(IMAGE_IMPORT_PAGE_WIDTH_PT);
+  const element: TextBlockElement = {
+    id: `imported-text-${generateId()}`,
+    type: ElementType.TEXT,
+    transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    bounds: { left: 0, top: 0, right: 0, bottom: 0 },
+    richText: text,
+    characterStyleRuns: [],
+    paragraphStyleRuns: [],
+    textOrigin: { x: 0, y: 0 },
+    blockWidth: width,
+    blockHeight: height,
+    rotationRadians: 0,
+    contentLeftInset: TEXT_IMPORT_LEFT_INSET,
+    contentTopInset: TEXT_IMPORT_TOP_INSET,
+    contentRightInset: TEXT_IMPORT_RIGHT_INSET,
+    contentBottomInset: TEXT_IMPORT_BOTTOM_INSET,
+    fontSize: TEXT_IMPORT_FONT_SIZE,
+    fontColor: TEXT_IMPORT_FONT_COLOR,
+    corner: 0,
+    textWrap: 0,
+    enableCaption: false,
+    paper: null,
+    resizesWidthToFitText: false,
+    positionLocked: false,
+  };
+  element.bounds = textBlockWorldBounds(element);
   return element;
 }
