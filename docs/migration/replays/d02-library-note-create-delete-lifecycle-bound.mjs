@@ -44,7 +44,7 @@ assert.ok(navGuardIndex > navCatch && navToastIndex > navGuardIndex,
 const importStart = page.indexOf('private async importAndOpen(): Promise<void> {', endMarker);
 assert.ok(importStart > endMarker);
 const importFn = page.slice(importStart,
-  page.indexOf('\n  // 响应式断点', importStart));
+  page.indexOf('\n  // 原版 ib7/pk9.onDocScanned', importStart));
 assert.match(importFn,
   /if \(!this\.pageActive \|\| this\.viewModel === null \|\| this\.createBusy\) \{\s+return;\s+\}/,
   'stale import cannot start a durable mutation');

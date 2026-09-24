@@ -35,6 +35,7 @@ import { ThumbnailRenderer } from '../../rendering/ThumbnailRenderer';
 import { systemShare } from '@kit.ShareKit';
 import { uniformTypeDescriptor } from '@kit.ArkData';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
+import { DocumentScanner, DocumentScannerConfig, DocType, SaveOption } from '@kit.VisionKit';
 import { image } from '@kit.ImageKit';
 import { Want } from '@kit.AbilityKit';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
@@ -97,6 +98,10 @@ const FOLDER_EMOJI_CATEGORIES: string[][] = [
   ['🏁', '🚩', '🏳️', '🏴', '🏳️‍🌈', '🇨🇳', '🇺🇸', '🇬🇧', '🇯🇵', '🇰🇷', '🇫🇷', '🇩🇪', '🇨🇦', '🇦🇺', '🇧🇷', '🇮🇳'],
 ];
 
+// 原版 ML Kit 扫描页数上限未在反编译中暴露（启动器未解出）；取 Harmony
+// DocumentScanner SDK 上限 50 保持多页扫描能力。
+const ORIGINAL_DOC_SCAN_MAX_PAGES: number = 50;
+
 @Entry
 @Component
 struct LibraryPage {
@@ -122,6 +127,12 @@ struct LibraryPage {
   // Original mw3/ksh.g: the new-note FAB expands into quick actions
   // (record audio / import file / [scan] / [capture]).
   @State createMenuOpen: boolean = false;
+  // Original cd case 0 + ac4.a0(LIBRARY_DOC_SCAN)：FAB「Document Scan」——
+  // VisionKit DocumentScanner 全屏扫描（产出 PDF）→ 新笔记；无 DocScan
+  // 组件能力的设备等价原版 flag-off，不渲染入口。
+  @State docScanAvailable: boolean = false;
+  @State docScanOpen: boolean = false;
+  private docScanConfig: DocumentScannerConfig | null = null;
   @State deleteBusy: boolean = false;
   // 原版 pk9.X/Y：库内多选态（X=模式中、Y=已选 id 集；o() 长按进入、
   // r() 翻转、p() 退出清空；ek9 = MultiSelectState 派生模型）。
@@ -336,7 +347,9 @@ struct LibraryPage {
 
   aboutToAppear(): void {
     const generation: number = this.activatePage();
-    this.initData(generation);
+    this.initData(generation);    // 原版 lc4.a(ac4.a0) 门控：Harmony 等价门控为系统能力探测——无
+    // DocScan 组件能力的设备不显示「Document Scan」入口（fail-closed）。
+    this.docScanAvailable = canIUse('SystemCapability.AI.Component.DocScan');
   }
 
   aboutToDisappear(): void {
@@ -2337,6 +2350,14 @@ struct LibraryPage {
         this.multiSharePasswordMismatch = false;
       }
     })
+    .bindContentCover(this.docScanOpen, this.DocScanCover(), {
+      // VisionKit 约束：扫描界面不得被其他组件遮挡——全屏 cover 独占；
+      // 向下滑动关闭等同用户取消。
+      onWillDismiss: (action: DismissContentCoverAction): void => {
+        this.docScanOpen = false;
+        action.dismiss();
+      }
+    })
   }
 
   // FAB 新建按钮（64vp 右下角）
@@ -2368,6 +2389,12 @@ struct LibraryPage {
         this.CreateActionChip($r('app.string.templates'), () => {
           this.templateDialog.open();
         })
+        // 原版 cd case 0 序位尾位：ac4.a0 门控的「Document Scan」。
+        if (this.docScanAvailable) {
+          this.CreateActionChip($r('app.string.docscan'), () => {
+            this.docScanOpen = true;
+          })
+        }
       }
       Button() {
         Text(this.createMenuOpen ? '×' : '+')
@@ -2410,6 +2437,23 @@ struct LibraryPage {
       this.createMenuOpen = false;
       action();
     })
+  }
+
+  @Builder
+  DocScanCover() {
+    Column() {
+      DocumentScanner({
+        scannerConfig: this.ensureDocScanConfig(),
+        onResult: (code: number, saveType: SaveOption, uris: string[]): void => {
+          this.onDocScanResult(code, uris);
+        }
+      })
+        .width('100%')
+        .height('100%')
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(this.resolveTokens().background)
   }
 
   @Builder
@@ -4002,6 +4046,79 @@ struct LibraryPage {
       if (lifecycleGeneration === this.lifecycleGeneration && this.pageActive) {
         promptAction.showToast({ message: $r('app.string.import_failed') });
         console.error(`import note failed: ${JSON.stringify(e)}`);
+      }
+    } finally {
+      this.createBusy = false;
+    }
+  }
+
+  // 原版 ib7/pk9.onDocScanned(uri, title, success, failure)：VisionKit 回调
+  // code 200=成功、-1=无结果（用户取消，静默）、1008601001=uri 无效。
+  private onDocScanResult(code: number, uris: string[]): void {
+    this.docScanOpen = false;
+    if (code !== 200 || uris.length === 0) {
+      if (code !== -1) {
+        promptAction.showToast({ message: $r('app.string.doc_scan_failed') });
+      }
+      return;
+    }
+    this.importScannedAndOpen(uris).catch((e: Error) => {
+      console.error(`doc scan import failed: ${JSON.stringify(e)}`);
+    });
+  }
+
+  private ensureDocScanConfig(): DocumentScannerConfig {
+    if (this.docScanConfig === null) {
+      const config: DocumentScannerConfig = new DocumentScannerConfig();
+      // 对齐原版 ML Kit 语义：文档类型、允许图库导入、产出 PDF、关闭
+      // 自带分享钮（扫描结果只进新建笔记管线）。
+      config.supportType = [DocType.DOC];
+      config.saveOptions = [SaveOption.PDF];
+      config.maxShotCount = ORIGINAL_DOC_SCAN_MAX_PAGES;
+      config.isShareable = false;
+      this.docScanConfig = config;
+    }
+    return this.docScanConfig;
+  }
+
+  // Original onDocScanned → scanned_document_title 新笔记：扫描 PDF uri
+  // 经 sv5 CreateSingleNewNote 语义物化后打开（原版随后 onShowNoteInFolder）。
+  private async importScannedAndOpen(uris: string[]): Promise<void> {
+    if (!this.pageActive || this.viewModel === null || this.createBusy) {
+      return;
+    }
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    this.createBusy = true;
+    const vm: LibraryViewModel = this.viewModel;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const importer: NoteImporter = new NoteImporter(this.db, this.persistence);
+      const title: string = context.resourceManager.getStringSync(
+        $r('app.string.scanned_document_title').id,
+        this.formatTime(Date.now()));
+      const report: ImportReport = await importer.importScannedDocument(
+        uris, title, this.currentFolderId, this.pdfPasswordPrompt);
+      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+        this.viewModel !== vm) {
+        return;
+      }
+      if (report.noteId === null) {
+        promptAction.showToast({ message: $r('app.string.doc_scan_failed') });
+        return;
+      }
+      await vm.loadNotes(this.searchText);
+      this.refreshRecentCardFeed();
+      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+        this.viewModel !== vm) {
+        return;
+      }
+      this.notes = vm.getFilteredNotes().slice();
+      await router.pushUrl({ url: 'ui/editor/NotePage',
+        params: { noteId: report.noteId } });
+    } catch (e) {
+      if (lifecycleGeneration === this.lifecycleGeneration && this.pageActive) {
+        promptAction.showToast({ message: $r('app.string.doc_scan_failed') });
+        console.error(`doc scan import failed: ${JSON.stringify(e)}`);
       }
     } finally {
       this.createBusy = false;

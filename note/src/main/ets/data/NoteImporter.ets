@@ -317,6 +317,16 @@ export class NoteImporter {
     return await this.importPickedFilesStandalone(uris, passwordPrompt);
   }
 
+  // 原版 ac4.a0 LIBRARY_DOC_SCAN + onDocScanned(uri,title,…)：扫描仪产物
+  // uri（PDF）按 sv5 CreateSingleNewNote 语义物化为单篇新笔记——标题由
+  // 扫描入口给出（feature_library__scanned_document_title）。
+  async importScannedDocument(uris: string[], title: string,
+    folderId: string | null,
+    passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
+    return await this.importFilesIntoSingleNewNote(uris, title, folderId,
+      passwordPrompt);
+  }
+
   // 原版编辑器插入菜单「Add Files」（qc 序位第一）→ qv5
   // AddToExistingNote：同一类型表，目标为当前打开的笔记。`.note` 归档
   // 并入既有笔记语义不透明（yq8.d/e 未反编译），故过滤不收 .note。

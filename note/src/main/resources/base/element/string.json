@@ -1283,6 +1283,9 @@
     { "name": "ruler_units", "value": "Ruler units" },
     { "name": "imperial", "value": "Imperial" },
     { "name": "metric", "value": "Metric" },
-    { "name": "eyedropper", "value": "Eyedropper" }
+    { "name": "eyedropper", "value": "Eyedropper" },
+    { "name": "docscan", "value": "Document Scan" },
+    { "name": "scanned_document_title", "value": "Scanned Document %1$s" },
+    { "name": "doc_scan_failed", "value": "Couldn't create note from scan. Please try again." }
   ]
 }
