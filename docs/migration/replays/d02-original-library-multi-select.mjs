@@ -145,8 +145,8 @@ check(actBar >= 0 &&
   lib.slice(actBar, actBar + 2600).includes('LoadingProgress()') &&
   lib.slice(actBar, actBar + 2600).includes('this.selectedNoteIds.length > 0 && !this.multiSelectBusy'),
   'MultiSelectActionBar mirrors l05/fj9/gj9 (Duplicate/Favorite/Delete + busy + empty gating)');
-check(!lib.slice(actBar, actBar + 2600).includes('app.string.share\n'),
-  'Share stays out of the action bar (lc4-gated → Phase 674)');
+check(lib.slice(actBar, actBar + 3200).includes("Button($r('app.string.share'))"),
+  'Share button present (lc4 flag delivered in Phase 674)');
 
 // ---------- 全选/收藏派生 ----------
 const allSel = lib.indexOf('private allVisibleSelected(): boolean {');

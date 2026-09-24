@@ -1268,6 +1268,17 @@
     { "name": "delete_notes_message", "value": "Move %d notes to Recently Deleted? You can recover them within 30 days." },
     { "name": "multi_delete_failed", "value": "Failed to delete selected notes" },
     { "name": "multi_duplicate_failed", "value": "Failed to duplicate selected notes" },
-    { "name": "multi_favorite_failed", "value": "Failed to update selected notes" }
+    { "name": "multi_favorite_failed", "value": "Failed to update selected notes" },
+    { "name": "share_multi_subject", "value": "Notes" },
+    { "name": "share_multi_subtitle", "value": "Share a PDF, a note or an image." },
+    { "name": "share_chip_pdf_multi", "value": "PDFs" },
+    { "name": "share_chip_note_multi", "value": "Notes" },
+    { "name": "share_chip_jpg_multi", "value": "JPGs" },
+    { "name": "share_chip_png_multi", "value": "PNGs" },
+    { "name": "share_action_pdf_multi", "value": "Share PDFs" },
+    { "name": "share_action_note_multi", "value": "Share Notes" },
+    { "name": "share_action_jpg_multi", "value": "Share JPGs" },
+    { "name": "share_action_png_multi", "value": "Share PNGs" },
+    { "name": "multi_share_failed", "value": "Failed to share selected notes" }
   ]
 }

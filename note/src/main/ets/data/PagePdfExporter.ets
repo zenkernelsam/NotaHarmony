@@ -114,7 +114,7 @@ export class PagePdfExporter {
 // 对生成的 PDF 临时文件施加打开密码：PDFKit 载入 → setPdfPassword →
 // saveDocument 到第二临时文件。任一步失败抛错走上层 catch →
 // export_failed toast（密码不静默降级）。
-function encryptPdfFile(sourcePath: string, targetPath: string,
+export function encryptPdfFile(sourcePath: string, targetPath: string,
   password: string): void {
   const document: pdfService.PdfDocument = new pdfService.PdfDocument();
   try {

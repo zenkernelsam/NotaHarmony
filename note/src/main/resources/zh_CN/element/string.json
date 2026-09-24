@@ -502,6 +502,17 @@
     { "name": "delete_notes_message", "value": "将 %d 条笔记移入最近删除？30 天内可恢复。" },
     { "name": "multi_delete_failed", "value": "批量删除失败" },
     { "name": "multi_duplicate_failed", "value": "批量创建副本失败" },
-    { "name": "multi_favorite_failed", "value": "批量更新失败" }
+    { "name": "multi_favorite_failed", "value": "批量更新失败" },
+    { "name": "share_multi_subject", "value": "笔记" },
+    { "name": "share_multi_subtitle", "value": "分享 PDF、笔记或图像。" },
+    { "name": "share_chip_pdf_multi", "value": "PDF" },
+    { "name": "share_chip_note_multi", "value": "笔记" },
+    { "name": "share_chip_jpg_multi", "value": "JPG" },
+    { "name": "share_chip_png_multi", "value": "PNG" },
+    { "name": "share_action_pdf_multi", "value": "分享 PDF" },
+    { "name": "share_action_note_multi", "value": "分享笔记" },
+    { "name": "share_action_jpg_multi", "value": "分享 JPG" },
+    { "name": "share_action_png_multi", "value": "分享 PNG" },
+    { "name": "multi_share_failed", "value": "批量分享失败" }
   ]
 }

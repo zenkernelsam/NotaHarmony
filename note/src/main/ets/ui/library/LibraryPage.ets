@@ -4,7 +4,7 @@ import { router, promptAction } from '@kit.ArkUI';
 import { BusinessError, pasteboard } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
-import { NoteMeta, PaperTemplate } from '../../core/model/NoteTypes';
+import { NoteMeta, PageInfo, PaperTemplate } from '../../core/model/NoteTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
 import {
   AssetAvailabilityChange, assetAvailabilityHub,
@@ -32,6 +32,14 @@ import {
 import { FirstPageThumbnailState, StrokePersistence } from '../../data/StrokePersistence';
 import { AsyncMutex, MutexRelease } from '../../data/AsyncMutex';
 import { ThumbnailRenderer } from '../../rendering/ThumbnailRenderer';
+import { systemShare } from '@kit.ShareKit';
+import { uniformTypeDescriptor } from '@kit.ArkData';
+import { fileIo, fileUri } from '@kit.CoreFileKit';
+import { image } from '@kit.ImageKit';
+import { Want } from '@kit.AbilityKit';
+import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
+import { buildPdf, encryptPdfFile, PdfPageImage } from '../../data/PagePdfExporter';
+import { ZipWriter } from '../../data/ZipArchive';
 import {
   isThumbnailSourceUnchanged, prioritizeThumbnailNoteIds, thumbnailCacheKey,
 } from '../../rendering/ThumbnailRenderPolicy';
@@ -120,6 +128,20 @@ struct LibraryPage {
   @State isMultiSelecting: boolean = false;
   @State selectedNoteIds: string[] = [];
   @State multiSelectBusy: boolean = false;
+  // 原版 b7d 分享态（v6d 多选形态）：v6d.a=isMultiNote=true 时页范围行
+  // 隐藏（dih.a/h 的 e() 分派跳过），格式默认 PDF（b7d 构造器
+  // list.size()>1 → PDF）；include_* 初值与 v6d 构造器一致
+  // （background=false、recording=true）；v6d.k 密码可空。
+  @State multiShareOpen: boolean = false;
+  @State multiShareFormat: string = 'pdf';
+  @State multiShareIncludeBackground: boolean = false;
+  @State multiShareIncludeRecording: boolean = true;
+  @State multiSharePassword: string | null = null;
+  @State multiSharePasswordDraft: string = '';
+  @State multiSharePasswordConfirm: string = '';
+  @State multiSharePasswordEditing: boolean = false;
+  @State multiSharePasswordMismatch: boolean = false;
+  @State multiShareBusy: boolean = false;
   @State folderBusy: boolean = false;
   // T-035：缩略图——@State 数组驱动 UI 刷新（Builder 中 Map 方法依赖收集不可靠）
   @State thumbIds: string[] = [];
@@ -2306,6 +2328,15 @@ struct LibraryPage {
     })
     .overlay(this.FabButton(), { align: Alignment.BottomEnd })
     .overlay(this.CompactFolderDrawer(), { align: Alignment.TopStart })
+    .bindSheet(this.multiShareOpen, this.MultiShareSheet(), {
+      height: SheetSize.MEDIUM,
+      showClose: false,
+      // 原版 b7d 会话态：面板关闭即结束本次分享会话。
+      onDisappear: (): void => {
+        this.multiSharePasswordEditing = false;
+        this.multiSharePasswordMismatch = false;
+      }
+    })
   }
 
   // FAB 新建按钮（64vp 右下角）
@@ -2688,6 +2719,25 @@ struct LibraryPage {
             .height(20)
             .margin({ right: 8 })
         }
+        Button($r('app.string.share'))
+          .height(40)
+          .fontSize(13)
+          .margin({ left: 8, right: 8 })
+          .enabled(this.selectedNoteIds.length > 0 && !this.multiSelectBusy &&
+            !this.multiShareBusy)
+          .onClick(() => {
+            // 原版 l05 底栏 share 图标（lc4.a(ac4.L) 旗标本期交付）：
+            // 打开 v6d.a=多笔记形态的分享面板。
+            this.multiShareFormat = 'pdf';
+            this.multiShareIncludeBackground = false;
+            this.multiShareIncludeRecording = true;
+            this.multiSharePassword = null;
+            this.multiSharePasswordDraft = '';
+            this.multiSharePasswordConfirm = '';
+            this.multiSharePasswordEditing = false;
+            this.multiSharePasswordMismatch = false;
+            this.multiShareOpen = true;
+          })
         Button($r('app.string.duplicate_note'))
           .height(40)
           .fontSize(13)
@@ -2873,6 +2923,407 @@ struct LibraryPage {
 
   // 原版 fj9 case2 批量 Delete → 确认后逐笔记 deleteNote（入 Recently
   // Deleted）；已删 id 从选中集剔除（ek9 重建语义），删空则退出多选。
+  // 原版 dih 多笔记形态（v6d.a=true）：chip 行用 _multi 标签，
+  // 页范围行整体隐藏（dih.a/h 的 e() 分派被 v6d.a 短路）；
+  // PDF=dih.h 余下行（双开关 + 密码行）、NOTE=dih.d（录音开关）、
+  // JPG/PNG=dih.a 余下行（背景开关）、LINK=dih.b（账号域，fail-closed）。
+  @Builder
+  MultiShareSheet() {
+    Column() {
+      Text($r('app.string.share_multi_subject'))
+        .fontSize(18)
+        .fontColor(this.resolveTokens().textPrimary)
+        .margin({ top: 16 })
+      Text($r('app.string.share_multi_subtitle'))
+        .fontSize(13)
+        .fontColor(this.resolveTokens().textSecondary)
+        .margin({ top: 4 })
+      // 原版 s6d chip 行（_multi 标签）：LINK 置灰吞点（dih.b 账号域）。
+      Row() {
+        this.MultiShareFormatChip('pdf', $r('app.string.share_chip_pdf_multi'))
+        this.MultiShareFormatChip('note', $r('app.string.share_chip_note_multi'))
+        this.MultiShareFormatChip('jpg', $r('app.string.share_chip_jpg_multi'))
+        this.MultiShareFormatChip('png', $r('app.string.share_chip_png_multi'))
+        this.MultiShareFormatChip('link', $r('app.string.share_link'))
+      }
+      .margin({ top: 16 })
+      if (this.multiShareFormat === 'pdf') {
+        this.MultiShareToggleRow($r('app.string.share_include_background'),
+          this.multiShareIncludeBackground, (on: boolean) => {
+            this.multiShareIncludeBackground = on;
+          })
+        this.MultiShareToggleRow($r('app.string.share_include_recording'),
+          this.multiShareIncludeRecording, (on: boolean) => {
+            this.multiShareIncludeRecording = on;
+          })
+        this.MultiSharePasswordRow()
+      } else if (this.multiShareFormat === 'note') {
+        this.MultiShareToggleRow($r('app.string.share_include_recording'),
+          this.multiShareIncludeRecording, (on: boolean) => {
+            this.multiShareIncludeRecording = on;
+          })
+      } else if (this.multiShareFormat === 'jpg' ||
+        this.multiShareFormat === 'png') {
+        this.MultiShareToggleRow($r('app.string.share_include_background'),
+          this.multiShareIncludeBackground, (on: boolean) => {
+            this.multiShareIncludeBackground = on;
+          })
+      } else {
+        Text($r('app.string.share_link_unavailable'))
+          .fontSize(13)
+          .fontColor(this.resolveTokens().textSecondary)
+          .margin({ top: 16 })
+      }
+      // 原版 g6d 动作行：Cancel + "Share Xs"（_multi action 标签）。
+      Row() {
+        Button($r('app.string.share_cancel'))
+          .height(40)
+          .fontSize(14)
+          .layoutWeight(1)
+          .margin({ right: 8 })
+          .onClick(() => {
+            this.multiShareOpen = false;
+          })
+        Button(this.multiShareActionLabel())
+          .height(40)
+          .fontSize(14)
+          .layoutWeight(1)
+          .margin({ left: 8 })
+          .enabled(this.multiShareFormat !== 'link' && !this.multiShareBusy)
+          .onClick(() => {
+            this.multiShare().catch((e: Error) => {
+              console.error(`multi share failed: ${JSON.stringify(e)}`);
+            });
+          })
+      }
+      .margin({ top: 24, bottom: 16 })
+    }
+    .width('100%')
+    .padding({ left: 24, right: 24 })
+  }
+
+  @Builder
+  MultiShareFormatChip(format: string, label: Resource) {
+    Button(label)
+      .height(36)
+      .fontSize(13)
+      .margin({ right: 8 })
+      .opacity(format === 'link' ? 0.4 :
+        (this.multiShareFormat === format ? 1 : 0.7))
+      .backgroundColor(this.multiShareFormat === format ?
+        this.resolveTokens().accent : this.resolveTokens().control)
+      .enabled(format !== 'link')
+      .onClick(() => {
+        this.multiShareFormat = format;
+        this.multiSharePasswordEditing = false;
+        this.multiSharePasswordMismatch = false;
+      })
+  }
+
+  @Builder
+  MultiShareToggleRow(label: Resource, value: boolean,
+    onChange: (on: boolean) => void) {
+    Row() {
+      Text(label)
+        .fontSize(15)
+        .fontColor(this.resolveTokens().textPrimary)
+        .layoutWeight(1)
+      Toggle({ type: ToggleType.Switch, isOn: value })
+        .onChange((on: boolean) => {
+          onChange(on);
+        })
+    }
+    .width('100%')
+    .height(44)
+    .margin({ top: 8 })
+  }
+
+  // 原版 zy7 密码行（On/Off）→ dih.g PASSWORD_ENTRY（草稿+确认+Save/
+  // Remove；kw1：draft 空时 Save 禁用、kv1 仅在相等且非空时回写）。
+  @Builder
+  MultiSharePasswordRow() {
+    Column() {
+      Row() {
+        Column() {
+          Text($r('app.string.share_password'))
+            .fontSize(15)
+            .fontColor(this.resolveTokens().textPrimary)
+          Text($r('app.string.share_password_subtitle'))
+            .fontSize(12)
+            .fontColor(this.resolveTokens().textSecondary)
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        Text(this.multiSharePassword !== null ?
+          $r('app.string.share_password_on') : $r('app.string.share_password_off'))
+          .fontSize(14)
+          .fontColor(this.resolveTokens().textSecondary)
+      }
+      .width('100%')
+      .height(56)
+      .margin({ top: 8 })
+      .onClick(() => {
+        this.multiSharePasswordEditing = !this.multiSharePasswordEditing;
+        this.multiSharePasswordMismatch = false;
+      })
+      if (this.multiSharePasswordEditing) {
+        TextInput({ placeholder: $r('app.string.share_password_enter'),
+          text: this.multiSharePasswordDraft })
+          .type(InputType.Password)
+          .height(40)
+          .margin({ top: 8 })
+          .onChange((v: string) => {
+            this.multiSharePasswordDraft = v;
+            this.multiSharePasswordMismatch = false;
+          })
+        TextInput({ placeholder: $r('app.string.share_password_confirm'),
+          text: this.multiSharePasswordConfirm })
+          .type(InputType.Password)
+          .height(40)
+          .margin({ top: 8 })
+          .onChange((v: string) => {
+            this.multiSharePasswordConfirm = v;
+            this.multiSharePasswordMismatch = false;
+          })
+        if (this.multiSharePasswordMismatch) {
+          Text($r('app.string.share_password_mismatch'))
+            .fontSize(12)
+            .fontColor(this.resolveTokens().danger)
+            .margin({ top: 4 })
+        }
+        Row() {
+          Button($r('app.string.share_password_save'))
+            .height(36)
+            .fontSize(13)
+            .margin({ right: 8 })
+            .enabled(this.multiSharePasswordDraft.length > 0)
+            .onClick(() => {
+              if (this.multiSharePasswordDraft !== this.multiSharePasswordConfirm) {
+                this.multiSharePasswordMismatch = true;
+                return;
+              }
+              this.multiSharePassword = this.multiSharePasswordDraft;
+              this.multiSharePasswordEditing = false;
+              this.multiSharePasswordMismatch = false;
+            })
+          if (this.multiSharePassword !== null) {
+            Button($r('app.string.share_password_remove'))
+              .height(36)
+              .fontSize(13)
+              .onClick(() => {
+                this.multiSharePassword = null;
+                this.multiSharePasswordDraft = '';
+                this.multiSharePasswordConfirm = '';
+                this.multiSharePasswordEditing = false;
+                this.multiSharePasswordMismatch = false;
+              })
+          }
+        }
+        .margin({ top: 8 })
+      }
+    }
+    .width('100%')
+  }
+
+  private multiShareActionLabel(): Resource {
+    if (this.multiShareFormat === 'pdf') {
+      return $r('app.string.share_action_pdf_multi');
+    }
+    if (this.multiShareFormat === 'note') {
+      return $r('app.string.share_action_note_multi');
+    }
+    if (this.multiShareFormat === 'jpg') {
+      return $r('app.string.share_action_jpg_multi');
+    }
+    if (this.multiShareFormat === 'png') {
+      return $r('app.string.share_action_png_multi');
+    }
+    return $r('app.string.share_action_link');
+  }
+
+  private resolveMultiShareTitle(noteId: string): string {
+    const note: NoteMeta | undefined =
+      this.notes.find((n: NoteMeta) => n.id === noteId);
+    const title: string = note === undefined ? '' : note.title;
+    return title.length > 0 ? title : 'note';
+  }
+
+  private safeShareFileName(title: string): string {
+    const cleaned: string = title.replace(/[\\/:*?"<>|]/g, '_').trim();
+    return cleaned.length > 0 ? cleaned : 'note';
+  }
+
+  private writeShareFile(path: string, bytes: Uint8Array): void {
+    const file: fileIo.File = fileIo.openSync(path,
+      fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE |
+      fileIo.OpenMode.TRUNC);
+    try {
+      let offset: number = 0;
+      while (offset < bytes.byteLength) {
+        offset += fileIo.writeSync(file.fd, bytes.buffer,
+          { offset: offset, length: bytes.byteLength - offset });
+      }
+      fileIo.fsyncSync(file.fd);
+    } finally {
+      fileIo.closeSync(file);
+    }
+  }
+
+  // 原版 b7d.i 多笔记分享：逐笔记按选中格式产出文件，经系统分享面板
+  // 一次交付（ACTION_SEND_MULTIPLE 等价物 = systemShare 多 SharedRecord）。
+  // v6d.a=true → 无页子集，每笔记全部页；v6d.k 密码逐 PDF 复用；
+  // JPG/PNG 每笔记整册页 → page_NNN.<ext> zip（Phase 644 同构适配）。
+  private async multiShare(): Promise<void> {
+    if (!this.pageActive || this.viewModel === null || this.multiShareBusy ||
+      this.selectedNoteIds.length === 0 || this.multiShareFormat === 'link') {
+      return;
+    }
+    const vm: LibraryViewModel = this.viewModel;
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    const ids: string[] = this.selectedNoteIds.slice();
+    const format: string = this.multiShareFormat;
+    const includeBackground: boolean = this.multiShareIncludeBackground;
+    const includeRecording: boolean = this.multiShareIncludeRecording;
+    const password: string | null = this.multiSharePassword;
+    this.multiShareBusy = true;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const dir: string = `${context.tempDir}/multishare_${Date.now()}`;
+      fileIo.mkdirSync(dir);
+      const records: systemShare.SharedRecord[] = [];
+      if (format === 'note') {
+        const exporter: NoteExporter = new NoteExporter(this.db, this.persistence);
+        for (const id of ids) {
+          const title: string = this.resolveMultiShareTitle(id);
+          const data: Uint8Array | null = await exporter.exportNote(id,
+            includeRecording);
+          if (data === null) {
+            throw new Error(`exportNote returned null: ${id}`);
+          }
+          const path: string = `${dir}/${this.safeShareFileName(title)}.note`;
+          this.writeShareFile(path, data);
+          records.push({
+            utd: uniformTypeDescriptor.UniformDataType.FILE,
+            uri: fileUri.getUriFromPath(path),
+            title: `${title}.note`,
+          });
+        }
+      } else {
+        const renderer: ThumbnailRenderer = new ThumbnailRenderer();
+        const packer: image.ImagePacker = image.createImagePacker();
+        const pageRepo: PageRepositoryImpl = new PageRepositoryImpl(this.db);
+        try {
+          await renderer.initialize(context);
+          const theme: ThemeTokens = ThemeStore.resolve('light', false);
+          for (const id of ids) {
+            const title: string = this.resolveMultiShareTitle(id);
+            const pages: PageInfo[] = await pageRepo.getPages(id);
+            if (pages.length === 0) {
+              continue;
+            }
+            const exportBackground: string = includeBackground ? 'paper' :
+              (format === 'png' ? 'transparent' : 'white');
+            if (format === 'pdf') {
+              const imagePages: PdfPageImage[] = [];
+              for (const page of pages) {
+                const pixelMap: PixelMap = await renderer.renderPageExport(id,
+                  this.persistence, page, theme, this.db, 2.0, exportBackground);
+                try {
+                  const info: image.ImageInfo = pixelMap.getImageInfoSync();
+                  const data: ArrayBuffer = await packer.packToData(pixelMap, {
+                    format: 'image/jpeg',
+                    quality: 92,
+                    bufferSize: 64 * 1024 * 1024,
+                  });
+                  imagePages.push({
+                    jpegData: new Uint8Array(data),
+                    widthPx: info.size.width,
+                    heightPx: info.size.height,
+                    widthMm: page.widthMm,
+                    heightMm: page.heightMm,
+                  });
+                } finally {
+                  await pixelMap.release();
+                }
+              }
+              const pdfBytes: Uint8Array = buildPdf(imagePages);
+              const path: string =
+                `${dir}/${this.safeShareFileName(title)}.pdf`;
+              this.writeShareFile(path, pdfBytes);
+              let srcPath: string = path;
+              if (password !== null && password.length > 0) {
+                const encPath: string =
+                  `${dir}/${this.safeShareFileName(title)}_enc.pdf`;
+                encryptPdfFile(path, encPath, password);
+                srcPath = encPath;
+              }
+              records.push({
+                utd: uniformTypeDescriptor.UniformDataType.PDF,
+                uri: fileUri.getUriFromPath(srcPath),
+                title: `${title}.pdf`,
+              });
+            } else {
+              const suffix: string = format === 'png' ? 'png' : 'jpg';
+              const mime: string = format === 'png' ? 'image/png' : 'image/jpeg';
+              const writer: ZipWriter = new ZipWriter();
+              for (let i = 0; i < pages.length; i++) {
+                const pixelMap: PixelMap = await renderer.renderPageExport(id,
+                  this.persistence, pages[i], theme, this.db, 2.0,
+                  exportBackground);
+                try {
+                  const data: ArrayBuffer = await packer.packToData(pixelMap, {
+                    format: mime,
+                    quality: format === 'png' ? 0 : 92,
+                    bufferSize: 64 * 1024 * 1024,
+                  });
+                  const name: string =
+                    `page_${('000' + (i + 1)).slice(-3)}.${suffix}`;
+                  writer.addEntry(name, new Uint8Array(data), false);
+                } finally {
+                  await pixelMap.release();
+                }
+              }
+              const zipBytes: Uint8Array = await writer.build();
+              const path: string =
+                `${dir}/${this.safeShareFileName(title)}_pages.zip`;
+              this.writeShareFile(path, zipBytes);
+              records.push({
+                utd: uniformTypeDescriptor.UniformDataType.ZIP_ARCHIVE,
+                uri: fileUri.getUriFromPath(path),
+                title: `${title}_pages.zip`,
+              });
+            }
+          }
+        } finally {
+          await packer.release();
+          await renderer.dispose();
+        }
+      }
+      if (records.length === 0) {
+        throw new Error('no exportable notes');
+      }
+      const shared: systemShare.SharedData =
+        new systemShare.SharedData(records[0]);
+      for (let i = 1; i < records.length; i++) {
+        shared.addRecord(records[i]);
+      }
+      const want: Want = await systemShare.getWant(shared);
+      await context.startAbility(want);
+      if (this.pageActive && lifecycleGeneration === this.lifecycleGeneration &&
+        this.viewModel === vm) {
+        promptAction.showToast({ message: $r('app.string.export_done') });
+        this.multiShareOpen = false;
+      }
+    } catch (e) {
+      if (this.pageActive && lifecycleGeneration === this.lifecycleGeneration) {
+        promptAction.showToast({ message: $r('app.string.multi_share_failed') });
+        console.error(`multi share failed: ${JSON.stringify(e)}`);
+      }
+    } finally {
+      this.multiShareBusy = false;
+    }
+  }
+
   private confirmMultiDelete(): void {
     if (!this.pageActive || this.multiSelectBusy ||
       this.selectedNoteIds.length === 0) {
