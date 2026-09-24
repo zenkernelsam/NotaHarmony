@@ -49,8 +49,8 @@ Bookmark/Clear（`tc2` 7-case 分发，参数 `au1.T1(f)`）。
 
 | 原版 | Harmony | 处置 |
 |---|---|---|
-| 批量 Clear 作用于任意选中集（de2.n 经 ae2 v1） | 仅当选中集恰为当前页时可执行（clearPageSignal 画布管线）；否则 fail-closed 禁用 | 登记：非当前页元素清空需持久层删除管线，后续 Phase |
-| 批量 op 经 ae2 单批应用 → 一步撤销 | 逐页循环参数化操作 → 每页一条撤销动作 | 登记：批量历史合并需多页复合 action，后续 Phase |
+| ~~批量 Clear 作用于任意选中集（de2.n 经 ae2 v1）~~ | ~~仅当前页可执行~~ → **Phase 649 关闭**：`clearOriginalPageContent` 持久层删除管线支持任意页 | 已关闭（ADR-0616） |
+| ~~批量 op 经 ae2 单批应用 → 一步撤销~~ | ~~逐页循环 → 每页一条撤销~~ → **Phase 651 关闭**：PAGE_BATCH 批窗口共享 actionTime，peekGroup 跨页归并 | 已关闭（ADR-0618） |
 | tfh 图标位 + 溢出菜单形态 | 横向滚动 chip 行 | ArkUI 形态差异，操作集合等价 |
 | isSelecting 与选中集独立信号 | `selecting` 由选中集非空推导 + Done 显式退出 | 观测等价（原版选中集非空即渲染工具条） |
 | 批粘贴锚点（e2 v16 内部位序不可静态判定） | 选中集末页之后 | 登记 |

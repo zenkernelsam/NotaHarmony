@@ -3,15 +3,20 @@
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
+import { pdfService } from '@kit.PDFKit';
 import { ZipReader, ZipEntry, ZipParseResult, ZIP_MAX_ARCHIVE_BYTES } from './ZipArchive';
 import {
   NOTE_RECORDINGS_ENTRY, NoteManifest, PackagedRecording, PackagedRecordingSegment, PageData,
   parseManifest, parsePackagedRecordings, parsePage, parsePageElement,
 } from './NotePackageSpec';
 import {
-  NoteMeta, OriginalAssetMetadata, PageInfo, PaperSize, PaperTemplate, PageOrientation,
+  NoteMeta, OriginalAssetMetadata, PageBackground, PageInfo, PaperSize, PaperTemplate,
+  PageOrientation, PdfCropBoxSize, PdfLayoutBehavior,
 } from '../core/model/NoteTypes';
-import { clonePageBackground } from '../core/model/PageBackgroundModel';
+import {
+  clonePageBackground, PAGE_BACKGROUND_SCHEMA_VERSION, POINTS_TO_MM,
+} from '../core/model/PageBackgroundModel';
+import { pagePixelSize } from '../core/model/PageCoordinateSpace';
 import { StrokeElementData } from '../core/model/StrokeTypes';
 import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
@@ -24,6 +29,8 @@ import { paperSizeToMm } from './NoteExporter';
 import { AsyncMutex, MutexRelease } from './AsyncMutex';
 import { importedLegacyNoteId, importedPageNeedsRemap } from './ImportIdentity';
 import { originalAssetPackageEntry, storeImportedOriginalAsset } from './ImageAssetPackageStore';
+import { originalAssetHashBitsFromSha512, sha512Digest } from './AssetDigest';
+import { inferPaperSize } from './OriginalPageBackgroundOperation';
 import {
   NotabilityMetadataParser, NotabilitySessionParser, NotabilityMetadata,
   NotabilitySession, NotabilityPageElements, NotabilityHandwritingIndexPage,
@@ -36,6 +43,8 @@ import {
 } from './OriginalRecordingOperation';
 
 const FILE_READ_CHUNK_SIZE: number = 64 * 1024;
+// 原版 sw9 cropBoxes flatbuffer vector 上限（readInlineVectorBytes(5, 8, 10000)）。
+const PDF_IMPORT_MAX_PAGES: number = 10000;
 
 export enum ImportResult {
   SUCCESS = 0,
@@ -121,13 +130,15 @@ export class NoteImporter {
     return await this.importExternalFormat(entries, archive.failed, archive.encrypted);
   }
 
-  // 从文件导入（系统 picker 选择 .note 文件）
+  // 从文件导入（系统 picker）。原版 i58 选择器为 */*、由 jv5 按 MIME 嗅探分发；
+  // Harmony DocumentViewPicker 只能按后缀过滤，收缩到可物化的 .note/.pdf，
+  // 进入后用 %PDF- magic 对齐原版的类型嗅探。
   async importFromFile(context: common.UIAbilityContext): Promise<ImportReport> {
     let file: fileIo.File | null = null;
     try {
       const documentPicker = new picker.DocumentViewPicker(context);
       const selectOptions = new picker.DocumentSelectOptions();
-      selectOptions.fileSuffixFilters = ['.note'];
+      selectOptions.fileSuffixFilters = ['.note', '.pdf'];
       const uris: string[] = await documentPicker.select(selectOptions);
       if (uris.length === 0) {
         return { result: ImportResult.CANCELLED, noteId: null, title: null, pageCount: 0,
@@ -156,6 +167,10 @@ export class NoteImporter {
       const bytes: Uint8Array = readFileFully(file.fd, size);
       fileIo.closeSync(file);
       file = null;
+      const fileName: string = pickedFileName(uri);
+      if (startsWithPdfMagic(bytes) || fileName.toLowerCase().endsWith('.pdf')) {
+        return await this.importPdfFromBytes(bytes, fileName);
+      }
       return await this.importFromData(bytes);
     } catch (e) {
       console.error(`importFromFile failed: ${JSON.stringify(e)}`);
@@ -166,6 +181,104 @@ export class NoteImporter {
       if (file !== null) {
         try { fileIo.closeSync(file); } catch (_closeError) { }
       }
+    }
+  }
+
+  // 原版 jv5 PDF 分支：o88(nj3.pdf) 描述符 → fca.f PDFTron 解析 → su5(doc+页列表) → nv5。
+  // Harmony：PDFKit 解析（loadDocument 仅接受沙箱路径，先落到 assets/pending 暂存），
+  // 全页尺寸校验通过后一次性写库：createNoteWithMeta（无默认空白页）+ 整文档共享的
+  // sw9 寄存器（pagesConsumed=总页数、pageOffset=0、cropBoxes=全页表），每页 pageInAsset=i。
+  private async importPdfFromBytes(data: Uint8Array, fileName: string): Promise<ImportReport> {
+    if (!startsWithPdfMagic(data)) {
+      return { result: ImportResult.UNSUPPORTED_FORMAT, noteId: null, title: null, pageCount: 0,
+        missingAssets: [], warnings: [],
+        message: '所选文件不是有效的 PDF 文档' };
+    }
+    const title: string = pdfImportTitle(fileName);
+    const digestBytes: Uint8Array = await sha512Digest(data);
+    const metadata: OriginalAssetMetadata = {
+      assetHashBits: originalAssetHashBitsFromSha512(digestBytes),
+      fileName: fileName,
+      mimeType: 'application/pdf',
+      fileSize: data.length,
+    };
+    const pendingDirectory: string = this.db.getFilesDir() + '/assets/pending';
+    const stagingPath: string = pendingDirectory +
+      `/pdf_import_${Date.now()}_${Math.floor(Math.random() * 0x1000000)}.tmp`;
+    let pageSizes: number[][];
+    try {
+      fileIo.mkdirSync(pendingDirectory, true);
+      writeFileFully(stagingPath, data);
+      pageSizes = parseImportedPdfPageSizes(stagingPath);
+    } catch (e) {
+      return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+        missingAssets: [], warnings: [],
+        message: `PDF 文档解析失败：${JSON.stringify(e)}` };
+    } finally {
+      if (fileIo.accessSync(stagingPath)) {
+        try { fileIo.unlinkSync(stagingPath); } catch (_unlinkError) { }
+      }
+    }
+    let createdNoteId: string | null = null;
+    const release: MutexRelease = await NoteImporter.importMutex.lock();
+    try {
+      const noteRepo = new NoteRepositoryImpl(this.db);
+      const pageRepo = new PageRepositoryImpl(this.db);
+      const now: number = Date.now();
+      const note: NoteMeta = await noteRepo.createNoteWithMeta(
+        generateId(), title, now, now, null, false);
+      createdNoteId = note.id;
+      await storeImportedOriginalAsset(this.db, metadata, data, note.id);
+      const cropBoxes: PdfCropBoxSize[] = [];
+      for (const size of pageSizes) {
+        cropBoxes.push({ widthPt: size[0], heightPt: size[1] });
+      }
+      for (let index = 0; index < pageSizes.length; index++) {
+        const widthPt: number = pageSizes[index][0];
+        const heightPt: number = pageSizes[index][1];
+        const widthMm: number = widthPt * POINTS_TO_MM;
+        const heightMm: number = heightPt * POINTS_TO_MM;
+        const background: PageBackground = {
+          schemaVersion: PAGE_BACKGROUND_SCHEMA_VERSION,
+          paper: null,
+          pdf: {
+            metadata: metadata,
+            layoutBehavior: PdfLayoutBehavior.FIT_AND_CROP_BOX,
+            totalPageCount: pageSizes.length,
+            pagesConsumed: pageSizes.length,
+            pageOffset: 0,
+            cropBoxes: cropBoxes,
+            pageInAsset: index,
+          },
+          rotationRadians: 0,
+          sourceWidthPt: widthPt,
+          sourceHeightPt: heightPt,
+          margins: null,
+        };
+        const pageInfo: PageInfo = {
+          pageId: generateId(),
+          pageIndex: index,
+          size: inferPaperSize(widthMm, heightMm),
+          template: PaperTemplate.PLAIN,
+          orientation: widthMm > heightMm ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT,
+          widthMm: widthMm,
+          heightMm: heightMm,
+          background: background,
+          originalPageInAsset: index,
+          bookmarked: false,
+        };
+        await pageRepo.addImportedPage(note.id, pageInfo);
+      }
+      return { result: ImportResult.SUCCESS, noteId: note.id, title: note.title,
+        pageCount: pageSizes.length, missingAssets: [], warnings: [],
+        message: `已导入 PDF「${note.title}」（${pageSizes.length} 页）` };
+    } catch (e) {
+      const cleaned: boolean = await this.removeFailedImport(createdNoteId);
+      return { result: ImportResult.CORRUPTED, noteId: cleaned ? null : createdNoteId,
+        title: null, pageCount: 0, missingAssets: [], warnings: [],
+        message: `PDF 导入失败：${JSON.stringify(e)}` };
+    } finally {
+      release();
     }
   }
 
@@ -965,4 +1078,80 @@ function readFileFully(fd: number, size: number): Uint8Array {
     total += read;
   }
   return output;
+}
+
+function writeFileFully(path: string, data: Uint8Array): void {
+  const file: fileIo.File = fileIo.openSync(path,
+    fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+  try {
+    let offset: number = 0;
+    while (offset < data.length) {
+      const end: number = Math.min(data.length, offset + FILE_READ_CHUNK_SIZE);
+      const view: Uint8Array = data.subarray(offset, end);
+      const chunk: ArrayBuffer = view.buffer.slice(view.byteOffset,
+        view.byteOffset + view.byteLength) as ArrayBuffer;
+      const written: number = fileIo.writeSync(file.fd, chunk);
+      if (written <= 0 || written > view.byteLength) {
+        throw new Error(`PDF staging write is incomplete: ${offset}/${data.length}`);
+      }
+      offset += written;
+    }
+    fileIo.fsyncSync(file.fd);
+  } finally {
+    fileIo.closeSync(file);
+  }
+}
+
+function startsWithPdfMagic(data: Uint8Array): boolean {
+  return data.length >= 5 && data[0] === 0x25 && data[1] === 0x50 &&
+    data[2] === 0x44 && data[3] === 0x46 && data[4] === 0x2D;
+}
+
+function pickedFileName(uri: string): string {
+  const tail: string = uri.substring(uri.lastIndexOf('/') + 1);
+  try {
+    const decoded: string = decodeURIComponent(tail);
+    return decoded.length > 0 ? decoded : 'document.pdf';
+  } catch (_e) {
+    return tail.length > 0 ? tail : 'document.pdf';
+  }
+}
+
+function pdfImportTitle(fileName: string): string {
+  const base: string = fileName.toLowerCase().endsWith('.pdf') ?
+    fileName.substring(0, fileName.length - 4) : fileName;
+  return base.length > 0 ? base : '导入笔记';
+}
+
+// PDFKit 页尺寸读取 + Harmony 页面像素预算校验。原版 jv5 经 PDFTron 逐页取
+// CropBox；PDFKit getWidth/getHeight 返回应用页内 /Rotate 后的可视尺寸，
+// 与渲染侧 getPagePixelMap 同源，保持寄存器自洽。
+function parseImportedPdfPageSizes(path: string): number[][] {
+  const document: pdfService.PdfDocument = new pdfService.PdfDocument();
+  try {
+    const parsed: pdfService.ParseResult = document.loadDocument(path);
+    if (parsed !== pdfService.ParseResult.PARSE_SUCCESS) {
+      throw new Error(`PDFKit parse failed with result ${parsed}`);
+    }
+    const pageCount: number = document.getPageCount();
+    if (!Number.isSafeInteger(pageCount) || pageCount <= 0 ||
+      pageCount > PDF_IMPORT_MAX_PAGES) {
+      throw new Error(`PDF page count is out of bounds: ${pageCount}`);
+    }
+    const sizes: number[][] = [];
+    for (let index = 0; index < pageCount; index++) {
+      const page: pdfService.PdfPage = document.getPage(index);
+      const widthPt: number = page.getWidth();
+      const heightPt: number = page.getHeight();
+      if (!Number.isFinite(widthPt) || !Number.isFinite(heightPt) ||
+        widthPt <= 0 || heightPt <= 0) {
+        throw new Error(`PDF page ${index} reports invalid dimensions`);
+      }
+      pagePixelSize(widthPt * POINTS_TO_MM, heightPt * POINTS_TO_MM);
+      sizes.push([widthPt, heightPt]);
+    }
+    return sizes;
+  } finally {
+    document.releaseDocument();
+  }
 }

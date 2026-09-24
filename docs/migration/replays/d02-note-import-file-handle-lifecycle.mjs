@@ -5,7 +5,7 @@ const root = process.env.NOTA_HARMONY_ROOT ?? path.resolve(import.meta.dirname, 
 const source = fs.readFileSync(
   path.join(root, 'note/src/main/ets/data/NoteImporter.ets'), 'utf8').replaceAll('\r\n', '\n');
 const importFromFileStart = source.indexOf('async importFromFile(context: common.UIAbilityContext)');
-const importFromFileEnd = source.indexOf('// 我方格式导入', importFromFileStart);
+const importFromFileEnd = source.indexOf('private async importPdfFromBytes(', importFromFileStart);
 const importNotabilityStart = source.indexOf('private async importNotability(');
 const importNotabilityEnd = source.indexOf('private async mapImportedPageIds(', importNotabilityStart);
 const importFromFile = source.slice(importFromFileStart, importFromFileEnd);

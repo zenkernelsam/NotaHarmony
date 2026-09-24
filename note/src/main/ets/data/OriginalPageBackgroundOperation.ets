@@ -59,7 +59,7 @@ export function decodeOriginalPageBackgroundTable(
   };
 }
 
-function inferPaperSize(widthMm: number, heightMm: number): PaperSize {
+export function inferPaperSize(widthMm: number, heightMm: number): PaperSize {
   const shortSide: number = Math.min(widthMm, heightMm);
   const longSide: number = Math.max(widthMm, heightMm);
   const candidates: number[][] = [
