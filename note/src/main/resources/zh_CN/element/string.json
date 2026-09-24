@@ -554,6 +554,8 @@
     { "name": "font_style_body", "value": "正文" },
     { "name": "font_style_caption", "value": "说明" },
     { "name": "text_color", "value": "颜色" },
-    { "name": "color_automatic", "value": "自动" }
+    { "name": "color_automatic", "value": "自动" },
+    { "name": "font_family", "value": "字体" },
+    { "name": "font_default", "value": "默认" }
   ]
 }

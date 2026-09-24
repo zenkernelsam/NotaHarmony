@@ -1320,6 +1320,8 @@
     { "name": "font_style_body", "value": "Body" },
     { "name": "font_style_caption", "value": "Caption" },
     { "name": "text_color", "value": "Color" },
-    { "name": "color_automatic", "value": "Automatic" }
+    { "name": "color_automatic", "value": "Automatic" },
+    { "name": "font_family", "value": "Font" },
+    { "name": "font_default", "value": "Default" }
   ]
 }

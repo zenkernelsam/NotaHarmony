@@ -60,6 +60,8 @@ export struct TextBlockOverlay {
   // 原版 qte/ste：文字色 sheet 态与折叠清除标记。
   @State showTextColorSheet: boolean = false;
   private pendingClearForeground: boolean = false;
+  // 原版 nte/zq8：折叠清除字体族标记。
+  private pendingClearFamily: boolean = false;
   private draftCharRuns: RichTextCharacterStyleRun[] = [];
   private pendingCharStyles: RichTextCharacterStyle = {};
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -135,6 +137,7 @@ export struct TextBlockOverlay {
     this.pendingCharStyles = {};
     this.pendingClearHighlight = false;
     this.pendingClearForeground = false;
+    this.pendingClearFamily = false;
     this.refreshCaretCharStyles();
   }
 
@@ -714,6 +717,97 @@ export struct TextBlockOverlay {
     .backgroundColor(this.resolveTokens().surface)
   }
 
+  // 原版 nte：zq8.a(modelName) → zyd.e 写选区字体族；name===null 即
+  // 字段清除（回退元素缺省字体，等价 qr4.b=Inter 缺省语义）。
+  private applyFontFamily(name: string | null, s: number, e: number): void {
+    const next: RichTextCharacterStyleRun[] = [];
+    for (const run of this.draftCharRuns) {
+      if (run.end <= s || run.start >= e) {
+        next.push(run);
+        continue;
+      }
+      if (run.start < s) {
+        next.push({ start: run.start, end: s, style: run.style });
+      }
+      if (run.end > e) {
+        next.push({ start: e, end: run.end, style: run.style });
+      }
+      const mid: RichTextCharacterStyle =
+        JSON.parse(JSON.stringify(run.style)) as RichTextCharacterStyle;
+      mid.familyName = name === null ? undefined : name;
+      next.push({ start: Math.max(s, run.start), end: Math.min(e, run.end),
+        style: mid });
+    }
+    if (name !== null) {
+      const inside: RichTextCharacterStyleRun[] = next
+        .filter((r: RichTextCharacterStyleRun): boolean => r.start < e && r.end > s)
+        .sort((a: RichTextCharacterStyleRun, b: RichTextCharacterStyleRun): number =>
+          a.start - b.start);
+      let pos: number = s;
+      for (const run of inside) {
+        if (run.start > pos) {
+          next.push({ start: pos, end: run.start, style: { familyName: name } });
+        }
+        pos = Math.max(pos, run.end);
+      }
+      if (pos < e) {
+        next.push({ start: pos, end: e, style: { familyName: name } });
+      }
+    }
+    this.draftCharRuns = next;
+  }
+
+  // 原版 i31 字体族项 → new nte(zq8Var)：选区写 familyName / 折叠写 pending。
+  private pickFontFamily(name: string): void {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    if (s === e) {
+      this.pendingCharStyles.familyName = name;
+      this.pendingClearFamily = false;
+      this.refreshCaretCharStyles();
+      return;
+    }
+    this.applyFontFamily(name, s, e);
+    this.normalizeCharRuns();
+    this.refreshCaretCharStyles();
+  }
+
+  // "Default"——恢复缺省字体（familyName 字段清除）。
+  private clearFontFamily(): void {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    if (s === e) {
+      this.pendingClearFamily = true;
+      this.refreshCaretCharStyles();
+      return;
+    }
+    this.applyFontFamily(null, s, e);
+    this.normalizeCharRuns();
+    this.refreshCaretCharStyles();
+  }
+
+  // 原版 qr4.c/d 三随包字体（modelName 落库、displayName 展示）+ Default。
+  private buildFontMenu(): MenuElement[] {
+    const items: MenuElement[] = [];
+    items.push({ value: 'Inter',
+      action: (): void => {
+        this.pickFontFamily('Inter');
+      } });
+    items.push({ value: 'Roboto',
+      action: (): void => {
+        this.pickFontFamily('Roboto');
+      } });
+    items.push({ value: 'EB Garamond',
+      action: (): void => {
+        this.pickFontFamily('EBGaramond');
+      } });
+    items.push({ value: $r('app.string.font_default'),
+      action: (): void => {
+        this.clearFontFamily();
+      } });
+    return items;
+  }
+
   // 原版 cve kue(superscript→zyd.j)/lue(subscript→zyd.i)：互斥对切换。
   // 启用时同一载荷内显式 FALSE 兄弟字段；停用时只写本字段 FALSE。
   private toggleCharStylePair(field: string, other: string): void {
@@ -983,6 +1077,12 @@ export struct TextBlockOverlay {
                   this.applyForegroundColor(this.pendingCharStyles.foregroundColor,
                     editStart, insEnd);
                 }
+                if (this.pendingClearFamily) {
+                  this.applyFontFamily(null, editStart, insEnd);
+                } else if (this.pendingCharStyles.familyName !== undefined) {
+                  this.applyFontFamily(this.pendingCharStyles.familyName,
+                    editStart, insEnd);
+                }
                 this.normalizeCharRuns();
               }
               this.onDraftChange(value);
@@ -1015,6 +1115,15 @@ export struct TextBlockOverlay {
             .fontColor(this.element !== null ? this.element.fontColor : '#000000')
             .enabled(!this.photoImportLeaseActive)
             .bindMenu(this.buildTextStyleMenu())
+          // 原版 i31 字体族区 / cve nte→zyd.e：qr4 三随包字体 + Default。
+          Button($r('app.string.font_family'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.resolveTokens().surface)
+            .fontColor(this.element !== null ? this.element.fontColor : '#000000')
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .bindMenu(this.buildFontMenu())
           // 原版 h32/l32 文本格式行的字符样式项：bold/italic/underline/
           // strikethrough（l32 渲染；cve 经 i5a/j5a/zyd 字符样式变更派单）。
           // 选区非空时改写选区 run；折叠光标时翻 pending typing-attributes。
@@ -1233,6 +1342,7 @@ export struct TextBlockOverlay {
                 this.pendingCharStyles = {};
                 this.pendingClearHighlight = false;
                 this.pendingClearForeground = false;
+                this.pendingClearFamily = false;
               }
             })
           Button($r('app.string.cancel'))
