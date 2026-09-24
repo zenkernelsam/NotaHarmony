@@ -1296,6 +1296,10 @@
     { "name": "empty_note_import", "value": "Import" },
     { "name": "empty_note_record", "value": "Record" },
     { "name": "empty_note_scan", "value": "Scan" },
-    { "name": "empty_note_scan_failed", "value": "Couldn't scan the document. Please try again." }
+    { "name": "empty_note_scan_failed", "value": "Couldn't scan the document. Please try again." },
+    { "name": "bold", "value": "Bold" },
+    { "name": "italic", "value": "Italic" },
+    { "name": "underline", "value": "Underline" },
+    { "name": "strikethrough", "value": "Strikethrough" }
   ]
 }

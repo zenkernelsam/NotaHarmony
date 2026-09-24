@@ -18,11 +18,11 @@ assert.match(canvas,
   /if \(this\.editingOriginalTextBlock === null && text\.length === 0\) \{[\s\S]*this\.onTextCancel\(\)/);
 assert.doesNotMatch(canvas, /if \(text\.trim\(\)\.length === 0\)/);
 assert.match(canvas,
-  /onCommit: async \(text: string,[\s\S]*runs: RichTextParagraphStyleRun\[\]\): Promise<boolean> => \{[\s\S]*return await this\.onTextCommit\(text, runs\)[\s\S]*return false/);
+  /onCommit: async \(text: string,[\s\S]*characterStyleRuns: RichTextCharacterStyleRun\[\],[\s\S]*runs: RichTextParagraphStyleRun\[\]\): Promise<boolean> => \{[\s\S]*return await this\.onTextCommit\(text, characterStyleRuns, runs\)[\s\S]*return false/);
 assert.match(overlay,
-  /onCommit: \(text: string, paragraphStyleRuns: RichTextParagraphStyleRun\[\]\) =>[\s\S]*Promise<boolean>/);
+  /onCommit: \(text: string, characterStyleRuns: RichTextCharacterStyleRun\[\],[\s\S]*paragraphStyleRuns: RichTextParagraphStyleRun\[\]\) =>[\s\S]*Promise<boolean>/);
 assert.match(overlay,
-  /\.onClick\(async \(\) => \{[\s\S]*if \(await this\.onCommit\(this\.draftText, this\.computeParagraphRuns\(\)\)\) \{[\s\S]*this\.draftText = ''/);
+  /\.onClick\(async \(\) => \{[\s\S]*if \(await this\.onCommit\(this\.draftText, this\.draftCharRuns,[\s\S]*this\.computeParagraphRuns\(\)\)\) \{[\s\S]*this\.draftText = ''/);
 assert.doesNotMatch(overlay,
   /\.onClick\(\(\) => \{\s*this\.onCommit\(this\.draftText\);\s*this\.draftText = ''/);
 

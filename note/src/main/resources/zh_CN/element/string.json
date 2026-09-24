@@ -530,6 +530,10 @@
     { "name": "empty_note_import", "value": "导入" },
     { "name": "empty_note_record", "value": "录音" },
     { "name": "empty_note_scan", "value": "扫描" },
-    { "name": "empty_note_scan_failed", "value": "无法扫描文档，请重试。" }
+    { "name": "empty_note_scan_failed", "value": "无法扫描文档，请重试。" },
+    { "name": "bold", "value": "加粗" },
+    { "name": "italic", "value": "斜体" },
+    { "name": "underline", "value": "下划线" },
+    { "name": "strikethrough", "value": "删除线" }
   ]
 }

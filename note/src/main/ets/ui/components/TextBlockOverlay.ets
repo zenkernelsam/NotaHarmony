@@ -1,5 +1,5 @@
 // T-024 文本框编辑覆盖层（TextArea 编辑态）
-import { TextBlockElement, RichTextParagraphStyle, RichTextParagraphStyleRun } from '../../core/model/ElementTypes';
+import { RichTextCharacterStyle, RichTextCharacterStyleRun, TextBlockElement, RichTextParagraphStyle, RichTextParagraphStyleRun } from '../../core/model/ElementTypes';
 import { Point2D, Rect2D } from '../../core/model/GeometryTypes';
 import { textBlockTransformComponents, TextBlockTransformComponents } from '../../core/model/TextBlockGeometry';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
@@ -23,11 +23,22 @@ export struct TextBlockOverlay {
   @State caretOffset: number = -1;
   @State caretDecoratorStyle: number = 0;
   private draftStyles: Map<number, RichTextParagraphStyle> = new Map();
+  // 原版 l32/h32 字符样式（ADR-0648 同管线）：选区范围 run 级切换；
+  // 折叠光标时进入 pending typing-attributes，其后输入字符按 pending 落地。
+  @State caretSelectionStart: number = -1;
+  @State caretCharBold: boolean = false;
+  @State caretCharItalic: boolean = false;
+  @State caretCharUnderline: boolean = false;
+  @State caretCharStrike: boolean = false;
+  private draftCharRuns: RichTextCharacterStyleRun[] = [];
+  private pendingCharStyles: RichTextCharacterStyle = {};
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   private controller: TextAreaController = new TextAreaController();
-  onCommit: (text: string, paragraphStyleRuns: RichTextParagraphStyleRun[]) =>
+  onCommit: (text: string, characterStyleRuns: RichTextCharacterStyleRun[],
+    paragraphStyleRuns: RichTextParagraphStyleRun[]) =>
     Promise<boolean> = async (_text: string,
+      _charRuns: RichTextCharacterStyleRun[],
       _runs: RichTextParagraphStyleRun[]): Promise<boolean> => {
     return false;
   };
@@ -74,6 +85,22 @@ export struct TextBlockOverlay {
       }
     }
     this.caretDecoratorStyle = this.decoratorAt(this.caretOffset);
+    this.seedCharStyles();
+  }
+
+  // 字符 run 种子：克隆元素既有 runs（编辑期 draft，提交时随 onCommit 回传）。
+  private seedCharStyles(): void {
+    const source: RichTextCharacterStyleRun[] = this.element !== null &&
+      this.element.characterStyleRuns !== undefined ? this.element.characterStyleRuns : [];
+    this.draftCharRuns = source.map((run: RichTextCharacterStyleRun):
+      RichTextCharacterStyleRun => {
+      const style: RichTextCharacterStyle =
+        JSON.parse(JSON.stringify(run.style)) as RichTextCharacterStyle;
+      return { start: run.start, end: run.end, style: style };
+    });
+    this.caretSelectionStart = this.caretOffset;
+    this.pendingCharStyles = {};
+    this.refreshCaretCharStyles();
   }
 
   private styleAtChar(runs: RichTextParagraphStyleRun[],
@@ -102,6 +129,176 @@ export struct TextBlockOverlay {
       this.draftStyles.get(this.paragraphIndexAt(offset));
     return style === undefined || style.decoratorStyle === undefined ? 0 :
       style.decoratorStyle;
+  }
+
+  private charStyleValue(style: RichTextCharacterStyle, field: string): boolean {
+    if (field === 'bold') { return style.bold === true; }
+    if (field === 'italic') { return style.italic === true; }
+    if (field === 'underline') { return style.underline === true; }
+    if (field === 'strikethrough') { return style.strikethrough === true; }
+    return false;
+  }
+
+  private charStyleSet(style: RichTextCharacterStyle, field: string,
+    value: boolean): void {
+    if (field === 'bold') { style.bold = value; }
+    else if (field === 'italic') { style.italic = value; }
+    else if (field === 'underline') { style.underline = value; }
+    else if (field === 'strikethrough') { style.strikethrough = value; }
+  }
+
+  // 选区是否被 field=true 的 run 完全覆盖（原版 br2 全量态取反的等价判定）。
+  private rangeHasCharStyle(field: string, s: number, e: number): boolean {
+    const covering: RichTextCharacterStyleRun[] = this.draftCharRuns
+      .filter((r: RichTextCharacterStyleRun): boolean =>
+        r.end > s && r.start < e && this.charStyleValue(r.style, field))
+      .sort((a: RichTextCharacterStyleRun, b: RichTextCharacterStyleRun): number =>
+        a.start - b.start);
+    let pos: number = s;
+    for (const run of covering) {
+      if (run.start > pos) {
+        return false;
+      }
+      pos = Math.max(pos, run.end);
+      if (pos >= e) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // 把 [s,e) 范围内的 field 统一设为 value：边界切分、内段改样式、空洞补新 run。
+  private applyCharStyle(field: string, value: boolean, s: number, e: number): void {
+    const next: RichTextCharacterStyleRun[] = [];
+    for (const run of this.draftCharRuns) {
+      if (run.end <= s || run.start >= e) {
+        next.push(run);
+        continue;
+      }
+      if (run.start < s) {
+        next.push({ start: run.start, end: s, style: run.style });
+      }
+      if (run.end > e) {
+        next.push({ start: e, end: run.end, style: run.style });
+      }
+      const mid: RichTextCharacterStyle =
+        JSON.parse(JSON.stringify(run.style)) as RichTextCharacterStyle;
+      this.charStyleSet(mid, field, value);
+      next.push({ start: Math.max(s, run.start), end: Math.min(e, run.end),
+        style: mid });
+    }
+    const inside: RichTextCharacterStyleRun[] = next
+      .filter((r: RichTextCharacterStyleRun): boolean => r.start < e && r.end > s)
+      .sort((a: RichTextCharacterStyleRun, b: RichTextCharacterStyleRun): number =>
+        a.start - b.start);
+    let pos: number = s;
+    for (const run of inside) {
+      if (run.start > pos) {
+        const st: RichTextCharacterStyle = {};
+        this.charStyleSet(st, field, value);
+        next.push({ start: pos, end: run.start, style: st });
+      }
+      pos = Math.max(pos, run.end);
+    }
+    if (pos < e) {
+      const st: RichTextCharacterStyle = {};
+      this.charStyleSet(st, field, value);
+      next.push({ start: pos, end: e, style: st });
+    }
+    this.draftCharRuns = next;
+  }
+
+  // 排序、去空段、合并相邻同样式 run（canonical form，diff 稳定）。
+  private normalizeCharRuns(): void {
+    const sorted: RichTextCharacterStyleRun[] = this.draftCharRuns
+      .filter((r: RichTextCharacterStyleRun): boolean =>
+        r.end > r.start && Object.keys(r.style).length > 0)
+      .sort((a: RichTextCharacterStyleRun, b: RichTextCharacterStyleRun): number =>
+        a.start - b.start || a.end - b.end);
+    const merged: RichTextCharacterStyleRun[] = [];
+    for (const run of sorted) {
+      const last: RichTextCharacterStyleRun | undefined =
+        merged.length > 0 ? merged[merged.length - 1] : undefined;
+      if (last !== undefined && last.end === run.start &&
+        JSON.stringify(last.style) === JSON.stringify(run.style)) {
+        last.end = run.end;
+      } else {
+        merged.push(run);
+      }
+    }
+    this.draftCharRuns = merged;
+  }
+
+  // 文本编辑后按公共前后缀差分平移/收缩 run 边界；返回编辑起点供 pending
+  // typing-attributes 落地定位。
+  private adjustCharRunsForEdit(newText: string, oldText: string): number {
+    let prefix: number = 0;
+    const maxPrefix: number = Math.min(oldText.length, newText.length);
+    while (prefix < maxPrefix && oldText.charAt(prefix) === newText.charAt(prefix)) {
+      prefix++;
+    }
+    let suffix: number = 0;
+    const maxSuffix: number = Math.min(oldText.length - prefix,
+      newText.length - prefix);
+    while (suffix < maxSuffix &&
+      oldText.charAt(oldText.length - 1 - suffix) ===
+        newText.charAt(newText.length - 1 - suffix)) {
+      suffix++;
+    }
+    const delStart: number = prefix;
+    const delEnd: number = oldText.length - suffix;
+    const delta: number = newText.length - oldText.length;
+    const next: RichTextCharacterStyleRun[] = [];
+    for (const run of this.draftCharRuns) {
+      if (run.end <= delStart) {
+        next.push(run);
+        continue;
+      }
+      if (run.start >= delEnd) {
+        next.push({ start: run.start + delta, end: run.end + delta,
+          style: run.style });
+        continue;
+      }
+      const ns: number = run.start < delStart ? run.start : delStart;
+      const ne: number = run.end > delEnd ? run.end + delta : delStart;
+      if (ne > ns) {
+        next.push({ start: ns, end: ne, style: run.style });
+      }
+    }
+    this.draftCharRuns = next;
+    return delStart;
+  }
+
+  private refreshCaretCharStyles(): void {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    if (s === e) {
+      this.caretCharBold = this.charStyleValue(this.pendingCharStyles, 'bold');
+      this.caretCharItalic = this.charStyleValue(this.pendingCharStyles, 'italic');
+      this.caretCharUnderline = this.charStyleValue(this.pendingCharStyles, 'underline');
+      this.caretCharStrike = this.charStyleValue(this.pendingCharStyles, 'strikethrough');
+      return;
+    }
+    this.caretCharBold = this.rangeHasCharStyle('bold', s, e);
+    this.caretCharItalic = this.rangeHasCharStyle('italic', s, e);
+    this.caretCharUnderline = this.rangeHasCharStyle('underline', s, e);
+    this.caretCharStrike = this.rangeHasCharStyle('strikethrough', s, e);
+  }
+
+  // 原版 l32/h32 字符样式切换：选区非空时按覆盖态取反改写选区 run；
+  // 折叠光标时翻 pending typing-attributes（其后输入按 pending 落地）。
+  private toggleCharStyle(field: string): void {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    if (s === e) {
+      const current: boolean = this.charStyleValue(this.pendingCharStyles, field);
+      this.charStyleSet(this.pendingCharStyles, field, !current);
+      this.refreshCaretCharStyles();
+      return;
+    }
+    this.applyCharStyle(field, !this.rangeHasCharStyle(field, s, e), s, e);
+    this.normalizeCharRuns();
+    this.refreshCaretCharStyles();
   }
 
   // 原版 h32 工具条按钮语义：段落级 decorator 单选互斥切换（再次点击同项回到 NONE=0）。
@@ -207,16 +404,32 @@ export struct TextBlockOverlay {
                 this.controller.caretPosition(Math.min(this.restoreCaret, this.draftText.length));
               }
             })
-            .onTextSelectionChange((_start: number, end: number) => {
+            .onTextSelectionChange((start: number, end: number) => {
               this.caretOffset = end;
+              this.caretSelectionStart = start;
               this.caretDecoratorStyle = this.decoratorAt(end);
+              this.refreshCaretCharStyles();
               this.onCaretChange(end);
             })
             .onChange((value: string) => {
               if (this.photoImportLeaseActive) {
                 return;
               }
+              const previous: string = this.draftText;
               this.draftText = value;
+              const editStart: number = this.adjustCharRunsForEdit(value, previous);
+              const delta: number = value.length - previous.length;
+              if (delta > 0 && Object.keys(this.pendingCharStyles).length > 0) {
+                const insEnd: number = editStart + delta;
+                const fields: string[] =
+                  ['bold', 'italic', 'underline', 'strikethrough'];
+                for (const field of fields) {
+                  if (this.charStyleValue(this.pendingCharStyles, field)) {
+                    this.applyCharStyle(field, true, editStart, insEnd);
+                  }
+                }
+                this.normalizeCharRuns();
+              }
               this.onDraftChange(value);
             })
         }
@@ -238,10 +451,63 @@ export struct TextBlockOverlay {
             centerY: 0,
           })
         Row() {
+          // 原版 h32/l32 文本格式行的字符样式项：bold/italic/underline/
+          // strikethrough（l32 渲染；cve 经 i5a/j5a/zyd 字符样式变更派单）。
+          // 选区非空时改写选区 run；折叠光标时翻 pending typing-attributes。
+          Button($r('app.string.bold'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.caretCharBold ?
+              this.resolveTokens().accent : this.resolveTokens().surface)
+            .fontColor(this.caretCharBold ?
+              this.resolveTokens().onAccent :
+              (this.element !== null ? this.element.fontColor : '#000000'))
+            .enabled(!this.photoImportLeaseActive)
+            .onClick(() => {
+              this.toggleCharStyle('bold');
+            })
+          Button($r('app.string.italic'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.caretCharItalic ?
+              this.resolveTokens().accent : this.resolveTokens().surface)
+            .fontColor(this.caretCharItalic ?
+              this.resolveTokens().onAccent :
+              (this.element !== null ? this.element.fontColor : '#000000'))
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .onClick(() => {
+              this.toggleCharStyle('italic');
+            })
+          Button($r('app.string.underline'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.caretCharUnderline ?
+              this.resolveTokens().accent : this.resolveTokens().surface)
+            .fontColor(this.caretCharUnderline ?
+              this.resolveTokens().onAccent :
+              (this.element !== null ? this.element.fontColor : '#000000'))
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .onClick(() => {
+              this.toggleCharStyle('underline');
+            })
+          Button($r('app.string.strikethrough'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.caretCharStrike ?
+              this.resolveTokens().accent : this.resolveTokens().surface)
+            .fontColor(this.caretCharStrike ?
+              this.resolveTokens().onAccent :
+              (this.element !== null ? this.element.fontColor : '#000000'))
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .onClick(() => {
+              this.toggleCharStyle('strikethrough');
+            })
           // 原版 h32/l32 文本格式行的段落装饰项：BULLET/NUMBER/CHECK_BOX/
           // BLOCK_QUOTE/CODE_BLOCK（fy2 1~5，cve.o(fy2) 单选互斥）。
-          // 字符样式（bold/italic/underline/strikethrough）与 link/indent
-          // 后续期补齐。
+          // link/indent 后续期补齐。
           Button($r('app.string.bullet_list'))
             .height(32)
             .fontSize(12)
@@ -315,9 +581,12 @@ export struct TextBlockOverlay {
               if (this.photoImportLeaseActive) {
                 return;
               }
-              if (await this.onCommit(this.draftText, this.computeParagraphRuns())) {
+              if (await this.onCommit(this.draftText, this.draftCharRuns,
+                this.computeParagraphRuns())) {
                 this.draftText = '';
                 this.draftStyles.clear();
+                this.draftCharRuns = [];
+                this.pendingCharStyles = {};
               }
             })
           Button($r('app.string.cancel'))

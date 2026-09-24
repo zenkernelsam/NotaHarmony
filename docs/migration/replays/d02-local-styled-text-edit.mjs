@@ -23,7 +23,7 @@ assert.match(persistence, /readOriginalTextStyleOperations/);
 assert.match(persistence, /readOriginalCheckboxStates/);
 assert.match(persistence, /sameTextStyleRuns\(after/);
 assert.match(canvas, /await this\.persistence\.previewOriginalTextEdit/);
-assert.match(canvas, /preview\.characterStyleRuns,[\s\S]{0,140}preview\.paragraphStyleRuns/);
+assert.match(canvas, /preview\.characterStyleRuns[\s\S]{0,160}preview\.paragraphStyleRuns/);
 assert.match(canvas, /original Text edit rejected because CRDT style preview diverged/);
 assert.match(canvas, /if \(!await this\.onTextCommit\(this\.editingDraftText\)\) \{/);
 assert.match(canvas, /this\.disposeRenderingResources\(\)/);

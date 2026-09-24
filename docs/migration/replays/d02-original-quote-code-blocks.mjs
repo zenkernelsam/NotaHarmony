@@ -67,7 +67,7 @@ check(stringsXml.includes('<string name="ui_text__block_quote">Block quote</stri
   'original strings');
 
 // --- Overlay 编辑态钉 ---
-check(overlay.includes("import { TextBlockElement, RichTextParagraphStyle, RichTextParagraphStyleRun }"),
+check(overlay.includes("import { RichTextCharacterStyle, RichTextCharacterStyleRun, TextBlockElement, RichTextParagraphStyle, RichTextParagraphStyleRun }"),
   'overlay style imports');
 check(overlay.includes('@State caretOffset: number = -1') &&
   overlay.includes('@State caretDecoratorStyle: number = 0') &&
@@ -92,7 +92,8 @@ check(overlay.includes("$r('app.string.block_quote')") &&
 check(overlay.includes('private computeParagraphRuns(): RichTextParagraphStyleRun[]') &&
   overlay.includes('runs.push({ start: paragraphStart, end: end, style: style })'),
   'paragraph-index → char-range runs');
-check(overlay.includes('await this.onCommit(this.draftText, this.computeParagraphRuns())'),
+check(overlay.includes('await this.onCommit(this.draftText, this.draftCharRuns,') &&
+  overlay.includes('this.computeParagraphRuns())'),
   'commit emits authored runs');
 check(overlay.includes('this.caretDecoratorStyle = this.decoratorAt(end)'),
   'caret move refreshes active state');
@@ -102,19 +103,21 @@ check(tool.includes('if (text === element.richText && paragraphStyleRuns === und
   'runs-only commit bypasses no-op short-circuit');
 
 // --- NoteCanvasView 提交路径钉 ---
-check(canvas.includes('async onTextCommit(text: string,\n    paragraphStyleRuns?: RichTextParagraphStyleRun[])'),
+check(canvas.includes('async onTextCommit(text: string,\n    characterStyleRuns?: RichTextCharacterStyleRun[],\n    paragraphStyleRuns?: RichTextParagraphStyleRun[])'),
   'onTextCommit accepts authored runs');
-check(canvas.includes('const stylesDiffer: boolean = paragraphStyleRuns !== undefined') &&
-  canvas.includes('JSON.stringify(paragraphStyleRuns)'),
+check(canvas.includes('const stylesDiffer: boolean = this.editingOriginalTextBlock !== null') &&
+  canvas.includes('JSON.stringify(paragraphStyleRuns)') &&
+  canvas.includes('JSON.stringify(characterStyleRuns)'),
   'stylesDiffer detection');
 check(canvas.includes('(this.editingOriginalTextBlock.richText !== text || stylesDiffer) &&\n        decodeOperationId(this.editingOriginalTextBlock.id) === null'),
   'local path covers style-only commits');
 check(canvas.includes('paragraphStyleRuns === undefined ? preview.paragraphStyleRuns : paragraphStyleRuns'),
   'CRDT text-edit path prefers authored runs');
-check(/} else if \(stylesDiffer\) \{[\s\S]{0,600}updateText\([\s\S]{0,200}paragraphStyleRuns === undefined \? \[\] : paragraphStyleRuns\)/,
+check(/} else if \(stylesDiffer\) \{[\s\S]{0,800}updateText\([\s\S]{0,400}\(this\.editingTextBlock\.paragraphStyleRuns \?\? \[\]\) : paragraphStyleRuns\)/,
   'CRDT style-only element-level apply');
-check(canvas.includes('runs: RichTextParagraphStyleRun[]): Promise<boolean> =>') &&
-  canvas.includes('await this.onTextCommit(text, runs)'),
+check(canvas.includes('characterStyleRuns: RichTextCharacterStyleRun[],') &&
+  canvas.includes('runs: RichTextParagraphStyleRun[]): Promise<boolean> =>') &&
+  canvas.includes('await this.onTextCommit(text, characterStyleRuns, runs)'),
   'overlay onCommit wiring');
 
 // --- 渲染器钉 ---

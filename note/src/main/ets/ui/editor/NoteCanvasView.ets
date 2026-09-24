@@ -120,7 +120,8 @@ import {
 } from '../../core/model/StrokeTypes';
 import { ToolType } from '../../core/model/BrushTypes';
 import {
-  ElementType, ImageElement, MathElement, NoteElement, RichTextParagraphStyleRun,
+  ElementType, ImageElement, MathElement, NoteElement, RichTextCharacterStyleRun,
+  RichTextParagraphStyleRun,
   ShapeElement, TextBlockElement,
 } from '../../core/model/ElementTypes';
 import {
@@ -9491,6 +9492,7 @@ export struct NoteCanvasView {
   }
 
   async onTextCommit(text: string,
+    characterStyleRuns?: RichTextCharacterStyleRun[],
     paragraphStyleRuns?: RichTextParagraphStyleRun[]): Promise<boolean> {
     if (this.photoImportBusy || this.historyBusy) {
       return false;
@@ -9504,17 +9506,24 @@ export struct NoteCanvasView {
         this.onTextCancel();
         return true;
       }
-      // 原版 h32（ADR-0648）：段落样式编辑可在文本不变时独立提交；
-      // 覆盖层总是传回全量段落 run，diff 决定是否触发样式级更新。
-      const stylesDiffer: boolean = paragraphStyleRuns !== undefined &&
-        this.editingOriginalTextBlock !== null &&
-        JSON.stringify(this.editingOriginalTextBlock.paragraphStyleRuns ?? []) !==
-          JSON.stringify(paragraphStyleRuns);
+      // 原版 h32/l32（ADR-0648/0650）：字符/段落样式编辑可在文本不变时独立
+      // 提交；覆盖层总是传回全量 run，diff 决定是否触发样式级更新。
+      const stylesDiffer: boolean = this.editingOriginalTextBlock !== null &&
+        ((paragraphStyleRuns !== undefined &&
+          JSON.stringify(this.editingOriginalTextBlock.paragraphStyleRuns ?? []) !==
+            JSON.stringify(paragraphStyleRuns)) ||
+        (characterStyleRuns !== undefined &&
+          JSON.stringify(this.editingOriginalTextBlock.characterStyleRuns ?? []) !==
+            JSON.stringify(characterStyleRuns)));
       if (this.editingOriginalTextBlock === null) {
-        let updated: TextBlockElement = paragraphStyleRuns === undefined ?
+        let updated: TextBlockElement = characterStyleRuns === undefined &&
+          paragraphStyleRuns === undefined ?
           this.textBlockTool.updateText(this.editingTextBlock, text) :
           this.textBlockTool.updateText(this.editingTextBlock, text,
-            this.editingTextBlock.characterStyleRuns ?? [], paragraphStyleRuns);
+            characterStyleRuns === undefined ?
+              (this.editingTextBlock.characterStyleRuns ?? []) : characterStyleRuns,
+            paragraphStyleRuns === undefined ?
+              (this.editingTextBlock.paragraphStyleRuns ?? []) : paragraphStyleRuns);
         updated = this.fitEditedTextWidth(updated);
         this.replaceTextBlock(updated);
         const elementOrderAfter: PageElementRef[] = clonePageElementOrder(this.elementOrder);
@@ -9531,10 +9540,14 @@ export struct NoteCanvasView {
         rearmOriginalCreate = updated.originalCreate !== undefined;
       } else if ((this.editingOriginalTextBlock.richText !== text || stylesDiffer) &&
         decodeOperationId(this.editingOriginalTextBlock.id) === null) {
-        let updated: TextBlockElement = paragraphStyleRuns === undefined ?
+        let updated: TextBlockElement = characterStyleRuns === undefined &&
+          paragraphStyleRuns === undefined ?
           this.textBlockTool.updateText(this.editingTextBlock, text) :
           this.textBlockTool.updateText(this.editingTextBlock, text,
-            this.editingTextBlock.characterStyleRuns ?? [], paragraphStyleRuns);
+            characterStyleRuns === undefined ?
+              (this.editingTextBlock.characterStyleRuns ?? []) : characterStyleRuns,
+            paragraphStyleRuns === undefined ?
+              (this.editingTextBlock.paragraphStyleRuns ?? []) : paragraphStyleRuns);
         updated = this.fitEditedTextWidth(updated);
         this.replaceTextBlock(updated);
         this.undoRedo.push({
@@ -9577,8 +9590,10 @@ export struct NoteCanvasView {
           return false;
         }
         let updated: TextBlockElement = this.textBlockTool.updateText(
-          editing, text, preview.characterStyleRuns,
-          // 用户在本次编辑中显式切换的段落样式优先；否则沿用 CRDT 预览物化结果。
+          editing, text,
+          // 用户在本次编辑中显式切换的字符/段落样式优先；否则沿用 CRDT 预览物化结果。
+          characterStyleRuns === undefined ? preview.characterStyleRuns :
+            characterStyleRuns,
           paragraphStyleRuns === undefined ? preview.paragraphStyleRuns : paragraphStyleRuns);
         updated = this.fitEditedTextWidth(updated);
         this.replaceTextBlock(updated);
@@ -9597,8 +9612,10 @@ export struct NoteCanvasView {
         // 编码器（ADR-0648 注册限制），样式只写到元素级并随元素持久化。
         let updated: TextBlockElement = this.textBlockTool.updateText(
           this.editingTextBlock, text,
-          this.editingTextBlock.characterStyleRuns ?? [],
-          paragraphStyleRuns === undefined ? [] : paragraphStyleRuns);
+          characterStyleRuns === undefined ?
+            (this.editingTextBlock.characterStyleRuns ?? []) : characterStyleRuns,
+          paragraphStyleRuns === undefined ?
+            (this.editingTextBlock.paragraphStyleRuns ?? []) : paragraphStyleRuns);
         updated = this.fitEditedTextWidth(updated);
         this.replaceTextBlock(updated);
         this.undoRedo.push({
@@ -9971,9 +9988,10 @@ export struct NoteCanvasView {
           }
         },
         onCommit: async (text: string,
+          characterStyleRuns: RichTextCharacterStyleRun[],
           runs: RichTextParagraphStyleRun[]): Promise<boolean> => {
           try {
-            return await this.onTextCommit(text, runs);
+            return await this.onTextCommit(text, characterStyleRuns, runs);
           } catch (e) {
             hilog.error(0x0001, 'NoteCanvasView',
               'Text commit failed: %{public}s', JSON.stringify(e));
