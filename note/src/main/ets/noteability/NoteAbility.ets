@@ -7,11 +7,14 @@ import { preferences } from '@kit.ArkData';
 import {
   ThemeStore, THEME_PREFERENCES_NAME, THEME_PREFERENCE_KEY,
 } from '../ui/theme/ThemeStore';
+import { enqueueSharedWantUris } from '../data/SharedFileIngress';
 
 const DOMAIN = 0x0000;
 
 export default class NoteAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    // 原版 fag.h0 + hv7.i：VIEW/SEND intent 的共享 URI 入导入管线。
+    enqueueSharedWantUris(want);
     ThemeStore.init();
     try {
       this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
@@ -19,6 +22,11 @@ export default class NoteAbility extends UIAbility {
       hilog.error(DOMAIN, 'testTag', 'Failed to set colorMode. Cause: %{public}s', JSON.stringify(err));
     }
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onCreate');
+  }
+
+  onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    // 热启动收到的新共享 want 同样入队，由 LibraryPage 显示时导入。
+    enqueueSharedWantUris(want);
   }
 
   onConfigurationUpdate(newConfig: AbilityConfiguration): void {

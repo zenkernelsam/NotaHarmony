@@ -13,6 +13,7 @@ import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { NoteExporter } from '../../data/NoteExporter';
 import { ImportReport, ImportResult, NoteImporter, PdfPasswordPrompt } from '../../data/NoteImporter';
 import { PdfPasswordDialog } from '../components/PdfPasswordDialog';
+import { drainSharedUris } from '../../data/SharedFileIngress';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
 import {
@@ -279,6 +280,9 @@ struct LibraryPage {
   // The ViewModel owns async operations; each successful result publishes a fresh @State notes snapshot.
   onPageShow(): void {
     const lifecycleGeneration: number = this.activatePage();
+    // 原版 fag.h0 + hv7.i：冷/热启动收到的共享 want URI 在此 drain
+    // 并走同一导入管线（jv5 分发语义 → 独立笔记 → 打开）。
+    this.drainSharedIngress();
     if (this.folderRepo !== null) {
       this.reloadFoldersBestEffort(this.folderRepo, 'page show');
     }
@@ -2851,6 +2855,58 @@ struct LibraryPage {
         return;
       }
       promptAction.showToast({ message: $r('app.string.created_note_open_failed') });
+    } finally {
+      this.createBusy = false;
+    }
+  }
+
+  // 原版 hv7.i 的共享 intent 路径：队列 URI 逐个物化为独立笔记后
+  // 打开最后一篇（原版 kx 协程同语义）；失败弹 toast。
+  private drainSharedIngress(): void {
+    const uris: string[] = drainSharedUris();
+    if (uris.length === 0) {
+      return;
+    }
+    this.importSharedAndOpen(uris).catch((e: Error) => {
+      console.error(`shared ingress import failed: ${JSON.stringify(e)}`);
+    });
+  }
+
+  private async importSharedAndOpen(uris: string[]): Promise<void> {
+    if (!this.pageActive || this.viewModel === null || this.createBusy) {
+      return;
+    }
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    this.createBusy = true;
+    const vm: LibraryViewModel = this.viewModel;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const importer: NoteImporter = new NoteImporter(this.db, this.persistence);
+      const report: ImportReport =
+        await importer.importSharedUris(uris, this.pdfPasswordPrompt);
+      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+        this.viewModel !== vm) {
+        return;
+      }
+      if (report.noteId === null) {
+        if (report.result !== ImportResult.CANCELLED) {
+          promptAction.showToast({ message: $r('app.string.import_failed') });
+        }
+        return;
+      }
+      await vm.loadNotes(this.searchText);
+      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+        this.viewModel !== vm) {
+        return;
+      }
+      this.notes = vm.getFilteredNotes().slice();
+      const openedId: string = report.noteId;
+      await router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: openedId } });
+    } catch (e) {
+      if (lifecycleGeneration === this.lifecycleGeneration && this.pageActive) {
+        promptAction.showToast({ message: $r('app.string.import_failed') });
+        console.error(`shared ingress import failed: ${JSON.stringify(e)}`);
+      }
     } finally {
       this.createBusy = false;
     }

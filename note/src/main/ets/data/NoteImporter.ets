@@ -253,6 +253,14 @@ export class NoteImporter {
     }
   }
 
+  // 原版 fag.h0 + hv7.i：VIEW/SEND intent 提取的 URI 走同一导入管线
+  // （jv5 嗅探分发 → 独立笔记）。Harmony：共享 want URI 经
+  // SharedFileIngress 队列送达，逐文件读入 + 同一分发表物化。
+  async importSharedUris(uris: string[],
+    passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
+    return await this.importPickedFilesStandalone(uris, passwordPrompt);
+  }
+
   // 原版编辑器插入菜单「Add Files」（qc 序位第一）→ qv5
   // AddToExistingNote：同一类型表，目标为当前打开的笔记。`.note` 归档
   // 并入既有笔记语义不透明（yq8.d/e 未反编译），故过滤不收 .note。

@@ -10,7 +10,7 @@ assert.match(page,
 
 const deleteStart = page.indexOf('private async deleteNoteAndRefresh(noteId: string): Promise<void> {');
 const createStart = page.indexOf('private async createAndLaunch(autoRecord: boolean,', deleteStart);
-const endMarker = page.indexOf('private async importAndOpen(): Promise<void> {', createStart);
+const endMarker = page.indexOf('private drainSharedIngress(): void {', createStart);
 assert.ok(deleteStart !== -1 && createStart > deleteStart && endMarker > createStart);
 
 const deleteFn = page.slice(deleteStart, createStart);
@@ -41,8 +41,10 @@ assert.ok(navGuardIndex > navCatch && navToastIndex > navGuardIndex,
   'navigation failure must check context before toast');
 
 // Phase 545: the file-import creation path carries the same lifecycle guards.
-const importFn = page.slice(endMarker,
-  page.indexOf('\n  // 响应式断点', endMarker));
+const importStart = page.indexOf('private async importAndOpen(): Promise<void> {', endMarker);
+assert.ok(importStart > endMarker);
+const importFn = page.slice(importStart,
+  page.indexOf('\n  // 响应式断点', importStart));
 assert.match(importFn,
   /if \(!this\.pageActive \|\| this\.viewModel === null \|\| this\.createBusy\) \{\s+return;\s+\}/,
   'stale import cannot start a durable mutation');
