@@ -98,7 +98,8 @@ const drain = section(library, 'private drainLaunchIngress(): void {',
 check(drain.includes('drainLaunchActions()') &&
   drain.includes('LAUNCH_ACTION_CREATE_PHOTO_NOTE'),
   'LibraryPage drains launch actions and maps photo action to startCamera');
-check(drain.includes('this.createAndLaunch(false, undefined, startCamera)'),
+check(drain.includes('this.createAndLaunch(autoRecord, undefined, startCamera)') &&
+  drain.includes('action === LAUNCH_ACTION_CREATE_PHOTO_NOTE'),
   'launch actions reuse the createAndLaunch pipeline (in-built + semantics)');
 check(library.indexOf('this.drainLaunchIngress();') >
   library.indexOf('onPageShow(): void {') &&

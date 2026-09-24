@@ -2,6 +2,11 @@
   "string": [
     { "name": "shortcut_new_note", "value": "新建笔记" },
     { "name": "shortcut_new_photo", "value": "新建照片笔记" },
+    { "name": "form_ability_label", "value": "NotaHarmony 卡片" },
+    { "name": "form_new_note_display", "value": "新建笔记" },
+    { "name": "form_new_note_desc", "value": "快速新建一篇笔记。" },
+    { "name": "form_new_recording_display", "value": "开始录音" },
+    { "name": "form_new_recording_desc", "value": "快速新建一篇带录音的笔记。" },
     { "name": "retry", "value": "重试" },
     { "name": "cancel", "value": "取消" },
     { "name": "confirm", "value": "确定" },

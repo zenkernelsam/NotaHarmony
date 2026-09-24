@@ -97,6 +97,19 @@
     ],
     "extensionAbilities": [
       {
+        "name": "NoteFormAbility",
+        "srcEntry": "./ets/noteformability/NoteFormAbility.ets",
+        "label": "$string:form_ability_label",
+        "description": "$string:form_new_note_desc",
+        "type": "form",
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:forms_config"
+          }
+        ]
+      },
+      {
         "name": "NoteBackupAbility",
         "srcEntry": "./ets/notebackupability/NoteBackupAbility.ets",
         "type": "backup",

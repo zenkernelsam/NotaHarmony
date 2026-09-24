@@ -17,6 +17,16 @@
     {
       "name": "shortcut_new_photo", "value": "New photo note" },
     {
+      "name": "form_ability_label", "value": "NotaHarmony widgets" },
+    {
+      "name": "form_new_note_display", "value": "Create a new note" },
+    {
+      "name": "form_new_note_desc", "value": "Quickly create a new note." },
+    {
+      "name": "form_new_recording_display", "value": "Start recording" },
+    {
+      "name": "form_new_recording_desc", "value": "Quickly create a new note with a recording." },
+    {
       "name": "retry",
       "value": "Retry"
     },

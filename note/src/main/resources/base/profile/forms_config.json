@@ -1,0 +1,46 @@
+{
+  "forms": [
+    {
+      "name": "new_note_card",
+      "displayName": "$string:form_new_note_display",
+      "description": "$string:form_new_note_desc",
+      "src": "./ets/noteformability/pages/NewNoteCard.ets",
+      "uiSyntax": "arkts",
+      "window": {
+        "designWidth": 720,
+        "autoDesignWidth": true
+      },
+      "colorMode": "auto",
+      "isDynamic": true,
+      "isDefault": true,
+      "updateEnabled": false,
+      "scheduledUpdateTime": "10:30",
+      "updateDuration": 0,
+      "defaultDimension": "2*2",
+      "supportDimensions": [
+        "2*2"
+      ]
+    },
+    {
+      "name": "new_recording_card",
+      "displayName": "$string:form_new_recording_display",
+      "description": "$string:form_new_recording_desc",
+      "src": "./ets/noteformability/pages/NewRecordingCard.ets",
+      "uiSyntax": "arkts",
+      "window": {
+        "designWidth": 720,
+        "autoDesignWidth": true
+      },
+      "colorMode": "auto",
+      "isDynamic": true,
+      "isDefault": false,
+      "updateEnabled": false,
+      "scheduledUpdateTime": "10:30",
+      "updateDuration": 0,
+      "defaultDimension": "2*2",
+      "supportDimensions": [
+        "2*2"
+      ]
+    }
+  ]
+}

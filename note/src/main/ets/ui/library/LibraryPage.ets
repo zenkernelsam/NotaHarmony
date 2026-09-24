@@ -15,7 +15,7 @@ import { ImportFileDescriptor, ImportPlan, ImportReport, ImportResult, ImportShe
 import { PdfPasswordDialog } from '../components/PdfPasswordDialog';
 import { ImportDetailsSheet } from '../components/ImportDetailsSheet';
 import { drainSharedUris } from '../../data/SharedFileIngress';
-import { drainLaunchActions, LAUNCH_ACTION_CREATE_PHOTO_NOTE } from '../../data/LaunchActionIngress';
+import { drainLaunchActions, LAUNCH_ACTION_CREATE_PHOTO_NOTE, LAUNCH_ACTION_CREATE_RECORDING_NOTE } from '../../data/LaunchActionIngress';
 import { drainDeepLinkNoteIds } from '../../data/DeepLinkIngress';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
@@ -2945,7 +2945,8 @@ struct LibraryPage {
     }
     for (const action of actions) {
       const startCamera: boolean = action === LAUNCH_ACTION_CREATE_PHOTO_NOTE;
-      this.createAndLaunch(false, undefined, startCamera).catch((e: Error) => {
+      const autoRecord: boolean = action === LAUNCH_ACTION_CREATE_RECORDING_NOTE;
+      this.createAndLaunch(autoRecord, undefined, startCamera).catch((e: Error) => {
         console.error('shortcut launch create failed: ' + JSON.stringify(e));
       });
     }
