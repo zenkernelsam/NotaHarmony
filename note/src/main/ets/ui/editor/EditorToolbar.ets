@@ -1,6 +1,7 @@
 // T-019 编辑器工具栏（工具切换 + 颜色/粗细面板 + Undo/Redo 占位）
 // T-038：工具栏 surface 随主题
 import { BrushStyle, ToolState, ToolType } from '../../core/model/BrushTypes';
+import { PageInfo } from '../../core/model/NoteTypes';
 import { EditorViewModel } from './EditorViewModel';
 import { ToolboxSettingsDialog, toolTypeLabel } from './ToolboxSettingsDialog';
 import { ColorPickerView } from '../components/ColorPicker';
@@ -14,9 +15,12 @@ export struct EditorToolbar {
   @State compact: boolean = false;
   @State showToolSettings: boolean = false;
   @State showShareSheet: boolean = false;
-  // 原版 v6d.l 页选择集合的 Harmony 子集：全部页面 / 当前页二选一
-  // （任意子集选择需缩略图栅格面，登记差异见 ADR-0611）。
-  @State shareAllPages: boolean = true;
+  // 原版 v6d.l 页选择集合（Set<Integer>，null=全部页）：非 null 即
+  // 显式子集；b7d.q(i,z) 的 toggle 语义由 toggleSharePage 承载。
+  @State sharePageIndexes: number[] | null = null;
+  // 原版 r6d 面板屏态机：MAIN（格式行 + 页范围行）/ PAGE_SELECTION
+  // （缩略图栅格勾选屏，b7d.l 缩略图窗口由 NotePage 侧渲染链承载）。
+  @State shareScreen: string = 'main';
   private toolbarScroller: Scroller = new Scroller();
   // Undo/Redo 回调（T-021 实现功能）
   onUndo: () => void = () => {
@@ -42,14 +46,21 @@ export struct EditorToolbar {
   onShareNote: () => void = () => {
   };
   // 原版 s6d.JPG/PNG（atc case6/7）：页栅格化导出图像。
-  // format 取值 'jpg' | 'png'；allPages=true 时整册打包为单个 zip。
-  onShareImage: (format: string, allPages: boolean) => void =
-    (_format: string, _allPages: boolean): void => {
+  // format 取值 'jpg' | 'png'；pageIndexes=null 时整册打包为单个 zip。
+  onShareImage: (format: string, pageIndexes: number[] | null) => void =
+    (_format: string, _pageIndexes: number[] | null): void => {
   };
-  // 原版 s6d.PDF（atc case4）：逐页栅格化导出单个 PDF；
-  // allPages=false 时仅导出当前页（单页 PDF）。
-  onSharePdf: (allPages: boolean) => void = (_allPages: boolean): void => {
+  // 原版 s6d.PDF（atc case4）：所选页逐页栅格化导出单个 PDF；
+  // pageIndexes=null 表示全部页（v6d.l 空集语义）。
+  onSharePdf: (pageIndexes: number[] | null) => void =
+    (_pageIndexes: number[] | null): void => {
   };
+  // 分享页选择栅格的页列表与缩略图请求（宿主 NotePage 注入：
+  // b7d.l(i,i2) 缩略图窗口的等价物）。普通字段——面板开启时按当前
+  // 快照读取，无需深拷贝驱动刷新。
+  sharePages: PageInfo[] = [];
+  onShareThumb: (page: PageInfo) => Promise<PixelMap | null> =
+    (_page: PageInfo): Promise<PixelMap | null> => Promise.resolve(null);
   // 原版 gs8 case2（x90.g 首项）：content-manager 页面面板开关。
   onTogglePagesPanel: () => void = () => {
   };
@@ -408,6 +419,12 @@ export struct EditorToolbar {
     .bindSheet(this.showShareSheet, this.buildShareSheet(), {
       height: SheetSize.MEDIUM,
       showClose: false,
+      // 原版 b7d.j()/f()：面板关闭即回 MAIN 屏并清空页集合/缩略图
+      // 缓存——下次打开是全新会话（v6d 随 sheet 重建）。
+      onDisappear: (): void => {
+        this.shareScreen = 'main';
+        this.sharePageIndexes = null;
+      },
     })
     .onAreaChange((_oldArea: Area, newArea: Area) => {
       this.compact = (newArea.width as number) < 600;
@@ -540,22 +557,76 @@ export struct EditorToolbar {
   // NOTE 走既有 NoteExporter 管线；JPG/PNG 走页级栅格化导出
   // （Phase 642）；PDF 走整册逐页栅格化导出（Phase 643）；
   // LINK 置灰 fail-closed（账号后端未备，见 ADR-0608/0609/0610）。
+  // 原版 b7d.q(i, z)：页索引 toggle——基集取 v6d.l，null 时先物化
+  // 全页集合（rh8.V(0, m) 等价），再按 z 增删。
+  private toggleSharePage(pageIndex: number): void {
+    const base: number[] = this.sharePageIndexes === null ?
+      this.sharePages.map((_page: PageInfo, index: number): number => index) :
+      this.sharePageIndexes.slice();
+    const at: number = base.indexOf(pageIndex);
+    if (at >= 0) {
+      base.splice(at, 1);
+    } else {
+      base.push(pageIndex);
+      base.sort((a: number, b: number): number => a - b);
+    }
+    this.sharePageIndexes = base;
+  }
+
+  // 原版 v6d.l 为空集（整册）↔ 显式子集的判定：pj 事件的 partial 位
+  // = set != null && set.size() != m。
+  private shareSelectionLabel(): ResourceStr {
+    const selected: number[] | null = this.sharePageIndexes;
+    if (selected === null || selected.length === this.sharePages.length) {
+      return $r('app.string.share_range_all');
+    }
+    return $r('app.string.share_range_selected', selected.length,
+      this.sharePages.length);
+  }
+
   @Builder
   buildShareSheet() {
+    Column() {
+      if (this.shareScreen === 'pages') {
+        this.buildSharePagePicker()
+      } else {
+        this.buildShareMain()
+      }
+    }
+    .width('100%')
+    .padding({ bottom: 24 })
+    .backgroundColor(this.resolveTokens().surface)
+  }
+
+  // 原版 r6d.MAIN 屏：标题 + 页范围行（All / X of Y）+ 五格式行。
+  @Builder
+  buildShareMain() {
     Column() {
       Text($r('app.string.share_sheet_title'))
         .fontSize(16)
         .fontColor(this.resolveTokens().textPrimary)
         .margin({ top: 16, bottom: 12 })
-      // 原版 v6d 面板页选择（v6d.l Set）的 Harmony 子集：
-      // 全部页面 / 当前页。作用于 PDF/JPG/PNG 行；NOTE 恒为整册、
-      // LINK 置灰不参与。
+      // 原版 ui_share__page_range 行：值 = page_range_all /
+      // page_range_selection("%1$d of %2$d")，点击进 r6d.PAGE_SELECTION。
       Row() {
-        this.ShareRangeOption($r('app.string.share_range_all'), true)
-        this.ShareRangeOption($r('app.string.share_range_current'), false)
+        Text($r('app.string.share_page_range'))
+          .fontSize(15)
+          .fontColor(this.resolveTokens().textPrimary)
+        Blank()
+        Text(this.shareSelectionLabel())
+          .fontSize(13)
+          .fontColor(this.resolveTokens().textSecondary)
+        Text('›')
+          .fontSize(16)
+          .fontColor(this.resolveTokens().textSecondary)
+          .margin({ left: 4 })
       }
         .width('100%')
-        .padding({ left: 24, right: 24, bottom: 8 })
+        .height(44)
+        .padding({ left: 24, right: 24 })
+        .onClick(() => {
+          this.shareScreen = 'pages';
+        })
       this.ShareFormatRow($r('app.string.share_link'), 'link', false)
       this.ShareFormatRow($r('app.string.share_pdf'), 'pdf', true)
       this.ShareFormatRow($r('app.string.share_note'), 'note', true)
@@ -563,8 +634,69 @@ export struct EditorToolbar {
       this.ShareFormatRow($r('app.string.share_png'), 'png', true)
     }
     .width('100%')
-    .padding({ bottom: 24 })
-    .backgroundColor(this.resolveTokens().surface)
+  }
+
+  // 原版 r6d.PAGE_SELECTION 屏：页缩略图栅格逐页勾选（b7d.q），
+  // 全选/取消全选 + 计数头（X of Y）+ Done 回 MAIN。
+  @Builder
+  buildSharePagePicker() {
+    Column() {
+      Row() {
+        Text('‹')
+          .fontSize(20)
+          .fontColor(this.resolveTokens().accent)
+          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+          .onClick(() => {
+            this.shareScreen = 'main';
+          })
+        Text($r('app.string.share_range_selected',
+          this.sharePageIndexes === null ? this.sharePages.length :
+            this.sharePageIndexes.length,
+          this.sharePages.length))
+          .fontSize(14)
+          .fontColor(this.resolveTokens().textPrimary)
+        Blank()
+        Text(this.sharePageIndexes === null ?
+          $r('app.string.pages_deselect_all') : $r('app.string.pages_select_all'))
+          .fontSize(13)
+          .fontColor(this.resolveTokens().accent)
+          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+          .onClick(() => {
+            this.sharePageIndexes = this.sharePageIndexes === null ? [] : null;
+          })
+        Text($r('app.string.pages_done'))
+          .fontSize(13)
+          .fontColor(this.resolveTokens().accent)
+          .padding({ left: 12, right: 16, top: 8, bottom: 8 })
+          .onClick(() => {
+            this.shareScreen = 'main';
+          })
+      }
+        .width('100%')
+      Grid() {
+        ForEach(this.sharePages, (page: PageInfo, index: number) => {
+          GridItem() {
+            SharePageCell({
+              pageIndex: index,
+              page: page,
+              checked: this.sharePageIndexes === null ||
+                this.sharePageIndexes.indexOf(index) >= 0,
+              onRequest: this.onShareThumb,
+              onToggle: (pageIndex: number): void => {
+                this.toggleSharePage(pageIndex);
+              },
+            })
+          }
+        }, (page: PageInfo): string => page.pageId)
+      }
+        .columnsTemplate('1fr 1fr 1fr 1fr')
+        .columnsGap(10)
+        .rowsGap(10)
+        .padding({ left: 12, right: 12, bottom: 12 })
+        .layoutWeight(1)
+    }
+    .width('100%')
+    .layoutWeight(1)
   }
 
   @Builder
@@ -590,29 +722,14 @@ export struct EditorToolbar {
       }
       this.showShareSheet = false;
       if (format === 'note') {
+        // NOTE 恒整册导出（v6d.l 不作用于 .note 归档）。
         this.onShareNote();
       } else if (format === 'pdf') {
-        this.onSharePdf(this.shareAllPages);
+        this.onSharePdf(this.sharePageIndexes);
       } else {
-        this.onShareImage(format, this.shareAllPages);
+        this.onShareImage(format, this.sharePageIndexes);
       }
     })
-  }
-
-  @Builder
-  ShareRangeOption(label: ResourceStr, allPages: boolean) {
-    Text(label)
-      .fontSize(13)
-      .fontColor(this.shareAllPages === allPages ?
-        this.resolveTokens().accent : this.resolveTokens().textSecondary)
-      .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-      .backgroundColor(this.shareAllPages === allPages ?
-        this.resolveTokens().control : Color.Transparent)
-      .borderRadius(8)
-      .margin({ right: 8 })
-      .onClick(() => {
-        this.shareAllPages = allPages;
-      })
   }
 
   @Builder
@@ -671,5 +788,118 @@ export struct EditorToolbar {
         }
         this.onSelectionStyle(style);
       })
+  }
+}
+
+// 分享页选择栅格 cell：对应原版 r6d.PAGE_SELECTION 屏的页缩略图格
+// （b7d.l 缩略图窗口 + q(i,z) 勾选切换）；只承担勾选语义，不带
+// 页操作上下文菜单（那是 content-manager 概览面板的职责）。
+@Component
+struct SharePageCell {
+  @Prop pageIndex: number = 0;
+  page?: PageInfo;
+  @Prop checked: boolean = true;
+  onRequest: (page: PageInfo) => Promise<PixelMap | null> =
+    (_page: PageInfo): Promise<PixelMap | null> => Promise.resolve(null);
+  onToggle: (pageIndex: number) => void = (_pageIndex: number): void => {
+  };
+  @State private pixelMap: PixelMap | null = null;
+  @State private loadingFailed: boolean = false;
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+  private loadGeneration: number = 0;
+
+  aboutToAppear(): void {
+    this.reload();
+  }
+
+  aboutToDisappear(): void {
+    this.loadGeneration++;
+    const pm: PixelMap | null = this.pixelMap;
+    this.pixelMap = null;
+    if (pm !== null) {
+      pm.release().catch((): void => { });
+    }
+  }
+
+  private reload(): void {
+    const page = this.page;
+    if (page === undefined) {
+      return;
+    }
+    const generation: number = ++this.loadGeneration;
+    this.loadingFailed = false;
+    this.onRequest(page)
+      .then((pm: PixelMap | null): void => {
+        if (generation !== this.loadGeneration) {
+          if (pm !== null) {
+            pm.release().catch((): void => { });
+          }
+          return;
+        }
+        const old: PixelMap | null = this.pixelMap;
+        this.pixelMap = pm;
+        this.loadingFailed = pm === null;
+        if (old !== null) {
+          old.release().catch((): void => { });
+        }
+      })
+      .catch((): void => {
+        if (generation === this.loadGeneration) {
+          this.loadingFailed = true;
+        }
+      });
+  }
+
+  private resolveTokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  build() {
+    Column() {
+      Stack() {
+        if (this.pixelMap !== null) {
+          Image(this.pixelMap)
+            .width('100%')
+            .aspectRatio(0.75)
+            .objectFit(ImageFit.Contain)
+        } else {
+          Column()
+            .width('100%')
+            .aspectRatio(0.75)
+            .backgroundColor('#F5F5F5')
+        }
+        // 勾选指示与 PageOverviewCell 选择态同款：选中=实心 ✓，
+        // 未选中=空心圈。
+        Text(this.checked ? '✓' : '')
+          .fontSize(12)
+          .fontColor(Color.White)
+          .textAlign(TextAlign.Center)
+          .width(20)
+          .height(20)
+          .borderRadius(10)
+          .backgroundColor(this.checked ?
+            this.resolveTokens().accent : '#66000000')
+          .border({ width: 1, color: Color.White, radius: 10 })
+          .position({ x: 4, y: 4 })
+      }
+      .width('100%')
+      .borderRadius(6)
+      .clip(true)
+      .border({
+        width: this.checked ? 2 : 1,
+        color: this.checked ? this.resolveTokens().accent : '#E0E0E0',
+        radius: 6,
+      })
+      Text((this.pageIndex + 1).toString())
+        .fontSize(11)
+        .fontColor(this.resolveTokens().textSecondary)
+        .margin({ top: 4 })
+    }
+    .width('100%')
+    .opacity(this.checked ? 1 : 0.55)
+    .onClick(() => {
+      this.onToggle(this.pageIndex);
+    })
   }
 }

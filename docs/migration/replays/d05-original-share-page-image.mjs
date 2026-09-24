@@ -89,14 +89,15 @@ check(exporter.includes('fileIo.unlinkSync(tmpPath)'),
 check(toolbar.includes("ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)") &&
   toolbar.includes("ShareFormatRow($r('app.string.share_png'), 'png', true)"),
   'jpg/png rows are enabled');
-check(toolbar.includes('onShareImage: (format: string, allPages: boolean) => void') &&
-  toolbar.includes('this.onShareImage(format, this.shareAllPages);'),
-  'image rows dispatch format and range to onShareImage');
-check(notePage.includes('onShareImage: (format: string, allPages: boolean) => {') &&
-  notePage.includes('this.sharePagesAsImages(format, allPages);'),
+check(toolbar.includes('onShareImage: (format: string, pageIndexes: number[] | null) => void') &&
+  toolbar.includes('this.onShareImage(format, this.sharePageIndexes);'),
+  'image rows dispatch format and page set to onShareImage');
+check(notePage.includes('onShareImage: (format: string, pageIndexes: number[] | null) => {') &&
+  notePage.includes('this.sharePagesAsImages(format, pageIndexes);'),
   'NotePage wires the image-format callback');
-check(notePage.includes('[this.pages[this.currentPageIndex]]'),
-  'the current-page range rasterizes the visible page only');
+check(notePage.includes('resolveSharePages(pageIndexes)') &&
+  notePage.includes('wanted.has(index)'),
+  'the page set resolves through resolveSharePages (null = all)');
 check(notePage.includes('PAGE_EXPORT_SCALE: number = 2.0') &&
   notePage.includes('this.persistence, page, theme, db, PAGE_EXPORT_SCALE'),
   'export renders at 2x page pixels (~192dpi)');

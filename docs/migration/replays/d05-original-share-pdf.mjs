@@ -90,15 +90,15 @@ check(pdfExporter.includes('fileIo.unlinkSync(tmpPath)') &&
   'temporary pdf is fsynced then cleaned up');
 check(toolbar.includes("ShareFormatRow($r('app.string.share_pdf'), 'pdf', true)"),
   'the pdf format row is enabled');
-check(toolbar.includes('onSharePdf: (allPages: boolean) => void') &&
-  toolbar.includes('this.onSharePdf(this.shareAllPages);'),
-  'the pdf row dispatches the range to onSharePdf');
-check(notePage.includes('onSharePdf: (allPages: boolean) => {') &&
-  notePage.includes('this.shareNoteAsPdf(allPages);'),
+check(toolbar.includes('onSharePdf: (pageIndexes: number[] | null) => void') &&
+  toolbar.includes('this.onSharePdf(this.sharePageIndexes);'),
+  'the pdf row dispatches the page set to onSharePdf');
+check(notePage.includes('onSharePdf: (pageIndexes: number[] | null) => {') &&
+  notePage.includes('this.shareNoteAsPdf(pageIndexes);'),
   'NotePage wires onSharePdf');
-check(notePage.includes('private shareNoteAsPdf(allPages: boolean): void {') &&
-  notePage.includes('const pages: PageInfo[] = allPages ? this.pages.slice() :'),
-  'shareNoteAsPdf snapshots the selected page range');
+check(notePage.includes('private shareNoteAsPdf(pageIndexes: number[] | null): void {') &&
+  notePage.includes('const pages: PageInfo[] = this.resolveSharePages(pageIndexes);'),
+  'shareNoteAsPdf snapshots the selected page set');
 check(notePage.includes('renderer.renderPageExport(this.noteId,\n            this.persistence, page, theme, db, PAGE_EXPORT_SCALE)') &&
   notePage.includes("format: 'image/jpeg'") &&
   notePage.includes('EXPORT_JPEG_QUALITY'),

@@ -3,14 +3,14 @@
 //   v6d.java: `public final Set l`（页选择集合）+ `int m`（总页数）；
 //   b7d.java: `set.size() != v6dVar2.m` 判定部分页导出 —— 上游分享
 //   面板支持任选页子集。
-// Harmony 对齐（ADR-0611 子集）：
-//   * 面板顶部加页范围切换（share_range_all / share_range_current），
+// Harmony 对齐（ADR-0611；Phase 670 起升级为完整子集）：
+//   * 页范围行（share_page_range / share_range_all /
+//     share_range_selected）→ PAGE_SELECTION 栅格勾选任意子集，
 //     作用于 PDF/JPG/PNG 行；NOTE 恒整册、LINK 置灰；
-//   * PDF：当前页 → 单页 PDF，全部 → 整册（Phase 643 管线）；
-//   * JPG/PNG：当前页 → 单文件直存（Phase 642 管线），全部 →
+//   * PDF：子集逐页栅格嵌入单 PDF，null 集合 → 整册；
+//   * JPG/PNG：单页子集 → 单文件直存（Phase 642 管线），多页 →
 //     逐页栅格编码打入单个 zip（page_001.<ext> 序，ZipWriter
-//     STORE），经同一 DocumentViewPicker 保存；
-//   * 任意子集选择依赖缩略图栅格面（未实现），登记差异。
+//     STORE），经同一 DocumentViewPicker 保存。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
@@ -40,23 +40,22 @@ check(v6d.includes('public final Set l') && v6d.includes('public final int m') |
 check(b7d.includes('set.size() != v6dVar2.m'),
   'b7d detects partial-page exports via set size vs page count');
 
-// --- Harmony：面板页范围切换 ---
-check(toolbar.includes('@State shareAllPages: boolean = true'),
-  'share sheet tracks the page-range selection state');
-check(toolbar.includes("ShareRangeOption($r('app.string.share_range_all'), true)") &&
-  toolbar.includes("ShareRangeOption($r('app.string.share_range_current'), false)"),
-  'sheet offers all-pages and current-page range options');
-check(toolbar.indexOf("share_range_all"), 'range selector uses the all-pages label');
-check(toolbar.indexOf('ShareRangeOption') > 0 &&
-  toolbar.indexOf('ShareRangeOption($r') <
+// --- Harmony：面板页范围行（Phase 670 升级为任意子集栅格） ---
+check(toolbar.includes('@State sharePageIndexes: number[] | null = null'),
+  'share sheet tracks the nullable page-index set (v6d.l)');
+check(toolbar.includes("share_page_range") &&
+  toolbar.includes('this.shareSelectionLabel()'),
+  'the range row shows Page range + All/X of Y');
+check(toolbar.indexOf("share_page_range") > 0 &&
+  toolbar.indexOf("share_page_range") <
   toolbar.indexOf("ShareFormatRow($r('app.string.share_link')"),
-  'the range selector renders above the format rows');
-check(toolbar.includes('this.shareAllPages = allPages;'),
-  'range options update the selection state');
-check(toolbar.includes('this.onSharePdf(this.shareAllPages);') &&
-  toolbar.includes('this.onShareImage(format, this.shareAllPages);'),
-  'pdf and image rows dispatch the chosen range');
-check(!toolbar.includes('onShareNote(this.shareAllPages)'),
+  'the range row renders above the format rows');
+check(toolbar.includes('this.toggleSharePage(pageIndex)'),
+  'picker cells toggle indexes through b7d.q semantics');
+check(toolbar.includes('this.onSharePdf(this.sharePageIndexes);') &&
+  toolbar.includes('this.onShareImage(format, this.sharePageIndexes);'),
+  'pdf and image rows dispatch the chosen page set');
+check(!toolbar.includes('onShareNote(this.sharePageIndexes)'),
   'the note row always exports the whole note (no range)');
 
 // --- Harmony：JPG/PNG 整册 zip 路径 ---
@@ -70,8 +69,8 @@ check(imageExporter.includes('writer.addEntry(name, images[i], false)'),
   'zip entries store rasters uncompressed (jpeg/png already coded)');
 check(imageExporter.includes('_pages_') && imageExporter.includes('.zip'),
   'the zip save uses a _pages_ named .zip file');
-check(notePage.includes('const pages: PageInfo[] = allPages ? this.pages.slice() :\n      [this.pages[this.currentPageIndex]];'),
-  'image export resolves the range into a page list');
+check(notePage.includes('const pages: PageInfo[] = this.resolveSharePages(pageIndexes);'),
+  'image export resolves the page set into a page list');
 check(notePage.includes('for (const page of pages)') &&
   notePage.includes('encodedPages.push(new Uint8Array(data))'),
   'every selected page is rasterized and encoded into the zip set');
@@ -82,14 +81,14 @@ check(notePage.includes('if (pages.length === 1)') &&
   'a single selected page still uses the direct image save path');
 
 // --- Harmony：PDF 页范围 ---
-check(notePage.includes('private shareNoteAsPdf(allPages: boolean): void {'),
-  'shareNoteAsPdf takes the page-range flag');
+check(notePage.includes('private shareNoteAsPdf(pageIndexes: number[] | null): void {'),
+  'shareNoteAsPdf takes the nullable page set');
 check(notePage.indexOf('private shareNoteAsPdf') > 0 &&
-  notePage.includes('allPages ? this.pages.slice() :\n      [this.pages[this.currentPageIndex]]'),
-  'pdf export resolves the same range subset');
+  notePage.indexOf('resolveSharePages(pageIndexes)') > 0,
+  'pdf export resolves the same page-set subset');
 
 // --- 字符串资源（双语） ---
-for (const name of ['share_range_all', 'share_range_current']) {
+for (const name of ['share_range_all', 'share_range_selected', 'share_page_range']) {
   check(strBase.includes(`"name": "${name}"`), `base locale defines ${name}`);
   check(strZh.includes(`"name": "${name}"`), `zh_CN locale defines ${name}`);
 }

@@ -246,6 +246,10 @@ struct NotePage {
   private titleSaveQueue: Promise<void> = Promise.resolve();
   private titleSaveGeneration: number = 0;
   private editorDisposed: boolean = false;
+  // 分享页选择栅格的懒建缩略图渲染器 + 串行链（b7d.l 缩略图窗口）；
+  // aboutToDisappear 释放。
+  private shareThumbRenderer: ThumbnailRenderer | null = null;
+  private shareThumbChain: Promise<void> = Promise.resolve();
   private autoRecordRequested: boolean = false;
   private autoCameraRequested: boolean = false;
   private editorLeavePromise: Promise<void> | null = null;
@@ -307,18 +311,61 @@ struct NotePage {
     });
   }
 
+  // 原版 v6d.l 页集合 → 页序过滤：null=全部页；显式集合按页序
+  // 过滤（索引越界项自然丢弃，与 b7d.q 的集合语义一致）。
+  private resolveSharePages(pageIndexes: number[] | null): PageInfo[] {
+    if (pageIndexes === null) {
+      return this.pages.slice();
+    }
+    const wanted: Set<number> = new Set<number>(pageIndexes);
+    return this.pages.filter((_page: PageInfo, index: number): boolean =>
+      wanted.has(index));
+  }
+
+  // 分享页选择栅格的缩略图请求：懒建 ThumbnailRenderer + 串行链
+  // （b7d.l(i,i2) 缩略图窗口的等价物）；编辑器销毁时释放。
+  private requestShareThumbnail(page: PageInfo): Promise<PixelMap | null> {
+    if (this.editorDisposed || this.pages.indexOf(page) < 0) {
+      return Promise.resolve(null);
+    }
+    let renderer: ThumbnailRenderer | null = this.shareThumbRenderer;
+    if (renderer === null) {
+      renderer = new ThumbnailRenderer();
+      this.shareThumbRenderer = renderer;
+      const context = getContext(this) as common.UIAbilityContext;
+      this.shareThumbChain = this.shareThumbChain.then(() =>
+        renderer !== null ? renderer.initialize(context) : Promise.resolve());
+    }
+    const bound: ThumbnailRenderer = renderer;
+    const theme: ThemeTokens = ThemeStore.resolve('light', false);
+    const noteId: string = this.noteId;
+    const db: DatabaseManager = DatabaseManager.getInstance();
+    let produced: PixelMap | null = null;
+    this.shareThumbChain = this.shareThumbChain.then(async (): Promise<void> => {
+      if (this.editorDisposed || this.shareThumbRenderer !== bound) {
+        return;
+      }
+      produced = await bound.renderThumbnail(noteId, this.persistence, page,
+        theme, db);
+    }).catch((e: Error) => {
+      console.error(`share picker thumbnail failed: ${JSON.stringify(e)}`);
+    });
+    return this.shareThumbChain.then((): PixelMap | null => produced);
+  }
+
   // 原版 s6d.JPG/PNG（atc case6/7）：所选页按 pagePixelSize×2 整页
   // 栅格化（含纸面/PDF 背景/全部元素栈），编码后交系统保存对话框。
-  // 页选择集合（v6d.l）的 Harmony 子集：当前页单文件直存；全部页面
-  // 逐页打包 page_NNN.<ext> 进单个 zip 再保存。
+  // 页选择集合 v6d.l：null=整册逐页打包 page_NNN.<ext> 进单个 zip；
+  // 显式子集按页序过滤后同样打包。
   // 导出色恒取亮主题（原版导出的是笔记固有颜色，不受夜间模式影响）。
-  private sharePagesAsImages(format: string, allPages: boolean): void {
-    if (this.pages.length === 0 || this.currentPageIndex < 0 ||
-      this.currentPageIndex >= this.pages.length) {
+  private sharePagesAsImages(format: string, pageIndexes: number[] | null): void {
+    if (this.pages.length === 0) {
       return;
     }
-    const pages: PageInfo[] = allPages ? this.pages.slice() :
-      [this.pages[this.currentPageIndex]];
+    const pages: PageInfo[] = this.resolveSharePages(pageIndexes);
+    if (pages.length === 0) {
+      return;
+    }
     const shareFormat: ShareImageFormat = format === 'png' ? 'png' : 'jpeg';
     const context = getContext(this) as common.UIAbilityContext;
     const theme: ThemeTokens = ThemeStore.resolve('light', false);
@@ -379,15 +426,16 @@ struct NotePage {
 
   // 原版 s6d.PDF（atc case4）：所选页逐页按 pagePixelSize×2 栅格化，
   // 每页压为 JPEG 后嵌入单 PDF（DCTDecode 直通），交系统保存对话框。
-  // 页序取 this.pages 快照序（= 原版页序）；allPages=false 时仅当前页。
+  // 页序取 this.pages 快照序（= 原版页序）；v6d.l 为 null 时整册。
   // 导出色恒取亮主题。
-  private shareNoteAsPdf(allPages: boolean): void {
-    if (this.pages.length === 0 || this.currentPageIndex < 0 ||
-      this.currentPageIndex >= this.pages.length) {
+  private shareNoteAsPdf(pageIndexes: number[] | null): void {
+    if (this.pages.length === 0) {
       return;
     }
-    const pages: PageInfo[] = allPages ? this.pages.slice() :
-      [this.pages[this.currentPageIndex]];
+    const pages: PageInfo[] = this.resolveSharePages(pageIndexes);
+    if (pages.length === 0) {
+      return;
+    }
     const context = getContext(this) as common.UIAbilityContext;
     const theme: ThemeTokens = ThemeStore.resolve('light', false);
     const db: DatabaseManager = DatabaseManager.getInstance();
@@ -498,6 +546,13 @@ struct NotePage {
   // T-040 修复：路由返回时 TextInput 的 onBlur 不保证触发，必须在页面销毁时兜底保存标题
   aboutToDisappear(): void {
     this.editorDisposed = true;
+    const shareThumb: ThumbnailRenderer | null = this.shareThumbRenderer;
+    this.shareThumbRenderer = null;
+    if (shareThumb !== null) {
+      shareThumb.dispose().catch((e: Error) => {
+        console.error(`share thumbnail renderer dispose failed: ${JSON.stringify(e)}`);
+      });
+    }
     if (this.pdfPasswordResolve !== null) {
       const resolve: (password: string | null) => void = this.pdfPasswordResolve;
       this.pdfPasswordResolve = null;
@@ -1578,21 +1633,25 @@ struct NotePage {
             this.shareNoteAsFile();
           },
           // 原版 s6d.JPG/PNG：分享面板图像格式行，导出所选页栅格。
-          onShareImage: (format: string, allPages: boolean) => {
+          onShareImage: (format: string, pageIndexes: number[] | null) => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
               this.historyPending) {
               return;
             }
-            this.sharePagesAsImages(format, allPages);
+            this.sharePagesAsImages(format, pageIndexes);
           },
           // 原版 s6d.PDF（atc case4）：所选页逐页栅格化导出单个 PDF。
-          onSharePdf: (allPages: boolean) => {
+          onSharePdf: (pageIndexes: number[] | null) => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
               this.historyPending) {
               return;
             }
-            this.shareNoteAsPdf(allPages);
+            this.shareNoteAsPdf(pageIndexes);
           },
+          // 原版 r6d.PAGE_SELECTION 屏数据：页快照 + b7d.l 缩略图窗口。
+          sharePages: this.pages,
+          onShareThumb: (page: PageInfo): Promise<PixelMap | null> =>
+            this.requestShareThumbnail(page),
           // 原版 gs8 case2（x90.g 顶栏首项）：content-manager 页面面板
           // 开关；与兄弟入口共用 lease/busy/history 门禁。
           onTogglePagesPanel: () => {
