@@ -7,6 +7,13 @@ import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/Them
 
 // 原版 rs1.d 代码块语言表（27 项，含 plaintext 哨兵 rs1.c——原版派单把
 // plaintext 映射为 null=清除 programmingLanguage 字段）。
+// 原版 qse.O 文字色板（i31 面板）的受限等价调色：与 ColorPickerView
+// presetColors 同源的 12 色 ARGB 预设。
+const TEXT_COLOR_PRESETS: number[] = [
+  -16777216, -7829368, -65536, -26368, -256, -16744448,
+  -16711681, -16776961, -8388480, -16181, -10011977, -1,
+];
+
 const CODE_LANGUAGES: string[][] = [
   ['bash', 'Bash'], ['c', 'C'], ['cpp', 'C++'], ['csharp', 'C#'],
   ['css', 'CSS'], ['go', 'Go'], ['haskell', 'Haskell'], ['java', 'Java'],
@@ -50,6 +57,9 @@ export struct TextBlockOverlay {
   // 原版 rte/eh5：高亮态（选区全覆盖或 pending 含色）。
   @State caretCharHighlight: boolean = false;
   private pendingClearHighlight: boolean = false;
+  // 原版 qte/ste：文字色 sheet 态与折叠清除标记。
+  @State showTextColorSheet: boolean = false;
+  private pendingClearForeground: boolean = false;
   private draftCharRuns: RichTextCharacterStyleRun[] = [];
   private pendingCharStyles: RichTextCharacterStyle = {};
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -124,6 +134,7 @@ export struct TextBlockOverlay {
     this.caretSelectionStart = this.caretOffset;
     this.pendingCharStyles = {};
     this.pendingClearHighlight = false;
+    this.pendingClearForeground = false;
     this.refreshCaretCharStyles();
   }
 
@@ -592,6 +603,117 @@ export struct TextBlockOverlay {
     return items;
   }
 
+  // 原版 qte/ste：把文字色写入选区（color===null 即恢复 element.fontColor
+  // 缺省色——字段清除，等价于"未指定"）。
+  private applyForegroundColor(color: number | null, s: number, e: number): void {
+    const next: RichTextCharacterStyleRun[] = [];
+    for (const run of this.draftCharRuns) {
+      if (run.end <= s || run.start >= e) {
+        next.push(run);
+        continue;
+      }
+      if (run.start < s) {
+        next.push({ start: run.start, end: s, style: run.style });
+      }
+      if (run.end > e) {
+        next.push({ start: e, end: run.end, style: run.style });
+      }
+      const mid: RichTextCharacterStyle =
+        JSON.parse(JSON.stringify(run.style)) as RichTextCharacterStyle;
+      mid.foregroundColor = color === null ? undefined : color;
+      next.push({ start: Math.max(s, run.start), end: Math.min(e, run.end),
+        style: mid });
+    }
+    if (color !== null) {
+      const inside: RichTextCharacterStyleRun[] = next
+        .filter((r: RichTextCharacterStyleRun): boolean => r.start < e && r.end > s)
+        .sort((a: RichTextCharacterStyleRun, b: RichTextCharacterStyleRun): number =>
+          a.start - b.start);
+      let pos: number = s;
+      for (const run of inside) {
+        if (run.start > pos) {
+          next.push({ start: pos, end: run.start,
+            style: { foregroundColor: color } });
+        }
+        pos = Math.max(pos, run.end);
+      }
+      if (pos < e) {
+        next.push({ start: pos, end: e, style: { foregroundColor: color } });
+      }
+    }
+    this.draftCharRuns = next;
+  }
+
+  // 原版 qte 取色确认：选区写 foregroundColor run / 折叠光标写 pending。
+  private pickTextColor(color: number): void {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    this.showTextColorSheet = false;
+    if (s === e) {
+      this.pendingCharStyles.foregroundColor = color;
+      this.pendingClearForeground = false;
+      this.refreshCaretCharStyles();
+      return;
+    }
+    this.applyForegroundColor(color, s, e);
+    this.normalizeCharRuns();
+    this.refreshCaretCharStyles();
+  }
+
+  // "Automatic"——恢复元素缺省字色（foregroundColor 字段清除）。
+  private clearTextColor(): void {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    this.showTextColorSheet = false;
+    if (s === e) {
+      this.pendingClearForeground = true;
+      this.refreshCaretCharStyles();
+      return;
+    }
+    this.applyForegroundColor(null, s, e);
+    this.normalizeCharRuns();
+    this.refreshCaretCharStyles();
+  }
+
+  // 文字色板 sheet：12 色预设网格 + Automatic（受限等价 qse.O 面板）。
+  @Builder
+  private buildTextColorSheet(): void {
+    Column() {
+      Grid() {
+        ForEach(TEXT_COLOR_PRESETS, (color: number) => {
+          GridItem() {
+            Column()
+              .width(32)
+              .height(32)
+              .borderRadius(16)
+              .backgroundColor(color)
+              .border({ width: 1, color: this.resolveTokens().border })
+              .enabled(!this.photoImportLeaseActive)
+              .onClick(() => {
+                this.pickTextColor(color);
+              })
+          }
+        }, (color: number) => 'fg:' + color.toString())
+      }
+      .columnsTemplate('1fr 1fr 1fr 1fr')
+      .columnsGap(12)
+      .rowsGap(12)
+      .width(200)
+      .margin({ bottom: 16 })
+      Button($r('app.string.color_automatic'))
+        .height(32)
+        .fontSize(12)
+        .backgroundColor(this.resolveTokens().surface)
+        .fontColor(this.element !== null ? this.element.fontColor : '#000000')
+        .enabled(!this.photoImportLeaseActive)
+        .onClick(() => {
+          this.clearTextColor();
+        })
+    }
+    .padding(16)
+    .backgroundColor(this.resolveTokens().surface)
+  }
+
   // 原版 cve kue(superscript→zyd.j)/lue(subscript→zyd.i)：互斥对切换。
   // 启用时同一载荷内显式 FALSE 兄弟字段；停用时只写本字段 FALSE。
   private toggleCharStylePair(field: string, other: string): void {
@@ -855,6 +977,12 @@ export struct TextBlockOverlay {
                   this.applyFontSize(this.pendingCharStyles.fontSize,
                     editStart, insEnd);
                 }
+                if (this.pendingClearForeground) {
+                  this.applyForegroundColor(null, editStart, insEnd);
+                } else if (this.pendingCharStyles.foregroundColor !== undefined) {
+                  this.applyForegroundColor(this.pendingCharStyles.foregroundColor,
+                    editStart, insEnd);
+                }
                 this.normalizeCharRuns();
               }
               this.onDraftChange(value);
@@ -995,6 +1123,22 @@ export struct TextBlockOverlay {
             .enabled(!this.photoImportLeaseActive)
             .margin({ left: 4 })
             .bindMenu(this.buildHighlightMenu())
+          // 原版 i31 文字色井（qse.O）/ qte→zyd.g：色板 sheet 选色写
+          // foregroundColor run；Automatic 恢复 element.fontColor。
+          Button($r('app.string.text_color'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.resolveTokens().surface)
+            .fontColor(this.element !== null ? this.element.fontColor : '#000000')
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .bindSheet(this.showTextColorSheet, this.buildTextColorSheet(), {
+              height: SheetSize.MEDIUM,
+              showClose: true,
+            })
+            .onClick(() => {
+              this.showTextColorSheet = true;
+            })
           // 原版 h32/l32 文本格式行的段落装饰项：BULLET/NUMBER/CHECK_BOX/
           // BLOCK_QUOTE/CODE_BLOCK（fy2 1~5，cve.o(fy2) 单选互斥）。
           // link/indent 后续期补齐。
@@ -1088,6 +1232,7 @@ export struct TextBlockOverlay {
                 this.draftCharRuns = [];
                 this.pendingCharStyles = {};
                 this.pendingClearHighlight = false;
+                this.pendingClearForeground = false;
               }
             })
           Button($r('app.string.cancel'))

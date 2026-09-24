@@ -552,6 +552,8 @@
     { "name": "font_style_heading_2", "value": "标题 2" },
     { "name": "font_style_heading_3", "value": "标题 3" },
     { "name": "font_style_body", "value": "正文" },
-    { "name": "font_style_caption", "value": "说明" }
+    { "name": "font_style_caption", "value": "说明" },
+    { "name": "text_color", "value": "颜色" },
+    { "name": "color_automatic", "value": "自动" }
   ]
 }

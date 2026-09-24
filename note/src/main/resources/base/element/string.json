@@ -1318,6 +1318,8 @@
     { "name": "font_style_heading_2", "value": "Heading 2" },
     { "name": "font_style_heading_3", "value": "Heading 3" },
     { "name": "font_style_body", "value": "Body" },
-    { "name": "font_style_caption", "value": "Caption" }
+    { "name": "font_style_caption", "value": "Caption" },
+    { "name": "text_color", "value": "Color" },
+    { "name": "color_automatic", "value": "Automatic" }
   ]
 }
