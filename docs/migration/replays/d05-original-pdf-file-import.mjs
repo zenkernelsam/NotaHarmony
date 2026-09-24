@@ -96,11 +96,11 @@ check(importer.includes('PDF_IMPORT_MAX_PAGES: number = 10000') &&
 const pdfImport = section(importer, 'private async importPdfFromBytes(',
   'private async importOurFormat(');
 check(pdfImport.includes('createNoteWithMeta(') &&
-  pdfImport.includes('storeImportedOriginalAsset(this.db, metadata, data, note.id)'),
-  'note created via the import path (no blank bootstrap page) + asset stored under the new id');
+  pdfImport.includes('storeImportedOriginalAsset(this.db, metadata, bytes, note.id)'),
+  'note created via the import path (no blank bootstrap page) + effective (decrypted) asset stored under the new id');
 check(pdfImport.includes('mimeType: \'application/pdf\'') &&
   pdfImport.includes('originalAssetHashBitsFromSha512(digestBytes)') &&
-  pdfImport.includes('fileSize: data.length'),
+  pdfImport.includes('fileSize: bytes.length'),
   'pdf asset metadata carries sha512 bits + application/pdf + byte size');
 check(pdfImport.includes('pagesConsumed: pageSizes.length') &&
   pdfImport.includes('pageOffset: 0') &&
@@ -135,7 +135,7 @@ check(pdfImport.includes('result: ImportResult.SUCCESS') &&
   'success report returns the new note id, title and real page count');
 
 // --- 宿主接线：既有入口自动获得 PDF 支持 ---
-check(library.includes('importer.importFromFile(context)') &&
+check(library.includes('importer.importFromFile(context, this.pdfPasswordPrompt)') &&
   library.includes('router.pushUrl({ url: \'ui/editor/NotePage\''),
   'library Import File keeps routing through importFromFile then opens the imported note');
 

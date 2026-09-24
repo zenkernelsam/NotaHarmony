@@ -86,7 +86,7 @@ check(importer.includes('const IMPORT_PICKER_MAX_SELECT: number = 500'),
 check(importFromFile.includes('selectOptions.maxSelectNumber = IMPORT_PICKER_MAX_SELECT'),
   'standalone picker enables multi-select');
 check(importFromFile.includes('uris.length > 1') &&
-  importFromFile.includes('importPickedFilesStandalone(uris)'),
+  importFromFile.includes('importPickedFilesStandalone(uris, passwordPrompt)'),
   'standalone picker dispatches multi picks to the standalone loop');
 
 const intoNoteEnd = importer.indexOf('private async importPdfFromBytes(', intoNoteStart);
@@ -94,13 +94,13 @@ const intoNote = importer.substring(intoNoteStart, intoNoteEnd);
 check(intoNote.includes('selectOptions.maxSelectNumber = IMPORT_PICKER_MAX_SELECT'),
   'into-note picker enables multi-select');
 check(intoNote.includes('uris.length > 1') &&
-  intoNote.includes('importPickedFilesIntoNote(noteId, uris)'),
+  intoNote.includes('importPickedFilesIntoNote(noteId, uris, passwordPrompt)'),
   'into-note picker dispatches multi picks to the into-note loop');
 check(!intoNote.includes("'.note'"),
   'into-note picker still rejects .note (yq8.d/e opaque)');
 
 // --- Harmony：多选循环保持同一类型分发表 ---
-check(importer.includes('private async importPickedFilesStandalone(uris: string[])'),
+check(importer.includes('private async importPickedFilesStandalone(uris: string[],'),
   'standalone multi loop exists');
 check(importer.includes('private async importPickedFilesIntoNote(noteId: string'),
   'into-note multi loop exists');

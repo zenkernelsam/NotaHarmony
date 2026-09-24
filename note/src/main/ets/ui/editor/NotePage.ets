@@ -30,7 +30,8 @@ import { NoteExporter } from '../../data/NoteExporter';
 import { PageImageExporter, ShareImageFormat } from '../../data/PageImageExporter';
 import { PagePdfExporter, PdfPageImage } from '../../data/PagePdfExporter';
 import { PageOverviewPanel } from './PageOverviewPanel';
-import { ImportReport, ImportResult, NoteImporter } from '../../data/NoteImporter';
+import { ImportReport, ImportResult, NoteImporter, PdfPasswordPrompt } from '../../data/NoteImporter';
+import { PdfPasswordDialog } from '../components/PdfPasswordDialog';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PersistedOriginalNoteTitle } from '../../data/OriginalNoteTitlePersistence';
 import {
@@ -155,6 +156,26 @@ struct NotePage {
     cancel: (): void => {
       this.dismissLoadFailure();
     },
+  });
+  // 原版 ou5.onPasswordSubmitted：加密 PDF 导入时弹密码框；attempt>0
+  // 表示上次密码错误重试；取消（返回 null）中止该文件导入。
+  @State pdfPasswordFileName: string = '';
+  @State pdfPasswordAttempt: number = 0;
+  private pdfPasswordResolve: ((password: string | null) => void) | null = null;
+  private pdfPasswordDialog: CustomDialogController = new CustomDialogController({
+    builder: PdfPasswordDialog({
+      fileName: this.pdfPasswordFileName,
+      attempt: this.pdfPasswordAttempt,
+      onResult: (password: string | null): void => {
+        const resolve: ((password: string | null) => void) | null =
+          this.pdfPasswordResolve;
+        this.pdfPasswordResolve = null;
+        if (resolve !== null) {
+          resolve(password);
+        }
+      },
+    }),
+    autoCancel: true,
   });
   @State noteTitle: string = '';          // T-036：标题
   @State editingTitle: boolean = false;   // T-036：标题编辑态
@@ -431,6 +452,11 @@ struct NotePage {
   // T-040 修复：路由返回时 TextInput 的 onBlur 不保证触发，必须在页面销毁时兜底保存标题
   aboutToDisappear(): void {
     this.editorDisposed = true;
+    if (this.pdfPasswordResolve !== null) {
+      const resolve: (password: string | null) => void = this.pdfPasswordResolve;
+      this.pdfPasswordResolve = null;
+      resolve(null);
+    }
     this.pageLoadGeneration++;
     this.recordingLoadGeneration++;
     this.keepAwakeGeneration++;
@@ -863,6 +889,17 @@ struct NotePage {
     }
   }
 
+  // 原版 ou5.onPasswordSubmitted：弹密码框并把结果回传导入器。
+  private pdfPasswordPrompt: PdfPasswordPrompt =
+    (fileName: string, attempt: number): Promise<string | null> => {
+      return new Promise((resolve) => {
+        this.pdfPasswordResolve = resolve;
+        this.pdfPasswordFileName = fileName;
+        this.pdfPasswordAttempt = attempt;
+        this.pdfPasswordDialog.open();
+      });
+    };
+
   // 原版编辑器插入菜单「Add Files」（qc 序位第一 → qv5
   // AddToExistingNote）：文件选择器 → 类型分发 → 物化进当前笔记末尾
   // （PDF 追加页/图片页/文本页/录音）。成功后刷新页列表与录音时间线。
@@ -872,7 +909,8 @@ struct NotePage {
       const importer: NoteImporter = new NoteImporter(DatabaseManager.getInstance(),
         this.persistence);
       const report: ImportReport =
-        await importer.importFileIntoNoteFromPicker(context, this.noteId);
+        await importer.importFileIntoNoteFromPicker(context, this.noteId,
+          this.pdfPasswordPrompt);
       if (this.editorDisposed || report.result === ImportResult.CANCELLED) {
         return;
       }

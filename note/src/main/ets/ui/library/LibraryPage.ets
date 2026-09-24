@@ -11,7 +11,8 @@ import {
 } from '../../data/AssetAvailabilityHub';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { NoteExporter } from '../../data/NoteExporter';
-import { ImportReport, ImportResult, NoteImporter } from '../../data/NoteImporter';
+import { ImportReport, ImportResult, NoteImporter, PdfPasswordPrompt } from '../../data/NoteImporter';
+import { PdfPasswordDialog } from '../components/PdfPasswordDialog';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
 import {
@@ -189,6 +190,35 @@ struct LibraryPage {
   private persistence: StrokePersistence = new StrokePersistence();
   private thumbRenderer: ThumbnailRenderer = new ThumbnailRenderer();
   private db: DatabaseManager = DatabaseManager.getInstance();
+  // 原版 ou5.onPasswordSubmitted：加密 PDF 导入时弹密码框；attempt>0
+  // 表示上次密码错误重试；取消（返回 null）中止该文件导入。
+  @State pdfPasswordFileName: string = '';
+  @State pdfPasswordAttempt: number = 0;
+  private pdfPasswordResolve: ((password: string | null) => void) | null = null;
+  private pdfPasswordDialog: CustomDialogController = new CustomDialogController({
+    builder: PdfPasswordDialog({
+      fileName: this.pdfPasswordFileName,
+      attempt: this.pdfPasswordAttempt,
+      onResult: (password: string | null): void => {
+        const resolve: ((password: string | null) => void) | null =
+          this.pdfPasswordResolve;
+        this.pdfPasswordResolve = null;
+        if (resolve !== null) {
+          resolve(password);
+        }
+      },
+    }),
+    autoCancel: true,
+  });
+  private pdfPasswordPrompt: PdfPasswordPrompt =
+    (fileName: string, attempt: number): Promise<string | null> => {
+      return new Promise((resolve) => {
+        this.pdfPasswordResolve = resolve;
+        this.pdfPasswordFileName = fileName;
+        this.pdfPasswordAttempt = attempt;
+        this.pdfPasswordDialog.open();
+      });
+    };
   private readonly PREF_SORT_KEY: string = 'library_sort_mode';
   // Original z97 persists sortField/sortDirection separately
   // ("sortDirection" defaults to DESCENDING).
@@ -212,6 +242,11 @@ struct LibraryPage {
 
   aboutToDisappear(): void {
     this.pageActive = false;
+    if (this.pdfPasswordResolve !== null) {
+      const resolve: (password: string | null) => void = this.pdfPasswordResolve;
+      this.pdfPasswordResolve = null;
+      resolve(null);
+    }
     this.compactFolderDrawerVisible = false;
     this.clearFolderDrag();
     this.lifecycleGeneration++;
@@ -2833,7 +2868,8 @@ struct LibraryPage {
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const importer: NoteImporter = new NoteImporter(this.db, this.persistence);
-      const report: ImportReport = await importer.importFromFile(context);
+      const report: ImportReport =
+        await importer.importFromFile(context, this.pdfPasswordPrompt);
       if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
         this.viewModel !== vm) {
         return;

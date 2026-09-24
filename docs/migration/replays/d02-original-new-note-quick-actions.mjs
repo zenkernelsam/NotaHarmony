@@ -86,7 +86,7 @@ ok(lib.includes('private async createAndRecord()') &&
    lib.includes('await this.createAndLaunch(true);'),
   'Harmony createAndRecord missing');
 ok(lib.includes('private async importAndOpen()') &&
-   lib.includes('importer.importFromFile(context)') &&
+   lib.includes('importer.importFromFile(context, this.pdfPasswordPrompt)') &&
    lib.includes('router.pushUrl({ url: \'ui/editor/NotePage\''),
   'Harmony importAndOpen picker→import→open path missing');
 ok(lib.includes('ImportResult.CANCELLED'),

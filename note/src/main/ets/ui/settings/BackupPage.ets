@@ -8,7 +8,8 @@ import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { StrokePersistence } from '../../data/StrokePersistence';
 import { NoteExporter } from '../../data/NoteExporter';
-import { NoteImporter, ImportReport, ImportResult } from '../../data/NoteImporter';
+import { NoteImporter, ImportReport, ImportResult, PdfPasswordPrompt } from '../../data/NoteImporter';
+import { PdfPasswordDialog } from '../components/PdfPasswordDialog';
 import {
   DEFAULT_WEBDAV_BACKUP_PATH, WebDAVClient, WebDAVConfig, WebDAVFileInfo, WebDAVListResult,
 } from '../../data/WebDAVClient';
@@ -74,6 +75,35 @@ struct BackupPage {
   private loadGeneration: number = 0;
   private lifecycleGeneration: number = 0;
   private pageDisposed: boolean = false;
+  // 原版 ou5.onPasswordSubmitted：加密 PDF 导入时弹密码框；attempt>0
+  // 表示上次密码错误重试；取消（返回 null）中止该文件导入。
+  @State pdfPasswordFileName: string = '';
+  @State pdfPasswordAttempt: number = 0;
+  private pdfPasswordResolve: ((password: string | null) => void) | null = null;
+  private pdfPasswordDialog: CustomDialogController = new CustomDialogController({
+    builder: PdfPasswordDialog({
+      fileName: this.pdfPasswordFileName,
+      attempt: this.pdfPasswordAttempt,
+      onResult: (password: string | null): void => {
+        const resolve: ((password: string | null) => void) | null =
+          this.pdfPasswordResolve;
+        this.pdfPasswordResolve = null;
+        if (resolve !== null) {
+          resolve(password);
+        }
+      },
+    }),
+    autoCancel: true,
+  });
+  private pdfPasswordPrompt: PdfPasswordPrompt =
+    (fileName: string, attempt: number): Promise<string | null> => {
+      return new Promise((resolve) => {
+        this.pdfPasswordResolve = resolve;
+        this.pdfPasswordFileName = fileName;
+        this.pdfPasswordAttempt = attempt;
+        this.pdfPasswordDialog.open();
+      });
+    };
   // T-038：主题状态
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -90,6 +120,11 @@ struct BackupPage {
   aboutToDisappear(): void {
     this.pageDisposed = true;
     this.lifecycleGeneration++;
+    if (this.pdfPasswordResolve !== null) {
+      const resolve: (password: string | null) => void = this.pdfPasswordResolve;
+      this.pdfPasswordResolve = null;
+      resolve(null);
+    }
   }
 
   onPageShow(): void {
@@ -206,7 +241,8 @@ struct BackupPage {
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const importer = new NoteImporter(this.db, this.persistence);
-      const report: ImportReport = await importer.importFromFile(context);
+      const report: ImportReport =
+        await importer.importFromFile(context, this.pdfPasswordPrompt);
 
       if (this.isStale(lifecycleGeneration)) {
         return;

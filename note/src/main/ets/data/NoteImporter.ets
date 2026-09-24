@@ -110,6 +110,18 @@ interface PackagedOriginalAsset {
   data: Uint8Array;
 }
 
+// 原版 ou5.onPasswordSubmitted/onPasswordCancelled：加密 PDF 导入时提示
+// 密码并可重试。attempt=0 为首问，>0 表示上一次密码错误后的重问；
+// 返回 null 表示用户取消（该文件中止导入）。
+export type PdfPasswordPrompt =
+  (fileName: string, attempt: number) => Promise<string | null>;
+
+interface StagedPdfParse {
+  bytes: Uint8Array | null;   // 解密后的有效字节（未加密时与原字节一致）
+  pageSizes: number[][];
+  report: ImportReport | null;
+}
+
 export class NoteImporter {
   private static importMutex: AsyncMutex = new AsyncMutex();
   private db: DatabaseManager;
@@ -172,7 +184,8 @@ export class NoteImporter {
   // 从文件导入（系统 picker）。原版 i58 选择器为 */*、由 jv5/dv5 按 MIME
   // 与内容嗅探分发；Harmony DocumentViewPicker 只能按后缀过滤，收缩到可
   // 物化的 .note/.pdf/图片/.txt，进入后用 %PDF- magic 对齐原版的类型嗅探。
-  async importFromFile(context: common.UIAbilityContext): Promise<ImportReport> {
+  async importFromFile(context: common.UIAbilityContext,
+    passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
     let file: fileIo.File | null = null;
     try {
       const documentPicker = new picker.DocumentViewPicker(context);
@@ -190,7 +203,7 @@ export class NoteImporter {
       if (uris.length > 1) {
         // 原版 ALLOW_MULTIPLE + rv5 CreateSeparateNotes：多选时每个文件
         // 各自物化为独立笔记。
-        return await this.importPickedFilesStandalone(uris);
+        return await this.importPickedFilesStandalone(uris, passwordPrompt);
       }
       // 读取文件内容
       const uri: string = uris[0];
@@ -216,7 +229,7 @@ export class NoteImporter {
       file = null;
       const fileName: string = pickedFileName(uri);
       if (startsWithPdfMagic(bytes) || fileName.toLowerCase().endsWith('.pdf')) {
-        return await this.importPdfFromBytes(bytes, fileName);
+        return await this.importPdfFromBytes(bytes, fileName, passwordPrompt);
       }
       if (isImportedImageFileName(fileName)) {
         return await this.importImageFromBytes(bytes, fileName);
@@ -244,7 +257,7 @@ export class NoteImporter {
   // AddToExistingNote：同一类型表，目标为当前打开的笔记。`.note` 归档
   // 并入既有笔记语义不透明（yq8.d/e 未反编译），故过滤不收 .note。
   async importFileIntoNoteFromPicker(context: common.UIAbilityContext,
-    noteId: string): Promise<ImportReport> {
+    noteId: string, passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
     let file: fileIo.File | null = null;
     try {
       const documentPicker = new picker.DocumentViewPicker(context);
@@ -262,7 +275,7 @@ export class NoteImporter {
       if (uris.length > 1) {
         // 原版 ALLOW_MULTIPLE + qv5 AddToExistingNote：多选文件全部并入
         // 当前打开的笔记。
-        return await this.importPickedFilesIntoNote(noteId, uris);
+        return await this.importPickedFilesIntoNote(noteId, uris, passwordPrompt);
       }
       const uri: string = uris[0];
       file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
@@ -285,7 +298,8 @@ export class NoteImporter {
       const bytes: Uint8Array = readFileFully(file.fd, size);
       fileIo.closeSync(file);
       file = null;
-      return await this.importFileIntoNote(noteId, bytes, pickedFileName(uri));
+      return await this.importFileIntoNote(noteId, bytes, pickedFileName(uri),
+        passwordPrompt);
     } catch (e) {
       console.error(`importFileIntoNoteFromPicker failed: ${JSON.stringify(e)}`);
       return { result: ImportResult.CORRUPTED, noteId: noteId, title: null, pageCount: 0,
@@ -302,37 +316,28 @@ export class NoteImporter {
   // Harmony：PDFKit 解析（loadDocument 仅接受沙箱路径，先落到 assets/pending 暂存），
   // 全页尺寸校验通过后一次性写库：createNoteWithMeta（无默认空白页）+ 整文档共享的
   // sw9 寄存器（pagesConsumed=总页数、pageOffset=0、cropBoxes=全页表），每页 pageInAsset=i。
-  private async importPdfFromBytes(data: Uint8Array, fileName: string): Promise<ImportReport> {
+  private async importPdfFromBytes(data: Uint8Array, fileName: string,
+    passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
     if (!startsWithPdfMagic(data)) {
       return { result: ImportResult.UNSUPPORTED_FORMAT, noteId: null, title: null, pageCount: 0,
         missingAssets: [], warnings: [],
         message: '所选文件不是有效的 PDF 文档' };
     }
     const title: string = pdfImportTitle(fileName);
-    const digestBytes: Uint8Array = await sha512Digest(data);
+    const staged: StagedPdfParse =
+      await this.stageAndParseImportedPdf(data, fileName, null, 'pdf_import', passwordPrompt);
+    if (staged.report !== null) {
+      return staged.report;
+    }
+    const bytes: Uint8Array = staged.bytes as Uint8Array;
+    const pageSizes: number[][] = staged.pageSizes;
+    const digestBytes: Uint8Array = await sha512Digest(bytes);
     const metadata: OriginalAssetMetadata = {
       assetHashBits: originalAssetHashBitsFromSha512(digestBytes),
       fileName: fileName,
       mimeType: 'application/pdf',
-      fileSize: data.length,
+      fileSize: bytes.length,
     };
-    const pendingDirectory: string = this.db.getFilesDir() + '/assets/pending';
-    const stagingPath: string = pendingDirectory +
-      `/pdf_import_${Date.now()}_${Math.floor(Math.random() * 0x1000000)}.tmp`;
-    let pageSizes: number[][];
-    try {
-      fileIo.mkdirSync(pendingDirectory, true);
-      writeFileFully(stagingPath, data);
-      pageSizes = parseImportedPdfPageSizes(stagingPath);
-    } catch (e) {
-      return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
-        missingAssets: [], warnings: [],
-        message: `PDF 文档解析失败：${JSON.stringify(e)}` };
-    } finally {
-      if (fileIo.accessSync(stagingPath)) {
-        try { fileIo.unlinkSync(stagingPath); } catch (_unlinkError) { }
-      }
-    }
     let createdNoteId: string | null = null;
     const release: MutexRelease = await NoteImporter.importMutex.lock();
     try {
@@ -342,7 +347,7 @@ export class NoteImporter {
       const note: NoteMeta = await noteRepo.createNoteWithMeta(
         generateId(), title, now, now, null, false);
       createdNoteId = note.id;
-      await storeImportedOriginalAsset(this.db, metadata, data, note.id);
+      await storeImportedOriginalAsset(this.db, metadata, bytes, note.id);
       const cropBoxes: PdfCropBoxSize[] = [];
       for (const size of pageSizes) {
         cropBoxes.push({ widthPt: size[0], heightPt: size[1] });
@@ -393,6 +398,62 @@ export class NoteImporter {
         message: `PDF 导入失败：${JSON.stringify(e)}` };
     } finally {
       release();
+    }
+  }
+
+  // 暂存 + PDFKit 解析（含加密重试）。原版 ou5.onPasswordSubmitted：解析命中
+  // 加密时弹密码框，提交后重试；取消则放弃该文件。Harmony PDFKit：
+  // loadDocument(path, password) 返回 PARSE_ERROR_PASSWORD(3) 表示需要密码，
+  // 成功后 removeSecurity + saveDocument 落一份去加密暂存文件，后续资产与
+  // 渲染全程无密码（PdfBackgroundLoader 的 loadDocument(path) 无需再带密码）。
+  private async stageAndParseImportedPdf(data: Uint8Array, fileName: string,
+    noteId: string | null, stagingPrefix: string,
+    passwordPrompt: PdfPasswordPrompt | undefined): Promise<StagedPdfParse> {
+    const pendingDirectory: string = this.db.getFilesDir() + '/assets/pending';
+    const stagingPath: string = pendingDirectory +
+      `/${stagingPrefix}_${Date.now()}_${Math.floor(Math.random() * 0x1000000)}.tmp`;
+    const decryptedPath: string = stagingPath + '.dec';
+    try {
+      fileIo.mkdirSync(pendingDirectory, true);
+      writeFileFully(stagingPath, data);
+      let password: string | null = null;
+      let attempt: number = 0;
+      while (true) {
+        let parse: ImportedPdfParse;
+        try {
+          parse = parseImportedPdf(stagingPath, decryptedPath, password);
+        } catch (e) {
+          return { bytes: null, pageSizes: [],
+            report: { result: ImportResult.CORRUPTED, noteId: noteId, title: null,
+              pageCount: 0, missingAssets: [], warnings: [],
+              message: `PDF 文档解析失败：${JSON.stringify(e)}` } };
+        }
+        if (!parse.passwordRequired) {
+          return { bytes: parse.decryptedBytes === null ? data : parse.decryptedBytes,
+            pageSizes: parse.pageSizes, report: null };
+        }
+        if (passwordPrompt === undefined) {
+          return { bytes: null, pageSizes: [],
+            report: { result: ImportResult.CORRUPTED, noteId: noteId, title: null,
+              pageCount: 0, missingAssets: [], warnings: [],
+              message: '该 PDF 已加密，暂不支持导入' } };
+        }
+        password = await passwordPrompt(fileName, attempt);
+        if (password === null) {
+          return { bytes: null, pageSizes: [],
+            report: { result: ImportResult.CANCELLED, noteId: noteId, title: null,
+              pageCount: 0, missingAssets: [], warnings: [],
+              message: '已取消加密 PDF 导入' } };
+        }
+        attempt++;
+      }
+    } finally {
+      if (fileIo.accessSync(stagingPath)) {
+        try { fileIo.unlinkSync(stagingPath); } catch (_unlinkError) { }
+      }
+      if (fileIo.accessSync(decryptedPath)) {
+        try { fileIo.unlinkSync(decryptedPath); } catch (_unlinkError) { }
+      }
     }
   }
 
@@ -572,7 +633,8 @@ export class NoteImporter {
   // 指令跳过；按同一 reducer 物化形态 + 末尾追加落地）。编辑器插入菜单
   // 「Add Files」（qc 序位第一）即走此路径；.note/Office 等未映射类型仍
   // fail-closed。失败时按已追加页回滚（不删既有笔记）。
-  async importFileIntoNote(noteId: string, data: Uint8Array, fileName: string): Promise<ImportReport> {
+  async importFileIntoNote(noteId: string, data: Uint8Array, fileName: string,
+    passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
     if (noteId.length === 0) {
       return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
         missingAssets: [], warnings: [],
@@ -580,7 +642,7 @@ export class NoteImporter {
     }
     const lowerName: string = fileName.toLowerCase();
     if (startsWithPdfMagic(data) || lowerName.endsWith('.pdf')) {
-      return await this.importPdfIntoNote(noteId, data, fileName);
+      return await this.importPdfIntoNote(noteId, data, fileName, passwordPrompt);
     }
     if (isImportedImageFileName(fileName)) {
       return await this.importImageIntoNote(noteId, data, fileName);
@@ -609,7 +671,8 @@ export class NoteImporter {
 
   // 原版 ALLOW_MULTIPLE + rv5 CreateSeparateNotes：多选文件按同一分发
   // 表逐个物化为独立笔记，结果聚合（全部失败 → CORRUPTED）。
-  private async importPickedFilesStandalone(uris: string[]): Promise<ImportReport> {
+  private async importPickedFilesStandalone(uris: string[],
+    passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
     const reports: ImportReport[] = [];
     for (const uri of uris) {
       const picked: PickedFilePayload = readPickedFile(uri);
@@ -620,7 +683,7 @@ export class NoteImporter {
       const bytes: Uint8Array = picked.bytes as Uint8Array;
       const fileName: string = picked.fileName;
       if (startsWithPdfMagic(bytes) || fileName.toLowerCase().endsWith('.pdf')) {
-        reports.push(await this.importPdfFromBytes(bytes, fileName));
+        reports.push(await this.importPdfFromBytes(bytes, fileName, passwordPrompt));
       } else if (isImportedImageFileName(fileName)) {
         reports.push(await this.importImageFromBytes(bytes, fileName));
       } else if (isImportedTextFileName(fileName)) {
@@ -637,7 +700,7 @@ export class NoteImporter {
   // 原版 ALLOW_MULTIPLE + qv5 AddToExistingNote：多选文件全部并入既有
   // 笔记（顺序与选择器返回一致）。
   private async importPickedFilesIntoNote(noteId: string,
-    uris: string[]): Promise<ImportReport> {
+    uris: string[], passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
     const reports: ImportReport[] = [];
     for (const uri of uris) {
       const picked: PickedFilePayload = readPickedFile(uri);
@@ -648,47 +711,37 @@ export class NoteImporter {
         continue;
       }
       reports.push(await this.importFileIntoNote(noteId,
-        picked.bytes as Uint8Array, picked.fileName));
+        picked.bytes as Uint8Array, picked.fileName, passwordPrompt));
     }
     return aggregatePickedReports(reports, noteId);
   }
 
   private async importPdfIntoNote(noteId: string, data: Uint8Array,
-    fileName: string): Promise<ImportReport> {
+    fileName: string, passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
     if (!startsWithPdfMagic(data)) {
       return { result: ImportResult.UNSUPPORTED_FORMAT, noteId: noteId, title: null,
         pageCount: 0, missingAssets: [], warnings: [],
         message: '所选文件不是有效的 PDF 文档' };
     }
-    const digestBytes: Uint8Array = await sha512Digest(data);
+    const staged: StagedPdfParse =
+      await this.stageAndParseImportedPdf(data, fileName, noteId, 'pdf_insert', passwordPrompt);
+    if (staged.report !== null) {
+      return staged.report;
+    }
+    const bytes: Uint8Array = staged.bytes as Uint8Array;
+    const pageSizes: number[][] = staged.pageSizes;
+    const digestBytes: Uint8Array = await sha512Digest(bytes);
     const metadata: OriginalAssetMetadata = {
       assetHashBits: originalAssetHashBitsFromSha512(digestBytes),
       fileName: fileName,
       mimeType: 'application/pdf',
-      fileSize: data.length,
+      fileSize: bytes.length,
     };
-    const pendingDirectory: string = this.db.getFilesDir() + '/assets/pending';
-    const stagingPath: string = pendingDirectory +
-      `/pdf_insert_${Date.now()}_${Math.floor(Math.random() * 0x1000000)}.tmp`;
-    let pageSizes: number[][];
-    try {
-      fileIo.mkdirSync(pendingDirectory, true);
-      writeFileFully(stagingPath, data);
-      pageSizes = parseImportedPdfPageSizes(stagingPath);
-    } catch (e) {
-      return { result: ImportResult.CORRUPTED, noteId: noteId, title: null,
-        pageCount: 0, missingAssets: [], warnings: [],
-        message: `PDF 文档解析失败：${JSON.stringify(e)}` };
-    } finally {
-      if (fileIo.accessSync(stagingPath)) {
-        try { fileIo.unlinkSync(stagingPath); } catch (_unlinkError) { }
-      }
-    }
     const addedPageIds: string[] = [];
     const release: MutexRelease = await NoteImporter.importMutex.lock();
     try {
       const pageRepo = new PageRepositoryImpl(this.db);
-      await storeImportedOriginalAsset(this.db, metadata, data, noteId);
+      await storeImportedOriginalAsset(this.db, metadata, bytes, noteId);
       const cropBoxes: PdfCropBoxSize[] = [];
       for (const size of pageSizes) {
         cropBoxes.push({ widthPt: size[0], heightPt: size[1] });
@@ -1803,10 +1856,24 @@ function pdfImportTitle(fileName: string): string {
 // PDFKit 页尺寸读取 + Harmony 页面像素预算校验。原版 jv5 经 PDFTron 逐页取
 // CropBox；PDFKit getWidth/getHeight 返回应用页内 /Rotate 后的可视尺寸，
 // 与渲染侧 getPagePixelMap 同源，保持寄存器自洽。
-function parseImportedPdfPageSizes(path: string): number[][] {
+interface ImportedPdfParse {
+  pageSizes: number[][];
+  decryptedBytes: Uint8Array | null;  // 用密码解密成功后的无密码字节
+  passwordRequired: boolean;          // PARSE_ERROR_PASSWORD：需要密码
+}
+
+// Harmony PDFKit：loadDocument(path, password?) 命中加密返回
+// PARSE_ERROR_PASSWORD(3)；密码成功时 removeSecurity + saveDocument 落一份
+// 无密码暂存文件并读回，作为后续存储/渲染的有效字节。
+function parseImportedPdf(path: string, decryptedPath: string,
+  password: string | null): ImportedPdfParse {
   const document: pdfService.PdfDocument = new pdfService.PdfDocument();
   try {
-    const parsed: pdfService.ParseResult = document.loadDocument(path);
+    const parsed: pdfService.ParseResult = password === null ?
+      document.loadDocument(path) : document.loadDocument(path, password);
+    if (parsed === pdfService.ParseResult.PARSE_ERROR_PASSWORD) {
+      return { pageSizes: [], decryptedBytes: null, passwordRequired: true };
+    }
     if (parsed !== pdfService.ParseResult.PARSE_SUCCESS) {
       throw new Error(`PDFKit parse failed with result ${parsed}`);
     }
@@ -1827,7 +1894,25 @@ function parseImportedPdfPageSizes(path: string): number[][] {
       pagePixelSize(widthPt * POINTS_TO_MM, heightPt * POINTS_TO_MM);
       sizes.push([widthPt, heightPt]);
     }
-    return sizes;
+    let decryptedBytes: Uint8Array | null = null;
+    if (password !== null) {
+      if (!document.removeSecurity()) {
+        throw new Error('PDFKit removeSecurity failed');
+      }
+      if (!document.saveDocument(decryptedPath)) {
+        throw new Error('PDFKit decrypted save failed');
+      }
+      const decryptedFile: fileIo.File =
+        fileIo.openSync(decryptedPath, fileIo.OpenMode.READ_ONLY);
+      try {
+        decryptedBytes = readFileFully(decryptedFile.fd,
+          fileIo.statSync(decryptedPath).size);
+      } finally {
+        fileIo.closeSync(decryptedFile);
+      }
+    }
+    return { pageSizes: sizes, decryptedBytes: decryptedBytes,
+      passwordRequired: false };
   } finally {
     document.releaseDocument();
   }

@@ -5,7 +5,10 @@ const page = fs.readFileSync('note/src/main/ets/ui/settings/BackupPage.ets', 'ut
   .replaceAll('\r\n', '\n');
 
 assert.match(page,
-  /aboutToDisappear\(\): void \{\s+this\.pageDisposed = true;\s+this\.lifecycleGeneration\+\+;\s+\}/);
+  /aboutToDisappear\(\): void \{\s+this\.pageDisposed = true;\s+this\.lifecycleGeneration\+\+;/);
+assert.ok(page.includes('if (this.pdfPasswordResolve !== null)') &&
+  page.includes('resolve(null)'),
+  'dispose resolves any pending encrypted-PDF password prompt');
 assert.match(page,
   /Button\(\$r\('app\.string\.retry'\)\)\s+\.width\('90%'\)\s+\.margin\(\{ bottom: 12 \}\)\s+\.enabled\(!this\.isBusy\)\s+\.onClick\(\(\) => \{\s+if \(this\.isBusy\) \{\s+return;\s+\}\s+this\.reloadPage\(\);/,
   'backup retry rejects busy state');
