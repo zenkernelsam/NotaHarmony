@@ -876,7 +876,8 @@ struct NotePage {
       if (this.editorDisposed || report.result === ImportResult.CANCELLED) {
         return;
       }
-      if (report.result !== ImportResult.SUCCESS) {
+      if (report.result !== ImportResult.SUCCESS &&
+        report.result !== ImportResult.PARTIAL) {
         try {
           promptAction.showToast({ message: report.message, duration: 2500 });
         } catch (_toastError) { }

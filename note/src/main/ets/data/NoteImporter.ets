@@ -59,6 +59,9 @@ import {
 const FILE_READ_CHUNK_SIZE: number = 64 * 1024;
 // 原版 sw9 cropBoxes flatbuffer vector 上限（readInlineVectorBytes(5, 8, 10000)）。
 const PDF_IMPORT_MAX_PAGES: number = 10000;
+// 原版 f35(3)/f35.c 的 ALLOW_MULTIPLE 多选导入不设数量上限；Harmony
+// DocumentSelectOptions.maxSelectNumber 取值范围 1~500，取上限。
+const IMPORT_PICKER_MAX_SELECT: number = 500;
 // 原版 m09.b = a79.N = apb.h(612f, 792f)：导入图片的 Letter 页尺寸（pt）。
 const IMAGE_IMPORT_PAGE_WIDTH_PT: number = 612;
 const IMAGE_IMPORT_PAGE_HEIGHT_PT: number = 792;
@@ -177,11 +180,17 @@ export class NoteImporter {
       selectOptions.fileSuffixFilters = ['.note', '.pdf', '.png', '.jpg', '.jpeg',
         '.webp', '.gif', '.heif', '.heic', '.tif', '.tiff', '.txt',
         '.mp3', '.mp4', '.aac', '.wav', '.aiff', '.m4a'];
+      selectOptions.maxSelectNumber = IMPORT_PICKER_MAX_SELECT;
       const uris: string[] = await documentPicker.select(selectOptions);
       if (uris.length === 0) {
         return { result: ImportResult.CANCELLED, noteId: null, title: null, pageCount: 0,
           missingAssets: [], warnings: [],
           message: '未选择文件' };
+      }
+      if (uris.length > 1) {
+        // 原版 ALLOW_MULTIPLE + rv5 CreateSeparateNotes：多选时每个文件
+        // 各自物化为独立笔记。
+        return await this.importPickedFilesStandalone(uris);
       }
       // 读取文件内容
       const uri: string = uris[0];
@@ -243,11 +252,17 @@ export class NoteImporter {
       selectOptions.fileSuffixFilters = ['.pdf', '.png', '.jpg', '.jpeg',
         '.webp', '.gif', '.heif', '.heic', '.tif', '.tiff', '.txt',
         '.mp3', '.mp4', '.aac', '.wav', '.aiff', '.m4a'];
+      selectOptions.maxSelectNumber = IMPORT_PICKER_MAX_SELECT;
       const uris: string[] = await documentPicker.select(selectOptions);
       if (uris.length === 0) {
         return { result: ImportResult.CANCELLED, noteId: noteId, title: null, pageCount: 0,
           missingAssets: [], warnings: [],
           message: '未选择文件' };
+      }
+      if (uris.length > 1) {
+        // 原版 ALLOW_MULTIPLE + qv5 AddToExistingNote：多选文件全部并入
+        // 当前打开的笔记。
+        return await this.importPickedFilesIntoNote(noteId, uris);
       }
       const uri: string = uris[0];
       file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
@@ -590,6 +605,52 @@ export class NoteImporter {
         console.error(`importFileIntoNote rollback delete failed: ${JSON.stringify(e)}`);
       }
     }
+  }
+
+  // 原版 ALLOW_MULTIPLE + rv5 CreateSeparateNotes：多选文件按同一分发
+  // 表逐个物化为独立笔记，结果聚合（全部失败 → CORRUPTED）。
+  private async importPickedFilesStandalone(uris: string[]): Promise<ImportReport> {
+    const reports: ImportReport[] = [];
+    for (const uri of uris) {
+      const picked: PickedFilePayload = readPickedFile(uri);
+      if (picked.report !== null) {
+        reports.push(picked.report);
+        continue;
+      }
+      const bytes: Uint8Array = picked.bytes as Uint8Array;
+      const fileName: string = picked.fileName;
+      if (startsWithPdfMagic(bytes) || fileName.toLowerCase().endsWith('.pdf')) {
+        reports.push(await this.importPdfFromBytes(bytes, fileName));
+      } else if (isImportedImageFileName(fileName)) {
+        reports.push(await this.importImageFromBytes(bytes, fileName));
+      } else if (isImportedTextFileName(fileName)) {
+        reports.push(await this.importTextFromBytes(bytes, fileName));
+      } else if (isImportedAudioFileName(fileName)) {
+        reports.push(await this.importAudioFromBytes(bytes, fileName));
+      } else {
+        reports.push(await this.importFromData(bytes));
+      }
+    }
+    return aggregatePickedReports(reports, null);
+  }
+
+  // 原版 ALLOW_MULTIPLE + qv5 AddToExistingNote：多选文件全部并入既有
+  // 笔记（顺序与选择器返回一致）。
+  private async importPickedFilesIntoNote(noteId: string,
+    uris: string[]): Promise<ImportReport> {
+    const reports: ImportReport[] = [];
+    for (const uri of uris) {
+      const picked: PickedFilePayload = readPickedFile(uri);
+      if (picked.report !== null) {
+        reports.push({ result: picked.report.result, noteId: noteId,
+          title: null, pageCount: 0, missingAssets: [],
+          warnings: picked.report.warnings, message: picked.report.message });
+        continue;
+      }
+      reports.push(await this.importFileIntoNote(noteId,
+        picked.bytes as Uint8Array, picked.fileName));
+    }
+    return aggregatePickedReports(reports, noteId);
   }
 
   private async importPdfIntoNote(noteId: string, data: Uint8Array,
@@ -1656,6 +1717,81 @@ function pickedFileName(uri: string): string {
   } catch (_e) {
     return tail.length > 0 ? tail : 'document.pdf';
   }
+}
+
+// 多选导入的逐文件读取结果：bytes 非空表示读取成功，否则 report 携带
+// 失败原因（沿用单选路径的尺寸/空文件语义）。
+interface PickedFilePayload {
+  bytes: Uint8Array | null;
+  fileName: string;
+  report: ImportReport | null;
+}
+
+function pickedFileFailure(message: string): ImportReport {
+  return { result: ImportResult.CORRUPTED, noteId: null, title: null,
+    pageCount: 0, missingAssets: [], warnings: [], message: message };
+}
+
+function readPickedFile(uri: string): PickedFilePayload {
+  const fileName: string = pickedFileName(uri);
+  let file: fileIo.File | null = null;
+  try {
+    file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+    const size: number = fileIo.statSync(uri).size;
+    if (!Number.isSafeInteger(size) || size > ZIP_MAX_ARCHIVE_BYTES) {
+      return { bytes: null, fileName: fileName,
+        report: pickedFileFailure(`文件超过导入大小上限 ${ZIP_MAX_ARCHIVE_BYTES} bytes`) };
+    }
+    if (size <= 0) {
+      return { bytes: null, fileName: fileName,
+        report: pickedFileFailure('所选文件为空') };
+    }
+    return { bytes: readFileFully(file.fd, size), fileName: fileName, report: null };
+  } catch (e) {
+    console.error(`readPickedFile failed: ${JSON.stringify(e)}`);
+    return { bytes: null, fileName: fileName,
+      report: pickedFileFailure('读取文件失败') };
+  } finally {
+    if (file !== null) {
+      try { fileIo.closeSync(file); } catch (_closeError) { }
+    }
+  }
+}
+
+// 多选导入结果聚合：全部失败 → CORRUPTED；部分成功 → PARTIAL；全部成功
+// → SUCCESS。独立导入的 noteId 取首个成功创建者；into-note 恒为目标笔记。
+function aggregatePickedReports(reports: ImportReport[],
+  fallbackNoteId: string | null): ImportReport {
+  const succeeded: ImportReport[] = reports.filter(
+    (r: ImportReport) => r.result === ImportResult.SUCCESS ||
+      r.result === ImportResult.PARTIAL);
+  const warnings: string[] = [];
+  let pageCount: number = 0;
+  for (const r of reports) {
+    pageCount += r.pageCount;
+    if (r.result !== ImportResult.SUCCESS) {
+      warnings.push(r.message);
+    }
+    for (const w of r.warnings) {
+      warnings.push(w);
+    }
+  }
+  if (succeeded.length === 0) {
+    return { result: ImportResult.CORRUPTED, noteId: fallbackNoteId, title: null,
+      pageCount: 0, missingAssets: [], warnings: warnings,
+      message: `全部 ${reports.length} 个文件导入失败` };
+  }
+  const firstCreated: ImportReport | undefined = succeeded.find(
+    (r: ImportReport) => r.noteId !== null);
+  const noteId: string | null =
+    firstCreated === undefined ? fallbackNoteId : firstCreated.noteId;
+  const failed: number = reports.length - succeeded.length;
+  const message: string = failed === 0
+    ? `已导入 ${succeeded.length} 个文件`
+    : `已导入 ${succeeded.length} 个文件，${failed} 个失败`;
+  return { result: failed === 0 ? ImportResult.SUCCESS : ImportResult.PARTIAL,
+    noteId: noteId, title: null, pageCount: pageCount, missingAssets: [],
+    warnings: warnings, message: message };
 }
 
 function pdfImportTitle(fileName: string): string {
