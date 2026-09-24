@@ -33,6 +33,12 @@ export const DEFAULT_STRAIGHT_LINES: boolean = true;
 const LASER_SHOW_TAIL_KEY: string = 'laserShowTail';
 // 原版 cu6.i / bu6(true)：laser_preferences.show_tail 缺省 true。
 export const DEFAULT_LASER_SHOW_TAIL: boolean = true;
+// 原版 o59.n = eua("rulerUnits")；取值序列化为 oof.I（"Imperial"/"Metric"），
+// ub5() 默认 oof.IMPERIAL（x22 case 4 / n94 选择器 / ss8 case 8 写入）。
+const RULER_UNITS_KEY: string = 'rulerUnits';
+export const RULER_UNITS_IMPERIAL: string = 'Imperial';
+export const RULER_UNITS_METRIC: string = 'Metric';
+export const DEFAULT_RULER_UNITS: string = RULER_UNITS_IMPERIAL;
 
 export interface EditorSettingsRepository {
   getShapeDetectionEnabled(): Promise<boolean>;
@@ -51,6 +57,8 @@ export interface EditorSettingsRepository {
   savePalmDetectionEnabled(enabled: boolean): Promise<void>;
   getStraightLinesEnabled(): Promise<boolean>;
   saveStraightLinesEnabled(enabled: boolean): Promise<void>;
+  getRulerUnits(): Promise<string>;
+  saveRulerUnits(units: string): Promise<void>;
   getLaserShowTail(): Promise<boolean>;
   saveLaserShowTail(enabled: boolean): Promise<void>;
 }
@@ -124,6 +132,44 @@ export class EditorSettingsStore implements EditorSettingsRepository, DefaultNot
       const hadPrevious: boolean = store.hasSync(key);
       const previous = store.getSync(key, fallback);
       store.putSync(key, enabled);
+      try {
+        await store.flush();
+      } catch (e) {
+        if (hadPrevious) {
+          store.putSync(key, previous);
+        } else {
+          store.deleteSync(key);
+        }
+        try {
+          await store.flush();
+        } catch (rollbackError) {
+          throw new Error(`${tag} commit and rollback failed: ${JSON.stringify(e)}; ` +
+            `${JSON.stringify(rollbackError)}`);
+        }
+        throw new Error(`${tag} failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  private async getStringPref(key: string, fallback: string): Promise<string> {
+    return EditorSettingsStore.mutex.runExclusive(async (): Promise<string> => {
+      try {
+        const store = await preferences.getPreferences(this.context, STORE_NAME);
+        const value = store.getSync(key, fallback);
+        return typeof value === 'string' ? value : fallback;
+      } catch (e) {
+        throw new Error(`getStringPref(${key}) failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  private async saveStringPref(key: string, value: string,
+    fallback: string, tag: string): Promise<void> {
+    return EditorSettingsStore.mutex.runExclusive(async (): Promise<void> => {
+      const store = await preferences.getPreferences(this.context, STORE_NAME);
+      const hadPrevious: boolean = store.hasSync(key);
+      const previous = store.getSync(key, fallback);
+      store.putSync(key, value);
       try {
         await store.flush();
       } catch (e) {
@@ -239,6 +285,19 @@ export class EditorSettingsStore implements EditorSettingsRepository, DefaultNot
   async saveStraightLinesEnabled(enabled: boolean): Promise<void> {
     await this.saveBooleanPref(STRAIGHT_LINES_KEY, enabled,
       DEFAULT_STRAIGHT_LINES, 'saveStraightLinesEnabled');
+  }
+
+  // 原版 x22 case 4 / o59.n：rulerUnits —— n94 选择器写 Imperial/Metric，
+  // 非法取值回退 ub5() 默认 IMPERIAL（原版尺具本身仍被 s01.a0 隐藏）。
+  async getRulerUnits(): Promise<string> {
+    const units: string = await this.getStringPref(RULER_UNITS_KEY, DEFAULT_RULER_UNITS);
+    return units === RULER_UNITS_IMPERIAL || units === RULER_UNITS_METRIC
+      ? units : DEFAULT_RULER_UNITS;
+  }
+
+  async saveRulerUnits(units: string): Promise<void> {
+    await this.saveStringPref(RULER_UNITS_KEY, units,
+      DEFAULT_RULER_UNITS, 'saveRulerUnits');
   }
 
   // 原版 cu6（laser_preferences/show_tail）：激光笔 tail 开关。

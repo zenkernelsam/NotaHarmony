@@ -1279,6 +1279,9 @@
     { "name": "share_action_note_multi", "value": "Share Notes" },
     { "name": "share_action_jpg_multi", "value": "Share JPGs" },
     { "name": "share_action_png_multi", "value": "Share PNGs" },
-    { "name": "multi_share_failed", "value": "Failed to share selected notes" }
+    { "name": "multi_share_failed", "value": "Failed to share selected notes" },
+    { "name": "ruler_units", "value": "Ruler units" },
+    { "name": "imperial", "value": "Imperial" },
+    { "name": "metric", "value": "Metric" }
   ]
 }

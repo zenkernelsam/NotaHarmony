@@ -432,6 +432,13 @@ class FakeEditorSettingsRepository implements EditorSettingsRepository {
   async saveStraightLinesEnabled(_enabled: boolean): Promise<void> {
   }
 
+  async getRulerUnits(): Promise<string> {
+    return 'Imperial';
+  }
+
+  async saveRulerUnits(_units: string): Promise<void> {
+  }
+
   async saveShapeDetectionEnabled(enabled: boolean): Promise<void> {
     this.saveAttempts.push(enabled);
     const gate: DeferredSave | undefined = this.saveGates.shift();

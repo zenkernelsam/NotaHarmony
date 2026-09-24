@@ -513,6 +513,9 @@
     { "name": "share_action_note_multi", "value": "分享笔记" },
     { "name": "share_action_jpg_multi", "value": "分享 JPG" },
     { "name": "share_action_png_multi", "value": "分享 PNG" },
-    { "name": "multi_share_failed", "value": "批量分享失败" }
+    { "name": "multi_share_failed", "value": "批量分享失败" },
+    { "name": "ruler_units", "value": "标尺单位" },
+    { "name": "imperial", "value": "英制" },
+    { "name": "metric", "value": "公制" }
   ]
 }

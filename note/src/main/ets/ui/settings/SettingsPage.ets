@@ -3,7 +3,8 @@ import { promptAction, router } from '@kit.ArkUI';
 import {
   DEFAULT_AUTO_DESELECT_ERASER, DEFAULT_HIDE_NAVIGATION_BAR, DEFAULT_HIDE_STATUS_BAR,
   DEFAULT_KEEP_DEVICE_AWAKE, DEFAULT_NOTE_VIEW_NIGHT_MODE, DEFAULT_PALM_DETECTION,
-  DEFAULT_SHAPE_DETECTION_ENABLED, DEFAULT_STRAIGHT_LINES, EditorSettingsStore,
+  DEFAULT_RULER_UNITS, DEFAULT_SHAPE_DETECTION_ENABLED, DEFAULT_STRAIGHT_LINES,
+  EditorSettingsStore, RULER_UNITS_IMPERIAL, RULER_UNITS_METRIC,
 } from '../../data/EditorSettingsStore';
 import { ThemeMode, ThemeTokens } from '../theme/EditorTheme';
 import {
@@ -39,6 +40,7 @@ struct SettingsPage {
   @State autoDeselectEraserEnabled: boolean = DEFAULT_AUTO_DESELECT_ERASER;
   @State palmDetectionEnabled: boolean = DEFAULT_PALM_DETECTION;
   @State straightLinesEnabled: boolean = DEFAULT_STRAIGHT_LINES;
+  @State rulerUnits: string = DEFAULT_RULER_UNITS;
   @State recognitionLanguageCode: string = ORIGINAL_HANDWRITING_DEFAULT_LOCALE_CODE;
   @State saveBusy: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -57,6 +59,18 @@ struct SettingsPage {
       onPick: (localeCode: string): void => {
         this.setRecognitionLanguage(localeCode).catch((e: Error) => {
           console.error(`SettingsPage language pick failed: ${JSON.stringify(e)}`);
+        });
+      },
+    }),
+    autoCancel: true,
+  });
+  // 原版 n94：ruler_units 选择器，oof.N 顺序 Imperial→Metric。
+  private rulerUnitsDialog: CustomDialogController = new CustomDialogController({
+    builder: RulerUnitsDialog({
+      selected: this.rulerUnits,
+      onPick: (units: string): void => {
+        this.setRulerUnits(units).catch((e: Error) => {
+          console.error(`SettingsPage ruler-units pick failed: ${JSON.stringify(e)}`);
         });
       },
     }),
@@ -96,6 +110,7 @@ struct SettingsPage {
       const autoDeselect: boolean = await store.getAutoDeselectEraser();
       const palmDetection: boolean = await store.getPalmDetectionEnabled();
       const straightLines: boolean = await store.getStraightLinesEnabled();
+      const rulerUnits: string = await store.getRulerUnits();
       const languageStore: OriginalHandwritingLanguagePreferenceStore =
         new OriginalHandwritingLanguagePreferenceStore(context);
       const storedLanguage: string | null = await languageStore.getRecognitionLanguageId();
@@ -111,6 +126,7 @@ struct SettingsPage {
       this.autoDeselectEraserEnabled = autoDeselect;
       this.palmDetectionEnabled = palmDetection;
       this.straightLinesEnabled = straightLines;
+      this.rulerUnits = rulerUnits;
       this.languageStore = languageStore;
       this.recognitionLanguageCode = resolveOriginalHandwritingLanguage(
         null, storedLanguage, readHarmonyOriginalHandwritingLocale()).localeCode;
@@ -246,6 +262,40 @@ struct SettingsPage {
       }
       this.straightLinesEnabled = previous;
       console.error(`SettingsPage straight-lines save failed: ${JSON.stringify(e)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
+      } catch (toastError) {
+        console.error(`SettingsPage toast failed: ${JSON.stringify(toastError)}`);
+      }
+    } finally {
+      this.saveBusy = false;
+    }
+  }
+
+  // 原版 x22 case 4 / n94：ruler_units 选择——点选写入 o59.n（oof.I 序列化），
+  // 同一乐观更新+回滚+生命周期守护模式。
+  private async setRulerUnits(units: string): Promise<void> {
+    const store: EditorSettingsStore | null = this.store;
+    if (store === null || this.loadState !== SettingsLoadState.READY || this.saveBusy ||
+      (units !== RULER_UNITS_IMPERIAL && units !== RULER_UNITS_METRIC) ||
+      units === this.rulerUnits) {
+      return;
+    }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
+    const previous: string = this.rulerUnits;
+    this.rulerUnits = units;
+    this.saveBusy = true;
+    try {
+      await store.saveRulerUnits(units);
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+    } catch (e) {
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+      this.rulerUnits = previous;
+      console.error(`SettingsPage ruler-units save failed: ${JSON.stringify(e)}`);
       try {
         promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
       } catch (toastError) {
@@ -674,9 +724,35 @@ struct SettingsPage {
             .padding({ left: 12, right: 12, top: 10, bottom: 10 })
             .backgroundColor(this.resolveTokens().surface)
 
+            // 原版 x22 case 4：ruler_units 行——尾部显示当前单位
+            //（vnh.c → feature_settings__imperial/metric），点击打开
+            // n94 单位选择器。原版尺具虽被 s01.a0 隐藏，该行仍可见。
+            Row() {
+              Column() {
+                Text($r('app.string.ruler_units'))
+                  .fontSize(16)
+                  .fontColor(this.resolveTokens().textPrimary)
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+              Text(this.rulerUnits === RULER_UNITS_METRIC
+                ? $r('app.string.metric')
+                : $r('app.string.imperial'))
+                .fontSize(14)
+                .fontColor(this.resolveTokens().textSecondary)
+            }
+            .width('100%')
+            .margin({ top: 8 })
+            .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+            .backgroundColor(this.resolveTokens().surface)
+            .onClick(() => {
+              if (!this.saveBusy) {
+                this.rulerUnitsDialog.open();
+              }
+            })
+
             // 原版 x22 case 5：language 行——尾部显示当前识别语言名
             //（pb5 case 0 用 dc5→显示名映射），点击打开语言选择器。
-            // ruler_units（x22 case 4）因 Harmony 无尺具未移植。
             Row() {
               Column() {
                 Text($r('app.string.language'))
@@ -872,6 +948,70 @@ struct HandwritingLanguageDialog {
       }
       .width('100%')
       .height(360)
+    }
+    .padding(16)
+    .width(320)
+    .backgroundColor(this.resolveTokens().surface)
+  }
+}
+
+interface RulerUnitsOption {
+  units: string;
+  label: Resource;
+}
+
+// 原版 n94：ruler_units 单位选择器，oof.N 顺序 Imperial→Metric，
+// 当前项显示选中标记，点选经 vc→wb5 写 o59.n 并关闭。
+@CustomDialog
+struct RulerUnitsDialog {
+  controller?: CustomDialogController;
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+  selected: string = DEFAULT_RULER_UNITS;
+  options: RulerUnitsOption[] = [
+    { units: RULER_UNITS_IMPERIAL, label: $r('app.string.imperial') },
+    { units: RULER_UNITS_METRIC, label: $r('app.string.metric') },
+  ];
+  onPick: (units: string) => void = (_units: string): void => {
+  };
+
+  private resolveTokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  build() {
+    Column() {
+      Text($r('app.string.ruler_units'))
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.resolveTokens().textPrimary)
+        .margin({ bottom: 8 })
+      Column() {
+        ForEach(this.options, (option: RulerUnitsOption) => {
+          Row() {
+            Text(option.label)
+              .layoutWeight(1)
+              .fontSize(15)
+              .fontColor(this.resolveTokens().textPrimary)
+            if (option.units === this.selected) {
+              Text('✓')
+                .fontSize(15)
+                .fontColor(this.resolveTokens().accent)
+            }
+          }
+          .width('100%')
+          .height(44)
+          .padding({ left: 8, right: 8 })
+          .onClick(() => {
+            if (this.controller !== undefined) {
+              this.controller.close();
+            }
+            this.onPick(option.units);
+          })
+        }, (option: RulerUnitsOption): string => option.units)
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
     }
     .padding(16)
     .width(320)
