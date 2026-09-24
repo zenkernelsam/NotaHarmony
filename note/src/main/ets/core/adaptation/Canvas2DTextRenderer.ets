@@ -40,6 +40,7 @@ export class Canvas2DTextRenderer {
       characters.length, element.characterStyleRuns);
     const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
       characters.length, element.paragraphStyleRuns);
+    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length);
     let maximum: number = Math.max(1, element.contentLeftInset +
       (element.contentRightInset ?? element.contentLeftInset));
     let lineStart: number = 0;
@@ -92,6 +93,7 @@ export class Canvas2DTextRenderer {
         characters.length, element.characterStyleRuns);
       const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
         characters.length, element.paragraphStyleRuns);
+      this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length);
       let baseline: number = element.textOrigin.y + element.contentTopInset + element.fontSize;
       let numberedParagraph: number = 1;
       const lines: TextLayoutLine[] = this.layoutLines(ctx, characters, characterStyles, element);
@@ -99,6 +101,14 @@ export class Canvas2DTextRenderer {
         const lineStart: number = line.start;
         const paragraph: RichTextParagraphStyle = paragraphStyles[Math.min(
           lineStart, Math.max(0, characters.length - 1))] ?? {};
+        if (paragraph.decoratorStyle === 5) {
+          // 原版 lj3（ADR-0648）：CODE_BLOCK 段落绘制整行浅底带。
+          const bandSpacing: number = paragraph.lineSpacing === undefined ||
+            paragraph.lineSpacing <= 0 ? 1 : paragraph.lineSpacing;
+          ctx.setFillStyle(this.colorToRgba(element.fontColor, 0.08));
+          ctx.fillRect(element.textOrigin.x, baseline - element.fontSize,
+            element.blockWidth, (element.fontSize + 8) * bandSpacing);
+        }
         const prefix: string = line.paragraphStart ? this.decoratorPrefix(
           paragraph.decoratorStyle, numberedParagraph, paragraph.isChecked) : '';
         if (line.paragraphStart && paragraph.decoratorStyle === 2) {
@@ -248,6 +258,7 @@ export class Canvas2DTextRenderer {
       characters.length, element.characterStyleRuns);
     const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
       characters.length, element.paragraphStyleRuns);
+    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length);
     let baseline: number = element.textOrigin.y + element.contentTopInset + element.fontSize;
     let numberedParagraph: number = 1;
     ctx.save();
@@ -322,6 +333,7 @@ export class Canvas2DTextRenderer {
       characters.length, element.characterStyleRuns);
     const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
       characters.length, element.paragraphStyleRuns);
+    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length);
     let baseline: number = element.textOrigin.y + element.contentTopInset + element.fontSize;
     let numberedParagraph: number = 1;
     ctx.save();
@@ -706,6 +718,20 @@ export class Canvas2DTextRenderer {
       }
     }
     return result;
+  }
+
+  // 原版 lj3（ADR-0648）：CODE_BLOCK(5) 段落整段切换等宽字族。改写作用于
+  // 字形级样式数组，使 measure/layout/render/hit 各处度量一致。
+  private applyCodeBlockFace(characterStyles: RichTextCharacterStyle[],
+    paragraphStyles: RichTextParagraphStyle[], length: number): void {
+    for (let index: number = 0; index < length; index++) {
+      if (paragraphStyles[index].decoratorStyle === 5) {
+        const codeStyle: RichTextCharacterStyle =
+          JSON.parse(JSON.stringify(characterStyles[index])) as RichTextCharacterStyle;
+        codeStyle.familyName = 'monospace';
+        characterStyles[index] = codeStyle;
+      }
+    }
   }
 
   private paragraphStyles(length: number, runs: RichTextParagraphStyleRun[] | undefined):

@@ -520,6 +520,8 @@
     { "name": "eyedropper", "value": "取色器" },
     { "name": "docscan", "value": "文档扫描" },
     { "name": "scanned_document_title", "value": "扫描文档 %1$s" },
-    { "name": "doc_scan_failed", "value": "无法从扫描件创建笔记，请重试。" }
+    { "name": "doc_scan_failed", "value": "无法从扫描件创建笔记，请重试。" },
+    { "name": "block_quote", "value": "引用" },
+    { "name": "code_block", "value": "代码块" }
   ]
 }

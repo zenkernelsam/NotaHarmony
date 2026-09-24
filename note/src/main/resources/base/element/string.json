@@ -1286,6 +1286,8 @@
     { "name": "eyedropper", "value": "Eyedropper" },
     { "name": "docscan", "value": "Document Scan" },
     { "name": "scanned_document_title", "value": "Scanned Document %1$s" },
-    { "name": "doc_scan_failed", "value": "Couldn't create note from scan. Please try again." }
+    { "name": "doc_scan_failed", "value": "Couldn't create note from scan. Please try again." },
+    { "name": "block_quote", "value": "Block quote" },
+    { "name": "code_block", "value": "Code block" }
   ]
 }

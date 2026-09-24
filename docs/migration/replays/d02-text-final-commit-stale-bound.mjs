@@ -5,7 +5,7 @@ const page = fs.readFileSync('note/src/main/ets/ui/editor/NoteCanvasView.ets', '
   .replaceAll('\r\n', '\n');
 
 assert.match(page, /private textCommitGeneration: number = 0;/);
-const start = page.indexOf('  async onTextCommit(text: string): Promise<boolean> {');
+const start = page.indexOf('  async onTextCommit(text: string,');
 const end = page.indexOf('  onTextCancel(): void {', start);
 assert.ok(start !== -1 && end !== -1 && end > start);
 const body = page.slice(start, end);

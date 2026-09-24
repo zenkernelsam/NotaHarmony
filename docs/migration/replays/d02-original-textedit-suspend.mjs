@@ -53,7 +53,7 @@ check(begin.includes('this.suspendedCaretByBlock.get(') &&
 
 // --- 显式销毁（oke/Done/Cancel）清除挂起条目 ---
 const commit = canvas.slice(canvas.indexOf('async onTextCommit('),
-  canvas.indexOf('async onTextCommit(') + 5600);
+  canvas.indexOf('async onTextCommit(') + 8600);
 check(commit.includes('this.suspendedCaretByBlock.delete('),
   'explicit commit destroys the suspended session entry');
 const cancel = canvas.slice(canvas.indexOf('onTextCancel(): void'),

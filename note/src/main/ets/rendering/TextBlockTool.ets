@@ -40,7 +40,9 @@ export class TextBlockTool {
     paragraphStyleRuns?: RichTextParagraphStyleRun[]): TextBlockElement {
     // The original RichText register treats an unchanged editor commit as a no-op.
     // Rebuilding it would discard imported character/paragraph runs without an Undo entry.
-    if (text === element.richText) {
+    // 原版 h32（ADR-0648）：段落样式提交可在文本不变时单独到达——显式提供
+    // paragraphStyleRuns 时不再按 no-op 短路。
+    if (text === element.richText && paragraphStyleRuns === undefined) {
       return cloneTextBlockElement(element);
     }
     const lines: number = text.split('\n').length;

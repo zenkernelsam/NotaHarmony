@@ -16,7 +16,7 @@ assert.match(originalReplace, /List listE = m18\.E\(th7VarS\)/);
 assert.match(canvas,
   /if \(this\.editingOriginalTextBlock === null && text\.length === 0\)/);
 assert.match(canvas,
-  /this\.editingOriginalTextBlock\.richText !== text &&\s*decodeOperationId\(this\.editingOriginalTextBlock\.id\) === null/);
+  /\(this\.editingOriginalTextBlock\.richText !== text \|\| stylesDiffer\) &&\s*decodeOperationId\(this\.editingOriginalTextBlock\.id\) === null/);
 assert.match(canvas,
   /decodeOperationId\(this\.editingOriginalTextBlock\.id\) === null\)[\s\S]*this\.textBlockTool\.updateText\(this\.editingTextBlock, text\)[\s\S]*UndoableActionType\.REPLACE_ELEMENT/);
 assert.match(canvas,

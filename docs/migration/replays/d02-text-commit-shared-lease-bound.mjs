@@ -4,7 +4,7 @@ import fs from 'node:fs';
 const canvas = fs.readFileSync('note/src/main/ets/ui/editor/NoteCanvasView.ets', 'utf8')
   .replaceAll('\r\n', '\n');
 
-const start = canvas.indexOf('  async onTextCommit(text: string): Promise<boolean> {');
+const start = canvas.indexOf('  async onTextCommit(text: string,');
 const end = canvas.indexOf('\n  onTextCancel(): void {', start);
 assert.ok(start >= 0 && end > start);
 const body = canvas.slice(start, end);

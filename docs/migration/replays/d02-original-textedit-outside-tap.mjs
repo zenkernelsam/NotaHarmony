@@ -49,7 +49,7 @@ check(down.indexOf('this.suspendTextEditing()') <
 
 // --- onTextCommit 尾部即停用（oke.a 停用语义） ---
 const commit = canvas.slice(canvas.indexOf('async onTextCommit('),
-  canvas.indexOf('async onTextCommit(') + 5200);
+  canvas.indexOf('async onTextCommit(') + 8200);
 check(commit.includes('this.textEditing = false;') &&
   commit.includes('this.editingTextBlock = null;'),
   'onTextCommit deactivates the editor');
