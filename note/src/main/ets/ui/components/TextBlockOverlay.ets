@@ -4,6 +4,7 @@ import { Point2D, Rect2D } from '../../core/model/GeometryTypes';
 import { textBlockTransformComponents, TextBlockTransformComponents } from '../../core/model/TextBlockGeometry';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
+import { preferences } from '@kit.ArkData';
 
 // 原版 rs1.d 代码块语言表（27 项，含 plaintext 哨兵 rs1.c——原版派单把
 // plaintext 映射为 null=清除 programmingLanguage 字段）。
@@ -64,6 +65,7 @@ export struct TextBlockOverlay {
   @State showTextColorSheet: boolean = false;
   @State showHsvSheet: boolean = false;
   @State hsvTarget: number = 0;             // 0=foreground(qte) 1=highlight(rte)
+  @State colorRecents: number[] = [];
   @State hsvH: number = 0;
   @State hsvS: number = 0;
   @State hsvV: number = 0;
@@ -96,6 +98,9 @@ export struct TextBlockOverlay {
   aboutToAppear(): void {
     this.draftText = this.element !== null ? this.element.richText : '';
     this.seedParagraphStyles();
+    this.loadColorRecents().catch((e: Error) => {
+      console.error(`loadColorRecents failed: ${JSON.stringify(e)}`);
+    });
   }
 
   onElementChange(): void {
@@ -446,6 +451,7 @@ export struct TextBlockOverlay {
   private toggleHighlightColor(color: number): void {
     const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
     const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    this.recordRecentColor(color);
     if (s === e) {
       this.pendingCharStyles.highlightColor = color;
       this.pendingClearHighlight = false;
@@ -720,6 +726,7 @@ export struct TextBlockOverlay {
   private pickTextColor(color: number): void {
     const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
     const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    this.recordRecentColor(color);
     this.showTextColorSheet = false;
     if (s === e) {
       this.pendingCharStyles.foregroundColor = color;
@@ -745,6 +752,69 @@ export struct TextBlockOverlay {
     this.applyForegroundColor(null, s, e);
     this.normalizeCharRuns();
     this.refreshCaretCharStyles();
+  }
+
+  // 原版 zw1/sw1/ms0 最近色：bhb 记录→sw1{recentColors} 面板行（7 槽
+  // 上限）。Harmony 持久化到 preferences 'text_color_recents'，
+  // 前景/高亮两面板共享一份（与原版同一 rw1 面板语义一致）。
+  private async loadColorRecents(): Promise<void> {
+    const store = await preferences.getPreferences(
+      getContext(this), 'text_color_recents');
+    const raw: preferences.ValueType = store.getSync('recents', '[]');
+    const list: number[] =
+      JSON.parse(typeof raw === 'string' ? raw : '[]') as number[];
+    this.colorRecents = list
+      .filter((v: number): boolean => typeof v === 'number')
+      .slice(0, 7);
+  }
+
+  private recordRecentColor(color: number): void {
+    this.colorRecents =
+      [color, ...this.colorRecents.filter((c: number): boolean => c !== color)]
+        .slice(0, 7);
+    this.saveColorRecents().catch((e: Error) => {
+      console.error(`saveColorRecents failed: ${JSON.stringify(e)}`);
+    });
+  }
+
+  private async saveColorRecents(): Promise<void> {
+    const store = await preferences.getPreferences(
+      getContext(this), 'text_color_recents');
+    store.putSync('recents', JSON.stringify(this.colorRecents));
+    await store.flush();
+  }
+
+  // 最近色点按：按当前 hsvTarget 分派前景/高亮管线（命中项自动前移）。
+  private pickRecentColor(color: number): void {
+    this.showHsvSheet = false;
+    if (this.hsvTarget === 1) {
+      this.toggleHighlightColor(color);
+    } else {
+      this.pickTextColor(color);
+    }
+  }
+
+  // 最近色行（rw1.f 等价）：仅在有记录时渲染。
+  @Builder
+  private buildColorRecentsRow(): void {
+    if (this.colorRecents.length > 0) {
+      Row() {
+        ForEach(this.colorRecents, (color: number) => {
+          Column()
+            .width(24)
+            .height(24)
+            .borderRadius(12)
+            .backgroundColor(color)
+            .border({ width: 1, color: this.resolveTokens().border })
+            .margin({ right: 8 })
+            .enabled(!this.photoImportLeaseActive)
+            .onClick(() => {
+              this.pickRecentColor(color);
+            })
+        }, (color: number) => 'recent:' + color.toString())
+      }
+      .margin({ bottom: 12 })
+    }
   }
 
   // 原版 ru1=ColorHSV(h,s,v)/te5.B：HSV→ARGB（alpha=FF），纯函数。
@@ -919,6 +989,7 @@ export struct TextBlockOverlay {
         }
       })
       .margin({ bottom: 16 })
+      this.buildColorRecentsRow()
       Row() {
         Button($r('app.string.color_apply'))
           .height(32)
@@ -969,6 +1040,7 @@ export struct TextBlockOverlay {
       .rowsGap(12)
       .width(200)
       .margin({ bottom: 16 })
+      this.buildColorRecentsRow()
       Row() {
         Button($r('app.string.color_automatic'))
           .height(32)
@@ -1993,6 +2065,7 @@ export struct TextBlockOverlay {
               showClose: true,
             })
             .onClick(() => {
+              this.hsvTarget = 0;
               this.showTextColorSheet = true;
             })
           // 原版 tqe.LINK/tte/aue：链接 sheet（URL+标题）→ replaceSelectedText
