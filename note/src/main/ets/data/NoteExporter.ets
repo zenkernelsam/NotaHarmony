@@ -66,8 +66,12 @@ export class NoteExporter {
     this.persistence = persistence;
   }
 
-  // 导出单个笔记为 .note Uint8Array；失败返回 null
-  async exportNote(noteId: string): Promise<Uint8Array | null> {
+  // 导出单个笔记为 .note Uint8Array；失败返回 null。
+  // includeRecordings 对应原版分享面板 include_recording 开关
+  // （v6d.j / zk9.a->yk9.O）：false 时录音资产与 recordings.json
+  // 清单一并跳过。
+  async exportNote(noteId: string,
+    includeRecordings: boolean = true): Promise<Uint8Array | null> {
     try {
       const noteRepo = new NoteRepositoryImpl(this.db);
       const note: NoteMeta | null = await noteRepo.getNote(noteId);
@@ -141,13 +145,13 @@ export class NoteExporter {
       // original yk9 .note export: recording audio joins note.assets like
       // every other asset — content-hash keyed assets/<sha512>[.<ext>]
       // (CREATE_RECORDING contributes its ua0 when the share-sheet
-      // includeRecordings flag zk9.a->yk9.O is true; Harmony export always
-      // includes recordings). A declared asset whose file is missing aborts
-      // the whole export (MissingAssetsException parity) via the shared
-      // fail-closed write loop below. Recordings/<name>.<ext> naming only
-      // exists in the x59 ZIP share format (deferred epic), not in .note.
-      const recordings: MaterializedOriginalRecording[] =
-        await new OriginalRecordingStore(this.db).listVisible(noteId);
+      // includeRecordings flag zk9.a->yk9.O is true). A declared asset
+      // whose file is missing aborts the whole export
+      // (MissingAssetsException parity) via the shared fail-closed write
+      // loop below. Recordings/<name>.<ext> naming only exists in the
+      // x59 ZIP share format (deferred epic), not in .note.
+      const recordings: MaterializedOriginalRecording[] = includeRecordings ?
+        await new OriginalRecordingStore(this.db).listVisible(noteId) : [];
       for (const recording of recordings) {
         this.addAsset(assets, {
           assetHashBits: recording.assetHashBits,
@@ -202,13 +206,14 @@ export class NoteExporter {
   }
 
   // 导出并保存到文件（系统 picker 保存对话框）；成功返回 true
-  async exportToFile(context: common.UIAbilityContext, noteId: string, title: string): Promise<boolean> {
+  async exportToFile(context: common.UIAbilityContext, noteId: string,
+    title: string, includeRecordings: boolean = true): Promise<boolean> {
     let tmpPath: string = '';
     let tmpFile: fileIo.File | null = null;
     let srcFile: fileIo.File | null = null;
     let dstFile: fileIo.File | null = null;
     try {
-      let data: Uint8Array | null = await this.exportNote(noteId);
+      let data: Uint8Array | null = await this.exportNote(noteId, includeRecordings);
       if (data === null) {
         return false;
       }

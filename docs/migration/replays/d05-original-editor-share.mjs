@@ -89,48 +89,48 @@ check(toolbar.indexOf('cd_redo_action') < toolbar.indexOf('cd_share_action'),
   'share button sits after the redo button (original ordering)');
 check(toolbar.includes("accessibilityText($r('app.string.cd_share_action'))"),
   'share button carries the original-aligned a11y label');
-check(toolbar.includes('onShareNote: () => void'),
+check(toolbar.includes('onShareNote: (includeRecording: boolean) => void'),
   'EditorToolbar exposes the NOTE-format export callback');
 check(toolbar.includes('.bindSheet(this.showShareSheet, this.buildShareSheet()'),
   'share panel binds as a sheet on the toolbar');
-check(toolbar.indexOf("ShareFormatRow($r('app.string.share_link'), 'link', false)") <
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_pdf'), 'pdf', true)") &&
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_pdf'), 'pdf', true)") <
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_note'), 'note', true)") &&
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_note'), 'note', true)") <
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)") &&
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)") <
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_png'), 'png', true)"),
+check(toolbar.indexOf("ShareFormatChip($r('app.string.share_link'), 'link', false)") <
+  toolbar.indexOf("ShareFormatChip($r('app.string.share_pdf'), 'pdf', true)") &&
+  toolbar.indexOf("ShareFormatChip($r('app.string.share_pdf'), 'pdf', true)") <
+  toolbar.indexOf("ShareFormatChip($r('app.string.share_note'), 'note', true)") &&
+  toolbar.indexOf("ShareFormatChip($r('app.string.share_note'), 'note', true)") <
+  toolbar.indexOf("ShareFormatChip($r('app.string.share_jpg'), 'jpg', true)") &&
+  toolbar.indexOf("ShareFormatChip($r('app.string.share_jpg'), 'jpg', true)") <
+  toolbar.indexOf("ShareFormatChip($r('app.string.share_png'), 'png', true)"),
   'share sheet lists all five formats in the original s6d order');
-check(toolbar.includes("ShareFormatRow($r('app.string.share_pdf'), 'pdf', true)") &&
-  toolbar.includes("ShareFormatRow($r('app.string.share_note'), 'note', true)") &&
-  toolbar.includes("ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)") &&
-  toolbar.includes("ShareFormatRow($r('app.string.share_png'), 'png', true)"),
+check(toolbar.includes("ShareFormatChip($r('app.string.share_pdf'), 'pdf', true)") &&
+  toolbar.includes("ShareFormatChip($r('app.string.share_note'), 'note', true)") &&
+  toolbar.includes("ShareFormatChip($r('app.string.share_jpg'), 'jpg', true)") &&
+  toolbar.includes("ShareFormatChip($r('app.string.share_png'), 'png', true)"),
   'PDF, NOTE, JPG and PNG rows are enabled (642 raster, 643 pdf)');
 check(toolbar.includes('.opacity(supported ? 1 : 0.4)') &&
-  toolbar.includes('share_format_unsupported'),
-  'unsupported formats render dimmed with an unsupported caption');
-check(toolbar.includes('this.showShareSheet = false;\n      if (format === \'note\') {') &&
-  toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword);') &&
-  toolbar.includes('this.onShareImage(format, this.sharePageIndexes);'),
+  toolbar.includes('if (!supported) {'),
+  'the unsupported LINK chip renders dimmed and swallows taps');
+check(toolbar.includes('this.showShareSheet = false;\n    if (this.shareFormat === \'note\') {') &&
+  toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword,\n        this.shareIncludeBackground)') &&
+  toolbar.includes('this.onShareImage(this.shareFormat, this.sharePageIndexes,\n        this.shareIncludeBackground)'),
   'enabled rows close the sheet and dispatch to the format export');
 
 // --- Harmony：NotePage 接线与导出管线 ---
-check(notePage.includes('onShareNote: () => {') &&
-  notePage.includes('this.shareNoteAsFile();'),
+check(notePage.includes('onShareNote: (includeRecording: boolean) => {') &&
+  notePage.includes('this.shareNoteAsFile(includeRecording);'),
   'NotePage wires onShareNote to the export path');
-check(notePage.indexOf('onShareNote: () => {') > notePage.indexOf('onRedo: () => {'),
+check(notePage.indexOf('onShareNote: (includeRecording: boolean) => {') > notePage.indexOf('onRedo: () => {'),
   'onShareNote is registered alongside undo/redo callbacks');
-check(notePage.includes('private shareNoteAsFile(): void {') &&
+check(notePage.includes('private shareNoteAsFile(includeRecording: boolean): void {') &&
   notePage.includes('new NoteExporter(DatabaseManager.getInstance(), this.persistence)') &&
-  notePage.includes('exporter.exportToFile(context, this.noteId, this.noteTitle)'),
+  notePage.includes('exporter.exportToFile(context, this.noteId, this.noteTitle,\n      includeRecording)'),
   'shareNoteAsFile exports the open note through the library-grade pipeline');
 check(notePage.includes("import { NoteExporter } from '../../data/NoteExporter';"),
   'NotePage imports NoteExporter');
 check(notePage.includes("$r('app.string.export_done') : $r('app.string.export_failed')"),
   'export result reuses the existing done/failed toasts');
-check(exporter.includes('async exportToFile(context: common.UIAbilityContext, noteId: string, title: string)'),
-  'exportToFile already drives the system save picker for .note packages');
+check(exporter.includes('async exportToFile(context: common.UIAbilityContext, noteId: string,\n    title: string, includeRecordings: boolean = true)'),
+  'exportToFile drives the save picker; includeRecordings defaults true (v6d.j)');
 
 // --- 字符串资源（双语） ---
 for (const name of ['cd_share_action', 'share_sheet_title', 'share_link',

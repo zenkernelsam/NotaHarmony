@@ -27,6 +27,14 @@ export struct EditorToolbar {
   @State sharePasswordDraft: string = '';
   @State sharePasswordConfirm: string = '';
   @State sharePasswordMismatch: boolean = false;
+  // 原版 v6d.c 当前选中格式（s6d 枚举 ordinal：link/pdf/note/jpg/
+  // png）；原版单笔记默认 LINK、多笔记默认 PDF——LINK 在本端
+  // fail-closed（账号后端缺位），默认改取 pdf（文档化适配）。
+  @State shareFormat: string = 'pdf';
+  // 原版 v6d.i=includeBackground（初值 false）、v6d.j=
+  // includeRecording（初值 true）——b7d 构造器初值逐位对齐。
+  @State shareIncludeBackground: boolean = false;
+  @State shareIncludeRecording: boolean = true;
   private toolbarScroller: Scroller = new Scroller();
   // Undo/Redo 回调（T-021 实现功能）
   onUndo: () => void = () => {
@@ -49,18 +57,25 @@ export struct EditorToolbar {
   };
   // 原版 feature_note__toprighttoolbar_share_action → ui_share__chip_note：
   // 分享面板中唯一可由本端管线产出的格式为 .note 包。
-  onShareNote: () => void = () => {
+  // includeRecording 对应 v6d.j（zk9.a->yk9.O 旗标）。
+  onShareNote: (includeRecording: boolean) => void =
+    (_includeRecording: boolean): void => {
   };
   // 原版 s6d.JPG/PNG（atc case6/7）：页栅格化导出图像。
   // format 取值 'jpg' | 'png'；pageIndexes=null 时整册打包为单个 zip。
-  onShareImage: (format: string, pageIndexes: number[] | null) => void =
-    (_format: string, _pageIndexes: number[] | null): void => {
+  // includeBackground 对应 v6d.i（JPG/PNG 与 PDF 共用同一开关）。
+  onShareImage: (format: string, pageIndexes: number[] | null,
+    includeBackground: boolean) => void =
+    (_format: string, _pageIndexes: number[] | null,
+      _includeBackground: boolean): void => {
   };
   // 原版 s6d.PDF（atc case4）：所选页逐页栅格化导出单个 PDF；
   // pageIndexes=null 表示全部页（v6d.l 空集语义）；password 对应
   // v6d.k——非空时对产物施加打开密码（r6d.PASSWORD_ENTRY 设入）。
-  onSharePdf: (pageIndexes: number[] | null, password: string | null) => void =
-    (_pageIndexes: number[] | null, _password: string | null): void => {
+  onSharePdf: (pageIndexes: number[] | null, password: string | null,
+    includeBackground: boolean) => void =
+    (_pageIndexes: number[] | null, _password: string | null,
+      _includeBackground: boolean): void => {
   };
   // 分享页选择栅格的页列表与缩略图请求（宿主 NotePage 注入：
   // b7d.l(i,i2) 缩略图窗口的等价物）。普通字段——面板开启时按当前
@@ -435,6 +450,9 @@ export struct EditorToolbar {
         this.sharePasswordDraft = '';
         this.sharePasswordConfirm = '';
         this.sharePasswordMismatch = false;
+        this.shareFormat = 'pdf';
+        this.shareIncludeBackground = false;
+        this.shareIncludeRecording = true;
       },
     })
     .onAreaChange((_oldArea: Area, newArea: Area) => {
@@ -619,62 +637,165 @@ export struct EditorToolbar {
         .fontSize(16)
         .fontColor(this.resolveTokens().textPrimary)
         .margin({ top: 16, bottom: 12 })
-      // 原版 ui_share__page_range 行：值 = page_range_all /
-      // page_range_selection("%1$d of %2$d")，点击进 r6d.PAGE_SELECTION。
+      // 原版格式 chip 行（dih.j → x90.b 单选 chip 组）：v6d.c 切换
+      // 驱动下方分格式选项区；LINK 置灰不可选（fail-closed）。
       Row() {
-        Text($r('app.string.share_page_range'))
-          .fontSize(15)
-          .fontColor(this.resolveTokens().textPrimary)
-        Blank()
-        Text(this.shareSelectionLabel())
-          .fontSize(13)
-          .fontColor(this.resolveTokens().textSecondary)
-        Text('›')
-          .fontSize(16)
-          .fontColor(this.resolveTokens().textSecondary)
-          .margin({ left: 4 })
+        this.ShareFormatChip($r('app.string.share_link'), 'link', false)
+        this.ShareFormatChip($r('app.string.share_pdf'), 'pdf', true)
+        this.ShareFormatChip($r('app.string.share_note'), 'note', true)
+        this.ShareFormatChip($r('app.string.share_jpg'), 'jpg', true)
+        this.ShareFormatChip($r('app.string.share_png'), 'png', true)
       }
         .width('100%')
-        .height(44)
-        .padding({ left: 24, right: 24 })
-        .onClick(() => {
-          this.shareScreen = 'pages';
-        })
-      // 原版 ui_share__password 行（zy7 case17）：v6d.k 非空显 On，
-      // 否则 Off；点击进 r6d.PASSWORD_ENTRY。仅 PDF 导出消费。
-      Row() {
-        Text($r('app.string.share_password'))
-          .fontSize(15)
-          .fontColor(this.resolveTokens().textPrimary)
-        Blank()
-        Text(this.sharePassword !== null ?
-          $r('app.string.share_password_on') : $r('app.string.share_password_off'))
+        .padding({ left: 20, right: 20, bottom: 8 })
+      // 分格式选项区（dih.h=PDF / dih.d=NOTE / dih.a=JPG|PNG /
+      // dih.b=LINK）：页范围行与密码行按原版分支归属各自格式。
+      if (this.shareFormat === 'pdf') {
+        this.ShareRangeRow()
+        this.ShareToggleRow($r('app.string.share_include_background'),
+          this.shareIncludeBackground, 'bg')
+        this.ShareToggleRow($r('app.string.share_include_recording'),
+          this.shareIncludeRecording, 'rec')
+        this.SharePasswordRow()
+      } else if (this.shareFormat === 'note') {
+        this.ShareToggleRow($r('app.string.share_include_recording'),
+          this.shareIncludeRecording, 'rec')
+      } else if (this.shareFormat === 'jpg' || this.shareFormat === 'png') {
+        this.ShareRangeRow()
+        this.ShareToggleRow($r('app.string.share_include_background'),
+          this.shareIncludeBackground, 'bg')
+      } else {
+        Text($r('app.string.share_link_unavailable'))
           .fontSize(13)
           .fontColor(this.resolveTokens().textSecondary)
-        Text('›')
-          .fontSize(16)
+          .margin({ left: 24, right: 24, top: 8, bottom: 8 })
+      }
+      // 底部动作行（dih.i/g6d）：Cancel + "Share X"（按选中格式取
+      // ui_share__action_* 标签）；LINK 禁用导出。
+      Row() {
+        Text($r('app.string.share_cancel'))
+          .fontSize(15)
           .fontColor(this.resolveTokens().textSecondary)
-          .margin({ left: 4 })
+          .padding({ left: 24, right: 24, top: 12, bottom: 12 })
+          .onClick(() => {
+            this.showShareSheet = false;
+          })
+        Blank()
+        Text(this.shareActionLabel())
+          .fontSize(15)
+          .fontColor(this.shareFormat === 'link' ?
+            this.resolveTokens().textSecondary : this.resolveTokens().accent)
+          .padding({ left: 24, right: 24, top: 12, bottom: 12 })
+          .onClick(() => {
+            this.dispatchShare();
+          })
       }
         .width('100%')
-        .height(44)
-        .padding({ left: 24, right: 24 })
-        .onClick(() => {
-          // 进 PASSWORD_ENTRY 时回填既有密码草稿。
-          this.sharePasswordDraft = this.sharePassword !== null ?
-            this.sharePassword : '';
-          this.sharePasswordConfirm = this.sharePassword !== null ?
-            this.sharePassword : '';
-          this.sharePasswordMismatch = false;
-          this.shareScreen = 'password';
-        })
-      this.ShareFormatRow($r('app.string.share_link'), 'link', false)
-      this.ShareFormatRow($r('app.string.share_pdf'), 'pdf', true)
-      this.ShareFormatRow($r('app.string.share_note'), 'note', true)
-      this.ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)
-      this.ShareFormatRow($r('app.string.share_png'), 'png', true)
+        .margin({ top: 8 })
     }
     .width('100%')
+  }
+
+  // 原版主屏页范围行（dih.e/v8 case17）：Page range 标签 +
+  // All/"%d of %d" 值 + 点击进 PAGE_SELECTION。PDF/JPG/PNG 归属。
+  @Builder
+  ShareRangeRow() {
+    Row() {
+      Text($r('app.string.share_page_range'))
+        .fontSize(15)
+        .fontColor(this.resolveTokens().textPrimary)
+      Blank()
+      Text(this.shareSelectionLabel())
+        .fontSize(13)
+        .fontColor(this.resolveTokens().textSecondary)
+      Text('›')
+        .fontSize(16)
+        .fontColor(this.resolveTokens().textSecondary)
+        .margin({ left: 4 })
+    }
+      .width('100%')
+      .height(44)
+      .padding({ left: 24, right: 24 })
+      .onClick(() => {
+        this.shareScreen = 'pages';
+      })
+  }
+
+  // 原版主屏密码行（zy7 case17）：v6d.k!=null → On 否则 Off；
+  // 点击进 PASSWORD_ENTRY 回填既有密码。仅 PDF 归属。
+  @Builder
+  SharePasswordRow() {
+    Row() {
+      Text($r('app.string.share_password'))
+        .fontSize(15)
+        .fontColor(this.resolveTokens().textPrimary)
+      Blank()
+      Text(this.sharePassword !== null ?
+        $r('app.string.share_password_on') : $r('app.string.share_password_off'))
+        .fontSize(13)
+        .fontColor(this.resolveTokens().textSecondary)
+      Text('›')
+        .fontSize(16)
+        .fontColor(this.resolveTokens().textSecondary)
+        .margin({ left: 4 })
+    }
+      .width('100%')
+      .height(44)
+      .padding({ left: 24, right: 24 })
+      .onClick(() => {
+        this.sharePasswordDraft = this.sharePassword !== null ?
+          this.sharePassword : '';
+        this.sharePasswordConfirm = this.sharePassword !== null ?
+          this.sharePassword : '';
+        this.sharePasswordMismatch = false;
+        this.shareScreen = 'password';
+      })
+  }
+
+  // 原版 include_* 行（fw2 标签 + j6d e9e.a 开关）：v6d.i（'bg'）
+  // 或 v6d.j（'rec'）布尔绑定。
+  @Builder
+  ShareToggleRow(label: ResourceStr, value: boolean, which: string) {
+    Row() {
+      Text(label)
+        .fontSize(15)
+        .fontColor(this.resolveTokens().textPrimary)
+      Blank()
+      Toggle({ type: ToggleType.Switch, isOn: value })
+        .onChange((enabled: boolean) => {
+          if (which === 'bg') {
+            this.shareIncludeBackground = enabled;
+          } else {
+            this.shareIncludeRecording = enabled;
+          }
+        })
+    }
+      .width('100%')
+      .height(44)
+      .padding({ left: 24, right: 24 })
+  }
+
+  // 原版格式 chip（x90.b 单选组单元）：选中态 accent 底/白字，
+  // LINK 置灰不可点。
+  @Builder
+  ShareFormatChip(label: ResourceStr, format: string, supported: boolean) {
+    Text(label)
+      .fontSize(13)
+      .fontColor(!supported ? this.resolveTokens().textSecondary :
+        (this.shareFormat === format ? '#FFFFFF' :
+          this.resolveTokens().textPrimary))
+      .backgroundColor(this.shareFormat === format && supported ?
+        this.resolveTokens().accent : this.resolveTokens().control)
+      .borderRadius(14)
+      .padding({ left: 14, right: 14, top: 6, bottom: 6 })
+      .margin({ right: 8 })
+      .opacity(supported ? 1 : 0.4)
+      .onClick(() => {
+        if (!supported) {
+          return;
+        }
+        this.shareFormat = format;
+      })
   }
 
   // 原版 r6d.PAGE_SELECTION 屏：页缩略图栅格逐页勾选（b7d.q），
@@ -836,37 +957,39 @@ export struct EditorToolbar {
     .width('100%')
   }
 
-  @Builder
-  ShareFormatRow(label: ResourceStr, format: string, supported: boolean) {
-    Row() {
-      Text(label)
-        .fontSize(15)
-        .fontColor(this.resolveTokens().textPrimary)
-      Blank()
-      if (!supported) {
-        Text($r('app.string.share_format_unsupported'))
-          .fontSize(12)
-          .fontColor(this.resolveTokens().textSecondary)
-      }
+  // 原版 "Share X" 动作（g6d）：按 v6d.c 选中格式分发；NOTE 恒整册
+  // （v6d.l 不作用于 .note 归档）；LINK 不可达（chip 禁用）。
+  private dispatchShare(): void {
+    if (this.shareFormat === 'link') {
+      return;
     }
-    .width('100%')
-    .height(44)
-    .padding({ left: 24, right: 24 })
-    .opacity(supported ? 1 : 0.4)
-    .onClick(() => {
-      if (!supported) {
-        return;
-      }
-      this.showShareSheet = false;
-      if (format === 'note') {
-        // NOTE 恒整册导出（v6d.l 不作用于 .note 归档）。
-        this.onShareNote();
-      } else if (format === 'pdf') {
-        this.onSharePdf(this.sharePageIndexes, this.sharePassword);
-      } else {
-        this.onShareImage(format, this.sharePageIndexes);
-      }
-    })
+    this.showShareSheet = false;
+    if (this.shareFormat === 'note') {
+      this.onShareNote(this.shareIncludeRecording);
+    } else if (this.shareFormat === 'pdf') {
+      this.onSharePdf(this.sharePageIndexes, this.sharePassword,
+        this.shareIncludeBackground);
+    } else {
+      this.onShareImage(this.shareFormat, this.sharePageIndexes,
+        this.shareIncludeBackground);
+    }
+  }
+
+  // 原版 s6d.L（单笔记 action 标签）→ "Share PDF" 等。
+  private shareActionLabel(): ResourceStr {
+    if (this.shareFormat === 'note') {
+      return $r('app.string.share_action_note');
+    }
+    if (this.shareFormat === 'jpg') {
+      return $r('app.string.share_action_jpg');
+    }
+    if (this.shareFormat === 'png') {
+      return $r('app.string.share_action_png');
+    }
+    if (this.shareFormat === 'link') {
+      return $r('app.string.share_action_link');
+    }
+    return $r('app.string.share_action_pdf');
   }
 
   @Builder

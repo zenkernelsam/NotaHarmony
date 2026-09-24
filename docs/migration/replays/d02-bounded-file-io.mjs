@@ -46,7 +46,7 @@ check('note export streams the temporary file instead of allocating a second arc
   !exporter.includes('readFileFully(srcFile.fd, size)') &&
   exportCopy.includes('Math.min(FILE_READ_CHUNK_SIZE, size - total)'));
 check('note export releases aggregate archive bytes before awaiting the picker',
-  exporter.includes('let data: Uint8Array | null = await this.exportNote(noteId)') &&
+  exporter.includes('let data: Uint8Array | null = await this.exportNote(noteId, includeRecordings)') &&
   exporter.includes('const expectedSize: number = data.byteLength') &&
   exporter.indexOf('data = null;') < exporter.indexOf('await documentPicker.save(saveOptions)'));
 check('note export forwards the exact read view into complete-write handling',

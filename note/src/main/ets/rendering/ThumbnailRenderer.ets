@@ -105,15 +105,23 @@ export class ThumbnailRenderer {
 
   // 原版分享面板 JPG/PNG（s6d，atc case6/7）：整页按 pagePixelSize×scale
   // 逐像素栅格化（无边距、无 letterbox），供分享导出。
+  // exportBackground 对应原版 v6d.i（include_background 开关）：
+  //   'paper' = 纸面/PDF 背景照常渲染（默认）；
+  //   'white' = 不渲染背景但先填白底（JPEG/PDF 等无 alpha 目标）；
+  //   'transparent' = 完全不渲染背景（PNG 保留透明）。
   // The caller owns the returned PixelMap and must release it.
   async renderPageExport(noteId: string, persistence: StrokePersistence,
     page: PageInfo, theme: ThemeTokens, database: DatabaseManager,
-    scale: number): Promise<PixelMap> {
+    scale: number, exportBackground: string = 'paper'): Promise<PixelMap> {
     if (this.disposed) {
       throw new Error('ThumbnailRenderer is disposed');
     }
     if (!Number.isFinite(scale) || scale <= 0) {
       throw new Error(`Invalid export scale: ${scale}`);
+    }
+    if (exportBackground !== 'paper' && exportBackground !== 'white' &&
+      exportBackground !== 'transparent') {
+      throw new Error(`Invalid export background mode: ${exportBackground}`);
     }
     const pageSize: PagePixelSize = pagePixelSize(page.widthMm, page.heightMm);
     const outW: number = Math.round(pageSize.width * scale);
@@ -127,13 +135,14 @@ export class ThumbnailRenderer {
       offset: { x: 0, y: 0 },
     };
     return this.renderPageCore(noteId, persistence, page, theme, database,
-      pageSize, outW, outH, pageTransform);
+      pageSize, outW, outH, pageTransform, exportBackground);
   }
 
   private async renderPageCore(noteId: string, persistence: StrokePersistence,
     page: PageInfo, theme: ThemeTokens, database: DatabaseManager,
     pageSize: PagePixelSize, outW: number, outH: number,
-    pageTransform: ThumbnailPageTransform): Promise<PixelMap> {
+    pageTransform: ThumbnailPageTransform,
+    exportBackground: string = 'paper'): Promise<PixelMap> {
     const loaded = await persistence.loadElements(noteId, page.pageId);
     const imageLoader: ImageAssetLoader = new ImageAssetLoader(database);
     const pdfLoader: PdfBackgroundLoader = new PdfBackgroundLoader(database);
@@ -147,7 +156,10 @@ export class ThumbnailRenderer {
           imageAssets.set(storageHash, await imageLoader.load(block));
         }
       }
-      const effective: PageBackground | null = effectivePageBackground(page);
+      // v6d.i=Off 时纸面/PDF 背景整层不取不画（'white'/'transparent'）。
+      const renderPaper: boolean = exportBackground === 'paper';
+      const effective: PageBackground | null =
+        renderPaper ? effectivePageBackground(page) : null;
       if (effective !== null && effective.pdf !== undefined && effective.pdf !== null) {
         const rasterRequest: PdfRasterRequest = {
           paperWidth: pageSize.width,
@@ -177,12 +189,17 @@ export class ThumbnailRenderer {
       try {
         ctx.translate(pageTransform.offset.x, pageTransform.offset.y);
         ctx.scale(pageTransform.scale, pageTransform.scale);
-        this.paperRenderer.renderOffscreenBackground(ctx, pageSize.width, pageSize.height,
-          page, pageTransform.scale, theme,
-          pdfBackground !== null && pdfBackground.state === PdfBackgroundLoadState.READY
-            ? pdfBackground.bitmap : null, paperTexture,
-          pdfBackground !== null && pdfBackground.state === PdfBackgroundLoadState.READY
-            ? pdfBackground.renderRect : null);
+        if (exportBackground === 'paper') {
+          this.paperRenderer.renderOffscreenBackground(ctx, pageSize.width, pageSize.height,
+            page, pageTransform.scale, theme,
+            pdfBackground !== null && pdfBackground.state === PdfBackgroundLoadState.READY
+              ? pdfBackground.bitmap : null, paperTexture,
+            pdfBackground !== null && pdfBackground.state === PdfBackgroundLoadState.READY
+              ? pdfBackground.renderRect : null);
+        } else if (exportBackground === 'white') {
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, pageSize.width, pageSize.height);
+        }
         const renderContext: Canvas2DOffscreenRenderContext = new Canvas2DOffscreenRenderContext(ctx);
         const mathRasterScale: number = originalMathRasterScale(pageTransform.scale, 1);
         for (const element of loaded.elements) {

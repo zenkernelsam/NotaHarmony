@@ -86,14 +86,14 @@ check(exporter.includes('fileIo.unlinkSync(tmpPath)'),
   'temporary raster file is cleaned up');
 
 // --- Harmony：工具栏与 NotePage 接线 ---
-check(toolbar.includes("ShareFormatRow($r('app.string.share_jpg'), 'jpg', true)") &&
-  toolbar.includes("ShareFormatRow($r('app.string.share_png'), 'png', true)"),
+check(toolbar.includes("ShareFormatChip($r('app.string.share_jpg'), 'jpg', true)") &&
+  toolbar.includes("ShareFormatChip($r('app.string.share_png'), 'png', true)"),
   'jpg/png rows are enabled');
-check(toolbar.includes('onShareImage: (format: string, pageIndexes: number[] | null) => void') &&
-  toolbar.includes('this.onShareImage(format, this.sharePageIndexes);'),
-  'image rows dispatch format and page set to onShareImage');
-check(notePage.includes('onShareImage: (format: string, pageIndexes: number[] | null) => {') &&
-  notePage.includes('this.sharePagesAsImages(format, pageIndexes);'),
+check(toolbar.includes('onShareImage: (format: string, pageIndexes: number[] | null,\n    includeBackground: boolean) => void') &&
+  toolbar.includes('this.onShareImage(this.shareFormat, this.sharePageIndexes,\n        this.shareIncludeBackground)'),
+  'image dispatch carries format + page set + includeBackground');
+check(notePage.includes('onShareImage: (format: string, pageIndexes: number[] | null,\n            includeBackground: boolean) => {') &&
+  notePage.includes('this.sharePagesAsImages(format, pageIndexes, includeBackground);'),
   'NotePage wires the image-format callback');
 check(notePage.includes('resolveSharePages(pageIndexes)') &&
   notePage.includes('wanted.has(index)'),

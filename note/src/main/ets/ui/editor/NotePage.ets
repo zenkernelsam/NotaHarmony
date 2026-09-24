@@ -298,10 +298,13 @@ struct NotePage {
 
   // 原版编辑器分享面板 NOTE 行（s6d.NOTE / atc case5）：导出当前笔记为
   // .note 包并交系统保存对话框，与库级 exportNote 同一管线。
-  private shareNoteAsFile(): void {
+  // includeRecording 对应原版 v6d.j（zk9.a->yk9.O）：false 时录音资产
+  // 与 recordings.json 不随包导出。
+  private shareNoteAsFile(includeRecording: boolean): void {
     const context = getContext(this) as common.UIAbilityContext;
     const exporter: NoteExporter = new NoteExporter(DatabaseManager.getInstance(), this.persistence);
-    exporter.exportToFile(context, this.noteId, this.noteTitle).then((success: boolean) => {
+    exporter.exportToFile(context, this.noteId, this.noteTitle,
+      includeRecording).then((success: boolean) => {
       promptAction.showToast({
         message: success ? $r('app.string.export_done') : $r('app.string.export_failed'),
       });
@@ -357,8 +360,11 @@ struct NotePage {
   // 栅格化（含纸面/PDF 背景/全部元素栈），编码后交系统保存对话框。
   // 页选择集合 v6d.l：null=整册逐页打包 page_NNN.<ext> 进单个 zip；
   // 显式子集按页序过滤后同样打包。
+  // includeBackground 对应原版 v6d.i：false 时 PNG 出透明底、JPEG 出
+  // 白底（JPEG 无 alpha）；true 时纸面/PDF 背景照常。
   // 导出色恒取亮主题（原版导出的是笔记固有颜色，不受夜间模式影响）。
-  private sharePagesAsImages(format: string, pageIndexes: number[] | null): void {
+  private sharePagesAsImages(format: string, pageIndexes: number[] | null,
+    includeBackground: boolean): void {
     if (this.pages.length === 0) {
       return;
     }
@@ -367,6 +373,9 @@ struct NotePage {
       return;
     }
     const shareFormat: ShareImageFormat = format === 'png' ? 'png' : 'jpeg';
+    // v6d.i=Off：PNG 保留透明，JPEG 填白（无 alpha 通道）。
+    const exportBackground: string = includeBackground ? 'paper' :
+      (shareFormat === 'png' ? 'transparent' : 'white');
     const context = getContext(this) as common.UIAbilityContext;
     const theme: ThemeTokens = ThemeStore.resolve('light', false);
     const db: DatabaseManager = DatabaseManager.getInstance();
@@ -379,7 +388,8 @@ struct NotePage {
       .then(async (): Promise<void> => {
         if (pages.length === 1) {
           singlePixelMap = await renderer.renderPageExport(this.noteId,
-            this.persistence, pages[0], theme, db, PAGE_EXPORT_SCALE);
+            this.persistence, pages[0], theme, db, PAGE_EXPORT_SCALE,
+            exportBackground);
           const success: boolean = await exporter.exportPageImage(context,
             singlePixelMap, this.noteTitle, shareFormat);
           promptAction.showToast({
@@ -391,7 +401,8 @@ struct NotePage {
         const pagePacker: image.ImagePacker = packer;
         for (const page of pages) {
           const pixelMap: PixelMap = await renderer.renderPageExport(this.noteId,
-            this.persistence, page, theme, db, PAGE_EXPORT_SCALE);
+            this.persistence, page, theme, db, PAGE_EXPORT_SCALE,
+            exportBackground);
           try {
             const data: ArrayBuffer = await pagePacker.packToData(pixelMap, {
               format: shareFormat === 'png' ? 'image/png' : 'image/jpeg',
@@ -427,9 +438,12 @@ struct NotePage {
   // 原版 s6d.PDF（atc case4）：所选页逐页按 pagePixelSize×2 栅格化，
   // 每页压为 JPEG 后嵌入单 PDF（DCTDecode 直通），交系统保存对话框。
   // 页序取 this.pages 快照序（= 原版页序）；v6d.l 为 null 时整册；
-  // password 对应 v6d.k —— 非空时对产物 setPdfPassword 加密。
+  // password 对应 v6d.k —— 非空时对产物 setPdfPassword 加密；
+  // includeBackground 对应 v6d.i——false 时页栅格不画纸面/PDF 背景
+  // （JPEG 内嵌需不透明底，填白）。
   // 导出色恒取亮主题。
-  private shareNoteAsPdf(pageIndexes: number[] | null, password: string | null): void {
+  private shareNoteAsPdf(pageIndexes: number[] | null, password: string | null,
+    includeBackground: boolean): void {
     if (this.pages.length === 0) {
       return;
     }
@@ -443,11 +457,14 @@ struct NotePage {
     const renderer: ThumbnailRenderer = new ThumbnailRenderer();
     const packer: image.ImagePacker = image.createImagePacker();
     const imagePages: PdfPageImage[] = [];
+    // PDF 内嵌 JPEG 无 alpha → 无背景时填白底。
+    const exportBackground: string = includeBackground ? 'paper' : 'white';
     renderer.initialize(context)
       .then(async (): Promise<void> => {
         for (const page of pages) {
           const pixelMap: PixelMap = await renderer.renderPageExport(this.noteId,
-            this.persistence, page, theme, db, PAGE_EXPORT_SCALE);
+            this.persistence, page, theme, db, PAGE_EXPORT_SCALE,
+            exportBackground);
           try {
             const info: image.ImageInfo = pixelMap.getImageInfoSync();
             const data: ArrayBuffer = await packer.packToData(pixelMap, {
@@ -1625,29 +1642,32 @@ struct NotePage {
             }
           },
           // 原版编辑器右上角 Share（x90.g，ac4.L=NOTE_SHARE）：
-          // 分享面板 NOTE 行复用库级 exportToFile 管线导出 .note 包。
-          onShareNote: () => {
+          // 分享面板 NOTE 行复用库级 exportToFile 管线导出 .note 包；
+          // includeRecording 对应原版 v6d.j。
+          onShareNote: (includeRecording: boolean) => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
               this.historyPending) {
               return;
             }
-            this.shareNoteAsFile();
+            this.shareNoteAsFile(includeRecording);
           },
           // 原版 s6d.JPG/PNG：分享面板图像格式行，导出所选页栅格。
-          onShareImage: (format: string, pageIndexes: number[] | null) => {
+          onShareImage: (format: string, pageIndexes: number[] | null,
+            includeBackground: boolean) => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
               this.historyPending) {
               return;
             }
-            this.sharePagesAsImages(format, pageIndexes);
+            this.sharePagesAsImages(format, pageIndexes, includeBackground);
           },
           // 原版 s6d.PDF（atc case4）：所选页逐页栅格化导出单个 PDF。
-          onSharePdf: (pageIndexes: number[] | null, password: string | null) => {
+          onSharePdf: (pageIndexes: number[] | null, password: string | null,
+            includeBackground: boolean) => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
               this.historyPending) {
               return;
             }
-            this.shareNoteAsPdf(pageIndexes, password);
+            this.shareNoteAsPdf(pageIndexes, password, includeBackground);
           },
           // 原版 r6d.PAGE_SELECTION 屏数据：页快照 + b7d.l 缩略图窗口。
           sharePages: this.pages,

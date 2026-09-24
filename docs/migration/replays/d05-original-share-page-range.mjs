@@ -46,14 +46,15 @@ check(toolbar.includes('@State sharePageIndexes: number[] | null = null'),
 check(toolbar.includes("share_page_range") &&
   toolbar.includes('this.shareSelectionLabel()'),
   'the range row shows Page range + All/X of Y');
-check(toolbar.indexOf("share_page_range") > 0 &&
-  toolbar.indexOf("share_page_range") <
-  toolbar.indexOf("ShareFormatRow($r('app.string.share_link')"),
-  'the range row renders above the format rows');
+check(toolbar.indexOf("ShareFormatChip($r('app.string.share_png'), 'png', true)") > 0 &&
+  toolbar.indexOf("ShareFormatChip($r('app.string.share_png'), 'png', true)") <
+  toolbar.indexOf("ShareRangeRow()") &&
+  toolbar.indexOf("share_page_range") > toolbar.indexOf("ShareRangeRow()"),
+  'the chip row renders above the per-format options holding the range row');
 check(toolbar.includes('this.toggleSharePage(pageIndex)'),
   'picker cells toggle indexes through b7d.q semantics');
-check(toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword);') &&
-  toolbar.includes('this.onShareImage(format, this.sharePageIndexes);'),
+check(toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword,\n        this.shareIncludeBackground)') &&
+  toolbar.includes('this.onShareImage(this.shareFormat, this.sharePageIndexes,\n        this.shareIncludeBackground)'),
   'pdf and image rows dispatch the chosen page set');
 check(!toolbar.includes('onShareNote(this.sharePageIndexes)'),
   'the note row always exports the whole note (no range)');
@@ -81,7 +82,7 @@ check(notePage.includes('if (pages.length === 1)') &&
   'a single selected page still uses the direct image save path');
 
 // --- Harmony：PDF 页范围 ---
-check(notePage.includes('private shareNoteAsPdf(pageIndexes: number[] | null, password: string | null): void {'),
+check(notePage.includes('private shareNoteAsPdf(pageIndexes: number[] | null, password: string | null,\n    includeBackground: boolean): void {'),
   'shareNoteAsPdf takes the nullable page set');
 check(notePage.indexOf('private shareNoteAsPdf') > 0 &&
   notePage.indexOf('resolveSharePages(pageIndexes)') > 0,

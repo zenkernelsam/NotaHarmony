@@ -99,10 +99,10 @@ check(toolbar.includes('this.sharePassword = null;') &&
 check(toolbar.includes('share_password_on') &&
   toolbar.includes('share_password_off') &&
   toolbar.includes('this.sharePassword !== null ?'),
-  'main row shows On/Off from password nullability');
+  'password row shows On/Off inside the pdf options section');
 check(toolbar.includes("this.shareScreen = 'password';") &&
   toolbar.includes('this.sharePasswordDraft = this.sharePassword !== null ?'),
-  'row tap enters PASSWORD_ENTRY with the existing password prefilled');
+  'password row tap enters PASSWORD_ENTRY with the existing password prefilled');
 
 // ---------- Harmony：PASSWORD_ENTRY 屏 ----------
 check(toolbar.includes('share_password_subtitle') &&
@@ -124,13 +124,13 @@ check(toolbar.includes('share_password_remove') &&
   'Remove renders only when a password is already set');
 
 // ---------- Harmony：分发与导出 ----------
-check(toolbar.includes('onSharePdf: (pageIndexes: number[] | null, password: string | null) => void') &&
-  toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword);'),
+check(toolbar.includes('onSharePdf: (pageIndexes: number[] | null, password: string | null,\n    includeBackground: boolean) => void') &&
+  toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword,\n        this.shareIncludeBackground)'),
   'pdf row dispatches page set + password');
-check(toolbar.includes('this.onShareImage(format, this.sharePageIndexes);') &&
-  !toolbar.includes('onShareImage(format, this.sharePageIndexes, this.sharePassword)'),
+check(toolbar.includes('this.onShareImage(this.shareFormat, this.sharePageIndexes,\n        this.shareIncludeBackground)') &&
+  !toolbar.includes('this.onShareImage(format, this.sharePageIndexes, this.sharePassword)'),
   'image export does not consume the password (PDF-only)');
-check(notePage.includes('shareNoteAsPdf(pageIndexes: number[] | null, password: string | null)') &&
+check(notePage.includes('shareNoteAsPdf(pageIndexes: number[] | null, password: string | null,\n    includeBackground: boolean)') &&
   notePage.includes('password !== null ? password : undefined'),
   'NotePage threads the password into the exporter');
 check(exporter.includes("import { pdfService } from '@kit.PDFKit';") &&
