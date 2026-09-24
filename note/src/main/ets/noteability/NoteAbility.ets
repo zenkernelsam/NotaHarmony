@@ -9,6 +9,7 @@ import {
 } from '../ui/theme/ThemeStore';
 import { enqueueSharedWantUris } from '../data/SharedFileIngress';
 import { enqueueLaunchAction } from '../data/LaunchActionIngress';
+import { enqueueDeepLinkWant } from '../data/DeepLinkIngress';
 
 const DOMAIN = 0x0000;
 
@@ -18,6 +19,7 @@ export default class NoteAbility extends UIAbility {
     // v50 快捷方式 launch_action 入启动动作队列。
     enqueueSharedWantUris(want);
     enqueueLaunchAction(want);
+    enqueueDeepLinkWant(want);
     ThemeStore.init();
     try {
       this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
@@ -31,6 +33,7 @@ export default class NoteAbility extends UIAbility {
     // 热启动收到的新共享 want 同样入队，由 LibraryPage 显示时导入。
     enqueueSharedWantUris(want);
     enqueueLaunchAction(want);
+    enqueueDeepLinkWant(want);
   }
 
   onConfigurationUpdate(newConfig: AbilityConfiguration): void {

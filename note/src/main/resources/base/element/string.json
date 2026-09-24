@@ -1050,6 +1050,7 @@
     { "name": "importing", "value": "Importing..." },
     { "name": "partial_import", "value": "Partial Import" },
     { "name": "import_failed", "value": "Import Failed" },
+    { "name": "deep_link_note_missing", "value": "Couldn't open link" },
     { "name": "unsupported_format", "value": "Unsupported Format" },
     { "name": "import_read_failed", "value": "The file could not be read or parsed." },
     { "name": "import_pdf_password_title", "value": "Encrypted PDF" },

@@ -133,6 +133,53 @@ export class NoteRepositoryImpl implements NoteRepository {
     }
   }
 
+  // 原版 /app/note/<32-hex> 深链消费（kx 协程）的等价解析：先按 note_meta.id
+  // 直查活跃笔记；未命中再查 note_sync_metadata.legacy_id —— 导入时改号
+  // 副本在导入管线里保留原 ID。回收站笔记（deleted_at 非空）与两级均未命中
+  // 一律返回 null，由调用方按「本地无此笔记」fail-closed（原版后端同步取回
+  // 订阅域，Harmony 无对应物）。
+  async resolveDeepLinkNoteId(deepLinkId: string): Promise<string | null> {
+    const store: relationalStore.RdbStore = this.db.getStore();
+    const direct = new relationalStore.RdbPredicates('note_meta');
+    direct.equalTo('id', deepLinkId);
+    direct.isNull('deleted_at');
+    try {
+      const directSet = await store.query(direct);
+      try {
+        if (directSet.goToNextRow()) {
+          return deepLinkId;
+        }
+      } finally {
+        directSet.close();
+      }
+      const legacy = new relationalStore.RdbPredicates('note_sync_metadata');
+      legacy.equalTo('legacy_id', deepLinkId);
+      const legacySet = await store.query(legacy);
+      let candidateId: string | null = null;
+      try {
+        if (legacySet.goToNextRow()) {
+          candidateId = legacySet.getString(legacySet.getColumnIndex('note_id'));
+        }
+      } finally {
+        legacySet.close();
+      }
+      if (candidateId === null) {
+        return null;
+      }
+      const active = new relationalStore.RdbPredicates('note_meta');
+      active.equalTo('id', candidateId);
+      active.isNull('deleted_at');
+      const activeSet = await store.query(active);
+      try {
+        return activeSet.goToNextRow() ? candidateId : null;
+      } finally {
+        activeSet.close();
+      }
+    } catch (e) {
+      throw new Error(`resolveDeepLinkNoteId failed: ${JSON.stringify(e)}`);
+    }
+  }
+
   async getAllNotes(): Promise<NoteMeta[]> {
     const store: relationalStore.RdbStore = this.db.getStore();
     const predicates = new relationalStore.RdbPredicates('note_meta');

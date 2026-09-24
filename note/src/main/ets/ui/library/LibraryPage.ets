@@ -16,6 +16,7 @@ import { PdfPasswordDialog } from '../components/PdfPasswordDialog';
 import { ImportDetailsSheet } from '../components/ImportDetailsSheet';
 import { drainSharedUris } from '../../data/SharedFileIngress';
 import { drainLaunchActions, LAUNCH_ACTION_CREATE_PHOTO_NOTE } from '../../data/LaunchActionIngress';
+import { drainDeepLinkNoteIds } from '../../data/DeepLinkIngress';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
 import {
@@ -352,6 +353,9 @@ struct LibraryPage {
     // 原版 v50 快捷方式 CREATE_NOTE（new_photo 带 start_camera）
     // 在此 drain 并走与内建「+」一致的建笔记管线。
     this.drainLaunchIngress();
+    // 原版 /app/note/<id> 深链（py2 → hv7.i → kx）在此 drain，
+    // 命中本地笔记即打开。
+    this.drainDeepLinkIngress();
     if (this.folderRepo !== null) {
       this.reloadFoldersBestEffort(this.folderRepo, 'page show');
     }
@@ -2944,6 +2948,52 @@ struct LibraryPage {
       this.createAndLaunch(false, undefined, startCamera).catch((e: Error) => {
         console.error('shortcut launch create failed: ' + JSON.stringify(e));
       });
+    }
+  }
+
+  // 原版 py2.a/py2.b：/app/note/<32-hex> 深链解析出的笔记 ID 在此
+  // drain。note_meta.id 直查 + note_sync_metadata.legacy_id 兜底
+  // （导入改号副本）；命中即打开 NotePage。未命中 = 本地无此笔记，
+  // 原版需经订阅后端同步取回 —— fail-closed 弹「无法打开链接」。
+  private drainDeepLinkIngress(): void {
+    const noteIds: string[] = drainDeepLinkNoteIds();
+    if (noteIds.length === 0) {
+      return;
+    }
+    this.openDeepLinkNotes(noteIds).catch((e: Error) => {
+      console.error('deep link open failed: ' + JSON.stringify(e));
+    });
+  }
+
+  private async openDeepLinkNotes(noteIds: string[]): Promise<void> {
+    if (!this.pageActive || this.viewModel === null || this.createBusy) {
+      return;
+    }
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    this.createBusy = true;
+    const vm: LibraryViewModel = this.viewModel;
+    try {
+      const repo: NoteRepositoryImpl = new NoteRepositoryImpl(this.db);
+      for (const deepLinkId of noteIds) {
+        const noteId: string | null = await repo.resolveDeepLinkNoteId(deepLinkId);
+        if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+          this.viewModel !== vm) {
+          return;
+        }
+        if (noteId === null) {
+          promptAction.showToast({ message: $r('app.string.deep_link_note_missing') });
+          continue;
+        }
+        await vm.loadNotes(this.searchText);
+        if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+          this.viewModel !== vm) {
+          return;
+        }
+        this.notes = vm.getFilteredNotes().slice();
+        await router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: noteId } });
+      }
+    } finally {
+      this.createBusy = false;
     }
   }
 

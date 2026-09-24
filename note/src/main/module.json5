@@ -71,6 +71,26 @@
                 "type": "application/pdf"
               }
             ]
+          },
+          {
+            "entities": [
+              "entity.system.browsable"
+            ],
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "uris": [
+              {
+                "scheme": "https",
+                "host": "notability.com",
+                "pathStartWith": "app/note"
+              },
+              {
+                "scheme": "http",
+                "host": "notability.com",
+                "pathStartWith": "app/note"
+              }
+            ]
           }
         ]
       }

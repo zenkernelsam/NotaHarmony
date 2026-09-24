@@ -296,6 +296,7 @@
     { "name": "importing", "value": "正在导入..." },
     { "name": "partial_import", "value": "部分导入" },
     { "name": "import_failed", "value": "导入失败" },
+    { "name": "deep_link_note_missing", "value": "无法打开链接" },
     { "name": "unsupported_format", "value": "不支持的格式" },
     { "name": "import_read_failed", "value": "读取或解析文件时发生错误" },
     { "name": "import_pdf_password_title", "value": "PDF 已加密" },

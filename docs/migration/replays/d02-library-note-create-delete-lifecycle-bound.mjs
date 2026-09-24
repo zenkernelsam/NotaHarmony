@@ -10,7 +10,7 @@ assert.match(page,
 
 const deleteStart = page.indexOf('private async deleteNoteAndRefresh(noteId: string): Promise<void> {');
 const createStart = page.indexOf('private async createAndLaunch(autoRecord: boolean,', deleteStart);
-const endMarker = page.indexOf('private drainSharedIngress(): void {', createStart);
+const endMarker = page.indexOf('private drainDeepLinkIngress(): void {', createStart);
 assert.ok(deleteStart !== -1 && createStart > deleteStart && endMarker > createStart);
 
 const deleteFn = page.slice(deleteStart, createStart);
