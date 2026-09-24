@@ -1919,6 +1919,14 @@ struct NotePage {
               this.selectionInkStyle = style;
             }
           },
+          onEyedropperSelectionColor: (color: number) => {
+            if (this.photoImportLeaseActive || this.pageOperationBusy ||
+              this.historyPending || this.pageStructureLeaseActive) {
+              return;
+            }
+            this.selectionInkColor = color;
+            this.selectionColorSignal++;
+          },
           onApplyPageHistory: async (action: UndoableAction, isUndo: boolean,
             history: HistoryMetadata): Promise<boolean> =>
             this.runPageHistoryOperation(action, isUndo, history),

@@ -323,6 +323,10 @@ export struct NoteCanvasView {
       _maximum: number, _variableStyleEnabled: boolean,
       _style: InkStyle | null): void => {
     };
+  // 原版 lu7.b 选区上下文（q5 case5→ix4）：eyedropper 提交选区颜色，
+  // 等价工具栏 onSelectionColor 通道（ADR-0646）。
+  onEyedropperSelectionColor: (color: number) => void = (_color: number): void => {
+  };
   onPageHistorySettled: (pending: boolean) => void = () => {
   };
   onApplyPageHistory: (action: UndoableAction, isUndo: boolean,
@@ -515,6 +519,13 @@ export struct NoteCanvasView {
   @State overlayWidth: number = 0;
   @State overlayHeight: number = 0;
   private clipboardPasteTarget: Point2D | null = null;
+  // 原版 lu7/nui（ADR-0646）：eyedropper 取样态——指尖邻域位图（放大镜
+  // 内容）、锚点（vp）与当前取样色；提交或取消即清空。
+  @State eyedropperLoupeMap: image.PixelMap | null = null;
+  @State eyedropperLoupeX: number = 0;
+  @State eyedropperLoupeY: number = 0;
+  private eyedropperColor: number | null = null;
+  private eyedropperSampleGeneration: number = 0;
   private canvasDropWindowOrigin: Point2D = { x: 0, y: 0 };
   private lastPasteRequestTime: number = 0;
   private systemClipboardImageChangeListener: OriginalClipboardImageChangeListener | null = null;
@@ -1507,6 +1518,7 @@ export struct NoteCanvasView {
     this.cancelPdfRasterRefresh();
     this.cancelLaserFade();
     this.laserSession.clear();
+    this.clearEyedropperSampling();
     this.releaseImageAssets();
     this.releasePdfBackground();
     this.releasePaperTexture();
@@ -2396,6 +2408,11 @@ export struct NoteCanvasView {
       this.imageCropVisible || this.mathEditorVisible) {
       return;
     }
+    // 原版 lu7.a enabled（ADR-0646）：eyedropper 激活时画布触摸转为取样。
+    if (this.viewModel.eyedropperActive) {
+      this.onEyedropperTouch(event);
+      return;
+    }
     if (event.type === TouchType.Down) {
       this.onTouchDown(event);
     } else if (event.type === TouchType.Move) {
@@ -2404,6 +2421,118 @@ export struct NoteCanvasView {
       this.onTouchUp(event);
     } else if (event.type === TouchType.Cancel) {
       this.cancelActiveInteraction();
+    }
+  }
+
+  // 原版 a3a/nui（ADR-0646）：eyedropper 手势——按住/拖动实时取样画布
+  // 像素并驱动放大镜，松开提交（q5 case5：lu7.b(iu1)+自动关），
+  // 取消即放弃（i3 case12）。
+  private onEyedropperTouch(event: TouchEvent): void {
+    if (event.type === TouchType.Down || event.type === TouchType.Move) {
+      if (event.touches.length === 0) {
+        return;
+      }
+      const touch: TouchObject = event.touches[0];
+      this.sampleEyedropper(touch.x, touch.y).catch((e: Object): void => {
+        console.error(`eyedropper sample failed: ${JSON.stringify(e)}`);
+      });
+      return;
+    }
+    if (event.type === TouchType.Up) {
+      this.commitEyedropper();
+      return;
+    }
+    if (event.type === TouchType.Cancel) {
+      this.cancelEyedropper();
+    }
+  }
+
+  // 原版 a3a：从画布位图取 clamp 后像素（kkf.d→iu1 ARGB int）；
+  // nui 放大镜内容=取样点 24px 邻域位图。连续 move 事件可能并发取样，
+  // generation 保证只有最新结果落盘。
+  private async sampleEyedropper(xVp: number, yVp: number): Promise<void> {
+    const generation: number = ++this.eyedropperSampleGeneration;
+    const density: number = vp2px(1);
+    const px: number = Math.round(xVp * density);
+    const py: number = Math.round(yVp * density);
+    const w: number = this.canvasCtx.width;
+    const h: number = this.canvasCtx.height;
+    const half: number = 12;
+    const sw: number = Math.min(half * 2, w);
+    const sh: number = Math.min(half * 2, h);
+    if (px < 0 || py < 0 || px >= w || py >= h || sw <= 0 || sh <= 0) {
+      return;
+    }
+    const sx: number = Math.max(0, Math.min(px - half, w - sw));
+    const sy: number = Math.max(0, Math.min(py - half, h - sh));
+    const data: ImageData = this.canvasCtx.getImageData(sx, sy, sw, sh);
+    const cx: number = Math.max(0, Math.min(px - sx, sw - 1));
+    const cy: number = Math.max(0, Math.min(py - sy, sh - 1));
+    const raw: Uint8ClampedArray = data.data;
+    const idx: number = (cy * sw + cx) * 4;
+    const color: number = ((raw[idx + 3] << 24) | (raw[idx] << 16) |
+      (raw[idx + 1] << 8) | raw[idx + 2]);
+    const buffer: ArrayBuffer = new ArrayBuffer(sw * sh * 4);
+    const copy: Uint8Array = new Uint8Array(buffer);
+    for (let i: number = 0; i < raw.length; i++) {
+      copy[i] = raw[i];
+    }
+    const map: image.PixelMap = await image.createPixelMap(buffer, {
+      size: { width: sw, height: sh },
+      srcPixelFormat: image.PixelMapFormat.RGBA_8888,
+      pixelFormat: image.PixelMapFormat.RGBA_8888,
+      editable: false,
+    });
+    if (generation !== this.eyedropperSampleGeneration || !this.viewModel.eyedropperActive) {
+      map.release().catch((e: Object): void => {
+        console.error(`eyedropper loupe release failed: ${JSON.stringify(e)}`);
+      });
+      return;
+    }
+    this.eyedropperColor = color;
+    const previous: image.PixelMap | null = this.eyedropperLoupeMap;
+    this.eyedropperLoupeMap = map;
+    this.eyedropperLoupeX = xVp;
+    this.eyedropperLoupeY = yVp;
+    if (previous !== null) {
+      previous.release().catch((e: Object): void => {
+        console.error(`eyedropper loupe release failed: ${JSON.stringify(e)}`);
+      });
+    }
+  }
+
+  // 原版 q5 case5：lu7.b(iu1) 提交到目标上下文（选区颜色或当前工具），
+  // 随后 lu7.a(...,6) 复位 enabled=false——提交后 eyedropper 自动退出。
+  private commitEyedropper(): void {
+    const color: number | null = this.eyedropperColor;
+    this.clearEyedropperSampling();
+    if (color !== null) {
+      if (this.viewModel.eyedropperForSelection) {
+        this.onEyedropperSelectionColor(color);
+      } else {
+        this.viewModel.setBrushColor(color).catch((e: Object): void => {
+          console.error(`eyedropper color apply failed: ${JSON.stringify(e)}`);
+        });
+      }
+    }
+    this.viewModel.setEyedropperActive(false);
+  }
+
+  // 原版 i3 case12：显式关闭/手势取消——丢弃取样态并退出 lu7。
+  private cancelEyedropper(): void {
+    this.clearEyedropperSampling();
+    this.viewModel.setEyedropperActive(false);
+  }
+
+  private clearEyedropperSampling(): void {
+    this.eyedropperSampleGeneration++;
+    this.eyedropperColor = null;
+    const previous: image.PixelMap | null = this.eyedropperLoupeMap;
+    this.eyedropperLoupeMap = null;
+    if (previous !== null) {
+      previous.release().catch((e: Object): void => {
+        console.error(`eyedropper loupe release failed: ${JSON.stringify(e)}`);
+      });
     }
   }
 
@@ -9822,6 +9951,32 @@ export struct NoteCanvasView {
           this.onTextCancel();
         },
       })
+      // 原版 nui（ADR-0646）：eyedropper 放大镜——指尖上方圆形邻域放大图，
+      // 中心为取样点；激活态且已取样时显示。
+      if (this.viewModel.eyedropperActive && this.eyedropperLoupeMap !== null) {
+        Stack() {
+          Image(this.eyedropperLoupeMap)
+            .width(88)
+            .height(88)
+            .objectFit(ImageFit.Fill)
+            .borderRadius(44)
+            .clip(true)
+          Column()
+            .width(8)
+            .height(8)
+            .border({ width: 2, color: '#FFFFFFFF' })
+        }
+        .width(88)
+        .height(88)
+        .borderRadius(44)
+        .border({ width: 2, color: '#FFFFFFFF' })
+        .shadow({ radius: 8, color: '#66000000', offsetY: 2 })
+        .position({
+          x: Math.max(0, Math.min(this.eyedropperLoupeX - 44,
+            Math.max(0, this.overlayWidth - 88))),
+          y: Math.max(0, this.eyedropperLoupeY - 120),
+        })
+      }
       // T-034：缩放控制条（T-040 修复：Stack alignContent 定位左下角，避开底部 PageManagerBar）
       Row() {
         Button('-')

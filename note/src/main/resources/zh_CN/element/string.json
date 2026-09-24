@@ -516,6 +516,7 @@
     { "name": "multi_share_failed", "value": "批量分享失败" },
     { "name": "ruler_units", "value": "标尺单位" },
     { "name": "imperial", "value": "英制" },
-    { "name": "metric", "value": "公制" }
+    { "name": "metric", "value": "公制" },
+    { "name": "eyedropper", "value": "取色器" }
   ]
 }

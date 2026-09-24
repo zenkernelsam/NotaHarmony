@@ -101,6 +101,31 @@ export struct ColorPickerView {
 
   build() {
     Column() {
+      // 原版 r22 case9（ADR-0646）：色彩面板的 eyedropper 入口——开启后画布
+      // 触摸转为取样（lu7.a enabled），提交颜色后自动关；选区模式下作用于
+      // 选区颜色（lu7.b 的目标上下文）。
+      Row() {
+        Text($r('app.string.eyedropper'))
+          .fontSize(13)
+          .fontColor(this.viewModel.eyedropperActive
+            ? this.resolveTokens().accent : this.resolveTokens().textPrimary)
+      }
+      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+      .borderRadius(16)
+      .border({
+        width: 1,
+        color: this.viewModel.eyedropperActive
+          ? this.resolveTokens().accent : this.resolveTokens().border,
+      })
+      .enabled(!this.photoImportLeaseActive)
+      .onClick(() => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
+        this.viewModel.setEyedropperActive(
+          !this.viewModel.eyedropperActive, this.selectionMode);
+      })
+      .margin({ bottom: 12 })
       if (!this.selectionMode) {
         Grid() {
           ForEach(this.viewModel.favoriteColors, (color: number, index: number) => {

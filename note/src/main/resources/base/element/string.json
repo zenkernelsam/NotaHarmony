@@ -1282,6 +1282,7 @@
     { "name": "multi_share_failed", "value": "Failed to share selected notes" },
     { "name": "ruler_units", "value": "Ruler units" },
     { "name": "imperial", "value": "Imperial" },
-    { "name": "metric", "value": "Metric" }
+    { "name": "metric", "value": "Metric" },
+    { "name": "eyedropper", "value": "Eyedropper" }
   ]
 }

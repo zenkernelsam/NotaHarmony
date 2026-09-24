@@ -190,6 +190,10 @@ export struct EditorToolbar {
             }
             this.viewModel.showColorPicker = !this.viewModel.showColorPicker;
             this.viewModel.showWidthSlider = false;
+            if (!this.viewModel.showColorPicker) {
+              // 面板关闭即 lu7 失效（ADR-0646）。
+              this.viewModel.setEyedropperActive(false);
+            }
           })
 
         // 粗细按钮（当前宽度指示）
@@ -210,6 +214,7 @@ export struct EditorToolbar {
             }
             this.viewModel.showWidthSlider = !this.viewModel.showWidthSlider;
             this.viewModel.showColorPicker = false;
+            this.viewModel.setEyedropperActive(false);
           })
 
         Divider().vertical(true).height(24).margin({ left: 8, right: 8 })

@@ -24,6 +24,13 @@ export class EditorViewModel {
   widthWells: number[] = [];
   showColorPicker: boolean = false;
   showWidthSlider: boolean = false;
+  // 原版 lu7/i8f.k（ADR-0646）：eyedropper 激活态——色彩面板内开启后画布
+  // 触摸转为取样；提交（q5 case5）或显式关闭（i3 case12）即 lu7.a(...,6)
+  // 复位 enabled；工具切换/面板关闭同样失效。
+  eyedropperActive: boolean = false;
+  // lu7.b 的目标上下文：true=选区颜色（色彩面板 selectionMode），
+  // false=当前工具 brushColor。
+  eyedropperForSelection: boolean = false;
   shapeDetectionEnabled: boolean = true;
   // 原版 x22 case 3 / i8f.d：autoDeselectEraser——擦除后工具栏自动切回
   // 上一个工具（epi.c 取 previouslySelected）。
@@ -252,6 +259,7 @@ export class EditorViewModel {
     this.applyActiveState();
     this.showColorPicker = false;
     this.showWidthSlider = false;
+    this.setEyedropperActive(false);
     this.refreshWells(this.repository).catch((wellError: Object): void => {
       this.onPersistenceError(`Tool wells could not be loaded: ${JSON.stringify(wellError)}`);
     });
@@ -281,6 +289,13 @@ export class EditorViewModel {
 
   // selectedWellIndex is -1 when the pick did not come from a favorite well
   // (palette or recents tap), matching the original "no well selected" meaning.
+  // 原版 lu7 状态机：i3 case12（显式开关）与 q5 case5（取样提交）都以
+  // lu7.a(lu7, null, null, 6) 复位 enabled=false；本方法等价整态复位。
+  setEyedropperActive(active: boolean, forSelection: boolean = false): void {
+    this.eyedropperActive = active;
+    this.eyedropperForSelection = active ? forSelection : false;
+  }
+
   async setBrushColor(color: number, selectedWellIndex: number = -1): Promise<boolean> {
     const saved: boolean = await this.updateActiveState((state: ToolState): void => {
       state.brush.color = color;
