@@ -35,3 +35,15 @@
 - fixture：`docs/migration/replays/d02-device-verification-checklist.mjs`
   校验清单存在、分组齐全、行数下限、每行含 ADR/Phase 引用。
 - 全套回放与双 HAP 构建随本阶段通过。
+
+## Phase 676 刷新（清单规模更新）
+
+- 复查 ADR-0572~0642（Phase 571 之后）中标注的仅真机可验事项，
+  在清单追加“十一、Phase 676 补遗”13 行：R-15~R-17（slop 常量、
+  文本面笔压制、选中组 z-order）、I-12（拖图入口）、P-06（页总览
+  批量 Clear 假设）、S-07~S-09（四格式导入 picker、分享 PDF
+  ingress、systemShare syscap）、B-16~B-19（深链、卡片 formAbility、
+  open-target extras、库内多选手势）。
+- 清单规模：9 分组 41 行 + Phase 580 补遗 15 行 + Phase 676 补遗
+  13 行 = 69 行。
+- fixture 增补对应 ADR 锚点与节标题断言。
