@@ -153,7 +153,7 @@ async function updateNoteListForm(formId: string, items: RecentCardItem[],
   }
 }
 
-interface ThumbBatchResult {
+export interface ThumbBatchResult {
   keys: Map<string, string>;
   images: Record<string, number>;
   fds: number[];
@@ -161,7 +161,7 @@ interface ThumbBatchResult {
 
 // 渲染一批笔记的缩略图并打包成 formImages（fd 键值对）。调用方负责在
 // updateForm 完成后用 closeFormImageFds 关闭返回的 fds。
-async function renderFormThumbImages(context: common.UIAbilityContext,
+export async function renderFormThumbImages(context: common.UIAbilityContext,
   theme: ThemeTokens, notes: NoteMeta[], db: DatabaseManager,
   renderer: ThumbnailRenderer): Promise<ThumbBatchResult> {
   const keys: Map<string, string> = new Map<string, string>();

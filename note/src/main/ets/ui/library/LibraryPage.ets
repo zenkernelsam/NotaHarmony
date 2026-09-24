@@ -20,6 +20,7 @@ import { drainDeepLinkNoteIds } from '../../data/DeepLinkIngress';
 import { drainOpenNoteIds, drainLibraryLandings, LANDING_RECENT, LANDING_FOLDER_PREFIX } from '../../data/OpenTargetIngress';
 import { refreshRecentNotesForms } from '../../data/RecentNotesFormFeed';
 import { refreshFolderNotesForms } from '../../data/FolderNotesFormFeed';
+import { refreshNoteThumbnailForms } from '../../data/NoteThumbnailFormFeed';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
 import {
@@ -2995,6 +2996,9 @@ struct LibraryPage {
     });
     refreshFolderNotesForms(context, theme).catch((e: Error) => {
       console.error(`folder card feed failed: ${JSON.stringify(e)}`);
+    });
+    refreshNoteThumbnailForms(context, theme).catch((e: Error) => {
+      console.error(`thumb card feed failed: ${JSON.stringify(e)}`);
     });
   }
 

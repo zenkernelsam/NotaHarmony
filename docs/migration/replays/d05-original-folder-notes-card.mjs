@@ -186,9 +186,8 @@ check(baseStrings.includes('"form_folder_notes_empty"') &&
   zhStrings.includes('"form_folder_notes_unconfigured"'),
   'folder card strings localized in both locales');
 
-// ---------- 剩余 fail-closed ----------
-check(formAbility.includes('fail-closed') &&
-  formAbility.includes('NoteThumbnail'),
-  'NoteThumbnail remains registered fail-closed');
+// ---------- 五张原版小部件全部落地 ----------
+check(formAbility.includes('NOTE_THUMBNAIL_FORM_NAME'),
+  'thumbnail card also wired (Phase 669)');
 
 console.log(`D05_ORIGINAL_FOLDER_NOTES_CARD_OK TOTAL=${total} FAILED=0`);

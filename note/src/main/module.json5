@@ -116,6 +116,12 @@
         "exported": false
       },
       {
+        "name": "NoteThumbnailFormEditAbility",
+        "srcEntry": "./ets/noteformeditability/NoteThumbnailFormEditAbility.ets",
+        "type": "formEdit",
+        "exported": false
+      },
+      {
         "name": "NoteBackupAbility",
         "srcEntry": "./ets/notebackupability/NoteBackupAbility.ets",
         "type": "backup",

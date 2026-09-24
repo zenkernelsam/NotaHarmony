@@ -35,6 +35,11 @@
     { "name": "form_folder_notes_unconfigured", "value": "Tap to open Notability" },
     { "name": "form_folder_edit_title", "value": "Choose a folder" },
     { "name": "form_folder_edit_empty", "value": "No folders" },
+    { "name": "form_note_thumbnail_display", "value": "Note" },
+    { "name": "form_note_thumbnail_desc", "value": "Quick access to one of your notes." },
+    { "name": "form_note_thumbnail_pick", "value": "Choose a note" },
+    { "name": "form_note_picker_search_hint", "value": "Search notes" },
+    { "name": "form_picker_no_notes", "value": "No notes yet" },
     {
       "name": "retry",
       "value": "Retry"

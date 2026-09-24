@@ -8,6 +8,7 @@
     "ui/settings/BackupPage",
     "ui/settings/WebDAVSettingsPage",
     "ui/settings/RecentlyDeletedPage",
-    "noteformability/pages/FolderNotesEditPage"
+    "noteformability/pages/FolderNotesEditPage",
+    "noteformability/pages/NoteThumbnailEditPage"
   ]
 }
