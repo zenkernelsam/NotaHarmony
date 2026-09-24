@@ -538,6 +538,13 @@
     { "name": "subscript", "value": "下标" },
     { "name": "superscript", "value": "上标" },
     { "name": "increase_indent", "value": "增加缩进" },
-    { "name": "decrease_indent", "value": "减少缩进" }
+    { "name": "decrease_indent", "value": "减少缩进" },
+    { "name": "text_highlight", "value": "高亮" },
+    { "name": "highlight_yellow", "value": "黄色" },
+    { "name": "highlight_green", "value": "绿色" },
+    { "name": "highlight_cyan", "value": "青色" },
+    { "name": "highlight_pink", "value": "粉色" },
+    { "name": "highlight_orange", "value": "橙色" },
+    { "name": "highlight_remove", "value": "清除高亮" }
   ]
 }

@@ -47,6 +47,9 @@ export struct TextBlockOverlay {
   @State caretCharSuper: boolean = false;
   // 原版 bte/k5a：光标段落（decorator=5 时）代码语言选择态。
   @State caretCodeLanguage: string = 'plaintext';
+  // 原版 rte/eh5：高亮态（选区全覆盖或 pending 含色）。
+  @State caretCharHighlight: boolean = false;
+  private pendingClearHighlight: boolean = false;
   private draftCharRuns: RichTextCharacterStyleRun[] = [];
   private pendingCharStyles: RichTextCharacterStyle = {};
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -120,6 +123,7 @@ export struct TextBlockOverlay {
     });
     this.caretSelectionStart = this.caretOffset;
     this.pendingCharStyles = {};
+    this.pendingClearHighlight = false;
     this.refreshCaretCharStyles();
   }
 
@@ -170,6 +174,7 @@ export struct TextBlockOverlay {
     if (field === 'strikethrough') { return style.strikethrough !== undefined; }
     if (field === 'subscript') { return style.subscript !== undefined; }
     if (field === 'superscript') { return style.superscript !== undefined; }
+    if (field === 'highlightColor') { return style.highlightColor !== undefined; }
     return false;
   }
 
@@ -248,7 +253,7 @@ export struct TextBlockOverlay {
   private normalizeCharRuns(): void {
     const sorted: RichTextCharacterStyleRun[] = this.draftCharRuns
       .filter((r: RichTextCharacterStyleRun): boolean =>
-        r.end > r.start && Object.keys(r.style).length > 0)
+        r.end > r.start && JSON.stringify(r.style) !== '{}')
       .sort((a: RichTextCharacterStyleRun, b: RichTextCharacterStyleRun): number =>
         a.start - b.start || a.end - b.end);
     const merged: RichTextCharacterStyleRun[] = [];
@@ -315,6 +320,8 @@ export struct TextBlockOverlay {
       this.caretCharStrike = this.charStyleValue(this.pendingCharStyles, 'strikethrough');
       this.caretCharSub = this.charStyleValue(this.pendingCharStyles, 'subscript');
       this.caretCharSuper = this.charStyleValue(this.pendingCharStyles, 'superscript');
+      this.caretCharHighlight = this.pendingCharStyles.highlightColor !== undefined &&
+        !this.pendingClearHighlight;
       return;
     }
     this.caretCharBold = this.rangeHasCharStyle('bold', s, e);
@@ -323,6 +330,7 @@ export struct TextBlockOverlay {
     this.caretCharStrike = this.rangeHasCharStyle('strikethrough', s, e);
     this.caretCharSub = this.rangeHasCharStyle('subscript', s, e);
     this.caretCharSuper = this.rangeHasCharStyle('superscript', s, e);
+    this.caretCharHighlight = this.rangeHasHighlight(s, e);
   }
 
   // 原版 l32/h32 字符样式切换：选区非空时按覆盖态取反改写选区 run；
@@ -339,6 +347,125 @@ export struct TextBlockOverlay {
     this.applyCharStyle(field, !this.rangeHasCharStyle(field, s, e), s, e);
     this.normalizeCharRuns();
     this.refreshCaretCharStyles();
+  }
+
+  // 选区是否被 highlightColor 非空的 run 完全覆盖。
+  private rangeHasHighlight(s: number, e: number): boolean {
+    const covering: RichTextCharacterStyleRun[] = this.draftCharRuns
+      .filter((r: RichTextCharacterStyleRun): boolean =>
+        r.end > s && r.start < e && r.style.highlightColor !== undefined)
+      .sort((a: RichTextCharacterStyleRun, b: RichTextCharacterStyleRun): number =>
+        a.start - b.start);
+    let pos: number = s;
+    for (const run of covering) {
+      if (run.start > pos) {
+        return false;
+      }
+      pos = Math.max(pos, run.end);
+      if (pos >= e) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // 原版 rte：把高亮色写入选区（color===null 即 Remove Highlight 清除字段）。
+  private applyHighlightColor(color: number | null, s: number, e: number): void {
+    const next: RichTextCharacterStyleRun[] = [];
+    for (const run of this.draftCharRuns) {
+      if (run.end <= s || run.start >= e) {
+        next.push(run);
+        continue;
+      }
+      if (run.start < s) {
+        next.push({ start: run.start, end: s, style: run.style });
+      }
+      if (run.end > e) {
+        next.push({ start: e, end: run.end, style: run.style });
+      }
+      const mid: RichTextCharacterStyle =
+        JSON.parse(JSON.stringify(run.style)) as RichTextCharacterStyle;
+      mid.highlightColor = color === null ? undefined : color;
+      next.push({ start: Math.max(s, run.start), end: Math.min(e, run.end),
+        style: mid });
+    }
+    if (color !== null) {
+      const inside: RichTextCharacterStyleRun[] = next
+        .filter((r: RichTextCharacterStyleRun): boolean => r.start < e && r.end > s)
+        .sort((a: RichTextCharacterStyleRun, b: RichTextCharacterStyleRun): number =>
+          a.start - b.start);
+      let pos: number = s;
+      for (const run of inside) {
+        if (run.start > pos) {
+          next.push({ start: pos, end: run.start,
+            style: { highlightColor: color } });
+        }
+        pos = Math.max(pos, run.end);
+      }
+      if (pos < e) {
+        next.push({ start: pos, end: e, style: { highlightColor: color } });
+      }
+    }
+    this.draftCharRuns = next;
+  }
+
+  // 原版 rte 点按=把当前色板色应用到选区/写入 pending（eh5{iu1,true}）。
+  private toggleHighlightColor(color: number): void {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    if (s === e) {
+      this.pendingCharStyles.highlightColor = color;
+      this.pendingClearHighlight = false;
+      this.refreshCaretCharStyles();
+      return;
+    }
+    this.applyHighlightColor(color, s, e);
+    this.normalizeCharRuns();
+    this.refreshCaretCharStyles();
+  }
+
+  // 原版 feature_note__selection_menu_remove_highlight：清除选区/预期高亮。
+  private clearHighlight(): void {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    if (s === e) {
+      this.pendingClearHighlight = true;
+      this.refreshCaretCharStyles();
+      return;
+    }
+    this.applyHighlightColor(null, s, e);
+    this.normalizeCharRuns();
+    this.refreshCaretCharStyles();
+  }
+
+  // 高亮菜单：五色预设 + Remove Highlight（原版 rte 弹色板的受限等价）。
+  private buildHighlightMenu(): MenuElement[] {
+    const items: MenuElement[] = [];
+    items.push({ value: $r('app.string.highlight_yellow'),
+      action: (): void => {
+        this.toggleHighlightColor(1716898048);
+      } });
+    items.push({ value: $r('app.string.highlight_green'),
+      action: (): void => {
+        this.toggleHighlightColor(1713702656);
+      } });
+    items.push({ value: $r('app.string.highlight_cyan'),
+      action: (): void => {
+        this.toggleHighlightColor(1711276032);
+      } });
+    items.push({ value: $r('app.string.highlight_pink'),
+      action: (): void => {
+        this.toggleHighlightColor(1717973195);
+      } });
+    items.push({ value: $r('app.string.highlight_orange'),
+      action: (): void => {
+        this.toggleHighlightColor(1717994752);
+      } });
+    items.push({ value: $r('app.string.highlight_remove'),
+      action: (): void => {
+        this.clearHighlight();
+      } });
+    return items;
   }
 
   // 原版 cve kue(superscript→zyd.j)/lue(subscript→zyd.i)：互斥对切换。
@@ -594,6 +721,12 @@ export struct TextBlockOverlay {
                       editStart, insEnd);
                   }
                 }
+                if (this.pendingClearHighlight) {
+                  this.applyHighlightColor(null, editStart, insEnd);
+                } else if (this.pendingCharStyles.highlightColor !== undefined) {
+                  this.applyHighlightColor(this.pendingCharStyles.highlightColor,
+                    editStart, insEnd);
+                }
                 this.normalizeCharRuns();
               }
               this.onDraftChange(value);
@@ -713,6 +846,18 @@ export struct TextBlockOverlay {
             .onClick(() => {
               this.toggleCharStyle('strikethrough');
             })
+          // 原版 rte 高亮：菜单选择色=应用（eh5{iu1,true}），Remove=清除。
+          Button($r('app.string.text_highlight'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.caretCharHighlight ?
+              this.resolveTokens().accent : this.resolveTokens().surface)
+            .fontColor(this.caretCharHighlight ?
+              this.resolveTokens().onAccent :
+              (this.element !== null ? this.element.fontColor : '#000000'))
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .bindMenu(this.buildHighlightMenu())
           // 原版 h32/l32 文本格式行的段落装饰项：BULLET/NUMBER/CHECK_BOX/
           // BLOCK_QUOTE/CODE_BLOCK（fy2 1~5，cve.o(fy2) 单选互斥）。
           // link/indent 后续期补齐。
@@ -805,6 +950,7 @@ export struct TextBlockOverlay {
                 this.draftStyles.clear();
                 this.draftCharRuns = [];
                 this.pendingCharStyles = {};
+                this.pendingClearHighlight = false;
               }
             })
           Button($r('app.string.cancel'))

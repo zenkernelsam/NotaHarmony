@@ -1304,6 +1304,13 @@
     { "name": "subscript", "value": "Subscript" },
     { "name": "superscript", "value": "Superscript" },
     { "name": "increase_indent", "value": "Increase indent" },
-    { "name": "decrease_indent", "value": "Decrease indent" }
+    { "name": "decrease_indent", "value": "Decrease indent" },
+    { "name": "text_highlight", "value": "Highlight" },
+    { "name": "highlight_yellow", "value": "Yellow" },
+    { "name": "highlight_green", "value": "Green" },
+    { "name": "highlight_cyan", "value": "Cyan" },
+    { "name": "highlight_pink", "value": "Pink" },
+    { "name": "highlight_orange", "value": "Orange" },
+    { "name": "highlight_remove", "value": "Remove Highlight" }
   ]
 }
