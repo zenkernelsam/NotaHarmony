@@ -17,6 +17,7 @@ import { ImportDetailsSheet } from '../components/ImportDetailsSheet';
 import { drainSharedUris } from '../../data/SharedFileIngress';
 import { drainLaunchActions, LAUNCH_ACTION_CREATE_PHOTO_NOTE, LAUNCH_ACTION_CREATE_RECORDING_NOTE } from '../../data/LaunchActionIngress';
 import { drainDeepLinkNoteIds } from '../../data/DeepLinkIngress';
+import { drainOpenNoteIds, drainLibraryLandings, LANDING_RECENT } from '../../data/OpenTargetIngress';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
 import {
@@ -356,6 +357,10 @@ struct LibraryPage {
     // 原版 /app/note/<id> 深链（py2 → hv7.i → kx）在此 drain，
     // 命中本地笔记即打开。
     this.drainDeepLinkIngress();
+    // 原版打开目标 extras（note_id / nbnote URI / show_library /
+    // show_recent）在此 drain —— 笔记 ID 与深链同一打开管线，
+    // 落地请求按 LibrarySection 处理。
+    this.drainOpenTargetIngress();
     if (this.folderRepo !== null) {
       this.reloadFoldersBestEffort(this.folderRepo, 'page show');
     }
@@ -2957,12 +2962,30 @@ struct LibraryPage {
   // （导入改号副本）；命中即打开 NotePage。未命中 = 本地无此笔记，
   // 原版需经订阅后端同步取回 —— fail-closed 弹「无法打开链接」。
   private drainDeepLinkIngress(): void {
-    const noteIds: string[] = drainDeepLinkNoteIds();
+    // 原版 /app/note 深链（DeepLinkIngress）与打开目标 extras
+    // （OpenTargetIngress：v50 近期快捷项/qk9 小部件行/bv7 新窗口）
+    // 共用同一 note-meta 解析与打开管线。
+    const noteIds: string[] = [...drainDeepLinkNoteIds(), ...drainOpenNoteIds()];
     if (noteIds.length === 0) {
       return;
     }
     this.openDeepLinkNotes(noteIds).catch((e: Error) => {
       console.error('deep link open failed: ' + JSON.stringify(e));
+    });
+  }
+
+  // 原版 MainActivity 的 wu7.a 落地目标：show_library →
+  // ALL_NOTES 区（资料库根视图）；RecentNotesWidgetProvider 本体
+  // 的 show_recent → RECENT 区（dk9 区段同语义）。
+  private drainOpenTargetIngress(): void {
+    const landings: string[] = drainLibraryLandings();
+    if (landings.length === 0) {
+      return;
+    }
+    const section: LibrarySection = landings[landings.length - 1] === LANDING_RECENT ?
+      LibrarySection.RECENT : LibrarySection.ALL_NOTES;
+    this.selectSection(section).catch((e: Error) => {
+      console.error('open-target landing failed: ' + JSON.stringify(e));
     });
   }
 

@@ -10,6 +10,7 @@ import {
 import { enqueueSharedWantUris } from '../data/SharedFileIngress';
 import { enqueueLaunchAction } from '../data/LaunchActionIngress';
 import { enqueueDeepLinkWant } from '../data/DeepLinkIngress';
+import { enqueueOpenTargetWant } from '../data/OpenTargetIngress';
 
 const DOMAIN = 0x0000;
 
@@ -20,6 +21,7 @@ export default class NoteAbility extends UIAbility {
     enqueueSharedWantUris(want);
     enqueueLaunchAction(want);
     enqueueDeepLinkWant(want);
+    enqueueOpenTargetWant(want);
     ThemeStore.init();
     try {
       this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
@@ -34,6 +36,7 @@ export default class NoteAbility extends UIAbility {
     enqueueSharedWantUris(want);
     enqueueLaunchAction(want);
     enqueueDeepLinkWant(want);
+    enqueueOpenTargetWant(want);
   }
 
   onConfigurationUpdate(newConfig: AbilityConfiguration): void {

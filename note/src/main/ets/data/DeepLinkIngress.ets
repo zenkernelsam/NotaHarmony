@@ -19,6 +19,7 @@ const ACTION_VIEW_DATA: string = 'ohos.want.action.viewData';
 const DEEP_LINK_HOST: string = 'notability.com';
 const DEEP_LINK_HOST_SUFFIX: string = '.notability.com';
 const DEEP_LINK_ID_LENGTH: number = 32;
+const DEEP_LINK_UUID_LENGTH: number = 36;
 
 const pendingDeepLinkNoteIds: string[] = [];
 
@@ -30,20 +31,41 @@ function isNotabilityHost(scheme: string, host: string): boolean {
   return host === DEEP_LINK_HOST || host.endsWith(DEEP_LINK_HOST_SUFFIX);
 }
 
-// m18.r0：恰好 32 个十六进制位 → ttf；其余一律非笔记 ID。
-function isDeepLinkNoteId(segment: string): boolean {
-  if (segment.length !== DEEP_LINK_ID_LENGTH) {
-    return false;
-  }
-  for (let i = 0; i < DEEP_LINK_ID_LENGTH; i++) {
-    const code: number = segment.charCodeAt(i);
-    const isHex: boolean = (code >= 0x30 && code <= 0x39) ||
-      (code >= 0x61 && code <= 0x66) || (code >= 0x41 && code <= 0x46);
-    if (!isHex) {
-      return false;
+function isHexDigit(code: number): boolean {
+  return (code >= 0x30 && code <= 0x39) ||
+    (code >= 0x61 && code <= 0x66) || (code >= 0x41 && code <= 0x46);
+}
+
+// m18.r0：恰 32 个十六进制位，或 36 位标准带连字符 UUID
+// （ttf.toString() 的 8-4-4-4-12 形式，连字符在 8/13/18/23）。
+// 返回规范化后的小写 32 位十六进制（导入笔记以此形式入库），
+// 否则 null。
+export function normalizeDeepLinkNoteId(raw: string): string | null {
+  if (raw.length === DEEP_LINK_ID_LENGTH) {
+    for (let i = 0; i < DEEP_LINK_ID_LENGTH; i++) {
+      if (!isHexDigit(raw.charCodeAt(i))) {
+        return null;
+      }
     }
+    return raw.toLowerCase();
   }
-  return true;
+  if (raw.length === DEEP_LINK_UUID_LENGTH) {
+    let hex: string = '';
+    for (let i = 0; i < DEEP_LINK_UUID_LENGTH; i++) {
+      if (i === 8 || i === 13 || i === 18 || i === 23) {
+        if (raw.charAt(i) !== '-') {
+          return null;
+        }
+        continue;
+      }
+      if (!isHexDigit(raw.charCodeAt(i))) {
+        return null;
+      }
+      hex += raw.charAt(i);
+    }
+    return hex.toLowerCase();
+  }
+  return null;
 }
 
 // py2.a：路径段恰为 ["app","note",<id>]。host 校验沿用 py2.f
@@ -65,7 +87,7 @@ export function parseDeepLinkNoteId(uri: string): string | null {
   if (segments.length !== 3 || segments[0] !== 'app' || segments[1] !== 'note') {
     return null;
   }
-  return isDeepLinkNoteId(segments[2]) ? segments[2] : null;
+  return normalizeDeepLinkNoteId(segments[2]);
 }
 
 export function enqueueDeepLinkWant(want: Want): void {

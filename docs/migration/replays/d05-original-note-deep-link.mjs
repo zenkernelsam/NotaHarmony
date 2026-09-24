@@ -116,12 +116,17 @@ check(ingress.includes('segments.length !== 3') &&
   ingress.includes("segments[1] !== 'note'"),
   'ingress replicates py2.a exact 3-segment path');
 check(ingress.includes('DEEP_LINK_ID_LENGTH: number = 32') &&
-  ingress.includes('segment.length !== DEEP_LINK_ID_LENGTH'),
-  'ingress enforces m18.r0 32-char id');
+  ingress.includes('DEEP_LINK_UUID_LENGTH: number = 36') &&
+  ingress.includes('raw.length === DEEP_LINK_ID_LENGTH') &&
+  ingress.includes('raw.length === DEEP_LINK_UUID_LENGTH'),
+  'ingress accepts both m18.r0 id forms (32-hex + dashed 36)');
 check(ingress.includes('code >= 0x30 && code <= 0x39') &&
   ingress.includes('code >= 0x61 && code <= 0x66') &&
   ingress.includes('code >= 0x41 && code <= 0x46'),
   'ingress hex table covers 0-9 a-f A-F like ug5.c');
+check(ingress.includes('normalizeDeepLinkNoteId') &&
+  ingress.includes('return raw.toLowerCase()'),
+  'ingress normalizes ids to canonical lowercase 32-hex');
 
 // ---------- Harmony：管线 ----------
 const onCreate = section(ability, 'onCreate(want: Want', 'ThemeStore.init()');
