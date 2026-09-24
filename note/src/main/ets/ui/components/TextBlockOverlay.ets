@@ -347,6 +347,41 @@ export struct TextBlockOverlay {
     this.refreshCaretCharStyles();
   }
 
+  // 原版 cve m(new h5a(±1))：光标段落 indentLevel 增减（钳制 >=0），
+  // 其余段落字段原样保留；level 归 0 且无其余字段时清除条目保持 canonical。
+  private adjustIndentLevel(delta: number): void {
+    const paragraphIndex: number = this.paragraphIndexAt(this.caretOffset);
+    const current: RichTextParagraphStyle = this.draftStyles.get(paragraphIndex) ?? {};
+    const next: RichTextParagraphStyle = {};
+    const level: number = Math.max(0, (current.indentLevel ?? 0) + delta);
+    if (level > 0) {
+      next.indentLevel = level;
+    }
+    if (current.alignment !== undefined) {
+      next.alignment = current.alignment;
+    }
+    if (current.lineSpacing !== undefined) {
+      next.lineSpacing = current.lineSpacing;
+    }
+    if (current.writingDirection !== undefined) {
+      next.writingDirection = current.writingDirection;
+    }
+    if (current.isChecked !== undefined) {
+      next.isChecked = current.isChecked;
+    }
+    if (current.decoratorStyle !== undefined) {
+      next.decoratorStyle = current.decoratorStyle;
+    }
+    if (current.programmingLanguage !== undefined) {
+      next.programmingLanguage = current.programmingLanguage;
+    }
+    if (Object.keys(next).length === 0) {
+      this.draftStyles.delete(paragraphIndex);
+    } else {
+      this.draftStyles.set(paragraphIndex, next);
+    }
+  }
+
   // 原版 h32 工具条按钮语义：段落级 decorator 单选互斥切换（再次点击同项回到 NONE=0）。
   private toggleDecoratorStyle(decorator: number): void {
     const paragraphIndex: number = this.paragraphIndexAt(this.caretOffset);
@@ -514,6 +549,22 @@ export struct TextBlockOverlay {
             .enabled(!this.photoImportLeaseActive)
             .onClick(() => {
               this.toggleCharStyle('bold');
+            })
+          Button($r('app.string.increase_indent'))
+            .height(32)
+            .fontSize(12)
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .onClick(() => {
+              this.adjustIndentLevel(1);
+            })
+          Button($r('app.string.decrease_indent'))
+            .height(32)
+            .fontSize(12)
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .onClick(() => {
+              this.adjustIndentLevel(-1);
             })
           Button($r('app.string.italic'))
             .height(32)

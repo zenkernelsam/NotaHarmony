@@ -1302,6 +1302,8 @@
     { "name": "underline", "value": "Underline" },
     { "name": "strikethrough", "value": "Strikethrough" },
     { "name": "subscript", "value": "Subscript" },
-    { "name": "superscript", "value": "Superscript" }
+    { "name": "superscript", "value": "Superscript" },
+    { "name": "increase_indent", "value": "Increase indent" },
+    { "name": "decrease_indent", "value": "Decrease indent" }
   ]
 }

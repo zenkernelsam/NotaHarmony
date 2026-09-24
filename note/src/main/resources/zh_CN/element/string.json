@@ -536,6 +536,8 @@
     { "name": "underline", "value": "下划线" },
     { "name": "strikethrough", "value": "删除线" },
     { "name": "subscript", "value": "下标" },
-    { "name": "superscript", "value": "上标" }
+    { "name": "superscript", "value": "上标" },
+    { "name": "increase_indent", "value": "增加缩进" },
+    { "name": "decrease_indent", "value": "减少缩进" }
   ]
 }
