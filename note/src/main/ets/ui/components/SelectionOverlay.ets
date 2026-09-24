@@ -146,9 +146,13 @@ export struct SelectionOverlay {
     }
     // Original dsc order: STYLE, COPY, CUT, DUPLICATE, GROUP, UNGROUP,
     // SEND_FORWARD, SEND_BACKWARD, SEND_TO_FRONT, SEND_TO_BACK, DELETE,
-    // [CONVERT_*], EDIT_MATH, CROP, [FIT_TO_PAGE*], FLIP_H, FLIP_V,
+    // [CONVERT_TO_MATH/TEXT], EDIT_MATH, CROP, [FIT_TO_PAGE*], FLIP_H,
+    // FLIP_V, LOCK/UNLOCK, DESELECT, [MORE].
     // (*原版 dhb case15 即 throw NotImplementedError——FIT_TO_PAGE 上游即死项)
-    // LOCK/UNLOCK, DESELECT.
+    // ADR-0645 全表登记：CONVERT_* 走 MyScript iink（xsc.p() 后端门禁，
+    // Harmony 无生产 OCR provider → fail-closed 缺省）；MORE 仅翻转
+    // msc.b 双行 showSubmenu（本实现单行全量列出）；LOCK 合并 UNLOCK
+    // （ADR-0586）。
     // PASTE rides the menu as a registered adaptation (original renders a
     // floating paste chip); it sits with the clipboard cluster.
     items.push(
