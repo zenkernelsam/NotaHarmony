@@ -1332,6 +1332,8 @@
     { "name": "align_left", "value": "Align left" },
     { "name": "align_center", "value": "Align center" },
     { "name": "align_right", "value": "Align right" },
-    { "name": "line_spacing", "value": "Line spacing" }
+    { "name": "line_spacing", "value": "Line spacing" },
+    { "name": "color_custom", "value": "Custom…" },
+    { "name": "color_apply", "value": "Apply" }
   ]
 }

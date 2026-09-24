@@ -62,6 +62,11 @@ export struct TextBlockOverlay {
   private pendingClearHighlight: boolean = false;
   // 原版 qte/ste：文字色 sheet 态与折叠清除标记。
   @State showTextColorSheet: boolean = false;
+  @State showHsvSheet: boolean = false;
+  @State hsvTarget: number = 0;             // 0=foreground(qte) 1=highlight(rte)
+  @State hsvH: number = 0;
+  @State hsvS: number = 0;
+  @State hsvV: number = 0;
   private pendingClearForeground: boolean = false;
   // 原版 nte/zq8：折叠清除字体族标记。
   private pendingClearFamily: boolean = false;
@@ -489,6 +494,10 @@ export struct TextBlockOverlay {
       action: (): void => {
         this.toggleHighlightColor(1717994752);
       } });
+    items.push({ value: $r('app.string.color_custom'),
+      action: (): void => {
+        this.openHsvSheet(1);
+      } });
     items.push({ value: $r('app.string.highlight_remove'),
       action: (): void => {
         this.clearHighlight();
@@ -738,6 +747,203 @@ export struct TextBlockOverlay {
     this.refreshCaretCharStyles();
   }
 
+  // 原版 ru1=ColorHSV(h,s,v)/te5.B：HSV→ARGB（alpha=FF），纯函数。
+  private hsvComponentsToArgb(h: number, s: number, v: number): number {
+    const hue: number = ((h % 360) + 360) % 360;
+    const c: number = v * s;
+    const x: number = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+    const m: number = v - c;
+    let r: number = 0; let g: number = 0; let b: number = 0;
+    if (hue < 60) { r = c; g = x; } else if (hue < 120) { r = x; g = c; }
+    else if (hue < 180) { g = c; b = x; } else if (hue < 240) { g = x; b = c; }
+    else if (hue < 300) { r = x; b = c; } else { r = c; b = x; }
+    return -16777216 |
+      (Math.round((r + m) * 255) << 16) |
+      (Math.round((g + m) * 255) << 8) |
+      Math.round((b + m) * 255);
+  }
+
+  private hsvToArgb(): number {
+    return this.hsvComponentsToArgb(this.hsvH, this.hsvS, this.hsvV);
+  }
+
+  // 纯色相（hsv(h,1,1)）——SV 方盘底色与色相条拇指色。
+  private hueBaseColor(): number {
+    return this.hsvComponentsToArgb(this.hsvH, 1, 1);
+  }
+
+  // Color.RGBToHSV 等价：ARGB int → h/s/v 三态（打开面板时种子色）。
+  private seedHsvFromArgb(argb: number): void {
+    const r: number = ((argb >> 16) & 255) / 255;
+    const g: number = ((argb >> 8) & 255) / 255;
+    const b: number = (argb & 255) / 255;
+    const max: number = Math.max(r, Math.max(g, b));
+    const min: number = Math.min(r, Math.min(g, b));
+    const d: number = max - min;
+    this.hsvV = max;
+    this.hsvS = max === 0 ? 0 : d / max;
+    if (d === 0) {
+      this.hsvH = 0;
+    } else if (max === r) {
+      this.hsvH = (60 * (((g - b) / d) % 6) + 360) % 360;
+    } else if (max === g) {
+      this.hsvH = 60 * (((b - r) / d) + 2);
+    } else {
+      this.hsvH = 60 * (((r - g) / d) + 4);
+    }
+  }
+
+  // 当前色（种子）：foreground 取选区首个 foregroundColor run 否则元素
+  // 字色；highlight 取首个 highlightColor run 否则默认黄色。
+  private hsvSeedColor(): number {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    const field: string = this.hsvTarget === 1 ? 'highlightColor' : 'foregroundColor';
+    for (const run of this.draftCharRuns) {
+      if (run.end > s && run.start < e) {
+        const v: number | undefined =
+          field === 'highlightColor' ? run.style.highlightColor : run.style.foregroundColor;
+        if (v !== undefined) {
+          return v;
+        }
+      }
+    }
+    return this.hsvTarget === 1 ? 1716898048 : -16777216;
+  }
+
+  private openHsvSheet(target: number): void {
+    this.hsvTarget = target;
+    this.seedHsvFromArgb(this.hsvSeedColor());
+    this.showTextColorSheet = false;
+    this.showHsvSheet = true;
+  }
+
+  private confirmHsvColor(): void {
+    const color: number = this.hsvToArgb();
+    this.showHsvSheet = false;
+    if (this.hsvTarget === 1) {
+      this.toggleHighlightColor(color);
+    } else {
+      this.pickTextColor(color);
+    }
+  }
+
+  // 原版 rw1.g("ColorPicker")→t8j：HSV 子面板——SV 方盘（横向白→透明 +
+  // 纵向透明→黑叠加在纯色色相底上）、色相条（6 停点彩虹渐变）、
+  // 预览色 + Apply/Cancel。拖拽语义 = q8e pointerInput 分区内取坐标比例。
+  @Builder
+  private buildHsvSheet(): void {
+    Column() {
+      // 预览 + 当前 RGB
+      Row() {
+        Column()
+          .width(40)
+          .height(28)
+          .borderRadius(6)
+          .backgroundColor(this.hsvToArgb())
+          .border({ width: 1, color: this.resolveTokens().border })
+        Text('H ' + Math.round(this.hsvH).toString() +
+          '  S ' + Math.round(this.hsvS * 100).toString() + '%' +
+          '  V ' + Math.round(this.hsvV * 100).toString() + '%')
+          .fontSize(12)
+          .fontColor(this.element !== null ? this.element.fontColor : '#000000')
+          .margin({ left: 10 })
+      }
+      .margin({ bottom: 12 })
+      // SV 方盘：色相底 + 横向白→透明（sat）+ 纵向透明→黑（val）。
+      Stack() {
+        Column()
+          .width(240)
+          .height(160)
+          .backgroundColor(this.hueBaseColor())
+        Column()
+          .width(240)
+          .height(160)
+          .linearGradient({ angle: 90,
+            colors: [[0xFFFFFFFF, 0.0], [0x00FFFFFF, 1.0]] })
+        Column()
+          .width(240)
+          .height(160)
+          .linearGradient({ angle: 180,
+            colors: [[0x00000000, 0.0], [0xFF000000, 1.0]] })
+        Column()
+          .width(12)
+          .height(12)
+          .borderRadius(6)
+          .backgroundColor(this.hsvToArgb())
+          .border({ width: 2, color: 0xFFFFFFFF })
+          .position({ x: this.hsvS * 240 - 6, y: (1 - this.hsvV) * 160 - 6 })
+      }
+      .alignContent(Alignment.TopStart)
+      .width(240)
+      .height(160)
+      .borderRadius(8)
+      .clip(true)
+      .enabled(!this.photoImportLeaseActive)
+      .onTouch((event: TouchEvent) => {
+        if (event.type === TouchType.Down || event.type === TouchType.Move) {
+          const t: TouchObject = event.touches[0];
+          this.hsvS = Math.max(0, Math.min(1, t.x / 240));
+          this.hsvV = 1 - Math.max(0, Math.min(1, t.y / 160));
+        }
+      })
+      .margin({ bottom: 12 })
+      // 色相条：彩虹渐变 + 拇指。
+      Stack() {
+        Column()
+          .width(240)
+          .height(18)
+          .linearGradient({ angle: 90, colors: [
+            [0xFFFF0000, 0.0], [0xFFFFFF00, 0.167], [0xFF00FF00, 0.333],
+            [0xFF00FFFF, 0.5], [0xFF0000FF, 0.667], [0xFFFF00FF, 0.833],
+            [0xFFFF0000, 1.0]] })
+        Column()
+          .width(12)
+          .height(18)
+          .borderRadius(6)
+          .backgroundColor(this.hueBaseColor())
+          .border({ width: 2, color: 0xFFFFFFFF })
+          .position({ x: (this.hsvH / 360) * 240 - 6, y: 0 })
+      }
+      .alignContent(Alignment.TopStart)
+      .width(240)
+      .height(18)
+      .borderRadius(9)
+      .clip(true)
+      .enabled(!this.photoImportLeaseActive)
+      .onTouch((event: TouchEvent) => {
+        if (event.type === TouchType.Down || event.type === TouchType.Move) {
+          const t: TouchObject = event.touches[0];
+          this.hsvH = Math.max(0, Math.min(359.99,
+            (t.x / 240) * 360));
+        }
+      })
+      .margin({ bottom: 16 })
+      Row() {
+        Button($r('app.string.color_apply'))
+          .height(32)
+          .fontSize(12)
+          .backgroundColor(this.resolveTokens().accent)
+          .fontColor('#FFFFFF')
+          .enabled(!this.photoImportLeaseActive)
+          .onClick(() => {
+            this.confirmHsvColor();
+          })
+        Button($r('app.string.cancel'))
+          .height(32)
+          .fontSize(12)
+          .backgroundColor(this.resolveTokens().surface)
+          .fontColor(this.element !== null ? this.element.fontColor : '#000000')
+          .margin({ left: 12 })
+          .onClick(() => {
+            this.showHsvSheet = false;
+          })
+      }
+    }
+    .padding(16)
+    .backgroundColor(this.resolveTokens().surface)
+  }
+
   // 文字色板 sheet：12 色预设网格 + Automatic（受限等价 qse.O 面板）。
   @Builder
   private buildTextColorSheet(): void {
@@ -763,15 +969,28 @@ export struct TextBlockOverlay {
       .rowsGap(12)
       .width(200)
       .margin({ bottom: 16 })
-      Button($r('app.string.color_automatic'))
-        .height(32)
-        .fontSize(12)
-        .backgroundColor(this.resolveTokens().surface)
-        .fontColor(this.element !== null ? this.element.fontColor : '#000000')
-        .enabled(!this.photoImportLeaseActive)
-        .onClick(() => {
-          this.clearTextColor();
-        })
+      Row() {
+        Button($r('app.string.color_automatic'))
+          .height(32)
+          .fontSize(12)
+          .backgroundColor(this.resolveTokens().surface)
+          .fontColor(this.element !== null ? this.element.fontColor : '#000000')
+          .enabled(!this.photoImportLeaseActive)
+          .onClick(() => {
+            this.clearTextColor();
+          })
+        // 原版 mli.c→rw1.c 面板内嵌 HSV 取色器入口。
+        Button($r('app.string.color_custom'))
+          .height(32)
+          .fontSize(12)
+          .backgroundColor(this.resolveTokens().surface)
+          .fontColor(this.element !== null ? this.element.fontColor : '#000000')
+          .enabled(!this.photoImportLeaseActive)
+          .margin({ left: 12 })
+          .onClick(() => {
+            this.openHsvSheet(0);
+          })
+      }
     }
     .padding(16)
     .backgroundColor(this.resolveTokens().surface)
@@ -1785,6 +2004,10 @@ export struct TextBlockOverlay {
             .fontColor(this.element !== null ? this.element.fontColor : '#000000')
             .enabled(!this.photoImportLeaseActive)
             .margin({ left: 4 })
+            .bindSheet(this.showHsvSheet, this.buildHsvSheet(), {
+              height: SheetSize.MEDIUM,
+              showClose: true,
+            })
             .bindSheet(this.showLinkSheet, this.buildLinkSheet(), {
               height: SheetSize.MEDIUM,
               showClose: true,

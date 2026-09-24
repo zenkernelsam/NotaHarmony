@@ -566,6 +566,8 @@
     { "name": "align_left", "value": "左对齐" },
     { "name": "align_center", "value": "居中对齐" },
     { "name": "align_right", "value": "右对齐" },
-    { "name": "line_spacing", "value": "行距" }
+    { "name": "line_spacing", "value": "行距" },
+    { "name": "color_custom", "value": "自定义…" },
+    { "name": "color_apply", "value": "应用" }
   ]
 }
