@@ -101,11 +101,11 @@ check(importer.includes('async importScannedIntoNote(noteId: string, uris: strin
   'importScannedIntoNote → importPickedFilesIntoNote（qv5 语义）');
 
 // --- 刷新钩子 ---
-check(page.includes('this.refreshEmptyNoteActions();\n      const loadedBackground'),
+check(/this\.refreshEmptyNoteActions\(\);\r?\n +const loadedBackground/.test(page),
   '初始载入后评估');
-check(page.includes('this.pageContentVersion++;\n      this.refreshEmptyNoteActions();'),
+check(/this\.pageContentVersion\+\+;\r?\n +this\.refreshEmptyNoteActions\(\);/.test(page),
   '导入成功后重评估');
-check(page.includes('this.pageContentVersion++;\n              // 可撤销变更可能改写元素集合'),
+check(/this\.pageContentVersion\+\+;\r?\n +\/\/ 可撤销变更可能改写元素集合/.test(page),
   '可撤销变更后重评估');
 
 // --- 资源串 ---

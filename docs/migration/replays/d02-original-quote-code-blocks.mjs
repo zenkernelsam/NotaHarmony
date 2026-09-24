@@ -103,13 +103,13 @@ check(tool.includes('if (text === element.richText && paragraphStyleRuns === und
   'runs-only commit bypasses no-op short-circuit');
 
 // --- NoteCanvasView 提交路径钉 ---
-check(canvas.includes('async onTextCommit(text: string,\n    characterStyleRuns?: RichTextCharacterStyleRun[],\n    paragraphStyleRuns?: RichTextParagraphStyleRun[])'),
+check(/async onTextCommit\(text: string,\r?\n +characterStyleRuns\?: RichTextCharacterStyleRun\[\],\r?\n +paragraphStyleRuns\?: RichTextParagraphStyleRun\[\]\)/.test(canvas),
   'onTextCommit accepts authored runs');
 check(canvas.includes('const stylesDiffer: boolean = this.editingOriginalTextBlock !== null') &&
   canvas.includes('JSON.stringify(paragraphStyleRuns)') &&
   canvas.includes('JSON.stringify(characterStyleRuns)'),
   'stylesDiffer detection');
-check(canvas.includes('(this.editingOriginalTextBlock.richText !== text || stylesDiffer) &&\n        decodeOperationId(this.editingOriginalTextBlock.id) === null'),
+check(/\(this\.editingOriginalTextBlock\.richText !== text \|\| stylesDiffer\) &&\r?\n +decodeOperationId\(this\.editingOriginalTextBlock\.id\) === null/.test(canvas),
   'local path covers style-only commits');
 check(canvas.includes('paragraphStyleRuns === undefined ? preview.paragraphStyleRuns : paragraphStyleRuns'),
   'CRDT text-edit path prefers authored runs');
