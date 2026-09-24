@@ -18,7 +18,7 @@ export struct TextBlockOverlay {
   // restoreCaret < 0 表示无挂起会话（新块/显式销毁后）。
   @Prop restoreCaret: number = -1;
   @State draftText: string = '';
-  // 原版 h32 文本格式工具条（ADR-0648）：光标段落级 BLOCK_QUOTE(4)/CODE_BLOCK(5)
+  // 原版 h32 文本格式工具条（ADR-0647）：光标段落级 BLOCK_QUOTE(4)/CODE_BLOCK(5)
   // 切换；draftStyles 以段落序号为键承载编辑期样式，提交时折回字符区间 run。
   @State caretOffset: number = -1;
   @State caretDecoratorStyle: number = 0;
@@ -238,8 +238,48 @@ export struct TextBlockOverlay {
             centerY: 0,
           })
         Row() {
-          // 原版 h32 文本格式行中的 BLOCK_QUOTE/CODE_BLOCK 两项
-          // （bold/list/link 等其余项已在既有表面实现）。
+          // 原版 h32/l32 文本格式行的段落装饰项：BULLET/NUMBER/CHECK_BOX/
+          // BLOCK_QUOTE/CODE_BLOCK（fy2 1~5，cve.o(fy2) 单选互斥）。
+          // 字符样式（bold/italic/underline/strikethrough）与 link/indent
+          // 后续期补齐。
+          Button($r('app.string.bullet_list'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.caretDecoratorStyle === 1 ?
+              this.resolveTokens().accent : this.resolveTokens().surface)
+            .fontColor(this.caretDecoratorStyle === 1 ?
+              this.resolveTokens().onAccent :
+              (this.element !== null ? this.element.fontColor : '#000000'))
+            .enabled(!this.photoImportLeaseActive)
+            .onClick(() => {
+              this.toggleDecoratorStyle(1);
+            })
+          Button($r('app.string.numbered_list'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.caretDecoratorStyle === 2 ?
+              this.resolveTokens().accent : this.resolveTokens().surface)
+            .fontColor(this.caretDecoratorStyle === 2 ?
+              this.resolveTokens().onAccent :
+              (this.element !== null ? this.element.fontColor : '#000000'))
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .onClick(() => {
+              this.toggleDecoratorStyle(2);
+            })
+          Button($r('app.string.checkbox_list'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.caretDecoratorStyle === 3 ?
+              this.resolveTokens().accent : this.resolveTokens().surface)
+            .fontColor(this.caretDecoratorStyle === 3 ?
+              this.resolveTokens().onAccent :
+              (this.element !== null ? this.element.fontColor : '#000000'))
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .onClick(() => {
+              this.toggleDecoratorStyle(3);
+            })
           Button($r('app.string.block_quote'))
             .height(32)
             .fontSize(12)
@@ -249,6 +289,7 @@ export struct TextBlockOverlay {
               this.resolveTokens().onAccent :
               (this.element !== null ? this.element.fontColor : '#000000'))
             .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
             .onClick(() => {
               this.toggleDecoratorStyle(4);
             })
