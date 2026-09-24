@@ -1354,6 +1354,53 @@ export struct TextBlockOverlay {
     return true;
   }
 
+  // 原版 fm7.j→jvi.d：粘贴文本 trim 后若为 URL（URLUtil.isValidUrl ||
+  // Patterns.WEB_URL.matches）则规范化——无 scheme 补 https://、
+  // http/https 原样、其他 scheme 返回 null；非 URL 走原生粘贴。
+  private pastedUrlOrNull(raw: string): string {
+    const t: string = raw.trim();
+    if (t.length === 0 || /\s/.test(t)) {
+      return '';
+    }
+    const schemeMatch: RegExpMatchArray | null =
+      t.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
+    if (schemeMatch !== null) {
+      const scheme: string = schemeMatch[1].toLowerCase();
+      if (scheme !== 'http' && scheme !== 'https') {
+        return '';
+      }
+      return /^https?:\/\/[\w-]+(\.[\w-]+)+(:\d+)?(\/\S*)?$/i.test(t) ? t : '';
+    }
+    return /^(www\.)?[\w-]+(\.[\w-]+)+(:\d+)?([/?#]\S*)?$/i.test(t) ?
+      'https://' + t : '';
+  }
+
+  // 原版 fm7.j：URL 粘贴 preventDefault + 选区替换为 trim 后文本并
+  // 写 {link:规范化 url}（同 confirmLink 的插入管线）。
+  private onTextPaste(value: string, event: PasteEvent): void {
+    const url: string = this.pastedUrlOrNull(value);
+    if (url.length === 0 || this.photoImportLeaseActive) {
+      return;
+    }
+    if (event.preventDefault !== undefined) {
+      event.preventDefault();
+    }
+    const title: string = value.trim();
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    const previous: string = this.draftText;
+    this.draftText = this.draftText.substring(0, s) + title +
+      this.draftText.substring(e);
+    this.adjustCharRunsForEdit(this.draftText, previous);
+    this.applyLinkUrl(url, s, s + title.length);
+    this.normalizeCharRuns();
+    this.caretOffset = s + title.length;
+    this.caretSelectionStart = s + title.length;
+    this.controller.caretPosition(s + title.length);
+    this.refreshCaretCharStyles();
+    this.onDraftChange(this.draftText);
+  }
+
   // 提交时把段落序号样式折回字符区间 run（run.end 含段内换行符；末段无换行则止于文末）。
   private computeParagraphRuns(): RichTextParagraphStyleRun[] {
     const runs: RichTextParagraphStyleRun[] = [];
@@ -1488,6 +1535,9 @@ export struct TextBlockOverlay {
             })
             .onWillInsert((info: InsertValue): boolean => {
               return this.onWillInsertText(info);
+            })
+            .onPaste((value: string, event: PasteEvent): void => {
+              this.onTextPaste(value, event);
             })
             .onTextSelectionChange((start: number, end: number) => {
               this.caretOffset = end;
