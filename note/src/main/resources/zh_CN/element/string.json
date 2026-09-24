@@ -561,6 +561,11 @@
     { "name": "link_url_hint", "value": "网址" },
     { "name": "link_title_hint", "value": "链接标题" },
     { "name": "add_link", "value": "添加链接" },
-    { "name": "remove_link", "value": "移除链接" }
+    { "name": "remove_link", "value": "移除链接" },
+    { "name": "text_alignment", "value": "文本对齐" },
+    { "name": "align_left", "value": "左对齐" },
+    { "name": "align_center", "value": "居中对齐" },
+    { "name": "align_right", "value": "右对齐" },
+    { "name": "line_spacing", "value": "行距" }
   ]
 }

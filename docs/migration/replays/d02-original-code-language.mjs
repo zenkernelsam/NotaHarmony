@@ -86,9 +86,9 @@ check(model.includes('programmingLanguage?: string'),
   'RichTextParagraphStyle.programmingLanguage field exists');
 
 // ===== P684 回补修复钉：无段落 run 路径也必须 seedCharStyles =====
-check(/if \(runs\.length === 0\) \{\s+this\.caretDecoratorStyle = 0;\s+this\.caretCodeLanguage = 'plaintext';\s+this\.seedCharStyles\(\);\s+return;\s+\}/.test(overlay),
+check(/if \(runs\.length === 0\) \{\s+this\.caretDecoratorStyle = 0;\s+this\.caretCodeLanguage = 'plaintext';\s+this\.caretAlignment = 1;\s+this\.caretLineSpacing = 1;\s+this\.seedCharStyles\(\);\s+return;\s+\}/.test(overlay),
   'empty-paragraph-runs path still seeds character runs (P684 fix)');
-check(/this\.caretDecoratorStyle = this\.decoratorAt\(this\.caretOffset\);\s+this\.refreshCaretCodeLanguage\(\);\s+this\.seedCharStyles\(\);/.test(overlay),
+check(/this\.caretDecoratorStyle = this\.decoratorAt\(this\.caretOffset\);\s+this\.refreshCaretCodeLanguage\(\);\s+this\.refreshCaretParagraphExtras\(\);\s+this\.seedCharStyles\(\);/.test(overlay),
   'seeded path refreshes language + char runs');
 
 // ===== 字符串钉 =====

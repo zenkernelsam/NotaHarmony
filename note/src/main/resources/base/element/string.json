@@ -1327,6 +1327,11 @@
     { "name": "link_url_hint", "value": "URL" },
     { "name": "link_title_hint", "value": "Link title" },
     { "name": "add_link", "value": "Add Link" },
-    { "name": "remove_link", "value": "Remove Link" }
+    { "name": "remove_link", "value": "Remove Link" },
+    { "name": "text_alignment", "value": "Text alignment" },
+    { "name": "align_left", "value": "Align left" },
+    { "name": "align_center", "value": "Align center" },
+    { "name": "align_right", "value": "Align right" },
+    { "name": "line_spacing", "value": "Line spacing" }
   ]
 }

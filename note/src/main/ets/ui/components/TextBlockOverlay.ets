@@ -54,6 +54,8 @@ export struct TextBlockOverlay {
   @State caretCharSuper: boolean = false;
   // 原版 bte/k5a：光标段落（decorator=5 时）代码语言选择态。
   @State caretCodeLanguage: string = 'plaintext';
+  @State caretAlignment: number = 1;
+  @State caretLineSpacing: number = 1;
   // 原版 rte/eh5：高亮态（选区全覆盖或 pending 含色）。
   @State caretCharHighlight: boolean = false;
   private pendingClearHighlight: boolean = false;
@@ -107,6 +109,8 @@ export struct TextBlockOverlay {
     if (runs.length === 0) {
       this.caretDecoratorStyle = 0;
       this.caretCodeLanguage = 'plaintext';
+      this.caretAlignment = 1;
+      this.caretLineSpacing = 1;
       this.seedCharStyles();
       return;
     }
@@ -124,6 +128,7 @@ export struct TextBlockOverlay {
     }
     this.caretDecoratorStyle = this.decoratorAt(this.caretOffset);
     this.refreshCaretCodeLanguage();
+    this.refreshCaretParagraphExtras();
     this.seedCharStyles();
   }
 
@@ -1087,6 +1092,96 @@ export struct TextBlockOverlay {
     this.caretCodeLanguage = next.programmingLanguage ?? 'plaintext';
   }
 
+  // 原版 ure.t/qse.P（vse→i5a SetAlignment, r4a LEFT=1/CENTER=2/RIGHT=3）与
+  // ure.y/qse.Q（wte→j5a SetLineSpacing, fg7 可选 {1.0,1.5,2.0}）：
+  // 段落级字段，随 caret 段落写入 draftStyles；字段拷贝与其他 setter 同模式。
+  private refreshCaretParagraphExtras(): void {
+    const current: RichTextParagraphStyle =
+      this.draftStyles.get(this.paragraphIndexAt(this.caretOffset)) ?? {};
+    this.caretAlignment = current.alignment ?? 1;
+    this.caretLineSpacing = current.lineSpacing ?? 1;
+  }
+
+  private setAlignment(value: number): void {
+    const paragraphIndex: number = this.paragraphIndexAt(this.caretOffset);
+    const current: RichTextParagraphStyle = this.draftStyles.get(paragraphIndex) ?? {};
+    const next: RichTextParagraphStyle = {};
+    if (current.indentLevel !== undefined) {
+      next.indentLevel = current.indentLevel;
+    }
+    next.alignment = value;
+    if (current.lineSpacing !== undefined) {
+      next.lineSpacing = current.lineSpacing;
+    }
+    if (current.writingDirection !== undefined) {
+      next.writingDirection = current.writingDirection;
+    }
+    if (current.isChecked !== undefined) {
+      next.isChecked = current.isChecked;
+    }
+    if (current.decoratorStyle !== undefined) {
+      next.decoratorStyle = current.decoratorStyle;
+    }
+    if (current.programmingLanguage !== undefined) {
+      next.programmingLanguage = current.programmingLanguage;
+    }
+    this.draftStyles.set(paragraphIndex, next);
+    this.caretAlignment = value;
+  }
+
+  private setLineSpacing(value: number): void {
+    const paragraphIndex: number = this.paragraphIndexAt(this.caretOffset);
+    const current: RichTextParagraphStyle = this.draftStyles.get(paragraphIndex) ?? {};
+    const next: RichTextParagraphStyle = {};
+    if (current.indentLevel !== undefined) {
+      next.indentLevel = current.indentLevel;
+    }
+    if (current.alignment !== undefined) {
+      next.alignment = current.alignment;
+    }
+    next.lineSpacing = value;
+    if (current.writingDirection !== undefined) {
+      next.writingDirection = current.writingDirection;
+    }
+    if (current.isChecked !== undefined) {
+      next.isChecked = current.isChecked;
+    }
+    if (current.decoratorStyle !== undefined) {
+      next.decoratorStyle = current.decoratorStyle;
+    }
+    if (current.programmingLanguage !== undefined) {
+      next.programmingLanguage = current.programmingLanguage;
+    }
+    this.draftStyles.set(paragraphIndex, next);
+    this.caretLineSpacing = value;
+  }
+
+  private buildAlignmentMenu(): MenuElement[] {
+    const items: MenuElement[] = [];
+    items.push({ value: $r('app.string.align_left'), action: (): void => {
+      this.setAlignment(1);
+    } });
+    items.push({ value: $r('app.string.align_center'), action: (): void => {
+      this.setAlignment(2);
+    } });
+    items.push({ value: $r('app.string.align_right'), action: (): void => {
+      this.setAlignment(3);
+    } });
+    return items;
+  }
+
+  private buildLineSpacingMenu(): MenuElement[] {
+    const items: MenuElement[] = [];
+    const values: number[] = [1.0, 1.5, 2.0];
+    for (const value of values) {
+      const spacing: number = value;
+      items.push({ value: spacing.toFixed(1), action: (): void => {
+        this.setLineSpacing(spacing);
+      } });
+    }
+    return items;
+  }
+
   // 原版 h32 工具条按钮语义：段落级 decorator 单选互斥切换（再次点击同项回到 NONE=0）。
   private toggleDecoratorStyle(decorator: number): void {
     const paragraphIndex: number = this.paragraphIndexAt(this.caretOffset);
@@ -1499,6 +1594,30 @@ export struct TextBlockOverlay {
               .margin({ left: 4 })
               .bindMenu(this.buildCodeLanguageMenu())
           }
+          // 原版 ure.t→qse.P 对齐面板（vse(r4a)→i5a）：左/中/右三档。
+          Button($r('app.string.text_alignment'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.caretAlignment !== 1 ?
+              this.resolveTokens().accent : this.resolveTokens().surface)
+            .fontColor(this.caretAlignment !== 1 ?
+              this.resolveTokens().onAccent :
+              (this.element !== null ? this.element.fontColor : '#000000'))
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .bindMenu(this.buildAlignmentMenu())
+          // 原版 ure.y→qse.Q 行距面板（wte(f)→j5a）：fg7 预设 {1.0,1.5,2.0}。
+          Button($r('app.string.line_spacing'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.caretLineSpacing !== 1 ?
+              this.resolveTokens().accent : this.resolveTokens().surface)
+            .fontColor(this.caretLineSpacing !== 1 ?
+              this.resolveTokens().onAccent :
+              (this.element !== null ? this.element.fontColor : '#000000'))
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .bindMenu(this.buildLineSpacingMenu())
           Button($r('app.string.done'))
             .height(32)
             .fontSize(12)
