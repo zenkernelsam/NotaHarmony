@@ -1290,6 +1290,63 @@ export struct TextBlockOverlay {
     return runs;
   }
 
+  // 原版 hke/k09 文本编辑键盘映射（wl6 动作集）：Ctrl+B/I/U 字符样式、
+  // Ctrl+A 全选、Ctrl+Home/End 至文首/文末（HOME/END='Go to Start/End
+  // of Text'）、Escape/Ctrl+D 取消选区（DESELECT=折叠到 caret）。
+  // 差异登记：Ctrl+X/C/V 走 TextArea 原生剪贴板（run 保留=登记缺口）；
+  // Ctrl+Z/Y 无草稿级 undo 基建（画布 UndoRedoManager 在提交层）。
+  private onEditorKeyEvent(event: KeyEvent): boolean {
+    if (event.type !== KeyType.Down || this.photoImportLeaseActive) {
+      return false;
+    }
+    const ctrl: boolean = event.getModifierKeyState !== undefined &&
+      (event.getModifierKeyState(['ctrl']) ||
+        event.getModifierKeyState(['Ctrl']));
+    if (ctrl) {
+      if (event.keyCode === 2018) {           // KEYCODE_B
+        this.toggleCharStyle('bold');
+        return true;
+      }
+      if (event.keyCode === 2025) {           // KEYCODE_I
+        this.toggleCharStyle('italic');
+        return true;
+      }
+      if (event.keyCode === 2037) {           // KEYCODE_U
+        this.toggleCharStyle('underline');
+        return true;
+      }
+      if (event.keyCode === 2017) {           // KEYCODE_A = SELECT_ALL
+        this.controller.setTextSelection(0, this.draftText.length);
+        return true;
+      }
+      if (event.keyCode === 2081) {           // MOVE_HOME = Go to Start of Text
+        this.controller.caretPosition(0);
+        return true;
+      }
+      if (event.keyCode === 2082) {           // MOVE_END = Go to End of Text
+        this.controller.caretPosition(this.draftText.length);
+        return true;
+      }
+      if (event.keyCode === 2020) {           // KEYCODE_D = DESELECT
+        this.collapseSelection();
+        return true;
+      }
+      return false;
+    }
+    if (event.keyCode === 2070) {             // KEYCODE_ESCAPE = DESELECT
+      this.collapseSelection();
+      return true;
+    }
+    return false;
+  }
+
+  // wl6.DESELECT：选区折叠至 caret 端（caretPosition 折叠语义）。
+  private collapseSelection(): void {
+    if (this.caretSelectionStart !== this.caretOffset && this.caretOffset >= 0) {
+      this.controller.caretPosition(this.caretOffset);
+    }
+  }
+
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
   }
@@ -1336,6 +1393,9 @@ export struct TextBlockOverlay {
               if (this.restoreCaret >= 0) {
                 this.controller.caretPosition(Math.min(this.restoreCaret, this.draftText.length));
               }
+            })
+            .onKeyEvent((event: KeyEvent): boolean => {
+              return this.onEditorKeyEvent(event);
             })
             .onTextSelectionChange((start: number, end: number) => {
               this.caretOffset = end;
