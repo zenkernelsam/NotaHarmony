@@ -1268,6 +1268,92 @@ export struct TextBlockOverlay {
     this.refreshCaretCodeLanguage();
   }
 
+  // 原版 fm7.c() clearDecoratorOnCursorParagraph：清光标段 decorator
+  // （programmingLanguage 随 code-block 装饰一并清除）。
+  private clearParagraphDecorator(paragraphIndex: number): void {
+    const current: RichTextParagraphStyle = this.draftStyles.get(paragraphIndex) ?? {};
+    const next: RichTextParagraphStyle = {};
+    if (current.indentLevel !== undefined) {
+      next.indentLevel = current.indentLevel;
+    }
+    if (current.alignment !== undefined) {
+      next.alignment = current.alignment;
+    }
+    if (current.lineSpacing !== undefined) {
+      next.lineSpacing = current.lineSpacing;
+    }
+    if (current.writingDirection !== undefined) {
+      next.writingDirection = current.writingDirection;
+    }
+    if (current.isChecked !== undefined) {
+      next.isChecked = current.isChecked;
+    }
+    if (Object.keys(next).length === 0) {
+      this.draftStyles.delete(paragraphIndex);
+    } else {
+      this.draftStyles.set(paragraphIndex, next);
+    }
+    this.caretDecoratorStyle = next.decoratorStyle ?? 0;
+    this.refreshCaretCodeLanguage();
+  }
+
+  // 段落是否为空段（qi3.c()：内容全为换行——段内除分隔符外零字符）。
+  private isParagraphEmpty(offset: number): boolean {
+    const start: number = this.draftText.lastIndexOf('\n', offset - 1) + 1;
+    let end: number = this.draftText.indexOf('\n', offset);
+    if (end < 0) {
+      end = this.draftText.length;
+    }
+    return end === start;
+  }
+
+  // 原版 fm7.g（Enter）：空装饰段回车——列表段(1-3)：indent>0 减一级、
+  // ==0 清装饰；引用/代码段(4-5)：清装饰；其余放行 '\n' 插入。
+  private onWillInsertText(info: InsertValue): boolean {
+    if (info.insertValue !== '\n' || this.photoImportLeaseActive) {
+      return true;
+    }
+    const paragraphIndex: number = this.paragraphIndexAt(info.insertOffset);
+    const current: RichTextParagraphStyle = this.draftStyles.get(paragraphIndex) ?? {};
+    const decorator: number = current.decoratorStyle ?? 0;
+    if (!this.isParagraphEmpty(info.insertOffset)) {
+      return true;
+    }
+    if (decorator >= 1 && decorator <= 3) {
+      if ((current.indentLevel ?? 0) > 0) {
+        this.adjustIndentLevel(-1);
+      } else {
+        this.clearParagraphDecorator(paragraphIndex);
+      }
+      return false;
+    }
+    if (decorator === 4 || decorator === 5) {
+      this.clearParagraphDecorator(paragraphIndex);
+      return false;
+    }
+    return true;
+  }
+
+  // 原版 fm7.h（Tab）：光标段为列表装饰(1-3) → h5a(+1) 缩进；否则
+  // l('\t')=replaceSelectedText 选区替换为制表符。
+  private handleTabKey(): boolean {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    const paragraphIndex: number = this.paragraphIndexAt(this.caretOffset);
+    const decorator: number =
+      (this.draftStyles.get(paragraphIndex) ?? {}).decoratorStyle ?? 0;
+    if (decorator >= 1 && decorator <= 3) {
+      this.adjustIndentLevel(1);
+      return true;
+    }
+    const oldText: string = this.draftText;
+    this.draftText = oldText.slice(0, s) + '\t' + oldText.slice(e);
+    this.adjustCharRunsForEdit(this.draftText, oldText);
+    this.controller.caretPosition(s + 1);
+    this.onDraftChange(this.draftText);
+    return true;
+  }
+
   // 提交时把段落序号样式折回字符区间 run（run.end 含段内换行符；末段无换行则止于文末）。
   private computeParagraphRuns(): RichTextParagraphStyleRun[] {
     const runs: RichTextParagraphStyleRun[] = [];
@@ -1333,6 +1419,9 @@ export struct TextBlockOverlay {
       }
       return false;
     }
+    if (event.keyCode === 2049) {             // KEYCODE_TAB = fm7.h
+      return this.handleTabKey();
+    }
     if (event.keyCode === 2070) {             // KEYCODE_ESCAPE = DESELECT
       this.collapseSelection();
       return true;
@@ -1396,6 +1485,9 @@ export struct TextBlockOverlay {
             })
             .onKeyEvent((event: KeyEvent): boolean => {
               return this.onEditorKeyEvent(event);
+            })
+            .onWillInsert((info: InsertValue): boolean => {
+              return this.onWillInsertText(info);
             })
             .onTextSelectionChange((start: number, end: number) => {
               this.caretOffset = end;
