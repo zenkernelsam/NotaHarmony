@@ -5,6 +5,7 @@ import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
 import { pdfService } from '@kit.PDFKit';
 import { image } from '@kit.ImageKit';
+import { media } from '@kit.MediaKit';
 import { ZipReader, ZipEntry, ZipParseResult, ZIP_MAX_ARCHIVE_BYTES } from './ZipArchive';
 import {
   NOTE_RECORDINGS_ENTRY, NoteManifest, PackagedRecording, PackagedRecordingSegment, PageData,
@@ -40,6 +41,8 @@ import { paperSizeToMm } from './NoteExporter';
 import { AsyncMutex, MutexRelease } from './AsyncMutex';
 import { importedLegacyNoteId, importedPageNeedsRemap } from './ImportIdentity';
 import { originalAssetPackageEntry, storeImportedOriginalAsset } from './ImageAssetPackageStore';
+import { persistCapturedOriginalRecording } from './OriginalRecordingPersistence';
+import { OriginalRecordingCaptureResult } from '../core/adaptation/OriginalRecordingCaptureController';
 import { originalAssetHashBitsFromSha512, sha512Digest } from './AssetDigest';
 import { inferPaperSize } from './OriginalPageBackgroundOperation';
 import {
@@ -66,6 +69,11 @@ const IMPORTED_IMAGE_SUFFIXES: string[] = ['.png', '.jpg', '.jpeg', '.webp',
   '.gif', '.heif', '.heic', '.tif', '.tiff'];
 // 原版 nj3.txt 是导入类型表中的唯一纯文本类型（dv5 默认分支 → tu5）。
 const IMPORTED_TEXT_SUFFIXES: string[] = ['.txt'];
+// 原版 nj3 音频类型表（cv5 音频分支 → pu5）：后缀 → nj3 MIME。
+const IMPORTED_AUDIO_SUFFIX_MIME: Record<string, string> = {
+  '.mp3': 'audio/mpeg', '.mp4': 'audio/mp4', '.aac': 'audio/aac',
+  '.wav': 'audio/wav', '.aiff': 'audio/aiff', '.m4a': 'audio/mp4',
+};
 // 原版 te0/kci.b 文本导入的默认 BlockCommon 边距与字号（cde 默认寄存器）。
 const TEXT_IMPORT_LEFT_INSET: number = 5;
 const TEXT_IMPORT_TOP_INSET: number = 3;
@@ -167,7 +175,8 @@ export class NoteImporter {
       const documentPicker = new picker.DocumentViewPicker(context);
       const selectOptions = new picker.DocumentSelectOptions();
       selectOptions.fileSuffixFilters = ['.note', '.pdf', '.png', '.jpg', '.jpeg',
-        '.webp', '.gif', '.heif', '.heic', '.tif', '.tiff', '.txt'];
+        '.webp', '.gif', '.heif', '.heic', '.tif', '.tiff', '.txt',
+        '.mp3', '.mp4', '.aac', '.wav', '.aiff', '.m4a'];
       const uris: string[] = await documentPicker.select(selectOptions);
       if (uris.length === 0) {
         return { result: ImportResult.CANCELLED, noteId: null, title: null, pageCount: 0,
@@ -205,6 +214,9 @@ export class NoteImporter {
       }
       if (isImportedTextFileName(fileName)) {
         return await this.importTextFromBytes(bytes, fileName);
+      }
+      if (isImportedAudioFileName(fileName)) {
+        return await this.importAudioFromBytes(bytes, fileName);
       }
       return await this.importFromData(bytes);
     } catch (e) {
@@ -331,7 +343,7 @@ export class NoteImporter {
         missingAssets: [], warnings: [],
         message: `图片解码失败：${JSON.stringify(e)}` };
     }
-    const title: string = imageImportTitle(fileName);
+    const title: string = importedFileStemTitle(fileName);
     const digestBytes: Uint8Array = await sha512Digest(prepared.bytes);
     const metadata: OriginalAssetMetadata = {
       assetHashBits: originalAssetHashBitsFromSha512(digestBytes),
@@ -390,7 +402,7 @@ export class NoteImporter {
       return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
         missingAssets: [], warnings: [], message: '空文本文件，未导入' };
     }
-    const title: string = imageImportTitle(fileName);
+    const title: string = importedFileStemTitle(fileName);
     const textElement: TextBlockElement = buildImportedTextElement(text);
     let createdNoteId: string | null = null;
     const release: MutexRelease = await NoteImporter.importMutex.lock();
@@ -426,6 +438,65 @@ export class NoteImporter {
         message: `文本导入失败：${JSON.stringify(e)}` };
     } finally {
       release();
+    }
+  }
+
+  // 原版 cv5 音频分支 + izi.M：jv5.f 复制临时文件 → MediaMetadataRetriever
+  // extractMetadata(9) 取时长（失败兜底 j=0）→ pu5(file, duration, mime)；
+  // izi.M 在 IO 线程经 re0 建录音资产 akb，再 iaj.a(null, stem, akb, 0,
+  // duration, xgb) 造 yn2 CREATE_RECORDING 实体（haa.CREATE_RECORDING，
+  // te0 variant 0 单 op、不建页；o88 页数=0）。
+  // Harmony：nj3 后缀→MIME 映射（回退 'audio/*'）→ assets/pending 暂存
+  // → AVMetadataExtractor 取时长（失败 0）→ createNoteWithMeta +
+  // persistCapturedOriginalRecording（同一资产管线 + CREATE_RECORDING op）。
+  // 原版 startTime=0L；Harmony 本地录音写者要求 startTime>0，记为导入时刻。
+  private async importAudioFromBytes(data: Uint8Array, fileName: string): Promise<ImportReport> {
+    const mimeType: string = audioMimeForFileName(fileName);
+    const title: string = importedFileStemTitle(fileName);
+    const pendingDirectory: string = this.db.getFilesDir() + '/assets/pending';
+    const stagingPath: string = pendingDirectory +
+      `/audio_import_${Date.now()}_${Math.floor(Math.random() * 0x1000000)}.tmp`;
+    try {
+      fileIo.mkdirSync(pendingDirectory, true);
+      writeFileFully(stagingPath, data);
+    } catch (e) {
+      return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+        missingAssets: [], warnings: [],
+        message: `音频暂存失败：${JSON.stringify(e)}` };
+    }
+    const durationMs: number = await extractImportedAudioDuration(stagingPath);
+    let createdNoteId: string | null = null;
+    const release: MutexRelease = await NoteImporter.importMutex.lock();
+    try {
+      const noteRepo = new NoteRepositoryImpl(this.db);
+      const now: number = Date.now();
+      const note: NoteMeta = await noteRepo.createNoteWithMeta(
+        generateId(), title, now, now, null, true);
+      createdNoteId = note.id;
+      const capture: OriginalRecordingCaptureResult = {
+        temporaryPath: stagingPath,
+        mimeType: mimeType,
+        fileSize: data.length,
+        mediaDurationMs: durationMs,
+        startTime: now,
+        endTime: now + durationMs,
+        durationMs: durationMs,
+      };
+      // persist 的 finally 会删除 stagingPath（无论成败）。
+      await persistCapturedOriginalRecording(this.db, note.id, capture);
+      return { result: ImportResult.SUCCESS, noteId: note.id, title: note.title,
+        pageCount: 0, missingAssets: [], warnings: [],
+        message: `已导入音频「${note.title}」` };
+    } catch (e) {
+      const cleaned: boolean = await this.removeFailedImport(createdNoteId);
+      return { result: ImportResult.CORRUPTED, noteId: cleaned ? null : createdNoteId,
+        title: null, pageCount: 0, missingAssets: [], warnings: [],
+        message: `音频导入失败：${JSON.stringify(e)}` };
+    } finally {
+      release();
+      if (fileIo.accessSync(stagingPath)) {
+        try { fileIo.unlinkSync(stagingPath); } catch (_unlinkError) { }
+      }
     }
   }
 
@@ -1320,7 +1391,7 @@ function isImportedImageFileName(fileName: string): boolean {
   return false;
 }
 
-function imageImportTitle(fileName: string): string {
+function importedFileStemTitle(fileName: string): string {
   const dot: number = fileName.lastIndexOf('.');
   const base: string = dot > 0 ? fileName.substring(0, dot) : fileName;
   return base.length > 0 ? base : '导入笔记';
@@ -1503,4 +1574,55 @@ function buildImportedTextElement(text: string): TextBlockElement {
   };
   element.bounds = textBlockWorldBounds(element);
   return element;
+}
+
+function isImportedAudioFileName(fileName: string): boolean {
+  const lower: string = fileName.toLowerCase();
+  for (const suffix of Object.keys(IMPORTED_AUDIO_SUFFIX_MIME)) {
+    if (lower.endsWith(suffix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// 原版 nj3 MIME 映射；nj3Var.I 为空时回退 fsi.I(uri)，再退 'audio/*'
+// —— Harmony 后缀未命中时直接回退 'audio/*'。
+function audioMimeForFileName(fileName: string): string {
+  const lower: string = fileName.toLowerCase();
+  for (const suffix of Object.keys(IMPORTED_AUDIO_SUFFIX_MIME)) {
+    if (lower.endsWith(suffix)) {
+      return IMPORTED_AUDIO_SUFFIX_MIME[suffix];
+    }
+  }
+  return 'audio/*';
+}
+
+// 原版 MediaMetadataRetriever.extractMetadata(9) 等价物：duration 毫秒，
+// 任何失败兜底 0（与 cv5 的 j=0 一致）。
+async function extractImportedAudioDuration(path: string): Promise<number> {
+  let file: fileIo.File | null = null;
+  let extractor: media.AVMetadataExtractor | null = null;
+  try {
+    file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
+    const size: number = fileIo.statSync(path).size;
+    extractor = await media.createAVMetadataExtractor();
+    extractor.fdSrc = { fd: file.fd, offset: 0, length: size };
+    const metadata: media.AVMetadata = await extractor.fetchMetadata();
+    const raw: string | undefined = metadata.duration;
+    if (raw === undefined || !/^[0-9]+$/.test(raw)) {
+      return 0;
+    }
+    const duration: number = Number(raw);
+    return Number.isSafeInteger(duration) && duration >= 0 ? duration : 0;
+  } catch (_error) {
+    return 0;
+  } finally {
+    if (extractor !== null) {
+      try { await extractor.release(); } catch (_e) { }
+    }
+    if (file !== null) {
+      try { fileIo.closeSync(file); } catch (_e) { }
+    }
+  }
 }
