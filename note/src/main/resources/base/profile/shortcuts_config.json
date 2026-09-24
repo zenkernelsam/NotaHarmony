@@ -1,0 +1,34 @@
+{
+  "shortcuts": [
+    {
+      "shortcutId": "new_note",
+      "label": "$string:shortcut_new_note",
+      "icon": "$media:shortcut_new_note",
+      "wants": [
+        {
+          "bundleName": "com.example.notaharmony",
+          "moduleName": "note",
+          "abilityName": "NoteAbility",
+          "parameters": {
+            "launch_action": "create_note"
+          }
+        }
+      ]
+    },
+    {
+      "shortcutId": "new_photo",
+      "label": "$string:shortcut_new_photo",
+      "icon": "$media:shortcut_new_photo",
+      "wants": [
+        {
+          "bundleName": "com.example.notaharmony",
+          "moduleName": "note",
+          "abilityName": "NoteAbility",
+          "parameters": {
+            "launch_action": "create_photo_note"
+          }
+        }
+      ]
+    }
+  ]
+}

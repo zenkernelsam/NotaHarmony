@@ -13,6 +13,10 @@
       "value": "label"
     },
     {
+      "name": "shortcut_new_note", "value": "New note" },
+    {
+      "name": "shortcut_new_photo", "value": "New photo note" },
+    {
       "name": "retry",
       "value": "Retry"
     },

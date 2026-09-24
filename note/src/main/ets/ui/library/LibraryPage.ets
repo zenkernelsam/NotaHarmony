@@ -15,6 +15,7 @@ import { ImportFileDescriptor, ImportPlan, ImportReport, ImportResult, ImportShe
 import { PdfPasswordDialog } from '../components/PdfPasswordDialog';
 import { ImportDetailsSheet } from '../components/ImportDetailsSheet';
 import { drainSharedUris } from '../../data/SharedFileIngress';
+import { drainLaunchActions, LAUNCH_ACTION_CREATE_PHOTO_NOTE } from '../../data/LaunchActionIngress';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
 import {
@@ -348,6 +349,9 @@ struct LibraryPage {
     // 原版 fag.h0 + hv7.i：冷/热启动收到的共享 want URI 在此 drain
     // 并走同一导入管线（jv5 分发语义 → 独立笔记 → 打开）。
     this.drainSharedIngress();
+    // 原版 v50 快捷方式 CREATE_NOTE（new_photo 带 start_camera）
+    // 在此 drain 并走与内建「+」一致的建笔记管线。
+    this.drainLaunchIngress();
     if (this.folderRepo !== null) {
       this.reloadFoldersBestEffort(this.folderRepo, 'page show');
     }
@@ -2878,7 +2882,7 @@ struct LibraryPage {
   }
 
   private async createAndLaunch(autoRecord: boolean,
-    templateOverride?: PaperTemplate): Promise<void> {
+    templateOverride?: PaperTemplate, startCamera: boolean = false): Promise<void> {
     if (!this.pageActive || this.viewModel === null || this.createBusy) {
       return;
     }
@@ -2910,6 +2914,9 @@ struct LibraryPage {
       if (autoRecord) {
         await router.pushUrl({ url: 'ui/editor/NotePage',
           params: { noteId: noteId, autoRecord: '1' } });
+      } else if (startCamera) {
+        await router.pushUrl({ url: 'ui/editor/NotePage',
+          params: { noteId: noteId, startCamera: '1' } });
       } else {
         await router.pushUrl({ url: 'ui/editor/NotePage', params: { noteId: noteId } });
       }
@@ -2927,6 +2934,19 @@ struct LibraryPage {
 
   // 原版 hv7.i 的共享 intent 路径：队列 URI 逐个物化为独立笔记后
   // 打开最后一篇（原版 kx 协程同语义）；失败弹 toast。
+  private drainLaunchIngress(): void {
+    const actions: string[] = drainLaunchActions();
+    if (actions.length === 0) {
+      return;
+    }
+    for (const action of actions) {
+      const startCamera: boolean = action === LAUNCH_ACTION_CREATE_PHOTO_NOTE;
+      this.createAndLaunch(false, undefined, startCamera).catch((e: Error) => {
+        console.error('shortcut launch create failed: ' + JSON.stringify(e));
+      });
+    }
+  }
+
   private drainSharedIngress(): void {
     const uris: string[] = drainSharedUris();
     if (uris.length === 0) {

@@ -247,6 +247,7 @@ struct NotePage {
   private titleSaveGeneration: number = 0;
   private editorDisposed: boolean = false;
   private autoRecordRequested: boolean = false;
+  private autoCameraRequested: boolean = false;
   private editorLeavePromise: Promise<void> | null = null;
   private titleSaveInFlightCount: number = 0;
   private pageRepo: PageRepositoryImpl | null = null;
@@ -440,6 +441,9 @@ struct NotePage {
       // Original empty_note__record_audio: library record-audio entry opens
       // the editor straight into capture after the note loads.
       this.autoRecordRequested = params['autoRecord'] === '1';
+      // 原版 v50 new_photo 快捷方式 start_camera extra：进编辑器
+      // 直接起拍摄（与 Take Photo 同一 ingress lease）。
+      this.autoCameraRequested = params['startCamera'] === '1';
     }
     if (this.recordingSessionController === null) {
       const context = getContext(this) as common.UIAbilityContext;
@@ -765,6 +769,12 @@ struct NotePage {
         this.startRecording().catch((e: Error) => {
           console.error(`auto-record start failed: ${JSON.stringify(e)}`);
         });
+      }
+      if (this.autoCameraRequested && !this.editorDisposed &&
+        loadGeneration === this.pageLoadGeneration) {
+        this.autoCameraRequested = false;
+        this.photoImportLeaseActive = true;
+        this.cameraCaptureSignal++;
       }
     } catch (e) {
       if (loadGeneration !== this.pageLoadGeneration || this.editorDisposed) {
