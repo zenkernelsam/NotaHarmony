@@ -60,8 +60,9 @@ check(xw9.includes('FIT_AND_CROP_BOX((byte) 2)') &&
   'xw9 layoutBehavior: FIT_AND_CROP_BOX is the register default for pdf assets');
 
 // --- 选择器收缩 + magic 嗅探 ---
-check(importer.includes("selectOptions.fileSuffixFilters = ['.note', '.pdf']"),
-  'picker filter narrowed to the materializable .note/.pdf set');
+check(importer.includes("selectOptions.fileSuffixFilters = ['.note', '.pdf',") &&
+  importer.includes("'.webp'") && importer.includes("'.heic'"),
+  'picker filter covers .note/.pdf plus the Phase 653 image suffixes');
 check(importer.includes('startsWithPdfMagic(bytes) || fileName.toLowerCase().endsWith(\'.pdf\')'),
   'dispatch sniffs %PDF- magic first (original MIME-sniff parity), extension second');
 check(importer.includes('data[0] === 0x25 && data[1] === 0x50') &&

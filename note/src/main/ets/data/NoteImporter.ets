@@ -4,6 +4,7 @@ import { fileIo, picker } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
 import { pdfService } from '@kit.PDFKit';
+import { image } from '@kit.ImageKit';
 import { ZipReader, ZipEntry, ZipParseResult, ZIP_MAX_ARCHIVE_BYTES } from './ZipArchive';
 import {
   NOTE_RECORDINGS_ENTRY, NoteManifest, PackagedRecording, PackagedRecordingSegment, PageData,
@@ -14,11 +15,20 @@ import {
   PageOrientation, PdfCropBoxSize, PdfLayoutBehavior,
 } from '../core/model/NoteTypes';
 import {
-  clonePageBackground, PAGE_BACKGROUND_SCHEMA_VERSION, POINTS_TO_MM,
+  clonePageBackground, originalDefaultNoteBackground, PAGE_BACKGROUND_SCHEMA_VERSION,
+  POINTS_TO_MM,
 } from '../core/model/PageBackgroundModel';
 import { pagePixelSize } from '../core/model/PageCoordinateSpace';
+import {
+  originalImageDecodedDimensionsAreConsistent, originalImageOrientedDimensions,
+  OriginalImagePixelDimensions, ORIGINAL_IMAGE_INSERT_MAX_INTRINSIC_SIDE,
+  planOriginalImageDownscale,
+} from '../core/model/OriginalImageInsertPlan';
+import { imageBlockWorldBounds, originalAssetHashKey } from '../core/model/ImageBlockGeometry';
 import { StrokeElementData } from '../core/model/StrokeTypes';
-import { ImageElement, MathElement, ShapeElement, TextBlockElement } from '../core/model/ElementTypes';
+import {
+  ElementType, ImageElement, MathElement, ShapeElement, TextBlockElement,
+} from '../core/model/ElementTypes';
 import { PageElementKind, PageElementRef } from '../core/model/PageElementOrder';
 import { DatabaseManager } from './DatabaseManager';
 import { NoteRepositoryImpl } from './NoteRepositoryImpl';
@@ -45,6 +55,14 @@ import {
 const FILE_READ_CHUNK_SIZE: number = 64 * 1024;
 // 原版 sw9 cropBoxes flatbuffer vector 上限（readInlineVectorBytes(5, 8, 10000)）。
 const PDF_IMPORT_MAX_PAGES: number = 10000;
+// 原版 m09.b = a79.N = apb.h(612f, 792f)：导入图片的 Letter 页尺寸（pt）。
+const IMAGE_IMPORT_PAGE_WIDTH_PT: number = 612;
+const IMAGE_IMPORT_PAGE_HEIGHT_PT: number = 792;
+// 原版 bvh.a 的 0.8 页占比与 vuh.b 的 WEBP_LOSSY 质量参数。
+const IMAGE_IMPORT_PAGE_FRACTION: number = 0.8;
+const IMAGE_IMPORT_WEBP_LOSSY_QUALITY: number = 85;
+const IMPORTED_IMAGE_SUFFIXES: string[] = ['.png', '.jpg', '.jpeg', '.webp',
+  '.gif', '.heif', '.heic', '.tif', '.tiff'];
 
 export enum ImportResult {
   SUCCESS = 0,
@@ -138,7 +156,8 @@ export class NoteImporter {
     try {
       const documentPicker = new picker.DocumentViewPicker(context);
       const selectOptions = new picker.DocumentSelectOptions();
-      selectOptions.fileSuffixFilters = ['.note', '.pdf'];
+      selectOptions.fileSuffixFilters = ['.note', '.pdf', '.png', '.jpg', '.jpeg',
+        '.webp', '.gif', '.heif', '.heic', '.tif', '.tiff'];
       const uris: string[] = await documentPicker.select(selectOptions);
       if (uris.length === 0) {
         return { result: ImportResult.CANCELLED, noteId: null, title: null, pageCount: 0,
@@ -170,6 +189,9 @@ export class NoteImporter {
       const fileName: string = pickedFileName(uri);
       if (startsWithPdfMagic(bytes) || fileName.toLowerCase().endsWith('.pdf')) {
         return await this.importPdfFromBytes(bytes, fileName);
+      }
+      if (isImportedImageFileName(fileName)) {
+        return await this.importImageFromBytes(bytes, fileName);
       }
       return await this.importFromData(bytes);
     } catch (e) {
@@ -277,6 +299,67 @@ export class NoteImporter {
       return { result: ImportResult.CORRUPTED, noteId: cleaned ? null : createdNoteId,
         title: null, pageCount: 0, missingAssets: [], warnings: [],
         message: `PDF 导入失败：${JSON.stringify(e)}` };
+    } finally {
+      release();
+    }
+  }
+
+  // 原版 cv5 图片分支 + dhj.S：vuh.b 解码（≤3000 保留原字节与解码 mime；
+  // >3000 幂二次采样 + 等比缩放 → WEBP_LOSSY q85 重写），bvh.a 按
+  // 0.8·Letter(612×792pt) 适配，ip5 居中偏移 + 等比 scale=fitW/srcW，
+  // kp5/baj.a 在新建 Letter 页上落一个 cz0.IMAGE/ty0.SQUARE 元素
+  // （PIXEL_ALIGN，blockWidth/Height=本征尺寸，transform=[s,0,x,0,s,y]）。
+  private async importImageFromBytes(data: Uint8Array, fileName: string): Promise<ImportReport> {
+    let prepared: ImportedImagePreparation;
+    try {
+      prepared = await prepareImportedImageBytes(data);
+    } catch (e) {
+      return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
+        missingAssets: [], warnings: [],
+        message: `图片解码失败：${JSON.stringify(e)}` };
+    }
+    const title: string = imageImportTitle(fileName);
+    const digestBytes: Uint8Array = await sha512Digest(prepared.bytes);
+    const metadata: OriginalAssetMetadata = {
+      assetHashBits: originalAssetHashBitsFromSha512(digestBytes),
+      fileName: fileName,
+      mimeType: prepared.mimeType,
+      fileSize: prepared.bytes.length,
+    };
+    const imageElement: ImageElement = buildImportedImageElement(prepared, metadata);
+    let createdNoteId: string | null = null;
+    const release: MutexRelease = await NoteImporter.importMutex.lock();
+    try {
+      const noteRepo = new NoteRepositoryImpl(this.db);
+      const pageRepo = new PageRepositoryImpl(this.db);
+      const now: number = Date.now();
+      const note: NoteMeta = await noteRepo.createNoteWithMeta(
+        generateId(), title, now, now, null, false);
+      createdNoteId = note.id;
+      await storeImportedOriginalAsset(this.db, metadata, prepared.bytes, note.id);
+      const pageInfo: PageInfo = {
+        pageId: generateId(),
+        pageIndex: 0,
+        size: PaperSize.LETTER,
+        template: PaperTemplate.PLAIN,
+        orientation: PageOrientation.PORTRAIT,
+        widthMm: IMAGE_IMPORT_PAGE_WIDTH_PT * POINTS_TO_MM,
+        heightMm: IMAGE_IMPORT_PAGE_HEIGHT_PT * POINTS_TO_MM,
+        background: originalDefaultNoteBackground(),
+        bookmarked: false,
+      };
+      const added: PageInfo = await pageRepo.addImportedPage(note.id, pageInfo);
+      await this.persistence.saveElements(note.id, added.pageId, [], [],
+        [{ kind: PageElementKind.IMAGE, elementId: imageElement.id, zIndex: 0 }],
+        [], [imageElement], []);
+      return { result: ImportResult.SUCCESS, noteId: note.id, title: note.title,
+        pageCount: 1, missingAssets: [], warnings: [],
+        message: `已导入图片「${note.title}」` };
+    } catch (e) {
+      const cleaned: boolean = await this.removeFailedImport(createdNoteId);
+      return { result: ImportResult.CORRUPTED, noteId: cleaned ? null : createdNoteId,
+        title: null, pageCount: 0, missingAssets: [], warnings: [],
+        message: `图片导入失败：${JSON.stringify(e)}` };
     } finally {
       release();
     }
@@ -1154,4 +1237,157 @@ function parseImportedPdfPageSizes(path: string): number[][] {
   } finally {
     document.releaseDocument();
   }
+}
+
+interface ImportedImagePreparation {
+  bytes: Uint8Array;
+  mimeType: string;
+  intrinsicWidth: number;
+  intrinsicHeight: number;
+}
+
+function isImportedImageFileName(fileName: string): boolean {
+  const lower: string = fileName.toLowerCase();
+  for (const suffix of IMPORTED_IMAGE_SUFFIXES) {
+    if (lower.endsWith(suffix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function imageImportTitle(fileName: string): string {
+  const dot: number = fileName.lastIndexOf('.');
+  const base: string = dot > 0 ? fileName.substring(0, dot) : fileName;
+  return base.length > 0 ? base : '导入笔记';
+}
+
+async function readImportedImageOrientation(source: image.ImageSource): Promise<string> {
+  try {
+    return await source.getImageProperty(image.PropertyKey.ORIENTATION, {
+      index: 0, defaultValue: '1',
+    });
+  } catch (_error) {
+    return '1';
+  }
+}
+
+// 原版 vuh.b 等价物：先读编码尺寸（EXIF 方向换轴 → 本征尺寸），≤3000 直接
+// 保留原字节与解码 mime；>3000 走幂二次采样 + 等比缩放 + WEBP_LOSSY q85
+// 重写（重写后 EXIF 随容器丢失，本征尺寸取重写产物的实际像素域，与
+// ep5「重写文件自身尺寸」语义一致）。
+async function prepareImportedImageBytes(data: Uint8Array): Promise<ImportedImagePreparation> {
+  const buffer: ArrayBuffer = data.buffer.slice(data.byteOffset,
+    data.byteOffset + data.byteLength) as ArrayBuffer;
+  const source: image.ImageSource = image.createImageSource(buffer);
+  let pixelMap: image.PixelMap | null = null;
+  let scaled: image.PixelMap | null = null;
+  let packer: image.ImagePacker | null = null;
+  try {
+    const encodedInfo: image.ImageInfo = await source.getImageInfo();
+    const encodedWidth: number = encodedInfo.size.width;
+    const encodedHeight: number = encodedInfo.size.height;
+    if (!Number.isSafeInteger(encodedWidth) || !Number.isSafeInteger(encodedHeight) ||
+      encodedWidth <= 0 || encodedHeight <= 0 || encodedInfo.mimeType.length <= 6 ||
+      !encodedInfo.mimeType.toLowerCase().startsWith('image/')) {
+      throw new Error('imported image header is not a decodable image');
+    }
+    const orientation: string = await readImportedImageOrientation(source);
+    const oriented: OriginalImagePixelDimensions | null = originalImageOrientedDimensions(
+      encodedWidth, encodedHeight, orientation);
+    if (oriented === null) {
+      throw new Error('imported image orientation is invalid');
+    }
+    if (encodedWidth <= ORIGINAL_IMAGE_INSERT_MAX_INTRINSIC_SIDE &&
+      encodedHeight <= ORIGINAL_IMAGE_INSERT_MAX_INTRINSIC_SIDE) {
+      return { bytes: data, mimeType: encodedInfo.mimeType,
+        intrinsicWidth: oriented.width, intrinsicHeight: oriented.height };
+    }
+    const plan = planOriginalImageDownscale(encodedWidth, encodedHeight);
+    if (plan === null) {
+      throw new Error('imported image exceeds the original normalization boundary');
+    }
+    pixelMap = await source.createPixelMap({ editable: false });
+    const decodedInfo: image.ImageInfo = await pixelMap.getImageInfo();
+    if (!originalImageDecodedDimensionsAreConsistent(encodedWidth, encodedHeight,
+      orientation, decodedInfo.size.width, decodedInfo.size.height)) {
+      throw new Error('imported image decode produced inconsistent dimensions');
+    }
+    const factor: number = plan.width / encodedWidth;
+    scaled = await pixelMap.createScaledPixelMap(factor, factor);
+    const scaledInfo: image.ImageInfo = await scaled.getImageInfo();
+    packer = image.createImagePacker();
+    const packed: ArrayBuffer = await packer.packToData(scaled, {
+      format: 'image/webp', quality: IMAGE_IMPORT_WEBP_LOSSY_QUALITY,
+      bufferSize: data.byteLength + 1,
+    });
+    const rewritten: Uint8Array = new Uint8Array(packed);
+    if (rewritten.byteLength <= 0) {
+      throw new Error('imported image normalization produced empty output');
+    }
+    return { bytes: rewritten, mimeType: 'image/webp',
+      intrinsicWidth: scaledInfo.size.width, intrinsicHeight: scaledInfo.size.height };
+  } finally {
+    if (scaled !== null) {
+      try { await scaled.release(); } catch (_e) { }
+    }
+    if (pixelMap !== null) {
+      try { await pixelMap.release(); } catch (_e) { }
+    }
+    if (packer !== null) {
+      try { await packer.release(); } catch (_e) { }
+    }
+    try { await source.release(); } catch (_e) { }
+  }
+}
+
+// 原版 bvh.a + ip5 + kp5 等价物：fMin=min(1, 0.8·612/w, 0.8·792/h)，
+// 位置居中、等比 scale=fitW/srcW；Java float 边界处按 Math.fround 逐步对齐。
+function buildImportedImageElement(prepared: ImportedImagePreparation,
+  metadata: OriginalAssetMetadata): ImageElement {
+  const srcW: number = Math.fround(prepared.intrinsicWidth);
+  const srcH: number = Math.fround(prepared.intrinsicHeight);
+  const limitW: number = Math.fround(
+    Math.fround(IMAGE_IMPORT_PAGE_WIDTH_PT) * Math.fround(IMAGE_IMPORT_PAGE_FRACTION));
+  const limitH: number = Math.fround(
+    Math.fround(IMAGE_IMPORT_PAGE_HEIGHT_PT) * Math.fround(IMAGE_IMPORT_PAGE_FRACTION));
+  const fitMin: number = Math.fround(Math.min(1,
+    Math.min(Math.fround(limitW / srcW), Math.fround(limitH / srcH))));
+  const fitW: number = Math.fround(srcW * fitMin);
+  const fitH: number = Math.fround(srcH * fitMin);
+  const originX: number = Math.fround(
+    Math.fround(IMAGE_IMPORT_PAGE_WIDTH_PT - fitW) / Math.fround(2));
+  const originY: number = Math.fround(
+    Math.fround(IMAGE_IMPORT_PAGE_HEIGHT_PT - fitH) / Math.fround(2));
+  const scale: number = Math.fround(fitW / srcW);
+  const element: ImageElement = {
+    id: `imported-image-${generateId()}`,
+    type: ElementType.IMAGE,
+    transform: [
+      scale, 0, originX,
+      0, scale, originY,
+      0, 0, 1,
+    ],
+    bounds: { left: 0, top: 0, right: 0, bottom: 0 },
+    assetHash: originalAssetHashKey(metadata.assetHashBits),
+    assetHashBits: metadata.assetHashBits.slice(),
+    fileName: metadata.fileName,
+    mimeType: metadata.mimeType,
+    fileSize: metadata.fileSize,
+    intrinsicWidth: prepared.intrinsicWidth,
+    intrinsicHeight: prepared.intrinsicHeight,
+    cropRect: null,
+    blockWidth: prepared.intrinsicWidth,
+    blockHeight: prepared.intrinsicHeight,
+    rotationRadians: 0,
+    corner: 0,
+    textWrap: 0,
+    enableCaption: false,
+    webUrl: null,
+    imageFlippedHorizontally: false,
+    imageFlippedVertically: false,
+    positionLocked: false,
+  };
+  element.bounds = imageBlockWorldBounds(element);
+  return element;
 }
