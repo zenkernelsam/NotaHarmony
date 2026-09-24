@@ -545,6 +545,13 @@
     { "name": "highlight_cyan", "value": "青色" },
     { "name": "highlight_pink", "value": "粉色" },
     { "name": "highlight_orange", "value": "橙色" },
-    { "name": "highlight_remove", "value": "清除高亮" }
+    { "name": "highlight_remove", "value": "清除高亮" },
+    { "name": "text_style", "value": "样式" },
+    { "name": "font_style_large_title", "value": "大标题" },
+    { "name": "font_style_heading_1", "value": "标题 1" },
+    { "name": "font_style_heading_2", "value": "标题 2" },
+    { "name": "font_style_heading_3", "value": "标题 3" },
+    { "name": "font_style_body", "value": "正文" },
+    { "name": "font_style_caption", "value": "说明" }
   ]
 }

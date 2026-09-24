@@ -468,6 +468,130 @@ export struct TextBlockOverlay {
     return items;
   }
 
+  // 原版 cve l(f)：zyd.f=Float(rh8.u(f,4,72)) —— 字号字段区间写（clamp
+  // [4,72] 在预设表侧已固定，本方法直接落值；size===null 清除字段）。
+  private applyFontSize(size: number | null, s: number, e: number): void {
+    const next: RichTextCharacterStyleRun[] = [];
+    for (const run of this.draftCharRuns) {
+      if (run.end <= s || run.start >= e) {
+        next.push(run);
+        continue;
+      }
+      if (run.start < s) {
+        next.push({ start: run.start, end: s, style: run.style });
+      }
+      if (run.end > e) {
+        next.push({ start: e, end: run.end, style: run.style });
+      }
+      const mid: RichTextCharacterStyle =
+        JSON.parse(JSON.stringify(run.style)) as RichTextCharacterStyle;
+      mid.fontSize = size === null ? undefined : size;
+      next.push({ start: Math.max(s, run.start), end: Math.min(e, run.end),
+        style: mid });
+    }
+    if (size !== null) {
+      const inside: RichTextCharacterStyleRun[] = next
+        .filter((r: RichTextCharacterStyleRun): boolean => r.start < e && r.end > s)
+        .sort((a: RichTextCharacterStyleRun, b: RichTextCharacterStyleRun): number =>
+          a.start - b.start);
+      let pos: number = s;
+      for (const run of inside) {
+        if (run.start > pos) {
+          next.push({ start: pos, end: run.start, style: { fontSize: size } });
+        }
+        pos = Math.max(pos, run.end);
+      }
+      if (pos < e) {
+        next.push({ start: pos, end: e, style: { fontSize: size } });
+      }
+    }
+    this.draftCharRuns = next;
+  }
+
+  // 原版 cve ote：zyd{hr4.I(bold), italic=FALSE, hr4.J(fontSize)} mask2012
+  // —— 样式预设原子写三字段（bold 随预设、italic 显式清除、字号预设值）。
+  private applyTextStylePreset(bold: boolean, fontSize: number): void {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    if (s === e) {
+      this.pendingCharStyles.bold = bold;
+      this.pendingCharStyles.italic = false;
+      this.pendingCharStyles.fontSize = fontSize;
+      this.refreshCaretCharStyles();
+      return;
+    }
+    const next: RichTextCharacterStyleRun[] = [];
+    for (const run of this.draftCharRuns) {
+      if (run.end <= s || run.start >= e) {
+        next.push(run);
+        continue;
+      }
+      if (run.start < s) {
+        next.push({ start: run.start, end: s, style: run.style });
+      }
+      if (run.end > e) {
+        next.push({ start: e, end: run.end, style: run.style });
+      }
+      const mid: RichTextCharacterStyle =
+        JSON.parse(JSON.stringify(run.style)) as RichTextCharacterStyle;
+      mid.bold = bold;
+      mid.italic = false;
+      mid.fontSize = fontSize;
+      next.push({ start: Math.max(s, run.start), end: Math.min(e, run.end),
+        style: mid });
+    }
+    const inside: RichTextCharacterStyleRun[] = next
+      .filter((r: RichTextCharacterStyleRun): boolean => r.start < e && r.end > s)
+      .sort((a: RichTextCharacterStyleRun, b: RichTextCharacterStyleRun): number =>
+        a.start - b.start);
+    let pos: number = s;
+    for (const run of inside) {
+      if (run.start > pos) {
+        next.push({ start: pos, end: run.start,
+          style: { bold: bold, italic: false, fontSize: fontSize } });
+      }
+      pos = Math.max(pos, run.end);
+    }
+    if (pos < e) {
+      next.push({ start: pos, end: e,
+        style: { bold: bold, italic: false, fontSize: fontSize } });
+    }
+    this.draftCharRuns = next;
+    this.normalizeCharRuns();
+    this.refreshCaretCharStyles();
+  }
+
+  // 原版 hr4 预设表（i31 字体样式面板）：LargeTitle36b/H1 30b/H2 24b/
+  // H3 18b/Body 14(K=缺省)/Caption 12。
+  private buildTextStyleMenu(): MenuElement[] {
+    const items: MenuElement[] = [];
+    items.push({ value: $r('app.string.font_style_large_title'),
+      action: (): void => {
+        this.applyTextStylePreset(true, 36);
+      } });
+    items.push({ value: $r('app.string.font_style_heading_1'),
+      action: (): void => {
+        this.applyTextStylePreset(true, 30);
+      } });
+    items.push({ value: $r('app.string.font_style_heading_2'),
+      action: (): void => {
+        this.applyTextStylePreset(true, 24);
+      } });
+    items.push({ value: $r('app.string.font_style_heading_3'),
+      action: (): void => {
+        this.applyTextStylePreset(true, 18);
+      } });
+    items.push({ value: $r('app.string.font_style_body'),
+      action: (): void => {
+        this.applyTextStylePreset(false, 14);
+      } });
+    items.push({ value: $r('app.string.font_style_caption'),
+      action: (): void => {
+        this.applyTextStylePreset(false, 12);
+      } });
+    return items;
+  }
+
   // 原版 cve kue(superscript→zyd.j)/lue(subscript→zyd.i)：互斥对切换。
   // 启用时同一载荷内显式 FALSE 兄弟字段；停用时只写本字段 FALSE。
   private toggleCharStylePair(field: string, other: string): void {
@@ -727,6 +851,10 @@ export struct TextBlockOverlay {
                   this.applyHighlightColor(this.pendingCharStyles.highlightColor,
                     editStart, insEnd);
                 }
+                if (this.pendingCharStyles.fontSize !== undefined) {
+                  this.applyFontSize(this.pendingCharStyles.fontSize,
+                    editStart, insEnd);
+                }
                 this.normalizeCharRuns();
               }
               this.onDraftChange(value);
@@ -750,6 +878,15 @@ export struct TextBlockOverlay {
             centerY: 0,
           })
         Row() {
+          // 原版 i31 字体样式面板 / cve ote→hr4 预设：zyd{bold,italic:false,
+          // fontSize} 原子写选区（折叠光标写 pending）。
+          Button($r('app.string.text_style'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.resolveTokens().surface)
+            .fontColor(this.element !== null ? this.element.fontColor : '#000000')
+            .enabled(!this.photoImportLeaseActive)
+            .bindMenu(this.buildTextStyleMenu())
           // 原版 h32/l32 文本格式行的字符样式项：bold/italic/underline/
           // strikethrough（l32 渲染；cve 经 i5a/j5a/zyd 字符样式变更派单）。
           // 选区非空时改写选区 run；折叠光标时翻 pending typing-attributes。

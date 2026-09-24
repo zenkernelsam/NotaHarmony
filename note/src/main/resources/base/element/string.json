@@ -1311,6 +1311,13 @@
     { "name": "highlight_cyan", "value": "Cyan" },
     { "name": "highlight_pink", "value": "Pink" },
     { "name": "highlight_orange", "value": "Orange" },
-    { "name": "highlight_remove", "value": "Remove Highlight" }
+    { "name": "highlight_remove", "value": "Remove Highlight" },
+    { "name": "text_style", "value": "Style" },
+    { "name": "font_style_large_title", "value": "Large Title" },
+    { "name": "font_style_heading_1", "value": "Heading 1" },
+    { "name": "font_style_heading_2", "value": "Heading 2" },
+    { "name": "font_style_heading_3", "value": "Heading 3" },
+    { "name": "font_style_body", "value": "Body" },
+    { "name": "font_style_caption", "value": "Caption" }
   ]
 }
