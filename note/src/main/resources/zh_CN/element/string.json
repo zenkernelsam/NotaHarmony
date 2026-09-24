@@ -556,6 +556,11 @@
     { "name": "text_color", "value": "颜色" },
     { "name": "color_automatic", "value": "自动" },
     { "name": "font_family", "value": "字体" },
-    { "name": "font_default", "value": "默认" }
+    { "name": "font_default", "value": "默认" },
+    { "name": "text_link", "value": "链接" },
+    { "name": "link_url_hint", "value": "网址" },
+    { "name": "link_title_hint", "value": "链接标题" },
+    { "name": "add_link", "value": "添加链接" },
+    { "name": "remove_link", "value": "移除链接" }
   ]
 }

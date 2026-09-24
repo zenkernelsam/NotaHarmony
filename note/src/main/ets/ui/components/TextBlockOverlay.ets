@@ -62,6 +62,10 @@ export struct TextBlockOverlay {
   private pendingClearForeground: boolean = false;
   // 原版 nte/zq8：折叠清除字体族标记。
   private pendingClearFamily: boolean = false;
+  // 原版 tte/aue/en5：链接 sheet 态与草稿。
+  @State showLinkSheet: boolean = false;
+  @State linkUrlDraft: string = '';
+  @State linkTitleDraft: string = '';
   private draftCharRuns: RichTextCharacterStyleRun[] = [];
   private pendingCharStyles: RichTextCharacterStyle = {};
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -808,6 +812,160 @@ export struct TextBlockOverlay {
     return items;
   }
 
+  // 原版 zyd.h：link 字段区间写（url===null 即 aue/wm5→
+  // removeHyperlinkFromSelection 的清除语义）。
+  private applyLinkUrl(url: string | null, s: number, e: number): void {
+    const next: RichTextCharacterStyleRun[] = [];
+    for (const run of this.draftCharRuns) {
+      if (run.end <= s || run.start >= e) {
+        next.push(run);
+        continue;
+      }
+      if (run.start < s) {
+        next.push({ start: run.start, end: s, style: run.style });
+      }
+      if (run.end > e) {
+        next.push({ start: e, end: run.end, style: run.style });
+      }
+      const mid: RichTextCharacterStyle =
+        JSON.parse(JSON.stringify(run.style)) as RichTextCharacterStyle;
+      mid.link = url === null ? undefined : url;
+      next.push({ start: Math.max(s, run.start), end: Math.min(e, run.end),
+        style: mid });
+    }
+    if (url !== null) {
+      const inside: RichTextCharacterStyleRun[] = next
+        .filter((r: RichTextCharacterStyleRun): boolean => r.start < e && r.end > s)
+        .sort((a: RichTextCharacterStyleRun, b: RichTextCharacterStyleRun): number =>
+          a.start - b.start);
+      let pos: number = s;
+      for (const run of inside) {
+        if (run.start > pos) {
+          next.push({ start: pos, end: run.start, style: { link: url } });
+        }
+        pos = Math.max(pos, run.end);
+      }
+      if (pos < e) {
+        next.push({ start: pos, end: e, style: { link: url } });
+      }
+    }
+    this.draftCharRuns = next;
+  }
+
+  // 选区第一个携带 link 的 run 的 url（编辑既有链接时预填，对应 um5→mte）。
+  private linkUrlAt(s: number, e: number): string {
+    for (const run of this.draftCharRuns) {
+      if (run.end > s && run.start < e && run.style.link !== undefined) {
+        return run.style.link;
+      }
+    }
+    return '';
+  }
+
+  // 原版 tm5→en5 链接对话框：打开时以选中文本/既有链接预填。
+  private openLinkSheet(): void {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    this.linkTitleDraft = s === e ? '' : this.draftText.substring(s, e);
+    this.linkUrlDraft = this.linkUrlAt(s, e);
+    this.showLinkSheet = true;
+  }
+
+  // 原版 tte→fm7.l replaceSelectedText：选区（或折叠光标）替换为链接标题
+  // 文本并对插入段写 {link:url}；en5.c 语义——标题非空才可确认。
+  private confirmLink(): void {
+    const url: string = this.linkUrlDraft.trim();
+    const title: string = this.linkTitleDraft;
+    this.showLinkSheet = false;
+    if (url.length === 0 || title.length === 0) {
+      return;
+    }
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    const previous: string = this.draftText;
+    this.draftText = this.draftText.substring(0, s) + title +
+      this.draftText.substring(e);
+    this.adjustCharRunsForEdit(this.draftText, previous);
+    this.applyLinkUrl(url, s, s + title.length);
+    this.normalizeCharRuns();
+    this.caretOffset = s + title.length;
+    this.caretSelectionStart = s + title.length;
+    this.linkUrlDraft = '';
+    this.linkTitleDraft = '';
+    this.refreshCaretCharStyles();
+    this.onDraftChange(this.draftText);
+  }
+
+  // 原版 aue/wm5→removeHyperlinkFromSelection：清除选区 link 字段。
+  private removeLink(): void {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    this.showLinkSheet = false;
+    this.linkUrlDraft = '';
+    this.linkTitleDraft = '';
+    if (s === e) {
+      return;
+    }
+    this.applyLinkUrl(null, s, e);
+    this.normalizeCharRuns();
+    this.refreshCaretCharStyles();
+  }
+
+  // 链接 sheet：URL + Link title 输入 + Add/Remove（受限等价 en5 对话框）。
+  @Builder
+  private buildLinkSheet(): void {
+    Column() {
+      TextInput({ placeholder: $r('app.string.link_url_hint'),
+        text: this.linkUrlDraft })
+        .type(InputType.Normal)
+        .fontSize(14)
+        .width('100%')
+        .margin({ bottom: 12 })
+        .onChange((value: string) => {
+          this.linkUrlDraft = value;
+        })
+      TextInput({ placeholder: $r('app.string.link_title_hint'),
+        text: this.linkTitleDraft })
+        .type(InputType.Normal)
+        .fontSize(14)
+        .width('100%')
+        .margin({ bottom: 16 })
+        .onChange((value: string) => {
+          this.linkTitleDraft = value;
+        })
+      Row() {
+        Button($r('app.string.add_link'))
+          .height(32)
+          .fontSize(12)
+          .backgroundColor(this.linkUrlDraft.trim().length > 0 &&
+            this.linkTitleDraft.length > 0 ?
+            this.resolveTokens().accent : this.resolveTokens().surface)
+          .fontColor(this.linkUrlDraft.trim().length > 0 &&
+            this.linkTitleDraft.length > 0 ?
+            this.resolveTokens().onAccent :
+            (this.element !== null ? this.element.fontColor : '#000000'))
+          .enabled(!this.photoImportLeaseActive &&
+            this.linkUrlDraft.trim().length > 0 &&
+            this.linkTitleDraft.length > 0)
+          .onClick(() => {
+            this.confirmLink();
+          })
+        Button($r('app.string.remove_link'))
+          .height(32)
+          .fontSize(12)
+          .backgroundColor(this.resolveTokens().surface)
+          .fontColor(this.element !== null ? this.element.fontColor : '#000000')
+          .enabled(!this.photoImportLeaseActive)
+          .margin({ left: 8 })
+          .onClick(() => {
+            this.removeLink();
+          })
+      }
+    }
+    .padding(16)
+    .backgroundColor(this.resolveTokens().surface)
+  }
+
   // 原版 cve kue(superscript→zyd.j)/lue(subscript→zyd.i)：互斥对切换。
   // 启用时同一载荷内显式 FALSE 兄弟字段；停用时只写本字段 FALSE。
   private toggleCharStylePair(field: string, other: string): void {
@@ -1247,6 +1405,22 @@ export struct TextBlockOverlay {
             })
             .onClick(() => {
               this.showTextColorSheet = true;
+            })
+          // 原版 tqe.LINK/tte/aue：链接 sheet（URL+标题）→ replaceSelectedText
+          // + zyd.h；Remove Link 清选区 link 字段。
+          Button($r('app.string.text_link'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.resolveTokens().surface)
+            .fontColor(this.element !== null ? this.element.fontColor : '#000000')
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .bindSheet(this.showLinkSheet, this.buildLinkSheet(), {
+              height: SheetSize.MEDIUM,
+              showClose: true,
+            })
+            .onClick(() => {
+              this.openLinkSheet();
             })
           // 原版 h32/l32 文本格式行的段落装饰项：BULLET/NUMBER/CHECK_BOX/
           // BLOCK_QUOTE/CODE_BLOCK（fy2 1~5，cve.o(fy2) 单选互斥）。
