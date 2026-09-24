@@ -5,6 +5,7 @@ import { image } from '@kit.ImageKit';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { audio } from '@kit.AudioKit';
+import { DocumentScanner, DocumentScannerConfig, DocType, SaveOption } from '@kit.VisionKit';
 import { NoteBackgroundSettings, NoteMeta, PageInfo } from '../../core/model/NoteTypes';
 import {
   commitOriginalNoteTitleDraft, isOriginalNoteTitleWireValue,
@@ -102,6 +103,8 @@ import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 const PAGE_EXPORT_SCALE: number = 2.0;
 const EXPORT_JPEG_QUALITY: number = 92;
 const PACK_BUFFER_MAX_BYTES: number = 64 * 1024 * 1024;
+// 原版 ML Kit 扫描 50 页上限（P680 同一常量，VisionKit 上限对齐）。
+const ORIGINAL_DOC_SCAN_MAX_PAGES: number = 50;
 
 @Entry
 @Component
@@ -136,6 +139,13 @@ struct NotePage {
   @State pageOperationBusy: boolean = false;
   @State photoImportLeaseActive: boolean = false;
   private pageStructureLeaseActive: boolean = false;
+  // 原版 u49/mw3 空笔记动作面（feature_note__empty_note__*）：笔记无
+  // 持久化元素时底部显示 Record/Import/Scan/Capture 动作卡。
+  @State emptyNoteActions: boolean = false;
+  // Scan 卡保留 ac4.a0 门——Harmony 以 VisionKit DocScan 可用性等价。
+  @State docScanAvailable: boolean = false;
+  @State docScanOpen: boolean = false;
+  private docScanConfig: DocumentScannerConfig | null = null;
   @State pageLoading: boolean = false;
   @State historyPending: boolean = false;
   // Phase 645 页面管理面板（原版 qd2 页总览）：开关态 + 内容修订种子
@@ -501,6 +511,9 @@ struct NotePage {
   }
 
   aboutToAppear(): void {
+    // VisionKit DocumentScanner 系统能力探测（与 LibraryPage ac4.a0
+    // 等价门同源）。
+    this.docScanAvailable = canIUse('SystemCapability.AI.Component.DocScan');
     const params = router.getParams() as Record<string, string>;
     if (params !== undefined && params !== null && params['noteId'] !== undefined) {
       this.noteId = params['noteId'];
@@ -826,6 +839,8 @@ struct NotePage {
       if (this.editorDisposed || loadGeneration !== this.pageLoadGeneration) {
         return;
       }
+      // u49/mw3：载入完成后评估空笔记动作面可见性。
+      this.refreshEmptyNoteActions();
       const loadedBackground: NoteBackgroundSettings =
         await this.pageRepo.getNoteBackground(this.noteId);
       if (this.editorDisposed || loadGeneration !== this.pageLoadGeneration) {
@@ -1078,6 +1093,7 @@ struct NotePage {
         return;
       }
       this.pageContentVersion++;
+      this.refreshEmptyNoteActions();
       await this.loadRecordings();
       if (this.editorDisposed) {
         return;
@@ -1827,111 +1843,156 @@ struct NotePage {
 
       // 画布（layoutWeight 撑满）
       if (this.pages.length > 0) {
-        NoteCanvasView({
-          viewModel: this.viewModel,
-          noteId: this.noteId,
-          currentPage: this.pages[this.currentPageIndex],
-          undoSignal: this.undoSignal,
-          redoSignal: this.redoSignal,
-          mathInsertSignal: this.mathInsertSignal,
-          photoInsertSignal: this.photoInsertSignal,
-          cameraCaptureSignal: this.cameraCaptureSignal,
-          onPhotoIngressFinished: () => {
-            this.photoImportLeaseActive = false;
-          },
-          selectionStyleSignal: this.selectionStyleSignal,
-          selectionInkStyle: this.selectionInkStyle,
-          selectionColorSignal: this.selectionColorSignal,
-          selectionInkColor: this.selectionInkColor,
-          selectionWidthSignal: this.selectionWidthSignal,
-          selectionInkWidth: this.selectionInkWidth,
-          clearPageSignal: this.clearPageSignal,
-          tapeToggleSignal: this.tapeToggleSignal,
-          onTapeRevealStateChanged: (tapeCount: number, anyRevealed: boolean): void => {
-            this.pageTapeCount = tapeCount;
-            this.anyTapeRevealed = anyRevealed;
-          },
-          // 原版 note_view_night_mode：纸墨深色渲染直通画布 token 解析。
-          nightMode: this.noteViewNightMode,
-          playbackAudioTime: this.audioPlaybackTime,
-          playbackAudioSegments: this.audioPlaybackSegments,
-          readRecordingAudioTime: (): string | null => {
-            const session: OriginalRecordingSessionController | null =
-              this.recordingSessionController;
-            return session === null ? null : session.getCurrentAudioTime();
-          },
-          onUndoRedoChanged: (u: boolean, r: boolean) => {
-            hilog.info(0x0001, 'NotePage', 'undoRedoChanged u=%{public}s r=%{public}s',
-              u.toString(), r.toString());
-            this.canUndo = u;
-            this.canRedo = r;
-            // Phase 645：每次可撤销变更都可能改写页内容 → 页面面板
-            // 缩略图按 thumbRevision 种子重渲染。
-            this.pageContentVersion++;
-          },
-          onRequestPage: (pageId: string) => {
-            if (this.photoImportLeaseActive || this.pageOperationBusy ||
-              this.historyPending || this.pageStructureLeaseActive) {
-              return;
-            }
-            for (let i: number = 0; i < this.pages.length; i++) {
-              if (this.pages[i].pageId === pageId) {
-                this.currentPageIndex = i;
-                this.historyPending = true;
+        Stack({ alignContent: Alignment.Bottom }) {
+          NoteCanvasView({
+            viewModel: this.viewModel,
+            noteId: this.noteId,
+            currentPage: this.pages[this.currentPageIndex],
+            undoSignal: this.undoSignal,
+            redoSignal: this.redoSignal,
+            mathInsertSignal: this.mathInsertSignal,
+            photoInsertSignal: this.photoInsertSignal,
+            cameraCaptureSignal: this.cameraCaptureSignal,
+            onPhotoIngressFinished: () => {
+              this.photoImportLeaseActive = false;
+            },
+            selectionStyleSignal: this.selectionStyleSignal,
+            selectionInkStyle: this.selectionInkStyle,
+            selectionColorSignal: this.selectionColorSignal,
+            selectionInkColor: this.selectionInkColor,
+            selectionWidthSignal: this.selectionWidthSignal,
+            selectionInkWidth: this.selectionInkWidth,
+            clearPageSignal: this.clearPageSignal,
+            tapeToggleSignal: this.tapeToggleSignal,
+            onTapeRevealStateChanged: (tapeCount: number, anyRevealed: boolean): void => {
+              this.pageTapeCount = tapeCount;
+              this.anyTapeRevealed = anyRevealed;
+            },
+            // 原版 note_view_night_mode：纸墨深色渲染直通画布 token 解析。
+            nightMode: this.noteViewNightMode,
+            playbackAudioTime: this.audioPlaybackTime,
+            playbackAudioSegments: this.audioPlaybackSegments,
+            readRecordingAudioTime: (): string | null => {
+              const session: OriginalRecordingSessionController | null =
+                this.recordingSessionController;
+              return session === null ? null : session.getCurrentAudioTime();
+            },
+            onUndoRedoChanged: (u: boolean, r: boolean) => {
+              hilog.info(0x0001, 'NotePage', 'undoRedoChanged u=%{public}s r=%{public}s',
+                u.toString(), r.toString());
+              this.canUndo = u;
+              this.canRedo = r;
+              // Phase 645：每次可撤销变更都可能改写页内容 → 页面面板
+              // 缩略图按 thumbRevision 种子重渲染。
+              this.pageContentVersion++;
+              // 可撤销变更可能改写元素集合 → 空笔记动作面重新评估。
+              this.refreshEmptyNoteActions();
+            },
+            onRequestPage: (pageId: string) => {
+              if (this.photoImportLeaseActive || this.pageOperationBusy ||
+                this.historyPending || this.pageStructureLeaseActive) {
                 return;
               }
-            }
-            hilog.error(0x0001, 'NotePage', 'history requested missing page %{public}s', pageId);
-          },
-          onPageHistorySettled: (pending: boolean) => {
-            this.historyPending = pending;
-          },
-          onApplyNoteTitleHistory: (action: UndoableAction, isUndo: boolean,
-            history: HistoryMetadata): Promise<boolean> => {
-            if (this.pageOperationBusy || this.titleSaveInFlightCount > 0) {
-              return Promise.resolve(false);
-            }
-            return this.runPageHistoryOperation(action, isUndo, history);
-          },
-          onHistoryBridgeReady: (bridge: EditorHistoryBridge) => {
-            this.historyBridge = bridge;
-          },
-          onApplyNoteMetadataHistory: (action: UndoableAction, isUndo: boolean,
-            history: HistoryMetadata): Promise<boolean> => {
-            if (this.pageOperationBusy || this.titleSaveInFlightCount > 0) {
-              return Promise.resolve(false);
-            }
-            return this.runPageHistoryOperation(action, isUndo, history);
-          },
-          onSelectionInkControlsChanged: (color: number | null, width: number | null,
-            minimum: number, maximum: number, variableStyleEnabled: boolean,
-            style: InkStyle | null) => {
-            this.selectionWidthMinimum = minimum;
-            this.selectionWidthMaximum = maximum;
-            this.selectionVariableStyleEnabled = variableStyleEnabled;
-            if (color !== null) {
+              for (let i: number = 0; i < this.pages.length; i++) {
+                if (this.pages[i].pageId === pageId) {
+                  this.currentPageIndex = i;
+                  this.historyPending = true;
+                  return;
+                }
+              }
+              hilog.error(0x0001, 'NotePage', 'history requested missing page %{public}s', pageId);
+            },
+            onPageHistorySettled: (pending: boolean) => {
+              this.historyPending = pending;
+            },
+            onApplyNoteTitleHistory: (action: UndoableAction, isUndo: boolean,
+              history: HistoryMetadata): Promise<boolean> => {
+              if (this.pageOperationBusy || this.titleSaveInFlightCount > 0) {
+                return Promise.resolve(false);
+              }
+              return this.runPageHistoryOperation(action, isUndo, history);
+            },
+            onHistoryBridgeReady: (bridge: EditorHistoryBridge) => {
+              this.historyBridge = bridge;
+            },
+            onApplyNoteMetadataHistory: (action: UndoableAction, isUndo: boolean,
+              history: HistoryMetadata): Promise<boolean> => {
+              if (this.pageOperationBusy || this.titleSaveInFlightCount > 0) {
+                return Promise.resolve(false);
+              }
+              return this.runPageHistoryOperation(action, isUndo, history);
+            },
+            onSelectionInkControlsChanged: (color: number | null, width: number | null,
+              minimum: number, maximum: number, variableStyleEnabled: boolean,
+              style: InkStyle | null) => {
+              this.selectionWidthMinimum = minimum;
+              this.selectionWidthMaximum = maximum;
+              this.selectionVariableStyleEnabled = variableStyleEnabled;
+              if (color !== null) {
+                this.selectionInkColor = color;
+              }
+              if (width !== null) {
+                this.selectionInkWidth = width;
+              }
+              if (style !== null) {
+                this.selectionInkStyle = style;
+              }
+            },
+            onEyedropperSelectionColor: (color: number) => {
+              if (this.photoImportLeaseActive || this.pageOperationBusy ||
+                this.historyPending || this.pageStructureLeaseActive) {
+                return;
+              }
               this.selectionInkColor = color;
+              this.selectionColorSignal++;
+            },
+            onApplyPageHistory: async (action: UndoableAction, isUndo: boolean,
+              history: HistoryMetadata): Promise<boolean> =>
+              this.runPageHistoryOperation(action, isUndo, history),
+          })
+            .width('100%')
+            .height('100%')
+          // 原版 u49/mw3 空笔记动作面：笔记无持久化元素时底部四动作卡
+          // ——Record/Import/Scan(ac4.a0)/Capture。原版卡面为图标+标签；
+          // 此处对齐 Harmony CreateActionChip 文本风格（差异登记 ADR-0649）。
+          if (this.emptyNoteActions && !this.photoImportLeaseActive) {
+            Row({ space: 12 }) {
+              this.EmptyNoteActionChip($r('app.string.empty_note_record'), (): void => {
+                if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+                  return;
+                }
+                this.startRecording();
+              })
+              this.EmptyNoteActionChip($r('app.string.empty_note_import'), (): void => {
+                if (this.photoImportLeaseActive || this.pageOperationBusy ||
+                  this.historyPending || this.pageStructureLeaseActive) {
+                  return;
+                }
+                this.photoImportLeaseActive = true;
+                this.importFileIntoCurrentNote();
+              })
+              if (this.docScanAvailable) {
+                this.EmptyNoteActionChip($r('app.string.empty_note_scan'), (): void => {
+                  if (this.photoImportLeaseActive || this.pageOperationBusy ||
+                    this.historyPending || this.pageStructureLeaseActive) {
+                    return;
+                  }
+                  this.docScanOpen = true;
+                })
+              }
+              this.EmptyNoteActionChip($r('app.string.empty_note_capture_add'), (): void => {
+                if (this.photoImportLeaseActive || this.pageOperationBusy ||
+                  this.historyPending || this.pageStructureLeaseActive) {
+                  return;
+                }
+                this.photoImportLeaseActive = true;
+                this.cameraCaptureSignal++;
+              })
             }
-            if (width !== null) {
-              this.selectionInkWidth = width;
-            }
-            if (style !== null) {
-              this.selectionInkStyle = style;
-            }
-          },
-          onEyedropperSelectionColor: (color: number) => {
-            if (this.photoImportLeaseActive || this.pageOperationBusy ||
-              this.historyPending || this.pageStructureLeaseActive) {
-              return;
-            }
-            this.selectionInkColor = color;
-            this.selectionColorSignal++;
-          },
-          onApplyPageHistory: async (action: UndoableAction, isUndo: boolean,
-            history: HistoryMetadata): Promise<boolean> =>
-            this.runPageHistoryOperation(action, isUndo, history),
-        })
-          .layoutWeight(1)
+            .margin({ bottom: 24 })
+          }
+        }
+        .layoutWeight(1)
       } else if (this.pageLoadFailed) {
         // Original u49: the scaffold stays behind the terminal dialog; the
         // original offers no retry affordance on this surface.
@@ -2038,6 +2099,128 @@ struct NotePage {
       height: SheetSize.LARGE,
       showClose: false,
     })
+    // u49/mw3 Scan 卡：VisionKit DocumentScanner 需要无遮挡全屏表面
+    // （与 LibraryPage P680 同一 cover 约束）；下滑关闭等同用户取消。
+    .bindContentCover(this.docScanOpen, this.DocScanCover(), {
+      onWillDismiss: (action: DismissContentCoverAction): void => {
+        this.docScanOpen = false;
+        action.dismiss();
+      }
+    })
+  }
+
+  // 原版 u49/mw3 空笔记动作卡：CreateActionChip 文本风格。
+  @Builder
+  EmptyNoteActionChip(label: Resource, action: () => void) {
+    Button() {
+      Text(label)
+        .fontSize(14)
+        .fontColor(this.resolveTokens().accent)
+        .maxLines(1)
+    }
+    .type(ButtonType.Capsule)
+    .backgroundColor(this.resolveTokens().surface)
+    .onClick(action)
+  }
+
+  // VisionKit DocumentScanner 全屏 cover（与 LibraryPage P680 同一组件契约）。
+  @Builder
+  DocScanCover() {
+    Column() {
+      DocumentScanner({
+        scannerConfig: this.ensureDocScanConfig(),
+        onResult: (code: number, saveType: SaveOption, uris: string[]): void => {
+          this.onDocScanResult(code, uris);
+        }
+      })
+        .width('100%')
+        .height('100%')
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(this.resolveTokens().background)
+  }
+
+  // u49/mw3 空笔记动作面可见性：page_element_snapshot 全表元素数为 0
+  // 才显示四动作卡（与 d05 页面总览同一数据源）；计数失败 fail-closed。
+  private refreshEmptyNoteActions(): void {
+    this.persistence.getPageElementCounts(this.noteId).then((counts) => {
+      if (this.editorDisposed) {
+        return;
+      }
+      let total: number = 0;
+      counts.forEach((count: number) => {
+        total += count;
+      });
+      this.emptyNoteActions = total === 0;
+    }).catch((e: Error) => {
+      console.error('empty-note surface check failed: ' + JSON.stringify(e));
+    });
+  }
+
+  // VisionKit 回调（code 200=成功、-1=用户取消静默、其余失败）。
+  private onDocScanResult(code: number, uris: string[]): void {
+    this.docScanOpen = false;
+    if (code !== 200 || uris.length === 0) {
+      if (code !== -1) {
+        promptAction.showToast({ message: $r('app.string.empty_note_scan_failed') });
+      }
+      return;
+    }
+    this.scanIntoCurrentNote(uris).catch((e: Error) => {
+      console.error('empty-note doc scan import failed: ' + JSON.stringify(e));
+    });
+  }
+
+  private ensureDocScanConfig(): DocumentScannerConfig {
+    if (this.docScanConfig === null) {
+      const config: DocumentScannerConfig = new DocumentScannerConfig();
+      // 与 LibraryPage P680 同一配置：文档类型、产出 PDF、50 页上限、
+      // 关闭分享钮（扫描结果只进当前笔记导入管线）。
+      config.supportType = [DocType.DOC];
+      config.saveOptions = [SaveOption.PDF];
+      config.maxShotCount = ORIGINAL_DOC_SCAN_MAX_PAGES;
+      config.isShareable = false;
+      this.docScanConfig = config;
+    }
+    return this.docScanConfig;
+  }
+
+  // 原版 u49 Scan → ib7.onDocScanned(uri,…)：扫描 PDF uri 并入当前笔记
+  // （qv5 AddToExistingNote 语义），成功后重载页面并重新评估动作面。
+  private async scanIntoCurrentNote(uris: string[]): Promise<void> {
+    if (this.editorDisposed) {
+      return;
+    }
+    const importer: NoteImporter = new NoteImporter(DatabaseManager.getInstance(),
+      this.persistence);
+    const report: ImportReport = await importer.importScannedIntoNote(
+      this.noteId, uris, this.pdfPasswordPrompt);
+    if (this.editorDisposed) {
+      return;
+    }
+    if (report.result !== ImportResult.SUCCESS &&
+      report.result !== ImportResult.PARTIAL) {
+      try {
+        promptAction.showToast({ message: report.message, duration: 2500 });
+      } catch (_toastError) { }
+      return;
+    }
+    if (this.pageRepo !== null) {
+      this.pages = await this.pageRepo.getPages(this.noteId);
+    }
+    if (this.editorDisposed) {
+      return;
+    }
+    this.pageContentVersion++;
+    this.refreshEmptyNoteActions();
+    await this.loadRecordings();
+    if (this.editorDisposed) {
+      return;
+    }
+    try {
+      promptAction.showToast({ message: report.message, duration: 2500 });
+    } catch (_toastError) { }
   }
 
   // Phase 645：原版 content manager 页总览——标题 Pages + nd2 三过滤

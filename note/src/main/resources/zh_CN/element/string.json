@@ -522,6 +522,11 @@
     { "name": "scanned_document_title", "value": "扫描文档 %1$s" },
     { "name": "doc_scan_failed", "value": "无法从扫描件创建笔记，请重试。" },
     { "name": "block_quote", "value": "引用" },
-    { "name": "code_block", "value": "代码块" }
+    { "name": "code_block", "value": "代码块" },
+    { "name": "empty_note_capture_add", "value": "拍摄并添加" },
+    { "name": "empty_note_import", "value": "导入" },
+    { "name": "empty_note_record", "value": "录音" },
+    { "name": "empty_note_scan", "value": "扫描" },
+    { "name": "empty_note_scan_failed", "value": "无法扫描文档，请重试。" }
   ]
 }

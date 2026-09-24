@@ -327,6 +327,13 @@ export class NoteImporter {
       passwordPrompt);
   }
 
+  // 原版 u49/mw3 空笔记动作面 Scan 卡（ac4.a0）：扫描产物 uri（PDF）
+  // 并入当前打开的笔记（qv5 AddToExistingNote 语义），不新建笔记。
+  async importScannedIntoNote(noteId: string, uris: string[],
+    passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
+    return await this.importPickedFilesIntoNote(noteId, uris, passwordPrompt);
+  }
+
   // 原版编辑器插入菜单「Add Files」（qc 序位第一）→ qv5
   // AddToExistingNote：同一类型表，目标为当前打开的笔记。`.note` 归档
   // 并入既有笔记语义不透明（yq8.d/e 未反编译），故过滤不收 .note。

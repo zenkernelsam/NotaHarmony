@@ -30,7 +30,7 @@ const bridgeIndex = page.indexOf('onHistoryBridgeReady:', callbackIndex);
 const requestIndex = page.indexOf('onRequestPage:');
 assert.ok(requestIndex >= 0 && callbackIndex > requestIndex && bridgeIndex > callbackIndex);
 assert.match(page, /onPageHistorySettled: \(pending: boolean\) => \{\s+this\.historyPending = pending;\s+\},/);
-assert.match(page, /onRequestPage: \(pageId: string\) => \{[\s\S]{0,320}?this\.currentPageIndex = i;\s+this\.historyPending = true;\s+return;/);
+assert.match(page, /onRequestPage: \(pageId: string\) => \{[\s\S]{0,360}?this\.currentPageIndex = i;\s+this\.historyPending = true;\s+return;/);
 
 for (const [name, section] of [
   ['prev navigation lease gate', page.slice(page.indexOf('onPrev: () =>'), page.indexOf('onNext: () =>'))],
