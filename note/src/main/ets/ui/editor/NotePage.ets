@@ -30,8 +30,10 @@ import { NoteExporter } from '../../data/NoteExporter';
 import { PageImageExporter, ShareImageFormat } from '../../data/PageImageExporter';
 import { PagePdfExporter, PdfPageImage } from '../../data/PagePdfExporter';
 import { PageOverviewPanel } from './PageOverviewPanel';
-import { ImportReport, ImportResult, NoteImporter, PdfPasswordPrompt } from '../../data/NoteImporter';
+import { ImportFileDescriptor, ImportPlan, ImportReport, ImportResult, ImportSheetPrompt, NoteImporter, PdfPasswordPrompt } from '../../data/NoteImporter';
 import { PdfPasswordDialog } from '../components/PdfPasswordDialog';
+import { ImportDetailsSheet } from '../components/ImportDetailsSheet';
+import { FolderRepositoryImpl, NoteFolder } from '../../data/FolderRepositoryImpl';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PersistedOriginalNoteTitle } from '../../data/OriginalNoteTitlePersistence';
 import {
@@ -175,6 +177,46 @@ struct NotePage {
         }
       },
     }),
+    cancel: (): void => {
+      const resolve: ((password: string | null) => void) | null =
+        this.pdfPasswordResolve;
+      this.pdfPasswordResolve = null;
+      if (resolve !== null) {
+        resolve(null);
+      }
+    },
+    autoCancel: true,
+  });
+  // 原版 ou5/zvh.a 导入详情页（编辑器上下文默认 qv5 当前笔记）。
+  @State importSheetFiles: ImportFileDescriptor[] = [];
+  @State importSheetContext: string = 'note';
+  @State importSheetNotes: NoteMeta[] = [];
+  @State importSheetFolders: NoteFolder[] = [];
+  private importSheetResolve: ((plan: ImportPlan | null) => void) | null = null;
+  private importSheetDialog: CustomDialogController = new CustomDialogController({
+    builder: ImportDetailsSheet({
+      files: this.importSheetFiles,
+      context: this.importSheetContext,
+      currentNoteId: this.noteId,
+      notes: this.importSheetNotes,
+      folders: this.importSheetFolders,
+      onResult: (plan: ImportPlan | null): void => {
+        const resolve: ((plan: ImportPlan | null) => void) | null =
+          this.importSheetResolve;
+        this.importSheetResolve = null;
+        if (resolve !== null) {
+          resolve(plan);
+        }
+      },
+    }),
+    cancel: (): void => {
+      const resolve: ((plan: ImportPlan | null) => void) | null =
+        this.importSheetResolve;
+      this.importSheetResolve = null;
+      if (resolve !== null) {
+        resolve(null);
+      }
+    },
     autoCancel: true,
   });
   @State noteTitle: string = '';          // T-036：标题
@@ -900,6 +942,31 @@ struct NotePage {
       });
     };
 
+  private async prepareImportSheetData(): Promise<void> {
+    try {
+      this.importSheetNotes = this.noteRepo !== null ?
+        await this.noteRepo.getAllNotes() : [];
+    } catch (_notesError) { }
+    try {
+      const folderRepo: FolderRepositoryImpl =
+        new FolderRepositoryImpl(DatabaseManager.getInstance());
+      this.importSheetFolders = await folderRepo.getAllFolders();
+    } catch (_foldersError) { }
+  }
+
+  // 原版 ou5/zvh.a 导入详情页：编辑器上下文把当前笔记预置为 qv5 目标。
+  private importSheetPrompt: ImportSheetPrompt =
+    (files: ImportFileDescriptor[], context: string,
+      currentNoteId: string): Promise<ImportPlan | null> => {
+      this.importSheetFiles = files;
+      this.importSheetContext = context;
+      return new Promise((resolve) => {
+        this.importSheetResolve = resolve;
+        this.prepareImportSheetData()
+          .finally((): void => this.importSheetDialog.open());
+      });
+    };
+
   // 原版编辑器插入菜单「Add Files」（qc 序位第一 → qv5
   // AddToExistingNote）：文件选择器 → 类型分发 → 物化进当前笔记末尾
   // （PDF 追加页/图片页/文本页/录音）。成功后刷新页列表与录音时间线。
@@ -910,7 +977,7 @@ struct NotePage {
         this.persistence);
       const report: ImportReport =
         await importer.importFileIntoNoteFromPicker(context, this.noteId,
-          this.pdfPasswordPrompt);
+          this.pdfPasswordPrompt, this.importSheetPrompt);
       if (this.editorDisposed || report.result === ImportResult.CANCELLED) {
         return;
       }

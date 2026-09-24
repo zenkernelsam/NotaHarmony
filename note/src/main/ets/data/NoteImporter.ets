@@ -116,6 +116,38 @@ interface PackagedOriginalAsset {
 export type PdfPasswordPrompt =
   (fileName: string, attempt: number) => Promise<string | null>;
 
+// 原版 ou5 导入详情页（zvh.a）的输入与决议：
+//   utf = 待导入文件描述符；tv5 目的地 = qv5 AddToExistingNote(noteId) /
+//   sv5 CreateSingleNewNote(title,folderId) / rv5
+//   CreateSeparateNotes(folderId,titleOverrides)；
+//   fu5 事件：wt5=逐文件题覆盖、tt5=笔记搜索、st5=选定既有笔记、
+//   yt5=选文件夹、zt5=确认导入、dismiss=取消。
+export interface ImportFileDescriptor {
+  uri: string;
+  fileName: string;
+  size: number;
+}
+
+export enum ImportDestination {
+  SEPARATE_NOTES = 0,   // rv5 CreateSeparateNotes：每文件各成一篇
+  SINGLE_NOTE = 1,      // sv5 CreateSingleNewNote：全部并入一篇新笔记
+  EXISTING_NOTE = 2,    // qv5 AddToExistingNote：并入既有笔记
+}
+
+export interface ImportPlan {
+  destination: ImportDestination;
+  noteId: string;                 // EXISTING_NOTE 的目标笔记
+  folderId: string | null;        // sv5/rv5 新笔记所在文件夹（null=根）
+  singleTitle: string;            // sv5 标题覆盖；空串=首个文件词干
+  titleOverrides: Map<string, string>;  // rv5 逐文件题（uri → 标题）
+}
+
+// context：'standalone'（库/共享入口）| 'note'（编辑器 Add Files，
+// 默认目的地为当前笔记）。返回 null = 取消导入。
+export type ImportSheetPrompt =
+  (files: ImportFileDescriptor[], context: string,
+    currentNoteId: string) => Promise<ImportPlan | null>;
+
 interface StagedPdfParse {
   bytes: Uint8Array | null;   // 解密后的有效字节（未加密时与原字节一致）
   pageSizes: number[][];
@@ -185,7 +217,8 @@ export class NoteImporter {
   // 与内容嗅探分发；Harmony DocumentViewPicker 只能按后缀过滤，收缩到可
   // 物化的 .note/.pdf/图片/.txt，进入后用 %PDF- magic 对齐原版的类型嗅探。
   async importFromFile(context: common.UIAbilityContext,
-    passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
+    passwordPrompt?: PdfPasswordPrompt,
+    sheetPrompt?: ImportSheetPrompt): Promise<ImportReport> {
     let file: fileIo.File | null = null;
     try {
       const documentPicker = new picker.DocumentViewPicker(context);
@@ -199,6 +232,18 @@ export class NoteImporter {
         return { result: ImportResult.CANCELLED, noteId: null, title: null, pageCount: 0,
           missingAssets: [], warnings: [],
           message: '未选择文件' };
+      }
+      if (sheetPrompt !== undefined) {
+        // 原版 zvh.a 导入详情页：文件列表 + tv5 目的地 + 逐文件题覆盖，
+        // zt5 确认后按 plan 分发；dismiss → 取消。
+        const plan: ImportPlan | null =
+          await sheetPrompt(describeImportUris(uris), 'standalone', '');
+        if (plan === null) {
+          return { result: ImportResult.CANCELLED, noteId: null, title: null,
+            pageCount: 0, missingAssets: [], warnings: [],
+            message: '已取消导入' };
+        }
+        return await this.dispatchImportPlan(uris, plan, passwordPrompt);
       }
       if (uris.length > 1) {
         // 原版 ALLOW_MULTIPLE + rv5 CreateSeparateNotes：多选时每个文件
@@ -257,7 +302,18 @@ export class NoteImporter {
   // （jv5 嗅探分发 → 独立笔记）。Harmony：共享 want URI 经
   // SharedFileIngress 队列送达，逐文件读入 + 同一分发表物化。
   async importSharedUris(uris: string[],
-    passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
+    passwordPrompt?: PdfPasswordPrompt,
+    sheetPrompt?: ImportSheetPrompt): Promise<ImportReport> {
+    if (sheetPrompt !== undefined) {
+      const plan: ImportPlan | null =
+        await sheetPrompt(describeImportUris(uris), 'standalone', '');
+      if (plan === null) {
+        return { result: ImportResult.CANCELLED, noteId: null, title: null,
+          pageCount: 0, missingAssets: [], warnings: [],
+          message: '已取消导入' };
+      }
+      return await this.dispatchImportPlan(uris, plan, passwordPrompt);
+    }
     return await this.importPickedFilesStandalone(uris, passwordPrompt);
   }
 
@@ -265,7 +321,8 @@ export class NoteImporter {
   // AddToExistingNote：同一类型表，目标为当前打开的笔记。`.note` 归档
   // 并入既有笔记语义不透明（yq8.d/e 未反编译），故过滤不收 .note。
   async importFileIntoNoteFromPicker(context: common.UIAbilityContext,
-    noteId: string, passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
+    noteId: string, passwordPrompt?: PdfPasswordPrompt,
+    sheetPrompt?: ImportSheetPrompt): Promise<ImportReport> {
     let file: fileIo.File | null = null;
     try {
       const documentPicker = new picker.DocumentViewPicker(context);
@@ -279,6 +336,18 @@ export class NoteImporter {
         return { result: ImportResult.CANCELLED, noteId: noteId, title: null, pageCount: 0,
           missingAssets: [], warnings: [],
           message: '未选择文件' };
+      }
+      if (sheetPrompt !== undefined) {
+        // 编辑器上下文：原版 ub2 把当前笔记作 ttf → qv5(当前笔记) 为默认
+        // 目的地；sv5 新建 / rv5 各自 / 另选笔记由详情页返回。
+        const plan: ImportPlan | null =
+          await sheetPrompt(describeImportUris(uris), 'note', noteId);
+        if (plan === null) {
+          return { result: ImportResult.CANCELLED, noteId: noteId, title: null,
+            pageCount: 0, missingAssets: [], warnings: [],
+            message: '已取消导入' };
+        }
+        return await this.dispatchImportPlan(uris, plan, passwordPrompt, noteId);
       }
       if (uris.length > 1) {
         // 原版 ALLOW_MULTIPLE + qv5 AddToExistingNote：多选文件全部并入
@@ -325,13 +394,14 @@ export class NoteImporter {
   // 全页尺寸校验通过后一次性写库：createNoteWithMeta（无默认空白页）+ 整文档共享的
   // sw9 寄存器（pagesConsumed=总页数、pageOffset=0、cropBoxes=全页表），每页 pageInAsset=i。
   private async importPdfFromBytes(data: Uint8Array, fileName: string,
-    passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
+    passwordPrompt?: PdfPasswordPrompt, titleOverride?: string): Promise<ImportReport> {
     if (!startsWithPdfMagic(data)) {
       return { result: ImportResult.UNSUPPORTED_FORMAT, noteId: null, title: null, pageCount: 0,
         missingAssets: [], warnings: [],
         message: '所选文件不是有效的 PDF 文档' };
     }
-    const title: string = pdfImportTitle(fileName);
+    const title: string = titleOverride !== undefined && titleOverride.length > 0 ?
+      titleOverride : pdfImportTitle(fileName);
     const staged: StagedPdfParse =
       await this.stageAndParseImportedPdf(data, fileName, null, 'pdf_import', passwordPrompt);
     if (staged.report !== null) {
@@ -470,7 +540,8 @@ export class NoteImporter {
   // 0.8·Letter(612×792pt) 适配，ip5 居中偏移 + 等比 scale=fitW/srcW，
   // kp5/baj.a 在新建 Letter 页上落一个 cz0.IMAGE/ty0.SQUARE 元素
   // （PIXEL_ALIGN，blockWidth/Height=本征尺寸，transform=[s,0,x,0,s,y]）。
-  private async importImageFromBytes(data: Uint8Array, fileName: string): Promise<ImportReport> {
+  private async importImageFromBytes(data: Uint8Array, fileName: string,
+    titleOverride?: string): Promise<ImportReport> {
     let prepared: ImportedImagePreparation;
     try {
       prepared = await prepareImportedImageBytes(data);
@@ -479,7 +550,8 @@ export class NoteImporter {
         missingAssets: [], warnings: [],
         message: `图片解码失败：${JSON.stringify(e)}` };
     }
-    const title: string = importedFileStemTitle(fileName);
+    const title: string = titleOverride !== undefined && titleOverride.length > 0 ?
+      titleOverride : importedFileStemTitle(fileName);
     const digestBytes: Uint8Array = await sha512Digest(prepared.bytes);
     const metadata: OriginalAssetMetadata = {
       assetHashBits: originalAssetHashBitsFromSha512(digestBytes),
@@ -531,14 +603,16 @@ export class NoteImporter {
   // kci.b(null, text, null) 生成 INSERT_STRING 实体（haa.INSERT_STRING，
   // nti.g(qo5,0) 落在 richtext 寄存器位 0）。Harmony 物化为
   // Letter 页上的默认样式 TextBlockElement。
-  private async importTextFromBytes(data: Uint8Array, fileName: string): Promise<ImportReport> {
+  private async importTextFromBytes(data: Uint8Array, fileName: string,
+    titleOverride?: string): Promise<ImportReport> {
     const text: string = bytesToString(data);
     if (text.length === 0) {
       // 原版：Empty text file, skipping import —— 不建笔记。
       return { result: ImportResult.CORRUPTED, noteId: null, title: null, pageCount: 0,
         missingAssets: [], warnings: [], message: '空文本文件，未导入' };
     }
-    const title: string = importedFileStemTitle(fileName);
+    const title: string = titleOverride !== undefined && titleOverride.length > 0 ?
+      titleOverride : importedFileStemTitle(fileName);
     const textElement: TextBlockElement = buildImportedTextElement(text);
     let createdNoteId: string | null = null;
     const release: MutexRelease = await NoteImporter.importMutex.lock();
@@ -586,9 +660,11 @@ export class NoteImporter {
   // → AVMetadataExtractor 取时长（失败 0）→ createNoteWithMeta +
   // persistCapturedOriginalRecording（同一资产管线 + CREATE_RECORDING op）。
   // 原版 startTime=0L；Harmony 本地录音写者要求 startTime>0，记为导入时刻。
-  private async importAudioFromBytes(data: Uint8Array, fileName: string): Promise<ImportReport> {
+  private async importAudioFromBytes(data: Uint8Array, fileName: string,
+    titleOverride?: string): Promise<ImportReport> {
     const mimeType: string = audioMimeForFileName(fileName);
-    const title: string = importedFileStemTitle(fileName);
+    const title: string = titleOverride !== undefined && titleOverride.length > 0 ?
+      titleOverride : importedFileStemTitle(fileName);
     const pendingDirectory: string = this.db.getFilesDir() + '/assets/pending';
     const stagingPath: string = pendingDirectory +
       `/audio_import_${Date.now()}_${Math.floor(Math.random() * 0x1000000)}.tmp`;
@@ -677,10 +753,59 @@ export class NoteImporter {
     }
   }
 
+  // 原版 ou5.l：tv5 目的地分发——qv5 → 既有笔记、sv5 → 新建单篇并入、
+  // rv5 → 各自笔记（titleOverrides 逐文件题）。fallbackNoteId 仅
+  // 编辑器上下文用（详情页把当前笔记预置为 qv5 目标）。
+  private async dispatchImportPlan(uris: string[], plan: ImportPlan,
+    passwordPrompt: PdfPasswordPrompt | undefined,
+    fallbackNoteId?: string): Promise<ImportReport> {
+    if (plan.destination === ImportDestination.EXISTING_NOTE) {
+      const target: string = plan.noteId.length > 0 ? plan.noteId :
+        (fallbackNoteId === undefined ? '' : fallbackNoteId);
+      if (target.length === 0) {
+        return { result: ImportResult.CORRUPTED, noteId: null, title: null,
+          pageCount: 0, missingAssets: [], warnings: [],
+          message: '未选择目标笔记' };
+      }
+      return await this.importPickedFilesIntoNote(target, uris, passwordPrompt);
+    }
+    if (plan.destination === ImportDestination.SINGLE_NOTE) {
+      return await this.importFilesIntoSingleNewNote(uris, plan.singleTitle,
+        plan.folderId, passwordPrompt);
+    }
+    return await this.importPickedFilesStandalone(uris, passwordPrompt,
+      plan.titleOverrides);
+  }
+
+  // 原版 sv5 CreateSingleNewNote(title, folderId)：先建一篇（可空标题回退
+  // 首文件词干），再把全部文件按 qv5 语义并入；全部失败 → 清掉空笔记。
+  private async importFilesIntoSingleNewNote(uris: string[], title: string,
+    folderId: string | null, passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
+    const noteRepo = new NoteRepositoryImpl(this.db);
+    const normalizedTitle: string | undefined = normalizeImportTitleOverride(title);
+    let resolvedTitle: string = normalizedTitle === undefined ? '' : normalizedTitle;
+    if (resolvedTitle.length === 0 && uris.length > 0) {
+      resolvedTitle = importedFileStemTitle(pickedFileName(uris[0]));
+    }
+    const note: NoteMeta = await noteRepo.createNoteWithMeta(
+      generateId(), resolvedTitle, Date.now(), Date.now(), folderId, false);
+    const report: ImportReport =
+      await this.importPickedFilesIntoNote(note.id, uris, passwordPrompt);
+    if (report.result === ImportResult.CORRUPTED ||
+      report.result === ImportResult.UNSUPPORTED_FORMAT) {
+      await this.removeFailedImport(note.id);
+      return { result: report.result, noteId: null, title: null, pageCount: 0,
+        missingAssets: report.missingAssets, warnings: report.warnings,
+        message: report.message };
+    }
+    return report;
+  }
+
   // 原版 ALLOW_MULTIPLE + rv5 CreateSeparateNotes：多选文件按同一分发
   // 表逐个物化为独立笔记，结果聚合（全部失败 → CORRUPTED）。
   private async importPickedFilesStandalone(uris: string[],
-    passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
+    passwordPrompt?: PdfPasswordPrompt,
+    titleOverrides?: Map<string, string>): Promise<ImportReport> {
     const reports: ImportReport[] = [];
     for (const uri of uris) {
       const picked: PickedFilePayload = readPickedFile(uri);
@@ -690,14 +815,17 @@ export class NoteImporter {
       }
       const bytes: Uint8Array = picked.bytes as Uint8Array;
       const fileName: string = picked.fileName;
+      const titleOverride: string | undefined = titleOverrides === undefined ?
+        undefined : normalizeImportTitleOverride(titleOverrides.get(uri));
       if (startsWithPdfMagic(bytes) || fileName.toLowerCase().endsWith('.pdf')) {
-        reports.push(await this.importPdfFromBytes(bytes, fileName, passwordPrompt));
+        reports.push(await this.importPdfFromBytes(bytes, fileName, passwordPrompt,
+          titleOverride));
       } else if (isImportedImageFileName(fileName)) {
-        reports.push(await this.importImageFromBytes(bytes, fileName));
+        reports.push(await this.importImageFromBytes(bytes, fileName, titleOverride));
       } else if (isImportedTextFileName(fileName)) {
-        reports.push(await this.importTextFromBytes(bytes, fileName));
+        reports.push(await this.importTextFromBytes(bytes, fileName, titleOverride));
       } else if (isImportedAudioFileName(fileName)) {
-        reports.push(await this.importAudioFromBytes(bytes, fileName));
+        reports.push(await this.importAudioFromBytes(bytes, fileName, titleOverride));
       } else {
         reports.push(await this.importFromData(bytes));
       }
@@ -1788,6 +1916,28 @@ interface PickedFilePayload {
   report: ImportReport | null;
 }
 
+// 原版 o1 wt5 事件：lvd.b1(200, lvd.d1(title)) —— 逐文件题 trim 后截 200。
+function normalizeImportTitleOverride(title: string | undefined): string | undefined {
+  if (title === undefined) {
+    return undefined;
+  }
+  const trimmed: string = title.trim();
+  return trimmed.length === 0 ? undefined : trimmed.slice(0, 200);
+}
+
+// 原版 zvh.a 的文件行输入（utf 描述符列表）：仅取名称+大小，不读字节。
+function describeImportUris(uris: string[]): ImportFileDescriptor[] {
+  const files: ImportFileDescriptor[] = [];
+  for (const uri of uris) {
+    let size: number = 0;
+    try {
+      size = fileIo.statSync(uri).size;
+    } catch (_statError) { }
+    files.push({ uri: uri, fileName: pickedFileName(uri), size: size });
+  }
+  return files;
+}
+
 function pickedFileFailure(message: string): ImportReport {
   return { result: ImportResult.CORRUPTED, noteId: null, title: null,
     pageCount: 0, missingAssets: [], warnings: [], message: message };
@@ -2178,3 +2328,4 @@ async function extractImportedAudioDuration(path: string): Promise<number> {
     }
   }
 }
+

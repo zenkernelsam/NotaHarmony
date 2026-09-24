@@ -11,8 +11,9 @@ import {
 } from '../../data/AssetAvailabilityHub';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { NoteExporter } from '../../data/NoteExporter';
-import { ImportReport, ImportResult, NoteImporter, PdfPasswordPrompt } from '../../data/NoteImporter';
+import { ImportFileDescriptor, ImportPlan, ImportReport, ImportResult, ImportSheetPrompt, NoteImporter, PdfPasswordPrompt } from '../../data/NoteImporter';
 import { PdfPasswordDialog } from '../components/PdfPasswordDialog';
+import { ImportDetailsSheet } from '../components/ImportDetailsSheet';
 import { drainSharedUris } from '../../data/SharedFileIngress';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
@@ -209,6 +210,14 @@ struct LibraryPage {
         }
       },
     }),
+    cancel: (): void => {
+      const resolve: ((password: string | null) => void) | null =
+        this.pdfPasswordResolve;
+      this.pdfPasswordResolve = null;
+      if (resolve !== null) {
+        resolve(null);
+      }
+    },
     autoCancel: true,
   });
   private pdfPasswordPrompt: PdfPasswordPrompt =
@@ -218,6 +227,62 @@ struct LibraryPage {
         this.pdfPasswordFileName = fileName;
         this.pdfPasswordAttempt = attempt;
         this.pdfPasswordDialog.open();
+      });
+    };
+  // 原版 ou5/zvh.a 导入详情页：文件列表 + 目的地（qv5 现有笔记 / sv5
+  // 新建笔记 / rv5 各自笔记）+ 逐文件题。取消/遮罩 → 返回 null。
+  @State importSheetFiles: ImportFileDescriptor[] = [];
+  @State importSheetContext: string = 'standalone';
+  @State importSheetNoteId: string = '';
+  @State importSheetNotes: NoteMeta[] = [];
+  @State importSheetFolders: NoteFolder[] = [];
+  private importSheetResolve: ((plan: ImportPlan | null) => void) | null = null;
+  private importSheetDialog: CustomDialogController = new CustomDialogController({
+    builder: ImportDetailsSheet({
+      files: this.importSheetFiles,
+      context: this.importSheetContext,
+      currentNoteId: this.importSheetNoteId,
+      notes: this.importSheetNotes,
+      folders: this.importSheetFolders,
+      onResult: (plan: ImportPlan | null): void => {
+        const resolve: ((plan: ImportPlan | null) => void) | null =
+          this.importSheetResolve;
+        this.importSheetResolve = null;
+        if (resolve !== null) {
+          resolve(plan);
+        }
+      },
+    }),
+    cancel: (): void => {
+      const resolve: ((plan: ImportPlan | null) => void) | null =
+        this.importSheetResolve;
+      this.importSheetResolve = null;
+      if (resolve !== null) {
+        resolve(null);
+      }
+    },
+    autoCancel: true,
+  });
+  private async prepareImportSheetData(): Promise<void> {
+    try {
+      this.importSheetNotes = this.noteRepo !== null ?
+        await this.noteRepo.getAllNotes() : [];
+    } catch (_notesError) { }
+    try {
+      this.importSheetFolders = this.folderRepo !== null ?
+        await this.folderRepo.getAllFolders() : [];
+    } catch (_foldersError) { }
+  }
+  private importSheetPrompt: ImportSheetPrompt =
+    (files: ImportFileDescriptor[], context: string,
+      currentNoteId: string): Promise<ImportPlan | null> => {
+      this.importSheetFiles = files;
+      this.importSheetContext = context;
+      this.importSheetNoteId = currentNoteId;
+      return new Promise((resolve) => {
+        this.importSheetResolve = resolve;
+        this.prepareImportSheetData()
+          .finally((): void => this.importSheetDialog.open());
       });
     };
   private readonly PREF_SORT_KEY: string = 'library_sort_mode';
@@ -2883,7 +2948,8 @@ struct LibraryPage {
       const context = getContext(this) as common.UIAbilityContext;
       const importer: NoteImporter = new NoteImporter(this.db, this.persistence);
       const report: ImportReport =
-        await importer.importSharedUris(uris, this.pdfPasswordPrompt);
+        await importer.importSharedUris(uris, this.pdfPasswordPrompt,
+          this.importSheetPrompt);
       if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
         this.viewModel !== vm) {
         return;
@@ -2925,7 +2991,8 @@ struct LibraryPage {
       const context = getContext(this) as common.UIAbilityContext;
       const importer: NoteImporter = new NoteImporter(this.db, this.persistence);
       const report: ImportReport =
-        await importer.importFromFile(context, this.pdfPasswordPrompt);
+        await importer.importFromFile(context, this.pdfPasswordPrompt,
+          this.importSheetPrompt);
       if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
         this.viewModel !== vm) {
         return;

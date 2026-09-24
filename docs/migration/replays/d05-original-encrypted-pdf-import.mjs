@@ -124,10 +124,14 @@ check(stageFn.includes('parse.decryptedBytes === null ? data : parse.decryptedBy
   'unencrypted imports keep the original bytes; decrypted bytes replace them');
 
 // --- 分发透传：所有入口线程化回调 ---
-check(importer.includes('async importFromFile(context: common.UIAbilityContext,\n    passwordPrompt?: PdfPasswordPrompt)'),
-  'importFromFile accepts an optional password prompt');
-check(importer.includes('async importFileIntoNoteFromPicker(context: common.UIAbilityContext,\n    noteId: string, passwordPrompt?: PdfPasswordPrompt)'),
-  'importFileIntoNoteFromPicker accepts an optional password prompt');
+check(importer.includes('async importFromFile(context: common.UIAbilityContext,') &&
+  importer.includes('passwordPrompt?: PdfPasswordPrompt') &&
+  importer.includes('sheetPrompt?: ImportSheetPrompt'),
+  'importFromFile accepts optional password + import-sheet prompts');
+check(importer.includes('async importFileIntoNoteFromPicker(context: common.UIAbilityContext,') &&
+  importer.includes('noteId: string, passwordPrompt?: PdfPasswordPrompt') &&
+  importer.includes('sheetPrompt?: ImportSheetPrompt'),
+  'importFileIntoNoteFromPicker accepts optional password + import-sheet prompts');
 check(importer.includes('async importFileIntoNote(noteId: string, data: Uint8Array, fileName: string,\n    passwordPrompt?: PdfPasswordPrompt)'),
   'importFileIntoNote threads the prompt for direct calls');
 check(importer.includes('importPickedFilesStandalone(uris, passwordPrompt)') &&
@@ -154,7 +158,7 @@ check(notePage.includes('pdfPasswordPrompt') &&
   notePage.includes('importFileIntoNoteFromPicker(context, this.noteId,') &&
   notePage.includes('this.pdfPasswordDialog.open()'),
   'NotePage wires the prompt into the in-note Add Files import');
-check(library.includes('importFromFile(context, this.pdfPasswordPrompt)') &&
+check(library.includes('importFromFile(context, this.pdfPasswordPrompt,') &&
   library.includes('this.pdfPasswordDialog.open()'),
   'LibraryPage wires the prompt into the standalone import');
 check(backup.includes('importFromFile(context, this.pdfPasswordPrompt)') &&

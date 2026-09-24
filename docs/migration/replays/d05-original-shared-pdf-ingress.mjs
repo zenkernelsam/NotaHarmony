@@ -97,8 +97,10 @@ check(ability.includes('onNewWant(want: Want, launchParam: AbilityConstant.Launc
 // --- Harmony：导入入口复用同一分发表 ---
 check(importer.includes('async importSharedUris(uris: string[],') &&
   importer.includes('passwordPrompt?: PdfPasswordPrompt') &&
-  importer.includes('this.importPickedFilesStandalone(uris, passwordPrompt)'),
-  'importSharedUris delegates to the rv5 per-file dispatch (sniff + standalone notes)');
+  importer.includes('sheetPrompt?: ImportSheetPrompt') &&
+  importer.includes('this.importPickedFilesStandalone(uris, passwordPrompt)') &&
+  importer.includes('this.dispatchImportPlan(uris, plan, passwordPrompt)'),
+  'importSharedUris threads the Phase 660 password prompt and the Phase 662 sheet dispatch');
 
 // --- Harmony：LibraryPage drain + 打开导入笔记 ---
 const drain = section(library, 'private drainSharedIngress(): void {',
@@ -111,8 +113,9 @@ check(library.includes('this.drainSharedIngress();') &&
   'onPageShow drains the shared-ingress queue');
 const sharedOpen = section(library, 'private async importSharedAndOpen(',
   '// Original empty_note__import_file');
-check(sharedOpen.includes('importer.importSharedUris(uris, this.pdfPasswordPrompt)'),
-  'shared import threads the Phase 660 password prompt');
+check(sharedOpen.includes('importer.importSharedUris(uris, this.pdfPasswordPrompt,') &&
+  sharedOpen.includes('this.importSheetPrompt'),
+  'shared import threads the Phase 660 password prompt and the Phase 662 sheet');
 check(sharedOpen.includes("router.pushUrl({ url: 'ui/editor/NotePage'") &&
   sharedOpen.includes('report.noteId'),
   'a successful shared import opens the materialized note');

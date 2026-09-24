@@ -135,7 +135,7 @@ check(pdfImport.includes('result: ImportResult.SUCCESS') &&
   'success report returns the new note id, title and real page count');
 
 // --- 宿主接线：既有入口自动获得 PDF 支持 ---
-check(library.includes('importer.importFromFile(context, this.pdfPasswordPrompt)') &&
+check(library.includes('importer.importFromFile(context, this.pdfPasswordPrompt,') &&
   library.includes('router.pushUrl({ url: \'ui/editor/NotePage\''),
   'library Import File keeps routing through importFromFile then opens the imported note');
 
