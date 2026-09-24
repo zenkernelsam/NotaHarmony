@@ -99,10 +99,10 @@ check(moduleJson.includes('"name": "NoteFormAbility"') &&
 check(formsCfg.includes('"name": "new_note_card"') &&
   formsCfg.includes('"name": "new_recording_card"'),
   'forms_config declares both action cards');
-check((formsCfg.match(/"uiSyntax": "arkts"/g) || []).length === 2 &&
+check((formsCfg.match(/"uiSyntax": "arkts"/g) || []).length === 3 &&
   (formsCfg.match(/"defaultDimension": "2\*2"/g) || []).length === 2 &&
   (formsCfg.match(/"supportDimensions": \[\s*"2\*2"\s*\]/g) || []).length === 2,
-  'both cards are arkts 2*2 (matching target cells)');
+  'action cards are arkts 2*2 (third arkts card = Phase 667 recent notes)');
 check(formsCfg.includes('"src": "./ets/noteformability/pages/NewNoteCard.ets"') &&
   formsCfg.includes('"src": "./ets/noteformability/pages/NewRecordingCard.ets"'),
   'forms src points at the two card pages');
@@ -158,9 +158,9 @@ check(baseStrings.includes('"form_new_note_display"') &&
   zhStrings.includes('"form_new_recording_display"'),
   'form labels localized in both locales');
 
-// ---------- fail-closed 登记（数据小部件） ----------
+// ---------- fail-closed 登记（剩余数据小部件） ----------
 check(formAbility.includes('fail-closed') &&
-  (formAbility.includes('RecentNotes') || formAbility.includes('NoteThumbnail')),
-  'data widgets registered fail-closed in the form ability comment');
+  formAbility.includes('NoteThumbnail') && formAbility.includes('FolderNotes'),
+  'NoteThumbnail/FolderNotes registered fail-closed in the form ability comment');
 
 console.log(`D05_ORIGINAL_WIDGET_ACTION_CARDS_OK TOTAL=${total} FAILED=0`);

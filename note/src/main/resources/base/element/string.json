@@ -26,6 +26,9 @@
       "name": "form_new_recording_display", "value": "Start recording" },
     {
       "name": "form_new_recording_desc", "value": "Quickly create a new note with a recording." },
+    { "name": "form_recent_notes_display", "value": "Recent Notes" },
+    { "name": "form_recent_notes_desc", "value": "Show your recent notes." },
+    { "name": "form_recent_notes_empty", "value": "No recent notes" },
     {
       "name": "retry",
       "value": "Retry"

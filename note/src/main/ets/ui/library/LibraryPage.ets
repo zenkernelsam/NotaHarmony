@@ -18,6 +18,7 @@ import { drainSharedUris } from '../../data/SharedFileIngress';
 import { drainLaunchActions, LAUNCH_ACTION_CREATE_PHOTO_NOTE, LAUNCH_ACTION_CREATE_RECORDING_NOTE } from '../../data/LaunchActionIngress';
 import { drainDeepLinkNoteIds } from '../../data/DeepLinkIngress';
 import { drainOpenNoteIds, drainLibraryLandings, LANDING_RECENT } from '../../data/OpenTargetIngress';
+import { refreshRecentNotesForms } from '../../data/RecentNotesFormFeed';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
 import {
@@ -377,6 +378,7 @@ struct LibraryPage {
       }
       const context = getContext(this) as common.UIAbilityContext;
       renderer.initialize(context).then(() => vm.loadNotes(query)).then(() => {
+        this.refreshRecentCardFeed();
         if (!this.isCurrentLifecycle(lifecycleGeneration, vm, renderer) ||
           !this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)) {
           return;
@@ -1062,6 +1064,7 @@ struct LibraryPage {
         return;
       }
       vm.loadNotes(this.searchText).then(() => {
+        this.refreshRecentCardFeed();
         if (this.pageActive && lifecycleGeneration === this.lifecycleGeneration &&
           this.viewModel === vm) {
           this.notes = vm.getFilteredNotes().slice();
@@ -1272,6 +1275,7 @@ struct LibraryPage {
     const folderId: string | null = vm.currentFolderId;
     const notesRequestGeneration: number = this.beginNotesRequest();
     vm.loadNotes(query).then(() => {
+      this.refreshRecentCardFeed();
       if (this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)) {
         this.notes = vm.getFilteredNotes().slice();
         return this.refreshThumbnails();
@@ -1650,6 +1654,7 @@ struct LibraryPage {
       const initialFolderId: string | null = vm.currentFolderId;
       const initialNotesRequestGeneration: number = this.beginNotesRequest();
       await vm.loadNotes(initialQuery);
+      this.refreshRecentCardFeed();
       if (!this.isCurrentLifecycle(expectedLifecycleGeneration, vm, renderer) ||
         !this.isCurrentNotesRequest(initialNotesRequestGeneration, vm, initialQuery, initialFolderId)) {
         return;
@@ -2974,6 +2979,17 @@ struct LibraryPage {
     });
   }
 
+  // 原版 RecentNotesWidgetProvider 的数据在 Realm 变更时推送刷新；
+  // Harmony 侧每次 loadNotes 完成后推送到已注册的 recent_notes_card
+  // 实例（标题 + 缩略图 formImages），等价原版观察者刷新。
+  private refreshRecentCardFeed(): void {
+    const context = getContext(this) as common.UIAbilityContext;
+    const theme: ThemeTokens = this.resolveTokens();
+    refreshRecentNotesForms(context, theme).catch((e: Error) => {
+      console.error(`recent card feed failed: ${JSON.stringify(e)}`);
+    });
+  }
+
   // 原版 MainActivity 的 wu7.a 落地目标：show_library →
   // ALL_NOTES 区（资料库根视图）；RecentNotesWidgetProvider 本体
   // 的 show_recent → RECENT 区（dk9 区段同语义）。
@@ -3009,6 +3025,7 @@ struct LibraryPage {
           continue;
         }
         await vm.loadNotes(this.searchText);
+          this.refreshRecentCardFeed();
         if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
           this.viewModel !== vm) {
           return;
@@ -3055,6 +3072,7 @@ struct LibraryPage {
         return;
       }
       await vm.loadNotes(this.searchText);
+          this.refreshRecentCardFeed();
       if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
         this.viewModel !== vm) {
         return;
@@ -3098,6 +3116,7 @@ struct LibraryPage {
         return;
       }
       await vm.loadNotes(this.searchText);
+          this.refreshRecentCardFeed();
       if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
         this.viewModel !== vm) {
         return;
