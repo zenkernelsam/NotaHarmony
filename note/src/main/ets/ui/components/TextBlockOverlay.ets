@@ -30,6 +30,8 @@ export struct TextBlockOverlay {
   @State caretCharItalic: boolean = false;
   @State caretCharUnderline: boolean = false;
   @State caretCharStrike: boolean = false;
+  @State caretCharSub: boolean = false;
+  @State caretCharSuper: boolean = false;
   private draftCharRuns: RichTextCharacterStyleRun[] = [];
   private pendingCharStyles: RichTextCharacterStyle = {};
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -136,6 +138,20 @@ export struct TextBlockOverlay {
     if (field === 'italic') { return style.italic === true; }
     if (field === 'underline') { return style.underline === true; }
     if (field === 'strikethrough') { return style.strikethrough === true; }
+    if (field === 'subscript') { return style.subscript === true; }
+    if (field === 'superscript') { return style.superscript === true; }
+    return false;
+  }
+
+  // 字段是否显式存在（区分"未设置"与"显式 false"——pending 需要把
+  // 显式 false 落地以清除同包互斥的兄弟字段）。
+  private charStyleHas(style: RichTextCharacterStyle, field: string): boolean {
+    if (field === 'bold') { return style.bold !== undefined; }
+    if (field === 'italic') { return style.italic !== undefined; }
+    if (field === 'underline') { return style.underline !== undefined; }
+    if (field === 'strikethrough') { return style.strikethrough !== undefined; }
+    if (field === 'subscript') { return style.subscript !== undefined; }
+    if (field === 'superscript') { return style.superscript !== undefined; }
     return false;
   }
 
@@ -145,6 +161,8 @@ export struct TextBlockOverlay {
     else if (field === 'italic') { style.italic = value; }
     else if (field === 'underline') { style.underline = value; }
     else if (field === 'strikethrough') { style.strikethrough = value; }
+    else if (field === 'subscript') { style.subscript = value; }
+    else if (field === 'superscript') { style.superscript = value; }
   }
 
   // 选区是否被 field=true 的 run 完全覆盖（原版 br2 全量态取反的等价判定）。
@@ -277,12 +295,16 @@ export struct TextBlockOverlay {
       this.caretCharItalic = this.charStyleValue(this.pendingCharStyles, 'italic');
       this.caretCharUnderline = this.charStyleValue(this.pendingCharStyles, 'underline');
       this.caretCharStrike = this.charStyleValue(this.pendingCharStyles, 'strikethrough');
+      this.caretCharSub = this.charStyleValue(this.pendingCharStyles, 'subscript');
+      this.caretCharSuper = this.charStyleValue(this.pendingCharStyles, 'superscript');
       return;
     }
     this.caretCharBold = this.rangeHasCharStyle('bold', s, e);
     this.caretCharItalic = this.rangeHasCharStyle('italic', s, e);
     this.caretCharUnderline = this.rangeHasCharStyle('underline', s, e);
     this.caretCharStrike = this.rangeHasCharStyle('strikethrough', s, e);
+    this.caretCharSub = this.rangeHasCharStyle('subscript', s, e);
+    this.caretCharSuper = this.rangeHasCharStyle('superscript', s, e);
   }
 
   // 原版 l32/h32 字符样式切换：选区非空时按覆盖态取反改写选区 run；
@@ -297,6 +319,30 @@ export struct TextBlockOverlay {
       return;
     }
     this.applyCharStyle(field, !this.rangeHasCharStyle(field, s, e), s, e);
+    this.normalizeCharRuns();
+    this.refreshCaretCharStyles();
+  }
+
+  // 原版 cve kue(superscript→zyd.j)/lue(subscript→zyd.i)：互斥对切换。
+  // 启用时同一载荷内显式 FALSE 兄弟字段；停用时只写本字段 FALSE。
+  private toggleCharStylePair(field: string, other: string): void {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    if (s === e) {
+      if (this.charStyleValue(this.pendingCharStyles, field)) {
+        this.charStyleSet(this.pendingCharStyles, field, false);
+      } else {
+        this.charStyleSet(this.pendingCharStyles, field, true);
+        this.charStyleSet(this.pendingCharStyles, other, false);
+      }
+      this.refreshCaretCharStyles();
+      return;
+    }
+    const on: boolean = !this.rangeHasCharStyle(field, s, e);
+    this.applyCharStyle(field, on, s, e);
+    if (on) {
+      this.applyCharStyle(other, false, s, e);
+    }
     this.normalizeCharRuns();
     this.refreshCaretCharStyles();
   }
@@ -422,10 +468,13 @@ export struct TextBlockOverlay {
               if (delta > 0 && Object.keys(this.pendingCharStyles).length > 0) {
                 const insEnd: number = editStart + delta;
                 const fields: string[] =
-                  ['bold', 'italic', 'underline', 'strikethrough'];
+                  ['bold', 'italic', 'underline', 'strikethrough',
+                    'subscript', 'superscript'];
                 for (const field of fields) {
-                  if (this.charStyleValue(this.pendingCharStyles, field)) {
-                    this.applyCharStyle(field, true, editStart, insEnd);
+                  if (this.charStyleHas(this.pendingCharStyles, field)) {
+                    this.applyCharStyle(field,
+                      this.charStyleValue(this.pendingCharStyles, field),
+                      editStart, insEnd);
                   }
                 }
                 this.normalizeCharRuns();
@@ -491,6 +540,32 @@ export struct TextBlockOverlay {
             .margin({ left: 4 })
             .onClick(() => {
               this.toggleCharStyle('underline');
+            })
+          Button($r('app.string.subscript'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.caretCharSub ?
+              this.resolveTokens().accent : this.resolveTokens().surface)
+            .fontColor(this.caretCharSub ?
+              this.resolveTokens().onAccent :
+              (this.element !== null ? this.element.fontColor : '#000000'))
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .onClick(() => {
+              this.toggleCharStylePair('subscript', 'superscript');
+            })
+          Button($r('app.string.superscript'))
+            .height(32)
+            .fontSize(12)
+            .backgroundColor(this.caretCharSuper ?
+              this.resolveTokens().accent : this.resolveTokens().surface)
+            .fontColor(this.caretCharSuper ?
+              this.resolveTokens().onAccent :
+              (this.element !== null ? this.element.fontColor : '#000000'))
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .onClick(() => {
+              this.toggleCharStylePair('superscript', 'subscript');
             })
           Button($r('app.string.strikethrough'))
             .height(32)

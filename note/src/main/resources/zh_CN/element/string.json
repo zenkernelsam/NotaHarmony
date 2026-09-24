@@ -534,6 +534,8 @@
     { "name": "bold", "value": "加粗" },
     { "name": "italic", "value": "斜体" },
     { "name": "underline", "value": "下划线" },
-    { "name": "strikethrough", "value": "删除线" }
+    { "name": "strikethrough", "value": "删除线" },
+    { "name": "subscript", "value": "下标" },
+    { "name": "superscript", "value": "上标" }
   ]
 }

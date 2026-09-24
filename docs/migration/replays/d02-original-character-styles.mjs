@@ -110,7 +110,8 @@ check(overlay.includes('.onTextSelectionChange((start: number, end: number) => {
   'selection change tracks start + refreshes char states');
 check(overlay.includes('const editStart: number = this.adjustCharRunsForEdit(value, previous)') &&
   overlay.includes('Object.keys(this.pendingCharStyles).length > 0') &&
-  overlay.includes('this.applyCharStyle(field, true, editStart, insEnd)'),
+  overlay.includes('this.charStyleHas(this.pendingCharStyles, field)') &&
+  overlay.includes('editStart, insEnd)'),
   'typed input lands pending typing-attributes as char runs');
 
 // ===== 工具条按钮钉（原版 l32/h32 顺序：字符样式先于列表装饰） =====

@@ -1300,6 +1300,8 @@
     { "name": "bold", "value": "Bold" },
     { "name": "italic", "value": "Italic" },
     { "name": "underline", "value": "Underline" },
-    { "name": "strikethrough", "value": "Strikethrough" }
+    { "name": "strikethrough", "value": "Strikethrough" },
+    { "name": "subscript", "value": "Subscript" },
+    { "name": "superscript", "value": "Superscript" }
   ]
 }
