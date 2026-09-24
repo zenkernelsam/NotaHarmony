@@ -1040,8 +1040,10 @@ export class EditorViewModel {
       this.createState('eraser', ownerId, ToolType.WHOLE_ERASER, 3, -16777216, 20, BrushStyle.MONO),
       this.createState('selection', ownerId, ToolType.SELECTION, 4, -16777216, 36, BrushStyle.MONO),
       this.createState('text', ownerId, ToolType.DEFAULT, 5, -16777216, 36, BrushStyle.MONO),
-      // 原版 rz1.r()：LASER 默认在 Secondary 托盘 index 1（POINTER/Zoom/Ruler
-      // 未移植），颜色井 -1754827、单档 15pt。
+      // 原版 rz1.r()：LASER 默认在 Secondary 托盘 index 1；POINTER(0)/
+      // ZOOM(2)/RULER(4) 留空位——POINTER=多人 presence 光标
+      // （ac4.c0/b0 服务端协作域）、ZOOM=ZOOM_VIEW 远程旗标、
+      // RULER=s01.a0 无条件隐藏，均 fail-closed（ADR-0644/0642）。
       this.createState('laser', ownerId, ToolType.LASER, 1, -1754827, 15, BrushStyle.MONO,
         TRAY_TYPE_SECONDARY),
       // 原版 rz1:1075：REVIEW(a6f.S) 在 Secondary 托盘 index 3（POINTER=0 /

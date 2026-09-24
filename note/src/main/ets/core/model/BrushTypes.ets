@@ -22,6 +22,10 @@ export enum ToolType {
   WHOLE_ERASER = 7,
   // 原版 a6f.R = LASER：瞬态指示笔，不产生持久笔画。
   LASER = 8,
+  // 原版 a6f 另三个成员不移植（ADR-0644/0642）：
+  //   a6f.Q POINTER=多人 presence 光标（ac4.c0/b0 服务端协作域 fail-closed）
+  //   a6f.U ZOOM=ZOOM_VIEW 远程旗标（1.0.3 未开）
+  //   a6f.T RULER=s01.a0 无条件隐藏（原版即不可见）
 }
 
 // 笔刷配置（对应 f21 Brush）
