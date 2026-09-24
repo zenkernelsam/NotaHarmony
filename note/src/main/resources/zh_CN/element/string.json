@@ -492,6 +492,16 @@
     { "name": "original_photo_insert_failed", "value": "无法添加图片" },
     { "name": "image_too_large_to_add", "value": "图片过大，无法添加" },
     { "name": "original_photo_insert_partial_failed", "value": "部分图片未能添加" },
-    { "name": "read_pasteboard_permission_reason", "value": "允许应用粘贴剪贴板中的图片" }
+    { "name": "read_pasteboard_permission_reason", "value": "允许应用粘贴剪贴板中的图片" },
+    { "name": "share", "value": "分享" },
+    { "name": "deselect_all", "value": "取消全选" },
+    { "name": "notes_selected", "value": "已选择 %d 条笔记" },
+    { "name": "note_selected_singular", "value": "已选择 %d 条笔记" },
+    { "name": "select_note", "value": "选择笔记" },
+    { "name": "note_actions", "value": "笔记操作" },
+    { "name": "delete_notes_message", "value": "将 %d 条笔记移入最近删除？30 天内可恢复。" },
+    { "name": "multi_delete_failed", "value": "批量删除失败" },
+    { "name": "multi_duplicate_failed", "value": "批量创建副本失败" },
+    { "name": "multi_favorite_failed", "value": "批量更新失败" }
   ]
 }

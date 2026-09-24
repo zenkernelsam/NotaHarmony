@@ -115,6 +115,11 @@ struct LibraryPage {
   // (record audio / import file / [scan] / [capture]).
   @State createMenuOpen: boolean = false;
   @State deleteBusy: boolean = false;
+  // 原版 pk9.X/Y：库内多选态（X=模式中、Y=已选 id 集；o() 长按进入、
+  // r() 翻转、p() 退出清空；ek9 = MultiSelectState 派生模型）。
+  @State isMultiSelecting: boolean = false;
+  @State selectedNoteIds: string[] = [];
+  @State multiSelectBusy: boolean = false;
   @State folderBusy: boolean = false;
   // T-035：缩略图——@State 数组驱动 UI 刷新（Builder 中 Map 方法依赖收集不可靠）
   @State thumbIds: string[] = [];
@@ -349,6 +354,15 @@ struct LibraryPage {
   }
 
   // The ViewModel owns async operations; each successful result publishes a fresh @State notes snapshot.
+  // 原版 lq7 → pk9.p：返回键在多选态先退出多选（X=false + 清 Y）。
+  onBackPress(): boolean {
+    if (this.isMultiSelecting) {
+      this.exitMultiSelect();
+      return true;
+    }
+    return false;
+  }
+
   onPageShow(): void {
     const lifecycleGeneration: number = this.activatePage();
     // 原版 fag.h0 + hv7.i：冷/热启动收到的共享 want URI 在此 drain
@@ -2036,6 +2050,9 @@ struct LibraryPage {
           .padding({ left: 16, right: 16 })
         }
         // 搜索栏（48vp）+ 设置入口 + 排序
+        if (this.isMultiSelecting) {
+          this.MultiSelectTopBar()
+        } else {
         Row() {
           // Original yj9:852 — placeholder is "Search in {folder}" while a
           // folder is selected, plain "Search" otherwise.
@@ -2143,6 +2160,7 @@ struct LibraryPage {
         .width('100%')
         .height(48)
         .padding({ left: 16, right: 16 })
+        }
 
         // Original bk9/mhh + yj9 folder-filter-toggle: while a folder
         // search is active, a "Search all notes" switch widens the scope.
@@ -2277,6 +2295,7 @@ struct LibraryPage {
       }
       .layoutWeight(1)
       .height('100%')
+      this.MultiSelectActionBar()
     }
     .width('100%')
     .height('100%')
@@ -2293,6 +2312,7 @@ struct LibraryPage {
   // T-040 修复：Button builder 形式 + Text 全铺满居中（原 Button('+') 文本基线导致“+”视觉偏移）
   @Builder
   FabButton() {
+    if (!this.isMultiSelecting) {
     Column() {
       // Original mw3 case 0: expanded speed-dial lists the creation actions
       // in original order — record audio, import file (scan/capture not
@@ -2337,6 +2357,7 @@ struct LibraryPage {
       })
     }
     .margin({ right: 24, bottom: 24 })
+    }
   }
 
   @Builder
@@ -2379,6 +2400,16 @@ struct LibraryPage {
             .backgroundColor(this.resolveTokens().control)
             .borderRadius(8)
         }
+        // 原版 b5j 单元格前导槽（xj9 → tj9 case0/6 = pk9.o 长按进多选）：
+        // 多选态 → o94 勾选圈；普通态 → ⋯ 溢出按钮展开 d5j 菜单。
+        Row() {
+          if (this.isMultiSelecting) {
+            this.SelectCircle(note)
+          } else {
+            this.NoteMenuButton(note)
+          }
+        }
+        .position({ x: 4, y: 4 })
         // pf9.java: w09.favorited renders the favorite_fill badge overlay.
         if (note.favorite) {
           Text('♥')
@@ -2440,6 +2471,11 @@ struct LibraryPage {
       $r('app.string.cd_open_note_titled', note.title) :
       $r('app.string.cd_open_note'))
     .onClick(() => {
+      // 原版 pk9.n：多选态点击 = r() 翻转选中；普通态才打开笔记。
+      if (this.isMultiSelecting) {
+        this.toggleMultiSelectId(note.id);
+        return;
+      }
       if (!this.pageActive) {
         return;
       }
@@ -2448,9 +2484,11 @@ struct LibraryPage {
           console.error(`pushUrl failed: ${err.code}`);
         });
     })
-    .bindContextMenu(() => {
-      this.NoteContextMenu(note)
-    }, ResponseType.LongPress)
+    // 原版 tj9 case0/6 → pk9.o：长按进入多选并选中该笔记；d5j 菜单改由
+    // ⋯ 溢出按钮触发。
+    .gesture(LongPressGesture().onAction(() => {
+      this.enterMultiSelect(note.id);
+    }))
   }
 
   // Original m5j.b: ie7.LIST renders a compact horizontal row — small
@@ -2459,6 +2497,16 @@ struct LibraryPage {
   @Builder
   NoteListRow(note: NoteMeta) {
     Row() {
+      // 原版 cti.c 行首槽：多选态 → o94 勾选圈；普通态 → ⋯ 溢出按钮。
+      Row() {
+        if (this.isMultiSelecting) {
+          this.SelectCircle(note)
+        } else {
+          this.NoteMenuButton(note)
+        }
+      }
+      .width(28)
+      .justifyContent(FlexAlign.Center)
       Stack({ alignContent: Alignment.TopEnd }) {
         if (this.thumbIds.indexOf(note.id) >= 0) {
           Image(this.thumbMap.get(note.id))
@@ -2533,6 +2581,11 @@ struct LibraryPage {
       $r('app.string.cd_open_note_titled', note.title) :
       $r('app.string.cd_open_note'))
     .onClick(() => {
+      // 原版 pk9.n：多选态点击 = r() 翻转选中；普通态才打开笔记。
+      if (this.isMultiSelecting) {
+        this.toggleMultiSelectId(note.id);
+        return;
+      }
       if (!this.pageActive) {
         return;
       }
@@ -2541,9 +2594,342 @@ struct LibraryPage {
           console.error(`pushUrl failed: ${err.code}`);
         });
     })
-    .bindContextMenu(() => {
-      this.NoteContextMenu(note)
-    }, ResponseType.LongPress)
+    // 原版 tj9 case0/6 → pk9.o：长按进入多选并选中该笔记；d5j 菜单改由
+    // ⋯ 溢出按钮触发。
+    .gesture(LongPressGesture().onAction(() => {
+      this.enterMultiSelect(note.id);
+    }))
+  }
+
+  // 原版 o94：多选勾选圈——checkmark_circle（已选）/
+  // circle_empty_med_outline（未选），a11y=feature_library__select_note。
+  @Builder
+  SelectCircle(note: NoteMeta) {
+    if (this.selectedNoteIds.indexOf(note.id) >= 0) {
+      Text('✓')
+        .fontSize(12)
+        .fontColor('#FFFFFF')
+        .width(20)
+        .height(20)
+        .textAlign(TextAlign.Center)
+        .backgroundColor(this.resolveTokens().accent)
+        .borderRadius(10)
+        .accessibilityText($r('app.string.select_note'))
+    } else {
+      Text('')
+        .width(20)
+        .height(20)
+        .borderRadius(10)
+        .border({ width: 2, color: this.resolveTokens().textSecondary })
+        .backgroundColor(this.resolveTokens().surface)
+        .accessibilityText($r('app.string.select_note'))
+    }
+  }
+
+  // 原版 b5j/m5j 单元格溢出按钮：点击展开 d5j 菜单（bindMenu 替代
+  // bindContextMenu——长按已让位 pk9.o 多选进入）。
+  @Builder
+  NoteMenuButton(note: NoteMeta) {
+    Text('⋯')
+      .fontSize(16)
+      .fontColor(this.resolveTokens().textPrimary)
+      .width(28)
+      .height(24)
+      .textAlign(TextAlign.Center)
+      .accessibilityText($r('app.string.note_actions'))
+      .bindMenu(() => {
+        this.NoteContextMenu(note)
+      })
+  }
+
+  // 原版 hof：多选顶栏——Select All/Deselect All（ek9.a：选中集 ⊇
+  // 可见列表 → Deselect All）+ "N notes selected" 计数 + Done（pk9.p）。
+  @Builder
+  MultiSelectTopBar() {
+    Row() {
+      Button(this.allVisibleSelected() ?
+        $r('app.string.deselect_all') : $r('app.string.select_all'))
+        .height(40)
+        .fontSize(13)
+        .enabled(!this.multiSelectBusy)
+        .onClick(() => {
+          this.toggleSelectAll();
+        })
+      Text(this.selectedNoteIds.length === 1 ?
+        $r('app.string.note_selected_singular', this.selectedNoteIds.length) :
+        $r('app.string.notes_selected', this.selectedNoteIds.length))
+        .fontSize(14)
+        .fontColor(this.resolveTokens().textPrimary)
+        .layoutWeight(1)
+        .textAlign(TextAlign.Center)
+      Button($r('app.string.done'))
+        .height(40)
+        .fontSize(13)
+        .onClick(() => {
+          this.exitMultiSelect();
+        })
+    }
+    .width('100%')
+    .height(48)
+    .padding({ left: 16, right: 16 })
+  }
+
+  // 原版 l05/fj9/gj9：多选底部动作条——Duplicate / Favorite（ek9.e
+  // 全已收藏 → Unfavorite）/ Delete；ek9.b：actionsEnabled=count>0；
+  // Share 受 lc4 旗标门控（fail-closed 登记至 Phase 674 多笔记分享）；
+  // xri.a：busy 时进度。
+  @Builder
+  MultiSelectActionBar() {
+    if (this.isMultiSelecting) {
+      Row() {
+        if (this.multiSelectBusy) {
+          LoadingProgress()
+            .width(20)
+            .height(20)
+            .margin({ right: 8 })
+        }
+        Button($r('app.string.duplicate_note'))
+          .height(40)
+          .fontSize(13)
+          .margin({ left: 8, right: 8 })
+          .enabled(this.selectedNoteIds.length > 0 && !this.multiSelectBusy)
+          .onClick(() => {
+            this.multiDuplicate();
+          })
+        Button(this.allSelectedFavorited() ?
+          $r('app.string.unfavorite_note') : $r('app.string.favorite_note'))
+          .height(40)
+          .fontSize(13)
+          .margin({ left: 8, right: 8 })
+          .enabled(this.selectedNoteIds.length > 0 && !this.multiSelectBusy)
+          .onClick(() => {
+            this.multiSetFavorite().catch((e: Error) => {
+              console.error(`multi favorite failed: ${JSON.stringify(e)}`);
+            });
+          })
+        Button($r('app.string.delete'))
+          .height(40)
+          .fontSize(13)
+          .margin({ left: 8, right: 8 })
+          .enabled(this.selectedNoteIds.length > 0 && !this.multiSelectBusy)
+          .onClick(() => {
+            this.confirmMultiDelete();
+          })
+      }
+      .width('100%')
+      .height(56)
+      .justifyContent(FlexAlign.Center)
+      .backgroundColor(this.resolveTokens().surface)
+    }
+  }
+
+  // 原版 pk9.o：长按笔记进入多选并选中该笔记（tj9 case0/6 → o(ttf)：
+  // X=true 后 r(id) 立即选中）。
+  private enterMultiSelect(noteId: string): void {
+    if (!this.pageActive || this.isMultiSelecting) {
+      return;
+    }
+    this.isMultiSelecting = true;
+    this.selectedNoteIds = [noteId];
+  }
+
+  // 原版 pk9.r：翻转 id 成员（X=true 时 n() 亦走这里）。
+  private toggleMultiSelectId(noteId: string): void {
+    const next: string[] = this.selectedNoteIds.slice();
+    const idx: number = next.indexOf(noteId);
+    if (idx >= 0) {
+      next.splice(idx, 1);
+    } else {
+      next.push(noteId);
+    }
+    this.selectedNoteIds = next;
+  }
+
+  // 原版 pk9.p：退出多选——X=false 且清空 Y。
+  private exitMultiSelect(): void {
+    this.isMultiSelecting = false;
+    this.selectedNoteIds = [];
+    this.multiSelectBusy = false;
+  }
+
+  // 原版 ek9.a：选中集 ⊇ 当前可见列表 → Deselect All，否则 Select All。
+  private allVisibleSelected(): boolean {
+    if (this.notes.length === 0) {
+      return false;
+    }
+    for (const note of this.notes) {
+      if (this.selectedNoteIds.indexOf(note.id) < 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private toggleSelectAll(): void {
+    this.selectedNoteIds = this.allVisibleSelected() ? [] :
+      this.notes.map((n: NoteMeta) => n.id);
+  }
+
+  // 原版 ek9.e：allSelectedAreFavorited——驱动 Favorite/Unfavorite 翻转。
+  private allSelectedFavorited(): boolean {
+    if (this.selectedNoteIds.length === 0) {
+      return false;
+    }
+    for (const id of this.selectedNoteIds) {
+      const note: NoteMeta | undefined =
+        this.notes.find((n: NoteMeta) => n.id === id);
+      if (note === undefined || !note.favorite) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // 原版 fj9 case1 批量 Duplicate：逐笔记 export→import 往返（同单笔记
+  // duplicateNote 语义）。
+  private multiDuplicate(): void {
+    if (!this.pageActive || this.viewModel === null || this.multiSelectBusy ||
+      this.selectedNoteIds.length === 0) {
+      return;
+    }
+    const vm: LibraryViewModel = this.viewModel;
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    const ids: string[] = this.selectedNoteIds.slice();
+    const exporter: NoteExporter = new NoteExporter(this.db, this.persistence);
+    const importer: NoteImporter = new NoteImporter(this.db, this.persistence);
+    this.multiSelectBusy = true;
+    const run: () => Promise<void> = async (): Promise<void> => {
+      for (const id of ids) {
+        const data: Uint8Array | null = await exporter.exportNote(id);
+        if (data === null) {
+          throw new Error('exportNote returned null');
+        }
+        const report: ImportReport = await importer.importFromData(data);
+        if (report.noteId === null) {
+          throw new Error(`duplicate import failed: ${report.message}`);
+        }
+      }
+    };
+    run().then(() => {
+      this.multiSelectBusy = false;
+      if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration ||
+        this.viewModel !== vm) {
+        return;
+      }
+      promptAction.showToast({ message: $r('app.string.note_duplicated') });
+      vm.loadNotes(this.searchText).then(() => {
+        this.refreshRecentCardFeed();
+        if (this.pageActive && lifecycleGeneration === this.lifecycleGeneration &&
+          this.viewModel === vm) {
+          this.notes = vm.getFilteredNotes().slice();
+          this.selectedNoteIds = this.selectedNoteIds.filter((id: string) =>
+            this.notes.find((n: NoteMeta) => n.id === id) !== undefined);
+        }
+      }).catch((e: Error) => {
+        console.error(`post-duplicate reload failed: ${JSON.stringify(e)}`);
+      });
+    }).catch((e: Error) => {
+      this.multiSelectBusy = false;
+      if (this.pageActive && lifecycleGeneration === this.lifecycleGeneration) {
+        promptAction.showToast({ message: $r('app.string.multi_duplicate_failed') });
+        console.error(`multi duplicate failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  // 原版 gj9 case0 批量 Favorite/Unfavorite（ek9.e：全已收藏 → Unfavorite，
+  // 否则全部置为收藏）。
+  private async multiSetFavorite(): Promise<void> {
+    if (!this.pageActive || this.viewModel === null || this.multiSelectBusy ||
+      this.selectedNoteIds.length === 0) {
+      return;
+    }
+    const vm: LibraryViewModel = this.viewModel;
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    const target: boolean = !this.allSelectedFavorited();
+    this.multiSelectBusy = true;
+    try {
+      for (const id of this.selectedNoteIds.slice()) {
+        const note: NoteMeta | undefined =
+          this.notes.find((n: NoteMeta) => n.id === id);
+        if (note !== undefined && note.favorite !== target) {
+          await vm.toggleFavorite(id);
+        }
+      }
+      if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration ||
+        this.viewModel !== vm) {
+        return;
+      }
+      this.notes = vm.getFilteredNotes().slice();
+    } catch (e) {
+      if (this.pageActive && lifecycleGeneration === this.lifecycleGeneration) {
+        promptAction.showToast({ message: $r('app.string.multi_favorite_failed') });
+        console.error(`multi favorite failed: ${JSON.stringify(e)}`);
+      }
+    } finally {
+      this.multiSelectBusy = false;
+    }
+  }
+
+  // 原版 fj9 case2 批量 Delete → 确认后逐笔记 deleteNote（入 Recently
+  // Deleted）；已删 id 从选中集剔除（ek9 重建语义），删空则退出多选。
+  private confirmMultiDelete(): void {
+    if (!this.pageActive || this.multiSelectBusy ||
+      this.selectedNoteIds.length === 0) {
+      return;
+    }
+    const count: number = this.selectedNoteIds.length;
+    this.getUIContext().showAlertDialog({
+      title: $r('app.string.delete'),
+      message: $r('app.string.delete_notes_message', count),
+      primaryButton: {
+        value: $r('app.string.cancel'),
+        action: () => {
+        },
+      },
+      secondaryButton: {
+        value: $r('app.string.delete'),
+        action: () => {
+          this.multiDelete().catch((e: Error) => {
+            console.error(`multi delete failed: ${JSON.stringify(e)}`);
+          });
+        },
+      },
+    });
+  }
+
+  private async multiDelete(): Promise<void> {
+    if (!this.pageActive || this.viewModel === null || this.multiSelectBusy) {
+      return;
+    }
+    const vm: LibraryViewModel = this.viewModel;
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    this.multiSelectBusy = true;
+    try {
+      for (const id of this.selectedNoteIds.slice()) {
+        await vm.deleteNote(id);
+      }
+      if (!this.pageActive || lifecycleGeneration !== this.lifecycleGeneration ||
+        this.viewModel !== vm) {
+        return;
+      }
+      this.notes = vm.getFilteredNotes().slice();
+      this.selectedNoteIds = this.selectedNoteIds.filter((id: string) =>
+        this.notes.find((n: NoteMeta) => n.id === id) !== undefined);
+      if (this.selectedNoteIds.length === 0) {
+        this.exitMultiSelect();
+      }
+    } catch (e) {
+      if (this.pageActive && lifecycleGeneration === this.lifecycleGeneration) {
+        promptAction.showToast({ message: $r('app.string.multi_delete_failed') });
+        console.error(`multi delete failed: ${JSON.stringify(e)}`);
+      }
+    } finally {
+      this.multiSelectBusy = false;
+    }
+    this.refreshThumbnails().catch((e: Error) => {
+      console.error(`post-delete thumbnail refresh failed: ${JSON.stringify(e)}`);
+    });
   }
 
   private confirmDelete(note: NoteMeta): void {

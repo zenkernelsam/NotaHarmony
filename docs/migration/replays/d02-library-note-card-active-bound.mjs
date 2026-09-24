@@ -15,13 +15,15 @@ const clickStart = card.lastIndexOf('.onClick(() => {', navigation);
 assert.ok(clickStart >= 0 && clickStart < navigation, 'NoteCard click bounds');
 const clickBody = card.slice(clickStart, navigation);
 assert.match(clickBody,
-  /\.onClick\(\(\) => \{\s+if \(!this\.pageActive\) \{\s+return;\s+\}/,
-  'stale NoteCard clicks cannot navigate');
+  /\.onClick\(\(\) => \{[\s\S]*?if \(this\.isMultiSelecting\) \{\s+this\.toggleMultiSelectId\(note\.id\);\s+return;\s+\}[\s\S]*?if \(!this\.pageActive\) \{\s+return;\s+\}/,
+  'in-mode taps toggle selection; stale taps cannot navigate');
 assert.ok(card.indexOf('if (!this.pageActive)', clickStart) < navigation,
   'active-page gate precedes navigation');
 
-assert.match(card, /\.bindContextMenu\(\(\) => \{\s+this\.NoteContextMenu\(note\)\s+\}, ResponseType\.LongPress\)/,
-  'long-press context menu remains separate from single-click navigation');
+assert.match(card, /\.gesture\(LongPressGesture\(\)\.onAction\(\(\) => \{\s+this\.enterMultiSelect\(note\.id\);\s+\}\)\)/,
+  'long-press enters multi-select (pk9.o via tj9 case0/6)');
+assert.match(page, /NoteMenuButton\(note: NoteMeta\)[\s\S]*?\.bindMenu\(\(\) => \{\s+this\.NoteContextMenu\(note\)\s+\}\)/,
+  'd5j single-note menu moved to the overflow button');
 
 function cardEntry(pageActive) {
   return pageActive ? { navigated: true } : { navigated: false };
@@ -29,4 +31,4 @@ function cardEntry(pageActive) {
 assert.deepEqual(cardEntry(false), { navigated: false });
 assert.deepEqual(cardEntry(true), { navigated: true });
 
-console.log('D02_LIBRARY_NOTE_CARD_ACTIVE_BOUND_REPLAY_OK TOTAL=4 FAILED=0');
+console.log('D02_LIBRARY_NOTE_CARD_ACTIVE_BOUND_REPLAY_OK TOTAL=5 FAILED=0');

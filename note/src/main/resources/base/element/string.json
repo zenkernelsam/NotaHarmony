@@ -1258,6 +1258,16 @@
       "value": "Image is too large to add."
     },
     { "name": "original_photo_insert_partial_failed", "value": "Some photos couldn't be added" },
-    { "name": "read_pasteboard_permission_reason", "value": "Allows the app to paste images from the clipboard" }
+    { "name": "read_pasteboard_permission_reason", "value": "Allows the app to paste images from the clipboard" },
+    { "name": "share", "value": "Share" },
+    { "name": "deselect_all", "value": "Deselect All" },
+    { "name": "notes_selected", "value": "%d Notes Selected" },
+    { "name": "note_selected_singular", "value": "%d Note Selected" },
+    { "name": "select_note", "value": "Select Note" },
+    { "name": "note_actions", "value": "Note actions" },
+    { "name": "delete_notes_message", "value": "Move %d notes to Recently Deleted? You can recover them within 30 days." },
+    { "name": "multi_delete_failed", "value": "Failed to delete selected notes" },
+    { "name": "multi_duplicate_failed", "value": "Failed to duplicate selected notes" },
+    { "name": "multi_favorite_failed", "value": "Failed to update selected notes" }
   ]
 }
