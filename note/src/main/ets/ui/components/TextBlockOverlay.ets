@@ -58,6 +58,7 @@ export struct TextBlockOverlay {
   @State caretLineSpacing: number = 1;
   // 原版 rte/eh5：高亮态（选区全覆盖或 pending 含色）。
   @State caretCharHighlight: boolean = false;
+  @State caretCharFontSize: number = 14;
   private pendingClearHighlight: boolean = false;
   // 原版 qte/ste：文字色 sheet 态与折叠清除标记。
   @State showTextColorSheet: boolean = false;
@@ -345,6 +346,9 @@ export struct TextBlockOverlay {
       this.caretCharSuper = this.charStyleValue(this.pendingCharStyles, 'superscript');
       this.caretCharHighlight = this.pendingCharStyles.highlightColor !== undefined &&
         !this.pendingClearHighlight;
+      this.caretCharFontSize = this.pendingCharStyles.fontSize ??
+        this.fontSizeNearCaret() ??
+        (this.element !== null ? this.element.fontSize : 14);
       return;
     }
     this.caretCharBold = this.rangeHasCharStyle('bold', s, e);
@@ -354,6 +358,7 @@ export struct TextBlockOverlay {
     this.caretCharSub = this.rangeHasCharStyle('subscript', s, e);
     this.caretCharSuper = this.rangeHasCharStyle('superscript', s, e);
     this.caretCharHighlight = this.rangeHasHighlight(s, e);
+    this.caretCharFontSize = this.fontSizeAt(s, e);
   }
 
   // 原版 l32/h32 字符样式切换：选区非空时按覆盖态取反改写选区 run；
@@ -489,6 +494,52 @@ export struct TextBlockOverlay {
         this.clearHighlight();
       } });
     return items;
+  }
+
+  // 原版 kre/pte：选区（或折叠 pending）当前字号 —— 选区取首个携
+  // fontSize run 的值，否则回落 element.fontSize（块缺省）。
+  private fontSizeAt(s: number, e: number): number {
+    for (const run of this.draftCharRuns) {
+      if (run.end <= s || run.start >= e) {
+        continue;
+      }
+      if (run.style.fontSize !== undefined) {
+        return run.style.fontSize;
+      }
+    }
+    return this.element !== null ? this.element.fontSize : 14;
+  }
+
+  // 折叠光标的"当前字号"：优先 pending typing-attributes，其次光标处
+  // run（start<caret<=end，与插入落点语义一致）。
+  private fontSizeNearCaret(): number | undefined {
+    for (const run of this.draftCharRuns) {
+      if (run.start < this.caretOffset && this.caretOffset <= run.end &&
+        run.style.fontSize !== undefined) {
+        return run.style.fontSize;
+      }
+    }
+    return undefined;
+  }
+
+  // 原版 cve l(f±1)：zyd.f=Float(rh8.u(f,4,72)) —— kre 步进钮 ±1pt，
+  // clamp [4,72]；选区写 run、折叠写 pending（与其他字符样式同路径）。
+  private stepFontSize(delta: number): void {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    const current: number = s === e ?
+      (this.pendingCharStyles.fontSize ?? this.fontSizeNearCaret() ??
+        (this.element !== null ? this.element.fontSize : 14)) :
+      this.fontSizeAt(s, e);
+    const next: number = Math.max(4, Math.min(72, current + delta));
+    if (s === e) {
+      this.pendingCharStyles.fontSize = next;
+      this.refreshCaretCharStyles();
+      return;
+    }
+    this.applyFontSize(next, s, e);
+    this.normalizeCharRuns();
+    this.refreshCaretCharStyles();
   }
 
   // 原版 cve l(f)：zyd.f=Float(rh8.u(f,4,72)) —— 字号字段区间写（clamp
@@ -1368,6 +1419,28 @@ export struct TextBlockOverlay {
             .fontColor(this.element !== null ? this.element.fontColor : '#000000')
             .enabled(!this.photoImportLeaseActive)
             .bindMenu(this.buildTextStyleMenu())
+          // 原版 kre FontSizeTextToolbarItem：字号显示 + ±1pt 步进
+          // （pte→cve.l(f)→zyd.f clamp [4,72]）。
+          Button('-')
+            .height(32)
+            .fontSize(12)
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .onClick(() => {
+              this.stepFontSize(-1);
+            })
+          Text(`${this.caretCharFontSize}`)
+            .fontSize(12)
+            .fontColor(this.element !== null ? this.element.fontColor : '#000000')
+            .margin({ left: 4 })
+          Button('+')
+            .height(32)
+            .fontSize(12)
+            .enabled(!this.photoImportLeaseActive)
+            .margin({ left: 4 })
+            .onClick(() => {
+              this.stepFontSize(1);
+            })
           // 原版 i31 字体族区 / cve nte→zyd.e：qr4 三随包字体 + Default。
           Button($r('app.string.font_family'))
             .height(32)
