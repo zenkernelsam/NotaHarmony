@@ -22,34 +22,55 @@ export const LAUNCH_ACTION_CREATE_RECORDING_NOTE: string = 'create_recording_not
 
 const EXTRA_START_CAMERA: string = 'start_camera';
 const EXTRA_START_RECORDING: string = 'start_recording';
+// 原版 FolderNotesWidgetProvider.g()：创建钮 PendingIntent =
+// CREATE_NOTE + putExtra("folder_id", ttf) —— 新笔记建进该文件夹。
+const EXTRA_FOLDER_ID: string = 'folder_id';
 
-const pendingLaunchActions: string[] = [];
+export interface LaunchRequest {
+  action: string;
+  folderId: string | null;
+}
+
+const pendingLaunchRequests: LaunchRequest[] = [];
 
 export function enqueueLaunchAction(want: Want): void {
   if (want.parameters === undefined) {
     return;
   }
+  const folderExtra: Object | undefined = want.parameters[EXTRA_FOLDER_ID];
+  const folderId: string | null = typeof folderExtra === 'string' ? folderExtra : null;
   const action: Object | undefined = want.parameters[LAUNCH_ACTION_PARAM];
   if (typeof action === 'string' &&
     (action === LAUNCH_ACTION_CREATE_NOTE ||
       action === LAUNCH_ACTION_CREATE_PHOTO_NOTE ||
       action === LAUNCH_ACTION_CREATE_RECORDING_NOTE)) {
-    pendingLaunchActions.push(action);
+    pendingLaunchRequests.push({ action: action, folderId: folderId });
     return;
   }
   // 原版 CREATE_NOTE intent extras（CreateRecordingWidgetProvider
   // putExtra("start_recording", true)；v50 new_photo 同理带
   // start_camera）—— 无 launch_action 时按原版契约兜底。
   if (want.parameters[EXTRA_START_RECORDING] === true) {
-    pendingLaunchActions.push(LAUNCH_ACTION_CREATE_RECORDING_NOTE);
+    pendingLaunchRequests.push({ action: LAUNCH_ACTION_CREATE_RECORDING_NOTE,
+      folderId: folderId });
   } else if (want.parameters[EXTRA_START_CAMERA] === true) {
-    pendingLaunchActions.push(LAUNCH_ACTION_CREATE_PHOTO_NOTE);
+    pendingLaunchRequests.push({ action: LAUNCH_ACTION_CREATE_PHOTO_NOTE,
+      folderId: folderId });
   }
 }
 
-export function drainLaunchActions(): string[] {
-  if (pendingLaunchActions.length === 0) {
+export function drainLaunchRequests(): LaunchRequest[] {
+  if (pendingLaunchRequests.length === 0) {
     return [];
   }
-  return pendingLaunchActions.splice(0, pendingLaunchActions.length);
+  return pendingLaunchRequests.splice(0, pendingLaunchRequests.length);
+}
+
+export function drainLaunchActions(): string[] {
+  const requests: LaunchRequest[] = drainLaunchRequests();
+  const actions: string[] = [];
+  for (const request of requests) {
+    actions.push(request.action);
+  }
+  return actions;
 }

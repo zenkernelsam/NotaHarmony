@@ -10,9 +10,14 @@
 // filesDir JSON（Harmony 无活动实例枚举 API）；onAddForm/onUpdateForm
 // 先推标题（缩略图由 UIAbility 侧 refreshRecentNotesForms 补齐，
 // 等价原版 WidgetImageProvider 懒加载）。
-// 原版 NoteThumbnail/FolderNotes 两张配置型数据小部件仍需配置 UI —
-// fail-closed 登记（ADR-0632）。
-import { FormExtensionAbility, formBindingData, formInfo } from '@kit.FormKit';
+// 原版 FolderNotesWidgetProvider（qk9 子类 + 配置活动）：
+// folder_notes_card 卡片 + FolderNotesFormFeed（formId→folderId 存
+// filesDir JSON，等价 widget_bindings）；配置 UI = type=formEdit 的
+// FolderFormEditAbility（对应 FolderNotesConfigActivity），卡片内
+// 编辑入口经 onFormEvent → openFormEditAbility 拉起。
+// 原版 NoteThumbnailWidgetProvider（配置型单缩略图部件）仍需
+// 独立卡片 + 笔记选择配置 —— fail-closed 登记（ADR-0632/0635）。
+import { FormExtensionAbility, formBindingData, formInfo, formProvider } from '@kit.FormKit';
 import { Want } from '@kit.AbilityKit';
 import {
   RECENT_NOTES_FORM_NAME,
@@ -20,30 +25,64 @@ import {
   unregisterRecentNotesForm,
   pushRecentNotesTitles
 } from '../data/RecentNotesFormFeed';
+import {
+  FOLDER_NOTES_FORM_NAME,
+  registerFolderNotesForm,
+  unregisterFolderNotesForm,
+  pushFolderNotesTitles
+} from '../data/FolderNotesFormFeed';
+
+const FOLDER_EDIT_ABILITY: string = 'FolderFormEditAbility';
 
 export default class NoteFormAbility extends FormExtensionAbility {
   onAddForm(want: Want): formBindingData.FormBindingData {
     const formId: string = (want.parameters?.[formInfo.FormParam.IDENTITY_KEY] ?? '') as string;
     const formName: string = (want.parameters?.[formInfo.FormParam.NAME_KEY] ?? '') as string;
-    if (formName === RECENT_NOTES_FORM_NAME && formId.length > 0) {
+    if (formId.length === 0) {
+      return formBindingData.createFormBindingData({});
+    }
+    if (formName === RECENT_NOTES_FORM_NAME) {
       registerRecentNotesForm(this.context, formId).then(() => {
         pushRecentNotesTitles(this.context, formId);
       }).catch((e: Error) => {
         console.error(`recent form register failed: ${JSON.stringify(e)}`);
+      });
+    } else if (formName === FOLDER_NOTES_FORM_NAME) {
+      registerFolderNotesForm(this.context, formId).then(() => {
+        pushFolderNotesTitles(this.context, formId);
+      }).catch((e: Error) => {
+        console.error(`folder form register failed: ${JSON.stringify(e)}`);
       });
     }
     return formBindingData.createFormBindingData({});
   }
 
   onUpdateForm(formId: string): void {
-    pushRecentNotesTitles(this.context, formId).catch((e: Error) => {
-      console.error(`recent form title push failed: ${JSON.stringify(e)}`);
+    pushRecentNotesTitles(this.context, formId).then(() => {
+      pushFolderNotesTitles(this.context, formId);
+    }).catch((e: Error) => {
+      console.error(`form title push failed: ${JSON.stringify(e)}`);
     });
   }
 
+  onFormEvent(formId: string, message: string): void {
+    // 原版 FolderNotesConfigActivity 对应路径：卡片编辑入口 →
+    // openFormEditAbility 拉起 formEdit 配置页。
+    try {
+      const parsed: Record<string, Object> = JSON.parse(message) as Record<string, Object>;
+      if (parsed['edit'] === true) {
+        formProvider.openFormEditAbility(FOLDER_EDIT_ABILITY, formId);
+      }
+    } catch (e) {
+      console.error(`form event parse failed: ${JSON.stringify(e)}`);
+    }
+  }
+
   onRemoveForm(formId: string): void {
-    unregisterRecentNotesForm(this.context, formId).catch((e: Error) => {
-      console.error(`recent form unregister failed: ${JSON.stringify(e)}`);
+    unregisterRecentNotesForm(this.context, formId).then(() => {
+      unregisterFolderNotesForm(this.context, formId);
+    }).catch((e: Error) => {
+      console.error(`form unregister failed: ${JSON.stringify(e)}`);
     });
   }
 }

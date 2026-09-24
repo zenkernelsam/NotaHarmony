@@ -64,6 +64,29 @@
         "2*4",
         "4*4"
       ]
+    },
+    {
+      "name": "folder_notes_card",
+      "displayName": "$string:form_folder_notes_display",
+      "description": "$string:form_folder_notes_desc",
+      "src": "./ets/noteformability/pages/FolderNotesCard.ets",
+      "uiSyntax": "arkts",
+      "window": {
+        "designWidth": 720,
+        "autoDesignWidth": true
+      },
+      "colorMode": "auto",
+      "isDynamic": true,
+      "isDefault": false,
+      "updateEnabled": false,
+      "scheduledUpdateTime": "10:30",
+      "updateDuration": 0,
+      "defaultDimension": "2*4",
+      "supportDimensions": [
+        "2*2",
+        "2*4",
+        "4*4"
+      ]
     }
   ]
 }

@@ -78,7 +78,7 @@ check(fs.existsSync('note/src/main/resources/base/media/shortcut_new_note.svg') 
 // ---------- Harmony：队列 + Ability ----------
 check(ingress.includes('LAUNCH_ACTION_PARAM') &&
   ingress.includes("'launch_action'") &&
-  ingress.includes('pendingLaunchActions'),
+  ingress.includes('pendingLaunchRequests'),
   'LaunchActionIngress reads want.parameters[launch_action]');
 check(ingress.includes('LAUNCH_ACTION_CREATE_NOTE') &&
   ingress.includes('LAUNCH_ACTION_CREATE_PHOTO_NOTE'),
@@ -95,11 +95,11 @@ check(onCreate.includes('enqueueLaunchAction(want)') &&
 // ---------- Harmony：库页 drain ----------
 const drain = section(library, 'private drainLaunchIngress(): void {',
   'private drainSharedIngress(): void {');
-check(drain.includes('drainLaunchActions()') &&
+check(drain.includes('drainLaunchRequests()') &&
   drain.includes('LAUNCH_ACTION_CREATE_PHOTO_NOTE'),
   'LibraryPage drains launch actions and maps photo action to startCamera');
-check(drain.includes('this.createAndLaunch(autoRecord, undefined, startCamera)') &&
-  drain.includes('action === LAUNCH_ACTION_CREATE_PHOTO_NOTE'),
+check(drain.includes('request.folderId ?? undefined') &&
+  drain.includes('request.action === LAUNCH_ACTION_CREATE_PHOTO_NOTE'),
   'launch actions reuse the createAndLaunch pipeline (in-built + semantics)');
 check(library.indexOf('this.drainLaunchIngress();') >
   library.indexOf('onPageShow(): void {') &&

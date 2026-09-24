@@ -15,10 +15,11 @@ import { ImportFileDescriptor, ImportPlan, ImportReport, ImportResult, ImportShe
 import { PdfPasswordDialog } from '../components/PdfPasswordDialog';
 import { ImportDetailsSheet } from '../components/ImportDetailsSheet';
 import { drainSharedUris } from '../../data/SharedFileIngress';
-import { drainLaunchActions, LAUNCH_ACTION_CREATE_PHOTO_NOTE, LAUNCH_ACTION_CREATE_RECORDING_NOTE } from '../../data/LaunchActionIngress';
+import { drainLaunchRequests, LaunchRequest, LAUNCH_ACTION_CREATE_PHOTO_NOTE, LAUNCH_ACTION_CREATE_RECORDING_NOTE } from '../../data/LaunchActionIngress';
 import { drainDeepLinkNoteIds } from '../../data/DeepLinkIngress';
-import { drainOpenNoteIds, drainLibraryLandings, LANDING_RECENT } from '../../data/OpenTargetIngress';
+import { drainOpenNoteIds, drainLibraryLandings, LANDING_RECENT, LANDING_FOLDER_PREFIX } from '../../data/OpenTargetIngress';
 import { refreshRecentNotesForms } from '../../data/RecentNotesFormFeed';
+import { refreshFolderNotesForms } from '../../data/FolderNotesFormFeed';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
 import {
@@ -2896,7 +2897,8 @@ struct LibraryPage {
   }
 
   private async createAndLaunch(autoRecord: boolean,
-    templateOverride?: PaperTemplate, startCamera: boolean = false): Promise<void> {
+    templateOverride?: PaperTemplate, startCamera: boolean = false,
+    folderId?: string): Promise<void> {
     if (!this.pageActive || this.viewModel === null || this.createBusy) {
       return;
     }
@@ -2905,7 +2907,7 @@ struct LibraryPage {
     const vm: LibraryViewModel = this.viewModel;
     let noteId: string;
     try {
-      noteId = await vm.createNote(this.searchText, templateOverride);
+      noteId = await vm.createNote(this.searchText, templateOverride, folderId);
       if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
         this.viewModel !== vm) {
         this.createBusy = false;
@@ -2949,14 +2951,17 @@ struct LibraryPage {
   // 原版 hv7.i 的共享 intent 路径：队列 URI 逐个物化为独立笔记后
   // 打开最后一篇（原版 kx 协程同语义）；失败弹 toast。
   private drainLaunchIngress(): void {
-    const actions: string[] = drainLaunchActions();
-    if (actions.length === 0) {
+    const requests: LaunchRequest[] = drainLaunchRequests();
+    if (requests.length === 0) {
       return;
     }
-    for (const action of actions) {
-      const startCamera: boolean = action === LAUNCH_ACTION_CREATE_PHOTO_NOTE;
-      const autoRecord: boolean = action === LAUNCH_ACTION_CREATE_RECORDING_NOTE;
-      this.createAndLaunch(autoRecord, undefined, startCamera).catch((e: Error) => {
+    for (const request of requests) {
+      const startCamera: boolean = request.action === LAUNCH_ACTION_CREATE_PHOTO_NOTE;
+      const autoRecord: boolean = request.action === LAUNCH_ACTION_CREATE_RECORDING_NOTE;
+      // 原版 FolderNotesWidgetProvider 创建钮：CREATE_NOTE + folder_id
+      // —— 新笔记直接建进该文件夹（不改变当前库位置）。
+      this.createAndLaunch(autoRecord, undefined, startCamera,
+        request.folderId ?? undefined).catch((e: Error) => {
         console.error('shortcut launch create failed: ' + JSON.stringify(e));
       });
     }
@@ -2988,6 +2993,9 @@ struct LibraryPage {
     refreshRecentNotesForms(context, theme).catch((e: Error) => {
       console.error(`recent card feed failed: ${JSON.stringify(e)}`);
     });
+    refreshFolderNotesForms(context, theme).catch((e: Error) => {
+      console.error(`folder card feed failed: ${JSON.stringify(e)}`);
+    });
   }
 
   // 原版 MainActivity 的 wu7.a 落地目标：show_library →
@@ -2998,11 +3006,36 @@ struct LibraryPage {
     if (landings.length === 0) {
       return;
     }
-    const section: LibrarySection = landings[landings.length - 1] === LANDING_RECENT ?
+    const last: string = landings[landings.length - 1];
+    if (last.startsWith(LANDING_FOLDER_PREFIX)) {
+      // 原版 FolderNotesWidgetProvider 头部：VIEW+folder_id →
+      // 落进该文件夹视图；文件夹缺失时原版 g() 返回 null ——
+      // 先校验存在再落地，缺失即 fail-closed 不动。
+      const folderId: string = last.slice(LANDING_FOLDER_PREFIX.length);
+      this.landInFolder(folderId).catch((e: Error) => {
+        console.error('folder landing failed: ' + JSON.stringify(e));
+      });
+      return;
+    }
+    const section: LibrarySection = last === LANDING_RECENT ?
       LibrarySection.RECENT : LibrarySection.ALL_NOTES;
     this.selectSection(section).catch((e: Error) => {
       console.error('open-target landing failed: ' + JSON.stringify(e));
     });
+  }
+
+  private async landInFolder(folderId: string): Promise<void> {
+    const db: DatabaseManager = DatabaseManager.getInstance();
+    const folderRepo: FolderRepositoryImpl = new FolderRepositoryImpl(db);
+    const folders: NoteFolder[] = await folderRepo.getAllFolders();
+    const exists: boolean = folders.some((f: NoteFolder) => f.id === folderId);
+    if (!exists || !this.pageActive || this.viewModel === null) {
+      return;
+    }
+    await this.viewModel.setFolder(folderId, this.searchText);
+    if (this.viewModel !== null) {
+      this.notes = this.viewModel.getFilteredNotes().slice();
+    }
   }
 
   private async openDeepLinkNotes(noteIds: string[]): Promise<void> {

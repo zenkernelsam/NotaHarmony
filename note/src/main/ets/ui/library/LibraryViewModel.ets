@@ -270,8 +270,13 @@ export class LibraryViewModel {
   }
 
   // 创建并返回 noteId
-  async createNote(query: string, templateOverride?: PaperTemplate): Promise<string> {
-    const folderId: string | null = this.currentFolderId;
+  // 原版 FolderNotesWidgetProvider 创建钮：CREATE_NOTE + folder_id
+  // extra —— 新笔记建进指定文件夹而非当前库位置；folderIdOverride
+  // 为空时沿用 currentFolderId（原版 CREATE_NOTE 默认路径）。
+  async createNote(query: string, templateOverride?: PaperTemplate,
+    folderIdOverride?: string): Promise<string> {
+    const folderId: string | null = folderIdOverride !== undefined ?
+      folderIdOverride : this.currentFolderId;
     const viewGeneration: number = this.loadGeneration;
     return this.enqueueMutation(async (): Promise<string> => {
       const note: NoteMeta = await this.repo.createNote(ORIGINAL_NOTE_DEFAULT_TITLE,

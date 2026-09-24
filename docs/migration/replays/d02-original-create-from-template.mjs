@@ -48,7 +48,7 @@ ok(page.includes('struct TemplatePickerDialog') &&
 ok(page.includes('private async createFromTemplate(template: PaperTemplate)') &&
    page.includes('this.createAndLaunch(false, template)') &&
    page.includes('templateOverride?: PaperTemplate') &&
-   page.includes('vm.createNote(this.searchText, templateOverride)'),
+   page.includes('vm.createNote(this.searchText, templateOverride, folderId)'),
   'createFromTemplate wiring missing');
 // VM/repo thread the override into the bootstrap background.
 ok(vm.includes('templateOverride?: PaperTemplate') &&

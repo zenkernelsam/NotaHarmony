@@ -110,6 +110,12 @@
         ]
       },
       {
+        "name": "FolderFormEditAbility",
+        "srcEntry": "./ets/noteformeditability/FolderFormEditAbility.ets",
+        "type": "formEdit",
+        "exported": false
+      },
+      {
         "name": "NoteBackupAbility",
         "srcEntry": "./ets/notebackupability/NoteBackupAbility.ets",
         "type": "backup",

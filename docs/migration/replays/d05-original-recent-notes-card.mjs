@@ -176,7 +176,7 @@ check(baseStrings.includes('"form_recent_notes_display"') &&
 
 // ---------- 剩余 fail-closed ----------
 check(formAbility.includes('fail-closed') &&
-  formAbility.includes('NoteThumbnail') && formAbility.includes('FolderNotes'),
-  'NoteThumbnail/FolderNotes remain registered fail-closed');
+  formAbility.includes('NoteThumbnail'),
+  'NoteThumbnail remains registered fail-closed');
 
 console.log(`D05_ORIGINAL_RECENT_NOTES_CARD_OK TOTAL=${total} FAILED=0`);

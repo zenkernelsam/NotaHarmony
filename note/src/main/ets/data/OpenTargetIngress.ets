@@ -20,10 +20,14 @@ import { normalizeDeepLinkNoteId } from './DeepLinkIngress';
 const EXTRA_NOTE_ID: string = 'note_id';
 const EXTRA_SHOW_LIBRARY: string = 'show_library';
 const EXTRA_SHOW_RECENT: string = 'show_recent';
+// 原版 FolderNotesWidgetProvider.g()：头部 PendingIntent = VIEW +
+// putExtra("folder_id", ttf) —— 落进该文件夹视图。
+const EXTRA_FOLDER_ID: string = 'folder_id';
 const NBNOTE_SCHEME: string = 'nbnote:';
 
 export const LANDING_ALL_NOTES: string = 'all_notes';
 export const LANDING_RECENT: string = 'recent';
+export const LANDING_FOLDER_PREFIX: string = 'folder:';
 
 const pendingOpenNoteIds: string[] = [];
 const pendingLandings: string[] = [];
@@ -42,6 +46,13 @@ export function enqueueOpenTargetWant(want: Want): void {
     }
     if (want.parameters[EXTRA_SHOW_RECENT] === true) {
       pendingLandings.push(LANDING_RECENT);
+    }
+    const folderId: Object | undefined = want.parameters[EXTRA_FOLDER_ID];
+    if (typeof folderId === 'string') {
+      const normalized: string | null = normalizeDeepLinkNoteId(folderId);
+      if (normalized !== null) {
+        pendingLandings.push(`${LANDING_FOLDER_PREFIX}${normalized}`);
+      }
     }
   }
   if (typeof want.uri === 'string' && want.uri.startsWith(NBNOTE_SCHEME)) {

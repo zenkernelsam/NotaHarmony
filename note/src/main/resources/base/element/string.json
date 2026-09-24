@@ -29,6 +29,12 @@
     { "name": "form_recent_notes_display", "value": "Recent Notes" },
     { "name": "form_recent_notes_desc", "value": "Show your recent notes." },
     { "name": "form_recent_notes_empty", "value": "No recent notes" },
+    { "name": "form_folder_notes_display", "value": "Folder Notes" },
+    { "name": "form_folder_notes_desc", "value": "Show notes from a folder." },
+    { "name": "form_folder_notes_empty", "value": "No notes in this folder" },
+    { "name": "form_folder_notes_unconfigured", "value": "Tap to open Notability" },
+    { "name": "form_folder_edit_title", "value": "Choose a folder" },
+    { "name": "form_folder_edit_empty", "value": "No folders" },
     {
       "name": "retry",
       "value": "Retry"
