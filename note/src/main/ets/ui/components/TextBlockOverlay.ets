@@ -4,6 +4,7 @@ import { Point2D, Rect2D } from '../../core/model/GeometryTypes';
 import { textBlockTransformComponents, TextBlockTransformComponents } from '../../core/model/TextBlockGeometry';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
+import { registerNoteFonts } from '../../data/NoteFonts';
 import { preferences } from '@kit.ArkData';
 
 // 原版 rs1.d 代码块语言表（27 项，含 plaintext 哨兵 rs1.c——原版派单把
@@ -98,6 +99,9 @@ export struct TextBlockOverlay {
   };
 
   aboutToAppear(): void {
+    // 原版 qr4.c 三族字体注册（Inter/Roboto/EBGaramond）——
+    // 进入文本编辑面前确保 canvas fontFamily 解析命中内置字库。
+    registerNoteFonts(this.getUIContext());
     this.draftText = this.element !== null ? this.element.richText : '';
     this.seedParagraphStyles();
     this.loadColorRecents().catch((e: Error) => {

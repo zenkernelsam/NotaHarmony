@@ -219,6 +219,7 @@ import { OnboardingTipBubble } from '../components/OnboardingTipBubble';
 import {
   OnboardingTooltipKind, OnboardingTooltipStore,
 } from '../../data/OnboardingTooltipStore';
+import { registerNoteFonts } from '../../data/NoteFonts';
 
 const HISTORY_CHECKPOINT_TAIL_OPERATIONS: number = 256;
 const HISTORY_CHECKPOINT_MAX_ACTIONS: number = 128;
@@ -545,6 +546,9 @@ export struct NoteCanvasView {
 
   aboutToAppear(): void {
     this.lifecycleActive = true;
+    // 原版 qr4.c 三族字体注册（Inter/Roboto/EBGaramond）——canvas
+    // fontFamily 解析命中内置字库（TextBlockOverlay 亦注册，幂等）。
+    registerNoteFonts(this.getUIContext());
     this.onboardingStore = new OnboardingTooltipStore(
       getContext(this) as common.UIAbilityContext);
     this.onboardingStore.getSeenKinds().then((seen: string[]): void => {
