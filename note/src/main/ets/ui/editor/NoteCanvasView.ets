@@ -1720,6 +1720,20 @@ export struct NoteCanvasView {
     this.zoomPaintTick++;
   }
 
+  // 原版 vgg 注入整页渲染栈：放大面绘制的是完整页面内容（纸面 + 全部
+  // z-order 元素），不是仅笔画层。上下文变换由 NoteZoomView 先行施加
+  // （scale=magnification + sourceRect 平移），此处按文档坐标直绘。
+  private renderZoomPanelContent(renderContext: Canvas2DRenderContext,
+    rawCtx: CanvasRenderingContext2D, mag: number): void {
+    const theme: ThemeTokens = this.resolveTokens();
+    const loaded: LoadedPdfBackground | null = this.pdfBackground !== null &&
+      this.pdfBackground.state === PdfBackgroundLoadState.READY ? this.pdfBackground : null;
+    this.paperRenderer.renderBackground(rawCtx, this.getPaperWidth(), this.getPaperHeight(),
+      this.currentPage, mag, theme, loaded === null ? null : loaded.bitmap, this.paperTexture,
+      loaded === null ? null : loaded.renderRect);
+    this.renderOrderedElements(renderContext, this.zoomLiveStroke, mag);
+  }
+
   private linkHitOnTextBlock(elementId: string, point: Point2D): TextBlockLinkHit | null {
     const block: TextBlockElement | undefined =
       this.textBlocks.find((t: TextBlockElement): boolean => t.id === elementId);
@@ -2178,6 +2192,11 @@ export struct NoteCanvasView {
     if (!this.layerManager.isInitialized()) {
       return;
     }
+    // Phase 748：ZOOM 激活时放大面是整页内容的镜像——任何主画布重绘
+    // （撤销/重做、导入、元素变更、页面设置）同步驱动放大面重绘。
+    if (this.viewModel.currentTool === ToolType.ZOOM) {
+      this.zoomPaintTick++;
+    }
     const w: number = this.canvasCtx.width;
     const h: number = this.canvasCtx.height;
     const theme: ThemeTokens = this.resolveTokens();
@@ -2373,28 +2392,29 @@ export struct NoteCanvasView {
   }
 
   private renderOrderedElements(renderContext: Canvas2DRenderContext | Canvas2DOffscreenRenderContext,
-    transientTopStroke: StrokeElementData | null = null): void {
+    transientTopStroke: StrokeElementData | null = null,
+    renderZoom: number = this.viewport.zoom): void {
     const elements: OrderedPageElement[] = materializePageElements(
       this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks,
       this.mathBlocks, transientTopStroke);
-    const mathRasterScale: number = originalMathRasterScale(this.viewport.zoom, vp2px(1));
+    const mathRasterScale: number = originalMathRasterScale(renderZoom, vp2px(1));
     for (const element of elements) {
       if (element.kind === PageElementKind.STROKE) {
         if (transientTopStroke !== null && element.data === transientTopStroke) {
           this.strokePainter.renderStroke(
             element.data, renderContext, this.getPaperWidth(), this.getPaperHeight(),
-            this.viewport.zoom);
+            renderZoom);
           continue;
         }
         this.hydrateOriginalStrokeAudioStart(element.data);
         const playback: OriginalAudioLinkedPlayback = resolveOriginalAudioLinkedPlayback(
           element.data, this.playbackAudioTime, this.playbackAudioSegments);
         this.strokePainter.renderAudioLinkedStroke(element.data, playback,
-          renderContext, this.getPaperWidth(), this.getPaperHeight(), this.viewport.zoom);
+          renderContext, this.getPaperWidth(), this.getPaperHeight(), renderZoom);
       } else if (element.kind === PageElementKind.TEXT) {
         this.textRenderer.renderText(element.data, renderContext);
       } else if (element.kind === PageElementKind.SHAPE) {
-        this.shapeRenderer.renderShape(element.data, renderContext, this.viewport.zoom);
+        this.shapeRenderer.renderShape(element.data, renderContext, renderZoom);
       } else if (element.kind === PageElementKind.IMAGE) {
         const loaded: LoadedImageAsset | undefined = this.imageAssets.get(
           originalAssetStorageHash(element.data.assetHashBits));
@@ -10420,11 +10440,11 @@ export struct NoteCanvasView {
             magnification: this.zoomMagnification,
             advanceWidthVp: this.zoomAdvanceWidthVp,
             dockBottom: this.zoomDockBottom,
-            strokes: this.completedStrokes,
-            liveStroke: this.zoomLiveStroke,
             paintTick: this.zoomPaintTick,
-            pageWidth: this.getPaperWidth(),
-            pageHeight: this.getPaperHeight(),
+            renderContent: (renderContext: Canvas2DRenderContext,
+              rawCtx: CanvasRenderingContext2D, mag: number): void => {
+              this.renderZoomPanelContent(renderContext, rawCtx, mag);
+            },
             panelEnabled: !this.photoImportBusy && !this.historyBusy,
             onZoomTouch: (event: TouchEvent): void => {
               this.onZoomTouchEvent(event);

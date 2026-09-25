@@ -123,8 +123,9 @@ ZOOM 占据 index 2。
   `undoRedo.push(ADD_STROKE)` → `layerManager.commitStroke` → `persist(originalCreate)`
   → `notifyUndoRedo` → `zoomAutoAdvance` → `renderFrame`——与主画布笔画
   提交路径逐项对应；
-- 进行中的笔画经 `strokeSession.getCurrentStroke()` → `zoomLiveStroke` @Prop
-  → `paintTick` 触发 `NoteZoomView` 重绘；
+- 进行中的笔画经 `strokeSession.getCurrentStroke()` → `zoomLiveStroke`
+  → `paintTick` 触发 `NoteZoomView` 重绘（Phase 748 起经 renderContent →
+  renderOrderedElements transientTopStroke 置顶直绘）；
 - 取消：`onZoomTouchCancel`（含 `refreshOriginalInkReservation`），
   已并入 `cancelActiveInteraction` 顶部（工具切换/页面离开时兜底）。
 
@@ -137,14 +138,17 @@ ZOOM 占据 index 2。
 ### 放大渲染
 
 `NoteZoomView.draw()`：`paperBackground` 填充 → `ctx.transform(5×, −src)` →
-`StrokeCanvasPainter.renderStroke`（复用正式墨迹渲染器，含 revealedTapeIds/
-铅笔 splat/胶带图案的既有渲染路径）→ `liveStroke` → 自动前进区视觉标记。
+~~`StrokeCanvasPainter.renderStroke`（仅笔画层）~~ → **Phase 748** 起改为
+父组件 `renderContent` 回调：`paperRenderer.renderBackground(mag)` +
+`renderOrderedElements(ctx, zoomLiveStroke, mag)` 全页 z-order 直绘 →
+自动前进区视觉标记。
 
 ## 3. 与原版差异登记（本 Phase 边界）
 
 1. **原文形状/图片/文本块在放大面内不渲染**——原版 WetInk 放大面渲染全部
    元素层；本切片先覆盖笔画层（书写主场景）。形状/图片/文本的放大渲染
-   留待后续 Phase（渲染器接口已就绪，仅未接线）。
+   ~~留待后续 Phase（渲染器接口已就绪，仅未接线）~~ → 已由 Phase 748
+   落地（见 phase-748 evidence + ADR-0696）。
 2. **180dp→180vp 近似**：Harmony `advanceRegionWidth` 用 vp 承载
    （vp≈dp 设备密度归一化单位，语义等价）。
 3. **拖拽柄重新停靠**：原版 pointer-input 拖动跟随手指；本实现以垂直

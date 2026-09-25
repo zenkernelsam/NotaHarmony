@@ -16,7 +16,8 @@ assert.match(shapeRenderer, /renderShape\(shape: ShapeElement, context: RenderCo
 assert.doesNotMatch(shapeRenderer, /Canvas2DTextRenderer|richText|fillText/);
 assert.match(canvas,
   /renderOrderedElements\(renderContext: Canvas2DRenderContext \| Canvas2DOffscreenRenderContext,[\s\S]{0,100}transientTopStroke/);
-assert.match(canvas, /this\.shapeRenderer\.renderShape\(element\.data, renderContext, this\.viewport\.zoom\)/);
+// Phase 748: ordered-element path passes renderZoom (defaults to viewport.zoom)
+assert.match(canvas, /this\.shapeRenderer\.renderShape\(element\.data, renderContext, renderZoom\)/);
 assert.match(thumbnail, /this\.shapeRenderer\.renderShape\(element\.data, renderContext, pageTransform\.scale\)/);
 
 // The visible text renderer remains a Text Block consumer, not a Shape label renderer.

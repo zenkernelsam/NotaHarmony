@@ -7,10 +7,7 @@
 // 数据流：父组件持有 ggg 状态源（sourceRect/dockEdge/mag），本组件渲染
 // 放大画布 + 控制条；触摸事件透传父组件，由父组件复用 StrokeSession 管线。
 
-import { StrokeElementData } from '../../core/model/StrokeTypes';
-import { StrokeCanvasPainter } from '../../rendering/StrokeCanvasPainter';
-import { Canvas2DStrokeRenderer, Canvas2DRenderContext } from '../../core/adaptation/Canvas2DStrokeRenderer';
-import { BitmapTransferTracker } from '../../core/adaptation/BitmapTransferTracker';
+import { Canvas2DRenderContext } from '../../core/adaptation/Canvas2DStrokeRenderer';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
@@ -27,13 +24,15 @@ export struct NoteZoomView {
   @Prop @Watch('repaint') advanceWidthVp: number = 180;
   // ggg.b dockEdge：qeg.J=Bottom（lgg 默认）/ qeg.I=Top
   @Prop dockBottom: boolean = true;
-  @Prop @Watch('repaint') strokes: StrokeElementData[] = [];
-  @Prop @Watch('repaint') liveStroke: StrokeElementData | null = null;
   // 父级每帧 ++ 驱动重绘（live stroke 进行中逐帧刷新）
   @Prop @Watch('repaint') paintTick: number = 0;
-  @Prop pageWidth: number = 0;
-  @Prop pageHeight: number = 0;
   @Prop panelEnabled: boolean = true;
+  // Phase 748：原版 vgg 注入整页渲染栈——放大面绘制完整页面（纸面 +
+  // z-order 全部元素 + 活动笔画）。父组件在已施加 mag 变换的上下文上
+  // 按文档坐标直绘；renderZoom 传入 magnification 而非视口 zoom。
+  renderContent: (renderContext: Canvas2DRenderContext,
+    rawCtx: CanvasRenderingContext2D, mag: number) => void = () => {
+  };
 
   // 触摸透传：父组件统一维护 StrokeSession 生命周期与坐标映射
   onZoomTouch: (event: TouchEvent) => void = () => {
@@ -57,11 +56,7 @@ export struct NoteZoomView {
 
   private zoomCtx: CanvasRenderingContext2D =
     new CanvasRenderingContext2D(new RenderingContextSettings(true));
-  private transferTracker: BitmapTransferTracker = new BitmapTransferTracker();
-  private renderer: Canvas2DStrokeRenderer = new Canvas2DStrokeRenderer(this.transferTracker);
-  private painter: StrokeCanvasPainter = new StrokeCanvasPainter(this.renderer, this.transferTracker);
   private renderCtx: Canvas2DRenderContext = new Canvas2DRenderContext(this.zoomCtx);
-  private pencilTextureReady: boolean = false;
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
@@ -69,14 +64,6 @@ export struct NoteZoomView {
 
   private repaint(): void {
     this.draw();
-  }
-
-  aboutToAppear(): void {
-    if (!this.pencilTextureReady) {
-      this.pencilTextureReady = true;
-      this.renderer.setSplatTexture(
-        Canvas2DStrokeRenderer.generatePencilTexture(this.transferTracker));
-    }
   }
 
   private draw(): void {
@@ -96,14 +83,7 @@ export struct NoteZoomView {
       // ggg.d：doc px → screen px 直接放大倍率
       ctx.transform(this.magnification, 0, 0, this.magnification,
         -this.sourceX * this.magnification, -this.sourceY * this.magnification);
-      for (const stroke of this.strokes) {
-        this.painter.renderStroke(stroke, this.renderCtx,
-          this.pageWidth, this.pageHeight, this.magnification);
-      }
-      if (this.liveStroke !== null) {
-        this.painter.renderStroke(this.liveStroke, this.renderCtx,
-          this.pageWidth, this.pageHeight, this.magnification);
-      }
+      this.renderContent(this.renderCtx, ctx, this.magnification);
     } finally {
       ctx.restore();
     }

@@ -60,8 +60,10 @@ check(renderer.includes('renderShape(shape: ShapeElement, context: RenderContext
   'renderShape accepts viewport zoom for the tile scale bucket');
 
 // --- Canvas plumbing: zoom plumbed at both call sites ---
-check(view.includes('this.shapeRenderer.renderShape(element.data, renderContext, this.viewport.zoom)'),
-  'ordered-element path passes viewport zoom');
+// Phase 748: ordered-element path passes renderZoom (= viewport.zoom by default;
+// zoom panel supplies magnification)
+check(view.includes('this.shapeRenderer.renderShape(element.data, renderContext, renderZoom)'),
+  'ordered-element path passes render zoom');
 check(view.includes('this.shapeRenderer.renderShape(heldShape, this.renderCtx, this.viewport.zoom)'),
   'held-shape preview path passes viewport zoom');
 

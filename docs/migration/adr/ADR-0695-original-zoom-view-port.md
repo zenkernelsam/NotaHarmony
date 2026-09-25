@@ -41,8 +41,9 @@ Phase 742 证据更正（ADR-0690）：`ac4.F ZOOM_VIEW → "androidZoomView"` �
 
 ## 差异登记
 
-- 放大面当前渲染**笔画层**；形状/图片/文本块未接入放大渲染（书写主场景
-  已可用，后续 Phase 按需接线）。
+- ~~放大面当前渲染**笔画层**；形状/图片/文本块未接入放大渲染~~
+  **已于 Phase 748 / ADR-0696 修正**：vgg 注入整页渲染栈，放大面现复用
+  renderOrderedElements 呈现全部元素。
 - `advanceRegionWidth` 180dp → 180vp（设备密度归一化单位近似）。
 - 拖拽柄停靠改为垂直拖动落点判定（档位语义一致，非逐像素跟随）。
 - 未复制主画布 Prediction 预览分支（historical+real 批次已走同径平滑）。

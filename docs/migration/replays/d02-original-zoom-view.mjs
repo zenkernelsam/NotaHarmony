@@ -11,7 +11,9 @@ const canvas = read('note/src/main/ets/ui/editor/NoteCanvasView.ets');
 const baseStrings = read('note/src/main/resources/base/element/string.json');
 const zhStrings = read('note/src/main/resources/zh_CN/element/string.json');
 const evidence = read('docs/migration/evidence/phase-747-original-zoom-view.md');
+const evidence748 = read('docs/migration/evidence/phase-748-original-zoom-view-full-render.md');
 const adr = read('docs/migration/adr/ADR-0695-original-zoom-view-port.md');
+const adr748 = read('docs/migration/adr/ADR-0696-original-zoom-view-full-render.md');
 
 // Phase 747 — 原版 Zoom View（ggg 状态机 + ww2/wfg 控制条 + g0j 前进区）
 // 背景：ADR-0690 更正——"androidZoomView" 打包默认 true（PRODUCTION 档），
@@ -72,7 +74,28 @@ pin(/selectTool\(ToolType\.DEFAULT\)/.test(canvas), 'host.close.default');
 
 // ---- 面板组件（ww2/wfg 控制条 + g0j 前进区）----
 pin(/export struct NoteZoomView/.test(zoomView), 'panel.component');
-pin(/StrokeCanvasPainter/.test(zoomView), 'panel.painter.reuse');
+// Phase 748：vgg 注入整页渲染栈——放大面经父组件 renderContent 回调绘制
+// 纸面 + z-order 全元素，不再持有独立 StrokeCanvasPainter 笔画直绘路径。
+pin(!/StrokeCanvasPainter/.test(zoomView), 'panel.no.strokeonly.painter');
+pin(/renderContent: \(renderContext: Canvas2DRenderContext,?\s*\n?\s*rawCtx: CanvasRenderingContext2D, mag: number\)/
+  .test(zoomView), 'panel.renderContent.prop');
+pin(/this\.renderContent\(this\.renderCtx, ctx, this\.magnification\)/
+  .test(zoomView), 'panel.renderContent.call');
+// 父组件实现：纸面（含 PDF 底图）+ 有序全元素 + 活动 zoom 笔画置顶
+pin(/renderZoomPanelContent\(renderContext: Canvas2DRenderContext/
+  .test(canvas), 'host.renderZoomPanelContent');
+pin(/paperRenderer\.renderBackground\(rawCtx, this\.getPaperWidth\(\), this\.getPaperHeight\(\),\s*\n\s*this\.currentPage, mag/
+  .test(canvas), 'host.zoom.paper');
+pin(/this\.renderOrderedElements\(renderContext, this\.zoomLiveStroke, mag\)/
+  .test(canvas), 'host.zoom.ordered');
+// renderOrderedElements 新增 renderZoom 形参（默认 viewport.zoom）
+pin(/transientTopStroke: StrokeElementData \| null = null,\s*\n\s*renderZoom: number = this\.viewport\.zoom/
+  .test(canvas), 'host.renderZoom.param');
+pin(/originalMathRasterScale\(renderZoom, vp2px\(1\)\)/.test(canvas),
+  'host.renderZoom.mathscale');
+// 主画布内容变更镜像放大面
+pin(/currentTool === ToolType\.ZOOM\) \{\s*this\.zoomPaintTick\+\+;/
+  .test(canvas), 'host.zoom.mirror.tick');
 pin(/ctx\.transform\(this\.magnification/.test(zoomView), 'panel.mag.transform');
 pin(/zoom_view_move/.test(zoomView), 'panel.a11y.move');
 pin(/zoom_view_back/.test(zoomView), 'panel.a11y.back');
@@ -110,5 +133,10 @@ pin(/5\.0f/.test(evidence) && /180\.0f/.test(evidence), 'evidence.defaults');
 pin(/ufg/.test(evidence) && /Advance/.test(evidence), 'evidence.ufg');
 pin(/ADR-0690/.test(adr) && /默认开/.test(adr), 'adr.flag.correction');
 pin(/ToolType\.ZOOM = 9|ToolType\.ZOOM=9/.test(adr), 'adr.tooltype');
+// Phase 748 文档钉：vgg 整页渲染栈证据 + ADR-0696
+pin(/vgg/.test(evidence748) && /oze.*fvb.*uke.*hnf.*gc9.*cga/s.test(evidence748),
+  'evidence748.vgg.stack');
+pin(/renderZoomPanelContent/.test(adr748) && /renderOrderedElements/.test(adr748),
+  'adr748.wiring');
 
 console.log(`D02_ORIGINAL_ZOOM_VIEW_OK pins=${pass}`);

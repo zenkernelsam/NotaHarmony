@@ -46,7 +46,11 @@ check('Math bitmap cache identity and native render both use the quantized dynam
   renderer.includes('`${element.color}\\u0000${pixelScale}`') &&
   /element\.blockHeight, element\.color, pixelScale/.test(renderer));
 check('main canvas supplies current viewport zoom times current ArkUI Density',
-  /originalMathRasterScale\(this\.viewport\.zoom, vp2px\(1\)\)/.test(canvas) &&
+  // Phase 748: renderOrderedElements takes renderZoom (defaults to viewport.zoom;
+  // the zoom panel passes magnification) — the main-canvas call still resolves
+  // viewport.zoom via the default.
+  /renderZoom: number = this\.viewport\.zoom/.test(canvas) &&
+  /originalMathRasterScale\(renderZoom, vp2px\(1\)\)/.test(canvas) &&
   /renderMath\(element\.data, renderContext, mathRasterScale\)/.test(canvas));
 check('thumbnail supplies its real page-to-output transform without reapplying screen Density',
   /originalMathRasterScale\(pageTransform\.scale, 1\)/.test(thumbnail) &&
