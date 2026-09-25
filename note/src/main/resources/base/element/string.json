@@ -1171,6 +1171,7 @@
     { "name": "microphone_permission_title", "value": "Microphone Access Required" },
     { "name": "microphone_permission_message", "value": "Notability requires microphone access to record audio. Allow microphone access in application settings, then try again." },
     { "name": "dismiss", "value": "OK" },
+    { "name": "go_to_settings", "value": "Go to Settings" },
     { "name": "start_recording", "value": "Record" },
     { "name": "resume_recording", "value": "Resume" },
     { "name": "stop_recording", "value": "Stop" },

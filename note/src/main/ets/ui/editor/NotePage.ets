@@ -2,7 +2,7 @@
 // T-036：标题行内编辑 + 持久化
 import { router, promptAction, window } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
-import { common } from '@kit.AbilityKit';
+import { common, abilityAccessCtrl } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { audio } from '@kit.AudioKit';
 import { DocumentScanner, DocumentScannerConfig, DocType, SaveOption } from '@kit.VisionKit';
@@ -1175,10 +1175,22 @@ struct NotePage {
       return;
     }
     if (failure === OriginalRecordingSessionFailure.PERMISSION_DENIED) {
+      // Original ui_permissions dialog order: "Go to Settings" (opens the
+      // system permission page) + "Dismiss".
       promptAction.showDialog({
         title: $r('app.string.microphone_permission_title'),
         message: $r('app.string.microphone_permission_message'),
-        buttons: [{ text: $r('app.string.dismiss'), color: this.resolveTokens().accent }],
+        buttons: [
+          { text: $r('app.string.go_to_settings'), color: this.resolveTokens().accent },
+          { text: $r('app.string.dismiss'), color: this.resolveTokens().accent },
+        ],
+      }).then((response: promptAction.ShowDialogSuccessResponse): void => {
+        if (response.index === 0 && !this.editorDisposed) {
+          const context = getContext(this) as common.UIAbilityContext;
+          const atManager = abilityAccessCtrl.createAtManager();
+          atManager.requestPermissionOnSetting(context,
+            ['ohos.permission.MICROPHONE']).catch((_error: Object): void => {});
+        }
       }).catch((_error: Object): void => {});
       return;
     }
