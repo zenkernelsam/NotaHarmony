@@ -108,6 +108,11 @@ export interface ImportReport {
   missingAssets: string[];  // 未导入的内容/条目，供 UI 逐项呈现
   warnings: string[];       // 不造成内容缺失的诊断信息
   message: string;          // 用户可读的结果描述
+  // 原版 fr1：PDF 超 10000 页时截断导入前 10000 页并提示
+  // ui_fileimport__pdfs_truncated。0/缺省 = 未截断；
+  // truncatedCount 记截断文件数（聚合报告用）。
+  truncatedPages?: number;
+  truncatedCount?: number;
 }
 
 interface PackagedOriginalAsset {
@@ -158,6 +163,7 @@ interface StagedPdfParse {
   bytes: Uint8Array | null;   // 解密后的有效字节（未加密时与原字节一致）
   pageSizes: number[][];
   report: ImportReport | null;
+  truncatedPages: number;     // 原版 fr1 截断量（0 = 未截断）
 }
 
 export class NoteImporter {
@@ -504,7 +510,9 @@ export class NoteImporter {
       }
       return { result: ImportResult.SUCCESS, noteId: note.id, title: note.title,
         pageCount: pageSizes.length, missingAssets: [], warnings: [],
-        message: `已导入 PDF「${note.title}」（${pageSizes.length} 页）` };
+        message: `已导入 PDF「${note.title}」（${pageSizes.length} 页）`,
+        truncatedPages: staged.truncatedPages,
+        truncatedCount: staged.truncatedPages > 0 ? 1 : 0 };
     } catch (e) {
       const cleaned: boolean = await this.removeFailedImport(createdNoteId);
       return { result: ImportResult.CORRUPTED, noteId: cleaned ? null : createdNoteId,
@@ -537,24 +545,25 @@ export class NoteImporter {
         try {
           parse = parseImportedPdf(stagingPath, decryptedPath, password);
         } catch (e) {
-          return { bytes: null, pageSizes: [],
+          return { bytes: null, pageSizes: [], truncatedPages: 0,
             report: { result: ImportResult.CORRUPTED, noteId: noteId, title: null,
               pageCount: 0, missingAssets: [], warnings: [],
               message: `PDF 文档解析失败：${JSON.stringify(e)}` } };
         }
         if (!parse.passwordRequired) {
           return { bytes: parse.decryptedBytes === null ? data : parse.decryptedBytes,
-            pageSizes: parse.pageSizes, report: null };
+            pageSizes: parse.pageSizes, report: null,
+            truncatedPages: parse.truncatedPages };
         }
         if (passwordPrompt === undefined) {
-          return { bytes: null, pageSizes: [],
+          return { bytes: null, pageSizes: [], truncatedPages: 0,
             report: { result: ImportResult.CORRUPTED, noteId: noteId, title: null,
               pageCount: 0, missingAssets: [], warnings: [],
               message: '该 PDF 已加密，暂不支持导入' } };
         }
         password = await passwordPrompt(fileName, attempt);
         if (password === null) {
-          return { bytes: null, pageSizes: [],
+          return { bytes: null, pageSizes: [], truncatedPages: 0,
             report: { result: ImportResult.CANCELLED, noteId: noteId, title: null,
               pageCount: 0, missingAssets: [], warnings: [],
               message: '已取消加密 PDF 导入' } };
@@ -963,7 +972,9 @@ export class NoteImporter {
       }
       return { result: ImportResult.SUCCESS, noteId: noteId, title: null,
         pageCount: pageSizes.length, missingAssets: [], warnings: [],
-        message: `已插入 PDF「${pdfImportTitle(fileName)}」（${pageSizes.length} 页）` };
+        message: `已插入 PDF「${pdfImportTitle(fileName)}」（${pageSizes.length} 页）`,
+        truncatedPages: staged.truncatedPages,
+        truncatedCount: staged.truncatedPages > 0 ? 1 : 0 };
     } catch (e) {
       await this.rollbackAppendedPages(new PageRepositoryImpl(this.db), noteId, addedPageIds);
       return { result: ImportResult.CORRUPTED, noteId: noteId, title: null,
@@ -2018,8 +2029,13 @@ function aggregatePickedReports(reports: ImportReport[],
       r.result === ImportResult.PARTIAL);
   const warnings: string[] = [];
   let pageCount: number = 0;
+  let truncatedCount: number = 0;
   for (const r of reports) {
     pageCount += r.pageCount;
+    // 原版 er9.b/vs8 截断计数随报告聚合（多文件 other 形态）。
+    if ((r.truncatedPages ?? 0) > 0) {
+      truncatedCount += r.truncatedCount ?? 1;
+    }
     if (r.result !== ImportResult.SUCCESS) {
       warnings.push(r.message);
     }
@@ -2042,7 +2058,9 @@ function aggregatePickedReports(reports: ImportReport[],
     : `已导入 ${succeeded.length} 个文件，${failed} 个失败`;
   return { result: failed === 0 ? ImportResult.SUCCESS : ImportResult.PARTIAL,
     noteId: noteId, title: null, pageCount: pageCount, missingAssets: [],
-    warnings: warnings, message: message };
+    warnings: warnings, message: message,
+    truncatedPages: truncatedCount > 0 ? PDF_IMPORT_MAX_PAGES : 0,
+    truncatedCount: truncatedCount };
 }
 
 function pdfImportTitle(fileName: string): string {
@@ -2058,6 +2076,7 @@ interface ImportedPdfParse {
   pageSizes: number[][];
   decryptedBytes: Uint8Array | null;  // 用密码解密成功后的无密码字节
   passwordRequired: boolean;          // PARSE_ERROR_PASSWORD：需要密码
+  truncatedPages: number;             // 原版 fr1：>10000 截断后的导入页数（0=未截断）
 }
 
 // Harmony PDFKit：loadDocument(path, password?) 命中加密返回
@@ -2070,16 +2089,22 @@ function parseImportedPdf(path: string, decryptedPath: string,
     const parsed: pdfService.ParseResult = password === null ?
       document.loadDocument(path) : document.loadDocument(path, password);
     if (parsed === pdfService.ParseResult.PARSE_ERROR_PASSWORD) {
-      return { pageSizes: [], decryptedBytes: null, passwordRequired: true };
+      return { pageSizes: [], decryptedBytes: null, passwordRequired: true,
+        truncatedPages: 0 };
     }
     if (parsed !== pdfService.ParseResult.PARSE_SUCCESS) {
       throw new Error(`PDFKit parse failed with result ${parsed}`);
     }
-    const pageCount: number = document.getPageCount();
-    if (!Number.isSafeInteger(pageCount) || pageCount <= 0 ||
-      pageCount > PDF_IMPORT_MAX_PAGES) {
-      throw new Error(`PDF page count is out of bounds: ${pageCount}`);
+    // 原版 fr1:113——pageCount>10000 时取 min(pageCount,10000) 导入前段并
+    // 标记 truncated（ui_fileimport__pdfs_truncated），而不是整体拒绝。
+    const rawPageCount: number = document.getPageCount();
+    if (!Number.isSafeInteger(rawPageCount) || rawPageCount <= 0) {
+      throw new Error(`PDF page count is out of bounds: ${rawPageCount}`);
     }
+    const truncatedPages: number =
+      rawPageCount > PDF_IMPORT_MAX_PAGES ? PDF_IMPORT_MAX_PAGES : 0;
+    const pageCount: number =
+      truncatedPages > 0 ? truncatedPages : rawPageCount;
     const sizes: number[][] = [];
     for (let index = 0; index < pageCount; index++) {
       const page: pdfService.PdfPage = document.getPage(index);
@@ -2110,7 +2135,7 @@ function parseImportedPdf(path: string, decryptedPath: string,
       }
     }
     return { pageSizes: sizes, decryptedBytes: decryptedBytes,
-      passwordRequired: false };
+      passwordRequired: false, truncatedPages: truncatedPages };
   } finally {
     document.releaseDocument();
   }

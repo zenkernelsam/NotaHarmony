@@ -619,6 +619,13 @@
     { "name": "select_freehand_mode", "value": "自由选择" },
     { "name": "import_arrange", "value": "排列" },
     { "name": "import_move_up", "value": "上移" },
-    { "name": "import_move_down", "value": "下移" }
+    { "name": "import_move_down", "value": "下移" },
+    { "name": "import_pdf_truncated_one", "value": "PDF 过长，仅导入了前 %d 页" },
+    { "name": "import_pdfs_truncated_other", "value": "部分 PDF 过长，各导入了前 %d 页" },
+    { "name": "delete_note_title_one", "value": "删除笔记？" },
+    { "name": "delete_notes_title_other", "value": "删除笔记？" },
+    { "name": "delete_notes_message_one", "value": "将 %d 条笔记移入最近删除？30 天内可恢复。" },
+    { "name": "import_files_count_one", "value": "%d 个文件" },
+    { "name": "import_files_count_other", "value": "%d 个文件" }
   ]
 }

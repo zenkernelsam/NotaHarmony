@@ -268,6 +268,14 @@ export struct ImportDetailsSheet {
             }
           }
           .width('100%')
+          // aeh:87 → ui_fileimport__n_files_capitalized：文件计数标题
+          Text(this.orderedFiles.length === 1 ?
+            $r('app.string.import_files_count_one', this.orderedFiles.length) :
+            $r('app.string.import_files_count_other', this.orderedFiles.length))
+            .fontSize(13)
+            .fontColor(this.resolveTokens().textSecondary)
+            .width('100%')
+            .margin({ top: 6 })
           // utf 文件列表（rv5 模式下逐行附题输入）
           ForEach(this.orderedFiles.map((file: ImportFileDescriptor, index: number): FileRowEntry =>
             ({ item: file, idx: index })),

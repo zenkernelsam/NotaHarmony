@@ -3481,8 +3481,12 @@ struct LibraryPage {
     }
     const count: number = this.selectedNoteIds.length;
     this.getUIContext().showAlertDialog({
-      title: $r('app.string.delete'),
-      message: $r('app.string.delete_notes_message', count),
+      // 原版 feature_library__delete_note_message（i8 case4）：标题随数量复数化。
+      title: count === 1 ? $r('app.string.delete_note_title_one') :
+        $r('app.string.delete_notes_title_other'),
+      message: count === 1 ?
+        $r('app.string.delete_notes_message_one', count) :
+        $r('app.string.delete_notes_message', count),
       primaryButton: {
         value: $r('app.string.cancel'),
         action: () => {
@@ -4125,6 +4129,20 @@ struct LibraryPage {
     });
   }
 
+  // 原版 vs8 → ui_fileimport__pdfs_truncated：PDF 页数超上限截断导入后
+  // 提示（one=单文件、other=多文件各取前 N 页）。
+  private toastTruncatedPages(report: ImportReport): void {
+    const pages: number = report.truncatedPages ?? 0;
+    if (pages <= 0) {
+      return;
+    }
+    const count: number = report.truncatedCount ?? 1;
+    promptAction.showToast({
+      message: count > 1 ?
+        $r('app.string.import_pdfs_truncated_other', pages) :
+        $r('app.string.import_pdf_truncated_one', pages) });
+  }
+
   private async importSharedAndOpen(uris: string[]): Promise<void> {
     if (!this.pageActive || this.viewModel === null || this.createBusy) {
       return;
@@ -4154,6 +4172,7 @@ struct LibraryPage {
         }
         return;
       }
+      this.toastTruncatedPages(report);
       await vm.loadNotes(this.searchText);
           this.refreshRecentCardFeed();
       if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
@@ -4198,6 +4217,7 @@ struct LibraryPage {
         }
         return;
       }
+      this.toastTruncatedPages(report);
       await vm.loadNotes(this.searchText);
           this.refreshRecentCardFeed();
       if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||

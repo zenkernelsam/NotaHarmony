@@ -89,8 +89,8 @@ check(importer.includes('document.loadDocument(path)') &&
 check(importer.includes('pagePixelSize(widthPt * POINTS_TO_MM, heightPt * POINTS_TO_MM)'),
   'every PDF page is validated against the Harmony page-cache budget before writing');
 check(importer.includes('PDF_IMPORT_MAX_PAGES: number = 10000') &&
-  importer.includes('pageCount > PDF_IMPORT_MAX_PAGES'),
-  'page count bounded by the original sw9 cropBoxes flatvector limit');
+  importer.includes('rawPageCount > PDF_IMPORT_MAX_PAGES ? PDF_IMPORT_MAX_PAGES : 0'),
+  'page count follows original fr1:113 truncation (>10000 imports first 10000 + truncated flag)');
 
 // --- 写库阶段：整文档共享 sw9 寄存器 + 每页 pageInAsset ---
 const pdfImport = section(importer, 'private async importPdfFromBytes(',

@@ -1385,6 +1385,13 @@
     { "name": "select_freehand_mode", "value": "Freehand selection" },
     { "name": "import_arrange", "value": "Arrange" },
     { "name": "import_move_up", "value": "Move up" },
-    { "name": "import_move_down", "value": "Move down" }
+    { "name": "import_move_down", "value": "Move down" },
+    { "name": "import_pdf_truncated_one", "value": "PDF was too long. Imported the first %d pages." },
+    { "name": "import_pdfs_truncated_other", "value": "Some PDFs were too long. Imported the first %d pages of each." },
+    { "name": "delete_note_title_one", "value": "Delete Note?" },
+    { "name": "delete_notes_title_other", "value": "Delete Notes?" },
+    { "name": "delete_notes_message_one", "value": "Move %d note to Recently Deleted? You can recover it within 30 days." },
+    { "name": "import_files_count_one", "value": "%d File" },
+    { "name": "import_files_count_other", "value": "%d Files" }
   ]
 }
