@@ -40,7 +40,8 @@ export class Canvas2DTextRenderer {
       characters.length, element.characterStyleRuns);
     const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
       characters.length, element.paragraphStyleRuns);
-    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length);
+    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length,
+      element.fontSize);
     let maximum: number = Math.max(1, element.contentLeftInset +
       (element.contentRightInset ?? element.contentLeftInset));
     let lineStart: number = 0;
@@ -93,8 +94,10 @@ export class Canvas2DTextRenderer {
         characters.length, element.characterStyleRuns);
       const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
         characters.length, element.paragraphStyleRuns);
-      this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length);
-      let baseline: number = element.textOrigin.y + element.contentTopInset + element.fontSize;
+      this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length,
+      element.fontSize);
+      let baseline: number = element.textOrigin.y + element.contentTopInset +
+      this.paragraphFontSize(element, paragraphStyles[0] ?? {});
       let numberedParagraph: number = 1;
       const lines: TextLayoutLine[] = this.layoutLines(ctx, characters, characterStyles, element);
       for (const line of lines) {
@@ -105,9 +108,10 @@ export class Canvas2DTextRenderer {
           // 原版 lj3（ADR-0648）：CODE_BLOCK 段落绘制整行浅底带。
           const bandSpacing: number = paragraph.lineSpacing === undefined ||
             paragraph.lineSpacing <= 0 ? 1 : paragraph.lineSpacing;
+          const bandFontSize: number = this.paragraphFontSize(element, paragraph);
           ctx.setFillStyle(this.colorToRgba(element.fontColor, 0.08));
-          ctx.fillRect(element.textOrigin.x, baseline - element.fontSize,
-            element.blockWidth, (element.fontSize + 8) * bandSpacing);
+          ctx.fillRect(element.textOrigin.x, baseline - bandFontSize,
+            element.blockWidth, (bandFontSize + 8) * bandSpacing);
         }
         const prefix: string = line.paragraphStart ? this.decoratorPrefix(
           paragraph.decoratorStyle, numberedParagraph, paragraph.isChecked) : '';
@@ -154,7 +158,7 @@ export class Canvas2DTextRenderer {
         }
         const spacing: number = paragraph.lineSpacing === undefined || paragraph.lineSpacing <= 0 ?
           1 : paragraph.lineSpacing;
-        baseline += (element.fontSize + 8) * spacing;
+        baseline += (this.paragraphFontSize(element, paragraph) + 8) * spacing;
       }
     } finally {
       ctx.restore();
@@ -175,7 +179,8 @@ export class Canvas2DTextRenderer {
     const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
       characters.length, element.paragraphStyleRuns);
     const result: TextCheckboxMarker[] = [];
-    let baseline: number = element.textOrigin.y + element.contentTopInset + element.fontSize;
+    let baseline: number = element.textOrigin.y + element.contentTopInset +
+      this.paragraphFontSize(element, paragraphStyles[0] ?? {});
     let numberedParagraph: number = 1;
     ctx.save();
     try {
@@ -213,7 +218,7 @@ export class Canvas2DTextRenderer {
         }
         const spacing: number = paragraph.lineSpacing === undefined || paragraph.lineSpacing <= 0 ?
           1 : paragraph.lineSpacing;
-        baseline += (element.fontSize + 8) * spacing;
+        baseline += (this.paragraphFontSize(element, paragraph) + 8) * spacing;
       }
     } finally {
       ctx.restore();
@@ -258,8 +263,10 @@ export class Canvas2DTextRenderer {
       characters.length, element.characterStyleRuns);
     const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
       characters.length, element.paragraphStyleRuns);
-    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length);
-    let baseline: number = element.textOrigin.y + element.contentTopInset + element.fontSize;
+    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length,
+      element.fontSize);
+    let baseline: number = element.textOrigin.y + element.contentTopInset +
+      this.paragraphFontSize(element, paragraphStyles[0] ?? {});
     let numberedParagraph: number = 1;
     ctx.save();
     try {
@@ -269,8 +276,8 @@ export class Canvas2DTextRenderer {
           line.start, Math.max(0, characters.length - 1))] ?? {};
         const spacing: number = paragraph.lineSpacing === undefined || paragraph.lineSpacing <= 0 ?
           1 : paragraph.lineSpacing;
-        const lineHeight: number = (element.fontSize + 8) * spacing;
-        const bandTop: number = baseline - element.fontSize;
+        const lineHeight: number = (this.paragraphFontSize(element, paragraph) + 8) * spacing;
+        const bandTop: number = baseline - this.paragraphFontSize(element, paragraph);
         const hitLine: boolean = local.y >= bandTop && local.y < bandTop + lineHeight;
         if (hitLine) {
           const prefix: string = line.paragraphStart ? this.decoratorPrefix(
@@ -333,8 +340,10 @@ export class Canvas2DTextRenderer {
       characters.length, element.characterStyleRuns);
     const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
       characters.length, element.paragraphStyleRuns);
-    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length);
-    let baseline: number = element.textOrigin.y + element.contentTopInset + element.fontSize;
+    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length,
+      element.fontSize);
+    let baseline: number = element.textOrigin.y + element.contentTopInset +
+      this.paragraphFontSize(element, paragraphStyles[0] ?? {});
     let numberedParagraph: number = 1;
     ctx.save();
     try {
@@ -347,8 +356,8 @@ export class Canvas2DTextRenderer {
           line.start, Math.max(0, characters.length - 1))] ?? {};
         const spacing: number = paragraph.lineSpacing === undefined || paragraph.lineSpacing <= 0 ?
           1 : paragraph.lineSpacing;
-        const lineHeight: number = (element.fontSize + 8) * spacing;
-        const bandTop: number = baseline - element.fontSize;
+        const lineHeight: number = (this.paragraphFontSize(element, paragraph) + 8) * spacing;
+        const bandTop: number = baseline - this.paragraphFontSize(element, paragraph);
         const prefix: string = line.paragraphStart ? this.decoratorPrefix(
           paragraph.decoratorStyle, numberedParagraph, paragraph.isChecked) : '';
         const checkbox: boolean = line.paragraphStart && paragraph.decoratorStyle === 3;
@@ -441,7 +450,7 @@ export class Canvas2DTextRenderer {
         line.start, Math.max(0, characters.length - 1))] ?? {};
       const spacing: number = paragraph.lineSpacing === undefined || paragraph.lineSpacing <= 0 ?
         1 : paragraph.lineSpacing;
-      const height: number = (element.fontSize + 8) * spacing;
+      const height: number = (this.paragraphFontSize(element, paragraph) + 8) * spacing;
       const overlapStart: number = Math.max(line.start, start);
       const overlapEnd: number = Math.min(line.end, end);
       if (overlapStart < overlapEnd) {
@@ -720,18 +729,32 @@ export class Canvas2DTextRenderer {
     return result;
   }
 
-  // 原版 lj3（ADR-0648）：CODE_BLOCK(5) 段落整段切换等宽字族。改写作用于
-  // 字形级样式数组，使 measure/layout/render/hit 各处度量一致。
+  // 原版 lj3（ADR-0648）：CODE_BLOCK(5) 段落整段切换等宽字族 + 段基字号
+  // d−24（docPx，下限 1.0f；di3.docPx 与 element.fontSize 同域——lj3.d
+  // =ti3.e 段基字号、比较式 f3×f5(density) 对照 span 布局 px 值）。
+  // 改写作用于字形级样式数组，使 measure/layout/render/hit 各处度量一致；
+  // 段内显式 run 字号保留（span 自带尺寸不被段基收缩覆盖）。
   private applyCodeBlockFace(characterStyles: RichTextCharacterStyle[],
-    paragraphStyles: RichTextParagraphStyle[], length: number): void {
+    paragraphStyles: RichTextParagraphStyle[], length: number,
+    baseFontSize: number): void {
     for (let index: number = 0; index < length; index++) {
       if (paragraphStyles[index].decoratorStyle === 5) {
         const codeStyle: RichTextCharacterStyle =
           JSON.parse(JSON.stringify(characterStyles[index])) as RichTextCharacterStyle;
         codeStyle.familyName = 'monospace';
+        if (codeStyle.fontSize === undefined) {
+          codeStyle.fontSize = Math.max(baseFontSize - 24, 1);
+        }
         characterStyles[index] = codeStyle;
       }
     }
+  }
+
+  // lj3：CODE_BLOCK 段落行度量（基线/行高/底带）以收缩后基字号为准。
+  private paragraphFontSize(element: TextBlockElement,
+    paragraph: RichTextParagraphStyle): number {
+    return paragraph.decoratorStyle === 5 ?
+      Math.max(element.fontSize - 24, 1) : element.fontSize;
   }
 
   private paragraphStyles(length: number, runs: RichTextParagraphStyleRun[] | undefined):

@@ -124,10 +124,10 @@ check(canvas.includes('characterStyleRuns: RichTextCharacterStyleRun[],') &&
 check(renderer.includes('private applyCodeBlockFace(characterStyles: RichTextCharacterStyle[],') &&
   renderer.includes("codeStyle.familyName = 'monospace'"),
   'code-block monospace face (sq4 token)');
-check((renderer.match(/this\.applyCodeBlockFace\(characterStyles, paragraphStyles, characters\.length\)/g) ?? []).length === 4,
+check((renderer.match(/this\.applyCodeBlockFace\(characterStyles, paragraphStyles, characters\.length,[\s\S]{0,40}element\.fontSize\)/g) ?? []).length === 4,
   'face applied in all four measure/render paths');
 check(renderer.includes('if (paragraph.decoratorStyle === 5) {') &&
-  renderer.includes('ctx.fillRect(element.textOrigin.x, baseline - element.fontSize,') &&
+  renderer.includes('ctx.fillRect(element.textOrigin.x, baseline - bandFontSize,') &&
   renderer.includes('this.colorToRgba(element.fontColor, 0.08)'),
   'code-block per-line background band');
 
@@ -137,4 +137,19 @@ check(en.includes('"block_quote"') && en.includes('"code_block"') &&
   'en strings');
 check(zh.includes('"block_quote"') && zh.includes('"code_block"'), 'zh strings');
 
+// --- Phase 756：lj3 代码块段基字号 d−24（docPx，下限 1）---
+check(renderer.includes('Math.max(baseFontSize - 24, 1)') &&
+  renderer.includes('baseFontSize: number'),
+  'p756: code char style gets max(base-24,1) when no explicit fontSize');
+check(renderer.includes('private paragraphFontSize(element: TextBlockElement') &&
+  renderer.includes('Math.max(element.fontSize - 24, 1)'),
+  'p756: paragraphFontSize helper applies decoratorStyle===5 shrink');
+check(renderer.includes('const bandFontSize: number = this.paragraphFontSize(element, paragraph)'),
+  'p756: code band uses shrunk paragraph size');
+check((renderer.match(/paragraphFontSize\(element, paragraph\)/g) ?? []).length >= 5,
+  'p756: all line-metric sites use paragraphFontSize');
+check((renderer.match(/element\.fontSize \+ 8/g) ?? []).length <= 3,
+  'p756: raw element.fontSize metric sites converted (checkbox-only remain)');
+
 console.log(`TOTAL=${n}`);
+

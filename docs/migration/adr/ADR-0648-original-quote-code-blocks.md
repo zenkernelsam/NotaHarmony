@@ -40,8 +40,9 @@ Harmony 侧此前状况：`RichTextParagraphStyle.decoratorStyle`/
   `MODIFY_PARAGRAPH_STYLE` CRDT op，Harmony 只有 decode/apply 侧、
   无本地编码器。样式写元素级并随元素持久化；CRDT 重物化后丢失。
   补编码器（`m5a`/`k5a` FlatBuffer 写侧）登记为后续 Phase 候选。
-- **lj3 `-24f` 缩字号未移植**：原版代码块字号缩 24 单位（≥1），
-  单位体系不同；以等宽字族+底带区分，视觉已可辨。
+- **lj3 `-24f` 缩字号**~~未移植~~ **已闭环（Phase 756 / ADR-0704）**：
+  单位链复核证伪"不同"——`lj3.d`/`element.fontSize` 同为 docPx；
+  `max(d−24,1)` 已按字面落地（字形+行度量全贯通）。
 - **代码块语言选择（`k5a(this.W)`）未实现**：`programmingLanguage`
   字段保留；语言选择器与语法高亮为后续 Phase 候选。
 - **段落序号键样式漂移**：编辑中插删换行后序号样式可能错位

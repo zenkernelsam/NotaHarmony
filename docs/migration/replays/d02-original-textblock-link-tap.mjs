@@ -44,7 +44,7 @@ check(linkFn.includes('this.inverseTransformPoint(worldPoint, element)'),
   'world → local inverse transform');
 check(linkFn.includes('this.layoutLines(ctx, characters, characterStyles, element)'),
   'reuses the render layout line split');
-check(linkFn.includes('(element.fontSize + 8) * spacing'),
+check(linkFn.includes('(this.paragraphFontSize(element, paragraph) + 8) * spacing'),
   'line band follows the render line advance');
 check(linkFn.includes('paragraphIndent(element, paragraph)') &&
   linkFn.includes('paragraph.alignment === 2') && linkFn.includes('paragraph.alignment === 3'),
