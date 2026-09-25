@@ -549,7 +549,7 @@ struct NotePage {
       const context = getContext(this) as common.UIAbilityContext;
       const sourceBackend: OriginalRecordingSourceBackend = new OriginalRecordingSourceBackend(
         new OriginalRecordingMicrophoneBackend(context.tempDir),
-        new OriginalRecordingInternalAudioBackend(context.tempDir));
+        new OriginalRecordingInternalAudioBackend(context.tempDir), context);
       const capture = new OriginalRecordingCaptureController(sourceBackend,
         new HarmonyOriginalRecordingCaptureClock(), sourceBackend);
       this.recordingSessionController = new OriginalRecordingSessionController(
