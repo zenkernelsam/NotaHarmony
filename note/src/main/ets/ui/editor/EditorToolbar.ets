@@ -484,7 +484,10 @@ export struct EditorToolbar {
         Column() {
           Row() {
             Text($r('app.string.selection'))
+            // 原版 jfh：双模式图标的 a11y 描述（Rectangle/Freehand selection）。
             Button(this.viewModel.selectionIsFreehand ? $r('app.string.freehand') : $r('app.string.rectangle'))
+              .accessibilityText(this.viewModel.selectionIsFreehand ?
+                $r('app.string.select_freehand_mode') : $r('app.string.select_rect_mode'))
               .height(30)
               .margin({ left: 12 })
               .enabled(!this.viewModel.toolStateLoading &&

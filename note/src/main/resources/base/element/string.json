@@ -1365,6 +1365,9 @@
     { "name": "edit_hyperlink", "value": "Edit hyperlink" },
     { "name": "programming_language", "value": "Programming language" },
     { "name": "fontsize", "value": "Font size" },
+    { "name": "ui_tools_width", "value": "Width: %d" },
+    { "name": "select_rect_mode", "value": "Rectangle selection" },
+    { "name": "select_freehand_mode", "value": "Freehand selection" },
     { "name": "import_arrange", "value": "Arrange" },
     { "name": "import_move_up", "value": "Move up" },
     { "name": "import_move_down", "value": "Move down" }

@@ -49,8 +49,10 @@ export struct WidthSlider {
         .width(220)
         .margin({ bottom: 10 })
       }
-      Text('Width: ' + (this.selectionMode ? this.selectionWidth.toString() :
-        Math.round(this.viewModel.brushWidth).toString()))
+      // 原版 yed：ui_tools__width = "Width: %1$d"（整型入参）。
+      Text($r('app.string.ui_tools_width',
+        Math.round(this.selectionMode ? this.selectionWidth :
+          this.viewModel.brushWidth)))
         .fontSize(14)
         .fontColor(this.resolveTokens().textPrimary)
         .margin({ bottom: 8 })

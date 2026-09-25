@@ -599,6 +599,9 @@
     { "name": "edit_hyperlink", "value": "编辑链接" },
     { "name": "programming_language", "value": "编程语言" },
     { "name": "fontsize", "value": "字号" },
+    { "name": "ui_tools_width", "value": "宽度：%d" },
+    { "name": "select_rect_mode", "value": "矩形选择" },
+    { "name": "select_freehand_mode", "value": "自由选择" },
     { "name": "import_arrange", "value": "排列" },
     { "name": "import_move_up", "value": "上移" },
     { "name": "import_move_down", "value": "下移" }
