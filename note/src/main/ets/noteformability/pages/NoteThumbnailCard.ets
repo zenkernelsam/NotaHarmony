@@ -27,12 +27,12 @@ struct NoteThumbnailCard {
           Image($r('app.media.shortcut_new_note'))
             .width(40)
             .height(40)
-            .fillColor('#c8cfdb')
+            .fillColor($r('app.color.app_widgets__widget_placeholder_icon'))
         }
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.Center)
-        .backgroundColor('#f6f6f8')
+        .backgroundColor($r('app.color.app_widgets__widget_placeholder_bg'))
         .borderRadius(16)
       }
       if (!this.configured) {
@@ -72,8 +72,8 @@ struct NoteThumbnailCard {
     }
     .width('100%')
     .height('100%')
-    // widget_bg：#ffffff r16 卡片底
-    .backgroundColor('#ffffff')
+    // widget_bg：r16 卡片底
+    .backgroundColor($r('app.color.app_widgets__widget_bg'))
     .borderRadius(16)
     .onClick(() => {
       if (this.configured && this.noteId.length > 0) {

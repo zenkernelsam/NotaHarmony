@@ -3,6 +3,54 @@
     {
       "name": "start_window_background",
       "value": "#FFFFFF"
+    },
+    {
+      "name": "app_widgets__widget_bg",
+      "value": "#ffffff"
+    },
+    {
+      "name": "app_widgets__widget_create_label",
+      "value": "#171a20"
+    },
+    {
+      "name": "app_widgets__widget_divider",
+      "value": "#e8ebf0"
+    },
+    {
+      "name": "app_widgets__widget_note_button",
+      "value": "#4278ff"
+    },
+    {
+      "name": "app_widgets__widget_note_tile_bg",
+      "value": "#ecf2ff"
+    },
+    {
+      "name": "app_widgets__widget_on_accent",
+      "value": "#ffffff"
+    },
+    {
+      "name": "app_widgets__widget_placeholder_bg",
+      "value": "#f6f6f8"
+    },
+    {
+      "name": "app_widgets__widget_placeholder_icon",
+      "value": "#c8cfdb"
+    },
+    {
+      "name": "app_widgets__widget_recording_button",
+      "value": "#ffa629"
+    },
+    {
+      "name": "app_widgets__widget_recording_tile_bg",
+      "value": "#fff6ea"
+    },
+    {
+      "name": "app_widgets__widget_subject_bg",
+      "value": "#524278ff"
+    },
+    {
+      "name": "app_widgets__widget_text",
+      "value": "#0c0d11"
     }
   ]
 }

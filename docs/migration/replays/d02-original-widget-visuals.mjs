@@ -25,17 +25,25 @@ const folder = read('note/src/main/ets/noteformability/pages/FolderNotesCard.ets
 const thumb = read('note/src/main/ets/noteformability/pages/NoteThumbnailCard.ets');
 
 // === 建笔记磁贴（create_note_widget.xml）===
-check('建笔记卡片 tile 底 #ecf2ff', newNote.includes("'#ecf2ff'"));
+// Phase 732 起 hex 改挂 $r('app.color.app_widgets__widget_*') 昼夜资源。
+check('建笔记卡片 tile 底 note_tile_bg',
+  newNote.includes("'#ecf2ff'") || newNote.includes('widget_note_tile_bg'));
 check('建笔记卡片 tile r20', newNote.includes('borderRadius(20)'));
-check('建笔记标签 #171a20', newNote.includes("'#171a20'"));
-check('建笔记主色钮 #4278ff r12', newNote.includes("'#4278ff'") && newNote.includes('borderRadius(12)'));
+check('建笔记标签 create_label',
+  newNote.includes("'#171a20'") || newNote.includes('widget_create_label'));
+check('建笔记主色钮 note_button r12',
+  (newNote.includes("'#4278ff'") || newNote.includes('widget_note_button')) &&
+  newNote.includes('borderRadius(12)'));
 check('建笔记钮 40×40 挂 widget_add 图标', /widget_add[\s\S]*?width\(40\)/.test(newNote));
 check('建笔记 CREATE_NOTE 路由保留', newNote.includes("launch_action: 'create_note'"));
 
 // === 录音磁贴（create_recording_widget.xml）===
-check('录音卡片 tile 底 #fff6ea', newRec.includes("'#fff6ea'"));
+check('录音卡片 tile 底 recording_tile_bg',
+  newRec.includes("'#fff6ea'") || newRec.includes('widget_recording_tile_bg'));
 check('录音卡片 tile r20', newRec.includes('borderRadius(20)'));
-check('录音主色钮 #ffa629 r12', newRec.includes("'#ffa629'") && newRec.includes('borderRadius(12)'));
+check('录音主色钮 recording_button r12',
+  (newRec.includes("'#ffa629'") || newRec.includes('widget_recording_button')) &&
+  newRec.includes('borderRadius(12)'));
 check('录音钮挂 widget_record 图标', newRec.includes('widget_record'));
 check('录音 create_recording_note 路由保留', newRec.includes("launch_action: 'create_recording_note'"));
 
@@ -49,24 +57,30 @@ check('widget_record.svg 存在且为 mic 描边',
 
 // === 列表卡片（widget_notes_row.xml / widget_bg / thumb_border）===
 for (const [name, src] of [['recent', recent], ['folder', folder]]) {
-  check(`${name} 行缩略图 r6 + 1px #e8ebf0 边框`,
-    src.includes('borderRadius(6)') && src.includes("color: '#e8ebf0'"));
-  check(`${name} 占位格 #f6f6f8 底 + #c8cfdb 图标`,
-    src.includes("'#f6f6f8'") && src.includes(".fillColor('#c8cfdb')"));
-  check(`${name} 行分隔线 1px #e8ebf0`,
-    src.includes('strokeWidth(1)') && src.includes(".color('#e8ebf0')"));
+  const hasDivider = src.includes("color: '#e8ebf0'") || src.includes('widget_divider');
+  const hasPhBg = src.includes("'#f6f6f8'") || src.includes('widget_placeholder_bg');
+  const hasPhIcon = src.includes(".fillColor('#c8cfdb')") || src.includes('widget_placeholder_icon');
+  const hasText = src.includes("'#0c0d11'") || src.includes('widget_text');
+  const hasBg = src.includes("'#ffffff'") || src.includes('widget_bg');
+  check(`${name} 行缩略图 r6 + 1px 边框`,
+    src.includes('borderRadius(6)') && hasDivider);
+  check(`${name} 占位格底色 + 图标色`, hasPhBg && hasPhIcon);
+  check(`${name} 行分隔线 1px`,
+    src.includes('strokeWidth(1)') && hasDivider);
   check(`${name} 末行后分隔线不省略（原版每行自带）`,
     !/index < this\.items\.length - 1[\s\S]{0,80}Divider/.test(src));
-  check(`${name} 标题色 widget_text #0c0d11`, src.includes("'#0c0d11'"));
-  check(`${name} 卡片底 widget_bg #ffffff r16`,
-    src.includes("'#ffffff'") && src.includes('borderRadius(16)'));
+  check(`${name} 标题色 widget_text`, hasText);
+  check(`${name} 卡片底 widget_bg r16`, hasBg && src.includes('borderRadius(16)'));
 }
 
 // === 缩略图卡片（widget_note_thumbnail.xml）===
-check('缩略图卡片占位 #f6f6f8 r16 + #c8cfdb',
-  thumb.includes("'#f6f6f8'") && thumb.includes('borderRadius(16)') && thumb.includes(".fillColor('#c8cfdb')"));
+check('缩略图卡片占位 placeholder_bg r16 + placeholder_icon',
+  (thumb.includes("'#f6f6f8'") || thumb.includes('widget_placeholder_bg')) &&
+  thumb.includes('borderRadius(16)') &&
+  (thumb.includes(".fillColor('#c8cfdb')") || thumb.includes('widget_placeholder_icon')));
 check('缩略图 ImageFit.Fill（原版 fitXY 拉伸）', thumb.includes('ImageFit.Fill'));
-check('缩略图卡片底 #ffffff', thumb.includes("'#ffffff'"));
+check('缩略图卡片底 widget_bg',
+  thumb.includes("'#ffffff'") || thumb.includes('widget_bg'));
 check('缩略图 note_id 路由保留', thumb.includes('note_id: this.noteId'));
 
 // === 边界登记（ADR-0674）===

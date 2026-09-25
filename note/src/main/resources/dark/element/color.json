@@ -3,6 +3,50 @@
     {
       "name": "start_window_background",
       "value": "#000000"
+    },
+    {
+      "name": "app_widgets__widget_bg",
+      "value": "#1c1d22"
+    },
+    {
+      "name": "app_widgets__widget_create_label",
+      "value": "#ffffff"
+    },
+    {
+      "name": "app_widgets__widget_divider",
+      "value": "#404856"
+    },
+    {
+      "name": "app_widgets__widget_note_button",
+      "value": "#5ba8f5"
+    },
+    {
+      "name": "app_widgets__widget_note_tile_bg",
+      "value": "#122231"
+    },
+    {
+      "name": "app_widgets__widget_on_accent",
+      "value": "#0c0d11"
+    },
+    {
+      "name": "app_widgets__widget_placeholder_bg",
+      "value": "#1f242b"
+    },
+    {
+      "name": "app_widgets__widget_placeholder_icon",
+      "value": "#616b7d"
+    },
+    {
+      "name": "app_widgets__widget_recording_tile_bg",
+      "value": "#332108"
+    },
+    {
+      "name": "app_widgets__widget_subject_bg",
+      "value": "#525ba8f5"
+    },
+    {
+      "name": "app_widgets__widget_text",
+      "value": "#ffffff"
     }
   ]
 }

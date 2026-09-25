@@ -15,7 +15,7 @@ struct NewRecordingCard {
     Column() {
       Text($r('app.string.form_new_recording_display'))
         .fontSize(13)
-        .fontColor('#171a20')
+        .fontColor($r('app.color.app_widgets__widget_create_label'))
         .fontWeight(FontWeight.Medium)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -24,17 +24,18 @@ struct NewRecordingCard {
         Image($r('app.media.widget_record'))
           .width(22)
           .height(22)
+          .fillColor($r('app.color.app_widgets__widget_on_accent'))
       }
       .width(40)
       .height(40)
-      .backgroundColor('#ffa629')
+      .backgroundColor($r('app.color.app_widgets__widget_recording_button'))
       .borderRadius(12)
     }
     .width('100%')
     .height('100%')
     .alignItems(HorizontalAlign.Start)
     .padding(12)
-    .backgroundColor('#fff6ea')
+    .backgroundColor($r('app.color.app_widgets__widget_recording_tile_bg'))
     .borderRadius(20)
     .onClick(() => {
       postCardAction(this, {
