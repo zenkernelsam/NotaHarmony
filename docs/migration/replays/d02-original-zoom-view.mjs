@@ -20,6 +20,8 @@ const adr749 = read('docs/migration/adr/ADR-0697-original-zoom-advance-width-per
 const adr750 = read('docs/migration/adr/ADR-0698-original-zoom-source-window-overlay.md');
 const evidence751 = read('docs/migration/evidence/phase-751-zoom-window-edge-autoscroll.md');
 const adr751 = read('docs/migration/adr/ADR-0699-original-zoom-window-edge-autoscroll.md');
+const evidence752 = read('docs/migration/evidence/phase-752-zoom-advance-clamp-chromeflip.md');
+const adr752 = read('docs/migration/adr/ADR-0700-original-zoom-advance-clamp-chromeflip.md');
 const settingsStore = read('note/src/main/ets/data/EditorSettingsStore.ets');
 const settingsTest = read('note/src/test/EditorViewModel.test.ets');
 
@@ -243,5 +245,18 @@ pin(/updateZoomWindowEdgeScroll\(touch\.x\)/.test(canvas), 'p751.move.wired');
 pin(/bfg/.test(evidence751) && /withFrameNanos|30dp/.test(evidence751) &&
   /100dp/.test(evidence751) && /500dp/.test(evidence751), 'p751.evidence');
 pin(/ADR-0699|bfg/.test(adr751) && /panBy/.test(adr751), 'p751.adr');
+
+// ---- Phase 752：前进区夹取域 [48,336] 修正 + panelInTopHalf chromeFlip ----
+pin(/ZOOM_ADVANCE_WIDTH_MIN_VP: number = 48/.test(zoomView) &&
+  /ZOOM_ADVANCE_WIDTH_MAX_VP: number = 336/.test(zoomView), 'p752.clamp.consts');
+pin(/Math\.max\(ZOOM_ADVANCE_WIDTH_MIN_VP,[\s\S]{0,60}ZOOM_ADVANCE_WIDTH_MAX_VP/
+  .test(zoomView), 'p752.clamp.applied');
+pin(!/Math\.max\(60, Math\.min\(320/.test(zoomView), 'p752.clamp.oldgone');
+pin(/scale\(\{ x: 1, y: this\.dockBottom \? 1 : -1 \}\)/.test(zoomView),
+  'p752.chromeflip.scale');
+pin(/panelInTopHalf/.test(evidence752) && /rh8\.u\(fFloatValue, 48\.0f, 336\.0f\)|48\.0f, 336\.0f/
+  .test(evidence752), 'p752.evidence');
+pin(/panelInTopHalf|chromeFlip/.test(adr752) && /48/.test(adr752) && /336/.test(adr752),
+  'p752.adr');
 
 console.log(`D02_ORIGINAL_ZOOM_VIEW_OK pins=${pass}`);

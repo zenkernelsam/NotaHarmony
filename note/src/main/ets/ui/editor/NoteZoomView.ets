@@ -11,6 +11,11 @@ import { Canvas2DRenderContext } from '../../core/adaptation/Canvas2DStrokeRende
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
+// Phase 752：原版 setAdvanceRegionWidth 夹取域 —— htd case 18
+// rh8.u(value, 48.0f, 336.0f)（dp；Harmony 用 vp 等价）
+const ZOOM_ADVANCE_WIDTH_MIN_VP: number = 48;
+const ZOOM_ADVANCE_WIDTH_MAX_VP: number = 336;
+
 @Component
 export struct NoteZoomView {
   // ggg.a isShown 由父组件控制显隐；以下均为 ggg 状态字段投影。
@@ -167,6 +172,9 @@ export struct NoteZoomView {
       .height(48)
       .justifyContent(FlexAlign.Start)
       .backgroundColor(this.resolveTokens().surface)
+      // ggg.f panelInTopHalf → b7f "toolboxFlip"（scaleY ±1 动画）：
+      // 面板停靠上半区时控制条镀铬垂直镜像；Harmony 顶部停靠≡上半区
+      .scale({ x: 1, y: this.dockBottom ? 1 : -1 })
 
       // === g0j/fgg 放大画布区 ===
       Stack({ alignContent: Alignment.TopEnd }) {
@@ -192,7 +200,9 @@ export struct NoteZoomView {
               })
               .onActionUpdate((event: GestureEvent) => {
                 const next: number = this.advanceDragStartWidthVp - event.offsetX;
-                this.advanceDragLastWidthVp = Math.max(60, Math.min(320, next));
+                // 原版 htd case 18：rh8.u(f, 48f, 336f) —— 夹取域 [48,336]
+                this.advanceDragLastWidthVp = Math.max(ZOOM_ADVANCE_WIDTH_MIN_VP,
+                  Math.min(ZOOM_ADVANCE_WIDTH_MAX_VP, next));
                 this.onAdvanceRegionResize(this.advanceDragLastWidthVp);
               })
               .onActionEnd(() => {
