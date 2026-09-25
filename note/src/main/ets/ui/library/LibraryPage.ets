@@ -2008,6 +2008,9 @@ struct LibraryPage {
           .height(56)
           .padding({ left: 16, right: 8 })
 
+          // 原版 ajh:335：LIBRARY_HOME（androidLibraryHome 默认 true）→
+          // Home 导航项插在 All Notes 之前（ADR-0691/0694）。
+          this.SectionNavRow($r('app.string.home'), LibrarySection.HOME, 16)
           this.SectionNavRow($r('app.string.all_notes'), LibrarySection.ALL_NOTES, 16)
           this.SectionNavRow($r('app.string.recent_notes'), LibrarySection.RECENT, 16)
           this.SectionNavRow($r('app.string.favorite_notes'), LibrarySection.FAVORITES, 16)
@@ -2047,6 +2050,8 @@ struct LibraryPage {
             .fontWeight(FontWeight.Bold)
             .fontColor(this.resolveTokens().textPrimary)
             .margin({ top: 16, bottom: 12 })
+          // 原版 ajh:335：LIBRARY_HOME 默认开 → Home 居导航首位。
+          this.SectionNavRow($r('app.string.home'), LibrarySection.HOME, 8)
           this.SectionNavRow($r('app.string.all_notes'), LibrarySection.ALL_NOTES, 8)
           this.SectionNavRow($r('app.string.recent_notes'), LibrarySection.RECENT, 8)
           this.SectionNavRow($r('app.string.favorite_notes'), LibrarySection.FAVORITES, 8)
@@ -2301,7 +2306,13 @@ struct LibraryPage {
           .justifyContent(FlexAlign.Center)
           .alignItems(HorizontalAlign.Center)
         } else if (this.viewModel !== null) {
-          if (this.libraryLoading && this.notes.length === 0) {
+          // 原版 vdh.b：选中 Home 导航项（ba6.o(ync, tnc.a)）时内容宿主
+          // 渲染 ksh Home 视图而非分区网格；搜索非空回落正常结果网格。
+          if (this.currentFolderId === null &&
+            this.currentSection === LibrarySection.HOME &&
+            this.searchText.trim().length === 0) {
+            this.HomeContent()
+          } else if (this.libraryLoading && this.notes.length === 0) {
             Text($r('app.string.loading'))
               .fontSize(16)
               .fontColor(this.resolveTokens().textSecondary)
@@ -2400,6 +2411,127 @@ struct LibraryPage {
         action.dismiss();
       }
     })
+  }
+
+  // 原版 ksh.a Home 内容宿主：头部（应用图标 + Let's get started +
+  // 副标）→ ksh.d 双 CTA 卡（Record a lecture / Take notes）→
+  // "Favorite notes"（list4 非空才渲染）→ "Recent notes"（非空渲染）。
+  // home_study_up_next（Learn）与 take_notes_starter 配额变体
+  // 维持 fail-closed（ADR-0652/0694）。CTA 行为 = 既有
+  // createAndLaunch 通道（autoRecord=true 等同录音快捷项）。
+  @Builder
+  private HomeContent() {
+    Scroll() {
+      Column() {
+        Image($r('app.media.startIcon'))
+          .width(96)
+          .height(96)
+          .margin({ top: 24 })
+        Text($r('app.string.home_lets_get_started'))
+          .fontSize(28)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.resolveTokens().textPrimary)
+          .margin({ top: 16 })
+        Text($r('app.string.home_subtitle'))
+          .fontSize(15)
+          .fontColor(this.resolveTokens().textSecondary)
+          .margin({ top: 8 })
+        Row() {
+          this.HomeCtaCard($r('app.media.widget_record'),
+            $r('app.string.home_record_lecture_title'),
+            $r('app.string.home_record_lecture_subtitle'),
+            (): void => {
+              this.createAndLaunch(true).catch((e: Error): void => {
+                console.error(`home record launch failed: ${JSON.stringify(e)}`);
+              });
+            })
+          this.HomeCtaCard($r('app.media.shortcut_new_note'),
+            $r('app.string.home_take_notes'),
+            $r('app.string.home_take_notes_subtitle'),
+            (): void => {
+              this.createAndLaunch(false).catch((e: Error): void => {
+                console.error(`home take-notes launch failed: ${JSON.stringify(e)}`);
+              });
+            })
+        }
+        .width('100%')
+        .margin({ top: 32 })
+        if (this.viewModel !== null && this.viewModel.homeFavorites.length > 0) {
+          this.HomeNoteSection($r('app.string.home_favorite_notes_title'),
+            this.viewModel.homeFavorites)
+        }
+        if (this.viewModel !== null && this.viewModel.homeRecents.length > 0) {
+          this.HomeNoteSection($r('app.string.home_recent_notes_title'),
+            this.viewModel.homeRecents)
+        }
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 24, right: 24, bottom: 96 })
+    }
+    .width('100%')
+    .layoutWeight(1)
+    .scrollBar(BarState.Auto)
+    .align(Alignment.Top)
+  }
+
+  // 原版 ksh.d 单张 CTA 卡：图标 + 标题（are.E）+ 副标（are.M），
+  // 双卡等宽横排（原版按文本折行自适应换为整宽堆叠——登记差异）。
+  @Builder
+  private HomeCtaCard(icon: Resource, title: ResourceStr, subtitle: ResourceStr,
+    action: () => void) {
+    Column() {
+      Image(icon)
+        .width(40)
+        .height(40)
+      Text(title)
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.resolveTokens().textPrimary)
+        .margin({ top: 12 })
+      Text(subtitle)
+        .fontSize(13)
+        .fontColor(this.resolveTokens().textSecondary)
+        .margin({ top: 6 })
+    }
+    .layoutWeight(1)
+    .alignItems(HorizontalAlign.Start)
+    .padding(16)
+    .borderRadius(12)
+    .backgroundColor(this.resolveTokens().surface)
+    .shadow({ radius: 4, color: this.resolveTokens().shadow, offsetY: 2 })
+    .margin({ left: 8, right: 8 })
+    .enabled(!this.createBusy)
+    .onClick(() => {
+      action();
+    })
+  }
+
+  // 原版 ksh.f/oi5：分区标题 + 横向卡片行（卡片 220vp 宽固定）。
+  @Builder
+  private HomeNoteSection(title: ResourceStr, notes: NoteMeta[]) {
+    Column() {
+      Text(title)
+        .fontSize(17)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.resolveTokens().textPrimary)
+      Scroll() {
+        Row({ space: 12 }) {
+          ForEach(notes, (note: NoteMeta) => {
+            Column() {
+              this.NoteCard(note)
+            }
+            .width(220)
+          }, (note: NoteMeta) => note.id)
+        }
+      }
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
+      .margin({ top: 12 })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .margin({ top: 32 })
   }
 
   // FAB 新建按钮（64vp 右下角）

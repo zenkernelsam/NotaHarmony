@@ -76,9 +76,10 @@ check(groupSel.length > 0 && snapGuides.length > 0,
   'Harmony 组选择/吸附导引已移植');
 
 // --- Harmony 现状与更正登记 ---
-check(!libraryPage.includes('home_study_up_next') &&
-  !libraryPage.includes('feature_library__home'),
-  'Harmony 无 Home 分区（现状缺省）');
+// Phase 746 演进：Home 分区已移植（ADR-0694）——Learn 子区
+// 仍以资源缺席方式 fail-closed（页面注释提及不计为资源键）。
+check(libraryPage.includes('LibrarySection.HOME'),
+  'Harmony Home 分区已移植（Phase 746，旗标默认开→已实现）');
 check(adr0655.includes('ADR-0691'), 'ADR-0655 已加更正指引');
 check(adr0691.includes('androidLibraryHome') && adr0691.includes('延迟移植缺口'),
   'ADR-0691 登记默认开启 + 延迟移植缺口');

@@ -45,11 +45,13 @@ check(strings.includes('home_take_notes_starter') &&
 check(ht8.includes('RECORD_LECTURE("record_lecture")'),
   'record_lecture analytics enum exists');
 
-// --- Harmony 旗标关闭等价 ---
-check(!libraryPage.includes('record_lecture') && !libraryPage.includes('study_up_next') &&
-  !libraryPage.includes('home_take_notes'),
-  'Harmony library ships no Home section (flag-off equivalent)');
-check(libraryPage.includes('createAndRecord') && libraryPage.includes('createAndOpen'),
-  'functional CTAs covered by the FAB create menu (record audio / new note)');
+// --- Harmony 移植态（Phase 746, ADR-0694：原"旗标关闭等价"pin 已演进）---
+check(libraryPage.includes('LibrarySection.HOME') &&
+  libraryPage.includes('home_take_notes') && libraryPage.includes('home_record_lecture'),
+  'Harmony library ships the Home section (Phase 746 port)');
+check(libraryPage.includes('createAndLaunch'),
+  'CTAs route through the existing createAndLaunch channel');
+check(!libraryPage.includes('feature_library__home_study_up_next_title'),
+  'study_up_next stays Learn fail-closed');
 
 console.log(`D05_ORIGINAL_LIBRARY_HOME_FAIL_CLOSED_REPLAY_OK TOTAL=${total} FAILED=0`);

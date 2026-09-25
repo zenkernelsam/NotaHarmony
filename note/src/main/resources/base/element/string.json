@@ -674,6 +674,42 @@
       "value": "Let's get started!"
     },
     {
+      "name": "home",
+      "value": "Home"
+    },
+    {
+      "name": "home_lets_get_started",
+      "value": "Let's get started"
+    },
+    {
+      "name": "home_subtitle",
+      "value": "Don't just take notes—learn from them."
+    },
+    {
+      "name": "home_record_lecture_title",
+      "value": "Record a lecture"
+    },
+    {
+      "name": "home_record_lecture_subtitle",
+      "value": "Capture lectures, meetings and podcasts to begin your learning."
+    },
+    {
+      "name": "home_take_notes",
+      "value": "Take notes"
+    },
+    {
+      "name": "home_take_notes_subtitle",
+      "value": "Create dynamic notes with handwriting, text, and images."
+    },
+    {
+      "name": "home_favorite_notes_title",
+      "value": "Favorite notes"
+    },
+    {
+      "name": "home_recent_notes_title",
+      "value": "Recent notes"
+    },
+    {
       "name": "tap_to_create_notes",
       "value": "Tap on the Create button to create new notes or start from an imported file."
     },

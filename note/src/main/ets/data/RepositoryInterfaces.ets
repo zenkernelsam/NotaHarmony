@@ -6,11 +6,15 @@ import { NoteAsset } from '../core/model/AssetTypes';
 import { HistoryMetadata } from '../core/model/OpTypes';
 
 // Original dk9 library section ordinals (ALL_NOTES/RECENT/FAVORITES/UNFILED).
+// HOME 不在 dk9 内——原版 Home 是 ajh 导航项（tnc.a 图标入口，
+// vdh.b 按选中项分发 ksh Home 内容而非 Section 网格）；
+// Harmony 追加为伪分区值挂在同一选中态字段上，序号向后扩展。
 export enum LibrarySection {
   ALL_NOTES = 0,
   RECENT = 1,
   FAVORITES = 2,
   UNFILED = 3,
+  HOME = 4,
 }
 
 export interface NoteRepository {

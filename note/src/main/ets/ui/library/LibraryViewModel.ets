@@ -35,6 +35,10 @@ export class LibraryViewModel {
   // search_item coverage never match library search (the original's
   // "unindexed notes will not appear in search" contract).
   unindexedNoteCount: number = 0;
+  // 原版 ab7.e/f：Home 分区的 favorites/recents 卡片数据源
+  // （ksh.a 的 list/list2），HOME 选中时由 loadNotes 填充。
+  homeFavorites: NoteMeta[] = [];
+  homeRecents: NoteMeta[] = [];
   private repo: NoteRepository;
   private loadGeneration: number = 0;
   private mutationGeneration: number = 0;
@@ -84,6 +88,23 @@ export class LibraryViewModel {
         }
         this.notes = loaded;
         this.applySort();
+        // 原版 ab7.e/f：Home 内容宿主消费独立的 favorites/recents
+        // 投影（与主 notes 列表无关），仅 HOME 伪分区选中时装载。
+        if (section === LibrarySection.HOME && folderId === null) {
+          try {
+            const favorites: NoteMeta[] = await this.repo.getFavoriteNotes();
+            const recents: NoteMeta[] = await this.repo.getRecentNotes();
+            if (generation === this.loadGeneration) {
+              this.homeFavorites = favorites;
+              this.homeRecents = recents;
+            }
+          } catch (e) {
+            console.error(`home lists load failed: ${JSON.stringify(e)}`);
+          }
+        } else if (this.homeFavorites.length > 0 || this.homeRecents.length > 0) {
+          this.homeFavorites = [];
+          this.homeRecents = [];
+        }
         try {
           const unindexedCount: number = await this.repo.countUnindexedNotes();
           if (generation === this.loadGeneration) {
@@ -209,12 +230,19 @@ export class LibraryViewModel {
       if (this.searchAllNotes && folderId !== null) {
         return this.repo.searchNotes(query, null);
       }
-      return folderId === null && section !== LibrarySection.ALL_NOTES ?
+      // HOME 伪分区无搜索作用域（原版 Home 非 dk9 Section，其搜索按
+      // 全库语义）；按 ALL_NOTES 路径处理。
+      return folderId === null && section !== LibrarySection.ALL_NOTES &&
+        section !== LibrarySection.HOME ?
         this.repo.searchNotesInSection(query, section) :
         this.repo.searchNotes(query, folderId);
     }
     if (folderId !== null) {
       return this.repo.getNotesByFolder(folderId);
+    }
+    // HOME：主列表取全量（内容宿主渲染专属 Home 视图而非网格）。
+    if (section === LibrarySection.HOME) {
+      return this.repo.getAllNotes();
     }
     if (section === LibrarySection.FAVORITES) {
       return this.repo.getFavoriteNotes();

@@ -9,6 +9,7 @@
 > 旗标为 PRODUCTION 级直读远程配置值，1.0.3 默认显示 Home
 > 分区。缺口改由 ADR-0691 登记为延迟移植缺口；其中
 > `home_study_up_next` 的 Learn 后端依赖维持 ADR-0652 原判。
+> **已落地（ADR-0694 / Phase 746）**：Home 分区已移植。
 - 接续：ADR-0652（Learn/AI 面 fail-closed）、ADR-0518+（library
   表面既有登记）
 - 证据：`docs/migration/evidence/original-library-home-jadx-2026-09-24.md`

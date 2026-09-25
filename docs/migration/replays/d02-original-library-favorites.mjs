@@ -137,12 +137,14 @@ ok(vmFixture.includes('setSection(LibrarySection.FAVORITES') &&
   'ArkTS fixtures for sections/favorites missing');
 
 // --- Harmony UI anchors --------------------------------------------------------------------
-// Four dk9 rows in both the sidebar and the compact drawer.
-ok((page.match(/this\.SectionNavRow\(/g) || []).length === 8,
-  'eight SectionNavRow calls (4 sections × 2 surfaces) missing');
+// Four dk9 rows + the Home pseudo-section (Phase 746, LIBRARY_HOME
+// default-on per ADR-0691) in both the sidebar and the compact drawer.
+ok((page.match(/this\.SectionNavRow\(/g) || []).length === 10,
+  'ten SectionNavRow calls (5 sections × 2 surfaces) missing');
 ok(page.includes('LibrarySection.RECENT') && page.includes('LibrarySection.FAVORITES') &&
-   page.includes('LibrarySection.UNFILED') && page.includes('LibrarySection.ALL_NOTES'),
-  'dk9 section rows missing');
+   page.includes('LibrarySection.UNFILED') && page.includes('LibrarySection.ALL_NOTES') &&
+   page.includes('LibrarySection.HOME'),
+  'dk9 + Home section rows missing');
 ok(page.includes('private async selectSection(section: LibrarySection)') &&
    page.includes('vm.setSection(section, query)'),
   'selectSection handler missing');
