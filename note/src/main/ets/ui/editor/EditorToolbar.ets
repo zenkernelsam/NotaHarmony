@@ -8,6 +8,15 @@ import { ColorPickerView } from '../components/ColorPicker';
 import { WidthSlider } from '../components/WidthSlider';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+import { common } from '@kit.AbilityKit';
+import { OnboardingTipBubble } from '../components/OnboardingTipBubble';
+import {
+  OnboardingTooltipKind, OnboardingTooltipStore,
+} from '../../data/OnboardingTooltipStore';
+
+interface PopupStateChangeEvent {
+  isVisible: boolean;
+}
 
 @Component
 export struct EditorToolbar {
@@ -27,6 +36,20 @@ export struct EditorToolbar {
   @State sharePasswordDraft: string = '';
   @State sharePasswordConfirm: string = '';
   @State sharePasswordMismatch: boolean = false;
+  // 原版 pq9/hq9 引导气泡链（onboardingTooltipSeen Set<String>）：
+  // 每条仅在未见过且站点上下文成立时显示；"Got it" 写入 seen 集。
+  @State onboardingSeen: string[] = [];
+  @State showTipNewNote: boolean = false;
+  @State showTipTray: boolean = false;
+  @State showTipTool: boolean = false;
+  @State showTipUndoRedo: boolean = false;
+  @State showTipImport: boolean = false;
+  private onboardingStore: OnboardingTooltipStore | null = null;
+  private onboardingSeenReady: boolean = false;
+  private onboardingTipToolId: string = '';
+  private onboardingTipToolKind: OnboardingTooltipKind = OnboardingTooltipKind.FIRST_TEXT;
+  private onboardingTipToolText: Resource =
+    $r('app.string.data_onboarding__first_text_tooltip_text');
   // 原版 v6d.c 当前选中格式（s6d 枚举 ordinal：link/pdf/note/jpg/
   // png）；原版单笔记默认 LINK、多笔记默认 PDF——LINK 在本端
   // fail-closed（账号后端缺位），默认改取 pdf（文档化适配）。
@@ -93,8 +116,10 @@ export struct EditorToolbar {
   @Prop photoImportLeaseActive: boolean = false;
   @Prop selectionVariableStyleEnabled: boolean = true;
   @Prop selectionStyle: BrushStyle = BrushStyle.MONO;
-  @Prop canUndo: boolean = false;
+  @Prop @Watch('onCanUndoTip') canUndo: boolean = false;
   @Prop canRedo: boolean = false;
+  // 原版 x90 z7（pq9.N 站点条件）：任一页存在内容 → 页面管理器气泡。
+  @Prop @Watch('onNoteHasContentTip') noteHasContent: boolean = false;
   // 原版 o94 case14：胶带工具设置行内 Hide/Reveal Tapes（NotePage 会话态）。
   @Prop tapeCount: number = 0;
   @Prop anyTapeRevealed: boolean = false;
@@ -127,6 +152,18 @@ export struct EditorToolbar {
               return;
             }
             this.onTogglePagesPanel();
+          })
+          // 原版 x90 fsi.h(pq9.N, pos3)：页面管理器引导气泡锚定此开关。
+          .bindPopup(this.showTipImport, {
+            builder: (): void => {
+              this.OnboardingImportTip()
+            },
+            placement: Placement.Left,
+            mask: false,
+            autoCancel: false,
+            onStateChange: (event: PopupStateChangeEvent) => {
+              this.showTipImport = event.isVisible;
+            },
           })
         // === 工具按钮（48vp 点击区）：按原版托盘顺序渲染可见工具 ===
         ForEach(this.viewModel.visibleToolStates(), (state: ToolState) => {
@@ -194,6 +231,27 @@ export struct EditorToolbar {
               // 面板关闭即 lu7 失效（ADR-0646）。
               this.viewModel.setEyedropperActive(false);
             }
+            // 原版 ipi/ys2：FIRST_TRAY_OPENED 前置为 NEW_NOTE 已见。
+            if (this.viewModel.showColorPicker &&
+              !this.tipSeen(OnboardingTooltipKind.FIRST_TRAY_OPENED) &&
+              this.tipSeen(OnboardingTooltipKind.NEW_NOTE)) {
+              this.showTipTray = true;
+            }
+          })
+          // 原版 rh8 e5f→pq9.I / ipi→pq9.J：样式选项按钮承载两条气泡。
+          .bindPopup(this.showTipNewNote || this.showTipTray, {
+            builder: (): void => {
+              this.OnboardingAnchorTip()
+            },
+            placement: Placement.Bottom,
+            mask: false,
+            autoCancel: false,
+            onStateChange: (event: PopupStateChangeEvent) => {
+              if (!event.isVisible) {
+                this.showTipNewNote = false;
+                this.showTipTray = false;
+              }
+            },
           })
 
         // 粗细按钮（当前宽度指示）
@@ -287,6 +345,18 @@ export struct EditorToolbar {
               return;
             }
             this.onUndo();
+          })
+          // 原版 x90 fsi.h(pq9.O, pos3)：undo/redo 手势提示锚定撤销按钮。
+          .bindPopup(this.showTipUndoRedo, {
+            builder: (): void => {
+              this.OnboardingUndoTip()
+            },
+            placement: Placement.Left,
+            mask: false,
+            autoCancel: false,
+            onStateChange: (event: PopupStateChangeEvent) => {
+              this.showTipUndoRedo = event.isVisible;
+            },
           })
         Button('↷')
           .width(48)
@@ -537,6 +607,35 @@ export struct EditorToolbar {
           return;
         }
         this.viewModel.selectToolById(tool.toolId);
+        // 原版 pq9 通用宿主：文本/荧光笔工具首次选中的使用提示。
+        if (tool.toolId === 'text' &&
+          !this.tipSeen(OnboardingTooltipKind.FIRST_TEXT)) {
+          this.onboardingTipToolId = tool.toolId;
+          this.onboardingTipToolKind = OnboardingTooltipKind.FIRST_TEXT;
+          this.onboardingTipToolText =
+            $r('app.string.data_onboarding__first_text_tooltip_text');
+          this.showTipTool = true;
+        } else if (tool.toolType === ToolType.HIGHLIGHTER &&
+          !this.tipSeen(OnboardingTooltipKind.FIRST_HIGHLIGHTER)) {
+          this.onboardingTipToolId = tool.toolId;
+          this.onboardingTipToolKind = OnboardingTooltipKind.FIRST_HIGHLIGHTER;
+          this.onboardingTipToolText =
+            $r('app.string.data_onboarding__first_highlighter_tooltip_text');
+          this.showTipTool = true;
+        }
+      })
+      .bindPopup(this.showTipTool && this.onboardingTipToolId === tool.toolId, {
+        builder: (): void => {
+          this.OnboardingToolTip()
+        },
+        placement: Placement.Bottom,
+        mask: false,
+        autoCancel: false,
+        onStateChange: (event: PopupStateChangeEvent) => {
+          if (!event.isVisible) {
+            this.showTipTool = false;
+          }
+        },
       })
   }
 
@@ -1054,6 +1153,124 @@ export struct EditorToolbar {
         this.onSelectionStyle(style);
       })
   }
+
+  aboutToAppear(): void {
+    const tipContext = getContext(this) as common.UIAbilityContext;
+    this.onboardingStore = new OnboardingTooltipStore(tipContext);
+    this.onboardingStore.getSeenKinds().then((seen: string[]): void => {
+      this.onboardingSeen = seen;
+      this.onboardingSeenReady = true;
+      this.refreshOnboardingTips();
+    }).catch((e: Error): void => {
+      console.error('onboarding seen load failed: ' + JSON.stringify(e));
+    });
+  }
+
+  private tipSeen(kind: OnboardingTooltipKind): boolean {
+    return this.onboardingSeen.indexOf(kind) !== -1;
+  }
+
+  // 原版 fsi.g 内部校验 !seen；站点上下文由各触发点判定。
+  private refreshOnboardingTips(): void {
+    if (!this.onboardingSeenReady) {
+      return;
+    }
+    // rh8 e5f：编辑器挂载即满足 NEW_NOTE。
+    if (!this.tipSeen(OnboardingTooltipKind.NEW_NOTE)) {
+      this.showTipNewNote = true;
+    }
+    // x90 z7：任一页有内容 → 页面管理器（FIRST_IMPORT）气泡。
+    if (this.noteHasContent && !this.tipSeen(OnboardingTooltipKind.FIRST_IMPORT)) {
+      this.showTipImport = true;
+    }
+    // x90 gl8Var5：undo 可用 → FIRST_UNDO_REDO 气泡。
+    if (this.canUndo && !this.tipSeen(OnboardingTooltipKind.FIRST_UNDO_REDO)) {
+      this.showTipUndoRedo = true;
+    }
+  }
+
+  private onNoteHasContentTip(): void {
+    if (this.noteHasContent) {
+      this.refreshOnboardingTips();
+    }
+  }
+
+  private onCanUndoTip(): void {
+    if (this.canUndo) {
+      this.refreshOnboardingTips();
+    }
+  }
+
+  // 原版 js7："Got it" 关闭 → 对应 pq9 写入 onboardingTooltipSeen 并持久化。
+  private dismissOnboardingTip(kind: OnboardingTooltipKind): void {
+    if (this.onboardingSeen.indexOf(kind) === -1) {
+      this.onboardingSeen = this.onboardingSeen.concat([kind]);
+    }
+    if (kind === OnboardingTooltipKind.NEW_NOTE) {
+      this.showTipNewNote = false;
+    } else if (kind === OnboardingTooltipKind.FIRST_TRAY_OPENED) {
+      this.showTipTray = false;
+    } else if (kind === OnboardingTooltipKind.FIRST_TEXT ||
+      kind === OnboardingTooltipKind.FIRST_HIGHLIGHTER) {
+      this.showTipTool = false;
+    } else if (kind === OnboardingTooltipKind.FIRST_UNDO_REDO) {
+      this.showTipUndoRedo = false;
+    } else if (kind === OnboardingTooltipKind.FIRST_IMPORT) {
+      this.showTipImport = false;
+    }
+    const store: OnboardingTooltipStore | null = this.onboardingStore;
+    if (store !== null) {
+      store.markSeen(kind).catch((e: Error): void => {
+        console.error('onboarding markSeen failed: ' + JSON.stringify(e));
+      });
+    }
+  }
+
+  // 原版 zy7/tpe.b：深色气泡 + 本地化文案 + "Got it"；mask:false 保持
+  // 原版的非模态语义（提示期间锚点控件仍可点按）。
+  @Builder
+  private OnboardingAnchorTip() {
+    OnboardingTipBubble({
+      tipText: this.showTipNewNote ?
+        $r('app.string.data_onboarding__new_note_tooltip_text') :
+        $r('app.string.data_onboarding__first_tray_opened_tooltip_text'),
+      onGotIt: (): void => {
+        this.dismissOnboardingTip(this.showTipNewNote ?
+          OnboardingTooltipKind.NEW_NOTE : OnboardingTooltipKind.FIRST_TRAY_OPENED);
+      },
+    })
+  }
+
+  @Builder
+  private OnboardingToolTip() {
+    OnboardingTipBubble({
+      tipText: this.onboardingTipToolText,
+      onGotIt: (): void => {
+        this.dismissOnboardingTip(this.onboardingTipToolKind);
+      },
+    })
+  }
+
+  @Builder
+  private OnboardingUndoTip() {
+    OnboardingTipBubble({
+      tipText: $r('app.string.data_onboarding__first_undo_redo_tooltip_text'),
+      onGotIt: (): void => {
+        this.dismissOnboardingTip(OnboardingTooltipKind.FIRST_UNDO_REDO);
+      },
+    })
+  }
+
+  @Builder
+  private OnboardingImportTip() {
+    OnboardingTipBubble({
+      tipText: $r('app.string.data_onboarding__first_import_tooltip_text'),
+      onGotIt: (): void => {
+        this.dismissOnboardingTip(OnboardingTooltipKind.FIRST_IMPORT);
+      },
+    })
+  }
+
 }
 
 // 分享页选择栅格 cell：对应原版 r6d.PAGE_SELECTION 屏的页缩略图格

@@ -45,6 +45,10 @@ import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import { LoadedElements, StrokePersistence } from '../../data/StrokePersistence';
 import { ToolRepositoryImpl } from '../../data/ToolRepositoryImpl';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
+import { OnboardingTipBubble } from '../components/OnboardingTipBubble';
+import {
+  OnboardingTooltipKind, OnboardingTooltipStore,
+} from '../../data/OnboardingTooltipStore';
 import { AssetAvailabilityChange, assetAvailabilityHub } from '../../data/AssetAvailabilityHub';
 import { MaterializedOriginalRecording, OriginalRecordingStore } from '../../data/OriginalRecordingStore';
 import { OperationIdentity } from '../../data/OperationIdentity';
@@ -98,6 +102,10 @@ import { PageManagerBar } from './PageManagerBar';
 import { RecordingPanel } from './RecordingPanel';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+
+interface PopupStateChangeEvent {
+  isVisible: boolean;
+}
 
 // 分享图像导出倍率：pagePixelSize（≈96dpi）×2 ≈ 192dpi 栅格。
 const PAGE_EXPORT_SCALE: number = 2.0;
@@ -235,6 +243,11 @@ struct NotePage {
   @State recordings: MaterializedOriginalRecording[] = [];
   @State recordingsLoading: boolean = false;
   @State showRecordings: boolean = false;
+  // 原版 pq9/hq9 引导气泡链：FIRST_RECORDING 锚定录音按钮
+  //（前置为 NEW_NOTE 已见，rh8 z6）。
+  @State onboardingSeen: string[] = [];
+  @State showRecordingTip: boolean = false;
+  private onboardingStore: OnboardingTooltipStore | null = null;
   @State playbackSnapshot: OriginalRecordingPlaybackSnapshot = {
     state: OriginalRecordingPlaybackState.IDLE, recordingId: null,
     positionMs: 0, durationMs: 0, error: null,
@@ -514,6 +527,14 @@ struct NotePage {
     // VisionKit DocumentScanner 系统能力探测（与 LibraryPage ac4.a0
     // 等价门同源）。
     this.docScanAvailable = canIUse('SystemCapability.AI.Component.DocScan');
+    this.onboardingStore = new OnboardingTooltipStore(
+      getContext(this) as common.UIAbilityContext);
+    this.onboardingStore.getSeenKinds().then((seen: string[]): void => {
+      this.onboardingSeen = seen;
+      this.refreshRecordingTip();
+    }).catch((e: Error): void => {
+      console.error('onboarding seen load failed: ' + JSON.stringify(e));
+    });
     const params = router.getParams() as Record<string, string>;
     if (params !== undefined && params !== null && params['noteId'] !== undefined) {
       this.noteId = params['noteId'];
@@ -1010,6 +1031,7 @@ struct NotePage {
       if (generation === this.recordingLoadGeneration) {
         this.recordings = recordings;
         this.rebuildRecordingTimeline();
+        this.refreshRecordingTip();
       }
     } catch (error) {
       if (this.editorDisposed || generation !== this.recordingLoadGeneration) {
@@ -1630,6 +1652,18 @@ struct NotePage {
               this.showRecordings = true;
             }
           })
+          // 原版 gaj/rh8：FIRST_RECORDING 气泡锚定录音按钮（pos3 左）。
+          .bindPopup(this.showRecordingTip, {
+            builder: (): void => {
+              this.OnboardingRecordingTip()
+            },
+            placement: Placement.Left,
+            mask: false,
+            autoCancel: false,
+            onStateChange: (event: PopupStateChangeEvent) => {
+              this.showRecordingTip = event.isVisible;
+            },
+          })
         // 原版 rh8.f：编辑器 ⋮ 选项菜单无条件渲染在工具行尾端；
         // 菜单中仅 "App settings" 无条件可见（rh8.java apb.f 无旗标包裹）。
         Button('...')
@@ -1652,6 +1686,7 @@ struct NotePage {
           viewModel: this.viewModel,
           canUndo: this.canUndo,
           canRedo: this.canRedo,
+          noteHasContent: !this.emptyNoteActions,
           tapeCount: this.pageTapeCount,
           anyTapeRevealed: this.anyTapeRevealed,
           onTapeToggle: (): void => {
@@ -2155,6 +2190,44 @@ struct NotePage {
 
   // u49/mw3 空笔记动作面可见性：page_element_snapshot 全表元素数为 0
   // 才显示四动作卡（与 d05 页面总览同一数据源）；计数失败 fail-closed。
+  private tipSeen(kind: OnboardingTooltipKind): boolean {
+    return this.onboardingSeen.indexOf(kind) !== -1;
+  }
+
+  // 原版 rh8 z6：FIRST_RECORDING = !seen(L) && seen(I)，且录音按钮可用
+  //（本端为笔记存在录音时）。
+  private refreshRecordingTip(): void {
+    if (this.recordings.length > 0 &&
+      !this.tipSeen(OnboardingTooltipKind.FIRST_RECORDING) &&
+      this.tipSeen(OnboardingTooltipKind.NEW_NOTE)) {
+      this.showRecordingTip = true;
+    }
+  }
+
+  private dismissRecordingTip(): void {
+    this.showRecordingTip = false;
+    if (this.onboardingSeen.indexOf(OnboardingTooltipKind.FIRST_RECORDING) === -1) {
+      this.onboardingSeen = this.onboardingSeen.concat(
+        [OnboardingTooltipKind.FIRST_RECORDING]);
+    }
+    const store: OnboardingTooltipStore | null = this.onboardingStore;
+    if (store !== null) {
+      store.markSeen(OnboardingTooltipKind.FIRST_RECORDING).catch((e: Error): void => {
+        console.error('onboarding markSeen failed: ' + JSON.stringify(e));
+      });
+    }
+  }
+
+  @Builder
+  private OnboardingRecordingTip() {
+    OnboardingTipBubble({
+      tipText: $r('app.string.data_onboarding__first_recording_tooltip_text'),
+      onGotIt: (): void => {
+        this.dismissRecordingTip();
+      },
+    })
+  }
+
   private refreshEmptyNoteActions(): void {
     this.persistence.getPageElementCounts(this.noteId).then((counts) => {
       if (this.editorDisposed) {

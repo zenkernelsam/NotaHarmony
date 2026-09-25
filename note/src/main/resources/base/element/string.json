@@ -1335,6 +1335,18 @@
     { "name": "align_right", "value": "Align right" },
     { "name": "line_spacing", "value": "Line spacing" },
     { "name": "color_custom", "value": "Custom…" },
-    { "name": "color_apply", "value": "Apply" }
+    { "name": "color_apply", "value": "Apply" },
+    { "name": "data_onboarding__new_note_tooltip_text", "value": "Tap on the toolbar to expand the tool's styling options" },
+    { "name": "data_onboarding__first_tray_opened_tooltip_text", "value": "Tap on a style option to edit and customize the style tray" },
+    { "name": "data_onboarding__first_ink_insert_tooltip_text", "value": "Use the Selection tool to select, move, rotate and restyle ink" },
+    { "name": "data_onboarding__first_image_tooltip_text", "value": "Tap the object to see more options" },
+    { "name": "data_onboarding__first_recording_tooltip_text", "value": "Play back your audio recordings" },
+    { "name": "data_onboarding__first_text_tooltip_text", "value": "Start dragging with the stylus to create text boxes" },
+    { "name": "data_onboarding__first_import_tooltip_text", "value": "Quickly navigate and search within pages with the Page Manager" },
+    { "name": "data_onboarding__first_undo_redo_tooltip_text", "value": "Two finger tap to quickly Undo, three finger tap to Redo" },
+    { "name": "data_onboarding__first_highlighter_tooltip_text", "value": "Tap and hold as you draw with the highlighter to snap to text" },
+    { "name": "data_onboarding__first_note_completed_tooltip_text", "value": "Organize your notes by creating new folders. Drag and drop a folder into another for nested organization" },
+    { "name": "data_onboarding__compact_organize_tooltip_text", "value": "Now that you have notes, start organizing them into Folders" },
+    { "name": "data_onboarding__got_it", "value": "Got it" }
   ]
 }

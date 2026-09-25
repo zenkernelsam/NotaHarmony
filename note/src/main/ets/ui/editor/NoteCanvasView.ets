@@ -215,6 +215,10 @@ import {
   isOriginalDroppedImagePayloadEmpty, OriginalDroppedImagePayload,
 } from '../../data/OriginalDragDropIngress';
 import { OriginalImageInsertPersistencePlan, OriginalImageInsertResult } from '../../data/StrokePersistence';
+import { OnboardingTipBubble } from '../components/OnboardingTipBubble';
+import {
+  OnboardingTooltipKind, OnboardingTooltipStore,
+} from '../../data/OnboardingTooltipStore';
 
 const HISTORY_CHECKPOINT_TAIL_OPERATIONS: number = 256;
 const HISTORY_CHECKPOINT_MAX_ACTIONS: number = 128;
@@ -491,6 +495,12 @@ export struct NoteCanvasView {
   private suspendedCaretByBlock: Map<string, number> = new Map();
   @State textEditingRestoreCaret: number = -1;
   @State selectionRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
+  // 原版 pq9/hq9 引导气泡链：元素锚定两条（FIRST_INK_INSERT 墨迹上方、
+  // FIRST_IMAGE 对象左缘），seen 集为 onboardingTooltipSeen Set<String>。
+  @State onboardingSeen: string[] = [];
+  @State tipInkBounds: Rect2D | null = null;
+  @State tipImageBounds: Rect2D | null = null;
+  private onboardingStore: OnboardingTooltipStore | null = null;
   @State selectionVisible: boolean = false;
   @State selectionDeselectMode: boolean = false;
   @State selectionCanFlip: boolean = false;
@@ -535,6 +545,15 @@ export struct NoteCanvasView {
 
   aboutToAppear(): void {
     this.lifecycleActive = true;
+    this.onboardingStore = new OnboardingTooltipStore(
+      getContext(this) as common.UIAbilityContext);
+    this.onboardingStore.getSeenKinds().then((seen: string[]): void => {
+      this.onboardingSeen = seen;
+      this.refreshElementTips();
+    }).catch((e: Error): void => {
+      hilog.error(0x0001, 'NoteCanvasView', 'onboarding seen load failed: %{public}s',
+        JSON.stringify(e));
+    });
     // 原版 NoteSessionState.revealedTape：会话级已揭示 tape 集合，随画布存活、
     // 笔记关闭即丢弃；与 painter 共享同一引用使 gate 立即生效。
     this.strokePainter.revealedTapeIds = this.revealedTapeIds;
@@ -1628,6 +1647,7 @@ export struct NoteCanvasView {
       this.loadedPageId = targetPageId;
       this.loaded = true;
       this.dataLoadFailed = false;
+      this.refreshElementTips();
       this.clipboardPasteTarget = null;
       this.systemClipboardImageAvailable = false;
       this.refreshSystemClipboardImageAvailability();
@@ -4643,6 +4663,8 @@ export struct NoteCanvasView {
         this.textBlocks = this.textBlocks.concat(action.addedTextBlocks);
         this.imageBlocks = this.imageBlocks.concat(action.addedImages);
         this.mathBlocks = this.mathBlocks.concat(addedMathBlocks);
+        // 原版 rh8：元素落库后若对应气泡未见即锚定提示。
+        this.refreshElementTips();
       }
     } else if (action.type === UndoableActionType.DELETE_ELEMENTS) {
       const removedMathBlocks: MathElement[] = action.removedMathBlocks ?? [];
@@ -9458,6 +9480,64 @@ export struct NoteCanvasView {
     return false;
   }
 
+  private tipSeen(kind: OnboardingTooltipKind): boolean {
+    return this.onboardingSeen.indexOf(kind) !== -1;
+  }
+
+  // 原版 rh8/cq.p：k5f（已有墨迹）/图像对象状态 → 元素锚定气泡；
+  // 载入即存在内容的笔记同样满足站点条件（each tip 仅显示一次）。
+  private refreshElementTips(): void {
+    if (this.tipInkBounds === null && this.completedStrokes.length > 0 &&
+      !this.tipSeen(OnboardingTooltipKind.FIRST_INK_INSERT)) {
+      this.tipInkBounds = this.completedStrokes[0].bounds;
+    }
+    if (this.tipImageBounds === null && this.imageBlocks.length > 0 &&
+      !this.tipSeen(OnboardingTooltipKind.FIRST_IMAGE)) {
+      this.tipImageBounds = this.imageBlocks[0].bounds;
+    }
+  }
+
+  // 原版 js7："Got it" → pq9 写入 onboardingTooltipSeen 并持久化。
+  private dismissOnboardingTip(kind: OnboardingTooltipKind): void {
+    if (this.onboardingSeen.indexOf(kind) === -1) {
+      this.onboardingSeen = this.onboardingSeen.concat([kind]);
+    }
+    if (kind === OnboardingTooltipKind.FIRST_INK_INSERT) {
+      this.tipInkBounds = null;
+    } else if (kind === OnboardingTooltipKind.FIRST_IMAGE) {
+      this.tipImageBounds = null;
+    }
+    const store: OnboardingTooltipStore | null = this.onboardingStore;
+    if (store !== null) {
+      store.markSeen(kind).catch((e: Error): void => {
+        hilog.error(0x0001, 'NoteCanvasView', 'onboarding markSeen failed: %{public}s',
+          JSON.stringify(e));
+      });
+    }
+  }
+
+  // 原版 k9f：优选方位放不下时回退（above→below / left→right），并钳制在画布内。
+  private tipOverlayPosition(bounds: Rect2D, preferLeft: boolean): Position {
+    const tl: Point2D = this.viewport.canvasToScreen(bounds.left, bounds.top);
+    const br: Point2D = this.viewport.canvasToScreen(bounds.right, bounds.bottom);
+    const bubbleW: number = 242;
+    const bubbleH: number = 116;
+    const maxX: number = Math.max(0, this.overlayWidth - bubbleW);
+    if (preferLeft) {
+      const leftX: number = tl.x - bubbleW - 14;
+      const x: number = leftX >= 0 ? leftX :
+        Math.min(br.x + 14, maxX);
+      const y: number = Math.max(8,
+        Math.min(tl.y, Math.max(8, this.overlayHeight - bubbleH - 8)));
+      return { x: Math.max(0, Math.min(x, maxX)), y };
+    }
+    const x: number = Math.max(0, Math.min(tl.x, maxX));
+    const aboveY: number = tl.y - bubbleH - 14;
+    const y: number = aboveY >= 8 ? aboveY :
+      Math.min(br.y + 14, Math.max(8, this.overlayHeight - bubbleH - 8));
+    return { x, y };
+  }
+
   private textBlockScreenBounds(element: TextBlockElement | null): Rect2D {
     if (element === null) {
       return { left: 0, top: 0, right: 0, bottom: 0 };
@@ -10005,6 +10085,32 @@ export struct NoteCanvasView {
           this.onTextCancel();
         },
       })
+      // 原版 zy7/b4j：FIRST_INK_INSERT（墨迹上方）与 FIRST_IMAGE（对象左缘）
+      // 元素锚定引导气泡；"Got it" 写 seen 集（js7）。
+      if (this.tipInkBounds !== null) {
+        OnboardingTipBubble({
+          tipText: $r('app.string.data_onboarding__first_ink_insert_tooltip_text'),
+          onGotIt: (): void => {
+            this.dismissOnboardingTip(OnboardingTooltipKind.FIRST_INK_INSERT);
+          },
+        })
+          .position(this.tipOverlayPosition(this.tipInkBounds, false))
+          .backgroundColor('#FF2C2C2E')
+          .borderRadius(12)
+          .shadow({ radius: 10, color: '#66000000', offsetY: 2 })
+      }
+      if (this.tipImageBounds !== null) {
+        OnboardingTipBubble({
+          tipText: $r('app.string.data_onboarding__first_image_tooltip_text'),
+          onGotIt: (): void => {
+            this.dismissOnboardingTip(OnboardingTooltipKind.FIRST_IMAGE);
+          },
+        })
+          .position(this.tipOverlayPosition(this.tipImageBounds, true))
+          .backgroundColor('#FF2C2C2E')
+          .borderRadius(12)
+          .shadow({ radius: 10, color: '#66000000', offsetY: 2 })
+      }
       // 原版 nui（ADR-0646）：eyedropper 放大镜——指尖上方圆形邻域放大图，
       // 中心为取样点；激活态且已取样时显示。
       if (this.viewModel.eyedropperActive && this.eyedropperLoupeMap !== null) {

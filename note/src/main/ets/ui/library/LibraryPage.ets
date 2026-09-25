@@ -29,6 +29,10 @@ import {
   NoteFolder, NoteFolderMoveResult, ORIGINAL_FOLDER_DRAG_INDENT,
   isFolderInSubtree, resolveFolderDrop,
 } from '../../data/FolderRepositoryImpl';
+import { OnboardingTipBubble } from '../components/OnboardingTipBubble';
+import {
+  OnboardingTooltipKind, OnboardingTooltipStore,
+} from '../../data/OnboardingTooltipStore';
 import { FirstPageThumbnailState, StrokePersistence } from '../../data/StrokePersistence';
 import { AsyncMutex, MutexRelease } from '../../data/AsyncMutex';
 import { ThumbnailRenderer } from '../../rendering/ThumbnailRenderer';
@@ -174,6 +178,12 @@ struct LibraryPage {
   // T-039：文件夹
   private folderRepo: FolderRepositoryImpl | null = null;
   @State folders: NoteFolder[] = [];
+  // 原版 pq9/hq9 引导气泡链：FIRST_NOTE_COMPLETED（首张笔记卡右缘）与
+  // COMPACT_ORGANIZE（Folders 入口下方），seen 集持久于
+  // onboardingTooltipSeen。
+  @State onboardingSeen: string[] = [];
+  private onboardingStore: OnboardingTooltipStore | null = null;
+  private onboardingSeenReady: boolean = false;
   @State currentFolderId: string | null = null;
   // Original dk9 library section (ua5 chip row): applies when no folder is selected.
   @State currentSection: LibrarySection = LibrarySection.ALL_NOTES;
@@ -350,6 +360,14 @@ struct LibraryPage {
     this.initData(generation);    // 原版 lc4.a(ac4.a0) 门控：Harmony 等价门控为系统能力探测——无
     // DocScan 组件能力的设备不显示「Document Scan」入口（fail-closed）。
     this.docScanAvailable = canIUse('SystemCapability.AI.Component.DocScan');
+    this.onboardingStore = new OnboardingTooltipStore(
+      getContext(this) as common.UIAbilityContext);
+    this.onboardingStore.getSeenKinds().then((seen: string[]): void => {
+      this.onboardingSeen = seen;
+      this.onboardingSeenReady = true;
+    }).catch((e: Error): void => {
+      console.error('onboarding seen load failed: ' + JSON.stringify(e));
+    });
   }
 
   aboutToDisappear(): void {
@@ -2039,6 +2057,16 @@ struct LibraryPage {
             .onClick(() => {
               this.showCreateFolderDialog();
             })
+            // 原版 enh fsi.h(pq9.Q, pos2)：Folders 入口下方的整理引导气泡。
+            .bindPopup(this.libraryTipVisible(OnboardingTooltipKind.COMPACT_ORGANIZE) &&
+              this.showSidebar, {
+              builder: (): void => {
+                this.OnboardingOrganizeTip()
+              },
+              placement: Placement.Bottom,
+              mask: false,
+              autoCancel: false,
+            })
         }
         .width(this.sidebarWidth)
         .height('100%')
@@ -2060,6 +2088,16 @@ struct LibraryPage {
               .accessibilityText($r('app.string.open_folder_drawer'))
               .onClick(() => {
                 this.openCompactFolderDrawer();
+              })
+              // 原版 enh(pq9.Q, pos2)：compact 布局的 Folders 抽屉入口。
+              .bindPopup(this.libraryTipVisible(OnboardingTooltipKind.COMPACT_ORGANIZE) &&
+                !this.showSidebar, {
+                builder: (): void => {
+                  this.OnboardingOrganizeTip()
+                },
+                placement: Placement.Bottom,
+                mask: false,
+                autoCancel: false,
               })
             Button(this.currentFolderName())
               .layoutWeight(1)
@@ -2456,6 +2494,50 @@ struct LibraryPage {
     .backgroundColor(this.resolveTokens().background)
   }
 
+  private tipSeen(kind: OnboardingTooltipKind): boolean {
+    return this.onboardingSeen.indexOf(kind) !== -1;
+  }
+
+  // 原版 fsi.g 内部校验 !seen；库侧站点上下文为 "已有笔记"（enh/yj9 调用方
+  // 布尔语义）。
+  private libraryTipVisible(kind: OnboardingTooltipKind): boolean {
+    return this.onboardingSeenReady && this.notes.length > 0 &&
+      !this.tipSeen(kind);
+  }
+
+  // 原版 js7："Got it" → pq9 写入 onboardingTooltipSeen 并持久化。
+  private dismissLibraryTip(kind: OnboardingTooltipKind): void {
+    if (this.onboardingSeen.indexOf(kind) === -1) {
+      this.onboardingSeen = this.onboardingSeen.concat([kind]);
+    }
+    const store: OnboardingTooltipStore | null = this.onboardingStore;
+    if (store !== null) {
+      store.markSeen(kind).catch((e: Error): void => {
+        console.error('onboarding markSeen failed: ' + JSON.stringify(e));
+      });
+    }
+  }
+
+  @Builder
+  private OnboardingCompletedTip() {
+    OnboardingTipBubble({
+      tipText: $r('app.string.data_onboarding__first_note_completed_tooltip_text'),
+      onGotIt: (): void => {
+        this.dismissLibraryTip(OnboardingTooltipKind.FIRST_NOTE_COMPLETED);
+      },
+    })
+  }
+
+  @Builder
+  private OnboardingOrganizeTip() {
+    OnboardingTipBubble({
+      tipText: $r('app.string.data_onboarding__compact_organize_tooltip_text'),
+      onGotIt: (): void => {
+        this.dismissLibraryTip(OnboardingTooltipKind.COMPACT_ORGANIZE);
+      },
+    })
+  }
+
   @Builder
   NoteCard(note: NoteMeta) {
     Column() {
@@ -2564,6 +2646,16 @@ struct LibraryPage {
     .gesture(LongPressGesture().onAction(() => {
       this.enterMultiSelect(note.id);
     }))
+    // 原版 ajh fsi.h(pq9.P, pos4)：首张笔记卡的整理引导气泡。
+    .bindPopup(this.libraryTipVisible(OnboardingTooltipKind.FIRST_NOTE_COMPLETED) &&
+      this.notes.length > 0 && note.id === this.notes[0].id, {
+      builder: (): void => {
+        this.OnboardingCompletedTip()
+      },
+      placement: Placement.Right,
+      mask: false,
+      autoCancel: false,
+    })
   }
 
   // Original m5j.b: ie7.LIST renders a compact horizontal row — small
@@ -2674,6 +2766,16 @@ struct LibraryPage {
     .gesture(LongPressGesture().onAction(() => {
       this.enterMultiSelect(note.id);
     }))
+    // 原版 ajh fsi.h(pq9.P, pos4)：列表变体同样锚定首行。
+    .bindPopup(this.libraryTipVisible(OnboardingTooltipKind.FIRST_NOTE_COMPLETED) &&
+      this.notes.length > 0 && note.id === this.notes[0].id, {
+      builder: (): void => {
+        this.OnboardingCompletedTip()
+      },
+      placement: Placement.Right,
+      mask: false,
+      autoCancel: false,
+    })
   }
 
   // 原版 o94：多选勾选圈——checkmark_circle（已选）/

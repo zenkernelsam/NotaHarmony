@@ -569,6 +569,18 @@
     { "name": "align_right", "value": "右对齐" },
     { "name": "line_spacing", "value": "行距" },
     { "name": "color_custom", "value": "自定义…" },
-    { "name": "color_apply", "value": "应用" }
+    { "name": "color_apply", "value": "应用" },
+    { "name": "data_onboarding__new_note_tooltip_text", "value": "点按工具栏以展开工具的样式选项" },
+    { "name": "data_onboarding__first_tray_opened_tooltip_text", "value": "点按样式选项以编辑并自定义样式托盘" },
+    { "name": "data_onboarding__first_ink_insert_tooltip_text", "value": "使用选择工具来选择、移动、旋转和重新设置墨迹样式" },
+    { "name": "data_onboarding__first_image_tooltip_text", "value": "点按对象以查看更多选项" },
+    { "name": "data_onboarding__first_recording_tooltip_text", "value": "回放您的录音" },
+    { "name": "data_onboarding__first_text_tooltip_text", "value": "开始用手写笔拖移以创建文本框" },
+    { "name": "data_onboarding__first_import_tooltip_text", "value": "使用页面管理器快速浏览和搜索页面" },
+    { "name": "data_onboarding__first_undo_redo_tooltip_text", "value": "双指轻点快速撤销，三指轻点重做" },
+    { "name": "data_onboarding__first_highlighter_tooltip_text", "value": "使用荧光笔绘制时按住以对齐文本" },
+    { "name": "data_onboarding__first_note_completed_tooltip_text", "value": "通过新建文件夹整理笔记。拖放一个文件夹到另一个文件夹中以嵌套整理" },
+    { "name": "data_onboarding__compact_organize_tooltip_text", "value": "现在您已有笔记，开始将它们整理到文件夹中" },
+    { "name": "data_onboarding__got_it", "value": "知道了" }
   ]
 }
