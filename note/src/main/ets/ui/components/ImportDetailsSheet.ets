@@ -1,6 +1,8 @@
 // 原版 ou5/zvh.a 导入详情页：文件列表 + tv5 目的地选择（qv5 现有笔记 /
 // sv5 新建笔记 / rv5 各自笔记）+ wt5 逐文件题覆盖 + tt5 笔记搜索 +
 // yt5 文件夹选择 + zt5 确认 / dismiss 取消。
+// w8:155 头部 Arrange/Done 切换 + te4 move_up/move_down 行内排序
+// （files>1 时）；确认经 ImportPlan.orderedUris 回传排序。
 import { ImportDestination, ImportFileDescriptor, ImportPlan } from '../../data/NoteImporter';
 import { NoteMeta } from '../../core/model/NoteTypes';
 import { NoteFolder } from '../../data/FolderRepositoryImpl';
@@ -60,6 +62,8 @@ export struct ImportDetailsSheet {
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   @State destination: number = ImportDestination.SEPARATE_NOTES;
+  @State orderedFiles: ImportFileDescriptor[] = [];  // w8/te4：可排序副本
+  @State arranging: boolean = false;
   @State titleDrafts: string[] = [];   // 与 files 下标对齐（rv5 逐文件题）
   @State singleTitle: string = '';
   @State folderId: string = '';
@@ -77,6 +81,7 @@ export struct ImportDetailsSheet {
     }
     this.titleDrafts = drafts;
     this.singleTitle = this.files.length > 0 ? fileStem(this.files[0].fileName) : '';
+    this.orderedFiles = this.files.slice();
     if (this.context === 'note') {
       this.destination = ImportDestination.EXISTING_NOTE;
       this.selectedNoteId = this.currentNoteId;
@@ -84,6 +89,29 @@ export struct ImportDetailsSheet {
       this.destination = this.files.length > 1 ?
         ImportDestination.SEPARATE_NOTES : ImportDestination.SINGLE_NOTE;
     }
+  }
+
+  // 原版 te4：arrange 模式下每行 move_up/move_down 交换相邻文件；
+  // 逐文件题草稿（下标对齐）随行移动。
+  private moveFile(index: number, delta: number): void {
+    const target: number = index + delta;
+    if (index < 0 || target < 0 || index >= this.orderedFiles.length ||
+      target >= this.orderedFiles.length) {
+      return;
+    }
+    const files: ImportFileDescriptor[] = this.orderedFiles.slice();
+    const tmp: ImportFileDescriptor = files[index];
+    files[index] = files[target];
+    files[target] = tmp;
+    this.orderedFiles = files;
+    const drafts: string[] = this.titleDrafts.slice();
+    while (drafts.length < this.orderedFiles.length) {
+      drafts.push('');
+    }
+    const dt: string = drafts[index];
+    drafts[index] = drafts[target];
+    drafts[target] = dt;
+    this.titleDrafts = drafts;
   }
 
   private filteredNotes(): NoteMeta[] {
@@ -109,16 +137,17 @@ export struct ImportDetailsSheet {
   private confirm(): void {
     const overrides: Map<string, string> = new Map<string, string>();
     if (this.destination === ImportDestination.SEPARATE_NOTES) {
-      for (let i = 0; i < this.files.length; i++) {
+      for (let i = 0; i < this.orderedFiles.length; i++) {
         const draft: string = i < this.titleDrafts.length ?
           this.titleDrafts[i].trim() : '';
-        const stem: string = fileStem(this.files[i].fileName);
+        const stem: string = fileStem(this.orderedFiles[i].fileName);
         if (draft.length > 0 && draft !== stem) {
-          overrides.set(this.files[i].uri, draft);
+          overrides.set(this.orderedFiles[i].uri, draft);
         }
       }
     }
     this.finish({
+      orderedUris: this.orderedFiles.map((f: ImportFileDescriptor): string => f.uri),
       destination: this.destination as ImportDestination,
       noteId: this.selectedNoteId,
       folderId: this.folderId.length > 0 ? this.folderId : null,
@@ -168,9 +197,34 @@ export struct ImportDetailsSheet {
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
         .margin({ left: 8 })
+        if (this.arranging) {
+          // te4：arrange 态行尾 move_up/move_down
+          Row() {
+            Text('↑')
+              .fontSize(16)
+              .fontColor(index > 0 ? tokens.textPrimary : tokens.textSecondary)
+              .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+              .accessibilityText($r('app.string.import_move_up'))
+              .enabled(index > 0)
+              .onClick(() => {
+                this.moveFile(index, -1);
+              })
+            Text('↓')
+              .fontSize(16)
+              .fontColor(index < this.orderedFiles.length - 1 ?
+                tokens.textPrimary : tokens.textSecondary)
+              .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+              .accessibilityText($r('app.string.import_move_down'))
+              .enabled(index < this.orderedFiles.length - 1)
+              .onClick(() => {
+                this.moveFile(index, 1);
+              })
+          }
+        }
       }
       .width('100%')
-      if (this.destination === ImportDestination.SEPARATE_NOTES) {
+      if (!this.arranging &&
+        this.destination === ImportDestination.SEPARATE_NOTES) {
         // wt5 逐文件题覆盖
         TextInput({ placeholder: $r('app.string.import_note_title_hint'),
           text: index < this.titleDrafts.length ? this.titleDrafts[index] : '' })
@@ -195,13 +249,27 @@ export struct ImportDetailsSheet {
     Column() {
       Scroll() {
         Column() {
-          Text($r('app.string.import_details_title'))
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.resolveTokens().textPrimary)
-            .width('100%')
+          Row() {
+            Text($r('app.string.import_details_title'))
+              .fontSize(16)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.resolveTokens().textPrimary)
+              .layoutWeight(1)
+            if (this.orderedFiles.length > 1) {
+              // w8:155：z11 切换 arrange↔done
+              Text(this.arranging ? $r('app.string.done') :
+                $r('app.string.import_arrange'))
+                .fontSize(13)
+                .fontColor(this.resolveTokens().accent)
+                .padding({ left: 12, right: 12, top: 4, bottom: 4 })
+                .onClick(() => {
+                  this.arranging = !this.arranging;
+                })
+            }
+          }
+          .width('100%')
           // utf 文件列表（rv5 模式下逐行附题输入）
-          ForEach(this.files.map((file: ImportFileDescriptor, index: number): FileRowEntry =>
+          ForEach(this.orderedFiles.map((file: ImportFileDescriptor, index: number): FileRowEntry =>
             ({ item: file, idx: index })),
             (entry: FileRowEntry) => {
               this.fileRow(entry.item, entry.idx, this.resolveTokens())

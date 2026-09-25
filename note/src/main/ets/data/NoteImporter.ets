@@ -140,6 +140,7 @@ export interface ImportPlan {
   folderId: string | null;        // sv5/rv5 新笔记所在文件夹（null=根）
   singleTitle: string;            // sv5 标题覆盖；空串=首个文件词干
   titleOverrides: Map<string, string>;  // rv5 逐文件题（uri → 标题）
+  orderedUris?: string[];         // w8/te4 arrange：重排后的 uri 序（缺省=选择器序）
 }
 
 // context：'standalone'（库/共享入口）| 'note'（编辑器 Add Files，
@@ -776,6 +777,10 @@ export class NoteImporter {
   private async dispatchImportPlan(uris: string[], plan: ImportPlan,
     passwordPrompt: PdfPasswordPrompt | undefined,
     fallbackNoteId?: string): Promise<ImportReport> {
+    // w8 arrange：sheet 重排后的 uri 序优先（长度须与选择器集一致，
+    // 防越界 plan 损害既有语义）。
+    const effective: string[] = plan.orderedUris !== undefined &&
+      plan.orderedUris.length === uris.length ? plan.orderedUris : uris;
     if (plan.destination === ImportDestination.EXISTING_NOTE) {
       const target: string = plan.noteId.length > 0 ? plan.noteId :
         (fallbackNoteId === undefined ? '' : fallbackNoteId);
@@ -784,13 +789,13 @@ export class NoteImporter {
           pageCount: 0, missingAssets: [], warnings: [],
           message: '未选择目标笔记' };
       }
-      return await this.importPickedFilesIntoNote(target, uris, passwordPrompt);
+      return await this.importPickedFilesIntoNote(target, effective, passwordPrompt);
     }
     if (plan.destination === ImportDestination.SINGLE_NOTE) {
-      return await this.importFilesIntoSingleNewNote(uris, plan.singleTitle,
+      return await this.importFilesIntoSingleNewNote(effective, plan.singleTitle,
         plan.folderId, passwordPrompt);
     }
-    return await this.importPickedFilesStandalone(uris, passwordPrompt,
+    return await this.importPickedFilesStandalone(effective, passwordPrompt,
       plan.titleOverrides);
   }
 

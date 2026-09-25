@@ -103,12 +103,12 @@ check(importer.includes('titleOverrides: Map<string, string>') &&
 const dispatch = section(importer, 'private async dispatchImportPlan',
   'private async importFilesIntoSingleNewNote');
 check(dispatch.includes('plan.destination === ImportDestination.EXISTING_NOTE') &&
-  dispatch.includes('await this.importPickedFilesIntoNote(target, uris, passwordPrompt)'),
+  dispatch.includes('await this.importPickedFilesIntoNote(target, effective, passwordPrompt)'),
   'dispatchImportPlan routes EXISTING_NOTE to the into-note loop (qv5)');
 check(dispatch.includes('plan.destination === ImportDestination.SINGLE_NOTE') &&
   dispatch.includes('await this.importFilesIntoSingleNewNote'),
   'dispatchImportPlan routes SINGLE_NOTE to the create+merge path (sv5)');
-check(dispatch.includes('await this.importPickedFilesStandalone(uris, passwordPrompt,') &&
+check(dispatch.includes('await this.importPickedFilesStandalone(effective, passwordPrompt,') &&
   dispatch.includes('plan.titleOverrides'),
   'dispatchImportPlan routes SEPARATE_NOTES with titleOverrides (rv5)');
 const singleNew = section(importer, 'private async importFilesIntoSingleNewNote',
