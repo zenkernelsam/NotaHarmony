@@ -4144,7 +4144,13 @@ struct LibraryPage {
       }
       if (report.noteId === null) {
         if (report.result !== ImportResult.CANCELLED) {
-          promptAction.showToast({ message: $r('app.string.import_failed') });
+          // 原版 vs8：打开失败按 gr9 分类——TooLarge 走 open_pdf_too_large，
+          // 其余走 open_pdf_failed（密码保护由 pdfPasswordPrompt 交互流程
+          // 覆盖，比原版 toast 更强，见 ADR-0669 偏差记录）。
+          promptAction.showToast({
+            message: report.result === ImportResult.TOO_LARGE ?
+              $r('app.string.open_pdf_too_large') :
+              $r('app.string.open_pdf_failed') });
         }
         return;
       }

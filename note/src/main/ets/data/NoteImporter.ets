@@ -91,7 +91,12 @@ export enum ImportResult {
   CORRUPTED = 2,
   PARTIAL = 3,       // 部分恢复
   CANCELLED = 4,     // picker 取消（无文件被选中）
+  // 原版 jv5.f：pdf 打开路径 flag16 → 524288000(500MB) 上限，
+  // 超限归 gr9.TooLarge → app__open_pdf_too_large 专属提示。
+  TOO_LARGE = 5,
 }
+// 原版 jv5 内容 URI 上限：flag16（pdf/ntb 打开路径）= 500MB。
+export const SHARED_OPEN_MAX_BYTES: number = 524288000;
 
 export interface ImportReport {
   result: ImportResult;
@@ -305,6 +310,19 @@ export class NoteImporter {
   async importSharedUris(uris: string[],
     passwordPrompt?: PdfPasswordPrompt,
     sheetPrompt?: ImportSheetPrompt): Promise<ImportReport> {
+    // 原版 jv5.f flag16：打开路径文件 >524288000 直接 TooLarge（不入分发）。
+    for (const uri of uris) {
+      try {
+        const size: number = fileIo.statSync(uri).size;
+        if (!Number.isSafeInteger(size) || size > SHARED_OPEN_MAX_BYTES) {
+          return { result: ImportResult.TOO_LARGE, noteId: null, title: null,
+            pageCount: 0, missingAssets: [], warnings: [],
+            message: '文件超过打开大小上限 500MB' };
+        }
+      } catch (_e) {
+        // stat 失败不拦截——交给下游导入分类。
+      }
+    }
     if (sheetPrompt !== undefined) {
       const plan: ImportPlan | null =
         await sheetPrompt(describeImportUris(uris), 'standalone', '');
