@@ -6,6 +6,10 @@ import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { registerNoteFonts } from '../../data/NoteFonts';
 import { preferences } from '@kit.ArkData';
+import { common } from '@kit.AbilityKit';
+import { promptAction } from '@kit.ArkUI';
+import { pasteboard } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 
 // 原版 rs1.d 代码块语言表（27 项，含 plaintext 哨兵 rs1.c——原版派单把
 // plaintext 映射为 null=清除 programmingLanguage 字段）。
@@ -1251,6 +1255,61 @@ export struct TextBlockOverlay {
     this.onDraftChange(this.draftText);
   }
 
+  // 原版 rej.i 点检适配：ww2 编辑表面 tap→折叠 caret 落在链接
+  // run 上。caret 语义取"tap 在最后一个链接字符右侧/第一个字符
+  // 左侧仍命中"——先探测 caret-1，再探测 caret。
+  private linkRunAtCaret(): RichTextCharacterStyleRun | null {
+    const caret: number = this.caretOffset;
+    for (const probe of [Math.max(0, caret - 1), caret]) {
+      for (const run of this.draftCharRuns) {
+        if (run.style.link !== undefined && run.start <= probe && probe < run.end) {
+          return run;
+        }
+      }
+    }
+    return null;
+  }
+
+  // 原版 ww2+wg7.N：编辑表面链接 tap 菜单四项
+  // Open / Copy Link / Edit / Remove（n94.java 文案序）。
+  private showEditLinkMenu(run: RichTextCharacterStyleRun): void {
+    const url: string = run.style.link ?? '';
+    promptAction.showActionMenu({
+      title: url,
+      buttons: [
+        { text: $r('app.string.link_open'), color: '#007DFF' },
+        { text: $r('app.string.copy_link'), color: '#007DFF' },
+        { text: $r('app.string.link_menu_edit'), color: '#007DFF' },
+        { text: $r('app.string.link_menu_remove'), color: '#007DFF' },
+      ],
+    }).then((result: promptAction.ActionMenuSuccessResponse): void => {
+      if (result.index === 0) {
+        const context = getContext(this) as common.UIAbilityContext;
+        context.openLink(url).catch((e: Error): void => {
+          hilog.error(0x0001, 'TextBlockOverlay', 'openLink failed: %{public}s', e.message);
+          promptAction.showToast({ message: $r('app.string.link_open_failed'), duration: 2500 });
+        });
+      } else if (result.index === 1) {
+        const data: pasteboard.PasteData = pasteboard.createPlainTextData(url);
+        pasteboard.getSystemPasteboard().setData(data).then((): void => {
+          promptAction.showToast({ message: $r('app.string.link_copied'), duration: 2000 });
+        }).catch((e: Error): void => {
+          hilog.error(0x0001, 'TextBlockOverlay', 'copy link failed: %{public}s', e.message);
+        });
+      } else if (result.index === 2) {
+        this.caretSelectionStart = run.start;
+        this.caretOffset = run.end;
+        this.openLinkSheet();
+      } else if (result.index === 3) {
+        this.caretSelectionStart = run.start;
+        this.caretOffset = run.end;
+        this.removeLink();
+      }
+    }).catch((e: Error): void => {
+      hilog.error(0x0001, 'TextBlockOverlay', 'link menu failed: %{public}s', e.message);
+    });
+  }
+
   // 原版 aue/wm5→removeHyperlinkFromSelection：清除选区 link 字段。
   private removeLink(): void {
     const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
@@ -1851,6 +1910,16 @@ export struct TextBlockOverlay {
               this.refreshCaretCodeLanguage();
               this.refreshCaretCharStyles();
               this.onCaretChange(end);
+            })
+            // 原版 ww2：编辑表面 tap 折叠 caret 落在链接上 → 四项菜单。
+            .onClick((): void => {
+              if (this.caretSelectionStart !== this.caretOffset) {
+                return;
+              }
+              const run: RichTextCharacterStyleRun | null = this.linkRunAtCaret();
+              if (run !== null) {
+                this.showEditLinkMenu(run);
+              }
             })
             .onChange((value: string) => {
               if (this.photoImportLeaseActive) {

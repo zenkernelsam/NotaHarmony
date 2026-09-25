@@ -305,6 +305,14 @@
       "value": "Copy Link"
     },
     {
+      "name": "link_menu_edit",
+      "value": "Edit"
+    },
+    {
+      "name": "link_menu_remove",
+      "value": "Remove"
+    },
+    {
       "name": "link_open_failed",
       "value": "Unable to open link"
     },

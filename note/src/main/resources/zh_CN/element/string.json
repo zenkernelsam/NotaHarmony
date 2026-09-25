@@ -87,6 +87,8 @@
     { "name": "selection_style", "value": "样式" },
     { "name": "link_open", "value": "打开" },
     { "name": "copy_link", "value": "复制链接" },
+    { "name": "link_menu_edit", "value": "编辑" },
+    { "name": "link_menu_remove", "value": "移除" },
     { "name": "link_open_failed", "value": "无法打开链接" },
     { "name": "link_copied", "value": "已复制链接" },
     { "name": "selection_actions", "value": "操作" },

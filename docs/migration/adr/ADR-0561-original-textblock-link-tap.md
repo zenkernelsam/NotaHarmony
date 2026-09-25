@@ -32,8 +32,9 @@ Harmony 链接数据链早已完整：`OriginalRichTextStyleOperation` 解码
 ## 偏差（fail-closed 记录）
 
 1. 菜单呈现为底部 `showActionMenu` 而非链接段锚定弹窗——语义等价。
-2. `ww2` 编辑表面的 Edit/Remove 两项未移植——Harmony 文本块编辑
-   表面无链接编辑操作。
+2. ~~`ww2` 编辑表面的 Edit/Remove 两项未移植~~ —— 已被
+   ADR-0705（Phase 757）取代：折叠 caret → link run 探测 +
+   wg7.N 四项菜单已移植。
 3. `tqa`/`displayHandles` 文本块把手态未移植（无该把手层）。
 4. 非链接 `ttc` 的文本块激活/聚焦语义未移植——Harmony 维持
    TapToSelect；属更大 epic，本阶段仅拦截链接命中。

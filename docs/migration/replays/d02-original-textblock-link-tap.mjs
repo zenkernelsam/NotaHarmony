@@ -11,6 +11,8 @@
 //     m18.m0(wg7.OPEN, wg7.COPY_LINK)（Open/Copy Link 二项菜单）。
 //   wg7.java — 链接菜单枚举 OPEN/COPY_LINK/EDIT/REMOVE（完整四项走
 //     ww2:350 编辑表面；pca 只出前两项）。
+//   ww2.java:350 — 编辑表面链接段包围盒锚定 → wg7.N 四项菜单
+//     （Phase 757 移植：折叠 caret → link run 探测 → 四项 ActionMenu）。
 //   vm5.java — OpenLinkClicked(url=…) 打开链接。
 //   n94.java:240-250 — link_menu_open/copy_link/edit/remove 文案。
 // Harmony：Canvas2DTextRenderer.linkAtPoint 复刻布局行遍历做偏移→链接
@@ -22,11 +24,13 @@ import assert from 'node:assert';
 
 const RENDERER = 'note/src/main/ets/core/adaptation/Canvas2DTextRenderer.ets';
 const CANVAS = 'note/src/main/ets/ui/editor/NoteCanvasView.ets';
+const OVERLAY = 'note/src/main/ets/ui/components/TextBlockOverlay.ets';
 const STRINGS = 'note/src/main/resources/base/element/string.json';
 const ZH = 'note/src/main/resources/zh_CN/element/string.json';
 
 const renderer = readFileSync(RENDERER, 'utf8');
 const canvas = readFileSync(CANVAS, 'utf8');
+const overlay = readFileSync(OVERLAY, 'utf8');
 const strings = readFileSync(STRINGS, 'utf8');
 const zh = readFileSync(ZH, 'utf8');
 
@@ -105,5 +109,43 @@ check(strings.includes('"value": "Open"') && strings.includes('"value": "Copy Li
 // --- 既有链接数据链完整（解码→样式 run→下划线渲染） ---
 check(renderer.includes('style.link !== undefined'),
   'link style run still drives underline render');
+
+// --- Phase 757：ww2 编辑表面 wg7.N 四项菜单 ---
+// caret→链接 run 探测（rej.i 点检的 TextArea 适配）。
+check(overlay.includes('private linkRunAtCaret(): RichTextCharacterStyleRun | null'),
+  'linkRunAtCaret helper (collapsed-caret → link run probe)');
+check(overlay.includes('run.style.link !== undefined && run.start <= probe && probe < run.end'),
+  'link run containment probe (caret-1 primary, caret fallback)');
+check(/for \(const probe of \[Math\.max\(0, caret - 1\), caret\]\)/.test(overlay),
+  'dual-side caret probe covers boundary landings');
+// 折叠 caret 门槛 + onClick tap 触发。
+check(overlay.includes('if (this.caretSelectionStart !== this.caretOffset)') &&
+  overlay.includes('this.showEditLinkMenu(run)'),
+  'onClick gate: collapsed caret on link → menu (ww2 tap semantics)');
+const editMenu = overlay.slice(overlay.indexOf('showEditLinkMenu(run: RichTextCharacterStyleRun)'));
+check(editMenu.includes('promptAction.showActionMenu'),
+  'edit-surface ActionMenu (wg7.N parity)');
+const itemOrder = ['link_open', 'copy_link', 'link_menu_edit', 'link_menu_remove'];
+let lastIdx = -1;
+for (const key of itemOrder) {
+  const idx = editMenu.indexOf(`$r('app.string.${key}')`);
+  check(idx > lastIdx, `menu item order ${key} (wg7 ordinal ${itemOrder.indexOf(key)})`);
+  lastIdx = idx;
+}
+// 四项行为接线。
+check(editMenu.includes('context.openLink(url)'),
+  'EDIT menu Open → openLink (OpenLinkClicked parity)');
+check(editMenu.includes('pasteboard.createPlainTextData(url)'),
+  'EDIT menu Copy Link → pasteboard');
+check(editMenu.indexOf('this.openLinkSheet()') > editMenu.indexOf('this.caretSelectionStart = run.start'),
+  'Edit → select link run + openLinkSheet (en5.c Edit-hyperlink prefill)');
+check(editMenu.indexOf('this.removeLink()') > editMenu.indexOf('this.caretOffset = run.end'),
+  'Remove → select link run + removeLink (removeHyperlinkFromSelection parity)');
+for (const s of ['link_menu_edit', 'link_menu_remove']) {
+  check(strings.includes(`"name": "${s}"`), `base string ${s}`);
+  check(zh.includes(`"name": "${s}"`), `zh string ${s}`);
+}
+check(strings.includes('"value": "Edit"') && strings.includes('"value": "Remove"'),
+  'labels match original link_menu_edit/remove copy');
 
 console.log(`D02_ORIGINAL_TEXTBLOCK_LINK_TAP_OK TOTAL=${n} FAILED=0`);

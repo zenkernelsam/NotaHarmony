@@ -71,8 +71,9 @@ if (akeVar != null && (ekeVar = akeVar.r) != null &&
 - 原版菜单锚定在链接段包围盒；Harmony 用 `showActionMenu` 底部动作
   菜单（语义等价、呈现不同）。
 - 原版 `pca` 只出 [Open, Copy Link]；`ww2` 编辑表面另出
-  [Edit, Remove]——Harmony 文本块编辑表面尚无链接编辑操作，本阶段
-  只移植 `pca` 路径。
+  [Edit, Remove]——本阶段只移植 `pca` 路径。
+  ⚠️ 已被 Phase 757 取代：`ww2` 编辑表面四项菜单已移植
+  （`phase-757-textblock-edit-link-menu.md`、ADR-0705）。
 - `tqa` 的 `displayHandles` 文本块把手态未移植（Harmony 无该把手层）。
 - 非链接的 `ttc`（文本块激活/聚焦）未改变既有 TapToSelect 行为——
   原文本块聚焦表面属更大 epic，本阶段只拦截链接命中。
