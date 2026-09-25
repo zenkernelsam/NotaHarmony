@@ -46,9 +46,9 @@ Harmony 编辑器此前没有任何页缩略图栅格表面——`PageManagerBar
 
 | 原版能力 | Harmony 现状 | 处置 |
 |---|---|---|
-| 多选模式（`isSelecting`/`selectedPageIds`/`tfh` 工具条/select_all） | 未实现 | 登记后续 Phase（沿用 Phase 550/635/638 分歧登记） |
-| 页内搜索（`isSearchActive`/`searchMatchingPageKeys`） | 未实现 | 登记后续 Phase |
-| 缩略图页上下文菜单（`vc2`） | PageManagerBar 覆盖主要页操作 | 已覆盖，菜单入口差异已登记 |
+| 多选模式（`isSelecting`/`selectedPageIds`/`tfh` 工具条/select_all） | ~~未实现~~ **已落地（Phase 648）**：`selecting`/`selectedPageIds` + tfh 工具条（select/deselect-all + 批量 copy/duplicate/delete/clear） | ~~登记后续 Phase~~ 已闭环 |
+| 页内搜索（`isSearchActive`/`searchMatchingPageKeys`） | ~~未实现~~ **已落地（Phase 646）**：`searchActive`/`searchQuery` + `searchMatchingPageKeys` 等价命中过滤 | ~~登记后续 Phase~~ 已闭环 |
+| 缩略图页上下文菜单（`vc2`） | 已落地（Phase 647 cell 菜单 + PageManagerBar） | 已覆盖，菜单入口差异已登记 |
 | 面板形态（侧栏 vs 半屏 Sheet） | `bindSheet` LARGE | ArkUI 形态差异，行为等价 |
 | NOTES 过滤「内容」判定 | `page_element_snapshot` 行数 | 原版判定字段未反编译完全，按快照行数近似并在此登记 |
 

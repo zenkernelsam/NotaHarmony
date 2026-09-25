@@ -17,8 +17,9 @@
 //     当前页高亮 + 书签角标 + 空态 + 显式关闭；
 //   * NOTES chip 以 page_element_snapshot 行数判定（新增
 //     StrokePersistence.getPageElementCounts）；
-//   * 多选（isSelecting/selectedPageIds/tfh 工具条）与页内搜索
-//     登记后续 Phase。
+//   * 多选（isSelecting/selectedPageIds/tfh 工具条，Phase 648）与
+//     页内搜索（isSearchActive/searchMatchingPageKeys，Phase 646）
+//     已落地——ADR-0612 登记行已闭环更新。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 

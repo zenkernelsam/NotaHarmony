@@ -9,8 +9,8 @@
 //   空态 ui_pageselection__no_pages = "No pages to display"；
 //   关闭 a11y = content_manager_close_description。
 // Harmony 子集（ADR-0612）：缩略图栅格 + 三过滤 chip + 点击跳页 +
-// 当前页高亮 + 书签角标；多选（isSelecting/selectedPageIds/tfh 工具条）
-// 与页内搜索（isSearchActive/searchMatchingPageKeys）登记后续 Phase。
+// 当前页高亮 + 书签角标。多选（selecting/selectedPageIds/tfh 工具条，
+// Phase 648）与页内搜索（searchActive/searchQuery，Phase 646）已落地。
 import { common } from '@kit.AbilityKit';
 import { PageInfo } from '../../core/model/NoteTypes';
 import { rotatedOriginalPageInfo } from '../../core/model/PageBackgroundModel';
