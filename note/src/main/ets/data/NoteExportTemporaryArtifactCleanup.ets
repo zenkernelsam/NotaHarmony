@@ -1,6 +1,12 @@
 import { fileIo } from '@kit.CoreFileKit';
 
-const NOTE_EXPORT_ARTIFACT_NAME: RegExp = /^export_\d+\.note$/;
+// Staging prefixes produced by NoteExporter / PagePdfExporter / PageImageExporter.
+// Original g64 sweeps every export dir past its 24h TTL plus a 500 MB LRU cap, and
+// gv2 also clears interrupted "temp_" cache artifacts at owner startup; Harmony
+// stages exports in Context.tempDir (unlinked in finally on success), so the
+// startup pass reclaims whatever a dead process left behind — all five prefixes.
+const NOTE_EXPORT_ARTIFACT_NAME: RegExp =
+  /^(?:export_\d+\.note|note_export_(?:enc_)?\d+\.pdf|pages?_export_\d+\.(?:png|jpe?g|zip))$/;
 
 export interface NoteExportTemporaryArtifactCleanupReport {
   scanned: number;
@@ -12,7 +18,7 @@ export interface NoteExportTemporaryArtifactCleanupReport {
 // Original 1.0.3 owns private export/cache artifacts and sweeps them after interruption
 // (g64 + ExportSweepWorker, and gv2 case 2). Harmony export picker staging lives directly
 // in Context.tempDir and has no valid consumer after this process dies, so the first database
-// initialization reclaims only files produced by NoteExporter.exportToFile().
+// initialization reclaims leftover files from every exporter staging prefix.
 export function cleanupInterruptedNoteExports(tempRoot: string):
   NoteExportTemporaryArtifactCleanupReport {
   const report: NoteExportTemporaryArtifactCleanupReport = {

@@ -41,8 +41,10 @@ const checks = [
     exporter.includes('`${context.tempDir}/export_${Date.now()}.note`')],
   ['normal export completion still unlinks its staging file',
     exporter.includes('if (tmpPath.length > 0)') && exporter.includes('fileIo.unlinkSync(tmpPath)')],
-  ['cleanup accepts only current Harmony export artifacts',
-    cleanup.includes('/^export_\\d+\\.note$/')],
+  ['cleanup accepts all current Harmony export staging artifacts',
+    cleanup.includes('export_\\d+\\.note') &&
+      cleanup.includes('note_export_(?:enc_)?\\d+\\.pdf') &&
+      cleanup.includes('pages?_export_\\d+\\.(?:png|jpe?g|zip)')],
   ['cleanup is non-recursive and never deletes directories',
     cleanup.includes('fileIo.listFileSync(directory, { recursion: false })') &&
       cleanup.includes('if (!fileIo.statSync(candidate).isFile())') &&
@@ -68,7 +70,8 @@ for (const [name, ok] of checks) {
   console.log(`PASS: ${name}`);
 }
 
-const exportArtifact = /^export_\d+\.note$/;
+const exportArtifact =
+  /^(?:export_\d+\.note|note_export_(?:enc_)?\d+\.pdf|pages?_export_\d+\.(?:png|jpe?g|zip))$/;
 
 function cleanupModel(tempRoot) {
   let removed = 0;
@@ -84,19 +87,28 @@ function cleanupModel(tempRoot) {
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nota-export-cleanup-'));
 try {
   fs.writeFileSync(path.join(temporaryRoot, 'export_100.note'), 'owned');
+  fs.writeFileSync(path.join(temporaryRoot, 'note_export_200.pdf'), 'owned');
+  fs.writeFileSync(path.join(temporaryRoot, 'note_export_enc_201.pdf'), 'owned');
+  fs.writeFileSync(path.join(temporaryRoot, 'page_export_202.png'), 'owned');
+  fs.writeFileSync(path.join(temporaryRoot, 'page_export_203.jpg'), 'owned');
+  fs.writeFileSync(path.join(temporaryRoot, 'pages_export_204.zip'), 'owned');
   fs.writeFileSync(path.join(temporaryRoot, 'export_bad.note'), 'keep');
   fs.writeFileSync(path.join(temporaryRoot, 'export_101.note.bak'), 'keep');
+  fs.writeFileSync(path.join(temporaryRoot, 'page_export_bad.png'), 'keep');
+  fs.writeFileSync(path.join(temporaryRoot, 'note_export_205.txt'), 'keep');
   fs.writeFileSync(path.join(temporaryRoot, 'user.note'), 'keep');
   fs.mkdirSync(path.join(temporaryRoot, 'export_102.note'));
   const nested = path.join(temporaryRoot, 'nested');
   fs.mkdirSync(nested);
   fs.writeFileSync(path.join(nested, 'export_103.note'), 'keep');
 
-  assert.equal(cleanupModel(temporaryRoot), 1,
-    'FAILED: startup cleanup did not remove exactly the owned direct-child export file');
-  console.log('PASS: runtime model removes the interrupted direct-child export artifact');
+  assert.equal(cleanupModel(temporaryRoot), 6,
+    'FAILED: startup cleanup did not remove exactly the owned direct-child export files');
+  console.log('PASS: runtime model removes all interrupted direct-child export artifacts');
   assert.equal(fs.existsSync(path.join(temporaryRoot, 'export_bad.note')), true);
   assert.equal(fs.existsSync(path.join(temporaryRoot, 'export_101.note.bak')), true);
+  assert.equal(fs.existsSync(path.join(temporaryRoot, 'page_export_bad.png')), true);
+  assert.equal(fs.existsSync(path.join(temporaryRoot, 'note_export_205.txt')), true);
   assert.equal(fs.existsSync(path.join(temporaryRoot, 'user.note')), true);
   assert.equal(fs.statSync(path.join(temporaryRoot, 'export_102.note')).isDirectory(), true);
   assert.equal(fs.existsSync(path.join(nested, 'export_103.note')), true);
