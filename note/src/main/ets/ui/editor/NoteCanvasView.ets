@@ -218,6 +218,7 @@ import {
 } from '../../data/OriginalDragDropIngress';
 import { OriginalImageInsertPersistencePlan, OriginalImageInsertResult } from '../../data/StrokePersistence';
 import { OnboardingTipBubble } from '../components/OnboardingTipBubble';
+import { NoteZoomView } from './NoteZoomView';
 import {
   OnboardingTooltipKind, OnboardingTooltipStore,
 } from '../../data/OnboardingTooltipStore';
@@ -230,6 +231,8 @@ const ORIGINAL_CREATE_INK_PAYLOAD_TYPE: number = 15;
 const ORIGINAL_MATH_EDITOR_PREVIEW_WIDTH_VP: number = 280;
 const ORIGINAL_MATH_EDITOR_PREVIEW_HEIGHT_VP: number = 96;
 const ORIGINAL_MATH_EDITOR_PREVIEW_PIXEL_SCALE: number = 1;
+// Phase 747 Zoom View 面板画布区高度（vp）；控制条 48vp 另计（wfg 48dp）
+const ZOOM_SURFACE_HEIGHT_VP: number = 160;
 const PDF_RASTER_REFRESH_DELAY_MS: number = 120;
 const CLIPBOARD_PASTE_SUPPRESSION_MS: number = 200;
 
@@ -545,6 +548,21 @@ export struct NoteCanvasView {
   @State eyedropperLoupeMap: image.PixelMap | null = null;
   @State eyedropperLoupeX: number = 0;
   @State eyedropperLoupeY: number = 0;
+  // === Phase 747 Zoom View（原版 ggg ZoomViewState 的宿主侧投影）===
+  // ggg.c sourceRectDocPx：放大窗口在文档坐标（页面 pt）下的左上原点
+  @State zoomSourceX: number = 0;
+  @State zoomSourceY: number = 0;
+  // ggg.b dockEdge：qeg.J=Bottom（lgg 默认）/ qeg.I=Top
+  @State zoomDockBottom: boolean = true;
+  // ggg.e advanceRegionWidth=180dp（Harmony 用 vp 近似；可拖 advance_tab 调整）
+  @State zoomAdvanceWidthVp: number = 180;
+  // 放大面板内进行中的笔画（StrokeSession.getCurrentStroke 快照，逐帧驱动重绘）
+  @State zoomLiveStroke: StrokeElementData | null = null;
+  @State zoomPaintTick: number = 0;
+  // ggg.d magnification=5.0f（lgg 默认）：screen px / doc px
+  private zoomMagnification: number = 5;
+  // 放大面板书写会话的生命周期标记（独立于主画布 isDrawing）
+  private zoomStrokeActive: boolean = false;
   private eyedropperColor: number | null = null;
   private eyedropperSampleGeneration: number = 0;
   private canvasDropWindowOrigin: Point2D = { x: 0, y: 0 };
@@ -1453,6 +1471,255 @@ export struct NoteCanvasView {
     return true;
   }
 
+  // ===================== Phase 747 Zoom View =====================
+  // 原版 ggg/vgg/fgg/ufg 语义：
+  // - sourceRectDocPx：放大窗口可见区域（doc px）。窗口 doc 宽 =
+  //   屏幕 px / magnification（5.0 → 1080px 屏≈216pt 宽窗）。
+  // - ufg.Advance：笔画落笔结束于自动前进区（trailing advanceWidthVp 带）→
+  //   窗口右滑 (rectW − advanceDoc)，保持笔迹上下文衔接。
+  // - ufg.Back/Forward：窗口按 (rectW − advanceDoc) 步进左/右翻。
+  // - ufg.Return：窗口跳回最近一笔的续写位（末笔末端落在前进区前沿）。
+  // - qeg dockEdge：拖拽柄垂直拖动重新停靠 Top/Bottom。
+  // 输入：面板 onTouch 透传，坐标 vp → px → doc（doc = source + px/mag），
+  // 笔画经同一 StrokeSession 平滑/拟合管线，提交路径与主画布 Up 一致。
+
+  private zoomSurfaceRectWidthDoc(): number {
+    const density: number = vp2px(1);
+    const widthPx: number = vp2px(this.overlayWidth > 0 ? this.overlayWidth : 360);
+    return widthPx / this.zoomMagnification;
+  }
+
+  private zoomSurfaceRectHeightDoc(): number {
+    return vp2px(ZOOM_SURFACE_HEIGHT_VP) / this.zoomMagnification;
+  }
+
+  private zoomAdvanceDoc(): number {
+    return vp2px(this.zoomAdvanceWidthVp) / this.zoomMagnification;
+  }
+
+  private clampZoomSource(x: number, y: number): void {
+    const rectW: number = this.zoomSurfaceRectWidthDoc();
+    const rectH: number = this.zoomSurfaceRectHeightDoc();
+    const paperW: number = this.getPaperWidth();
+    const paperH: number = this.getPaperHeight();
+    this.zoomSourceX = Math.max(0, Math.min(x, Math.max(0, paperW - rectW)));
+    this.zoomSourceY = Math.max(0, Math.min(y, Math.max(0, paperH - rectH)));
+  }
+
+  // 面板挂载/页切换时初始化 sourceRect：有墨迹 → 末笔续写位
+  // （rectW − advanceDoc 处，下一笔写入即触发前进）；无墨迹 → 视口中心。
+  private initZoomSourceRect(): void {
+    const rectW: number = this.zoomSurfaceRectWidthDoc();
+    const rectH: number = this.zoomSurfaceRectHeightDoc();
+    const lastStroke: StrokeElementData | undefined =
+      this.completedStrokes.length > 0 ?
+        this.completedStrokes[this.completedStrokes.length - 1] : undefined;
+    if (lastStroke !== undefined && lastStroke.pathPoints.length > 0) {
+      const last: StrokePathPoint =
+        lastStroke.pathPoints[lastStroke.pathPoints.length - 1];
+      this.clampZoomSource(
+        last.position.x - (rectW - this.zoomAdvanceDoc()),
+        last.position.y - rectH / 2);
+      return;
+    }
+    const center: Point2D = this.viewport.screenToCanvas(
+      this.canvasCtx.width / 2, this.canvasCtx.height / 2);
+    this.clampZoomSource(center.x - rectW / 2, center.y - rectH / 2);
+  }
+
+  private zoomDocPoint(touch: TouchObject): Point2D {
+    const paperW: number = this.getPaperWidth();
+    const paperH: number = this.getPaperHeight();
+    return {
+      x: Math.min(Math.max(
+        this.zoomSourceX + vp2px(touch.x) / this.zoomMagnification, 0), paperW),
+      y: Math.min(Math.max(
+        this.zoomSourceY + vp2px(touch.y) / this.zoomMagnification, 0), paperH),
+    };
+  }
+
+  // Zoom 采样 → RawPointerEvent：与 toRawPointerEvent 同径（doc 坐标夹取 +
+  // stylus 属性），差异仅在坐标映射（放大面板 vp→px→doc）。
+  private zoomRawPointerEvent(touch: TouchObject, isHistorical: boolean,
+    event: TouchEvent, timestamp: number): RawPointerEvent {
+    const stylus: ArkUIStylusSample = ArkUIStylusAdapter.fromTouch(touch, event);
+    const p: Point2D = this.zoomDocPoint(touch);
+    return {
+      x: p.x,
+      y: p.y,
+      pressure: stylus.pressure,
+      tiltRadians: stylus.altitudeAngleRadians,
+      orientationRadians: stylus.orientationRadians,
+      toolType: stylus.toolType,
+      timestamp: timestamp,
+      isHistorical: isHistorical,
+    };
+  }
+
+  private onZoomTouchEvent(event: TouchEvent): void {
+    switch (event.type) {
+      case TouchType.Down:
+        this.onZoomTouchDown(event);
+        break;
+      case TouchType.Move:
+        this.onZoomTouchMove(event);
+        break;
+      case TouchType.Up:
+        this.onZoomTouchUp(event);
+        break;
+      case TouchType.Cancel:
+        this.onZoomTouchCancel();
+        break;
+      default:
+        break;
+    }
+  }
+
+  private onZoomTouchDown(event: TouchEvent): void {
+    if (this.photoImportBusy || this.historyBusy || !this.loaded ||
+      this.strokeSession !== null || this.zoomStrokeActive) {
+      return;
+    }
+    const touch: TouchObject = event.touches[0];
+    if (touch === undefined || event.touches.length !== 1) {
+      return;
+    }
+    const spec: RenderSpec = this.makeRenderSpec();
+    this.strokeSession = new StrokeSession(spec);
+    const originalCreate: OriginalInkCreateMetadata | null = this.originalInkReservation;
+    this.originalInkReservation = null;
+    if (originalCreate !== null) {
+      originalCreate.clientTime = Math.max(originalCreate.clientTime, Date.now());
+      originalCreate.pencilSeed = (event.timestamp | 0);
+    }
+    // T-040 同径：传入 zoom 容差参数（放大面内采样以 doc 为单位，屏幕
+    // 误差折算由 session 按 zoom 处理）
+    this.strokeSession.beginStroke(
+      spec, event.timestamp, this.viewport.zoom, this.readRecordingAudioTime(),
+      originalCreate);
+    this.inputProvider.beginStroke(event.timestamp);
+    const downBatch: InputBatch = this.inputProvider.processEvent(
+      [this.zoomRawPointerEvent(touch, false, event, event.timestamp)], false);
+    this.strokeSession.addBatch(downBatch);
+    this.zoomStrokeActive = true;
+    this.zoomLiveStroke = this.strokeSession.getCurrentStroke();
+    this.zoomPaintTick++;
+  }
+
+  private onZoomTouchMove(event: TouchEvent): void {
+    if (!this.zoomStrokeActive || this.strokeSession === null) {
+      return;
+    }
+    const pointerId: number = event.changedTouches.length > 0 ?
+      event.changedTouches[0].id : -1;
+    const historicalRaws: RawPointerEvent[] = [];
+    const historicalPoints: HistoricalPoint[] = event.getHistoricalPoints();
+    for (const historical of historicalPoints) {
+      if (historical.touchObject.id !== pointerId) {
+        continue;
+      }
+      historicalRaws.push(this.zoomRawPointerEvent(
+        historical.touchObject, true, event, historical.timestamp));
+    }
+    if (historicalRaws.length > 0) {
+      this.strokeSession.addBatch(
+        this.inputProvider.processEvent(historicalRaws, false));
+    }
+    const touch: TouchObject = event.changedTouches[0];
+    if (touch !== undefined) {
+      const realBatch: InputBatch = this.inputProvider.processEvent(
+        [this.zoomRawPointerEvent(touch, false, event, event.timestamp)], false);
+      this.strokeSession.addBatch(realBatch);
+    }
+    this.zoomLiveStroke = this.strokeSession.getCurrentStroke();
+    this.zoomPaintTick++;
+  }
+
+  private onZoomTouchUp(event: TouchEvent): void {
+    if (!this.zoomStrokeActive || this.strokeSession === null) {
+      return;
+    }
+    const stroke: StrokeElementData = this.strokeSession.finishStroke();
+    this.strokeSession = null;
+    this.zoomStrokeActive = false;
+    this.zoomLiveStroke = null;
+    const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
+    this.completedStrokes.push(stroke);
+    this.elementOrder = appendPageElementRefs(
+      this.elementOrder, PageElementKind.STROKE, [stroke.id]);
+    this.undoRedo.push({
+      type: UndoableActionType.ADD_STROKE,
+      noteId: this.noteId,
+      pageId: this.currentPage.pageId,
+      addedStrokes: [stroke],
+      elementOrderBefore: elementOrderBefore,
+      elementOrderAfter: clonePageElementOrder(this.elementOrder),
+    });
+    this.layerManager.commitStroke(stroke, this.renderCtx, this.viewport.zoom);
+    this.persist(stroke.originalCreate !== undefined);
+    this.notifyUndoRedo();
+    this.zoomAutoAdvance(stroke);
+    this.renderFrame();
+    this.zoomPaintTick++;
+  }
+
+  private onZoomTouchCancel(): void {
+    if (this.strokeSession !== null && this.zoomStrokeActive) {
+      this.strokeSession.cancelStroke();
+      this.refreshOriginalInkReservation(this.pageLoadGeneration, this.loadedPageId);
+    }
+    this.strokeSession = null;
+    this.zoomStrokeActive = false;
+    this.zoomLiveStroke = null;
+    this.zoomPaintTick++;
+  }
+
+  // ufg.Advance：末笔末端落入自动前进区（trailing advanceDoc）→ 窗口右滑
+  // rectW − advanceDoc（衔接带=下次可见的书写上下文重叠区）
+  private zoomAutoAdvance(stroke: StrokeElementData): void {
+    if (stroke.pathPoints.length === 0) {
+      return;
+    }
+    const end: StrokePathPoint = stroke.pathPoints[stroke.pathPoints.length - 1];
+    const rectW: number = this.zoomSurfaceRectWidthDoc();
+    const advanceDoc: number = this.zoomAdvanceDoc();
+    if (end.position.x > this.zoomSourceX + rectW - advanceDoc) {
+      this.clampZoomSource(this.zoomSourceX + (rectW - advanceDoc), this.zoomSourceY);
+    }
+  }
+
+  // ufg.Back / Forward：按 (rectW − advanceDoc) 步进
+  private zoomStepBack(): void {
+    this.clampZoomSource(
+      this.zoomSourceX - (this.zoomSurfaceRectWidthDoc() - this.zoomAdvanceDoc()),
+      this.zoomSourceY);
+    this.zoomPaintTick++;
+  }
+
+  private zoomStepForward(): void {
+    this.clampZoomSource(
+      this.zoomSourceX + (this.zoomSurfaceRectWidthDoc() - this.zoomAdvanceDoc()),
+      this.zoomSourceY);
+    this.zoomPaintTick++;
+  }
+
+  // ufg.Return：跳回最近一笔的续写位（末笔末端置于前进区前沿）
+  private zoomReturnToInk(): void {
+    const lastStroke: StrokeElementData | undefined =
+      this.completedStrokes.length > 0 ?
+        this.completedStrokes[this.completedStrokes.length - 1] : undefined;
+    if (lastStroke !== undefined && lastStroke.pathPoints.length > 0) {
+      const last: StrokePathPoint =
+        lastStroke.pathPoints[lastStroke.pathPoints.length - 1];
+      const rectW: number = this.zoomSurfaceRectWidthDoc();
+      const rectH: number = this.zoomSurfaceRectHeightDoc();
+      this.clampZoomSource(
+        last.position.x - (rectW - this.zoomAdvanceDoc()),
+        last.position.y - rectH / 2);
+    }
+    this.zoomPaintTick++;
+  }
+
   private linkHitOnTextBlock(elementId: string, point: Point2D): TextBlockLinkHit | null {
     const block: TextBlockElement | undefined =
       this.textBlocks.find((t: TextBlockElement): boolean => t.id === elementId);
@@ -1681,6 +1948,10 @@ export struct NoteCanvasView {
       this.elementOrder = loaded.elementOrder;
       this.selectionGroups = loaded.groups;
       this.loadedPageId = targetPageId;
+      // Phase 747：ZOOM 激活中切页 → sourceRect 重新锚定新页续写位
+      if (this.viewModel.currentTool === ToolType.ZOOM) {
+        this.initZoomSourceRect();
+      }
       this.loaded = true;
       this.dataLoadFailed = false;
       this.refreshElementTips();
@@ -2868,6 +3139,12 @@ export struct NoteCanvasView {
       this.renderFrame();
       return;
     }
+    // 原版 a6f.U ZOOM（ww2/g0j）：书写输入由放大面板承载——ZOOM 激活时主
+    // 画布不产生笔画；不置 isDrawing → 手势回落给外层 Scroll（平移页面
+    // 仍可用），上面的文本链接/元素点按检查已照常执行。
+    if (this.viewModel.currentTool === ToolType.ZOOM) {
+      return;
+    }
     // 笔画工具
     const spec: RenderSpec = this.makeRenderSpec();
     if (this.strokeSession === null) {
@@ -3155,6 +3432,9 @@ export struct NoteCanvasView {
 
   private cancelActiveInteraction(): void {
     const heldShapeCleared: boolean = this.heldShapes.length > 0;
+    // Phase 747：放大面板书写会话不走 isDrawing —— 独立取消（无会话时 no-op），
+    // 须在下方 !isDrawing 早退之前执行。
+    this.onZoomTouchCancel();
     this.resetShapeHoldState();
     this.detachMathEditorForNavigation();
     if (!this.isDrawing) {
@@ -10129,6 +10409,56 @@ export struct NoteCanvasView {
           this.onTextCancel();
         },
       })
+      // 原版 a6f.U ZOOM → ww2/g0j/fgg 放大书写面板（Phase 747）。
+      // ggg.a isShown：工具激活即挂载；dockEdge 决定 Top/Bottom 停靠。
+      if (this.viewModel.currentTool === ToolType.ZOOM && this.loaded) {
+        Column() {
+          NoteZoomView({
+            surfaceHeightVp: ZOOM_SURFACE_HEIGHT_VP,
+            sourceX: this.zoomSourceX,
+            sourceY: this.zoomSourceY,
+            magnification: this.zoomMagnification,
+            advanceWidthVp: this.zoomAdvanceWidthVp,
+            dockBottom: this.zoomDockBottom,
+            strokes: this.completedStrokes,
+            liveStroke: this.zoomLiveStroke,
+            paintTick: this.zoomPaintTick,
+            pageWidth: this.getPaperWidth(),
+            pageHeight: this.getPaperHeight(),
+            panelEnabled: !this.photoImportBusy && !this.historyBusy,
+            onZoomTouch: (event: TouchEvent): void => {
+              this.onZoomTouchEvent(event);
+            },
+            onClose: (): void => {
+              // zeg "Close Zoom View"：关闭面板并回落 DEFAULT 工具
+              this.onZoomTouchCancel();
+              this.viewModel.selectTool(ToolType.DEFAULT);
+            },
+            onDockRequest: (bottom: boolean): void => {
+              this.zoomDockBottom = bottom;
+            },
+            onStepBack: (): void => {
+              this.zoomStepBack();
+            },
+            onStepForward: (): void => {
+              this.zoomStepForward();
+            },
+            onReturnToInk: (): void => {
+              this.zoomReturnToInk();
+            },
+            onAdvanceRegionResize: (widthVp: number): void => {
+              this.zoomAdvanceWidthVp = widthVp;
+            },
+          })
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(this.zoomDockBottom ? FlexAlign.End : FlexAlign.Start)
+        .hitTestBehavior(HitTestMode.Transparent)
+        .onAppear(() => {
+          this.initZoomSourceRect();
+        })
+      }
       // 原版 zy7/b4j：FIRST_INK_INSERT（墨迹上方）与 FIRST_IMAGE（对象左缘）
       // 元素锚定引导气泡；"Got it" 写 seen 集（js7）。
       if (this.tipInkBounds !== null) {

@@ -1,5 +1,7 @@
-// Phase 677 — 原版 POINTER（presence 光标）/ ZOOM / view-only 门控：
-// fail-closed 登记。
+// Phase 677 — 原版 POINTER（presence 光标）/ view-only 门控：fail-closed
+// 登记。ZOOM 项已于 Phase 747 移植（ADR-0690 更正旗标默认开，
+// ADR-0695 落地）——本夹具仅继续钉 POINTER/RULER 边界与
+// ZOOM 的副托盘 index 2 落位。
 // 原版证据（decompiled_1.0.3/sources/defpackage）：
 //   a6f.java     13 工具枚举：POINTER(8)/ZOOM(12) 为缺口成员。
 //   rz1.java     r() 次托盘：u5f(10,1,a6f.Q,0,null)=POINTER(tool_id10)、
@@ -17,9 +19,9 @@
 //   sva/tzc.java ac4.c0(MULTIPLAYER_PRESENCE) 门控会话层。
 //   w4g/y5f      POINTER 无宽度档、无 e31 视觉配置。
 //   ac4.java     e0=ZOOM_VIEW(zb4.L 远程通道, ztb.c=androidZoomView)。
-// Harmony 判定：POINTER/ZOOM 属服务端协作域与远程旗标 →
-// fail-closed；次托盘 index0/2/4 留空（与原版 view-only 剔除
-// POINTER、旗标未开、RULER 隐藏的表面一致）。
+// Harmony 判定：POINTER 属服务端协作域（presence 光标）→ fail-closed；
+// RULER 原版 s01.a0 无条件隐藏；ZOOM 已移植（Phase 747）——
+// 次托盘 index0/4 留空、index 2 由 zoom 占据。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
@@ -80,17 +82,18 @@ check(stringsXml.includes('<string name="ui_tools__pointer">Pointer</string>'),
 check(stringsXml.includes('<string name="ui_tools__zoom">Zoom</string>'),
   'original Zoom label');
 
-// --- Harmony fail-closed 钉 ---
+// --- Harmony fail-closed 钉（POINTER/RULER）+ ZOOM 移植钉（Phase 747）---
 check(!/POINTER\s*=\s*\d/.test(brush), 'no ToolType.POINTER');
-check(!/ZOOM\s*=\s*\d/.test(brush), 'no ToolType.ZOOM');
+check(/ZOOM = 9/.test(brush), 'ToolType.ZOOM=9 ported (Phase 747)');
 check(brush.includes('ADR-0644'), 'BrushTypes comment cites ADR-0644');
 check(brush.includes('presence'), 'BrushTypes comment explains presence domain');
+check(brush.includes('ADR-0690'), 'BrushTypes comment cites ADR-0690 correction');
 check(vm.includes('ADR-0644'), 'EditorViewModel comment cites ADR-0644');
-// 次托盘 index 0/2/4 留空：只种 laser(1) 与 tape(3)
+// 次托盘序：POINTER(0) 留空、LASER(1)、ZOOM(2)、REVIEW(3)、RULER(4) 留空
 check(/'laser', ownerId, ToolType\.LASER, 1,/.test(vm), 'laser keeps index 1');
+check(/'zoom', ownerId, ToolType\.ZOOM, 2,/.test(vm), 'zoom seeded index 2');
 check(/'tape', ownerId, ToolType\.REVIEW, 3,/.test(vm), 'tape keeps index 3');
-check(!/createState\('pointer'/.test(vm) && !/createState\('zoom'/.test(vm),
-  'no pointer/zoom tool states');
+check(!/createState\('pointer'/.test(vm), 'no pointer tool state');
 check(!toolbar.includes('ui_tools__pointer') && !toolbar.includes('pointer_tool'),
   'no pointer button in toolbar');
 check(!canvas.includes('presence_cursor'), 'no presence cursor rendering');

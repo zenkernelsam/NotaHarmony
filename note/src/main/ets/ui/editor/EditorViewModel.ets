@@ -1056,13 +1056,17 @@ export class EditorViewModel {
       this.createState('selection', ownerId, ToolType.SELECTION, 4, -16777216, 36, BrushStyle.MONO),
       this.createState('text', ownerId, ToolType.DEFAULT, 5, -16777216, 36, BrushStyle.MONO),
       // 原版 rz1.r()：LASER 默认在 Secondary 托盘 index 1；POINTER(0)/
-      // ZOOM(2)/RULER(4) 留空位——POINTER=多人 presence 光标
-      // （ac4.c0/b0 服务端协作域）、ZOOM=ZOOM_VIEW 远程旗标、
-      // RULER=s01.a0 无条件隐藏，均 fail-closed（ADR-0644/0642）。
+      // RULER(4) 留空位——POINTER=多人 presence 光标（ac4.c0/b0 服务端协作
+      // 域 fail-closed），RULER=s01.a0 无条件隐藏（ADR-0644/0642）。
+      // ZOOM(2) 已由 Phase 747 移植（ADR-0690 更正 ZOOM_VIEW 默认开）。
       this.createState('laser', ownerId, ToolType.LASER, 1, -1754827, 15, BrushStyle.MONO,
         TRAY_TYPE_SECONDARY),
+      // 原版 a6f.U ZOOM → rz1 副托盘 index 2：ZOOM_VIEW 旗标打包默认 true，
+      // 1.0.3 默认可见。ZOOM 不产生笔画样式——借用 PEN 默认参数（黑/36/MONO）。
+      this.createState('zoom', ownerId, ToolType.ZOOM, 2, -16777216, 36, BrushStyle.MONO,
+        TRAY_TYPE_SECONDARY),
       // 原版 rz1:1075：REVIEW(a6f.S) 在 Secondary 托盘 index 3（POINTER=0 /
-      // ZOOM=2 / RULER=4 未移植、留空位），w31(-1706497, 36f, null, 0, 1, 0)：
+      // RULER=4 未移植、留空位），w31(-1706497, 36f, null, 0, 1, 0)：
       // 首色井、中档宽度井(1)、tapePattern=0(STRIPES)。
       this.createState('tape', ownerId, ToolType.REVIEW, 3, -1706497, 36, BrushStyle.MONO,
         TRAY_TYPE_SECONDARY, TapePattern.STRIPES, 0, 1),

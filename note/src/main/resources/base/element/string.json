@@ -413,6 +413,34 @@
       "value": "Laser"
     },
     {
+      "name": "tool_zoom",
+      "value": "Zoom"
+    },
+    {
+      "name": "zoom_view_move",
+      "value": "Move Zoom View"
+    },
+    {
+      "name": "zoom_view_back",
+      "value": "Back"
+    },
+    {
+      "name": "zoom_view_forward",
+      "value": "Forward"
+    },
+    {
+      "name": "zoom_view_return",
+      "value": "Return"
+    },
+    {
+      "name": "zoom_view_close",
+      "value": "Close Zoom View"
+    },
+    {
+      "name": "zoom_view_advance",
+      "value": "Adjust auto-advance area"
+    },
+    {
       "name": "laser_tail_label",
       "value": "Tail"
     },

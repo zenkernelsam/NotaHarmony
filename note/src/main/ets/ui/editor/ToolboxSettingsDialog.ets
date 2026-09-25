@@ -16,6 +16,8 @@ export function toolTypeLabel(toolType: ToolType): ResourceStr {
     case ToolType.PARTIAL_ERASER: return $r('app.string.partial_eraser');
     case ToolType.SELECTION: return $r('app.string.selection');
     case ToolType.LASER: return $r('app.string.laser');
+    // 原版 ui_tools__zoom = "Zoom"（a6f.U 工具标签）。
+    case ToolType.ZOOM: return $r('app.string.tool_zoom');
     case ToolType.REVIEW: return $r('app.string.tape_tool');
     // 原版 fie→yz.j(ui_text__add_text)：文本工具项标签为 "Add Text"。
     default: return $r('app.string.add_text');
