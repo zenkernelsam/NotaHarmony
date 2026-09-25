@@ -54,7 +54,9 @@ px 假设加入 `vp2px()`：面板笔画落点、源窗尺寸、前进区宽度�
 
 - ZOOM 激活时页面出现可交互源窗口，移动/缩放实时联动放大面板；
   面板笔画落点恢复正确（vp 空间自洽）。
-- 新增观察项：`sampleEyedropper` 的 `getImageData` 坐标亦乘 density——
-  vp 模式下 ImageData 坐标单位为 vp，该取样路径存在同类偏移，
-  登记留待后续 Phase 处理。
+- ~~新增观察项：`sampleEyedropper` 的 `getImageData` 坐标亦乘
+  density——vp 模式下 ImageData 坐标单位为 vp，该取样路径存在
+  同类偏移，登记留待后续 Phase 处理。~~ **已闭环**：Phase 753
+  （ADR-0701）修复——getImageData 直取 vp、物理 px 行距、24px
+  邻域保持。
 - 无新依赖；Replay 夹具扩展 pins 验证结构与修复并存。

@@ -59,8 +59,10 @@
   整段 `familyName='monospace'`（`sq4` 等价），measureNaturalWidth /
   renderText / linkAtPoint / caretIndexAtPoint 四处同改（度量一致）；
   renderText 行循环内 `fillRect` 浅底带（`fontColor × 0.08`）。
-  - 已登记近似：lj3 的 `-24f` 缩字号未移植（单位体系不同，等宽+底带
-    已区分代码块）；语言选择器（`k5a` 上下文）未实现。
+  - 已登记近似：~~lj3 的 `-24f` 缩字号未移植（单位体系不同）~~——
+    **已被 Phase 756 取代**（`5ca3264b`：复核证伪单位差异，
+    `max(d−24,1)` docPx 字面移植，ADR-0704）；语言选择器
+    （`k5a` 上下文）未实现。
 - 资源：`block_quote`/`code_block`（en "Block quote"/"Code block"；
   zh 引用/代码块）。
 

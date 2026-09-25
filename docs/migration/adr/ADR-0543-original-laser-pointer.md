@@ -21,7 +21,8 @@
    状态机，如实保留原版字段结构（pending/completed tail 段、
    pointer 点、pointerAlpha/tailAlpha 双字段）与全部时序常量。
 2. 默认工具种子：Secondary 托盘 index 1、色 -1754827、宽 15pt
-   （POINTER/Zoom/Ruler 未移植，index 语义按原版保留）。
+   （POINTER/Ruler 未移植，index 语义按原版保留；~~Zoom 未移植~~——
+   已被 Phase 747–755 取代）。
 3. 原版 fade 怪癖（衰减写另一模式的 alpha 字段，可见 alpha 实际不降）
    如实保留——可见契约等效“驻留约 1 秒后清除”，不擅自“修复”。
 4. VM 新增 `supportsColorControls()`：激光放行颜色井（4 档），
@@ -35,8 +36,9 @@
 ## 差异
 
 - 无功能差异；渲染载体换为 ArkUI Canvas2D。
-- 原版 POINTER（index 0）/Zoom/Ruler 工具未移植，托盘 index 仅为
-  语义对齐，不保证绝对位置。
+- 原版 POINTER（index 0）/Ruler 工具未移植，托盘 index 仅为
+  语义对齐，不保证绝对位置；~~Zoom 未移植~~——已被 Phase 747–755
+  取代（Zoom View 完整移植）。
 - fade 动画帧率、15pt 物理观感、掌触与多点共存等行为仅真机可验，
   已登记 `真机验收清单-2026-09-22.md`。
 

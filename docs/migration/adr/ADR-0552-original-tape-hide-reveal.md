@@ -39,7 +39,11 @@ Harmony 此前既无 revealedTape 状态也无对应 UI——导入笔记中的�
   揭示层最终派发函数未反编译成功，fail-closed 记录于证据文档。
 - 点按揭示（`xtc.b`→`ej9`）未移植：原版入口在胶带工具命中路径内，
   Harmony 尚无胶带工具入口；待胶带工具 epic 时一并补齐。
+  **已闭环**：epic 于 Phase 583-588 落地——胶带工具入口（Phase 584 /
+  ADR-0553）、点按揭示链路 `dl1→xtc.b→ej9→xo5`（Phase 586 /
+  ADR-0555）、设置面 Hide/Reveal 行（Phase 588）。
 - 入口位于编辑器 ⋮ 菜单而非胶带工具设置行：Harmony 工具箱尚无 REVIEW
   工具行；动作语义（作用于全部可见胶带）一致，表面位置偏差已记录。
+  注：Phase 588 起 REVIEW 工具行内亦提供同款开关。
 - 回放 `d02-original-tape-hide-reveal.mjs` 钉死门控、并/差集语义、
   标签翻转与字符串。

@@ -39,5 +39,7 @@ tapePattern——胶带工具不可选、不可画。
 - 存量工具箱经 missing-defaults 回填在 Secondary 尾部补 REVIEW（index
   非 3）——与原版新安装顺序偏差已记录；不影响 trayType 语义。
 - 胶带图案选择器（mh9/nh9）与点按揭示（xtc）仍待后续阶段。
+  **已闭环**：图案选择器 Phase 585 落地，点按揭示 Phase 586
+  （ADR-0555）落地。
 - 回放 `d02-original-tape-tool-entry.mjs` 钉死默认态、井位、
   renderSpec 门控与标签。

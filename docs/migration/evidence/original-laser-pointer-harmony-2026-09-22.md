@@ -14,7 +14,8 @@
 - `rz1.java:1075`：默认托盘
   `u5f(0, 1, a6f.R, 1, w31(-1754827, 15.0f, ...))`——`a6f.R`=LASER
   位于 **Secondary 托盘 index 1**（index 0 为 POINTER，2/3/4 为 Zoom/
-  Ruler/REVIEW，POINTER/Zoom/Ruler 未移植），颜色 -1754827、宽度
+  Ruler/REVIEW，POINTER/Ruler 未移植；~~Zoom 未移植~~——已被
+  Phase 747–755 取代：Zoom View 完整移植），颜色 -1754827、宽度
   固定单档 15pt、无样式井。
 
 ### 渲染状态 `zt6` / `du6` / `cu6`

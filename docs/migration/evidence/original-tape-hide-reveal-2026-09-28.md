@@ -65,8 +65,9 @@ tile/render 参数。
 
 已知偏差（fail-closed 记录）：原版 wet-reveal 层（`l0f.A`/`p0f`）为揭示
 动画/高亮承载层，最终派发函数未反编译成功 —— Harmony 仅以 `ife=null`
-等价的"去图案化"呈现揭示态；点按揭示（`xtc`）本期未移植（原版入口在
-胶带工具命中路径内，Harmony 尚无胶带工具入口）。
+等价的"去图案化"呈现揭示态；~~点按揭示（`xtc`）本期未移植~~——
+**已被 Phase 586 取代**（`a09dd194`：dl1→xtc.b→ej9→xo5 点按揭示
+完整移植）。
 
 Replay：`docs/migration/replays/d02-original-tape-hide-reveal.mjs`
 （19 项断言）。

@@ -53,4 +53,6 @@
 - 箭头为 ↑/↓ 字形切换而非单图标旋转 180°（登记）。
 - NAME 排序用 `localeCompare`；原版 `bg1`+`qi` 为 RuleBasedCollator
   自然排序——近似等价（登记）。
-- `ie7` GRID/LIST 视图切换未移植（登记）。
+- ~~`ie7` GRID/LIST 视图切换未移植（登记）~~——已被 Phase 547
+  取代（`e245cb86`：`listView` 状态 + `PREF_VIEW_MODE_KEY`
+  持久化，☰/⊞ 切换钮）。
