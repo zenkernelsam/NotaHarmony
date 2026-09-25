@@ -77,7 +77,7 @@ check(overlay.includes('this.caretCodeLanguage = next.programmingLanguage ?? '),
   'selection updates caret language state');
 check(overlay.includes('if (this.caretDecoratorStyle === 5) {') &&
   overlay.includes('Button(this.caretCodeLanguageLabel())') &&
-  overlay.includes('.bindMenu(this.buildCodeLanguageMenu())'),
+  /\.bindMenu\(this\.buildCodeLanguageMenu\(\)/.test(overlay),
   'language button only for CODE_BLOCK paragraph');
 check(overlay.indexOf("app.string.code_block')") <
   overlay.indexOf('this.caretCodeLanguageLabel()'),

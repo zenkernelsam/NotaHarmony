@@ -17,7 +17,8 @@ export function toolTypeLabel(toolType: ToolType): ResourceStr {
     case ToolType.SELECTION: return $r('app.string.selection');
     case ToolType.LASER: return $r('app.string.laser');
     case ToolType.REVIEW: return $r('app.string.tape_tool');
-    default: return $r('app.string.text');
+    // 原版 fie→yz.j(ui_text__add_text)：文本工具项标签为 "Add Text"。
+    default: return $r('app.string.add_text');
   }
 }
 

@@ -555,7 +555,8 @@ export struct EditorToolbar {
         }
         this.viewModel.selectTool(ToolType.SELECTION);
       } },
-      { value: $r('app.string.text'), action: () => {
+      // 原版 fie 文本工具项标签 ui_text__add_text = "Add Text"。
+      { value: $r('app.string.add_text'), action: () => {
         if (this.photoImportLeaseActive) {
           return;
         }

@@ -594,6 +594,11 @@
     { "name": "folder_delete_detail_nf_nn", "value": "删除“%s”将同时删除 %d 个文件夹和 %d 条笔记。" },
     { "name": "enter_folder_name", "value": "输入文件夹名称" },
     { "name": "folder_selected", "value": "已选中" },
+    { "name": "add_text", "value": "添加文本" },
+    { "name": "insert_hyperlink", "value": "插入链接" },
+    { "name": "edit_hyperlink", "value": "编辑链接" },
+    { "name": "programming_language", "value": "编程语言" },
+    { "name": "fontsize", "value": "字号" },
     { "name": "import_arrange", "value": "排列" },
     { "name": "import_move_up", "value": "上移" },
     { "name": "import_move_down", "value": "下移" }

@@ -75,6 +75,8 @@ export struct TextBlockOverlay {
   // 原版 tte/aue/en5：链接 sheet 态与草稿。
   @State showLinkSheet: boolean = false;
   @State linkUrlDraft: string = '';
+  // 原版 en5.c：选区已带链接时对话框标题为 Edit hyperlink。
+  @State linkSheetIsEdit: boolean = false;
   @State linkTitleDraft: string = '';
   private draftCharRuns: RichTextCharacterStyleRun[] = [];
   private pendingCharStyles: RichTextCharacterStyle = {};
@@ -1215,6 +1217,8 @@ export struct TextBlockOverlay {
     const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
     this.linkTitleDraft = s === e ? '' : this.draftText.substring(s, e);
     this.linkUrlDraft = this.linkUrlAt(s, e);
+    // 原版 bn5:127：en5.c（既有链接）→ Edit hyperlink，否则 Insert hyperlink。
+    this.linkSheetIsEdit = this.linkUrlDraft.length > 0;
     this.showLinkSheet = true;
   }
 
@@ -1262,6 +1266,12 @@ export struct TextBlockOverlay {
   @Builder
   private buildLinkSheet(): void {
     Column() {
+      Text(this.linkSheetIsEdit ? $r('app.string.edit_hyperlink') :
+        $r('app.string.insert_hyperlink'))
+        .fontSize(14)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.element !== null ? this.element.fontColor : '#000000')
+        .margin({ bottom: 12 })
       TextInput({ placeholder: $r('app.string.link_url_hint'),
         text: this.linkUrlDraft })
         .type(InputType.Normal)
@@ -2163,7 +2173,9 @@ export struct TextBlockOverlay {
               .fontSize(12)
               .enabled(!this.photoImportLeaseActive)
               .margin({ left: 4 })
-              .bindMenu(this.buildCodeLanguageMenu())
+              // 原版 i8j→koi.a：语言菜单带 programming_language 标题。
+              .bindMenu(this.buildCodeLanguageMenu(),
+                { title: $r('app.string.programming_language') })
           }
           // 原版 ure.t→qse.P 对齐面板（vse(r4a)→i5a）：左/中/右三档。
           Button($r('app.string.text_alignment'))
