@@ -24,6 +24,8 @@ const evidence752 = read('docs/migration/evidence/phase-752-zoom-advance-clamp-c
 const adr752 = read('docs/migration/adr/ADR-0700-original-zoom-advance-clamp-chromeflip.md');
 const evidence754 = read('docs/migration/evidence/phase-754-zoom-panel-geometry.md');
 const adr754 = read('docs/migration/adr/ADR-0702-zoom-panel-geometry.md');
+const evidence755 = read('docs/migration/evidence/phase-755-zoom-panel-slide-transition.md');
+const adr755 = read('docs/migration/adr/ADR-0703-zoom-panel-slide-transition.md');
 const settingsStore = read('note/src/main/ets/data/EditorSettingsStore.ets');
 const settingsTest = read('note/src/test/EditorViewModel.test.ets');
 
@@ -274,5 +276,14 @@ pin(!/scale\(\{ x: 1, y: this\.dockBottom/.test(zoomView), 'p754.scalemirror.gon
 pin(/272\.0f|272dp|fgg/.test(evidence754) && /Column|内沿|兄弟/.test(evidence754),
   'p754.evidence');
 pin(/272|fgg/.test(adr754) && /ADR-0700|supersed|纠正|取代/.test(adr754), 'p754.adr');
+
+// ---- Phase 755：fgg.b l96.J AnimatedVisibility 500ms 靠缘 slide+fade ----
+// s01.Y(500,0,cs3.a) + ey3.c/j slide∘fade 组合；iq2(0.25,0.1,0.25,1)≡Curve.Ease。
+pin(/\.move\(this\.zoomDockBottom \? TransitionEdge\.BOTTOM : TransitionEdge\.TOP\)/.test(canvas), 'p755.edge.dock');
+pin(/\.combine\(TransitionEffect\.OPACITY\)/.test(canvas), 'p755.slidefade');
+pin(/duration: 500, curve: Curve\.Ease/.test(canvas), 'p755.timing');
+pin(/l96\.J|AnimatedVisibility/.test(evidence755) && /iq2\(0\.25f, 0\.1f/.test(evidence755),
+  'p755.evidence');
+pin(/500|AnimatedVisibility|slide/.test(adr755), 'p755.adr');
 
 console.log(`D02_ORIGINAL_ZOOM_VIEW_OK pins=${pass}`);

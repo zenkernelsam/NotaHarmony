@@ -10799,6 +10799,13 @@ export struct NoteCanvasView {
           this.endZoomWindowDrag();
           this.renderFrame();
         })
+        // Phase 755：fgg.b l96.J AnimatedVisibility——500ms 靠停靠缘
+        // slide+fade 进出（ey3.c/j 组合 = slide±fade；s01.Y(500)
+        // + cs3.a iq2(0.25,0.1,0.25,1)≡Curve.Ease）
+        .transition(TransitionEffect
+          .move(this.zoomDockBottom ? TransitionEdge.BOTTOM : TransitionEdge.TOP)
+          .combine(TransitionEffect.OPACITY)
+          .animation({ duration: 500, curve: Curve.Ease }))
       }
       // 原版 zy7/b4j：FIRST_INK_INSERT（墨迹上方）与 FIRST_IMAGE（对象左缘）
       // 元素锚定引导气泡；"Got it" 写 seen 集（js7）。
