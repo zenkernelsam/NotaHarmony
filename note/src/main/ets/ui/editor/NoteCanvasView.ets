@@ -3086,37 +3086,48 @@ export struct NoteCanvasView {
   }
 
   // 原版 a3a：从画布位图取 clamp 后像素（kkf.d→iu1 ARGB int）；
-  // nui 放大镜内容=取样点 24px 邻域位图。连续 move 事件可能并发取样，
-  // generation 保证只有最新结果落盘。
+  // nui 放大镜内容=取样点 24px（物理像素）邻域位图。连续 move 事件
+  // 可能并发取样，generation 保证只有最新结果落盘。
+  // Phase 753 修复：ctx 为 vp 绘制空间（LengthMetricsUnit.DEFAULT）——
+  // getImageData 入参为 vp、返回 ImageData 宽高为物理 px；旧实现按
+  // px 假设乘 density 取址且以 vp 边长当像素行距，取样偏移且
+  // PixelMap 尺寸与缓冲不匹配。
   private async sampleEyedropper(xVp: number, yVp: number): Promise<void> {
     const generation: number = ++this.eyedropperSampleGeneration;
     const density: number = vp2px(1);
-    const px: number = Math.round(xVp * density);
-    const py: number = Math.round(yVp * density);
-    const w: number = this.canvasCtx.width;
-    const h: number = this.canvasCtx.height;
-    const half: number = 12;
-    const sw: number = Math.min(half * 2, w);
-    const sh: number = Math.min(half * 2, h);
-    if (px < 0 || py < 0 || px >= w || py >= h || sw <= 0 || sh <= 0) {
+    const wVp: number = this.canvasCtx.width;
+    const hVp: number = this.canvasCtx.height;
+    // 24 物理 px 邻域 → vp 请求边长 24/density
+    const regionVp: number = Math.max(1, 24 / density);
+    const halfVp: number = regionVp / 2;
+    const swVp: number = Math.min(regionVp, wVp);
+    const shVp: number = Math.min(regionVp, hVp);
+    if (xVp < 0 || yVp < 0 || xVp >= wVp || yVp >= hVp || swVp <= 0 || shVp <= 0) {
       return;
     }
-    const sx: number = Math.max(0, Math.min(px - half, w - sw));
-    const sy: number = Math.max(0, Math.min(py - half, h - sh));
-    const data: ImageData = this.canvasCtx.getImageData(sx, sy, sw, sh);
-    const cx: number = Math.max(0, Math.min(px - sx, sw - 1));
-    const cy: number = Math.max(0, Math.min(py - sy, sh - 1));
-    const raw: Uint8ClampedArray = data.data;
-    const idx: number = (cy * sw + cx) * 4;
+    const sx: number = Math.max(0, Math.min(xVp - halfVp, wVp - swVp));
+    const sy: number = Math.max(0, Math.min(yVp - halfVp, hVp - shVp));
+    const data: ImageData = this.canvasCtx.getImageData(sx, sy, swVp, shVp);
+    // ImageData.width/height 为物理 px，data 行距 = width×4
+    const dw: number = data.width;
+    const dh: number = data.height;
+    const raw: Uint8ClampedArray | undefined = data.data;
+    if (dw <= 0 || dh <= 0 || raw === undefined) {
+      return;
+    }
+    // 触点在取样区内的物理像素偏移 = (vp 差) × density
+    const cx: number = Math.max(0, Math.min(Math.round((xVp - sx) * density), dw - 1));
+    const cy: number = Math.max(0, Math.min(Math.round((yVp - sy) * density), dh - 1));
+    const idx: number = (cy * dw + cx) * 4;
     const color: number = ((raw[idx + 3] << 24) | (raw[idx] << 16) |
       (raw[idx + 1] << 8) | raw[idx + 2]);
-    const buffer: ArrayBuffer = new ArrayBuffer(sw * sh * 4);
+    const buffer: ArrayBuffer = new ArrayBuffer(dw * dh * 4);
     const copy: Uint8Array = new Uint8Array(buffer);
-    for (let i: number = 0; i < raw.length; i++) {
+    for (let i: number = 0; i < raw.length && i < copy.length; i++) {
       copy[i] = raw[i];
     }
     const map: image.PixelMap = await image.createPixelMap(buffer, {
-      size: { width: sw, height: sh },
+      size: { width: dw, height: dh },
       srcPixelFormat: image.PixelMapFormat.RGBA_8888,
       pixelFormat: image.PixelMapFormat.RGBA_8888,
       editable: false,

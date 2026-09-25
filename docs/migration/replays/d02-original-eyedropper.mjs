@@ -81,7 +81,18 @@ check(canvas.includes('this.viewModel.eyedropperActive') &&
 check(canvas.includes('onEyedropperTouch') && canvas.includes('sampleEyedropper') &&
   canvas.includes('commitEyedropper') && canvas.includes('cancelEyedropper'),
   'canvas eyedropper handlers');
-check(canvas.includes('getImageData(sx, sy, sw, sh)'), 'canvas pixel sampling');
+check(canvas.includes('getImageData(sx, sy, swVp, shVp)'), 'canvas pixel sampling');
+// Phase 753 — vp 绘制空间修正：getImageData 入参为 vp、ImageData 宽高为
+// 物理 px（HarmonyOS ImageData 文档）。旧实现按 px 假设：触点乘 density
+// 取址 + vp 边长当像素行距 → 取样偏移且 PixelMap 尺寸失配。
+check(canvas.includes('24 / density'),
+  'eyedropper samples a 24-physical-px neighborhood (nui)');
+check(!canvas.includes('Math.round(xVp * density)'),
+  'touch coords stay in vp (no density pre-multiplication)');
+check(/cyPx \* dw \+ cxPx|cy \* dw \+ cx/.test(canvas),
+  'pixel index strides by physical-px row width (dw)');
+check(/width: dw, height: dh/.test(canvas),
+  'loupe PixelMap sized to ImageData physical px dims');
 check(canvas.includes('image.createPixelMap') && canvas.includes('eyedropperLoupeMap'),
   'loupe pixelmap');
 check(canvas.includes('eyedropperSampleGeneration'), 'sampling generation guard');
