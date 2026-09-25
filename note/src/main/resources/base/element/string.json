@@ -1358,6 +1358,8 @@
     { "name": "folder_delete_detail_1f_nn", "value": "Deleting \"%s\" will also delete 1 folder and %d notes." },
     { "name": "folder_delete_detail_nf_1n", "value": "Deleting \"%s\" will also delete %d folders and 1 note." },
     { "name": "folder_delete_detail_nf_nn", "value": "Deleting \"%s\" will also delete %d folders and %d notes." },
+    { "name": "enter_folder_name", "value": "Enter folder name" },
+    { "name": "folder_selected", "value": "Selected" },
     { "name": "import_arrange", "value": "Arrange" },
     { "name": "import_move_up", "value": "Move up" },
     { "name": "import_move_down", "value": "Move down" }

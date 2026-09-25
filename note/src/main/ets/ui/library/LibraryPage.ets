@@ -204,6 +204,7 @@ struct LibraryPage {
   private folderDialog: CustomDialogController = new CustomDialogController({
     builder: NameDialog({
       title: this.folderDialogTitle,
+      placeholder: $r('app.string.enter_folder_name'),
       initialText: this.folderDialogInitialText,
       initialColor: this.folderDialogColor,
       initialEmoji: this.folderDialogEmoji,
@@ -764,7 +765,8 @@ struct LibraryPage {
       return;
     }
     this.folderDialogMode = 1;
-    this.folderDialogTitle = $r('app.string.rename');
+    // 原版 gaj：重命名对话框标题为 enter_folder_name（创建态才是 new_folder）。
+    this.folderDialogTitle = $r('app.string.enter_folder_name');
     this.folderDialogInitialText = folder.name;
     this.folderDialogTargetId = folder.id;
     this.folderDialogColor = folder.color;
@@ -1859,10 +1861,12 @@ struct LibraryPage {
             .fontWeight(this.currentFolderId === item.folder.id ? FontWeight.Medium :
               FontWeight.Normal)
           if (this.currentFolderId === item.folder.id) {
+            // 原版 b41/o94：选中指示图标的语义文本为 ui_folder__selected。
             Text('✓')
               .fontSize(16)
               .fontColor(this.resolveTokens().accent)
               .margin({ left: 8 })
+              .accessibilityText($r('app.string.folder_selected'))
           }
         }
         .width('100%')
@@ -4333,6 +4337,8 @@ struct LibraryPage {
 struct NameDialog {
   controller?: CustomDialogController;
   title: ResourceStr = '';
+  // 原版 gaj：文件夹场景字段标签同为 enter_folder_name；笔记重命名保持 name。
+  placeholder: ResourceStr = $r('app.string.name');
   initialText: string = '';
   initialColor: number = FOLDER_DEFAULT_COLOR;
   initialEmoji: string = '';
@@ -4389,7 +4395,7 @@ struct NameDialog {
         .fontSize(16)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.resolveTokens().textPrimary)
-      TextInput({ text: this.inputText, placeholder: $r('app.string.name') })
+      TextInput({ text: this.inputText, placeholder: this.placeholder })
         .width('100%')
         .fontColor(this.resolveTokens().textPrimary)
         .placeholderColor(this.resolveTokens().textSecondary)
