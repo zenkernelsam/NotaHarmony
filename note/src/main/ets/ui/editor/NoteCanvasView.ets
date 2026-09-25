@@ -195,7 +195,9 @@ import {
   PointerInputBatches, PointerRawSample, PointerSampleStream,
 } from '../../core/adaptation/PointerSampleStream';
 import {
-  OriginalAudioLinkedPlayback, OriginalAudioSegmentRange, resolveOriginalAudioLinkedPlayback,
+  OriginalAudioInkSeekTarget, OriginalAudioLinkedPlayback, OriginalAudioSegmentRange,
+  OriginalAudioSeekRecording, resolveOriginalAudioInkSeekTarget,
+  resolveOriginalAudioLinkedPlayback,
 } from '../../core/adaptation/OriginalAudioLinkedInkPlayback';
 import { OriginalPhotoIngressItem,
   OriginalPhotoTooLargeError } from '../../data/OriginalPhotoIngress';
@@ -312,6 +314,12 @@ export struct NoteCanvasView {
   @Prop selectionInkWidth: number = 5;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioTime: string | null = null;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioSegments: OriginalAudioSegmentRange[] = [];
+  // 原版 h3 case28 门：仅播放中（hoa.b==joa.I）点按音频联动笔触才 seek。
+  @Prop playbackIsPlaying: boolean = false;
+  // 原版 vv7.N 等价：按 READY 录音序的逐录音段表（含空段→[start,end] 兜底）。
+  @Prop audioSeekRecordings: OriginalAudioSeekRecording[] = [];
+  // 原版 h3 case28 + vv7.S：点按音频联动笔触 → (recordingId, 本地播放位) 上抛。
+  onAudioInkSeekTap: (target: OriginalAudioInkSeekTarget) => void = () => {};
   readRecordingAudioTime: () => string | null = (): string | null => null;
   onUndoRedoChanged: (canUndo: boolean, canRedo: boolean) => void = () => {
   };
@@ -1419,6 +1427,30 @@ export struct NoteCanvasView {
   private textBlockLinkAt(point: Point2D): TextBlockLinkHit | null {
     const hitId: string | null = this.topmostPageElementIdAt(point);
     return hitId === null ? null : this.linkHitOnTextBlock(hitId, point);
+  }
+
+  // 原版 h3 case28：播放中点按 → fu1.e 同径 topmostPageElementIdAt 命中
+  // （精确 + 5 页单位容差两程）→ 命中元素须为音频联动笔触（bf0，即
+  // audioStartTime 存在的 STROKE）→ vv7.S 段表折回累计播放位 → 上抛
+  // seek 回调并消费点按。段外/非联动元素命中 → false 落空走原分发。
+  private trySeekAudioLinkedInkAt(canvasP: Point2D): boolean {
+    const hitId: string | null = this.topmostPageElementIdAt(canvasP);
+    if (hitId === null) {
+      return false;
+    }
+    const stroke: StrokeElementData | undefined = this.completedStrokes.find(
+      (s: StrokeElementData): boolean =>
+        s.id === hitId && s.audioStartTime !== undefined);
+    if (stroke === undefined || stroke.audioStartTime === undefined) {
+      return false;
+    }
+    const target: OriginalAudioInkSeekTarget | null = resolveOriginalAudioInkSeekTarget(
+      stroke.audioStartTime, this.audioSeekRecordings);
+    if (target === null) {
+      return false;
+    }
+    this.onAudioInkSeekTap(target);
+    return true;
   }
 
   private linkHitOnTextBlock(elementId: string, point: Point2D): TextBlockLinkHit | null {
@@ -2625,6 +2657,14 @@ export struct NoteCanvasView {
       // z && !elh.h（裸笔、无桶键按下）时 rtc/vtc 压制为 utc → 落空由文本
       // 手势面接管。Harmony SourceTool.Pen ≈ 裸笔（无桶键信息，fail-closed）。
       const stylusSuppress: boolean = event.sourceTool === SourceTool.Pen;
+      // 原版 h3 case28（androidAudioInkSync 旗标默认开）：播放中点按命中
+      // 音频联动笔触（bf0）→ vv7.S 折回累计播放位 seek 并消费该点按，
+      // 不再进入选区/文本分发；命中非音频元素或段外 → 落空走原分发。
+      // tape 揭示已在上方先行判定（dl1 case2 先于文本/选区手势）。
+      if (this.playbackIsPlaying && this.trySeekAudioLinkedInkAt(canvasP)) {
+        this.isDrawing = true;
+        return;
+      }
       if (this.selectionTool.getState().deselectMode) {
         // deselectMode 分发（stc/qtc）不经 z3 压制门。
         const target: DeselectHit | null = this.deselectTargetIdsAt(canvasP);

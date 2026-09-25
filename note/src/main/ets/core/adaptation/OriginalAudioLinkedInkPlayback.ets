@@ -84,6 +84,46 @@ export function effectiveOriginalAudioSegments(segments: OriginalAudioSegmentRan
   }));
 }
 
+// 原版 h3 case28 → vv7.S(bf0.c(), vv7.N(x09))：笔触 audioStartTime
+// （epoch ms 字符串）按全笔记生效段表折回播放位。vv7.N 收集非删除
+// 录音逐段排序拼接；vv7.S 落入某段 → 该录音内之前各段时长累计 +
+// (t − segStart) 为录音本地播放位；落在暂停/删除间隙或段表外 →
+// null（原版 dS==null → 本次点按不产生 seek）。段时长与段内偏移
+// 均按原版钳位 ≥0。
+export interface OriginalAudioSeekRecording {
+  recordingId: string;
+  segments: OriginalAudioSegmentRange[];
+}
+
+export interface OriginalAudioInkSeekTarget {
+  recordingId: string;
+  localPositionMs: number;
+}
+
+export function resolveOriginalAudioInkSeekTarget(audioStartTime: string,
+  recordings: OriginalAudioSeekRecording[]): OriginalAudioInkSeekTarget | null {
+  validateUnsignedLongDecimal(audioStartTime);
+  for (const recording of recordings) {
+    let accumulatedMs: number = 0;
+    for (const segment of recording.segments) {
+      validateUnsignedLongDecimal(segment.startTime);
+      validateUnsignedLongDecimal(segment.endTime);
+      const duration: number =
+        compareUnsignedLongDecimal(segment.endTime, segment.startTime) > 0 ?
+          subtractUnsignedDecimalToSafeNumber(segment.endTime, segment.startTime) : 0;
+      if (compareUnsignedLongDecimal(audioStartTime, segment.startTime) >= 0 &&
+        compareUnsignedLongDecimal(audioStartTime, segment.endTime) <= 0) {
+        const offset: number = subtractUnsignedDecimalToSafeNumber(
+          audioStartTime, segment.startTime);
+        return { recordingId: recording.recordingId,
+          localPositionMs: accumulatedMs + (offset >= 0 ? offset : 0) };
+      }
+      accumulatedMs += duration;
+    }
+  }
+  return null;
+}
+
 export function sliceStrokeForAudioProgress(stroke: StrokeElementData,
   progress: number): StrokeElementData {
   const fraction: number = clampFraction(progress);

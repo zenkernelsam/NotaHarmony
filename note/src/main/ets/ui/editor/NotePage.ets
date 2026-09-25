@@ -62,7 +62,8 @@ import {
   timelinePositionForRecording,
 } from '../../core/adaptation/OriginalRecordingTimeline';
 import {
-  effectiveOriginalAudioSegments, OriginalAudioSegmentRange, originalAudioTimeAtPosition,
+  effectiveOriginalAudioSegments, OriginalAudioInkSeekTarget, OriginalAudioSegmentRange,
+  OriginalAudioSeekRecording, originalAudioTimeAtPosition,
 } from '../../core/adaptation/OriginalAudioLinkedInkPlayback';
 import { OriginalRecordingDeleteController } from
   '../../core/adaptation/OriginalRecordingDeleteController';
@@ -265,6 +266,9 @@ struct NotePage {
   @State recordingPauseSupported: boolean = true;
   @State audioPlaybackTime: string | null = null;
   @State audioPlaybackSegments: OriginalAudioSegmentRange[] = [];
+  // 原版 vv7.N 等价物：按 READY 录音序的逐录音生效段表（供 audio-ink
+  // tap-seek 折回 h3 case28 的 (recordingId, 本地播放位)）。
+  @State audioSeekRecordings: OriginalAudioSeekRecording[] = [];
   private noteRepo: NoteRepositoryImpl | null = null;
   private titleSaveQueue: Promise<void> = Promise.resolve();
   private titleSaveGeneration: number = 0;
@@ -1421,6 +1425,7 @@ struct NotePage {
 
   private rebuildAudioPlaybackSegments(): void {
     const result: OriginalAudioSegmentRange[] = [];
+    const seekList: OriginalAudioSeekRecording[] = [];
     for (const recording of this.visiblePlaybackRecordings()) {
       const sourceSegments: OriginalAudioSegmentRange[] = [];
       for (const segment of recording.segments) {
@@ -1429,8 +1434,10 @@ struct NotePage {
       const ranges: OriginalAudioSegmentRange[] = effectiveOriginalAudioSegments(
         sourceSegments, recording.startTime, recording.endTime);
       result.push(...ranges);
+      seekList.push({ recordingId: recording.id, segments: ranges });
     }
     this.audioPlaybackSegments = result;
+    this.audioSeekRecordings = seekList;
   }
 
   private updateAudioPlaybackTime(snapshot: OriginalRecordingPlaybackSnapshot): void {
@@ -1919,6 +1926,24 @@ struct NotePage {
             nightMode: this.noteViewNightMode,
             playbackAudioTime: this.audioPlaybackTime,
             playbackAudioSegments: this.audioPlaybackSegments,
+            // 原版 h3 case28：仅 PLAYING 态开门（hoa.b==joa.I）。
+            playbackIsPlaying:
+              this.playbackSnapshot.state === OriginalRecordingPlaybackState.PLAYING,
+            audioSeekRecordings: this.audioSeekRecordings,
+            onAudioInkSeekTap: (target: OriginalAudioInkSeekTarget): void => {
+              if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+                return;
+              }
+              // vv7.S 折回的本地播放位 → 时间线累计位 → 既有 seek 链
+              // （跨录音自动 load+resume，timeline 外 id 防御性丢弃）。
+              const entryExists: boolean = this.recordingTimeline.entries.some(
+                (e): boolean => e.recordingId === target.recordingId);
+              if (!entryExists) {
+                return;
+              }
+              this.seekRecordingTimeline(timelinePositionForRecording(
+                this.recordingTimeline, target.recordingId, target.localPositionMs));
+            },
             readRecordingAudioTime: (): string | null => {
               const session: OriginalRecordingSessionController | null =
                 this.recordingSessionController;
