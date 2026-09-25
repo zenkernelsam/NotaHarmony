@@ -231,8 +231,8 @@ const ORIGINAL_CREATE_INK_PAYLOAD_TYPE: number = 15;
 const ORIGINAL_MATH_EDITOR_PREVIEW_WIDTH_VP: number = 280;
 const ORIGINAL_MATH_EDITOR_PREVIEW_HEIGHT_VP: number = 96;
 const ORIGINAL_MATH_EDITOR_PREVIEW_PIXEL_SCALE: number = 1;
-// Phase 747 Zoom View 面板画布区高度（vp）；控制条 48vp 另计（wfg 48dp）
-const ZOOM_SURFACE_HEIGHT_VP: number = 160;
+// Phase 754：原版 fgg.b njj.d 画布卡高 272dp（控制条 wfg 48dp 为兄弟节点另计）
+const ZOOM_SURFACE_HEIGHT_VP: number = 272;
 // === Phase 750 Zoom 源窗口覆盖层（原版 gfg/dfg/bfg）===
 // gfg.a = iu1.b(0.08f)：窗口外区域 8% 暗化遮罩（#14 = 0x14/255≈8%）。
 const ZOOM_WINDOW_SCRIM: string = '#14000000';

@@ -22,6 +22,8 @@ const evidence751 = read('docs/migration/evidence/phase-751-zoom-window-edge-aut
 const adr751 = read('docs/migration/adr/ADR-0699-original-zoom-window-edge-autoscroll.md');
 const evidence752 = read('docs/migration/evidence/phase-752-zoom-advance-clamp-chromeflip.md');
 const adr752 = read('docs/migration/adr/ADR-0700-original-zoom-advance-clamp-chromeflip.md');
+const evidence754 = read('docs/migration/evidence/phase-754-zoom-panel-geometry.md');
+const adr754 = read('docs/migration/adr/ADR-0702-zoom-panel-geometry.md');
 const settingsStore = read('note/src/main/ets/data/EditorSettingsStore.ets');
 const settingsTest = read('note/src/test/EditorViewModel.test.ets');
 
@@ -48,7 +50,7 @@ pin(/zoomSourceX: number = 0/.test(canvas), 'host.sourceX');
 pin(/zoomDockBottom: boolean = true/.test(canvas), 'host.dockEdge.bottom.default');
 pin(/zoomAdvanceWidthVp: number = 180/.test(canvas), 'host.advanceWidth.180');
 pin(/zoomMagnification: number = 5/.test(canvas), 'host.mag.5x');
-pin(/ZOOM_SURFACE_HEIGHT_VP: number = 160/.test(canvas), 'host.surface.h160');
+pin(/ZOOM_SURFACE_HEIGHT_VP: number = 272/.test(canvas), 'host.surface.h272');
 
 // ---- 触摸管线（与主画布同径）----
 pin(/onZoomTouchEvent\(event: TouchEvent\)/.test(canvas), 'host.touch.dispatch');
@@ -252,11 +254,25 @@ pin(/ZOOM_ADVANCE_WIDTH_MIN_VP: number = 48/.test(zoomView) &&
 pin(/Math\.max\(ZOOM_ADVANCE_WIDTH_MIN_VP,[\s\S]{0,60}ZOOM_ADVANCE_WIDTH_MAX_VP/
   .test(zoomView), 'p752.clamp.applied');
 pin(!/Math\.max\(60, Math\.min\(320/.test(zoomView), 'p752.clamp.oldgone');
-pin(/scale\(\{ x: 1, y: this\.dockBottom \? 1 : -1 \}\)/.test(zoomView),
-  'p752.chromeflip.scale');
 pin(/panelInTopHalf/.test(evidence752) && /rh8\.u\(fFloatValue, 48\.0f, 336\.0f\)|48\.0f, 336\.0f/
   .test(evidence752), 'p752.evidence');
 pin(/panelInTopHalf|chromeFlip/.test(adr752) && /48/.test(adr752) && /336/.test(adr752),
   'p752.adr');
+
+// ---- Phase 754：fgg.b 原版面板几何——画布卡 272dp + 控制条内沿序交换 ----
+// 原版 njj.d(height 272dp) 仅包 dgg 画布卡（j0j 表面+g0j.c 前进区覆盖层），
+// wfg 控制条是 Column 兄弟节点；旧 160vp 为未登记缩水。
+pin(/surfaceHeightVp: number = 272/.test(zoomView), 'p754.surface.h272.prop');
+// fgg.b Column：底停靠 [控制条][画布卡]、顶停靠 [画布卡][控制条]——
+// 控制条恒贴面板内沿（条随停靠侧交换而非图标镜像）。
+pin(/if \(this\.dockBottom\) \{[\s\S]{0,60}this\.ControlBar\(\)[\s\S]{0,60}this\.SurfaceArea\(\)/
+  .test(zoomView), 'p754.dockorder.bottom');
+pin(/\} else \{[\s\S]{0,60}this\.SurfaceArea\(\)[\s\S]{0,60}this\.ControlBar\(\)/
+  .test(zoomView), 'p754.dockorder.top');
+// Phase 752 的 scaleY 图标镜像机制证伪——原版是 Column 序交换。
+pin(!/scale\(\{ x: 1, y: this\.dockBottom/.test(zoomView), 'p754.scalemirror.gone');
+pin(/272\.0f|272dp|fgg/.test(evidence754) && /Column|内沿|兄弟/.test(evidence754),
+  'p754.evidence');
+pin(/272|fgg/.test(adr754) && /ADR-0700|supersed|纠正|取代/.test(adr754), 'p754.adr');
 
 console.log(`D02_ORIGINAL_ZOOM_VIEW_OK pins=${pass}`);

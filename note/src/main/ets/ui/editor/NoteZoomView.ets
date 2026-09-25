@@ -3,7 +3,8 @@
 // advanceRegionWidth=180dp/panelInTopHalf)、qeg(Top|Bottom 停靠枚举)、
 // lgg(默认隐藏+底部停靠+5×+180dp)、wfg(控制条：拖拽柄+Back/Forward/Return/
 // Close 四枚 48dp 按钮)、g0j(zoom_advance_tab 自动前进区)、
-// ww2(default case 控制条布局顺序)、ufg(Advance/Back/Return 重定位事件)。
+// ww2(default case 控制条布局顺序)、ufg(Advance/Back/Return 重定位事件)、
+// fgg.b(272dp 画布卡 + 控制条停靠侧 Column 序交换：底停靠条在上、顶停靠条在下)。
 // 数据流：父组件持有 ggg 状态源（sourceRect/dockEdge/mag），本组件渲染
 // 放大画布 + 控制条；触摸事件透传父组件，由父组件复用 StrokeSession 管线。
 
@@ -19,7 +20,7 @@ const ZOOM_ADVANCE_WIDTH_MAX_VP: number = 336;
 @Component
 export struct NoteZoomView {
   // ggg.a isShown 由父组件控制显隐；以下均为 ggg 状态字段投影。
-  @Prop surfaceHeightVp: number = 160;
+  @Prop surfaceHeightVp: number = 272;
   // ggg.c sourceRectDocPx 左上原点（doc px，文档坐标=页面 pt）
   @Prop @Watch('repaint') sourceX: number = 0;
   @Prop @Watch('repaint') sourceY: number = 0;
@@ -131,9 +132,9 @@ export struct NoteZoomView {
       })
   }
 
-  build() {
-    Column() {
-      // === wfg/ww2 控制条：拖拽柄 | 分隔 | Back | Forward | Return | Close ===
+  // === wfg/ww2 控制条：拖拽柄 | 分隔 | Back | Forward | Return | Close ===
+  @Builder
+  ControlBar() {
       Row() {
         // wfg.c：drag_handle + "Move Zoom View"，垂直拖动重新停靠
         // （qeg：Top/Bottom 两档；向下拖→Bottom，向上拖→Top）
@@ -172,11 +173,11 @@ export struct NoteZoomView {
       .height(48)
       .justifyContent(FlexAlign.Start)
       .backgroundColor(this.resolveTokens().surface)
-      // ggg.f panelInTopHalf → b7f "toolboxFlip"（scaleY ±1 动画）：
-      // 面板停靠上半区时控制条镀铬垂直镜像；Harmony 顶部停靠≡上半区
-      .scale({ x: 1, y: this.dockBottom ? 1 : -1 })
+  }
 
-      // === g0j/fgg 放大画布区 ===
+  // === g0j/fgg 放大画布区（272dp Surface 卡）+ g0j.c 前进区覆盖层 ===
+  @Builder
+  SurfaceArea() {
       Stack({ alignContent: Alignment.TopEnd }) {
         Canvas(this.zoomCtx)
           .width('100%')
@@ -214,6 +215,18 @@ export struct NoteZoomView {
       .width('100%')
       .height(this.surfaceHeightVp)
       .clip(true)
+  }
+
+  build() {
+    Column() {
+      // fgg.b：控制条恒在面板内沿——底停靠 [bar][surface]、顶停靠 [surface][bar]
+      if (this.dockBottom) {
+        this.ControlBar()
+        this.SurfaceArea()
+      } else {
+        this.SurfaceArea()
+        this.ControlBar()
+      }
     }
     .width('100%')
     .margin({ left: 8, right: 8 })
