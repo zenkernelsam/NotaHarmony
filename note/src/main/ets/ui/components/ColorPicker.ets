@@ -29,6 +29,27 @@ export struct ColorPickerView {
     -1,          // 白
   ];
 
+  // 原版 pen_palette_color_*/pen_swatch_color_*：预设色点名（a11y）。
+  // Harmony 12 预设按色相映射到原版命名（pink/brown 用 swatch/palette
+  // 中语义等价项）。
+  private presetColorName(color: number): Resource | null {
+    switch (color) {
+      case -16777216: return $r('app.string.pen_palette_color_black');
+      case -7829368: return $r('app.string.pen_palette_color_gray');
+      case -65536: return $r('app.string.pen_palette_color_red');
+      case -26368: return $r('app.string.pen_palette_color_orange');
+      case -256: return $r('app.string.pen_palette_color_yellow');
+      case -16744448: return $r('app.string.pen_palette_color_green');
+      case -16711681: return $r('app.string.pen_palette_color_turquoise');
+      case -16776961: return $r('app.string.pen_palette_color_blue');
+      case -8388480: return $r('app.string.pen_palette_color_purple');
+      case -16181: return $r('app.string.pen_swatch_color_pink');
+      case -10011977: return $r('app.string.pen_palette_color_brown_sugar');
+      case -1: return $r('app.string.pen_palette_color_white');
+      default: return null;
+    }
+  }
+
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
   }
@@ -85,8 +106,11 @@ export struct ColorPickerView {
   }
 
   @Builder
-  private colorDot(color: number, onTap: () => void): void {
+  private colorDot(color: number, onTap: () => void,
+    a11yName: Resource | null = null): void {
     Column()
+      .accessibilityText(a11yName === null ?
+        $r('app.string.pen_string_color') : a11yName)
       .width(32)
       .height(32)
       .borderRadius(16)
@@ -170,7 +194,8 @@ export struct ColorPickerView {
         if (this.viewModel.recentColors.length > 0) {
           Row() {
             ForEach(this.viewModel.recentColors, (color: number) => {
-              this.colorDot(color, (): void => this.onFreeColor(color))
+              this.colorDot(color, (): void => this.onFreeColor(color),
+              this.presetColorName(color))
             }, (color: number) => 'recent:' + color.toString())
           }
           .width(200)
@@ -180,7 +205,8 @@ export struct ColorPickerView {
       Grid() {
         ForEach(this.presetColors, (color: number) => {
           GridItem() {
-            this.colorDot(color, (): void => this.onFreeColor(color))
+            this.colorDot(color, (): void => this.onFreeColor(color),
+              this.presetColorName(color))
           }
         }, (color: number) => 'preset:' + color.toString())
       }
