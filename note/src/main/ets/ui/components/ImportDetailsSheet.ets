@@ -6,6 +6,7 @@
 import { ImportDestination, ImportFileDescriptor, ImportPlan } from '../../data/NoteImporter';
 import { NoteMeta } from '../../core/model/NoteTypes';
 import { NoteFolder } from '../../data/FolderRepositoryImpl';
+import { common } from '@kit.AbilityKit';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 
@@ -132,6 +133,31 @@ export struct ImportDetailsSheet {
     if (this.controller !== undefined) {
       this.controller.close();
     }
+  }
+
+  // Original y5j.a: the confirm button is contextual —
+  //   EXISTING  -> ui_fileimport__add_to_note ("Add to \"%1$s\"")
+  //   SINGLE    -> ui_fileimport__create_single_note ("Create single note")
+  //   SEPARATE  -> ui_fileimport__create_new_note ("Create new note")
+  // The existing-note title falls back to default_note_title when empty
+  // (y5j.java:59 null||empty guard).
+  private confirmLabel(): ResourceStr {
+    if (this.destination === ImportDestination.EXISTING_NOTE) {
+      const target: NoteMeta | undefined = this.notes.find(
+        (note: NoteMeta): boolean => note.id === this.selectedNoteId);
+      let title: string = target !== undefined ? target.title : '';
+      if (title.length === 0) {
+        try {
+          title = (getContext(this) as common.UIAbilityContext)
+            .resourceManager.getStringSync($r('app.string.untitled_note').id);
+        } catch (_e) {
+          title = 'New Note';
+        }
+      }
+      return $r('app.string.import_add_to_note', title);
+    }
+    return this.destination === ImportDestination.SINGLE_NOTE ?
+      $r('app.string.import_create_single') : $r('app.string.import_create_new');
   }
 
   private confirm(): void {
@@ -389,7 +415,7 @@ export struct ImportDetailsSheet {
           .onClick(() => {
             this.finish(null);
           })
-        Button($r('app.string.import_confirm'))
+        Button(this.confirmLabel())
           .height(36)
           .fontSize(14)
           .layoutWeight(1)
