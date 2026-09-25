@@ -60,6 +60,9 @@ export struct TextBlockOverlay {
   @State caretCharSuper: boolean = false;
   // 原版 bte/k5a：光标段落（decorator=5 时）代码语言选择态。
   @State caretCodeLanguage: string = 'plaintext';
+  // 原版 br2.g/eh5.a：当前高亮色状态（默认 gh5.a=iu1.i 黄）——
+  // 文本选区菜单 HIGHLIGHT 项施加该色；toggleHighlightColor 漏斗内更新。
+  @State lastHighlightColor: number = 1716898048;
   @State caretAlignment: number = 1;
   @State caretLineSpacing: number = 1;
   // 原版 rte/eh5：高亮态（选区全覆盖或 pending 含色）。
@@ -462,6 +465,7 @@ export struct TextBlockOverlay {
     const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
     const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
     this.recordRecentColor(color);
+    this.lastHighlightColor = color;
     if (s === e) {
       this.pendingCharStyles.highlightColor = color;
       this.pendingClearHighlight = false;
@@ -1310,6 +1314,69 @@ export struct TextBlockOverlay {
     });
   }
 
+  // 原版 yqa.f 过滤 ordinal6=REMOVE_HIGHLIGHT 的 z4 门（eh5.b）：
+  // 选区与任一携带 highlightColor 的 run 相交即产出该项。
+  private rangeIntersectsHighlight(s: number, e: number): boolean {
+    for (const run of this.draftCharRuns) {
+      if (run.end > s && run.start < e &&
+        run.style.highlightColor !== undefined) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // 原版 q39/r39 ActionMode：文本选区菜单 = 系统项
+  // [Cut/Copy/Paste/Select All] + tqe.a() 定制尾部 [LINK, HIGHLIGHT,
+  // REMOVE_HIGHLIGHT]（REMOVE_HIGHLIGHT 受 eh5.b 门控）。折叠 caret 时
+  // 原版只出 [PASTE, SELECT_ALL]——系统菜单已覆盖，不追加定制项。
+  private onTextSelectionMenuCreate(menuItems: TextMenuItem[]): TextMenuItem[] {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart,
+      this.caretOffset));
+    const e: number = Math.max(this.caretSelectionStart, this.caretOffset);
+    if (s === e || this.photoImportLeaseActive) {
+      return menuItems;
+    }
+    const custom: TextMenuItem[] = [
+      { content: $r('app.string.text_link'), id: TextMenuItemId.of('text_link') },
+      { content: $r('app.string.text_highlight'),
+        id: TextMenuItemId.of('text_highlight') },
+    ];
+    if (this.rangeIntersectsHighlight(s, e)) {
+      custom.push({ content: $r('app.string.highlight_remove'),
+        id: TextMenuItemId.of('highlight_remove') });
+    }
+    return menuItems.concat(custom);
+  }
+
+  // 原版 q39.onActionItemClicked → r39 分发 + finish（消费语义）。
+  private onTextSelectionMenuItem(menuItem: TextMenuItem,
+    range: TextRange): boolean {
+    const s: number = range.start ?? this.caretSelectionStart;
+    const e: number = range.end ?? this.caretOffset;
+    if (menuItem.id.equals(TextMenuItemId.of('text_link'))) {
+      this.caretSelectionStart = s;
+      this.caretOffset = e;
+      this.openLinkSheet();
+      return true;
+    }
+    if (menuItem.id.equals(TextMenuItemId.of('text_highlight'))) {
+      this.applyHighlightColor(this.lastHighlightColor, s, e);
+      this.normalizeCharRuns();
+      this.refreshCaretCharStyles();
+      this.onDraftChange(this.draftText);
+      return true;
+    }
+    if (menuItem.id.equals(TextMenuItemId.of('highlight_remove'))) {
+      this.applyHighlightColor(null, s, e);
+      this.normalizeCharRuns();
+      this.refreshCaretCharStyles();
+      this.onDraftChange(this.draftText);
+      return true;
+    }
+    return false;
+  }
+
   // 原版 aue/wm5→removeHyperlinkFromSelection：清除选区 link 字段。
   private removeLink(): void {
     const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
@@ -1920,6 +1987,14 @@ export struct TextBlockOverlay {
               if (run !== null) {
                 this.showEditLinkMenu(run);
               }
+            })
+            // 原版 q39 ActionMode：文本选区菜单追加 LINK/HIGHLIGHT/
+            // REMOVE_HIGHLIGHT（tqe.a() 尾部三项，eh5.b 门控）。
+            .editMenuOptions({
+              onCreateMenu: (menuItems: TextMenuItem[]): TextMenuItem[] =>
+                this.onTextSelectionMenuCreate(menuItems),
+              onMenuItemClick: (menuItem: TextMenuItem, range: TextRange): boolean =>
+                this.onTextSelectionMenuItem(menuItem, range),
             })
             .onChange((value: string) => {
               if (this.photoImportLeaseActive) {
