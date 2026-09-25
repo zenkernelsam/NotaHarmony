@@ -12,8 +12,12 @@ const baseStrings = read('note/src/main/resources/base/element/string.json');
 const zhStrings = read('note/src/main/resources/zh_CN/element/string.json');
 const evidence = read('docs/migration/evidence/phase-747-original-zoom-view.md');
 const evidence748 = read('docs/migration/evidence/phase-748-original-zoom-view-full-render.md');
+const evidence749 = read('docs/migration/evidence/phase-749-original-zoom-advance-width-persist.md');
 const adr = read('docs/migration/adr/ADR-0695-original-zoom-view-port.md');
 const adr748 = read('docs/migration/adr/ADR-0696-original-zoom-view-full-render.md');
+const adr749 = read('docs/migration/adr/ADR-0697-original-zoom-advance-width-persist.md');
+const settingsStore = read('note/src/main/ets/data/EditorSettingsStore.ets');
+const settingsTest = read('note/src/test/EditorViewModel.test.ets');
 
 // Phase 747 — 原版 Zoom View（ggg 状态机 + ww2/wfg 控制条 + g0j 前进区）
 // 背景：ADR-0690 更正——"androidZoomView" 打包默认 true（PRODUCTION 档），
@@ -107,6 +111,33 @@ pin(/width\(48\)\s*\n\s*\.height\(48\)/.test(zoomView), 'panel.buttons.48');
 pin(/PanDirection\.Vertical/.test(zoomView), 'panel.drag.vertical');
 pin(/PanDirection\.Horizontal/.test(zoomView), 'panel.advance.drag');
 
+// ---- Phase 749：o59.r 前进区宽持久化 ----
+pin(/ZOOM_ADVANCE_WIDTH_KEY: string = 'zoomViewAdvanceRegionWidthDp'/
+  .test(settingsStore), 'persist.key.original-name');
+pin(/DEFAULT_ZOOM_ADVANCE_WIDTH_DP: number = 180/.test(settingsStore),
+  'persist.default.180');
+pin(/getZoomAdvanceWidthDp\(\): Promise<number>/.test(settingsStore) &&
+  /saveZoomAdvanceWidthDp\(widthDp: number\): Promise<void>/.test(settingsStore),
+  'persist.store.api');
+pin(/zoomAdvanceWidthDp: number = 180/.test(editorVm), 'vm.field');
+pin(/getZoomAdvanceWidthDp\(\)/.test(editorVm), 'vm.load');
+pin(/setZoomAdvanceWidthDp\(widthDp: number\)/.test(editorVm) &&
+  /enqueueSave[\s\S]{0,120}saveZoomAdvanceWidthDp/.test(editorVm), 'vm.save.enqueue');
+// 挂载同步 + 拖拽提交点持久化
+pin(/initZoomSourceRect[\s\S]{0,300}this\.zoomAdvanceWidthVp = this\.viewModel\.zoomAdvanceWidthDp/
+  .test(canvas), 'host.mount.sync');
+pin(/onAdvanceRegionCommit[\s\S]{0,300}setZoomAdvanceWidthDp/.test(canvas),
+  'host.commit.persist');
+// 拖拽基准宽钉在 onActionStart（offsetX 累计量不得逐帧重复相减）
+pin(/onActionStart\(\(\) => \{[\s\S]{0,160}this\.advanceDragStartWidthVp = this\.advanceWidthVp/
+  .test(zoomView), 'panel.drag.startpinned');
+pin(/advanceDragStartWidthVp - event\.offsetX/.test(zoomView),
+  'panel.drag.cumulative-fixed');
+pin(/onActionEnd\(\(\) => \{[\s\S]{0,80}this\.onAdvanceRegionCommit/.test(zoomView),
+  'panel.drag.endcommit');
+// 测试 fake 同步接口扩展
+pin(/getZoomAdvanceWidthDp/.test(settingsTest), 'test.fake.zoomwidth');
+
 // ---- 字符串（原文 + zh_CN）----
 for (const [key, val] of [
   ['tool_zoom', 'Zoom'],
@@ -138,5 +169,9 @@ pin(/vgg/.test(evidence748) && /oze.*fvb.*uke.*hnf.*gc9.*cga/s.test(evidence748)
   'evidence748.vgg.stack');
 pin(/renderZoomPanelContent/.test(adr748) && /renderOrderedElements/.test(adr748),
   'adr748.wiring');
+// Phase 749 文档钉：o59.r/n27 写链 + ADR-0697
+pin(/o59\.r/.test(evidence749) && /zoomViewAdvanceRegionWidthDp/.test(evidence749) &&
+  /n27/.test(evidence749), 'evidence749.o59r');
+pin(/ADR-0697|o59\.r/.test(adr749) && /提交点/.test(adr749), 'adr749.approx');
 
 console.log(`D02_ORIGINAL_ZOOM_VIEW_OK pins=${pass}`);

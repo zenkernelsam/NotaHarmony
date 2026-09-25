@@ -41,6 +41,10 @@ export class EditorViewModel {
   straightLinesEnabled: boolean = true;
   // 原版 cu6/bu6：laser_preferences.show_tail 缺省 true——激光笔拖尾开关。
   laserShowTail: boolean = true;
+  // 原版 o59.r = eua("zoomViewAdvanceRegionWidthDp")：Zoom 面板自动前进区
+  // 宽度持久化（g0j 拖拽 → setAdvanceRegionWidth → n27 case 2 tk8.g），
+  // lgg 默认 180dp。
+  zoomAdvanceWidthDp: number = 180;
   // 原版 w31.f (BrushState.tapePattern)：REVIEW 工具的当前胶带图案，
   // rz1:1075 缺省 0 = STRIPES；仅 REVIEW 激活时有意义。
   activeTapePattern: TapePattern = TapePattern.STRIPES;
@@ -172,6 +176,7 @@ export class EditorViewModel {
           this.palmDetectionEnabled = await settingsRepository.getPalmDetectionEnabled();
           this.straightLinesEnabled = await settingsRepository.getStraightLinesEnabled();
           this.laserShowTail = await settingsRepository.getLaserShowTail();
+          this.zoomAdvanceWidthDp = await settingsRepository.getZoomAdvanceWidthDp();
           if (!this.isInitializationCurrent()) {
             return false;
           }
@@ -780,6 +785,25 @@ export class EditorViewModel {
     } catch (e) {
       this.laserShowTail = !enabled;
       this.onPersistenceError(`Laser tail setting was not saved: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
+  // 原版 n27 case 2：advance_tab 拖拽结束 → tk8.g(o59.r, width) 持久化；
+  // 原版每次回调都写库，Harmony 在拖拽提交点写一次（可观察语义等价）。
+  async setZoomAdvanceWidthDp(widthDp: number): Promise<boolean> {
+    const previous: number = this.zoomAdvanceWidthDp;
+    this.zoomAdvanceWidthDp = widthDp;
+    const repository: EditorSettingsRepository | null = this.settingsRepository;
+    if (repository === null) {
+      return true;
+    }
+    try {
+      await this.enqueueSave(async (): Promise<void> => repository.saveZoomAdvanceWidthDp(widthDp));
+      return true;
+    } catch (e) {
+      this.zoomAdvanceWidthDp = previous;
+      this.onPersistenceError(`Zoom advance width was not saved: ${JSON.stringify(e)}`);
       return false;
     }
   }

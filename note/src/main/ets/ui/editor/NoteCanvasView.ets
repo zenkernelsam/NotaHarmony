@@ -1509,6 +1509,8 @@ export struct NoteCanvasView {
   // 面板挂载/页切换时初始化 sourceRect：有墨迹 → 末笔续写位
   // （rectW − advanceDoc 处，下一笔写入即触发前进）；无墨迹 → 视口中心。
   private initZoomSourceRect(): void {
+    // 原版 o59.r：自动前进区宽持久化——挂载时同步 VM 加载值。
+    this.zoomAdvanceWidthVp = this.viewModel.zoomAdvanceWidthDp;
     const rectW: number = this.zoomSurfaceRectWidthDoc();
     const rectH: number = this.zoomSurfaceRectHeightDoc();
     const lastStroke: StrokeElementData | undefined =
@@ -10468,6 +10470,20 @@ export struct NoteCanvasView {
             },
             onAdvanceRegionResize: (widthVp: number): void => {
               this.zoomAdvanceWidthVp = widthVp;
+            },
+            onAdvanceRegionCommit: (widthVp: number): void => {
+              // 原版 n27 case 2：拖拽提交点持久化 o59.r；失败回滚本地态。
+              this.viewModel.setZoomAdvanceWidthDp(widthVp)
+                .then((saved: boolean): void => {
+                  if (!saved) {
+                    this.zoomAdvanceWidthVp = this.viewModel.zoomAdvanceWidthDp;
+                    this.zoomPaintTick++;
+                  }
+                })
+                .catch((): void => {
+                  this.zoomAdvanceWidthVp = this.viewModel.zoomAdvanceWidthDp;
+                  this.zoomPaintTick++;
+                });
             },
           })
         }

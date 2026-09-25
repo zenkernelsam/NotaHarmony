@@ -39,6 +39,11 @@ const RULER_UNITS_KEY: string = 'rulerUnits';
 export const RULER_UNITS_IMPERIAL: string = 'Imperial';
 export const RULER_UNITS_METRIC: string = 'Metric';
 export const DEFAULT_RULER_UNITS: string = RULER_UNITS_IMPERIAL;
+// 原版 o59.r = eua("zoomViewAdvanceRegionWidthDp")：Zoom 面板自动前进区宽。
+// g0j advance_tab 拖拽 → setAdvanceRegionWidth → n27 case 2 tk8.g 持久化；
+// lgg/ggg.e 默认 180dp（Harmony 以 vp 承载，vp≈dp 语义等价）。
+const ZOOM_ADVANCE_WIDTH_KEY: string = 'zoomViewAdvanceRegionWidthDp';
+export const DEFAULT_ZOOM_ADVANCE_WIDTH_DP: number = 180;
 
 export interface EditorSettingsRepository {
   getShapeDetectionEnabled(): Promise<boolean>;
@@ -61,6 +66,8 @@ export interface EditorSettingsRepository {
   saveRulerUnits(units: string): Promise<void>;
   getLaserShowTail(): Promise<boolean>;
   saveLaserShowTail(enabled: boolean): Promise<void>;
+  getZoomAdvanceWidthDp(): Promise<number>;
+  saveZoomAdvanceWidthDp(widthDp: number): Promise<void>;
 }
 
 export interface DefaultNoteTemplateRepository {
@@ -132,6 +139,44 @@ export class EditorSettingsStore implements EditorSettingsRepository, DefaultNot
       const hadPrevious: boolean = store.hasSync(key);
       const previous = store.getSync(key, fallback);
       store.putSync(key, enabled);
+      try {
+        await store.flush();
+      } catch (e) {
+        if (hadPrevious) {
+          store.putSync(key, previous);
+        } else {
+          store.deleteSync(key);
+        }
+        try {
+          await store.flush();
+        } catch (rollbackError) {
+          throw new Error(`${tag} commit and rollback failed: ${JSON.stringify(e)}; ` +
+            `${JSON.stringify(rollbackError)}`);
+        }
+        throw new Error(`${tag} failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  private async getNumberPref(key: string, fallback: number): Promise<number> {
+    return EditorSettingsStore.mutex.runExclusive(async (): Promise<number> => {
+      try {
+        const store = await preferences.getPreferences(this.context, STORE_NAME);
+        const value = store.getSync(key, fallback);
+        return typeof value === 'number' ? value : fallback;
+      } catch (e) {
+        throw new Error(`getNumberPref(${key}) failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  private async saveNumberPref(key: string, value: number,
+    fallback: number, tag: string): Promise<void> {
+    return EditorSettingsStore.mutex.runExclusive(async (): Promise<void> => {
+      const store = await preferences.getPreferences(this.context, STORE_NAME);
+      const hadPrevious: boolean = store.hasSync(key);
+      const previous = store.getSync(key, fallback);
+      store.putSync(key, value);
       try {
         await store.flush();
       } catch (e) {
@@ -308,6 +353,16 @@ export class EditorSettingsStore implements EditorSettingsRepository, DefaultNot
   async saveLaserShowTail(enabled: boolean): Promise<void> {
     await this.saveBooleanPref(LASER_SHOW_TAIL_KEY, enabled,
       DEFAULT_LASER_SHOW_TAIL, 'saveLaserShowTail');
+  }
+
+  // 原版 o59.r / n27 case 2：zoomViewAdvanceRegionWidthDp（Float）持久化。
+  async getZoomAdvanceWidthDp(): Promise<number> {
+    return this.getNumberPref(ZOOM_ADVANCE_WIDTH_KEY, DEFAULT_ZOOM_ADVANCE_WIDTH_DP);
+  }
+
+  async saveZoomAdvanceWidthDp(widthDp: number): Promise<void> {
+    await this.saveNumberPref(ZOOM_ADVANCE_WIDTH_KEY, widthDp,
+      DEFAULT_ZOOM_ADVANCE_WIDTH_DP, 'saveZoomAdvanceWidthDp');
   }
 
   async getSelectedDefaultTemplate(): Promise<OriginalDefaultTemplateSelection> {

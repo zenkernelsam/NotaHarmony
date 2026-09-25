@@ -50,6 +50,11 @@ export struct NoteZoomView {
   // g0j zoom_advance_tab 横向拖拽调整自动前进区宽（60..320vp 夹取）
   onAdvanceRegionResize: (widthVp: number) => void = () => {
   };
+  // 拖拽提交点（onActionEnd）：原版 n27 case 2 经 tk8.g 持久化 o59.r；
+  // Harmony 由父组件写 EditorSettingsStore（原版逐帧写库，此处每次拖拽
+  // 提交写一次，跨会话可观察语义等价）。
+  onAdvanceRegionCommit: (widthVp: number) => void = () => {
+  };
 
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -57,6 +62,8 @@ export struct NoteZoomView {
   private zoomCtx: CanvasRenderingContext2D =
     new CanvasRenderingContext2D(new RenderingContextSettings(true));
   private renderCtx: Canvas2DRenderContext = new Canvas2DRenderContext(this.zoomCtx);
+  private advanceDragStartWidthVp: number = 180;
+  private advanceDragLastWidthVp: number = 180;
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
@@ -178,9 +185,17 @@ export struct NoteZoomView {
           .margin({ right: this.advanceWidthVp - 7 })
           .gesture(
             PanGesture({ direction: PanDirection.Horizontal, distance: 4 })
+              .onActionStart(() => {
+                // offsetX 自手势起点累计——基准宽须在起点钉住，否则逐帧漂移
+                this.advanceDragStartWidthVp = this.advanceWidthVp;
+              })
               .onActionUpdate((event: GestureEvent) => {
-                const next: number = this.advanceWidthVp - event.offsetX;
-                this.onAdvanceRegionResize(Math.max(60, Math.min(320, next)));
+                const next: number = this.advanceDragStartWidthVp - event.offsetX;
+                this.advanceDragLastWidthVp = Math.max(60, Math.min(320, next));
+                this.onAdvanceRegionResize(this.advanceDragLastWidthVp);
+              })
+              .onActionEnd(() => {
+                this.onAdvanceRegionCommit(this.advanceDragLastWidthVp);
               })
           )
           .accessibilityText($r('app.string.zoom_view_advance'))

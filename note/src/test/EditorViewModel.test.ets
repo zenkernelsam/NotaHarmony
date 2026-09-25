@@ -439,6 +439,20 @@ class FakeEditorSettingsRepository implements EditorSettingsRepository {
   async saveRulerUnits(_units: string): Promise<void> {
   }
 
+  async getLaserShowTail(): Promise<boolean> {
+    return true;
+  }
+
+  async saveLaserShowTail(_enabled: boolean): Promise<void> {
+  }
+
+  async getZoomAdvanceWidthDp(): Promise<number> {
+    return 180;
+  }
+
+  async saveZoomAdvanceWidthDp(_widthDp: number): Promise<void> {
+  }
+
   async saveShapeDetectionEnabled(enabled: boolean): Promise<void> {
     this.saveAttempts.push(enabled);
     const gate: DeferredSave | undefined = this.saveGates.shift();
