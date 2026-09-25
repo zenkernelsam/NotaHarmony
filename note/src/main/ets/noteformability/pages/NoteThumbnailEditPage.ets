@@ -78,7 +78,9 @@ struct NoteThumbnailEditPage {
         List() {
           ForEach(this.filteredNotes(), (note: NoteMeta) => {
             ListItem() {
-              Text(note.title)
+              // Original nti/ksh widget feeds: empty title ->
+              // data_library_state__default_note_title.
+              Text(note.title.length > 0 ? note.title : $r('app.string.untitled_note'))
                 .fontSize(14)
                 .width('100%')
                 .padding(12)

@@ -2582,7 +2582,9 @@ struct LibraryPage {
       }
       .width('100%')
       .layoutWeight(1)
-      Text(note.title)
+      // Original e5j.h: a null/empty materialized title renders the
+      // default_note_title ("New Note") on the card, never blank.
+      Text(note.title.length > 0 ? note.title : $r('app.string.untitled_note'))
         .fontSize(14)
         .maxLines(1)
         .fontColor(this.resolveTokens().textPrimary)
@@ -2704,7 +2706,8 @@ struct LibraryPage {
       .width(48)
       .height(64)
       Column() {
-        Text(note.title)
+        // Original e5j.h: empty materialized title -> default_note_title.
+        Text(note.title.length > 0 ? note.title : $r('app.string.untitled_note'))
           .fontSize(14)
           .maxLines(1)
           .fontColor(this.resolveTokens().textPrimary)

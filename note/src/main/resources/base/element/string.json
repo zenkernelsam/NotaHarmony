@@ -949,7 +949,7 @@
     },
     {
       "name": "recently_deleted_meta",
-      "value": "Deleted %s · %d days left"
+      "value": "Deleted %s"
     },
     {
       "name": "recently_deleted_load_failed",

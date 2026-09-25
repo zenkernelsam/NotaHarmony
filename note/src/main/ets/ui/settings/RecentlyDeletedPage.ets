@@ -7,7 +7,7 @@ import { router, promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { NoteMeta } from '../../core/model/NoteTypes';
 import { DatabaseManager } from '../../data/DatabaseManager';
-import { NoteRepositoryImpl, TRASH_RETENTION_MS } from '../../data/NoteRepositoryImpl';
+import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
@@ -16,8 +16,6 @@ enum TrashLoadState {
   ERROR = 'error',
   READY = 'ready',
 }
-
-const MS_PER_DAY: number = 24 * 60 * 60 * 1000;
 
 @Entry
 @Component
@@ -81,22 +79,19 @@ struct RecentlyDeletedPage {
     }
   }
 
-  private daysLeft(note: NoteMeta): number {
-    if (note.deletedAt === null) {
-      return 0;
-    }
-    const remaining: number = TRASH_RETENTION_MS - (Date.now() - note.deletedAt);
-    return Math.max(0, Math.ceil(remaining / MS_PER_DAY));
-  }
-
+  // Original bib/nhb row subtitle: feature_settings__note_deleted_at
+  // ("Deleted %1$s") filled with z5c.n = ofLocalizedDate(MEDIUM).
   private formatDeletedTime(note: NoteMeta): string {
     if (note.deletedAt === null) {
       return '';
     }
-    const date: Date = new Date(note.deletedAt);
-    const month: string = (date.getMonth() + 1).toString().padStart(2, '0');
-    const day: string = date.getDate().toString().padStart(2, '0');
-    return `${date.getFullYear()}-${month}-${day}`;
+    try {
+      return new Intl.DateTimeFormat(undefined,
+        { dateStyle: 'medium' }).format(new Date(note.deletedAt));
+    } catch (_error) {
+      const d: Date = new Date(note.deletedAt);
+      return d.getMonth() + 1 + '/' + d.getDate() + '/' + d.getFullYear();
+    }
   }
 
   private confirmPermanentlyDelete(note: NoteMeta): void {
@@ -180,7 +175,7 @@ struct RecentlyDeletedPage {
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
           Text($r('app.string.recently_deleted_meta',
-            this.formatDeletedTime(note), this.daysLeft(note)))
+            this.formatDeletedTime(note)))
             .fontSize(12)
             .fontColor(this.resolveTokens().textSecondary)
             .margin({ top: 4 })

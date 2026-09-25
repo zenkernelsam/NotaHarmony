@@ -110,7 +110,9 @@ struct FolderNotesCard {
                     .borderRadius(6)
                     .border({ width: 1, color: $r('app.color.app_widgets__widget_divider') })
                   }
-                  Text(item.title)
+                  // Original nti/ksh widget feeds: empty title ->
+                  // data_library_state__default_note_title.
+                  Text(item.title.length > 0 ? item.title : $r('app.string.untitled_note'))
                     .fontSize(13)
                     .fontColor($r('app.color.app_widgets__widget_text'))
                     .maxLines(1)

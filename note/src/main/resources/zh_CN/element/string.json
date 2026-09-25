@@ -254,7 +254,7 @@
     { "name": "recently_deleted", "value": "最近删除" },
     { "name": "recently_deleted_empty_state_header", "value": "选择笔记即可将其恢复到资料库。除非恢复，此列表中的笔记将在 30 天后被永久删除。" },
     { "name": "recently_deleted_empty_state_message", "value": "没有最近删除的笔记" },
-    { "name": "recently_deleted_meta", "value": "删除于 %s · 剩余 %d 天" },
+    { "name": "recently_deleted_meta", "value": "删除于 %s" },
     { "name": "recently_deleted_load_failed", "value": "无法加载最近删除的笔记，请重试" },
     { "name": "recover_note", "value": "恢复" },
     { "name": "recover_note_failed", "value": "恢复笔记失败，请重试" },

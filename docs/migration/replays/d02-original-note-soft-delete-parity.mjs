@@ -115,7 +115,9 @@ ok(trashPage.includes('restoreNote'), 'trash page must offer Recover');
 ok(trashPage.includes('repo.deleteNote(noteId)'),
   'trash page permanent delete must hit deleteNote');
 ok(trashPage.includes('purgeExpiredTrash'), 'trash page must purge on load');
-ok(trashPage.includes('TRASH_RETENTION_MS'), 'trash page must show remaining days');
+// Original bib/nhb row subtitle = note_deleted_at + z5c.n medium date —
+// no remaining-days segment exists in the original (Phase 739 evidence).
+ok(trashPage.includes("dateStyle: 'medium'"), 'trash row date must be localized medium');
 
 for (const key of ['recently_deleted', 'recently_deleted_empty_state_header',
   'recently_deleted_empty_state_message', 'recently_deleted_meta',
