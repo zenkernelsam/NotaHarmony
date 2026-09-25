@@ -351,7 +351,15 @@ export struct PageOverviewPanel {
         // （copy/duplicate/delete 图标位 + cut/paste/bookmark/clear
         // 溢出项）。Clear 对多页选集 fail-closed（ADR-0615），仅当选中
         // 集恰为当前页时可经画布信号执行。
-        Scroll() {
+        // p7j:663/951：工具条前部 "N of M selected" 计数标签
+        // （ui_pageselection__x_of_y_selected，分母=过滤后可见列表）。
+        Row() {
+          Text($r('app.string.pages_x_of_y_selected',
+            this.selectedPageIds.length, this.visibleItems().length))
+            .fontSize(12)
+            .fontColor(this.resolveTokens().textSecondary)
+            .margin({ right: 8 })
+          Scroll() {
           Row() {
             this.SelectionActionChip(
               this.allVisibleSelected() ?
@@ -388,11 +396,14 @@ export struct PageOverviewPanel {
             this.SelectionActionChip($r('app.string.pages_done'),
               (): void => this.exitSelection(), true)
           }
+          }
+          .scrollable(ScrollDirection.Horizontal)
+          .scrollBar(BarState.Off)
+          .layoutWeight(1)
+          .padding({ right: 12, bottom: 8 })
         }
-        .scrollable(ScrollDirection.Horizontal)
-        .scrollBar(BarState.Off)
         .width('100%')
-        .padding({ left: 16, right: 12, bottom: 8 })
+        .padding({ left: 16 })
       }
 
       if (this.searchActive) {

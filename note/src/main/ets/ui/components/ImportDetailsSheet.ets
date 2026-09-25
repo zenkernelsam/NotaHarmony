@@ -342,7 +342,8 @@ export struct ImportDetailsSheet {
                 (note: NoteMeta) => {
                   ListItem() {
                     Row() {
-                      Text(note.title.length > 0 ? note.title : 'Untitled')
+                      Text(note.title.length > 0 ? note.title :
+                        $r('app.string.untitled_note'))
                         .fontSize(13)
                         .fontColor(this.resolveTokens().textPrimary)
                         .maxLines(1)

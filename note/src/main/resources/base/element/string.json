@@ -1348,6 +1348,7 @@
     { "name": "data_onboarding__first_note_completed_tooltip_text", "value": "Organize your notes by creating new folders. Drag and drop a folder into another for nested organization" },
     { "name": "data_onboarding__compact_organize_tooltip_text", "value": "Now that you have notes, start organizing them into Folders" },
     { "name": "data_onboarding__got_it", "value": "Got it" },
+    { "name": "pages_x_of_y_selected", "value": "%d of %d selected" },
     { "name": "import_arrange", "value": "Arrange" },
     { "name": "import_move_up", "value": "Move up" },
     { "name": "import_move_down", "value": "Move down" }

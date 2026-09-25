@@ -582,6 +582,7 @@
     { "name": "data_onboarding__first_note_completed_tooltip_text", "value": "通过新建文件夹整理笔记。拖放一个文件夹到另一个文件夹中以嵌套整理" },
     { "name": "data_onboarding__compact_organize_tooltip_text", "value": "现在您已有笔记，开始将它们整理到文件夹中" },
     { "name": "data_onboarding__got_it", "value": "知道了" },
+    { "name": "pages_x_of_y_selected", "value": "已选 %d/%d 页" },
     { "name": "import_arrange", "value": "排列" },
     { "name": "import_move_up", "value": "上移" },
     { "name": "import_move_down", "value": "下移" }
