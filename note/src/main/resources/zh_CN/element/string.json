@@ -402,6 +402,7 @@
     { "name": "recording_audio_failed", "value": "音频不可用" },
     { "name": "recordings_load_failed", "value": "无法加载录音" },
     { "name": "delete_recording", "value": "删除录音" },
+    { "name": "cd_delete_recording", "value": "删除录音 %d" },
     { "name": "recording_deleted", "value": "录音已删除" },
     { "name": "recording_delete_failed", "value": "无法删除录音" },
     { "name": "microphone_permission_reason", "value": "使用麦克风在笔记中录制音频。" },

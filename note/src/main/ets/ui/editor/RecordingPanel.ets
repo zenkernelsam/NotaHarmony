@@ -333,7 +333,9 @@ export struct RecordingPanel {
         .height(32).fontSize(12).borderRadius(4)
         .backgroundColor(Color.Transparent)
         .fontColor(this.resolveTokens().danger)
-        .accessibilityText($r('app.string.delete_recording'))
+        // Original cd_delete_recording = "Delete %1$s" — the a11y label
+        // interpolates the recording's user-facing name (m8/n05:364).
+        .accessibilityText($r('app.string.cd_delete_recording', index + 1))
         .enabled(this.controlsEnabled)
         .onClick(() => {
           if (this.photoImportLeaseActive || this.loading) {
