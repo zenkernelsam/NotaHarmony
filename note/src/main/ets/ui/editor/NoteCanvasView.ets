@@ -247,6 +247,12 @@ const ZOOM_WINDOW_MAG_MAX: number = 10;
 // dfg 拖拽模式：窗内拖动=移动（setSourceRect）；左下把手=缩放（resizeSourceRect）
 const ZOOM_WINDOW_DRAG_MOVE: number = 1;
 const ZOOM_WINDOW_DRAG_RESIZE: number = 2;
+// bfg 边缘自动滚动：指针压到画布左右 30dp 带内视口自动平移（窗口跟随）——
+// 带内 100dp/s、指针越过边缘（出带）500dp/s；原版横向判定（a76.b/.d）
+const ZOOM_EDGE_SCROLL_BAND_VP: number = 30;
+const ZOOM_EDGE_SCROLL_SLOW_VPS: number = 100;
+const ZOOM_EDGE_SCROLL_FAST_VPS: number = 500;
+const ZOOM_EDGE_SCROLL_FRAME_MS: number = 16;
 const PDF_RASTER_REFRESH_DELAY_MS: number = 120;
 const CLIPBOARD_PASTE_SUPPRESSION_MS: number = 200;
 
@@ -582,6 +588,11 @@ export struct NoteCanvasView {
   private zoomWindowPointerId: number = -1;
   private zoomWindowLastX: number = 0;
   private zoomWindowLastY: number = 0;
+  // bfg 边缘自动滚动运行时：定时器/方向/速度/上帧时间戳
+  private zoomEdgeScrollTimer: number = -1;
+  private zoomEdgeScrollDir: number = 0;
+  private zoomEdgeScrollSpeed: number = 0;
+  private zoomEdgeScrollLastMs: number = 0;
   private eyedropperColor: number | null = null;
   private eyedropperSampleGeneration: number = 0;
   private canvasDropWindowOrigin: Point2D = { x: 0, y: 0 };
@@ -1927,6 +1938,8 @@ export struct NoteCanvasView {
       this.zoomWindowLastY = touch.y;
       this.zoomPaintTick++;
       this.renderFrame();
+      // bfg：按压拖拽期间评估边缘带 → 视口自动滚动 + 窗口跟随
+      this.updateZoomWindowEdgeScroll(touch.x);
       return;
     }
     if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
@@ -1934,7 +1947,65 @@ export struct NoteCanvasView {
     }
   }
 
+  // 原版 bfg（Phase 751）：窗口手势按压期间指针进入左右 30vp 边缘带 →
+  // 视口逐帧自动平移（带内 100vp/s，越过边缘 500vp/s），源窗按
+  // scroll/zoom 跟随平移保持吸附在指针下。仅横向（a76.b/.d）。
+  private updateZoomWindowEdgeScroll(pointerX: number): void {
+    const w: number = this.canvasCtx.width;
+    if (pointerX > w - ZOOM_EDGE_SCROLL_BAND_VP) {
+      this.zoomEdgeScrollDir = 1;
+      this.zoomEdgeScrollSpeed =
+        pointerX > w ? ZOOM_EDGE_SCROLL_FAST_VPS : ZOOM_EDGE_SCROLL_SLOW_VPS;
+    } else if (pointerX < ZOOM_EDGE_SCROLL_BAND_VP) {
+      this.zoomEdgeScrollDir = -1;
+      this.zoomEdgeScrollSpeed =
+        pointerX < 0 ? ZOOM_EDGE_SCROLL_FAST_VPS : ZOOM_EDGE_SCROLL_SLOW_VPS;
+    } else {
+      this.stopZoomWindowEdgeScroll();
+      return;
+    }
+    if (this.zoomEdgeScrollTimer >= 0) {
+      return;
+    }
+    this.zoomEdgeScrollLastMs = Date.now();
+    this.zoomEdgeScrollTimer = setInterval((): void => {
+      this.zoomWindowEdgeScrollTick();
+    }, ZOOM_EDGE_SCROLL_FRAME_MS);
+  }
+
+  private zoomWindowEdgeScrollTick(): void {
+    if (this.zoomWindowDragMode === 0 || this.zoomEdgeScrollDir === 0 ||
+      this.viewModel.currentTool !== ToolType.ZOOM) {
+      this.stopZoomWindowEdgeScroll();
+      return;
+    }
+    const now: number = Date.now();
+    const dt: number = Math.min(0.1, Math.max(0, (now - this.zoomEdgeScrollLastMs) / 1000));
+    this.zoomEdgeScrollLastMs = now;
+    if (dt <= 0) {
+      return;
+    }
+    const dxVp: number = this.zoomEdgeScrollDir * this.zoomEdgeScrollSpeed * dt;
+    // sh1.l(w66(-iY0))：视口反向消费滚动量 → 内容随指针方向平移；
+    // gfg.d(rect.k(iY0/zoom))：窗口 doc 同步平移，保持指针吸附
+    this.viewport.panBy(-dxVp, 0);
+    this.clampZoomSource(
+      this.zoomSourceX + dxVp / this.viewport.zoom, this.zoomSourceY);
+    this.zoomPaintTick++;
+    this.renderFrame();
+  }
+
+  private stopZoomWindowEdgeScroll(): void {
+    if (this.zoomEdgeScrollTimer >= 0) {
+      clearInterval(this.zoomEdgeScrollTimer);
+      this.zoomEdgeScrollTimer = -1;
+    }
+    this.zoomEdgeScrollDir = 0;
+    this.zoomEdgeScrollSpeed = 0;
+  }
+
   private endZoomWindowDrag(): void {
+    this.stopZoomWindowEdgeScroll();
     if (this.zoomWindowDragMode !== 0) {
       this.zoomWindowDragMode = 0;
       this.zoomWindowPointerId = -1;

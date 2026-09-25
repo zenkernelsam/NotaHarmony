@@ -18,6 +18,8 @@ const adr = read('docs/migration/adr/ADR-0695-original-zoom-view-port.md');
 const adr748 = read('docs/migration/adr/ADR-0696-original-zoom-view-full-render.md');
 const adr749 = read('docs/migration/adr/ADR-0697-original-zoom-advance-width-persist.md');
 const adr750 = read('docs/migration/adr/ADR-0698-original-zoom-source-window-overlay.md');
+const evidence751 = read('docs/migration/evidence/phase-751-zoom-window-edge-autoscroll.md');
+const adr751 = read('docs/migration/adr/ADR-0699-original-zoom-window-edge-autoscroll.md');
 const settingsStore = read('note/src/main/ets/data/EditorSettingsStore.ets');
 const settingsTest = read('note/src/test/EditorViewModel.test.ets');
 
@@ -220,5 +222,26 @@ pin(/vp2px/.test(evidence750) && /LengthMetricsUnit\.DEFAULT/.test(evidence750),
   'p750.evidence.vpbug');
 pin(/resizeSourceRect/.test(adr750) && /1, ?10|1\.0, ?10|\[1,\s*10\]/.test(adr750),
   'p750.adr.resize');
+
+// ---- Phase 751：bfg 边缘自动滚动（按压拖拽 + 指针近缘 → 视口平移+窗口跟随）----
+pin(/ZOOM_EDGE_SCROLL_BAND_VP: number = 30/.test(canvas) &&
+  /ZOOM_EDGE_SCROLL_SLOW_VPS: number = 100/.test(canvas) &&
+  /ZOOM_EDGE_SCROLL_FAST_VPS: number = 500/.test(canvas), 'p751.constants');
+pin(/updateZoomWindowEdgeScroll\(pointerX: number\)/.test(canvas) &&
+  /w - ZOOM_EDGE_SCROLL_BAND_VP/.test(canvas) &&
+  /pointerX < ZOOM_EDGE_SCROLL_BAND_VP/.test(canvas), 'p751.band.both');
+pin(/setInterval[\s\S]{0,120}zoomWindowEdgeScrollTick/.test(canvas),
+  'p751.frameloop');
+pin(/viewport\.panBy\(-dxVp, 0\)/.test(canvas) &&
+  /dxVp \/ this\.viewport\.zoom/.test(canvas), 'p751.scroll.follow');
+pin(/zoomWindowDragMode === 0 \|\| this\.zoomEdgeScrollDir === 0/.test(canvas),
+  'p751.tick.gate');
+pin(/endZoomWindowDrag[\s\S]{0,120}stopZoomWindowEdgeScroll/.test(canvas) &&
+  /clearInterval\(this\.zoomEdgeScrollTimer\)/.test(canvas), 'p751.cleanup');
+pin(/updateZoomWindowEdgeScroll\(touch\.x\)/.test(canvas), 'p751.move.wired');
+// 文档钉
+pin(/bfg/.test(evidence751) && /withFrameNanos|30dp/.test(evidence751) &&
+  /100dp/.test(evidence751) && /500dp/.test(evidence751), 'p751.evidence');
+pin(/ADR-0699|bfg/.test(adr751) && /panBy/.test(adr751), 'p751.adr');
 
 console.log(`D02_ORIGINAL_ZOOM_VIEW_OK pins=${pass}`);
