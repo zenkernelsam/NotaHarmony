@@ -7,6 +7,10 @@
 
 ---
 
+> **2026-09-28 总览更正**：本文件为 2026-08 审计日现场快照，条内行号与「移植侧」描述多已失效——
+> 后续 M2 批次与 Phase 系列已逐条处置（见 `修复总纲.md`/`修复总纲2.md` 的更正注记与各 Phase Report/ADR）。
+> 保留正文作历史依据；**派工现状一律以两份修复总纲的更正注记 + ADR + 当前代码为准**，禁止按本快照重复派工。
+
 ## D-01 【P0 数据丢失】笔画持久化完全没有页维度，多页笔记所有页共用一份元素集合
 
 - 移植侧：`note/src/main/ets/data/StrokePersistence.ets:32-74`（`saveElements(noteId, strokes, textBlocks)`）、`:77-107`（`loadElements(noteId)`）；表定义 `note/src/main/ets/data/DatabaseHelper.ets:34-41`（`client_op` 无 `page_id` 列）。
