@@ -95,15 +95,16 @@ export struct NoteZoomView {
       ctx.restore();
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    // g0j：自动前进区（trailing 阴影带 + 区界线 + 中央 advance_tab 标记）
-    const advancePx: number = vp2px(this.advanceWidthVp);
-    const stripX: number = Math.max(0, w - advancePx);
+    // g0j：自动前进区（trailing 阴影带 + 区界线 + 中央 advance_tab 标记）。
+    // ctx 为 vp 绘制空间（LengthMetricsUnit.DEFAULT）——直接用 vp 值，
+    // 不得 vp2px（Phase 750 修复：747 版误乘 density 导致区带/标记放大）。
+    const stripX: number = Math.max(0, w - this.advanceWidthVp);
     ctx.fillStyle = '#14000000';
-    ctx.fillRect(stripX, 0, advancePx, h);
+    ctx.fillRect(stripX, 0, this.advanceWidthVp, h);
     ctx.fillStyle = tokens.border;
     ctx.fillRect(stripX, 0, 1, h);
-    const tabW: number = vp2px(10);
-    const tabH: number = vp2px(28);
+    const tabW: number = 10;
+    const tabH: number = 28;
     ctx.fillStyle = tokens.textSecondary;
     ctx.fillRect(stripX - tabW / 2, h / 2 - tabH / 2, tabW, tabH);
   }

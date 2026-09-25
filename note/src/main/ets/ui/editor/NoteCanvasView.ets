@@ -233,6 +233,20 @@ const ORIGINAL_MATH_EDITOR_PREVIEW_HEIGHT_VP: number = 96;
 const ORIGINAL_MATH_EDITOR_PREVIEW_PIXEL_SCALE: number = 1;
 // Phase 747 Zoom View 面板画布区高度（vp）；控制条 48vp 另计（wfg 48dp）
 const ZOOM_SURFACE_HEIGHT_VP: number = 160;
+// === Phase 750 Zoom 源窗口覆盖层（原版 gfg/dfg/bfg）===
+// gfg.a = iu1.b(0.08f)：窗口外区域 8% 暗化遮罩（#14 = 0x14/255≈8%）。
+const ZOOM_WINDOW_SCRIM: string = '#14000000';
+// zoom_outline/zoom_fill 向量图：窗口圆角≈2dp；把手 chip 24dp 白底圆角方片。
+const ZOOM_WINDOW_CORNER_VP: number = 2;
+const ZOOM_WINDOW_KNOB_VP: number = 24;
+// 把手触摸命中半径（放大目标，便于指触；原作用 dfg 命中域未反编译——近似）
+const ZOOM_WINDOW_KNOB_HIT_VP: number = 36;
+// resizeSourceRect 产出的放大倍率域：未反编译，按视口缩放域近似 [1, 10]
+const ZOOM_WINDOW_MAG_MIN: number = 1;
+const ZOOM_WINDOW_MAG_MAX: number = 10;
+// dfg 拖拽模式：窗内拖动=移动（setSourceRect）；左下把手=缩放（resizeSourceRect）
+const ZOOM_WINDOW_DRAG_MOVE: number = 1;
+const ZOOM_WINDOW_DRAG_RESIZE: number = 2;
 const PDF_RASTER_REFRESH_DELAY_MS: number = 120;
 const CLIPBOARD_PASTE_SUPPRESSION_MS: number = 200;
 
@@ -563,6 +577,11 @@ export struct NoteCanvasView {
   private zoomMagnification: number = 5;
   // 放大面板书写会话的生命周期标记（独立于主画布 isDrawing）
   private zoomStrokeActive: boolean = false;
+  // gfg/dfg 源窗口覆盖层手势态：0=空闲 1=移动窗口 2=左下把手缩放
+  private zoomWindowDragMode: number = 0;
+  private zoomWindowPointerId: number = -1;
+  private zoomWindowLastX: number = 0;
+  private zoomWindowLastY: number = 0;
   private eyedropperColor: number | null = null;
   private eyedropperSampleGeneration: number = 0;
   private canvasDropWindowOrigin: Point2D = { x: 0, y: 0 };
@@ -1473,28 +1492,31 @@ export struct NoteCanvasView {
 
   // ===================== Phase 747 Zoom View =====================
   // 原版 ggg/vgg/fgg/ufg 语义：
-  // - sourceRectDocPx：放大窗口可见区域（doc px）。窗口 doc 宽 =
-  //   屏幕 px / magnification（5.0 → 1080px 屏≈216pt 宽窗）。
+  // - sourceRect：放大窗口可见区域（doc 单位）。窗口 doc 宽 =
+  //   面板 vp 宽 / magnification（5.0 → 272vp 面板≈54 单位宽窗）。
   // - ufg.Advance：笔画落笔结束于自动前进区（trailing advanceWidthVp 带）→
   //   窗口右滑 (rectW − advanceDoc)，保持笔迹上下文衔接。
   // - ufg.Back/Forward：窗口按 (rectW − advanceDoc) 步进左/右翻。
   // - ufg.Return：窗口跳回最近一笔的续写位（末笔末端落在前进区前沿）。
   // - qeg dockEdge：拖拽柄垂直拖动重新停靠 Top/Bottom。
-  // 输入：面板 onTouch 透传，坐标 vp → px → doc（doc = source + px/mag），
+  // 输入：面板 onTouch 透传，坐标 vp → doc（doc = source + vp/mag）。
+  // 注意：CanvasRenderingContext2D 默认 LengthMetricsUnit.DEFAULT=vp，
+  // 触摸坐标/ctx 绘制/滚动偏移全部 vp 空间——此路径不得再做 vp2px
+  // （Phase 750 修复：747 版误乘 density，笔画落点偏移约 2.75×）。
   // 笔画经同一 StrokeSession 平滑/拟合管线，提交路径与主画布 Up 一致。
 
   private zoomSurfaceRectWidthDoc(): number {
-    const density: number = vp2px(1);
-    const widthPx: number = vp2px(this.overlayWidth > 0 ? this.overlayWidth : 360);
-    return widthPx / this.zoomMagnification;
+    // 面板 .width('100%') + margin 8vp×2 → 放大面可视宽 = overlayWidth − 16vp。
+    const surfaceVp: number = (this.overlayWidth > 0 ? this.overlayWidth : 360) - 16;
+    return Math.max(1, surfaceVp) / this.zoomMagnification;
   }
 
   private zoomSurfaceRectHeightDoc(): number {
-    return vp2px(ZOOM_SURFACE_HEIGHT_VP) / this.zoomMagnification;
+    return ZOOM_SURFACE_HEIGHT_VP / this.zoomMagnification;
   }
 
   private zoomAdvanceDoc(): number {
-    return vp2px(this.zoomAdvanceWidthVp) / this.zoomMagnification;
+    return this.zoomAdvanceWidthVp / this.zoomMagnification;
   }
 
   private clampZoomSource(x: number, y: number): void {
@@ -1522,11 +1544,13 @@ export struct NoteCanvasView {
       this.clampZoomSource(
         last.position.x - (rectW - this.zoomAdvanceDoc()),
         last.position.y - rectH / 2);
-      return;
+    } else {
+      const center: Point2D = this.viewport.screenToCanvas(
+        this.canvasCtx.width / 2, this.canvasCtx.height / 2);
+      this.clampZoomSource(center.x - rectW / 2, center.y - rectH / 2);
     }
-    const center: Point2D = this.viewport.screenToCanvas(
-      this.canvasCtx.width / 2, this.canvasCtx.height / 2);
-    this.clampZoomSource(center.x - rectW / 2, center.y - rectH / 2);
+    // Phase 750：窗口初始化后重绘主画布——gfg 覆盖层即刻可见
+    this.renderFrame();
   }
 
   private zoomDocPoint(touch: TouchObject): Point2D {
@@ -1534,14 +1558,14 @@ export struct NoteCanvasView {
     const paperH: number = this.getPaperHeight();
     return {
       x: Math.min(Math.max(
-        this.zoomSourceX + vp2px(touch.x) / this.zoomMagnification, 0), paperW),
+        this.zoomSourceX + touch.x / this.zoomMagnification, 0), paperW),
       y: Math.min(Math.max(
-        this.zoomSourceY + vp2px(touch.y) / this.zoomMagnification, 0), paperH),
+        this.zoomSourceY + touch.y / this.zoomMagnification, 0), paperH),
     };
   }
 
   // Zoom 采样 → RawPointerEvent：与 toRawPointerEvent 同径（doc 坐标夹取 +
-  // stylus 属性），差异仅在坐标映射（放大面板 vp→px→doc）。
+  // stylus 属性），差异仅在坐标映射（放大面板 vp→doc）。
   private zoomRawPointerEvent(touch: TouchObject, isHistorical: boolean,
     event: TouchEvent, timestamp: number): RawPointerEvent {
     const stylus: ArkUIStylusSample = ArkUIStylusAdapter.fromTouch(touch, event);
@@ -1734,6 +1758,189 @@ export struct NoteCanvasView {
       this.currentPage, mag, theme, loaded === null ? null : loaded.bitmap, this.paperTexture,
       loaded === null ? null : loaded.renderRect);
     this.renderOrderedElements(renderContext, this.zoomLiveStroke, mag);
+  }
+
+  // === Phase 750：原版 gfg/dfg 源窗口覆盖层（on-page source window）===
+  // gfg.a：ZOOM 激活时主画布上的可交互窗口——窗内拖动移动（setSourceRect），
+  // 左下圆形把手拖动缩放窗口并联动 magnification（resizeSourceRect），
+  // 窗外 8% 暗化遮罩。视觉按 zoom_overlay/outline/fill/highlight 向量图近似。
+
+  // 源窗口在主画布触摸/绘制坐标系（vp，doc→screen 经视口变换）中的矩形。
+  private zoomWindowScreenRect(): Rect2D {
+    const tl: Point2D = this.viewport.canvasToScreen(this.zoomSourceX, this.zoomSourceY);
+    return {
+      left: tl.x,
+      top: tl.y,
+      right: tl.x + this.zoomSurfaceRectWidthDoc() * this.viewport.zoom,
+      bottom: tl.y + this.zoomSurfaceRectHeightDoc() * this.viewport.zoom,
+    };
+  }
+
+  // 圆角矩形路径（绘制 API 无内置圆角矩形：四弧手动合成）
+  private traceRoundRect(ctx: CanvasRenderingContext2D,
+    l: number, t: number, r: number, b: number, radius: number): void {
+    const rr: number = Math.min(radius, Math.min(r - l, b - t) / 2);
+    ctx.beginPath();
+    ctx.moveTo(l + rr, t);
+    ctx.lineTo(r - rr, t);
+    ctx.arc(r - rr, t + rr, rr, -Math.PI / 2, 0);
+    ctx.lineTo(r, b - rr);
+    ctx.arc(r - rr, b - rr, rr, 0, Math.PI / 2);
+    ctx.lineTo(l + rr, b);
+    ctx.arc(l + rr, b - rr, rr, Math.PI / 2, Math.PI);
+    ctx.lineTo(l, t + rr);
+    ctx.arc(l + rr, t + rr, rr, Math.PI, Math.PI * 1.5);
+    ctx.closePath();
+  }
+
+  // renderFrame 尾部调用（restore 之后，屏幕 vp 空间）：
+  // 遮罩 + 窗口描边 + 左下把手 chip（白色圆角方片 + 深色内圆环）。
+  private renderZoomWindowOverlay(): void {
+    if (this.viewModel.currentTool !== ToolType.ZOOM || !this.loaded ||
+      !this.layerManager.isInitialized()) {
+      return;
+    }
+    const ctx: CanvasRenderingContext2D = this.canvasCtx;
+    const w: number = ctx.width;
+    const h: number = ctx.height;
+    const rect: Rect2D = this.zoomWindowScreenRect();
+    ctx.save();
+    try {
+      // iu1.b(0.08f)：窗口外 8% 暗化遮罩（四条拼接，窗口区域留空）
+      ctx.fillStyle = ZOOM_WINDOW_SCRIM;
+      ctx.fillRect(0, 0, w, Math.max(0, rect.top));
+      ctx.fillRect(0, Math.max(0, rect.bottom), w, Math.max(0, h - rect.bottom));
+      ctx.fillRect(0, Math.max(0, rect.top),
+        Math.max(0, rect.left), rect.bottom - rect.top);
+      ctx.fillRect(Math.max(0, rect.right), Math.max(0, rect.top),
+        Math.max(0, w - rect.right), rect.bottom - rect.top);
+      // zoom_outline：窗口描边（原图为黑描边、左下缺口由把手 chip 覆盖，
+      // 等价近似为整框描边 + 不透明 chip 置顶）
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 1.5;
+      this.traceRoundRect(ctx, rect.left, rect.top, rect.right, rect.bottom,
+        ZOOM_WINDOW_CORNER_VP);
+      ctx.stroke();
+      // zoom_fill/zoom_overlay/zoom_highlight：左下角把手 chip——
+      // 白底圆角方片（24dp）+ 深色圆环（overlay 挖孔圆的等价显示）
+      const kx: number = rect.left;
+      const ky: number = rect.bottom;
+      const half: number = ZOOM_WINDOW_KNOB_VP / 2;
+      ctx.fillStyle = '#33000000';
+      this.traceRoundRect(ctx, kx - half + 1, ky - half + 1.5,
+        kx + half + 1, ky + half + 1.5, 4);
+      ctx.fill();
+      ctx.fillStyle = '#FFFFFF';
+      this.traceRoundRect(ctx, kx - half, ky - half, kx + half, ky + half, 4);
+      ctx.fill();
+      ctx.strokeStyle = '#1F000000';
+      ctx.lineWidth = 1;
+      this.traceRoundRect(ctx, kx - half, ky - half, kx + half, ky + half, 4);
+      ctx.stroke();
+      ctx.strokeStyle = '#8A000000';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(kx, ky, 5.3, 0, Math.PI * 2);
+      ctx.stroke();
+    } finally {
+      ctx.restore();
+    }
+  }
+
+  // gfg/dfg 覆盖层手势：ZOOM 激活时主画布全部触摸路由到这里。
+  // - 把手命中（左下角 KNOB_HIT 半径内）→ RESIZE：把手跟随左下两缘，
+  //   倍率 = 面板宽 / 窗宽（resizeSourceRect 的近似：rect+mag 同步更新）。
+  // - 窗内 → MOVE：按屏幕增量 /zoom 平移 sourceRect（setSourceRect）。
+  // - 窗外点按 → 窗口中心跳到触点并进入 MOVE（经典 zoom box 行为，近似）。
+  private onZoomWindowTouch(event: TouchEvent): void {
+    if (!this.loaded) {
+      return;
+    }
+    if (event.touches.length > 1) {
+      // 第二指到达 → 放弃窗口手势（掌心/多指不驱动窗口）
+      this.endZoomWindowDrag();
+      return;
+    }
+    if (event.touches.length === 0) {
+      return;
+    }
+    const touch: TouchObject = event.touches[0];
+    if (event.type === TouchType.Down) {
+      const rect: Rect2D = this.zoomWindowScreenRect();
+      this.zoomWindowPointerId = touch.id;
+      this.zoomWindowLastX = touch.x;
+      this.zoomWindowLastY = touch.y;
+      const knobDist: number = Math.hypot(touch.x - rect.left, touch.y - rect.bottom);
+      if (knobDist <= ZOOM_WINDOW_KNOB_HIT_VP) {
+        this.zoomWindowDragMode = ZOOM_WINDOW_DRAG_RESIZE;
+      } else if (touch.x >= rect.left && touch.x <= rect.right &&
+        touch.y >= rect.top && touch.y <= rect.bottom) {
+        this.zoomWindowDragMode = ZOOM_WINDOW_DRAG_MOVE;
+      } else {
+        // 窗外点按：窗口中心跳到触点（ahg setSourceRect 等价），随后拖动跟随
+        const doc: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
+        this.clampZoomSource(
+          doc.x - this.zoomSurfaceRectWidthDoc() / 2,
+          doc.y - this.zoomSurfaceRectHeightDoc() / 2);
+        this.zoomWindowDragMode = ZOOM_WINDOW_DRAG_MOVE;
+        this.zoomPaintTick++;
+        this.renderFrame();
+      }
+      return;
+    }
+    if (this.zoomWindowDragMode === 0 || touch.id !== this.zoomWindowPointerId) {
+      return;
+    }
+    if (event.type === TouchType.Move) {
+      if (this.zoomWindowDragMode === ZOOM_WINDOW_DRAG_MOVE) {
+        // setSourceRect：屏幕增量 → doc 增量
+        const dx: number = (touch.x - this.zoomWindowLastX) / this.viewport.zoom;
+        const dy: number = (touch.y - this.zoomWindowLastY) / this.viewport.zoom;
+        this.clampZoomSource(this.zoomSourceX + dx, this.zoomSourceY + dy);
+      } else {
+        // resizeSourceRect：把手=左下角锚点；右上缘固定，
+        // 宽/高各自的候选倍率取较小者（窗口始终在面板内充满横向）。
+        const knobDoc: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
+        const surfaceVp: number =
+          (this.overlayWidth > 0 ? this.overlayWidth : 360) - 16;
+        const fixedRight: number =
+          this.zoomSourceX + this.zoomSurfaceRectWidthDoc();
+        const fixedTop: number = this.zoomSourceY;
+        const candW: number = Math.max(8, fixedRight - knobDoc.x);
+        const candH: number = Math.max(8, knobDoc.y - fixedTop);
+        const mag: number = Math.min(
+          Math.max(1, surfaceVp) / candW,
+          ZOOM_SURFACE_HEIGHT_VP / candH);
+        this.zoomMagnification = Math.min(ZOOM_WINDOW_MAG_MAX,
+          Math.max(ZOOM_WINDOW_MAG_MIN, mag));
+        const rectW: number =
+          Math.max(1, surfaceVp) / this.zoomMagnification;
+        const rectH: number =
+          ZOOM_SURFACE_HEIGHT_VP / this.zoomMagnification;
+        this.clampZoomSource(fixedRight - rectW, fixedTop);
+        // clampZoomSource 已按最新倍率夹取左/上；防止夹取后高度溢出页底
+        if (this.zoomSourceY + rectH > this.getPaperHeight()) {
+          this.zoomSourceY = Math.max(0, this.getPaperHeight() - rectH);
+        }
+      }
+      this.zoomWindowLastX = touch.x;
+      this.zoomWindowLastY = touch.y;
+      this.zoomPaintTick++;
+      this.renderFrame();
+      return;
+    }
+    if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+      this.endZoomWindowDrag();
+    }
+  }
+
+  private endZoomWindowDrag(): void {
+    if (this.zoomWindowDragMode !== 0) {
+      this.zoomWindowDragMode = 0;
+      this.zoomWindowPointerId = -1;
+      this.zoomPaintTick++;
+      this.renderFrame();
+    }
   }
 
   private linkHitOnTextBlock(elementId: string, point: Point2D): TextBlockLinkHit | null {
@@ -2271,6 +2478,8 @@ export struct NoteCanvasView {
     } finally {
       this.canvasCtx.restore();
     }
+    // Phase 750 gfg/dfg：ZOOM 源窗口覆盖层（遮罩+描边+把手）绘于屏幕空间。
+    this.renderZoomWindowOverlay();
   }
 
   // 原版 ft0 case 22：tail 段为圆头圆角描边折线（tailAlpha），指针为
@@ -2764,6 +2973,13 @@ export struct NoteCanvasView {
       this.onEyedropperTouch(event);
       return;
     }
+    // 原版 gfg/dfg（Phase 750）：ZOOM 激活时页面由源窗口覆盖层接管——
+    // 窗内拖动移动 / 左下把手缩放 / 窗外点按移位；元素点按检查不再触发
+    // （原版 pointerInput 包裹整页，覆盖层消费全部页面触摸）。
+    if (this.viewModel.currentTool === ToolType.ZOOM) {
+      this.onZoomWindowTouch(event);
+      return;
+    }
     if (event.type === TouchType.Down) {
       this.onTouchDown(event);
     } else if (event.type === TouchType.Move) {
@@ -3162,8 +3378,8 @@ export struct NoteCanvasView {
       return;
     }
     // 原版 a6f.U ZOOM（ww2/g0j）：书写输入由放大面板承载——ZOOM 激活时主
-    // 画布不产生笔画；不置 isDrawing → 手势回落给外层 Scroll（平移页面
-    // 仍可用），上面的文本链接/元素点按检查已照常执行。
+    // 画布不产生笔画；页面触摸已在 onCanvasTouch 顶层路由给 gfg/dfg
+    // 源窗口覆盖层（Phase 750），此分支仅作防御兜底。
     if (this.viewModel.currentTool === ToolType.ZOOM) {
       return;
     }
@@ -3457,6 +3673,8 @@ export struct NoteCanvasView {
     // Phase 747：放大面板书写会话不走 isDrawing —— 独立取消（无会话时 no-op），
     // 须在下方 !isDrawing 早退之前执行。
     this.onZoomTouchCancel();
+    // Phase 750 gfg/dfg：取消进行中的源窗口移动/缩放手势
+    this.endZoomWindowDrag();
     this.resetShapeHoldState();
     this.detachMathEditorForNavigation();
     if (!this.isDrawing) {
@@ -10493,6 +10711,11 @@ export struct NoteCanvasView {
         .hitTestBehavior(HitTestMode.Transparent)
         .onAppear(() => {
           this.initZoomSourceRect();
+        })
+        .onDisAppear(() => {
+          // Phase 750：面板卸载（Close/换工具）→ 收尾窗口手势并清掉覆盖层
+          this.endZoomWindowDrag();
+          this.renderFrame();
         })
       }
       // 原版 zy7/b4j：FIRST_INK_INSERT（墨迹上方）与 FIRST_IMAGE（对象左缘）

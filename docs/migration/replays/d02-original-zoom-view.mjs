@@ -13,9 +13,11 @@ const zhStrings = read('note/src/main/resources/zh_CN/element/string.json');
 const evidence = read('docs/migration/evidence/phase-747-original-zoom-view.md');
 const evidence748 = read('docs/migration/evidence/phase-748-original-zoom-view-full-render.md');
 const evidence749 = read('docs/migration/evidence/phase-749-original-zoom-advance-width-persist.md');
+const evidence750 = read('docs/migration/evidence/phase-750-zoom-source-window-overlay.md');
 const adr = read('docs/migration/adr/ADR-0695-original-zoom-view-port.md');
 const adr748 = read('docs/migration/adr/ADR-0696-original-zoom-view-full-render.md');
 const adr749 = read('docs/migration/adr/ADR-0697-original-zoom-advance-width-persist.md');
+const adr750 = read('docs/migration/adr/ADR-0698-original-zoom-source-window-overlay.md');
 const settingsStore = read('note/src/main/ets/data/EditorSettingsStore.ets');
 const settingsTest = read('note/src/test/EditorViewModel.test.ets');
 
@@ -46,8 +48,9 @@ pin(/ZOOM_SURFACE_HEIGHT_VP: number = 160/.test(canvas), 'host.surface.h160');
 
 // ---- 触摸管线（与主画布同径）----
 pin(/onZoomTouchEvent\(event: TouchEvent\)/.test(canvas), 'host.touch.dispatch');
-pin(/zoomDocPoint[\s\S]{0,400}vp2px\(touch\.x\) \/ this\.zoomMagnification/
-  .test(canvas), 'host.coordmap.px-per-doc');
+// Phase 750 修复：ctx 为 vp 绘制空间——doc = source + vp/mag，不得 vp2px
+pin(/zoomDocPoint[\s\S]{0,400}touch\.x \/ this\.zoomMagnification/
+  .test(canvas), 'host.coordmap.vp-per-doc');
 pin(/ArkUIStylusAdapter\.fromTouch\(touch, event\)/.test(canvas), 'host.stylus.attrs');
 pin(/inputProvider\.processEvent/.test(canvas), 'host.provider.pipeline');
 pin(/new StrokeSession\(spec\)/.test(canvas), 'host.session.reuse');
@@ -173,5 +176,49 @@ pin(/renderZoomPanelContent/.test(adr748) && /renderOrderedElements/.test(adr748
 pin(/o59\.r/.test(evidence749) && /zoomViewAdvanceRegionWidthDp/.test(evidence749) &&
   /n27/.test(evidence749), 'evidence749.o59r');
 pin(/ADR-0697|o59\.r/.test(adr749) && /提交点/.test(adr749), 'adr749.approx');
+
+// ---- Phase 750：gfg/dfg 源窗口覆盖层 + vp2px 坐标修复 ----
+// vp2px 修复：面板触摸 → doc 不得再乘 density（ctx 为 vp 绘制空间）
+pin(/zoomSourceX \+ touch\.x \/ this\.zoomMagnification/.test(canvas),
+  'p750.docpoint.vp');
+pin(!/vp2px\(touch\.[xy]\)/.test(canvas), 'p750.docpoint.nodensity');
+pin(/overlayWidth : 360\) - 16/.test(canvas), 'p750.surfacewidth.margin');
+pin(!/vp2px\(this\.zoomAdvanceWidthVp\)/.test(canvas), 'p750.advance.nodensity');
+pin(!/vp2px\(this\.advanceWidthVp\)|vp2px\(10\)|vp2px\(28\)/.test(zoomView),
+  'p750.panel.nodensity');
+// 覆盖层绘制：遮罩 + 圆角描边 + 左下把手 chip
+pin(/renderZoomWindowOverlay\(\): void/.test(canvas), 'p750.overlay.method');
+pin(/#14000000/.test(canvas) && /ZOOM_WINDOW_SCRIM/.test(canvas),
+  'p750.overlay.scrim8pct');
+pin(/traceRoundRect[\s\S]{0,200}ctx\.arc/.test(canvas), 'p750.overlay.roundrect');
+pin(/ZOOM_WINDOW_KNOB_VP: number = 24/.test(canvas), 'p750.overlay.knob24');
+// 手势路由：ZOOM 激活时 onCanvasTouch 顶层路由 + 模式机
+pin(/currentTool === ToolType\.ZOOM\) \{\s*this\.onZoomWindowTouch\(event\)/.test(canvas),
+  'p750.touch.route');
+pin(/ZOOM_WINDOW_DRAG_MOVE/.test(canvas) && /ZOOM_WINDOW_DRAG_RESIZE/.test(canvas),
+  'p750.touch.modes');
+pin(/ZOOM_WINDOW_KNOB_HIT_VP/.test(canvas) && /Math\.hypot/.test(canvas),
+  'p750.knob.hittest');
+// 移动=setSourceRect（screenDelta/zoom）；缩放=resizeSourceRect（rect+mag 联动）
+pin(/\(touch\.x - this\.zoomWindowLastX\) \/ this\.viewport\.zoom/.test(canvas),
+  'p750.move.delta');
+pin(/zoomMagnification = Math\.min\(ZOOM_WINDOW_MAG_MAX/.test(canvas) &&
+  /fixedRight/.test(canvas), 'p750.resize.maglink');
+// 生命周期：初始化后重绘出覆盖层；卸载收尾清覆盖层；cancel 收尾手势
+pin(/initZoomSourceRect[\s\S]{0,600}this\.renderFrame\(\);/.test(canvas),
+  'p750.init.repaint');
+pin(/onDisAppear\(\(\) => \{[\s\S]{0,120}endZoomWindowDrag/.test(canvas),
+  'p750.unmount.cleanup');
+pin(/cancelActiveInteraction[\s\S]{0,400}endZoomWindowDrag/.test(canvas),
+  'p750.cancel.cleanup');
+// 文档钉
+pin(/gfg/.test(evidence750) && /resizeSourceRect/.test(evidence750) &&
+  /iu1\.b\(0\.08f\)/.test(evidence750), 'p750.evidence.overlay');
+pin(/zoom_overlay|zoom_outline/.test(evidence750) && /hhf/.test(evidence750),
+  'p750.evidence.drawables');
+pin(/vp2px/.test(evidence750) && /LengthMetricsUnit\.DEFAULT/.test(evidence750),
+  'p750.evidence.vpbug');
+pin(/resizeSourceRect/.test(adr750) && /1, ?10|1\.0, ?10|\[1,\s*10\]/.test(adr750),
+  'p750.adr.resize');
 
 console.log(`D02_ORIGINAL_ZOOM_VIEW_OK pins=${pass}`);
