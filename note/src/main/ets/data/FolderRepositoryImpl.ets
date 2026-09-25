@@ -49,7 +49,7 @@ export interface FolderCreateResult extends FolderMutationResult {
 
 export interface FolderDeleteResult extends FolderMutationResult {
   deletedFolderIds: string[];
-  movedNoteIds: string[];
+  movedNoteIds: string[];   // 原版 kcj 级联：实为随删除进回收站的笔记 id
   notes: NoteMeta[];
 }
 
@@ -460,10 +460,14 @@ export class FolderRepositoryImpl {
         const deletedFolderIds: string[] = deletedFolders.map(
           (folder: NoteFolder): string => folder.id);
         const movedNoteIds: string[] = await this.queryNoteIdsInFolders(store, deletedFolderIds);
-        // Deleting a parent cascades through child folders at the DB level. Move every
-        // note in the full subtree first so nested-folder notes are not deleted by FK cascade.
+        // 原版 kcj/ClientFolderDelete：文件夹删除级联软删子树内全部笔记
+        // （"will also delete N folders and M notes"）——笔记进 Recently
+        // Deleted 而非清空 folder_id。folder_id 仍置 NULL：folder 行删除
+        // 的 SET NULL FK 兜底之外显式收口，避免回收站项悬挂死引用。
+        const trashedAt: number = Date.now();
         for (const deletedFolderId of deletedFolderIds) {
-          const noteBucket: relationalStore.ValuesBucket = { 'folder_id': null };
+          const noteBucket: relationalStore.ValuesBucket =
+            { 'folder_id': null, 'deleted_at': trashedAt };
           const notePredicates = new relationalStore.RdbPredicates('note_meta');
           notePredicates.equalTo('folder_id', deletedFolderId);
           await store.update(noteBucket, notePredicates);

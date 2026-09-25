@@ -80,8 +80,8 @@ ok(vm.includes('publishCommittedNoteMove(noteId: string, folderId: string | null
    vm.includes('folderName: string | null, folderColor: number | null'),
   'publishCommittedNoteMove projection params missing');
 ok(vm.includes('this.noteWithFolder(note, folderId, folderName, folderColor)') &&
-   vm.includes('this.noteWithFolder(note, null, null, null)'),
-  'move/unfiled projection updates missing');
+   /moved\.has\(note\.id\)\) \{[\s\S]{0,160}continue;/.test(vm),
+  'move projection + folder-delete cascade card drop missing');
 ok(vm.includes('folderName: note.folderName') && vm.includes('folderColor: note.folderColor'),
   'favorite-toggle projection must preserve the folder chip fields');
 ok(vmFixture.includes('folderName: null') && vmFixture.includes('folderColor: null') &&

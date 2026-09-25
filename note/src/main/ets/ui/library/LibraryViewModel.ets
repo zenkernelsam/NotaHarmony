@@ -363,7 +363,9 @@ export class LibraryViewModel {
       this.currentFolderId = null;
     }
     if (this.currentFolderId === null && query.trim().length === 0) {
-      this.notes = committedNotes.slice();
+      // 级联软删的笔记不进列表（deleted_at 已盖章，等价原版回收站隐藏）。
+      this.notes = committedNotes.filter((note: NoteMeta): boolean =>
+        note.deletedAt === null);
       this.applySort();
       return;
     }
@@ -371,7 +373,8 @@ export class LibraryViewModel {
     for (const note of this.notes) {
       let candidate: NoteMeta = note;
       if (moved.has(note.id)) {
-        candidate = this.noteWithFolder(note, null, null, null);
+        // 原版 kcj：子树笔记随删除进回收站，库列表直接剔除。
+        continue;
       } else if (note.folderId !== null && deleted.has(note.folderId)) {
         // The committed transaction did not move this stale card, so it was changed or deleted
         // by an earlier serialized mutation and must not survive this local projection.

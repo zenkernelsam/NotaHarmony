@@ -1029,7 +1029,7 @@
     },
     {
       "name": "delete_folder_message",
-      "value": "Delete \"%s\"? Its notes will move to All Notes."
+      "value": "Delete folder?"
     },
     {
       "name": "name",
@@ -1349,6 +1349,15 @@
     { "name": "data_onboarding__compact_organize_tooltip_text", "value": "Now that you have notes, start organizing them into Folders" },
     { "name": "data_onboarding__got_it", "value": "Got it" },
     { "name": "pages_x_of_y_selected", "value": "%d of %d selected" },
+    { "name": "folder_delete_detail_empty", "value": "\"%s\"" },
+    { "name": "folder_delete_detail_1f", "value": "Deleting \"%s\" will also delete 1 folder." },
+    { "name": "folder_delete_detail_nf", "value": "Deleting \"%s\" will also delete %d folders." },
+    { "name": "folder_delete_detail_1n", "value": "Deleting \"%s\" will also delete 1 note." },
+    { "name": "folder_delete_detail_nn", "value": "Deleting \"%s\" will also delete %d notes." },
+    { "name": "folder_delete_detail_1f_1n", "value": "Deleting \"%s\" will also delete 1 folder and 1 note." },
+    { "name": "folder_delete_detail_1f_nn", "value": "Deleting \"%s\" will also delete 1 folder and %d notes." },
+    { "name": "folder_delete_detail_nf_1n", "value": "Deleting \"%s\" will also delete %d folders and 1 note." },
+    { "name": "folder_delete_detail_nf_nn", "value": "Deleting \"%s\" will also delete %d folders and %d notes." },
     { "name": "import_arrange", "value": "Arrange" },
     { "name": "import_move_up", "value": "Move up" },
     { "name": "import_move_down", "value": "Move down" }

@@ -65,7 +65,7 @@ assert.match(toggle, /if \(!this\.pageActive \|\| this\.folderBusy\) \{\s+return
 for (const [name, pattern] of [
   ['create dialog', /private showCreateFolderDialog\(parentId: string \| null = null\): void \{\s+if \(!this\.pageActive \|\| this\.folderBusy\) \{/],
   ['rename dialog', /private showRenameFolderDialog\(folder: NoteFolder\): void \{\s+if \(!this\.pageActive \|\| this\.folderBusy\) \{/],
-  ['folder delete confirmation', /private confirmDeleteFolder\(folder: NoteFolder\): void \{\s+if \(!this\.pageActive \|\| this\.folderBusy\) \{/],
+  ['folder delete confirmation', /private async confirmDeleteFolder\(folder: NoteFolder\): Promise<void> \{\s+if \(!this\.pageActive \|\| this\.folderBusy\) \{/],
   ['drag capture', /private captureFolderDrag\(event: ItemDragInfo, itemIndex: number\): void \{\s+if \(!this\.pageActive \|\| this\.folderBusy\) \{\s+this\.clearFolderDrag\(\);/],
   ['compact drawer open', /private openCompactFolderDrawer\(\): void \{\s+if \(!this\.pageActive \|\| this\.folderBusy\) \{/],
 ]) {

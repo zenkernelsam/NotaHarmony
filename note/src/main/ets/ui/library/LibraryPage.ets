@@ -3792,13 +3792,66 @@ struct LibraryPage {
     return null;
   }
 
-  private confirmDeleteFolder(folder: NoteFolder): void {
+  // 原版 kcj 九格矩阵：i=子文件夹数、i2=笔记数；0,0 返回空串（无 detail 行）。
+  private folderDeleteDetail(name: string, childFolders: number,
+    noteCount: number): Resource {
+    if (childFolders === 0 && noteCount === 0) {
+      return $r('app.string.folder_delete_detail_empty');
+    }
+    if (childFolders === 1 && noteCount === 0) {
+      return $r('app.string.folder_delete_detail_1f', name);
+    }
+    if (childFolders > 1 && noteCount === 0) {
+      return $r('app.string.folder_delete_detail_nf', name, childFolders);
+    }
+    if (childFolders === 0 && noteCount === 1) {
+      return $r('app.string.folder_delete_detail_1n', name);
+    }
+    if (childFolders === 0) {
+      return $r('app.string.folder_delete_detail_nn', name, noteCount);
+    }
+    if (childFolders === 1 && noteCount === 1) {
+      return $r('app.string.folder_delete_detail_1f_1n', name);
+    }
+    if (childFolders === 1) {
+      return $r('app.string.folder_delete_detail_1f_nn', name, noteCount);
+    }
+    if (noteCount === 1) {
+      return $r('app.string.folder_delete_detail_nf_1n', name, childFolders);
+    }
+    return $r('app.string.folder_delete_detail_nf_nn', name, childFolders, noteCount);
+  }
+
+  private async confirmDeleteFolder(folder: NoteFolder): Promise<void> {
     if (!this.pageActive || this.folderBusy) {
       return;
     }
+    // 原版 kcj：按子文件夹数 i 与笔记数 i2 选九格复数文案
+    // （0,0 → 无 detail；message 仅标题 "Delete folder?"）。
+    const subtreeIds: string[] = [];
+    for (const f of this.folders) {
+      if (isFolderInSubtree(this.folders, folder.id, f.id)) {
+        subtreeIds.push(f.id);
+      }
+    }
+    const childFolders: number = subtreeIds.length - 1;
+    let noteCount: number = 0;
+    try {
+      const allNotes: NoteMeta[] = this.noteRepo !== null ?
+        await this.noteRepo.getAllNotes() : [];
+      for (const note of allNotes) {
+        if (note.folderId !== null && subtreeIds.indexOf(note.folderId) >= 0) {
+          noteCount++;
+        }
+      }
+    } catch (e) {
+      console.error('folder delete count query failed: ' + JSON.stringify(e));
+    }
+    const detail: Resource = this.folderDeleteDetail(folder.name,
+      childFolders, noteCount);
     this.getUIContext().showAlertDialog({
-      title: $r('app.string.delete_folder'),
-      message: $r('app.string.delete_folder_message', folder.name),
+      title: $r('app.string.delete_folder_message'),
+      message: detail,
       primaryButton: { value: $r('app.string.cancel'), action: () => {} },
       secondaryButton: {
         value: $r('app.string.delete'),
