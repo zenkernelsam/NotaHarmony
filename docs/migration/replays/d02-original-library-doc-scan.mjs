@@ -90,7 +90,7 @@ check(page.includes('private async importScannedAndOpen(uris: string[]): Promise
   page.includes('importer.importScannedDocument') &&
   page.includes("app.string.scanned_document_title"),
   'import+open flow with scanned title');
-check(page.includes('this.formatTime(Date.now())'), 'title arg = timestamp');
+check(page.includes('this.formatLibraryDateTime(Date.now())'), 'title arg = timestamp');
 check(page.includes('this.currentFolderId'), 'scan note lands in current folder');
 check(page.includes("router.pushUrl({ url: 'ui/editor/NotePage',\n        params: { noteId: report.noteId } })"),
   'open created note after scan');

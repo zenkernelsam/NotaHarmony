@@ -2588,7 +2588,7 @@ struct LibraryPage {
         .fontColor(this.resolveTokens().textPrimary)
         .margin({ top: 8 })
       // Original gb6.b0/c0: RECENT cards show lastOpened, others updatedAt.
-      Text(this.formatTime(this.currentFolderId === null &&
+      Text(this.formatLibraryDate(this.currentFolderId === null &&
         this.currentSection === LibrarySection.RECENT ? note.lastOpened : note.updatedAt))
         .fontSize(12)
         .fontColor(this.resolveTokens().textSecondary)
@@ -2708,7 +2708,7 @@ struct LibraryPage {
           .fontSize(14)
           .maxLines(1)
           .fontColor(this.resolveTokens().textPrimary)
-        Text(this.formatTime(this.currentFolderId === null &&
+        Text(this.formatLibraryDate(this.currentFolderId === null &&
           this.currentSection === LibrarySection.RECENT ? note.lastOpened : note.updatedAt))
           .fontSize(12)
           .fontColor(this.resolveTokens().textSecondary)
@@ -4280,7 +4280,7 @@ struct LibraryPage {
       const importer: NoteImporter = new NoteImporter(this.db, this.persistence);
       const title: string = context.resourceManager.getStringSync(
         $r('app.string.scanned_document_title').id,
-        this.formatTime(Date.now()));
+        this.formatLibraryDateTime(Date.now()));
       const report: ImportReport = await importer.importScannedDocument(
         uris, title, this.currentFolderId, this.pdfPasswordPrompt);
       if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
@@ -4334,10 +4334,28 @@ struct LibraryPage {
     }
   }
 
-  private formatTime(timestamp: number): string {
-    const d: Date = new Date(timestamp);
-    return d.getMonth() + 1 + '/' + d.getDate() + ' ' + d.getHours() + ':' +
-      (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+  // Original z5c.n: the library-card subtitle is formatted with
+  // DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM) over
+  // Instant.ofEpochMilli — a locale-aware medium date with no time component.
+  private formatLibraryDate(timestamp: number): string {
+    try {
+      return new Intl.DateTimeFormat(undefined,
+        { dateStyle: 'medium' }).format(new Date(timestamp));
+    } catch (_error) {
+      const d: Date = new Date(timestamp);
+      return d.getMonth() + 1 + '/' + d.getDate() + '/' + d.getFullYear();
+    }
+  }
+
+  // The scanned-document default title keeps a date-time (z5c.j-style
+  // ofLocalizedDateTime(MEDIUM, SHORT)) so consecutive scans stay unique.
+  private formatLibraryDateTime(timestamp: number): string {
+    try {
+      return new Intl.DateTimeFormat(undefined,
+        { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(timestamp));
+    } catch (_error) {
+      return this.formatLibraryDate(timestamp);
+    }
   }
 
   // Original i2j.b: the folder chip fills with the folder color — stored as a
