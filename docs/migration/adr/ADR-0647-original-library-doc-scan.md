@@ -34,8 +34,12 @@ ML Kit 依赖 Google Play services，HarmonyOS 上不可用。
 
 ## 差异 / 未覆盖
 
-- 空笔记页 Scan（`u49.java`，结果并入当前笔记）依赖尚不存在的
-  空笔记快捷动作面，登记为后续 Phase 候选。
+- ~~空笔记页 Scan（`u49.java`，结果并入当前笔记）依赖尚不存在的
+  空笔记快捷动作面，登记为后续 Phase 候选。~~ **已闭环**：Phase 682
+  （`a8dbe28a`）落地 `u49`/`mw3` 空笔记动作面，Scan 卡经
+  `docScanAvailable`（`canIUse DocScan` = `lc4.a(ac4.a0)` 等价）
+  门控 + `DocScanCover`（VisionKit DocumentScanner）→
+  `onDocScanResult` 并入当前笔记。
 - 原版 `%1$s` 标题占位实际填充值未解出；采用 `M/D H:MM` 本地时间戳。
 
 ## 验证
