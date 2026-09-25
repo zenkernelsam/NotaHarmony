@@ -19,17 +19,21 @@ struct NoteThumbnailCard {
         Image('memory://' + this.thumb)
           .width('100%')
           .height('100%')
-          .objectFit(ImageFit.Cover)
+          // 原版 ImageView scaleType=fitXY（拉伸充满，非裁剪）
+          .objectFit(ImageFit.Fill)
       } else {
+        // widget_placeholder_tile：#f6f6f8 r16 底 + #c8cfdb 着色图标
         Column() {
           Image($r('app.media.shortcut_new_note'))
             .width(40)
             .height(40)
-            .opacity(0.5)
+            .fillColor('#c8cfdb')
         }
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.Center)
+        .backgroundColor('#f6f6f8')
+        .borderRadius(16)
       }
       if (!this.configured) {
         Column() {
@@ -68,6 +72,9 @@ struct NoteThumbnailCard {
     }
     .width('100%')
     .height('100%')
+    // widget_bg：#ffffff r16 卡片底
+    .backgroundColor('#ffffff')
+    .borderRadius(16)
     .onClick(() => {
       if (this.configured && this.noteId.length > 0) {
         postCardAction(this, {

@@ -23,6 +23,7 @@ struct RecentNotesCard {
         Text($r('app.string.form_recent_notes_display'))
           .fontSize(14)
           .fontWeight(FontWeight.Bold)
+          .fontColor('#0c0d11')
           .layoutWeight(1)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -63,16 +64,28 @@ struct RecentNotesCard {
                     Image('memory://' + item.thumb)
                       .width(36)
                       .height(36)
-                      .borderRadius(4)
+                      // widget_thumb_corner_radius=6dp + thumb_border 1px #e8ebf0
+                      .borderRadius(6)
+                      .border({ width: 1, color: '#e8ebf0' })
                   } else {
-                    Image($r('app.media.shortcut_new_note'))
-                      .width(36)
-                      .height(36)
-                      .opacity(0.5)
+                    // widget_thumb_border + placeholder_tile：#f6f6f8 底 +
+                    // #c8cfdb 图标
+                    Stack() {
+                      Image($r('app.media.shortcut_new_note'))
+                        .width(20)
+                        .height(20)
+                        .fillColor('#c8cfdb')
+                    }
+                    .width(36)
+                    .height(36)
+                    .backgroundColor('#f6f6f8')
+                    .borderRadius(6)
+                    .border({ width: 1, color: '#e8ebf0' })
                   }
                   Column() {
                     Text(item.title)
                       .fontSize(13)
+                      .fontColor('#0c0d11')
                       .maxLines(1)
                       .textOverflow({ overflow: TextOverflow.Ellipsis })
                     if (item.folder.length > 0) {
@@ -89,12 +102,11 @@ struct RecentNotesCard {
                 }
                 .width('100%')
                 .padding({ left: 12, right: 12, top: 4, bottom: 4 })
-                if (index < this.items.length - 1) {
-                  Divider()
-                    .strokeWidth(0.5)
-                    .opacity(0.3)
-                    .margin({ left: 12, right: 12 })
-                }
+                // widget_row_divider：每行无条件 1dp #e8ebf0
+                Divider()
+                  .strokeWidth(1)
+                  .color('#e8ebf0')
+                  .margin({ left: 12, right: 12 })
               }
             }
             .onClick(() => {
@@ -112,5 +124,8 @@ struct RecentNotesCard {
     }
     .width('100%')
     .height('100%')
+    // widget_bg：#ffffff r16 卡片底
+    .backgroundColor('#ffffff')
+    .borderRadius(16)
   }
 }
