@@ -3,6 +3,11 @@
 日期：2026-09-24
 状态：已登记（3 项服务端/旗标域 fail-closed；无源码行为变更）
 
+> **更正（2026-09-25，ADR-0690）**：本文 ZOOM 项“远程旗标在 1.0.3 未开”
+> 判定有误——`androidZoomView` 打包默认 `true` 且该旗标为 PRODUCTION 级
+> 直读远程配置值，1.0.3 默认显示 ZOOM 工具。ZOOM 缺口改由 ADR-0690
+> 登记为延迟移植缺口；POINTER/RULER/view-only 三项判定不变。
+
 ## 背景
 
 `a6f` 13 工具中 Harmony 缺 POINTER(8)、RULER(11)、ZOOM(12)。
