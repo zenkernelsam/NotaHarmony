@@ -38,13 +38,20 @@ Harmony 侧此前状况：`RichTextParagraphStyle.decoratorStyle`/
 
 - **CRDT 文本块样式-only 提交不落 op**：原版 `cve.o` 写
   `MODIFY_PARAGRAPH_STYLE` CRDT op，Harmony 只有 decode/apply 侧、
-  无本地编码器。样式写元素级并随元素持久化；CRDT 重物化后丢失。
-  补编码器（`m5a`/`k5a` FlatBuffer 写侧）登记为后续 Phase 候选。
+  无本地编码器。~~样式写元素级并随元素持久化；CRDT 重物化后丢失。
+  补编码器（`m5a`/`k5a` FlatBuffer 写侧）登记为后续 Phase 候选。~~
+  **已闭环**：`OriginalRichTextStylePayloadEncoder` 对每段 paragraph
+  run 发出 `ORIGINAL_MODIFY_PARAGRAPH_STYLE_PAYLOAD_TYPE`（field 5
+  decoratorStyle / field 8 programmingLanguage），出站编码链已通。
 - **lj3 `-24f` 缩字号**~~未移植~~ **已闭环（Phase 756 / ADR-0704）**：
   单位链复核证伪"不同"——`lj3.d`/`element.fontSize` 同为 docPx；
   `max(d−24,1)` 已按字面落地（字形+行度量全贯通）。
-- **代码块语言选择（`k5a(this.W)`）未实现**：`programmingLanguage`
-  字段保留；语言选择器与语法高亮为后续 Phase 候选。
+- **代码块语言选择（`k5a(this.W)`）**~~未实现~~ **已闭环（Phase 687
+  `bb3f26e8`）**：工具条语言 chip（`ire` 等价）→ `bindMenu` 27 项
+  `rs1.d` 语言列表（`i8j`/`koi.a` 等价）→ `setCodeLanguage` 写
+  `programmingLanguage`（plaintext→null 清除，`cve:228` 语义）。
+  `rs1` 纯数据表已字面移植（`CODE_LANGUAGES` 27 项）；语法高亮引擎
+  原版即不存在（`programmingLanguage` 仅持久化元数据，无渲染消费）。
 - **段落序号键样式漂移**：编辑中插删换行后序号样式可能错位
   （原版按段落持样式，方向一致；仅影响同一会话内未提交草稿）。
 
