@@ -80,7 +80,20 @@
 | `ui_notecovers__preset_stickers` | 1 | 封面预设贴纸 | 待审 |
 
 移除 107 键：`abc_*`(20)/`exo`(16)/`mtrl`(15)/`material`(3) 等为 SDK 换版噪声；
-`feature_*` 移除 36 键需逐条复核（列入 T-042 输入）。
+`feature_*`/`ui_*` 移除 38 键，复核定性如下：
+
+| 移除族 | 键数 | 定性 |
+|--------|------|------|
+| `feature_learn__chat_*`、`feature_learn_quiz__*`、`feature_learn_summary__*`、`feature_learn_transcription__*`、`feature_library__learn_card_score`、`feature_note__learn_toggle_description`、`feature_note__youtube_transcription` | ~15 | **Learn AI 聊天/测验/摘要/YouTube 转写在 1.4.2 被整体移除**（Learn 域重构为 syllabus 导入，非更名） |
+| `feature_note__hwr_*`（panel_close/toggle_description） | 2 | HWR 面板 a11y 键移除——配合 `hwr/` 远端引擎重构，本地面板文案重组（待逐条复核更名去向） |
+| `feature_settings__logout_*`、`_sign_out`、`_stay_signed_in` | ~8 | 登出流程键移除——账号体系迁移 Passkey/SSO 所致重构（待复核） |
+| `feature_settings__dark_theme`、`match_system_appearance` | 2 | 主题设置键移除——设置项重构（待复核是否更名保留） |
+| `feature_note__toprighttoolbar_undo/redo_action`、`content_manager_toggle_description` | 3 | 工具栏 a11y 键移除（更名或合并，待复核） |
+| `feature_library__clear_search`、`ui_fileimport__back`、`ui_templates__browse`、其余零散 | ~8 | 单键更名/合并噪声 |
+
+**重要含义**：Learn AI 族在 1.4.2 被移除说明原版自身有功能下线先例——
+NotaHarmony 以 1.0.3 为基线保留对应 fail-closed 登记即可，无需回滚；
+主题/登出/工具栏更名项列入 T-042 逐条复核输入。
 
 ## 六、第三方库差异
 

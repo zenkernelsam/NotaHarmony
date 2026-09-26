@@ -73,6 +73,11 @@ check('1.4.2 adds sticker store + template hub + learn syllabus strings',
 check('1.4.2 adds passkey + calendar-connect strings',
   s142.includes('feature_login__sign_in_with_passkey') &&
   s142.includes('feature_settings__connect_calendar'));
+check('1.4.2 removes the Learn AI chat family (present in 1.0.3)',
+  s103.includes('feature_learn__chat_generating') &&
+  s103.includes('feature_note__youtube_transcription') &&
+  !s142.includes('feature_learn__chat_generating') &&
+  !s142.includes('feature_note__youtube_transcription'));
 
 const adr = fs.readFileSync('docs/migration/adr/ADR-0708-original-1.4.2-version-delta-scope.md', 'utf8');
 const ev = fs.readFileSync('docs/migration/evidence/original-1.4.2-decompile-version-delta.md', 'utf8');
