@@ -1,5 +1,9 @@
 # NotaHarmony Goal 交接文档（Phase 280 后）
 
+> **历史快照说明（2026-09-29 补注）**：本文档为 Phase 280 时点交接快照，所列"未完成"事项多数已由后续 Phase 关闭
+> （大图规范化、URI/FD/Pasteboard/相册 caller、EXIF 方向等分别见 Phase 282~287 及后续批次 Report/ADR/Replay）。
+> 当前最新状态以两份修复总纲、总进展文档与各 Phase Report 为准；`T-042` 仍按约定保留为 Goal 最后一项。
+
 > 交接日期：2026-08-22（Asia/Shanghai）
 > Goal 状态：未完成，下一任务继续 active
 > 完整 Goal 中心估计：约 **80%**
