@@ -815,11 +815,11 @@
     },
     {
       "name": "show_in_folder",
-      "value": "Show in folder"
+      "value": "Show in Folder"
     },
     {
       "name": "copy_note_id",
-      "value": "Copy note ID"
+      "value": "Copy Note ID"
     },
     {
       "name": "note_id_copied",
@@ -1321,8 +1321,8 @@
     { "name": "edit_math", "value": "Edit Math" },
     { "name": "add_files", "value": "Files" },
     { "name": "insert_photo", "value": "Photo" },
-    { "name": "take_photo", "value": "Take Photo" },
-    { "name": "insert_math", "value": "Math" },
+    { "name": "take_photo", "value": "Take a photo" },
+    { "name": "insert_math", "value": "Math (LaTeX)" },
     { "name": "math_editor_title", "value": "Math" },
     { "name": "math_editor_placeholder", "value": "x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}" },
     { "name": "math_editor_invalid", "value": "This isn't valid LaTeX" },
