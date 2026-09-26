@@ -110,6 +110,24 @@ NotaHarmony 以 1.0.3 为基线保留对应 fail-closed 登记即可，无需回
 | `conf-lite/` + `resources/en_US/*.lite.res` | 4 | 0 | **MyScript lite 端侧识别资源整体移除**（en_US ak-cur/ak-superimposed/lk-text lite res + conf-lite） | 1.4.2 端侧 lite 识别下线，配合 `HwrEngineService` 远端引擎——MyScript 边界内版本差异 |
 | `resources/`（iink 全量 res 含 math-sr/dl-raw-content） | 10 | 7 | 全量 iink 资源仍在但 `math-sr.res`（14.8→13.5MB）、`dl-raw-content.res`（4.8→4.6MB）换版 | iink SDK 升级配套 |
 
+xapk 结构差异：1.4.2 新增 `stickers.apk` 独立 split 与 13 个语言/密度 split
+（1.0.3 仅 base + arm64 + en + xxhdpi 四件）。
+
+**原生库清单 diff**（config.arm64_v8a.apk；1.4.2 该成员 CRC 标志损坏，
+已按 central-directory 尺寸直读验证数据完整）：
+
+| 项 | 1.0.3 | 1.4.2 | 说明 |
+|----|-------|-------|------|
+| libiink.so | 23 MB | 24 MB | iink SDK 升级 |
+| libMyScriptMLOrt.so | 9 MB | 10 MB | 同上 |
+| libPDFNetC.so | 58 MB | 59 MB | 升级 |
+| MyScript 其余 / libink / libglmath / librive / libicing / libsqliteJni / libmlkit_google_ocr_pipeline / libtiff* | 均在 | 均在 | 原生栈主体不变 |
+| `libcrashlytics{,-common,-handler,-trampoline}.so` | — | +4 | Crashlytics NDK（与 manifest registrar 对应） |
+| `libzstd-jni-1.5.7-4.so` | — | +1 | 证实 zstd 为网络层传递依赖的 so 落地 |
+
+**结论**：1.4.2 未移除任何既有原生库——既有 fail-closed 边界
+（MyScript/PDFNet/MLKit OCR）在 1.4.2 持续存在，无新增可移植原生能力。
+
 ## 七、第三方库差异
 
 - 新增 `com/github/luben/zstd`（zstd-jni 压缩库）——全树未见 `Zstd.compress/decompress`
