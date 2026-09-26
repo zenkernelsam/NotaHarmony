@@ -30,7 +30,7 @@
      （~200 键）、贴纸商店（~80）、模板中心改版（~45）、Learn 课程表（~30）、
      Passkey/日历连接/笔记上限付费墙/闪卡分隔符等；
    - 第三方库：新增 zstd-jni，iink SDK 升级，移除 Jackson/exo/appcompat 部分组件；
-   - `resources/assets`：115→576（+465/−4）——新增 36 个内置纸张模板包
+   - `resources/assets`：115→576（+465/−4）——新增 35 个内置纸张模板包
      （每包 PDF×尺寸×颜色×方向 + metadata.json + HEIC 缩略图）、
      5 个 brushpack、10 个封面 PDF；移除 MyScript conf-lite 与
      en_US lite res（端侧 lite 识别下线，配合远端 HwrEngineService）；

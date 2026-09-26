@@ -110,7 +110,7 @@ NotaHarmony 以 1.0.3 为基线保留对应 fail-closed 登记即可，无需回
 
 | 目录 | 1.0.3 | 1.4.2 | 内容 | 处置方向 |
 |------|-------|-------|------|----------|
-| `papertemplates/` | 0 | 446 | **36 个内置纸张模板包**（assignment_planner、college_rule、cornell、daily_* 系列、engineering_grid、hexagonal_grid、isometic、manuscript、mizige 米字格、tianzege 田字格、music_staves、各 planner 等）；每包含多尺寸/颜色/方向 PDF + `metadata.json` + HEIC 缩略图 | 模板中心改版本体；本地 PDF 资产可移植候选（待审：PDF 纸张模板渲染链） |
+| `papertemplates/` | 0 | 446 | **35 个内置纸张模板包**（assignment_planner、college_rule、cornell、daily_* 系列、engineering_grid、hexagonal_grid、isometic、manuscript、mizige 米字格、tianzege 田字格、music_staves、各 planner 等）；每包含多尺寸/颜色/方向 PDF + `metadata.json` + HEIC 缩略图（包级 schema 与全量目录见 `phase-761-original-paper-template-bundles.md`） | 模板中心改版本体；本地 PDF 资产可移植候选（待审：PDF 纸张模板渲染链） |
 | `brushpacks/` | 0 | 5 | 新笔刷包 droidrocket/glitter/io/music/rainbow（`.brushpack` 格式） | 新笔型资产；格式与渲染契约待审 |
 | `covers/` | 0 | 10 | 笔记封面 PDF（blue/brown/maroon/orange/purple/sage/yellow、*-journal、logo-pattern、stickers） | 封面资产；选择器 UI 为新增面 |
 | `conf-lite/` + `resources/en_US/*.lite.res` | 4 | 0 | **MyScript lite 端侧识别资源整体移除**（en_US ak-cur/ak-superimposed/lk-text lite res + conf-lite） | 1.4.2 端侧 lite 识别下线，配合 `HwrEngineService` 远端引擎——MyScript 边界内版本差异 |
