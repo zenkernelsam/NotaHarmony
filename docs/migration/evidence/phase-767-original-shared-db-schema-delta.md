@@ -43,7 +43,8 @@ CREATE TABLE `InkPageRecognizer` (`noteId` BLOB NOT NULL, `pageKey` TEXT NOT NUL
 ```
 
 与 MyScript lite 资源删除互证：1.4.2 识别记账按 (noteId,pageKey,recognizer,
-language) 维度留失败队列与识别器配置——远端 HWR 的本地残迹。
+language) 维度留失败队列与识别器配置——1.4.2 识别引擎（`:hwr` 进程
+隔离 iink + Play 语言包，见 Phase 768/ADR-0712 修正）的本地残迹。
 
 ### 3. 纸张模板商店记账
 

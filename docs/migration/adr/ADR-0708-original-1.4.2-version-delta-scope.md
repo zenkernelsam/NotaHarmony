@@ -19,7 +19,8 @@ diff 初筛，作为独立 Phase 插入；其产出是 T-042（Goal 最后一项
 1. **版本基线不变**：NotaHarmony 移植基线仍为原版 1.0.3（versionCode 1014）。
    1.4.2 新增功能不自动进入移植范围，先登记为"版本差项"。
 2. **fail-closed 框架顺延**：1.4.2 新增簇中属私有后端/账号/商店/远端服务者
-   （Gallery 社区、贴纸商店、模板云同步、远端 HWR `HwrEngineService`、
+   （Gallery 社区、贴纸商店、模板云同步、HWR `HwrEngineService`
+   （Phase 768/ADR-0712 修正：进程隔离本地引擎 + Play 语言包，非云端）、
    Passkey/SSO、笔记上限付费墙、课程表服务端解析、Demo/维护 Worker），
    沿用既有 ADR-0657~0659 同类处置，登记为版本差 fail-closed 边界，
    不伪造 Harmony 等价物。

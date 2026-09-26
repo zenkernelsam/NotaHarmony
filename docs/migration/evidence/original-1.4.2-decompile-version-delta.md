@@ -36,7 +36,7 @@
 | `data/calendar/database/CalendarDatabase(+_Impl)` | 日历事件本地库（配合 `READ_CALENDAR`） | 后端/OS 集成边界，见 ADR-0708 |
 | `data/gallery/`（`GalleryPublishException`、`outbox/GalleryMutationDatabase(+_Impl)`、`GalleryMutationUploaderWorker`） | Gallery 笔记发布 outbox 上传管线 | 私有后端边界 |
 | `data/templates/database/CustomTemplatesDatabase(+_Impl)`、`data/templates/sync/CustomTemplateSyncWorker`、`data/settings/sync/TemplatePageSyncWorker` | 自定义模板库 + 云端同步 | 本地 CRUD 待审、同步为后端边界 |
-| `data/handwritingrecognition/hwr/`（`HwrEngineService` 为 manifest 声明 Service、`RemoteEngineException`、`PenSampleDecodingException`）、`myscript/MyScriptEngineFeedException` | 新增远端手写识别引擎服务 | 私有后端/MyScript 边界 |
+| `data/handwritingrecognition/hwr/`（`HwrEngineService` 为 manifest 声明 Service、`RemoteEngineException`、`PenSampleDecodingException`）、`myscript/MyScriptEngineFeedException` | 新增手写识别引擎服务（后经 Phase 768/ADR-0712 修正为 `:hwr` 进程隔离的本地 iink 引擎 + Play 语言包，非云端） | 私有后端/MyScript 边界 |
 | `data/user/`（`MalformedPasskeyPayloadException`、`PasskeyActivityGoneException`、`SsoVerificationException`、`NullAuthTokenException`） | Passkey/SSO 登录 | 账号后端边界 |
 | `feature/note/stickers/packs/`（`StickerPackDownloadWorker`、`StickerPackPrefetchWorker`） | 贴纸包下载/预取 | 后端资产分发边界 |
 | `app/demo/DemoResetWorker` | Demo 模式重置 | 平台/演示边界 |
@@ -113,7 +113,7 @@ NotaHarmony 以 1.0.3 为基线保留对应 fail-closed 登记即可，无需回
 | `papertemplates/` | 0 | 446 | **35 个内置纸张模板包**（assignment_planner、college_rule、cornell、daily_* 系列、engineering_grid、hexagonal_grid、isometic、manuscript、mizige 米字格、tianzege 田字格、music_staves、各 planner 等）；每包含多尺寸/颜色/方向 PDF + `metadata.json` + HEIC 缩略图（包级 schema 与全量目录见 `phase-761-original-paper-template-bundles.md`） | 模板中心改版本体；本地 PDF 资产可移植候选（待审：PDF 纸张模板渲染链） |
 | `brushpacks/` | 0 | 5 | 新笔刷包 droidrocket/glitter/io/music/rainbow（`.brushpack` 格式） | 新笔型资产；格式与渲染契约待审 |
 | `covers/` | 0 | 10 | 笔记封面 PDF（blue/brown/maroon/orange/purple/sage/yellow、*-journal、logo-pattern、stickers） | 封面资产；选择器 UI 为新增面 |
-| `conf-lite/` + `resources/en_US/*.lite.res` | 4 | 0 | **MyScript lite 端侧识别资源整体移除**（en_US ak-cur/ak-superimposed/lk-text lite res + conf-lite） | 1.4.2 端侧 lite 识别下线，配合 `HwrEngineService` 远端引擎——MyScript 边界内版本差异 |
+| `conf-lite/` + `resources/en_US/*.lite.res` | 4 | 0 | **MyScript lite 端侧识别资源整体移除**（en_US ak-cur/ak-superimposed/lk-text lite res + conf-lite） | 1.4.2 lite 资源配置移除；Phase 768 查明 iink 引擎仍内置于 `:hwr` 隔离进程、语言包经 Play Asset Delivery 下发——MyScript/GMS 双重边界 |
 | `resources/`（iink 全量 res 含 math-sr/dl-raw-content） | 10 | 7 | 全量 iink 资源仍在但 `math-sr.res`（14.8→13.5MB）、`dl-raw-content.res`（4.8→4.6MB）换版 | iink SDK 升级配套 |
 
 **drawable/font 差异**（res/：drawable +67、layout +12、font +2，vendor 噪声除外）：

@@ -17,7 +17,7 @@ ALTER（净增 11），其中 WorkSpec 增量为 WorkManager 库升级。
 | 增量簇 | 判定 |
 |---|---|
 | Learn 测验（CompletedQuizSession + QuizSession 评分列 + spacedRepetitionTotal） | Learn 簇后端门控，维持 ADR-0708 边界 |
-| FailedInkPage / InkPageRecognizer | 远端 HWR 本地记账；与 MyScript lite 资源删除互证，fail-closed |
+| FailedInkPage / InkPageRecognizer | HWR 本地记账（`:hwr` 进程隔离 iink 引擎，见 ADR-0712 修正）；与 MyScript lite 资源删除互证，fail-closed |
 | Favorite/Recent/Usage/TemplatePaperInfo | 混合：本地记账 schema 可移植，但内容源属模板商店；pendingSync 列示同步耦合，整体随商店边界 |
 | RecentGalleryTemplate | 画廊后端 fail-closed |
 | SearchIndexPendingUpload/SyncState、UploadRejection | 同步后端 fail-closed |
