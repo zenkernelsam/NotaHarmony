@@ -43,7 +43,7 @@
 | `data/learn/syllabus/SyllabusParseException` | 课程表解析（Learn 域） | 服务端解析边界 |
 | `data/library/state/notelimit/NoteLimitRefusedException` | 免费额度笔记数上限 | 订阅后端边界 |
 | `domain/maintenance/`（`BackgroundMaintenanceWorker`、`ForegroundReturned`） | 后台维护任务 | 平台 WorkManager 边界 |
-| `core/model/snapshot/`（`SnapshotFormatException`、`SnapshotUnsupportedException`） | 快照格式版本化 | 待审（或为本地格式升级保护） |
+| `core/model/snapshot/`（`SnapshotFormatException`、`SnapshotUnsupportedException`） | 同步快照/操作序基础设施（Unsupported 消息为 "pending seq playable without an op id"，指向 synced-ops 定序；两异常类在 sources 内无直接引用点，疑为休眠/远端协议配套） | 协作后端边界 |
 | `data/backgroundwork/PreemptedByOpenNoteException`、`core/workmanager/UnresolvableWorker`、`data/loginstate/`×3、`app/ApiGatedFirebaseInitProvider`、`core/common/logging/FirebaseLogger$LoggedError` | 后台任务/登录态/Firebase 杂项 | 平台/后端边界 |
 
 被移除：`data/search/C$$__AppSearch__SearchResult`、`data/search/SearchResult`
@@ -94,6 +94,11 @@
 **重要含义**：Learn AI 族在 1.4.2 被移除说明原版自身有功能下线先例——
 NotaHarmony 以 1.0.3 为基线保留对应 fail-closed 登记即可，无需回滚；
 主题/登出/工具栏更名项列入 T-042 逐条复核输入。
+
+**族级生存性校验**（按 `feature_*`/`ui_*` 键族归属统计）：
+1.0.3 全部功能键族在 1.4.2 均有存活键，**无一族被整体移除**；
+唯一收缩过半的是 `feature_learn`（17→8，AI 聊天下线、syllabus 等保留）。
+结论：1.0.3 基线的功能面与 1.4.2 保持代表性一致，版本差集中在新增簇。
 
 ## 六、第三方库差异
 
