@@ -1,6 +1,7 @@
 // 原版 AndroidManifest：VIEW(autoVerify, BROWSABLE) intent-filter 声明
 // http/https + host notability.com/*.notability.com + pathPrefix
-// /app/note（另有 /authlink 与 /event/learn-from-home、/event/plus25）。
+// /app/note（另有 /authlink、/gallery(1.4.2新增) 与
+// /event/learn-from-home、/event/plus25、/event/planner2627(1.4.2新增)）。
 // hv7.i 判定 py2.d(data) 置 Q.j 后 kx 协程消费；py2.a 校验路径
 // 段为 ["app","note",id]，py2.b 经 wtf.f→m18.r0 把恰好 32 个
 // 十六进制位解析成 ttf 笔记 ID。
