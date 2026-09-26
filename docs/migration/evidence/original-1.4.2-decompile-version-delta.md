@@ -110,6 +110,19 @@ NotaHarmony 以 1.0.3 为基线保留对应 fail-closed 登记即可，无需回
 | `conf-lite/` + `resources/en_US/*.lite.res` | 4 | 0 | **MyScript lite 端侧识别资源整体移除**（en_US ak-cur/ak-superimposed/lk-text lite res + conf-lite） | 1.4.2 端侧 lite 识别下线，配合 `HwrEngineService` 远端引擎——MyScript 边界内版本差异 |
 | `resources/`（iink 全量 res 含 math-sr/dl-raw-content） | 10 | 7 | 全量 iink 资源仍在但 `math-sr.res`（14.8→13.5MB）、`dl-raw-content.res`（4.8→4.6MB）换版 | iink SDK 升级配套 |
 
+**drawable/font 差异**（res/：drawable +67、layout +12、font +2，vendor 噪声除外）：
+
+- `ui_tools__brushstyle_calligraphy` + `ui_designsystem__calligraphy_{fill,highlight,outline,overlay,shadow}`
+  —— **新增书法笔型**（与 brushpacks 对应）；
+- `ui_designsystem__line_style_{dashed,dotted,fixed,variable}` —— **虚线/点线线型选择器**；
+- `ui_designsystem__shape_{arrow,diamond,ellipse,line,rectangle,triangle}` +
+  `shape_tool_{fill,outline,overlay,shadow}` —— **形状显式选取器**（区别于 1.0.3 仅按住识别）；
+- `ui_designsystem__file_type_{csv,rtf}` —— 新导入文件类型图标（CSV 配合闪卡导入）；
+- `ui_designsystem__{gallery,templates,sticker,stickermenu_*,math,typestyles,
+  paper_{dotted,grid,ruled}_outline,passkey,remix,quizzes_explain,youtube,
+  dislike_audio_transcription,achieve,anki_flashcards,app_mark}` —— 与各新功能族对应；
+- `font/` 新增 Inter variable font（`inter_variablefont_wght.ttf` + italic）——字体栈升级。
+
 xapk 结构差异：1.4.2 新增 `stickers.apk` 独立 split 与 13 个语言/密度 split
 （1.0.3 仅 base + arm64 + en + xxhdpi 四件）。
 
