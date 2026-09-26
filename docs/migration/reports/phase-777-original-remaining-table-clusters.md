@@ -20,8 +20,8 @@ Replay：`d02-original-remaining-table-clusters.mjs`（8/8）
   SearchIndexPendingUpload/SearchIndexSyncState）、
   NoteBundleMetadataDatabase（UploadRejection）。
 - CompletedQuizSession 带 numCorrect/spacedRepetitionTotal
-  计分列，与进行中 QuizSession 并存——Learn 测验功能存续，
-  证实 Phase 760 的下线仅限 AI 聊天键族。
+  计分列，与进行中 QuizSession 并存——Learn 测验功能存续。
+  （更正：Phase 781 证明 Learn 聊天键族为键名重组非下线。）
 - SummaryEntity 迁移增 takeaways 列、markdown 转可空。
 - Harmony 无对应面（grep 验证），全部登记版本差。
 

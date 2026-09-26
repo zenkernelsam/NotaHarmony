@@ -36,9 +36,11 @@
      en_US lite res（端侧 lite 识别下线，配合远端 HwrEngineService）；
    - 原生库：1.0.3 全部 .so 在 1.4.2 保留（iink 23→24MB、PDFNetC
      58→59MB 等升级），仅新增 Crashlytics NDK 四件与 libzstd-jni；
-   - 移除键复核：`feature_learn__chat/quiz/summary/youtube` 族整体下线
-     （Learn AI 移除先例），hwr/logout/theme/toolbar 键为重构更名；
-     按键族统计 1.0.3 无整族功能被移除（仅 feature_learn 17→8 收缩）。
+   - 移除键复核：~~`feature_learn__chat/quiz/summary/youtube` 族整体下线~~
+     **Phase 781 更正**：前缀归一化后证实为命名空间重组
+     （`ui_learn__*` 并入），聊天/测验/摘要存续并新增 upsell 键；
+     真删仅 transcription error_format 一键。hwr/logout/theme/
+     toolbar 键为重构更名；1.0.3 无整族功能被移除。
 
 ## 差异定性
 

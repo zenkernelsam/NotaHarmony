@@ -90,20 +90,23 @@ intent/provider 差异：
 
 | 移除族 | 键数 | 定性 |
 |--------|------|------|
-| `feature_learn__chat_*`、`feature_learn_quiz__*`、`feature_learn_summary__*`、`feature_learn_transcription__*`、`feature_library__learn_card_score`、`feature_note__learn_toggle_description`、`feature_note__youtube_transcription` | ~15 | **Learn AI 聊天/测验/摘要/YouTube 转写在 1.4.2 被整体移除**（Learn 域重构为 syllabus 导入，非更名） |
+| `feature_learn__chat_*`、`feature_learn_quiz__*`、`feature_learn_summary__*`、`feature_learn_transcription__*`、`feature_library__learn_card_score`、`feature_note__learn_toggle_description`、`feature_note__youtube_transcription` | ~15 | ~~Learn AI 聊天/测验/摘要/YouTube 转写在 1.4.2 被整体移除~~ **更正（Phase 781）**：前缀归一化（feature_learn__↔ui_learn__ 合并）后证实为**键名重组非功能下线**——`chat`/`chat_card_*`/`chat_send` 在原键幸存，`chat_error_*` 等迁至 `ui_learn__*`；真正删除仅 `feature_learn_transcription__error_format` 一键，另新增 `chat_upsell_*` 促销键 |
 | `feature_note__hwr_*`（panel_close/toggle_description） | 2 | HWR 面板 a11y 键移除——配合 `hwr/` 远端引擎重构，本地面板文案重组（待逐条复核更名去向） |
 | `feature_settings__logout_*`、`_sign_out`、`_stay_signed_in` | ~8 | 登出流程键移除——账号体系迁移 Passkey/SSO 所致重构（待复核） |
 | `feature_settings__dark_theme`、`match_system_appearance` | 2 | 主题设置键移除——设置项重构（待复核是否更名保留） |
 | `feature_note__toprighttoolbar_undo/redo_action`、`content_manager_toggle_description` | 3 | 工具栏 a11y 键移除（更名或合并，待复核） |
 | `feature_library__clear_search`、`ui_fileimport__back`、`ui_templates__browse`、其余零散 | ~8 | 单键更名/合并噪声 |
 
-**重要含义**：Learn AI 族在 1.4.2 被移除说明原版自身有功能下线先例——
-NotaHarmony 以 1.0.3 为基线保留对应 fail-closed 登记即可，无需回滚；
+**重要含义（Phase 781 更正）**：Learn 族实为**键名空间重组**
+（`feature_learn__*`/`feature_learn_quiz__*`/`feature_learn_summary__*`
+部分并入 `ui_learn__*`），Learn 聊天/测验/摘要功能在 1.4.2 存续
+且新增 `chat_upsell_*` 促销键；真正删除的只有
+`feature_learn_transcription__error_format`。
 主题/登出/工具栏更名项列入 T-042 逐条复核输入。
 
 **族级生存性校验**（按 `feature_*`/`ui_*` 键族归属统计）：
 1.0.3 全部功能键族在 1.4.2 均有存活键，**无一族被整体移除**；
-唯一收缩过半的是 `feature_learn`（17→8，AI 聊天下线、syllabus 等保留）。
+`feature_learn` 数字收缩（17→8）系键名外迁 `ui_learn__` 所致。
 结论：1.0.3 基线的功能面与 1.4.2 保持代表性一致，版本差集中在新增簇。
 
 ## 六、资源资产差异（resources/assets：115 → 576 文件，+465 / −4）

@@ -53,7 +53,8 @@ CREATE TABLE UploadRejection(noteId BLOB PK, firstRejectedAt INT, reported INT);
 
 - `CompletedQuizSession` 相对 1.0.3 `QuizSession` 新增 `numCorrect`/
   `spacedRepetitionTotal`——间隔重复计分档案，证明 1.4.2 Learn
-  保留测验而非整体下线（下线的是 AI 聊天键族，见 Phase 760）。
+  保留测验而非整体下线。（更正：Phase 781 证明 Learn 聊天
+  键族为命名空间重组而非下线，见 Phase 760 证据注记。）
 - `InkPageRecognizer.recognizer`/`language` + `FailedInkPage` =
   逐页识别器选择与失败标记，配合 Phase 768 的 `:hwr` 服务。
 - `SearchIndex{PendingUpload,SyncState}` = 服务端全文索引上传队列
