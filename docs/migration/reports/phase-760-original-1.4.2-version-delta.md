@@ -29,7 +29,16 @@
    - `strings.xml`：1503→2118 键（+722/−107），新键族覆盖 Gallery 社区
      （~200 键）、贴纸商店（~80）、模板中心改版（~45）、Learn 课程表（~30）、
      Passkey/日历连接/笔记上限付费墙/闪卡分隔符等；
-   - 第三方库：新增 zstd-jni，iink SDK 升级，移除 Jackson/exo/appcompat 部分组件。
+   - 第三方库：新增 zstd-jni，iink SDK 升级，移除 Jackson/exo/appcompat 部分组件；
+   - `resources/assets`：115→576（+465/−4）——新增 36 个内置纸张模板包
+     （每包 PDF×尺寸×颜色×方向 + metadata.json + HEIC 缩略图）、
+     5 个 brushpack、10 个封面 PDF；移除 MyScript conf-lite 与
+     en_US lite res（端侧 lite 识别下线，配合远端 HwrEngineService）；
+   - 原生库：1.0.3 全部 .so 在 1.4.2 保留（iink 23→24MB、PDFNetC
+     58→59MB 等升级），仅新增 Crashlytics NDK 四件与 libzstd-jni；
+   - 移除键复核：`feature_learn__chat/quiz/summary/youtube` 族整体下线
+     （Learn AI 移除先例），hwr/logout/theme/toolbar 键为重构更名；
+     按键族统计 1.0.3 无整族功能被移除（仅 feature_learn 17→8 收缩）。
 
 ## 差异定性
 
