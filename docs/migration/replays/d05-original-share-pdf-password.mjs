@@ -124,13 +124,13 @@ check(toolbar.includes('share_password_remove') &&
   'Remove renders only when a password is already set');
 
 // ---------- Harmony：分发与导出 ----------
-check(toolbar.includes('onSharePdf: (pageIndexes: number[] | null, password: string | null,\n    includeBackground: boolean) => void') &&
-  toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword,\n        this.shareIncludeBackground)'),
+check(toolbar.includes('onSharePdf: (pageIndexes: number[] | null, password: string | null,\n    includeBackground: boolean, includeRecording: boolean) => void') &&
+  toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword,\n        this.shareIncludeBackground, this.shareIncludeRecording)'),
   'pdf row dispatches page set + password');
 check(toolbar.includes('this.onShareImage(this.shareFormat, this.sharePageIndexes,\n        this.shareIncludeBackground)') &&
   !toolbar.includes('this.onShareImage(format, this.sharePageIndexes, this.sharePassword)'),
   'image export does not consume the password (PDF-only)');
-check(notePage.includes('shareNoteAsPdf(pageIndexes: number[] | null, password: string | null,\n    includeBackground: boolean)') &&
+check(notePage.includes('shareNoteAsPdf(pageIndexes: number[] | null, password: string | null,\n    includeBackground: boolean, includeRecording: boolean)') &&
   notePage.includes('password !== null ? password : undefined'),
   'NotePage threads the password into the exporter');
 check(exporter.includes("import { pdfService } from '@kit.PDFKit';") &&

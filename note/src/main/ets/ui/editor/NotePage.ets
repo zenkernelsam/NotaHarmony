@@ -29,7 +29,7 @@ import {
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteExporter } from '../../data/NoteExporter';
 import { PageImageExporter, ShareImageFormat } from '../../data/PageImageExporter';
-import { PagePdfExporter, PdfPageImage } from '../../data/PagePdfExporter';
+import { PagePdfExporter, PdfPageImage, PdfZipRecordingSource } from '../../data/PagePdfExporter';
 import { PageOverviewPanel } from './PageOverviewPanel';
 import { ImportFileDescriptor, ImportPlan, ImportReport, ImportResult, ImportSheetPrompt, NoteImporter, PdfPasswordPrompt } from '../../data/NoteImporter';
 import { PdfPasswordDialog } from '../components/PdfPasswordDialog';
@@ -470,7 +470,7 @@ struct NotePage {
   // （JPEG 内嵌需不透明底，填白）。
   // 导出色恒取亮主题。
   private shareNoteAsPdf(pageIndexes: number[] | null, password: string | null,
-    includeBackground: boolean): void {
+    includeBackground: boolean, includeRecording: boolean): void {
     if (this.pages.length === 0) {
       return;
     }
@@ -511,8 +511,17 @@ struct NotePage {
           }
         }
         const exporter: PagePdfExporter = new PagePdfExporter();
-        const success: boolean = await exporter.exportPdf(context, imagePages,
-          this.noteTitle, password !== null ? password : undefined);
+        // 原版 x59/x8b：include_recording 开且录音列表非空 → 产物升级为
+        // <title>.zip（内嵌同名 .pdf + Recordings/<name>.<ext>）。
+        const recordings: MaterializedOriginalRecording[] = includeRecording ?
+          await new OriginalRecordingStore(db).listVisible(this.noteId) : [];
+        const success: boolean = recordings.length > 0 ?
+          await exporter.exportPdfZip(context, imagePages, this.noteTitle,
+            password !== null ? password : undefined,
+            recordings.map((r: MaterializedOriginalRecording): PdfZipRecordingSource =>
+              ({ name: r.name, mimeType: r.assetMimeType, localPath: r.localPath }))) :
+          await exporter.exportPdf(context, imagePages,
+            this.noteTitle, password !== null ? password : undefined);
         promptAction.showToast({
           message: success ? $r('app.string.export_done') : $r('app.string.export_failed'),
         });
@@ -1732,12 +1741,13 @@ struct NotePage {
           },
           // 原版 s6d.PDF（atc case4）：所选页逐页栅格化导出单个 PDF。
           onSharePdf: (pageIndexes: number[] | null, password: string | null,
-            includeBackground: boolean) => {
+            includeBackground: boolean, includeRecording: boolean) => {
             if (this.photoImportLeaseActive || this.pageOperationBusy ||
               this.historyPending) {
               return;
             }
-            this.shareNoteAsPdf(pageIndexes, password, includeBackground);
+            this.shareNoteAsPdf(pageIndexes, password, includeBackground,
+              includeRecording);
           },
           // 原版 r6d.PAGE_SELECTION 屏数据：页快照 + b7d.l 缩略图窗口。
           sharePages: this.pages,

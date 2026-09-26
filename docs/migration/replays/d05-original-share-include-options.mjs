@@ -132,7 +132,7 @@ check(toolbar.includes('share_action_pdf') && toolbar.includes('share_action_not
   'per-format Share action labels (s6d.L)');
 check(toolbar.includes("if (this.shareFormat === 'link')") &&
   toolbar.includes('this.onShareNote(this.shareIncludeRecording)') &&
-  toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword,\n        this.shareIncludeBackground)') &&
+  toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword,\n        this.shareIncludeBackground, this.shareIncludeRecording)') &&
   toolbar.includes('this.onShareImage(this.shareFormat, this.sharePageIndexes,\n        this.shareIncludeBackground)'),
   'dispatchShare routes format + page set + password + include flags');
 check(/onDisappear[\s\S]*?shareFormat = 'pdf'[\s\S]*?shareIncludeBackground = false[\s\S]*?shareIncludeRecording = true/.test(toolbar),
@@ -141,11 +141,11 @@ check(!toolbar.includes('ShareFormatRow('),
   'superseded tap-to-export format rows removed');
 
 // ---------- Harmony：导出管线消费 ----------
-check(toolbar.includes('includeBackground: boolean) => void') &&
+check(toolbar.includes('includeBackground: boolean, includeRecording: boolean) => void') &&
   notePage.includes('sharePagesAsImages(format: string, pageIndexes: number[] | null,\n    includeBackground: boolean)') &&
   notePage.includes('includeBackground ? \'paper\' :\n      (shareFormat === \'png\' ? \'transparent\' : \'white\')'),
   'image export maps includeBackground to paper/transparent|white');
-check(notePage.includes('shareNoteAsPdf(pageIndexes: number[] | null, password: string | null,\n    includeBackground: boolean)') &&
+check(notePage.includes('shareNoteAsPdf(pageIndexes: number[] | null, password: string | null,\n    includeBackground: boolean, includeRecording: boolean)') &&
   notePage.includes("includeBackground ? 'paper' : 'white'"),
   'pdf export maps includeBackground to paper/white');
 check(notePage.includes('shareNoteAsFile(includeRecording: boolean)') &&

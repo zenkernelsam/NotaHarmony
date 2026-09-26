@@ -149,7 +149,8 @@ export class NoteExporter {
       // whose file is missing aborts the whole export
       // (MissingAssetsException parity) via the shared fail-closed write
       // loop below. Recordings/<name>.<ext> naming only exists in the
-      // x59 ZIP share format (deferred epic), not in .note.
+      // x59/x8b PDF share ZIP (Phase 855, implemented in
+      // PagePdfExporter.exportPdfZip), not in .note.
       const recordings: MaterializedOriginalRecording[] = includeRecordings ?
         await new OriginalRecordingStore(this.db).listVisible(noteId) : [];
       for (const recording of recordings) {

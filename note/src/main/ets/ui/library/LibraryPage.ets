@@ -43,7 +43,8 @@ import { DocumentScanner, DocumentScannerConfig, DocType, SaveOption } from '@ki
 import { image } from '@kit.ImageKit';
 import { Want } from '@kit.AbilityKit';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
-import { buildPdf, encryptPdfFile, PdfPageImage } from '../../data/PagePdfExporter';
+import { buildPdf, encryptPdfFile, PdfPageImage, readFileFully, shareEntryName, shareZipExtension } from '../../data/PagePdfExporter';
+import { OriginalRecordingStore } from '../../data/OriginalRecordingStore';
 import { ZipWriter } from '../../data/ZipArchive';
 import {
   isThumbnailSourceUnchanged, prioritizeThumbnailNoteIds, thumbnailCacheKey,
@@ -3542,11 +3543,47 @@ struct LibraryPage {
                 encryptPdfFile(path, encPath, password);
                 srcPath = encPath;
               }
-              records.push({
-                utd: uniformTypeDescriptor.UniformDataType.PDF,
-                uri: fileUri.getUriFromPath(srcPath),
-                title: `${title}.pdf`,
-              });
+              // 原版 x59/x8b：include_recording 开且录音列表非空 →
+              // 该笔记产物升级为 <title>.zip（内嵌同名 .pdf +
+              // Recordings/<sanitized>.<ext>，重名 " (N)" N 自 1）。
+              const recordings = includeRecording ?
+                await new OriginalRecordingStore(this.db).listVisible(id) : [];
+              if (recordings.length > 0) {
+                const zipWriter: ZipWriter = new ZipWriter();
+                zipWriter.addEntry(`${shareEntryName(title)}.pdf`,
+                  readFileFully(srcPath), true);
+                const usedNames: Set<string> = new Set<string>();
+                for (const rec of recordings) {
+                  if (rec.localPath === null || rec.localPath.length === 0 ||
+                    !fileIo.accessSync(rec.localPath)) {
+                    continue;
+                  }
+                  const baseName: string = shareEntryName(rec.name);
+                  const ext: string = shareZipExtension(rec.assetMimeType);
+                  let entryName: string = `Recordings/${baseName}.${ext}`;
+                  let dup: number = 1;
+                  while (usedNames.has(entryName)) {
+                    entryName = `Recordings/${baseName} (${dup}).${ext}`;
+                    dup++;
+                  }
+                  usedNames.add(entryName);
+                  zipWriter.addEntry(entryName, readFileFully(rec.localPath), true);
+                }
+                const zipPath: string =
+                  `${dir}/${this.safeShareFileName(title)}.zip`;
+                this.writeShareFile(zipPath, await zipWriter.build());
+                records.push({
+                  utd: uniformTypeDescriptor.UniformDataType.FILE,
+                  uri: fileUri.getUriFromPath(zipPath),
+                  title: `${title}.zip`,
+                });
+              } else {
+                records.push({
+                  utd: uniformTypeDescriptor.UniformDataType.PDF,
+                  uri: fileUri.getUriFromPath(srcPath),
+                  title: `${title}.pdf`,
+                });
+              }
             } else {
               const suffix: string = format === 'png' ? 'png' : 'jpg';
               const mime: string = format === 'png' ? 'image/png' : 'image/jpeg';

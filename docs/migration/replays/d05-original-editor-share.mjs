@@ -111,7 +111,7 @@ check(toolbar.includes('.opacity(supported ? 1 : 0.4)') &&
   toolbar.includes('if (!supported) {'),
   'the unsupported LINK chip renders dimmed and swallows taps');
 check(toolbar.includes('this.showShareSheet = false;\n    if (this.shareFormat === \'note\') {') &&
-  toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword,\n        this.shareIncludeBackground)') &&
+  toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword,\n        this.shareIncludeBackground, this.shareIncludeRecording)') &&
   toolbar.includes('this.onShareImage(this.shareFormat, this.sharePageIndexes,\n        this.shareIncludeBackground)'),
   'enabled rows close the sheet and dispatch to the format export');
 

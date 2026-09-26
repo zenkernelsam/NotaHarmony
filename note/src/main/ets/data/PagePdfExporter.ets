@@ -6,6 +6,7 @@
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
 import { pdfService } from '@kit.PDFKit';
+import { ZipWriter } from './ZipArchive';
 
 const FILE_WRITE_CHUNK_SIZE: number = 64 * 1024;
 const FILE_READ_CHUNK_SIZE: number = 64 * 1024;
@@ -22,6 +23,14 @@ export interface PdfPageImage {
   heightPx: number;
   widthMm: number;
   heightMm: number;
+}
+
+// 原版 x59/x8b ZIP 录音条目源：显示名 + MIME + 本地文件路径
+// （localPath 为 null 或文件缺失时按原版 fileH.exists() 语义跳过）。
+export interface PdfZipRecordingSource {
+  name: string;
+  mimeType: string;
+  localPath: string | null;
 }
 
 export class PagePdfExporter {
@@ -103,6 +112,131 @@ export class PagePdfExporter {
       if (encryptedPath.length > 0) {
         try {
           fileIo.unlinkSync(encryptedPath);
+        } catch (e) {
+          // 忽略清理失败
+        }
+      }
+    }
+  }
+
+  // 原版分享 ZIP 契约（1.0.3 x59 / 1.4.2 x8b）：PDF 格式 +
+  // include_recording 开 + 录音列表非空时，产物为 <title>.zip =
+  // <title>.pdf（可选密码加密）+ Recordings/<sanitized>.<ext>，
+  // 重名追加 " (N)"（N 自 1 起，字节码 iconst_1）；扩展名按
+  // MimeTypeMap 语义 mime→ext，未知回退 "mp4"；文件缺失的录音
+  // 条目跳过。password 作用于内嵌 PDF 本身，zip 不加密。
+  async exportPdfZip(context: common.UIAbilityContext, pages: PdfPageImage[],
+    title: string, password: string | undefined,
+    recordings: PdfZipRecordingSource[]): Promise<boolean> {
+    let tmpPath: string = '';
+    let encryptedPath: string = '';
+    let zipPath: string = '';
+    let tmpFile: fileIo.File | null = null;
+    let srcFile: fileIo.File | null = null;
+    let dstFile: fileIo.File | null = null;
+    try {
+      const pdfBytes: Uint8Array = buildPdf(pages);
+      tmpPath = `${context.tempDir}/note_export_${Date.now()}.pdf`;
+      tmpFile = fileIo.openSync(tmpPath,
+        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      writeFileFully(tmpFile.fd, pdfBytes, 'temporary pdf export');
+      fileIo.fsyncSync(tmpFile.fd);
+      fileIo.closeSync(tmpFile);
+      tmpFile = null;
+
+      let srcPath: string = tmpPath;
+      if (password !== undefined && password.length > 0) {
+        encryptedPath = `${context.tempDir}/note_export_enc_${Date.now()}.pdf`;
+        encryptPdfFile(tmpPath, encryptedPath, password);
+        srcPath = encryptedPath;
+      }
+
+      const writer: ZipWriter = new ZipWriter();
+      writer.addEntry(`${shareEntryName(title)}.pdf`,
+        readFileFully(srcPath), true);
+      const usedNames: Set<string> = new Set<string>();
+      for (const recording of recordings) {
+        // 原版 fileH.exists()：仅打包本地文件存在的录音。
+        if (recording.localPath === null || recording.localPath.length === 0 ||
+          !fileIo.accessSync(recording.localPath)) {
+          continue;
+        }
+        const baseName: string = shareEntryName(recording.name);
+        const ext: string = shareZipExtension(recording.mimeType);
+        let entryName: string = `Recordings/${baseName}.${ext}`;
+        let dup: number = 1;
+        while (usedNames.has(entryName)) {
+          entryName = `Recordings/${baseName} (${dup}).${ext}`;
+          dup++;
+        }
+        usedNames.add(entryName);
+        writer.addEntry(entryName, readFileFully(recording.localPath), true);
+      }
+      const zipBytes: Uint8Array = await writer.build();
+      zipPath = `${context.tempDir}/note_export_${Date.now()}.zip`;
+      tmpFile = fileIo.openSync(zipPath,
+        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      writeFileFully(tmpFile.fd, zipBytes, 'temporary zip export');
+      fileIo.fsyncSync(tmpFile.fd);
+      fileIo.closeSync(tmpFile);
+      tmpFile = null;
+
+      const documentPicker = new picker.DocumentViewPicker(context);
+      const saveOptions = new picker.DocumentSaveOptions();
+      saveOptions.newFileNames = [`${safeFileName(title)}_${Date.now()}.zip`];
+      saveOptions.fileSuffixChoices = ['ZIP 压缩包|.zip'];
+      const uris: string[] = await documentPicker.save(saveOptions);
+      if (uris.length === 0) {
+        console.info('exportPdfZip: user cancelled');
+        return false;
+      }
+      const targetUri: string = uris[0];
+      srcFile = fileIo.openSync(zipPath, fileIo.OpenMode.READ_ONLY);
+      const stat = fileIo.statSync(zipPath);
+      const size: number = stat.size;
+      if (!Number.isSafeInteger(size) || size !== zipBytes.byteLength) {
+        throw new Error(`temporary zip export changed before copy: ${size}/${zipBytes.byteLength} bytes`);
+      }
+      dstFile = fileIo.openSync(targetUri,
+        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      copyFileFully(srcFile.fd, dstFile.fd, size, 'destination zip export');
+      fileIo.fsyncSync(dstFile.fd);
+      fileIo.closeSync(dstFile);
+      dstFile = null;
+      fileIo.closeSync(srcFile);
+      srcFile = null;
+      console.info(`exportPdfZip success: bytes=${size}`);
+      return true;
+    } catch (e) {
+      console.error(`exportPdfZip failed: ${JSON.stringify(e)}`);
+      return false;
+    } finally {
+      if (tmpFile !== null) {
+        try { fileIo.closeSync(tmpFile); } catch (_) { }
+      }
+      if (srcFile !== null) {
+        try { fileIo.closeSync(srcFile); } catch (_) { }
+      }
+      if (dstFile !== null) {
+        try { fileIo.closeSync(dstFile); } catch (_) { }
+      }
+      if (tmpPath.length > 0) {
+        try {
+          fileIo.unlinkSync(tmpPath);
+        } catch (e) {
+          // 忽略清理失败
+        }
+      }
+      if (encryptedPath.length > 0) {
+        try {
+          fileIo.unlinkSync(encryptedPath);
+        } catch (e) {
+          // 忽略清理失败
+        }
+      }
+      if (zipPath.length > 0) {
+        try {
+          fileIo.unlinkSync(zipPath);
         } catch (e) {
           // 忽略清理失败
         }
@@ -285,5 +419,63 @@ function copyFileFully(sourceFd: number, destinationFd: number, size: number, la
       chunk.byteOffset + chunk.byteLength) as ArrayBuffer;
     writeFileFully(destinationFd, new Uint8Array(buffer), label);
     total += read;
+  }
+}
+
+// 原版 j0.m（1.0.3）/ vpm.y0（1.4.2）条目名消毒：
+// [/\\:*?"<>|\x00] → '_'，再剥前导 '.'，空名回退 "Note"。
+export function shareEntryName(name: string): string {
+  const replaced: string = name.replace(/[/\\:*?"<>|\x00]/g, '_');
+  const stripped: string = replaced.replace(/^\.+/, '');
+  return stripped.length === 0 ? 'Note' : stripped;
+}
+
+// 原版 MimeTypeMap.getExtensionFromMimeType 语义；音频容器
+// audio/mp4 → m4a（Android 映射一致），未知 MIME 回退 "mp4"。
+export function shareZipExtension(mimeType: string): string {
+  const normalized: string = mimeType.toLowerCase();
+  if (normalized === 'audio/mp4' || normalized === 'audio/x-m4a') {
+    return 'm4a';
+  }
+  if (normalized === 'audio/mpeg') {
+    return 'mp3';
+  }
+  if (normalized === 'audio/aac') {
+    return 'aac';
+  }
+  if (normalized === 'audio/wav' || normalized === 'audio/x-wav') {
+    return 'wav';
+  }
+  if (normalized === 'audio/aiff' || normalized === 'audio/x-aiff') {
+    return 'aif';
+  }
+  const slash: number = normalized.lastIndexOf('/');
+  return slash >= 0 && slash < normalized.length - 1 ?
+    normalized.substring(slash + 1) : 'mp4';
+}
+
+export function readFileFully(path: string): Uint8Array {
+  const stat = fileIo.statSync(path);
+  const size: number = stat.size;
+  if (!Number.isSafeInteger(size) || size < 0) {
+    throw new Error(`zip entry source has an invalid size: ${size}`);
+  }
+  const file: fileIo.File = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
+  try {
+    const bytes: Uint8Array = new Uint8Array(size);
+    let total: number = 0;
+    while (total < size) {
+      const requested: number = Math.min(FILE_READ_CHUNK_SIZE, size - total);
+      const chunkBuffer: ArrayBuffer = new ArrayBuffer(requested);
+      const read: number = fileIo.readSync(file.fd, chunkBuffer);
+      if (read <= 0 || read > requested) {
+        throw new Error(`zip entry source read made invalid progress: ${total}/${size} bytes`);
+      }
+      bytes.set(new Uint8Array(chunkBuffer, 0, read), total);
+      total += read;
+    }
+    return bytes;
+  } finally {
+    fileIo.closeSync(file);
   }
 }

@@ -122,7 +122,7 @@ check(pwRow >= 0 &&
 // ---------- 分发与交付 ----------
 const mShare = lib.indexOf('private async multiShare(): Promise<void> {');
 check(mShare >= 0, 'multiShare exists');
-const mBody = lib.slice(mShare, mShare + 8000);
+const mBody = lib.slice(mShare, mShare + 12000);
 check(mBody.includes('exporter.exportNote(id,\n            includeRecording)'),
   'NOTE export threads includeRecording per note');
 check(mBody.includes('pageRepo.getPages(id)') &&

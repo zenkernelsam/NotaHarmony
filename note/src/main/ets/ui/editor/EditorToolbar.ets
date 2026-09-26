@@ -95,10 +95,12 @@ export struct EditorToolbar {
   // 原版 s6d.PDF（atc case4）：所选页逐页栅格化导出单个 PDF；
   // pageIndexes=null 表示全部页（v6d.l 空集语义）；password 对应
   // v6d.k——非空时对产物施加打开密码（r6d.PASSWORD_ENTRY 设入）。
+  // includeRecording 对应 yk9.O/x59：PDF 分支录音开关——开且录音
+  // 非空时产物升级为 <title>.zip（pdf + Recordings/）。
   onSharePdf: (pageIndexes: number[] | null, password: string | null,
-    includeBackground: boolean) => void =
+    includeBackground: boolean, includeRecording: boolean) => void =
     (_pageIndexes: number[] | null, _password: string | null,
-      _includeBackground: boolean): void => {
+      _includeBackground: boolean, _includeRecording: boolean): void => {
   };
   // 分享页选择栅格的页列表与缩略图请求（宿主 NotePage 注入：
   // b7d.l(i,i2) 缩略图窗口的等价物）。普通字段——面板开启时按当前
@@ -1076,7 +1078,7 @@ export struct EditorToolbar {
       this.onShareNote(this.shareIncludeRecording);
     } else if (this.shareFormat === 'pdf') {
       this.onSharePdf(this.sharePageIndexes, this.sharePassword,
-        this.shareIncludeBackground);
+        this.shareIncludeBackground, this.shareIncludeRecording);
     } else {
       this.onShareImage(this.shareFormat, this.sharePageIndexes,
         this.shareIncludeBackground);

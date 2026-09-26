@@ -53,7 +53,7 @@ check(toolbar.indexOf("ShareFormatChip($r('app.string.share_png'), 'png', true)"
   'the chip row renders above the per-format options holding the range row');
 check(toolbar.includes('this.toggleSharePage(pageIndex)'),
   'picker cells toggle indexes through b7d.q semantics');
-check(toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword,\n        this.shareIncludeBackground)') &&
+check(toolbar.includes('this.onSharePdf(this.sharePageIndexes, this.sharePassword,\n        this.shareIncludeBackground, this.shareIncludeRecording)') &&
   toolbar.includes('this.onShareImage(this.shareFormat, this.sharePageIndexes,\n        this.shareIncludeBackground)'),
   'pdf and image rows dispatch the chosen page set');
 check(!toolbar.includes('onShareNote(this.sharePageIndexes)'),
@@ -82,7 +82,7 @@ check(notePage.includes('if (pages.length === 1)') &&
   'a single selected page still uses the direct image save path');
 
 // --- Harmony：PDF 页范围 ---
-check(notePage.includes('private shareNoteAsPdf(pageIndexes: number[] | null, password: string | null,\n    includeBackground: boolean): void {'),
+check(notePage.includes('private shareNoteAsPdf(pageIndexes: number[] | null, password: string | null,\n    includeBackground: boolean, includeRecording: boolean): void {'),
   'shareNoteAsPdf takes the nullable page set');
 check(notePage.indexOf('private shareNoteAsPdf') > 0 &&
   notePage.indexOf('resolveSharePages(pageIndexes)') > 0,
