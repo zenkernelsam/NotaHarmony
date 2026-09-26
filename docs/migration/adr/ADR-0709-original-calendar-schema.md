@@ -25,6 +25,9 @@ Replay：`docs/migration/replays/d02-original-calendar-schema.mjs`
 1. **登记为版本差·混合边界**，本阶段不移植任何表：
    - `syllabus*` 两表为纯本地数据 + folderId 级联，技术上可移植，但其
      数据源（大纲解析/导入管道）属另一 1.4.2 边界，先登记。
+     （Phase 772/ADR-0716 细化：解析为服务端完成——文件/照片上传后经
+     服务端抽取日期写回，故功能整体为后端耦合，表虽本地但无本地
+     生产者。）
    - `calendar*` 两表为本地表，但事件源是 Android 设备日历
      （CalendarContract + `READ_CALENDAR`）；Harmony 对应
      `calendarManager`（API 11+）与 `ohos.permission.READ_CALENDAR`
