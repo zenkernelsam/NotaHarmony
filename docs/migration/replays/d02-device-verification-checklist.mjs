@@ -38,13 +38,20 @@ const anchors = ['ADR-0539', 'ADR-0540', 'ADR-0541', 'ADR-0531', 'ADR-0532',
   // Phase 676 补遗：572~675 新增运行态项
   'ADR-0572', 'ADR-0580', 'ADR-0594', 'ADR-0599', 'ADR-0618', 'ADR-0619',
   'ADR-0620', 'ADR-0621', 'ADR-0622', 'ADR-0628', 'ADR-0631', 'ADR-0632',
-  'ADR-0633', 'ADR-0640', 'ADR-0641'];
+  'ADR-0633', 'ADR-0640', 'ADR-0641',
+  // Phase 759 补遗：756~758 新增运行态项
+  'ADR-0704', 'ADR-0705', 'ADR-0706'];
 for (const a of anchors) {
   check(doc.includes(a), `checklist covers ${a}`);
 }
 
 // --- Phase 676 补遗 section registered ---
 check(doc.includes('Phase 676 补遗'), 'phase-676 appendix section');
+
+// --- Phase 759 补遗 section registered ---
+check(doc.includes('Phase 759 补遗'), 'phase-759 appendix section');
+check(doc.includes('R-49') && doc.includes('R-50') && doc.includes('R-51'),
+  'phase-759 appendix rows R-49..R-51');
 
 // --- Maintenance rule present ---
 check(doc.includes('同步登记'), 'maintenance rule');
