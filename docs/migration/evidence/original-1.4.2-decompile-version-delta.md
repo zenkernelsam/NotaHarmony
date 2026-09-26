@@ -112,7 +112,9 @@ NotaHarmony 以 1.0.3 为基线保留对应 fail-closed 登记即可，无需回
 
 ## 七、第三方库差异
 
-- 新增 `com/github/luben/zstd`（zstd-jni 压缩库）——疑似同步/快照线格式压缩。
+- 新增 `com/github/luben/zstd`（zstd-jni 压缩库）——全树未见 `Zstd.compress/decompress`
+  应用层调用点，判定为网络层传递依赖（OkHttp/Retrofit 系 zstd 响应压缩），
+  **不构成 .note 本地格式变更信号**。
 - `com/myscript/iink` 新增 `ImageFit` 等 —— iink SDK 升级。
 - `com/google/firebase/crashlytics/ndk`、Material `FocusRingDrawable` 等 —— SDK 升级。
 - 移除 `androidx/browser`、`androidx/coordinatorlayout`、`com/fasterxml`（Jackson）等。
