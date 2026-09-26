@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "module description"
+      "value": "NotaHarmony notes module"
     },
     {
       "name": "NoteAbility_desc",
-      "value": "description"
+      "value": "Create and edit notes"
     },
     {
       "name": "NoteAbility_label",
-      "value": "label"
+      "value": "NotaHarmony"
     },
     {
       "name": "shortcut_new_note", "value": "New Note" },
