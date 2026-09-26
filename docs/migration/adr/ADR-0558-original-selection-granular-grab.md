@@ -54,4 +54,7 @@ Harmony 在 Phase 589 之前：选中态下 pointer-down 落在 `selectionRect`
 
 - Replay：`docs/migration/replays/d02-original-selection-granular-grab.mjs`
   （24 项静态契约）。
+  **2026-09-28 更正**：该 fixture 已随本 ADR 被 ADR-0559 supersede 而移除；
+  现行活钉为 `d02-original-selection-tap-clear.mjs`（18 项契约，
+  `ftc.i` deselectedIds 语义）。
 - `note@default` / `note@ohosTest` HAP 构建通过，无新增 ArkTS 错误。

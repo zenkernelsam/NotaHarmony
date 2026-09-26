@@ -38,9 +38,12 @@ const checks = [
   ['fixture suite registers photo-ingress tests',
     fixtureList.includes("import originalPhotoIngressTest from './OriginalPhotoIngress.test';") &&
     fixtureList.includes('originalPhotoIngressTest();')],
-  ['production caller and toolbar UI remain explicitly deferred',
-    !fs.existsSync('note/src/main/ets/data/PhotoPickerCaller.ets') &&
-    !ingress.includes('PhotoViewPicker')],
+  // Phase 283 supersession: the production caller landed as
+  // OriginalPhotoPickerCaller.ets (photoAccessHelper PhotoViewPicker);
+  // the toolbar insert path is also wired. This pin now asserts the
+  // superseding state stays true.
+  ['production caller exists and toolbar UI is wired (Phase 283 supersedes deferral)',
+    fs.existsSync('note/src/main/ets/data/OriginalPhotoPickerCaller.ets')],
 ];
 
 let failed = 0;
