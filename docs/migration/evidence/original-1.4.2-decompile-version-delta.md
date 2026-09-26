@@ -61,6 +61,12 @@
 - `android.permission.READ_CALENDAR`
 - `com.google.firebase.components:com.google.firebase.crashlytics.ndk.CrashlyticsNdkRegistrar`
 
+intent/provider 差异：
+
+- 新增 `android.media.action.IMAGE_CAPTURE_SECURE` action —— 锁屏安全拍照入口；
+- `com.google.firebase.provider.FirebaseInitProvider` →
+  `com.gingerlabs.notability.app.ApiGatedFirebaseInitProvider`（Firebase 初始化 API 门控化）。
+
 ## 五、字符串键差异（strings.xml：1.0.3=1503 键 → 1.4.2=2118 键；+722 / −107）
 
 新增键的功能族分布：`feature_*` 445、`ui_*` 257、其余 `call/mids/data/dream/status` 共 20。
