@@ -19,8 +19,7 @@ const strings = read('note/src/main/resources/base/element/string.json');
 const overlay = read(`${SRC}/ui/components/SelectionOverlay.ets`);
 const adr0645 = read('docs/migration/adr/ADR-0645-original-selection-menu-dsc-reconcile.md');
 const adr0257 = read('docs/migration/adr/ADR-0257-original-handwriting-conversion-coordinator.md');
-const adr0513 = fs.existsSync(R('docs/migration/adr/ADR-0513-original-collaboration-boundary.md')) ?
-  read('docs/migration/adr/ADR-0513-original-collaboration-boundary.md') : '';
+const adr0658 = read('docs/migration/adr/ADR-0658-original-remote-flag-tail-failclosed.md');
 
 // === 已移植锚点：选区菜单 deselectMode 确认/取消 + CONVERT 边界 ===
 check('deselectMode 菜单收窄 done/cancel',
@@ -81,7 +80,7 @@ check('报告声明族闭合', /feature_note/.test(report) && /闭合|收口/.te
 
 // === 反向针 ===
 check('SelectionOverlay 仍含 STYLE 项', overlay.includes('selection_style'));
-check('协作边界 ADR 在场', adr0513.length > 0 || true);
+check('协作边界 ADR 在场', adr0658.includes('协作'));
 
 console.log(`D02_ORIGINAL_FEATURE_NOTE_TAIL_REPLAY_OK TOTAL=${total} FAILED=${failed}`);
 process.exit(failed === 0 ? 0 : 1);

@@ -48,9 +48,9 @@
 - `text_conversion_failed` / `math_conversion_failed`：CONVERT_*
   菜单项已 fail-closed（ADR-0645），其失败 toast 随菜单项不接线。
 - `access_denied_*`（权限对话框）：共享协作权限拒绝对话框，
-  账号/协作后端边界（ADR-0513、ADR-0662）。
+  账号/协作后端边界（ADR-0658、ADR-0662）。
 - `view_only`、`view_only_edit_attempt`、`view_only_upload_attempt`、
-  `presence_recording*`：协作只读/在场提示，ADR-0513 边界。
+  `presence_recording*`：协作只读/在场提示，ADR-0658 边界。
 - `version_history_*`（12 键）：版本历史界面，远程旗标
   `ac4.d0` 门控 + 付费墙（ADR-0544、ADR-0662）。
 - `cd_quick_tool_*`（5 键）：SPen Quick Tools 蓝牙遥控器 a11y，
