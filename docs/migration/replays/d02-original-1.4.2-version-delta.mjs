@@ -73,6 +73,17 @@ check('1.4.2 adds sticker store + template hub + learn syllabus strings',
 check('1.4.2 adds passkey + calendar-connect strings',
   s142.includes('feature_login__sign_in_with_passkey') &&
   s142.includes('feature_settings__connect_calendar'));
+const a142 = sub => fs.existsSync(`${d142}/resources/assets/${sub}`);
+const a103 = sub => fs.existsSync(`${d103}/resources/assets/${sub}`);
+check('1.4.2 adds bundled papertemplates/brushpacks/covers assets',
+  a142('papertemplates/cornell') && a142('papertemplates/mizige') &&
+  a142('brushpacks/glitter.brushpack') && a142('covers') &&
+  !a103('papertemplates') && !a103('brushpacks') && !a103('covers'));
+check('1.4.2 removes MyScript lite on-device recognition resources',
+  a103('conf-lite/en_US.conf') &&
+  !a142('conf-lite') &&
+  a142('conf'));
+
 check('1.4.2 removes the Learn AI chat family (present in 1.0.3)',
   s103.includes('feature_learn__chat_generating') &&
   s103.includes('feature_note__youtube_transcription') &&

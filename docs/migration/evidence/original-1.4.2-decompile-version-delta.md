@@ -100,14 +100,24 @@ NotaHarmony 以 1.0.3 为基线保留对应 fail-closed 登记即可，无需回
 唯一收缩过半的是 `feature_learn`（17→8，AI 聊天下线、syllabus 等保留）。
 结论：1.0.3 基线的功能面与 1.4.2 保持代表性一致，版本差集中在新增簇。
 
-## 六、第三方库差异
+## 六、资源资产差异（resources/assets：115 → 576 文件，+465 / −4）
+
+| 目录 | 1.0.3 | 1.4.2 | 内容 | 处置方向 |
+|------|-------|-------|------|----------|
+| `papertemplates/` | 0 | 446 | **36 个内置纸张模板包**（assignment_planner、college_rule、cornell、daily_* 系列、engineering_grid、hexagonal_grid、isometic、manuscript、mizige 米字格、tianzege 田字格、music_staves、各 planner 等）；每包含多尺寸/颜色/方向 PDF + `metadata.json` + HEIC 缩略图 | 模板中心改版本体；本地 PDF 资产可移植候选（待审：PDF 纸张模板渲染链） |
+| `brushpacks/` | 0 | 5 | 新笔刷包 droidrocket/glitter/io/music/rainbow（`.brushpack` 格式） | 新笔型资产；格式与渲染契约待审 |
+| `covers/` | 0 | 10 | 笔记封面 PDF（blue/brown/maroon/orange/purple/sage/yellow、*-journal、logo-pattern、stickers） | 封面资产；选择器 UI 为新增面 |
+| `conf-lite/` + `resources/en_US/*.lite.res` | 4 | 0 | **MyScript lite 端侧识别资源整体移除**（en_US ak-cur/ak-superimposed/lk-text lite res + conf-lite） | 1.4.2 端侧 lite 识别下线，配合 `HwrEngineService` 远端引擎——MyScript 边界内版本差异 |
+| `resources/`（iink 全量 res 含 math-sr/dl-raw-content） | 10 | 7 | 全量 iink 资源仍在但 `math-sr.res`（14.8→13.5MB）、`dl-raw-content.res`（4.8→4.6MB）换版 | iink SDK 升级配套 |
+
+## 七、第三方库差异
 
 - 新增 `com/github/luben/zstd`（zstd-jni 压缩库）——疑似同步/快照线格式压缩。
 - `com/myscript/iink` 新增 `ImageFit` 等 —— iink SDK 升级。
 - `com/google/firebase/crashlytics/ndk`、Material `FocusRingDrawable` 等 —— SDK 升级。
 - 移除 `androidx/browser`、`androidx/coordinatorlayout`、`com/fasterxml`（Jackson）等。
 
-## 七、结论
+## 八、结论
 
 1.4.2 是一次**服务化大版本**：新增功能几乎全部围绕私有后端（Gallery 社区、
 贴纸商店、模板云同步、远端 HWR、Passkey/SSO、课程表解析、笔记上限）。
