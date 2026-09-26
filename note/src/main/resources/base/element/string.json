@@ -1444,6 +1444,8 @@
     { "name": "open_pdf_too_large", "value": "This PDF is too large to import" },
     { "name": "open_pdf_failed", "value": "Couldn\u0027t open this PDF" },
     { "name": "pen_string_color", "value": "Colour" },
+    { "name": "pen_string_color_hex", "value": "Color #%1$s" },
+    { "name": "pen_string_palette_library", "value": "Colour palettes" },
     { "name": "pen_palette_color_black", "value": "Black" },
     { "name": "pen_palette_color_gray", "value": "Grey" },
     { "name": "pen_palette_color_red", "value": "Red" },

@@ -624,6 +624,8 @@
     { "name": "open_pdf_too_large", "value": "PDF 过大，无法导入" },
     { "name": "open_pdf_failed", "value": "无法打开此 PDF" },
     { "name": "pen_string_color", "value": "颜色" },
+    { "name": "pen_string_color_hex", "value": "颜色 #%1$s" },
+    { "name": "pen_string_palette_library", "value": "色板库" },
     { "name": "pen_palette_color_black", "value": "黑色" },
     { "name": "pen_palette_color_gray", "value": "灰色" },
     { "name": "pen_palette_color_red", "value": "红色" },

@@ -3,6 +3,7 @@
 import { EditorViewModel } from '../editor/EditorViewModel';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
+import { PEN_PALETTE_PACKS, PEN_PALETTE_PACKS_ADAPTIVE } from '../../data/PenPalettes';
 
 @Component
 export struct ColorPickerView {
@@ -52,6 +53,32 @@ export struct ColorPickerView {
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  // 原版 spen_setting_swatch_1..23 色板包（各 8 色）+ adaptive 深色变体
+  // （Phase 807）：dark 主题下 pack 有自适应变体时取用变体色。
+  private isDarkMode(): boolean {
+    const mode: string = this.themeMode;
+    if (mode === 'system') {
+      return this.systemDark;
+    }
+    return mode === 'dark';
+  }
+
+  private palettePackColors(index: number): number[] {
+    if (this.isDarkMode()) {
+      const adaptive: number[] | null = PEN_PALETTE_PACKS_ADAPTIVE[index];
+      if (adaptive !== null) {
+        return adaptive;
+      }
+    }
+    return PEN_PALETTE_PACKS[index];
+  }
+
+  // 原版 ui_tools__color_hex（"Color #%1$s"）：无命名色的通用 a11y 标签。
+  private hexA11yLabel(color: number): Resource {
+    return $r('app.string.pen_string_color_hex',
+      this.viewModel.colorToHex(color).substring(1));
   }
 
   private isActiveColor(color: number): boolean {
@@ -215,6 +242,45 @@ export struct ColorPickerView {
       .rowsGap(12)
       .width(200)
       .height(180)
+      // 原版 spen_setting_swatch_* 主题色板库（Phase 807）：23 包各 8 色，
+      // Swiper 分页浏览，点选即写入笔色——与原版色板浏览语义一致。
+      Row() {
+        Text($r('app.string.pen_string_palette_library'))
+          .fontSize(11)
+          .fontColor(this.resolveTokens().textSecondary)
+      }
+      .width(200)
+      .margin({ top: 4 })
+      .accessibilityText($r('app.string.pen_string_palette_library'))
+
+      Swiper() {
+        ForEach(PEN_PALETTE_PACKS.map((_p: number[], i: number) => i),
+          (packIndex: number) => {
+            Grid() {
+              ForEach(this.palettePackColors(packIndex), (color: number) => {
+                GridItem() {
+                  this.colorDot(color, (): void => this.onFreeColor(color),
+                    this.hexA11yLabel(color))
+                }
+              }, (color: number) => 'pack' + packIndex + ':' + color.toString())
+            }
+            .columnsTemplate('1fr 1fr 1fr 1fr')
+            .columnsGap(12)
+            .rowsGap(12)
+            .width(200)
+          }, (packIndex: number) => 'packPage:' + packIndex.toString())
+      }
+      .indicator(Indicator.dot()
+        .itemWidth(4)
+        .itemHeight(4)
+        .selectedItemWidth(4)
+        .selectedItemHeight(4)
+        .color(this.resolveTokens().border)
+        .selectedColor(this.resolveTokens().accent))
+      .width(200)
+      .height(108)
+      .autoPlay(false)
+      .loop(false)
     }
     .padding(16)
     .backgroundColor(this.resolveTokens().surface)
