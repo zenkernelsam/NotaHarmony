@@ -8,8 +8,8 @@
 |--------|------|------|
 | `j()` | `fqa` | origin |
 | `k()` | `cxc` | 页 id |
-| `l()` | `k2d` | scale 包装 |
-| `m()` | `y2d` | rotation 包装 |
+| `l()` | `k2d` | rotation 包装（j()→Float） |
+| `m()` | `y2d` | scale 包装（j()→qed） |
 | `n()` | `qo5` | 实体 id |
 | `o()` | `tmf` | zIndex（ULong） |
 

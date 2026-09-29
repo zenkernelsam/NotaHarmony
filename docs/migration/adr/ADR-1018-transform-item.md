@@ -6,8 +6,8 @@
 
 ## 决策
 
-- `ie8` = `{origin:fqa, page:cxc, scale:k2d, rotation:y2d,
-  id:qo5, zIndex:tmf}` 六元组；校验 `ddg.e`。
+- `ie8` = `{origin:fqa, page:cxc, rotation:k2d(Float),
+  scale:y2d(qed), id:qo5, zIndex:tmf}` 六元组；校验 `ddg.e`。
 - `yy3`/`xy3` = 快照↔构建器环（`build()`/`builder()`）。
 
 ## 依据
