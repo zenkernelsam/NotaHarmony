@@ -16,5 +16,5 @@ t('ija.I = gja live store', ija.includes('gja'));
 t('ija.f(hja) subview takes snapshot', ija.includes('f(hja hjaVar)'));
 t('lk6 = mutable-collection marker', lk6.length > 0);
 t('ik6 = immutable-collection marker', ik6.length > 0);
-t('lk6/ik6 distinct supertypes', lk6.includes('interface') || true);
+t('lk6/ik6 are collection-marker ifaces', lk6.includes('interface lk6') && ik6.includes('interface ik6'));
 console.log('store-cycle replay: ' + n + '/10 checks green');

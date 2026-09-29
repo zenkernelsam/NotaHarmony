@@ -16,5 +16,5 @@ t('be5.G(): materialize reads reg.b', m5d.includes('(v4d) this.g.b') && m5d.incl
 t('ei0: bound property ref (v1b + get switch)', ei0.includes('extends v1b') && ei0.includes('public final Object get()'));
 t('m5d.A(): version counter r++', m5d.includes('this.r++;'));
 t('m5d: fl6[] KProperty delegate array', m5d.includes('fl6[] fl6VarArr = w'));
-t('k5d iface exists', R('k5d').length > 0 || true);
+t('k5d iface exists', R('k5d').length > 0);
 console.log('crdt-entity replay: ' + n + '/10 checks green');
