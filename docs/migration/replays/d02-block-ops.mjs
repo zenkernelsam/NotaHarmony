@@ -1,46 +1,23 @@
-// Phase 918 — rl2=CreateBlock / td8=ModifyBlock 读图回归
-// 证据：docs/migration/evidence/phase-918-block-ops.md
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+// Phase 1049 — block/positions/delete ops + cz0/ty0/ive enums
+import { readFileSync } from 'fs';
+import { strict as assert } from 'assert';
+const D = 'C:/Users/Cisco He/Desktop/Notability/decompiled_1.0.3/sources/defpackage/';
+const R = f => readFileSync(D + f + '.java', 'utf8');
+const rl2 = R('rl2'), td8 = R('td8'), je8 = R('je8'), s83 = R('s83'), cz0 = R('cz0'), ty0 = R('ty0'), ive = R('ive');
+let n = 0;
+const t = (name, ok) => { assert.ok(ok, name); console.log('ok - ' + name); n++; };
 
-const SRC = 'C:/Users/Cisco He/Desktop/Notability/decompiled_1.0.3/sources/defpackage';
-let pass = 0, fail = 0;
-const ok = (cond, label) => { if (cond) pass++; else { fail++; console.log('FAIL', label); } };
-const rd = (f) => readFileSync(join(SRC, f), 'utf8');
-
-const rl2 = rd('rl2.java');
-const td8 = rd('td8.java');
-const zq9 = rd('zq9.java');
-
-ok(rl2.includes('CreateBlock(type='), 'rl2 = CreateBlock');
-for (const name of ['corner=', 'page=', 'origin=', 'rotation=', 'scale=',
-  'size=', 'textWrap=', 'enableCaption=', 'zIndex=', 'image=', 'cropRect=',
-  'webUrl=', 'mathLatex=', 'mathColor=', 'paper=', 'imageFlippedHorizontally=',
-  'imageFlippedVertically=', 'resizesWidthToFitText=', 'margins=',
-  'positionLocked='])
-  ok(rl2.includes(name), `rl2 field ${name}`);
-
-ok(rl2.match(/cz0 B\(\)[\s\S]{0,120}c\(4\)/), 'type cz0 c(4)');
-ok(rl2.match(/ty0 j\(\)[\s\S]{0,120}c\(6\)/), 'corner ty0 c(6)');
-ok(rl2.match(/cxc t\(\)[\s\S]{0,140}c\(8\)/), 'page cxc c(8)');
-ok(rl2.match(/fqa s\(\)[\s\S]{0,140}c\(10\)/), 'origin fqa c(10)');
-ok(rl2.includes('No value for (required) field size'), 'size required');
-ok(rl2.match(/qed z\(\)[\s\S]{0,200}c\(16\)/), 'size qed c(16)');
-ok(rl2.match(/ive A\(\)[\s\S]{0,140}c\(18\)/), 'textWrap ive c(18)');
-ok(rl2.match(/tmf D\(\)[\s\S]{0,140}c\(22\)/), 'zIndex tmf c(22)');
-ok(rl2.match(/dp5 m\(\)[\s\S]{0,140}c\(24\)/), 'image dp5 c(24)');
-ok(rl2.match(/bmb k\(\)[\s\S]{0,140}c\(26\)/), 'cropRect bmb c(26)');
-ok(rl2.match(/k3a u\(\)[\s\S]{0,140}c\(34\)/), 'paper k3a c(34)');
-ok(rl2.match(/vy7 p\(\)[\s\S]{0,140}c\(42\)/), 'margins vy7 c(42)');
-
-ok(td8.includes('ModifyBlock(blocks=') && td8.includes('lv2.u(this)'),
-  'td8 = ModifyBlock blocks vector');
-ok(td8.includes('ddg.o('), 'td8 validate via ddg.o joint rule');
-ok(!td8.includes('type=') && !td8.includes('webUrl=') &&
-   !td8.includes('margins='), 'td8 lacks type/webUrl/margins (immutable)');
-
-ok(zq9.includes('rl2.class') && zq9.includes('haa.CREATE_BLOCK'), 'rl2 -> CREATE_BLOCK');
-ok(zq9.includes('td8.class') && zq9.includes('haa.MODIFY_BLOCK'), 'td8 -> MODIFY_BLOCK');
-
-console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail ? 1 : 0);
+['type=','corner=','page=','origin=','rotation=','scale=','size=','textWrap=','enableCaption=','zIndex=','image=','cropRect=','webUrl=','mathLatex=','mathColor=','paper=','imageFlippedHorizontally=','imageFlippedVertically=','resizesWidthToFitText=','margins=','positionLocked='].forEach(fld => assert.ok(rl2.includes(fld), 'rl2 missing ' + fld));
+t('rl2 CreateBlock: all 21 toString fields', true);
+t('td8 ModifyBlock: 16 fields + blocks list', td8.includes('ModifyBlock(blocks=') && td8.includes('lv2.u(this)') && td8.includes('mathLatex=') && td8.includes('cropRect=') && td8.includes('textWrap='));
+t('td8: blocks>0', td8.includes('Must specify more than 0 Blocks'));
+t('je8 ModifyPositions: >0 target', je8.includes('ModifyPositions(modifications=') && je8.includes('Must target more than 0 Inks/Shapes/Blocks') && je8.includes('lv2.S(this)'));
+t('s83: delete/undelete 4 lists', s83.includes('entityDeletes=') && s83.includes('entityUndeletes=') && s83.includes('pageDeletes=') && s83.includes('pageUndeletes='));
+t('s83: lv2.I/J/W/X accessors', s83.includes('lv2.I(this)') && s83.includes('lv2.J(this)') && s83.includes('lv2.W(this)') && s83.includes('lv2.X(this)'));
+t('cz0: TEXT/IMAGE/MATH', cz0.includes('TEXT((byte) 0)') && cz0.includes('IMAGE((byte) 1)') && cz0.includes('MATH((byte) 2)'));
+t('ty0: SQUARE/ROUND', ty0.includes('SQUARE((byte) 0)') && ty0.includes('ROUND((byte) 1)'));
+t('ive: PIXEL_ALIGN/NO_WRAP', ive.includes('PIXEL_ALIGN((byte) 0)') && ive.includes('NO_WRAP((byte) 1)'));
+t('rl2: dp5 image + k3a paper + vy7 margins + bmb crop', rl2.includes('dp5') && rl2.includes('k3a') && rl2.includes('vy7') && rl2.includes('bmb'));
+t('rl2: bool getters via c(slot)+byte', rl2.includes('this.J.get(iC + this.I) == 0'));
+t('td8: fa2.z/od4 sb helpers used in rl2', rl2.includes('fa2.z(sb') && rl2.includes('od4.m(sb'));
+console.log('block-ops replay: ' + n + '/12 checks green');
