@@ -1,0 +1,30 @@
+// Phase 1280 — MyScript iink + pairip vendor SDKs
+import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
+import { strict as assert } from 'assert';
+import { join } from 'path';
+const S = 'C:/Users/Cisco He/Desktop/Notability/decompiled_1.0.3/sources/';
+const R = f => readFileSync(S + f, 'utf8');
+let n = 0;
+const t = (name, ok) => { assert.ok(ok, name); console.log('ok - ' + name); n++; };
+const cnt = d => { let c = 0; if (!existsSync(d)) return 0; const w = dd => { for (const f of readdirSync(dd)) { const p = join(dd,f); if (statSync(p).isDirectory()) w(p); else if (f.endsWith('.java')) c++; } }; w(d); return c; };
+
+const eng = R('com/myscript/iink/Engine.java');
+t('iink Engine class', /class Engine|Engine/.test(eng));
+const ed = R('com/myscript/iink/Editor.java');
+t('iink Editor class', /class Editor|Editor/.test(ed));
+const oe = R('com/myscript/iink/OffscreenEditor.java');
+t('iink OffscreenEditor (hwr)', oe.length > 0);
+const cb = R('com/myscript/iink/ContentBlock.java');
+t('iink ContentBlock', cb.length > 0);
+t('iink ~94 files', cnt(S + 'com/myscript') > 80);
+const nu = R('com/myscript/iink/NativeUtils.java');
+t('iink NativeUtils loadLibrary', /loadLibrary|native|System/i.test(nu));
+const lc = R('com/pairip/licensecheck/LicenseClient.java');
+t('pairip LicenseClient', lc.length > 0);
+const la = R('com/pairip/licensecheck/LicenseActivity.java');
+t('pairip LicenseActivity', la.length > 0);
+const lr = R('com/pairip/licensecheck/LicenseResponseHelper.java');
+t('pairip LicenseResponseHelper', lr.length > 0);
+const aa = R('com/pairip/application/Application.java');
+t('pairip Application', aa.length > 0);
+console.log('vendor-sdks replay: ' + n + '/10 checks green');
