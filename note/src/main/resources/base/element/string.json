@@ -318,7 +318,7 @@
     },
     {
       "name": "link_copied",
-      "value": "Link copied"
+      "value": "Copied Link"
     },
     {
       "name": "selection_actions",
@@ -823,7 +823,7 @@
     },
     {
       "name": "note_id_copied",
-      "value": "Note ID copied"
+      "value": "Copied note ID"
     },
     {
       "name": "note_duplicated",
