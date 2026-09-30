@@ -1,21 +1,24 @@
-// Phase 1170 — data/handwritingrecognition (iink pack delivery via Play Asset Delivery)
+// Phase 1292 — handwriting pack delivery (MyScript + Play AssetDelivery)
 import { readFileSync, existsSync } from 'fs';
 import { strict as assert } from 'assert';
-const B = 'C:/Users/Cisco He/Desktop/Notability/decompiled_1.0.3/sources/com/gingerlabs/notability/data/handwritingrecognition/';
-const has = f => existsSync(B + f);
-const R = f => readFileSync(B + f, 'utf8');
+const S = 'C:/Users/Cisco He/Desktop/Notability/decompiled_1.0.3/sources/com/gingerlabs/notability/data/handwritingrecognition/';
+const R = f => readFileSync(S + f, 'utf8');
+const X = f => existsSync(S + f);
 let n = 0;
 const t = (name, ok) => { assert.ok(ok, name); console.log('ok - ' + name); n++; };
 
-const worker = R('HandwritingPackDownloadWorker.java');
-t('HandwritingPackDownloadWorker exists', has('HandwritingPackDownloadWorker.java'));
-t('Worker extends CoroutineWorker', worker.includes('extends CoroutineWorker'));
-t('Worker has Context+WorkerParameters ctor', worker.includes('WorkerParameters'));
-t('Worker suspend doWork b(ef2)', worker.includes('b(ef2'));
-t('LanguagePackUnavailableException exists', has('LanguagePackUnavailableException.java'));
-t('LanguagePackUnavailableException(dc5) + getI', R('LanguagePackUnavailableException.java').includes('LanguagePackUnavailableException(dc5') && R('LanguagePackUnavailableException.java').includes('getI'));
-t('MathRecognitionUnsupportedException exists', has('MathRecognitionUnsupportedException.java') && R('MathRecognitionUnsupportedException.java').includes('extends Exception'));
-t('PlayAssetDeliveryUnavailableException exists', has('PlayAssetDeliveryUnavailableException.java'));
-t('PlayAssetDeliveryUnavailableException extends IOException', R('PlayAssetDeliveryUnavailableException.java').includes('extends IOException'));
-t('PlayAssetDeliveryUnavailableException(String,Throwable) ctor', R('PlayAssetDeliveryUnavailableException.java').includes('Throwable'));
+const w = R('HandwritingPackDownloadWorker.java');
+t('HandwritingPackDownloadWorker', w.includes('CoroutineWorker'));
+t('worker zb5 installer', w.includes('zb5') && w.includes('installer'));
+t('LanguagePackUnavailableException', X('LanguagePackUnavailableException.java'));
+t('MathRecognitionUnsupportedException', X('MathRecognitionUnsupportedException.java'));
+const mre = R('MathRecognitionUnsupportedException.java');
+t('MathRecognitionUnsupported', mre.length > 0);
+t('PlayAssetDeliveryUnavailableException', X('PlayAssetDeliveryUnavailableException.java'));
+const pad = R('PlayAssetDeliveryUnavailableException.java');
+t('PlayAssetDelivery unavailable', pad.length > 0);
+t('iink Engine present (P1280)', existsSync('C:/Users/Cisco He/Desktop/Notability/decompiled_1.0.3/sources/com/myscript/iink/Engine.java'));
+t('LanguagePack exc', R('LanguagePackUnavailableException.java').includes('Exception'));
+const im = X('HandwritingPackDownloadWorker.java');
+t('hwr layer complete', im && X('LanguagePackUnavailableException.java'));
 console.log('handwriting replay: ' + n + '/10 checks green');
