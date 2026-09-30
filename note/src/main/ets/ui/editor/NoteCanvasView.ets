@@ -498,6 +498,9 @@ export struct NoteCanvasView {
   @State loadedPageId: string = '';
   @State dataLoading: boolean = true;
   @State dataLoadFailed: boolean = false;
+  // 原版 NoteStateEntity.lastCodeBlockLanguage：本笔记上一次使用的代码块语言，
+  // getViewState 载入、供 TextBlockOverlay 新代码块 toggle 恢复默认。
+  @State lastCodeBlockLanguage: string | null = null;
   private pageLoadPromise: Promise<void> = Promise.resolve();
   private viewportInitialized: boolean = false;
   private shapeHoldTimer: number = -1;
@@ -744,6 +747,8 @@ export struct NoteCanvasView {
           this.viewportInitialized = true;
         }
       }
+      // lastCodeBlockLanguage 与坐标模型版本无关——总载入供代码块 toggle 恢复。
+      this.lastCodeBlockLanguage = state?.lastCodeBlockLanguage ?? null;
       this.loaded = true;
       this.dataLoadFailed = false;
       this.systemClipboardImageAvailable = false;
@@ -3017,6 +3022,24 @@ export struct NoteCanvasView {
       });
     } catch (e) {
       console.error(`saveViewportState failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // 原版 ya8.java：代码块语言变更时持久化本笔记 lastCodeBlockLanguage，
+  // 下次新建代码块恢复为默认语言（plaintext 由调用方映射 null=清除）。
+  private async persistCodeBlockLanguage(lang: string | null): Promise<void> {
+    if (this.noteId.length === 0) {
+      return;
+    }
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const db: DatabaseManager = DatabaseManager.getInstance();
+      await db.initialize(context);
+      const noteRepo = new NoteRepositoryImpl(db);
+      await noteRepo.saveLastCodeBlockLanguage(this.noteId, lang);
+      this.lastCodeBlockLanguage = lang;
+    } catch (e) {
+      console.error(`persistCodeBlockLanguage failed: ${JSON.stringify(e)}`);
     }
   }
 
@@ -10786,8 +10809,12 @@ export struct NoteCanvasView {
         layoutWidth: this.editingTextLayoutWidth,
         photoImportLeaseActive: this.photoImportBusy,
         restoreCaret: this.textEditingRestoreCaret,
+        lastCodeBlockLanguage: this.lastCodeBlockLanguage,
         onCaretChange: (offset: number) => {
           this.editingCaretOffset = offset;
+        },
+        onCodeLanguageSelected: (lang: string | null) => {
+          this.persistCodeBlockLanguage(lang);
         },
         onDraftChange: (text: string) => {
           if (this.photoImportBusy || this.historyBusy) {

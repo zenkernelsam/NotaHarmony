@@ -179,4 +179,8 @@ export interface NoteViewState {
   scrollOffsetX: number;
   scrollOffsetY: number;
   coordinateModelVersion: number;
+  // Original 1.4.2 NoteStateEntity.lastCodeBlockLanguage（ca3.java:519）：
+  // 每笔记上一次使用的代码块语言名，新代码块 toggle 时恢复。
+  // undefined = 不改动已存值（saveViewState 保留）；string|null = 写入该值。
+  lastCodeBlockLanguage?: string | null;
 }

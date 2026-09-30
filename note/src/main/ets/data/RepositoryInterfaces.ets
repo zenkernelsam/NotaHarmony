@@ -53,6 +53,8 @@ export interface NoteRepository {
   purgeExpiredTrash(now: number): Promise<number>;
   getViewState(noteId: string): Promise<NoteViewState | null>;
   saveViewState(state: NoteViewState): Promise<void>;
+  // 原版 NoteStateEntity.lastCodeBlockLanguage：记录本笔记上一次使用的代码块语言。
+  saveLastCodeBlockLanguage(noteId: string, lang: string | null): Promise<void>;
 }
 
 export interface PageRepository {

@@ -718,6 +718,9 @@ export class NoteRepositoryImpl implements NoteRepository {
             scrollOffsetY: resultSet.getDouble(resultSet.getColumnIndex('scroll_offset_y')),
             coordinateModelVersion:
               resultSet.getLong(resultSet.getColumnIndex('coordinate_model_version')),
+            lastCodeBlockLanguage: resultSet.isColumnNull(
+              resultSet.getColumnIndex('last_code_block_language')) ?
+              null : resultSet.getString(resultSet.getColumnIndex('last_code_block_language')),
           };
         }
       } finally {
@@ -741,12 +744,18 @@ export class NoteRepositoryImpl implements NoteRepository {
     }
     await databaseWriteMutex.runExclusive(async (): Promise<void> => {
       const store: relationalStore.RdbStore = this.db.getStore();
+      // lastCodeBlockLanguage 为 undefined 时保留已存值——ON_CONFLICT_REPLACE
+      // 会整行重写，若不带旧值会把已持久化的代码块语言清成 NULL。
+      const lastLang: string | null = state.lastCodeBlockLanguage === undefined ?
+        await this.readLastCodeBlockLanguage(store, state.noteId) :
+        state.lastCodeBlockLanguage;
       const bucket: relationalStore.ValuesBucket = {
         'note_id': state.noteId,
         'zoom': state.zoom,
         'scroll_offset_x': state.scrollOffsetX,
         'scroll_offset_y': state.scrollOffsetY,
         'coordinate_model_version': CURRENT_VIEW_COORDINATE_MODEL_VERSION,
+        'last_code_block_language': lastLang,
       };
       try {
         await store.insert('note_state', bucket,
@@ -755,6 +764,38 @@ export class NoteRepositoryImpl implements NoteRepository {
         throw new Error(`saveViewState failed: ${JSON.stringify(e)}`);
       }
     });
+  }
+
+  // 读已持久化的 last_code_block_language（无行/NULL → null）。
+  private async readLastCodeBlockLanguage(store: relationalStore.RdbStore,
+    noteId: string): Promise<string | null> {
+    const predicates = new relationalStore.RdbPredicates('note_state');
+    predicates.equalTo('note_id', noteId);
+    const resultSet = await store.query(predicates);
+    try {
+      if (!resultSet.goToNextRow()) {
+        return null;
+      }
+      const idx = resultSet.getColumnIndex('last_code_block_language');
+      return resultSet.isColumnNull(idx) ? null : resultSet.getString(idx);
+    } finally {
+      resultSet.close();
+    }
+  }
+
+  // 原版 ya8.java/r4a.java：记录本笔记上一次使用的代码块语言（保留 zoom/scroll）。
+  // plaintext 调用方会映射成 null=清除。
+  async saveLastCodeBlockLanguage(noteId: string, lang: string | null): Promise<void> {
+    const existing = await this.getViewState(noteId);
+    const base: NoteViewState = existing ?? {
+      noteId: noteId,
+      zoom: 1.0,
+      scrollOffsetX: 0,
+      scrollOffsetY: 0,
+      coordinateModelVersion: CURRENT_VIEW_COORDINATE_MODEL_VERSION,
+    };
+    base.lastCodeBlockLanguage = lang;
+    await this.saveViewState(base);
   }
 
   private rowToNote(resultSet: relationalStore.ResultSet): NoteMeta {

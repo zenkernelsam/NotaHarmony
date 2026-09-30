@@ -17,7 +17,7 @@
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 73;
+export const DB_VERSION: number = 74;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS note_state (
   scroll_offset_x REAL NOT NULL DEFAULT 0,
   scroll_offset_y REAL NOT NULL DEFAULT 0,
   coordinate_model_version INTEGER NOT NULL DEFAULT 1,
+  // Original 1.4.2 NoteStateEntity.lastCodeBlockLanguage TEXT DEFAULT NULL
+  // （ca3.java:519 / r4a.java:70 ALTER）：每笔记上一次使用的代码块语言名，
+  // 新代码块 toggle 时恢复。plaintext/未设置=NULL。
+  last_code_block_language TEXT DEFAULT NULL,
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
@@ -2768,5 +2772,11 @@ export const MIGRATIONS: Record<number, string[]> = {
     // penLastStandardColorWellIndex INTEGER DEFAULT NULL（笔类工具最后标准色井序数）。
     'ALTER TABLE tool_state ADD COLUMN google_ink_brush_pack_id INTEGER DEFAULT NULL',
     'ALTER TABLE tool_state ADD COLUMN pen_last_standard_color_well_index INTEGER DEFAULT NULL',
+  ],
+  74: [
+    // Original r4a.java:70 同款迁移：NoteStateEntity 增 lastCodeBlockLanguage
+    // TEXT DEFAULT NULL——每笔记「上一次使用的代码块语言」，新代码块 toggle 时
+    // 恢复（ya8.java:34 restore）。plaintext 即清除，列存具体语言名。
+    'ALTER TABLE note_state ADD COLUMN last_code_block_language TEXT DEFAULT NULL',
   ],
 };

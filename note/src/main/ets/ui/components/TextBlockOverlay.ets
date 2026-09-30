@@ -104,6 +104,12 @@ export struct TextBlockOverlay {
   };
   onCaretChange: (offset: number) => void = (_offset: number) => {
   };
+  // 原版 NoteStateEntity.lastCodeBlockLanguage（ya8.java:34 restore）：本笔记上一次
+  // 使用的代码块语言，新建代码块（decorator=5）无 programmingLanguage 时作默认。
+  @Prop lastCodeBlockLanguage: string | null = null;
+  // 语言变更回传父组件持久化（plaintext → null=清除）。
+  onCodeLanguageSelected: (lang: string | null) => void = (_lang: string | null) => {
+  };
 
   aboutToAppear(): void {
     // 原版 qr4.c 三族字体注册（Inter/Roboto/EBGaramond）——
@@ -1572,6 +1578,9 @@ export struct TextBlockOverlay {
       this.draftStyles.set(paragraphIndex, next);
     }
     this.caretCodeLanguage = next.programmingLanguage ?? 'plaintext';
+    // 原版 r4a.java:70 lastCodeBlockLanguage 持久化：记录本次显式选择的代码块语言
+    // （plaintext → null=清除），供下次新建代码块恢复。
+    this.onCodeLanguageSelected(next.programmingLanguage ?? null);
   }
 
   // 原版 ure.t/qse.P（vse→i5a SetAlignment, r4a LEFT=1/CENTER=2/RIGHT=3）与
@@ -1688,6 +1697,10 @@ export struct TextBlockOverlay {
       next.decoratorStyle = decorator;
       if (decorator === 5 && current.programmingLanguage !== undefined) {
         next.programmingLanguage = current.programmingLanguage;
+      } else if (decorator === 5 && this.lastCodeBlockLanguage !== null) {
+        // 原版 ya8.java:34：新建代码块（无既有 programmingLanguage）恢复本笔记
+        // 上一次使用的代码块语言，而非回到 plaintext。
+        next.programmingLanguage = this.lastCodeBlockLanguage;
       }
     }
     if (Object.keys(next).length === 0) {
