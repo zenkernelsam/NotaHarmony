@@ -106,7 +106,7 @@
     },
     {
       "name": "confirm",
-      "value": "OK"
+      "value": "Confirm"
     },
     {
       "name": "delete",
@@ -122,7 +122,7 @@
     },
     {
       "name": "loading",
-      "value": "Loading..."
+      "value": "Loading…"
     },
     {
       "name": "backup_and_sync",
@@ -314,7 +314,7 @@
     },
     {
       "name": "template_settings",
-      "value": "Template Settings"
+      "value": "Template settings"
     },
     {
       "name": "close_template_settings",
@@ -554,7 +554,7 @@
     },
     {
       "name": "reset_to_default",
-      "value": "Reset to Default"
+      "value": "Reset to default"
     },
     {
       "name": "show_tool",
@@ -842,7 +842,7 @@
     },
     {
       "name": "new_folder",
-      "value": "New Folder"
+      "value": "Create new folder"
     },
     {
       "name": "folder_actions",
@@ -894,11 +894,11 @@
     },
     {
       "name": "jump_to_title",
-      "value": "Jump to page"
+      "value": "Jump to"
     },
     {
       "name": "jump_to_page_label",
-      "value": "Page number"
+      "value": "Page"
     },
     {
       "name": "jump_to_go",
@@ -1270,7 +1270,7 @@
     },
     {
       "name": "record_audio",
-      "value": "Record audio"
+      "value": "Record"
     },
     {
       "name": "created_note_open_failed",
@@ -1730,7 +1730,7 @@
     },
     {
       "name": "dismiss",
-      "value": "OK"
+      "value": "Dismiss"
     },
     {
       "name": "go_to_settings",
@@ -2022,7 +2022,7 @@
     },
     {
       "name": "add_files",
-      "value": "Files"
+      "value": "Add Files"
     },
     {
       "name": "insert_photo",
@@ -2030,11 +2030,11 @@
     },
     {
       "name": "take_photo",
-      "value": "Take a photo"
+      "value": "Take Photo"
     },
     {
       "name": "insert_math",
-      "value": "Math (LaTeX)"
+      "value": "Insert Math"
     },
     {
       "name": "math_editor_title",
@@ -2326,7 +2326,7 @@
     },
     {
       "name": "font_family",
-      "value": "Font"
+      "value": "Font family"
     },
     {
       "name": "font_default",

@@ -122,7 +122,7 @@
     },
     {
       "name": "loading",
-      "value": "加载中..."
+      "value": "加载中…"
     },
     {
       "name": "backup_and_sync",
@@ -542,7 +542,7 @@
     },
     {
       "name": "add_files",
-      "value": "文件"
+      "value": "添加文件"
     },
     {
       "name": "insert_photo",
@@ -554,7 +554,7 @@
     },
     {
       "name": "insert_math",
-      "value": "公式 (LaTeX)"
+      "value": "插入公式"
     },
     {
       "name": "more_tools",
@@ -1718,7 +1718,7 @@
     },
     {
       "name": "dismiss",
-      "value": "好"
+      "value": "取消"
     },
     {
       "name": "go_to_settings",
