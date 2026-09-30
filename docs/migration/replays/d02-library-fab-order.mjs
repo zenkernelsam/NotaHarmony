@@ -3,7 +3,7 @@
 // Harmony had: new_note, record_audio, import_note_file, templates, docscan.
 // Record chip retained (ADR-0655 "Record a lecture" functional equivalence);
 // the four original items reordered + relabelled to cd case-0.
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -32,6 +32,28 @@ const iRec = seg.indexOf("record_audio");
 eq(iImp > -1 && iTpl > -1 && iDoc > -1 && iCre > -1, 'all four original FAB items present');
 eq(iImp < iTpl && iTpl < iDoc && iDoc < iCre, 'cd case-0 order: Import<Templates<DocScan<CreateNote');
 eq(iRec > -1 && iRec < iImp, 'Record chip kept first (ADR-0655 equivalence, before original items)');
+
+// Original cwi.b chips render an icon painter (go5.b) + label (tpe.b).
+// Phase 1365: chips now carry ported feature_library__* vectors (fab_*) and a
+// recording icon for the ADR-0655 Record chip.
+const chipIcons = [
+  ['record_audio', 'app.media.shortcut_new_recording'],
+  ['library_import', 'app.media.fab_import'],
+  ['templates', 'app.media.fab_templates'],
+  ['docscan', 'app.media.fab_docscan'],
+  ['create_note', 'app.media.fab_createnote'],
+];
+for (const [lbl, media] of chipIcons) {
+  const re = new RegExp(`CreateActionChip\\(\\$r\\('app\\.string\\.${lbl}'\\)[\\s\\S]{0,400}\\$r\\('${media.replace(/\./g, '\\.')} '\\)`);
+  eq(re.test(seg) || seg.includes(`'${media}'`), `${lbl} chip carries ${media}`);
+}
+eq(seg.includes('Image(icon)'), 'chip renders Image(icon) (cwi.b go5.b icon)');
+const mediaDir = join(root, 'note/src/main/resources/base/media');
+for (const m of ['fab_import', 'fab_templates', 'fab_docscan', 'fab_createnote']) {
+  eq(existsSync(join(mediaDir, m + '.svg')), `media ${m}.svg present`);
+  eq(existsSync(join(root, 'note/src/main/resources/dark/media', m + '.svg')),
+    `dark media ${m}.svg present`);
+}
 
 // Regression guards.
 eq(get(en, 'templates') === 'Templates', 'templates=Templates held');

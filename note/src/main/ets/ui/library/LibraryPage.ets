@@ -2552,25 +2552,25 @@ struct LibraryPage {
           this.createAndRecord().catch((e: Error) => {
             console.error(`create recording note failed: ${JSON.stringify(e)}`);
           });
-        })
+        }, $r('app.media.shortcut_new_recording'))
         this.CreateActionChip($r('app.string.library_import'), () => {
           this.importAndOpen().catch((e: Error) => {
             console.error(`import note action failed: ${JSON.stringify(e)}`);
           });
-        })
+        }, $r('app.media.fab_import'))
         this.CreateActionChip($r('app.string.templates'), () => {
           this.templateDialog.open();
-        })
+        }, $r('app.media.fab_templates'))
         if (this.docScanAvailable) {
           this.CreateActionChip($r('app.string.docscan'), () => {
             this.docScanOpen = true;
-          })
+          }, $r('app.media.fab_docscan'))
         }
         this.CreateActionChip($r('app.string.create_note'), () => {
           this.createAndOpen().catch((e: Error) => {
             console.error(`create note action failed: ${JSON.stringify(e)}`);
           });
-        })
+        }, $r('app.media.fab_createnote'))
       }
       Button() {
         Text(this.createMenuOpen ? '×' : '+')
@@ -2595,13 +2595,22 @@ struct LibraryPage {
   }
 
   @Builder
-  CreateActionChip(label: ResourceStr, action: () => void) {
+  // Original cwi.b: each speed-dial chip is a Button holding an icon painter
+  // (go5.b) followed by the label text (tpe.b). Icons are the ported
+  // feature_library__* vectors (fab_*), dark-qualified under resources/dark.
+  CreateActionChip(label: ResourceStr, action: () => void, icon: ResourceStr) {
     Button() {
-      Text(label)
-        .fontSize(14)
-        .width('100%')
-        .textAlign(TextAlign.Center)
-        .fontColor(this.resolveTokens().textPrimary)
+      Row() {
+        Image(icon)
+          .width(18)
+          .height(18)
+          .margin({ right: 8 })
+        Text(label)
+          .fontSize(14)
+          .fontColor(this.resolveTokens().textPrimary)
+      }
+      .justifyContent(FlexAlign.Center)
+      .width('100%')
     }
     .height(36)
     .padding({ left: 16, right: 16 })
