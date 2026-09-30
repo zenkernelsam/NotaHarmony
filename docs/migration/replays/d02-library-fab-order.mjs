@@ -58,6 +58,14 @@ for (const m of ['fab_import', 'fab_templates', 'fab_docscan', 'fab_createnote']
     `dark media ${m}.svg present`);
 }
 
+// Original: apb.d/zs.a renders the speed-dial as a DropdownMenu popup that
+// dismisses on outside tap (onDismissRequest). Phase 1367: FabButton adds a
+// fullscreen transparent dismiss layer behind the chips when open.
+eq(/Stack\(\{ alignContent: Alignment\.BottomEnd \}\)/.test(lp),
+  'FAB uses Stack(alignContent:BottomEnd) host');
+eq(/if \(this\.createMenuOpen\)[\s\S]{0,200}onClick\(\(\) => \{\s*this\.createMenuOpen = false/.test(seg),
+  'createMenuOpen adds outside-tap dismiss layer (DropdownMenu parity)');
+
 // Regression guards.
 eq(get(en, 'templates') === 'Templates', 'templates=Templates held');
 eq(get(en, 'docscan') === 'Document Scan', 'docscan=Document Scan held');

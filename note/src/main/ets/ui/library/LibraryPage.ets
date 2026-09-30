@@ -2540,7 +2540,19 @@ struct LibraryPage {
   @Builder
   FabButton() {
     if (!this.isMultiSelecting) {
-    Column() {
+    // Original: apb.d/zs.a renders the speed-dial as a Compose DropdownMenu
+    // popup (dismisses on outside tap via onDismissRequest). Mirror that with a
+    // fullscreen transparent dismiss layer behind the chips+FAB.
+    Stack({ alignContent: Alignment.BottomEnd }) {
+      if (this.createMenuOpen) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .onClick(() => {
+            this.createMenuOpen = false;
+          })
+      }
+      Column() {
       // Original cd case 0: the library create FAB expands to a speed-dial in
       // original order — Import, Templates (flag-gated), Document Scan
       // (capability-gated), then Create Note last as the primary action.
@@ -2589,8 +2601,11 @@ struct LibraryPage {
       .onClick(() => {
         this.createMenuOpen = !this.createMenuOpen;
       })
+      }
+      .margin({ right: 24, bottom: 24 })
     }
-    .margin({ right: 24, bottom: 24 })
+    .width('100%')
+    .height('100%')
     }
   }
 
