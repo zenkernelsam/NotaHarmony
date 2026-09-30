@@ -138,7 +138,12 @@ assert.match(modifySource, /inkEffectsTinted: table\.hasField\(18\)/);
 assert.match(modifySource, /tape_pattern_winner_present/);
 assert.match(modifySource, /nib-only op is an applied no-op/);
 assertDatabaseVersionAtLeast(schema, 61);
-assert.doesNotMatch(schema, /nib_angle|nib_flatness/);
+// v72 tool_state now persists nib_angle/nib_flatness (original ToolStateEntity parity);
+// the legacy ink-op inbox still stores nib as raw u16 in the op payload, no column.
+const inboxDdl = schema.slice(schema.indexOf('DDL_SYNCED_OPERATION_INBOX'),
+  schema.indexOf('`;', schema.indexOf('DDL_SYNCED_OPERATION_INBOX')));
+assert.doesNotMatch(inboxDdl, /nib_angle|nib_flatness/);
+assert.match(schema, /tool_state[\s\S]*nib_angle REAL/);
 
 console.log('success|create-nib-u16=65535,40000|modify-nib-u16=65535,40000|' +
   'nib-only-applied-noop=1|raw-preserved=1|rollback=1|schema-current=39');

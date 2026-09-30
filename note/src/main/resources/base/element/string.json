@@ -397,6 +397,34 @@
       "value": "Calligraphy"
     },
     {
+      "name": "shape",
+      "value": "Shape"
+    },
+    {
+      "name": "shape_rectangle",
+      "value": "Rectangle"
+    },
+    {
+      "name": "shape_ellipse",
+      "value": "Ellipse"
+    },
+    {
+      "name": "shape_diamond",
+      "value": "Diamond"
+    },
+    {
+      "name": "shape_triangle",
+      "value": "Triangle"
+    },
+    {
+      "name": "shape_arrow",
+      "value": "Arrow"
+    },
+    {
+      "name": "shape_line",
+      "value": "Line"
+    },
+    {
       "name": "pencil",
       "value": "Pencil"
     },

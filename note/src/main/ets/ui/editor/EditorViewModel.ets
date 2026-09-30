@@ -1,5 +1,5 @@
 import {
-  BrushStyle, EditorToolboxState, ToolState, ToolType, brushStyleToInkStyle,
+  BrushStyle, EditorToolboxState, ShapeKind, ToolState, ToolType, brushStyleToInkStyle,
   TRAY_TYPE_PRIMARY, TRAY_TYPE_SECONDARY, TRAY_TYPE_HIDDEN, MAX_PRIMARY_TOOLS,
 } from '../../core/model/BrushTypes';
 import { InkStyle, RenderSpec, TapePattern } from '../../core/model/StrokeTypes';
@@ -55,6 +55,8 @@ export class EditorViewModel {
   // nibFlatness∈(0,1]：1=圆头无方向差；越小方向差越强。
   calligraphyNibAngle: number = EditorViewModel.DEFAULT_NIB_ANGLE;
   calligraphyNibFlatness: number = EditorViewModel.DEFAULT_NIB_FLATNESS;
+  // 1.4.2 SHAPE 工具当前形状（per-tool ToolState.shapeKind，缺省 RECTANGLE，r5g.F）。
+  activeShapeKind: ShapeKind = ShapeKind.RECTANGLE;
   toolStateLoading: boolean = true;
   toolStateLoadFailed: boolean = false;
   // Structural mirror of `states` reassigned on every tray mutation so @ObjectLink
@@ -345,6 +347,19 @@ export class EditorViewModel {
     }
     return this.updateState(toolId, (state: ToolState): void => {
       state.tapePattern = pattern;
+    });
+  }
+
+  // 1.4.2 SHAPE：持久化 ToolStateEntity.shapeKind（fgf.java ALTER 列）。激活行
+  // 经 applyActiveState 即时生效；合法值 RECTANGLE..LINE。
+  async setToolShapeKind(toolId: string, kind: ShapeKind): Promise<boolean> {
+    const target: ToolState | null = this.findById(toolId);
+    if (target === null || target.toolType !== ToolType.SHAPE ||
+      kind < ShapeKind.RECTANGLE || kind > ShapeKind.LINE) {
+      return false;
+    }
+    return this.updateState(toolId, (state: ToolState): void => {
+      state.shapeKind = kind;
     });
   }
 
@@ -859,6 +874,11 @@ export class EditorViewModel {
     return this.currentTool === ToolType.CALLIGRAPHY;
   }
 
+  // 1.4.2 eti.T：SHAPE 拖拽成形工具——按下拖包围盒，松手提交形状元素。
+  isShapeActive(): boolean {
+    return this.currentTool === ToolType.SHAPE;
+  }
+
   // Row-level selection check: with duplicated tools the toolbar highlights the
   // exact tool_id, not every row sharing the type.
   isActiveTool(toolId: string): boolean {
@@ -870,7 +890,7 @@ export class EditorViewModel {
   supportsBrushControls(): boolean {
     return this.currentTool === ToolType.PEN || this.currentTool === ToolType.PENCIL ||
       this.currentTool === ToolType.HIGHLIGHTER || this.currentTool === ToolType.REVIEW ||
-      this.currentTool === ToolType.CALLIGRAPHY;
+      this.currentTool === ToolType.CALLIGRAPHY || this.currentTool === ToolType.SHAPE;
   }
 
   // 原版 rz1.p()：LASER 有 4 档颜色井但无宽度/样式井（15pt 固定单色宽）。
@@ -1010,6 +1030,10 @@ export class EditorViewModel {
       this.calligraphyNibAngle = state.nibAngle ?? EditorViewModel.DEFAULT_NIB_ANGLE;
       this.calligraphyNibFlatness = state.nibFlatness ?? EditorViewModel.DEFAULT_NIB_FLATNESS;
     }
+    // 1.4.2 SHAPE：per-tool shapeKind（r5g），缺省 RECTANGLE。
+    if (state.toolType === ToolType.SHAPE) {
+      this.activeShapeKind = state.shapeKind ?? ShapeKind.RECTANGLE;
+    }
   }
 
   private toolboxSnapshot(): EditorToolboxState {
@@ -1103,9 +1127,11 @@ export class EditorViewModel {
       this.createState('pen', ownerId, ToolType.PEN, 0, -16777216, 36, BrushStyle.MONO),
       // CALLIGRAPHY@1：黑/-16777216、widthSize=1.0、nib(angle=π/2,flatness=0.75)，
       // 原版无专属色井/宽井（F()/I() 均无 eti.G 行）。
+      // 升级 SQL zmb.java:137 末参 stabilization=1（防抖默认开）。
       this.createState('calligraphy', ownerId, ToolType.CALLIGRAPHY, 1, -16777216, 1.0,
         BrushStyle.MONO, TRAY_TYPE_PRIMARY, undefined, 0, 0,
-        EditorViewModel.DEFAULT_NIB_ANGLE, EditorViewModel.DEFAULT_NIB_FLATNESS),
+        EditorViewModel.DEFAULT_NIB_ANGLE, EditorViewModel.DEFAULT_NIB_FLATNESS,
+        undefined, 1),
       this.createState('pencil', ownerId, ToolType.PENCIL, 2, -16777216, 36, BrushStyle.MONO),
       this.createState('highlighter', ownerId, ToolType.HIGHLIGHTER, 3, -256, 36, BrushStyle.MONO),
       this.createState('eraser', ownerId, ToolType.WHOLE_ERASER, 4, -16777216, 20, BrushStyle.MONO),
@@ -1126,13 +1152,18 @@ export class EditorViewModel {
       // 首色井、中档宽度井(1)、tapePattern=0(STRIPES)。
       this.createState('tape', ownerId, ToolType.REVIEW, 3, -1706497, 36, BrushStyle.MONO,
         TRAY_TYPE_SECONDARY, TapePattern.STRIPES, 0, 1),
+      // 1.4.2 cc3.H()：SHAPE(eti.T) 在 Secondary 托盘 index 5（RULER=4 留空位），
+      // color=-16777216、widthSize=2.0f、widthWell=1、shapeKind=r5g.F(RECTANGLE)。
+      this.createState('shape', ownerId, ToolType.SHAPE, 5, -16777216, 2.0, BrushStyle.MONO,
+        TRAY_TYPE_SECONDARY, undefined, 0, 1, undefined, undefined, ShapeKind.RECTANGLE),
     ];
   }
 
   private createState(toolId: string, ownerId: string, toolType: ToolType, trayIndex: number,
     color: number, width: number, style: BrushStyle, trayType: number = TRAY_TYPE_PRIMARY,
     tapePattern?: TapePattern, colorWellIndex: number = 0,
-    widthWellIndex: number = 0, nibAngle?: number, nibFlatness?: number): ToolState {
+    widthWellIndex: number = 0, nibAngle?: number, nibFlatness?: number,
+    shapeKind?: ShapeKind, stabilization?: number): ToolState {
     return {
       toolId: toolId,
       trayOwnerId: ownerId,
@@ -1151,6 +1182,8 @@ export class EditorViewModel {
       eraserIsPartial: false,
       nibAngle: nibAngle ?? null,
       nibFlatness: nibFlatness ?? null,
+      shapeKind: shapeKind ?? null,
+      stabilization: stabilization ?? null,
     };
   }
 
@@ -1181,6 +1214,8 @@ export class EditorViewModel {
       eraserIsPartial: state.eraserIsPartial,
       nibAngle: state.nibAngle ?? null,
       nibFlatness: state.nibFlatness ?? null,
+      shapeKind: state.shapeKind ?? null,
+      stabilization: state.stabilization ?? null,
     };
   }
 }

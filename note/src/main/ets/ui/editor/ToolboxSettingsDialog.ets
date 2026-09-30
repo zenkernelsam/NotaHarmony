@@ -4,6 +4,7 @@
 import { ToolState, ToolType, TRAY_TYPE_PRIMARY, TRAY_TYPE_SECONDARY } from '../../core/model/BrushTypes';
 import { EditorViewModel } from './EditorViewModel';
 import { TapePatternPicker } from './TapePatternPicker';
+import { ShapeKindPicker } from './ShapeKindPicker';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ToolGlyph } from '../components/ToolGlyph';
@@ -13,6 +14,8 @@ export function toolTypeLabel(toolType: ToolType): Resource {
     case ToolType.PEN: return $r('app.string.pen');
     // 原版 ui_tools__calligraphy = "Calligraphy"（eti.G 凿尖笔工具标签）。
     case ToolType.CALLIGRAPHY: return $r('app.string.calligraphy');
+    // 原版 ui_tools__shape = "Shape"（eti.T 形状工具标签，h5g.java 工具项）。
+    case ToolType.SHAPE: return $r('app.string.shape');
     case ToolType.PENCIL: return $r('app.string.pencil');
     case ToolType.HIGHLIGHTER: return $r('app.string.highlighter');
     case ToolType.WHOLE_ERASER: return $r('app.string.eraser');
@@ -43,6 +46,8 @@ export struct ToolboxSettingsDialog {
   @State primaryFull: boolean = false;
   // 原版 mh9 → t7f：REVIEW 工具 ⋯ 菜单的"Tape Pattern"项打开 9 图案选择页。
   @State tapePatternToolId: string = '';
+  // 1.4.2 h5g：SHAPE 工具 ⋯ 菜单的"Shape"项打开 6 类选择页。
+  @State shapeKindToolId: string = '';
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
 
@@ -134,6 +139,15 @@ export struct ToolboxSettingsDialog {
         });
       }
     }
+    // 原版 1.4.2 h5g：SHAPE 工具 ⋯ 菜单的"Shape"项 → 6 类选择页。
+    if (tool.toolType === ToolType.SHAPE) {
+      items.push({
+        value: $r('app.string.shape'),
+        action: (): void => {
+          this.shapeKindToolId = tool.toolId;
+        },
+      });
+    }
     if (this.viewModel.canDeleteTool(tool.toolId)) {
       items.push({
         // 原版 xc2 z2 分支：delete_tool → ue4.z() = trash。
@@ -184,6 +198,15 @@ export struct ToolboxSettingsDialog {
           viewModel: this.viewModel,
           onClose: (): void => {
             this.tapePatternToolId = '';
+            this.refresh();
+          },
+        })
+      } else if (this.shapeKindToolId.length > 0) {
+        ShapeKindPicker({
+          tool: this.findToolById(this.shapeKindToolId),
+          viewModel: this.viewModel,
+          onClose: (): void => {
+            this.shapeKindToolId = '';
             this.refresh();
           },
         })

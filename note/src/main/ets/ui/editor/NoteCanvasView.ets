@@ -118,9 +118,11 @@ import {
   InputBatch, InputBatchKind,
   PencilSplatPoint,
 } from '../../core/model/StrokeTypes';
-import { ToolType } from '../../core/model/BrushTypes';
+import { ShapeKind, ToolType } from '../../core/model/BrushTypes';
+import { buildDragShape } from '../../core/model/ShapeDragGeometry';
 import {
-  ElementType, ImageElement, MathElement, NoteElement, RichTextCharacterStyleRun,
+  ElementType, ImageElement, MathElement, NoteElement, OriginalShapeCreateMetadata,
+  RichTextCharacterStyleRun,
   RichTextParagraphStyleRun,
   ShapeElement, TextBlockElement,
 } from '../../core/model/ElementTypes';
@@ -137,6 +139,7 @@ import {
   transformShapeElements,
 } from '../../core/model/ShapeGeometry';
 import { prepareRecognizedShapes } from '../../core/model/ShapeRecognition';
+import { originalShapeForce } from '../../core/model/ShapeStrokeGeometry';
 import { ShapeHoldAdjustmentSession } from '../../core/model/ShapeHoldAdjustment';
 import {
   ORIGINAL_SHAPE_HOLD_DELAY_MS, originalShapeHoldPauseThreshold, ShapeHoldPauseTracker,
@@ -501,6 +504,11 @@ export struct NoteCanvasView {
   private shapeHoldPauseTracker: ShapeHoldPauseTracker = new ShapeHoldPauseTracker();
   private shapeHoldAdjustment: ShapeHoldAdjustmentSession = new ShapeHoldAdjustmentSession();
   private heldShapes: ShapeElement[] = [];
+  // 1.4.2 SHAPE(eti.T) 拖拽成形：按下锚定 start，拖动实时成形 previewShape，
+  // 松手提交（u5g.java）。ShapeKind 决定包围盒→形状的映射。
+  private shapeDragActive: boolean = false;
+  private shapeDragStart: Point2D = { x: 0, y: 0 };
+  private previewShape: ShapeElement | null = null;
   // -1: undo, 1: redo, 0: none. Cross-page history resumes after page data finishes loading.
   private pendingHistoryDirection: number = 0;
   @State historyBusy: boolean = false;
@@ -2485,6 +2493,7 @@ export struct NoteCanvasView {
     const current: StrokeElementData | null = this.heldShapes.length === 0 ? sessionStroke : null;
     const partialEraserPreviewStroke: StrokeElementData | null = this.partialEraserPreview.getStroke();
     const orderedRender: boolean = this.requiresOrderedElementRender() || this.heldShapes.length > 0 ||
+      this.previewShape !== null ||
       (this.playbackAudioTime !== null && this.playbackAudioSegments.length > 0);
     const fullRedraw: boolean = forceFull || (partialEraserPreviewStroke === null && orderedRender);
     if (fullRedraw) {
@@ -2515,6 +2524,9 @@ export struct NoteCanvasView {
         }
         for (const heldShape of this.heldShapes) {
           this.shapeRenderer.renderShape(heldShape, this.renderCtx, this.viewport.zoom);
+        }
+        if (this.previewShape !== null) {
+          this.shapeRenderer.renderShape(this.previewShape, this.renderCtx, this.viewport.zoom);
         }
         if (current !== null) {
           this.strokePainter.renderStroke(current, this.renderCtx, this.getPaperWidth(),
@@ -3465,6 +3477,15 @@ export struct NoteCanvasView {
     if (this.viewModel.currentTool === ToolType.ZOOM) {
       return;
     }
+    // 原版 a6f.T SHAPE（1.4.2 eti.T → u5g）：按下锚定拖拽起点，实时成形
+    // previewShape，松手提交——不产笔画，不进入 StrokeSession 管线。
+    if (this.viewModel.isShapeActive()) {
+      this.shapeDragActive = true;
+      this.shapeDragStart = canvasP;
+      this.previewShape = null;
+      this.isDrawing = true;
+      return;
+    }
     // 笔画工具
     const spec: RenderSpec = this.makeRenderSpec();
     if (this.strokeSession === null) {
@@ -3508,6 +3529,14 @@ export struct NoteCanvasView {
     }
     if (this.eraserActive) {
       this.collectEraserPoint(touch);
+      return;
+    }
+    // 1.4.2 SHAPE：拖动实时成形 previewShape（u5g 包围盒 → 各 shapeKind）。
+    if (this.shapeDragActive) {
+      const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
+      this.previewShape = buildDragShape(this.viewModel.activeShapeKind,
+        this.shapeDragStart, p, this.viewModel.brushColor, this.viewModel.brushWidth);
+      this.renderFrame();
       return;
     }
     if (this.laserSession.isActive()) {
@@ -3612,6 +3641,10 @@ export struct NoteCanvasView {
       }
     }
     this.cancelShapeDetectionTimer();
+    if (this.shapeDragActive) {
+      this.commitShapeDrag();
+      return;
+    }
     if (this.laserSession.isActive()) {
       // 原版 xt6 up：收笔 → zt6.k 调度 yt6 衰减协程（500ms + 31×16ms）。
       if (this.laserSession.endStroke()) {
@@ -3750,6 +3783,55 @@ export struct NoteCanvasView {
     this.renderFrame();
   }
 
+  // 1.4.2 SHAPE(eti.T)：松手提交拖拽成形的结果。预留 CRDT 身份与笔画/识别形
+  // 同径（page 加载已 refresh 预热 originalInkReservation）；shape.id 编码
+  // 预留 op 身份（encodeOperationId），originalCreate 携 page 序列+平均力度，
+  // 使 persist 在同步层发出 CREATE_SHAPE。点按未成形（previewShape=null）则丢弃。
+  private commitShapeDrag(): void {
+    const committed: ShapeElement | null = this.previewShape;
+    this.previewShape = null;
+    this.shapeDragActive = false;
+    if (committed !== null) {
+      const elementOrderBefore: PageElementRef[] = clonePageElementOrder(this.elementOrder);
+      const originalCreate: OriginalInkCreateMetadata | null = this.originalInkReservation;
+      this.originalInkReservation = null;
+      if (originalCreate !== null) {
+        originalCreate.clientTime = Math.max(originalCreate.clientTime, Date.now());
+        committed.id = encodeOperationId({
+          timestamp: originalCreate.timestamp, siteId: originalCreate.siteId,
+        });
+        const shapeCreate: OriginalShapeCreateMetadata = {
+          timestamp: originalCreate.timestamp, siteId: originalCreate.siteId,
+          clientTime: originalCreate.clientTime,
+          pageTimestamp: originalCreate.pageTimestamp,
+          pageSiteId: originalCreate.pageSiteId, pageIndex: originalCreate.pageIndex,
+          pencilSeed: originalCreate.pencilSeed, averageForce: originalShapeForce(committed),
+        };
+        committed.originalCreate = shapeCreate;
+      }
+      this.shapes = this.shapes.concat([committed]);
+      this.elementOrder = appendPageElementRefs(
+        this.elementOrder, PageElementKind.SHAPE, [committed.id]);
+      this.undoRedo.push({
+        type: UndoableActionType.ADD_ELEMENTS,
+        noteId: this.noteId,
+        pageId: this.currentPage.pageId,
+        addedStrokes: [],
+        addedShapes: [committed],
+        addedTextBlocks: [],
+        addedImages: [],
+        addedElementOrder: appendPageElementRefs([], PageElementKind.SHAPE, [committed.id]),
+        elementOrderBefore: elementOrderBefore,
+        elementOrderAfter: clonePageElementOrder(this.elementOrder),
+      });
+      this.persist(committed.originalCreate !== undefined);
+      this.notifyUndoRedo();
+    }
+    this.isDrawing = false;
+    this.resetPointerTracking();
+    this.renderFrame();
+  }
+
   private cancelActiveInteraction(): void {
     const heldShapeCleared: boolean = this.heldShapes.length > 0;
     // Phase 747：放大面板书写会话不走 isDrawing —— 独立取消（无会话时 no-op），
@@ -3806,6 +3888,8 @@ export struct NoteCanvasView {
     this.dragBeforeTextBlocks = [];
     this.dragBeforeImages = [];
     this.dragBeforeMathBlocks = [];
+    this.shapeDragActive = false;
+    this.previewShape = null;
     this.isDrawing = false;
     this.resetPointerTracking();
     this.renderFrame();

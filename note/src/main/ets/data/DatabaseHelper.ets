@@ -17,7 +17,7 @@
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 71;
+export const DB_VERSION: number = 72;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -47,7 +47,14 @@ CREATE TABLE IF NOT EXISTS tool_state (
   // only the REVIEW/tape tool carries a pattern; NULL for every other tool.
   tape_pattern INTEGER,
   selection_is_freehand INTEGER NOT NULL DEFAULT 0,
-  eraser_is_partial INTEGER NOT NULL DEFAULT 0
+  eraser_is_partial INTEGER NOT NULL DEFAULT 0,
+  // 1.4.2 ToolStateEntity 新增列（ca3.java:404-412）：shapeKind TEXT 默认
+  // 'RECTANGLE'（枚举名）、nibAngle/nibFlatness REAL、stabilization INTEGER。
+  // 全部 nullable —— 仅 SHAPE/CALLIGRAPHY 工具使用。
+  shape_kind TEXT DEFAULT 'RECTANGLE',
+  nib_angle REAL,
+  nib_flatness REAL,
+  stabilization INTEGER
 )`;
 
 // Mirrors the original ToolboxDatabase FavoriteColorWellEntity (e47.java:377).
@@ -2740,5 +2747,14 @@ export const MIGRATIONS: Record<number, string[]> = {
     // the tape tool's selected pattern survives restarts. Plain nullable INTEGER,
     // no CHECK constraint, matching the original DDL exactly.
     'ALTER TABLE tool_state ADD COLUMN tape_pattern INTEGER',
+  ],
+  72: [
+    // Original 1.4.2 ToolStateEntity (ca3.java:404-412 / zmb.java:117)：新增的
+    // shapeKind/nibAngle/nibFlatness/stabilization 列。shapeKind 以枚举名 TEXT 持久化
+    // （默认 'RECTANGLE'），nib 与 stabilization 仅 CALLIGRAPHY/SHAPE 使用、可空。
+    `ALTER TABLE tool_state ADD COLUMN shape_kind TEXT DEFAULT 'RECTANGLE'`,
+    'ALTER TABLE tool_state ADD COLUMN nib_angle REAL',
+    'ALTER TABLE tool_state ADD COLUMN nib_flatness REAL',
+    'ALTER TABLE tool_state ADD COLUMN stabilization INTEGER',
   ],
 };

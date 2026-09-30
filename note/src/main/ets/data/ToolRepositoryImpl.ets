@@ -1,6 +1,6 @@
 import { relationalStore } from '@kit.ArkData';
 import {
-  EditorToolboxState, EditorTray, ToolState, ToolType,
+  EditorToolboxState, EditorTray, ShapeKind, shapeKindFromName, shapeKindToName, ToolState, ToolType,
   TRAY_TYPE_PRIMARY, TRAY_TYPE_SECONDARY, TRAY_TYPE_HIDDEN,
 } from '../core/model/BrushTypes';
 import { TapePattern } from '../core/model/StrokeTypes';
@@ -397,6 +397,17 @@ export class ToolRepositoryImpl implements ToolRepository {
       selectionIsFreehand: resultSet.getLong(
         resultSet.getColumnIndex('selection_is_freehand')) !== 0,
       eraserIsPartial: resultSet.getLong(resultSet.getColumnIndex('eraser_is_partial')) !== 0,
+      // 1.4.2 列：shape_kind TEXT（枚举名→ShapeKind）、nib REAL、stabilization INTEGER。
+      // 列在 DB_VERSION 72 迁移中加入；旧快照该列为 NULL。
+      shapeKind: resultSet.isColumnNull(resultSet.getColumnIndex('shape_kind')) ?
+        null : shapeKindFromName(
+          resultSet.getString(resultSet.getColumnIndex('shape_kind'))),
+      nibAngle: resultSet.isColumnNull(resultSet.getColumnIndex('nib_angle')) ?
+        null : resultSet.getDouble(resultSet.getColumnIndex('nib_angle')),
+      nibFlatness: resultSet.isColumnNull(resultSet.getColumnIndex('nib_flatness')) ?
+        null : resultSet.getDouble(resultSet.getColumnIndex('nib_flatness')),
+      stabilization: resultSet.isColumnNull(resultSet.getColumnIndex('stabilization')) ?
+        null : resultSet.getLong(resultSet.getColumnIndex('stabilization')),
     };
   }
 
@@ -669,6 +680,13 @@ export class ToolRepositoryImpl implements ToolRepository {
       'tape_pattern': state.tapePattern ?? null,
       'selection_is_freehand': state.selectionIsFreehand ? 1 : 0,
       'eraser_is_partial': state.eraserIsPartial ? 1 : 0,
+      // 1.4.2：shapeKind 以枚举名 TEXT 存储（shapeKindToName）；nib/stabilization
+      // 仅 CALLIGRAPHY/SHAPE 使用，其余 NULL。
+      'shape_kind': state.shapeKind !== null && state.shapeKind !== undefined ?
+        shapeKindToName(state.shapeKind) : null,
+      'nib_angle': state.nibAngle ?? null,
+      'nib_flatness': state.nibFlatness ?? null,
+      'stabilization': state.stabilization ?? null,
     };
   }
 
@@ -689,6 +707,10 @@ export class ToolRepositoryImpl implements ToolRepository {
       tapePattern: state.tapePattern ?? null,
       selectionIsFreehand: state.selectionIsFreehand,
       eraserIsPartial: state.eraserIsPartial,
+      shapeKind: state.shapeKind ?? null,
+      nibAngle: state.nibAngle ?? null,
+      nibFlatness: state.nibFlatness ?? null,
+      stabilization: state.stabilization ?? null,
     };
   }
 }

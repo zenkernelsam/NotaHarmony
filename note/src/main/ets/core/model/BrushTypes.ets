@@ -28,9 +28,23 @@ export enum ToolType {
   // 1.4.2 eti.G = CALLIGRAPHY：平头笔（凿尖 nib）专用工具，介于 PEN 与 PENCIL 之间。
   // 笔画宽度随运笔方向相对 nib 角/扁率变化（nibAngle/nibFlatness）。
   CALLIGRAPHY = 10,
+  // 1.4.2 eti.T = SHAPE：拖拽成形工具——按下拖拽出包围盒，松手提交
+  // RECTANGLE/ELLIPSE/DIAMOND/TRIANGLE/ARROW/LINE（r5g）形状元素。
+  SHAPE = 11,
   // 原版 a6f 另两个成员不移植（ADR-0644/0642）：
   //   a6f.Q POINTER=多人 presence 光标（ac4.c0/b0 服务端协作域 fail-closed）
   //   a6f.T RULER=s01.a0 无条件隐藏（原版即不可见）
+}
+
+// 1.4.2 r5g 形状种类（SHAPE 工具的子模式，ordinal 与原版一致）。
+// RECTANGLE/ELLIPSE/DIAMOND/TRIANGLE 由拖拽包围盒成形；ARROW/LINE 为起点→终点线段。
+export enum ShapeKind {
+  RECTANGLE = 0,
+  ELLIPSE = 1,
+  DIAMOND = 2,
+  TRIANGLE = 3,
+  ARROW = 4,
+  LINE = 5,
 }
 
 // 笔刷配置（对应 f21 Brush）
@@ -68,6 +82,30 @@ export interface ToolState {
   // NULL 其余工具。nibAngle 弧度制；nibFlatness∈(0,1]，1=圆头（无方向差）。
   nibAngle?: number | null;
   nibFlatness?: number | null;
+  // 1.4.2 ToolStateEntity.shapeKind (TEXT DEFAULT 'RECTANGLE')：仅 SHAPE 工具使用，
+  // NULL 其余工具。
+  shapeKind?: ShapeKind | null;
+  // 1.4.2 ToolStateEntity.stabilization (INTEGER)：笔画防抖开关，CALLIGRAPHY 默认 1。
+  // NULL 其余工具。
+  stabilization?: number | null;
+}
+
+// 1.4.2 ToolStateEntity.shapeKind 以枚举名 TEXT 持久化（'RECTANGLE'…'LINE'）。
+// 与 r5g.java ordinal 对齐：name→kind、kind→name 双向映射。
+const SHAPE_KIND_NAMES: string[] = [
+  'RECTANGLE', 'ELLIPSE', 'DIAMOND', 'TRIANGLE', 'ARROW', 'LINE'];
+
+export function shapeKindToName(kind: ShapeKind): string {
+  const idx: number = kind;
+  return idx >= 0 && idx < SHAPE_KIND_NAMES.length ? SHAPE_KIND_NAMES[idx] : 'RECTANGLE';
+}
+
+export function shapeKindFromName(name: string | null | undefined): ShapeKind | null {
+  if (name === null || name === undefined) {
+    return null;
+  }
+  const idx: number = SHAPE_KIND_NAMES.indexOf(name);
+  return idx >= 0 ? idx as ShapeKind : null;
 }
 
 // Harmony adaptation of the original ToolboxEntity selection history.
