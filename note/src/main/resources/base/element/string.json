@@ -134,7 +134,7 @@
     },
     {
       "name": "paper_size",
-      "value": "Paper Size"
+      "value": "Size"
     },
     {
       "name": "paper_template",
@@ -210,7 +210,7 @@
     },
     {
       "name": "template_lines",
-      "value": "Lines"
+      "value": "Rule"
     },
     {
       "name": "template_grid",

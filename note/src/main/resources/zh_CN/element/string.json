@@ -47,7 +47,7 @@
     { "name": "test_connection", "value": "测试连接" },
     { "name": "save_settings", "value": "保存配置" },
     { "name": "insecure_webdav_warning", "value": "HTTP 不会加密 WebDAV 凭据，请改用 HTTPS。" },
-    { "name": "paper_size", "value": "纸张尺寸" },
+    { "name": "paper_size", "value": "尺寸" },
     { "name": "paper_template", "value": "纸张模板" },
     { "name": "paper_color", "value": "纸张颜色" },
     { "name": "paper_legacy_white", "value": "白色" },
