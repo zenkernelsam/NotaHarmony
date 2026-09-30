@@ -1320,12 +1320,17 @@ struct NotePage {
     // （oh9 → ti9:360 → np0 case5 并/差集）；无 tape 时该行不出现。
     if (this.pageTapeCount > 0) {
       items.push({
+        // 原版 o94 279/283：图标反映当前态——hide_tapes 配 tape_reveal、
+        // reveal_tapes 配 tape_conceal。
         value: this.anyTapeRevealed ?
           $r('app.string.hide_tapes') : $r('app.string.reveal_tapes'),
+        icon: this.anyTapeRevealed ?
+          $r('app.media.menuicon_tape_reveal') : $r('app.media.menuicon_tape_conceal'),
         action: () => { this.tapeToggleSignal++; },
       });
     }
     items.push({ value: $r('app.string.options_menu_app_settings'),
+      icon: $r('app.media.menuicon_settings'),
       action: () => { this.navigateToSettings(); } });
     return items;
   }
