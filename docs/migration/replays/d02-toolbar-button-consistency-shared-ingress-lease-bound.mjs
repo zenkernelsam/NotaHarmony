@@ -12,16 +12,17 @@ function section(startMarker, endMarker) {
   return toolbar.slice(start, end);
 }
 
-const photoButton = section("Button($r('app.string.insert_photo'))", "Button($r('app.string.insert_math'))");
-const mathButton = section("Button($r('app.string.insert_math'))", '\n          Divider().vertical(true)');
 const undoButton = section("glyph: 'topnavundo'", "glyph: 'topnavredo'");
 const redoButton = toolbar.slice(toolbar.indexOf("glyph: 'topnavredo'"), toolbar.indexOf('\n        }\n        .height(48)', toolbar.indexOf("glyph: 'topnavredo'")));
 
-for (const [name, button] of [['photo', photoButton], ['math', mathButton]]) {
-  assert.match(button,
-    /\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)/,
-    name);
-}
+// Inline insert buttons render via InsertButton(icon+label); the shared
+// enabled + photoImportLeaseActive guard lives inside the InsertButton builder.
+assert.match(toolbar,
+  /this\.InsertButton\(\$r\('app\.string\.insert_photo'\)[\s\S]*?this\.InsertButton\(\$r\('app\.string\.insert_math'\)/,
+  'insert_photo and insert_math InsertButtons present');
+assert.match(toolbar,
+  /private InsertButton[\s\S]*?\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)/,
+  'InsertButton enabled guard');
 assert.match(undoButton,
   /\.enabled\(this\.canUndo &&\s+!this\.photoImportLeaseActive\)/);
 assert.match(redoButton,

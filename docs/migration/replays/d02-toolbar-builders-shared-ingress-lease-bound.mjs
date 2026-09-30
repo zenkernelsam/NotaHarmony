@@ -36,18 +36,18 @@ assert.match(eraserButtons,
 assert.match(styleButton,
   /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.viewModel\.setBrushStyle\(style\);/);
 
+// Inline insert buttons now render via InsertButton(icon+label); the
+// photoImportLeaseActive guard lives inside InsertButton, callback forwarded.
+assert.match(toolbar,
+  /private InsertButton[\s\S]*?\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)[\s\S]*?if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+onTap\(\)/,
+  'InsertButton keeps enabled + lease guard');
 for (const [action, forward] of [
   ['insert_photo', 'onInsertPhotos()'],
   ['insert_math', 'onInsertMath()'],
 ]) {
-  const buttonStart = toolbar.indexOf(`Button($r('app.string.${action}'))`);
-  assert.ok(buttonStart >= 0, action);
-  const bodyEnd = toolbar.indexOf('\n          Divider()', buttonStart);
-  assert.ok(bodyEnd > buttonStart, `${action} bounds`);
-  const body = toolbar.slice(buttonStart, bodyEnd);
-  assert.match(body,
-    new RegExp(`\\.onClick\\(\\(\\) => \\{\\s+if \\(this\\.photoImportLeaseActive\\) \\{\\s+return;\\s+\\}\\s+this\\.${forward.replace('(', '\\(').replace(')', '\\)')}`),
-    `${action} callback guard`);
+  assert.match(toolbar,
+    new RegExp(`InsertButton\\(\\$r\\('app\\.string\\.${action}'\\), \\$r\\('app\\.media\\.[a-z_]+'\\),\\s*\\(\\) => this\\.${forward.replace('(', '\\(').replace(')', '\\)')}`),
+    `${action} InsertButton forwards ${forward}`);
 }
 
 console.log(

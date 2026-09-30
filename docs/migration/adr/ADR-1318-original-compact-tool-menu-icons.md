@@ -20,7 +20,7 @@ take_photo、insert_math。此前全是纯文字。
 | partial_eraser | `menuicon_eraser_partial` | `ui_designsystem__eraser_partial` |
 | selection | `menuicon_selectrect` | `ui_designsystem__selectrectangle_outline` |
 | add_text | `menuicon_text` | `ui_designsystem__text_outline` |
-| add_files | `menuicon_attach_file` | `ui_designsystem__attach_file` |
+| add_files | `menuicon_paper` | `ui_designsystem__paper_plain_outline` |
 | insert_photo | `menuicon_insert_media` | `ui_designsystem__insert_media_fill_outline` |
 | take_photo | `menuicon_camera` | `ui_designsystem__camera_outline` |
 | insert_math | `menuicon_insert_math` | `feature_note_toolbox__insert_math` |

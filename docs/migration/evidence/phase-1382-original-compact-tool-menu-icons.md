@@ -11,7 +11,7 @@
   highlighter/eraser），`rz1.c` 渲染 text/select。
 - `fie.java:19`：`ui_text__add_text` = "Add Text" 插入项。
 - drawable：`eraser_whole`/`eraser_partial`（单 path）、`selectrectangle_*`、
-  `text_*`、`attach_file`、`insert_media_fill_outline`、`camera_outline`、
+  `text_*`、`paper_plain_outline`、`insert_media_fill_outline`、`camera_outline`、
   `feature_note_toolbox__insert_math`。
 
 ## 图标映射（MenuElement.icon）
@@ -22,7 +22,7 @@
 | `partial_eraser` | `menuicon_eraser_partial` | `eraser_partial` |
 | `selection` | `menuicon_selectrect` | `selectrectangle_outline` |
 | `add_text` | `menuicon_text` | `text_outline` |
-| `add_files` | `menuicon_attach_file` | `attach_file` |
+| `add_files` | `menuicon_paper` | `paper_plain_outline` |
 | `insert_photo` | `menuicon_insert_media` | `insert_media_fill_outline` |
 | `take_photo` | `menuicon_camera` | `camera_outline` |
 | `insert_math` | `menuicon_insert_math` | `insert_math` |

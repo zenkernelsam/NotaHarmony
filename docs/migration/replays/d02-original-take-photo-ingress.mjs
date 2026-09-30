@@ -90,17 +90,19 @@ ok(page.includes('cameraCaptureSignal: this.cameraCaptureSignal'),
 
 // --- Harmony UI anchors --------------------------------------------------------------
 ok(toolbar.includes('onTakePhoto: () => void'), 'toolbar onTakePhoto callback missing');
-// Non-compact button sits between Photo and Math (original menu order).
+// Non-compact insert buttons render via InsertButton(icon+label) in original menu order.
 const btnOrder = [
-  "Button($r('app.string.insert_photo'))",
-  "Button($r('app.string.take_photo'))",
-  "Button($r('app.string.insert_math'))",
+  "this.InsertButton($r('app.string.insert_photo'), $r('app.media.menuicon_insert_media'),",
+  "this.InsertButton($r('app.string.take_photo'), $r('app.media.menuicon_camera'),",
+  "this.InsertButton($r('app.string.insert_math'), $r('app.media.menuicon_insert_math'),",
 ].map(s => toolbar.indexOf(s));
 ok(btnOrder.every(i => i > 0) && btnOrder[0] < btnOrder[1] && btnOrder[1] < btnOrder[2],
   'toolbar take_photo button order missing');
-// Lease guard on both the button and the compact-menu entry.
-ok(/take_photo[\s\S]*?\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)[\s\S]*?if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onTakePhoto\(\)/.test(toolbar),
-  'take_photo button lease guard missing');
+// take_photo wires onTakePhoto; lease guard lives inside InsertButton.
+ok(/InsertButton\(\$r\('app\.string\.take_photo'\), \$r\('app\.media\.menuicon_camera'\),\s*\(\) => this\.onTakePhoto\(\)\)/.test(toolbar),
+  'take_photo InsertButton wires onTakePhoto');
+ok(/private InsertButton[\s\S]*?\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)[\s\S]*?if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+onTap\(\)/.test(toolbar),
+  'InsertButton lease guard missing');
 ok(/\{ value: \$r\('app\.string\.take_photo'\), icon: [^,]+, action: \(\) => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onTakePhoto\(\)/.test(toolbar),
   'compact-menu take_photo lease guard missing');
 ok(stringsBase.includes('"name": "take_photo"') && stringsZh.includes('"name": "take_photo"'),

@@ -10,13 +10,13 @@
 
 - `note/src/main/ets/ui/editor/EditorToolbar.ets`：8 个 MenuElement 各加 icon。
 - 新增 8 个 media SVG：menuicon_eraser_whole/eraser_partial/selectrect/
-  text/attach_file/insert_media/camera/insert_math。
+  text/paper/insert_media/camera/insert_math。
 
 ## 映射
 
 whole_eraser→eraser_whole、partial_eraser→eraser_partial、
 selection→selectrectangle_outline、add_text→text_outline、
-add_files→attach_file、insert_photo→insert_media_fill_outline、
+add_files→paper_plain_outline、insert_photo→insert_media_fill_outline、
 take_photo→camera_outline、insert_math→insert_math。
 
 ## 验证

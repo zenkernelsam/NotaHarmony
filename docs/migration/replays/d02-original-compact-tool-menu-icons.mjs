@@ -22,7 +22,7 @@ const cases = [
   ['partial_eraser', 'menuicon_eraser_partial'],
   ['selection', 'menuicon_selectrect'],
   ['add_text', 'menuicon_text'],
-  ['add_files', 'menuicon_attach_file'],
+  ['add_files', 'menuicon_paper'],
   ['insert_photo', 'menuicon_insert_media'],
   ['take_photo', 'menuicon_camera'],
   ['insert_math', 'menuicon_insert_math'],

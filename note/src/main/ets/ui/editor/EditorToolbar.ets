@@ -304,55 +304,16 @@ export struct EditorToolbar {
         Divider().vertical(true).height(24).margin({ left: 8, right: 8 })
 
         if (!this.compact) {
-          // 原版插入菜单序位：Add Files → Add Photo → Take Photo → Math（qc.java）
-          Button($r('app.string.add_files'))
-            .height(32)
-            .fontSize(13)
-            .margin({ left: 2, right: 2 })
-            .enabled(!this.viewModel.toolStateLoading &&
-              !this.photoImportLeaseActive)
-            .onClick(() => {
-              if (this.photoImportLeaseActive) {
-                return;
-              }
-              this.onAddFiles();
-            })
-          Button($r('app.string.insert_photo'))
-            .height(32)
-            .fontSize(13)
-            .margin({ left: 2, right: 2 })
-            .enabled(!this.viewModel.toolStateLoading &&
-              !this.photoImportLeaseActive)
-            .onClick(() => {
-              if (this.photoImportLeaseActive) {
-                return;
-              }
-              this.onInsertPhotos();
-            })
-          Button($r('app.string.take_photo'))
-            .height(32)
-            .fontSize(13)
-            .margin({ left: 2, right: 2 })
-            .enabled(!this.viewModel.toolStateLoading &&
-              !this.photoImportLeaseActive)
-            .onClick(() => {
-              if (this.photoImportLeaseActive) {
-                return;
-              }
-              this.onTakePhoto();
-            })
-          Button($r('app.string.insert_math'))
-            .height(32)
-            .fontSize(13)
-            .margin({ left: 2, right: 2 })
-            .enabled(!this.viewModel.toolStateLoading &&
-              !this.photoImportLeaseActive)
-            .onClick(() => {
-              if (this.photoImportLeaseActive) {
-                return;
-              }
-              this.onInsertMath();
-            })
+          // 原版插入菜单序位：Add Files → Add Photo → Take Photo → Math（qc.java）；
+          // 原版 apb.f 项带 icon+label，Harmony 内联按钮同样挂图标。
+          this.InsertButton($r('app.string.add_files'), $r('app.media.menuicon_paper'),
+            () => this.onAddFiles())
+          this.InsertButton($r('app.string.insert_photo'), $r('app.media.menuicon_insert_media'),
+            () => this.onInsertPhotos())
+          this.InsertButton($r('app.string.take_photo'), $r('app.media.menuicon_camera'),
+            () => this.onTakePhoto())
+          this.InsertButton($r('app.string.insert_math'), $r('app.media.menuicon_insert_math'),
+            () => this.onInsertMath())
           Divider().vertical(true).height(24).margin({ left: 8, right: 8 })
         }
 
@@ -585,6 +546,34 @@ export struct EditorToolbar {
     })
   }
 
+  // 原版插入项为 apb.f icon+label 行；Harmony 宽屏内联按钮挂同款图标。
+  @Builder
+  private InsertButton(label: ResourceStr, icon: ResourceStr, onTap: () => void) {
+    Button() {
+      Row() {
+        Image(icon)
+          .width(16)
+          .height(16)
+          .fillColor(this.resolveTokens().textPrimary)
+        Text(label)
+          .fontSize(13)
+          .fontColor(this.resolveTokens().textPrimary)
+          .margin({ left: 4 })
+      }
+    }
+      .height(32)
+      .padding({ left: 8, right: 8 })
+      .margin({ left: 2, right: 2 })
+      .enabled(!this.viewModel.toolStateLoading &&
+        !this.photoImportLeaseActive)
+      .onClick(() => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
+        onTap();
+      })
+  }
+
   private buildCompactToolMenu(): MenuElement[] {
     return [
       // 原版 x5f/fie 工具槽与插入按钮均为矢量图标；紧凑菜单项挂对应 drawable。
@@ -613,7 +602,8 @@ export struct EditorToolbar {
         }
         this.viewModel.selectTool(ToolType.DEFAULT);
       } },
-      { value: $r('app.string.add_files'), icon: $r('app.media.menuicon_attach_file'), action: () => {
+      // 原版 qc.java:65 add_files → paper_plain_outline（非 attach_file）。
+      { value: $r('app.string.add_files'), icon: $r('app.media.menuicon_paper'), action: () => {
         if (this.photoImportLeaseActive) {
           return;
         }
