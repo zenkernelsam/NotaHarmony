@@ -20,16 +20,29 @@ export struct WidthSlider {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
   }
 
+  // 原版 width_view（setting_pen_width_mini_layout / SpenPenWidthMiniLayout）：
+  // 每个预设槽位显示该宽度的笔画样张（横向圆角条），其厚度 ∝ 预设宽度，而非数字。
+  private wellSampleHeight(width: number): number {
+    return Math.max(2, Math.min(16, width));
+  }
+
   build() {
     Column() {
       if (!this.selectionMode && this.viewModel.widthWells.length > 0) {
         Row() {
           ForEach(this.viewModel.widthWells, (width: number, index: number) => {
-            Text(width.toString())
-              .fontSize(12)
-              .fontColor(this.viewModel.brushWidth === width ?
-                this.resolveTokens().accent : this.resolveTokens().textPrimary)
-              .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+            Row() {
+              // 原版 width_view：预设槽位渲染该宽度的笔画样张（横向圆角条，厚度 ∝ 宽度）。
+              Row()
+                .width(20)
+                .height(this.wellSampleHeight(width))
+                .borderRadius(this.wellSampleHeight(width) / 2)
+                .backgroundColor(this.viewModel.colorToHex(this.viewModel.brushColor))
+            }
+              .justifyContent(FlexAlign.Center)
+              .alignItems(VerticalAlign.Center)
+              .width(36)
+              .height(28)
               .borderRadius(8)
               .border({
                 width: 1,
@@ -38,6 +51,7 @@ export struct WidthSlider {
               })
               .margin({ right: 8 })
               .enabled(!this.photoImportLeaseActive)
+              .accessibilityText(width.toString())
               .onClick(() => {
                 if (this.photoImportLeaseActive) {
                   return;
