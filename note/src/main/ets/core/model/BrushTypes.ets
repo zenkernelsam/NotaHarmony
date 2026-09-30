@@ -25,6 +25,9 @@ export enum ToolType {
   // 原版 a6f.U = ZOOM：放大书写视口（ac4.F ZOOM_VIEW → "androidZoomView"，
   // 打包默认 true → 1.0.3 默认可见，见 ADR-0690 更正 ADR-0644）。
   ZOOM = 9,
+  // 1.4.2 eti.G = CALLIGRAPHY：平头笔（凿尖 nib）专用工具，介于 PEN 与 PENCIL 之间。
+  // 笔画宽度随运笔方向相对 nib 角/扁率变化（nibAngle/nibFlatness）。
+  CALLIGRAPHY = 10,
   // 原版 a6f 另两个成员不移植（ADR-0644/0642）：
   //   a6f.Q POINTER=多人 presence 光标（ac4.c0/b0 服务端协作域 fail-closed）
   //   a6f.T RULER=s01.a0 无条件隐藏（原版即不可见）
@@ -61,6 +64,10 @@ export interface ToolState {
   tapePattern?: TapePattern | null;
   selectionIsFreehand: boolean;
   eraserIsPartial: boolean;
+  // 1.4.2 ToolStateEntity.nibAngle / nibFlatness (REAL)：仅 CALLIGRAPHY 工具使用，
+  // NULL 其余工具。nibAngle 弧度制；nibFlatness∈(0,1]，1=圆头（无方向差）。
+  nibAngle?: number | null;
+  nibFlatness?: number | null;
 }
 
 // Harmony adaptation of the original ToolboxEntity selection history.

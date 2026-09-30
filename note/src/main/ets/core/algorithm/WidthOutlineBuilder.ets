@@ -47,9 +47,36 @@ export class WidthOutlineBuilder {
   private static readonly ORIGINAL_WIDTH_MIN_SUBDIVISIONS: number = 2;
   private static readonly ORIGINAL_WIDTH_MAX_SUBDIVISIONS: number = 6;
   private static readonly ORIGINAL_WIDTH_PROBES: number[] = [0.25, 0.5, 0.75];
+  // 1.4.2 CALLIGRAPHY 凿尖 nib。为 null 时与普通变宽笔完全一致（零回归）。
+  private nibAngle: number | null = null;
+  private nibFlatness: number = 1;
+
+  // 原版 CalligraphyNib(nibAngle, nibFlatness)（ox5/aj1）。nibAngle 为"最粗运笔方向"
+  // （弧度）；nibFlatness∈(0,1] 为窄宽比，1=圆头。Δ=运笔方向−nibAngle。
+  setNib(nibAngle: number | null, nibFlatness: number | null): void {
+    this.nibAngle = (nibAngle === null || !Number.isFinite(nibAngle)) ? null : nibAngle;
+    const f: number = nibFlatness === null ? 1 : nibFlatness;
+    this.nibFlatness = (!Number.isFinite(f) || f <= 0) ? 1 : Math.min(f, 1);
+  }
+
+  // 方向调制因子：沿 nibAngle 运笔最粗（=1），垂直最细（=flatness）。
+  // nibScale(Δ)=sqrt(cos²Δ + f²·sin²Δ)。
+  private nibScale(tangent: Point2D): number {
+    if (this.nibAngle === null) {
+      return 1;
+    }
+    const delta: number = Math.atan2(tangent.y, tangent.x) - this.nibAngle;
+    const c: number = Math.cos(delta);
+    const s: number = Math.sin(delta);
+    const f: number = this.nibFlatness;
+    return Math.sqrt(c * c + f * f * s * s);
+  }
 
   build(centerline: StrokePathPoint[], baseWidth: number,
-    cubicSegments?: CubicSegment[]): OutlineResult {
+    cubicSegments?: CubicSegment[], nibAngle?: number | null,
+    nibFlatness?: number | null): OutlineResult {
+    this.setNib(nibAngle === undefined ? null : nibAngle,
+      nibFlatness === undefined ? null : nibFlatness);
     if (centerline.length === 0 || !Number.isFinite(baseWidth) || baseWidth <= 0) {
       return { outlinePoints: [], isValid: false };
     }
@@ -77,9 +104,11 @@ export class WidthOutlineBuilder {
     }
 
     const outline: Point2D[] = [];
-    const startRadius: number = this.halfWidth(cleaned[0].widthFactor, baseWidth);
+    const startRadius: number = this.halfWidth(cleaned[0].widthFactor, baseWidth) *
+      this.nibScale(tangents[0]);
     const endIndex: number = cleaned.length - 1;
-    const endRadius: number = this.halfWidth(cleaned[endIndex].widthFactor, baseWidth);
+    const endRadius: number = this.halfWidth(cleaned[endIndex].widthFactor, baseWidth) *
+      this.nibScale(tangents[tangents.length - 1]);
     const startNormal: Point2D = this.leftNormal(tangents[0]);
     const endNormal: Point2D = this.leftNormal(tangents[tangents.length - 1]);
     this.appendArc(outline, cleaned[0].position, startRadius,
@@ -358,16 +387,21 @@ export class WidthOutlineBuilder {
     const side: Point2D[] = [];
     const firstNormal: Point2D = this.scale(this.leftNormal(tangents[0]), sideSign);
     this.appendUnique(side, this.add(samples[0].position,
-      this.scale(firstNormal, this.halfWidth(samples[0].widthFactor, baseWidth))));
+      this.scale(firstNormal, this.halfWidth(samples[0].widthFactor, baseWidth) *
+        this.nibScale(tangents[0]))));
     for (let i: number = 1; i < samples.length - 1; i++) {
       const center: Point2D = samples[i].position;
-      const radius: number = this.halfWidth(samples[i].widthFactor, baseWidth);
+      const baseRadius: number = this.halfWidth(samples[i].widthFactor, baseWidth);
       const previousTangent: Point2D = tangents[i - 1];
       const nextTangent: Point2D = tangents[i];
+      // 凿尖 nib：相邻两段方向不同 → 两侧半径各自按方向调制（无 nib 时 scale=1）。
+      const previousRadius: number = baseRadius * this.nibScale(previousTangent);
+      const nextRadius: number = baseRadius * this.nibScale(nextTangent);
+      const radius: number = Math.max(previousRadius, nextRadius);
       const previousNormal: Point2D = this.scale(this.leftNormal(previousTangent), sideSign);
       const nextNormal: Point2D = this.scale(this.leftNormal(nextTangent), sideSign);
-      const previousOffset: Point2D = this.add(center, this.scale(previousNormal, radius));
-      const nextOffset: Point2D = this.add(center, this.scale(nextNormal, radius));
+      const previousOffset: Point2D = this.add(center, this.scale(previousNormal, previousRadius));
+      const nextOffset: Point2D = this.add(center, this.scale(nextNormal, nextRadius));
       const turn: number = this.cross(previousTangent, nextTangent);
       const directionDot: number = this.dot(previousTangent, nextTangent);
 
@@ -396,9 +430,11 @@ export class WidthOutlineBuilder {
       }
     }
     const lastIndex: number = samples.length - 1;
-    const lastNormal: Point2D = this.scale(this.leftNormal(tangents[tangents.length - 1]), sideSign);
+    const lastTangent: Point2D = tangents[tangents.length - 1];
+    const lastNormal: Point2D = this.scale(this.leftNormal(lastTangent), sideSign);
     this.appendUnique(side, this.add(samples[lastIndex].position,
-      this.scale(lastNormal, this.halfWidth(samples[lastIndex].widthFactor, baseWidth))));
+      this.scale(lastNormal, this.halfWidth(samples[lastIndex].widthFactor, baseWidth) *
+        this.nibScale(lastTangent))));
     return side;
   }
 

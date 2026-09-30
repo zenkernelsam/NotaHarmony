@@ -73,6 +73,10 @@ export interface RenderSpec {
   inkEffectPhase?: number;
   // Presence identifies an original Tape stroke. CREATE defaults missing Tape fields to STRIPES.
   tapePattern?: TapePattern;
+  // 1.4.2 CALLIGRAPHY 凿尖 nib（CreateInk.nibAngle/nibFlatness）。两值齐备时笔画按
+  // 凿尖模型按运笔方向调制宽度；缺省/为 null 时退化为普通变宽（VARIABLE_WIDTH）。
+  nibAngle?: number | null;
+  nibFlatness?: number | null;
 }
 
 export enum TapePattern {

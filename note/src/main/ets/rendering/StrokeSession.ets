@@ -218,7 +218,8 @@ export class StrokeSession {
     }
     let outline: OutlineResult | null = null;
     if (this.renderSpec.inkStyle === InkStyle.VARIABLE_WIDTH) {
-      outline = this.outlineBuilder.build(pathPoints, this.renderSpec.brushWidth, fitResult.segments);
+      outline = this.outlineBuilder.build(pathPoints, this.renderSpec.brushWidth,
+        fitResult.segments, this.renderSpec.nibAngle, this.renderSpec.nibFlatness);
     }
     return new StrokeGeometry(fitResult.segments, fitResult.sourceRanges, splatPoints, outline);
   }

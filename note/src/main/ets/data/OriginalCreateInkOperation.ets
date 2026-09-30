@@ -23,6 +23,7 @@ import {
 import { originalGroupLayerRanks, OriginalLayeringEntity } from './OriginalGroupLayering';
 import { OriginalMutationPageTarget, OriginalPageMutationBatch } from './OriginalPageMutationBatch';
 import {
+  decodeNibAngleUint16, decodeNibFlatnessUint16,
   decodeOriginalAuxiliaryInkPath, decodeOriginalInkPath, DecodedOriginalAuxiliaryInkPath,
   DecodedOriginalInkPath, originalInkTransform,
   OriginalInkPathDeferredError, transformedInkBounds,
@@ -419,6 +420,9 @@ export class OriginalCreateInkOperationApplier implements SyncedOperationApplier
         inkEffectsTinted: payload.inkEffectsTinted,
         inkEffectPhase: styleEntry === undefined ? 0 : styleEntry.backingDashPhase,
         tapePattern: tapePattern,
+        // 1.4.2 CALLIGRAPHY 凿尖 nib：原版 CreateInk 字段 16/17 定点 uint16 → 弧度/比值。
+        nibAngle: decodeNibAngleUint16(payload.nibAngle),
+        nibFlatness: decodeNibFlatnessUint16(payload.nibFlatness),
       },
       transform: transform,
       // s06.G() multiplies Pencil width by 2.84 before the common cq.H() 2x padding.

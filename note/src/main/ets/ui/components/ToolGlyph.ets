@@ -19,12 +19,14 @@ export function toolGlyphKey(toolType: ToolType): string {
     case ToolType.LASER: return 'laser';
     case ToolType.ZOOM: return 'zoom';
     case ToolType.REVIEW: return 'tape';
+    case ToolType.CALLIGRAPHY: return 'calligraphy';
     default: return 'text';
   }
 }
 
 // Tools whose fill carries the user's brush color (x5f cq.h brush-color tint).
-const COLOR_GLYPHS: string[] = ['pen', 'pencil', 'highlighter'];
+// 1.4.2 j87.b：calligraphy_* 为彩色书写工具层（fill 取 brushColor）。
+const COLOR_GLYPHS: string[] = ['pen', 'pencil', 'highlighter', 'calligraphy'];
 
 // tn8 layer tints: overlay/highlight are the theme's light token, shadow the dark
 // token. Alpha split by theme (dark ? darkVal : lightVal) from tn8/gt.

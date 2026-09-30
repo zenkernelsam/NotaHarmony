@@ -112,6 +112,7 @@
     { "name": "crop_reset", "value": "重置裁剪" },
     { "name": "crop_confirm", "value": "应用裁剪" },
     { "name": "pen", "value": "钢笔" },
+    { "name": "calligraphy", "value": "书法笔" },
     { "name": "pencil", "value": "铅笔" },
     { "name": "highlighter", "value": "荧光笔" },
     { "name": "eraser", "value": "橡皮擦" },

@@ -11,6 +11,8 @@ import { ToolGlyph } from '../components/ToolGlyph';
 export function toolTypeLabel(toolType: ToolType): Resource {
   switch (toolType) {
     case ToolType.PEN: return $r('app.string.pen');
+    // 原版 ui_tools__calligraphy = "Calligraphy"（eti.G 凿尖笔工具标签）。
+    case ToolType.CALLIGRAPHY: return $r('app.string.calligraphy');
     case ToolType.PENCIL: return $r('app.string.pencil');
     case ToolType.HIGHLIGHTER: return $r('app.string.highlighter');
     case ToolType.WHOLE_ERASER: return $r('app.string.eraser');

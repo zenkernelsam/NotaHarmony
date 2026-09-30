@@ -43,6 +43,24 @@ export class OriginalInkPathDeferredError extends Error {
 
 const MAX_PATH_ELEMENTS: number = 65535;
 
+// 1.4.2 CALLIGRAPHY 凿尖 nib 量化（xal.g(d,range,signed)=round(d·(signed?65536:65535)/range)）：
+//   nibAngle   signed=true  range=2π → raw·2π/65536
+//   nibFlatness signed=false range=1 → raw/65535
+// 原样返回弧度/比值；null 透传（无 nib 工具）。
+export function decodeNibAngleUint16(raw: number | null): number | null {
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+  return (raw & 0xffff) * (Math.PI * 2 / 65536);
+}
+
+export function decodeNibFlatnessUint16(raw: number | null): number | null {
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+  return (raw & 0xffff) / 65535;
+}
+
 export function decodeOriginalInkPath(bytes: Uint8Array): DecodedOriginalInkPath {
   return decodeCanonicalInkPath(bytes,
     'CREATE_INK_PATH_VERSION_UNSUPPORTED',

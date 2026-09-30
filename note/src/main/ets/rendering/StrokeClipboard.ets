@@ -170,6 +170,8 @@ export function cloneStrokeElement(stroke: StrokeElementData, id: string = strok
     inkEffectsTinted: stroke.renderSpec.inkEffectsTinted,
     inkEffectPhase: stroke.renderSpec.inkEffectPhase,
     tapePattern: stroke.renderSpec.tapePattern,
+    nibAngle: stroke.renderSpec.nibAngle,
+    nibFlatness: stroke.renderSpec.nibFlatness,
   };
   return {
     id: id,

@@ -327,7 +327,8 @@ export class OriginalInkPartialEraser {
         Math.abs(point.widthFactor - firstWidthFactor) > GEOMETRY_EPSILON);
     if (attributedWidth) {
       const outline: OutlineResult = new WidthOutlineBuilder().build(
-        stroke.pathPoints, baseWidth, stroke.cubicSegments);
+        stroke.pathPoints, baseWidth, stroke.cubicSegments,
+        stroke.renderSpec.nibAngle, stroke.renderSpec.nibFlatness);
       if (!outline.isValid || outline.outlinePoints.length < 3) {
         return new drawing.Path();
       }

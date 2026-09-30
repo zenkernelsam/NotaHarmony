@@ -501,7 +501,7 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
         } else {
           const builder: WidthOutlineBuilder = new WidthOutlineBuilder();
           const outline = builder.build(stroke.pathPoints, stroke.renderSpec.brushWidth,
-            stroke.cubicSegments);
+            stroke.cubicSegments, stroke.renderSpec.nibAngle, stroke.renderSpec.nibFlatness);
           if (outline.isValid) {
             c.moveTo(outline.outlinePoints[0].x, outline.outlinePoints[0].y);
             for (let index: number = 1; index < outline.outlinePoints.length; index++) {
@@ -595,7 +595,8 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     const c: Canvas2DDrawingContext = ctx as Canvas2DDrawingContext;
     const builder: WidthOutlineBuilder = new WidthOutlineBuilder();
     const outline = builder.build(
-      stroke.pathPoints, stroke.renderSpec.brushWidth, stroke.cubicSegments);
+      stroke.pathPoints, stroke.renderSpec.brushWidth, stroke.cubicSegments,
+      stroke.renderSpec.nibAngle, stroke.renderSpec.nibFlatness);
     if (!outline.isValid) {
       return;
     }
@@ -759,7 +760,7 @@ export class Canvas2DStrokeRenderer implements StrokeRenderer {
     if (customPath === null || customPath.length === 0) {
       const builder: WidthOutlineBuilder = new WidthOutlineBuilder();
       const outline = builder.build(stroke.pathPoints, stroke.renderSpec.brushWidth,
-        stroke.cubicSegments);
+        stroke.cubicSegments, stroke.renderSpec.nibAngle, stroke.renderSpec.nibFlatness);
       if (!outline.isValid) {
         return;
       }

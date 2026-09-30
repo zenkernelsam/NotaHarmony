@@ -13,6 +13,7 @@ import {
   originalInkGeometryMatches, rebuildOriginalInkGeometry, RebuiltOriginalInkGeometry,
 } from './OriginalAddPathElementsOperation';
 import {
+  decodeNibAngleUint16, decodeNibFlatnessUint16,
   decodeOriginalAuxiliaryInkPath, decodeOriginalInkPathReplacement,
   DecodedOriginalAuxiliaryInkPath, originalInkTransform, OriginalInkPathDeferredError,
 } from './OriginalInkPathCodec';
@@ -605,6 +606,11 @@ export class OriginalModifyInkOperationApplier implements SyncedOperationApplier
         inkEffects: inkEffects, inkEffectsTinted: inkEffectsTinted,
         inkEffectPhase: styleMap.length === 0 ? 0 : styleMap[0].backingDashPhase,
         tapePattern: tapePattern,
+        // 1.4.2 CALLIGRAPHY nib：ModifyInk 携带新 nib（字段14/15）时更新，否则沿用原笔画。
+        nibAngle: payload.nibAngle === null || payload.nibAngle === undefined ?
+          stroke.renderSpec.nibAngle : decodeNibAngleUint16(payload.nibAngle),
+        nibFlatness: payload.nibFlatness === null || payload.nibFlatness === undefined ?
+          stroke.renderSpec.nibFlatness : decodeNibFlatnessUint16(payload.nibFlatness),
       };
       const candidateStroke: StrokeElementData = copyStroke(stroke, renderSpec, transform,
         customPath, fillPath, fillColorValue, styleMap);
@@ -1626,6 +1632,9 @@ function replacementStroke(replacement: PlannedReplacement): StrokeElementData {
       inkEffectPhase: replacement.styleMap.length === 0 ? 0 :
         replacement.styleMap[0].backingDashPhase,
       tapePattern: replacement.tapePattern,
+      // 1.4.2 CALLIGRAPHY nib：沿用原笔画凿尖配置（重建路径不改变 nib）。
+      nibAngle: stroke.renderSpec.nibAngle,
+      nibFlatness: stroke.renderSpec.nibFlatness,
     },
     transform: replacement.transform,
     bounds: replacement.geometry.bounds,

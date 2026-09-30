@@ -2,7 +2,7 @@ import {
   BrushStyle, EditorToolboxState, ToolState, ToolType, brushStyleToInkStyle,
   TRAY_TYPE_PRIMARY, TRAY_TYPE_SECONDARY, TRAY_TYPE_HIDDEN, MAX_PRIMARY_TOOLS,
 } from '../../core/model/BrushTypes';
-import { RenderSpec, TapePattern } from '../../core/model/StrokeTypes';
+import { InkStyle, RenderSpec, TapePattern } from '../../core/model/StrokeTypes';
 import { ToolRepository } from '../../data/RepositoryInterfaces';
 import { EditorSettingsRepository } from '../../data/EditorSettingsStore';
 
@@ -10,6 +10,9 @@ const DEFAULT_TOOLBOX_OWNER: string = 'primary-editor';
 
 @Observed
 export class EditorViewModel {
+  // 1.4.2 aj1.java:48 CalligraphySelection 缺省：nibAngle=π/2（90°），nibFlatness=0.75。
+  static readonly DEFAULT_NIB_ANGLE: number = Math.PI / 2;
+  static readonly DEFAULT_NIB_FLATNESS: number = 0.75;
   currentTool: ToolType = ToolType.PEN;
   // 原版 g39.a() 标记的等价物之一：r5f 手势面切换 → Q.a() 打点；
   // 200ms 内长按粘贴菜单（yqa/g39.b()）被抑制。
@@ -48,6 +51,10 @@ export class EditorViewModel {
   // 原版 w31.f (BrushState.tapePattern)：REVIEW 工具的当前胶带图案，
   // rz1:1075 缺省 0 = STRIPES；仅 REVIEW 激活时有意义。
   activeTapePattern: TapePattern = TapePattern.STRIPES;
+  // 1.4.2 CALLIGRAPHY 凿尖 nib（per-tool ToolState.nibAngle/nibFlatness）。
+  // nibFlatness∈(0,1]：1=圆头无方向差；越小方向差越强。
+  calligraphyNibAngle: number = EditorViewModel.DEFAULT_NIB_ANGLE;
+  calligraphyNibFlatness: number = EditorViewModel.DEFAULT_NIB_FLATNESS;
   toolStateLoading: boolean = true;
   toolStateLoadFailed: boolean = false;
   // Structural mirror of `states` reassigned on every tray mutation so @ObjectLink
@@ -206,12 +213,19 @@ export class EditorViewModel {
     return {
       color: this.brushColor,
       brushWidth: this.brushWidth,
-      inkStyle: brushStyleToInkStyle(this.brushStyle),
+      // 1.4.2 CALLIGRAPHY：凿尖宽度由 nib 调制，走变宽路径（VARIABLE_WIDTH），
+      // 不继承所在行的 MONO/TAPER 样式。
+      inkStyle: this.currentTool === ToolType.CALLIGRAPHY ? InkStyle.VARIABLE_WIDTH :
+        brushStyleToInkStyle(this.brushStyle),
       isHighlighter: this.currentTool === ToolType.HIGHLIGHTER,
       isPencil: this.currentTool === ToolType.PENCIL,
       // 原版 dm2：tapePattern 仅随 TAPE(a6f.S=REVIEW) 工具的 CreateInkOp 下发。
       tapePattern: this.currentTool === ToolType.REVIEW ?
         this.activeTapePattern : undefined,
+      // 1.4.2 CALLIGRAPHY：仅凿尖工具下发 nibAngle/nibFlatness（其余工具为 null，
+      // RenderSpec 缺省即普通变宽，不回退）。
+      nibAngle: this.currentTool === ToolType.CALLIGRAPHY ? this.calligraphyNibAngle : null,
+      nibFlatness: this.currentTool === ToolType.CALLIGRAPHY ? this.calligraphyNibFlatness : null,
     };
   }
 
@@ -840,6 +854,11 @@ export class EditorViewModel {
     return this.currentTool === ToolType.LASER;
   }
 
+  // 1.4.2 eti.G：凿尖笔为书写工具（持久变宽笔画），有颜色/宽度控件 + nib 选项。
+  isCalligraphyActive(): boolean {
+    return this.currentTool === ToolType.CALLIGRAPHY;
+  }
+
   // Row-level selection check: with duplicated tools the toolbar highlights the
   // exact tool_id, not every row sharing the type.
   isActiveTool(toolId: string): boolean {
@@ -850,7 +869,8 @@ export class EditorViewModel {
   // 同样暴露颜色/宽度控件。
   supportsBrushControls(): boolean {
     return this.currentTool === ToolType.PEN || this.currentTool === ToolType.PENCIL ||
-      this.currentTool === ToolType.HIGHLIGHTER || this.currentTool === ToolType.REVIEW;
+      this.currentTool === ToolType.HIGHLIGHTER || this.currentTool === ToolType.REVIEW ||
+      this.currentTool === ToolType.CALLIGRAPHY;
   }
 
   // 原版 rz1.p()：LASER 有 4 档颜色井但无宽度/样式井（15pt 固定单色宽）。
@@ -985,6 +1005,11 @@ export class EditorViewModel {
     if (state.toolType === ToolType.REVIEW) {
       this.activeTapePattern = state.tapePattern ?? TapePattern.STRIPES;
     }
+    // 1.4.2 CALLIGRAPHY：per-tool nib 配置（foa NARROW/WIDE），缺省沿用默认凿尖。
+    if (state.toolType === ToolType.CALLIGRAPHY) {
+      this.calligraphyNibAngle = state.nibAngle ?? EditorViewModel.DEFAULT_NIB_ANGLE;
+      this.calligraphyNibFlatness = state.nibFlatness ?? EditorViewModel.DEFAULT_NIB_FLATNESS;
+    }
   }
 
   private toolboxSnapshot(): EditorToolboxState {
@@ -1073,12 +1098,19 @@ export class EditorViewModel {
 
   private createDefaultStates(ownerId: string): ToolState[] {
     return [
+      // 1.4.2 cc3.G() 默认 Primary 托盘序：PEN@0 → CALLIGRAPHY@1 → PENCIL@2 →
+      // HIGHLIGHTER@3 → …（升级 SQL zmb.java:135 同样插在 pen.trayIndex+1）。
       this.createState('pen', ownerId, ToolType.PEN, 0, -16777216, 36, BrushStyle.MONO),
-      this.createState('pencil', ownerId, ToolType.PENCIL, 1, -16777216, 36, BrushStyle.MONO),
-      this.createState('highlighter', ownerId, ToolType.HIGHLIGHTER, 2, -256, 36, BrushStyle.MONO),
-      this.createState('eraser', ownerId, ToolType.WHOLE_ERASER, 3, -16777216, 20, BrushStyle.MONO),
-      this.createState('selection', ownerId, ToolType.SELECTION, 4, -16777216, 36, BrushStyle.MONO),
-      this.createState('text', ownerId, ToolType.DEFAULT, 5, -16777216, 36, BrushStyle.MONO),
+      // CALLIGRAPHY@1：黑/-16777216、widthSize=1.0、nib(angle=π/2,flatness=0.75)，
+      // 原版无专属色井/宽井（F()/I() 均无 eti.G 行）。
+      this.createState('calligraphy', ownerId, ToolType.CALLIGRAPHY, 1, -16777216, 1.0,
+        BrushStyle.MONO, TRAY_TYPE_PRIMARY, undefined, 0, 0,
+        EditorViewModel.DEFAULT_NIB_ANGLE, EditorViewModel.DEFAULT_NIB_FLATNESS),
+      this.createState('pencil', ownerId, ToolType.PENCIL, 2, -16777216, 36, BrushStyle.MONO),
+      this.createState('highlighter', ownerId, ToolType.HIGHLIGHTER, 3, -256, 36, BrushStyle.MONO),
+      this.createState('eraser', ownerId, ToolType.WHOLE_ERASER, 4, -16777216, 20, BrushStyle.MONO),
+      this.createState('selection', ownerId, ToolType.SELECTION, 5, -16777216, 36, BrushStyle.MONO),
+      this.createState('text', ownerId, ToolType.DEFAULT, 6, -16777216, 36, BrushStyle.MONO),
       // 原版 rz1.r()：LASER 默认在 Secondary 托盘 index 1；POINTER(0)/
       // RULER(4) 留空位——POINTER=多人 presence 光标（ac4.c0/b0 服务端协作
       // 域 fail-closed），RULER=s01.a0 无条件隐藏（ADR-0644/0642）。
@@ -1100,7 +1132,7 @@ export class EditorViewModel {
   private createState(toolId: string, ownerId: string, toolType: ToolType, trayIndex: number,
     color: number, width: number, style: BrushStyle, trayType: number = TRAY_TYPE_PRIMARY,
     tapePattern?: TapePattern, colorWellIndex: number = 0,
-    widthWellIndex: number = 0): ToolState {
+    widthWellIndex: number = 0, nibAngle?: number, nibFlatness?: number): ToolState {
     return {
       toolId: toolId,
       trayOwnerId: ownerId,
@@ -1117,6 +1149,8 @@ export class EditorViewModel {
       tapePattern: tapePattern ?? null,
       selectionIsFreehand: false,
       eraserIsPartial: false,
+      nibAngle: nibAngle ?? null,
+      nibFlatness: nibFlatness ?? null,
     };
   }
 
@@ -1145,6 +1179,8 @@ export class EditorViewModel {
       tapePattern: state.tapePattern ?? null,
       selectionIsFreehand: state.selectionIsFreehand,
       eraserIsPartial: state.eraserIsPartial,
+      nibAngle: state.nibAngle ?? null,
+      nibFlatness: state.nibFlatness ?? null,
     };
   }
 }

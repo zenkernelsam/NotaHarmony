@@ -3852,8 +3852,11 @@ export struct NoteCanvasView {
     const tool: ToolType = this.viewModel.currentTool;
     // 原版：straight_lines 与 shapes_detection 是两个独立开关（x22 case 0/1），
     // 任一开启即允许按住检测；结果按类别再各自过滤（见 tryShapeDetect）。
+    // 1.4.2 CALLIGRAPHY 属笔族（eti.G，与 PEN/PENCIL/HIGHLIGHTER 同级），
+    // 原版按住整形对手写笔工具一律生效。
     return (this.viewModel.straightLinesEnabled || this.viewModel.shapeDetectionEnabled) &&
-      (tool === ToolType.PEN || tool === ToolType.PENCIL || tool === ToolType.HIGHLIGHTER);
+      (tool === ToolType.PEN || tool === ToolType.PENCIL || tool === ToolType.HIGHLIGHTER ||
+        tool === ToolType.CALLIGRAPHY);
   }
 
   private shapeHoldPauseThreshold(event: TouchEvent): number {
@@ -9669,6 +9672,8 @@ export struct NoteCanvasView {
         inkEffectsTinted: s.renderSpec.inkEffectsTinted,
         inkEffectPhase: s.renderSpec.inkEffectPhase,
         tapePattern: s.renderSpec.tapePattern,
+        nibAngle: s.renderSpec.nibAngle,
+        nibFlatness: s.renderSpec.nibFlatness,
       },
       transform: s.transform.slice(),
       bounds: {
