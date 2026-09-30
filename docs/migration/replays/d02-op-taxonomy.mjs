@@ -1,24 +1,19 @@
-// Phase 1275 — haa 32-op taxonomy + tmf timestamp + sdf entity
-import { readFileSync } from 'fs';
+// Phase 1308 — op-taxonomy divergence (Harmony OpTypes vs haa)
+import { readFileSync, existsSync } from 'fs';
 import { strict as assert } from 'assert';
-const D = 'C:/Users/Cisco He/Desktop/Notability/decompiled_1.0.3/sources/defpackage/';
-const R = f => readFileSync(D + f, 'utf8');
+const S = 'C:/HarmonyProject/NotaHarmony/note/src/main/ets/core/model/OpTypes.ets';
+const d = readFileSync(S, 'utf8');
 let n = 0;
 const t = (name, ok) => { assert.ok(ok, name); console.log('ok - ' + name); n++; };
 
-const haa = R('haa.java');
-t('haa text ops INSERT/REMOVE/REVIVE', haa.includes('INSERT_CHAR') && haa.includes('REMOVE_CHARS') && haa.includes('REVIVE_CHARS'));
-t('haa style ops', haa.includes('MODIFY_STYLE') && haa.includes('MODIFY_PARAGRAPH_STYLE') && haa.includes('CLEAR_STYLE'));
-t('haa ink ops', haa.includes('CREATE_INK') && haa.includes('ADD_PATH_ELEMENTS') && haa.includes('MODIFY_INK'));
-t('haa shape/group/block ops', haa.includes('CREATE_SHAPE') && haa.includes('CREATE_GROUP') && haa.includes('CREATE_BLOCK') && haa.includes('MODIFY_POSITIONS'));
-t('haa pdf/comment/collab ops', haa.includes('MODIFY_PDF_FIELD') && haa.includes('UPDATE_CHECKBOX') && haa.includes('CREATE_COMMENT') && haa.includes('PEER_INTERACTION'));
-t('haa 32 ops byte enum', (haa.match(/\(byte\) \d+\)/g)||[]).length >= 30);
-const tmf = R('tmf.java');
-t('tmf long Comparable timestamp', tmf.includes('implements Comparable') && tmf.includes('long I'));
-const sdf = R('sdf.java');
-t('sdf entity cee+qo5+mmf', sdf.includes('extends cee implements ka4') && sdf.includes('qo5') && sdf.includes('mmf'));
-const xwd = R('xwd.java');
-t('xwd Struct ByteBuffer', xwd.includes('ByteBuffer J') && xwd.includes('int I'));
-const uq9 = R('uq9.java');
-t('uq9 references tmf/haa/sdf', uq9.includes('tmf') && uq9.includes('haa') && uq9.includes('sdf'));
+t('ORIGINAL_ bridge ops', d.includes('ORIGINAL_CREATE_PAGE') && d.includes('ORIGINAL_INSERT_TEXT'));
+t('ORIGINAL_SET_METADATA', d.includes('ORIGINAL_SET_METADATA'));
+t('ORIGINAL_MODIFY ops', d.includes('ORIGINAL_MODIFY_TEXT_STYLE'));
+t('UNDO as op (divergence)', d.includes('UNDO'));
+t('REDO as op', d.includes('REDO'));
+t('ERASE ops', d.includes('ERASE_PARTIAL') && d.includes('ERASE_WHOLE'));
+t('element-granularity ops', d.includes('INSERT_ELEMENTS') || d.includes('REMOVE_TEXT'));
+t('PAGE_SNAPSHOT', d.includes('PAGE_SNAPSHOT'));
+t('REORDER_PAGES', d.includes('REORDER_PAGES'));
+t('op codec exists', existsSync('C:/HarmonyProject/NotaHarmony/note/src/main/ets/data/BinaryOpCodec.ets'));
 console.log('op-taxonomy replay: ' + n + '/10 checks green');
