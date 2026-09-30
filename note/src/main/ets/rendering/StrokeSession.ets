@@ -5,7 +5,7 @@ import {
   PencilSplatPoint, RenderSpec, InkStyle,
   OriginalInkCreateMetadata,
 } from '../core/model/StrokeTypes';
-import { CubicSegment, Rect2D } from '../core/model/GeometryTypes';
+import { CubicSegment, Point2D, Rect2D } from '../core/model/GeometryTypes';
 import { ForceSmoother } from '../core/algorithm/ForceSmoother';
 import {
   CubicAttributeSplitOptions, CubicFitResult, CubicFitter, CubicSourceRange,
@@ -22,6 +22,9 @@ export interface StrokeSessionConfig {
 }
 
 export class StrokeSession {
+  // 1.4.2 CALLIGRAPHY 位置防抖 EMA 响应系数（Google Ink positionModeler 为私有，
+  // 0.45 为低滞后/适度平滑的近似折中）。仅在工具 stabilization 开启时生效。
+  private static readonly STABILIZATION_ALPHA: number = 0.45;
   private smoother: ForceSmoother;
   private fitter: CubicFitter;
   private outlineBuilder: WidthOutlineBuilder;
@@ -48,6 +51,12 @@ export class StrokeSession {
   private originalCreate: OriginalInkCreateMetadata | null = null;
   // T-040 审核修复：画布缩放感知（拟合容差按屏幕空间计算）
   private zoom: number = 1.0;
+  // 1.4.2 aj1.c nibStabilization：CALLIGRAPHY 位置平滑（原版在 Google Ink
+  // positionModeler 内，算法私有；此处以指数滑动平均近似，仅显式开启时生效）。
+  private stabilizationActive: boolean = false;
+  private stabX: number = 0;
+  private stabY: number = 0;
+  private stabInit: boolean = false;
 
   constructor(renderSpec: RenderSpec, config?: Partial<StrokeSessionConfig>) {
     this.renderSpec = renderSpec;
@@ -97,6 +106,10 @@ export class StrokeSession {
     this.originalCreate = originalCreate;
     this.strokeId = originalCreate === null ? this.generateStrokeId() :
       `op:${originalCreate.timestamp.toString(16)}:${originalCreate.siteId.toString(16)}`;
+    // 1.4.2 CALLIGRAPHY：RenderSpec.stabilization===true 才启用位置平滑；
+    // 其余工具 stabilization 为 null → 不启用（行为与既往一致）。
+    this.stabilizationActive = spec.stabilization === true;
+    this.stabInit = false;
     this.smoother.reset();
     // 按当前笔刷宽度重建 splat 生成器（xaa 的 spacing = c0()），seed 用笔画起始时间戳
     this.splatGenerator = new PencilSplatGenerator({ spacing: this.renderSpec.brushWidth });
@@ -116,8 +129,9 @@ export class StrokeSession {
     const smoothed: InputPoint[] = this.smoother.smooth(batch.points);
     for (const p of smoothed) {
       this.rawPoints.push(p);
+      const stabilized = this.stabilizePosition(p.x, p.y);
       this.pathPoints.push({
-        position: { x: p.x, y: p.y },
+        position: stabilized,
         widthFactor: this.pressureToWidthFactor(p.pressure),
         pressure: p.pressure,
         altitudeAngleRadians: p.tiltRadians,
@@ -325,6 +339,25 @@ export class StrokeSession {
       return 1.0;  // 无压感
     }
     return this.config.widthFactorMin + this.config.widthFactorRange * pressure;
+  }
+
+  // 1.4.2 aj1.c nibStabilization 的 Harmony 近似：对输入位置做指数滑动平均（EMA），
+  // 抑制凿尖笔的抖动。响应系数 STABILIZATION_ALPHA 越小越平滑（滞后越大）。
+  // 原版的精确平滑在 Google Ink positionModeler 内部（私有），此为方向性等价实现。
+  private stabilizePosition(x: number, y: number): Point2D {
+    if (!this.stabilizationActive) {
+      return { x: x, y: y };
+    }
+    if (!this.stabInit) {
+      this.stabX = x;
+      this.stabY = y;
+      this.stabInit = true;
+      return { x: x, y: y };
+    }
+    const alpha: number = StrokeSession.STABILIZATION_ALPHA;
+    this.stabX += (x - this.stabX) * alpha;
+    this.stabY += (y - this.stabY) * alpha;
+    return { x: this.stabX, y: this.stabY };
   }
 
   private toPathPoint(p: InputPoint): StrokePathPoint {

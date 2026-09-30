@@ -55,6 +55,8 @@ export class EditorViewModel {
   // nibFlatness∈(0,1]：1=圆头无方向差；越小方向差越强。
   calligraphyNibAngle: number = EditorViewModel.DEFAULT_NIB_ANGLE;
   calligraphyNibFlatness: number = EditorViewModel.DEFAULT_NIB_FLATNESS;
+  // 1.4.2 aj1.c / ToolStateEntity.stabilization：凿尖输入防抖开关（zmb.java:137 默认 1）。
+  calligraphyStabilization: boolean = true;
   // 1.4.2 SHAPE 工具当前形状（per-tool ToolState.shapeKind，缺省 RECTANGLE，r5g.F）。
   activeShapeKind: ShapeKind = ShapeKind.RECTANGLE;
   toolStateLoading: boolean = true;
@@ -228,6 +230,8 @@ export class EditorViewModel {
       // RenderSpec 缺省即普通变宽，不回退）。
       nibAngle: this.currentTool === ToolType.CALLIGRAPHY ? this.calligraphyNibAngle : null,
       nibFlatness: this.currentTool === ToolType.CALLIGRAPHY ? this.calligraphyNibFlatness : null,
+      // 1.4.2 CALLIGRAPHY：防抖开关随 live RenderSpec 下发给 StrokeSession（不入 ink op）。
+      stabilization: this.currentTool === ToolType.CALLIGRAPHY ? this.calligraphyStabilization : null,
     };
   }
 
@@ -360,6 +364,38 @@ export class EditorViewModel {
     }
     return this.updateState(toolId, (state: ToolState): void => {
       state.shapeKind = kind;
+    });
+  }
+
+  // 1.4.2 ij1/pxi case0 (wp int)：凿尖角滑块以度数偏移提交，内部存弧度
+  // nibAngle = π/2 + radians(offset)。作用于激活的 CALLIGRAPHY 工具。
+  async setCalligraphyNibAngle(angleRadians: number): Promise<boolean> {
+    if (!this.isCalligraphyActive() || !Number.isFinite(angleRadians)) {
+      return false;
+    }
+    return this.updateActiveState((state: ToolState): void => {
+      state.nibAngle = angleRadians;
+    });
+  }
+
+  // 1.4.2 ij1/pxi case1 (is5 float)：扁率滑块 [0,0.95] 步 0.05（20 档）。
+  async setCalligraphyNibFlatness(flatness: number): Promise<boolean> {
+    if (!this.isCalligraphyActive() || !Number.isFinite(flatness) ||
+      flatness < 0 || flatness > 1) {
+      return false;
+    }
+    return this.updateActiveState((state: ToolState): void => {
+      state.nibFlatness = flatness;
+    });
+  }
+
+  // 1.4.2 ij1/pxi default (g0c 10)：防抖开关 → ToolStateEntity.stabilization INTEGER。
+  async setCalligraphyStabilization(enabled: boolean): Promise<boolean> {
+    if (!this.isCalligraphyActive()) {
+      return false;
+    }
+    return this.updateActiveState((state: ToolState): void => {
+      state.stabilization = enabled ? 1 : 0;
     });
   }
 
@@ -893,6 +929,13 @@ export class EditorViewModel {
       this.currentTool === ToolType.CALLIGRAPHY || this.currentTool === ToolType.SHAPE;
   }
 
+  // 1.4.2 k31.E()：STYLE 设置仅在工具实现 n5h 时存在——只有 csi(PEN)/wri(HIGHLIGHTER)
+  // 实现 n5h；CALLIGRAPHY(sri) 用 nib 面板、SHAPE(psi) 仅 SHAPE_KIND、PENCIL(esi)/
+  // REVIEW(jsi) 均无 STYLE。故画笔样式行仅 PEN/HIGHLIGHTER 显示。
+  supportsBrushStyleControls(): boolean {
+    return this.currentTool === ToolType.PEN || this.currentTool === ToolType.HIGHLIGHTER;
+  }
+
   // 原版 rz1.p()：LASER 有 4 档颜色井但无宽度/样式井（15pt 固定单色宽）。
   supportsColorControls(): boolean {
     return this.supportsBrushControls() || this.currentTool === ToolType.LASER;
@@ -1029,6 +1072,10 @@ export class EditorViewModel {
     if (state.toolType === ToolType.CALLIGRAPHY) {
       this.calligraphyNibAngle = state.nibAngle ?? EditorViewModel.DEFAULT_NIB_ANGLE;
       this.calligraphyNibFlatness = state.nibFlatness ?? EditorViewModel.DEFAULT_NIB_FLATNESS;
+      // aj1.c stabilization：zmb 迁移种子 =1；NULL/!=0 视为开。
+      this.calligraphyStabilization =
+        state.stabilization === null || state.stabilization === undefined ||
+        state.stabilization !== 0;
     }
     // 1.4.2 SHAPE：per-tool shapeKind（r5g），缺省 RECTANGLE。
     if (state.toolType === ToolType.SHAPE) {

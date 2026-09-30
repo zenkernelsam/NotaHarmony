@@ -77,6 +77,10 @@ export interface RenderSpec {
   // 凿尖模型按运笔方向调制宽度；缺省/为 null 时退化为普通变宽（VARIABLE_WIDTH）。
   nibAngle?: number | null;
   nibFlatness?: number | null;
+  // 1.4.2 aj1.nibStabilization / ToolStateEntity.stabilization：CALLIGRAPHY 输入防抖。
+  // 仅 live-draw 时由 StrokeSession 读，不随笔画持久化（ink 格式无此字段）。
+  // null/undefined = 默认开；显式 false 关闭该笔画的输入平滑。
+  stabilization?: boolean | null;
 }
 
 export enum TapePattern {

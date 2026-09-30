@@ -9,6 +9,7 @@ import { ToolGlyph, toolGlyphKey } from '../components/ToolGlyph';
 import { STROKE_INDICATORS, StrokeIndicatorPaths } from '../components/StrokeIndicators';
 import { BRUSH_STYLE_GLYPHS, BrushStyleGlyph } from '../components/BrushStyleGlyphs';
 import { WidthSlider } from '../components/WidthSlider';
+import { CalligraphyNibPanel } from '../components/CalligraphyNibPanel';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { common } from '@kit.AbilityKit';
@@ -522,7 +523,19 @@ export struct EditorToolbar {
         .justifyContent(FlexAlign.Center)
         .padding({ top: 8 })
       }
-      if (this.viewModel.supportsBrushControls()) {
+      // 1.4.2 k31.E()：STYLE 样式行仅 n5h 工具（PEN/HIGHLIGHTER）显示；CALLIGRAPHY
+      // 改显凿尖 nib 面板（ij1），SHAPE/PENCIL/REVIEW 均无 STYLE 行。
+      if (this.viewModel.isCalligraphyActive()) {
+        Row() {
+          CalligraphyNibPanel({
+            viewModel: this.viewModel,
+            photoImportLeaseActive: this.photoImportLeaseActive,
+          })
+        }
+          .width('100%')
+          .justifyContent(FlexAlign.Center)
+          .padding({ top: 8 })
+      } else if (this.viewModel.supportsBrushStyleControls()) {
         Row() {
           this.StyleButton($r('app.string.style_mono'), BrushStyle.MONO)
           this.StyleButton($r('app.string.style_taper'), BrushStyle.TAPER)

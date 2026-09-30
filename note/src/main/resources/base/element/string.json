@@ -397,6 +397,22 @@
       "value": "Calligraphy"
     },
     {
+      "name": "calligraphy_angle",
+      "value": "Angle: %d°"
+    },
+    {
+      "name": "calligraphy_flatness",
+      "value": "Flatness: %.2f"
+    },
+    {
+      "name": "stabilization",
+      "value": "Stabilization"
+    },
+    {
+      "name": "reset",
+      "value": "Reset"
+    },
+    {
       "name": "shape",
       "value": "Shape"
     },
