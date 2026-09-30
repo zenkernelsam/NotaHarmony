@@ -7,6 +7,7 @@ import {
   EditorSettingsStore, RULER_UNITS_IMPERIAL, RULER_UNITS_METRIC,
 } from '../../data/EditorSettingsStore';
 import { ThemeMode, ThemeTokens } from '../theme/EditorTheme';
+import { ToolGlyph } from '../components/ToolGlyph';
 import {
   OriginalHandwritingLanguageOption,
   ORIGINAL_HANDWRITING_DEFAULT_LOCALE_CODE,
@@ -530,10 +531,16 @@ struct SettingsPage {
   build() {
     Column() {
       Row() {
-        Button('<')
+        Button() {
+          // 原版返回 = ui_designsystem__back_arrow（ue4.r，go5.b 单色调）。
+          ToolGlyph({
+            glyph: 'back_arrow',
+            contentColor: this.resolveTokens().textPrimary,
+            iconSize: 22,
+          })
+        }
           .width(48)
           .height(40)
-          .fontSize(20)
           .accessibilityText($r('app.string.back'))
           .onClick(() => {
             router.back();

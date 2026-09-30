@@ -14,6 +14,7 @@ import { EditorViewModel } from './EditorViewModel';
 import { Canvas2DRenderContext, Canvas2DStrokeRenderer } from '../../core/adaptation/Canvas2DStrokeRenderer';
 import { BitmapTransferTracker } from '../../core/adaptation/BitmapTransferTracker';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+import { ToolGlyph } from '../components/ToolGlyph';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 
 const TAPE_PATTERN_ORDER: TapePattern[] = [
@@ -123,8 +124,14 @@ export struct TapePatternPicker {
   build() {
     Column() {
       Row() {
-        Button('‹')
-          .fontSize(16)
+        Button() {
+          // 原版返回 = ui_designsystem__chevron_left（d32 同款 go5.b 单色调）。
+          ToolGlyph({
+            glyph: 'chevron_left',
+            contentColor: this.resolveTokens().textPrimary,
+            iconSize: 22,
+          })
+        }
           .height(32)
           .accessibilityText($r('app.string.back'))
           .onClick((): void => this.onClose())

@@ -3,6 +3,7 @@ import { originalDefaultNoteBackgroundSettings } from '../../core/model/PageBack
 import { PageSettingsPanel } from '../components/PageSettingsPanel';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+import { ToolGlyph } from '../components/ToolGlyph';
 
 interface PopupStateChangeEvent {
   isVisible: boolean;
@@ -126,10 +127,16 @@ export struct PageManagerBar {
             }
             this.onAdd();
           })
-        Button('...')
+        Button() {
+          // 原版页管理溢出菜单 = ui_designsystem__more（三点）。
+          ToolGlyph({
+            glyph: 'more',
+            contentColor: this.resolveTokens().textPrimary,
+            iconSize: 20,
+          })
+        }
           .width(44)
           .height(40)
-          .fontSize(12)
           .margin({ left: 4, right: 8 })
           .enabled(!this.busy && !this.photoImportLeaseActive)
           .accessibilityText($r('app.string.more_page_actions'))

@@ -41,8 +41,8 @@ const toggleSpacingSettings = panel.slice(
 assert.match(toggleSpacingSettings,
   /if \(this\.busy \|\| this\.photoImportLeaseActive \|\|\s+this\.sharedBusy \|\| this\.spacingSaveBusy \|\| this\.paperStore === null\) \{\s+return;\s+\}/);
 const spacingButton = body.slice(
-  body.indexOf("Button('⋯')"),
-  body.indexOf(".accessibilityText($r('app.string.template_settings'))", body.indexOf("Button('⋯')")));
+  body.indexOf("glyph: 'more'"),
+  body.indexOf(".accessibilityText($r('app.string.template_settings'))", body.indexOf("glyph: 'more'")));
 assert.match(spacingButton,
   /\.enabled\(!this\.busy && !this\.photoImportLeaseActive &&\s+!this\.sharedBusy && !this\.spacingSaveBusy &&\s+this\.paperStore !== null\)/);
 

@@ -33,7 +33,7 @@ const checks = [
   ['compact page manager keeps every frequent action in a fixed hit target',
     manager.includes("Button(compact ? '⚙' : $r('app.string.page_settings'))") &&
       manager.includes('.width(compact ? 44 : 112)') &&
-      manager.includes("Button('+')") && manager.includes("Button('...')") &&
+      manager.includes("Button('+')") && manager.includes("glyph: 'more'") &&
       manager.includes('.width(44)') && manager.includes('buildPageMenu()')],
   ['popup call site explicitly enables the bounded layout',
     manager.includes('popupMode: true')],

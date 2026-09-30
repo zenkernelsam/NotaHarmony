@@ -6,6 +6,7 @@ import { EditorViewModel } from './EditorViewModel';
 import { TapePatternPicker } from './TapePatternPicker';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+import { ToolGlyph } from '../components/ToolGlyph';
 
 export function toolTypeLabel(toolType: ToolType): Resource {
   switch (toolType) {
@@ -141,8 +142,14 @@ export struct ToolboxSettingsDialog {
           .fontSize(16)
           .fontColor(this.resolveTokens().textPrimary)
         Blank()
-        Button('✕')
-          .fontSize(14)
+        Button() {
+          // 原版 ue4.u = ui_designsystem__close_med_regular 关闭图标。
+          ToolGlyph({
+            glyph: 'close_med_regular',
+            contentColor: this.resolveTokens().textPrimary,
+            iconSize: 18,
+          })
+        }
           .height(32)
           // 原版 feature_note_toolbox__settings_close：关闭工具设置。
           .accessibilityText($r('app.string.close'))
@@ -177,10 +184,18 @@ export struct ToolboxSettingsDialog {
                 .fontSize(14)
                 .fontColor(this.resolveTokens().textPrimary)
                 .layoutWeight(1)
-              Button('▲')
+              // 上移/下移为 Harmony 等价控件（原版 ui_designsystem__drag_handle
+              // 拖拽重排在对话框内以按钮近似）。▲ 用 chevron_down 旋转 180°。
+              Button() {
+                ToolGlyph({
+                  glyph: 'chevron_down',
+                  contentColor: this.resolveTokens().textPrimary,
+                  iconSize: 18,
+                })
+              }
                 .height(28)
-                .fontSize(12)
                 .margin({ left: 2, right: 2 })
+                .rotate({ angle: 180 })
                 .enabled(tool.trayIndex > 0)
                 .opacity(tool.trayIndex > 0 ? 1 : 0.4)
                 .accessibilityText($r('app.string.move_tool_up'))
@@ -188,18 +203,29 @@ export struct ToolboxSettingsDialog {
                   this.runOp(this.viewModel.moveToolToIndex(tool.toolId, tool.trayType,
                     tool.trayIndex - 1));
                 })
-              Button('▼')
+              Button() {
+                ToolGlyph({
+                  glyph: 'chevron_down',
+                  contentColor: this.resolveTokens().textPrimary,
+                  iconSize: 18,
+                })
+              }
                 .height(28)
-                .fontSize(12)
                 .margin({ left: 2, right: 2 })
                 .accessibilityText($r('app.string.move_tool_down'))
                 .onClick(() => {
                   this.runOp(this.viewModel.moveToolToIndex(tool.toolId, tool.trayType,
                     tool.trayIndex + 1));
                 })
-              Button('⋯')
+              Button() {
+                // 原版单项工具溢出菜单 = ui_designsystem__more（三点）。
+                ToolGlyph({
+                  glyph: 'more',
+                  contentColor: this.resolveTokens().textPrimary,
+                  iconSize: 18,
+                })
+              }
                 .height(28)
-                .fontSize(14)
                 .margin({ left: 2, right: 2 })
                 // 原版 feature_note__toolbar_more_menu：单项工具溢出菜单。
                 .accessibilityText($r('app.string.toolbar_more_menu'))

@@ -42,7 +42,7 @@ assert.match(library, /@State expandedFolderIds: string\[\] = \[\]/);
 assert.match(library, /openCompactFolderDrawer\(\)/);
 assert.match(library, /CompactFolderDrawer\(\)/);
 assert.match(library, /\.overlay\(this\.CompactFolderDrawer\(\)/);
-assert.match(library, /Button\('☰'\)/);
+assert.match(library, /glyph: 'hamburger'/);
 assert.match(library, /open_folder_drawer/);
 
 // A long folder tree is a bounded native List shared by the regular sidebar and compact drawer.

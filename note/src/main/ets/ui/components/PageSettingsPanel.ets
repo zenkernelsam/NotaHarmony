@@ -26,6 +26,7 @@ import {
 import { DatabaseManager } from '../../data/DatabaseManager';
 import { OriginalPaperSettingsStore } from '../../data/OriginalPaperSettingsStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+import { ToolGlyph } from './ToolGlyph';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 
 const SIZE_OPTIONS: PaperSizeOption[] = [
@@ -652,16 +653,22 @@ export struct PageSettingsPanel {
               Text(this.templateLabel(tpl)).fontSize(10).margin({ top: 4 })
               if (tpl !== PaperTemplate.PLAIN &&
                 this.backgroundInfoForTemplate(tpl).hasOptions) {
-                Button('⋯')
+                Button() {
+                  // 原版模板间距选项溢出 = ui_designsystem__more（三点）。
+                  ToolGlyph({
+                    glyph: 'more',
+                    contentColor: this.spacingTemplate === tpl ? this.resolveTokens().onAccent :
+                      this.resolveTokens().textPrimary,
+                    dark: this.isDarkMode(),
+                    iconSize: 16,
+                  })
+                }
                   .width(36)
                   .height(24)
-                  .fontSize(16)
                   .padding(0)
                   .margin({ top: 2 })
                   .backgroundColor(this.spacingTemplate === tpl ? this.resolveTokens().accent :
                     this.resolveTokens().control)
-                  .fontColor(this.spacingTemplate === tpl ? this.resolveTokens().onAccent :
-                    this.resolveTokens().textPrimary)
                   .enabled(!this.busy && !this.photoImportLeaseActive &&
                     !this.sharedBusy && !this.spacingSaveBusy &&
                     this.paperStore !== null)

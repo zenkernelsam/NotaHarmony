@@ -10,6 +10,7 @@ import { DatabaseManager } from '../../data/DatabaseManager';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+import { ToolGlyph } from '../components/ToolGlyph';
 
 enum TrashLoadState {
   LOADING = 'loading',
@@ -212,10 +213,16 @@ struct RecentlyDeletedPage {
   build() {
     Column() {
       Row() {
-        Button('<')
+        Button() {
+          // 原版返回 = ui_designsystem__back_arrow（ue4.r，go5.b 单色调）。
+          ToolGlyph({
+            glyph: 'back_arrow',
+            contentColor: this.resolveTokens().textPrimary,
+            iconSize: 22,
+          })
+        }
           .width(48)
           .height(40)
-          .fontSize(20)
           .accessibilityText($r('app.string.back'))
           .onClick(() => {
             router.back();

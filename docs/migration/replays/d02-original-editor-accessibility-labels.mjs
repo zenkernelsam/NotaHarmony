@@ -52,7 +52,7 @@ check(!toolbar.includes("accessibilityText($r('app.string.more_tools'))"), 'more
 check(dlg.includes("accessibilityText($r('app.string.toolbar_more_menu'))"), 'tool ⋯ menu label');
 
 // --- Toolbox settings dialog ✕ announces Close ---
-const closeIdx = dlg.indexOf("Button('✕')");
+const closeIdx = dlg.indexOf("glyph: 'close_med_regular'");
 const closeBlock = dlg.slice(closeIdx, dlg.indexOf('onClick', closeIdx));
 check(closeBlock.includes("accessibilityText($r('app.string.close'))"), 'dialog close label');
 

@@ -46,6 +46,7 @@ import { LoadedElements, StrokePersistence } from '../../data/StrokePersistence'
 import { ToolRepositoryImpl } from '../../data/ToolRepositoryImpl';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { OnboardingTipBubble } from '../components/OnboardingTipBubble';
+import { ToolGlyph } from '../components/ToolGlyph';
 import {
   OnboardingTooltipKind, OnboardingTooltipStore,
 } from '../../data/OnboardingTooltipStore';
@@ -1682,9 +1683,15 @@ struct NotePage {
           })
         // 原版 rh8.f：编辑器 ⋮ 选项菜单无条件渲染在工具行尾端；
         // 菜单中仅 "App settings" 无条件可见（rh8.java apb.f 无旗标包裹）。
-        Button('...')
+        // 图标 = ui_designsystem__more（三点，ke1/d32 同款 go5.b 单色调）。
+        Button() {
+          ToolGlyph({
+            glyph: 'more',
+            contentColor: this.resolveTokens().textPrimary,
+            iconSize: 22,
+          })
+        }
           .height(36)
-          .fontSize(13)
           .margin({ left: 8 })
           .enabled(!this.pageLoading && !this.pageLoadFailed &&
             !this.photoImportLeaseActive)

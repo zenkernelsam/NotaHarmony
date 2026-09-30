@@ -19,6 +19,7 @@ import { StrokePersistence } from '../../data/StrokePersistence';
 import { ThumbnailRenderer } from '../../rendering/ThumbnailRenderer';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+import { ToolGlyph } from '../components/ToolGlyph';
 
 // 原版 nd2 枚举序：ALL(0)、BOOKMARKS(1)、NOTES(2)。
 const FILTER_ALL: number = 0;
@@ -331,12 +332,17 @@ export struct PageOverviewPanel {
               this.matchingPageIds = new Set<string>();
             }
           })
-        Button('✕')
+        Button() {
+          // 原版 ue4.u = ui_designsystem__close_med_regular。
+          ToolGlyph({
+            glyph: 'close_med_regular',
+            contentColor: this.resolveTokens().textSecondary,
+            iconSize: 20,
+          })
+        }
           .width(36)
           .height(32)
-          .fontSize(14)
           .margin({ left: 8 })
-          .fontColor(this.resolveTokens().textSecondary)
           .backgroundColor(Color.Transparent)
           .accessibilityText($r('app.string.cd_pages_panel_close'))
           .onClick(() => {

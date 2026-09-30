@@ -31,10 +31,10 @@ let n = 0;
 const check = (cond, msg) => { assert(cond, msg); n++; };
 
 // --- ⋮ button in the editor top nav row ---
-check(page.includes("Button('...')"), 'more-options button');
+check(page.includes("glyph: 'more'"), 'more-options button');
 const navRow = page.slice(page.indexOf('app.string.recordings'));
-check(navRow.indexOf("Button('...')") > 0, '⋮ button follows Recordings button');
-const moreBtn = navRow.slice(navRow.indexOf("Button('...')"),
+check(navRow.indexOf("glyph: 'more'") > 0, '⋮ button follows Recordings button');
+const moreBtn = navRow.slice(navRow.indexOf("glyph: 'more'"),
   navRow.indexOf('bindMenu(this.buildEditorOptionsMenu())') + 45);
 check(moreBtn.includes('accessibilityText($r(\'app.string.toolbar_more_menu\'))'),
   '⋮ button a11y = original toolbar_more_menu');

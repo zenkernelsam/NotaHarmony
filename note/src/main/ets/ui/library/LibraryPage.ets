@@ -54,6 +54,7 @@ import {
   ThemeStore, THEME_MODE_KEY, THEME_PREFERENCE_KEY, THEME_PREFERENCES_NAME, THEME_SYSTEM_DARK_KEY,
 } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+import { ToolGlyph } from '../components/ToolGlyph';
 
 interface FolderListItem {
   folder: NoteFolder;
@@ -1884,11 +1885,17 @@ struct LibraryPage {
       .onClick(() => {
         this.selectFolder(item.folder.id);
       })
-      Button('...')
+      Button() {
+        // 原版文件夹条目溢出 = ui_designsystem__more（三点）。
+        ToolGlyph({
+          glyph: 'more',
+          contentColor: this.resolveTokens().textPrimary,
+          iconSize: 20,
+        })
+      }
         .width(40)
         .height(44)
         .padding(0)
-        .fontSize(14)
         .enabled(!this.folderBusy)
         .accessibilityText($r('app.string.folder_actions'))
         .bindMenu(this.buildSingleFolderMenu(item.folder))
@@ -2090,10 +2097,16 @@ struct LibraryPage {
         // 原版在窄屏使用可开合侧栏；Harmony compact 以显式 overlay drawer 保持同等语义。
         if (!this.showSidebar) {
           Row() {
-            Button('☰')
+            Button() {
+              // 原版 Folders 抽屉入口 = ui_designsystem__hamburger。
+              ToolGlyph({
+                glyph: 'hamburger',
+                contentColor: this.resolveTokens().textPrimary,
+                iconSize: 22,
+              })
+            }
               .width(44)
               .height(44)
-              .fontSize(20)
               .enabled(!this.folderBusy)
               .accessibilityText($r('app.string.open_folder_drawer'))
               .onClick(() => {
@@ -2119,10 +2132,16 @@ struct LibraryPage {
               .onClick(() => {
                 this.openCompactFolderDrawer();
               })
-            Button('...')
+            Button() {
+              // 原版文件夹溢出 = ui_designsystem__more（三点）。
+              ToolGlyph({
+                glyph: 'more',
+                contentColor: this.resolveTokens().textPrimary,
+                iconSize: 20,
+              })
+            }
               .width(48)
               .height(44)
-              .fontSize(14)
               .margin({ left: 8 })
               .enabled(!this.folderBusy)
               .accessibilityText($r('app.string.folder_actions'))
@@ -2231,10 +2250,16 @@ struct LibraryPage {
                 this.navigateToSettings();
               })
           } else {
-            Button('...')
+            Button() {
+              // 原版库操作溢出 = ui_designsystem__more（三点）。
+              ToolGlyph({
+                glyph: 'more',
+                contentColor: this.resolveTokens().textPrimary,
+                iconSize: 20,
+              })
+            }
               .width(48)
               .height(40)
-              .fontSize(14)
               .margin({ left: 8 })
               .accessibilityText($r('app.string.library_actions'))
               .bindMenu(this.buildLibraryActionsMenu())
