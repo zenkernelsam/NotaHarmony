@@ -3826,41 +3826,46 @@ struct LibraryPage {
   @Builder
   NoteContextMenu(note: NoteMeta) {
     Menu() {
-      MenuItem({ content: $r('app.string.rename') })
+      // 原版 d5j 菜单行为 icon+label（apb.f）。startIcon 挂原版矢量。
+      MenuItem({ content: $r('app.string.rename'), startIcon: $r('app.media.edit') })
         .onClick(() => {
           this.showRenameNoteDialog(note);
         })
       MenuItem({
         content: note.favorite ? $r('app.string.unfavorite_note') :
-          $r('app.string.favorite_note')
+          $r('app.string.favorite_note'),
+        startIcon: note.favorite ? $r('app.media.menuicon_unfavorite') :
+          $r('app.media.menuicon_favorite')
       })
         .onClick(() => {
           this.toggleNoteFavorite(note);
         })
-      MenuItem({ content: $r('app.string.duplicate_note') })
+      MenuItem({ content: $r('app.string.duplicate_note'), startIcon: $r('app.media.selmenu_duplicate') })
         .onClick(() => {
           this.duplicateNote(note);
         })
-      MenuItem({ content: $r('app.string.export_note') })
+      MenuItem({ content: $r('app.string.export_note'), startIcon: $r('app.media.menuicon_export') })
         .onClick(() => {
           this.exportNote(note);
         })
-      MenuItem({ content: $r('app.string.show_in_folder') })
+      MenuItem({ content: $r('app.string.show_in_folder'), startIcon: $r('app.media.menuicon_showfolder') })
         .enabled(note.folderId !== null)
         .onClick(() => {
           this.showNoteInFolder(note);
         })
+      // 原版 sort_to_folder 复用 show_in_folder 图标。
       MenuItem({
         content: $r('app.string.move_to_folder'),
+        startIcon: $r('app.media.menuicon_showfolder'),
         builder: () => {
           this.MoveNoteSubMenu(note)
         },
       })
-      MenuItem({ content: $r('app.string.copy_note_id') })
+      MenuItem({ content: $r('app.string.copy_note_id'), startIcon: $r('app.media.menuicon_noteinfo') })
         .onClick(() => {
           this.copyNoteId(note);
         })
-      MenuItem({ content: $r('app.string.delete') })
+      MenuItem({ content: $r('app.string.delete'), startIcon: $r('app.media.selmenu_delete') })
         .onClick(() => {
           this.confirmDelete(note);
         })
