@@ -721,6 +721,15 @@ export class NoteRepositoryImpl implements NoteRepository {
             lastCodeBlockLanguage: resultSet.isColumnNull(
               resultSet.getColumnIndex('last_code_block_language')) ?
               null : resultSet.getString(resultSet.getColumnIndex('last_code_block_language')),
+            zoomViewSourceRect: resultSet.isColumnNull(
+              resultSet.getColumnIndex('zoom_view_source_rect')) ?
+              null : resultSet.getString(resultSet.getColumnIndex('zoom_view_source_rect')),
+            zoomViewShown: resultSet.isColumnNull(
+              resultSet.getColumnIndex('zoom_view_shown')) ?
+              null : resultSet.getLong(resultSet.getColumnIndex('zoom_view_shown')) !== 0,
+            isTextOnly: resultSet.isColumnNull(
+              resultSet.getColumnIndex('is_text_only')) ?
+              null : resultSet.getLong(resultSet.getColumnIndex('is_text_only')) !== 0,
           };
         }
       } finally {
@@ -744,18 +753,32 @@ export class NoteRepositoryImpl implements NoteRepository {
     }
     await databaseWriteMutex.runExclusive(async (): Promise<void> => {
       const store: relationalStore.RdbStore = this.db.getStore();
-      // lastCodeBlockLanguage 为 undefined 时保留已存值——ON_CONFLICT_REPLACE
-      // 会整行重写，若不带旧值会把已持久化的代码块语言清成 NULL。
-      const lastLang: string | null = state.lastCodeBlockLanguage === undefined ?
-        await this.readLastCodeBlockLanguage(store, state.noteId) :
-        state.lastCodeBlockLanguage;
+      // 保留列（lastCodeBlockLanguage/zoomViewSourceRect/zoomViewShown/isTextOnly）
+      // 为 undefined 时读已存值——ON_CONFLICT_REPLACE 会整行重写，若不带旧值会把
+      // 已持久化/导入的字段清成 NULL。
+      const preserved: NoteViewState | null =
+        (state.lastCodeBlockLanguage === undefined ||
+          state.zoomViewSourceRect === undefined ||
+          state.zoomViewShown === undefined || state.isTextOnly === undefined) ?
+          await this.readPreservedNoteState(store, state.noteId) : null;
+      const pick = <T>(incoming: T | undefined, kept: T | null | undefined): T | null =>
+        incoming === undefined ? (kept === undefined ? null : kept) : incoming;
+      const boolToInt = (v: boolean | null): number | null =>
+        v === null ? null : (v ? 1 : 0);
       const bucket: relationalStore.ValuesBucket = {
         'note_id': state.noteId,
         'zoom': state.zoom,
         'scroll_offset_x': state.scrollOffsetX,
         'scroll_offset_y': state.scrollOffsetY,
         'coordinate_model_version': CURRENT_VIEW_COORDINATE_MODEL_VERSION,
-        'last_code_block_language': lastLang,
+        'last_code_block_language':
+          pick(state.lastCodeBlockLanguage, preserved?.lastCodeBlockLanguage),
+        'zoom_view_source_rect':
+          pick(state.zoomViewSourceRect, preserved?.zoomViewSourceRect),
+        'zoom_view_shown':
+          boolToInt(pick(state.zoomViewShown, preserved?.zoomViewShown)),
+        'is_text_only':
+          boolToInt(pick(state.isTextOnly, preserved?.isTextOnly)),
       };
       try {
         await store.insert('note_state', bucket,
@@ -766,9 +789,10 @@ export class NoteRepositoryImpl implements NoteRepository {
     });
   }
 
-  // 读已持久化的 last_code_block_language（无行/NULL → null）。
-  private async readLastCodeBlockLanguage(store: relationalStore.RdbStore,
-    noteId: string): Promise<string | null> {
+  // 读已持久化的保留列（saveViewState REPLACE 前保留）。返回仅含 4 个保留字段的
+  // 部分 NoteViewState；无行 → null。
+  private async readPreservedNoteState(store: relationalStore.RdbStore,
+    noteId: string): Promise<NoteViewState | null> {
     const predicates = new relationalStore.RdbPredicates('note_state');
     predicates.equalTo('note_id', noteId);
     const resultSet = await store.query(predicates);
@@ -776,8 +800,25 @@ export class NoteRepositoryImpl implements NoteRepository {
       if (!resultSet.goToNextRow()) {
         return null;
       }
-      const idx = resultSet.getColumnIndex('last_code_block_language');
-      return resultSet.isColumnNull(idx) ? null : resultSet.getString(idx);
+      const langIdx = resultSet.getColumnIndex('last_code_block_language');
+      const rectIdx = resultSet.getColumnIndex('zoom_view_source_rect');
+      const shownIdx = resultSet.getColumnIndex('zoom_view_shown');
+      const textOnlyIdx = resultSet.getColumnIndex('is_text_only');
+      return {
+        noteId: noteId,
+        zoom: 1.0,
+        scrollOffsetX: 0,
+        scrollOffsetY: 0,
+        coordinateModelVersion: CURRENT_VIEW_COORDINATE_MODEL_VERSION,
+        lastCodeBlockLanguage: resultSet.isColumnNull(langIdx) ?
+          null : resultSet.getString(langIdx),
+        zoomViewSourceRect: resultSet.isColumnNull(rectIdx) ?
+          null : resultSet.getString(rectIdx),
+        zoomViewShown: resultSet.isColumnNull(shownIdx) ?
+          null : resultSet.getLong(shownIdx) !== 0,
+        isTextOnly: resultSet.isColumnNull(textOnlyIdx) ?
+          null : resultSet.getLong(textOnlyIdx) !== 0,
+      };
     } finally {
       resultSet.close();
     }

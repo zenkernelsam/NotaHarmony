@@ -31,7 +31,7 @@ let n = 0;
 const check = (cond, msg) => { assert(cond, msg); n++; };
 
 // === 1. Schema parity（r4a.java:70 同款迁移 + canonical DDL）===
-check(/DB_VERSION: number = 74/.test(db), 'DB_VERSION bumped to 74');
+check(/DB_VERSION: number = 75/.test(db), 'DB_VERSION bumped to 75');
 check(/last_code_block_language TEXT DEFAULT NULL/.test(db),
   'note_state.last_code_block_language column (NoteStateEntity.lastCodeBlockLanguage)');
 {
@@ -46,10 +46,11 @@ check(/lastCodeBlockLanguage\?:\s*string \| null/.test(model),
   'NoteViewState.lastCodeBlockLanguage optional field');
 check(/getColumnIndex\('last_code_block_language'\)/.test(repo),
   'getViewState reads last_code_block_language');
-check(/'last_code_block_language': lastLang/.test(repo),
+check(/'last_code_block_language':/.test(repo) &&
+  /pick\(state\.lastCodeBlockLanguage/.test(repo),
   'saveViewState writes last_code_block_language');
 // preserve-on-undefined（saveViewportState 不带字段 → 保留已存值，不被 REPLACE 清掉）
-check(/state\.lastCodeBlockLanguage === undefined[\s\S]{0,90}readLastCodeBlockLanguage/.test(repo),
+check(/state\.lastCodeBlockLanguage === undefined[\s\S]{0,160}readPreservedNoteState/.test(repo),
   'saveViewState preserves existing language when field is undefined');
 check(/async saveLastCodeBlockLanguage\(noteId: string, lang: string \| null\)/.test(repo),
   'saveLastCodeBlockLanguage dedicated setter');

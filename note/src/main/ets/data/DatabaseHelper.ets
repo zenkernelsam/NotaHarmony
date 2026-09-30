@@ -17,7 +17,7 @@
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 74;
+export const DB_VERSION: number = 75;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -32,6 +32,13 @@ CREATE TABLE IF NOT EXISTS note_state (
   // （ca3.java:519 / r4a.java:70 ALTER）：每笔记上一次使用的代码块语言名，
   // 新代码块 toggle 时恢复。plaintext/未设置=NULL。
   last_code_block_language TEXT DEFAULT NULL,
+  // Original NoteStateEntity 余下三列（ca3.java:519）：为导入库 round-trip
+  // 完整性保留列。zoomViewSourceRect=放大窗源矩形 "l,t,r,b"（sbe/ten 序列化）、
+  // zoomViewShown=放大窗显隐、isTextOnly=纯文本模式（xf3.java:103 UPDATE）。
+  // Harmony 以 tool-gated 放大模型/text-only 特性分 Phase 处理，此处先保列。
+  zoom_view_source_rect TEXT DEFAULT NULL,
+  zoom_view_shown INTEGER DEFAULT NULL,
+  is_text_only INTEGER DEFAULT NULL,
   FOREIGN KEY(note_id) REFERENCES note_meta(id) ON DELETE CASCADE
 )`;
 
@@ -2778,5 +2785,15 @@ export const MIGRATIONS: Record<number, string[]> = {
     // TEXT DEFAULT NULL——每笔记「上一次使用的代码块语言」，新代码块 toggle 时
     // 恢复（ya8.java:34 restore）。plaintext 即清除，列存具体语言名。
     'ALTER TABLE note_state ADD COLUMN last_code_block_language TEXT DEFAULT NULL',
+  ],
+  75: [
+    // NoteStateEntity 剩余三列（ca3.java:519）补齐 round-trip 完整性：
+    // zoomViewSourceRect TEXT（sbe "l,t,r,b" 序列化，wmb.java:102 UPDATE）、
+    // zoomViewShown INTEGER（wmb.java:75）、isTextOnly INTEGER（xf3.java:103）。
+    // Harmony 放大窗用 tool-gated 模型、text-only 模式待独立 Phase——先保列
+    // 使导入的原版 note_state 行 round-trip 不丢列。
+    'ALTER TABLE note_state ADD COLUMN zoom_view_source_rect TEXT DEFAULT NULL',
+    'ALTER TABLE note_state ADD COLUMN zoom_view_shown INTEGER DEFAULT NULL',
+    'ALTER TABLE note_state ADD COLUMN is_text_only INTEGER DEFAULT NULL',
   ],
 };

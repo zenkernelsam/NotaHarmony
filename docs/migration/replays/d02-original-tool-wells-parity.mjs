@@ -114,7 +114,7 @@ ok(manager.includes('DDL_FAVORITE_COLOR_WELL') &&
 // Well tables ship via the canonical DDL idempotent path — no version bump needed for
 // them (same as Phase 530's tool_state index). DB_VERSION is 71 after the Phase 536
 // page bookmarked/winner migration.
-ok(ddl.includes('DB_VERSION: number = 74'), 'DB_VERSION must be 74');
+ok(ddl.includes('DB_VERSION: number = 75'), 'DB_VERSION must be 75');
 
 // --- Harmony interface + repository anchors ----------------------------------------
 for (const name of ['getFavoriteColors', 'setFavoriteColor', 'removeFavoriteColor',

@@ -21,7 +21,7 @@ let n = 0;
 const check = (cond, msg) => { assert(cond, msg); n++; };
 
 // --- schema version + v71 migration ---
-check(/DB_VERSION: number = 74/.test(db), 'DB_VERSION = 74');
+check(/DB_VERSION: number = 75/.test(db), 'DB_VERSION = 75');
 const mig71 = db.slice(db.indexOf('  71: ['), db.indexOf('};', db.indexOf('  71: [')));
 check(mig71.includes('ALTER TABLE tool_state ADD COLUMN tape_pattern INTEGER'),
   'v71 migrates tool_state.tape_pattern');
