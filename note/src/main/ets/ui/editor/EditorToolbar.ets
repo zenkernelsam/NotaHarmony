@@ -6,6 +6,7 @@ import { EditorViewModel } from './EditorViewModel';
 import { ToolboxSettingsDialog, toolTypeLabel } from './ToolboxSettingsDialog';
 import { ColorPickerView } from '../components/ColorPicker';
 import { ToolGlyph, toolGlyphKey } from '../components/ToolGlyph';
+import { STROKE_INDICATORS, StrokeIndicatorPaths } from '../components/StrokeIndicators';
 import { WidthSlider } from '../components/WidthSlider';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
@@ -139,6 +140,44 @@ export struct EditorToolbar {
 
   private isDark(): boolean {
     return this.themeMode === 'dark' || (this.themeMode === 'system' && this.systemDark);
+  }
+
+  // 原版 swd/x5f：宽度按钮以 strokeindicator 字形编码 brushStyle(y31) × 宽度档
+  // (uwd SMALL/MEDIUM/LARGE)，z5c 以「外环 fill + 内 fill」两层 Path 渲染。
+  private strokeIndicatorKey(): string {
+    let style = 'mono';
+    switch (this.viewModel.brushStyle) {
+      case BrushStyle.TAPER: style = 'taper'; break;
+      case BrushStyle.DASH: style = 'dash'; break;
+      case BrushStyle.DOT: style = 'dot'; break;
+      default: break; // MONO -> 'mono'
+    }
+    return 'strokeind_' + style + '_' + this.strokeWidthTier();
+  }
+
+  // 原版 x5f.c：以当前工具 widthWells 预设档找最近索引，三等分 -> s/m/l 档。
+  private strokeWidthTier(): string {
+    const wells = this.viewModel.widthWells;
+    if (wells.length === 0) {
+      return 'm';
+    }
+    const w = this.viewModel.isSelectionActive() ? this.selectionWidth : this.viewModel.brushWidth;
+    let idx = 0;
+    let best = Infinity;
+    for (let i = 0; i < wells.length; i++) {
+      const d = Math.abs(wells[i] - w);
+      if (d < best) {
+        best = d;
+        idx = i;
+      }
+    }
+    const third = Math.max(1, Math.floor(wells.length / 3));
+    return idx < third ? 's' : (idx < third * 2 ? 'm' : 'l');
+  }
+
+  private strokeIndicator(): StrokeIndicatorPaths {
+    const p = STROKE_INDICATORS[this.strokeIndicatorKey()];
+    return p !== undefined ? p : { fill: '', outline: '', vw: 24, vh: 6 };
   }
 
   build() {
@@ -280,12 +319,28 @@ export struct EditorToolbar {
             },
           })
 
-        // 粗细按钮（当前宽度指示）
-        Button((this.viewModel.isSelectionActive() ? this.selectionWidth :
-          Math.round(this.viewModel.brushWidth)).toString())
+        // 粗细按钮（原版 strokeindicator：brushStyle×宽度档描边字形 —— 外环用
+        // 主题前景、内填充用画笔/选中色；非数字文本。宽度数值仍作无障碍文本）。
+        Button() {
+          Shape() {
+            Path()
+              .commands(this.strokeIndicator().outline)
+              .fill(this.resolveTokens().textPrimary)
+              .stroke(Color.Transparent)
+            Path()
+              .commands(this.strokeIndicator().fill)
+              .fill(this.viewModel.colorToHex(this.viewModel.isSelectionActive() ?
+                this.selectionColor : this.viewModel.brushColor))
+              .stroke(Color.Transparent)
+          }
+          .viewPort({ x: 0, y: 0, width: this.strokeIndicator().vw, height: this.strokeIndicator().vh })
+          .width(32)
+          .height(8)
+        }
           .width(48)
           .height(32)
-          .fontSize(13)
+          .accessibilityText((this.viewModel.isSelectionActive() ? this.selectionWidth :
+            Math.round(this.viewModel.brushWidth)).toString())
           .margin({ left: 4, right: 4 })
           .enabled((this.viewModel.supportsBrushControls() || this.viewModel.isSelectionActive()) &&
             !this.viewModel.toolStateLoading &&
