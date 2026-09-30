@@ -121,11 +121,11 @@ check(persistence.includes('async getPageElementCounts(noteId: string)') &&
   persistence.includes('COUNT(*) AS element_count') &&
   persistence.includes('GROUP BY page_id'),
   'StrokePersistence exposes per-page element counts');
-check(toolbar.includes("Button('▦')") &&
+check(toolbar.includes("glyph: 'content_manager'") &&
   toolbar.includes("cd_pages_panel_toggle"),
   'toolbar renders the pages-panel toggle with its a11y label');
-check(toolbar.indexOf("Button('▦')") < toolbar.indexOf('visibleToolStates()') &&
-  toolbar.indexOf("Button('▦')") < toolbar.indexOf("Button('↶')"),
+check(toolbar.indexOf("glyph: 'content_manager'") < toolbar.indexOf('visibleToolStates()') &&
+  toolbar.indexOf("glyph: 'content_manager'") < toolbar.indexOf("glyph: 'topnavundo'"),
   'the pages toggle sits first, before tools and undo/redo (pq9.N parity)');
 check(toolbar.includes('onTogglePagesPanel: () => void'),
   'toolbar exposes the toggle callback');

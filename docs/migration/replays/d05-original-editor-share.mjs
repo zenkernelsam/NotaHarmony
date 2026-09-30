@@ -83,7 +83,7 @@ check(b7d.includes('list.size() > 1 ? s6d.PDF : s6d.LINK'),
   'single-note share defaults to LINK upstream (registered divergence)');
 
 // --- Harmony：工具栏入口 ---
-check(toolbar.includes("Button('↗')") && toolbar.includes('showShareSheet = true'),
+check(toolbar.includes("glyph: 'share'") && toolbar.includes('showShareSheet = true'),
   'EditorToolbar renders a share button that opens the share sheet');
 check(toolbar.indexOf('cd_redo_action') < toolbar.indexOf('cd_share_action'),
   'share button sits after the redo button (original ordering)');

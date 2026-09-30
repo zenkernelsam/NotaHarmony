@@ -14,8 +14,8 @@ function section(startMarker, endMarker) {
 
 const photoButton = section("Button($r('app.string.insert_photo'))", "Button($r('app.string.insert_math'))");
 const mathButton = section("Button($r('app.string.insert_math'))", '\n          Divider().vertical(true)');
-const undoButton = section("Button('↶')", "Button('↷')");
-const redoButton = toolbar.slice(toolbar.indexOf("Button('↷')"), toolbar.indexOf('\n        }\n        .height(48)', toolbar.indexOf("Button('↷')")));
+const undoButton = section("glyph: 'topnavundo'", "glyph: 'topnavredo'");
+const redoButton = toolbar.slice(toolbar.indexOf("glyph: 'topnavredo'"), toolbar.indexOf('\n        }\n        .height(48)', toolbar.indexOf("glyph: 'topnavredo'")));
 
 for (const [name, button] of [['photo', photoButton], ['math', mathButton]]) {
   assert.match(button,

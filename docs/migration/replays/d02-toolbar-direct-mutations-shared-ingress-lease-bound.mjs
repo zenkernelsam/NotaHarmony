@@ -4,8 +4,8 @@ import fs from 'node:fs';
 const toolbar = fs.readFileSync('note/src/main/ets/ui/editor/EditorToolbar.ets', 'utf8')
   .replaceAll('\r\n', '\n');
 
-const moreButtonStart = toolbar.indexOf("            Button('...')");
-const moreButtonEnd = toolbar.indexOf('\n          } else {', moreButtonStart);
+const moreButtonStart = toolbar.indexOf("glyph: 'hamburger'");
+const moreButtonEnd = toolbar.indexOf('.bindMenu(this.buildCompactToolMenu())', moreButtonStart);
 const moreButton = toolbar.slice(moreButtonStart, moreButtonEnd);
 assert.match(moreButton, /\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)/);
 

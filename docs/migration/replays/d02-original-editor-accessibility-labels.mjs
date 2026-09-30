@@ -34,10 +34,10 @@ check(zhVal('cd_page_indicator')?.includes('%1$d'), 'cd_page_indicator zh placeh
 check(zhVal('toolbar_more_menu')?.length > 0, 'toolbar_more_menu zh');
 
 // --- Undo/redo glyph buttons carry the original descriptions ---
-const undoIdx = toolbar.indexOf("Button('↶')");
+const undoIdx = toolbar.indexOf("glyph: 'topnavundo'");
 const undoBlock = toolbar.slice(undoIdx, toolbar.indexOf('onClick', undoIdx));
 check(undoBlock.includes('cd_undo_action'), 'undo button label');
-const redoIdx = toolbar.indexOf("Button('↷')");
+const redoIdx = toolbar.indexOf("glyph: 'topnavredo'");
 const redoBlock = toolbar.slice(redoIdx, toolbar.indexOf('onClick', redoIdx));
 check(redoBlock.includes('cd_redo_action'), 'redo button label');
 

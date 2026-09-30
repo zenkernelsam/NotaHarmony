@@ -147,10 +147,17 @@ export struct EditorToolbar {
         Row() {
         // 原版 x90.g 顶栏首项（pq9.N → fh2 → gs8 case2）：content-manager
         // 页面面板开关，位于 undo/redo 与工具簇之前。
-        Button('▦')
+        // 图标 = ui_designsystem__content_manager（p2c RichIcon）。
+        Button() {
+          ToolGlyph({
+            glyph: 'content_manager',
+            contentColor: this.resolveTokens().textPrimary,
+            dark: this.isDark(),
+            iconSize: 20,
+          })
+        }
           .width(44)
           .height(32)
-          .fontSize(15)
           .margin({ left: 2, right: 4 })
           .enabled(!this.photoImportLeaseActive)
           .accessibilityText($r('app.string.cd_pages_panel_toggle'))
@@ -185,21 +192,33 @@ export struct EditorToolbar {
           }
         }, (state: ToolState): string => state.toolId)
           if (this.compact) {
-            Button('...')
+            // 原版 feature_note__toolbar_more_menu 用 ui_designsystem__hamburger。
+            Button() {
+              ToolGlyph({
+                glyph: 'hamburger',
+                contentColor: this.resolveTokens().textPrimary,
+                dark: this.isDark(),
+                iconSize: 22,
+              })
+            }
               .height(40)
-              .fontSize(13)
               .margin({ left: 2, right: 2 })
               .enabled(!this.viewModel.toolStateLoading &&
                 !this.photoImportLeaseActive)
-              // 原版 feature_note__toolbar_more_menu：溢出菜单描述为
-              // "More options"。
               .accessibilityText($r('app.string.toolbar_more_menu'))
               .bindMenu(this.buildCompactToolMenu())
           }
           // 原版 toolbox settings 入口（o6f 工具设置页）
-          Button('⚙')
+          // 图标 = ho5.u layered m4f（rz1.c 渲染），ui_designsystem__settings_*。
+          Button() {
+            ToolGlyph({
+              glyph: 'settings',
+              contentColor: this.resolveTokens().textPrimary,
+              dark: this.isDark(),
+              iconSize: 22,
+            })
+          }
             .height(40)
-            .fontSize(15)
             .margin({ left: 2, right: 2 })
             .enabled(!this.viewModel.toolStateLoading &&
               !this.photoImportLeaseActive)
@@ -338,10 +357,17 @@ export struct EditorToolbar {
         }
 
         // Undo / Redo（T-021 实现功能）
-        Button('↶')
+        // 图标 = ui_designsystem__topnavundo（p9f，c.b/c.d 随 canUndo 染色）。
+        Button() {
+          ToolGlyph({
+            glyph: 'topnavundo',
+            contentColor: this.resolveTokens().textPrimary,
+            dark: this.isDark(),
+            iconSize: 20,
+          })
+        }
           .width(48)
           .height(32)
-          .fontSize(18)
           .enabled(this.canUndo &&
             !this.photoImportLeaseActive)
           .opacity(this.canUndo ? 1 : 0.4)
@@ -365,10 +391,17 @@ export struct EditorToolbar {
               this.showTipUndoRedo = event.isVisible;
             },
           })
-        Button('↷')
+        // 图标 = ui_designsystem__topnavredo（p9f，c.b/c.d 随 canRedo 染色）。
+        Button() {
+          ToolGlyph({
+            glyph: 'topnavredo',
+            contentColor: this.resolveTokens().textPrimary,
+            dark: this.isDark(),
+            iconSize: 20,
+          })
+        }
           .width(48)
           .height(32)
-          .fontSize(18)
           .enabled(this.canRedo &&
             !this.photoImportLeaseActive)
           .opacity(this.canRedo ? 1 : 0.4)
@@ -382,10 +415,17 @@ export struct EditorToolbar {
           })
         // 原版 x90.g：share 图标紧随 undo/redo（ac4.L=NOTE_SHARE
         // PRODUCTION 级默认开启），点击打开分享格式面板。
-        Button('↗')
+        // 图标 = ui_designsystem__share（ke1:195 go5.b 单色 tint）。
+        Button() {
+          ToolGlyph({
+            glyph: 'share',
+            contentColor: this.resolveTokens().textPrimary,
+            dark: this.isDark(),
+            iconSize: 20,
+          })
+        }
           .width(48)
           .height(32)
-          .fontSize(18)
           .enabled(!this.photoImportLeaseActive)
           .accessibilityText($r('app.string.cd_share_action'))
           .onClick(() => {
