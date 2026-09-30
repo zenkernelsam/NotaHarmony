@@ -1,8 +1,9 @@
 // Original ui_designsystem__<tool>_* layered toolbox glyph (x5f main strip:
 // cq.h(m4f, brushColor,…) for color tools, rz1.c(m4f,…) for the rest).
-// Rendered as ArkUI Path layers — "f" body filled with the brush color
-// (pen/pencil/highlighter) or content color (others), "o" stroked with the
-// content color on top. 24×24 viewport matches the original 24dp.
+// Renders the full m4f five-layer composite as ArkUI Path layers inside a
+// Shape+viewPort 24×24 — tn8 enabled order: fill(e) → overlay(d) →
+// highlight(b) → shadow(c) → outline(a). "f" is tinted to the brush color for
+// color tools (cq.h) or the content color for the rest (rz1.c).
 import { ToolType } from '../../core/model/BrushTypes';
 import { TOOL_GLYPHS, ToolGlyphPaths } from './ToolGlyphs';
 
@@ -25,6 +26,11 @@ export function toolGlyphKey(toolType: ToolType): string {
 // Tools whose fill carries the user's brush color (x5f cq.h brush-color tint).
 const COLOR_GLYPHS: string[] = ['pen', 'pencil', 'highlighter'];
 
+// tn8 layer tints: overlay/highlight are the theme's light token, shadow the dark
+// token. Alpha split by theme (dark ? darkVal : lightVal) from tn8/gt.
+const LIGHT_LAYER = '#ffffff';
+const DARK_LAYER = '#000000';
+
 function argbToCss(color: number): string {
   return '#' + (color >>> 0).toString(16).padStart(8, '0');
 }
@@ -34,25 +40,51 @@ export struct ToolGlyph {
   @Prop glyph: string = 'pen';            // TOOL_GLYPHS key
   @Prop brushColor: number = -16777216;   // tool.brush.color (ARGB)
   @Prop contentColor: string = '#171a20'; // outline/foreground (theme-aware)
+  @Prop dark: boolean = false;            // theme is dark -> tn8 alpha split
   iconSize: number = 24; // rendered vp size (24 = original 24dp)
 
   private paths(): ToolGlyphPaths {
     const p: ToolGlyphPaths | undefined = TOOL_GLYPHS[this.glyph];
-    return p !== undefined ? p : { f: '', o: '', sw: 1.5 };
+    return p !== undefined ? p : { f: '', o: '', sw: 1.5, h: '', s: '', v: '' };
   }
 
   build() {
     // Shape+viewPort establishes a fixed 24×24 user coordinate space that the
-    // framework scales onto the `size`vp component — deterministic across densities.
+    // framework scales onto the iconSize-vp component — deterministic across densities.
+    // tn8 enabled-branch draw order: fill -> overlay -> highlight -> shadow -> outline.
     Shape() {
-      // fill layer — brush color for color-bearing tools, else content color.
+      // e: fill — brush color for color-bearing tools, else content color.
       if (this.paths().f.length > 0) {
         Path()
           .commands(this.paths().f)
           .fill(COLOR_GLYPHS.indexOf(this.glyph) >= 0 ? argbToCss(this.brushColor) : this.contentColor)
           .stroke(Color.Transparent)
       }
-      // outline layer — content-colored stroke on top.
+      // d: overlay — light sheen regions (alpha 0.75 light / 0.35 dark).
+      if (this.paths().v.length > 0) {
+        Path()
+          .commands(this.paths().v)
+          .fill(LIGHT_LAYER)
+          .fillOpacity(this.dark ? 0.35 : 0.75)
+          .stroke(Color.Transparent)
+      }
+      // b: highlight — light gloss accents (alpha 0.65 light / 0.5 dark).
+      if (this.paths().h.length > 0) {
+        Path()
+          .commands(this.paths().h)
+          .fill(LIGHT_LAYER)
+          .fillOpacity(this.dark ? 0.5 : 0.65)
+          .stroke(Color.Transparent)
+      }
+      // c: shadow — dark depth accents (alpha 0.25 light / 0.4 dark).
+      if (this.paths().s.length > 0) {
+        Path()
+          .commands(this.paths().s)
+          .fill(DARK_LAYER)
+          .fillOpacity(this.dark ? 0.4 : 0.25)
+          .stroke(Color.Transparent)
+      }
+      // a: outline — content-colored stroke on top.
       if (this.paths().o.length > 0) {
         Path()
           .commands(this.paths().o)

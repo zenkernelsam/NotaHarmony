@@ -137,6 +137,10 @@ export struct EditorToolbar {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
   }
 
+  private isDark(): boolean {
+    return this.themeMode === 'dark' || (this.themeMode === 'system' && this.systemDark);
+  }
+
   build() {
     Column() {
       Scroll(this.toolbarScroller) {
@@ -607,6 +611,7 @@ export struct EditorToolbar {
         brushColor: tool.brush.color,
         contentColor: this.viewModel.isActiveTool(tool.toolId) ?
           this.resolveTokens().onAccent : this.resolveTokens().textPrimary,
+        dark: this.isDark(),
         iconSize: 24,
       })
     }
@@ -668,6 +673,7 @@ export struct EditorToolbar {
         brushColor: tool.brush.color,
         contentColor: this.viewModel.isActiveTool(tool.toolId) && !this.viewModel.eraserIsPartial ?
           this.resolveTokens().onAccent : this.resolveTokens().textPrimary,
+        dark: this.isDark(),
         iconSize: 24,
       })
     }
@@ -698,6 +704,7 @@ export struct EditorToolbar {
         brushColor: tool.brush.color,
         contentColor: this.viewModel.isActiveTool(tool.toolId) && this.viewModel.eraserIsPartial ?
           this.resolveTokens().onAccent : this.resolveTokens().textPrimary,
+        dark: this.isDark(),
         iconSize: 24,
       })
     }
