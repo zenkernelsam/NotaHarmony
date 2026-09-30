@@ -7,6 +7,7 @@ import { ToolboxSettingsDialog, toolTypeLabel } from './ToolboxSettingsDialog';
 import { ColorPickerView } from '../components/ColorPicker';
 import { ToolGlyph, toolGlyphKey } from '../components/ToolGlyph';
 import { STROKE_INDICATORS, StrokeIndicatorPaths } from '../components/StrokeIndicators';
+import { BRUSH_STYLE_GLYPHS, BrushStyleGlyph } from '../components/BrushStyleGlyphs';
 import { WidthSlider } from '../components/WidthSlider';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
@@ -178,6 +179,36 @@ export struct EditorToolbar {
   private strokeIndicator(): StrokeIndicatorPaths {
     const p = STROKE_INDICATORS[this.strokeIndicatorKey()];
     return p !== undefined ? p : { fill: '', outline: '', vw: 24, vh: 6 };
+  }
+
+  // 原版 x4j：样式选项是 ui_tools__brushstyle_<style> 波形样张（44×24），非文本。
+  // mono = stroked 开放波形；taper/dash/dot = filled 波形。
+  private brushStyleGlyph(style: BrushStyle): BrushStyleGlyph {
+    let key = 'brushstyle_mono';
+    switch (style) {
+      case BrushStyle.TAPER: key = 'brushstyle_taper'; break;
+      case BrushStyle.DASH: key = 'brushstyle_dash'; break;
+      case BrushStyle.DOT: key = 'brushstyle_dot'; break;
+      default: break;
+    }
+    const g = BRUSH_STYLE_GLYPHS[key];
+    return g !== undefined ? g : { d: '', stroked: false, sw: 0, vw: 44, vh: 24 };
+  }
+
+  @Builder
+  private BrushStyleGlyphView(style: BrushStyle, color: ResourceColor) {
+    Shape() {
+      Path()
+        .commands(this.brushStyleGlyph(style).d)
+        .fill(this.brushStyleGlyph(style).stroked ? Color.Transparent : color)
+        .stroke(this.brushStyleGlyph(style).stroked ? color : Color.Transparent)
+        .strokeWidth(this.brushStyleGlyph(style).sw)
+        .strokeLineCap(LineCapStyle.Round)
+        .strokeLineJoin(LineJoinStyle.Round)
+    }
+    .viewPort({ x: 0, y: 0, width: this.brushStyleGlyph(style).vw, height: this.brushStyleGlyph(style).vh })
+    .width(40)
+    .height(22)
   }
 
   build() {
@@ -1255,16 +1286,18 @@ export struct EditorToolbar {
   }
 
   @Builder
-  StyleButton(label: ResourceStr, style: BrushStyle) {
-    Button(label)
+  StyleButton(label: Resource, style: BrushStyle) {
+    Button() {
+      // 原版 x4j：样式选项显示 brushstyle 波形样张，样式名作无障碍文本。
+      this.BrushStyleGlyphView(style, this.viewModel.brushStyle === style ?
+        this.resolveTokens().onAccent : this.resolveTokens().textPrimary)
+    }
       .height(30)
-      .fontSize(12)
       .borderRadius(4)
       .margin({ left: 2, right: 2 })
       .backgroundColor(this.viewModel.brushStyle === style ? this.resolveTokens().accent :
         this.resolveTokens().control)
-      .fontColor(this.viewModel.brushStyle === style ? this.resolveTokens().onAccent :
-        this.resolveTokens().textPrimary)
+      .accessibilityText(label)
       .enabled(!this.viewModel.toolStateLoading &&
         !this.photoImportLeaseActive)
       .onClick(() => {
@@ -1276,16 +1309,17 @@ export struct EditorToolbar {
   }
 
   @Builder
-  SelectionStyleButton(label: ResourceStr, style: BrushStyle) {
-    Button(label)
+  SelectionStyleButton(label: Resource, style: BrushStyle) {
+    Button() {
+      this.BrushStyleGlyphView(style, this.selectionStyle === style ?
+        this.resolveTokens().onAccent : this.resolveTokens().textPrimary)
+    }
       .height(30)
-      .fontSize(12)
       .borderRadius(4)
       .margin({ left: 2, right: 2 })
       .backgroundColor(this.selectionStyle === style ? this.resolveTokens().accent :
         this.resolveTokens().control)
-      .fontColor(this.selectionStyle === style ? this.resolveTokens().onAccent :
-        this.resolveTokens().textPrimary)
+      .accessibilityText(label)
       .enabled(!this.viewModel.toolStateLoading &&
         !this.photoImportLeaseActive &&
         (style !== BrushStyle.TAPER || this.selectionVariableStyleEnabled))

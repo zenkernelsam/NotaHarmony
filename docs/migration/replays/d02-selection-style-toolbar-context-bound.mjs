@@ -171,7 +171,8 @@ assert.match(page, /if \(color !== null\) {[\s\S]{0,60}this\.selectionInkColor =
 
 assert.match(toolbar, /@Prop selectionStyle: BrushStyle = BrushStyle\.MONO;/);
 assert.match(toolbar, /\.backgroundColor\(this\.selectionStyle === style \? this\.resolveTokens\(\)\.accent :/);
-assert.match(toolbar, /\.fontColor\(this\.selectionStyle === style \? this\.resolveTokens\(\)\.onAccent :/);
+// 原版 x4j：样式选项是 brushstyle 波形样张（非文本 label）；选中态配色沿 fontColor 逻辑。
+assert.match(toolbar, /this\.BrushStyleGlyphView\(style, this\.selectionStyle === style \?[\s\S]*?this\.resolveTokens\(\)\.onAccent :/);
 assert.match(toolbar, /\(style !== BrushStyle\.TAPER \|\| this\.selectionVariableStyleEnabled\)/);
 
 function selectionContext(strokes) {
