@@ -19,7 +19,7 @@ const compactMenu = toolbar.slice(
 
 for (const action of ['insert_photo', 'insert_math']) {
   assert.match(compactMenu,
-    new RegExp(`\\{ value: \\$r\\('app\\.string\\.${action}'\\), action: \\(\\) => \\{\\s+if \\(this\\.photoImportLeaseActive\\) \\{\\s+return;\\s+\\}\\s+this\\.on`),
+    new RegExp(`\\{ value: \\$r\\('app\\.string\\.${action}'\\), icon: [^,]+, action: \\(\\) => \\{\\s+if \\(this\\.photoImportLeaseActive\\) \\{\\s+return;\\s+\\}\\s+this\\.on`),
     action);
 }
 

@@ -101,7 +101,7 @@ ok(btnOrder.every(i => i > 0) && btnOrder[0] < btnOrder[1] && btnOrder[1] < btnO
 // Lease guard on both the button and the compact-menu entry.
 ok(/take_photo[\s\S]*?\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)[\s\S]*?if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onTakePhoto\(\)/.test(toolbar),
   'take_photo button lease guard missing');
-ok(/\{ value: \$r\('app\.string\.take_photo'\), action: \(\) => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onTakePhoto\(\)/.test(toolbar),
+ok(/\{ value: \$r\('app\.string\.take_photo'\), icon: [^,]+, action: \(\) => \{\s+if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onTakePhoto\(\)/.test(toolbar),
   'compact-menu take_photo lease guard missing');
 ok(stringsBase.includes('"name": "take_photo"') && stringsZh.includes('"name": "take_photo"'),
   'take_photo strings missing');

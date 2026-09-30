@@ -587,50 +587,51 @@ export struct EditorToolbar {
 
   private buildCompactToolMenu(): MenuElement[] {
     return [
-      { value: $r('app.string.whole_eraser'), action: () => {
+      // 原版 x5f/fie 工具槽与插入按钮均为矢量图标；紧凑菜单项挂对应 drawable。
+      { value: $r('app.string.whole_eraser'), icon: $r('app.media.menuicon_eraser_whole'), action: () => {
         if (this.photoImportLeaseActive) {
           return;
         }
         this.viewModel.selectTool(ToolType.WHOLE_ERASER);
       } },
-      { value: $r('app.string.partial_eraser'), action: () => {
+      { value: $r('app.string.partial_eraser'), icon: $r('app.media.menuicon_eraser_partial'), action: () => {
         if (this.photoImportLeaseActive) {
           return;
         }
         this.viewModel.selectTool(ToolType.PARTIAL_ERASER);
       } },
-      { value: $r('app.string.selection'), action: () => {
+      { value: $r('app.string.selection'), icon: $r('app.media.menuicon_selectrect'), action: () => {
         if (this.photoImportLeaseActive) {
           return;
         }
         this.viewModel.selectTool(ToolType.SELECTION);
       } },
       // 原版 fie 文本工具项标签 ui_text__add_text = "Add Text"。
-      { value: $r('app.string.add_text'), action: () => {
+      { value: $r('app.string.add_text'), icon: $r('app.media.menuicon_text'), action: () => {
         if (this.photoImportLeaseActive) {
           return;
         }
         this.viewModel.selectTool(ToolType.DEFAULT);
       } },
-      { value: $r('app.string.add_files'), action: () => {
+      { value: $r('app.string.add_files'), icon: $r('app.media.menuicon_attach_file'), action: () => {
         if (this.photoImportLeaseActive) {
           return;
         }
         this.onAddFiles();
       } },
-      { value: $r('app.string.insert_photo'), action: () => {
+      { value: $r('app.string.insert_photo'), icon: $r('app.media.menuicon_insert_media'), action: () => {
         if (this.photoImportLeaseActive) {
           return;
         }
         this.onInsertPhotos();
       } },
-      { value: $r('app.string.take_photo'), action: () => {
+      { value: $r('app.string.take_photo'), icon: $r('app.media.menuicon_camera'), action: () => {
         if (this.photoImportLeaseActive) {
           return;
         }
         this.onTakePhoto();
       } },
-      { value: $r('app.string.insert_math'), action: () => {
+      { value: $r('app.string.insert_math'), icon: $r('app.media.menuicon_insert_math'), action: () => {
         if (this.photoImportLeaseActive) {
           return;
         }
