@@ -934,9 +934,12 @@ struct HandwritingLanguageDialog {
                 .fontSize(15)
                 .fontColor(this.resolveTokens().textPrimary)
               if (option.localeCode === this.selected) {
-                Text('✓')
-                  .fontSize(15)
-                  .fontColor(this.resolveTokens().accent)
+                // 原版选中指示 = ui_designsystem__general_check_med_reg。
+                ToolGlyph({
+                  glyph: 'general_check_med_reg',
+                  contentColor: this.resolveTokens().accent,
+                  iconSize: 15,
+                })
               }
             }
             .width('100%')
@@ -1001,9 +1004,12 @@ struct RulerUnitsDialog {
               .fontSize(15)
               .fontColor(this.resolveTokens().textPrimary)
             if (option.units === this.selected) {
-              Text('✓')
-                .fontSize(15)
-                .fontColor(this.resolveTokens().accent)
+              // 原版选中指示 = ui_designsystem__general_check_med_reg。
+              ToolGlyph({
+                glyph: 'general_check_med_reg',
+                contentColor: this.resolveTokens().accent,
+                iconSize: 15,
+              })
             }
           }
           .width('100%')

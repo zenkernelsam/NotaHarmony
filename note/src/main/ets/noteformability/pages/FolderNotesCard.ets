@@ -39,8 +39,12 @@ struct FolderNotesCard {
               params: { folder_id: this.folderId }
             });
           })
-        Text('✎')
-          .fontSize(18)
+        // 原版编辑入口 = ui_designsystem__edit；widget 受限不支持 ToolGlyph
+        // （Shape/Path），改用 Image+media SVG 渲染同名矢量并 fillColor 着色。
+        Image($r('app.media.edit'))
+          .width(18)
+          .height(18)
+          .fillColor($r('app.color.app_widgets__widget_text'))
           .margin({ right: 10 })
           .onClick(() => {
             postCardAction(this, {

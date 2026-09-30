@@ -11,6 +11,7 @@
 import { Canvas2DRenderContext } from '../../core/adaptation/Canvas2DStrokeRenderer';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
+import { ToolGlyph } from '../components/ToolGlyph';
 
 // Phase 752：原版 setAdvanceRegionWidth 夹取域 —— htd case 18
 // rh8.u(value, 48.0f, 336.0f)（dp；Harmony 用 vp 等价）
@@ -138,12 +139,13 @@ export struct NoteZoomView {
       Row() {
         // wfg.c：drag_handle + "Move Zoom View"，垂直拖动重新停靠
         // （qeg：Top/Bottom 两档；向下拖→Bottom，向上拖→Top）
-        Text('≡')
-          .fontSize(18)
-          .fontColor(this.resolveTokens().textSecondary)
+        ToolGlyph({
+          glyph: 'drag_handle',
+          contentColor: this.resolveTokens().textSecondary,
+          iconSize: 20,
+        })
           .width(48)
           .height(48)
-          .textAlign(TextAlign.Center)
           .accessibilityText($r('app.string.zoom_view_move'))
           .gesture(
             PanGesture({ direction: PanDirection.Vertical, distance: 8 })

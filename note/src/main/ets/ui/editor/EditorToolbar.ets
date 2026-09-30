@@ -897,9 +897,12 @@ export struct EditorToolbar {
       Text(this.shareSelectionLabel())
         .fontSize(13)
         .fontColor(this.resolveTokens().textSecondary)
-      Text('›')
-        .fontSize(16)
-        .fontColor(this.resolveTokens().textSecondary)
+      // 前进揭示箭头 = ui_designsystem__chevron_right。
+      ToolGlyph({
+        glyph: 'chevron_right',
+        contentColor: this.resolveTokens().textSecondary,
+        iconSize: 16,
+      })
         .margin({ left: 4 })
     }
       .width('100%')
@@ -923,9 +926,12 @@ export struct EditorToolbar {
         $r('app.string.share_password_on') : $r('app.string.share_password_off'))
         .fontSize(13)
         .fontColor(this.resolveTokens().textSecondary)
-      Text('›')
-        .fontSize(16)
-        .fontColor(this.resolveTokens().textSecondary)
+      // 前进揭示箭头 = ui_designsystem__chevron_right。
+      ToolGlyph({
+        glyph: 'chevron_right',
+        contentColor: this.resolveTokens().textSecondary,
+        iconSize: 16,
+      })
         .margin({ left: 4 })
     }
       .width('100%')
@@ -993,9 +999,12 @@ export struct EditorToolbar {
   buildSharePagePicker() {
     Column() {
       Row() {
-        Text('‹')
-          .fontSize(20)
-          .fontColor(this.resolveTokens().accent)
+        // 返回箭头 = ui_designsystem__chevron_left。
+        ToolGlyph({
+          glyph: 'chevron_left',
+          contentColor: this.resolveTokens().accent,
+          iconSize: 20,
+        })
           .padding({ left: 12, right: 12, top: 8, bottom: 8 })
           .onClick(() => {
             this.shareScreen = 'main';
@@ -1058,9 +1067,12 @@ export struct EditorToolbar {
   buildSharePassword() {
     Column() {
       Row() {
-        Text('‹')
-          .fontSize(20)
-          .fontColor(this.resolveTokens().accent)
+        // 返回箭头 = ui_designsystem__chevron_left。
+        ToolGlyph({
+          glyph: 'chevron_left',
+          contentColor: this.resolveTokens().accent,
+          iconSize: 20,
+        })
           .padding({ left: 12, right: 12, top: 8, bottom: 8 })
           .onClick(() => {
             this.shareScreen = 'main';

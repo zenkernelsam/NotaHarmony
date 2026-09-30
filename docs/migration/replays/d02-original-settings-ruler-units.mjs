@@ -92,7 +92,7 @@ check(adIdx > 0 && ruIdx > adIdx && langIdx > ruIdx, 'row order x22 3→4→5');
 // 选择器：oof.N 顺序 Imperial→Metric + 当前项 ✓ + 点选关闭
 check(/units: RULER_UNITS_IMPERIAL[\s\S]{0,120}units: RULER_UNITS_METRIC/.test(settings),
   'picker order oof.N');
-check(/option\.units === this\.selected[\s\S]{0,200}✓/.test(settings), 'selected checkmark');
+check(/option\.units === this\.selected[\s\S]{0,200}general_check_med_reg/.test(settings), 'selected checkmark');
 check(/controller\.close\(\)[\s\S]{0,80}onPick\(option\.units\)/.test(settings),
   'pick closes dialog then writes');
 

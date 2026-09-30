@@ -4,6 +4,7 @@ import { EditorViewModel } from '../editor/EditorViewModel';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { PEN_PALETTE_PACKS, PEN_PALETTE_PACKS_ADAPTIVE } from '../../data/PenPalettes';
+import { ToolGlyph } from './ToolGlyph';
 
 @Component
 export struct ColorPickerView {
@@ -192,9 +193,12 @@ export struct ColorPickerView {
           }, (color: number, index: number) => index.toString() + ':' + color.toString())
           GridItem() {
             Column() {
-              Text('+')
-                .fontSize(18)
-                .fontColor(this.resolveTokens().textSecondary)
+              // 自定义颜色加入格 = ui_designsystem__plus。
+              ToolGlyph({
+                glyph: 'plus',
+                contentColor: this.resolveTokens().textSecondary,
+                iconSize: 18,
+              })
             }
             .width(32)
             .height(32)

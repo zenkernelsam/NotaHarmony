@@ -9,6 +9,7 @@ import { NoteFolder } from '../../data/FolderRepositoryImpl';
 import { common } from '@kit.AbilityKit';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
+import { ToolGlyph } from './ToolGlyph';
 
 function fileStem(fileName: string): string {
   const dot: number = fileName.lastIndexOf('.');
@@ -226,19 +227,26 @@ export struct ImportDetailsSheet {
         if (this.arranging) {
           // te4：arrange 态行尾 move_up/move_down
           Row() {
-            Text('↑')
-              .fontSize(16)
-              .fontColor(index > 0 ? tokens.textPrimary : tokens.textSecondary)
+            // te4 原为拖拽重排 + 仅无障碍 move_up/move_down；Harmony 提供显式
+            // 上下箭头按钮，映射为设计系统 chevron_down（上移 = 旋转 180°）。
+            ToolGlyph({
+              glyph: 'chevron_down',
+              contentColor: index > 0 ? tokens.textPrimary : tokens.textSecondary,
+              iconSize: 16,
+            })
+              .rotate({ angle: 180 })
               .padding({ left: 10, right: 10, top: 4, bottom: 4 })
               .accessibilityText($r('app.string.import_move_up'))
               .enabled(index > 0)
               .onClick(() => {
                 this.moveFile(index, -1);
               })
-            Text('↓')
-              .fontSize(16)
-              .fontColor(index < this.orderedFiles.length - 1 ?
-                tokens.textPrimary : tokens.textSecondary)
+            ToolGlyph({
+              glyph: 'chevron_down',
+              contentColor: index < this.orderedFiles.length - 1 ?
+                tokens.textPrimary : tokens.textSecondary,
+              iconSize: 16,
+            })
               .padding({ left: 10, right: 10, top: 4, bottom: 4 })
               .accessibilityText($r('app.string.import_move_down'))
               .enabled(index < this.orderedFiles.length - 1)
@@ -384,9 +392,12 @@ export struct ImportDetailsSheet {
                         .textOverflow({ overflow: TextOverflow.Ellipsis })
                         .layoutWeight(1)
                       if (this.selectedNoteId === note.id) {
-                        Text('✓')
-                          .fontSize(14)
-                          .fontColor(this.resolveTokens().accent)
+                        // 原版选中指示 = ui_designsystem__general_check_med_reg。
+                        ToolGlyph({
+                          glyph: 'general_check_med_reg',
+                          contentColor: this.resolveTokens().accent,
+                          iconSize: 14,
+                        })
                       }
                     }
                     .width('100%')

@@ -53,9 +53,11 @@ struct NoteThumbnailCard {
         })
       } else {
         Row() {
-          Text('✎')
-            .fontSize(14)
-            .fontColor('#ffffff')
+          // 原版编辑角标 = ui_designsystem__edit（widget 用 Image+SVG 渲染）。
+          Image($r('app.media.edit'))
+            .width(14)
+            .height(14)
+            .fillColor('#ffffff')
             .margin({ right: 6, top: 6 })
         }
         .width('100%')

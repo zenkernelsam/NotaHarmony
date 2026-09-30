@@ -82,7 +82,7 @@ ok(repo.includes('async setFavoriteColor(toolType: number, trayIndex: number, co
 // UI: tap selects (yg9), long-press opens the well menu, '+' tile adds.
 ok(picker.includes('bindContextMenu(this.buildWellMenu(index), ResponseType.LongPress)'),
   'well long-press menu missing');
-ok(picker.includes("Text('+')") && picker.includes("$r('app.string.add_a_color')") &&
+ok(picker.includes("glyph: 'plus'") && picker.includes("$r('app.string.add_a_color')") &&
    picker.includes('this.viewModel.addFavoriteColorWell()'),
   'add-color tile missing');
 ok(picker.includes("$r('app.string.well_set_current_color')") &&

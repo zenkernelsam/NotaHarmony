@@ -79,8 +79,8 @@ check('RecentNotesCard widget_text×2/divider×3/placeholder 两键/bg',
 check('RecentNotesCard 无残留昼值 hex 属性', noHexAttr(rn));
 
 const fn = read('note/src/main/ets/noteformability/pages/FolderNotesCard.ets');
-check('FolderNotesCard widget_text×2/divider×3/placeholder 两键/bg',
-  (fn.match(/widget_text/g) || []).length === 2 &&
+check('FolderNotesCard widget_text≥2/divider×3/placeholder 两键/bg',
+  (fn.match(/widget_text/g) || []).length >= 2 &&
   (fn.match(/widget_divider/g) || []).length === 3 &&
   /widget_placeholder_bg/.test(fn) && /widget_placeholder_icon/.test(fn) &&
   /widget_bg/.test(fn));
