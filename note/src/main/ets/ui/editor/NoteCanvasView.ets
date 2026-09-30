@@ -258,6 +258,10 @@ const ZOOM_EDGE_SCROLL_FAST_VPS: number = 500;
 const ZOOM_EDGE_SCROLL_FRAME_MS: number = 16;
 const PDF_RASTER_REFRESH_DELAY_MS: number = 120;
 const CLIPBOARD_PASTE_SUPPRESSION_MS: number = 200;
+// 1.4.2 grb.TextOnly 流式排版（doc 单位）：左右页边距与块间纵向间隔。
+// 原版由排版器按 docWidth 重排；Harmony 按页宽内缩固定边距近似。
+const TEXT_ONLY_FLOW_MARGIN: number = 48;
+const TEXT_ONLY_FLOW_GAP: number = 24;
 
 interface ShapeDetectionAttempt {
   shapes: ShapeElement[];
@@ -337,6 +341,13 @@ export struct NoteCanvasView {
   @Prop @Watch('onSelectionWidthSignalChange') selectionWidthSignal: number = 0;
   @Prop @Watch('onClearPageSignalChange') clearPageSignal: number = 0;
   @Prop @Watch('onTapeToggleSignalChange') tapeToggleSignal: number = 0;
+  // 原版 feature_note__options_menu_text_only → jzi.onTextOnlyModeToggle：
+  // ⋮ 菜单信号翻转 is_text_only；页面侧插入导入等退出经 textOnlyExitSignal。
+  @Prop @Watch('onTextOnlySignalChange') textOnlySignal: number = 0;
+  @Prop @Watch('onTextOnlyExitSignalChange') textOnlyExitSignal: number = 0;
+  // 原版 ezi.h textOnlyModeEnabled：回传当前态供菜单行显示勾选。
+  onTextOnlyStateChanged: (isTextOnly: boolean) => void = (_isTextOnly: boolean): void => {
+  };
   @Prop selectionInkWidth: number = 5;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioTime: string | null = null;
   @Prop @Watch('onAudioPlaybackChange') playbackAudioSegments: OriginalAudioSegmentRange[] = [];
@@ -507,6 +518,13 @@ export struct NoteCanvasView {
   private restoredZoomSourceRect: Point2D | null = null;
   // 原版 zoomViewShown：载入值仅作开笔记恢复判定，写回走 persistZoomViewShown。
   private persistedZoomViewShown: boolean | null = null;
+  // 原版 NoteStateEntity.isTextOnly（x4i 组合出 grb.TextOnly 排版模式）：
+  // 打开状态文本按文档宽重排、非文本元素隐藏（text_only_banner_on_body）。
+  @State isTextOnly: boolean = false;
+  // 原版 d6b on/off 横幅：onNoticeDismissed 会话内记忆；off 横幅退出时短驻。
+  @State textOnlyBannerOn: boolean = false;
+  @State textOnlyBannerOff: boolean = false;
+  private textOnlyNoticeDismissed: boolean = false;
   private pageLoadPromise: Promise<void> = Promise.resolve();
   private viewportInitialized: boolean = false;
   private shapeHoldTimer: number = -1;
@@ -635,6 +653,10 @@ export struct NoteCanvasView {
     // 笔记关闭即丢弃；与 painter 共享同一引用使 gate 立即生效。
     this.strokePainter.revealedTapeIds = this.revealedTapeIds;
     this.shapeRenderer.revealedTapeIds = this.revealedTapeIds;
+    // 原版 xqb.java:216 SwitchedTools：订阅工具切换 → text-only 自动退出。
+    this.viewModel.onToolChanged = (tool: ToolType): void => {
+      this.onToolChangedForTextOnly(tool);
+    };
     this.startSystemClipboardImageAvailabilityUpdates();
     this.mathEngineInitializationComplete = originalMathEngine.isReady();
     originalMathEngine.initialize(getContext(this) as common.UIAbilityContext).then((ready: boolean): void => {
@@ -759,6 +781,11 @@ export struct NoteCanvasView {
       this.restoredZoomSourceRect = this.parseZoomSourceRect(
         state?.zoomViewSourceRect ?? null);
       this.persistedZoomViewShown = state?.zoomViewShown ?? null;
+      // 原版 anb.g → hrb 排版模式（x4i：isTextOnly→grb.TextOnly）冷启动恢复。
+      this.isTextOnly = state?.isTextOnly === true;
+      this.textOnlyNoticeDismissed = false;
+      this.textOnlyBannerOn = this.isTextOnly && this.hasNonTextElements();
+      this.textOnlyBannerOff = false;
       this.loaded = true;
       // 原版 anb.f → ZoomViewState.isShown 冷启动恢复：上次关闭笔记时放大窗
       // 仍开着 → 重新激活 ZOOM（面板 onAppear 自动走 initZoomSourceRect 复位）。
@@ -766,6 +793,13 @@ export struct NoteCanvasView {
         this.viewModel.currentTool !== ToolType.ZOOM) {
         this.viewModel.selectTool(ToolType.ZOOM).catch((e: Object): void => {
           console.error(`zoomViewShown restore failed: ${JSON.stringify(e)}`);
+        });
+      }
+      // 原版 grb.TextOnly 排版下仅文本类工具保留（xqb SwitchedTools）；
+      // 进入即落到 DEFAULT（Harmony 的文本输入工具面）保持可输入。
+      if (this.isTextOnly && this.viewModel.currentTool !== ToolType.DEFAULT) {
+        this.viewModel.selectTool(ToolType.DEFAULT).catch((e: Object): void => {
+          console.error(`textOnly tool restore failed: ${JSON.stringify(e)}`);
         });
       }
       this.dataLoadFailed = false;
@@ -1642,6 +1676,114 @@ export struct NoteCanvasView {
     }
   }
 
+  // === 1.4.2 Text-only 视图模式（grb.TextOnly / hrb 排版模式）===
+  // 原版 "This note contains non-text elements but is optimized as text only"：
+  // 横幅仅在笔记确有非文本元素时出现（d6b 双横幅同挂 z14 门）。
+  private hasNonTextElements(): boolean {
+    return this.completedStrokes.length > 0 || this.shapes.length > 0 ||
+      this.imageBlocks.length > 0 || this.mathBlocks.length > 0;
+  }
+
+  // 原版 jzi.onTextOnlyModeToggle → c5i 进入路径；reason 仅用于日志对齐
+  // wu4 ExitTextOnlyViewMode(reason)（ManualExit/SwitchedTools/…）。
+  private setTextOnly(on: boolean, exitReason: string | null = null): void {
+    if (on === this.isTextOnly) {
+      return;
+    }
+    this.isTextOnly = on;
+    if (on) {
+      // 进入流式排版前先收尾活动编辑面：挂起文本编辑会话（uke.p 等价），
+      // 清空选区——流式视图下元素不再处于原位，拖拽/编辑坐标系不成立。
+      if (this.textEditing) {
+        this.suspendTextEditing();
+      }
+      if (this.selectionVisible) {
+        this.clearSelectionWithRegisterReset();
+      }
+      // 原版 enter 落文本工具面（eti 保留集 {TEXT,MEDIA,RECORD,POINTER}；
+      // Harmony 无对应工具枚举 → DEFAULT 即文本输入面）。
+      if (this.viewModel.currentTool !== ToolType.DEFAULT) {
+        this.viewModel.selectTool(ToolType.DEFAULT).catch((e: Object): void => {
+          console.error(`textOnly enter tool switch failed: ${JSON.stringify(e)}`);
+        });
+      }
+      // d6b：进入且有非文本元素 → "Text only mode on" 横幅（会话内可关）。
+      this.textOnlyBannerOn = !this.textOnlyNoticeDismissed && this.hasNonTextElements();
+      this.textOnlyBannerOff = false;
+    } else {
+      this.textOnlyBannerOn = false;
+      // d6b：退出且有非文本元素 → "Text only mode off" 短驻横幅。
+      this.textOnlyBannerOff = this.hasNonTextElements();
+      if (exitReason !== null && exitReason !== 'ManualExit') {
+        // d6b:700 text_only_auto_exit："Showing the full note" snackbar（Harmony 用 toast）。
+        promptAction.showToast({ message: $r('app.string.text_only_auto_exit'), duration: 3000 });
+      }
+    }
+    this.persistIsTextOnly(on);
+    this.onTextOnlyStateChanged(on);
+    this.renderFrame(true);
+  }
+
+  // 原版 c5i.b(q4i)：统一出口（ManualExit/SwitchedTools/InsertedImage/…）。
+  private exitTextOnly(reason: string): void {
+    if (!this.isTextOnly) {
+      return;
+    }
+    this.setTextOnly(false, reason);
+  }
+
+  // 原版 xf3.java:103：is_text_only 专属 UPDATE。
+  private persistIsTextOnly(on: boolean): void {
+    if (this.noteId.length === 0) {
+      return;
+    }
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const db: DatabaseManager = DatabaseManager.getInstance();
+      db.initialize(context)
+        .then((): Promise<void> => {
+          const noteRepo: NoteRepositoryImpl = new NoteRepositoryImpl(db);
+          return noteRepo.saveIsTextOnly(this.noteId, on);
+        })
+        .catch((e: Object): void => {
+          console.error(`persistIsTextOnly failed: ${JSON.stringify(e)}`);
+        });
+    } catch (e) {
+      console.error(`persistIsTextOnly context failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  onTextOnlySignalChange(_propName: string): void {
+    if (!this.loaded) {
+      return;
+    }
+    this.setTextOnly(!this.isTextOnly, this.isTextOnly ? 'ManualExit' : null);
+  }
+
+  // 页面侧导入/插入等路径的退出信号（pi ImportedFile 等）。
+  onTextOnlyExitSignalChange(_propName: string): void {
+    this.exitTextOnly('PageAction');
+  }
+
+  // 原版 xqb.java:216 SwitchedTools：text-only 中切到非保留工具即退出
+  // （eti 保留集 {TEXT,MEDIA,RECORD,POINTER}；Harmony 对应 DEFAULT 之外的全集）。
+  private onToolChangedForTextOnly(tool: ToolType): void {
+    if (this.isTextOnly && tool !== ToolType.DEFAULT) {
+      this.exitTextOnly('SwitchedTools');
+    }
+  }
+
+  private dismissTextOnlyNotice(): void {
+    // 原版 zkb.onTextOnlyNoticeDismissed。
+    this.textOnlyBannerOn = false;
+    this.textOnlyNoticeDismissed = true;
+  }
+
+  private dismissTextOnlyOffBanner(): void {
+    // 原版 zkb.onTextOnlyAutoExitBannerDismissed。
+    this.textOnlyBannerOff = false;
+  }
+
   // 面板挂载/页切换时初始化 sourceRect：有持久化位 → 恢复原位（原版
   // ZoomViewState 会话内保留 sourceRect 的等价物）；否则有墨迹 → 末笔续写位
   // （rectW − advanceDoc 处，下一笔写入即触发前进）；无墨迹 → 视口中心。
@@ -2240,6 +2382,9 @@ export struct NoteCanvasView {
   aboutToDisappear(): void {
     this.lifecycleActive = false;
     this.partialEraserPreview.cancel();
+    // viewModel 跨画布存活——清掉 SwitchedTools 订阅避免悬挂回调。
+    this.viewModel.onToolChanged = (_tool: ToolType): void => {
+    };
     this.stopSystemClipboardImageAvailabilityUpdates();
     this.cancelImageCrop();
     this.cancelMathEditorDraftValidation();
@@ -2614,7 +2759,12 @@ export struct NoteCanvasView {
     try {
       this.canvasCtx.translate(this.viewport.scrollX, this.viewport.scrollY);
       this.canvasCtx.scale(this.viewport.zoom, this.viewport.zoom);
-      if (partialEraserPreviewStroke !== null) {
+      if (this.isTextOnly) {
+        // 原版 grb.TextOnly 排版模式：文本按文档宽重排、非文本元素隐藏。
+        // 图层合成路径会连带笔画层——text-only 下必须整支走流式文本渲染。
+        this.renderPaper(theme);
+        this.renderTextOnlyFlow(this.renderCtx);
+      } else if (partialEraserPreviewStroke !== null) {
         this.layerManager.compositeWithOrderedPartialEraser(this.canvasCtx, partialEraserPreviewStroke, () => {
           const visibleLeft: number = -this.viewport.scrollX / this.viewport.zoom;
           const visibleTop: number = -this.viewport.scrollY / this.viewport.zoom;
@@ -2832,6 +2982,40 @@ export struct NoteCanvasView {
       } else if (element.kind === PageElementKind.MATH) {
         this.mathRenderer.renderMath(element.data, renderContext, mathRasterScale);
       }
+    }
+  }
+
+  // 1.4.2 x4i → grb.TextOnly：文本块按页宽重排的流式布局。
+  // 瞬态渲染副本（cloneTextBlockElement）——持久化几何、旋转、原始位置不变；
+  // 非文本元素（笔画/形状/图片/数学）全部跳过（text_only_banner_on_body 语义）。
+  private renderTextOnlyFlow(renderContext: Canvas2DRenderContext): void {
+    const flowWidth: number = Math.max(1,
+      this.getPaperWidth() - TEXT_ONLY_FLOW_MARGIN * 2);
+    const elements: OrderedPageElement[] = materializePageElements(
+      this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes,
+      this.imageBlocks, this.mathBlocks, null);
+    let cursorY: number = TEXT_ONLY_FLOW_MARGIN;
+    for (const element of elements) {
+      if (element.kind !== PageElementKind.TEXT) {
+        continue;
+      }
+      const block: TextBlockElement = element.data;
+      if (block.richText.length === 0) {
+        continue;
+      }
+      const flowed: TextBlockElement = cloneTextBlockElement(block);
+      flowed.blockWidth = flowWidth;
+      flowed.blockHeight = this.textRenderer.measureTextHeight(flowed, renderContext);
+      flowed.textOrigin = { x: 0, y: 0 };
+      flowed.rotationRadians = 0;
+      flowed.transform = [1, 0, TEXT_ONLY_FLOW_MARGIN, 0, 1, cursorY, 0, 0, 1];
+      flowed.bounds = {
+        left: TEXT_ONLY_FLOW_MARGIN, top: cursorY,
+        right: TEXT_ONLY_FLOW_MARGIN + flowWidth,
+        bottom: cursorY + flowed.blockHeight,
+      };
+      this.textRenderer.renderText(flowed, renderContext);
+      cursorY += flowed.blockHeight + TEXT_ONLY_FLOW_GAP;
     }
   }
 
@@ -8199,6 +8383,11 @@ export struct NoteCanvasView {
   private async insertOriginalPhotos(
     imported: OriginalPhotoIngressItem[],
     origin: OriginalPhotoInsertOrigin): Promise<PhotoInsertOutcome> {
+    // 原版 q4i.InsertedImage：text-only 模式下插入图片即自动退出
+    // （照片选择器/拍照/剪贴板粘贴三路都汇聚于此）。
+    if (imported.length > 0) {
+      this.exitTextOnly('InsertedImage');
+    }
     const pageId: string = origin.pageId;
     const generation: number = origin.generation;
     const pageWidth: number = origin.pageWidth;
@@ -10281,7 +10470,9 @@ export struct NoteCanvasView {
   }
 
   private beginTextEditingAt(position: Point2D): void {
-    if (this.photoImportBusy || this.historyBusy) {
+    if (this.photoImportBusy || this.historyBusy || this.isTextOnly) {
+      // 1.4.2 适配注记：text-only 流式视图为只读——流排副本的坐标系与
+      // 持久化几何不一致，在位编辑会把流排尺寸写回块体（见 ADR-1331）。
       return;
     }
     for (let i: number = this.textBlocks.length - 1; i >= 0; i--) {
@@ -10310,6 +10501,10 @@ export struct NoteCanvasView {
   }
 
   private toggleCheckboxMarkerAt(position: Point2D): boolean {
+    // text-only 只读流式视图：复选框按原始块坐标命中，流排下位置无效。
+    if (this.isTextOnly) {
+      return false;
+    }
     for (let index: number = this.textBlocks.length - 1; index >= 0; index--) {
       const before: TextBlockElement = this.textBlocks[index];
       if (!pointHitsTextBlock(position, before)) {
@@ -11031,6 +11226,70 @@ export struct NoteCanvasView {
           .move(this.zoomDockBottom ? TransitionEdge.BOTTOM : TransitionEdge.TOP)
           .combine(TransitionEffect.OPACITY)
           .animation({ duration: 500, curve: Curve.Ease }))
+      }
+      // 原版 d6b text-only on/off 横幅：zkb.onTextOnlyNoticeDismissed /
+      // onTextOnlyAutoExitBannerDismissed 关闭；仅当笔记含非文本元素时出现。
+      if (this.textOnlyBannerOn) {
+        Column() {
+          Text($r('app.string.text_only_banner_on_title'))
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#FFFFFFFF')
+          Text($r('app.string.text_only_banner_on_body'))
+            .fontSize(12)
+            .fontColor('#E6FFFFFF')
+            .margin({ top: 6 })
+          Row() {
+            Text($r('app.string.text_only_banner_dismiss'))
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#FF9CCAFB')
+              .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+              .onClick((): void => {
+                this.dismissTextOnlyNotice();
+              })
+          }
+          .width('100%')
+          .justifyContent(FlexAlign.End)
+          .margin({ top: 4 })
+        }
+        .alignItems(HorizontalAlign.Start)
+        .width('92%')
+        .padding(12)
+        .backgroundColor('#E6202020')
+        .borderRadius(10)
+        .position({ x: '4%', y: 16 })
+      }
+      if (this.textOnlyBannerOff) {
+        Column() {
+          Text($r('app.string.text_only_banner_off_title'))
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#FFFFFFFF')
+          Text($r('app.string.text_only_banner_off_body'))
+            .fontSize(12)
+            .fontColor('#E6FFFFFF')
+            .margin({ top: 6 })
+          Row() {
+            Text($r('app.string.text_only_banner_dismiss'))
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#FF9CCAFB')
+              .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+              .onClick((): void => {
+                this.dismissTextOnlyOffBanner();
+              })
+          }
+          .width('100%')
+          .justifyContent(FlexAlign.End)
+          .margin({ top: 4 })
+        }
+        .alignItems(HorizontalAlign.Start)
+        .width('92%')
+        .padding(12)
+        .backgroundColor('#E6202020')
+        .borderRadius(10)
+        .position({ x: '4%', y: 16 })
       }
       // 原版 zy7/b4j：FIRST_INK_INSERT（墨迹上方）与 FIRST_IMAGE（对象左缘）
       // 元素锚定引导气泡；"Got it" 写 seen 集（js7）。

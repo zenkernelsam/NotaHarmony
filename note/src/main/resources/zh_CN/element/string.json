@@ -510,6 +510,13 @@
     { "name": "cd_page_indicator", "value": "第 %1$d 页，共 %2$d 页" },
     { "name": "toolbar_more_menu", "value": "更多选项" },
     { "name": "options_menu_app_settings", "value": "应用设置" },
+    { "name": "options_menu_text_only", "value": "仅文本" },
+    { "name": "text_only_banner_on_title", "value": "纯文本模式已开启" },
+    { "name": "text_only_banner_on_body", "value": "此笔记包含非文本元素，已优化为仅文本显示以便阅读。前往“笔记选项”关闭“仅文本”即可按原始格式查看。" },
+    { "name": "text_only_banner_dismiss", "value": "关闭" },
+    { "name": "text_only_banner_off_title", "value": "纯文本模式已关闭" },
+    { "name": "text_only_banner_off_body", "value": "视图设置已更改，以便准确显示笔记中的非文本元素。" },
+    { "name": "text_only_auto_exit", "value": "正在显示完整笔记" },
     { "name": "zoom_in", "value": "放大" },
     { "name": "zoom_out", "value": "缩小" },
 

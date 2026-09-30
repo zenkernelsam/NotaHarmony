@@ -26,7 +26,7 @@ const beginTextEdit = canvas.slice(
   canvas.indexOf('  private beginTextEditingAt('),
   canvas.indexOf('\n  }\n', canvas.indexOf('  private beginTextEditingAt(')));
 assert.match(beginTextEdit,
-  /if \(this\.photoImportBusy \|\| this\.historyBusy\) \{\s+return;\s+\}/);
+  /if \(this\.photoImportBusy \|\| this\.historyBusy \|\| this\.isTextOnly\) \{[\s\S]{0,250}?return;\s+\}/);
 
 for (const name of ['onDraftChange', 'onCancel']) {
   const callbackStart = call.indexOf(`${name}:`);

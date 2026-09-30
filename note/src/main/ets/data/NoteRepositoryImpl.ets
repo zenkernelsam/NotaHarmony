@@ -868,6 +868,20 @@ export class NoteRepositoryImpl implements NoteRepository {
     await this.saveViewState(base);
   }
 
+  // 原版 xf3.java:103/ymb.java：isTextOnly 专属 UPDATE（"Text only" 视图模式开关）。
+  async saveIsTextOnly(noteId: string, isTextOnly: boolean): Promise<void> {
+    const existing = await this.getViewState(noteId);
+    const base: NoteViewState = existing ?? {
+      noteId: noteId,
+      zoom: 1.0,
+      scrollOffsetX: 0,
+      scrollOffsetY: 0,
+      coordinateModelVersion: CURRENT_VIEW_COORDINATE_MODEL_VERSION,
+    };
+    base.isTextOnly = isTextOnly;
+    await this.saveViewState(base);
+  }
+
   private rowToNote(resultSet: relationalStore.ResultSet): NoteMeta {
     try {
       const folderColumn: number = resultSet.getColumnIndex('folder_id');

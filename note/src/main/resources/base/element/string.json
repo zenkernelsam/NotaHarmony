@@ -1363,6 +1363,13 @@
     { "name": "cd_page_indicator", "value": "%1$d of %2$d" },
     { "name": "toolbar_more_menu", "value": "More options" },
     { "name": "options_menu_app_settings", "value": "App settings" },
+    { "name": "options_menu_text_only", "value": "Text only" },
+    { "name": "text_only_banner_on_title", "value": "Text only mode on" },
+    { "name": "text_only_banner_on_body", "value": "This note contains non-text elements but is optimized as text only for easier reading. Go to Note options and turn off Text only to view this note in its original format." },
+    { "name": "text_only_banner_dismiss", "value": "Dismiss" },
+    { "name": "text_only_banner_off_title", "value": "Text only mode off" },
+    { "name": "text_only_banner_off_body", "value": "The view setting has changed to accurately display non-text elements in the note." },
+    { "name": "text_only_auto_exit", "value": "Showing the full note" },
     { "name": "zoom_in", "value": "Zoom in" },
     { "name": "zoom_out", "value": "Zoom out" },
 

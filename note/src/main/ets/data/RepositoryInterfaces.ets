@@ -57,6 +57,7 @@ export interface NoteRepository {
   saveLastCodeBlockLanguage(noteId: string, lang: string | null): Promise<void>;
   saveZoomViewSourceRect(noteId: string, rect: string | null): Promise<void>;
   saveZoomViewShown(noteId: string, shown: boolean): Promise<void>;
+  saveIsTextOnly(noteId: string, isTextOnly: boolean): Promise<void>;
 }
 
 export interface PageRepository {

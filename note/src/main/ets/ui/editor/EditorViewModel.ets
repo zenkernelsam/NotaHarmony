@@ -65,6 +65,10 @@ export class EditorViewModel {
   // observers re-render the tool list (the toolbar binds to this, not `states`).
   toolStates: ToolState[] = [];
   onPersistenceError: (message: string) => void = (_message: string): void => {
+  }
+  // 1.4.2 xqb.java:216 SwitchedTools：工具切换事件出口——text-only 模式借此
+  // 对非保留工具（原版 eti 序数 4/7/8/9=TEXT/MEDIA/RECORD/POINTER 外）自动退出。
+  onToolChanged: (tool: ToolType) => void = (_tool: ToolType): void => {
   };
 
   private repository: ToolRepository | null = null;
@@ -1082,6 +1086,7 @@ export class EditorViewModel {
       ToolType.PARTIAL_ERASER : state.toolType;
     if (nextTool !== this.currentTool) {
       this.toolChangedAt = Date.now();
+      this.onToolChanged(nextTool);
     }
     this.currentTool = nextTool;
     if (state.toolType === ToolType.REVIEW) {

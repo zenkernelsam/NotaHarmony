@@ -72,6 +72,36 @@ export class Canvas2DTextRenderer {
     return Math.ceil(maximum);
   }
 
+  // 1.4.2 grb.TextOnly：量出块以当前 blockWidth 重排后的高度——
+  // 与 renderText 同一套 layoutLines 行切 + (fontSize+8)*lineSpacing 行距累积，
+  // 供 text-only 流式布局纵向堆叠定位。
+  measureTextHeight(element: TextBlockElement, context: RenderContext): number {
+    if (element.richText.length === 0) {
+      return element.contentTopInset + (element.contentBottomInset ?? 0);
+    }
+    const ctx: Canvas2DDrawingContext = context as Canvas2DDrawingContext;
+    const characters: string[] = [];
+    for (const character of element.richText) {
+      characters.push(character);
+    }
+    const characterStyles: RichTextCharacterStyle[] = this.characterStyles(
+      characters.length, element.characterStyleRuns);
+    const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
+      characters.length, element.paragraphStyleRuns);
+    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length,
+      element.fontSize);
+    const lines: TextLayoutLine[] = this.layoutLines(ctx, characters, characterStyles, element);
+    let height: number = element.contentTopInset;
+    for (const line of lines) {
+      const paragraph: RichTextParagraphStyle = paragraphStyles[Math.min(
+        line.start, Math.max(0, characters.length - 1))] ?? {};
+      const spacing: number = paragraph.lineSpacing === undefined ||
+        paragraph.lineSpacing <= 0 ? 1 : paragraph.lineSpacing;
+      height += (this.paragraphFontSize(element, paragraph) + 8) * spacing;
+    }
+    return height + (element.contentBottomInset ?? 0);
+  }
+
   renderText(element: TextBlockElement, context: RenderContext): void {
     const ctx: Canvas2DDrawingContext = context as Canvas2DDrawingContext;
     ctx.save();

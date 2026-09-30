@@ -137,6 +137,12 @@ struct NotePage {
   @State clearPageSignal: number = 0;
   @State pageClipboardVersion: number = 0;
   @State tapeToggleSignal: number = 0;
+  // 原版 feature_note__options_menu_text_only → jzi.onTextOnlyModeToggle。
+  @State textOnlySignal: number = 0;
+  // 原版 q4i.ImportedFile 等页面侧自动退出路径的统一信号。
+  @State textOnlyExitSignal: number = 0;
+  // 原版 ezi.h textOnlyModeEnabled：菜单行回显当前态。
+  @State textOnlyActive: boolean = false;
   // 原版 jg9.n / uf0 case4：当前页 tape 数 + 是否存在已揭示 tape，驱动菜单标签。
   @State pageTapeCount: number = 0;
   @State anyTapeRevealed: boolean = false;
@@ -1128,6 +1134,10 @@ struct NotePage {
       if (this.editorDisposed) {
         return;
       }
+      // 原版 q4i.ImportedFile：text-only 模式下导入文件落盘成功 → 自动退出。
+      if (this.textOnlyActive) {
+        this.textOnlyExitSignal++;
+      }
       this.pageContentVersion++;
       this.refreshEmptyNoteActions();
       await this.loadRecordings();
@@ -1329,6 +1339,13 @@ struct NotePage {
         action: () => { this.tapeToggleSignal++; },
       });
     }
+    // 原版 pdl.java:214 onTextOnlyModeToggle 菜单项：isTextOnly 切换
+    // （"Text only" 行）；menuicon_text 与原版一致。
+    items.push({
+      value: $r('app.string.options_menu_text_only'),
+      icon: $r('app.media.menuicon_text'),
+      action: () => { this.textOnlySignal++; },
+    });
     items.push({ value: $r('app.string.options_menu_app_settings'),
       icon: $r('app.media.menuicon_settings'),
       action: () => { this.navigateToSettings(); } });
@@ -1940,6 +1957,13 @@ struct NotePage {
             selectionInkWidth: this.selectionInkWidth,
             clearPageSignal: this.clearPageSignal,
             tapeToggleSignal: this.tapeToggleSignal,
+            // 原版 jzi.onTextOnlyModeToggle（菜单信号）+ c5i 统一出口
+            // （ImportedFile 等页面侧退出）+ ezi.h 状态回传。
+            textOnlySignal: this.textOnlySignal,
+            textOnlyExitSignal: this.textOnlyExitSignal,
+            onTextOnlyStateChanged: (isTextOnly: boolean): void => {
+              this.textOnlyActive = isTextOnly;
+            },
             onTapeRevealStateChanged: (tapeCount: number, anyRevealed: boolean): void => {
               this.pageTapeCount = tapeCount;
               this.anyTapeRevealed = anyRevealed;
