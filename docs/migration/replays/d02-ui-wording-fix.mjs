@@ -10,14 +10,16 @@ const en = JSON.parse(readFileSync(B, 'utf8'));
 const zh = JSON.parse(readFileSync(Z, 'utf8'));
 const get = (j, k) => (j.string.find(s => s.name === k) || {}).value;
 
-t('en untitled=Untitled', get(en, 'untitled_note') === 'Untitled');
+// Phase 1361 correction: untitled_note is the e5j.h card-title fallback
+// (default_note_title = "New Note"); "Untitled" is only the shortcut label.
+t('en untitled=New Note (e5j.h fallback)', get(en, 'untitled_note') === 'New Note');
 t('en recent desc byte-exact', get(en, 'form_recent_notes_desc') === 'Quick access to your recent notes.');
 t('en folder desc byte-exact', get(en, 'form_folder_notes_desc') === 'Quick access to notes from one of your folders.');
 t('en folder display=Folder', get(en, 'form_folder_notes_display') === 'Folder');
-t('zh untitled=未命名', get(zh, 'untitled_note') === '未命名');
+t('zh untitled=新笔记 (e5j.h fallback)', get(zh, 'untitled_note') === '新笔记');
 t('zh recent desc', get(zh, 'form_recent_notes_desc').includes('快速访问'));
 t('zh folder display=文件夹', get(zh, 'form_folder_notes_display') === '文件夹');
 t('zh folder desc', get(zh, 'form_folder_notes_desc').includes('快速访问'));
 t('en new_note still byte-exact', get(en, 'form_new_note_desc') === 'Quickly create a new note.');
-t('zh untitled not 新笔记', get(zh, 'untitled_note') !== '新笔记');
+t('zh untitled not 未命名', get(zh, 'untitled_note') !== '未命名');
 console.log('ui-wording-fix replay: ' + n + '/10 checks green');

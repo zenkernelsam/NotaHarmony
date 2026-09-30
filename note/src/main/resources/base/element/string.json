@@ -13,89 +13,33 @@
       "value": "NotaHarmony"
     },
     {
-      "name": "shortcut_new_note",
-      "value": "New Note"
-    },
+      "name": "shortcut_new_note", "value": "New Note" },
     {
-      "name": "shortcut_new_photo",
-      "value": "New Photo"
-    },
+      "name": "shortcut_new_photo", "value": "New Photo" },
     {
-      "name": "form_ability_label",
-      "value": "NotaHarmony widgets"
-    },
+      "name": "form_ability_label", "value": "NotaHarmony widgets" },
     {
-      "name": "form_new_note_display",
-      "value": "Create a new note"
-    },
+      "name": "form_new_note_display", "value": "Create a new note" },
     {
-      "name": "form_new_note_desc",
-      "value": "Quickly create a new note."
-    },
+      "name": "form_new_note_desc", "value": "Quickly create a new note." },
     {
-      "name": "form_new_recording_display",
-      "value": "Start recording"
-    },
+      "name": "form_new_recording_display", "value": "Start recording" },
     {
-      "name": "form_new_recording_desc",
-      "value": "Quickly create a new note with a recording."
-    },
-    {
-      "name": "form_recent_notes_display",
-      "value": "Recent Notes"
-    },
-    {
-      "name": "form_recent_notes_desc",
-      "value": "Quick access to your recent notes."
-    },
-    {
-      "name": "form_recent_notes_empty",
-      "value": "No recent notes"
-    },
-    {
-      "name": "form_folder_notes_display",
-      "value": "Folder"
-    },
-    {
-      "name": "form_folder_notes_desc",
-      "value": "Quick access to notes from one of your folders."
-    },
-    {
-      "name": "form_folder_notes_empty",
-      "value": "No notes in this folder"
-    },
-    {
-      "name": "form_folder_notes_unconfigured",
-      "value": "Tap to open Notability"
-    },
-    {
-      "name": "form_folder_edit_title",
-      "value": "Choose a folder"
-    },
-    {
-      "name": "form_folder_edit_empty",
-      "value": "No folders"
-    },
-    {
-      "name": "form_note_thumbnail_display",
-      "value": "Note"
-    },
-    {
-      "name": "form_note_thumbnail_desc",
-      "value": "Quick access to one of your notes."
-    },
-    {
-      "name": "form_note_thumbnail_pick",
-      "value": "Choose a note"
-    },
-    {
-      "name": "form_note_picker_search_hint",
-      "value": "Search notes"
-    },
-    {
-      "name": "form_picker_no_notes",
-      "value": "No notes yet"
-    },
+      "name": "form_new_recording_desc", "value": "Quickly create a new note with a recording." },
+    { "name": "form_recent_notes_display", "value": "Recent Notes" },
+    { "name": "form_recent_notes_desc", "value": "Quick access to your recent notes." },
+    { "name": "form_recent_notes_empty", "value": "No recent notes" },
+    { "name": "form_folder_notes_display", "value": "Folder" },
+    { "name": "form_folder_notes_desc", "value": "Quick access to notes from one of your folders." },
+    { "name": "form_folder_notes_empty", "value": "No notes in this folder" },
+    { "name": "form_folder_notes_unconfigured", "value": "Tap to open Notability" },
+    { "name": "form_folder_edit_title", "value": "Choose a folder" },
+    { "name": "form_folder_edit_empty", "value": "No folders" },
+    { "name": "form_note_thumbnail_display", "value": "Note" },
+    { "name": "form_note_thumbnail_desc", "value": "Quick access to one of your notes." },
+    { "name": "form_note_thumbnail_pick", "value": "Choose a note" },
+    { "name": "form_note_picker_search_hint", "value": "Search notes" },
+    { "name": "form_picker_no_notes", "value": "No notes yet" },
     {
       "name": "retry",
       "value": "Retry"
@@ -708,13 +652,14 @@
       "name": "page_deleted",
       "value": "Page deleted"
     },
+
     {
       "name": "back",
       "value": "Back"
     },
     {
       "name": "untitled_note",
-      "value": "Untitled"
+      "value": "New Note"
     },
     {
       "name": "loading_note",
@@ -975,8 +920,7 @@
     {
       "name": "sort",
       "value": "Sort"
-    },
-    {
+    },    {
       "name": "cd_add_note",
       "value": "Add note"
     },
@@ -992,6 +936,7 @@
       "name": "cd_sort",
       "value": "Sort notes"
     },
+
     {
       "name": "sort_name",
       "value": "Name"
@@ -1055,15 +1000,9 @@
     {
       "name": "dark_theme",
       "value": "Dark theme"
-    },
-    {
-      "name": "appearance",
-      "value": "Appearance"
-    },
-    {
-      "name": "match_system_appearance",
-      "value": "Match system appearance"
-    },
+    },    { "name": "appearance", "value": "Appearance" },
+    { "name": "match_system_appearance", "value": "Match system appearance" },
+
     {
       "name": "settings",
       "value": "Settings"
@@ -1168,1453 +1107,369 @@
       "name": "name",
       "value": "Name"
     },
-    {
-      "name": "open_library_failed",
-      "value": "Could not open the library"
-    },
-    {
-      "name": "note_open_failed",
-      "value": "Could not open this note. Your data was not changed."
-    },
-    {
-      "name": "note_unavailable_title",
-      "value": "Note unavailable"
-    },
-    {
-      "name": "note_unavailable_message",
-      "value": "The note you are trying to access is unavailable at this time."
-    },
-    {
-      "name": "note_load_failed_title",
-      "value": "Unable to open note"
-    },
-    {
-      "name": "note_load_failed_message",
-      "value": "This note could not be loaded. Please try again later."
-    },
-    {
-      "name": "note_load_failed_button",
-      "value": "OK"
-    },
-    {
-      "name": "note_save_failed",
-      "value": "Could not save the note. Try again."
-    },
-    {
-      "name": "page_load_returned",
-      "value": "Page loading failed. Returned to the previous page."
-    },
-    {
-      "name": "page_load_stopped",
-      "value": "Page loading failed. Editing has been disabled."
-    },
-    {
-      "name": "page_operation_failed",
-      "value": "Page operation failed. Try again."
-    },
-    {
-      "name": "delete_folder_failed",
-      "value": "Could not delete the folder. Try again."
-    },
-    {
-      "name": "folder_operation_failed",
-      "value": "Folder operation failed. Try again."
-    },
-    {
-      "name": "move_folder_failed",
-      "value": "Could not move the folder. Try again."
-    },
-    {
-      "name": "error_max_folder_depth",
-      "value": "Notability is limited to 6 levels of folders."
-    },
-    {
-      "name": "folder_name_error",
-      "value": "A folder already exists with this name, or this name contains invalid characters."
-    },
-    {
-      "name": "move_note_failed",
-      "value": "Could not move the note. Try again."
-    },
-    {
-      "name": "load_notes_failed",
-      "value": "Could not load notes. Try again."
-    },
-    {
-      "name": "load_folders_failed",
-      "value": "Could not load folders. Try again."
-    },
-    {
-      "name": "library_load_failed",
-      "value": "Could not load the library"
-    },
-    {
-      "name": "library_load_retry",
-      "value": "Could not load the library. Try again."
-    },
-    {
-      "name": "search_failed",
-      "value": "Search failed. Try again."
-    },
-    {
-      "name": "delete_note_failed",
-      "value": "Could not delete the note. Try again."
-    },
-    {
-      "name": "create_note_failed",
-      "value": "Could not create the note. Try again."
-    },
-    {
-      "name": "new_note",
-      "value": "New Note"
-    },
-    {
-      "name": "record_audio",
-      "value": "Record"
-    },
-    {
-      "name": "created_note_open_failed",
-      "value": "The note was created, but could not be opened."
-    },
-    {
-      "name": "move_to_named_folder",
-      "value": "Move to \"%s\""
-    },
-    {
-      "name": "move_to_folder_path",
-      "value": "Move to: %s"
-    },
-    {
-      "name": "not_configured",
-      "value": "Not configured"
-    },
-    {
-      "name": "never_backed_up",
-      "value": "Never"
-    },
-    {
-      "name": "exporting",
-      "value": "Exporting..."
-    },
-    {
-      "name": "no_notes_to_export",
-      "value": "There are no notes to export"
-    },
-    {
-      "name": "exported_notes_count",
-      "value": "Exported %d of %d notes"
-    },
-    {
-      "name": "export_failed",
-      "value": "Export Failed"
-    },
-    {
-      "name": "export_failed_message",
-      "value": "An error occurred while exporting. Try again."
-    },
-    {
-      "name": "importing",
-      "value": "Importing..."
-    },
-    {
-      "name": "partial_import",
-      "value": "Partial Import"
-    },
-    {
-      "name": "import_failed",
-      "value": "Import Failed"
-    },
-    {
-      "name": "deep_link_note_missing",
-      "value": "Couldn't open link"
-    },
-    {
-      "name": "unsupported_format",
-      "value": "Unsupported Format"
-    },
-    {
-      "name": "import_read_failed",
-      "value": "The file could not be read or parsed."
-    },
-    {
-      "name": "import_pdf_password_title",
-      "value": "Encrypted PDF"
-    },
-    {
-      "name": "import_pdf_password_hint",
-      "value": "Enter password"
-    },
-    {
-      "name": "import_pdf_password_wrong",
-      "value": "Incorrect password. Try again."
-    },
-    {
-      "name": "import_pdf_password_unlock",
-      "value": "Unlock"
-    },
-    {
-      "name": "import_details_title",
-      "value": "Import Files"
-    },
-    {
-      "name": "import_dest_separate",
-      "value": "Separate notes"
-    },
-    {
-      "name": "import_dest_single",
-      "value": "New note"
-    },
-    {
-      "name": "import_dest_existing",
-      "value": "Existing note"
-    },
-    {
-      "name": "import_note_title_hint",
-      "value": "Note title"
-    },
-    {
-      "name": "import_folder_none",
-      "value": "No folder"
-    },
-    {
-      "name": "import_confirm",
-      "value": "Import"
-    },
-    {
-      "name": "import_add_to_note",
-      "value": "Add to \"%s\""
-    },
-    {
-      "name": "import_create_single",
-      "value": "Create single note"
-    },
-    {
-      "name": "import_create_new",
-      "value": "Create new note"
-    },
-    {
-      "name": "backing_up_cloud",
-      "value": "Backing up to the cloud..."
-    },
-    {
-      "name": "no_notes_to_backup",
-      "value": "There are no notes to back up"
-    },
-    {
-      "name": "backup_failed",
-      "value": "Backup Failed"
-    },
-    {
-      "name": "backup_snapshot_changed",
-      "value": "Notes changed while the backup snapshot was being prepared. Wait for pending saves to finish, then try again."
-    },
-    {
-      "name": "backup_prepare_failed",
-      "value": "A complete local backup package could not be prepared. Check that note assets are available, then try again."
-    },
-    {
-      "name": "backup_directory_failed",
-      "value": "Could not create the backup folder. Check the server settings."
-    },
-    {
-      "name": "cloud_backup_count",
-      "value": "Cloud backup complete: %d/%d"
-    },
-    {
-      "name": "cloud_backup_incomplete",
-      "value": "Only %d of %d notes were uploaded. This backup was not marked complete."
-    },
-    {
-      "name": "cloud_backup_verify_failed",
-      "value": "An uploaded note could not be verified. This backup was not published."
-    },
-    {
-      "name": "cloud_backup_publish_failed",
-      "value": "The backup completion manifest could not be published or verified."
-    },
-    {
-      "name": "network_server_unreachable",
-      "value": "The server is unreachable. Check the network and try again."
-    },
-    {
-      "name": "restoring_cloud",
-      "value": "Restoring from the cloud..."
-    },
-    {
-      "name": "backup_operation_in_progress",
-      "value": "Another backup, restore, import, export, or WebDAV settings save is already in progress."
-    },
-    {
-      "name": "no_cloud_backup",
-      "value": "No cloud backup is available"
-    },
-    {
-      "name": "restore_failed",
-      "value": "Restore Failed"
-    },
-    {
-      "name": "backup_download_failed",
-      "value": "Could not download the backup file."
-    },
-    {
-      "name": "cloud_backup_list_failed",
-      "value": "Could not read the cloud backup directory. Check the server connection and credentials."
-    },
-    {
-      "name": "cloud_restore_complete",
-      "value": "Restored %d notes"
-    },
-    {
-      "name": "cloud_restore_partial",
-      "value": "Restored %d of %d notes. %d failed verification or import; %d were partially recovered."
-    },
-    {
-      "name": "cloud_restore_rolled_back",
-      "value": "A verified note could not be imported. %d notes created by this attempt were removed, so no verified note from this attempt was kept. %d remote objects also failed verification."
-    },
-    {
-      "name": "cloud_restore_rollback_incomplete",
-      "value": "Restore stopped, but cleanup was incomplete. Removal could not be confirmed for %d possible imported notes. Review the library before retrying."
-    },
-    {
-      "name": "restored_message",
-      "value": "Restored: %s"
-    },
-    {
-      "name": "restore_result",
-      "value": "Restore Result"
-    },
-    {
-      "name": "server_value",
-      "value": "Server: %s"
-    },
-    {
-      "name": "last_backup_value",
-      "value": "Last backup: %s"
-    },
-    {
-      "name": "server_not_configured",
-      "value": "Server: Not configured"
-    },
-    {
-      "name": "last_backup_never",
-      "value": "Last backup: Never"
-    },
-    {
-      "name": "enter_server_url",
-      "value": "Enter a server URL first"
-    },
-    {
-      "name": "insecure_connection_cancelled",
-      "value": "Insecure HTTP connection cancelled"
-    },
-    {
-      "name": "testing_connection_status",
-      "value": "Testing connection..."
-    },
-    {
-      "name": "connection_request_failed",
-      "value": "Connection failed or timed out (30s)"
-    },
-    {
-      "name": "invalid_webdav_config",
-      "value": "Enter a valid HTTP(S) server URL and backup path"
-    },
-    {
-      "name": "insecure_save_cancelled",
-      "value": "Insecure connection was not saved"
-    },
-    {
-      "name": "settings_saved",
-      "value": "Settings saved"
-    },
-    {
-      "name": "settings_saved_cleanup_pending",
-      "value": "Settings saved; old credential cleanup will be retried"
-    },
-    {
-      "name": "backup_settings_loading",
-      "value": "Loading backup settings..."
-    },
-    {
-      "name": "backup_settings_load_failed",
-      "value": "Could not load backup settings. Try again."
-    },
-    {
-      "name": "save_failed",
-      "value": "Save failed"
-    },
-    {
-      "name": "insecure_webdav_title",
-      "value": "Insecure WebDAV Connection"
-    },
-    {
-      "name": "insecure_webdav_message",
-      "value": "HTTP sends the username and password without encryption. Continue only on a fully trusted local network."
-    },
-    {
-      "name": "continue_anyway",
-      "value": "Continue Anyway"
-    },
-    {
-      "name": "note_editor",
-      "value": "Note Editor"
-    },
-    {
-      "name": "shape_detection",
-      "value": "Shapes detection"
-    },
-    {
-      "name": "keep_device_awake",
-      "value": "Keep device awake"
-    },
-    {
-      "name": "hide_status_bar",
-      "value": "Hide status bar in note view"
-    },
-    {
-      "name": "hide_navigation_bar",
-      "value": "Hide navigation bar in note view"
-    },
-    {
-      "name": "note_view_night_mode",
-      "value": "Note view night mode"
-    },
-    {
-      "name": "note_view_night_mode_caption",
-      "value": "View your notes (paper and ink) with a dark appearance"
-    },
-    {
-      "name": "auto_deselect_eraser",
-      "value": "Auto-deselect eraser"
-    },
-    {
-      "name": "auto_deselect_eraser_description",
-      "value": "After erasing, the toolbox auto-switches back to your last used tool."
-    },
-    {
-      "name": "palm_detection",
-      "value": "Palm detection"
-    },
-    {
-      "name": "palm_detection_description",
-      "value": "Palm Detection lets you rest your palm anywhere while writing."
-    },
-    {
-      "name": "language",
-      "value": "Language"
-    },
-    {
-      "name": "handwriting_language_caption",
-      "value": "Handwriting language is used to improve recognition and search of your handwritten notes."
-    },
-    {
-      "name": "straight_lines",
-      "value": "Straight lines"
-    },
-    {
-      "name": "straight_lines_description",
-      "value": "Use the pen, pencil, or highlighter to draw a line, then continue to hold down to automatically straighten it."
-    },
-    {
-      "name": "shape_detection_description",
-      "value": "Use the pen, pencil, or highlighter to draw a shape, then continue to hold down to automatically detect it."
-    },
-    {
-      "name": "settings_loading",
-      "value": "Loading settings..."
-    },
-    {
-      "name": "settings_load_failed",
-      "value": "Could not load settings. Try again."
-    },
-    {
-      "name": "editor_setting_save_failed",
-      "value": "Could not save the setting. Try again."
-    },
-    {
-      "name": "history_recovery_title",
-      "value": "Undo History Needs Attention"
-    },
-    {
-      "name": "history_recovery_message",
-      "value": "This note is safe to edit, but its saved undo history could not be verified. Continue without the saved history, or reset only the local undo history to start fresh. Your note content and operation log will be kept."
-    },
-    {
-      "name": "continue_editing",
-      "value": "Continue Editing"
-    },
-    {
-      "name": "reset_undo_history",
-      "value": "Reset Undo History"
-    },
-    {
-      "name": "history_recovery_needed",
-      "value": "Saved undo history could not be verified. Editing remains available."
-    },
-    {
-      "name": "history_recovery_complete",
-      "value": "Undo history reset. New edits can be undone."
-    },
-    {
-      "name": "history_recovery_failed",
-      "value": "Could not reset undo history. Editing remains available without saved Undo."
-    },
-    {
-      "name": "recordings",
-      "value": "Recordings"
-    },
-    {
-      "name": "presence_recording",
-      "value": "Recording in progress"
-    },
-    {
-      "name": "close_recordings",
-      "value": "Close recordings"
-    },
-    {
-      "name": "no_recordings",
-      "value": "No recordings"
-    },
-    {
-      "name": "play_recording",
-      "value": "Play recording"
-    },
-    {
-      "name": "pause_recording",
-      "value": "Pause recording"
-    },
-    {
-      "name": "recording_waiting_for_audio",
-      "value": "Waiting for audio"
-    },
-    {
-      "name": "recording_audio_missing",
-      "value": "Audio is missing"
-    },
-    {
-      "name": "recording_audio_failed",
-      "value": "Audio is unavailable"
-    },
-    {
-      "name": "recordings_load_failed",
-      "value": "Could not load recordings"
-    },
-    {
-      "name": "delete_recording",
-      "value": "Delete recording"
-    },
-    {
-      "name": "cd_delete_recording",
-      "value": "Delete Recording %d"
-    },
-    {
-      "name": "recording_deleted",
-      "value": "Recording deleted"
-    },
-    {
-      "name": "recording_delete_failed",
-      "value": "Could not delete the recording"
-    },
-    {
-      "name": "microphone_permission_reason",
-      "value": "Use the microphone to record audio in your notes."
-    },
-    {
-      "name": "microphone_permission_title",
-      "value": "Microphone Access Required"
-    },
-    {
-      "name": "microphone_permission_message",
-      "value": "Notability requires microphone access to record audio. Allow microphone access in application settings, then try again."
-    },
-    {
-      "name": "dismiss",
-      "value": "Dismiss"
-    },
-    {
-      "name": "go_to_settings",
-      "value": "Go to Settings"
-    },
-    {
-      "name": "start_recording",
-      "value": "Record"
-    },
-    {
-      "name": "resume_recording",
-      "value": "Resume"
-    },
-    {
-      "name": "stop_recording",
-      "value": "Stop"
-    },
-    {
-      "name": "preparing_recording",
-      "value": "Starting recording..."
-    },
-    {
-      "name": "saving_recording",
-      "value": "Saving recording..."
-    },
-    {
-      "name": "recording_start_failed",
-      "value": "Couldn't start recording"
-    },
-    {
-      "name": "recording_save_failed",
-      "value": "Couldn't save recording"
-    },
-    {
-      "name": "select_audio_source",
-      "value": "Select audio source"
-    },
-    {
-      "name": "audio_source_microphone",
-      "value": "Microphone"
-    },
-    {
-      "name": "audio_source_internal",
-      "value": "Internal Audio"
-    },
-    {
-      "name": "recording_playback_speed",
-      "value": "Playback speed"
-    },
-    {
-      "name": "no_playback_data_available",
-      "value": "No playback data available"
-    },
-    {
-      "name": "recording_rewind_10_seconds",
-      "value": "Rewind 10 seconds"
-    },
-    {
-      "name": "recording_forward_10_seconds",
-      "value": "Forward 10 seconds"
-    },
-    {
-      "name": "recording_user_facing_name",
-      "value": "Recording %d"
-    },
-    {
-      "name": "recording_subtitle",
-      "value": "%s %s, %s"
-    },
-    {
-      "name": "undo",
-      "value": "Undo"
-    },
-    {
-      "name": "cd_undo_action",
-      "value": "Undo Action"
-    },
-    {
-      "name": "cd_redo_action",
-      "value": "Redo Action"
-    },
-    {
-      "name": "cd_share_action",
-      "value": "Share"
-    },
-    {
-      "name": "share_sheet_title",
-      "value": "Share"
-    },
-    {
-      "name": "share_link",
-      "value": "Link"
-    },
-    {
-      "name": "share_pdf",
-      "value": "PDF"
-    },
-    {
-      "name": "share_note",
-      "value": "Note"
-    },
-    {
-      "name": "share_jpg",
-      "value": "JPG"
-    },
-    {
-      "name": "share_png",
-      "value": "PNG"
-    },
-    {
-      "name": "share_format_unsupported",
-      "value": "Not supported"
-    },
-    {
-      "name": "share_range_all",
-      "value": "All pages"
-    },
-    {
-      "name": "share_range_selected",
-      "value": "%d of %d"
-    },
-    {
-      "name": "share_page_range",
-      "value": "Page range"
-    },
-    {
-      "name": "share_password",
-      "value": "Password"
-    },
-    {
-      "name": "share_password_subtitle",
-      "value": "Protect your PDF with a password."
-    },
-    {
-      "name": "share_password_enter",
-      "value": "Enter password"
-    },
-    {
-      "name": "share_password_confirm",
-      "value": "Confirm password"
-    },
-    {
-      "name": "share_password_mismatch",
-      "value": "Passwords do not match"
-    },
-    {
-      "name": "share_password_on",
-      "value": "On"
-    },
-    {
-      "name": "share_password_off",
-      "value": "Off"
-    },
-    {
-      "name": "share_password_save",
-      "value": "Save"
-    },
-    {
-      "name": "share_password_remove",
-      "value": "Remove"
-    },
-    {
-      "name": "share_include_background",
-      "value": "Include background"
-    },
-    {
-      "name": "share_include_recording",
-      "value": "Include recording"
-    },
-    {
-      "name": "share_action_pdf",
-      "value": "Share PDF"
-    },
-    {
-      "name": "share_action_note",
-      "value": "Share Note"
-    },
-    {
-      "name": "share_action_jpg",
-      "value": "Share JPG"
-    },
-    {
-      "name": "share_action_png",
-      "value": "Share PNG"
-    },
-    {
-      "name": "share_action_link",
-      "value": "Share link"
-    },
-    {
-      "name": "share_cancel",
-      "value": "Cancel"
-    },
-    {
-      "name": "share_link_unavailable",
-      "value": "Link sharing requires an account and is unavailable in this build."
-    },
-    {
-      "name": "pages_panel_title",
-      "value": "Pages"
-    },
-    {
-      "name": "pages_filter_all",
-      "value": "All"
-    },
-    {
-      "name": "pages_filter_bookmarks",
-      "value": "Bookmarks"
-    },
-    {
-      "name": "pages_filter_notes",
-      "value": "Notes"
-    },
-    {
-      "name": "pages_panel_empty",
-      "value": "No pages to display"
-    },
-    {
-      "name": "cd_pages_panel_toggle",
-      "value": "Toggle pages panel"
-    },
-    {
-      "name": "cd_pages_panel_close",
-      "value": "Close pages panel"
-    },
-    {
-      "name": "pages_panel_search",
-      "value": "Search"
-    },
-    {
-      "name": "cd_pages_panel_search",
-      "value": "Search pages"
-    },
-    {
-      "name": "pages_panel_search_placeholder",
-      "value": "Search pages"
-    },
-    {
-      "name": "pages_menu_select",
-      "value": "Select"
-    },
-    {
-      "name": "pages_select_all",
-      "value": "Select all"
-    },
-    {
-      "name": "pages_deselect_all",
-      "value": "Deselect All"
-    },
-    {
-      "name": "pages_done",
-      "value": "Done"
-    },
-    {
-      "name": "cd_quick_tool_color",
-      "value": "Color"
-    },
-    {
-      "name": "cd_page_indicator",
-      "value": "%1$d of %2$d"
-    },
-    {
-      "name": "toolbar_more_menu",
-      "value": "More options"
-    },
-    {
-      "name": "options_menu_app_settings",
-      "value": "App settings"
-    },
-    {
-      "name": "zoom_in",
-      "value": "Zoom in"
-    },
-    {
-      "name": "zoom_out",
-      "value": "Zoom out"
-    },
-    {
-      "name": "group",
-      "value": "Group"
-    },
-    {
-      "name": "ungroup",
-      "value": "Ungroup"
-    },
-    {
-      "name": "edit_math",
-      "value": "Edit Math"
-    },
-    {
-      "name": "add_files",
-      "value": "Add Files"
-    },
-    {
-      "name": "insert_photo",
-      "value": "Photo"
-    },
-    {
-      "name": "take_photo",
-      "value": "Take Photo"
-    },
-    {
-      "name": "insert_math",
-      "value": "Insert Math"
-    },
-    {
-      "name": "math_editor_title",
-      "value": "Math"
-    },
-    {
-      "name": "math_editor_placeholder",
-      "value": "x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}"
-    },
-    {
-      "name": "math_editor_invalid",
-      "value": "This isn't valid LaTeX"
-    },
-    {
-      "name": "math_editor_failed",
-      "value": "Couldn't add math"
-    },
-    {
-      "name": "math_editor_cancel",
-      "value": "Cancel"
-    },
-    {
-      "name": "math_editor_done",
-      "value": "Done"
-    },
-    {
-      "name": "original_photo_insert_failed",
-      "value": "Couldn't add photos"
-    },
+    { "name": "open_library_failed", "value": "Could not open the library" },
+    { "name": "note_open_failed", "value": "Could not open this note. Your data was not changed." },
+    { "name": "note_unavailable_title", "value": "Note unavailable" },
+    { "name": "note_unavailable_message", "value": "The note you are trying to access is unavailable at this time." },
+    { "name": "note_load_failed_title", "value": "Unable to open note" },
+    { "name": "note_load_failed_message", "value": "This note could not be loaded. Please try again later." },
+    { "name": "note_load_failed_button", "value": "OK" },
+    { "name": "note_save_failed", "value": "Could not save the note. Try again." },
+    { "name": "page_load_returned", "value": "Page loading failed. Returned to the previous page." },
+    { "name": "page_load_stopped", "value": "Page loading failed. Editing has been disabled." },
+    { "name": "page_operation_failed", "value": "Page operation failed. Try again." },
+    { "name": "delete_folder_failed", "value": "Could not delete the folder. Try again." },
+    { "name": "folder_operation_failed", "value": "Folder operation failed. Try again." },
+    { "name": "move_folder_failed", "value": "Could not move the folder. Try again." },
+    { "name": "error_max_folder_depth", "value": "Notability is limited to 6 levels of folders." },
+    { "name": "folder_name_error", "value": "A folder already exists with this name, or this name contains invalid characters." },
+    { "name": "move_note_failed", "value": "Could not move the note. Try again." },
+    { "name": "load_notes_failed", "value": "Could not load notes. Try again." },
+    { "name": "load_folders_failed", "value": "Could not load folders. Try again." },
+    { "name": "library_load_failed", "value": "Could not load the library" },
+    { "name": "library_load_retry", "value": "Could not load the library. Try again." },
+    { "name": "search_failed", "value": "Search failed. Try again." },
+    { "name": "delete_note_failed", "value": "Could not delete the note. Try again." },
+    { "name": "create_note_failed", "value": "Could not create the note. Try again." },
+    { "name": "new_note", "value": "New Note" },
+    { "name": "record_audio", "value": "Record" },
+    { "name": "created_note_open_failed", "value": "The note was created, but could not be opened." },
+    { "name": "move_to_named_folder", "value": "Move to \"%s\"" },
+    { "name": "move_to_folder_path", "value": "Move to: %s" },
+    { "name": "not_configured", "value": "Not configured" },
+    { "name": "never_backed_up", "value": "Never" },
+    { "name": "exporting", "value": "Exporting..." },
+    { "name": "no_notes_to_export", "value": "There are no notes to export" },
+    { "name": "exported_notes_count", "value": "Exported %d of %d notes" },
+    { "name": "export_failed", "value": "Export Failed" },
+    { "name": "export_failed_message", "value": "An error occurred while exporting. Try again." },
+    { "name": "importing", "value": "Importing..." },
+    { "name": "partial_import", "value": "Partial Import" },
+    { "name": "import_failed", "value": "Import Failed" },
+    { "name": "deep_link_note_missing", "value": "Couldn't open link" },
+    { "name": "unsupported_format", "value": "Unsupported Format" },
+    { "name": "import_read_failed", "value": "The file could not be read or parsed." },
+    { "name": "import_pdf_password_title", "value": "Encrypted PDF" },
+    { "name": "import_pdf_password_hint", "value": "Enter password" },
+    { "name": "import_pdf_password_wrong", "value": "Incorrect password. Try again." },
+    { "name": "import_pdf_password_unlock", "value": "Unlock" },
+    { "name": "import_details_title", "value": "Import Files" },
+    { "name": "import_dest_separate", "value": "Separate notes" },
+    { "name": "import_dest_single", "value": "New note" },
+    { "name": "import_dest_existing", "value": "Existing note" },
+    { "name": "import_note_title_hint", "value": "Note title" },
+    { "name": "import_folder_none", "value": "No folder" },
+    { "name": "import_confirm", "value": "Import" },
+    { "name": "import_add_to_note", "value": "Add to \"%s\"" },
+    { "name": "import_create_single", "value": "Create single note" },
+    { "name": "import_create_new", "value": "Create new note" },
+    { "name": "backing_up_cloud", "value": "Backing up to the cloud..." },
+    { "name": "no_notes_to_backup", "value": "There are no notes to back up" },
+    { "name": "backup_failed", "value": "Backup Failed" },
+    { "name": "backup_snapshot_changed", "value": "Notes changed while the backup snapshot was being prepared. Wait for pending saves to finish, then try again." },
+    { "name": "backup_prepare_failed", "value": "A complete local backup package could not be prepared. Check that note assets are available, then try again." },
+    { "name": "backup_directory_failed", "value": "Could not create the backup folder. Check the server settings." },
+    { "name": "cloud_backup_count", "value": "Cloud backup complete: %d/%d" },
+    { "name": "cloud_backup_incomplete", "value": "Only %d of %d notes were uploaded. This backup was not marked complete." },
+    { "name": "cloud_backup_verify_failed", "value": "An uploaded note could not be verified. This backup was not published." },
+    { "name": "cloud_backup_publish_failed", "value": "The backup completion manifest could not be published or verified." },
+    { "name": "network_server_unreachable", "value": "The server is unreachable. Check the network and try again." },
+    { "name": "restoring_cloud", "value": "Restoring from the cloud..." },
+    { "name": "backup_operation_in_progress", "value": "Another backup, restore, import, export, or WebDAV settings save is already in progress." },
+    { "name": "no_cloud_backup", "value": "No cloud backup is available" },
+    { "name": "restore_failed", "value": "Restore Failed" },
+    { "name": "backup_download_failed", "value": "Could not download the backup file." },
+    { "name": "cloud_backup_list_failed", "value": "Could not read the cloud backup directory. Check the server connection and credentials." },
+    { "name": "cloud_restore_complete", "value": "Restored %d notes" },
+    { "name": "cloud_restore_partial", "value": "Restored %d of %d notes. %d failed verification or import; %d were partially recovered." },
+    { "name": "cloud_restore_rolled_back", "value": "A verified note could not be imported. %d notes created by this attempt were removed, so no verified note from this attempt was kept. %d remote objects also failed verification." },
+    { "name": "cloud_restore_rollback_incomplete", "value": "Restore stopped, but cleanup was incomplete. Removal could not be confirmed for %d possible imported notes. Review the library before retrying." },
+    { "name": "restored_message", "value": "Restored: %s" },
+    { "name": "restore_result", "value": "Restore Result" },
+    { "name": "server_value", "value": "Server: %s" },
+    { "name": "last_backup_value", "value": "Last backup: %s" },
+    { "name": "server_not_configured", "value": "Server: Not configured" },
+    { "name": "last_backup_never", "value": "Last backup: Never" },
+    { "name": "enter_server_url", "value": "Enter a server URL first" },
+    { "name": "insecure_connection_cancelled", "value": "Insecure HTTP connection cancelled" },
+    { "name": "testing_connection_status", "value": "Testing connection..." },
+    { "name": "connection_request_failed", "value": "Connection failed or timed out (30s)" },
+    { "name": "invalid_webdav_config", "value": "Enter a valid HTTP(S) server URL and backup path" },
+    { "name": "insecure_save_cancelled", "value": "Insecure connection was not saved" },
+    { "name": "settings_saved", "value": "Settings saved" },
+    { "name": "settings_saved_cleanup_pending", "value": "Settings saved; old credential cleanup will be retried" },
+    { "name": "backup_settings_loading", "value": "Loading backup settings..." },
+    { "name": "backup_settings_load_failed", "value": "Could not load backup settings. Try again." },
+    { "name": "save_failed", "value": "Save failed" },
+    { "name": "insecure_webdav_title", "value": "Insecure WebDAV Connection" },
+    { "name": "insecure_webdav_message", "value": "HTTP sends the username and password without encryption. Continue only on a fully trusted local network." },
+    { "name": "continue_anyway", "value": "Continue Anyway" },
+    { "name": "note_editor", "value": "Note Editor" },
+    { "name": "shape_detection", "value": "Shapes detection" },    { "name": "keep_device_awake", "value": "Keep device awake" },    { "name": "hide_status_bar", "value": "Hide status bar in note view" },
+    { "name": "hide_navigation_bar", "value": "Hide navigation bar in note view" },    { "name": "note_view_night_mode", "value": "Note view night mode" },
+    { "name": "note_view_night_mode_caption", "value": "View your notes (paper and ink) with a dark appearance" },    { "name": "auto_deselect_eraser", "value": "Auto-deselect eraser" },
+    { "name": "auto_deselect_eraser_description", "value": "After erasing, the toolbox auto-switches back to your last used tool." },    { "name": "palm_detection", "value": "Palm detection" },
+    { "name": "palm_detection_description", "value": "Palm Detection lets you rest your palm anywhere while writing." },    { "name": "language", "value": "Language" },
+    { "name": "handwriting_language_caption", "value": "Handwriting language is used to improve recognition and search of your handwritten notes." },    { "name": "straight_lines", "value": "Straight lines" },
+    { "name": "straight_lines_description", "value": "Use the pen, pencil, or highlighter to draw a line, then continue to hold down to automatically straighten it." },
+    { "name": "shape_detection_description", "value": "Use the pen, pencil, or highlighter to draw a shape, then continue to hold down to automatically detect it." },
+
+
+
+
+
+
+    { "name": "settings_loading", "value": "Loading settings..." },
+    { "name": "settings_load_failed", "value": "Could not load settings. Try again." },
+    { "name": "editor_setting_save_failed", "value": "Could not save the setting. Try again." },
+    { "name": "history_recovery_title", "value": "Undo History Needs Attention" },
+    { "name": "history_recovery_message", "value": "This note is safe to edit, but its saved undo history could not be verified. Continue without the saved history, or reset only the local undo history to start fresh. Your note content and operation log will be kept." },
+    { "name": "continue_editing", "value": "Continue Editing" },
+    { "name": "reset_undo_history", "value": "Reset Undo History" },
+    { "name": "history_recovery_needed", "value": "Saved undo history could not be verified. Editing remains available." },
+    { "name": "history_recovery_complete", "value": "Undo history reset. New edits can be undone." },
+    { "name": "history_recovery_failed", "value": "Could not reset undo history. Editing remains available without saved Undo." },
+    { "name": "recordings", "value": "Recordings" },    { "name": "presence_recording", "value": "Recording in progress" },
+
+    { "name": "close_recordings", "value": "Close recordings" },
+    { "name": "no_recordings", "value": "No recordings" },
+    { "name": "play_recording", "value": "Play recording" },
+    { "name": "pause_recording", "value": "Pause recording" },
+    { "name": "recording_waiting_for_audio", "value": "Waiting for audio" },
+    { "name": "recording_audio_missing", "value": "Audio is missing" },
+    { "name": "recording_audio_failed", "value": "Audio is unavailable" },
+    { "name": "recordings_load_failed", "value": "Could not load recordings" },
+    { "name": "delete_recording", "value": "Delete recording" },
+    { "name": "cd_delete_recording", "value": "Delete Recording %d" },
+    { "name": "recording_deleted", "value": "Recording deleted" },
+    { "name": "recording_delete_failed", "value": "Could not delete the recording" },
+    { "name": "microphone_permission_reason", "value": "Use the microphone to record audio in your notes." },
+    { "name": "microphone_permission_title", "value": "Microphone Access Required" },
+    { "name": "microphone_permission_message", "value": "Notability requires microphone access to record audio. Allow microphone access in application settings, then try again." },
+    { "name": "dismiss", "value": "Dismiss" },
+    { "name": "go_to_settings", "value": "Go to Settings" },
+    { "name": "start_recording", "value": "Record" },
+    { "name": "resume_recording", "value": "Resume" },
+    { "name": "stop_recording", "value": "Stop" },
+    { "name": "preparing_recording", "value": "Starting recording..." },
+    { "name": "saving_recording", "value": "Saving recording..." },
+    { "name": "recording_start_failed", "value": "Couldn't start recording" },
+    { "name": "recording_save_failed", "value": "Couldn't save recording" },
+    { "name": "select_audio_source", "value": "Select audio source" },
+    { "name": "audio_source_microphone", "value": "Microphone" },
+    { "name": "audio_source_internal", "value": "Internal Audio" },
+    { "name": "recording_playback_speed", "value": "Playback speed" },
+    { "name": "no_playback_data_available", "value": "No playback data available" },
+    { "name": "recording_rewind_10_seconds", "value": "Rewind 10 seconds" },
+    { "name": "recording_forward_10_seconds", "value": "Forward 10 seconds" },
+    { "name": "recording_user_facing_name", "value": "Recording %d" },
+    { "name": "recording_subtitle", "value": "%s %s, %s" },
+    { "name": "undo", "value": "Undo" },    { "name": "cd_undo_action", "value": "Undo Action" },
+    { "name": "cd_redo_action", "value": "Redo Action" },
+    { "name": "cd_share_action", "value": "Share" },
+    { "name": "share_sheet_title", "value": "Share" },
+    { "name": "share_link", "value": "Link" },
+    { "name": "share_pdf", "value": "PDF" },
+    { "name": "share_note", "value": "Note" },
+    { "name": "share_jpg", "value": "JPG" },
+    { "name": "share_png", "value": "PNG" },
+    { "name": "share_format_unsupported", "value": "Not supported" },
+    { "name": "share_range_all", "value": "All pages" },
+    { "name": "share_range_selected", "value": "%d of %d" },
+    { "name": "share_page_range", "value": "Page range" },
+    { "name": "share_password", "value": "Password" },
+    { "name": "share_password_subtitle", "value": "Protect your PDF with a password." },
+    { "name": "share_password_enter", "value": "Enter password" },
+    { "name": "share_password_confirm", "value": "Confirm password" },
+    { "name": "share_password_mismatch", "value": "Passwords do not match" },
+    { "name": "share_password_on", "value": "On" },
+    { "name": "share_password_off", "value": "Off" },
+    { "name": "share_password_save", "value": "Save" },
+    { "name": "share_password_remove", "value": "Remove" },
+    { "name": "share_include_background", "value": "Include background" },
+    { "name": "share_include_recording", "value": "Include recording" },
+    { "name": "share_action_pdf", "value": "Share PDF" },
+    { "name": "share_action_note", "value": "Share Note" },
+    { "name": "share_action_jpg", "value": "Share JPG" },
+    { "name": "share_action_png", "value": "Share PNG" },
+    { "name": "share_action_link", "value": "Share link" },
+    { "name": "share_cancel", "value": "Cancel" },
+    { "name": "share_link_unavailable", "value": "Link sharing requires an account and is unavailable in this build." },
+    { "name": "pages_panel_title", "value": "Pages" },
+    { "name": "pages_filter_all", "value": "All" },
+    { "name": "pages_filter_bookmarks", "value": "Bookmarks" },
+    { "name": "pages_filter_notes", "value": "Notes" },
+    { "name": "pages_panel_empty", "value": "No pages to display" },
+    { "name": "cd_pages_panel_toggle", "value": "Toggle pages panel" },
+    { "name": "cd_pages_panel_close", "value": "Close pages panel" },
+    { "name": "pages_panel_search", "value": "Search" },
+    { "name": "cd_pages_panel_search", "value": "Search pages" },
+    { "name": "pages_panel_search_placeholder", "value": "Search pages" },
+    { "name": "pages_menu_select", "value": "Select" },
+    { "name": "pages_select_all", "value": "Select all" },
+    { "name": "pages_deselect_all", "value": "Deselect All" },
+    { "name": "pages_done", "value": "Done" },
+    { "name": "cd_quick_tool_color", "value": "Color" },
+    { "name": "cd_page_indicator", "value": "%1$d of %2$d" },
+    { "name": "toolbar_more_menu", "value": "More options" },
+    { "name": "options_menu_app_settings", "value": "App settings" },
+    { "name": "zoom_in", "value": "Zoom in" },
+    { "name": "zoom_out", "value": "Zoom out" },
+
+    { "name": "group", "value": "Group" },
+    { "name": "ungroup", "value": "Ungroup" },
+    { "name": "edit_math", "value": "Edit Math" },
+    { "name": "add_files", "value": "Add Files" },
+    { "name": "insert_photo", "value": "Photo" },
+    { "name": "take_photo", "value": "Take Photo" },
+    { "name": "insert_math", "value": "Insert Math" },
+    { "name": "math_editor_title", "value": "Math" },
+    { "name": "math_editor_placeholder", "value": "x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}" },
+    { "name": "math_editor_invalid", "value": "This isn't valid LaTeX" },
+    { "name": "math_editor_failed", "value": "Couldn't add math" },
+    { "name": "math_editor_cancel", "value": "Cancel" },
+    { "name": "math_editor_done", "value": "Done" },
+    { "name": "original_photo_insert_failed", "value": "Couldn't add photos" },
     {
       "name": "image_too_large_to_add",
       "value": "Image is too large to add."
     },
-    {
-      "name": "original_photo_insert_partial_failed",
-      "value": "Some photos couldn't be added"
-    },
-    {
-      "name": "read_pasteboard_permission_reason",
-      "value": "Allows the app to paste images from the clipboard"
-    },
-    {
-      "name": "share",
-      "value": "Share"
-    },
-    {
-      "name": "deselect_all",
-      "value": "Deselect All"
-    },
-    {
-      "name": "notes_selected",
-      "value": "%d Notes Selected"
-    },
-    {
-      "name": "note_selected_singular",
-      "value": "%d Note Selected"
-    },
-    {
-      "name": "select_note",
-      "value": "Select Note"
-    },
-    {
-      "name": "note_actions",
-      "value": "Note actions"
-    },
-    {
-      "name": "delete_notes_message",
-      "value": "Move %d notes to Recently Deleted? You can recover them within 30 days."
-    },
-    {
-      "name": "multi_delete_failed",
-      "value": "Failed to delete selected notes"
-    },
-    {
-      "name": "multi_duplicate_failed",
-      "value": "Failed to duplicate selected notes"
-    },
-    {
-      "name": "multi_favorite_failed",
-      "value": "Failed to update selected notes"
-    },
-    {
-      "name": "share_multi_subject",
-      "value": "Notes"
-    },
-    {
-      "name": "share_multi_subtitle",
-      "value": "Share a PDF, a note or an image."
-    },
-    {
-      "name": "share_chip_pdf_multi",
-      "value": "PDFs"
-    },
-    {
-      "name": "share_chip_note_multi",
-      "value": "Notes"
-    },
-    {
-      "name": "share_chip_jpg_multi",
-      "value": "JPGs"
-    },
-    {
-      "name": "share_chip_png_multi",
-      "value": "PNGs"
-    },
-    {
-      "name": "share_action_pdf_multi",
-      "value": "Share PDFs"
-    },
-    {
-      "name": "share_action_note_multi",
-      "value": "Share Notes"
-    },
-    {
-      "name": "share_action_jpg_multi",
-      "value": "Share JPGs"
-    },
-    {
-      "name": "share_action_png_multi",
-      "value": "Share PNGs"
-    },
-    {
-      "name": "multi_share_failed",
-      "value": "Failed to share selected notes"
-    },
-    {
-      "name": "ruler_units",
-      "value": "Ruler units"
-    },
-    {
-      "name": "imperial",
-      "value": "Imperial"
-    },
-    {
-      "name": "metric",
-      "value": "Metric"
-    },
-    {
-      "name": "eyedropper",
-      "value": "Eyedropper"
-    },
-    {
-      "name": "docscan",
-      "value": "Document Scan"
-    },
-    {
-      "name": "scanned_document_title",
-      "value": "Scanned Document %1$s"
-    },
-    {
-      "name": "doc_scan_failed",
-      "value": "Couldn't create note from scan. Please try again."
-    },
-    {
-      "name": "block_quote",
-      "value": "Block quote"
-    },
-    {
-      "name": "code_block",
-      "value": "Code block"
-    },
-    {
-      "name": "bullet_list",
-      "value": "Bullet list"
-    },
-    {
-      "name": "numbered_list",
-      "value": "Numbered list"
-    },
-    {
-      "name": "checkbox_list",
-      "value": "Checkbox list"
-    },
-    {
-      "name": "empty_note_capture_add",
-      "value": "Capture and add"
-    },
-    {
-      "name": "empty_note_import",
-      "value": "Import"
-    },
-    {
-      "name": "empty_note_record",
-      "value": "Record"
-    },
-    {
-      "name": "empty_note_scan",
-      "value": "Scan"
-    },
-    {
-      "name": "empty_note_scan_failed",
-      "value": "Couldn't scan the document. Please try again."
-    },
-    {
-      "name": "bold",
-      "value": "Bold"
-    },
-    {
-      "name": "italic",
-      "value": "Italic"
-    },
-    {
-      "name": "underline",
-      "value": "Underline"
-    },
-    {
-      "name": "strikethrough",
-      "value": "Strikethrough"
-    },
-    {
-      "name": "subscript",
-      "value": "Subscript"
-    },
-    {
-      "name": "superscript",
-      "value": "Superscript"
-    },
-    {
-      "name": "increase_indent",
-      "value": "Increase indent"
-    },
-    {
-      "name": "decrease_indent",
-      "value": "Decrease indent"
-    },
-    {
-      "name": "text_highlight",
-      "value": "Highlight"
-    },
-    {
-      "name": "highlight_yellow",
-      "value": "Yellow"
-    },
-    {
-      "name": "highlight_green",
-      "value": "Green"
-    },
-    {
-      "name": "highlight_cyan",
-      "value": "Cyan"
-    },
-    {
-      "name": "highlight_pink",
-      "value": "Pink"
-    },
-    {
-      "name": "highlight_orange",
-      "value": "Orange"
-    },
-    {
-      "name": "highlight_remove",
-      "value": "Remove Highlight"
-    },
-    {
-      "name": "text_style",
-      "value": "Style"
-    },
-    {
-      "name": "font_style_large_title",
-      "value": "Large Title"
-    },
-    {
-      "name": "font_style_heading_1",
-      "value": "Heading 1"
-    },
-    {
-      "name": "font_style_heading_2",
-      "value": "Heading 2"
-    },
-    {
-      "name": "font_style_heading_3",
-      "value": "Heading 3"
-    },
-    {
-      "name": "font_style_body",
-      "value": "Body"
-    },
-    {
-      "name": "font_style_caption",
-      "value": "Caption"
-    },
-    {
-      "name": "text_color",
-      "value": "Color"
-    },
-    {
-      "name": "color_automatic",
-      "value": "Automatic"
-    },
-    {
-      "name": "font_family",
-      "value": "Font family"
-    },
-    {
-      "name": "font_default",
-      "value": "Default"
-    },
-    {
-      "name": "text_link",
-      "value": "Link"
-    },
-    {
-      "name": "link_url_hint",
-      "value": "URL"
-    },
-    {
-      "name": "link_title_hint",
-      "value": "Link title"
-    },
-    {
-      "name": "add_link",
-      "value": "Add Link"
-    },
-    {
-      "name": "remove_link",
-      "value": "Remove Link"
-    },
-    {
-      "name": "text_alignment",
-      "value": "Text alignment"
-    },
-    {
-      "name": "align_left",
-      "value": "Align left"
-    },
-    {
-      "name": "align_center",
-      "value": "Align center"
-    },
-    {
-      "name": "align_right",
-      "value": "Align right"
-    },
-    {
-      "name": "line_spacing",
-      "value": "Line spacing"
-    },
-    {
-      "name": "color_custom",
-      "value": "Custom…"
-    },
-    {
-      "name": "color_apply",
-      "value": "Apply"
-    },
-    {
-      "name": "data_onboarding__new_note_tooltip_text",
-      "value": "Tap on the toolbar to expand the tool's styling options"
-    },
-    {
-      "name": "data_onboarding__first_tray_opened_tooltip_text",
-      "value": "Tap on a style option to edit and customize the style tray"
-    },
-    {
-      "name": "data_onboarding__first_ink_insert_tooltip_text",
-      "value": "Use the Selection tool to select, move, rotate and restyle ink"
-    },
-    {
-      "name": "data_onboarding__first_image_tooltip_text",
-      "value": "Tap the object to see more options"
-    },
-    {
-      "name": "data_onboarding__first_recording_tooltip_text",
-      "value": "Play back your audio recordings"
-    },
-    {
-      "name": "data_onboarding__first_text_tooltip_text",
-      "value": "Start dragging with the stylus to create text boxes"
-    },
-    {
-      "name": "data_onboarding__first_import_tooltip_text",
-      "value": "Quickly navigate and search within pages with the Page Manager"
-    },
-    {
-      "name": "data_onboarding__first_undo_redo_tooltip_text",
-      "value": "Two finger tap to quickly Undo, three finger tap to Redo"
-    },
-    {
-      "name": "data_onboarding__first_highlighter_tooltip_text",
-      "value": "Tap and hold as you draw with the highlighter to snap to text"
-    },
-    {
-      "name": "data_onboarding__first_note_completed_tooltip_text",
-      "value": "Organize your notes by creating new folders. Drag and drop a folder into another for nested organization"
-    },
-    {
-      "name": "data_onboarding__compact_organize_tooltip_text",
-      "value": "Now that you have notes, start organizing them into Folders"
-    },
-    {
-      "name": "data_onboarding__got_it",
-      "value": "Got it"
-    },
-    {
-      "name": "pages_x_of_y_selected",
-      "value": "%d of %d selected"
-    },
-    {
-      "name": "folder_delete_detail_empty",
-      "value": "\"%s\""
-    },
-    {
-      "name": "folder_delete_detail_1f",
-      "value": "Deleting \"%s\" will also delete 1 folder."
-    },
-    {
-      "name": "folder_delete_detail_nf",
-      "value": "Deleting \"%s\" will also delete %d folders."
-    },
-    {
-      "name": "folder_delete_detail_1n",
-      "value": "Deleting \"%s\" will also delete 1 note."
-    },
-    {
-      "name": "folder_delete_detail_nn",
-      "value": "Deleting \"%s\" will also delete %d notes."
-    },
-    {
-      "name": "folder_delete_detail_1f_1n",
-      "value": "Deleting \"%s\" will also delete 1 folder and 1 note."
-    },
-    {
-      "name": "folder_delete_detail_1f_nn",
-      "value": "Deleting \"%s\" will also delete 1 folder and %d notes."
-    },
-    {
-      "name": "folder_delete_detail_nf_1n",
-      "value": "Deleting \"%s\" will also delete %d folders and 1 note."
-    },
-    {
-      "name": "folder_delete_detail_nf_nn",
-      "value": "Deleting \"%s\" will also delete %d folders and %d notes."
-    },
-    {
-      "name": "enter_folder_name",
-      "value": "Enter folder name"
-    },
-    {
-      "name": "folder_selected",
-      "value": "Selected"
-    },
-    {
-      "name": "add_text",
-      "value": "Add Text"
-    },
-    {
-      "name": "insert_hyperlink",
-      "value": "Insert hyperlink"
-    },
-    {
-      "name": "edit_hyperlink",
-      "value": "Edit hyperlink"
-    },
-    {
-      "name": "programming_language",
-      "value": "Programming language"
-    },
-    {
-      "name": "fontsize",
-      "value": "Font size"
-    },
-    {
-      "name": "open_pdf_too_large",
-      "value": "This PDF is too large to import"
-    },
-    {
-      "name": "open_pdf_failed",
-      "value": "Couldn't open this PDF"
-    },
-    {
-      "name": "pen_string_color",
-      "value": "Colour"
-    },
-    {
-      "name": "pen_string_color_hex",
-      "value": "Color #%1$s"
-    },
-    {
-      "name": "pen_string_palette_library",
-      "value": "Colour palettes"
-    },
-    {
-      "name": "pen_palette_color_black",
-      "value": "Black"
-    },
-    {
-      "name": "pen_palette_color_gray",
-      "value": "Grey"
-    },
-    {
-      "name": "pen_palette_color_red",
-      "value": "Red"
-    },
-    {
-      "name": "pen_palette_color_orange",
-      "value": "Orange"
-    },
-    {
-      "name": "pen_palette_color_yellow",
-      "value": "Yellow"
-    },
-    {
-      "name": "pen_palette_color_green",
-      "value": "Green"
-    },
-    {
-      "name": "pen_palette_color_turquoise",
-      "value": "Turquoise"
-    },
-    {
-      "name": "pen_palette_color_blue",
-      "value": "Blue"
-    },
-    {
-      "name": "pen_palette_color_purple",
-      "value": "Purple"
-    },
-    {
-      "name": "pen_swatch_color_pink",
-      "value": "Pink"
-    },
-    {
-      "name": "pen_palette_color_brown_sugar",
-      "value": "Brown sugar"
-    },
-    {
-      "name": "pen_palette_color_white",
-      "value": "White"
-    },
-    {
-      "name": "ui_tools_width",
-      "value": "Width: %d"
-    },
-    {
-      "name": "select_rect_mode",
-      "value": "Rectangle selection"
-    },
-    {
-      "name": "select_freehand_mode",
-      "value": "Freehand selection"
-    },
-    {
-      "name": "import_arrange",
-      "value": "Arrange"
-    },
-    {
-      "name": "import_move_up",
-      "value": "Move up"
-    },
-    {
-      "name": "import_move_down",
-      "value": "Move down"
-    },
-    {
-      "name": "import_pdf_truncated_one",
-      "value": "PDF was too long. Imported the first %d pages."
-    },
-    {
-      "name": "import_pdfs_truncated_other",
-      "value": "Some PDFs were too long. Imported the first %d pages of each."
-    },
-    {
-      "name": "delete_note_title_one",
-      "value": "Delete Note?"
-    },
-    {
-      "name": "delete_notes_title_other",
-      "value": "Delete Notes?"
-    },
-    {
-      "name": "delete_notes_message_one",
-      "value": "Move %d note to Recently Deleted? You can recover it within 30 days."
-    },
-    {
-      "name": "import_files_count_one",
-      "value": "%d File"
-    },
-    {
-      "name": "import_files_count_other",
-      "value": "%d Files"
-    }
+    { "name": "original_photo_insert_partial_failed", "value": "Some photos couldn't be added" },
+    { "name": "read_pasteboard_permission_reason", "value": "Allows the app to paste images from the clipboard" },
+    { "name": "share", "value": "Share" },
+    { "name": "deselect_all", "value": "Deselect All" },
+    { "name": "notes_selected", "value": "%d Notes Selected" },
+    { "name": "note_selected_singular", "value": "%d Note Selected" },
+    { "name": "select_note", "value": "Select Note" },
+    { "name": "note_actions", "value": "Note actions" },
+    { "name": "delete_notes_message", "value": "Move %d notes to Recently Deleted? You can recover them within 30 days." },
+    { "name": "multi_delete_failed", "value": "Failed to delete selected notes" },
+    { "name": "multi_duplicate_failed", "value": "Failed to duplicate selected notes" },
+    { "name": "multi_favorite_failed", "value": "Failed to update selected notes" },
+    { "name": "share_multi_subject", "value": "Notes" },
+    { "name": "share_multi_subtitle", "value": "Share a PDF, a note or an image." },
+    { "name": "share_chip_pdf_multi", "value": "PDFs" },
+    { "name": "share_chip_note_multi", "value": "Notes" },
+    { "name": "share_chip_jpg_multi", "value": "JPGs" },
+    { "name": "share_chip_png_multi", "value": "PNGs" },
+    { "name": "share_action_pdf_multi", "value": "Share PDFs" },
+    { "name": "share_action_note_multi", "value": "Share Notes" },
+    { "name": "share_action_jpg_multi", "value": "Share JPGs" },
+    { "name": "share_action_png_multi", "value": "Share PNGs" },
+    { "name": "multi_share_failed", "value": "Failed to share selected notes" },
+    { "name": "ruler_units", "value": "Ruler units" },
+    { "name": "imperial", "value": "Imperial" },
+    { "name": "metric", "value": "Metric" },
+    { "name": "eyedropper", "value": "Eyedropper" },
+    { "name": "docscan", "value": "Document Scan" },
+    { "name": "scanned_document_title", "value": "Scanned Document %1$s" },
+    { "name": "doc_scan_failed", "value": "Couldn't create note from scan. Please try again." },
+    { "name": "block_quote", "value": "Block quote" },
+    { "name": "code_block", "value": "Code block" },
+    { "name": "bullet_list", "value": "Bullet list" },
+    { "name": "numbered_list", "value": "Numbered list" },
+    { "name": "checkbox_list", "value": "Checkbox list" },
+    { "name": "empty_note_capture_add", "value": "Capture and add" },
+    { "name": "empty_note_import", "value": "Import" },
+    { "name": "empty_note_record", "value": "Record" },
+    { "name": "empty_note_scan", "value": "Scan" },
+    { "name": "empty_note_scan_failed", "value": "Couldn't scan the document. Please try again." },
+    { "name": "bold", "value": "Bold" },
+    { "name": "italic", "value": "Italic" },
+    { "name": "underline", "value": "Underline" },
+    { "name": "strikethrough", "value": "Strikethrough" },
+    { "name": "subscript", "value": "Subscript" },
+    { "name": "superscript", "value": "Superscript" },
+    { "name": "increase_indent", "value": "Increase indent" },
+    { "name": "decrease_indent", "value": "Decrease indent" },
+    { "name": "text_highlight", "value": "Highlight" },
+    { "name": "highlight_yellow", "value": "Yellow" },
+    { "name": "highlight_green", "value": "Green" },
+    { "name": "highlight_cyan", "value": "Cyan" },
+    { "name": "highlight_pink", "value": "Pink" },
+    { "name": "highlight_orange", "value": "Orange" },
+    { "name": "highlight_remove", "value": "Remove Highlight" },
+    { "name": "text_style", "value": "Style" },
+    { "name": "font_style_large_title", "value": "Large Title" },
+    { "name": "font_style_heading_1", "value": "Heading 1" },
+    { "name": "font_style_heading_2", "value": "Heading 2" },
+    { "name": "font_style_heading_3", "value": "Heading 3" },
+    { "name": "font_style_body", "value": "Body" },
+    { "name": "font_style_caption", "value": "Caption" },
+    { "name": "text_color", "value": "Color" },
+    { "name": "color_automatic", "value": "Automatic" },
+    { "name": "font_family", "value": "Font family" },
+    { "name": "font_default", "value": "Default" },
+    { "name": "text_link", "value": "Link" },
+    { "name": "link_url_hint", "value": "URL" },
+    { "name": "link_title_hint", "value": "Link title" },
+    { "name": "add_link", "value": "Add Link" },
+    { "name": "remove_link", "value": "Remove Link" },
+    { "name": "text_alignment", "value": "Text alignment" },
+    { "name": "align_left", "value": "Align left" },
+    { "name": "align_center", "value": "Align center" },
+    { "name": "align_right", "value": "Align right" },
+    { "name": "line_spacing", "value": "Line spacing" },
+    { "name": "color_custom", "value": "Custom…" },
+    { "name": "color_apply", "value": "Apply" },
+    { "name": "data_onboarding__new_note_tooltip_text", "value": "Tap on the toolbar to expand the tool's styling options" },
+    { "name": "data_onboarding__first_tray_opened_tooltip_text", "value": "Tap on a style option to edit and customize the style tray" },
+    { "name": "data_onboarding__first_ink_insert_tooltip_text", "value": "Use the Selection tool to select, move, rotate and restyle ink" },
+    { "name": "data_onboarding__first_image_tooltip_text", "value": "Tap the object to see more options" },
+    { "name": "data_onboarding__first_recording_tooltip_text", "value": "Play back your audio recordings" },
+    { "name": "data_onboarding__first_text_tooltip_text", "value": "Start dragging with the stylus to create text boxes" },
+    { "name": "data_onboarding__first_import_tooltip_text", "value": "Quickly navigate and search within pages with the Page Manager" },
+    { "name": "data_onboarding__first_undo_redo_tooltip_text", "value": "Two finger tap to quickly Undo, three finger tap to Redo" },
+    { "name": "data_onboarding__first_highlighter_tooltip_text", "value": "Tap and hold as you draw with the highlighter to snap to text" },
+    { "name": "data_onboarding__first_note_completed_tooltip_text", "value": "Organize your notes by creating new folders. Drag and drop a folder into another for nested organization" },
+    { "name": "data_onboarding__compact_organize_tooltip_text", "value": "Now that you have notes, start organizing them into Folders" },
+    { "name": "data_onboarding__got_it", "value": "Got it" },
+    { "name": "pages_x_of_y_selected", "value": "%d of %d selected" },
+    { "name": "folder_delete_detail_empty", "value": "\"%s\"" },
+    { "name": "folder_delete_detail_1f", "value": "Deleting \"%s\" will also delete 1 folder." },
+    { "name": "folder_delete_detail_nf", "value": "Deleting \"%s\" will also delete %d folders." },
+    { "name": "folder_delete_detail_1n", "value": "Deleting \"%s\" will also delete 1 note." },
+    { "name": "folder_delete_detail_nn", "value": "Deleting \"%s\" will also delete %d notes." },
+    { "name": "folder_delete_detail_1f_1n", "value": "Deleting \"%s\" will also delete 1 folder and 1 note." },
+    { "name": "folder_delete_detail_1f_nn", "value": "Deleting \"%s\" will also delete 1 folder and %d notes." },
+    { "name": "folder_delete_detail_nf_1n", "value": "Deleting \"%s\" will also delete %d folders and 1 note." },
+    { "name": "folder_delete_detail_nf_nn", "value": "Deleting \"%s\" will also delete %d folders and %d notes." },
+    { "name": "enter_folder_name", "value": "Enter folder name" },
+    { "name": "folder_selected", "value": "Selected" },
+    { "name": "add_text", "value": "Add Text" },
+    { "name": "insert_hyperlink", "value": "Insert hyperlink" },
+    { "name": "edit_hyperlink", "value": "Edit hyperlink" },
+    { "name": "programming_language", "value": "Programming language" },
+    { "name": "fontsize", "value": "Font size" },
+    { "name": "open_pdf_too_large", "value": "This PDF is too large to import" },
+    { "name": "open_pdf_failed", "value": "Couldn't open this PDF" },
+    { "name": "pen_string_color", "value": "Colour" },
+    { "name": "pen_string_color_hex", "value": "Color #%1$s" },
+    { "name": "pen_string_palette_library", "value": "Colour palettes" },
+    { "name": "pen_palette_color_black", "value": "Black" },
+    { "name": "pen_palette_color_gray", "value": "Grey" },
+    { "name": "pen_palette_color_red", "value": "Red" },
+    { "name": "pen_palette_color_orange", "value": "Orange" },
+    { "name": "pen_palette_color_yellow", "value": "Yellow" },
+    { "name": "pen_palette_color_green", "value": "Green" },
+    { "name": "pen_palette_color_turquoise", "value": "Turquoise" },
+    { "name": "pen_palette_color_blue", "value": "Blue" },
+    { "name": "pen_palette_color_purple", "value": "Purple" },
+    { "name": "pen_swatch_color_pink", "value": "Pink" },
+    { "name": "pen_palette_color_brown_sugar", "value": "Brown sugar" },
+    { "name": "pen_palette_color_white", "value": "White" },
+    { "name": "ui_tools_width", "value": "Width: %d" },
+    { "name": "select_rect_mode", "value": "Rectangle selection" },
+    { "name": "select_freehand_mode", "value": "Freehand selection" },
+    { "name": "import_arrange", "value": "Arrange" },
+    { "name": "import_move_up", "value": "Move up" },
+    { "name": "import_move_down", "value": "Move down" },
+    { "name": "import_pdf_truncated_one", "value": "PDF was too long. Imported the first %d pages." },
+    { "name": "import_pdfs_truncated_other", "value": "Some PDFs were too long. Imported the first %d pages of each." },
+    { "name": "delete_note_title_one", "value": "Delete Note?" },
+    { "name": "delete_notes_title_other", "value": "Delete Notes?" },
+    { "name": "delete_notes_message_one", "value": "Move %d note to Recently Deleted? You can recover it within 30 days." },
+    { "name": "import_files_count_one", "value": "%d File" },
+    { "name": "import_files_count_other", "value": "%d Files" }
   ]
 }

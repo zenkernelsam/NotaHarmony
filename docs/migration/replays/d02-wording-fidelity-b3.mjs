@@ -27,8 +27,9 @@ eq(bmap.reset_to_default === 'Reset to default', 'reset_to_default -> Reset to d
 eq(zmap.dismiss === '取消', 'zh dismiss -> 取消');
 eq(zmap.add_files === '添加文件', 'zh add_files -> 添加文件');
 
-// 9 — untitled_note still correct from Phase 1358 (regression guard).
-eq(bmap.untitled_note === 'Untitled', 'untitled_note stays Untitled');
+// 9 — untitled_note is the e5j.h card-title fallback (default_note_title),
+// so it renders "New Note"; "Untitled" is only the app-shortcut label.
+eq(bmap.untitled_note === 'New Note', 'untitled_note -> New Note (e5j.h fallback)');
 // 10 — pages_deselect_all still Title Case from Phase 1359 (regression guard).
 eq(bmap.pages_deselect_all === 'Deselect All', 'pages_deselect_all stays Deselect All');
 

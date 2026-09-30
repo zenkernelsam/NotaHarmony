@@ -14,8 +14,11 @@ t('more_page_actions=More actions', get('more_page_actions') === 'More actions')
 t('copy_note_id=Copy note ID', get('copy_note_id') === 'Copy note ID');
 t('pages_deselect_all=Deselect All', get('pages_deselect_all') === 'Deselect All');
 t('show_in_folder=Show in folder', get('show_in_folder') === 'Show in folder');
-t('untitled still Untitled', get('untitled_note') === 'Untitled');
-t('untitled_note not New Note', get('untitled_note') !== 'New Note');
+// Phase 1361 correction: untitled_note is the e5j.h card-title fallback
+// (data_library_state__default_note_title = "New Note"), not the app-shortcut
+// label (app__shortcut_untitled_note = "Untitled"). Reverted to "New Note".
+t('untitled=New Note (e5j.h fallback)', get('untitled_note') === 'New Note');
+t('untitled_note not Untitled', get('untitled_note') !== 'Untitled');
 t('json has entries', en.string.length > 100);
 t('no empty untitled', get('untitled_note').length > 0);
 console.log('string-diffs replay: ' + n + '/10 checks green');
