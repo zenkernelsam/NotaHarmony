@@ -1,10 +1,11 @@
-// T-019 编辑器工具栏（工具切换 + 颜色/粗细面板 + Undo/Redo 占位）
+// T-019 编辑器工具栏（工具切换 + 颜色/粗细面板 + Undo/Redo + 工具图标）
 // T-038：工具栏 surface 随主题
 import { BrushStyle, ToolState, ToolType } from '../../core/model/BrushTypes';
 import { PageInfo } from '../../core/model/NoteTypes';
 import { EditorViewModel } from './EditorViewModel';
 import { ToolboxSettingsDialog, toolTypeLabel } from './ToolboxSettingsDialog';
 import { ColorPickerView } from '../components/ColorPicker';
+import { ToolGlyph, toolGlyphKey } from '../components/ToolGlyph';
 import { WidthSlider } from '../components/WidthSlider';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
@@ -596,15 +597,27 @@ export struct EditorToolbar {
 
   // 每个可见工具行一个按钮；tool_id 级选中高亮支持同类型重复工具。
   @Builder
-  StateToolButton(label: ResourceStr, tool: ToolState) {
-    Button(label)
-      .width(this.compact ? 72 : 88)
+  StateToolButton(label: Resource, tool: ToolState) {
+    // Original x5f renders the tool as its ui_designsystem__<tool> glyph
+    // (cq.h brush-color fill for pen/pencil/highlighter) with the label as
+    // content description — an icon button, not a text button.
+    Button() {
+      ToolGlyph({
+        glyph: toolGlyphKey(tool.toolType),
+        brushColor: tool.brush.color,
+        contentColor: this.viewModel.isActiveTool(tool.toolId) ?
+          this.resolveTokens().onAccent : this.resolveTokens().textPrimary,
+        iconSize: 24,
+      })
+    }
+      .width(44)
       .height(40)
       .fontSize(13)
       .backgroundColor(this.viewModel.isActiveTool(tool.toolId) ? this.resolveTokens().accent :
         this.resolveTokens().control)
       .fontColor(this.viewModel.isActiveTool(tool.toolId) ? this.resolveTokens().onAccent :
         this.resolveTokens().textPrimary)
+      .accessibilityText(label)
       .margin({ left: 2, right: 2 })
       .enabled(!this.viewModel.toolStateLoading &&
         !this.photoImportLeaseActive)
@@ -648,14 +661,24 @@ export struct EditorToolbar {
   // WHOLE_ERASER 行渲染为 整笔/局部 两个模式按钮（与原版 eraserIsPartial 模式位对应）。
   @Builder
   EraserToolButtons(tool: ToolState) {
-    Button($r('app.string.whole_eraser'))
-      .width(this.compact ? 72 : 88)
+    // 原版橡皮用 eraser_whole/eraser_partial 单图标作整笔/局部模式钮。
+    Button() {
+      ToolGlyph({
+        glyph: 'eraser_whole',
+        brushColor: tool.brush.color,
+        contentColor: this.viewModel.isActiveTool(tool.toolId) && !this.viewModel.eraserIsPartial ?
+          this.resolveTokens().onAccent : this.resolveTokens().textPrimary,
+        iconSize: 24,
+      })
+    }
+      .width(44)
       .height(40)
       .fontSize(13)
       .backgroundColor(this.viewModel.isActiveTool(tool.toolId) && !this.viewModel.eraserIsPartial ?
         this.resolveTokens().accent : this.resolveTokens().control)
       .fontColor(this.viewModel.isActiveTool(tool.toolId) && !this.viewModel.eraserIsPartial ?
         this.resolveTokens().onAccent : this.resolveTokens().textPrimary)
+      .accessibilityText($r('app.string.whole_eraser'))
       .margin({ left: 2, right: 2 })
       .enabled(!this.viewModel.toolStateLoading &&
         !this.photoImportLeaseActive)
@@ -669,14 +692,23 @@ export struct EditorToolbar {
           }
         });
       })
-    Button($r('app.string.partial_eraser'))
-      .width(this.compact ? 72 : 88)
+    Button() {
+      ToolGlyph({
+        glyph: 'eraser_partial',
+        brushColor: tool.brush.color,
+        contentColor: this.viewModel.isActiveTool(tool.toolId) && this.viewModel.eraserIsPartial ?
+          this.resolveTokens().onAccent : this.resolveTokens().textPrimary,
+        iconSize: 24,
+      })
+    }
+      .width(44)
       .height(40)
       .fontSize(13)
       .backgroundColor(this.viewModel.isActiveTool(tool.toolId) && this.viewModel.eraserIsPartial ?
         this.resolveTokens().accent : this.resolveTokens().control)
       .fontColor(this.viewModel.isActiveTool(tool.toolId) && this.viewModel.eraserIsPartial ?
         this.resolveTokens().onAccent : this.resolveTokens().textPrimary)
+      .accessibilityText($r('app.string.partial_eraser'))
       .margin({ left: 2, right: 2 })
       .enabled(!this.viewModel.toolStateLoading &&
         !this.photoImportLeaseActive)

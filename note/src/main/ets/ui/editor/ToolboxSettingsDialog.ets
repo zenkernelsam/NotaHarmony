@@ -7,7 +7,7 @@ import { TapePatternPicker } from './TapePatternPicker';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 
-export function toolTypeLabel(toolType: ToolType): ResourceStr {
+export function toolTypeLabel(toolType: ToolType): Resource {
   switch (toolType) {
     case ToolType.PEN: return $r('app.string.pen');
     case ToolType.PENCIL: return $r('app.string.pencil');
