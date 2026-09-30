@@ -64,14 +64,18 @@ ok(/Button\(\) \{\s+Text\(this\.createMenuOpen \? '×' : '\+'\)/.test(lib),
   'Harmony FAB expand toggle missing');
 ok(lib.includes('this.createMenuOpen = !this.createMenuOpen;'),
   'Harmony FAB toggle action missing');
-// Chip order: New note → Record audio → Import file.
+// Chip order follows original cd case 0 (Phase 1364): Record(extra, ADR-0655)
+// → Import → Templates → Document Scan → Create Note(last/primary).
+// (mw3's New-note-first row is the in-note empty-state, not this FAB.)
 const fabStart = lib.indexOf('if (this.createMenuOpen) {');
 ok(fabStart >= 0, 'Harmony expansion block missing');
-const fabBlock = lib.slice(fabStart, fabStart + 1600);
+const fabBlock = lib.slice(fabStart, fabStart + 2000);
 const chipOrder = [
-  "CreateActionChip($r('app.string.new_note')",
   "CreateActionChip($r('app.string.record_audio')",
-  "CreateActionChip($r('app.string.import_note_file')",
+  "CreateActionChip($r('app.string.library_import')",
+  "CreateActionChip($r('app.string.templates')",
+  "CreateActionChip($r('app.string.docscan')",
+  "CreateActionChip($r('app.string.create_note')",
 ];
 let cursor = -1;
 for (const chip of chipOrder) {
@@ -107,7 +111,7 @@ ok(backup.includes('report.result === ImportResult.CANCELLED'),
   'Harmony backup import must treat CANCELLED silently');
 
 // Strings.
-for (const s of ['new_note', 'record_audio']) {
+for (const s of ['record_audio', 'library_import', 'templates', 'docscan', 'create_note']) {
   ok(baseStrings.includes(`"name": "${s}"`), `base string ${s} missing`);
   ok(zhStrings.includes(`"name": "${s}"`), `zh string ${s} missing`);
 }

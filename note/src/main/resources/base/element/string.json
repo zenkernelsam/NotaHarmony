@@ -1131,6 +1131,8 @@
     { "name": "search_failed", "value": "Search failed. Try again." },
     { "name": "delete_note_failed", "value": "Could not delete the note. Try again." },
     { "name": "create_note_failed", "value": "Could not create the note. Try again." },
+    { "name": "create_note", "value": "Create Note" },
+    { "name": "library_import", "value": "Import" },
     { "name": "new_note", "value": "New Note" },
     { "name": "record_audio", "value": "Record" },
     { "name": "created_note_open_failed", "value": "The note was created, but could not be opened." },

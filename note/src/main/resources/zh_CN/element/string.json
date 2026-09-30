@@ -321,6 +321,8 @@
     { "name": "search_failed", "value": "搜索失败，请重试" },
     { "name": "delete_note_failed", "value": "删除笔记失败，请重试" },
     { "name": "create_note_failed", "value": "新建笔记失败，请重试" },
+    { "name": "create_note", "value": "新建笔记" },
+    { "name": "library_import", "value": "导入" },
     { "name": "new_note", "value": "新建笔记" },
     { "name": "record_audio", "value": "录音" },
     { "name": "created_note_open_failed", "value": "笔记已创建，但暂时无法打开" },

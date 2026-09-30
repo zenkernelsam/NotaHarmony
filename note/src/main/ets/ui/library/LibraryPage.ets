@@ -2541,35 +2541,36 @@ struct LibraryPage {
   FabButton() {
     if (!this.isMultiSelecting) {
     Column() {
-      // Original mw3 case 0: expanded speed-dial lists the creation actions
-      // in original order — record audio, import file (scan/capture not
-      // portable); "New note" leads as the card-body blank-create equivalent.
+      // Original cd case 0: the library create FAB expands to a speed-dial in
+      // original order — Import, Templates (flag-gated), Document Scan
+      // (capability-gated), then Create Note last as the primary action.
+      // The leading Record chip carries ADR-0655's functional equivalence for
+      // the feature-flagged "Record a lecture" home card (kept, not in cd).
+      // (mw3 case 0 is the in-note empty-state row, not this FAB.)
       if (this.createMenuOpen) {
-        this.CreateActionChip($r('app.string.new_note'), () => {
-          this.createAndOpen().catch((e: Error) => {
-            console.error(`create note action failed: ${JSON.stringify(e)}`);
-          });
-        })
         this.CreateActionChip($r('app.string.record_audio'), () => {
           this.createAndRecord().catch((e: Error) => {
             console.error(`create recording note failed: ${JSON.stringify(e)}`);
           });
         })
-        this.CreateActionChip($r('app.string.import_note_file'), () => {
+        this.CreateActionChip($r('app.string.library_import'), () => {
           this.importAndOpen().catch((e: Error) => {
             console.error(`import note action failed: ${JSON.stringify(e)}`);
           });
         })
-        // 原版 cd case 0：新建表单 Templates 行——选模板建笔记（docscan 不移植）。
         this.CreateActionChip($r('app.string.templates'), () => {
           this.templateDialog.open();
         })
-        // 原版 cd case 0 序位尾位：ac4.a0 门控的「Document Scan」。
         if (this.docScanAvailable) {
           this.CreateActionChip($r('app.string.docscan'), () => {
             this.docScanOpen = true;
           })
         }
+        this.CreateActionChip($r('app.string.create_note'), () => {
+          this.createAndOpen().catch((e: Error) => {
+            console.error(`create note action failed: ${JSON.stringify(e)}`);
+          });
+        })
       }
       Button() {
         Text(this.createMenuOpen ? '×' : '+')

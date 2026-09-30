@@ -64,23 +64,25 @@ const mono103 = fs.readFileSync(
 check('1.0.3 monochrome icon inlined the path (no string ref)',
   !mono103.includes('@string/') && mono103.length > 800);
 
-// Harmony post-fix parity with 1.4.2 copy.
+// Harmony parity with the locked 1.0.3 baseline (ADR-0708: 移植基线=1.0.3,
+// 1.4.2 is a parallel evidence tree, not the port target). Phase 1364
+// re-aligned these keys to 1.0.3 wording; the version-diff pin above stays.
 const hbase = fs.readFileSync(
   `${REPO}/note/src/main/resources/base/element/string.json`, 'utf8');
 const hzh = fs.readFileSync(
   `${REPO}/note/src/main/resources/zh_CN/element/string.json`, 'utf8');
 for (const [k, v] of [
-  ['show_in_folder', 'Show in Folder'],
-  ['copy_note_id', 'Copy Note ID'],
-  ['take_photo', 'Take a photo'],
-  ['insert_math', 'Math (LaTeX)'],
+  ['show_in_folder', 'Show in folder'],
+  ['copy_note_id', 'Copy note ID'],
+  ['take_photo', 'Take Photo'],
+  ['insert_math', 'Insert Math'],
 ]) {
-  check(`Harmony ${k} = 1.4.2 copy`,
+  check(`Harmony ${k} = 1.0.3 baseline copy`,
     new RegExp(`"name":\\s*"${k}",\\s*"value":\\s*"${
       v.replace(/[()]/g, '\\$&')}"`).test(hbase));
 }
-check('Harmony zh insert_math mirrors LaTeX disambiguation',
-  hzh.includes('"insert_math", "value": "公式 (LaTeX)"'));
+check('Harmony zh insert_math mirrors 1.0.3 generic wording',
+  hzh.includes('"insert_math", "value": "插入公式"'));
 
 // File-level content diff registry: exactly 20 shared-name files changed.
 function hashTree(dir) {
