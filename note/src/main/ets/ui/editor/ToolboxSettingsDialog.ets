@@ -92,13 +92,17 @@ export struct ToolboxSettingsDialog {
         },
       },
       {
+        // 原版 xc2：show_tool→show / hide_tool→hide（当前态图标）。
         value: $r('app.string.hide_tool'),
+        icon: $r('app.media.menuicon_hide'),
         action: (): void => {
           this.runOp(this.viewModel.hideTool(tool.toolId));
         },
       },
       {
+        // 原版 o94 case259：duplicate_tool → ui_designsystem__duplicate。
         value: $r('app.string.duplicate_tool'),
+        icon: $r('app.media.selmenu_duplicate'),
         action: (): void => {
           this.runOp(this.viewModel.duplicateTool(tool.toolId));
         },
@@ -116,8 +120,12 @@ export struct ToolboxSettingsDialog {
       // （oh9 → np0 case5 全量 toggle）；与编辑页 ⋮ 菜单共用同一信号。
       if (this.tapeCount > 0) {
         items.push({
+          // 原版 o94 279/283：图标反映当前态——hide_tapes 配 tape_reveal、
+          // reveal_tapes 配 tape_conceal。
           value: this.anyTapeRevealed ?
             $r('app.string.hide_tapes') : $r('app.string.reveal_tapes'),
+          icon: this.anyTapeRevealed ?
+            $r('app.media.menuicon_tape_reveal') : $r('app.media.menuicon_tape_conceal'),
           action: (): void => {
             this.onTapeToggle();
           },
@@ -126,7 +134,9 @@ export struct ToolboxSettingsDialog {
     }
     if (this.viewModel.canDeleteTool(tool.toolId)) {
       items.push({
+        // 原版 xc2 z2 分支：delete_tool → ue4.z() = trash。
         value: $r('app.string.delete_tool'),
+        icon: $r('app.media.selmenu_delete'),
         action: (): void => {
           this.runOp(this.viewModel.deleteTool(tool.toolId));
         },
