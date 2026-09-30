@@ -111,7 +111,7 @@ check(panel.includes("$r('app.string.pages_select_all')") &&
   panel.includes("$r('app.string.pages_deselect_all')") &&
   panel.includes("$r('app.string.pages_done')"),
   'selection bar renders select-all/deselect-all/done');
-check(panel.includes("MenuItem({ content: $r('app.string.pages_menu_select') })") &&
+check(new RegExp(`MenuItem\\(\\{ content: \\$r\\('app\\.string\\.pages_menu_select'\\), startIcon:`).test(panel) &&
   panel.includes('this.onToggleSelect(this.pageIndex)'),
   'cell menu offers the original "Select" entry');
 check(panel.includes('@Prop selecting: boolean') &&

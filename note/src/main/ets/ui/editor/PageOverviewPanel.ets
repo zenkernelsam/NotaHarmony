@@ -664,36 +664,36 @@ struct PageOverviewCell {
   private buildCellMenu() {
     Menu() {
       // fd2 case3 → zd2 v0 → u5j.i：在该页之后插入新页。
-      MenuItem({ content: $r('app.string.add_page') })
+      MenuItem({ content: $r('app.string.add_page'), startIcon: $r('app.media.menuicon_add_page') })
         .onClick(() => this.onMenuAction(this.pageIndex, 'add'))
       // fd2 case4 → de2.p → ae2 v3：Copy + Delete。
-      MenuItem({ content: $r('app.string.cut_page') })
+      MenuItem({ content: $r('app.string.cut_page'), startIcon: $r('app.media.selmenu_cut') })
         .onClick(() => this.onMenuAction(this.pageIndex, 'cut'))
       // fd2 case5 → de2.o → ae2 v2：页剪贴板拷贝。
-      MenuItem({ content: $r('app.string.copy_page') })
+      MenuItem({ content: $r('app.string.copy_page'), startIcon: $r('app.media.selmenu_copy') })
         .onClick(() => this.onMenuAction(this.pageIndex, 'copy'))
       if (this.canPaste) {
         // fd2 case6 → e2 v16：页剪贴板粘贴到该页之后。
-        MenuItem({ content: $r('app.string.paste_page') })
+        MenuItem({ content: $r('app.string.paste_page'), startIcon: $r('app.media.selmenu_paste') })
           .onClick(() => this.onMenuAction(this.pageIndex, 'paste'))
       }
       // fd2 case7 → de2.r → ae2 v5：整页复制到该页之后。
-      MenuItem({ content: $r('app.string.duplicate_page') })
+      MenuItem({ content: $r('app.string.duplicate_page'), startIcon: $r('app.media.selmenu_duplicate') })
         .onClick(() => this.onMenuAction(this.pageIndex, 'duplicate'))
       if (this.page !== undefined && rotatedOriginalPageInfo(this.page) !== null) {
         // fd2 default → zd2 v1：Rotate Page。
-        MenuItem({ content: $r('app.string.rotate_page') })
+        MenuItem({ content: $r('app.string.rotate_page'), startIcon: $r('app.media.menuicon_rotate_page') })
           .onClick(() => this.onMenuAction(this.pageIndex, 'rotate'))
       }
       // fd2 case1 → de2.n → ae2 v1：Clear Page——当前页走画布信号，
       // 非当前页经持久层清空（clearOriginalPageContent）。
-      MenuItem({ content: $r('app.string.clear_page') })
+      MenuItem({ content: $r('app.string.clear_page'), startIcon: $r('app.media.menuicon_clear_page') })
         .onClick(() => this.onMenuAction(this.pageIndex, 'clear'))
       // fd2 case2 → de2.q → ae2 v4：Delete Pages。
-      MenuItem({ content: $r('app.string.delete_page') })
+      MenuItem({ content: $r('app.string.delete_page'), startIcon: $r('app.media.selmenu_delete') })
         .onClick(() => this.onMenuAction(this.pageIndex, 'delete'))
       // s8 case1 → fd2 case0：把该页键并入/移出选中集（进入选择态）。
-      MenuItem({ content: $r('app.string.pages_menu_select') })
+      MenuItem({ content: $r('app.string.pages_menu_select'), startIcon: $r('app.media.menuicon_select_circle') })
         .onClick(() => this.onToggleSelect(this.pageIndex))
     }
   }

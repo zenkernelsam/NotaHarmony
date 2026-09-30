@@ -69,11 +69,12 @@ check(fd2.includes('qd2Var.f.contains(new tz9(cxcVar))') &&
 // --- Harmony：面板菜单 ---
 check(panel.includes('bindContextMenu(this.buildCellMenu(), ResponseType.LongPress)'),
   'cells open the context menu on long-press');
-check(panel.includes("MenuItem({ content: $r('app.string.add_page') })") &&
-  panel.includes("MenuItem({ content: $r('app.string.cut_page') })") &&
-  panel.includes("MenuItem({ content: $r('app.string.copy_page') })") &&
-  panel.includes("MenuItem({ content: $r('app.string.duplicate_page') })") &&
-  panel.includes("MenuItem({ content: $r('app.string.delete_page') })"),
+const mi = (label) => new RegExp(`MenuItem\\(\\{ content: \\$r\\('app\\.string\\.${label}'\\), startIcon:`);
+check(mi('add_page').test(panel) &&
+  mi('cut_page').test(panel) &&
+  mi('copy_page').test(panel) &&
+  mi('duplicate_page').test(panel) &&
+  mi('delete_page').test(panel),
   'the cell menu renders add/cut/copy/duplicate/delete items');
 check(panel.indexOf("'add'") < panel.indexOf("'cut'") &&
   panel.indexOf("'cut'") < panel.indexOf("'copy'") &&
