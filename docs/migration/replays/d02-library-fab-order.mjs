@@ -41,13 +41,16 @@ const chipIcons = [
   ['library_import', 'app.media.fab_import'],
   ['templates', 'app.media.fab_templates'],
   ['docscan', 'app.media.fab_docscan'],
-  ['create_note', 'app.media.fab_createnote'],
+  ['create_note', 'app.media.fab_createnote_filled'],
 ];
 for (const [lbl, media] of chipIcons) {
-  const re = new RegExp(`CreateActionChip\\(\\$r\\('app\\.string\\.${lbl}'\\)[\\s\\S]{0,400}\\$r\\('${media.replace(/\./g, '\\.')} '\\)`);
-  eq(re.test(seg) || seg.includes(`'${media}'`), `${lbl} chip carries ${media}`);
+  eq(seg.includes(`'${media}'`), `${lbl} chip carries ${media}`);
 }
 eq(seg.includes('Image(icon)'), 'chip renders Image(icon) (cwi.b go5.b icon)');
+// wp8.I FILLED primary: Create Note passes emphasized=true with the
+// white-stroke icon; the other four chips use the default TINTED(surface).
+eq(/fab_createnote_filled'\),\s*true\)/.test(seg),
+  'create_note chip emphasized=FILLED (wp8.I vs wp8.J)');
 const mediaDir = join(root, 'note/src/main/resources/base/media');
 for (const m of ['fab_import', 'fab_templates', 'fab_docscan', 'fab_createnote']) {
   eq(existsSync(join(mediaDir, m + '.svg')), `media ${m}.svg present`);

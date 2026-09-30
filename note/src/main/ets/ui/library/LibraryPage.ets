@@ -2570,7 +2570,7 @@ struct LibraryPage {
           this.createAndOpen().catch((e: Error) => {
             console.error(`create note action failed: ${JSON.stringify(e)}`);
           });
-        }, $r('app.media.fab_createnote'))
+        }, $r('app.media.fab_createnote_filled'), true)
       }
       Button() {
         Text(this.createMenuOpen ? '×' : '+')
@@ -2598,7 +2598,8 @@ struct LibraryPage {
   // Original cwi.b: each speed-dial chip is a Button holding an icon painter
   // (go5.b) followed by the label text (tpe.b). Icons are the ported
   // feature_library__* vectors (fab_*), dark-qualified under resources/dark.
-  CreateActionChip(label: ResourceStr, action: () => void, icon: ResourceStr) {
+  CreateActionChip(label: ResourceStr, action: () => void, icon: ResourceStr,
+    emphasized: boolean = false) {
     Button() {
       Row() {
         Image(icon)
@@ -2607,14 +2608,20 @@ struct LibraryPage {
           .margin({ right: 8 })
         Text(label)
           .fontSize(14)
-          .fontColor(this.resolveTokens().textPrimary)
+          .fontColor(emphasized
+            ? this.resolveTokens().onAccent
+            : this.resolveTokens().textPrimary)
       }
       .justifyContent(FlexAlign.Center)
       .width('100%')
     }
     .height(36)
     .padding({ left: 16, right: 16 })
-    .backgroundColor(this.resolveTokens().surface)
+    // wp8 variant: FILLED(accent) for the primary Create Note, TINTED(surface)
+    // for Import/Templates/DocScan — matching cd case 0's wp8.I vs wp8.J.
+    .backgroundColor(emphasized
+      ? this.resolveTokens().accent
+      : this.resolveTokens().surface)
     .borderRadius(18)
     .margin({ bottom: 8 })
     .enabled(!this.createBusy)
