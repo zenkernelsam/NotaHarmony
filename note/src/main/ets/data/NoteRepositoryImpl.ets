@@ -839,6 +839,35 @@ export class NoteRepositoryImpl implements NoteRepository {
     await this.saveViewState(base);
   }
 
+  // 原版 wmb.java/ymb.java：放大窗 sourceRect 专属 UPDATE（"l,t,r,b" 串，ten.r 序列化）。
+  // 走 getViewState+saveViewState 全量回写——保留列不缺值，REPLACE 无丢失。
+  async saveZoomViewSourceRect(noteId: string, rect: string | null): Promise<void> {
+    const existing = await this.getViewState(noteId);
+    const base: NoteViewState = existing ?? {
+      noteId: noteId,
+      zoom: 1.0,
+      scrollOffsetX: 0,
+      scrollOffsetY: 0,
+      coordinateModelVersion: CURRENT_VIEW_COORDINATE_MODEL_VERSION,
+    };
+    base.zoomViewSourceRect = rect;
+    await this.saveViewState(base);
+  }
+
+  // 原版 wmb.java/ymb.java：放大窗 isShown 专属 UPDATE（0/1）。
+  async saveZoomViewShown(noteId: string, shown: boolean): Promise<void> {
+    const existing = await this.getViewState(noteId);
+    const base: NoteViewState = existing ?? {
+      noteId: noteId,
+      zoom: 1.0,
+      scrollOffsetX: 0,
+      scrollOffsetY: 0,
+      coordinateModelVersion: CURRENT_VIEW_COORDINATE_MODEL_VERSION,
+    };
+    base.zoomViewShown = shown;
+    await this.saveViewState(base);
+  }
+
   private rowToNote(resultSet: relationalStore.ResultSet): NoteMeta {
     try {
       const folderColumn: number = resultSet.getColumnIndex('folder_id');

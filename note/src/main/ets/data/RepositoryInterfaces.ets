@@ -55,6 +55,8 @@ export interface NoteRepository {
   saveViewState(state: NoteViewState): Promise<void>;
   // 原版 NoteStateEntity.lastCodeBlockLanguage：记录本笔记上一次使用的代码块语言。
   saveLastCodeBlockLanguage(noteId: string, lang: string | null): Promise<void>;
+  saveZoomViewSourceRect(noteId: string, rect: string | null): Promise<void>;
+  saveZoomViewShown(noteId: string, shown: boolean): Promise<void>;
 }
 
 export interface PageRepository {

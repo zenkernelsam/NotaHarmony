@@ -501,6 +501,12 @@ export struct NoteCanvasView {
   // 原版 NoteStateEntity.lastCodeBlockLanguage：本笔记上一次使用的代码块语言，
   // getViewState 载入、供 TextBlockOverlay 新代码块 toggle 恢复默认。
   @State lastCodeBlockLanguage: string | null = null;
+  // 原版 NoteStateEntity.zoomViewSourceRect（wmb 专属 UPDATE + 冷启动恢复）：
+  // 载入的种子值 + 会话内每次持久化后同步镜像——面板重挂载/切页均回到
+  // 最近源窗位置（kck.a mask62 隐窗保留 sourceRect 的等价物）。
+  private restoredZoomSourceRect: Point2D | null = null;
+  // 原版 zoomViewShown：载入值仅作开笔记恢复判定，写回走 persistZoomViewShown。
+  private persistedZoomViewShown: boolean | null = null;
   private pageLoadPromise: Promise<void> = Promise.resolve();
   private viewportInitialized: boolean = false;
   private shapeHoldTimer: number = -1;
@@ -749,7 +755,19 @@ export struct NoteCanvasView {
       }
       // lastCodeBlockLanguage 与坐标模型版本无关——总载入供代码块 toggle 恢复。
       this.lastCodeBlockLanguage = state?.lastCodeBlockLanguage ?? null;
+      // 原版 anb.e/f：放大窗 sourceRect/shown 与坐标模型无关——总载入作恢复种子。
+      this.restoredZoomSourceRect = this.parseZoomSourceRect(
+        state?.zoomViewSourceRect ?? null);
+      this.persistedZoomViewShown = state?.zoomViewShown ?? null;
       this.loaded = true;
+      // 原版 anb.f → ZoomViewState.isShown 冷启动恢复：上次关闭笔记时放大窗
+      // 仍开着 → 重新激活 ZOOM（面板 onAppear 自动走 initZoomSourceRect 复位）。
+      if (this.persistedZoomViewShown === true &&
+        this.viewModel.currentTool !== ToolType.ZOOM) {
+        this.viewModel.selectTool(ToolType.ZOOM).catch((e: Object): void => {
+          console.error(`zoomViewShown restore failed: ${JSON.stringify(e)}`);
+        });
+      }
       this.dataLoadFailed = false;
       this.systemClipboardImageAvailable = false;
       this.refreshSystemClipboardImageAvailability();
@@ -1552,13 +1570,92 @@ export struct NoteCanvasView {
     this.zoomSourceY = Math.max(0, Math.min(y, Math.max(0, paperH - rectH)));
   }
 
-  // 面板挂载/页切换时初始化 sourceRect：有墨迹 → 末笔续写位
+  // 原版 ten.y：解析持久化 sourceRect "l,t,r,b"；非法/空 → null（ten.y 返回
+  // sbe.e 空矩形，由调用方回落锚定逻辑）。尺寸不取——随当前 magnification 重算。
+  private parseZoomSourceRect(rect: string | null): Point2D | null {
+    if (rect === null) {
+      return null;
+    }
+    const parts: string[] = rect.split(',');
+    if (parts.length !== 4) {
+      return null;
+    }
+    const l: number = Number(parts[0]);
+    const t: number = Number(parts[1]);
+    const r: number = Number(parts[2]);
+    const b: number = Number(parts[3]);
+    if (!Number.isFinite(l) || !Number.isFinite(t) || !Number.isFinite(r) ||
+      !Number.isFinite(b) || r <= l || b <= t) {
+      return null;
+    }
+    return { x: l, y: t };
+  }
+
+  // 原版 wmb.java：sourceRect 落定点持久化 "l,t,r,b"（ten.r 等价），并同步
+  // 会话内镜像——后续 initZoomSourceRect 直接续用最近位置。
+  private persistZoomViewSourceRect(): void {
+    if (!this.loaded || this.noteId.length === 0) {
+      return;
+    }
+    const rectW: number = this.zoomSurfaceRectWidthDoc();
+    const rectH: number = this.zoomSurfaceRectHeightDoc();
+    const l: number = this.zoomSourceX;
+    const t: number = this.zoomSourceY;
+    this.restoredZoomSourceRect = { x: l, y: t };
+    const rect: string = `${l},${t},${l + rectW},${t + rectH}`;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const db: DatabaseManager = DatabaseManager.getInstance();
+      db.initialize(context)
+        .then((): Promise<void> => {
+          const noteRepo: NoteRepositoryImpl = new NoteRepositoryImpl(db);
+          return noteRepo.saveZoomViewSourceRect(this.noteId, rect);
+        })
+        .catch((e: Object): void => {
+          console.error(`persistZoomViewSourceRect failed: ${JSON.stringify(e)}`);
+        });
+    } catch (e) {
+      console.error(`persistZoomViewSourceRect context failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // 原版 wmb.java：zoomViewShown 专属写回。卸载时按"当时工具是否仍 ZOOM"
+  // 判定——Close/换工具先改 currentTool → false；整页导航离开则保持 true，
+  // 等价原版 isShown 随笔记关闭仍保留、重开即恢复面板。
+  private persistZoomViewShown(shown: boolean): void {
+    if (this.noteId.length === 0) {
+      return;
+    }
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const db: DatabaseManager = DatabaseManager.getInstance();
+      db.initialize(context)
+        .then((): Promise<void> => {
+          const noteRepo: NoteRepositoryImpl = new NoteRepositoryImpl(db);
+          return noteRepo.saveZoomViewShown(this.noteId, shown);
+        })
+        .catch((e: Object): void => {
+          console.error(`persistZoomViewShown failed: ${JSON.stringify(e)}`);
+        });
+    } catch (e) {
+      console.error(`persistZoomViewShown context failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // 面板挂载/页切换时初始化 sourceRect：有持久化位 → 恢复原位（原版
+  // ZoomViewState 会话内保留 sourceRect 的等价物）；否则有墨迹 → 末笔续写位
   // （rectW − advanceDoc 处，下一笔写入即触发前进）；无墨迹 → 视口中心。
   private initZoomSourceRect(): void {
     // 原版 o59.r：自动前进区宽持久化——挂载时同步 VM 加载值。
     this.zoomAdvanceWidthVp = this.viewModel.zoomAdvanceWidthDp;
     const rectW: number = this.zoomSurfaceRectWidthDoc();
     const rectH: number = this.zoomSurfaceRectHeightDoc();
+    if (this.restoredZoomSourceRect !== null) {
+      this.clampZoomSource(
+        this.restoredZoomSourceRect.x, this.restoredZoomSourceRect.y);
+      this.renderFrame();
+      return;
+    }
     const lastStroke: StrokeElementData | undefined =
       this.completedStrokes.length > 0 ?
         this.completedStrokes[this.completedStrokes.length - 1] : undefined;
@@ -1735,6 +1832,8 @@ export struct NoteCanvasView {
     const advanceDoc: number = this.zoomAdvanceDoc();
     if (end.position.x > this.zoomSourceX + rectW - advanceDoc) {
       this.clampZoomSource(this.zoomSourceX + (rectW - advanceDoc), this.zoomSourceY);
+      // 自动前进改变源窗 → 持久化（wmb zoomViewSourceRect 路径）。
+      this.persistZoomViewSourceRect();
     }
   }
 
@@ -1744,6 +1843,7 @@ export struct NoteCanvasView {
       this.zoomSourceX - (this.zoomSurfaceRectWidthDoc() - this.zoomAdvanceDoc()),
       this.zoomSourceY);
     this.zoomPaintTick++;
+    this.persistZoomViewSourceRect();
   }
 
   private zoomStepForward(): void {
@@ -1751,6 +1851,7 @@ export struct NoteCanvasView {
       this.zoomSourceX + (this.zoomSurfaceRectWidthDoc() - this.zoomAdvanceDoc()),
       this.zoomSourceY);
     this.zoomPaintTick++;
+    this.persistZoomViewSourceRect();
   }
 
   // ufg.Return：跳回最近一笔的续写位（末笔末端置于前进区前沿）
@@ -1766,6 +1867,7 @@ export struct NoteCanvasView {
       this.clampZoomSource(
         last.position.x - (rectW - this.zoomAdvanceDoc()),
         last.position.y - rectH / 2);
+      this.persistZoomViewSourceRect();
     }
     this.zoomPaintTick++;
   }
@@ -2025,6 +2127,8 @@ export struct NoteCanvasView {
       this.zoomPaintTick++;
       this.renderFrame();
     }
+    // 原版 wmb.java：窗口手势落点持久化 sourceRect（拖动/边缘滚动/卸载共用此出口）。
+    this.persistZoomViewSourceRect();
   }
 
   private linkHitOnTextBlock(elementId: string, point: Point2D): TextBlockLinkHit | null {
@@ -10909,10 +11013,15 @@ export struct NoteCanvasView {
         .hitTestBehavior(HitTestMode.Transparent)
         .onAppear(() => {
           this.initZoomSourceRect();
+          // 原版 wmb.java：isShown 挂载 → zoomViewShown=true 写回。
+          this.persistZoomViewShown(true);
         })
         .onDisAppear(() => {
           // Phase 750：面板卸载（Close/换工具）→ 收尾窗口手势并清掉覆盖层
           this.endZoomWindowDrag();
+          // 原版 wmb.java：卸载点 currentTool 判定——Close/换工具 → false；
+          // 整页导航离开时工具仍 ZOOM → 保持 true，重开笔记恢复面板。
+          this.persistZoomViewShown(this.viewModel.currentTool === ToolType.ZOOM);
           this.renderFrame();
         })
         // Phase 755：fgg.b l96.J AnimatedVisibility——500ms 靠停靠缘
