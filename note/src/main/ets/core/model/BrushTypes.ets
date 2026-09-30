@@ -88,6 +88,14 @@ export interface ToolState {
   // 1.4.2 ToolStateEntity.stabilization (INTEGER)：笔画防抖开关，CALLIGRAPHY 默认 1。
   // NULL 其余工具。
   stabilization?: number | null;
+  // 1.4.2 ToolStateEntity.googleInkBrushPackId (INTEGER DEFAULT NULL)：原版指向
+  // Google Ink 可下载笔刷包。HarmonyOS 无 Google Ink 引擎，恒 NULL——列仅为
+  // schema 校验/导入往返保留（ADR-1327，B 类专有 SDK fail-closed）。
+  googleInkBrushPackId?: number | null;
+  // 1.4.2 ToolStateEntity.penLastStandardColorWellIndex (INTEGER DEFAULT NULL)：
+  // 笔类工具上一次选中的标准（preset 默认）色井序数。selectedColorWellIndex 在
+  // 取自定义/最近色时被置 -1，本列保留「最后停留的标准色位」供调色板回显。
+  penLastStandardColorWellIndex?: number | null;
 }
 
 // 1.4.2 ToolStateEntity.shapeKind 以枚举名 TEXT 持久化（'RECTANGLE'…'LINE'）。

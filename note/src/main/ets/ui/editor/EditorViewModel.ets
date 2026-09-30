@@ -117,14 +117,14 @@ export class EditorViewModel {
       }
       // Original invariant: every default tool type is always present somewhere
       // (x7f refuses to delete the sole visible instance), so missing types are
-      // backfilled at the Primary tray tail. Hidden/duplicated rows pass through.
+      // backfilled at the tail of the tray each seed designates (gb7:107 appends
+      // SHAPE to the owner's Secondary tray tail via MAX(sibling.trayIndex)+1).
+      // Hidden/duplicated rows pass through.
       const missing: ToolState[] = [];
-      let primaryCount: number = this.countTrayType(merged, TRAY_TYPE_PRIMARY);
       for (const fallback of defaults) {
         if (this.findFirstType(merged, fallback.toolType) === null) {
           const backfill: ToolState = this.cloneState(fallback);
-          backfill.trayIndex = primaryCount;
-          primaryCount++;
+          backfill.trayIndex = this.nextTrayTailIndex(merged, backfill.trayType);
           merged.push(backfill);
           missing.push(this.cloneState(backfill));
         }
@@ -325,6 +325,12 @@ export class EditorViewModel {
     const saved: boolean = await this.updateActiveState((state: ToolState): void => {
       state.brush.color = color;
       state.brush.selectedColorWellIndex = selectedWellIndex;
+      // 1.4.2 ToolStateEntity.penLastStandardColorWellIndex：记录笔类工具上一次
+      // 选中的标准色井序数。selectedColorWellIndex 在取自定义/最近色时被覆盖为 -1，
+      // 本列保留最后停留的标准色位供调色板回显/恢复（随工具持久化）。
+      if (selectedWellIndex >= 0) {
+        state.penLastStandardColorWellIndex = selectedWellIndex;
+      }
     });
     if (saved) {
       // ehb parity: every applied brush color lands in the global recents list.
@@ -740,6 +746,19 @@ export class EditorViewModel {
       }
     }
     return count;
+  }
+
+  // 原版 gb7:107 升级回填把 SHAPE 追加到其所属托盘的尾部（MAX(sibling.trayIndex)+1，
+  // sibling.tray_owner_id 限定同一托盘）。托盘序数不保证稠密（Secondary 种子
+  // 跳过 POINTER@0/RULER@4 空位），故用同托盘现有序数最大值+1，而非工具计数。
+  private nextTrayTailIndex(states: ToolState[], trayType: number): number {
+    let max: number = -1;
+    for (const state of states) {
+      if (state.trayType === trayType && state.trayIndex > max) {
+        max = state.trayIndex;
+      }
+    }
+    return max + 1;
   }
 
   private async fixActiveToolAfterStructuralOp(): Promise<void> {
@@ -1231,6 +1250,8 @@ export class EditorViewModel {
       nibFlatness: nibFlatness ?? null,
       shapeKind: shapeKind ?? null,
       stabilization: stabilization ?? null,
+      googleInkBrushPackId: null,
+      penLastStandardColorWellIndex: null,
     };
   }
 
@@ -1263,6 +1284,8 @@ export class EditorViewModel {
       nibFlatness: state.nibFlatness ?? null,
       shapeKind: state.shapeKind ?? null,
       stabilization: state.stabilization ?? null,
+      googleInkBrushPackId: state.googleInkBrushPackId ?? null,
+      penLastStandardColorWellIndex: state.penLastStandardColorWellIndex ?? null,
     };
   }
 }

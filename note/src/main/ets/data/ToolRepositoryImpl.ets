@@ -408,6 +408,15 @@ export class ToolRepositoryImpl implements ToolRepository {
         null : resultSet.getDouble(resultSet.getColumnIndex('nib_flatness')),
       stabilization: resultSet.isColumnNull(resultSet.getColumnIndex('stabilization')) ?
         null : resultSet.getLong(resultSet.getColumnIndex('stabilization')),
+      // 1.4.2 ToolStateEntity 余下两列（ca3.java:405）：google_ink_brush_pack_id
+      // （Google Ink 笔刷包，无引擎恒 NULL）与 pen_last_standard_color_well_index
+      // （笔类工具最后选中的标准色井序数）。DB_VERSION 73 迁移加入；旧行为 NULL。
+      googleInkBrushPackId: resultSet.isColumnNull(
+        resultSet.getColumnIndex('google_ink_brush_pack_id')) ?
+        null : resultSet.getLong(resultSet.getColumnIndex('google_ink_brush_pack_id')),
+      penLastStandardColorWellIndex: resultSet.isColumnNull(
+        resultSet.getColumnIndex('pen_last_standard_color_well_index')) ?
+        null : resultSet.getLong(resultSet.getColumnIndex('pen_last_standard_color_well_index')),
     };
   }
 
@@ -687,6 +696,10 @@ export class ToolRepositoryImpl implements ToolRepository {
       'nib_angle': state.nibAngle ?? null,
       'nib_flatness': state.nibFlatness ?? null,
       'stabilization': state.stabilization ?? null,
+      // 1.4.2：google_ink_brush_pack_id 恒 NULL（无 Google Ink）；pen_last_standard_
+      // color_well_index 记录笔类工具最后选中的标准色井序数。
+      'google_ink_brush_pack_id': state.googleInkBrushPackId ?? null,
+      'pen_last_standard_color_well_index': state.penLastStandardColorWellIndex ?? null,
     };
   }
 
@@ -711,6 +724,8 @@ export class ToolRepositoryImpl implements ToolRepository {
       nibAngle: state.nibAngle ?? null,
       nibFlatness: state.nibFlatness ?? null,
       stabilization: state.stabilization ?? null,
+      googleInkBrushPackId: state.googleInkBrushPackId ?? null,
+      penLastStandardColorWellIndex: state.penLastStandardColorWellIndex ?? null,
     };
   }
 }

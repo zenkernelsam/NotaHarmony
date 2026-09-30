@@ -17,7 +17,7 @@
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 72;
+export const DB_VERSION: number = 73;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -54,7 +54,12 @@ CREATE TABLE IF NOT EXISTS tool_state (
   shape_kind TEXT DEFAULT 'RECTANGLE',
   nib_angle REAL,
   nib_flatness REAL,
-  stabilization INTEGER
+  stabilization INTEGER,
+  // 1.4.2 ToolStateEntity 余下两列（ca3.java:405,555）：googleInkBrushPackId
+  // INTEGER DEFAULT NULL（Google Ink 笔刷包，无引擎恒 NULL）；penLastStandardColorWellIndex
+  // INTEGER DEFAULT NULL（笔类工具最后选中的标准色井序数）。完成列级校验覆盖。
+  google_ink_brush_pack_id INTEGER DEFAULT NULL,
+  pen_last_standard_color_well_index INTEGER DEFAULT NULL
 )`;
 
 // Mirrors the original ToolboxDatabase FavoriteColorWellEntity (e47.java:377).
@@ -2756,5 +2761,12 @@ export const MIGRATIONS: Record<number, string[]> = {
     'ALTER TABLE tool_state ADD COLUMN nib_angle REAL',
     'ALTER TABLE tool_state ADD COLUMN nib_flatness REAL',
     'ALTER TABLE tool_state ADD COLUMN stabilization INTEGER',
+  ],
+  73: [
+    // Original ToolStateEntity 余下两列（ca3.java:405,555）：googleInkBrushPackId
+    // INTEGER DEFAULT NULL（Google Ink 笔刷包引用，Harmony 无引擎恒 NULL）；
+    // penLastStandardColorWellIndex INTEGER DEFAULT NULL（笔类工具最后标准色井序数）。
+    'ALTER TABLE tool_state ADD COLUMN google_ink_brush_pack_id INTEGER DEFAULT NULL',
+    'ALTER TABLE tool_state ADD COLUMN pen_last_standard_color_well_index INTEGER DEFAULT NULL',
   ],
 };
