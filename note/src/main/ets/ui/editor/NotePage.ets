@@ -1734,6 +1734,8 @@ struct NotePage {
           noteHasContent: !this.emptyNoteActions,
           tapeCount: this.pageTapeCount,
           anyTapeRevealed: this.anyTapeRevealed,
+          // fp0 p2c：面板开合切 content_manager outline 轮廓。
+          pagesPanelOpen: this.showPageOverview,
           onTapeToggle: (): void => {
             this.tapeToggleSignal++;
           },

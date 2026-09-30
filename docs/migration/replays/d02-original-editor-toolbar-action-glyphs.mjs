@@ -55,8 +55,9 @@ ACTION.forEach(k => eq(glyphs.includes(`'${k}':`), `action glyph '${k}' register
 }
 
 // --- EditorToolbar wires each action button to its glyph ---
-eq(/glyph: 'content_manager'/.test(toolbar),
-  'pages-panel toggle uses content_manager glyph (replaces ▦)');
+// Phase 1396：outline_default/selected 随 pagesPanelOpen 切换（fp0 双轮廓）。
+eq(/glyph: this\.pagesPanelOpen \? 'content_manager_selected' : 'content_manager'/.test(toolbar),
+  'pages-panel toggle uses content_manager glyph family (replaces ▦)');
 eq(/glyph: 'hamburger'/.test(toolbar),
   'compact overflow uses hamburger glyph (replaces ...)');
 eq(/glyph: 'settings'/.test(toolbar),

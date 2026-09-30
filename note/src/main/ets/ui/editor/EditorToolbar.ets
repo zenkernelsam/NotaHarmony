@@ -129,6 +129,9 @@ export struct EditorToolbar {
   // 原版 o94 case14：胶带工具设置行内 Hide/Reveal Tapes（NotePage 会话态）。
   @Prop tapeCount: number = 0;
   @Prop anyTapeRevealed: boolean = false;
+  // 原版 fp0 p2c RichIcon：content_manager 携带 outline_default/
+  // outline_selected 双轮廓——面板开合切换（ADR-1306 遗留接线）。
+  @Prop pagesPanelOpen: boolean = false;
   onTapeToggle: () => void = () => {
   };
   // T-038：主题状态
@@ -218,10 +221,11 @@ export struct EditorToolbar {
         Row() {
         // 原版 x90.g 顶栏首项（pq9.N → fh2 → gs8 case2）：content-manager
         // 页面面板开关，位于 undo/redo 与工具簇之前。
-        // 图标 = ui_designsystem__content_manager（p2c RichIcon）。
+        // 图标 = ui_designsystem__content_manager（p2c RichIcon）；
+        // 面板开启态切 outline_selected 轮廓（fp0 双轮廓语义）。
         Button() {
           ToolGlyph({
-            glyph: 'content_manager',
+            glyph: this.pagesPanelOpen ? 'content_manager_selected' : 'content_manager',
             contentColor: this.resolveTokens().textPrimary,
             dark: this.isDark(),
             iconSize: 20,
