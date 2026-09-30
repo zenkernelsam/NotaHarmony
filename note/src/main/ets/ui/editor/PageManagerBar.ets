@@ -114,10 +114,16 @@ export struct PageManagerBar {
       if (this.compact) {
         Blank()
         this.SettingsButton(true)
-        Button('+')
+        Button() {
+          // 原版页管理新增页 = ui_designsystem__add_page。
+          ToolGlyph({
+            glyph: 'add_page',
+            contentColor: this.resolveTokens().textPrimary,
+            iconSize: 22,
+          })
+        }
           .width(44)
           .height(40)
-          .fontSize(20)
           .enabled(!this.busy && !this.photoImportLeaseActive)
           .opacity(this.busy ? 0.4 : 1)
           .accessibilityText($r('app.string.add_page'))
@@ -143,16 +149,22 @@ export struct PageManagerBar {
           .bindMenu(this.buildPageMenu())
       } else {
         this.SettingsButton(false)
-        Button('🔖')
+        Button() {
+          // 原版书签 = ui_designsystem__bookmark_tall_{fill,outline}，
+          // 已书签用 fill、未书签用 outline，着色随 accent/textPrimary。
+          ToolGlyph({
+            glyph: this.currentPageBookmarked ? 'bookmark_tall_fill' : 'bookmark_tall_outline',
+            contentColor: this.currentPageBookmarked ? this.resolveTokens().accent :
+              this.resolveTokens().textPrimary,
+            iconSize: 20,
+          })
+        }
           .width(44)
           .height(40)
-          .fontSize(16)
           .margin({ left: 8 })
           .enabled(!this.busy && !this.photoImportLeaseActive)
           .opacity(this.busy || this.photoImportLeaseActive ? 0.4 :
             (this.currentPageBookmarked ? 1 : 0.55))
-          .fontColor(this.currentPageBookmarked ? this.resolveTokens().accent :
-            this.resolveTokens().textPrimary)
           .accessibilityText($r('app.string.bookmark_page'))
           .onClick(() => {
             if (this.busy || this.photoImportLeaseActive) {
@@ -246,10 +258,23 @@ export struct PageManagerBar {
 
   @Builder
   SettingsButton(compact: boolean) {
-    Button(compact ? '⚙' : $r('app.string.page_settings'))
+    // 原版页设置入口（o6f）紧凑态 = ho5.u settings 分层 m4f 图标；
+    // 非紧凑态保留 "Page settings" 文本标签。
+    Button() {
+      if (compact) {
+        ToolGlyph({
+          glyph: 'settings',
+          contentColor: this.resolveTokens().textPrimary,
+          iconSize: 20,
+        })
+      } else {
+        Text($r('app.string.page_settings'))
+          .fontSize(13)
+          .fontColor(this.resolveTokens().textPrimary)
+      }
+    }
       .width(compact ? 44 : 112)
       .height(40)
-      .fontSize(compact ? 20 : 13)
       .margin({ left: compact ? 2 : 8 })
       .enabled(!this.busy && !this.photoImportLeaseActive)
       .opacity(this.busy ? 0.4 : 1)

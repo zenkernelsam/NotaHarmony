@@ -34,8 +34,8 @@ KEYS.forEach(k => eq(glyphs.includes(`'${k}':`), `glyph '${k}' present in TOOL_G
   });
 eq(/'eraser_partial': \{ f: `M/.test(glyphs), 'eraser_partial is a fill-only single icon');
 eq(/'eraser_whole': \{ f: ``, o: `M/.test(glyphs), 'eraser_whole is a stroke-only single icon');
-eq(glyphs.split(/\n/).filter(l => /'[a-z_]+': \{/.test(l)).length === 25,
-  'exactly 25 glyphs registered (11 tools + 7 toolbar actions + 7 nav/dialog)');
+eq(glyphs.split(/\n/).filter(l => /'[a-z_]+': \{/.test(l)).length === 30,
+  'exactly 30 glyphs registered (11 tools + 7 toolbar + 7 nav + 5 page/section)');
 
 // m4f five-layer data present for the composite tools (ADR-1305 resolved):
 // h=highlight, s=shadow, v=overlay pathData extracted alongside f/o.
@@ -54,8 +54,8 @@ eq(/toolGlyphKey\(toolType: ToolType\)/.test(glyph), 'toolGlyphKey maps ToolType
   'ToolType.LASER', 'ToolType.ZOOM', 'ToolType.REVIEW']
   .forEach(t => eq(glyph.includes(t), `toolGlyphKey handles ${t}`));
 eq(/Shape\(\)/.test(glyph), 'ToolGlyph wraps layers in a Shape');
-eq(/\.viewPort\(\{[^}]*width: 24,\s*height: 24/.test(glyph),
-  'Shape viewPort is the original 24×24 icon space');
+eq(/\.viewPort\(\{[^}]*width: this\.paths\(\)\.vw,\s*height: this\.paths\(\)\.vh/.test(glyph),
+  'Shape viewPort is the per-glyph native icon space (24×24 for most, plus=12×12, search=16×17)');
 eq(/\.commands\(this\.paths\(\)\.f\)/.test(glyph), 'fill layer renders the f pathData');
 eq(/\.commands\(this\.paths\(\)\.v\)/.test(glyph), 'overlay layer renders the v pathData');
 eq(/\.commands\(this\.paths\(\)\.h\)/.test(glyph), 'highlight layer renders the h pathData');

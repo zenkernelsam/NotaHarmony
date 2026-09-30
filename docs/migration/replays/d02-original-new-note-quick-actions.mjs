@@ -60,7 +60,7 @@ ok(/if \(function4 == null\)[\s\S]*?else[\s\S]*?capture_and_add/.test(mw3),
 ok(lib.includes('@State createMenuOpen: boolean = false'),
   'Harmony createMenuOpen state missing');
 // FAB toggles the expansion instead of creating directly.
-ok(/Button\(\) \{\s+Text\(this\.createMenuOpen \? '×' : '\+'\)/.test(lib),
+ok(/glyph: this\.createMenuOpen \? 'close_med_regular' : 'plus'/.test(lib),
   'Harmony FAB expand toggle missing');
 ok(lib.includes('this.createMenuOpen = !this.createMenuOpen;'),
   'Harmony FAB toggle action missing');

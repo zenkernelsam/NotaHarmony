@@ -64,14 +64,14 @@ assert.ok(navigationStart >= 0 && navigationEnd > navigationStart);
 assert.match(bar.slice(navigationStart, navigationEnd),
   /if \(this\.busy \|\| this\.photoImportLeaseActive\) \{/);
 
-const settingsStart = bar.indexOf("Button(compact ? '⚙' : $r('app.string.page_settings'))");
+const settingsStart = bar.indexOf("glyph: 'settings'");
 const settingsEnd = bar.indexOf('\n  }\n\n  private buildPageMenu', settingsStart);
 assert.ok(settingsStart >= 0 && settingsEnd > settingsStart);
 assert.match(bar.slice(settingsStart, settingsEnd),
   /if \(this\.busy \|\| this\.photoImportLeaseActive\) \{/);
 guardedClick("Button($r('app.string.move_page_earlier'))", 'move previous');
 guardedClick("Button($r('app.string.move_page_later'))", 'move next');
-guardedClick("Button(compact ? '⚙' : $r('app.string.page_settings'))", 'settings');
+guardedClick(".accessibilityText($r('app.string.page_settings'))\n      .onClick(() => {", 'settings');
 
 assert.equal(
   bar.match(/if \(!this\.busy && !this\.photoImportLeaseActive\) \{/g)?.length ?? 0,

@@ -2003,10 +2003,16 @@ struct LibraryPage {
               .fontSize(20)
               .fontWeight(FontWeight.Bold)
               .fontColor(this.resolveTokens().textPrimary)
-            Button('×')
+            Button() {
+              // 原版关闭抽屉 = ui_designsystem__close_med_regular。
+              ToolGlyph({
+                glyph: 'close_med_regular',
+                contentColor: this.resolveTokens().textPrimary,
+                iconSize: 22,
+              })
+            }
               .width(44)
               .height(44)
-              .fontSize(22)
               .accessibilityText($r('app.string.close'))
               .onClick(() => {
                 this.closeCompactFolderDrawer();
@@ -2610,11 +2616,13 @@ struct LibraryPage {
         }, $r('app.media.fab_createnote_filled'), true)
       }
       Button() {
-        Text(this.createMenuOpen ? '×' : '+')
-          .fontSize(28)
-          .width('100%')
-          .height('100%')
-          .textAlign(TextAlign.Center)
+        // 原版创建 FAB：折叠态为 ui_designsystem__plus（+），展开态为
+        // close_med_regular（×），白字形于 accent 圆钮上。
+        ToolGlyph({
+          glyph: this.createMenuOpen ? 'close_med_regular' : 'plus',
+          contentColor: this.resolveTokens().onAccent,
+          iconSize: 26,
+        })
       }
       .width(64)
       .height(64)

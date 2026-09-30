@@ -15,6 +15,7 @@ import {
 } from '../../data/OriginalRecordingStore';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeMode, ThemeTokens } from '../theme/EditorTheme';
+import { ToolGlyph } from '../components/ToolGlyph';
 
 const ORIGINAL_RECORDING_SKIP_MS: number = 10000;  // 原版 uw7.r/s ±10000ms
 
@@ -65,10 +66,16 @@ export struct RecordingPanel {
           LoadingProgress().width(18).height(18).margin({ left: 8 })
         }
         Blank()
-        Button('×')
-          .width(36).height(32).fontSize(20)
+        Button() {
+          // 原版 ue4.u = ui_designsystem__close_med_regular。
+          ToolGlyph({
+            glyph: 'close_med_regular',
+            contentColor: this.resolveTokens().textPrimary,
+            iconSize: 20,
+          })
+        }
+          .width(36).height(32)
           .backgroundColor(Color.Transparent)
-          .fontColor(this.resolveTokens().textPrimary)
           .accessibilityText($r('app.string.close_recordings'))
           .onClick(() => {
             if (this.photoImportLeaseActive) {

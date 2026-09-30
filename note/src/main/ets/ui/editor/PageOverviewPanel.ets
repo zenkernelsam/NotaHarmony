@@ -314,13 +314,18 @@ export struct PageOverviewPanel {
         this.FilterChip($r('app.string.pages_filter_notes'), FILTER_NOTES)
         // 原版 r22 case24：content_manager_search 行（ue4.A 搜索图标）
         // 激活 de2.l() → qd2.isSearchActive。
-        Button('🔍')
+        Button() {
+          // 原版 ue4.A = ui_designsystem__search（content_manager_search）。
+          ToolGlyph({
+            glyph: 'search',
+            contentColor: this.searchActive ?
+              this.resolveTokens().accent : this.resolveTokens().textSecondary,
+            iconSize: 18,
+          })
+        }
           .width(36)
           .height(32)
-          .fontSize(14)
           .margin({ left: 4 })
-          .fontColor(this.searchActive ?
-            this.resolveTokens().accent : this.resolveTokens().textSecondary)
           .backgroundColor(Color.Transparent)
           .accessibilityText($r('app.string.cd_pages_panel_search'))
           .onClick(() => {

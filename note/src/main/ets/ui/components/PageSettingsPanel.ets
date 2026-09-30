@@ -554,10 +554,17 @@ export struct PageSettingsPanel {
           })
         Blank()
         if (this.customColorExpanded) {
-            Button('×')
+            Button() {
+              // 原版 ue4.u = ui_designsystem__close_med_regular。
+              ToolGlyph({
+                glyph: 'close_med_regular',
+                contentColor: this.resolveTokens().textPrimary,
+                dark: this.isDarkMode(),
+                iconSize: 16,
+              })
+            }
             .width(30)
             .height(28)
-            .fontSize(16)
             .padding(0)
             .backgroundColor(this.resolveTokens().control)
           .accessibilityText($r('app.string.paper_custom_color_close'))
@@ -772,10 +779,17 @@ export struct PageSettingsPanel {
           .fontWeight(FontWeight.Medium)
           .fontColor(this.resolveTokens().textPrimary)
         Blank()
-        Button('×')
+        Button() {
+          // 原版 ue4.u = ui_designsystem__close_med_regular。
+          ToolGlyph({
+            glyph: 'close_med_regular',
+            contentColor: this.resolveTokens().textPrimary,
+            dark: this.isDarkMode(),
+            iconSize: 16,
+          })
+        }
           .width(30)
           .height(28)
-          .fontSize(16)
           .padding(0)
           .backgroundColor(this.resolveTokens().control)
           .enabled(!this.spacingSaveBusy)

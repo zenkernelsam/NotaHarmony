@@ -45,7 +45,7 @@ export struct ToolGlyph {
 
   private paths(): ToolGlyphPaths {
     const p: ToolGlyphPaths | undefined = TOOL_GLYPHS[this.glyph];
-    return p !== undefined ? p : { f: '', o: '', sw: 1.5, h: '', s: '', v: '' };
+    return p !== undefined ? p : { f: '', o: '', sw: 1.5, h: '', s: '', v: '', vw: 24, vh: 24 };
   }
 
   build() {
@@ -95,7 +95,10 @@ export struct ToolGlyph {
           .strokeLineJoin(LineJoinStyle.Round)
       }
     }
-    .viewPort({ x: 0, y: 0, width: 24, height: 24 })
+    // viewPort = the icon's native vector coordinate space (vw×vh — 24×24 for
+    // most glyphs, but e.g. plus=12×12 and search=16×17 keep their own space so
+    // the pathData scales correctly onto iconSize).
+    .viewPort({ x: 0, y: 0, width: this.paths().vw, height: this.paths().vh })
     .width(this.iconSize)
     .height(this.iconSize)
   }

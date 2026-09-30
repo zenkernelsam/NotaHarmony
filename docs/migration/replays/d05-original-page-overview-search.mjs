@@ -84,7 +84,7 @@ check(panel.includes('@State private searchActive') &&
 check(panel.includes('this.searchActive && this.searchQuery.trim().length > 0') &&
   panel.includes('!this.matchingPageIds.has(page.pageId)'),
   'visibleItems intersects with matching page ids only when search is active and non-blank (qd2.c parity)');
-check(panel.includes("Button('🔍')") &&
+check(panel.includes("glyph: 'search'") &&
   panel.includes('cd_pages_panel_search') &&
   panel.includes('this.searchActive = !this.searchActive;'),
   'header renders the search toggle with its a11y label');

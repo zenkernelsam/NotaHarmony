@@ -31,9 +31,9 @@ const checks = [
   ['compact page manager threshold covers phone and narrow tablet widths',
     manager.includes('this.compact = (newArea.width as number) < 720;')],
   ['compact page manager keeps every frequent action in a fixed hit target',
-    manager.includes("Button(compact ? '⚙' : $r('app.string.page_settings'))") &&
+    manager.includes("glyph: 'settings'") &&
       manager.includes('.width(compact ? 44 : 112)') &&
-      manager.includes("Button('+')") && manager.includes("glyph: 'more'") &&
+      manager.includes("glyph: 'add_page'") && manager.includes("glyph: 'more'") &&
       manager.includes('.width(44)') && manager.includes('buildPageMenu()')],
   ['popup call site explicitly enables the bounded layout',
     manager.includes('popupMode: true')],
