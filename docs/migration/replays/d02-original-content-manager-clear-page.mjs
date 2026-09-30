@@ -44,7 +44,7 @@ ok(!origStrings.includes('content_manager_clear_page_confirm') &&
 ok(/onClearPage: \(\) => void/.test(pageBar), 'onClearPage prop missing');
 ok(/app\.string\.bookmark_page[\s\S]*?app\.string\.clear_page[\s\S]*?app\.string\.delete_page/
   .test(pageBar), 'menu order bookmark->clear->delete missing');
-ok(/app\.string\.clear_page'\), action: \(\) => \{\s*if \(this\.busy \|\| this\.photoImportLeaseActive\)/
+ok(/app\.string\.clear_page'\),\s*icon: \$r\('app\.media\.menuicon_clear_page'\),\s*action: \(\) => \{\s*if \(this\.busy \|\| this\.photoImportLeaseActive\)/
   .test(pageBar), 'clear-page menu guard missing');
 // NotePage: signal state, canvas wiring, and the page-menu callback.
 ok(notePage.includes('@State clearPageSignal: number = 0;') &&

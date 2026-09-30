@@ -324,44 +324,44 @@ export struct PageManagerBar {
           this.onMoveNext();
         }
       } },
-      { value: $r('app.string.bookmark_page'), action: () => {
+      { value: $r('app.string.bookmark_page'), icon: $r('app.media.menuicon_bookmark'), action: () => {
         if (this.busy || this.photoImportLeaseActive) {
           return;
         }
         this.onToggleBookmark();
       } },
-      { value: $r('app.string.cut_page'), action: () => {
+      { value: $r('app.string.cut_page'), icon: $r('app.media.selmenu_cut'), action: () => {
         if (this.busy || this.photoImportLeaseActive) {
           return;
         }
         this.onCutPage();
       } },
-      { value: $r('app.string.copy_page'), action: () => {
+      { value: $r('app.string.copy_page'), icon: $r('app.media.selmenu_copy'), action: () => {
         if (this.busy || this.photoImportLeaseActive) {
           return;
         }
         this.onCopyPage();
       } },
       // 原版 n9j 菜单顺序：Duplicate 排在 Rotate Page 之前。
-      { value: $r('app.string.duplicate_page'), action: () => {
+      { value: $r('app.string.duplicate_page'), icon: $r('app.media.selmenu_duplicate'), action: () => {
         if (this.busy || this.photoImportLeaseActive) {
           return;
         }
         this.onDuplicatePage();
       } },
-      { value: $r('app.string.rotate_page'), action: () => {
+      { value: $r('app.string.rotate_page'), icon: $r('app.media.menuicon_rotate_page'), action: () => {
         if (this.busy || this.photoImportLeaseActive) {
           return;
         }
         this.onRotatePage();
       } },
-      { value: $r('app.string.clear_page'), action: () => {
+      { value: $r('app.string.clear_page'), icon: $r('app.media.menuicon_clear_page'), action: () => {
         if (this.busy || this.photoImportLeaseActive) {
           return;
         }
         this.onClearPage();
       } },
-      { value: $r('app.string.delete_page'), action: () => {
+      { value: $r('app.string.delete_page'), icon: $r('app.media.selmenu_delete'), action: () => {
         if (this.busy || this.photoImportLeaseActive) {
           return;
         }
@@ -371,7 +371,7 @@ export struct PageManagerBar {
     // 原版 n9j：Paste 菜单项仅在页剪贴板非空时出现（mg2.b != null），
     // 位置在 Copy 与 Duplicate 之间。
     if (this.canPastePage) {
-      items.splice(5, 0, { value: $r('app.string.paste_page'), action: () => {
+      items.splice(5, 0, { value: $r('app.string.paste_page'), icon: $r('app.media.selmenu_paste'), action: () => {
         if (this.busy || this.photoImportLeaseActive) {
           return;
         }
