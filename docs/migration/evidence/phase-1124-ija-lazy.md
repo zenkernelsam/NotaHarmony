@@ -1,6 +1,6 @@
 # Phase 1124 证据 — ija 惰性物化因果 map 完整语义
 
-来源：`C:\Users\Cisco He\Desktop/Notabilitydecompiled_1.0.3`
+来源：`C:\Users\Cisco He\Desktop/Notability/decompiled_1.0.3`
 
 ## `ija implements Map,ik6` = 惰性物化 map
 
