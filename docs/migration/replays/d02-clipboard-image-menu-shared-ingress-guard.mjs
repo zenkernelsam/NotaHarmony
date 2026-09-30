@@ -10,7 +10,7 @@ assert.ok(start >= 0 && end > start);
 const menu = canvas.slice(start, end);
 
 assert.match(menu,
-  /MenuItem\(\{ content: \$r\('app\.string\.paste'\) \}\)\s+\.onClick\(\(\) => \{\s+if \(this\.photoImportBusy\) \{\s+return;\s+\}/);
+  /MenuItem\(\{ content: \$r\('app\.string\.paste'\), startIcon: [^}]*\}\)\s+\.onClick\(\(\) => \{\s+if \(this\.photoImportBusy\) \{\s+return;\s+\}/);
 assert.match(menu, /this\.startOriginalClipboardImagePaste\(\);/);
 assert.match(canvas, /\.bindContextMenu\(this\.ClipboardPasteContextMenu, ResponseType\.LongPress\)/);
 

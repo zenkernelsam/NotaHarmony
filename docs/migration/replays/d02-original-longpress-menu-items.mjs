@@ -42,7 +42,7 @@ check(m.includes('this.canPasteClipboardNow() || this.canUseOriginalClipboardIma
   'PASTE gated on element-clipboard OR system-image (hasPrimaryClip parity)');
 check(m.indexOf("app.string.paste") < m.indexOf('app.string.select_all'),
   'PASTE precedes SELECT_ALL (m18.m0(PASTE, SELECT_ALL) order)');
-check(m.includes("MenuItem({ content: $r('app.string.select_all') })"),
+check(/MenuItem\(\{ content: \$r\('app\.string\.select_all'\), startIcon:/.test(m),
   'SELECT_ALL produced unconditionally in this item set — the ordinal6 ' +
   'filter gates REMOVE_HIGHLIGHT (text menu only), not SELECT_ALL');
 

@@ -9971,7 +9971,7 @@ export struct NoteCanvasView {
     Menu() {
       if (!this.recentInteractionGateActive()) {
         if (this.canPasteClipboardNow() || this.canUseOriginalClipboardImage()) {
-          MenuItem({ content: $r('app.string.paste') })
+          MenuItem({ content: $r('app.string.paste'), startIcon: $r('app.media.selmenu_paste') })
             .onClick(() => {
               if (this.photoImportBusy) {
                 return;
@@ -9986,7 +9986,7 @@ export struct NoteCanvasView {
               }
             });
         }
-        MenuItem({ content: $r('app.string.select_all') })
+        MenuItem({ content: $r('app.string.select_all'), startIcon: $r('app.media.menuicon_select_all') })
           .onClick(() => {
             hilog.info(0x0001, 'NoteCanvasView', 'canvas context Select All clicked');
             this.selectAllPageElements();
