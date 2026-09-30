@@ -58,7 +58,7 @@ for (const [name, marker] of [
     `${name} busy callback`);
 }
 
-const navigationStart = bar.indexOf('NavigationButton(label: string, previous: boolean)');
+const navigationStart = bar.indexOf('NavigationButton(previous: boolean)');
 const navigationEnd = bar.indexOf('\n  }\n\n  @Builder', navigationStart);
 assert.ok(navigationStart >= 0 && navigationEnd > navigationStart);
 assert.match(bar.slice(navigationStart, navigationEnd),

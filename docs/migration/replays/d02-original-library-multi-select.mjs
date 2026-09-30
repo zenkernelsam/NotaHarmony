@@ -114,11 +114,12 @@ check(lib.includes('if (this.isMultiSelecting) {\n        this.toggleMultiSelect
 
 // ---------- 勾选圈 + ⋯ 溢出按钮 ----------
 check(lib.includes('SelectCircle(note: NoteMeta)') &&
-  lib.includes("Text('✓')") &&
+  lib.includes("glyph: 'checkmark_circle'") &&
+  lib.includes("glyph: 'circle_empty_med_outline'") &&
   lib.includes("$r('app.string.select_note')"),
   'SelectCircle mirrors o94 checked/unchecked affordance');
 check(lib.includes('NoteMenuButton(note: NoteMeta)') &&
-  lib.includes("Text('⋯')") &&
+  lib.includes("glyph: 'more'") &&
   lib.includes('.bindMenu(() => {'),
   '⋯ overflow button hosts the d5j single-note menu');
 

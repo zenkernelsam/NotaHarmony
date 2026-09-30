@@ -1436,18 +1436,12 @@ struct SharePageCell {
             .aspectRatio(0.75)
             .backgroundColor('#F5F5F5')
         }
-        // 勾选指示与 PageOverviewCell 选择态同款：选中=实心 ✓，
-        // 未选中=空心圈。
-        Text(this.checked ? '✓' : '')
-          .fontSize(12)
-          .fontColor(Color.White)
-          .textAlign(TextAlign.Center)
-          .width(20)
-          .height(20)
-          .borderRadius(10)
-          .backgroundColor(this.checked ?
-            this.resolveTokens().accent : '#66000000')
-          .border({ width: 1, color: Color.White, radius: 10 })
+        // 原版 o94：选中=checkmark_circle，未选=circle_empty_med_outline。
+        ToolGlyph({
+          glyph: this.checked ? 'checkmark_circle' : 'circle_empty_med_outline',
+          contentColor: this.checked ? this.resolveTokens().accent : Color.White,
+          iconSize: 20,
+        })
           .position({ x: 4, y: 4 })
       }
       .width('100%')

@@ -84,7 +84,7 @@ export struct PageManagerBar {
 
   build() {
     Row() {
-      this.NavigationButton('<', true)
+      this.NavigationButton(true)
       // Original ke1 case 20: tapping the page indicator opens the
       // jump-to-page dialog (fail-closed under busy/lease like siblings).
       Text((this.currentPageIndex + 1) + ' / ' + this.pageCount)
@@ -101,12 +101,15 @@ export struct PageManagerBar {
           }
           this.jumpDialog.open();
         })
-      this.NavigationButton('>', false)
+      this.NavigationButton(false)
       if (this.currentPageBookmarked) {
         // md.java bookmark_tall_fill overlay parity: the page indicator marks
         // the current page when its wz9.bookmarkedRegister is BOOKMARKED.
-        Text('🔖')
-          .fontSize(14)
+        ToolGlyph({
+          glyph: 'bookmark_tall_fill',
+          contentColor: this.resolveTokens().accent,
+          iconSize: 16,
+        })
           .width(20)
           .accessibilityText($r('app.string.bookmark_page'))
       }
@@ -232,8 +235,15 @@ export struct PageManagerBar {
   }
 
   @Builder
-  NavigationButton(label: string, previous: boolean) {
-    Button(label)
+  NavigationButton(previous: boolean) {
+    // 原版翻页 = ui_designsystem__chevron_left / chevron_right（ue4 提供）。
+    Button() {
+      ToolGlyph({
+        glyph: previous ? 'chevron_left' : 'chevron_right',
+        contentColor: this.resolveTokens().textPrimary,
+        iconSize: 20,
+      })
+    }
       .width(44)
       .height(40)
       .margin({ left: 4, right: 4 })

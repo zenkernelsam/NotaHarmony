@@ -1863,10 +1863,12 @@ struct LibraryPage {
             .fontWeight(this.currentFolderId === item.folder.id ? FontWeight.Medium :
               FontWeight.Normal)
           if (this.currentFolderId === item.folder.id) {
-            // 原版 b41/o94：选中指示图标的语义文本为 ui_folder__selected。
-            Text('✓')
-              .fontSize(16)
-              .fontColor(this.resolveTokens().accent)
+            // 原版 b41/o94：选中指示图标 = ui_designsystem__general_check_med_reg。
+            ToolGlyph({
+              glyph: 'general_check_med_reg',
+              contentColor: this.resolveTokens().accent,
+              iconSize: 16,
+            })
               .margin({ left: 8 })
               .accessibilityText($r('app.string.folder_selected'))
           }
@@ -1937,9 +1939,12 @@ struct LibraryPage {
           .fontWeight(this.currentFolderId === null && this.currentSection === section ?
             FontWeight.Medium : FontWeight.Normal)
         if (this.currentFolderId === null && this.currentSection === section) {
-          Text('✓')
-            .fontSize(16)
-            .fontColor(this.resolveTokens().accent)
+          // 原版选中指示 = ui_designsystem__general_check_med_reg（accent）。
+          ToolGlyph({
+            glyph: 'general_check_med_reg',
+            contentColor: this.resolveTokens().accent,
+            iconSize: 16,
+          })
         }
       }
       .width('100%')
@@ -2771,9 +2776,12 @@ struct LibraryPage {
         .position({ x: 4, y: 4 })
         // pf9.java: w09.favorited renders the favorite_fill badge overlay.
         if (note.favorite) {
-          Text('♥')
-            .fontSize(16)
-            .fontColor(this.resolveTokens().accent)
+          // 原版 favorite_fill 心形徽标（accent 着色）。
+          ToolGlyph({
+            glyph: 'favorite_fill',
+            contentColor: this.resolveTokens().accent,
+            iconSize: 16,
+          })
             .margin({ top: 6, right: 6 })
             .accessibilityText($r('app.string.favorite_notes'))
         }
@@ -2807,8 +2815,12 @@ struct LibraryPage {
             .padding({ left: 6, right: 6, top: 1, bottom: 1 })
         }
         if (note.hasRecordings) {
-          Text('🎙')
-            .fontSize(10)
+          // 原版 w09.l 录音徽标 = ui_designsystem__record_mic_outline。
+          ToolGlyph({
+            glyph: 'record_mic_outline',
+            contentColor: this.resolveTokens().textSecondary,
+            iconSize: 12,
+          })
             .margin({ left: 4 })
             .accessibilityText($r('app.string.recordings'))
         }
@@ -2894,9 +2906,12 @@ struct LibraryPage {
             .borderRadius(6)
         }
         if (note.favorite) {
-          Text('♥')
-            .fontSize(12)
-            .fontColor(this.resolveTokens().accent)
+          // 原版 favorite_fill 心形徽标（accent 着色）。
+          ToolGlyph({
+            glyph: 'favorite_fill',
+            contentColor: this.resolveTokens().accent,
+            iconSize: 12,
+          })
             .margin({ top: 2, right: 2 })
             .accessibilityText($r('app.string.favorite_notes'))
         }
@@ -2925,8 +2940,12 @@ struct LibraryPage {
               .padding({ left: 6, right: 6, top: 1, bottom: 1 })
           }
           if (note.hasRecordings) {
-            Text('🎙')
-              .fontSize(10)
+            // 原版 w09.l 录音徽标 = ui_designsystem__record_mic_outline。
+            ToolGlyph({
+              glyph: 'record_mic_outline',
+              contentColor: this.resolveTokens().textSecondary,
+              iconSize: 12,
+            })
               .margin({ left: 4 })
               .accessibilityText($r('app.string.recordings'))
           }
@@ -2988,22 +3007,20 @@ struct LibraryPage {
   @Builder
   SelectCircle(note: NoteMeta) {
     if (this.selectedNoteIds.indexOf(note.id) >= 0) {
-      Text('✓')
-        .fontSize(12)
-        .fontColor('#FFFFFF')
-        .width(20)
-        .height(20)
-        .textAlign(TextAlign.Center)
-        .backgroundColor(this.resolveTokens().accent)
-        .borderRadius(10)
+      // 原版 o94 已选 = ui_designsystem__checkmark_circle（accent 着色）。
+      ToolGlyph({
+        glyph: 'checkmark_circle',
+        contentColor: this.resolveTokens().accent,
+        iconSize: 20,
+      })
         .accessibilityText($r('app.string.select_note'))
     } else {
-      Text('')
-        .width(20)
-        .height(20)
-        .borderRadius(10)
-        .border({ width: 2, color: this.resolveTokens().textSecondary })
-        .backgroundColor(this.resolveTokens().surface)
+      // 原版未选 = ui_designsystem__circle_empty_med_outline（空心描边圈）。
+      ToolGlyph({
+        glyph: 'circle_empty_med_outline',
+        contentColor: this.resolveTokens().textSecondary,
+        iconSize: 20,
+      })
         .accessibilityText($r('app.string.select_note'))
     }
   }
@@ -3012,12 +3029,14 @@ struct LibraryPage {
   // bindContextMenu——长按已让位 pk9.o 多选进入）。
   @Builder
   NoteMenuButton(note: NoteMeta) {
-    Text('⋯')
-      .fontSize(16)
-      .fontColor(this.resolveTokens().textPrimary)
+    // 原版单元格溢出 = ui_designsystem__more（竖向三点）。
+    ToolGlyph({
+      glyph: 'more',
+      contentColor: this.resolveTokens().textPrimary,
+      iconSize: 16,
+    })
       .width(28)
       .height(24)
-      .textAlign(TextAlign.Center)
       .accessibilityText($r('app.string.note_actions'))
       .bindMenu(() => {
         this.NoteContextMenu(note)

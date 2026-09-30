@@ -39,7 +39,7 @@ function argbToCss(color: number): string {
 export struct ToolGlyph {
   @Prop glyph: string = 'pen';            // TOOL_GLYPHS key
   @Prop brushColor: number = -16777216;   // tool.brush.color (ARGB)
-  @Prop contentColor: string = '#171a20'; // outline/foreground (theme-aware)
+  @Prop contentColor: ResourceColor = '#171a20'; // outline/foreground (theme-aware)
   @Prop dark: boolean = false;            // theme is dark -> tn8 alpha split
   iconSize: number = 24; // rendered vp size (24 = original 24dp)
 

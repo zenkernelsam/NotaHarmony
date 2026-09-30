@@ -42,7 +42,7 @@ check(/placeholder: ResourceStr = \$r\('app\.string\.name'\)/.test(page),
   'NameDialog placeholder 默认 name（笔记重命名保持）');
 check(page.includes('TextInput({ text: this.inputText, placeholder: this.placeholder })'),
   'TextInput 走 placeholder prop');
-check(/Text\('✓'\)[\s\S]{0,200}accessibilityText\(\$r\('app\.string\.folder_selected'\)\)/
+check(/glyph: 'general_check_med_reg'[\s\S]{0,200}accessibilityText\(\$r\('app\.string\.folder_selected'\)\)/
   .test(page), '选中 ✓ 指示带 folder_selected 语义');
 check(/\.accessibilityText\(item\.folder\.name\)/.test(page),
   '文件夹行语义仍朗读文件夹名');

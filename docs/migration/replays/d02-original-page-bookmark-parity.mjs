@@ -180,7 +180,7 @@ ok(pageBar.includes('@Prop currentPageBookmarked: boolean = false;') &&
    pageBar.includes('onToggleBookmark: () => void'),
   'PageManagerBar bookmark prop/callback missing');
 // md.java fill icon parity — the indicator marks the current page when bookmarked.
-ok(/currentPageBookmarked[\s\S]*?Text\('🔖'\)/.test(pageBar),
+ok(/currentPageBookmarked[\s\S]*?glyph: 'bookmark_tall_fill'/.test(pageBar),
   'bookmark indicator missing');
 ok(pageBar.includes("value: $r('app.string.bookmark_page')"),
   'compact bookmark menu entry missing');

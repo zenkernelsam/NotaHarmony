@@ -154,7 +154,7 @@ ok(page.includes("note.favorite ? $r('app.string.unfavorite_note') :") &&
    page.includes('this.toggleNoteFavorite(note)'),
   'favorite context-menu toggle missing');
 // pf9 parity: the card renders a badge overlay when favorited.
-ok(/Stack\(\{ alignContent: Alignment\.TopEnd \}\)[\s\S]*?if \(note\.favorite\)[\s\S]*?Text\('♥'\)/.test(page),
+ok(/Stack\(\{ alignContent: Alignment\.TopEnd \}\)[\s\S]*?if \(note\.favorite\)[\s\S]*?glyph: 'favorite_fill'/.test(page),
   'note-card favorite badge missing');
 // gb6.b0 parity: RECENT cards show lastOpened.
 ok(page.includes('this.currentSection === LibrarySection.RECENT ? note.lastOpened : note.updatedAt'),

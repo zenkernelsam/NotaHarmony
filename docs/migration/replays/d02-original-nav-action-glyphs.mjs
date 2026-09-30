@@ -65,8 +65,8 @@ eq(/glyph: 'more'/.test(pageSettings), 'page template spacing overflow -> more')
   });
 
 // --- library overflow/drawer ---
-eq((library.match(/glyph: 'more'/g) || []).length === 3,
-  'library folder/library action overflow -> more (x3)');
+eq((library.match(/glyph: 'more'/g) || []).length === 4,
+  'library folder/library/cell-menu action overflow -> more (x4)');
 eq(/glyph: 'hamburger'/.test(library), 'compact folder drawer -> hamburger');
 eq(!library.includes("Button('...')"), 'library no leftover Button(\'...\')');
 eq(!library.includes("Button('☰')"), 'library no leftover Button(\'☰\')');

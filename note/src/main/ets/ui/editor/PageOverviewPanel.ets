@@ -618,23 +618,21 @@ struct PageOverviewCell {
         }
         if (this.page?.bookmarked === true) {
           // md.java bookmark_tall_fill 角标对齐（PageManagerBar 同款）。
-          Text('🔖')
-            .fontSize(12)
+          ToolGlyph({
+            glyph: 'bookmark_tall_fill',
+            contentColor: this.resolveTokens().accent,
+            iconSize: 14,
+          })
             .position({ x: '82%', y: 4 })
             .accessibilityText($r('app.string.bookmark_page'))
         }
         if (this.selecting) {
-          // 选择态勾选指示：选中=实心 ✓，未选中=空心圈。
-          Text(this.checked ? '✓' : '')
-            .fontSize(12)
-            .fontColor(Color.White)
-            .textAlign(TextAlign.Center)
-            .width(20)
-            .height(20)
-            .borderRadius(10)
-            .backgroundColor(this.checked ?
-              this.resolveTokens().accent : '#66000000')
-            .border({ width: 1, color: Color.White, radius: 10 })
+          // 原版 o94：选中=checkmark_circle，未选=circle_empty_med_outline。
+          ToolGlyph({
+            glyph: this.checked ? 'checkmark_circle' : 'circle_empty_med_outline',
+            contentColor: this.checked ? this.resolveTokens().accent : Color.White,
+            iconSize: 20,
+          })
             .position({ x: 4, y: 4 })
             .accessibilityText($r('app.string.pages_menu_select'))
         }
