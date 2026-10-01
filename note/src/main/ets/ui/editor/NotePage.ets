@@ -46,7 +46,8 @@ import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import {
   matchKeyChord, ORIGIN_CHORD_BACK_TO_LIBRARY, ORIGIN_CHORD_DISMISS,
   ORIGIN_CHORD_NEW_NOTE, ORIGIN_CHORD_NEW_WINDOW, ORIGIN_CHORD_OPEN_HELP,
-  ORIGIN_CHORD_OPEN_SETTINGS,
+  ORIGIN_CHORD_OPEN_SETTINGS, ORIGIN_KBD_HELP_GROUPS,
+  OriginalKeyboardHelpEntry, OriginalKeyboardHelpGroup,
 } from '../../data/OriginalKeyboardChords';
 import { PersistedOriginalNoteTitle } from '../../data/OriginalNoteTitlePersistence';
 import {
@@ -191,6 +192,9 @@ struct NotePage {
   // 原版 ebn.c/cbn.f：笔记封面选择器（m7b.PageManager 入口）；
   // noteCoverPresetKey = note_meta.cover_preset（iw2.F 键，null=无封面）。
   @State showNoteCoverSheet: boolean = false;
+  // 原版 yla(open_help) → qw6 路由：txm.a 分组表经系统
+  // KeyboardShortcutHelper 展示；Harmony 无系统帮助面 → bindSheet 复刻。
+  @State showShortcutsHelp: boolean = false;
   @State noteCoverPresetKey: string | null = null;
   @State noteCreatedAt: number = 0;
   @State pageContentVersion: number = 0;
@@ -749,7 +753,9 @@ struct NotePage {
   //                   fail-closed：消费、无操作
   //   Ctrl+Shift+N  → vla.b(new_window)：多窗口无通路——消费、无操作
   //                   （原版无启动器时亦消费："New Window chord dropped"）
-  //   Ctrl+/        → yla(open_help)→qw6 路由：无帮助面——消费、无操作
+  //   Ctrl+/        → yla(open_help)→qw6 路由：原版经系统
+  //                   KeyboardShortcutHelper 显示 txm 分组表；Harmony
+  //                   无系统帮助面——bindSheet 复刻（ADR-1358）
   //   ESC           → dismiss_deselect：关闭已开 sheet/cover，否则透传
   private onNoteAppKeyEvent(event: KeyEvent): boolean {
     const isUp: boolean = event.type === KeyType.Up;
@@ -767,13 +773,22 @@ struct NotePage {
       }
       return true;
     }
+    if (matchKeyChord(event, ORIGIN_CHORD_OPEN_HELP)) {
+      if (isUp) {
+        this.showShortcutsHelp = true;
+      }
+      return true;
+    }
     if (matchKeyChord(event, ORIGIN_CHORD_NEW_NOTE) ||
-      matchKeyChord(event, ORIGIN_CHORD_NEW_WINDOW) ||
-      matchKeyChord(event, ORIGIN_CHORD_OPEN_HELP)) {
+      matchKeyChord(event, ORIGIN_CHORD_NEW_WINDOW)) {
       return true;
     }
     if (matchKeyChord(event, ORIGIN_CHORD_DISMISS)) {
       if (!isUp) {
+        return true;
+      }
+      if (this.showShortcutsHelp) {
+        this.showShortcutsHelp = false;
         return true;
       }
       if (this.docScanOpen) {
@@ -2370,6 +2385,14 @@ struct NotePage {
       height: SheetSize.LARGE,
       showClose: false,
     })
+    // 原版 qw6 帮助路由（Ctrl+/）：txm.a KeyboardShortcutGroup 树 —
+    // Navigation（vla.a 保序 + vla.c + dismiss）与 Text Editing（syh.a
+    // ra8→qa8 保序）两组逐条渲染；系统 KeyboardShortcutHelper 无
+    // Harmony 对等 → 复刻为 bindSheet。
+    .bindSheet(this.showShortcutsHelp, this.buildShortcutsHelpSheet(), {
+      height: SheetSize.LARGE,
+      showClose: false,
+    })
     // u49/mw3 Scan 卡：VisionKit DocumentScanner 需要无遮挡全屏表面
     // （与 LibraryPage P680 同一 cover 约束）；下滑关闭等同用户取消。
     .bindContentCover(this.docScanOpen, this.DocScanCover(), {
@@ -2618,6 +2641,39 @@ struct NotePage {
         this.showNoteCoverSheet = false;
       },
     })
+  }
+
+  // 原版 txm.a → KeyboardShortcutHelper：分组标题 + 每 qa8 一行
+  // （label 左、和弦右）。lag{label,group,chords} 展平渲染。
+  @Builder
+  buildShortcutsHelpSheet() {
+    Column() {
+      ForEach(ORIGIN_KBD_HELP_GROUPS, (group: OriginalKeyboardHelpGroup) => {
+        Text(group.groupLabel)
+          .fontSize(13)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.resolveTokens().textSecondary)
+          .margin({ top: 18, bottom: 6 })
+        ForEach(group.entries, (entry: OriginalKeyboardHelpEntry) => {
+          ForEach(entry.chords, (chord: string) => {
+            Row() {
+              Text(entry.label)
+                .fontSize(14)
+                .fontColor(this.resolveTokens().textPrimary)
+                .layoutWeight(1)
+              Text(chord)
+                .fontSize(13)
+                .fontColor(this.resolveTokens().textSecondary)
+            }
+            .width('100%')
+            .padding({ top: 7, bottom: 7 })
+          }, (chord: string): string => `${entry.label.id.toString()}_${chord}`)
+        }, (entry: OriginalKeyboardHelpEntry): string => entry.label.id.toString())
+      }, (group: OriginalKeyboardHelpGroup): string => group.groupLabel.id.toString())
+    }
+    .alignItems(HorizontalAlign.Start)
+    .padding({ left: 24, right: 24, top: 8, bottom: 24 })
+    .width('100%')
   }
 
   // 原版 d7b.b：Done → covers/<key>.pdf 导入 + 封面元素媒体替换；

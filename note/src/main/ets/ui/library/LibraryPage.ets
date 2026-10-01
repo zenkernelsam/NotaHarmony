@@ -69,7 +69,8 @@ import { ToolGlyph } from '../components/ToolGlyph';
 import {
   matchKeyChord, ORIGIN_CHORD_BACK_TO_LIBRARY, ORIGIN_CHORD_DISMISS,
   ORIGIN_CHORD_NEW_NOTE, ORIGIN_CHORD_NEW_WINDOW, ORIGIN_CHORD_OPEN_HELP,
-  ORIGIN_CHORD_OPEN_SETTINGS,
+  ORIGIN_CHORD_OPEN_SETTINGS, ORIGIN_KBD_HELP_GROUPS,
+  OriginalKeyboardHelpEntry, OriginalKeyboardHelpGroup,
 } from '../../data/OriginalKeyboardChords';
 import {
   buildComingUpDays, buildComingUpWindows, ComingUpDayGroup, ComingUpEvent,
@@ -178,6 +179,10 @@ struct LibraryPage {
   // 原版 x2n.c/l19 计划本配置态（d2d）：sheet 开关 + weekStart 键 +
   // 封面序号 + 创建中遮罩（fel 进度模态）。
   @State plannerSheetOpen: boolean = false;
+  // 原版 yla(open_help)→qw6 路由在活动级分发——库内 Ctrl+/ 同样打开
+  // txm.a 快捷键帮助表；Harmony 无系统 KeyboardShortcutHelper →
+  // bindSheet 复刻（ADR-1358，与 NotePage 同一份 ORIGIN_KBD_HELP_GROUPS）。
+  @State showShortcutsHelp: boolean = false;
   @State plannerWeekStartKey: string = 'monday';
   @State plannerCoverIndex: number = 0;
   @State plannerCreating: boolean = false;
@@ -2556,6 +2561,12 @@ struct LibraryPage {
       height: SheetSize.LARGE,
       showClose: false,
     })
+    // 原版 qw6 帮助路由（活动级 Ctrl+/）：txm.a 分组表 —— Navigation +
+    // Text Editing 两组逐条渲染（与 NotePage 同一数据表）。
+    .bindSheet(this.showShortcutsHelp, this.ShortcutsHelpSheet(), {
+      height: SheetSize.LARGE,
+      showClose: false,
+    })
     .bindContentCover(this.docScanOpen, this.DocScanCover(), {
       // VisionKit 约束：扫描界面不得被其他组件遮挡——全屏 cover 独占；
       // 向下滑动关闭等同用户取消。
@@ -3658,8 +3669,11 @@ struct LibraryPage {
     if (event.type !== KeyType.Up) {
       return false;
     }
-    if (matchKeyChord(event, ORIGIN_CHORD_NEW_WINDOW) ||
-      matchKeyChord(event, ORIGIN_CHORD_OPEN_HELP)) {
+    if (matchKeyChord(event, ORIGIN_CHORD_OPEN_HELP)) {
+      this.showShortcutsHelp = true;
+      return true;
+    }
+    if (matchKeyChord(event, ORIGIN_CHORD_NEW_WINDOW)) {
       return true;
     }
     if (matchKeyChord(event, ORIGIN_CHORD_NEW_NOTE)) {
@@ -3681,6 +3695,10 @@ struct LibraryPage {
       return true;
     }
     if (matchKeyChord(event, ORIGIN_CHORD_DISMISS)) {
+      if (this.showShortcutsHelp) {
+        this.showShortcutsHelp = false;
+        return true;
+      }
       if (this.isMultiSelecting) {
         this.exitMultiSelect();
         return true;
@@ -3815,6 +3833,39 @@ struct LibraryPage {
   // 页范围行整体隐藏（dih.a/h 的 e() 分派被 v6d.a 短路）；
   // PDF=dih.h 余下行（双开关 + 密码行）、NOTE=dih.d（录音开关）、
   // JPG/PNG=dih.a 余下行（背景开关）、LINK=dih.b（账号域，fail-closed）。
+  // 原版 txm.a → KeyboardShortcutHelper：分组标题 + 每 qa8 一行
+  // （label 左、和弦右）；与 NotePage 同源 ORIGIN_KBD_HELP_GROUPS。
+  @Builder
+  ShortcutsHelpSheet() {
+    Column() {
+      ForEach(ORIGIN_KBD_HELP_GROUPS, (group: OriginalKeyboardHelpGroup) => {
+        Text(group.groupLabel)
+          .fontSize(13)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.resolveTokens().textSecondary)
+          .margin({ top: 18, bottom: 6 })
+        ForEach(group.entries, (entry: OriginalKeyboardHelpEntry) => {
+          ForEach(entry.chords, (chord: string) => {
+            Row() {
+              Text(entry.label)
+                .fontSize(14)
+                .fontColor(this.resolveTokens().textPrimary)
+                .layoutWeight(1)
+              Text(chord)
+                .fontSize(13)
+                .fontColor(this.resolveTokens().textSecondary)
+            }
+            .width('100%')
+            .padding({ top: 7, bottom: 7 })
+          }, (chord: string): string => `${entry.label.id.toString()}_${chord}`)
+        }, (entry: OriginalKeyboardHelpEntry): string => entry.label.id.toString())
+      }, (group: OriginalKeyboardHelpGroup): string => group.groupLabel.id.toString())
+    }
+    .alignItems(HorizontalAlign.Start)
+    .padding({ left: 24, right: 24, top: 8, bottom: 24 })
+    .width('100%')
+  }
+
   // 原版 x2n.c + hel.b 计划本配置屏：返回钮 + 标题 + qmm 周起点分段行
   // + ne9.d 封面格（hel.d cell：webp 预览 + 名字 + 选中态）+ wuh.CREATE
   // "Create" CTA；创建期间 fel 模态进度（禁用返回、吞点击）。

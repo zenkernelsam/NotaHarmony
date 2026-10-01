@@ -164,10 +164,12 @@ check(/matchKeyChord\(event, ORIGIN_CHORD_OPEN_SETTINGS\)[\s\S]*?this\.navigateT
   '编辑器 Ctrl+, → settings');
 check(/matchKeyChord\(event, ORIGIN_CHORD_BACK_TO_LIBRARY\)[\s\S]*?this\.leaveEditor\(\)/.test(notePage),
   '编辑器 Ctrl+L → back_to_library = leaveEditor');
-check(/ORIGIN_CHORD_NEW_NOTE[\s\S]*?ORIGIN_CHORD_NEW_WINDOW[\s\S]*?ORIGIN_CHORD_OPEN_HELP/.test(notePage),
-  '编辑器内 new_note/new_window/open_help 消费登记');
-check(/ORIGIN_CHORD_DISMISS[\s\S]*?docScanOpen[\s\S]*?showPageOverview/.test(notePage),
-  'ESC → sheet/cover dismiss 链');
+check(/ORIGIN_CHORD_OPEN_HELP[\s\S]*?showShortcutsHelp = true/.test(notePage),
+  '编辑器 Ctrl+/ → qw6 帮助表（txm bindSheet 复刻，ADR-1358）');
+check(/ORIGIN_CHORD_NEW_NOTE[\s\S]*?ORIGIN_CHORD_NEW_WINDOW/.test(notePage),
+  '编辑器内 new_note/new_window 消费登记');
+check(/ORIGIN_CHORD_DISMISS[\s\S]*?showShortcutsHelp[\s\S]*?docScanOpen[\s\S]*?showPageOverview/.test(notePage),
+  'ESC → 帮助表 + sheet/cover dismiss 链');
 check(notePage.includes('pageOverviewSearchSignal') && notePage.includes('toolbarShareSignal'),
   'Ctrl+F / Ctrl+Shift+E 页面侧信号声明');
 check(notePage.includes('onKeyOpenSearch: ()') || notePage.includes('onKeyOpenSearch: (): void'),

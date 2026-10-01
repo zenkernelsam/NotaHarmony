@@ -141,6 +141,57 @@ export const ORIGIN_TOOL_SELECT_DIGIT_END: number = 2009;
 // k0 = ofk.e(308..311) 厂商键 + G() 设备门（S-Pen 遥控）→ D() 前工具切换
 // ——Harmony 无对应硬件通路 → fail-closed 登记（ADR-1343）。
 
+// === 帮助表（txm.a → KeyboardShortcutGroup 树，Ctrl+/ qw6 路由内容） ===
+// 原版经系统 KeyboardShortcutHelper 渲染；Harmony 无系统帮助面 →
+// NotePage bindSheet 复刻分组清单（ADR-1358）。分组与条目序 =
+// cma.a（vla.a 保序 + vla.c + dismiss）与 syh.a（et9.z0 保序）；
+// lag{labelRes, groupRes, chords} → 每条 qa8 渲染一行。
+export interface OriginalKeyboardHelpEntry {
+  label: Resource;
+  chords: string[];   // 每条 qa8 一个显示和弦（REDO 注册两条 → 两行）
+}
+
+export interface OriginalKeyboardHelpGroup {
+  groupLabel: Resource;
+  entries: OriginalKeyboardHelpEntry[];
+}
+
+export const ORIGIN_KBD_HELP_GROUPS: OriginalKeyboardHelpGroup[] = [
+  {
+    groupLabel: $r('app.string.app__kbd_shortcut_group_navigation'),
+    entries: [
+      { label: $r('app.string.app__kbd_shortcut_new_note'), chords: ['Ctrl+N'] },
+      { label: $r('app.string.app__kbd_shortcut_open_settings'), chords: ['Ctrl+,'] },
+      { label: $r('app.string.app__kbd_shortcut_back_to_library'), chords: ['Ctrl+L'] },
+      { label: $r('app.string.app__kbd_shortcut_open_help'), chords: ['Ctrl+/'] },
+      { label: $r('app.string.app__kbd_shortcut_new_window'), chords: ['Ctrl+Shift+N'] },
+      { label: $r('app.string.app__kbd_shortcut_dismiss_deselect'), chords: ['Esc'] },
+    ]
+  },
+  {
+    groupLabel: $r('app.string.ui_text__kbd_shortcut_group_text_editing'),
+    entries: [
+      { label: $r('app.string.ui_text__kbd_shortcut_copy'), chords: ['Ctrl+C'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_paste'), chords: ['Ctrl+V'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_cut'), chords: ['Ctrl+X'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_select_all'), chords: ['Ctrl+A'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_undo'), chords: ['Ctrl+Z'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_redo'), chords: ['Ctrl+Shift+Z', 'Ctrl+Y'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_bold'), chords: ['Ctrl+B'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_italic'), chords: ['Ctrl+I'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_underline'), chords: ['Ctrl+U'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_bullet_list'), chords: ['Ctrl+Shift+B'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_numbered_list'), chords: ['Ctrl+Shift+L'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_checkbox_list'), chords: ['Ctrl+Shift+C'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_increase_font_size'), chords: ['Ctrl+Alt+↑'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_decrease_font_size'), chords: ['Ctrl+Alt+↓'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_text_start'), chords: ['Alt+↑'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_text_end'), chords: ['Alt+↓'] },
+      { label: $r('app.string.ui_text__kbd_shortcut_deselect'), chords: ['Ctrl+\\'] },
+    ]
+  },
+];
+
 // === 判定函数（bd8.B / f2 谓词语义） ===
 
 // bd8.B 顶部分支：ctrl + 键码 ∈ 集合（shift/alt 不参与）。
