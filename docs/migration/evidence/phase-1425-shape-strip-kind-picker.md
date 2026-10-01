@@ -48,12 +48,14 @@
     与 `qri.a` 会话复位语义一致。
   - 展开与选择均受 `photoImportLeaseActive` 门控；错误仅记日志不抛。
 
-## 剩余边界（记入 ADR-1361）
+## 渲染边界（Phase 1426 纠错后确认：无缺口）
 
-- 原版 `ij1` 面板把凿尖参数（`aj1`：nibAngle=π/2、nibFlatness=0.75、
-  stabilization=true）同样作用于 SHAPE 描边（`lnc.java:194` 经 `ox5`）。
-  Harmony `ShapeCanvasRenderer` 目前用固定线宽/虚线描边，未接入凿尖几何——
-  渲染差异记入 ADR，作为后续候选 Phase。
+- 初版误判：`lnc.java:194` 的 `ox5(aj1.a, aj1.b)` 并非 SHAPE 描边路径——
+  `psi`（SHAPE 状态）无 `aj1` 字段，`cc3.H()` 给 `eti.T`（SHAPE）的
+  `zsi.h` 恒 null，`k9m.b()` 落 `px5.a` 支 = `jmc.c` 均匀宽圆头。
+  Harmony `strokeShape` 固定 `setLineWidth` + round cap/join +
+  DASH/DOTS = `px5.a` Standard 的精确对等。详见
+  `phase-1426-shape-outline-uniform-stroke.md`。
 - 展开态在选中一个种类后保持展开直至工具切换；原版 `nri` 会话语义下
   选中即收起的精确时机在反编译中不可完全判定，Harmony 选择保持展开
   （连续换形状更顺手），属可辩护的适配。

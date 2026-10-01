@@ -35,12 +35,16 @@
   在反编译中不可完全判定；保持展开利于连续换形状，为可辩护适配。
 - a11y 完整对齐：六个 `ui_tools__shape_*` 标签逐一映射。
 
-## 已知渲染差异（后续候选 Phase）
+## 渲染边界（经 Phase 1426 纠错后确认：无缺口）
 
-原版 SHAPE 描边经 `ox5(aj1.a, aj1.b)` 应用凿尖角（π/2 偏移）与
-扁平度（0.75），与 calligraphy 同一 `aj1` 参数组；Harmony
-`ShapeCanvasRenderer` 目前固定线宽描边。该差异与本次选择器交互正交，
-记入待办而非本期扩展。
+初版误判：曾以为原版 SHAPE 描边经 `ox5(aj1.a, aj1.b)` 应用凿尖几何。
+更正后的证据链：SHAPE 工具状态 `psi` **没有** `aj1` 字段
+（psi.f = r5g 种类）；`cc3.H()` 默认样式表给 `eti.T`（SHAPE）的
+`zsi.h` 恒为 null；`lnc.u()` 因此落到 `k9m.b()` 的 `px5` 支 =
+`jmc.c(f01, d)`——均匀宽圆头路径（`ox5`/`jmc.b` 凿尖支仅在
+`aj1` 非空的 CALLIGRAPHY 来源元素上命中）。Harmony `strokeShape`
+的固定 `setLineWidth` + round cap/join + DASH/DOTS 线型即
+`px5.a` Standard 语义的精确对等——**无渲染缺口**。
 
 ## 验证
 
