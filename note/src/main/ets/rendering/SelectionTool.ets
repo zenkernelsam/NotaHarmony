@@ -40,6 +40,10 @@ export interface SelectionState {
   // 已被点出选区的 id 集；确认保留缩减选区，取消恢复进入前快照。
   deselectMode: boolean;
   deselectedIds: string[];
+  // 原版 isf.a（o=a∪m）：mud case7 点除只改 g/i/m/n——a/b/c 保留，
+  // deselectMode 期间选区轮廓钉在入模时的界（zf3 界内/界外判定同用 a）。
+  // Harmony 等效：入模时快照成员 union 界，点除不随成员缩减。画布坐标。
+  deselectBounds: Rect2D | null;
   // 原版 uw2 case1 new ftc(cmbVar,cmbVar,cmbVar,…)：套索/矩形完成时把
   // 绘制区域 bounds 存入 ftc.a——inside 判定测的是绘制矩形而非成员
   // union（绘制区覆盖成员空隙时，空隙内的按下也判 inside）。画布坐标；
@@ -71,6 +75,7 @@ export class SelectionTool {
       selectedGroupIds: [],
       deselectMode: false,
       deselectedIds: [],
+      deselectBounds: null,
       drawnRect: null,
       supportsDeselectMode: false,
       transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
@@ -94,6 +99,7 @@ export class SelectionTool {
     this.state.selectedGroupIds = [];
     this.state.deselectMode = false;
     this.state.deselectedIds = [];
+    this.state.deselectBounds = null;
     this.preDeselectSelection = null;
     this.state.drawnRect = null;
     this.state.supportsDeselectMode = false;
@@ -421,6 +427,7 @@ export class SelectionTool {
     this.state.selectedGroupIds = groupIds.slice();
     this.state.deselectMode = false;
     this.state.deselectedIds = [];
+    this.state.deselectBounds = null;
     this.preDeselectSelection = null;
     this.state.lassoPoints = [];
     this.state.rect = null;
@@ -447,6 +454,7 @@ export class SelectionTool {
     this.state.selectedGroupIds = [];
     this.state.deselectMode = false;
     this.state.deselectedIds = [];
+    this.state.deselectBounds = null;
     this.preDeselectSelection = null;
     this.state.drawnRect = null;
     this.state.supportsDeselectMode = false;
@@ -456,7 +464,9 @@ export class SelectionTool {
   // === 原版 deselectMode（dsc.DESELECT → dhb case20；stc/ej9 case18；qtc/z39 case17）===
 
   // 进入点按移除模式：保存 fvbVar.n 快照（取消时恢复）。
-  enterDeselectMode(): void {
+  // bounds=入模时选区界——原版 isf.a 在 mud case7 点除中保留（o=a∪m
+  // 不随成员缩减；zf3 界内/界外判定亦用同一 a），Harmony 以入模界钉住。
+  enterDeselectMode(bounds: Rect2D | null = null): void {
     // dsc.DESELECT → ftc.h：isf 专属能力——lsf/jsf 选区装配不出菜单行，
     // 此处同判兜底（与原版 dispatch 不可达语义一致）。
     if (this.state.deselectMode || !this.state.supportsDeselectMode) {
@@ -472,11 +482,17 @@ export class SelectionTool {
     };
     this.state.deselectMode = true;
     this.state.deselectedIds = [];
+    this.state.deselectBounds = bounds;
   }
 
-  // stc/ej9 case18：把命中的实体（或整组叶子）从选中集移入 deselectedIds；
-  // 被选中的组 id 一并剔除（ftcVar.m 过滤）。选中集清空 → 退出选区。
+  // stc/ej9 case18 → mud case7：把命中的实体（或整组叶子 tof.b + 组 token）
+  // 从选中集移入 deselectedIds（g′=g−set6，i′=i∪set6，m′=n′=m−组）。
+  // a/b/c/j 保留——deselectBounds 不随成员缩减；g 全空 → null → deselect()。
+  // zf3 仅在 h=true 时产 ysf——非 deselectMode 下调用为死路径，同判兜底。
   deselectElements(entityIds: string[], groupIds: string[] = []): void {
+    if (!this.state.deselectMode) {
+      return;
+    }
     const remove: Set<string> = new Set<string>(entityIds);
     const keep = (id: string): boolean => !remove.has(id);
     this.state.selectedStrokeIds = this.state.selectedStrokeIds.filter(keep);
@@ -501,10 +517,12 @@ export class SelectionTool {
     }
   }
 
-  // onConfirmDeselectMode：保留缩减后的选区，丢弃快照。
+  // onConfirmDeselectMode（m5b case13：ome.m=null + dqd(17) h=false,i=∅）：
+  // 保留缩减后的选区，丢弃快照与钉住界。
   confirmDeselectMode(): void {
     this.state.deselectMode = false;
     this.state.deselectedIds = [];
+    this.state.deselectBounds = null;
     this.preDeselectSelection = null;
   }
 
@@ -524,6 +542,7 @@ export class SelectionTool {
     }
     this.state.deselectMode = false;
     this.state.deselectedIds = [];
+    this.state.deselectBounds = null;
     this.preDeselectSelection = null;
   }
 

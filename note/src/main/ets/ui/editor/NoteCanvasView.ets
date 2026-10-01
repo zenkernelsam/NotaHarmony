@@ -7717,6 +7717,15 @@ export struct NoteCanvasView {
         }
       }
     }
+    // 原版 isf.a/o：deselectMode 期间轮廓钉在入模界（mud case7 不动
+    // a/b/c——点除成员缩减但选区框不收缩；zf3 界内空点=atf None、
+    // 界外=wsf CancelDeselectMode 亦按钉住界判定）。
+    if (state.deselectMode && state.deselectBounds !== null) {
+      rect = {
+        left: state.deselectBounds.left, top: state.deselectBounds.top,
+        right: state.deselectBounds.right, bottom: state.deselectBounds.bottom,
+      };
+    }
     if (rect !== null) {
       // T-034：画布坐标 → 屏幕坐标（覆盖层 position 用屏幕坐标）
       const tl: Point2D = this.viewport.canvasToScreen(rect.left, rect.top);
@@ -8015,8 +8024,9 @@ export struct NoteCanvasView {
       this.viewModel.showWidthSlider = true;
     } else if (action === SelectionMenuAction.DESELECT) {
       // 原版 dsc.DESELECT → dhb case20：进入 deselectMode（ftc.h=true，
-      // fvbVar.n 保存进入前快照），不是退出选区。
-      this.selectionTool.enterDeselectMode();
+      // fvbVar.n 保存进入前快照），不是退出选区。入模界=当前选区界——
+      // 原版 isf.a 在点除中保留（o=a∪m 钉住，mud case7 不收缩轮廓）。
+      this.selectionTool.enterDeselectMode(this.selectionBoundsCanvas());
       this.selectionDeselectMode = this.selectionTool.getState().deselectMode;
       this.updateSelectionOverlay();
       this.renderFrame();

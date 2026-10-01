@@ -39,7 +39,8 @@ const check = (cond, msg) => { assert(cond, msg); n++; };
 check(tool.includes('deselectMode: boolean') && tool.includes('deselectedIds: string[]'),
   'SelectionState carries deselectMode + deselectedIds (ftc.h/ftc.i)');
 check(tool.includes('preDeselectSelection'), 'pre-deselect snapshot field (fvbVar.n)');
-check(tool.includes('enterDeselectMode()'), 'enterDeselectMode entry');
+check(/enterDeselectMode\(bounds: Rect2D \| null = null\)/.test(tool),
+  'enterDeselectMode entry (pinned bounds = isf.a parity, Phase 1445)');
 check(tool.includes('deselectElements(entityIds: string[]'),
   'deselectElements per-tap removal (stc/ej9 case18)');
 check(tool.includes('confirmDeselectMode()') && tool.includes('cancelDeselectMode()'),
@@ -72,8 +73,8 @@ check(strings.includes('"name": "deselect"'), 'deselect string resource');
 // --- Canvas: DESELECT enters mode; confirm/cancel wired ---
 const actions = canvas.slice(canvas.indexOf('onSelectionMenuAction(action: SelectionMenuAction):'),
   canvas.indexOf('onSelectionMenuAction(action: SelectionMenuAction):') + 16000);
-check(actions.includes('this.selectionTool.enterDeselectMode()'),
-  'DESELECT enters deselectMode (dhb case20)');
+check(actions.includes('this.selectionTool.enterDeselectMode(this.selectionBoundsCanvas())'),
+  'DESELECT enters deselectMode with entry bounds pinned (dhb case20; isf.a parity)');
 check(actions.includes('this.selectionTool.confirmDeselectMode()') &&
   actions.includes('this.selectionTool.cancelDeselectMode()'),
   'confirm/cancel menu actions reach the tool');
