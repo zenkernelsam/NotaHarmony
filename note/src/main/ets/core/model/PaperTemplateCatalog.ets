@@ -659,6 +659,25 @@ export function resolveBundledPaperVariant(template: BundledPaperTemplate,
   return best;
 }
 
+// Phase 1402 s7n.d/mapI0：recents/favorites 存的是 pdfAssetPath（chc.e），
+// 反查时按 exact path 找到存入的 exact variant（不再按当前页上下文重解析）。
+export interface BundledPaperVariantMatch {
+  template: BundledPaperTemplate;
+  variant: BundledPaperVariant;
+}
+
+export function findBundledPaperVariantByPath(
+  rawfilePath: string): BundledPaperVariantMatch | null {
+  for (const template of BUNDLED_PAPER_TEMPLATES) {
+    for (const variant of template.variants) {
+      if (variant.rawfilePath === rawfilePath) {
+        return { template: template, variant: variant };
+      }
+    }
+  }
+  return null;
+}
+
 export function parseTemplateHex6(hex: string | null): number | null {
   if (hex === null || hex.length !== 6) {
     return null;

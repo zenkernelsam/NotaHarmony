@@ -32,7 +32,10 @@ import { PageImageExporter, ShareImageFormat } from '../../data/PageImageExporte
 import { PagePdfExporter, PdfPageImage, PdfZipRecordingSource } from '../../data/PagePdfExporter';
 import { PageOverviewPanel } from './PageOverviewPanel';
 import { PaperTemplateGallery } from './PaperTemplateGallery';
-import { BundledPaperVariant } from '../../core/model/PaperTemplateCatalog';
+import {
+  BundledPaperVariant, findBundledPaperVariantByPath,
+} from '../../core/model/PaperTemplateCatalog';
+import { BundledTemplateMetaStore } from '../../data/BundledTemplateMetaStore';
 import { buildBundledTemplatePageBackground } from '../../data/BundledPaperTemplateApply';
 import { ImportFileDescriptor, ImportPlan, ImportReport, ImportResult, ImportSheetPrompt, NoteImporter, PdfPasswordPrompt } from '../../data/NoteImporter';
 import { PdfPasswordDialog } from '../components/PdfPasswordDialog';
@@ -172,6 +175,9 @@ struct NotePage {
   @State showPageOverview: boolean = false;
   // 原版 jm4 空笔记第五动作 Templates → x2n/u7n.e 模板面（Phase 1401）。
   @State showTemplateGallery: boolean = false;
+  // 原版 qgc.c（b1dVar instanceof a1d → 最近 Preset 变体）：本会话最近一次
+  // 应用的打包模板 rawfilePath，重开图库时用于 cell 徽记。
+  @State lastAppliedBundledTemplatePath: string = '';
   @State pageContentVersion: number = 0;
   @State pageLoadFailed: boolean = false;
   // Original u49.a / vc9 states: open-time failures surface as a terminal
@@ -2452,6 +2458,7 @@ struct NotePage {
       backgroundColorHex: this.currentPaperColorHex6(),
       busy: this.pageOperationBusy || this.photoImportLeaseActive ||
         this.historyPending || this.pageStructureLeaseActive,
+      appliedVariantPath: this.lastAppliedBundledTemplatePath,
       onSelectVariant: (variant: BundledPaperVariant): void => {
         this.runPageOperation(
           async (): Promise<void> => this.applyBundledPaperTemplate(variant));
@@ -2708,6 +2715,20 @@ struct NotePage {
     }
     this.selectPageById(before.pageId);
     this.showTemplateGallery = false;
+    // 原版 qgc.c 徽记源（a1d Preset 最后应用的 chc.e）。
+    this.lastAppliedBundledTemplatePath = variant.rawfilePath;
+    // 原版 pth.t(chc) → qc0：应用成功写 RecentPaperTemplate（usedAt 上移，
+    // 36 条裁剪）+ PaperTemplateUsage useCount+1。recents/favorites 键为
+    // pdfAssetPath ↔ rawfilePath；usage 键为 templateUuid（chc.a）。
+    const match = findBundledPaperVariantByPath(variant.rawfilePath);
+    if (match !== null) {
+      new BundledTemplateMetaStore(context)
+        .recordUsed(variant.rawfilePath, match.template.uuid)
+        .catch((_e: Object) => {
+          // 元数据落库失败不回滚已应用的页面背景（原版同语义：
+          // qc0 与 sqc.b 应用流分离）。
+        });
+    }
     if (this.historyBridge !== null) {
       this.historyBridge.pushPageAction(action, history);
     }
