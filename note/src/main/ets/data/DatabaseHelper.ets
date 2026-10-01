@@ -17,7 +17,7 @@
 // v59: persist the conservative local original-Ink authoring guard across editor restarts.
 // v58: materialize lossless original operation audioTime after successful application.
 // v57: allow original Shape entities to own the shared RichText character/style CRDT.
-export const DB_VERSION: number = 75;
+export const DB_VERSION: number = 76;
 export const DB_NAME: string = 'nota.db';
 
 // DDL 语句（工人实现时直接执行）
@@ -1686,6 +1686,8 @@ CREATE TABLE IF NOT EXISTS note_meta (
   has_recordings INTEGER NOT NULL DEFAULT 0,
   structure_revision INTEGER NOT NULL DEFAULT 0,
   deleted_at INTEGER,
+  // 原版 d7b/iw2 封面 preset 键（covers/<key>.pdf）；NULL = 无封面。
+  cover_preset TEXT DEFAULT NULL,
   FOREIGN KEY(folder_id) REFERENCES folder(id) ON DELETE SET NULL
 )`;
 
@@ -2795,5 +2797,14 @@ export const MIGRATIONS: Record<number, string[]> = {
     'ALTER TABLE note_state ADD COLUMN zoom_view_source_rect TEXT DEFAULT NULL',
     'ALTER TABLE note_state ADD COLUMN zoom_view_shown INTEGER DEFAULT NULL',
     'ALTER TABLE note_state ADD COLUMN is_text_only INTEGER DEFAULT NULL',
+  ],
+  76: [
+    // 原版 d7b.java + iw2.java：笔记封面是 doc 层元素（qab.b()=jwf），
+    // "Add Note Cover"（cbn.java content manager 菜单）选 preset 后
+    // covers/<F>.pdf 导入 CAS 并替换封面元素媒体。Harmony 以
+    // note_meta.cover_preset 持久化 preset 键（iw2.F），NULL = 自动缩略图；
+    // 库卡片渲染时按键光栅化 covers/<key>.pdf 首页。自定义上传封面
+    // （ew2 图片面）fail-closed，见 ADR-1341。
+    'ALTER TABLE note_meta ADD COLUMN cover_preset TEXT DEFAULT NULL',
   ],
 };

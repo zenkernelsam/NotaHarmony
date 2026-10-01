@@ -153,6 +153,9 @@ export interface NoteMeta {
   // Original ClientNoteUpdate.deletedAt equivalent: NULL while active, set to
   // the trash timestamp when moved to Recently Deleted.
   deletedAt: number | null;
+  // 原版 d7b/iw2：笔记封面 preset 键（covers/<key>.pdf）；NULL = 无封面，
+  // 库卡片渲染常规缩略图。自定义上传封面（ew2）不支持。
+  coverPreset?: string | null;
 }
 
 // 笔记视图状态（对应 NoteStateEntity）

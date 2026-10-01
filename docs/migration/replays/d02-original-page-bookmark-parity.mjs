@@ -85,9 +85,9 @@ ok(origStrings.includes('feature_note__content_manager_bookmark') &&
   'original bookmark strings missing');
 
 // --- Harmony schema anchors ----------------------------------------------------------
-ok(db.includes('DB_VERSION: number = 75'), 'DB_VERSION must be 75');
-ok(dbFixture.includes('expect(DB_VERSION).assertEqual(75)'),
-  'database fixture must pin DB_VERSION 75');
+ok(db.includes('DB_VERSION: number = 76'), 'DB_VERSION must be 76');
+ok(dbFixture.includes('expect(DB_VERSION).assertEqual(76)'),
+  'database fixture must pin DB_VERSION 76');
 // wz9.bookmarkedRegister parity — the LWW winner table keyed by page identity.
 ok(db.includes('export const DDL_ORIGINAL_PAGE_BOOKMARK_WINNER') &&
    db.includes('original_page_bookmark_winner') &&

@@ -603,6 +603,7 @@ export class FolderRepositoryImpl {
       while (resultSet.goToNextRow()) {
         const folderColumn: number = resultSet.getColumnIndex('folder_id');
         const deletedColumn: number = resultSet.getColumnIndex('deleted_at');
+        const coverColumn: number = resultSet.getColumnIndex('cover_preset');
         notes.push({
           id: resultSet.getString(resultSet.getColumnIndex('id')),
           title: resultSet.getString(resultSet.getColumnIndex('title')),
@@ -615,6 +616,8 @@ export class FolderRepositoryImpl {
           folderColor: null,
           hasRecordings: resultSet.getLong(resultSet.getColumnIndex('has_recordings')) !== 0,
           deletedAt: resultSet.isColumnNull(deletedColumn) ? null : resultSet.getLong(deletedColumn),
+          coverPreset: coverColumn < 0 || resultSet.isColumnNull(coverColumn)
+            ? null : resultSet.getString(coverColumn),
         });
       }
     } finally {

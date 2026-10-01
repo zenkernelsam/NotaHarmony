@@ -50,6 +50,9 @@ import { ZipWriter } from '../../data/ZipArchive';
 import {
   isThumbnailSourceUnchanged, prioritizeThumbnailNoteIds, thumbnailCacheKey,
 } from '../../rendering/ThumbnailRenderPolicy';
+import {
+  findNoteCoverPreset, loadNoteCoverThumb, NoteCoverPreset,
+} from '../../core/model/NoteCoverCatalog';
 import { LibrarySection, LibraryViewModel, NoteSortMode } from './LibraryViewModel';
 import {
   ThemeStore, THEME_MODE_KEY, THEME_PREFERENCE_KEY, THEME_PREFERENCES_NAME, THEME_SYSTEM_DARK_KEY,
@@ -553,6 +556,15 @@ struct LibraryPage {
     const allNoteIds: string[] = this.notes.map((note: NoteMeta) => note.id);
     const noteIds: string[] = prioritizeThumbnailNoteIds(
       allNoteIds, this.thumbnailPriorityIds, this.MAX_THUMBNAILS);
+    // 原版 d7b/iw2 封面：cover_preset 命中时库卡片渲染 covers/<key>.pdf 首页
+    // 而非页缩略图；preset 键并入 revision 使封面变更能击穿缩略图缓存。
+    const coverByNoteId: Map<string, string> = new Map<string, string>();
+    for (const note of this.notes) {
+      if (note.coverPreset !== undefined && note.coverPreset !== null &&
+        note.coverPreset !== '') {
+        coverByNoteId.set(note.id, note.coverPreset);
+      }
+    }
     const theme: ThemeTokens = this.resolveTokens();
     const oldMap: Map<string, PixelMap> = this.thumbMap;
     const oldRevisions: Map<string, string> = this.thumbRevisions;
@@ -577,7 +589,9 @@ struct LibraryPage {
             attempt < this.THUMBNAIL_SOURCE_ATTEMPTS && pageState !== null; attempt++) {
             const sourceState: FirstPageThumbnailState = pageState;
             const assetGeneration: number = assetAvailabilityHub.getNoteGeneration(noteId);
-            const revision: string = this.thumbnailRevision(sourceState, theme, assetGeneration);
+            const coverKey: string | undefined = coverByNoteId.get(noteId);
+            const revision: string = this.thumbnailRevision(sourceState, theme,
+              assetGeneration) + (coverKey === undefined ? '' : `|cover:${coverKey}`);
             requestedPageId = sourceState.page.pageId;
             requestedRevision = revision;
             if (generation !== this.thumbnailGeneration || lifecycleGeneration !== this.lifecycleGeneration ||
@@ -591,8 +605,17 @@ struct LibraryPage {
               newMap.set(noteId, oldPixelMap);
               break;
             }
-            unpublishedPixelMap = await renderer.renderThumbnail(
-              noteId, this.persistence, sourceState.page, theme, this.db);
+            const coverPreset: NoteCoverPreset | null =
+              coverKey === undefined ? null : findNoteCoverPreset(coverKey);
+            if (coverPreset !== null) {
+              // 原版：封面元素媒体渲染库卡片；Harmony 光栅 covers/<key>.pdf 首页。
+              unpublishedPixelMap = await loadNoteCoverThumb(
+                getContext(this) as common.UIAbilityContext, this.db, coverPreset);
+            } else {
+              // 未知 preset 键 fail-closed 回退常规页缩略图（drifted 数据不崩）。
+              unpublishedPixelMap = await renderer.renderThumbnail(
+                noteId, this.persistence, sourceState.page, theme, this.db);
+            }
             if (generation !== this.thumbnailGeneration || lifecycleGeneration !== this.lifecycleGeneration ||
               !this.pageActive || renderer !== this.thumbRenderer) {
               if (unpublishedPixelMap !== null) {
@@ -608,7 +631,8 @@ struct LibraryPage {
               await this.persistence.getFirstPageThumbnailState(noteId);
             const verifiedAssetGeneration: number = assetAvailabilityHub.getNoteGeneration(noteId);
             const verifiedRevision: string = verifiedState === null ? '' :
-              this.thumbnailRevision(verifiedState, theme, verifiedAssetGeneration);
+              this.thumbnailRevision(verifiedState, theme, verifiedAssetGeneration) +
+              (coverKey === undefined ? '' : `|cover:${coverKey}`);
             if (generation !== this.thumbnailGeneration || lifecycleGeneration !== this.lifecycleGeneration ||
               !this.pageActive || renderer !== this.thumbRenderer) {
               await this.releaseThumbnailPixelMap(unpublishedPixelMap, 'stale verified generation');
@@ -639,8 +663,10 @@ struct LibraryPage {
           try {
             const currentState: FirstPageThumbnailState | null =
               await this.persistence.getFirstPageThumbnailState(noteId);
+            const coverKeyHere: string | undefined = coverByNoteId.get(noteId);
             const currentRevision: string = currentState === null ? '' : this.thumbnailRevision(
-              currentState, theme, assetAvailabilityHub.getNoteGeneration(noteId));
+              currentState, theme, assetAvailabilityHub.getNoteGeneration(noteId)) +
+              (coverKeyHere === undefined ? '' : `|cover:${coverKeyHere}`);
             sourceStillCurrent = currentState !== null && requestedPageId !== null && requestedRevision !== null &&
               isThumbnailSourceUnchanged(requestedPageId, requestedRevision,
                 currentState.page.pageId, currentRevision);

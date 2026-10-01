@@ -26,7 +26,7 @@ let n = 0;
 const check = (cond, msg) => { assert(cond, msg); n++; };
 
 // === 1. Schema parity：note_state 8 列齐全 ===
-check(/DB_VERSION: number = 75/.test(db), 'DB_VERSION bumped to 75');
+check(/DB_VERSION: number = 76/.test(db), 'DB_VERSION bumped to 76');
 for (const col of ['zoom REAL', 'scroll_offset_x', 'scroll_offset_y',
   'coordinate_model_version', 'last_code_block_language TEXT',
   'zoom_view_source_rect TEXT DEFAULT NULL', 'zoom_view_shown INTEGER DEFAULT NULL',

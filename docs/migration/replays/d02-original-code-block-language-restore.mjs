@@ -31,7 +31,7 @@ let n = 0;
 const check = (cond, msg) => { assert(cond, msg); n++; };
 
 // === 1. Schema parity（r4a.java:70 同款迁移 + canonical DDL）===
-check(/DB_VERSION: number = 75/.test(db), 'DB_VERSION bumped to 75');
+check(/DB_VERSION: number = 76/.test(db), 'DB_VERSION bumped to 76');
 check(/last_code_block_language TEXT DEFAULT NULL/.test(db),
   'note_state.last_code_block_language column (NoteStateEntity.lastCodeBlockLanguage)');
 {

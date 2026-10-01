@@ -42,7 +42,7 @@ check(!/backfill\.trayIndex = primaryCount/.test(vm),
   'backfill no longer indexes by Primary count (was placing SHAPE at a Primary-computed index)');
 
 // === 2. tool_state column parity (ca3.java:555, 18 cols) ===
-check(/DB_VERSION: number = 75/.test(db), 'DB_VERSION bumped to 75');
+check(/DB_VERSION: number = 76/.test(db), 'DB_VERSION bumped to 76');
 check(/google_ink_brush_pack_id INTEGER DEFAULT NULL/.test(db),
   'tool_state.google_ink_brush_pack_id (ToolStateEntity.googleInkBrushPackId)');
 check(/pen_last_standard_color_well_index INTEGER DEFAULT NULL/.test(db),

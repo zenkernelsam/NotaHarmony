@@ -32,6 +32,7 @@ import { PageImageExporter, ShareImageFormat } from '../../data/PageImageExporte
 import { PagePdfExporter, PdfPageImage, PdfZipRecordingSource } from '../../data/PagePdfExporter';
 import { PageOverviewPanel } from './PageOverviewPanel';
 import { PaperTemplateGallery } from './PaperTemplateGallery';
+import { NoteCoverSheet } from './NoteCoverSheet';
 import {
   BundledPaperVariant, findBundledPaperVariantByPath,
 } from '../../core/model/PaperTemplateCatalog';
@@ -178,6 +179,11 @@ struct NotePage {
   // 原版 qgc.c（b1dVar instanceof a1d → 最近 Preset 变体）：本会话最近一次
   // 应用的打包模板 rawfilePath，重开图库时用于 cell 徽记。
   @State lastAppliedBundledTemplatePath: string = '';
+  // 原版 ebn.c/cbn.f：笔记封面选择器（m7b.PageManager 入口）；
+  // noteCoverPresetKey = note_meta.cover_preset（iw2.F 键，null=无封面）。
+  @State showNoteCoverSheet: boolean = false;
+  @State noteCoverPresetKey: string | null = null;
+  @State noteCreatedAt: number = 0;
   @State pageContentVersion: number = 0;
   @State pageLoadFailed: boolean = false;
   // Original u49.a / vc9 states: open-time failures surface as a terminal
@@ -861,6 +867,10 @@ struct NotePage {
         throw new Error('note unavailable');
       }
       this.noteTitle = note.title;
+      // 原版 ebn.c(bpj,m7b,jwf?) 封面候选种子：Harmony preset 面以
+      // cover_preset 键预选（ew2 自定义上传面 fail-closed）。
+      this.noteCoverPresetKey = note.coverPreset === undefined ? null : note.coverPreset;
+      this.noteCreatedAt = note.createdAt;
       // Original setLastOpened partial update (dk9.RECENT feed): opening the
       // editor stamps last_opened without touching createdAt/updatedAt.
       this.noteRepo.touchNoteLastOpened(this.noteId, Date.now()).catch((e: Error) => {
@@ -2249,6 +2259,12 @@ struct NotePage {
       height: SheetSize.LARGE,
       showClose: false,
     })
+    // 原版 ebn.b 封面选择器（content manager add_note_cover 入口）：
+    // 预览卡 + Presets 栅格 + Cancel/Done。
+    .bindSheet(this.showNoteCoverSheet, this.buildNoteCoverSheet(), {
+      height: SheetSize.LARGE,
+      showClose: false,
+    })
     // u49/mw3 Scan 卡：VisionKit DocumentScanner 需要无遮挡全屏表面
     // （与 LibraryPage P680 同一 cover 约束）；下滑关闭等同用户取消。
     .bindContentCover(this.docScanOpen, this.DocScanCover(), {
@@ -2469,11 +2485,53 @@ struct NotePage {
     })
   }
 
+  @Builder
+  buildNoteCoverSheet() {
+    NoteCoverSheet({
+      database: DatabaseManager.getInstance(),
+      noteTitle: this.noteTitle,
+      noteCreatedAt: this.noteCreatedAt,
+      currentPresetKey: this.noteCoverPresetKey,
+      busy: this.pageOperationBusy || this.historyPending,
+      onApply: (presetKey: string): void => {
+        this.applyNoteCoverPreset(presetKey);
+      },
+      onRequestClose: (): void => {
+        this.showNoteCoverSheet = false;
+      },
+    })
+  }
+
+  // 原版 d7b.b：Done → covers/<key>.pdf 导入 + 封面元素媒体替换；
+  // note 不可用 → "Cover change skipped" 短路。Harmony 落 note_meta.cover_preset。
+  private applyNoteCoverPreset(presetKey: string): void {
+    const noteId: string = this.noteId;
+    // 原版 d7b.b 短路：note unavailable → "Cover change skipped"。
+    const repo: NoteRepositoryImpl | null = this.noteRepo;
+    if (repo === null) {
+      this.showNoteCoverSheet = false;
+      return;
+    }
+    repo.setNoteCoverPreset(noteId, presetKey).then((): void => {
+      this.noteCoverPresetKey = presetKey;
+      this.showNoteCoverSheet = false;
+    }).catch((e: Error) => {
+      console.warn(`note cover apply failed: ${JSON.stringify(e)}`);
+      this.showNoteCoverSheet = false;
+    });
+  }
+
   // 原版 n9j cell 菜单 → fd2 dispatch：面板内页操作按页键作用于目标
   // 页（不先导航）。clear 仅当前页可经画布信号清空，其余操作全部走
   // runPageOperation 门禁 + 参数化页操作实现。
   private dispatchPageContextAction(pageIndex: number, action: string): void {
     if (pageIndex < 0 || pageIndex >= this.pages.length) {
+      return;
+    }
+    // 原版 cbn.f add_note_cover 行 → 封面选择器（ebn.c/l7b 屏幕）：作用于
+    // 整本笔记而非页操作，直接开 NoteCoverSheet，不进 runPageOperation。
+    if (action === 'add_cover') {
+      this.showNoteCoverSheet = true;
       return;
     }
     this.runPageOperation(async (): Promise<void> => {

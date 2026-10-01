@@ -57,7 +57,7 @@ ok('GalleryMutationDB = PendingLike+PendingFollow outbox',
 
 // -- 4. Harmony mapping ----------------------------------------------------------------
 const helper = readFileSync(join(REPO, 'note/src/main/ets/data/DatabaseHelper.ets'), 'utf8');
-ok('Harmony unified DB at version 75', /DB_VERSION: number = 75/.test(helper));
+ok('Harmony unified DB at version 76', /DB_VERSION: number = 76/.test(helper));
 const tables = new Set([...helper.matchAll(/CREATE TABLE(?: IF NOT EXISTS)? (\w+)/g)].map(m => m[1]));
 ok('Harmony RDB has >= 80 CREATE TABLE', tables.size >= 80, `got ${tables.size}`);
 const need = ['note_state', 'note_meta', 'note_asset', 'folder', 'permanently_deleted_note',

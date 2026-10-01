@@ -882,10 +882,32 @@ export class NoteRepositoryImpl implements NoteRepository {
     await this.saveViewState(base);
   }
 
+  // 原版 d7b.java 封面应用路径：preset 选定 → covers/<F>.pdf 导入 CAS →
+  // 替换笔记封面元素媒体（doc 层变更）。Harmony 以 note_meta.cover_preset
+  // 持久化 preset 键；封面属文档变更，按原版 bump updated_at。
+  async setNoteCoverPreset(noteId: string, presetKey: string | null): Promise<void> {
+    await libraryMetadataMutationMutex.runExclusive(async (): Promise<void> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      const bucket: relationalStore.ValuesBucket = {
+        'cover_preset': presetKey,
+        'updated_at': Date.now(),
+      };
+      const predicates = new relationalStore.RdbPredicates('note_meta');
+      predicates.equalTo('id', noteId);
+      const updated: number = await store.update(bucket, predicates);
+      if (updated !== 1) {
+        throw new Error(`expected to set cover on one note, updated ${updated}`);
+      }
+    }).catch((e: Error) => {
+      throw new Error(`setNoteCoverPreset failed: ${JSON.stringify(e)}`);
+    });
+  }
+
   private rowToNote(resultSet: relationalStore.ResultSet): NoteMeta {
     try {
       const folderColumn: number = resultSet.getColumnIndex('folder_id');
       const deletedColumn: number = resultSet.getColumnIndex('deleted_at');
+      const coverColumn: number = resultSet.getColumnIndex('cover_preset');
       return {
         id: resultSet.getString(resultSet.getColumnIndex('id')),
         title: resultSet.getString(resultSet.getColumnIndex('title')),
@@ -899,6 +921,9 @@ export class NoteRepositoryImpl implements NoteRepository {
         folderColor: null,
         hasRecordings: resultSet.getLong(resultSet.getColumnIndex('has_recordings')) !== 0,
         deletedAt: resultSet.isColumnNull(deletedColumn) ? null : resultSet.getLong(deletedColumn),
+        // 原版 d7b/iw2 封面 preset 键；列缺省（旧行）时为 null。
+        coverPreset: coverColumn < 0 || resultSet.isColumnNull(coverColumn)
+          ? null : resultSet.getString(coverColumn),
       };
     } catch (e) {
       throw new Error('rowToNote failed: ' + JSON.stringify(e));
@@ -961,6 +986,7 @@ export class NoteRepositoryImpl implements NoteRepository {
       folderColor: null,
       hasRecordings: hasRecordings,
       deletedAt: null,
+      coverPreset: null,
     };
   }
 
@@ -975,6 +1001,7 @@ export class NoteRepositoryImpl implements NoteRepository {
       'folder_id': note.folderId,
       'has_recordings': note.hasRecordings ? 1 : 0,
       'deleted_at': note.deletedAt,
+      'cover_preset': note.coverPreset === undefined ? null : note.coverPreset,
     };
   }
 

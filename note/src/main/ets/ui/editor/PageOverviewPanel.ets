@@ -685,6 +685,11 @@ struct PageOverviewCell {
         MenuItem({ content: $r('app.string.rotate_page'), startIcon: $r('app.media.menuicon_rotate_page') })
           .onClick(() => this.onMenuAction(this.pageIndex, 'rotate'))
       }
+      // 原版 cbn.f（feature_note__content_manager_add_note_cover，z5&&z4 门控，
+      // 位于 create-template 行与 clear_page 行之间）：笔记封面选择器——作用于
+      // 整本笔记而非该页，Harmony 在面板宿主侧打开 NoteCoverSheet（d7b 等价）。
+      MenuItem({ content: $r('app.string.add_note_cover'), startIcon: $r('app.media.fab_templates') })
+        .onClick(() => this.onMenuAction(this.pageIndex, 'add_cover'))
       // fd2 case1 → de2.n → ae2 v1：Clear Page——当前页走画布信号，
       // 非当前页经持久层清空（clearOriginalPageContent）。
       MenuItem({ content: $r('app.string.clear_page'), startIcon: $r('app.media.menuicon_clear_page') })
