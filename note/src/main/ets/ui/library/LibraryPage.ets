@@ -19,6 +19,9 @@ import { drainLaunchRequests, LaunchRequest, LAUNCH_ACTION_CREATE_PHOTO_NOTE, LA
 import { drainDeepLinkNoteIds } from '../../data/DeepLinkIngress';
 import { drainOpenNoteIds, drainLibraryLandings, LANDING_RECENT, LANDING_FOLDER_PREFIX } from '../../data/OpenTargetIngress';
 import { refreshRecentNotesForms } from '../../data/RecentNotesFormFeed';
+import {
+  registerMemoryTrimmable, unregisterMemoryTrimmable,
+} from '../../data/MemoryTrimRegistry';
 import { refreshFolderNotesForms } from '../../data/FolderNotesFormFeed';
 import { refreshNoteThumbnailForms } from '../../data/NoteThumbnailFormFeed';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
@@ -210,6 +213,9 @@ struct LibraryPage {
   private assetAvailabilitySubscription: number = -1;
   private searchTimer: number = -1;
   private thumbnailRequestTimer: number = -1;
+  // 原版 g1a MemoryTrimmable 登记（Phase 1435）：ehc(0) 对应库页封面
+  // 缩略图位图缓存（hhc.b 资源解码缓存等价）。
+  private memoryTrimToken: number = -1;
   private thumbnailPriorityIds: string[] = [];
   private pageActive: boolean = false;
   private lifecycleGeneration: number = 0;
@@ -422,6 +428,11 @@ struct LibraryPage {
 
   aboutToAppear(): void {
     const generation: number = this.activatePage();
+    // 原版 NbApplication g1a.a(ehc(0))：库封面位图缓存挂入内存压力
+    // 裁剪注册表（Phase 1435）。
+    this.memoryTrimToken = registerMemoryTrimmable(
+      'library-thumbnail-bitmaps',
+      (): void => this.trimThumbnailCacheForMemoryPressure());
     this.initData(generation);    // 原版 lc4.a(ac4.a0) 门控：Harmony 等价门控为系统能力探测——无
     // DocScan 组件能力的设备不显示「Document Scan」入口（fail-closed）。
     this.docScanAvailable = canIUse('SystemCapability.AI.Component.DocScan');
@@ -457,6 +468,10 @@ struct LibraryPage {
     if (this.thumbnailRequestTimer >= 0) {
       clearTimeout(this.thumbnailRequestTimer);
       this.thumbnailRequestTimer = -1;
+    }
+    if (this.memoryTrimToken >= 0) {
+      unregisterMemoryTrimmable(this.memoryTrimToken);
+      this.memoryTrimToken = -1;
     }
     this.thumbnailGeneration++;
     this.releaseThumbnails(this.thumbMap);
@@ -776,6 +791,21 @@ struct LibraryPage {
   private releaseThumbnails(thumbnails: Map<string, PixelMap>): void {
     for (const pixelMap of thumbnails.values()) {
       this.releaseThumbnailPixelMap(pixelMap, 'page release');
+    }
+  }
+
+  // 原版 ehc(0) → hhc.b.clear() + ehc(1) → dpc.e.i(-1)：内存压力时封面
+  // 位图缓存全清。代际递增丢弃在途渲染结果；页面仍活动时重建
+  // （原版逐出后下次绑定重解码等价），非活动则留空待下次 onPageShow。
+  private trimThumbnailCacheForMemoryPressure(): void {
+    this.thumbnailGeneration++;
+    this.releaseThumbnails(this.thumbMap);
+    this.thumbMap = new Map<string, PixelMap>();
+    this.thumbRevisions = new Map<string, string>();
+    if (this.pageActive) {
+      this.refreshThumbnails().catch((e: Error): void => {
+        console.warn(`thumbnail rebuild after memory trim failed: ${JSON.stringify(e)}`);
+      });
     }
   }
 

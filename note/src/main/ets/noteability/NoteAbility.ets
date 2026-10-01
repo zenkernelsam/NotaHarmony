@@ -12,6 +12,7 @@ import { enqueueLaunchAction } from '../data/LaunchActionIngress';
 import { enqueueDeepLinkWant } from '../data/DeepLinkIngress';
 import { enqueueOpenTargetWant } from '../data/OpenTargetIngress';
 import { flushEditorsForBackground } from '../data/EditorLifecycleFlush';
+import { MemoryTrimLevel, trimMemoryCaches } from '../data/MemoryTrimRegistry';
 
 const DOMAIN = 0x0000;
 
@@ -98,5 +99,18 @@ export default class NoteAbility extends UIAbility {
     // 注册的尽力冲刷（Phase 1432）。
     flushEditorsForBackground();
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onBackground');
+  }
+
+  // 原版 NbApplication.onTrimMemory/onLowMemory（Phase 1435）：
+  // i>=20 → g1a.b(BACKGROUNDED)、i>=40/onLowMemory → b(CRITICAL)；
+  // i<20（RUNNING_* 前台压力）不裁剪。Harmony MemoryLevel：
+  // MODERATE=前台中等压力（原版同档不裁剪）→ 不动作；
+  // LOW → BACKGROUNDED；CRITICAL → CRITICAL。
+  onMemoryLevel(level: AbilityConstant.MemoryLevel): void {
+    if (level === AbilityConstant.MemoryLevel.MEMORY_LEVEL_CRITICAL) {
+      trimMemoryCaches(MemoryTrimLevel.CRITICAL);
+    } else if (level === AbilityConstant.MemoryLevel.MEMORY_LEVEL_LOW) {
+      trimMemoryCaches(MemoryTrimLevel.BACKGROUNDED);
+    }
   }
 }

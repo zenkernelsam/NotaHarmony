@@ -55,7 +55,7 @@ assert.match(canvas, /commitOriginalPartialErase\(plan, previewToken\)/);
 assert.match(canvas,
   /commitOriginalPartialErase\([\s\S]{0,1100}partialEraserPreview\.complete\(previewToken\)/);
 assert.match(canvas, /this\.cancelActiveInteraction\(\);[\s\S]{0,80}if \(!this\.loaded\)/);
-assert.match(canvas, /aboutToDisappear\(\)[\s\S]{0,100}partialEraserPreview\.cancel\(\)/);
+assert.match(canvas, /aboutToDisappear\(\)[\s\S]{0,600}partialEraserPreview\.cancel\(\)/);
 
 // The preview uses an ordered dirty crop: paper stays outside destination-out,
 // while every durable content type remains below the newest transient Ink.

@@ -45,6 +45,9 @@ import {
 import {
   PDF_RASTER_OVERSCAN_RATIO, pdfRasterPlanCovers, PdfRasterRequest,
 } from '../../rendering/PdfRasterPlan';
+import {
+  registerMemoryTrimmable, unregisterMemoryTrimmable,
+} from '../../data/MemoryTrimRegistry';
 import { pagePixelSize, PAGE_UNITS_PER_MM, PagePixelSize } from '../../core/model/PageCoordinateSpace';
 import { StrokeSession } from '../../rendering/StrokeSession';
 import { EraserEngine, EraserMode } from '../../rendering/EraserEngine';
@@ -455,6 +458,11 @@ export struct NoteCanvasView {
   private paperTexture: LoadedOriginalPaperTexture | null = null;
   private paperTextureGeneration: number = 0;
   private assetAvailabilitySubscription: number = -1;
+  // 原版 g1a MemoryTrimmable 登记（Phase 1435）：编辑器侧两枚 trimmable
+  // —— ehc(1) 对应 imageAssets 位图缓存、ehc(2) 对应 shapeRenderer
+  // pencilCache splat 池。
+  private memoryTrimTokenImages: number = -1;
+  private memoryTrimTokenPencil: number = -1;
   private selectionTool: SelectionTool = new SelectionTool();
   private strokeClipboard: StrokeClipboard = new StrokeClipboard();
   private clipboardIdCounter: number = 0;
@@ -670,6 +678,12 @@ export struct NoteCanvasView {
     // 笔记关闭即丢弃；与 painter 共享同一引用使 gate 立即生效。
     this.strokePainter.revealedTapeIds = this.revealedTapeIds;
     this.shapeRenderer.revealedTapeIds = this.revealedTapeIds;
+    // 原版 NbApplication g1a.a(ehc) 登记（Phase 1435）：页面级位图缓存
+    // 挂入内存压力裁剪注册表，onMemoryLevel 触发全清。
+    this.memoryTrimTokenImages = registerMemoryTrimmable(
+      'editor-image-assets', (): void => this.trimImageAssetsForMemoryPressure());
+    this.memoryTrimTokenPencil = registerMemoryTrimmable(
+      'editor-pencil-splats', (): void => this.trimPencilSplatsForMemoryPressure());
     // 原版 xqb.java:216 SwitchedTools：订阅工具切换 → text-only 自动退出。
     this.viewModel.onToolChanged = (tool: ToolType): void => {
       this.onToolChangedForTextOnly(tool);
@@ -2398,6 +2412,14 @@ export struct NoteCanvasView {
 
   aboutToDisappear(): void {
     this.lifecycleActive = false;
+    if (this.memoryTrimTokenImages >= 0) {
+      unregisterMemoryTrimmable(this.memoryTrimTokenImages);
+      this.memoryTrimTokenImages = -1;
+    }
+    if (this.memoryTrimTokenPencil >= 0) {
+      unregisterMemoryTrimmable(this.memoryTrimTokenPencil);
+      this.memoryTrimTokenPencil = -1;
+    }
     this.partialEraserPreview.cancel();
     // viewModel 跨画布存活——清掉 SwitchedTools 订阅避免悬挂回调。
     this.viewModel.onToolChanged = (_tool: ToolType): void => {
@@ -3131,6 +3153,21 @@ export struct NoteCanvasView {
       this.imageAssets.forEach((loaded: LoadedImageAsset): void => loader.release(loaded));
     }
     this.imageAssets.clear();
+  }
+
+  // 原版 ehc(1) → dpc.e.i(-1)：图片位图缓存全清。Harmony 侧 map 是唯一
+  // 持有者，清后需重载 —— 活动页立即重载（原版逐出后下次绘制重解码
+  // 等价）；非活动态不重载（页面再显示时走常规 load 路径）。
+  private trimImageAssetsForMemoryPressure(): void {
+    this.releaseImageAssets();
+    if (this.lifecycleActive && this.loadedPageId.length > 0) {
+      this.refreshImageAssets(this.pageLoadGeneration, this.loadedPageId);
+    }
+  }
+
+  // 原版 ehc(2) → ctc.q：铅笔 splat 池排空 + SharedMemory 释放。
+  private trimPencilSplatsForMemoryPressure(): void {
+    this.shapeRenderer.clearPencilCache();
   }
 
   private refreshPdfBackground(pageGeneration: number, pageId: string,
