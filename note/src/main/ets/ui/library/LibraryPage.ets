@@ -2016,6 +2016,12 @@ struct LibraryPage {
         }
         .width('100%')
         .height(48)
+        // 原版 d2n.c：侧栏文件夹行左滑尾缘揭出 delete（trash 图标，
+        // 点击置态起 kcj 删除确认框）。
+        .swipeAction({
+          end: () => { this.FolderSwipeAction(item) },
+          edgeEffect: SwipeEdgeEffect.Spring,
+        })
       }, (item: FolderListItem) => item.folder.id)
     }
     .width('100%')
@@ -2443,6 +2449,12 @@ struct LibraryPage {
                   ListItem() {
                     this.NoteListRow(note)
                   }
+                  // 原版 wbn.c/qbn.g：list 行左滑尾缘揭出 [favorite][delete]
+                  // 操作条（多选态禁滑——z2/z5 门等价）。
+                  .swipeAction(this.isMultiSelecting ? {} : {
+                    end: () => { this.NoteSwipeActions(note) },
+                    edgeEffect: SwipeEdgeEffect.Spring,
+                  })
                 }, (note: NoteMeta) => note.id)
               }
               .padding({ left: 16, right: 16 })
@@ -3116,6 +3128,69 @@ struct LibraryPage {
     } catch (_e) {
       return 'New Note';
     }
+  }
+
+  // 原版 d2n.c 侧栏文件夹滑动揭示：delete（trash 图标钮）→
+  // confirmDeleteFolder（kcj 九宫复数文案确认框）。
+  @Builder
+  FolderSwipeAction(item: FolderListItem) {
+    Button() {
+      ToolGlyph({
+        glyph: 'trash',
+        contentColor: this.resolveTokens().onAccent,
+        iconSize: 20,
+      })
+    }
+      .type(ButtonType.Normal)
+      .width(48)
+      .height('100%')
+      .backgroundColor(this.resolveTokens().danger)
+      .accessibilityText($r('app.string.delete_folder_swipe_action', item.folder.name))
+      .onClick(() => {
+        this.confirmDeleteFolder(item.folder);
+      })
+  }
+
+  // 原版 wbn.c 滑动揭示条：左滑行尾揭出操作区，内排 favorite、
+  // 边缘为 delete（cc3.l 图标钮）；点击 favorite → toggleNoteFavorite
+  // （ucb.invoke），点击 delete → confirmDelete（wpa 置态起确认框）。
+  @Builder
+  NoteSwipeActions(note: NoteMeta) {
+    Row() {
+      Button() {
+        ToolGlyph({
+          glyph: note.favorite ? 'unfavorite_outline' : 'favorite_outline',
+          contentColor: this.resolveTokens().onAccent,
+          iconSize: 22,
+        })
+      }
+        .type(ButtonType.Normal)
+        .width(56)
+        .height('100%')
+        .backgroundColor(this.resolveTokens().accent)
+        .accessibilityText(note.favorite ?
+          $r('app.string.unfavorite_note_swipe_action', this.noteDisplayTitle(note)) :
+          $r('app.string.favorite_note_swipe_action', this.noteDisplayTitle(note)))
+        .onClick(() => {
+          this.toggleNoteFavorite(note);
+        })
+      Button() {
+        ToolGlyph({
+          glyph: 'trash',
+          contentColor: this.resolveTokens().onAccent,
+          iconSize: 22,
+        })
+      }
+        .type(ButtonType.Normal)
+        .width(56)
+        .height('100%')
+        .backgroundColor(this.resolveTokens().danger)
+        .accessibilityText($r('app.string.delete_note_swipe_action', this.noteDisplayTitle(note)))
+        .onClick(() => {
+          this.confirmDelete(note);
+        })
+    }
+    .height('100%')
   }
 
   // 原版 l9b（o94 勾选圈）：checkmark_circle（已选）/circle_empty_med_outline

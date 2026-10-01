@@ -1,6 +1,6 @@
 // D02 原版 1.4.2 库主页增量 — Phase 787
 // 钉住 Coming-Up 十键、考试区块、滑动操作三键与配套键族；
-// Harmony 无 swipeAction 的现状钉。
+// Phase 1410 已补 swipeAction（wbn/d2n 等价）——该钉反转为实现断言。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
@@ -28,8 +28,10 @@ check('swipe-to-delete/favorite/unfavorite action keys',
   ['delete_note_swipe_action', 'favorite_note_swipe_action',
     'unfavorite_note_swipe_action']
     .every((k) => s142.includes(`feature_library__${k}">`)));
-check('Harmony library lacks swipeAction (true UX delta)',
-  !lib.includes('swipeAction'));
+// Phase 1410：swipeAction 已实现（wbn/d2n 滑动操作条）——原「无
+// swipeAction」delta 钉反转为实现存在断言。
+check('Harmony library swipeAction implemented (Phase 1410 closes delta)',
+  lib.includes('swipeAction'));
 check('grid/list toggle exists in Harmony; a11y keys are the delta',
   lib.includes('listView') && s142.includes('cd_switch_to_grid_view">')
   && s142.includes('cd_switch_to_list_view">')

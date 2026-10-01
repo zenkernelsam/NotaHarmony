@@ -1038,6 +1038,22 @@
       "value": "Switch to list view"
     },
     {
+      "name": "favorite_note_swipe_action",
+      "value": "Favorite note \"%1$s\""
+    },
+    {
+      "name": "unfavorite_note_swipe_action",
+      "value": "Unfavorite note \"%1$s\""
+    },
+    {
+      "name": "delete_note_swipe_action",
+      "value": "Delete note \"%1$s\""
+    },
+    {
+      "name": "delete_folder_swipe_action",
+      "value": "Delete folder \"%1$s\""
+    },
+    {
       "name": "recently_modified",
       "value": "Recently Modified"
     },
