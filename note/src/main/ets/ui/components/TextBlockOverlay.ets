@@ -1876,6 +1876,10 @@ export struct TextBlockOverlay {
   // 字号步进：e0b 运行时分发 alt&&!ctrl&&!shift+Up/Down →
   // INCREASE/DECREASE_FONT_SIZE；syh 帮助表另列 Ctrl+Alt+Up/Down——
   // 双和弦皆绑 stepFontSize(±1)（cve l(f±1) 步进钮同路径）。
+  // e0b ctrl 支另含：Ctrl+←/→/↑/↓ = LEFT_WORD/RIGHT_WORD/
+  // PREV_PARAGRAPH/NEXT_PARAGRAPH（词/段界导航）、Ctrl+Shift+方向 =
+  // SELECT_* 扩界（锚定端 caretSelectionStart + 移动端 caretOffset）、
+  // Ctrl+H(36) = DELETE_PREV_CHAR。
   // 差异登记：Ctrl+X/C/V 走 TextArea 原生剪贴板（run 保留=登记缺口）；
   // Ctrl+Z/Y 无草稿级 undo 基建（画布 UndoRedoManager 在提交层）。
   private onEditorKeyEvent(event: KeyEvent): boolean {
@@ -1911,6 +1915,23 @@ export struct TextBlockOverlay {
       }
       if (event.keyCode === 2019) {           // Ctrl+Shift+C = CHECKLIST
         this.toggleDecoratorStyle(3);
+        return true;
+      }
+      // e0b：ctrl+shift+方向 = SELECT_*_WORD/PARAGRAPH（移动端扩界）
+      if (event.keyCode === 2014) {           // Ctrl+Shift+Left = SELECT_LEFT_WORD
+        this.extendCaretSelection(this.wordBoundaryLeft(this.caretOffset));
+        return true;
+      }
+      if (event.keyCode === 2015) {           // Ctrl+Shift+Right = SELECT_RIGHT_WORD
+        this.extendCaretSelection(this.wordBoundaryRight(this.caretOffset));
+        return true;
+      }
+      if (event.keyCode === 2012) {           // Ctrl+Shift+Up = SELECT_PREV_PARAGRAPH
+        this.extendCaretSelection(this.paraBoundaryUp(this.caretOffset));
+        return true;
+      }
+      if (event.keyCode === 2013) {           // Ctrl+Shift+Down = SELECT_NEXT_PARAGRAPH
+        this.extendCaretSelection(this.paraBoundaryDown(this.caretOffset));
         return true;
       }
       return false;
@@ -1951,6 +1972,27 @@ export struct TextBlockOverlay {
         this.controller.caretPosition(this.draftText.length);
         return true;
       }
+      // e0b ctrl 支：方向 = LEFT_WORD/RIGHT_WORD/PREV_PARAGRAPH/
+      // NEXT_PARAGRAPH（词/段界 caret 导航），H = DELETE_PREV_CHAR
+      if (event.keyCode === 2014) {           // Ctrl+Left = LEFT_WORD
+        this.controller.caretPosition(this.wordBoundaryLeft(this.caretOffset));
+        return true;
+      }
+      if (event.keyCode === 2015) {           // Ctrl+Right = RIGHT_WORD
+        this.controller.caretPosition(this.wordBoundaryRight(this.caretOffset));
+        return true;
+      }
+      if (event.keyCode === 2012) {           // Ctrl+Up = PREV_PARAGRAPH
+        this.controller.caretPosition(this.paraBoundaryUp(this.caretOffset));
+        return true;
+      }
+      if (event.keyCode === 2013) {           // Ctrl+Down = NEXT_PARAGRAPH
+        this.controller.caretPosition(this.paraBoundaryDown(this.caretOffset));
+        return true;
+      }
+      if (event.keyCode === 2024) {           // Ctrl+H = DELETE_PREV_CHAR
+        return this.deletePrevChar();
+      }
       if (event.keyCode === 2061) {           // KEYCODE_BACKSLASH = DESELECT
         this.collapseSelection();
         return true;
@@ -1975,6 +2017,88 @@ export struct TextBlockOverlay {
     if (this.caretSelectionStart !== this.caretOffset && this.caretOffset >= 0) {
       this.controller.caretPosition(this.caretOffset);
     }
+  }
+
+  // 原版 e0b ctrl 支词/段界导航（LEFT_WORD/RIGHT_WORD/PREV_PARAGRAPH/
+  // NEXT_PARAGRAPH）：原版用 BreakIterator 词界；此处以 Unicode
+  // 字母/数字/下划线为词字符近似——差异已在 evidence 登记。
+  // Compose 语义：LEFT_WORD → 上一词起点；RIGHT_WORD → 下一词终点。
+  private isWordChar(ch: string): boolean {
+    return ch.length > 0 && /[\p{L}\p{N}_]/u.test(ch);
+  }
+
+  private wordBoundaryLeft(offset: number): number {
+    let i: number = Math.max(0, Math.min(offset, this.draftText.length));
+    while (i > 0 && !this.isWordChar(this.draftText.charAt(i - 1))) {
+      i--;
+    }
+    while (i > 0 && this.isWordChar(this.draftText.charAt(i - 1))) {
+      i--;
+    }
+    return i;
+  }
+
+  private wordBoundaryRight(offset: number): number {
+    let i: number = Math.max(0, Math.min(offset, this.draftText.length));
+    const len: number = this.draftText.length;
+    while (i < len && !this.isWordChar(this.draftText.charAt(i))) {
+      i++;
+    }
+    while (i < len && this.isWordChar(this.draftText.charAt(i))) {
+      i++;
+    }
+    return i;
+  }
+
+  // 段界 = \n 分隔：Up → 当前段起点（已在段首则上一段起点）；
+  // Down → 下一段起点（无下一段则文末）。
+  private paraBoundaryUp(offset: number): number {
+    const i: number = Math.max(0, Math.min(offset, this.draftText.length));
+    let start: number = this.draftText.lastIndexOf('\n', i - 1) + 1;
+    if (start === i && start > 0) {
+      start = this.draftText.lastIndexOf('\n', i - 2) + 1;
+    }
+    return start;
+  }
+
+  private paraBoundaryDown(offset: number): number {
+    const i: number = Math.max(0, Math.min(offset, this.draftText.length));
+    const idx: number = this.draftText.indexOf('\n', i);
+    return idx < 0 ? this.draftText.length : idx + 1;
+  }
+
+  // 选区扩展：caretSelectionStart=锚定端、caretOffset=移动端
+  // （onTextSelectionChange 语义）；扩展后保持该语义供连按续扩。
+  private extendCaretSelection(pos: number): void {
+    const anchor: number =
+      this.caretSelectionStart >= 0 ? this.caretSelectionStart : this.caretOffset;
+    const p: number = Math.max(0, Math.min(pos, this.draftText.length));
+    this.controller.setTextSelection(anchor, p);
+    this.caretOffset = p;
+    this.caretSelectionStart = anchor;
+  }
+
+  // 原版 Ctrl+H = DELETE_PREV_CHAR：选区非空删选区，否则删 caret 前一字符。
+  private deletePrevChar(): boolean {
+    const s: number = Math.max(0, Math.min(this.caretSelectionStart, this.caretOffset));
+    const e: number = Math.max(0, Math.max(this.caretSelectionStart, this.caretOffset));
+    const oldText: string = this.draftText;
+    if (e > s) {
+      this.draftText = oldText.slice(0, s) + oldText.slice(e);
+      this.caretOffset = s;
+      this.caretSelectionStart = s;
+      this.controller.caretPosition(s);
+    } else if (s > 0) {
+      this.draftText = oldText.slice(0, s - 1) + oldText.slice(s);
+      this.caretOffset = s - 1;
+      this.caretSelectionStart = s - 1;
+      this.controller.caretPosition(s - 1);
+    } else {
+      return false;
+    }
+    this.adjustCharRunsForEdit(this.draftText, oldText);
+    this.onDraftChange(this.draftText);
+    return true;
   }
 
   private resolveTokens(): ThemeTokens {
