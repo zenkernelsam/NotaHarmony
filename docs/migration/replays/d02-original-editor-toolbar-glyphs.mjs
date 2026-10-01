@@ -34,8 +34,8 @@ KEYS.forEach(k => eq(glyphs.includes(`'${k}':`), `glyph '${k}' present in TOOL_G
   });
 eq(/'eraser_partial': \{ f: `M/.test(glyphs), 'eraser_partial is a fill-only single icon');
 eq(/'eraser_whole': \{ f: ``, o: `M/.test(glyphs), 'eraser_whole is a stroke-only single icon');
-eq(glyphs.split(/\n/).filter(l => /'[a-z_]+': \{/.test(l)).length === 51,
-  'exactly 51 glyphs registered (13 tools + 7 toolbar + 7 nav + 5 page/section + 9 indicators + 2 view-mode + 3 swipe + 5 social)');
+eq(glyphs.split(/\n/).filter(l => /'[a-z_]+': \{/.test(l)).length === 53,
+  'exactly 53 glyphs registered (13 tools + 7 toolbar + 7 nav + 5 page/section + 9 indicators + 2 view-mode + 3 swipe + 5 social + 2 select-mode)');
 
 // m4f five-layer data present for the composite tools (ADR-1305 resolved):
 // h=highlight, s=shadow, v=overlay pathData extracted alongside f/o.

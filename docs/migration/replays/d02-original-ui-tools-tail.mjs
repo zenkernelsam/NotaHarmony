@@ -54,7 +54,7 @@ check(/ui_tools_width',\s*\n?\s*Math\.round/.test(slider),
   '宽度入参 Math.round 整型化');
 check(toolbar.includes("$r('app.string.select_freehand_mode')") &&
   toolbar.includes("$r('app.string.select_rect_mode')") &&
-  /accessibilityText\(this\.viewModel\.selectionIsFreehand/.test(toolbar),
+  toolbar.includes('accessibilityText(modeA11y)'),
   '选区模式钮挂双 a11y 模式描述');
 check(en.includes('"ui_tools_width", "value": "Width: %d"'),
   'en ui_tools_width');

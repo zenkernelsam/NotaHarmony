@@ -602,21 +602,16 @@ export struct EditorToolbar {
         .justifyContent(FlexAlign.Center)
       } else if (this.viewModel.isSelectionActive()) {
         Column() {
-          Row() {
-            Text($r('app.string.selection'))
-            // 原版 jfh：双模式图标的 a11y 描述（Rectangle/Freehand selection）。
-            Button(this.viewModel.selectionIsFreehand ? $r('app.string.freehand') : $r('app.string.rectangle'))
-              .accessibilityText(this.viewModel.selectionIsFreehand ?
-                $r('app.string.select_freehand_mode') : $r('app.string.select_rect_mode'))
-              .height(30)
-              .margin({ left: 12 })
-              .enabled(!this.viewModel.toolStateLoading &&
-                !this.photoImportLeaseActive)
-              .onClick(() => {
-                if (this.photoImportLeaseActive) {
-                  return;
-                }
-                this.viewModel.setSelectionIsFreehand(!this.viewModel.selectionIsFreehand);
+          // 原版 rnm.c：Box/Free 两枚 w5n.b icon+label toggle（间距 8），
+          // 选中态 accent 底，a11y 用 select_*_mode，分别置 rect/freehand。
+          Row({ space: 8 }) {
+            this.SelectionModeButton('selectbox', $r('app.string.select_box_label'),
+              $r('app.string.select_rect_mode'), !this.viewModel.selectionIsFreehand, (): void => {
+                this.viewModel.setSelectionIsFreehand(false);
+              })
+            this.SelectionModeButton('selectfreehand', $r('app.string.select_freehand_label'),
+              $r('app.string.select_freehand_mode'), this.viewModel.selectionIsFreehand, (): void => {
+                this.viewModel.setSelectionIsFreehand(true);
               })
           }
           Row() {
@@ -1331,6 +1326,38 @@ export struct EditorToolbar {
           return;
         }
         this.viewModel.setBrushStyle(style);
+      })
+  }
+
+  // 原版 w5n.b：选择模式 icon+label toggle——icon(j87.H.h/i) + 文本(label)，
+  // 选中态背景取 accent（nta.a.d.a），a11y 取模式描述串。
+  @Builder
+  SelectionModeButton(glyph: string, label: Resource, modeA11y: Resource, selected: boolean, onTap: () => void) {
+    Button() {
+      Row({ space: 4 }) {
+        ToolGlyph({
+          glyph: glyph,
+          contentColor: selected ? this.resolveTokens().onAccent : this.resolveTokens().textPrimary,
+          dark: this.isDark(),
+          iconSize: 18,
+        })
+        Text(label)
+          .fontSize(12)
+          .fontColor(selected ? this.resolveTokens().onAccent : this.resolveTokens().textPrimary)
+      }
+    }
+      .height(30)
+      .borderRadius(4)
+      .padding({ left: 10, right: 10 })
+      .backgroundColor(selected ? this.resolveTokens().accent : this.resolveTokens().control)
+      .accessibilityText(modeA11y)
+      .enabled(!this.viewModel.toolStateLoading &&
+        !this.photoImportLeaseActive)
+      .onClick(() => {
+        if (this.photoImportLeaseActive) {
+          return;
+        }
+        onTap();
       })
   }
 

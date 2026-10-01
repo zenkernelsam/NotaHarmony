@@ -37,13 +37,15 @@ assert.match(selectionStyleButton,
 assert.match(selectionStyleButton,
   /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.onSelectionStyle\(style\);/);
 
-const freehandStart = toolbar.indexOf('            Button(this.viewModel.selectionIsFreehand');
-const freehandEnd = toolbar.indexOf('\n          }', freehandStart);
+const freehandStart = toolbar.indexOf('  SelectionModeButton(glyph');
+const freehandEnd = toolbar.indexOf('\n  }\n', freehandStart);
 const freehandButton = toolbar.slice(freehandStart, freehandEnd);
 assert.match(freehandButton,
   /\.enabled\(!this\.viewModel\.toolStateLoading &&\s+!this\.photoImportLeaseActive\)/);
 assert.match(freehandButton,
-  /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+this\.viewModel\.setSelectionIsFreehand\(/);
+  /if \(this\.photoImportLeaseActive\) \{\s+return;\s+\}\s+onTap\(\);/);
+assert.match(toolbar, /setSelectionIsFreehand\(false\)/);
+assert.match(toolbar, /setSelectionIsFreehand\(true\)/);
 
 for (const tool of ['WHOLE_ERASER', 'PARTIAL_ERASER', 'SELECTION', 'DEFAULT']) {
   const actionStart = toolbar.indexOf(`this.viewModel.selectTool(ToolType.${tool});`, 0);

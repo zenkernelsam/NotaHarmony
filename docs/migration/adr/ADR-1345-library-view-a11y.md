@@ -43,8 +43,10 @@
 - 多选勾选圈播报由 "Select Note" 升级为 "Select note <标题>"。
 - 登记不实现（证据已归档于 evidence/phase-1409）：
   - `wbn` 笔记卡滑动动作（favorite/delete swipe，`z3` 门控）——
-    可实现但属交互面新特性且 delete 为破坏操作，留后续 Phase；
-  - `mo2` 设置侧选择面（无对应 Harmony 面）；
+    **Phase 1410 已移植**（见 phase-1410-library-swipe-actions）；
+  - `mo2` 设置侧选择面（当时判定"无对应 Harmony 面"；**Phase 1418
+    已解除**：RecentlyDeletedPage 即原版宿主，选择制界面已按
+    p6e/wrl/v5e 证据移植 —— 见 ADR-1354）；
   - `ui_templates__repeat_template` 死串（1.4.2 全源码零引用）；
   - save-as-template 页范围选择 / Gallery 搜索 / flashcard 导入 /
     日历 Coming-up——均为后端/系统服务依赖，保持 fail-closed。

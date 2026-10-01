@@ -616,14 +616,6 @@
       "value": "Shapes"
     },
     {
-      "name": "freehand",
-      "value": "Freehand"
-    },
-    {
-      "name": "rectangle",
-      "value": "Rectangle"
-    },
-    {
       "name": "previous_page",
       "value": "Previous Page"
     },
@@ -1708,6 +1700,8 @@
     { "name": "ui_tools_width", "value": "Width: %d" },
     { "name": "select_rect_mode", "value": "Rectangle selection" },
     { "name": "select_freehand_mode", "value": "Freehand selection" },
+    { "name": "select_box_label", "value": "Box" },
+    { "name": "select_freehand_label", "value": "Free" },
     { "name": "import_arrange", "value": "Arrange" },
     { "name": "import_move_up", "value": "Move up" },
     { "name": "import_move_down", "value": "Move down" },
