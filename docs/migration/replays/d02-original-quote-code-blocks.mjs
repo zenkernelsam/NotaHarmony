@@ -125,7 +125,8 @@ check(renderer.includes('private applyCodeBlockFace(characterStyles: RichTextCha
   renderer.includes("codeStyle.familyName = 'monospace'"),
   'code-block monospace face (sq4 token)');
 // Phase 1395：measureTextHeight（text-only 流式量高）也应用同一 face → 5 处。
-check((renderer.match(/this\.applyCodeBlockFace\(characterStyles, paragraphStyles, characters\.length,[\s\S]{0,40}element\.fontSize\)/g) ?? []).length === 5,
+// Phase 1397：签名 length:number → characters:string[]（着色需逐段切分文本）。
+check((renderer.match(/this\.applyCodeBlockFace\(characterStyles, paragraphStyles, characters,[\s\S]{0,40}element\.fontSize\)/g) ?? []).length === 5,
   'face applied in all five measure/render paths');
 check(renderer.includes('if (paragraph.decoratorStyle === 5) {') &&
   renderer.includes('ctx.fillRect(element.textOrigin.x, baseline - bandFontSize,') &&

@@ -7,6 +7,9 @@ import { Canvas2DDrawingContext } from './Canvas2DStrokeRenderer';
 import { OriginalPaperFlair, PagePaperBackground } from '../model/NoteTypes';
 import { Point2D, Rect2D } from '../model/GeometryTypes';
 import { textBlockLocalBounds } from '../model/TextBlockGeometry';
+import {
+  codeBlockHighlightSpans, CodeStyleSpan,
+} from './CodeSyntaxHighlighter';
 
 const TEXT_PAPER_POINTS_TO_UNITS: number = 96 / 72;
 
@@ -40,7 +43,7 @@ export class Canvas2DTextRenderer {
       characters.length, element.characterStyleRuns);
     const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
       characters.length, element.paragraphStyleRuns);
-    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length,
+    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters,
       element.fontSize);
     let maximum: number = Math.max(1, element.contentLeftInset +
       (element.contentRightInset ?? element.contentLeftInset));
@@ -88,7 +91,7 @@ export class Canvas2DTextRenderer {
       characters.length, element.characterStyleRuns);
     const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
       characters.length, element.paragraphStyleRuns);
-    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length,
+    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters,
       element.fontSize);
     const lines: TextLayoutLine[] = this.layoutLines(ctx, characters, characterStyles, element);
     let height: number = element.contentTopInset;
@@ -124,7 +127,7 @@ export class Canvas2DTextRenderer {
         characters.length, element.characterStyleRuns);
       const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
         characters.length, element.paragraphStyleRuns);
-      this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length,
+      this.applyCodeBlockFace(characterStyles, paragraphStyles, characters,
       element.fontSize);
       let baseline: number = element.textOrigin.y + element.contentTopInset +
       this.paragraphFontSize(element, paragraphStyles[0] ?? {});
@@ -293,7 +296,7 @@ export class Canvas2DTextRenderer {
       characters.length, element.characterStyleRuns);
     const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
       characters.length, element.paragraphStyleRuns);
-    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length,
+    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters,
       element.fontSize);
     let baseline: number = element.textOrigin.y + element.contentTopInset +
       this.paragraphFontSize(element, paragraphStyles[0] ?? {});
@@ -370,7 +373,7 @@ export class Canvas2DTextRenderer {
       characters.length, element.characterStyleRuns);
     const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
       characters.length, element.paragraphStyleRuns);
-    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters.length,
+    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters,
       element.fontSize);
     let baseline: number = element.textOrigin.y + element.contentTopInset +
       this.paragraphFontSize(element, paragraphStyles[0] ?? {});
@@ -765,8 +768,9 @@ export class Canvas2DTextRenderer {
   // 改写作用于字形级样式数组，使 measure/layout/render/hit 各处度量一致；
   // 段内显式 run 字号保留（span 自带尺寸不被段基收缩覆盖）。
   private applyCodeBlockFace(characterStyles: RichTextCharacterStyle[],
-    paragraphStyles: RichTextParagraphStyle[], length: number,
+    paragraphStyles: RichTextParagraphStyle[], characters: string[],
     baseFontSize: number): void {
+    const length: number = characters.length;
     for (let index: number = 0; index < length; index++) {
       if (paragraphStyles[index].decoratorStyle === 5) {
         const codeStyle: RichTextCharacterStyle =
@@ -777,6 +781,34 @@ export class Canvas2DTextRenderer {
         }
         characterStyles[index] = codeStyle;
       }
+    }
+    // 原版 o3i.c/a（ADR-1333）：CODE_BLOCK 段落按 programmingLanguage 分词，
+    // token span 仅覆盖 foregroundColor（uog 仅设 color），不改持久化 run；
+    // 未分词区间保留原 foregroundColor/fontColor。
+    let paragraphStart: number = 0;
+    for (let index: number = 0; index <= length; index++) {
+      if (index < length && characters[index] !== '\n') {
+        continue;
+      }
+      const paragraph: RichTextParagraphStyle = paragraphStyles[Math.min(
+        paragraphStart, Math.max(0, length - 1))] ?? {};
+      const language: string | undefined = paragraph.programmingLanguage;
+      if (paragraph.decoratorStyle === 5 && language !== undefined &&
+        language.length > 0 && index > paragraphStart) {
+        const spans: CodeStyleSpan[] = codeBlockHighlightSpans(
+          characters.slice(paragraphStart, index).join(''), language);
+        for (const span of spans) {
+          const spanEnd: number = Math.min(span.end, index - paragraphStart);
+          for (let i: number = span.start; i < spanEnd; i++) {
+            const codeStyle: RichTextCharacterStyle =
+              JSON.parse(JSON.stringify(characterStyles[paragraphStart + i])) as
+                RichTextCharacterStyle;
+            codeStyle.foregroundColor = span.color;
+            characterStyles[paragraphStart + i] = codeStyle;
+          }
+        }
+      }
+      paragraphStart = index + 1;
     }
   }
 
