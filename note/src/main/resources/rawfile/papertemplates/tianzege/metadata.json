@@ -1,0 +1,8 @@
+{
+    "uuid": "CAA5A908-AA6D-44C5-91FC-AE6FC09493D4",
+    "name": "Tianzege",
+    "paperSizes": ["letter","legal","tabloid","a3","a4","a5"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#f8f1bf","#000000"],
+    "category": "notepads"
+}

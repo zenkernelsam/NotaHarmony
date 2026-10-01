@@ -1,0 +1,10 @@
+{
+    "uuid": "2b734962-17df-4abc-b76a-e9ab36058872",
+    "name": "Self Care Checklist",
+    "paperSizes": ["letter","a4"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff"],
+    "category": "selfCare",
+    "displayIndex": 6,
+    "personaTypes": ["PERSONAL"]
+}

@@ -1,0 +1,9 @@
+{
+    "uuid": "3ACFD3E3-C525-471D-894B-D2F4ACC650B2",
+    "name": "Music Staves",
+    "paperSizes": ["letter","legal","tabloid","a3","a4","a5"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#000000"],
+    "category": "creative",
+    "displayIndex": 4
+}

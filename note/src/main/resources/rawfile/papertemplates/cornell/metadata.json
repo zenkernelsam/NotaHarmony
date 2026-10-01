@@ -1,0 +1,8 @@
+{
+    "uuid": "9593C04C-E38E-4510-BE1F-F07A754A226D",
+    "name": "Cornell Note",
+    "paperSizes": ["a3", "a4", "a5", "letter", "tabloid", "legal"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff", "#000000", "#f8f1bf"],
+    "category": "notepads"
+}

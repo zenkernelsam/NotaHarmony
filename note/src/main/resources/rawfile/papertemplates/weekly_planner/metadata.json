@@ -1,0 +1,9 @@
+{
+    "uuid": "f2dcf609-2e50-42c3-9c8b-abff178b70f5",
+    "name": "Weekly Planner",
+    "paperSizes": ["letter", "a5"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#000000"],
+    "category": "academic",
+    "personaTypes": ["BUSINESS","EDUCATOR","PERSONAL","STUDENT"]
+}

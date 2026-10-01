@@ -1,0 +1,8 @@
+{
+    "uuid": "399840B1-76B9-4627-B257-036376FDE06B",
+    "name": "Hexagonal Grid",
+    "paperSizes": ["letter","legal","tabloid","a3","a4","a5"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#f8f1bf","#000000"],
+    "category": "notepads"
+}

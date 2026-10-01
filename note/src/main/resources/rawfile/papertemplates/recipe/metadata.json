@@ -1,0 +1,9 @@
+{
+    "uuid": "F3CF4B21-0037-4852-A6D7-BF11DA7EFBF3",
+    "name": "Recipe",
+    "paperSizes": ["letter","a4"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#000000"],
+    "category": "creative",
+    "displayIndex": 3
+}

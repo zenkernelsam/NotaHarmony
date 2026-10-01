@@ -1,0 +1,8 @@
+{
+    "uuid": "A2DC9CDF-A945-424B-B466-58F11F1E36BD",
+    "name": "Mizige",
+    "paperSizes": ["letter","legal","tabloid","a3","a4","a5"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#f8f1bf","#000000"],
+    "category": "notepads"
+}

@@ -1,0 +1,10 @@
+{
+    "uuid": "8ab80203-3ad0-431d-af91-3cfa0997f7be",
+    "name": "Daily Gratitude",
+    "paperSizes": ["letter","a4"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff"],
+    "category": "selfCare",
+    "displayIndex": 2,
+    "personaTypes": ["PERSONAL"]
+}

@@ -1,0 +1,9 @@
+{
+    "uuid": "ee151a64-395e-4027-bc4b-5d68b18045e0",
+    "name": "Semester Overview",
+    "paperSizes": ["letter", "a5"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#000000"],
+    "category": "academic",
+    "personaTypes": ["EDUCATOR","STUDENT"]
+}

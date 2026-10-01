@@ -1,0 +1,10 @@
+{
+    "uuid": "1a013587-9ed1-4ff8-806a-ae576a0b48fa",
+    "name": "Sleep Journal",
+    "paperSizes": ["letter","a4"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff"],
+    "category": "selfCare",
+    "displayIndex": 7,
+    "personaTypes": ["PERSONAL"]
+}

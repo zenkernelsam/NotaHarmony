@@ -1,0 +1,8 @@
+{
+    "uuid": "94B5A924-F3A1-4C18-847B-0BA874D57743",
+    "name": "Engineering Grid",
+    "paperSizes": ["letter","legal","tabloid","a3","a4","a5"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#f8f1bf","#000000"],
+    "category": "notepads"
+}

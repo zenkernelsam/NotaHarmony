@@ -1,0 +1,10 @@
+{
+    "uuid": "8dfc7573-79eb-4bdf-abdf-afdfd9aa4cdf",
+    "name": "Daily Tasks",
+    "paperSizes": ["letter","a4"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff"],
+    "category": "selfCare",
+    "displayIndex": 3,
+    "personaTypes": ["BUSINESS","EDUCATOR","PERSONAL","STUDENT"]
+}

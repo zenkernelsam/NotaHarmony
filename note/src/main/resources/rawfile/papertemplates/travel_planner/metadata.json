@@ -1,0 +1,10 @@
+{
+    "uuid": "7facb20a-f43b-4aca-a726-6b498ef4cade",
+    "name": "Travel Planner",
+    "paperSizes": ["letter"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#000000"],
+    "category": "planning",
+    "displayIndex": 4,
+    "personaTypes": ["BUSINESS","PERSONAL"]
+}

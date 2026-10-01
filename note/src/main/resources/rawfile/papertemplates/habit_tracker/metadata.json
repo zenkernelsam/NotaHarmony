@@ -1,0 +1,10 @@
+{
+    "uuid": "c89027c9-d055-4591-bc2e-86bc57d37151",
+    "name": "Habit Tracker",
+    "paperSizes": ["letter","a4"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff"],
+    "category": "selfCare",
+    "displayIndex": 4,
+    "personaTypes": ["PERSONAL","STUDENT"]
+}

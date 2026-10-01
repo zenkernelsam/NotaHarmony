@@ -1,0 +1,8 @@
+{
+    "uuid": "608f4e09-99c9-47cc-8199-64db123f2c2f",
+    "name": "Study Session Planner",
+    "paperSizes": ["letter", "a5"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#000000"],
+    "category": "academic"
+}

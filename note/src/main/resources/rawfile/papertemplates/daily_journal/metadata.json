@@ -1,0 +1,10 @@
+{
+    "uuid": "5791a20b-6efc-4bd7-bdda-9c198d13a5ac",
+    "name": "Daily Journal",
+    "paperSizes": ["letter","a4"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff"],
+    "category": "selfCare",
+    "displayIndex": 5,
+    "personaTypes": ["PERSONAL"]
+}

@@ -1,0 +1,9 @@
+{
+    "uuid": "d0ea99dc-2b55-4103-b4b0-723e55f981d9",
+    "name": "Assignment Planner",
+    "paperSizes": ["letter", "a5"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#000000"],
+    "category": "academic",
+    "personaTypes": ["EDUCATOR","STUDENT"]
+}

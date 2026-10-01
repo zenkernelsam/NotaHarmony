@@ -1,0 +1,8 @@
+{
+    "uuid": "0be3191d-6ab4-4a67-aef2-4573e5ced336",
+    "name": "Three Column",
+    "paperSizes": ["letter", "a4"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#000000"],
+    "category": "notepads"
+}

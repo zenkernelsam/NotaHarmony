@@ -1,0 +1,8 @@
+{
+    "uuid": "d0575e3d-aa8c-4378-ad1b-00f56b8a05a8",
+    "name": "Isometric",
+    "paperSizes": ["letter", "a4"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#000000"],
+    "category": "notepads"
+}

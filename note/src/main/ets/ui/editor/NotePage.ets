@@ -31,6 +31,9 @@ import { NoteExporter } from '../../data/NoteExporter';
 import { PageImageExporter, ShareImageFormat } from '../../data/PageImageExporter';
 import { PagePdfExporter, PdfPageImage, PdfZipRecordingSource } from '../../data/PagePdfExporter';
 import { PageOverviewPanel } from './PageOverviewPanel';
+import { PaperTemplateGallery } from './PaperTemplateGallery';
+import { BundledPaperVariant } from '../../core/model/PaperTemplateCatalog';
+import { buildBundledTemplatePageBackground } from '../../data/BundledPaperTemplateApply';
 import { ImportFileDescriptor, ImportPlan, ImportReport, ImportResult, ImportSheetPrompt, NoteImporter, PdfPasswordPrompt } from '../../data/NoteImporter';
 import { PdfPasswordDialog } from '../components/PdfPasswordDialog';
 import { ImportDetailsSheet } from '../components/ImportDetailsSheet';
@@ -167,6 +170,8 @@ struct NotePage {
   // Phase 645 页面管理面板（原版 qd2 页总览）：开关态 + 内容修订种子
   // —— onUndoRedoChanged 与页结构变更驱动缩略图重渲染。
   @State showPageOverview: boolean = false;
+  // 原版 jm4 空笔记第五动作 Templates → x2n/u7n.e 模板面（Phase 1401）。
+  @State showTemplateGallery: boolean = false;
   @State pageContentVersion: number = 0;
   @State pageLoadFailed: boolean = false;
   // Original u49.a / vc9 states: open-time failures surface as a terminal
@@ -2105,6 +2110,14 @@ struct NotePage {
                   this.docScanOpen = true;
                 })
               }
+              // 原版 jm4 第四动作位 = Templates（capture 在其后）。
+              this.EmptyNoteActionChip($r('app.string.empty_note_templates'), (): void => {
+                if (this.photoImportLeaseActive || this.pageOperationBusy ||
+                  this.historyPending || this.pageStructureLeaseActive) {
+                  return;
+                }
+                this.showTemplateGallery = true;
+              })
               this.EmptyNoteActionChip($r('app.string.empty_note_capture_add'), (): void => {
                 if (this.photoImportLeaseActive || this.pageOperationBusy ||
                   this.historyPending || this.pageStructureLeaseActive) {
@@ -2221,6 +2234,12 @@ struct NotePage {
     // 原版 content-manager 面板（gs8 case2 顶栏开关 → qd2 页总览）：
     // bindSheet 承载页面缩略图栅格。
     .bindSheet(this.showPageOverview, this.buildPageOverview(), {
+      height: SheetSize.LARGE,
+      showClose: false,
+    })
+    // 原版 x2n 模板面（空笔记 Templates 动作 → PaperTemplateGallery）：
+    // bindSheet 承载分类目模板栅格；点选落当前页背景寄存器。
+    .bindSheet(this.showTemplateGallery, this.buildTemplateGallery(), {
       height: SheetSize.LARGE,
       showClose: false,
     })
@@ -2420,6 +2439,29 @@ struct NotePage {
     })
   }
 
+  @Builder
+  buildTemplateGallery() {
+    PaperTemplateGallery({
+      database: DatabaseManager.getInstance(),
+      pageSize: this.pages.length > 0 && this.currentPageIndex >= 0 &&
+        this.currentPageIndex < this.pages.length ?
+        this.pages[this.currentPageIndex].size : this.noteBackground.size,
+      pageOrientation: this.pages.length > 0 && this.currentPageIndex >= 0 &&
+        this.currentPageIndex < this.pages.length ?
+        this.pages[this.currentPageIndex].orientation : this.noteBackground.orientation,
+      backgroundColorHex: this.currentPaperColorHex6(),
+      busy: this.pageOperationBusy || this.photoImportLeaseActive ||
+        this.historyPending || this.pageStructureLeaseActive,
+      onSelectVariant: (variant: BundledPaperVariant): void => {
+        this.runPageOperation(
+          async (): Promise<void> => this.applyBundledPaperTemplate(variant));
+      },
+      onRequestClose: (): void => {
+        this.showTemplateGallery = false;
+      },
+    })
+  }
+
   // 原版 n9j cell 菜单 → fd2 dispatch：面板内页操作按页键作用于目标
   // 页（不先导航）。clear 仅当前页可经画布信号清空，其余操作全部走
   // runPageOperation 门禁 + 参数化页操作实现。
@@ -2597,6 +2639,75 @@ struct NotePage {
       return;
     }
     this.noteBackground = materialized;
+    if (this.historyBridge !== null) {
+      this.historyBridge.pushPageAction(action, history);
+    }
+  }
+
+  // 原版 wfc 当前页上下文 hex6：优先当前页 paper RGB，回退笔记背景纸色，
+  // 最终退原版 p52.e 等价白色 'ffffff'（pgc.a 对非法 hex 返回 null）。
+  private currentPaperColorHex6(): string {
+    const toHex = (r: number, g: number, b: number): string => {
+      const c = (v: number): string =>
+        Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+      return c(r) + c(g) + c(b);
+    };
+    const pagePaper = this.pages[this.currentPageIndex]?.background?.paper;
+    if (pagePaper !== undefined && pagePaper !== null &&
+      pagePaper.colorR !== null && pagePaper.colorG !== null &&
+      pagePaper.colorB !== null) {
+      return toHex(pagePaper.colorR, pagePaper.colorG, pagePaper.colorB);
+    }
+    const notePaper = this.noteBackground.background.paper;
+    if (notePaper !== null && notePaper.colorR !== null && notePaper.colorG !== null &&
+      notePaper.colorB !== null) {
+      return toHex(notePaper.colorR, notePaper.colorG, notePaper.colorB);
+    }
+    return 'ffffff';
+  }
+
+  // 原版 rsh.q(chc) → a1d Preset → f1d/sqc.b：暂存打包 PDF → 资产库 →
+  // 当前页 background.pdf 寄存器（pagesConsumed=1/pageInAsset=0，
+  // FIT_AND_CROP_BOX），撤销登记 PageSettingsAction（同 rotatePageAt）。
+  private async applyBundledPaperTemplate(variant: BundledPaperVariant): Promise<void> {
+    if (this.pageRepo === null || this.currentPageIndex < 0 ||
+      this.currentPageIndex >= this.pages.length) {
+      return;
+    }
+    const context = getContext(this) as common.UIAbilityContext;
+    const database: DatabaseManager = DatabaseManager.getInstance();
+    const result = await buildBundledTemplatePageBackground(
+      context, database, this.noteId, variant);
+    if (result.background === null || this.editorDisposed) {
+      throw new Error(`bundled template apply failed: ${result.error}`);
+    }
+    const before: PageInfo = this.clonePage(this.pages[this.currentPageIndex]);
+    const applied: PageInfo = this.clonePage(before);
+    applied.background = result.background;
+    const action: PageSettingsAction = {
+      type: UndoableActionType.PAGE_SETTINGS,
+      noteId: this.noteId,
+      pageId: before.pageId,
+      pageBefore: before,
+      pageAfter: applied,
+    };
+    const history: HistoryMetadata | undefined = this.historyBridge === null
+      ? undefined : this.historyBridge.preparePageAction(action);
+    await this.pageRepo.updatePage(applied, history);
+    if (this.editorDisposed) {
+      return;
+    }
+    this.pages = await this.pageRepo.getPages(this.noteId);
+    if (this.editorDisposed) {
+      return;
+    }
+    const materialized: PageInfo | undefined = this.pages.find(
+      (page: PageInfo): boolean => page.pageId === before.pageId);
+    if (materialized !== undefined) {
+      action.pageAfter = this.clonePage(materialized);
+    }
+    this.selectPageById(before.pageId);
+    this.showTemplateGallery = false;
     if (this.historyBridge !== null) {
       this.historyBridge.pushPageAction(action, history);
     }

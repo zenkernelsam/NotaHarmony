@@ -1,0 +1,10 @@
+{
+    "uuid": "edd54703-7475-4d65-926e-23f6f8f5bb74",
+    "name": "Daily Goals",
+    "paperSizes": ["letter","a4"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff"],
+    "category": "selfCare",
+    "displayIndex": 1,
+    "personaTypes": ["BUSINESS","PERSONAL","STUDENT"]
+}

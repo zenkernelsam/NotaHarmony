@@ -1,0 +1,8 @@
+{
+    "uuid": "14DD41F1-29A4-4058-9560-07AD2F10BB1A",
+    "name": "College Rule",
+    "paperSizes": ["letter","legal","tabloid","a3","a4","a5"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#f8f1bf","#000000"],
+    "category": "notepads"
+}

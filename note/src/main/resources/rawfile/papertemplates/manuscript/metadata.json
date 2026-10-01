@@ -1,0 +1,8 @@
+{
+    "uuid": "22DEBB9E-5363-4C79-A229-AA2DE7F43FD0",
+    "name": "Manuscript",
+    "paperSizes": ["letter","legal","tabloid","a3","a4","a5"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#f8f1bf","#000000"],
+    "category": "notepads"
+}

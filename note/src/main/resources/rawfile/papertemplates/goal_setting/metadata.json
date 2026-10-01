@@ -1,0 +1,10 @@
+{
+    "uuid": "7DB663B6-6A16-46ED-A443-099674CD139E",
+    "name": "Goal Setting",
+    "paperSizes": ["letter","a4"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#000000"],
+    "category": "planning",
+    "displayIndex": 7,
+    "personaTypes": ["BUSINESS","EDUCATOR","PERSONAL","STUDENT"]
+}

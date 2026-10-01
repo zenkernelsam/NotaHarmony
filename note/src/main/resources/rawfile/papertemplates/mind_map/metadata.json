@@ -1,0 +1,9 @@
+{
+    "uuid": "3447579d-e17c-4907-9de5-c89cea89e921",
+    "name": "Mind Map",
+    "paperSizes": ["letter", "a5"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#000000"],
+    "category": "academic",
+    "personaTypes": ["BUSINESS","EDUCATOR","STUDENT"]
+}

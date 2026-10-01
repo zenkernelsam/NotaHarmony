@@ -1,0 +1,10 @@
+{
+    "uuid": "4A3C9578-ED36-48B5-81DB-D510C714DDBE",
+    "name": "Monthly Finance Tracker",
+    "paperSizes": ["letter","a4"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#000000"],
+    "category": "planning",
+    "displayIndex": 9,
+    "personaTypes": ["BUSINESS","PERSONAL"]
+}

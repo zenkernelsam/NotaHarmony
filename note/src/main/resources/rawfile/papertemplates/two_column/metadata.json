@@ -1,0 +1,9 @@
+{
+    "uuid": "203f7870-eaf1-4981-8c9e-93db905a574d",
+    "name": "Two Column",
+    "paperSizes": ["letter", "a4"],
+    "defaultPaperSize": "letter",
+    "colors": ["#ffffff","#000000"],
+    "category": "notepads",
+    "personaTypes": ["BUSINESS","EDUCATOR","STUDENT"]
+}
