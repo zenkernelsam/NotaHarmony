@@ -71,7 +71,15 @@ ok(overlay.includes('DUPLICATE = 14') &&
 // assumption; wqf dsc names map 1:1 to wqf letters).
 const menuStart = overlay.indexOf('private buildSelectionMenu()');
 ok(menuStart >= 0, 'Harmony buildSelectionMenu missing');
-const menuBody = overlay.slice(menuStart);
+let menuBody = overlay.slice(menuStart);
+// Phase 1441: the lockedOnly early-return row (urf z-branch single-item
+// [UNLOCK] menu) dispatches SelectionMenuAction.LOCK and sits before the
+// sequential assembly — strip it so the order-walk sees only flat rows.
+const lockOnlyAt = menuBody.indexOf('if (this.lockedOnly) {');
+ok(lockOnlyAt >= 0, 'lockedOnly early-return row missing');
+const lockOnlyEnd = menuBody.indexOf('return items;', lockOnlyAt);
+ok(lockOnlyEnd >= 0, 'lockedOnly block end missing');
+menuBody = menuBody.slice(0, lockOnlyAt) + menuBody.slice(lockOnlyEnd);
 const harmonyOrder = [
   'SelectionMenuAction.CROP', 'SelectionMenuAction.EDIT_MATH',
   'SelectionMenuAction.STYLE', 'SelectionMenuAction.COPY',

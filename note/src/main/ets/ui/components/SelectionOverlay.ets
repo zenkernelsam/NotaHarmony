@@ -141,7 +141,7 @@ export struct SelectionOverlay {
       // LOCK 合并行在 positionLocked=true 时渲染 Unlock 标签/图标（ADR-0586）。
       if (this.lockedOnly) {
         items.push({ value: $r('app.string.unlock'), icon: $r('app.media.selmenu_unlock'),
-          action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Lock clicked'); this.onMenuAction(SelectionMenuAction.LOCK); } });
+          action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Unlock clicked'); this.onMenuAction(SelectionMenuAction.LOCK); } });
         return items;
       }
       // 原版 urf 装配序：实体专属动作先行——CROP（lsf/l97 图像）→
@@ -172,7 +172,16 @@ export struct SelectionOverlay {
     // GROUP|UNGROUP?/LOCK|UNLOCK?/DESELECT?/DELETE/MORE?；MORE 子菜单
     // （arrayList2）序=FLIP_H/FLIP_V/CONVERT_TO_MATH/CONVERT_TO_TEXT/
     // SAVE_AS_STICKER/SEND_TO_FRONT/SEND_TO_BACK/SEND_FORWARD/SEND_BACKWARD。
-    // (*原版 dhb case15 即 throw NotImplementedError——FIT_TO_PAGE 上游即死项)
+    // P1442 终局裁决（1.4.2 urf/wqf 精证）：
+    //   CONVERT_TO_MATH(Q)=h45.b(h35.e0)=td5 androidMathHandwritingRecognition
+    //     defaults=false → 生产旗关 + iink 私有识别引擎，双重 fail-closed；
+    //   CONVERT_TO_TEXT(R)=全选成员 mn7 笔画且任一 oim.b(k!=HIGHLIGHTER) 即出行，
+    //     但分发链入 MyScript iink → fail-closed（行缺省即正确）；
+    //   SAVE_AS_STICKER(T)=h45.b(h35.z0)=STICKERS rd5 InternalUserOnly →
+    //     生产恒不可达；
+    //   FIT_TO_PAGE：wqfVar17 枚举体从未赋静态字段（urf 无 add 点、
+    //     m36 case16 死渲染支；1.0.3 dhb case15 亦 NotImplementedError）
+    //     → 原版即死项。
     // ADR-0645 全表登记：CONVERT_* 走 MyScript iink（xsc.p() 后端门禁，
     // Harmony 无生产 OCR provider → fail-closed 缺省）；SAVE_AS_STICKER
     // 挂 h35.z0=STICKERS rd5 InternalUserOnly（P1436 ADR-1371）；LOCK 行
