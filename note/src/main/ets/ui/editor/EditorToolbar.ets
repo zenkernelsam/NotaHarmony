@@ -1,6 +1,6 @@
 // T-019 编辑器工具栏（工具切换 + 颜色/粗细面板 + Undo/Redo + 工具图标）
 // T-038：工具栏 surface 随主题
-import { BrushStyle, ToolState, ToolType } from '../../core/model/BrushTypes';
+import { BrushStyle, ShapeKind, ToolState, ToolType } from '../../core/model/BrushTypes';
 import { PageInfo } from '../../core/model/NoteTypes';
 import { EditorViewModel } from './EditorViewModel';
 import { ToolboxSettingsDialog, toolTypeLabel } from './ToolboxSettingsDialog';
@@ -10,6 +10,7 @@ import { STROKE_INDICATORS, StrokeIndicatorPaths } from '../components/StrokeInd
 import { BRUSH_STYLE_GLYPHS, BrushStyleGlyph } from '../components/BrushStyleGlyphs';
 import { WidthSlider } from '../components/WidthSlider';
 import { CalligraphyNibPanel } from '../components/CalligraphyNibPanel';
+import { SHAPE_KIND_ORDER, ShapeKindSwatch } from './ShapeKindPicker';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { common } from '@kit.AbilityKit';
@@ -28,6 +29,9 @@ export struct EditorToolbar {
   @State compact: boolean = false;
   @State showToolSettings: boolean = false;
   @State showShareSheet: boolean = false;
+  // 1.4.2 iw4 case8：SHAPE 次级条种类行展开态——记录发起展开的 SHAPE 工具 id，
+  // 工具切换（id 不等）即回到折叠态，对应原版 nri 会话作用域。
+  @State shapeKindExpandedFor: string = '';
   // 原版 v6d.l 页选择集合（Set<Integer>，null=全部页）：非 null 即
   // 显式子集；b7d.q(i,z) 的 toggle 语义由 toggleSharePage 承载。
   @State sharePageIndexes: number[] | null = null;
@@ -537,7 +541,7 @@ export struct EditorToolbar {
         .padding({ top: 8 })
       }
       // 1.4.2 k31.E()：STYLE 样式行仅 n5h 工具（PEN/HIGHLIGHTER）显示；CALLIGRAPHY
-      // 改显凿尖 nib 面板（ij1），SHAPE/PENCIL/REVIEW 均无 STYLE 行。
+      // 改显凿尖 nib 面板（ij1），PENCIL/REVIEW 无 STYLE 行。
       if (this.viewModel.isCalligraphyActive()) {
         Row() {
           CalligraphyNibPanel({
@@ -548,6 +552,49 @@ export struct EditorToolbar {
           .width('100%')
           .justifyContent(FlexAlign.Center)
           .padding({ top: 8 })
+      } else if (this.viewModel.isShapeActive()) {
+        // 1.4.2 iw4 case8（psi）→ qri.a：折叠态 = h5g.c 当前种类 48×48 图标钮，
+        // 点击发 jri 展开为 h5g.a 六类图标行（选中格 accent 底+描边，
+        // a11y 用 ui_tools__shape_*）。展开态随 nri 会话结束复位——本实现以
+        // shapeKindExpandedFor 记激活 SHAPE 工具 id，工具切换即回收。
+        Row() {
+          if (this.shapeKindExpandedFor === this.viewModel.activeShapeToolId()) {
+            ForEach(SHAPE_KIND_ORDER, (kind: ShapeKind) => {
+              ShapeKindSwatch({
+                kind: kind,
+                shapeColor: this.viewModel.brushColor,
+                selected: this.viewModel.activeShapeKind === kind,
+                accent: this.resolveTokens().accent,
+                compact: true,
+                onPick: (): void => {
+                  if (this.photoImportLeaseActive) {
+                    return;
+                  }
+                  this.viewModel.setActiveShapeKind(kind).catch((e: Object): void => {
+                    console.error(`shape kind pick failed: ${JSON.stringify(e)}`);
+                  });
+                },
+              })
+            }, (kind: ShapeKind): string => 'shapeStrip:' + kind.toString())
+          } else {
+            ShapeKindSwatch({
+              kind: this.viewModel.activeShapeKind,
+              shapeColor: this.viewModel.brushColor,
+              selected: false,
+              accent: this.resolveTokens().accent,
+              compact: true,
+              onPick: (): void => {
+                if (this.photoImportLeaseActive) {
+                  return;
+                }
+                this.shapeKindExpandedFor = this.viewModel.activeShapeToolId();
+              },
+            })
+          }
+        }
+          .width('100%')
+          .height(40)
+          .justifyContent(FlexAlign.Center)
       } else if (this.viewModel.supportsBrushStyleControls()) {
         Row() {
           this.StyleButton($r('app.string.style_mono'), BrushStyle.MONO)

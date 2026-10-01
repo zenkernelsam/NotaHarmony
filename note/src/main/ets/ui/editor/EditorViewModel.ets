@@ -380,6 +380,26 @@ export class EditorViewModel {
     });
   }
 
+  // 1.4.2 iw4 case8 / dwi：SHAPE 次级条的种类写回走当前激活 SHAPE 行。
+  // 状态未加载/无 SHAPE 行时返回空串——渲染路径不得抛。
+  activeShapeToolId(): string {
+    const state: ToolState | null = this.findFirstType(this.states, ToolType.SHAPE);
+    if (state === null) {
+      return '';
+    }
+    const active: ToolState | null = this.findById(this.activeToolId);
+    return active !== null && active.toolType === ToolType.SHAPE ?
+      active.toolId : state.toolId;
+  }
+
+  async setActiveShapeKind(kind: ShapeKind): Promise<boolean> {
+    const toolId: string = this.activeShapeToolId();
+    if (toolId.length === 0) {
+      return false;
+    }
+    return this.setToolShapeKind(toolId, kind);
+  }
+
   // 1.4.2 ij1/pxi case0 (wp int)：凿尖角滑块以度数偏移提交，内部存弧度
   // nibAngle = π/2 + radians(offset)。作用于激活的 CALLIGRAPHY 工具。
   async setCalligraphyNibAngle(angleRadians: number): Promise<boolean> {

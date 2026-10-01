@@ -19,7 +19,7 @@ import { ToolGlyph } from '../components/ToolGlyph';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 
 // r5g 声明序（ordinal 0..5）。
-const SHAPE_KIND_ORDER: ShapeKind[] = [
+export const SHAPE_KIND_ORDER: ShapeKind[] = [
   ShapeKind.RECTANGLE, ShapeKind.ELLIPSE, ShapeKind.DIAMOND,
   ShapeKind.TRIANGLE, ShapeKind.ARROW, ShapeKind.LINE,
 ];
@@ -36,13 +36,16 @@ function shapeKindLabel(kind: ShapeKind): Resource {
   }
 }
 
+// 1.4.2 h5g.b：编辑器次级条的 48×48 图标格（compact 时无文字标签，
+// a11y 仍用 ui_tools__shape_* 名）。
 @Component
-struct ShapeKindSwatch {
+export struct ShapeKindSwatch {
   kind: ShapeKind = ShapeKind.RECTANGLE;
   shapeColor: number = -16777216;
   selected: boolean = false;
   accent: string = '#0A59F7';
   textColor: string = '#000000';
+  compact: boolean = false;
   onPick: () => void = () => {
   };
   private settings: RenderingContextSettings = new RenderingContextSettings(true);
@@ -69,20 +72,25 @@ struct ShapeKindSwatch {
   build() {
     Column() {
       Canvas(this.ctx)
-        .width(56)
-        .height(40)
+        .width(this.compact ? 36 : 56)
+        .height(this.compact ? 36 : 40)
         .borderRadius(4)
         .border({ width: this.selected ? 2 : 1,
           color: this.selected ? this.accent : '#33000000' })
         .onReady((): void => this.draw())
         .onClick((): void => this.onPick())
-      Text(shapeKindLabel(this.kind))
-        .fontSize(11)
-        .fontColor(this.textColor)
-        .margin({ top: 3 })
-        .maxLines(1)
+      if (!this.compact) {
+        Text(shapeKindLabel(this.kind))
+          .fontSize(11)
+          .fontColor(this.textColor)
+          .margin({ top: 3 })
+          .maxLines(1)
+      }
     }
-    .padding(4)
+    // h5g 单元格：compact 时 36dp 图标 + 2 边距（适配 40dp 次级条行高）。
+    .justifyContent(FlexAlign.Center)
+    .padding(this.compact ? 2 : 4)
+    .accessibilityText(shapeKindLabel(this.kind))
     .onClick((): void => this.onPick())
   }
 }
