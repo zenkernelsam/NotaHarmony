@@ -1448,6 +1448,7 @@
     { "name": "paper_templates_no_favorites", "value": "Star a design to keep it here." },
     { "name": "paper_templates_favorite", "value": "Favorite" },
     { "name": "paper_templates_unfavorite", "value": "Unfavorite" },
+    { "name": "paper_templates_set_default", "value": "Set as default" },
     { "name": "bold", "value": "Bold" },
     { "name": "italic", "value": "Italic" },
     { "name": "underline", "value": "Underline" },

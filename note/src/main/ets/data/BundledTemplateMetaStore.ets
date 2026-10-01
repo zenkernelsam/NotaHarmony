@@ -16,6 +16,10 @@ const STORE_NAME: string = 'bundledPaperTemplateMeta';
 const FAVORITES_KEY: string = 'favoritePaperTemplates';
 const RECENTS_KEY: string = 'recentPaperTemplates';
 const USAGE_KEY: string = 'paperTemplateUsage';
+// 原版 o8b.x：pth.g(chc)→ju8 case26 把选中的 bundled variant 的
+// pdfAssetPath 持久化为默认模板键（与 pfc wfc 并列存储；
+// wq3.b 消费时 o8b.x 非空 → a1d 打包模板胜出）。
+const DEFAULT_PATH_KEY: string = 'defaultPaperTemplatePath';
 // 原版 nsh case 110/120：RecentPaperTemplate / RecentGalleryTemplate 裁剪上限 36。
 export const BUNDLED_TEMPLATE_RECENTS_LIMIT: number = 36;
 
@@ -102,6 +106,51 @@ export class BundledTemplateMetaStore {
       usage[templateUuid] = (Number.isSafeInteger(usage[templateUuid])
         ? usage[templateUuid] : 0) + 1;
       await this.writeUsageRecord(usage);
+    });
+  }
+
+  // 原版 wq3.b → o8b.x：未设置返回空串；键值仅 rawfilePath，
+  // catalog 解析失败时保留存储值、消费端 fail-closed 回退纸型默认。
+  async getDefaultPath(): Promise<string> {
+    return BundledTemplateMetaStore.mutex.runExclusive(
+      async (): Promise<string> => {
+        try {
+          const store: preferences.Preferences =
+            await preferences.getPreferences(this.context, STORE_NAME);
+          const raw: preferences.ValueType = store.getSync(DEFAULT_PATH_KEY, '');
+          return (typeof raw === 'string' && raw.length > 0) ? raw : '';
+        } catch (e) {
+          throw new Error(`getDefaultPath failed: ${JSON.stringify(e)}`);
+        }
+      });
+  }
+
+  // 原版 pth.g(chc) → ju8 case26 → ega.g(o8b.x, chc.e)。
+  async setDefaultPath(pdfAssetPath: string): Promise<void> {
+    return BundledTemplateMetaStore.mutex.runExclusive(async (): Promise<void> => {
+      try {
+        const store: preferences.Preferences =
+          await preferences.getPreferences(this.context, STORE_NAME);
+        store.putSync(DEFAULT_PATH_KEY, pdfAssetPath);
+        store.flush();
+      } catch (e) {
+        throw new Error(`setDefaultPath failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  // 原版 g8b case0 对称面：程序化模板 set-default 会清除 o8b.x；
+  // 这里供未来的恢复默认入口使用。
+  async clearDefaultPath(): Promise<void> {
+    return BundledTemplateMetaStore.mutex.runExclusive(async (): Promise<void> => {
+      try {
+        const store: preferences.Preferences =
+          await preferences.getPreferences(this.context, STORE_NAME);
+        store.deleteSync(DEFAULT_PATH_KEY);
+        store.flush();
+      } catch (e) {
+        throw new Error(`clearDefaultPath failed: ${JSON.stringify(e)}`);
+      }
     });
   }
 

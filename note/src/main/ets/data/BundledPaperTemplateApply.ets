@@ -7,15 +7,19 @@ import { fileIo } from '@kit.CoreFileKit';
 import { pdfService } from '@kit.PDFKit';
 import { image } from '@kit.ImageKit';
 import {
-  BundledPaperVariant,
+  BundledPaperVariant, findBundledPaperVariantByPath,
 } from '../core/model/PaperTemplateCatalog';
 import {
-  OriginalAssetMetadata, PageBackground, PdfLayoutBehavior,
+  OriginalAssetMetadata, PageBackground, PageInfo, PdfLayoutBehavior,
 } from '../core/model/NoteTypes';
-import { PAGE_BACKGROUND_SCHEMA_VERSION } from '../core/model/PageBackgroundModel';
+import {
+  clonePageInfo, PAGE_BACKGROUND_SCHEMA_VERSION,
+} from '../core/model/PageBackgroundModel';
 import { releasePdfNativeResources } from '../core/adaptation/PdfBackgroundLoader';
 import { sha512Digest, originalAssetHashBitsFromSha512 } from './AssetDigest';
 import { storeImportedOriginalAsset } from './ImageAssetPackageStore';
+import { BundledTemplateMetaStore } from './BundledTemplateMetaStore';
+import { PageRepositoryImpl } from './PageRepositoryImpl';
 import { DatabaseManager } from './DatabaseManager';
 
 const BUNDLED_TEMPLATE_STAGING_PREFIX: string = 'bundled_template';
@@ -127,6 +131,39 @@ export async function buildBundledTemplatePageBackground(
     } catch (_cleanupError) {
     }
   }
+}
+
+// Original wq3.b + lk3：新建笔记时若 o8b.x 持久化了打包 variant 的
+// pdfAssetPath，h1d.b(cpj, null, null, true) 解析默认选择并把该 PDF 应用到
+// 首页（bpj = noteId+pageId）。原版此路径不经 pth.t —— 默认应用不写
+// recents/usage；失败仅记日志（lk3 的 a(IOException) 支路不回滚笔记）。
+export async function applyBundledTemplateDefault(
+  context: common.UIAbilityContext, database: DatabaseManager,
+  noteId: string): Promise<void> {
+  const path: string =
+    await new BundledTemplateMetaStore(context).getDefaultPath();
+  if (path.length === 0) {
+    return;
+  }
+  const match = findBundledPaperVariantByPath(path);
+  if (match === null) {
+    console.warn(`bundled default variant missing from catalog: ${path}`);
+    return;
+  }
+  const pageRepo: PageRepositoryImpl = new PageRepositoryImpl(database);
+  const pages: PageInfo[] = await pageRepo.getPages(noteId);
+  if (pages.length === 0) {
+    return;
+  }
+  const result: BundledTemplateApplyResult =
+    await buildBundledTemplatePageBackground(context, database, noteId,
+      match.variant);
+  if (result.background === null) {
+    throw new Error(`bundled default apply failed: ${result.error}`);
+  }
+  const applied: PageInfo = clonePageInfo(pages[0]);
+  applied.background = result.background;
+  await pageRepo.updatePage(applied);
 }
 
 // Original zgc.b picks thumb.(heic|png) per variant; Harmony has no HEIC

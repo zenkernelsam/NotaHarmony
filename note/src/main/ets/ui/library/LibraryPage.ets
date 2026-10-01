@@ -22,6 +22,7 @@ import { refreshRecentNotesForms } from '../../data/RecentNotesFormFeed';
 import { refreshFolderNotesForms } from '../../data/FolderNotesFormFeed';
 import { refreshNoteThumbnailForms } from '../../data/NoteThumbnailFormFeed';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
+import { applyBundledTemplateDefault } from '../../data/BundledPaperTemplateApply';
 import { FOLDER_DEFAULT_COLOR } from '../../data/DatabaseHelper';
 import {
   FolderCreateResult, FolderDeleteResult, FolderDropIntent, FolderMutationResult,
@@ -1692,7 +1693,10 @@ struct LibraryPage {
       const noteRepo: NoteRepositoryImpl = new NoteRepositoryImpl(
         this.db, new EditorSettingsStore(context));
       const folderRepo: FolderRepositoryImpl = new FolderRepositoryImpl(this.db);
-      const vm: LibraryViewModel = new LibraryViewModel(noteRepo);
+      // 原版 qp9.O=lk3：建笔记后应用 o8b.x 打包默认模板（context+db 在本页可得）。
+      const vm: LibraryViewModel = new LibraryViewModel(noteRepo,
+        (noteId: string): Promise<void> =>
+          applyBundledTemplateDefault(context, this.db, noteId));
       this.noteRepo = noteRepo;
       this.folderRepo = folderRepo;
       this.viewModel = vm;

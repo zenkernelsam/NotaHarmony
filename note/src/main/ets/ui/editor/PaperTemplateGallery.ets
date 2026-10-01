@@ -127,6 +127,15 @@ export struct PaperTemplateGallery {
     });
   }
 
+  // 原版 pth.g(chc) → ju8 case26 → ega.g(o8b.x, chc.e)：持久化该 variant 为
+  // 默认模板路径；新建笔记时 wq3.b 解析 → lk3 应用到首页。失败仅记日志
+  // （原版 coroutine 无 UI 反馈）。
+  private setDefault(variant: BundledPaperVariant): void {
+    this.store().setDefaultPath(variant.rawfilePath).catch((e: Object) => {
+      console.warn(`bundled template set-default failed: ${JSON.stringify(e)}`);
+    });
+  }
+
   // 原版 s7n.d(mapI0,…)：recents/favorites 按存入的 pdfAssetPath 精确反查变体。
   private itemsFromPaths(paths: string[]): GalleryCellItem[] {
     const items: GalleryCellItem[] = [];
@@ -238,6 +247,8 @@ export struct PaperTemplateGallery {
                           onTap: (): void => this.onSelectVariant(item.variant),
                           onToggleFavorite: (): void =>
                             this.toggleFavorite(item.variant),
+                          onSetDefault: (): void =>
+                            this.setDefault(item.variant),
                         })
                       }
                     }, (item: GalleryCellItem): string => item.cellKey)
@@ -288,6 +299,9 @@ struct BundledTemplateCell {
   onTap: () => void = () => {
   };
   onToggleFavorite: () => void = () => {
+  };
+  // 原版 u7n.e onSetDefaultPaperTemplate —— cell 长按上下文菜单项。
+  onSetDefault: () => void = () => {
   };
   @State private thumb: image.PixelMap | null = null;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
@@ -398,5 +412,20 @@ struct BundledTemplateCell {
         this.onTap();
       }
     })
+    // 原版 od7 case3 的 t92 下拉：cell 长按菜单里只有 Set as default
+    // （s86 = dismiss + onSetDefaultPaperTemplate(chc) → pth.g → o8b.x）。
+    .bindContextMenu(this.cellMenu, ResponseType.LongPress)
+  }
+
+  @Builder
+  private cellMenu() {
+    Menu() {
+      MenuItem({ content: $r('app.string.paper_templates_set_default') })
+        .onClick((): void => {
+          if (!this.busy) {
+            this.onSetDefault();
+          }
+        })
+    }
   }
 }

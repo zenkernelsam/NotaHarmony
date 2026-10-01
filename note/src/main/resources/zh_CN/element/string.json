@@ -595,6 +595,7 @@
     { "name": "paper_templates_no_favorites", "value": "星标一个设计可将它留在这里。" },
     { "name": "paper_templates_favorite", "value": "收藏" },
     { "name": "paper_templates_unfavorite", "value": "取消收藏" },
+    { "name": "paper_templates_set_default", "value": "设为默认" },
     { "name": "bold", "value": "加粗" },
     { "name": "italic", "value": "斜体" },
     { "name": "underline", "value": "下划线" },

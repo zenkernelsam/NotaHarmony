@@ -44,9 +44,14 @@ export class LibraryViewModel {
   private mutationGeneration: number = 0;
   private activeQuery: string = '';
   private mutationChain: Promise<void> = Promise.resolve();
+  // 原版 qp9.O = lk3：建笔记后解析 o8b.x 打包默认模板并应用到首页。
+  // 无注入时 fail-closed（纯纸型默认）。
+  private bundledDefaultApply: ((noteId: string) => Promise<void>) | undefined;
 
-  constructor(repo: NoteRepository) {
+  constructor(repo: NoteRepository,
+    bundledDefaultApply?: (noteId: string) => Promise<void>) {
     this.repo = repo;
+    this.bundledDefaultApply = bundledDefaultApply;
   }
 
   async loadNotes(query: string): Promise<void> {
@@ -309,6 +314,15 @@ export class LibraryViewModel {
     return this.enqueueMutation(async (): Promise<string> => {
       const note: NoteMeta = await this.repo.createNote(ORIGINAL_NOTE_DEFAULT_TITLE,
         folderId, templateOverride);
+      // 原版 lk3 → h1d.b(cpj,null,null,true)：默认打包模板应用到新建笔记首页；
+      // o8b.x 缺失/解析失败 → 保留纸型默认。应用失败不回滚已建笔记。
+      if (this.bundledDefaultApply !== undefined) {
+        try {
+          await this.bundledDefaultApply(note.id);
+        } catch (e) {
+          console.warn(`bundled template default apply failed: ${JSON.stringify(e)}`);
+        }
+      }
       this.mutationGeneration++;
       if (viewGeneration === this.loadGeneration && this.currentFolderId === folderId &&
         this.createdNoteMatchesQuery(note, query)) {
