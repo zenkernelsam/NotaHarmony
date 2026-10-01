@@ -893,10 +893,10 @@
       "name": "folders",
       "value": "Folders"
     },
-    {
-      "name": "open_folder_drawer",
-      "value": "Open folders"
-    },
+    { "name": "ui_librarypane__cd_organize", "value": "Organize" },
+    { "name": "close_drawer", "value": "Close navigation menu" },
+    { "name": "ui_folder__cd_folder_name", "value": "Folder name" },
+    { "name": "ui_folder__cd_confirm", "value": "Save folder" },
     {
       "name": "duplicate_note",
       "value": "Duplicate"

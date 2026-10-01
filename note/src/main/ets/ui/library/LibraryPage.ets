@@ -2095,6 +2095,9 @@ struct LibraryPage {
           .height('100%')
           .backgroundColor('#66000000')
           .hitTestBehavior(HitTestMode.Block)
+          // 原版 fla ModalDrawer 遮罩：cd=close_drawer（"Close navigation
+          // menu"）+ 点击关闭（nfh.b pointerInput）。
+          .accessibilityText($r('app.string.close_drawer'))
           .onClick(() => {
             this.closeCompactFolderDrawer();
           })
@@ -2216,7 +2219,8 @@ struct LibraryPage {
               .width(44)
               .height(44)
               .enabled(!this.folderBusy)
-              .accessibilityText($r('app.string.open_folder_drawer'))
+              // 原版 mf2 case21：hamburger 钮 cd = ui_librarypane__cd_organize。
+              .accessibilityText($r('app.string.ui_librarypane__cd_organize'))
               .onClick(() => {
                 this.openCompactFolderDrawer();
               })
@@ -2230,13 +2234,13 @@ struct LibraryPage {
                 mask: false,
                 autoCancel: false,
               })
+            // 原版 compact 头部文件夹名无专用 cd——以文本自标识。
             Button(this.currentFolderName())
               .layoutWeight(1)
               .height(44)
               .fontSize(14)
               .fontColor(this.resolveTokens().accent)
               .enabled(!this.folderBusy)
-              .accessibilityText($r('app.string.open_folder_drawer'))
               .onClick(() => {
                 this.openCompactFolderDrawer();
               })
@@ -5555,8 +5559,10 @@ struct NameDialog {
         .fontSize(16)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.resolveTokens().textPrimary)
+      // 原版 ybn:1041：名称输入框语义 = ui_folder__cd_folder_name。
       TextInput({ text: this.inputText, placeholder: this.placeholder })
         .width('100%')
+        .accessibilityText($r('app.string.ui_folder__cd_folder_name'))
         .fontColor(this.resolveTokens().textPrimary)
         .placeholderColor(this.resolveTokens().textSecondary)
         .backgroundColor(this.resolveTokens().control)
@@ -5657,11 +5663,13 @@ struct NameDialog {
               this.controller.close();
             }
           })
+        // 原版 ybn:912：确认钮 cd = ui_folder__cd_confirm（"Save folder"）。
         Button($r('app.string.confirm'))
           .height(36)
           .fontSize(14)
           .layoutWeight(1)
           .margin({ left: 12 })
+          .accessibilityText($r('app.string.ui_folder__cd_confirm'))
           .onClick(() => {
             this.onConfirm(this.inputText, this.selectedColor, this.selectedEmoji).then((success: boolean) => {
               if (success && this.controller !== undefined) {

@@ -43,7 +43,10 @@ assert.match(library, /openCompactFolderDrawer\(\)/);
 assert.match(library, /CompactFolderDrawer\(\)/);
 assert.match(library, /\.overlay\(this\.CompactFolderDrawer\(\)/);
 assert.match(library, /glyph: 'hamburger'/);
-assert.match(library, /open_folder_drawer/);
+// Phase 1416: the hamburger cd now uses the original ui_librarypane__cd_organize
+// ("Organize"); the invented open_folder_drawer string was removed.
+assert.match(library, /ui_librarypane__cd_organize/);
+assert.doesNotMatch(library, /open_folder_drawer/);
 
 // A long folder tree is a bounded native List shared by the regular sidebar and compact drawer.
 assert.match(library, /@Builder\s+FolderNavigationList\(\)/);
@@ -68,7 +71,7 @@ assert.match(library, /confirmDeleteFolder\(folder\)/);
 assert.match(library, /closeCompactFolderDrawer\(\)/);
 assert.match(library, /this\.notes = vm\.getFilteredNotes\(\)\.slice\(\)/);
 
-for (const name of ['folders', 'open_folder_drawer', 'close', 'expand_folder', 'collapse_folder']) {
+for (const name of ['folders', 'ui_librarypane__cd_organize', 'close_drawer', 'close', 'expand_folder', 'collapse_folder']) {
   assert.ok(hasBoth(name), `missing localized resource: ${name}`);
 }
 
