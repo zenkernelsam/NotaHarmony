@@ -263,6 +263,8 @@
     { "name": "sort", "value": "排序" },    { "name": "cd_add_note", "value": "添加笔记" },
     { "name": "cd_open_note", "value": "打开笔记" },
     { "name": "cd_open_note_titled", "value": "打开笔记 %1$s" },
+    { "name": "cd_select_note_titled", "value": "选择笔记 %1$s" },
+    { "name": "cd_deselect_note_titled", "value": "取消选择笔记 %1$s" },
     { "name": "cd_sort", "value": "排序笔记" },
 
     { "name": "sort_name", "value": "名称" },
@@ -274,6 +276,8 @@
     { "name": "sort_newest_to_oldest", "value": "从新到旧" },
     { "name": "grid_view", "value": "网格视图" },
     { "name": "list_view", "value": "列表视图" },
+    { "name": "cd_switch_to_grid_view", "value": "切换到网格视图" },
+    { "name": "cd_switch_to_list_view", "value": "切换到列表视图" },
     { "name": "recently_modified", "value": "最近修改" },
     { "name": "recently_created", "value": "最近创建" },
     { "name": "title", "value": "标题" },

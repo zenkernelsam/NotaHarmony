@@ -981,6 +981,14 @@
       "value": "Open note %1$s"
     },
     {
+      "name": "cd_select_note_titled",
+      "value": "Select note %1$s"
+    },
+    {
+      "name": "cd_deselect_note_titled",
+      "value": "Deselect note %1$s"
+    },
+    {
       "name": "cd_sort",
       "value": "Sort notes"
     },
@@ -1020,6 +1028,14 @@
     {
       "name": "list_view",
       "value": "List View"
+    },
+    {
+      "name": "cd_switch_to_grid_view",
+      "value": "Switch to grid view"
+    },
+    {
+      "name": "cd_switch_to_list_view",
+      "value": "Switch to list view"
     },
     {
       "name": "recently_modified",

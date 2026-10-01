@@ -72,8 +72,9 @@ eq(!/Button\('<'\)|Button\('>'\)/.test(pageManagerBar),
 // --- a11y labels preserved on the swapped indicators ---
 eq(library.includes("$r('app.string.folder_selected')"),
   'folder_selected a11y preserved');
-eq(library.includes("$r('app.string.select_note')"),
-  'select_note a11y preserved');
+// Phase 1409：l9b 带标题 a11y 取代静态 select_note。
+eq(library.includes("$r('app.string.cd_select_note_titled'"),
+  'select_note titled a11y preserved');
 eq(library.includes("$r('app.string.note_actions')"),
   'note_actions a11y preserved');
 eq(pageManagerBar.includes("$r('app.string.bookmark_page')"),

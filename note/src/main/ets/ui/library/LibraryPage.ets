@@ -2280,14 +2280,19 @@ struct LibraryPage {
               .onClick(() => {
                 this.toggleSortDirection();
               })
-            // Original inh.d: the icon depicts the target mode
-            // (grid mode shows list_bullet, list mode shows grid_view).
-            Button(this.listView ? '⊞' : '☰')
+            // 原版 sof：图标描绘目标模式——list 态显示 grid_view、grid 态
+            // 显示 list_bullet；cd 为 "Switch to grid/list view"。
+            Button() {
+              ToolGlyph({
+                glyph: this.listView ? 'grid_view' : 'list_bullet',
+                contentColor: this.resolveTokens().textPrimary,
+                iconSize: 20,
+              })
+            }
               .width(40)
               .height(40)
-              .fontSize(15)
               .accessibilityText(this.listView ?
-                $r('app.string.grid_view') : $r('app.string.list_view'))
+                $r('app.string.cd_switch_to_grid_view') : $r('app.string.cd_switch_to_list_view'))
               .onClick(() => {
                 this.toggleViewMode();
               })
@@ -3101,8 +3106,20 @@ struct LibraryPage {
     })
   }
 
-  // 原版 o94：多选勾选圈——checkmark_circle（已选）/
-  // circle_empty_med_outline（未选），a11y=feature_library__select_note。
+  // 卡片物化标题（e5j.h 语义：空标题 → untitled_note，与卡片 Text 显示一致）。
+  private noteDisplayTitle(note: NoteMeta): string {
+    if (note.title.length > 0) {
+      return note.title;
+    }
+    try {
+      return getContext(this).resourceManager.getStringSync($r('app.string.untitled_note').id);
+    } catch (_e) {
+      return 'New Note';
+    }
+  }
+
+  // 原版 l9b（o94 勾选圈）：checkmark_circle（已选）/circle_empty_med_outline
+  // （未选），a11y 带标题——已选 "Deselect note %s"、未选 "Select note %s"。
   @Builder
   SelectCircle(note: NoteMeta) {
     if (this.selectedNoteIds.indexOf(note.id) >= 0) {
@@ -3112,7 +3129,7 @@ struct LibraryPage {
         contentColor: this.resolveTokens().accent,
         iconSize: 20,
       })
-        .accessibilityText($r('app.string.select_note'))
+        .accessibilityText($r('app.string.cd_deselect_note_titled', this.noteDisplayTitle(note)))
     } else {
       // 原版未选 = ui_designsystem__circle_empty_med_outline（空心描边圈）。
       ToolGlyph({
@@ -3120,7 +3137,7 @@ struct LibraryPage {
         contentColor: this.resolveTokens().textSecondary,
         iconSize: 20,
       })
-        .accessibilityText($r('app.string.select_note'))
+        .accessibilityText($r('app.string.cd_select_note_titled', this.noteDisplayTitle(note)))
     }
   }
 

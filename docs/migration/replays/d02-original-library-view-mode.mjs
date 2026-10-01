@@ -49,8 +49,9 @@ ok(page.includes('@State listView: boolean = false;') &&
 ok(/private toggleViewMode\(\): void \{\s*if \(!this\.pageActive\) \{\s*return;/.test(page) &&
    page.includes('pref.putSync(this.PREF_VIEW_MODE_KEY, listView ? 1 : 0)'),
   'view-mode toggle persistence missing');
-// Header button shows the TARGET mode icon (inh.d/zy7 parity).
-ok(page.includes("Button(this.listView ? '⊞' : '☰')") &&
+// Header button shows the TARGET mode icon (inh.d/zy7 parity —
+// Phase 1409: sof vector parity, ToolGlyph grid_view/list_bullet).
+ok(page.includes("glyph: this.listView ? 'grid_view' : 'list_bullet'") &&
    page.includes('this.toggleViewMode();'),
   'view-mode toggle button missing');
 // Content split: List of NoteListRow vs Grid of NoteCard.

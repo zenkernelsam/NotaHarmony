@@ -116,7 +116,8 @@ check(lib.includes('if (this.isMultiSelecting) {\n        this.toggleMultiSelect
 check(lib.includes('SelectCircle(note: NoteMeta)') &&
   lib.includes("glyph: 'checkmark_circle'") &&
   lib.includes("glyph: 'circle_empty_med_outline'") &&
-  lib.includes("$r('app.string.select_note')"),
+  lib.includes("$r('app.string.cd_select_note_titled'") &&
+  lib.includes("$r('app.string.cd_deselect_note_titled'"),
   'SelectCircle mirrors o94 checked/unchecked affordance');
 check(lib.includes('NoteMenuButton(note: NoteMeta)') &&
   lib.includes("glyph: 'more'") &&
