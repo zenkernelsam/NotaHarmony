@@ -42,6 +42,8 @@ export class EditorViewModel {
   palmDetectionEnabled: boolean = true;
   // 原版 x22 case 0 / o59.j：straightLinesEnabled——按住自动拉直线条。
   straightLinesEnabled: boolean = true;
+  // 原版 o8b.P / nf6(j8b.C)：undoRedoTapsEnabled——双指轻点撤销、三指轻点重做。
+  undoRedoTapsEnabled: boolean = true;
   // 原版 cu6/bu6：laser_preferences.show_tail 缺省 true——激光笔拖尾开关。
   laserShowTail: boolean = true;
   // 原版 o59.r = eua("zoomViewAdvanceRegionWidthDp")：Zoom 面板自动前进区
@@ -192,6 +194,7 @@ export class EditorViewModel {
           this.straightLinesEnabled = await settingsRepository.getStraightLinesEnabled();
           this.laserShowTail = await settingsRepository.getLaserShowTail();
           this.zoomAdvanceWidthDp = await settingsRepository.getZoomAdvanceWidthDp();
+          this.undoRedoTapsEnabled = await settingsRepository.getUndoRedoTapsEnabled();
           if (!this.isInitializationCurrent()) {
             return false;
           }

@@ -11036,6 +11036,27 @@ export struct NoteCanvasView {
                   }
                   this.schedulePdfRasterRefresh(0);
                 }),
+              // 原版 o8b.P / nf6(j8b.C)：undoRedoTapsEnabled 缺省 true——
+              // 双指轻点撤销、三指轻点重做（data_onboarding 首次提示同款文案；
+              // kd4 case 15 设置行）。原版 q8j 用 Undecided/Scroll/Pinch 消歧——
+              // 轻点只有未演化成滚动/捏合才触发；ArkUI TapGesture 自带位移/时长
+              // 容差（手指移出 slop 即失败），与原版消歧语义等价，无需额外守卫。
+              // canUndo/canRedo 守卫避免空栈进入 performHistory（i0i：空栈 undo
+              // 是错误路径；且 performHistory 会先取消图片裁剪）。
+              TapGesture({ count: 1, fingers: 2 })
+                .onAction(() => {
+                  if (this.viewModel.undoRedoTapsEnabled && !this.photoImportBusy &&
+                    this.undoRedo.canUndo()) {
+                    this.undoStroke();
+                  }
+                }),
+              TapGesture({ count: 1, fingers: 3 })
+                .onAction(() => {
+                  if (this.viewModel.undoRedoTapsEnabled && !this.photoImportBusy &&
+                    this.undoRedo.canRedo()) {
+                    this.redoStroke();
+                  }
+                }),
             ),
           ),
         )

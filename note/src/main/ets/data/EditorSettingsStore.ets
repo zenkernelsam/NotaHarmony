@@ -44,6 +44,9 @@ export const DEFAULT_RULER_UNITS: string = RULER_UNITS_IMPERIAL;
 // lgg/ggg.e 默认 180dp（Harmony 以 vp 承载，vp≈dp 语义等价）。
 const ZOOM_ADVANCE_WIDTH_KEY: string = 'zoomViewAdvanceRegionWidthDp';
 export const DEFAULT_ZOOM_ADVANCE_WIDTH_DP: number = 180;
+// 原版 o8b.P = dcd("undoRedoTapsEnabled")；o8b.f/g 解码缺省 true（bool6 null→true）。
+const UNDO_REDO_TAPS_KEY: string = 'undoRedoTapsEnabled';
+export const DEFAULT_UNDO_REDO_TAPS: boolean = true;
 
 export interface EditorSettingsRepository {
   getShapeDetectionEnabled(): Promise<boolean>;
@@ -68,6 +71,8 @@ export interface EditorSettingsRepository {
   saveLaserShowTail(enabled: boolean): Promise<void>;
   getZoomAdvanceWidthDp(): Promise<number>;
   saveZoomAdvanceWidthDp(widthDp: number): Promise<void>;
+  getUndoRedoTapsEnabled(): Promise<boolean>;
+  saveUndoRedoTapsEnabled(enabled: boolean): Promise<void>;
 }
 
 export interface DefaultNoteTemplateRepository {
@@ -363,6 +368,17 @@ export class EditorSettingsStore implements EditorSettingsRepository, DefaultNot
   async saveZoomAdvanceWidthDp(widthDp: number): Promise<void> {
     await this.saveNumberPref(ZOOM_ADVANCE_WIDTH_KEY, widthDp,
       DEFAULT_ZOOM_ADVANCE_WIDTH_DP, 'saveZoomAdvanceWidthDp');
+  }
+
+  // 原版 o8b.P / nf6(j8b.C)：undoRedoTapsEnabled —— 双指轻点撤销、
+  // 三指轻点重做（kd4 case 15 设置行，data_onboarding 首次提示同款文案）。
+  async getUndoRedoTapsEnabled(): Promise<boolean> {
+    return this.getBooleanPref(UNDO_REDO_TAPS_KEY, DEFAULT_UNDO_REDO_TAPS);
+  }
+
+  async saveUndoRedoTapsEnabled(enabled: boolean): Promise<void> {
+    await this.saveBooleanPref(UNDO_REDO_TAPS_KEY, enabled,
+      DEFAULT_UNDO_REDO_TAPS, 'saveUndoRedoTapsEnabled');
   }
 
   async getSelectedDefaultTemplate(): Promise<OriginalDefaultTemplateSelection> {

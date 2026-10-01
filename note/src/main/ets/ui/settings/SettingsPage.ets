@@ -4,6 +4,7 @@ import {
   DEFAULT_AUTO_DESELECT_ERASER, DEFAULT_HIDE_NAVIGATION_BAR, DEFAULT_HIDE_STATUS_BAR,
   DEFAULT_KEEP_DEVICE_AWAKE, DEFAULT_NOTE_VIEW_NIGHT_MODE, DEFAULT_PALM_DETECTION,
   DEFAULT_RULER_UNITS, DEFAULT_SHAPE_DETECTION_ENABLED, DEFAULT_STRAIGHT_LINES,
+  DEFAULT_UNDO_REDO_TAPS,
   EditorSettingsStore, RULER_UNITS_IMPERIAL, RULER_UNITS_METRIC,
 } from '../../data/EditorSettingsStore';
 import { ThemeMode, ThemeTokens } from '../theme/EditorTheme';
@@ -41,6 +42,7 @@ struct SettingsPage {
   @State autoDeselectEraserEnabled: boolean = DEFAULT_AUTO_DESELECT_ERASER;
   @State palmDetectionEnabled: boolean = DEFAULT_PALM_DETECTION;
   @State straightLinesEnabled: boolean = DEFAULT_STRAIGHT_LINES;
+  @State undoRedoTapsEnabled: boolean = DEFAULT_UNDO_REDO_TAPS;
   @State rulerUnits: string = DEFAULT_RULER_UNITS;
   @State recognitionLanguageCode: string = ORIGINAL_HANDWRITING_DEFAULT_LOCALE_CODE;
   @State saveBusy: boolean = false;
@@ -111,6 +113,7 @@ struct SettingsPage {
       const autoDeselect: boolean = await store.getAutoDeselectEraser();
       const palmDetection: boolean = await store.getPalmDetectionEnabled();
       const straightLines: boolean = await store.getStraightLinesEnabled();
+      const undoRedoTaps: boolean = await store.getUndoRedoTapsEnabled();
       const rulerUnits: string = await store.getRulerUnits();
       const languageStore: OriginalHandwritingLanguagePreferenceStore =
         new OriginalHandwritingLanguagePreferenceStore(context);
@@ -127,6 +130,7 @@ struct SettingsPage {
       this.autoDeselectEraserEnabled = autoDeselect;
       this.palmDetectionEnabled = palmDetection;
       this.straightLinesEnabled = straightLines;
+      this.undoRedoTapsEnabled = undoRedoTaps;
       this.rulerUnits = rulerUnits;
       this.languageStore = languageStore;
       this.recognitionLanguageCode = resolveOriginalHandwritingLanguage(
@@ -263,6 +267,39 @@ struct SettingsPage {
       }
       this.straightLinesEnabled = previous;
       console.error(`SettingsPage straight-lines save failed: ${JSON.stringify(e)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
+      } catch (toastError) {
+        console.error(`SettingsPage toast failed: ${JSON.stringify(toastError)}`);
+      }
+    } finally {
+      this.saveBusy = false;
+    }
+  }
+
+  // 原版 kd4 case 15 / o8b.P：undoRedoTapsEnabled —— 双指轻点撤销、
+  // 三指轻点重做。同一乐观更新+回滚+生命周期守护模式。
+  private async setUndoRedoTapsEnabled(enabled: boolean): Promise<void> {
+    const store: EditorSettingsStore | null = this.store;
+    if (store === null || this.loadState !== SettingsLoadState.READY || this.saveBusy ||
+      enabled === this.undoRedoTapsEnabled) {
+      return;
+    }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
+    const previous: boolean = this.undoRedoTapsEnabled;
+    this.undoRedoTapsEnabled = enabled;
+    this.saveBusy = true;
+    try {
+      await store.saveUndoRedoTapsEnabled(enabled);
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+    } catch (e) {
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+      this.undoRedoTapsEnabled = previous;
+      console.error(`SettingsPage undo-redo-taps save failed: ${JSON.stringify(e)}`);
       try {
         promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
       } catch (toastError) {
@@ -724,6 +761,31 @@ struct SettingsPage {
                 .enabled(!this.saveBusy)
                 .onChange((enabled: boolean) => {
                   this.setAutoDeselectEraserEnabled(enabled);
+                })
+            }
+            .width('100%')
+            .margin({ top: 8 })
+            .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+            .backgroundColor(this.resolveTokens().surface)
+
+            // 原版 kd4 case 15 / o8b.P：two_finger_tap + description
+            //（双指轻点撤销、三指轻点重做；缺省 true）。
+            Row() {
+              Column() {
+                Text($r('app.string.two_finger_tap'))
+                  .fontSize(16)
+                  .fontColor(this.resolveTokens().textPrimary)
+                Text($r('app.string.two_finger_tap_description'))
+                  .fontSize(12)
+                  .fontColor(this.resolveTokens().textSecondary)
+                  .margin({ top: 2 })
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+              Toggle({ type: ToggleType.Switch, isOn: this.undoRedoTapsEnabled })
+                .enabled(!this.saveBusy)
+                .onChange((enabled: boolean) => {
+                  this.setUndoRedoTapsEnabled(enabled);
                 })
             }
             .width('100%')

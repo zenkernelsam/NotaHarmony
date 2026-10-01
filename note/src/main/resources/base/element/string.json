@@ -1263,6 +1263,8 @@
     { "name": "handwriting_language_caption", "value": "Handwriting language is used to improve recognition and search of your handwritten notes." },    { "name": "straight_lines", "value": "Straight lines" },
     { "name": "straight_lines_description", "value": "Use the pen, pencil, or highlighter to draw a line, then continue to hold down to automatically straighten it." },
     { "name": "shape_detection_description", "value": "Use the pen, pencil, or highlighter to draw a shape, then continue to hold down to automatically detect it." },
+    { "name": "two_finger_tap", "value": "2 finger tap" },
+    { "name": "two_finger_tap_description", "value": "2 finger tap to undo, 3 finger tap to redo." },
 
 
 

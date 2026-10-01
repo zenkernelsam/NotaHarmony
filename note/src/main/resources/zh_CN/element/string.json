@@ -417,6 +417,8 @@
     { "name": "handwriting_language_caption", "value": "手写语言用于提升手写笔记的识别与搜索效果。" },    { "name": "straight_lines", "value": "直线" },
     { "name": "straight_lines_description", "value": "使用钢笔、铅笔或荧光笔画一条线，然后继续按住即可自动拉直。" },
     { "name": "shape_detection_description", "value": "使用钢笔、铅笔或荧光笔画一个形状，然后继续按住即可自动识别。" },
+    { "name": "two_finger_tap", "value": "双指轻点" },
+    { "name": "two_finger_tap_description", "value": "双指轻点撤销，三指轻点重做。" },
 
 
 
