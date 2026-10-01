@@ -10049,14 +10049,18 @@ export struct NoteCanvasView {
           if (result.images.length > 0) {
             this.refreshImageAssets(this.pageLoadGeneration, pageId);
           }
-          this.selectionTool.selectElementIds(
-            result.strokes.map((stroke: StrokeElementData): string => stroke.id),
-            result.shapes.map((shape: ShapeElement): string => shape.id),
-            result.textBlocks.map((text: TextBlockElement): string => text.id),
-            result.images.map((image: ImageElement): string => image.id),
-            result.topGroupIds,
-            result.mathBlocks.map((math: MathElement): string => math.id),
-            this.selectionVisible ? undefined : true);
+          // 原版 j01 hsf 支：进行中套索/矩形手势上的粘贴 return null——
+          // 内容照插但不产选区结果，故跳过选区断言（手势态保持）。
+          if (!this.selectionTool.isSelectionGestureInProgress()) {
+            this.selectionTool.selectElementIds(
+              result.strokes.map((stroke: StrokeElementData): string => stroke.id),
+              result.shapes.map((shape: ShapeElement): string => shape.id),
+              result.textBlocks.map((text: TextBlockElement): string => text.id),
+              result.images.map((image: ImageElement): string => image.id),
+              result.topGroupIds,
+              result.mathBlocks.map((math: MathElement): string => math.id),
+              this.selectionVisible ? undefined : true);
+          }
           this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
           this.originalInkIneligiblePages.delete(pageId);
           this.layerManager.rebuildFromStrokes(
@@ -10215,9 +10219,12 @@ export struct NoteCanvasView {
     this.elementOrder = elementOrderAfter;
     this.undoRedo.push(action, preparedHistory);
     this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
-    this.selectionTool.selectElementIds(
-      pastedIds, pastedShapeIds, pastedTextIds, pastedImageIds, [], pastedMathIds,
-      this.selectionVisible ? undefined : true);
+    // 原版 j01 hsf 支：进行中手势上的粘贴不产选区（return null）。
+    if (!this.selectionTool.isSelectionGestureInProgress()) {
+      this.selectionTool.selectElementIds(
+        pastedIds, pastedShapeIds, pastedTextIds, pastedImageIds, [], pastedMathIds,
+        this.selectionVisible ? undefined : true);
+    }
     this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
     this.layerManager.rebuildFromStrokes(
       this.completedStrokes, this.renderCtx, this.viewport.zoom);

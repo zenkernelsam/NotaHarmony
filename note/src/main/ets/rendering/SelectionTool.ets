@@ -100,6 +100,19 @@ export class SelectionTool {
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
+  // 原版 j01 hsf 支谓词：进行中套索/矩形手势（beginSelection 已置
+  // isActive、id 仍全空、未完成 finalize）。粘贴分发据此跳过选区断言
+  // ——hsf 上粘贴原版 return null（内容照插、不产选区结果）。
+  isSelectionGestureInProgress(): boolean {
+    return this.state.isActive &&
+      this.state.selectedStrokeIds.length === 0 &&
+      this.state.selectedShapeIds.length === 0 &&
+      this.state.selectedTextBlockIds.length === 0 &&
+      this.state.selectedImageIds.length === 0 &&
+      this.state.selectedGroupIds.length === 0 &&
+      this.state.selectedMathIds.length === 0;
+  }
+
   // 原版 oo3Var.a()：进行中的套索/矩形绘制区域 bounds（画布坐标）——
   // 完成判定用它做 20dp/zoom 最小尺寸检查（uw2 case1）。
   drawnBounds(): Rect2D | null {
