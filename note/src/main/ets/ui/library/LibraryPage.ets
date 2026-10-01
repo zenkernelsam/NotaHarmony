@@ -275,10 +275,19 @@ struct LibraryPage {
     }),
     autoCancel: true,
   });
-  // 原版 n32：unindexed 说明对话框（unindexed_notes 标题 + 崩溃说明 +
-  // Close）。
+  // 原版 zsb -> l8n.h：unindexed-notes 管理对话框（可选列表 + Index
+  // Notes 重建动作），横幅 Learn More 入口打开。
   private unindexedDialog: CustomDialogController = new CustomDialogController({
-    builder: UnindexedNotesDialog(),
+    builder: UnindexedNotesDialog({
+      getNotes: (): NoteMeta[] =>
+        this.viewModel === null ? [] : this.viewModel.unindexedNotes,
+      onIndexNotes: async (noteIds: string[]): Promise<number> => {
+        if (this.viewModel === null) {
+          return 0;
+        }
+        return await this.viewModel.reindexUnindexedNotes(noteIds);
+      },
+    }),
     autoCancel: true,
   });
   // 原版 cd case 0 templatenewnote：从模板新建笔记——四款 PaperTemplate
@@ -5740,16 +5749,108 @@ struct NameDialog {
   }
 }
 
-// 原版 n32/elc.a：unindexed-notes 说明对话框——unindexed_notes 标题 +
-// "If the note causes the app to crash..." 正文 + 单个 Close。
+// 原版 zsb -> l8n.h/l8n.f/p6f case15：unindexed-notes 管理对话框——
+// 标题 + 崩溃说明（aq8.j0 列表头 ubm.a = ig2(4)）+ 可选笔记行
+// （uq5 case8 -> l8n.g：checkmark_circle/circle_empty + 标题 + 日期，
+// select_note cd）+ 底部 Select All/Deselect All（p6f strK）+
+// "N notes selected"（notes_selected 复数）+ Close / Index Notes
+// （y73：index 仅当选集非空，dsb 重建后 dismiss）。默认全选（zsb
+// 预先 hashSet.add 全部 id）。
 @CustomDialog
 struct UnindexedNotesDialog {
   controller?: CustomDialogController;
+  getNotes: () => NoteMeta[] = (): NoteMeta[] => [];
+  onIndexNotes: (noteIds: string[]) => Promise<number> =
+    async (_noteIds: string[]): Promise<number> => 0;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+  @State selectedIds: string[] = [];
+  @State indexing: boolean = false;
+
+  aboutToAppear(): void {
+    // 原版 zsb：初始选集 = 全部 unindexed id（hashSet.add 循环）。
+    const notes: NoteMeta[] = this.getNotes();
+    const ids: string[] = [];
+    for (const note of notes) {
+      ids.push(note.id);
+    }
+    this.selectedIds = ids;
+    this.indexing = false;
+  }
 
   private resolveTokens(): ThemeTokens {
     return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  private noteDisplayTitle(note: NoteMeta): string {
+    if (note.title !== undefined && note.title.length > 0) {
+      return note.title;
+    }
+    try {
+      return getContext(this).resourceManager.getStringSync($r('app.string.untitled_note').id);
+    } catch (_e) {
+      return 'New Note';
+    }
+  }
+
+  private toggleSelection(noteId: string): void {
+    const ids: string[] = [];
+    let removed: boolean = false;
+    for (const id of this.selectedIds) {
+      if (id === noteId) {
+        removed = true;
+      } else {
+        ids.push(id);
+      }
+    }
+    if (!removed) {
+      ids.push(noteId);
+    }
+    this.selectedIds = ids;
+  }
+
+  private toggleSelectAll(): void {
+    const notes: NoteMeta[] = this.getNotes();
+    if (this.selectedIds.length === notes.length) {
+      this.selectedIds = [];
+      return;
+    }
+    const ids: string[] = [];
+    for (const note of notes) {
+      ids.push(note.id);
+    }
+    this.selectedIds = ids;
+  }
+
+  private isSelected(noteId: string): boolean {
+    return this.selectedIds.indexOf(noteId) >= 0;
+  }
+
+  private async runIndexNotes(): Promise<void> {
+    if (this.selectedIds.length === 0 || this.indexing) {
+      return;
+    }
+    this.indexing = true;
+    try {
+      await this.onIndexNotes(this.selectedIds.slice());
+    } finally {
+      this.indexing = false;
+      if (this.controller !== undefined) {
+        this.controller.close();
+      }
+    }
+  }
+
+  private formatNoteDate(timestamp: number): string {
+    if (timestamp <= 0) {
+      return '';
+    }
+    try {
+      return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
+        .format(new Date(timestamp));
+    } catch (_e) {
+      return '';
+    }
   }
 
   build() {
@@ -5758,20 +5859,108 @@ struct UnindexedNotesDialog {
         .fontSize(16)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.resolveTokens().textPrimary)
+        .width('100%')
       Text($r('app.string.unindexed_explainer'))
         .fontSize(13)
         .fontColor(this.resolveTokens().textSecondary)
-        .margin({ top: 12 })
-      Button($r('app.string.close'))
-        .height(36)
-        .fontSize(14)
         .width('100%')
-        .margin({ top: 16 })
+        .margin({ top: 12 })
+
+      // 原版 uq5 case8 -> l8n.g 行：checkmark_circle/circle_empty
+      // 图标 + 标题 + 日期副题，整行点击切换选集（select_note cd）。
+      Scroll() {
+        Column() {
+          ForEach(this.getNotes(), (note: NoteMeta) => {
+            Row() {
+              ToolGlyph({
+                glyph: this.isSelected(note.id) ?
+                  'checkmark_circle' : 'circle_empty_med_outline',
+                contentColor: this.isSelected(note.id) ?
+                  this.resolveTokens().accent : this.resolveTokens().textSecondary,
+                iconSize: 22,
+              })
+                .accessibilityText($r('app.string.select_note'))
+              Column() {
+                Text(this.noteDisplayTitle(note))
+                  .fontSize(14)
+                  .fontColor(this.resolveTokens().textPrimary)
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .width('100%')
+                Text(this.formatNoteDate(note.updatedAt))
+                  .fontSize(12)
+                  .fontColor(this.resolveTokens().textSecondary)
+                  .maxLines(1)
+                  .width('100%')
+                  .margin({ top: 2 })
+              }
+              .layoutWeight(1)
+              .margin({ left: 12 })
+            }
+            .width('100%')
+            .height(52)
+            .onClick(() => {
+              this.toggleSelection(note.id);
+            })
+          }, (note: NoteMeta) => note.id)
+        }
+        .width('100%')
+      }
+      .width('100%')
+      .constraintSize({ maxHeight: 280 })
+      .margin({ top: 12 })
+
+      Divider()
+        .color(this.resolveTokens().border)
+        .margin({ top: 8 })
+
+      // 原版 p6f case15 底栏：Select All/Deselect All 文本行 +
+      // "N notes selected" 计数 + Close / Index Notes 按钮行。
+      Text(this.selectedIds.length === this.getNotes().length ?
+        $r('app.string.deselect_all') : $r('app.string.select_all'))
+        .fontSize(14)
+        .fontColor(this.resolveTokens().accent)
+        .padding({ top: 8, bottom: 8 })
+        .accessibilityText(this.selectedIds.length === this.getNotes().length ?
+          $r('app.string.deselect_all') : $r('app.string.select_all'))
         .onClick(() => {
-          if (this.controller !== undefined) {
-            this.controller.close();
-          }
+          this.toggleSelectAll();
         })
+
+      if (this.selectedIds.length > 0) {
+        Text($r(this.selectedIds.length === 1 ?
+          'app.string.note_selected_singular' : 'app.string.notes_selected',
+          this.selectedIds.length))
+          .width('100%')
+          .fontSize(13)
+          .fontColor(this.resolveTokens().textSecondary)
+          .margin({ bottom: 8 })
+      }
+
+      Row() {
+        Button($r('app.string.close'))
+          .height(36)
+          .fontSize(14)
+          .layoutWeight(1)
+          .backgroundColor(this.resolveTokens().control)
+          .fontColor(this.resolveTokens().textPrimary)
+          .onClick(() => {
+            if (this.controller !== undefined) {
+              this.controller.close();
+            }
+          })
+        Button($r('app.string.index_notes'))
+          .height(36)
+          .fontSize(14)
+          .layoutWeight(1)
+          .margin({ left: 12 })
+          .enabled(this.selectedIds.length > 0 && !this.indexing)
+          .onClick(() => {
+            this.runIndexNotes();
+          })
+      }
+      .width('100%')
+      .margin({ top: 8 })
     }
     .padding(16)
     .width(320)

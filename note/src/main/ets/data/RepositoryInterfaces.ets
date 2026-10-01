@@ -45,6 +45,13 @@ export interface NoteRepository {
   // save path never produced a search_item row are invisible to search and
   // surface in the original's unindexed-notes UI (elc.a/n32 learn-more).
   countUnindexedNotes(): Promise<number>;
+  // Original zsb -> l8n.h unindexed-notes management dialog: the selectable
+  // note list behind the count banner.
+  getUnindexedNotes(): Promise<NoteMeta[]>;
+  // Original dsb/z73 "Index notes" action: rebuild search_item rows for the
+  // selected unindexed notes (TITLE + per-page TEXT_BLOCK from persisted
+  // page_element_snapshot payloads). Returns the number of notes indexed.
+  reindexUnindexedNotes(noteIds: string[]): Promise<number>;
   updateNote(note: NoteMeta): Promise<void>;
   deleteNote(noteId: string): Promise<void>;
   getTrashedNotes(): Promise<NoteMeta[]>;

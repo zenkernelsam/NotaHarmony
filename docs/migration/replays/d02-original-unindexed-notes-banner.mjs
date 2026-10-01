@@ -52,16 +52,22 @@ ok(origPlurals.includes('feature_library__unindexed_note') &&
 
 // --- Harmony anchors ----------------------------------------------------------------------
 // Repository contract + NOT EXISTS search_item coverage query.
-ok(iface.includes('countUnindexedNotes(): Promise<number>;'),
-  'countUnindexedNotes contract missing');
+ok(iface.includes('countUnindexedNotes(): Promise<number>;') &&
+   iface.includes('getUnindexedNotes(): Promise<NoteMeta[]>;') &&
+   iface.includes('reindexUnindexedNotes(noteIds: string[]): Promise<number>;'),
+  'unindexed repo contracts missing');
 ok(/NOT EXISTS \(SELECT 1 FROM search_item item\s*WHERE item\.note_id = note\.id\)/
   .test(repo) && repo.includes('note.deleted_at IS NULL'),
   'unindexed coverage query missing');
 // VM: count refreshed inside the guarded loadNotes tail.
+// Phase 1423：计数由 getUnindexedNotes 列表派生（原 zsb whf.b 投影），
+// reindexUnindexedNotes 走 mutation 队列后回写。
 ok(vm.includes('unindexedNoteCount: number = 0;') &&
-   vm.includes('this.repo.countUnindexedNotes()') &&
-   vm.includes('this.unindexedNoteCount = unindexedCount'),
-  'view-model unindexed count missing');
+   vm.includes('unindexedNotes: NoteMeta[] = [];') &&
+   vm.includes('this.repo.getUnindexedNotes()') &&
+   vm.includes('this.unindexedNoteCount = unindexedList.length') &&
+   vm.includes('reindexUnindexedNotes(noteIds: string[])'),
+  'view-model unindexed list/count/reindex missing');
 // Page: banner gated on count > 0, singular/plural $r variants, Learn More
 // opens the n32-parity dialog.
 ok(page.includes('this.viewModel.unindexedNoteCount > 0') &&

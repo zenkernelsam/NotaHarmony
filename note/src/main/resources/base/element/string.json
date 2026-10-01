@@ -352,6 +352,10 @@
       "value": "Select All"
     },
     {
+      "name": "index_notes",
+      "value": "Index Notes"
+    },
+    {
       "name": "bring_forward",
       "value": "Send forward"
     },

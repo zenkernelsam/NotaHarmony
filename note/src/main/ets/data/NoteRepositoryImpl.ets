@@ -34,12 +34,18 @@ import {
   persistOriginalNoteMetadata, PersistedOriginalNoteMetadata,
 } from './OriginalNoteMetadataPersistence';
 import { persistOriginalBlankNoteBootstrap } from './OriginalBlankNoteBootstrapPersistence';
+import { searchTextForElement } from './StrokePersistence';
 import { applyOriginalPaperSettings } from '../core/model/PageBackgroundModel';
 import { DefaultNoteTemplateRepository } from './EditorSettingsStore';
 
 // Original Recently Deleted rule: trashed notes stay recoverable for 30 days
 // (feature_settings__recently_deleted_empty_state_header), then are purged.
 export const TRASH_RETENTION_MS: number = 30 * 24 * 60 * 60 * 1000;
+
+interface PageReindexRow {
+  pageId: string;
+  revision: number;
+}
 
 interface NoteAssetReference {
   assetHash: string;
@@ -219,6 +225,120 @@ export class NoteRepositoryImpl implements NoteRepository {
     } finally {
       rows.close();
     }
+  }
+
+  // 原版 zsb -> l8n.h：unindexed-notes 管理对话框的可选列表数据（whf.b 集合
+  // 的 qcn.c 投影）。排序沿用库内惯例 updated_at DESC。
+  async getUnindexedNotes(): Promise<NoteMeta[]> {
+    const store: relationalStore.RdbStore = this.db.getStore();
+    const rows = await store.querySql(
+      `SELECT note.* FROM note_meta note
+         WHERE note.deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM search_item item
+             WHERE item.note_id = note.id)
+         ORDER BY note.updated_at DESC`);
+    const notes: NoteMeta[] = [];
+    try {
+      while (rows.goToNextRow()) {
+        notes.push(this.rowToNote(rows));
+      }
+    } finally {
+      rows.close();
+    }
+    // 原版 q0b 行只渲染标题+日期（uq5 case8/l8n.g）——无 folder chip，
+    // 不做 w09.g/h 目录投影。
+    return notes;
+  }
+
+  // 原版 y73/z73/dsb "Index notes"：对所选 unindexed 笔记重建 search_item。
+  // 忠实范围 = TITLE 项（note_meta.title）+ 每页 TEXT_BLOCK 项（从
+  // page_element_snapshot 持久化 payload 经 searchTextForElement 提取）+
+  // search_page_state.indexed_revision。INK 项来自识别服务输出、PDF 项来自
+  // 导入期文本抽取，两者均无本地可重放源，保持 fail-closed 缺席。
+  async reindexUnindexedNotes(noteIds: string[]): Promise<number> {
+    return databaseWriteMutex.runExclusive(async (): Promise<number> => {
+      const store: relationalStore.RdbStore = this.db.getStore();
+      let indexed: number = 0;
+      for (const noteId of noteIds) {
+      await store.beginTransaction();
+      try {
+        const metaRows = await store.querySql(
+          'SELECT title FROM note_meta WHERE id = ? AND deleted_at IS NULL',
+          [noteId]);
+        let title: string | null = null;
+        try {
+          if (metaRows.goToFirstRow()) {
+            title = metaRows.getString(metaRows.getColumnIndex('title'));
+          }
+        } finally {
+          metaRows.close();
+        }
+        if (title === null) {
+          await store.rollBack();
+          continue;
+        }
+        await this.upsertTitleSearchItem(store, noteId, title);
+        const pageRows = await store.querySql(
+          'SELECT page_id, content_revision FROM page_info WHERE note_id = ?',
+          [noteId]);
+        const pages: PageReindexRow[] = [];
+        try {
+          while (pageRows.goToNextRow()) {
+            pages.push({
+              pageId: pageRows.getString(pageRows.getColumnIndex('page_id')),
+              revision: pageRows.getLong(pageRows.getColumnIndex('content_revision')),
+            });
+          }
+        } finally {
+          pageRows.close();
+        }
+        for (const page of pages) {
+          const elementRows = await store.querySql(
+            `SELECT element_id, kind, payload FROM page_element_snapshot
+               WHERE note_id = ? AND page_id = ?`,
+            [noteId, page.pageId]);
+          try {
+            while (elementRows.goToNextRow()) {
+              const elementId: string =
+                elementRows.getString(elementRows.getColumnIndex('element_id'));
+              const kind: number =
+                elementRows.getLong(elementRows.getColumnIndex('kind'));
+              const payload: Uint8Array =
+                elementRows.getBlob(elementRows.getColumnIndex('payload'));
+              const folded: string | null = searchTextForElement(kind, payload);
+              if (folded === null || folded.trim().length === 0) {
+                continue;
+              }
+              await store.insert('search_item', {
+                'note_id': noteId,
+                'type': SearchItemType.TEXT_BLOCK,
+                'sub_id': elementId,
+                'page_id': page.pageId,
+                'folded_text': folded,
+                'rects': null,
+              }, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+            }
+          } finally {
+            elementRows.close();
+          }
+          await store.insert('search_page_state', {
+            'note_id': noteId,
+            'page_id': page.pageId,
+            'indexed_revision': page.revision,
+          }, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+        }
+        await store.commit();
+        indexed++;
+      } catch (e) {
+        try {
+          await store.rollBack();
+        } catch (_rollbackError) {
+        }
+        console.error(`reindexUnindexedNotes(${noteId}) failed: ${JSON.stringify(e)}`);
+      }
+      }
+      return indexed;
+    });
   }
 
   async getNotesByFolder(folderId: string): Promise<NoteMeta[]> {

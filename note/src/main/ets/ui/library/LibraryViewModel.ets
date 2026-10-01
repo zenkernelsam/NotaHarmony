@@ -35,6 +35,9 @@ export class LibraryViewModel {
   // search_item coverage never match library search (the original's
   // "unindexed notes will not appear in search" contract).
   unindexedNoteCount: number = 0;
+  // 原版 zsb -> l8n.h：unindexed-notes 管理对话框的列表数据（whf.b
+  // 投影为 q0b 行）。与 unindexedNoteCount 同批加载。
+  unindexedNotes: NoteMeta[] = [];
   // 原版 ab7.e/f：Home 分区的 favorites/recents 卡片数据源
   // （ksh.a 的 list/list2），HOME 选中时由 loadNotes 填充。
   homeFavorites: NoteMeta[] = [];
@@ -118,12 +121,13 @@ export class LibraryViewModel {
           this.homeRecents = [];
         }
         try {
-          const unindexedCount: number = await this.repo.countUnindexedNotes();
+          const unindexedList: NoteMeta[] = await this.repo.getUnindexedNotes();
           if (generation === this.loadGeneration) {
-            this.unindexedNoteCount = unindexedCount;
+            this.unindexedNotes = unindexedList;
+            this.unindexedNoteCount = unindexedList.length;
           }
         } catch (e) {
-          console.error(`countUnindexedNotes failed: ${JSON.stringify(e)}`);
+          console.error(`getUnindexedNotes failed: ${JSON.stringify(e)}`);
         }
         return;
       }
@@ -354,6 +358,25 @@ export class LibraryViewModel {
       }
       return note.id;
     });
+  }
+
+  // 原版 y73/z73/dsb "Index notes"：对所选 unindexed 笔记重建索引并同步
+  // 刷新横幅计数与列表（成功重建的笔记移出 unindexedNotes）。
+  async reindexUnindexedNotes(noteIds: string[]): Promise<number> {
+    let indexed: number = 0;
+    await this.enqueueMutation(async (): Promise<void> => {
+      indexed = await this.repo.reindexUnindexedNotes(noteIds);
+      if (indexed > 0) {
+        try {
+          const unindexedList: NoteMeta[] = await this.repo.getUnindexedNotes();
+          this.unindexedNotes = unindexedList;
+          this.unindexedNoteCount = unindexedList.length;
+        } catch (e) {
+          console.error(`getUnindexedNotes refresh failed: ${JSON.stringify(e)}`);
+        }
+      }
+    });
+    return indexed;
   }
 
   // Original behavior: library Delete moves the note to Recently Deleted

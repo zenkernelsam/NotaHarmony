@@ -59,8 +59,14 @@ check(/cd_deselect_note_titled', this\.noteDisplayTitle\(note\)\)/.test(lib),
   '已选 → Deselect note <标题>');
 check(/cd_select_note_titled', this\.noteDisplayTitle\(note\)\)/.test(lib),
   '未选 → Select note <标题>');
-check(!/accessibilityText\(\$r\('app\.string\.select_note'\)\)/.test(lib),
-  '静态 select_note 勾选圈 a11y 已移除');
+{
+  // Phase 1423 起 UnindexedNotesDialog 行图标忠实使用原版
+  // feature_library__select_note（l8n.g）；负锚收紧到 SelectCircle 构建体。
+  const circleBody = lib.slice(lib.indexOf('SelectCircle(note: NoteMeta)'),
+    lib.indexOf('SelectCircle(note: NoteMeta)') + 1400);
+  check(!/app\.string\.select_note'\)/.test(circleBody),
+    'SelectCircle 勾选圈仍为带标题 cd（未退回静态 select_note）');
+}
 check(/private noteDisplayTitle\(note: NoteMeta\): string \{[\s\S]*?untitled_note/.test(lib),
   'noteDisplayTitle 物化标题（空 → untitled_note，同卡片显示）');
 

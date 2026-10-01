@@ -7183,7 +7183,7 @@ function readCreatedOriginalImageFromSnapshot(elements: SearchSourceElement[],
   return created;
 }
 
-function searchTextForElement(kind: number, payload: Uint8Array): string | null {
+export function searchTextForElement(kind: number, payload: Uint8Array): string | null {
   try {
     const persisted: PersistedElement = decodePersistedElement(payload);
     if (kind === PageElementKind.TEXT && persisted.kind === 'text') {

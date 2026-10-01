@@ -77,11 +77,18 @@ const checks = [
   ['fit width reuses the original viewport bounds',
     canvasView.includes('fit < ORIGINAL_VIEWPORT_MIN_ZOOM') &&
       canvasView.includes('fit > ORIGINAL_VIEWPORT_MAX_ZOOM')],
+  // Phase 1423 起仓库更早位置出现 databaseWriteMutex（reindexUnindexedNotes）；
+  // 守卫顺序锚点收紧到 saveViewState 方法体内。
   ['repository rejects invalid zoom and scroll before taking the write mutex',
-    repository.indexOf('if (!isOriginalViewportZoom(state.zoom))') >= 0 &&
-      repository.indexOf('if (!isFiniteViewportScrollOffset(state.scrollOffsetX, state.scrollOffsetY))') >= 0 &&
-      repository.indexOf('if (!isOriginalViewportZoom(state.zoom))') <
-      repository.indexOf('databaseWriteMutex.runExclusive')],
+    (() => {
+      const body = repository.slice(
+        repository.indexOf('async saveViewState(state: NoteViewState)'),
+        repository.indexOf('async saveViewState(state: NoteViewState)') + 1400);
+      return body.indexOf('if (!isOriginalViewportZoom(state.zoom))') >= 0 &&
+        body.indexOf('if (!isFiniteViewportScrollOffset(state.scrollOffsetX, state.scrollOffsetY))') >= 0 &&
+        body.indexOf('if (!isOriginalViewportZoom(state.zoom))') <
+          body.indexOf('databaseWriteMutex.runExclusive');
+    })()],
   ['viewport fixture covers additive sequence and original maximum',
     viewportTest.includes("expect(viewport.zoom).assertEqual(1.75)") &&
       viewportTest.includes('ORIGINAL_VIEWPORT_MAX_ZOOM')],
