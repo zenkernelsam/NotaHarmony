@@ -94,7 +94,7 @@ for (const alias of [
   check(highlighter.includes(alias), `vza.h 别名 ${alias}`);
 }
 check(highlighter.includes("'racket', 'ruby', 'rust'"),
-  'vza.H 支持集含 11 个惰性语法名（Phase 1398 注册创建器）');
+  'vza.H 支持集含 26 名（11 个惰性语法创建器于 Phase 1398 注册）');
 check(highlighter.includes("CODE_GRAMMAR_CREATORS.set('clike'") &&
   highlighter.includes("CODE_GRAMMAR_CREATORS.set('javascript'") &&
   highlighter.includes("CODE_GRAMMAR_CREATORS.set('markdown'"),

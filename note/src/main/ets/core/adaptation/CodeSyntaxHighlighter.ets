@@ -396,6 +396,16 @@ function insertBeforeAtPath(grammar: CodeGrammar, path: string[],
   }
 }
 
+// yia.java：ruby 摘 function、objectivec 摘 class-name 的同名 token 移除
+// （原版 List.remove(indexOf(name))；找不到时 i=-1 跳过，等价无操作）。
+function removeCodeToken(grammar: CodeGrammar, name: string): void {
+  const index: number = grammar.tokens.findIndex(
+    (rule: CodeTokenRule): boolean => rule.name === name);
+  if (index >= 0) {
+    grammar.tokens.splice(index, 1);
+  }
+}
+
 // ---------- token 类目映射（ynh.f：token 名 → bni 类目） ----------
 const TOKEN_CATEGORY: Map<string, string> = new Map<string, string>([
   ['keyword', 'KEYWORD'], ['keyword-control', 'KEYWORD'],
@@ -488,7 +498,7 @@ const CODE_LANG_ALIASES: Map<string, string> = new Map<string, string>([
   ['xml', 'markup'], ['html', 'markup'], ['js', 'javascript'], ['jsonp', 'json'],
 ]);
 
-// vza.H：15 个内建语法名 + vza.I 惰性语法名（Phase 1398 注册后者创建器）。
+// vza.H：15 个内建语法名 + vza.I 惰性语法名（26 名全部注册创建器）。
 const SUPPORTED_CODE_LANGS: Set<string> = new Set<string>([
   'c', 'clike', 'cpp', 'csharp', 'css', 'go', 'java', 'javascript', 'json',
   'kotlin', 'markdown', 'markup', 'python', 'sql', 'swift',
@@ -519,6 +529,18 @@ function registerCoreGrammars(): void {
   CODE_GRAMMAR_CREATORS.set('swift', grammarSwift);
   CODE_GRAMMAR_CREATORS.set('javascript', grammarJavascript);
   CODE_GRAMMAR_CREATORS.set('markdown', grammarMarkdown);
+  // vza.I 惰性语法（yia.java 创建器）
+  CODE_GRAMMAR_CREATORS.set('bash', grammarBash);
+  CODE_GRAMMAR_CREATORS.set('haskell', grammarHaskell);
+  CODE_GRAMMAR_CREATORS.set('lua', grammarLua);
+  CODE_GRAMMAR_CREATORS.set('matlab', grammarMatlab);
+  CODE_GRAMMAR_CREATORS.set('objectivec', grammarObjectivec);
+  CODE_GRAMMAR_CREATORS.set('ocaml', grammarOcaml);
+  CODE_GRAMMAR_CREATORS.set('php', grammarPhp);
+  CODE_GRAMMAR_CREATORS.set('r', grammarR);
+  CODE_GRAMMAR_CREATORS.set('racket', grammarRacket);
+  CODE_GRAMMAR_CREATORS.set('ruby', grammarRuby);
+  CODE_GRAMMAR_CREATORS.set('rust', grammarRust);
 }
 
 // ehd.b：别名归一 → 缓存 → 惰性构建（markup 构建后热切 javascript/css 完成
@@ -1019,6 +1041,603 @@ function grammarMarkdown(): CodeGrammar {
     italicInside.tokens.push(bold);
   }
   return g;
+}
+
+// ---------- 惰性语法（vza.I → yia.java：11 个延迟创建器，按 case 序 8..18） ----------
+// 为保逐字保真，本段一律把 decompiled Pattern.compile("...", N) 的 Java 字符串
+// 字面量原样落进 new RegExp("...", flags)：flags 2→i、8→m、10→mi、缺省→无。
+
+// yia case 8：ruby（extend clike → 摘 function/string → 自递归插值 inside）
+function grammarRuby(): CodeGrammar {
+  const contentTok: CodeTokenRule = tok('content');
+  const interpolationTok: CodeTokenRule = tok('interpolation',
+    patInside(new RegExp("((?:^|[^\\\\])(?:\\\\{2})*)#\\{(?:[^{}]|\\{[^{}]*\\})*\\}"),
+      true, false, null,
+      gram('inside', contentTok,
+        tok('delimiter',
+          patFlag(new RegExp("^#\\{|\\}$"), false, false, 'punctuation')))));
+  const g: CodeGrammar = extendCodeGrammar(codeGrammar('clike') as CodeGrammar,
+    'ruby',
+    tok('comment',
+      patGreedy(new RegExp("#.*|^=begin\\s[\\s\\S]*?^=end", "m"), false)),
+    tok('class-name',
+      patInside(new RegExp("(\\b(?:class|module)\\s+|\\bcatch\\s+\\()[\\w.\\\\]+|\\b[A-Z_]\\w*(?=\\s*\\.\\s*new\\b)"),
+        true, false, null,
+        gram('inside', tok('punctuation', pat(new RegExp("[.\\\\]")))))),
+    tok('keyword',
+      pat(new RegExp("\\b(?:BEGIN|END|alias|and|begin|break|case|class|def|define_method|defined|do|each|else|elsif|end|ensure|extend|for|if|in|include|module|new|next|nil|not|or|prepend|private|protected|public|raise|redo|require|rescue|retry|return|self|super|then|throw|undef|unless|until|when|while|yield)\\b"))),
+    tok('operator',
+      pat(new RegExp("\\.{2,3}|&\\.|===|<?=>|[!=]?~|(?:&&|\\|\\||<<|>>|\\*\\*|[+\\-*/%<>!^&|=])=?|[?:]"))),
+    tok('punctuation', pat(new RegExp("[(){}\\[\\].,;]"))));
+  removeCodeToken(g, 'function');
+  insertBeforeCodeToken(g, 'operator',
+    tok('double-colon',
+      patFlag(new RegExp("::"), false, false, 'punctuation')));
+  insertBeforeCodeToken(g, 'keyword',
+    tok('regex-literal',
+      patInside(new RegExp("%r(?:([^a-zA-Z0-9\\s{(\\[<=])(?:(?!\\1)[^\\\\]|\\\\[\\s\\S])*\\1|\\((?:[^()\\\\]|\\\\[\\s\\S]|\\((?:[^()\\\\]|\\\\[\\s\\S])*\\))*\\)|\\{(?:[^{}\\\\]|\\\\[\\s\\S]|\\{(?:[^{}\\\\]|\\\\[\\s\\S])*\\})*\\}|\\[(?:[^\\[\\]\\\\]|\\\\[\\s\\S]|\\[(?:[^\\[\\]\\\\]|\\\\[\\s\\S])*\\])*\\]|<(?:[^<>\\\\]|\\\\[\\s\\S]|<(?:[^<>\\\\]|\\\\[\\s\\S])*>)*>)[egimnosux]{0,6}"),
+        false, true, null,
+        gram('inside', interpolationTok,
+          tok('regex', pat(new RegExp("[\\s\\S]+"))))),
+      patInside(new RegExp("(^|[^/])/(?!/)(?:\\[[^\\r\\n\\]]+\\]|\\\\.|[^\\[/\\\\\\r\\n])+/[egimnosux]{0,6}(?=\\s*(?:$|[\\r\\n,.;})#]))"),
+        true, true, null,
+        gram('inside', interpolationTok,
+          tok('regex', pat(new RegExp("[\\s\\S]+")))))),
+    tok('variable', pat(new RegExp("[@$]+[a-zA-Z_]\\w*(?:[?!]|\\b)"))),
+    tok('symbol',
+      patGreedy(new RegExp("(^|[^:]):(?:\"(?:\\\\.|[^\"\\\\\\r\\n])*\"|(?:\\b[a-zA-Z_]\\w*|[^\\s\\u0000-\\u007F]+)[?!]?|\\$.)"), true),
+      patGreedy(new RegExp("([\\r\\n{(,][ \\t]*)(?:\"(?:\\\\.|[^\"\\\\\\r\\n])*\"|(?:\\b[a-zA-Z_]\\w*|[^\\s\\u0000-\\u007F]+)[?!]?|\\$.)(?=:(?!:))"), true)),
+    tok('method-definition',
+      patInside(new RegExp("(\\bdef\\s+)\\w+(?:\\s*\\.\\s*\\w+)?"), true, false, null,
+        gram('inside',
+          tok('function', pat(new RegExp("\\b\\w+$"))),
+          tok('keyword', pat(new RegExp("^self\\b"))),
+          tok('class-name', pat(new RegExp("^\\w+"))),
+          tok('punctuation', pat(new RegExp("\\.")))))));
+  insertBeforeCodeToken(g, 'string',
+    tok('string-literal',
+      patInside(new RegExp("%[qQiIwWs]?(?:([^a-zA-Z0-9\\s{(\\[<=])(?:(?!\\1)[^\\\\]|\\\\[\\s\\S])*\\1|\\((?:[^()\\\\]|\\\\[\\s\\S]|\\((?:[^()\\\\]|\\\\[\\s\\S])*\\))*\\)|\\{(?:[^{}\\\\]|\\\\[\\s\\S]|\\{(?:[^{}\\\\]|\\\\[\\s\\S])*\\})*\\}|\\[(?:[^\\[\\]\\\\]|\\\\[\\s\\S]|\\[(?:[^\\[\\]\\\\]|\\\\[\\s\\S])*\\])*\\]|<(?:[^<>\\\\]|\\\\[\\s\\S]|<(?:[^<>\\\\]|\\\\[\\s\\S])*>)*>)"),
+        false, true, null,
+        gram('inside', interpolationTok, tok('string', pat(new RegExp("[\\s\\S]+"))))),
+      patInside(new RegExp("(\"|')(?:#\\{[^}]+\\}|#(?!\\{)|\\\\(?:\\r\\n|[\\s\\S])|(?!\\1)[^\\\\#\\r\\n])*\\1"),
+        false, true, null,
+        gram('inside', interpolationTok, tok('string', pat(new RegExp("[\\s\\S]+"))))),
+      patInside(new RegExp("<<[-~]?([a-z_]\\w*)[\\r\\n](?:.*[\\r\\n])*?[\\t ]*\\1", "i"),
+        false, true, 'heredoc-string',
+        gram('inside',
+          tok('delimiter',
+            patInside(new RegExp("^<<[-~]?[a-z_]\\w*|\\b[a-z_]\\w*$", "i"),
+              false, false, null,
+              gram('inside', tok('symbol', pat(new RegExp("\\b\\w+"))),
+                tok('punctuation', pat(new RegExp("^<<[-~]?")))))),
+          interpolationTok, tok('string', pat(new RegExp("[\\s\\S]+"))))),
+      patInside(new RegExp("<<[-~]?'([a-z_]\\w*)'[\\r\\n](?:.*[\\r\\n])*?[\\t ]*\\1", "i"),
+        false, true, 'heredoc-string',
+        gram('inside',
+          tok('delimiter',
+            patInside(new RegExp("^<<[-~]?'[a-z_]\\w*'|\\b[a-z_]\\w*$", "i"),
+              false, false, null,
+              gram('inside', tok('symbol', pat(new RegExp("\\b\\w+"))),
+                tok('punctuation', pat(new RegExp("^<<[-~]?'|'$")))))),
+          tok('string', pat(new RegExp("[\\s\\S]+")))))),
+    tok('command-literal',
+      patInside(new RegExp("%x(?:([^a-zA-Z0-9\\s{(\\[<=])(?:(?!\\1)[^\\\\]|\\\\[\\s\\S])*\\1|\\((?:[^()\\\\]|\\\\[\\s\\S]|\\((?:[^()\\\\]|\\\\[\\s\\S])*\\))*\\)|\\{(?:[^{}\\\\]|\\\\[\\s\\S]|\\{(?:[^{}\\\\]|\\\\[\\s\\S])*\\})*\\}|\\[(?:[^\\[\\]\\\\]|\\\\[\\s\\S]|\\[(?:[^\\[\\]\\\\]|\\\\[\\s\\S])*\\])*\\]|<(?:[^<>\\\\]|\\\\[\\s\\S]|<(?:[^<>\\\\]|\\\\[\\s\\S])*>)*>)"),
+        false, true, null,
+        gram('inside', interpolationTok,
+          tok('command',
+            patFlag(new RegExp("[\\s\\S]+"), false, false, 'string')))),
+      patInside(new RegExp("`(?:#\\{[^}]+\\}|#(?!\\{)|\\\\(?:\\r\\n|[\\s\\S])|[^\\\\`#\\r\\n])*`"),
+        false, true, null,
+        gram('inside', interpolationTok,
+          tok('command',
+            patFlag(new RegExp("[\\s\\S]+"), false, false, 'string'))))));
+  removeCodeToken(g, 'string');
+  insertBeforeCodeToken(g, 'number',
+    tok('builtin',
+      pat(new RegExp("\\b(?:Array|Bignum|Binding|Class|Continuation|Dir|Exception|FalseClass|File|Fixnum|Float|Hash|IO|Integer|MatchData|Method|Module|NilClass|Numeric|Object|Proc|Range|Regexp|Stat|String|Struct|Symbol|TMS|Thread|ThreadGroup|Time|TrueClass)\\b"))),
+    tok('constant', pat(new RegExp("\\b[A-Z][A-Z0-9_]*(?:[?!]|\\b)"))));
+  // zmiVarH.b.add：插值 content 的 inside = 整个 ruby 语法（自递归）
+  contentTok.patterns.push(patInside(new RegExp("^(#\\{)[\\s\\S]+?(?=\\}$)"),
+    true, false, null, g));
+  return g;
+}
+
+// yia case 9：rust（closure-params 的 inside = 自身标点 + 全语法 token，自递归）
+function grammarRust(): CodeGrammar {
+  const stringTok: CodeTokenRule = tok('string',
+    patGreedy(new RegExp("b?\"(?:\\\\[\\s\\S]|[^\\\\\"])*\"|b?r(#*)\"(?:[^\"]|\"(?!\\1))*\"\\1"), false));
+  const attrInside: CodeGrammar = gram('inside', stringTok);
+  const closureParams: CodeTokenRule = tok('closure-params');
+  const g: CodeGrammar = gram('rust',
+    tok('comment',
+      patGreedy(new RegExp("(^|[^\\\\])/\\*(?:[^*/]|\\*(?!/)|/(?!\\*)|/\\*(?:[^*/]|\\*(?!/)|/(?!\\*)|/\\*(?:[^*/]|\\*(?!/)|/(?!\\*)|[^\\s\\S])*\\*/)*\\*/)*\\*/"), true),
+      patGreedy(new RegExp("(^|[^\\\\:])//.*"), true)),
+    stringTok,
+    tok('char',
+      patGreedy(new RegExp("b?'(?:\\\\(?:x[0-7][\\da-fA-F]|u\\{(?:[\\da-fA-F]_*){1,6}\\}|.)|[^\\\\\\r\\n\\t'])'"), false)),
+    tok('attribute',
+      patInside(new RegExp("#!?\\[(?:[^\\[\\]\"]|\"(?:\\\\[\\s\\S]|[^\\\\\"])*\")*\\]"),
+        false, true, 'attr-name', attrInside)),
+    closureParams,
+    tok('lifetime-annotation',
+      patFlag(new RegExp("'\\w+"), false, false, 'symbol')),
+    tok('fragment-specifier',
+      patFlag(new RegExp("(\\$\\w+:)[a-z]+"), true, false, 'punctuation')),
+    tok('variable', pat(new RegExp("\\$\\w+"))),
+    tok('function-definition',
+      patFlag(new RegExp("(\\bfn\\s+)\\w+"), true, false, 'function')),
+    tok('type-definition',
+      patFlag(new RegExp("(\\b(?:enum|struct|trait|type|union)\\s+)\\w+"), true, false, 'class-name')),
+    tok('module-declaration',
+      patFlag(new RegExp("(\\b(?:crate|mod)\\s+)[a-z][a-z_\\d]*"), true, false, 'namespace'),
+      patInside(new RegExp("(\\b(?:crate|self|super)\\s*)::\\s*[a-z][a-z_\\d]*\\b(?:\\s*::(?:\\s*[a-z][a-z_\\d]*\\s*::)*)?"),
+        true, false, 'namespace',
+        gram('inside', tok('punctuation', pat(new RegExp("::")))))),
+    tok('keyword',
+      pat(new RegExp("\\b(?:Self|abstract|as|async|await|become|box|break|const|continue|crate|do|dyn|else|enum|extern|final|fn|for|if|impl|in|let|loop|macro|match|mod|move|mut|override|priv|pub|ref|return|self|static|struct|super|trait|try|type|typeof|union|unsafe|unsized|use|virtual|where|while|yield)\\b")),
+      pat(new RegExp("\\b(?:bool|char|f(?:32|64)|[ui](?:8|16|32|64|128|size)|str)\\b"))),
+    tok('function',
+      pat(new RegExp("\\b[a-z_]\\w*(?=\\s*(?:::\\s*<|\\())"))),
+    tok('macro',
+      patFlag(new RegExp("\\b\\w+!"), false, false, 'property')),
+    tok('constant', pat(new RegExp("\\b[A-Z_][A-Z_\\d]+\\b"))),
+    tok('class-name', pat(new RegExp("\\b[A-Z]\\w*\\b"))),
+    tok('namespace',
+      patInside(new RegExp("(?:\\b[a-z][a-z_\\d]*\\s*::\\s*)*\\b[a-z][a-z_\\d]*\\s*::(?!\\s*<)"),
+        false, false, null,
+        gram('inside', tok('punctuation', pat(new RegExp("::")))))),
+    tok('number',
+      pat(new RegExp("\\b(?:0x[\\dA-Fa-f](?:_?[\\dA-Fa-f])*|0o[0-7](?:_?[0-7])*|0b[01](?:_?[01])*|(?:(?:\\d(?:_?\\d)*)?\\.)?\\d(?:_?\\d)*(?:[Ee][+-]?\\d+)?)(?:_?(?:f32|f64|[iu](?:8|16|32|64|size)?))?\\b"))),
+    tok('boolean', pat(new RegExp("\\b(?:false|true)\\b"))),
+    tok('punctuation',
+      pat(new RegExp("->|\\.\\.=|\\.{1,3}|::|[{}\\[\\];(),:]"))),
+    tok('operator',
+      pat(new RegExp("[-+*/%!^]=?|=[=>]?|&[&=]?|\\|[|=]?|<<?=?|>>?=?|[@?]"))));
+  // zmiVarH4.b.add：closure-params inside = [closure-punctuation] + 全 rust token
+  const closureInside: CodeTokenRule[] =
+    [tok('closure-punctuation',
+      patFlag(new RegExp("^\\||\\|$"), false, false, 'punctuation'))]
+      .concat(g.tokens);
+  closureParams.patterns.push(
+    patInside(new RegExp("([=(,:]\\s*|\\bmove\\s*)\\|[^|]*\\||\\|[^|]*\\|(?=\\s*(?:\\{|->))"),
+      true, true, null, new CodeGrammar('inside', closureInside)));
+  return g;
+}
+
+// yia case 10：bash；fhd.b = $(...)/反引号 inside 复用的 15 个具名 token 名单
+const BASH_ENV_NAMES: string = "BASH|BASHOPTS|BASH_ALIASES|BASH_ARGC|BASH_ARGV|BASH_CMDS|BASH_COMPLETION_COMPAT_DIR|BASH_LINENO|BASH_REMATCH|BASH_SOURCE|BASH_VERSINFO|BASH_VERSION|COLORTERM|COLUMNS|COMP_WORDBREAKS|DBUS_SESSION_BUS_ADDRESS|DEFAULTS_PATH|DESKTOP_SESSION|DIRSTACK|DISPLAY|EUID|GDMSESSION|GDM_LANG|GNOME_KEYRING_CONTROL|GNOME_KEYRING_PID|GPG_AGENT_INFO|GROUPS|HISTCONTROL|HISTFILE|HISTFILESIZE|HISTSIZE|HOME|HOSTNAME|HOSTTYPE|IFS|INSTANCE|JOB|LANG|LANGUAGE|LC_ADDRESS|LC_ALL|LC_IDENTIFICATION|LC_MEASUREMENT|LC_MONETARY|LC_NAME|LC_NUMERIC|LC_PAPER|LC_TELEPHONE|LC_TIME|LESSCLOSE|LESSOPEN|LINES|LOGNAME|LS_COLORS|MACHTYPE|MAILCHECK|MANDATORY_PATH|NO_AT_BRIDGE|OLDPWD|OPTERR|OPTIND|ORBIT_SOCKETDIR|OSTYPE|PAPERSIZE|PATH|PIPESTATUS|PPID|PS1|PS2|PS3|PS4|PWD|RANDOM|REPLY|SECONDS|SELINUX_INIT|SESSION|SESSIONTYPE|SESSION_MANAGER|SHELL|SHELLOPTS|SHLVL|SSH_AUTH_SOCK|TERM|UID|UPSTART_EVENTS|UPSTART_INSTANCE|UPSTART_JOB|UPSTART_SESSION|USER|WINDOWID|XAUTHORITY|XDG_CONFIG_DIRS|XDG_CURRENT_DESKTOP|XDG_DATA_DIRS|XDG_GREETER_DATA_DIR|XDG_MENU_PREFIX|XDG_RUNTIME_DIR|XDG_SEAT|XDG_SEAT_PATH|XDG_SESSION_DESKTOP|XDG_SESSION_ID|XDG_SESSION_PATH|XDG_SESSION_TYPE|XDG_VTNR|XMODIFIERS";
+const BASH_SUBSHELL_TOKENS: string[] = ['comment', 'function-name',
+  'for-or-select', 'assign-left', 'parameter', 'string', 'environment',
+  'function', 'keyword', 'builtin', 'boolean', 'file-descriptor',
+  'operator', 'punctuation', 'number'];
+
+function grammarBash(): CodeGrammar {
+  const bashTok: CodeTokenRule = tok('bash');
+  const entityTok: CodeTokenRule = tok('entity',
+    pat(new RegExp("\\\\(?:[abceEfnrtv\\\\\"]|O?[0-7]{1,3}|U[0-9a-fA-F]{8}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{1,2})")));
+  const environmentTok: CodeTokenRule = tok('environment',
+    patFlag(new RegExp("\\$\\b(?:" + BASH_ENV_NAMES + ")\\b"),
+      false, false, 'constant'));
+  const arithInside: CodeGrammar = gram('inside',
+    tok('variable',
+      patLook(new RegExp("(^\\$\\(\\([\\s\\S]+)\\)\\)")),
+      pat(new RegExp("^\\$\\(\\("))),
+    tok('number',
+      pat(new RegExp("\\b0x[\\dA-Fa-f]+\\b|(?:\\b\\d+(?:\\.\\d*)?|\\B\\.\\d+)(?:[Ee]-?\\d+)?"))),
+    tok('operator',
+      pat(new RegExp("--|\\+\\+|\\*\\*=?|<<=?|>>=?|&&|\\|\\||[=!+\\-*/%<>^&|]=?|[?~:]"))),
+    tok('punctuation', pat(new RegExp("\\(\\(?|\\)\\)?|,|;"))));
+  const subshellInside: CodeGrammar = gram('inside',
+    tok('variable', pat(new RegExp("^\\$\\(|^`|\\)$|`$"))));
+  const variableTok: CodeTokenRule = tok('variable',
+    patInside(new RegExp("\\$?\\(\\([\\s\\S]+?\\)\\)"), false, true, null,
+      arithInside),
+    patInside(new RegExp("\\$\\((?:\\([^)]+\\)|[^()])+\\)|`[^`]+`"),
+      false, true, null, subshellInside),
+    patInside(new RegExp("\\$\\{[^}]+\\}"), false, true, null,
+      gram('inside',
+        tok('operator',
+          pat(new RegExp(":[-=?+]?|[!/]|##?|%%?|\\^\\^?|,,?"))),
+        tok('punctuation', pat(new RegExp("[\\[\\]]"))),
+        tok('environment',
+          patFlag(new RegExp("(\\{)\\b(?:" + BASH_ENV_NAMES + ")\\b"),
+            true, false, 'constant')))),
+    pat(new RegExp("\\$(?:\\w+|[#?*!@$])")));
+  const stringInside: CodeGrammar =
+    gram('inside', bashTok, environmentTok, variableTok, entityTok);
+  const g: CodeGrammar = gram('bash',
+    tok('shebang',
+      patFlag(new RegExp("^#!\\s*/.*"), false, false, 'important')),
+    tok('comment', patLook(new RegExp("(^|[^\"{\\\\$])#.*"))),
+    tok('function-name',
+      patFlag(new RegExp("(\\bfunction\\s+)[\\w-]+(?=(?:\\s*\\(?:\\s*\\))?\\s*\\{)"),
+        true, false, 'function'),
+      patFlag(new RegExp("\\b[\\w-]+(?=\\s*\\(\\s*\\)\\s*\\{)"),
+        false, false, 'function')),
+    tok('for-or-select',
+      patFlag(new RegExp("(\\b(?:for|select)\\s+)\\w+(?=\\s+in\\s)"),
+        true, false, 'variable')),
+    tok('assign-left',
+      patInside(new RegExp("(^|[\\s;|&]|[<>]\\()\\w+(?:\\.\\w+)*(?=\\+=)"),
+        true, false, 'variable',
+        gram('inside',
+          tok('environment',
+            patFlag(new RegExp("(^|[\\s;|&]|[<>]\\()\\b(?:" + BASH_ENV_NAMES + ")\\b"),
+              true, false, 'constant'))))),
+    tok('parameter',
+      patFlag(new RegExp("(^|\\s)-{1,2}(?:\\w+:[+-]?)?\\w+(?:\\.\\w+)*(?=[=\\s]|$)"),
+        true, false, 'variable')),
+    tok('string',
+      patInside(new RegExp("((?:^|[^<])<<-?\\s*)(\\w+)\\s[\\s\\S]*?(?:\\r?\\n|\\r)\\2"),
+        true, true, null, stringInside),
+      patInside(new RegExp("((?:^|[^<])<<-?\\s*)([\"'])(\\w+)\\2\\s[\\s\\S]*?(?:\\r?\\n|\\r)\\3"),
+        true, true, null, gram('inside', bashTok)),
+      patInside(new RegExp("(^|[^\\\\](?:\\\\\\\\)*)\"(?:\\\\[\\s\\S]|\\$\\([^)]+\\)|\\$(?!\\()|`[^`]+`|[^\"\\\\`$])*\""),
+        true, true, null, stringInside),
+      patGreedy(new RegExp("(^|[^$\\\\])'[^']*'"), true),
+      patInside(new RegExp("\\$'(?:[^'\\\\]|\\\\[\\s\\S])*'"),
+        false, true, null, gram('inside', entityTok))),
+    tok('environment',
+      patFlag(new RegExp("\\$?\\b(?:" + BASH_ENV_NAMES + ")\\b"),
+        false, false, 'constant')),
+    variableTok,
+    tok('function',
+      patLook(new RegExp("(^|[\\s;|&]|[<>]\\()(?:add|apropos|apt|apt-cache|apt-get|aptitude|aspell|automysqlbackup|awk|basename|bash|bc|bconsole|bg|bzip2|cal|cargo|cat|cfdisk|chgrp|chkconfig|chmod|chown|chroot|cksum|clear|cmp|column|comm|composer|cp|cron|crontab|csplit|curl|cut|date|dc|dd|ddrescue|debootstrap|df|diff|diff3|dig|dir|dircolors|dirname|dirs|dmesg|docker|docker-compose|du|egrep|eject|env|ethtool|expand|expect|expr|fdformat|fdisk|fg|fgrep|file|find|fmt|fold|format|free|fsck|ftp|fuser|gawk|git|gparted|grep|groupadd|groupdel|groupmod|groups|grub-mkconfig|gzip|halt|head|hg|history|host|hostname|htop|iconv|id|ifconfig|ifdown|ifup|import|install|ip|java|jobs|join|kill|killall|less|link|ln|locate|logname|logrotate|look|lpc|lpr|lprint|lprintd|lprintq|lprm|ls|lsof|lynx|make|man|mc|mdadm|mkconfig|mkdir|mke2fs|mkfifo|mkfs|mkisofs|mknod|mkswap|mmv|more|most|mount|mtools|mtr|mutt|mv|nano|nc|netstat|nice|nl|node|nohup|notify-send|npm|nslookup|op|open|parted|passwd|paste|pathchk|ping|pkill|pnpm|podman|podman-compose|popd|pr|printcap|printenv|ps|pushd|pv|quota|quotacheck|quotactl|ram|rar|rcp|reboot|remsync|rename|renice|rev|rm|rmdir|rpm|rsync|scp|screen|sdiff|sed|sendmail|seq|service|sftp|sh|shellcheck|shuf|shutdown|sleep|slocate|sort|split|ssh|stat|strace|su|sudo|sum|suspend|swapon|sync|sysctl|tac|tail|tar|tee|time|timeout|top|touch|tr|traceroute|tsort|tty|umount|uname|unexpand|uniq|units|unrar|unshar|unzip|update-grub|uptime|useradd|userdel|usermod|users|uudecode|uuencode|v|vcpkg|vdir|vi|vim|virsh|vmstat|wait|watch|wc|wget|whereis|which|who|whoami|write|xargs|xdg-open|yarn|yes|zenity|zip|zsh|zypper)(?=$|[)\\s;|&])"))),
+    tok('keyword',
+      patLook(new RegExp("(^|[\\s;|&]|[<>]\\()(?:case|do|done|elif|else|esac|fi|for|function|if|in|select|then|until|while)(?=$|[)\\s;|&])"))),
+    tok('builtin',
+      patFlag(new RegExp("(^|[\\s;|&]|[<>]\\()(?:\\.|:|alias|bind|break|builtin|caller|cd|command|continue|declare|echo|enable|eval|exec|exit|export|getopts|hash|help|let|local|logout|mapfile|printf|pwd|read|readarray|readonly|return|set|shift|shopt|source|test|times|trap|type|typeset|ulimit|umask|unalias|unset)(?=$|[)\\s;|&])"),
+        true, false, 'class-name')),
+    tok('boolean',
+      patLook(new RegExp("(^|[\\s;|&]|[<>]\\()(?:false|true)(?=$|[)\\s;|&])"))),
+    tok('file-descriptor',
+      patFlag(new RegExp("\\B&\\d\\b"), false, false, 'important')),
+    tok('operator',
+      patInside(new RegExp("\\d?<>|>\\||\\+=|=[=~]?|!=?|<<[<-]?|[&\\d]?>>|\\d[<>]&?|[<>][&=]?|&[>&]?|\\|[&|]?"),
+        false, false, null,
+        gram('inside',
+          tok('file-descriptor',
+            patFlag(new RegExp("^\\d"), false, false, 'important'))))),
+    tok('punctuation',
+      pat(new RegExp("\\$?\\(\\(?|\\)\\)?|\\.\\.|[{}\\[\\];\\\\]"))),
+    tok('number',
+      patLook(new RegExp("(^|\\s)(?:[1-9]\\d*|0)(?:[.,]\\d+)?\\b"))));
+  // zmiVarH5.b.add：字符串/heredoc 内的 "cmd args" 行回引整个 bash 语法
+  bashTok.patterns.push(
+    patInside(new RegExp("(^([\"']?)\\w+\\2)[ \\t]+\\S.*"),
+      true, false, 'punctuation', g));
+  // fhd.b：$(...)/反引号 inside 语法按名复用 bash 主语法 token（共享对象，自递归）
+  const byName: Map<string, CodeTokenRule> = new Map();
+  for (const rule of g.tokens) {
+    byName.set(rule.name, rule);
+  }
+  for (const name of BASH_SUBSHELL_TOKENS) {
+    const rule: CodeTokenRule | undefined = byName.get(name);
+    if (rule !== undefined) {
+      subshellInside.tokens.push(rule);
+    }
+  }
+  return g;
+}
+
+// yia case 11：haskell
+function grammarHaskell(): CodeGrammar {
+  const importInside: CodeGrammar = gram('inside',
+    tok('keyword', pat(new RegExp("\\b(?:as|hiding|import|qualified)\\b"))),
+    tok('punctuation', pat(new RegExp("\\."))));
+  const qualifierInside: CodeGrammar = gram('inside',
+    tok('punctuation', pat(new RegExp("\\."))));
+  return gram('haskell',
+    tok('comment',
+      patLook(new RegExp("(^|[^-!#$%*+=?&@|~.:<>^\\\\/])(?:--(?:(?=.)[^-!#$%*+=?&@|~.:<>^\\\\/].*|$)|\\{-[\\s\\S]*?-\\})", "m"))),
+    tok('char',
+      patFlag(new RegExp("'(?:[^\\\\']|\\\\(?:[abfnrtv\\\\\"'&]|\\^[A-Z@\\[\\]^_]|ACK|BEL|BS|CAN|CR|DC1|DC2|DC3|DC4|DEL|DLE|EM|ENQ|EOT|ESC|ETB|ETX|FF|FS|GS|HT|LF|NAK|NUL|RS|SI|SO|SOH|SP|STX|SUB|SYN|US|VT|\\d+|o[0-7]+|x[0-9a-fA-F]+))'"),
+        false, false, 'string')),
+    tok('string',
+      patGreedy(new RegExp("\"(?:[^\\\\\"]|\\\\(?:\\S|\\s+\\\\))*\""), false)),
+    tok('keyword',
+      pat(new RegExp("\\b(?:case|class|data|deriving|do|else|if|in|infixl|infixr|instance|let|module|newtype|of|primitive|then|type|where)\\b"))),
+    tok('import-statement',
+      patInside(new RegExp("(^[\\t ]*)import\\s+(?:qualified\\s+)?(?:[A-Z][\\w']*)(?:\\.[A-Z][\\w']*)*(?:\\s+as\\s+(?:[A-Z][\\w']*)(?:\\.[A-Z][\\w']*)*)?(?:\\s+hiding\\b)?", "m"),
+        true, false, null, importInside)),
+    tok('builtin',
+      pat(new RegExp("\\b(?:abs|acos|acosh|all|and|any|appendFile|approxRational|asTypeOf|asin|asinh|atan|atan2|atanh|basicIORun|break|catch|ceiling|chr|compare|concat|concatMap|const|cos|cosh|curry|cycle|decodeFloat|denominator|digitToInt|div|divMod|drop|dropWhile|either|elem|encodeFloat|enumFrom|enumFromThen|enumFromThenTo|enumFromTo|error|even|exp|exponent|fail|filter|flip|floatDigits|floatRadix|floatRange|floor|fmap|foldl|foldl1|foldr|foldr1|fromDouble|fromEnum|fromInt|fromInteger|fromIntegral|fromRational|fst|gcd|getChar|getContents|getLine|group|head|id|inRange|index|init|intToDigit|interact|ioError|isAlpha|isAlphaNum|isAscii|isControl|isDenormalized|isDigit|isHexDigit|isIEEE|isInfinite|isLower|isNaN|isNegativeZero|isOctDigit|isPrint|isSpace|isUpper|iterate|last|lcm|length|lex|lexDigits|lexLitChar|lines|log|logBase|lookup|map|mapM|mapM_|max|maxBound|maximum|maybe|min|minBound|minimum|mod|negate|not|notElem|null|numerator|odd|or|ord|otherwise|pack|pi|pred|primExitWith|print|product|properFraction|putChar|putStr|putStrLn|quot|quotRem|range|rangeSize|read|readDec|readFile|readFloat|readHex|readIO|readInt|readList|readLitChar|readLn|readOct|readParen|readSigned|reads|readsPrec|realToFrac|recip|rem|repeat|replicate|return|reverse|round|scaleFloat|scanl|scanl1|scanr|scanr1|seq|sequence|sequence_|show|showChar|showInt|showList|showLitChar|showParen|showSigned|showString|shows|showsPrec|significand|signum|sin|sinh|snd|sort|span|splitAt|sqrt|subtract|succ|sum|tail|take|takeWhile|tan|tanh|threadToIOResult|toEnum|toInt|toInteger|toLower|toRational|toUpper|truncate|uncurry|undefined|unlines|until|unwords|unzip|unzip3|userError|words|writeFile|zip|zip3|zipWith|zipWith3)\\b"))),
+    tok('number',
+      pat(new RegExp("\\b(?:\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?|0o[0-7]+|0x[0-9a-f]+)\\b", "i"))),
+    tok('operator',
+      patGreedy(new RegExp("`(?:[A-Z][\\w']*\\.)*[_a-z][\\w']*`"), false),
+      patLook(new RegExp("(\\s)\\.(?=\\s)")),
+      pat(new RegExp("[-!#$%*+=?&@|~:<>^\\\\/][-!#$%*+=?&@|~.:<>^\\\\/]*|\\.[-!#$%*+=?&@|~.:<>^\\\\/]+"))),
+    tok('hvariable',
+      patInside(new RegExp("\\b(?:[A-Z][\\w']*\\.)*[_a-z][\\w']*"),
+        false, false, null, qualifierInside)),
+    tok('constant',
+      patInside(new RegExp("\\b(?:[A-Z][\\w']*\\.)*[A-Z][\\w']*"),
+        false, false, null, qualifierInside)),
+    tok('punctuation', pat(new RegExp("[{}\\[\\];(),.:]"))));
+}
+
+// yia case 12：lua
+function grammarLua(): CodeGrammar {
+  return gram('lua',
+    tok('comment',
+      pat(new RegExp("^#!.+|--(?:\\[(=*)\\[[\\s\\S]*?\\]\\1\\]|.*)", "m"))),
+    tok('string',
+      patGreedy(new RegExp("([\"'])(?:(?!\\1)[^\\\\\\r\\n]|\\\\z(?:\\r\\n|\\s)|\\\\(?:\\r\\n|[^z]))*\\1|\\[(=*)\\[[\\s\\S]*?\\]\\2\\]"), false)),
+    tok('number',
+      pat(new RegExp("\\b0x[a-f\\d]+(?:\\.[a-f\\d]*)?(?:p[+-]?\\d+)?\\b|\\b\\d+(?:\\.\\B|(?:\\.\\d*)?(?:e[+-]?\\d+)?\\b)|\\B\\.\\d+(?:e[+-]?\\d+)?\\b", "i"))),
+    tok('keyword',
+      pat(new RegExp("\\b(?:and|break|do|else|elseif|end|false|for|function|goto|if|in|local|nil|not|or|repeat|return|then|true|until|while)\\b"))),
+    tok('function', pat(new RegExp("(?!\\d)\\w+(?=\\s*(?:[({]))"))),
+    tok('operator',
+      pat(new RegExp("[-+*%^&|#]|//?|<[<=]?|>[>=]?|[=~]=?")),
+      patLook(new RegExp("(^|[^.])\\.\\.(?!\\.)"))),
+    tok('punctuation', pat(new RegExp("[\\[\\](){},;]|\\.+|:+"))));
+}
+
+// yia case 13：matlab
+function grammarMatlab(): CodeGrammar {
+  return gram('matlab',
+    tok('comment',
+      pat(new RegExp("%\\{[\\s\\S]*?\\}%")), pat(new RegExp("%.+"))),
+    tok('string',
+      patGreedy(new RegExp("\\B'(?:''|[^'\\r\\n])*'"), false)),
+    tok('number',
+      pat(new RegExp("(?:\\b\\d+(?:\\.\\d*)?|\\B\\.\\d+)(?:[eE][+-]?\\d+)?(?:[ij])?|\\b[ij]\\b"))),
+    tok('keyword',
+      pat(new RegExp("\\b(?:NaN|break|case|catch|continue|else|elseif|end|for|function|if|inf|otherwise|parfor|pause|pi|return|switch|try|while)\\b"))),
+    tok('function', pat(new RegExp("\\b(?!\\d)\\w+(?=\\s*\\()"))),
+    tok('operator',
+      pat(new RegExp("\\.?[*^/\\\\']|[+\\-:@]|[<>=~]=?|&&?|\\|\\|?"))),
+    tok('punctuation', pat(new RegExp("\\.{3}|[.,;\\[\\](){}!]"))));
+}
+
+// yia case 14：objectivec（extend c → 摘 class-name；c 侧已过滤，等价防御移除）
+function grammarObjectivec(): CodeGrammar {
+  const g: CodeGrammar = extendCodeGrammar(codeGrammar('c') as CodeGrammar,
+    'objectivec',
+    tok('string',
+      patGreedy(new RegExp("@?\"(?:\\\\(?:\\r\\n|[\\s\\S])|[^\"\\\\\\r\\n])*\""), false)),
+    tok('keyword',
+      pat(new RegExp("\\b(?:asm|auto|break|case|char|const|continue|default|do|double|else|enum|extern|float|for|goto|if|in|inline|int|long|register|return|self|short|signed|sizeof|static|struct|super|switch|typedef|typeof|union|unsigned|void|volatile|while)\\b|(?:@interface|@end|@implementation|@protocol|@class|@public|@protected|@private|@property|@try|@catch|@finally|@throw|@synthesize|@dynamic|@selector)\\b"))),
+    tok('operator',
+      pat(new RegExp("-[->]?|\\+\\+?|!=?|<<?=?|>>?=?|==?|&&?|\\|\\|?|[~^%?*/@]"))));
+  removeCodeToken(g, 'class-name');
+  return g;
+}
+
+// yia case 15：ocaml
+function grammarOcaml(): CodeGrammar {
+  return gram('ocaml',
+    tok('comment', patGreedy(new RegExp("\\(\\*[\\s\\S]*?\\*\\)"), false)),
+    tok('char',
+      patGreedy(new RegExp("'(?:[^\\\\\\r\\n']|\\\\(?:.|[ox]?[0-9a-f]{1,3}))'", "i"), false)),
+    tok('string',
+      patGreedy(new RegExp("\"(?:\\\\(?:[\\s\\S]|\\r\\n)|[^\\\\\\r\\n\"])*\""), false),
+      patGreedy(new RegExp("\\{([a-z_]*)\\|[\\s\\S]*?\\|\\1\\}"), false)),
+    tok('number',
+      pat(new RegExp("\\b(?:0b[01][01_]*|0o[0-7][0-7_]*)\\b", "i")),
+      pat(new RegExp("\\b0x[a-f0-9][a-f0-9_]*(?:\\.[a-f0-9_]*)?(?:p[+-]?\\d[\\d_]*)?(?!\\w)", "i")),
+      pat(new RegExp("\\b\\d[\\d_]*(?:\\.[\\d_]*)?(?:e[+-]?\\d[\\d_]*)?(?!\\w)", "i"))),
+    tok('directive',
+      patFlag(new RegExp("\\B#\\w+"), false, false, 'property')),
+    tok('label',
+      patFlag(new RegExp("\\B~\\w+"), false, false, 'property')),
+    tok('type-variable',
+      patFlag(new RegExp("\\B'\\w+"), false, false, 'function')),
+    tok('variant',
+      patFlag(new RegExp("`\\w+"), false, false, 'symbol')),
+    tok('keyword',
+      pat(new RegExp("\\b(?:as|assert|begin|class|constraint|do|done|downto|else|end|exception|external|for|fun|function|functor|if|in|include|inherit|initializer|lazy|let|match|method|module|mutable|new|nonrec|object|of|open|private|rec|sig|struct|then|to|try|type|val|value|virtual|when|where|while|with)\\b"))),
+    tok('boolean', pat(new RegExp("\\b(?:false|true)\\b"))),
+    tok('operator-like-punctuation',
+      patFlag(new RegExp("\\[[<>|]|[>|]\\]|\\{<|>\\}"), false, false, 'punctuation')),
+    tok('operator',
+      pat(new RegExp("\\.[.~]|:[=>]|[=<>@^|&+\\-*/$%!?~][!$%&*+\\-./:<=>?@^|~]*|\\b(?:and|asr|land|lor|lsl|lsr|lxor|mod|or)\\b"))),
+    tok('punctuation',
+      pat(new RegExp(";;|::|[(){}\\[\\].,:;#]|\\b_\\b"))));
+}
+
+// yia case 16：php（lhd.b/c/d/e 共享 pattern + lhd.a 字符串 token 组）
+const PHP_COMMENT_SRC: string = "/\\*[\\s\\S]*?\\*/|//.*|#(?!\\[).*";
+const PHP_NUMBER_SRC: string = "\\b0b[01]+(?:_[01]+)*\\b|\\b0o[0-7]+(?:_[0-7]+)*\\b|\\b0x[\\da-f]+(?:_[\\da-f]+)*\\b|(?:\\b\\d+(?:_\\d+)*\\.?(?:\\d+(?:_\\d+)*)?|\\B\\.\\d+)(?:e[+-]?\\d+)?";
+const PHP_OPERATOR_SRC: string = "<?=>|\\?\\?=?|\\.{3}|\\??->|[!=]=?=?|::|\\*\\*=?|--|\\+\\+|&&|\\|\\||<<|>>|[?~]|[/^|%*&<>.+-]=?";
+const PHP_PUNCT_SRC: string = "[{}\\[\\](),:;]";
+
+// lhd.a(zmiVarH2)：php 字符串 token（nowdoc/heredoc/反引号/单引/双引+插值）
+function phpStringToken(interpolation: CodeTokenRule): CodeTokenRule {
+  return tok('string',
+    patInside(new RegExp("<<<'([^']+)'[\\r\\n](?:.*[\\r\\n])*?\\1;"),
+      false, true, 'nowdoc-string',
+      gram('inside',
+        tok('delimiter',
+          patInside(new RegExp("^<<<'[^']+'|[a-z_]\\w*;$", "i"),
+            false, false, 'symbol',
+            gram('inside',
+              tok('punctuation', pat(new RegExp("^<<<'?|[';]$")))))))),
+    patInside(new RegExp("<<<(?:\"([^\"]+)\"[\\r\\n](?:.*[\\r\\n])*?\\1;|([a-z_]\\w*)[\\r\\n](?:.*[\\r\\n])*?\\2;)", "i"),
+      false, true, 'heredoc-string',
+      gram('inside',
+        tok('delimiter',
+          patInside(new RegExp("^<<<(?:\"[^\"]+\"|[a-z_]\\w*)|[a-z_]\\w*;$", "i"),
+            false, false, 'symbol',
+            gram('inside',
+              tok('punctuation', pat(new RegExp("^<<<\"?|[\";]$")))))),
+        interpolation)),
+    patFlag(new RegExp("`(?:\\\\[\\s\\S]|[^\\\\`])*`"),
+      false, true, 'backtick-quoted-string'),
+    patFlag(new RegExp("'(?:\\\\[\\s\\S]|[^\\\\'])*'"),
+      false, true, 'single-quoted-string'),
+    patInside(new RegExp("\"(?:\\\\[\\s\\S]|[^\\\\\"])*\""),
+      false, true, 'double-quoted-string',
+      gram('inside', interpolation)));
+}
+
+// php 限定名 inside（yia 中每处 ehd.a("inside", punctuation=\\\\) 独立新对象，
+// 每次调用返回新语法对象，语义等价）
+function phpNsInside(): CodeGrammar {
+  return gram('inside', tok('punctuation', pat(new RegExp("\\\\"))));
+}
+
+function grammarPhp(): CodeGrammar {
+  const constantTok: CodeTokenRule = tok('constant',
+    patFlag(new RegExp("\\b(?:false|true)\\b", "i"), false, false, 'boolean'),
+    patGreedy(new RegExp("(::\\s*)\\b[a-z_]\\w*\\b(?!\\s*\\()", "i"), true),
+    patGreedy(new RegExp("(\\b(?:case|const)\\s+)\\b[a-z_]\\w*(?=\\s*[;=])", "i"), true),
+    pat(new RegExp("\\b(?:null)\\b", "i")),
+    pat(new RegExp("\\b[A-Z_][A-Z0-9_]*\\b(?!\\s*\\()")));
+  const interpolationTok: CodeTokenRule = tok('interpolation');
+  const classNameTok: CodeTokenRule = tok('class-name',
+    patGreedy(new RegExp("(\\b(?:extends|implements|instanceof|new(?!\\s+self|\\s+static))\\s+|\\bcatch\\s*\\()\\b[a-z_]\\w*(?!\\\\)\\b", "i"), true),
+    patGreedy(new RegExp("(\\|\\s*)\\b[a-z_]\\w*(?!\\\\)\\b", "i"), true),
+    patGreedy(new RegExp("\\b[a-z_]\\w*(?!\\\\)\\b(?=\\s*\\|)", "i"), false),
+    patInside(new RegExp("(\\|\\s*)(?:\\\\?\\b[a-z_]\\w*)+\\b", "i"),
+      true, true, 'class-name-fully-qualified', phpNsInside()),
+    patInside(new RegExp("(?:\\\\?\\b[a-z_]\\w*)+\\b(?=\\s*\\|)", "i"),
+      false, true, 'class-name-fully-qualified', phpNsInside()),
+    patInside(new RegExp("(\\b(?:extends|implements|instanceof|new(?!\\s+self\\b|\\s+static\\b))\\s+|\\bcatch\\s*\\()(?:\\\\?\\b[a-z_]\\w*)+\\b(?!\\\\)", "i"),
+      true, true, 'class-name-fully-qualified', phpNsInside()),
+    patFlag(new RegExp("\\b[a-z_]\\w*(?=\\s*\\$)", "i"),
+      false, true, 'type-declaration'),
+    patInside(new RegExp("(?:\\\\?\\b[a-z_]\\w*)+(?=\\s*\\$)", "i"),
+      false, true, 'class-name-fully-qualified', phpNsInside()),
+    patFlag(new RegExp("\\b[a-z_]\\w*(?=\\s*::)", "i"),
+      false, true, 'static-context'),
+    patInside(new RegExp("(?:\\\\?\\b[a-z_]\\w*)+(?=\\s*::)", "i"),
+      false, true, 'class-name-fully-qualified', phpNsInside()),
+    patFlag(new RegExp("([(,?]\\s*)[a-z_]\\w*(?=\\s*\\$)", "i"),
+      true, true, 'type-hint'),
+    patInside(new RegExp("([(,?]\\s*)(?:\\\\?\\b[a-z_]\\w*)+(?=\\s*\\$)", "i"),
+      true, true, 'class-name-fully-qualified', phpNsInside()),
+    patFlag(new RegExp("(\\)\\s*:\\s*(?:\\?\\s*)?)\\b[a-z_]\\w*(?!\\\\)\\b", "i"),
+      true, true, 'return-type'),
+    patInside(new RegExp("(\\)\\s*:\\s*(?:\\?\\s*)?)(?:\\\\?\\b[a-z_]\\w*)+\\b(?!\\\\)", "i"),
+      true, true, 'class-name-fully-qualified', phpNsInside()));
+  const commentTok: CodeTokenRule =
+    tok('comment', pat(new RegExp(PHP_COMMENT_SRC)));
+  const stringTok: CodeTokenRule = phpStringToken(interpolationTok);
+  const numberTok: CodeTokenRule =
+    tok('number', pat(new RegExp(PHP_NUMBER_SRC, "i")));
+  const operatorTok: CodeTokenRule =
+    tok('operator', pat(new RegExp(PHP_OPERATOR_SRC)));
+  const punctuationTok: CodeTokenRule =
+    tok('punctuation', pat(new RegExp(PHP_PUNCT_SRC)));
+  const attributeTok: CodeTokenRule = tok('attribute',
+    patInside(new RegExp("#\\[(?:[^\"'/#]|/(?![*/])|//.*$|#(?!\\[).*$|/\\*(?:[^*]|\\*(?!/))*\\*/|\"(?:\\\\[\\s\\S]|[^\\\\\"])*\"|'(?:\\\\[\\s\\S]|[^\\\\'])*')+\\](?=\\s*[a-z\\$#])", "mi"),
+      false, true, null,
+      gram('inside',
+        tok('attribute-content',
+          patInside(new RegExp("^(#\\[)[\\s\\S]+(?=\\]$)"), true, false, null,
+            gram('inside', commentTok, stringTok,
+              tok('attribute-class-name',
+                patFlag(new RegExp("([^:]|^)\\b[a-z_]\\w*(?!\\\\)\\b", "i"),
+                  true, true, 'class-name'),
+                patInside(new RegExp("([^:]|^)(?:\\\\?\\b[a-z_]\\w*)+", "i"),
+                  true, true, 'class-name', phpNsInside())),
+              constantTok, numberTok, operatorTok, punctuationTok))),
+        tok('delimiter',
+          patFlag(new RegExp("^#\\[|\\]$"), false, false, 'punctuation')))));
+  const g: CodeGrammar = gram('php',
+    tok('delimiter',
+      patFlag(new RegExp("\\?>$|^<\\?(?:php(?=\\s)|=)?", "i"),
+        false, false, 'important')),
+    commentTok, stringTok, attributeTok,
+    tok('variable', pat(new RegExp("\\$+(?:\\w+\\b|(?=\\{))"))),
+    tok('package',
+      patInside(new RegExp("(namespace\\s+|use\\s+(?:function\\s+)?)(?:\\\\?\\b[a-z_]\\w*)+\\b(?!\\\\)", "i"),
+        true, false, null, phpNsInside())),
+    tok('class-name-definition',
+      patFlag(new RegExp("(\\b(?:class|enum|interface|trait)\\s+)\\b[a-z_]\\w*(?!\\\\)\\b", "i"),
+        true, false, 'class-name')),
+    tok('function-definition',
+      patFlag(new RegExp("(\\bfunction\\s+)[a-z_]\\w*(?=\\s*\\()", "i"),
+        true, false, 'function')),
+    tok('keyword',
+      patFlag(new RegExp("(\\(\\s*)\\b(?:array|bool|boolean|float|int|integer|object|string)\\b(?=\\s*\\))", "i"),
+        true, true, 'type-casting'),
+      patFlag(new RegExp("([(,?]\\s*)\\b(?:array(?!\\s*\\()|bool|callable|(?:false|null)(?=\\s*\\|)|float|int|iterable|mixed|object|self|static|string)\\b(?=\\s*\\$)", "i"),
+        true, true, 'type-hint'),
+      patFlag(new RegExp("(\\)\\s*:\\s*(?:\\?\\s*)?)\\b(?:array(?!\\s*\\()|bool|callable|(?:false|null)(?=\\s*\\|)|float|int|iterable|mixed|never|object|self|static|string|void)\\b", "i"),
+        true, true, 'return-type'),
+      patFlag(new RegExp("\\b(?:array(?!\\s*\\()|bool|float|int|iterable|mixed|object|string|void)\\b", "i"),
+        false, true, 'type-declaration'),
+      patFlag(new RegExp("(\\|\\s*)(?:false|null)\\b|\\b(?:false|null)(?=\\s*\\|)", "i"),
+        true, true, 'type-declaration'),
+      patFlag(new RegExp("\\b(?:parent|self|static)(?=\\s*::)", "i"),
+        false, true, 'static-context'),
+      patLook(new RegExp("(\\byield\\s+)from\\b", "i")),
+      pat(new RegExp("\\bclass\\b", "i")),
+      patLook(new RegExp("((?:^|[^\\s>:]|(?:^|[^-])>|(?:^|[^:]):)\\s*)\\b(?:abstract|and|array|as|break|callable|case|catch|clone|const|continue|declare|default|die|do|echo|else|elseif|empty|enddeclare|endfor|endforeach|endif|endswitch|endwhile|enum|eval|exit|extends|final|finally|fn|for|foreach|function|global|goto|if|implements|include|include_once|instanceof|insteadof|interface|isset|list|match|namespace|never|new|or|parent|print|private|protected|public|readonly|require|require_once|return|self|static|switch|throw|trait|try|unset|use|var|while|xor|yield|__halt_compiler)\\b", "i"))),
+    tok('argument-name',
+      patLook(new RegExp("([(,]\\s*)\\b[a-z_]\\w*(?=\\s*:(?!:))", "i"))),
+    classNameTok, constantTok,
+    tok('function',
+      patInside(new RegExp("(^|[^\\\\\\w])\\\\?[a-z_](?:[\\w\\\\]*\\w)?(?=\\s*\\()", "i"),
+        true, false, null, phpNsInside())),
+    tok('property', patLook(new RegExp("(->\\s*)\\w+"))),
+    numberTok, operatorTok, punctuationTok);
+  // zmiVarH2.b.add：插值 inside = 整个 php 语法（自递归）
+  interpolationTok.patterns.push(
+    patInside(new RegExp("\\{\\$(?:\\{(?:\\{[^{}]+\\}|[^{}]+)\\}|[^{}])+\\}|(^|[^\\\\{])\\$+(?:\\w+(?:\\[[^\\r\\n\\[\\]]+\\]|->\\w+)?)"),
+      true, false, null, g));
+  return g;
+}
+
+// yia case 17：r（vza 以 Constants.REVENUE_AMOUNT_KEY="r" 注册）
+function grammarR(): CodeGrammar {
+  return gram('r',
+    tok('comment', pat(new RegExp("#.*"))),
+    tok('string',
+      patGreedy(new RegExp("(['\"])(?:\\\\.|(?!\\1)[^\\\\\\r\\n])*\\1"), false)),
+    tok('percent-operator',
+      patFlag(new RegExp("%[^%\\s]*%"), false, false, 'operator')),
+    tok('boolean', pat(new RegExp("\\b(?:FALSE|TRUE)\\b"))),
+    tok('ellipsis', pat(new RegExp("\\.\\.(?:\\.|\\d+)"))),
+    tok('number',
+      pat(new RegExp("\\b(?:Inf|NaN)\\b")),
+      pat(new RegExp("(?:\\b0x[\\dA-Fa-f]+(?:\\.\\d*)?|\\b\\d+(?:\\.\\d*)?|\\B\\.\\d+)(?:[EePp][+-]?\\d+)?[iL]?"))),
+    tok('keyword',
+      pat(new RegExp("\\b(?:NA|NA_character_|NA_complex_|NA_integer_|NA_real_|NULL|break|else|for|function|if|in|next|repeat|while)\\b"))),
+    tok('operator',
+      pat(new RegExp("->?>?|<(?:=|<?-)?|[>=!]=?|::?|&&?|\\|\\|?|[+*/^$@~]"))),
+    tok('punctuation', pat(new RegExp("[(){}\\[\\],;]"))));
+}
+
+// yia case 18：racket（number = nhd.b = cle.q 四段拼接，flag i）
+const RACKET_NUMBER_SRC: string =
+  "(^|[()\\[\\]\\s])(?:(?:" +
+  "(?:#d(?:#[ei])?|#[ei](?:#d)?)?(?:(?:[+-]?(?:\\d+(?:/\\d+)|(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[esfdl][+-]?\\d+)?)|[+-](?:inf|nan)\\.0)(?:@(?:[+-]?(?:\\d+(?:/\\d+)|(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[esfdl][+-]?\\d+)?)|[+-](?:inf|nan)\\.0)|(?:[+-](?:(?:\\d+(?:/\\d+)|(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[esfdl][+-]?\\d+)?)|(?:inf|nan)\\.0)?i))?|(?:[+-](?:(?:\\d+(?:/\\d+)|(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[esfdl][+-]?\\d+)?)|(?:inf|nan)\\.0)?i))" +
+  ")|(?:" +
+  "#[box](?:#[ei])?|(?:#[ei])?#[box](?:(?:[+-]?(?:[0-9a-f]+(?:/[0-9a-f]+)?)|[+-](?:inf|nan)\\.0)(?:@(?:[+-]?(?:[0-9a-f]+(?:/[0-9a-f]+)?)|[+-](?:inf|nan)\\.0)|(?:[+-](?:(?:[0-9a-f]+(?:/[0-9a-f]+)?)|(?:inf|nan)\\.0)?i))?|(?:[+-](?:(?:[0-9a-f]+(?:/[0-9a-f]+)?)|(?:inf|nan)\\.0)?i))" +
+  "))(?=[()\\[\\]\\s]|$)";
+
+function grammarRacket(): CodeGrammar {
+  return gram('racket',
+    tok('comment',
+      pat(new RegExp(";.*|#;\\s*(?:\\((?:[^()]|\\([^()]*\\))*\\)|\\[(?:[^\\[\\]]|\\[[^\\[\\]]*\\])*\\])|#\\|(?:[^#|]|#(?!\\|)|\\|(?!#)|#\\|(?:[^#|]|#(?!\\|)|\\|(?!#))*\\|#)*\\|#"))),
+    tok('lang',
+      patFlag(new RegExp("^#lang.+", "m"), false, true, 'keyword')),
+    tok('string',
+      patGreedy(new RegExp("\"(?:[^\"\\\\]|\\\\.)*\""), false)),
+    tok('symbol', patGreedy(new RegExp("'[^()\\[\\]#'\\s]+"), false)),
+    tok('char',
+      patGreedy(new RegExp("#\\\\(?:[ux][a-fA-F\\d]+\\b|[-a-zA-Z]+\\b|[\\uD800-\\uDBFF][\\uDC00-\\uDFFF]|\\S)"), false)),
+    tok('lambda-parameter',
+      patLook(new RegExp("([(\\[]lambda\\s+[(\\[])[^()\\[\\]'\\s]+"))),
+    tok('keyword',
+      patLook(new RegExp("((?:^|[^'`#])[(\\[])(?:begin|case(?:-lambda)?|cond(?:-expand)?|define(?:-library|-macro|-record-type|-syntax|-values)?|defmacro|delay(?:-force)?|do|else|except|export|guard|if|import|include(?:-ci|-library-declarations)?|lambda|let(?:rec)?(?:-syntax|-values|\\*)?|let\\*-values|only|parameterize|prefix|(?:quasi-?)?quote|rename|set!|syntax-(?:case|rules)|unless|unquote(?:-splicing)?|when)(?=[()\\[\\]\\s]|$)"))),
+    tok('builtin',
+      patLook(new RegExp("((?:^|[^'`#])[(\\[])(?:abs|and|append|apply|assoc|ass[qv]|binary-port\\?|boolean=?\\?|bytevector(?:-append|-copy|-copy!|-length|-u8-ref|-u8-set!|\\?)?|caar|cadr|call-with-(?:current-continuation|port|values)|call/cc|car|cdar|cddr|cdr|ceiling|char(?:->integer|-ready\\?|\\?|<\\?|<=\\?|=\\?|>\\?|>=\\?)|close-(?:input-port|output-port|port)|complex\\?|cons|current-(?:error|input|output)-port|denominator|dynamic-wind|eof-object\\??|eq\\?|equal\\?|eqv\\?|error|error-object(?:-irritants|-message|\\?)|eval|even\\?|exact(?:-integer-sqrt|-integer\\?|\\?)?|expt|features|file-error\\?|floor(?:-quotient|-remainder|/)?|flush-output-port|for-each|gcd|get-output-(?:bytevector|string)|inexact\\??|input-port(?:-open\\?|\\?)|integer(?:->char|\\?)|lcm|length|list(?:->string|->vector|-copy|-ref|-set!|-tail|\\?)?|make-(?:bytevector|list|parameter|string|vector)|map|max|member|memq|memv|min|modulo|negative\\?|newline|not|null\\?|number(?:->string|\\?)|numerator|odd\\?|open-(?:input|output)-(?:bytevector|string)|or|output-port(?:-open\\?|\\?)|pair\\?|peek-char|peek-u8|port\\?|positive\\?|procedure\\?|quotient|raise|raise-continuable|rational\\?|rationalize|read-(?:bytevector|bytevector!|char|error\\?|line|string|u8)|real\\?|remainder|reverse|round|set-c[ad]r!|square|string(?:->list|->number|->symbol|->utf8|->vector|-append|-copy|-copy!|-fill!|-for-each|-length|-map|-ref|-set!|\\?|<\\?|<=\\?|=\\?|>\\?|>=\\?)?|substring|symbol(?:->string|\\?|=\\?)|syntax-error|textual-port\\?|truncate(?:-quotient|-remainder|/)?|u8-ready\\?|utf8->string|values|vector(?:->list|->string|-append|-copy|-copy!|-fill!|-for-each|-length|-map|-ref|-set!|\\?)?|with-exception-handler|write-(?:bytevector|char|string|u8)|zero\\?)(?=[()\\[\\]\\s]|$)"))),
+    tok('operator',
+      patLook(new RegExp("((?:^|[^'`#])[(\\[])(?:[-+*%/]|[<>]=?|=>?)(?=[()\\[\\]\\s]|$)"))),
+    tok('number', patLook(new RegExp(RACKET_NUMBER_SRC, "i"))),
+    tok('boolean',
+      patLook(new RegExp("(^|[()\\[\\]\\s])#(?:[ft]|false|true)(?=[()\\[\\]\\s]|$)"))),
+    tok('function',
+      patLook(new RegExp("((?:^|[^'`#])[(\\[])(?:[^|()\\[\\]'\\s]+|\\|(?:[^\\\\|]|\\\\.)*\\|)(?=[()\\[\\]\\s]|$)"))),
+    tok('identifier',
+      patGreedy(new RegExp("(^|[()\\[\\]\\s])\\|(?:[^\\\\|]|\\\\.)*\\|(?=[()\\[\\]\\s]|$)"), true)),
+    tok('punctuation', pat(new RegExp("[()\\[\\]']"))));
 }
 
 registerCoreGrammars();
