@@ -1442,23 +1442,54 @@ export struct NoteCanvasView {
     return true;
   }
 
-  // 原版 dl1 覆盖层内按下的元素级 ttc 产出（itc/gtc 分支，SELECTION 面与
-  // TEXT 面共用）：itc 单文本块命中自身 → ttc → qke 激活编辑 + 链接探测；
-  // gtc 纯组选区命中非文本成员 → ttc 消费不拖拽；其余返回 false → wtc 拖拽。
+  // 原版 1.4.2 zf3 覆盖层内按下分发（SELECTION 面与 TEXT 面共用）：
+  //   lsf 支（点选型单元素，无界内拖拽域，按命中分发）——命中落空 →
+  //     xsf → rv0 清选；命中异元素 → btf → ch1 case8 重选并 e.c 起移动
+  //     会话；命中同元素 vvh → zsf → ch1 case9 进编辑 + w8d.d 落 caret；
+  //     命中同元素非 vvh → 返回 false → ctf 拖拽。
+  //   ksf 支（isf/jsf，界内为拖拽域）——isf 界内一律 ctf 拖拽（含 isf
+  //     单文本，不进编辑）；jsf 命中 vvh 或非组成员 → ctf 拖拽，命中
+  //     非 vvh 组成员 → zsf → zyh 非文本 id no-op（消费不拖拽）。
   private insideOverlayElementTap(selState: SelectionState, insideHitId: string | null,
-    canvasP: Point2D): boolean {
-    const singleText: boolean = selState.selectedTextBlockIds.length === 1 &&
-      selState.selectedStrokeIds.length === 0 && selState.selectedShapeIds.length === 0 &&
-      selState.selectedImageIds.length === 0 && selState.selectedMathIds.length === 0 &&
-      selState.selectedGroupIds.length === 0;
-    if (singleText && insideHitId === selState.selectedTextBlockIds[0]) {
-      const linkHit: TextBlockLinkHit | null = this.linkHitOnTextBlock(insideHitId, canvasP);
-      if (linkHit !== null) {
-        this.showTextBlockLinkMenu(linkHit);
-      } else {
-        this.beginTextEditingAt(canvasP);
+    canvasP: Point2D, screenP: Point2D): boolean {
+    const selectedCount: number = selState.selectedStrokeIds.length +
+      selState.selectedShapeIds.length + selState.selectedTextBlockIds.length +
+      selState.selectedImageIds.length + selState.selectedMathIds.length;
+    // lsf = 点选型单元素：supportsDeselectMode=false（P1439 来源标记；
+    // 套索单元素为 isf 不走此支——isf 界内点按统一 ctf 拖拽）。
+    const lsfLike: boolean = !selState.supportsDeselectMode &&
+      selState.selectedGroupIds.length === 0 && selectedCount === 1;
+    if (lsfLike) {
+      const selectedId: string = selState.selectedTextBlockIds.length === 1 ?
+        selState.selectedTextBlockIds[0] :
+        (selState.selectedStrokeIds.length === 1 ? selState.selectedStrokeIds[0] :
+          (selState.selectedShapeIds.length === 1 ? selState.selectedShapeIds[0] :
+            (selState.selectedImageIds.length === 1 ? selState.selectedImageIds[0] :
+              selState.selectedMathIds[0])));
+      if (insideHitId === null) {
+        // xsf → rv0 case5：dtfVar.a.a() 清选区。
+        this.clearSelectionWithRegisterReset();
+        return true;
       }
-      return true;
+      if (insideHitId !== selectedId) {
+        // btf → ch1 case8：hmb.g(new lsf/jsf(命中或其组)) + e.c 起移动会话。
+        this.applyTapSelect(insideHitId);
+        this.beginSelectionDragSession(canvasP, screenP);
+        return true;
+      }
+      if (insideHitId === selState.selectedTextBlockIds[0]) {
+        // zsf → ch1 case9：zyh 进编辑 + w8d.d 落 caret；链接命中先行
+        // （ttc → qke 链接探测，g1f pca 弹出）。
+        const linkHit: TextBlockLinkHit | null =
+          this.linkHitOnTextBlock(insideHitId, canvasP);
+        if (linkHit !== null) {
+          this.showTextBlockLinkMenu(linkHit);
+        } else {
+          this.beginTextEditingAt(canvasP);
+        }
+        return true;
+      }
+      return false;
     }
     if (selState.selectedGroupIds.length > 0 && insideHitId !== null &&
       selState.selectedTextBlockIds.indexOf(insideHitId) < 0) {
@@ -3659,7 +3690,8 @@ export struct NoteCanvasView {
         }
         const selState: SelectionState = this.selectionTool.getState();
         const insideHitId: string | null = this.topmostPageElementIdAt(canvasP);
-        if (!this.insideOverlayElementTap(selState, insideHitId, canvasP)) {
+        if (!this.insideOverlayElementTap(selState, insideHitId, canvasP,
+          { x: touch.x, y: touch.y })) {
           this.beginSelectionDragSession(canvasP, { x: touch.x, y: touch.y });
         }
         this.isDrawing = true;
@@ -3668,8 +3700,10 @@ export struct NoteCanvasView {
       if (!stylusSuppress) {
         const hitId: string | null = this.topmostPageElementIdAt(canvasP);
         if (hitId !== null) {
-          // vtc TapToSelect——选区外命中换选、无选区命中新选（uw2 case3）。
+          // vtc TapToSelect——选区外命中换选、无选区命中新选（uw2 case3）；
+          // ch1 case8 尾部 e.c 对重选结果起同手势移动会话。
           this.applyTapSelect(hitId);
+          this.beginSelectionDragSession(canvasP, { x: touch.x, y: touch.y });
           this.isDrawing = true;
           return;
         }
@@ -3777,7 +3811,8 @@ export struct NoteCanvasView {
         //   其余 → wtc 整体拖拽。
         const selState: SelectionState = this.selectionTool.getState();
         const insideHitId: string | null = this.topmostPageElementIdAt(canvasP);
-        if (this.insideOverlayElementTap(selState, insideHitId, canvasP)) {
+        if (this.insideOverlayElementTap(selState, insideHitId, canvasP,
+          { x: touch.x, y: touch.y })) {
           this.isDrawing = true;
           return;
         }
@@ -3799,6 +3834,8 @@ export struct NoteCanvasView {
             return;
           }
           this.applyTapSelect(hitId);
+          // ch1 case8 尾部 e.c：重选后同一手势起移动会话（wtc/e39 等价）。
+          this.beginSelectionDragSession(canvasP, { x: touch.x, y: touch.y });
         } else {
           this.clearSelectionWithRegisterReset();
         }

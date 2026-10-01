@@ -31,19 +31,38 @@ check(branch.indexOf('topmostPageElementIdAt(canvasP)') <
   'element-level dispatch precedes the whole-selection drag');
 
 // Phase 603：itc/gtc 元素级分流抽取为 insideOverlayElementTap 助手
-//（SELECTION 面与 TEXT 面共用）。
+//（SELECTION 面与 TEXT 面共用）；Phase 1446：1.4.2 zf3 lsf 支补全
+//（异命中重选 + e.c 起移动会话、落空 xsf 清选、isf 界内恒 ctf 拖拽）。
 const helper = canvas.slice(canvas.indexOf('private insideOverlayElementTap('),
-  canvas.indexOf('private insideOverlayElementTap(') + 2400);
-check(branch.includes('this.insideOverlayElementTap(selState, insideHitId, canvasP)'),
+  canvas.indexOf('private beginSelectionDragSession('));
+check(branch.includes('this.insideOverlayElementTap(selState, insideHitId, canvasP,'),
   'inside-press routes through the shared element-tap dispatch');
 
-// --- itc：单文本块选区命中同块 → ttc（链接探测 → qke 激活编辑） ---
-check(helper.includes('selectedTextBlockIds.length === 1') &&
-  helper.includes('selectedStrokeIds.length === 0') &&
-  helper.includes('selectedGroupIds.length === 0'),
-  'itc guard: exactly one selected text block, nothing else');
+// --- itc/lsf：点选型单元素判定（supportsDeselectMode=false） ---
+check(helper.includes('!selState.supportsDeselectMode') &&
+  helper.includes('selState.selectedGroupIds.length === 0') &&
+  helper.includes('selectedCount === 1'),
+  'lsf gate: tap-sourced single element (not isf drawn selection)');
+
+// --- lsf 界内落空 → xsf → rv0 清选（1.4.2 zf3 lsf 支） ---
+check(helper.indexOf('insideHitId === null') > helper.indexOf('const lsfLike') &&
+  helper.indexOf('clearSelectionWithRegisterReset') > helper.indexOf('insideHitId === null') &&
+  helper.indexOf('clearSelectionWithRegisterReset') < helper.indexOf('insideHitId !== selectedId'),
+  'lsf inside-bounds miss clears the selection (xsf → rv0)');
+
+// --- lsf 界内异命中 → btf → 重选 + e.c 移动会话 ---
+check(helper.includes('insideHitId !== selectedId'),
+  'lsf different-element hit branch exists');
+const btfPath = helper.slice(helper.indexOf('insideHitId !== selectedId'),
+  helper.indexOf('insideHitId !== selectedId') + 700);
+check(btfPath.includes('this.applyTapSelect(insideHitId)') &&
+  btfPath.indexOf('this.applyTapSelect(insideHitId)') <
+    btfPath.indexOf('this.beginSelectionDragSession(canvasP, screenP)'),
+  'lsf different-hit reselects then arms move session (ch1 case8 e.c)');
+
+// --- lsf：单文本块命中同块 → ttc/zsf（链接探测 → 激活编辑 + 落 caret） ---
 check(helper.includes('insideHitId === selState.selectedTextBlockIds[0]'),
-  'itc requires the tap on the same selected element (itcVar.a)');
+  'lsf requires the tap on the same selected element (itcVar.a)');
 const itcPath = helper.slice(helper.indexOf('insideHitId === selState.selectedTextBlockIds[0]'),
   helper.indexOf('insideHitId === selState.selectedTextBlockIds[0]') + 700);
 check(itcPath.includes('this.linkHitOnTextBlock(insideHitId, canvasP)') &&

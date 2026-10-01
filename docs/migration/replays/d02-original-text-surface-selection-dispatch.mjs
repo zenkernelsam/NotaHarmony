@@ -38,7 +38,7 @@ check(def.indexOf('deselectMode') < def.indexOf('stylusSuppress') ||
   'deselectMode dispatch precedes the suppression-gated branch');
 check(def.includes('this.tryStartSelectionResize({ x: touch.x, y: touch.y })'),
   'corner/rotate handles active on TEXT surface inside-overlay');
-check(def.includes('this.insideOverlayElementTap(selState, insideHitId, canvasP)'),
+check(def.includes('this.insideOverlayElementTap(selState, insideHitId, canvasP,'),
   'inside-overlay ttc dispatch on TEXT surface');
 check(def.includes('this.beginSelectionDragSession(canvasP,'),
   'inside-overlay wtc whole-selection drag on TEXT surface');
