@@ -72,6 +72,17 @@
       "name": "backup_and_sync",
       "value": "Backup & Sync"
     },
+    { "name": "feature_settings__about", "value": "About" },
+    { "name": "feature_settings__blog", "value": "Blog" },
+    { "name": "feature_settings__discord_title", "value": "Join us on Discord!" },
+    { "name": "feature_settings__discord_description", "value": "Share feedback and ideas directly with the team in safe space." },
+    { "name": "feature_settings__discord_accept_invite", "value": "Accept invite" },
+    { "name": "feature_settings__discord_learn_more", "value": "Learn more" },
+    { "name": "feature_settings__cd_instagram", "value": "Open Notability on Instagram" },
+    { "name": "feature_settings__cd_linkedin", "value": "Open Notability on LinkedIn" },
+    { "name": "feature_settings__cd_threads", "value": "Open Notability on Threads" },
+    { "name": "feature_settings__cd_tiktok", "value": "Open Notability on TikTok" },
+    { "name": "feature_settings__cd_youtube", "value": "Open Notability on YouTube" },
     {
       "name": "local_files",
       "value": "Local Files"

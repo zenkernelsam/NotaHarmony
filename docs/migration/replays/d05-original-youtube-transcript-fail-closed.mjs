@@ -86,7 +86,11 @@ check(!/youtube|youtu\.be/i.test(toolbar) &&
   !/youtube|youtu\.be/i.test(canvas) &&
   !/youtube|youtu\.be/i.test(page),
   'Harmony editor surfaces carry no youtube integration');
-check(!/youtube/i.test(strBase) && !/youtube/i.test(strZh),
-  'Harmony string tables have no youtube entries');
+// Phase 1417 重锚：social `feature_settings__cd_youtube`（About 区品牌外链 a11y
+// 文案）与转写功能无关——钉收窄到转写特性键（oembed/youtu.be/transcription/
+// link/import/invalid_url/img.youtube.com）。
+check(!/youtube_transcription|youtube_link|youtube_import|youtube_invalid|youtu\.be|oembed|img\.youtube/i.test(strBase) &&
+  !/youtube_transcription|youtube_link|youtube_import|youtube_invalid|youtu\.be|oembed|img\.youtube/i.test(strZh),
+  'Harmony string tables have no youtube transcription entries');
 
 console.log(`D05_ORIGINAL_YOUTUBE_TRANSCRIPT_FAIL_CLOSED_REPLAY_OK TOTAL=${total} FAILED=0`);

@@ -35,6 +35,13 @@ enum SettingsLoadState {
   READY = 'ready',
 }
 
+// 原版 wxm.c 社交行条目：feature_settings__* 图标 + cd_* 语义 + j1 URL。
+interface SocialLinkSpec {
+  glyph: string;
+  label: Resource;
+  url: string;
+}
+
 @Entry
 @Component
 struct SettingsPage {
@@ -67,6 +74,29 @@ struct SettingsPage {
   private loadGeneration: number = 0;
   private lifecycleGeneration: number = 0;
   private pageDisposed: boolean = false;
+  // 原版 wxm.c 社交行顺序：instagram → youtube → tiktok → threads → linkedin。
+  private readonly socialLinks: SocialLinkSpec[] = [
+    {
+      glyph: 'instagram', label: $r('app.string.feature_settings__cd_instagram'),
+      url: 'https://www.instagram.com/notabilityapp',
+    },
+    {
+      glyph: 'youtube', label: $r('app.string.feature_settings__cd_youtube'),
+      url: 'https://youtube.com/notability',
+    },
+    {
+      glyph: 'tiktok', label: $r('app.string.feature_settings__cd_tiktok'),
+      url: 'https://www.tiktok.com/@notabilityapp',
+    },
+    {
+      glyph: 'threads', label: $r('app.string.feature_settings__cd_threads'),
+      url: 'https://www.threads.com/@notabilityapp',
+    },
+    {
+      glyph: 'linkedin', label: $r('app.string.feature_settings__cd_linkedin'),
+      url: 'https://www.linkedin.com/company/ginger-labs',
+    },
+  ];
   // 原版 vmc 语言选择器：dc5 全部 23 项列表，点选写全局识别语言偏好。
   private languageDialog: CustomDialogController = new CustomDialogController({
     builder: HandwritingLanguageDialog({
@@ -713,6 +743,14 @@ struct SettingsPage {
     });
   }
 
+  // 原版 j1/t0 URL 分发：k1.z() 协程 emit → startActivity；Harmony 用 openLink。
+  private openExternalLink(url: string): void {
+    const context = getContext(this) as common.UIAbilityContext;
+    context.openLink(url).catch((e: Error) => {
+      console.error(`SettingsPage openLink failed: ${JSON.stringify(e)}`);
+    });
+  }
+
   build() {
     Column() {
       Row() {
@@ -1219,6 +1257,88 @@ struct SettingsPage {
               .onClick(() => {
                 this.openBackup();
               })
+
+            // 原版 xpa About 区（yrm.a + v0(1)→wxm.a→s0 列表）：
+            // [Blog 钮] + [Discord 卡] + [社交图标行]。
+            // rate_notability → play.google.com（Android 商店页无 Harmony 等价）
+            // 与 h35.Y0 flag 门控的 Newsletter/Threads 文本钮均 fail-closed。
+            Text($r('app.string.feature_settings__about'))
+              .width('100%')
+              .fontSize(16)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.resolveTokens().textSecondary)
+              .margin({ top: 24, bottom: 8 })
+
+            Button($r('app.string.feature_settings__blog'))
+              .width('100%')
+              .height(48)
+              .onClick(() => {
+                this.openExternalLink('https://blog.notability.com');
+              })
+
+            // 原版 wxm.b/u0 case3 Discord 卡（tee.a 16dp 内边距）：
+            // 标题 + 描述 + [Accept invite 主钮 | Learn more 次钮]。
+            Column() {
+              Text($r('app.string.feature_settings__discord_title'))
+                .width('100%')
+                .fontSize(16)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.resolveTokens().textPrimary)
+              Text($r('app.string.feature_settings__discord_description'))
+                .width('100%')
+                .fontSize(14)
+                .fontColor(this.resolveTokens().textSecondary)
+                .margin({ top: 4 })
+              Row() {
+                Button($r('app.string.feature_settings__discord_accept_invite'))
+                  .layoutWeight(1)
+                  .height(40)
+                  .backgroundColor(this.resolveTokens().accent)
+                  .fontColor(this.resolveTokens().onAccent)
+                  .onClick(() => {
+                    this.openExternalLink('https://discord.gg/Fw9SsRYU7a');
+                  })
+                Button($r('app.string.feature_settings__discord_learn_more'))
+                  .layoutWeight(1)
+                  .height(40)
+                  .backgroundColor(this.resolveTokens().control)
+                  .fontColor(this.resolveTokens().textPrimary)
+                  .margin({ left: 12 })
+                  .onClick(() => {
+                    this.openExternalLink('https://support.gingerlabs.com/hc/en-us/articles/5459034545178-Join-the-Notability-Discord-Server');
+                  })
+              }
+              .width('100%')
+              .margin({ top: 12 })
+            }
+            .width('100%')
+            .alignItems(HorizontalAlign.Start)
+            .margin({ top: 8 })
+            .padding(16)
+            .backgroundColor(this.resolveTokens().surface)
+
+            // 原版 wxm.c：五枚 cc3.l 图标钮，cd = feature_settings__cd_*。
+            Row() {
+              ForEach(this.socialLinks, (item: SocialLinkSpec) => {
+                Button() {
+                  ToolGlyph({
+                    glyph: item.glyph,
+                    contentColor: this.resolveTokens().textPrimary,
+                    iconSize: 24,
+                  })
+                }
+                  .width(48)
+                  .height(48)
+                  .margin({ left: 8, right: 8 })
+                  .accessibilityText(item.label)
+                  .onClick(() => {
+                    this.openExternalLink(item.url);
+                  })
+              }, (item: SocialLinkSpec) => item.glyph)
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.Center)
+            .margin({ top: 12 })
           }
           .width('100%')
           .padding({ left: 20, right: 20, bottom: 24 })

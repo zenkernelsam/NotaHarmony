@@ -81,7 +81,9 @@ for (const [field, name] of [['g0', 'HANDWRITING_TO_TEXT'],
 }
 
 // --- Harmony 侧：旗标关闭态 / 已实现开态 ---
-const settings = read('note/src/main/ets/ui/settings/SettingsPage.ets');
+const settings = read('note/src/main/ets/ui/settings/SettingsPage.ets')
+  .split('\n').filter((l) => !l.trimStart().startsWith('//')).join('\n');
+// Phase 1417 重锚：注释中的 fail-closed 说明不计入（文档化 h35.Y0 门控项）。
 check(!/newsletter|diagnostic|pro_info|manage_subscription|connected_services/i
   .test(settings), 'Harmony 设置无旗标门控行');
 check(settings.includes('note_view_night_mode'),
