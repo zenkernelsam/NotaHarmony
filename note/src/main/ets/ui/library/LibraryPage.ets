@@ -76,7 +76,8 @@ import {
   ComingUpEventState, comingUpEventState, ComingUpWindow,
 } from '../../core/model/HomeComingUpModel';
 import {
-  ComingUpCalendarWindow, loadComingUpCalendarWindow,
+  ComingUpCalendarRequestOutcome, ComingUpCalendarWindow,
+  loadComingUpCalendarWindow, openComingUpCalendarSettings,
   requestComingUpCalendarPermission,
 } from '../../data/OriginalComingUpCalendarGateway';
 
@@ -5048,24 +5049,54 @@ struct LibraryPage {
   }
 
   // 原版 e7n Connect 卡点击 → oye.n0(iwc.READ_CALENDAR, …)：发起系统授权，
-  // 授权成功后重拉；拒绝则停留在 Connect 卡（原版同语义）。
+  // 授权成功后重拉；授权弹窗展示后被拒 → 停留 Connect 卡；系统不再弹窗
+  // （永久拒绝）→ he0 case11/jwc.c=true → l8n.d「Access Required」对话框。
   private connectComingUpCalendar(): void {
     if (this.comingUpBusy) {
       return;
     }
     const lifecycleGeneration: number = this.lifecycleGeneration;
     const context = getContext(this) as common.UIAbilityContext;
-    requestComingUpCalendarPermission(context).then((granted: boolean): void => {
-      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive) {
-        return;
-      }
-      if (granted) {
-        this.refreshComingUp(lifecycleGeneration);
-      } else {
+    requestComingUpCalendarPermission(context)
+      .then((outcome: ComingUpCalendarRequestOutcome): void => {
+        if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive) {
+          return;
+        }
+        if (outcome === ComingUpCalendarRequestOutcome.GRANTED) {
+          this.refreshComingUp(lifecycleGeneration);
+          return;
+        }
         this.comingUpReadable = false;
+        if (outcome === ComingUpCalendarRequestOutcome.DENIED_HIDDEN) {
+          this.showCalendarAccessDialog();
+        }
+      }).catch((e: Error): void => {
+        console.error(`coming-up connect failed: ${JSON.stringify(e)}`);
+      });
+  }
+
+  /**
+   * 原版 oye.n0 内 l8n.d 对话框：jwc.c=true 时渲染——标题 = iwc.G
+   * （calendar_access_required），正文 = iwc.H（calendar_access_rationale），
+   * 按钮 = Dismiss（hwc/o9n.a）+ Go to Settings（b8 case9 → s86 case19
+   * ACTION_APPLICATION_DETAILS_SETTINGS；Harmony = requestPermissionOnSetting）。
+   */
+  private showCalendarAccessDialog(): void {
+    const accent: string = this.resolveTokens().accent;
+    promptAction.showDialog({
+      title: $r('app.string.calendar_access_required'),
+      message: $r('app.string.calendar_access_rationale'),
+      buttons: [
+        { text: $r('app.string.go_to_settings'), color: accent },
+        { text: $r('app.string.dismiss'), color: accent },
+      ],
+    }).then((response: promptAction.ShowDialogSuccessResponse): void => {
+      if (response.index === 0 && this.pageActive) {
+        const context = getContext(this) as common.UIAbilityContext;
+        openComingUpCalendarSettings(context);
       }
     }).catch((e: Error): void => {
-      console.error(`coming-up connect failed: ${JSON.stringify(e)}`);
+      console.error(`coming-up access dialog failed: ${JSON.stringify(e)}`);
     });
   }
 

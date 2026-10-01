@@ -1377,6 +1377,8 @@
     { "name": "recording_delete_failed", "value": "Could not delete the recording" },
     { "name": "microphone_permission_reason", "value": "Use the microphone to record audio in your notes." },
     { "name": "microphone_permission_title", "value": "Microphone Access Required" },
+    { "name": "calendar_access_required", "value": "Calendar Access Required" },
+    { "name": "calendar_access_rationale", "value": "Notability needs access to your calendar to show your upcoming events. Your calendar is never changed." },
     { "name": "microphone_permission_message", "value": "Notability requires microphone access to record audio. Allow microphone access in application settings, then try again." },
     { "name": "dismiss", "value": "Dismiss" },
     { "name": "go_to_settings", "value": "Go to Settings" },

@@ -33,26 +33,51 @@ export interface ComingUpCalendarWindow {
 }
 
 export type ComingUpCalendarReadableChecker = () => Promise<boolean>;
-export type ComingUpCalendarRequester = (context: common.UIAbilityContext) => Promise<boolean>;
+export type ComingUpCalendarRequester =
+  (context: common.UIAbilityContext) => Promise<ComingUpCalendarRequestOutcome>;
+export type ComingUpCalendarSettingsOpener =
+  (context: common.UIAbilityContext) => Promise<void>;
 export type ComingUpCalendarFetcher =
   (context: common.UIAbilityContext, nowMs: number) => Promise<ComingUpEvent[]>;
 
+/**
+ * oye.n0/jwc/he0 case11-12 的三态授权结果：
+ * - GRANTED：authResults[0]==PERMISSION_GRANTED → 触发重拉（function1）。
+ * - DENIED_SHOWN：系统弹窗确实弹出后被拒绝（dialogShownResults[0]===true）
+ *   —— 等价 Android 首次拒绝后 shouldShowRequestPermissionRationale=true，
+ *   原版此时不弹自家对话框，停留在 Connect 卡。
+ * - DENIED_HIDDEN：系统未再弹出（dialogShownResults[0]===false 或缺省，
+ *   即永久拒绝/不可再弹）—— 等价 !shouldShowRequestPermissionRationale，
+ *   原版弹「Access Required → Go to Settings」对话框（jwc.c=true→l8n.d）。
+ */
+export enum ComingUpCalendarRequestOutcome {
+  GRANTED = 'granted',
+  DENIED_SHOWN = 'denied_shown',
+  DENIED_HIDDEN = 'denied_hidden',
+}
+
 let readableChecker: ComingUpCalendarReadableChecker = checkReadableWithAccessControl;
 let permissionRequester: ComingUpCalendarRequester = requestWithHarmonyAccessControl;
+let settingsOpener: ComingUpCalendarSettingsOpener = openSettingsWithAccessControl;
 let eventFetcher: ComingUpCalendarFetcher = fetchWithCalendarManager;
 
 export function setComingUpCalendarGatewayForTest(
   checker: ComingUpCalendarReadableChecker,
   requester: ComingUpCalendarRequester,
-  fetcher: ComingUpCalendarFetcher): void {
+  fetcher: ComingUpCalendarFetcher,
+  opener?: ComingUpCalendarSettingsOpener): void {
   readableChecker = checker;
   permissionRequester = requester;
   eventFetcher = fetcher;
+  if (opener !== undefined) {
+    settingsOpener = opener;
+  }
 }
 
 export function resetComingUpCalendarGatewayForTest(): void {
   readableChecker = checkReadableWithAccessControl;
   permissionRequester = requestWithHarmonyAccessControl;
+  settingsOpener = openSettingsWithAccessControl;
   eventFetcher = fetchWithCalendarManager;
 }
 
@@ -71,14 +96,30 @@ async function checkReadableWithAccessControl(): Promise<boolean> {
 }
 
 async function requestWithHarmonyAccessControl(
-  context: common.UIAbilityContext): Promise<boolean> {
+  context: common.UIAbilityContext): Promise<ComingUpCalendarRequestOutcome> {
   const manager: abilityAccessCtrl.AtManager = abilityAccessCtrl.createAtManager();
   const result: PermissionRequestResult = await manager.requestPermissionsFromUser(
     context, [READ_WHOLE_CALENDAR_PERMISSION]);
-  return result.permissions.length === 1 &&
+  if (result.permissions.length === 1 &&
     result.permissions[0] === READ_WHOLE_CALENDAR_PERMISSION &&
     result.authResults.length === 1 &&
-    result.authResults[0] === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED;
+    result.authResults[0] === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED) {
+    return ComingUpCalendarRequestOutcome.GRANTED;
+  }
+  const dialogShown: boolean = result.dialogShownResults !== undefined &&
+    result.dialogShownResults.length > 0 && result.dialogShownResults[0] === true;
+  return dialogShown ? ComingUpCalendarRequestOutcome.DENIED_SHOWN :
+    ComingUpCalendarRequestOutcome.DENIED_HIDDEN;
+}
+
+/**
+ * s86 case19 等价：原版 Go to Settings = ACTION_APPLICATION_DETAILS_SETTINGS
+ * 打开应用详情页；Harmony 对应 requestPermissionOnSetting（直达系统权限页）。
+ */
+async function openSettingsWithAccessControl(
+  context: common.UIAbilityContext): Promise<void> {
+  const manager: abilityAccessCtrl.AtManager = abilityAccessCtrl.createAtManager();
+  await manager.requestPermissionOnSetting(context, [READ_WHOLE_CALENDAR_PERMISSION]);
 }
 
 /**
@@ -139,13 +180,23 @@ export async function loadComingUpCalendarWindow(
   }
 }
 
-/** e7n Connect 卡点击 → oye.n0(READ_CALENDAR) 权限请求。 */
+/** e7n Connect 卡点击 → oye.n0(READ_CALENDAR) 权限请求（三态结果）。 */
 export async function requestComingUpCalendarPermission(
-  context: common.UIAbilityContext): Promise<boolean> {
+  context: common.UIAbilityContext): Promise<ComingUpCalendarRequestOutcome> {
   try {
     return await permissionRequester(context);
   } catch (e) {
     console.warn(`coming-up calendar permission request failed: ${JSON.stringify(e)}`);
-    return false;
+    return ComingUpCalendarRequestOutcome.DENIED_HIDDEN;
+  }
+}
+
+/** b8 case9 → s86 case19：Go to Settings 打开系统权限页。 */
+export async function openComingUpCalendarSettings(
+  context: common.UIAbilityContext): Promise<void> {
+  try {
+    await settingsOpener(context);
+  } catch (e) {
+    console.warn(`coming-up calendar open-settings failed: ${JSON.stringify(e)}`);
   }
 }
