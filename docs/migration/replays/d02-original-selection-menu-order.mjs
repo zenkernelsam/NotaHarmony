@@ -66,20 +66,23 @@ ok(overlay.includes('DUPLICATE = 14') &&
    overlay.includes('SEND_TO_BACK = 16'),
   'Harmony SelectionMenuAction missing new values');
 
-// Harmony menu emits the portable dsc subset in original order.
+// Harmony menu emits the urf (1.4.2) assembly order flat: main row then
+// MORE-submenu tail (Phase 1440 — urf supersedes the 1.0.3 dsc enum-order
+// assumption; wqf dsc names map 1:1 to wqf letters).
 const menuStart = overlay.indexOf('private buildSelectionMenu()');
 ok(menuStart >= 0, 'Harmony buildSelectionMenu missing');
 const menuBody = overlay.slice(menuStart);
 const harmonyOrder = [
-  'SelectionMenuAction.STYLE', 'SelectionMenuAction.COPY', 'SelectionMenuAction.CUT',
-  'SelectionMenuAction.DUPLICATE', 'SelectionMenuAction.PASTE',
+  'SelectionMenuAction.CROP', 'SelectionMenuAction.EDIT_MATH',
+  'SelectionMenuAction.STYLE', 'SelectionMenuAction.COPY',
+  'SelectionMenuAction.CUT', 'SelectionMenuAction.DUPLICATE',
+  'SelectionMenuAction.PASTE',
   'SelectionMenuAction.GROUP', 'SelectionMenuAction.UNGROUP',
-  'SelectionMenuAction.SEND_FORWARD', 'SelectionMenuAction.SEND_BACKWARD',
+  'SelectionMenuAction.LOCK', 'SelectionMenuAction.DESELECT)',
+  'SelectionMenuAction.DELETE', 'SelectionMenuAction.FLIP_H',
+  'SelectionMenuAction.FLIP_V',
   'SelectionMenuAction.SEND_TO_FRONT', 'SelectionMenuAction.SEND_TO_BACK',
-  'SelectionMenuAction.DELETE', 'SelectionMenuAction.EDIT_MATH',
-  'SelectionMenuAction.CROP', 'SelectionMenuAction.FLIP_H',
-  'SelectionMenuAction.FLIP_V', 'SelectionMenuAction.LOCK',
-  'SelectionMenuAction.DESELECT)',
+  'SelectionMenuAction.SEND_FORWARD', 'SelectionMenuAction.SEND_BACKWARD',
 ];
 let cursor = -1;
 for (const item of harmonyOrder) {
@@ -91,23 +94,28 @@ for (const item of harmonyOrder) {
 }
 total += harmonyOrder.length;
 
-// Every menu item is a subsequence of dsc order (PASTE excluded — it is the
-// floating-chip adaptation and has no dsc ordinal).
-const dscIndex = new Map(dscNames.map((n, i) => [n, i]));
+// Every menu item is a subsequence of the 1.4.2 urf flat order (PASTE
+// excluded — it is the floating-chip adaptation and has no wqf ordinal).
+const urfFlat = [
+  'CROP', 'EDIT_MATH', 'STYLE', 'COPY', 'CUT', 'DUPLICATE', 'GROUP',
+  'UNGROUP', 'LOCK', 'DESELECT', 'DELETE', 'FLIP_HORIZONTALLY',
+  'FLIP_VERTICALLY', 'SEND_TO_FRONT', 'SEND_TO_BACK', 'SEND_FORWARD',
+  'SEND_BACKWARD',
+];
+const urfIndex = new Map(urfFlat.map((n, i) => [n, i]));
 const mapped = [
   ['STYLE', 'STYLE'], ['COPY', 'COPY'], ['CUT', 'CUT'], ['DUPLICATE', 'DUPLICATE'],
   ['GROUP', 'GROUP'], ['UNGROUP', 'UNGROUP'],
-  ['SEND_FORWARD', 'SEND_FORWARD'], ['SEND_BACKWARD', 'SEND_BACKWARD'],
-  ['SEND_TO_FRONT', 'SEND_TO_FRONT'], ['SEND_TO_BACK', 'SEND_TO_BACK'],
-  ['DELETE', 'DELETE'], ['EDIT_MATH', 'EDIT_MATH'], ['CROP', 'CROP'],
+  ['LOCK', 'LOCK'], ['DESELECT', 'DESELECT'], ['DELETE', 'DELETE'],
   ['FLIP_H', 'FLIP_HORIZONTALLY'], ['FLIP_V', 'FLIP_VERTICALLY'],
-  ['LOCK', 'LOCK'], ['DESELECT', 'DESELECT'],
+  ['SEND_TO_FRONT', 'SEND_TO_FRONT'], ['SEND_TO_BACK', 'SEND_TO_BACK'],
+  ['SEND_FORWARD', 'SEND_FORWARD'], ['SEND_BACKWARD', 'SEND_BACKWARD'],
 ];
 let prev = -1;
 for (const [harmony, original] of mapped) {
-  const idx = dscIndex.get(original);
+  const idx = urfIndex.get(original);
   assert.ok(idx !== undefined && idx > prev,
-    `${harmony} violates dsc order`);
+    `${harmony} violates urf order`);
   prev = idx;
 }
 total++;

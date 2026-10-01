@@ -46,6 +46,7 @@ export struct SelectionOverlay {
   @Prop canEditMath: boolean = false;
   @Prop canStyle: boolean = false;
   @Prop canDeselect: boolean = false;
+  @Prop canReorder: boolean = true;
   @Prop positionLocked: boolean = false;
   @Prop menuEnabled: boolean = true;
   @Prop deselectMode: boolean = false;
@@ -134,8 +135,18 @@ export struct SelectionOverlay {
       return items;
     }
     if (!this.photoImportLeaseActive) {
-      // 原版 dsc.STYLE（ordinal 0，菜单首项）：选区含可样式化 ink 时出现。
+      // 原版 urf 装配序：实体专属动作先行——CROP（lsf/l97 图像）→
+      // EDIT_MATH（lsf/cv9 数学）→ STYLE（含可样式化 ink；vvh 文本纸
+      // 实体另受 h35.S0=TEXT_BOX_PAPER qd5 调试门，生产恒假）。
       // r68 菜单项为 icon+label 行——MenuElement.icon 挂原版 selection_menu_* 矢量。
+      if (this.canCrop) {
+        items.push({ value: $r('app.string.crop'), icon: $r('app.media.selmenu_crop'),
+          action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Crop clicked'); this.onMenuAction(SelectionMenuAction.CROP); } });
+      }
+      if (this.canEditMath) {
+        items.push({ value: $r('app.string.edit_math'), icon: $r('app.media.selmenu_edit_math'),
+          action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Edit Math clicked'); this.onMenuAction(SelectionMenuAction.EDIT_MATH); } });
+      }
       if (this.canStyle) {
         items.push({ value: $r('app.string.selection_style'),
           icon: $r('app.media.selmenu_style'),
@@ -148,17 +159,20 @@ export struct SelectionOverlay {
     if (this.photoImportLeaseActive) {
       return items;
     }
-    // Original dsc order: STYLE, COPY, CUT, DUPLICATE, GROUP, UNGROUP,
-    // SEND_FORWARD, SEND_BACKWARD, SEND_TO_FRONT, SEND_TO_BACK, DELETE,
-    // [CONVERT_TO_MATH/TEXT], EDIT_MATH, CROP, [FIT_TO_PAGE*], FLIP_H,
-    // FLIP_V, LOCK/UNLOCK, DESELECT, [MORE].
+    // 原版 urf 主行序：CROP?/EDIT_MATH?/STYLE?/COPY/CUT/DUPLICATE/
+    // GROUP|UNGROUP?/LOCK|UNLOCK?/DESELECT?/DELETE/MORE?；MORE 子菜单
+    // （arrayList2）序=FLIP_H/FLIP_V/CONVERT_TO_MATH/CONVERT_TO_TEXT/
+    // SAVE_AS_STICKER/SEND_TO_FRONT/SEND_TO_BACK/SEND_FORWARD/SEND_BACKWARD。
     // (*原版 dhb case15 即 throw NotImplementedError——FIT_TO_PAGE 上游即死项)
     // ADR-0645 全表登记：CONVERT_* 走 MyScript iink（xsc.p() 后端门禁，
-    // Harmony 无生产 OCR provider → fail-closed 缺省）；MORE 仅翻转
-    // msc.b 双行 showSubmenu（本实现单行全量列出）；LOCK 合并 UNLOCK
-    // （ADR-0586）。
+    // Harmony 无生产 OCR provider → fail-closed 缺省）；SAVE_AS_STICKER
+    // 挂 h35.z0=STICKERS rd5 InternalUserOnly（P1436 ADR-1371）；LOCK 行
+    // 挂 h35.I=POSITION_LOCKED td5 灰度旗（远端键 androidPositionLocked
+    // 不在 defaults 表——生产缺省 false；本地实现保留=已移植+旗门登记，
+    // 与 textOnly 同判例）；MORE 双子菜单按 msc.b 语义平铺至行尾
+    // （本实现单行全量列出）；LOCK 合并 UNLOCK（ADR-0586）。
     // PASTE rides the menu as a registered adaptation (original renders a
-    // floating paste chip); it sits with the clipboard cluster.
+    // floating paste chip t6b); it sits with the clipboard cluster.
     items.push(
       { value: $r('app.string.cut'), icon: $r('app.media.selmenu_cut'),
         action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Cut clicked'); this.onMenuAction(SelectionMenuAction.CUT); } },
@@ -177,33 +191,6 @@ export struct SelectionOverlay {
       items.push({ value: $r('app.string.ungroup'), icon: $r('app.media.selmenu_group'),
         action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Ungroup clicked'); this.onMenuAction(SelectionMenuAction.UNGROUP); } });
     }
-    items.push(
-      // send_forward/send_to_front 共用 selection_menu_send_forward；
-      // send_backward/send_to_back 共用 selection_menu_send_backward。
-      { value: $r('app.string.bring_forward'), icon: $r('app.media.selmenu_forward'),
-        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Fwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_FORWARD); } },
-      { value: $r('app.string.send_backward'), icon: $r('app.media.selmenu_backward'),
-        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Bwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_BACKWARD); } },
-      { value: $r('app.string.send_to_front'), icon: $r('app.media.selmenu_forward'),
-        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu ToFront clicked'); this.onMenuAction(SelectionMenuAction.SEND_TO_FRONT); } },
-      { value: $r('app.string.send_to_back'), icon: $r('app.media.selmenu_backward'),
-        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu ToBack clicked'); this.onMenuAction(SelectionMenuAction.SEND_TO_BACK); } },
-      { value: $r('app.string.delete'), icon: $r('app.media.selmenu_delete'),
-        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Del clicked'); this.onMenuAction(SelectionMenuAction.DELETE); } });
-    if (this.canEditMath) {
-      items.push({ value: $r('app.string.edit_math'), icon: $r('app.media.selmenu_edit_math'),
-        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Edit Math clicked'); this.onMenuAction(SelectionMenuAction.EDIT_MATH); } });
-    }
-    if (this.canCrop) {
-      items.push({ value: $r('app.string.crop'), icon: $r('app.media.selmenu_crop'),
-        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Crop clicked'); this.onMenuAction(SelectionMenuAction.CROP); } });
-    }
-    if (this.canFlip) {
-      items.push({ value: $r('app.string.flip_horizontal'), icon: $r('app.media.selmenu_flip_h'),
-        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipH clicked'); this.onMenuAction(SelectionMenuAction.FLIP_H); } });
-      items.push({ value: $r('app.string.flip_vertical'), icon: $r('app.media.selmenu_flip_v'),
-        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipV clicked'); this.onMenuAction(SelectionMenuAction.FLIP_V); } });
-    }
     if (this.canLock) {
       items.push({ value: this.positionLocked ? $r('app.string.unlock') : $r('app.string.lock'),
         icon: this.positionLocked ? $r('app.media.selmenu_unlock') : $r('app.media.selmenu_lock'),
@@ -214,6 +201,31 @@ export struct SelectionOverlay {
     if (this.canDeselect) {
       items.push({ value: $r('app.string.deselect'), icon: $r('app.media.selmenu_deselect'),
         action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Deselect clicked'); this.onMenuAction(SelectionMenuAction.DESELECT); } });
+    }
+    items.push(
+      { value: $r('app.string.delete'), icon: $r('app.media.selmenu_delete'),
+        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Del clicked'); this.onMenuAction(SelectionMenuAction.DELETE); } });
+    // --- MORE 子菜单平铺（msc.b 双行 → 单行尾段）---
+    if (this.canFlip) {
+      items.push({ value: $r('app.string.flip_horizontal'), icon: $r('app.media.selmenu_flip_h'),
+        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipH clicked'); this.onMenuAction(SelectionMenuAction.FLIP_H); } });
+      items.push({ value: $r('app.string.flip_vertical'), icon: $r('app.media.selmenu_flip_v'),
+        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu FlipV clicked'); this.onMenuAction(SelectionMenuAction.FLIP_V); } });
+    }
+    // 原版 urf：SEND_* 四行仅 msfVar.f()（z-orderable 集）非空时装配，
+    // 序=TO_FRONT/TO_BACK/FORWARD/BACKWARD；纯组绘制选区（isf.q 空）
+    // 不产四行。send_forward/send_to_front 共用 selection_menu_send_forward；
+    // send_backward/send_to_back 共用 selection_menu_send_backward。
+    if (this.canReorder) {
+      items.push(
+        { value: $r('app.string.send_to_front'), icon: $r('app.media.selmenu_forward'),
+          action: () => { hilog.info(0x0001, 'SelOverlay', 'menu ToFront clicked'); this.onMenuAction(SelectionMenuAction.SEND_TO_FRONT); } },
+        { value: $r('app.string.send_to_back'), icon: $r('app.media.selmenu_backward'),
+          action: () => { hilog.info(0x0001, 'SelOverlay', 'menu ToBack clicked'); this.onMenuAction(SelectionMenuAction.SEND_TO_BACK); } },
+        { value: $r('app.string.bring_forward'), icon: $r('app.media.selmenu_forward'),
+          action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Fwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_FORWARD); } },
+        { value: $r('app.string.send_backward'), icon: $r('app.media.selmenu_backward'),
+          action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Bwd clicked'); this.onMenuAction(SelectionMenuAction.SEND_BACKWARD); } });
     }
     return items;
   }

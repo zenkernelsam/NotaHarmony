@@ -603,6 +603,7 @@ export struct NoteCanvasView {
   @State selectionCanEditMath: boolean = false;
   @State selectionCanStyle: boolean = false;
   @State selectionCanDeselect: boolean = false;
+  @State selectionCanReorder: boolean = false;
   @State selectionPositionLocked: boolean = false;
   private imageCropSession: OriginalImageCropSession | null = null;
   @State imageCropVisible: boolean = false;
@@ -7597,7 +7598,10 @@ export struct NoteCanvasView {
       }
     }
     const selectedCount: number = state.selectedStrokeIds.length + lockableCount;
-    // 原版 dhb case18/19：itc 单元素走 u5j.n/x——oy0 块与 m4d 形状可锁，
+    // 原版 dhb case18/19（行可见性另受 h35.I=POSITION_LOCKED td5 远端
+    // 灰度旗门控——键 androidPositionLocked 不在 defaults 表，生产缺省
+    // false；本地实现保留=已移植+旗门登记，与 textOnly 同判例）：
+    // itc 单元素走 u5j.n/x——oy0 块与 m4d 形状可锁，
     // s06 笔画产出空 op（死操作）；非 itc 走 xsc.k——解析 ktc.h() 全部
     // 成员，任一成员非 m4d（笔画/oy0 块）→ null 死路径，且须存在
     // cih.a(n5d 形状) 成员；方向=全部 n5d 已锁→UNLOCK。
@@ -7614,6 +7618,14 @@ export struct NoteCanvasView {
       lockLeafIds.every((id: string): boolean => shapeIdSet.has(id));
     this.selectionCanLock = allMembersAreShapes ||
       (state.selectedGroupIds.length === 0 && selectedCount === 1 && lockableCount === 1);
+    // 原版 urf：SEND_* 四行仅 msfVar.f()（z-orderable 集）非空时装配——
+    // isf.f()=q=g−p（选中叶子减组内成员），纯组绘制选区 q 空 → 不产四行；
+    // jsf.f()=组内成员叶子恒非空、lsf.f()=单实体恒非空。
+    // 等效：isf 型（supportsDeselectMode）且每个选中叶子都属已选组 → 隐藏。
+    this.selectionCanReorder = !(state.supportsDeselectMode &&
+      state.selectedGroupIds.length > 0 && groupLeafIds !== null &&
+      selectedEntityIds.length > 0 &&
+      selectedEntityIds.every((id: string): boolean => groupLeafIds.indexOf(id) >= 0));
     const allMemberShapesLocked: boolean = allMembersAreShapes &&
       (lockLeafIds as string[]).every((id: string): boolean => {
         const shape: ShapeElement | undefined = this.shapes.find(
@@ -11313,6 +11325,7 @@ export struct NoteCanvasView {
         canEditMath: this.selectionCanEditMath,
         canStyle: this.selectionCanStyle,
         canDeselect: this.selectionCanDeselect,
+        canReorder: this.selectionCanReorder,
         positionLocked: this.selectionPositionLocked,
         menuEnabled: !this.photoImportBusy && !this.historyBusy &&
           this.loaded && !this.dataLoading && !this.dataLoadFailed &&
