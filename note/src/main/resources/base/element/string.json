@@ -996,6 +996,9 @@
       "name": "emoji_category_8",
       "value": "Flags"
     },
+    { "name": "emoji_search_placeholder", "value": "Search" },
+    { "name": "emoji_clear_search", "value": "Clear search" },
+    { "name": "emoji_no_results", "value": "No results" },
     {
       "name": "close",
       "value": "Close"

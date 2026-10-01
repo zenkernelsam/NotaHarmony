@@ -35,6 +35,10 @@ import {
   OnboardingTooltipKind, OnboardingTooltipStore,
 } from '../../data/OnboardingTooltipStore';
 import { FirstPageThumbnailState, StrokePersistence } from '../../data/StrokePersistence';
+import {
+  filterFolderEmojiSections, FolderEmojiInfo, FolderEmojiSection,
+  getFolderEmojiSections,
+} from './FolderEmojiDataset';
 import { AsyncMutex, MutexRelease } from '../../data/AsyncMutex';
 import { ThumbnailRenderer } from '../../rendering/ThumbnailRenderer';
 import { systemShare } from '@kit.ShareKit';
@@ -103,13 +107,15 @@ const FOLDER_COLOR_PALETTE: number[] = [
   0xFFE0719E,
 ];
 
-// 原版 emoji 选择器是分类网格（LIBRARY_FOLDER_EMOJI_PICKER flag + du3 九类 +
-// md 分类图标）；emoji 本体来自打包的 Realm EmojiInfo 库，反编译产物中不可见，
-// Harmony 侧提供按原版分类序的策划子集，空字符串 = 无 emoji（pdb.d() 等价语义）。
+// 原版 emoji 选择器（el4）：顶部搜索框 + du3/ok4 九类分区网格 + md 分类
+// 图标条；emoji 本体来自打包的 assets/emojis_unicode.json（bl4 字段
+// emoji/description/aliases/tags），Harmony 经 FolderEmojiDataset 逐字
+// 物化同一 JSON；空字符串 = 无 emoji（pdb.d() 等价语义）。
 const FOLDER_EMOJI_CATEGORY_ICONS: string[] = [
   '😀', '🧑', '🐻', '🍎', '⚽', '💡', '🚗', '🔢', '🏁',
 ];
-const FOLDER_EMOJI_CATEGORIES: string[][] = [
+// 数据集加载完成前的展示子集（每类 20 枚策划项，保持首帧可交互）。
+const FOLDER_EMOJI_FALLBACK_CATEGORIES: string[][] = [
   // du3.Smileys
   ['😀', '😄', '😁', '😆', '🙂', '😉', '😊', '😍', '🤩', '😎', '🤔', '😴', '😢', '😭', '😡', '🤯', '🥳', '😇', '🤠', '😅'],
   // du3.PeopleBody
@@ -5576,6 +5582,10 @@ struct NameDialog {
   // Emoji 页，否则 Color 页。
   @State decorationTab: number = 0;
   @State emojiCategory: number = 0;
+  // 原版 el4 搜索态：搜索串 + 完整分区数据集（emojis_unicode.json，
+  // nl4 等价物化）；null = 加载中（先用策划子集占位）。
+  @State emojiQuery: string = '';
+  @State emojiSections: FolderEmojiInfo[][] | null = null;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   onConfirm: (name: string, color: number, emoji: string) => Promise<boolean> =
@@ -5586,6 +5596,13 @@ struct NameDialog {
     this.selectedColor = this.initialColor;
     this.selectedEmoji = this.initialEmoji;
     this.decorationTab = this.initialEmoji.length > 0 ? 1 : 0;
+    getFolderEmojiSections(getContext(this) as common.UIAbilityContext)
+      .then((sections: FolderEmojiInfo[][]) => {
+        this.emojiSections = sections;
+      })
+      .catch((e: Error) => {
+        console.error(`folder emoji dataset load failed: ${JSON.stringify(e)}`);
+      });
   }
 
   private resolveTokens(): ThemeTokens {
@@ -5608,9 +5625,83 @@ struct NameDialog {
       .onClick(() => {
         if (tab === 0) {
           this.selectedEmoji = '';
+          this.emojiQuery = '';
         }
         this.decorationTab = tab;
       })
+  }
+
+  // 浏览态分区数据：已加载走全集（emojis_unicode.json 物化），未加载用
+  // 策划子集占位——分区索引两态一致（ok4 序）。
+  private emojiSectionEmojis(categoryIndex: number): string[] {
+    if (this.emojiSections === null) {
+      return FOLDER_EMOJI_FALLBACK_CATEGORIES[categoryIndex] ?? [];
+    }
+    const section: FolderEmojiInfo[] | undefined = this.emojiSections[categoryIndex];
+    if (section === undefined) {
+      return [];
+    }
+    return section.map((info: FolderEmojiInfo) => info.emoji);
+  }
+
+  @Builder
+  private emojiSearchResults(): void {
+    if (this.filteredEmojiSections().length === 0) {
+      // 原版 el4：map2.isEmpty() → "No results"（k62.b 正文居中）。
+      Text($r('app.string.emoji_no_results'))
+        .fontSize(14)
+        .fontColor(this.resolveTokens().textSecondary)
+        .width('100%')
+        .textAlign(TextAlign.Center)
+        .margin({ top: 24 })
+    } else {
+      Scroll() {
+        Column() {
+          ForEach(this.filteredEmojiSections(), (section: FolderEmojiSection) => {
+            Text($r('app.string.emoji_category_' + section.categoryIndex.toString()))
+              .fontSize(12)
+              .fontColor(this.resolveTokens().textSecondary)
+              .margin({ top: 8, bottom: 4 })
+            Grid() {
+              ForEach(section.items, (info: FolderEmojiInfo) => {
+                GridItem() {
+                  Text(info.emoji)
+                    .fontSize(18)
+                    .padding(4)
+                    .border({
+                      width: this.selectedEmoji === info.emoji ? 1 : 0,
+                      color: this.resolveTokens().accent,
+                      radius: 6,
+                    })
+                    .onClick(() => {
+                      this.selectedEmoji = info.emoji;
+                    })
+                }
+              }, (info: FolderEmojiInfo): string => info.emoji)
+            }
+            .columnsTemplate('1fr 1fr 1fr 1fr 1fr 1fr 1fr')
+            .columnsGap(4)
+            .rowsGap(4)
+            .width('100%')
+          }, (section: FolderEmojiSection): string => section.categoryIndex.toString())
+        }
+        .width('100%')
+      }
+      .width('100%')
+      .height(168)
+      .margin({ top: 4 })
+      .scrollBar(BarState.Auto)
+    }
+  }
+
+  private filteredEmojiSections(): FolderEmojiSection[] {
+    const source: FolderEmojiInfo[][] = this.emojiSections !== null ?
+      this.emojiSections :
+      FOLDER_EMOJI_FALLBACK_CATEGORIES.map((items: string[]) =>
+        items.map((emoji: string) => ({
+          emoji: emoji, description: '', category: '', aliases: [], tags: [],
+        } as FolderEmojiInfo)));
+    return filterFolderEmojiSections(source, this.emojiQuery);
   }
 
   build() {
@@ -5659,59 +5750,93 @@ struct NameDialog {
         }
         .width('100%')
       } else if (this.showDecoration) {
+        // 原版 el4 顶部搜索框：placeholder=ui_emojipicker__search_placeholder，
+        // 非空出现 trailing 清除钮（cd=ui_emojipicker__clear_search）。
         Row() {
-          ForEach(FOLDER_EMOJI_CATEGORY_ICONS, (icon: string, index: number) => {
-            Text(icon)
-              .fontSize(15)
-              .padding(3)
-              .borderRadius(6)
-              .backgroundColor(this.emojiCategory === index ? this.resolveTokens().control :
-                this.resolveTokens().surface)
-              .accessibilityText($r('app.string.emoji_category_' + index.toString()))
-              .onClick(() => {
-                this.emojiCategory = index;
-              })
-          }, (icon: string, index: number): string => index.toString())
-        }
-        .width('100%')
-        .margin({ top: 4 })
-        Grid() {
-          GridItem() {
-            Text('∅')
+          TextInput({ text: this.emojiQuery,
+            placeholder: $r('app.string.emoji_search_placeholder') })
+            .layoutWeight(1)
+            .height(34)
+            .fontSize(14)
+            .fontColor(this.resolveTokens().textPrimary)
+            .placeholderColor(this.resolveTokens().textSecondary)
+            .backgroundColor(this.resolveTokens().control)
+            .accessibilityText($r('app.string.emoji_search_placeholder'))
+            .onChange((value: string) => {
+              this.emojiQuery = value;
+            })
+          if (this.emojiQuery.length > 0) {
+            Text('×')
               .fontSize(16)
               .fontColor(this.resolveTokens().textSecondary)
-              .padding(4)
-              .border({
-                width: this.selectedEmoji.length === 0 ? 1 : 0,
-                color: this.resolveTokens().accent,
-                radius: 6,
-              })
+              .padding({ left: 8, right: 8, top: 6, bottom: 6 })
+              .accessibilityText($r('app.string.emoji_clear_search'))
               .onClick(() => {
-                this.selectedEmoji = '';
+                this.emojiQuery = '';
               })
           }
-          ForEach(FOLDER_EMOJI_CATEGORIES[this.emojiCategory], (emoji: string) => {
+        }
+        .width('100%')
+        .margin({ top: 6 })
+        if (this.emojiQuery.length === 0) {
+          Row() {
+            ForEach(FOLDER_EMOJI_CATEGORY_ICONS, (icon: string, index: number) => {
+              Text(icon)
+                .fontSize(15)
+                .padding(3)
+                .borderRadius(6)
+                .backgroundColor(this.emojiCategory === index ? this.resolveTokens().control :
+                  this.resolveTokens().surface)
+                .accessibilityText($r('app.string.emoji_category_' + index.toString()))
+                .onClick(() => {
+                  this.emojiCategory = index;
+                })
+            }, (icon: string, index: number): string => index.toString())
+          }
+          .width('100%')
+          .margin({ top: 4 })
+          Grid() {
             GridItem() {
-              Text(emoji)
-                .fontSize(18)
+              Text('∅')
+                .fontSize(16)
+                .fontColor(this.resolveTokens().textSecondary)
                 .padding(4)
                 .border({
-                  width: this.selectedEmoji === emoji ? 1 : 0,
+                  width: this.selectedEmoji.length === 0 ? 1 : 0,
                   color: this.resolveTokens().accent,
                   radius: 6,
                 })
                 .onClick(() => {
-                  this.selectedEmoji = emoji;
+                  this.selectedEmoji = '';
                 })
             }
-          }, (emoji: string): string => emoji)
+            ForEach(this.emojiSectionEmojis(this.emojiCategory), (emoji: string) => {
+              GridItem() {
+                Text(emoji)
+                  .fontSize(18)
+                  .padding(4)
+                  .border({
+                    width: this.selectedEmoji === emoji ? 1 : 0,
+                    color: this.resolveTokens().accent,
+                    radius: 6,
+                  })
+                  .onClick(() => {
+                    this.selectedEmoji = emoji;
+                  })
+              }
+            }, (emoji: string): string => emoji)
+          }
+          .columnsTemplate('1fr 1fr 1fr 1fr 1fr 1fr 1fr')
+          .columnsGap(4)
+          .rowsGap(4)
+          .width('100%')
+          .height(132)
+          .margin({ top: 8 })
+        } else {
+          // 原版 el4 搜索态：过滤后分区网格（保留 ui_emojipicker__category_*
+          // 分区头）；空结果渲染 ui_emojipicker__no_results。
+          this.emojiSearchResults()
         }
-        .columnsTemplate('1fr 1fr 1fr 1fr 1fr 1fr 1fr')
-        .columnsGap(4)
-        .rowsGap(4)
-        .width('100%')
-        .height(132)
-        .margin({ top: 8 })
       }
       Row() {
         Button($r('app.string.cancel'))

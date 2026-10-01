@@ -15,8 +15,8 @@ ck('九类齐全', ['Smileys & Emotion', 'People & Body', 'Animals & Nature', 'F
 ck('Objects=266 TravelPlaces=219', cats['Objects'] === 266 && cats['Travel & Places'] === 219);
 
 const lp = readFileSync('C:/HarmonyProject/NotaHarmony/note/src/main/ets/ui/library/LibraryPage.ets', 'utf8');
-const m = lp.match(/FOLDER_EMOJI_CATEGORIES[^;]*;/s);
-ck('Harmony 179 条策划子集', (m[0].match(/'/g) || []).length / 2 === 179);
+const m = lp.match(/FOLDER_EMOJI_FALLBACK_CATEGORIES[^;]*;/s);
+ck('Harmony 179 条策划子集（加载占位）', (m[0].match(/'/g) || []).length / 2 === 179);
 ck('无 U+FFFD 损坏', !m[0].includes('�'));
 ck('剪刀/清真寺/印度庙/犹太会堂已修复', m[0].includes('✂️') && m[0].includes('🕌') && m[0].includes('🛕') && m[0].includes('🕍'));
 ck('九类注释 du3', ['du3.Smileys', 'du3.PeopleBody', 'du3.AnimalsNature', 'du3.FoodDrink', 'du3.Activities', 'du3.Objects', 'du3.TravelPlaces', 'du3.Symbols', 'du3.Flags'].every(c => m[0].includes(c)));
