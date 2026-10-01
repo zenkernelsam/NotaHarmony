@@ -51,7 +51,7 @@ check(/supportsBrushStyleControls\(\): boolean/.test(vm),
     'STYLE row excludes CALLIGRAPHY/SHAPE/PENCIL/REVIEW (no n5h)');
 }
 // The toolbar gates the brush-style row on supportsBrushStyleControls, not brush controls.
-check(/supportsBrushStyleControls\(\)[\s\S]{0,80}StyleButton/.test(tb),
+check(/supportsBrushStyleControls\(\)[\s\S]{0,240}StyleButton/.test(tb),
   'toolbar STYLE row gated on supportsBrushStyleControls');
 
 // === 2. Calligraphy nib panel surface ===

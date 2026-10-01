@@ -170,9 +170,11 @@ assert.match(page, /onSelectionInkControlsChanged:[\s\S]{0,360}style: InkStyle \
 assert.match(page, /if \(color !== null\) {[\s\S]{0,60}this\.selectionInkColor = color;[\s\S]{0,180}if \(style !== null\) {[\s\S]{0,50}this\.selectionInkStyle = style;/);
 
 assert.match(toolbar, /@Prop selectionStyle: BrushStyle = BrushStyle\.MONO;/);
-assert.match(toolbar, /\.backgroundColor\(this\.selectionStyle === style \? this\.resolveTokens\(\)\.accent :/);
-// 原版 x4j：样式选项是 brushstyle 波形样张（非文本 label）；选中态配色沿 fontColor 逻辑。
-assert.match(toolbar, /this\.BrushStyleGlyphView\(style, this\.selectionStyle === style \?[\s\S]*?this\.resolveTokens\(\)\.onAccent :/);
+// 1.4.2 azm.c/u4h（Phase 1437 取代 1.0.3 x4j 波形）：选区样式卡 =
+// line_style_* 图标 + 文本标签；选中态 1.5dp accent 描边 + 弱透明 accent 卡面。
+assert.match(toolbar, /\.borderColor\(this\.selectionStyle === style \? this\.resolveTokens\(\)\.accent :/);
+assert.match(toolbar, /\.backgroundColor\(this\.selectionStyle === style \?\s*this\.styleCardSelectedBackground\(\) : this\.resolveTokens\(\)\.control\)/);
+assert.match(toolbar, /this\.LineStyleIconView\(style, this\.resolveTokens\(\)\.textPrimary\)/);
 assert.match(toolbar, /\(style !== BrushStyle\.TAPER \|\| this\.selectionVariableStyleEnabled\)/);
 
 function selectionContext(strokes) {

@@ -600,20 +600,20 @@
       "value": "Move to primary"
     },
     {
-      "name": "style_mono",
-      "value": "Mono"
+      "name": "brush_style_variable",
+      "value": "Variable"
     },
     {
-      "name": "style_taper",
-      "value": "Taper"
+      "name": "brush_style_fixed",
+      "value": "Fixed"
     },
     {
-      "name": "style_dash",
-      "value": "Dash"
+      "name": "brush_style_dashed",
+      "value": "Dashed"
     },
     {
-      "name": "style_dots",
-      "value": "Dots"
+      "name": "brush_style_dotted",
+      "value": "Dotted"
     },
     {
       "name": "shapes",

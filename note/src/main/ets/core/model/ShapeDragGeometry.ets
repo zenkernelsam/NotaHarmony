@@ -7,8 +7,9 @@
 //   DIAMOND(2)：四边中点菱形。
 //   TRIANGLE(3)：顶点在上边中点、底角为两下角。
 // 约束修饰（r().q，"绘制正形/45°"）：形状 → 正方形包围盒（取长边），
-//   LINE/ARROW → 端点吸附 45°（保长度）。约束触发源（触控笔按键/修饰）留作后续；
-//   本阶段 constrain 默认 false（自由拖拽）。
+//   LINE/ARROW → 端点吸附 45°（保长度）。
+// Phase 1437 复核：j1k.q 在 1.4.2 全源树零写入点（m() setter 无调用方），
+// 约束分支为休眠死代码——constrain 恒 false 即原版对齐，非缺口。
 import { Point2D, Rect2D } from './GeometryTypes';
 import { ShapeKind } from './BrushTypes';
 import {

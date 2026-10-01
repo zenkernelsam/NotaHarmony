@@ -7,7 +7,7 @@ import { ToolboxSettingsDialog, toolTypeLabel } from './ToolboxSettingsDialog';
 import { ColorPickerView } from '../components/ColorPicker';
 import { ToolGlyph, toolGlyphKey } from '../components/ToolGlyph';
 import { STROKE_INDICATORS, StrokeIndicatorPaths } from '../components/StrokeIndicators';
-import { BRUSH_STYLE_GLYPHS, BrushStyleGlyph } from '../components/BrushStyleGlyphs';
+import { BrushStyleGlyph, LINE_STYLE_GLYPHS } from '../components/BrushStyleGlyphs';
 import { WidthSlider } from '../components/WidthSlider';
 import { CalligraphyNibPanel } from '../components/CalligraphyNibPanel';
 import { SHAPE_KIND_ORDER, ShapeKindSwatch } from './ShapeKindPicker';
@@ -195,34 +195,44 @@ export struct EditorToolbar {
     return p !== undefined ? p : { fill: '', outline: '', vw: 24, vh: 6 };
   }
 
-  // 原版 x4j：样式选项是 ui_tools__brushstyle_<style> 波形样张（44×24），非文本。
-  // mono = stroked 开放波形；taper/dash/dot = filled 波形。
-  private brushStyleGlyph(style: BrushStyle): BrushStyleGlyph {
-    let key = 'brushstyle_mono';
+  // 1.4.2 azm.c：u4h 选项图标为 ui_designsystem__line_style_<style>（24×24），
+  // o81 序号映射——Mono→fixed、Taper→variable、Dash→dashed、Dot→dotted；
+  // fixed 源矢量带 group translate(0.625,0.625)，以负视口原点复刻。
+  private lineStyleGlyph(style: BrushStyle): BrushStyleGlyph {
+    let key = 'line_style_fixed';
     switch (style) {
-      case BrushStyle.TAPER: key = 'brushstyle_taper'; break;
-      case BrushStyle.DASH: key = 'brushstyle_dash'; break;
-      case BrushStyle.DOT: key = 'brushstyle_dot'; break;
+      case BrushStyle.TAPER: key = 'line_style_variable'; break;
+      case BrushStyle.DASH: key = 'line_style_dashed'; break;
+      case BrushStyle.DOT: key = 'line_style_dotted'; break;
       default: break;
     }
-    const g = BRUSH_STYLE_GLYPHS[key];
-    return g !== undefined ? g : { d: '', stroked: false, sw: 0, vw: 44, vh: 24 };
+    const g = LINE_STYLE_GLYPHS[key];
+    return g !== undefined ? g : { d: '', stroked: false, sw: 0, vw: 24, vh: 24 };
   }
 
   @Builder
-  private BrushStyleGlyphView(style: BrushStyle, color: ResourceColor) {
+  private LineStyleIconView(style: BrushStyle, color: ResourceColor) {
     Shape() {
       Path()
-        .commands(this.brushStyleGlyph(style).d)
-        .fill(this.brushStyleGlyph(style).stroked ? Color.Transparent : color)
-        .stroke(this.brushStyleGlyph(style).stroked ? color : Color.Transparent)
-        .strokeWidth(this.brushStyleGlyph(style).sw)
+        .commands(this.lineStyleGlyph(style).d)
+        .fill(this.lineStyleGlyph(style).stroked ? Color.Transparent : color)
+        .stroke(this.lineStyleGlyph(style).stroked ? color : Color.Transparent)
+        .strokeWidth(this.lineStyleGlyph(style).sw)
         .strokeLineCap(LineCapStyle.Round)
         .strokeLineJoin(LineJoinStyle.Round)
     }
-    .viewPort({ x: 0, y: 0, width: this.brushStyleGlyph(style).vw, height: this.brushStyleGlyph(style).vh })
-    .width(40)
+    .viewPort({ x: this.lineStyleGlyph(style).vx ?? 0, y: this.lineStyleGlyph(style).vy ?? 0,
+      width: this.lineStyleGlyph(style).vw, height: this.lineStyleGlyph(style).vh })
+    .width(22)
     .height(22)
+  }
+
+  // azm.c 选项卡：圆角描边卡片（u5n.b 1.5dp 边：选中 accent / 未选透明），
+  // 内容 c90 纵排 icon+文本，着色恒 a.c.b（不随选中态切换），
+  // 卡面未选 a.b.b / 选中 a.d.d.a —— Harmony 以 control/accent 弱透明近似。
+  private styleCardSelectedBackground(): string {
+    const accent: string = this.resolveTokens().accent;
+    return accent.startsWith('#') && accent.length === 7 ? '#1F' + accent.substring(1) : accent;
   }
 
   build() {
@@ -596,14 +606,15 @@ export struct EditorToolbar {
           .height(40)
           .justifyContent(FlexAlign.Center)
       } else if (this.viewModel.supportsBrushStyleControls()) {
+        // 1.4.2 yxi case0 u4h 序：Variable(Taper)、Fixed(Mono)、Dashed、Dotted。
         Row() {
-          this.StyleButton($r('app.string.style_mono'), BrushStyle.MONO)
-          this.StyleButton($r('app.string.style_taper'), BrushStyle.TAPER)
-          this.StyleButton($r('app.string.style_dash'), BrushStyle.DASH)
-          this.StyleButton($r('app.string.style_dots'), BrushStyle.DOT)
+          this.StyleButton($r('app.string.brush_style_variable'), BrushStyle.TAPER)
+          this.StyleButton($r('app.string.brush_style_fixed'), BrushStyle.MONO)
+          this.StyleButton($r('app.string.brush_style_dashed'), BrushStyle.DASH)
+          this.StyleButton($r('app.string.brush_style_dotted'), BrushStyle.DOT)
         }
         .width('100%')
-        .height(40)
+        .height(52)
         .justifyContent(FlexAlign.Center)
       } else if (this.viewModel.isLaserActive()) {
         // 原版 pni/uni.a：激光设置 = Tail / No Tail 分段开关。
@@ -661,15 +672,18 @@ export struct EditorToolbar {
                 this.viewModel.setSelectionIsFreehand(true);
               })
           }
-          Row() {
-            this.SelectionStyleButton($r('app.string.style_mono'), BrushStyle.MONO)
-            this.SelectionStyleButton($r('app.string.style_taper'), BrushStyle.TAPER)
-            this.SelectionStyleButton($r('app.string.style_dash'), BrushStyle.DASH)
-            this.SelectionStyleButton($r('app.string.style_dots'), BrushStyle.DOT)
+          // 1.4.2 选区样式行与工具样式行同 u4h 序：Variable→Dotted。
+          Row({ space: 2 }) {
+            this.SelectionStyleButton($r('app.string.brush_style_variable'), BrushStyle.TAPER)
+            this.SelectionStyleButton($r('app.string.brush_style_fixed'), BrushStyle.MONO)
+            this.SelectionStyleButton($r('app.string.brush_style_dashed'), BrushStyle.DASH)
+            this.SelectionStyleButton($r('app.string.brush_style_dotted'), BrushStyle.DOT)
           }
+          .width('100%')
         }
         .width('100%')
-        .height(72)
+        .height(104)
+        .justifyContent(FlexAlign.SpaceAround)
         .alignItems(HorizontalAlign.Center)
       }
     }
@@ -1355,16 +1369,26 @@ export struct EditorToolbar {
 
   @Builder
   StyleButton(label: Resource, style: BrushStyle) {
+    // 1.4.2 azm.c/u4h：等宽描边卡片 = 24dp line_style 图标 + 可见文本标签；
+    // 选中态 1.5dp accent 描边 + accent 弱透明底，内容着色恒定。
     Button() {
-      // 原版 x4j：样式选项显示 brushstyle 波形样张，样式名作无障碍文本。
-      this.BrushStyleGlyphView(style, this.viewModel.brushStyle === style ?
-        this.resolveTokens().onAccent : this.resolveTokens().textPrimary)
+      Column({ space: 3 }) {
+        this.LineStyleIconView(style, this.resolveTokens().textPrimary)
+        Text(label)
+          .fontSize(11)
+          .fontColor(this.resolveTokens().textPrimary)
+      }
+      .justifyContent(FlexAlign.Center)
     }
-      .height(30)
-      .borderRadius(4)
+      .layoutWeight(1)
+      .height(46)
+      .borderRadius(8)
+      .borderWidth(1.5)
+      .borderColor(this.viewModel.brushStyle === style ? this.resolveTokens().accent :
+        Color.Transparent)
       .margin({ left: 2, right: 2 })
-      .backgroundColor(this.viewModel.brushStyle === style ? this.resolveTokens().accent :
-        this.resolveTokens().control)
+      .backgroundColor(this.viewModel.brushStyle === style ?
+        this.styleCardSelectedBackground() : this.resolveTokens().control)
       .accessibilityText(label)
       .enabled(!this.viewModel.toolStateLoading &&
         !this.photoImportLeaseActive)
@@ -1410,15 +1434,25 @@ export struct EditorToolbar {
 
   @Builder
   SelectionStyleButton(label: Resource, style: BrushStyle) {
+    // 1.4.2 选区样式行共用同一 u4h/azm.c 卡片渲染（同序同卡面）。
     Button() {
-      this.BrushStyleGlyphView(style, this.selectionStyle === style ?
-        this.resolveTokens().onAccent : this.resolveTokens().textPrimary)
+      Column({ space: 3 }) {
+        this.LineStyleIconView(style, this.resolveTokens().textPrimary)
+        Text(label)
+          .fontSize(11)
+          .fontColor(this.resolveTokens().textPrimary)
+      }
+      .justifyContent(FlexAlign.Center)
     }
-      .height(30)
-      .borderRadius(4)
+      .layoutWeight(1)
+      .height(46)
+      .borderRadius(8)
+      .borderWidth(1.5)
+      .borderColor(this.selectionStyle === style ? this.resolveTokens().accent :
+        Color.Transparent)
       .margin({ left: 2, right: 2 })
-      .backgroundColor(this.selectionStyle === style ? this.resolveTokens().accent :
-        this.resolveTokens().control)
+      .backgroundColor(this.selectionStyle === style ?
+        this.styleCardSelectedBackground() : this.resolveTokens().control)
       .accessibilityText(label)
       .enabled(!this.viewModel.toolStateLoading &&
         !this.photoImportLeaseActive &&

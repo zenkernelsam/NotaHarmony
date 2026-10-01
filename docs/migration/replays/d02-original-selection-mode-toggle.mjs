@@ -56,7 +56,7 @@ check('select_freehand_label = "Free"',
 
 // ---- Harmony 实现 ----
 const isSelIdx = toolbar.indexOf('isSelectionActive()');
-const styleIdx = toolbar.indexOf('SelectionStyleButton($r(\'app.string.style_mono\')', isSelIdx);
+const styleIdx = toolbar.indexOf('SelectionStyleButton($r(\'app.string.brush_style_variable\')', isSelIdx);
 const modeRow = toolbar.slice(isSelIdx, styleIdx);
 check('模式行 = Row({ space: 8 })', modeRow.includes('Row({ space: 8 })'));
 check('Box 钮调 SelectionModeButton + selectbox glyph + Box label + rect cd',
