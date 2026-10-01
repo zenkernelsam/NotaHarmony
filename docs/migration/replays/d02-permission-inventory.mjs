@@ -37,17 +37,20 @@ ok('core perms stable: RECORD_AUDIO/CAMERA/INTERNET in all',
 // Harmony side
 const mod = JSON.parse(JSON.stringify(readFileSync(join(REPO, 'note/src/main/module.json5'), 'utf8')));
 const reqPerms = [...mod.matchAll(/"name": "(ohos\.permission\.[^"]+)"/g)].map(m => m[1]);
-ok('Harmony declares exactly 4 requestPermissions',
-  reqPerms.length === 4, reqPerms.join(','));
-ok('Harmony perms = INTERNET/KEEP_BACKGROUND_RUNNING/MICROPHONE/READ_PASTEBOARD',
+// Phase 1412 起 +READ_WHOLE_CALENDAR（Home Coming Up，iwc.READ_CALENDAR 对应）。
+ok('Harmony declares exactly 5 requestPermissions',
+  reqPerms.length === 5, reqPerms.join(','));
+ok('Harmony perms = INTERNET/KEEP_BACKGROUND_RUNNING/MICROPHONE/READ_PASTEBOARD/READ_WHOLE_CALENDAR',
   ['ohos.permission.INTERNET', 'ohos.permission.KEEP_BACKGROUND_RUNNING',
-    'ohos.permission.MICROPHONE', 'ohos.permission.READ_PASTEBOARD']
+    'ohos.permission.MICROPHONE', 'ohos.permission.READ_PASTEBOARD',
+    'ohos.permission.READ_WHOLE_CALENDAR']
     .every(p => reqPerms.includes(p)));
 ok('no CAMERA perm (system cameraPicker model)', !reqPerms.some(p => p.includes('CAMERA')));
 ok('cameraPicker caller exists for take-photo',
   existsSync(join(REPO, 'note/src/main/ets/data/OriginalCameraPickerCaller.ets')));
-ok('permission reason strings exist for MIC/PASTEBOARD',
-  mod.includes('microphone_permission_reason') && mod.includes('read_pasteboard_permission_reason'));
+ok('permission reason strings exist for MIC/PASTEBOARD/CALENDAR',
+  mod.includes('microphone_permission_reason') && mod.includes('read_pasteboard_permission_reason') &&
+  mod.includes('read_calendar_permission_reason'));
 
 console.log(`\n${pass}/${pass + fail} checks passed`);
 process.exit(fail ? 1 : 0);

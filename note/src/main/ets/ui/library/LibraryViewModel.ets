@@ -314,15 +314,19 @@ export class LibraryViewModel {
   // extra —— 新笔记建进指定文件夹而非当前库位置；folderIdOverride
   // 为空时沿用 currentFolderId（原版 CREATE_NOTE 默认路径）。
   async createNote(query: string, templateOverride?: PaperTemplate,
-    folderIdOverride?: string): Promise<string> {
+    folderIdOverride?: string, titleOverride?: string): Promise<string> {
     const folderId: string | null = folderIdOverride !== undefined ?
       folderIdOverride : this.currentFolderId;
     const viewGeneration: number = this.loadGeneration;
     return this.enqueueMutation(async (): Promise<string> => {
       // 原版 k59.l(currentTimeMillis)：标题在建库行时按创建时刻格式化；
       // 工厂缺失/失败 → k() 分支的 "New Note"（production flag-off 行为）。
+      // 原版 ne case11 → c13.a(…, ik.CALENDAR, title, …)：Coming Up 事件
+      // 行显式传入事件标题时跳过自动标题工厂（title=null 分支 = 未传入）。
       let title: string = ORIGINAL_NOTE_DEFAULT_TITLE;
-      if (this.noteTitleFactory !== undefined) {
+      if (titleOverride !== undefined) {
+        title = titleOverride;
+      } else if (this.noteTitleFactory !== undefined) {
         try {
           title = await this.noteTitleFactory(Date.now());
         } catch (e) {

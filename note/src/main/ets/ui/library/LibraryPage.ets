@@ -71,6 +71,14 @@ import {
   ORIGIN_CHORD_NEW_NOTE, ORIGIN_CHORD_NEW_WINDOW, ORIGIN_CHORD_OPEN_HELP,
   ORIGIN_CHORD_OPEN_SETTINGS,
 } from '../../data/OriginalKeyboardChords';
+import {
+  buildComingUpDays, buildComingUpWindows, ComingUpDayGroup, ComingUpEvent,
+  ComingUpEventState, comingUpEventState, ComingUpWindow,
+} from '../../core/model/HomeComingUpModel';
+import {
+  ComingUpCalendarWindow, loadComingUpCalendarWindow,
+  requestComingUpCalendarPermission,
+} from '../../data/OriginalComingUpCalendarGateway';
 
 interface FolderListItem {
   folder: NoteFolder;
@@ -221,6 +229,17 @@ struct LibraryPage {
   @State folderDialogTitle: ResourceStr = $r('app.string.new_folder');
   @State folderDialogInitialText: string = '';
   @State folderDialogMode: number = 0;  // 0=新建 1=重命名
+  // 原版 kb2/bh1 —— Home "Coming up" 面板数据：null = 尚未探测（未渲染），
+  // false = 日历不可读（Connect 卡），true = 可读（分组窗口面板）。
+  @State comingUpReadable: boolean | null = null;
+  @State comingUpWindows: ComingUpWindow[] = [];
+  // 原版 nan.i 的 rga 选中态：记录当前窗口起始日（数据重载后按日键归位，
+  // 找不到即回落首窗口）。
+  @State comingUpWindowKey: string | null = null;
+  // 面板快照时刻：行状态（Starting soon/Happening now）按该时刻判定，
+  // 每次加载刷新（等价 lb2.a(now) 重组时参数）。
+  @State comingUpNowMs: number = 0;
+  private comingUpBusy: boolean = false;
   @State folderDialogTargetId: string = '';
   @State folderDialogParentId: string | null = null;
   @State folderDialogColor: number = FOLDER_DEFAULT_COLOR;
@@ -473,6 +492,9 @@ struct LibraryPage {
       const context = getContext(this) as common.UIAbilityContext;
       renderer.initialize(context).then(() => vm.loadNotes(query)).then(() => {
         this.refreshRecentCardFeed();
+        // 原版 kg3 ContentObserver 语义：日历变更即重查；Harmony 无等价全局
+        // 观察 API，登记差异并在每次 Home 呈现（loadNotes 完成）时重拉。
+        this.refreshComingUp(lifecycleGeneration);
         if (!this.isCurrentLifecycle(lifecycleGeneration, vm, renderer) ||
           !this.isCurrentNotesRequest(notesRequestGeneration, vm, query, folderId)) {
           return;
@@ -2589,6 +2611,9 @@ struct LibraryPage {
         }
         .width('100%')
         .margin({ top: 32 })
+        // 原版 vkm.a 次序：CTA → kan.a(Coming up) → q8n.e(exams，未移植)
+        // → vkm.e(unindexed) → favorites → recents → planners。
+        this.HomeComingUpSection()
         if (this.viewModel !== null && this.viewModel.homeFavorites.length > 0) {
           this.HomeNoteSection($r('app.string.home_favorite_notes_title'),
             this.viewModel.homeFavorites)
@@ -2669,6 +2694,234 @@ struct LibraryPage {
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .margin({ top: 32 })
+  }
+
+  // 原版 kan.a —— Coming up 分区宿主：kb2.b(可读) → nan.i 窗口面板；
+  // 不可读 → e7n Connect 卡（整卡点击 = 权限请求）。
+  @Builder
+  private HomeComingUpSection() {
+    if (this.comingUpReadable !== null) {
+      Column() {
+        if (this.comingUpReadable) {
+          this.ComingUpPanel()
+        } else {
+          this.ComingUpConnectCard()
+        }
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .margin({ top: 32 })
+    }
+  }
+
+  // 原版 nan.g —— 标题 + ‹/› 翻页钮（earlier_days/later_days 无障碍标签，
+  // 首/末窗口禁用）。
+  @Builder
+  private ComingUpPanel() {
+    Column() {
+      Row() {
+        Text($r('app.string.home_coming_up_title'))
+          .fontSize(17)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.resolveTokens().textPrimary)
+          .layoutWeight(1)
+        this.ComingUpPagerButton('chevron_left',
+          $r('app.string.home_coming_up_earlier_days'),
+          this.comingUpWindowIndex() > 0, -1)
+        this.ComingUpPagerButton('chevron_right',
+          $r('app.string.home_coming_up_later_days'),
+          this.comingUpWindowIndex() + 1 < this.comingUpWindows.length, 1)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      Column({ space: 16 }) {
+        ForEach(this.currentComingUpWindow().groups,
+          (group: ComingUpDayGroup, groupIndex: number) => {
+            if (groupIndex > 0) {
+              // 原版 nan.b：组间 1vp 分隔线。
+              Divider()
+                .strokeWidth(1)
+                .color(this.resolveTokens().border)
+            }
+            this.ComingUpDayBlock(group)
+          },
+          (group: ComingUpDayGroup) => group.dateKey)
+      }
+      .width('100%')
+      .margin({ top: 12 })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  private currentComingUpWindow(): ComingUpWindow {
+    const windows: ComingUpWindow[] = this.comingUpWindows;
+    if (windows.length === 0) {
+      return { startDateKey: '', groups: [], nextDateKey: null };
+    }
+    return windows[this.comingUpWindowIndex()];
+  }
+
+  @Builder
+  private ComingUpPagerButton(glyphName: string, description: Resource,
+    enabled: boolean, delta: number) {
+    Button() {
+      ToolGlyph({ glyph: glyphName, iconSize: 18,
+        contentColor: enabled ? this.resolveTokens().textPrimary :
+          this.resolveTokens().textSecondary })
+    }
+    .type(ButtonType.Normal)
+    .width(32)
+    .height(32)
+    .backgroundColor(this.resolveTokens().control)
+    .accessibilityText(description)
+    .enabled(enabled)
+    .onClick(() => {
+      this.comingUpShiftWindow(delta);
+    })
+  }
+
+  // 原版 nan.c —— 日分组行：nan.d 日期徽标 + 事件卡（weight 均分）/
+  // 空组 → nan.e "No upcoming events" 空卡。
+  @Builder
+  private ComingUpDayBlock(group: ComingUpDayGroup) {
+    Row({ space: 12 }) {
+      this.ComingUpDayBadge(group.dayStartMs)
+      if (group.events.length === 0) {
+        this.ComingUpEmptyCard()
+      } else {
+        ForEach(group.events, (ev: ComingUpEvent) => {
+          this.ComingUpEventCard(ev)
+        }, (ev: ComingUpEvent) => ev.id)
+      }
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Top)
+  }
+
+  // 原版 nan.d —— 日徽标：日期数字（大号）+ MMM + EEE 短标签（本地语系）。
+  @Builder
+  private ComingUpDayBadge(dayStartMs: number) {
+    Row({ space: 4 }) {
+      Text(`${new Date(dayStartMs).getDate()}`)
+        .fontSize(24)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.resolveTokens().textPrimary)
+      Column() {
+        Text(new Intl.DateTimeFormat(undefined, { month: 'short' })
+          .format(new Date(dayStartMs)))
+          .fontSize(11)
+          .fontColor(this.resolveTokens().textPrimary)
+        Text(new Intl.DateTimeFormat(undefined, { weekday: 'short' })
+          .format(new Date(dayStartMs)))
+          .fontSize(11)
+          .fontColor(this.resolveTokens().textSecondary)
+      }
+      .alignItems(HorizontalAlign.Start)
+    }
+    .alignItems(VerticalAlign.Center)
+    .margin({ top: 4 })
+  }
+
+  // 原版 nan.e/adl.b —— 空日组卡（accent 竖条 + "No upcoming events"）。
+  @Builder
+  private ComingUpEmptyCard() {
+    Row({ space: 12 }) {
+      Column()
+        .width(3)
+        .height('100%')
+        .backgroundColor(this.resolveTokens().accent)
+        .borderRadius(2)
+      Text($r('app.string.home_coming_up_no_events'))
+        .fontSize(15)
+        .fontColor(this.resolveTokens().textSecondary)
+        .layoutWeight(1)
+    }
+    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+    .backgroundColor(this.resolveTokens().surface)
+    .borderRadius(12)
+    .layoutWeight(1)
+    .shadow({ radius: 4, color: this.resolveTokens().shadow, offsetY: 2 })
+  }
+
+  // 原版 nan.f/nan.a/aa case2 —— 事件卡：3vp accent 竖条 + surface；
+  // 时间副标（All day / SHORT 时间，非 UPCOMING 加 Starting soon /
+  // Happening now 前缀并着 accent）+ 标题（空 → Untitled event）+
+  // "Start now" 钮（ne case11 → c13.a(ik.CALENDAR) 建笔记并打开；
+  // 非 UPCOMING 主色，UPCOMING 次要色）。
+  @Builder
+  private ComingUpEventCard(ev: ComingUpEvent) {
+    Row({ space: 12 }) {
+      Column()
+        .width(3)
+        .height('100%')
+        .backgroundColor(this.resolveTokens().accent)
+        .borderRadius(2)
+      Column({ space: 4 }) {
+        Text(this.comingUpRowSubtitle(ev,
+          comingUpEventState(ev, this.comingUpNowMs)))
+          .fontSize(12)
+          .fontColor(comingUpEventState(ev, this.comingUpNowMs) !==
+            ComingUpEventState.UPCOMING ? this.resolveTokens().accent :
+            this.resolveTokens().textSecondary)
+        Text(/\S/.test(ev.title) ? ev.title :
+          $r('app.string.home_coming_up_untitled_event'))
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.resolveTokens().textPrimary)
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Button($r('app.string.home_coming_up_start_now'))
+          .type(ButtonType.Normal)
+          .fontSize(13)
+          .fontColor(comingUpEventState(ev, this.comingUpNowMs) !==
+            ComingUpEventState.UPCOMING ? this.resolveTokens().onAccent :
+            this.resolveTokens().textPrimary)
+          .backgroundColor(comingUpEventState(ev, this.comingUpNowMs) !==
+            ComingUpEventState.UPCOMING ? this.resolveTokens().accent :
+            this.resolveTokens().control)
+          .borderRadius(8)
+          .margin({ top: 8 })
+          .enabled(!this.createBusy)
+          .onClick(() => {
+            this.openComingUpEventNote(ev);
+          })
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+    }
+    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+    .backgroundColor(this.resolveTokens().surface)
+    .borderRadius(12)
+    .layoutWeight(1)
+    .shadow({ radius: 4, color: this.resolveTokens().shadow, offsetY: 2 })
+  }
+
+  // 原版 e7n —— 不可读态 Connect 卡：title + subtitle，整卡点击触发
+  // oye.n0(iwc.READ_CALENDAR) 权限请求（authorize→重新装载）。
+  @Builder
+  private ComingUpConnectCard() {
+    Column() {
+      Text($r('app.string.home_coming_up_connect_title'))
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.resolveTokens().textPrimary)
+      Text($r('app.string.home_coming_up_connect_subtitle'))
+        .fontSize(14)
+        .fontColor(this.resolveTokens().textSecondary)
+        .margin({ top: 6 })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+    .backgroundColor(this.resolveTokens().surface)
+    .borderRadius(12)
+    .shadow({ radius: 4, color: this.resolveTokens().shadow, offsetY: 2 })
+    .enabled(!this.comingUpBusy)
+    .onClick(() => {
+      this.connectComingUpCalendar();
+    })
   }
 
   // 原版 hel.c/hel.a 计划本 cell：封面 drawable 预览（y1d.b().G →
@@ -4661,7 +4914,7 @@ struct LibraryPage {
 
   private async createAndLaunch(autoRecord: boolean,
     templateOverride?: PaperTemplate, startCamera: boolean = false,
-    folderId?: string): Promise<void> {
+    folderId?: string, titleOverride?: string): Promise<void> {
     if (!this.pageActive || this.viewModel === null || this.createBusy) {
       return;
     }
@@ -4670,7 +4923,8 @@ struct LibraryPage {
     const vm: LibraryViewModel = this.viewModel;
     let noteId: string;
     try {
-      noteId = await vm.createNote(this.searchText, templateOverride, folderId);
+      noteId = await vm.createNote(this.searchText, templateOverride, folderId,
+        titleOverride);
       if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
         this.viewModel !== vm) {
         this.createBusy = false;
@@ -4762,6 +5016,119 @@ struct LibraryPage {
     refreshNoteThumbnailForms(context, theme).catch((e: Error) => {
       console.error(`thumb card feed failed: ${JSON.stringify(e)}`);
     });
+  }
+
+  // 原版 y14.a()+jt1 查询 + m70 case7 + nan.i 窗口化的一次装载；
+  // kg3 ContentObserver 无等价 → 每次 Home 呈现时刷新。
+  private refreshComingUp(lifecycleGeneration: number): void {
+    if (this.comingUpBusy) {
+      return;
+    }
+    const context = getContext(this) as common.UIAbilityContext;
+    this.comingUpBusy = true;
+    loadComingUpCalendarWindow(context, Date.now()).then(
+      (window: ComingUpCalendarWindow): void => {
+        this.comingUpBusy = false;
+        if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive) {
+          return;
+        }
+        const nowMs: number = Date.now();
+        const days: ComingUpDayGroup[] = buildComingUpDays(window.events, nowMs);
+        this.comingUpWindows = buildComingUpWindows(days);
+        this.comingUpReadable = window.isReadable;
+        this.comingUpNowMs = nowMs;
+      }).catch((e: Error): void => {
+        this.comingUpBusy = false;
+        console.error(`coming-up load failed: ${JSON.stringify(e)}`);
+        if (lifecycleGeneration === this.lifecycleGeneration && this.pageActive &&
+          this.comingUpReadable === null) {
+          this.comingUpReadable = false;
+        }
+      });
+  }
+
+  // 原版 e7n Connect 卡点击 → oye.n0(iwc.READ_CALENDAR, …)：发起系统授权，
+  // 授权成功后重拉；拒绝则停留在 Connect 卡（原版同语义）。
+  private connectComingUpCalendar(): void {
+    if (this.comingUpBusy) {
+      return;
+    }
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    const context = getContext(this) as common.UIAbilityContext;
+    requestComingUpCalendarPermission(context).then((granted: boolean): void => {
+      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive) {
+        return;
+      }
+      if (granted) {
+        this.refreshComingUp(lifecycleGeneration);
+      } else {
+        this.comingUpReadable = false;
+      }
+    }).catch((e: Error): void => {
+      console.error(`coming-up connect failed: ${JSON.stringify(e)}`);
+    });
+  }
+
+  // 原版 nan.j —— ‹/› 在窗口序列上移动选中日键；边界由渲染层禁用。
+  private comingUpShiftWindow(delta: number): void {
+    const windows: ComingUpWindow[] = this.comingUpWindows;
+    const next: number = this.comingUpWindowIndex() + delta;
+    if (next < 0 || next >= windows.length) {
+      return;
+    }
+    this.comingUpWindowKey = windows[next].startDateKey;
+  }
+
+  // nan.i rga → 窗口序号：按起始日键定位，找不到回落首窗口。
+  private comingUpWindowIndex(): number {
+    const windows: ComingUpWindow[] = this.comingUpWindows;
+    if (windows.length === 0) {
+      return 0;
+    }
+    const key: string | null = this.comingUpWindowKey;
+    if (key === null) {
+      return 0;
+    }
+    for (let i: number = 0; i < windows.length; i++) {
+      if (windows[i].startDateKey === key) {
+        return i;
+      }
+    }
+    return 0;
+  }
+
+  // 原版 ne case11 → c13.a(…, ik.CALENDAR, title, …)：事件行 "Start now"
+  // 以事件标题建笔记并打开（标题空 → 走默认标题管线，等同 str==null 分支）。
+  private openComingUpEventNote(ev: ComingUpEvent): void {
+    const title: string | undefined = /\S/.test(ev.title) ? ev.title : undefined;
+    this.createAndLaunch(false, undefined, false, undefined, title)
+      .catch((e: Error): void => {
+        console.error(`coming-up note launch failed: ${JSON.stringify(e)}`);
+      });
+  }
+
+  // 原版 nan.f/aa case2 —— 行内时间副标：全天 → "All day"；否则
+  // ofLocalizedTime(SHORT)；STARTING_SOON/HAPPENING_NOW 包装
+  // "%1$s • …" 富态前缀。
+  private comingUpRowSubtitle(ev: ComingUpEvent, state: ComingUpEventState): string {
+    const time: string = ev.isAllDay ?
+      this.getStringSync($r('app.string.home_coming_up_all_day')) :
+      new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(new Date(ev.startMs));
+    if (state === ComingUpEventState.STARTING_SOON) {
+      return this.getStringSync($r('app.string.home_coming_up_starting_soon'), time);
+    }
+    if (state === ComingUpEventState.HAPPENING_NOW) {
+      return this.getStringSync($r('app.string.home_coming_up_happening_now'), time);
+    }
+    return time;
+  }
+
+  private getStringSync(res: Resource, ...args: string[]): string {
+    try {
+      return getContext(this).resourceManager.getStringSync(res.id, ...args);
+    } catch (_e) {
+      return args.length > 0 ? args[0] : '';
+    }
   }
 
   // 原版 MainActivity 的 wu7.a 落地目标：show_library →

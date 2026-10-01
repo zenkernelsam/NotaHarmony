@@ -32,6 +32,14 @@
           "abilities": ["NoteAbility"],
           "when": "inuse"
         }
+      },
+      {
+        "name": "ohos.permission.READ_WHOLE_CALENDAR",
+        "reason": "$string:read_calendar_permission_reason",
+        "usedScene": {
+          "abilities": ["NoteAbility"],
+          "when": "inuse"
+        }
       }
     ],
     "abilities": [

@@ -794,6 +794,54 @@
       "value": "Recent notes"
     },
     {
+      "name": "home_coming_up_title",
+      "value": "Coming up"
+    },
+    {
+      "name": "home_coming_up_connect_title",
+      "value": "Events at a glance"
+    },
+    {
+      "name": "home_coming_up_connect_subtitle",
+      "value": "See today's classes, study reminders, and linked notes in one place."
+    },
+    {
+      "name": "home_coming_up_start_now",
+      "value": "Start now"
+    },
+    {
+      "name": "home_coming_up_no_events",
+      "value": "No upcoming events"
+    },
+    {
+      "name": "home_coming_up_all_day",
+      "value": "All day"
+    },
+    {
+      "name": "home_coming_up_starting_soon",
+      "value": "%1$s • Starting soon"
+    },
+    {
+      "name": "home_coming_up_happening_now",
+      "value": "%1$s • Happening now"
+    },
+    {
+      "name": "home_coming_up_earlier_days",
+      "value": "Show earlier days"
+    },
+    {
+      "name": "home_coming_up_later_days",
+      "value": "Show later days"
+    },
+    {
+      "name": "home_coming_up_untitled_event",
+      "value": "Untitled event"
+    },
+    {
+      "name": "read_calendar_permission_reason",
+      "value": "Shows your calendar events in the library Home so you can start a note for each event."
+    },
+    {
       "name": "tap_to_create_notes",
       "value": "Tap on the Create button to create new notes or start from an imported file."
     },
