@@ -48,6 +48,9 @@ export struct EditorToolbar {
   @State showTipTool: boolean = false;
   @State showTipUndoRedo: boolean = false;
   @State showTipImport: boolean = false;
+  // 原版 dhb default：jh2.d（宽<600）→ t0c.M(PHONE_UNDO_REDO) 否则
+  // t0c.L(FIRST_UNDO_REDO)；弹出时锁定当前 kind，避免宽度过渡途中串味。
+  @State undoRedoTipKind: OnboardingTooltipKind = OnboardingTooltipKind.FIRST_UNDO_REDO;
   private onboardingStore: OnboardingTooltipStore | null = null;
   private onboardingSeenReady: boolean = false;
   private onboardingTipToolId: string = '';
@@ -435,11 +438,14 @@ export struct EditorToolbar {
             this.onUndo();
           })
           // 原版 x90 fsi.h(pq9.O, pos3)：undo/redo 手势提示锚定撤销按钮。
+          // dhb default 槽位：宽版 t0c.L→tyi 槽位3（锚点左侧），窄版
+          // t0c.M→tyi 槽位2（锚点下方居中，越界上翻）。
           .bindPopup(this.showTipUndoRedo, {
             builder: (): void => {
               this.OnboardingUndoTip()
             },
-            placement: Placement.Left,
+            placement: this.undoRedoTipKind === OnboardingTooltipKind.PHONE_UNDO_REDO ?
+              Placement.Bottom : Placement.Left,
             mask: false,
             autoCancel: false,
             onStateChange: (event: PopupStateChangeEvent) => {
@@ -1380,8 +1386,13 @@ export struct EditorToolbar {
     if (this.noteHasContent && !this.tipSeen(OnboardingTooltipKind.FIRST_IMPORT)) {
       this.showTipImport = true;
     }
-    // x90 gl8Var5：undo 可用 → FIRST_UNDO_REDO 气泡。
-    if (this.canUndo && !this.tipSeen(OnboardingTooltipKind.FIRST_UNDO_REDO)) {
+    // x90 gl8Var5：undo 可用 → 撤销/重做气泡。原版 dhb default：
+    // jh2.d（宽<600）→ t0c.M=PHONE_UNDO_REDO（tyi 槽位2=锚点下方），
+    // 否则 t0c.L=FIRST_UNDO_REDO（槽位3=锚点左侧）。
+    const undoTipKind: OnboardingTooltipKind = this.compact ?
+      OnboardingTooltipKind.PHONE_UNDO_REDO : OnboardingTooltipKind.FIRST_UNDO_REDO;
+    if (this.canUndo && !this.tipSeen(undoTipKind)) {
+      this.undoRedoTipKind = undoTipKind;
       this.showTipUndoRedo = true;
     }
   }
@@ -1418,7 +1429,8 @@ export struct EditorToolbar {
     } else if (kind === OnboardingTooltipKind.FIRST_TEXT ||
       kind === OnboardingTooltipKind.FIRST_HIGHLIGHTER) {
       this.showTipTool = false;
-    } else if (kind === OnboardingTooltipKind.FIRST_UNDO_REDO) {
+    } else if (kind === OnboardingTooltipKind.FIRST_UNDO_REDO ||
+      kind === OnboardingTooltipKind.PHONE_UNDO_REDO) {
       this.showTipUndoRedo = false;
     } else if (kind === OnboardingTooltipKind.FIRST_IMPORT) {
       this.showTipImport = false;
@@ -1459,9 +1471,11 @@ export struct EditorToolbar {
   @Builder
   private OnboardingUndoTip() {
     OnboardingTipBubble({
-      tipText: $r('app.string.data_onboarding__first_undo_redo_tooltip_text'),
+      tipText: this.undoRedoTipKind === OnboardingTooltipKind.PHONE_UNDO_REDO ?
+        $r('app.string.data_onboarding__phone_undo_redo_tooltip_text') :
+        $r('app.string.data_onboarding__first_undo_redo_tooltip_text'),
       onGotIt: (): void => {
-        this.dismissOnboardingTip(OnboardingTooltipKind.FIRST_UNDO_REDO);
+        this.dismissOnboardingTip(this.undoRedoTipKind);
       },
     })
   }

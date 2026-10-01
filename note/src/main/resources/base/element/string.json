@@ -1623,6 +1623,7 @@
     { "name": "data_onboarding__first_text_tooltip_text", "value": "Start dragging with the stylus to create text boxes" },
     { "name": "data_onboarding__first_import_tooltip_text", "value": "Quickly navigate and search within pages with the Page Manager" },
     { "name": "data_onboarding__first_undo_redo_tooltip_text", "value": "Two finger tap to quickly Undo, three finger tap to Redo" },
+    { "name": "data_onboarding__phone_undo_redo_tooltip_text", "value": "Press to undo, long press to redo" },
     { "name": "data_onboarding__first_highlighter_tooltip_text", "value": "Tap and hold as you draw with the highlighter to snap to text" },
     { "name": "data_onboarding__first_note_completed_tooltip_text", "value": "Organize your notes by creating new folders. Drag and drop a folder into another for nested organization" },
     { "name": "data_onboarding__compact_organize_tooltip_text", "value": "Now that you have notes, start organizing them into Folders" },

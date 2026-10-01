@@ -7,8 +7,12 @@ const STORE_NAME: string = 'onboardingTooltipPreferences';
 // Harmony preferences 以逗号连接串等价承载。
 export const ONBOARDING_TOOLTIP_SEEN_KEY: string = 'onboardingTooltipSeen';
 
-// 原版 pq9.java：引导气泡枚举。FIRST_TRANSCRIPT(pq9.M) 隶属 feature_learn
-// 转写边界（ADR-0661 fail-closed），不在本链中。
+// 原版 pq9.java：引导气泡枚举。FIRST_TRANSCRIPT(t0c.J) 隶属 feature_learn
+// 转写边界（ADR-0661 fail-closed），FIRST_RAINBOW_EFFECT(t0c.N) 属
+// Google Ink rainbow 笔刷包（未移植，ADR-1327 簇），FIRST_RULER_ENABLED/
+// FIRST_ANGLE_MEASURE_MODE(t0c.P/Q) 属尺规（ADR-0644 fail-closed），
+// SAVE_AS_TEMPLATE(t0c.S) 的承载面（模板另存为 + 页面范围选择，wgm）
+// 未移植，均不在本链中。
 export enum OnboardingTooltipKind {
   NEW_NOTE = 'NEW_NOTE',
   FIRST_TRAY_OPENED = 'FIRST_TRAY_OPENED',
@@ -18,6 +22,7 @@ export enum OnboardingTooltipKind {
   FIRST_TEXT = 'FIRST_TEXT',
   FIRST_IMPORT = 'FIRST_IMPORT',
   FIRST_UNDO_REDO = 'FIRST_UNDO_REDO',
+  PHONE_UNDO_REDO = 'PHONE_UNDO_REDO',
   FIRST_HIGHLIGHTER = 'FIRST_HIGHLIGHTER',
   FIRST_NOTE_COMPLETED = 'FIRST_NOTE_COMPLETED',
   COMPACT_ORGANIZE = 'COMPACT_ORGANIZE',
@@ -34,6 +39,7 @@ export function isOnboardingTooltipKind(kind: string): boolean {
     case OnboardingTooltipKind.FIRST_TEXT:
     case OnboardingTooltipKind.FIRST_IMPORT:
     case OnboardingTooltipKind.FIRST_UNDO_REDO:
+    case OnboardingTooltipKind.PHONE_UNDO_REDO:
     case OnboardingTooltipKind.FIRST_HIGHLIGHTER:
     case OnboardingTooltipKind.FIRST_NOTE_COMPLETED:
     case OnboardingTooltipKind.COMPACT_ORGANIZE:
