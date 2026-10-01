@@ -48,6 +48,7 @@ export struct SelectionOverlay {
   @Prop canDeselect: boolean = false;
   @Prop canReorder: boolean = true;
   @Prop positionLocked: boolean = false;
+  @Prop lockedOnly: boolean = false;
   @Prop menuEnabled: boolean = true;
   @Prop deselectMode: boolean = false;
   @Prop photoImportLeaseActive: boolean = false;
@@ -135,6 +136,14 @@ export struct SelectionOverlay {
       return items;
     }
     if (!this.photoImportLeaseActive) {
+      // 原版 urf z 支：旗开 + lsf 单元素且实体已锁（cjm.h）→ xqf([UNLOCK],∅)。
+      // 点选锁定元素时菜单仅 "Unlock" 一行（锁定元素不可样式/删移——只能解锁）。
+      // LOCK 合并行在 positionLocked=true 时渲染 Unlock 标签/图标（ADR-0586）。
+      if (this.lockedOnly) {
+        items.push({ value: $r('app.string.unlock'), icon: $r('app.media.selmenu_unlock'),
+          action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Lock clicked'); this.onMenuAction(SelectionMenuAction.LOCK); } });
+        return items;
+      }
       // 原版 urf 装配序：实体专属动作先行——CROP（lsf/l97 图像）→
       // EDIT_MATH（lsf/cv9 数学）→ STYLE（含可样式化 ink；vvh 文本纸
       // 实体另受 h35.S0=TEXT_BOX_PAPER qd5 调试门，生产恒假）。

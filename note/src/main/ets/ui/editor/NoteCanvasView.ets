@@ -605,6 +605,7 @@ export struct NoteCanvasView {
   @State selectionCanDeselect: boolean = false;
   @State selectionCanReorder: boolean = false;
   @State selectionPositionLocked: boolean = false;
+  @State selectionLockedOnly: boolean = false;
   private imageCropSession: OriginalImageCropSession | null = null;
   @State imageCropVisible: boolean = false;
   @State imageCropDraft: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
@@ -7540,10 +7541,13 @@ export struct NoteCanvasView {
       this.onSelectionInkControlsChanged(selectedColor, selectedWidth,
         selectedMinimum, selectedMaximum, variableStyleEnabled, selectedStyle);
     }
-    this.selectionCanFlip = this.canFlipImageSelection(
+    // 原版 urf：FLIP/CROP/EDIT_MATH 均经 hv6VarP1=zq.p0(r0b, lsf.a) 推导——
+    // 仅 lsf 单元素点选可达；isf（含单元素绘制选区）与 jsf 均无实体专属行。
+    // 故三门先以 !supportsDeselectMode（非 isf 型）前置。
+    this.selectionCanFlip = !state.supportsDeselectMode && this.canFlipImageSelection(
       state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
       state.selectedImageIds, state.selectedGroupIds, state.selectedMathIds);
-    this.selectionCanCrop = this.canCropImageSelection(
+    this.selectionCanCrop = !state.supportsDeselectMode && this.canCropImageSelection(
       state.selectedStrokeIds, state.selectedShapeIds, state.selectedTextBlockIds,
       state.selectedImageIds, state.selectedGroupIds, state.selectedMathIds);
     const selectedEntityIds: string[] = state.selectedStrokeIds.concat(state.selectedShapeIds)
@@ -7561,7 +7565,8 @@ export struct NoteCanvasView {
       this.findSelectionGroup(state.selectedGroupIds[0]) !== null &&
       resolveOriginalSelectedGroupLeaves(
         state.selectedGroupIds, selectedEntityIds, this.selectionGroups) !== null;
-    this.selectionCanEditMath = state.selectedMathIds.length === 1 &&
+    this.selectionCanEditMath = !state.supportsDeselectMode &&
+      state.selectedMathIds.length === 1 &&
       state.selectedStrokeIds.length === 0 && state.selectedShapeIds.length === 0 &&
       state.selectedTextBlockIds.length === 0 && state.selectedImageIds.length === 0 &&
       state.selectedGroupIds.length === 0 &&
@@ -7626,6 +7631,12 @@ export struct NoteCanvasView {
       state.selectedGroupIds.length > 0 && groupLeafIds !== null &&
       selectedEntityIds.length > 0 &&
       selectedEntityIds.every((id: string): boolean => groupLeafIds.indexOf(id) >= 0));
+    // 原版 urf z 支：lsf 单元素且 cjm.h(实体已锁)→ xqf([UNLOCK],∅)
+    // 单行菜单（锁定元素仅能解锁）。Harmony：lsf 型（!isf）+恰一可锁
+    // 实体且已锁、无组 → lockedOnly。
+    this.selectionLockedOnly = !state.supportsDeselectMode &&
+      state.selectedGroupIds.length === 0 && selectedCount === 1 &&
+      lockableCount === 1 && lockedCount === 1;
     const allMemberShapesLocked: boolean = allMembersAreShapes &&
       (lockLeafIds as string[]).every((id: string): boolean => {
         const shape: ShapeElement | undefined = this.shapes.find(
@@ -9321,8 +9332,10 @@ export struct NoteCanvasView {
 
   private canFlipImageSelection(ids: string[], shapeIds: string[], textIds: string[],
     imageIds: string[], groupIds: string[], mathIds: string[]): boolean {
+    // 原版 urf：FLIP_H/V 仅 lsf 单元素且 hv6VarP1 instanceof l97（单图）——
+    // 多图集合与绘制选区均不产翻转行，故恰一图是原版可达性的精确口径。
     if (ids.length > 0 || shapeIds.length > 0 || textIds.length > 0 ||
-      groupIds.length > 0 || mathIds.length > 0 || imageIds.length === 0 ||
+      groupIds.length > 0 || mathIds.length > 0 || imageIds.length !== 1 ||
       new Set<string>(imageIds).size !== imageIds.length) {
       return false;
     }
@@ -11326,6 +11339,7 @@ export struct NoteCanvasView {
         canStyle: this.selectionCanStyle,
         canDeselect: this.selectionCanDeselect,
         canReorder: this.selectionCanReorder,
+        lockedOnly: this.selectionLockedOnly,
         positionLocked: this.selectionPositionLocked,
         menuEnabled: !this.photoImportBusy && !this.historyBusy &&
           this.loaded && !this.dataLoading && !this.dataLoadFailed &&
