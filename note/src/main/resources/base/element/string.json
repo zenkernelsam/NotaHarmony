@@ -1449,6 +1449,8 @@
     { "name": "paper_templates_favorite", "value": "Favorite" },
     { "name": "paper_templates_unfavorite", "value": "Unfavorite" },
     { "name": "paper_templates_set_default", "value": "Set as default" },
+    { "name": "paper_templates_see_all", "value": "See all" },
+    { "name": "paper_templates_current", "value": "Current" },
     { "name": "bold", "value": "Bold" },
     { "name": "italic", "value": "Italic" },
     { "name": "underline", "value": "Underline" },

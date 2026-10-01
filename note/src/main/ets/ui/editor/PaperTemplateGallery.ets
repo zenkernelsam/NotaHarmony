@@ -46,6 +46,9 @@ interface GallerySection {
   // 原版 ria.FAVORITES/RECENTS：区块非类别 → 空态文案；类别区块空时不渲染。
   emptyRes?: Resource;
   sectionKey: string;
+  // 原版 dt case8 的 ria 集合区块：非空时标题尾随 "See all" → buh.b=ria
+  // 钻入独立集合页（u7n.d）。类别区块无此 affordance。
+  collection?: boolean;
 }
 
 const CATEGORY_TITLES: Resource[] = [
@@ -75,6 +78,8 @@ export struct PaperTemplateGallery {
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
   @State private favoritePaths: string[] = [];
   @State private recentPaths: string[] = [];
+  // 原版 buh.b：非空 = 钻入的 ria 集合页（''=主列表 / 'recents' / 'favorites'）。
+  @State private expandedSection: string = '';
   private metaStore?: BundledTemplateMetaStore;
 
   private store(): BundledTemplateMetaStore {
@@ -157,13 +162,15 @@ export struct PaperTemplateGallery {
     const sections: GallerySection[] = [];
     const recentItems: GalleryCellItem[] = this.itemsFromPaths(this.recentPaths);
     const favoriteItems: GalleryCellItem[] = this.itemsFromPaths(this.favoritePaths);
-    // 原版 ria.RECENTS/FAVORITES：区块恒在，空时显示引导文案。
-    sections.push({ titleRes: $r('app.string.paper_templates_recents'),
-      items: recentItems, emptyRes: $r('app.string.paper_templates_no_recents'),
-      sectionKey: 'recents' });
+    // 原版 dt case8：ria.RECENTS 在列表为空时整块隐藏（仅非空进入
+    // 集合页集合）；FAVORITES 恒在，空时显示 ria.G 空态文案。
+    if (recentItems.length > 0) {
+      sections.push({ titleRes: $r('app.string.paper_templates_recents'),
+        items: recentItems, sectionKey: 'recents', collection: true });
+    }
     sections.push({ titleRes: $r('app.string.paper_templates_favorites'),
       items: favoriteItems, emptyRes: $r('app.string.paper_templates_no_favorites'),
-      sectionKey: 'favorites' });
+      sectionKey: 'favorites', collection: true });
     for (let c = 0; c < CATEGORY_TITLES.length; c++) {
       const items: GalleryCellItem[] = [];
       for (const template of BUNDLED_PAPER_TEMPLATES) {
@@ -186,14 +193,83 @@ export struct PaperTemplateGallery {
     return sections;
   }
 
+  private expandedItems(): GalleryCellItem[] {
+    for (const section of this.sections()) {
+      if (section.sectionKey === this.expandedSection) {
+        return section.items;
+      }
+    }
+    return [];
+  }
+
+  // 原版 u7n.d zIsEmpty → u7n.c(ria.G)：集合钻入页的专属空态文案；
+  // 可钻入键只有 recents/favorites 两个集合。
+  private expandedEmptyRes(): Resource {
+    return this.expandedSection === 'recents'
+      ? $r('app.string.paper_templates_no_recents')
+      : $r('app.string.paper_templates_no_favorites');
+  }
+
+  @Builder
+  private cellGrid(items: GalleryCellItem[]) {
+    Grid() {
+      ForEach(items, (item: GalleryCellItem) => {
+        GridItem() {
+          BundledTemplateCell({
+            item: item,
+            database: this.database,
+            busy: this.busy,
+            favorite: this.isFavorited(item.variant),
+            current: item.variant.rawfilePath ===
+              this.appliedVariantPath,
+            onTap: (): void => this.onSelectVariant(item.variant),
+            onToggleFavorite: (): void =>
+              this.toggleFavorite(item.variant),
+            onSetDefault: (): void =>
+              this.setDefault(item.variant),
+          })
+        }
+      }, (item: GalleryCellItem): string => item.cellKey)
+    }
+    .columnsTemplate('1fr 1fr 1fr')
+    .columnsGap(10)
+    .rowsGap(10)
+    .padding({ left: 16, right: 16 })
+  }
+
   build() {
     Column() {
       Row() {
-        Text($r('app.string.paper_templates_title'))
-          .fontSize(17)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.resolveTokens().textPrimary)
-          .layoutWeight(1)
+        // 原版 x2n.h + buh.b：钻入集合页时标题换为集合名并给返回钮。
+        if (this.expandedSection !== '') {
+          Button() {
+            ToolGlyph({
+              glyph: 'chevron_left',
+              contentColor: this.resolveTokens().textSecondary,
+              iconSize: 20,
+            })
+          }
+            .width(36)
+            .height(32)
+            .backgroundColor(Color.Transparent)
+            .accessibilityText($r('app.string.back'))
+            .onClick((): void => {
+              this.expandedSection = '';
+            })
+          Text(this.expandedSection === 'recents'
+            ? $r('app.string.paper_templates_recents')
+            : $r('app.string.paper_templates_favorites'))
+            .fontSize(17)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.resolveTokens().textPrimary)
+            .layoutWeight(1)
+        } else {
+          Text($r('app.string.paper_templates_title'))
+            .fontSize(17)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.resolveTokens().textPrimary)
+            .layoutWeight(1)
+        }
         Button() {
           ToolGlyph({
             glyph: 'close_med_regular',
@@ -210,7 +286,27 @@ export struct PaperTemplateGallery {
       .width('100%')
       .padding({ left: 16, right: 12, top: 12, bottom: 8 })
 
-      if (this.sections().length === 0) {
+      if (this.expandedSection !== '') {
+        // 原版 u7n.d 独立集合页：整页网格 + 空时 ria.G 文案。
+        if (this.expandedItems().length === 0) {
+          Text(this.expandedEmptyRes())
+            .fontSize(13)
+            .fontColor(this.resolveTokens().textSecondary)
+            .width('100%')
+            .margin({ left: 16, top: 24 })
+        } else {
+          Scroll() {
+            Column() {
+              this.cellGrid(this.expandedItems())
+            }
+            .width('100%')
+            .padding({ bottom: 24 })
+          }
+          .scrollable(ScrollDirection.Vertical)
+          .scrollBar(BarState.Auto)
+          .layoutWeight(1)
+        }
+      } else if (this.sections().length === 0) {
         Text($r('app.string.paper_templates_empty'))
           .fontSize(14)
           .fontColor(this.resolveTokens().textSecondary)
@@ -220,43 +316,36 @@ export struct PaperTemplateGallery {
           Column() {
             ForEach(this.sections(), (section: GallerySection) => {
               Column() {
-                Text(section.titleRes)
-                  .fontSize(14)
-                  .fontWeight(FontWeight.Medium)
-                  .fontColor(this.resolveTokens().textSecondary)
-                  .width('100%')
-                  .margin({ left: 16, bottom: 8, top: 12 })
+                Row() {
+                  Text(section.titleRes)
+                    .fontSize(14)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(this.resolveTokens().textSecondary)
+                    .layoutWeight(1)
+                  // 原版 s1a case2 + bbn.b 尾随：集合区块非空时
+                  // "See all" 文本钮 → bz5(ria) → buh.b=ria 钻入集合页。
+                  if (section.collection === true && section.items.length > 0) {
+                    Text($r('app.string.paper_templates_see_all'))
+                      .fontSize(13)
+                      .fontColor(this.resolveTokens().accent)
+                      .accessibilityText($r('app.string.paper_templates_see_all'))
+                      .onClick((): void => {
+                        this.expandedSection = section.sectionKey;
+                      })
+                  }
+                }
+                .width('100%')
+                .padding({ left: 16, right: 16 })
+                .margin({ bottom: 8, top: 12 })
                 if (section.items.length === 0 && section.emptyRes !== undefined) {
-                  // 原版 ria 空态文案（PRESET tab 区块）。
+                  // 原版 zia 空态文案（ria.G，仅集合区块可达）。
                   Text(section.emptyRes)
                     .fontSize(13)
                     .fontColor(this.resolveTokens().textSecondary)
                     .width('100%')
                     .margin({ left: 16, right: 16, bottom: 4 })
                 } else {
-                  Grid() {
-                    ForEach(section.items, (item: GalleryCellItem) => {
-                      GridItem() {
-                        BundledTemplateCell({
-                          item: item,
-                          database: this.database,
-                          busy: this.busy,
-                          favorite: this.isFavorited(item.variant),
-                          current: item.variant.rawfilePath ===
-                            this.appliedVariantPath,
-                          onTap: (): void => this.onSelectVariant(item.variant),
-                          onToggleFavorite: (): void =>
-                            this.toggleFavorite(item.variant),
-                          onSetDefault: (): void =>
-                            this.setDefault(item.variant),
-                        })
-                      }
-                    }, (item: GalleryCellItem): string => item.cellKey)
-                  }
-                  .columnsTemplate('1fr 1fr 1fr')
-                  .columnsGap(10)
-                  .rowsGap(10)
-                  .padding({ left: 16, right: 16 })
+                  this.cellGrid(section.items)
                 }
               }
               .width('100%')
@@ -388,15 +477,25 @@ struct BundledTemplateCell {
             this.onToggleFavorite();
           }
         })
+        // 原版 d2n.g + p9n.a：qgc.c 命中时左下渲染 eta 渐变 + "Current"
+        // 文字徽记（非 cell 描边）。Harmony 以纯色 accent 圆角徽记近似
+        // （原版渐变端点为 a.b.a→a.c.a 主题色）。
+        if (this.current) {
+          Text($r('app.string.paper_templates_current'))
+            .fontSize(11)
+            .fontColor(Color.White)
+            .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+            .backgroundColor(this.resolveTokens().accent)
+            .borderRadius(8)
+            .align(Alignment.BottomStart)
+            .margin({ left: 6, bottom: 6 })
+        }
       }
       .width('100%')
       .height(132)
       .borderRadius(10)
       .backgroundColor(this.resolveTokens().control)
-      // 原版 qgc.c：当前已应用变体以 accent 描边徽记。
-      .border(this.current
-        ? { width: 2, color: this.resolveTokens().accent }
-        : { width: 1, color: this.resolveTokens().border })
+      .border({ width: 1, color: this.resolveTokens().border })
       .clip(true)
       Text(this.item === undefined ? '' : this.item.template.name)
         .fontSize(12)

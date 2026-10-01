@@ -596,6 +596,8 @@
     { "name": "paper_templates_favorite", "value": "收藏" },
     { "name": "paper_templates_unfavorite", "value": "取消收藏" },
     { "name": "paper_templates_set_default", "value": "设为默认" },
+    { "name": "paper_templates_see_all", "value": "查看全部" },
+    { "name": "paper_templates_current", "value": "当前" },
     { "name": "bold", "value": "加粗" },
     { "name": "italic", "value": "斜体" },
     { "name": "underline", "value": "下划线" },
