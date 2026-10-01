@@ -67,10 +67,10 @@ check(overlay.includes('event.keyCode === 2081') &&
 check(overlay.includes('event.keyCode === 2082') &&
   overlay.includes('this.controller.caretPosition(this.draftText.length)'),
   'overlay: Ctrl+End (2082) -> text end');
-check(overlay.includes('event.keyCode === 2020') &&
+check(overlay.includes('event.keyCode === 2061') &&
   overlay.includes('event.keyCode === 2070') &&
   overlay.includes('this.collapseSelection()'),
-  'overlay: Ctrl+D (2020) + Esc (2070) -> deselect');
+  'overlay: Ctrl+\\ (2061) + Esc (2070) -> deselect');
 check(overlay.includes('private collapseSelection(): void') &&
   overlay.includes('this.controller.caretPosition(this.caretOffset)'),
   'overlay: collapseSelection folds selection to caret');

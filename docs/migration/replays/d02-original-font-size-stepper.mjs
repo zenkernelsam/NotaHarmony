@@ -57,9 +57,10 @@ check(overlay.includes('this.stepFontSize(-1)') &&
 check(overlay.includes('`${this.caretCharFontSize}`'),
   'overlay: current size displayed (kre.a equivalent)');
 
-// 步骤钮在原版字体格式簇内（Style→Size→Family）
+// 步骤钮在原版字体格式簇内（Style→Size→Family）；indexOf 从
+// text_style 锚点起搜——onEditorKeyEvent 的键盘步进调用在其之前
 const styleIdx = overlay.indexOf("$r('app.string.text_style')");
-const minusIdx = overlay.indexOf("this.stepFontSize(-1)");
+const minusIdx = overlay.indexOf("this.stepFontSize(-1)", styleIdx);
 const familyIdx = overlay.indexOf("$r('app.string.font_family')");
 check(styleIdx > 0 && minusIdx > styleIdx && familyIdx > minusIdx,
   'overlay: stepper between Style and Font buttons (original q->r->s order)');

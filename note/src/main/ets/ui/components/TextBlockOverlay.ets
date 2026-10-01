@@ -1867,9 +1867,15 @@ export struct TextBlockOverlay {
     return runs;
   }
 
-  // 原版 hke/k09 文本编辑键盘映射（wl6 动作集）：Ctrl+B/I/U 字符样式、
+  // 原版 syh/e0b 文本编辑键盘映射（wl6 动作集）：Ctrl+B/I/U 字符样式、
   // Ctrl+A 全选、Ctrl+Home/End 至文首/文末（HOME/END='Go to Start/End
-  // of Text'）、Escape/Ctrl+D 取消选区（DESELECT=折叠到 caret）。
+  // of Text'）、Escape/Ctrl+\ 取消选区（DESELECT=折叠到 caret，
+  // syh qa8(73,12)=KEYCODE_BACKSLASH——早期误植 Ctrl+D 已更正）、
+  // Ctrl+Shift+B/L/C = 段落装饰切换（bullet/numbered/checklist，
+  // syh qa8(30/40/31,4)→TOGGLE_*_LIST→toggleDecoratorStyle(1/2/3)）、
+  // 字号步进：e0b 运行时分发 alt&&!ctrl&&!shift+Up/Down →
+  // INCREASE/DECREASE_FONT_SIZE；syh 帮助表另列 Ctrl+Alt+Up/Down——
+  // 双和弦皆绑 stepFontSize(±1)（cve l(f±1) 步进钮同路径）。
   // 差异登记：Ctrl+X/C/V 走 TextArea 原生剪贴板（run 保留=登记缺口）；
   // Ctrl+Z/Y 无草稿级 undo 基建（画布 UndoRedoManager 在提交层）。
   private onEditorKeyEvent(event: KeyEvent): boolean {
@@ -1879,7 +1885,48 @@ export struct TextBlockOverlay {
     const ctrl: boolean = event.getModifierKeyState !== undefined &&
       (event.getModifierKeyState(['ctrl']) ||
         event.getModifierKeyState(['Ctrl']));
-    if (ctrl) {
+    const alt: boolean = event.getModifierKeyState !== undefined &&
+      event.getModifierKeyState(['alt']);
+    const shift: boolean = event.getModifierKeyState !== undefined &&
+      event.getModifierKeyState(['shift']);
+    if (ctrl && alt && !shift) {              // syh qa8(19/20,8)
+      if (event.keyCode === 2012) {           // DPAD_UP = INCREASE_FONT_SIZE
+        this.stepFontSize(1);
+        return true;
+      }
+      if (event.keyCode === 2013) {           // DPAD_DOWN = DECREASE_FONT_SIZE
+        this.stepFontSize(-1);
+        return true;
+      }
+      return false;
+    }
+    if (ctrl && shift && !alt) {              // syh qa8(30/40/31,4)
+      if (event.keyCode === 2018) {           // Ctrl+Shift+B = BULLET
+        this.toggleDecoratorStyle(1);
+        return true;
+      }
+      if (event.keyCode === 2028) {           // Ctrl+Shift+L = NUMBERED
+        this.toggleDecoratorStyle(2);
+        return true;
+      }
+      if (event.keyCode === 2019) {           // Ctrl+Shift+C = CHECKLIST
+        this.toggleDecoratorStyle(3);
+        return true;
+      }
+      return false;
+    }
+    if (alt && !shift) {                      // e0b 运行时：alt&&!ctrl&&!shift
+      if (event.keyCode === 2012) {           // Alt+Up = INCREASE_FONT_SIZE
+        this.stepFontSize(1);
+        return true;
+      }
+      if (event.keyCode === 2013) {           // Alt+Down = DECREASE_FONT_SIZE
+        this.stepFontSize(-1);
+        return true;
+      }
+      return false;
+    }
+    if (ctrl && !alt && !shift) {
       if (event.keyCode === 2018) {           // KEYCODE_B
         this.toggleCharStyle('bold');
         return true;
@@ -1904,10 +1951,13 @@ export struct TextBlockOverlay {
         this.controller.caretPosition(this.draftText.length);
         return true;
       }
-      if (event.keyCode === 2020) {           // KEYCODE_D = DESELECT
+      if (event.keyCode === 2061) {           // KEYCODE_BACKSLASH = DESELECT
         this.collapseSelection();
         return true;
       }
+      return false;
+    }
+    if (ctrl) {                               // 其余 ctrl 组合不接管
       return false;
     }
     if (event.keyCode === 2049) {             // KEYCODE_TAB = fm7.h
