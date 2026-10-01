@@ -122,6 +122,9 @@ export struct EditorToolbar {
   @Prop photoImportLeaseActive: boolean = false;
   @Prop selectionVariableStyleEnabled: boolean = true;
   @Prop selectionStyle: BrushStyle = BrushStyle.MONO;
+  // Phase 1407：rc8(ShowShare) 等价——Ctrl+Shift+E 画布和弦经 NotePage
+  // 递增此信号，等同点按工具条分享钮（showShareSheet=true）。
+  @Prop @Watch('onShareSignalChange') shareSignal: number = 0;
   @Prop @Watch('onCanUndoTip') canUndo: boolean = false;
   @Prop canRedo: boolean = false;
   // 原版 x90 z7（pq9.N 站点条件）：任一页存在内容 → 页面管理器气泡。
@@ -1393,6 +1396,14 @@ export struct EditorToolbar {
     if (this.canUndo) {
       this.refreshOnboardingTips();
     }
+  }
+
+  // rc8(ShowShare)：与分享钮 onClick 同一路径（photoImportLeaseActive 门控）。
+  private onShareSignalChange(): void {
+    if (this.photoImportLeaseActive) {
+      return;
+    }
+    this.showShareSheet = true;
   }
 
   // 原版 js7："Got it" 关闭 → 对应 pq9 写入 onboardingTooltipSeen 并持久化。

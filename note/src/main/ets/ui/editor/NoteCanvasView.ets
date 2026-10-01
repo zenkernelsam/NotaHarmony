@@ -33,6 +33,16 @@ import {
 } from '../../core/adaptation/BitmapTransferTracker';
 import { CanvasViewport, CumulativeGestureTracker } from '../../rendering/CanvasViewport';
 import {
+  isCtrlKeyIn, keyChordAlt, keyChordCtrl, keyChordShift, toolSelectDigitIndex,
+  ORIGIN_KEYCODE_C, ORIGIN_KEYCODE_COPY, ORIGIN_KEYCODE_CUT,
+  ORIGIN_KEYCODE_E, ORIGIN_KEYCODE_F, ORIGIN_KEYCODE_MOVE_END,
+  ORIGIN_KEYCODE_MOVE_HOME, ORIGIN_KEYCODE_P, ORIGIN_KEYCODE_PASTE,
+  ORIGIN_KEYCODE_R, ORIGIN_KEYCODE_V, ORIGIN_KEYCODE_X,
+  ORIGIN_KEYCODE_Y, ORIGIN_KEYCODE_Z,
+  ORIGIN_ZOOM_IN_KEYCODES, ORIGIN_ZOOM_OUT_KEYCODES,
+  ORIGIN_ZOOM_RESET_KEYCODES, ORIGIN_CHORD_DISMISS, matchKeyChord,
+} from '../../data/OriginalKeyboardChords';
+import {
   PDF_RASTER_OVERSCAN_RATIO, pdfRasterPlanCovers, PdfRasterRequest,
 } from '../../rendering/PdfRasterPlan';
 import { pagePixelSize, PAGE_UNITS_PER_MM, PagePixelSize } from '../../core/model/PageCoordinateSpace';
@@ -118,7 +128,7 @@ import {
   InputBatch, InputBatchKind,
   PencilSplatPoint,
 } from '../../core/model/StrokeTypes';
-import { ShapeKind, ToolType } from '../../core/model/BrushTypes';
+import { ShapeKind, ToolState, ToolType } from '../../core/model/BrushTypes';
 import { buildDragShape } from '../../core/model/ShapeDragGeometry';
 import {
   ElementType, ImageElement, MathElement, NoteElement, OriginalShapeCreateMetadata,
@@ -363,6 +373,13 @@ export struct NoteCanvasView {
   onRequestPage: (pageId: string) => void = () => {
   };
   onPhotoIngressFinished: () => void = (): void => {};
+  // Phase 1407 键盘和弦上抛（bd8.B→ea1/tc8 动作总线等价）：
+  // Ctrl+F→pc8(OpenSearch)、Ctrl+Shift+P→oc8(OpenContentManager)、
+  // Ctrl+Shift+E→rc8(ShowShare)、Ctrl+R→sc8(ToggleRecording)。
+  onKeyOpenSearch: () => void = (): void => {};
+  onKeyOpenContentManager: () => void = (): void => {};
+  onKeyShowShare: () => void = (): void => {};
+  onKeyToggleRecording: () => void = (): void => {};
   onHistoryBridgeReady: (bridge: EditorHistoryBridge) => void = () => {
   };
   // 原版 jg9.n / uf0 case4 标签语义：(当前页 tape 数, 是否存在已揭示 tape)。
@@ -4872,6 +4889,181 @@ export struct NoteCanvasView {
 
   private redoStroke(): void {
     this.performHistory(false);
+  }
+
+  // === Phase 1407：原版 f2 case5 → bd8.B + 兜底链（画布硬件键盘分发） ===
+  // KeyUp 触发（lxm.a(o(),1)）；分支谓词只测 ctrl/shift，alt 不参与——
+  // 与 vla 应用级表的精确四元组匹配不同，保留该差异。
+  // 顶部缩放/滚动/动作分支无 rsi 门（文本编辑中同样生效）；兜底链
+  // （undo/redo/copy/cut/paste/数字工具快选）挂 !(Q.m instanceof rsi)
+  // 门——Harmony 等价 = !textEditing。
+  private onCanvasKeyEvent(event: KeyEvent): boolean {
+    const ctrl: boolean = keyChordCtrl(event);
+    const shift: boolean = keyChordShift(event);
+    const isUp: boolean = event.type === KeyType.Up;
+
+    // bd8.B：Ctrl + =/+/num+ → F(1.2)；Ctrl + -/num- → F(0.8333333)；
+    // Ctrl + 0/num0 → ad8 → mfc.D(1.0/zoom, center)。
+    if (ctrl && isCtrlKeyIn(event, ORIGIN_ZOOM_IN_KEYCODES)) {
+      if (isUp) {
+        this.keyZoomBy(1.2);
+      }
+      return true;
+    }
+    if (ctrl && isCtrlKeyIn(event, ORIGIN_ZOOM_OUT_KEYCODES)) {
+      if (isUp) {
+        this.keyZoomBy(0.8333333);
+      }
+      return true;
+    }
+    if (ctrl && isCtrlKeyIn(event, ORIGIN_ZOOM_RESET_KEYCODES)) {
+      if (isUp && this.viewport.zoom > 0) {
+        this.keyZoomBy(1.0 / this.viewport.zoom);
+      }
+      return true;
+    }
+    // Ctrl+Shift+E → rc8(ShowShare)；Ctrl+Shift+P → oc8(OpenContentManager)。
+    if (ctrl && shift && event.keyCode === ORIGIN_KEYCODE_E) {
+      if (isUp) {
+        this.onKeyShowShare();
+      }
+      return true;
+    }
+    if (ctrl && shift && event.keyCode === ORIGIN_KEYCODE_P) {
+      if (isUp) {
+        this.onKeyOpenContentManager();
+      }
+      return true;
+    }
+    // Ctrl+R → sc8(ToggleRecording)；Ctrl+F → pc8(OpenSearch)。
+    if (ctrl && event.keyCode === ORIGIN_KEYCODE_R) {
+      if (isUp) {
+        this.onKeyToggleRecording();
+      }
+      return true;
+    }
+    if (ctrl && event.keyCode === ORIGIN_KEYCODE_F) {
+      if (isUp) {
+        this.onKeyOpenSearch();
+      }
+      return true;
+    }
+    // Ctrl+Home/End → jp8 scrollToTop/scrollToBottom。
+    if (ctrl && event.keyCode === ORIGIN_KEYCODE_MOVE_HOME) {
+      if (isUp) {
+        this.keyScrollToTop();
+      }
+      return true;
+    }
+    if (ctrl && event.keyCode === ORIGIN_KEYCODE_MOVE_END) {
+      if (isUp) {
+        this.keyScrollToBottom();
+      }
+      return true;
+    }
+
+    // f2 兜底链——!(Q.m instanceof rsi) 门：文本块编辑中不接管。
+    if (!this.textEditing) {
+      // Ctrl+Z→E() undo；Ctrl+Shift+Z 或 Ctrl+Y→C() redo。
+      if (ctrl && (event.keyCode === ORIGIN_KEYCODE_Z ||
+        event.keyCode === ORIGIN_KEYCODE_Y)) {
+        if (isUp) {
+          if (shift || event.keyCode === ORIGIN_KEYCODE_Y) {
+            this.redoStroke();
+          } else {
+            this.undoStroke();
+          }
+        }
+        return true;
+      }
+      // Ctrl+C 或专用 COPY 键 → copy（msf 选区剪贴板）。
+      if ((ctrl && event.keyCode === ORIGIN_KEYCODE_C) ||
+        event.keyCode === ORIGIN_KEYCODE_COPY) {
+        if (isUp && this.selectionTool.getState().isActive) {
+          this.onSelectionMenuAction(SelectionMenuAction.COPY);
+        }
+        return true;
+      }
+      // Ctrl+X 或专用 CUT 键 → cut。
+      if ((ctrl && event.keyCode === ORIGIN_KEYCODE_X) ||
+        event.keyCode === ORIGIN_KEYCODE_CUT) {
+        if (isUp && this.selectionTool.getState().isActive) {
+          this.onSelectionMenuAction(SelectionMenuAction.CUT);
+        }
+        return true;
+      }
+      // Ctrl+V / Ctrl+Alt+V（qc8）或专用 PASTE 键 → 视口中心定位粘贴。
+      if ((ctrl && event.keyCode === ORIGIN_KEYCODE_V) ||
+        event.keyCode === ORIGIN_KEYCODE_PASTE) {
+        if (isUp && this.clipboardAvailable) {
+          const center: Point2D = this.viewport.screenToCanvas(
+            this.canvasCtx.width / 2, this.canvasCtx.height / 2);
+          if (Number.isFinite(center.x) && Number.isFinite(center.y)) {
+            this.clipboardPasteTarget = center;
+          }
+          this.onSelectionMenuAction(SelectionMenuAction.PASTE);
+        }
+        return true;
+      }
+      // i0 = KEYCODE_1..9（非 numpad）：Ctrl+1..9 → cxi(index) 第 N 个可见工具。
+      const digitIndex: number = toolSelectDigitIndex(event);
+      if (digitIndex >= 0) {
+        if (isUp) {
+          this.selectVisibleToolByIndex(digitIndex);
+        }
+        return true;
+      }
+    }
+
+    // qa8(111,14) 纯 ESC = dismiss_deselect：活跃选区 → deselect；
+    // 无选区透传（页面级 dismiss 或系统返回）。
+    if (matchKeyChord(event, ORIGIN_CHORD_DISMISS)) {
+      if (!this.selectionTool.getState().isActive) {
+        return false;
+      }
+      if (isUp) {
+        this.selectionTool.deselect();
+        this.selectionVisible = false;
+        this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // bd8.F(f)/ad8：以视口中心为锚的缩放（mfc.D(f, center) 等价）。
+  private keyZoomBy(factor: number): void {
+    if (this.photoImportBusy) {
+      return;
+    }
+    this.viewport.zoomAt(this.canvasCtx.width / 2, this.canvasCtx.height / 2, factor);
+    this.onViewportChanged();
+  }
+
+  // jp8(mfc, byte2)：页面内容顶部对齐视口顶（scrollY=0），横向保持。
+  private keyScrollToTop(): void {
+    this.viewport.setScroll(this.viewport.scrollX, 0);
+    this.onViewportChanged();
+  }
+
+  // jp8(mfc, byte1)：页面内容底部对齐视口底。
+  private keyScrollToBottom(): void {
+    const bottom: number = this.canvasCtx.height - this.getPaperHeight() * this.viewport.zoom;
+    this.viewport.setScroll(this.viewport.scrollX, bottom);
+    this.onViewportChanged();
+  }
+
+  // cxi(index)：取 sti.c.e + sti.d.e 等价序——visibleToolStates() 已是
+  // trayType/trayIndex 排序后的可见工具序列；越界静默（原版 s3 越界返回 null）。
+  private selectVisibleToolByIndex(index: number): void {
+    const states: ToolState[] = this.viewModel.visibleToolStates();
+    if (index < 0 || index >= states.length) {
+      return;
+    }
+    this.viewModel.selectToolById(states[index].toolId).catch((e: Object): void => {
+      hilog.error(0x0001, 'NoteCanvasView', 'kbd tool select failed: %{public}s',
+        JSON.stringify(e));
+    });
   }
 
   private performHistory(isUndo: boolean): void {
@@ -11480,5 +11672,12 @@ export struct NoteCanvasView {
         this.schedulePdfRasterRefresh(0);
       }
     })
+    // 原版 kom → ofk.L 画布 onKeyEvent（f2 case5 = bd8.B + 兜底链）：
+    // KeyUp 分发；未消费和弦向上冒泡至 NotePage 应用级处理。
+    .onKeyEvent((event: KeyEvent): boolean => {
+      return this.onCanvasKeyEvent(event);
+    })
+    .focusable(true)
+    .defaultFocus(true)
   }
 }

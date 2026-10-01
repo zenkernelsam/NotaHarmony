@@ -75,6 +75,9 @@ export struct PageOverviewPanel {
   @State private searchActive: boolean = false;
   @State private searchQuery: string = '';
   @State private matchingPageIds: Set<string> = new Set<string>();
+  // Phase 1407：pc8(OpenSearch) 等价——Ctrl+F 经画布和弦上抛，宿主递增此
+  // 信号请求激活页内搜索（等同点击搜索按钮置 searchActive=true）。
+  @Prop @Watch('onSearchSignalChange') searchSignal: number = 0;
   private searchGeneration: number = 0;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -117,6 +120,12 @@ export struct PageOverviewPanel {
     if (next.length > 0) {
       this.selecting = true;
     }
+  }
+
+  // pc8(OpenSearch)：等同点击工具条搜索钮（searchActive=true）——
+  // 信号递增仅请求激活，搜索态的退出仍走既有 de2.u() 路径。
+  private onSearchSignalChange(): void {
+    this.searchActive = true;
   }
 
   // 原版 de2.u()：isSelecting=false + selectedPageIds=空 +
@@ -430,6 +439,8 @@ export struct PageOverviewPanel {
           .backgroundColor(this.resolveTokens().control)
           .borderRadius(10)
           .accessibilityText($r('app.string.pages_panel_search'))
+          // pc8(OpenSearch)：Ctrl+F 打开后键盘输入直落搜索框。
+          .defaultFocus(true)
           .onChange((value: string) => {
             this.searchQuery = value;
             this.runSearch();

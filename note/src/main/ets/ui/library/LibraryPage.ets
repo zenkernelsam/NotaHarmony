@@ -63,6 +63,11 @@ import {
 } from '../theme/ThemeStore';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ToolGlyph } from '../components/ToolGlyph';
+import {
+  matchKeyChord, ORIGIN_CHORD_BACK_TO_LIBRARY, ORIGIN_CHORD_DISMISS,
+  ORIGIN_CHORD_NEW_NOTE, ORIGIN_CHORD_NEW_WINDOW, ORIGIN_CHORD_OPEN_HELP,
+  ORIGIN_CHORD_OPEN_SETTINGS,
+} from '../../data/OriginalKeyboardChords';
 
 interface FolderListItem {
   folder: NoteFolder;
@@ -2493,6 +2498,13 @@ struct LibraryPage {
         action.dismiss();
       }
     })
+    // 原版 MainActivity.dispatchKeyEvent → vla.a 查表（KeyUp 精确四元组）；
+    // 未命中和弦透传冒泡。
+    .onKeyEvent((event: KeyEvent): boolean => {
+      return this.onLibraryKeyEvent(event);
+    })
+    .focusable(true)
+    .defaultFocus(true)
   }
 
   // 原版 ksh.a Home 内容宿主：头部（应用图标 + Let's get started +
@@ -3257,6 +3269,53 @@ struct LibraryPage {
     this.isMultiSelecting = false;
     this.selectedNoteIds = [];
     this.multiSelectBusy = false;
+  }
+
+  // 原版 MainActivity.dispatchKeyEvent（KeyEvent Up）→ vla.b 查 vla.a 表 →
+  // bma.a → lra.handleNavigationShortcut（if2，feed 含 j19 时生效——
+  // LibraryPage 即笔记内容面，等价恒真）。qa8 四维精确匹配：
+  //   Ctrl+N        → xla（new_note）→ mqa 建并打开笔记
+  //   Ctrl+Shift+N  → vla.b（new_window）——无多窗通路，消费空转（原版同样
+  //                   消费："New Window chord dropped: launcher not ready"）
+  //   Ctrl+,        → zla（open_settings）→ lra.U(null)
+  //   Ctrl+/        → yla（open_help）→ qw6 路由——Harmony 无帮助面，
+  //                   fail-closed 消费空转
+  //   Ctrl+L        → wla（back_to_library）→ 回到 All Notes 根
+  //   ESC           → dismiss_deselect——多选中清空选区，否则透传系统返回
+  private onLibraryKeyEvent(event: KeyEvent): boolean {
+    if (event.type !== KeyType.Up) {
+      return false;
+    }
+    if (matchKeyChord(event, ORIGIN_CHORD_NEW_WINDOW) ||
+      matchKeyChord(event, ORIGIN_CHORD_OPEN_HELP)) {
+      return true;
+    }
+    if (matchKeyChord(event, ORIGIN_CHORD_NEW_NOTE)) {
+      if (!this.createBusy) {
+        this.createAndOpen().catch((e: Error) => {
+          console.error(`kbd new note failed: ${JSON.stringify(e)}`);
+        });
+      }
+      return true;
+    }
+    if (matchKeyChord(event, ORIGIN_CHORD_OPEN_SETTINGS)) {
+      this.navigateToSettings();
+      return true;
+    }
+    if (matchKeyChord(event, ORIGIN_CHORD_BACK_TO_LIBRARY)) {
+      this.selectFolder(null).catch((e: Error) => {
+        console.error(`kbd back-to-library failed: ${JSON.stringify(e)}`);
+      });
+      return true;
+    }
+    if (matchKeyChord(event, ORIGIN_CHORD_DISMISS)) {
+      if (this.isMultiSelecting) {
+        this.exitMultiSelect();
+        return true;
+      }
+      return false;
+    }
+    return false;
   }
 
   // 原版 ek9.a：选中集 ⊇ 当前可见列表 → Deselect All，否则 Select All。

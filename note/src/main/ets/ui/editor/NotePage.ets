@@ -43,6 +43,11 @@ import { PdfPasswordDialog } from '../components/PdfPasswordDialog';
 import { ImportDetailsSheet } from '../components/ImportDetailsSheet';
 import { FolderRepositoryImpl, NoteFolder } from '../../data/FolderRepositoryImpl';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
+import {
+  matchKeyChord, ORIGIN_CHORD_BACK_TO_LIBRARY, ORIGIN_CHORD_DISMISS,
+  ORIGIN_CHORD_NEW_NOTE, ORIGIN_CHORD_NEW_WINDOW, ORIGIN_CHORD_OPEN_HELP,
+  ORIGIN_CHORD_OPEN_SETTINGS,
+} from '../../data/OriginalKeyboardChords';
 import { PersistedOriginalNoteTitle } from '../../data/OriginalNoteTitlePersistence';
 import {
   patchFromNoteMetadataState, sameNoteMetadataMutationState,
@@ -133,6 +138,10 @@ struct NotePage {
   @State currentPageIndex: number = 0;
   @State undoSignal: number = 0;
   @State redoSignal: number = 0;
+  // Phase 1407：bd8.B 画布和弦的页面侧信号——Ctrl+F 打开页面板并激活搜索；
+  // Ctrl+Shift+E 打开 EditorToolbar 分享页签。
+  @State pageOverviewSearchSignal: number = 0;
+  @State toolbarShareSignal: number = 0;
   @State mathInsertSignal: number = 0;
   @State photoInsertSignal: number = 0;
   @State cameraCaptureSignal: number = 0;
@@ -728,6 +737,68 @@ struct NotePage {
     await this.finishRecordingSession();
     await this.recordingController.release();
     router.back();
+  }
+
+  // 原版 MainActivity.dispatchKeyEvent → vla.b(keyEvent) 查表（KeyUp，
+  // qa8 四维精确匹配）→ bma.a → lra.handleNavigationShortcut；画布
+  // onKeyEvent 未消费的和弦冒泡至此：
+  //   Ctrl+,        → zla(open_settings) → navigateToSettings()
+  //   Ctrl+L        → wla(back_to_library) → leaveEditor() 回库
+  //   Ctrl+N        → xla(new_note)：编辑器内建笔记需跨面 VM 管线
+  //                   （lra.z()+mqa）——Harmony 侧无对等宿主，登记
+  //                   fail-closed：消费、无操作
+  //   Ctrl+Shift+N  → vla.b(new_window)：多窗口无通路——消费、无操作
+  //                   （原版无启动器时亦消费："New Window chord dropped"）
+  //   Ctrl+/        → yla(open_help)→qw6 路由：无帮助面——消费、无操作
+  //   ESC           → dismiss_deselect：关闭已开 sheet/cover，否则透传
+  private onNoteAppKeyEvent(event: KeyEvent): boolean {
+    const isUp: boolean = event.type === KeyType.Up;
+    if (matchKeyChord(event, ORIGIN_CHORD_OPEN_SETTINGS)) {
+      if (isUp) {
+        this.navigateToSettings();
+      }
+      return true;
+    }
+    if (matchKeyChord(event, ORIGIN_CHORD_BACK_TO_LIBRARY)) {
+      if (isUp) {
+        this.leaveEditor().catch((e: Error) => {
+          console.error(`kbd back-to-library failed: ${JSON.stringify(e)}`);
+        });
+      }
+      return true;
+    }
+    if (matchKeyChord(event, ORIGIN_CHORD_NEW_NOTE) ||
+      matchKeyChord(event, ORIGIN_CHORD_NEW_WINDOW) ||
+      matchKeyChord(event, ORIGIN_CHORD_OPEN_HELP)) {
+      return true;
+    }
+    if (matchKeyChord(event, ORIGIN_CHORD_DISMISS)) {
+      if (!isUp) {
+        return true;
+      }
+      if (this.docScanOpen) {
+        this.docScanOpen = false;
+        return true;
+      }
+      if (this.showNoteCoverSheet) {
+        this.showNoteCoverSheet = false;
+        return true;
+      }
+      if (this.showTemplateGallery) {
+        this.showTemplateGallery = false;
+        return true;
+      }
+      if (this.showPageOverview) {
+        this.showPageOverview = false;
+        return true;
+      }
+      if (this.editingTitle) {
+        this.editingTitle = false;
+        return true;
+      }
+      return false;
+    }
+    return false;
   }
 
   // 原版 feature_settings__keep_device_awake：设置开启时编辑器前台
@@ -1757,6 +1828,8 @@ struct NotePage {
           anyTapeRevealed: this.anyTapeRevealed,
           // fp0 p2c：面板开合切 content_manager outline 轮廓。
           pagesPanelOpen: this.showPageOverview,
+          // Phase 1407：Ctrl+Shift+E（rc8 ShowShare）打开分享页签。
+          shareSignal: this.toolbarShareSignal,
           onTapeToggle: (): void => {
             this.tapeToggleSignal++;
           },
@@ -1991,6 +2064,38 @@ struct NotePage {
             textOnlyExitSignal: this.textOnlyExitSignal,
             onTextOnlyStateChanged: (isTextOnly: boolean): void => {
               this.textOnlyActive = isTextOnly;
+            },
+            // Phase 1407：bd8.B→ea1 动作总线等价——画布级和弦上抛至页面宿主。
+            // Ctrl+F→pc8(OpenSearch)：开页管理面板并激活搜索。
+            onKeyOpenSearch: (): void => {
+              this.showPageOverview = true;
+              this.pageOverviewSearchSignal++;
+            },
+            // Ctrl+Shift+P → oc8(OpenContentManager)。
+            onKeyOpenContentManager: (): void => {
+              this.showPageOverview = true;
+            },
+            // Ctrl+Shift+E → rc8(ShowShare)。
+            onKeyShowShare: (): void => {
+              this.toolbarShareSignal++;
+            },
+            // Ctrl+R → sc8(ToggleRecording)：T.g.F 可用性门 = 会话控制器存在。
+            onKeyToggleRecording: (): void => {
+              const session: OriginalRecordingSessionController | null =
+                this.recordingSessionController;
+              if (session === null) {
+                return;
+              }
+              if (isOriginalRecordingCaptureActive(
+                this.recordingSessionSnapshot.captureState)) {
+                this.stopRecording().catch((e: Error) => {
+                  console.error(`kbd stop recording failed: ${JSON.stringify(e)}`);
+                });
+              } else {
+                this.startRecording().catch((e: Error) => {
+                  console.error(`kbd start recording failed: ${JSON.stringify(e)}`);
+                });
+              }
             },
             onTapeRevealStateChanged: (tapeCount: number, anyRevealed: boolean): void => {
               this.pageTapeCount = tapeCount;
@@ -2273,6 +2378,12 @@ struct NotePage {
         action.dismiss();
       }
     })
+    // 原版 MainActivity.dispatchKeyEvent → vla.a（活动级查表兜底）：
+    // 画布层未消费的应用级和弦在此收口；KeyUp 触发。
+    .onKeyEvent((event: KeyEvent): boolean => {
+      return this.onNoteAppKeyEvent(event);
+    })
+    .focusable(true)
   }
 
   // 原版 u49/mw3 空笔记动作卡：CreateActionChip 文本风格。
@@ -2455,6 +2566,8 @@ struct NotePage {
       onSelectionAction: (action: string, pageIds: string[]): void => {
         this.dispatchPageSelectionAction(action, pageIds);
       },
+      // Phase 1407：Ctrl+F（pc8 OpenSearch）激活页内搜索。
+      searchSignal: this.pageOverviewSearchSignal,
       onRequestClose: (): void => {
         this.showPageOverview = false;
       },

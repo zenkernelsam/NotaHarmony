@@ -26,7 +26,10 @@ let n = 0;
 const check = (cond, msg) => { assert(cond, msg); n++; };
 
 // --- COPY：成功后清选区 ---
-const copyIdx = canvas.indexOf('SelectionMenuAction.COPY)');
+// 锚点取分发分支本身（onSelectionMenuAction 的 COPY case），而非首个
+// SelectionMenuAction.COPY 引用——Phase 1407 键盘和弦（Ctrl+C）也在
+// 分发器上游新增了调用点。
+const copyIdx = canvas.indexOf('action === SelectionMenuAction.COPY');
 const copyBlock = canvas.slice(copyIdx, copyIdx + 700);
 check(copyBlock.includes('if (this.copySelectedToClipboard('),
   'COPY clears only on a successful clipboard write (fvbVar2.a() on cg2 commit)');
