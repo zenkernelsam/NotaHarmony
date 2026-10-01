@@ -46,8 +46,10 @@ eq(!pageManagerBar.includes("Button('🔖')") && !pageManagerBar.includes("Butto
 
 // --- PageOverviewPanel search ---
 eq(/glyph: 'search'/.test(pageOverview), 'page-overview search -> search');
-eq(pageOverview.includes("accessibilityText($r('app.string.cd_pages_panel_search'))"),
-  'search keeps cd_pages_panel_search a11y');
+// Phase 1408：原版搜索钮激活态 cd 切 content_manager_close_search——
+// 断言条件式双态（非激活态仍 cd_pages_panel_search）。
+eq(/accessibilityText\(this\.searchActive \?\s*\$r\('app\.string\.cd_pages_close_search'\)\s*:\s*\$r\('app\.string\.cd_pages_panel_search'\)\)/.test(pageOverview),
+  'search a11y: active -> cd_pages_close_search, else cd_pages_panel_search');
 eq(/searchActive \?\s*this\.resolveTokens\(\)\.accent/.test(pageOverview),
   'search icon still tints accent when active');
 

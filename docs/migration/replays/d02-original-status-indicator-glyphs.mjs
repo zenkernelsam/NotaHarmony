@@ -54,8 +54,10 @@ eq(pageOverview.includes("this.checked ? 'checkmark_circle' : 'circle_empty_med_
 // --- page bookmark (bookmark_tall_fill) ---
 eq(pageManagerBar.includes("glyph: 'bookmark_tall_fill'"),
   'PageManagerBar page indicator uses bookmark_tall_fill');
-eq(pageOverview.includes("glyph: 'bookmark_tall_fill'"),
-  'PageOverviewPanel bookmark badge uses bookmark_tall_fill');
+// Phase 1408：原版 ie case2 双态——角标常渲染，bookmarked 切 fill /
+// 未标切 outline（不再仅已标页渲染 fill）。
+eq(/this\.page\?\.bookmarked === true \?\s*'bookmark_tall_fill' : 'bookmark_tall_outline'/.test(pageOverview),
+  'PageOverviewPanel bookmark badge uses fill/outline dual-state');
 eq(!/Text\('🔖'\)/.test(pageManagerBar) && !/Text\('🔖'\)/.test(pageOverview),
   'no 🔖 emoji bookmarks remain');
 

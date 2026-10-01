@@ -436,16 +436,47 @@ struct JumpToPageDialog {
         .fontSize(16)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.resolveTokens().textPrimary)
-      TextInput({ text: this.inputText, placeholder: $r('app.string.jump_to_page_label') })
-        .width('100%')
-        .type(InputType.Number)
-        .fontColor(this.resolveTokens().textPrimary)
-        .placeholderColor(this.resolveTokens().textSecondary)
-        .backgroundColor(this.resolveTokens().control)
-        .margin({ top: 12 })
-        .onChange((value: string) => {
-          this.inputText = value;
-        })
+      Stack({ alignContent: Alignment.End }) {
+        TextInput({ text: this.inputText, placeholder: $r('app.string.jump_to_page_label') })
+          .width('100%')
+          .type(InputType.Number)
+          .fontColor(this.resolveTokens().textPrimary)
+          .placeholderColor(this.resolveTokens().textSecondary)
+          .backgroundColor(this.resolveTokens().control)
+          .padding({ right: 34 })
+          .onChange((value: string) => {
+            this.inputText = value;
+          })
+        if (this.inputText.length > 0) {
+          // 原版 or case18：页码字段非空时尾部渲染 xmark_circle_fill 清除钮
+          // （cd_clear_page_number），点击清空输入。组合 = 灰圆底 + × 描线
+          // 取字段底色（eQ0 evenOdd 镂空 × 的等价合成）。
+          Button() {
+            Stack() {
+              Row()
+                .width(15)
+                .height(15)
+                .borderRadius(7.5)
+                .backgroundColor(this.resolveTokens().textSecondary)
+              ToolGlyph({
+                glyph: 'close_med_regular',
+                contentColor: this.resolveTokens().control,
+                iconSize: 9,
+              })
+            }
+          }
+            .width(28)
+            .height(28)
+            .backgroundColor(Color.Transparent)
+            .margin({ right: 4 })
+            .accessibilityText($r('app.string.cd_clear_page_number'))
+            .onClick(() => {
+              this.inputText = '';
+            })
+        }
+      }
+      .width('100%')
+      .margin({ top: 12 })
       Row() {
         Button($r('app.string.cancel'))
           .height(36)

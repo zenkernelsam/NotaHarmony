@@ -62,6 +62,10 @@ export struct PageOverviewPanel {
   onSelectionAction: (action: string, pageIds: string[]) => void =
     (_action: string, _pageIds: string[]): void => {
     };
+  // 原版 wq2/njg.b：cell 书签角标普通态点击 = 按页索引切换书签
+  // （de2.m/ae2 v0 同一写路径，非菜单 fd2 分发）。
+  onPageBookmark: (pageIndex: number) => void = (_pageIndex: number): void => {
+  };
   @State private filter: number = FILTER_ALL;
   // 原版 qd2.isSelecting/selectedPageIds：cell 菜单 "Select"（s8 case1 →
   // fd2 case0）把页键并入选中集；选中集非空即进入选择态并展示 tfh
@@ -336,7 +340,10 @@ export struct PageOverviewPanel {
           .height(32)
           .margin({ left: 4 })
           .backgroundColor(Color.Transparent)
-          .accessibilityText($r('app.string.cd_pages_panel_search'))
+          // 原版：搜索激活时该钮的 cd 切换为 content_manager_close_search。
+          .accessibilityText(this.searchActive ?
+            $r('app.string.cd_pages_close_search') :
+            $r('app.string.cd_pages_panel_search'))
           .onClick(() => {
             // de2.l() 对齐：开启搜索；关闭时清空 query 与命中集。
             this.searchActive = !this.searchActive;
@@ -394,12 +401,17 @@ export struct PageOverviewPanel {
                   this.selectAllVisible();
                 }
               }, true)
+            // 原版 bom 工具条 icon-button cd：copy/duplicate/delete 用
+            // 「…selected pages」文案（cd_copy/duplicate/delete_pages）。
             this.SelectionActionChip($r('app.string.copy_page'),
-              (): void => this.dispatchSelection('copy'), this.selectedPageIds.length > 0)
+              (): void => this.dispatchSelection('copy'),
+              this.selectedPageIds.length > 0, $r('app.string.cd_copy_pages'))
             this.SelectionActionChip($r('app.string.duplicate_page'),
-              (): void => this.dispatchSelection('duplicate'), this.selectedPageIds.length > 0)
+              (): void => this.dispatchSelection('duplicate'),
+              this.selectedPageIds.length > 0, $r('app.string.cd_duplicate_pages'))
             this.SelectionActionChip($r('app.string.delete_page'),
-              (): void => this.dispatchSelection('delete'), this.selectedPageIds.length > 0)
+              (): void => this.dispatchSelection('delete'),
+              this.selectedPageIds.length > 0, $r('app.string.cd_delete_pages'))
             this.SelectionActionChip($r('app.string.cut_page'),
               (): void => this.dispatchSelection('cut'), this.selectedPageIds.length > 0)
             if (this.canPastePages) {
@@ -484,6 +496,10 @@ export struct PageOverviewPanel {
                     this.toggleSelectPage(this.pages[pageIndex].pageId);
                   }
                 },
+                onToggleBookmark: (pageIndex: number): void => {
+                  // wq2 普通态分支：经宿主书签写路径（njg.b 等价物）切换。
+                  this.onPageBookmark(pageIndex);
+                },
               })
             }
           }, (item: PageCellItem): string => item.cellKey)
@@ -501,21 +517,42 @@ export struct PageOverviewPanel {
   }
 
   @Builder
-  SelectionActionChip(label: ResourceStr, onTap: () => void, enabled: boolean) {
-    Text(label)
-      .fontSize(12)
-      .fontColor(enabled ?
-        this.resolveTokens().accent : this.resolveTokens().textSecondary)
-      .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-      .backgroundColor(this.resolveTokens().control)
-      .borderRadius(8)
-      .margin({ right: 8 })
-      .opacity(enabled ? 1 : 0.45)
-      .onClick(() => {
-        if (enabled) {
-          onTap();
-        }
-      })
+  SelectionActionChip(label: ResourceStr, onTap: () => void, enabled: boolean,
+    cd?: Resource) {
+    if (cd === undefined) {
+      // 无独立 cd：可见文本即 a11y 文案（accessibilityText 仅接受
+      // string 或 Resource 两重重载，ResourceStr 并集不可直传）。
+      Text(label)
+        .fontSize(12)
+        .fontColor(enabled ?
+          this.resolveTokens().accent : this.resolveTokens().textSecondary)
+        .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+        .backgroundColor(this.resolveTokens().control)
+        .borderRadius(8)
+        .margin({ right: 8 })
+        .opacity(enabled ? 1 : 0.45)
+        .onClick(() => {
+          if (enabled) {
+            onTap();
+          }
+        })
+    } else {
+      Text(label)
+        .fontSize(12)
+        .fontColor(enabled ?
+          this.resolveTokens().accent : this.resolveTokens().textSecondary)
+        .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+        .backgroundColor(this.resolveTokens().control)
+        .borderRadius(8)
+        .margin({ right: 8 })
+        .opacity(enabled ? 1 : 0.45)
+        .accessibilityText(cd)
+        .onClick(() => {
+          if (enabled) {
+            onTap();
+          }
+        })
+    }
   }
 
   @Builder
@@ -556,6 +593,9 @@ struct PageOverviewCell {
     };
   // s8 case1 → fd2 case0：cell 溢出菜单 "Select" 项。
   onToggleSelect: (pageIndex: number) => void = (_pageIndex: number): void => {
+  };
+  // 原版 wq2 普通态分支 → njg.b：cell 书签角标点击 = 切换该页书签。
+  onToggleBookmark: (pageIndex: number) => void = (_pageIndex: number): void => {
   };
   @State private pixelMap: PixelMap | null = null;
   @State private loadingFailed: boolean = false;
@@ -627,25 +667,44 @@ struct PageOverviewCell {
             .aspectRatio(0.75)
             .backgroundColor('#F5F5F5')
         }
-        if (this.page?.bookmarked === true) {
-          // md.java bookmark_tall_fill 角标对齐（PageManagerBar 同款）。
+        // 原版 cbn.j + ie case2 + fq9.d：书签角标无条件渲染（fill/outline 按
+        // dr2Var.c 切换），点击在普通态切换该页书签（wq2 → njg.b 页键写库），
+        // 选择态并入选中集（pr2.D(oag.x2(cbc(pageId)))）。a11y 为编号文案
+        // （cd_bookmark/unbookmark_page_numbered，参数 i12 = 显示页码）。
+        Stack() {
           ToolGlyph({
-            glyph: 'bookmark_tall_fill',
-            contentColor: this.resolveTokens().accent,
+            glyph: this.page?.bookmarked === true ?
+              'bookmark_tall_fill' : 'bookmark_tall_outline',
+            contentColor: this.page?.bookmarked === true ?
+              this.resolveTokens().accent : this.resolveTokens().textSecondary,
             iconSize: 14,
           })
-            .position({ x: '82%', y: 4 })
-            .accessibilityText($r('app.string.bookmark_page'))
         }
+          .width(24)
+          .height(24)
+          .position({ x: '74%', y: 0 })
+          .accessibilityText(this.page?.bookmarked === true ?
+            $r('app.string.cd_unbookmark_page_numbered', this.pageIndex + 1) :
+            $r('app.string.cd_bookmark_page_numbered', this.pageIndex + 1))
+          .onClick(() => {
+            if (this.selecting) {
+              this.onToggleSelect(this.pageIndex);
+            } else {
+              this.onToggleBookmark(this.pageIndex);
+            }
+          })
         if (this.selecting) {
-          // 原版 o94：选中=checkmark_circle，未选=circle_empty_med_outline。
+          // 原版 o94 + f9n.b：选中=checkmark_circle，未选=circle_empty_med_outline；
+          // a11y = cd_(de)select_page_numbered（参数 i12 = 显示页码）。
           ToolGlyph({
             glyph: this.checked ? 'checkmark_circle' : 'circle_empty_med_outline',
             contentColor: this.checked ? this.resolveTokens().accent : Color.White,
             iconSize: 20,
           })
             .position({ x: 4, y: 4 })
-            .accessibilityText($r('app.string.pages_menu_select'))
+            .accessibilityText(this.checked ?
+              $r('app.string.cd_deselect_page_numbered', this.pageIndex + 1) :
+              $r('app.string.cd_select_page_numbered', this.pageIndex + 1))
         }
       }
       .width('100%')

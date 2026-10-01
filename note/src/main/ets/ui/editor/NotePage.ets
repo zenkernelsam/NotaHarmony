@@ -2566,6 +2566,11 @@ struct NotePage {
       onSelectionAction: (action: string, pageIds: string[]): void => {
         this.dispatchPageSelectionAction(action, pageIds);
       },
+      // 原版 wq2 普通态分支 → njg.b：cell 书签角标点击切换该页书签，
+      // 走与菜单/批处理相同的 runPageOperation + 日记化写路径。
+      onPageBookmark: (pageIndex: number): void => {
+        this.dispatchPageContextAction(pageIndex, 'bookmark');
+      },
       // Phase 1407：Ctrl+F（pc8 OpenSearch）激活页内搜索。
       searchSignal: this.pageOverviewSearchSignal,
       onRequestClose: (): void => {
@@ -2666,6 +2671,10 @@ struct NotePage {
           break;
         case 'rotate':
           await this.rotatePageAt(pageIndex);
+          break;
+        case 'bookmark':
+          // wq2 → njg.b 等价：cell 角标单页书签切换（de2.m/ae2 v0 同路径）。
+          await this.togglePageBookmarkAt(pageIndex);
           break;
         case 'clear':
           await this.clearPageAt(pageIndex);
