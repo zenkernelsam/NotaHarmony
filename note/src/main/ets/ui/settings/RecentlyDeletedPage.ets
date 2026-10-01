@@ -23,6 +23,7 @@ enum TrashLoadState {
 struct RecentlyDeletedPage {
   @State loadState: TrashLoadState = TrashLoadState.LOADING;
   @State trashedNotes: NoteMeta[] = [];
+  @State selectedTrashIds: string[] = [];
   @State busy: boolean = false;
 
   private db: DatabaseManager = DatabaseManager.getInstance();
@@ -69,6 +70,10 @@ struct RecentlyDeletedPage {
         return;
       }
       this.trashedNotes = loaded;
+      // 原版 p6e/invokeSuspend：选集与列表来自同一状态流；列表重建后
+      // 丢弃已不在回收站中的 id（30 天结算或批量操作后可缺）。
+      const stillPresent: Set<string> = new Set(loaded.map((n: NoteMeta) => n.id));
+      this.selectedTrashIds = this.selectedTrashIds.filter((id: string) => stillPresent.has(id));
       this.loadState = TrashLoadState.READY;
       this.initialized = true;
     } catch (e) {
@@ -95,23 +100,58 @@ struct RecentlyDeletedPage {
     }
   }
 
-  private confirmPermanentlyDelete(note: NoteMeta): void {
+  // 原版 wrl.h/fq9.p + oe(24)->g6e(bpj)：整行点击与复选框共用同一
+  // 选择切换 UserAction，各自只触发一次切换。
+  private toggleNoteSelection(noteId: string): void {
     if (this.busy) {
       return;
     }
+    if (this.selectedTrashIds.includes(noteId)) {
+      this.selectedTrashIds = this.selectedTrashIds.filter((id: string) => id !== noteId);
+    } else {
+      this.selectedTrashIds = [...this.selectedTrashIds, noteId];
+    }
+  }
+
+  // 原版 wrl.i 顶部行：a6e.a = Select all / Deselect all（p6e 以
+  // zx7.r(set, map.keySet()) 判定全选态），onClick -> w5e(5) -> j6e。
+  private toggleSelectAll(): void {
+    if (this.busy) {
+      return;
+    }
+    if (this.selectedTrashIds.length === this.trashedNotes.length) {
+      this.selectedTrashIds = [];
+    } else {
+      this.selectedTrashIds = this.trashedNotes.map((n: NoteMeta) => n.id);
+    }
+  }
+
+  // 原版 wrl.b -> l8n.c：正文 = a6e.e =
+  // feature_settings__delete_confirmation_message 复数条（p6e 以
+  // set.size() 选 one/other）；确认钮 "Delete"
+  // （feature_settings__delete_notes，w5e(1) 确认动作），取消钮
+  // "Keep notes"（feature_settings__keep_notes，w5e(0) 关闭）。
+  // 原版无标题位（iqm 调用点可证 str 槽位是确认钮文案）。
+  private confirmDeleteSelected(): void {
+    if (this.busy || this.selectedTrashIds.length === 0) {
+      return;
+    }
+    const count: number = this.selectedTrashIds.length;
     this.getUIContext().showAlertDialog({
-      title: $r('app.string.delete_permanently'),
-      message: $r('app.string.delete_permanently_message', note.title),
+      message: $r(count === 1 ?
+        'app.string.feature_settings__delete_confirmation_message_one' :
+        'app.string.feature_settings__delete_confirmation_message_other',
+        count),
       primaryButton: {
-        value: $r('app.string.cancel'),
+        value: $r('app.string.feature_settings__keep_notes'),
         action: () => {
         },
       },
       secondaryButton: {
-        value: $r('app.string.delete'),
+        value: $r('app.string.feature_settings__delete_notes'),
         fontColor: this.resolveTokens().danger,
         action: () => {
-          this.permanentlyDelete(note.id).catch((e: Error) => {
+          this.permanentlyDeleteSelected().catch((e: Error) => {
             console.error(`permanent delete failed: ${JSON.stringify(e)}`);
           });
         },
@@ -119,17 +159,23 @@ struct RecentlyDeletedPage {
     });
   }
 
-  private async recoverNote(noteId: string): Promise<void> {
-    if (this.busy) {
+  // 原版 v5e case0 -> w5e(3)：Recover notes 批量动作（a6e.d =
+  // 选集非空时才可用）。原版 note_limit_recover_* 上限挽留
+  // （wrl.f -> l8n.e）属付费墙流程，Harmony 免费模型下 fail-closed。
+  private async recoverSelected(): Promise<void> {
+    if (this.busy || this.selectedTrashIds.length === 0) {
       return;
     }
     this.busy = true;
     try {
       const repo = new NoteRepositoryImpl(this.db);
-      await repo.restoreNote(noteId);
+      for (const id of this.selectedTrashIds) {
+        await repo.restoreNote(id);
+      }
+      this.selectedTrashIds = [];
       await this.reloadPage();
     } catch (e) {
-      console.error(`recover note failed: ${JSON.stringify(e)}`);
+      console.error(`recover notes failed: ${JSON.stringify(e)}`);
       if (!this.pageDisposed) {
         this.showToast($r('app.string.recover_note_failed'));
       }
@@ -138,14 +184,19 @@ struct RecentlyDeletedPage {
     }
   }
 
-  private async permanentlyDelete(noteId: string): Promise<void> {
-    if (this.busy) {
+  // 原版 v5e case0 -> w5e(2) 弹确认 -> w5e(1)：Delete 批量动作，
+  // 同样以 a6e.d 门控。
+  private async permanentlyDeleteSelected(): Promise<void> {
+    if (this.busy || this.selectedTrashIds.length === 0) {
       return;
     }
     this.busy = true;
     try {
       const repo = new NoteRepositoryImpl(this.db);
-      await repo.deleteNote(noteId);
+      for (const id of this.selectedTrashIds) {
+        await repo.deleteNote(id);
+      }
+      this.selectedTrashIds = [];
       await this.reloadPage();
     } catch (e) {
       console.error(`permanent delete failed: ${JSON.stringify(e)}`);
@@ -165,6 +216,23 @@ struct RecentlyDeletedPage {
     }
   }
 
+  // 原版 z5e 标题字段：ycb.getTitle() 为空时落到
+  // data_library_state__default_note_title（与 e5j.h 物化规则一致）。
+  private noteDisplayTitle(note: NoteMeta): string {
+    if (note.title.length > 0) {
+      return note.title;
+    }
+    try {
+      return getContext(this).resourceManager.getStringSync($r('app.string.untitled_note').id);
+    } catch (_e) {
+      return 'New Note';
+    }
+  }
+
+  // 原版 wrl.h -> x8n.a：标题/"Deleted %s" 副文列 + 尾随 mo2(7) =
+  // f9n.b 复选框（选中态决定 cd_select/cd_deselect_note_titled），
+  // 整行 fq9.p 可点击 = oe(24) -> g6e(bpj) 选择切换；原版行内没有
+  // Recover/Delete 单条按钮，批量动作集中在底部条（v5e case0）。
   @Builder
   TrashedNoteRow(note: NoteMeta) {
     Column() {
@@ -184,22 +252,16 @@ struct RecentlyDeletedPage {
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
 
-        Button($r('app.string.recover_note'))
-          .height(36)
-          .enabled(!this.busy)
-          .onClick(() => {
-            this.recoverNote(note.id).catch((e: Error) => {
-              console.error(`recover action failed: ${JSON.stringify(e)}`);
-            });
-          })
-        Button($r('app.string.delete'))
-          .height(36)
-          .fontColor(this.resolveTokens().danger)
-          .enabled(!this.busy)
-          .margin({ left: 8 })
-          .onClick(() => {
-            this.confirmPermanentlyDelete(note);
-          })
+        // 原版 mo2(7)=f9n.b 复选框语义（select/deselect_note_titled）
+        // 与整行 fq9.p 点击共用同一个 g6e 切换动作；这里令复选框只做
+        // 语义+视觉呈现（hitTestBehavior None），触摸统一走行 onClick，
+        // 避免一次点击被行+框各消费一遍造成双重切换。
+        Checkbox()
+          .select(this.selectedTrashIds.includes(note.id))
+          .accessibilityText(this.selectedTrashIds.includes(note.id) ?
+            $r('app.string.cd_deselect_note_titled', this.noteDisplayTitle(note)) :
+            $r('app.string.cd_select_note_titled', this.noteDisplayTitle(note)))
+          .hitTestBehavior(HitTestMode.None)
       }
       .width('100%')
       .padding({ left: 12, right: 12, top: 12, bottom: 12 })
@@ -208,6 +270,9 @@ struct RecentlyDeletedPage {
     .backgroundColor(this.resolveTokens().surface)
     .margin({ bottom: 8 })
     .borderRadius(8)
+    .onClick(() => {
+      this.toggleNoteSelection(note.id);
+    })
   }
 
   build() {
@@ -278,6 +343,39 @@ struct RecentlyDeletedPage {
                 .fontColor(this.resolveTokens().textSecondary)
                 .margin({ top: 32 })
             } else {
+              // 原版 wrl.i 首项：o9n.a 文本按钮行，文案 = a6e.a =
+              // Select all（选集==全集时换 Deselect all，p6e 的
+              // zx7.r(set, map.keySet())），onClick -> w5e(5) = j6e
+              // 全选切换。
+              Text(this.selectedTrashIds.length === this.trashedNotes.length ?
+                $r('app.string.feature_settings__deselect_all') :
+                $r('app.string.select_all'))
+                .fontSize(15)
+                .fontColor(this.resolveTokens().accent)
+                .padding({ top: 10, bottom: 10 })
+                .accessibilityText(this.selectedTrashIds.length ===
+                  this.trashedNotes.length ?
+                  $r('app.string.feature_settings__deselect_all') :
+                  $r('app.string.select_all'))
+                .onClick(() => {
+                  this.toggleSelectAll();
+                })
+
+              // 原版 wrl.i 次项：x7n.e(a6e.b != null) = "N notes
+              // selected" 横幅（feature_settings__notes_selected
+              // 复数条，p6e 以 set.size() 选 one/other），仅选集
+              // 非空时出现。
+              if (this.selectedTrashIds.length > 0) {
+                Text($r(this.selectedTrashIds.length === 1 ?
+                  'app.string.feature_settings__notes_selected_one' :
+                  'app.string.feature_settings__notes_selected_other',
+                  this.selectedTrashIds.length))
+                  .width('100%')
+                  .fontSize(13)
+                  .fontColor(this.resolveTokens().textSecondary)
+                  .margin({ bottom: 8 })
+              }
+
               ForEach(this.trashedNotes, (note: NoteMeta) => {
                 this.TrashedNoteRow(note)
               }, (note: NoteMeta) => note.id)
@@ -287,6 +385,35 @@ struct RecentlyDeletedPage {
           .padding({ left: 20, right: 20, bottom: 24 })
         }
         .layoutWeight(1)
+
+        // 原版 v5e case0 底部动作条（wrl.g -> x7n.e(!a6e.g) 列表非空
+        // 才显示）：Delete（mma.G 危险色）在左、Recover notes
+        // （primary）在右，两者均以 a6e.d = 选集非空 门控。
+        if (this.loadState === TrashLoadState.READY &&
+          this.trashedNotes.length > 0) {
+          Row() {
+            Button($r('app.string.feature_settings__delete_notes'))
+              .layoutWeight(1)
+              .height(40)
+              .fontColor(this.resolveTokens().danger)
+              .enabled(this.selectedTrashIds.length > 0 && !this.busy)
+              .onClick(() => {
+                this.confirmDeleteSelected();
+              })
+            Button($r('app.string.feature_settings__recover_notes'))
+              .layoutWeight(1)
+              .height(40)
+              .margin({ left: 8 })
+              .enabled(this.selectedTrashIds.length > 0 && !this.busy)
+              .onClick(() => {
+                this.recoverSelected().catch((e: Error) => {
+                  console.error(`recover action failed: ${JSON.stringify(e)}`);
+                });
+              })
+          }
+          .width('100%')
+          .padding({ left: 20, right: 20, top: 8, bottom: 12 })
+        }
       }
     }
     .width('100%')

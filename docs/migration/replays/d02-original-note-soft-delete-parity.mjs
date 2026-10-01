@@ -112,7 +112,7 @@ ok(settings.includes("ui/settings/RecentlyDeletedPage"),
 ok(pages.includes('ui/settings/RecentlyDeletedPage'),
   'RecentlyDeletedPage must be registered in main_pages.json');
 ok(trashPage.includes('restoreNote'), 'trash page must offer Recover');
-ok(trashPage.includes('repo.deleteNote(noteId)'),
+ok(/repo\.deleteNote\((noteId|id)\)/.test(trashPage),
   'trash page permanent delete must hit deleteNote');
 ok(trashPage.includes('purgeExpiredTrash'), 'trash page must purge on load');
 // Original bib/nhb row subtitle = note_deleted_at + z5c.n medium date —

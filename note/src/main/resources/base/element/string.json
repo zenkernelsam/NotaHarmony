@@ -1048,6 +1048,38 @@
       "value": "Deselect note %1$s"
     },
     {
+      "name": "feature_settings__deselect_all",
+      "value": "Deselect all"
+    },
+    {
+      "name": "feature_settings__notes_selected_one",
+      "value": "%1$d note selected"
+    },
+    {
+      "name": "feature_settings__notes_selected_other",
+      "value": "%1$d notes selected"
+    },
+    {
+      "name": "feature_settings__delete_confirmation_message_one",
+      "value": "Permanently delete %1$d note?\nThis action cannot be undone."
+    },
+    {
+      "name": "feature_settings__delete_confirmation_message_other",
+      "value": "Permanently delete %1$d notes?\nThis action cannot be undone."
+    },
+    {
+      "name": "feature_settings__recover_notes",
+      "value": "Recover notes"
+    },
+    {
+      "name": "feature_settings__delete_notes",
+      "value": "Delete"
+    },
+    {
+      "name": "feature_settings__keep_notes",
+      "value": "Keep notes"
+    },
+    {
       "name": "cd_sort",
       "value": "Sort notes"
     },
