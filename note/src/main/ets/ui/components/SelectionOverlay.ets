@@ -45,6 +45,7 @@ export struct SelectionOverlay {
   @Prop canUngroup: boolean = false;
   @Prop canEditMath: boolean = false;
   @Prop canStyle: boolean = false;
+  @Prop canDeselect: boolean = false;
   @Prop positionLocked: boolean = false;
   @Prop menuEnabled: boolean = true;
   @Prop deselectMode: boolean = false;
@@ -208,8 +209,12 @@ export struct SelectionOverlay {
         icon: this.positionLocked ? $r('app.media.selmenu_unlock') : $r('app.media.selmenu_lock'),
         action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Lock clicked'); this.onMenuAction(SelectionMenuAction.LOCK); } });
     }
-    items.push({ value: $r('app.string.deselect'), icon: $r('app.media.selmenu_deselect'),
-      action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Deselect clicked'); this.onMenuAction(SelectionMenuAction.DESELECT); } });
+    // 原版 urf：DESELECT 仅 isf 装配——绘制完成（hsf→isf）与集合
+    // 程序化选区可选；lsf 单元素点选、jsf 组点选不出现此行。
+    if (this.canDeselect) {
+      items.push({ value: $r('app.string.deselect'), icon: $r('app.media.selmenu_deselect'),
+        action: () => { hilog.info(0x0001, 'SelOverlay', 'menu Deselect clicked'); this.onMenuAction(SelectionMenuAction.DESELECT); } });
+    }
     return items;
   }
 }

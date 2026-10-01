@@ -43,7 +43,7 @@ assert.match(canvas, /createOriginalMathInsertDraft/);
 assert.match(canvas, /this\.persistence\.commitOriginalMathInsert/);
 assert.match(canvas, /onPageChange[\s\S]*?this\.cancelMathEditing\(\)[\s\S]*?this\.switchPageData\(\)/);
 assert.match(canvas, /this\.mathBlocks = this\.mathBlocks\.concat\(\[result\.math\]\)/);
-assert.match(canvas, /this\.selectionTool\.selectElementIds\(\[\], \[\], \[\], \[\], \[\], \[result\.math\.id\]\)/);
+assert.match(canvas, /this\.selectionTool\.selectElementIds\(\[\], \[\], \[\], \[\], \[\], \[result\.math\.id\][^)]*\)/);
 assert.match(persistence, /async commitOriginalMathInsert/);
 assert.match(persistence, /OriginalCreateBlockOperationApplier\(\)\.applyBatchedPayload/);
 assert.match(persistence, /OpType\.ORIGINAL_CREATE_BLOCK/);

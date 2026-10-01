@@ -602,6 +602,7 @@ export struct NoteCanvasView {
   @State selectionCanUngroup: boolean = false;
   @State selectionCanEditMath: boolean = false;
   @State selectionCanStyle: boolean = false;
+  @State selectionCanDeselect: boolean = false;
   @State selectionPositionLocked: boolean = false;
   private imageCropSession: OriginalImageCropSession | null = null;
   @State imageCropVisible: boolean = false;
@@ -1258,7 +1259,8 @@ export struct NoteCanvasView {
         mathIds.push(ref.elementId);
       }
     }
-    this.selectionTool.selectElementIds(strokeIds, shapeIds, textIds, imageIds, [], mathIds);
+    this.selectionTool.selectElementIds(strokeIds, shapeIds, textIds, imageIds, [], mathIds,
+      true);
     this.onSelectionMenuAction(SelectionMenuAction.DELETE);
   }
 
@@ -1388,7 +1390,8 @@ export struct NoteCanvasView {
         .map((i: ImageElement): string => i.id),
       resolved.groupIds,
       this.mathBlocks.filter((m: MathElement): boolean => idSet.has(m.id))
-        .map((m: MathElement): string => m.id));
+        .map((m: MathElement): string => m.id),
+      false);
     this.updateSelectionOverlay();
     this.renderFrame();
   }
@@ -7472,6 +7475,9 @@ export struct NoteCanvasView {
   private updateSelectionOverlay(): void {
     const state = this.selectionTool.getState();
     this.selectionDeselectMode = state.deselectMode;
+    // 原版 urf：DESELECT 仅 isf（绘制完成/集合程序化选区）装配；
+    // lsf 单元素点选与 jsf 组点选均无此行。
+    this.selectionCanDeselect = state.supportsDeselectMode;
     if (state.selectedStrokeIds.length === 0 && state.selectedShapeIds.length === 0 &&
       state.selectedTextBlockIds.length === 0 && state.selectedImageIds.length === 0 &&
       state.selectedMathIds.length === 0 && state.selectedGroupIds.length === 0) {
@@ -8732,7 +8738,8 @@ export struct NoteCanvasView {
         this.elementOrder = clonePageElementOrder(finalOrder);
         this.synchronizeElementArraysByOrder();
         this.selectionTool.selectElementIds([], [], [], finalImages.map(
-          (image: ImageElement): string => image.id), [], []);
+          (image: ImageElement): string => image.id), [], [],
+          this.selectionVisible ? undefined : finalImages.length > 1);
         this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
         this.updateSelectionOverlay();
         this.renderFrame();
@@ -8871,7 +8878,8 @@ export struct NoteCanvasView {
         this.mathBlocks = this.mathBlocks.concat([result.math]);
         this.elementOrder = clonePageElementOrder(result.elementOrder);
         this.synchronizeElementArraysByOrder();
-        this.selectionTool.selectElementIds([], [], [], [], [], [result.math.id]);
+        this.selectionTool.selectElementIds([], [], [], [], [], [result.math.id],
+          this.selectionVisible ? undefined : false);
         this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
         this.updateSelectionOverlay();
         this.renderFrame();
@@ -10022,7 +10030,8 @@ export struct NoteCanvasView {
             result.textBlocks.map((text: TextBlockElement): string => text.id),
             result.images.map((image: ImageElement): string => image.id),
             result.topGroupIds,
-            result.mathBlocks.map((math: MathElement): string => math.id));
+            result.mathBlocks.map((math: MathElement): string => math.id),
+            this.selectionVisible ? undefined : true);
           this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
           this.originalInkIneligiblePages.delete(pageId);
           this.layerManager.rebuildFromStrokes(
@@ -10182,7 +10191,8 @@ export struct NoteCanvasView {
     this.undoRedo.push(action, preparedHistory);
     this.lastQueuedHistoryRevision = this.undoRedo.getHistoryRevision();
     this.selectionTool.selectElementIds(
-      pastedIds, pastedShapeIds, pastedTextIds, pastedImageIds, [], pastedMathIds);
+      pastedIds, pastedShapeIds, pastedTextIds, pastedImageIds, [], pastedMathIds,
+      this.selectionVisible ? undefined : true);
     this.onSelectionInkControlsChanged(null, null, 0.5, 30, true, null);
     this.layerManager.rebuildFromStrokes(
       this.completedStrokes, this.renderCtx, this.viewport.zoom);
@@ -10650,7 +10660,8 @@ export struct NoteCanvasView {
         .map((i: ImageElement): string => i.id),
       resolved.groupIds,
       this.mathBlocks.filter((m: MathElement): boolean => idSet.has(m.id))
-        .map((m: MathElement): string => m.id));
+        .map((m: MathElement): string => m.id),
+      true);
     this.updateSelectionOverlay();
     this.renderFrame();
   }
@@ -11301,6 +11312,7 @@ export struct NoteCanvasView {
         canUngroup: this.selectionCanUngroup,
         canEditMath: this.selectionCanEditMath,
         canStyle: this.selectionCanStyle,
+        canDeselect: this.selectionCanDeselect,
         positionLocked: this.selectionPositionLocked,
         menuEnabled: !this.photoImportBusy && !this.historyBusy &&
           this.loaded && !this.dataLoading && !this.dataLoadFailed &&

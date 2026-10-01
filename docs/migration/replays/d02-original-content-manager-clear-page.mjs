@@ -55,7 +55,7 @@ ok(notePage.includes('@State clearPageSignal: number = 0;') &&
 ok(canvas.includes("@Prop @Watch('onClearPageSignalChange') clearPageSignal: number = 0;"),
   'clear-page signal prop missing');
 ok(canvas.includes('private clearCurrentPageContent()') &&
-   canvas.includes('this.selectionTool.selectElementIds(strokeIds, shapeIds, textIds, imageIds, [], mathIds)') &&
+   /this\.selectionTool\.selectElementIds\(strokeIds, shapeIds, textIds, imageIds, \[\], mathIds,\s*true\)/.test(canvas) &&
    canvas.includes('this.onSelectionMenuAction(SelectionMenuAction.DELETE)'),
   'clear-page select-all->delete composite missing');
 // Empty page short-circuits before touching the selection.
@@ -67,7 +67,7 @@ for (const kind of ['STROKE', 'SHAPE', 'TEXT', 'IMAGE', 'MATH']) {
     `clear-page ${kind} bucket missing`);
 }
 // selectElementIds accepts the full per-kind id lists used by the composite.
-ok(/selectElementIds\(strokeIds: string\[\], shapeIds: string\[\], textBlockIds: string\[\] = \[\],\s*imageIds: string\[\] = \[\], groupIds: string\[\] = \[\], mathIds: string\[\] = \[\]\)/
+ok(/selectElementIds\(strokeIds: string\[\], shapeIds: string\[\], textBlockIds: string\[\] = \[\],\s*imageIds: string\[\] = \[\], groupIds: string\[\] = \[\], mathIds: string\[\] = \[\],\s*drawnKind\?: boolean\)/
   .test(selectionTool), 'selectElementIds signature missing');
 
 // --- Executable behaviour model -----------------------------------------------------------

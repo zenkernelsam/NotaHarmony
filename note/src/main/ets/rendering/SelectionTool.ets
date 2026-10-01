@@ -46,6 +46,11 @@ export interface SelectionState {
   // 提交后随 state.transform 演化（htc.e / qpi.b 语义）。非区域选择
   // （点选/全选/粘贴）为 null → 回退 union 判定。
   drawnRect: Rect2D | null;
+  // 原版 urf 装配门：DESELECT(wqf.Z) 仅 isf 绘制/集合型选区出现——
+  // 点选单元素 lsf、点选组 jsf、进行中套索 hsf 均无此行（deselectMode
+  // 即 ftc.h 本体是 isf 专属能力）。finalizeSelection 置真；
+  // selectElementIds 由调用点按来源显式标注/保持。
+  supportsDeselectMode: boolean;
   transform: TransformMatrix;    // 当前变换矩阵（单位矩阵起始）
 }
 
@@ -67,6 +72,7 @@ export class SelectionTool {
       deselectMode: false,
       deselectedIds: [],
       drawnRect: null,
+      supportsDeselectMode: false,
       transform: [1, 0, 0, 0, 1, 0, 0, 0, 1],
     };
   }
@@ -90,6 +96,7 @@ export class SelectionTool {
     this.state.deselectedIds = [];
     this.preDeselectSelection = null;
     this.state.drawnRect = null;
+    this.state.supportsDeselectMode = false;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
@@ -253,6 +260,9 @@ export class SelectionTool {
     const drawn: Rect2D | null = total > 0 ? this.drawnBounds() : null;
     this.state.drawnRect = drawn !== null ?
       { left: drawn.left, top: drawn.top, right: drawn.right, bottom: drawn.bottom } : null;
+    // 绘制完成且命中非空 → isf 型选区：urf 装配 DESELECT 行；
+    // 空命中不产生选区（hsf 丢弃，不转 isf）。
+    this.state.supportsDeselectMode = total > 0;
     return this.state.selectedStrokeIds.concat(this.state.selectedShapeIds)
       .concat(this.state.selectedTextBlockIds).concat(this.state.selectedImageIds)
       .concat(this.state.selectedMathIds);
@@ -382,8 +392,12 @@ export class SelectionTool {
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
+  // drawnKind：urf 选区种类标注——false=点选型（lsf 单元素/jsf 组），
+  // true=集合型程序化选区（isf：mud 组解析/j01 粘贴结果/lb8 变换）；
+  // undefined=保持现值（j01 证据：粘贴/变换/裁剪重断言沿用原种类）。
   selectElementIds(strokeIds: string[], shapeIds: string[], textBlockIds: string[] = [],
-    imageIds: string[] = [], groupIds: string[] = [], mathIds: string[] = []): void {
+    imageIds: string[] = [], groupIds: string[] = [], mathIds: string[] = [],
+    drawnKind?: boolean): void {
     this.state.isActive = strokeIds.length > 0 || shapeIds.length > 0 || textBlockIds.length > 0 ||
       imageIds.length > 0 || mathIds.length > 0;
     this.state.selectedStrokeIds = strokeIds.slice();
@@ -398,6 +412,12 @@ export class SelectionTool {
     this.state.lassoPoints = [];
     this.state.rect = null;
     this.state.drawnRect = null;
+    if (drawnKind !== undefined) {
+      this.state.supportsDeselectMode = drawnKind;
+    }
+    if (!this.state.isActive) {
+      this.state.supportsDeselectMode = false;
+    }
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
@@ -416,6 +436,7 @@ export class SelectionTool {
     this.state.deselectedIds = [];
     this.preDeselectSelection = null;
     this.state.drawnRect = null;
+    this.state.supportsDeselectMode = false;
     this.state.transform = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   }
 
@@ -423,7 +444,9 @@ export class SelectionTool {
 
   // 进入点按移除模式：保存 fvbVar.n 快照（取消时恢复）。
   enterDeselectMode(): void {
-    if (this.state.deselectMode) {
+    // dsc.DESELECT → ftc.h：isf 专属能力——lsf/jsf 选区装配不出菜单行，
+    // 此处同判兜底（与原版 dispatch 不可达语义一致）。
+    if (this.state.deselectMode || !this.state.supportsDeselectMode) {
       return;
     }
     this.preDeselectSelection = {
