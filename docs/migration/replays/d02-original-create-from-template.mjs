@@ -52,7 +52,8 @@ ok(page.includes('private async createFromTemplate(template: PaperTemplate)') &&
   'createFromTemplate wiring missing');
 // VM/repo thread the override into the bootstrap background.
 ok(vm.includes('templateOverride?: PaperTemplate') &&
-   vm.includes('this.repo.createNote(ORIGINAL_NOTE_DEFAULT_TITLE'),
+   vm.includes('this.repo.createNote(title,') &&
+   vm.includes('ORIGINAL_NOTE_DEFAULT_TITLE'),
   'view-model template override missing');
 ok(iface.includes('templateOverride?: PaperTemplate'),
   'repository contract missing template override');

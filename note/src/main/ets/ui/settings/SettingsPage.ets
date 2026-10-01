@@ -5,8 +5,13 @@ import {
   DEFAULT_KEEP_DEVICE_AWAKE, DEFAULT_NOTE_VIEW_NIGHT_MODE, DEFAULT_PALM_DETECTION,
   DEFAULT_RULER_UNITS, DEFAULT_SHAPE_DETECTION_ENABLED, DEFAULT_STRAIGHT_LINES,
   DEFAULT_UNDO_REDO_TAPS,
+  DEFAULT_INCLUDE_DATE_POSITION, DEFAULT_INCLUDE_TIME_POSITION,
   EditorSettingsStore, RULER_UNITS_IMPERIAL, RULER_UNITS_METRIC,
 } from '../../data/EditorSettingsStore';
+import {
+  formatOriginalAutoNoteTitle, NOTE_TITLE_POSITION_NONE,
+  NOTE_TITLE_POSITION_PREFIX, NOTE_TITLE_POSITION_SUFFIX,
+} from '../../core/model/OriginalNoteTitlePolicy';
 import { ThemeMode, ThemeTokens } from '../theme/EditorTheme';
 import { ToolGlyph } from '../components/ToolGlyph';
 import {
@@ -45,6 +50,13 @@ struct SettingsPage {
   @State undoRedoTapsEnabled: boolean = DEFAULT_UNDO_REDO_TAPS;
   @State rulerUnits: string = DEFAULT_RULER_UNITS;
   @State recognitionLanguageCode: string = ORIGINAL_HANDWRITING_DEFAULT_LOCALE_CODE;
+  // 原版 ncn.a/yob：note_title 子屏 —— defaultNoteTitle 草稿
+  //（存储 null→''），includeDate/includeTime 三态位置。
+  @State defaultNoteTitle: string = '';
+  @State includeDatePosition: string = DEFAULT_INCLUDE_DATE_POSITION;
+  @State includeTimePosition: string = DEFAULT_INCLUDE_TIME_POSITION;
+  // 原版 a96：example 预览用 remember{System.currentTimeMillis()} —— 进屏时刻。
+  @State noteTitleExampleTs: number = 0;
   @State saveBusy: boolean = false;
   @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
   @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
@@ -74,6 +86,29 @@ struct SettingsPage {
       onPick: (units: string): void => {
         this.setRulerUnits(units).catch((e: Error) => {
           console.error(`SettingsPage ruler-units pick failed: ${JSON.stringify(e)}`);
+        });
+      },
+    }),
+    autoCancel: true,
+  });
+  // 原版 ibb：include_date/include_time 行的 None/Prefix/Suffix 下拉选择器。
+  private includeDateDialog: CustomDialogController = new CustomDialogController({
+    builder: TitlePositionDialog({
+      selected: this.includeDatePosition,
+      onPick: (position: string): void => {
+        this.setIncludeDatePosition(position).catch((e: Error) => {
+          console.error(`SettingsPage include-date pick failed: ${JSON.stringify(e)}`);
+        });
+      },
+    }),
+    autoCancel: true,
+  });
+  private includeTimeDialog: CustomDialogController = new CustomDialogController({
+    builder: TitlePositionDialog({
+      selected: this.includeTimePosition,
+      onPick: (position: string): void => {
+        this.setIncludeTimePosition(position).catch((e: Error) => {
+          console.error(`SettingsPage include-time pick failed: ${JSON.stringify(e)}`);
         });
       },
     }),
@@ -115,6 +150,9 @@ struct SettingsPage {
       const straightLines: boolean = await store.getStraightLinesEnabled();
       const undoRedoTaps: boolean = await store.getUndoRedoTapsEnabled();
       const rulerUnits: string = await store.getRulerUnits();
+      const noteTitle: string | null = await store.getDefaultNoteTitle();
+      const datePosition: string = await store.getIncludeDatePosition();
+      const timePosition: string = await store.getIncludeTimePosition();
       const languageStore: OriginalHandwritingLanguagePreferenceStore =
         new OriginalHandwritingLanguagePreferenceStore(context);
       const storedLanguage: string | null = await languageStore.getRecognitionLanguageId();
@@ -132,6 +170,10 @@ struct SettingsPage {
       this.straightLinesEnabled = straightLines;
       this.undoRedoTapsEnabled = undoRedoTaps;
       this.rulerUnits = rulerUnits;
+      this.defaultNoteTitle = noteTitle === null ? '' : noteTitle;
+      this.includeDatePosition = datePosition;
+      this.includeTimePosition = timePosition;
+      this.noteTitleExampleTs = Date.now();
       this.languageStore = languageStore;
       this.recognitionLanguageCode = resolveOriginalHandwritingLanguage(
         null, storedLanguage, readHarmonyOriginalHandwritingLocale()).localeCode;
@@ -211,6 +253,112 @@ struct SettingsPage {
     } finally {
       this.saveBusy = false;
     }
+  }
+
+  // 原版 ncn.a→su2→hpb(z)→epb：default_note_title 字段每次变更即写入
+  // noteEditorSettings（键缺失=未设置→组装时用 fallback；清空即存 ''）。
+  // 文本走直写（打字态不做 saveBusy 门/回滚——回滚会打断输入），失败仅 toast。
+  private async setDefaultNoteTitle(title: string): Promise<void> {
+    const store: EditorSettingsStore | null = this.store;
+    if (store === null || this.loadState !== SettingsLoadState.READY) {
+      return;
+    }
+    try {
+      await store.saveDefaultNoteTitle(title);
+    } catch (e) {
+      if (this.pageDisposed) {
+        return;
+      }
+      console.error(`SettingsPage default-title save failed: ${JSON.stringify(e)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
+      } catch (toastError) {
+        console.error(`SettingsPage toast failed: ${JSON.stringify(toastError)}`);
+      }
+    }
+  }
+
+  // 原版 ibb：include_date 三态选择器（None/Prefix/Suffix → hpb→epb 写库）。
+  private async setIncludeDatePosition(position: string): Promise<void> {
+    const store: EditorSettingsStore | null = this.store;
+    if (store === null || this.loadState !== SettingsLoadState.READY || this.saveBusy ||
+      position === this.includeDatePosition) {
+      return;
+    }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
+    const previous: string = this.includeDatePosition;
+    this.includeDatePosition = position;
+    this.saveBusy = true;
+    try {
+      await store.saveIncludeDatePosition(position);
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+    } catch (e) {
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+      this.includeDatePosition = previous;
+      console.error(`SettingsPage include-date save failed: ${JSON.stringify(e)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
+      } catch (toastError) {
+        console.error(`SettingsPage toast failed: ${JSON.stringify(toastError)}`);
+      }
+    } finally {
+      this.saveBusy = false;
+    }
+  }
+
+  // 原版 ibb：include_time 三态选择器，同一守护模式。
+  private async setIncludeTimePosition(position: string): Promise<void> {
+    const store: EditorSettingsStore | null = this.store;
+    if (store === null || this.loadState !== SettingsLoadState.READY || this.saveBusy ||
+      position === this.includeTimePosition) {
+      return;
+    }
+    const lifecycleGeneration: number = ++this.lifecycleGeneration;
+    const previous: string = this.includeTimePosition;
+    this.includeTimePosition = position;
+    this.saveBusy = true;
+    try {
+      await store.saveIncludeTimePosition(position);
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+    } catch (e) {
+      if (this.pageDisposed || lifecycleGeneration !== this.lifecycleGeneration) {
+        return;
+      }
+      this.includeTimePosition = previous;
+      console.error(`SettingsPage include-time save failed: ${JSON.stringify(e)}`);
+      try {
+        promptAction.showToast({ message: $r('app.string.editor_setting_save_failed') });
+      } catch (toastError) {
+        console.error(`SettingsPage toast failed: ${JSON.stringify(toastError)}`);
+      }
+    } finally {
+      this.saveBusy = false;
+    }
+  }
+
+  // 原版 ibb 尾部显示：位置值 → 本地化 none/prefix/suffix 标签。
+  private titlePositionLabel(position: string): Resource {
+    if (position === NOTE_TITLE_POSITION_PREFIX) {
+      return $r('app.string.title_position_prefix');
+    }
+    if (position === NOTE_TITLE_POSITION_SUFFIX) {
+      return $r('app.string.title_position_suffix');
+    }
+    return $r('app.string.title_position_none');
+  }
+
+  // 原版 a96：example 预览 = mcn.g(草稿字段值, includeDate, includeTime,
+  // remember{now})——草稿 blank 时只剩日期/时间分量（标题 fallback 不参与预览）。
+  private noteTitleExample(): string {
+    return formatOriginalAutoNoteTitle(this.defaultNoteTitle, '',
+      this.includeDatePosition, this.includeTimePosition,
+      this.noteTitleExampleTs === 0 ? Date.now() : this.noteTitleExampleTs);
   }
 
   // 原版 x22 case 3：auto_deselect_eraser 开关，同一守护模式。
@@ -848,6 +996,127 @@ struct SettingsPage {
               }
             })
 
+            // 原版 e8b→document_defaults→note_title 子屏（c1 case2 →
+            // ncn.a/yob/ibb/a96）：自定义默认标题 + 日期/时间位置 + 示例。
+            Text($r('app.string.document_defaults'))
+              .width('100%')
+              .fontSize(16)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.resolveTokens().textSecondary)
+              .margin({ top: 24, bottom: 8 })
+
+            Column() {
+              Text($r('app.string.default_note_title'))
+                .fontSize(16)
+                .fontColor(this.resolveTokens().textPrimary)
+              Stack({ alignContent: Alignment.End }) {
+                TextInput({
+                  placeholder: $r('app.string.default_note_title_fallback'),
+                  text: this.defaultNoteTitle,
+                })
+                  .width('100%')
+                  .fontColor(this.resolveTokens().textPrimary)
+                  .placeholderColor(this.resolveTokens().textSecondary)
+                  .backgroundColor(this.resolveTokens().control)
+                  .padding({ right: 34 })
+                  // 原版 je case11：草稿 ≤200 UTF-16 码元才入 state。
+                  .maxLength(200)
+                  .onChange((value: string) => {
+                    this.defaultNoteTitle = value;
+                    this.setDefaultNoteTitle(value).catch((e: Error) => {
+                      console.error(`SettingsPage title save failed: ${JSON.stringify(e)}`);
+                    });
+                  })
+                if (this.defaultNoteTitle.length > 0) {
+                  // 原版 yob case0：字段非空时尾部 xmark_circle_fill 清除钮
+                  //（ui_designsystem__clear cd），点击清空输入。
+                  Button() {
+                    Stack() {
+                      Row()
+                        .width(15)
+                        .height(15)
+                        .borderRadius(7.5)
+                        .backgroundColor(this.resolveTokens().textSecondary)
+                      ToolGlyph({
+                        glyph: 'close_med_regular',
+                        contentColor: this.resolveTokens().control,
+                        iconSize: 9,
+                      })
+                    }
+                  }
+                    .width(28)
+                    .height(28)
+                    .backgroundColor(Color.Transparent)
+                    .margin({ right: 4 })
+                    .accessibilityText($r('app.string.clear_field'))
+                    .onClick(() => {
+                      this.defaultNoteTitle = '';
+                      this.setDefaultNoteTitle('').catch((e: Error) => {
+                        console.error(`SettingsPage title clear failed: ${JSON.stringify(e)}`);
+                      });
+                    })
+                }
+              }
+              .margin({ top: 8 })
+
+              // 原版 yob case1：include_date 行（ibb 三态选择器）。
+              Row() {
+                Text($r('app.string.include_date'))
+                  .layoutWeight(1)
+                  .fontSize(16)
+                  .fontColor(this.resolveTokens().textPrimary)
+                Text(this.titlePositionLabel(this.includeDatePosition))
+                  .fontSize(14)
+                  .fontColor(this.resolveTokens().textSecondary)
+              }
+              .width('100%')
+              .height(44)
+              .margin({ top: 8 })
+              .onClick(() => {
+                if (!this.saveBusy) {
+                  this.includeDateDialog.open();
+                }
+              })
+
+              // 原版 yob default：include_time 行。
+              Row() {
+                Text($r('app.string.include_time'))
+                  .layoutWeight(1)
+                  .fontSize(16)
+                  .fontColor(this.resolveTokens().textPrimary)
+                Text(this.titlePositionLabel(this.includeTimePosition))
+                  .fontSize(14)
+                  .fontColor(this.resolveTokens().textSecondary)
+              }
+              .width('100%')
+              .height(44)
+              .margin({ top: 8 })
+              .onClick(() => {
+                if (!this.saveBusy) {
+                  this.includeTimeDialog.open();
+                }
+              })
+
+              // 原版 a96："Example:" + 实时 mcn.g(草稿, 位置, 进屏时刻)
+              //（原版 cle.p 空格拼接；ArkUI 用同行双 Text + 间距等价）。
+              Row() {
+                Text($r('app.string.example_label'))
+                  .fontSize(13)
+                  .fontColor(this.resolveTokens().textSecondary)
+                Text(this.noteTitleExample())
+                  .fontSize(13)
+                  .fontColor(this.resolveTokens().textSecondary)
+                  .margin({ left: 4 })
+              }
+              .width('100%')
+              .margin({ top: 12 })
+            }
+            .width('100%')
+            .padding(12)
+            .margin({ top: 8 })
+            .backgroundColor(this.resolveTokens().surface)
+            .alignItems(HorizontalAlign.Start)
+
             // 原版 r22 case 2：note-editor 设置区第二项 "Keep device awake"。
             Row() {
               Text($r('app.string.keep_device_awake'))
@@ -1088,6 +1357,67 @@ struct RulerUnitsDialog {
       .width('100%')
       .alignItems(HorizontalAlign.Start)
     }
+    .padding(16)
+    .width(320)
+    .backgroundColor(this.resolveTokens().surface)
+  }
+}
+
+// 原版 ibb：include_date/include_time 行的 None/Prefix/Suffix 三态选择器
+//（下拉弹层语义；Harmony 用与 n94 一致的 CustomDialog + 选中勾）。
+interface TitlePositionOption {
+  position: string;
+  label: Resource;
+}
+
+@CustomDialog
+struct TitlePositionDialog {
+  controller?: CustomDialogController;
+  @StorageLink(THEME_MODE_KEY) themeMode: string = 'system';
+  @StorageLink(THEME_SYSTEM_DARK_KEY) systemDark: boolean = false;
+  selected: string = NOTE_TITLE_POSITION_NONE;
+  options: TitlePositionOption[] = [
+    { position: NOTE_TITLE_POSITION_NONE, label: $r('app.string.title_position_none') },
+    { position: NOTE_TITLE_POSITION_PREFIX, label: $r('app.string.title_position_prefix') },
+    { position: NOTE_TITLE_POSITION_SUFFIX, label: $r('app.string.title_position_suffix') },
+  ];
+  onPick: (position: string) => void = (_position: string): void => {
+  };
+
+  private resolveTokens(): ThemeTokens {
+    return ThemeStore.resolve(this.themeMode as ThemeMode, this.systemDark);
+  }
+
+  build() {
+    Column() {
+      ForEach(this.options, (option: TitlePositionOption) => {
+        Row() {
+          Text(option.label)
+            .layoutWeight(1)
+            .fontSize(15)
+            .fontColor(this.resolveTokens().textPrimary)
+          if (option.position === this.selected) {
+            // 原版选中指示 = ui_designsystem__general_check_med_reg。
+            ToolGlyph({
+              glyph: 'general_check_med_reg',
+              contentColor: this.resolveTokens().accent,
+              iconSize: 15,
+            })
+          }
+        }
+        .width('100%')
+        .height(44)
+        .padding({ left: 8, right: 8 })
+        .onClick(() => {
+          if (this.controller !== undefined) {
+            this.controller.close();
+          }
+          this.onPick(option.position);
+        })
+      }, (option: TitlePositionOption): string => option.position)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
     .padding(16)
     .width(320)
     .backgroundColor(this.resolveTokens().surface)

@@ -47,8 +47,9 @@ eq(zoomView.includes("glyph: 'drag_handle'") &&
 eq(!/Text\('≡'\)/.test(zoomView), 'no ≡ text grip remains');
 
 // --- settings selected-row checks ---
-eq((settings.match(/glyph: 'general_check_med_reg'/g) || []).length === 2,
-  'settings option rows use general_check_med_reg (x2)');
+// Phase 1411：TitlePositionDialog 新增第三处 selected-check（ibb 三态选择器）。
+eq((settings.match(/glyph: 'general_check_med_reg'/g) || []).length === 3,
+  'settings option rows use general_check_med_reg (x3)');
 eq(!/Text\('✓'\)/.test(settings), 'no ✓ text checks remain in settings');
 
 // --- import-sheet arrange arrows + selected check ---

@@ -57,6 +57,9 @@ import {
   ACADEMIC_PLANNER, PLANNER_COVERS, PLANNER_WEEK_STARTS, PlannerCover,
   plannerPdfPath, PlannerWeekStart,
 } from '../../core/model/PlannerCatalog';
+import {
+  formatOriginalAutoNoteTitle, ORIGINAL_AUTO_TITLE_EMPTY_FALLBACK,
+} from '../../core/model/OriginalNoteTitlePolicy';
 import { LibrarySection, LibraryViewModel, NoteSortMode } from './LibraryViewModel';
 import {
   ThemeStore, THEME_MODE_KEY, THEME_PREFERENCE_KEY, THEME_PREFERENCES_NAME, THEME_SYSTEM_DARK_KEY,
@@ -1736,9 +1739,28 @@ struct LibraryPage {
         this.db, new EditorSettingsStore(context));
       const folderRepo: FolderRepositoryImpl = new FolderRepositoryImpl(this.db);
       // 原版 qp9.O=lk3：建笔记后应用 o8b.x 打包默认模板（context+db 在本页可得）。
+      const editorSettings: EditorSettingsStore = new EditorSettingsStore(context);
       const vm: LibraryViewModel = new LibraryViewModel(noteRepo,
         (noteId: string): Promise<void> =>
-          applyBundledTemplateDefault(context, this.db, noteId));
+          applyBundledTemplateDefault(context, this.db, noteId),
+        // 原版 k59.l → o8b.f → mcn.g：按 noteEditorSettings 的
+        // defaultNoteTitle/includeDatePosition/includeTimePosition + 创建
+        // 时刻组装标题；结果 blank → k59.l 的 "..."；工厂本身抛错由
+        // LibraryViewModel.createNote 落回 "New Note"（flag-off 分支）。
+        async (timestampMillis: number): Promise<string> => {
+          const customTitle: string | null = await editorSettings.getDefaultNoteTitle();
+          const datePosition: string = await editorSettings.getIncludeDatePosition();
+          const timePosition: string = await editorSettings.getIncludeTimePosition();
+          let fallbackTitle: string = 'Note';
+          try {
+            fallbackTitle = context.resourceManager.getStringSync(
+              $r('app.string.default_note_title_fallback').id);
+          } catch (_e) {
+          }
+          const title: string = formatOriginalAutoNoteTitle(customTitle,
+            fallbackTitle, datePosition, timePosition, timestampMillis);
+          return title.trim().length > 0 ? title : ORIGINAL_AUTO_TITLE_EMPTY_FALLBACK;
+        });
       this.noteRepo = noteRepo;
       this.folderRepo = folderRepo;
       this.viewModel = vm;

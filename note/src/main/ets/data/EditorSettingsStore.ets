@@ -3,6 +3,10 @@ import { preferences } from '@kit.ArkData';
 import {
   OriginalDefaultTemplateSelection, originalFallbackDefaultTemplate,
 } from '../core/model/OriginalDefaultTemplate';
+import {
+  NOTE_TITLE_POSITION_NONE, NOTE_TITLE_POSITION_PREFIX,
+  NOTE_TITLE_POSITION_SUFFIX,
+} from '../core/model/OriginalNoteTitlePolicy';
 import { AsyncMutex } from './AsyncMutex';
 import {
   decodeOriginalDefaultTemplate, encodeOriginalDefaultTemplate,
@@ -47,6 +51,17 @@ export const DEFAULT_ZOOM_ADVANCE_WIDTH_DP: number = 180;
 // 原版 o8b.P = dcd("undoRedoTapsEnabled")；o8b.f/g 解码缺省 true（bool6 null→true）。
 const UNDO_REDO_TAPS_KEY: string = 'undoRedoTapsEnabled';
 export const DEFAULT_UNDO_REDO_TAPS: boolean = true;
+// 原版 o8b.M/N/O = dcd("defaultNoteTitle")/dcd("includeDatePosition")/
+// dcd("includeTimePosition")（yob/ibb 笔记标题设置页；mcn.g 组装新笔记标题）。
+// 解码缺省：defaultNoteTitle→null（从未设置才落回 "Note" fallback）；
+// includeDatePosition→hmi.SUFFIX；includeTimePosition→hmi.NONE。
+// hmi 按名称序列化（"None"/"Prefix"/"Suffix"，pp7.l 解析失败→缺省）。
+const DEFAULT_NOTE_TITLE_KEY: string = 'defaultNoteTitle';
+const INCLUDE_DATE_POSITION_KEY: string = 'includeDatePosition';
+const INCLUDE_TIME_POSITION_KEY: string = 'includeTimePosition';
+// hmi 名常量（None/Prefix/Suffix）由 core/model/OriginalNoteTitlePolicy 导出。
+export const DEFAULT_INCLUDE_DATE_POSITION: string = NOTE_TITLE_POSITION_SUFFIX;
+export const DEFAULT_INCLUDE_TIME_POSITION: string = NOTE_TITLE_POSITION_NONE;
 
 export interface EditorSettingsRepository {
   getShapeDetectionEnabled(): Promise<boolean>;
@@ -73,6 +88,14 @@ export interface EditorSettingsRepository {
   saveZoomAdvanceWidthDp(widthDp: number): Promise<void>;
   getUndoRedoTapsEnabled(): Promise<boolean>;
   saveUndoRedoTapsEnabled(enabled: boolean): Promise<void>;
+  // 原版 dpb.a：缺省 null 表示从未设置（o8b.f 落回
+  // ui_notedefaults__default_note_title_fallback）；空串表示用户清空。
+  getDefaultNoteTitle(): Promise<string | null>;
+  saveDefaultNoteTitle(title: string): Promise<void>;
+  getIncludeDatePosition(): Promise<string>;
+  saveIncludeDatePosition(position: string): Promise<void>;
+  getIncludeTimePosition(): Promise<string>;
+  saveIncludeTimePosition(position: string): Promise<void>;
 }
 
 export interface DefaultNoteTemplateRepository {
@@ -446,5 +469,58 @@ export class EditorSettingsStore implements EditorSettingsRepository, DefaultNot
     } catch (_error) {
       // Corrupt settings must not prevent the original Letter/Plain fallback from loading.
     }
+  }
+
+  // 原版 j8b.z：键缺失 = null（mcn.g 以 fallback "Note" 组装）；已写入的空串
+  // 原样返回（r0h.T0 视为 blank 丢弃，标题只剩日期/时间分量）。
+  async getDefaultNoteTitle(): Promise<string | null> {
+    return EditorSettingsStore.mutex.runExclusive(async (): Promise<string | null> => {
+      try {
+        const store = await preferences.getPreferences(this.context, STORE_NAME);
+        if (!store.hasSync(DEFAULT_NOTE_TITLE_KEY)) {
+          return null;
+        }
+        const value = store.getSync(DEFAULT_NOTE_TITLE_KEY, '');
+        return typeof value === 'string' ? value : null;
+      } catch (e) {
+        throw new Error(`getDefaultNoteTitle failed: ${JSON.stringify(e)}`);
+      }
+    });
+  }
+
+  async saveDefaultNoteTitle(title: string): Promise<void> {
+    await this.saveStringPref(DEFAULT_NOTE_TITLE_KEY, title,
+      '', 'saveDefaultNoteTitle');
+  }
+
+  // 原版 pp7.l：未知名称 → null → 调用方回落缺省（date=SUFFIX / time=NONE）。
+  private sanitizeTitlePosition(value: string, fallback: string): string {
+    return value === NOTE_TITLE_POSITION_NONE ||
+      value === NOTE_TITLE_POSITION_PREFIX ||
+      value === NOTE_TITLE_POSITION_SUFFIX ? value : fallback;
+  }
+
+  async getIncludeDatePosition(): Promise<string> {
+    const position: string = await this.getStringPref(
+      INCLUDE_DATE_POSITION_KEY, DEFAULT_INCLUDE_DATE_POSITION);
+    return this.sanitizeTitlePosition(position, DEFAULT_INCLUDE_DATE_POSITION);
+  }
+
+  async saveIncludeDatePosition(position: string): Promise<void> {
+    await this.saveStringPref(INCLUDE_DATE_POSITION_KEY,
+      this.sanitizeTitlePosition(position, DEFAULT_INCLUDE_DATE_POSITION),
+      DEFAULT_INCLUDE_DATE_POSITION, 'saveIncludeDatePosition');
+  }
+
+  async getIncludeTimePosition(): Promise<string> {
+    const position: string = await this.getStringPref(
+      INCLUDE_TIME_POSITION_KEY, DEFAULT_INCLUDE_TIME_POSITION);
+    return this.sanitizeTitlePosition(position, DEFAULT_INCLUDE_TIME_POSITION);
+  }
+
+  async saveIncludeTimePosition(position: string): Promise<void> {
+    await this.saveStringPref(INCLUDE_TIME_POSITION_KEY,
+      this.sanitizeTitlePosition(position, DEFAULT_INCLUDE_TIME_POSITION),
+      DEFAULT_INCLUDE_TIME_POSITION, 'saveIncludeTimePosition');
   }
 }

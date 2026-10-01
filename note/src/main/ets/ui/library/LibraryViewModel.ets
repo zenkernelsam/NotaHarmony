@@ -47,11 +47,18 @@ export class LibraryViewModel {
   // 原版 qp9.O = lk3：建笔记后解析 o8b.x 打包默认模板并应用到首页。
   // 无注入时 fail-closed（纯纸型默认）。
   private bundledDefaultApply: ((noteId: string) => Promise<void>) | undefined;
+  // 原版 k59.l → o8b.f → mcn.g：建笔记时按 noteEditorSettings 组装标题
+  //（defaultNoteTitle/includeDatePosition/includeTimePosition + 创建时刻）。
+  // 无注入或工厂抛错时 fail-closed 落回 ORIGINAL_NOTE_DEFAULT_TITLE
+  //（即原版 flag-off 分支 k() 的 "New Note"）。
+  private noteTitleFactory: ((timestampMillis: number) => Promise<string>) | undefined;
 
   constructor(repo: NoteRepository,
-    bundledDefaultApply?: (noteId: string) => Promise<void>) {
+    bundledDefaultApply?: (noteId: string) => Promise<void>,
+    noteTitleFactory?: (timestampMillis: number) => Promise<string>) {
     this.repo = repo;
     this.bundledDefaultApply = bundledDefaultApply;
+    this.noteTitleFactory = noteTitleFactory;
   }
 
   async loadNotes(query: string): Promise<void> {
@@ -312,7 +319,17 @@ export class LibraryViewModel {
       folderIdOverride : this.currentFolderId;
     const viewGeneration: number = this.loadGeneration;
     return this.enqueueMutation(async (): Promise<string> => {
-      const note: NoteMeta = await this.repo.createNote(ORIGINAL_NOTE_DEFAULT_TITLE,
+      // 原版 k59.l(currentTimeMillis)：标题在建库行时按创建时刻格式化；
+      // 工厂缺失/失败 → k() 分支的 "New Note"（production flag-off 行为）。
+      let title: string = ORIGINAL_NOTE_DEFAULT_TITLE;
+      if (this.noteTitleFactory !== undefined) {
+        try {
+          title = await this.noteTitleFactory(Date.now());
+        } catch (e) {
+          console.warn(`auto note title failed: ${JSON.stringify(e)}`);
+        }
+      }
+      const note: NoteMeta = await this.repo.createNote(title,
         folderId, templateOverride);
       // 原版 lk3 → h1d.b(cpj,null,null,true)：默认打包模板应用到新建笔记首页；
       // o8b.x 缺失/解析失败 → 保留纸型默认。应用失败不回滚已建笔记。

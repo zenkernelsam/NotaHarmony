@@ -76,8 +76,11 @@ assert.match(editor, /await this\.titleSaveQueue/);
 assert.match(editor, /generation === this\.titleSaveGeneration && !this\.editingTitle/);
 assert.match(editor, /repository\.updateNoteTitle/);
 assert.match(editor, /runtime history sync failed after durable commit/);
-assert.match(library,
-  /createNote\(ORIGINAL_NOTE_DEFAULT_TITLE,\s*folderId, templateOverride\)/);
+// Phase 1411：标题经 noteTitleFactory(Date.now()) 生成（o8b.f→mcn.g 自动标题）；
+// 工厂缺失/失败回退 ORIGINAL_NOTE_DEFAULT_TITLE（k59.l flag-off 分支）。
+assert.match(library, /noteTitleFactory\(Date\.now\(\)\)/);
+assert.match(library, /createNote\(title,\s*folderId, templateOverride\)/);
+assert.match(library, /title: string = ORIGINAL_NOTE_DEFAULT_TITLE/);
 assert.match(opTypes, /UPDATE_TITLE = 30/);
 assert.match(opTypes, /ORIGINAL_SET_METADATA = 78/);
 assert.match(fixtures, /writes a title-only SetMetadata without resetting note background/);

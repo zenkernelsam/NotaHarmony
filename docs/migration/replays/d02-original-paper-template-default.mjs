@@ -77,7 +77,8 @@ check(!/recordUsed|recordUsed\(/.test(apply.slice(apply.indexOf('applyBundledTem
 // ── ViewModel 注入接线（qp9.O 等价）──
 check(/bundledDefaultApply: \(\(noteId: string\) => Promise<void>\) \| undefined/.test(vm),
   'VM 注入参数 fail-closed');
-check(/repo\.createNote\(ORIGINAL_NOTE_DEFAULT_TITLE[\s\S]{0,300}?bundledDefaultApply\(note\.id\)/.test(vm),
+// Phase 1411：标题经 noteTitleFactory（mcn.g 等价）生成、fail-closed→默认串。
+check(/repo\.createNote\(title[\s\S]{0,400}?bundledDefaultApply\(note\.id\)/.test(vm),
   'createNote 后应用默认');
 check(/bundledDefaultApply\(note\.id\)[\s\S]{0,200}?catch \(e\)/.test(vm) &&
   /console\.warn/.test(vm), '默认应用失败不回滚笔记（lk3 a() 支路）');
