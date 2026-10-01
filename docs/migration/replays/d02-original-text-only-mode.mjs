@@ -18,7 +18,9 @@
 //   - eti TEXT 面 → ToolType.DEFAULT；保留集 → {DEFAULT}；
 //   - 流式排版 → renderOrderedElements 前插 isTextOnly 分支 → renderTextOnlyFlow
 //     用 cloneTextBlockElement 瞬态副本按页宽重排（不动持久化几何）；
-//   - InsertedSticky/OpenedContentManager/LegacyDaemon 无对应路径 → 不适用；
+//   - InsertedSticky/LegacyDaemon 无对应路径 → 不适用；
+//   - OpenedContentManager（Phase 1400 接入）：打开 content-manager 页面面板 →
+//     textOnlyExitSignal 自动退出；
 //   - 流式视图为只读（beginTextEditingAt/toggleCheckboxMarkerAt 门控）。
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert';
@@ -100,6 +102,10 @@ check(/imported\.length > 0[\s\S]{0,100}?exitTextOnly\('InsertedImage'\)/.test(c
   'InsertedImage: insertOriginalPhotos funnel exits');
 check(/this\.textOnlyActive[\s\S]{0,100}?textOnlyExitSignal\+\+/.test(page),
   'ImportedFile: page-side import success fires exit signal');
+check(/!this\.showPageOverview && this\.textOnlyActive[\s\S]{0,80}?textOnlyExitSignal\+\+/.test(page),
+  'OpenedContentManager: opening pages panel fires exit signal (q4i.OpenedContentManager)');
+check(/textOnlyExitSignal\+\+[\s\S]{0,80}?this\.showPageOverview = !this\.showPageOverview/.test(page),
+  'OpenedContentManager: panel still opens after exit signal');
 check(/onTextOnlyExitSignalChange[\s\S]{0,150}?exitTextOnly/.test(canvas),
   'exit signal → c5i.b 统一出口');
 check(/text_only_auto_exit/.test(canvas),

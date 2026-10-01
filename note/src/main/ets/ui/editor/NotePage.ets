@@ -1791,6 +1791,11 @@ struct NotePage {
               this.historyPending) {
               return;
             }
+            // 原版 q4i.OpenedContentManager：text-only 打开内容管理器 →
+            // 自动退出（面板打开不受拦截，仅补发退出信号）。
+            if (!this.showPageOverview && this.textOnlyActive) {
+              this.textOnlyExitSignal++;
+            }
             this.showPageOverview = !this.showPageOverview;
           },
           // Add Files (qc.java 菜单序位第一)：file-insert 走同一 ingress
