@@ -24,10 +24,15 @@
    - 贴纸托盘（`dg2`/`uxm`/`d6b.java:1503`）同位门控。
    与 `NOTE_CONTENT_MANAGER_CREATE_TEMPLATE`（`h35.y0`，同 `rd5`）
    先例一致 —— 1.4.2 未发布，不虚构宿主。
-2. **包体远端依赖**：39 个命名包经
+2. **包体依赖**（Phase 1433 更正）：39 个命名包中
+   install-time Play asset pack `stickers.apk` 随装带
+   `assets/sticker_<pack>/*.webp`（`pq3` 经
+   `AssetPackManager.b("stickers")` 取位；manifest 含
+   `asset-pack`/`install-time`/`isFeatureSplit`），CDN
    `android-assets.notability.com/stickers/1.1.0/<pack>.zip`
-   由 `StickerPackDownloadWorker`/`StickerPackPrefetchWorker`
-   下载；APK 无贴纸资产。移植需引入不可复刻的版权内容 CDN →
+   为 `StickerPackPrefetchWorker`/`DownloadWorker` 的增量包。
+   Harmony 无 Play asset-delivery 通路，且整条贴纸 UI 链本就
+   InternalUserOnly 不可达 —— 不虚构托盘/选择器，维持
    fail-closed。
 3. 名称近似但无关的 `note_cover_preset_stickers`（笔记封面预设）
    已按 ADR-1341 通路移植，不属本裁决范围。
@@ -50,6 +55,7 @@ Harmony `TapePattern` 0..8 逐位等价；`TapePatternPicker` +
 ## 后果
 
 - `feature_note_stickers__*` 全部 76 键 fail-closed（未发布 +
-  CDN），不进入 Harmony 资源表。
+  install-time asset pack/CDN 均非 Harmony 通路），不进入
+  Harmony 资源表。
 - 胶带/音源簇判定为已完成移植，fixture 固化不变量防回归。
 - `strings.xml` 前缀扫描至此全域收口。
