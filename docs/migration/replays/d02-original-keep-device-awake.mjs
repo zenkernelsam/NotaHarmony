@@ -44,7 +44,7 @@ check(page.includes('setWindowKeepScreenOn'), 'keep-screen-on applied');
 check(page.includes('applyKeepDeviceAwakeSetting'), 'load method');
 check(page.includes('keepAwakeGeneration'), 'generation guard');
 check(page.includes('keepScreenOnApplied'), 'applied flag');
-check(/aboutToDisappear[\s\S]{0,800}setKeepScreenOn\(false\)/.test(page), 'cleared on disappear');
+check(/aboutToDisappear[\s\S]{0,2400}setKeepScreenOn\(false\)/.test(page), 'cleared on disappear');
 check(/aboutToAppear[\s\S]{0,4000}applyKeepDeviceAwakeSetting/.test(page), 'applied on appear');
 
 // --- Test fake implements the widened interface ---

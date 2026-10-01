@@ -49,7 +49,7 @@ check(page.includes('nightModeGeneration'), 'generation guard');
 check(page.includes("this.noteViewNightMode ? 'dark'"), 'dark token override');
 check(page.includes('nightMode: this.noteViewNightMode'), 'prop passed to canvas');
 check(/aboutToAppear[\s\S]{0,4500}applyNoteViewNightModeSetting/.test(page), 'applied on appear');
-check(/aboutToDisappear[\s\S]{0,900}nightModeGeneration\+\+/.test(page), 'invalidated on disappear');
+check(/aboutToDisappear[\s\S]{0,2400}nightModeGeneration\+\+/.test(page), 'invalidated on disappear');
 
 // --- Canvas: prop + dark resolution + redraw on change ---
 check(canvas.includes("@Prop @Watch('onNightModeChange') nightMode"), 'canvas prop');

@@ -56,6 +56,9 @@ import {
 } from '../../data/NoteMetadataMutationCodec';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import { LoadedElements, StrokePersistence } from '../../data/StrokePersistence';
+import {
+  registerBackgroundFlush, unregisterBackgroundFlush,
+} from '../../data/EditorLifecycleFlush';
 import { ToolRepositoryImpl } from '../../data/ToolRepositoryImpl';
 import { EditorSettingsStore } from '../../data/EditorSettingsStore';
 import { OnboardingTipBubble } from '../components/OnboardingTipBubble';
@@ -317,6 +320,12 @@ struct NotePage {
   private autoRecordRequested: boolean = false;
   private autoCameraRequested: boolean = false;
   private editorLeavePromise: Promise<void> | null = null;
+  // 原版生命周期审计（Phase 1432）：MainActivity.onPause/onDestroy 无
+  // 显式落盘——原版文本编辑态即文档模型、逐变更经 zhi.emit 写穿，
+  // 后台不丢稿。Harmony 文本/标题草稿与 LatestWriteQueue 挂起写是
+  // 进程内缓冲，应用退到后台时被系统回收即丢——注册
+  // EditorLifecycleFlush 回调在 onBackground 尽力冲刷。
+  private backgroundFlushToken: number = -1;
   private titleSaveInFlightCount: number = 0;
   private pageRepo: PageRepositoryImpl | null = null;
   private persistence: StrokePersistence = new StrokePersistence();
@@ -574,6 +583,8 @@ struct NotePage {
   }
 
   aboutToAppear(): void {
+    this.backgroundFlushToken = registerBackgroundFlush(
+      (): Promise<void> => this.flushPendingEditsForBackground());
     // VisionKit DocumentScanner 系统能力探测（与 LibraryPage ac4.a0
     // 等价门同源）。
     this.docScanAvailable = canIUse('SystemCapability.AI.Component.DocScan');
@@ -648,6 +659,10 @@ struct NotePage {
   // T-040 修复：路由返回时 TextInput 的 onBlur 不保证触发，必须在页面销毁时兜底保存标题
   aboutToDisappear(): void {
     this.editorDisposed = true;
+    if (this.backgroundFlushToken >= 0) {
+      unregisterBackgroundFlush(this.backgroundFlushToken);
+      this.backgroundFlushToken = -1;
+    }
     const shareThumb: ThumbnailRenderer | null = this.shareThumbRenderer;
     this.shareThumbRenderer = null;
     if (shareThumb !== null) {
@@ -741,6 +756,36 @@ struct NotePage {
     await this.finishRecordingSession();
     await this.recordingController.release();
     router.back();
+  }
+
+  // 原版 ON_BACKGROUND 等价冲刷：MainActivity.onPause 不导航、不停录
+  // 音（RecordingForegroundService 后台续录）——故此处只做
+  // performLeaveEditor 的前半：提交标题/文本草稿 + 冲刷页写队列 +
+  // 工具态/录音删除待写，之后仍停在本页。math/imageCrop 覆盖层与
+  // 导航离开同样 fail-closed 跳过（草稿态不入库，与原版一致）。
+  private async flushPendingEditsForBackground(): Promise<void> {
+    if (this.editorDisposed || this.editorLeavePromise !== null) {
+      return;
+    }
+    if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+      return;
+    }
+    if (this.editingTitle) {
+      await this.saveTitle();
+    } else {
+      await this.titleSaveQueue;
+    }
+    if (this.editorDisposed) {
+      return;
+    }
+    if (this.historyBridge !== null) {
+      await this.historyBridge.flushCurrentPage();
+    }
+    if (this.editorDisposed) {
+      return;
+    }
+    await this.viewModel.flushToolState();
+    await this.recordingDeleteController.flush();
   }
 
   // 原版 MainActivity.dispatchKeyEvent → vla.b(keyEvent) 查表（KeyUp，

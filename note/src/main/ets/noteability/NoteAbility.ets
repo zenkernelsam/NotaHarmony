@@ -11,6 +11,7 @@ import { enqueueSharedWantUris } from '../data/SharedFileIngress';
 import { enqueueLaunchAction } from '../data/LaunchActionIngress';
 import { enqueueDeepLinkWant } from '../data/DeepLinkIngress';
 import { enqueueOpenTargetWant } from '../data/OpenTargetIngress';
+import { flushEditorsForBackground } from '../data/EditorLifecycleFlush';
 
 const DOMAIN = 0x0000;
 
@@ -91,7 +92,11 @@ export default class NoteAbility extends UIAbility {
   }
 
   onBackground(): void {
-    // Ability has back to background
+    // 原版 ON_BACKGROUND：MainActivity.onPause 仅注销传感器、无显式落
+    // 盘——原版经 zhi.emit→tee.a0 逐变更写穿。Harmony 侧文本/标题草稿
+    // 与 LatestWriteQueue 挂起写是进程内缓冲，退后台即触发前台编辑器
+    // 注册的尽力冲刷（Phase 1432）。
+    flushEditorsForBackground();
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onBackground');
   }
 }

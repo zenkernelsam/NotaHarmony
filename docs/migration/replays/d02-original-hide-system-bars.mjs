@@ -52,9 +52,9 @@ check(page.includes('systemBarsGeneration'), 'generation guard');
 check(page.includes("setSpecificSystemBarEnabled"), 'system bar API');
 check(page.includes("'status'") && page.includes("'navigation'") &&
   page.includes("'navigationIndicator'"), 'all bar kinds covered');
-check(/aboutToDisappear[\s\S]{0,1200}setSystemBarHidden\('status', false\)/.test(page),
+check(/aboutToDisappear[\s\S]{0,2400}setSystemBarHidden\('status', false\)/.test(page),
   'status bar restored on disappear');
-check(/aboutToDisappear[\s\S]{0,1200}setSystemBarHidden\('navigation', false\)/.test(page),
+check(/aboutToDisappear[\s\S]{0,2400}setSystemBarHidden\('navigation', false\)/.test(page),
   'nav bar restored on disappear');
 check(/aboutToAppear[\s\S]{0,4000}applyHideSystemBarsSetting/.test(page), 'applied on appear');
 
