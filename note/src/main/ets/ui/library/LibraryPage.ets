@@ -51,8 +51,12 @@ import {
   isThumbnailSourceUnchanged, prioritizeThumbnailNoteIds, thumbnailCacheKey,
 } from '../../rendering/ThumbnailRenderPolicy';
 import {
-  findNoteCoverPreset, loadNoteCoverThumb, NoteCoverPreset,
+  findAnyNoteCover, loadNoteCoverThumb, NoteCoverPreset,
 } from '../../core/model/NoteCoverCatalog';
+import {
+  ACADEMIC_PLANNER, PLANNER_COVERS, PLANNER_WEEK_STARTS, PlannerCover,
+  plannerPdfPath, PlannerWeekStart,
+} from '../../core/model/PlannerCatalog';
 import { LibrarySection, LibraryViewModel, NoteSortMode } from './LibraryViewModel';
 import {
   ThemeStore, THEME_MODE_KEY, THEME_PREFERENCE_KEY, THEME_PREFERENCES_NAME, THEME_SYSTEM_DARK_KEY,
@@ -154,6 +158,12 @@ struct LibraryPage {
   // list.size()>1 → PDF）；include_* 初值与 v6d 构造器一致
   // （background=false、recording=true）；v6d.k 密码可空。
   @State multiShareOpen: boolean = false;
+  // 原版 x2n.c/l19 计划本配置态（d2d）：sheet 开关 + weekStart 键 +
+  // 封面序号 + 创建中遮罩（fel 进度模态）。
+  @State plannerSheetOpen: boolean = false;
+  @State plannerWeekStartKey: string = 'monday';
+  @State plannerCoverIndex: number = 0;
+  @State plannerCreating: boolean = false;
   @State multiShareFormat: string = 'pdf';
   @State multiShareIncludeBackground: boolean = false;
   @State multiShareIncludeRecording: boolean = true;
@@ -605,8 +615,9 @@ struct LibraryPage {
               newMap.set(noteId, oldPixelMap);
               break;
             }
+            // 原版 d7b 封面元素渲染：iw2 预设与 y1d 计划本封面共用一槽。
             const coverPreset: NoteCoverPreset | null =
-              coverKey === undefined ? null : findNoteCoverPreset(coverKey);
+              coverKey === undefined ? null : findAnyNoteCover(coverKey);
             if (coverPreset !== null) {
               // 原版：封面元素媒体渲染库卡片；Harmony 光栅 covers/<key>.pdf 首页。
               unpublishedPixelMap = await loadNoteCoverThumb(
@@ -2470,6 +2481,10 @@ struct LibraryPage {
         this.multiSharePasswordMismatch = false;
       }
     })
+    .bindSheet(this.plannerSheetOpen, this.PlannerConfigSheet(), {
+      height: SheetSize.LARGE,
+      showClose: false,
+    })
     .bindContentCover(this.docScanOpen, this.DocScanCover(), {
       // VisionKit 约束：扫描界面不得被其他组件遮挡——全屏 cover 独占；
       // 向下滑动关闭等同用户取消。
@@ -2531,6 +2546,10 @@ struct LibraryPage {
           this.HomeNoteSection($r('app.string.home_recent_notes_title'),
             this.viewModel.homeRecents)
         }
+        // 原版 a1n.d f8m.d + hel.c：getting-started 面 "Planners" 分区
+        // （1.4.2 仅 academic_planner_2026_2027 一项；cell = 首个 y1d 封面
+        // drawable + planner 标题）。点击 → x2n.c 配置 sheet。
+        this.HomePlannerSection()
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
@@ -2595,6 +2614,44 @@ struct LibraryPage {
       .scrollable(ScrollDirection.Horizontal)
       .scrollBar(BarState.Off)
       .margin({ top: 12 })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .margin({ top: 32 })
+  }
+
+  // 原版 hel.c/hel.a 计划本 cell：封面 drawable 预览（y1d.b().G →
+  // 首个 webp）+ 计划本标题；卡片宽度与 NoteCard 行一致（160vp）。
+  @Builder
+  private HomePlannerSection() {
+    Column() {
+      Text($r('app.string.planners_title'))
+        .fontSize(17)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.resolveTokens().textPrimary)
+      Column() {
+        Image($rawfile('planners/cover_0.webp'))
+          .width(160)
+          .height(200)
+          .objectFit(ImageFit.Cover)
+          .borderRadius(12)
+        Text(ACADEMIC_PLANNER.titleRes)
+          .fontSize(13)
+          .fontColor(this.resolveTokens().textPrimary)
+          .margin({ top: 8 })
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      .width(160)
+      .alignItems(HorizontalAlign.Start)
+      .margin({ top: 12 })
+      .enabled(!this.createBusy)
+      .onClick(() => {
+        // 原版 ywa.onSelectPlanner → d2d(cover=首个, weekStart=MONDAY) 默认值。
+        this.plannerWeekStartKey = 'monday';
+        this.plannerCoverIndex = 0;
+        this.plannerSheetOpen = true;
+      })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
@@ -3327,6 +3384,203 @@ struct LibraryPage {
   // 页范围行整体隐藏（dih.a/h 的 e() 分派被 v6d.a 短路）；
   // PDF=dih.h 余下行（双开关 + 密码行）、NOTE=dih.d（录音开关）、
   // JPG/PNG=dih.a 余下行（背景开关）、LINK=dih.b（账号域，fail-closed）。
+  // 原版 x2n.c + hel.b 计划本配置屏：返回钮 + 标题 + qmm 周起点分段行
+  // + ne9.d 封面格（hel.d cell：webp 预览 + 名字 + 选中态）+ wuh.CREATE
+  // "Create" CTA；创建期间 fel 模态进度（禁用返回、吞点击）。
+  @Builder
+  PlannerConfigSheet() {
+    Column() {
+      if (this.plannerCreating) {
+        // 原版 fel：模态进度卡 "Creating your planner note"。
+        Column() {
+          LoadingProgress()
+            .width(40)
+            .height(40)
+          Text($r('app.string.creating_planner_note'))
+            .fontSize(15)
+            .fontColor(this.resolveTokens().textPrimary)
+            .margin({ top: 16 })
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+      } else {
+        // 标题行（x2n.c 顶栏：back + 计划本名）。
+        Row() {
+          Button() {
+            ToolGlyph({
+              glyph: 'chevron_left',
+              contentColor: this.resolveTokens().textPrimary,
+              iconSize: 22,
+            })
+          }
+          .width(40)
+          .height(40)
+          .backgroundColor(Color.Transparent)
+          .accessibilityText($r('app.string.back'))
+          .onClick(() => {
+            this.plannerSheetOpen = false;
+          })
+          Text(ACADEMIC_PLANNER.titleRes)
+            .fontSize(17)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.resolveTokens().textPrimary)
+            .layoutWeight(1)
+            .textAlign(TextAlign.Center)
+          Blank().width(40)
+        }
+        .width('100%')
+        .margin({ top: 4 })
+        // hel.b 上半段：qmm 周起点分段（e2d.J 全量枚举序渲染）。
+        Row() {
+          ForEach(PLANNER_WEEK_STARTS, (start: PlannerWeekStart) => {
+            Column() {
+              Text(start.nameRes)
+                .fontSize(14)
+                .fontColor(this.plannerWeekStartKey === start.key
+                  ? this.resolveTokens().onAccent
+                  : this.resolveTokens().textPrimary)
+            }
+            .height(36)
+            .layoutWeight(1)
+            .justifyContent(FlexAlign.Center)
+            .borderRadius(18)
+            .backgroundColor(this.plannerWeekStartKey === start.key
+              ? this.resolveTokens().accent
+              : this.resolveTokens().surface)
+            .margin({ left: 4, right: 4 })
+            .onClick(() => {
+              this.plannerWeekStartKey = start.key;
+            })
+          }, (start: PlannerWeekStart): string => start.key)
+        }
+        .width('100%')
+        .margin({ top: 20, left: 8, right: 8 })
+        // hel.b 下半段：ne9.d 封面格（y1d.J 枚举序，2×2）。
+        Grid() {
+          ForEach(PLANNER_COVERS, (cover: PlannerCover) => {
+            GridItem() {
+              Column() {
+                Image($rawfile(cover.rawfilePath))
+                  .width(120)
+                  .height(150)
+                  .objectFit(ImageFit.Cover)
+                  .borderRadius(10)
+                  .border({
+                    width: this.plannerCoverIndex === cover.index ? 2 : 0,
+                    color: this.resolveTokens().accent,
+                    radius: 10,
+                  })
+                Text(cover.nameRes)
+                  .fontSize(13)
+                  .fontColor(this.resolveTokens().textPrimary)
+                  .margin({ top: 6 })
+              }
+              .alignItems(HorizontalAlign.Center)
+              .margin({ top: 12 })
+              .onClick(() => {
+                this.plannerCoverIndex = cover.index;
+              })
+            }
+          }, (cover: PlannerCover): string => `${cover.index}`)
+        }
+        .columnsTemplate('1fr 1fr')
+        .width('100%')
+        .layoutWeight(1)
+        .margin({ top: 8 })
+        // x2n.f wuh.CREATE —— "Create" 全宽 CTA。
+        Button($r('app.string.planner_create'))
+          .width('100%')
+          .height(48)
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.resolveTokens().onAccent)
+          .backgroundColor(this.resolveTokens().accent)
+          .borderRadius(24)
+          .margin({ top: 8 })
+          .onClick(() => {
+            this.createPlannerNote().catch((e: Error) => {
+              console.error(`planner create failed: ${JSON.stringify(e)}`);
+            });
+          })
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ left: 20, right: 20, bottom: 24 })
+    .backgroundColor(this.resolveTokens().background)
+  }
+
+  // 原版 b13/a2d + c13.d：读 planners/<id>-<segment>.pdf 进导入管线 →
+  // 物化单篇笔记 → 封面元素 = 所选 y1d（w95 case3 谓词把其它封面筛出
+  // 候选池，等价于指定所选封面）；失败走 kan snackbar。
+  private async createPlannerNote(): Promise<void> {
+    if (!this.pageActive || this.viewModel === null || this.createBusy ||
+      this.plannerCreating) {
+      return;
+    }
+    let weekStart: PlannerWeekStart = PLANNER_WEEK_STARTS[0];
+    for (const start of PLANNER_WEEK_STARTS) {
+      if (start.key === this.plannerWeekStartKey) {
+        weekStart = start;
+        break;
+      }
+    }
+    let cover: PlannerCover = PLANNER_COVERS[0];
+    for (const item of PLANNER_COVERS) {
+      if (item.index === this.plannerCoverIndex) {
+        cover = item;
+        break;
+      }
+    }
+    const lifecycleGeneration: number = this.lifecycleGeneration;
+    this.createBusy = true;
+    this.plannerCreating = true;
+    const vm: LibraryViewModel = this.viewModel;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      // 原版 a2d：planners/<id>-<e2d.F>.pdf 资产读出；strN=<标题>.pdf
+      // 作为导入文件名使标题落到计划本名。
+      const title: string = context.resourceManager.getStringSync(
+        ACADEMIC_PLANNER.titleRes.id);
+      const bytes: Uint8Array = await context.resourceManager
+        .getRawFileContent(plannerPdfPath(ACADEMIC_PLANNER, weekStart));
+      const importer: NoteImporter = new NoteImporter(this.db, this.persistence);
+      const report: ImportReport = await importer.importBundledPdfFromBytes(
+        bytes, `${title}.pdf`);
+      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+        this.viewModel !== vm) {
+        return;
+      }
+      if (report.noteId === null) {
+        // 原版 kan：planner_failed snackbar。
+        promptAction.showToast({ message: $r('app.string.planner_failed') });
+        return;
+      }
+      if (this.noteRepo !== null) {
+        await this.noteRepo.setNoteCoverPreset(report.noteId, cover.presetKey);
+      }
+      await vm.loadNotes(this.searchText);
+      this.refreshRecentCardFeed();
+      this.plannerSheetOpen = false;
+      if (lifecycleGeneration !== this.lifecycleGeneration || !this.pageActive ||
+        this.viewModel !== vm) {
+        return;
+      }
+      this.notes = vm.getFilteredNotes().slice();
+      await router.pushUrl({ url: 'ui/editor/NotePage',
+        params: { noteId: report.noteId } });
+    } catch (e) {
+      if (lifecycleGeneration === this.lifecycleGeneration && this.pageActive) {
+        promptAction.showToast({ message: $r('app.string.planner_failed') });
+        console.error(`planner create failed: ${JSON.stringify(e)}`);
+      }
+    } finally {
+      this.createBusy = false;
+      this.plannerCreating = false;
+    }
+  }
+
   @Builder
   MultiShareSheet() {
     Column() {

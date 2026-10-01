@@ -352,6 +352,14 @@ export class NoteImporter {
       passwordPrompt);
   }
 
+  // 原版 a2d.a/b13：计划本资产走同一 PDF 导入管线物化单篇笔记——
+  // 调用方传入 rawfile 字节 + "<计划本标题>.pdf" 文件名，标题经
+  // pdfImportTitle 剥扩展名落定（与 sv5 CreateSingleNewNote 同语义）。
+  async importBundledPdfFromBytes(data: Uint8Array, fileName: string,
+    passwordPrompt?: PdfPasswordPrompt): Promise<ImportReport> {
+    return await this.importPdfFromBytes(data, fileName, passwordPrompt);
+  }
+
   // 原版 u49/mw3 空笔记动作面 Scan 卡（ac4.a0）：扫描产物 uri（PDF）
   // 并入当前打开的笔记（qv5 AddToExistingNote 语义），不新建笔记。
   async importScannedIntoNote(noteId: string, uris: string[],

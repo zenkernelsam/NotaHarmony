@@ -86,7 +86,9 @@ check(page.includes('setNoteCoverPreset') && page.includes('noteCoverPresetKey =
 check(page.includes('noteCoverPresetKey = note.coverPreset'), '加载期种子');
 
 // ── 库卡片渲染 ──
-check(library.includes('coverByNoteId') && library.includes('findNoteCoverPreset'),
+// Phase 1406：渲染路径改走 findAnyNoteCover（iw2 预设 ∪ y1d 计划本封面），
+// findNoteCoverPreset 仍服务选择器。
+check(library.includes('coverByNoteId') && library.includes('findAnyNoteCover'),
   '库卡片封面查询');
 check(library.includes('|cover:'), 'revision 并入封面键击穿缓存');
 check(library.includes('loadNoteCoverThumb'), 'covers PDF 光栅');

@@ -37,6 +37,10 @@ function coverWriteFully(path: string, data: Uint8Array): void {
   }
 }
 
+// 原版封面源形态：iw2 预设=covers/<key>.pdf（PDF 光栅）；
+// Phase 1406 y1d 计划本封面=ui_planners__cover_*_N.webp（图像解码）。
+export type NoteCoverSourceKind = 'pdf' | 'image';
+
 export interface NoteCoverPreset {
   // 原版 iw2.F —— covers/<key>.pdf asset 键（同时作持久化 preset 键）。
   key: string;
@@ -44,30 +48,46 @@ export interface NoteCoverPreset {
   nameRes: Resource;
   // rawfile 路径。
   rawfilePath: string;
+  // 原版预设均为 PDF；计划本封面（y1d webp）以 planner_* 键走 image 分支。
+  kind: NoteCoverSourceKind;
 }
 
 // 原版 iw2.K 枚举序。
 export const NOTE_COVER_PRESETS: NoteCoverPreset[] = [
   { key: 'orange', nameRes: $r('app.string.note_cover_preset_orange'),
-    rawfilePath: 'covers/orange.pdf' },
+    rawfilePath: 'covers/orange.pdf', kind: 'pdf' },
   { key: 'sage', nameRes: $r('app.string.note_cover_preset_sage'),
-    rawfilePath: 'covers/sage.pdf' },
+    rawfilePath: 'covers/sage.pdf', kind: 'pdf' },
   { key: 'stickers', nameRes: $r('app.string.note_cover_preset_stickers'),
-    rawfilePath: 'covers/stickers.pdf' },
+    rawfilePath: 'covers/stickers.pdf', kind: 'pdf' },
   { key: 'logo-pattern', nameRes: $r('app.string.note_cover_preset_logo_pattern'),
-    rawfilePath: 'covers/logo-pattern.pdf' },
+    rawfilePath: 'covers/logo-pattern.pdf', kind: 'pdf' },
   { key: 'brown', nameRes: $r('app.string.note_cover_preset_brown'),
-    rawfilePath: 'covers/brown.pdf' },
+    rawfilePath: 'covers/brown.pdf', kind: 'pdf' },
   { key: 'maroon', nameRes: $r('app.string.note_cover_preset_maroon'),
-    rawfilePath: 'covers/maroon.pdf' },
+    rawfilePath: 'covers/maroon.pdf', kind: 'pdf' },
   { key: 'blue', nameRes: $r('app.string.note_cover_preset_blue'),
-    rawfilePath: 'covers/blue.pdf' },
+    rawfilePath: 'covers/blue.pdf', kind: 'pdf' },
   { key: 'yellow', nameRes: $r('app.string.note_cover_preset_yellow'),
-    rawfilePath: 'covers/yellow.pdf' },
+    rawfilePath: 'covers/yellow.pdf', kind: 'pdf' },
   { key: 'purple-journal', nameRes: $r('app.string.note_cover_preset_purple_journal'),
-    rawfilePath: 'covers/purple-journal.pdf' },
+    rawfilePath: 'covers/purple-journal.pdf', kind: 'pdf' },
   { key: 'blue-journal', nameRes: $r('app.string.note_cover_preset_blue_journal'),
-    rawfilePath: 'covers/blue-journal.pdf' },
+    rawfilePath: 'covers/blue-journal.pdf', kind: 'pdf' },
+];
+
+// Phase 1406 原版 y1d 计划本封面（4 款 webp drawable，按序号入册）。
+// 仅作 cover_preset 渲染源 —— 不进入 ebn 预设选择器（原版选择器同样
+// 只列 iw2 十款）。
+export const PLANNER_COVER_PRESETS: NoteCoverPreset[] = [
+  { key: 'planner_0', nameRes: $r('app.string.planner_cover_pinstripe'),
+    rawfilePath: 'planners/cover_0.webp', kind: 'image' },
+  { key: 'planner_1', nameRes: $r('app.string.planner_cover_lattice'),
+    rawfilePath: 'planners/cover_1.webp', kind: 'image' },
+  { key: 'planner_2', nameRes: $r('app.string.planner_cover_scallop'),
+    rawfilePath: 'planners/cover_2.webp', kind: 'image' },
+  { key: 'planner_3', nameRes: $r('app.string.planner_cover_arches'),
+    rawfilePath: 'planners/cover_3.webp', kind: 'image' },
 ];
 
 export function findNoteCoverPreset(key: string | null | undefined):
@@ -83,12 +103,60 @@ export function findNoteCoverPreset(key: string | null | undefined):
   return null;
 }
 
+// 原版库卡片解析（d7b 封面元素渲染）：cover_preset 命中 iw2 预设或
+// y1d 计划本封面均可渲染 —— 合并查找，选择器仍只用 findNoteCoverPreset。
+export function findAnyNoteCover(key: string | null | undefined):
+  NoteCoverPreset | null {
+  const preset: NoteCoverPreset | null = findNoteCoverPreset(key);
+  if (preset !== null) {
+    return preset;
+  }
+  if (key === null || key === undefined) {
+    return null;
+  }
+  for (const cover of PLANNER_COVER_PRESETS) {
+    if (cover.key === key) {
+      return cover;
+    }
+  }
+  return null;
+}
+
+// 原版 y1d 封面为图像 drawable：rawfile webp 经 ImageSource 解码为
+// PixelMap（与 PDF 分支同一缩略图汇流点）。
+async function loadImageCoverThumb(context: common.UIAbilityContext,
+  rawfilePath: string): Promise<image.PixelMap | null> {
+  let source: image.ImageSource | null = null;
+  try {
+    const bytes: Uint8Array = await context.resourceManager.getRawFileContent(
+      rawfilePath);
+    const buffer: ArrayBuffer = bytes.buffer.slice(bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    source = image.createImageSource(buffer);
+    return await source.createPixelMap();
+  } catch (error) {
+    console.warn(`planner cover thumb decode failed: ${JSON.stringify(error)}`);
+    return null;
+  } finally {
+    if (source !== null) {
+      try {
+        source.release();
+      } catch (_releaseError) {
+      }
+    }
+  }
+}
+
 // 原版 d7b.b → lw2.b.b(bpj, "covers/<F>.pdf") 读取 + rs case6 SHA-512 摘要：
 // 原版把封面 PDF 导入 CAS；Harmony preset 面直接以 rawfile 光栅渲染/持久化
 // preset 键（自定义上传 ew2 面 fail-closed，见 ADR-1341）。
 export async function loadNoteCoverThumb(
   context: common.UIAbilityContext, database: DatabaseManager,
   preset: NoteCoverPreset): Promise<image.PixelMap | null> {
+  if (preset.kind === 'image') {
+    // Phase 1406 y1d 计划本封面 —— webp 图像解码，无 PDF 暂存。
+    return await loadImageCoverThumb(context, preset.rawfilePath);
+  }
   const pendingDirectory: string = database.getFilesDir() + '/assets/pending';
   const stagingPath: string = pendingDirectory +
     `/cover_thumb_${Date.now()}_${Math.floor(Math.random() * 0x1000000)}.pdf`;
