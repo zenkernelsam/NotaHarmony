@@ -361,6 +361,18 @@ export class StrokeClipboard {
       this.imageSnapshots.length > 0 || this.mathSnapshots.length > 0;
   }
 
+  // 原版 ot2.b() = pt2.a：剪贴板负载原界（copy/cut/duplicate 构建
+  // lt2 时记录的 jt2.b）——Ctrl+V 锚点 = 该界中心 + min(w*0.1,30)，
+  // 越屏回退视口中心；null ≡ 原版 jt2==null → qc8 空事件。
+  payloadBounds(): Rect2D | null {
+    if (!this.hasContent()) {
+      return null;
+    }
+    const bounds: Rect2D = this.unionBounds();
+    return Number.isFinite(bounds.left) && Number.isFinite(bounds.top) &&
+      bounds.right >= bounds.left && bounds.bottom >= bounds.top ? bounds : null;
+  }
+
   size(): number {
     return this.snapshots.length + this.shapeSnapshots.length + this.textSnapshots.length +
       this.imageSnapshots.length + this.mathSnapshots.length;

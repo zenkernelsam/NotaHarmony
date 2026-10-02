@@ -5919,16 +5919,38 @@ export struct NoteCanvasView {
         }
         return true;
       }
-      // Ctrl+V / Ctrl+Alt+V（qc8）或专用 PASTE 键 → 视口中心定位粘贴。
+      // Ctrl+V / Ctrl+Alt+V（qc8 支同域）或专用 PASTE 键 → m86 粘贴。
+      // 原版 f2:183-210：jt2=ot2.b()=pt2.a 负载原界（null→qc8 no-op
+      // ≡ clipboardAvailable/空负载门）；锚点 = u64.b(jt2.b) 负载中心 +
+      // min((c−a)*0.1, 30) 双轴等值（与当前选区无关）；屏坐标 zx7.z
+      // 半开检查越出视口 → exj.c() 视口中心回退。
       if ((ctrl && event.keyCode === ORIGIN_KEYCODE_V) ||
         event.keyCode === ORIGIN_KEYCODE_PASTE) {
         if (isUp && this.clipboardAvailable) {
-          const center: Point2D = this.viewport.screenToCanvas(
-            this.canvasCtx.width / 2, this.canvasCtx.height / 2);
-          if (Number.isFinite(center.x) && Number.isFinite(center.y)) {
-            this.clipboardPasteTarget = center;
+          const payload: Rect2D | null = this.strokeClipboard.payloadBounds();
+          let target: Point2D | null = null;
+          if (payload !== null) {
+            const payloadW: number = payload.right - payload.left;
+            const nudge: number = payloadW > 0 ?
+              Math.min(payloadW * 0.1, 30) : 30;
+            const cx: number = (payload.left + payload.right) / 2 + nudge;
+            const cy: number = (payload.top + payload.bottom) / 2 + nudge;
+            const targetScreen: Point2D = this.viewport.canvasToScreen(cx, cy);
+            // zx7.z 半开包含：目标落在视口屏矩形内才用负载锚。
+            if (Number.isFinite(targetScreen.x) && Number.isFinite(targetScreen.y) &&
+              targetScreen.x >= 0 && targetScreen.x < this.canvasCtx.width &&
+              targetScreen.y >= 0 && targetScreen.y < this.canvasCtx.height) {
+              target = { x: cx, y: cy };
+            }
           }
-          this.onSelectionMenuAction(SelectionMenuAction.PASTE);
+          if (target === null) {
+            target = this.viewport.screenToCanvas(
+              this.canvasCtx.width / 2, this.canvasCtx.height / 2);
+          }
+          if (target !== null && Number.isFinite(target.x) &&
+            Number.isFinite(target.y)) {
+            this.pasteClipboard(target);
+          }
         }
         return true;
       }
