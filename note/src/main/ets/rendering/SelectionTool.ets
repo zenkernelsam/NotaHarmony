@@ -142,13 +142,15 @@ export class SelectionTool {
   }
 
   // 更新选区（touchMove）
+  // 原版 hsf.a：lasso/rect 共用指针轨迹追踪器——矩形模式下轨迹=指针
+  // 原始路径（gsf.d 对两模式同轨描边）。lassoPoints 即 hsf.a；
+  // rect 仍供命中判定/drawnBounds。
   updateSelection(currentPoint: Point2D): void {
     if (!this.state.isActive) {
       return;
     }
-    if (this.state.mode === SelectionMode.LASSO) {
-      this.state.lassoPoints.push(currentPoint);
-    } else if (this.state.rect !== null) {
+    this.state.lassoPoints.push(currentPoint);
+    if (this.state.mode !== SelectionMode.LASSO && this.state.rect !== null) {
       this.state.rect = {
         left: Math.min(this.state.rect.left, currentPoint.x),
         top: Math.min(this.state.rect.top, currentPoint.y),

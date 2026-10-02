@@ -10,13 +10,18 @@
 //   sen.java:t — isf 轮廓 = gsf.g(a 界) + gsf.d(k 轨迹, close, c 色) ghost。
 // Harmony：进行中轨迹画布绘制（蚂蚁线相位 ticker）；完成态 ghost 静态
 //   呈现；overlay 界按来源实/虚线 + deselectMode 降透明。
+// Phase 1452 纠偏：hsf.a 为 lasso/rect 共用指针轨迹追踪器——矩形模式
+//   进行中同样描边原始拖行轨迹（lassoPoints 两模式逐点记录），不再画
+//   矩形轮廓；完成态 ghost 亦不限 lasso。
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert';
 
 const CANVAS = 'note/src/main/ets/ui/editor/NoteCanvasView.ets';
 const OVERLAY = 'note/src/main/ets/ui/components/SelectionOverlay.ets';
+const TOOL = 'note/src/main/ets/rendering/SelectionTool.ets';
 const canvas = readFileSync(CANVAS, 'utf8').replace(/\r\n/g, '\n');
 const overlay = readFileSync(OVERLAY, 'utf8').replace(/\r\n/g, '\n');
+const tool = readFileSync(TOOL, 'utf8').replace(/\r\n/g, '\n');
 
 let n = 0;
 const check = (cond, msg) => { assert(cond, msg); n++; };
@@ -33,16 +38,36 @@ check(canvas.includes('SELECTION_DASH_PERIOD_MS: number = 600'),
 const trail = canvas.slice(canvas.indexOf('private renderSelectionGestureTrail('),
   canvas.indexOf('private renderSelectionTrailGhost('));
 check(trail.includes('this.selectionDrawing') &&
-  trail.includes('state.mode === SelectionMode.LASSO'),
-  'in-progress trail gated on selectionDrawing, lasso path branch');
+  trail.includes('const pts: Point2D[] = state.lassoPoints'),
+  'in-progress trail gated on selectionDrawing, pointer-track source');
 check(trail.includes('this.canvasCtx.setLineDash([dash, dash])') &&
   trail.includes('9.0 / zoom') && trail.includes('4.0 / zoom'),
   'trail stroke = 4dp/zoom dashed 9dp/zoom (gsf.d t1h)');
 check(trail.includes('this.canvasCtx.lineDashOffset = -this.selectionDashPhase * dash * 2'),
   'trail dash offset = f12 = (9/zoom)*2*phase marching');
-check(trail.includes('state.lassoPoints') &&
-  trail.includes('state.rect.left'),
-  'lasso trail path + rectangle outline branch');
+// Phase 1452：hsf.a 指针轨迹两模式共用——不再有矩形轮廓分支
+check(!trail.includes('state.rect') && !trail.includes('closePath()'),
+  'in-progress trail draws raw pointer track for both modes (hsf.a)');
+
+// --- Phase 1452：lassoPoints = hsf.a 共用追踪器（rect 模式同样逐点） ---
+const upd = tool.slice(tool.indexOf('updateSelection(currentPoint: Point2D)'),
+  tool.indexOf('updateSelection(currentPoint: Point2D)') + 900);
+check(upd.includes('this.state.lassoPoints.push(currentPoint);'),
+  'rect mode also records pointer track points into lassoPoints (hsf.a)');
+check(upd.includes('this.state.mode !== SelectionMode.LASSO && this.state.rect !== null'),
+  'rect bounds still maintained for hit-test/drawnBounds');
+// 命中/绘制界消费方仍按模式门控：rect 模式用 rect 界，不读轨迹点集
+check(tool.includes('if (this.state.mode === SelectionMode.RECTANGLE) {\n      return this.state.rect;'),
+  'drawnBounds stays rect-sourced in rectangle mode');
+check(tool.includes('this.state.mode === SelectionMode.RECTANGLE') &&
+  tool.includes('this.pointInPolygon({ x: cx, y: cy }, this.state.lassoPoints)'),
+  'lasso hit-test path still only used for lasso mode');
+// ghost 不再限 lasso：矩形绘制选区的 isf.k 同样是指针轨迹
+const ghostGate = canvas.slice(canvas.indexOf('private renderSelectionTrailGhost('),
+  canvas.indexOf('private renderSelectionTrailGhost(') + 700);
+check(!ghostGate.includes('SelectionMode.LASSO') &&
+  ghostGate.includes('state.lassoPoints.length < 3'),
+  'trail ghost renders drawn path for rect-drawn selections too (isf.k)');
 
 // --- 相位 ticker：手势期 ~30fps 驱动 renderFrame ---
 const ticker = canvas.slice(canvas.indexOf('private startSelectionDashTicker('),

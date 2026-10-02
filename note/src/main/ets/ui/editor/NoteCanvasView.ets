@@ -2972,9 +2972,9 @@ export struct NoteCanvasView {
 
   // 原版 sen:1051 → gsf.d(hsf.j(), zoom, open, f12)：进行中选区手势绘制
   // 指针轨迹的蚂蚁线虚线（4dp/zoom 描边、9dp/zoom 虚线、相位=f12）。
-  // 矩形模式原版同样走 hsf.a 轨迹——Harmony 矩形呈现为当前 rect 轮廓
-  //（语义等价：同一蚂蚁线描边勾勒选区范围；轨迹直线仅含起止对角线，
-  //  矩形轮廓对用户意图表达更清晰，差异登记于 phase-1447 证据）。
+  // hsf.a 为 lasso/rect 共用指针轨迹追踪器——矩形模式同样画原始拖行
+  // 轨迹（斜线/曲线），非矩形轮廓（Phase 1452 纠偏：lassoPoints 两模式
+  // 均逐点记录，等同 hsf.a；rect 仅供命中与 drawnBounds）。
   private renderSelectionGestureTrail(): void {
     if (!this.selectionDrawing || this.isTextOnly) {
       return;
@@ -2989,24 +2989,13 @@ export struct NoteCanvasView {
       this.canvasCtx.setLineDash([dash, dash]);
       this.canvasCtx.lineDashOffset = -this.selectionDashPhase * dash * 2;
       this.canvasCtx.beginPath();
-      if (state.mode === SelectionMode.LASSO) {
-        const pts: Point2D[] = state.lassoPoints;
-        if (pts.length < 2) {
-          return;
-        }
-        this.canvasCtx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) {
-          this.canvasCtx.lineTo(pts[i].x, pts[i].y);
-        }
-      } else {
-        if (state.rect === null) {
-          return;
-        }
-        this.canvasCtx.moveTo(state.rect.left, state.rect.top);
-        this.canvasCtx.lineTo(state.rect.right, state.rect.top);
-        this.canvasCtx.lineTo(state.rect.right, state.rect.bottom);
-        this.canvasCtx.lineTo(state.rect.left, state.rect.bottom);
-        this.canvasCtx.closePath();
+      const pts: Point2D[] = state.lassoPoints;
+      if (pts.length < 2) {
+        return;
+      }
+      this.canvasCtx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) {
+        this.canvasCtx.lineTo(pts[i].x, pts[i].y);
       }
       this.canvasCtx.stroke();
     } finally {
@@ -3018,12 +3007,14 @@ export struct NoteCanvasView {
   // close=true, phase) —— 32% 透明闭合蚂蚁线轨迹 ghost（gsf.c=a@0.32）。
   // Harmony 静态呈现（相位 0 不行进；提交态动画对常驻选区的空转重绘
   // 代价过大，适配差异登记 ADR-1382）。
+  // Phase 1452：lassoPoints 矩形模式下亦=hsf.a 指针轨迹 → ghost 不限
+  // lasso（矩形绘制选区的 isf.k 同为指针轨迹）。
   private renderSelectionTrailGhost(): void {
     if (!this.selectionVisible || this.selectionDrawing || this.isTextOnly) {
       return;
     }
     const state: SelectionState = this.selectionTool.getState();
-    if (state.mode !== SelectionMode.LASSO || state.lassoPoints.length < 3) {
+    if (state.lassoPoints.length < 3) {
       return;
     }
     const zoom: number = this.viewport.zoom;
