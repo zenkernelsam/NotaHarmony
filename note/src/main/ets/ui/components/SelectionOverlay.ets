@@ -51,6 +51,8 @@ export struct SelectionOverlay {
   @Prop lockedOnly: boolean = false;
   @Prop menuEnabled: boolean = true;
   @Prop deselectMode: boolean = false;
+  // 原版 gsf.g：isf.k（绘制轨迹）非空 → 实线界；程序化集合 → 虚线界。
+  @Prop selectionDrawn: boolean = false;
   @Prop photoImportLeaseActive: boolean = false;
   @Prop containerWidth: number = 0;
   @Prop containerHeight: number = 0;
@@ -66,12 +68,20 @@ export struct SelectionOverlay {
   build() {
     Stack() {
       if (this.visible) {
-        // 虚线边框（Stack 内用 border 模拟；展示类，无原生等价物，保留自绘）
+        // 原版 gsf.g/sen.t 界式样：绘制型选区（isf.k 轨迹非空）→ 实线
+        // 2dp 界；程序化集合（k=null：粘贴/全选）→ 4dp 虚线界；固定色
+        // #FF4278FF（qxk.e(4282546431)，不随主题）；deselectMode（isf.h）
+        // → gsf.c = a@0.32 降色。
         Stack()
           .width(this.selectionRect.right - this.selectionRect.left)
           .height(this.selectionRect.bottom - this.selectionRect.top)
           .position({ x: this.selectionRect.left, y: this.selectionRect.top })
-          .border({ width: 1.5, color: this.resolveTokens().accent, style: BorderStyle.Dashed })
+          .border({
+            width: this.selectionDrawn ? 2 : 4,
+            color: '#FF4278FF',
+            style: this.selectionDrawn ? BorderStyle.Solid : BorderStyle.Dashed,
+          })
+          .opacity(this.deselectMode ? 0.32 : 1.0)
         // 原版选区覆盖层角柄（htc.e/qpi.b 自由变换入口）：四角圆点 +
         // 顶边上方旋转柄（msc.c selectionHasRotationHandle）。
         // 命中由 NoteCanvasView.onTouchDown 判定（装饰性，不拦截）。

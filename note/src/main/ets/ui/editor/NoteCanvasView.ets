@@ -247,6 +247,15 @@ const ORIGINAL_CREATE_INK_PAYLOAD_TYPE: number = 15;
 const ORIGINAL_MATH_EDITOR_PREVIEW_WIDTH_VP: number = 280;
 const ORIGINAL_MATH_EDITOR_PREVIEW_HEIGHT_VP: number = 96;
 const ORIGINAL_MATH_EDITOR_PREVIEW_PIXEL_SCALE: number = 1;
+// 原版 sen:513 selection-dash 相位动画：infiniteRepeatable 600ms 线性 0→1，
+// f12=(9/zoom)*2*phase 为虚线相位偏移（蚂蚁线行进）。Harmony 以 ~30fps
+// ticker 驱动同周期相位（进行中手势期间有效，手势结束即停）。
+const SELECTION_DASH_PERIOD_MS: number = 600;
+const SELECTION_DASH_TICK_MS: number = 33;
+// gsf.d/gsf.g：选区描边 4dp/zoom、虚线间隔 9dp/zoom、色 #FF4278FF
+//（qxk.e(4282546431)）；gsf.c = a@0.32 为 deselectMode 降色与轨迹 ghost。
+const SELECTION_OUTLINE_COLOR: string = '#FF4278FF';
+const SELECTION_OUTLINE_DIM_ALPHA: number = 0.32;
 // Phase 754：原版 fgg.b njj.d 画布卡高 272dp（控制条 wfg 48dp 为兄弟节点另计）
 const ZOOM_SURFACE_HEIGHT_VP: number = 272;
 // === Phase 750 Zoom 源窗口覆盖层（原版 gfg/dfg/bfg）===
@@ -498,6 +507,9 @@ export struct NoteCanvasView {
   private isDrawing: boolean = false;
   private eraserActive: boolean = false;
   private selectionDrawing: boolean = false;
+  // 原版 sen:513 selection-dash 蚂蚁线相位（进行中手势期间 ticker 驱动）。
+  private selectionDashPhase: number = 0;
+  private selectionDashTimer: number = -1;
   private selectionDrag: boolean = false;
   // 原版 ycj.e 选择面拖拽检测器（is7.onStartDrag/onTouchSlopReached/
   // onDragMove/onResetDrag + vo2 收尾）：awaitTouchSlopOrCancellation 语义，
@@ -606,6 +618,10 @@ export struct NoteCanvasView {
   @State selectionCanReorder: boolean = false;
   @State selectionPositionLocked: boolean = false;
   @State selectionLockedOnly: boolean = false;
+  // 原版 gsf.g 界式样：isf.k（轨迹）非空的绘制型选区 → 实线 2dp 界；
+  // 程序化集合（粘贴/全选等，k=null）→ 4dp 虚线界。drawnRect 非空为
+  // Harmony 的绘制型标记。
+  @State selectionDrawnSource: boolean = false;
   private imageCropSession: OriginalImageCropSession | null = null;
   @State imageCropVisible: boolean = false;
   @State imageCropDraft: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
@@ -2473,6 +2489,7 @@ export struct NoteCanvasView {
     this.cancelPdfRasterRefresh();
     this.cancelLaserFade();
     this.laserSession.clear();
+    this.stopSelectionDashTicker();
     this.clearEyedropperSampling();
     this.releaseImageAssets();
     this.releasePdfBackground();
@@ -2892,11 +2909,114 @@ export struct NoteCanvasView {
         this.canvasCtx.stroke();
       }
       this.renderLaserOverlay();
+      // 原版 sen 分发块（1045-1052）：选区轮廓在元素层之上画布系内绘制。
+      this.renderSelectionTrailGhost();
+      this.renderSelectionGestureTrail();
     } finally {
       this.canvasCtx.restore();
     }
     // Phase 750 gfg/dfg：ZOOM 源窗口覆盖层（遮罩+描边+把手）绘于屏幕空间。
     this.renderZoomWindowOverlay();
+  }
+
+  // 原版 sen:513 selection-dash 相位 ticker：进行中手势期间 ~30fps 推进
+  // 相位驱动蚂蚁线行进并重绘；手势结束即停（与 infiniteRepeatable
+  // 动画同周期 600ms，但只覆盖进行中段——完成态轮廓动画见 ADR-1382
+  // 适配登记）。
+  private startSelectionDashTicker(): void {
+    if (this.selectionDashTimer !== -1) {
+      return;
+    }
+    this.selectionDashTimer = setInterval((): void => {
+      this.selectionDashPhase =
+        (this.selectionDashPhase + SELECTION_DASH_TICK_MS / SELECTION_DASH_PERIOD_MS) % 1;
+      this.renderFrame();
+    }, SELECTION_DASH_TICK_MS);
+  }
+
+  private stopSelectionDashTicker(): void {
+    if (this.selectionDashTimer !== -1) {
+      clearInterval(this.selectionDashTimer);
+      this.selectionDashTimer = -1;
+    }
+    this.selectionDashPhase = 0;
+  }
+
+  // 原版 sen:1051 → gsf.d(hsf.j(), zoom, open, f12)：进行中选区手势绘制
+  // 指针轨迹的蚂蚁线虚线（4dp/zoom 描边、9dp/zoom 虚线、相位=f12）。
+  // 矩形模式原版同样走 hsf.a 轨迹——Harmony 矩形呈现为当前 rect 轮廓
+  //（语义等价：同一蚂蚁线描边勾勒选区范围；轨迹直线仅含起止对角线，
+  //  矩形轮廓对用户意图表达更清晰，差异登记于 phase-1447 证据）。
+  private renderSelectionGestureTrail(): void {
+    if (!this.selectionDrawing || this.isTextOnly) {
+      return;
+    }
+    const state: SelectionState = this.selectionTool.getState();
+    const zoom: number = this.viewport.zoom;
+    const dash: number = 9.0 / zoom;
+    this.canvasCtx.save();
+    try {
+      this.canvasCtx.strokeStyle = SELECTION_OUTLINE_COLOR;
+      this.canvasCtx.lineWidth = 4.0 / zoom;
+      this.canvasCtx.setLineDash([dash, dash]);
+      this.canvasCtx.lineDashOffset = -this.selectionDashPhase * dash * 2;
+      this.canvasCtx.beginPath();
+      if (state.mode === SelectionMode.LASSO) {
+        const pts: Point2D[] = state.lassoPoints;
+        if (pts.length < 2) {
+          return;
+        }
+        this.canvasCtx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+          this.canvasCtx.lineTo(pts[i].x, pts[i].y);
+        }
+      } else {
+        if (state.rect === null) {
+          return;
+        }
+        this.canvasCtx.moveTo(state.rect.left, state.rect.top);
+        this.canvasCtx.lineTo(state.rect.right, state.rect.top);
+        this.canvasCtx.lineTo(state.rect.right, state.rect.bottom);
+        this.canvasCtx.lineTo(state.rect.left, state.rect.bottom);
+        this.canvasCtx.closePath();
+      }
+      this.canvasCtx.stroke();
+    } finally {
+      this.canvasCtx.restore();
+    }
+  }
+
+  // 原版 sen.t：isf（k=轨迹非空的绘制型选区）叠加 gsf.d(list, zoom,
+  // close=true, phase) —— 32% 透明闭合蚂蚁线轨迹 ghost（gsf.c=a@0.32）。
+  // Harmony 静态呈现（相位 0 不行进；提交态动画对常驻选区的空转重绘
+  // 代价过大，适配差异登记 ADR-1382）。
+  private renderSelectionTrailGhost(): void {
+    if (!this.selectionVisible || this.selectionDrawing || this.isTextOnly) {
+      return;
+    }
+    const state: SelectionState = this.selectionTool.getState();
+    if (state.mode !== SelectionMode.LASSO || state.lassoPoints.length < 3) {
+      return;
+    }
+    const zoom: number = this.viewport.zoom;
+    const dash: number = 9.0 / zoom;
+    const pts: Point2D[] = state.lassoPoints;
+    this.canvasCtx.save();
+    try {
+      this.canvasCtx.globalAlpha = SELECTION_OUTLINE_DIM_ALPHA;
+      this.canvasCtx.strokeStyle = SELECTION_OUTLINE_COLOR;
+      this.canvasCtx.lineWidth = 4.0 / zoom;
+      this.canvasCtx.setLineDash([dash, dash]);
+      this.canvasCtx.beginPath();
+      this.canvasCtx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) {
+        this.canvasCtx.lineTo(pts[i].x, pts[i].y);
+      }
+      this.canvasCtx.closePath();
+      this.canvasCtx.stroke();
+    } finally {
+      this.canvasCtx.restore();
+    }
   }
 
   // 原版 ft0 case 22：tail 段为圆头圆角描边折线（tailAlpha），指针为
@@ -3859,6 +3979,8 @@ export struct NoteCanvasView {
           hilog.info(0x0001, 'NoteCanvasView', 'selection begin at (%{public}f,%{public}f) visible=%{public}s',
             canvasP.x, canvasP.y, this.selectionVisible.toString());
           this.selectionDrawing = true;
+          // sen:513 蚂蚁线相位 ticker——进行中轨迹行进动画。
+          this.startSelectionDashTicker();
           this.selectionTool.beginSelection(
             this.viewModel.selectionIsFreehand ? SelectionMode.LASSO : SelectionMode.RECTANGLE,
             canvasP);
@@ -4080,6 +4202,7 @@ export struct NoteCanvasView {
         (drawnBounds.right - drawnBounds.left <= minSelectionSize ||
           drawnBounds.bottom - drawnBounds.top <= minSelectionSize)) {
         this.selectionDrawing = false;
+        this.stopSelectionDashTicker();
         this.lastSelectionClearTime = Date.now();
         this.selectionTool.deselect();
         this.selectionVisible = false;
@@ -4092,6 +4215,7 @@ export struct NoteCanvasView {
         this.selectionDrawing = false;
         hilog.info(0x0001, 'NoteCanvasView', 'selection finalized, ids=%{public}d strokes=%{public}d',
           ids.length, this.completedStrokes.length);
+        this.stopSelectionDashTicker();
         if (ids.length > 0) {
           this.updateSelectionOverlay();
         } else {
@@ -4284,6 +4408,7 @@ export struct NoteCanvasView {
       this.laserSession.clear();
     }
     this.selectionDrawing = false;
+    this.stopSelectionDashTicker();
     this.selectionDrag = false;
     this.selectionResize = false;
     this.selectionGestureSlopCrossed = false;
@@ -7517,6 +7642,9 @@ export struct NoteCanvasView {
     // 原版 urf：DESELECT 仅 isf（绘制完成/集合程序化选区）装配；
     // lsf 单元素点选与 jsf 组点选均无此行。
     this.selectionCanDeselect = state.supportsDeselectMode;
+    // 原版 gsf.g：isf.k 非空（绘制型）→ 实线界；k=null（程序化集合）→
+    // 蚂蚁线虚线界。
+    this.selectionDrawnSource = state.drawnRect !== null;
     if (state.selectedStrokeIds.length === 0 && state.selectedShapeIds.length === 0 &&
       state.selectedTextBlockIds.length === 0 && state.selectedImageIds.length === 0 &&
       state.selectedMathIds.length === 0 && state.selectedGroupIds.length === 0) {
@@ -11399,6 +11527,7 @@ export struct NoteCanvasView {
           this.loaded && !this.dataLoading && !this.dataLoadFailed &&
           this.loadedPageId === this.currentPage.pageId,
         deselectMode: this.selectionDeselectMode,
+        selectionDrawn: this.selectionDrawnSource,
         photoImportLeaseActive: this.photoImportBusy,
         containerWidth: this.overlayWidth,
         containerHeight: this.overlayHeight,
