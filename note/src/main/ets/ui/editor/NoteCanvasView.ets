@@ -41,8 +41,8 @@ import {
   ORIGIN_KEYCODE_MOVE_HOME, ORIGIN_KEYCODE_P, ORIGIN_KEYCODE_PASTE,
   ORIGIN_KEYCODE_R, ORIGIN_KEYCODE_V, ORIGIN_KEYCODE_X,
   ORIGIN_KEYCODE_Y, ORIGIN_KEYCODE_Z,
-  ORIGIN_KEYCODE_DPAD_DOWN, ORIGIN_KEYCODE_DPAD_LEFT,
-  ORIGIN_KEYCODE_DPAD_RIGHT, ORIGIN_KEYCODE_DPAD_UP,
+  ORIGIN_KEYCODE_DEL, ORIGIN_KEYCODE_DPAD_DOWN, ORIGIN_KEYCODE_DPAD_LEFT,
+  ORIGIN_KEYCODE_DPAD_RIGHT, ORIGIN_KEYCODE_DPAD_UP, ORIGIN_KEYCODE_FORWARD_DEL,
   ORIGIN_KEY_SCROLL_FRACTION, ORIGIN_SELECTION_NUDGE_STEP,
   ORIGIN_ZOOM_IN_KEYCODES, ORIGIN_ZOOM_OUT_KEYCODES,
   ORIGIN_ZOOM_RESET_KEYCODES, ORIGIN_CHORD_DISMISS, matchKeyChord,
@@ -5935,6 +5935,18 @@ export struct NoteCanvasView {
         } else {
           this.onSelectionNudgeKeyDown(event.keyCode);
         }
+        return true;
+      }
+      // f2 兜底链 pa8.O(67=DEL)/pa8.P(112=FORWARD_DEL)：无修饰键门；
+      // UP 且选区非空 → go(bd8,msf) 协程（fq9.c0 批量删除 + ome.a()
+      // 清选，与菜单 wqf.P→urf.E 同一 fq9.c0 核）——复用菜单 DELETE
+      // 管线；DOWN 或无选区 → b2=0 不消费透传。
+      if (event.keyCode === ORIGIN_KEYCODE_DEL ||
+        event.keyCode === ORIGIN_KEYCODE_FORWARD_DEL) {
+        if (!isUp || !this.selectionTool.getState().isActive) {
+          return false;
+        }
+        this.onSelectionMenuAction(SelectionMenuAction.DELETE);
         return true;
       }
     }

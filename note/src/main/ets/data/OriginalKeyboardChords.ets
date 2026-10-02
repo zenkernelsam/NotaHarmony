@@ -154,6 +154,15 @@ export const ORIGIN_KEYCODE_DPAD_RIGHT: number = 2015;
 export const ORIGIN_SELECTION_NUDGE_STEP: number = 2.0;
 export const ORIGIN_KEY_SCROLL_FRACTION: number = 0.1;
 
+// pa8.O = ofk.e(67) = KEYCODE_DEL；pa8.P = ofk.e(112) = KEYCODE_FORWARD_DEL。
+// f2 兜底链（!rsi 门内、!pa8.W 块内）：无修饰键门；UP 且选区非空 →
+// go(bd8,msf) 协程 = wib.a.i0() + fq9.c0(w0g, oag.x2(q9l.a(i4(msf.h()),
+// em4.F×3)), ofj, fm4.F) 批量删除 + ome.a() 清选——与选区菜单 wqf.P
+// (sqf case10 → urf.E → 同一 fq9.c0) 同核；DOWN 或无选区 → b2=0
+// 不消费透传。Harmony 键码：DEL=2055、FORWARD_DEL=2071。
+export const ORIGIN_KEYCODE_DEL: number = 2055;
+export const ORIGIN_KEYCODE_FORWARD_DEL: number = 2071;
+
 // === 帮助表（txm.a → KeyboardShortcutGroup 树，Ctrl+/ qw6 路由内容） ===
 // 原版经系统 KeyboardShortcutHelper 渲染；Harmony 无系统帮助面 →
 // NotePage bindSheet 复刻分组清单（ADR-1358）。分组与条目序 =
