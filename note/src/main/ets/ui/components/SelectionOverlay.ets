@@ -4,8 +4,10 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ThemeTokens, ThemeMode } from '../theme/EditorTheme';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
 import {
-  SELECTION_HANDLE_SIZE, SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH,
-  SELECTION_ROTATE_HANDLE_OFFSET, selectionOverlayPosition,
+  SELECTION_HANDLE_DOT_INNER, SELECTION_HANDLE_DOT_OUTER, SELECTION_HANDLE_SIZE,
+  SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH,
+  SELECTION_ROTATE_DOT_INNER, SELECTION_ROTATE_DOT_OUTER, SELECTION_ROTATE_HANDLE_STEM,
+  selectionOverlayPosition,
 } from './SelectionOverlayLayout';
 
 export enum SelectionMenuAction {
@@ -93,8 +95,9 @@ export struct SelectionOverlay {
             })
             .opacity(this.deselectMode ? 0.32 : 1.0)
         }
-        // 原版选区覆盖层角柄（htc.e/qpi.b 自由变换入口）：四角圆点 +
-        // 顶边上方旋转柄（msc.c selectionHasRotationHandle）。
+        // 原版 gsf.b/e 手柄（htc.e/qpi.b 自由变换入口）：角柄=半径 12dp
+        // 白（p52.e）+半径 10dp 蓝（gsf.a）双层圆；旋转柄=右（RTL 左）边
+        // 中点锚 + 水平茎 56vp 延出 + 半径 16dp 白/14dp #444DE0 端点双层圆。
         // 命中由 NoteCanvasView.onTouchDown 判定（装饰性，不拦截）。
         if (!this.deselectMode && !this.photoImportLeaseActive &&
           !this.selectionHandlesHidden) {
@@ -104,27 +107,45 @@ export struct SelectionOverlay {
             { x: this.selectionRect.right, y: this.selectionRect.bottom },
             { x: this.selectionRect.left, y: this.selectionRect.bottom },
           ], (corner: Point2D) => {
-            Circle()
-              .width(SELECTION_HANDLE_SIZE)
-              .height(SELECTION_HANDLE_SIZE)
-              .fill(this.resolveTokens().control)
-              .stroke(this.resolveTokens().accent)
-              .strokeWidth(1.5)
-              .position({ x: corner.x - SELECTION_HANDLE_SIZE / 2,
-                y: corner.y - SELECTION_HANDLE_SIZE / 2 })
+            Stack() {
+              Circle()
+                .width(SELECTION_HANDLE_DOT_OUTER)
+                .height(SELECTION_HANDLE_DOT_OUTER)
+                .fill('#FFFFFFFF')
+              Circle()
+                .width(SELECTION_HANDLE_DOT_INNER)
+                .height(SELECTION_HANDLE_DOT_INNER)
+                .fill('#FF4278FF')
+            }
+            .position({ x: corner.x - SELECTION_HANDLE_DOT_OUTER / 2,
+              y: corner.y - SELECTION_HANDLE_DOT_OUTER / 2 })
           }, (corner: Point2D): string => `${corner.x},${corner.y}`)
-          Circle()
-            .width(SELECTION_HANDLE_SIZE)
-            .height(SELECTION_HANDLE_SIZE)
-            .fill(this.resolveTokens().control)
-            .stroke(this.resolveTokens().accent)
-            .strokeWidth(1.5)
+          // gsf.e：茎=右边中点 → +56vp（LTR；RTL 原版取左边中点并反向，
+          // Harmony 固定右边登记差异）；茎宽 2vp、色 d=#FF444DE0。
+          Rect()
+            .width(SELECTION_ROTATE_HANDLE_STEM)
+            .height(2)
+            .fill('#FF444DE0')
             .position({
-              x: (this.selectionRect.left + this.selectionRect.right) / 2 -
-                SELECTION_HANDLE_SIZE / 2,
-              y: this.selectionRect.top - SELECTION_ROTATE_HANDLE_OFFSET -
-                SELECTION_HANDLE_SIZE / 2,
+              x: this.selectionRect.right,
+              y: (this.selectionRect.top + this.selectionRect.bottom) / 2 - 1,
             })
+          Stack() {
+            Circle()
+              .width(SELECTION_ROTATE_DOT_OUTER)
+              .height(SELECTION_ROTATE_DOT_OUTER)
+              .fill('#FFFFFFFF')
+            Circle()
+              .width(SELECTION_ROTATE_DOT_INNER)
+              .height(SELECTION_ROTATE_DOT_INNER)
+              .fill('#FF444DE0')
+          }
+          .position({
+            x: this.selectionRect.right + SELECTION_ROTATE_HANDLE_STEM -
+              SELECTION_ROTATE_DOT_OUTER / 2,
+            y: (this.selectionRect.top + this.selectionRect.bottom) / 2 + 1 -
+              SELECTION_ROTATE_DOT_OUTER / 2,
+          })
         }
         // 菜单：ArkUI 原生 bindMenu（T-033 替换自绘 Row+Button）；按钮 Block 阻止事件穿透
         Button($r('app.string.selection_actions'))

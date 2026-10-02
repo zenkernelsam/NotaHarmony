@@ -34,17 +34,19 @@ check(layout.includes('SELECTION_HANDLE_SIZE') &&
 check(overlay.includes('Circle()') &&
   overlay.includes('SELECTION_HANDLE_SIZE'),
   'overlay renders corner handle dots');
-// Phase 597 — msc.c selectionHasRotationHandle：顶边上方旋转柄，
-// 纯旋转（scale 锁 1，anchor=选区中心；qpi.b f2=null 路径）。
-check(layout.includes('SELECTION_ROTATE_HANDLE_OFFSET'),
-  'rotate-handle offset constant exists');
-const rotateBlock = overlay.slice(
-  overlay.indexOf('y: this.selectionRect.top - SELECTION_ROTATE_HANDLE_OFFSET') - 500,
-  overlay.indexOf('y: this.selectionRect.top - SELECTION_ROTATE_HANDLE_OFFSET') + 300);
-check(rotateBlock.includes('Circle()') &&
-  rotateBlock.includes('(this.selectionRect.left + this.selectionRect.right) / 2') &&
-  rotateBlock.includes('this.selectionRect.top - SELECTION_ROTATE_HANDLE_OFFSET'),
-  'rotate handle hovers above the top-edge midpoint');
+// Phase 597 — msc.c selectionHasRotationHandle 旋转柄（纯旋转，
+// scale 锁 1，anchor=选区中心；qpi.b f2=null 路径）。
+// Phase 1450 gsf.e 精证：旋转柄锚点=右（RTL 左）边中点 +
+// 水平茎 56vp 延出（非顶边上方——早前按 iOS 惯例的锚点已修正）。
+check(layout.includes('SELECTION_ROTATE_HANDLE_STEM'),
+  'rotate-handle stem constant exists (gsf.e 56dp/zoom stem)');
+const rotateStemIdx = overlay.indexOf('.width(SELECTION_ROTATE_HANDLE_STEM)');
+check(rotateStemIdx > 0, 'rotate stem drawn (gsf.e 2dp line to endpoint)');
+const rotateBlock = overlay.slice(rotateStemIdx - 400, rotateStemIdx + 1600);
+check(rotateBlock.includes('this.selectionRect.right') &&
+  rotateBlock.includes('(this.selectionRect.top + this.selectionRect.bottom) / 2') &&
+  rotateBlock.includes('SELECTION_ROTATE_DOT_OUTER'),
+  'rotate handle anchors at right-edge midpoint + 56vp stem endpoint dot');
 const handleBlock = overlay.slice(overlay.indexOf('if (!this.deselectMode && !this.photoImportLeaseActive'),
   overlay.indexOf('Circle()') + 200);
 check(handleBlock.includes('!this.deselectMode') &&

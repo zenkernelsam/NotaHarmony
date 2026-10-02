@@ -3,11 +3,18 @@ import { Rect2D } from '../../core/model/GeometryTypes';
 export const SELECTION_MENU_BUTTON_WIDTH: number = 130;
 export const SELECTION_MENU_BUTTON_HEIGHT: number = 40;
 export const SELECTION_MENU_BUTTON_GAP: number = 4;
-// 原版选区覆盖层角柄：视觉直径 12vp，命中半径 22vp（触达容差）。
+// 原版 gsf.b 角柄：双层圆——半径 12dp 白（p52.e）+半径 10dp 蓝
+//（gsf.a=#FF4278FF），视觉直径 24/20vp；命中半径 22vp（触达容差）。
 export const SELECTION_HANDLE_SIZE: number = 12;
 export const SELECTION_HANDLE_HIT_RADIUS: number = 22;
-// 原版 msc.c selectionHasRotationHandle：旋转柄悬于顶边中点上方。
-export const SELECTION_ROTATE_HANDLE_OFFSET: number = 28;
+export const SELECTION_HANDLE_DOT_OUTER: number = 24;
+export const SELECTION_HANDLE_DOT_INNER: number = 20;
+// 原版 gsf.e 旋转柄（msc.c selectionHasRotationHandle 入口）：锚点=右
+//（RTL 左）边中点，水平茎 56vp（56dp/zoom），端点双层圆半径 16dp 白 /
+// 14dp d=#FF444DE0，茎描边同色 2dp。
+export const SELECTION_ROTATE_HANDLE_STEM: number = 56;
+export const SELECTION_ROTATE_DOT_OUTER: number = 32;
+export const SELECTION_ROTATE_DOT_INNER: number = 28;
 const SELECTION_MENU_EDGE_MARGIN: number = 8;
 const SELECTION_MENU_SELECTION_GAP: number = 8;
 

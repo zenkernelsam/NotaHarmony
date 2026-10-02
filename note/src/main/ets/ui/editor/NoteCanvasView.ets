@@ -205,7 +205,7 @@ import {
 } from '../components/MathEditorOverlay';
 import {
   SELECTION_HANDLE_HIT_RADIUS, SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH,
-  SELECTION_ROTATE_HANDLE_OFFSET, SelectionOverlayPosition, selectionOverlayPosition,
+  SELECTION_ROTATE_HANDLE_STEM, SelectionOverlayPosition, selectionOverlayPosition,
 } from '../components/SelectionOverlayLayout';
 import { TextBlockOverlay } from '../components/TextBlockOverlay';
 import { ThemeStore, THEME_MODE_KEY, THEME_SYSTEM_DARK_KEY } from '../theme/ThemeStore';
@@ -7699,10 +7699,11 @@ export struct NoteCanvasView {
     ];
   }
 
-  // 原版 msc.c 旋转柄：顶边中点上方 28vp（屏幕坐标命中判定）。
+  // 原版 gsf.e 旋转柄：右（RTL 左）边中点 + 水平茎 56vp 端点圆
+  // （屏幕坐标命中判定；端点中心 y 下偏移茎宽一半=1vp）。
   private selectionRotateHandleAt(p: Point2D): boolean {
-    const cx: number = (this.selectionRect.left + this.selectionRect.right) / 2;
-    const cy: number = this.selectionRect.top - SELECTION_ROTATE_HANDLE_OFFSET;
+    const cx: number = this.selectionRect.right + SELECTION_ROTATE_HANDLE_STEM;
+    const cy: number = (this.selectionRect.top + this.selectionRect.bottom) / 2 + 1;
     const dx: number = p.x - cx;
     const dy: number = p.y - cy;
     return dx * dx + dy * dy <= SELECTION_HANDLE_HIT_RADIUS * SELECTION_HANDLE_HIT_RADIUS;
