@@ -418,8 +418,8 @@ function polygonNeighborSnap(cur: Point2D, prev: Point2D, next: Point2D,
   return { x: r1.ox + r1.dx * t, y: r1.oy + r1.dy * t };
 }
 
-// 原版 fil.a：size==4 且最大质心距²≥0.001 → 规整四边形（菱形/方形），
-// 邻边吸附排除之（l3 take(1) 循环为恒真空体，等效只剩尺寸+非退化判定）。
+// 原版 fil.a：size==4 且各角点到质心距²与首角点相差 ≤0.1%·max
+//（质心等距 = 矩形/菱形类四边形），且 maxDist²≥0.001（非退化）。
 function filQuadrilateral(vertices: Point2D[]): boolean {
   if (vertices.length !== 4) {
     return false;
@@ -432,13 +432,219 @@ function filQuadrilateral(vertices: Point2D[]): boolean {
   }
   cx /= 4;
   cy /= 4;
-  let maxDistSq: number = 0;
-  for (const v of vertices) {
+  const distSq: number[] = vertices.map((v: Point2D): number => {
     const dx: number = v.x - cx;
     const dy: number = v.y - cy;
-    maxDistSq = Math.max(maxDistSq, dx * dx + dy * dy);
+    return dx * dx + dy * dy;
+  });
+  const maxDistSq: number = Math.max(distSq[0], distSq[1], distSq[2], distSq[3]);
+  if (maxDistSq < 0.001) {
+    return false;
   }
-  return maxDistSq >= 0.001;
+  const tol: number = maxDistSq * 0.001;
+  return Math.abs(distSq[1] - distSq[0]) <= tol &&
+    Math.abs(distSq[2] - distSq[0]) <= tol &&
+    Math.abs(distSq[3] - distSq[0]) <= tol;
+}
+
+// 原版 fil.b：|w−h| ≤ 0.1%·max(w,h) → 正方形判定。
+function filSquare(w: number, h: number): boolean {
+  const m: number = Math.max(w, h);
+  return m > 0 && Math.abs(w - h) <= m * 0.001;
+}
+
+interface DecodedRotatedRect {
+  corners: Point2D[];
+  radians: number;
+  cx: number;
+  cy: number;
+}
+
+// 原版 sem.c：绕枢轴旋转 θ。
+function rotAround(p: Point2D, radians: number, cx: number, cy: number): Point2D {
+  const cos: number = Math.cos(radians);
+  const sin: number = Math.sin(radians);
+  const dx: number = p.x - cx;
+  const dy: number = p.y - cy;
+  return { x: dx * cos - dy * sin + cx, y: dy * cos + dx * sin + cy };
+}
+
+// 原版 p0.a()：AABB 四角序 [BL,BR,TR,TL]（(x,y+h)→(x+w,y+h)→(x+w,y)→(x,y)）。
+function aabbCorners(minX: number, minY: number, w: number, h: number): Point2D[] {
+  return [
+    { x: minX, y: minY + h },
+    { x: minX + w, y: minY + h },
+    { x: minX + w, y: minY },
+    { x: minX, y: minY }
+  ];
+}
+
+// 原版 oem.a：RotatedRect 解码——边0→1 角 θ=π/2−atan2(dx,dy)，角点
+// 反旋 −θ 后应逐角命中 AABB 角（容差 max(1,max(w,h))·1%）；不成矩形时
+// 回退为反旋 AABB 重旋 +θ 的规整矩形角点。center=输出角 0/2 中点。
+function decodeRotatedRect(pts: Point2D[]): DecodedRotatedRect | null {
+  if (pts.length !== 4) {
+    return null;
+  }
+  const ex: number = pts[1].x - pts[0].x;
+  const ey: number = pts[1].y - pts[0].y;
+  const theta: number = Math.hypot(ex, ey) > 0.001 ? Math.PI / 2 - Math.atan2(ex, ey) : 0;
+  const unrot: Point2D[] = pts.map((p: Point2D): Point2D => rotAround(p, -theta, 0, 0));
+  let minX: number = unrot[0].x;
+  let maxX: number = unrot[0].x;
+  let minY: number = unrot[0].y;
+  let maxY: number = unrot[0].y;
+  for (const p of unrot) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y);
+    maxY = Math.max(maxY, p.y);
+  }
+  const w: number = maxX - minX;
+  const h: number = maxY - minY;
+  const tol: number = Math.max(1, Math.max(w, h)) * 0.01;
+  const box: Point2D[] = aabbCorners(minX, minY, w, h);
+  let rectLike: boolean = true;
+  for (const c of box) {
+    let hit: boolean = false;
+    for (const u of unrot) {
+      if (Math.abs(u.x - c.x) <= tol && Math.abs(u.y - c.y) <= tol) {
+        hit = true;
+        break;
+      }
+    }
+    if (!hit) {
+      rectLike = false;
+      break;
+    }
+  }
+  const corners: Point2D[] = rectLike ? pts :
+    box.map((p: Point2D): Point2D => rotAround(p, theta, 0, 0));
+  return {
+    corners,
+    radians: theta,
+    cx: (corners[0].x + corners[2].x) / 2,
+    cy: (corners[0].y + corners[2].y) / 2
+  };
+}
+
+// 原版 rsm.c l4g+fil.a 支：矩形多边形顶点拖拽 = 旋转矩形重拟合。
+// 角点在矩形局部系（θ 反旋）内移动，相邻两角沿共享边轴跟随、对角固定；
+// zB（fil.b 原 AABB 近方）时先按 p0.e 对角符号耦合双轴分量，最终再以
+// 对角线重建轴对齐正方形。返回 null = 交由直移支处理。
+function rectRefitVertexDrag(verts: Point2D[], i: number,
+  dx: number, dy: number): Point2D[] | null {
+  const dec: DecodedRotatedRect | null = decodeRotatedRect(verts);
+  if (dec === null) {
+    return null;
+  }
+  let oMinX: number = verts[0].x;
+  let oMaxX: number = verts[0].x;
+  let oMinY: number = verts[0].y;
+  let oMaxY: number = verts[0].y;
+  for (const v of verts) {
+    oMinX = Math.min(oMinX, v.x);
+    oMaxX = Math.max(oMaxX, v.x);
+    oMinY = Math.min(oMinY, v.y);
+    oMaxY = Math.max(oMaxY, v.y);
+  }
+  const square: boolean = filSquare(oMaxX - oMinX, oMaxY - oMinY);
+  const theta: number = dec.radians;
+  const unrot: Point2D[] = dec.corners.map((p: Point2D): Point2D =>
+    rotAround(p, -theta, dec.cx, dec.cy));
+  let minX: number = unrot[0].x;
+  let maxX: number = unrot[0].x;
+  let minY: number = unrot[0].y;
+  let maxY: number = unrot[0].y;
+  for (const p of unrot) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y);
+    maxY = Math.max(maxY, p.y);
+  }
+  const rw: number = maxX - minX;
+  const rh: number = maxY - minY;
+  const tol: number = Math.max(1, Math.max(rw, rh)) * 0.01;
+  const box: Point2D[] = aabbCorners(minX, minY, rw, rh);
+  const draggedU: Point2D = unrot[i];
+  let i3: number = -1;
+  for (let k: number = 0; k < 4; k++) {
+    if (Math.abs(box[k].x - draggedU.x) <= tol && Math.abs(box[k].y - draggedU.y) <= tol) {
+      i3 = k;
+      break;
+    }
+  }
+  const cos: number = Math.cos(-theta);
+  const sin: number = Math.sin(-theta);
+  let du: number = dx * cos - dy * sin;
+  let dv: number = dy * cos + dx * sin;
+  let outBox: Point2D[] = box;
+  if (i3 >= 0 && (du !== 0 || dv !== 0)) {
+    if (square) {
+      const d9: number = rh === 0 ? 1 : rw / rh;
+      const d10: number = rw === 0 ? 1 : rh / rw;
+      const sign: number = i3 % 2 === 0 ? -1 : 1;
+      if (du === 0) {
+        du = dv * d9 * sign;
+      }
+      if (dv === 0) {
+        dv = du * d10 * sign;
+      }
+      if (rw > rh) {
+        dv = sign * d10 * du;
+      } else {
+        du = sign * d9 * dv;
+      }
+    }
+    const arr: Point2D[] = box.map((p: Point2D): Point2D => ({ x: p.x, y: p.y }));
+    arr[i3] = { x: arr[i3].x + du, y: arr[i3].y + dv };
+    const i4: number = (i3 + 1) % 4;
+    const i5: number = i3 === 0 ? 3 : i3 - 1;
+    arr[i4] = i4 % 2 === 0 ?
+      { x: arr[i3].x, y: arr[i4].y } : { x: arr[i4].x, y: arr[i3].y };
+    arr[i5] = i5 % 2 === 0 ?
+      { x: arr[i5].x, y: arr[i3].y } : { x: arr[i3].x, y: arr[i5].y };
+    let nMinX: number = arr[0].x;
+    let nMaxX: number = arr[0].x;
+    let nMinY: number = arr[0].y;
+    let nMaxY: number = arr[0].y;
+    for (const p of arr) {
+      nMinX = Math.min(nMinX, p.x);
+      nMaxX = Math.max(nMaxX, p.x);
+      nMinY = Math.min(nMinY, p.y);
+      nMaxY = Math.max(nMaxY, p.y);
+    }
+    outBox = aabbCorners(nMinX, nMinY, nMaxX - nMinX, nMaxY - nMinY);
+  }
+  const refit: Point2D[] = outBox.map((p: Point2D): Point2D =>
+    rotAround(p, theta, dec.cx, dec.cy));
+  let dec2: DecodedRotatedRect | null = decodeRotatedRect(refit);
+  if (dec2 === null) {
+    return null;
+  }
+  if (square) {
+    const c: Point2D[] = dec2.corners;
+    const i8: number = (i + 2) % 4;
+    const anchor: Point2D = c[i8];
+    const drag: Point2D = c[(i8 + 2) % 4];
+    const d15: number = drag.x - anchor.x;
+    const d16: number = drag.y - anchor.y;
+    const s: number = Math.max(0.5, (Math.abs(d16) + Math.abs(d15)) / 2);
+    const sx: number = d15 >= 0 ? 1 : -1;
+    const sy: number = d16 >= 0 ? 1 : -1;
+    const sqMinX: number = Math.min(anchor.x, anchor.x + sx * s);
+    const sqMinY: number = Math.min(anchor.y, anchor.y + sy * s);
+    dec2 = decodeRotatedRect([
+      { x: sqMinX, y: sqMinY + s },
+      { x: sqMinX + s, y: sqMinY + s },
+      { x: sqMinX + s, y: sqMinY },
+      { x: sqMinX, y: sqMinY }
+    ]);
+    if (dec2 === null) {
+      return null;
+    }
+  }
+  return dec2.corners;
 }
 
 @Component
@@ -8408,15 +8614,24 @@ export struct NoteCanvasView {
       return moved2;
     }
     if (orig.type === ElementType.POLYGON) {
-      // rsm.c l4g 支：顶点直移。原版另有 oem.a 规范系 +
-      // fil.a/zB 正多边形约束（拖拽受限保持规整）——未完全解码，
-      // 登记差异（ADR-1389）。
+      // rsm.c l4g 支：fil.a 矩形四角 → oem.a 旋转矩形重拟合（邻角沿
+      // 共享边轴跟随、对角固定；fil.b 正方形 → 对角线重建轴对齐方形）；
+      // 非矩形 → 顶点直移。
       if (i < 0 || i >= orig.vertices.length) {
         return null;
       }
       const moved3: PolygonElement = cloneShapeElement(orig) as PolygonElement;
-      moved3.vertices = orig.vertices.map((v: Point2D, j: number): Point2D =>
-        j === i ? { x: v.x + dx, y: v.y + dy } : { x: v.x, y: v.y });
+      if (filQuadrilateral(orig.vertices)) {
+        const refit: Point2D[] | null =
+          rectRefitVertexDrag(orig.vertices, i, dx, dy);
+        if (refit === null) {
+          return null;
+        }
+        moved3.vertices = refit.map((p: Point2D): Point2D => ({ x: p.x, y: p.y }));
+      } else {
+        moved3.vertices = orig.vertices.map((v: Point2D, j: number): Point2D =>
+          j === i ? { x: v.x + dx, y: v.y + dy } : { x: v.x, y: v.y });
+      }
       moved3.bounds = recomputeShapeBounds(moved3);
       return moved3;
     }

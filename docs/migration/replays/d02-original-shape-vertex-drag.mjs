@@ -10,8 +10,13 @@
 //   rsm.java:c — j4g(LINE)：i=0 拖 start（z 退化时 cp1 跟随）、
 //     i=last 拖 end、i=1 中点拖 cp 对按 f5=cp2?4/3:2；
 //     k4g(ELLIPSE)：i=0..3 基向点改该边（直径全增量），fil.b 圆锁
-//     纵横比并重居中垂直轴；l4g(POLYGON)：顶点直移（oem.a 规范系
-//     + fil.a 规整约束部分未解码，登记差异）。
+//     纵横比并重居中垂直轴；l4g(POLYGON)：fil.a 矩形四角 → oem.a
+//     旋转矩形重拟合（邻角沿共享边轴跟随、fil.b 正方形→轴对齐重建），
+//     非矩形顶点直移。
+//   fil.java:a — 4 角点质心等距 ±0.1%·max 且 maxDist²≥0.001。
+//   oem.java:a — θ=π/2−atan2(ex,ey)，反旋角点须逐角命中 AABB
+//     （容差 max(1,max(w,h))·1%），否则回退规整矩形；center=角0/2 中点。
+//   p0.java:a/e — AABB 角序 [BL,BR,TR,TL]，对角符号 e={-1,+1,-1,+1}。
 // Harmony：tryStartShapeVertexDrag/applyVertexDrag/vertexDraggedShape。
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert';
@@ -137,6 +142,81 @@ check(edit.includes('Math.abs(orig.radiusX - orig.radiusY) < 0.001'),
   'ellipse circle case locks aspect (fil.b w==h)');
 check(edit.includes('Math.max(0.5,') && edit.includes('dy / 2'),
   'cardinal drag: half-delta radius change, opposite edge fixed, r>=0.5 (f4>=1)');
+
+// --- Phase 1462 — l4g fil.a 矩形重拟合（oem.a + 邻角约束 + 正方形重建） ---
+check(canvas.includes('function filSquare(') &&
+  canvas.includes('Math.abs(w - h) <= m * 0.001'),
+  'fil.b: |w-h| <= 0.1%*max -> square test');
+check(canvas.includes('function decodeRotatedRect(') &&
+  canvas.includes('Math.PI / 2 - Math.atan2(ex, ey)') &&
+  canvas.includes('Math.max(1, Math.max(w, h)) * 0.01'),
+  'oem.a: theta from edge 0->1, unrotated corners must hit AABB within 1%');
+check(canvas.includes('corners') && canvas.includes('radians') &&
+  canvas.includes('(corners[0].x + corners[2].x) / 2'),
+  'nze payload: corners + radians + centroid of corners 0/2');
+check(canvas.includes('function rectRefitVertexDrag(') &&
+  canvas.includes('filQuadrilateral(orig.vertices)') &&
+  canvas.includes('rectRefitVertexDrag(orig.vertices, i, dx, dy)'),
+  'l4g: fil.a polygons route to rotated-rect refit, others direct-move');
+const refit = canvas.slice(canvas.indexOf('function rectRefitVertexDrag('),
+  canvas.indexOf('function rectRefitVertexDrag(') + 5200);
+check(refit.includes('const i4: number = (i3 + 1) % 4') &&
+  refit.includes('const i5: number = i3 === 0 ? 3 : i3 - 1') &&
+  refit.includes('arr[i3].x, y: arr[i4].y') && refit.includes('arr[i4].x, y: arr[i3].y'),
+  'neighbor corners follow along shared-edge axis (p0.a() BL,BR,TR,TL)');
+check(refit.includes('i3 % 2 === 0 ? -1 : 1') &&
+  refit.includes('du = dv * d9 * sign') && refit.includes('dv = du * d10 * sign'),
+  'fil.b square: p0.e {-1,+1,-1,+1} diagonal sign couples delta axes');
+check(refit.includes('(i + 2) % 4') &&
+  refit.includes('Math.max(0.5, (Math.abs(d16) + Math.abs(d15)) / 2)') &&
+  refit.includes('d15 >= 0 ? 1 : -1'),
+  'square rebuilt axis-aligned on diagonal, side=max(0.5,(|dx|+|dy|)/2)');
+
+// 可执行模型：rsm.c l4g+fil.a 矩形角拖。
+// 轴对齐矩形 [BL(0,10),BR(10,10),TR(10,0),TL(0,0)]——边0→1=(10,0) →
+// atan2(10,0)=π/2 → θ=0（轴对齐）。拖 TR（i=2）增量 (4,6)：θ=0 时
+// draggedU 即 (10,0) 命中 box 角 i3=2(TR)，(du,dv)=(4,6)。
+// 邻角约束：i4=3(TL) odd → (own.x, moved.y)；i5=1(BR) odd → (moved.x, own.y)。
+{
+  const verts = [{ x: 0, y: 10 }, { x: 10, y: 10 }, { x: 10, y: 0 }, { x: 0, y: 0 }];
+  const ex = verts[1].x - verts[0].x, ey = verts[1].y - verts[0].y;
+  const theta = Math.PI / 2 - Math.atan2(ex, ey); // = 0
+  const cx = (verts[0].x + verts[2].x) / 2, cy = (verts[0].y + verts[2].y) / 2;
+  const rot = (p, a) => ({ x: (p.x - cx) * Math.cos(a) - (p.y - cy) * Math.sin(a) + cx,
+    y: (p.y - cy) * Math.cos(a) + (p.x - cx) * Math.sin(a) + cy });
+  const unrot = verts.map((p) => rot(p, -theta));
+  const xs = unrot.map((p) => p.x), ys = unrot.map((p) => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const box = [{ x: minX, y: maxY }, { x: maxX, y: maxY },
+    { x: maxX, y: minY }, { x: minX, y: minY }]; // BL,BR,TR,TL
+  const i = 2, dx = 4, dy = 6;
+  const draggedU = unrot[i];
+  let i3 = -1;
+  for (let k = 0; k < 4; k++) {
+    if (Math.abs(box[k].x - draggedU.x) <= 1 && Math.abs(box[k].y - draggedU.y) <= 1) i3 = k;
+  }
+  assert(i3 === 2, 'model: dragged vertex maps to AABB corner TR');
+  const c0 = Math.cos(-theta), s0 = Math.sin(-theta);
+  const du = dx * c0 - dy * s0, dv = dy * c0 + dx * s0;
+  const arr = box.map((p) => ({ ...p }));
+  arr[i3] = { x: arr[i3].x + du, y: arr[i3].y + dv };
+  const i4 = (i3 + 1) % 4, i5 = i3 === 0 ? 3 : i3 - 1;
+  arr[i4] = i4 % 2 === 0 ? { x: arr[i3].x, y: arr[i4].y } : { x: arr[i4].x, y: arr[i3].y };
+  arr[i5] = i5 % 2 === 0 ? { x: arr[i5].x, y: arr[i3].y } : { x: arr[i3].x, y: arr[i5].y };
+  const nxs = arr.map((p) => p.x), nys = arr.map((p) => p.y);
+  const out = [{ x: Math.min(...nxs), y: Math.max(...nys) },
+    { x: Math.max(...nxs), y: Math.max(...nys) },
+    { x: Math.max(...nxs), y: Math.min(...nys) },
+    { x: Math.min(...nxs), y: Math.min(...nys) }]
+    .map((p) => rot(p, theta));
+  // 期望：拖 TR (10,0) 由 (du,dv) 移 → 回世界系 = TR+(dx,dy)=(14,6)；
+  // TL (0,0) y 跟随 TR→(0,6)；BR (10,10) x 跟随 TR→(14,10)；BL (0,10) 固定。
+  const expect = [{ x: 0, y: 10 }, { x: 14, y: 10 }, { x: 14, y: 6 }, { x: 0, y: 6 }];
+  out.forEach((p, k) => assert(Math.abs(p.x - expect[k].x) < 1e-9 &&
+    Math.abs(p.y - expect[k].y) < 1e-9, `refit corner ${k}=${JSON.stringify(p)}`));
+  n += 2;
+}
 
 // --- 移动/提交/取消接线 ---
 check((canvas.match(/else if \(this\.vertexDrag\)/g) || []).length >= 1 &&
