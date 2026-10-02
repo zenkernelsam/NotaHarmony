@@ -3061,6 +3061,11 @@ export struct NoteCanvasView {
     const state: SelectionState = this.selectionTool.getState();
     const zoom: number = this.viewport.zoom === 0 ? 1 : this.viewport.zoom;
     const chromeW: number = 2.0 / zoom;
+    const memberCount: number = state.selectedStrokeIds.length +
+      state.selectedShapeIds.length + state.selectedTextBlockIds.length +
+      state.selectedImageIds.length + state.selectedMathIds.length;
+    const lsf: boolean = !state.supportsDeselectMode &&
+      state.selectedGroupIds.length === 0 && memberCount === 1;
     const ctx: CanvasRenderingContext2D = this.canvasCtx;
     ctx.save();
     try {
@@ -3115,6 +3120,20 @@ export struct NoteCanvasView {
               ctx.lineTo(subpath[i].x, subpath[i].y);
             }
             ctx.stroke();
+          }
+          // qmm.d cpfVar.g：lsf 形状成员的顶点双层圆点——白 7.5dp/zoom
+          //（6dp·1.25）+ 蓝 6dp/zoom；仅 lsf 时产（z 支），isf/jsf 无。
+          if (lsf) {
+            for (const v of this.shapeVertexDots(shape)) {
+              ctx.beginPath();
+              ctx.arc(v.x, v.y, 7.5 / zoom, 0, Math.PI * 2);
+              ctx.fillStyle = '#FFFFFFFF';
+              ctx.fill();
+              ctx.beginPath();
+              ctx.arc(v.x, v.y, 6.0 / zoom, 0, Math.PI * 2);
+              ctx.fillStyle = SELECTION_OUTLINE_COLOR;
+              ctx.fill();
+            }
           }
         }
       }
@@ -3228,6 +3247,45 @@ export struct NoteCanvasView {
         (b: MathElement): boolean => b.id === id)?.bounds);
     }
     return rect;
+  }
+
+  // qmm.b z 支：形状成员的顶点集（f5g.U().b() 对应物）——
+  // LINE → [start, 贝塞尔 t=0.5 中点（有控制点时）, end]；
+  // POLYGON → 全部顶点；ELLIPSE → 包围盒四基向点（k4g.b 式）。
+  // 返回世界坐标（乘 shape.transform）。
+  private shapeVertexDots(shape: ShapeElement): Point2D[] {
+    const local: Point2D[] = [];
+    if (shape.type === ElementType.LINE) {
+      local.push(shape.start);
+      const c1: Point2D | null = shape.controlPoint1;
+      const c2: Point2D | null = shape.controlPoint2;
+      if (c1 !== null || c2 !== null) {
+        const a: Point2D = c1 === null ? shape.start : c1;
+        const b: Point2D = c2 === null ? (c1 === null ? shape.end : c1) : c2;
+        local.push({
+          x: 0.125 * shape.start.x + 0.375 * a.x + 0.375 * b.x + 0.125 * shape.end.x,
+          y: 0.125 * shape.start.y + 0.375 * a.y + 0.375 * b.y + 0.125 * shape.end.y,
+        });
+      }
+      local.push(shape.end);
+    } else if (shape.type === ElementType.POLYGON) {
+      for (const v of shape.vertices) {
+        local.push(v);
+      }
+    } else if (shape.type === ElementType.ELLIPSE) {
+      const cos: number = Math.cos(shape.rotationRadians);
+      const sin: number = Math.sin(shape.rotationRadians);
+      const cx: number = shape.center.x;
+      const cy: number = shape.center.y;
+      const rx: number = shape.radiusX;
+      const ry: number = shape.radiusY;
+      local.push({ x: cx - sin * ry, y: cy - cos * ry });
+      local.push({ x: cx + sin * ry, y: cy + cos * ry });
+      local.push({ x: cx - cos * rx, y: cy - sin * rx });
+      local.push({ x: cx + cos * rx, y: cy + sin * rx });
+    }
+    return local.map((p: Point2D): Point2D =>
+      transformMemberPoint(p, shape.transform));
   }
 
   // 原版 ft0 case 22：tail 段为圆头圆角描边折线（tailAlpha），指针为

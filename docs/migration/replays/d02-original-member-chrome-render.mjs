@@ -105,4 +105,29 @@ check(canvas.includes('text.positionLocked !== true') &&
 check(shapeGeo.includes('export function shapeWorldSubpaths(shape: ShapeElement): Point2D[][]'),
   'shapeWorldSubpaths export (subpath-preserving world outline)');
 
+// --- Phase 1451 qmm.d cpfVar.g：lsf 形状成员顶点双层圆点 ---
+// qmm.b z=lsf 支：f5g.U().b() 顶点 → 白 7.5dp/zoom(6·1.25)+蓝 6dp/zoom。
+//   LINE → [start, 贝塞尔中点?, end]（m4g.b q89：o/0.5加权中点/n）；
+//   POLYGON → 全部顶点（l4g.b=vpm.c0）；ELLIPSE → 4 基向点（k4g.b）。
+check(chrome.includes('const lsf: boolean = !state.supportsDeselectMode') &&
+  chrome.includes('memberCount === 1'),
+  'vertex dots gated on lsf (z=msfVar instanceof lsf, single member)');
+check(chrome.includes('shapeVertexDots(shape)') &&
+  chrome.includes('7.5 / zoom') && chrome.includes('6.0 / zoom'),
+  'vertex dots = white 7.5dp/zoom + blue 6dp/zoom two-tone circles');
+check(canvas.includes('private shapeVertexDots(shape: ShapeElement): Point2D[]'),
+  'shapeVertexDots helper maps f5g.U().b() vertex sets');
+const dots = canvas.slice(canvas.indexOf('private shapeVertexDots('),
+  canvas.indexOf('private shapeVertexDots(') + 2200);
+check(dots.includes('ElementType.LINE') && dots.includes('shape.start') &&
+  dots.includes('shape.end') && dots.includes('0.125') && dots.includes('0.375'),
+  'LINE vertices = [start, bezier-mid(0.125/0.375 weights), end] (q89 o/mid/n)');
+check(dots.includes('ElementType.POLYGON') && dots.includes('shape.vertices'),
+  'POLYGON vertices = all shape.vertices (l4g.b=vpm.c0)');
+check(dots.includes('ElementType.ELLIPSE') && dots.includes('rotationRadians') &&
+  dots.includes('radiusX') && dots.includes('radiusY'),
+  'ELLIPSE vertices = 4 cardinal points (k4g.b: ±rx/±ry rotated)');
+check(dots.includes('transformMemberPoint(p, shape.transform)'),
+  'vertex dots transformed to world space (element transform)');
+
 console.log(`d02-original-member-chrome-render: ${n} checks OK`);
