@@ -213,6 +213,16 @@ export const ORIGIN_KEYCODE_RIGHT_BRACKET: number = 2060;
 export const ORIGIN_KEYCODE_M: number = 2029;
 export const ORIGIN_KEYCODE_I: number = 2025;
 
+// pa8.G = ofk.e(48) = KEYCODE_T；f2:230-238 兜底链 Ctrl+Shift+T 支
+// （!pa8.W 块内、Ctrl+D 后、M/I 支前）：
+//   UP + u7b.g + !bd8.U.r（c5i isEffectivelyEnabled，选区类功能有效
+//   使能旗——生效时 T 支让位）→ exj.c() 视口中心 →
+//   sbe(cx-120, cy-60, cx+120, cy+60)（画布坐标 240×120）→
+//   ome.a() 清选 → ome.g.l(null, u64(sbe)) 矩形选区请求
+//   （消费端 r3b.c→p3b 协程做矩形相交命中，与拖拽矩形完成同核）。
+// Harmony T=2036。
+export const ORIGIN_KEYCODE_T: number = 2036;
+
 // === 帮助表（txm.a → KeyboardShortcutGroup 树，Ctrl+/ qw6 路由内容） ===
 // 原版经系统 KeyboardShortcutHelper 渲染；Harmony 无系统帮助面 →
 // NotePage bindSheet 复刻分组清单（ADR-1358）。分组与条目序 =

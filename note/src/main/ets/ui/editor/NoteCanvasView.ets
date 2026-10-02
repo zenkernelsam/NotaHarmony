@@ -42,8 +42,8 @@ import {
   ORIGIN_KEYCODE_LEFT_BRACKET, ORIGIN_KEYCODE_M,
   ORIGIN_KEYCODE_MOVE_END,
   ORIGIN_KEYCODE_MOVE_HOME, ORIGIN_KEYCODE_P, ORIGIN_KEYCODE_PASTE,
-  ORIGIN_KEYCODE_R, ORIGIN_KEYCODE_RIGHT_BRACKET, ORIGIN_KEYCODE_V,
-  ORIGIN_KEYCODE_X,
+  ORIGIN_KEYCODE_R, ORIGIN_KEYCODE_RIGHT_BRACKET, ORIGIN_KEYCODE_T,
+  ORIGIN_KEYCODE_V, ORIGIN_KEYCODE_X,
   ORIGIN_KEYCODE_Y, ORIGIN_KEYCODE_Z,
   ORIGIN_KEYCODE_DEL, ORIGIN_KEYCODE_DPAD_DOWN, ORIGIN_KEYCODE_DPAD_LEFT,
   ORIGIN_KEYCODE_DPAD_RIGHT, ORIGIN_KEYCODE_DPAD_UP, ORIGIN_KEYCODE_FORWARD_DEL,
@@ -5990,6 +5990,16 @@ export struct NoteCanvasView {
         }
         return true;
       }
+      // f2:230-238 兜底链 Ctrl+Shift+pa8.G(48=T)：UP + u7b.g +
+      // !U.r（c5i isEffectivelyEnabled，Harmony 未移植该派生旗——
+      // 恒放行，登记差异）→ ome.a() 清选 + u64(sbe) 矩形选区请求
+      // （视口中心 240×120 画布单位，r3b.c 矩形相交命中）。
+      if (ctrl && shift && event.keyCode === ORIGIN_KEYCODE_T) {
+        if (isUp) {
+          this.applyKeyboardRectSelection();
+        }
+        return true;
+      }
       // f2 兜底链 Ctrl+Shift+pa8.D(41=M)/pa8.C(37=I)：UP →
       // ea1.p(mc8.a)=InsertMath / ea1.p(nc8.a)=InsertPhoto；
       // u7b.g 键盘使能旗默认 true（同 P1468 登记）；命中即消费
@@ -8784,6 +8794,32 @@ export struct NoteCanvasView {
       selectedStrokeIds, selectedShapeIds, selectedTextBlockIds, selectedImageIds,
       selectedGroupIds, selectedMathIds);
     this.updateSelectionOverlay();
+  }
+
+  // 原版 f2:230-238 Ctrl+Shift+T 支 → ome.a() 清选 +
+  // ome.g.l(null,u64(sbe)) 矩形选区请求（消费端 r3b.c→p3b 协程，
+  // 与 ch1:55-68 拖拽矩形完成 z3 支同一 u64 通道）：exj.c() 视口
+  // 中心（画布坐标）±120/±60 → 240×120 矩形相交命中。
+  // Harmony：beginSelection(RECTANGLE) 重置 id 集即 ome.a() 清选；
+  // updateSelection 扩界至对角点；finalizeSelection 矩形支 =
+  // rectIntersects 命中（与拖矩形完成路径同一核）。
+  private applyKeyboardRectSelection(): void {
+    const c: Point2D = this.viewport.screenToCanvas(
+      this.canvasCtx.width / 2, this.canvasCtx.height / 2);
+    this.selectionTool.beginSelection(SelectionMode.RECTANGLE,
+      { x: c.x - 120, y: c.y - 60 });
+    this.selectionTool.updateSelection({ x: c.x + 120, y: c.y + 60 });
+    const ids: string[] = this.selectionTool.finalizeSelection(
+      this.completedStrokes, this.shapes, this.textBlocks, this.imageBlocks,
+      this.selectionGroups, this.mathBlocks,
+      (stroke: StrokeElementData, selectionPath: Point2D[]): boolean =>
+        this.eraserEngine.strokeIntersectsSelectionPath(stroke, selectionPath));
+    if (ids.length > 0) {
+      this.updateSelectionOverlay();
+    } else {
+      this.selectionTool.deselect();
+      this.selectionVisible = false;
+    }
   }
 
   // 形状的渲染旋转角：椭圆取 rotationRadians；线/多边形取 transform
