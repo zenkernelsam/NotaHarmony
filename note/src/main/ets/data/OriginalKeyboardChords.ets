@@ -173,6 +173,16 @@ export const ORIGIN_KEYCODE_PAGE_UP: number = 2068;
 export const ORIGIN_KEYCODE_PAGE_DOWN: number = 2069;
 export const ORIGIN_KEY_PAGE_SCROLL_FRACTION: number = 0.9;
 
+// pa8.M = ofk.e(62) = KEYCODE_SPACE；音频回放媒体支（f2 兜底链尾）：
+// Ctrl+Shift+pa8.g(21=DPAD_LEFT) → q5d.k.i() = 累计时间轴 −10000ms；
+// Ctrl+Shift+pa8.h(22=DPAD_RIGHT) → q5d.k.h() = min(pos+10000, 总时长)；
+// 纯 SPACE（无 ctrl/alt/shift）UP → q5d.k.z() = m==PLAYING→C()暂停 /
+// 否则 D()播放当前。q5d.p=累计播放位(ms)、q5d.q=总时长；xke.w(d)=
+// 累计位→单曲索引+局部 ms 的跨录音 seek（q5d.d(i) 分段偏移）。
+// Harmony 键码：SPACE=2050。
+export const ORIGIN_KEYCODE_SPACE: number = 2050;
+export const ORIGIN_RECORDING_SEEK_STEP_MS: number = 10000;
+
 // === 帮助表（txm.a → KeyboardShortcutGroup 树，Ctrl+/ qw6 路由内容） ===
 // 原版经系统 KeyboardShortcutHelper 渲染；Harmony 无系统帮助面 →
 // NotePage bindSheet 复刻分组清单（ADR-1358）。分组与条目序 =

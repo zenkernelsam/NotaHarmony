@@ -2157,6 +2157,38 @@ struct NotePage {
                 });
               }
             },
+            // f2 兜底链尾部：Ctrl+Shift+DPAD_LEFT/RIGHT → q5d.k.i()/h()
+            // = 累计时间轴 ∓10s（min(pos+10s, 总时长)/max(pos−10s, 0) 钳制，
+            // xke.w 跨录音定位 seekRecordingTimeline 等价）。
+            onKeyRecordingSeekBy: (deltaMs: number): void => {
+              if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+                return;
+              }
+              const total: number = this.playbackCumulativeDurationMs;
+              if (total <= 0) {
+                return;
+              }
+              const target: number = Math.min(
+                Math.max(this.playbackCumulativePositionMs + deltaMs, 0), total);
+              this.seekRecordingTimeline(target);
+            },
+            // 纯 SPACE → q5d.k.z()：PLAYING→C() 暂停、否则 D() 播放当前
+            // 录音（无录音列表时原版 log+no-op —— 找当前或首条可见录音）。
+            onKeyRecordingPlayPause: (): void => {
+              if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+                return;
+              }
+              const visible: MaterializedOriginalRecording[] =
+                this.visiblePlaybackRecordings();
+              let recordingId: string | null = this.playbackSnapshot.recordingId;
+              if (recordingId === null && visible.length > 0) {
+                recordingId = visible[0].id;
+              }
+              if (recordingId === null) {
+                return;
+              }
+              this.toggleRecording(recordingId);
+            },
             onTapeRevealStateChanged: (tapeCount: number, anyRevealed: boolean): void => {
               this.pageTapeCount = tapeCount;
               this.anyTapeRevealed = anyRevealed;

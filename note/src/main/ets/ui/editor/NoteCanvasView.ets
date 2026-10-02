@@ -43,8 +43,8 @@ import {
   ORIGIN_KEYCODE_Y, ORIGIN_KEYCODE_Z,
   ORIGIN_KEYCODE_DEL, ORIGIN_KEYCODE_DPAD_DOWN, ORIGIN_KEYCODE_DPAD_LEFT,
   ORIGIN_KEYCODE_DPAD_RIGHT, ORIGIN_KEYCODE_DPAD_UP, ORIGIN_KEYCODE_FORWARD_DEL,
-  ORIGIN_KEYCODE_PAGE_DOWN, ORIGIN_KEYCODE_PAGE_UP,
-  ORIGIN_KEY_PAGE_SCROLL_FRACTION,
+  ORIGIN_KEYCODE_PAGE_DOWN, ORIGIN_KEYCODE_PAGE_UP, ORIGIN_KEYCODE_SPACE,
+  ORIGIN_KEY_PAGE_SCROLL_FRACTION, ORIGIN_RECORDING_SEEK_STEP_MS,
   ORIGIN_KEY_SCROLL_FRACTION, ORIGIN_SELECTION_NUDGE_STEP,
   ORIGIN_ZOOM_IN_KEYCODES, ORIGIN_ZOOM_OUT_KEYCODES,
   ORIGIN_ZOOM_RESET_KEYCODES, ORIGIN_CHORD_DISMISS, matchKeyChord,
@@ -703,6 +703,11 @@ export struct NoteCanvasView {
   onKeyOpenContentManager: () => void = (): void => {};
   onKeyShowShare: () => void = (): void => {};
   onKeyToggleRecording: () => void = (): void => {};
+  // f2 兜底链尾部媒体支（q5d.k.h()/i()/z() 等价）：
+  // Ctrl+Shift+DPAD_LEFT/RIGHT → 累计时间轴 ∓10s seek；
+  // 纯 SPACE → 播放/暂停切换。
+  onKeyRecordingSeekBy: (deltaMs: number) => void = (): void => {};
+  onKeyRecordingPlayPause: () => void = (): void => {};
   onHistoryBridgeReady: (bridge: EditorHistoryBridge) => void = () => {
   };
   // 原版 jg9.n / uf0 case4 标签语义：(当前页 tape 数, 是否存在已揭示 tape)。
@@ -5964,6 +5969,27 @@ export struct NoteCanvasView {
             this.viewport.scrollY +
             (event.keyCode === ORIGIN_KEYCODE_PAGE_UP ? -pageStep : pageStep));
           this.onViewportChanged();
+        }
+        return true;
+      }
+      // f2 兜底链尾部：Ctrl+Shift+DPAD_LEFT/RIGHT → q5d.k.i()/h() =
+      // 音频回放累计时间轴 ∓10s seek（w(d)：累计位→单曲+局部 ms）；
+      // 纯 SPACE → q5d.k.z() = PLAYING→C() 暂停/否则 D() 播放当前。
+      // 均 UP 动作、无条件消费（支内无 b2=0 落点）。
+      if (ctrl && shift &&
+        (event.keyCode === ORIGIN_KEYCODE_DPAD_LEFT ||
+          event.keyCode === ORIGIN_KEYCODE_DPAD_RIGHT)) {
+        if (isUp) {
+          this.onKeyRecordingSeekBy(
+            event.keyCode === ORIGIN_KEYCODE_DPAD_LEFT ?
+              -ORIGIN_RECORDING_SEEK_STEP_MS : ORIGIN_RECORDING_SEEK_STEP_MS);
+        }
+        return true;
+      }
+      if (!ctrl && !shift && !keyChordAlt(event) &&
+        event.keyCode === ORIGIN_KEYCODE_SPACE) {
+        if (isUp) {
+          this.onKeyRecordingPlayPause();
         }
         return true;
       }
