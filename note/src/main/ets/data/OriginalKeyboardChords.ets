@@ -189,6 +189,20 @@ export const ORIGIN_RECORDING_SEEK_STEP_MS: number = 10000;
 // 偏移粘贴副本）；无选区仍消费（支内无 b2=0 回落）。Harmony D=2020。
 export const ORIGIN_KEYCODE_D: number = 2020;
 
+// pa8.X = ofk.e(71) = KEYCODE_LEFT_BRACKET、pa8.Y = ofk.e(72) =
+// KEYCODE_RIGHT_BRACKET。f2:264-276 兜底链 Alt 支（bd8.i0=pa8.k..s
+// =KEYCODE_1..9 索引基与工具快选同）：
+//   alt&&!ctrl&&!shift+digit → bxi(index) = 第 N 色井（jyi.B() 当前
+//     工具类型过滤+排序的 x25 列表，e52.s3 索引 → jyi.A 应用）；
+//   alt&&!ctrl&&shift+digit → dxi(index) = 第 N 宽度井（s2k 同型过滤
+//     排序列表 → k31.Y+r2k → jyi.F 应用）；
+//   alt&&!ctrl+[/]（shift 不判）→ exi(∓1) = StepColor（按 x25.d 色值
+//     indexOf 定位当前井、缺失 0 基、floorMod 回卷 → jyi.A）。
+// 三支 UP 动作、命中即消费（支内无 b2=0 落点）。
+// Harmony：[=2059、]=2060、1..9=2001..2009（复用 DIGIT_BASE/END）。
+export const ORIGIN_KEYCODE_LEFT_BRACKET: number = 2059;
+export const ORIGIN_KEYCODE_RIGHT_BRACKET: number = 2060;
+
 // === 帮助表（txm.a → KeyboardShortcutGroup 树，Ctrl+/ qw6 路由内容） ===
 // 原版经系统 KeyboardShortcutHelper 渲染；Harmony 无系统帮助面 →
 // NotePage bindSheet 复刻分组清单（ADR-1358）。分组与条目序 =
@@ -250,6 +264,16 @@ export function isCtrlKeyIn(event: KeyEvent, keyCodes: number[]): boolean {
 // f2 兜底：Ctrl+1..9 = 工具快选（db8.r && !db8.s；alt 不判）。
 export function toolSelectDigitIndex(event: KeyEvent): number {
   if (!keyChordCtrl(event) || keyChordShift(event)) {
+    return -1;
+  }
+  const idx: number = event.keyCode - ORIGIN_TOOL_SELECT_DIGIT_BASE;
+  return idx >= 0 && idx < 9 ? idx : -1;
+}
+
+// f2 兜底：bd8.i0 digit 命中（alt&&!ctrl；shift 由调用侧分流
+// bxi 色井 / dxi 宽度井——原版 `q&&!r&&s` 与 `q&&!r&&!s` 两支）。
+export function altWellDigitIndex(event: KeyEvent): number {
+  if (!keyChordAlt(event) || keyChordCtrl(event)) {
     return -1;
   }
   const idx: number = event.keyCode - ORIGIN_TOOL_SELECT_DIGIT_BASE;

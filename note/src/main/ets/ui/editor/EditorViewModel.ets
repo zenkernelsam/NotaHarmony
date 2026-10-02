@@ -446,6 +446,22 @@ export class EditorViewModel {
     return this.setBrushWidth(this.widthWells[index], index);
   }
 
+  // 原版 qxi case0 exi 支（f2 Alt+[/]）：jyi.B() 当前工具类型过滤
+  // 排序的色井列表 = favoriteColors；按 x25.d 色值 indexOf 定位
+  // 当前井（g92.c().b==brushColor），未命中 0 基，floorMod 回卷 →
+  // jyi.A 应用 = selectFavoriteColor。
+  async stepFavoriteColor(delta: number): Promise<boolean> {
+    const wells: number[] = this.favoriteColors;
+    if (wells.length === 0) {
+      return false;
+    }
+    const idx: number = wells.indexOf(this.brushColor);
+    const base: number = idx >= 0 ? idx : 0;
+    const size: number = wells.length;
+    const next: number = ((base + delta) % size + size) % size;
+    return this.selectFavoriteColor(next);
+  }
+
   async setFavoriteColorWell(index: number, color: number): Promise<boolean> {
     const repository: ToolRepository | null = this.repository;
     if (repository === null || index < 0 || !this.supportsColorControls()) {

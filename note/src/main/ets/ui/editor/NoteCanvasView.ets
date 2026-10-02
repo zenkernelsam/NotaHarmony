@@ -36,10 +36,13 @@ import {
 import { CanvasViewport, CumulativeGestureTracker } from '../../rendering/CanvasViewport';
 import {
   isCtrlKeyIn, keyChordAlt, keyChordCtrl, keyChordShift, toolSelectDigitIndex,
+  altWellDigitIndex,
   ORIGIN_KEYCODE_C, ORIGIN_KEYCODE_COPY, ORIGIN_KEYCODE_CUT, ORIGIN_KEYCODE_D,
-  ORIGIN_KEYCODE_E, ORIGIN_KEYCODE_F, ORIGIN_KEYCODE_MOVE_END,
+  ORIGIN_KEYCODE_E, ORIGIN_KEYCODE_F, ORIGIN_KEYCODE_LEFT_BRACKET,
+  ORIGIN_KEYCODE_MOVE_END,
   ORIGIN_KEYCODE_MOVE_HOME, ORIGIN_KEYCODE_P, ORIGIN_KEYCODE_PASTE,
-  ORIGIN_KEYCODE_R, ORIGIN_KEYCODE_V, ORIGIN_KEYCODE_X,
+  ORIGIN_KEYCODE_R, ORIGIN_KEYCODE_RIGHT_BRACKET, ORIGIN_KEYCODE_V,
+  ORIGIN_KEYCODE_X,
   ORIGIN_KEYCODE_Y, ORIGIN_KEYCODE_Z,
   ORIGIN_KEYCODE_DEL, ORIGIN_KEYCODE_DPAD_DOWN, ORIGIN_KEYCODE_DPAD_LEFT,
   ORIGIN_KEYCODE_DPAD_RIGHT, ORIGIN_KEYCODE_DPAD_UP, ORIGIN_KEYCODE_FORWARD_DEL,
@@ -708,6 +711,12 @@ export struct NoteCanvasView {
   // 纯 SPACE → 播放/暂停切换。
   onKeyRecordingSeekBy: (deltaMs: number) => void = (): void => {};
   onKeyRecordingPlayPause: () => void = (): void => {};
+  // f2:264-276 兜底链 Alt 支（bxi/dxi/exi 等价）：
+  // Alt+digit → bxi 第 N 色井；Alt+Shift+digit → dxi 第 N 宽度井；
+  // Alt+[/]（shift 不判）→ exi(∓1) 色井步进回卷。
+  onKeySelectColorWell: (index: number) => void = (): void => {};
+  onKeySelectWidthWell: (index: number) => void = (): void => {};
+  onKeyStepColorWell: (delta: number) => void = (): void => {};
   onHistoryBridgeReady: (bridge: EditorHistoryBridge) => void = () => {
   };
   // 原版 jg9.n / uf0 case4 标签语义：(当前页 tape 数, 是否存在已揭示 tape)。
@@ -5979,6 +5988,31 @@ export struct NoteCanvasView {
             this.viewport.scrollY +
             (event.keyCode === ORIGIN_KEYCODE_PAGE_UP ? -pageStep : pageStep));
           this.onViewportChanged();
+        }
+        return true;
+      }
+      // f2:264-276 兜底链 Alt 支（bd8.i0=digit 1..9 同 i0 索引基）：
+      //   alt&&!ctrl&&!shift+digit → bxi(index) 第 N 色井；
+      //   alt&&!ctrl&&shift+digit → dxi(index) 第 N 宽度井；
+      //   alt&&!ctrl+[/]（shift 不判）→ exi(∓1) StepColor 步进回卷。
+      // 三支 UP 动作、命中即消费（支内无 b2=0 落点）。
+      const altDigit: number = altWellDigitIndex(event);
+      if (altDigit >= 0) {
+        if (isUp) {
+          if (shift) {
+            this.onKeySelectWidthWell(altDigit);
+          } else {
+            this.onKeySelectColorWell(altDigit);
+          }
+        }
+        return true;
+      }
+      if (keyChordAlt(event) && !ctrl &&
+        (event.keyCode === ORIGIN_KEYCODE_LEFT_BRACKET ||
+          event.keyCode === ORIGIN_KEYCODE_RIGHT_BRACKET)) {
+        if (isUp) {
+          this.onKeyStepColorWell(
+            event.keyCode === ORIGIN_KEYCODE_LEFT_BRACKET ? -1 : 1);
         }
         return true;
       }

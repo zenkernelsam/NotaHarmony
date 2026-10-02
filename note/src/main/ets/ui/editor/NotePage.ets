@@ -2189,6 +2189,35 @@ struct NotePage {
               }
               this.toggleRecording(recordingId);
             },
+            // f2:264-276 Alt 支：Alt+digit → bxi 第 N 色井
+            // （jyi.B() 当前工具类型过滤排序列表 = favoriteColors）。
+            onKeySelectColorWell: (index: number): void => {
+              if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+                return;
+              }
+              this.viewModel.selectFavoriteColor(index).catch((e: Error) => {
+                console.error(`kbd select color well failed: ${JSON.stringify(e)}`);
+              });
+            },
+            // Alt+Shift+digit → dxi 第 N 宽度井（s2k 同型过滤排序
+            // = widthWells；k31.Y+r2k → jyi.F = setBrushWidth）。
+            onKeySelectWidthWell: (index: number): void => {
+              if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+                return;
+              }
+              this.viewModel.selectWidthWell(index).catch((e: Error) => {
+                console.error(`kbd select width well failed: ${JSON.stringify(e)}`);
+              });
+            },
+            // Alt+[/]（shift 不判）→ exi(∓1) StepColor 色井步进回卷。
+            onKeyStepColorWell: (delta: number): void => {
+              if (this.photoImportLeaseActive || this.pageStructureLeaseActive) {
+                return;
+              }
+              this.viewModel.stepFavoriteColor(delta).catch((e: Error) => {
+                console.error(`kbd step color well failed: ${JSON.stringify(e)}`);
+              });
+            },
             onTapeRevealStateChanged: (tapeCount: number, anyRevealed: boolean): void => {
               this.pageTapeCount = tapeCount;
               this.anyTapeRevealed = anyRevealed;
