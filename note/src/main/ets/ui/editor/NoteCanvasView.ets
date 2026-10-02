@@ -38,7 +38,8 @@ import {
   isCtrlKeyIn, keyChordAlt, keyChordCtrl, keyChordShift, toolSelectDigitIndex,
   altWellDigitIndex,
   ORIGIN_KEYCODE_C, ORIGIN_KEYCODE_COPY, ORIGIN_KEYCODE_CUT, ORIGIN_KEYCODE_D,
-  ORIGIN_KEYCODE_E, ORIGIN_KEYCODE_F, ORIGIN_KEYCODE_LEFT_BRACKET,
+  ORIGIN_KEYCODE_E, ORIGIN_KEYCODE_F, ORIGIN_KEYCODE_I,
+  ORIGIN_KEYCODE_LEFT_BRACKET, ORIGIN_KEYCODE_M,
   ORIGIN_KEYCODE_MOVE_END,
   ORIGIN_KEYCODE_MOVE_HOME, ORIGIN_KEYCODE_P, ORIGIN_KEYCODE_PASTE,
   ORIGIN_KEYCODE_R, ORIGIN_KEYCODE_RIGHT_BRACKET, ORIGIN_KEYCODE_V,
@@ -717,6 +718,10 @@ export struct NoteCanvasView {
   onKeySelectColorWell: (index: number) => void = (): void => {};
   onKeySelectWidthWell: (index: number) => void = (): void => {};
   onKeyStepColorWell: (delta: number) => void = (): void => {};
+  // f2:240-247 兜底链 Ctrl+Shift 支：pa8.D(41=M)→mc8(InsertMath)、
+  // pa8.C(37=I)→nc8(InsertPhoto)（均 UP 动作、u7b.g 门默认 true）。
+  onKeyInsertMath: () => void = (): void => {};
+  onKeyInsertPhoto: () => void = (): void => {};
   onHistoryBridgeReady: (bridge: EditorHistoryBridge) => void = () => {
   };
   // 原版 jg9.n / uf0 case4 标签语义：(当前页 tape 数, 是否存在已揭示 tape)。
@@ -5982,6 +5987,22 @@ export struct NoteCanvasView {
           this.endSelectionNudgeCommit();
         } else {
           this.onSelectionNudgeKeyDown(event.keyCode);
+        }
+        return true;
+      }
+      // f2 兜底链 Ctrl+Shift+pa8.D(41=M)/pa8.C(37=I)：UP →
+      // ea1.p(mc8.a)=InsertMath / ea1.p(nc8.a)=InsertPhoto；
+      // u7b.g 键盘使能旗默认 true（同 P1468 登记）；命中即消费
+      // （支内无 b2=0 落点——DOWN 亦吞键）。
+      if (ctrl && shift &&
+        (event.keyCode === ORIGIN_KEYCODE_M ||
+          event.keyCode === ORIGIN_KEYCODE_I)) {
+        if (isUp) {
+          if (event.keyCode === ORIGIN_KEYCODE_M) {
+            this.onKeyInsertMath();
+          } else {
+            this.onKeyInsertPhoto();
+          }
         }
         return true;
       }

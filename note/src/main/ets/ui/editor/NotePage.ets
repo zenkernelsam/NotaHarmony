@@ -2218,6 +2218,23 @@ struct NotePage {
                 console.error(`kbd step color well failed: ${JSON.stringify(e)}`);
               });
             },
+            // f2:240-247 Ctrl+Shift+M/I → mc8(InsertMath)/nc8(InsertPhoto)
+            // ——与工具栏 onInsertMath/onInsertPhotos 同管线+同租约门。
+            onKeyInsertMath: (): void => {
+              if (this.photoImportLeaseActive || this.pageOperationBusy ||
+                this.historyPending || this.pageStructureLeaseActive) {
+                return;
+              }
+              this.mathInsertSignal++;
+            },
+            onKeyInsertPhoto: (): void => {
+              if (this.photoImportLeaseActive || this.pageOperationBusy ||
+                this.historyPending || this.pageStructureLeaseActive) {
+                return;
+              }
+              this.photoImportLeaseActive = true;
+              this.photoInsertSignal++;
+            },
             onTapeRevealStateChanged: (tapeCount: number, anyRevealed: boolean): void => {
               this.pageTapeCount = tapeCount;
               this.anyTapeRevealed = anyRevealed;

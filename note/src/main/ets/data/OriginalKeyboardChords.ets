@@ -203,6 +203,16 @@ export const ORIGIN_KEYCODE_D: number = 2020;
 export const ORIGIN_KEYCODE_LEFT_BRACKET: number = 2059;
 export const ORIGIN_KEYCODE_RIGHT_BRACKET: number = 2060;
 
+// pa8.D = ofk.e(41) = KEYCODE_M、pa8.C = ofk.e(37) = KEYCODE_I；
+// f2:240-247 兜底链 Ctrl+Shift+M/I 支（!pa8.W 块内）：
+//   r&&s&&pa8.a(n,D) + UP + u7b.g → ea1.p(mc8.a) = InsertMath；
+//   r&&s&&pa8.a(n,C) + UP + u7b.g → ea1.p(nc8.a) = InsertPhoto；
+//   两支命中即消费（支内无 b2=0 落点）。u7b.g=键盘组合使能旗
+//   （ec2.e0 默认 true——Harmony 不另移植门，登记差异）。
+// Harmony M=2029、I=2025。
+export const ORIGIN_KEYCODE_M: number = 2029;
+export const ORIGIN_KEYCODE_I: number = 2025;
+
 // === 帮助表（txm.a → KeyboardShortcutGroup 树，Ctrl+/ qw6 路由内容） ===
 // 原版经系统 KeyboardShortcutHelper 渲染；Harmony 无系统帮助面 →
 // NotePage bindSheet 复刻分组清单（ADR-1358）。分组与条目序 =
