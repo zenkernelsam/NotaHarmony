@@ -49,7 +49,7 @@ check(sess.includes('selectionGestureSlopCrossed = false'),
   'drag session resets slop state');
 const rsIdx = view.indexOf('private tryStartSelectionResize(');
 check(rsIdx > 0, 'tryStartSelectionResize present');
-const rs = view.slice(rsIdx, rsIdx + 3400);
+const rs = view.slice(rsIdx, rsIdx + 5200);
 check(rs.includes('selectionGestureSlopCrossed = false'),
   'resize session resets slop state');
 check(rs.includes('selectionGestureLastScreen = { x: screenP.x'),

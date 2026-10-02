@@ -352,15 +352,31 @@ export class SelectionTool {
   }
 
   // 原版 1.4.2 wtf(Scale) 会话 + guf.h 应用：角柄拖拽=双轴缩放，
-  // 枢轴=fixedCorner（对侧角），无旋转分量。sx/sy 为沿选区轴的
-  // 独立缩放比（Harmony 覆盖层为轴对齐 AABB，轴=画布 x/y）。
+  // 枢轴=fixedCorner（对侧角），无旋转分量。sx/sy 为沿选区框轴的
+  // 独立缩放比；shellRadians 为铬件壳旋转角（gsf.c mp4.c()）——
+  // 非零时缩放沿旋转系轴：M=R(θ)·diag(sx,sy)·R(−θ) 共轭缩放，
+  // θ=0 退化为画布轴对齐缩放。
   resizeSelectedAxes(scaleX: number, scaleY: number, anchor: Point2D,
-    base: TransformMatrix): TransformMatrix {
-    const s: TransformMatrix = [
-      scaleX, 0, anchor.x * (1 - scaleX),
-      0, scaleY, anchor.y * (1 - scaleY),
-      0, 0, 1,
-    ];
+    base: TransformMatrix, shellRadians: number = 0): TransformMatrix {
+    let s: TransformMatrix;
+    if (Math.abs(shellRadians) <= 0.0001) {
+      s = [
+        scaleX, 0, anchor.x * (1 - scaleX),
+        0, scaleY, anchor.y * (1 - scaleY),
+        0, 0, 1,
+      ];
+    } else {
+      const c: number = Math.cos(shellRadians);
+      const sn: number = Math.sin(shellRadians);
+      const a: number = scaleX * c * c + scaleY * sn * sn;
+      const b: number = sn * c * (scaleX - scaleY);
+      const d: number = scaleX * sn * sn + scaleY * c * c;
+      s = [
+        a, b, anchor.x - (a * anchor.x + b * anchor.y),
+        b, d, anchor.y - (b * anchor.x + d * anchor.y),
+        0, 0, 1,
+      ];
+    }
     this.state.transform = this.multiply(s, base);
     return this.state.transform;
   }

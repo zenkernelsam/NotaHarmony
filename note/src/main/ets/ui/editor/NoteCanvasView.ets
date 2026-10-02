@@ -626,12 +626,18 @@ export struct NoteCanvasView {
   private resizeBaseCenter: Point2D = { x: 0, y: 0 };
   // 原版 msc.c 旋转柄：纯旋转会话（scale 锁 1，anchor=选区中心）。
   private resizeIsRotate: boolean = false;
-  // 原版 wtf(Scale) 会话字段：axis=对侧角→拖拽角的对角向量（旋转系）、
-  // locksAspectRatio（lsf+vvh 文本块=false 自由双轴，余 true 等比）。
-  // Harmony AABB 模型下轴=画布 x/y，存带符号宽/高幅。
-  private resizeAxisX: number = 1;
-  private resizeAxisY: number = 1;
+  // 原版 wtf(Scale) 会话字段：axis=对侧角→拖拽角对角向量沿框轴的
+  // 分解（wtf.xAxis/yAxis 为旋转系内选区宽/高轴向量，从锚侧指向
+  // 拖拽角侧），locksAspectRatio（lsf+vvh 文本块=false 自由双轴，
+  // 余 true 等比）。Harmony 存画布系轴向量——AABB 下退化为
+  // (±w,0)/(0,±h)，壳旋转时（gsf.c mp4.c()）承载旋转系轴。
+  private resizeAxisVecX: Point2D = { x: 1, y: 0 };
+  private resizeAxisVecY: Point2D = { x: 0, y: 1 };
+  private resizeDiagVec: Point2D = { x: 1, y: 1 };
   private resizeFreeScale: boolean = false;
+  // 会话起始的铬件壳旋转角（gsf.c mp4.c() 等价）——freeScale 双轴
+  // 缩放经 R(θ)·diag·R(−θ) 共轭沿旋转系轴落地（resizeSelectedAxes）。
+  private resizeShellRadians: number = 0;
   // 原版 ttf ControlPointDrag（ms1:195-243/guf.c）：lsf 单形状成员的
   // 顶点拖拽重构会话——命中局部系 ±(44/zoom) 方框，拖拽把控制点
   // 局部增量（增量反旋转进局部系）写回 rsm.c 等价物。
@@ -757,6 +763,10 @@ export struct NoteCanvasView {
   // 原版 yj8 布局方向（ms1:525/gsf.i/gsf.e）：RTL 时旋转柄茎锚
   // 左边中点并反向延出；vtf startingRadians +π 由实测触点角自然覆盖。
   @State selectionRotateHandleRtl: boolean = false;
+  // 原版 gsf.c xke.s(mp4.b(),mp4.c())：外铬件壳的未旋转框与旋转角
+  // （isf.d/jsf.g 等价源=统一旋转成员去旋并集屏框，yxi.e 命中同源）。
+  @State selectionChromeRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
+  @State selectionChromeRadians: number = 0;
   private imageCropSession: OriginalImageCropSession | null = null;
   @State imageCropVisible: boolean = false;
   @State imageCropDraft: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
@@ -1572,6 +1582,10 @@ export struct NoteCanvasView {
       this.resizeAnchor = this.resizeBaseCenter;
       this.resizeStart = this.viewport.screenToCanvas(screenP.x, screenP.y);
     } else {
+      // 原版 wtf(axis/xAxis/yAxis)：xAxis/yAxis=旋转系内选区宽/高轴
+      // 向量（锚侧→拖拽角侧取向）。壳旋转时角点在旋转后屏位，轴
+      // 向量=对角向量 D 在框轴单位向量上的分解；AABB 下退化为
+      // (±w,0)/(0,±h) 带符号幅。
       const corners: Point2D[] = this.selectionScreenCorners();
       const opposite: Point2D = corners[(corner + 2) % 4];
       this.resizeIsRotate = false;
@@ -1581,10 +1595,28 @@ export struct NoteCanvasView {
       // wtf.c=dragStartPoint=实际触点（非角点）——Δ 自触点起算，
       // 按下瞬间 s=1 不产生跳变。
       this.resizeStart = this.viewport.screenToCanvas(screenP.x, screenP.y);
-      // 原版 wtf(axis/xAxis/yAxis)：拖拽角相对 fixedCorner 的轴分量——
-      // AABB 模型下即带符号宽/高（s64 增量投影在此轴上产每轴缩放比）。
-      this.resizeAxisX = draggedCv.x - this.resizeAnchor.x;
-      this.resizeAxisY = draggedCv.y - this.resizeAnchor.y;
+      const tlCv: Point2D = this.viewport.screenToCanvas(corners[0].x, corners[0].y);
+      const trCv: Point2D = this.viewport.screenToCanvas(corners[1].x, corners[1].y);
+      const blCv: Point2D = this.viewport.screenToCanvas(corners[3].x, corners[3].y);
+      const exLen: number = Math.hypot(trCv.x - tlCv.x, trCv.y - tlCv.y);
+      const eyLen: number = Math.hypot(blCv.x - tlCv.x, blCv.y - tlCv.y);
+      const diagCv: Point2D = {
+        x: draggedCv.x - this.resizeAnchor.x,
+        y: draggedCv.y - this.resizeAnchor.y,
+      };
+      this.resizeDiagVec = diagCv;
+      this.resizeShellRadians = this.selectionChromeGeom().radians;
+      if (exLen > 0.0001 && eyLen > 0.0001) {
+        const ex: Point2D = { x: (trCv.x - tlCv.x) / exLen, y: (trCv.y - tlCv.y) / exLen };
+        const ey: Point2D = { x: (blCv.x - tlCv.x) / eyLen, y: (blCv.y - tlCv.y) / eyLen };
+        const dAlongEx: number = diagCv.x * ex.x + diagCv.y * ex.y;
+        const dAlongEy: number = diagCv.x * ey.x + diagCv.y * ey.y;
+        this.resizeAxisVecX = { x: ex.x * dAlongEx, y: ex.y * dAlongEx };
+        this.resizeAxisVecY = { x: ey.x * dAlongEy, y: ey.y * dAlongEy };
+      } else {
+        this.resizeAxisVecX = { x: diagCv.x, y: 0 };
+        this.resizeAxisVecY = { x: 0, y: diagCv.y };
+      }
       // z7=locksAspectRatio：默认 true；仅 lsf+vvh 文本块 false 自由拉伸。
       const rs: SelectionState = this.selectionTool.getState();
       this.resizeFreeScale = !rs.supportsDeselectMode &&
@@ -7921,37 +7953,91 @@ export struct NoteCanvasView {
   }
 
   // 原版 htc.e/fvb.f(z) 角柄：四角屏幕坐标（顺序 lt,rt,rb,lb）。
+  // 原版 gsf.c：外铬件壳 = mp4（sbe 界 + c() 旋转角）——绘制前画布绕
+  // mp4.b()（sbe 中心）旋 θ。Harmony 等价源=uniformRotationUnrotated
+  // ScreenRect（yxi.e 命中模型同源：统一旋转成员的去旋并集屏框）；
+  // 无统一角/纯笔画壳（旋转烘进 pathPoints）→ θ=0 轴对齐。
+  private selectionChromeGeom(): UnrotatedSelectionRect {
+    const u: UnrotatedSelectionRect | null = this.uniformRotationUnrotatedScreenRect();
+    if (u !== null) {
+      return u;
+    }
+    return { rect: this.selectionRect, radians: 0 };
+  }
+
+  // ms1 旋转系命中：触点绕壳中心反旋 −θ 后在未旋转壳上判
+  // （gsf.c xke.s(center,θ) 的逆变换）。
+  private unrotateChromePoint(p: Point2D, g: UnrotatedSelectionRect): Point2D {
+    if (g.radians === 0) {
+      return p;
+    }
+    const cx: number = (g.rect.left + g.rect.right) / 2;
+    const cy: number = (g.rect.top + g.rect.bottom) / 2;
+    const c: number = Math.cos(-g.radians);
+    const s: number = Math.sin(-g.radians);
+    const dx: number = p.x - cx;
+    const dy: number = p.y - cy;
+    return { x: cx + dx * c - dy * s, y: cy + dx * s + dy * c };
+  }
+
+  // 旋转壳屏角：未旋转框四角绕框中心旋 +θ（=覆盖层旋转铬件上
+  // 柄/锚的真实屏位）。θ=0 时即 selectionRect AABB 角。
   private selectionScreenCorners(): Point2D[] {
-    const r: Rect2D = this.selectionRect;
-    return [
+    const g: UnrotatedSelectionRect = this.selectionChromeGeom();
+    const r: Rect2D = g.rect;
+    const base: Point2D[] = [
       { x: r.left, y: r.top },
       { x: r.right, y: r.top },
       { x: r.right, y: r.bottom },
       { x: r.left, y: r.bottom },
     ];
+    if (g.radians === 0) {
+      return base;
+    }
+    const cx: number = (r.left + r.right) / 2;
+    const cy: number = (r.top + r.bottom) / 2;
+    const c: number = Math.cos(g.radians);
+    const s: number = Math.sin(g.radians);
+    return base.map((corner: Point2D): Point2D => {
+      const dx: number = corner.x - cx;
+      const dy: number = corner.y - cy;
+      return { x: cx + dx * c - dy * s, y: cy + dx * s + dy * c };
+    });
   }
 
   // 原版 gsf.e 旋转柄：右（RTL 左）边中点 + 水平茎 56vp 端点圆
   // （屏幕坐标命中判定；端点中心 y 下偏移茎宽一半=1vp）。
   // gsf.i:164-167——yj8.F(LTR) 锚 sbe.c(右边)，RTL 锚 sbe.a(左边)。
+  // 壳旋转时触点在旋转系内判（ms1 旋转框命中）。
   private selectionRotateHandleAt(p: Point2D): boolean {
+    const g: UnrotatedSelectionRect = this.selectionChromeGeom();
+    const q: Point2D = this.unrotateChromePoint(p, g);
     const cx: number = this.selectionRotateHandleRtl
-      ? this.selectionRect.left - SELECTION_ROTATE_HANDLE_STEM
-      : this.selectionRect.right + SELECTION_ROTATE_HANDLE_STEM;
-    const cy: number = (this.selectionRect.top + this.selectionRect.bottom) / 2 + 1;
-    const dx: number = p.x - cx;
-    const dy: number = p.y - cy;
+      ? g.rect.left - SELECTION_ROTATE_HANDLE_STEM
+      : g.rect.right + SELECTION_ROTATE_HANDLE_STEM;
+    const cy: number = (g.rect.top + g.rect.bottom) / 2 + 1;
+    const dx: number = q.x - cx;
+    const dy: number = q.y - cy;
     return dx * dx + dy * dy <= SELECTION_HANDLE_HIT_RADIUS * SELECTION_HANDLE_HIT_RADIUS;
   }
 
   // 角柄命中：返回角索引 0-3，未命中 -1（屏幕坐标）。原版 ms1:295-327
   // 对四角做 |dx|<f15 ∧ |dy|<f15 轴对齐方框，f15=guf.l/k=44/zoom 文档
-  // 单位——屏上等效 ±44vp 方框（f15 乘 zoom 还原屏幕像素）。
+  // 单位——屏上等效 ±44vp 方框（f15 乘 zoom 还原屏幕像素）；壳旋转时
+  // 触点先反旋 −θ 再在未旋转框上测（ms1 旋转系方框命中）。
   private selectionResizeCornerAt(p: Point2D): number {
-    const corners: Point2D[] = this.selectionScreenCorners();
+    const g: UnrotatedSelectionRect = this.selectionChromeGeom();
+    const q: Point2D = this.unrotateChromePoint(p, g);
+    const r: Rect2D = g.rect;
+    const corners: Point2D[] = [
+      { x: r.left, y: r.top },
+      { x: r.right, y: r.top },
+      { x: r.right, y: r.bottom },
+      { x: r.left, y: r.bottom },
+    ];
     for (let i: number = 0; i < corners.length; i++) {
-      if (Math.abs(p.x - corners[i].x) < SELECTION_CORNER_HIT_HALF &&
-        Math.abs(p.y - corners[i].y) < SELECTION_CORNER_HIT_HALF) {
+      if (Math.abs(q.x - corners[i].x) < SELECTION_CORNER_HIT_HALF &&
+        Math.abs(q.y - corners[i].y) < SELECTION_CORNER_HIT_HALF) {
         return i;
       }
     }
@@ -7998,10 +8084,17 @@ export struct NoteCanvasView {
     let scaleX: number;
     let scaleY: number;
     if (this.resizeFreeScale) {
-      scaleX = Math.abs(this.resizeAxisX) > 0.0001 ?
-        1 + ddx / this.resizeAxisX : 1;
-      scaleY = Math.abs(this.resizeAxisY) > 0.0001 ?
-        1 + ddy / this.resizeAxisY : 1;
+      // guf.f：s_axis = 1 + Δ·axis/|axis|²——Δ=画布系拖拽位移，
+      // axis=旋转系内轴向量（点积天然吸收壳旋转）；AABB 下退化
+      // 为 1+ddx/ax 与旧标量式恒等。
+      const axLen2: number = this.resizeAxisVecX.x * this.resizeAxisVecX.x +
+        this.resizeAxisVecX.y * this.resizeAxisVecX.y;
+      const ayLen2: number = this.resizeAxisVecY.x * this.resizeAxisVecY.x +
+        this.resizeAxisVecY.y * this.resizeAxisVecY.y;
+      scaleX = axLen2 > 0.0001 ?
+        1 + (ddx * this.resizeAxisVecX.x + ddy * this.resizeAxisVecX.y) / axLen2 : 1;
+      scaleY = ayLen2 > 0.0001 ?
+        1 + (ddx * this.resizeAxisVecY.x + ddy * this.resizeAxisVecY.y) / ayLen2 : 1;
       // 原版 guf.h jv6 支：文本块缩放逐轴下限——factor ≥ 16/(框宽·现有缩放)，
       // 即自由拉伸不把文本框压到 16 单位以下（fD2/fC2=max(请求,下限)）。
       const selTextId: string = this.selectionTool.getState().selectedTextBlockIds[0];
@@ -8022,15 +8115,17 @@ export struct NoteCanvasView {
         }
       }
     } else {
-      const diag2: number =
-        this.resizeAxisX * this.resizeAxisX + this.resizeAxisY * this.resizeAxisY;
+      // locksAspectRatio=true：Δ 沿对角向量 D 投影产统一比
+      // s=1+Δ·D/|D|²（D=锚→拖拽角，旋转系对角——AABB 退化同旧式）。
+      const diag2: number = this.resizeDiagVec.x * this.resizeDiagVec.x +
+        this.resizeDiagVec.y * this.resizeDiagVec.y;
       const s: number = diag2 > 0.0001 ?
-        1 + (ddx * this.resizeAxisX + ddy * this.resizeAxisY) / diag2 : 1;
+        1 + (ddx * this.resizeDiagVec.x + ddy * this.resizeDiagVec.y) / diag2 : 1;
       scaleX = s;
       scaleY = s;
     }
     this.selectionTool.resizeSelectedAxes(scaleX, scaleY, this.resizeAnchor,
-      this.resizeBaseTransform);
+      this.resizeBaseTransform, this.resizeShellRadians);
     this.applySelectionTransform(false, false);  // 变换中不 push undo（结束时统一 push）
   }
 
@@ -8815,6 +8910,19 @@ export struct NoteCanvasView {
       const br: Point2D = this.viewport.canvasToScreen(rect.right, rect.bottom);
       this.selectionRect = { left: tl.x, top: tl.y, right: br.x, bottom: br.y };
       this.selectionVisible = true;
+    }
+    // 原版 gsf.c：外铬件按 mp4.c()（isf.d/jsf.g 壳旋转）绕 mp4.b()
+    // 中心整框旋转——界+四角柄+茎柄同转。Harmony 等价源=
+    // uniformRotationUnrotatedScreenRect（与 yxi.e 界内命中判定
+    // 同源）；无统一角/纯笔画壳（旋转烘进 pathPoints）→ θ=0。
+    const chrome: UnrotatedSelectionRect | null =
+      this.uniformRotationUnrotatedScreenRect();
+    if (chrome !== null) {
+      this.selectionChromeRect = chrome.rect;
+      this.selectionChromeRadians = chrome.radians;
+    } else {
+      this.selectionChromeRect = this.selectionRect;
+      this.selectionChromeRadians = 0;
     }
   }
 
@@ -12457,6 +12565,8 @@ export struct NoteCanvasView {
         selectionOuterGray: this.selectionOuterGray,
         selectionHandlesHidden: this.selectionHandlesHidden,
         selectionRotateHandleRtl: this.selectionRotateHandleRtl,
+        selectionChromeRect: this.selectionChromeRect,
+        selectionChromeRadians: this.selectionChromeRadians,
         photoImportLeaseActive: this.photoImportBusy,
         containerWidth: this.overlayWidth,
         containerHeight: this.overlayHeight,

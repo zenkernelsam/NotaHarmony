@@ -43,10 +43,10 @@ check(layout.includes('SELECTION_ROTATE_HANDLE_STEM'),
 const rotateStemIdx = overlay.indexOf('.width(SELECTION_ROTATE_HANDLE_STEM)');
 check(rotateStemIdx > 0, 'rotate stem drawn (gsf.e 2dp line to endpoint)');
 const rotateBlock = overlay.slice(rotateStemIdx - 400, rotateStemIdx + 1600);
-check(rotateBlock.includes('this.selectionRect.right') &&
-  rotateBlock.includes('(this.selectionRect.top + this.selectionRect.bottom) / 2') &&
+check(rotateBlock.includes('this.selectionChromeRect.right') &&
+  rotateBlock.includes('(this.selectionChromeRect.top + this.selectionChromeRect.bottom) / 2') &&
   rotateBlock.includes('SELECTION_ROTATE_DOT_OUTER'),
-  'rotate handle anchors at right-edge midpoint + 56vp stem endpoint dot');
+  'rotate handle anchors at right-edge midpoint + 56vp stem endpoint dot (chrome shell space)');
 const handleBlock = overlay.slice(overlay.indexOf('if (!this.deselectMode && !this.photoImportLeaseActive'),
   overlay.indexOf('Circle()') + 200);
 check(handleBlock.includes('!this.deselectMode') &&
@@ -64,7 +64,7 @@ check(cornerIdx > 0 && dragIdx > cornerIdx,
   'corner-handle hit precedes the inside-rect drag branch');
 // Phase 603：会话初始化抽取为 tryStartSelectionResize（SELECTION/TEXT 面共用）。
 const cornerBlock = canvas.slice(canvas.indexOf('private tryStartSelectionResize('),
-  canvas.indexOf('private tryStartSelectionResize(') + 2600);
+  canvas.indexOf('private tryStartSelectionResize(') + 4000);
 check(cornerBlock.includes('this.selectionPositionLocked'),
   'handles gated off when the selection is position-locked');
 check(cornerBlock.includes('corners[(corner + 2) % 4]'),
@@ -82,7 +82,7 @@ check(cornerBlock.includes('this.selectionRotateHandleAt(') &&
 // 1.4.2 会话分工：wtf toString 无角度字段 → 角柄拖拽不产旋转；
 // guf.f 产 (sx,sy)=位移投影轴比；guf.h 双轴应用+fixedCorner 枢轴。
 const resize = canvas.slice(canvas.indexOf('private applySelectionResize('),
-  canvas.indexOf('private applySelectionResize(') + 3400);
+  canvas.indexOf('private applySelectionResize(') + 5400);
 check(resize.includes('if (this.resizeIsRotate) {'),
   'rotate-handle branch split from corner scale');
 check(resize.includes('this.selectionTool.resizeSelected(1, radians, this.resizeAnchor'),
@@ -91,10 +91,10 @@ check(resize.includes('Math.atan2(dy, dx)') &&
   resize.includes('curRadians - Math.atan2(startDy, startDx)'),
   'rotation = angular displacement about the center (vtf.e); ' +
   'P1453: absolute angle snap (guf.e) on the rotate-handle branch');
-check(resize.includes('1 + ddx / this.resizeAxisX') &&
-  resize.includes('1 + ddy / this.resizeAxisY'),
-  'free per-axis scale = 1+Δ/axis (guf.f projections, wtf xAxis/yAxis)');
-check(resize.includes('(ddx * this.resizeAxisX + ddy * this.resizeAxisY) / diag2'),
+check(resize.includes('1 + (ddx * this.resizeAxisVecX.x + ddy * this.resizeAxisVecX.y) / axLen2') &&
+  resize.includes('1 + (ddx * this.resizeAxisVecY.x + ddy * this.resizeAxisVecY.y) / ayLen2'),
+  'free per-axis scale = 1+Δ·axis/|axis|² (guf.f dot projections, wtf xAxis/yAxis vectors)');
+check(resize.includes('(ddx * this.resizeDiagVec.x + ddy * this.resizeDiagVec.y) / diag2'),
   'locked scale = diagonal-vector projection (wtf axis field)');
 check(resize.includes('this.selectionTool.resizeSelectedAxes(scaleX, scaleY, this.resizeAnchor'),
   'corner transform applies both axes about the fixed corner');
@@ -106,19 +106,23 @@ check(resize.includes('this.applySelectionTransform(false, false)'),
   'mid-gesture transform applies without pushing undo');
 
 // --- 角柄会话轴幅/锁纵横比初始化（ms1:330-435 wtf 构造） ---
-check(cornerBlock.includes('this.resizeAxisX = draggedCv.x - this.resizeAnchor.x') &&
-  cornerBlock.includes('this.resizeAxisY = draggedCv.y - this.resizeAnchor.y'),
-  'signed axis extents = dragged − fixedCorner (wtf axis/xAxis/yAxis)');
+// P1461：轴幅=对角向量 D=拖拽角−fixedCorner 在框轴单位向量上的分解
+//（旋转系 xAxis/yAxis；AABB 下退化 (±w,0)/(0,±h)）。
+check(cornerBlock.includes('this.resizeDiagVec = diagCv') &&
+  cornerBlock.includes('dAlongEx: number = diagCv.x * ex.x + diagCv.y * ex.y') &&
+  cornerBlock.includes('this.resizeAxisVecX = { x: ex.x * dAlongEx') &&
+  cornerBlock.includes('this.resizeAxisVecY = { x: ey.x * dAlongEy'),
+  'axis vectors = diagonal decomposed on frame axes (wtf axis/xAxis/yAxis)');
 check(cornerBlock.includes('rs.selectedTextBlockIds.length === 1') &&
   cornerBlock.includes('this.resizeFreeScale'),
   'locksAspectRatio=false only for lsf single text block (ms1 z7)');
 
 // --- 角柄命中域：原版 ±f15=44/zoom 文档方框（ms1:295-327） ---
 const hitBlock = canvas.slice(canvas.indexOf('private selectionResizeCornerAt('),
-  canvas.indexOf('private selectionResizeCornerAt(') + 1200);
-check(hitBlock.includes('Math.abs(p.x - corners[i].x) < SELECTION_CORNER_HIT_HALF') &&
-  hitBlock.includes('Math.abs(p.y - corners[i].y) < SELECTION_CORNER_HIT_HALF'),
-  'corner hit = axis-aligned square (not a circle)');
+  canvas.indexOf('private selectionResizeCornerAt(') + 1300);
+check(hitBlock.includes('Math.abs(q.x - corners[i].x) < SELECTION_CORNER_HIT_HALF') &&
+  hitBlock.includes('Math.abs(q.y - corners[i].y) < SELECTION_CORNER_HIT_HALF'),
+  'corner hit = axis-aligned square in unrotated shell space (not a circle)');
 check(canvas.includes('const SELECTION_CORNER_HIT_HALF: number = 44.0;'),
   'corner hit half-extent = 44vp screen (f15·zoom)');
 

@@ -65,6 +65,11 @@ export struct SelectionOverlay {
   // 原版 yj8 布局方向：RTL 时旋转柄茎锚左边中点并反向延出
   //（gsf.i:164-167 sbe.a vs sbe.c；gsf.e f3=±56/f2）。
   @Prop selectionRotateHandleRtl: boolean = false;
+  // 原版 gsf.c xke.s(mp4.b(),mp4.c())：外铬件（界+四角柄+茎柄）
+  // 绘制在未旋转壳框 selectionChromeRect 上后整体绕框中心旋
+  // selectionChromeRadians（isf.d/jsf.g 壳旋转等价源）。
+  @Prop selectionChromeRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
+  @Prop selectionChromeRadians: number = 0;
   @Prop photoImportLeaseActive: boolean = false;
   @Prop containerWidth: number = 0;
   @Prop containerHeight: number = 0;
@@ -80,81 +85,92 @@ export struct SelectionOverlay {
   build() {
     Stack() {
       if (this.visible) {
-        // 原版 gsf.g/sen.t 界式样：绘制型选区（isf.k 轨迹非空）→ 实线
-        // 2dp 界；程序化集合（k=null：粘贴/全选）→ 4dp 虚线界；固定色
-        // #FF4278FF（qxk.e(4282546431)，不随主题）；jsf 组点选 → gsf.c
-        // e=#FFB3B3B3 灰实线 2dp；lsf 单元素点选 → gsf.h 早退无外框；
-        // deselectMode（isf.h）→ gsf.c = a@0.32 降色。
-        if (!this.selectionBorderless) {
-          Stack()
-            .width(this.selectionRect.right - this.selectionRect.left)
-            .height(this.selectionRect.bottom - this.selectionRect.top)
-            .position({ x: this.selectionRect.left, y: this.selectionRect.top })
-            .border({
-              width: this.selectionDrawn || this.selectionOuterGray ? 2 : 4,
-              color: this.selectionOuterGray ? '#FFB3B3B3' : '#FF4278FF',
-              style: this.selectionDrawn || this.selectionOuterGray ?
-                BorderStyle.Solid : BorderStyle.Dashed,
-            })
-            .opacity(this.deselectMode ? 0.32 : 1.0)
-        }
-        // 原版 gsf.b/e 手柄（htc.e/qpi.b 自由变换入口）：角柄=半径 12dp
-        // 白（p52.e）+半径 10dp 蓝（gsf.a）双层圆；旋转柄=右（RTL 左）边
-        // 中点锚 + 水平茎 56vp 延出 + 半径 16dp 白/14dp #444DE0 端点双层圆。
-        // 命中由 NoteCanvasView.onTouchDown 判定（装饰性，不拦截）。
-        if (!this.deselectMode && !this.photoImportLeaseActive &&
-          !this.selectionHandlesHidden) {
-          ForEach([
-            { x: this.selectionRect.left, y: this.selectionRect.top },
-            { x: this.selectionRect.right, y: this.selectionRect.top },
-            { x: this.selectionRect.right, y: this.selectionRect.bottom },
-            { x: this.selectionRect.left, y: this.selectionRect.bottom },
-          ], (corner: Point2D) => {
+        // 原版 gsf.c：外铬件壳=mp4（sbe 界 + c() 旋转）——界/角柄/茎柄
+        // 全部画在未旋转壳框（selectionChromeRect）上后整体绕框中心
+        // 旋转 θ（xke.s(center,θ)）。θ=0 时壳框=selectionRect AABB。
+        Stack() {
+          // 原版 gsf.g/sen.t 界式样：绘制型选区（isf.k 轨迹非空）→ 实线
+          // 2dp 界；程序化集合（k=null：粘贴/全选）→ 4dp 虚线界；固定色
+          // #FF4278FF（qxk.e(4282546431)，不随主题）；jsf 组点选 → gsf.c
+          // e=#FFB3B3B3 灰实线 2dp；lsf 单元素点选 → gsf.h 早退无外框；
+          // deselectMode（isf.h）→ gsf.c = a@0.32 降色。
+          if (!this.selectionBorderless) {
+            Stack()
+              .width(this.selectionChromeRect.right - this.selectionChromeRect.left)
+              .height(this.selectionChromeRect.bottom - this.selectionChromeRect.top)
+              .position({ x: this.selectionChromeRect.left, y: this.selectionChromeRect.top })
+              .border({
+                width: this.selectionDrawn || this.selectionOuterGray ? 2 : 4,
+                color: this.selectionOuterGray ? '#FFB3B3B3' : '#FF4278FF',
+                style: this.selectionDrawn || this.selectionOuterGray ?
+                  BorderStyle.Solid : BorderStyle.Dashed,
+              })
+              .opacity(this.deselectMode ? 0.32 : 1.0)
+          }
+          // 原版 gsf.b/e 手柄（htc.e/qpi.b 自由变换入口）：角柄=半径 12dp
+          // 白（p52.e）+半径 10dp 蓝（gsf.a）双层圆；旋转柄=右（RTL 左）边
+          // 中点锚 + 水平茎 56vp 延出 + 半径 16dp 白/14dp #444DE0 端点双层圆。
+          // 命中由 NoteCanvasView.onTouchDown 判定（装饰性，不拦截）。
+          if (!this.deselectMode && !this.photoImportLeaseActive &&
+            !this.selectionHandlesHidden) {
+            ForEach([
+              { x: this.selectionChromeRect.left, y: this.selectionChromeRect.top },
+              { x: this.selectionChromeRect.right, y: this.selectionChromeRect.top },
+              { x: this.selectionChromeRect.right, y: this.selectionChromeRect.bottom },
+              { x: this.selectionChromeRect.left, y: this.selectionChromeRect.bottom },
+            ], (corner: Point2D) => {
+              Stack() {
+                Circle()
+                  .width(SELECTION_HANDLE_DOT_OUTER)
+                  .height(SELECTION_HANDLE_DOT_OUTER)
+                  .fill('#FFFFFFFF')
+                Circle()
+                  .width(SELECTION_HANDLE_DOT_INNER)
+                  .height(SELECTION_HANDLE_DOT_INNER)
+                  .fill('#FF4278FF')
+              }
+              .position({ x: corner.x - SELECTION_HANDLE_DOT_OUTER / 2,
+                y: corner.y - SELECTION_HANDLE_DOT_OUTER / 2 })
+            }, (corner: Point2D): string => `${corner.x},${corner.y}`)
+            // gsf.e：茎=右（RTL 左）边中点 ±56vp（gsf.e:87
+            // f3=56/f2·(dir==F?1:−1)、gsf.i 锚 sbe.c/sbe.a 边中点）；
+            // 茎宽 2vp、色 d=#FF444DE0。
+            Rect()
+              .width(SELECTION_ROTATE_HANDLE_STEM)
+              .height(2)
+              .fill('#FF444DE0')
+              .position({
+                x: this.selectionRotateHandleRtl
+                  ? this.selectionChromeRect.left - SELECTION_ROTATE_HANDLE_STEM
+                  : this.selectionChromeRect.right,
+                y: (this.selectionChromeRect.top + this.selectionChromeRect.bottom) / 2 - 1,
+              })
             Stack() {
               Circle()
-                .width(SELECTION_HANDLE_DOT_OUTER)
-                .height(SELECTION_HANDLE_DOT_OUTER)
+                .width(SELECTION_ROTATE_DOT_OUTER)
+                .height(SELECTION_ROTATE_DOT_OUTER)
                 .fill('#FFFFFFFF')
               Circle()
-                .width(SELECTION_HANDLE_DOT_INNER)
-                .height(SELECTION_HANDLE_DOT_INNER)
-                .fill('#FF4278FF')
+                .width(SELECTION_ROTATE_DOT_INNER)
+                .height(SELECTION_ROTATE_DOT_INNER)
+                .fill('#FF444DE0')
             }
-            .position({ x: corner.x - SELECTION_HANDLE_DOT_OUTER / 2,
-              y: corner.y - SELECTION_HANDLE_DOT_OUTER / 2 })
-          }, (corner: Point2D): string => `${corner.x},${corner.y}`)
-          // gsf.e：茎=右（RTL 左）边中点 ±56vp（gsf.e:87
-          // f3=56/f2·(dir==F?1:−1)、gsf.i 锚 sbe.c/sbe.a 边中点）；
-          // 茎宽 2vp、色 d=#FF444DE0。
-          Rect()
-            .width(SELECTION_ROTATE_HANDLE_STEM)
-            .height(2)
-            .fill('#FF444DE0')
             .position({
-              x: this.selectionRotateHandleRtl
-                ? this.selectionRect.left - SELECTION_ROTATE_HANDLE_STEM
-                : this.selectionRect.right,
-              y: (this.selectionRect.top + this.selectionRect.bottom) / 2 - 1,
+              x: (this.selectionRotateHandleRtl
+                ? this.selectionChromeRect.left - SELECTION_ROTATE_HANDLE_STEM
+                : this.selectionChromeRect.right + SELECTION_ROTATE_HANDLE_STEM) -
+                SELECTION_ROTATE_DOT_OUTER / 2,
+              y: (this.selectionChromeRect.top + this.selectionChromeRect.bottom) / 2 + 1 -
+                SELECTION_ROTATE_DOT_OUTER / 2,
             })
-          Stack() {
-            Circle()
-              .width(SELECTION_ROTATE_DOT_OUTER)
-              .height(SELECTION_ROTATE_DOT_OUTER)
-              .fill('#FFFFFFFF')
-            Circle()
-              .width(SELECTION_ROTATE_DOT_INNER)
-              .height(SELECTION_ROTATE_DOT_INNER)
-              .fill('#FF444DE0')
           }
-          .position({
-            x: (this.selectionRotateHandleRtl
-              ? this.selectionRect.left - SELECTION_ROTATE_HANDLE_STEM
-              : this.selectionRect.right + SELECTION_ROTATE_HANDLE_STEM) -
-              SELECTION_ROTATE_DOT_OUTER / 2,
-            y: (this.selectionRect.top + this.selectionRect.bottom) / 2 + 1 -
-              SELECTION_ROTATE_DOT_OUTER / 2,
-          })
         }
+        .rotate({
+          x: 0, y: 0, z: 1,
+          angle: (this.selectionChromeRadians * 180 / Math.PI).toString() + 'deg',
+          centerX: (this.selectionChromeRect.left + this.selectionChromeRect.right) / 2,
+          centerY: (this.selectionChromeRect.top + this.selectionChromeRect.bottom) / 2,
+        })
         // 菜单：ArkUI 原生 bindMenu（T-033 替换自绘 Row+Button）；按钮 Block 阻止事件穿透
         Button($r('app.string.selection_actions'))
           .width(SELECTION_MENU_BUTTON_WIDTH)

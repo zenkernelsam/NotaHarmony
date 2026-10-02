@@ -45,10 +45,10 @@ check(cornerBlock.includes('x: corner.x - SELECTION_HANDLE_DOT_OUTER / 2'),
 // --- 旋转柄：右边中点锚 + 茎 + 端点双层圆 ---
 check(overlay.includes('SELECTION_ROTATE_HANDLE_STEM') &&
   overlay.includes('this.selectionRotateHandleRtl') &&
-  overlay.includes('this.selectionRect.left - SELECTION_ROTATE_HANDLE_STEM') &&
-  overlay.includes('this.selectionRect.right,') &&
-  overlay.includes('(this.selectionRect.top + this.selectionRect.bottom) / 2'),
-  'rotate stem anchored at right-edge midpoint, RTL left (gsf.i/gsf.e ±56)');
+  overlay.includes('this.selectionChromeRect.left - SELECTION_ROTATE_HANDLE_STEM') &&
+  overlay.includes('this.selectionChromeRect.right,') &&
+  overlay.includes('(this.selectionChromeRect.top + this.selectionChromeRect.bottom) / 2'),
+  'rotate stem anchored at right-edge midpoint, RTL left (gsf.i/gsf.e ±56, unrotated shell space)');
 check(overlay.includes("'#FF444DE0'"),
   'rotate stem+dot inner = gsf.d #FF444DE0');
 check(overlay.includes('SELECTION_ROTATE_DOT_OUTER') &&
@@ -58,13 +58,14 @@ check(!overlay.includes('SELECTION_ROTATE_HANDLE_OFFSET') &&
   !canvas.includes('SELECTION_ROTATE_HANDLE_OFFSET'),
   'legacy top-edge rotate handle removed (gsf.e is right-edge stem)');
 
-// --- 命中域同步：selectionRotateHandleAt 迁至茎端点 ---
+// --- 命中域同步：selectionRotateHandleAt 迁至茎端点（反旋入壳系） ---
 const hit = canvas.slice(canvas.indexOf('private selectionRotateHandleAt('),
-  canvas.indexOf('private selectionRotateHandleAt(') + 800);
-check(hit.includes('this.selectionRect.right + SELECTION_ROTATE_HANDLE_STEM') &&
-  hit.includes('(this.selectionRect.top + this.selectionRect.bottom) / 2') &&
-  hit.includes('SELECTION_HANDLE_HIT_RADIUS'),
-  'rotate-handle hit zone = stem endpoint circle, 22vp radius');
+  canvas.indexOf('private selectionRotateHandleAt(') + 900);
+check(hit.includes('g.rect.right + SELECTION_ROTATE_HANDLE_STEM') &&
+  hit.includes('(g.rect.top + g.rect.bottom) / 2') &&
+  hit.includes('SELECTION_HANDLE_HIT_RADIUS') &&
+  hit.includes('this.unrotateChromePoint(p, g)'),
+  'rotate-handle hit = stem endpoint circle in unrotated shell space');
 
 // --- 覆盖层手柄门控保持（deselectMode/photoImport/handlesHidden） ---
 check(overlay.includes('!this.deselectMode && !this.photoImportLeaseActive') &&
@@ -79,10 +80,33 @@ check(canvas.includes('@State selectionRotateHandleRtl') &&
   'RTL state driven by i18n isRTL (yj8.G equivalent)');
 const hitRtl = canvas.slice(canvas.indexOf('private selectionRotateHandleAt('),
   canvas.indexOf('private selectionRotateHandleAt(') + 900);
-check(hitRtl.includes('this.selectionRect.left - SELECTION_ROTATE_HANDLE_STEM') &&
-  hitRtl.includes('this.selectionRect.right + SELECTION_ROTATE_HANDLE_STEM'),
+check(hitRtl.includes('g.rect.left - SELECTION_ROTATE_HANDLE_STEM') &&
+  hitRtl.includes('g.rect.right + SELECTION_ROTATE_HANDLE_STEM'),
   'hit zone mirrors anchor side: RTL→left−stem / LTR→right+stem');
 check(canvas.includes('selectionRotateHandleRtl: this.selectionRotateHandleRtl'),
   'RTL prop wired from canvas state to overlay');
+
+// --- Phase 1461 — 壳旋转渲染+命中（gsf.c xke.s(center,θ)/ms1 旋转系） ---
+check(overlay.includes('@Prop selectionChromeRect') &&
+  overlay.includes('@Prop selectionChromeRadians'),
+  'overlay exposes unrotated shell rect + radians props');
+check(overlay.includes('.rotate({') &&
+  overlay.includes('this.selectionChromeRadians * 180 / Math.PI') &&
+  overlay.includes('(this.selectionChromeRect.left + this.selectionChromeRect.right) / 2'),
+  'chrome block rotates about shell center (xke.s pivot)');
+check(canvas.includes('selectionChromeRect: this.selectionChromeRect') &&
+  canvas.includes('selectionChromeRadians: this.selectionChromeRadians'),
+  'chrome geometry wired from canvas state to overlay');
+check(canvas.includes('private selectionChromeGeom(): UnrotatedSelectionRect') &&
+  canvas.includes('this.uniformRotationUnrotatedScreenRect()'),
+  'chrome shell = unrotated member-union rect (isf.d/jsf.g carrier)');
+const unrot = canvas.slice(canvas.indexOf('private unrotateChromePoint('),
+  canvas.indexOf('private unrotateChromePoint(') + 700);
+check(unrot.includes('Math.cos(-g.radians)') && unrot.includes('Math.sin(-g.radians)'),
+  'hit point unrotated by −θ about shell center (ms1 rotated-frame test)');
+const cornersFn = canvas.slice(canvas.indexOf('private selectionScreenCorners()'),
+  canvas.indexOf('private selectionScreenCorners()') + 1400);
+check(cornersFn.includes('Math.cos(g.radians)') && cornersFn.includes('Math.sin(g.radians)'),
+  'screen corners rotated +θ about shell center (wtf axis derivation)');
 
 console.log(`d02-original-selection-handle-geometry: ${n} checks OK`);
