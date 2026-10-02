@@ -183,6 +183,12 @@ export const ORIGIN_KEY_PAGE_SCROLL_FRACTION: number = 0.9;
 export const ORIGIN_KEYCODE_SPACE: number = 2050;
 export const ORIGIN_RECORDING_SEEK_STEP_MS: number = 10000;
 
+// pa8.y = ofk.e(32) = KEYCODE_D；f2:222-227 兜底链 Ctrl+D 支：
+// db8.r&&pa8.a(n,y) + UP + msf!=null → xc8(bd8,msf,b2=1) → ot2.a(msf)
+// = Duplicate（lt2 负载构建→ome.a() 清原选→f() 选区中心+min(w*0.1,30)
+// 偏移粘贴副本）；无选区仍消费（支内无 b2=0 回落）。Harmony D=2020。
+export const ORIGIN_KEYCODE_D: number = 2020;
+
 // === 帮助表（txm.a → KeyboardShortcutGroup 树，Ctrl+/ qw6 路由内容） ===
 // 原版经系统 KeyboardShortcutHelper 渲染；Harmony 无系统帮助面 →
 // NotePage bindSheet 复刻分组清单（ADR-1358）。分组与条目序 =

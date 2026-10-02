@@ -73,7 +73,9 @@ check(!view.includes('kept.imageIds, kept.mathIds, state.selectedGroupIds))') &&
   'no copy/cut path still forwards the unfiltered selectedGroupIds');
 
 // --- DUPLICATE 仍走未过滤原集（dhb case4 ftc.q/m 不等 lg2.g） ---
-const dupIdx = view.indexOf('SelectionMenuAction.DUPLICATE');
+// 锚定菜单分发 case（action === ...）——Phase 1472 起首个裸
+// 'SelectionMenuAction.DUPLICATE' 出现点是 Ctrl+D 键盘支。
+const dupIdx = view.indexOf('action === SelectionMenuAction.DUPLICATE');
 check(dupIdx > 0, 'DUPLICATE branch present');
 const dupEnd = view.indexOf('SelectionMenuAction.FLIP_H', dupIdx);
 const dup = view.slice(dupIdx, dupEnd > 0 ? dupEnd : dupIdx + 600);

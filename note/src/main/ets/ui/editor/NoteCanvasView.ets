@@ -36,7 +36,7 @@ import {
 import { CanvasViewport, CumulativeGestureTracker } from '../../rendering/CanvasViewport';
 import {
   isCtrlKeyIn, keyChordAlt, keyChordCtrl, keyChordShift, toolSelectDigitIndex,
-  ORIGIN_KEYCODE_C, ORIGIN_KEYCODE_COPY, ORIGIN_KEYCODE_CUT,
+  ORIGIN_KEYCODE_C, ORIGIN_KEYCODE_COPY, ORIGIN_KEYCODE_CUT, ORIGIN_KEYCODE_D,
   ORIGIN_KEYCODE_E, ORIGIN_KEYCODE_F, ORIGIN_KEYCODE_MOVE_END,
   ORIGIN_KEYCODE_MOVE_HOME, ORIGIN_KEYCODE_P, ORIGIN_KEYCODE_PASTE,
   ORIGIN_KEYCODE_R, ORIGIN_KEYCODE_V, ORIGIN_KEYCODE_X,
@@ -5920,6 +5920,16 @@ export struct NoteCanvasView {
             this.clipboardPasteTarget = center;
           }
           this.onSelectionMenuAction(SelectionMenuAction.PASTE);
+        }
+        return true;
+      }
+      // f2 兜底链 Ctrl+pa8.y(32=D)：UP+选区非空 → xc8 byte1 →
+      // ot2.a(msf) = Duplicate（lt2 负载→ome.a() 清原选→偏移粘贴
+      // 副本）——复用菜单 DUPLICATE 管线（duplicateSelected 同一
+      // 负载+min(w*0.1,30) 偏移粘贴核）。无选区亦消费不动作。
+      if (ctrl && event.keyCode === ORIGIN_KEYCODE_D) {
+        if (isUp && this.selectionTool.getState().isActive) {
+          this.onSelectionMenuAction(SelectionMenuAction.DUPLICATE);
         }
         return true;
       }
