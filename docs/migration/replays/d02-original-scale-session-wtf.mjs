@@ -109,6 +109,33 @@ const floorX = 16.0 / (200 * 1.0);
 assert(Math.abs(floorX - 0.08) < 1e-9, 'floor = 16/(200·1) = 0.08');
 n += 1;
 
+// --- Phase 1464 — guf.h 成员级钳制扩展到 isf/jsf 锁定比路径 ---
+check(apply.includes('!this.resizeFreeScale') &&
+  apply.includes('this.applySelectionTextFloor(scaleX, scaleY)'),
+  'locked-ratio path applies per-member jv6 floor after uniform scale');
+const memb = canvas.slice(canvas.indexOf('private applySelectionTextFloor('),
+  canvas.indexOf('private applySelectionTextFloor(') + 3200);
+check(memb.includes('selectedTextBlockIds') &&
+  memb.includes('this.dragBeforeTextBlocks.find'),
+  'floor iterates ALL selected text members with session-start transform');
+check(memb.includes('Math.max(1, floorX / sx)') &&
+  memb.includes('Math.max(1, floorY / sy)'),
+  'per-member correction c_i = max(1, floor_i/s) — members may diverge');
+check(memb.includes('multiplyTransform(corr, cur.transform)') &&
+  memb.includes('transformBounds(cur.bounds, corr)') &&
+  memb.includes('this.resizeAnchor.x - (a * this.resizeAnchor.x'),
+  'correction = T(anchor)·R(θshell)·diag(c_i)·R(−θshell)·T(−anchor) on transform+bounds');
+// 可执行模型：isf [文本框宽200,ex=1] + 其它成员，s=0.05 →
+// c_x = max(1, 0.08/0.05) = 1.6 → 文本成员额外 ×1.6 校正，其余不校。
+{
+  const s = 0.05, f = 16.0 / (200 * 1.0);
+  const c = Math.max(1, f / s);
+  assert(Math.abs(c - 1.6) < 1e-9, 'per-member correction factor 1.6');
+  const s2 = 0.5, c2 = Math.max(1, f / s2);
+  assert(c2 === 1, 'floor below request → no correction');
+  n += 2;
+}
+
 // --- 应用矩阵：θ=0 → T(fixed)·S(sx,sy)·T(−fixed)·base；
 //     θ≠0 → T·R(θ)·diag·R(−θ)·T⁻¹ 共轭缩放（旋转系轴） ---
 const axes = tool.slice(tool.indexOf('resizeSelectedAxes('),

@@ -152,9 +152,9 @@ import {
   OriginalImageCropSession, originalImageCropLocalDelta, resetOriginalImageCropDraft,
 } from '../../core/model/OriginalImageCropGeometry';
 import {
-  cloneShapeElement, eraserPathHitsShape, maximumLinearScale, pointHitsShape, recomputeShapeBounds,
+  cloneShapeElement, eraserPathHitsShape, maximumLinearScale, multiplyTransform, pointHitsShape, recomputeShapeBounds,
   shapeWorldSubpaths, tapeHitTestShape,
-  transformShapeElements,
+  transformBounds, transformShapeElements,
 } from '../../core/model/ShapeGeometry';
 import { prepareRecognizedShapes } from '../../core/model/ShapeRecognition';
 import { originalShapeForce } from '../../core/model/ShapeStrokeGeometry';
@@ -8333,6 +8333,70 @@ export struct NoteCanvasView {
     this.selectionTool.resizeSelectedAxes(scaleX, scaleY, this.resizeAnchor,
       this.resizeBaseTransform, this.resizeShellRadians);
     this.applySelectionTransform(false, false);  // 变换中不 push undo（结束时统一 push）
+    // 原版 guf.h 逐成员下限：isf/jsf 含文本块时每个 jv6 成员独立钳制
+    // fD2=max(sx,floor_i)（非选区级——成员间可分歧）。
+    if (!this.resizeFreeScale) {
+      this.applySelectionTextFloor(scaleX, scaleY);
+    }
+  }
+
+  // 原版 guf.h jv6 支（锁定比路径）：逐选中文本成员下限
+  // factor_axis ≥ 16/(框轴·成员现有轴幅)；命中成员变换后乘校正矩阵
+  // C_i = T(anchor)·R(θshell)·diag(c_ix,c_iy)·R(−θshell)·T(−anchor)，
+  // 其中 c_i=max(1, floor_i/请求)。非文本成员不受影响（pfgA==null 跳）。
+  private applySelectionTextFloor(sx: number, sy: number): void {
+    if (sx <= 0 || sy <= 0) {
+      return;
+    }
+    const selected: string[] = this.selectionTool.getState().selectedTextBlockIds;
+    if (selected.length === 0) {
+      return;
+    }
+    const cos: number = Math.cos(this.resizeShellRadians);
+    const sin: number = Math.sin(this.resizeShellRadians);
+    let corrected: boolean = false;
+    for (const id of selected) {
+      const base: TextBlockElement | undefined = this.dragBeforeTextBlocks.find(
+        (b: TextBlockElement): boolean => b.id === id);
+      if (base === undefined) {
+        continue;
+      }
+      const ex: number = Math.hypot(base.transform[0], base.transform[3]);
+      const ey: number = Math.hypot(base.transform[1], base.transform[4]);
+      const floorX: number = base.blockWidth * ex > 0.0001 ?
+        16.0 / (base.blockWidth * ex) : 0;
+      const floorY: number = base.blockHeight * ey > 0.0001 ?
+        16.0 / (base.blockHeight * ey) : 0;
+      const cx: number = Math.max(1, floorX / sx);
+      const cy: number = Math.max(1, floorY / sy);
+      if (cx <= 1 && cy <= 1) {
+        continue;
+      }
+      // C = T(a)·R(θ)·diag(cx,cy)·R(−θ)·T(−a)
+      const a: number = cx * cos * cos + cy * sin * sin;
+      const bb: number = sin * cos * (cx - cy);
+      const d: number = cx * sin * sin + cy * cos * cos;
+      const corr: TransformMatrix = [
+        a, bb, this.resizeAnchor.x - (a * this.resizeAnchor.x + bb * this.resizeAnchor.y),
+        bb, d, this.resizeAnchor.y - (bb * this.resizeAnchor.x + d * this.resizeAnchor.y),
+        0, 0, 1,
+      ];
+      const idx: number = this.textBlocks.findIndex(
+        (b: TextBlockElement): boolean => b.id === id);
+      if (idx < 0) {
+        continue;
+      }
+      const cur: TextBlockElement = this.textBlocks[idx];
+      const fixed: TextBlockElement = cloneTextBlockElement(cur);
+      fixed.transform = multiplyTransform(corr, cur.transform);
+      fixed.bounds = transformBounds(cur.bounds, corr);
+      this.textBlocks[idx] = fixed;
+      corrected = true;
+    }
+    if (corrected) {
+      this.updateSelectionOverlay();
+      this.renderFrame();
+    }
   }
 
   // 原版 guf.y → utf(PinchTransform) 会话建立：
