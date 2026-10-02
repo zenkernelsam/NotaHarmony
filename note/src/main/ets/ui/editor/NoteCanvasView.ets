@@ -7930,6 +7930,25 @@ export struct NoteCanvasView {
         1 + ddx / this.resizeAxisX : 1;
       scaleY = Math.abs(this.resizeAxisY) > 0.0001 ?
         1 + ddy / this.resizeAxisY : 1;
+      // 原版 guf.h jv6 支：文本块缩放逐轴下限——factor ≥ 16/(框宽·现有缩放)，
+      // 即自由拉伸不把文本框压到 16 单位以下（fD2/fC2=max(请求,下限)）。
+      const selTextId: string = this.selectionTool.getState().selectedTextBlockIds[0];
+      const baseText: TextBlockElement | undefined = this.dragBeforeTextBlocks.find(
+        (b: TextBlockElement): boolean => b.id === selTextId);
+      if (baseText !== undefined) {
+        const ex: number = Math.hypot(baseText.transform[0], baseText.transform[3]);
+        const ey: number = Math.hypot(baseText.transform[1], baseText.transform[4]);
+        const floorX: number = baseText.blockWidth * ex > 0.0001 ?
+          16.0 / (baseText.blockWidth * ex) : 0;
+        const floorY: number = baseText.blockHeight * ey > 0.0001 ?
+          16.0 / (baseText.blockHeight * ey) : 0;
+        if (scaleX < floorX) {
+          scaleX = floorX;
+        }
+        if (scaleY < floorY) {
+          scaleY = floorY;
+        }
+      }
     } else {
       const diag2: number =
         this.resizeAxisX * this.resizeAxisX + this.resizeAxisY * this.resizeAxisY;

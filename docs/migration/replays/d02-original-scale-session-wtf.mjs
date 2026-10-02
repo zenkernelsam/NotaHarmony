@@ -80,6 +80,20 @@ check(!apply.slice(apply.indexOf('// 原版 wtf(Scale)')).includes('radians'),
 check(apply.includes('Math.abs(this.resizeAxisX) > 0.0001'),
   'degenerate axis guards scale=1 (guf.f fC==0 → 1)');
 
+// --- Phase 1459 — jv6 文本 16px 下限（guf.h fD2/fC2 地板钳制） ---
+check(apply.includes('16.0 / (baseText.blockWidth * ex)') &&
+  apply.includes('16.0 / (baseText.blockHeight * ey)') &&
+  apply.includes('if (scaleX < floorX)') && apply.includes('if (scaleY < floorY)'),
+  'jv6 text floor: factor ≥ 16/(boxDim·existingScale) per axis (guf.h)');
+check(apply.includes('this.dragBeforeTextBlocks.find'),
+  'floor uses session-start transform (hv6.b() existing scale)');
+check(apply.indexOf('baseText') > apply.indexOf('this.resizeFreeScale'),
+  'floor gated to freeScale (lsf single vvh) branch');
+// 可执行模型：框宽 200·ex=1 → floorX=0.08；请求 0.05 缩到地板。
+const floorX = 16.0 / (200 * 1.0);
+assert(Math.abs(floorX - 0.08) < 1e-9, 'floor = 16/(200·1) = 0.08');
+n += 1;
+
 // --- 应用矩阵：T(fixed)·S(sx,sy)·T(−fixed)·base ---
 const axes = tool.slice(tool.indexOf('resizeSelectedAxes('),
   tool.indexOf('resizeSelectedAxes(') + 1600);
