@@ -351,6 +351,20 @@ export class SelectionTool {
     return this.state.transform;
   }
 
+  // 原版 1.4.2 wtf(Scale) 会话 + guf.h 应用：角柄拖拽=双轴缩放，
+  // 枢轴=fixedCorner（对侧角），无旋转分量。sx/sy 为沿选区轴的
+  // 独立缩放比（Harmony 覆盖层为轴对齐 AABB，轴=画布 x/y）。
+  resizeSelectedAxes(scaleX: number, scaleY: number, anchor: Point2D,
+    base: TransformMatrix): TransformMatrix {
+    const s: TransformMatrix = [
+      scaleX, 0, anchor.x * (1 - scaleX),
+      0, scaleY, anchor.y * (1 - scaleY),
+      0, 0, 1,
+    ];
+    this.state.transform = this.multiply(s, base);
+    return this.state.transform;
+  }
+
   // 应用变换到笔画（修改 stroke.transform，返回新数组；不修改原始点数据）
   applyTransform(strokes: StrokeElementData[]): StrokeElementData[] {
     const result: StrokeElementData[] = [];

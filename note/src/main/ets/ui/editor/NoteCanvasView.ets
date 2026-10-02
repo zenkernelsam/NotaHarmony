@@ -261,6 +261,9 @@ const SELECTION_DASH_TICK_MS: number = 33;
 //（{0,±90,±180}，guf.n={-V,-V/2,0,V/2,V} V=si5.a=π），
 // 阈值 m=fq9.z(5f)=5°；吸附后减 startingRadians 得旋转增量。
 const SELECTION_ROTATE_SNAP_RAD: number = Math.PI * 5.0 / 180.0;
+// 原版 ms1:267 f15=guf.l(44)/zoom 文档单位的角柄命中半边长——
+// 屏上恒 44vp（原版命中域为 88×88 轴对齐方框而非圆）。
+const SELECTION_CORNER_HIT_HALF: number = 44.0;
 // gsf.d/gsf.g：选区描边 4dp/zoom、虚线间隔 9dp/zoom、色 #FF4278FF
 //（qxk.e(4282546431)）；gsf.c = a@0.32 为 deselectMode 降色与轨迹 ghost。
 const SELECTION_OUTLINE_COLOR: string = '#FF4278FF';
@@ -548,6 +551,12 @@ export struct NoteCanvasView {
   private resizeBaseCenter: Point2D = { x: 0, y: 0 };
   // 原版 msc.c 旋转柄：纯旋转会话（scale 锁 1，anchor=选区中心）。
   private resizeIsRotate: boolean = false;
+  // 原版 wtf(Scale) 会话字段：axis=对侧角→拖拽角的对角向量（旋转系）、
+  // locksAspectRatio（lsf+vvh 文本块=false 自由双轴，余 true 等比）。
+  // Harmony AABB 模型下轴=画布 x/y，存带符号宽/高幅。
+  private resizeAxisX: number = 1;
+  private resizeAxisY: number = 1;
+  private resizeFreeScale: boolean = false;
   // 原版 ttf ControlPointDrag（ms1:195-243/guf.c）：lsf 单形状成员的
   // 顶点拖拽重构会话——命中局部系 ±(44/zoom) 方框，拖拽把控制点
   // 局部增量（增量反旋转进局部系）写回 rsm.c 等价物。
@@ -1480,8 +1489,22 @@ export struct NoteCanvasView {
       const opposite: Point2D = corners[(corner + 2) % 4];
       this.resizeIsRotate = false;
       this.resizeAnchor = this.viewport.screenToCanvas(opposite.x, opposite.y);
-      this.resizeStart = this.viewport.screenToCanvas(
+      const draggedCv: Point2D = this.viewport.screenToCanvas(
         corners[corner].x, corners[corner].y);
+      // wtf.c=dragStartPoint=实际触点（非角点）——Δ 自触点起算，
+      // 按下瞬间 s=1 不产生跳变。
+      this.resizeStart = this.viewport.screenToCanvas(screenP.x, screenP.y);
+      // 原版 wtf(axis/xAxis/yAxis)：拖拽角相对 fixedCorner 的轴分量——
+      // AABB 模型下即带符号宽/高（s64 增量投影在此轴上产每轴缩放比）。
+      this.resizeAxisX = draggedCv.x - this.resizeAnchor.x;
+      this.resizeAxisY = draggedCv.y - this.resizeAnchor.y;
+      // z7=locksAspectRatio：默认 true；仅 lsf+vvh 文本块 false 自由拉伸。
+      const rs: SelectionState = this.selectionTool.getState();
+      this.resizeFreeScale = !rs.supportsDeselectMode &&
+        rs.selectedGroupIds.length === 0 &&
+        rs.selectedTextBlockIds.length === 1 &&
+        rs.selectedStrokeIds.length + rs.selectedShapeIds.length +
+        rs.selectedImageIds.length + rs.selectedMathIds.length === 0;
     }
     this.resizeBaseTransform = this.selectionTool.getState().transform.slice();
     this.selectionResize = true;
@@ -7801,53 +7824,74 @@ export struct NoteCanvasView {
     return dx * dx + dy * dy <= SELECTION_HANDLE_HIT_RADIUS * SELECTION_HANDLE_HIT_RADIUS;
   }
 
-  // 角柄命中：返回角索引 0-3，未命中 -1（屏幕坐标，命中半径 22vp）。
+  // 角柄命中：返回角索引 0-3，未命中 -1（屏幕坐标）。原版 ms1:295-327
+  // 对四角做 |dx|<f15 ∧ |dy|<f15 轴对齐方框，f15=guf.l/k=44/zoom 文档
+  // 单位——屏上等效 ±44vp 方框（f15 乘 zoom 还原屏幕像素）。
   private selectionResizeCornerAt(p: Point2D): number {
     const corners: Point2D[] = this.selectionScreenCorners();
     for (let i: number = 0; i < corners.length; i++) {
-      const dx: number = p.x - corners[i].x;
-      const dy: number = p.y - corners[i].y;
-      if (dx * dx + dy * dy <= SELECTION_HANDLE_HIT_RADIUS * SELECTION_HANDLE_HIT_RADIUS) {
+      if (Math.abs(p.x - corners[i].x) < SELECTION_CORNER_HIT_HALF &&
+        Math.abs(p.y - corners[i].y) < SELECTION_CORNER_HIT_HALF) {
         return i;
       }
     }
     return -1;
   }
 
-  // 原版 qpi.b：角柄拖动 = 绕 anchor 等比缩放（距离比）+
-  // 绕缩放后选区中心旋转（绕 anchor 的角位移，0 时不产出）；
-  // 旋转柄 = f2=null → scale 锁 1，anchor=选区中心。
+  // 原版 1.4.2 变换会话：旋转柄=vtf（绕选区中心纯旋转+90°吸附）；
+  // 角柄=wtf(Scale)（对侧角枢轴双轴缩放、不产旋转——终结 1.0.3
+  // htc.e 角柄自由变换语义）。
   private applySelectionResize(p: Point2D): void {
-    const startDx: number = this.resizeStart.x - this.resizeAnchor.x;
-    const startDy: number = this.resizeStart.y - this.resizeAnchor.y;
-    const startDist: number = Math.sqrt(startDx * startDx + startDy * startDy);
-    if (startDist <= 0.0001) {
-      return;
-    }
-    const dx: number = p.x - this.resizeAnchor.x;
-    const dy: number = p.y - this.resizeAnchor.y;
-    const scale: number = this.resizeIsRotate ? 1 :
-      Math.sqrt(dx * dx + dy * dy) / startDist;
-    // 原版 guf.e（vtf 旋转会话）：绝对指针角 atan2(cur−centerAbsolute)
-    // 先吸附最近 90° 倍数（twm.d：round(θ/(π/2))·(π/2)，|差|≤5°=m），
-    // 再减 startingRadians（vtf.e，左柄/Rtl 时 +π）——旋转落地对齐
-    // 0/±90/±180°。角柄路径（wtf 缩放会话）原版不产旋转增量、本端
-    // 沿用角位移旋转（1.0.3 htc.e 语义，登记差异 ADR-1388）。
-    let curRadians: number = Math.atan2(dy, dx);
     if (this.resizeIsRotate) {
+      // 原版 guf.e（vtf 旋转会话）：绝对指针角 atan2(cur−centerAbsolute)
+      // 先吸附最近 90° 倍数（twm.d：round(θ/(π/2))·(π/2)，|差|≤5°=m），
+      // 再减 startingRadians（vtf.e，左柄/Rtl 时 +π）——旋转落地对齐
+      // 0/±90/±180°。scale 恒 1（旋转会话不产缩放）。
+      const startDx: number = this.resizeStart.x - this.resizeAnchor.x;
+      const startDy: number = this.resizeStart.y - this.resizeAnchor.y;
+      const startDist: number =
+        Math.sqrt(startDx * startDx + startDy * startDy);
+      if (startDist <= 0.0001) {
+        return;
+      }
+      const dx: number = p.x - this.resizeAnchor.x;
+      const dy: number = p.y - this.resizeAnchor.y;
+      let curRadians: number = Math.atan2(dy, dx);
       const snappedQuarter: number =
         Math.round(curRadians / (Math.PI / 2)) * (Math.PI / 2);
       if (Math.abs(curRadians - snappedQuarter) <= SELECTION_ROTATE_SNAP_RAD) {
         curRadians = snappedQuarter;
       }
+      const radians: number = curRadians - Math.atan2(startDy, startDx);
+      this.selectionTool.resizeSelected(1, radians, this.resizeAnchor,
+        this.resizeBaseCenter, this.resizeBaseTransform);
+      this.applySelectionTransform(false, false);  // 变换中不 push undo（结束时统一 push）
+      return;
     }
-    const radians: number = curRadians - Math.atan2(startDy, startDx);
-    const scaledCenter: Point2D = {
-      x: this.resizeAnchor.x + scale * (this.resizeBaseCenter.x - this.resizeAnchor.x),
-      y: this.resizeAnchor.y + scale * (this.resizeBaseCenter.y - this.resizeAnchor.y),
-    };
-    this.selectionTool.resizeSelected(scale, radians, this.resizeAnchor,
-      scaledCenter, this.resizeBaseTransform);
+    // 原版 wtf(Scale) 会话 + guf.f/guf.h：角柄拖拽=对侧角 fixedCorner
+    // 枢轴的双轴缩放——sx=1+Δ·xAxis/|xAxis|²、sy=1+Δ·yAxis/|yAxis|²
+    // （Δ=cur−dragStart 位移投影在选区轴上；AABB 模型下轴=画布 x/y）。
+    // locksAspectRatio=true（非 lsf+文本块）→ 对角向量投影产统一比；
+    // false（lsf+vvh）→ 双轴自由拉伸。wtf 无角度字段：不产旋转。
+    const ddx: number = p.x - this.resizeStart.x;
+    const ddy: number = p.y - this.resizeStart.y;
+    let scaleX: number;
+    let scaleY: number;
+    if (this.resizeFreeScale) {
+      scaleX = Math.abs(this.resizeAxisX) > 0.0001 ?
+        1 + ddx / this.resizeAxisX : 1;
+      scaleY = Math.abs(this.resizeAxisY) > 0.0001 ?
+        1 + ddy / this.resizeAxisY : 1;
+    } else {
+      const diag2: number =
+        this.resizeAxisX * this.resizeAxisX + this.resizeAxisY * this.resizeAxisY;
+      const s: number = diag2 > 0.0001 ?
+        1 + (ddx * this.resizeAxisX + ddy * this.resizeAxisY) / diag2 : 1;
+      scaleX = s;
+      scaleY = s;
+    }
+    this.selectionTool.resizeSelectedAxes(scaleX, scaleY, this.resizeAnchor,
+      this.resizeBaseTransform);
     this.applySelectionTransform(false, false);  // 变换中不 push undo（结束时统一 push）
   }
 

@@ -42,9 +42,9 @@ check(apply.indexOf('Math.round(curRadians') <
 check(apply.includes('curRadians - Math.atan2(startDy, startDx)'),
   'rotation delta = snapped absolute angle − startingRadians (vtf.e)');
 
-// --- 角柄支不吸附（wtf 缩放会话无角度字段——沿用 1.0.3 角位移旋转） ---
-check(apply.includes('wtf 缩放会话') && apply.includes('登记差异'),
-  'corner-drag rotation divergence from 1.4.2 wtf registered');
+// --- 角柄支=wtf 纯缩放会话（P1455 已分离——无角度字段不产旋转） ---
+check(apply.includes('wtf(Scale)') && apply.includes('resizeSelectedAxes'),
+  'corner drag = wtf two-axis scale session (no rotation field)');
 
 // --- 可执行数学模型：guf.e/twm.d 行为等价验证 ---
 const snap = (rad) => {

@@ -1,18 +1,18 @@
-// Phase 596 — 选区角柄自由变换（缩放+旋转，qpi.b/fvb.f 等价）。
-// Original evidence (decompiled_1.0.3/sources/defpackage):
-//   htc.java — 覆盖层状态接口：e(z, ei3, Float, Float, ei3) 变换入口；
-//     a()/d() 产出 cmb 矩形（dl1 以 wtc(cmb,ktc) 携带按下区域）。
-//   gtc.java:9-11,66-75 — 组选区持有 cmb 矩形 + Float e/g（旋转角）；
-//     e() 调 qpi.b(this.f, this.g, point, scale, rotation, pivot) 重建
-//     (matrix, newRect, newRotation)；z=true 提交、z=false 预览。
-//   qpi.java:50-68 — b(): pivot=ei3Var2??rect 中心，scale=f2??1，
-//     translate=ei3Var??0 → 等比缩放+平移矩阵；旋转 f3 叠加基角。
-//   avc.java:689 — 手势产出 f(id,false,null,scale,rot?非0,pivot)。
-//   fvb.java:101-107 — f(id,z,point,scale,rotation,pivot) → htc.e。
-// Harmony：SelectionOverlay 四角柄（SELECTION_HANDLE_SIZE/HIT_RADIUS）；
-//   onTouchDown 角命中 → selectionResize 会话（anchor=对角画布坐标）；
-//   move → applySelectionResize（距离比=缩放、绕 anchor 角位移=旋转）
-//   → SelectionTool.resizeSelected 重建 R(scaledCenter)·S(anchor)·base；
+// Phase 596 — 选区角柄变换；Phase 1455 升级为 1.4.2 wtf(Scale) 会话。
+// Original evidence (decompiled_1.4.2/sources/defpackage):
+//   ms1.java:295-327 — 角柄命中：四角 ±f15=guf.l/k=44/zoom 方框（文档系）；
+//   ms1.java:330-435 — wtf(stateId, originalPositions, dragStart, axis,
+//     xAxis, yAxis, locksAspectRatio, fixedCorner, lastDragPoint, initSel)；
+//     stf 序 TOP_LEFT..BOTTOM_RIGHT；z7=false 仅 lsf+vvh 文本块；
+//     jA4=对侧角 fixedCorner；轴向量经 kw9.c 旋入选区旋转系。
+//   guf.java:67-75 — f(j, wtf)：sx=1+Δ·xAxis/|xAxis|²、sy 同式；
+//   guf.java:280-354 — h(map, f=sx, f2=sy, j=fixedCorner, z=页框钳制)
+//     逐成员双轴缩放应用（含 jv6 文本 16px 字号下限）；
+//   wtf toString 无角度字段 → 角柄不产旋转（终结 1.0.3 htc.e/qpi.b
+//     角柄缩放+旋转自由变换语义——版本演进）。
+// Harmony：tryStartSelectionResize 捕获带符号轴幅 + freeScale 门；
+//   applySelectionResize 角柄支 → Δ 位移投影 → resizeSelectedAxes
+//   （T(fixed)·S(sx,sy)·T(−fixed)·base）；旋转柄支保持 vtf 语义。
 //   drop 复用 selectionDrag 提交路径（TRANSFORM_ELEMENTS 撤销）。
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert';
@@ -78,24 +78,49 @@ check(cornerBlock.includes('this.selectionRotateHandleAt(') &&
   cornerBlock.includes('this.resizeAnchor = this.resizeBaseCenter;'),
   'rotate-handle hit anchors at the selection center');
 
-// --- 移动：距离比=缩放，绕 anchor 角位移=旋转 ---
+// --- 移动：旋转柄=vtf 纯旋转；角柄=wtf 对侧角枢轴双轴缩放（P1455） ---
+// 1.4.2 会话分工：wtf toString 无角度字段 → 角柄拖拽不产旋转；
+// guf.f 产 (sx,sy)=位移投影轴比；guf.h 双轴应用+fixedCorner 枢轴。
 const resize = canvas.slice(canvas.indexOf('private applySelectionResize('),
-  canvas.indexOf('private applySelectionResize(') + 2400);
-check(resize.includes('this.resizeIsRotate ? 1 :'),
-  'rotate session locks scale=1 (qpi.b f2=null → default 1.0f)');
-check(resize.includes('const scale: number = dist / startDist;') ||
-  resize.includes('Math.sqrt(dx * dx + dy * dy) / startDist'),
-  'uniform scale = pointer/anchor distance ratio (qpi.b f2)');
+  canvas.indexOf('private applySelectionResize(') + 3400);
+check(resize.includes('if (this.resizeIsRotate) {'),
+  'rotate-handle branch split from corner scale');
+check(resize.includes('this.selectionTool.resizeSelected(1, radians, this.resizeAnchor'),
+  'rotate session locks scale=1 (vtf)');
 check(resize.includes('Math.atan2(dy, dx)') &&
   resize.includes('curRadians - Math.atan2(startDy, startDx)'),
-  'rotation = angular displacement about the anchor (qpi.b f3); ' +
-  'P1453: absolute angle snap (guf.e) applied on the rotate-handle branch');
-check(resize.includes('scale * (this.resizeBaseCenter.x - this.resizeAnchor.x)'),
-  'rotation center = scaled rect center (qpi.f about fi3.b(cmb))');
-check(resize.includes('this.selectionTool.resizeSelected(scale, radians, this.resizeAnchor'),
-  'per-frame transform rebuild through the tool');
+  'rotation = angular displacement about the center (vtf.e); ' +
+  'P1453: absolute angle snap (guf.e) on the rotate-handle branch');
+check(resize.includes('1 + ddx / this.resizeAxisX') &&
+  resize.includes('1 + ddy / this.resizeAxisY'),
+  'free per-axis scale = 1+Δ/axis (guf.f projections, wtf xAxis/yAxis)');
+check(resize.includes('(ddx * this.resizeAxisX + ddy * this.resizeAxisY) / diag2'),
+  'locked scale = diagonal-vector projection (wtf axis field)');
+check(resize.includes('this.selectionTool.resizeSelectedAxes(scaleX, scaleY, this.resizeAnchor'),
+  'corner transform applies both axes about the fixed corner');
+check(!resize.includes('Math.atan2(ddy, ddx)') &&
+  resize.indexOf('this.selectionTool.resizeSelectedAxes') >
+  resize.indexOf('resizeIsRotate'),
+  'corner session produces no rotation (wtf has no angle field)');
 check(resize.includes('this.applySelectionTransform(false, false)'),
   'mid-gesture transform applies without pushing undo');
+
+// --- 角柄会话轴幅/锁纵横比初始化（ms1:330-435 wtf 构造） ---
+check(cornerBlock.includes('this.resizeAxisX = draggedCv.x - this.resizeAnchor.x') &&
+  cornerBlock.includes('this.resizeAxisY = draggedCv.y - this.resizeAnchor.y'),
+  'signed axis extents = dragged − fixedCorner (wtf axis/xAxis/yAxis)');
+check(cornerBlock.includes('rs.selectedTextBlockIds.length === 1') &&
+  cornerBlock.includes('this.resizeFreeScale'),
+  'locksAspectRatio=false only for lsf single text block (ms1 z7)');
+
+// --- 角柄命中域：原版 ±f15=44/zoom 文档方框（ms1:295-327） ---
+const hitBlock = canvas.slice(canvas.indexOf('private selectionResizeCornerAt('),
+  canvas.indexOf('private selectionResizeCornerAt(') + 1200);
+check(hitBlock.includes('Math.abs(p.x - corners[i].x) < SELECTION_CORNER_HIT_HALF') &&
+  hitBlock.includes('Math.abs(p.y - corners[i].y) < SELECTION_CORNER_HIT_HALF'),
+  'corner hit = axis-aligned square (not a circle)');
+check(canvas.includes('const SELECTION_CORNER_HIT_HALF: number = 44.0;'),
+  'corner hit half-extent = 44vp screen (f15·zoom)');
 
 // --- SelectionTool.resizeSelected = R(scaledCenter)·S(anchor)·base ---
 const toolBody = tool.slice(tool.indexOf('resizeSelected('),
@@ -105,6 +130,12 @@ check(toolBody.includes('anchor.x * (1 - scale)') &&
   'resizeSelected = scale-about-anchor then rotate-about-scaled-center');
 check(toolBody.includes('this.multiply(r, this.multiply(s, base))'),
   'transform rebuilds on the base matrix (not incremental)');
+const axesBody = tool.slice(tool.indexOf('resizeSelectedAxes('),
+  tool.indexOf('resizeSelectedAxes(') + 1600);
+check(axesBody.includes('scaleX, 0, anchor.x * (1 - scaleX)') &&
+  axesBody.includes('0, scaleY, anchor.y * (1 - scaleY)') &&
+  axesBody.includes('this.multiply(s, base)'),
+  'resizeSelectedAxes = per-axis scale about fixedCorner (guf.h)');
 
 // --- 提交/取消复用 selectionDrag 通道 ---
 check(canvas.includes('} else if (this.selectionDrag || this.selectionResize || this.vertexDrag) {'),
@@ -128,25 +159,30 @@ check(up.includes('} else if (this.selectionResize) {') &&
   up.includes('this.applySelectionResize(p);'),
   'final touch-up applies the resize before commit');
 
-// --- 可执行模型：角柄拖拽数学 ---
-// anchor=(0,0)，start=(2,0)，pointer 拖到 (0,2)：dist 2→2 scale=1，
-// 角位移 atan2(2,0)-atan2(0,2)= π/2 → 纯旋转 90°。
+// --- 可执行模型：wtf 角柄拖拽数学 ---
+// 选区 AABB (0,0)-(4,2)，拖 BR 角（fixed=TL anchor=(0,0)）：
+// axisX=4, axisY=2；Δ=(2,1)（沿对角半程）→ 等比 s=1+(2·4+1·2)/20=1.5。
 const anchor = { x: 0, y: 0 };
-const start = { x: 2, y: 0 };
-const pointer = { x: 0, y: 2 };
-const d0 = Math.hypot(start.x - anchor.x, start.y - anchor.y);
-const d1 = Math.hypot(pointer.x - anchor.x, pointer.y - anchor.y);
-assert(Math.abs(d1 / d0 - 1) < 1e-9, 'scale=1 for equal distances');
-const theta = Math.atan2(pointer.y - anchor.y, pointer.x - anchor.x) -
-  Math.atan2(start.y - anchor.y, start.x - anchor.x);
-assert(Math.abs(theta - Math.PI / 2) < 1e-9, 'quarter-orbit → +90° rotation');
-// pointer 拖到 (4,0)：scale=2，无旋转。
-const p2 = { x: 4, y: 0 };
-const scale2 = Math.hypot(p2.x - anchor.x, p2.y - anchor.y) / d0;
-assert(Math.abs(scale2 - 2) < 1e-9, 'doubled distance → scale=2');
-const theta2 = Math.atan2(p2.y - anchor.y, p2.x - anchor.x) -
-  Math.atan2(start.y - anchor.y, start.x - anchor.x);
-assert(Math.abs(theta2) < 1e-9, 'same ray → no rotation');
+const start = { x: 4, y: 2 };
+const axisX = start.x - anchor.x;
+const axisY = start.y - anchor.y;
+const delta = { x: 2, y: 1 };
+const diag2 = axisX * axisX + axisY * axisY;
+const sLocked = 1 + (delta.x * axisX + delta.y * axisY) / diag2;
+assert(Math.abs(sLocked - 1.5) < 1e-9,
+  'locked diagonal projection: Δ along diagonal → s=1.5');
+// 纯 x 位移 Δ=(4,0)：等比 s=1+16/20=1.8；自由拉伸 sx=2, sy=1。
+const d2 = { x: 4, y: 0 };
+const s2 = 1 + (d2.x * axisX + d2.y * axisY) / diag2;
+assert(Math.abs(s2 - 1.8) < 1e-9, 'locked: x-only drag still scales both');
+const sxFree = 1 + d2.x / axisX;
+const syFree = 1 + d2.y / axisY;
+assert(Math.abs(sxFree - 2) < 1e-9 && Math.abs(syFree - 1) < 1e-9,
+  'free (lsf text): per-axis sx=2, sy=1');
+// 拖过 fixedCorner（Δ=(-8,-4)）→ s=−1 翻转——原版 h() 无符号钳制。
+const d3 = { x: -8, y: -4 };
+const s3 = 1 + (d3.x * axisX + d3.y * axisY) / diag2;
+assert(Math.abs(s3 - (-1)) < 1e-9, 'crossing fixedCorner flips (no sign clamp)');
 n += 4;
 
 console.log(`D02_ORIGINAL_SELECTION_RESIZE_OK TOTAL=${n} FAILED=0`);
