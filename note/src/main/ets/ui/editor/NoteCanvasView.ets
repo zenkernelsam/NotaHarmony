@@ -8352,7 +8352,18 @@ export struct NoteCanvasView {
     }
     const second: TouchObject = event.touches[event.touches.length - 1];
     const secondCanvas: Point2D = this.viewport.screenToCanvas(second.x, second.y);
-    if (!this.pointInSelectionRect({ x: second.x, y: second.y }, secondCanvas)) {
+    // 原版 guf.y 界内判定：lsf 支 rtf(mp4.e() 元素盒, −mp4.c() 反旋矩阵)
+    // → sbe.a 半开包含——包围盒语义，非元素几何命中（对角线笔画盒角内
+    // 仍启动捏合）。ksf 支（isf/jsf）rtf(ksf.a() 选区界四边形, −g()) 由
+    // pointInSelectionRect 的 drawnRect/旋转系路径等价覆盖。
+    const pinchInterior: boolean =
+      state.selectedGroupIds.length === 0 && !state.supportsDeselectMode &&
+      state.selectedStrokeIds.length + state.selectedShapeIds.length +
+        state.selectedTextBlockIds.length + state.selectedImageIds.length +
+        state.selectedMathIds.length === 1 ?
+        this.singleElementBoxHit(secondCanvas) :
+        this.pointInSelectionRect({ x: second.x, y: second.y }, secondCanvas);
+    if (!pinchInterior) {
       return false;
     }
     const first: TouchObject = event.touches[0];
@@ -12033,6 +12044,44 @@ export struct NoteCanvasView {
     const dy: number = touch.y - cy;
     return this.pointInRect(
       { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos }, u.rect);
+  }
+
+  // 原版 guf.y lsf 支界内判定：xnm.d 产 mp4 → rtf(mp4.e() 元素包围盒,
+  // −mp4.c() 反旋矩阵) → sbe.a(x≥l&&x<r&&y≥t&&y<b) 半开包含。
+  // pointHitsAffineBlock 的逆变换+半开矩形语义逐点等价（顺带覆盖缩放）。
+  // 笔画/形状用局部 bounds+transform——Harmony 笔画把旋转烘进点列
+  // （transform 恒等），其 AABB 含原版旋转盒之外的多余角域→登记差异。
+  private singleElementBoxHit(canvasP: Point2D): boolean {
+    const state: SelectionState = this.selectionTool.getState();
+    if (state.selectedStrokeIds.length === 1) {
+      const s: StrokeElementData | undefined = this.completedStrokes.find(
+        (e: StrokeElementData): boolean => e.id === state.selectedStrokeIds[0]);
+      return s !== undefined && pointHitsAffineBlock(canvasP, s.bounds, s.transform);
+    }
+    if (state.selectedShapeIds.length === 1) {
+      const s: ShapeElement | undefined = this.shapes.find(
+        (e: ShapeElement): boolean => e.id === state.selectedShapeIds[0]);
+      return s !== undefined && pointHitsAffineBlock(canvasP, s.bounds, s.transform);
+    }
+    if (state.selectedTextBlockIds.length === 1) {
+      const b: TextBlockElement | undefined = this.textBlocks.find(
+        (e: TextBlockElement): boolean => e.id === state.selectedTextBlockIds[0]);
+      return b !== undefined &&
+        pointHitsAffineBlock(canvasP, textBlockLocalBounds(b), b.transform);
+    }
+    if (state.selectedImageIds.length === 1) {
+      const b: ImageElement | undefined = this.imageBlocks.find(
+        (e: ImageElement): boolean => e.id === state.selectedImageIds[0]);
+      return b !== undefined &&
+        pointHitsAffineBlock(canvasP, imageBlockLocalBounds(b), b.transform);
+    }
+    if (state.selectedMathIds.length === 1) {
+      const b: MathElement | undefined = this.mathBlocks.find(
+        (e: MathElement): boolean => e.id === state.selectedMathIds[0]);
+      return b !== undefined &&
+        pointHitsAffineBlock(canvasP, mathBlockLocalBounds(b), b.transform);
+    }
+    return false;
   }
 
   // selectionRect 与触点均为屏幕坐标；命中区域必须复用覆盖层的钳制布局。

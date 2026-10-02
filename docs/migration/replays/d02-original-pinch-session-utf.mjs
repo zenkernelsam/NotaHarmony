@@ -46,7 +46,7 @@ check(pinchCallIdx > 0 && pinchCallIdx < cancelIdx,
 
 // --- 建立门条件（h==null·非点除·非锁定·界内第二指） ---
 const start = canvas.slice(canvas.indexOf('private tryStartSelectionPinch('),
-  canvas.indexOf('private tryStartSelectionPinch(') + 1800);
+  canvas.indexOf('private tryStartSelectionPinch(') + 2800);
 check(start.includes('this.selectionDrag || this.selectionResize || this.vertexDrag') &&
   start.includes('this.pinchSelectSession'),
   'utf gate: no active transform session (h==null equivalent)');
@@ -55,8 +55,20 @@ check(start.includes('state.deselectMode'),
 check(start.includes('this.selectionPositionLocked') &&
   start.includes('this.selectionDrawing'),
   'utf gate: locked + in-progress hsf selection excluded');
-check(start.includes('this.pointInSelectionRect({ x: second.x, y: second.y }, secondCanvas)'),
-  'utf gate: second finger inside rotated selection bounds');
+check(start.includes('this.singleElementBoxHit(secondCanvas)') &&
+  start.includes('this.pointInSelectionRect({ x: second.x, y: second.y }, secondCanvas)') &&
+  start.includes('!state.supportsDeselectMode'),
+  'utf gate: lsf→mp4.e() element rotated box / ksf→rotated selection bounds');
+const boxHit = canvas.slice(canvas.indexOf('private singleElementBoxHit('),
+  canvas.indexOf('private singleElementBoxHit(') + 2200);
+check(boxHit.includes('pointHitsAffineBlock(canvasP, s.bounds, s.transform)') &&
+  boxHit.includes('textBlockLocalBounds(b)') &&
+  boxHit.includes('imageBlockLocalBounds(b)') &&
+  boxHit.includes('mathBlockLocalBounds(b)'),
+  'mp4.e() per-type bounds box: stroke/shape local bounds+transform, ' +
+  'text/image/math dedicated local bounds (sbe.a half-open contains)');
+check(boxHit.includes('s !== undefined &&') && boxHit.includes('b !== undefined &&'),
+  'missing element fails closed');
 check(start.includes('event.touches[event.touches.length - 1]'),
   'utf pivot = second finger touch (utf.i() semantics)');
 check(start.includes('this.pinchBaseTransform = state.transform.slice()'),
