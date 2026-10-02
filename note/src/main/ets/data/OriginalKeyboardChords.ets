@@ -141,6 +141,19 @@ export const ORIGIN_TOOL_SELECT_DIGIT_END: number = 2009;
 // k0 = ofk.e(308..311) 厂商键 + G() 设备门（S-Pen 遥控）→ D() 前工具切换
 // ——Harmony 无对应硬件通路 → fail-closed 登记（ADR-1343）。
 
+// bd8.j0 = pa8.e/f/g/h = ofk.e(19..22) = KEYCODE_DPAD_UP/DOWN/LEFT/RIGHT。
+// f2 兜底链：纯方向键（无 ctrl/alt/shift）DOWN——选区活跃+u7b.g 键盘
+// 模式（默认 true）→ guf.g 推 ntf(±bd8.l0=2.0 文档单位轴向, isRepeat)
+// 微移选区；无选区 → mfc.s 视口滚动 0.1f×视口尺寸；UP → otf.a
+// NudgeEnd 收尾提交；ms1:784 触摸分发落空同推 otf.a。
+// Harmony 键码：DPAD_UP/DOWN/LEFT/RIGHT = 2012..2015。
+export const ORIGIN_KEYCODE_DPAD_UP: number = 2012;
+export const ORIGIN_KEYCODE_DPAD_DOWN: number = 2013;
+export const ORIGIN_KEYCODE_DPAD_LEFT: number = 2014;
+export const ORIGIN_KEYCODE_DPAD_RIGHT: number = 2015;
+export const ORIGIN_SELECTION_NUDGE_STEP: number = 2.0;
+export const ORIGIN_KEY_SCROLL_FRACTION: number = 0.1;
+
 // === 帮助表（txm.a → KeyboardShortcutGroup 树，Ctrl+/ qw6 路由内容） ===
 // 原版经系统 KeyboardShortcutHelper 渲染；Harmony 无系统帮助面 →
 // NotePage bindSheet 复刻分组清单（ADR-1358）。分组与条目序 =

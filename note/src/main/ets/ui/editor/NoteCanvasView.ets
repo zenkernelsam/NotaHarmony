@@ -41,6 +41,9 @@ import {
   ORIGIN_KEYCODE_MOVE_HOME, ORIGIN_KEYCODE_P, ORIGIN_KEYCODE_PASTE,
   ORIGIN_KEYCODE_R, ORIGIN_KEYCODE_V, ORIGIN_KEYCODE_X,
   ORIGIN_KEYCODE_Y, ORIGIN_KEYCODE_Z,
+  ORIGIN_KEYCODE_DPAD_DOWN, ORIGIN_KEYCODE_DPAD_LEFT,
+  ORIGIN_KEYCODE_DPAD_RIGHT, ORIGIN_KEYCODE_DPAD_UP,
+  ORIGIN_KEY_SCROLL_FRACTION, ORIGIN_SELECTION_NUDGE_STEP,
   ORIGIN_ZOOM_IN_KEYCODES, ORIGIN_ZOOM_OUT_KEYCODES,
   ORIGIN_ZOOM_RESET_KEYCODES, ORIGIN_CHORD_DISMISS, matchKeyChord,
 } from '../../data/OriginalKeyboardChords';
@@ -863,6 +866,10 @@ export struct NoteCanvasView {
   private vertexDragStart: Point2D = { x: 0, y: 0 };
   private vertexDragOrigShape: ShapeElement | null = null;
   private vertexDragChanged: boolean = false;
+  // 原版 f2 兜底链 ntf/otf：方向键微移会话——DOWN 起捕 dragBefore
+  // 快照、步进累积进 state.transform（applySelectionTransform 以
+  // 快照为基线重建）；UP（otf.a NudgeEnd）统一提交一次撤销步。
+  private selectionNudgeActive: boolean = false;
   // 原版 SNAP_TO_GRID（ac4.S，默认开）：拖拽期间命中的对齐参考线段。
   private snapGuides: OriginalSnapGuideSegment[] = [];
   // 原版 zt6/yt6：激光笔瞬态会话（不持久化、不入历史）；fadeTimer 驱动
@@ -4358,6 +4365,11 @@ export struct NoteCanvasView {
     if (event.touches.length === 0) {
       return;
     }
+    // 原版 ms1:784：触摸分发面收到按下事件时对微移通道推 otf.a
+    // NudgeEnd——任何触摸到达都终结挂起的方向键微移会话。
+    if (this.selectionNudgeActive) {
+      this.endSelectionNudgeCommit();
+    }
     // T-034：双指手势接管（捏合缩放/双指平移），单指书写
     if (event.touches.length > 1) {
       // 原版 palm_detection（默认开）：笔迹进行中到来的非笔触摸为手掌，
@@ -5909,6 +5921,19 @@ export struct NoteCanvasView {
       if (digitIndex >= 0) {
         if (isUp) {
           this.selectVisibleToolByIndex(digitIndex);
+        }
+        return true;
+      }
+      // f2 兜底链 bd8.j0={pa8.e..h}=DPAD 方向键：纯方向键（无
+      // ctrl/shift/alt）——DOWN：选区活跃 → ntf(±2.0 文档单位) 微移，
+      // 无选区 → mfc.s 视口滚动 10%；UP：otf.a NudgeEnd 收尾提交
+      // （长按重复 Down 落同一会话，isRepeat 门 guf.t 等价内建）。
+      if (!ctrl && !shift && !keyChordAlt(event) &&
+        this.isSelectionNudgeKey(event.keyCode)) {
+        if (isUp) {
+          this.endSelectionNudgeCommit();
+        } else {
+          this.onSelectionNudgeKeyDown(event.keyCode);
         }
         return true;
       }
@@ -8526,6 +8551,98 @@ export struct NoteCanvasView {
     this.updateSelectionOverlay();
   }
 
+  // 原版 f2 兜底链 + guf.g 通道（ntf/otf）：纯方向键 DOWN 在选区活跃时
+  // 推 ntf(±bd8.l0=2.0 文档单位轴向位移, isRepeat)——每次步进即移动选区；
+  // guf.t 等价：xtf 式会话累加位移、按步应用、UP(otf.a NudgeEnd) 一次性
+  // 提交。首步捕获 dragBefore* 快照（applySelectionTransform 以此为基线
+  // 重建，transform 可安全累积）。isRepeat 门（guf.t: z&&i==null 忽略）
+  // 自然成立——Harmony 长按重复 Down 落入同一会话。
+  private isSelectionNudgeKey(keyCode: number): boolean {
+    return keyCode === ORIGIN_KEYCODE_DPAD_UP ||
+      keyCode === ORIGIN_KEYCODE_DPAD_DOWN ||
+      keyCode === ORIGIN_KEYCODE_DPAD_LEFT ||
+      keyCode === ORIGIN_KEYCODE_DPAD_RIGHT;
+  }
+
+  private onSelectionNudgeKeyDown(keyCode: number): void {
+    if (!this.selectionTool.getState().isActive || !this.selectionVisible) {
+      // 无选区支：mfc.s 视口滚动——jA=ndf(±0.1f×视口宽/高)。
+      const stepX: number = this.canvasCtx.width * ORIGIN_KEY_SCROLL_FRACTION;
+      const stepY: number = this.canvasCtx.height * ORIGIN_KEY_SCROLL_FRACTION;
+      if (keyCode === ORIGIN_KEYCODE_DPAD_UP) {
+        this.viewport.setScroll(this.viewport.scrollX, this.viewport.scrollY - stepY);
+      } else if (keyCode === ORIGIN_KEYCODE_DPAD_DOWN) {
+        this.viewport.setScroll(this.viewport.scrollX, this.viewport.scrollY + stepY);
+      } else if (keyCode === ORIGIN_KEYCODE_DPAD_LEFT) {
+        this.viewport.setScroll(this.viewport.scrollX - stepX, this.viewport.scrollY);
+      } else {
+        this.viewport.setScroll(this.viewport.scrollX + stepX, this.viewport.scrollY);
+      }
+      this.onViewportChanged();
+      return;
+    }
+    // 有选区支：ntf(±2.0 文档单位)。首步捕获会话基线快照。
+    if (!this.selectionNudgeActive) {
+      this.selectionNudgeActive = true;
+      this.dragBeforeStrokes = this.completedStrokes.slice();
+      this.dragBeforeShapes = this.shapes.slice();
+      this.dragBeforeTextBlocks = this.textBlocks.slice();
+      this.dragBeforeImages = this.imageBlocks.slice();
+      this.dragBeforeMathBlocks = this.mathBlocks.slice();
+    }
+    const step: number = ORIGIN_SELECTION_NUDGE_STEP;
+    const dx: number = keyCode === ORIGIN_KEYCODE_DPAD_LEFT ? -step :
+      keyCode === ORIGIN_KEYCODE_DPAD_RIGHT ? step : 0;
+    const dy: number = keyCode === ORIGIN_KEYCODE_DPAD_UP ? -step :
+      keyCode === ORIGIN_KEYCODE_DPAD_DOWN ? step : 0;
+    this.selectionTool.moveSelected(dx, dy);
+    this.applySelectionTransform(false, false);
+  }
+
+  // 原版 otf.a NudgeEnd（f2 UP 支 + ms1:784 触摸分发落空支）：微移
+  // 会话收尾——非恒等变换则单条 TRANSFORM_ELEMENTS 撤销步 + persist，
+  // 选区保留（guf.u ome.c 语义）；r9a.k()==0 空操作不产事务等价
+  // isIdentityTransform 门。
+  private endSelectionNudgeCommit(): void {
+    if (!this.selectionNudgeActive) {
+      return;
+    }
+    this.selectionNudgeActive = false;
+    if (this.isIdentityTransform(this.selectionTool.getState().transform)) {
+      return;
+    }
+    const state = this.selectionTool.getState();
+    const selectedStrokeIds: string[] = state.selectedStrokeIds.slice();
+    const selectedShapeIds: string[] = state.selectedShapeIds.slice();
+    const selectedTextBlockIds: string[] = state.selectedTextBlockIds.slice();
+    const selectedImageIds: string[] = state.selectedImageIds.slice();
+    const selectedMathIds: string[] = state.selectedMathIds.slice();
+    const selectedGroupIds: string[] = state.selectedGroupIds.slice();
+    this.undoRedo.push({
+      type: UndoableActionType.TRANSFORM_ELEMENTS,
+      noteId: this.noteId,
+      pageId: this.currentPage.pageId,
+      beforeStrokes: this.filterStrokesByIds(this.dragBeforeStrokes, selectedStrokeIds),
+      afterStrokes: this.filterStrokesByIds(this.completedStrokes, selectedStrokeIds),
+      beforeShapes: this.filterShapesByIds(this.dragBeforeShapes, selectedShapeIds),
+      afterShapes: this.filterShapesByIds(this.shapes, selectedShapeIds),
+      beforeTextBlocks: this.filterTextBlocksByIds(this.dragBeforeTextBlocks, selectedTextBlockIds),
+      afterTextBlocks: this.filterTextBlocksByIds(this.textBlocks, selectedTextBlockIds),
+      beforeImages: this.filterImagesByIds(this.dragBeforeImages, selectedImageIds),
+      afterImages: this.filterImagesByIds(this.imageBlocks, selectedImageIds),
+      beforeMathBlocks: this.filterMathBlocksByIds(this.dragBeforeMathBlocks, selectedMathIds),
+      afterMathBlocks: this.filterMathBlocksByIds(this.mathBlocks, selectedMathIds),
+    });
+    this.persist(this.areCanonicalOriginalPositionSelection(
+      selectedStrokeIds, selectedShapeIds, selectedTextBlockIds,
+      selectedImageIds, selectedMathIds));
+    this.notifyUndoRedo();
+    this.selectionTool.selectElementIds(
+      selectedStrokeIds, selectedShapeIds, selectedTextBlockIds, selectedImageIds,
+      selectedGroupIds, selectedMathIds);
+    this.updateSelectionOverlay();
+  }
+
   // 形状的渲染旋转角：椭圆取 rotationRadians；线/多边形取 transform
   // 矩阵旋转分量（m=[m0..m5]，θ=atan2(m3,m0)）。
   private shapeVertexRotation(shape: ShapeElement): number {
@@ -9309,11 +9426,12 @@ export struct NoteCanvasView {
       this.textBlocks, selectedTextBlockIds);
     const beforeImages: ImageElement[] = this.filterImagesByIds(this.imageBlocks, selectedImageIds);
     const beforeMathBlocks: MathElement[] = this.filterMathBlocksByIds(this.mathBlocks, selectedMathIds);
-    const source: StrokeElementData[] = this.selectionDrag ? this.dragBeforeStrokes : this.completedStrokes;
-    const sourceShapes: ShapeElement[] = this.selectionDrag ? this.dragBeforeShapes : this.shapes;
-    const sourceTextBlocks: TextBlockElement[] = this.selectionDrag ? this.dragBeforeTextBlocks : this.textBlocks;
-    const sourceImages: ImageElement[] = this.selectionDrag ? this.dragBeforeImages : this.imageBlocks;
-    const sourceMathBlocks: MathElement[] = this.selectionDrag ? this.dragBeforeMathBlocks : this.mathBlocks;
+    const sessionBase: boolean = this.selectionDrag || this.selectionNudgeActive;
+    const source: StrokeElementData[] = sessionBase ? this.dragBeforeStrokes : this.completedStrokes;
+    const sourceShapes: ShapeElement[] = sessionBase ? this.dragBeforeShapes : this.shapes;
+    const sourceTextBlocks: TextBlockElement[] = sessionBase ? this.dragBeforeTextBlocks : this.textBlocks;
+    const sourceImages: ImageElement[] = sessionBase ? this.dragBeforeImages : this.imageBlocks;
+    const sourceMathBlocks: MathElement[] = sessionBase ? this.dragBeforeMathBlocks : this.mathBlocks;
     this.completedStrokes = this.selectionTool.applyTransform(source);
     this.shapes = transformShapeElements(sourceShapes,
       this.selectionTool.getState().selectedShapeIds, this.selectionTool.getState().transform);
