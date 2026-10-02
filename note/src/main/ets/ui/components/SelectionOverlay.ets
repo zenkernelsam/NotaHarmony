@@ -180,9 +180,9 @@ export struct SelectionOverlay {
           .hitTestBehavior(HitTestMode.Block)
           .position({
             x: selectionOverlayPosition(this.selectionRect, this.containerWidth,
-              this.containerHeight, false).x,
+              this.containerHeight, false, this.selectionRotateHandleRtl).x,
             y: selectionOverlayPosition(this.selectionRect, this.containerWidth,
-              this.containerHeight, false).actionY,
+              this.containerHeight, false, this.selectionRotateHandleRtl).actionY,
           })
           .bindMenu(this.buildSelectionMenu())
       }

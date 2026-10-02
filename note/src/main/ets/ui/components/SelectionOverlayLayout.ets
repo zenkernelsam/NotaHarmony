@@ -16,7 +16,14 @@ export const SELECTION_ROTATE_HANDLE_STEM: number = 56;
 export const SELECTION_ROTATE_DOT_OUTER: number = 32;
 export const SELECTION_ROTATE_DOT_INNER: number = 28;
 const SELECTION_MENU_EDGE_MARGIN: number = 8;
-const SELECTION_MENU_SELECTION_GAP: number = 8;
+// 原版 mnm.c → abn.e → i3b 菜单定位：锚 = mfc.n(sbe) 屏矩形
+// odf.c(·,72,72) 各边膨胀 72 屏 px（清除旋转柄茎 56+端点 16=72 区），
+// abn.c 去窗 insets±12dp 后 i3b 裁决——LTR（yj8.F）先放锚框
+// 右侧 +margin，溢出回退左侧，再溢出右缘夹取；RTL 镜像；
+// 纵向 = 锚框中心 − 菜单高/2（odf.a 中心点）夹取容器内。
+export function selectionMenuSideInflateVp(): number {
+  return px2vp(72);
+}
 
 export interface SelectionOverlayPosition {
   x: number;
@@ -25,7 +32,7 @@ export interface SelectionOverlayPosition {
 }
 
 export function selectionOverlayPosition(rect: Rect2D, containerWidth: number,
-  containerHeight: number, hasPaste: boolean): SelectionOverlayPosition {
+  containerHeight: number, hasPaste: boolean, rtl: boolean = false): SelectionOverlayPosition {
   const safeWidth: number = finitePositive(containerWidth,
     SELECTION_MENU_BUTTON_WIDTH + SELECTION_MENU_EDGE_MARGIN * 2);
   const buttonCount: number = hasPaste ? 2 : 1;
@@ -33,15 +40,41 @@ export function selectionOverlayPosition(rect: Rect2D, containerWidth: number,
     (buttonCount - 1) * SELECTION_MENU_BUTTON_GAP;
   const safeHeight: number = finitePositive(containerHeight,
     groupHeight + SELECTION_MENU_EDGE_MARGIN * 2);
+  const inflate: number = selectionMenuSideInflateVp();
   const maxX: number = Math.max(SELECTION_MENU_EDGE_MARGIN,
     safeWidth - SELECTION_MENU_EDGE_MARGIN - SELECTION_MENU_BUTTON_WIDTH);
-  const x: number = clamp(finite(rect.left, SELECTION_MENU_EDGE_MARGIN),
-    SELECTION_MENU_EDGE_MARGIN, maxX);
-  const belowY: number = finite(rect.bottom, 0) + SELECTION_MENU_SELECTION_GAP;
+  // i3b：主侧 = 锚框膨胀边 + 余量（LTR 右 / RTL 左）；溢出 → 对侧；
+  // 仍溢出 → 容器缘夹取。
+  const primaryX: number = rtl ?
+    rect.left - inflate - SELECTION_MENU_BUTTON_WIDTH :
+    rect.right + inflate;
+  const fallbackX: number = rtl ?
+    rect.right + inflate :
+    rect.left - inflate - SELECTION_MENU_BUTTON_WIDTH;
+  let x: number;
+  if (!rtl) {
+    if (primaryX + SELECTION_MENU_BUTTON_WIDTH <= safeWidth) {
+      x = primaryX;
+    } else if (fallbackX >= 0) {
+      x = fallbackX;
+    } else {
+      x = maxX;
+    }
+  } else {
+    if (primaryX >= 0) {
+      x = primaryX;
+    } else if (fallbackX + SELECTION_MENU_BUTTON_WIDTH <= safeWidth) {
+      x = fallbackX;
+    } else {
+      x = SELECTION_MENU_EDGE_MARGIN;
+    }
+  }
+  x = clamp(finite(x, SELECTION_MENU_EDGE_MARGIN), SELECTION_MENU_EDGE_MARGIN, maxX);
   const maxY: number = Math.max(SELECTION_MENU_EDGE_MARGIN,
     safeHeight - SELECTION_MENU_EDGE_MARGIN - groupHeight);
-  const aboveY: number = finite(rect.top, 0) - SELECTION_MENU_SELECTION_GAP - groupHeight;
-  const actionY: number = belowY <= maxY ? belowY : clamp(aboveY, SELECTION_MENU_EDGE_MARGIN, maxY);
+  const centerY: number = (finite(rect.top, 0) + finite(rect.bottom, 0)) / 2;
+  const actionY: number = clamp(centerY - groupHeight / 2,
+    SELECTION_MENU_EDGE_MARGIN, maxY);
   return {
     x: x,
     actionY: actionY,

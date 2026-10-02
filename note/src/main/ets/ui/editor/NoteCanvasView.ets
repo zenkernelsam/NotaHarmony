@@ -12229,7 +12229,8 @@ export struct NoteCanvasView {
   // selectionRect 与触点均为屏幕坐标；命中区域必须复用覆盖层的钳制布局。
   private isInSelectionMenu(x: number, y: number): boolean {
     const position: SelectionOverlayPosition = selectionOverlayPosition(
-      this.selectionRect, this.overlayWidth, this.overlayHeight, false);
+      this.selectionRect, this.overlayWidth, this.overlayHeight, false,
+      this.selectionRotateHandleRtl);
     return x >= position.x && x <= position.x + SELECTION_MENU_BUTTON_WIDTH &&
       y >= position.actionY && y <= position.actionY + SELECTION_MENU_BUTTON_HEIGHT;
   }
