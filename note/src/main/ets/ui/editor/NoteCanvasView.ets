@@ -127,7 +127,8 @@ import { replayPageMutation } from '../../data/PageMutationOpCodec';
 import { NoteRepositoryImpl } from '../../data/NoteRepositoryImpl';
 import { PageRepositoryImpl } from '../../data/PageRepositoryImpl';
 import {
-  InkPathCommand, InkStyle, InkStyleMapEntry, OriginalInkCreateMetadata, RenderSpec,
+  InkPathCommand, InkPathCommandType, InkStyle, InkStyleMapEntry, OriginalInkCreateMetadata,
+  RenderSpec,
   StrokeElementData, StrokePathPoint,
   InputBatch, InputBatchKind,
   PencilSplatPoint,
@@ -149,7 +150,8 @@ import {
   OriginalImageCropSession, originalImageCropLocalDelta, resetOriginalImageCropDraft,
 } from '../../core/model/OriginalImageCropGeometry';
 import {
-  cloneShapeElement, eraserPathHitsShape, maximumLinearScale, pointHitsShape, recomputeShapeBounds, tapeHitTestShape,
+  cloneShapeElement, eraserPathHitsShape, maximumLinearScale, pointHitsShape, recomputeShapeBounds,
+  shapeWorldSubpaths, tapeHitTestShape,
   transformShapeElements,
 } from '../../core/model/ShapeGeometry';
 import { prepareRecognizedShapes } from '../../core/model/ShapeRecognition';
@@ -160,7 +162,8 @@ import {
 } from '../../core/model/ShapeHoldLifecycle';
 import {
   cloneTextBlockElement, eraserPathHitsTextBlock, pointHitsTextBlock, textBlockLocalBounds,
-  textBlockTransformComponents, textBlockWorldBounds, transformTextBlockElements,
+  textBlockTransformComponents, textBlockWorldBounds, textBlockWorldCorners,
+  transformTextBlockElements,
 } from '../../core/model/TextBlockGeometry';
 import { pointHitsAffineBlock } from '../../core/model/BlockHitGeometry';
 import { Point2D, Rect2D, CubicSegment, TransformMatrix } from '../../core/model/GeometryTypes';
@@ -343,6 +346,15 @@ function pageCopyPlanToPastePlan(plan: PageCopyPlan): OriginalClipboardPastePlan
     elementOrder: plan.elementOrder,
     groups: plan.groups,
     topGroupIds: plan.topGroupIds,
+  };
+}
+
+// 成员级铬件的局部→世界坐标变换（TextBlockGeometry.transformPoint 同式，
+// 模块内复用以覆盖笔画/图片等非文本成员）。
+function transformMemberPoint(point: Point2D, matrix: TransformMatrix): Point2D {
+  return {
+    x: matrix[0] * point.x + matrix[1] * point.y + matrix[2],
+    y: matrix[3] * point.x + matrix[4] * point.y + matrix[5],
   };
 }
 
@@ -626,6 +638,15 @@ export struct NoteCanvasView {
   // 程序化集合（粘贴/全选等，k=null）→ 4dp 虚线界。drawnRect 非空为
   // Harmony 的绘制型标记。
   @State selectionDrawnSource: boolean = false;
+  // 原版 gsf.h 1.4.2：lsf 单元素点选 → 画布层不产外层界框（成员级铬件由
+  // 笔画/形状路径轮廓或图片/文本成员框承担）→ 覆盖层外层界隐藏。
+  @State selectionBorderless: boolean = false;
+  // 原版 gsf.h：jsf 组点选外层界为 e=#FFB3B3B3 灰实线（非 gsf.a 蓝）。
+  @State selectionOuterGray: boolean = false;
+  // 原版 s40.c/xnm.c：lsf 仅图片/文本成员产 mp4 框（!mp4.d() 时才带柄）；
+  // 笔画/形状成员只绘路径轮廓、数学块无铬件 → lsf 非图/文成员或已锁成员
+  // 不产手柄。
+  @State selectionHandlesHidden: boolean = false;
   private imageCropSession: OriginalImageCropSession | null = null;
   @State imageCropVisible: boolean = false;
   @State imageCropDraft: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
@@ -2913,6 +2934,9 @@ export struct NoteCanvasView {
         this.canvasCtx.stroke();
       }
       this.renderLaserOverlay();
+      // 原版 s40.c 成员级铬件（qmm.d 路径轮廓 + xnm.c/gsf.c 成员框 +
+      // gsf.h 组灰盒）先于 sen 外层界绘制。
+      this.renderSelectionMemberChrome();
       // 原版 sen 分发块（1045-1052）：选区轮廓在元素层之上画布系内绘制。
       this.renderSelectionTrailGhost();
       this.renderSelectionGestureTrail();
@@ -3021,6 +3045,189 @@ export struct NoteCanvasView {
     } finally {
       this.canvasCtx.restore();
     }
+  }
+
+  // 1.4.2 s40.c 成员级选区铬件：
+  //   qmm.d —— 笔画/形状成员按实际路径以 gsf.a=#FF4278FF 描边
+  //     （宽 min(2dp/zoom, strokeWidth·|M|/2)，M=元素变换）；
+  //   xnm.c+gsf.c —— 图片/文本成员各绘旋转实线框（2dp/zoom 同蓝）；
+  //   gsf.h f() —— jsf 组点选与 isf.m 内组 → e=#FFB3B3B3 灰实线盒；
+  //   lsf 外层界为空（sen.d 早退，外框隐藏由覆盖层 selectionBorderless
+  //   承担）；数学块不产成员铬件（xnm.c 仅 l97/vvh 产 mp4 框）。
+  private renderSelectionMemberChrome(): void {
+    if (!this.selectionVisible || this.selectionDrawing || this.isTextOnly) {
+      return;
+    }
+    const state: SelectionState = this.selectionTool.getState();
+    const zoom: number = this.viewport.zoom === 0 ? 1 : this.viewport.zoom;
+    const chromeW: number = 2.0 / zoom;
+    const ctx: CanvasRenderingContext2D = this.canvasCtx;
+    ctx.save();
+    try {
+      ctx.setLineDash([]);
+      ctx.lineJoin = 'round';
+      const selStrokes: Set<string> = new Set<string>(state.selectedStrokeIds);
+      if (selStrokes.size > 0) {
+        ctx.strokeStyle = SELECTION_OUTLINE_COLOR;
+        for (const stroke of this.completedStrokes) {
+          if (!selStrokes.has(stroke.id)) {
+            continue;
+          }
+          const scale: number = Math.hypot(stroke.transform[0], stroke.transform[3]);
+          ctx.lineWidth = Math.min(chromeW,
+            stroke.renderSpec.brushWidth * scale / 2);
+          ctx.beginPath();
+          const cmds: InkPathCommand[] | null = stroke.customPath ?? stroke.fillPath ?? null;
+          if (cmds !== null && cmds.length > 0) {
+            this.traceMemberInkPath(ctx, cmds, stroke.transform);
+            ctx.closePath();
+          } else {
+            let started: boolean = false;
+            for (const point of stroke.pathPoints) {
+              const w: Point2D = transformMemberPoint(point.position, stroke.transform);
+              if (!started) {
+                ctx.moveTo(w.x, w.y);
+                started = true;
+              } else {
+                ctx.lineTo(w.x, w.y);
+              }
+            }
+          }
+          ctx.stroke();
+        }
+      }
+      const selShapes: Set<string> = new Set<string>(state.selectedShapeIds);
+      if (selShapes.size > 0) {
+        ctx.strokeStyle = SELECTION_OUTLINE_COLOR;
+        for (const shape of this.shapes) {
+          if (!selShapes.has(shape.id)) {
+            continue;
+          }
+          const scale: number = Math.hypot(shape.transform[0], shape.transform[3]);
+          ctx.lineWidth = Math.min(chromeW, shape.strokeWidth * scale / 2);
+          for (const subpath of shapeWorldSubpaths(shape)) {
+            if (subpath.length < 2) {
+              continue;
+            }
+            ctx.beginPath();
+            ctx.moveTo(subpath[0].x, subpath[0].y);
+            for (let i = 1; i < subpath.length; i++) {
+              ctx.lineTo(subpath[i].x, subpath[i].y);
+            }
+            ctx.stroke();
+          }
+        }
+      }
+      // xnm.c+gsf.c：图片/文本成员旋转实线框。
+      ctx.strokeStyle = SELECTION_OUTLINE_COLOR;
+      ctx.lineWidth = chromeW;
+      const selTexts: Set<string> = new Set<string>(state.selectedTextBlockIds);
+      for (const block of this.textBlocks) {
+        if (selTexts.has(block.id)) {
+          this.strokeMemberQuad(ctx, textBlockWorldCorners(block));
+        }
+      }
+      const selImages: Set<string> = new Set<string>(state.selectedImageIds);
+      for (const image of this.imageBlocks) {
+        if (!selImages.has(image.id)) {
+          continue;
+        }
+        const local: Rect2D = imageBlockLocalBounds(image);
+        this.strokeMemberQuad(ctx, [
+          transformMemberPoint({ x: local.left, y: local.top }, image.transform),
+          transformMemberPoint({ x: local.right, y: local.top }, image.transform),
+          transformMemberPoint({ x: local.right, y: local.bottom }, image.transform),
+          transformMemberPoint({ x: local.left, y: local.bottom }, image.transform),
+        ]);
+      }
+      // gsf.h f()：组实线灰盒（jsf 外盒与 isf.m 内组同式样，gsf.c 2dp/zoom）。
+      if (state.selectedGroupIds.length > 0) {
+        ctx.strokeStyle = '#FFB3B3B3';
+        ctx.lineWidth = chromeW;
+        for (const groupId of state.selectedGroupIds) {
+          const group: OriginalSelectionGroup | undefined = this.selectionGroups.find(
+            (candidate: OriginalSelectionGroup): boolean => candidate.id === groupId);
+          if (group === undefined) {
+            continue;
+          }
+          const bounds: Rect2D | null = this.memberUnionBounds(group.members);
+          if (bounds === null) {
+            continue;
+          }
+          ctx.beginPath();
+          ctx.moveTo(bounds.left, bounds.top);
+          ctx.lineTo(bounds.right, bounds.top);
+          ctx.lineTo(bounds.right, bounds.bottom);
+          ctx.lineTo(bounds.left, bounds.bottom);
+          ctx.closePath();
+          ctx.stroke();
+        }
+      }
+    } finally {
+      ctx.restore();
+    }
+  }
+
+  private strokeMemberQuad(ctx: CanvasRenderingContext2D, corners: Point2D[]): void {
+    if (corners.length < 4) {
+      return;
+    }
+    ctx.beginPath();
+    ctx.moveTo(corners[0].x, corners[0].y);
+    ctx.lineTo(corners[1].x, corners[1].y);
+    ctx.lineTo(corners[2].x, corners[2].y);
+    ctx.lineTo(corners[3].x, corners[3].y);
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  private traceMemberInkPath(ctx: CanvasRenderingContext2D,
+    commands: InkPathCommand[], transform: TransformMatrix): void {
+    for (const command of commands) {
+      const pts: Point2D[] = command.points.map(
+        (point: Point2D): Point2D => transformMemberPoint(point, transform));
+      if (command.type === InkPathCommandType.MOVE_TO) {
+        ctx.moveTo(pts[0].x, pts[0].y);
+      } else if (command.type === InkPathCommandType.LINE_TO) {
+        ctx.lineTo(pts[0].x, pts[0].y);
+      } else if (command.type === InkPathCommandType.QUADRATIC) {
+        ctx.quadraticCurveTo(pts[0].x, pts[0].y, pts[1].x, pts[1].y);
+      } else {
+        ctx.bezierCurveTo(pts[0].x, pts[0].y, pts[1].x, pts[1].y,
+          pts[2].x, pts[2].y);
+      }
+    }
+  }
+
+  private memberUnionBounds(memberIds: string[]): Rect2D | null {
+    let rect: Rect2D | null = null;
+    const absorb = (bounds: Rect2D | undefined): void => {
+      if (bounds === undefined) {
+        return;
+      }
+      if (rect === null) {
+        rect = { left: bounds.left, top: bounds.top,
+          right: bounds.right, bottom: bounds.bottom };
+      } else {
+        rect.left = Math.min(rect.left, bounds.left);
+        rect.top = Math.min(rect.top, bounds.top);
+        rect.right = Math.max(rect.right, bounds.right);
+        rect.bottom = Math.max(rect.bottom, bounds.bottom);
+      }
+    };
+    for (const id of memberIds) {
+      absorb(this.completedStrokes.find(
+        (s: StrokeElementData): boolean => s.id === id)?.bounds);
+      absorb(this.shapes.find(
+        (s: ShapeElement): boolean => s.id === id)?.bounds);
+      absorb(this.textBlocks.find(
+        (b: TextBlockElement): boolean => b.id === id)?.bounds);
+      absorb(this.imageBlocks.find(
+        (b: ImageElement): boolean => b.id === id)?.bounds);
+      absorb(this.mathBlocks.find(
+        (b: MathElement): boolean => b.id === id)?.bounds);
+    }
+    return rect;
   }
 
   // 原版 ft0 case 22：tail 段为圆头圆角描边折线（tailAlpha），指针为
@@ -7819,6 +8026,28 @@ export struct NoteCanvasView {
     this.selectionLockedOnly = !state.supportsDeselectMode &&
       state.selectedGroupIds.length === 0 && selectedCount === 1 &&
       lockableCount === 1 && lockedCount === 1;
+    // 原版 gsf.h/sen.d 外层界形态：lsf 单元素点选 → gsf.h 早退、画布层
+    // 不产外层界框（成员级铬件由画布层 renderSelectionMemberChrome 承担），
+    // 覆盖层外层界隐藏；jsf 组点选 → gsf.c(...,e=#FFB3B3B3) 灰实线外盒；
+    // isf → 维持既有蓝界。
+    this.selectionBorderless = !state.supportsDeselectMode &&
+      state.selectedGroupIds.length === 0;
+    this.selectionOuterGray = !state.supportsDeselectMode &&
+      state.selectedGroupIds.length > 0;
+    // 原版 xnm.c+gsf.c：lsf 仅图片 l97/文本 vvh 成员产 mp4 成员框，且仅
+    // !mp4.d()（未锁）时带柄；笔画/形状成员只绘路径轮廓、数学块无铬件。
+    let lsfBoxedUnlocked: boolean = false;
+    if (this.selectionBorderless && selectedCount === 1) {
+      const text: TextBlockElement | undefined = this.textBlocks.find(
+        (block: TextBlockElement): boolean =>
+          state.selectedTextBlockIds.indexOf(block.id) >= 0);
+      const image: ImageElement | undefined = this.imageBlocks.find(
+        (block: ImageElement): boolean =>
+          state.selectedImageIds.indexOf(block.id) >= 0);
+      lsfBoxedUnlocked = (text !== undefined && text.positionLocked !== true) ||
+        (image !== undefined && !image.positionLocked);
+    }
+    this.selectionHandlesHidden = this.selectionBorderless && !lsfBoxedUnlocked;
     const allMemberShapesLocked: boolean = allMembersAreShapes &&
       (lockLeafIds as string[]).every((id: string): boolean => {
         const shape: ShapeElement | undefined = this.shapes.find(
@@ -11545,6 +11774,9 @@ export struct NoteCanvasView {
           this.loadedPageId === this.currentPage.pageId,
         deselectMode: this.selectionDeselectMode,
         selectionDrawn: this.selectionDrawnSource,
+        selectionBorderless: this.selectionBorderless,
+        selectionOuterGray: this.selectionOuterGray,
+        selectionHandlesHidden: this.selectionHandlesHidden,
         photoImportLeaseActive: this.photoImportBusy,
         containerWidth: this.overlayWidth,
         containerHeight: this.overlayHeight,

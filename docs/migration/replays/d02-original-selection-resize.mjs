@@ -45,11 +45,13 @@ check(rotateBlock.includes('Circle()') &&
   rotateBlock.includes('(this.selectionRect.left + this.selectionRect.right) / 2') &&
   rotateBlock.includes('this.selectionRect.top - SELECTION_ROTATE_HANDLE_OFFSET'),
   'rotate handle hovers above the top-edge midpoint');
-const handleBlock = overlay.slice(overlay.indexOf('if (!this.deselectMode && !this.photoImportLeaseActive)'),
+const handleBlock = overlay.slice(overlay.indexOf('if (!this.deselectMode && !this.photoImportLeaseActive'),
   overlay.indexOf('Circle()') + 200);
 check(handleBlock.includes('!this.deselectMode') &&
-  handleBlock.includes('!this.photoImportLeaseActive'),
-  'handles hidden in deselectMode and photo-import lease');
+  handleBlock.includes('!this.photoImportLeaseActive') &&
+  handleBlock.includes('!this.selectionHandlesHidden'),
+  'handles hidden in deselectMode, photo-import lease, and ' +
+  'borderless-member cases (Phase 1449 mp4.d/xnm.c gate)');
 
 // --- 按下：角柄命中优先于内部拖拽 ---
 const down = canvas.slice(canvas.indexOf('private onTouchDown('),

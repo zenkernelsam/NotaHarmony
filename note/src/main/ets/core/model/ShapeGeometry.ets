@@ -198,6 +198,13 @@ export function shapePathPoints(shape: ShapeElement): Point2D[] {
   return transformed;
 }
 
+// 世界坐标子路径集（shapePathPoints 的分路径版本——不把多子路径压平成
+// 一条折线，避免跨子路径连线；成员轮廓描边用）。
+export function shapeWorldSubpaths(shape: ShapeElement): Point2D[][] {
+  return shapeLocalSubpaths(shape).map((subpath: Point2D[]): Point2D[] =>
+    subpath.map((point: Point2D): Point2D => transformPoint(point, shape.transform)));
+}
+
 export function eraserPathHitsShape(eraserPath: Point2D[], shape: ShapeElement,
   eraserWidth: number): boolean {
   if (eraserPath.length === 0 || shape.positionLocked === true) {

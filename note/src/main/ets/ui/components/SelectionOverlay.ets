@@ -53,6 +53,13 @@ export struct SelectionOverlay {
   @Prop deselectMode: boolean = false;
   // 原版 gsf.g：isf.k（绘制轨迹）非空 → 实线界；程序化集合 → 虚线界。
   @Prop selectionDrawn: boolean = false;
+  // 原版 gsf.h：lsf 单元素点选不产画布外层界框（成员级铬件承担）。
+  @Prop selectionBorderless: boolean = false;
+  // 原版 gsf.h：jsf 组点选外层界为 e=#FFB3B3B3 灰实线 2dp。
+  @Prop selectionOuterGray: boolean = false;
+  // 原版 xnm.c/gsf.c：lsf 仅未锁图片/文本成员框带柄；笔画/形状/数学成员
+  // 与已锁成员不产手柄。
+  @Prop selectionHandlesHidden: boolean = false;
   @Prop photoImportLeaseActive: boolean = false;
   @Prop containerWidth: number = 0;
   @Prop containerHeight: number = 0;
@@ -70,22 +77,27 @@ export struct SelectionOverlay {
       if (this.visible) {
         // 原版 gsf.g/sen.t 界式样：绘制型选区（isf.k 轨迹非空）→ 实线
         // 2dp 界；程序化集合（k=null：粘贴/全选）→ 4dp 虚线界；固定色
-        // #FF4278FF（qxk.e(4282546431)，不随主题）；deselectMode（isf.h）
-        // → gsf.c = a@0.32 降色。
-        Stack()
-          .width(this.selectionRect.right - this.selectionRect.left)
-          .height(this.selectionRect.bottom - this.selectionRect.top)
-          .position({ x: this.selectionRect.left, y: this.selectionRect.top })
-          .border({
-            width: this.selectionDrawn ? 2 : 4,
-            color: '#FF4278FF',
-            style: this.selectionDrawn ? BorderStyle.Solid : BorderStyle.Dashed,
-          })
-          .opacity(this.deselectMode ? 0.32 : 1.0)
+        // #FF4278FF（qxk.e(4282546431)，不随主题）；jsf 组点选 → gsf.c
+        // e=#FFB3B3B3 灰实线 2dp；lsf 单元素点选 → gsf.h 早退无外框；
+        // deselectMode（isf.h）→ gsf.c = a@0.32 降色。
+        if (!this.selectionBorderless) {
+          Stack()
+            .width(this.selectionRect.right - this.selectionRect.left)
+            .height(this.selectionRect.bottom - this.selectionRect.top)
+            .position({ x: this.selectionRect.left, y: this.selectionRect.top })
+            .border({
+              width: this.selectionDrawn || this.selectionOuterGray ? 2 : 4,
+              color: this.selectionOuterGray ? '#FFB3B3B3' : '#FF4278FF',
+              style: this.selectionDrawn || this.selectionOuterGray ?
+                BorderStyle.Solid : BorderStyle.Dashed,
+            })
+            .opacity(this.deselectMode ? 0.32 : 1.0)
+        }
         // 原版选区覆盖层角柄（htc.e/qpi.b 自由变换入口）：四角圆点 +
         // 顶边上方旋转柄（msc.c selectionHasRotationHandle）。
         // 命中由 NoteCanvasView.onTouchDown 判定（装饰性，不拦截）。
-        if (!this.deselectMode && !this.photoImportLeaseActive) {
+        if (!this.deselectMode && !this.photoImportLeaseActive &&
+          !this.selectionHandlesHidden) {
           ForEach([
             { x: this.selectionRect.left, y: this.selectionRect.top },
             { x: this.selectionRect.right, y: this.selectionRect.top },

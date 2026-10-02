@@ -27,7 +27,7 @@ const check = (cond, msg) => { assert(cond, msg); n++; };
 // --- 门槛：成员全形状（xsc.k）或单个可锁元素（itc） ---
 const gateIdx = view.indexOf('this.selectionCanLock =');
 check(gateIdx > 0, 'selectionCanLock assignment present');
-const gate = view.slice(gateIdx - 1800, gateIdx + 1600);
+const gate = view.slice(gateIdx - 1800, gateIdx + 2800);
 check(gate.includes('resolveOriginalSelectedGroupLeaves'),
   'lock gate resolves selected-group leaves (xsc.k iterates ktc.h() members)');
 check(gate.includes('selectedEntityIds.concat(groupLeafIds)'),

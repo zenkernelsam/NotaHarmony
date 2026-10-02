@@ -79,10 +79,11 @@ check(overlay.includes('@Prop selectionDrawn'),
   'overlay carries selectionDrawn prop');
 const border = overlay.slice(overlay.indexOf('.border({'),
   overlay.indexOf('.border({') + 400);
-check(border.includes('this.selectionDrawn ? 2 : 4') &&
+check(border.includes('this.selectionDrawn || this.selectionOuterGray ? 2 : 4') &&
   border.includes('BorderStyle.Solid : BorderStyle.Dashed') &&
   border.includes("'#FF4278FF'"),
-  'border: drawn→solid 2dp / programmatic→dashed 4dp, fixed #FF4278FF');
+  'border: drawn→solid 2dp / programmatic→dashed 4dp, fixed #FF4278FF ' +
+  '(Phase 1449: jsf outerGray 同样实线 2dp，仅换 #FFB3B3B3 灰)');
 check(overlay.includes('.opacity(this.deselectMode ? 0.32 : 1.0)'),
   'deselectMode dims the outline to gsf.c alpha');
 check(canvas.includes('this.selectionDrawnSource = state.drawnRect !== null') &&
