@@ -163,6 +163,16 @@ export const ORIGIN_KEY_SCROLL_FRACTION: number = 0.1;
 export const ORIGIN_KEYCODE_DEL: number = 2055;
 export const ORIGIN_KEYCODE_FORWARD_DEL: number = 2071;
 
+// pa8.a0 = ofk.e(92) = KEYCODE_PAGE_UP；pa8.b0 = ofk.e(93) =
+// KEYCODE_PAGE_DOWN。f2 兜底链（!rsi 门内）：UP → mfc.s(mfc.j())/
+// mfc.s(mfc.i()) = ndf(0, ∓0.9f×mfc.g() 视口高)——ad8 协程动画滚动
+// 90% 视口高；DOWN 也消费（支内仅 UP 动作门，b2 不落 0）。无修饰
+// 键门。Harmony 键码：PAGE_UP=2068、PAGE_DOWN=2069；setScroll 即时
+// 滚动（动画差异同 P1468 mfc.s 降级登记）。
+export const ORIGIN_KEYCODE_PAGE_UP: number = 2068;
+export const ORIGIN_KEYCODE_PAGE_DOWN: number = 2069;
+export const ORIGIN_KEY_PAGE_SCROLL_FRACTION: number = 0.9;
+
 // === 帮助表（txm.a → KeyboardShortcutGroup 树，Ctrl+/ qw6 路由内容） ===
 // 原版经系统 KeyboardShortcutHelper 渲染；Harmony 无系统帮助面 →
 // NotePage bindSheet 复刻分组清单（ADR-1358）。分组与条目序 =

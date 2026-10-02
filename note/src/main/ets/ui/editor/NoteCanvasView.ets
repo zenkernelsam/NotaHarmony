@@ -43,6 +43,8 @@ import {
   ORIGIN_KEYCODE_Y, ORIGIN_KEYCODE_Z,
   ORIGIN_KEYCODE_DEL, ORIGIN_KEYCODE_DPAD_DOWN, ORIGIN_KEYCODE_DPAD_LEFT,
   ORIGIN_KEYCODE_DPAD_RIGHT, ORIGIN_KEYCODE_DPAD_UP, ORIGIN_KEYCODE_FORWARD_DEL,
+  ORIGIN_KEYCODE_PAGE_DOWN, ORIGIN_KEYCODE_PAGE_UP,
+  ORIGIN_KEY_PAGE_SCROLL_FRACTION,
   ORIGIN_KEY_SCROLL_FRACTION, ORIGIN_SELECTION_NUDGE_STEP,
   ORIGIN_ZOOM_IN_KEYCODES, ORIGIN_ZOOM_OUT_KEYCODES,
   ORIGIN_ZOOM_RESET_KEYCODES, ORIGIN_CHORD_DISMISS, matchKeyChord,
@@ -5947,6 +5949,22 @@ export struct NoteCanvasView {
           return false;
         }
         this.onSelectionMenuAction(SelectionMenuAction.DELETE);
+        return true;
+      }
+      // f2 兜底链 pa8.a0(92=PAGE_UP)/pa8.b0(93=PAGE_DOWN)：无修饰键门；
+      // UP → mfc.s(mfc.j()/mfc.i()) = 视口滚动 ∓0.9×视口高（ad8 协程
+      // 动画滚动，Harmony 即时 setScroll——同 P1468 mfc.s 降级登记）；
+      // DOWN 亦消费（支内仅 UP 动作门）。
+      if (event.keyCode === ORIGIN_KEYCODE_PAGE_UP ||
+        event.keyCode === ORIGIN_KEYCODE_PAGE_DOWN) {
+        if (isUp) {
+          const pageStep: number =
+            this.canvasCtx.height * ORIGIN_KEY_PAGE_SCROLL_FRACTION;
+          this.viewport.setScroll(this.viewport.scrollX,
+            this.viewport.scrollY +
+            (event.keyCode === ORIGIN_KEYCODE_PAGE_UP ? -pageStep : pageStep));
+          this.onViewportChanged();
+        }
         return true;
       }
     }
