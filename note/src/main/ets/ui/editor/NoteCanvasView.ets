@@ -261,6 +261,8 @@ const SELECTION_DASH_TICK_MS: number = 33;
 //（{0,±90,±180}，guf.n={-V,-V/2,0,V/2,V} V=si5.a=π），
 // 阈值 m=fq9.z(5f)=5°；吸附后减 startingRadians 得旋转增量。
 const SELECTION_ROTATE_SNAP_RAD: number = Math.PI * 5.0 / 180.0;
+// twm.d 同一吸附集应用于 utf 捏合角增量——{0,±90,±180} 即 π/2 整数倍。
+const SELECTION_ROTATE_SNAP_STEP: number = Math.PI / 2.0;
 // 原版 ms1:267 f15=guf.l(44)/zoom 文档单位的角柄命中半边长——
 // 屏上恒 44vp（原版命中域为 88×88 轴对齐方框而非圆）。
 const SELECTION_CORNER_HIT_HALF: number = 44.0;
@@ -560,6 +562,15 @@ export struct NoteCanvasView {
   // 原版 ttf ControlPointDrag（ms1:195-243/guf.c）：lsf 单形状成员的
   // 顶点拖拽重构会话——命中局部系 ±(44/zoom) 方框，拖拽把控制点
   // 局部增量（增量反旋转进局部系）写回 rsm.c 等价物。
+  // 原版 utf(PinchTransform) 会话（guf.y/v + utf + guf.m）：
+  // 第二指落在选区界内（无活动会话、非点除/锁定）→ 双指捏合变换
+  // 选区内容——等比缩放+90°/5°吸附旋转，枢轴=第二指触点。
+  private pinchSelectSession: boolean = false;
+  private pinchStartDist: number = 0;
+  private pinchStartAngle: number = 0;
+  private pinchBaseTransform: TransformMatrix = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  private pinchPivot: Point2D = { x: 0, y: 0 };
+  private pinchChanged: boolean = false;
   private vertexDrag: boolean = false;
   private vertexDragShapeId: string = '';
   private vertexDragIndex: number = -1;
@@ -4039,6 +4050,12 @@ export struct NoteCanvasView {
       if (this.palmRejectionActive() && event.sourceTool !== SourceTool.Pen) {
         return;
       }
+      // 原版 guf.y：第二指落在选区界内且无活动变换会话 → utf 捏合变换
+      // 会话（等比缩放+吸附旋转作用于选区内容）；否则维持原路径
+      // （取消进行中交互，视口捏合/平移手势接管）。
+      if (this.tryStartSelectionPinch(event)) {
+        return;
+      }
       this.cancelActiveInteraction();
       return;
     }
@@ -4364,6 +4381,13 @@ export struct NoteCanvasView {
     if (!this.isDrawing) {
       return;
     }
+    // 原版 utf 会话进行中：双指移动 = guf.v 选区变换（等比缩放+吸附旋转）。
+    if (this.pinchSelectSession) {
+      if (event.touches.length >= 2) {
+        this.applySelectionPinch(event);
+      }
+      return;
+    }
     // T-034：双指手势接管
     if (event.touches.length > 1 && !this.palmRejectionActive()) {
       this.cancelActiveInteraction();
@@ -4455,7 +4479,20 @@ export struct NoteCanvasView {
       // 原版 palm_detection：手掌抬手而笔仍在写——忽略，继续笔画。
       return;
     }
-    if (event.touches.length > 0 && !this.palmRejectionActive()) {
+    // 原版 guf.v 结束支：utf 会话任一指抬起（剩余手指仍在屏或全抬）
+    // → a.c 提交变换（scale/rot/pivot），选区保留。走统一提交块。
+    if (this.pinchSelectSession && event.touches.length < 2) {
+      this.pinchSelectSession = false;
+      if (event.touches.length > 0) {
+        // 剩余手指移动不再驱动任何会话——原路取消其余进行中交互。
+        this.endSelectionPinchCommit();
+        this.isDrawing = false;
+        this.resetPointerTracking();
+        this.renderFrame();
+        return;
+      }
+      this.endSelectionPinchCommit();
+    } else if (event.touches.length > 0 && !this.palmRejectionActive()) {
       this.cancelActiveInteraction();
       return;
     }
@@ -4719,7 +4756,8 @@ export struct NoteCanvasView {
       this.strokeSession.cancelStroke();
       this.refreshOriginalInkReservation(this.pageLoadGeneration, this.loadedPageId);
     }
-    if (this.selectionDrag || this.selectionResize || this.vertexDrag) {
+    if (this.selectionDrag || this.selectionResize || this.vertexDrag ||
+      this.pinchSelectSession) {
       this.completedStrokes = this.dragBeforeStrokes.slice();
       this.shapes = this.dragBeforeShapes.slice();
       this.textBlocks = this.dragBeforeTextBlocks.slice();
@@ -4730,7 +4768,8 @@ export struct NoteCanvasView {
           this.completedStrokes, this.renderCtx, this.viewport.zoom);
       }
     }
-    if (this.selectionDrawing || this.selectionDrag || this.selectionResize || this.vertexDrag) {
+    if (this.selectionDrawing || this.selectionDrag || this.selectionResize ||
+      this.vertexDrag || this.pinchSelectSession) {
       this.clearSelectionWithRegisterReset();
     }
     this.eraserActive = false;
@@ -4750,6 +4789,8 @@ export struct NoteCanvasView {
     this.vertexDragIndex = -1;
     this.vertexDragOrigShape = null;
     this.vertexDragChanged = false;
+    this.pinchSelectSession = false;
+    this.pinchChanged = false;
     this.selectionGestureSlopCrossed = false;
     this.selectionGestureSlopAccum = { x: 0, y: 0 };
     this.resizeIsRotate = false;
@@ -7893,6 +7934,120 @@ export struct NoteCanvasView {
     this.selectionTool.resizeSelectedAxes(scaleX, scaleY, this.resizeAnchor,
       this.resizeBaseTransform);
     this.applySelectionTransform(false, false);  // 变换中不 push undo（结束时统一 push）
+  }
+
+  // 原版 guf.y → utf(PinchTransform) 会话建立：
+  // h==null（无活动变换会话）、选区存在、非 isf.h 点除模式、非 w() 全锁定、
+  // 第二指落入选区界内（原版旋转系精确测试，Harmony 复用 pointInSelectionRect
+  // 的旋转判定）。枢轴 utf.i() = 第二指触点。
+  private tryStartSelectionPinch(event: TouchEvent): boolean {
+    if (event.touches.length < 2) {
+      return false;
+    }
+    const state: SelectionState = this.selectionTool.getState();
+    if (!this.selectionVisible || this.selectionDrawing || state.deselectMode ||
+      this.selectionPositionLocked || this.photoImportBusy ||
+      this.selectionDrag || this.selectionResize || this.vertexDrag ||
+      this.pinchSelectSession || this.strokeSession !== null) {
+      return false;
+    }
+    const second: TouchObject = event.touches[event.touches.length - 1];
+    const secondCanvas: Point2D = this.viewport.screenToCanvas(second.x, second.y);
+    if (!this.pointInSelectionRect({ x: second.x, y: second.y }, secondCanvas)) {
+      return false;
+    }
+    const first: TouchObject = event.touches[0];
+    this.pinchStartDist = Math.hypot(second.x - first.x, second.y - first.y);
+    this.pinchStartAngle = Math.atan2(second.y - first.y, second.x - first.x);
+    this.pinchBaseTransform = state.transform.slice() as TransformMatrix;
+    this.pinchPivot = secondCanvas;
+    this.pinchSelectSession = true;
+    this.pinchChanged = false;
+    // 撤销快照与拖拽/缩放会话同一管线（抬指结束时一次 push）。
+    this.dragBeforeStrokes = this.completedStrokes.slice();
+    this.dragBeforeShapes = this.shapes.slice();
+    this.dragBeforeTextBlocks = this.textBlocks.slice();
+    this.dragBeforeImages = this.imageBlocks.slice();
+    this.dragBeforeMathBlocks = this.mathBlocks.slice();
+    this.isDrawing = true;
+    return true;
+  }
+
+  // 原版 guf.v：utf 更新——f=双指距离比（等比缩放），f2=连线角增量
+  // 经 twm.d 90°/5° 吸附，枢轴=utf.i() 第二指触点（逐帧更新为当前中点）。
+  // guf.m 应用 = T(p)·R(θ)·S(s)·T(−p)·base——同 resizeSelected 的
+  // R(p)·S(p)·base 复合（锚点与旋转中心同为 p 时两者相等）。
+  private applySelectionPinch(event: TouchEvent): void {
+    if (event.touches.length < 2 || this.pinchStartDist < 1e-6) {
+      return;
+    }
+    const first: TouchObject = event.touches[0];
+    const second: TouchObject = event.touches[event.touches.length - 1];
+    const dist: number = Math.hypot(second.x - first.x, second.y - first.y);
+    if (dist < 1e-6) {
+      return;
+    }
+    const scale: number = dist / this.pinchStartDist;
+    const angle: number = Math.atan2(second.y - first.y, second.x - first.x);
+    // twm.d(f2, m)：把角增量吸附到最近的 90° 整数倍（阈值 5°）。
+    const delta: number = angle - this.pinchStartAngle;
+    const snapped: number = this.snapSelectionRotateDelta(delta);
+    const midX: number = (first.x + second.x) / 2;
+    const midY: number = (first.y + second.y) / 2;
+    this.pinchPivot = this.viewport.screenToCanvas(midX, midY);
+    if (scale !== 1.0 || snapped !== 0) {
+      this.pinchChanged = true;
+    }
+    this.selectionTool.resizeSelected(scale, snapped, this.pinchPivot,
+      this.pinchPivot, this.pinchBaseTransform);
+    this.applySelectionTransform(false, false);  // 变换中不 push undo（结束时统一 push）
+    this.updateSelectionOverlay();
+  }
+
+  // twm.d(f, m)：角增量吸附——|f − k·90°| < m(5°) 时贴齐到 k·90°，
+  // 否则保留原值（k 遍历 {-180,-90,0,90,180}° 等价于取最近倍角）。
+  private snapSelectionRotateDelta(delta: number): number {
+    const snapped: number = Math.round(delta / SELECTION_ROTATE_SNAP_STEP) *
+      SELECTION_ROTATE_SNAP_STEP;
+    return Math.abs(delta - snapped) < SELECTION_ROTATE_SNAP_RAD ? snapped : delta;
+  }
+
+  // 原版 guf.v 完成支：utf 结束 → a.c(id, false, null, scale, rot, pivot)
+  // 提交——与拖拽/缩放会话同一 TRANSFORM_ELEMENTS 撤销记录，选区保留。
+  private endSelectionPinchCommit(): void {
+    const selectedStrokeIds: string[] = this.selectionTool.getState().selectedStrokeIds.slice();
+    const selectedShapeIds: string[] = this.selectionTool.getState().selectedShapeIds.slice();
+    const selectedTextBlockIds: string[] = this.selectionTool.getState().selectedTextBlockIds.slice();
+    const selectedImageIds: string[] = this.selectionTool.getState().selectedImageIds.slice();
+    const selectedMathIds: string[] = this.selectionTool.getState().selectedMathIds.slice();
+    const selectedGroupIds: string[] = this.selectionTool.getState().selectedGroupIds.slice();
+    if (!this.isIdentityTransform(this.selectionTool.getState().transform) ||
+      this.pinchChanged) {
+      this.undoRedo.push({
+        type: UndoableActionType.TRANSFORM_ELEMENTS,
+        noteId: this.noteId,
+        pageId: this.currentPage.pageId,
+        beforeStrokes: this.filterStrokesByIds(this.dragBeforeStrokes, selectedStrokeIds),
+        afterStrokes: this.filterStrokesByIds(this.completedStrokes, selectedStrokeIds),
+        beforeShapes: this.filterShapesByIds(this.dragBeforeShapes, selectedShapeIds),
+        afterShapes: this.filterShapesByIds(this.shapes, selectedShapeIds),
+        beforeTextBlocks: this.filterTextBlocksByIds(this.dragBeforeTextBlocks, selectedTextBlockIds),
+        afterTextBlocks: this.filterTextBlocksByIds(this.textBlocks, selectedTextBlockIds),
+        beforeImages: this.filterImagesByIds(this.dragBeforeImages, selectedImageIds),
+        afterImages: this.filterImagesByIds(this.imageBlocks, selectedImageIds),
+        beforeMathBlocks: this.filterMathBlocksByIds(this.dragBeforeMathBlocks, selectedMathIds),
+        afterMathBlocks: this.filterMathBlocksByIds(this.mathBlocks, selectedMathIds),
+      });
+      this.persist(this.areCanonicalOriginalPositionSelection(
+        selectedStrokeIds, selectedShapeIds, selectedTextBlockIds,
+        selectedImageIds, selectedMathIds));
+      this.notifyUndoRedo();
+    }
+    this.selectionTool.selectElementIds(
+      selectedStrokeIds, selectedShapeIds, selectedTextBlockIds, selectedImageIds,
+      selectedGroupIds, selectedMathIds);
+    this.pinchChanged = false;
+    this.updateSelectionOverlay();
   }
 
   // 形状的渲染旋转角：椭圆取 rotationRadians；线/多边形取 transform
@@ -12056,6 +12211,10 @@ export struct NoteCanvasView {
             GestureGroup(GestureMode.Parallel,
               PinchGesture({ fingers: 2 })
                 .onActionUpdate((event: GestureEvent) => {
+                  // utf 会话进行中：双指捏合作用于选区内容而非视口。
+                  if (this.pinchSelectSession) {
+                    return;
+                  }
                   const scale: number = event.scale !== undefined ? event.scale : 1.0;
                   const cx: number = event.fingerList !== undefined && event.fingerList.length > 0
                     ? (event.fingerList[0].localX + event.fingerList[event.fingerList.length - 1].localX) / 2
@@ -12084,6 +12243,9 @@ export struct NoteCanvasView {
                 }),
               PanGesture({ fingers: 2 })
                 .onActionUpdate((event: GestureEvent) => {
+                  if (this.pinchSelectSession) {
+                    return;
+                  }
                   if (event.offsetX !== undefined && event.offsetY !== undefined) {
                     const delta: Point2D = this.gestureTracker.nextPanDelta(event.offsetX, event.offsetY);
                     this.viewport.panBy(delta.x, delta.y);
