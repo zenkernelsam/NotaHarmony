@@ -10,7 +10,8 @@ import { InkInputProviderImpl } from '../../core/adaptation/InkInputProviderImpl
 import { PenKitPredictor } from '../../core/adaptation/PenKitPredictor';
 import { PredictionCoordinates } from '../../core/adaptation/Predictor';
 import {
-  Canvas2DOffscreenRenderContext, Canvas2DStrokeRenderer, Canvas2DRenderContext,
+  AlphaScaledDrawingContext, Canvas2DDrawingContext, Canvas2DOffscreenRenderContext,
+  Canvas2DStrokeRenderer, Canvas2DRenderContext,
 } from '../../core/adaptation/Canvas2DStrokeRenderer';
 import { Canvas2DTextRenderer, TextBlockLinkHit } from '../../core/adaptation/Canvas2DTextRenderer';
 import { LoadedPencilTexture, loadOriginalPencilTexture } from '../../core/adaptation/PencilTextureLoader';
@@ -256,6 +257,9 @@ const SELECTION_DASH_TICK_MS: number = 33;
 //（qxk.e(4282546431)）；gsf.c = a@0.32 为 deselectMode 降色与轨迹 ghost。
 const SELECTION_OUTLINE_COLOR: string = '#FF4278FF';
 const SELECTION_OUTLINE_DIM_ALPHA: number = 0.32;
+// 1.4.2 hak→oo7.x z 分支：deselectMode 点除成员 paint.alpha *= 0.2
+// （x1h.o() ? 0.2f : 1.0f）。
+const DESELECT_MEMBER_ALPHA: number = 0.2;
 // Phase 754：原版 fgg.b njj.d 画布卡高 272dp（控制条 wfg 48dp 为兄弟节点另计）
 const ZOOM_SURFACE_HEIGHT_VP: number = 272;
 // === Phase 750 Zoom 源窗口覆盖层（原版 gfg/dfg/bfg）===
@@ -3146,11 +3150,24 @@ export struct NoteCanvasView {
       this.elementOrder, this.completedStrokes, this.textBlocks, this.shapes, this.imageBlocks,
       this.mathBlocks, transientTopStroke);
     const mathRasterScale: number = originalMathRasterScale(renderZoom, vp2px(1));
+    // 1.4.2 kgi→hak：isf.h（deselectMode）时 isf.i 点除集注入渲染协程；
+    // oo7.x z 分支 → 命中成员 paint.alpha *= 0.2（笔画/形状/图片同构）。
+    const deselectedIds: string[] = this.selectionTool.getState().deselectedIds;
+    const deselected: Set<string> | null =
+      deselectedIds.length > 0 ? new Set<string>(deselectedIds) : null;
+    let dimContext: AlphaScaledDrawingContext | null = null;
     for (const element of elements) {
+      let rc: Canvas2DDrawingContext = renderContext;
+      if (deselected !== null && deselected.has(element.elementId)) {
+        if (dimContext === null) {
+          dimContext = new AlphaScaledDrawingContext(renderContext, DESELECT_MEMBER_ALPHA);
+        }
+        rc = dimContext;
+      }
       if (element.kind === PageElementKind.STROKE) {
         if (transientTopStroke !== null && element.data === transientTopStroke) {
           this.strokePainter.renderStroke(
-            element.data, renderContext, this.getPaperWidth(), this.getPaperHeight(),
+            element.data, rc, this.getPaperWidth(), this.getPaperHeight(),
             renderZoom);
           continue;
         }
@@ -3158,11 +3175,11 @@ export struct NoteCanvasView {
         const playback: OriginalAudioLinkedPlayback = resolveOriginalAudioLinkedPlayback(
           element.data, this.playbackAudioTime, this.playbackAudioSegments);
         this.strokePainter.renderAudioLinkedStroke(element.data, playback,
-          renderContext, this.getPaperWidth(), this.getPaperHeight(), renderZoom);
+          rc, this.getPaperWidth(), this.getPaperHeight(), renderZoom);
       } else if (element.kind === PageElementKind.TEXT) {
-        this.textRenderer.renderText(element.data, renderContext);
+        this.textRenderer.renderText(element.data, rc);
       } else if (element.kind === PageElementKind.SHAPE) {
-        this.shapeRenderer.renderShape(element.data, renderContext, renderZoom);
+        this.shapeRenderer.renderShape(element.data, rc, renderZoom);
       } else if (element.kind === PageElementKind.IMAGE) {
         const loaded: LoadedImageAsset | undefined = this.imageAssets.get(
           originalAssetStorageHash(element.data.assetHashBits));
@@ -3171,11 +3188,11 @@ export struct NoteCanvasView {
           const uncroppedSource: Rect2D | null =
             this.imageCropVisible && cropSession !== null &&
             cropSession.original.id === element.data.id ? cropSession.sourceCrop : null;
-          this.imageRenderer.renderImage(element.data, loaded.bitmap, renderContext,
+          this.imageRenderer.renderImage(element.data, loaded.bitmap, rc,
             loaded.orientationDegrees, loaded.mirroredHorizontally, uncroppedSource);
         }
       } else if (element.kind === PageElementKind.MATH) {
-        this.mathRenderer.renderMath(element.data, renderContext, mathRasterScale);
+        this.mathRenderer.renderMath(element.data, rc, mathRasterScale);
       }
     }
   }

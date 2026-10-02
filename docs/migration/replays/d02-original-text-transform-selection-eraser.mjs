@@ -185,7 +185,7 @@ const checks = [
       overlay.includes('y: this.transformComponents().scaleY') &&
       overlay.includes('angle: this.transformComponents().rotationRadians.toString()')],
   ['main canvas and thumbnail keep the same Text renderer consumer',
-    canvas.includes('this.textRenderer.renderText(element.data, renderContext)') &&
+    canvas.includes('this.textRenderer.renderText(element.data, rc)') &&
       thumbnail.includes('this.textRenderer.renderText(element.data, renderContext)')],
   ['ArkTS fixtures cover rotated AABB false positives lasso edge hits and local clipping',
     selectionFixture.includes('only touches a rotated Text AABB') &&

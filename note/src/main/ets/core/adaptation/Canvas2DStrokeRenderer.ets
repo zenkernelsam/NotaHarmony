@@ -403,6 +403,163 @@ export class Canvas2DOffscreenRenderContext implements Canvas2DDrawingContext {
   }
 }
 
+// 1.4.2 hak→oo7.x/z 分支：deselectMode 点除成员（isf.i 集）paint.alpha *= 0.2
+// （x1h.o() ? 0.2f : 1.0f；jo7/v1h 形状同构）。委托实现——全部调用直通内层
+// 上下文，仅 setGlobalAlpha 按系数缩放；渲染器内部绝对覆写同样被乘上。
+export class AlphaScaledDrawingContext implements Canvas2DDrawingContext {
+  private readonly inner: Canvas2DDrawingContext;
+  private readonly factor: number;
+
+  constructor(inner: Canvas2DDrawingContext, factor: number) {
+    this.inner = inner;
+    this.factor = factor;
+  }
+
+  save(): void {
+    this.inner.save();
+  }
+
+  restore(): void {
+    this.inner.restore();
+  }
+
+  clipRect(rect: Rect2D): void {
+    this.inner.clipRect(rect);
+  }
+
+  clear(rect: Rect2D): void {
+    this.inner.clear(rect);
+  }
+
+  beginPath(): void {
+    this.inner.beginPath();
+  }
+
+  moveTo(x: number, y: number): void {
+    this.inner.moveTo(x, y);
+  }
+
+  lineTo(x: number, y: number): void {
+    this.inner.lineTo(x, y);
+  }
+
+  quadraticCurveTo(cpx: number, cpy: number, x: number, y: number): void {
+    this.inner.quadraticCurveTo(cpx, cpy, x, y);
+  }
+
+  bezierCurveTo(cp1x: number, cp1y: number, cp2x: number, cp2y: number, x: number, y: number): void {
+    this.inner.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x, y);
+  }
+
+  rect(x: number, y: number, width: number, height: number): void {
+    this.inner.rect(x, y, width, height);
+  }
+
+  clip(fillRule?: CanvasFillRule): void {
+    this.inner.clip(fillRule);
+  }
+
+  closePath(): void {
+    this.inner.closePath();
+  }
+
+  stroke(): void {
+    this.inner.stroke();
+  }
+
+  fill(): void {
+    this.inner.fill();
+  }
+
+  fillRect(x: number, y: number, width: number, height: number): void {
+    this.inner.fillRect(x, y, width, height);
+  }
+
+  fillText(text: string, x: number, y: number): void {
+    this.inner.fillText(text, x, y);
+  }
+
+  measureText(text: string): number {
+    return this.inner.measureText(text);
+  }
+
+  arc(x: number, y: number, radius: number, startAngle: number, endAngle: number): void {
+    this.inner.arc(x, y, radius, startAngle, endAngle);
+  }
+
+  setLineDash(segments: number[]): void {
+    this.inner.setLineDash(segments);
+  }
+
+  setLineDashOffset(offset: number): void {
+    this.inner.setLineDashOffset(offset);
+  }
+
+  setLineWidth(width: number): void {
+    this.inner.setLineWidth(width);
+  }
+
+  setLineCap(cap: CanvasLineCap): void {
+    this.inner.setLineCap(cap);
+  }
+
+  setLineJoin(join: CanvasLineJoin): void {
+    this.inner.setLineJoin(join);
+  }
+
+  setStrokeStyle(color: string): void {
+    this.inner.setStrokeStyle(color);
+  }
+
+  setFillStyle(color: string): void {
+    this.inner.setFillStyle(color);
+  }
+
+  setFillPattern(image: ImageBitmap, logicalWidth: number, logicalHeight: number): boolean {
+    return this.inner.setFillPattern(image, logicalWidth, logicalHeight);
+  }
+
+  setFont(font: string): void {
+    this.inner.setFont(font);
+  }
+
+  setGlobalAlpha(alpha: number): void {
+    this.inner.setGlobalAlpha(alpha * this.factor);
+  }
+
+  setGlobalCompositeOperation(op: string): void {
+    this.inner.setGlobalCompositeOperation(op);
+  }
+
+  setFilter(filter: string): void {
+    this.inner.setFilter(filter);
+  }
+
+  translate(x: number, y: number): void {
+    this.inner.translate(x, y);
+  }
+
+  rotate(angle: number): void {
+    this.inner.rotate(angle);
+  }
+
+  scale(sx: number, sy: number): void {
+    this.inner.scale(sx, sy);
+  }
+
+  setTransform(m: number[]): void {
+    this.inner.setTransform(m);
+  }
+
+  transform(m: number[]): void {
+    this.inner.transform(m);
+  }
+
+  drawImage(image: ImageBitmap, dx: number, dy: number, dw: number, dh: number): void {
+    this.inner.drawImage(image, dx, dy, dw, dh);
+  }
+}
+
 export class Canvas2DStrokeRenderer implements StrokeRenderer {
   private splatTexture: ImageBitmap | null = null;
   private tintedSplatTextures: Map<number, ImageBitmap> = new Map<number, ImageBitmap>();

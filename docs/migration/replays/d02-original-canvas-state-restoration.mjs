@@ -18,7 +18,8 @@ function unguardedSaveLines(source) {
   const failures = [];
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
-    if (!line.includes('.save();') || line.includes('this.ctx.save();')) {
+    if (!line.includes('.save();') || line.includes('this.ctx.save();') ||
+      line.includes('this.inner.save();')) {
       continue;
     }
     let next = index + 1;

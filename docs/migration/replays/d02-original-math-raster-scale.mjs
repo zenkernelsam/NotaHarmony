@@ -51,7 +51,7 @@ check('main canvas supplies current viewport zoom times current ArkUI Density',
   // viewport.zoom via the default.
   /renderZoom: number = this\.viewport\.zoom/.test(canvas) &&
   /originalMathRasterScale\(renderZoom, vp2px\(1\)\)/.test(canvas) &&
-  /renderMath\(element\.data, renderContext, mathRasterScale\)/.test(canvas));
+  /renderMath\(element\.data, rc, mathRasterScale\)/.test(canvas));
 check('thumbnail supplies its real page-to-output transform without reapplying screen Density',
   /originalMathRasterScale\(pageTransform\.scale, 1\)/.test(thumbnail) &&
   /renderMath\(element\.data, renderContext, mathRasterScale\)/.test(thumbnail));

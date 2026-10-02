@@ -151,7 +151,7 @@ const checks = [
     canvas.includes('new ShapeCanvasRenderer(this.renderer)') &&
       canvas.includes('renderShape(heldShape, this.renderCtx, this.viewport.zoom)') &&
       // Phase 748: ordered-element path passes renderZoom (viewport.zoom by default)
-      canvas.includes('renderShape(element.data, renderContext, renderZoom)') &&
+      canvas.includes('renderShape(element.data, rc, renderZoom)') &&
       canvas.includes('this.shapeRenderer.clearPencilCache()') &&
       thumbnail.includes('new ShapeCanvasRenderer(this.strokeRenderer)') &&
       thumbnail.includes('renderShape(element.data, renderContext, pageTransform.scale)') &&

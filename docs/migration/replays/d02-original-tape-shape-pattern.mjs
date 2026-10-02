@@ -62,7 +62,7 @@ check(renderer.includes('renderShape(shape: ShapeElement, context: RenderContext
 // --- Canvas plumbing: zoom plumbed at both call sites ---
 // Phase 748: ordered-element path passes renderZoom (= viewport.zoom by default;
 // zoom panel supplies magnification)
-check(view.includes('this.shapeRenderer.renderShape(element.data, renderContext, renderZoom)'),
+check(view.includes('this.shapeRenderer.renderShape(element.data, rc, renderZoom)'),
   'ordered-element path passes render zoom');
 check(view.includes('this.shapeRenderer.renderShape(heldShape, this.renderCtx, this.viewport.zoom)'),
   'held-shape preview path passes viewport zoom');
