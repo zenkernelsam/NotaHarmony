@@ -8172,9 +8172,59 @@ export struct NoteCanvasView {
     return candidates;
   }
 
+  // 原版 guf.b 吸附门：twm.e(fJ)——fJ!=null∧fJ!=0（选区/元素已旋转）
+  // 时移动吸附整体禁用。ksf 支取 ksf.g() 选区态旋转、lsf 支取
+  // hv6.j() 元素自身旋转。
+  private selectionSnapRotation(): number {
+    const state: SelectionState = this.selectionTool.getState();
+    const t: TransformMatrix = state.transform;
+    const selRot: number = Math.atan2(t[3], t[0]);
+    if (Math.abs(selRot) > 0.0001) {
+      return selRot;
+    }
+    // lsf 单元素：取成员自身旋转（hv6.j() 等价）。
+    if (state.selectedShapeIds.length === 1) {
+      const shape: ShapeElement | undefined = this.shapes.find(
+        (s: ShapeElement) => s.id === state.selectedShapeIds[0]);
+      if (shape !== undefined) {
+        return this.shapeVertexRotation(shape);
+      }
+    }
+    if (state.selectedStrokeIds.length === 1) {
+      const stroke: StrokeElementData | undefined = this.completedStrokes.find(
+        (s: StrokeElementData) => s.id === state.selectedStrokeIds[0]);
+      if (stroke !== undefined) {
+        return Math.atan2(stroke.transform[3], stroke.transform[0]);
+      }
+    }
+    if (state.selectedTextBlockIds.length === 1) {
+      const tb: TextBlockElement | undefined = this.textBlocks.find(
+        (b: TextBlockElement) => b.id === state.selectedTextBlockIds[0]);
+      if (tb !== undefined) {
+        return tb.rotationRadians;
+      }
+    }
+    if (state.selectedImageIds.length === 1) {
+      const img: ImageElement | undefined = this.imageBlocks.find(
+        (b: ImageElement) => b.id === state.selectedImageIds[0]);
+      if (img !== undefined) {
+        return img.rotationRadians;
+      }
+    }
+    if (state.selectedMathIds.length === 1) {
+      const mb: MathElement | undefined = this.mathBlocks.find(
+        (b: MathElement) => b.id === state.selectedMathIds[0]);
+      if (mb !== undefined) {
+        return mb.rotationRadians;
+      }
+    }
+    return 0;
+  }
+
   private planSelectionSnap(dx: number, dy: number): OriginalSnapMovePlan {
     const bounds: Rect2D | null = this.selectionBoundsCanvas();
-    if (bounds === null) {
+    // guf.b：twm.e(fJ) → 旋转非零时跳吸附（直接返回原位移）。
+    if (bounds === null || Math.abs(this.selectionSnapRotation()) > 0.0001) {
       this.snapGuides = [];
       return { dx: 0, dy: 0, guides: [] };
     }

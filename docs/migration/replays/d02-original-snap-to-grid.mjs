@@ -109,4 +109,23 @@ check(view.includes('selectedStrokeIds.has(s.id)') && view.includes('selectedSha
   view.includes('selectedImageIds.has(image.id)') && view.includes('selectedMathIds.has(math.id)'),
   'all five element kinds excluded when selected');
 
+// --- Phase 1456 — guf.b 吸附旋转门：twm.e(fJ) 非零旋转禁用吸附 ---
+const gateIdx = view.indexOf('private selectionSnapRotation(');
+check(gateIdx > 0, 'selectionSnapRotation resolver present');
+const gate = view.slice(gateIdx, gateIdx + 2400);
+check(gate.includes('Math.atan2(t[3], t[0])'),
+  'ksf branch: selection-transform rotation (ksf.g() equivalent)');
+check(gate.includes('this.shapeVertexRotation(shape)') &&
+  gate.includes('stroke.transform[3]') &&
+  gate.includes('tb.rotationRadians') &&
+  gate.includes('img.rotationRadians') &&
+  gate.includes('mb.rotationRadians'),
+  'lsf branch: member intrinsic rotation (hv6.j() equivalent)');
+const plan = view.slice(view.indexOf('private planSelectionSnap('),
+  view.indexOf('private planSelectionSnap(') + 800);
+check(plan.includes('Math.abs(this.selectionSnapRotation()) > 0.0001'),
+  'snap skipped entirely when rotated (guf.b !twm.e(fJ) gate)');
+check(plan.indexOf('selectionSnapRotation') < plan.indexOf('planOriginalSnapMove'),
+  'rotation gate runs before candidate planning');
+
 console.log(`D02_ORIGINAL_SNAP_TO_GRID_REPLAY_OK TOTAL=${n} FAILED=0`);
