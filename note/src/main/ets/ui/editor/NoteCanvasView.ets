@@ -136,7 +136,8 @@ import {
 import { ShapeKind, ToolState, ToolType } from '../../core/model/BrushTypes';
 import { buildDragShape } from '../../core/model/ShapeDragGeometry';
 import {
-  ElementType, ImageElement, MathElement, NoteElement, OriginalShapeCreateMetadata,
+  ElementType, EllipseElement, ImageElement, LineElement, MathElement, NoteElement,
+  OriginalShapeCreateMetadata, PolygonElement,
   RichTextCharacterStyleRun,
   RichTextParagraphStyleRun,
   ShapeElement, TextBlockElement,
@@ -547,6 +548,15 @@ export struct NoteCanvasView {
   private resizeBaseCenter: Point2D = { x: 0, y: 0 };
   // 原版 msc.c 旋转柄：纯旋转会话（scale 锁 1，anchor=选区中心）。
   private resizeIsRotate: boolean = false;
+  // 原版 ttf ControlPointDrag（ms1:195-243/guf.c）：lsf 单形状成员的
+  // 顶点拖拽重构会话——命中局部系 ±(44/zoom) 方框，拖拽把控制点
+  // 局部增量（增量反旋转进局部系）写回 rsm.c 等价物。
+  private vertexDrag: boolean = false;
+  private vertexDragShapeId: string = '';
+  private vertexDragIndex: number = -1;
+  private vertexDragStart: Point2D = { x: 0, y: 0 };
+  private vertexDragOrigShape: ShapeElement | null = null;
+  private vertexDragChanged: boolean = false;
   // 原版 SNAP_TO_GRID（ac4.S，默认开）：拖拽期间命中的对齐参考线段。
   private snapGuides: OriginalSnapGuideSegment[] = [];
   // 原版 zt6/yt6：激光笔瞬态会话（不持久化、不入历史）；fadeTimer 驱动
@@ -4082,6 +4092,9 @@ export struct NoteCanvasView {
       }
       if (this.selectionVisible &&
         this.pointInSelectionRect({ x: touch.x, y: touch.y }, canvasP)) {
+        if (this.tryStartShapeVertexDrag({ x: touch.x, y: touch.y })) {
+          return;
+        }
         if (this.tryStartSelectionResize({ x: touch.x, y: touch.y })) {
           return;
         }
@@ -4190,6 +4203,11 @@ export struct NoteCanvasView {
         this.updateSelectionOverlay();
         this.renderFrame();
         this.isDrawing = true;
+        return;
+      }
+      // 原版 ms1:243：lsf 形状成员的顶点拖拽（ttf ControlPointDrag）
+      // 先于角柄——顶点圆点即该成员的唯一变换入口。
+      if (this.tryStartShapeVertexDrag({ x: touch.x, y: touch.y })) {
         return;
       }
       // 原版 htc.e/fvb.f(z)：角柄命中优先于内部拖拽——命中角柄进入
@@ -4364,6 +4382,11 @@ export struct NoteCanvasView {
       this.applySelectionResize(p);
       return;
     }
+    if (this.vertexDrag) {
+      const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
+      this.applyVertexDrag(p);
+      return;
+    }
     if (this.selectionDrag) {
       const p: Point2D = this.viewport.screenToCanvas(touch.x, touch.y);
       const wasCrossed: boolean = this.selectionGestureSlopCrossed;
@@ -4429,6 +4452,9 @@ export struct NoteCanvasView {
         if (this.selectionGestureSlopCrossed) {
           this.applySelectionResize(p);
         }
+      } else if (this.vertexDrag) {
+        const p: Point2D = this.viewport.screenToCanvas(finalTouch.x, finalTouch.y);
+        this.applyVertexDrag(p);
       } else if (this.selectionDrag) {
         const p: Point2D = this.viewport.screenToCanvas(finalTouch.x, finalTouch.y);
         if (this.selectionGestureSlopCrossed) {
@@ -4499,7 +4525,7 @@ export struct NoteCanvasView {
           this.selectionVisible = false;
         }
       }
-    } else if (this.selectionDrag || this.selectionResize) {
+    } else if (this.selectionDrag || this.selectionResize || this.vertexDrag) {
       this.selectionDrag = false;
       this.selectionResize = false;
       this.selectionGestureSlopCrossed = false;
@@ -4512,7 +4538,10 @@ export struct NoteCanvasView {
       const selectedImageIds: string[] = this.selectionTool.getState().selectedImageIds.slice();
       const selectedMathIds: string[] = this.selectionTool.getState().selectedMathIds.slice();
       const selectedGroupIds: string[] = this.selectionTool.getState().selectedGroupIds.slice();
-      if (!this.isIdentityTransform(this.selectionTool.getState().transform)) {
+      // 顶点拖拽（ttf）改的是形状几何而非 transform——以 vertexDragChanged
+      // 为提交门（transform 恒单位阵）。
+      if (!this.isIdentityTransform(this.selectionTool.getState().transform) ||
+        this.vertexDragChanged) {
         this.undoRedo.push({
           type: UndoableActionType.TRANSFORM_ELEMENTS,
           noteId: this.noteId,
@@ -4536,6 +4565,11 @@ export struct NoteCanvasView {
       this.selectionTool.selectElementIds(
         selectedStrokeIds, selectedShapeIds, selectedTextBlockIds, selectedImageIds,
         selectedGroupIds, selectedMathIds);
+      this.vertexDrag = false;
+      this.vertexDragShapeId = '';
+      this.vertexDragIndex = -1;
+      this.vertexDragOrigShape = null;
+      this.vertexDragChanged = false;
     } else if (this.strokeSession !== null && this.strokeSession.isActive()) {
       const stroke: StrokeElementData = this.strokeSession.finishStroke();
       hilog.info(0x0001, 'NoteCanvasView', 'stroke finished, pts=%{public}d', stroke.pathPoints.length);
@@ -4662,7 +4696,7 @@ export struct NoteCanvasView {
       this.strokeSession.cancelStroke();
       this.refreshOriginalInkReservation(this.pageLoadGeneration, this.loadedPageId);
     }
-    if (this.selectionDrag || this.selectionResize) {
+    if (this.selectionDrag || this.selectionResize || this.vertexDrag) {
       this.completedStrokes = this.dragBeforeStrokes.slice();
       this.shapes = this.dragBeforeShapes.slice();
       this.textBlocks = this.dragBeforeTextBlocks.slice();
@@ -4673,7 +4707,7 @@ export struct NoteCanvasView {
           this.completedStrokes, this.renderCtx, this.viewport.zoom);
       }
     }
-    if (this.selectionDrawing || this.selectionDrag || this.selectionResize) {
+    if (this.selectionDrawing || this.selectionDrag || this.selectionResize || this.vertexDrag) {
       this.clearSelectionWithRegisterReset();
     }
     this.eraserActive = false;
@@ -4688,6 +4722,11 @@ export struct NoteCanvasView {
     this.stopSelectionDashTicker();
     this.selectionDrag = false;
     this.selectionResize = false;
+    this.vertexDrag = false;
+    this.vertexDragShapeId = '';
+    this.vertexDragIndex = -1;
+    this.vertexDragOrigShape = null;
+    this.vertexDragChanged = false;
     this.selectionGestureSlopCrossed = false;
     this.selectionGestureSlopAccum = { x: 0, y: 0 };
     this.resizeIsRotate = false;
@@ -7810,6 +7849,181 @@ export struct NoteCanvasView {
     this.selectionTool.resizeSelected(scale, radians, this.resizeAnchor,
       scaledCenter, this.resizeBaseTransform);
     this.applySelectionTransform(false, false);  // 变换中不 push undo（结束时统一 push）
+  }
+
+  // 形状的渲染旋转角：椭圆取 rotationRadians；线/多边形取 transform
+  // 矩阵旋转分量（m=[m0..m5]，θ=atan2(m3,m0)）。
+  private shapeVertexRotation(shape: ShapeElement): number {
+    if (shape.type === ElementType.ELLIPSE) {
+      return shape.rotationRadians;
+    }
+    return Math.atan2(shape.transform[3], shape.transform[0]);
+  }
+
+  // 原版 ms1:195-243：lsf 形状成员顶点命中——tap 经 −rot 反旋转进
+  // 形状局部系后，逐控制点 ±(guf.l=44)/k=zoom 轴对齐方框测试。
+  // 命中即开 ttf ControlPointDrag 会话（先于角柄/旋转柄分发）。
+  private tryStartShapeVertexDrag(screenP: Point2D): boolean {
+    if (!this.selectionVisible || this.selectionDrawing ||
+      this.photoImportBusy || this.selectionPositionLocked) {
+      return false;
+    }
+    const state: SelectionState = this.selectionTool.getState();
+    // ttf 仅 lsf 支产出：点选型单形状成员（无组、非绘制型集合）。
+    if (state.supportsDeselectMode || state.selectedGroupIds.length !== 0 ||
+      state.selectedShapeIds.length !== 1 ||
+      state.selectedStrokeIds.length + state.selectedTextBlockIds.length +
+      state.selectedImageIds.length + state.selectedMathIds.length !== 0) {
+      return false;
+    }
+    const shape: ShapeElement | undefined = this.shapes.find(
+      (s: ShapeElement): boolean => s.id === state.selectedShapeIds[0]);
+    if (shape === undefined) {
+      return false;
+    }
+    const rot: number = this.shapeVertexRotation(shape);
+    const cos: number = Math.cos(-rot);
+    const sin: number = Math.sin(-rot);
+    const half: number = 44.0 / this.viewport.zoom;
+    const tap: Point2D = this.viewport.screenToCanvas(screenP.x, screenP.y);
+    const dots: Point2D[] = this.shapeVertexDots(shape);
+    for (let i: number = 0; i < dots.length; i++) {
+      const dx: number = tap.x - dots[i].x;
+      const dy: number = tap.y - dots[i].y;
+      const lx: number = cos * dx - sin * dy;
+      const ly: number = sin * dx + cos * dy;
+      if (Math.abs(lx) < half && Math.abs(ly) < half) {
+        this.vertexDrag = true;
+        this.vertexDragShapeId = shape.id;
+        this.vertexDragIndex = i;
+        this.vertexDragStart = tap;
+        this.vertexDragOrigShape = shape;
+        this.vertexDragChanged = false;
+        this.dragBeforeShapes = this.shapes.slice();
+        this.isDrawing = true;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // 原版 guf.c：delta=cur−dragStart 世界增量 → fq9.n0 反旋转进
+  // 形状局部系 → rsm.c 等价物按控制点序号编辑定义。吸附支
+  //（e2n.d 邻边对齐 / twm.b 页框）留作登记差异。
+  private applyVertexDrag(p: Point2D): void {
+    const orig: ShapeElement | null = this.vertexDragOrigShape;
+    if (orig === null) {
+      return;
+    }
+    const rot: number = this.shapeVertexRotation(orig);
+    const dx: number = p.x - this.vertexDragStart.x;
+    const dy: number = p.y - this.vertexDragStart.y;
+    const cos: number = Math.cos(-rot);
+    const sin: number = Math.sin(-rot);
+    const lx: number = cos * dx - sin * dy;
+    const ly: number = sin * dx + cos * dy;
+    const next: ShapeElement | null = this.vertexDraggedShape(
+      orig, this.vertexDragIndex, lx, ly);
+    if (next === null) {
+      return;
+    }
+    const idx: number = this.shapes.findIndex(
+      (s: ShapeElement): boolean => s.id === this.vertexDragShapeId);
+    if (idx < 0) {
+      return;
+    }
+    this.shapes[idx] = next;
+    this.vertexDragChanged = true;
+    // 原版：ttf 编辑实体后重发选区——成员 union 界随形状重构更新。
+    this.updateSelectionOverlay();
+    this.renderFrame();
+  }
+
+  // 原版 rsm.c：按控制点序号把局部增量 (dx,dy) 写回形状定义。
+  private vertexDraggedShape(orig: ShapeElement, i: number,
+    dx: number, dy: number): ShapeElement | null {
+    if (orig.type === ElementType.LINE) {
+      // rsm.c j4g 支：i=0 拖 start、i=末位拖 end、i=1 拖贝塞尔中点
+      //（控制点对按 f5=cp2?4/3:2 放大——B(0.5) 权重 0.75/0.5 的逆）。
+      const z: boolean = orig.controlPoint1 === null ||
+        (orig.controlPoint1.x === orig.start.x && orig.controlPoint1.y === orig.start.y &&
+         orig.controlPoint2 !== null &&
+         orig.controlPoint2.x === orig.end.x && orig.controlPoint2.y === orig.end.y);
+      const dots: number = 1 + (orig.controlPoint1 !== null || orig.controlPoint2 !== null ? 1 : 0) + 1;
+      const moved: LineElement = cloneShapeElement(orig) as LineElement;
+      if (i === 0) {
+        moved.start = { x: orig.start.x + dx, y: orig.start.y + dy };
+        if (moved.controlPoint1 !== null && z) {
+          moved.controlPoint1 = { x: moved.start.x, y: moved.start.y };
+        }
+      } else if (i === dots - 1) {
+        moved.end = { x: orig.end.x + dx, y: orig.end.y + dy };
+        if (moved.controlPoint2 !== null && z) {
+          moved.controlPoint2 = { x: moved.end.x, y: moved.end.y };
+        }
+      } else if (i === 1 && orig.controlPoint1 !== null) {
+        const f5: number = orig.controlPoint2 !== null ? 4.0 / 3.0 : 2.0;
+        moved.controlPoint1 =
+          { x: orig.controlPoint1.x + dx * f5, y: orig.controlPoint1.y + dy * f5 };
+        if (orig.controlPoint2 !== null) {
+          moved.controlPoint2 =
+            { x: orig.controlPoint2.x + dx * f5, y: orig.controlPoint2.y + dy * f5 };
+        }
+      } else {
+        return null;
+      }
+      moved.bounds = recomputeShapeBounds(moved);
+      return moved;
+    }
+    if (orig.type === ElementType.ELLIPSE) {
+      // rsm.c k4g 支：基向点序 [0=top,1=bottom,2=left,3=right]；
+      // 拖拽边随指针移动（直径全增量→半径半增量），对侧固定；
+      // 正圆（fil.b 宽高相等）两轴等比并居中另一轴。
+      const circle: boolean = Math.abs(orig.radiusX - orig.radiusY) < 0.001;
+      let rx: number = orig.radiusX;
+      let ry: number = orig.radiusY;
+      let cx: number = orig.center.x;
+      let cy: number = orig.center.y;
+      if (i === 0 || i === 1) {
+        const sgn: number = i === 0 ? -1 : 1;
+        if (circle) {
+          const r2: number = Math.max(0.5, rx + sgn * dy / 2);
+          rx = r2; ry = r2;
+        } else {
+          ry = Math.max(0.5, ry + sgn * dy / 2);
+        }
+        cy = orig.center.y + dy / 2;
+      } else {
+        const sgn: number = i === 2 ? -1 : 1;
+        if (circle) {
+          const r2: number = Math.max(0.5, rx + sgn * dx / 2);
+          rx = r2; ry = r2;
+        } else {
+          rx = Math.max(0.5, rx + sgn * dx / 2);
+        }
+        cx = orig.center.x + dx / 2;
+      }
+      const moved2: EllipseElement = cloneShapeElement(orig) as EllipseElement;
+      moved2.center = { x: cx, y: cy };
+      moved2.radiusX = rx;
+      moved2.radiusY = ry;
+      moved2.bounds = recomputeShapeBounds(moved2);
+      return moved2;
+    }
+    if (orig.type === ElementType.POLYGON) {
+      // rsm.c l4g 支：顶点直移。原版另有 oem.a 规范系 +
+      // fil.a/zB 正多边形约束（拖拽受限保持规整）——未完全解码，
+      // 登记差异（ADR-1389）。
+      if (i < 0 || i >= orig.vertices.length) {
+        return null;
+      }
+      const moved3: PolygonElement = cloneShapeElement(orig) as PolygonElement;
+      moved3.vertices = orig.vertices.map((v: Point2D, j: number): Point2D =>
+        j === i ? { x: v.x + dx, y: v.y + dy } : { x: v.x, y: v.y });
+      moved3.bounds = recomputeShapeBounds(moved3);
+      return moved3;
+    }
+    return null;
   }
 
   private selectionBoundsCanvas(): Rect2D | null {

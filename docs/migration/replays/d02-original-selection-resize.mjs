@@ -107,11 +107,11 @@ check(toolBody.includes('this.multiply(r, this.multiply(s, base))'),
   'transform rebuilds on the base matrix (not incremental)');
 
 // --- 提交/取消复用 selectionDrag 通道 ---
-check(canvas.includes('} else if (this.selectionDrag || this.selectionResize) {'),
+check(canvas.includes('} else if (this.selectionDrag || this.selectionResize || this.vertexDrag) {'),
   'drop commit shared with the move-drag path (single undo push)');
 const cancel = canvas.slice(canvas.indexOf('private cancelActiveInteraction('),
   canvas.indexOf('private cancelActiveInteraction(') + 4000);
-check(cancel.includes('this.selectionDrag || this.selectionResize'),
+check(cancel.includes('this.selectionDrag || this.selectionResize || this.vertexDrag'),
   'cancel restores dragBefore snapshots for resize too');
 check(cancel.includes('this.selectionResize = false;'),
   'cancel clears the resize session');
