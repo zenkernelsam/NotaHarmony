@@ -62,6 +62,9 @@ export struct SelectionOverlay {
   // 原版 xnm.c/gsf.c：lsf 仅未锁图片/文本成员框带柄；笔画/形状/数学成员
   // 与已锁成员不产手柄。
   @Prop selectionHandlesHidden: boolean = false;
+  // 原版 yj8 布局方向：RTL 时旋转柄茎锚左边中点并反向延出
+  //（gsf.i:164-167 sbe.a vs sbe.c；gsf.e f3=±56/f2）。
+  @Prop selectionRotateHandleRtl: boolean = false;
   @Prop photoImportLeaseActive: boolean = false;
   @Prop containerWidth: number = 0;
   @Prop containerHeight: number = 0;
@@ -120,14 +123,17 @@ export struct SelectionOverlay {
             .position({ x: corner.x - SELECTION_HANDLE_DOT_OUTER / 2,
               y: corner.y - SELECTION_HANDLE_DOT_OUTER / 2 })
           }, (corner: Point2D): string => `${corner.x},${corner.y}`)
-          // gsf.e：茎=右边中点 → +56vp（LTR；RTL 原版取左边中点并反向，
-          // Harmony 固定右边登记差异）；茎宽 2vp、色 d=#FF444DE0。
+          // gsf.e：茎=右（RTL 左）边中点 ±56vp（gsf.e:87
+          // f3=56/f2·(dir==F?1:−1)、gsf.i 锚 sbe.c/sbe.a 边中点）；
+          // 茎宽 2vp、色 d=#FF444DE0。
           Rect()
             .width(SELECTION_ROTATE_HANDLE_STEM)
             .height(2)
             .fill('#FF444DE0')
             .position({
-              x: this.selectionRect.right,
+              x: this.selectionRotateHandleRtl
+                ? this.selectionRect.left - SELECTION_ROTATE_HANDLE_STEM
+                : this.selectionRect.right,
               y: (this.selectionRect.top + this.selectionRect.bottom) / 2 - 1,
             })
           Stack() {
@@ -141,7 +147,9 @@ export struct SelectionOverlay {
               .fill('#FF444DE0')
           }
           .position({
-            x: this.selectionRect.right + SELECTION_ROTATE_HANDLE_STEM -
+            x: (this.selectionRotateHandleRtl
+              ? this.selectionRect.left - SELECTION_ROTATE_HANDLE_STEM
+              : this.selectionRect.right + SELECTION_ROTATE_HANDLE_STEM) -
               SELECTION_ROTATE_DOT_OUTER / 2,
             y: (this.selectionRect.top + this.selectionRect.bottom) / 2 + 1 -
               SELECTION_ROTATE_DOT_OUTER / 2,

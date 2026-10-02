@@ -44,9 +44,11 @@ check(cornerBlock.includes('x: corner.x - SELECTION_HANDLE_DOT_OUTER / 2'),
 
 // --- 旋转柄：右边中点锚 + 茎 + 端点双层圆 ---
 check(overlay.includes('SELECTION_ROTATE_HANDLE_STEM') &&
-  overlay.includes('x: this.selectionRect.right,') &&
+  overlay.includes('this.selectionRotateHandleRtl') &&
+  overlay.includes('this.selectionRect.left - SELECTION_ROTATE_HANDLE_STEM') &&
+  overlay.includes('this.selectionRect.right,') &&
   overlay.includes('(this.selectionRect.top + this.selectionRect.bottom) / 2'),
-  'rotate stem anchored at right-edge midpoint (gsf.i LTR→sbe.c)');
+  'rotate stem anchored at right-edge midpoint, RTL left (gsf.i/gsf.e ±56)');
 check(overlay.includes("'#FF444DE0'"),
   'rotate stem+dot inner = gsf.d #FF444DE0');
 check(overlay.includes('SELECTION_ROTATE_DOT_OUTER') &&
@@ -68,5 +70,19 @@ check(hit.includes('this.selectionRect.right + SELECTION_ROTATE_HANDLE_STEM') &&
 check(overlay.includes('!this.deselectMode && !this.photoImportLeaseActive') &&
   overlay.includes('!this.selectionHandlesHidden'),
   'handle block gated on deselectMode/photoImportLease/handlesHidden');
+
+// --- Phase 1458 — RTL 左锚旋转柄（yj8.G→gsf.i sbe.a/gsf.e −56/ms1:525 +π） ---
+check(overlay.includes('@Prop selectionRotateHandleRtl'),
+  'overlay exposes RTL rotate-handle prop');
+check(canvas.includes('@State selectionRotateHandleRtl') &&
+  canvas.includes('i18n.isRTL(i18n.System.getSystemLanguage())'),
+  'RTL state driven by i18n isRTL (yj8.G equivalent)');
+const hitRtl = canvas.slice(canvas.indexOf('private selectionRotateHandleAt('),
+  canvas.indexOf('private selectionRotateHandleAt(') + 900);
+check(hitRtl.includes('this.selectionRect.left - SELECTION_ROTATE_HANDLE_STEM') &&
+  hitRtl.includes('this.selectionRect.right + SELECTION_ROTATE_HANDLE_STEM'),
+  'hit zone mirrors anchor side: RTL→left−stem / LTR→right+stem');
+check(canvas.includes('selectionRotateHandleRtl: this.selectionRotateHandleRtl'),
+  'RTL prop wired from canvas state to overlay');
 
 console.log(`d02-original-selection-handle-geometry: ${n} checks OK`);

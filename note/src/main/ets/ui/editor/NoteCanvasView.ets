@@ -5,6 +5,7 @@ import { image } from '@kit.ImageKit';
 import { promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { i18n } from '@kit.LocalizationKit';
 import { RawPointerEvent } from '../../core/adaptation/InkInputProvider';
 import { InkInputProviderImpl } from '../../core/adaptation/InkInputProviderImpl';
 import { PenKitPredictor } from '../../core/adaptation/PenKitPredictor';
@@ -681,6 +682,9 @@ export struct NoteCanvasView {
   // 笔画/形状成员只绘路径轮廓、数学块无铬件 → lsf 非图/文成员或已锁成员
   // 不产手柄。
   @State selectionHandlesHidden: boolean = false;
+  // 原版 yj8 布局方向（ms1:525/gsf.i/gsf.e）：RTL 时旋转柄茎锚
+  // 左边中点并反向延出；vtf startingRadians +π 由实测触点角自然覆盖。
+  @State selectionRotateHandleRtl: boolean = false;
   private imageCropSession: OriginalImageCropSession | null = null;
   @State imageCropVisible: boolean = false;
   @State imageCropDraft: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
@@ -7857,8 +7861,11 @@ export struct NoteCanvasView {
 
   // 原版 gsf.e 旋转柄：右（RTL 左）边中点 + 水平茎 56vp 端点圆
   // （屏幕坐标命中判定；端点中心 y 下偏移茎宽一半=1vp）。
+  // gsf.i:164-167——yj8.F(LTR) 锚 sbe.c(右边)，RTL 锚 sbe.a(左边)。
   private selectionRotateHandleAt(p: Point2D): boolean {
-    const cx: number = this.selectionRect.right + SELECTION_ROTATE_HANDLE_STEM;
+    const cx: number = this.selectionRotateHandleRtl
+      ? this.selectionRect.left - SELECTION_ROTATE_HANDLE_STEM
+      : this.selectionRect.right + SELECTION_ROTATE_HANDLE_STEM;
     const cy: number = (this.selectionRect.top + this.selectionRect.bottom) / 2 + 1;
     const dx: number = p.x - cx;
     const dy: number = p.y - cy;
@@ -8578,6 +8585,10 @@ export struct NoteCanvasView {
         (image !== undefined && !image.positionLocked);
     }
     this.selectionHandlesHidden = this.selectionBorderless && !lsfBoxedUnlocked;
+    // 原版 yj8.G(RTL)→gsf.i 左边中点锚/gsf.e 茎 −56vp 反向。
+    // ArkUI 无组件级方向查询——i18n.System 语言 RTL 等价判定。
+    this.selectionRotateHandleRtl =
+      i18n.isRTL(i18n.System.getSystemLanguage());
     const allMemberShapesLocked: boolean = allMembersAreShapes &&
       (lockLeafIds as string[]).every((id: string): boolean => {
         const shape: ShapeElement | undefined = this.shapes.find(
@@ -12314,6 +12325,7 @@ export struct NoteCanvasView {
         selectionBorderless: this.selectionBorderless,
         selectionOuterGray: this.selectionOuterGray,
         selectionHandlesHidden: this.selectionHandlesHidden,
+        selectionRotateHandleRtl: this.selectionRotateHandleRtl,
         photoImportLeaseActive: this.photoImportBusy,
         containerWidth: this.overlayWidth,
         containerHeight: this.overlayHeight,
