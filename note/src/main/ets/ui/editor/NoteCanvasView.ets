@@ -256,6 +256,10 @@ const ORIGINAL_MATH_EDITOR_PREVIEW_PIXEL_SCALE: number = 1;
 // ticker 驱动同周期相位（进行中手势期间有效，手势结束即停）。
 const SELECTION_DASH_PERIOD_MS: number = 600;
 const SELECTION_DASH_TICK_MS: number = 33;
+// 原版 guf.e + twm.d：旋转柄拖拽的绝对指针角吸附最近 90° 倍数
+//（{0,±90,±180}，guf.n={-V,-V/2,0,V/2,V} V=si5.a=π），
+// 阈值 m=fq9.z(5f)=5°；吸附后减 startingRadians 得旋转增量。
+const SELECTION_ROTATE_SNAP_RAD: number = Math.PI * 5.0 / 180.0;
 // gsf.d/gsf.g：选区描边 4dp/zoom、虚线间隔 9dp/zoom、色 #FF4278FF
 //（qxk.e(4282546431)）；gsf.c = a@0.32 为 deselectMode 降色与轨迹 ghost。
 const SELECTION_OUTLINE_COLOR: string = '#FF4278FF';
@@ -7785,7 +7789,20 @@ export struct NoteCanvasView {
     const dy: number = p.y - this.resizeAnchor.y;
     const scale: number = this.resizeIsRotate ? 1 :
       Math.sqrt(dx * dx + dy * dy) / startDist;
-    const radians: number = Math.atan2(dy, dx) - Math.atan2(startDy, startDx);
+    // 原版 guf.e（vtf 旋转会话）：绝对指针角 atan2(cur−centerAbsolute)
+    // 先吸附最近 90° 倍数（twm.d：round(θ/(π/2))·(π/2)，|差|≤5°=m），
+    // 再减 startingRadians（vtf.e，左柄/Rtl 时 +π）——旋转落地对齐
+    // 0/±90/±180°。角柄路径（wtf 缩放会话）原版不产旋转增量、本端
+    // 沿用角位移旋转（1.0.3 htc.e 语义，登记差异 ADR-1388）。
+    let curRadians: number = Math.atan2(dy, dx);
+    if (this.resizeIsRotate) {
+      const snappedQuarter: number =
+        Math.round(curRadians / (Math.PI / 2)) * (Math.PI / 2);
+      if (Math.abs(curRadians - snappedQuarter) <= SELECTION_ROTATE_SNAP_RAD) {
+        curRadians = snappedQuarter;
+      }
+    }
+    const radians: number = curRadians - Math.atan2(startDy, startDx);
     const scaledCenter: Point2D = {
       x: this.resizeAnchor.x + scale * (this.resizeBaseCenter.x - this.resizeAnchor.x),
       y: this.resizeAnchor.y + scale * (this.resizeBaseCenter.y - this.resizeAnchor.y),

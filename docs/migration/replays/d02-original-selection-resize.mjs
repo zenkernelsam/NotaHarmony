@@ -86,8 +86,10 @@ check(resize.includes('this.resizeIsRotate ? 1 :'),
 check(resize.includes('const scale: number = dist / startDist;') ||
   resize.includes('Math.sqrt(dx * dx + dy * dy) / startDist'),
   'uniform scale = pointer/anchor distance ratio (qpi.b f2)');
-check(resize.includes('Math.atan2(dy, dx) - Math.atan2(startDy, startDx)'),
-  'rotation = angular displacement about the anchor (qpi.b f3)');
+check(resize.includes('Math.atan2(dy, dx)') &&
+  resize.includes('curRadians - Math.atan2(startDy, startDx)'),
+  'rotation = angular displacement about the anchor (qpi.b f3); ' +
+  'P1453: absolute angle snap (guf.e) applied on the rotate-handle branch');
 check(resize.includes('scale * (this.resizeBaseCenter.x - this.resizeAnchor.x)'),
   'rotation center = scaled rect center (qpi.f about fi3.b(cmb))');
 check(resize.includes('this.selectionTool.resizeSelected(scale, radians, this.resizeAnchor'),
