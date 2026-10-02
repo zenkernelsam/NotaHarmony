@@ -58,14 +58,19 @@ check(!overlay.includes('SELECTION_ROTATE_HANDLE_OFFSET') &&
   !canvas.includes('SELECTION_ROTATE_HANDLE_OFFSET'),
   'legacy top-edge rotate handle removed (gsf.e is right-edge stem)');
 
-// --- 命中域同步：selectionRotateHandleAt 迁至茎端点（反旋入壳系） ---
+// --- 命中域同步：selectionRotateHandleAt = 茎锚点条带矩形（反旋入壳系） ---
+// Phase 1467：原版 ms1:667-683 命中域非端点圆，是 sbe(锚点±f5/f6,
+// ±(f21+f4)) 条带——LTR [锚, 锚+104]/zoom × ±48/zoom，RTL 镜像。
 const hit = canvas.slice(canvas.indexOf('private selectionRotateHandleAt('),
-  canvas.indexOf('private selectionRotateHandleAt(') + 900);
-check(hit.includes('g.rect.right + SELECTION_ROTATE_HANDLE_STEM') &&
-  hit.includes('(g.rect.top + g.rect.bottom) / 2') &&
-  hit.includes('SELECTION_HANDLE_HIT_RADIUS') &&
+  canvas.indexOf('private selectionRotateHandleAt(') + 1100);
+check(hit.includes('q.x >= anchorX && q.x <= anchorX + SELECTION_ROTATE_HANDLE_HIT_REACH') &&
+  hit.includes('q.x >= anchorX - SELECTION_ROTATE_HANDLE_HIT_REACH && q.x <= anchorX') &&
+  hit.includes('Math.abs(q.y - anchorY) <= SELECTION_ROTATE_HANDLE_HIT_HALF_H') &&
   hit.includes('this.unrotateChromePoint(p, g)'),
-  'rotate-handle hit = stem endpoint circle in unrotated shell space');
+  'rotate-handle hit = stem-anchored directional strip rect (ms1:667-683)');
+check(layout.includes('SELECTION_ROTATE_HANDLE_HIT_REACH: number = 104') &&
+  layout.includes('SELECTION_ROTATE_HANDLE_HIT_HALF_H: number = 48'),
+  'strip extents = (72+32)/zoom reach × ±(16+32)/zoom half-height');
 
 // --- 覆盖层手柄门控保持（deselectMode/photoImport/handlesHidden） ---
 check(overlay.includes('!this.deselectMode && !this.photoImportLeaseActive') &&
@@ -79,10 +84,11 @@ check(canvas.includes('@State selectionRotateHandleRtl') &&
   canvas.includes('i18n.isRTL(i18n.System.getSystemLanguage())'),
   'RTL state driven by i18n isRTL (yj8.G equivalent)');
 const hitRtl = canvas.slice(canvas.indexOf('private selectionRotateHandleAt('),
-  canvas.indexOf('private selectionRotateHandleAt(') + 900);
-check(hitRtl.includes('g.rect.left - SELECTION_ROTATE_HANDLE_STEM') &&
-  hitRtl.includes('g.rect.right + SELECTION_ROTATE_HANDLE_STEM'),
-  'hit zone mirrors anchor side: RTL→left−stem / LTR→right+stem');
+  canvas.indexOf('private selectionRotateHandleAt(') + 1100);
+check(hitRtl.includes('this.selectionRotateHandleRtl') &&
+  hitRtl.includes('? g.rect.left : g.rect.right') &&
+  hitRtl.includes('anchorX - SELECTION_ROTATE_HANDLE_HIT_REACH'),
+  'hit strip mirrors anchor side: RTL→[anchor−104, anchor] / LTR→[anchor, anchor+104]');
 check(canvas.includes('selectionRotateHandleRtl: this.selectionRotateHandleRtl'),
   'RTL prop wired from canvas state to overlay');
 

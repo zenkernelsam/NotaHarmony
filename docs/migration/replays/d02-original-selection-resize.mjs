@@ -28,9 +28,8 @@ let n = 0;
 const check = (cond, msg) => { assert(cond, msg); n++; };
 
 // --- 覆盖层角柄（装饰性，命中由画布判定） ---
-check(layout.includes('SELECTION_HANDLE_SIZE') &&
-  layout.includes('SELECTION_HANDLE_HIT_RADIUS'),
-  'handle size + hit radius constants exist');
+check(layout.includes('SELECTION_HANDLE_SIZE'),
+  'handle size constant exists (hit = f15 corner box, Phase 1467 strip pin)');
 check(overlay.includes('Circle()') &&
   overlay.includes('SELECTION_HANDLE_SIZE'),
   'overlay renders corner handle dots');

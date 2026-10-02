@@ -206,7 +206,8 @@ import {
   OriginalMathEditorDraftState,
 } from '../components/MathEditorOverlay';
 import {
-  SELECTION_HANDLE_HIT_RADIUS, SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH,
+  SELECTION_MENU_BUTTON_HEIGHT, SELECTION_MENU_BUTTON_WIDTH,
+  SELECTION_ROTATE_HANDLE_HIT_HALF_H, SELECTION_ROTATE_HANDLE_HIT_REACH,
   SELECTION_ROTATE_HANDLE_STEM, SelectionOverlayPosition, selectionOverlayPosition,
 } from '../components/SelectionOverlayLayout';
 import { TextBlockOverlay } from '../components/TextBlockOverlay';
@@ -8211,20 +8212,21 @@ export struct NoteCanvasView {
     });
   }
 
-  // 原版 gsf.e 旋转柄：右（RTL 左）边中点 + 水平茎 56vp 端点圆
-  // （屏幕坐标命中判定；端点中心 y 下偏移茎宽一半=1vp）。
-  // gsf.i:164-167——yj8.F(LTR) 锚 sbe.c(右边)，RTL 锚 sbe.a(左边)。
-  // 壳旋转时触点在旋转系内判（ms1 旋转框命中）。
+  // 原版 ms1:667-683 旋转柄命中域 = sbe(gsf.i 茎锚点 ±(f5/f6, f21+f4))
+  // 条带矩形：LTR x∈[锚点, 锚点+72+32]/zoom（覆盖茎 56+端点 Ø32+过冲）、
+  // RTL 镜像向左；y∈[锚点y−48, 锚点y+48]/zoom——整条茎+端点均可按下，
+  // 屏上等效 104×96 vp；f5n.h 旋转系判定（壳旋转触点先反旋）。
   private selectionRotateHandleAt(p: Point2D): boolean {
     const g: UnrotatedSelectionRect = this.selectionChromeGeom();
     const q: Point2D = this.unrotateChromePoint(p, g);
-    const cx: number = this.selectionRotateHandleRtl
-      ? g.rect.left - SELECTION_ROTATE_HANDLE_STEM
-      : g.rect.right + SELECTION_ROTATE_HANDLE_STEM;
-    const cy: number = (g.rect.top + g.rect.bottom) / 2 + 1;
-    const dx: number = q.x - cx;
-    const dy: number = q.y - cy;
-    return dx * dx + dy * dy <= SELECTION_HANDLE_HIT_RADIUS * SELECTION_HANDLE_HIT_RADIUS;
+    const anchorX: number = this.selectionRotateHandleRtl
+      ? g.rect.left : g.rect.right;
+    const anchorY: number = (g.rect.top + g.rect.bottom) / 2;
+    const inX: boolean = this.selectionRotateHandleRtl
+      ? (q.x >= anchorX - SELECTION_ROTATE_HANDLE_HIT_REACH && q.x <= anchorX)
+      : (q.x >= anchorX && q.x <= anchorX + SELECTION_ROTATE_HANDLE_HIT_REACH);
+    return inX &&
+      Math.abs(q.y - anchorY) <= SELECTION_ROTATE_HANDLE_HIT_HALF_H;
   }
 
   // 角柄命中：返回角索引 0-3，未命中 -1（屏幕坐标）。原版 ms1:295-327

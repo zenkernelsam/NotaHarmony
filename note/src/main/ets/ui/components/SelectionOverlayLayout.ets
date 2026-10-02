@@ -4,9 +4,8 @@ export const SELECTION_MENU_BUTTON_WIDTH: number = 130;
 export const SELECTION_MENU_BUTTON_HEIGHT: number = 40;
 export const SELECTION_MENU_BUTTON_GAP: number = 4;
 // 原版 gsf.b 角柄：双层圆——半径 12dp 白（p52.e）+半径 10dp 蓝
-//（gsf.a=#FF4278FF），视觉直径 24/20vp；命中半径 22vp（触达容差）。
+//（gsf.a=#FF4278FF），视觉直径 24/20vp；命中 = f15=44/zoom 文档方框。
 export const SELECTION_HANDLE_SIZE: number = 12;
-export const SELECTION_HANDLE_HIT_RADIUS: number = 22;
 export const SELECTION_HANDLE_DOT_OUTER: number = 24;
 export const SELECTION_HANDLE_DOT_INNER: number = 20;
 // 原版 gsf.e 旋转柄（msc.c selectionHasRotationHandle 入口）：锚点=右
@@ -15,6 +14,11 @@ export const SELECTION_HANDLE_DOT_INNER: number = 20;
 export const SELECTION_ROTATE_HANDLE_STEM: number = 56;
 export const SELECTION_ROTATE_DOT_OUTER: number = 32;
 export const SELECTION_ROTATE_DOT_INNER: number = 28;
+// 原版 ms1:667-683 旋转柄命中域 = 茎锚点起向柄侧的条带矩形：
+// 触及 = (72 + 32)/zoom 文档单位（茎 56 + 端点 Ø32 + 过冲 32），
+// 半高 = (16 + 32)/zoom = 48；屏上等效 104vp 触及 × ±48vp 半高。
+export const SELECTION_ROTATE_HANDLE_HIT_REACH: number = 104;
+export const SELECTION_ROTATE_HANDLE_HIT_HALF_H: number = 48;
 const SELECTION_MENU_EDGE_MARGIN: number = 8;
 // 原版 mnm.c → abn.e → i3b 菜单定位：锚 = mfc.n(sbe) 屏矩形
 // odf.c(·,72,72) 各边膨胀 72 屏 px（清除旋转柄茎 56+端点 16=72 区），
