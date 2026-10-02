@@ -8899,6 +8899,80 @@ export struct NoteCanvasView {
     return 0;
   }
 
+  // 原版 guf.b lsf 单形状支：拖拽锚点 = og0.e 元素轮廓点列
+  // （j4g 线→仅首末端点；l4g 多边形顶点，zx7.r 闭合重尾去一；
+  // k4g→局部框四边中点）+ og0.h/i 中心（l4g 鞋带质心，否则均值；
+  // ne1.w 将中心+delta 一并入锚点集）。非形状/多选走界框锚点。
+  private singleShapeSnapAnchors(): Point2D[] | null {
+    const state: SelectionState = this.selectionTool.getState();
+    const total: number = state.selectedStrokeIds.length +
+      state.selectedShapeIds.length + state.selectedTextBlockIds.length +
+      state.selectedImageIds.length + state.selectedMathIds.length +
+      state.selectedGroupIds.length;
+    if (total !== 1 || state.selectedShapeIds.length !== 1) {
+      return null;
+    }
+    const shape: ShapeElement | undefined = this.shapes.find(
+      (s: ShapeElement) => s.id === state.selectedShapeIds[0]);
+    if (shape === undefined) {
+      return null;
+    }
+    let anchors: Point2D[];
+    if (shape.type === ElementType.LINE) {
+      // j4g：og0.e 取 U().b() 的首末点 = q89 两端点。
+      anchors = [transformMemberPoint(shape.start, shape.transform),
+        transformMemberPoint(shape.end, shape.transform)];
+    } else if (shape.type === ElementType.POLYGON) {
+      // l4g：vpm.c0 顶点列；zx7.r(first,last) 闭合重尾 → drop(1)。
+      let verts: Point2D[] = shape.vertices;
+      const first: Point2D = verts[0];
+      const last: Point2D = verts[verts.length - 1];
+      if (verts.length > 1 && first.x === last.x && first.y === last.y) {
+        verts = verts.slice(0, verts.length - 1);
+      }
+      anchors = verts.map((v: Point2D): Point2D =>
+        transformMemberPoint(v, shape.transform));
+    } else {
+      // k4g：oag.y2 局部框四边中点 = shapeVertexDots 基向点输出。
+      anchors = this.shapeVertexDots(shape);
+    }
+    if (anchors.length === 0) {
+      return null;
+    }
+    let cx: number = 0;
+    let cy: number = 0;
+    let centroid: boolean = false;
+    if (shape.type === ElementType.POLYGON && anchors.length >= 3) {
+      // og0.h：鞋带公式质心（d=2·有向面积；d==0 回退 og0.i 均值）。
+      let twice: number = 0;
+      let sx: number = 0;
+      let sy: number = 0;
+      for (let i = 0; i < anchors.length; i++) {
+        const p: Point2D = anchors[i];
+        const q: Point2D = anchors[(i + 1) % anchors.length];
+        const cr: number = p.x * q.y - p.y * q.x;
+        twice += cr;
+        sx += (q.x + p.x) * cr;
+        sy += (q.y + p.y) * cr;
+      }
+      if (twice !== 0) {
+        cx = sx / (3 * twice);
+        cy = sy / (3 * twice);
+        centroid = true;
+      }
+    }
+    if (!centroid) {
+      for (const p of anchors) {
+        cx += p.x;
+        cy += p.y;
+      }
+      cx /= anchors.length;
+      cy /= anchors.length;
+    }
+    anchors.push({ x: cx, y: cy });
+    return anchors;
+  }
+
   private planSelectionSnap(dx: number, dy: number): OriginalSnapMovePlan {
     const bounds: Rect2D | null = this.selectionBoundsCanvas();
     // guf.b：twm.e(fJ) → 旋转非零时跳吸附（直接返回原位移）。
@@ -8906,8 +8980,12 @@ export struct NoteCanvasView {
       this.snapGuides = [];
       return { dx: 0, dy: 0, guides: [] };
     }
+    // lsf 单形状支：锚点 = og0.e 轮廓点 + og0.h/i 中心（ne1.w 语序）；
+    // 其余（ksf 集合/非形状 lsf）= u64.c(sbe) 界框四角 + u64.b 中心。
+    const anchors: Point2D[] = this.singleShapeSnapAnchors() ??
+      originalSnapMoveAnchors(bounds);
     const plan: OriginalSnapMovePlan = planOriginalSnapMove(
-      originalSnapMoveAnchors(bounds), dx, dy,
+      anchors, dx, dy,
       this.collectSnapCandidates(this.visibleCanvasRect()), this.viewport.zoom);
     this.snapGuides = plan.guides;
     return plan;

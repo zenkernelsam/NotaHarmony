@@ -128,4 +128,51 @@ check(plan.includes('Math.abs(this.selectionSnapRotation()) > 0.0001'),
 check(plan.indexOf('selectionSnapRotation') < plan.indexOf('planOriginalSnapMove'),
   'rotation gate runs before candidate planning');
 
+// --- Phase 1465 — guf.b lsf 支：单形状拖拽锚点 = og0.e 轮廓点 + og0.h/i 中心 ---
+const anc = view.slice(view.indexOf('private singleShapeSnapAnchors('),
+  view.indexOf('private singleShapeSnapAnchors(') + 3000);
+check(anc.includes('total !== 1 || state.selectedShapeIds.length !== 1'),
+  'shape anchors gated to lsf single-shape selection');
+check(anc.includes('transformMemberPoint(shape.start, shape.transform)') &&
+  anc.includes('transformMemberPoint(shape.end, shape.transform)') &&
+  !anc.includes('controlPoint'),
+  'j4g LINE: anchors = first/last endpoints only (og0.e p3/y3)');
+check(anc.includes('first.x === last.x') && anc.includes('verts.slice(0, verts.length - 1)'),
+  'l4g POLYGON: closed duplicate tail vertex dropped (zx7.r + m3(1))');
+check(anc.includes('sx / (3 * twice)') && anc.includes('sy / (3 * twice)') &&
+  anc.includes('p.x * q.y - p.y * q.x'),
+  'l4g center = shoelace centroid over world anchors (og0.h)');
+check(anc.indexOf('!centroid') > anc.indexOf('twice !== 0') ||
+  anc.includes('if (twice !== 0)'),
+  'degenerate polygon falls back to mean (og0.i)');
+check(anc.includes('this.shapeVertexDots(shape)'),
+  'k4g branch: cardinal mid-edge points (oag.y2 four mids)');
+check(anc.includes('anchors.push({ x: cx, y: cy })'),
+  'center appended to anchor set (ne1.w pa9VarE2.add)');
+check(plan.includes('this.singleShapeSnapAnchors() ??') &&
+  plan.includes('originalSnapMoveAnchors(bounds)'),
+  'shape branch replaces bounds anchors; others keep u64.c(sbe) corners');
+// 可执行模型：三角形 (0,0)-(6,0)-(0,6) 质心=(2,2)；退化共线回退均值。
+{
+  const tri = [{ x: 0, y: 0 }, { x: 6, y: 0 }, { x: 0, y: 6 }];
+  let twice = 0, sx = 0, sy = 0;
+  for (let i = 0; i < tri.length; i++) {
+    const p = tri[i], q = tri[(i + 1) % tri.length];
+    const cr = p.x * q.y - p.y * q.x;
+    twice += cr; sx += (q.x + p.x) * cr; sy += (q.y + p.y) * cr;
+  }
+  const cx = sx / (3 * twice), cy = sy / (3 * twice);
+  assert(Math.abs(cx - 2) < 1e-9 && Math.abs(cy - 2) < 1e-9,
+    'shoelace centroid of triangle = (2,2)');
+  // 退化三角形 (0,0)-(1,1)-(2,2)：twice=0 → og0.i 均值=(1,1)。
+  const line = [{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 2 }];
+  let t2 = 0;
+  for (let i = 0; i < line.length; i++) {
+    const p = line[i], q = line[(i + 1) % line.length];
+    t2 += p.x * q.y - p.y * q.x;
+  }
+  assert(t2 === 0, 'collinear polygon → shoelace d==0 → mean fallback');
+  n += 2;
+}
+
 console.log(`D02_ORIGINAL_SNAP_TO_GRID_REPLAY_OK TOTAL=${n} FAILED=0`);
