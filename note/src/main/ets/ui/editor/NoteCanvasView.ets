@@ -369,6 +369,78 @@ function transformMemberPoint(point: Point2D, matrix: TransformMatrix): Point2D 
   };
 }
 
+// 原版 e2n.c：拖点→相邻顶点的方向角吸附最近 45° 倍数（π/8 步进），
+// 垂距 > tol(=5/zoom) 则射线不啮合返回 null；啮合时给出
+// 从邻点沿吸附角的射线（用于投影或求交点）。
+interface NeighborSnapRay {
+  ox: number;
+  oy: number;
+  dx: number;
+  dy: number;
+}
+
+function neighborSnapRay(cur: Point2D, neighbor: Point2D,
+  tol: number): NeighborSnapRay | null {
+  const ex: number = cur.x - neighbor.x;
+  const ey: number = cur.y - neighbor.y;
+  if (Math.hypot(ex, ey) < 0.001) {
+    return null;
+  }
+  const snapAngle: number = Math.round(Math.atan2(ey, ex) / (Math.PI / 4)) *
+    (Math.PI / 4);
+  const cos: number = Math.cos(snapAngle);
+  const sin: number = Math.sin(snapAngle);
+  if (Math.abs(ex * sin - ey * cos) > tol) {
+    return null;
+  }
+  return { ox: neighbor.x, oy: neighbor.y, dx: cos, dy: sin };
+}
+
+// 原版 e2n.d：相邻两射线同在时取交点；否则取啮合射线上拖点的投影。
+function polygonNeighborSnap(cur: Point2D, prev: Point2D, next: Point2D,
+  tol: number): Point2D | null {
+  const r1: NeighborSnapRay | null = neighborSnapRay(cur, prev, tol);
+  const r2: NeighborSnapRay | null = neighborSnapRay(cur, next, tol);
+  if (r1 === null && r2 === null) {
+    return null;
+  }
+  if (r1 === null || r2 === null) {
+    const r: NeighborSnapRay = r1 !== null ? r1 : r2 as NeighborSnapRay;
+    const t: number = (cur.x - r.ox) * r.dx + (cur.y - r.oy) * r.dy;
+    return { x: r.ox + r.dx * t, y: r.oy + r.dy * t };
+  }
+  const cross: number = r1.dx * r2.dy - r1.dy * r2.dx;
+  if (Math.abs(cross) < 1e-9) {
+    const t: number = (cur.x - r1.ox) * r1.dx + (cur.y - r1.oy) * r1.dy;
+    return { x: r1.ox + r1.dx * t, y: r1.oy + r1.dy * t };
+  }
+  const t: number = ((r2.ox - r1.ox) * r2.dy - (r2.oy - r1.oy) * r2.dx) / cross;
+  return { x: r1.ox + r1.dx * t, y: r1.oy + r1.dy * t };
+}
+
+// 原版 fil.a：size==4 且最大质心距²≥0.001 → 规整四边形（菱形/方形），
+// 邻边吸附排除之（l3 take(1) 循环为恒真空体，等效只剩尺寸+非退化判定）。
+function filQuadrilateral(vertices: Point2D[]): boolean {
+  if (vertices.length !== 4) {
+    return false;
+  }
+  let cx: number = 0;
+  let cy: number = 0;
+  for (const v of vertices) {
+    cx += v.x;
+    cy += v.y;
+  }
+  cx /= 4;
+  cy /= 4;
+  let maxDistSq: number = 0;
+  for (const v of vertices) {
+    const dx: number = v.x - cx;
+    const dy: number = v.y - cy;
+    maxDistSq = Math.max(maxDistSq, dx * dx + dy * dy);
+  }
+  return maxDistSq >= 0.001;
+}
+
 @Component
 export struct NoteCanvasView {
   // === 外部输入 ===
@@ -8133,16 +8205,21 @@ export struct NoteCanvasView {
   }
 
   // 原版 guf.c：delta=cur−dragStart 世界增量 → fq9.n0 反旋转进
-  // 形状局部系 → rsm.c 等价物按控制点序号编辑定义。吸附支
-  //（e2n.d 邻边对齐 / twm.b 页框）留作登记差异。
+  // 形状局部系 → rsm.c 等价物按控制点序号编辑定义；增量前经
+  // 吸附支校正（e2n.d 邻边对齐 / twm.b 页框，旋转≠0 时全跳）。
   private applyVertexDrag(p: Point2D): void {
     const orig: ShapeElement | null = this.vertexDragOrigShape;
     if (orig === null) {
       return;
     }
     const rot: number = this.shapeVertexRotation(orig);
-    const dx: number = p.x - this.vertexDragStart.x;
-    const dy: number = p.y - this.vertexDragStart.y;
+    // 原版 guf.c：twm.e(rot)≠0 → 不吸附；否则先 e2n.d 邻边 45°
+    // 射线吸附（l4g 多边形且 !fil.a 非规整四边形），落空回退
+    // twm.b 页/对象候选吸附（顶点为唯一锚点）。
+    const snapped: Point2D = Math.abs(rot) <= 0.0001 ?
+      this.snapVertexDragPoint(orig, p) : p;
+    const dx: number = snapped.x - this.vertexDragStart.x;
+    const dy: number = snapped.y - this.vertexDragStart.y;
     const cos: number = Math.cos(-rot);
     const sin: number = Math.sin(-rot);
     const lx: number = cos * dx - sin * dy;
@@ -8249,6 +8326,41 @@ export struct NoteCanvasView {
       return moved3;
     }
     return null;
+  }
+
+  // 原版 guf.c 吸附链：多边形（l4g）且非规整四边形（!fil.a）先走
+  // e2n.d 邻边 45° 射线吸附（顶点世界坐标 = shapeVertexDots 输出）；
+  // 落空回退 twm.b/ne1 页/对象候选吸附（锚点 = 拖顶点单点）。
+  private snapVertexDragPoint(shape: ShapeElement, cur: Point2D): Point2D {
+    const dots: Point2D[] = this.shapeVertexDots(shape);
+    const i: number = this.vertexDragIndex;
+    if (i < 0 || i >= dots.length) {
+      return cur;
+    }
+    if (shape.type === ElementType.POLYGON &&
+      !filQuadrilateral(shape.vertices)) {
+      const cnt: number = dots.length;
+      const snapped: Point2D | null = polygonNeighborSnap(cur,
+        dots[(i - 1 + cnt) % cnt], dots[(i + 1) % cnt],
+        5.0 / this.viewport.zoom);
+      if (snapped !== null) {
+        this.snapGuides = [];
+        return snapped;
+      }
+    }
+    const candidates: OriginalSnapCandidate[] =
+      this.collectSnapCandidates(this.visibleCanvasRect());
+    if (candidates.length > 0) {
+      const base: Point2D = dots[i];
+      const plan: OriginalSnapMovePlan = planOriginalSnapMove([base],
+        cur.x - base.x, cur.y - base.y, candidates, this.viewport.zoom);
+      if (plan.dx !== 0 || plan.dy !== 0) {
+        this.snapGuides = plan.guides;
+        return { x: cur.x + plan.dx, y: cur.y + plan.dy };
+      }
+    }
+    this.snapGuides = [];
+    return cur;
   }
 
   private selectionBoundsCanvas(): Rect2D | null {

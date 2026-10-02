@@ -61,9 +61,66 @@ check(canvas.indexOf('this.tryStartShapeVertexDrag') >
 // --- 拖拽应用：增量反旋转 + 逐型编辑 ---
 const apply = canvas.slice(canvas.indexOf('private applyVertexDrag('),
   canvas.indexOf('private vertexDraggedShape('));
-check(apply.includes('p.x - this.vertexDragStart.x') &&
+check(apply.includes('Math.abs(rot) <= 0.0001') &&
+  apply.includes('this.snapVertexDragPoint(orig, p)'),
+  'twm.e(rot)≠0 skips snapping entirely (guf.c gate)');
+check(apply.includes('snapped.x - this.vertexDragStart.x') &&
   apply.includes('Math.cos(-rot)') && apply.includes('Math.sin(-rot)'),
-  'world delta unrotated into shape-local frame (fq9.n0)');
+  'world delta (post-snap) unrotated into shape-local frame (fq9.n0)');
+
+// --- Phase 1460 — e2n.d 邻边 45° 吸附 + twm.b 页框回退 ---
+check(canvas.includes('function polygonNeighborSnap(') &&
+  canvas.includes('function neighborSnapRay(') &&
+  canvas.includes('Math.PI / 4') &&
+  canvas.includes('5.0 / this.viewport.zoom'),
+  'e2n.c/d: 45°-multiple ray snap to neighbor vertices, tol=5/zoom');
+check(canvas.includes('function filQuadrilateral(') &&
+  canvas.includes('vertices.length !== 4'),
+  'fil.a: 4-vertex regular quadrilateral excluded from neighbor snap');
+const snap = canvas.slice(canvas.indexOf('private snapVertexDragPoint('),
+  canvas.indexOf('private snapVertexDragPoint(') + 1600);
+check(snap.includes('shape.type === ElementType.POLYGON') &&
+  snap.includes('dots[(i - 1 + cnt) % cnt]') && snap.includes('dots[(i + 1) % cnt]'),
+  'neighbor snap only for l4g polygon, prev/next wraparound indices');
+check(snap.includes('planOriginalSnapMove([base]') &&
+  snap.includes('this.collectSnapCandidates'),
+  'fallback: twm.b/ne1 candidate snap on the dragged vertex alone');
+check(snap.includes('this.snapGuides = plan.guides'),
+  'snap guides emitted on candidate snap (mkg guide set)');
+// 可执行模型：e2n.c 45° 射线 + e2n.d 交点。
+// prev=(0,0), next=(10,0)，拖点 cur=(5,4.5)：两条 45° 射线啮合
+//（|垂距| ≤ 5/zoom=5）→ 交点 (5,5)。
+{
+  const ray = (cur, nb, tol) => {
+    const ex = cur.x - nb.x, ey = cur.y - nb.y;
+    if (Math.hypot(ex, ey) < 0.001) return null;
+    const a = Math.round(Math.atan2(ey, ex) / (Math.PI / 4)) * (Math.PI / 4);
+    const c = Math.cos(a), s = Math.sin(a);
+    if (Math.abs(ex * s - ey * c) > tol) return null;
+    return { ox: nb.x, oy: nb.y, dx: c, dy: s };
+  };
+  const snap2 = (cur, prev, next, tol) => {
+    const r1 = ray(cur, prev, tol), r2 = ray(cur, next, tol);
+    if (!r1 && !r2) return null;
+    if (!r1 || !r2) { const r = r1 || r2;
+      const t = (cur.x - r.ox) * r.dx + (cur.y - r.oy) * r.dy;
+      return { x: r.ox + r.dx * t, y: r.oy + r.dy * t }; }
+    const cr = r1.dx * r2.dy - r1.dy * r2.dx;
+    if (Math.abs(cr) < 1e-9) { const t = (cur.x - r1.ox) * r1.dx + (cur.y - r1.oy) * r1.dy;
+      return { x: r1.ox + r1.dx * t, y: r1.oy + r1.dy * t }; }
+    const t = ((r2.ox - r1.ox) * r2.dy - (r2.oy - r1.oy) * r2.dx) / cr;
+    return { x: r1.ox + r1.dx * t, y: r1.oy + r1.dy * t };
+  };
+  const p = snap2({ x: 5, y: 4.5 }, { x: 0, y: 0 }, { x: 10, y: 0 }, 5);
+  assert(p !== null && Math.abs(p.x - 5) < 1e-9 && Math.abs(p.y - 5) < 1e-9,
+    'two engaged 45° rays → intersection (5,5)');
+  const p2 = snap2({ x: 30, y: 4.0 }, { x: 0, y: 0 }, { x: 10, y: 0 }, 5);
+  assert(p2 !== null && Math.abs(p2.x - 30) < 1e-9 && Math.abs(p2.y) < 1e-9,
+    'both rays engaged but parallel → ray-1 orthogonal projection');
+  const p3 = snap2({ x: 50, y: 30 }, { x: 0, y: 0 }, { x: 10, y: 0 }, 5);
+  assert(p3 === null, 'both rays disengaged → null (fallback to page snap)');
+  n += 3;
+}
 check(apply.includes('this.updateSelectionOverlay()'),
   'selection bounds re-derived as shape reshapes (lsf re-emit)');
 const edit = canvas.slice(canvas.indexOf('private vertexDraggedShape('),
