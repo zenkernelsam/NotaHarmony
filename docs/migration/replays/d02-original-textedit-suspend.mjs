@@ -69,8 +69,9 @@ check(canvas.includes('this.suspendedCaretByBlock.clear()'),
 check(overlay.includes('controller: this.controller') &&
   overlay.includes('TextAreaController'),
   'TextArea wired to a TextAreaController');
+// Phase 1479：onCaretChange 增带选区锚定端（SELECT_ALL 跳过门需要）。
 check(overlay.includes('onTextSelectionChange') &&
-  overlay.includes('this.onCaretChange(end)'),
+  overlay.includes('this.onCaretChange(end, start)'),
   'caret tracked via selection-end callback');
 check(overlay.includes('this.controller.caretPosition(') &&
   overlay.includes('this.restoreCaret'),

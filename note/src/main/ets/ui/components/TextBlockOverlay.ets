@@ -102,8 +102,11 @@ export struct TextBlockOverlay {
   };
   onDraftChange: (text: string) => void = () => {
   };
-  onCaretChange: (offset: number) => void = (_offset: number) => {
-  };
+  // Phase 1479：附带选区锚定端——jyh.g 的 li8.SELECT_ALL 跳过门
+  // （全选不滚动）需要选区范围而非仅 caret 端。
+  onCaretChange: (offset: number, selectionStart: number) => void =
+    (_offset: number, _selectionStart: number) => {
+    };
   // 原版 NoteStateEntity.lastCodeBlockLanguage（ya8.java:34 restore）：本笔记上一次
   // 使用的代码块语言，新建代码块（decorator=5）无 programmingLanguage 时作默认。
   @Prop lastCodeBlockLanguage: string | null = null;
@@ -2163,7 +2166,7 @@ export struct TextBlockOverlay {
               this.caretDecoratorStyle = this.decoratorAt(end);
               this.refreshCaretCodeLanguage();
               this.refreshCaretCharStyles();
-              this.onCaretChange(end);
+              this.onCaretChange(end, start);
             })
             // 原版 ww2：编辑表面 tap 折叠 caret 落在链接上 → 四项菜单。
             .onClick((): void => {

@@ -2,7 +2,7 @@
 // 集成：纸张背景 / 笔迹渲染 / UndoRedo / 形状识别 / 选区变换 / 文本框 / 持久化
 import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
-import { promptAction } from '@kit.ArkUI';
+import { promptAction, window } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { i18n } from '@kit.LocalizationKit';
@@ -969,6 +969,10 @@ export struct NoteCanvasView {
   // 保留在 uke.p，再激活同块恢复光标。Harmony 用 suspendedCaretByBlock 记录
   // 每块挂起光标；editingCaretOffset 由覆盖层 onTextSelectionChange 回写。
   private editingCaretOffset: number = -1;
+  // Phase 1479：选区锚定端（jyh.g li8.SELECT_ALL 跳过门需要选区范围）。
+  private editingSelectionStart: number = -1;
+  // 软键盘避让窗口缓存（lcn.h IME 避让）；aboutToAppear 期 getLastWindow 填充。
+  private editorWindow: window.Window | null = null;
   private suspendedCaretByBlock: Map<string, number> = new Map();
   @State textEditingRestoreCaret: number = -1;
   @State selectionRect: Rect2D = { left: 0, top: 0, right: 0, bottom: 0 };
@@ -1070,6 +1074,14 @@ export struct NoteCanvasView {
 
   aboutToAppear(): void {
     this.lifecycleActive = true;
+    // Phase 1479：lcn.h 软键盘避让——缓存 Window 供 getWindowAvoidArea
+    // 同步查询（reveal 路径是同步的，不能走 Promise）。
+    window.getLastWindow(getContext(this)).then((win: window.Window): void => {
+      this.editorWindow = win;
+    }).catch((e: Object): void => {
+      hilog.warn(0x0001, 'NoteCanvasView',
+        'getLastWindow for keyboard-avoid failed: %{public}s', JSON.stringify(e));
+    });
     // 原版 qr4.c 三族字体注册（Inter/Roboto/EBGaramond）——canvas
     // fontFamily 解析命中内置字库（TextBlockOverlay 亦注册，幂等）。
     registerNoteFonts(this.getUIContext());
@@ -3038,6 +3050,7 @@ export struct NoteCanvasView {
       // 挂起的文本编辑会话随页面切换失效（uke.p 按文档作用域）。
       this.suspendedCaretByBlock.clear();
       this.editingCaretOffset = -1;
+      this.editingSelectionStart = -1;
       this.textEditingRestoreCaret = -1;
       this.initializeLayerForPage();
       this.centerPaperInViewport();
@@ -4284,6 +4297,78 @@ export struct NoteCanvasView {
     }
     this.viewport.panBy(horizontal * ORIGIN_AXIS_SCROLL_VP,
       vertical * ORIGIN_AXIS_SCROLL_VP);
+    this.onViewportChanged();
+  }
+
+  // === Phase 1479：文本编辑光标可见性滚动（jyh.g + lcn.h IME 避让）===
+  // 原版：编辑态 zle 流动 → jyh.g 按 li8 动作分派——
+  //   SELECT_ALL(0)：不滚动；
+  //   PAGE_UP/DOWN(1/2)：滚 ∓0.9·视口高后按 10% 内缩视口补 reveal 位移；
+  //   OTHER(3)：caret 矩形未全落入 5% 内缩视口才 mfc.u(rect,0.1f)。
+  // mfc.u → jka：m(rect, oan.b(可视区,0.1)) 最小位移 → x(l()+jM)
+  // （pos += jM；Harmony scrollY ≡ −pos → panBy(−jM)）。
+  // lcn.h：kck.b==Bottom 时 caret 矩形按 336dp/zoom 向下扩展避让 IME——
+  // Harmony 并入为有效视口底边收缩（getWindowAvoidArea TYPE_KEYBOARD）。
+  private keyboardAvoidHeightPx(): number {
+    const win: window.Window | null = this.editorWindow;
+    if (win === null) {
+      return 0;
+    }
+    try {
+      const area: window.AvoidArea =
+        win.getWindowAvoidArea(window.AvoidAreaType.TYPE_KEYBOARD);
+      return area.visible ? area.bottomRect.height : 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  private revealEditingCaret(): void {
+    if (!this.textEditing || this.editingTextBlock === null ||
+      this.editingCaretOffset < 0 ||
+      this.photoImportBusy || this.historyBusy) {
+      return;
+    }
+    // li8.SELECT_ALL：选区覆盖全部草稿文本 → 不滚动。
+    const selStart: number = this.editingSelectionStart;
+    const draftLen: number = this.editingDraftText.length;
+    if (draftLen > 0 && selStart >= 0 && selStart !== this.editingCaretOffset &&
+      Math.min(selStart, this.editingCaretOffset) === 0 &&
+      Math.max(selStart, this.editingCaretOffset) >= draftLen) {
+      return;
+    }
+    const caretRect: Rect2D | null = this.textRenderer.caretRectAtIndex(
+      this.editingTextBlock, this.renderCtx, this.editingCaretOffset);
+    if (caretRect === null) {
+      return;
+    }
+    const c0: Point2D = this.viewport.canvasToScreen(caretRect.left, caretRect.top);
+    const c1: Point2D = this.viewport.canvasToScreen(caretRect.right, caretRect.bottom);
+    const s: Rect2D = {
+      left: Math.min(c0.x, c1.x), top: Math.min(c0.y, c1.y),
+      right: Math.max(c0.x, c1.x), bottom: Math.max(c0.y, c1.y),
+    };
+    const w: number = this.canvasCtx.width;
+    // lcn.h：软键盘可见时有效视口底边收缩键盘高（等价 caret 矩形
+    // 按 dockEdge 方向扩展 336dp/zoom 后 reveal）。
+    const h: number = Math.max(0, this.canvasCtx.height - this.keyboardAvoidHeightPx());
+    if (w <= 0 || h <= 0) {
+      return;
+    }
+    // jyh OTHER 门：caret 全落入 5% 内缩视口 → 不滚动。
+    if (s.left >= w * 0.05 && s.right <= w * 0.95 &&
+      s.top >= h * 0.05 && s.bottom <= h * 0.95) {
+      return;
+    }
+    // mfc.m：对 10% 内缩视口（oan.b 各边 f·维度）补最小 reveal 位移。
+    const dx: number = s.left < w * 0.1 ? s.left - w * 0.1 :
+      (s.right > w * 0.9 ? s.right - w * 0.9 : 0);
+    const dy: number = s.top < h * 0.1 ? s.top - h * 0.1 :
+      (s.bottom > h * 0.9 ? s.bottom - h * 0.9 : 0);
+    if (dx === 0 && dy === 0) {
+      return;
+    }
+    this.viewport.panBy(-dx, -dy);
     this.onViewportChanged();
   }
 
@@ -12702,6 +12787,7 @@ export struct NoteCanvasView {
     this.editingTextLayoutWidth = element.blockWidth;
     this.textEditingRestoreCaret = -1;
     this.editingCaretOffset = -1;
+    this.editingSelectionStart = -1;
     this.textEditing = true;
     this.renderFrame(true);
   }
@@ -13014,6 +13100,7 @@ export struct NoteCanvasView {
     this.editingDraftText = '';
     this.editingTextLayoutWidth = 0;
     this.editingCaretOffset = -1;
+    this.editingSelectionStart = -1;
     this.textEditingRestoreCaret = -1;
     this.notifyUndoRedo();
     if (changed) {
@@ -13053,6 +13140,7 @@ export struct NoteCanvasView {
     this.editingDraftText = '';
     this.editingTextLayoutWidth = 0;
     this.editingCaretOffset = -1;
+    this.editingSelectionStart = -1;
     this.textEditingRestoreCaret = -1;
     if (cancelledOriginalCreate) {
       this.refreshOriginalInkReservation(this.pageLoadGeneration, this.loadedPageId);
@@ -13389,8 +13477,11 @@ export struct NoteCanvasView {
         photoImportLeaseActive: this.photoImportBusy,
         restoreCaret: this.textEditingRestoreCaret,
         lastCodeBlockLanguage: this.lastCodeBlockLanguage,
-        onCaretChange: (offset: number) => {
+        onCaretChange: (offset: number, selectionStart: number) => {
           this.editingCaretOffset = offset;
+          this.editingSelectionStart = selectionStart;
+          // Phase 1479：jyh.g OTHER 支——caret 变化后条件 reveal。
+          this.revealEditingCaret();
         },
         onCodeLanguageSelected: (lang: string | null) => {
           this.persistCodeBlockLanguage(lang);
@@ -13400,6 +13491,9 @@ export struct NoteCanvasView {
             return;
           }
           this.editingDraftText = text;
+          // Phase 1479：输入推进 caret（draft 变化未必触发 selection 回调
+          // ——块尺寸增长时 caret 可能越过视口/键盘边缘）。
+          this.revealEditingCaret();
           if (this.editingTextBlock !== null &&
             this.editingTextBlock.resizesWidthToFitText === true) {
             const preview: TextBlockElement = this.textBlockTool.updateText(

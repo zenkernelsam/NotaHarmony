@@ -452,6 +452,109 @@ export class Canvas2DTextRenderer {
     return localX >= x || line.end === line.start ? null : line.end;
   }
 
+  // Phase 1479：caretIndexAtPoint 的逆——caret 索引 → 1 单位宽、行高矩形
+  // （world/canvas 坐标）。原版 jyh.g 的 l63 caret 矩形 = lcl.h(l74 排版)
+  // 的等价物；换行折返边界（characters[index] !== '\n' 且非文末）的
+  // caret=end 归属下一行，被跳过的空白折返点归该下一行行首。
+  caretRectAtIndex(element: TextBlockElement, context: RenderContext,
+    caretIndex: number): Rect2D | null {
+    if (element.richText.length === 0) {
+      return null;
+    }
+    const index: number = Math.max(0, Math.min(caretIndex, element.richText.length));
+    const ctx: Canvas2DDrawingContext = context as Canvas2DDrawingContext;
+    const characters: string[] = [];
+    for (const character of element.richText) {
+      characters.push(character);
+    }
+    const characterStyles: RichTextCharacterStyle[] = this.characterStyles(
+      characters.length, element.characterStyleRuns);
+    const paragraphStyles: RichTextParagraphStyle[] = this.paragraphStyles(
+      characters.length, element.paragraphStyleRuns);
+    this.applyCodeBlockFace(characterStyles, paragraphStyles, characters,
+      element.fontSize);
+    let baseline: number = element.textOrigin.y + element.contentTopInset +
+      this.paragraphFontSize(element, paragraphStyles[0] ?? {});
+    let numberedParagraph: number = 1;
+    ctx.save();
+    try {
+      const lines: TextLayoutLine[] = this.layoutLines(ctx, characters,
+        characterStyles, element);
+      for (const line of lines) {
+        const paragraph: RichTextParagraphStyle = paragraphStyles[Math.min(
+          line.start, Math.max(0, characters.length - 1))] ?? {};
+        const spacing: number = paragraph.lineSpacing === undefined ||
+          paragraph.lineSpacing <= 0 ? 1 : paragraph.lineSpacing;
+        const lineHeight: number = (this.paragraphFontSize(element, paragraph) + 8) *
+          spacing;
+        const bandTop: number = baseline - this.paragraphFontSize(element, paragraph);
+        const wrappedBoundary: boolean = index === line.end &&
+          index < characters.length && characters[index] !== '\n';
+        // index < line.start：折返处被跳过的空白上的 caret → 归本行行首。
+        const inLine: boolean = index < line.start ||
+          (index >= line.start && (index < line.end ||
+            (index === line.end && !wrappedBoundary)));
+        if (!inLine) {
+          if (line.paragraphStart && paragraph.decoratorStyle === 2) {
+            numberedParagraph++;
+          }
+          baseline += lineHeight;
+          continue;
+        }
+        const prefix: string = line.paragraphStart ? this.decoratorPrefix(
+          paragraph.decoratorStyle, numberedParagraph, paragraph.isChecked) : '';
+        const checkbox: boolean = line.paragraphStart &&
+          paragraph.decoratorStyle === 3;
+        const lineWidth: number = this.measureRange(ctx, characters,
+          characterStyles, line.start, line.end, element, prefix, checkbox);
+        let x: number = element.textOrigin.x + element.contentLeftInset +
+          this.paragraphIndent(element, paragraph);
+        const available: number = Math.max(0, element.blockWidth -
+          element.contentLeftInset -
+          (element.contentRightInset ?? element.contentLeftInset));
+        if (paragraph.alignment === 2) {
+          x += Math.max(0, (available - lineWidth) / 2);
+        } else if (paragraph.alignment === 3) {
+          x += Math.max(0, available - lineWidth);
+        }
+        if (checkbox) {
+          x += this.checkboxColumnWidth(element);
+        } else if (prefix.length > 0) {
+          this.applyFont(ctx, element, characterStyles[line.start] ?? {});
+          x += ctx.measureText(prefix);
+        }
+        const measuredEnd: number = Math.max(line.start,
+          Math.min(index, line.end));
+        const caretX: number = x + this.measureRange(ctx, characters,
+          characterStyles, line.start, measuredEnd, element, '');
+        // local → world（element.transform）四角 AABB；caret 宽 1 文档单位。
+        const matrix: number[] = element.transform;
+        const world = (px: number, py: number): Point2D => ({
+          x: matrix[0] * px + matrix[1] * py + matrix[2],
+          y: matrix[3] * px + matrix[4] * py + matrix[5],
+        });
+        const corners: Point2D[] = [
+          world(caretX, bandTop), world(caretX + 1, bandTop),
+          world(caretX, bandTop + lineHeight),
+          world(caretX + 1, bandTop + lineHeight)];
+        let minX: number = Number.POSITIVE_INFINITY;
+        let minY: number = Number.POSITIVE_INFINITY;
+        let maxX: number = Number.NEGATIVE_INFINITY;
+        let maxY: number = Number.NEGATIVE_INFINITY;
+        for (const p of corners) {
+          minX = Math.min(minX, p.x);
+          minY = Math.min(minY, p.y);
+          maxX = Math.max(maxX, p.x);
+          maxY = Math.max(maxY, p.y);
+        }
+        return { left: minX, top: minY, right: maxX, bottom: maxY };
+      }
+      return null;
+    } finally {
+      ctx.restore();
+    }
+  }
+
   private buildLinkHit(ctx: Canvas2DDrawingContext, characters: string[],
     characterStyles: RichTextCharacterStyle[], paragraphStyles: RichTextParagraphStyle[],
     lines: TextLayoutLine[], linkIndex: number,

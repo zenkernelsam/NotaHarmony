@@ -142,8 +142,9 @@ check(renderer.includes("import {") &&
   '渲染器引入高亮引擎');
 check(renderer.includes('paragraphStyles: RichTextParagraphStyle[], characters: string[]'),
   'applyCodeBlockFace 改收 characters（供段落切分分词）');
-check((renderer.match(/this\.applyCodeBlockFace\(characterStyles, paragraphStyles, characters,/g) ?? []).length === 5,
-  'measure/layout/render/hit 五处调用点保持统一');
+// Phase 1479：caretRectAtIndex（caretIndexAtPoint 逆运算）同核 → 6 处。
+check((renderer.match(/this\.applyCodeBlockFace\(characterStyles, paragraphStyles, characters,/g) ?? []).length === 6,
+  'measure/layout/render/hit/caret-rect 六处调用点保持统一');
 check(renderer.includes('paragraph.programmingLanguage') &&
   renderer.includes('paragraph.decoratorStyle === 5 && language !== undefined'),
   '仅 CODE_BLOCK(5) + programmingLanguage 段落着色（原版 kom.w==CODE_BLOCK 且 cve.a 非空）');
