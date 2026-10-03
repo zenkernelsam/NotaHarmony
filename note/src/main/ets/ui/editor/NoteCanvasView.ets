@@ -313,6 +313,15 @@ const CLIPBOARD_PASTE_SUPPRESSION_MS: number = 200;
 const TEXT_ONLY_FLOW_MARGIN: number = 48;
 const TEXT_ONLY_FLOW_GAP: number = 24;
 
+// Phase 1478：原版 gp8→dx.java 轴事件常量。
+// Ctrl+滚轮：缩放因子 = 1 − Δy·0.2，锚点 = 视口中心（dx byte-2 / mfc.D）；
+// 无修饰滚动：mfc.a(round(Δ·−50)) → mfc.A(l()−Δ) → 滚动位置 pos += 50·Δ
+// （pos+ = 向下滚动，mfc.i()=+0.9·视口高供 PAGE_DOWN 佐证）。Harmony
+// scrollY 为内容偏移 ≡ −pos，故等价 panBy(−50·Δ)；getVerticalAxisValue
+// 正值 = 滚轮向下（OpenHarmony 轴事件约定，与原版 scrollDelta 同向）。
+const ORIGIN_AXIS_ZOOM_PER_SCROLL: number = 0.2;
+const ORIGIN_AXIS_SCROLL_VP: number = -50.0;
+
 interface ShapeDetectionAttempt {
   shapes: ShapeElement[];
   replaced: boolean;
@@ -4226,6 +4235,55 @@ export struct NoteCanvasView {
     const scrollX: number = (w - paperW * clamped) / 2;
     const scrollY: number = Math.max(16, (h - paperH * clamped) / 2);
     this.viewport.setScroll(scrollX, scrollY);
+    this.onViewportChanged();
+  }
+
+  // === Phase 1478：轴事件（鼠标滚轮 / 触控板滚动 / 触控板捏合）===
+  // 原版链：bd8.b0 发布 uc8(Ctrl 按下态) → ip8 → hp8 → gp8 过滤
+  // PointerEventType.Scroll → dx(ctrl, mfc, scrollDelta) 协程。
+  // dx byte-2：Ctrl → mfc.D(1−Δy·0.2, mfc.p()/2 视口中心)；
+  // 无 Ctrl → mfc.a(round(Δx·−50), round(Δy·−50)) → dfc→mfc.A(l()−Δ)
+  // 即滚动位置 pos += 50·Δ。触控板双指捏合在原版经 scale 手势通道，
+  // Harmony 由 AxisEvent 捏合轴承载（getPinchAxisScaleValue，API21），
+  // 锚点 = 光标位置（等价原版捏合手势焦点）。
+  private onCanvasAxisEvent(event: AxisEvent): void {
+    if (!this.loaded || this.dataLoading || this.dataLoadFailed ||
+      this.photoImportBusy || this.historyBusy || this.pinchSelectSession) {
+      return;
+    }
+    if (event.action === AxisAction.END || event.action === AxisAction.CANCEL) {
+      // 滚动流结束：对齐手势 onActionEnd，立即刷新 PDF 重栅化。
+      this.schedulePdfRasterRefresh(0);
+      return;
+    }
+    if (event.action !== AxisAction.BEGIN && event.action !== AxisAction.UPDATE) {
+      return;
+    }
+    const pinchScale: number = event.getPinchAxisScaleValue !== undefined ?
+      event.getPinchAxisScaleValue() : 1.0;
+    if (pinchScale > 0 && pinchScale !== 1.0) {
+      this.viewport.zoomAt(event.x, event.y, pinchScale);
+      this.onViewportChanged();
+      return;
+    }
+    const vertical: number = event.getVerticalAxisValue();
+    const horizontal: number = event.getHorizontalAxisValue();
+    if (vertical === 0 && horizontal === 0) {
+      return;
+    }
+    const ctrlDown: boolean = event.getModifierKeyState !== undefined &&
+      event.getModifierKeyState(['Ctrl']);
+    if (ctrlDown) {
+      if (vertical === 0) {
+        return;
+      }
+      this.viewport.zoomAt(this.canvasCtx.width / 2, this.canvasCtx.height / 2,
+        1.0 - vertical * ORIGIN_AXIS_ZOOM_PER_SCROLL);
+      this.onViewportChanged();
+      return;
+    }
+    this.viewport.panBy(horizontal * ORIGIN_AXIS_SCROLL_VP,
+      vertical * ORIGIN_AXIS_SCROLL_VP);
     this.onViewportChanged();
   }
 
@@ -13161,6 +13219,11 @@ export struct NoteCanvasView {
         // a fixed viewport button.  ArkUI's context menu keeps that native
         // anchor and performs the same edge adjustment as the platform menu.
         .bindContextMenu(this.ClipboardPasteContextMenu, ResponseType.LongPress)
+        // Phase 1478：滚轮/触控板轴事件——原版 gp8→dx 通道
+        // （Ctrl+滚轮视口中心缩放；无修饰滚动平移；触控板捏合光标缩放）。
+        .onAxisEvent((event: AxisEvent) => {
+          this.onCanvasAxisEvent(event);
+        })
         // T-034：双指捏合缩放 + 双指平移（与单指书写互斥：onTouch 中 touches>1 时忽略）
         .gesture(
           GestureGroup(GestureMode.Exclusive,
